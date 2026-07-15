@@ -71,6 +71,8 @@ def test_stock_query_mapuje_produkt():
     assert images._stock_query("Trepy dębowe") == "wooden staircase interior"
     assert images._stock_query("Coś zupełnie innego") == "oak wood interior"     # fallback
     assert images._stock_query("") == "oak wood interior"
+    # granica slowa: "schod" nie moze trafiac w "wschod" (wschod) -> fallback, nie schody
+    assert images._stock_query("Meble inspirowane stylem ze wschodu") == "oak wood interior"
 
 
 def test_hero_przekazuje_exclude_do_stocku(monkeypatch):

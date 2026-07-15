@@ -2,6 +2,7 @@
 # Obrazy artykulu: hero = stock (Pexels/Unsplash) z fallbackiem na AI (gpt-image-1), oraz miniatura
 # przez Pillow. Generacja AT jest niezalezna od LLM_PROVIDER (osobny przelacznik IMAGE_PROVIDER).
 import io
+import re
 import base64
 import requests
 import stock
@@ -26,9 +27,10 @@ _STOCK_FALLBACK = "oak wood interior"
 
 def _stock_query(title):
     # Krotka, trafna fraza EN wg produktu wykrytego w tytule; fallback ogolny "oak wood interior".
+    # Dopasowanie po GRANICY SLOWA (rdzen jako prefiks), zeby "schod" nie trafialo w "wschod" itp.
     t = (title or "").lower()
     for pol, eng in _STOCK_QUERIES:
-        if pol in t:
+        if re.search(r"\b" + re.escape(pol), t):
             return eng
     return _STOCK_FALLBACK
 
