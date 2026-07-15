@@ -35,7 +35,7 @@ def test_linki_to_kategorie_i_blok_doklejony(tmp_path, monkeypatch):
                 "meta_keywords": "k", "short_description": "s", "body_html": "<section><p>x</p></section>",
                 "category": "Poradniki"}
     monkeypatch.setattr(rd.writer, "write_article", fake_write)
-    monkeypatch.setattr(rd.images, "acquire_hero", lambda q: None)  # bez hero w tym tescie
+    monkeypatch.setattr(rd.images, "acquire_hero", lambda q, exclude=None: None)  # bez hero w tym tescie
     saved = {}
     monkeypatch.setattr(rd.publisher, "insert_draft", lambda art, img, thumb: saved.update(art) or 777)
     out = rd.run(dry_run=False)
@@ -52,7 +52,7 @@ def test_linki_to_kategorie_i_blok_doklejony(tmp_path, monkeypatch):
 def test_podpis_atrybucji_doklejony(tmp_path, monkeypatch):
     rd, store = _prep(tmp_path, monkeypatch)
     monkeypatch.setattr(rd.images, "acquire_hero",
-                        lambda q: (b"IMG", "jpg", {"photographer": "Jan Kowalski",
+                        lambda q, exclude=None: (b"IMG", "jpg", {"photographer": "Jan Kowalski",
                             "photographer_url": "https://pexels.com/@jan",
                             "photo_url": "https://pexels.com/photo/1", "source": "Pexels"}))
     monkeypatch.setattr(rd.publisher, "save_image", lambda b, name: True)
@@ -63,11 +63,12 @@ def test_podpis_atrybucji_doklejony(tmp_path, monkeypatch):
     assert "Jan Kowalski" in saved["body_html"]
     assert "Pexels" in saved["body_html"]
     assert '<p class="blog-foto-autor">' in saved["body_html"]  # akapit podpisu, nie tylko regula CSS
+    assert "https://pexels.com/photo/1" in store.used_image_keys()  # zdjecie oznaczone jako uzyte
 
 
 def test_hero_none_bez_podpisu(tmp_path, monkeypatch):
     rd, store = _prep(tmp_path, monkeypatch)
-    monkeypatch.setattr(rd.images, "acquire_hero", lambda q: None)
+    monkeypatch.setattr(rd.images, "acquire_hero", lambda q, exclude=None: None)
     saved = {}
     monkeypatch.setattr(rd.publisher, "insert_draft", lambda art, img, thumb: saved.update(art) or 779)
     rd.run(dry_run=False)
@@ -82,7 +83,7 @@ def test_dry_run_nie_zapisuje(tmp_path, monkeypatch):
     rd, store = _prep(tmp_path, monkeypatch)
     called = {"save": 0, "insert": 0}
     monkeypatch.setattr(rd.images, "acquire_hero",
-                        lambda q: (b"IMG", "jpg", {"photographer": "X", "source": "Pexels"}))
+                        lambda q, exclude=None: (b"IMG", "jpg", {"photographer": "X", "source": "Pexels"}))
     monkeypatch.setattr(rd.publisher, "save_image",
                         lambda b, name: called.__setitem__("save", called["save"] + 1) or True)
     monkeypatch.setattr(rd.publisher, "insert_draft",
@@ -105,7 +106,7 @@ def test_content_type_trafia_do_historii(tmp_path, monkeypatch):
     # Writer NIE dostaje juz content_type (kategorie wybiera sam z listy), ale typ z tematu
     # nadal trafia do historii publikacji — zasila miekki limit backlogu.
     rd, store = _prep(tmp_path, monkeypatch)
-    monkeypatch.setattr(rd.images, "acquire_hero", lambda q: None)
+    monkeypatch.setattr(rd.images, "acquire_hero", lambda q, exclude=None: None)
     rec = {}
     monkeypatch.setattr(rd.publisher, "insert_draft", lambda art, img, thumb: 900)
     monkeypatch.setattr(rd.store, "record_published",

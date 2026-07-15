@@ -11,6 +11,27 @@ from core.log import log
 
 _MAX_IMG_BYTES = 6 * 1024 * 1024  # zabezpieczenie: nie zapisujemy gigantycznych plikow
 
+# Zapytania do stocku budujemy po ANGIELSKU z tematu (Pexels/Unsplash maja indeks angielski).
+# Polski tytul wyslany wprost daje losowe/bledne trafienia — zwlaszcza falszywy przyjaciel
+# "parapet" (ang. = mur nadmorski/nadmurowka, NIE podokiennik!). Mapujemy produkt na trafna fraze.
+_STOCK_QUERIES = (
+    ("parapet", "wooden window sill interior"),
+    ("blat", "wooden kitchen countertop"),
+    ("trep", "wooden staircase interior"),
+    ("stopni", "wooden staircase interior"),
+    ("schod", "wooden staircase interior"),
+)
+_STOCK_FALLBACK = "oak wood interior"
+
+
+def _stock_query(title):
+    # Krotka, trafna fraza EN wg produktu wykrytego w tytule; fallback ogolny "oak wood interior".
+    t = (title or "").lower()
+    for pol, eng in _STOCK_QUERIES:
+        if pol in t:
+            return eng
+    return _STOCK_FALLBACK
+
 
 def _openai_image(query):
     # Fallback: generacja obrazu przez OpenAI Images (gpt-image-1). Zwraca (bytes, "png") albo None.
@@ -31,13 +52,14 @@ def _openai_image(query):
         log("openai image blad:", repr(e)); return None
 
 
-def acquire_hero(query):
-    # Najpierw stock (domyslny wybor uzytkownika), potem ewentualny fallback AI.
-    got = stock.search_photo(query)
+def acquire_hero(topic_title, exclude=None):
+    # Buduje trafne zapytanie EN z tematu, potem stock (pomijajac juz uzyte zdjecia), potem fallback AI.
+    q = _stock_query(topic_title)
+    got = stock.search_photo(q, exclude)
     if got and len(got[0]) <= _MAX_IMG_BYTES:
         return got
     if IMAGE_PROVIDER == "openai":
-        return _openai_image(query)
+        return _openai_image(q)
     return None
 
 
