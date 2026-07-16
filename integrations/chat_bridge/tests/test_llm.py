@@ -108,6 +108,101 @@ def test_chat_return_meta_transport_blad(monkeypatch):
     assert meta["error_class"] == "transport"
 
 
+# ---- Modele responses-only (gpt-5.6-luna): routing na /v1/responses ----
+
+def _luna_ok(text="Dzień dobry"):
+    # Minimalna poprawna odpowiedz Responses API (element reasoning + message).
+    return {"status": "completed",
+            "output": [
+                {"type": "reasoning", "summary": []},
+                {"type": "message", "role": "assistant",
+                 "content": [{"type": "output_text", "text": text}]},
+            ],
+            "usage": {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}}
+
+
+def test_chat_luna_uzywa_responses_api(monkeypatch):
+    # gpt-5.6-luna nie dziala na chat.completions — payload ma isc na /responses
+    # z parametrami w ksztalcie Responses API (input, max_output_tokens, reasoning, text).
+    captured = {}
+    def fake_post(url, **kw):
+        captured["url"] = url
+        captured["json"] = kw["json"]
+        return FakeResp(200, _luna_ok())
+    monkeypatch.setattr(llm.requests, "post", fake_post)
+    assert llm.chat([{"role": "user", "content": "hej"}], model="gpt-5.6-luna") == "Dzień dobry"
+    assert captured["url"].endswith("/responses")
+    p = captured["json"]
+    assert p["input"] == [{"role": "user", "content": "hej"}]
+    assert "messages" not in p and "max_completion_tokens" not in p
+    assert p["max_output_tokens"] == llm.BOT_MAX_TOKENS
+    assert p["reasoning"] == {"effort": llm.BOT_REASONING_EFFORT}
+    assert p["text"]["verbosity"] == llm.BOT_VERBOSITY
+
+
+def test_chat_luna_json_format(monkeypatch):
+    # response_format={"type":"json_object"} przenosi sie do text.format (Responses API).
+    captured = {}
+    def fake_post(url, **kw):
+        captured.update(kw["json"])
+        return FakeResp(200, _luna_ok('{"ok":1}'))
+    monkeypatch.setattr(llm.requests, "post", fake_post)
+    llm.chat([{"role": "user", "content": "x"}], model="gpt-5.6-luna",
+             response_format={"type": "json_object"})
+    assert captured["text"]["format"] == {"type": "json_object"}
+
+
+def test_chat_luna_multimodalne_czesci(monkeypatch):
+    # Czesci multimodalne chat.completions (image_url/text) tlumaczymy na input_image/input_text.
+    captured = {}
+    def fake_post(url, **kw):
+        captured.update(kw["json"])
+        return FakeResp(200, _luna_ok())
+    monkeypatch.setattr(llm.requests, "post", fake_post)
+    llm.chat([{"role": "system", "content": "persona"},
+              {"role": "user", "content": [
+                  {"type": "text", "text": "co to?"},
+                  {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAA"}}]}],
+             model="gpt-5.6-luna")
+    inp = captured["input"]
+    assert inp[0] == {"role": "system", "content": "persona"}
+    assert inp[1]["content"] == [
+        {"type": "input_text", "text": "co to?"},
+        {"type": "input_image", "image_url": "data:image/png;base64,AAA"}]
+
+
+def test_chat_luna_meta_i_finish(monkeypatch):
+    # completed -> finish_reason "stop"; usage przechodzi do meta bez zmian.
+    monkeypatch.setattr(llm.requests, "post", lambda url, **kw: FakeResp(200, _luna_ok()))
+    content, meta = llm.chat([{"role": "user", "content": "x"}], model="gpt-5.6-luna",
+                             return_meta=True)
+    assert content == "Dzień dobry"
+    assert meta["finish_reason"] == "stop"
+    assert meta["usage"]["total_tokens"] == 15
+    assert meta["error_class"] is None
+
+
+def test_chat_luna_incomplete_to_length(monkeypatch):
+    # Uciety limit tokenow (incomplete/max_output_tokens) mapujemy na "length" —
+    # spojnie z semantyka chat.completions (PL-04 patrzy na finish w logach).
+    payload = _luna_ok("poczatek...")
+    payload["status"] = "incomplete"
+    payload["incomplete_details"] = {"reason": "max_output_tokens"}
+    monkeypatch.setattr(llm.requests, "post", lambda url, **kw: FakeResp(200, payload))
+    content, meta = llm.chat([{"role": "user", "content": "x"}], model="gpt-5.6-luna",
+                             return_meta=True)
+    assert content == "poczatek..."
+    assert meta["finish_reason"] == "length"
+
+
+def test_chat_luna_blad_http_zwraca_none(monkeypatch):
+    monkeypatch.setattr(llm.requests, "post", lambda url, **kw: FakeResp(429, {}))
+    content, meta = llm.chat([{"role": "user", "content": "x"}], model="gpt-5.6-luna",
+                             return_meta=True)
+    assert content is None
+    assert meta["error_class"] == "429"
+
+
 def test_embed_zwraca_wektory(monkeypatch):
     def fake_post(url, **kw):
         assert "embeddings" in url
