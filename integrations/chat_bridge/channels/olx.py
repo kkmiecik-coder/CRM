@@ -52,6 +52,12 @@ def olx_send(thread_id, text, att_urls=None):
     body = {"text": text}
     if att_urls:
         body["attachments"] = [{"url": u} for u in att_urls]
+    # OLX od ~2026-07-14 odrzuca (400 Bad Request, detail "Forbidden") wysylke do watku
+    # z nieprzeczytanymi wiadomosciami. mark-as-read musi byc PRZED wysylka (dotad byl
+    # tylko po udanej — za pozno). Stan read po stronie OLX propaguje sie z opoznieniem
+    # (eventual consistency) — ewentualny pierwszy 400 domyka retry+backoff workera,
+    # ktory przy kazdej probie znow przejdzie przez mark-as-read.
+    olx_mark_read(thread_id)
     def do(tok):
         return requests.post(OLX_API_BASE + "/threads/%s/messages" % thread_id,
             headers={"Authorization": "Bearer " + tok, "Version": "2.0", "Content-Type": "application/json"},
