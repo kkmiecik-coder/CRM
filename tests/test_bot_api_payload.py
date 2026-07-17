@@ -60,3 +60,13 @@ def test_products_with_all_variants_zachowuje_istniejace_variants():
     prod = {'index': 1, 'variants': [{'variant_code': 'x', 'is_selected': True}]}
     out = _products_with_all_variants({'products': [prod]})
     assert out[0]['variants'] == [{'variant_code': 'x', 'is_selected': True}]
+
+
+def test_products_with_all_variants_zachowuje_product_type():
+    """product_type (koncept sklepu) musi przetrwać handoff bot->serwis (POST i PUT),
+    inaczej create_quote/_update_or_create_product nie zapiszą go do QuoteItemDetails."""
+    from modules.calculator.routers.bot_api import _products_with_all_variants
+    out = _products_with_all_variants({'products': [
+        {'index': 1, 'length': 140, 'selected_variant': 'dab-micro-ab',
+         'product_type': 'parapet'}]})
+    assert out[0]['product_type'] == 'parapet'

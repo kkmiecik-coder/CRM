@@ -299,6 +299,10 @@ def _update_or_create_product(quote, product_data):
     # Docięcie do wymiaru (default True)
     cut_to_size = _coerce_cut_to_size(product_data)
 
+    # Typ produktu wg sklepu (blat|schody|parapet) — CRM nie interpretuje, round-trip do by-token.
+    # Brak klucza (payload kalkulatora CRM) => None (kolumna zostaje pusta / czyszczona przy edycji).
+    product_type = product_data.get('product_type')
+
     # Aktualizuj lub utworz QuoteItemDetails
     detail = QuoteItemDetails.query.filter_by(
         quote_id=quote.id, product_index=idx
@@ -366,6 +370,7 @@ def _update_or_create_product(quote, product_data):
         detail.round_surcharge_brutto = round_surcharge_brutto
         detail.lamella_direction = lamella_direction
         detail.cut_to_size = cut_to_size
+        detail.product_type = product_type
     else:
         detail = QuoteItemDetails(
             quote_id=quote.id,
@@ -392,6 +397,7 @@ def _update_or_create_product(quote, product_data):
             round_surcharge_brutto=round_surcharge_brutto,
             lamella_direction=lamella_direction,
             cut_to_size=cut_to_size,
+            product_type=product_type,
         )
         db.session.add(detail)
 
@@ -816,6 +822,9 @@ def create_quote(data, user_email):
                 round_surcharge_brutto=round_surcharge_brutto,
                 lamella_direction=lamella_direction,
                 cut_to_size=cut_to_size,
+                # Koncept sklepu (blat|schody|parapet) — CRM nie interpretuje, tylko przechowuje
+                # do round-tripu w /api/bot/quotes/by-token. Brak klucza (kalkulator CRM) => None.
+                product_type=product.get('product_type'),
             )
             db.session.add(item_details)
 

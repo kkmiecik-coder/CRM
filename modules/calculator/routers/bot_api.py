@@ -6,6 +6,7 @@ Odpowiedzi projektowane pod LLM: zawsze {ok, ...}, błędy z {code, message PL, 
 """
 
 import hmac
+import json
 import re
 from functools import wraps
 from flask import Blueprint, request, jsonify, current_app
@@ -397,6 +398,153 @@ def bot_update_quote(edit_uuid):
     return jsonify({'ok': True, 'quote_number': result['quote_number'],
                     'quote_id': result['quote_id'], 'edit_uuid': quote.edit_uuid,
                     'public_url': base_url + quote.get_public_url()}), 200
+
+
+# =============================================================================
+# Odczyt wyceny po publicznym tokenie — dla sklepu (render strony /wycena/<token>
+# + funkcja "przelicz ponownie"). Pola konfiguracyjne pozycji w TYM SAMYM formacie,
+# ktory przyjmuje POST /api/bot/calculate, zeby sklep mogl je podac 1:1 do re-kalkulacji.
+#
+# DECYZJA (wariant drewna): zwracamy `selected_variant` (kod wariantu, np. 'dab-lity-ab')
+# jako KANONICZNE pole re-kalkulacji — to ono jest wymagane przez /calculate. Dodatkowo
+# dokladamy rozklad species/technology/wood_class (z VARIANT_MAPPING) jako pola pomocnicze
+# do renderu strony (sklep nie musi sam mapowac kodu wariantu na czytelne nazwy).
+#
+# DECYZJA (wykonczenie): CRM nie przechowuje finishing_option_id/finishing_full_path
+# na QuoteItemDetails (tak samo jak edycja wyceny w kalkulatorze, load_quote_for_edit),
+# wiec finishing_option_id zwracamy jako null; re-kalkulacje sklep opiera na
+# finishing_type + finishing_variant + finishing_gloss_level (fallback jak w calculate_finishing).
+# =============================================================================
+
+
+def _holes_count_from_shape_data(shape_data):
+    """Liczba otworow (wyciec) z shape_data (JSON string lub dict) — jak _payload_to_calc_request."""
+    if not shape_data:
+        return 0
+    try:
+        obj = json.loads(shape_data) if isinstance(shape_data, str) else shape_data
+        return len(obj.get('holes') or [])
+    except Exception:
+        return 0
+
+
+def _edges_for_shop(edges_config):
+    """Mapuje zapisane krawedzie (QuoteItemDetails.edges_config) na format
+    {letter, type, r_value, angle_value} przyjmowany przez /calculate. [] gdy brak."""
+    if not isinstance(edges_config, list):
+        return []
+    out = []
+    for e in edges_config:
+        if not isinstance(e, dict):
+            continue
+        out.append({
+            'letter': e.get('letter') or e.get('id'),
+            'type': e.get('type'),
+            'r_value': e.get('r_value'),
+            'angle_value': e.get('angle_value'),
+        })
+    return out
+
+
+def _serialize_item_for_shop(item, detail):
+    """Buduje pozycje wyceny (jeden wybrany wariant) w formacie pozycji /calculate.
+    `item` = QuoteItem (wariant is_selected), `detail` = QuoteItemDetails pozycji (moze byc None).
+
+    UWAGA CENOWA: QuoteItem.price_* to SAM MATERIAL (wybrany wariant drewna). Wykonczenie
+    i krawedzie sa liczone per POZYCJA (za cala ilosc) i przechowywane osobno na
+    QuoteItemDetails. Dlatego `total_*` = material×ilosc + wykonczenie + krawedzie —
+    zgodnie z tym, co widzi klient na /quotes/c/<token> (get_client_quote_data:
+    cost_products + cost_finishing + edges). Wysylki NIE doliczamy — liczy ja sklep.
+    Rozbicie (unit/finishing/edges) zwracamy osobno, zeby sklep mogl je wyrenderowac."""
+    from modules.calculator.services.pricing_service import VARIANT_MAPPING, round_grosze
+    code = item.variant_code
+    variant_cfg = VARIANT_MAPPING.get(code, {})
+    qty = int(detail.quantity) if detail and detail.quantity else 1
+    unit_netto = float(item.price_netto) if item.price_netto is not None else 0.0
+    unit_brutto = float(item.price_brutto) if item.price_brutto is not None else 0.0
+    fin_netto = float(detail.finishing_price_netto) if detail and detail.finishing_price_netto else 0.0
+    fin_brutto = float(detail.finishing_price_brutto) if detail and detail.finishing_price_brutto else 0.0
+    edg_netto = float(detail.edges_price_netto) if detail and detail.edges_price_netto else 0.0
+    edg_brutto = float(detail.edges_price_brutto) if detail and detail.edges_price_brutto else 0.0
+    material_netto = round_grosze(unit_netto * qty)     # material = unit × ilosc
+    material_brutto = round_grosze(unit_brutto * qty)
+    return {
+        'product_type': (detail.product_type if detail else None),
+        'length': float(item.length_cm) if item.length_cm is not None else None,
+        'width': float(item.width_cm) if item.width_cm is not None else None,
+        'thickness': float(item.thickness_cm) if item.thickness_cm is not None else None,
+        'quantity': qty,
+        'selected_variant': code,
+        'species': variant_cfg.get('species'),
+        'technology': variant_cfg.get('technology'),
+        'wood_class': variant_cfg.get('wood_class'),
+        'shape': (detail.shape if detail and detail.shape else 'rectangular'),
+        'holes_count': _holes_count_from_shape_data(detail.shape_data if detail else None),
+        'finishing_type': (detail.finishing_type if detail else None),
+        'finishing_variant': (detail.finishing_variant if detail else None),
+        'finishing_option_id': None,   # nieprzechowywane w CRM — re-calc po type/variant/gloss
+        'finishing_gloss_level': (detail.finishing_gloss_level if detail else None),
+        'edges': _edges_for_shop(detail.edges_config if detail else None),
+        # Ceny: unit = material/szt.; finishing/edges = za cala pozycje; total = suma (bez wysylki)
+        'unit_netto': round_grosze(unit_netto),
+        'unit_brutto': round_grosze(unit_brutto),
+        'finishing_netto': round_grosze(fin_netto),
+        'finishing_brutto': round_grosze(fin_brutto),
+        'edges_netto': round_grosze(edg_netto),
+        'edges_brutto': round_grosze(edg_brutto),
+        'total_netto': round_grosze(material_netto + fin_netto + edg_netto),
+        'total_brutto': round_grosze(material_brutto + fin_brutto + edg_brutto),
+    }
+
+
+def _serialize_quote_for_shop(quote_number, created_at, selected_items, details_by_index):
+    """Buduje maszynowy JSON wyceny dla sklepu. Czysta funkcja — DB pobiera router.
+    `selected_items` = tylko wybrane warianty (is_selected), po jednym na pozycje."""
+    from modules.calculator.services.pricing_service import round_grosze
+    items = []
+    total_netto = 0.0
+    total_brutto = 0.0
+    for item in selected_items:
+        detail = details_by_index.get(item.product_index)
+        item_dict = _serialize_item_for_shop(item, detail)
+        items.append(item_dict)
+        total_netto += item_dict['total_netto']
+        total_brutto += item_dict['total_brutto']
+    return {
+        'quote_number': quote_number,
+        'created_at': created_at.isoformat() if created_at else None,
+        'items': items,
+        'totals': {'total_netto': round_grosze(total_netto),
+                   'total_brutto': round_grosze(total_brutto)},
+    }
+
+
+@bot_api_bp.route('/quotes/by-token/<public_token>', methods=['GET'])
+@require_bot_api_key
+def bot_quote_by_token(public_token):
+    """Zwraca wycene po publicznym tokenie (public_token z POST /quotes) w formacie
+    maszynowym dla sklepu. Nieznany token => 200 {ok:false, errors:[{code:'NOT_FOUND'}]}
+    (kontrakt bota uzywa ok/errors, nie kodow HTTP; 401 tylko przy zlym kluczu API).
+    Zadna logika waznosci wyceny (14 dni) — to liczy sklep."""
+    from modules.calculator.models import Quote, QuoteItem, QuoteItemDetails
+
+    quote = Quote.query.filter_by(public_token=public_token).first()
+    if not quote:
+        return jsonify({'ok': False, 'errors': [
+            {'field': 'public_token', 'code': 'NOT_FOUND',
+             'message': f'Nie znaleziono wyceny dla tokenu {public_token}.'}
+        ]}), 200
+
+    # Tylko wybrane warianty (po jednym na pozycje), w kolejnosci pozycji + szczegoly po product_index.
+    selected_items = (quote.items.filter_by(is_selected=True)
+                      .order_by(QuoteItem.product_index).all())
+    details = QuoteItemDetails.query.filter_by(quote_id=quote.id).all()
+    details_by_index = {d.product_index: d for d in details}
+
+    return jsonify({'ok': True,
+                    'quote': _serialize_quote_for_shop(
+                        quote.quote_number, quote.created_at,
+                        selected_items, details_by_index)}), 200
 
 
 @bot_api_bp.route('/shipping-quote', methods=['POST'])

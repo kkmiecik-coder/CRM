@@ -856,6 +856,11 @@ class QuoteItemDetails(db.Model):
     # Docięcie do wymiaru (czy klient otrzymuje produkt docięty do wymiaru z kalkulatora)
     cut_to_size = db.Column(db.Boolean, nullable=False, default=True, server_default='1')
 
+    # Typ produktu wg sklepu (blat|schody|parapet) — koncept sklepu PrestaShop, CRM go NIE
+    # interpretuje. Utrwalany przy zapisie z API bota i zwracany verbatim w /api/bot/quotes/by-token
+    # (round-trip do funkcji "przelicz ponownie"). NULL dla wycen spoza sklepu (kalkulator CRM, inne boty).
+    product_type = db.Column(db.String(20), nullable=True)
+
     __table_args__ = (
         db.UniqueConstraint('quote_id', 'product_index', name='uq_quote_product'),
     )
@@ -887,6 +892,7 @@ class QuoteItemDetails(db.Model):
             'shape_svg': self.shape_svg,
             'cut_to_size': bool(self.cut_to_size),
             'lamella_direction': self.lamella_direction,
+            'product_type': self.product_type,
         }
 
     def __repr__(self):
