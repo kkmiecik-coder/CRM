@@ -78,6 +78,38 @@ def test_lakierowane_realna_nazwa_z_polyskiem_liczy_cene():
     assert r['netto'] > 0
 
 
+# Mapa jak z realnej bazy: cena Lakierowanego BARWNEGO siedzi na LIŚCIU koloru
+# ('Lakierowane > Barwne > BRUNAT 22-15' = 150), a węzeł wariantu
+# ('Lakierowane > Barwne') ma cenę 0 (kategoria bez własnej ceny).
+BARWNE_BY_PATH = {
+    # Węzeł wariantu (kategoria) — cena 0 w obu formatach klucza (kanoniczny +
+    # legacy lowercase), dokładnie jak w realnej bazie. To on powoduje bug:
+    # legacy fallback ('Lakierowane', 'Barwne') trafia tu w 0.0.
+    'Lakierowane > Barwne': 0.0,
+    'Lakierowane barwne': 0.0,
+    # Liść koloru — TU siedzi realna cena.
+    'Lakierowane > Barwne > BRUNAT 22-15': 150.0,
+    'Lakierowane barwne > brunat 22-15': 150.0,
+    'Lakierowane > Bezbarwne': 150.0,
+}
+
+
+def test_barwne_bez_full_path_liczy_cene_po_kolorze():
+    # REGRESJA (backend pricing 07.07): zapis wyceny (save_quote.js) NIE wysyła
+    # finishing_full_path ani finishing_option_id — tylko type+variant+color.
+    # calculate_finishing MUSI odtworzyć cenę z liścia koloru, inaczej Barwne = 0 zł.
+    # Powierzchnia = 2*(1*0.5 + 1*0.03 + 0.5*0.03) = 1.09 m2/szt * 2 szt = 2.18
+    # netto = round(2.18*150) = 327.00
+    prod = _product(
+        finishing_type='Lakierowane', finishing_variant='Barwne',
+        finishing_color='BRUNAT 22-15', finishing_gloss_level='Półmatowy',
+        finishing_option_id=None, finishing_full_path=None,
+    )
+    r = calculate_finishing(prod, PricingData(finishing_options_by_path=BARWNE_BY_PATH))
+    assert r['netto'] == 327.0
+    assert r['brutto'] == round(327.0 * 1.23, 2)
+
+
 # =============================================================================
 # Testy _finishing_maps_from_flat_list — parytet z loadFinishingPrices()
 # (calculator-ui.js:33-56). JS liczy na effective_price_netto (cena dziedziczona

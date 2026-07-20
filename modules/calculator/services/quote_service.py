@@ -518,10 +518,12 @@ def _payload_to_calc_request(data):
         if isinstance(finishing_raw, dict):
             finishing_type = finishing_raw.get('type')
             finishing_variant = finishing_raw.get('variant')
+            finishing_color = finishing_raw.get('color')
             finishing_gloss_level = finishing_raw.get('gloss')
         else:
             finishing_type = product.get('finishing_type')
             finishing_variant = product.get('finishing_variant')
+            finishing_color = product.get('finishing_color')
             finishing_gloss_level = product.get('finishing_gloss_level')
 
         # Krawedzie: Format A (dict z 'config') vs Format B (lista)
@@ -545,6 +547,7 @@ def _payload_to_calc_request(data):
             'selected_variant': selected,
             'finishing_type': finishing_type,
             'finishing_variant': finishing_variant,
+            'finishing_color': finishing_color,
             'finishing_gloss_level': finishing_gloss_level,
             'finishing_option_id': product.get('finishing_option_id'),
             'finishing_full_path': product.get('finishing_full_path'),

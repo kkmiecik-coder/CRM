@@ -311,6 +311,18 @@ def calculate_finishing(product, data):
             price_per_m2 = float(opt['price_netto'])
     if price_per_m2 == 0.0 and product.get('finishing_full_path'):
         price_per_m2 = data.finishing_options_by_path.get(product['finishing_full_path'], 0.0)
+    # Wykończenia wielopoziomowe (Lakierowane > Barwne > <KOLOR>): cena siedzi na
+    # LIŚCIU koloru (np. 'Lakierowane > Barwne > BRUNAT 22-15' = 150), a węzeł
+    # wariantu ('Lakierowane > Barwne') ma cenę 0. Zapis wyceny (save_quote.js) i
+    # boty NIE wysyłają finishing_full_path ani finishing_option_id — tylko
+    # type+variant+color. Bez tego odtworzenia legacy fallback poniżej trafia w
+    # węzeł wariantu (0.0) i cała pozycja Barwne wychodzi 0 zł. Odbudowujemy
+    # kanoniczną ścieżkę liścia z type+variant+color i pobieramy cenę stamtąd.
+    if price_per_m2 == 0.0 and product.get('finishing_color'):
+        variant = product.get('finishing_variant')
+        leaf_parts = [finishing_type] + ([variant] if variant else []) + [product['finishing_color']]
+        color_path = ' > '.join(leaf_parts)
+        price_per_m2 = data.finishing_options_by_path.get(color_path, 0.0)
     if price_per_m2 == 0.0:
         variant = product.get('finishing_variant')
         key = (finishing_type, variant if finishing_type in ('Lakierowanie', 'Lakierowane') else None)
