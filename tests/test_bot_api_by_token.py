@@ -12,6 +12,7 @@ from modules.calculator.routers.bot_api import (
     _edges_for_shop,
     _serialize_item_for_shop,
     _serialize_quote_for_shop,
+    _shop_quote_status_fields,
 )
 
 
@@ -182,3 +183,41 @@ def test_serialize_quote_created_at_none():
     assert out['created_at'] is None
     assert out['items'] == []
     assert out['totals'] == {'total_netto': 0.0, 'total_brutto': 0.0}
+
+
+# --- _shop_quote_status_fields: status / is_ordered / order_reference dla sklepu ---
+
+def _quote_ns(**kw):
+    base = dict(base_linker_order_id=None, status_id=1,
+                quote_status=SimpleNamespace(name='Nowa wycena'))
+    base.update(kw)
+    return SimpleNamespace(**base)
+
+
+def test_status_fields_niezamowiona():
+    out = _shop_quote_status_fields(_quote_ns())
+    assert out == {'status': 'Nowa wycena', 'is_ordered': False, 'order_reference': None}
+
+
+def test_status_fields_zamowiona_po_base_linker_order_id():
+    # Zaakceptowana (status 3), ale ma już zamówienie BL => is_ordered + referencja.
+    out = _shop_quote_status_fields(_quote_ns(
+        base_linker_order_id='WP123', status_id=3,
+        quote_status=SimpleNamespace(name='Zaakceptowane')))
+    assert out['is_ordered'] is True
+    assert out['order_reference'] == 'WP123'
+    assert out['status'] == 'Zaakceptowane'
+
+
+def test_status_fields_zamowiona_po_statusie_4_bez_order_id():
+    # Status „Zamówione" (id=4) bez base_linker_order_id => is_ordered, ale bez referencji.
+    out = _shop_quote_status_fields(_quote_ns(
+        status_id=4, quote_status=SimpleNamespace(name='Zamówione')))
+    assert out['is_ordered'] is True
+    assert out['order_reference'] is None
+
+
+def test_status_fields_brak_relacji_statusu():
+    out = _shop_quote_status_fields(_quote_ns(quote_status=None))
+    assert out['status'] is None
+    assert out['is_ordered'] is False

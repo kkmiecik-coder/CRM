@@ -37,6 +37,7 @@ from modules.users.models import User
 from modules.clients.models import Client
 
 import modules.quotes.models   # noqa: F401 — rejestr mapperów
+from modules.quotes.models import QuoteStatus
 
 BOT_KEY = 'test-bot-key'
 TOKEN = 'TESTTOKEN0000000000000000000001'  # 31 znaków — mieści się w String(32)
@@ -45,7 +46,7 @@ TOKEN = 'TESTTOKEN0000000000000000000001'  # 31 znaków — mieści się w Strin
 # rejestrują w globalnych metadanych modele z typem LONGTEXT, którego SQLite nie skompiluje.
 _TABLES = [m.__table__ for m in (
     Price, Multiplier, FinishingOption, EdgeOption, CalculatorSetting, User, Client,
-    Quote, QuoteItem, QuoteItemDetails, QuoteCounter, QuoteLog,
+    Quote, QuoteItem, QuoteItemDetails, QuoteCounter, QuoteLog, QuoteStatus,
 )]
 
 
@@ -152,6 +153,34 @@ def test_by_token_pomija_niewybrane_warianty(app, client):
     assert body['quote']['items'][0]['selected_variant'] == 'dab-lity-ab'
 
 
+def test_by_token_zawiera_pola_statusu(app, client):
+    """by-token dokłada status/is_ordered/order_reference do obiektu quote (bramka koszyka)."""
+    _seed_quote_one_item(app)   # wycena bez status_id i bez base_linker_order_id
+    resp = client.get(f'/api/bot/quotes/by-token/{TOKEN}', headers=_auth())
+    q = resp.get_json()['quote']
+    assert q['is_ordered'] is False
+    assert q['order_reference'] is None
+    assert q['status'] is None          # brak relacji statusu => None
+    # stary kontrakt nienaruszony
+    assert q['quote_number'] == '05/07/26/W'
+    assert 'items' in q and 'totals' in q
+
+
+def test_by_token_zamowiona_ma_is_ordered_i_referencje(app, client):
+    _seed_quote_one_item(app)
+    with app.app_context():
+        db.session.add(QuoteStatus(id=4, name='Zamówione'))
+        quote = Quote.query.filter_by(public_token=TOKEN).first()
+        quote.status_id = 4
+        quote.base_linker_order_id = 'WP777'
+        db.session.commit()
+    resp = client.get(f'/api/bot/quotes/by-token/{TOKEN}', headers=_auth())
+    q = resp.get_json()['quote']
+    assert q['is_ordered'] is True
+    assert q['status'] == 'Zamówione'
+    assert q['order_reference'] == 'WP777'
+
+
 def test_by_token_nieznany_token_kontrakt_ok_false(app, client):
     resp = client.get('/api/bot/quotes/by-token/NIEISTNIEJACYTOKEN', headers=_auth())
     assert resp.status_code == 200          # kontrakt bota: ok/errors, nie kody HTTP
@@ -171,6 +200,100 @@ def test_by_token_bez_klucza_api_401(app, client):
     _seed_quote_one_item(app)
     resp = client.get(f'/api/bot/quotes/by-token/{TOKEN}')
     assert resp.status_code == 401
+
+
+# =============================================================================
+# Lista wycen klienta (GET /api/bot/quotes?email=...) — strona „Wyceny" w sklepie
+# =============================================================================
+
+def _seed_statuses_and_client(app):
+    """Klient „klient@example.pl" + dwie wyceny: starsza (Nowa wycena) i nowsza (Zamówione,
+    z pozycją i zamówieniem BL). Zwraca e-mail klienta."""
+    with app.app_context():
+        db.session.add(QuoteStatus(id=1, name='Nowa wycena'))
+        db.session.add(QuoteStatus(id=4, name='Zamówione'))
+        client_obj = Client(client_number='K1', client_name='Klient Sklep',
+                            email='klient@example.pl')
+        db.session.add(client_obj)
+        db.session.flush()
+        older = Quote(quote_number='01/07/26/W', public_token='LISTTOKENOLDER0000000000000001',
+                      created_at=datetime(2026, 7, 10, 9, 0, 0),
+                      client_id=client_obj.id, status_id=1)
+        newer = Quote(quote_number='02/07/26/W', public_token='LISTTOKENNEWER0000000000000002',
+                      created_at=datetime(2026, 7, 18, 12, 0, 0),
+                      client_id=client_obj.id, status_id=4, base_linker_order_id='WP999')
+        db.session.add_all([older, newer])
+        db.session.flush()
+        # Pozycja tylko na nowszej wycenie (żeby total > 0; starsza = 0.0 bez wybranych pozycji).
+        db.session.add(QuoteItem(
+            quote_id=newer.id, product_index=1, variant_code='dab-lity-ab',
+            length_cm=100, width_cm=50, thickness_cm=3,
+            price_netto=200.0, price_brutto=246.0, is_selected=True))
+        db.session.add(QuoteItemDetails(
+            quote_id=newer.id, product_index=1, product_type='blat', quantity=1,
+            finishing_price_netto=0.0, finishing_price_brutto=0.0,
+            edges_price_netto=0.0, edges_price_brutto=0.0, shape='rectangular'))
+        db.session.commit()
+        return client_obj.email
+
+
+def test_quotes_list_najnowsze_pierwsze_z_metadanymi(app, client):
+    _seed_statuses_and_client(app)
+    resp = client.get('/api/bot/quotes?email=klient@example.pl', headers=_auth())
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body['ok'] is True
+    quotes = body['quotes']
+    assert len(quotes) == 2
+    # Sortowanie: najnowsza pierwsza.
+    assert quotes[0]['quote_number'] == '02/07/26/W'
+    assert quotes[1]['quote_number'] == '01/07/26/W'
+
+    newer = quotes[0]
+    assert newer['public_token'] == 'LISTTOKENNEWER0000000000000002'
+    assert newer['created_at'] == '2026-07-18T12:00:00'
+    assert newer['status'] == 'Zamówione'
+    assert newer['is_ordered'] is True
+    assert newer['order_reference'] == 'WP999'
+    assert newer['total_netto'] == 200.0
+    assert newer['total_brutto'] == 246.0
+
+    older = quotes[1]
+    assert older['status'] == 'Nowa wycena'
+    assert older['is_ordered'] is False
+    assert older['order_reference'] is None
+    assert older['total_netto'] == 0.0      # brak wybranych pozycji
+    assert older['total_brutto'] == 0.0
+
+
+def test_quotes_list_brak_wycen_pusta_lista(app, client):
+    _seed_statuses_and_client(app)
+    resp = client.get('/api/bot/quotes?email=nikt@example.pl', headers=_auth())
+    body = resp.get_json()
+    assert body['ok'] is True
+    assert body['quotes'] == []
+
+
+def test_quotes_list_email_case_insensitive(app, client):
+    _seed_statuses_and_client(app)
+    resp = client.get('/api/bot/quotes?email=KLIENT@EXAMPLE.PL', headers=_auth())
+    body = resp.get_json()
+    assert body['ok'] is True
+    assert len(body['quotes']) == 2
+
+
+def test_quotes_list_brak_parametru_email_kontrakt_ok_false(app, client):
+    resp = client.get('/api/bot/quotes', headers=_auth())
+    assert resp.status_code == 200          # kontrakt bota: ok/errors, nie kody HTTP
+    body = resp.get_json()
+    assert body['ok'] is False
+    assert body['errors'][0]['code'] == 'MISSING'
+    assert body['errors'][0]['field'] == 'email'
+
+
+def test_quotes_list_zly_klucz_api_401(app, client):
+    resp = client.get('/api/bot/quotes?email=klient@example.pl', headers=_auth('zly-klucz'))
+    assert resp.status_code == 401          # 401 TYLKO przy złym kluczu API
 
 
 # =============================================================================

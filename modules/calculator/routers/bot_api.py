@@ -519,6 +519,78 @@ def _serialize_quote_for_shop(quote_number, created_at, selected_items, details_
     }
 
 
+def _shop_quote_status_fields(quote):
+    """Pola statusu wyceny dla sklepu (strona „Wyceny").
+    `is_ordered` = twardy bool do bramkowania „Dodaj do koszyka" — sklep NIE parsuje
+    polskiej etykiety. Wycena jest zamówiona, gdy ma `base_linker_order_id` LUB
+    `status_id == 4` („Zamówione") — spójnie z definicją zamówienia w reszcie CRM
+    (backfill w app.py, panel BaseLinker ustawiający status 4 po złożeniu zamówienia).
+    `status` = pełna etykieta z QuoteStatus (do wyświetlenia w tabeli).
+    `order_reference` = numer zamówienia BaseLinker, o ile jest; brak => None (sklep pomija)."""
+    is_ordered = bool(quote.base_linker_order_id) or quote.status_id == 4
+    return {
+        'status': quote.quote_status.name if quote.quote_status else None,
+        'is_ordered': is_ordered,
+        'order_reference': quote.base_linker_order_id or None,
+    }
+
+
+def _shop_quote_totals(quote):
+    """Sumy netto/brutto wyceny w ujęciu sklepu: dla wybranych wariantów
+    materiał×ilość + wykończenie + krawędzie (bez wysyłki) — parytet ze stroną klienta
+    i z by-token. Reużywa tego samego serializera co by-token, żeby liczyć 1:1.
+    Zwraca (total_netto, total_brutto)."""
+    from modules.calculator.models import QuoteItem, QuoteItemDetails
+    selected_items = (quote.items.filter_by(is_selected=True)
+                      .order_by(QuoteItem.product_index).all())
+    details = QuoteItemDetails.query.filter_by(quote_id=quote.id).all()
+    details_by_index = {d.product_index: d for d in details}
+    serialized = _serialize_quote_for_shop(
+        quote.quote_number, quote.created_at, selected_items, details_by_index)
+    return serialized['totals']['total_netto'], serialized['totals']['total_brutto']
+
+
+@bot_api_bp.route('/quotes', methods=['GET'])
+@require_bot_api_key
+def bot_quotes_list():
+    """Lista wycen klienta dla strony „Wyceny" w sklepie. Klucz = e-mail zalogowanego
+    klienta (sklep podaje go server-side, nigdy z inputu użytkownika) — działa też, gdy
+    klient założył konto później tym samym mailem. Zwraca tylko metadane do tabeli
+    (numer, token, data, status, kwoty); szczegóły pozycji sklep dociąga po by-token.
+    Sortowanie: najnowsze pierwsze. Brak wycen => {ok:true, quotes:[]}.
+    Kontrakt bota: ok/errors, 401 tylko przy złym kluczu API."""
+    from modules.calculator.models import Quote
+    from modules.clients.models import Client
+    from sqlalchemy import func
+
+    email = (request.args.get('email') or '').strip()
+    if not email:
+        return jsonify({'ok': False, 'errors': [
+            {'field': 'email', 'code': 'MISSING',
+             'message': 'Podaj e-mail klienta (parametr email).'}
+        ]}), 200
+
+    # Dopasowanie mailem bez rozróżniania wielkości liter (klient mógł zarejestrować się
+    # innym zapisem niż w CRM). E-maila do zapytania podaje sklep server-side.
+    quotes = (Quote.query.join(Client, Quote.client_id == Client.id)
+              .filter(func.lower(Client.email) == email.lower())
+              .order_by(Quote.created_at.desc()).all())
+
+    result = []
+    for q in quotes:
+        total_netto, total_brutto = _shop_quote_totals(q)
+        result.append({
+            'quote_number': q.quote_number,
+            'public_token': q.public_token,
+            'created_at': q.created_at.isoformat() if q.created_at else None,
+            **_shop_quote_status_fields(q),
+            'total_netto': total_netto,
+            'total_brutto': total_brutto,
+        })
+
+    return jsonify({'ok': True, 'quotes': result}), 200
+
+
 @bot_api_bp.route('/quotes/by-token/<public_token>', methods=['GET'])
 @require_bot_api_key
 def bot_quote_by_token(public_token):
@@ -541,10 +613,11 @@ def bot_quote_by_token(public_token):
     details = QuoteItemDetails.query.filter_by(quote_id=quote.id).all()
     details_by_index = {d.product_index: d for d in details}
 
-    return jsonify({'ok': True,
-                    'quote': _serialize_quote_for_shop(
-                        quote.quote_number, quote.created_at,
-                        selected_items, details_by_index)}), 200
+    serialized = _serialize_quote_for_shop(
+        quote.quote_number, quote.created_at, selected_items, details_by_index)
+    # Te same pola statusu co w liście wycen — sklep bramkuje koszyk po is_ordered.
+    serialized.update(_shop_quote_status_fields(quote))
+    return jsonify({'ok': True, 'quote': serialized}), 200
 
 
 @bot_api_bp.route('/shipping-quote', methods=['POST'])
