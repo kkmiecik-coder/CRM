@@ -8,26 +8,33 @@ WoodPower CRM - A Flask-based CRM application for manufacturing/production manag
 
 ## Development Workflow
 
-### Local Development (Windows)
-```bash
-# Full setup and run (recommended) - requires XAMPP MySQL running
-run_local.bat
+### Local Development (Docker)
 
-# Manual startup
-venv\Scripts\activate
-pip install -r requirements.txt
-set FLASK_APP=app.py
-set FLASK_ENV=development
-set FLASK_DEBUG=1
-python -m flask run --host=127.0.0.1 --port=5000
+Codzienny start (kontenery NIE wstają same po zamknięciu Docker Desktop):
+```bash
+cd ~/Documents/woodpower-crm && docker compose up -d
 ```
-Local app runs at: http://127.0.0.1:5000
+
+Pierwszy raz / po zmianie Dockerfile lub requirements.txt:
+```bash
+docker compose up -d --build
+```
+
+App: http://localhost:5000 (Flask dev server, auto-reload przy zmianie plików).
+MySQL: port 3306 na hoście (wolumen `db_data` — dane przeżywają restart kontenerów).
+
+Testy:
+```bash
+docker compose exec app pytest tests/                                 # główny pakiet
+docker compose exec app bash -c "cd integrations/blog_seo && python -m pytest"  # blog_seo (własna konwencja importów)
+```
+Gołe `pytest` z korzenia repo NIE działa — `integrations/blog_seo` importuje swoje moduły
+płasko (`import catalog` itp.) i wymaga bycia uruchomionym z własnego katalogu jako cwd.
 
 ### Local Environment Requirements
-- XAMPP with MySQL running on port 3306
-- Visual Studio Build Tools (for some Python packages)
-- MSYS2 + GTK3 (for WeasyPrint PDF generation)
-- Local database: `woodpower_crm_local`
+- Docker Desktop (Windows)
+- WeasyPrint działa od razu w kontenerze (biblioteki systemowe w `docker/python/Dockerfile`) —
+  bez ręcznej instalacji MSYS2 + GTK3
 
 ### Database Setup
 ```bash
