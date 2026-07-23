@@ -136,12 +136,13 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    const MIN_THICKNESS_CM = 2; // surowiec produkcyjny to bloki 2/3/4 cm — nie ma "1 cm"
+
     function roundUpThickness(val) {
         const raw = String(val).replace(',', '.');
         const num = parseFloat(raw);
         if (isNaN(num)) return null;
-        if (Number.isInteger(num)) return num;
-        return Math.ceil(num);
+        return Math.max(MIN_THICKNESS_CM, Math.ceil(num));
     }
 
     function calculateSurfaceArea(l, w, t, q) {

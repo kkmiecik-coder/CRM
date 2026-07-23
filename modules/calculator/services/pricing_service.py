@@ -53,6 +53,15 @@ def round_grosze(value):
     return math.floor((value + 1e-9) * 100 + 0.5) / 100
 
 
+MIN_THICKNESS_CM = 2  # surowiec produkcyjny to bloki 2/3/4 cm — nie ma "1 cm"
+
+
+def round_thickness_cm(thickness):
+    """Zaokrągla grubość w górę do pełnego cm, z dolnym limitem MIN_THICKNESS_CM
+    (surowiec produkcyjny nie schodzi poniżej 2 cm, więc np. 0,8 cm liczymy jako 2 cm)."""
+    return max(MIN_THICKNESS_CM, math.ceil(thickness))
+
+
 @dataclass
 class PricingData:
     """Zrzut cenników z DB — zwykłe typy, żeby testy nie potrzebowały bazy."""
@@ -201,7 +210,7 @@ def invalidate_pricing_cache():
 
 def find_price_entry(data, species, technology, wood_class, thickness, length, width):
     """Odpowiednik JS getPrice (calculator-core.js:286) — ceil grubości, zakresy z cennika."""
-    rounded_thickness = math.ceil(thickness)
+    rounded_thickness = round_thickness_cm(thickness)
     for entry in data.price_entries:
         if (entry['species'] == species
                 and entry['technology'] == technology
@@ -223,7 +232,7 @@ def calculate_material_variants(product, multiplier, data):
     holes_count = int(product.get('holes_count', 0))
 
     # JS: calculateSingleVolume(length, width, Math.ceil(thickness))
-    volume = (length / 100) * (width / 100) * (math.ceil(thickness) / 100)
+    volume = (length / 100) * (width / 100) * (round_thickness_cm(thickness) / 100)
 
     results = []
     for code, cfg in VARIANT_MAPPING.items():
