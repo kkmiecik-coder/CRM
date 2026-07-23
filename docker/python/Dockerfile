@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgdk-pixbuf-2.0-0 \
     libcairo2 \
     libffi-dev \
+    libmagic1 \
     shared-mime-info \
     fonts-liberation \
     build-essential \
