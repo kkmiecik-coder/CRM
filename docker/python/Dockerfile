@@ -20,6 +20,9 @@ WORKDIR /app
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+# pytest to narzedzie dev (nie zaleznosc produkcyjna) - stad poza requirements.txt,
+# ktore steruje deploymentem na produkcje.
+RUN pip install --no-cache-dir pytest==9.0.3
 
 COPY . .
 
