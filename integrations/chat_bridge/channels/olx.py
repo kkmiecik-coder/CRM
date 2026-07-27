@@ -19,19 +19,45 @@ _token = {"access": None, "exp": 0}
 _tlock = threading.Lock()
 
 
+def _refresh_token():
+    """Aktualny refresh token: baza (rotowany) > bridge.env (bootstrap po wdrozeniu)."""
+    return meta_get("olx_refresh_token") or OLX_REFRESH_TOKEN
+
+
 def get_access_token(force=False):
     with _tlock:
         now = time.time()
         if not force and _token["access"] and now < _token["exp"] - 60:
             return _token["access"]
+        rt = _refresh_token()
         r = requests.post(OLX_TOKEN_URL, data={
             "grant_type": "refresh_token", "client_id": OLX_CLIENT_ID,
-            "client_secret": OLX_CLIENT_SECRET, "refresh_token": OLX_REFRESH_TOKEN,
+            "client_secret": OLX_CLIENT_SECRET, "refresh_token": rt,
         }, headers={"Version": "2.0"}, timeout=20)
+        if r.status_code >= 400:
+            # Slad dla alertu: pad autoryzacji ubija OLX w calosci (wysylka I poller),
+            # a bez tego znacznika nikt sie o tym nie dowie (awaria 26.07 = ~26 h ciszy).
+            # Tokenu NIE kasujemy — 400 bywa tez przejsciowe po stronie OLX.
+            if not meta_get("olx_auth_error"):
+                meta_set("olx_auth_error", now)
+            log("OLX AUTORYZACJA PADLA: HTTP %s %s" % (r.status_code, (r.text or "")[:200]))
         r.raise_for_status()
         t = r.json()
         _token["access"] = t["access_token"]
         _token["exp"] = now + int(t.get("expires_in", 3600))
+        # OLX rotuje refresh token przy odswiezaniu, a stary zyje twarde 30 dni
+        # (2592000 s) od wydania. Bez zapisu jedziemy na pierwszym tokenie az do
+        # jego wygasniecia — tak umarl kanal 26.07.2026. Zapis resetuje zegar.
+        nowy = t.get("refresh_token")
+        if nowy and nowy != rt:
+            meta_set("olx_refresh_token", nowy)
+            meta_set("olx_refresh_token_ts", now)
+            log("OLX refresh token zrotowany i zapisany")
+        elif not meta_get("olx_refresh_token") and rt:
+            meta_set("olx_refresh_token", rt)
+        if meta_get("olx_auth_error"):
+            meta_set("olx_auth_error", "")
+            log("OLX autoryzacja odzyskana")
         log("OLX access token odswiezony")
         return _token["access"]
 
