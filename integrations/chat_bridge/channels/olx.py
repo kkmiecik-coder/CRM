@@ -4,9 +4,11 @@ import time
 import threading
 import traceback
 import requests
+from urllib.parse import urlsplit, unquote
 from config import (OLX_CLIENT_ID, OLX_CLIENT_SECRET, OLX_REFRESH_TOKEN,
                     OLX_TOKEN_URL, OLX_API_BASE, POLL_INTERVAL, CW_OLX_INBOX,
                     BOT_QUOTE_PERSONAS)
+from core.errors import PermanentSendError
 from core.log import log
 from core.db import db, init_db, meta_get, meta_set
 from core.util import parse_ts, upsert_thread, deliver_in_order
@@ -15,6 +17,8 @@ from core.http import get_with_retry
 from bots.quote_intake import enqueue_quote_turn
 
 name = "olx"
+# Formaty zalacznikow akceptowane przez OLX (ich komunikat: "Dopuszczalne formaty: jpeg, jpg, png").
+OLX_ALLOWED_ATT = ("jpg", "jpeg", "png")
 _token = {"access": None, "exp": 0}
 _tlock = threading.Lock()
 
@@ -71,7 +75,27 @@ def olx_get(path, _tries=3):
     return r.json()
 
 
+def _zle_zalaczniki(att_urls):
+    """Nazwy plikow, ktorych OLX nie przyjmie (dopuszcza wylacznie jpeg/jpg/png)."""
+    zle = []
+    for u in att_urls or []:
+        sciezka = urlsplit(u).path or ""
+        nazwa = sciezka.rsplit("/", 1)[-1]
+        ext = nazwa.rsplit(".", 1)[-1].lower() if "." in nazwa else ""
+        if ext not in OLX_ALLOWED_ATT:
+            zle.append(unquote(nazwa) or u)
+    return zle
+
+
 def olx_send(thread_id, text, att_urls=None):
+    # OLX odrzuca CALY POST, gdy w zalacznikach jest cokolwiek poza obrazem — ginie wtedy
+    # rowniez tresc wiadomosci (q#20, 405, 542, 626). Wykrywamy to przed wyjsciem na zewnatrz,
+    # zeby agent dostal konkretny powod zamiast 5 prob i ogolnego "kod 400".
+    zle = _zle_zalaczniki(att_urls)
+    if zle:
+        raise PermanentSendError(
+            "Kanał OLX nie przyjmuje plików w tym formacie (%s). "
+            "Dopuszczalne są wyłącznie obrazy JPG, JPEG i PNG." % ", ".join(zle))
     text = (text or "").strip()
     if not text and att_urls:
         text = "(załącznik)"

@@ -181,8 +181,11 @@ def hook():
     footer = ""
     if sender.get("type") == "user":
         footer = build_footer(channel, sender.get("name"))
-    c.execute("INSERT INTO queue(thread_id, conv_id, content, attachments, channel, footer, next_at) VALUES(?,?,?,?,?,?,0)",
-              (tid, conv_id, content, json.dumps(att_urls), channel, footer))
+    # cw_msg_id zapamietujemy, zeby przy nieudanej wysylce oznaczyc TEN dymek w Chatwoocie
+    # jako niedostarczony — inaczej agent widzi "ptaszka" przy wiadomosci, ktora nie wyszla.
+    c.execute("INSERT INTO queue(thread_id, conv_id, content, attachments, channel, footer, next_at, cw_msg_id) "
+              "VALUES(?,?,?,?,?,?,0,?)",
+              (tid, conv_id, content, json.dumps(att_urls), channel, footer, mid or None))
     c.commit(); c.close()
     log("zakolejkowano wysylke (%s) watek %s (conv %s)%s" % (channel, tid, conv_id, " +footer" if footer else ""))
     return jsonify(ok=True)

@@ -67,6 +67,7 @@ def init_db():
                  "ALTER TABLE threads ADD COLUMN channel TEXT",
                  "ALTER TABLE queue ADD COLUMN channel TEXT",
                  "ALTER TABLE queue ADD COLUMN footer TEXT",
+                 "ALTER TABLE queue ADD COLUMN cw_msg_id TEXT",
                  "ALTER TABLE live_state ADD COLUMN awaiting_confirm INTEGER DEFAULT 0",
                  "ALTER TABLE live_state ADD COLUMN human_deflected INTEGER DEFAULT 0",
                  "ALTER TABLE live_state ADD COLUMN reject_sig TEXT",

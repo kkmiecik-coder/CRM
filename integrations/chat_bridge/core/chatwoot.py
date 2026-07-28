@@ -99,6 +99,27 @@ def cw_note(conv_id, text, image_url=None, image_headers=None, token=None):
     return cw("POST", "/conversations/%s/messages" % conv_id, {"content": text, "private": True}, token=tok)
 
 
+def cw_mark_failed(conv_id, msg_id, error=None):
+    """Oznacza wiadomosc agenta jako niedostarczona (czerwony dymek + powod w UI).
+
+    Chatwoot dopuszcza zmiane statusu tylko dla skrzynek typu API (OLX, Allegro) —
+    dla pozostalych zwraca 403 i to nie jest blad, ktory ma cokolwiek przerywac.
+    """
+    if not conv_id or not msg_id:
+        return None
+    payload = {"status": "failed"}
+    if error:
+        payload["external_error"] = str(error)[:500]
+    try:
+        r = cw("PATCH", "/conversations/%s/messages/%s" % (conv_id, msg_id), payload)
+        if r.status_code >= 400:
+            log("cw_mark_failed HTTP %s (conv %s, msg %s)" % (r.status_code, conv_id, msg_id))
+        return r
+    except Exception as e:
+        log("cw_mark_failed blad:", repr(e))
+        return None
+
+
 def conv_exists(conv_id):
     """Czy rozmowa nadal istnieje w Chatwoocie (mogla zostac usunieta przez agenta)."""
     try:
