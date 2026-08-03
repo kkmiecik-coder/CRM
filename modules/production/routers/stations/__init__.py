@@ -698,7 +698,7 @@ MONITOR_STATION_MAP = {
     'finishing': {
         'status': 'czeka_na_wykanczanie',
         'quantity_col': 'quantity_done_finishing',
-        'label': 'Wykonczanie',
+        'label': 'Wykańczanie',
         'css_class': 'status-finishing',
     },
     'packaging': {

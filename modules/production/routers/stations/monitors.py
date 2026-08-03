@@ -185,7 +185,7 @@ def production_monitor():
             'czeka_na_skladanie': 'Składanie - lite',
             'czeka_na_sklejanie': 'Sklejanie',
             'czeka_na_formatowanie': 'Formatowanie',
-            'czeka_na_wykanczanie': 'Wykonczanie',
+            'czeka_na_wykanczanie': 'Wykańczanie',
             'czeka_na_pakowanie': 'Pakowanie',
             'spakowane': 'Spakowane',
         }
@@ -333,7 +333,7 @@ def ajax_production_monitor():
             'czeka_na_skladanie': 'Składanie - lite',
             'czeka_na_sklejanie': 'Sklejanie',
             'czeka_na_formatowanie': 'Formatowanie',
-            'czeka_na_wykanczanie': 'Wykonczanie',
+            'czeka_na_wykanczanie': 'Wykańczanie',
             'czeka_na_pakowanie': 'Pakowanie',
             'spakowane': 'Spakowane',
         }
