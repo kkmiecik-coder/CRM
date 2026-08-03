@@ -89,7 +89,7 @@ def generate_nda_pdf(data):
         data (dict): Dane z formularza zawierające:
             Dane osobowe:
             - first_name, last_name, email, phone
-            - city, address (adres), postal_code, pesel
+            - city, address (adres), postal_code
             
             Dane B2B (opcjonalnie):
             - cooperation_type: 'b2b' lub 'contract'
@@ -110,7 +110,6 @@ def generate_nda_pdf(data):
         ...     'city': 'Warszawa',
         ...     'address': 'ul. Przykładowa 10',
         ...     'postal_code': '00-001',
-        ...     'pesel': '12345678901',
         ...     'cooperation_type': 'contract'
         ... }
         >>> pdf_bytes = generate_nda_pdf(data)
@@ -162,12 +161,6 @@ def generate_nda_pdf(data):
             'nda_template.html',
             **data
         )
-        
-        # DEBUGOWANIE - Loguj fragment HTML z danymi osobowymi
-        if 'PESEL' in html_content:
-            start_idx = html_content.find('PESEL')
-            snippet = html_content[max(0, start_idx-100):start_idx+200]
-            current_app.logger.info(f"HTML snippet around PESEL: {snippet}")
         
         # Generuj PDF z HTML - zwróć surowe bajty
         html = HTML(string=html_content, base_url=app_root)
