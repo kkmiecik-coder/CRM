@@ -17,7 +17,7 @@ Data: 2025-01-22
 """
 
 from datetime import datetime, date
-from sqlalchemy import Column, Integer, BigInteger, String, Text, DateTime, Date, Numeric, Enum, Boolean, JSON, ForeignKey, SmallInteger, Float
+from sqlalchemy import Column, Integer, BigInteger, String, Text, DateTime, Date, Numeric, Enum, Boolean, JSON, ForeignKey, SmallInteger, Float, Index
 from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.orm import relationship, validates, backref
 from sqlalchemy.sql import func
@@ -1043,6 +1043,70 @@ class ProductionStationEvent(db.Model):
                 f'→ {self.quantity_done_after}>')
 
 
+class ProductionProductEvent(db.Model):
+    """
+    Audyt zdarzeń nie-sztukowych na produkcie: zmiany statusu, priorytetu,
+    doróbki, zatwierdzenie transportu.
+
+    Praca stanowisk (odbicia sztuk) NIE trafia tutaj — od tego jest
+    prod_station_events. Scalanie obu źródeł następuje przy odczycie
+    w product_history_service.
+
+    Zapis NIE jest backfillowany — historia zaczyna się od wdrożenia tabeli.
+    Zmiany wykonane bezpośrednio w bazie (phpMyAdmin) omijają ORM i nie są
+    rejestrowane; brak wpisu przy zmianie statusu jest wtedy sam w sobie sygnałem.
+    """
+    __tablename__ = 'prod_product_events'
+
+    id = Column(Integer, primary_key=True)
+    production_item_id = Column(
+        Integer, ForeignKey('prod_products.id', ondelete='CASCADE'),
+        nullable=False, index=True
+    )
+    event_type = Column(
+        Enum('status_change', 'priority_change', 'rework', 'logistics',
+             name='product_event_type'),
+        nullable=False, index=True
+    )
+    # Typ wartości wynika z event_type (status tekstowy / priorytet liczbowy)
+    old_value = Column(String(64), nullable=True)
+    new_value = Column(String(64), nullable=True)
+
+    actor_type = Column(
+        Enum('user', 'device', 'system', name='product_event_actor'),
+        nullable=False
+    )
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=True, index=True)
+    device_id = Column(String(64), nullable=True,
+                       comment='prod_devices.device_id (gdy tablet)')
+    source = Column(
+        Enum('web', 'mobile', 'admin', 'system', 'auto_skip', 'sync',
+             name='product_event_source'),
+        nullable=False, default='web'
+    )
+    # request.endpoint — dzięki temu wiadomo, KTÓRA ścieżka kodu zmieniła status
+    endpoint = Column(String(128), nullable=True)
+    ip_address = Column(String(45), nullable=True)
+    note = Column(String(255), nullable=True,
+                  comment='Powód doróbki, kategoria wady')
+    created_at = Column(DateTime, default=get_local_now, nullable=False, index=True)
+
+    item = relationship(
+        'ProductionProduct',
+        backref=backref('product_events', passive_deletes=True)
+    )
+    user = relationship('User')
+
+    __table_args__ = (
+        Index('ix_prod_product_events_item_created',
+              'production_item_id', 'created_at'),
+    )
+
+    def __repr__(self):
+        return (f'<ProductionProductEvent item={self.production_item_id} '
+                f'{self.event_type} {self.old_value}->{self.new_value}>')
+
+
 class ProductionReworkLog(db.Model):
     """
     Audit log doróbek — każdy reject z formatowania (przyszłościowo też innych stanowisk)
@@ -1097,3 +1161,9 @@ class ProductionReworkLog(db.Model):
         return (f'<ProductionReworkLog #{self.id} '
                 f'{self.original_product_id}→{self.rework_product_id} '
                 f'qty={self.quantity} reason={self.reason_category}>')
+
+
+# Rejestracja audytu zdarzeń produktu. Import na końcu pliku, bo
+# product_events importuje modele leniwie (wewnątrz funkcji) — brak cyklu.
+from .services.product_events import register_product_event_listener  # noqa: E402
+register_product_event_listener()

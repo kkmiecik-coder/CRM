@@ -131,6 +131,40 @@ def reject_product_quantity(
     # quantity_done_formatting NIE jest ruszany
     original.updated_at = now
 
+    # Powód odrzutu nie wynika ze zmiany pól, więc listener go nie zna —
+    # dopisujemy zdarzenie jawnie, obok automatycznego status_change.
+    # WAŻNE: Sprawdzamy dostępność tabeli audytu ZANIM dodajemy event do sesji.
+    # Bez tego: db.session.add() zakolejkowuje, ale INSERT do prod_product_events
+    # dzieje się dopiero przy flush() poza try/except — jeśli tabela nie istnieje,
+    # wyjątek nie zostanie złapany i wysadzi CAŁĄ operację doróbki. Audyt nigdy
+    # nie może przerwać operacji biznesowej, więc sprawdzenie jest tutaj.
+    from modules.production.services.product_events import (
+        current_actor,
+        _audit_table_available,
+    )
+
+    if _audit_table_available():
+        try:
+            from modules.production.models import ProductionProductEvent
+
+            actor = current_actor()
+            db.session.add(ProductionProductEvent(
+                production_item_id=original.id,
+                event_type='rework',
+                old_value=str(original_quantity_before),
+                new_value=str(original.quantity),
+                actor_type=actor.actor_type,
+                user_id=user_id or actor.user_id,
+                device_id=device_id or actor.device_id,
+                source=actor.source,
+                endpoint=actor.endpoint,
+                ip_address=actor.ip_address,
+                note=f'Doróbka {quantity} szt. z {rejected_at_station}: {reason_category}',
+                created_at=now,
+            ))
+        except Exception:
+            logger.error("Nie udało się zapisać zdarzenia doróbki", exc_info=True)
+
     # 2. Utworzenie rekordu doróbki
     rework = ProductionProduct(
         original_product_id=original.id,

@@ -331,15 +331,22 @@ def update_quantity_done():
                 'error': f'Produkt {product_id} nie znaleziony'
             }), 404
 
+        # actor_user_id — bez tego praca z panelu nie ma autora w audycie
+        actor_id = current_user.id if current_user.is_authenticated else None
+
         # Wykonaj akcję
         if action == 'increment':
-            new_value = product.increment_quantity_done(station, 1, source='web')
+            new_value = product.increment_quantity_done(
+                station, 1, source='web', actor_user_id=actor_id)
         elif action == 'decrement':
-            new_value = product.decrement_quantity_done(station, 1, source='web')
+            new_value = product.decrement_quantity_done(
+                station, 1, source='web', actor_user_id=actor_id)
         elif action == 'increment10':
-            new_value = product.increment_quantity_done(station, 10, source='web')
+            new_value = product.increment_quantity_done(
+                station, 10, source='web', actor_user_id=actor_id)
         elif action == 'decrement10':
-            new_value = product.decrement_quantity_done(station, 10, source='web')
+            new_value = product.decrement_quantity_done(
+                station, 10, source='web', actor_user_id=actor_id)
 
         db.session.commit()
 
@@ -2250,6 +2257,31 @@ def _export_pdf(products, timestamp, report_type='full'):
     response.headers['Content-Disposition'] = f'attachment; filename=raport_produkcji_{timestamp}.pdf'
     return response
 
+
+
+@api_bp.route('/products/<int:product_id>/history', methods=['GET'])
+@login_required
+def product_history(product_id):
+    """
+    GET /production/api/products/<id>/history
+
+    Zwraca autorów domknięcia stanowisk (flow) i scaloną oś czasu (history).
+    Modal robi jedno żądanie i zasila z niego obie sekcje.
+    """
+    try:
+        from ...services.product_history_service import build_product_history
+
+        if not ProductionItem.query.get(product_id):
+            return jsonify({'success': False, 'error': 'Nie znaleziono produktu'}), 404
+
+        return jsonify({'success': True, **build_product_history(product_id)}), 200
+
+    except Exception as e:
+        logger.error("API: Błąd pobierania historii produktu", extra={
+            'product_id': product_id,
+            'error': str(e),
+        })
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @api_bp.route('/products/filters-data', methods=['GET'])
