@@ -2576,3 +2576,60 @@
     letter-spacing: 0.3px;
     font-family: var(--il-font);
 }
+
+/* Autor domknięcia stanowiska w przepływie produkcji */
+.timeline-actor {
+    margin: 0 0 4px 0;
+    font-size: 0.8125rem;
+    color: var(--il-text-muted, #9ba3b0);
+}
+
+/* Historia zdarzeń produktu */
+.product-history { display: flex; flex-direction: column; gap: 6px; }
+
+.history-row {
+    display: grid;
+    grid-template-columns: 88px 1fr auto auto;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background: var(--il-bg-base, #f8f9fa);
+    font-size: 0.8125rem;
+}
+
+.history-when { color: var(--il-text-muted, #6c757d); white-space: nowrap; }
+.history-actor { color: var(--il-text-muted, #6c757d); white-space: nowrap; }
+.history-reject { background: #fff4f4; }
+
+.history-badge-manual {
+    margin-left: 6px;
+    padding: 1px 6px;
+    border-radius: 10px;
+    background: #ffe08a;
+    color: #7a5200;
+    font-size: 0.6875rem;
+    font-weight: 600;
+}
+
+.history-note { grid-column: 1 / -1; color: var(--il-text-muted, #6c757d); }
+.history-details { grid-column: 1 / -1; padding-top: 4px; }
+.history-subrow { color: var(--il-text-muted, #6c757d); padding: 2px 0 2px 88px; }
+
+.history-toggle {
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+    color: var(--il-text-muted, #6c757d);
+}
+.history-toggle.open i { transform: rotate(180deg); }
+
+.history-empty { color: var(--il-text-muted, #6c757d); font-size: 0.8125rem; margin: 0; }
+
+/* Szkielet ładowania — trzy paski, żeby layout nie skakał */
+.history-skeleton { display: flex; flex-direction: column; gap: 6px; }
+.history-skeleton span {
+    height: 28px;
+    border-radius: 6px;
+    background: var(--il-bg-base, #f1f3f5);
+}

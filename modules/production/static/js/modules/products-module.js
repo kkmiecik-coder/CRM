@@ -3610,12 +3610,20 @@ class ProductsModule {
         const template = document.getElementById('product-details-modal-template');
         const clone = template.content.cloneNode(true);
 
+        // Reset historii PRZED wypełnieniem modala — populateProductDetailsModal
+        // synchronicznie renderuje timeline i czyta this.state.productHistory,
+        // więc reset musi zajść zanim to się stanie (inaczej widać autora z poprzedniego produktu)
+        this.state.productHistory = null;
+
         // Wypełnij dane
         this.populateProductDetailsModal(clone, product);
 
         // Dodaj do DOM i pokaż
         document.body.appendChild(clone);
         const modal = new bootstrap.Modal(document.getElementById('product-details-modal'));
+        // Historia dociągana asynchronicznie — modal ma się otworzyć natychmiast,
+        // a nie czekać na zapytanie, które przy dużych zleceniach zwraca sporo wierszy
+        this.loadProductHistory(productId);
         modal.show();
 
         // Załaduj produkty z zamówienia (asynchronicznie)
@@ -4008,6 +4016,7 @@ class ProductsModule {
                             <span class="timeline-quantity">${quantityInfo}</span>
                         </div>
                         <p class="timeline-details">${details.text}</p>
+                        ${this.getTimelineActorLine(station.code)}
                         <span class="timeline-status">${timelineState.statusText}</span>
                     </div>
                 </div>
@@ -4145,6 +4154,227 @@ class ProductsModule {
             cssClass: 'timeline-pending',
             statusText: 'Oczekuje'
         };
+    }
+
+    /**
+     * Bezpiecznie ucieka HTML — wartości z serwera (np. nazwy urządzeń/osób)
+     * nie trafiają bezpośrednio do innerHTML.
+     */
+    escapeHtml(value) {
+        const div = document.createElement('div');
+        div.textContent = value == null ? '' : String(value);
+        return div.innerHTML;
+    }
+
+    /**
+     * Bezpiecznie ucieka wartość przeznaczoną do ATRYBUTU HTML (np. title="..."),
+     * a nie do treści węzła. Oprócz tego, co robi escapeHtml (neutralizuje &, <, >),
+     * zamienia też cudzysłów i apostrofy, żeby zapobiec zamknięciu atrybutu.
+     * - escapeHtml(): treść węzła (neutralizuje &<>, nie musi &quot;)
+     * - escapeAttr():  wartość atrybutu (neutralizuje &<>" i ', chroniąc przed
+     *   wyjściem poza atrybut i wstrzyknięciem onmouseover= czy innego atrybutu)
+     */
+    escapeAttr(value) {
+        const div = document.createElement('div');
+        div.textContent = value == null ? '' : String(value);
+        let escaped = div.innerHTML;
+        // Dodatkowo neutralizuj znaki, które mogą zamknąć lub opuścić atrybut.
+        escaped = escaped.replace(/"/g, '&quot;');
+        escaped = escaped.replace(/'/g, '&#39;');
+        return escaped;
+    }
+
+    /**
+     * Linijka "Przez: ..." pod "Zakończono". Gdy brak danych o autorze
+     * (stare rekordy, historia jeszcze się ładuje) — nie renderujemy nic,
+     * zamiast pokazywać puste "Przez: —".
+     */
+    getTimelineActorLine(stationCode) {
+        const flow = this.state.productHistory && this.state.productHistory.flow;
+        const entry = flow && flow[stationCode];
+        if (!entry || !entry.actor_label) return '';
+        return `<p class="timeline-actor">Przez: ${this.escapeHtml(entry.actor_label)}</p>`;
+    }
+
+    /**
+     * Pobiera historię produktu i odświeża obie sekcje modalu.
+     */
+    async loadProductHistory(productId) {
+        // Strażnik przed wyścigiem odpowiedzi: użytkownik może kliknąć "następny"
+        // kilka razy zanim wcześniejsze zapytanie wróci. Zapamiętujemy, dla którego
+        // productId jest AKTUALNIE oczekiwana odpowiedź — jeśli po powrocie fetch
+        // ten identyfikator już się zmienił (bo wystartowało kolejne żądanie dla
+        // innego produktu), znaczy że ta odpowiedź jest nieaktualna i trzeba ją
+        // po cichu odrzucić, żeby nie nadpisała stanu/timeline'u nowszego produktu.
+        this.state.historyRequestProductId = productId;
+
+        try {
+            const response = await fetch(`/production/api/products/${productId}/history`);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error || 'Nieznany błąd');
+
+            // Odpowiedź spóźniona względem nowszego żądania — porzucamy po cichu,
+            // to normalna sytuacja przy szybkim przełączaniu produktów (nie błąd).
+            if (this.state.historyRequestProductId != productId) return;
+
+            this.state.productHistory = data;
+
+            // Timeline przerysowujemy, żeby doszły linijki "Przez:"
+            // (renderTimeline nie istnieje — timeline rysuje generateProductionTimeline,
+            // tak samo jak w updateModalWithNewProduct, na żywym document)
+            const product = this.state.products.find(p => p.id == productId) ||
+                            this.state.filteredProducts.find(p => p.id == productId);
+            if (product) this.generateProductionTimeline(document, product);
+
+            this.renderProductHistory(data.history);
+        } catch (error) {
+            // Ten sam strażnik w gałęzi błędu — spóźniony błąd dla poprzedniego
+            // produktu nie może nadpisać widoku aktualnie oglądanego produktu.
+            if (this.state.historyRequestProductId != productId) return;
+
+            console.error('[ProductsModule] Błąd pobierania historii:', error);
+            this.renderProductHistoryError();
+        }
+    }
+
+    /**
+     * Renderuje akordeon historii. Wpisy przychodzą posortowane malejąco
+     * po czasie — serwer jest źródłem kolejności, front tylko formatuje.
+     */
+    renderProductHistory(history) {
+        const container = document.getElementById('productHistory');
+        if (!container) return;
+
+        if (!history || history.length === 0) {
+            container.innerHTML = `
+                <p class="history-empty">Brak zarejestrowanych zdarzeń —
+                historia jest zapisywana od 31.07.2026.</p>`;
+            return;
+        }
+
+        container.innerHTML = history.map((entry, idx) =>
+            this.renderHistoryEntry(entry, idx)).join('');
+
+        container.querySelectorAll('.history-toggle').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const details = document.getElementById(btn.dataset.target);
+                if (!details) return;
+                const isOpen = details.style.display === 'block';
+                details.style.display = isOpen ? 'none' : 'block';
+                btn.classList.toggle('open', !isOpen);
+            });
+        });
+    }
+
+    /**
+     * Zwraca poprawnie odmieniowany rzeczownik "odbicie/odbicia/odbić".
+     * Reguła polskiego pluralizmu:
+     * - dokładnie 1: "odbicie"
+     * - liczby 2, 3, 4 (ale nie 12, 13, 14): "odbicia"
+     * - wszystkie pozostałe: "odbić"
+     */
+    odmienOdbicia(count) {
+        if (count === 1) return 'odbicie';
+        const lastDigit = count % 10;
+        const lastTwoDigits = count % 100;
+        if ((lastDigit === 2 || lastDigit === 3 || lastDigit === 4) &&
+            !(lastTwoDigits === 12 || lastTwoDigits === 13 || lastTwoDigits === 14)) {
+            return 'odbicia';
+        }
+        return 'odbić';
+    }
+
+    /**
+     * Pojedynczy wiersz historii. Trzy warianty: zmiana statusu,
+     * zwinięta praca stanowiska, cofnięcie sztuk.
+     */
+    renderHistoryEntry(entry, idx) {
+        const when = new Date(entry.at).toLocaleString('pl-PL', {
+            day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
+        });
+        const actor = this.escapeHtml(entry.actor_label || '');
+
+        if (entry.kind === 'status') {
+            const manual = entry.manual
+                ? '<span class="history-badge-manual">ręcznie</span>' : '';
+
+            // Tytuł wiersza zależy od event_type — pola old_value/new_value
+            // niosą różne znaczenie w zależności od typu zdarzenia (status
+            // tekstowy / ranga priorytetu / liczba sztuk), więc każdy typ
+            // dostaje osobną gałąź renderowania zamiast wspólnego "Status: X → Y".
+            let title;
+            if (entry.event_type === 'priority_change') {
+                title = `Priorytet: ${this.escapeHtml(entry.old_value)} → ${this.escapeHtml(entry.new_value)}`;
+            } else if (entry.event_type === 'rework') {
+                // old_value/new_value niosą liczbę SZTUK, nie status — bez tej
+                // gałęzi wychodziłoby nieprawdziwe "Status: 5 → 3".
+                title = `Doróbka: ${this.escapeHtml(entry.old_value)} → ${this.escapeHtml(entry.new_value)} szt.`;
+            } else if (entry.event_type === 'logistics') {
+                title = 'Transport zatwierdzony';
+            } else {
+                const from = this.translateStatus(entry.old_value);
+                const to = this.translateStatus(entry.new_value);
+                title = `Status: ${this.escapeHtml(from)} → ${this.escapeHtml(to)}`;
+            }
+
+            const note = entry.note
+                ? `<div class="history-note">${this.escapeHtml(entry.note)}</div>` : '';
+            // endpoint = jedyne pole odpowiadające na pytanie "którą ścieżką kodu
+            // zmieniono status" — pokazujemy je w dymku po najechaniu (title),
+            // nie w treści wiersza, żeby nie zaśmiecać widoku dla operatora.
+            const titleAttr = entry.endpoint
+                ? ` title="${this.escapeAttr(entry.endpoint)}"` : '';
+            return `
+                <div class="history-row history-status"${titleAttr}>
+                    <span class="history-when">${when}</span>
+                    <span class="history-title">${title}${manual}</span>
+                    <span class="history-actor">${actor}</span>
+                    ${note}
+                </div>`;
+        }
+
+        if (entry.kind === 'reject') {
+            const stationName = this.escapeHtml(entry.station_name || entry.station_code);
+            return `
+                <div class="history-row history-reject">
+                    <span class="history-when">${when}</span>
+                    <span class="history-title">Cofnięto ${Math.abs(entry.delta)} szt. — ${stationName}</span>
+                    <span class="history-actor">${actor}</span>
+                </div>`;
+        }
+
+        // Praca stanowiska — strzałka tylko gdy jest co rozwijać
+        const detailsId = `history-details-${idx}`;
+        const expandable = entry.event_count > 1;
+        const rows = (entry.entries || []).map(e => {
+            const t = new Date(e.at).toLocaleString('pl-PL', {
+                day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
+            });
+            const sign = e.delta > 0 ? `+${e.delta}` : `${e.delta}`;
+            return `<div class="history-subrow">${t} — ${sign} szt. (stan: ${e.quantity_done_after})</div>`;
+        }).join('');
+
+        return `
+            <div class="history-row history-work">
+                <span class="history-when">${when}</span>
+                <span class="history-title">
+                    ${this.escapeHtml(entry.station_name || entry.station_code)}: ${entry.total} szt.,
+                    ${entry.event_count} ${this.odmienOdbicia(entry.event_count)}
+                </span>
+                <span class="history-actor">${actor}</span>
+                ${expandable ? `<button class="history-toggle" data-target="${detailsId}" type="button">
+                    <i class="fas fa-chevron-down"></i></button>` : ''}
+                ${expandable ? `<div class="history-details" id="${detailsId}" style="display:none;">${rows}</div>` : ''}
+            </div>`;
+    }
+
+    renderProductHistoryError() {
+        const container = document.getElementById('productHistory');
+        if (container) {
+            container.innerHTML =
+                '<p class="history-empty">Nie udało się wczytać historii.</p>';
+        }
     }
 
     /**
@@ -4616,14 +4846,21 @@ class ProductsModule {
                 throw new Error(`Produkt ${productId} nie został znaleziony`);
             }
 
+            // Reset historii PRZED przerysowaniem timeline — inaczej updateModalWithNewProduct
+            // narysuje linijki "Przez:" z autorami poprzednio oglądanego produktu
+            this.state.productHistory = null;
+
             // Fade out → aktualizuj → fade in
             await this.fadeOutModalContent();
             this.updateModalWithNewProduct(product);
             await this.fadeInModalContent();
-            
+
+            // Dociągnij historię nowego produktu asynchronicznie (przerysuje timeline po przyjściu danych)
+            this.loadProductHistory(productId);
+
             // Ukryj loading
             this.showModalLoading(false);
-            
+
             console.log('[ProductsModule] Product switched successfully');
 
         } catch (error) {
