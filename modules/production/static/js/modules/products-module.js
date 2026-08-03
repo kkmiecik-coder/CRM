@@ -22,6 +22,11 @@
 
 class ProductsModule {
 
+    // Ile wpisów historii odsłania jedno kliknięcie "Pokaż więcej".
+    // Liczone są wpisy widoczne na liście — zwinięta praca stanowiska
+    // to jedna pozycja, niezależnie od liczby odbić w środku.
+    static HISTORY_PAGE_SIZE = 5;
+
     // Mapowanie statusów na przyjazne nazwy
     static STATUS_TRANSLATIONS = {
         'czeka_na_wyciecie': 'Wycinanie - mikro',
@@ -4241,28 +4246,90 @@ class ProductsModule {
     /**
      * Renderuje akordeon historii. Wpisy przychodzą posortowane malejąco
      * po czasie — serwer jest źródłem kolejności, front tylko formatuje.
+     *
+     * Lista jest stronicowana po stronie przeglądarki: dane mamy już
+     * w całości z jednego żądania, więc "Pokaż więcej" tylko odsłania
+     * kolejne wpisy, bez dodatkowego ruchu do serwera. Licznik liczy
+     * WPISY WIDOCZNE na liście — zwinięta praca stanowiska to jedna
+     * pozycja, niezależnie od tego, ile odbić się w niej kryje.
      */
     renderProductHistory(history) {
         const container = document.getElementById('productHistory');
         if (!container) return;
 
         if (!history || history.length === 0) {
+            // Czyścimy też stan stronicowania — inaczej po przejściu do
+            // produktu bez historii zostałyby wpisy poprzedniego
+            this.state.historyEntries = [];
+            this.state.historyShown = 0;
             container.innerHTML = `
-                <p class="history-empty">Brak zarejestrowanych zdarzeń —
+                <p class="hist-empty">Brak zarejestrowanych zdarzeń —
                 historia jest zapisywana od 31.07.2026.</p>`;
             return;
         }
 
-        container.innerHTML = history.map((entry, idx) =>
-            this.renderHistoryEntry(entry, idx)).join('');
+        this.state.historyEntries = history;
+        this.state.historyShown = 0;
 
-        container.querySelectorAll('.history-toggle').forEach(btn => {
+        container.innerHTML = '<div class="hist-list"></div><div class="hist-more"></div>';
+        this.showMoreHistory();
+    }
+
+    /**
+     * Odsłania kolejną porcję wpisów. Dopisuje je do listy zamiast
+     * przerysowywać całość — inaczej rozwinięte wcześniej grupy odbić
+     * zwijałyby się przy każdym kliknięciu "Pokaż więcej".
+     */
+    showMoreHistory() {
+        const container = document.getElementById('productHistory');
+        if (!container) return;
+        const list = container.querySelector('.hist-list');
+        const footer = container.querySelector('.hist-more');
+        if (!list || !footer) return;
+
+        const all = this.state.historyEntries || [];
+        const from = this.state.historyShown || 0;
+        const to = Math.min(from + ProductsModule.HISTORY_PAGE_SIZE, all.length);
+
+        const chunk = document.createElement('div');
+        chunk.innerHTML = all.slice(from, to)
+            .map((entry, i) => this.renderHistoryEntry(entry, from + i)).join('');
+        // Wpisy przenosimy pojedynczo, żeby nie owijać ich dodatkowym divem,
+        // który zaburzyłby odstępy listy
+        while (chunk.firstElementChild) {
+            list.appendChild(chunk.firstElementChild);
+        }
+
+        this.state.historyShown = to;
+        this.bindHistoryToggles(list);
+
+        const left = all.length - to;
+        if (left > 0) {
+            const next = Math.min(ProductsModule.HISTORY_PAGE_SIZE, left);
+            footer.innerHTML = `<button type="button" class="hist-more-btn">Pokaż ${next} więcej</button>`;
+            footer.querySelector('.hist-more-btn')
+                .addEventListener('click', () => this.showMoreHistory());
+        } else if (all.length > ProductsModule.HISTORY_PAGE_SIZE) {
+            // Komunikat końcowy tylko gdy lista była stronicowana — przy
+            // trzech wpisach "nie ma więcej" byłoby zbędnym szumem
+            footer.innerHTML = '<p class="hist-end">Nie ma więcej akcji 🎆</p>';
+        } else {
+            footer.innerHTML = '';
+        }
+    }
+
+    /**
+     * Podpina rozwijanie odbić. Stan trzymany klasą, nie stylem inline,
+     * żeby widocznością sterował wyłącznie arkusz stylów.
+     */
+    bindHistoryToggles(root) {
+        root.querySelectorAll('.hist-toggle:not([data-bound])').forEach(btn => {
+            btn.dataset.bound = '1';
             btn.addEventListener('click', () => {
                 const details = document.getElementById(btn.dataset.target);
                 if (!details) return;
-                const isOpen = details.style.display === 'block';
-                details.style.display = isOpen ? 'none' : 'block';
-                btn.classList.toggle('open', !isOpen);
+                const isOpen = details.classList.toggle('is-open');
+                btn.classList.toggle('is-open', isOpen);
             });
         });
     }
@@ -4286,18 +4353,62 @@ class ProductsModule {
     }
 
     /**
-     * Pojedynczy wiersz historii. Trzy warianty: zmiana statusu,
+     * Czas wpisu historii. Rok pokazujemy TYLKO gdy zdarzenie jest z innego
+     * roku niż bieżący — w wąskiej kolumnie każdy znak się liczy, a przy
+     * zdarzeniach z tego roku rok i tak nic nie wnosi.
+     */
+    formatHistoryTime(iso) {
+        const d = new Date(iso);
+        const sameYear = d.getFullYear() === new Date().getFullYear();
+        const date = d.toLocaleDateString('pl-PL', sameYear
+            ? { day: '2-digit', month: '2-digit' }
+            : { day: '2-digit', month: '2-digit', year: '2-digit' });
+        const time = d.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
+        return `${date}&nbsp;&nbsp;${time}`;
+    }
+
+    /**
+     * Zmienna CSS z kolorem listwy wpisu. Praca stanowiska dziedziczy kolor
+     * stanowiska z timeline'u, dzięki czemu oba widoki mówią tym samym
+     * językiem kolorów. Zdarzenia wyjątkowe (cofnięcie, doróbka, ręczna
+     * zmiana) dostają kolor ostrzegawczy, bo mają się rzucać w oczy.
+     */
+    historyAccent(entry) {
+        const stationAccents = {
+            cutting: '--il-cutting',
+            assembly: '--il-assembly',
+            gluing: '--il-gluing',
+            formatting: '--il-formatting',
+            finishing: '--il-finishing',
+            painting: '--il-painting',
+            packaging: '--il-packaging',
+        };
+        if (entry.kind === 'reject') return '--il-status-danger';
+        if (entry.kind === 'work') {
+            return stationAccents[entry.station_code] || '--il-border';
+        }
+        if (entry.event_type === 'rework') return '--il-status-danger';
+        if (entry.manual) return '--il-status-warn';
+        if (entry.event_type === 'priority_change') return '--il-text-muted';
+        return '--il-status-info';
+    }
+
+    /**
+     * Pojedynczy wpis historii. Trzy warianty: zmiana statusu,
      * zwinięta praca stanowiska, cofnięcie sztuk.
      */
     renderHistoryEntry(entry, idx) {
-        const when = new Date(entry.at).toLocaleString('pl-PL', {
-            day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
-        });
+        const when = this.formatHistoryTime(entry.at);
         const actor = this.escapeHtml(entry.actor_label || '');
+        // Nazwa tabletu bywa dłuższa niż kolumna — ucinamy wizualnie,
+        // pełna wartość zostaje w dymku
+        const actorAttr = entry.actor_label
+            ? ` title="${this.escapeAttr(entry.actor_label)}"` : '';
+        const accent = `--hist-accent: var(${this.historyAccent(entry)})`;
 
         if (entry.kind === 'status') {
             const manual = entry.manual
-                ? '<span class="history-badge-manual">ręcznie</span>' : '';
+                ? '<span class="hist-flag">ręcznie</span>' : '';
 
             // Tytuł wiersza zależy od event_type — pola old_value/new_value
             // niosą różne znaczenie w zależności od typu zdarzenia (status
@@ -4319,17 +4430,21 @@ class ProductsModule {
             }
 
             const note = entry.note
-                ? `<div class="history-note">${this.escapeHtml(entry.note)}</div>` : '';
+                ? `<div class="hist-note">${this.escapeHtml(entry.note)}</div>` : '';
             // endpoint = jedyne pole odpowiadające na pytanie "którą ścieżką kodu
             // zmieniono status" — pokazujemy je w dymku po najechaniu (title),
             // nie w treści wiersza, żeby nie zaśmiecać widoku dla operatora.
             const titleAttr = entry.endpoint
                 ? ` title="${this.escapeAttr(entry.endpoint)}"` : '';
             return `
-                <div class="history-row history-status"${titleAttr}>
-                    <span class="history-when">${when}</span>
-                    <span class="history-title">${title}${manual}</span>
-                    <span class="history-actor">${actor}</span>
+                <div class="hist-entry hist-entry--status" style="${accent}"${titleAttr}>
+                    <div class="hist-meta">
+                        <span class="hist-time">${when}</span>
+                        <span class="hist-actor"${actorAttr}>${actor}</span>
+                    </div>
+                    <div class="hist-body">
+                        <span class="hist-text"><span class="hist-title">${title}</span>${manual}</span>
+                    </div>
                     ${note}
                 </div>`;
         }
@@ -4337,10 +4452,17 @@ class ProductsModule {
         if (entry.kind === 'reject') {
             const stationName = this.escapeHtml(entry.station_name || entry.station_code);
             return `
-                <div class="history-row history-reject">
-                    <span class="history-when">${when}</span>
-                    <span class="history-title">Cofnięto ${Math.abs(entry.delta)} szt. — ${stationName}</span>
-                    <span class="history-actor">${actor}</span>
+                <div class="hist-entry hist-entry--reject" style="${accent}">
+                    <div class="hist-meta">
+                        <span class="hist-time">${when}</span>
+                        <span class="hist-actor"${actorAttr}>${actor}</span>
+                    </div>
+                    <div class="hist-body">
+                        <span class="hist-text">
+                            <span class="hist-title">Cofnięto ${Math.abs(entry.delta)} szt.</span>
+                            <span class="hist-figures">${stationName}</span>
+                        </span>
+                    </div>
                 </div>`;
         }
 
@@ -4348,24 +4470,31 @@ class ProductsModule {
         const detailsId = `history-details-${idx}`;
         const expandable = entry.event_count > 1;
         const rows = (entry.entries || []).map(e => {
-            const t = new Date(e.at).toLocaleString('pl-PL', {
-                day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
-            });
+            const t = this.formatHistoryTime(e.at);
             const sign = e.delta > 0 ? `+${e.delta}` : `${e.delta}`;
-            return `<div class="history-subrow">${t} — ${sign} szt. (stan: ${e.quantity_done_after})</div>`;
+            const negClass = e.delta < 0 ? ' is-neg' : '';
+            return `<div class="hist-sub-row">
+                        <span class="hist-sub-time">${t}</span>
+                        <span class="hist-sub-delta${negClass}">${sign}</span>
+                        <span>szt. — stan ${e.quantity_done_after}</span>
+                    </div>`;
         }).join('');
 
         return `
-            <div class="history-row history-work">
-                <span class="history-when">${when}</span>
-                <span class="history-title">
-                    ${this.escapeHtml(entry.station_name || entry.station_code)}: ${entry.total} szt.,
-                    ${entry.event_count} ${this.odmienOdbicia(entry.event_count)}
-                </span>
-                <span class="history-actor">${actor}</span>
-                ${expandable ? `<button class="history-toggle" data-target="${detailsId}" type="button">
-                    <i class="fas fa-chevron-down"></i></button>` : ''}
-                ${expandable ? `<div class="history-details" id="${detailsId}" style="display:none;">${rows}</div>` : ''}
+            <div class="hist-entry hist-entry--work" style="${accent}">
+                <div class="hist-meta">
+                    <span class="hist-time">${when}</span>
+                    <span class="hist-actor"${actorAttr}>${actor}</span>
+                </div>
+                <div class="hist-body">
+                    <span class="hist-text">
+                        <span class="hist-title">${this.escapeHtml(entry.station_name || entry.station_code)}</span>
+                        <span class="hist-figures">${entry.total} szt. · ${entry.event_count} ${this.odmienOdbicia(entry.event_count)}</span>
+                    </span>
+                    ${expandable ? `<button class="hist-toggle" data-target="${detailsId}" type="button" aria-label="Pokaz pojedyncze odbicia">
+                        <i class="fas fa-chevron-down"></i></button>` : ''}
+                </div>
+                ${expandable ? `<div class="hist-sub" id="${detailsId}">${rows}</div>` : ''}
             </div>`;
     }
 
@@ -4373,7 +4502,7 @@ class ProductsModule {
         const container = document.getElementById('productHistory');
         if (container) {
             container.innerHTML =
-                '<p class="history-empty">Nie udało się wczytać historii.</p>';
+                '<p class="hist-empty">Nie udało się wczytać historii.</p>';
         }
     }
 

@@ -2584,52 +2584,216 @@
     color: var(--il-text-muted, #9ba3b0);
 }
 
-/* Historia zdarzeń produktu */
-.product-history { display: flex; flex-direction: column; gap: 6px; }
-
-.history-row {
-    display: grid;
-    grid-template-columns: 88px 1fr auto auto;
-    align-items: center;
+/* ============================================================================
+   HISTORIA ZDARZEŃ PRODUKTU
+   ----------------------------------------------------------------------------
+   Dziennik warsztatowy. Panel boczny jest wąski, więc wpis układa się
+   w dwie linie zamiast w kolumny: metryczka (czas + wykonawca), a pod nią
+   treść. Listwa po lewej niesie kolor stanowiska — ten sam język kolorów
+   co ikony w "Przepływie produkcji", dzięki czemu oba widoki się zazębiają.
+   ============================================================================ */
+.product-history {
+    display: flex;
+    flex-direction: column;
     gap: 8px;
-    padding: 6px 8px;
-    border-radius: 6px;
-    background: var(--il-bg-base, #f8f9fa);
-    font-size: 0.8125rem;
+    font-family: var(--il-font);
 }
 
-.history-when { color: var(--il-text-muted, #6c757d); white-space: nowrap; }
-.history-actor { color: var(--il-text-muted, #6c757d); white-space: nowrap; }
-.history-reject { background: #fff4f4; }
+/* Lista wpisów — stopka ze stronicowaniem stoi poza nią, dlatego
+   odstępy między wpisami żyją tutaj, a nie na kontenerze */
+.hist-list {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
 
-.history-badge-manual {
-    margin-left: 6px;
-    padding: 1px 6px;
-    border-radius: 10px;
-    background: #ffe08a;
-    color: #7a5200;
-    font-size: 0.6875rem;
+.hist-more-btn {
+    width: 100%;
+    padding: 6px;
+    border: 1px dashed var(--il-border);
+    border-radius: var(--il-radius);
+    background: transparent;
+    color: var(--il-text-secondary);
+    font-family: inherit;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+.hist-more-btn:hover {
+    border-color: var(--il-text-secondary);
+    background: var(--il-bg-card);
+    color: var(--il-text-primary);
+}
+
+/* Koniec listy — pokazywany tylko gdy historia faktycznie była
+   stronicowana, żeby przy krótkiej liście nie robić szumu */
+.hist-end {
+    margin: 0;
+    padding: 2px;
+    text-align: center;
+    color: var(--il-text-muted);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+}
+
+.hist-entry {
+    --hist-accent: var(--il-border);
+    padding: 6px 8px 7px 9px;
+    background: var(--il-bg-card);
+    border: 1px solid var(--il-border-light);
+    border-left: 3px solid var(--hist-accent);
+    border-radius: var(--il-radius);
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+/* Metryczka — celowo stonowana, to kontekst, a nie treść wpisu */
+.hist-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    color: var(--il-text-muted);
+    font-size: 10px;
+    letter-spacing: 0.03em;
+}
+
+.hist-time {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* Nazwa tabletu bywa długa — ucinamy, pełna wartość jest w dymku */
+.hist-actor {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: right;
+}
+
+.hist-body {
+    display: flex;
+    align-items: flex-start;
+    gap: 4px;
+    margin-top: 1px;
+}
+
+.hist-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.hist-title {
+    color: var(--il-text-primary);
     font-weight: 600;
 }
 
-.history-note { grid-column: 1 / -1; color: var(--il-text-muted, #6c757d); }
-.history-details { grid-column: 1 / -1; padding-top: 4px; }
-.history-subrow { color: var(--il-text-muted, #6c757d); padding: 2px 0 2px 88px; }
+/* Liczby w osobnym elemencie: przy zawijaniu schodzą do nowej linii
+   jako całość, zamiast łamać się w środku "24 szt. · 1 odbicie" */
+.hist-figures {
+    display: inline-block;
+    margin-left: 5px;
+    color: var(--il-text-secondary);
+    font-variant-numeric: tabular-nums;
+}
 
-.history-toggle {
+.hist-note {
+    margin-top: 3px;
+    color: var(--il-text-secondary);
+    font-size: 11px;
+}
+
+/* Znacznik ręcznej zmiany — kwadratowy, w duchu przemysłowym.
+   Ma być widoczny od razu, bo to sygnał obejścia normalnego przepływu. */
+.hist-flag {
+    display: inline-block;
+    margin-left: 5px;
+    padding: 0 4px;
+    border: 1px solid var(--il-status-warn);
+    border-radius: 2px;
+    color: var(--il-status-warn);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+/* Cofnięcie sztuk — jedyny wpis z tłem, bo oznacza problem */
+.hist-entry--reject {
+    background: #fdf4f4;
+}
+.hist-entry--reject .hist-title {
+    color: var(--il-status-danger);
+}
+
+.hist-toggle {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
     border: 0;
     background: transparent;
+    color: var(--il-text-muted);
+    font-size: 9px;
     cursor: pointer;
-    color: var(--il-text-muted, #6c757d);
 }
-.history-toggle.open i { transform: rotate(180deg); }
+.hist-toggle:hover { color: var(--il-text-primary); }
+.hist-toggle i { transition: transform 0.15s ease; }
+.hist-toggle.is-open i { transform: rotate(180deg); }
 
-.history-empty { color: var(--il-text-muted, #6c757d); font-size: 0.8125rem; margin: 0; }
+/* Rozwinięte odbicia — układ dziennika, kolumny o stałej szerokości,
+   żeby liczby stały jedna pod drugą */
+.hist-sub {
+    display: none;
+    margin-top: 5px;
+    padding-top: 5px;
+    border-top: 1px dashed var(--il-border-light);
+}
+.hist-sub.is-open { display: block; }
 
-/* Szkielet ładowania — trzy paski, żeby layout nie skakał */
-.history-skeleton { display: flex; flex-direction: column; gap: 6px; }
+.hist-sub-row {
+    display: flex;
+    gap: 6px;
+    padding: 1px 0;
+    color: var(--il-text-secondary);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+.hist-sub-time { color: var(--il-text-muted); white-space: nowrap; }
+.hist-sub-delta {
+    min-width: 26px;
+    text-align: right;
+    font-weight: 600;
+    color: var(--il-status-ok);
+}
+.hist-sub-delta.is-neg { color: var(--il-status-danger); }
+
+.hist-empty {
+    margin: 0;
+    padding: 12px 10px;
+    border: 1px dashed var(--il-border);
+    border-radius: var(--il-radius);
+    color: var(--il-text-muted);
+    font-size: 11px;
+    line-height: 1.5;
+    text-align: center;
+}
+
+/* Szkielet ładowania — bez animacji, modal potrafi zniknąć w pół sekundy
+   i migotanie byłoby bardziej męczące niż statyczne paski */
+.history-skeleton { display: flex; flex-direction: column; gap: 3px; }
 .history-skeleton span {
-    height: 28px;
-    border-radius: 6px;
-    background: var(--il-bg-base, #f1f3f5);
+    height: 34px;
+    border-radius: var(--il-radius);
+    background: var(--il-bg-base);
+    border: 1px solid var(--il-border-light);
+    border-left: 3px solid var(--il-border);
 }
