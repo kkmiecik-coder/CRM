@@ -221,12 +221,9 @@ def submit_application():
         # ========================================================================
         
         try:
-            # Email do kandydata
-            EmailService.send_application_confirmation(application)
-            
-            # Email do admina
+            # Kandydat nie dostaje potwierdzenia — powiadamiamy wyłącznie zespół.
             EmailService.send_admin_notification(application)
-            
+
         except Exception as email_error:
             current_app.logger.error(f"Email sending failed: {str(email_error)}")
             # Nie przerywamy procesu jeśli email się nie wyśle
@@ -571,12 +568,9 @@ def update_application_status(application_id):
             notes=notes
         )
         
-        # Wyślij email do kandydata o zmianie statusu
-        try:
-            EmailService.send_status_update(application, new_status)
-        except Exception as email_error:
-            current_app.logger.error(f"Email sending failed: {str(email_error)}")
-        
+        # Kandydat nie jest powiadamiany o zmianie statusu — decyzje o kontakcie
+        # podejmujemy sami, poza systemem.
+
         return jsonify({
             'success': True,
             'message': 'Status zaktualizowany',

@@ -7,7 +7,8 @@ Warstwa logiki biznesowej dla modułu PartnerAcademy.
 
 Services:
 - ApplicationService: Obsługa aplikacji rekrutacyjnych
-- EmailService: Wysyłka emaili (potwierdzenia, notyfikacje)
+- EmailService: Powiadomienia do zespołu o nowych zgłoszeniach (kandydaci nie
+  dostają żadnej korespondencji)
 - LearningService: Zarządzanie postępem szkoleniowym
 
 Autor: Development Team
@@ -251,47 +252,10 @@ class EmailService:
             current_app.logger.error(f"Błąd wczytywania mail_addresses.json: {str(e)}")
             return {"notification_emails": [], "confirmation_emails": []}
     
-    @staticmethod
-    def send_application_confirmation(application):
-        """
-        Wyślij email potwierdzający otrzymanie aplikacji
-        
-        Args:
-            application (PartnerApplication): Aplikacja rekrutacyjna
-        """
-        try:
-            sender = current_app.config.get('MAIL_DEFAULT_SENDER') or current_app.config.get('MAIL_USERNAME')
-            
-            msg = Message(
-                subject='Potwierdzenie otrzymania aplikacji - WoodPower PartnerAcademy',
-                sender=sender,
-                recipients=[application.email]
-            )
-            
-            msg.html = render_template(
-                'emails/application_received.html',
-                first_name=application.first_name,
-                last_name=application.last_name,
-                email=application.email,
-                phone=application.phone,
-                city=application.city,
-                address=application.address,
-                is_b2b=application.is_b2b,
-                company_name=application.company_name if application.is_b2b else None
-            )
-            
-            mail.send(msg)
-            
-            current_app.logger.info(
-                f"Wysłano email potwierdzający do: {application.email}"
-            )
-            
-        except Exception as e:
-            current_app.logger.error(
-                f"Błąd wysyłki emaila do {application.email}: {str(e)}"
-            )
-            raise
-    
+    # Do kandydatów nie wysyłamy żadnej korespondencji — ani potwierdzenia
+    # zgłoszenia, ani informacji o zmianie statusu. Zostaje wyłącznie
+    # powiadomienie do zespołu o nowej aplikacji.
+
     @staticmethod
     def send_admin_notification(application):
         """
@@ -349,89 +313,5 @@ class EmailService:
         except Exception as e:
             current_app.logger.error(
                 f"Błąd wysyłki notyfikacji do admina: {str(e)}"
-            )
-            raise
-    
-    @staticmethod
-    def send_status_update(application, new_status):
-        """
-        Wyślij email o zmianie statusu aplikacji
-        
-        Args:
-            application (PartnerApplication): Aplikacja
-            new_status (str): Nowy status
-        """
-        try:
-            status_messages = {
-                'contacted': 'Skontaktujemy się z Tobą wkrótce',
-                'accepted': 'Twoja aplikacja została zaakceptowana!',
-                'rejected': 'Informacja o Twojej aplikacji'
-            }
-            
-            subject = f'WoodPower PartnerAcademy - {status_messages.get(new_status, "Aktualizacja statusu")}'
-            
-            sender = current_app.config.get('MAIL_DEFAULT_SENDER') or current_app.config.get('MAIL_USERNAME')
-            
-            msg = Message(
-                subject=subject,
-                sender=sender,
-                recipients=[application.email]
-            )
-            
-            msg.html = render_template(
-                f'emails/status_{new_status}.html',
-                application=application
-            )
-            
-            mail.send(msg)
-            
-            current_app.logger.info(
-                f"Wysłano email o zmianie statusu do: {application.email} ({new_status})"
-            )
-            
-        except Exception as e:
-            current_app.logger.error(
-                f"Błąd wysyłki emaila o statusie: {str(e)}"
-            )
-            raise
-    
-    @staticmethod
-    def send_status_update(application, new_status):
-        """
-        Wyślij email o zmianie statusu aplikacji
-        
-        Args:
-            application (PartnerApplication): Aplikacja
-            new_status (str): Nowy status
-        """
-        try:
-            status_messages = {
-                'contacted': 'Skontaktujemy się z Tobą wkrótce',
-                'accepted': 'Twoja aplikacja została zaakceptowana!',
-                'rejected': 'Informacja o Twojej aplikacji'
-            }
-            
-            subject = f'WoodPower Partner Academy - {status_messages.get(new_status, "Aktualizacja statusu")}'
-            
-            msg = Message(
-                subject=subject,
-                sender=current_app.config.get('MAIL_DEFAULT_SENDER'),
-                recipients=[application.email]
-            )
-            
-            msg.html = render_template(
-                f'emails/status_{new_status}.html',
-                application=application
-            )
-            
-            mail.send(msg)
-            
-            current_app.logger.info(
-                f"Wysłano email o zmianie statusu do: {application.email} ({new_status})"
-            )
-            
-        except Exception as e:
-            current_app.logger.error(
-                f"Błąd wysyłki emaila o statusie: {str(e)}"
             )
             raise
