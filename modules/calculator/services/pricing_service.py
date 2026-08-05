@@ -165,47 +165,150 @@ def _build_pricing_data():
 
 # Cache cenników w pamięci procesu — cenniki zmieniają się raz na
 # tygodnie/miesiące (potwierdzone przez usera), więc odpytywanie 5 tabel
-# przy KAŻDYM /calculate jest zbędnym obciążeniem bazy. TTL to tylko siatka
-# bezpieczeństwa na wypadek edycji poza aplikacją (np. phpMyAdmin) —
-# normalnie cache jest odświeżany od razu przez invalidate_pricing_cache()
-# wołane po zapisie w panelu admina.
-_PRICING_CACHE = {'data': None, 'ts': 0.0}
+# przy KAŻDYM /calculate jest zbędnym obciążeniem bazy.
+#
+# UWAGA (dlaczego samo TTL + invalidate_pricing_cache() nie wystarczało):
+# ten słownik żyje w pamięci JEDNEGO procesu, a produkcja chodzi na gunicornie
+# z 4 workerami. Skutki, potwierdzone na produkcji 2026-08-05:
+#   * zmiana cen wprost w bazie (phpMyAdmin) nie czyściła niczego — nowe ceny
+#     wchodziły dopiero po wygaśnięciu TTL, do godziny (objaw: produkt „nie
+#     wycenia się" mimo poprawnych danych, a reload przeglądarki nie pomaga),
+#   * invalidate_pricing_cache() po zapisie w panelu czyści cache TYLKO
+#     w workerze, który obsłużył ten request — pozostałe trzy dalej trzymały
+#     stare ceny, więc ceny „migotały" między kolejnymi requestami.
+# Dlatego cache jest teraz rewalidowany tanim odciskiem stanu tabel cennika
+# (_pricing_fingerprint) — patrz load_pricing_data.
+_PRICING_CACHE = {'data': None, 'ts': 0.0, 'fingerprint': None, 'checked_ts': 0.0}
 _PRICING_CACHE_LOCK = threading.Lock()
-# 1 godzina — cenniki zmieniają się raz na tygodnie/miesiące, a zmiany przez
-# panel admina i tak odświeżają cache natychmiast przez invalidate_pricing_cache();
-# TTL to wyłącznie siatka bezpieczeństwa na zmiany poza aplikacją (np. phpMyAdmin).
+# 1 godzina — górna granica życia wpisu; przy działającym odcisku praktycznie
+# nieosiągalna, zostaje jako siatka bezpieczeństwa (gdyby odcisku nie dało się policzyć).
 PRICING_CACHE_TTL = 3600  # sekundy
+# Jak często (max) worker pyta bazę o odcisk cennika. Tyle wynosi najgorsze
+# opóźnienie wejścia zmiany zrobionej poza aplikacją; koszt to jedno lekkie
+# zapytanie na worker na okno, więc trzymamy to nisko.
+PRICING_REVALIDATE_SECONDS = 15
+
+
+def _table_fingerprint_expr(model):
+    """Podzapytanie „ile wierszy + suma CRC32 z całych wierszy" dla jednej tabeli.
+
+    Kolumny bierzemy z metadanych modelu, nie z ręcznej listy — dzięki temu
+    dołożenie kolumny w przyszłości automatycznie wchodzi do odcisku.
+    """
+    cols = ",".join(
+        f"COALESCE(CAST(`{c.name}` AS CHAR),'~')" for c in model.__table__.columns
+    )
+    return (f"(SELECT CONCAT(COUNT(*),':',COALESCE(SUM(CRC32(CONCAT_WS('|',{cols}))),0)) "
+            f"FROM `{model.__table__.name}`)")
+
+
+def _pricing_fingerprint():
+    """Tani odcisk stanu tabel cennika — zmiana dowolnego pola zmienia odcisk.
+
+    Zwraca None, jeżeli odcisku nie da się policzyć (brak kontekstu aplikacji,
+    silnik bez CRC32, chwilowy błąd bazy) — wtedy cache wraca do zachowania
+    opartego wyłącznie na TTL, czyli do stanu sprzed tej zmiany.
+
+    Leci po WŁASNYM połączeniu z puli, nie po db.session — żeby nieudane
+    zapytanie nie zabrudziło transakcji trwającego requestu (load_pricing_data
+    bywa wołane w trakcie zapisu wyceny).
+    """
+    try:
+        from sqlalchemy import text
+        from extensions import db
+        from modules.calculator.models import (
+            Price, Multiplier, FinishingOption, EdgeOption, CalculatorSetting
+        )
+
+        parts = [_table_fingerprint_expr(m) for m in
+                 (Price, Multiplier, FinishingOption, EdgeOption, CalculatorSetting)]
+        sql = "SELECT CONCAT_WS('/', " + ", ".join(parts) + ")"
+        with db.engine.connect() as conn:
+            return conn.execute(text(sql)).scalar()
+    except Exception as e:
+        _warn_fingerprint_unavailable_once(e)
+        return None
+
+
+# Ostrzegamy RAZ na proces — inaczej przy trwałej awarii odcisku logi puchłyby
+# co PRICING_REVALIDATE_SECONDS. Bez tego degradacja do samego TTL (czyli powrót
+# do „ceny wchodzą po godzinie") przeszłaby niezauważona.
+_FINGERPRINT_WARNED = False
+
+
+def _warn_fingerprint_unavailable_once(exc):
+    global _FINGERPRINT_WARNED
+    if _FINGERPRINT_WARNED:
+        return
+    _FINGERPRINT_WARNED = True
+    try:
+        from flask import current_app
+        current_app.logger.warning(
+            "Odcisk cennika niedostepny (%s: %s) — cache wraca do samego TTL "
+            "(%ss), zmiany cen moga wchodzic z opoznieniem.",
+            type(exc).__name__, exc, PRICING_CACHE_TTL
+        )
+    except Exception:
+        pass
 
 
 def load_pricing_data(use_cache=True):
     """Zwraca PricingData — z cache (domyślnie) albo świeżo z bazy.
 
+    Cache jest rewalidowany odciskiem tabel cennika: nie częściej niż raz na
+    PRICING_REVALIDATE_SECONDS worker pyta bazę o odcisk i przebudowuje dane,
+    jeżeli ktokolwiek ruszył cennik — także spoza aplikacji (phpMyAdmin) i także
+    w innym workerze. Bez odcisku (None) zostaje samo TTL.
+
     use_cache=False wymusza pominięcie cache (np. golden check / testy
     porównawcze, gdzie chcemy mieć pewność, że dane pochodzą wprost z DB).
     """
-    if use_cache:
-        now = time.time()
-        cached = _PRICING_CACHE['data']
-        if cached is not None and (now - _PRICING_CACHE['ts']) < PRICING_CACHE_TTL:
+    if not use_cache:
+        return _build_pricing_data()
+
+    now = time.time()
+    cached = _PRICING_CACHE['data']
+    fingerprint = None
+
+    if cached is not None and (now - _PRICING_CACHE['ts']) < PRICING_CACHE_TTL:
+        if (now - _PRICING_CACHE['checked_ts']) < PRICING_REVALIDATE_SECONDS:
             return cached
 
+        fingerprint = _pricing_fingerprint()
+        _PRICING_CACHE['checked_ts'] = now
+        if fingerprint is None or fingerprint == _PRICING_CACHE['fingerprint']:
+            return cached
+        # Odcisk inny niż zapamiętany — cennik zmienił się pod nami, przebudowa.
+    else:
+        fingerprint = _pricing_fingerprint()
+
+    # Odcisk liczony PRZED odczytem danych: gdyby ktoś zapisał cennik w trakcie
+    # budowy, zapamiętamy odcisk sprzed zapisu i najbliższa rewalidacja zrobi
+    # przebudowę jeszcze raz. Bezpieczny kierunek błędu (nadmiarowa przebudowa,
+    # nigdy przeoczona zmiana).
     data = _build_pricing_data()
 
-    if use_cache:
-        with _PRICING_CACHE_LOCK:
-            _PRICING_CACHE['data'] = data
-            _PRICING_CACHE['ts'] = time.time()
+    with _PRICING_CACHE_LOCK:
+        _PRICING_CACHE['data'] = data
+        _PRICING_CACHE['ts'] = time.time()
+        _PRICING_CACHE['fingerprint'] = fingerprint
+        _PRICING_CACHE['checked_ts'] = _PRICING_CACHE['ts']
 
     return data
 
 
 def invalidate_pricing_cache():
-    """Czyści cache cenników — wołać zaraz po zapisie zmian w panelu admina
-    (prices/finishing_options/edge_options/calculator_settings), żeby zmiana
-    była widoczna natychmiast w /calculate, bez czekania na TTL."""
+    """Czyści cache cenników w TYM procesie — wołać zaraz po zapisie zmian
+    w panelu admina (prices/finishing_options/edge_options/calculator_settings).
+
+    Pozostałe workery gunicorna mają własne kopie cache i tego wywołania nie
+    zobaczą — dociągną zmianę same, przy najbliższej rewalidacji odciskiem
+    (do PRICING_REVALIDATE_SECONDS)."""
     with _PRICING_CACHE_LOCK:
         _PRICING_CACHE['data'] = None
         _PRICING_CACHE['ts'] = 0.0
+        _PRICING_CACHE['fingerprint'] = None
+        _PRICING_CACHE['checked_ts'] = 0.0
 
 
 def find_price_entry(data, species, technology, wood_class, thickness, length, width):
