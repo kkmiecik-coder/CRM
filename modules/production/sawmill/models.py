@@ -222,7 +222,14 @@ class SawmillAudit(db.Model):
 
     # BIGINT świadomie — audyt to tabela tylko dopisywana, rosnąca szybciej
     # niż reszta, zgodnie ze schematem w docs/superpowers/specs/2026-08-05-trakownia.sql.
-    id = Column(BigInteger, primary_key=True)
+    # with_variant(Integer, 'sqlite'): czysty BigInteger nie dostaje w SQLite
+    # aliasu na rowid (autoincrement) — dialekt sqlite kompiluje go jako
+    # BIGINT, a SQLite włącza automatyczny rowid tylko dla kolumny typu
+    # dosłownie INTEGER. Bez tej wariancji każdy insert do tej tabeli w
+    # testach (SQLite, bez Dockera) wywala się na `NOT NULL constraint
+    # failed: prod_sawmill_audit.id`. Na MySQL/produkcji bez zmian — nadal
+    # BIGINT AUTO_INCREMENT zgodnie ze schematem SQL.
+    id = Column(BigInteger().with_variant(Integer, 'sqlite'), primary_key=True)
     order_id = Column(Integer, nullable=False, index=True)
     log_id = Column(Integer, nullable=True)
     action = Column(String(24), nullable=False)
