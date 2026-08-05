@@ -35,8 +35,6 @@ from modules.production.routers.api.display_api import display_bp as production_
 from modules.dashboard.services.user_activity_service import UserActivityService
 from modules.partner_academy import partner_academy_bp
 from modules.partner_academy.models import PartnerApplication
-from modules.sales import sales_bp
-from modules.sales.models import SalesApplication
 from modules.users import users_bp
 from modules.help import help_bp
 from modules.issues import issues_bp
@@ -568,7 +566,6 @@ def create_app():
         app.register_blueprint(print_agent_bp, url_prefix='/api/print-agent')
         app.register_blueprint(production_display_bp, url_prefix='/production')
         app.register_blueprint(partner_academy_bp, url_prefix='/partner-academy')
-        app.register_blueprint(sales_bp, url_prefix='/sales')
         app.register_blueprint(users_bp)
         app.register_blueprint(help_bp)
         app.register_blueprint(issues_bp)

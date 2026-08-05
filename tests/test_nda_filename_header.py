@@ -20,7 +20,6 @@ import pytest
 from flask import Flask
 
 from modules.partner_academy import partner_academy_bp
-from modules.sales import sales_bp
 
 
 FAKE_PDF = b'%PDF-1.4 atrapa'
@@ -37,10 +36,9 @@ KANDYDACI = [
 
 @pytest.fixture(params=[
     ('partner_academy', partner_academy_bp, '/partner-academy'),
-    ('sales', sales_bp, '/sales'),
 ], ids=lambda p: p[0])
 def client(request, monkeypatch):
-    """Test client dla obu bliźniaczych modułów rekrutacyjnych."""
+    """Test client dla modułu rekrutacyjnego."""
     modul, blueprint, prefix = request.param
 
     monkeypatch.setattr(
