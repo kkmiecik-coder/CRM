@@ -222,7 +222,8 @@ def _version_too_old(actual, minimum):
 HEARTBEAT_ACTIVE_THRESHOLD_MINUTES = 20
 
 _STATION_CODES_WITH_TABLETS = (
-    'cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging'
+    'cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging',
+    'sawmill',
 )
 
 
@@ -426,7 +427,7 @@ def require_device_token(f):
 # IDEMPOTENCY (X-Operation-Id)
 # ============================================================================
 
-def with_idempotency(f):
+def with_idempotency(f=None, retryable_statuses=None):
     """
     Decorator dla endpointów mutujących stan (POST /complete, PATCH /quantity).
     Obsługuje nagłówek X-Operation-Id:
@@ -437,131 +438,191 @@ def with_idempotency(f):
     5xx i nieobsłużone wyjątki → rollback + re-raise, wpis NIE zapisywany
     (żeby klient mógł retry). Handler MUSI zwracać (response, status)
     i NIE MOŻE wewnątrz wywoływać db.session.commit() — zrobi to decorator.
+
+    retryable_statuses: zbiór kodów 4xx, które mają być traktowane jak 5xx —
+    rollback i BRAK zapisu, żeby klient mógł ponowić z tym samym
+    X-Operation-Id. Trakownia używa {409}: gdy zlecenie zostało w międzyczasie
+    zamknięte, admin je otwiera i tablet dosyła pomiary z kolejki. Bez tego
+    dekorator odtwarzałby zapamiętane 409 bez wywołania handlera i pomiar
+    przepadłby bezpowrotnie.
+
+    Domyślnie pusty zbiór — zero zmian dla istniejących stanowisk. Działa
+    zarówno bez nawiasów (@with_idempotency), jak i z argumentem
+    (@with_idempotency(retryable_statuses={409})).
     """
-    @wraps(f)
-    def wrapper(*args, **kwargs):
-        op_id = request.headers.get('X-Operation-Id', '').strip()
+    retryable = frozenset(retryable_statuses or ())
 
-        # Replay dla znanego op_id
-        if op_id:
-            existing = ProcessedMobileOperation.query.filter_by(
-                operation_id=op_id
-            ).first()
-            if existing:
-                logger.info("Mobile API idempotent replay", extra={
-                    'operation_id': op_id,
-                    'endpoint': existing.endpoint,
-                    'original_status': existing.response_status,
-                })
-                try:
-                    body = json.loads(existing.response_body)
-                except (ValueError, TypeError):
-                    body = {}
-                return jsonify(body), existing.response_status
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            op_id = request.headers.get('X-Operation-Id', '').strip()
 
-        # Handler wykonuje akcję (bez commit)
-        try:
-            result = f(*args, **kwargs)
-        except Exception as e:
-            db.session.rollback()
-            logger.error("Mobile API handler exception", extra={
-                'endpoint': request.endpoint,
-                'operation_id': op_id or None,
-                'error': str(e),
-            })
-            raise  # Flask error handler → 500, NIE zapisujemy w idempotency
-
-        # Normalizacja wyniku
-        if isinstance(result, tuple):
-            response_obj = result[0]
-            status_code = int(result[1]) if len(result) >= 2 else 200
-        else:
-            response_obj = result
-            status_code = getattr(response_obj, 'status_code', 200)
-
-        # 5xx → rollback, nie zapisuj (klient retry)
-        if status_code >= 500:
-            db.session.rollback()
-            return response_obj, status_code
-
-        # 2xx / 4xx — commit, zapisz operation_id w tej samej transakcji
-        if op_id:
-            try:
-                body_dict = (
-                    response_obj.get_json()
-                    if hasattr(response_obj, 'get_json')
-                    else response_obj
-                )
-                body_json = json.dumps(body_dict, ensure_ascii=False)
-            except Exception:
-                body_json = '{}'
-
-            op_record = ProcessedMobileOperation(
-                operation_id=op_id,
-                endpoint=request.endpoint or 'unknown',
-                order_id=kwargs.get('order_id'),
-                device_id=g.device.device_id if hasattr(g, 'device') else None,
-                response_status=status_code,
-                response_body=body_json,
-            )
-            db.session.add(op_record)
-
-            try:
-                db.session.commit()
-            except IntegrityError:
-                # Race: równoczesny request z tym samym op_id zdążył commit pierwszy.
-                # Rollback naszej sesji i zwróć zapisany przez rywala response.
-                db.session.rollback()
+            # Replay dla znanego op_id
+            if op_id:
                 existing = ProcessedMobileOperation.query.filter_by(
                     operation_id=op_id
                 ).first()
                 if existing:
-                    logger.info("Mobile API idempotent race resolved", extra={
+                    logger.info("Mobile API idempotent replay", extra={
                         'operation_id': op_id,
-                        'winning_status': existing.response_status,
+                        'endpoint': existing.endpoint,
+                        'original_status': existing.response_status,
                     })
                     try:
                         body = json.loads(existing.response_body)
                     except (ValueError, TypeError):
                         body = {}
                     return jsonify(body), existing.response_status
-                logger.error(
-                    "Mobile API IntegrityError bez istniejącego wpisu",
-                    extra={'operation_id': op_id},
+
+            # Handler wykonuje akcję (bez commit)
+            try:
+                result = func(*args, **kwargs)
+            except Exception as e:
+                db.session.rollback()
+                logger.error("Mobile API handler exception", extra={
+                    'endpoint': request.endpoint,
+                    'operation_id': op_id or None,
+                    'error': str(e),
+                })
+                raise  # Flask error handler → 500, NIE zapisujemy w idempotency
+
+            # Normalizacja wyniku
+            if isinstance(result, tuple):
+                response_obj = result[0]
+                status_code = int(result[1]) if len(result) >= 2 else 200
+            else:
+                response_obj = result
+                status_code = getattr(response_obj, 'status_code', 200)
+
+            # 5xx (oraz statusy w `retryable`, np. 409 trakowni) → rollback, nie
+            # zapisuj (klient retry z tym samym X-Operation-Id)
+            if status_code >= 500 or status_code in retryable:
+                db.session.rollback()
+                return response_obj, status_code
+
+            # 2xx / 4xx — commit, zapisz operation_id w tej samej transakcji
+            if op_id:
+                try:
+                    body_dict = (
+                        response_obj.get_json()
+                        if hasattr(response_obj, 'get_json')
+                        else response_obj
+                    )
+                    body_json = json.dumps(body_dict, ensure_ascii=False)
+                except Exception:
+                    body_json = '{}'
+
+                op_record = ProcessedMobileOperation(
+                    operation_id=op_id,
+                    endpoint=request.endpoint or 'unknown',
+                    order_id=kwargs.get('order_id'),
+                    device_id=g.device.device_id if hasattr(g, 'device') else None,
+                    response_status=status_code,
+                    response_body=body_json,
                 )
-                return jsonify({'error': 'idempotency_conflict'}), 500
-        else:
-            db.session.commit()
+                db.session.add(op_record)
 
-        # Hook BL: po commit może triggerować zmiany statusu w BaseLinker
-        try:
-            from .baselinker_status_sync import flush_pending_syncs
-            flush_pending_syncs()
-        except Exception as bl_error:
-            logger.error("Mobile API: błąd flush BL status sync", extra={
-                'error': str(bl_error),
-            })
+                try:
+                    db.session.commit()
+                except IntegrityError:
+                    # Race: równoczesny request z tym samym op_id zdążył commit
+                    # pierwszy. Rollback naszej sesji i zwróć zapisany przez
+                    # rywala response.
+                    db.session.rollback()
+                    existing = ProcessedMobileOperation.query.filter_by(
+                        operation_id=op_id
+                    ).first()
+                    if existing:
+                        logger.info("Mobile API idempotent race resolved", extra={
+                            'operation_id': op_id,
+                            'winning_status': existing.response_status,
+                        })
+                        try:
+                            body = json.loads(existing.response_body)
+                        except (ValueError, TypeError):
+                            body = {}
+                        return jsonify(body), existing.response_status
+                    logger.error(
+                        "Mobile API IntegrityError bez istniejącego wpisu",
+                        extra={'operation_id': op_id},
+                    )
+                    return jsonify({'error': 'idempotency_conflict'}), 500
+            else:
+                db.session.commit()
 
-        return response_obj, status_code
-    return wrapper
+            # Hook BL: po commit może triggerować zmiany statusu w BaseLinker
+            try:
+                from .baselinker_status_sync import flush_pending_syncs
+                flush_pending_syncs()
+            except Exception as bl_error:
+                logger.error("Mobile API: błąd flush BL status sync", extra={
+                    'error': str(bl_error),
+                })
+
+            return response_obj, status_code
+        return wrapper
+
+    # Użycie bez nawiasów: @with_idempotency — f to od razu funkcja handlera.
+    # Użycie z argumentem: @with_idempotency(retryable_statuses={409}) — f jest
+    # None przy pierwszym wywołaniu, decorator() zostaje zaaplikowany dopiero
+    # gdy Python nałoży zwrócony obiekt na funkcję.
+    if f is not None:
+        return decorator(f)
+    return decorator
 
 
-def cleanup_old_operations(older_than_days=7):
+# Trakownia: measured_at sięga 30 dni wstecz, więc wpisy idempotencji muszą
+# przeżyć dłużej niż domyślny tydzień — inaczej retry z długiej kolejki
+# offline utworzy duplikaty kłód.
+SAWMILL_RETENTION = {'sawmill_mobile.': 31}
+
+
+def cleanup_old_operations(older_than_days=7, endpoint_retention=None):
     """
     Usuwa wpisy z processed_mobile_operations starsze niż older_than_days dni.
     Używane przez `flask cleanup-mobile-operations` CLI command.
 
+    endpoint_retention: mapa {prefiks_endpointu: dni} dla endpointów
+    wymagających dłuższej retencji niż domyślna. Trakownia dopuszcza
+    measured_at do 30 dni wstecz, więc tablet offline dłużej niż tydzień
+    zduplikowałby kłody — jej operacje trzymamy 31 dni. Pozostałe stanowiska
+    bez zmian (domyślnie None → tylko SAWMILL_RETENTION).
+
     Returns:
-        int: liczba usuniętych wierszy
+        int: liczba usuniętych wierszy (suma z obu przebiegów)
     """
-    cutoff = get_local_now() - timedelta(days=older_than_days)
-    deleted = ProcessedMobileOperation.query.filter(
+    if endpoint_retention is None:
+        endpoint_retention = SAWMILL_RETENTION
+
+    now = get_local_now()
+    deleted = 0
+
+    # Endpointy z niestandardową retencją — usuń tylko to, co starsze niż ich
+    # własny próg.
+    for prefix, days in endpoint_retention.items():
+        cutoff = now - timedelta(days=days)
+        deleted += (
+            ProcessedMobileOperation.query
+            .filter(ProcessedMobileOperation.endpoint.like(prefix + '%'))
+            .filter(ProcessedMobileOperation.processed_at < cutoff)
+            .delete(synchronize_session=False)
+        )
+
+    # Reszta endpointów — domyślna retencja, z wykluczeniem prefiksów już
+    # obsłużonych wyżej (żeby nie usunąć ich świeżych wpisów przed czasem).
+    cutoff = now - timedelta(days=older_than_days)
+    query = ProcessedMobileOperation.query.filter(
         ProcessedMobileOperation.processed_at < cutoff
-    ).delete(synchronize_session=False)
+    )
+    for prefix in endpoint_retention:
+        query = query.filter(~ProcessedMobileOperation.endpoint.like(prefix + '%'))
+    deleted += query.delete(synchronize_session=False)
+
     db.session.commit()
     logger.info("Mobile API: cleanup zakończony", extra={
         'deleted_count': deleted,
         'older_than_days': older_than_days,
+        'endpoint_retention': endpoint_retention,
         'cutoff': cutoff.isoformat(),
     })
     return deleted

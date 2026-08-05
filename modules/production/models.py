@@ -880,7 +880,8 @@ class ProductionDevice(db.Model):
     last_app_version_code = Column(Integer, nullable=True)
 
     VALID_STATION_CODES = {
-        'packaging', 'cutting', 'assembly', 'gluing', 'formatting', 'finishing'
+        'packaging', 'cutting', 'assembly', 'gluing', 'formatting', 'finishing',
+        'sawmill',   # trakownia — rejestr surowca, poza pipeline'em produktów
     }
 
     @validates('station_code')
@@ -928,7 +929,9 @@ class ProcessedMobileOperation(db.Model):
     order_id = Column(Integer, nullable=True)
     device_id = Column(String(64), nullable=True, index=True)
     response_status = Column(Integer, nullable=False)
-    response_body = Column(LONGTEXT, nullable=False)
+    # with_variant: na MySQL nadal LONGTEXT, ale SQLite (testy) potrafi to
+    # skompilować jako TEXT. Bez tego nie da się przetestować idempotencji.
+    response_body = Column(LONGTEXT().with_variant(Text(), 'sqlite'), nullable=False)
     processed_at = Column(DateTime, default=get_local_now, nullable=False, index=True)
 
     def __repr__(self):

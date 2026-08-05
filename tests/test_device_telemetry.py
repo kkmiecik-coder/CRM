@@ -105,7 +105,8 @@ def test_telemetry_empty_fleet():
     """Brak urządzeń → wszystkie stanowiska Niedostępne."""
     result = build_devices_telemetry([], now=datetime(2026, 5, 21, 15, 0, 0))
     assert set(result.keys()) == {
-        'cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging'
+        'cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging',
+        'sawmill',
     }
     for code, status in result.items():
         assert status['active'] is False

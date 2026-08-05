@@ -19,84 +19,103 @@ Data: 2025-01-13
 """
 
 from functools import wraps
-from flask import session, flash, redirect, url_for, current_app, render_template
+from flask import session, flash, redirect, url_for, current_app, render_template, jsonify
 from typing import Optional
 import logging
 
 logger = logging.getLogger(__name__)
 
 
-def require_module_access(module_key: str, redirect_to: str = 'dashboard.dashboard'):
+def require_module_access(module_key: str, redirect_to: str = 'dashboard.dashboard',
+                           as_json: bool = False):
     """
     Dekorator sprawdzający dostęp do modułu
-    
+
     Sprawdza czy zalogowany użytkownik ma dostęp do określonego modułu
     używając PermissionService.
-    
+
     Args:
         module_key (str): Klucz modułu (np. 'quotes', 'production', 'users')
         redirect_to (str): Endpoint do przekierowania przy braku dostępu (opcjonalnie)
-    
+        as_json (bool): gdy True, zamiast redirectów i szablonu HTML zwraca JSON —
+            401 {"error": "unauthorized"} przy braku sesji, 403
+            {"error": "module_access_denied"} przy braku uprawnień. Endpointy API
+            (np. trakownia) nie mogą dostać strony HTML, bo frontend próbuje ją
+            sparsować jako JSON.
+
     Returns:
         Funkcja dekoratora
-    
+
     Examples:
         >>> @require_module_access('quotes')
         ... def quotes_dashboard():
         ...     return "Quotes Dashboard"
-        
+
         >>> @require_module_access('users')
         ... def manage_team():
         ...     return "Team Management"
-    
+
+        >>> @require_module_access('sawmill', as_json=True)
+        ... def sawmill_api_endpoint():
+        ...     return jsonify({"ok": True})
+
     Raises:
-        Redirect: Przekierowanie na stronę access_denied lub login
+        Redirect: Przekierowanie na stronę access_denied lub login (as_json=False)
     """
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
             # 1. Sprawdź czy użytkownik jest zalogowany
             user_email = session.get('user_email')
-            
+
             if not user_email:
                 logger.warning(f"Próba dostępu do modułu '{module_key}' bez zalogowania")
+                if as_json:
+                    return jsonify({'error': 'unauthorized'}), 401
                 flash("Twoja sesja wygasła. Zaloguj się ponownie.", "error")
                 return redirect(url_for('login'))
-            
+
             # 2. Pobierz użytkownika z bazy
             # Import lokalnie aby uniknąć circular imports
             from ..models import User, Module
-            
+
             user = User.query.filter_by(email=user_email).first()
-            
+
             if not user:
                 logger.error(f"Użytkownik {user_email} nie istnieje w bazie")
+                if as_json:
+                    return jsonify({'error': 'unauthorized'}), 401
                 flash("Użytkownik nie istnieje.", "error")
                 session.clear()
                 return redirect(url_for('login'))
-            
+
             # 3. Sprawdź czy konto jest aktywne
             if not user.is_active():
                 logger.warning(f"Próba dostępu użytkownika {user.email} (ID: {user.id}) - konto nieaktywne")
+                if as_json:
+                    return jsonify({'error': 'unauthorized'}), 401
                 flash("Twoje konto zostało dezaktywowane. Skontaktuj się z administratorem.", "error")
                 session.clear()
                 return redirect(url_for('login'))
-            
+
             # 4. Sprawdź dostęp do modułu
             from ..services.permission_service import PermissionService
-            
+
             has_access = PermissionService.user_has_module_access(user.id, module_key)
-            
+
             if not has_access:
                 logger.warning(
                     f"User {user.email} (ID: {user.id}) próbował uzyskać dostęp do modułu '{module_key}' "
                     f"- BRAK UPRAWNIEŃ"
                 )
-                
+
+                if as_json:
+                    return jsonify({'error': 'module_access_denied'}), 403
+
                 # Pobierz nazwę modułu dla lepszej informacji
                 module = Module.query.filter_by(module_key=module_key).first()
                 module_name = module.display_name if module else module_key.title()
-                
+
                 # Przekieruj na dedykowaną stronę access_denied
                 return render_template(
                     'access_denied.html',
@@ -105,11 +124,11 @@ def require_module_access(module_key: str, redirect_to: str = 'dashboard.dashboa
                     user_email=user.email,
                     redirect_url=url_for(redirect_to)
                 ), 403
-            
+
             # 5. Dostęp przyznany - wykonaj funkcję
             logger.info(f"User {user.email} (ID: {user.id}) uzyskał dostęp do modułu '{module_key}'")
             return func(*args, **kwargs)
-        
+
         return wrapper
     return decorator
 
