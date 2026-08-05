@@ -140,7 +140,20 @@ def test_admin_edytuje_pomiar_po_zakonczeniu(client, app, monkeypatch):
     assert r.status_code == 200
 
 
-def test_edycja_rozliczonego_zablokowana(client, app):
+def test_edycja_rozliczonego_zablokowana(client, app, monkeypatch):
+    """
+    Bez podmiany _current_user_id (fixture nie ma prawdziwej sesji
+    Flask-Login, więc funkcja zawsze zwraca None) test szedłby ścieżką
+    TABLETU, a nie panelu — dowodziłby wtedy tylko, że tablet nie może
+    pisać w 'settled', co jest prawdą niezależnie od tego, czy
+    PANEL_WRITABLE_STATUSES poprawnie wyklucza 'settled'. Podmieniamy na
+    zalogowanego usera (user_id=999), żeby faktycznie przejść przez gałąź
+    panelu w _guard_writable() i sprawdzić WŁAŚCIWĄ regułę: nawet panel,
+    któremu wolno pisać w completed, nie może pisać w settled.
+    """
+    import modules.production.sawmill.routers.panel_api as panel_api
+    monkeypatch.setattr(panel_api, '_current_user_id', lambda: 999)
+
     oid = _zlecenie(app, pomiarow=1)
     with app.app_context():
         order = db.session.query(SawmillOrder).get(oid)
@@ -149,6 +162,77 @@ def test_edycja_rozliczonego_zablokowana(client, app):
         db.session.commit()
     r = client.patch(BASE + '/logs/{}'.format(log_id),
                      json=dict(POMIAR_JSON, length_cm=420.0))
+    assert r.status_code == 409
+
+
+def test_usuniecie_pomiaru_w_zakonczonym_dozwolone_z_panelu(client, app, monkeypatch):
+    """
+    Podmiana _current_user_id symuluje realnie zalogowanego użytkownika
+    panelu (fixture bez sesji Flask-Login zawsze zwraca None, czyli bez
+    tej podmiany request poszedłby ścieżką TABLETU, która w ogóle nie
+    dopuszcza statusu completed — test dostałby 409 i nic by nie
+    udowodnił o panelu). Sprawdzamy właśnie to, co wolno panelowi:
+    usunięcie pomiaru w zleceniu zakończonym (completed).
+    """
+    import modules.production.sawmill.routers.panel_api as panel_api
+    monkeypatch.setattr(panel_api, '_current_user_id', lambda: 999)
+
+    oid = _zlecenie(app, pomiarow=1)
+    with app.app_context():
+        order = db.session.query(SawmillOrder).get(oid)
+        order.status = STATUS_COMPLETED
+        log_id = SawmillLog.query.first().id
+        db.session.commit()
+
+    r = client.delete(BASE + '/logs/{}'.format(log_id))
+    assert r.status_code == 200
+    with app.app_context():
+        log = db.session.query(SawmillLog).get(log_id)
+        assert log.is_deleted is True
+
+
+def test_usuniecie_pomiaru_w_rozliczonym_zablokowane(client, app, monkeypatch):
+    """
+    Jak wyżej — bez podmiany _current_user_id trafialibyśmy w gałąź
+    tabletu (user_id=None) i test dowodziłby tylko, że TABLET nie może
+    kasować pomiaru w 'settled', a nie że nie wolno tego panelowi. Panel
+    ma szerszy dostęp (także completed), więc dopiero podmiana na
+    zalogowanego użytkownika sprawdza właściwą regułę: nawet panel nie
+    może usuwać pomiaru w zleceniu rozliczonym.
+    """
+    import modules.production.sawmill.routers.panel_api as panel_api
+    monkeypatch.setattr(panel_api, '_current_user_id', lambda: 999)
+
+    oid = _zlecenie(app, pomiarow=1)
+    with app.app_context():
+        order = db.session.query(SawmillOrder).get(oid)
+        order.status = STATUS_SETTLED
+        log_id = SawmillLog.query.first().id
+        db.session.commit()
+
+    r = client.delete(BASE + '/logs/{}'.format(log_id))
+    assert r.status_code == 409
+    with app.app_context():
+        log = db.session.query(SawmillLog).get(log_id)
+        assert log.is_deleted is False
+
+
+def test_dodanie_pomiaru_recznie_w_rozliczonym_zablokowane(client, app):
+    """
+    Bez monkeypatcha celowo: add_log() z manual=True (ta ścieżka, czyli
+    ręczne dodanie pomiaru z panelu) wymusza tryb panelu niezależnie od
+    user_id — _guard_writable(order, panel=manual) w
+    services/orders.py — więc podmiana _current_user_id nic by tu nie
+    zmieniła. Test sprawdza wyłącznie zachowanie przez HTTP: ręczne
+    dodanie pomiaru do zlecenia rozliczonego (settled) ma dać 409.
+    """
+    oid = _zlecenie(app, pomiarow=1)
+    with app.app_context():
+        db.session.query(SawmillOrder).get(oid).status = STATUS_SETTLED
+        db.session.commit()
+
+    r = client.post(BASE + '/orders/{}/logs'.format(oid),
+                    json=dict(POMIAR_JSON, measured_at='2026-08-05T09:31:12'))
     assert r.status_code == 409
 
 
