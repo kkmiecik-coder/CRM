@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
-"""Modele trakowni — nazwy tabel, kolumny, ograniczenia."""
+"""Modele trakowni — nazwy tabel, kolumny, ograniczenia.
+
+Importujemy prawdziwy model User zamiast tworzyć atrapę — db.metadata jest
+singletonem współdzielonym w całym repo, a druga definicja tabeli 'users'
+(np. w tests/test_bot_api_by_token_integration.py) wywaliłaby zbieranie
+całego pakietu testów przez InvalidRequestError.
+"""
 import os
 import sys
 
@@ -8,7 +14,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pytest
 from flask import Flask
 from sqlalchemy.pool import StaticPool
-from sqlalchemy import Column, Integer, String, Boolean, DateTime
 
 from extensions import db
 from modules.production.sawmill.models import (
@@ -27,17 +32,19 @@ from modules.production.sawmill.models import (
     SawmillSpecies,
     SawmillSupplier,
 )
-
-
-# Makieta tabeli users do testów
-class User(db.Model):
-    __tablename__ = 'users'
-    id = Column(Integer, primary_key=True)
-    username = Column(String(120), unique=True, nullable=False)
-    email = Column(String(120), unique=True, nullable=False)
-    password = Column(String(255))
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime)
+from modules.users.models import User
+# Sam import User nie wystarcza. User.multiplier_id ma ForeignKey('multipliers.id')
+# i relationship('Multiplier') — SQLAlchemy przy pierwszym flush/query configure_mappers()
+# konfiguruje CAŁY rejestr mapperów (nie tylko klasy użyte w tym teście), więc klasa
+# Multiplier musi być zaimportowana. Multiplier siedzi w modules/calculator/models.py
+# razem z Quote, a Quote ma relationship('Client') i relationship('QuoteStatus') —
+# te też muszą się dać rozwiązać, inaczej configure_mappers() wybuchnie na Quote,
+# mimo że sawmill w ogóle go nie dotyka. Identyczny wzorzec (i to samo uzasadnienie)
+# jest w docstringu tests/test_bot_api_by_token_integration.py.
+from modules.calculator.models import Multiplier  # noqa: F401 — rejestracja tabeli 'multipliers'
+from modules.clients.models import Client  # noqa: F401 — rejestr mapperów (Quote.client)
+import modules.quotes.models  # noqa: F401 — rejestr mapperów (Quote.quote_status)
+from modules.quotes.models import QuoteStatus  # noqa: F401
 
 
 SAWMILL_TABLES = [m.__table__ for m in (

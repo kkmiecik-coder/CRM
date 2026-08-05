@@ -10,8 +10,8 @@ od dostawcy i zostało rozcięte.
 from datetime import datetime
 
 from sqlalchemy import (
-    Boolean, Column, Date, DateTime, ForeignKey, Index, Integer, Numeric,
-    SmallInteger, String, Text, UniqueConstraint,
+    BigInteger, Boolean, Column, Date, DateTime, ForeignKey, Index, Integer,
+    Numeric, SmallInteger, String, Text, UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
 
@@ -174,8 +174,11 @@ class SawmillLog(db.Model):
     __tablename__ = 'prod_sawmill_logs'
 
     id = Column(Integer, primary_key=True)
+    # Bez index=True — kompozytowy Index('ix_sawmill_log_order_active', ...)
+    # niżej działa jako prefiks indeksu na samym order_id (MySQL), osobny
+    # indeks byłby zbędny; zgodne z SQL, który ma tylko indeks kompozytowy.
     order_id = Column(Integer, ForeignKey('prod_sawmill_orders.id'),
-                      nullable=False, index=True)
+                      nullable=False)
     # Numer nadawany przez serwer, nie tablet — przy kolejce offline dwa
     # urządzenia wysyłające naraz nadałyby te same numery.
     sequence_no = Column(Integer, nullable=False)
@@ -217,7 +220,9 @@ class SawmillAudit(db.Model):
     """
     __tablename__ = 'prod_sawmill_audit'
 
-    id = Column(Integer, primary_key=True)
+    # BIGINT świadomie — audyt to tabela tylko dopisywana, rosnąca szybciej
+    # niż reszta, zgodnie ze schematem w docs/superpowers/specs/2026-08-05-trakownia.sql.
+    id = Column(BigInteger, primary_key=True)
     order_id = Column(Integer, nullable=False, index=True)
     log_id = Column(Integer, nullable=True)
     action = Column(String(24), nullable=False)

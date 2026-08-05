@@ -19,7 +19,9 @@ CREATE TABLE `prod_sawmill_suppliers` (
   `updated_at` DATETIME DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_sawmill_supplier_name` (`name`),
-  KEY `ix_sawmill_supplier_active` (`is_active`)
+  KEY `ix_sawmill_supplier_active` (`is_active`),
+  CONSTRAINT `fk_sawmill_supplier_created_by_user`
+    FOREIGN KEY (`created_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE `prod_sawmill_species` (
@@ -55,7 +57,9 @@ CREATE TABLE `prod_sawmill_deliveries` (
   KEY `ix_sawmill_delivery_invoice` (`invoice_number`),
   KEY `ix_sawmill_delivery_date` (`delivery_date`),
   CONSTRAINT `fk_sawmill_delivery_supplier`
-    FOREIGN KEY (`supplier_id`) REFERENCES `prod_sawmill_suppliers` (`id`)
+    FOREIGN KEY (`supplier_id`) REFERENCES `prod_sawmill_suppliers` (`id`),
+  CONSTRAINT `fk_sawmill_delivery_created_by_user`
+    FOREIGN KEY (`created_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE `prod_sawmill_orders` (
@@ -87,7 +91,11 @@ CREATE TABLE `prod_sawmill_orders` (
   CONSTRAINT `fk_sawmill_order_delivery`
     FOREIGN KEY (`delivery_id`) REFERENCES `prod_sawmill_deliveries` (`id`),
   CONSTRAINT `fk_sawmill_order_species`
-    FOREIGN KEY (`species_id`) REFERENCES `prod_sawmill_species` (`id`)
+    FOREIGN KEY (`species_id`) REFERENCES `prod_sawmill_species` (`id`),
+  CONSTRAINT `fk_sawmill_order_settled_by_user`
+    FOREIGN KEY (`settled_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_sawmill_order_created_by_user`
+    FOREIGN KEY (`created_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE `prod_sawmill_logs` (
@@ -128,7 +136,9 @@ CREATE TABLE `prod_sawmill_audit` (
   `created_at` DATETIME NOT NULL,
   PRIMARY KEY (`id`),
   KEY `ix_sawmill_audit_order` (`order_id`),
-  KEY `ix_sawmill_audit_created` (`created_at`)
+  KEY `ix_sawmill_audit_created` (`created_at`),
+  CONSTRAINT `fk_sawmill_audit_user`
+    FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ── Seed ────────────────────────────────────────────────────────────────────
