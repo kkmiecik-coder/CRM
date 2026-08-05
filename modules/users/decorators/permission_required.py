@@ -84,6 +84,9 @@ def require_module_access(module_key: str, redirect_to: str = 'dashboard.dashboa
             if not user:
                 logger.error(f"Użytkownik {user_email} nie istnieje w bazie")
                 if as_json:
+                    # Sesja ma być czyszczona niezależnie od formatu odpowiedzi —
+                    # inaczej klient JSON z nieważną sesją zachowałby ją w ciasteczku.
+                    session.clear()
                     return jsonify({'error': 'unauthorized'}), 401
                 flash("Użytkownik nie istnieje.", "error")
                 session.clear()
@@ -93,6 +96,8 @@ def require_module_access(module_key: str, redirect_to: str = 'dashboard.dashboa
             if not user.is_active():
                 logger.warning(f"Próba dostępu użytkownika {user.email} (ID: {user.id}) - konto nieaktywne")
                 if as_json:
+                    # Jak wyżej — czyszczenie sesji niezależne od formatu odpowiedzi.
+                    session.clear()
                     return jsonify({'error': 'unauthorized'}), 401
                 flash("Twoje konto zostało dezaktywowane. Skontaktuj się z administratorem.", "error")
                 session.clear()

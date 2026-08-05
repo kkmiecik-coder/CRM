@@ -577,6 +577,23 @@ def with_idempotency(f=None, retryable_statuses=None):
 SAWMILL_RETENTION = {'sawmill_mobile.': 31}
 
 
+def _escape_like_prefix(prefix):
+    """
+    Escapuje znaki specjalne LIKE (`%`, `_`) oraz sam znak ucieczki (`\\`)
+    w dosłownym prefiksie endpointu, żeby np. `_` w 'sawmill_mobile.' nie był
+    trafnie odczytany jako wildcard LIKE dopasowujący DOWOLNY jeden znak
+    (`LIKE 'sawmill_mobile.%'` bez ESCAPE dopasowałby też 'sawmillXmobile.*').
+
+    Wybór `ESCAPE '\\'` (a nie np. ręczne dzielenie na `LIKE`+regexp) bo:
+    - to natywna, deklaratywna klauzula SQL LIKE, jednoznacznie wspierana
+      i identycznie się zachowująca w MySQL i SQLite (obydwa dialekty
+      respektują ESCAPE), więc zero warunków per-silnik;
+    - `.like(pattern, escape='\\')` w SQLAlchemy 1.4 kompiluje się do tej
+      klauzuli wprost — bez potrzeby `text()` czy surowego SQL.
+    """
+    return prefix.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+
+
 def cleanup_old_operations(older_than_days=7, endpoint_retention=None):
     """
     Usuwa wpisy z processed_mobile_operations starsze niż older_than_days dni.
@@ -598,24 +615,31 @@ def cleanup_old_operations(older_than_days=7, endpoint_retention=None):
     deleted = 0
 
     # Endpointy z niestandardową retencją — usuń tylko to, co starsze niż ich
-    # własny próg.
+    # własny próg. Prefiks escapowany (patrz `_escape_like_prefix`) — inaczej
+    # `_` w prefiksie dopasowałby się jako wildcard do dowolnego znaku.
     for prefix, days in endpoint_retention.items():
         cutoff = now - timedelta(days=days)
         deleted += (
             ProcessedMobileOperation.query
-            .filter(ProcessedMobileOperation.endpoint.like(prefix + '%'))
+            .filter(ProcessedMobileOperation.endpoint.like(
+                _escape_like_prefix(prefix) + '%', escape='\\'
+            ))
             .filter(ProcessedMobileOperation.processed_at < cutoff)
             .delete(synchronize_session=False)
         )
 
     # Reszta endpointów — domyślna retencja, z wykluczeniem prefiksów już
     # obsłużonych wyżej (żeby nie usunąć ich świeżych wpisów przed czasem).
+    # Ta sama escapowana logika co wyżej — rozjazd między obiema pętlami
+    # oznaczałby wiersze usuwane dwa razy albo nieusuwane wcale.
     cutoff = now - timedelta(days=older_than_days)
     query = ProcessedMobileOperation.query.filter(
         ProcessedMobileOperation.processed_at < cutoff
     )
     for prefix in endpoint_retention:
-        query = query.filter(~ProcessedMobileOperation.endpoint.like(prefix + '%'))
+        query = query.filter(~ProcessedMobileOperation.endpoint.like(
+            _escape_like_prefix(prefix) + '%', escape='\\'
+        ))
     deleted += query.delete(synchronize_session=False)
 
     db.session.commit()
