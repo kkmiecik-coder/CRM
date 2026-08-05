@@ -296,15 +296,15 @@ def generate_nda():
         filename = f"NDA_{data['last_name']}_{data['first_name']}.pdf"
         
         current_app.logger.info(f"NDA generated successfully: {filename}")
-        
-        # Zwróć PDF używając Response z surowymi bajtami
-        from flask import Response
-        return Response(
-            pdf_bytes,
+
+        # send_file buduje Content-Disposition wg RFC 5987. Nie wolno wstawiać nazwy
+        # pliku do nagłówka surowo: serwer WSGI koduje nagłówki w latin-1 (PEP 3333),
+        # a polskie ą/ć/ę/ł/ń/ś/ź/ż się w nim nie mieszczą i odpowiedź się rwie.
+        return send_file(
+            io.BytesIO(pdf_bytes),
             mimetype='application/pdf',
-            headers={
-                'Content-Disposition': f'attachment; filename="{filename}"'
-            }
+            as_attachment=True,
+            download_name=filename
         )
         
     except Exception as e:
