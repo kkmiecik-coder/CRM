@@ -314,6 +314,82 @@ def test_tablet_nie_moze_usunac_pomiaru_po_zakonczeniu(app):
             delete_log(log, device_id='T')
 
 
+# ── Brakujące przejścia i warunki brzegowe ─────────────────────────────────
+
+def test_panel_nie_moze_usunac_pomiaru_po_rozliczeniu(app):
+    """Symetryczne do testu edycji — panel też nie może usunąć po rozliczeniu."""
+    with app.app_context():
+        order = _zlecenie()
+        log = add_log(order, POMIAR, CZAS, device_id='T')
+        complete_order(order, device_id='T')
+        settle_order(order, Decimal('76.500'), None, user_id=1)
+        db.session.commit()
+        with pytest.raises(SawmillStateError):
+            delete_log(log, user_id=1)
+
+
+def test_rozliczenie_wymaga_uzgodnionej_objetosci(app):
+    """settle_order musi odrzucić None jako agreed_volume_m3."""
+    with app.app_context():
+        order = _zlecenie()
+        add_log(order, POMIAR, CZAS, device_id='T')
+        complete_order(order, device_id='T')
+        db.session.commit()
+        # Zlecenie jest w statusie COMPLETED, teraz próbujemy rozliczyć bez objętości
+        with pytest.raises(SawmillStateError) as exc_info:
+            settle_order(order, None, 'jakaś notatka', user_id=1)
+        assert 'uzgodniona objętość' in str(exc_info.value)
+
+
+def test_zakonczenie_z_niewlasciwego_statusu(app):
+    """complete_order na już completed zleceniu powinien rzucić SawmillStateError."""
+    with app.app_context():
+        order = _zlecenie()
+        add_log(order, POMIAR, CZAS, device_id='T')
+        complete_order(order, device_id='T')
+        db.session.commit()
+        status_przed = order.status
+        # Próba podwójnego zakończenia
+        with pytest.raises(SawmillStateError):
+            complete_order(order, device_id='T')
+        # Stan nie powinien się zmienić
+        db.session.refresh(order)
+        assert order.status == status_przed
+
+
+def test_wznowienie_z_niewlasciwego_statusu(app):
+    """reopen_order na zleceniu które nie jest completed powinien rzucić SawmillStateError."""
+    with app.app_context():
+        order = _zlecenie()
+        add_log(order, POMIAR, CZAS, device_id='T')
+        db.session.commit()
+        # Zlecenie jest w statusie IN_PROGRESS
+        assert order.status == STATUS_IN_PROGRESS
+        status_przed = order.status
+        with pytest.raises(SawmillStateError):
+            reopen_order(order, user_id=1)
+        # Stan nie powinien się zmienić
+        db.session.refresh(order)
+        assert order.status == status_przed
+
+
+def test_cofniecie_rozliczenia_z_niewlasciwego_statusu(app):
+    """unsettle_order na zleceniu które nie jest settled powinien rzucić SawmillStateError."""
+    with app.app_context():
+        order = _zlecenie()
+        add_log(order, POMIAR, CZAS, device_id='T')
+        complete_order(order, device_id='T')
+        db.session.commit()
+        # Zlecenie jest w statusie COMPLETED, a nie SETTLED
+        assert order.status == STATUS_COMPLETED
+        status_przed = order.status
+        with pytest.raises(SawmillStateError):
+            unsettle_order(order, user_id=1)
+        # Stan nie powinien się zmienić
+        db.session.refresh(order)
+        assert order.status == status_przed
+
+
 # ── SAVEPOINT i kolizja sequence_no ───────────────────────────────────────────
 
 def test_kolizja_numeru_jest_ponawiana_raz(app):
