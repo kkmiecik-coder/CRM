@@ -5,12 +5,15 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from unittest.mock import patch
+
 import pytest
 from flask import Flask
 from sqlalchemy.pool import StaticPool
 
 from extensions import db
 from modules.production.sawmill.models import SawmillCounter
+from modules.production.sawmill.services import numbering
 from modules.production.sawmill.services.numbering import next_order_number
 from modules.users.models import User
 # Sam import User nie wystarcza — to samo uzasadnienie co w test_sawmill_models.py
@@ -84,3 +87,45 @@ def test_domyslny_rok_to_biezacy(app):
         numer = next_order_number()
         db.session.commit()
         assert numer.startswith('TRK/{}/'.format(datetime.now().year))
+
+
+def test_wyscig_o_pierwszy_wiersz_rocznika(app):
+    """
+    Symulacja wyścigu przy leniwym zakładaniu wiersza licznika dla nowego
+    roku: dwie transakcje wchodzące na pierwsze zlecenie roku jednocześnie
+    obie widzą brak wiersza i obie próbują go wstawić — druga powinna
+    dostać IntegrityError na duplikacie klucza głównego, złapać go
+    (SAVEPOINT), ponowić SELECT i dostać poprawny kolejny numer zamiast
+    wywalać wyjątkiem cały request.
+
+    UWAGA: SQLite nie ma blokad wierszy i ignoruje with_for_update(), więc
+    realnej współbieżności nie da się tu odtworzyć (jeden proces, jedno
+    połączenie). Symulujemy kolizję: podmieniamy wewnętrzne zapytanie tak,
+    żeby przy pierwszym wywołaniu zwróciło None (jakby konkurent jeszcze
+    nie zacommitował), mimo że wiersz fizycznie już istnieje w bazie
+    (jakby konkurent zdążył go wstawić) — dzięki temu próba insertu w
+    next_order_number() naprawdę wywoła IntegrityError, a test sprawdza
+    zachowanie funkcji (zwrócony numer, brak wyjątku), nie implementację.
+    """
+    with app.app_context():
+        # Wiersz „wstawiony przez konkurenta" tuż przed naszą próbą insertu.
+        db.session.add(SawmillCounter(year=2026, last_number=5))
+        db.session.commit()
+
+        real_select = numbering._select_counter_for_update
+        wywolania = {'n': 0}
+
+        def fake_select(year):
+            wywolania['n'] += 1
+            if wywolania['n'] == 1:
+                # Pierwsze sprawdzenie „nie widzi" wiersza konkurenta.
+                return None
+            # Ponowienie po IntegrityError — realny SELECT, znajduje wiersz.
+            return real_select(year)
+
+        with patch.object(numbering, '_select_counter_for_update', side_effect=fake_select):
+            numer = next_order_number(2026)
+        db.session.commit()
+
+        assert numer == 'TRK/2026/006'
+        assert wywolania['n'] == 2
