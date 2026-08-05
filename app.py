@@ -563,8 +563,9 @@ def create_app():
         register_production_routers(production_bp)
         app.register_blueprint(production_bp, url_prefix='/production')
         app.register_blueprint(mobile_api_bp, url_prefix='/api/mobile')
-        from modules.production.sawmill import sawmill_mobile_bp
+        from modules.production.sawmill import sawmill_mobile_bp, sawmill_panel_bp
         app.register_blueprint(sawmill_mobile_bp, url_prefix='/api/mobile/sawmill')
+        app.register_blueprint(sawmill_panel_bp, url_prefix='/production/api/sawmill')
         app.register_blueprint(print_agent_bp, url_prefix='/api/print-agent')
         app.register_blueprint(production_display_bp, url_prefix='/production')
         app.register_blueprint(partner_academy_bp, url_prefix='/partner-academy')

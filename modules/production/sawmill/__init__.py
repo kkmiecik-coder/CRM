@@ -18,4 +18,4 @@ sawmill_panel_bp = Blueprint(
 sawmill_mobile_bp = Blueprint('sawmill_mobile', __name__)
 
 # Import routerów NA KOŃCU — rejestrują trasy na powyższych blueprintach.
-from modules.production.sawmill.routers import mobile_api  # noqa: E402,F401
+from modules.production.sawmill.routers import mobile_api, panel_api  # noqa: E402,F401
