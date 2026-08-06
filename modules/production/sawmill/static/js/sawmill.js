@@ -162,6 +162,16 @@
         return '<tr><td colspan="13" class="text-center text-muted py-4">' + escapeHtml(message) + '</td></tr>';
     }
 
+    // Protokół PDF — GET /orders/<id>/protocol.pdf otwierany w nowej karcie.
+    // Zwykły <a target="_blank">, nie fetch: to endpoint zwracający plik,
+    // sesja (ciasteczko) idzie automatycznie z nawigacją przeglądarki tak
+    // samo jak przy exportXlsx() niżej.
+    function protocolPdfLinkHtml(orderId) {
+        return '<a class="btn btn-sm btn-outline-secondary" href="' + API + '/orders/' + orderId + '/protocol.pdf" ' +
+            'target="_blank" rel="noopener" title="Protokół PDF">' +
+            '<i class="fas fa-file-pdf"></i></a>';
+    }
+
     function actionButtonsHtml(o) {
         var html = '';
         if (o.status === 'completed') {
@@ -205,6 +215,7 @@
             '<td class="sawmill-actions">' +
             '<button type="button" class="btn btn-sm btn-outline-secondary" onclick="Sawmill.openDetails(' + o.id + ')" title="Szczegóły">' +
             '<i class="fas fa-eye"></i></button>' +
+            protocolPdfLinkHtml(o.id) +
             actionButtonsHtml(o) +
             '</td>' +
             '</tr>'
@@ -576,6 +587,8 @@
             '<tbody>' + (logs.map(renderLogRow).join('') || '<tr><td colspan="9" class="text-center text-muted">Brak zmierzonych kłód</td></tr>') +
             '</tbody></table></div>' +
 
+            manualLogFormHtml(o.id) +
+
             '<div class="sawmill-audit-section">' +
             '<button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#sawmill-audit-collapse">' +
             '<i class="fas fa-history me-1"></i>Historia audytu (' + data.audit.length + ')</button>' +
@@ -620,6 +633,78 @@
                 console.error('[Sawmill] Błąd ładowania szczegółów:', err);
                 body.innerHTML = '<div class="alert alert-danger">Błąd połączenia z serwerem.</div>';
             });
+    }
+
+    // Ratunek dla pomiarów odrzuconych przez 409 — droga druga (obok
+    // Sawmill.reopenOrder): ręczne dopisanie pomiaru, gdy tablet padł albo
+    // kolejka na tablecie została wyczyszczona. Backend (POST /orders/<id>/logs)
+    // istniał od dawna, ale bez tego formularza nie miał żadnej drogi
+    // dojścia w interfejsie.
+    function manualLogFormHtml(orderId) {
+        function numberField(field, label) {
+            return '<div class="col-6 col-md-2"><label class="form-label small mb-1">' + label + '</label>' +
+                '<input type="number" step="0.1" min="0" class="form-control form-control-sm" ' +
+                'data-field="' + field + '" id="sawmill-manual-log-' + field + '"></div>';
+        }
+
+        return (
+            '<div class="sawmill-manual-log-section mb-3">' +
+            '<h6>Dopisz pomiar ręcznie</h6>' +
+            '<p class="text-muted small mb-2">Ścieżka awaryjna — gdy tablet padł albo kolejka pomiarów na tablecie została wyczyszczona.</p>' +
+            '<div class="row g-2 align-items-end" id="sawmill-manual-log-form">' +
+            numberField('butt_d1_cm', 'Odziomek D1') +
+            numberField('butt_d2_cm', 'Odziomek D2') +
+            numberField('top_d1_cm', 'Wierzchołek D1') +
+            numberField('top_d2_cm', 'Wierzchołek D2') +
+            numberField('length_cm', 'Długość') +
+            '<div class="col-6 col-md-2"><label class="form-label small mb-1">Czas pomiaru</label>' +
+            '<input type="datetime-local" class="form-control form-control-sm" ' +
+            'data-field="measured_at" id="sawmill-manual-log-measured_at"></div>' +
+            '</div>' +
+            '<div class="mt-2">' +
+            '<button type="button" class="btn btn-sm btn-outline-primary" id="sawmill-btn-manual-log-submit" ' +
+            'onclick="Sawmill.submitManualLog(' + orderId + ')">' +
+            '<i class="fas fa-plus me-1"></i>Dopisz pomiar</button>' +
+            '<div class="alert alert-danger mt-2" id="sawmill-manual-log-error" style="display:none;"></div>' +
+            '</div>' +
+            '</div>'
+        );
+    }
+
+    function collectManualLogPayload() {
+        var payload = {};
+        el('sawmill-manual-log-form').querySelectorAll('[data-field]').forEach(function (input) {
+            payload[input.dataset.field] = input.value;
+        });
+        return payload;
+    }
+
+    function submitManualLog(orderId) {
+        var errorEl = el('sawmill-manual-log-error');
+        errorEl.style.display = 'none';
+        var payload = collectManualLogPayload();
+        var submitBtn = el('sawmill-btn-manual-log-submit');
+        submitBtn.disabled = true;
+
+        return fetch(API + '/orders/' + orderId + '/logs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            body: JSON.stringify(payload),
+        }).then(function (resp) {
+            if (!resp.ok) return handleErrorResponse(resp, errorEl);
+            toast('Pomiar dopisany ręcznie', 'success');
+            return openDetails(orderId).then(loadOrders);
+        }).catch(function (err) {
+            console.error('[Sawmill] Błąd ręcznego dopisania pomiaru:', err);
+            errorEl.textContent = 'Błąd połączenia z serwerem.';
+            errorEl.style.display = 'block';
+        }).finally(function () {
+            // Po sukcesie openDetails() i tak przebudowuje cały modal (nowy
+            // przycisk, nowy element DOM) — disabled=false na starym elemencie
+            // nic już wtedy nie zmienia, ale przy błędzie (formularz zostaje)
+            // przywraca możliwość poprawienia i ponowienia.
+            if (submitBtn) submitBtn.disabled = false;
+        });
     }
 
     function findLogInCurrentOrder(logId) {
@@ -946,6 +1031,7 @@
         editLog: editLog,
         saveLog: saveLog,
         deleteLog: deleteLog,
+        submitManualLog: submitManualLog,
         removeItemRow: removeItemRow,
         addDictItem: addDictItem,
         deleteDictItem: deleteDictItem,

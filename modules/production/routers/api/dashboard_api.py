@@ -42,6 +42,30 @@ def _safe_station_work(station_code, day_start, day_end):
         return {'pieces_done': 0, 'm3_done': 0.0, 'items_count': 0, 'orders_count': 0}
 
 
+def _safe_sawmill_stats():
+    """
+    Ten sam wzorzec co _safe_station_work() wyżej, zastosowany do agregatów
+    trakowni. Bez tej osłony błąd w sawmill_dashboard_stats() (np. brakująca
+    tabela prod_sawmill_*, gdyby DDL nie poszedł przed deployem, albo
+    uszkodzony wiersz) leciałby jako wyjątek nieobsłużony w tym miejscu i
+    trafiał w `except Exception` na zewnątrz dashboard_tab_content(), które
+    zwraca 500 dla CAŁEGO dashboardu — kładąc kafelki wszystkich sześciu
+    pozostałych, w pełni sprawnych stanowisk produkcyjnych, nie tylko
+    trakowni. Fallback na zera zamienia więc „dashboard down" w „kafelek
+    trakowni pokazuje zera", zgodnie z tym, jak reszta stanowisk już się
+    zachowuje.
+    """
+    from modules.production.sawmill.services.exports import sawmill_dashboard_stats
+    try:
+        return sawmill_dashboard_stats()
+    except Exception as e:
+        logger.warning("Nie udało się pobrać sawmill_dashboard_stats", extra={
+            'error': str(e)
+        })
+        return {'open_orders': 0, 'logs_today': 0, 'volume_today_m3': 0.0,
+                'to_settle': 0, 'progress_pct': 0.0}
+
+
 # ============================================================================
 # DASHBOARD STATS
 # ============================================================================
@@ -841,8 +865,7 @@ def dashboard_tab_content():
         # zbudowana PRZED pętlą przypisującą tablet_status niżej (klucz
         # 'sawmill' musi już istnieć w dashboard_stats['stations'], inaczej
         # pętla wywali KeyError i popsuje dashboard wszystkim stanowiskom).
-        from modules.production.sawmill.services.exports import sawmill_dashboard_stats
-        sawmill = sawmill_dashboard_stats()
+        sawmill = _safe_sawmill_stats()
         dashboard_stats['stations']['sawmill'] = {
             'open_orders': sawmill['open_orders'],
             'logs_today': sawmill['logs_today'],

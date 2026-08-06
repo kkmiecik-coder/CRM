@@ -60,12 +60,31 @@ def compute_differences(order, measured_volume_m3, threshold_pct):
     difference_pct liczy się z JUŻ ZAOKRĄGLONEJ difference_m3, nie z surowej
     różnicy — inaczej procent pokazywany w panelu mógłby nie odpowiadać
     różnicy m3 wyświetlanej tuż obok niego.
+
+    Osłona na declared == 0: routery (order_update, delivery_create) od dawna
+    odrzucają deklarację niedodatnią kodem 422, więc w normalnym obrocie zero
+    tu nie dotrze — ale ta funkcja liczy się przy KAŻDYM odczycie listy
+    zleceń (_panel_payload w orders_list), więc jeden wiersz zapisany kiedyś
+    inną drogą (np. wprost w bazie) nie może wywrócić dzieleniem przez zero
+    odczytu CAŁEJ listy. Przy declared == 0 różnica procentowa jest
+    matematycznie nieokreślona (brak punktu odniesienia) — zostaje więc
+    None (pusta komórka w UI), zamiast zmyślonej liczby. is_deviation
+    ustawiamy mimo to na True, niezależnie od progu: sama obecność zerowej
+    deklaracji to zawsze anomalia danych wymagająca uwagi biura, więc wiersz
+    ma zostać widoczny również pod filtrem „tylko odchylenia", a nie zniknąć
+    z niego tylko dlatego, że procent nie dał się policzyć.
     """
     declared = Decimal(str(order.declared_volume_m3))
     measured = Decimal(str(measured_volume_m3))
 
     difference_m3 = (measured - declared).quantize(_M3, rounding=ROUND_HALF_UP)
-    difference_pct = (difference_m3 / declared * 100).quantize(_PCT, rounding=ROUND_HALF_UP)
+
+    if declared == 0:
+        difference_pct = None
+        is_deviation = True
+    else:
+        difference_pct = (difference_m3 / declared * 100).quantize(_PCT, rounding=ROUND_HALF_UP)
+        is_deviation = abs(difference_pct) > Decimal(str(threshold_pct))
 
     difference_value = None
     if order.price_per_m3 is not None:
@@ -76,7 +95,7 @@ def compute_differences(order, measured_volume_m3, threshold_pct):
         'difference_m3': difference_m3,
         'difference_pct': difference_pct,
         'difference_value': difference_value,
-        'is_deviation': abs(difference_pct) > Decimal(str(threshold_pct)),
+        'is_deviation': is_deviation,
     }
 
 
@@ -162,12 +181,21 @@ def add_log(order, measurements, measured_at, device_id=None, user_id=None, manu
             db.session.add(log)
             db.session.flush()
     except IntegrityError:
-        # Kolizja numeru — w praktyce nieosiągalna przy blokadzie FOR UPDATE
-        # na wierszu zlecenia, ale skoro konsekwencją byłoby 500 zamiast
-        # zapisu, ponawiamy raz z odświeżonym numerem. Łapiemy WYŁĄCZNIE
-        # IntegrityError — szerszy `except Exception` połknąłby też inne
-        # błędy zapisu (zerwane połączenie, błąd sterownika) i błędnie
-        # zinterpretował je jako kolizję numeru, ukrywając prawdziwą
+        # Kolizja numeru — NIE ma tu żadnej blokady FOR UPDATE na wierszu
+        # zlecenia (i nigdy nie było). Ten blok łapie PIERWSZĄ kolizję i
+        # ponawia insert raz, z odświeżonym next_sequence_no() — to zwykle
+        # wystarcza. Gdyby kolizja trafiła się też przy TYM ponowieniu
+        # (dwa niemal jednoczesne zapisy trafiające w ten sam numer drugi
+        # raz z rzędu), wyjątek już nie jest tu łapany i leci dalej jako 500.
+        # Ratuje wtedy dekorator idempotencji: nie zapisuje odpowiedzi 5xx
+        # jako obsłużonej, więc tablet ponawia żądanie z tym samym
+        # X-Operation-Id i trafia w świeżą transakcję z nowym
+        # next_sequence_no(). Unikat (order_id, sequence_no) gwarantuje przy
+        # tym, że duplikat nigdy się nie zapisze — w najgorszym razie klient
+        # płaci jeden dodatkowy round-trip, nie utratę pomiaru. Łapiemy
+        # WYŁĄCZNIE IntegrityError — szerszy `except Exception` połknąłby
+        # też inne błędy zapisu (zerwane połączenie, błąd sterownika) i
+        # błędnie zinterpretował je jako kolizję numeru, ukrywając prawdziwą
         # przyczynę awarii pod fałszywym ponowieniem.
         log.sequence_no = next_sequence_no(order.id)
         with db.session.begin_nested():

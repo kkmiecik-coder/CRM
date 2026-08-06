@@ -564,8 +564,16 @@ def order_update(order_id):
               'price_per_m3': str(order.price_per_m3)}
     try:
         if 'declared_volume_m3' in payload:
-            order.declared_volume_m3 = _decimal(payload['declared_volume_m3'],
-                                                'declared_volume_m3')
+            # Symetrycznie do delivery_create: deklaracja niedodatnia (0 albo
+            # ujemna) nigdy nie trafia do bazy. Zero w declared_volume_m3
+            # wywraca dzielenie w compute_differences() — a ta funkcja liczy
+            # się przy KAŻDYM odczycie listy zleceń (_panel_payload w
+            # orders_list), więc jeden taki wiersz kładłby odczyt WSZYSTKICH
+            # zleceń, nie tylko tego edytowanego.
+            declared = _decimal(payload['declared_volume_m3'], 'declared_volume_m3')
+            if declared <= 0:
+                raise PanelValidationError('declared_volume_m3', u'wartość musi być dodatnia')
+            order.declared_volume_m3 = declared
         if 'price_per_m3' in payload:
             order.price_per_m3 = _decimal(payload['price_per_m3'], 'price_per_m3',
                                           required=False)

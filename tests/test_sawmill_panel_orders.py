@@ -236,6 +236,38 @@ def test_dodanie_pomiaru_recznie_w_rozliczonym_zablokowane(client, app):
     assert r.status_code == 409
 
 
+def test_patch_zerowa_lub_ujemna_deklaracja_odrzucona_lista_dziala(client, app):
+    """
+    Regresja na recenzję finalną: PATCH /orders/<id> z declared_volume_m3
+    niedodatnim (0 albo ujemna) musi wracać 422, symetrycznie do
+    delivery_create — bez tej walidacji zero trafiało do bazy i
+    compute_differences() dzielił przez nie przy KAŻDYM kolejnym odczycie
+    listy (GET /orders zwracał 500 dla WSZYSTKICH zleceń, nie tylko
+    feralnego — realny przebieg z recenzji: panel_api.py:510 →
+    _panel_payload → orders.py:68 → decimal.InvalidOperation:
+    DivisionUndefined). Sprawdzamy oba niedodatnie warianty, a na końcu, że
+    lista zleceń nadal się normalnie otwiera.
+    """
+    oid = _zlecenie(app)
+
+    r = client.patch(BASE + '/orders/{}'.format(oid), json={'declared_volume_m3': '0'})
+    assert r.status_code == 422
+    assert r.get_json()['field'] == 'declared_volume_m3'
+
+    r = client.patch(BASE + '/orders/{}'.format(oid), json={'declared_volume_m3': '-5'})
+    assert r.status_code == 422
+    assert r.get_json()['field'] == 'declared_volume_m3'
+
+    with app.app_context():
+        # Odrzucone wartości nie trafiły do bazy — deklaracja bez zmian.
+        order = db.session.query(SawmillOrder).get(oid)
+        assert order.declared_volume_m3 == Decimal('80.000')
+
+    r = client.get(BASE + '/orders')
+    assert r.status_code == 200
+    assert len(r.get_json()['orders']) == 1
+
+
 def test_pelna_sciezka_rozliczenia(client, app):
     oid = _zlecenie(app, pomiarow=1)
     with app.app_context():

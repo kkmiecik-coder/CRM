@@ -252,6 +252,28 @@ def test_brak_ceny_zeruje_tylko_roznice_zlotowa(app):
         assert out['difference_value'] is None
 
 
+def test_zerowa_deklaracja_nie_dzieli_przez_zero(app):
+    """
+    Regresja na recenzję finalną: zero w declared_volume_m3 (order_update
+    i delivery_create od dawna odrzucają taką wartość kodem 422, ale wiersz
+    mógł powstać inną drogą, np. wprost w bazie) NIE MOŻE lecieć do
+    dzielenia — compute_differences() liczy się przy KAŻDYM odczycie listy
+    zleceń, więc DivisionUndefined na jednym wierszu wywalałoby GET /orders
+    dla wszystkich zleceń naraz. difference_pct zostaje puste (brak punktu
+    odniesienia przy zerowej deklaracji), a is_deviation mimo to True —
+    sama zerowa deklaracja to zawsze anomalia wymagająca uwagi biura, więc
+    wiersz ma zostać widoczny nawet pod filtrem "tylko odchylenia".
+    """
+    with app.app_context():
+        order = _zlecenie(deklaracja='0.000', cena='1200.00')
+        out = compute_differences(order, Decimal('5.000'), threshold_pct=5.0)
+        assert out['difference_m3'] == Decimal('5.000')
+        assert out['difference_pct'] is None
+        assert out['is_deviation'] is True
+        # Różnica złotowa nie zależy od dzielenia — liczy się normalnie.
+        assert out['difference_value'] == Decimal('6000.00')
+
+
 # ── Rozróżnienie panel/tablet w update_log i delete_log ──────────────────────
 #
 # Brief nie testował tej gałęzi, a to właśnie ona jest najbardziej narażona
