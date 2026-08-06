@@ -247,11 +247,59 @@ def test_wiersz_pozycji_dostawy_rozprowadza_sie_na_cala_szerokosc(client):
     """Cztery główne kolumny pozycji dostawy (Gatunek, Dekl. obj., Liczba kłód,
     Cena/m³) mają rozprowadzać się równomiernie na dostępną szerokość,
     natomiast kolumna wartości i przycisk usunięcia zostają przy prawej
-    krawędzi."""
-    css = _read_static('static', 'css', 'sawmill.css')
-    # CSS musi zawierać reguły flex dla wiersza pozycji
-    assert 'display: flex' in css
-    assert '.sawmill-item-row > div:nth-child(-n+4)' in css, (
-        'Cztery główne kolumny powinny mieć flex: 1 1 0 dla rozprowadzenia')
-    assert 'flex: 1 1 0' in css, (
-        'Kolumny powinny mieć flex-grow = 1 dla równomiernego rozprowadzenia')
+    krawędzi. Układ używa czystego Bootstrapa 5 (col, col-auto)."""
+    template = _read_static('templates', 'sawmill', 'tab_content.html')
+
+    # Cztery pola pozycji dostawy powinny mieć klasę 'col'
+    # (bez numeru, żeby dzieliły szerokość równomiernie)
+    col_count = template.count('<div class="col">')
+    assert col_count >= 4, (
+        f'Szablon powinien mieć przynajmniej 4 kolumny class="col" '
+        f'dla czterech pól pozycji (gatunek, dekl. obj., liczba, cena). '
+        f'Znaleziono: {col_count}')
+
+    # Kolumna wartości (suma) powinna mieć 'col-auto text-end'
+    assert 'class="col-auto text-end">' in template, (
+        'Kolumna wartości pozycji powinna mieć class="col-auto text-end"')
+
+    # Kolumna kosza powinna mieć 'col-auto'
+    assert 'class="col-auto">' in template or 'class="col-auto ' in template, (
+        'Przycisk usunięcia pozycji powinien być w div class="col-auto"')
+
+
+def test_szablon_i_buildItemRow_maju_identyczne_klasy_kolumn(client):
+    """Szablon i funkcja buildItemRow() w sawmill.js muszą mieć identyczne
+    klasy Bootstrap dla kolumn — inaczej pierwszy wiersz pozycji będzie
+    wyglądał inaczej niż dodane później. To tanie zabezpieczenie przed
+    rozjazdem tych dwóch miejsc."""
+    template = _read_static('templates', 'sawmill', 'tab_content.html')
+    js = _read_static('static', 'js', 'sawmill.js')
+
+    # Ekstrahujemy strukturę klas z szablonu
+    # (szukamy sekwencji <div class="col..."> w wierszu #sawmill-delivery-items)
+    import re
+    template_match = re.search(
+        r'<div id="sawmill-delivery-items">.*?<div class="sawmill-item-row.*?</div>\s*</div>',
+        template, re.DOTALL)
+    assert template_match, 'Nie znaleziono szablonu wiersza pozycji w tab_content.html'
+
+    template_cols = re.findall(r'<div class="([^"]+)">', template_match.group(0))
+    # Filtrujemy do samych klas kolumn (pomijamy klasę 'sawmill-item-row row g-2...')
+    template_col_classes = [c for c in template_cols if c.startswith('col')]
+
+    # Ekstrahujemy strukturę klas z buildItemRow()
+    build_row_match = re.search(
+        r'function buildItemRow\(\).*?return row;',
+        js, re.DOTALL)
+    assert build_row_match, 'Nie znaleziono buildItemRow() w sawmill.js'
+
+    build_col_classes = re.findall(r'class="([^"]+)">', build_row_match.group(0))
+    # Filtrujemy do samych klas kolumn (pomijamy 'btn', 'form-label', itp.)
+    build_col_classes = [c for c in build_col_classes if c.startswith('col')]
+
+    assert template_col_classes == build_col_classes, (
+        f'Klasy kolumn się nie zgadzają:\n'
+        f'Szablon: {template_col_classes}\n'
+        f'buildItemRow(): {build_col_classes}\n'
+        f'Zarówno szablon jak i funkcja muszą mieć identyczną strukturę '
+        f'(col, col, col, col, col-auto text-end, col-auto)')

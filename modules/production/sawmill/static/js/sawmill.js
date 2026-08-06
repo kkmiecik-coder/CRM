@@ -391,33 +391,33 @@
     }
 
     // Struktura kolumn MUSI odpowiadać statycznemu wierszowi w tab_content.html
-    // (2/2/2/2/2/1 = 11) — zwężona kolumna gatunku oddaje miejsce innym polom.
+    // (cztery pola col + auto col kwota + auto col kosz).
     // Przycisk usuń zawiera wyłącznie ikonę (tekst usunięty), title i aria-label dla WCAG.
     function buildItemRow() {
         var row = document.createElement('div');
         row.className = 'sawmill-item-row row g-2 align-items-end mb-2';
         row.innerHTML =
-            '<div class="col-md-2">' +
+            '<div class="col">' +
             '<label class="form-label">Gatunek</label>' +
             '<select class="form-select sawmill-item-species" data-field="species_id" required>' +
             '<option value="">— wybierz —</option>' + state.speciesOptionsHtml +
             '</select></div>' +
-            '<div class="col-md-2">' +
+            '<div class="col">' +
             '<label class="form-label">Dekl. obj. m³</label>' +
             '<input type="number" step="0.001" min="0" class="form-control sawmill-item-declared-volume" ' +
             'data-field="declared_volume_m3" required></div>' +
-            '<div class="col-md-2">' +
+            '<div class="col">' +
             '<label class="form-label">Liczba kłód</label>' +
             '<input type="number" step="1" min="0" class="form-control sawmill-item-logs-count"></div>' +
-            '<div class="col-md-2">' +
+            '<div class="col">' +
             '<label class="form-label">Cena/m³</label>' +
             '<input type="number" step="0.01" min="0" class="form-control sawmill-item-price" data-field="price_per_m3"></div>' +
-            '<div class="col-md-2 text-end">' +
+            '<div class="col-auto text-end">' +
             '<label class="form-label d-block">&nbsp;</label>' +
             '<span class="sawmill-item-value-preview text-muted small">— zł</span></div>' +
-            '<div class="col-md-1 text-end">' +
+            '<div class="col-auto">' +
             '<label class="form-label d-block">&nbsp;</label>' +
-            '<button type="button" class="btn btn-sm btn-outline-danger sawmill-item-remove w-100" title="Usuń pozycję" aria-label="Usuń tę pozycję dostawy" ' +
+            '<button type="button" class="btn btn-sm btn-outline-danger sawmill-item-remove" title="Usuń pozycję" aria-label="Usuń tę pozycję dostawy" ' +
             'onclick="Sawmill.removeItemRow(this)"><i class="fas fa-trash"></i></button></div>';
 
         bindItemRowPreview(row);
