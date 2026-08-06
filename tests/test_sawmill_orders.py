@@ -180,7 +180,7 @@ def test_rozliczenie_tylko_z_completed(app):
             settle_order(order, Decimal('1.0'), None, user_id=1)
 
 
-def test_reopen_wraca_do_in_progress(app):
+def test_reopen_wraca_do_in_progress_gdy_sa_pomiary(app):
     with app.app_context():
         order = _zlecenie()
         add_log(order, POMIAR, CZAS, device_id='T')
@@ -189,8 +189,47 @@ def test_reopen_wraca_do_in_progress(app):
         reopen_order(order, user_id=1)
         db.session.commit()
         assert order.status == STATUS_IN_PROGRESS
+        assert order.started_at is not None
         assert order.completed_at is None
         assert order.completed_by_device is None
+
+
+def test_reopen_wraca_do_new_gdy_nie_ma_zadnego_pomiaru(app):
+    """
+    Zlecenie zamknięte bez ani jednej kłody (pomyłka na tablecie) nic nie
+    rozpoczęło — po cofnięciu ma być znów „nowe", nie „w trakcie", i bez
+    daty rozpoczęcia.
+    """
+    with app.app_context():
+        order = _zlecenie(status=STATUS_COMPLETED)
+        db.session.commit()
+        reopen_order(order, user_id=1)
+        db.session.commit()
+        assert order.status == STATUS_NEW
+        assert order.started_at is None
+        assert order.completed_at is None
+
+
+def test_reopen_traktuje_skasowane_pomiary_jak_ich_brak(app):
+    """
+    Soft-skasowany pomiar nie liczy się do sumy zlecenia, więc nie może też
+    decydować o statusie — inaczej zlecenie z samymi skasowanymi kłodami
+    wracałoby na „w trakcie", pokazując zero kłód.
+
+    Ścieżka realna, nie sztuczna: zamknięcia bez pomiarów pilnuje
+    complete_order, ale admin może skasować ostatnią kłodę JUŻ PO zamknięciu
+    (`completed` jest w PANEL_WRITABLE_STATUSES).
+    """
+    with app.app_context():
+        order = _zlecenie()
+        log = add_log(order, POMIAR, CZAS, device_id='T')
+        complete_order(order, device_id='T')
+        delete_log(log, user_id=1)
+        db.session.commit()
+        reopen_order(order, user_id=1)
+        db.session.commit()
+        assert order.status == STATUS_NEW
+        assert order.started_at is None
 
 
 def test_kazda_operacja_zapisuje_audyt(app):

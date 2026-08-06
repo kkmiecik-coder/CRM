@@ -291,12 +291,31 @@ def complete_order(order, device_id):
 
 
 def reopen_order(order, user_id):
+    """
+    Cofa zakończenie zlecenia — typowo po pomyłkowym zamknięciu na tablecie,
+    gdy zostały jeszcze niezmierzone kłody.
+
+    Status po cofnięciu zależy od tego, czy zlecenie ma jakikolwiek pomiar:
+    zero kłód znaczy, że nic się jeszcze nie zaczęło, więc wraca na `new`,
+    a nie na „w trakcie" — inaczej pusta pozycja udawałaby rozpoczętą pracę.
+    Razem ze statusem czyścimy `started_at`, żeby nie została data
+    rozpoczęcia czegoś, czego nie ma; kolejny pomiar ustawi ją na nowo
+    (patrz add_log).
+    """
     if order.status != STATUS_COMPLETED:
         raise SawmillStateError(u'cofnąć można tylko zlecenie zakończone')
-    order.status = STATUS_IN_PROGRESS
+
+    logs_count, _ = order_totals(order.id)
+    if logs_count:
+        order.status = STATUS_IN_PROGRESS
+    else:
+        order.status = STATUS_NEW
+        order.started_at = None
+
     order.completed_at = None
     order.completed_by_device = None
-    write_audit(order.id, 'order_reopen', user_id=user_id)
+    write_audit(order.id, 'order_reopen', user_id=user_id,
+                after={'status': order.status})
 
 
 def settle_order(order, agreed_volume_m3, notes, user_id):
