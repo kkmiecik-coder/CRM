@@ -324,7 +324,14 @@ def settle_order(order, agreed_volume_m3, notes, user_id):
     if agreed_volume_m3 is None:
         raise SawmillStateError(u'uzgodniona objętość jest wymagana')
 
-    order.agreed_volume_m3 = Decimal(str(agreed_volume_m3))
+    uzgodniona = Decimal(str(agreed_volume_m3))
+    # Ujemna albo zerowa objętość uzgodniona trafiłaby na protokół PDF idący
+    # do dostawcy — sprawdzamy w serwisie, nie tylko w routerze, bo to
+    # niezmiennik rozliczenia, a nie walidacja formularza.
+    if uzgodniona <= 0:
+        raise SawmillStateError(u'uzgodniona objętość musi być dodatnia')
+
+    order.agreed_volume_m3 = uzgodniona
     order.settlement_notes = notes
     order.status = STATUS_SETTLED
     order.settled_at = datetime.now()

@@ -34,7 +34,7 @@ from modules.production.sawmill.services.serializers import (
     serialize_log_for_panel, serialize_order_for_panel,
 )
 from modules.production.sawmill.services.settings import (
-    get_sawmill_settings, save_sawmill_settings,
+    SawmillSettingsError, get_sawmill_settings, save_sawmill_settings,
 )
 from modules.production.sawmill.services.validation import (
     SawmillValidationError, parse_measured_at, validate_measurements,
@@ -100,9 +100,30 @@ class PanelValidationError(Exception):
         self.detail = detail
 
 
+class PanelFilterError(Exception):
+    """
+    Niepoprawny parametr filtra w URL — 400, nie 422. 422 w tym API znaczy
+    „dane, które przysłałeś w formularzu, są błędne"; tu błędne jest samo
+    żądanie (ręcznie sklejony link, stara zakładka), a żaden formularz panelu
+    takiej wartości nie wyprodukuje.
+    """
+
+    def __init__(self, detail):
+        super().__init__(detail)
+        self.detail = detail
+
+
 def _fail(exc):
     return jsonify({'error': 'validation_error',
                     'field': exc.field, 'detail': exc.detail}), 422
+
+
+@sawmill_panel_bp.errorhandler(PanelFilterError)
+def _handle_filter_error(exc):
+    """Jedno miejsce zamiany błędu filtra na 400 — dotyczy każdej trasy
+    blueprintu, więc kolejny endpoint korzystający z tych samych filtrów
+    dostanie to zachowanie bez dopisywania czegokolwiek."""
+    return jsonify({'error': 'invalid_filter', 'detail': exc.detail}), 400
 
 
 def _current_user_id():
@@ -115,9 +136,39 @@ def _decimal(value, field, required=True):
             raise PanelValidationError(field, u'pole jest wymagane')
         return None
     try:
-        return Decimal(str(value).replace(',', '.'))
+        parsed = Decimal(str(value).replace(',', '.'))
     except (InvalidOperation, ValueError):
         raise PanelValidationError(field, u'wartość nie jest liczbą')
+    # Decimal('NaN') i Decimal('Infinity') powstają BEZ wyjątku, a wybuchają
+    # dopiero przy porównaniu albo arytmetyce — czyli kilka warstw dalej,
+    # jako 500 zamiast czytelnego 422.
+    if not parsed.is_finite():
+        raise PanelValidationError(field, u'wartość nie jest liczbą')
+    return parsed
+
+
+def _int_or_none(value, field):
+    """Liczba całkowita albo None. Puste pole znaczy „nie podano"."""
+    if value in (None, ''):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        raise PanelValidationError(field, u'oczekiwano liczby całkowitej')
+
+
+def _species_id_or_fail(value):
+    """Sprawdza, że gatunek istnieje. Gatunek nieaktywny jest DOZWOLONY —
+    historyczne zlecenie musi dać się edytować bez podmiany gatunku."""
+    if value in (None, ''):
+        raise PanelValidationError('species_id', u'gatunek jest wymagany')
+    try:
+        species_id = int(value)
+    except (TypeError, ValueError):
+        raise PanelValidationError('species_id', u'oczekiwano liczby całkowitej')
+    if db.session.query(SawmillSpecies).get(species_id) is None:
+        raise PanelValidationError('species_id', u'gatunek nie istnieje')
+    return species_id
 
 
 def _parse_date(value, field, required=True):
@@ -194,7 +245,12 @@ def species_update(species_id):
         return jsonify({'error': 'not_found'}), 404
     payload = request.get_json(silent=True) or {}
     if 'name' in payload:
-        row.name = (payload['name'] or '').strip() or row.name
+        name = (payload['name'] or '').strip()
+        # Unikat pilnuje baza, ale bez tego sprawdzenia zwykła pomyłka
+        # w modalu słowników kończy się 500 zamiast komunikatu.
+        if name and name != row.name and SawmillSpecies.query.filter_by(name=name).first():
+            return _fail(PanelValidationError('name', u'gatunek o tej nazwie już istnieje'))
+        row.name = name or row.name
     if 'short_code' in payload:
         row.short_code = payload['short_code'] or None
     if 'sort_order' in payload:
@@ -262,6 +318,12 @@ def supplier_update(supplier_id):
     if row is None:
         return jsonify({'error': 'not_found'}), 404
     payload = request.get_json(silent=True) or {}
+    if 'name' in payload:
+        name = (payload['name'] or '').strip()
+        if not name:
+            return _fail(PanelValidationError('name', u'nazwa jest wymagana'))
+        if name != row.name and SawmillSupplier.query.filter_by(name=name).first():
+            return _fail(PanelValidationError('name', u'dostawca o tej nazwie już istnieje'))
     for field in SUPPLIER_FIELDS:
         if field in payload:
             setattr(row, field, payload[field] or None)
@@ -475,10 +537,30 @@ def _order_query():
     )
 
 
-def _panel_payload(order, threshold_pct):
+def _panel_payload(order, threshold_pct, can_delete=None):
     count, volume = order_totals(order.id)
     differences = compute_differences(order, volume, threshold_pct)
-    return serialize_order_for_panel(order, count, volume, differences)
+    if can_delete is None:
+        can_delete = not _order_ids_with_any_logs([order.id])
+    return serialize_order_for_panel(order, count, volume, differences,
+                                     can_delete=can_delete)
+
+
+def _order_ids_with_any_logs(order_ids):
+    """
+    Zbiór id zleceń mających JAKIKOLWIEK wiersz pomiaru, także miękko
+    skasowany — dokładnie ten sam warunek, którym order_delete blokuje
+    usunięcie. Bez tego interfejs pokazywał kosz przy zleceniu z samymi
+    skasowanymi kłodami i klik zawsze kończył się 409.
+
+    Jedno zapytanie na całą listę, nie jedno na wiersz.
+    """
+    if not order_ids:
+        return set()
+    rows = (db.session.query(SawmillLog.order_id)
+            .filter(SawmillLog.order_id.in_(order_ids))
+            .distinct().all())
+    return {r[0] for r in rows}
 
 
 def _state_error(exc):
@@ -511,16 +593,25 @@ def orders_list():
     if needs_delivery_join:
         query = query.join(SawmillDelivery)
 
-    if request.args.get('supplier_id'):
-        query = query.filter(SawmillDelivery.supplier_id == int(request.args['supplier_id']))
-    if request.args.get('species_id'):
-        query = query.filter(SawmillOrder.species_id == int(request.args['species_id']))
-    if request.args.get('date_from'):
-        query = query.filter(
-            SawmillDelivery.delivery_date >= date.fromisoformat(request.args['date_from']))
-    if request.args.get('date_to'):
-        query = query.filter(
-            SawmillDelivery.delivery_date <= date.fromisoformat(request.args['date_to']))
+    # Parametry filtrów przychodzą z URL-a, więc mogą być czymkolwiek —
+    # ręcznie sklejony link albo zapamiętana zakładka. Bez tej osłony
+    # `?supplier_id=abc` kładło CAŁĄ listę zleceń i eksport XLSX (który woła
+    # orders_list wprost) błędem 500, bez żadnej drogi wyjścia w interfejsie.
+    try:
+        if request.args.get('supplier_id'):
+            query = query.filter(
+                SawmillDelivery.supplier_id == int(request.args['supplier_id']))
+        if request.args.get('species_id'):
+            query = query.filter(
+                SawmillOrder.species_id == int(request.args['species_id']))
+        if request.args.get('date_from'):
+            query = query.filter(
+                SawmillDelivery.delivery_date >= date.fromisoformat(request.args['date_from']))
+        if request.args.get('date_to'):
+            query = query.filter(
+                SawmillDelivery.delivery_date <= date.fromisoformat(request.args['date_to']))
+    except (TypeError, ValueError):
+        raise PanelFilterError(u'niepoprawna wartość filtra (identyfikator lub data)')
     if request.args.get('q'):
         wzorzec = '%{}%'.format(request.args['q'].strip())
         query = query.filter(
@@ -528,7 +619,9 @@ def orders_list():
                    SawmillDelivery.invoice_number.like(wzorzec)))
 
     rows = query.order_by(SawmillOrder.id.desc()).all()
-    payload = [_panel_payload(o, threshold) for o in rows]
+    z_pomiarami = _order_ids_with_any_logs([o.id for o in rows])
+    payload = [_panel_payload(o, threshold, can_delete=o.id not in z_pomiarami)
+               for o in rows]
 
     # Filtr odchyleń stosujemy po wyliczeniu różnic, po stronie Pythona —
     # nie da się go wyrazić w SQL, skoro is_deviation zależy od sumy pomiarów
@@ -601,9 +694,13 @@ def order_update(order_id):
             order.price_per_m3 = _decimal(payload['price_per_m3'], 'price_per_m3',
                                           required=False)
         if 'declared_logs_count' in payload:
-            order.declared_logs_count = payload['declared_logs_count'] or None
+            order.declared_logs_count = _int_or_none(
+                payload['declared_logs_count'], 'declared_logs_count')
         if 'species_id' in payload:
-            order.species_id = payload['species_id']
+            # Symetrycznie do delivery_create: bez sprawdzenia istnienia
+            # wiersza nieistniejące id przechodzi cicho na SQLite, a na
+            # MySQL z kluczem obcym daje 500 bez komunikatu.
+            order.species_id = _species_id_or_fail(payload['species_id'])
         if 'notes' in payload:
             order.notes = payload['notes'] or None
     except PanelValidationError as exc:
@@ -654,7 +751,10 @@ def export_xlsx():
     """
     from modules.production.sawmill.services.exports import build_orders_xlsx
 
-    payload = orders_list().get_json()['orders']
+    try:
+        payload = orders_list().get_json()['orders']
+    except PanelFilterError as exc:
+        return jsonify({'error': 'invalid_filter', 'detail': exc.detail}), 400
     resp = make_response(build_orders_xlsx(payload))
     resp.headers['Content-Type'] = \
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
@@ -858,6 +958,9 @@ def settings_write():
     payload = request.get_json(silent=True) or {}
     try:
         settings = save_sawmill_settings(payload, user_id=_current_user_id())
+    except SawmillSettingsError as exc:
+        db.session.rollback()
+        return _fail(PanelValidationError(exc.field, exc.detail))
     except (TypeError, ValueError):
         db.session.rollback()
         return _fail(PanelValidationError('settings', u'wartości muszą być liczbami'))

@@ -64,7 +64,8 @@ def serialize_log_for_device(log):
 
 # ── Panel ───────────────────────────────────────────────────────────────────
 
-def serialize_order_for_panel(order, logs_count, measured_volume_m3, differences):
+def serialize_order_for_panel(order, logs_count, measured_volume_m3, differences,
+                              can_delete=False):
     delivery = order.delivery
     out = {
         'id': order.id,
@@ -98,6 +99,10 @@ def serialize_order_for_panel(order, logs_count, measured_volume_m3, differences
         # Interfejs rozróżnia dzięki temu „pusto celowo" od „brak danych".
         'differences_pending': differences.get('differences_pending', False),
     })
+    # Liczone po WSZYSTKICH wierszach pomiarów, także miękko skasowanych —
+    # tym samym warunkiem, którym order_delete blokuje usunięcie. Interfejs
+    # nie może pokazywać przycisku, który zawsze kończy się 409.
+    out['can_delete'] = bool(can_delete)
     return out
 
 

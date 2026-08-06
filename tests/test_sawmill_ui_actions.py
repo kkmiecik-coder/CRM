@@ -144,3 +144,32 @@ def test_audyt_pokazuje_nazwisko_zamiast_numeru_uzytkownika():
     assert 'a.user_name' in blok
     assert blok.index('a.user_name') < blok.index('a.user_id'), \
         u'numer użytkownika jest sprawdzany przed nazwiskiem'
+
+
+def test_kosz_zlecenia_sterowany_can_delete_nie_licznikiem_klod():
+    """
+    logs_count pomija miękko skasowane pomiary, a backend blokuje usunięcie,
+    gdy istnieje JAKIKOLWIEK wiersz — przycisk na logs_count zawsze kończył
+    się 409.
+    """
+    js = _js()
+    blok = js.split('function actionButtonsHtml')[1].split('function renderOrderRow')[0]
+    assert 'o.can_delete' in blok
+    assert '!o.logs_count' not in blok
+
+
+def test_nieaktywny_gatunek_jest_dostawiany_do_listy_przy_edycji():
+    """
+    Bez tego przypisanie select.value = <id nieaktywnego> nie trafiało
+    w żadną opcję, zaznaczała się pierwsza z listy i zapis po cichu
+    podmieniał gatunek zlecenia.
+    """
+    js = _js()
+    assert 'function setSpeciesSelectValue' in js
+    blok = js.split('function setSpeciesSelectValue')[1].split('function collectEditOrderPayload')[0]
+    assert 'nieaktywny' in blok
+    assert 'appendChild' in blok
+    # openEditModal musi korzystać z tej funkcji, a nie przypisywać wprost.
+    edycja = js.split('function openEditModal')[1].split('function collectEditOrderPayload')[0]
+    assert 'setSpeciesSelectValue(' in edycja
+    assert "el('sawmill-edit-species').value = o.species_id" not in edycja

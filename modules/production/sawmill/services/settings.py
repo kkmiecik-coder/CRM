@@ -77,14 +77,64 @@ def get_sawmill_settings():
     return settings
 
 
+class SawmillSettingsError(Exception):
+    """Ustawienie poza sensownym zakresem — mapowane na HTTP 422."""
+
+    def __init__(self, field, detail):
+        super().__init__(detail)
+        self.field = field
+        self.detail = detail
+
+
+# Pary (minimum, maksimum) pilnowane względem siebie.
+_LIMIT_PAIRS = (
+    ('min_circumference_cm', 'max_circumference_cm'),
+    ('min_length_cm', 'max_length_cm'),
+)
+
+
+def _validate(settings):
+    """
+    Te limity idą JEDNYM kanałem do walidacji serwera i na tablet
+    (mobile_config_payload), więc literówka w panelu zatrzymuje stanowisko:
+    `min_length_cm = 99999` sprawia, że KAŻDY pomiar leci 422, a jedyną
+    diagnozą jest komunikat „wartość 410 poniżej minimum 99999". Dlatego
+    zakresy sprawdzamy przy zapisie, a nie dopiero przy pomiarze.
+    """
+    for key in EDITABLE_KEYS:
+        wartosc = settings.get(key)
+        if wartosc is not None and wartosc < 0:
+            raise SawmillSettingsError(key, u'wartość nie może być ujemna')
+
+    for key_min, key_max in _LIMIT_PAIRS:
+        dolny, gorny = settings.get(key_min), settings.get(key_max)
+        # None znaczy „nie sprawdzaj tego limitu", więc para z pustym polem
+        # jest zawsze poprawna — nie ma czego porównywać.
+        if dolny is not None and gorny is not None and dolny >= gorny:
+            raise SawmillSettingsError(
+                key_min, u'minimum musi być mniejsze od maksimum')
+
+    prog = settings.get('deviation_threshold_pct')
+    if prog is not None and prog > 100:
+        raise SawmillSettingsError(
+            'deviation_threshold_pct', u'próg powyżej 100% nigdy się nie zapali')
+
+
 def save_sawmill_settings(values, user_id=None):
     """Zapisuje edytowalne klucze. Nie commituje — robi to wywołujący."""
     settings = get_sawmill_settings()
     for key in EDITABLE_KEYS:
         if key in values:
             raw = values[key]
-            settings[key] = None if raw in (None, '') else float(raw)
+            if raw in (None, ''):
+                settings[key] = None
+                continue
+            try:
+                settings[key] = float(raw)
+            except (TypeError, ValueError):
+                raise SawmillSettingsError(key, u'wartość nie jest liczbą')
     settings['decimal_places'] = DECIMAL_PLACES
+    _validate(settings)
 
     row = _get_row()
     if row is None:

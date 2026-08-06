@@ -292,7 +292,11 @@
                 'onclick="Sawmill.unsettleOrder(' + o.id + ')" title="Cofnij rozliczenie">' +
                 '<i class="fas fa-rotate-left"></i></button>';
         }
-        if (!o.logs_count) {
+        // can_delete, nie logs_count — backend blokuje usunięcie, gdy istnieje
+        // JAKIKOLWIEK wiersz pomiaru, także miękko skasowany. Na logs_count
+        // (bez skasowanych) kosz pokazywał się przy zleceniu, którego usunięcie
+        // zawsze kończyło się 409.
+        if (o.can_delete) {
             html += '<button type="button" class="btn btn-sm btn-outline-danger" ' +
                 'onclick="Sawmill.deleteOrder(' + o.id + ')" title="Usuń zlecenie">' +
                 '<i class="fas fa-trash"></i></button>';
@@ -1050,8 +1054,7 @@
                 el('sawmill-edit-delivery-id').value = d.id;
                 el('sawmill-edit-order-number').textContent = o.order_number;
 
-                el('sawmill-edit-species').innerHTML = state.speciesOptionsHtml;
-                el('sawmill-edit-species').value = o.species_id;
+                setSpeciesSelectValue(el('sawmill-edit-species'), o.species_id, o.species);
                 el('sawmill-edit-declared-volume').value = (o.declared_volume_m3 !== null && o.declared_volume_m3 !== undefined)
                     ? o.declared_volume_m3 : '';
                 el('sawmill-edit-logs-count').value = (o.declared_logs_count !== null && o.declared_logs_count !== undefined)
@@ -1071,6 +1074,24 @@
                 console.error('[Sawmill] Błąd ładowania zlecenia do edycji:', err);
                 toast('Błąd połączenia z serwerem', 'error');
             });
+    }
+
+    // Lista opcji zawiera WYŁĄCZNIE gatunki aktywne, a miękkie kasowanie
+    // istnieje po to, żeby historyczne zlecenia dalej wskazywały na swój
+    // gatunek. Bez tej funkcji przypisanie `select.value = <id nieaktywnego>`
+    // nie trafiało w żadną opcję, przeglądarka zaznaczała PIERWSZĄ z listy,
+    // a zapis (payload zawsze niesie species_id) po cichu podmieniał gatunek
+    // zlecenia — trwałe uszkodzenie rekordu rozliczeniowego bez ostrzeżenia.
+    function setSpeciesSelectValue(select, speciesId, speciesName) {
+        select.innerHTML = state.speciesOptionsHtml;
+        select.value = speciesId;
+        if (select.value !== String(speciesId)) {
+            var opcja = document.createElement('option');
+            opcja.value = speciesId;
+            opcja.textContent = (speciesName || 'gatunek #' + speciesId) + ' (nieaktywny)';
+            select.appendChild(opcja);
+            select.value = speciesId;
+        }
     }
 
     function collectEditOrderPayload() {

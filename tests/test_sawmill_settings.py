@@ -25,6 +25,7 @@ from sqlalchemy.pool import StaticPool
 from extensions import db
 from modules.production.models import ProductionConfig
 from modules.production.sawmill.services.settings import (
+    SawmillSettingsError,
     CONFIG_KEY,
     DEFAULT_SETTINGS,
     MOBILE_KEYS,
@@ -198,3 +199,52 @@ def test_uszkodzony_json_degraduje_do_domyslnych_bez_wyjatku(app):
         _dodaj_wiersz('{to nie jest poprawny json')
         wynik = get_sawmill_settings()  # nie ma wywalić wyjątku
         assert wynik == DEFAULT_SETTINGS
+
+
+# ── Walidacja zakresów (przegląd całej gałęzi) ──────────────────────────────
+
+def test_minimum_powyzej_maksimum_odrzucone(app):
+    """
+    Te limity idą jednym kanałem do walidacji serwera i na tablet, więc
+    literówka w panelu zatrzymuje stanowisko: min_length_cm=99999 sprawiał,
+    że KAŻDY pomiar leciał 422, a jedyną diagnozą był komunikat
+    „wartość 410 poniżej minimum 99999".
+    """
+    with app.app_context():
+        _dodaj_wiersz(json.dumps(dict(DEFAULT_SETTINGS)))
+        with pytest.raises(SawmillSettingsError) as exc:
+            save_sawmill_settings({'min_length_cm': 99999})
+        assert exc.value.field == 'min_length_cm'
+
+
+def test_ujemny_limit_odrzucony(app):
+    with app.app_context():
+        _dodaj_wiersz(json.dumps(dict(DEFAULT_SETTINGS)))
+        with pytest.raises(SawmillSettingsError):
+            save_sawmill_settings({'min_circumference_cm': -10})
+        with pytest.raises(SawmillSettingsError):
+            save_sawmill_settings({'deviation_threshold_pct': -5})
+
+
+def test_prog_powyzej_stu_procent_odrzucony(app):
+    """Próg > 100% nigdy się nie zapali — to zawsze pomyłka, nie decyzja."""
+    with app.app_context():
+        _dodaj_wiersz(json.dumps(dict(DEFAULT_SETTINGS)))
+        with pytest.raises(SawmillSettingsError):
+            save_sawmill_settings({'deviation_threshold_pct': 150})
+
+
+def test_wyczyszczenie_maksimum_jest_dozwolone(app):
+    """None znaczy „nie sprawdzaj" — para z pustym polem jest zawsze poprawna."""
+    with app.app_context():
+        _dodaj_wiersz(json.dumps(dict(DEFAULT_SETTINGS)))
+        wynik = save_sawmill_settings({'max_length_cm': ''})
+        assert wynik['max_length_cm'] is None
+
+
+def test_nieliczbowa_wartosc_ustawienia_odrzucona(app):
+    with app.app_context():
+        _dodaj_wiersz(json.dumps(dict(DEFAULT_SETTINGS)))
+        with pytest.raises(SawmillSettingsError) as exc:
+            save_sawmill_settings({'min_length_cm': 'trzydzieści'})
+        assert exc.value.field == 'min_length_cm'

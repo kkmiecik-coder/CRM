@@ -138,3 +138,17 @@ def test_measured_at_brak_wartosci():
     with pytest.raises(SawmillValidationError) as exc:
         parse_measured_at(None, now=NOW)
     assert exc.value.field == 'measured_at'
+
+
+def test_nan_i_infinity_daja_422_a_nie_500():
+    """
+    Decimal('NaN') i Decimal('Infinity') powstają BEZ wyjątku, a wybuchają
+    dopiero przy porównaniu zakresu / kontroli precyzji. Na ścieżce mobilnej
+    5xx nie trafia do tabeli idempotencji, więc taki rekord z kolejki offline
+    byłby ponawiany bez końca.
+    """
+    for wartosc in ('NaN', 'Infinity', '-Infinity'):
+        payload = dict(OK_PAYLOAD, mid_circumference_cm=wartosc)
+        with pytest.raises(SawmillValidationError) as exc:
+            validate_measurements(payload, DEFAULT_SETTINGS)
+        assert exc.value.field == 'mid_circumference_cm', wartosc

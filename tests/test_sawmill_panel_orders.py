@@ -426,3 +426,140 @@ def test_audyt_urzadzenia_nie_ma_nazwiska(client, app):
     wpis = [a for a in audit if a['action'] == 'log_create'][0]
     assert wpis['user_name'] is None
     assert wpis['device_id'] == 'TRAK-1'
+
+
+# ── Walidacja wejścia (przegląd całej gałęzi) ───────────────────────────────
+
+def test_smieciowy_filtr_daje_400_a_nie_klada_listy(client, app):
+    """
+    Parametry filtrów przychodzą z URL-a — ręcznie sklejony link albo stara
+    zakładka. Bez osłony `?supplier_id=abc` kładło CAŁĄ listę zleceń błędem
+    500, bez drogi wyjścia w interfejsie.
+    """
+    _zlecenie(app, pomiarow=1)
+    for query in ('supplier_id=abc', 'species_id=x', 'date_from=2026-13-99',
+                  'date_to=wczoraj'):
+        r = client.get(BASE + '/orders?' + query)
+        assert r.status_code == 400, query
+        assert r.get_json()['error'] == 'invalid_filter'
+
+
+def test_smieciowy_filtr_nie_wywraca_eksportu(client, app):
+    """export.xlsx woła orders_list() wprost — musi dziedziczyć tę samą osłonę."""
+    _zlecenie(app, pomiarow=1)
+    r = client.get(BASE + '/export.xlsx?supplier_id=abc')
+    assert r.status_code == 400
+    assert r.get_json()['error'] == 'invalid_filter'
+
+
+def test_nieistniejacy_gatunek_przy_edycji_daje_422(client, app):
+    oid = _zlecenie(app, pomiarow=0)
+    r = client.patch(BASE + '/orders/{}'.format(oid), json={'species_id': 99999})
+    assert r.status_code == 422
+    assert r.get_json()['field'] == 'species_id'
+
+
+def test_pusty_gatunek_przy_edycji_daje_422(client, app):
+    oid = _zlecenie(app, pomiarow=0)
+    r = client.patch(BASE + '/orders/{}'.format(oid), json={'species_id': None})
+    assert r.status_code == 422
+
+
+def test_nieaktywny_gatunek_wolno_zostawic_przy_edycji(client, app):
+    """
+    Miękkie kasowanie istnieje po to, żeby historyczne zlecenia dalej
+    wskazywały na swój gatunek — edycja innego pola nie może się o niego
+    wywalić.
+    """
+    oid = _zlecenie(app, pomiarow=0)
+    with app.app_context():
+        gatunek = SawmillSpecies.query.first()
+        gatunek.is_active = False
+        db.session.commit()
+        species_id = gatunek.id
+    r = client.patch(BASE + '/orders/{}'.format(oid),
+                     json={'species_id': species_id, 'notes': 'zmiana'})
+    assert r.status_code == 200
+
+
+def test_nan_w_deklaracji_daje_422_a_nie_500(client, app):
+    oid = _zlecenie(app, pomiarow=0)
+    for wartosc in ('NaN', 'Infinity', '-Infinity'):
+        r = client.patch(BASE + '/orders/{}'.format(oid),
+                         json={'declared_volume_m3': wartosc})
+        assert r.status_code == 422, wartosc
+
+
+def test_nieliczbowa_liczba_klod_daje_422(client, app):
+    oid = _zlecenie(app, pomiarow=0)
+    r = client.patch(BASE + '/orders/{}'.format(oid),
+                     json={'declared_logs_count': 'abc'})
+    assert r.status_code == 422
+    assert r.get_json()['field'] == 'declared_logs_count'
+
+
+def test_zmiana_nazwy_dostawcy_na_istniejaca_daje_422(client, app):
+    with app.app_context():
+        db.session.add_all([SawmillSupplier(name='Tartak A'),
+                            SawmillSupplier(name='Tartak B')])
+        db.session.commit()
+        drugi_id = SawmillSupplier.query.filter_by(name='Tartak B').first().id
+    r = client.patch(BASE + '/suppliers/{}'.format(drugi_id), json={'name': 'Tartak A'})
+    assert r.status_code == 422
+    assert r.get_json()['field'] == 'name'
+
+
+def test_zmiana_nazwy_gatunku_na_istniejaca_daje_422(client, app):
+    with app.app_context():
+        db.session.add_all([SawmillSpecies(name='Modrzew'), SawmillSpecies(name='Sosna')])
+        db.session.commit()
+        sosna_id = SawmillSpecies.query.filter_by(name='Sosna').first().id
+    r = client.patch(BASE + '/species/{}'.format(sosna_id), json={'name': 'Modrzew'})
+    assert r.status_code == 422
+
+
+def test_zapis_wlasnej_nazwy_bez_zmiany_przechodzi(client, app):
+    """Regresja: sprawdzenie duplikatu nie może blokować zapisu samego siebie."""
+    with app.app_context():
+        db.session.add(SawmillSupplier(name='Tartak C'))
+        db.session.commit()
+        sid = SawmillSupplier.query.filter_by(name='Tartak C').first().id
+    r = client.patch(BASE + '/suppliers/{}'.format(sid),
+                     json={'name': 'Tartak C', 'phone': '600100200'})
+    assert r.status_code == 200
+
+
+def test_ujemna_objetosc_uzgodniona_odrzucona(client, app):
+    """Trafiłaby na protokół PDF idący do dostawcy."""
+    oid = _zlecenie(app, pomiarow=1, status=STATUS_COMPLETED)
+    r = client.post(BASE + '/orders/{}/settle'.format(oid),
+                    json={'agreed_volume_m3': '-5'})
+    assert r.status_code == 409
+    r = client.post(BASE + '/orders/{}/settle'.format(oid),
+                    json={'agreed_volume_m3': '0'})
+    assert r.status_code == 409
+
+
+def test_kosz_ukryty_gdy_zlecenie_ma_skasowane_pomiary(client, app):
+    """
+    can_delete liczy WSZYSTKIE wiersze, także miękko skasowane — tym samym
+    warunkiem, którym order_delete blokuje usunięcie. Inaczej interfejs
+    pokazywał przycisk, który zawsze kończył się 409.
+    """
+    oid = _zlecenie(app, pomiarow=1)
+    with app.app_context():
+        log = SawmillLog.query.filter_by(order_id=oid).first()
+        log.is_deleted = True
+        db.session.commit()
+
+    order = client.get(BASE + '/orders').get_json()['orders'][0]
+    assert order['logs_count'] == 0
+    assert order['can_delete'] is False
+    assert client.delete(BASE + '/orders/{}'.format(oid)).status_code == 409
+
+
+def test_kosz_widoczny_gdy_zlecenie_nigdy_nie_mialo_pomiarow(client, app):
+    oid = _zlecenie(app, pomiarow=0)
+    order = client.get(BASE + '/orders').get_json()['orders'][0]
+    assert order['can_delete'] is True
+    assert client.delete(BASE + '/orders/{}'.format(oid)).status_code == 200

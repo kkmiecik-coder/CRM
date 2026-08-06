@@ -31,9 +31,18 @@ def _to_decimal(value, field):
     if value is None or value == '':
         raise SawmillValidationError(field, u'pole jest wymagane')
     try:
-        return Decimal(str(value).replace(',', '.'))
+        parsed = Decimal(str(value).replace(',', '.'))
     except (InvalidOperation, ValueError):
         raise SawmillValidationError(field, u'wartość nie jest liczbą')
+    # Decimal('NaN') i Decimal('Infinity') powstają BEZ wyjątku. Bez tego
+    # sprawdzenia NaN wysadzał porównanie zakresu (InvalidOperation), a
+    # Infinity — kontrolę precyzji (jego wykładnik to 'F', nie liczba), oba
+    # jako 500. Na ścieżce mobilnej to gorsze niż 422: 5xx nie trafia do
+    # tabeli idempotencji, więc taki rekord z kolejki offline byłby ponawiany
+    # bez końca.
+    if not parsed.is_finite():
+        raise SawmillValidationError(field, u'wartość nie jest liczbą')
+    return parsed
 
 
 def _check_range(value, field, minimum, maximum):

@@ -54,10 +54,16 @@ def require_sawmill_device(f):
     """
     @wraps(f)
     def wrapper(*args, **kwargs):
-        if getattr(g, 'device', None) is None or g.device.station_code != STATION_CODE:
+        # g.device ustawia require_device_token, który przy braku/złym tokenie
+        # zwraca 401 i tu w ogóle nie wchodzi. Wcześniejsza gałąź obronna na
+        # `g.device is None` i tak wywalała się linijkę niżej na
+        # `getattr(g.device, ...)` (AttributeError zamiast 403), czyli udawała
+        # zabezpieczenie, którym nie była.
+        device = g.device
+        if device.station_code != STATION_CODE:
             return jsonify({
                 'error': 'station_mismatch',
-                'device_station': getattr(g.device, 'station_code', None),
+                'device_station': device.station_code,
                 'required_station': STATION_CODE,
             }), 403
         return f(*args, **kwargs)

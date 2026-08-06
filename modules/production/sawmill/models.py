@@ -196,7 +196,12 @@ class SawmillLog(db.Model):
     created_at = Column(DateTime, nullable=False, default=datetime.now)
     updated_at = Column(DateTime, nullable=True, onupdate=datetime.now)
 
-    is_deleted = Column(Boolean, nullable=False, default=False, index=True)
+    # Bez index=True — tak samo jak order_id wyżej. Osobny indeks na kolumnie
+    # o dwóch wartościach nic nie daje, a w SQL-u DDL go nie ma; rozjazd
+    # modelu ze schematem to ostatnia rzecz, jakiej chcemy przy ręcznych
+    # migracjach. Zapytania filtrują po (order_id, is_deleted) — pokrywa to
+    # indeks kompozytowy niżej.
+    is_deleted = Column(Boolean, nullable=False, default=False)
     deleted_at = Column(DateTime, nullable=True)
 
     __table_args__ = (
