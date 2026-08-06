@@ -658,11 +658,46 @@
         );
     }
 
+    // Historia audytu czytają ludzie z biura, nie programiści — kody z bazy
+    // (order_reopen, log_create_manual) nie mogą trafiać na ekran surowe.
+    // Klucze muszą pokrywać AUDIT_ACTIONS z models.py; nieznana akcja
+    // wyświetla się jako kod, żeby brak tłumaczenia był widoczny, a nie
+    // zamieniał wpis w pusty wiersz.
+    var AUDIT_LABELS = {
+        order_create: 'Utworzono zlecenie',
+        order_update: 'Zmieniono dane zlecenia',
+        order_delete: 'Usunięto zlecenie',
+        order_complete: 'Zakończono pomiary',
+        order_reopen: 'Wznowiono zlecenie',
+        order_settle: 'Rozliczono zlecenie',
+        order_unsettle: 'Cofnięto rozliczenie',
+        log_create: 'Dodano kłodę',
+        log_create_manual: 'Dodano kłodę ręcznie',
+        log_update: 'Poprawiono pomiar kłody',
+        log_delete: 'Usunięto kłodę',
+        delivery_update: 'Zmieniono dane dostawy',
+        delivery_delete: 'Usunięto dostawę'
+    };
+
+    function auditLabel(action) {
+        return AUDIT_LABELS[action] || action;
+    }
+
     function renderAuditItem(a) {
-        var who = a.user_id ? 'użytkownik #' + a.user_id : (a.device_id ? 'urządzenie ' + escapeHtml(a.device_id) : 'system');
+        var who;
+        if (a.user_name) {
+            who = escapeHtml(a.user_name);
+        } else if (a.user_id) {
+            // Użytkownik skasowany z systemu — numer to wszystko, co zostało.
+            who = 'użytkownik #' + a.user_id;
+        } else if (a.device_id) {
+            who = 'tablet ' + escapeHtml(a.device_id);
+        } else {
+            who = 'system';
+        }
         return (
             '<li class="list-group-item">' +
-            '<strong>' + escapeHtml(a.action) + '</strong> — ' + who +
+            '<strong>' + escapeHtml(auditLabel(a.action)) + '</strong> — ' + who +
             '<span class="text-muted small d-block">' + formatDateTime(a.created_at) + '</span>' +
             '</li>'
         );

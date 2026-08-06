@@ -14,7 +14,7 @@ from modules.production.sawmill.models import (
     SawmillAudit, SawmillDelivery, SawmillLog, SawmillOrder,
     SawmillSpecies, SawmillSupplier,
 )
-from modules.production.sawmill.services.orders import add_log
+from modules.production.sawmill.services.orders import add_log, write_audit
 from tests.sawmill_fixtures import BASE, app, client  # noqa: F401
 
 POMIAR_JSON = {
@@ -396,3 +396,33 @@ def test_zapis_ustawien_dziala_natychmiast(client):
 def test_decimal_places_nie_da_sie_nadpisac(client):
     client.patch(BASE + '/settings', json={'decimal_places': 2})
     assert client.get(BASE + '/settings').get_json()['settings']['decimal_places'] == 1
+
+
+def test_audyt_zwraca_nazwisko_autora(client, app):
+    """
+    Panel pokazuje historię ludziom z biura — sam user_id ("użytkownik #1")
+    nie mówi nic. Nazwisko rozwiązuje backend, żeby nie robić tego w JS
+    osobnym żądaniem na wiersz.
+    """
+    from modules.users.models import User
+    oid = _zlecenie(app, pomiarow=1)
+    with app.app_context():
+        user = User(email='anna.kowalska@woodpower.pl', password='x',
+                    first_name='Anna', last_name='Kowalska')
+        db.session.add(user)
+        db.session.flush()
+        write_audit(oid, 'order_update', user_id=user.id)
+        db.session.commit()
+
+    audit = client.get(BASE + '/orders/{}'.format(oid)).get_json()['audit']
+    wpis = [a for a in audit if a['action'] == 'order_update'][0]
+    assert wpis['user_name'] == 'Anna Kowalska'
+
+
+def test_audyt_urzadzenia_nie_ma_nazwiska(client, app):
+    """Pomiar z tabletu nie ma autora-człowieka — pole zostaje puste, nie zmyślone."""
+    oid = _zlecenie(app, pomiarow=1)
+    audit = client.get(BASE + '/orders/{}'.format(oid)).get_json()['audit']
+    wpis = [a for a in audit if a['action'] == 'log_create'][0]
+    assert wpis['user_name'] is None
+    assert wpis['device_id'] == 'TRAK-1'

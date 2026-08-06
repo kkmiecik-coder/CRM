@@ -39,6 +39,7 @@ from modules.production.sawmill.services.settings import (
 from modules.production.sawmill.services.validation import (
     SawmillValidationError, parse_measured_at, validate_measurements,
 )
+from modules.users.models import User
 
 logger = get_structured_logger('production.sawmill.panel_api')
 
@@ -280,6 +281,26 @@ def supplier_delete(supplier_id):
     row.is_active = False
     db.session.commit()
     return jsonify({'ok': True})
+
+
+def _audit_user_names(audit_entries):
+    """
+    Mapa {user_id: "Imię Nazwisko"} dla wpisów audytu.
+
+    Jedno zapytanie na całą listę, nie jedno na wiersz — historia zlecenia
+    potrafi mieć 200 wpisów, a autorów zwykle dwóch. Użytkownik skasowany
+    z systemu (FK ma ON DELETE SET NULL) nie trafia do mapy i interfejs
+    pokazuje wtedy sam numer.
+    """
+    ids = {a.user_id for a in audit_entries if a.user_id}
+    if not ids:
+        return {}
+
+    names = {}
+    for user in User.query.filter(User.id.in_(ids)).all():
+        pelne = u' '.join(part for part in (user.first_name, user.last_name) if part)
+        names[user.id] = pelne or user.email
+    return names
 
 
 # ── Dostawy ─────────────────────────────────────────────────────────────────
@@ -534,6 +555,7 @@ def order_details(order_id):
             .order_by(SawmillLog.sequence_no).all())
     audit = (SawmillAudit.query.filter_by(order_id=order_id)
              .order_by(SawmillAudit.id.desc()).limit(200).all())
+    user_names = _audit_user_names(audit)
 
     return jsonify({
         'order': _panel_payload(order, threshold),
@@ -544,6 +566,7 @@ def order_details(order_id):
             'before': json.loads(a.before_json) if a.before_json else None,
             'after': json.loads(a.after_json) if a.after_json else None,
             'device_id': a.device_id, 'user_id': a.user_id,
+            'user_name': user_names.get(a.user_id),
             'created_at': a.created_at.isoformat() if a.created_at else None,
         } for a in audit],
     })

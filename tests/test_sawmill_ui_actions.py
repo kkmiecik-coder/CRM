@@ -109,3 +109,38 @@ def test_flaga_odchylenia_nie_renderuje_sie_przy_oczekujacej_roznicy():
     js = _js()
     blok = js.split('function diffCellsHtml')[1].split('function renderOrderRow')[0]
     assert blok.index('o.differences_pending') < blok.index('sawmill-flag-icon')
+
+
+# ── Historia audytu po polsku ───────────────────────────────────────────────
+
+def test_kazda_akcja_audytu_ma_polska_etykiete():
+    """
+    Historię czytają ludzie z biura — kod z bazy (order_reopen) nie może
+    trafiać na ekran surowy. Test pilnuje SYNCHRONIZACJI: dodanie akcji do
+    AUDIT_ACTIONS bez etykiety w JS ma tu paść, a nie ujawnić się dopiero
+    użytkownikowi.
+    """
+    from modules.production.sawmill.models import AUDIT_ACTIONS
+    js = _js()
+    blok = js.split('var AUDIT_LABELS = {')[1].split('};')[0]
+    for action in sorted(AUDIT_ACTIONS):
+        assert action + ':' in blok, u'brak polskiej etykiety dla akcji {}'.format(action)
+
+
+def test_etykiety_audytu_nie_zawieraja_podkreslen_z_kodow():
+    """Etykieta ma być zdaniem po polsku, nie przepisanym kodem akcji."""
+    js = _js()
+    blok = js.split('var AUDIT_LABELS = {')[1].split('};')[0]
+    for linia in blok.strip().splitlines():
+        if ':' not in linia:
+            continue
+        etykieta = linia.split(':', 1)[1].strip().strip(",").strip("'")
+        assert '_' not in etykieta, u'etykieta wygląda na kod: {}'.format(etykieta)
+
+
+def test_audyt_pokazuje_nazwisko_zamiast_numeru_uzytkownika():
+    js = _js()
+    blok = js.split('function renderAuditItem')[1].split('function renderDetailsBody')[0]
+    assert 'a.user_name' in blok
+    assert blok.index('a.user_name') < blok.index('a.user_id'), \
+        u'numer użytkownika jest sprawdzany przed nazwiskiem'
