@@ -205,3 +205,53 @@ def test_slownik_tlumaczy_miekkie_usuniecie_i_pozwala_przywrocic(client):
     assert 'dezaktyw' in js.lower()
     assert 'przywr' in js.lower()
     assert 'function restoreDictItem' in js
+
+
+# ── Formatowanie — polski format kwot i objętości (trzecia tura poprawek) ─────
+
+def test_funkcje_formatowania_polskiego_istnieja(client):
+    """Formatowanie kwot i objętości na polski (spacja jako separator tysięcy,
+    przecinek dziesiętny) — funkcje muszą być zdefiniowane w JS."""
+    js = _read_static('static', 'js', 'sawmill.js')
+    assert 'function formatPolishNumber' in js, (
+        'Brakuje funkcji formatPolishNumber do formatowania liczb na polski')
+    assert 'function formatVolume' in js, (
+        'Brakuje funkcji formatVolume do formatowania objętości (m³)')
+    assert 'function formatCurrency' in js, (
+        'Brakuje funkcji formatCurrency do formatowania kwot (zł)')
+    # Formatowanie powinno używać Intl.NumberFormat z locale 'pl-PL'
+    assert "'pl-PL'" in js, (
+        "Brakuje Intl.NumberFormat z locale 'pl-PL' do polskiego formatowania")
+
+
+def test_formatowanie_nie_dotyczy_wartosci_wysylanych_do_api(client):
+    """Pola input[type="number"] i dane wysyłane do API (fetch body) muszą
+    zawierać wartości maszynowe (z kropką), nie sformatowane na polski.
+    Formatujesz wyłącznie wyświetlane wartości w DOM."""
+    js = _read_static('static', 'js', 'sawmill.js')
+    # Funkcja formatNum() i formatSigned() wciąż istnieją i zwracają .toFixed()
+    assert 'function formatNum' in js
+    assert 'function formatSigned' in js
+    # W collectDeliveryItems() wartości z input.value nie są formatowane — tylko parsowane
+    assert 'parseFloat(volumeInput.value)' in js, (
+        'Wartości z pól input muszą być parsowane maszynowo')
+    # Payload do POST/PATCH nie zawiera sformatowanych wartości
+    assert 'JSON.stringify(payload)' in js, (
+        'Payload do fetch musi być JSON.stringify, nie sformatowany')
+    # updateItemPreview() używa formatCurrency() do wyświetlenia, ale nie do wysyłania
+    assert 'formatCurrency' in js, (
+        'updateItemPreview musi używać formatCurrency dla wyświetlenia')
+
+
+def test_wiersz_pozycji_dostawy_rozprowadza_sie_na_cala_szerokosc(client):
+    """Cztery główne kolumny pozycji dostawy (Gatunek, Dekl. obj., Liczba kłód,
+    Cena/m³) mają rozprowadzać się równomiernie na dostępną szerokość,
+    natomiast kolumna wartości i przycisk usunięcia zostają przy prawej
+    krawędzi."""
+    css = _read_static('static', 'css', 'sawmill.css')
+    # CSS musi zawierać reguły flex dla wiersza pozycji
+    assert 'display: flex' in css
+    assert '.sawmill-item-row > div:nth-child(-n+4)' in css, (
+        'Cztery główne kolumny powinny mieć flex: 1 1 0 dla rozprowadzenia')
+    assert 'flex: 1 1 0' in css, (
+        'Kolumny powinny mieć flex-grow = 1 dla równomiernego rozprowadzenia')

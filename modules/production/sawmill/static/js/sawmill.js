@@ -89,11 +89,38 @@
 
     // ── Formatowanie ────────────────────────────────────────────────────────
 
+    // Format liczby maszynowo (do API, pola input) — nie zmienia.
     function formatNum(value, decimals) {
         if (value === null || value === undefined || value === '') return '—';
         var num = Number(value);
         if (isNaN(num)) return '—';
         return num.toFixed(decimals);
+    }
+
+    // Format liczby na polski (do wyświetlenia w DOM) — spacja jako separator tysięcy, przecinek dziesiętny.
+    function formatPolishNumber(value, decimals) {
+        if (value === null || value === undefined || value === '') return '—';
+        var num = Number(value);
+        if (isNaN(num)) return '—';
+        var formatter = new Intl.NumberFormat('pl-PL', {
+            minimumFractionDigits: decimals,
+            maximumFractionDigits: decimals
+        });
+        return formatter.format(num);
+    }
+
+    // Format objętości w m³ — polski format (np. "23,847 m³").
+    function formatVolume(value) {
+        if (value === null || value === undefined || value === '') return '—';
+        return formatPolishNumber(value, 3) + ' m³';
+    }
+
+    // Format kwoty (zł) — polski format (np. "120 000,00 zł").
+    function formatCurrency(value) {
+        if (value === null || value === undefined || value === '') return '— zł';
+        var num = Number(value);
+        if (isNaN(num)) return '— zł';
+        return formatPolishNumber(num, 2) + ' zł';
     }
 
     function formatSigned(value, decimals) {
@@ -102,6 +129,15 @@
         if (isNaN(num)) return '—';
         var sign = num > 0 ? '+' : '';
         return sign + num.toFixed(decimals);
+    }
+
+    // Format podpisanej liczby polskiego (do wyświetlenia) — zwraca format polski z znakiem.
+    function formatSignedPolish(value, decimals) {
+        if (value === null || value === undefined || value === '') return '—';
+        var num = Number(value);
+        if (isNaN(num)) return '—';
+        var sign = num > 0 ? '+' : '';
+        return sign + formatPolishNumber(num, decimals);
     }
 
     function formatDate(iso) {
@@ -251,11 +287,11 @@
             '<td>' + escapeHtml(o.invoice_number || '—') + '</td>' +
             '<td>' + formatDate(o.delivery_date) + '</td>' +
             '<td>' + escapeHtml(o.species || '—') + '</td>' +
-            '<td>' + formatNum(o.declared_volume_m3, 3) + '</td>' +
-            '<td>' + formatNum(o.measured_volume_m3, 3) + '</td>' +
-            '<td class="' + diffClass(o.difference_m3, o.is_deviation) + '">' + flagIcon + formatSigned(o.difference_m3, 3) + '</td>' +
+            '<td>' + formatVolume(o.declared_volume_m3) + '</td>' +
+            '<td>' + formatVolume(o.measured_volume_m3) + '</td>' +
+            '<td class="' + diffClass(o.difference_m3, o.is_deviation) + '">' + flagIcon + formatSignedPolish(o.difference_m3, 3) + ' m³</td>' +
             '<td class="' + diffClass(o.difference_pct, o.is_deviation) + '">' + formatSigned(o.difference_pct, 2) + '%</td>' +
-            '<td class="' + diffClass(o.difference_value, o.is_deviation) + '">' + formatSigned(o.difference_value, 2) + ' zł</td>' +
+            '<td class="' + diffClass(o.difference_value, o.is_deviation) + '">' + formatCurrency(o.difference_value) + '</td>' +
             '<td>' + o.logs_count + '</td>' +
             '<td><span class="badge sawmill-status-badge sawmill-status-' + o.status + '">' + statusLabel(o.status) + '</span></td>' +
             '<td class="sawmill-actions">' +
@@ -398,11 +434,13 @@
     function updateItemPreview(row) {
         // Podgląd wyłącznie orientacyjny — serwer i tak przelicza wartość
         // pozycji sam (declared_volume_m3 * price_per_m3), zgodnie z briefem.
+        // Formatowanie: wartości wewnętrzne (declared, price) są maszynowe (do API),
+        // wyświetlona wartość iloczynu formatuje się na polski.
         var declared = parseFloat(row.querySelector('.sawmill-item-declared-volume').value);
         var price = parseFloat(row.querySelector('.sawmill-item-price').value);
         var preview = row.querySelector('.sawmill-item-value-preview');
         if (!isNaN(declared) && !isNaN(price)) {
-            preview.textContent = (declared * price).toFixed(2) + ' zł';
+            preview.textContent = formatCurrency(declared * price);
         } else {
             preview.textContent = '— zł';
         }
@@ -622,20 +660,20 @@
             '<tr><th>Notatki</th><td>' + escapeHtml(o.notes || '—') + '</td></tr>' +
             '</table></div>' +
             '<div class="col-md-6"><h6>Różnica</h6><table class="table table-sm mb-0">' +
-            '<tr><th>Deklarowane</th><td>' + formatNum(o.declared_volume_m3, 3) + ' m³</td></tr>' +
-            '<tr><th>Zmierzone</th><td>' + formatNum(o.measured_volume_m3, 3) + ' m³</td></tr>' +
-            '<tr><th>Uzgodnione</th><td>' + formatNum(o.agreed_volume_m3, 3) + ' m³</td></tr>' +
-            '<tr><th>Różnica m³</th><td class="' + diffClass(o.difference_m3, o.is_deviation) + '">' + formatSigned(o.difference_m3, 3) + '</td></tr>' +
+            '<tr><th>Deklarowane</th><td>' + formatVolume(o.declared_volume_m3) + '</td></tr>' +
+            '<tr><th>Zmierzone</th><td>' + formatVolume(o.measured_volume_m3) + '</td></tr>' +
+            '<tr><th>Uzgodnione</th><td>' + formatVolume(o.agreed_volume_m3) + '</td></tr>' +
+            '<tr><th>Różnica m³</th><td class="' + diffClass(o.difference_m3, o.is_deviation) + '">' + formatSignedPolish(o.difference_m3, 3) + ' m³</td></tr>' +
             '<tr><th>Różnica %</th><td class="' + diffClass(o.difference_pct, o.is_deviation) + '">' + formatSigned(o.difference_pct, 2) + '%</td></tr>' +
-            '<tr><th>Różnica zł</th><td class="' + diffClass(o.difference_value, o.is_deviation) + '">' + formatSigned(o.difference_value, 2) + ' zł</td></tr>' +
+            '<tr><th>Różnica zł</th><td class="' + diffClass(o.difference_value, o.is_deviation) + '">' + formatCurrency(o.difference_value) + '</td></tr>' +
             '</table></div></div>' +
 
             '<div class="mb-3"><h6>Podsumowanie kłód</h6><div class="sawmill-summary-cards">' +
-            '<div class="sawmill-summary-card"><span class="label">Suma m³</span><span class="value">' + formatNum(o.measured_volume_m3, 3) + '</span></div>' +
+            '<div class="sawmill-summary-card"><span class="label">Suma m³</span><span class="value">' + formatVolume(o.measured_volume_m3) + '</span></div>' +
             '<div class="sawmill-summary-card"><span class="label">Liczba kłód</span><span class="value">' + count + '</span></div>' +
-            '<div class="sawmill-summary-card"><span class="label">Śr. m³/kłodę</span><span class="value">' + (avgVolume !== null ? avgVolume.toFixed(4) : '—') + '</span></div>' +
-            '<div class="sawmill-summary-card"><span class="label">Śr. średnica</span><span class="value">' + (avgDiameter !== null ? avgDiameter.toFixed(1) + ' cm' : '—') + '</span></div>' +
-            '<div class="sawmill-summary-card"><span class="label">Śr. długość</span><span class="value">' + (avgLength !== null ? avgLength.toFixed(1) + ' cm' : '—') + '</span></div>' +
+            '<div class="sawmill-summary-card"><span class="label">Śr. m³/kłodę</span><span class="value">' + (avgVolume !== null ? formatVolume(avgVolume) : '—') + '</span></div>' +
+            '<div class="sawmill-summary-card"><span class="label">Śr. średnica</span><span class="value">' + (avgDiameter !== null ? formatPolishNumber(avgDiameter, 1) + ' cm' : '—') + '</span></div>' +
+            '<div class="sawmill-summary-card"><span class="label">Śr. długość</span><span class="value">' + (avgLength !== null ? formatPolishNumber(avgLength, 1) + ' cm' : '—') + '</span></div>' +
             '</div></div>' +
 
             '<h6>Kłody</h6><div class="table-responsive mb-3"><table class="table table-sm table-hover" id="sawmill-logs-table">' +
@@ -966,7 +1004,14 @@
             var raw = values[f.field];
             var value = (raw === undefined || raw === null) ? '' : raw;
             var fieldId = 'sawmill-dict-field-' + f.field;
-            var colClass = f.type === 'textarea' ? 'col-12' : 'col-md-6';
+            // Dla gatunków: trzy pola w jednym wierszu (col-md-4 każde).
+            // Dla dostawców: col-md-6 (pary w wierszu), textarea cała szerokość.
+            var colClass;
+            if (type === 'species') {
+                colClass = 'col-md-4';
+            } else {
+                colClass = f.type === 'textarea' ? 'col-12' : 'col-md-6';
+            }
             var inputHtml;
             if (f.type === 'textarea') {
                 inputHtml = '<textarea class="form-control" rows="2" data-field="' + f.field + '" id="' + fieldId + '">' +
@@ -1010,6 +1055,13 @@
                           'onclick="Sawmill.cancelDictEdit()">Anuluj edycję</button>'
                         : '';
 
+                    // Przycisk "Dodaj" na wysokości nagłówka "Nowa pozycja", dosunięty do prawej (space-between).
+                    var headerHtml = '<div class="d-flex justify-content-between align-items-center mb-2">' +
+                        '<h6 class="mb-0">' + formTitle + '</h6>' +
+                        '<button type="button" class="btn btn-primary btn-sm" onclick="Sawmill.submitDictForm()">' +
+                        escapeHtml(submitLabel) + '</button>' +
+                        '</div>';
+
                     el('sawmill-dict-body').innerHTML =
                         '<p class="text-muted small mb-2">Usunięcie oznacza dezaktywację — pozycja znika z list wyboru ' +
                         'przy nowych dostawach, ale historyczne zlecenia w bazie pozostają nienaruszone. Nieaktywne ' +
@@ -1018,12 +1070,9 @@
                         'sprawdź najpierw, czy nie jest już na liście jako nieaktywna.</p>' +
                         '<div class="table-responsive mb-3"><table class="table table-sm align-middle sawmill-dict-table">' +
                         '<thead>' + theadHtml + '</thead><tbody>' + tbodyHtml + '</tbody></table></div>' +
-                        '<h6 class="mb-2">' + formTitle + '</h6>' +
+                        headerHtml +
                         '<div class="row g-2">' + renderDictFormFields(type, editing) + '</div>' +
-                        '<div class="mt-3">' +
-                        '<button type="button" class="btn btn-primary btn-sm" onclick="Sawmill.submitDictForm()">' +
-                        escapeHtml(submitLabel) + '</button>' + cancelBtnHtml +
-                        '</div>' +
+                        (cancelBtnHtml ? '<div class="mt-2">' + cancelBtnHtml + '</div>' : '') +
                         '<div class="alert alert-danger mt-2" id="sawmill-dict-error" style="display:none;"></div>';
                 });
             }).catch(function (err) {
