@@ -64,6 +64,51 @@
     <div class="dashboard-card-body">
       <div class="il-stations-grid">
 
+        {# TRAKOWNIA — pre-produkcja, poza pipeline'em produktów. Stoi jako
+           pierwsza w gridzie: to wejście w całą produkcję (surowiec, zanim
+           cokolwiek stanie się produktem), więc ma własne statystyki
+           (dashboard_stats.stations.sawmill), nie te ze słownika
+           _STATION_PENDING_STATUS jak pozostałe stanowiska. Trakownia nie ma
+           interfejsu web jak inne stanowiska, więc ikona "otwórz" nie
+           prowadzi pod url_for(production_stations...), tylko przełącza na
+           zakładkę Trakownia (data-goto-tab, obsłużone w sawmill.js). #}
+        <div class="il-station il-station-sawmill {% if not dashboard_stats.stations.sawmill.tablet_status.active|default(false) %}station-inactive{% endif %}" data-station="sawmill">
+          <div class="il-station-header">
+            <span class="il-station-name">Trakownia <small class="il-station-kind">surowiec</small></span>
+            <div class="il-station-actions">
+              {{ station_telemetry(dashboard_stats.stations.sawmill.tablet_status) }}
+              <span class="il-station-badge {% if dashboard_stats.stations.sawmill.tablet_status.active|default(false) %}active{% else %}inactive{% endif %}" id="sawmill-tablet-badge">
+                {{ dashboard_stats.stations.sawmill.tablet_status.status_label|default('Niedostępne') }}
+              </span>
+              <a href="#" class="il-station-link" data-goto-tab="sawmill-tab" title="Otwórz rejestr trakowania"><i class="fas fa-external-link-alt"></i></a>
+            </div>
+          </div>
+          <div class="il-station-body">
+            <div class="il-station-stats">
+              <div class="il-station-stat">
+                <div class="il-station-stat-value" id="sawmill-open">{{ dashboard_stats.stations.sawmill.open_orders|default(0) }}</div>
+                <div class="il-station-stat-label">Otwarte</div>
+              </div>
+              <div class="il-station-stat">
+                <div class="il-station-stat-value" id="sawmill-logs-today">{{ dashboard_stats.stations.sawmill.logs_today|default(0) }}</div>
+                <div class="il-station-stat-label">Kłód dziś</div>
+              </div>
+              <div class="il-station-stat">
+                <div class="il-station-stat-value" id="sawmill-m3-today">{{ "%.3f"|format(dashboard_stats.stations.sawmill.volume_today_m3|default(0.0)) }}</div>
+                <div class="il-station-stat-label">m³ dziś</div>
+              </div>
+              <div class="il-station-stat">
+                <div class="il-station-stat-value" id="sawmill-to-settle">{{ dashboard_stats.stations.sawmill.to_settle|default(0) }}</div>
+                <div class="il-station-stat-label">Do rozlicz.</div>
+              </div>
+            </div>
+            <div class="il-station-progress">
+              <div class="il-station-bar"><div class="il-station-bar-fill" id="sawmill-bar-fill" style="width: {{ dashboard_stats.stations.sawmill.progress_pct|default(0) }}%;"></div></div>
+              <span class="il-station-bar-pct" id="sawmill-bar-pct">{{ dashboard_stats.stations.sawmill.progress_pct|default(0) }}%</span>
+            </div>
+          </div>
+        </div>
+
         {# CUTTING #}
         <div class="il-station {% if not dashboard_stats.stations.cutting.tablet_status.active|default(false) %}station-inactive{% endif %}" data-station="cutting">
           <div class="il-station-header">

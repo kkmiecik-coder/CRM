@@ -111,3 +111,31 @@
     max-height: 260px;
     overflow-y: auto;
 }
+
+/* ============================================================================
+   Kafelek trakowni na dashboardzie produkcji (dashboard-tab-content.html).
+   Trakownia to surowiec (kłody od dostawców), nie ogniwo pipeline'u
+   produktów (cutting → assembly → gluing → formatting → finishing →
+   packaging) — kafelek stoi jako pierwszy w gridzie "Stanowiska
+   produkcyjne" i ma być wizualnie odcięty od reszty: własny (drewniany)
+   akcent zamiast kolejnego koloru z palety stanowisk, plus wyszarzony
+   podpis "surowiec" obok nazwy.
+   ============================================================================ */
+.il-station-sawmill {
+    border-left: 4px solid #6b4423;
+}
+
+.il-station-sawmill .il-station-header,
+.il-station-sawmill .il-station-bar-fill {
+    background: #6b4423;
+}
+
+.il-station-sawmill .il-station-kind {
+    margin-left: 6px;
+    font-size: 10px;
+    font-weight: 400;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: rgba(255, 255, 255, 0.6);
+    font-family: 'JetBrains Mono', monospace;
+}

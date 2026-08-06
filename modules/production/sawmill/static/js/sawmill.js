@@ -895,6 +895,39 @@
         return patchDictActive(id, true);
     }
 
+    // ── Nawigacja z kafelka dashboardu ──────────────────────────────────────
+
+    // Kafelek trakowni w gridzie "Stanowiska produkcyjne" (zakładka Dashboard)
+    // ma ikonę "otwórz" tak jak pozostałe stanowiska, ale trakownia nie ma
+    // własnego interfejsu web — ikona ma tylko przełączyć na zakładkę
+    // Trakownia. Element z atrybutem [data-goto-tab] żyje w
+    // #dashboard-tab-content, czyli POZA kontenerem tego modułu, dlatego
+    // nasłuch wieszamy na document (delegacja), a nie przez el(...).
+    //
+    // Guard na document.__sawmillGotoTabBound jest konieczny, bo ten plik
+    // bywa wstrzykiwany ponownie (patrz komentarz na górze pliku) — bez
+    // niego każde ponowne wejście na zakładkę Trakownia dokładałoby kolejny
+    // globalny listener na document.
+    function bindGotoTabLinks() {
+        if (document.__sawmillGotoTabBound) return;
+        document.__sawmillGotoTabBound = true;
+
+        document.addEventListener('click', function (e) {
+            var link = e.target.closest('[data-goto-tab]');
+            if (!link) return;
+            e.preventDefault();
+
+            var tabName = link.getAttribute('data-goto-tab');
+            if (window.ProductionApp && typeof window.ProductionApp.switchToTab === 'function') {
+                window.ProductionApp.switchToTab(tabName);
+            } else {
+                // Fallback — symuluj klik na właściwy przycisk zakładki w pasku nawigacji.
+                var tabButton = document.getElementById(tabName);
+                if (tabButton) tabButton.click();
+            }
+        });
+    }
+
     // ── Inicjalizacja ────────────────────────────────────────────────────────
 
     function bindStaticEvents() {
@@ -917,6 +950,7 @@
     function init() {
         seedSpeciesOptionsFromDOM();
         bindStaticEvents();
+        bindGotoTabLinks();
 
         var firstRow = document.querySelector('#sawmill-delivery-items .sawmill-item-row');
         if (firstRow) bindItemRowPreview(firstRow);

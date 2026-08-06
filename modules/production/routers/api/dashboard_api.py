@@ -835,11 +835,30 @@ def dashboard_tab_content():
             for code in _STATION_PENDING_STATUS.keys()
         }
 
+        # Trakownia nie ma statusów ProductionItem, więc nie da się jej policzyć
+        # ze słownika _STATION_PENDING_STATUS jak pozostałych stanowisk —
+        # ma własne agregaty na tabelach prod_sawmill_*. Gałąź musi zostać
+        # zbudowana PRZED pętlą przypisującą tablet_status niżej (klucz
+        # 'sawmill' musi już istnieć w dashboard_stats['stations'], inaczej
+        # pętla wywali KeyError i popsuje dashboard wszystkim stanowiskom).
+        from modules.production.sawmill.services.exports import sawmill_dashboard_stats
+        sawmill = sawmill_dashboard_stats()
+        dashboard_stats['stations']['sawmill'] = {
+            'open_orders': sawmill['open_orders'],
+            'logs_today': sawmill['logs_today'],
+            'volume_today_m3': sawmill['volume_today_m3'],
+            'to_settle': sawmill['to_settle'],
+            'progress_pct': sawmill['progress_pct'],
+            'tablet_status': {'active': False, 'last_seen': None,
+                              'status_label': 'Niedostępne'},
+        }
+
         # Heartbeat status per station
         from modules.production.services.mobile_api_service import get_devices_telemetry
         heartbeat_statuses = get_devices_telemetry()
 
-        for st_code in ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging']:
+        for st_code in ['sawmill', 'cutting', 'assembly', 'gluing',
+                        'formatting', 'finishing', 'packaging']:
             dashboard_stats['stations'][st_code]['tablet_status'] = heartbeat_statuses.get(st_code, {'active': False, 'last_seen': None, 'status_label': 'Niedostępne'})
 
         # completed_today (count distinct items z dodatnim netto delta)
