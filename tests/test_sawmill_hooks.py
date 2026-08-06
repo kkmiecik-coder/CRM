@@ -317,3 +317,62 @@ def test_require_module_access_as_json_403_brak_uprawnien(perm_app, monkeypatch)
         response, status = widok()
         assert status == 403
         assert response.get_json() == {'error': 'module_access_denied'}
+
+
+# ---- b) with_idempotency(require_operation_id=True) ----------------------
+
+def test_idempotency_przyjmuje_require_operation_id():
+    params = inspect.signature(with_idempotency).parameters
+    assert 'require_operation_id' in params
+    # Domyślnie WYŁĄCZONE — ten sam dekorator obsługuje stanowiska produkcji,
+    # których aplikacja Android jest już wdrożona na produkcji.
+    assert params['require_operation_id'].default is False
+
+
+def test_brak_naglowka_bez_wymogu_wykonuje_handler(app):
+    """
+    REGRESJA CHRONIĄCA WDROŻONĄ FLOTĘ: endpointy pozostałych stanowisk
+    (@with_idempotency bez argumentów) muszą dalej działać bez nagłówka.
+    Zaostrzenie globalne popsułoby tablety pracujące dziś na hali.
+    """
+    wywolania = []
+
+    @with_idempotency
+    def handler():
+        wywolania.append(1)
+        return jsonify({'ok': True}), 200
+
+    with app.test_request_context('/api/mobile/complete'):
+        _, status = handler()
+        assert status == 200
+        assert wywolania == [1]
+
+
+def test_brak_naglowka_z_wymogiem_daje_400_i_nie_wola_handlera(app):
+    wywolania = []
+
+    @with_idempotency(require_operation_id=True)
+    def handler():
+        wywolania.append(1)
+        return jsonify({'ok': True}), 200
+
+    with app.test_request_context('/api/mobile/sawmill/measurements'):
+        response, status = handler()
+        assert status == 400
+        assert response.get_json()['error'] == 'missing_operation_id'
+        # Handler nie może się wykonać — inaczej sprawdzenie byłoby po zapisie.
+        assert wywolania == []
+
+
+def test_wymog_nie_psuje_dzialania_z_naglowkiem(app):
+    @with_idempotency(retryable_statuses={409}, require_operation_id=True)
+    def handler():
+        return jsonify({'ok': True}), 200
+
+    with app.test_request_context(
+        '/api/mobile/sawmill/measurements',
+        headers={'X-Operation-Id': 'op-wymog-hook-1'},
+    ):
+        _, status = handler()
+        assert status == 200
+        assert ProcessedMobileOperation.query.count() == 1

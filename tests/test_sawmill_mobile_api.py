@@ -477,3 +477,68 @@ def test_odpowiedz_dodania_pomiaru_nie_zawiera_deklaracji(client, app):
     for zakazane in ('declared_volume_m3', 'price_per_m3', 'declared_value',
                      'agreed_volume_m3', 'settlement_notes', 'WZ'):
         assert zakazane not in surowo
+
+
+# ── X-Operation-Id jest wymagany (przegląd całej gałęzi) ────────────────────
+
+def test_brak_operation_id_daje_400_na_kazdym_endpoincie_mutujacym(client, app):
+    """
+    Kontrakt deklaruje nagłówek jako wymagany, ale serwer tego nie egzekwował.
+    Bez tego pominięcie nagłówka po stronie appki tworzyłoby duplikat kłody
+    przy każdym retry po timeoucie — na samym pomiarze nie ma unikatu,
+    sequence_no nadaje serwer. Rozbieżność ujawniłaby się dopiero jako
+    zawyżona objętość w rozliczeniu z dostawcą.
+    """
+    token = _urzadzenie(app)
+    oid = _zlecenie(app)
+    bez = _naglowki(token)
+
+    zadania = [
+        lambda: client.post('/api/mobile/sawmill/orders/{}/logs'.format(oid),
+                            json=POMIAR, headers=bez),
+        lambda: client.patch('/api/mobile/sawmill/logs/1', json=POMIAR, headers=bez),
+        lambda: client.delete('/api/mobile/sawmill/logs/1', headers=bez),
+        lambda: client.post('/api/mobile/sawmill/orders/{}/complete'.format(oid),
+                            headers=bez),
+    ]
+    for wykonaj in zadania:
+        r = wykonaj()
+        assert r.status_code == 400
+        assert r.get_json()['error'] == 'missing_operation_id'
+
+
+def test_pusty_operation_id_tez_daje_400(client, app):
+    """Nagłówek z samymi spacjami to brak nagłówka, nie poprawna wartość."""
+    token = _urzadzenie(app)
+    oid = _zlecenie(app)
+    naglowki = _naglowki(token)
+    naglowki['X-Operation-Id'] = '   '
+    r = client.post('/api/mobile/sawmill/orders/{}/logs'.format(oid),
+                    json=POMIAR, headers=naglowki)
+    assert r.status_code == 400
+    assert r.get_json()['error'] == 'missing_operation_id'
+
+
+def test_zadne_dane_nie_powstaja_przy_braku_naglowka(client, app):
+    """Sprawdzenie musi nastąpić PRZED handlerem, nie po zapisie."""
+    from modules.production.sawmill.models import SawmillLog
+    token = _urzadzenie(app)
+    oid = _zlecenie(app)
+    # Body MUSI być kompletne (z measured_at) — z niepełnym handler i tak
+    # zwróciłby 422 i nic by nie zapisał, więc test przechodziłby również
+    # przy usuniętym sprawdzeniu nagłówka.
+    client.post('/api/mobile/sawmill/orders/{}/logs'.format(oid),
+                json=dict(POMIAR, measured_at='2026-08-05T09:31:12'),
+                headers=_naglowki(token))
+    with app.app_context():
+        assert SawmillLog.query.count() == 0
+
+
+def test_z_naglowkiem_dziala_jak_dotad(client, app):
+    """Regresja — wymóg nie może zepsuć poprawnego żądania."""
+    token = _urzadzenie(app)
+    oid = _zlecenie(app)
+    r = client.post('/api/mobile/sawmill/orders/{}/logs'.format(oid),
+                    json=dict(POMIAR, measured_at='2026-08-05T09:31:12'),
+                    headers=_naglowki(token, 'op-wymog-1'))
+    assert r.status_code == 201

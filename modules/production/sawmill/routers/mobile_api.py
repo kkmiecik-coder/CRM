@@ -182,7 +182,7 @@ def sawmill_config():
 @sawmill_mobile_bp.route('/orders/<int:order_id>/logs', methods=['POST'])
 @require_device_token
 @require_sawmill_device
-@with_idempotency(retryable_statuses={409})
+@with_idempotency(retryable_statuses={409}, require_operation_id=True)
 def sawmill_add_log(order_id):
     order = _load_order(order_id)
     if order is None:
@@ -211,7 +211,7 @@ def sawmill_add_log(order_id):
 @sawmill_mobile_bp.route('/logs/<int:log_id>', methods=['PATCH'])
 @require_device_token
 @require_sawmill_device
-@with_idempotency(retryable_statuses={409})
+@with_idempotency(retryable_statuses={409}, require_operation_id=True)
 def sawmill_update_log(log_id):
     log = db.session.query(SawmillLog).get(log_id)
     if log is None or log.is_deleted:
@@ -239,7 +239,7 @@ def sawmill_update_log(log_id):
 @sawmill_mobile_bp.route('/logs/<int:log_id>', methods=['DELETE'])
 @require_device_token
 @require_sawmill_device
-@with_idempotency(retryable_statuses={409})
+@with_idempotency(retryable_statuses={409}, require_operation_id=True)
 def sawmill_delete_log(log_id):
     log = db.session.query(SawmillLog).get(log_id)
     if log is None or log.is_deleted:
@@ -258,7 +258,7 @@ def sawmill_delete_log(log_id):
 @sawmill_mobile_bp.route('/orders/<int:order_id>/complete', methods=['POST'])
 @require_device_token
 @require_sawmill_device
-@with_idempotency(retryable_statuses={409})
+@with_idempotency(retryable_statuses={409}, require_operation_id=True)
 def sawmill_complete_order(order_id):
     order = _load_order(order_id)
     if order is None:

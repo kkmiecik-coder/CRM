@@ -427,11 +427,11 @@ def require_device_token(f):
 # IDEMPOTENCY (X-Operation-Id)
 # ============================================================================
 
-def with_idempotency(f=None, retryable_statuses=None):
+def with_idempotency(f=None, retryable_statuses=None, require_operation_id=False):
     """
     Decorator dla endpointów mutujących stan (POST /complete, PATCH /quantity).
     Obsługuje nagłówek X-Operation-Id:
-    - brak → zachowanie bez zmian (decorator committuje 2xx/4xx, rollback 5xx)
+    - brak → zachowanie zależne od require_operation_id (niżej)
     - istnieje w bazie → zwraca zapisany response, bez wywoływania handlera
     - nowy → wywołuje handler, zapisuje response w jednej transakcji (tylko 2xx/4xx)
 
@@ -449,6 +449,21 @@ def with_idempotency(f=None, retryable_statuses=None):
     Domyślnie pusty zbiór — zero zmian dla istniejących stanowisk. Działa
     zarówno bez nawiasów (@with_idempotency), jak i z argumentem
     (@with_idempotency(retryable_statuses={409})).
+
+    require_operation_id: gdy True, żądanie BEZ nagłówka dostaje 400
+    (`missing_operation_id`) zamiast zostać wykonane. Używa tego wyłącznie
+    trakownia, której kontrakt deklaruje nagłówek jako wymagany, a aplikacja
+    Android jeszcze nie istnieje — bez tego pominięcie nagłówka po stronie
+    klienta tworzyłoby duplikat kłody przy każdym retry po timeoucie (na
+    samym pomiarze nie ma unikatu, sequence_no nadaje serwer), a rozbieżność
+    ujawniłaby się dopiero jako zawyżona objętość w rozliczeniu z dostawcą.
+
+    Domyślnie False, bo tego samego dekoratora używają stanowiska produkcji,
+    których aplikacja Android JEST JUŻ WDROŻONA — zaostrzenie globalne
+    popsułoby działającą flotę tabletów.
+
+    Kod 400, nie 422: w tym kontrakcie 422 znaczy „dane są błędne, nie
+    ponawiaj", a tu wadliwe jest samo żądanie, nie pomiar.
     """
     retryable = frozenset(retryable_statuses or ())
 
@@ -456,6 +471,17 @@ def with_idempotency(f=None, retryable_statuses=None):
         @wraps(func)
         def wrapper(*args, **kwargs):
             op_id = request.headers.get('X-Operation-Id', '').strip()
+
+            # Przed handlerem i przed jakimkolwiek zapisem do bazy.
+            if require_operation_id and not op_id:
+                logger.warning("Mobile API: brak X-Operation-Id", extra={
+                    'endpoint': '{}.{}'.format(func.__module__, func.__name__),
+                })
+                return jsonify({
+                    'error': 'missing_operation_id',
+                    'detail': u'nagłówek X-Operation-Id jest wymagany '
+                              u'dla operacji zmieniających dane',
+                }), 400
 
             # Replay dla znanego op_id
             if op_id:

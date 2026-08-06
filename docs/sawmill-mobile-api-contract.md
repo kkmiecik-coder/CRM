@@ -78,9 +78,15 @@ walidacja, kolejka — jest nowa.
   ale wysyłaj go zawsze, to jedyny sposób serwera, żeby wymusić aktualizację floty.
 - **`X-Operation-Id`:** wymagany na **wszystkich czterech endpointach mutujących**
   (`POST /orders/<id>/logs`, `PATCH /logs/<id>`, `DELETE /logs/<id>`,
-  `POST /orders/<id>/complete`). Mechanizm idempotencji opisany w sekcji 6 —
-  **to jest najważniejsza część tego kontraktu**, przeczytaj ją w całości przed
-  implementacją kolejki offline.
+  `POST /orders/<id>/complete`). **Wymóg egzekwowany przez serwer**: żądanie bez
+  tego nagłówka (albo z pustym) dostaje `400 missing_operation_id` i **nie wykonuje
+  się w ogóle** — nic nie zostaje zapisane. To nie jest zalecenie, tylko warunek
+  wpuszczenia żądania. Powód: bez idempotencji każdy retry po timeoucie tworzy
+  DUPLIKAT kłody (na samym pomiarze nie ma unikatu, `sequence_no` nadaje serwer),
+  a rozbieżność wyszłaby na jaw dopiero jako zawyżona objętość w rozliczeniu
+  z dostawcą. Mechanizm idempotencji opisany w sekcji 6 — **to jest najważniejsza
+  część tego kontraktu**, przeczytaj ją w całości przed implementacją kolejki
+  offline.
 - **Format odpowiedzi:** zawsze JSON. Sukces → kształt opisany przy każdym endpoincie.
   Błąd → `{"error": "<kod>", ...dodatkowe pola}` z odpowiednim kodem HTTP (sekcja 7).
   Kontrakt trakowni, w odróżnieniu od bota kalkulatora, **używa kodów HTTP**, nie pola
@@ -487,6 +493,7 @@ dostanie za niego odpowiedzi innej niż `409` albo `5xx`.**
 | 401 | `invalid_token` | token wygasł / podpis zły / urządzenie zablokowane (`detail` z powodem) | Ponowna rejestracja urządzenia |
 | 403 | `ip_not_allowed` | IP tabletu poza whitelistą (jeśli włączona po stronie serwera) | Pokaż komunikat, brak retry — problem sieci/konfiguracji, nie appki |
 | 403 | `station_mismatch` (+ `device_station`, `required_station`) | token zarejestrowany dla innego `station_code` niż `sawmill` | Pokaż komunikat „to urządzenie nie jest trakiem", nie ponawiaj |
+| 400 | `missing_operation_id` | brak (albo pusty) nagłówek `X-Operation-Id` na endpoincie mutującym | **Błąd w kliencie, nie w danych.** Wygeneruj identyfikator operacji, zapisz go razem z wpisem kolejki i wyślij ponownie — patrz sekcja 6 |
 | 404 | `order_not_found` | zlecenie o podanym `id` nie istnieje | Usuń z lokalnej listy, odśwież `GET /orders` |
 | 404 | `log_not_found` | pomiar o podanym `id` nie istnieje (albo już soft-skasowany) | Usuń z lokalnego stanu, odśwież szczegóły zlecenia |
 | 409 | `order_not_open` | zlecenie nie jest już `new`/`in_progress` (zamknięte gdzie indziej, albo próba `complete` pustego zlecenia) | **Sekcja 6 — cztery kroki, nie zwykły błąd** |
@@ -567,7 +574,8 @@ appka dostaje tylko to, co potrzebne do zidentyfikowania zlecenia i wykonania po
 
 1. `POST /api/mobile/register` ze `station_code: "sawmill"` → zapisz `token` trwale.
 2. Każde żądanie do `/api/mobile/sawmill/*`: nagłówek `Authorization: Bearer <token>`
-   (+ `X-App-Version` zalecane, `X-Operation-Id` wymagane na czterech endpointach
+   (+ `X-App-Version` zalecane, `X-Operation-Id` WYMAGANE — bez niego `400
+   missing_operation_id` — na czterech endpointach
    mutujących, wygenerowane RAZ na operację i trzymane razem z wpisem kolejki).
 3. Pobierz `GET /config` przy starcie i waliduj lokalnie z semantyką `null` = „pomiń"
    (sekcja 8), zanim cokolwiek wyślesz.
