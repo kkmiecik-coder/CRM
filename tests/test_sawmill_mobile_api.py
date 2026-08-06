@@ -48,14 +48,13 @@ _TABLES = [m.__table__ for m in (
 )]
 
 SETTINGS = {
-    'min_diameter_cm': 10.0, 'max_diameter_cm': 200.0,
+    'min_circumference_cm': 30.0, 'max_circumference_cm': None,
     'min_length_cm': 30.0, 'max_length_cm': 20000.0,
     'decimal_places': 1, 'deviation_threshold_pct': 5.0,
 }
 
 POMIAR = {
-    'butt_d1_cm': 42.0, 'butt_d2_cm': 38.0,
-    'top_d1_cm': 41.0, 'top_d2_cm': 37.0,
+    'mid_circumference_cm': 125.6,
     'length_cm': 410.0,
 }
 
@@ -197,10 +196,10 @@ def test_dodanie_pomiaru(client, app):
                     json=body, headers=_naglowki(token, 'op-1'))
     assert r.status_code == 201
     data = r.get_json()
-    assert data['log']['volume_m3'] == 0.502421
+    assert data['log']['volume_m3'] == 0.514699
     assert data['log']['sequence_no'] == 1
     assert data['order']['logs_count'] == 1
-    assert data['order']['measured_volume_m3'] == 0.502421
+    assert data['order']['measured_volume_m3'] == 0.514699
 
 
 def test_pierwszy_pomiar_przelacza_status(client, app):
@@ -216,13 +215,13 @@ def test_pierwszy_pomiar_przelacza_status(client, app):
 def test_walidacja_zwraca_422_z_polem(client, app):
     token = _urzadzenie(app)
     oid = _zlecenie(app)
-    body = dict(POMIAR, butt_d1_cm=5.0, measured_at='2026-08-05T09:31:12')
+    body = dict(POMIAR, mid_circumference_cm=5.0, measured_at='2026-08-05T09:31:12')
     r = client.post('/api/mobile/sawmill/orders/{}/logs'.format(oid),
                     json=body, headers=_naglowki(token, 'op-1'))
     assert r.status_code == 422
     data = r.get_json()
     assert data['error'] == 'validation_error'
-    assert data['field'] == 'butt_d1_cm'
+    assert data['field'] == 'mid_circumference_cm'
 
 
 def test_zapis_do_zamknietego_zlecenia_daje_409(client, app):
@@ -393,7 +392,7 @@ def test_etag_zmienia_sie_po_dodaniu_pomiaru(client, app):
     r2 = client.get('/api/mobile/sawmill/orders', headers=headers)
     assert r2.status_code == 200
     assert r2.headers['ETag'] != etag_przed
-    assert r2.get_json()['orders'][0]['measured_volume_m3'] == 0.502421
+    assert r2.get_json()['orders'][0]['measured_volume_m3'] == 0.514699
 
 
 def test_etag_zmienia_sie_po_edycji_pomiaru_bez_zmiany_liczby_klod(client, app):

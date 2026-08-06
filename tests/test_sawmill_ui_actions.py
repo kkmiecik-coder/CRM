@@ -51,11 +51,10 @@ def test_link_do_protokolu_jest_wywolywany_w_wierszu_zlecenia():
 
 # ── Ręczne dopisanie pomiaru (spec, sekcja 6 — droga druga ratunku dla 409) ──
 
-def test_formularz_recznego_pomiaru_ma_wszystkie_piec_wymiarow_i_czas():
+def test_formularz_recznego_pomiaru_ma_oba_wymiary_i_czas():
     js = _js()
     blok = js.split('function manualLogFormHtml')[1].split('function collectManualLogPayload')[0]
-    for pole in ('butt_d1_cm', 'butt_d2_cm', 'top_d1_cm', 'top_d2_cm',
-                 'length_cm', 'measured_at'):
+    for pole in ('mid_circumference_cm', 'length_cm', 'measured_at'):
         assert pole in blok, u'brak pola {} w formularzu ręcznego pomiaru'.format(pole)
 
 

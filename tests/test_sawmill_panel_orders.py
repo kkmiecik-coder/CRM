@@ -18,8 +18,7 @@ from modules.production.sawmill.services.orders import add_log
 from tests.sawmill_fixtures import BASE, app, client  # noqa: F401
 
 POMIAR_JSON = {
-    'butt_d1_cm': 42.0, 'butt_d2_cm': 38.0,
-    'top_d1_cm': 41.0, 'top_d2_cm': 37.0, 'length_cm': 410.0,
+    'mid_circumference_cm': 125.6, 'length_cm': 410.0,
 }
 POMIAR_DEC = {k: Decimal(str(v)) for k, v in POMIAR_JSON.items()}
 
@@ -55,8 +54,8 @@ def test_lista_zlecen_ma_roznice(client, app):
     assert r.status_code == 200
     order = r.get_json()['orders'][0]
     assert order['logs_count'] == 2
-    assert order['measured_volume_m3'] == 1.004842
-    assert order['difference_m3'] == -78.995
+    assert order['measured_volume_m3'] == 1.029398
+    assert order['difference_m3'] == -78.971
     assert order['is_deviation'] is True
 
 
@@ -70,7 +69,7 @@ def test_szczegoly_zawieraja_klody_i_audyt(client, app):
 
 
 def test_filtr_tylko_odchylenia(client, app):
-    # deklaracja=0.500 wobec zmierzonych ~1.005 m3 (2 kłody z POMIAR_DEC) daje
+    # deklaracja=0.500 wobec zmierzonych ~1.029 m3 (2 kłody z POMIAR_DEC) daje
     # różnicę ~101% — jednoznacznie ponad próg 5% z ustawień fixture'a.
     # Wartość 1.000 z referencyjnego briefu dawała różnicę ~0.5%, czyli
     # PONIŻEJ progu — is_deviation byłoby False i test nie sprawdzałby tego,
@@ -366,8 +365,8 @@ def test_odczyt_ustawien(client):
 
 def test_zapis_ustawien_dziala_natychmiast(client):
     """Bez cache — zmiana limitu ma obowiązywać od razu, nie po godzinie."""
-    client.patch(BASE + '/settings', json={'max_diameter_cm': 150.0})
-    assert client.get(BASE + '/settings').get_json()['settings']['max_diameter_cm'] == 150.0
+    client.patch(BASE + '/settings', json={'max_circumference_cm': 150.0})
+    assert client.get(BASE + '/settings').get_json()['settings']['max_circumference_cm'] == 150.0
 
 
 def test_decimal_places_nie_da_sie_nadpisac(client):

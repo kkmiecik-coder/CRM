@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Wzór objętości kłody — średnia z czterech średnic, bryła jako walec."""
+"""Wzór objętości kłody — obwód w połowie długości, bryła jako walec (Huber)."""
 import os
 import sys
 
@@ -9,31 +9,31 @@ from decimal import Decimal
 
 import pytest
 
-from modules.production.sawmill.services.volume import (
-    compute_log_volume_m3,
-    mean_diameter_cm,
-)
-
-
-def test_srednia_z_czterech_srednic():
-    assert mean_diameter_cm('42.0', '38.0', '41.0', '37.0') == Decimal('39.5')
+from modules.production.sawmill.services.volume import compute_log_volume_m3
 
 
 def test_przyklad_kontrolny_ze_specyfikacji():
     """Wartość wyliczona, nie oszacowana — patrz sekcja 5 specyfikacji."""
-    v = compute_log_volume_m3('42.0', '38.0', '41.0', '37.0', '410.0')
-    assert v == Decimal('0.502421')
+    v = compute_log_volume_m3('125.6', '410.0')
+    assert v == Decimal('0.514699')
 
 
 def test_wynik_ma_zawsze_szesc_miejsc():
-    v = compute_log_volume_m3('40.0', '40.0', '40.0', '40.0', '100.0')
+    v = compute_log_volume_m3('125.6', '100.0')
     assert v.as_tuple().exponent == -6
 
 
 def test_walec_o_znanej_objetosci():
-    """d = 100 cm (1 m), L = 100 cm (1 m) -> V = pi/4 m3."""
-    v = compute_log_volume_m3('100.0', '100.0', '100.0', '100.0', '100.0')
-    assert v == Decimal('0.785398')
+    """C = 100 cm (1 m), L = 100 cm (1 m) -> V = 1/(4*pi) m3."""
+    v = compute_log_volume_m3('100.0', '100.0')
+    assert v == Decimal('0.079577')
+
+
+def test_dwukrotny_obwod_daje_czterokrotna_objetosc():
+    """Przekrój rośnie z kwadratem obwodu — kontrola, że wzór nie zgubił potęgi."""
+    pojedynczy = compute_log_volume_m3('100.0', '400.0')
+    podwojny = compute_log_volume_m3('200.0', '400.0')
+    assert podwojny == pojedynczy * 4
 
 
 def test_zaokraglanie_w_gore_na_polowie():
@@ -44,18 +44,16 @@ def test_zaokraglanie_w_gore_na_polowie():
 
 
 def test_przyjmuje_rozne_typy_wejscia():
-    z_str = compute_log_volume_m3('42.0', '38.0', '41.0', '37.0', '410.0')
-    z_dec = compute_log_volume_m3(
-        Decimal('42.0'), Decimal('38.0'), Decimal('41.0'), Decimal('37.0'), Decimal('410.0')
-    )
-    z_int = compute_log_volume_m3(42, 38, 41, 37, 410)
-    assert z_str == z_dec == z_int
+    z_str = compute_log_volume_m3('125.6', '410.0')
+    z_dec = compute_log_volume_m3(Decimal('125.6'), Decimal('410.0'))
+    z_float = compute_log_volume_m3(125.6, 410.0)
+    assert z_str == z_dec == z_float
 
 
 def test_odrzuca_wartosci_niedodatnie():
     with pytest.raises(ValueError):
-        compute_log_volume_m3('0', '38.0', '41.0', '37.0', '410.0')
+        compute_log_volume_m3('0', '410.0')
     with pytest.raises(ValueError):
-        compute_log_volume_m3('42.0', '38.0', '41.0', '37.0', '0')
+        compute_log_volume_m3('125.6', '0')
     with pytest.raises(ValueError):
-        compute_log_volume_m3('42.0', '-1', '41.0', '37.0', '410.0')
+        compute_log_volume_m3('-1', '410.0')

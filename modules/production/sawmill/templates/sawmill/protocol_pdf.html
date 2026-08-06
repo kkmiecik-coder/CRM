@@ -276,10 +276,7 @@
     <thead>
         <tr>
             <th>#</th>
-            <th>⌀ dolna d1</th>
-            <th>⌀ dolna d2</th>
-            <th>⌀ górna d1</th>
-            <th>⌀ górna d2</th>
+            <th>Obwód w środku [cm]</th>
             <th>Długość [cm]</th>
             <th>Objętość [m³]</th>
         </tr>
@@ -288,16 +285,13 @@
         {% for log in logs %}
         <tr>
             <td class="seq">{{ log.sequence_no }}</td>
-            <td>{{ fmt(log.butt_d1_cm, 1) }}</td>
-            <td>{{ fmt(log.butt_d2_cm, 1) }}</td>
-            <td>{{ fmt(log.top_d1_cm, 1) }}</td>
-            <td>{{ fmt(log.top_d2_cm, 1) }}</td>
+            <td>{{ fmt(log.mid_circumference_cm, 1) }}</td>
             <td>{{ fmt(log.length_cm, 1) }}</td>
             <td>{{ fmt(log.volume_m3, 6) }}</td>
         </tr>
         {% else %}
         <tr>
-            <td colspan="7" style="text-align:center; color:#888;">Brak zarejestrowanych pomiarów.</td>
+            <td colspan="4" style="text-align:center; color:#888;">Brak zarejestrowanych pomiarów.</td>
         </tr>
         {% endfor %}
     </tbody>
@@ -319,8 +313,8 @@
             <span class="summary-value">{{ fmt(avg_volume_m3, 4) }}</span>
         </td>
         <td>
-            <span class="summary-label">Śr. średnica</span>
-            <span class="summary-value">{{ fmt(avg_diameter_cm, 1, ' cm') }}</span>
+            <span class="summary-label">Śr. obwód</span>
+            <span class="summary-value">{{ fmt(avg_circumference_cm, 1, ' cm') }}</span>
         </td>
         <td>
             <span class="summary-label">Śr. długość</span>

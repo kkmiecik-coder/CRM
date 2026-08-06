@@ -24,8 +24,11 @@ CONFIG_KEY = 'sawmill_settings'
 DECIMAL_PLACES = 1
 
 DEFAULT_SETTINGS = {
-    'min_diameter_cm': 10.0,
-    'max_diameter_cm': 200.0,
+    # Obwód bez górnego limitu (None = „nie sprawdzaj") — decyzja biznesowa:
+    # nietypowo gruba kłoda ma przejść, dolna granica łapie pomyłkę rzędu
+    # wielkości (np. wpisaną średnicę zamiast obwodu).
+    'min_circumference_cm': 30.0,
+    'max_circumference_cm': None,
     'min_length_cm': 30.0,
     'max_length_cm': 20000.0,
     'decimal_places': DECIMAL_PLACES,
@@ -34,7 +37,7 @@ DEFAULT_SETTINGS = {
 
 # Klucze, które użytkownik może zmienić w panelu. decimal_places celowo poza listą.
 EDITABLE_KEYS = (
-    'min_diameter_cm', 'max_diameter_cm',
+    'min_circumference_cm', 'max_circumference_cm',
     'min_length_cm', 'max_length_cm',
     'deviation_threshold_pct',
 )
@@ -42,7 +45,7 @@ EDITABLE_KEYS = (
 # deviation_threshold_pct zostaje po stronie panelu — tablet nie zna deklaracji,
 # więc próg odchylenia nic by mu nie powiedział.
 MOBILE_KEYS = (
-    'min_diameter_cm', 'max_diameter_cm',
+    'min_circumference_cm', 'max_circumference_cm',
     'min_length_cm', 'max_length_cm',
     'decimal_places',
 )

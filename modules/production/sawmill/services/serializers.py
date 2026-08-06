@@ -55,10 +55,7 @@ def serialize_log_for_device(log):
     return {
         'id': log.id,
         'sequence_no': log.sequence_no,
-        'butt_d1_cm': _float(log.butt_d1_cm),
-        'butt_d2_cm': _float(log.butt_d2_cm),
-        'top_d1_cm': _float(log.top_d1_cm),
-        'top_d2_cm': _float(log.top_d2_cm),
+        'mid_circumference_cm': _float(log.mid_circumference_cm),
         'length_cm': _float(log.length_cm),
         'volume_m3': _float(log.volume_m3),
         'measured_at': _isoformat(log.measured_at),

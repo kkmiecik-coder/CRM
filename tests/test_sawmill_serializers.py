@@ -76,13 +76,12 @@ def test_tablet_widzi_sume_swoich_pomiarow():
 def test_serializacja_pomiaru():
     log = SimpleNamespace(
         id=501, sequence_no=46,
-        butt_d1_cm=Decimal('42.0'), butt_d2_cm=Decimal('38.0'),
-        top_d1_cm=Decimal('41.0'), top_d2_cm=Decimal('37.0'),
-        length_cm=Decimal('410.0'), volume_m3=Decimal('0.502421'),
+        mid_circumference_cm=Decimal('125.6'),
+        length_cm=Decimal('410.0'), volume_m3=Decimal('0.514699'),
         measured_at=datetime(2026, 8, 5, 9, 31, 12),
     )
     out = serialize_log_for_device(log)
-    assert out['volume_m3'] == 0.502421
+    assert out['volume_m3'] == 0.514699
     assert out['measured_at'] == '2026-08-05T09:31:12'
     assert out['sequence_no'] == 46
 

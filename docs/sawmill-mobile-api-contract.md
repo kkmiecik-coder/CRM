@@ -30,6 +30,38 @@ Trakownia to osobny rejestr, niepowiązany z zamówieniami/produktami reszty CRM
 z resztą floty tabletów produkcji wyłącznie infrastrukturę: rejestrację urządzenia, JWT,
 heartbeat i mechanizm kolejki offline (`X-Operation-Id`).
 
+### 1.1 Zakres po stronie aplikacji — czego oczekujemy
+
+Trakownia **nie jest wariantem istniejącego ekranu stanowiska.** Nie da się jej dołożyć
+przez podmianę etykiet czy dodanie gałęzi `if (station == "sawmill")` w obecnym widoku
+kolejki — model danych jest inny (zlecenia dostaw i kłody zamiast produktów zamówienia),
+inny jest przepływ pracy i inne endpointy.
+
+Do zbudowania:
+
+1. **Nowa pozycja „Trakownia" na ekranie rejestracji urządzenia.** Wybór stanowiska musi
+   dawać `station_code: "sawmill"` w `POST /api/mobile/register` (sekcja 3.1). Uwaga:
+   trakownia **nie ma aliasów** — token zarejestrowany dla dowolnego innego stanowiska
+   dostaje `403 station_mismatch` na każdym endpoincie `/api/mobile/sawmill/*`, i
+   odwrotnie. To celowe, w odróżnieniu od pozostałych stacji produkcji, gdzie tokeny
+   bywają współdzielone.
+2. **Nowy ekran listy zleceń** — otwarte zlecenia z `GET /orders`, odświeżane z
+   `If-None-Match` (sekcja 4.1). Na kafelku zlecenia: numer TRK, gatunek, dostawca,
+   numer faktury, liczba zmierzonych kłód i suma m³. **Nigdy deklaracja** — patrz
+   sekcja 9, to sedno modułu.
+3. **Nowy ekran pomiaru** — formularz o **dwóch polach liczbowych**: obwód w połowie
+   długości kłody i długość, oba w cm z jednym miejscem po przecinku (sekcja 4.3).
+   Do tego lista dotychczasowych kłód zlecenia z możliwością korekty (4.4) i usunięcia
+   (4.5) oraz przycisk zakończenia zlecenia (4.6).
+4. **Kolejka offline** z `X-Operation-Id` — sekcja 6. To nie jest komponent UI, ale
+   jest to najbardziej ryzykowna część integracji i musi powstać razem z ekranem
+   pomiaru, nie po nim.
+
+Komponenty do ponownego użycia z istniejącej appki: warstwa sieciowa (JWT, nagłówki,
+`X-App-Version`), ekran rejestracji jako *szkielet* (dochodzi pozycja na liście
+stanowisk), heartbeat i mechanizm aktualizacji APK. Cała reszta — modele, ekrany,
+walidacja, kolejka — jest nowa.
+
 ---
 
 ## 2. Zasady wspólne
@@ -205,9 +237,8 @@ Zwraca zlecenie w tym samym kształcie co wyżej, plus listę pomiarów (bez sof
 ```json
 {"order": { "...jak w GET /orders..." }, "logs": [{
   "id": 501, "sequence_no": 46,
-  "butt_d1_cm": 42.0, "butt_d2_cm": 38.0,
-  "top_d1_cm": 41.0,  "top_d2_cm": 37.0,
-  "length_cm": 410.0, "volume_m3": 0.502421,
+  "mid_circumference_cm": 125.6,
+  "length_cm": 410.0, "volume_m3": 0.514699,
   "measured_at": "2026-08-05T09:31:12"
 }]}
 ```
@@ -224,11 +255,14 @@ Wymaga `X-Operation-Id` (**kolejka offline — przeczytaj sekcję 6 przed wdroż
 
 **Request:**
 ```json
-{"butt_d1_cm": 42.0, "butt_d2_cm": 38.0,
- "top_d1_cm": 41.0, "top_d2_cm": 37.0,
+{"mid_circumference_cm": 125.6,
  "length_cm": 410.0, "measured_at": "2026-08-05T09:31:12"}
 ```
-Wszystkie sześć pól **wymagane**. Format `measured_at` i tolerancja zegara — sekcja 5.
+Wszystkie trzy pola **wymagane**. Pracownik wprowadza **tylko dwie liczby**: obwód
+zmierzony taśmą w połowie długości kłody oraz długość — obie w centymetrach, z jednym
+miejscem po przecinku. Nie ma i nie będzie pól średnicy: metodyka pomiaru (Huber) jest
+decyzją zarządu, a nie szczegółem implementacyjnym, który appka mogłaby rozszerzyć.
+Format `measured_at` i tolerancja zegara — sekcja 5.
 
 **Response 201:**
 ```json
@@ -249,7 +283,7 @@ curl -X POST https://crm.woodpower.pl/api/mobile/sawmill/orders/12/logs \
   -H "Authorization: Bearer $TOKEN" -H "X-App-Version: 1.2.0" \
   -H "X-Operation-Id: 8f14e45f-ceea-467e-bd3f-0e4a8a4b6b1a" \
   -H "Content-Type: application/json" \
-  -d '{"butt_d1_cm": 42.0, "butt_d2_cm": 38.0, "top_d1_cm": 41.0, "top_d2_cm": 37.0, "length_cm": 410.0, "measured_at": "2026-08-05T09:31:12"}'
+  -d '{"mid_circumference_cm": 125.6, "length_cm": 410.0, "measured_at": "2026-08-05T09:31:12"}'
 ```
 
 ### 4.4 `PATCH /logs/<id>` — korekta pomiaru
@@ -257,9 +291,9 @@ curl -X POST https://crm.woodpower.pl/api/mobile/sawmill/orders/12/logs \
 Wymaga `X-Operation-Id`. Dozwolone tylko gdy zlecenie jest wciąż `new`/`in_progress`
 (inaczej `409 order_not_open` — z panelu admin może edytować dłużej, ale appka już nie).
 
-**Request — TYLKO pięć pól wymiarów, dokładnie jak przy tworzeniu:**
+**Request — TYLKO dwa pola wymiarów, dokładnie jak przy tworzeniu:**
 ```json
-{"butt_d1_cm": 42.5, "butt_d2_cm": 38.0, "top_d1_cm": 41.0, "top_d2_cm": 37.0, "length_cm": 410.0}
+{"mid_circumference_cm": 126.1, "length_cm": 410.0}
 ```
 
 > **Ważne, łatwe do przeoczenia:** `measured_at` **NIE JEST** akceptowane przez ten
@@ -326,12 +360,15 @@ progów, zanim cokolwiek wyśle do serwera.
 
 **Response 200:**
 ```json
-{"min_diameter_cm": 10.0, "max_diameter_cm": 200.0,
+{"min_circumference_cm": 30.0, "max_circumference_cm": null,
  "min_length_cm": 30.0, "max_length_cm": 20000.0,
  "decimal_places": 1}
 ```
+Zwróć uwagę: `max_circumference_cm` jest domyślnie `null` — obwód **nie ma górnego
+limitu** (decyzja biznesowa: nietypowo gruba kłoda ma przejść bez interwencji biura).
+To nie jest błąd konfiguracji ani wartość do zastąpienia własną stałą.
 Znaczenie i semantyka `null` — **sekcja 8**. `decimal_places` (dziś zawsze `1`) to
-maksymalna liczba miejsc po przecinku akceptowana przez serwer dla każdego z pięciu
+maksymalna liczba miejsc po przecinku akceptowana przez serwer dla obu
 wymiarów — pilnuj tego już w klawiaturze/formularzu na tablecie, żeby pracownik nie
 musiał się dowiadywać o odrzuceniu dopiero po wysyłce.
 
@@ -367,10 +404,10 @@ kosztuje pomiaru** — to świadome zabezpieczenie, nie luka. Dopiero drastyczny
 (>30 dni w przeszłość) albo bardzo stary zegar odrzuca dane.
 
 Walidacja wymiarów (te same zasady co limity z `GET /config`, sekcja 4.7 i 8): każda
-wartość musi być dodatnia, mieścić się w `[min, max]` swojej kategorii (średnice vs.
-długość) i mieć maksymalnie `decimal_places` miejsc po przecinku. Serwer sprawdza **pięć
-pól wymiarów w kolejności** `butt_d1_cm, butt_d2_cm, top_d1_cm, top_d2_cm, length_cm`
-i zwraca błąd dla **pierwszego** napotkanego — jeśli kilka pól jest błędnych naraz,
+wartość musi być dodatnia, mieścić się w `[min, max]` swojej kategorii (obwód vs.
+długość) i mieć maksymalnie `decimal_places` miejsc po przecinku. Serwer sprawdza **oba
+pola wymiarów w kolejności** `mid_circumference_cm, length_cm`
+i zwraca błąd dla **pierwszego** napotkanego — jeśli oba pola są błędne naraz,
 `field` w odpowiedzi wskaże tylko jedno z nich; napraw je i wyślij ponownie (walidacja
 lokalna z `GET /config`, sekcja 8, powinna i tak wyłapać wszystkie błędy naraz, zanim
 appka w ogóle wyśle żądanie).
@@ -474,13 +511,13 @@ Appka **musi** walidować pomiar lokalnie, offline, PRZED wstawieniem go do kole
 przy złej sieci pracownik i tak zobaczy błąd dopiero przy synchronizacji, a to zbyt
 późno, żeby poprawić coś, co mógł zauważyć od razu.
 
-Cztery limity z `GET /config` (`min_diameter_cm`, `max_diameter_cm`, `min_length_cm`,
-`max_length_cm`) mogą każdy niezależnie przyjść jako **`null`** — to się dzieje, gdy
+Cztery limity z `GET /config` (`min_circumference_cm`, `max_circumference_cm`,
+`min_length_cm`, `max_length_cm`) mogą każdy niezależnie przyjść jako **`null`** — to się dzieje, gdy
 administrator wyczyścił dane pole w panelu konfiguracji.
 
 > **`null` znaczy „nie sprawdzaj tego limitu w ogóle", NIE „limit wynosi zero".**
 > Kod, który potraktuje `null` jak `0` (np. `wartość < (min ?? 0)` w Kotlinie/Javie),
-> odrzuci **każdy** dodatni pomiar, bo żadna sensowna średnica ani długość nie jest
+> odrzuci **każdy** dodatni pomiar, bo żaden sensowny obwód ani długość nie jest
 > ujemna — cała walidacja przestanie przepuszczać cokolwiek, po cichu, bez żadnego
 > wyjątku czy crasha. Zaimplementuj to jako jawne rozgałęzienie: `if (min != null && value
 > < min) { ...błąd... }`, analogicznie dla `max`. Dokładnie to samo zabezpieczenie

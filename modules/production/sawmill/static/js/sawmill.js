@@ -630,10 +630,7 @@
         return (
             '<tr data-log-id="' + l.id + '">' +
             '<td>' + l.sequence_no + '</td>' +
-            '<td>' + formatNum(l.butt_d1_cm, 1) + '</td>' +
-            '<td>' + formatNum(l.butt_d2_cm, 1) + '</td>' +
-            '<td>' + formatNum(l.top_d1_cm, 1) + '</td>' +
-            '<td>' + formatNum(l.top_d2_cm, 1) + '</td>' +
+            '<td>' + formatNum(l.mid_circumference_cm, 1) + '</td>' +
             '<td>' + formatNum(l.length_cm, 1) + '</td>' +
             '<td>' + formatNum(l.volume_m3, 4) + '</td>' +
             '<td>' + formatDateTime(l.measured_at) + '</td>' +
@@ -662,11 +659,11 @@
         var logs = data.logs.filter(function (l) { return !l.is_deleted; });
         var count = o.logs_count;
         var avgVolume = count > 0 && o.measured_volume_m3 !== null ? o.measured_volume_m3 / count : null;
-        var avgDiameter = null;
+        var avgCircumference = null;
         var avgLength = null;
         if (logs.length > 0) {
-            avgDiameter = logs.reduce(function (acc, l) {
-                return acc + (Number(l.butt_d1_cm) + Number(l.butt_d2_cm) + Number(l.top_d1_cm) + Number(l.top_d2_cm)) / 4;
+            avgCircumference = logs.reduce(function (acc, l) {
+                return acc + Number(l.mid_circumference_cm);
             }, 0) / logs.length;
             avgLength = logs.reduce(function (acc, l) { return acc + Number(l.length_cm); }, 0) / logs.length;
         }
@@ -697,14 +694,14 @@
             '<div class="sawmill-summary-card"><span class="label">Suma m³</span><span class="value">' + formatVolume(o.measured_volume_m3) + '</span></div>' +
             '<div class="sawmill-summary-card"><span class="label">Liczba kłód</span><span class="value">' + count + '</span></div>' +
             '<div class="sawmill-summary-card"><span class="label">Śr. m³/kłodę</span><span class="value">' + (avgVolume !== null ? formatVolume(avgVolume) : '—') + '</span></div>' +
-            '<div class="sawmill-summary-card"><span class="label">Śr. średnica</span><span class="value">' + (avgDiameter !== null ? formatPolishNumber(avgDiameter, 1) + ' cm' : '—') + '</span></div>' +
+            '<div class="sawmill-summary-card"><span class="label">Śr. obwód</span><span class="value">' + (avgCircumference !== null ? formatPolishNumber(avgCircumference, 1) + ' cm' : '—') + '</span></div>' +
             '<div class="sawmill-summary-card"><span class="label">Śr. długość</span><span class="value">' + (avgLength !== null ? formatPolishNumber(avgLength, 1) + ' cm' : '—') + '</span></div>' +
             '</div></div>' +
 
             '<h6>Kłody</h6><div class="table-responsive mb-3"><table class="table table-sm table-hover" id="sawmill-logs-table">' +
-            '<thead><tr><th>#</th><th>Odziomek D1</th><th>Odziomek D2</th><th>Wierzchołek D1</th>' +
-            '<th>Wierzchołek D2</th><th>Długość</th><th>Objętość m³</th><th>Zmierzono</th><th>Akcje</th></tr></thead>' +
-            '<tbody>' + (logs.map(renderLogRow).join('') || '<tr><td colspan="9" class="text-center text-muted">Brak zmierzonych kłód</td></tr>') +
+            '<thead><tr><th>#</th><th>Obwód w środku</th><th>Długość</th>' +
+            '<th>Objętość m³</th><th>Zmierzono</th><th>Akcje</th></tr></thead>' +
+            '<tbody>' + (logs.map(renderLogRow).join('') || '<tr><td colspan="6" class="text-center text-muted">Brak zmierzonych kłód</td></tr>') +
             '</tbody></table></div>' +
 
             manualLogFormHtml(o.id) +
@@ -762,7 +759,7 @@
     // dojścia w interfejsie.
     function manualLogFormHtml(orderId) {
         function numberField(field, label) {
-            return '<div class="col-6 col-md-2"><label class="form-label small mb-1">' + label + '</label>' +
+            return '<div class="col-6 col-md-3"><label class="form-label small mb-1">' + label + '</label>' +
                 '<input type="number" step="0.1" min="0" class="form-control form-control-sm" ' +
                 'data-field="' + field + '" id="sawmill-manual-log-' + field + '"></div>';
         }
@@ -772,12 +769,9 @@
             '<h6>Dopisz pomiar ręcznie</h6>' +
             '<p class="text-muted small mb-2">Ścieżka awaryjna — gdy tablet padł albo kolejka pomiarów na tablecie została wyczyszczona.</p>' +
             '<div class="row g-2 align-items-end" id="sawmill-manual-log-form">' +
-            numberField('butt_d1_cm', 'Odziomek D1') +
-            numberField('butt_d2_cm', 'Odziomek D2') +
-            numberField('top_d1_cm', 'Wierzchołek D1') +
-            numberField('top_d2_cm', 'Wierzchołek D2') +
+            numberField('mid_circumference_cm', 'Obwód w środku') +
             numberField('length_cm', 'Długość') +
-            '<div class="col-6 col-md-2"><label class="form-label small mb-1">Czas pomiaru</label>' +
+            '<div class="col-12 col-md-3"><label class="form-label small mb-1">Czas pomiaru</label>' +
             '<input type="datetime-local" class="form-control form-control-sm" ' +
             'data-field="measured_at" id="sawmill-manual-log-measured_at"></div>' +
             '</div>' +
@@ -844,10 +838,7 @@
 
         row.innerHTML =
             '<td>' + log.sequence_no + '</td>' +
-            inputCell('butt_d1_cm', log.butt_d1_cm) +
-            inputCell('butt_d2_cm', log.butt_d2_cm) +
-            inputCell('top_d1_cm', log.top_d1_cm) +
-            inputCell('top_d2_cm', log.top_d2_cm) +
+            inputCell('mid_circumference_cm', log.mid_circumference_cm) +
             inputCell('length_cm', log.length_cm) +
             '<td>' + formatNum(log.volume_m3, 4) + '</td>' +
             '<td colspan="2">' +

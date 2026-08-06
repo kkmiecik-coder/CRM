@@ -1,11 +1,21 @@
 # -*- coding: utf-8 -*-
 """
-Objętość kłody — metoda średniej z dwóch końców, bryła traktowana jak walec.
+Objętość kłody — metoda Hubera: obwód mierzony w połowie długości, bryła
+traktowana jak walec o tym przekroju.
 
-    d_śr = (butt_d1 + butt_d2 + top_d1 + top_d2) / 4   [cm]
-    V    = pi/4 * (d_śr / 100)^2 * (length_cm / 100)   [m3]
+    d = C / pi                                [cm]
+    V = pi/4 * (d / 100)^2 * (length_cm / 100)   [m3]
 
-Dwa prostopadłe pomiary na każdym czole eliminują błąd owalności kłody.
+co po podstawieniu d upraszcza się do postaci liczonej niżej:
+
+    V = (C / 100)^2 / (4 * pi) * (length_cm / 100)
+
+Pracownik podaje WYŁĄCZNIE dwie liczby: długość i obwód w środku kłody —
+metodyka ustalona przez zarząd. Pojedynczy przekrój w połowie długości
+uśrednia zbieżność pnia, a obwód mierzony taśmą obejmuje cały obrys, więc
+nie wymaga korekty na owalność (w odróżnieniu od pomiaru średnicy suwmiarką,
+gdzie trzeba było brać dwa prostopadłe odczyty).
+
 Bez potrąceń na korę i bez zaokrągleń wejścia — liczymy dokładnie to,
 co wpisał pracownik.
 
@@ -38,22 +48,13 @@ def _quantize(value):
     return value.quantize(_VOLUME_EXPONENT, rounding=ROUND_HALF_UP)
 
 
-def mean_diameter_cm(butt_d1, butt_d2, top_d1, top_d2):
-    """Średnia arytmetyczna czterech pomiarów średnicy, w centymetrach."""
-    values = [
-        _to_decimal(butt_d1, 'butt_d1_cm'),
-        _to_decimal(butt_d2, 'butt_d2_cm'),
-        _to_decimal(top_d1, 'top_d1_cm'),
-        _to_decimal(top_d2, 'top_d2_cm'),
-    ]
-    return sum(values) / Decimal(4)
-
-
-def compute_log_volume_m3(butt_d1, butt_d2, top_d1, top_d2, length_cm):
+def compute_log_volume_m3(mid_circumference_cm, length_cm):
     """Objętość kłody w m3, kwantyzowana do 6 miejsc po przecinku."""
-    diameter_cm = mean_diameter_cm(butt_d1, butt_d2, top_d1, top_d2)
+    circumference = _to_decimal(mid_circumference_cm, 'mid_circumference_cm')
     length = _to_decimal(length_cm, 'length_cm')
 
-    radius_factor = (diameter_cm / Decimal(100)) ** 2
-    volume = PI / Decimal(4) * radius_factor * (length / Decimal(100))
+    # Jedno wyrażenie zamiast liczenia najpierw średnicy — pośrednie
+    # zaokrąglenie średnicy przenosiłoby się na objętość.
+    area_factor = (circumference / Decimal(100)) ** 2 / (Decimal(4) * PI)
+    volume = area_factor * (length / Decimal(100))
     return _quantize(volume)

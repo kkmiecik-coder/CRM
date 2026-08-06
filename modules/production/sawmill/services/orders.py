@@ -21,7 +21,7 @@ from modules.production.sawmill.models import (
 )
 from modules.production.sawmill.services.volume import compute_log_volume_m3
 
-MEASUREMENT_FIELDS = ('butt_d1_cm', 'butt_d2_cm', 'top_d1_cm', 'top_d2_cm', 'length_cm')
+MEASUREMENT_FIELDS = ('mid_circumference_cm', 'length_cm')
 
 _M3 = Decimal('0.001')
 _PCT = Decimal('0.01')
@@ -104,10 +104,7 @@ def compute_differences(order, measured_volume_m3, threshold_pct):
 def _log_snapshot(log):
     return {
         'sequence_no': log.sequence_no,
-        'butt_d1_cm': str(log.butt_d1_cm),
-        'butt_d2_cm': str(log.butt_d2_cm),
-        'top_d1_cm': str(log.top_d1_cm),
-        'top_d2_cm': str(log.top_d2_cm),
+        'mid_circumference_cm': str(log.mid_circumference_cm),
         'length_cm': str(log.length_cm),
         'volume_m3': str(log.volume_m3),
     }
@@ -152,8 +149,7 @@ def _apply_measurements(log, measurements):
     for field in MEASUREMENT_FIELDS:
         setattr(log, field, measurements[field])
     log.volume_m3 = compute_log_volume_m3(
-        measurements['butt_d1_cm'], measurements['butt_d2_cm'],
-        measurements['top_d1_cm'], measurements['top_d2_cm'],
+        measurements['mid_circumference_cm'],
         measurements['length_cm'],
     )
 

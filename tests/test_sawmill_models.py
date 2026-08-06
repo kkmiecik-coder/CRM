@@ -146,9 +146,8 @@ def test_zapis_i_odczyt_pelnego_lancucha(app):
 
         log = SawmillLog(
             order_id=order.id, sequence_no=1,
-            butt_d1_cm=Decimal('42.0'), butt_d2_cm=Decimal('38.0'),
-            top_d1_cm=Decimal('41.0'), top_d2_cm=Decimal('37.0'),
-            length_cm=Decimal('410.0'), volume_m3=Decimal('0.502421'),
+            mid_circumference_cm=Decimal('125.6'),
+            length_cm=Decimal('410.0'), volume_m3=Decimal('0.514699'),
             measured_at=datetime(2026, 8, 5, 9, 31, 12),
             created_at=datetime(2026, 8, 5, 9, 31, 15),
         )

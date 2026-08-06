@@ -33,8 +33,7 @@ WIERSZ = {
 }
 
 POMIAR = {
-    'butt_d1_cm': Decimal('42.0'), 'butt_d2_cm': Decimal('38.0'),
-    'top_d1_cm': Decimal('41.0'), 'top_d2_cm': Decimal('37.0'),
+    'mid_circumference_cm': Decimal('125.6'),
     'length_cm': Decimal('410.0'),
 }
 
@@ -118,8 +117,8 @@ def test_build_protocol_context_liczy_srednie(app):
         assert ctx['logs_count'] == 3
         assert ctx['avg_volume_m3'] == volume / 3
         # Sam wzór volume.py — kontrolna wartość ze specyfikacji (sekcja 5).
-        assert round(float(logs[0].volume_m3), 6) == 0.502421
-        assert ctx['avg_diameter_cm'] == Decimal('39.5')
+        assert round(float(logs[0].volume_m3), 6) == 0.514699
+        assert ctx['avg_circumference_cm'] == Decimal('125.6')
         assert ctx['avg_length_cm'] == Decimal('410.0')
         assert ctx['status_label'] == 'Zakończone'
 

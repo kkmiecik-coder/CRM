@@ -102,10 +102,8 @@ CREATE TABLE `prod_sawmill_logs` (
   `id` INT NOT NULL AUTO_INCREMENT,
   `order_id` INT NOT NULL,
   `sequence_no` INT NOT NULL,
-  `butt_d1_cm` DECIMAL(5,1) NOT NULL,
-  `butt_d2_cm` DECIMAL(5,1) NOT NULL,
-  `top_d1_cm` DECIMAL(5,1) NOT NULL,
-  `top_d2_cm` DECIMAL(5,1) NOT NULL,
+  -- Obwód w połowie długości kłody — jedyny pomiar przekroju (metoda Hubera).
+  `mid_circumference_cm` DECIMAL(6,1) NOT NULL,
   `length_cm` DECIMAL(6,1) NOT NULL,
   `volume_m3` DECIMAL(12,6) NOT NULL,
   `device_id` VARCHAR(64) DEFAULT NULL,
@@ -153,7 +151,7 @@ VALUES
 INSERT INTO `prod_config` (`config_key`, `config_value`, `config_description`, `config_type`, `created_at`)
 VALUES (
   'sawmill_settings',
-  '{"min_diameter_cm": 10.0, "max_diameter_cm": 200.0, "min_length_cm": 30.0, "max_length_cm": 20000.0, "decimal_places": 1, "deviation_threshold_pct": 5.0}',
+  '{"min_circumference_cm": 30.0, "max_circumference_cm": null, "min_length_cm": 30.0, "max_length_cm": 20000.0, "decimal_places": 1, "deviation_threshold_pct": 5.0}',
   'Trakownia: limity walidacji pomiarów i próg flagowania odchylenia',
   'json',
   NOW()
