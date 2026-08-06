@@ -80,6 +80,17 @@
     padding-bottom: 0;
 }
 
+/* Stałe szerokości kolumn w wierszu pozycji dostawy — zapobiegają "oddychaniu"
+   wiersza przy zmianie wartości kwoty. Cztery główne pola (col) dzielą równo
+   pozostałą szerokość, natomiast kolumna kwoty (160px) i kosz (40px) są stałe. */
+.sawmill-item-row .col-auto[style*="width: 160px"] {
+    width: 160px !important;
+}
+
+.sawmill-item-row .col-auto[style*="width: 40px"] {
+    width: 40px !important;
+}
+
 /* Przycisk "Usuń pozycję" jest zawsze widoczny (nigdy display:none) — przy
    jednej pozycji tylko disabled, żeby wiersz nie zmieniał wysokości/układu
    przy dodawaniu i usuwaniu kolejnych pozycji. Bootstrap sam przyciemnia

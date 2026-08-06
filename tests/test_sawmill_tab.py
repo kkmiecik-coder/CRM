@@ -258,13 +258,15 @@ def test_wiersz_pozycji_dostawy_rozprowadza_sie_na_cala_szerokosc(client):
         f'dla czterech pól pozycji (gatunek, dekl. obj., liczba, cena). '
         f'Znaleziono: {col_count}')
 
-    # Kolumna wartości (suma) powinna mieć 'col-auto text-end'
-    assert 'class="col-auto text-end">' in template, (
-        'Kolumna wartości pozycji powinna mieć class="col-auto text-end"')
+    # Kolumna wartości (suma) powinna mieć 'col-auto text-end' ze stałą szerokością
+    assert ('class="col-auto text-end">' in template or
+            'class="col-auto text-end" style=' in template), (
+        'Kolumna wartości pozycji powinna mieć class="col-auto text-end" (opcjonalnie ze style)')
 
-    # Kolumna kosza powinna mieć 'col-auto'
-    assert 'class="col-auto">' in template or 'class="col-auto ' in template, (
-        'Przycisk usunięcia pozycji powinien być w div class="col-auto"')
+    # Kolumna kosza powinna mieć 'col-auto' ze stałą szerokością
+    assert ('class="col-auto">' in template or
+            'class="col-auto" style=' in template), (
+        'Przycisk usunięcia pozycji powinien być w div class="col-auto" (opcjonalnie ze style)')
 
 
 def test_szablon_i_buildItemRow_maju_identyczne_klasy_kolumn(client):
