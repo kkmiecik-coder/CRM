@@ -238,6 +238,9 @@ static/images/avatars/custom/user_1_1773666058_12345.jpg
 /*.xlsx
 /*.pdf
 docs/superpowers/
+# Notatki planistyczne ClickUp — repo jest publiczne, a to wewnetrzne
+# ustalenia organizacyjne, nie dokumentacja kodu.
+docs/clickup/
 
 # Superpowers brainstorm sessions
 .superpowers/
