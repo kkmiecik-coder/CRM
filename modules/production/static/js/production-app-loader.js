@@ -600,6 +600,24 @@ class ProductionApp {
     // ========================================================================
 
     handleTabClick(event) {
+        // Kliknięcie ikony "otwórz" na kafelku stanowiska w gridzie na
+        // dashboardzie (np. kafelek trakowni, [data-goto-tab="sawmill-tab"]).
+        // Obsługa musi siedzieć tu (delegacja na document, ten sam listener
+        // co przełączanie zakładek w pasku nawigacji), a nie w module danego
+        // stanowiska — dashboard-tab jest w HOT_TABS i renderuje się od razu,
+        // zanim leniwie ładowany moduł stanowiska zdąży się załadować i
+        // podpiąć własny listener. Działa też dla treści wstawianej AJAX-em
+        // po fakcie, bo listener wisi na document, nie na elemencie kafelka.
+        const gotoTabLink = event.target.closest('[data-goto-tab]');
+        if (gotoTabLink) {
+            event.preventDefault();
+            const tabName = gotoTabLink.getAttribute('data-goto-tab');
+            if (tabName) {
+                this.switchToTab(tabName);
+            }
+            return;
+        }
+
         // Let Bootstrap handle the visual tab switching
         // We'll override the content loading
         const button = event.target.closest('[data-bs-toggle="tab"]');

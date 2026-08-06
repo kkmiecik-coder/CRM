@@ -2414,6 +2414,36 @@ body {
 .il-station[data-station="packaging"] .il-station-header { background: var(--il-station-pak); }
 .il-station[data-station="packaging"] .il-station-bar-fill { background: var(--il-station-pak); }
 
+/* Kafelek trakowni na dashboardzie produkcji (dashboard-tab-content.html).
+   Trakownia to surowiec (kłody od dostawców), nie ogniwo pipeline'u
+   produktów (cutting → assembly → gluing → formatting → finishing →
+   packaging) — kafelek stoi jako pierwszy w gridzie "Stanowiska
+   produkcyjne" i ma być wizualnie odcięty od reszty: własny (drewniany)
+   akcent zamiast kolejnego koloru z palety stanowisk, plus wyszarzony
+   podpis "surowiec" obok nazwy.
+   Zamierzenie: te reguły MUSZĄ być tu (a nie w sawmill.css), bo
+   sawmill.css ładuje się leniwie dopiero po wejściu na zakładkę
+   Trakownia, a kafelek renderuje się już na Dashboardzie, który jest
+   prefetchowany od razu (patrz HOT_TABS w production-app-loader.js). */
+.il-station-sawmill {
+    border-left: 4px solid #6b4423;
+}
+
+.il-station-sawmill .il-station-header,
+.il-station-sawmill .il-station-bar-fill {
+    background: #6b4423;
+}
+
+.il-station-sawmill .il-station-kind {
+    margin-left: 6px;
+    font-size: 10px;
+    font-weight: 400;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: rgba(255, 255, 255, 0.6);
+    font-family: 'JetBrains Mono', monospace;
+}
+
 /* Inactive station */
 .il-station.station-inactive .il-station-header { background: var(--il-status-inactive) !important; }
 .il-station.station-inactive .il-station-bar-fill { background: var(--il-status-inactive) !important; }
