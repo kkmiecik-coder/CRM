@@ -170,6 +170,19 @@
     overflow-y: auto;
 }
 
+/* Modal "Edycja zlecenia" — sekcja dostawy ma OSOBNE tło i akcent koloru
+   ostrzeżenia, żeby różnica zasięgu (pola zlecenia dotyczą jednego wiersza,
+   pola dostawy dotyczą WSZYSTKICH zleceń tej dostawy) była widoczna, zanim
+   ktokolwiek kliknie "Zapisz zmiany" — patrz #sawmill-edit-delivery-warning
+   w sawmill.js. */
+.sawmill-edit-delivery-section {
+    background: var(--il-bg-base, #eef0f4);
+    border: 1px solid var(--il-border-light, #e2e5ea);
+    border-left: 3px solid var(--il-status-warn, #d97706);
+    border-radius: var(--il-radius, 3px);
+    padding: 10px 12px;
+}
+
 /* Modal słowników (Dostawcy / Gatunki) — tabela istniejących pozycji +
    formularz dodawania/edycji poniżej. Nieaktywne (miękko skasowane) wiersze
    są wyszarzone (.text-muted na <tr>), ale zostają na liście — patrz

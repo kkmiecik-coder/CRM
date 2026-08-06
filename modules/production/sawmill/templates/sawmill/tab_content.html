@@ -282,6 +282,92 @@
   </div>
 </div>
 
+{# ─── MODAL: EDYCJA ZLECENIA I DOSTAWY ───
+     Jeden modal, dwie sekcje wizualnie rozdzielone: "Zlecenie" (pola tylko
+     tego zlecenia) i "Dostawa" (pola nagłówka dostawy — dotyczą WSZYSTKICH
+     pozycji/zleceń tej dostawy, patrz ostrzeżenie #sawmill-edit-delivery-warning
+     wypełniane w JS). Sekcja dostawy ma osobne tło/obramowanie
+     (.sawmill-edit-delivery-section w sawmill.css), żeby ta różnica zasięgu
+     była widoczna na pierwszy rzut oka, zanim użytkownik cokolwiek zapisze. #}
+<div class="modal fade" id="sawmillEditModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Edycja zlecenia <span id="sawmill-edit-order-number"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="sawmill-edit-order-id">
+        <input type="hidden" id="sawmill-edit-delivery-id">
+
+        <div class="sawmill-edit-order-section mb-3">
+          <h6>Zlecenie</h6>
+          <div class="row g-2">
+            <div class="col-md-6">
+              <label class="form-label" for="sawmill-edit-species">Gatunek</label>
+              <select class="form-select" id="sawmill-edit-species" data-field="species_id"></select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" for="sawmill-edit-declared-volume">Deklarowana objętość (m³)</label>
+              <input type="number" step="0.001" min="0" class="form-control" id="sawmill-edit-declared-volume"
+                     data-field="declared_volume_m3" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" for="sawmill-edit-logs-count">Liczba kłód (deklarowana)</label>
+              <input type="number" step="1" min="0" class="form-control" id="sawmill-edit-logs-count">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" for="sawmill-edit-price">Cena/m³</label>
+              <input type="number" step="0.01" min="0" class="form-control" id="sawmill-edit-price"
+                     data-field="price_per_m3">
+            </div>
+            <div class="col-12">
+              <label class="form-label" for="sawmill-edit-order-notes">Notatki zlecenia</label>
+              <textarea class="form-control" id="sawmill-edit-order-notes" rows="2"></textarea>
+            </div>
+            <div class="col-12 text-end">
+              {# Wartość liczy serwer (declared_volume_m3 × price_per_m3) przy KAŻDYM
+                 zapisie — to wyłącznie orientacyjny podgląd, nie jest wysyłany w payloadzie. #}
+              <span class="text-muted small">Wartość (przeliczy serwer): <span id="sawmill-edit-value-preview">— zł</span></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="sawmill-edit-delivery-section mb-2">
+          <h6>Dostawa</h6>
+          <p class="text-muted small mb-2" id="sawmill-edit-delivery-warning"></p>
+          <div class="row g-2">
+            <div class="col-md-6">
+              <label class="form-label" for="sawmill-edit-invoice-number">Numer faktury</label>
+              <input type="text" class="form-control" id="sawmill-edit-invoice-number">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" for="sawmill-edit-invoice-date">Data faktury</label>
+              <input type="date" class="form-control" id="sawmill-edit-invoice-date">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" for="sawmill-edit-delivery-date">Data dostawy</label>
+              <input type="date" class="form-control" id="sawmill-edit-delivery-date" required>
+            </div>
+            <div class="col-12">
+              <label class="form-label" for="sawmill-edit-delivery-notes">Notatki dostawy</label>
+              <textarea class="form-control" id="sawmill-edit-delivery-notes" rows="2"></textarea>
+            </div>
+          </div>
+        </div>
+
+        <div class="alert alert-danger mt-2" id="sawmill-edit-form-error" style="display:none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Anuluj</button>
+        <button type="button" class="btn btn-primary" id="sawmill-btn-confirm-edit">
+          <i class="fas fa-save me-1"></i>Zapisz zmiany
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 {# ─── MODAL: SŁOWNIKI (DOSTAWCY / GATUNKI) ───
      modal-lg + scrollable: formularz dostawcy ma 8 pól (patrz SUPPLIER_FIELDS
      w panel_api.py) plus tabela istniejących pozycji — wąski modal-dialog

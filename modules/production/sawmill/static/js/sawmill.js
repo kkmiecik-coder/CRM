@@ -81,6 +81,14 @@
         // w trybie dodawania nowej pozycji, patrz renderDictBody()/submitDictForm().
         dictEditingId: null,
         speciesOptionsHtml: '',
+        // Modal edycji zlecenia/dostawy wysyła DWA niezależne żądania PATCH.
+        // editOrderSaved = true po tym, jak PATCH zlecenia przeszedł, a użytkownik
+        // od tamtej pory nie tknął żadnego pola sekcji zlecenia — pozwala to
+        // przy ponowieniu (po nieudanym PATCH dostawy) wysłać WYŁĄCZNIE PATCH
+        // dostawy, zamiast bezsensownie duplikować identyczny zapis zlecenia
+        // (a przy okazji identyczny wpis audytu) przy każdej próbie. Patrz
+        // submitEdit()/openEditModal().
+        editOrderSaved: false,
     };
 
     function el(id) {
@@ -254,6 +262,22 @@
             '<i class="fas fa-file-pdf"></i></a>';
     }
 
+    // Przycisk edycji jest ZAWSZE widoczny (spójnie z "Usuń pozycję" w
+    // modalu dostawy) — przy zleceniu rozliczonym jest tylko disabled,
+    // z title tłumaczącym dlaczego (PATCH /orders/<id> na statusie settled
+    // i tak zwróciłby 409 — lepiej nie dać w ogóle otworzyć modalu, wypełnić
+    // go i dostać błąd dopiero przy zapisie).
+    function editButtonHtml(o) {
+        if (o.status === 'settled') {
+            return '<button type="button" class="btn btn-sm btn-outline-secondary" disabled ' +
+                'title="Zlecenie rozliczone — najpierw cofnij rozliczenie, aby edytować">' +
+                '<i class="fas fa-pen"></i></button>';
+        }
+        return '<button type="button" class="btn btn-sm btn-outline-secondary" ' +
+            'onclick="Sawmill.openEditModal(' + o.id + ')" title="Edytuj">' +
+            '<i class="fas fa-pen"></i></button>';
+    }
+
     function actionButtonsHtml(o) {
         var html = '';
         if (o.status === 'completed') {
@@ -297,6 +321,7 @@
             '<td class="sawmill-actions">' +
             '<button type="button" class="btn btn-sm btn-outline-secondary" onclick="Sawmill.openDetails(' + o.id + ')" title="Szczegóły">' +
             '<i class="fas fa-eye"></i></button>' +
+            editButtonHtml(o) +
             protocolPdfLinkHtml(o.id) +
             actionButtonsHtml(o) +
             '</td>' +
@@ -918,6 +943,212 @@
         });
     }
 
+    // ── Modal: Edycja zlecenia i dostawy ─────────────────────────────────────
+
+    // Podgląd wartości — orientacyjny, serwer i tak przelicza
+    // declared_volume_m3 × price_per_m3 przy każdym zapisie (patrz komentarz
+    // w tab_content.html). Nie wysyłamy tej wartości w payloadzie.
+    function updateEditValuePreview() {
+        var declared = parseFloat(el('sawmill-edit-declared-volume').value);
+        var price = parseFloat(el('sawmill-edit-price').value);
+        var preview = el('sawmill-edit-value-preview');
+        preview.textContent = (!isNaN(declared) && !isNaN(price)) ? formatCurrency(declared * price) : '— zł';
+    }
+
+    // Ostrzeżenie o zasięgu edycji dostawy: ile zleceń tej samej dostawy
+    // dostanie zmienione pola faktury/dat/notatek. Endpoint listy nie ma
+    // filtra po delivery_id (patrz panel_api.py:orders_list) — bierzemy więc
+    // pełną, nieprzefiltrowaną listę i liczymy dopasowania po stronie
+    // przeglądarki. To dodatkowe zapytanie, ale użytkownik MUSI to zobaczyć
+    // PRZED zapisem, nie dowiedzieć się po fakcie.
+    function loadEditDeliveryWarning(deliveryId) {
+        var warnEl = el('sawmill-edit-delivery-warning');
+        warnEl.textContent = 'Sprawdzanie liczby zleceń tej dostawy…';
+        return fetch(API + '/orders', { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then(function (resp) { return resp.ok ? resp.json() : null; })
+            .then(function (data) {
+                if (!data) { warnEl.textContent = ''; return; }
+                var count = data.orders.filter(function (o) { return o.delivery_id === deliveryId; }).length;
+                warnEl.textContent = count > 1
+                    ? 'Ta dostawa obejmuje ' + count + ' zleceń — zmiana pól poniżej (faktura, daty, notatki) ' +
+                      'zapisze się na WSZYSTKICH ' + count + ', nie tylko na tym zleceniu.'
+                    : 'Ta dostawa ma tylko to jedno zlecenie — zmiana pól poniżej dotyczy wyłącznie niego.';
+            }).catch(function () { warnEl.textContent = ''; });
+    }
+
+    function openEditModal(orderId) {
+        var errorEl = el('sawmill-edit-form-error');
+        errorEl.style.display = 'none';
+        document.querySelectorAll('#sawmillEditModal .is-invalid').forEach(function (f) {
+            f.classList.remove('is-invalid');
+        });
+        state.editOrderSaved = false;
+
+        return fetch(API + '/orders/' + orderId, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then(function (resp) {
+                if (!resp.ok) return handleErrorResponse(resp).then(function () { return null; });
+                return resp.json();
+            })
+            .then(function (data) {
+                if (!data) return;
+                var o = data.order;
+                var d = data.delivery;
+
+                // Zablokowane też na wypadek wyścigu: ktoś rozliczył zlecenie
+                // w innej karcie/zakładce między odświeżeniem listy a kliknięciem
+                // przycisku (który sam w sobie jest disabled dla statusu settled,
+                // ale stan z listy mógł być nieaktualny).
+                if (o.status === 'settled') {
+                    toast('Zlecenie rozliczone — cofnij rozliczenie, aby edytować', 'error');
+                    return;
+                }
+
+                el('sawmill-edit-order-id').value = o.id;
+                el('sawmill-edit-delivery-id').value = d.id;
+                el('sawmill-edit-order-number').textContent = o.order_number;
+
+                el('sawmill-edit-species').innerHTML = state.speciesOptionsHtml;
+                el('sawmill-edit-species').value = o.species_id;
+                el('sawmill-edit-declared-volume').value = (o.declared_volume_m3 !== null && o.declared_volume_m3 !== undefined)
+                    ? o.declared_volume_m3 : '';
+                el('sawmill-edit-logs-count').value = (o.declared_logs_count !== null && o.declared_logs_count !== undefined)
+                    ? o.declared_logs_count : '';
+                el('sawmill-edit-price').value = (o.price_per_m3 !== null && o.price_per_m3 !== undefined) ? o.price_per_m3 : '';
+                el('sawmill-edit-order-notes').value = o.notes || '';
+                updateEditValuePreview();
+
+                el('sawmill-edit-invoice-number').value = d.invoice_number || '';
+                el('sawmill-edit-invoice-date').value = d.invoice_date || '';
+                el('sawmill-edit-delivery-date').value = d.delivery_date || '';
+                el('sawmill-edit-delivery-notes').value = d.notes || '';
+
+                bootstrap.Modal.getOrCreateInstance(el('sawmillEditModal')).show();
+                return loadEditDeliveryWarning(d.id);
+            }).catch(function (err) {
+                console.error('[Sawmill] Błąd ładowania zlecenia do edycji:', err);
+                toast('Błąd połączenia z serwerem', 'error');
+            });
+    }
+
+    function collectEditOrderPayload() {
+        return {
+            species_id: parseInt(el('sawmill-edit-species').value, 10),
+            declared_volume_m3: el('sawmill-edit-declared-volume').value,
+            declared_logs_count: el('sawmill-edit-logs-count').value ? parseInt(el('sawmill-edit-logs-count').value, 10) : null,
+            price_per_m3: el('sawmill-edit-price').value || null,
+            notes: el('sawmill-edit-order-notes').value || null,
+        };
+    }
+
+    function collectEditDeliveryPayload() {
+        return {
+            invoice_number: el('sawmill-edit-invoice-number').value || null,
+            invoice_date: el('sawmill-edit-invoice-date').value || null,
+            delivery_date: el('sawmill-edit-delivery-date').value,
+            notes: el('sawmill-edit-delivery-notes').value || null,
+        };
+    }
+
+    // Walidacja odpowiadająca dokładnie regule backendu (declared_volume_m3
+    // musi być dodatnia — zero wywracało dzielenie w compute_differences()
+    // przy KAŻDYM odczycie listy zleceń, patrz panel_api.py:order_update).
+    // Sprawdzenie tu daje błąd przy polu od razu, bez podróży do serwera.
+    function validateEditForm(errorEl) {
+        document.querySelectorAll('#sawmillEditModal .is-invalid').forEach(function (f) {
+            f.classList.remove('is-invalid');
+        });
+        var volumeInput = el('sawmill-edit-declared-volume');
+        var volume = parseFloat(volumeInput.value);
+        if (!volumeInput.value || isNaN(volume) || volume <= 0) {
+            volumeInput.classList.add('is-invalid');
+            errorEl.textContent = 'Deklarowana objętość musi być liczbą dodatnią.';
+            errorEl.style.display = 'block';
+            return false;
+        }
+        var dateInput = el('sawmill-edit-delivery-date');
+        if (!dateInput.value) {
+            dateInput.classList.add('is-invalid');
+            errorEl.textContent = 'Podaj datę dostawy.';
+            errorEl.style.display = 'block';
+            return false;
+        }
+        return true;
+    }
+
+    // Dwa niezależne żądania (PATCH zlecenia, PATCH dostawy) — backend nie ma
+    // wspólnej transakcji obejmującej oba zasoby, więc nie da się tego
+    // zagwarantować bez zmiany backendu (poza zakresem). Kolejność: najpierw
+    // zlecenie, potem dostawa.
+    //
+    // Gdy PIERWSZE (zlecenie) się nie powiedzie: nic nie zostało zapisane,
+    // modal zostaje otwarty z błędem przy polu — normalna ścieżka.
+    //
+    // Gdy PIERWSZE przejdzie, a DRUGIE (dostawa) padnie: dane zlecenia SĄ już
+    // zapisane w bazie. Zamiast milczeć o tym (najgorsza opcja z briefu),
+    // od razu odświeżamy listę (loadOrders) — żeby zapisana część była
+    // widoczna na liście — i zostawiamy modal otwarty z jawnym komunikatem
+    // "dane zlecenia zapisane, dostawa nie". state.editOrderSaved=true
+    // sprawia, że kliknięcie "Zapisz zmiany" ponownie wyśle WYŁĄCZNIE PATCH
+    // dostawy (patrz orderStep niżej) — nie duplikuje identycznego zapisu
+    // zlecenia (i jego wpisu audytu) przy każdej próbie ponowienia.
+    function submitEdit() {
+        var errorEl = el('sawmill-edit-form-error');
+        errorEl.style.display = 'none';
+        if (!validateEditForm(errorEl)) return Promise.resolve();
+
+        var orderId = parseInt(el('sawmill-edit-order-id').value, 10);
+        var deliveryId = parseInt(el('sawmill-edit-delivery-id').value, 10);
+        var submitBtn = el('sawmill-btn-confirm-edit');
+        submitBtn.disabled = true;
+
+        var orderStep = state.editOrderSaved
+            ? Promise.resolve(new Response(null, { status: 200 }))
+            : fetch(API + '/orders/' + orderId, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                body: JSON.stringify(collectEditOrderPayload()),
+            });
+
+        return orderStep.then(function (resp) {
+            if (!resp.ok) {
+                return handleErrorResponse(resp, errorEl).then(function () { return false; });
+            }
+            state.editOrderSaved = true;
+
+            return fetch(API + '/deliveries/' + deliveryId, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                body: JSON.stringify(collectEditDeliveryPayload()),
+            }).then(function (deliveryResp) {
+                if (!deliveryResp.ok) {
+                    return loadOrders().then(function () {
+                        return handleErrorResponse(deliveryResp, errorEl);
+                    }).then(function () {
+                        errorEl.textContent = 'Dane zlecenia zostały zapisane. Dostawa: ' + errorEl.textContent;
+                        return false;
+                    });
+                }
+                return true;
+            });
+        }).then(function (success) {
+            if (success) {
+                toast('Zlecenie i dostawa zapisane', 'success');
+                bootstrap.Modal.getOrCreateInstance(el('sawmillEditModal')).hide();
+                var refresh = [loadOrders()];
+                if (state.currentOrder && state.currentOrder.order.id === orderId) {
+                    refresh.push(openDetails(orderId));
+                }
+                return Promise.all(refresh);
+            }
+        }).catch(function (err) {
+            console.error('[Sawmill] Błąd zapisu edycji zlecenia/dostawy:', err);
+            errorEl.textContent = 'Błąd połączenia z serwerem.';
+            errorEl.style.display = 'block';
+        }).finally(function () {
+            submitBtn.disabled = false;
+        });
+    }
+
     // ── Akcje na zleceniu (wznów / cofnij rozliczenie / usuń) ───────────────
 
     function postAction(orderId, action, successMessage) {
@@ -1194,6 +1425,18 @@
         el('sawmill-btn-add-item').addEventListener('click', addItemRow);
         el('sawmill-btn-submit-delivery').addEventListener('click', submitDelivery);
         el('sawmill-btn-confirm-settle').addEventListener('click', confirmSettle);
+        el('sawmill-btn-confirm-edit').addEventListener('click', submitEdit);
+
+        // Podgląd wartości na żywo w modalu edycji.
+        el('sawmill-edit-declared-volume').addEventListener('input', updateEditValuePreview);
+        el('sawmill-edit-price').addEventListener('input', updateEditValuePreview);
+
+        // Dowolna zmiana pola sekcji "Zlecenie" unieważnia editOrderSaved —
+        // patrz komentarz przy submitEdit(): bez tego ponowienie po błędzie
+        // dostawy mogłoby po cichu pominąć świeżo wpisaną zmianę w polu
+        // zlecenia, wysyłając tylko PATCH dostawy.
+        document.querySelector('#sawmillEditModal .sawmill-edit-order-section')
+            .addEventListener('input', function () { state.editOrderSaved = false; });
 
         // Enter w polu szukania też filtruje — bez tego trzeba zawsze klikać "Filtruj".
         el('sawmill-filter-q').addEventListener('keydown', function (e) {
@@ -1220,6 +1463,7 @@
         openDetails: openDetails,
         openSettleModal: openSettleModal,
         confirmSettle: confirmSettle,
+        openEditModal: openEditModal,
         reopenOrder: reopenOrder,
         unsettleOrder: unsettleOrder,
         deleteOrder: deleteOrder,

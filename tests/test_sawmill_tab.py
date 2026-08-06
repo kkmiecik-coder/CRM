@@ -282,6 +282,112 @@ def test_wiersz_pozycji_dostawy_rozprowadza_sie_na_cala_szerokosc(client):
         'Szerokości kolumn nie definiuj atrybutem style w buildItemRow() — użyj klasy z sawmill.css.')
 
 
+# ── Modal edycji zlecenia i dostawy ──────────────────────────────────────────
+
+def test_modal_edycji_istnieje_z_obydwoma_zestawami_pol(client):
+    """Jeden modal edycji obejmuje pola zlecenia (PATCH /orders/<id>) i pola
+    dostawy (PATCH /deliveries/<id>) — patrz panel_api.py."""
+    html = client.get(BASE + '/tab-content').get_data(as_text=True)
+    soup = BeautifulSoup(html, 'html.parser')
+
+    modal = soup.select_one('#sawmillEditModal')
+    assert modal is not None, 'Brak modalu edycji zlecenia/dostawy'
+
+    for field_id in ('sawmill-edit-species', 'sawmill-edit-declared-volume',
+                      'sawmill-edit-logs-count', 'sawmill-edit-price',
+                      'sawmill-edit-order-notes'):
+        assert modal.select_one('#' + field_id) is not None, (
+            'Brakuje pola zlecenia w modalu edycji: ' + field_id)
+
+    for field_id in ('sawmill-edit-invoice-number', 'sawmill-edit-invoice-date',
+                      'sawmill-edit-delivery-date', 'sawmill-edit-delivery-notes'):
+        assert modal.select_one('#' + field_id) is not None, (
+            'Brakuje pola dostawy w modalu edycji: ' + field_id)
+
+    assert modal.select_one('#sawmill-btn-confirm-edit') is not None
+
+
+def test_modal_edycji_rozdziela_wizualnie_zlecenie_i_dostawe(client):
+    """Pola zlecenia i pola dostawy muszą stać w osobnych blokach — edycja
+    dostawy dotyka rodzeństwa (wszystkich zleceń tej samej dostawy), więc
+    użytkownik musi to widzieć PRZED zapisem (ostrzeżenie w
+    #sawmill-edit-delivery-warning, wypełniane w JS)."""
+    html = client.get(BASE + '/tab-content').get_data(as_text=True)
+    soup = BeautifulSoup(html, 'html.parser')
+    modal = soup.select_one('#sawmillEditModal')
+
+    order_section = modal.select_one('.sawmill-edit-order-section')
+    delivery_section = modal.select_one('.sawmill-edit-delivery-section')
+    assert order_section is not None
+    assert delivery_section is not None
+
+    # Pola zlecenia stoją w sekcji zlecenia, nie w sekcji dostawy (i odwrotnie).
+    assert order_section.select_one('#sawmill-edit-declared-volume') is not None
+    assert delivery_section.select_one('#sawmill-edit-declared-volume') is None
+    assert delivery_section.select_one('#sawmill-edit-invoice-number') is not None
+    assert order_section.select_one('#sawmill-edit-invoice-number') is None
+
+    assert delivery_section.select_one('#sawmill-edit-delivery-warning') is not None, (
+        'Sekcja dostawy musi mieć element na ostrzeżenie, ile zleceń dotyczy zmiana')
+
+    # Szerokość/wygląd sekcji dostawy definiowany klasą, nie atrybutem style
+    # (jedno źródło prawdy dla wymiarów — patrz test dla wiersza pozycji dostawy).
+    assert 'style="width:' not in str(delivery_section)
+
+
+def test_css_definiuje_wyglad_sekcji_dostawy_w_edycji(client):
+    css = _read_static('static', 'css', 'sawmill.css')
+    assert '.sawmill-edit-delivery-section' in css
+
+
+def test_js_ma_przycisk_edycji_zawsze_z_wylaczeniem_dla_rozliczonego(client):
+    """Przycisk edycji jest w każdym wierszu — dla statusu 'settled' ma być
+    disabled z title tłumaczącym dlaczego (PATCH na settled zwraca 409;
+    nie wolno dać otworzyć modalu, wypełnić go i dostać błąd dopiero przy
+    zapisie)."""
+    js = _read_static('static', 'js', 'sawmill.js')
+    assert 'function editButtonHtml' in js
+    assert "o.status === 'settled'" in js
+    assert 'disabled' in js
+    assert 'Sawmill.openEditModal' in js
+
+
+def test_js_ma_walidacje_dodatniej_objetosci_w_edycji(client):
+    """Deklarowana objętość musi być dodatnia — backend odrzuca 0 i wartości
+    ujemne kodem 422 (dzielenie w compute_differences), walidacja po stronie
+    przeglądarki daje komunikat przy polu bez podróży do serwera."""
+    js = _read_static('static', 'js', 'sawmill.js')
+    assert 'function validateEditForm' in js
+    assert 'volume <= 0' in js
+
+
+def test_js_nie_wysyla_wyliczonej_wartosci_w_payloadzie_edycji(client):
+    """declared_value liczy WYŁĄCZNIE serwer (declared_volume_m3 × price_per_m3
+    przy każdym zapisie) — payload PATCH /orders/<id> nie może zawierać
+    declared_value, backend by go i tak zignorował."""
+    js = _read_static('static', 'js', 'sawmill.js')
+    import re
+    match = re.search(r'function collectEditOrderPayload\(\).*?\n    \}', js, re.DOTALL)
+    assert match, 'Nie znaleziono collectEditOrderPayload() w sawmill.js'
+    assert 'declared_value' not in match.group(0)
+
+
+def test_js_obsluguje_czesciowy_zapis_edycji_bez_ciszy(client):
+    """Modal wysyła dwa niezależne żądania (PATCH zlecenia, PATCH dostawy).
+    Gdy pierwsze przejdzie, a drugie padnie, submitEdit() musi odświeżyć
+    listę (żeby zapisana część była widoczna) i pokazać jawny komunikat —
+    cichy stan częściowo zapisany jest zakazany przez brief."""
+    js = _read_static('static', 'js', 'sawmill.js')
+    assert 'function submitEdit' in js
+    import re
+    match = re.search(r'function submitEdit\(\).*?\n    \}', js, re.DOTALL)
+    assert match, 'Nie znaleziono submitEdit() w sawmill.js'
+    body = match.group(0)
+    assert 'loadOrders' in body, (
+        'Po udanym PATCH zlecenia i nieudanym PATCH dostawy lista musi się odświeżyć')
+    assert 'editOrderSaved' in body
+
+
 def test_szablon_i_buildItemRow_maju_identyczne_klasy_kolumn(client):
     """Szablon i funkcja buildItemRow() w sawmill.js muszą mieć identyczne
     klasy Bootstrap dla kolumn — inaczej pierwszy wiersz pozycji będzie
