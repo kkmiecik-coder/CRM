@@ -412,10 +412,10 @@
             '<div class="col">' +
             '<label class="form-label">Cena/m³</label>' +
             '<input type="number" step="0.01" min="0" class="form-control sawmill-item-price" data-field="price_per_m3"></div>' +
-            '<div class="col-auto text-end" style="width: 160px;">' +
+            '<div class="col-auto text-end sawmill-item-value-col">' +
             '<label class="form-label d-block">&nbsp;</label>' +
             '<span class="sawmill-item-value-preview text-muted small">— zł</span></div>' +
-            '<div class="col-auto" style="width: 40px;">' +
+            '<div class="col-auto sawmill-item-actions-col">' +
             '<label class="form-label d-block">&nbsp;</label>' +
             '<button type="button" class="btn btn-sm btn-outline-danger sawmill-item-remove" title="Usuń pozycję" aria-label="Usuń tę pozycję dostawy" ' +
             'onclick="Sawmill.removeItemRow(this)"><i class="fas fa-trash"></i></button></div>';

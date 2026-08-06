@@ -82,13 +82,21 @@
 
 /* Stałe szerokości kolumn w wierszu pozycji dostawy — zapobiegają "oddychaniu"
    wiersza przy zmianie wartości kwoty. Cztery główne pola (col) dzielą równo
-   pozostałą szerokość, natomiast kolumna kwoty (160px) i kosz (40px) są stałe. */
-.sawmill-item-row .col-auto[style*="width: 160px"] {
-    width: 160px !important;
+   pozostałą szerokość, a te dwie kolumny mają szerokość niezależną od treści.
+
+   Szerokość jest zdefiniowana WYŁĄCZNIE tutaj — nie duplikuj jej atrybutem
+   style w szablonie ani w buildItemRow(), bo wtedy zmiana wartości wymaga
+   poprawki w trzech miejscach i któreś zostanie pominięte. */
+
+/* 160px mieści "1 200 000,00 zł" bez zawijania — dostawy drewna potrafią iść
+   w setki tysięcy złotych. */
+.sawmill-item-value-col {
+    width: 160px;
 }
 
-.sawmill-item-row .col-auto[style*="width: 40px"] {
-    width: 40px !important;
+/* Tyle, ile zajmuje przycisk btn-sm z ikoną kosza i obramowaniem. */
+.sawmill-item-actions-col {
+    width: 40px;
 }
 
 /* Przycisk "Usuń pozycję" jest zawsze widoczny (nigdy display:none) — przy

@@ -258,15 +258,28 @@ def test_wiersz_pozycji_dostawy_rozprowadza_sie_na_cala_szerokosc(client):
         f'dla czterech pól pozycji (gatunek, dekl. obj., liczba, cena). '
         f'Znaleziono: {col_count}')
 
-    # Kolumna wartości (suma) powinna mieć 'col-auto text-end' ze stałą szerokością
-    assert ('class="col-auto text-end">' in template or
-            'class="col-auto text-end" style=' in template), (
-        'Kolumna wartości pozycji powinna mieć class="col-auto text-end" (opcjonalnie ze style)')
+    js = _read_static('static', 'js', 'sawmill.js')
+    css = _read_static('static', 'css', 'sawmill.css')
 
-    # Kolumna kosza powinna mieć 'col-auto' ze stałą szerokością
-    assert ('class="col-auto">' in template or
-            'class="col-auto" style=' in template), (
-        'Przycisk usunięcia pozycji powinien być w div class="col-auto" (opcjonalnie ze style)')
+    # Kolumny kwoty i kosza mają STAŁĄ szerokość, niezależną od treści — inaczej
+    # wpisywanie kwoty przesuwa wszystkie pozostałe kolumny i pola uciekają
+    # spod kursora. Szerokość nadaje klasa, nie atrybut style.
+    for klasa in ('sawmill-item-value-col', 'sawmill-item-actions-col'):
+        assert klasa in template, (
+            f'Szablon musi używać klasy {klasa} do nadania stałej szerokości kolumnie.')
+        assert klasa in js, (
+            f'buildItemRow() musi używać klasy {klasa} — inaczej wiersze dodane '
+            f'przyciskiem "+ dodaj kolejną" będą miały inny układ niż pierwszy.')
+        assert f'.{klasa}' in css, (
+            f'Klasa {klasa} musi mieć definicję szerokości w sawmill.css.')
+
+    # Szerokość ma być zdefiniowana WYŁĄCZNIE w CSS. Atrybut style w wierszu
+    # pozycji tworzyłby trzecie źródło prawdy (szablon + JS + arkusz), przy
+    # którym zmiana wartości wymaga poprawki w trzech miejscach.
+    assert 'style="width:' not in template, (
+        'Szerokości kolumn nie definiuj atrybutem style w szablonie — użyj klasy z sawmill.css.')
+    assert 'style=\\"width:' not in js and 'style="width:' not in js, (
+        'Szerokości kolumn nie definiuj atrybutem style w buildItemRow() — użyj klasy z sawmill.css.')
 
 
 def test_szablon_i_buildItemRow_maju_identyczne_klasy_kolumn(client):
