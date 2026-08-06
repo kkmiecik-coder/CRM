@@ -127,28 +127,36 @@ def test_dostawca_select_bez_input_group(client):
         'Select dostawcy nie może być dzieckiem .input-group')
 
 
-def test_brak_zagniezdzonego_modalu_dostawcy(client):
-    """"+ nowy" przy dostawcy nie otwiera już zagnieżdżonego modalu Bootstrapa
-    (który renderował się pod przyciemnieniem tła własnego overlaya — jedynym
-    wyjściem był Escape). Zamiast tego rozwija formularz inline wewnątrz
-    modalu dostawy, więc w DOM jest tylko JEDEN modal na raz."""
+def test_brak_dodawania_dostawcy_w_modalu_dostawy(client):
+    """Formularz do dodania dostawcy został usunięty z modalu dostawy —
+    dostawców dodaje się wyłącznie przez przycisk "Dostawcy" w pasku górnym
+    (modal słownika). Select dostawcy w modalu dostawy zawiera wyłącznie listę
+    istniejących dostawców."""
     html = client.get(BASE + '/tab-content').get_data(as_text=True)
     soup = BeautifulSoup(html, 'html.parser')
 
+    # Formularz inline nie istnieje
     inline_box = soup.select_one('#sawmill-inline-new-supplier')
-    assert inline_box is not None
-    assert inline_box.find_parent(id='sawmillDeliveryModal') is not None, (
-        'Formularz inline musi być wewnątrz modalu dostawy, nie osobnym modalem')
+    assert inline_box is None, (
+        'Formularz inline do dodania dostawcy powinien być usunięty')
 
-    # sawmillDictModal (słowniki) dalej istnieje jako osobny modal — służy do
-    # zarządzania CAŁYM słownikiem, nie tylko dodania jednej pozycji — ale
-    # przycisk "+ nowy dostawca" w modalu dostawy nie może go już otwierać.
+    # Przycisk "+ nowy dostawca" nie istnieje w modalu dostawy
+    new_supplier_btn = soup.select_one('#sawmill-btn-new-supplier')
+    assert new_supplier_btn is None, (
+        'Przycisk "+ nowy dostawca" powinien być usunięty z modalu dostawy')
+
+    # Select dostawcy istnieje i zawiera opcje
+    supplier_select = soup.select_one('#sawmill-delivery-supplier')
+    assert supplier_select is not None
+    options = supplier_select.select('option')
+    assert len(options) > 0, 'Select dostawcy musi zawierać co najmniej opcje placeholder'
+
+    # W JS nie ma funkcji związanych z formularzem inline
     js = _read_static('static', 'js', 'sawmill.js')
-    assert 'toggleInlineNewSupplier' in js
-    assert (
-        "'sawmill-btn-new-supplier').addEventListener('click', "
-        "function () { openDictModal"
-    ) not in js, '"+ nowy" nie może już otwierać zagnieżdżonego modalu słownika'
+    assert 'toggleInlineNewSupplier' not in js, (
+        'Funkcja toggleInlineNewSupplier powinna być usunięta')
+    assert 'saveInlineSupplier' not in js, (
+        'Funkcja saveInlineSupplier powinna być usunięta')
 
 
 # ── Modale słownikowe: Dostawcy / Gatunki (punkty 8–9) ───────────────────────

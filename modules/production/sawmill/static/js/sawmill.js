@@ -355,19 +355,19 @@
     }
 
     // Struktura kolumn MUSI odpowiadać statycznemu wierszowi w tab_content.html
-    // (3/2/2/2/1/2 = 12) — to samo pole "Usuń pozycję", zawsze widoczne,
-    // stan disabled/enabled ustawia potem updateRemoveButtonsVisibility().
+    // (2/2/2/2/2/1 = 11) — zwężona kolumna gatunku oddaje miejsce innym polom.
+    // Przycisk usuń zawiera wyłącznie ikonę (tekst usunięty), title i aria-label dla WCAG.
     function buildItemRow() {
         var row = document.createElement('div');
         row.className = 'sawmill-item-row row g-2 align-items-end mb-2';
         row.innerHTML =
-            '<div class="col-md-3">' +
+            '<div class="col-md-2">' +
             '<label class="form-label">Gatunek</label>' +
             '<select class="form-select sawmill-item-species" data-field="species_id" required>' +
             '<option value="">— wybierz —</option>' + state.speciesOptionsHtml +
             '</select></div>' +
             '<div class="col-md-2">' +
-            '<label class="form-label">Deklarowana obj. m³</label>' +
+            '<label class="form-label">Dekl. obj. m³</label>' +
             '<input type="number" step="0.001" min="0" class="form-control sawmill-item-declared-volume" ' +
             'data-field="declared_volume_m3" required></div>' +
             '<div class="col-md-2">' +
@@ -376,13 +376,13 @@
             '<div class="col-md-2">' +
             '<label class="form-label">Cena/m³</label>' +
             '<input type="number" step="0.01" min="0" class="form-control sawmill-item-price" data-field="price_per_m3"></div>' +
-            '<div class="col-md-1 text-end">' +
-            '<label class="form-label d-block">&nbsp;</label>' +
-            '<span class="sawmill-item-value-preview text-muted small">— zł</span></div>' +
             '<div class="col-md-2 text-end">' +
             '<label class="form-label d-block">&nbsp;</label>' +
-            '<button type="button" class="btn btn-sm btn-outline-danger sawmill-item-remove w-100" title="Usuń pozycję" ' +
-            'onclick="Sawmill.removeItemRow(this)"><i class="fas fa-trash"></i> Usuń pozycję</button></div>';
+            '<span class="sawmill-item-value-preview text-muted small">— zł</span></div>' +
+            '<div class="col-md-1 text-end">' +
+            '<label class="form-label d-block">&nbsp;</label>' +
+            '<button type="button" class="btn btn-sm btn-outline-danger sawmill-item-remove w-100" title="Usuń pozycję" aria-label="Usuń tę pozycję dostawy" ' +
+            'onclick="Sawmill.removeItemRow(this)"><i class="fas fa-trash"></i></button></div>';
 
         bindItemRowPreview(row);
         return row;
@@ -448,7 +448,6 @@
         el('sawmill-invoice-number').value = '';
         el('sawmill-invoice-date').value = ''; // faktura NIE jest domyślnie wypełniana — patrz brief
         el('sawmill-delivery-notes').value = '';
-        toggleInlineNewSupplier(false);
 
         var itemsContainer = el('sawmill-delivery-items');
         itemsContainer.innerHTML = '';
@@ -461,67 +460,6 @@
         bootstrap.Modal.getOrCreateInstance(el('sawmillDeliveryModal')).show();
     }
 
-    // ── Modal: Nowa dostawa — dodanie dostawcy "w locie" ────────────────────
-    //
-    // Zamiast zagnieżdżonego modalu Bootstrapa (który renderował się POD
-    // przyciemnieniem tła własnego overlaya — klasyczny problem z-index przy
-    // dwóch modalach naraz, gdzie jedynym wyjściem był Escape) — rozwijany
-    // formularz WEWNĄTRZ modalu dostawy. Po zapisaniu dostawcy dopisujemy go
-    // do listy i od razu zaznaczamy w select-cie, więc użytkownik nie musi
-    // zamykać modalu, odświeżać słownika ani szukać świeżo dodanej pozycji.
-
-    function toggleInlineNewSupplier(show) {
-        var box = el('sawmill-inline-new-supplier');
-        box.style.display = show ? '' : 'none';
-        el('sawmill-inline-supplier-error').style.display = 'none';
-        if (show) {
-            el('sawmill-inline-supplier-name').value = '';
-            el('sawmill-inline-supplier-name').focus();
-        }
-    }
-
-    function saveInlineSupplier() {
-        var nameInput = el('sawmill-inline-supplier-name');
-        var name = nameInput.value.trim();
-        var errorEl = el('sawmill-inline-supplier-error');
-        errorEl.style.display = 'none';
-
-        if (!name) {
-            errorEl.textContent = 'Podaj nazwę dostawcy.';
-            errorEl.style.display = 'block';
-            return Promise.resolve();
-        }
-
-        var saveBtn = el('sawmill-btn-save-inline-supplier');
-        saveBtn.disabled = true;
-
-        return fetch(API + '/suppliers', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-            body: JSON.stringify({ name: name }),
-        }).then(function (resp) {
-            if (!resp.ok) return handleErrorResponse(resp, errorEl);
-            return resp.json().then(function (data) {
-                var supplier = data.supplier;
-                toast('Dodano dostawcę: ' + supplier.name, 'success');
-                // Odświeżamy select filtra i select dostawy z serwera (spójne
-                // dane, ta sama funkcja co przy zwykłym CRUD-zie słownika),
-                // a potem zaznaczamy świeżo utworzoną pozycję.
-                return loadSupplierOptions().then(function () {
-                    var select = el('sawmill-delivery-supplier');
-                    select.value = String(supplier.id);
-                    select.classList.remove('is-invalid');
-                    toggleInlineNewSupplier(false);
-                });
-            });
-        }).catch(function (err) {
-            console.error('[Sawmill] Błąd dodawania dostawcy:', err);
-            errorEl.textContent = 'Błąd połączenia z serwerem.';
-            errorEl.style.display = 'block';
-        }).finally(function () {
-            saveBtn.disabled = false;
-        });
-    }
 
     // Walidacja po stronie przeglądarki: minimum jedna pozycja, każda
     // z gatunkiem i deklarowaną objętością. Serwer i tak sprawdza to samo
@@ -1207,15 +1145,6 @@
         el('sawmill-btn-add-item').addEventListener('click', addItemRow);
         el('sawmill-btn-submit-delivery').addEventListener('click', submitDelivery);
         el('sawmill-btn-confirm-settle').addEventListener('click', confirmSettle);
-
-        // "+ Nowy dostawca" — formularz inline zamiast zagnieżdżonego modalu
-        // (patrz sekcja "Modal: Nowa dostawa — dodanie dostawcy w locie" wyżej).
-        el('sawmill-btn-new-supplier').addEventListener('click', function () { toggleInlineNewSupplier(true); });
-        el('sawmill-btn-cancel-inline-supplier').addEventListener('click', function () { toggleInlineNewSupplier(false); });
-        el('sawmill-btn-save-inline-supplier').addEventListener('click', saveInlineSupplier);
-        el('sawmill-inline-supplier-name').addEventListener('keydown', function (e) {
-            if (e.key === 'Enter') { e.preventDefault(); saveInlineSupplier(); }
-        });
 
         // Enter w polu szukania też filtruje — bez tego trzeba zawsze klikać "Filtruj".
         el('sawmill-filter-q').addEventListener('keydown', function (e) {
