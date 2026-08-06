@@ -127,17 +127,6 @@
     margin-bottom: 8px;
 }
 
-/* Formularz "nowy dostawca" rozwijany wewnątrz modalu dostawy — patrz
-   sawmill.js (toggleInlineNewSupplier). Zastępuje dawny zagnieżdżony modal,
-   który renderował się pod przyciemnieniem tła własnego overlaya. */
-.sawmill-inline-new-supplier {
-    background: var(--il-bg-base, #eef0f4);
-    border: 1px solid var(--il-border-light, #e2e5ea);
-    border-radius: var(--il-radius, 3px);
-    padding: 8px;
-    margin-top: 6px;
-}
-
 .sawmill-summary-cards {
     display: flex;
     flex-wrap: wrap;
