@@ -80,6 +80,45 @@
     padding-bottom: 0;
 }
 
+/* Przycisk "Usuń pozycję" jest zawsze widoczny (nigdy display:none) — przy
+   jednej pozycji tylko disabled, żeby wiersz nie zmieniał wysokości/układu
+   przy dodawaniu i usuwaniu kolejnych pozycji. Bootstrap sam przyciemnia
+   disabled przyciski (opacity), tu dokładamy tylko kursor. */
+.sawmill-item-remove:disabled {
+    cursor: not-allowed;
+}
+
+/* Modal "Nowa dostawa" — zagęszczony górny blok (dostawca/daty/faktura/notatki),
+   żeby typowa dostawa z 1–2 pozycjami mieściła się bez przewijania. */
+#sawmillDeliveryModal .modal-body {
+    padding-top: 12px;
+    padding-bottom: 12px;
+}
+
+#sawmillDeliveryModal .sawmill-delivery-header .form-label {
+    margin-bottom: 4px;
+    font-size: 0.85rem;
+}
+
+#sawmillDeliveryModal hr {
+    margin: 10px 0;
+}
+
+#sawmillDeliveryModal h6 {
+    margin-bottom: 8px;
+}
+
+/* Formularz "nowy dostawca" rozwijany wewnątrz modalu dostawy — patrz
+   sawmill.js (toggleInlineNewSupplier). Zastępuje dawny zagnieżdżony modal,
+   który renderował się pod przyciemnieniem tła własnego overlaya. */
+.sawmill-inline-new-supplier {
+    background: var(--il-bg-base, #eef0f4);
+    border: 1px solid var(--il-border-light, #e2e5ea);
+    border-radius: var(--il-radius, 3px);
+    padding: 8px;
+    margin-top: 6px;
+}
+
 .sawmill-summary-cards {
     display: flex;
     flex-wrap: wrap;
@@ -110,6 +149,15 @@
 .sawmill-audit-list {
     max-height: 260px;
     overflow-y: auto;
+}
+
+/* Modal słowników (Dostawcy / Gatunki) — tabela istniejących pozycji +
+   formularz dodawania/edycji poniżej. Nieaktywne (miękko skasowane) wiersze
+   są wyszarzone (.text-muted na <tr>), ale zostają na liście — patrz
+   uzasadnienie w sawmill.js (renderDictBody). */
+.sawmill-dict-table th,
+.sawmill-dict-table td {
+    vertical-align: middle;
 }
 
 /* Uwaga: reguły akcentu kafelka trakowni na dashboardzie produkcji

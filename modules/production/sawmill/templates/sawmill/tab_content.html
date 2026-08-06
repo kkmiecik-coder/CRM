@@ -4,73 +4,84 @@
 
 <div id="sawmill-module-container">
 
-  {# ─── GÓRNY PASEK PRZYCISKÓW ─── #}
-  <div class="sawmill-toolbar d-flex flex-wrap gap-2 align-items-center mb-3">
+  {# ─── GÓRNY PASEK PRZYCISKÓW ───
+       Lewa strona: przyciski słowników (nie zmieniają się często, nie są
+       akcją "domyślną"). Prawa strona: "+ Nowa dostawa" — najczęstsza akcja,
+       więc blisko krawędzi, tam gdzie oko trafia jako pierwsze przy powrocie
+       do zakładki. #}
+  <div class="sawmill-toolbar d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+    <div class="d-flex flex-wrap gap-2">
+      <button type="button" class="btn btn-outline-secondary" id="sawmill-btn-suppliers">
+        <i class="fas fa-truck me-1"></i>Dostawcy
+      </button>
+      <button type="button" class="btn btn-outline-secondary" id="sawmill-btn-species">
+        <i class="fas fa-tree me-1"></i>Gatunki
+      </button>
+    </div>
     <button type="button" class="btn btn-primary" id="sawmill-btn-new-delivery">
       <i class="fas fa-plus me-1"></i>Nowa dostawa
     </button>
-    <button type="button" class="btn btn-outline-secondary" id="sawmill-btn-suppliers">
-      <i class="fas fa-truck me-1"></i>Dostawcy
-    </button>
-    <button type="button" class="btn btn-outline-secondary" id="sawmill-btn-species">
-      <i class="fas fa-tree me-1"></i>Gatunki
-    </button>
-    <button type="button" class="btn btn-outline-secondary ms-auto" id="sawmill-btn-export">
-      <i class="fas fa-file-excel me-1"></i>Eksport XLSX
-    </button>
   </div>
 
-  {# ─── PASEK FILTRÓW ─── #}
-  <div class="sawmill-filters d-flex flex-wrap gap-2 align-items-end mb-3">
-    <div>
-      <label class="form-label small mb-1" for="sawmill-filter-status">Status</label>
-      <select class="form-select form-select-sm" id="sawmill-filter-status">
-        <option value="">Wszystkie</option>
-        <option value="new">Nowe</option>
-        <option value="in_progress">W trakcie</option>
-        <option value="completed">Zakończone</option>
-        <option value="settled">Rozliczone</option>
-      </select>
+  {# ─── PASEK FILTRÓW ───
+       Eksport XLSX stoi obok filtrów (eksportuje właśnie to, co jest
+       przefiltrowane), dosunięty do prawej krawędzi — stąd justify-content-between
+       między grupą pól filtrów a przyciskiem. #}
+  <div class="sawmill-filters d-flex flex-wrap gap-2 align-items-end justify-content-between mb-3">
+    <div class="sawmill-filters-fields d-flex flex-wrap gap-2 align-items-end">
+      <div>
+        <label class="form-label small mb-1" for="sawmill-filter-status">Status</label>
+        <select class="form-select form-select-sm" id="sawmill-filter-status">
+          <option value="">Wszystkie</option>
+          <option value="new">Nowe</option>
+          <option value="in_progress">W trakcie</option>
+          <option value="completed">Zakończone</option>
+          <option value="settled">Rozliczone</option>
+        </select>
+      </div>
+      <div>
+        <label class="form-label small mb-1" for="sawmill-filter-supplier">Dostawca</label>
+        <select class="form-select form-select-sm" id="sawmill-filter-supplier">
+          <option value="">Wszyscy dostawcy</option>
+          {% for s in suppliers %}
+          <option value="{{ s.id }}">{{ s.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="form-label small mb-1" for="sawmill-filter-species">Gatunek</label>
+        <select class="form-select form-select-sm" id="sawmill-filter-species">
+          <option value="">Wszystkie gatunki</option>
+          {% for sp in species %}
+          <option value="{{ sp.id }}">{{ sp.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="form-label small mb-1" for="sawmill-filter-date-from">Data od</label>
+        <input type="date" class="form-control form-control-sm" id="sawmill-filter-date-from">
+      </div>
+      <div>
+        <label class="form-label small mb-1" for="sawmill-filter-date-to">Data do</label>
+        <input type="date" class="form-control form-control-sm" id="sawmill-filter-date-to">
+      </div>
+      <div>
+        <label class="form-label small mb-1" for="sawmill-filter-q">Szukaj</label>
+        <input type="text" class="form-control form-control-sm" id="sawmill-filter-q"
+               placeholder="Nr TRK lub nr faktury">
+      </div>
+      <div class="form-check mb-1">
+        <input class="form-check-input" type="checkbox" id="sawmill-filter-only-deviation" name="only_deviation">
+        <label class="form-check-label" for="sawmill-filter-only-deviation">
+          tylko odchylenia (powyżej {{ deviation_threshold_pct }}%)
+        </label>
+      </div>
+      <button type="button" class="btn btn-sm btn-outline-primary" id="sawmill-btn-apply-filters">
+        <i class="fas fa-filter me-1"></i>Filtruj
+      </button>
     </div>
-    <div>
-      <label class="form-label small mb-1" for="sawmill-filter-supplier">Dostawca</label>
-      <select class="form-select form-select-sm" id="sawmill-filter-supplier">
-        <option value="">Wszyscy dostawcy</option>
-        {% for s in suppliers %}
-        <option value="{{ s.id }}">{{ s.name }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div>
-      <label class="form-label small mb-1" for="sawmill-filter-species">Gatunek</label>
-      <select class="form-select form-select-sm" id="sawmill-filter-species">
-        <option value="">Wszystkie gatunki</option>
-        {% for sp in species %}
-        <option value="{{ sp.id }}">{{ sp.name }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div>
-      <label class="form-label small mb-1" for="sawmill-filter-date-from">Data od</label>
-      <input type="date" class="form-control form-control-sm" id="sawmill-filter-date-from">
-    </div>
-    <div>
-      <label class="form-label small mb-1" for="sawmill-filter-date-to">Data do</label>
-      <input type="date" class="form-control form-control-sm" id="sawmill-filter-date-to">
-    </div>
-    <div>
-      <label class="form-label small mb-1" for="sawmill-filter-q">Szukaj</label>
-      <input type="text" class="form-control form-control-sm" id="sawmill-filter-q"
-             placeholder="Nr TRK lub nr faktury">
-    </div>
-    <div class="form-check mb-1">
-      <input class="form-check-input" type="checkbox" id="sawmill-filter-only-deviation" name="only_deviation">
-      <label class="form-check-label" for="sawmill-filter-only-deviation">
-        tylko odchylenia (powyżej {{ deviation_threshold_pct }}%)
-      </label>
-    </div>
-    <button type="button" class="btn btn-sm btn-outline-primary" id="sawmill-btn-apply-filters">
-      <i class="fas fa-filter me-1"></i>Filtruj
+    <button type="button" class="btn btn-outline-secondary" id="sawmill-btn-export">
+      <i class="fas fa-file-excel me-1"></i>Eksport XLSX
     </button>
   </div>
 
@@ -114,47 +125,80 @@
       </div>
       <div class="modal-body">
         <form id="sawmill-delivery-form" onsubmit="return false;">
-          <div class="row g-3">
-            <div class="col-md-8">
+          {# Blok nagłówka dostawy — zagęszczony (g-2, mniejsze etykiety, mniej
+             wierszy dzięki lepszemu wykorzystaniu szerokości kolumn), żeby
+             typowa dostawa z 1–2 pozycjami mieściła się w modalu bez
+             przewijania. Dokładne odstępy dostrajane w sawmill.css
+             (#sawmillDeliveryModal .sawmill-delivery-header). #}
+          <div class="row g-2 sawmill-delivery-header">
+            <div class="col-md-6">
               <label class="form-label" for="sawmill-delivery-supplier">Dostawca</label>
-              <div class="input-group">
-                <select class="form-select" id="sawmill-delivery-supplier" data-field="supplier_id" required>
-                  <option value="">— wybierz dostawcę —</option>
-                  {% for s in suppliers %}
-                  <option value="{{ s.id }}">{{ s.name }}</option>
-                  {% endfor %}
-                </select>
-                <button type="button" class="btn btn-outline-secondary" id="sawmill-btn-new-supplier">+ nowy</button>
+              {# UWAGA: select NIE jest już w Bootstrapowym .input-group razem
+                 z przyciskiem "+ nowy" — to renderowało się w Safari jako
+                 wąski, pusty ~50px kikut (znany problem <select> jako
+                 replaced-element wewnątrz flexboksa input-group, który nie
+                 respektuje flex-grow tak jak zwykłe elementy). Select stoi
+                 teraz samodzielnie na pełną szerokość kolumny (zwykły
+                 .form-select, bez flexboksa nadrzędnego), a "+ nowy" jest
+                 osobnym linkiem pod spodem, rozwijającym formularz inline
+                 (patrz #sawmill-inline-new-supplier) — patrz też uzasadnienie
+                 w raporcie UI (punkt 7: rezygnacja z zagnieżdżonego modalu). #}
+              <select class="form-select" id="sawmill-delivery-supplier" data-field="supplier_id" required>
+                <option value="">— wybierz dostawcę —</option>
+                {% for s in suppliers %}
+                <option value="{{ s.id }}">{{ s.name }}</option>
+                {% endfor %}
+              </select>
+              <button type="button" class="btn btn-link btn-sm p-0 mt-1" id="sawmill-btn-new-supplier">
+                <i class="fas fa-plus me-1"></i>Nowy dostawca
+              </button>
+              {# Formularz inline zamiast zagnieżdżonego modalu — patrz komentarz wyżej. #}
+              <div class="sawmill-inline-new-supplier" id="sawmill-inline-new-supplier" style="display:none;">
+                <div class="input-group input-group-sm">
+                  <input type="text" class="form-control" id="sawmill-inline-supplier-name"
+                         placeholder="Nazwa nowego dostawcy">
+                  <button type="button" class="btn btn-primary" id="sawmill-btn-save-inline-supplier">Zapisz</button>
+                  <button type="button" class="btn btn-outline-secondary" id="sawmill-btn-cancel-inline-supplier">Anuluj</button>
+                </div>
+                <div class="alert alert-danger py-1 px-2 small mb-0 mt-1" id="sawmill-inline-supplier-error" style="display:none;"></div>
               </div>
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
               {# Data dostawy domyślnie = dziś (zlecenie zwykle zakłada się w dniu przyjęcia). #}
               <label class="form-label" for="sawmill-delivery-date">Data dostawy</label>
               <input type="date" class="form-control" id="sawmill-delivery-date" data-field="delivery_date"
                      value="{{ today }}" required>
             </div>
-            <div class="col-md-6">
+            <div class="col-md-3">
               <label class="form-label" for="sawmill-invoice-number">Numer faktury</label>
               <input type="text" class="form-control" id="sawmill-invoice-number" data-field="invoice_number">
             </div>
-            <div class="col-md-6">
+            <div class="col-md-3">
               {# Data faktury CELOWO pusta — dostawa bez faktury nie ma takiej daty,
                  a podpowiadanie dzisiejszej wpisałoby do bazy datę, której nikt nie potwierdził. #}
               <label class="form-label" for="sawmill-invoice-date">Data faktury</label>
               <input type="date" class="form-control" id="sawmill-invoice-date" data-field="invoice_date" value="">
             </div>
-            <div class="col-12">
+            <div class="col-md-9">
               <label class="form-label" for="sawmill-delivery-notes">Notatki</label>
-              <textarea class="form-control" id="sawmill-delivery-notes" rows="2"></textarea>
+              <textarea class="form-control" id="sawmill-delivery-notes" rows="1"></textarea>
             </div>
           </div>
 
           <hr>
 
-          <h6>Pozycje dostawy</h6>
+          {# Nagłówek sekcji pozycji: tytuł z lewej, "+ dodaj kolejną" dosunięte
+             do prawej krawędzi (space-between) — wcześniej przycisk wisiał
+             samotnie pod tabelą pozycji, z dala od tytułu, do którego należy. #}
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h6 class="mb-0">Pozycje dostawy</h6>
+            <button type="button" class="btn btn-sm btn-outline-primary" id="sawmill-btn-add-item">
+              + dodaj kolejną
+            </button>
+          </div>
           <div id="sawmill-delivery-items">
             <div class="sawmill-item-row row g-2 align-items-end mb-2">
-              <div class="col-md-4">
+              <div class="col-md-3">
                 <label class="form-label">Gatunek</label>
                 <select class="form-select sawmill-item-species" data-field="species_id" required>
                   <option value="">— wybierz —</option>
@@ -163,7 +207,7 @@
                   {% endfor %}
                 </select>
               </div>
-              <div class="col-md-3">
+              <div class="col-md-2">
                 <label class="form-label">Deklarowana obj. m³</label>
                 <input type="number" step="0.001" min="0" class="form-control sawmill-item-declared-volume"
                        data-field="declared_volume_m3" required>
@@ -178,18 +222,23 @@
                        data-field="price_per_m3">
               </div>
               <div class="col-md-1 text-end">
+                <label class="form-label d-block">&nbsp;</label>
                 <span class="sawmill-item-value-preview text-muted small">— zł</span>
               </div>
-              <div class="col-12">
-                <button type="button" class="btn btn-sm btn-outline-danger sawmill-item-remove" style="display:none;">
+              <div class="col-md-2 text-end">
+                {# Przycisk usuwania ZAWSZE widoczny, w jednej linii z polami, przy
+                   prawej krawędzi wiersza. Przy jednej pozycji jest disabled (nie
+                   ukryty przez display:none) — układ nie "skacze" przy dodawaniu
+                   i usuwaniu wierszy. Stan disabled synchronizuje
+                   updateRemoveButtonsVisibility() w sawmill.js. #}
+                <label class="form-label d-block">&nbsp;</label>
+                <button type="button" class="btn btn-sm btn-outline-danger sawmill-item-remove w-100" disabled
+                        title="Usuń pozycję">
                   <i class="fas fa-trash"></i> Usuń pozycję
                 </button>
               </div>
             </div>
           </div>
-          <button type="button" class="btn btn-sm btn-outline-primary" id="sawmill-btn-add-item">
-            + dodaj kolejną
-          </button>
 
           <div class="alert alert-danger mt-3" id="sawmill-delivery-form-error" style="display:none;"></div>
         </form>
@@ -252,9 +301,12 @@
   </div>
 </div>
 
-{# ─── MODAL: SŁOWNIKI (DOSTAWCY / GATUNKI) ─── #}
+{# ─── MODAL: SŁOWNIKI (DOSTAWCY / GATUNKI) ───
+     modal-lg + scrollable: formularz dostawcy ma 8 pól (patrz SUPPLIER_FIELDS
+     w panel_api.py) plus tabela istniejących pozycji — wąski modal-dialog
+     domyślny by się nie zmieścił bez ciasnoty. #}
 <div class="modal fade" id="sawmillDictModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="sawmill-dict-title">Słownik</h5>

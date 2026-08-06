@@ -27,6 +27,49 @@
         settled: 'Rozliczone',
     };
 
+    // Definicje pól formularzy słownikowych (modal Dostawcy/Gatunki) — jedno
+    // źródło prawdy zarówno dla renderowania formularza, jak i zbierania
+    // payloadu do POST/PATCH. Zestaw i kolejność pól dostawcy odpowiada
+    // SUPPLIER_FIELDS w panel_api.py — tam backend przyjmuje dokładnie te
+    // osiem pól (plus notes), a bez formularza dla wszystkich pozostawały
+    // puste na zawsze, mimo że trafiają na protokół PDF idący do dostawcy.
+    var DICT_FIELDS = {
+        suppliers: [
+            { field: 'name', label: 'Nazwa', type: 'text', required: true },
+            { field: 'nip', label: 'NIP', type: 'text' },
+            { field: 'address_street', label: 'Ulica i numer', type: 'text' },
+            { field: 'address_zip', label: 'Kod pocztowy', type: 'text' },
+            { field: 'address_city', label: 'Miasto', type: 'text' },
+            { field: 'contact_person', label: 'Osoba kontaktowa', type: 'text' },
+            { field: 'phone', label: 'Telefon', type: 'text' },
+            { field: 'email', label: 'E-mail', type: 'email' },
+            { field: 'notes', label: 'Notatki', type: 'textarea' },
+        ],
+        species: [
+            { field: 'name', label: 'Nazwa', type: 'text', required: true },
+            { field: 'short_code', label: 'Skrót (opcjonalnie)', type: 'text', maxlength: 8 },
+            { field: 'sort_order', label: 'Kolejność sortowania', type: 'number' },
+        ],
+    };
+
+    // Kolumny listy pozycji w modalu słownika — osobny, krótszy zestaw niż
+    // pełny formularz: tyle, żeby dało się odróżnić dwa podobne wpisy
+    // (np. dwóch dostawców o zbliżonej nazwie), bez przeładowania tabeli.
+    function dictListColumns(type) {
+        if (type === 'suppliers') {
+            return [
+                { label: 'Nazwa', render: function (r) { return escapeHtml(r.name); } },
+                { label: 'NIP', render: function (r) { return escapeHtml(r.nip || '—'); } },
+                { label: 'Miasto', render: function (r) { return escapeHtml(r.address_city || '—'); } },
+            ];
+        }
+        return [
+            { label: 'Nazwa', render: function (r) { return escapeHtml(r.name); } },
+            { label: 'Skrót', render: function (r) { return escapeHtml(r.short_code || '—'); } },
+            { label: 'Kolejność', render: function (r) { return escapeHtml(r.sort_order); } },
+        ];
+    }
+
     // Stan modułu — cache ostatnio wczytanej listy i aktualnie otwartego
     // zlecenia, żeby akcje (rozlicz/wznów/edycja pomiaru) mogły odświeżyć
     // widok bez zbędnych dodatkowych zapytań.
@@ -34,6 +77,9 @@
         lastOrders: {},
         currentOrder: null,
         dictType: null,
+        // id edytowanej pozycji słownika (dostawcy/gatunku) — null = formularz
+        // w trybie dodawania nowej pozycji, patrz renderDictBody()/submitDictForm().
+        dictEditingId: null,
         speciesOptionsHtml: '',
     };
 
@@ -308,16 +354,19 @@
         return d.getFullYear() + '-' + mm + '-' + dd;
     }
 
+    // Struktura kolumn MUSI odpowiadać statycznemu wierszowi w tab_content.html
+    // (3/2/2/2/1/2 = 12) — to samo pole "Usuń pozycję", zawsze widoczne,
+    // stan disabled/enabled ustawia potem updateRemoveButtonsVisibility().
     function buildItemRow() {
         var row = document.createElement('div');
         row.className = 'sawmill-item-row row g-2 align-items-end mb-2';
         row.innerHTML =
-            '<div class="col-md-4">' +
+            '<div class="col-md-3">' +
             '<label class="form-label">Gatunek</label>' +
             '<select class="form-select sawmill-item-species" data-field="species_id" required>' +
             '<option value="">— wybierz —</option>' + state.speciesOptionsHtml +
             '</select></div>' +
-            '<div class="col-md-3">' +
+            '<div class="col-md-2">' +
             '<label class="form-label">Deklarowana obj. m³</label>' +
             '<input type="number" step="0.001" min="0" class="form-control sawmill-item-declared-volume" ' +
             'data-field="declared_volume_m3" required></div>' +
@@ -327,9 +376,12 @@
             '<div class="col-md-2">' +
             '<label class="form-label">Cena/m³</label>' +
             '<input type="number" step="0.01" min="0" class="form-control sawmill-item-price" data-field="price_per_m3"></div>' +
-            '<div class="col-md-1 text-end"><span class="sawmill-item-value-preview text-muted small">— zł</span></div>' +
-            '<div class="col-12">' +
-            '<button type="button" class="btn btn-sm btn-outline-danger sawmill-item-remove" ' +
+            '<div class="col-md-1 text-end">' +
+            '<label class="form-label d-block">&nbsp;</label>' +
+            '<span class="sawmill-item-value-preview text-muted small">— zł</span></div>' +
+            '<div class="col-md-2 text-end">' +
+            '<label class="form-label d-block">&nbsp;</label>' +
+            '<button type="button" class="btn btn-sm btn-outline-danger sawmill-item-remove w-100" title="Usuń pozycję" ' +
             'onclick="Sawmill.removeItemRow(this)"><i class="fas fa-trash"></i> Usuń pozycję</button></div>';
 
         bindItemRowPreview(row);
@@ -356,11 +408,15 @@
         }
     }
 
+    // Przycisk usuwania pozycji jest ZAWSZE widoczny (nie chowamy go przez
+    // display:none) — przy jednej pozycji jest tylko disabled, żeby układ
+    // wiersza nie "skakał" przy dodawaniu/usuwaniu kolejnych pozycji.
     function updateRemoveButtonsVisibility() {
         var rows = el('sawmill-delivery-items').querySelectorAll('.sawmill-item-row');
+        var onlyOneRow = rows.length <= 1;
         rows.forEach(function (r) {
             var btn = r.querySelector('.sawmill-item-remove');
-            if (btn) btn.style.display = rows.length > 1 ? '' : 'none';
+            if (btn) btn.disabled = onlyOneRow;
         });
     }
 
@@ -392,6 +448,7 @@
         el('sawmill-invoice-number').value = '';
         el('sawmill-invoice-date').value = ''; // faktura NIE jest domyślnie wypełniana — patrz brief
         el('sawmill-delivery-notes').value = '';
+        toggleInlineNewSupplier(false);
 
         var itemsContainer = el('sawmill-delivery-items');
         itemsContainer.innerHTML = '';
@@ -402,6 +459,68 @@
     function openDeliveryModal() {
         resetDeliveryForm();
         bootstrap.Modal.getOrCreateInstance(el('sawmillDeliveryModal')).show();
+    }
+
+    // ── Modal: Nowa dostawa — dodanie dostawcy "w locie" ────────────────────
+    //
+    // Zamiast zagnieżdżonego modalu Bootstrapa (który renderował się POD
+    // przyciemnieniem tła własnego overlaya — klasyczny problem z-index przy
+    // dwóch modalach naraz, gdzie jedynym wyjściem był Escape) — rozwijany
+    // formularz WEWNĄTRZ modalu dostawy. Po zapisaniu dostawcy dopisujemy go
+    // do listy i od razu zaznaczamy w select-cie, więc użytkownik nie musi
+    // zamykać modalu, odświeżać słownika ani szukać świeżo dodanej pozycji.
+
+    function toggleInlineNewSupplier(show) {
+        var box = el('sawmill-inline-new-supplier');
+        box.style.display = show ? '' : 'none';
+        el('sawmill-inline-supplier-error').style.display = 'none';
+        if (show) {
+            el('sawmill-inline-supplier-name').value = '';
+            el('sawmill-inline-supplier-name').focus();
+        }
+    }
+
+    function saveInlineSupplier() {
+        var nameInput = el('sawmill-inline-supplier-name');
+        var name = nameInput.value.trim();
+        var errorEl = el('sawmill-inline-supplier-error');
+        errorEl.style.display = 'none';
+
+        if (!name) {
+            errorEl.textContent = 'Podaj nazwę dostawcy.';
+            errorEl.style.display = 'block';
+            return Promise.resolve();
+        }
+
+        var saveBtn = el('sawmill-btn-save-inline-supplier');
+        saveBtn.disabled = true;
+
+        return fetch(API + '/suppliers', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            body: JSON.stringify({ name: name }),
+        }).then(function (resp) {
+            if (!resp.ok) return handleErrorResponse(resp, errorEl);
+            return resp.json().then(function (data) {
+                var supplier = data.supplier;
+                toast('Dodano dostawcę: ' + supplier.name, 'success');
+                // Odświeżamy select filtra i select dostawy z serwera (spójne
+                // dane, ta sama funkcja co przy zwykłym CRUD-zie słownika),
+                // a potem zaznaczamy świeżo utworzoną pozycję.
+                return loadSupplierOptions().then(function () {
+                    var select = el('sawmill-delivery-supplier');
+                    select.value = String(supplier.id);
+                    select.classList.remove('is-invalid');
+                    toggleInlineNewSupplier(false);
+                });
+            });
+        }).catch(function (err) {
+            console.error('[Sawmill] Błąd dodawania dostawcy:', err);
+            errorEl.textContent = 'Błąd połączenia z serwerem.';
+            errorEl.style.display = 'block';
+        }).finally(function () {
+            saveBtn.disabled = false;
+        });
     }
 
     // Walidacja po stronie przeglądarki: minimum jedna pozycja, każda
@@ -874,6 +993,57 @@
     }
 
     // ── Modal: Słowniki (Dostawcy / Gatunki) ─────────────────────────────────
+    //
+    // Zawsze pobieramy z include_inactive=1 — nieaktywne (miękko skasowane)
+    // pozycje muszą być widoczne, z jasnym opisem co to znaczy i przyciskiem
+    // przywrócenia. To ważne, bo sprawdzenie duplikatu nazwy po stronie
+    // backendu NIE filtruje is_active — po dezaktywacji nie da się dodać
+    // nowej pozycji o tej samej nazwie, jedyną drogą jest przywrócenie starej.
+
+    function renderDictRow(r, type) {
+        var cols = dictListColumns(type)
+            .map(function (c) { return '<td>' + c.render(r) + '</td>'; })
+            .join('');
+        var statusBadge = r.is_active
+            ? '<span class="badge bg-success">aktywny</span>'
+            : '<span class="badge bg-secondary">nieaktywny</span>';
+        var actionBtns =
+            '<button type="button" class="btn btn-sm btn-outline-secondary" ' +
+            'onclick="Sawmill.editDictItem(' + r.id + ')" title="Edytuj"><i class="fas fa-pen"></i></button> ' +
+            (r.is_active
+                ? '<button type="button" class="btn btn-sm btn-outline-danger" ' +
+                  'onclick="Sawmill.deleteDictItem(' + r.id + ')" title="Dezaktywuj"><i class="fas fa-trash"></i></button>'
+                : '<button type="button" class="btn btn-sm btn-outline-success" ' +
+                  'onclick="Sawmill.restoreDictItem(' + r.id + ')" title="Przywróć"><i class="fas fa-undo"></i></button>');
+        return '<tr' + (r.is_active ? '' : ' class="text-muted"') + '>' + cols +
+            '<td>' + statusBadge + '</td><td class="sawmill-actions">' + actionBtns + '</td></tr>';
+    }
+
+    // Buduje formularz dodawania/edycji z DICT_FIELDS. `values` (opcjonalne)
+    // to rekord edytowanej pozycji — gdy podany, pola wypełniają się jego
+    // wartościami (tryb edycji), inaczej formularz jest pusty (tryb dodawania).
+    function renderDictFormFields(type, values) {
+        values = values || {};
+        return DICT_FIELDS[type].map(function (f) {
+            var raw = values[f.field];
+            var value = (raw === undefined || raw === null) ? '' : raw;
+            var fieldId = 'sawmill-dict-field-' + f.field;
+            var colClass = f.type === 'textarea' ? 'col-12' : 'col-md-6';
+            var inputHtml;
+            if (f.type === 'textarea') {
+                inputHtml = '<textarea class="form-control" rows="2" data-field="' + f.field + '" id="' + fieldId + '">' +
+                    escapeHtml(value) + '</textarea>';
+            } else {
+                var maxlenAttr = f.maxlength ? ' maxlength="' + f.maxlength + '"' : '';
+                inputHtml = '<input type="' + f.type + '" class="form-control" data-field="' + f.field + '" ' +
+                    'id="' + fieldId + '" value="' + escapeHtml(value) + '"' + maxlenAttr +
+                    (f.required ? ' required' : '') + '>';
+            }
+            return '<div class="' + colClass + '">' +
+                '<label class="form-label small mb-1" for="' + fieldId + '">' + escapeHtml(f.label) +
+                (f.required ? ' *' : '') + '</label>' + inputHtml + '</div>';
+        }).join('');
+    }
 
     function renderDictBody() {
         var type = state.dictType;
@@ -882,25 +1052,39 @@
                 if (!resp.ok) return handleErrorResponse(resp);
                 return resp.json().then(function (data) {
                     var rows = data[type];
-                    var listHtml = rows.map(function (r) {
-                        var actionBtn = r.is_active
-                            ? '<button type="button" class="btn btn-sm btn-outline-danger" onclick="Sawmill.deleteDictItem(' + r.id + ')" title="Dezaktywuj"><i class="fas fa-trash"></i></button>'
-                            : '<button type="button" class="btn btn-sm btn-outline-success" onclick="Sawmill.restoreDictItem(' + r.id + ')" title="Przywróć"><i class="fas fa-undo"></i></button>';
-                        return '<li class="list-group-item d-flex justify-content-between align-items-center' + (r.is_active ? '' : ' text-muted') + '">' +
-                            '<span>' + escapeHtml(r.name) + (r.is_active ? '' : ' (nieaktywny)') + '</span>' +
-                            '<span>' + actionBtn + '</span></li>';
-                    }).join('') || '<li class="list-group-item text-muted">Brak pozycji</li>';
+                    var cols = dictListColumns(type);
+                    var theadHtml = '<tr>' + cols.map(function (c) { return '<th>' + escapeHtml(c.label) + '</th>'; }).join('') +
+                        '<th>Status</th><th>Akcje</th></tr>';
+                    var tbodyHtml = rows.map(function (r) { return renderDictRow(r, type); }).join('') ||
+                        ('<tr><td colspan="' + (cols.length + 2) + '" class="text-center text-muted">Brak pozycji</td></tr>');
 
-                    var extraField = type === 'species'
-                        ? '<input type="text" class="form-control" id="sawmill-dict-new-code" placeholder="Skrót (opcjonalnie)" style="max-width:140px;">'
+                    var editing = state.dictEditingId
+                        ? rows.filter(function (r) { return r.id === state.dictEditingId; })[0]
+                        : null;
+                    // Edytowana pozycja mogła zniknąć spod nas (np. ktoś inny ją
+                    // dezaktywował) — wtedy po cichu wracamy do trybu dodawania.
+                    if (state.dictEditingId && !editing) state.dictEditingId = null;
+
+                    var formTitle = editing ? ('Edycja: ' + escapeHtml(editing.name)) : 'Nowa pozycja';
+                    var submitLabel = editing ? 'Zapisz zmiany' : 'Dodaj';
+                    var cancelBtnHtml = editing
+                        ? '<button type="button" class="btn btn-sm btn-outline-secondary ms-2" ' +
+                          'onclick="Sawmill.cancelDictEdit()">Anuluj edycję</button>'
                         : '';
 
                     el('sawmill-dict-body').innerHTML =
-                        '<ul class="list-group mb-3">' + listHtml + '</ul>' +
-                        '<div class="input-group">' +
-                        '<input type="text" class="form-control" id="sawmill-dict-new-name" placeholder="Nazwa">' +
-                        extraField +
-                        '<button type="button" class="btn btn-primary" onclick="Sawmill.addDictItem()">Dodaj</button>' +
+                        '<p class="text-muted small mb-2">Usunięcie oznacza dezaktywację — pozycja znika z list wyboru ' +
+                        'przy nowych dostawach, ale historyczne zlecenia w bazie pozostają nienaruszone. Nieaktywne ' +
+                        'pozycje (poniżej, wyszarzone) można w każdej chwili przywrócić przyciskiem ' +
+                        '<i class="fas fa-undo"></i> — jeśli dodanie nowej pozycji zgłasza, że nazwa już istnieje, ' +
+                        'sprawdź najpierw, czy nie jest już na liście jako nieaktywna.</p>' +
+                        '<div class="table-responsive mb-3"><table class="table table-sm align-middle sawmill-dict-table">' +
+                        '<thead>' + theadHtml + '</thead><tbody>' + tbodyHtml + '</tbody></table></div>' +
+                        '<h6 class="mb-2">' + formTitle + '</h6>' +
+                        '<div class="row g-2">' + renderDictFormFields(type, editing) + '</div>' +
+                        '<div class="mt-3">' +
+                        '<button type="button" class="btn btn-primary btn-sm" onclick="Sawmill.submitDictForm()">' +
+                        escapeHtml(submitLabel) + '</button>' + cancelBtnHtml +
                         '</div>' +
                         '<div class="alert alert-danger mt-2" id="sawmill-dict-error" style="display:none;"></div>';
                 });
@@ -912,41 +1096,65 @@
 
     function openDictModal(type) {
         state.dictType = type;
+        state.dictEditingId = null;
         el('sawmill-dict-title').textContent = type === 'species' ? 'Gatunki' : 'Dostawcy';
         el('sawmill-dict-body').innerHTML = '<div class="text-center py-3"><i class="fas fa-spinner fa-spin"></i></div>';
         bootstrap.Modal.getOrCreateInstance(el('sawmillDictModal')).show();
         return renderDictBody();
     }
 
-    function addDictItem() {
+    function editDictItem(id) {
+        state.dictEditingId = id;
+        return renderDictBody();
+    }
+
+    function cancelDictEdit() {
+        state.dictEditingId = null;
+        return renderDictBody();
+    }
+
+    function collectDictFormPayload(type) {
+        var payload = {};
+        DICT_FIELDS[type].forEach(function (f) {
+            var input = el('sawmill-dict-field-' + f.field);
+            if (input) payload[f.field] = input.value;
+        });
+        return payload;
+    }
+
+    function submitDictForm() {
         var type = state.dictType;
-        var nameField = el('sawmill-dict-new-name');
-        var name = nameField.value.trim();
         var errorEl = el('sawmill-dict-error');
         errorEl.style.display = 'none';
 
-        if (!name) {
+        var payload = collectDictFormPayload(type);
+        if (!payload.name || !payload.name.trim()) {
             errorEl.textContent = 'Podaj nazwę.';
             errorEl.style.display = 'block';
             return Promise.resolve();
         }
+        payload.name = payload.name.trim();
 
-        var payload = { name: name };
-        if (type === 'species') {
-            var codeField = el('sawmill-dict-new-code');
-            if (codeField && codeField.value.trim()) payload.short_code = codeField.value.trim();
-        }
+        var editingId = state.dictEditingId;
+        var request = editingId
+            ? fetch(API + '/' + type + '/' + editingId, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                body: JSON.stringify(payload),
+            })
+            : fetch(API + '/' + type, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                body: JSON.stringify(payload),
+            });
 
-        return fetch(API + '/' + type, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-            body: JSON.stringify(payload),
-        }).then(function (resp) {
+        return request.then(function (resp) {
             if (!resp.ok) return handleErrorResponse(resp, errorEl);
-            toast('Dodano pozycję', 'success');
+            toast(editingId ? 'Zapisano zmiany' : 'Dodano pozycję', 'success');
+            state.dictEditingId = null;
             return renderDictBody().then(refreshDictOptions);
         }).catch(function (err) {
-            console.error('[Sawmill] Błąd dodawania pozycji słownika:', err);
+            console.error('[Sawmill] Błąd zapisu słownika:', err);
             errorEl.textContent = 'Błąd połączenia z serwerem.';
             errorEl.style.display = 'block';
         });
@@ -972,7 +1180,8 @@
     }
 
     function deleteDictItem(id) {
-        if (!confirm('Dezaktywować tę pozycję? Historyczne dostawy/zlecenia pozostaną nienaruszone.')) return Promise.resolve();
+        if (!confirm('Dezaktywować tę pozycję? Zniknie z list wyboru, ale historyczne dostawy/zlecenia ' +
+            'pozostaną nienaruszone — pozycję można później przywrócić.')) return Promise.resolve();
         return patchDictActive(id, false);
     }
 
@@ -993,12 +1202,20 @@
         el('sawmill-btn-new-delivery').addEventListener('click', openDeliveryModal);
         el('sawmill-btn-suppliers').addEventListener('click', function () { openDictModal('suppliers'); });
         el('sawmill-btn-species').addEventListener('click', function () { openDictModal('species'); });
-        el('sawmill-btn-new-supplier').addEventListener('click', function () { openDictModal('suppliers'); });
         el('sawmill-btn-export').addEventListener('click', exportXlsx);
         el('sawmill-btn-apply-filters').addEventListener('click', loadOrders);
         el('sawmill-btn-add-item').addEventListener('click', addItemRow);
         el('sawmill-btn-submit-delivery').addEventListener('click', submitDelivery);
         el('sawmill-btn-confirm-settle').addEventListener('click', confirmSettle);
+
+        // "+ Nowy dostawca" — formularz inline zamiast zagnieżdżonego modalu
+        // (patrz sekcja "Modal: Nowa dostawa — dodanie dostawcy w locie" wyżej).
+        el('sawmill-btn-new-supplier').addEventListener('click', function () { toggleInlineNewSupplier(true); });
+        el('sawmill-btn-cancel-inline-supplier').addEventListener('click', function () { toggleInlineNewSupplier(false); });
+        el('sawmill-btn-save-inline-supplier').addEventListener('click', saveInlineSupplier);
+        el('sawmill-inline-supplier-name').addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') { e.preventDefault(); saveInlineSupplier(); }
+        });
 
         // Enter w polu szukania też filtruje — bez tego trzeba zawsze klikać "Filtruj".
         el('sawmill-filter-q').addEventListener('keydown', function (e) {
@@ -1033,7 +1250,9 @@
         deleteLog: deleteLog,
         submitManualLog: submitManualLog,
         removeItemRow: removeItemRow,
-        addDictItem: addDictItem,
+        submitDictForm: submitDictForm,
+        editDictItem: editDictItem,
+        cancelDictEdit: cancelDictEdit,
         deleteDictItem: deleteDictItem,
         restoreDictItem: restoreDictItem,
     };
