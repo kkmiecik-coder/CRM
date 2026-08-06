@@ -73,7 +73,25 @@ def compute_differences(order, measured_volume_m3, threshold_pct):
     deklaracji to zawsze anomalia danych wymagająca uwagi biura, więc wiersz
     ma zostać widoczny również pod filtrem „tylko odchylenia", a nie zniknąć
     z niego tylko dlatego, że procent nie dał się policzyć.
+
+    Zlecenie OTWARTE (new/in_progress) nie ma jeszcze żadnej różnicy — pomiar
+    trwa. Liczenie jej wtedy dawało „-100%" i czerwoną flagę na każdym świeżo
+    utworzonym zleceniu, czyli alarm w momencie, w którym z definicji nie ma
+    o czym alarmować. Różnica pojawia się dopiero, gdy pracownik zamknie
+    zlecenie na tablecie (`completed`) — to pierwszy moment, w którym system
+    wie, że więcej kłód nie będzie. Do tego czasu wszystkie trzy wartości są
+    None, a `differences_pending` mówi interfejsowi, że pusto jest CELOWO,
+    nie z powodu braku danych.
     """
+    if order.status in OPEN_STATUSES:
+        return {
+            'difference_m3': None,
+            'difference_pct': None,
+            'difference_value': None,
+            'is_deviation': False,
+            'differences_pending': True,
+        }
+
     declared = Decimal(str(order.declared_volume_m3))
     measured = Decimal(str(measured_volume_m3))
 
@@ -96,6 +114,7 @@ def compute_differences(order, measured_volume_m3, threshold_pct):
         'difference_pct': difference_pct,
         'difference_value': difference_value,
         'is_deviation': is_deviation,
+        'differences_pending': False,
     }
 
 

@@ -94,6 +94,9 @@ def serialize_order_for_panel(order, logs_count, measured_volume_m3, differences
         'difference_pct': _float(differences.get('difference_pct')),
         'difference_value': _float(differences.get('difference_value')),
         'is_deviation': differences.get('is_deviation', False),
+        # True = zlecenie wciąż otwarte, różnica policzy się po zakończeniu.
+        # Interfejs rozróżnia dzięki temu „pusto celowo" od „brak danych".
+        'differences_pending': differences.get('differences_pending', False),
     })
     return out
 

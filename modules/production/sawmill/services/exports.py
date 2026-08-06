@@ -103,10 +103,13 @@ def build_orders_xlsx(orders_payload):
     z panel_api.py — ten sam request, te same filtry, bez duplikowania ich
     parsowania). Zwraca bajty pliku .xlsx.
 
-    Brakująca wartość (np. `difference_value` bez ceny za m³) zostaje w
-    komórce jako `None` — openpyxl zapisuje to jako PUSTĄ komórkę, nie zero.
-    Zero w kolumnie różnicy zł sugerowałoby księgowej, że różnica faktycznie
-    wynosi 0 zł, a nie że cena w ogóle nie była znana.
+    Brakująca wartość (np. `difference_value` bez ceny za m³, albo wszystkie
+    trzy różnice przy zleceniu jeszcze niezakończonym) zostaje w komórce jako
+    `None` — openpyxl zapisuje to jako PUSTĄ komórkę, nie zero. Zero w
+    kolumnie różnicy zł sugerowałoby księgowej, że różnica faktycznie wynosi
+    0 zł, a nie że cena nie była znana albo że pomiar jeszcze trwa. Arkusz
+    zachowuje się tu tak samo jak panel (myślnik), co jest celowe — te same
+    dane nie mogą mówić w dwóch miejscach czegoś innego.
     """
     wb = Workbook()
     ws = wb.active

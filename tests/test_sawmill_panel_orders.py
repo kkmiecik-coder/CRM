@@ -23,7 +23,7 @@ POMIAR_JSON = {
 POMIAR_DEC = {k: Decimal(str(v)) for k, v in POMIAR_JSON.items()}
 
 
-def _zlecenie(app, deklaracja='80.000', cena='1200.00', pomiarow=0):
+def _zlecenie(app, deklaracja='80.000', cena='1200.00', pomiarow=0, status=None):
     with app.app_context():
         supplier = SawmillSupplier(name='Tartak Nowak')
         species = SawmillSpecies.query.first()
@@ -44,12 +44,16 @@ def _zlecenie(app, deklaracja='80.000', cena='1200.00', pomiarow=0):
         db.session.flush()
         for _ in range(pomiarow):
             add_log(order, POMIAR_DEC, datetime(2026, 8, 5, 9, 0, 0), device_id='TRAK-1')
+        # Po add_log — pierwszy pomiar sam przełącza new -> in_progress,
+        # więc status wymuszamy dopiero na końcu.
+        if status is not None:
+            order.status = status
         db.session.commit()
         return order.id
 
 
 def test_lista_zlecen_ma_roznice(client, app):
-    _zlecenie(app, pomiarow=2)
+    _zlecenie(app, pomiarow=2, status=STATUS_COMPLETED)
     r = client.get(BASE + '/orders')
     assert r.status_code == 200
     order = r.get_json()['orders'][0]
@@ -74,8 +78,28 @@ def test_filtr_tylko_odchylenia(client, app):
     # Wartość 1.000 z referencyjnego briefu dawała różnicę ~0.5%, czyli
     # PONIŻEJ progu — is_deviation byłoby False i test nie sprawdzałby tego,
     # co deklaruje (potwierdzone przeliczeniem compute_differences).
-    _zlecenie(app, deklaracja='0.500', cena=None, pomiarow=2)
+    _zlecenie(app, deklaracja='0.500', cena=None, pomiarow=2, status=STATUS_COMPLETED)
     assert len(client.get(BASE + '/orders?only_deviation=1').get_json()['orders']) == 1
+
+
+def test_filtr_odchylen_pomija_zlecenia_otwarte(client, app):
+    """
+    To samo zlecenie co wyżej, ale jeszcze niezakończone — pomiar trwa, więc
+    nie ma o czym mówić. Bez tego filtr „tylko odchylenia" łapałby KAŻDE
+    otwarte zlecenie (zero pomiarów wobec deklaracji to zawsze -100%).
+    """
+    _zlecenie(app, deklaracja='0.500', cena=None, pomiarow=2)
+    assert client.get(BASE + '/orders?only_deviation=1').get_json()['orders'] == []
+
+
+def test_otwarte_zlecenie_ma_puste_roznice(client, app):
+    _zlecenie(app, pomiarow=2)
+    order = client.get(BASE + '/orders').get_json()['orders'][0]
+    assert order['differences_pending'] is True
+    assert order['difference_m3'] is None
+    assert order['difference_pct'] is None
+    assert order['difference_value'] is None
+    assert order['is_deviation'] is False
 
 
 def test_filtr_po_statusie(client, app):

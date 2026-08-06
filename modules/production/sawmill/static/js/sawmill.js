@@ -300,10 +300,27 @@
         return html;
     }
 
-    function renderOrderRow(o) {
+    // Zlecenie otwarte nie ma jeszcze różnicy — pomiar trwa (differences_pending
+    // z serwera). Zamiast trzech liczb sugerujących ogromną niedostawę pokazujemy
+    // myślnik z wyjaśnieniem, żeby było widać, że pusto jest CELOWO.
+    var PENDING_TITLE = 'Różnica policzy się po zakończeniu zlecenia przez pracownika';
+
+    function diffCellsHtml(o) {
+        if (o.differences_pending) {
+            var pending = '<td class="text-muted" title="' + PENDING_TITLE + '">—</td>';
+            return pending + pending + pending;
+        }
         var flagIcon = o.is_deviation
             ? '<i class="fas fa-flag sawmill-flag-icon" title="Odchylenie powyżej progu"></i>'
             : '';
+        return (
+            '<td class="' + diffClass(o.difference_m3, o.is_deviation) + '">' + flagIcon + formatSignedPolish(o.difference_m3, 3) + ' m³</td>' +
+            '<td class="' + diffClass(o.difference_pct, o.is_deviation) + '">' + formatSigned(o.difference_pct, 2) + '%</td>' +
+            '<td class="' + diffClass(o.difference_value, o.is_deviation) + '">' + formatCurrency(o.difference_value) + '</td>'
+        );
+    }
+
+    function renderOrderRow(o) {
         return (
             '<tr data-order-id="' + o.id + '">' +
             '<td>' + escapeHtml(o.order_number) + '</td>' +
@@ -313,9 +330,7 @@
             '<td>' + escapeHtml(o.species || '—') + '</td>' +
             '<td>' + formatVolume(o.declared_volume_m3) + '</td>' +
             '<td>' + formatVolume(o.measured_volume_m3) + '</td>' +
-            '<td class="' + diffClass(o.difference_m3, o.is_deviation) + '">' + flagIcon + formatSignedPolish(o.difference_m3, 3) + ' m³</td>' +
-            '<td class="' + diffClass(o.difference_pct, o.is_deviation) + '">' + formatSigned(o.difference_pct, 2) + '%</td>' +
-            '<td class="' + diffClass(o.difference_value, o.is_deviation) + '">' + formatCurrency(o.difference_value) + '</td>' +
+            diffCellsHtml(o) +
             '<td>' + o.logs_count + '</td>' +
             '<td><span class="badge sawmill-status-badge sawmill-status-' + o.status + '">' + statusLabel(o.status) + '</span></td>' +
             '<td class="sawmill-actions">' +
@@ -685,9 +700,11 @@
             '<tr><th>Deklarowane</th><td>' + formatVolume(o.declared_volume_m3) + '</td></tr>' +
             '<tr><th>Zmierzone</th><td>' + formatVolume(o.measured_volume_m3) + '</td></tr>' +
             '<tr><th>Uzgodnione</th><td>' + formatVolume(o.agreed_volume_m3) + '</td></tr>' +
-            '<tr><th>Różnica m³</th><td class="' + diffClass(o.difference_m3, o.is_deviation) + '">' + formatSignedPolish(o.difference_m3, 3) + ' m³</td></tr>' +
-            '<tr><th>Różnica %</th><td class="' + diffClass(o.difference_pct, o.is_deviation) + '">' + formatSigned(o.difference_pct, 2) + '%</td></tr>' +
-            '<tr><th>Różnica zł</th><td class="' + diffClass(o.difference_value, o.is_deviation) + '">' + formatCurrency(o.difference_value) + '</td></tr>' +
+            (o.differences_pending
+                ? '<tr><th>Różnica</th><td class="text-muted">Policzy się po zakończeniu zlecenia przez pracownika</td></tr>'
+                : '<tr><th>Różnica m³</th><td class="' + diffClass(o.difference_m3, o.is_deviation) + '">' + formatSignedPolish(o.difference_m3, 3) + ' m³</td></tr>' +
+                  '<tr><th>Różnica %</th><td class="' + diffClass(o.difference_pct, o.is_deviation) + '">' + formatSigned(o.difference_pct, 2) + '%</td></tr>' +
+                  '<tr><th>Różnica zł</th><td class="' + diffClass(o.difference_value, o.is_deviation) + '">' + formatCurrency(o.difference_value) + '</td></tr>') +
             '</table></div></div>' +
 
             '<div class="mb-3"><h6>Podsumowanie kłód</h6><div class="sawmill-summary-cards">' +

@@ -191,6 +191,14 @@
         color: #a33;
     }
 
+    /* Stan przejściowy, nie problem — szare, bez pogrubienia, żeby nie
+       konkurowało wizualnie z flagą odchylenia. */
+    .diff-pending {
+        margin-top: 6px;
+        font-size: 10px;
+        color: #666;
+    }
+
     .signatures {
         width: 100%;
         border-collapse: collapse;
@@ -346,7 +354,13 @@
         </tr>
     </tbody>
 </table>
-{% if differences.is_deviation %}
+{% if differences.differences_pending %}
+{# Protokół otwartego zlecenia (wydruk roboczy w trakcie pomiaru) — trzy kolumny
+   różnicy są puste, więc bez tego zdania odbiorca nie wiedziałby, czy to brak
+   różnicy, czy brak danych. #}
+<div class="diff-pending">Zlecenie nie zostało jeszcze zakończone — pomiar trwa,
+różnica względem deklaracji policzy się po jego zamknięciu.</div>
+{% elif differences.is_deviation %}
 <div class="diff-flag">⚑ Różnica przekracza próg odchylenia — wymaga weryfikacji przed rozliczeniem.</div>
 {% endif %}
 

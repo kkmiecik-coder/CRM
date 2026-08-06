@@ -76,3 +76,36 @@ def test_formularz_recznego_pomiaru_jest_w_szczegolach_zlecenia():
     js = _js()
     blok = js.split('function renderDetailsBody')[1].split('function renderDetailsFooter')[0]
     assert 'manualLogFormHtml(o.id)' in blok
+
+
+# ── Różnice widoczne dopiero po zakończeniu zlecenia ────────────────────────
+
+def test_wiersz_listy_deleguje_roznice_do_diff_cells():
+    """
+    renderOrderRow nie może formatować różnic samodzielnie — inaczej stan
+    „czeka na zakończenie" trzeba by obsłużyć w dwóch miejscach i jedno
+    z nich zostałoby pominięte przy następnej zmianie.
+    """
+    js = _js()
+    blok = js.split('function renderOrderRow')[1].split('function renderAuditItem')[0]
+    assert 'diffCellsHtml(o)' in blok
+    assert 'difference_m3' not in blok, u'renderOrderRow formatuje różnicę samodzielnie'
+
+
+def test_puste_roznice_maja_wyjasnienie_zamiast_samego_myslnika():
+    """
+    Sam myślnik jest nieodróżnialny od braku danych — musi mieć title,
+    inaczej admin nie wie, czy różnica jest zerowa, czy jeszcze nieznana.
+    """
+    js = _js()
+    blok = js.split('function diffCellsHtml')[1].split('function renderOrderRow')[0]
+    assert 'o.differences_pending' in blok
+    assert 'PENDING_TITLE' in blok
+    assert 'zakończeniu zlecenia' in js
+
+
+def test_flaga_odchylenia_nie_renderuje_sie_przy_oczekujacej_roznicy():
+    """Flaga siedzi w gałęzi PO sprawdzeniu differences_pending, nie przed nim."""
+    js = _js()
+    blok = js.split('function diffCellsHtml')[1].split('function renderOrderRow')[0]
+    assert blok.index('o.differences_pending') < blok.index('sawmill-flag-icon')

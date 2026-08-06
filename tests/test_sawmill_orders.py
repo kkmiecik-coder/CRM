@@ -65,7 +65,7 @@ def app():
         db.session.remove()
 
 
-def _zlecenie(deklaracja='80.000', cena=None):
+def _zlecenie(deklaracja='80.000', cena=None, status=STATUS_NEW):
     supplier = SawmillSupplier(name='Tartak Testowy')
     species = SawmillSpecies(name='Dąb')
     db.session.add_all([supplier, species])
@@ -77,7 +77,7 @@ def _zlecenie(deklaracja='80.000', cena=None):
         order_number='TRK/2026/001', delivery_id=delivery.id, species_id=species.id,
         declared_volume_m3=Decimal(deklaracja),
         price_per_m3=Decimal(cena) if cena else None,
-        status=STATUS_NEW,
+        status=status,
     )
     db.session.add(order)
     db.session.flush()
@@ -228,7 +228,7 @@ def test_audyt_zapisuje_wartosci_przed_i_po(app):
 
 def test_roznica_ujemna_gdy_zmierzono_mniej(app):
     with app.app_context():
-        order = _zlecenie(deklaracja='80.000', cena='1200.00')
+        order = _zlecenie(deklaracja='80.000', cena='1200.00', status=STATUS_COMPLETED)
         out = compute_differences(order, Decimal('76.340'), threshold_pct=5.0)
         assert out['difference_m3'] == Decimal('-3.660')
         assert out['difference_pct'] == Decimal('-4.58')
@@ -236,16 +236,44 @@ def test_roznica_ujemna_gdy_zmierzono_mniej(app):
         assert out['is_deviation'] is False
 
 
+def test_otwarte_zlecenie_nie_ma_jeszcze_roznicy(app):
+    """
+    Zlecenie w trakcie pomiaru nie może pokazywać różnicy ani flagi — świeżo
+    utworzone zlecenie z zerem pomiarów dawało wcześniej „-100%" i czerwoną
+    flagę, czyli alarm w momencie, w którym z definicji nie ma o czym
+    alarmować. Dotyczy OBU statusów otwartych, nie tylko `new`.
+    """
+    with app.app_context():
+        for status in (STATUS_NEW, STATUS_IN_PROGRESS):
+            order = _zlecenie(deklaracja='80.000', cena='1200.00', status=status)
+            out = compute_differences(order, Decimal('0.000'), threshold_pct=5.0)
+            assert out['differences_pending'] is True
+            assert out['difference_m3'] is None
+            assert out['difference_pct'] is None
+            assert out['difference_value'] is None
+            assert out['is_deviation'] is False
+            db.session.rollback()
+
+
+def test_zakonczone_zlecenie_juz_ma_roznice(app):
+    """Druga strona progu — zamknięcie zlecenia odsłania różnicę."""
+    with app.app_context():
+        order = _zlecenie(deklaracja='80.000', cena='1200.00', status=STATUS_COMPLETED)
+        out = compute_differences(order, Decimal('74.000'), threshold_pct=5.0)
+        assert out['differences_pending'] is False
+        assert out['difference_m3'] == Decimal('-6.000')
+
+
 def test_flaga_odchylenia_powyzej_progu(app):
     with app.app_context():
-        order = _zlecenie(deklaracja='80.000', cena='1200.00')
+        order = _zlecenie(deklaracja='80.000', cena='1200.00', status=STATUS_COMPLETED)
         out = compute_differences(order, Decimal('74.000'), threshold_pct=5.0)
         assert out['is_deviation'] is True
 
 
 def test_brak_ceny_zeruje_tylko_roznice_zlotowa(app):
     with app.app_context():
-        order = _zlecenie(deklaracja='80.000', cena=None)
+        order = _zlecenie(deklaracja='80.000', cena=None, status=STATUS_COMPLETED)
         out = compute_differences(order, Decimal('76.340'), threshold_pct=5.0)
         assert out['difference_m3'] == Decimal('-3.660')
         assert out['difference_value'] is None
@@ -264,7 +292,7 @@ def test_zerowa_deklaracja_nie_dzieli_przez_zero(app):
     wiersz ma zostać widoczny nawet pod filtrem "tylko odchylenia".
     """
     with app.app_context():
-        order = _zlecenie(deklaracja='0.000', cena='1200.00')
+        order = _zlecenie(deklaracja='0.000', cena='1200.00', status=STATUS_COMPLETED)
         out = compute_differences(order, Decimal('5.000'), threshold_pct=5.0)
         assert out['difference_m3'] == Decimal('5.000')
         assert out['difference_pct'] is None
