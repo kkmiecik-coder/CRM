@@ -36,6 +36,32 @@ płasko (`import catalog` itp.) i wymaga bycia uruchomionym z własnego katalogu
 - WeasyPrint działa od razu w kontenerze (biblioteki systemowe w `docker/python/Dockerfile`) —
   bez ręcznej instalacji MSYS2 + GTK3
 
+### Migracje bazy
+
+Migracje leżą w `migrations/` i wykonują się **automatycznie**: przy deployu
+(`deploy.sh` → `flask migrate`, przed restartem aplikacji) oraz przy starcie
+aplikacji (`RUN_MIGRATIONS`, domyślnie włączone). Wykonane migracje są
+odnotowane w tabeli `schema_migrations` i nie powtarzają się.
+
+Nazwa pliku MUSI pasować do jednego z dwóch formatów, inaczej runner go
+pominie (test `tests/test_migration_service.py` tego pilnuje):
+
+- `2026-08-06-nazwa.sql` — format bieżący
+- `001_nazwa.sql` — format historyczny, nie używaj do nowych
+
+Migracja ma być **idempotentna** (`CREATE TABLE IF NOT EXISTS`,
+`INSERT IGNORE`, `ALTER` osłonięty) — runner uruchamia katalog przy każdym
+deployu. Nieudana migracja przerywa deploy PRZED restartem, więc aplikacja
+zostaje na starym kodzie i starym schemacie.
+
+`DELIMITER` nie jest obsługiwany — procedur i triggerów tą drogą nie wgrywamy.
+
+Ręczne uruchomienie:
+```bash
+flask migrate         # wykonaj oczekujące
+flask migrate-status  # co zostało wykonane
+```
+
 ### Database Setup
 ```bash
 # CLI command to create schema and admin user

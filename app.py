@@ -193,6 +193,13 @@ def register_cli_commands(app):
         service = MigrationService(db)
         count = service.run_pending_migrations()
         click.echo(f"Wykonano {count} migracji.")
+        # Kod wyjścia != 0, gdy cokolwiek padło — deploy.sh na tym przerywa
+        # deploy PRZED restartem aplikacji. Bez tego `flask migrate` kończył
+        # się sukcesem także wtedy, gdy żadna migracja nie przeszła.
+        if service.failed:
+            for opis, blad in service.failed:
+                click.echo(f"BŁĄD migracji {opis}: {blad}", err=True)
+            raise SystemExit(1)
 
     @app.cli.command("migrate-status")
     @with_appcontext

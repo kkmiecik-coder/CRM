@@ -2,7 +2,7 @@
 -- Wykonać RĘCZNIE w phpMyAdmin PRZED deployem kodu.
 -- Wszystkie tabele: InnoDB, utf8mb4_unicode_ci.
 
-CREATE TABLE `prod_sawmill_suppliers` (
+CREATE TABLE IF NOT EXISTS `prod_sawmill_suppliers` (
   `id` INT NOT NULL AUTO_INCREMENT,
   `name` VARCHAR(200) NOT NULL,
   `nip` VARCHAR(20) DEFAULT NULL,
@@ -24,7 +24,7 @@ CREATE TABLE `prod_sawmill_suppliers` (
     FOREIGN KEY (`created_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE `prod_sawmill_species` (
+CREATE TABLE IF NOT EXISTS `prod_sawmill_species` (
   `id` INT NOT NULL AUTO_INCREMENT,
   `name` VARCHAR(80) NOT NULL,
   `short_code` VARCHAR(8) DEFAULT NULL,
@@ -36,13 +36,13 @@ CREATE TABLE `prod_sawmill_species` (
   KEY `ix_sawmill_species_active` (`is_active`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE `prod_sawmill_counters` (
+CREATE TABLE IF NOT EXISTS `prod_sawmill_counters` (
   `year` SMALLINT NOT NULL,
   `last_number` INT NOT NULL DEFAULT 0,
   PRIMARY KEY (`year`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE `prod_sawmill_deliveries` (
+CREATE TABLE IF NOT EXISTS `prod_sawmill_deliveries` (
   `id` INT NOT NULL AUTO_INCREMENT,
   `supplier_id` INT NOT NULL,
   `invoice_number` VARCHAR(64) DEFAULT NULL,
@@ -62,7 +62,7 @@ CREATE TABLE `prod_sawmill_deliveries` (
     FOREIGN KEY (`created_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE `prod_sawmill_orders` (
+CREATE TABLE IF NOT EXISTS `prod_sawmill_orders` (
   `id` INT NOT NULL AUTO_INCREMENT,
   `order_number` VARCHAR(24) NOT NULL,
   `delivery_id` INT NOT NULL,
@@ -98,7 +98,7 @@ CREATE TABLE `prod_sawmill_orders` (
     FOREIGN KEY (`created_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE `prod_sawmill_logs` (
+CREATE TABLE IF NOT EXISTS `prod_sawmill_logs` (
   `id` INT NOT NULL AUTO_INCREMENT,
   `order_id` INT NOT NULL,
   `sequence_no` INT NOT NULL,
@@ -122,7 +122,7 @@ CREATE TABLE `prod_sawmill_logs` (
 
 -- order_id BEZ klucza obcego: wpisy muszą przeżyć usunięcie zlecenia,
 -- inaczej akcja order_delete nie miałaby gdzie się zapisać.
-CREATE TABLE `prod_sawmill_audit` (
+CREATE TABLE IF NOT EXISTS `prod_sawmill_audit` (
   `id` BIGINT NOT NULL AUTO_INCREMENT,
   `order_id` INT NOT NULL,
   `log_id` INT DEFAULT NULL,
@@ -140,7 +140,7 @@ CREATE TABLE `prod_sawmill_audit` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ── Seed ────────────────────────────────────────────────────────────────────
-INSERT INTO `prod_sawmill_species` (`name`, `short_code`, `sort_order`, `is_active`, `created_at`)
+INSERT IGNORE INTO `prod_sawmill_species` (`name`, `short_code`, `sort_order`, `is_active`, `created_at`)
 VALUES
   ('Dąb',    'DB', 10, 1, NOW()),
   ('Jesion', 'JS', 20, 1, NOW()),
@@ -148,7 +148,7 @@ VALUES
 
 -- decimal_places jest STAŁĄ zgodną ze schematem DECIMAL(x,1), nie ustawieniem.
 -- Zmiana precyzji wymaga ALTER TABLE, nie edycji tej wartości.
-INSERT INTO `prod_config` (`config_key`, `config_value`, `config_description`, `config_type`, `created_at`)
+INSERT IGNORE INTO `prod_config` (`config_key`, `config_value`, `config_description`, `config_type`, `created_at`)
 VALUES (
   'sawmill_settings',
   '{"min_circumference_cm": 30.0, "max_circumference_cm": null, "min_length_cm": 30.0, "max_length_cm": 20000.0, "decimal_places": 1, "deviation_threshold_pct": 5.0}',

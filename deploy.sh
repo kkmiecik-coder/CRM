@@ -39,6 +39,20 @@ if [ "$OLD_HEAD" != "$NEW_HEAD" ]; then
     venv/bin/flask sync-changelog --before "$OLD_HEAD" --after "$NEW_HEAD" 2>&1 || echo "$LOG_PREFIX [sync-warn] changelog failed"
 fi
 
+# Migracje bazy PRZED restartem. Aplikacja odpala je również przy starcie
+# (RUN_MIGRATIONS), ale tam błąd ląduje w stderr gunicorna i nikt go nie widzi
+# — tutaj jest w logu deployu, obok reszty kroków.
+#
+# Niepowodzenie PRZERYWA deploy przed restartem: kod jest już pobrany, ale
+# proces nadal chodzi na starym, więc stary kod + stary schemat zostaje
+# spójny. Restart z nowym kodem na niezmigrowanej bazie byłby gorszy.
+echo "$LOG_PREFIX Running database migrations..."
+if ! venv/bin/flask migrate 2>&1; then
+    echo "$LOG_PREFIX [MIGRATION FAILED] Przerywam deploy PRZED restartem."
+    echo "$LOG_PREFIX Aplikacja dziala nadal na starym kodzie. Napraw migracje i wypchnij ponownie."
+    exit 1
+fi
+
 echo "$LOG_PREFIX Restarting application..."
 # Zwolnij lock PRZED restartem (dodatkowe zabezpieczenie, gdyby proces jednak nie dożył trap-a).
 rm -f "$LOCK_FILE"
