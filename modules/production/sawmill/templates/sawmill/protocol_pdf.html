@@ -1,0 +1,375 @@
+{#-
+    Protokół pomiaru trakowni — samodzielny dokument A4 dla WeasyPrint.
+
+    CSS jest CAŁKOWICIE inline (blok <style> w <head>) — WeasyPrint renderuje
+    ten szablon z `HTML(string=html).write_pdf()`, bez `base_url`, więc NIE ma
+    dostępu do żadnych statycznych zasobów aplikacji (arkuszy CSS spod
+    /static/, fontów, obrazków). Każdy odnośnik zewnętrzny po prostu by nie
+    wczytał się przy generowaniu.
+
+    Dokument idzie jako załącznik do ewentualnej reklamacji u dostawcy, więc
+    musi być kompletny sam w sobie: dane dostawcy, numer i data faktury (albo
+    jawna adnotacja o jej braku), pełna tabela kłód, podsumowanie, blok
+    różnicy i miejsce na podpisy — bez odsyłania do panelu CRM po kontekst.
+-#}
+{%- macro fmt(value, decimals=3, suffix='') -%}
+    {%- if value is none -%}—{%- else -%}{{ '%.*f'|format(decimals, value) }}{{ suffix }}{%- endif -%}
+{%- endmacro -%}
+{%- macro fmt_signed(value, decimals=2, suffix='') -%}
+    {%- if value is none -%}—{%- else -%}{%- if value > 0 -%}+{%- endif -%}{{ '%.*f'|format(decimals, value) }}{{ suffix }}{%- endif -%}
+{%- endmacro -%}
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<title>Protokół pomiaru {{ order.order_number }}</title>
+<style>
+    @page {
+        size: A4;
+        margin: 18mm 15mm 20mm 15mm;
+        background-color: #ffffff;
+
+        @bottom-center {
+            content: "Strona " counter(page) " z " counter(pages);
+            font-size: 8px;
+            color: #888;
+        }
+    }
+
+    html, body {
+        background-color: #ffffff;
+        margin: 0;
+        padding: 0;
+    }
+
+    body {
+        font-family: "DejaVu Sans", Arial, sans-serif;
+        font-size: 11px;
+        line-height: 1.35;
+        color: #1a1a1a;
+    }
+
+    h1 {
+        font-size: 18px;
+        margin: 0 0 4px 0;
+    }
+
+    .subtitle {
+        font-size: 11px;
+        color: #555;
+        margin-bottom: 14px;
+    }
+
+    .section-title {
+        font-size: 12px;
+        font-weight: bold;
+        margin: 16px 0 6px 0;
+        padding-bottom: 3px;
+        border-bottom: 1px solid #ccc;
+    }
+
+    .info-grid {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 4px;
+    }
+
+    .info-grid td {
+        vertical-align: top;
+        padding: 2px 8px 2px 0;
+        width: 50%;
+    }
+
+    .info-grid .label {
+        color: #666;
+        font-size: 9px;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+
+    .info-grid .value {
+        font-size: 11px;
+        margin-bottom: 6px;
+    }
+
+    .no-invoice {
+        font-style: italic;
+        color: #888;
+    }
+
+    table.logs-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 4px;
+        font-size: 9.5px;
+    }
+
+    table.logs-table thead {
+        display: table-header-group; /* nagłówek powtarza się na każdej stronie */
+    }
+
+    table.logs-table th,
+    table.logs-table td {
+        border: 1px solid #ccc;
+        padding: 3px 4px;
+        text-align: right;
+    }
+
+    table.logs-table th {
+        background-color: #eee;
+        font-weight: bold;
+        text-align: center;
+    }
+
+    table.logs-table td.seq {
+        text-align: center;
+        color: #555;
+    }
+
+    table.logs-table tr {
+        page-break-inside: avoid;
+    }
+
+    .summary-grid {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 8px;
+    }
+
+    .summary-grid td {
+        border: 1px solid #ccc;
+        padding: 6px 8px;
+        text-align: center;
+        width: 20%;
+    }
+
+    .summary-grid .summary-label {
+        display: block;
+        font-size: 8.5px;
+        color: #666;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        margin-bottom: 3px;
+    }
+
+    .summary-grid .summary-value {
+        display: block;
+        font-size: 13px;
+        font-weight: bold;
+    }
+
+    table.diff-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 8px;
+        page-break-inside: avoid;
+    }
+
+    table.diff-table th,
+    table.diff-table td {
+        border: 1px solid #ccc;
+        padding: 6px 8px;
+        text-align: center;
+    }
+
+    table.diff-table th {
+        background-color: #eee;
+        font-size: 9px;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+
+    table.diff-table td {
+        font-size: 13px;
+        font-weight: bold;
+    }
+
+    .diff-flag {
+        margin-top: 6px;
+        font-size: 10px;
+        font-weight: bold;
+        color: #a33;
+    }
+
+    .signatures {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 36px;
+        page-break-inside: avoid;
+    }
+
+    .signatures td {
+        width: 50%;
+        text-align: center;
+        vertical-align: top;
+        padding: 0 20px;
+        font-size: 9px;
+        color: #555;
+    }
+
+    .signature-line {
+        border-bottom: 1px solid #999;
+        height: 34px;
+    }
+
+    .generated-at {
+        margin-top: 18px;
+        font-size: 8.5px;
+        color: #888;
+        text-align: right;
+    }
+</style>
+</head>
+<body>
+
+<h1>Protokół pomiaru — {{ order.order_number }}</h1>
+<div class="subtitle">Status zlecenia: {{ status_label }}</div>
+
+<div class="section-title">Dostawca i dostawa</div>
+<table class="info-grid">
+    <tr>
+        <td>
+            <span class="label">Dostawca</span>
+            <div class="value">
+                {{ delivery.supplier.name if delivery and delivery.supplier else '—' }}
+                {% if delivery and delivery.supplier and delivery.supplier.nip %}
+                    <br>NIP: {{ delivery.supplier.nip }}
+                {% endif %}
+                {% if delivery and delivery.supplier and (delivery.supplier.address_street or delivery.supplier.address_city) %}
+                    <br>{{ delivery.supplier.address_street or '' }}{% if delivery.supplier.address_street and (delivery.supplier.address_zip or delivery.supplier.address_city) %}, {% endif %}{{ delivery.supplier.address_zip or '' }} {{ delivery.supplier.address_city or '' }}
+                {% endif %}
+                {% if delivery and delivery.supplier and delivery.supplier.contact_person %}
+                    <br>Kontakt: {{ delivery.supplier.contact_person }}
+                {% endif %}
+                {% if delivery and delivery.supplier and delivery.supplier.phone %}
+                    <br>Tel: {{ delivery.supplier.phone }}
+                {% endif %}
+                {% if delivery and delivery.supplier and delivery.supplier.email %}
+                    <br>E-mail: {{ delivery.supplier.email }}
+                {% endif %}
+            </div>
+        </td>
+        <td>
+            <span class="label">Faktura</span>
+            <div class="value">
+                {% if delivery and delivery.invoice_number %}
+                    Nr {{ delivery.invoice_number }}
+                    {% if delivery.invoice_date %}
+                        z dnia {{ delivery.invoice_date.strftime('%d.%m.%Y') }}
+                    {% endif %}
+                {% else %}
+                    <span class="no-invoice">Dostawa bez faktury</span>
+                {% endif %}
+            </div>
+
+            <span class="label">Data dostawy</span>
+            <div class="value">{{ delivery.delivery_date.strftime('%d.%m.%Y') if delivery and delivery.delivery_date else '—' }}</div>
+
+            <span class="label">Gatunek</span>
+            <div class="value">{{ order.species.name if order.species else '—' }}</div>
+        </td>
+    </tr>
+</table>
+
+<div class="section-title">Pomiary — {{ logs_count }} {{ 'kłoda' if logs_count == 1 else 'kłód' }}</div>
+<table class="logs-table">
+    <thead>
+        <tr>
+            <th>#</th>
+            <th>⌀ dolna d1</th>
+            <th>⌀ dolna d2</th>
+            <th>⌀ górna d1</th>
+            <th>⌀ górna d2</th>
+            <th>Długość [cm]</th>
+            <th>Objętość [m³]</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for log in logs %}
+        <tr>
+            <td class="seq">{{ log.sequence_no }}</td>
+            <td>{{ fmt(log.butt_d1_cm, 1) }}</td>
+            <td>{{ fmt(log.butt_d2_cm, 1) }}</td>
+            <td>{{ fmt(log.top_d1_cm, 1) }}</td>
+            <td>{{ fmt(log.top_d2_cm, 1) }}</td>
+            <td>{{ fmt(log.length_cm, 1) }}</td>
+            <td>{{ fmt(log.volume_m3, 6) }}</td>
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="7" style="text-align:center; color:#888;">Brak zarejestrowanych pomiarów.</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<div class="section-title">Podsumowanie</div>
+<table class="summary-grid">
+    <tr>
+        <td>
+            <span class="summary-label">Liczba kłód</span>
+            <span class="summary-value">{{ logs_count }}</span>
+        </td>
+        <td>
+            <span class="summary-label">Suma m³</span>
+            <span class="summary-value">{{ fmt(measured_volume_m3, 3) }}</span>
+        </td>
+        <td>
+            <span class="summary-label">Śr. m³ / kłodę</span>
+            <span class="summary-value">{{ fmt(avg_volume_m3, 4) }}</span>
+        </td>
+        <td>
+            <span class="summary-label">Śr. średnica</span>
+            <span class="summary-value">{{ fmt(avg_diameter_cm, 1, ' cm') }}</span>
+        </td>
+        <td>
+            <span class="summary-label">Śr. długość</span>
+            <span class="summary-value">{{ fmt(avg_length_cm, 1, ' cm') }}</span>
+        </td>
+    </tr>
+</table>
+
+<div class="section-title">Różnica względem deklaracji</div>
+<table class="diff-table">
+    <thead>
+        <tr>
+            <th>m³ deklarowane</th>
+            <th>m³ zmierzone</th>
+            <th>m³ uzgodnione</th>
+            <th>Różnica m³</th>
+            <th>Różnica %</th>
+            <th>Różnica zł</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td>{{ fmt(order.declared_volume_m3, 3) }}</td>
+            <td>{{ fmt(measured_volume_m3, 3) }}</td>
+            <td>{{ fmt(order.agreed_volume_m3, 3) }}</td>
+            <td>{{ fmt_signed(differences.difference_m3, 3) }}</td>
+            <td>{{ fmt_signed(differences.difference_pct, 2, '%') }}</td>
+            <td>{{ fmt_signed(differences.difference_value, 2, ' zł') }}</td>
+        </tr>
+    </tbody>
+</table>
+{% if differences.is_deviation %}
+<div class="diff-flag">⚑ Różnica przekracza próg odchylenia — wymaga weryfikacji przed rozliczeniem.</div>
+{% endif %}
+
+<table class="signatures">
+    <tr>
+        <td>
+            <div class="signature-line"></div>
+            Podpis przedstawiciela WoodPower
+        </td>
+        <td>
+            <div class="signature-line"></div>
+            Podpis przedstawiciela dostawcy
+        </td>
+    </tr>
+</table>
+
+<div class="generated-at">Protokół wygenerowany: {{ generated_at.strftime('%d.%m.%Y %H:%M') if generated_at else '—' }}</div>
+
+</body>
+</html>

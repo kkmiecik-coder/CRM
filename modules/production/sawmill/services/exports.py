@@ -2,19 +2,23 @@
 """
 Eksporty i agregaty trakowni.
 
-W Zadaniu 10 tylko `sawmill_dashboard_stats` (kafelek dashboardu) — reszta
-tego pliku (eksporty CSV/PDF, kontrakt API dla sesji Android) powstaje
-w Zadaniu 13.
+Zadanie 10 dało `sawmill_dashboard_stats` (kafelek dashboardu). Zadanie 13
+dokłada eksport XLSX listy zleceń oraz kontekst szablonu protokołu PDF —
+kontrakt API dla sesji Android idzie osobno, jako `docs/sawmill-mobile-api-contract.md`.
 """
 
+import io
 from datetime import datetime, time
 from decimal import Decimal
 
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font
 from sqlalchemy import func
 
 from extensions import db
 from modules.production.sawmill.models import (
-    OPEN_STATUSES, STATUS_COMPLETED, SawmillLog, SawmillOrder,
+    OPEN_STATUSES, STATUS_COMPLETED, STATUS_IN_PROGRESS, STATUS_NEW,
+    STATUS_SETTLED, SawmillLog, SawmillOrder,
 )
 
 
@@ -63,4 +67,105 @@ def sawmill_dashboard_stats():
         'volume_today_m3': float(dzis_row[1]),
         'to_settle': to_settle,
         'progress_pct': round(min(progress, 100.0), 1),
+    }
+
+
+# ── Eksport XLSX ────────────────────────────────────────────────────────────
+
+# W CAŁYM interfejsie i eksportach używamy słowa „Różnica", nigdy symbolu Δ —
+# arkusz trafia do księgowości, która nie musi znać notacji technicznej.
+# Wymaganie właściciela projektu, sprawdzane testem
+# (test_naglowki_uzywaja_slowa_roznica w tests/test_sawmill_exports.py).
+XLSX_HEADERS = (
+    'Nr TRK', 'Dostawca', 'Faktura', 'Data dostawy', 'Gatunek',
+    'm³ deklarowane', 'm³ zmierzone', 'Różnica m³', 'Różnica %', 'Różnica zł',
+    'Kłód', 'm³ uzgodnione', 'Status',
+)
+
+# Kolejność 1:1 z XLSX_HEADERS — klucze pochodzą z payloadu `orders_list()`
+# (serialize_order_for_panel), czyli DOKŁADNIE tego, co widzi użytkownik
+# w tabeli panelu po zastosowaniu filtrów.
+_XLSX_KEYS = (
+    'order_number', 'supplier_name', 'invoice_number', 'delivery_date', 'species',
+    'declared_volume_m3', 'measured_volume_m3', 'difference_m3', 'difference_pct',
+    'difference_value', 'logs_count', 'agreed_volume_m3', 'status',
+)
+
+STATUS_LABELS = {
+    STATUS_NEW: 'Nowe', STATUS_IN_PROGRESS: 'W trakcie',
+    STATUS_COMPLETED: 'Zakończone', STATUS_SETTLED: 'Rozliczone',
+}
+
+
+def build_orders_xlsx(orders_payload):
+    """
+    Buduje arkusz z przefiltrowanej listy zleceń (payload `orders_list()`
+    z panel_api.py — ten sam request, te same filtry, bez duplikowania ich
+    parsowania). Zwraca bajty pliku .xlsx.
+
+    Brakująca wartość (np. `difference_value` bez ceny za m³) zostaje w
+    komórce jako `None` — openpyxl zapisuje to jako PUSTĄ komórkę, nie zero.
+    Zero w kolumnie różnicy zł sugerowałoby księgowej, że różnica faktycznie
+    wynosi 0 zł, a nie że cena w ogóle nie była znana.
+    """
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Trakownia'
+
+    ws.append(list(XLSX_HEADERS))
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+        cell.alignment = Alignment(horizontal='center')
+
+    for row in orders_payload:
+        ws.append([
+            STATUS_LABELS.get(row.get(key), row.get(key)) if key == 'status'
+            else row.get(key)
+            for key in _XLSX_KEYS
+        ])
+
+    for idx, header in enumerate(XLSX_HEADERS, start=1):
+        ws.column_dimensions[ws.cell(row=1, column=idx).column_letter].width = \
+            max(12, len(header) + 2)
+    ws.freeze_panes = 'A2'
+
+    stream = io.BytesIO()
+    wb.save(stream)
+    return stream.getvalue()
+
+
+# ── Protokół PDF ────────────────────────────────────────────────────────────
+
+def build_protocol_context(order, delivery, logs, logs_count,
+                           measured_volume_m3, differences):
+    """
+    Kontekst dla szablonu `sawmill/protocol_pdf.html` — dokument samodzielny
+    (WeasyPrint nie ma dostępu do statycznych zasobów aplikacji, CSS jest
+    inline w szablonie), idący jako załącznik do reklamacji u dostawcy.
+
+    Średnia średnica per kłoda liczona tym samym wzorem co objętość
+    (średnia z czterech pomiarów: odziomek × 2, wierzchołek × 2) — nie ma
+    osobnej kolumny w bazie, bo poza tym kontekstem nikt jej nie potrzebuje.
+    """
+    srednice = []
+    dlugosci = []
+    for log in logs:
+        srednice.append((Decimal(str(log.butt_d1_cm)) + Decimal(str(log.butt_d2_cm)) +
+                         Decimal(str(log.top_d1_cm)) + Decimal(str(log.top_d2_cm))) / 4)
+        dlugosci.append(Decimal(str(log.length_cm)))
+
+    return {
+        'order': order,
+        'delivery': delivery,
+        'logs': logs,
+        'logs_count': logs_count,
+        'measured_volume_m3': measured_volume_m3,
+        'differences': differences,
+        'avg_volume_m3': (measured_volume_m3 / logs_count) if logs_count else None,
+        'avg_diameter_cm': (sum(srednice) / len(srednice)) if srednice else None,
+        'avg_length_cm': (sum(dlugosci) / len(dlugosci)) if dlugosci else None,
+        'status_label': STATUS_LABELS.get(order.status, order.status),
+        # Data wygenerowania na stopce protokołu — kto i kiedy wydrukował
+        # dokument idący do dostawcy, niezależnie od daty dostawy czy faktury.
+        'generated_at': datetime.now(),
     }

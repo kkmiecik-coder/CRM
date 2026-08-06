@@ -71,7 +71,7 @@
            _STATION_PENDING_STATUS jak pozostałe stanowiska. Trakownia nie ma
            interfejsu web jak inne stanowiska, więc ikona "otwórz" nie
            prowadzi pod url_for(production_stations...), tylko przełącza na
-           zakładkę Trakownia (data-goto-tab, obsłużone w sawmill.js). #}
+           zakładkę Trakownia (data-goto-tab, obsłużone w production-app-loader.js). #}
         <div class="il-station il-station-sawmill {% if not dashboard_stats.stations.sawmill.tablet_status.active|default(false) %}station-inactive{% endif %}" data-station="sawmill">
           <div class="il-station-header">
             <span class="il-station-name">Trakownia <small class="il-station-kind">surowiec</small></span>

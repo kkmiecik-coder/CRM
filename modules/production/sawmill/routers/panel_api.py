@@ -13,7 +13,7 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 from functools import wraps
 
-from flask import jsonify, render_template, request
+from flask import jsonify, make_response, render_template, request
 from flask_login import current_user, login_required
 from sqlalchemy.orm import joinedload
 
@@ -608,6 +608,60 @@ def order_delete(order_id):
     db.session.delete(order)
     db.session.commit()
     return jsonify({'ok': True})
+
+
+# ── Eksporty ────────────────────────────────────────────────────────────────
+
+@sawmill_panel_bp.route('/export.xlsx', methods=['GET'])
+@guard
+def export_xlsx():
+    """
+    Eksportuje DOKŁADNIE to, co widać w tabeli po zastosowaniu filtrów —
+    woła `orders_list()` WPROST, w tym samym żądaniu, więc parsowanie
+    `request.args` (status/dostawca/gatunek/zakres dat/wyszukiwarka/
+    only_deviation) nie jest duplikowane tutaj drugi raz.
+    """
+    from modules.production.sawmill.services.exports import build_orders_xlsx
+
+    payload = orders_list().get_json()['orders']
+    resp = make_response(build_orders_xlsx(payload))
+    resp.headers['Content-Type'] = \
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    resp.headers['Content-Disposition'] = 'attachment; filename=trakownia.xlsx'
+    return resp
+
+
+@sawmill_panel_bp.route('/orders/<int:order_id>/protocol.pdf', methods=['GET'])
+@guard
+def order_protocol_pdf(order_id):
+    """
+    Protokół pomiaru — samodzielny dokument (CSS inline w szablonie, patrz
+    `templates/sawmill/protocol_pdf.html`), załącznik do ewentualnej
+    reklamacji u dostawcy. `weasyprint` importowany leniwie — koszt importu
+    ponoszą wyłącznie żądania tego endpointu.
+    """
+    from weasyprint import HTML
+
+    from modules.production.sawmill.services.exports import build_protocol_context
+
+    order = _order_query().filter(SawmillOrder.id == order_id).first()
+    if order is None:
+        return jsonify({'error': 'not_found'}), 404
+
+    threshold = get_sawmill_settings().get('deviation_threshold_pct', 5.0)
+    count, volume = order_totals(order.id)
+    logs = (SawmillLog.query.filter_by(order_id=order_id, is_deleted=False)
+            .order_by(SawmillLog.sequence_no).all())
+
+    html = render_template('sawmill/protocol_pdf.html', **build_protocol_context(
+        order, order.delivery, logs, count, volume,
+        compute_differences(order, volume, threshold)))
+
+    resp = make_response(HTML(string=html).write_pdf())
+    resp.headers['Content-Type'] = 'application/pdf'
+    resp.headers['Content-Disposition'] = 'inline; filename={}.pdf'.format(
+        order.order_number.replace('/', '-'))
+    return resp
 
 
 # ── Pomiary z panelu ────────────────────────────────────────────────────────
