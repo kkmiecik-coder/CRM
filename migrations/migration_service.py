@@ -240,7 +240,13 @@ class MigrationService:
             except Exception as e:
                 # Ignoruj błędy "kolumna już istnieje" / "tabela już istnieje"
                 error_str = str(e).lower()
-                if 'duplicate column' in error_str or 'already exists' in error_str:
+                # 1060 duplicate column / 1061 duplicate key name / 1050 table
+                # exists — wszystkie znaczą „ta zmiana już jest w bazie".
+                # Runner chodzi automatycznie przy każdym deployu, więc migracja
+                # wgrana wcześniej ręcznie nie może wywracać całego przebiegu.
+                juz_jest = ('duplicate column', 'duplicate key name',
+                            'already exists')
+                if any(f in error_str for f in juz_jest):
                     self.log(f"  Pominięto (już istnieje): {statement[:50]}...", 'warning')
                     continue
                 raise

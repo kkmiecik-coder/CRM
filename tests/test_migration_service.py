@@ -157,3 +157,24 @@ def test_migracja_trakowni_jest_idempotentna():
             assert 'IF NOT EXISTS' in gora, p[:60]
         if gora.startswith('INSERT'):
             assert gora.startswith('INSERT IGNORE'), p[:60]
+
+
+def test_podkatalogi_sa_pomijane():
+    """
+    migrations/archive/ trzyma migracje, których nie da się już wykonać
+    (operują na tabelach, które zniknęły). Runner nie może w nie wchodzić.
+    """
+    s = _serwis()
+    archiwum = s.MIGRATIONS_DIR / 'archive'
+    assert archiwum.is_dir(), 'brak katalogu archiwum'
+    pliki_archiwum = {p.name for p in archiwum.iterdir() if p.suffix == '.sql'}
+    assert pliki_archiwum, 'archiwum jest puste — test straciłby sens'
+
+    # Żaden plik archiwum nie może pojawić się na liście do wykonania.
+    widziane = set()
+    for plik in s.MIGRATIONS_DIR.iterdir():
+        if plik.is_dir():
+            continue
+        if s._match(plik.name):
+            widziane.add(plik.name)
+    assert not (widziane & pliki_archiwum)
