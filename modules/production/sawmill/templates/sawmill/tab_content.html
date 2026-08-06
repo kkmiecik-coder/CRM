@@ -1,0 +1,272 @@
+{# tab_content.html — zawartość zakładki Trakownia, doczytywana AJAX-em #}
+{# Konwencja Bootstrap 5, jak reszta paneli produkcji (patrz archive-tab-content.html). #}
+{# WAŻNE: w całym interfejsie słowo „Różnica", nigdy symbol Δ — wymaganie właściciela. #}
+
+<div id="sawmill-module-container">
+
+  {# ─── GÓRNY PASEK PRZYCISKÓW ─── #}
+  <div class="sawmill-toolbar d-flex flex-wrap gap-2 align-items-center mb-3">
+    <button type="button" class="btn btn-primary" id="sawmill-btn-new-delivery">
+      <i class="fas fa-plus me-1"></i>Nowa dostawa
+    </button>
+    <button type="button" class="btn btn-outline-secondary" id="sawmill-btn-suppliers">
+      <i class="fas fa-truck me-1"></i>Dostawcy
+    </button>
+    <button type="button" class="btn btn-outline-secondary" id="sawmill-btn-species">
+      <i class="fas fa-tree me-1"></i>Gatunki
+    </button>
+    <button type="button" class="btn btn-outline-secondary ms-auto" id="sawmill-btn-export">
+      <i class="fas fa-file-excel me-1"></i>Eksport XLSX
+    </button>
+  </div>
+
+  {# ─── PASEK FILTRÓW ─── #}
+  <div class="sawmill-filters d-flex flex-wrap gap-2 align-items-end mb-3">
+    <div>
+      <label class="form-label small mb-1" for="sawmill-filter-status">Status</label>
+      <select class="form-select form-select-sm" id="sawmill-filter-status">
+        <option value="">Wszystkie</option>
+        <option value="new">Nowe</option>
+        <option value="in_progress">W trakcie</option>
+        <option value="completed">Zakończone</option>
+        <option value="settled">Rozliczone</option>
+      </select>
+    </div>
+    <div>
+      <label class="form-label small mb-1" for="sawmill-filter-supplier">Dostawca</label>
+      <select class="form-select form-select-sm" id="sawmill-filter-supplier">
+        <option value="">Wszyscy dostawcy</option>
+        {% for s in suppliers %}
+        <option value="{{ s.id }}">{{ s.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="form-label small mb-1" for="sawmill-filter-species">Gatunek</label>
+      <select class="form-select form-select-sm" id="sawmill-filter-species">
+        <option value="">Wszystkie gatunki</option>
+        {% for sp in species %}
+        <option value="{{ sp.id }}">{{ sp.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="form-label small mb-1" for="sawmill-filter-date-from">Data od</label>
+      <input type="date" class="form-control form-control-sm" id="sawmill-filter-date-from">
+    </div>
+    <div>
+      <label class="form-label small mb-1" for="sawmill-filter-date-to">Data do</label>
+      <input type="date" class="form-control form-control-sm" id="sawmill-filter-date-to">
+    </div>
+    <div>
+      <label class="form-label small mb-1" for="sawmill-filter-q">Szukaj</label>
+      <input type="text" class="form-control form-control-sm" id="sawmill-filter-q"
+             placeholder="Nr TRK lub nr faktury">
+    </div>
+    <div class="form-check mb-1">
+      <input class="form-check-input" type="checkbox" id="sawmill-filter-only-deviation" name="only_deviation">
+      <label class="form-check-label" for="sawmill-filter-only-deviation">
+        tylko odchylenia (powyżej {{ deviation_threshold_pct }}%)
+      </label>
+    </div>
+    <button type="button" class="btn btn-sm btn-outline-primary" id="sawmill-btn-apply-filters">
+      <i class="fas fa-filter me-1"></i>Filtruj
+    </button>
+  </div>
+
+  {# ─── TABELA ZLECEŃ ─── #}
+  <div class="table-responsive">
+    <table class="table table-hover align-middle sawmill-orders-table" id="sawmill-orders-table">
+      <thead>
+        <tr>
+          <th>Nr TRK</th>
+          <th>Dostawca</th>
+          <th>Faktura</th>
+          <th>Data</th>
+          <th>Gatunek</th>
+          <th>m³ dekl.</th>
+          <th>m³ zmierz.</th>
+          <th>Różnica m³</th>
+          <th>Różnica %</th>
+          <th>Różnica zł</th>
+          <th>Kłód</th>
+          <th>Status</th>
+          <th>Akcje</th>
+        </tr>
+      </thead>
+      <tbody id="sawmill-orders-tbody">
+        <tr id="sawmill-orders-empty">
+          <td colspan="13" class="text-center text-muted py-4">Ładowanie...</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+</div>
+
+{# ─── MODAL: NOWA DOSTAWA ─── #}
+<div class="modal fade" id="sawmillDeliveryModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Nowa dostawa</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button>
+      </div>
+      <div class="modal-body">
+        <form id="sawmill-delivery-form" onsubmit="return false;">
+          <div class="row g-3">
+            <div class="col-md-8">
+              <label class="form-label" for="sawmill-delivery-supplier">Dostawca</label>
+              <div class="input-group">
+                <select class="form-select" id="sawmill-delivery-supplier" data-field="supplier_id" required>
+                  <option value="">— wybierz dostawcę —</option>
+                  {% for s in suppliers %}
+                  <option value="{{ s.id }}">{{ s.name }}</option>
+                  {% endfor %}
+                </select>
+                <button type="button" class="btn btn-outline-secondary" id="sawmill-btn-new-supplier">+ nowy</button>
+              </div>
+            </div>
+            <div class="col-md-4">
+              {# Data dostawy domyślnie = dziś (zlecenie zwykle zakłada się w dniu przyjęcia). #}
+              <label class="form-label" for="sawmill-delivery-date">Data dostawy</label>
+              <input type="date" class="form-control" id="sawmill-delivery-date" data-field="delivery_date"
+                     value="{{ today }}" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" for="sawmill-invoice-number">Numer faktury</label>
+              <input type="text" class="form-control" id="sawmill-invoice-number" data-field="invoice_number">
+            </div>
+            <div class="col-md-6">
+              {# Data faktury CELOWO pusta — dostawa bez faktury nie ma takiej daty,
+                 a podpowiadanie dzisiejszej wpisałoby do bazy datę, której nikt nie potwierdził. #}
+              <label class="form-label" for="sawmill-invoice-date">Data faktury</label>
+              <input type="date" class="form-control" id="sawmill-invoice-date" data-field="invoice_date" value="">
+            </div>
+            <div class="col-12">
+              <label class="form-label" for="sawmill-delivery-notes">Notatki</label>
+              <textarea class="form-control" id="sawmill-delivery-notes" rows="2"></textarea>
+            </div>
+          </div>
+
+          <hr>
+
+          <h6>Pozycje dostawy</h6>
+          <div id="sawmill-delivery-items">
+            <div class="sawmill-item-row row g-2 align-items-end mb-2">
+              <div class="col-md-4">
+                <label class="form-label">Gatunek</label>
+                <select class="form-select sawmill-item-species" data-field="species_id" required>
+                  <option value="">— wybierz —</option>
+                  {% for sp in species %}
+                  <option value="{{ sp.id }}">{{ sp.name }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label">Deklarowana obj. m³</label>
+                <input type="number" step="0.001" min="0" class="form-control sawmill-item-declared-volume"
+                       data-field="declared_volume_m3" required>
+              </div>
+              <div class="col-md-2">
+                <label class="form-label">Liczba kłód</label>
+                <input type="number" step="1" min="0" class="form-control sawmill-item-logs-count">
+              </div>
+              <div class="col-md-2">
+                <label class="form-label">Cena/m³</label>
+                <input type="number" step="0.01" min="0" class="form-control sawmill-item-price"
+                       data-field="price_per_m3">
+              </div>
+              <div class="col-md-1 text-end">
+                <span class="sawmill-item-value-preview text-muted small">— zł</span>
+              </div>
+              <div class="col-12">
+                <button type="button" class="btn btn-sm btn-outline-danger sawmill-item-remove" style="display:none;">
+                  <i class="fas fa-trash"></i> Usuń pozycję
+                </button>
+              </div>
+            </div>
+          </div>
+          <button type="button" class="btn btn-sm btn-outline-primary" id="sawmill-btn-add-item">
+            + dodaj kolejną
+          </button>
+
+          <div class="alert alert-danger mt-3" id="sawmill-delivery-form-error" style="display:none;"></div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Anuluj</button>
+        <button type="button" class="btn btn-primary" id="sawmill-btn-submit-delivery">
+          <i class="fas fa-save me-1"></i>Zapisz dostawę
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ─── MODAL: SZCZEGÓŁY ZLECENIA ─── #}
+<div class="modal fade" id="sawmillDetailsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="sawmill-details-title">Szczegóły zlecenia</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button>
+      </div>
+      <div class="modal-body" id="sawmill-details-body"></div>
+      <div class="modal-footer" id="sawmill-details-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Zamknij</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ─── MODAL: ROZLICZENIE ─── #}
+<div class="modal fade" id="sawmillSettleModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Rozliczenie zlecenia</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="sawmill-settle-order-id">
+        <div class="mb-3">
+          {# Domyślnie wartość zmierzona — biuro najczęściej uzgadnia dokładnie tyle, ile wyszło z pomiaru. #}
+          <label class="form-label" for="sawmill-settle-agreed-volume">Objętość uzgodniona (m³)</label>
+          <input type="number" step="0.001" min="0" class="form-control" id="sawmill-settle-agreed-volume"
+                 data-field="agreed_volume_m3">
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="sawmill-settle-notes">Notatki rozliczenia</label>
+          <textarea class="form-control" id="sawmill-settle-notes" rows="2"></textarea>
+        </div>
+        <div class="alert alert-danger" id="sawmill-settle-error" style="display:none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Anuluj</button>
+        <button type="button" class="btn btn-primary" id="sawmill-btn-confirm-settle">
+          <i class="fas fa-check-circle me-1"></i>Rozlicz
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ─── MODAL: SŁOWNIKI (DOSTAWCY / GATUNKI) ─── #}
+<div class="modal fade" id="sawmillDictModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="sawmill-dict-title">Słownik</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button>
+      </div>
+      <div class="modal-body" id="sawmill-dict-body"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Zamknij</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<link rel="stylesheet" href="{{ url_for('sawmill_panel.static', filename='css/sawmill.css') }}">
+<script src="{{ url_for('sawmill_panel.static', filename='js/sawmill.js') }}"></script>

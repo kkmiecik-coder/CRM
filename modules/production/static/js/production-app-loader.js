@@ -87,7 +87,8 @@ class ProductionApp {
         const tabParam = params.get('tab');
         if (tabParam) {
             const tabName = tabParam.endsWith('-tab') ? tabParam : `${tabParam}-tab`;
-            const validTabs = ['dashboard-tab', 'products-tab', 'archive-tab', 'reports-tab', 'config-tab'];
+            const validTabs = ['dashboard-tab', 'products-tab', 'archive-tab',
+                               'sawmill-tab', 'reports-tab', 'config-tab'];
             if (validTabs.includes(tabName)) {
                 return tabName;
             }
@@ -263,6 +264,7 @@ class ProductionApp {
             case 'dashboard-tab': await this.loadDashboardTab(); break;
             case 'products-tab': await this.loadProductsTab(); break;
             case 'archive-tab': await this.loadArchiveTab(); break;
+            case 'sawmill-tab': await this.loadSawmillTab(); break;
             case 'reports-tab': await this.loadReportsTab(); break;
             case 'config-tab': await this.loadConfigTab(); break;
             default: throw new Error(`Unknown tab: ${normalizedTabName}`);
@@ -346,6 +348,45 @@ class ProductionApp {
         } catch (error) {
             console.error('[ProductionApp] Archive loading failed:', error);
             this.showTabError('archive-tab', error.message);
+            throw error;
+        }
+    }
+
+    /**
+     * Ładowanie zakładki Trakownia. W przeciwieństwie do pozostałych tabów,
+     * endpoint /production/api/sawmill/tab-content zwraca gotowy HTML
+     * (render_template), NIE JSON {success, html} — trakownia ma własny
+     * blueprint (sawmill_panel_bp) poza wspólnym ApiClient.request(), więc
+     * pobieramy go bezpośrednio przez fetch() zamiast this.shared.apiClient.
+     */
+    async loadSawmillTab() {
+        console.log('[ProductionApp] Loading sawmill tab...');
+        try {
+            const response = await fetch('/production/api/sawmill/tab-content', {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            });
+
+            if (!response.ok) {
+                if (response.status === 403) {
+                    throw new Error('Brak dostępu do modułu produkcji');
+                }
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const html = await response.text();
+            const container = document.getElementById('sawmill-tab-content');
+
+            if (container) {
+                container.innerHTML = html;
+                // innerHTML nie wykonuje <script src="...">, więc trzeba je
+                // ręcznie "odtworzyć" — tak samo jak w loadReportsTab().
+                this.executeInlineScripts(container);
+            }
+
+            console.log('[ProductionApp] Sawmill tab loaded');
+        } catch (error) {
+            console.error('[ProductionApp] Sawmill loading failed:', error);
+            this.showTabError('sawmill-tab', error.message);
             throw error;
         }
     }
@@ -598,10 +639,11 @@ class ProductionApp {
 
     handleKeyboardShortcuts(event) {
         // Tab navigation shortcuts (Ctrl+1, Ctrl+2, etc.)
-        if (event.ctrlKey && event.key >= '1' && event.key <= '5') {
+        if (event.ctrlKey && event.key >= '1' && event.key <= '6') {
             event.preventDefault();
             const tabIndex = parseInt(event.key) - 1;
-            const tabs = ['dashboard-tab', 'products-tab', 'archive-tab', 'reports-tab', 'config-tab'];
+            const tabs = ['dashboard-tab', 'products-tab', 'archive-tab',
+                          'sawmill-tab', 'reports-tab', 'config-tab'];
 
             if (tabs[tabIndex]) {
                 this.switchToTab(tabs[tabIndex]);

@@ -1,0 +1,113 @@
+/* ============================================================================
+   Trakownia — style zakładki panelu produkcji.
+   Korzysta ze zmiennych zdefiniowanych w production-panel.css
+   (--il-status-*, --il-border-* itp.), więc trzyma się kolorystyki reszty
+   panelu bez duplikowania palety.
+   ============================================================================ */
+
+#sawmill-module-container {
+    padding: 4px 0 16px;
+}
+
+.sawmill-toolbar,
+.sawmill-filters {
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border-light, #e2e5ea);
+    border-radius: var(--il-radius, 3px);
+    padding: 10px 12px;
+}
+
+.sawmill-orders-table thead th {
+    white-space: nowrap;
+    font-size: 0.82rem;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    color: var(--il-text-secondary, #7a8291);
+    border-bottom-width: 2px;
+}
+
+.sawmill-orders-table td {
+    vertical-align: middle;
+}
+
+.sawmill-actions {
+    white-space: nowrap;
+}
+
+.sawmill-actions .btn {
+    margin-right: 2px;
+}
+
+/* Różnice — nigdy symbolem Δ, tylko kolor i (dla przekroczeń progu) flaga.
+   Ujemna różnica = dostarczono mniej niż zadeklarowano (na niekorzyść firmy),
+   dodatnia = więcej. */
+.sawmill-diff-negative {
+    color: var(--il-status-danger, #dc2626);
+    font-weight: 600;
+}
+
+.sawmill-diff-positive {
+    color: var(--il-status-warn, #d97706);
+    font-weight: 600;
+}
+
+.sawmill-diff-flag {
+    background-color: rgba(220, 38, 38, 0.08);
+}
+
+.sawmill-flag-icon {
+    color: var(--il-status-danger, #dc2626);
+    margin-right: 4px;
+}
+
+.sawmill-status-badge {
+    font-weight: 500;
+    padding: 4px 8px;
+}
+
+.sawmill-status-new { background-color: var(--il-status-inactive, #9ba3b0); }
+.sawmill-status-in_progress { background-color: var(--il-status-info, #2563eb); }
+.sawmill-status-completed { background-color: var(--il-status-warn, #d97706); }
+.sawmill-status-settled { background-color: var(--il-status-ok, #16a34a); }
+
+.sawmill-item-row {
+    border-bottom: 1px dashed var(--il-border-light, #e2e5ea);
+    padding-bottom: 8px;
+}
+
+.sawmill-item-row:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.sawmill-summary-cards {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.sawmill-summary-cards .sawmill-summary-card {
+    background: var(--il-bg-base, #eef0f4);
+    border-radius: var(--il-radius, 3px);
+    padding: 8px 14px;
+    min-width: 120px;
+}
+
+.sawmill-summary-cards .label {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--il-text-secondary, #7a8291);
+    text-transform: uppercase;
+}
+
+.sawmill-summary-cards .value {
+    display: block;
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--il-text-primary, #1a1a2e);
+}
+
+.sawmill-audit-list {
+    max-height: 260px;
+    overflow-y: auto;
+}

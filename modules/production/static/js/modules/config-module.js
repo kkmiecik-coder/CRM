@@ -95,6 +95,96 @@ class ConfigModule {
     loadOriginalValuesFromDOM() {
         console.log('[ConfigModule] 📥 loadOriginalValuesFromDOM() called by external trigger');
         this.loadOriginalValues();
+
+        // Trakownia: osobny mechanizm, POZA pendingChanges/saveAllChanges —
+        // ustawienia trakowni to jeden klucz JSON w prod_config, obsługiwany
+        // przez dedykowane API (/production/api/sawmill/settings), a nie przez
+        // ogólny system configów tego modułu. Pola same wczytują swoją wartość
+        // i same się zapisują (patrz saveSawmillSetting niżej).
+        this.loadSawmillSettings();
+    }
+
+    /**
+     * Wczytuje bieżące ustawienia trakowni i wypełnia nimi pola w sekcji
+     * "Trakownia" zakładki Konfiguracja. Brak pól w DOM (np. inny widok)
+     * jest ciche — to nie błąd, po prostu nic nie ma do wypełnienia.
+     */
+    async loadSawmillSettings() {
+        const fieldMap = {
+            min_diameter_cm: 'sawmill_min_diameter_cm',
+            max_diameter_cm: 'sawmill_max_diameter_cm',
+            min_length_cm: 'sawmill_min_length_cm',
+            max_length_cm: 'sawmill_max_length_cm',
+            deviation_threshold_pct: 'sawmill_deviation_threshold_pct',
+        };
+
+        const anyFieldPresent = Object.values(fieldMap).some(id => document.getElementById(id));
+        if (!anyFieldPresent) {
+            console.log('[ConfigModule] Sekcja Trakownia nieobecna w DOM — pomijam wczytywanie ustawień');
+            return;
+        }
+
+        try {
+            const resp = await fetch('/production/api/sawmill/settings', {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            });
+            if (!resp.ok) {
+                console.warn('[ConfigModule] Nie udało się pobrać ustawień trakowni:', resp.status);
+                return;
+            }
+            const data = await resp.json();
+            const settings = data.settings || {};
+
+            for (const [key, fieldId] of Object.entries(fieldMap)) {
+                const field = document.getElementById(fieldId);
+                if (!field) continue;
+                const value = settings[key];
+                field.value = (value === null || value === undefined) ? '' : value;
+            }
+
+            console.log('[ConfigModule] ✅ Ustawienia trakowni wczytane:', settings);
+        } catch (error) {
+            console.error('[ConfigModule] Błąd ładowania ustawień trakowni:', error);
+        }
+    }
+
+    /**
+     * Zapisuje POJEDYNCZE pole ustawień trakowni przez PATCH, od razu po
+     * zmianie (onchange, czyli po opuszczeniu pola) — bez czekania na
+     * globalny pasek "Zapisz zmiany", bo to inny, niezależny mechanizm
+     * zapisu niż reszta tej zakładki (patrz komentarz przy loadSawmillSettings).
+     * Puste pole = null = wyłączenie danego limitu (opisane w interfejsie).
+     */
+    async saveSawmillSetting(key, fieldId) {
+        const field = document.getElementById(fieldId);
+        if (!field) return;
+
+        const raw = field.value.trim();
+        field.classList.remove('is-invalid');
+
+        try {
+            const resp = await fetch('/production/api/sawmill/settings', {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: JSON.stringify({ [key]: raw === '' ? null : raw }),
+            });
+            const result = await resp.json().catch(() => ({}));
+
+            if (!resp.ok) {
+                field.classList.add('is-invalid');
+                this.showToast(`Błąd zapisu ustawień trakowni: ${result.detail || resp.status}`, 'error');
+                return;
+            }
+
+            this.showToast('Ustawienia trakowni zapisane', 'success');
+        } catch (error) {
+            console.error('[ConfigModule] Błąd zapisu ustawień trakowni:', error);
+            field.classList.add('is-invalid');
+            this.showToast('Błąd połączenia z serwerem', 'error');
+        }
     }
 
     /**
@@ -994,6 +1084,12 @@ window.configChanged = function (key, value) {
 window.resetToDefault = function (key) {
     if (window.configModule) {
         window.configModule.resetToDefault(key);
+    }
+};
+
+window.sawmillSettingChanged = function (key, fieldId) {
+    if (window.configModule) {
+        window.configModule.saveSawmillSetting(key, fieldId);
     }
 };
 

@@ -1430,6 +1430,162 @@
                 </div>
             </div>
         </div>
+
+        <!-- Trakownia -->
+        <!-- Ustawienia trakowni NIE przechodzą przez ogólny mechanizm
+             configChanged()/saveAllChanges() (jeden klucz JSON w prod_config,
+             osobne API /production/api/sawmill/settings) — każde pole zapisuje
+             się samodzielnie przez sawmillSettingChanged() (config-module.js),
+             od razu po zmianie, bez czekania na globalny pasek zapisu. -->
+        <div class="config-card">
+            <div class="config-card-header">
+                <div class="config-card-title">
+                    <div class="config-card-icon">
+                        <i class="fas fa-tree"></i>
+                    </div>
+                    <div>
+                        <h4>Trakownia</h4>
+                        <p class="config-card-subtitle">Limity walidacji pomiarów kłód i próg flagowania odchylenia</p>
+                    </div>
+                </div>
+            </div>
+            <div class="config-card-body">
+
+                <!-- min_diameter_cm -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-ruler-horizontal"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">Minimalna średnica <span class="default-badge">domyślnie: 10 cm</span></h5>
+                                    <p class="config-item-description">Dolny limit średnicy kłody dopuszczalny przy pomiarze</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="number" class="form-control" id="sawmill_min_diameter_cm" step="0.1"
+                                           onchange="sawmillSettingChanged('min_diameter_cm', 'sawmill_min_diameter_cm')">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- max_diameter_cm -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-ruler-horizontal"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">Maksymalna średnica <span class="default-badge">domyślnie: 200 cm</span></h5>
+                                    <p class="config-item-description">Górny limit średnicy kłody dopuszczalny przy pomiarze</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="number" class="form-control" id="sawmill_max_diameter_cm" step="0.1"
+                                           onchange="sawmillSettingChanged('max_diameter_cm', 'sawmill_max_diameter_cm')">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- min_length_cm -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-ruler"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">Minimalna długość <span class="default-badge">domyślnie: 30 cm</span></h5>
+                                    <p class="config-item-description">Dolny limit długości kłody dopuszczalny przy pomiarze</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="number" class="form-control" id="sawmill_min_length_cm" step="0.1"
+                                           onchange="sawmillSettingChanged('min_length_cm', 'sawmill_min_length_cm')">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- max_length_cm -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-ruler"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">Maksymalna długość <span class="default-badge">domyślnie: 20000 cm</span></h5>
+                                    <p class="config-item-description">Górny limit długości kłody dopuszczalny przy pomiarze</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="number" class="form-control" id="sawmill_max_length_cm" step="0.1"
+                                           onchange="sawmillSettingChanged('max_length_cm', 'sawmill_max_length_cm')">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- deviation_threshold_pct -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-flag"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">Próg flagowania odchylenia <span class="default-badge">domyślnie: 5%</span></h5>
+                                    <p class="config-item-description">Powyżej ilu procent różnicy między deklaracją a pomiarem zlecenie jest oznaczane jako odchylenie</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="number" class="form-control" id="sawmill_deviation_threshold_pct" step="0.1"
+                                           onchange="sawmillSettingChanged('deviation_threshold_pct', 'sawmill_deviation_threshold_pct')">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <p class="config-item-description text-muted mt-2 mb-1">
+                    <i class="fas fa-info-circle me-1"></i>
+                    Precyzja pomiaru: 1 miejsce po przecinku (wynika ze schematu bazy, zmiana wymaga migracji).
+                </p>
+                <p class="config-item-description text-muted mb-0">
+                    <i class="fas fa-circle-info me-1"></i>
+                    Puste pole zapisuje wartość pustą (null) i oznacza wyłączenie danego limitu — to nie błąd.
+                </p>
+            </div>
+        </div>
     </div>
 </div>
 

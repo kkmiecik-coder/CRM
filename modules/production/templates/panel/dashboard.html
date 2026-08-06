@@ -56,6 +56,15 @@
                         <i class="fas fa-archive me-2"></i>Archiwum
                     </button>
                     <button class="nav-link"
+                            id="sawmill-tab"
+                            data-bs-toggle="tab"
+                            data-bs-target="#sawmill-tab-content"
+                            type="button" role="tab"
+                            aria-controls="sawmill-tab-content"
+                            aria-selected="false">
+                        <i class="fas fa-tree me-2"></i>Trakownia
+                    </button>
+                    <button class="nav-link"
                             id="reports-tab"
                             data-bs-toggle="tab"
                             data-bs-target="#reports-tab-content"
@@ -194,6 +203,9 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- Sawmill Tab (Trakownia) -->
+                    <div class="tab-pane fade" id="sawmill-tab-content" role="tabpanel" aria-labelledby="sawmill-tab"></div>
 
                     <!-- Reports Tab -->
                     <div class="tab-pane fade"

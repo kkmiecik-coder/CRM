@@ -13,7 +13,7 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 from functools import wraps
 
-from flask import jsonify, request
+from flask import jsonify, render_template, request
 from flask_login import current_user, login_required
 from sqlalchemy.orm import joinedload
 
@@ -128,6 +128,24 @@ def _parse_date(value, field, required=True):
         return date.fromisoformat(str(value))
     except (ValueError, TypeError):
         raise PanelValidationError(field, u'oczekiwano formatu RRRR-MM-DD')
+
+
+# ── Zakładka panelu (HTML) ──────────────────────────────────────────────────
+
+@sawmill_panel_bp.route('/tab-content', methods=['GET'])
+@guard
+def tab_content():
+    """Zawartość zakładki, doczytywana AJAX-em jak pozostałe zakładki panelu."""
+    settings = get_sawmill_settings()
+    return render_template(
+        'sawmill/tab_content.html',
+        species=SawmillSpecies.query.filter_by(is_active=True)
+                 .order_by(SawmillSpecies.sort_order, SawmillSpecies.name).all(),
+        suppliers=SawmillSupplier.query.filter_by(is_active=True)
+                   .order_by(SawmillSupplier.name).all(),
+        deviation_threshold_pct=settings.get('deviation_threshold_pct', 5.0),
+        today=date.today().isoformat(),
+    )
 
 
 # ── Gatunki ─────────────────────────────────────────────────────────────────
