@@ -230,6 +230,22 @@ def cw_bot_handoff(conv_id, token=None):
         log("bot_handoff blad:", repr(e)); return False
 
 
+def cw_reopen(conv_id):
+    """Przywraca rozmowe do statusu open (np. gdy most zablokowal wysylke i agent
+    musi poprawic tresc). Token admina. Nigdy nie rzuca."""
+    if not conv_id:
+        return False
+    try:
+        url = "%s/api/v1/accounts/%s/conversations/%s/toggle_status" % (CW_BASE, CW_ACC, conv_id)
+        r = requests.post(url, headers={"api_access_token": CW_TOKEN, "Content-Type": "application/json"},
+                          json={"status": "open"}, timeout=20)
+        if r.status_code != 200:
+            log("cw_reopen kod:", r.status_code, r.text[:150]); return False
+        return True
+    except Exception as e:
+        log("cw_reopen blad:", repr(e)); return False
+
+
 def cw_agent_reply(conv_id, text, image_path=None, image_name=None, image_mime="image/jpeg", token=None):
     """Publiczna odpowiedz bota do klienta (message_type=outgoing).
     token=None -> domyslny token live-bota (zachowanie dotychczasowe); quote-bot podaje swoj.

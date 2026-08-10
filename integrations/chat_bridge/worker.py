@@ -6,9 +6,29 @@ import json
 from config import MAX_ATTEMPTS
 from core.log import log
 from core.db import db, init_db
-from core.chatwoot import cw_note, cw_mark_failed
+from core.chatwoot import cw_note, cw_mark_failed, cw_reopen
 from core.errors import PermanentSendError
 from channels import REGISTRY
+from sanitize import sanitize_outgoing
+
+
+def _zablokuj(row, violations):
+    """Tresc lamie regulamin Allegro (dane kontaktowe) — nie wysylamy jej wcale.
+    Status 'blocked' jest poza petla retry; agent dostaje notatke, czerwony dymek
+    i rozmowe z powrotem w 'open', zeby poprawil tresc i wyslal ponownie."""
+    qid, conv_id, channel = row["id"], row["conv_id"], (row["channel"] or "olx")
+    opis = ", ".join("%s: %s" % (typ, frag) for typ, frag in violations)
+    c = db()
+    c.execute("UPDATE queue SET status='blocked', last_error=? WHERE id=?", ("ZABLOKOWANO " + opis, qid))
+    c.commit(); c.close()
+    log("ZABLOKOWANO wysylke (%s) watek %s — %s" % (channel, row["thread_id"], opis))
+    if not conv_id:
+        return
+    powod = ("Regulamin Allegro zabrania danych kontaktowych poza serwisem. "
+             "Wykryto — %s. Usuń je z treści i wyślij ponownie." % opis)
+    cw_note(conv_id, "[BLOKADA] Wiadomość NIE została wysłana na Allegro. " + powod)
+    cw_mark_failed(conv_id, row["cw_msg_id"] if "cw_msg_id" in row.keys() else None, powod)
+    cw_reopen(conv_id)
 
 
 def _zakoncz_porazka(row, code, detail, powod_dla_agenta, attempts):
@@ -30,6 +50,12 @@ def process_row(row):
     now = time.time()
     qid, tid, conv_id, content, attempts = row["id"], row["thread_id"], row["conv_id"], row["content"], row["attempts"]
     channel = row["channel"] or "olx"
+    # Kontrola tresci agenta PRZED stopka mostu (stopka jest nasza i zaufana):
+    # podpis Chatwoota wycinamy, a dane kontaktowe na Allegro wstrzymuja wysylke.
+    content, violations = sanitize_outgoing(channel, content)
+    if violations:
+        _zablokuj(row, violations)
+        return
     # Stopka (jesli ustawiona przy kolejkowaniu = wiadomosc agenta) doklejana do tresci.
     footer = row["footer"] if "footer" in row.keys() else None
     if footer:
