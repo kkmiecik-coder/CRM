@@ -1,0 +1,450 @@
+{# Podzakładka Raporty → MIKS PRODUKCJI.
+
+   Oba widgety to GROUP BY po całej tabeli bez zakresu dat — odpowiadają na
+   „co siedzi w systemie i z czego", a nie na „ile zrobiliśmy wczoraj". Dlatego
+   liczą się razem i razem ładują (sześć zapytań), dopiero po kliknięciu.
+
+   Fragment nie ma i nie może mieć własnego bloku stylów: wchodzi do DOM przez
+   innerHTML, więc każdy taki blok zostawiałby po sobie kolejną kopię tych samych
+   reguł. Wygląd widgetów raportów siedzi w static/css/reports-tab.css. #}
+
+<!-- Breakdown statusów -->
+<div class="widget status-breakdown-widget">
+    <div class="widget-header">
+        <h4>Rozkład produktów według statusów</h4>
+    </div>
+    <div class="widget-content">
+        <div class="status-breakdown-layout">
+            <!-- Left: table -->
+            <div class="status-breakdown-table">
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Status</th>
+                                <th>Ilość</th>
+                                <th>Objętość (m³)</th>
+                                <th>% całości</th>
+                                <th>Gatunki m³</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in status_breakdown %}
+                            <tr>
+                                <td>
+                                    <span class="status-badge status-{{ item['status'].replace('czeka_na_', '').replace('_', '-') }}">
+                                        {{ item['status'].replace('czeka_na_', '').replace('_', ' ').title() }}
+                                    </span>
+                                </td>
+                                <td><strong>{{ item['count'] }}</strong></td>
+                                <td>{{ "%.3f"|format(item['volume']) }}</td>
+                                <td>
+                                    {% set percentage = (item['count'] / total_in_system * 100) if total_in_system > 0 else 0 %}
+                                    {{ "%.1f"|format(percentage) }}%
+                                </td>
+                                <td class="species-breakdown-cell">
+                                    {% if item.get('species_breakdown') %}
+                                    <div class="species-list">
+                                        {% for sp in item['species_breakdown'] %}
+                                        <div class="species-row">
+                                            <span class="species-name">{{ sp.label }}</span>
+                                            <span class="species-vol">{{ sp.volume }} m³</span>
+                                        </div>
+                                        {% endfor %}
+                                    </div>
+                                    {% else %}
+                                        <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Right: charts -->
+            <div class="status-charts-grid">
+                <div class="status-chart-card">
+                    <h6>Ilość wg stanowisk</h6>
+                    <div class="status-chart-canvas"><canvas id="status-count-chart"></canvas></div>
+                </div>
+                <div class="status-chart-card">
+                    <h6>Objętość wg stanowisk</h6>
+                    <div class="status-chart-canvas"><canvas id="status-volume-chart"></canvas></div>
+                </div>
+                <div class="status-chart-card" style="grid-column: 1 / -1;">
+                    <h6>Gatunki m³</h6>
+                    <div class="status-chart-canvas" style="height: 160px;"><canvas id="species-volume-chart"></canvas></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Wykresy analityczne - Gatunki, Grubości, Technologie, Klasy -->
+<div class="widget analytics-widget mt-4">
+    <div class="widget-header">
+        <h4>Analiza produktów</h4>
+    </div>
+    <div class="widget-content">
+        <div class="row">
+            <!-- Wykres gatunków drewna -->
+            <div class="col-xl-3 col-md-6 col-12 mb-4">
+                <h6 class="text-center mb-3">Gatunki drewna</h6>
+                <div class="chart-wrapper" style="position: relative; height: 200px;">
+                    <canvas id="species-chart"></canvas>
+                </div>
+                <div class="chart-legend mt-2">
+                    {% for item in species_breakdown %}
+                    <div class="legend-item small">
+                        <span class="legend-color" style="background-color: {{ ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#C9CBCF', '#7BC043'][loop.index0 % 8] }}"></span>
+                        {{ item['name'] }}: <strong>{{ item['count'] }}</strong> ({{ "%.3f"|format(item['volume']) }} m³)
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            <!-- Wykres grubości -->
+            <div class="col-xl-3 col-md-6 col-12 mb-4">
+                <h6 class="text-center mb-3">Grubości (cm)</h6>
+                <div class="chart-wrapper" style="position: relative; height: 200px;">
+                    <canvas id="thickness-chart"></canvas>
+                </div>
+                <div class="chart-legend mt-2">
+                    {% for item in thickness_breakdown %}
+                    <div class="legend-item small">
+                        <span class="legend-color" style="background-color: {{ ['#36A2EB', '#4BC0C0', '#9966FF', '#FF6384', '#FFCE56', '#FF9F40', '#C9CBCF', '#7BC043'][loop.index0 % 8] }}"></span>
+                        {{ "%.1f"|format(item['thickness']) }} cm: <strong>{{ item['count'] }}</strong>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            <!-- Wykres technologii -->
+            <div class="col-xl-3 col-md-6 col-12 mb-4">
+                <h6 class="text-center mb-3">Technologie</h6>
+                <div class="chart-wrapper" style="position: relative; height: 200px;">
+                    <canvas id="technology-chart"></canvas>
+                </div>
+                <div class="chart-legend mt-2">
+                    {% for item in technology_breakdown %}
+                    <div class="legend-item small">
+                        <span class="legend-color" style="background-color: {{ ['#FFCE56', '#FF6384', '#36A2EB', '#4BC0C0', '#9966FF', '#FF9F40', '#C9CBCF', '#7BC043'][loop.index0 % 8] }}"></span>
+                        {{ item['name'] }}: <strong>{{ item['count'] }}</strong> ({{ "%.3f"|format(item['volume']) }} m³)
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            <!-- Wykres klas drewna -->
+            <div class="col-xl-3 col-md-6 col-12 mb-4">
+                <h6 class="text-center mb-3">Klasy drewna</h6>
+                <div class="chart-wrapper" style="position: relative; height: 200px;">
+                    <canvas id="wood-class-chart"></canvas>
+                </div>
+                <div class="chart-legend mt-2">
+                    {% for item in wood_class_breakdown %}
+                    <div class="legend-item small">
+                        <span class="legend-color" style="background-color: {{ ['#8B4513', '#D2691E', '#CD853F', '#DEB887', '#F4A460', '#D2B48C', '#BC8F8F', '#A0522D'][loop.index0 % 8] }}"></span>
+                        {{ item['name'] }}: <strong>{{ item['count'] }}</strong> ({{ "%.3f"|format(item['volume']) }} m³)
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// IIFE izoluje deklaracje fragmentu. executeInlineScripts() klonuje <script>
+// i podmienia węzeł, więc kod leci w scope globalnym i wykonuje się od nowa
+// przy każdym przeładowaniu zakładki — bez IIFE drugie wejście wywala się na
+// "duplicate declaration" i zabija cały fragment.
+(function () {
+const root = document.getElementById('reports-sub-pane-miks');
+const wspolne = window.ReportsShared;
+if (!root || !wspolne) return;
+
+// Funkcje używane przez więcej niż jeden fragment mieszkają w szkielecie —
+// każdy fragment ma własny scope i to jest jedyny most między nimi.
+const { zniszczWykres } = wspolne;
+
+// Szukamy po własnym panelu, nie po document. Dzięki temu id-ki są lokalne dla
+// fragmentu naprawdę, a nie umownie: panele sąsiadów zostają w DOM (tylko
+// schowane), więc globalne getElementById potrafiłoby sięgnąć do cudzego markupu.
+const el = (id) => root.querySelector('#' + id);
+const els = (sel) => root.querySelectorAll(sel);
+
+function _getStatusChartData() {
+    const statusData = {{ status_breakdown|tojson }};
+    const colorMap = {
+        'czeka_na_wyciecie': '#2d8a3e', 'czeka_na_skladanie': '#2563eb',
+        'czeka_na_sklejanie': '#9333ea', 'czeka_na_formatowanie': '#d97706',
+        'czeka_na_wykanczanie': '#0891b2', 'czeka_na_pakowanie': '#16a34a',
+        'spakowane': '#22c55e', 'wstrzymane': '#f59e0b',
+        'anulowane': '#dc2626', 'w_realizacji': '#3b82f6'
+    };
+    const labels = statusData.map(i => {
+        let name = i.status.replace('czeka_na_', '').replace(/_/g, ' ');
+        return name.charAt(0).toUpperCase() + name.slice(1);
+    });
+    const colors = statusData.map(i => colorMap[i.status] || '#64748b');
+    return { statusData, labels, colors };
+}
+
+function initializeStatusCountChart() {
+    const canvas = el('status-count-chart');
+    if (!canvas || typeof Chart === 'undefined') return;
+    const { statusData, labels, colors } = _getStatusChartData();
+    zniszczWykres(canvas);
+    statusCountChart = new Chart(canvas.getContext('2d'), {
+        type: 'doughnut',
+        data: { labels, datasets: [{ data: statusData.map(i => i.count), backgroundColor: colors }] },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => {
+                            const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                            const pct = Math.round(ctx.raw / total * 100);
+                            return `${ctx.label}: ${ctx.raw} szt. (${pct}%)`;
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+function initializeStatusVolumeChart() {
+    const canvas = el('status-volume-chart');
+    if (!canvas || typeof Chart === 'undefined') return;
+    const { statusData, labels, colors } = _getStatusChartData();
+    zniszczWykres(canvas);
+    statusVolumeChart = new Chart(canvas.getContext('2d'), {
+        type: 'doughnut',
+        data: { labels, datasets: [{ data: statusData.map(i => i.volume), backgroundColor: colors }] },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => {
+                            const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                            const pct = Math.round(ctx.raw / total * 100);
+                            return `${ctx.label}: ${ctx.raw.toFixed(3)} m³ (${pct}%)`;
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+function initializeSpeciesVolumeChart() {
+    const canvas = el('species-volume-chart');
+    if (!canvas || typeof Chart === 'undefined') return;
+    const statusData = {{ status_breakdown|tojson }};
+    const speciesColors = ['#f59e0b','#3b82f6','#22c55e','#06b6d4','#ec4899','#f97316','#8b5cf6','#ef4444','#64748b','#dc2626'];
+    const speciesMap = {};
+    statusData.forEach(s => {
+        (s.species_breakdown || []).forEach(sp => {
+            speciesMap[sp.label] = (speciesMap[sp.label] || 0) + sp.volume;
+        });
+    });
+    const entries = Object.entries(speciesMap).sort((a, b) => b[1] - a[1]);
+    zniszczWykres(canvas);
+    speciesVolumeChart = new Chart(canvas.getContext('2d'), {
+        type: 'doughnut',
+        data: {
+            labels: entries.map(e => e[0]),
+            datasets: [{ data: entries.map(e => Math.round(e[1] * 1000) / 1000), backgroundColor: speciesColors }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => {
+                            const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                            const pct = Math.round(ctx.raw / total * 100);
+                            return `${ctx.label}: ${ctx.raw.toFixed(3)} m³ (${pct}%)`;
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+function initializeSpeciesChart() {
+    const canvas = el('species-chart');
+    if (!canvas) return;
+
+    if (typeof Chart === 'undefined') {
+        setTimeout(initializeSpeciesChart, 100);
+        return;
+    }
+
+    const ctx = canvas.getContext('2d');
+    const speciesData = {{ species_breakdown|tojson }};
+
+    zniszczWykres(canvas);
+    speciesChart = null;
+
+    try {
+        speciesChart = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: speciesData.map(item => item.name),
+                datasets: [{
+                    data: speciesData.map(item => item.count),
+                    backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#C9CBCF', '#7BC043']
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                }
+            }
+        });
+        console.log('[Reports Tab] Species chart initialized');
+    } catch (error) {
+        console.error('[Reports Tab] Error creating species chart:', error);
+    }
+}
+
+function initializeThicknessChart() {
+    const canvas = el('thickness-chart');
+    if (!canvas) return;
+
+    if (typeof Chart === 'undefined') {
+        setTimeout(initializeThicknessChart, 100);
+        return;
+    }
+
+    const ctx = canvas.getContext('2d');
+    const thicknessData = {{ thickness_breakdown|tojson }};
+
+    zniszczWykres(canvas);
+    thicknessChart = null;
+
+    try {
+        thicknessChart = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: thicknessData.map(item => item.thickness + ' cm'),
+                datasets: [{
+                    data: thicknessData.map(item => item.count),
+                    backgroundColor: ['#36A2EB', '#4BC0C0', '#9966FF', '#FF6384', '#FFCE56', '#FF9F40', '#C9CBCF', '#7BC043']
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                }
+            }
+        });
+        console.log('[Reports Tab] Thickness chart initialized');
+    } catch (error) {
+        console.error('[Reports Tab] Error creating thickness chart:', error);
+    }
+}
+
+function initializeTechnologyChart() {
+    const canvas = el('technology-chart');
+    if (!canvas) return;
+
+    if (typeof Chart === 'undefined') {
+        setTimeout(initializeTechnologyChart, 100);
+        return;
+    }
+
+    const ctx = canvas.getContext('2d');
+    const technologyData = {{ technology_breakdown|tojson }};
+
+    zniszczWykres(canvas);
+    technologyChart = null;
+
+    try {
+        technologyChart = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: technologyData.map(item => item.name),
+                datasets: [{
+                    data: technologyData.map(item => item.count),
+                    backgroundColor: ['#FFCE56', '#FF6384', '#36A2EB', '#4BC0C0', '#9966FF', '#FF9F40', '#C9CBCF', '#7BC043']
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                }
+            }
+        });
+        console.log('[Reports Tab] Technology chart initialized');
+    } catch (error) {
+        console.error('[Reports Tab] Error creating technology chart:', error);
+    }
+}
+
+function initializeWoodClassChart() {
+    const canvas = el('wood-class-chart');
+    if (!canvas) return;
+
+    if (typeof Chart === 'undefined') {
+        setTimeout(initializeWoodClassChart, 100);
+        return;
+    }
+
+    const ctx = canvas.getContext('2d');
+    const woodClassData = {{ wood_class_breakdown|tojson }};
+
+    zniszczWykres(canvas);
+    woodClassChart = null;
+
+    try {
+        woodClassChart = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: woodClassData.map(item => item.name),
+                datasets: [{
+                    data: woodClassData.map(item => item.count),
+                    backgroundColor: ['#8B4513', '#D2691E', '#CD853F', '#DEB887', '#F4A460', '#D2B48C', '#BC8F8F', '#A0522D']
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                }
+            }
+        });
+        console.log('[Reports Tab] Wood class chart initialized');
+    } catch (error) {
+        console.error('[Reports Tab] Error creating wood class chart:', error);
+    }
+}
+
+// Init synchronicznie na końcu fragmentu, bez setTimeout: executeInlineScripts
+// podmienia węzeł przez replaceChild, czyli wykonuje ten skrypt dopiero po
+// wstawieniu markupu do DOM. Czekanie na cokolwiek byłoby wyścigiem, nie
+// ostrożnością.
+initializeStatusCountChart();
+initializeStatusVolumeChart();
+initializeSpeciesVolumeChart();
+initializeSpeciesChart();
+initializeThicknessChart();
+initializeTechnologyChart();
+initializeWoodClassChart();
+})();
+</script>

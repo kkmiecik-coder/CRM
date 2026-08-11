@@ -435,232 +435,309 @@ def reports_station_output():
 @login_required
 def reports_tab_content():
     """
-    AJAX endpoint dla zawartości taba Raporty - POPRAWIONY
+    Szkielet zakładki Raporty: pasek KPI + nawigacja podzakładek.
+
+    Dane widgetów NIE jadą tędy — każda podzakładka pobiera swoje osobno
+    (patrz /reports/sub/<nazwa>). Tutaj zostają dwa agregaty na trzy kafelki.
     """
     try:
         logger.info("AJAX: Ładowanie zawartości reports-tab", extra={
             'user_id': current_user.id,
             'user_role': getattr(current_user, 'role', 'unknown')
         })
-        
-        from ...models import ProductionItem, ProductionSyncLog
-        
-        # Przygotuj dane dla raportów
+
+        from ...models import ProductionItem
+
         today = date.today()
-        week_ago = today - timedelta(days=7)
-        month_ago = today - timedelta(days=30)
-        
-        # Raporty wydajności
-        daily_stats = []
-        for i in range(7):
-            day = today - timedelta(days=i)
-            day_start = datetime.combine(day, datetime.min.time())
-            day_end = datetime.combine(day, datetime.max.time())
-            
-            completed = ProductionItem.query.filter(
-                ProductionItem.current_status == 'spakowane',
-                ProductionItem.packaging_completed_at >= day_start,
-                ProductionItem.packaging_completed_at <= day_end
-            ).count()
-            
-            volume = db.session.query(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity))\
-                              .filter(
-                                  ProductionItem.current_status == 'spakowane',
-                                  ProductionItem.packaging_completed_at >= day_start,
-                                  ProductionItem.packaging_completed_at <= day_end
-                              ).scalar() or 0.0
-            
-            daily_stats.append({
-                'date': day.isoformat(),
-                'completed_orders': completed,
-                'total_volume': float(volume)
-            })
-        
-        # Raport statusów - dynamicznie ze wszystkich istniejących w bazie
-        status_stats = db.session.query(
-            ProductionItem.current_status,
-            func.count(ProductionItem.id).label('count'),
-            func.sum(ProductionItem.volume_m3 * ProductionItem.quantity).label('volume')
+
+        # Kafelki KPI: ukończone i m³ z ostatnich 7 dni. Wcześniej liczyła to
+        # pętla po dniach — 14 zapytań na dwie liczby, które i tak zaraz były
+        # sumowane. Rozbicie dzienne nie miało konsumenta (ani szablon, ani JS
+        # go nie czytały), więc jeden agregat na całym zakresie daje ten sam
+        # wynik za jedno zapytanie.
+        tydzien_start = datetime.combine(today - timedelta(days=6), datetime.min.time())
+        tydzien_koniec = datetime.combine(today, datetime.max.time())
+
+        tydzien_sztuk, tydzien_m3 = db.session.query(
+            func.count(ProductionItem.id),
+            func.sum(ProductionItem.volume_m3 * ProductionItem.quantity)
         ).filter(
+            ProductionItem.current_status == 'spakowane',
+            ProductionItem.packaging_completed_at >= tydzien_start,
+            ProductionItem.packaging_completed_at <= tydzien_koniec
+        ).one()
+
+        # Osobny COUNT zamiast sumy po rozbiciu statusów: pasek KPI szkieletu
+        # nie może zależeć od danych widgetu, który po przebudowie mieszka
+        # w innej podzakładce i ładuje się dopiero po kliknięciu.
+        total_in_system = db.session.query(func.count(ProductionItem.id)).filter(
             ProductionItem.current_status.isnot(None)
-        ).group_by(ProductionItem.current_status).all()
+        ).scalar() or 0
 
-        status_report = [
-            {
-                'status': row[0],
-                'count': row[1],
-                'volume': float(row[2] or 0)
-            }
-            for row in status_stats
-        ]
+        # Szkielet nie zna już danych widgetów — dostaje wyłącznie trzy liczby
+        # do kafelków. Reszta jedzie przez /reports/sub/<nazwa>, każda porcja
+        # dopiero wtedy, gdy ktoś na nią patrzy.
+        rendered_html = render_template(
+            'components/reports-tab-content.html',
+            reports_summary={
+                'week_completed': int(tydzien_sztuk or 0),
+                'week_volume': float(tydzien_m3 or 0.0),
+                'total_in_system': int(total_in_system),
+            },
+        )
 
-        # Species+technology breakdown per status
-        species_by_status_raw = db.session.query(
-            ProductionItem.current_status,
-            ProductionConfiguration.species,
-            ProductionConfiguration.technology,
-            func.sum(ProductionItem.volume_m3 * ProductionItem.quantity).label('volume')
-        ).join(ProductionConfiguration, ProductionItem.configuration_id == ProductionConfiguration.id).filter(
-            ProductionItem.current_status.isnot(None),
-            ProductionConfiguration.species.isnot(None)
-        ).group_by(
-            ProductionItem.current_status,
-            ProductionConfiguration.species,
-            ProductionConfiguration.technology
-        ).all()
-
-        species_by_status = {}
-        for row in species_by_status_raw:
-            status = row[0]
-            species = row[1] or '—'
-            tech = row[2] or ''
-            label = f"{species} {tech}".strip()
-            vol = float(row[3] or 0)
-            if status not in species_by_status:
-                species_by_status[status] = []
-            species_by_status[status].append({'label': label, 'volume': round(vol, 3)})
-
-        # Sort each status's species list by volume desc
-        for status in species_by_status:
-            species_by_status[status].sort(key=lambda x: -x['volume'])
-
-        # Attach to status_report
-        for item in status_report:
-            item['species_breakdown'] = species_by_status.get(item['status'], [])
-
-        # Historia synchronizacji (ostatnie 10)
-        sync_history = ProductionSyncLog.query\
-                                       .order_by(ProductionSyncLog.sync_started_at.desc())\
-                                       .limit(10).all()
-
-        # Rozkład według gatunków drewna
-        species_stats = db.session.query(
-            ProductionConfiguration.species,
-            func.count(ProductionItem.id).label('count'),
-            func.sum(ProductionItem.volume_m3 * ProductionItem.quantity).label('volume')
-        ).join(ProductionConfiguration, ProductionItem.configuration_id == ProductionConfiguration.id).filter(
-            ProductionConfiguration.species.isnot(None),
-            ProductionItem.current_status != 'anulowane'
-        ).group_by(ProductionConfiguration.species).all()
-
-        species_breakdown = [
-            {
-                'name': row[0] or 'Nieokreślony',
-                'count': row[1],
-                'volume': float(row[2] or 0)
-            }
-            for row in species_stats
-        ]
-
-        # Rozkład według grubości
-        thickness_stats = db.session.query(
-            ProductionItem.parsed_thickness_cm,
-            func.count(ProductionItem.id).label('count'),
-            func.sum(ProductionItem.volume_m3 * ProductionItem.quantity).label('volume')
-        ).filter(
-            ProductionItem.parsed_thickness_cm.isnot(None),
-            ProductionItem.current_status != 'anulowane'
-        ).group_by(ProductionItem.parsed_thickness_cm).all()
-
-        thickness_breakdown = [
-            {
-                'thickness': float(row[0]) if row[0] else 0,
-                'count': row[1],
-                'volume': float(row[2] or 0)
-            }
-            for row in thickness_stats
-        ]
-        # Sortowanie po grubości
-        thickness_breakdown.sort(key=lambda x: x['thickness'])
-
-        # Rozkład według technologii
-        technology_stats = db.session.query(
-            ProductionConfiguration.technology,
-            func.count(ProductionItem.id).label('count'),
-            func.sum(ProductionItem.volume_m3 * ProductionItem.quantity).label('volume')
-        ).join(ProductionConfiguration, ProductionItem.configuration_id == ProductionConfiguration.id).filter(
-            ProductionConfiguration.technology.isnot(None),
-            ProductionItem.current_status != 'anulowane'
-        ).group_by(ProductionConfiguration.technology).all()
-
-        technology_breakdown = [
-            {
-                'name': row[0] or 'Nieokreślona',
-                'count': row[1],
-                'volume': float(row[2] or 0)
-            }
-            for row in technology_stats
-        ]
-
-        # Rozkład według klasy drewna
-        wood_class_stats = db.session.query(
-            ProductionConfiguration.wood_class,
-            func.count(ProductionItem.id).label('count'),
-            func.sum(ProductionItem.volume_m3 * ProductionItem.quantity).label('volume')
-        ).join(ProductionConfiguration, ProductionItem.configuration_id == ProductionConfiguration.id).filter(
-            ProductionConfiguration.wood_class.isnot(None),
-            ProductionConfiguration.wood_class != 'unknown',
-            ProductionItem.current_status != 'anulowane'
-        ).group_by(ProductionConfiguration.wood_class).all()
-
-        wood_class_breakdown = [
-            {
-                'name': row[0] or 'Nieokreślona',
-                'count': row[1],
-                'volume': float(row[2] or 0)
-            }
-            for row in wood_class_stats
-        ]
-
-        # Przygotuj dane jako dict dla JSON response
-        reports_data_dict = {
-            'daily_performance': daily_stats,
-            'status_breakdown': status_report,
-            'species_breakdown': species_breakdown,
-            'thickness_breakdown': thickness_breakdown,
-            'technology_breakdown': technology_breakdown,
-            'wood_class_breakdown': wood_class_breakdown,
-            'sync_history': [
-                {
-                    'date': sync.sync_started_at.isoformat(),
-                    'status': sync.sync_status,  # POPRAWIONE: sync_status zamiast status
-                    'items_processed': (sync.products_created or 0) + (sync.products_updated or 0),
-                    'duration_seconds': sync.sync_duration_seconds or 0
-                }
-                for sync in sync_history
-            ],
-            'summary': {
-                'week_completed': sum(day['completed_orders'] for day in daily_stats),
-                'week_volume': sum(day['total_volume'] for day in daily_stats),
-                'total_in_system': sum(item['count'] for item in status_report)
-            }
-        }
-
-        # Renderuj komponent - używamy dict z bracket notation w Jinja
-        rendered_html = render_template('components/reports-tab-content.html',
-                              reports_data=reports_data_dict,
-                              # Listy stanowisk generowane serwerowo z jednego
-                              # katalogu — inaczej każdy <select> ma własną kopię
-                              # nazw i rozjeżdża się z tabelą pod sobą.
-                              station_choices=station_choices())
-        
+        # Bez klucza 'data': jedyny konsument odpowiedzi (production-app-loader
+        # loadReportsTab) czyta wyłącznie 'html', a kopia całego kompletu danych
+        # dorzucała ~5 kB do każdego wejścia na zakładkę.
         return jsonify({
             'success': True,
             'html': rendered_html,
-            'data': reports_data_dict,  # Zwracamy dict dla JSON
             'last_updated': get_local_now().isoformat()
         })
-        
+
     except Exception as e:
         logger.error("Błąd AJAX reports-tab-content", extra={
             'user_id': current_user.id,
             'error': str(e)
         })
-        
+
         return jsonify({
             'success': False,
             'error': str(e)
         }), 500
 
 
+# ════════════════════════════════════════════════════════════════════════════
+# Podzakładki zakładki Raporty
+#
+# Zakładka Raporty ładowała jednym strzałem komplet danych dla sześciu widgetów
+# naraz — także tych, w które nikt nie patrzy. Podzakładka to fragment HTML
+# pobierany dopiero przy kliknięciu, z własnym (i tylko własnym) kompletem
+# zapytań.
+# ════════════════════════════════════════════════════════════════════════════
 
+def _kontekst_stanowiska():
+    """Wykonanie stanowiska w dniu + wydajność dzienna. Zero SQL — oba widgety
+    dociągają swoje liczby własnymi endpointami po stronie przeglądarki."""
+    return {'station_choices': station_choices()}
+
+
+def _kontekst_ludzie():
+    """Wydajność pracowników. Jak wyżej: sam <select> stanowisk, dane z
+    /reports/worker-output."""
+    return {'station_choices': station_choices()}
+
+
+def _kontekst_miks():
+    """Rozkład wg statusów + analiza produktów.
+
+    Sześć GROUP BY po całej tabeli, bez zakresu dat — najdroższa podzakładka
+    i jednocześnie ta, w którą klika się najrzadziej. Dlatego liczy się dopiero
+    tutaj, a nie przy każdym wejściu na Raporty.
+    """
+    # Raport statusów - dynamicznie ze wszystkich istniejących w bazie
+    status_stats = db.session.query(
+        ProductionItem.current_status,
+        func.count(ProductionItem.id).label('count'),
+        func.sum(ProductionItem.volume_m3 * ProductionItem.quantity).label('volume')
+    ).filter(
+        ProductionItem.current_status.isnot(None)
+    ).group_by(ProductionItem.current_status).all()
+
+    status_report = [
+        {
+            'status': row[0],
+            'count': row[1],
+            'volume': float(row[2] or 0)
+        }
+        for row in status_stats
+    ]
+
+    # Species+technology breakdown per status
+    species_by_status_raw = db.session.query(
+        ProductionItem.current_status,
+        ProductionConfiguration.species,
+        ProductionConfiguration.technology,
+        func.sum(ProductionItem.volume_m3 * ProductionItem.quantity).label('volume')
+    ).join(ProductionConfiguration, ProductionItem.configuration_id == ProductionConfiguration.id).filter(
+        ProductionItem.current_status.isnot(None),
+        ProductionConfiguration.species.isnot(None)
+    ).group_by(
+        ProductionItem.current_status,
+        ProductionConfiguration.species,
+        ProductionConfiguration.technology
+    ).all()
+
+    species_by_status = {}
+    for row in species_by_status_raw:
+        status = row[0]
+        species = row[1] or '—'
+        tech = row[2] or ''
+        label = f"{species} {tech}".strip()
+        vol = float(row[3] or 0)
+        if status not in species_by_status:
+            species_by_status[status] = []
+        species_by_status[status].append({'label': label, 'volume': round(vol, 3)})
+
+    # Sort each status's species list by volume desc
+    for status in species_by_status:
+        species_by_status[status].sort(key=lambda x: -x['volume'])
+
+    # Attach to status_report
+    for item in status_report:
+        item['species_breakdown'] = species_by_status.get(item['status'], [])
+
+    # Rozkład według gatunków drewna
+    species_stats = db.session.query(
+        ProductionConfiguration.species,
+        func.count(ProductionItem.id).label('count'),
+        func.sum(ProductionItem.volume_m3 * ProductionItem.quantity).label('volume')
+    ).join(ProductionConfiguration, ProductionItem.configuration_id == ProductionConfiguration.id).filter(
+        ProductionConfiguration.species.isnot(None),
+        ProductionItem.current_status != 'anulowane'
+    ).group_by(ProductionConfiguration.species).all()
+
+    species_breakdown = [
+        {
+            'name': row[0] or 'Nieokreślony',
+            'count': row[1],
+            'volume': float(row[2] or 0)
+        }
+        for row in species_stats
+    ]
+
+    # Rozkład według grubości
+    thickness_stats = db.session.query(
+        ProductionItem.parsed_thickness_cm,
+        func.count(ProductionItem.id).label('count'),
+        func.sum(ProductionItem.volume_m3 * ProductionItem.quantity).label('volume')
+    ).filter(
+        ProductionItem.parsed_thickness_cm.isnot(None),
+        ProductionItem.current_status != 'anulowane'
+    ).group_by(ProductionItem.parsed_thickness_cm).all()
+
+    thickness_breakdown = [
+        {
+            'thickness': float(row[0]) if row[0] else 0,
+            'count': row[1],
+            'volume': float(row[2] or 0)
+        }
+        for row in thickness_stats
+    ]
+    # Sortowanie po grubości
+    thickness_breakdown.sort(key=lambda x: x['thickness'])
+
+    # Rozkład według technologii
+    technology_stats = db.session.query(
+        ProductionConfiguration.technology,
+        func.count(ProductionItem.id).label('count'),
+        func.sum(ProductionItem.volume_m3 * ProductionItem.quantity).label('volume')
+    ).join(ProductionConfiguration, ProductionItem.configuration_id == ProductionConfiguration.id).filter(
+        ProductionConfiguration.technology.isnot(None),
+        ProductionItem.current_status != 'anulowane'
+    ).group_by(ProductionConfiguration.technology).all()
+
+    technology_breakdown = [
+        {
+            'name': row[0] or 'Nieokreślona',
+            'count': row[1],
+            'volume': float(row[2] or 0)
+        }
+        for row in technology_stats
+    ]
+
+    # Rozkład według klasy drewna
+    wood_class_stats = db.session.query(
+        ProductionConfiguration.wood_class,
+        func.count(ProductionItem.id).label('count'),
+        func.sum(ProductionItem.volume_m3 * ProductionItem.quantity).label('volume')
+    ).join(ProductionConfiguration, ProductionItem.configuration_id == ProductionConfiguration.id).filter(
+        ProductionConfiguration.wood_class.isnot(None),
+        ProductionConfiguration.wood_class != 'unknown',
+        ProductionItem.current_status != 'anulowane'
+    ).group_by(ProductionConfiguration.wood_class).all()
+
+    wood_class_breakdown = [
+        {
+            'name': row[0] or 'Nieokreślona',
+            'count': row[1],
+            'volume': float(row[2] or 0)
+        }
+        for row in wood_class_stats
+    ]
+
+    return {
+        'status_breakdown': status_report,
+        'species_breakdown': species_breakdown,
+        'thickness_breakdown': thickness_breakdown,
+        'technology_breakdown': technology_breakdown,
+        'wood_class_breakdown': wood_class_breakdown,
+        # Mianownik kolumny "% całości" liczymy z tego, co już mamy w ręku:
+        # status_report obejmuje wszystkie produkty z niepustym statusem, czyli
+        # dokładnie tyle, ile liczy COUNT(*) w pasku KPI. Osobne zapytanie
+        # dołożyłoby siódme na tę samą liczbę.
+        'total_in_system': sum(poz['count'] for poz in status_report),
+    }
+
+
+def _kontekst_system():
+    """Historia synchronizacji — jedno zapytanie, oglądane raz na miesiąc."""
+    sync_history = ProductionSyncLog.query\
+                                   .order_by(ProductionSyncLog.sync_started_at.desc())\
+                                   .limit(10).all()
+    return {
+        'sync_history': [
+            {
+                'date': sync.sync_started_at.isoformat(),
+                'status': sync.sync_status,  # POPRAWIONE: sync_status zamiast status
+                'items_processed': (sync.products_created or 0) + (sync.products_updated or 0),
+                'duration_seconds': sync.sync_duration_seconds or 0
+            }
+            for sync in sync_history
+        ]
+    }
+
+
+# Jedna mapa zamiast osobnej trasy na podzakładkę: whitelist i router siedzą
+# w tym samym miejscu, więc nowa podzakładka to jedna linia, a nieznany slug
+# z URL-a nie ma jak dojechać do render_template.
+_PODZAKLADKI = {
+    'stanowiska': (_kontekst_stanowiska, 'components/reports/stations.html'),
+    'ludzie': (_kontekst_ludzie, 'components/reports/workers.html'),
+    'miks': (_kontekst_miks, 'components/reports/mix.html'),
+    'system': (_kontekst_system, 'components/reports/system.html'),
+}
+
+
+@api_bp.route('/reports/sub/<nazwa>')
+@login_required
+def reports_subtab(nazwa):
+    """
+    Fragment HTML jednej podzakładki Raportów.
+
+    Zwraca surowy text/html, nie kopertę JSON: markup widgetów jest renderowany
+    w Jinja (tabele, legendy, dane przez |tojson), a skrypty i tak muszą jechać
+    razem z nim — koperta niczego by nie uprościła, a doklejała martwe kilobajty.
+    Błąd jednej podzakładki kończy się jej własnym komunikatem, a nie wywaloną
+    całą zakładką (ten sam wzorzec co workers_tab_content).
+    """
+    wpis = _PODZAKLADKI.get(nazwa)
+    if wpis is None:
+        return (
+            '<div class="alert alert-warning">Nieznana podzakładka raportów.</div>',
+            404,
+        )
+
+    buduj_kontekst, szablon = wpis
+    try:
+        return render_template(szablon, **buduj_kontekst())
+    except Exception as e:
+        logger.error("Błąd podzakładki raportów", extra={
+            'user_id': current_user.id,
+            'podzakladka': nazwa,
+            'error': str(e),
+        })
+        return (
+            f'<div class="alert alert-danger">Błąd ładowania: {e}</div>',
+            500,
+        )

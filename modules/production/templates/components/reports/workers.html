@@ -1,0 +1,374 @@
+{# Podzakładka Raporty → LUDZIE.
+
+   Atrybucja eventów stanowiskowych do profili pracowników
+   (docs/worker-profiles-backend.md §7.2). Widget siedzi sam, bo odpowiada na
+   inne pytanie niż stanowiska — „kto", nie „gdzie".
+
+   Fragment nie ma i nie może mieć własnego bloku stylów: wchodzi do DOM przez
+   innerHTML, więc każdy taki blok zostawiałby po sobie kolejną kopię tych samych
+   reguł. Wygląd widgetów raportów siedzi w static/css/reports-tab.css. #}
+
+<!-- ════════════════════════════════════════════════════════════════════
+     Widget: Wydajność pracowników (atrybucja eventów stanowiskowych)
+     docs/worker-profiles-backend.md §7.2
+     ════════════════════════════════════════════════════════════════════ -->
+<div class="widget worker-output-widget">
+    <div class="widget-header">
+        <h4>
+            <i class="fas fa-id-badge me-2"></i>
+            Wydajność pracowników
+        </h4>
+        <div class="widget-controls">
+            <select id="wo-station-select" class="form-select form-select-sm">
+                <option value="all" selected>Wszystkie stanowiska</option>
+                {% for kod, nazwa in station_choices %}
+                <option value="{{ kod }}">{{ nazwa }}</option>
+                {% endfor %}
+            </select>
+            <select id="wo-preset-select" class="form-select form-select-sm" title="Zakres dat">
+                <option value="today">Dziś</option>
+                <option value="yesterday">Wczoraj</option>
+                <option value="7d" selected>Ostatnie 7 dni</option>
+                <option value="30d">Ostatnie 30 dni</option>
+                <option value="custom">Własny zakres</option>
+            </select>
+            <input type="date" id="wo-start-date" class="form-control form-control-sm" style="display: none;" title="Data od">
+            <input type="date" id="wo-end-date" class="form-control form-control-sm" style="display: none;" title="Data do">
+            <button id="wo-refresh-btn" class="btn btn-outline-primary btn-sm" title="Odśwież">
+                <i class="fas fa-sync-alt"></i>
+            </button>
+            <button id="wo-export-btn" class="btn btn-outline-secondary btn-sm" title="Pobierz XLSX">
+                <i class="fas fa-file-excel"></i>
+            </button>
+        </div>
+    </div>
+    <div class="widget-content">
+        <p class="wo-disclaimer">
+            <i class="fas fa-circle-info me-1"></i>
+            Wybór pracownika na tablecie nie jest chroniony hasłem, więc te liczby są
+            <strong>poglądowe</strong> — pokazują, kto zadeklarował pracę, a nie kto ją formalnie potwierdził.
+        </p>
+
+        <div class="wo-summary" id="wo-summary" style="display: none;">
+            <div class="wo-stat">
+                <span class="wo-stat-value" id="wo-sum-pieces">0</span>
+                <span class="wo-stat-label">wkład w sztukach</span>
+            </div>
+            <div class="wo-stat">
+                <span class="wo-stat-value" id="wo-sum-m3">0</span>
+                <span class="wo-stat-label">m³</span>
+            </div>
+            <div class="wo-stat">
+                <span class="wo-stat-value" id="wo-sum-hours">0</span>
+                <span class="wo-stat-label">godzin przypisanych</span>
+            </div>
+            <div class="wo-stat">
+                <span class="wo-stat-value" id="wo-sum-hours-all">0</span>
+                <span class="wo-stat-label">osobogodzin na hali</span>
+            </div>
+            <div class="wo-stat">
+                <span class="wo-stat-value" id="wo-sum-workers">0</span>
+                <span class="wo-stat-label">pracowników</span>
+            </div>
+            <div class="wo-stat" id="wo-coverage-box">
+                <span class="wo-stat-value" id="wo-coverage">—</span>
+                <span class="wo-stat-label">pokrycia atrybucją</span>
+            </div>
+        </div>
+
+        <div class="wo-loader" id="wo-loader" style="display: none;">
+            <i class="fas fa-spinner fa-spin me-2"></i>Liczę…
+        </div>
+
+        <div class="wo-empty" id="wo-empty" style="display: none;">
+            Brak zarejestrowanej pracy w wybranym zakresie.
+        </div>
+
+        <div class="wo-tables" id="wo-tables" style="display: none;">
+            <h5 class="wo-table-title">Podsumowanie okresu</h5>
+            <div class="wo-table-wrapper">
+                <table class="wo-table">
+                    <thead>
+                        <tr>
+                            <th>Pracownik</th>
+                            <th>Stanowiska</th>
+                            <th class="text-end" title="Praca zespołowa dzieli się po równo: dwie osoby przy 10 sztukach mają po 5. Stąd wartości ułamkowe.">
+                                Wkład (szt.) <i class="fas fa-circle-info wo-info-ikona"></i>
+                            </th>
+                            <th class="text-end">m³</th>
+                            <th class="text-end">Godziny</th>
+                            <th class="text-end">Tempo (m³/h)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="wo-totals-body"></tbody>
+                </table>
+            </div>
+
+            <h5 class="wo-table-title">Dzień po dniu</h5>
+            <div class="wo-table-wrapper">
+                <table class="wo-table">
+                    <thead>
+                        <tr>
+                            <th>Data</th>
+                            <th>Pracownik</th>
+                            <th>Stanowisko</th>
+                            <th class="text-end">Wkład (szt.)</th>
+                            <th class="text-end">m³</th>
+                        </tr>
+                    </thead>
+                    <tbody id="wo-rows-body"></tbody>
+                </table>
+                <div class="wo-pagination" id="wo-pagination" style="display: none;">
+                    <div class="wo-pagination-info" id="wo-pagination-info"></div>
+                    <div class="wo-pagination-controls" id="wo-pagination-controls"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// IIFE izoluje deklaracje fragmentu. executeInlineScripts() klonuje <script>
+// i podmienia węzeł, więc kod leci w scope globalnym i wykonuje się od nowa
+// przy każdym przeładowaniu zakładki — bez IIFE drugie wejście wywala się na
+// "duplicate declaration" i zabija cały fragment.
+(function () {
+const root = document.getElementById('reports-sub-pane-ludzie');
+const wspolne = window.ReportsShared;
+if (!root || !wspolne) return;
+
+// Funkcje używane przez więcej niż jeden fragment mieszkają w szkielecie —
+// każdy fragment ma własny scope i to jest jedyny most między nimi.
+const { escapeHtml, soResolveRange, computeSoPageList, toastRaportu } = wspolne;
+
+// Szukamy po własnym panelu, nie po document. Dzięki temu id-ki są lokalne dla
+// fragmentu naprawdę, a nie umownie: panele sąsiadów zostają w DOM (tylko
+// schowane), więc globalne getElementById potrafiłoby sięgnąć do cudzego markupu.
+const el = (id) => root.querySelector('#' + id);
+const els = (sel) => root.querySelectorAll(sel);
+
+// ════════════════════════════════════════════════════════════════════
+// Widget: Wydajność pracowników (§7.2)
+// Zakres dat liczymy tą samą funkcją co widget stanowisk (soResolveRange),
+// żeby oba widgety rozumiały presety identycznie.
+// ════════════════════════════════════════════════════════════════════
+// Stan paginacji rozbicia dziennego. 15 wierszy na stronę, nie 10 jak
+// w widgecie stanowiskowym: tam wiersz to pozycja produkcyjna z opisem,
+// tutaj jedna linijka liczb, więc mieści się gęściej bez zmęczenia oka.
+const WO_ROZMIAR_STRONY = 15;
+let woWiersze = [];
+let woStrona = 1;
+
+function woRenderujStrone() {
+    const tbody = el('wo-rows-body');
+    const paginacja = el('wo-pagination');
+    if (!tbody) return;
+
+    const razem = woWiersze.length;
+    const stron = Math.max(1, Math.ceil(razem / WO_ROZMIAR_STRONY));
+    if (woStrona > stron) woStrona = stron;
+    if (woStrona < 1) woStrona = 1;
+
+    const od = (woStrona - 1) * WO_ROZMIAR_STRONY;
+    const do_ = Math.min(od + WO_ROZMIAR_STRONY, razem);
+
+    tbody.innerHTML = woWiersze.slice(od, do_).map(w => `
+        <tr${w.worker_name === 'Nieprzypisane' ? ' class="wo-unassigned"' : ''}>
+            <td>${escapeHtml(w.work_date)}</td>
+            <td>${escapeHtml(w.worker_name)}</td>
+            <td>${escapeHtml(w.station_label)}</td>
+            <td class="text-end">${w.pieces}</td>
+            <td class="text-end">${w.m3}</td>
+        </tr>`).join('');
+
+    if (!paginacja) return;
+    if (stron <= 1) {
+        paginacja.style.display = 'none';
+        return;
+    }
+    paginacja.style.display = 'flex';
+    woRenderujKontrolki(stron, razem, od, do_);
+}
+
+function woRenderujKontrolki(stron, razem, od, do_) {
+    const info = el('wo-pagination-info');
+    const kontrolki = el('wo-pagination-controls');
+    if (!info || !kontrolki) return;
+
+    info.textContent = `${od + 1}–${do_} z ${razem} wierszy`;
+
+    // computeSoPageList jest wspólne z widgetem stanowiskowym — ta sama
+    // logika elips (1 … 4 5 6 … 12), więc obie paginacje zachowują się tak samo.
+    const strony = computeSoPageList(woStrona, stron);
+    const czesci = [`<button type="button" data-act="prev" ${woStrona === 1 ? 'disabled' : ''} title="Poprzednia">‹</button>`];
+    for (const s of strony) {
+        czesci.push(s === '…'
+            ? '<span class="so-page-ellipsis">…</span>'
+            : `<button type="button" data-page="${s}" class="${s === woStrona ? 'active' : ''}">${s}</button>`);
+    }
+    czesci.push(`<button type="button" data-act="next" ${woStrona === stron ? 'disabled' : ''} title="Następna">›</button>`);
+    kontrolki.innerHTML = czesci.join('');
+
+    kontrolki.querySelectorAll('button').forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (btn.dataset.act === 'prev' && woStrona > 1) {
+                woStrona -= 1;
+            } else if (btn.dataset.act === 'next' && woStrona < stron) {
+                woStrona += 1;
+            } else if (btn.dataset.page) {
+                const s = parseInt(btn.dataset.page, 10);
+                if (isNaN(s) || s === woStrona) return;
+                woStrona = s;
+            } else {
+                return;
+            }
+            woRenderujStrone();
+        });
+    });
+}
+
+function woBuildQuery() {
+    const preset = el('wo-preset-select').value;
+    const zakres = soResolveRange(
+        preset,
+        el('wo-start-date'),
+        el('wo-end-date')
+    );
+    if (!zakres) {
+        throw new Error('Uzupełnij obie daty zakresu');
+    }
+    const stanowisko = el('wo-station-select').value;
+    return `start_date=${zakres.start}&end_date=${zakres.end}&station=${stanowisko}`;
+}
+
+function woPokaz(id, widoczny) {
+    const pole = el(id);
+    if (pole) pole.style.display = widoczny ? '' : 'none';
+}
+
+async function woLoad() {
+    woPokaz('wo-loader', true);
+    woPokaz('wo-empty', false);
+    woPokaz('wo-tables', false);
+    woPokaz('wo-summary', false);
+
+    try {
+        const odp = await fetch(`/production/api/reports/worker-output?${woBuildQuery()}`, {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        });
+        const dane = await odp.json();
+        if (!odp.ok || !dane.success) {
+            throw new Error(dane.error || `HTTP ${odp.status}`);
+        }
+        woRender(dane.report);
+    } catch (e) {
+        console.error('[Reports] Wydajność pracowników:', e);
+        const pusty = el('wo-empty');
+        if (pusty) pusty.textContent = `Nie udało się pobrać danych: ${e.message}`;
+        woPokaz('wo-empty', true);
+    } finally {
+        woPokaz('wo-loader', false);
+    }
+}
+
+function woRender(raport) {
+    const p = raport.summary;
+
+    el('wo-sum-pieces').textContent = p.pieces;
+    el('wo-sum-m3').textContent = p.m3;
+    el('wo-sum-hours').textContent = p.hours;
+    el('wo-sum-hours-all').textContent = p.session_hours_all;
+    el('wo-sum-workers').textContent = p.workers_count;
+    el('wo-coverage').textContent =
+        p.attribution_coverage_pct === null ? '—' : `${p.attribution_coverage_pct}%`;
+
+    // Niepełne pokrycie to sygnał, że część roboty poszła bez wyboru profilu.
+    const boxPokrycia = el('wo-coverage-box');
+    boxPokrycia.classList.toggle('wo-stat-warning',
+        p.attribution_coverage_pct !== null && p.attribution_coverage_pct < 100);
+
+    // escapeHtml na nazwiskach i stanowiskach: imię i nazwisko wpisuje admin
+    // w zakładce Pracownicy, a serwis zapisuje je bez sanityzacji (sam .strip()).
+    // Bez tego wpis w polu "imię" wstrzykuje skrypt każdemu, kto otworzy Raporty —
+    // czyli w dół ról, bo zakładkę czyta każdy zalogowany, a nie tylko admin.
+    const totalsBody = el('wo-totals-body');
+    totalsBody.innerHTML = raport.worker_totals.map(w => `
+        <tr>
+            <td>${escapeHtml(w.worker_name)}</td>
+            <td class="wo-muted">${escapeHtml(w.stations.join(', '))}</td>
+            <td class="text-end">${w.pieces}</td>
+            <td class="text-end">${w.m3}</td>
+            <td class="text-end">${w.hours || '—'}</td>
+            <td class="text-end">${w.pace_m3_per_hour === null ? '—' : w.pace_m3_per_hour}</td>
+        </tr>`).join('');
+
+    // != 0, nie > 0: korekty z panelu mają ujemną deltę, więc ujemna reszta
+    // nieprzypisana też musi być widoczna zamiast po cichu znikać.
+    if (p.unassigned_pieces !== 0) {
+        totalsBody.insertAdjacentHTML('beforeend', `
+            <tr class="wo-unassigned">
+                <td><i class="fas fa-question-circle me-1"></i>Nieprzypisane</td>
+                <td class="wo-muted">praca bez wybranego profilu</td>
+                <td class="text-end">${p.unassigned_pieces}</td>
+                <td class="text-end">${p.unassigned_m3}</td>
+                <td class="text-end">—</td>
+                <td class="text-end">—</td>
+            </tr>`);
+    }
+
+    // Rozbicie dzienne to iloczyn pracownik × dzień × stanowisko — przy
+    // miesięcznym zakresie robi się z tego kilkaset wierszy. Trzymamy je
+    // w stanie i pokazujemy stronami, tym samym mechanizmem co widget
+    // stanowiskowy (patrz renderSoItemsPage / computeSoPageList).
+    woWiersze = raport.rows.concat(raport.unassigned.map(u => Object.assign(
+        {}, u, { worker_name: 'Nieprzypisane' })));
+    woWiersze.sort((a, b) => (b.work_date || '').localeCompare(a.work_date || ''));
+    woStrona = 1;
+    woRenderujStrone();
+
+    const cokolwiek = raport.worker_totals.length > 0 || p.unassigned_pieces > 0;
+    woPokaz('wo-summary', true);
+    woPokaz('wo-tables', cokolwiek);
+    woPokaz('wo-empty', !cokolwiek);
+}
+
+function initWorkerOutputWidget() {
+    const presetSelect = el('wo-preset-select');
+    if (!presetSelect) return;
+
+    const startEl = el('wo-start-date');
+    const endEl = el('wo-end-date');
+
+    presetSelect.addEventListener('change', () => {
+        const wlasny = presetSelect.value === 'custom';
+        startEl.style.display = wlasny ? '' : 'none';
+        endEl.style.display = wlasny ? '' : 'none';
+        if (!wlasny) woLoad();
+    });
+
+    el('wo-station-select').addEventListener('change', woLoad);
+    el('wo-refresh-btn').addEventListener('click', woLoad);
+    startEl.addEventListener('change', woLoad);
+    endEl.addEventListener('change', woLoad);
+
+    el('wo-export-btn').addEventListener('click', () => {
+        // try/catch, bo soResolveRange zwraca null przy presecie "własny zakres"
+        // z niewypełnionym drugim polem — bez tego przycisk po prostu cicho
+        // nie działał i nikt nie wiedział dlaczego.
+        try {
+            window.location = `/production/api/reports/worker-output?${woBuildQuery()}&format=xlsx`;
+        } catch (e) {
+            toastRaportu('Uzupełnij obie daty zakresu, żeby pobrać plik');
+        }
+    });
+
+    woLoad();
+}
+
+// Init synchronicznie na końcu fragmentu, bez setTimeout: executeInlineScripts
+// podmienia węzeł przez replaceChild, czyli wykonuje ten skrypt dopiero po
+// wstawieniu markupu do DOM. Czekanie na cokolwiek byłoby wyścigiem, nie
+// ostrożnością.
+initWorkerOutputWidget();
+})();
+</script>

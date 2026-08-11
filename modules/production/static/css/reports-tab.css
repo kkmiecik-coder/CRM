@@ -1,0 +1,778 @@
+/* ==========================================================================
+   Zakladka Raporty panelu produkcji.
+
+   Style siedzialy wczesniej w dwoch blokach <style> wewnatrz
+   components/reports-tab-content.html. Szablon jest wstrzykiwany przez
+   innerHTML przy kazdym wejsciu na zakladke, wiec te same reguly ladowaly
+   sie do DOM w kolko, a po rozbiciu na podzakladki kazdy fragment wnosilby
+   wlasna kopie. Tutaj sa raz i sa jednym zrodlem wygladu dla wszystkich
+   widgetow raportow oraz nawigacji podzakladek.
+   ========================================================================== */
+
+/* ═══ REPORTS TAB — Industrial Light Design System ═══ */
+#reports-tab-wrapper {
+    padding: 16px 14px;
+}
+
+/* ─── Nawigacja podzakladek ───
+   Wyglad dziedziczy po pasku zakladek glownych (production-panel.css:
+   .production-tabs-bar .nav-link) i po naglowkach widgetow: ten sam monospace
+   uppercase i ten sam kolor nieaktywnego co h4 widgetu. Stan aktywny 1:1 jak
+   w pasku zakladek glownych (--production-primary + 2px podkreslenia) — to samo
+   ma znaczyc to samo. Cienszy jest sam pasek (1px zamiast 2px), bo to
+   nawigacja drugiego poziomu. */
+.reports-subnav {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    flex-wrap: wrap;
+    border-bottom: 1px solid var(--il-border, #c8cdd5);
+    margin-bottom: 16px;
+}
+
+.reports-subnav-btn {
+    border: none;
+    background: transparent;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    padding: 8px 16px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--il-text-secondary, #7a8291);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color 0.15s, border-color 0.15s;
+}
+
+.reports-subnav-btn:hover {
+    color: var(--production-primary, #2c5530);
+    border-bottom-color: var(--il-border, #c8cdd5);
+}
+
+.reports-subnav-btn.active {
+    color: var(--production-primary, #2c5530);
+    border-bottom-color: var(--production-primary, #2c5530);
+}
+
+/* Panel podzakladki jest chowany, nie usuwany — powrot ma nie kosztowac
+   ani jednego zapytania, a wykresy Chart.js maja przezyc przelaczenie. */
+.reports-sub-pane[hidden] {
+    display: none;
+}
+
+.reports-sub-loading {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 24px 14px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--il-text-secondary, #7a8291);
+}
+
+/* ─── KPI Summary Row ─── */
+.reports-summary-row {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 16px;
+    align-items: stretch;
+}
+
+.summary-export {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 100px;
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    padding: 10px 14px;
+}
+
+.summary-export .summary-label {
+    text-align: center;
+}
+
+@media (max-width: 768px) {
+    .reports-summary-row {
+        flex-wrap: wrap;
+    }
+    .reports-summary-row .summary-card,
+    .reports-summary-row .summary-export {
+        flex: 1 1 calc(50% - 6px);
+        min-width: 140px;
+    }
+}
+
+.summary-card {
+    flex: 1;
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    box-shadow: none;
+}
+
+.summary-icon {
+    font-size: 1.6rem;
+    opacity: 0.8;
+}
+
+.summary-data {
+    flex: 1;
+}
+
+.summary-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--il-text-primary, #1a1a2e);
+    line-height: 1.2;
+}
+
+.summary-label {
+    font-size: 11px;
+    color: var(--il-text-secondary, #7a8291);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-top: 2px;
+}
+
+/* ─── Widget Base ─── */
+.performance-widget,
+.status-breakdown-widget,
+.analytics-widget,
+.sync-history-widget {
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    overflow: hidden;
+    box-shadow: none;
+}
+
+.performance-widget:hover,
+.status-breakdown-widget:hover,
+.analytics-widget:hover,
+.sync-history-widget:hover {
+    box-shadow: none;
+}
+
+/* Naglowek, tytul i tresc widgetu: JEDNA lista selektorow na wszystkie szesc
+   widgetow raportow. Wczesniej ta sama regula istniala w dwoch kopiach (widgety
+   "stare" i widgety stanowiskowe) i wystarczylo poprawic jedna, zeby nowy widget
+   zaczal odstawac od reszty panelu. */
+.performance-widget .widget-header,
+.status-breakdown-widget .widget-header,
+.analytics-widget .widget-header,
+.sync-history-widget .widget-header,
+.station-output-widget .widget-header,
+.worker-output-widget .widget-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+    border-bottom: 2px solid var(--il-bg-base, #eef0f4);
+}
+
+/* Widgety z paskiem kontrolek (select stanowiska, daty) lamia naglowek na
+   waskim ekranie, zeby kontrolki nie wyjechaly poza kafelek. */
+.performance-widget .widget-header,
+.station-output-widget .widget-header,
+.worker-output-widget .widget-header {
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.performance-widget .widget-header h4,
+.status-breakdown-widget .widget-header h4,
+.analytics-widget .widget-header h4,
+.sync-history-widget .widget-header h4,
+.station-output-widget .widget-header h4,
+.worker-output-widget .widget-header h4 {
+    margin: 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--il-text-secondary, #7a8291);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+}
+
+.performance-widget .widget-content,
+.status-breakdown-widget .widget-content,
+.analytics-widget .widget-content,
+.sync-history-widget .widget-content,
+.station-output-widget .widget-content,
+.worker-output-widget .widget-content {
+    padding: 14px;
+}
+
+/* ─── Chart Wrapper ─── */
+.chart-wrapper {
+    position: relative;
+    min-height: 250px;
+}
+
+/* ─── Performance Widget ─── */
+.performance-widget {
+    margin-bottom: 16px;
+}
+
+.performance-widget .widget-header h4 {
+    display: flex;
+    align-items: center;
+}
+
+.performance-widget .chart-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.performance-widget .chart-controls .form-select {
+    width: auto;
+    min-width: 110px;
+    font-size: 12px;
+    padding: 4px 28px 4px 8px;
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    background-color: var(--il-bg-card, #fff);
+    color: var(--il-text-primary, #1a1a2e);
+}
+
+.performance-widget .chart-controls .form-select:focus {
+    border-color: var(--il-status-info, #2563eb);
+    box-shadow: none;
+    outline: none;
+}
+
+.performance-widget .chart-controls .btn {
+    padding: 4px 8px;
+    font-size: 12px;
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    color: var(--il-text-secondary, #7a8291);
+    background: var(--il-bg-card, #fff);
+}
+
+.performance-widget .chart-controls .btn:hover {
+    color: var(--il-status-info, #2563eb);
+    border-color: var(--il-status-info, #2563eb);
+}
+
+.performance-widget .chart-wrapper {
+    height: 350px;
+    min-height: 350px;
+    position: relative;
+}
+
+.performance-widget .chart-wrapper canvas {
+    width: 100% !important;
+    height: 100% !important;
+}
+
+.performance-widget .chart-loader {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.92);
+    padding: 16px;
+    border-radius: var(--il-radius, 3px);
+    z-index: 10;
+    font-size: 13px;
+    color: var(--il-text-secondary, #7a8291);
+}
+
+/* ─── Summary Card (inside performance widget) ─── */
+#reports-chart-summary .card {
+    border: 1px solid var(--il-border-light, #e2e5ea);
+    border-radius: var(--il-radius, 3px);
+    box-shadow: none;
+}
+
+#reports-chart-summary .card-header {
+    background: var(--il-bg-base, #eef0f4);
+    border-bottom: 1px solid var(--il-border-light, #e2e5ea);
+    padding: 8px 14px;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--il-text-secondary, #7a8291);
+}
+
+#reports-chart-summary .card-body {
+    padding: 8px 14px;
+}
+
+#reports-chart-summary .table {
+    font-size: 13px;
+    margin: 0;
+}
+
+/* ─── Analytics Charts Legend ─── */
+.chart-legend {
+    max-height: 180px;
+    overflow-y: auto;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 0;
+    font-size: 12px;
+    color: var(--il-text-primary, #1a1a2e);
+}
+
+.legend-item strong {
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.legend-color {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    flex-shrink: 0;
+}
+
+.analytics-widget h6 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--il-text-secondary, #7a8291);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+/* ─── Tables ─── */
+.status-breakdown-widget .table,
+.sync-history-widget .table {
+    font-size: 13px;
+    margin: 0;
+}
+
+.status-breakdown-widget .table th,
+.sync-history-widget .table th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--il-text-secondary, #7a8291);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 2px solid var(--il-bg-base, #eef0f4);
+    padding: 8px 10px;
+}
+
+.status-breakdown-widget .table td,
+.sync-history-widget .table td {
+    padding: 7px 10px;
+    color: var(--il-text-primary, #1a1a2e);
+    border-bottom: 3px solid var(--il-border, #c8cdd5);
+    vertical-align: middle;
+}
+
+.sync-history-widget .table-striped > tbody > tr:nth-of-type(odd) > td {
+    background-color: rgba(0, 0, 0, 0.015);
+}
+
+/* ─── Status Badges ─── */
+.status-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: 2px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+/* ─── Sync Widget Button ─── */
+.sync-history-widget .btn {
+    font-size: 12px;
+    padding: 4px 10px;
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    color: var(--il-text-secondary, #7a8291);
+    background: var(--il-bg-card, #fff);
+}
+
+.sync-history-widget .btn:hover {
+    color: var(--il-status-info, #2563eb);
+    border-color: var(--il-status-info, #2563eb);
+}
+
+/* ─── Species breakdown in status table ─── */
+.species-breakdown-cell {
+    padding: 0 !important;
+    vertical-align: top !important;
+}
+
+.species-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.species-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 2px 10px;
+    font-size: 11px;
+    border-bottom: 1px solid var(--il-bg-base, #eef0f4);
+}
+
+.species-row:last-child { border-bottom: none; }
+
+.species-row .species-name {
+    color: var(--il-text-primary, #1a1a2e);
+}
+
+.species-row .species-vol {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--il-text-secondary, #7a8291);
+    margin-left: 12px;
+    white-space: nowrap;
+}
+
+/* ─── Status breakdown layout: table left, charts right ─── */
+.status-breakdown-layout {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 16px;
+    align-items: start;
+}
+
+.status-breakdown-table {
+    min-width: 0;
+}
+
+.status-charts-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    overflow: hidden;
+    max-width: 320px;
+}
+
+.status-chart-card {
+    text-align: center;
+}
+
+.status-chart-card h6 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--il-text-secondary, #7a8291);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+}
+
+.status-chart-canvas {
+    position: relative;
+    height: 130px;
+    overflow: hidden;
+}
+
+.status-chart-canvas canvas {
+    max-width: 100% !important;
+    max-height: 100% !important;
+}
+
+@media (max-width: 900px) {
+    .status-breakdown-layout {
+        grid-template-columns: 1fr;
+    }
+    .status-charts-grid {
+        display: none;
+    }
+}
+
+@media (max-width: 600px) {
+    .status-charts-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ─── Spacing between widgets ─── */
+.widget.mt-4 {
+    margin-top: 16px !important;
+}
+
+.station-output-widget,
+.worker-output-widget {
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    margin-bottom: 16px;
+}
+.station-output-widget .widget-controls,
+.worker-output-widget .widget-controls {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+.station-output-widget .widget-controls .form-select,
+.station-output-widget .widget-controls .form-control,
+.worker-output-widget .widget-controls .form-select,
+.worker-output-widget .widget-controls .form-control {
+    width: auto;
+    font-size: 12px;
+    padding: 4px 8px;
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+}
+/* Bootstrap form-select renderuje strzalke v przez background-image —
+   trzeba zarezerwowac padding-right zeby tekst pod nia nie wchodzil. */
+.station-output-widget .widget-controls .form-select,
+.worker-output-widget .widget-controls .form-select {
+    padding-right: 28px;
+}
+.station-output-summary,
+.wo-summary {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+    padding: 8px 10px;
+    background: var(--il-bg-base, #eef0f4);
+    border-radius: var(--il-radius, 3px);
+    font-size: 12px;
+}
+.station-output-summary .so-stat,
+.wo-summary .wo-stat {
+    display: flex;
+    flex-direction: column;
+}
+.station-output-summary .so-stat-value,
+.wo-summary .wo-stat-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--il-text-primary, #1a1a2e);
+}
+.station-output-summary .so-stat-label,
+.wo-summary .wo-stat-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--il-text-secondary, #7a8291);
+}
+/* ─── Widget wydajności pracowników (§7.2) ─── */
+/* Wygląd dziedziczy po widgecie stanowiskowym — wspólne selektory wyżej.
+   Tutaj TYLKO to, czego tamten nie ma: zastrzeżenie o poglądowości danych,
+   ostrzeżenie o niepełnym pokryciu i wyróżnienie wiersza nieprzypisanych. */
+.wo-disclaimer {
+    font-size: 11px;
+    color: var(--il-text-secondary, #7a8291);
+    background: var(--il-bg-base, #eef0f4);
+    border-left: 3px solid var(--il-border, #c8cdd5);
+    padding: 8px 10px;
+    margin-bottom: 12px;
+}
+/* Pokrycie < 100% znaczy, że część roboty poszła bez wyboru profilu */
+.wo-stat-warning .wo-stat-value {
+    color: #b45309;
+}
+.wo-table-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--il-text-secondary, #7a8291);
+    margin: 14px 0 6px;
+}
+.wo-muted {
+    color: var(--il-text-secondary, #7a8291);
+    font-size: 11px;
+}
+.wo-unassigned td {
+    background: rgba(180, 83, 9, 0.06);
+    font-style: italic;
+}
+.wo-info-ikona {
+    color: var(--il-text-muted, #9ba3b0);
+    font-size: 9px;
+}
+/* Bez Bootstrapowego .table-responsive — ono dokłada własne marginesy,
+   których wzorcowy widget stanowiskowy nie ma. */
+.wo-table-wrapper {
+    overflow-x: auto;
+}
+
+.station-output-table,
+.wo-table {
+    width: 100%;
+    font-size: 13px;
+    border-collapse: collapse;
+}
+.station-output-table th,
+.wo-table th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--il-text-secondary, #7a8291);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 2px solid var(--il-bg-base, #eef0f4);
+    padding: 8px 10px;
+    text-align: left;
+}
+.station-output-table td,
+.wo-table td {
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--il-border-light, #e2e5ea);
+    vertical-align: middle;
+}
+.station-output-table .so-progress {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+}
+.station-output-table .so-delta-pos { color: #16a34a; font-weight: 600; }
+.station-output-table .so-delta-neg { color: #dc2626; font-weight: 600; }
+.station-output-empty,
+.wo-empty,
+.wo-loader {
+    padding: 20px;
+    text-align: center;
+    color: var(--il-text-secondary, #7a8291);
+    font-style: italic;
+}
+
+/* ─── Timeline chart (półgodzinne słupki) ─── */
+.so-timeline-wrapper {
+    margin-bottom: 12px;
+    padding: 10px 12px;
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border-light, #e2e5ea);
+    border-radius: var(--il-radius, 3px);
+}
+.so-timeline-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.so-timeline-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--il-text-secondary, #7a8291);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.so-mode-switch {
+    display: inline-flex;
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    overflow: hidden;
+}
+.so-mode-switch button {
+    background: var(--il-bg-card, #fff);
+    border: none;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--il-text-secondary, #7a8291);
+    cursor: pointer;
+    border-right: 1px solid var(--il-border, #c8cdd5);
+    transition: background 0.1s, color 0.1s;
+}
+.so-mode-switch button:last-child { border-right: none; }
+.so-mode-switch button:hover {
+    background: var(--il-bg-base, #eef0f4);
+}
+.so-mode-switch button.active {
+    background: var(--il-status-info, #2563eb);
+    color: #fff;
+    font-weight: 600;
+}
+.so-timeline-canvas-wrapper {
+    position: relative;
+    height: 200px;
+    width: 100%;
+}
+.so-timeline-empty {
+    text-align: center;
+    color: var(--il-text-secondary, #7a8291);
+    font-style: italic;
+    padding: 60px 0;
+    font-size: 12px;
+}
+
+/* ─── Paginacja tabeli ─── */
+.so-pagination,
+.wo-pagination {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 10px;
+    padding: 8px 4px;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.so-pagination-info,
+.wo-pagination-info {
+    font-size: 11px;
+    color: var(--il-text-secondary, #7a8291);
+    font-family: 'JetBrains Mono', monospace;
+}
+.so-pagination-controls,
+.wo-pagination-controls {
+    display: inline-flex;
+    gap: 2px;
+    align-items: center;
+}
+.so-pagination-controls button,
+.wo-pagination-controls button {
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    padding: 3px 9px;
+    font-size: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--il-text-secondary, #7a8291);
+    cursor: pointer;
+    min-width: 28px;
+}
+.so-pagination-controls button:hover:not(:disabled):not(.active),
+.wo-pagination-controls button:hover:not(:disabled):not(.active) {
+    background: var(--il-bg-base, #eef0f4);
+    color: var(--il-status-info, #2563eb);
+    border-color: var(--il-status-info, #2563eb);
+}
+.so-pagination-controls button.active,
+.wo-pagination-controls button.active {
+    background: var(--il-status-info, #2563eb);
+    color: #fff;
+    border-color: var(--il-status-info, #2563eb);
+    font-weight: 600;
+}
+.so-pagination-controls button:disabled,
+.wo-pagination-controls button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+.so-pagination-controls .so-page-ellipsis,
+.wo-pagination-controls .so-page-ellipsis {
+    padding: 0 4px;
+    color: var(--il-text-secondary, #7a8291);
+    font-size: 12px;
+}

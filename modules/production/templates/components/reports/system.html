@@ -1,0 +1,69 @@
+{# Podzakładka Raporty → SYSTEM.
+
+   Rzecz techniczna, oglądana raz na miesiąc — dokładnie to, co ma siedzieć za
+   zakładką, w którą nikt nie klika. Jedno zapytanie i tylko wtedy, gdy ktoś
+   tu wejdzie.
+
+   Fragment nie ma i nie może mieć własnego bloku stylów: wchodzi do DOM przez
+   innerHTML, więc każdy taki blok zostawiałby po sobie kolejną kopię tych samych
+   reguł. Wygląd widgetów raportów siedzi w static/css/reports-tab.css. #}
+
+<!-- Historia synchronizacji -->
+<div class="widget sync-history-widget">
+    <div class="widget-header">
+        <h4>Historia synchronizacji (ostatnie 10)</h4>
+        <button class="btn btn-outline-primary btn-sm" id="sync-history-refresh">
+            <i class="fas fa-sync-alt me-1"></i>Odśwież
+        </button>
+    </div>
+    <div class="widget-content">
+        <div class="table-responsive">
+            <table class="table table-sm table-striped">
+                <thead>
+                    <tr>
+                        <th>Data synchronizacji</th>
+                        <th>Status</th>
+                        <th>Przetworzono</th>
+                        <th>Czas trwania</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for sync in sync_history %}
+                    <tr>
+                        <td>
+                            {% set sync_date = sync['date'][:19] %}
+                            {{ sync_date.replace('T', ' ') }}
+                        </td>
+                        <td>
+                            <span class="badge {% if sync['status'] == 'completed' %}bg-success{% elif sync['status'] == 'error' %}bg-danger{% else %}bg-warning{% endif %}">
+                                {{ sync['status'].title() }}
+                            </span>
+                        </td>
+                        <td>{{ sync['items_processed'] }} elementów</td>
+                        <td>{{ sync['duration_seconds'] }}s</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+// IIFE — patrz komentarz w pozostałych fragmentach: executeInlineScripts()
+// wykonuje ten kod od nowa przy każdym przeładowaniu zakładki.
+(function () {
+const root = document.getElementById('reports-sub-pane-system');
+const wspolne = window.ReportsShared;
+if (!root || !wspolne) return;
+
+// Przeładowanie TEJ podzakładki, nie całej zakładki: historia synchronizacji to
+// jedno zapytanie, więc odświeżenie ma kosztować jedno zapytanie. Poprzednik
+// wołał window.loadTabContent, które nigdy nie istniało — przycisk rzucał
+// TypeError zamiast czegokolwiek odświeżyć.
+const przycisk = root.querySelector('#sync-history-refresh');
+if (przycisk) {
+    przycisk.addEventListener('click', () => wspolne.przeladujPodzakladke('system'));
+}
+})();
+</script>

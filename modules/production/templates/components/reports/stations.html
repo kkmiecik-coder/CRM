@@ -1,0 +1,1139 @@
+{# Podzakładka Raporty → STANOWISKA.
+
+   Oba widgety odpowiadają na to samo pytanie „gdzie się korkuje": pierwszy to
+   drill-down jednego dnia, drugi ten sam trend rozciągnięty na 30 dni. Oba są
+   kluczowane stanowiskiem i oba czytają tę samą definicję „zrobione", więc
+   rozdzielenie ich zrobiłoby dwie podzakładki na jedno pytanie.
+
+   Fragment nie ma i nie może mieć własnego bloku stylów: wchodzi do DOM przez
+   innerHTML, więc każdy taki blok zostawiałby po sobie kolejną kopię tych samych
+   reguł. Wygląd widgetów raportów siedzi w static/css/reports-tab.css. #}
+
+<!-- Wydajność stanowiska w wybranym dniu (event log z prod_station_events) -->
+
+<div class="widget station-output-widget">
+    <div class="widget-header">
+        <h4>
+            <i class="fas fa-clipboard-check me-2"></i>
+            Wykonanie stanowiska w dniu
+        </h4>
+        <div class="widget-controls">
+            <select id="so-station-select" class="form-select form-select-sm">
+                <option value="all">Wszystkie stanowiska</option>
+                {% for kod, nazwa in station_choices %}
+                <option value="{{ kod }}"{% if kod == 'packaging' %} selected{% endif %}>{{ nazwa }}</option>
+                {% endfor %}
+            </select>
+            <select id="so-preset-select" class="form-select form-select-sm" title="Zakres dat">
+                <option value="today" selected>Dziś</option>
+                <option value="yesterday">Wczoraj</option>
+                <option value="7d">Ostatnie 7 dni</option>
+                <option value="30d">Ostatnie 30 dni</option>
+                <option value="custom">Własny zakres</option>
+            </select>
+            <input type="date" id="so-start-date" class="form-control form-control-sm" style="display: none;" title="Data od">
+            <input type="date" id="so-end-date" class="form-control form-control-sm" style="display: none;" title="Data do">
+            <button id="so-refresh-btn" class="btn btn-outline-primary btn-sm" title="Odśwież">
+                <i class="fas fa-sync-alt"></i>
+            </button>
+        </div>
+    </div>
+    <div class="widget-content">
+        <!-- Timeline 24h co pół godziny -->
+        <div class="so-timeline-wrapper" id="so-timeline-wrapper" style="display: none;">
+            <div class="so-timeline-header">
+                <span class="so-timeline-title" id="so-timeline-title">
+                    <i class="fas fa-chart-bar me-1"></i>Aktywność 00:00–24:00 (co 30 min)
+                </span>
+                <div class="so-mode-switch" id="so-mode-switch">
+                    <button type="button" data-mode="pieces" class="active">Sztuki</button>
+                    <button type="button" data-mode="volume">m³</button>
+                    <button type="button" data-mode="both">Sztuki + m³</button>
+                </div>
+            </div>
+            <div class="so-timeline-canvas-wrapper">
+                <canvas id="so-timeline-chart"></canvas>
+            </div>
+            <div class="so-timeline-empty" id="so-timeline-empty" style="display: none;">
+                Brak operacji w wybranym zakresie.
+            </div>
+        </div>
+
+        <div class="station-output-summary" id="so-summary" style="display: none;">
+            <div class="so-stat">
+                <span class="so-stat-value" id="so-summary-items">0</span>
+                <span class="so-stat-label">Pozycje</span>
+            </div>
+            <div class="so-stat">
+                <span class="so-stat-value" id="so-summary-qty">0</span>
+                <span class="so-stat-label" id="so-summary-qty-label">Sztuki na koniec dnia</span>
+            </div>
+            <div class="so-stat">
+                <span class="so-stat-value" id="so-summary-delta">0</span>
+                <span class="so-stat-label" id="so-summary-delta-label">Ruch dnia</span>
+            </div>
+            <div class="so-stat">
+                <span class="so-stat-value" id="so-summary-volume">0.000</span>
+                <span class="so-stat-label" id="so-summary-volume-label">m³ wykonane (EOD)</span>
+            </div>
+            <div class="so-stat" id="so-summary-auto-box" style="display: none;"
+                 title="Sztuki, które system przeskoczył automatycznie — produkt nieprzycinany na wymiar omija formatowanie i wykańczanie. Nikt ich fizycznie nie wykonał, więc nie są wliczone w liczby obok.">
+                <span class="so-stat-value" id="so-summary-auto">0</span>
+                <span class="so-stat-label">pominięte automatycznie</span>
+            </div>
+        </div>
+        <div id="so-table-wrapper">
+            <div class="station-output-empty" id="so-empty-state">
+                Wybierz stanowisko i datę, aby zobaczyć wykonanie.
+            </div>
+            <div class="table-responsive" id="so-table-container" style="display: none;">
+                <table class="station-output-table">
+                    <thead>
+                        <tr>
+                            <th>BL #</th>
+                            <th>Produkt</th>
+                            <th id="so-col-station-label" style="display: none;">Stanowisko</th>
+                            <th id="so-col-eod-label">Wykonano (EOD)</th>
+                            <th id="so-col-delta-label">Ruch dnia</th>
+                            <th>m³ wykonane</th>
+                            <th>Gatunek / grubość</th>
+                            <th>Status</th>
+                            <th>Ostatni event</th>
+                        </tr>
+                    </thead>
+                    <tbody id="so-table-body"></tbody>
+                </table>
+                <div class="so-pagination" id="so-pagination" style="display: none;">
+                    <div class="so-pagination-info" id="so-pagination-info"></div>
+                    <div class="so-pagination-controls" id="so-pagination-controls"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Wykres wydajności dziennej per stanowisko (identyczny jak na Dashboard) -->
+<div class="widget performance-widget">
+    <div class="widget-header">
+        <h4>
+            <i class="fas fa-chart-line me-2"></i>
+            Wydajność dzienna
+        </h4>
+        <div class="chart-controls">
+            <select id="reports-chart-station-select" class="form-select form-select-sm" title="Wybierz stanowisko">
+                <option value="all" selected>Wszystkie stanowiska</option>
+                {% for kod, nazwa in station_choices %}
+                <option value="{{ kod }}">{{ nazwa }}</option>
+                {% endfor %}
+            </select>
+            <select id="reports-chart-period-select" class="form-select form-select-sm">
+                <option value="30" selected>30 dni</option>
+                <option value="90">3 miesiące</option>
+                <option value="180">6 miesięcy</option>
+                <option value="365">12 miesięcy</option>
+                <option value="custom">Własny przedział</option>
+            </select>
+            <input type="date" id="reports-chart-start-date" class="form-control form-control-sm" style="display: none; width: auto;" title="Data początkowa">
+            <input type="date" id="reports-chart-end-date" class="form-control form-control-sm" style="display: none; width: auto;" title="Data końcowa">
+            <button id="reports-chart-refresh-btn" class="btn btn-outline-primary btn-sm" title="Odśwież wykres">
+                <i class="fas fa-sync-alt"></i>
+            </button>
+        </div>
+    </div>
+    <div class="widget-content">
+        <div class="chart-wrapper" style="position: relative; height: 350px; width: 100%;">
+            <canvas id="reports-performance-chart"></canvas>
+        </div>
+        <div class="chart-loader" id="reports-chart-loader" style="display: none;">
+            <div class="spinner-border text-primary" role="status"></div>
+            <span class="ms-2">Ładowanie danych wykresu...</span>
+        </div>
+        <!-- Tabelka podsumowania - widoczna tylko dla pojedynczego stanowiska -->
+        <div id="reports-chart-summary" class="mt-3" style="display: none;">
+            <div class="card">
+                <div class="card-header py-2">
+                    <strong>Podsumowanie dla wybranego okresu</strong>
+                </div>
+                <div class="card-body py-2">
+                    <table class="table table-sm table-borderless mb-0">
+                        <tbody>
+                            <tr>
+                                <td style="width: 50%;"><span style="color: #007bff;">&#9632;</span> Objętość</td>
+                                <td class="text-end"><strong id="summary-volume">-</strong></td>
+                            </tr>
+                            <tr>
+                                <td><span style="color: #fd7e14;">&#9632;</span> Ilość produktów</td>
+                                <td class="text-end"><strong id="summary-quantity">-</strong></td>
+                            </tr>
+                            <tr>
+                                <td><span style="color: #28a745;">&#9632;</span> Wartość netto</td>
+                                <td class="text-end"><strong id="summary-value">-</strong></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// IIFE izoluje deklaracje fragmentu. executeInlineScripts() klonuje <script>
+// i podmienia węzeł, więc kod leci w scope globalnym i wykonuje się od nowa
+// przy każdym przeładowaniu zakładki — bez IIFE drugie wejście wywala się na
+// "duplicate declaration" i zabija cały fragment.
+(function () {
+const root = document.getElementById('reports-sub-pane-stanowiska');
+const wspolne = window.ReportsShared;
+if (!root || !wspolne) return;
+
+// Funkcje używane przez więcej niż jeden fragment mieszkają w szkielecie —
+// każdy fragment ma własny scope i to jest jedyny most między nimi.
+const { escapeHtml, soFormatLocalDate, soResolveRange, computeSoPageList, zniszczWykres } = wspolne;
+
+// Szukamy po własnym panelu, nie po document. Dzięki temu id-ki są lokalne dla
+// fragmentu naprawdę, a nie umownie: panele sąsiadów zostają w DOM (tylko
+// schowane), więc globalne getElementById potrafiłoby sięgnąć do cudzego markupu.
+const el = (id) => root.querySelector('#' + id);
+const els = (sel) => root.querySelectorAll(sel);
+
+// ════════════════════════════════════════════════════════════════════
+// Widget: Wykonanie stanowiska w dniu (event log)
+// ════════════════════════════════════════════════════════════════════
+const SO_STORAGE_KEY = 'production.reports.stationOutput';
+const SO_PAGE_SIZE = 10;
+
+// Stan widgetu
+let soCurrentItems = [];          // pełna lista z ostatniego loadu
+let soCurrentPage = 1;            // 1-based
+let soChartMode = 'pieces';       // 'pieces' | 'volume' | 'both'
+let soTimelineChart = null;       // instancja Chart.js
+let soCurrentTimeline = null;     // ostatnia odebrana struktura timeline
+let soIsAllStations = false;      // true gdy aktualnie wybrane 'Wszystkie stanowiska'
+
+function initStationOutputWidget() {
+    const stationSel = el('so-station-select');
+    const presetSel = el('so-preset-select');
+    const startInput = el('so-start-date');
+    const endInput = el('so-end-date');
+    const refreshBtn = el('so-refresh-btn');
+
+    if (!stationSel || !presetSel || !startInput || !endInput) return;
+
+    // Przywróć ostatni wybór z localStorage; fallback: dziś + packaging
+    const saved = (() => {
+        try { return JSON.parse(localStorage.getItem(SO_STORAGE_KEY) || '{}'); }
+        catch { return {}; }
+    })();
+
+    if (saved.station) {
+        stationSel.value = saved.station;
+    }
+
+    // Default daty dla custom: ostatnie 7 dni
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const weekAgo = new Date(today);
+    weekAgo.setDate(weekAgo.getDate() - 6);
+    startInput.value = saved.customStart || soFormatLocalDate(weekAgo);
+    endInput.value = saved.customEnd || soFormatLocalDate(today);
+
+    const validPresets = ['today', 'yesterday', '7d', '30d', 'custom'];
+    const presetValue = validPresets.includes(saved.preset) ? saved.preset : 'today';
+    presetSel.value = presetValue;
+    const isCustom = presetValue === 'custom';
+    startInput.style.display = isCustom ? '' : 'none';
+    endInput.style.display = isCustom ? '' : 'none';
+
+    if (saved.chartMode && ['pieces', 'volume', 'both'].includes(saved.chartMode)) {
+        soChartMode = saved.chartMode;
+    }
+    // Synchronizacja stanu przycisków trybu z odtworzoną wartością
+    els('#so-mode-switch button').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.mode === soChartMode);
+    });
+
+    const persist = () => {
+        try {
+            localStorage.setItem(SO_STORAGE_KEY, JSON.stringify({
+                station: stationSel.value,
+                preset: presetSel.value,
+                customStart: startInput.value,
+                customEnd: endInput.value,
+                chartMode: soChartMode,
+            }));
+        } catch { /* localStorage może być wyłączony — pomijamy */ }
+    };
+
+    const reload = () => {
+        const range = soResolveRange(presetSel.value, startInput, endInput);
+        if (!range) return; // np. custom bez wypełnionych dat
+        persist();
+        soCurrentPage = 1; // reset paginacji przy zmianie stanowiska/zakresu
+        loadStationOutput(stationSel.value, range.start, range.end);
+    };
+
+    stationSel.addEventListener('change', reload);
+    presetSel.addEventListener('change', () => {
+        const isCustomNow = presetSel.value === 'custom';
+        startInput.style.display = isCustomNow ? '' : 'none';
+        endInput.style.display = isCustomNow ? '' : 'none';
+        reload();
+    });
+    startInput.addEventListener('change', () => {
+        if (presetSel.value === 'custom') reload();
+    });
+    endInput.addEventListener('change', () => {
+        if (presetSel.value === 'custom') reload();
+    });
+    refreshBtn?.addEventListener('click', reload);
+
+    // Przełącznik trybu wykresu
+    els('#so-mode-switch button').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const mode = btn.dataset.mode;
+            if (!mode || mode === soChartMode) return;
+            soChartMode = mode;
+            els('#so-mode-switch button').forEach(b => {
+                b.classList.toggle('active', b.dataset.mode === mode);
+            });
+            persist();
+            // Re-render wykresu bez nowego requestu
+            if (soCurrentTimeline) renderSoTimeline(soCurrentTimeline);
+        });
+    });
+
+    // Wstępne ładowanie
+    const range = soResolveRange(presetSel.value, startInput, endInput);
+    if (range) {
+        loadStationOutput(stationSel.value, range.start, range.end);
+    }
+}
+
+async function loadStationOutput(station, startDate, endDate) {
+    const tableContainer = el('so-table-container');
+    const emptyState = el('so-empty-state');
+    const summary = el('so-summary');
+    const tbody = el('so-table-body');
+    const timelineWrapper = el('so-timeline-wrapper');
+    const pagination = el('so-pagination');
+
+    if (!tableContainer || !tbody) return;
+
+    // Loading
+    emptyState.textContent = 'Ładowanie...';
+    emptyState.style.display = 'block';
+    tableContainer.style.display = 'none';
+    summary.style.display = 'none';
+    if (pagination) pagination.style.display = 'none';
+
+    try {
+        const url = `/production/api/reports/station-output`
+            + `?station=${encodeURIComponent(station)}`
+            + `&start_date=${encodeURIComponent(startDate)}`
+            + `&end_date=${encodeURIComponent(endDate)}`;
+        const resp = await fetch(url);
+        const data = await resp.json();
+
+        if (!data.success) {
+            emptyState.textContent = 'Błąd: ' + (data.error || 'nieznany');
+            if (timelineWrapper) timelineWrapper.style.display = 'none';
+            soCurrentItems = [];
+            soCurrentTimeline = null;
+            return;
+        }
+
+        // Etykieta zakresu do komunikatów / labelek
+        const daysCount = data.days_count || 1;
+        const rangeLabel = daysCount === 1
+            ? data.start_date
+            : `${data.start_date} – ${data.end_date} (${daysCount} dni)`;
+
+        // Tryb wszystkie-stanowiska propagujemy do renderera tabeli
+        soIsAllStations = !!data.is_all_stations;
+
+        // Aktualizuj nagłówki kolumn / labelki summary
+        soUpdateRangeLabels(daysCount);
+        soUpdateStationColumn(soIsAllStations);
+
+        // Timeline pokazujemy zawsze gdy mamy strukturę (nawet pusty zakres
+        // — wtedy widać 24h pustej siatki + komunikat).
+        soCurrentTimeline = data.timeline || null;
+        if (soCurrentTimeline && timelineWrapper) {
+            timelineWrapper.style.display = 'block';
+            renderSoTimeline(soCurrentTimeline);
+        } else if (timelineWrapper) {
+            timelineWrapper.style.display = 'none';
+        }
+
+        if (!data.items || data.items.length === 0) {
+            emptyState.textContent = `Brak operacji na stanowisku "${data.station_label}" w zakresie ${rangeLabel}.`;
+            soCurrentItems = [];
+            return;
+        }
+
+        // Render summary
+        el('so-summary-items').textContent = data.summary.items_count;
+        el('so-summary-qty').textContent = data.summary.total_quantity_done_eod + ' szt.';
+        const deltaEl = el('so-summary-delta');
+        const delta = data.summary.total_day_delta;
+        deltaEl.textContent = (delta >= 0 ? '+' : '') + delta + ' szt.';
+        deltaEl.style.color = delta >= 0 ? '#16a34a' : '#dc2626';
+        el('so-summary-volume').textContent =
+            data.summary.total_volume_done_eod_m3.toFixed(3) + ' m³';
+
+        // Kafelek pojawia się tylko wtedy, gdy automat faktycznie coś przeskoczył —
+        // przy większości stanowisk będzie zawsze ukryty i nie zaśmieci widoku.
+        const pominiete = data.summary.auto_skipped_pieces || 0;
+        el('so-summary-auto').textContent = pominiete + ' szt.';
+        el('so-summary-auto-box').style.display =
+            pominiete ? '' : 'none';
+
+        // Zapis stanu do paginacji + render strony 1
+        soCurrentItems = data.items;
+        soCurrentPage = 1;
+        renderSoItemsPage();
+
+        emptyState.style.display = 'none';
+        tableContainer.style.display = 'block';
+        summary.style.display = 'flex';
+
+    } catch (err) {
+        console.error('[Station Output] Load error:', err);
+        emptyState.textContent = 'Błąd połączenia: ' + err.message;
+        if (timelineWrapper) timelineWrapper.style.display = 'none';
+        soCurrentItems = [];
+        soCurrentTimeline = null;
+    }
+}
+
+// Pokaż/ukryj kolumnę "Stanowisko" w nagłówku tabeli.
+// Komórki w wierszach są dodawane/pomijane przez renderSoItemRow().
+function soUpdateStationColumn(isAll) {
+    const colHeader = el('so-col-station-label');
+    if (colHeader) colHeader.style.display = isAll ? '' : 'none';
+}
+
+// Aktualizuje labelki summary i nagłówki kolumn tabeli w zależności od liczby dni.
+function soUpdateRangeLabels(daysCount) {
+    const isRange = daysCount > 1;
+
+    const titleEl = el('so-timeline-title');
+    if (titleEl) {
+        titleEl.innerHTML = isRange
+            ? `<i class="fas fa-chart-bar me-1"></i>Aktywność 00:00–24:00 — średnia dzienna (co 30 min, ${daysCount} dni)`
+            : `<i class="fas fa-chart-bar me-1"></i>Aktywność 00:00–24:00 (co 30 min)`;
+    }
+
+    const qtyLabel = el('so-summary-qty-label');
+    if (qtyLabel) qtyLabel.textContent = isRange ? 'Sztuki na koniec zakresu' : 'Sztuki na koniec dnia';
+
+    const deltaLabel = el('so-summary-delta-label');
+    if (deltaLabel) deltaLabel.textContent = isRange ? 'Ruch w zakresie' : 'Ruch dnia';
+
+    const volLabel = el('so-summary-volume-label');
+    if (volLabel) volLabel.textContent = isRange ? 'm³ wykonane (koniec zakresu)' : 'm³ wykonane (EOD)';
+
+    const colEod = el('so-col-eod-label');
+    if (colEod) colEod.textContent = isRange ? 'Wykonano (koniec zakresu)' : 'Wykonano (EOD)';
+
+    const colDelta = el('so-col-delta-label');
+    if (colDelta) colDelta.textContent = isRange ? 'Ruch w zakresie' : 'Ruch dnia';
+}
+
+function renderSoItemRow(it) {
+    const deltaClass = it.day_delta_sum >= 0 ? 'so-delta-pos' : 'so-delta-neg';
+    const deltaSign = it.day_delta_sum >= 0 ? '+' : '';
+    const woodMeta = [
+        it.wood_species || '—',
+        it.thickness_cm ? it.thickness_cm.toFixed(1) + ' cm' : ''
+    ].filter(Boolean).join(' · ');
+    const lastEvent = it.last_event_at
+        ? new Date(it.last_event_at).toLocaleTimeString('pl-PL', {hour: '2-digit', minute: '2-digit'})
+        : '—';
+    const status = (it.current_status || '').replace('czeka_na_', '').replace(/_/g, ' ');
+
+    // Dodatkowa komórka "Stanowisko" tylko w trybie 'Wszystkie'
+    const stationCell = soIsAllStations
+        ? `<td style="font-size: 12px;">${escapeHtml(it.station_label || it.station_code || '—')}</td>`
+        : '';
+
+    return `
+        <tr>
+            <td><strong>${it.baselinker_order_id || '—'}</strong></td>
+            <td>
+                <div style="font-size: 13px;">${escapeHtml(it.product_name || '—')}</div>
+                <div style="font-size: 10px; color: var(--il-text-secondary, #7a8291); font-family: monospace;">${escapeHtml(it.short_product_id || '')}</div>
+            </td>
+            ${stationCell}
+            <td class="so-progress">${it.quantity_done_eod} / ${it.quantity}</td>
+            <td class="${deltaClass}">${deltaSign}${it.day_delta_sum}</td>
+            <td>${it.volume_done_eod_m3.toFixed(3)}</td>
+            <td style="font-size: 12px;">${escapeHtml(woodMeta)}</td>
+            <td><span class="status-badge" style="background: var(--il-bg-base, #eef0f4); padding: 2px 6px; font-size: 10px;">${escapeHtml(status)}</span></td>
+            <td style="font-family: monospace; font-size: 11px;">${lastEvent}</td>
+        </tr>
+    `;
+}
+
+function renderSoItemsPage() {
+    const tbody = el('so-table-body');
+    const pagination = el('so-pagination');
+    if (!tbody) return;
+
+    const total = soCurrentItems.length;
+    const totalPages = Math.max(1, Math.ceil(total / SO_PAGE_SIZE));
+
+    // Walidacja zakresu (np. po przerysowaniu)
+    if (soCurrentPage > totalPages) soCurrentPage = totalPages;
+    if (soCurrentPage < 1) soCurrentPage = 1;
+
+    const start = (soCurrentPage - 1) * SO_PAGE_SIZE;
+    const end = Math.min(start + SO_PAGE_SIZE, total);
+    const slice = soCurrentItems.slice(start, end);
+
+    tbody.innerHTML = slice.map(renderSoItemRow).join('');
+
+    // Renderuj kontrolki paginacji tylko gdy >1 strona
+    if (!pagination) return;
+    if (totalPages <= 1) {
+        pagination.style.display = 'none';
+    } else {
+        pagination.style.display = 'flex';
+        renderSoPaginationControls(totalPages, total, start, end);
+    }
+}
+
+function renderSoPaginationControls(totalPages, total, start, end) {
+    const info = el('so-pagination-info');
+    const controls = el('so-pagination-controls');
+    if (!info || !controls) return;
+
+    info.textContent = `${start + 1}–${end} z ${total} pozycji`;
+
+    // Buduje listę numerów stron z elipsami: 1 ... 4 5 6 ... 12
+    const pages = computeSoPageList(soCurrentPage, totalPages);
+    const parts = [];
+    parts.push(`<button type="button" data-act="prev" ${soCurrentPage === 1 ? 'disabled' : ''} title="Poprzednia">‹</button>`);
+    for (const p of pages) {
+        if (p === '…') {
+            parts.push('<span class="so-page-ellipsis">…</span>');
+        } else {
+            const active = p === soCurrentPage ? 'active' : '';
+            parts.push(`<button type="button" data-page="${p}" class="${active}">${p}</button>`);
+        }
+    }
+    parts.push(`<button type="button" data-act="next" ${soCurrentPage === totalPages ? 'disabled' : ''} title="Następna">›</button>`);
+    controls.innerHTML = parts.join('');
+
+    // Bindowanie zdarzeń (delegacja prosto na kontenerze)
+    controls.querySelectorAll('button').forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (btn.dataset.act === 'prev' && soCurrentPage > 1) {
+                soCurrentPage -= 1;
+                renderSoItemsPage();
+            } else if (btn.dataset.act === 'next' && soCurrentPage < totalPages) {
+                soCurrentPage += 1;
+                renderSoItemsPage();
+            } else if (btn.dataset.page) {
+                const p = parseInt(btn.dataset.page, 10);
+                if (!isNaN(p) && p !== soCurrentPage) {
+                    soCurrentPage = p;
+                    renderSoItemsPage();
+                }
+            }
+        });
+    });
+}
+
+
+function renderSoTimeline(timeline) {
+    const canvas = el('so-timeline-chart');
+    const empty = el('so-timeline-empty');
+    // canvasWrapper = .so-timeline-canvas-wrapper (siostrzany do empty),
+    // NIE zewnętrzny #so-timeline-wrapper.
+    const canvasWrapper = canvas?.parentElement;
+    if (!canvas) return;
+
+    if (typeof Chart === 'undefined') {
+        // Spróbuj jeszcze raz po krótkiej chwili — Chart.js bywa ładowany async
+        setTimeout(() => renderSoTimeline(timeline), 100);
+        return;
+    }
+
+    const labels = timeline.buckets || [];
+    const piecesRaw = timeline.pieces || [];
+    const volumeRaw = timeline.volume_m3 || [];
+    const daysCount = Math.max(1, timeline.days_count || 1);
+    const isAvg = daysCount > 1;
+
+    // Dla zakresu >1 dnia: średnia dzienna per bucket (sum / days_count).
+    // Dla 1 dnia: surowa suma (== średnia/1).
+    const pieces = isAvg
+        ? piecesRaw.map(v => v / daysCount)
+        : piecesRaw.slice();
+    const volume = isAvg
+        ? volumeRaw.map(v => v / daysCount)
+        : volumeRaw.slice();
+
+    // Pusty zakres? Pokaż komunikat zamiast wykresu.
+    const hasData = piecesRaw.some(v => v !== 0) || volumeRaw.some(v => v !== 0);
+    if (!hasData) {
+        if (empty) {
+            empty.textContent = isAvg
+                ? `Brak operacji w wybranym zakresie (${daysCount} dni).`
+                : 'Brak operacji w tym dniu.';
+            empty.style.display = 'block';
+        }
+        if (canvasWrapper) canvasWrapper.style.display = 'none';
+        if (soTimelineChart) {
+            soTimelineChart.destroy();
+            soTimelineChart = null;
+        }
+        return;
+    }
+    if (empty) empty.style.display = 'none';
+    if (canvasWrapper) canvasWrapper.style.display = 'block';
+
+    // Przygotuj datasety zgodnie z trybem
+    const datasets = [];
+    const scales = {
+        x: {
+            ticks: {
+                autoSkip: true,
+                maxTicksLimit: 12,   // co ~2h widoczna etykieta (z 48 możliwych)
+                font: { size: 10 },
+            },
+            grid: { display: false },
+        },
+    };
+
+    const piecesColor = '#2563eb';
+    const volumeColor = '#16a34a';
+
+    // Labels datasetów + tick formattery zależą od trybu (sumy vs średnia)
+    const piecesLabel = isAvg ? 'Sztuki śr./dzień' : 'Sztuki';
+    const volumeLabel = isAvg ? 'm³ śr./dzień' : 'm³';
+    const piecesAxisTitle = isAvg ? 'Sztuki / dzień' : 'Sztuki';
+    const piecesTickFmt = isAvg ? (v => v.toFixed(1)) : (v => Math.round(v));
+
+    if (soChartMode === 'pieces') {
+        datasets.push({
+            label: piecesLabel,
+            data: pieces,
+            backgroundColor: pieces.map(v => v >= 0 ? piecesColor : '#dc2626'),
+            borderWidth: 0,
+        });
+        scales.y = {
+            beginAtZero: true,
+            title: { display: true, text: piecesAxisTitle, font: { size: 10 } },
+            ticks: { font: { size: 10 }, callback: piecesTickFmt },
+        };
+    } else if (soChartMode === 'volume') {
+        datasets.push({
+            label: volumeLabel,
+            data: volume,
+            backgroundColor: volume.map(v => v >= 0 ? volumeColor : '#dc2626'),
+            borderWidth: 0,
+        });
+        scales.y = {
+            beginAtZero: true,
+            title: { display: true, text: isAvg ? 'm³ / dzień' : 'm³', font: { size: 10 } },
+            ticks: { font: { size: 10 }, callback: v => v.toFixed(2) },
+        };
+    } else {
+        // Tryb both — dwa datasety side-by-side, dwie osie Y
+        datasets.push({
+            label: piecesLabel,
+            data: pieces,
+            backgroundColor: piecesColor,
+            borderWidth: 0,
+            yAxisID: 'y',
+        });
+        datasets.push({
+            label: volumeLabel,
+            data: volume,
+            backgroundColor: volumeColor,
+            borderWidth: 0,
+            yAxisID: 'y1',
+        });
+        scales.y = {
+            type: 'linear',
+            position: 'left',
+            beginAtZero: true,
+            title: { display: true, text: piecesAxisTitle, font: { size: 10 }, color: piecesColor },
+            ticks: { font: { size: 10 }, color: piecesColor, callback: piecesTickFmt },
+            grid: { color: 'rgba(0,0,0,0.05)' },
+        };
+        scales.y1 = {
+            type: 'linear',
+            position: 'right',
+            beginAtZero: true,
+            title: { display: true, text: isAvg ? 'm³ / dzień' : 'm³', font: { size: 10 }, color: volumeColor },
+            ticks: { font: { size: 10 }, color: volumeColor, callback: v => v.toFixed(2) },
+            grid: { drawOnChartArea: false },
+        };
+    }
+
+    zniszczWykres(canvas);
+    soTimelineChart = null;
+
+    const ctx = canvas.getContext('2d');
+    soTimelineChart = new Chart(ctx, {
+        type: 'bar',
+        data: { labels, datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: soChartMode === 'both',
+                    position: 'top',
+                    labels: { font: { size: 11 }, boxWidth: 10 },
+                },
+                tooltip: {
+                    callbacks: {
+                        title: (items) => {
+                            // Zakres półgodzinny: "08:30 – 09:00" (+ informacja o średniej)
+                            if (!items.length) return '';
+                            const idx = items[0].dataIndex;
+                            const start = labels[idx];
+                            const endIdx = idx + 1;
+                            const end = endIdx < labels.length ? labels[endIdx] : '24:00';
+                            return isAvg
+                                ? `${start} – ${end}  (śr. z ${daysCount} dni)`
+                                : `${start} – ${end}`;
+                        },
+                        label: (ctx) => {
+                            const v = ctx.parsed.y;
+                            if (ctx.dataset.label && ctx.dataset.label.startsWith('m³')) {
+                                return `${ctx.dataset.label}: ${v.toFixed(3)} m³`;
+                            }
+                            // Sztuki: średnia bywa ułamkowa, suma jest całkowita
+                            const formatted = isAvg ? v.toFixed(1) : Math.round(v);
+                            return `${ctx.dataset.label}: ${v >= 0 ? '+' : ''}${formatted}`;
+                        },
+                    },
+                },
+            },
+            scales,
+        },
+    });
+}
+
+// Inicjalizacja wykresu wydajności per stanowisko (identyczny jak na Dashboard)
+async function initializeDailyChart() {
+    console.log('[Reports Tab] Initializing daily performance chart...');
+
+    // Ustaw event listenery dla kontrolek
+    const periodSelect = el('reports-chart-period-select');
+    const stationSelect = el('reports-chart-station-select');
+    const refreshBtn = el('reports-chart-refresh-btn');
+    const startDateInput = el('reports-chart-start-date');
+    const endDateInput = el('reports-chart-end-date');
+
+    // Domyślne daty dla custom range: ostatnie 30 dni
+    if (startDateInput && endDateInput) {
+        const today = new Date();
+        const monthAgo = new Date();
+        monthAgo.setDate(today.getDate() - 29);
+        endDateInput.value = today.toISOString().slice(0, 10);
+        startDateInput.value = monthAgo.toISOString().slice(0, 10);
+    }
+
+    function getCurrentParams() {
+        const value = periodSelect ? periodSelect.value : '30';
+        const station = stationSelect ? stationSelect.value : 'all';
+        if (value === 'custom') {
+            return {
+                custom: true,
+                start: startDateInput ? startDateInput.value : null,
+                end: endDateInput ? endDateInput.value : null,
+                station
+            };
+        }
+        return { custom: false, period: parseInt(value), station };
+    }
+
+    function triggerLoad() {
+        const params = getCurrentParams();
+        if (params.custom) {
+            if (!params.start || !params.end) return;
+            loadReportsChartData(null, params.station, params.start, params.end);
+        } else {
+            loadReportsChartData(params.period, params.station);
+        }
+    }
+
+    if (periodSelect) {
+        periodSelect.addEventListener('change', (e) => {
+            const isCustom = e.target.value === 'custom';
+            if (startDateInput) startDateInput.style.display = isCustom ? '' : 'none';
+            if (endDateInput) endDateInput.style.display = isCustom ? '' : 'none';
+            console.log('[Reports Tab] Period changed to:', e.target.value);
+            triggerLoad();
+        });
+    }
+
+    if (stationSelect) {
+        stationSelect.addEventListener('change', () => {
+            console.log('[Reports Tab] Station changed');
+            triggerLoad();
+        });
+    }
+
+    if (startDateInput) {
+        startDateInput.addEventListener('change', () => {
+            if (periodSelect && periodSelect.value === 'custom') triggerLoad();
+        });
+    }
+
+    if (endDateInput) {
+        endDateInput.addEventListener('change', () => {
+            if (periodSelect && periodSelect.value === 'custom') triggerLoad();
+        });
+    }
+
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', () => {
+            console.log('[Reports Tab] Refresh clicked');
+            triggerLoad();
+        });
+    }
+
+    // Załaduj dane dla domyślnego okresu (30 dni) i wszystkich stanowisk
+    await loadReportsChartData(30, 'all');
+}
+
+async function loadReportsChartData(period, station = 'all', startDate = null, endDate = null) {
+    const loader = el('reports-chart-loader');
+    const canvas = el('reports-performance-chart');
+    const summaryDiv = el('reports-chart-summary');
+
+    // Pokaż loader
+    if (loader) loader.style.display = 'flex';
+    if (canvas) canvas.style.opacity = '0.35';
+
+    try {
+        let url;
+        if (startDate && endDate) {
+            url = `/production/api/chart-data?station=${station}&start_date=${startDate}&end_date=${endDate}`;
+        } else {
+            url = `/production/api/chart-data?period=${period}&station=${station}`;
+        }
+        const response = await fetch(url);
+        const data = await response.json();
+
+        if (data.success) {
+            const effectivePeriod = data.period || period;
+            createReportsPerformanceChart(data.chart_data, effectivePeriod, data.mode, data.station);
+
+            // Aktualizuj tabelkę podsumowania (tylko dla pojedynczego stanowiska)
+            if (data.mode === 'single_station' && data.summary) {
+                updateChartSummary(data.summary);
+                if (summaryDiv) summaryDiv.style.display = 'block';
+            } else {
+                if (summaryDiv) summaryDiv.style.display = 'none';
+            }
+        } else {
+            console.error('[Reports Tab] Chart data error:', data.error);
+            showReportsChartError('Błąd ładowania danych: ' + (data.error || 'Nieznany błąd'));
+            if (summaryDiv) summaryDiv.style.display = 'none';
+        }
+    } catch (error) {
+        console.error('[Reports Tab] Failed to load chart data:', error);
+        showReportsChartError('Błąd połączenia z serwerem');
+        if (summaryDiv) summaryDiv.style.display = 'none';
+    } finally {
+        // Ukryj loader
+        if (loader) loader.style.display = 'none';
+        if (canvas) canvas.style.opacity = '1';
+    }
+}
+
+function createReportsPerformanceChart(chartData, period, mode = 'all_stations', station = 'all') {
+    const canvas = el('reports-performance-chart');
+    if (!canvas) {
+        console.error('[Reports Tab] Canvas reports-performance-chart not found!');
+        return;
+    }
+
+    if (typeof Chart === 'undefined') {
+        console.warn('[Reports Tab] Chart.js not loaded yet, waiting...');
+        setTimeout(() => createReportsPerformanceChart(chartData, period, mode, station), 100);
+        return;
+    }
+
+    zniszczWykres(canvas);
+    dailyChart = null;
+
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Określ tytuł na podstawie okresu
+    let chartTitle = 'Wydajność produkcji';
+    let xAxisLabel = 'Data';
+
+    if (period <= 30) {
+        chartTitle += ` (${period} dni)`;
+        xAxisLabel = 'Dzień';
+    } else if (period === 90) {
+        chartTitle += ' (3 miesiące - agregacja tygodniowa)';
+        xAxisLabel = 'Tydzień';
+    } else if (period === 180) {
+        chartTitle += ' (6 miesięcy - agregacja miesięczna)';
+        xAxisLabel = 'Miesiąc';
+    } else if (period === 365) {
+        chartTitle += ' (12 miesięcy - agregacja miesięczna)';
+        xAxisLabel = 'Miesiąc';
+    }
+
+    // Konfiguracja skal - różna dla trybu pojedynczego stanowiska vs wszystkich
+    let scales;
+    let tooltipCallbacks;
+
+    if (mode === 'single_station') {
+        // Tryb pojedynczego stanowiska - trzy osie Y
+        // Kolory: niebieski (#007bff) dla objętości, pomarańczowy (#fd7e14) dla ilości, zielony (#28a745) dla wartości
+        scales = {
+            x: {
+                title: {
+                    display: true,
+                    text: xAxisLabel,
+                    font: { size: 12, weight: 'bold' }
+                },
+                ticks: {
+                    maxRotation: 45,
+                    minRotation: 0,
+                    autoSkip: true,
+                    maxTicksLimit: period > 90 ? 12 : 15
+                },
+                grid: {
+                    display: true,
+                    drawBorder: true
+                }
+            },
+            y: {
+                type: 'linear',
+                display: true,
+                position: 'left',
+                title: {
+                    display: true,
+                    text: 'Objętość (m³)',
+                    font: { size: 11, weight: 'bold' },
+                    color: '#007bff'
+                },
+                beginAtZero: true,
+                ticks: {
+                    callback: function(value) {
+                        return value.toFixed(2);
+                    },
+                    color: '#007bff',
+                    font: { size: 10 }
+                },
+                grid: {
+                    display: true,
+                    drawBorder: true
+                }
+            },
+            y1: {
+                type: 'linear',
+                display: true,
+                position: 'right',
+                title: {
+                    display: true,
+                    text: 'Ilość (szt.)',
+                    font: { size: 11, weight: 'bold' },
+                    color: '#fd7e14'
+                },
+                beginAtZero: true,
+                ticks: {
+                    callback: function(value) {
+                        return Math.round(value);
+                    },
+                    color: '#fd7e14',
+                    font: { size: 10 }
+                },
+                grid: {
+                    drawOnChartArea: false
+                }
+            },
+            y2: {
+                type: 'linear',
+                display: true,
+                position: 'right',
+                title: {
+                    display: true,
+                    text: 'Wartość (PLN)',
+                    font: { size: 11, weight: 'bold' },
+                    color: '#28a745'
+                },
+                beginAtZero: true,
+                ticks: {
+                    callback: function(value) {
+                        return value.toLocaleString('pl-PL', {maximumFractionDigits: 0});
+                    },
+                    color: '#28a745',
+                    font: { size: 10 }
+                },
+                grid: {
+                    drawOnChartArea: false
+                },
+                // Przesuń oś y2 trochę w prawo od y1
+                afterFit: function(scaleInstance) {
+                    scaleInstance.paddingLeft = 10;
+                }
+            }
+        };
+
+        tooltipCallbacks = {
+            label: function(context) {
+                let label = context.dataset.label || '';
+                if (label) label += ': ';
+                if (context.dataset.yAxisID === 'y1') {
+                    label += Math.round(context.parsed.y) + ' szt.';
+                } else if (context.dataset.yAxisID === 'y2') {
+                    label += context.parsed.y.toLocaleString('pl-PL', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' PLN';
+                } else {
+                    label += context.parsed.y.toFixed(2) + ' m³';
+                }
+                return label;
+            }
+        };
+    } else {
+        // Tryb wszystkich stanowisk - jedna oś Y (objętość)
+        scales = {
+            x: {
+                title: {
+                    display: true,
+                    text: xAxisLabel,
+                    font: { size: 12, weight: 'bold' }
+                },
+                ticks: {
+                    maxRotation: 45,
+                    minRotation: 0,
+                    autoSkip: true,
+                    maxTicksLimit: period > 90 ? 12 : 15
+                },
+                grid: {
+                    display: true,
+                    drawBorder: true
+                }
+            },
+            y: {
+                title: {
+                    display: true,
+                    text: 'Objętość (m³)',
+                    font: { size: 12, weight: 'bold' }
+                },
+                beginAtZero: true,
+                ticks: {
+                    callback: function(value) {
+                        return value.toFixed(1) + ' m³';
+                    }
+                },
+                grid: {
+                    display: true,
+                    drawBorder: true
+                }
+            }
+        };
+
+        tooltipCallbacks = {
+            label: function(context) {
+                let label = context.dataset.label || '';
+                if (label) label += ': ';
+                label += context.parsed.y.toFixed(2) + ' m³';
+                return label;
+            },
+            footer: function(tooltipItems) {
+                let sum = 0;
+                tooltipItems.forEach(item => sum += item.parsed.y);
+                return 'Suma: ' + sum.toFixed(2) + ' m³';
+            }
+        };
+    }
+
+    try {
+        dailyChart = new Chart(ctx, {
+            type: 'line',
+            data: chartData,
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false
+                },
+                plugins: {
+                    title: {
+                        display: true,
+                        text: chartTitle,
+                        font: { size: 14, weight: 'bold' },
+                        padding: { top: 10, bottom: 20 }
+                    },
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        labels: {
+                            usePointStyle: true,
+                            padding: 15,
+                            font: { size: 12 }
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        padding: 12,
+                        titleFont: { size: 13, weight: 'bold' },
+                        bodyFont: { size: 12 },
+                        callbacks: tooltipCallbacks
+                    }
+                },
+                scales: scales
+            }
+        });
+
+        console.log('[Reports Tab] Performance chart created successfully, mode:', mode);
+    } catch (error) {
+        console.error('[Reports Tab] Error creating performance chart:', error);
+        showReportsChartError('Błąd tworzenia wykresu: ' + error.message);
+    }
+}
+
+function showReportsChartError(message) {
+    const wrapper = root.querySelector('.performance-widget .chart-wrapper');
+    if (wrapper) {
+        wrapper.innerHTML = `
+            <div class="alert alert-danger m-3">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                <strong>Błąd wykresu:</strong> ${message}
+            </div>
+        `;
+    }
+}
+
+function updateChartSummary(summary) {
+    // Aktualizuj wartości w tabelce podsumowania
+    const volumeEl = el('summary-volume');
+    const quantityEl = el('summary-quantity');
+    const valueEl = el('summary-value');
+
+    if (volumeEl) {
+        volumeEl.textContent = summary.total_volume.toFixed(2) + ' m³';
+    }
+    if (quantityEl) {
+        quantityEl.textContent = summary.total_quantity.toLocaleString('pl-PL') + ' szt.';
+    }
+    if (valueEl) {
+        valueEl.textContent = summary.total_value.toLocaleString('pl-PL', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' PLN';
+    }
+}
+
+// Init synchronicznie na końcu fragmentu, bez setTimeout: executeInlineScripts
+// podmienia węzeł przez replaceChild, czyli wykonuje ten skrypt dopiero po
+// wstawieniu markupu do DOM. Czekanie na cokolwiek byłoby wyścigiem, nie
+// ostrożnością.
+initStationOutputWidget();
+initializeDailyChart();
+})();
+</script>

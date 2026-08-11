@@ -104,6 +104,10 @@ class ProductionApp {
         } else {
             params.set('tab', shortName);
         }
+        // `sub` (podzakładka Raportów) należy wyłącznie do Raportów. Bez tego
+        // zostaje w pasku adresu po przejściu na inną zakładkę i wraca duchem
+        // przy odświeżeniu strony.
+        if (shortName !== 'reports') params.delete('sub');
         const newURL = params.toString()
             ? `${window.location.pathname}?${params.toString()}`
             : window.location.pathname;
@@ -203,6 +207,14 @@ class ProductionApp {
             this.updateTabUI(tabName);
             this.state.currentTab = tabName;
             this.updateURL(tabName);
+
+            // Powrót na Raporty z cache nie przeładowuje zakładki, więc nikt nie
+            // odtworzyłby `?sub=` skasowanego przez updateURL przy wyjściu.
+            // Tylko dla zakładki już zbudowanej — świeże wejście ustawia
+            // podzakładkę samo, w initReportsTab.
+            if (tabName === 'reports-tab' && this.state.tabCache.has(tabName)) {
+                window.ReportsShared?.przywrocPodzakladke?.();
+            }
 
             // 2. If tab not cached, load it
             if (!this.state.tabCache.has(tabName)) {

@@ -17,6 +17,10 @@
     <link rel="stylesheet" href="{{ url_for('production.static', filename='css/dashboard_bl_sync_modal.css') }}">
     <!-- CSS uzupełniające -->
     <link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/bootstrap.min.css') }}">
+    <!-- Raporty PO bootstrapie: te reguły siedziały wcześniej w <style> wstrzykiwanym
+         przez innerHTML, czyli zawsze wygrywały remisy z bootstrapem. Wpięte wyżej
+         przegrywały je (bootstrapowe .small podbijało legendy wykresów z 12 na 14px). -->
+    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/reports-tab.css') }}?v=20260811c">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body>
@@ -339,7 +343,7 @@
     <script src="{{ url_for('production.static', filename='js/modules/archive-module.js') }}?v=20260427b"></script>
     <script src="{{ url_for('production.static', filename='js/modules/config-module.js') }}?v=20260410"></script>
     <!-- Główny kontroler aplikacji -->
-    <script src="{{ url_for('production.static', filename='js/production-app-loader.js') }}?v=20260811"></script>
+    <script src="{{ url_for('production.static', filename='js/production-app-loader.js') }}?v=20260811b"></script>
     <!-- Obsługa modala synchronizacji z Baselinkerem -->
     <script src="{{ url_for('production.static', filename='js/modules/dashboard_bl_sync_modal.js') }}"></script>
     <!-- Obsługa załączników produktów -->

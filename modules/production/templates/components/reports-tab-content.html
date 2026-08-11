@@ -1,490 +1,31 @@
 <!-- reports-tab-content.html -->
-<!-- Komponent zawartości taba Raporty -->
+<!-- Szkielet zakładki Raporty: pasek KPI, eksport i nawigacja podzakładek.
 
-<style>
-/* ═══ REPORTS TAB — Industrial Light Design System ═══ */
-#reports-tab-wrapper {
-    padding: 16px 14px;
-}
+     Same widgety siedzą w components/reports/{stations,workers,mix,system}.html
+     i przyjeżdżają dopiero po kliknięciu w podzakładkę. Ten plik nie wykonuje
+     ani jednego zapytania poza dwoma agregatami do kafelków wyżej. -->
 
-/* ─── KPI Summary Row ─── */
-.reports-summary-row {
-    display: flex;
-    gap: 12px;
-    margin-bottom: 16px;
-    align-items: stretch;
-}
-
-.summary-export {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    min-width: 100px;
-    background: var(--il-bg-card, #fff);
-    border: 1px solid var(--il-border, #c8cdd5);
-    border-radius: var(--il-radius, 3px);
-    padding: 10px 14px;
-}
-
-.summary-export .summary-label {
-    text-align: center;
-}
-
-@media (max-width: 768px) {
-    .reports-summary-row {
-        flex-wrap: wrap;
-    }
-    .reports-summary-row .summary-card,
-    .reports-summary-row .summary-export {
-        flex: 1 1 calc(50% - 6px);
-        min-width: 140px;
-    }
-}
-
-.summary-card {
-    flex: 1;
-    background: var(--il-bg-card, #fff);
-    border: 1px solid var(--il-border, #c8cdd5);
-    border-radius: var(--il-radius, 3px);
-    padding: 14px 16px;
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    box-shadow: none;
-}
-
-.summary-icon {
-    font-size: 1.6rem;
-    opacity: 0.8;
-}
-
-.summary-data {
-    flex: 1;
-}
-
-.summary-value {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 24px;
-    font-weight: 700;
-    color: var(--il-text-primary, #1a1a2e);
-    line-height: 1.2;
-}
-
-.summary-label {
-    font-size: 11px;
-    color: var(--il-text-secondary, #7a8291);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin-top: 2px;
-}
-
-/* ─── Widget Base ─── */
-.performance-widget,
-.status-breakdown-widget,
-.analytics-widget,
-.sync-history-widget {
-    background: var(--il-bg-card, #fff);
-    border: 1px solid var(--il-border, #c8cdd5);
-    border-radius: var(--il-radius, 3px);
-    overflow: hidden;
-    box-shadow: none;
-}
-
-.performance-widget:hover,
-.status-breakdown-widget:hover,
-.analytics-widget:hover,
-.sync-history-widget:hover {
-    box-shadow: none;
-}
-
-.performance-widget .widget-header,
-.status-breakdown-widget .widget-header,
-.analytics-widget .widget-header,
-.sync-history-widget .widget-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 10px 14px;
-    border-bottom: 2px solid var(--il-bg-base, #eef0f4);
-}
-
-.performance-widget .widget-header h4,
-.status-breakdown-widget .widget-header h4,
-.analytics-widget .widget-header h4,
-.sync-history-widget .widget-header h4 {
-    margin: 0;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--il-text-secondary, #7a8291);
-    text-transform: uppercase;
-    letter-spacing: 1.5px;
-}
-
-.performance-widget .widget-content,
-.status-breakdown-widget .widget-content,
-.analytics-widget .widget-content,
-.sync-history-widget .widget-content {
-    padding: 14px;
-}
-
-/* ─── Chart Wrapper ─── */
-.chart-wrapper {
-    position: relative;
-    min-height: 250px;
-}
-
-/* ─── Performance Widget ─── */
-.performance-widget {
-    margin-bottom: 16px;
-}
-
-.performance-widget .widget-header {
-    flex-wrap: wrap;
-    gap: 10px;
-}
-
-.performance-widget .widget-header h4 {
-    display: flex;
-    align-items: center;
-}
-
-.performance-widget .chart-controls {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-
-.performance-widget .chart-controls .form-select {
-    width: auto;
-    min-width: 110px;
-    font-size: 12px;
-    padding: 4px 28px 4px 8px;
-    border: 1px solid var(--il-border, #c8cdd5);
-    border-radius: var(--il-radius, 3px);
-    background-color: var(--il-bg-card, #fff);
-    color: var(--il-text-primary, #1a1a2e);
-}
-
-.performance-widget .chart-controls .form-select:focus {
-    border-color: var(--il-status-info, #2563eb);
-    box-shadow: none;
-    outline: none;
-}
-
-.performance-widget .chart-controls .btn {
-    padding: 4px 8px;
-    font-size: 12px;
-    border: 1px solid var(--il-border, #c8cdd5);
-    border-radius: var(--il-radius, 3px);
-    color: var(--il-text-secondary, #7a8291);
-    background: var(--il-bg-card, #fff);
-}
-
-.performance-widget .chart-controls .btn:hover {
-    color: var(--il-status-info, #2563eb);
-    border-color: var(--il-status-info, #2563eb);
-}
-
-.performance-widget .chart-wrapper {
-    height: 350px;
-    min-height: 350px;
-    position: relative;
-}
-
-.performance-widget .chart-wrapper canvas {
-    width: 100% !important;
-    height: 100% !important;
-}
-
-.performance-widget .chart-loader {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(255, 255, 255, 0.92);
-    padding: 16px;
-    border-radius: var(--il-radius, 3px);
-    z-index: 10;
-    font-size: 13px;
-    color: var(--il-text-secondary, #7a8291);
-}
-
-/* ─── Summary Card (inside performance widget) ─── */
-#reports-chart-summary .card {
-    border: 1px solid var(--il-border-light, #e2e5ea);
-    border-radius: var(--il-radius, 3px);
-    box-shadow: none;
-}
-
-#reports-chart-summary .card-header {
-    background: var(--il-bg-base, #eef0f4);
-    border-bottom: 1px solid var(--il-border-light, #e2e5ea);
-    padding: 8px 14px;
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--il-text-secondary, #7a8291);
-}
-
-#reports-chart-summary .card-body {
-    padding: 8px 14px;
-}
-
-#reports-chart-summary .table {
-    font-size: 13px;
-    margin: 0;
-}
-
-/* ─── Analytics Charts Legend ─── */
-.chart-legend {
-    max-height: 180px;
-    overflow-y: auto;
-}
-
-.legend-item {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 2px 0;
-    font-size: 12px;
-    color: var(--il-text-primary, #1a1a2e);
-}
-
-.legend-item strong {
-    font-family: 'JetBrains Mono', monospace;
-}
-
-.legend-color {
-    width: 10px;
-    height: 10px;
-    border-radius: 2px;
-    flex-shrink: 0;
-}
-
-.analytics-widget h6 {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--il-text-secondary, #7a8291);
-    text-transform: uppercase;
-    letter-spacing: 1px;
-}
-
-/* ─── Tables ─── */
-.status-breakdown-widget .table,
-.sync-history-widget .table {
-    font-size: 13px;
-    margin: 0;
-}
-
-.status-breakdown-widget .table th,
-.sync-history-widget .table th {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--il-text-secondary, #7a8291);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    border-bottom: 2px solid var(--il-bg-base, #eef0f4);
-    padding: 8px 10px;
-}
-
-.status-breakdown-widget .table td,
-.sync-history-widget .table td {
-    padding: 7px 10px;
-    color: var(--il-text-primary, #1a1a2e);
-    border-bottom: 3px solid var(--il-border, #c8cdd5);
-    vertical-align: middle;
-}
-
-.sync-history-widget .table-striped > tbody > tr:nth-of-type(odd) > td {
-    background-color: rgba(0, 0, 0, 0.015);
-}
-
-/* ─── Status Badges ─── */
-.status-badge {
-    display: inline-block;
-    padding: 2px 8px;
-    font-size: 11px;
-    font-weight: 600;
-    border-radius: 2px;
-    text-transform: uppercase;
-    letter-spacing: 0.3px;
-}
-
-/* ─── Export Actions ─── */
-.reports-actions .card {
-    border: 1px solid var(--il-border, #c8cdd5);
-    border-radius: var(--il-radius, 3px);
-    box-shadow: none;
-}
-
-.reports-actions .card-header {
-    background: var(--il-bg-base, #eef0f4);
-    border-bottom: 2px solid var(--il-border-light, #e2e5ea);
-    padding: 10px 14px;
-}
-
-.reports-actions .card-header h5 {
-    margin: 0;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--il-text-secondary, #7a8291);
-    text-transform: uppercase;
-    letter-spacing: 1.5px;
-}
-
-.reports-actions .card-body {
-    padding: 14px;
-}
-
-.reports-actions .btn {
-    font-size: 13px;
-    padding: 8px 16px;
-    border-radius: var(--il-radius, 3px);
-}
-
-/* ─── Sync Widget Button ─── */
-.sync-history-widget .btn {
-    font-size: 12px;
-    padding: 4px 10px;
-    border: 1px solid var(--il-border, #c8cdd5);
-    border-radius: var(--il-radius, 3px);
-    color: var(--il-text-secondary, #7a8291);
-    background: var(--il-bg-card, #fff);
-}
-
-.sync-history-widget .btn:hover {
-    color: var(--il-status-info, #2563eb);
-    border-color: var(--il-status-info, #2563eb);
-}
-
-/* ─── Species breakdown in status table ─── */
-.species-breakdown-cell {
-    padding: 0 !important;
-    vertical-align: top !important;
-}
-
-.species-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0;
-}
-
-.species-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 2px 10px;
-    font-size: 11px;
-    border-bottom: 1px solid var(--il-bg-base, #eef0f4);
-}
-
-.species-row:last-child { border-bottom: none; }
-
-.species-row .species-name {
-    color: var(--il-text-primary, #1a1a2e);
-}
-
-.species-row .species-vol {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 10px;
-    color: var(--il-text-secondary, #7a8291);
-    margin-left: 12px;
-    white-space: nowrap;
-}
-
-/* ─── Status breakdown layout: table left, charts right ─── */
-.status-breakdown-layout {
-    display: grid;
-    grid-template-columns: 1fr 320px;
-    gap: 16px;
-    align-items: start;
-}
-
-.status-breakdown-table {
-    min-width: 0;
-}
-
-.status-charts-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-    overflow: hidden;
-    max-width: 320px;
-}
-
-.status-chart-card {
-    text-align: center;
-}
-
-.status-chart-card h6 {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 10px;
-    font-weight: 600;
-    color: var(--il-text-secondary, #7a8291);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin-bottom: 6px;
-}
-
-.status-chart-canvas {
-    position: relative;
-    height: 130px;
-    overflow: hidden;
-}
-
-.status-chart-canvas canvas {
-    max-width: 100% !important;
-    max-height: 100% !important;
-}
-
-@media (max-width: 900px) {
-    .status-breakdown-layout {
-        grid-template-columns: 1fr;
-    }
-    .status-charts-grid {
-        display: none;
-    }
-}
-
-@media (max-width: 600px) {
-    .status-charts-grid {
-        grid-template-columns: 1fr;
-    }
-}
-
-/* ─── Spacing between widgets ─── */
-.widget.mt-4 {
-    margin-top: 16px !important;
-}
-</style>
 
 <!-- Podsumowanie tygodniowe + Eksport -->
 <div class="reports-summary-row">
     <div class="summary-card">
         <div class="summary-icon">📈</div>
         <div class="summary-data">
-            <div class="summary-value">{{ reports_data['summary']['week_completed'] }}</div>
+            <div class="summary-value">{{ reports_summary['week_completed'] }}</div>
             <div class="summary-label">Ukończone w tygodniu</div>
         </div>
     </div>
     <div class="summary-card">
         <div class="summary-icon">📊</div>
         <div class="summary-data">
-            <div class="summary-value">{{ "%.2f"|format(reports_data['summary']['week_volume']) }}</div>
+            <div class="summary-value">{{ "%.2f"|format(reports_summary['week_volume']) }}</div>
             <div class="summary-label">m³ w tygodniu</div>
         </div>
     </div>
     <div class="summary-card">
         <div class="summary-icon">🏭</div>
         <div class="summary-data">
-            <div class="summary-value">{{ reports_data['summary']['total_in_system'] }}</div>
+            <div class="summary-value">{{ reports_summary['total_in_system'] }}</div>
             <div class="summary-label">Produktów w systemie</div>
         </div>
     </div>
@@ -499,1042 +40,235 @@
     </div>
 </div>
 
-<!-- Wydajność stanowiska w wybranym dniu (event log z prod_station_events) -->
-<style>
-.station-output-widget,
-.worker-output-widget {
-    background: var(--il-bg-card, #fff);
-    border: 1px solid var(--il-border, #c8cdd5);
-    border-radius: var(--il-radius, 3px);
-    margin-bottom: 16px;
-}
-.station-output-widget .widget-header,
-.worker-output-widget .widget-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 10px;
-    padding: 10px 14px;
-    border-bottom: 2px solid var(--il-bg-base, #eef0f4);
-}
-.station-output-widget .widget-header h4,
-.worker-output-widget .widget-header h4 {
-    margin: 0;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--il-text-secondary, #7a8291);
-    text-transform: uppercase;
-    letter-spacing: 1.5px;
-}
-.station-output-widget .widget-controls,
-.worker-output-widget .widget-controls {
-    display: flex;
-    gap: 6px;
-    align-items: center;
-}
-.station-output-widget .widget-controls .form-select,
-.station-output-widget .widget-controls .form-control,
-.worker-output-widget .widget-controls .form-select,
-.worker-output-widget .widget-controls .form-control {
-    width: auto;
-    font-size: 12px;
-    padding: 4px 8px;
-    border: 1px solid var(--il-border, #c8cdd5);
-    border-radius: var(--il-radius, 3px);
-}
-/* Bootstrap form-select renderuje strzalke v przez background-image —
-   trzeba zarezerwowac padding-right zeby tekst pod nia nie wchodzil. */
-.station-output-widget .widget-controls .form-select,
-.worker-output-widget .widget-controls .form-select {
-    padding-right: 28px;
-}
-.station-output-widget .widget-content,
-.worker-output-widget .widget-content {
-    padding: 14px;
-}
-.station-output-summary,
-.wo-summary {
-    display: flex;
-    gap: 16px;
-    flex-wrap: wrap;
-    margin-bottom: 12px;
-    padding: 8px 10px;
-    background: var(--il-bg-base, #eef0f4);
-    border-radius: var(--il-radius, 3px);
-    font-size: 12px;
-}
-.station-output-summary .so-stat,
-.wo-summary .wo-stat {
-    display: flex;
-    flex-direction: column;
-}
-.station-output-summary .so-stat-value,
-.wo-summary .wo-stat-value {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 16px;
-    font-weight: 700;
-    color: var(--il-text-primary, #1a1a2e);
-}
-.station-output-summary .so-stat-label,
-.wo-summary .wo-stat-label {
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--il-text-secondary, #7a8291);
-}
-/* ─── Widget wydajności pracowników (§7.2) ─── */
-/* Wygląd dziedziczy po widgecie stanowiskowym — wspólne selektory wyżej.
-   Tutaj TYLKO to, czego tamten nie ma: zastrzeżenie o poglądowości danych,
-   ostrzeżenie o niepełnym pokryciu i wyróżnienie wiersza nieprzypisanych. */
-.wo-disclaimer {
-    font-size: 11px;
-    color: var(--il-text-secondary, #7a8291);
-    background: var(--il-bg-base, #eef0f4);
-    border-left: 3px solid var(--il-border, #c8cdd5);
-    padding: 8px 10px;
-    margin-bottom: 12px;
-}
-/* Pokrycie < 100% znaczy, że część roboty poszła bez wyboru profilu */
-.wo-stat-warning .wo-stat-value {
-    color: #b45309;
-}
-.wo-table-title {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    color: var(--il-text-secondary, #7a8291);
-    margin: 14px 0 6px;
-}
-.wo-muted {
-    color: var(--il-text-secondary, #7a8291);
-    font-size: 11px;
-}
-.wo-unassigned td {
-    background: rgba(180, 83, 9, 0.06);
-    font-style: italic;
-}
-.wo-info-ikona {
-    color: var(--il-text-muted, #9ba3b0);
-    font-size: 9px;
-}
-/* Bez Bootstrapowego .table-responsive — ono dokłada własne marginesy,
-   których wzorcowy widget stanowiskowy nie ma. */
-.wo-table-wrapper {
-    overflow-x: auto;
-}
+{# Nawigacja podzakładek.
 
-.station-output-table,
-.wo-table {
-    width: 100%;
-    font-size: 13px;
-    border-collapse: collapse;
-}
-.station-output-table th,
-.wo-table th {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--il-text-secondary, #7a8291);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    border-bottom: 2px solid var(--il-bg-base, #eef0f4);
-    padding: 8px 10px;
-    text-align: left;
-}
-.station-output-table td,
-.wo-table td {
-    padding: 7px 10px;
-    border-bottom: 1px solid var(--il-border-light, #e2e5ea);
-    vertical-align: middle;
-}
-.station-output-table .so-progress {
-    font-family: 'JetBrains Mono', monospace;
-    font-weight: 600;
-}
-.station-output-table .so-delta-pos { color: #16a34a; font-weight: 600; }
-.station-output-table .so-delta-neg { color: #dc2626; font-weight: 600; }
-.station-output-empty,
-.wo-empty,
-.wo-loader {
-    padding: 20px;
-    text-align: center;
-    color: var(--il-text-secondary, #7a8291);
-    font-style: italic;
-}
-
-/* ─── Timeline chart (półgodzinne słupki) ─── */
-.so-timeline-wrapper {
-    margin-bottom: 12px;
-    padding: 10px 12px;
-    background: var(--il-bg-card, #fff);
-    border: 1px solid var(--il-border-light, #e2e5ea);
-    border-radius: var(--il-radius, 3px);
-}
-.so-timeline-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 8px;
-    flex-wrap: wrap;
-    gap: 8px;
-}
-.so-timeline-title {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--il-text-secondary, #7a8291);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-.so-mode-switch {
-    display: inline-flex;
-    border: 1px solid var(--il-border, #c8cdd5);
-    border-radius: var(--il-radius, 3px);
-    overflow: hidden;
-}
-.so-mode-switch button {
-    background: var(--il-bg-card, #fff);
-    border: none;
-    padding: 4px 10px;
-    font-size: 11px;
-    font-family: 'JetBrains Mono', monospace;
-    color: var(--il-text-secondary, #7a8291);
-    cursor: pointer;
-    border-right: 1px solid var(--il-border, #c8cdd5);
-    transition: background 0.1s, color 0.1s;
-}
-.so-mode-switch button:last-child { border-right: none; }
-.so-mode-switch button:hover {
-    background: var(--il-bg-base, #eef0f4);
-}
-.so-mode-switch button.active {
-    background: var(--il-status-info, #2563eb);
-    color: #fff;
-    font-weight: 600;
-}
-.so-timeline-canvas-wrapper {
-    position: relative;
-    height: 200px;
-    width: 100%;
-}
-.so-timeline-empty {
-    text-align: center;
-    color: var(--il-text-secondary, #7a8291);
-    font-style: italic;
-    padding: 60px 0;
-    font-size: 12px;
-}
-
-/* ─── Paginacja tabeli ─── */
-.so-pagination,
-.wo-pagination {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-top: 10px;
-    padding: 8px 4px;
-    flex-wrap: wrap;
-    gap: 8px;
-}
-.so-pagination-info,
-.wo-pagination-info {
-    font-size: 11px;
-    color: var(--il-text-secondary, #7a8291);
-    font-family: 'JetBrains Mono', monospace;
-}
-.so-pagination-controls,
-.wo-pagination-controls {
-    display: inline-flex;
-    gap: 2px;
-    align-items: center;
-}
-.so-pagination-controls button,
-.wo-pagination-controls button {
-    background: var(--il-bg-card, #fff);
-    border: 1px solid var(--il-border, #c8cdd5);
-    border-radius: var(--il-radius, 3px);
-    padding: 3px 9px;
-    font-size: 12px;
-    font-family: 'JetBrains Mono', monospace;
-    color: var(--il-text-secondary, #7a8291);
-    cursor: pointer;
-    min-width: 28px;
-}
-.so-pagination-controls button:hover:not(:disabled):not(.active),
-.wo-pagination-controls button:hover:not(:disabled):not(.active) {
-    background: var(--il-bg-base, #eef0f4);
-    color: var(--il-status-info, #2563eb);
-    border-color: var(--il-status-info, #2563eb);
-}
-.so-pagination-controls button.active,
-.wo-pagination-controls button.active {
-    background: var(--il-status-info, #2563eb);
-    color: #fff;
-    border-color: var(--il-status-info, #2563eb);
-    font-weight: 600;
-}
-.so-pagination-controls button:disabled,
-.wo-pagination-controls button:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-}
-.so-pagination-controls .so-page-ellipsis,
-.wo-pagination-controls .so-page-ellipsis {
-    padding: 0 4px;
-    color: var(--il-text-secondary, #7a8291);
-    font-size: 12px;
-}
-</style>
-
-<div class="widget station-output-widget">
-    <div class="widget-header">
-        <h4>
-            <i class="fas fa-clipboard-check me-2"></i>
-            Wykonanie stanowiska w dniu
-        </h4>
-        <div class="widget-controls">
-            <select id="so-station-select" class="form-select form-select-sm">
-                <option value="all">Wszystkie stanowiska</option>
-                {% for kod, nazwa in station_choices %}
-                <option value="{{ kod }}"{% if kod == 'packaging' %} selected{% endif %}>{{ nazwa }}</option>
-                {% endfor %}
-            </select>
-            <select id="so-preset-select" class="form-select form-select-sm" title="Zakres dat">
-                <option value="today" selected>Dziś</option>
-                <option value="yesterday">Wczoraj</option>
-                <option value="7d">Ostatnie 7 dni</option>
-                <option value="30d">Ostatnie 30 dni</option>
-                <option value="custom">Własny zakres</option>
-            </select>
-            <input type="date" id="so-start-date" class="form-control form-control-sm" style="display: none;" title="Data od">
-            <input type="date" id="so-end-date" class="form-control form-control-sm" style="display: none;" title="Data do">
-            <button id="so-refresh-btn" class="btn btn-outline-primary btn-sm" title="Odśwież">
-                <i class="fas fa-sync-alt"></i>
-            </button>
-        </div>
-    </div>
-    <div class="widget-content">
-        <!-- Timeline 24h co pół godziny -->
-        <div class="so-timeline-wrapper" id="so-timeline-wrapper" style="display: none;">
-            <div class="so-timeline-header">
-                <span class="so-timeline-title" id="so-timeline-title">
-                    <i class="fas fa-chart-bar me-1"></i>Aktywność 00:00–24:00 (co 30 min)
-                </span>
-                <div class="so-mode-switch" id="so-mode-switch">
-                    <button type="button" data-mode="pieces" class="active">Sztuki</button>
-                    <button type="button" data-mode="volume">m³</button>
-                    <button type="button" data-mode="both">Sztuki + m³</button>
-                </div>
-            </div>
-            <div class="so-timeline-canvas-wrapper">
-                <canvas id="so-timeline-chart"></canvas>
-            </div>
-            <div class="so-timeline-empty" id="so-timeline-empty" style="display: none;">
-                Brak operacji w wybranym zakresie.
-            </div>
-        </div>
-
-        <div class="station-output-summary" id="so-summary" style="display: none;">
-            <div class="so-stat">
-                <span class="so-stat-value" id="so-summary-items">0</span>
-                <span class="so-stat-label">Pozycje</span>
-            </div>
-            <div class="so-stat">
-                <span class="so-stat-value" id="so-summary-qty">0</span>
-                <span class="so-stat-label" id="so-summary-qty-label">Sztuki na koniec dnia</span>
-            </div>
-            <div class="so-stat">
-                <span class="so-stat-value" id="so-summary-delta">0</span>
-                <span class="so-stat-label" id="so-summary-delta-label">Ruch dnia</span>
-            </div>
-            <div class="so-stat">
-                <span class="so-stat-value" id="so-summary-volume">0.000</span>
-                <span class="so-stat-label" id="so-summary-volume-label">m³ wykonane (EOD)</span>
-            </div>
-            <div class="so-stat" id="so-summary-auto-box" style="display: none;"
-                 title="Sztuki, które system przeskoczył automatycznie — produkt nieprzycinany na wymiar omija formatowanie i wykańczanie. Nikt ich fizycznie nie wykonał, więc nie są wliczone w liczby obok.">
-                <span class="so-stat-value" id="so-summary-auto">0</span>
-                <span class="so-stat-label">pominięte automatycznie</span>
-            </div>
-        </div>
-        <div id="so-table-wrapper">
-            <div class="station-output-empty" id="so-empty-state">
-                Wybierz stanowisko i datę, aby zobaczyć wykonanie.
-            </div>
-            <div class="table-responsive" id="so-table-container" style="display: none;">
-                <table class="station-output-table">
-                    <thead>
-                        <tr>
-                            <th>BL #</th>
-                            <th>Produkt</th>
-                            <th id="so-col-station-label" style="display: none;">Stanowisko</th>
-                            <th id="so-col-eod-label">Wykonano (EOD)</th>
-                            <th id="so-col-delta-label">Ruch dnia</th>
-                            <th>m³ wykonane</th>
-                            <th>Gatunek / grubość</th>
-                            <th>Status</th>
-                            <th>Ostatni event</th>
-                        </tr>
-                    </thead>
-                    <tbody id="so-table-body"></tbody>
-                </table>
-                <div class="so-pagination" id="so-pagination" style="display: none;">
-                    <div class="so-pagination-info" id="so-pagination-info"></div>
-                    <div class="so-pagination-controls" id="so-pagination-controls"></div>
-                </div>
-            </div>
-        </div>
-    </div>
+   ŻADNEGO data-bs-toggle="tab" ani klasy .tab-pane: production-app-loader
+   nasłuchuje globalnie na [data-bs-toggle="tab"] (handleTabClick) i iteruje po
+   .tab-pane przy każdej zmianie zakładki głównej (updateTabUI). Podzakładka
+   z tymi atrybutami dostałaby toast "Unknown tab" i gubiła stan .active. #}
+<div class="reports-subnav" role="tablist">
+    <button type="button" class="reports-subnav-btn active" data-sub="stanowiska" role="tab" aria-selected="true">Stanowiska</button>
+    <button type="button" class="reports-subnav-btn" data-sub="ludzie" role="tab" aria-selected="false">Ludzie</button>
+    <button type="button" class="reports-subnav-btn" data-sub="miks" role="tab" aria-selected="false">Miks produkcji</button>
+    <button type="button" class="reports-subnav-btn" data-sub="system" role="tab" aria-selected="false">System</button>
 </div>
 
-<!-- Wykres wydajności dziennej per stanowisko (identyczny jak na Dashboard) -->
-<!-- ════════════════════════════════════════════════════════════════════
-     Widget: Wydajność pracowników (atrybucja eventów stanowiskowych)
-     docs/worker-profiles-backend.md §7.2
-     ════════════════════════════════════════════════════════════════════ -->
-<div class="widget worker-output-widget mt-4">
-    <div class="widget-header">
-        <h4>
-            <i class="fas fa-id-badge me-2"></i>
-            Wydajność pracowników
-        </h4>
-        <div class="widget-controls">
-            <select id="wo-station-select" class="form-select form-select-sm">
-                <option value="all" selected>Wszystkie stanowiska</option>
-                {% for kod, nazwa in station_choices %}
-                <option value="{{ kod }}">{{ nazwa }}</option>
-                {% endfor %}
-            </select>
-            <select id="wo-preset-select" class="form-select form-select-sm" title="Zakres dat">
-                <option value="today">Dziś</option>
-                <option value="yesterday">Wczoraj</option>
-                <option value="7d" selected>Ostatnie 7 dni</option>
-                <option value="30d">Ostatnie 30 dni</option>
-                <option value="custom">Własny zakres</option>
-            </select>
-            <input type="date" id="wo-start-date" class="form-control form-control-sm" style="display: none;" title="Data od">
-            <input type="date" id="wo-end-date" class="form-control form-control-sm" style="display: none;" title="Data do">
-            <button id="wo-refresh-btn" class="btn btn-outline-primary btn-sm" title="Odśwież">
-                <i class="fas fa-sync-alt"></i>
-            </button>
-            <button id="wo-export-btn" class="btn btn-outline-secondary btn-sm" title="Pobierz XLSX">
-                <i class="fas fa-file-excel"></i>
-            </button>
-        </div>
-    </div>
-    <div class="widget-content">
-        <p class="wo-disclaimer">
-            <i class="fas fa-circle-info me-1"></i>
-            Wybór pracownika na tablecie nie jest chroniony hasłem, więc te liczby są
-            <strong>poglądowe</strong> — pokazują, kto zadeklarował pracę, a nie kto ją formalnie potwierdził.
-        </p>
-
-        <div class="wo-summary" id="wo-summary" style="display: none;">
-            <div class="wo-stat">
-                <span class="wo-stat-value" id="wo-sum-pieces">0</span>
-                <span class="wo-stat-label">wkład w sztukach</span>
-            </div>
-            <div class="wo-stat">
-                <span class="wo-stat-value" id="wo-sum-m3">0</span>
-                <span class="wo-stat-label">m³</span>
-            </div>
-            <div class="wo-stat">
-                <span class="wo-stat-value" id="wo-sum-hours">0</span>
-                <span class="wo-stat-label">godzin przypisanych</span>
-            </div>
-            <div class="wo-stat">
-                <span class="wo-stat-value" id="wo-sum-hours-all">0</span>
-                <span class="wo-stat-label">osobogodzin na hali</span>
-            </div>
-            <div class="wo-stat">
-                <span class="wo-stat-value" id="wo-sum-workers">0</span>
-                <span class="wo-stat-label">pracowników</span>
-            </div>
-            <div class="wo-stat" id="wo-coverage-box">
-                <span class="wo-stat-value" id="wo-coverage">—</span>
-                <span class="wo-stat-label">pokrycia atrybucją</span>
-            </div>
-        </div>
-
-        <div class="wo-loader" id="wo-loader" style="display: none;">
-            <i class="fas fa-spinner fa-spin me-2"></i>Liczę…
-        </div>
-
-        <div class="wo-empty" id="wo-empty" style="display: none;">
-            Brak zarejestrowanej pracy w wybranym zakresie.
-        </div>
-
-        <div class="wo-tables" id="wo-tables" style="display: none;">
-            <h5 class="wo-table-title">Podsumowanie okresu</h5>
-            <div class="wo-table-wrapper">
-                <table class="wo-table">
-                    <thead>
-                        <tr>
-                            <th>Pracownik</th>
-                            <th>Stanowiska</th>
-                            <th class="text-end" title="Praca zespołowa dzieli się po równo: dwie osoby przy 10 sztukach mają po 5. Stąd wartości ułamkowe.">
-                                Wkład (szt.) <i class="fas fa-circle-info wo-info-ikona"></i>
-                            </th>
-                            <th class="text-end">m³</th>
-                            <th class="text-end">Godziny</th>
-                            <th class="text-end">Tempo (m³/h)</th>
-                        </tr>
-                    </thead>
-                    <tbody id="wo-totals-body"></tbody>
-                </table>
-            </div>
-
-            <h5 class="wo-table-title">Dzień po dniu</h5>
-            <div class="wo-table-wrapper">
-                <table class="wo-table">
-                    <thead>
-                        <tr>
-                            <th>Data</th>
-                            <th>Pracownik</th>
-                            <th>Stanowisko</th>
-                            <th class="text-end">Wkład (szt.)</th>
-                            <th class="text-end">m³</th>
-                        </tr>
-                    </thead>
-                    <tbody id="wo-rows-body"></tbody>
-                </table>
-                <div class="wo-pagination" id="wo-pagination" style="display: none;">
-                    <div class="wo-pagination-info" id="wo-pagination-info"></div>
-                    <div class="wo-pagination-controls" id="wo-pagination-controls"></div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<div class="widget performance-widget">
-    <div class="widget-header">
-        <h4>
-            <i class="fas fa-chart-line me-2"></i>
-            Wydajność dzienna
-        </h4>
-        <div class="chart-controls">
-            <select id="reports-chart-station-select" class="form-select form-select-sm" title="Wybierz stanowisko">
-                <option value="all" selected>Wszystkie stanowiska</option>
-                {% for kod, nazwa in station_choices %}
-                <option value="{{ kod }}">{{ nazwa }}</option>
-                {% endfor %}
-            </select>
-            <select id="reports-chart-period-select" class="form-select form-select-sm">
-                <option value="30" selected>30 dni</option>
-                <option value="90">3 miesiące</option>
-                <option value="180">6 miesięcy</option>
-                <option value="365">12 miesięcy</option>
-                <option value="custom">Własny przedział</option>
-            </select>
-            <input type="date" id="reports-chart-start-date" class="form-control form-control-sm" style="display: none; width: auto;" title="Data początkowa">
-            <input type="date" id="reports-chart-end-date" class="form-control form-control-sm" style="display: none; width: auto;" title="Data końcowa">
-            <button id="reports-chart-refresh-btn" class="btn btn-outline-primary btn-sm" title="Odśwież wykres">
-                <i class="fas fa-sync-alt"></i>
-            </button>
-        </div>
-    </div>
-    <div class="widget-content">
-        <div class="chart-wrapper" style="position: relative; height: 350px; width: 100%;">
-            <canvas id="reports-performance-chart"></canvas>
-        </div>
-        <div class="chart-loader" id="reports-chart-loader" style="display: none;">
-            <div class="spinner-border text-primary" role="status"></div>
-            <span class="ms-2">Ładowanie danych wykresu...</span>
-        </div>
-        <!-- Tabelka podsumowania - widoczna tylko dla pojedynczego stanowiska -->
-        <div id="reports-chart-summary" class="mt-3" style="display: none;">
-            <div class="card">
-                <div class="card-header py-2">
-                    <strong>Podsumowanie dla wybranego okresu</strong>
-                </div>
-                <div class="card-body py-2">
-                    <table class="table table-sm table-borderless mb-0">
-                        <tbody>
-                            <tr>
-                                <td style="width: 50%;"><span style="color: #007bff;">&#9632;</span> Objętość</td>
-                                <td class="text-end"><strong id="summary-volume">-</strong></td>
-                            </tr>
-                            <tr>
-                                <td><span style="color: #fd7e14;">&#9632;</span> Ilość produktów</td>
-                                <td class="text-end"><strong id="summary-quantity">-</strong></td>
-                            </tr>
-                            <tr>
-                                <td><span style="color: #28a745;">&#9632;</span> Wartość netto</td>
-                                <td class="text-end"><strong id="summary-value">-</strong></td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Breakdown statusów -->
-<div class="widget status-breakdown-widget mt-4">
-    <div class="widget-header">
-        <h4>Rozkład produktów według statusów</h4>
-    </div>
-    <div class="widget-content">
-        <div class="status-breakdown-layout">
-            <!-- Left: table -->
-            <div class="status-breakdown-table">
-                <div class="table-responsive">
-                    <table class="table table-sm">
-                        <thead>
-                            <tr>
-                                <th>Status</th>
-                                <th>Ilość</th>
-                                <th>Objętość (m³)</th>
-                                <th>% całości</th>
-                                <th>Gatunki m³</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for item in reports_data['status_breakdown'] %}
-                            <tr>
-                                <td>
-                                    <span class="status-badge status-{{ item['status'].replace('czeka_na_', '').replace('_', '-') }}">
-                                        {{ item['status'].replace('czeka_na_', '').replace('_', ' ').title() }}
-                                    </span>
-                                </td>
-                                <td><strong>{{ item['count'] }}</strong></td>
-                                <td>{{ "%.3f"|format(item['volume']) }}</td>
-                                <td>
-                                    {% set percentage = (item['count'] / reports_data['summary']['total_in_system'] * 100) if reports_data['summary']['total_in_system'] > 0 else 0 %}
-                                    {{ "%.1f"|format(percentage) }}%
-                                </td>
-                                <td class="species-breakdown-cell">
-                                    {% if item.get('species_breakdown') %}
-                                    <div class="species-list">
-                                        {% for sp in item['species_breakdown'] %}
-                                        <div class="species-row">
-                                            <span class="species-name">{{ sp.label }}</span>
-                                            <span class="species-vol">{{ sp.volume }} m³</span>
-                                        </div>
-                                        {% endfor %}
-                                    </div>
-                                    {% else %}
-                                        <span class="text-muted">—</span>
-                                    {% endif %}
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            <!-- Right: charts -->
-            <div class="status-charts-grid">
-                <div class="status-chart-card">
-                    <h6>Ilość wg stanowisk</h6>
-                    <div class="status-chart-canvas"><canvas id="status-count-chart"></canvas></div>
-                </div>
-                <div class="status-chart-card">
-                    <h6>Objętość wg stanowisk</h6>
-                    <div class="status-chart-canvas"><canvas id="status-volume-chart"></canvas></div>
-                </div>
-                <div class="status-chart-card" style="grid-column: 1 / -1;">
-                    <h6>Gatunki m³</h6>
-                    <div class="status-chart-canvas" style="height: 160px;"><canvas id="species-volume-chart"></canvas></div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Wykresy analityczne - Gatunki, Grubości, Technologie, Klasy -->
-<div class="widget analytics-widget mt-4">
-    <div class="widget-header">
-        <h4>Analiza produktów</h4>
-    </div>
-    <div class="widget-content">
-        <div class="row">
-            <!-- Wykres gatunków drewna -->
-            <div class="col-xl-3 col-md-6 col-12 mb-4">
-                <h6 class="text-center mb-3">Gatunki drewna</h6>
-                <div class="chart-wrapper" style="position: relative; height: 200px;">
-                    <canvas id="species-chart"></canvas>
-                </div>
-                <div class="chart-legend mt-2">
-                    {% for item in reports_data['species_breakdown'] %}
-                    <div class="legend-item small">
-                        <span class="legend-color" style="background-color: {{ ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#C9CBCF', '#7BC043'][loop.index0 % 8] }}"></span>
-                        {{ item['name'] }}: <strong>{{ item['count'] }}</strong> ({{ "%.3f"|format(item['volume']) }} m³)
-                    </div>
-                    {% endfor %}
-                </div>
-            </div>
-            <!-- Wykres grubości -->
-            <div class="col-xl-3 col-md-6 col-12 mb-4">
-                <h6 class="text-center mb-3">Grubości (cm)</h6>
-                <div class="chart-wrapper" style="position: relative; height: 200px;">
-                    <canvas id="thickness-chart"></canvas>
-                </div>
-                <div class="chart-legend mt-2">
-                    {% for item in reports_data['thickness_breakdown'] %}
-                    <div class="legend-item small">
-                        <span class="legend-color" style="background-color: {{ ['#36A2EB', '#4BC0C0', '#9966FF', '#FF6384', '#FFCE56', '#FF9F40', '#C9CBCF', '#7BC043'][loop.index0 % 8] }}"></span>
-                        {{ "%.1f"|format(item['thickness']) }} cm: <strong>{{ item['count'] }}</strong>
-                    </div>
-                    {% endfor %}
-                </div>
-            </div>
-            <!-- Wykres technologii -->
-            <div class="col-xl-3 col-md-6 col-12 mb-4">
-                <h6 class="text-center mb-3">Technologie</h6>
-                <div class="chart-wrapper" style="position: relative; height: 200px;">
-                    <canvas id="technology-chart"></canvas>
-                </div>
-                <div class="chart-legend mt-2">
-                    {% for item in reports_data['technology_breakdown'] %}
-                    <div class="legend-item small">
-                        <span class="legend-color" style="background-color: {{ ['#FFCE56', '#FF6384', '#36A2EB', '#4BC0C0', '#9966FF', '#FF9F40', '#C9CBCF', '#7BC043'][loop.index0 % 8] }}"></span>
-                        {{ item['name'] }}: <strong>{{ item['count'] }}</strong> ({{ "%.3f"|format(item['volume']) }} m³)
-                    </div>
-                    {% endfor %}
-                </div>
-            </div>
-            <!-- Wykres klas drewna -->
-            <div class="col-xl-3 col-md-6 col-12 mb-4">
-                <h6 class="text-center mb-3">Klasy drewna</h6>
-                <div class="chart-wrapper" style="position: relative; height: 200px;">
-                    <canvas id="wood-class-chart"></canvas>
-                </div>
-                <div class="chart-legend mt-2">
-                    {% for item in reports_data['wood_class_breakdown'] %}
-                    <div class="legend-item small">
-                        <span class="legend-color" style="background-color: {{ ['#8B4513', '#D2691E', '#CD853F', '#DEB887', '#F4A460', '#D2B48C', '#BC8F8F', '#A0522D'][loop.index0 % 8] }}"></span>
-                        {{ item['name'] }}: <strong>{{ item['count'] }}</strong> ({{ "%.3f"|format(item['volume']) }} m³)
-                    </div>
-                    {% endfor %}
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Historia synchronizacji -->
-<div class="widget sync-history-widget mt-4">
-    <div class="widget-header">
-        <h4>Historia synchronizacji (ostatnie 10)</h4>
-        <button class="btn btn-outline-primary btn-sm" onclick="refreshSyncHistory()">
-            <i class="fas fa-sync-alt me-1"></i>Odśwież
-        </button>
-    </div>
-    <div class="widget-content">
-        <div class="table-responsive">
-            <table class="table table-sm table-striped">
-                <thead>
-                    <tr>
-                        <th>Data synchronizacji</th>
-                        <th>Status</th>
-                        <th>Przetworzono</th>
-                        <th>Czas trwania</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for sync in reports_data['sync_history'] %}
-                    <tr>
-                        <td>
-                            {% set sync_date = sync['date'][:19] %}
-                            {{ sync_date.replace('T', ' ') }}
-                        </td>
-                        <td>
-                            <span class="badge {% if sync['status'] == 'completed' %}bg-success{% elif sync['status'] == 'error' %}bg-danger{% else %}bg-warning{% endif %}">
-                                {{ sync['status'].title() }}
-                            </span>
-                        </td>
-                        <td>{{ sync['items_processed'] }} elementów</td>
-                        <td>{{ sync['duration_seconds'] }}s</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
-</div>
+<div id="reports-sub-panel"></div>
 
 <script>
-// IIFE izoluje top-level deklaracje (let/const) - tab raportów jest re-loadowany
-// przez production-app-loader.executeInlineScripts() i bez IIFE drugie wykonanie
-// dawałoby SyntaxError "duplicate variable" na let dailyChart/technologyChart/itd.
+// IIFE izoluje top-level deklaracje (let/const) - szkielet raportów jest
+// re-loadowany przez production-app-loader.executeInlineScripts() i bez IIFE
+// drugie wykonanie dawałoby SyntaxError "duplicate variable".
 (function(){
-// JavaScript dla taba raportów
-let dailyChart = null;
-let statusCountChart = null;
-let statusVolumeChart = null;
-let speciesVolumeChart = null;
-let woodClassChart = null;
-let speciesChart = null;
-let thicknessChart = null;
-let technologyChart = null;
+
+// ════════════════════════════════════════════════════════════════════
+// Kontroler podzakładek
+//
+// Zakładka Raporty pobierała komplet danych dla sześciu widgetów naraz.
+// Podzakładka ładuje się dopiero, gdy ktoś ją włączy, a raz załadowany panel
+// zostaje w DOM (schowany) — powrót nie kosztuje ani jednego zapytania,
+// a wykresy Chart.js i stan filtrów przeżywają przełączenie.
+// ════════════════════════════════════════════════════════════════════
+const PODZAKLADKI = ['stanowiska', 'ludzie', 'miks', 'system'];
+const PODZAKLADKA_DOMYSLNA = 'stanowiska';
+const KLUCZ_PAMIECI = 'reportsSubTab';
+
+const panele = new Map();    // nazwa -> element panelu obecny w DOM
+const wTrakcie = new Map();  // nazwa -> Promise pobrania (gwardia przed podwójnym fetch)
 
 function initReportsTab() {
     console.log('[Reports Tab] Inicjalizacja');
+    posprzatajOsieroconeWykresy();
 
-    // Widget wykonania stanowiska w dniu
-    initStationOutputWidget();
-
-    // Widget wydajności pracowników
-    initWorkerOutputWidget();
-
-    // Inicjalizuj wykresy
-    initializeDailyChart();
-    initializeStatusCountChart();
-    initializeStatusVolumeChart();
-    initializeSpeciesVolumeChart();
-    initializeSpeciesChart();
-    initializeThicknessChart();
-    initializeTechnologyChart();
-    initializeWoodClassChart();
-}
-
-// ════════════════════════════════════════════════════════════════════
-// Widget: Wydajność pracowników (§7.2)
-// Zakres dat liczymy tą samą funkcją co widget stanowisk (soResolveRange),
-// żeby oba widgety rozumiały presety identycznie.
-// ════════════════════════════════════════════════════════════════════
-// Stan paginacji rozbicia dziennego. 15 wierszy na stronę, nie 10 jak
-// w widgecie stanowiskowym: tam wiersz to pozycja produkcyjna z opisem,
-// tutaj jedna linijka liczb, więc mieści się gęściej bez zmęczenia oka.
-const WO_ROZMIAR_STRONY = 15;
-let woWiersze = [];
-let woStrona = 1;
-
-function woRenderujStrone() {
-    const tbody = document.getElementById('wo-rows-body');
-    const paginacja = document.getElementById('wo-pagination');
-    if (!tbody) return;
-
-    const razem = woWiersze.length;
-    const stron = Math.max(1, Math.ceil(razem / WO_ROZMIAR_STRONY));
-    if (woStrona > stron) woStrona = stron;
-    if (woStrona < 1) woStrona = 1;
-
-    const od = (woStrona - 1) * WO_ROZMIAR_STRONY;
-    const do_ = Math.min(od + WO_ROZMIAR_STRONY, razem);
-
-    tbody.innerHTML = woWiersze.slice(od, do_).map(w => `
-        <tr${w.worker_name === 'Nieprzypisane' ? ' class="wo-unassigned"' : ''}>
-            <td>${escapeHtml(w.work_date)}</td>
-            <td>${escapeHtml(w.worker_name)}</td>
-            <td>${escapeHtml(w.station_label)}</td>
-            <td class="text-end">${w.pieces}</td>
-            <td class="text-end">${w.m3}</td>
-        </tr>`).join('');
-
-    if (!paginacja) return;
-    if (stron <= 1) {
-        paginacja.style.display = 'none';
-        return;
+    // Nasłuch wisi na samym pasku nawigacji, a nie na #reports-tab-wrapper ani
+    // na document: wrapper przeżywa przeładowanie zakładki (podmieniany jest
+    // tylko jego innerHTML), więc słuchacz na nim zbierałby się w kopiach.
+    const nav = document.querySelector('.reports-subnav');
+    if (nav) {
+        // Znacznik na samym węźle, a nie flaga w tym IIFE: loader woła
+        // initReportsTab() z setTimeout(50) PO tym, jak switchToTab zdążył już
+        // zdjąć isLoading. Odświeżenie zakładki w tym okienku podmienia HTML i
+        // planuje drugi init, a oba timeouty trafiają w to samo (nowe) window
+        // .initReportsTab i w ten sam pasek — bez znacznika każdy klik w
+        // podzakładkę leciałby wtedy podwójnie. Znacznik ginie razem z paskiem,
+        // więc realne przeładowanie zakładki podpina nasłuch od nowa.
+        if (nav.dataset.nasluchPodpiety !== '1') {
+            nav.dataset.nasluchPodpiety = '1';
+            nav.addEventListener('click', function (ev) {
+                const btn = ev.target.closest('.reports-subnav-btn');
+                if (!btn) return;
+                ev.preventDefault();
+                aktywujPodzakladke(btn.dataset.sub);
+            });
+        }
     }
-    paginacja.style.display = 'flex';
-    woRenderujKontrolki(stron, razem, od, do_);
+
+    aktywujPodzakladke(wybranaNaStarcie());
 }
 
-function woRenderujKontrolki(stron, razem, od, do_) {
-    const info = document.getElementById('wo-pagination-info');
-    const kontrolki = document.getElementById('wo-pagination-controls');
-    if (!info || !kontrolki) return;
-
-    info.textContent = `${od + 1}–${do_} z ${razem} wierszy`;
-
-    // computeSoPageList jest wspólne z widgetem stanowiskowym — ta sama
-    // logika elips (1 … 4 5 6 … 12), więc obie paginacje zachowują się tak samo.
-    const strony = computeSoPageList(woStrona, stron);
-    const czesci = [`<button type="button" data-act="prev" ${woStrona === 1 ? 'disabled' : ''} title="Poprzednia">‹</button>`];
-    for (const s of strony) {
-        czesci.push(s === '…'
-            ? '<span class="so-page-ellipsis">…</span>'
-            : `<button type="button" data-page="${s}" class="${s === woStrona ? 'active' : ''}">${s}</button>`);
+function wybranaNaStarcie() {
+    // ?sub= przed pamięcią przeglądarki: link "zobacz Ludzie" ma otworzyć
+    // Ludzie także komuś, kto ostatnio siedział gdzie indziej.
+    const zUrl = new URLSearchParams(window.location.search).get('sub');
+    if (PODZAKLADKI.includes(zUrl)) return zUrl;
+    try {
+        const zPamieci = localStorage.getItem(KLUCZ_PAMIECI);
+        if (PODZAKLADKI.includes(zPamieci)) return zPamieci;
+    } catch (e) {
+        // Tryb prywatny potrafi rzucić na samym dostępie do localStorage.
     }
-    czesci.push(`<button type="button" data-act="next" ${woStrona === stron ? 'disabled' : ''} title="Następna">›</button>`);
-    kontrolki.innerHTML = czesci.join('');
-
-    kontrolki.querySelectorAll('button').forEach(btn => {
-        btn.addEventListener('click', () => {
-            if (btn.dataset.act === 'prev' && woStrona > 1) {
-                woStrona -= 1;
-            } else if (btn.dataset.act === 'next' && woStrona < stron) {
-                woStrona += 1;
-            } else if (btn.dataset.page) {
-                const s = parseInt(btn.dataset.page, 10);
-                if (isNaN(s) || s === woStrona) return;
-                woStrona = s;
-            } else {
-                return;
-            }
-            woRenderujStrone();
-        });
-    });
+    return PODZAKLADKA_DOMYSLNA;
 }
 
-function toastRaportu(wiadomosc) {
-    if (window.ProductionApp?.shared?.toastSystem) {
-        window.ProductionApp.shared.toastSystem.show(wiadomosc, 'warning');
-    } else {
-        alert(wiadomosc);
-    }
-}
-
-function woBuildQuery() {
-    const preset = document.getElementById('wo-preset-select').value;
-    const zakres = soResolveRange(
-        preset,
-        document.getElementById('wo-start-date'),
-        document.getElementById('wo-end-date')
-    );
-    if (!zakres) {
-        throw new Error('Uzupełnij obie daty zakresu');
-    }
-    const stanowisko = document.getElementById('wo-station-select').value;
-    return `start_date=${zakres.start}&end_date=${zakres.end}&station=${stanowisko}`;
-}
-
-function woPokaz(id, widoczny) {
-    const el = document.getElementById(id);
-    if (el) el.style.display = widoczny ? '' : 'none';
-}
-
-async function woLoad() {
-    woPokaz('wo-loader', true);
-    woPokaz('wo-empty', false);
-    woPokaz('wo-tables', false);
-    woPokaz('wo-summary', false);
+function zapamietajWybor(nazwa) {
+    // Loader woła initReportsTab przez setTimeout(…, 50), a klik w inną zakładkę
+    // jest przyjmowany już wcześniej. Bez tej gwardii spóźniony init przepisywał
+    // adres z powrotem na ?tab=reports, więc pasek adresu kłamał o tym, co widać,
+    // a F5 wracało na Raporty, których użytkownik właśnie się pozbył.
+    const biezaca = window.ProductionApp?.state?.currentTab;
+    if (biezaca && biezaca !== 'reports-tab') return;
 
     try {
-        const odp = await fetch(`/production/api/reports/worker-output?${woBuildQuery()}`, {
+        localStorage.setItem(KLUCZ_PAMIECI, nazwa);
+    } catch (e) {
+        // j.w. — brak pamięci to nie powód, żeby przerywać przełączanie.
+    }
+    const params = new URLSearchParams(window.location.search);
+    params.set('tab', 'reports');
+    params.set('sub', nazwa);
+    history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
+}
+
+async function aktywujPodzakladke(nazwa) {
+    if (!PODZAKLADKI.includes(nazwa)) nazwa = PODZAKLADKA_DOMYSLNA;
+
+    document.querySelectorAll('.reports-subnav-btn').forEach(btn => {
+        const aktywny = btn.dataset.sub === nazwa;
+        btn.classList.toggle('active', aktywny);
+        btn.setAttribute('aria-selected', aktywny ? 'true' : 'false');
+    });
+    zapamietajWybor(nazwa);
+
+    if (!panele.has(nazwa)) {
+        const kontener = document.getElementById('reports-sub-panel');
+        if (!kontener) return;
+        const panel = document.createElement('div');
+        panel.className = 'reports-sub-pane';
+        panel.id = `reports-sub-pane-${nazwa}`;
+        panel.innerHTML = '<div class="reports-sub-loading"><i class="fas fa-spinner fa-spin"></i> Ładowanie…</div>';
+        kontener.appendChild(panel);
+        panele.set(nazwa, panel);
+    }
+
+    // Panele nie są niszczone, tylko chowane — patrz komentarz na górze sekcji.
+    // Widoczność ustawiamy PRZED pobraniem: skrypt fragmentu rysuje wykresy
+    // od razu po wstawieniu markupu, a Chart.js zapamiętałby wymiar 0, gdyby
+    // trafił na ukryty canvas.
+    panele.forEach((panel, klucz) => { panel.hidden = (klucz !== nazwa); });
+    odswiezWykresyPanelu(panele.get(nazwa));
+
+    if (wTrakcie.has(nazwa)) {
+        await wTrakcie.get(nazwa);
+        return;
+    }
+    if (panele.get(nazwa).dataset.zaladowany === '1') return;
+
+    const zadanie = pobierzPodzakladke(nazwa);
+    wTrakcie.set(nazwa, zadanie);
+    try {
+        await zadanie;
+    } finally {
+        wTrakcie.delete(nazwa);
+    }
+}
+
+async function pobierzPodzakladke(nazwa) {
+    const panel = panele.get(nazwa);
+    try {
+        const odp = await fetch(`/production/api/reports/sub/${nazwa}`, {
             headers: { 'X-Requested-With': 'XMLHttpRequest' }
         });
-        const dane = await odp.json();
-        if (!odp.ok || !dane.success) {
-            throw new Error(dane.error || `HTTP ${odp.status}`);
-        }
-        woRender(dane.report);
+        // Serwer i przy błędzie oddaje gotowy komunikat w HTML, więc treść
+        // wstawiamy zawsze; tylko udany fetch znaczy panel jako załadowany.
+        panel.innerHTML = await odp.text();
+        if (!odp.ok) return;
+        panel.dataset.zaladowany = '1';
+        // innerHTML nie wykonuje <script> — ten sam mechanizm, którym loader
+        // ożywia całą zakładkę. Wykonanie jest synchroniczne (replaceChild),
+        // więc po powrocie fragment jest już zainicjalizowany; szkielet nie
+        // woła żadnego init, każdy fragment robi to na końcu własnego IIFE.
+        window.ProductionApp?.executeInlineScripts?.(panel);
     } catch (e) {
-        console.error('[Reports] Wydajność pracowników:', e);
-        const pusty = document.getElementById('wo-empty');
-        if (pusty) pusty.textContent = `Nie udało się pobrać danych: ${e.message}`;
-        woPokaz('wo-empty', true);
-    } finally {
-        woPokaz('wo-loader', false);
+        panel.innerHTML = `<div class="alert alert-danger">Błąd ładowania podzakładki: ${escapeHtml(String(e && e.message || e))}</div>`;
     }
 }
 
-function woRender(raport) {
-    const p = raport.summary;
-
-    document.getElementById('wo-sum-pieces').textContent = p.pieces;
-    document.getElementById('wo-sum-m3').textContent = p.m3;
-    document.getElementById('wo-sum-hours').textContent = p.hours;
-    document.getElementById('wo-sum-hours-all').textContent = p.session_hours_all;
-    document.getElementById('wo-sum-workers').textContent = p.workers_count;
-    document.getElementById('wo-coverage').textContent =
-        p.attribution_coverage_pct === null ? '—' : `${p.attribution_coverage_pct}%`;
-
-    // Niepełne pokrycie to sygnał, że część roboty poszła bez wyboru profilu.
-    const boxPokrycia = document.getElementById('wo-coverage-box');
-    boxPokrycia.classList.toggle('wo-stat-warning',
-        p.attribution_coverage_pct !== null && p.attribution_coverage_pct < 100);
-
-    // escapeHtml na nazwiskach i stanowiskach: imię i nazwisko wpisuje admin
-    // w zakładce Pracownicy, a serwis zapisuje je bez sanityzacji (sam .strip()).
-    // Bez tego wpis w polu "imię" wstrzykuje skrypt każdemu, kto otworzy Raporty —
-    // czyli w dół ról, bo zakładkę czyta każdy zalogowany, a nie tylko admin.
-    const totalsBody = document.getElementById('wo-totals-body');
-    totalsBody.innerHTML = raport.worker_totals.map(w => `
-        <tr>
-            <td>${escapeHtml(w.worker_name)}</td>
-            <td class="wo-muted">${escapeHtml(w.stations.join(', '))}</td>
-            <td class="text-end">${w.pieces}</td>
-            <td class="text-end">${w.m3}</td>
-            <td class="text-end">${w.hours || '—'}</td>
-            <td class="text-end">${w.pace_m3_per_hour === null ? '—' : w.pace_m3_per_hour}</td>
-        </tr>`).join('');
-
-    // != 0, nie > 0: korekty z panelu mają ujemną deltę, więc ujemna reszta
-    // nieprzypisana też musi być widoczna zamiast po cichu znikać.
-    if (p.unassigned_pieces !== 0) {
-        totalsBody.insertAdjacentHTML('beforeend', `
-            <tr class="wo-unassigned">
-                <td><i class="fas fa-question-circle me-1"></i>Nieprzypisane</td>
-                <td class="wo-muted">praca bez wybranego profilu</td>
-                <td class="text-end">${p.unassigned_pieces}</td>
-                <td class="text-end">${p.unassigned_m3}</td>
-                <td class="text-end">—</td>
-                <td class="text-end">—</td>
-            </tr>`);
+function przeladujPodzakladke(nazwa) {
+    // Usunięcie panelu, a nie samo wyczyszczenie: razem z węzłem giną słuchacze
+    // fragmentu, więc ponowne wejście startuje z czystego stanu zamiast dokładać
+    // drugi komplet nasłuchów. Wykresy trzeba zdjąć osobno — Chart.js trzyma je
+    // we własnym rejestrze i odczepienie canvasa z DOM ich nie zwalnia.
+    const panel = panele.get(nazwa);
+    if (panel) {
+        panel.querySelectorAll('canvas').forEach(zniszczWykres);
+        panel.remove();
     }
-
-    // Rozbicie dzienne to iloczyn pracownik × dzień × stanowisko — przy
-    // miesięcznym zakresie robi się z tego kilkaset wierszy. Trzymamy je
-    // w stanie i pokazujemy stronami, tym samym mechanizmem co widget
-    // stanowiskowy (patrz renderSoItemsPage / computeSoPageList).
-    woWiersze = raport.rows.concat(raport.unassigned.map(u => Object.assign(
-        {}, u, { worker_name: 'Nieprzypisane' })));
-    woWiersze.sort((a, b) => (b.work_date || '').localeCompare(a.work_date || ''));
-    woStrona = 1;
-    woRenderujStrone();
-
-    const cokolwiek = raport.worker_totals.length > 0 || p.unassigned_pieces > 0;
-    woPokaz('wo-summary', true);
-    woPokaz('wo-tables', cokolwiek);
-    woPokaz('wo-empty', !cokolwiek);
+    panele.delete(nazwa);
+    return aktywujPodzakladke(nazwa);
 }
 
-function initWorkerOutputWidget() {
-    const presetSelect = document.getElementById('wo-preset-select');
-    if (!presetSelect) return;
+function zniszczWykres(canvas) {
+    // Chart.js trzyma rejestr instancji po elemencie canvas, a nie po naszej
+    // zmiennej modułowej. Po ponownym wykonaniu skryptu `let dailyChart` startuje
+    // z null i stara instancja zostaje przypięta do odczepionego canvasa na zawsze.
+    // Pytamy więc Chart.js o instancję samego canvasa, zamiast pamiętać ją u siebie.
+    if (canvas && window.Chart) window.Chart.getChart(canvas)?.destroy();
+}
 
-    const startEl = document.getElementById('wo-start-date');
-    const endEl = document.getElementById('wo-end-date');
-
-    presetSelect.addEventListener('change', () => {
-        const wlasny = presetSelect.value === 'custom';
-        startEl.style.display = wlasny ? '' : 'none';
-        endEl.style.display = wlasny ? '' : 'none';
-        if (!wlasny) woLoad();
+function odswiezWykresyPanelu(panel) {
+    // Chart.js bierze rozmiar canvasa z kontenera W CHWILI rysowania, a
+    // zdarzenie resize o zerowych bokach ignoruje. Pobranie fragmentu jest
+    // asynchroniczne, więc da się przełączyć podzakładkę, zanim wróci: jego
+    // skrypt narysuje wtedy wykresy w panelu z display:none, czyli w pudełku
+    // 0×0. Przy powrocie panel jest już oznaczony jako załadowany i nikt tych
+    // wymiarów nie przelicza. Stąd jawne przeliczenie przy pokazaniu —
+    // dla wykresu o poprawnym rozmiarze to operacja pusta.
+    if (!panel || !window.Chart) return;
+    panel.querySelectorAll('canvas').forEach(canvas => {
+        window.Chart.getChart(canvas)?.resize();
     });
+}
 
-    document.getElementById('wo-station-select').addEventListener('change', woLoad);
-    document.getElementById('wo-refresh-btn').addEventListener('click', woLoad);
-    startEl.addEventListener('change', woLoad);
-    endEl.addEventListener('change', woLoad);
-
-    document.getElementById('wo-export-btn').addEventListener('click', () => {
-        // try/catch, bo soResolveRange zwraca null przy presecie "własny zakres"
-        // z niewypełnionym drugim polem — bez tego przycisk po prostu cicho
-        // nie działał i nikt nie wiedział dlaczego.
-        try {
-            window.location = `/production/api/reports/worker-output?${woBuildQuery()}&format=xlsx`;
-        } catch (e) {
-            toastRaportu('Uzupełnij obie daty zakresu, żeby pobrać plik');
+function posprzatajOsieroconeWykresy() {
+    // Przeładowanie zakładki podmienia innerHTML wrappera, więc canvasy giną
+    // razem z nim, ale instancje Chart.js zostają w rejestrze biblioteki —
+    // zmierzone: +7 wykresów na każde wejście, bez końca. Nikt nam nie da znać
+    // o podmianie DOM, więc przy starcie sprzątamy to, co zostało po poprzedniku.
+    if (!window.Chart) return;
+    Object.values(window.Chart.instances || {}).forEach(wykres => {
+        if (wykres?.canvas && !document.body.contains(wykres.canvas)) {
+            wykres.destroy();
         }
     });
-
-    woLoad();
 }
 
 // ════════════════════════════════════════════════════════════════════
-// Widget: Wykonanie stanowiska w dniu (event log)
+// Funkcje wspólne fragmentów
+//
+// Każdy fragment ma własne IIFE, więc nie widzi kodu sąsiada. To poniżej to
+// jedyny most: rzeczy wołane z co najmniej dwóch podzakładek. Nic więcej tu
+// nie trafia — inaczej "wspólne" zamieni się w drugą kopię całego kodu.
 // ════════════════════════════════════════════════════════════════════
-const SO_STORAGE_KEY = 'production.reports.stationOutput';
-const SO_PAGE_SIZE = 10;
 
-// Stan widgetu
-let soCurrentItems = [];          // pełna lista z ostatniego loadu
-let soCurrentPage = 1;            // 1-based
-let soChartMode = 'pieces';       // 'pieces' | 'volume' | 'both'
-let soTimelineChart = null;       // instancja Chart.js
-let soCurrentTimeline = null;     // ostatnia odebrana struktura timeline
-let soIsAllStations = false;      // true gdy aktualnie wybrane 'Wszystkie stanowiska'
+function escapeHtml(s) {
+    if (s == null) return '';
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
 
 // Format YYYY-MM-DD dla obecnego dnia w lokalnej strefie czasowej
 function soFormatLocalDate(d) {
@@ -1545,6 +279,7 @@ function soFormatLocalDate(d) {
 }
 
 // Wylicza zakres {start, end} z presetu albo z inputów custom.
+// Wspólna dla stanowisk i ludzi, żeby oba widgety rozumiały presety identycznie.
 function soResolveRange(preset, startEl, endEl) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -1575,341 +310,8 @@ function soResolveRange(preset, startEl, endEl) {
     return null;
 }
 
-function initStationOutputWidget() {
-    const stationSel = document.getElementById('so-station-select');
-    const presetSel = document.getElementById('so-preset-select');
-    const startInput = document.getElementById('so-start-date');
-    const endInput = document.getElementById('so-end-date');
-    const refreshBtn = document.getElementById('so-refresh-btn');
-
-    if (!stationSel || !presetSel || !startInput || !endInput) return;
-
-    // Przywróć ostatni wybór z localStorage; fallback: dziś + packaging
-    const saved = (() => {
-        try { return JSON.parse(localStorage.getItem(SO_STORAGE_KEY) || '{}'); }
-        catch { return {}; }
-    })();
-
-    if (saved.station) {
-        stationSel.value = saved.station;
-    }
-
-    // Default daty dla custom: ostatnie 7 dni
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const weekAgo = new Date(today);
-    weekAgo.setDate(weekAgo.getDate() - 6);
-    startInput.value = saved.customStart || soFormatLocalDate(weekAgo);
-    endInput.value = saved.customEnd || soFormatLocalDate(today);
-
-    const validPresets = ['today', 'yesterday', '7d', '30d', 'custom'];
-    const presetValue = validPresets.includes(saved.preset) ? saved.preset : 'today';
-    presetSel.value = presetValue;
-    const isCustom = presetValue === 'custom';
-    startInput.style.display = isCustom ? '' : 'none';
-    endInput.style.display = isCustom ? '' : 'none';
-
-    if (saved.chartMode && ['pieces', 'volume', 'both'].includes(saved.chartMode)) {
-        soChartMode = saved.chartMode;
-    }
-    // Synchronizacja stanu przycisków trybu z odtworzoną wartością
-    document.querySelectorAll('#so-mode-switch button').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.mode === soChartMode);
-    });
-
-    const persist = () => {
-        try {
-            localStorage.setItem(SO_STORAGE_KEY, JSON.stringify({
-                station: stationSel.value,
-                preset: presetSel.value,
-                customStart: startInput.value,
-                customEnd: endInput.value,
-                chartMode: soChartMode,
-            }));
-        } catch { /* localStorage może być wyłączony — pomijamy */ }
-    };
-
-    const reload = () => {
-        const range = soResolveRange(presetSel.value, startInput, endInput);
-        if (!range) return; // np. custom bez wypełnionych dat
-        persist();
-        soCurrentPage = 1; // reset paginacji przy zmianie stanowiska/zakresu
-        loadStationOutput(stationSel.value, range.start, range.end);
-    };
-
-    stationSel.addEventListener('change', reload);
-    presetSel.addEventListener('change', () => {
-        const isCustomNow = presetSel.value === 'custom';
-        startInput.style.display = isCustomNow ? '' : 'none';
-        endInput.style.display = isCustomNow ? '' : 'none';
-        reload();
-    });
-    startInput.addEventListener('change', () => {
-        if (presetSel.value === 'custom') reload();
-    });
-    endInput.addEventListener('change', () => {
-        if (presetSel.value === 'custom') reload();
-    });
-    refreshBtn?.addEventListener('click', reload);
-
-    // Przełącznik trybu wykresu
-    document.querySelectorAll('#so-mode-switch button').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const mode = btn.dataset.mode;
-            if (!mode || mode === soChartMode) return;
-            soChartMode = mode;
-            document.querySelectorAll('#so-mode-switch button').forEach(b => {
-                b.classList.toggle('active', b.dataset.mode === mode);
-            });
-            persist();
-            // Re-render wykresu bez nowego requestu
-            if (soCurrentTimeline) renderSoTimeline(soCurrentTimeline);
-        });
-    });
-
-    // Wstępne ładowanie
-    const range = soResolveRange(presetSel.value, startInput, endInput);
-    if (range) {
-        loadStationOutput(stationSel.value, range.start, range.end);
-    }
-}
-
-async function loadStationOutput(station, startDate, endDate) {
-    const tableContainer = document.getElementById('so-table-container');
-    const emptyState = document.getElementById('so-empty-state');
-    const summary = document.getElementById('so-summary');
-    const tbody = document.getElementById('so-table-body');
-    const timelineWrapper = document.getElementById('so-timeline-wrapper');
-    const pagination = document.getElementById('so-pagination');
-
-    if (!tableContainer || !tbody) return;
-
-    // Loading
-    emptyState.textContent = 'Ładowanie...';
-    emptyState.style.display = 'block';
-    tableContainer.style.display = 'none';
-    summary.style.display = 'none';
-    if (pagination) pagination.style.display = 'none';
-
-    try {
-        const url = `/production/api/reports/station-output`
-            + `?station=${encodeURIComponent(station)}`
-            + `&start_date=${encodeURIComponent(startDate)}`
-            + `&end_date=${encodeURIComponent(endDate)}`;
-        const resp = await fetch(url);
-        const data = await resp.json();
-
-        if (!data.success) {
-            emptyState.textContent = 'Błąd: ' + (data.error || 'nieznany');
-            if (timelineWrapper) timelineWrapper.style.display = 'none';
-            soCurrentItems = [];
-            soCurrentTimeline = null;
-            return;
-        }
-
-        // Etykieta zakresu do komunikatów / labelek
-        const daysCount = data.days_count || 1;
-        const rangeLabel = daysCount === 1
-            ? data.start_date
-            : `${data.start_date} – ${data.end_date} (${daysCount} dni)`;
-
-        // Tryb wszystkie-stanowiska propagujemy do renderera tabeli
-        soIsAllStations = !!data.is_all_stations;
-
-        // Aktualizuj nagłówki kolumn / labelki summary
-        soUpdateRangeLabels(daysCount);
-        soUpdateStationColumn(soIsAllStations);
-
-        // Timeline pokazujemy zawsze gdy mamy strukturę (nawet pusty zakres
-        // — wtedy widać 24h pustej siatki + komunikat).
-        soCurrentTimeline = data.timeline || null;
-        if (soCurrentTimeline && timelineWrapper) {
-            timelineWrapper.style.display = 'block';
-            renderSoTimeline(soCurrentTimeline);
-        } else if (timelineWrapper) {
-            timelineWrapper.style.display = 'none';
-        }
-
-        if (!data.items || data.items.length === 0) {
-            emptyState.textContent = `Brak operacji na stanowisku "${data.station_label}" w zakresie ${rangeLabel}.`;
-            soCurrentItems = [];
-            return;
-        }
-
-        // Render summary
-        document.getElementById('so-summary-items').textContent = data.summary.items_count;
-        document.getElementById('so-summary-qty').textContent = data.summary.total_quantity_done_eod + ' szt.';
-        const deltaEl = document.getElementById('so-summary-delta');
-        const delta = data.summary.total_day_delta;
-        deltaEl.textContent = (delta >= 0 ? '+' : '') + delta + ' szt.';
-        deltaEl.style.color = delta >= 0 ? '#16a34a' : '#dc2626';
-        document.getElementById('so-summary-volume').textContent =
-            data.summary.total_volume_done_eod_m3.toFixed(3) + ' m³';
-
-        // Kafelek pojawia się tylko wtedy, gdy automat faktycznie coś przeskoczył —
-        // przy większości stanowisk będzie zawsze ukryty i nie zaśmieci widoku.
-        const pominiete = data.summary.auto_skipped_pieces || 0;
-        document.getElementById('so-summary-auto').textContent = pominiete + ' szt.';
-        document.getElementById('so-summary-auto-box').style.display =
-            pominiete ? '' : 'none';
-
-        // Zapis stanu do paginacji + render strony 1
-        soCurrentItems = data.items;
-        soCurrentPage = 1;
-        renderSoItemsPage();
-
-        emptyState.style.display = 'none';
-        tableContainer.style.display = 'block';
-        summary.style.display = 'flex';
-
-    } catch (err) {
-        console.error('[Station Output] Load error:', err);
-        emptyState.textContent = 'Błąd połączenia: ' + err.message;
-        if (timelineWrapper) timelineWrapper.style.display = 'none';
-        soCurrentItems = [];
-        soCurrentTimeline = null;
-    }
-}
-
-// Pokaż/ukryj kolumnę "Stanowisko" w nagłówku tabeli.
-// Komórki w wierszach są dodawane/pomijane przez renderSoItemRow().
-function soUpdateStationColumn(isAll) {
-    const colHeader = document.getElementById('so-col-station-label');
-    if (colHeader) colHeader.style.display = isAll ? '' : 'none';
-}
-
-// Aktualizuje labelki summary i nagłówki kolumn tabeli w zależności od liczby dni.
-function soUpdateRangeLabels(daysCount) {
-    const isRange = daysCount > 1;
-
-    const titleEl = document.getElementById('so-timeline-title');
-    if (titleEl) {
-        titleEl.innerHTML = isRange
-            ? `<i class="fas fa-chart-bar me-1"></i>Aktywność 00:00–24:00 — średnia dzienna (co 30 min, ${daysCount} dni)`
-            : `<i class="fas fa-chart-bar me-1"></i>Aktywność 00:00–24:00 (co 30 min)`;
-    }
-
-    const qtyLabel = document.getElementById('so-summary-qty-label');
-    if (qtyLabel) qtyLabel.textContent = isRange ? 'Sztuki na koniec zakresu' : 'Sztuki na koniec dnia';
-
-    const deltaLabel = document.getElementById('so-summary-delta-label');
-    if (deltaLabel) deltaLabel.textContent = isRange ? 'Ruch w zakresie' : 'Ruch dnia';
-
-    const volLabel = document.getElementById('so-summary-volume-label');
-    if (volLabel) volLabel.textContent = isRange ? 'm³ wykonane (koniec zakresu)' : 'm³ wykonane (EOD)';
-
-    const colEod = document.getElementById('so-col-eod-label');
-    if (colEod) colEod.textContent = isRange ? 'Wykonano (koniec zakresu)' : 'Wykonano (EOD)';
-
-    const colDelta = document.getElementById('so-col-delta-label');
-    if (colDelta) colDelta.textContent = isRange ? 'Ruch w zakresie' : 'Ruch dnia';
-}
-
-function renderSoItemRow(it) {
-    const deltaClass = it.day_delta_sum >= 0 ? 'so-delta-pos' : 'so-delta-neg';
-    const deltaSign = it.day_delta_sum >= 0 ? '+' : '';
-    const woodMeta = [
-        it.wood_species || '—',
-        it.thickness_cm ? it.thickness_cm.toFixed(1) + ' cm' : ''
-    ].filter(Boolean).join(' · ');
-    const lastEvent = it.last_event_at
-        ? new Date(it.last_event_at).toLocaleTimeString('pl-PL', {hour: '2-digit', minute: '2-digit'})
-        : '—';
-    const status = (it.current_status || '').replace('czeka_na_', '').replace(/_/g, ' ');
-
-    // Dodatkowa komórka "Stanowisko" tylko w trybie 'Wszystkie'
-    const stationCell = soIsAllStations
-        ? `<td style="font-size: 12px;">${escapeHtml(it.station_label || it.station_code || '—')}</td>`
-        : '';
-
-    return `
-        <tr>
-            <td><strong>${it.baselinker_order_id || '—'}</strong></td>
-            <td>
-                <div style="font-size: 13px;">${escapeHtml(it.product_name || '—')}</div>
-                <div style="font-size: 10px; color: var(--il-text-secondary, #7a8291); font-family: monospace;">${escapeHtml(it.short_product_id || '')}</div>
-            </td>
-            ${stationCell}
-            <td class="so-progress">${it.quantity_done_eod} / ${it.quantity}</td>
-            <td class="${deltaClass}">${deltaSign}${it.day_delta_sum}</td>
-            <td>${it.volume_done_eod_m3.toFixed(3)}</td>
-            <td style="font-size: 12px;">${escapeHtml(woodMeta)}</td>
-            <td><span class="status-badge" style="background: var(--il-bg-base, #eef0f4); padding: 2px 6px; font-size: 10px;">${escapeHtml(status)}</span></td>
-            <td style="font-family: monospace; font-size: 11px;">${lastEvent}</td>
-        </tr>
-    `;
-}
-
-function renderSoItemsPage() {
-    const tbody = document.getElementById('so-table-body');
-    const pagination = document.getElementById('so-pagination');
-    if (!tbody) return;
-
-    const total = soCurrentItems.length;
-    const totalPages = Math.max(1, Math.ceil(total / SO_PAGE_SIZE));
-
-    // Walidacja zakresu (np. po przerysowaniu)
-    if (soCurrentPage > totalPages) soCurrentPage = totalPages;
-    if (soCurrentPage < 1) soCurrentPage = 1;
-
-    const start = (soCurrentPage - 1) * SO_PAGE_SIZE;
-    const end = Math.min(start + SO_PAGE_SIZE, total);
-    const slice = soCurrentItems.slice(start, end);
-
-    tbody.innerHTML = slice.map(renderSoItemRow).join('');
-
-    // Renderuj kontrolki paginacji tylko gdy >1 strona
-    if (!pagination) return;
-    if (totalPages <= 1) {
-        pagination.style.display = 'none';
-    } else {
-        pagination.style.display = 'flex';
-        renderSoPaginationControls(totalPages, total, start, end);
-    }
-}
-
-function renderSoPaginationControls(totalPages, total, start, end) {
-    const info = document.getElementById('so-pagination-info');
-    const controls = document.getElementById('so-pagination-controls');
-    if (!info || !controls) return;
-
-    info.textContent = `${start + 1}–${end} z ${total} pozycji`;
-
-    // Buduje listę numerów stron z elipsami: 1 ... 4 5 6 ... 12
-    const pages = computeSoPageList(soCurrentPage, totalPages);
-    const parts = [];
-    parts.push(`<button type="button" data-act="prev" ${soCurrentPage === 1 ? 'disabled' : ''} title="Poprzednia">‹</button>`);
-    for (const p of pages) {
-        if (p === '…') {
-            parts.push('<span class="so-page-ellipsis">…</span>');
-        } else {
-            const active = p === soCurrentPage ? 'active' : '';
-            parts.push(`<button type="button" data-page="${p}" class="${active}">${p}</button>`);
-        }
-    }
-    parts.push(`<button type="button" data-act="next" ${soCurrentPage === totalPages ? 'disabled' : ''} title="Następna">›</button>`);
-    controls.innerHTML = parts.join('');
-
-    // Bindowanie zdarzeń (delegacja prosto na kontenerze)
-    controls.querySelectorAll('button').forEach(btn => {
-        btn.addEventListener('click', () => {
-            if (btn.dataset.act === 'prev' && soCurrentPage > 1) {
-                soCurrentPage -= 1;
-                renderSoItemsPage();
-            } else if (btn.dataset.act === 'next' && soCurrentPage < totalPages) {
-                soCurrentPage += 1;
-                renderSoItemsPage();
-            } else if (btn.dataset.page) {
-                const p = parseInt(btn.dataset.page, 10);
-                if (!isNaN(p) && p !== soCurrentPage) {
-                    soCurrentPage = p;
-                    renderSoItemsPage();
-                }
-            }
-        });
-    });
-}
-
+// Lista numerów stron z elipsami: 1 … 4 5 6 … 12. Wspólna, żeby paginacja
+// stanowisk i paginacja ludzi zachowywały się dokładnie tak samo.
 function computeSoPageList(current, total) {
     // Krótkie: pokaż wszystkie strony (≤7), inaczej elipsy.
     if (total <= 7) {
@@ -1927,879 +329,41 @@ function computeSoPageList(current, total) {
     return result;
 }
 
-function renderSoTimeline(timeline) {
-    const canvas = document.getElementById('so-timeline-chart');
-    const empty = document.getElementById('so-timeline-empty');
-    // canvasWrapper = .so-timeline-canvas-wrapper (siostrzany do empty),
-    // NIE zewnętrzny #so-timeline-wrapper.
-    const canvasWrapper = canvas?.parentElement;
-    if (!canvas) return;
-
-    if (typeof Chart === 'undefined') {
-        // Spróbuj jeszcze raz po krótkiej chwili — Chart.js bywa ładowany async
-        setTimeout(() => renderSoTimeline(timeline), 100);
-        return;
-    }
-
-    const labels = timeline.buckets || [];
-    const piecesRaw = timeline.pieces || [];
-    const volumeRaw = timeline.volume_m3 || [];
-    const daysCount = Math.max(1, timeline.days_count || 1);
-    const isAvg = daysCount > 1;
-
-    // Dla zakresu >1 dnia: średnia dzienna per bucket (sum / days_count).
-    // Dla 1 dnia: surowa suma (== średnia/1).
-    const pieces = isAvg
-        ? piecesRaw.map(v => v / daysCount)
-        : piecesRaw.slice();
-    const volume = isAvg
-        ? volumeRaw.map(v => v / daysCount)
-        : volumeRaw.slice();
-
-    // Pusty zakres? Pokaż komunikat zamiast wykresu.
-    const hasData = piecesRaw.some(v => v !== 0) || volumeRaw.some(v => v !== 0);
-    if (!hasData) {
-        if (empty) {
-            empty.textContent = isAvg
-                ? `Brak operacji w wybranym zakresie (${daysCount} dni).`
-                : 'Brak operacji w tym dniu.';
-            empty.style.display = 'block';
-        }
-        if (canvasWrapper) canvasWrapper.style.display = 'none';
-        if (soTimelineChart) {
-            soTimelineChart.destroy();
-            soTimelineChart = null;
-        }
-        return;
-    }
-    if (empty) empty.style.display = 'none';
-    if (canvasWrapper) canvasWrapper.style.display = 'block';
-
-    // Przygotuj datasety zgodnie z trybem
-    const datasets = [];
-    const scales = {
-        x: {
-            ticks: {
-                autoSkip: true,
-                maxTicksLimit: 12,   // co ~2h widoczna etykieta (z 48 możliwych)
-                font: { size: 10 },
-            },
-            grid: { display: false },
-        },
-    };
-
-    const piecesColor = '#2563eb';
-    const volumeColor = '#16a34a';
-
-    // Labels datasetów + tick formattery zależą od trybu (sumy vs średnia)
-    const piecesLabel = isAvg ? 'Sztuki śr./dzień' : 'Sztuki';
-    const volumeLabel = isAvg ? 'm³ śr./dzień' : 'm³';
-    const piecesAxisTitle = isAvg ? 'Sztuki / dzień' : 'Sztuki';
-    const piecesTickFmt = isAvg ? (v => v.toFixed(1)) : (v => Math.round(v));
-
-    if (soChartMode === 'pieces') {
-        datasets.push({
-            label: piecesLabel,
-            data: pieces,
-            backgroundColor: pieces.map(v => v >= 0 ? piecesColor : '#dc2626'),
-            borderWidth: 0,
-        });
-        scales.y = {
-            beginAtZero: true,
-            title: { display: true, text: piecesAxisTitle, font: { size: 10 } },
-            ticks: { font: { size: 10 }, callback: piecesTickFmt },
-        };
-    } else if (soChartMode === 'volume') {
-        datasets.push({
-            label: volumeLabel,
-            data: volume,
-            backgroundColor: volume.map(v => v >= 0 ? volumeColor : '#dc2626'),
-            borderWidth: 0,
-        });
-        scales.y = {
-            beginAtZero: true,
-            title: { display: true, text: isAvg ? 'm³ / dzień' : 'm³', font: { size: 10 } },
-            ticks: { font: { size: 10 }, callback: v => v.toFixed(2) },
-        };
+function toastRaportu(wiadomosc) {
+    if (window.ProductionApp?.shared?.toastSystem) {
+        window.ProductionApp.shared.toastSystem.show(wiadomosc, 'warning');
     } else {
-        // Tryb both — dwa datasety side-by-side, dwie osie Y
-        datasets.push({
-            label: piecesLabel,
-            data: pieces,
-            backgroundColor: piecesColor,
-            borderWidth: 0,
-            yAxisID: 'y',
-        });
-        datasets.push({
-            label: volumeLabel,
-            data: volume,
-            backgroundColor: volumeColor,
-            borderWidth: 0,
-            yAxisID: 'y1',
-        });
-        scales.y = {
-            type: 'linear',
-            position: 'left',
-            beginAtZero: true,
-            title: { display: true, text: piecesAxisTitle, font: { size: 10 }, color: piecesColor },
-            ticks: { font: { size: 10 }, color: piecesColor, callback: piecesTickFmt },
-            grid: { color: 'rgba(0,0,0,0.05)' },
-        };
-        scales.y1 = {
-            type: 'linear',
-            position: 'right',
-            beginAtZero: true,
-            title: { display: true, text: isAvg ? 'm³ / dzień' : 'm³', font: { size: 10 }, color: volumeColor },
-            ticks: { font: { size: 10 }, color: volumeColor, callback: v => v.toFixed(2) },
-            grid: { drawOnChartArea: false },
-        };
-    }
-
-    if (soTimelineChart) {
-        soTimelineChart.destroy();
-        soTimelineChart = null;
-    }
-
-    const ctx = canvas.getContext('2d');
-    soTimelineChart = new Chart(ctx, {
-        type: 'bar',
-        data: { labels, datasets },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: {
-                    display: soChartMode === 'both',
-                    position: 'top',
-                    labels: { font: { size: 11 }, boxWidth: 10 },
-                },
-                tooltip: {
-                    callbacks: {
-                        title: (items) => {
-                            // Zakres półgodzinny: "08:30 – 09:00" (+ informacja o średniej)
-                            if (!items.length) return '';
-                            const idx = items[0].dataIndex;
-                            const start = labels[idx];
-                            const endIdx = idx + 1;
-                            const end = endIdx < labels.length ? labels[endIdx] : '24:00';
-                            return isAvg
-                                ? `${start} – ${end}  (śr. z ${daysCount} dni)`
-                                : `${start} – ${end}`;
-                        },
-                        label: (ctx) => {
-                            const v = ctx.parsed.y;
-                            if (ctx.dataset.label && ctx.dataset.label.startsWith('m³')) {
-                                return `${ctx.dataset.label}: ${v.toFixed(3)} m³`;
-                            }
-                            // Sztuki: średnia bywa ułamkowa, suma jest całkowita
-                            const formatted = isAvg ? v.toFixed(1) : Math.round(v);
-                            return `${ctx.dataset.label}: ${v >= 0 ? '+' : ''}${formatted}`;
-                        },
-                    },
-                },
-            },
-            scales,
-        },
-    });
-}
-
-function escapeHtml(s) {
-    if (s == null) return '';
-    return String(s)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
-}
-
-// Inicjalizacja wykresu wydajności per stanowisko (identyczny jak na Dashboard)
-async function initializeDailyChart() {
-    console.log('[Reports Tab] Initializing daily performance chart...');
-
-    // Ustaw event listenery dla kontrolek
-    const periodSelect = document.getElementById('reports-chart-period-select');
-    const stationSelect = document.getElementById('reports-chart-station-select');
-    const refreshBtn = document.getElementById('reports-chart-refresh-btn');
-    const startDateInput = document.getElementById('reports-chart-start-date');
-    const endDateInput = document.getElementById('reports-chart-end-date');
-
-    // Domyślne daty dla custom range: ostatnie 30 dni
-    if (startDateInput && endDateInput) {
-        const today = new Date();
-        const monthAgo = new Date();
-        monthAgo.setDate(today.getDate() - 29);
-        endDateInput.value = today.toISOString().slice(0, 10);
-        startDateInput.value = monthAgo.toISOString().slice(0, 10);
-    }
-
-    function getCurrentParams() {
-        const value = periodSelect ? periodSelect.value : '30';
-        const station = stationSelect ? stationSelect.value : 'all';
-        if (value === 'custom') {
-            return {
-                custom: true,
-                start: startDateInput ? startDateInput.value : null,
-                end: endDateInput ? endDateInput.value : null,
-                station
-            };
-        }
-        return { custom: false, period: parseInt(value), station };
-    }
-
-    function triggerLoad() {
-        const params = getCurrentParams();
-        if (params.custom) {
-            if (!params.start || !params.end) return;
-            loadReportsChartData(null, params.station, params.start, params.end);
-        } else {
-            loadReportsChartData(params.period, params.station);
-        }
-    }
-
-    if (periodSelect) {
-        periodSelect.addEventListener('change', (e) => {
-            const isCustom = e.target.value === 'custom';
-            if (startDateInput) startDateInput.style.display = isCustom ? '' : 'none';
-            if (endDateInput) endDateInput.style.display = isCustom ? '' : 'none';
-            console.log('[Reports Tab] Period changed to:', e.target.value);
-            triggerLoad();
-        });
-    }
-
-    if (stationSelect) {
-        stationSelect.addEventListener('change', () => {
-            console.log('[Reports Tab] Station changed');
-            triggerLoad();
-        });
-    }
-
-    if (startDateInput) {
-        startDateInput.addEventListener('change', () => {
-            if (periodSelect && periodSelect.value === 'custom') triggerLoad();
-        });
-    }
-
-    if (endDateInput) {
-        endDateInput.addEventListener('change', () => {
-            if (periodSelect && periodSelect.value === 'custom') triggerLoad();
-        });
-    }
-
-    if (refreshBtn) {
-        refreshBtn.addEventListener('click', () => {
-            console.log('[Reports Tab] Refresh clicked');
-            triggerLoad();
-        });
-    }
-
-    // Załaduj dane dla domyślnego okresu (30 dni) i wszystkich stanowisk
-    await loadReportsChartData(30, 'all');
-}
-
-async function loadReportsChartData(period, station = 'all', startDate = null, endDate = null) {
-    const loader = document.getElementById('reports-chart-loader');
-    const canvas = document.getElementById('reports-performance-chart');
-    const summaryDiv = document.getElementById('reports-chart-summary');
-
-    // Pokaż loader
-    if (loader) loader.style.display = 'flex';
-    if (canvas) canvas.style.opacity = '0.35';
-
-    try {
-        let url;
-        if (startDate && endDate) {
-            url = `/production/api/chart-data?station=${station}&start_date=${startDate}&end_date=${endDate}`;
-        } else {
-            url = `/production/api/chart-data?period=${period}&station=${station}`;
-        }
-        const response = await fetch(url);
-        const data = await response.json();
-
-        if (data.success) {
-            const effectivePeriod = data.period || period;
-            createReportsPerformanceChart(data.chart_data, effectivePeriod, data.mode, data.station);
-
-            // Aktualizuj tabelkę podsumowania (tylko dla pojedynczego stanowiska)
-            if (data.mode === 'single_station' && data.summary) {
-                updateChartSummary(data.summary);
-                if (summaryDiv) summaryDiv.style.display = 'block';
-            } else {
-                if (summaryDiv) summaryDiv.style.display = 'none';
-            }
-        } else {
-            console.error('[Reports Tab] Chart data error:', data.error);
-            showReportsChartError('Błąd ładowania danych: ' + (data.error || 'Nieznany błąd'));
-            if (summaryDiv) summaryDiv.style.display = 'none';
-        }
-    } catch (error) {
-        console.error('[Reports Tab] Failed to load chart data:', error);
-        showReportsChartError('Błąd połączenia z serwerem');
-        if (summaryDiv) summaryDiv.style.display = 'none';
-    } finally {
-        // Ukryj loader
-        if (loader) loader.style.display = 'none';
-        if (canvas) canvas.style.opacity = '1';
+        alert(wiadomosc);
     }
 }
 
-function createReportsPerformanceChart(chartData, period, mode = 'all_stations', station = 'all') {
-    const canvas = document.getElementById('reports-performance-chart');
-    if (!canvas) {
-        console.error('[Reports Tab] Canvas reports-performance-chart not found!');
-        return;
-    }
-
-    if (typeof Chart === 'undefined') {
-        console.warn('[Reports Tab] Chart.js not loaded yet, waiting...');
-        setTimeout(() => createReportsPerformanceChart(chartData, period, mode, station), 100);
-        return;
-    }
-
-    // Zniszcz istniejący wykres
-    if (dailyChart) {
-        dailyChart.destroy();
-        dailyChart = null;
-    }
-
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Określ tytuł na podstawie okresu
-    let chartTitle = 'Wydajność produkcji';
-    let xAxisLabel = 'Data';
-
-    if (period <= 30) {
-        chartTitle += ` (${period} dni)`;
-        xAxisLabel = 'Dzień';
-    } else if (period === 90) {
-        chartTitle += ' (3 miesiące - agregacja tygodniowa)';
-        xAxisLabel = 'Tydzień';
-    } else if (period === 180) {
-        chartTitle += ' (6 miesięcy - agregacja miesięczna)';
-        xAxisLabel = 'Miesiąc';
-    } else if (period === 365) {
-        chartTitle += ' (12 miesięcy - agregacja miesięczna)';
-        xAxisLabel = 'Miesiąc';
-    }
-
-    // Konfiguracja skal - różna dla trybu pojedynczego stanowiska vs wszystkich
-    let scales;
-    let tooltipCallbacks;
-
-    if (mode === 'single_station') {
-        // Tryb pojedynczego stanowiska - trzy osie Y
-        // Kolory: niebieski (#007bff) dla objętości, pomarańczowy (#fd7e14) dla ilości, zielony (#28a745) dla wartości
-        scales = {
-            x: {
-                title: {
-                    display: true,
-                    text: xAxisLabel,
-                    font: { size: 12, weight: 'bold' }
-                },
-                ticks: {
-                    maxRotation: 45,
-                    minRotation: 0,
-                    autoSkip: true,
-                    maxTicksLimit: period > 90 ? 12 : 15
-                },
-                grid: {
-                    display: true,
-                    drawBorder: true
-                }
-            },
-            y: {
-                type: 'linear',
-                display: true,
-                position: 'left',
-                title: {
-                    display: true,
-                    text: 'Objętość (m³)',
-                    font: { size: 11, weight: 'bold' },
-                    color: '#007bff'
-                },
-                beginAtZero: true,
-                ticks: {
-                    callback: function(value) {
-                        return value.toFixed(2);
-                    },
-                    color: '#007bff',
-                    font: { size: 10 }
-                },
-                grid: {
-                    display: true,
-                    drawBorder: true
-                }
-            },
-            y1: {
-                type: 'linear',
-                display: true,
-                position: 'right',
-                title: {
-                    display: true,
-                    text: 'Ilość (szt.)',
-                    font: { size: 11, weight: 'bold' },
-                    color: '#fd7e14'
-                },
-                beginAtZero: true,
-                ticks: {
-                    callback: function(value) {
-                        return Math.round(value);
-                    },
-                    color: '#fd7e14',
-                    font: { size: 10 }
-                },
-                grid: {
-                    drawOnChartArea: false
-                }
-            },
-            y2: {
-                type: 'linear',
-                display: true,
-                position: 'right',
-                title: {
-                    display: true,
-                    text: 'Wartość (PLN)',
-                    font: { size: 11, weight: 'bold' },
-                    color: '#28a745'
-                },
-                beginAtZero: true,
-                ticks: {
-                    callback: function(value) {
-                        return value.toLocaleString('pl-PL', {maximumFractionDigits: 0});
-                    },
-                    color: '#28a745',
-                    font: { size: 10 }
-                },
-                grid: {
-                    drawOnChartArea: false
-                },
-                // Przesuń oś y2 trochę w prawo od y1
-                afterFit: function(scaleInstance) {
-                    scaleInstance.paddingLeft = 10;
-                }
-            }
-        };
-
-        tooltipCallbacks = {
-            label: function(context) {
-                let label = context.dataset.label || '';
-                if (label) label += ': ';
-                if (context.dataset.yAxisID === 'y1') {
-                    label += Math.round(context.parsed.y) + ' szt.';
-                } else if (context.dataset.yAxisID === 'y2') {
-                    label += context.parsed.y.toLocaleString('pl-PL', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' PLN';
-                } else {
-                    label += context.parsed.y.toFixed(2) + ' m³';
-                }
-                return label;
-            }
-        };
-    } else {
-        // Tryb wszystkich stanowisk - jedna oś Y (objętość)
-        scales = {
-            x: {
-                title: {
-                    display: true,
-                    text: xAxisLabel,
-                    font: { size: 12, weight: 'bold' }
-                },
-                ticks: {
-                    maxRotation: 45,
-                    minRotation: 0,
-                    autoSkip: true,
-                    maxTicksLimit: period > 90 ? 12 : 15
-                },
-                grid: {
-                    display: true,
-                    drawBorder: true
-                }
-            },
-            y: {
-                title: {
-                    display: true,
-                    text: 'Objętość (m³)',
-                    font: { size: 12, weight: 'bold' }
-                },
-                beginAtZero: true,
-                ticks: {
-                    callback: function(value) {
-                        return value.toFixed(1) + ' m³';
-                    }
-                },
-                grid: {
-                    display: true,
-                    drawBorder: true
-                }
-            }
-        };
-
-        tooltipCallbacks = {
-            label: function(context) {
-                let label = context.dataset.label || '';
-                if (label) label += ': ';
-                label += context.parsed.y.toFixed(2) + ' m³';
-                return label;
-            },
-            footer: function(tooltipItems) {
-                let sum = 0;
-                tooltipItems.forEach(item => sum += item.parsed.y);
-                return 'Suma: ' + sum.toFixed(2) + ' m³';
-            }
-        };
-    }
-
-    try {
-        dailyChart = new Chart(ctx, {
-            type: 'line',
-            data: chartData,
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                interaction: {
-                    mode: 'index',
-                    intersect: false
-                },
-                plugins: {
-                    title: {
-                        display: true,
-                        text: chartTitle,
-                        font: { size: 14, weight: 'bold' },
-                        padding: { top: 10, bottom: 20 }
-                    },
-                    legend: {
-                        display: true,
-                        position: 'top',
-                        labels: {
-                            usePointStyle: true,
-                            padding: 15,
-                            font: { size: 12 }
-                        }
-                    },
-                    tooltip: {
-                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                        padding: 12,
-                        titleFont: { size: 13, weight: 'bold' },
-                        bodyFont: { size: 12 },
-                        callbacks: tooltipCallbacks
-                    }
-                },
-                scales: scales
-            }
-        });
-
-        console.log('[Reports Tab] Performance chart created successfully, mode:', mode);
-    } catch (error) {
-        console.error('[Reports Tab] Error creating performance chart:', error);
-        showReportsChartError('Błąd tworzenia wykresu: ' + error.message);
-    }
+function przywrocPodzakladke() {
+    // Powrót na Raporty z cache loadera nie przeładowuje zakładki, więc nikt nie
+    // odtworzyłby `?sub=` skasowanego przy wyjściu. Bez tego link skopiowany po
+    // powrocie otwierał u odbiorcy inną podzakładkę, niż nadawca miał na ekranie.
+    // Panel jest już załadowany, więc to samo przepisanie adresu — zero zapytań.
+    const aktywny = document.querySelector('.reports-subnav-btn.active');
+    aktywujPodzakladke(aktywny?.dataset.sub || wybranaNaStarcie());
 }
 
-function showReportsChartError(message) {
-    const wrapper = document.querySelector('.performance-widget .chart-wrapper');
-    if (wrapper) {
-        wrapper.innerHTML = `
-            <div class="alert alert-danger m-3">
-                <i class="fas fa-exclamation-triangle me-2"></i>
-                <strong>Błąd wykresu:</strong> ${message}
-            </div>
-        `;
-    }
-}
+window.ReportsShared = {
+    escapeHtml,
+    soFormatLocalDate,
+    soResolveRange,
+    computeSoPageList,
+    toastRaportu,
+    zniszczWykres,
+    przeladujPodzakladke,
+    przywrocPodzakladke
+};
 
-function updateChartSummary(summary) {
-    // Aktualizuj wartości w tabelce podsumowania
-    const volumeEl = document.getElementById('summary-volume');
-    const quantityEl = document.getElementById('summary-quantity');
-    const valueEl = document.getElementById('summary-value');
-
-    if (volumeEl) {
-        volumeEl.textContent = summary.total_volume.toFixed(2) + ' m³';
-    }
-    if (quantityEl) {
-        quantityEl.textContent = summary.total_quantity.toLocaleString('pl-PL') + ' szt.';
-    }
-    if (valueEl) {
-        valueEl.textContent = summary.total_value.toLocaleString('pl-PL', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' PLN';
-    }
-}
-
-function _getStatusChartData() {
-    const statusData = {{ reports_data['status_breakdown']|tojson }};
-    const colorMap = {
-        'czeka_na_wyciecie': '#2d8a3e', 'czeka_na_skladanie': '#2563eb',
-        'czeka_na_sklejanie': '#9333ea', 'czeka_na_formatowanie': '#d97706',
-        'czeka_na_wykanczanie': '#0891b2', 'czeka_na_pakowanie': '#16a34a',
-        'spakowane': '#22c55e', 'wstrzymane': '#f59e0b',
-        'anulowane': '#dc2626', 'w_realizacji': '#3b82f6'
-    };
-    const labels = statusData.map(i => {
-        let name = i.status.replace('czeka_na_', '').replace(/_/g, ' ');
-        return name.charAt(0).toUpperCase() + name.slice(1);
-    });
-    const colors = statusData.map(i => colorMap[i.status] || '#64748b');
-    return { statusData, labels, colors };
-}
-
-function initializeStatusCountChart() {
-    const canvas = document.getElementById('status-count-chart');
-    if (!canvas || typeof Chart === 'undefined') return;
-    const { statusData, labels, colors } = _getStatusChartData();
-    if (statusCountChart) statusCountChart.destroy();
-    statusCountChart = new Chart(canvas.getContext('2d'), {
-        type: 'doughnut',
-        data: { labels, datasets: [{ data: statusData.map(i => i.count), backgroundColor: colors }] },
-        options: {
-            responsive: true, maintainAspectRatio: false,
-            plugins: {
-                legend: { display: false },
-                tooltip: {
-                    callbacks: {
-                        label: (ctx) => {
-                            const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
-                            const pct = Math.round(ctx.raw / total * 100);
-                            return `${ctx.label}: ${ctx.raw} szt. (${pct}%)`;
-                        }
-                    }
-                }
-            }
-        }
-    });
-}
-
-function initializeStatusVolumeChart() {
-    const canvas = document.getElementById('status-volume-chart');
-    if (!canvas || typeof Chart === 'undefined') return;
-    const { statusData, labels, colors } = _getStatusChartData();
-    if (statusVolumeChart) statusVolumeChart.destroy();
-    statusVolumeChart = new Chart(canvas.getContext('2d'), {
-        type: 'doughnut',
-        data: { labels, datasets: [{ data: statusData.map(i => i.volume), backgroundColor: colors }] },
-        options: {
-            responsive: true, maintainAspectRatio: false,
-            plugins: {
-                legend: { display: false },
-                tooltip: {
-                    callbacks: {
-                        label: (ctx) => {
-                            const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
-                            const pct = Math.round(ctx.raw / total * 100);
-                            return `${ctx.label}: ${ctx.raw.toFixed(3)} m³ (${pct}%)`;
-                        }
-                    }
-                }
-            }
-        }
-    });
-}
-
-function initializeSpeciesVolumeChart() {
-    const canvas = document.getElementById('species-volume-chart');
-    if (!canvas || typeof Chart === 'undefined') return;
-    const statusData = {{ reports_data['status_breakdown']|tojson }};
-    const speciesColors = ['#f59e0b','#3b82f6','#22c55e','#06b6d4','#ec4899','#f97316','#8b5cf6','#ef4444','#64748b','#dc2626'];
-    const speciesMap = {};
-    statusData.forEach(s => {
-        (s.species_breakdown || []).forEach(sp => {
-            speciesMap[sp.label] = (speciesMap[sp.label] || 0) + sp.volume;
-        });
-    });
-    const entries = Object.entries(speciesMap).sort((a, b) => b[1] - a[1]);
-    if (speciesVolumeChart) speciesVolumeChart.destroy();
-    speciesVolumeChart = new Chart(canvas.getContext('2d'), {
-        type: 'doughnut',
-        data: {
-            labels: entries.map(e => e[0]),
-            datasets: [{ data: entries.map(e => Math.round(e[1] * 1000) / 1000), backgroundColor: speciesColors }]
-        },
-        options: {
-            responsive: true, maintainAspectRatio: false,
-            plugins: {
-                legend: { display: false },
-                tooltip: {
-                    callbacks: {
-                        label: (ctx) => {
-                            const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
-                            const pct = Math.round(ctx.raw / total * 100);
-                            return `${ctx.label}: ${ctx.raw.toFixed(3)} m³ (${pct}%)`;
-                        }
-                    }
-                }
-            }
-        }
-    });
-}
-
-function initializeSpeciesChart() {
-    const canvas = document.getElementById('species-chart');
-    if (!canvas) return;
-
-    if (typeof Chart === 'undefined') {
-        setTimeout(initializeSpeciesChart, 100);
-        return;
-    }
-
-    const ctx = canvas.getContext('2d');
-    const speciesData = {{ reports_data['species_breakdown']|tojson }};
-
-    if (speciesChart) {
-        speciesChart.destroy();
-        speciesChart = null;
-    }
-
-    try {
-        speciesChart = new Chart(ctx, {
-            type: 'doughnut',
-            data: {
-                labels: speciesData.map(item => item.name),
-                datasets: [{
-                    data: speciesData.map(item => item.count),
-                    backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#C9CBCF', '#7BC043']
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { display: false }
-                }
-            }
-        });
-        console.log('[Reports Tab] Species chart initialized');
-    } catch (error) {
-        console.error('[Reports Tab] Error creating species chart:', error);
-    }
-}
-
-function initializeThicknessChart() {
-    const canvas = document.getElementById('thickness-chart');
-    if (!canvas) return;
-
-    if (typeof Chart === 'undefined') {
-        setTimeout(initializeThicknessChart, 100);
-        return;
-    }
-
-    const ctx = canvas.getContext('2d');
-    const thicknessData = {{ reports_data['thickness_breakdown']|tojson }};
-
-    if (thicknessChart) {
-        thicknessChart.destroy();
-        thicknessChart = null;
-    }
-
-    try {
-        thicknessChart = new Chart(ctx, {
-            type: 'doughnut',
-            data: {
-                labels: thicknessData.map(item => item.thickness + ' cm'),
-                datasets: [{
-                    data: thicknessData.map(item => item.count),
-                    backgroundColor: ['#36A2EB', '#4BC0C0', '#9966FF', '#FF6384', '#FFCE56', '#FF9F40', '#C9CBCF', '#7BC043']
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { display: false }
-                }
-            }
-        });
-        console.log('[Reports Tab] Thickness chart initialized');
-    } catch (error) {
-        console.error('[Reports Tab] Error creating thickness chart:', error);
-    }
-}
-
-function initializeTechnologyChart() {
-    const canvas = document.getElementById('technology-chart');
-    if (!canvas) return;
-
-    if (typeof Chart === 'undefined') {
-        setTimeout(initializeTechnologyChart, 100);
-        return;
-    }
-
-    const ctx = canvas.getContext('2d');
-    const technologyData = {{ reports_data['technology_breakdown']|tojson }};
-
-    if (technologyChart) {
-        technologyChart.destroy();
-        technologyChart = null;
-    }
-
-    try {
-        technologyChart = new Chart(ctx, {
-            type: 'doughnut',
-            data: {
-                labels: technologyData.map(item => item.name),
-                datasets: [{
-                    data: technologyData.map(item => item.count),
-                    backgroundColor: ['#FFCE56', '#FF6384', '#36A2EB', '#4BC0C0', '#9966FF', '#FF9F40', '#C9CBCF', '#7BC043']
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { display: false }
-                }
-            }
-        });
-        console.log('[Reports Tab] Technology chart initialized');
-    } catch (error) {
-        console.error('[Reports Tab] Error creating technology chart:', error);
-    }
-}
-
-function initializeWoodClassChart() {
-    const canvas = document.getElementById('wood-class-chart');
-    if (!canvas) return;
-
-    if (typeof Chart === 'undefined') {
-        setTimeout(initializeWoodClassChart, 100);
-        return;
-    }
-
-    const ctx = canvas.getContext('2d');
-    const woodClassData = {{ reports_data['wood_class_breakdown']|tojson }};
-
-    if (woodClassChart) {
-        woodClassChart.destroy();
-        woodClassChart = null;
-    }
-
-    try {
-        woodClassChart = new Chart(ctx, {
-            type: 'doughnut',
-            data: {
-                labels: woodClassData.map(item => item.name),
-                datasets: [{
-                    data: woodClassData.map(item => item.count),
-                    backgroundColor: ['#8B4513', '#D2691E', '#CD853F', '#DEB887', '#F4A460', '#D2B48C', '#BC8F8F', '#A0522D']
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { display: false }
-                }
-            }
-        });
-        console.log('[Reports Tab] Wood class chart initialized');
-    } catch (error) {
-        console.error('[Reports Tab] Error creating wood class chart:', error);
-    }
-}
-
-function refreshSyncHistory() {
-    console.log('[Reports Tab] Odświeżanie historii synchronizacji');
-    // Przeładuj tab raportów
-    window.loadTabContent('reports-tab');
-}
-
+// ════════════════════════════════════════════════════════════════════
+// Eksport całej produkcji (pasek KPI)
+//
+// Obie funkcje czytają GOŁE `event` (czyli window.event), żeby dobrać się do
+// klikniętego przycisku — działa to wyłącznie przez inline onclick w HTML.
+// Przepisanie na addEventListener bez przekazania zdarzenia urwałoby przyciski.
+// ════════════════════════════════════════════════════════════════════
 async function exportToExcel() {
     console.log('[Reports Tab] Eksport do Excel...');
 
@@ -2911,12 +475,12 @@ async function exportToPDF() {
     }
 }
 
-// Eksport funkcji wołanych z zewnątrz IIFE: loader (initReportsTab)
-// oraz inline onclick w HTML (exportToExcel, exportToPDF, refreshSyncHistory).
+// Eksport funkcji wołanych z zewnątrz IIFE: loader sprawdza GOŁĄ nazwę
+// initReportsTab (typeof initReportsTab === 'function'), a exportToExcel
+// i exportToPDF wiszą na inline onclick w pasku KPI.
 window.initReportsTab = initReportsTab;
 window.exportToExcel = exportToExcel;
 window.exportToPDF = exportToPDF;
-window.refreshSyncHistory = refreshSyncHistory;
 
 // Nie używamy auto-inicjalizacji - production-app-loader.js wywołuje initReportsTab() po załadowaniu HTML
 console.log('[Reports Tab] Script loaded, waiting for initReportsTab() call...');
