@@ -190,6 +190,12 @@ class SawmillLog(db.Model):
     volume_m3 = Column(Numeric(12, 6), nullable=False)
 
     device_id = Column(String(64), nullable=True, index=True)
+    # Kto zmierzył tę kłodę. Na trakowni stoją dwa tablety i dwie osoby potrafią
+    # mierzyć to samo zlecenie równocześnie, więc samo device_id nie wystarcza.
+    # Atrybucja siedzi na KŁODZIE, a nie na zleceniu, bo objętość liczy się per
+    # kłoda — dopiero tu da się powiedzieć "ten człowiek zmierzył tyle m³".
+    worker_id = Column(Integer, ForeignKey('prod_workers.id', ondelete='SET NULL'),
+                       nullable=True, index=True)
     # Czas z tabletu — przy kolejce offline może być sprzed godzin.
     measured_at = Column(DateTime, nullable=False)
     # Czas wpłynięcia na serwer.
@@ -241,6 +247,9 @@ class SawmillAudit(db.Model):
     after_json = Column(Text, nullable=True)
     device_id = Column(String(64), nullable=True)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=True)
+    # Bez ForeignKey — tak samo jak order_id wyżej. Wpis audytowy ma przeżyć
+    # usunięcie tego, czego dotyczy; twardy FK odebrałby mu tę własność.
+    worker_id = Column(Integer, nullable=True, index=True)
     created_at = Column(DateTime, nullable=False, default=datetime.now, index=True)
 
     def __repr__(self):

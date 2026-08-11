@@ -41,10 +41,14 @@ from modules.clients.models import Client  # noqa: F401
 import modules.quotes.models  # noqa: F401
 from modules.quotes.models import QuoteStatus  # noqa: F401
 
+from modules.production.models import ProductionWorker, ProductionWorkerSession
+
 _TABLES = [m.__table__ for m in (
     User, SawmillSupplier, SawmillSpecies, SawmillCounter, SawmillDelivery,
     SawmillOrder, SawmillLog, SawmillAudit,
     ProductionDevice, ProductionConfig, ProcessedMobileOperation,
+    # Atrybucja pomiarów do pracownika — FK z prod_sawmill_logs.worker_id
+    ProductionWorker, ProductionWorkerSession,
 )]
 
 SETTINGS = {
@@ -124,11 +128,21 @@ def _zlecenie(app, status=STATUS_NEW, deklaracja='80.000'):
         return order.id
 
 
-def _naglowki(token, operation_id=None):
+def _naglowki(token, operation_id=None, worker_ids=None):
     h = {'Authorization': 'Bearer ' + token, 'X-App-Version': '1.0.0'}
     if operation_id:
         h['X-Operation-Id'] = operation_id
+    if worker_ids is not None:
+        h['X-Worker-Ids'] = worker_ids
     return h
+
+
+def _pracownik(app, imie='Jan', nazwisko='Trakowy'):
+    with app.app_context():
+        w = ProductionWorker(first_name=imie, last_name=nazwisko)
+        db.session.add(w)
+        db.session.commit()
+        return w.id
 
 
 # ── Autoryzacja ─────────────────────────────────────────────────────────────
@@ -542,3 +556,108 @@ def test_z_naglowkiem_dziala_jak_dotad(client, app):
                     json=dict(POMIAR, measured_at='2026-08-05T09:31:12'),
                     headers=_naglowki(token, 'op-wymog-1'))
     assert r.status_code == 201
+
+
+# ── Atrybucja pracy do pracownika ───────────────────────────────────────────
+
+def test_pomiar_zapisuje_kto_zmierzyl(client, app):
+    """
+    Na trakowni stoją dwa tablety i dwie osoby mierzą to samo zlecenie —
+    samo device_id nie odpowiada na pytanie, kto zmierzył tę kłodę.
+    """
+    token = _urzadzenie(app)
+    order_id = _zlecenie(app)
+    worker_id = _pracownik(app)
+
+    odp = client.post(f'/api/mobile/sawmill/orders/{order_id}/logs',
+                      headers=_naglowki(token, operation_id='op-1',
+                                        worker_ids=str(worker_id)),
+                      json=dict(POMIAR, measured_at='2026-08-11T10:00:00'))
+
+    assert odp.status_code == 201
+    with app.app_context():
+        klodа = SawmillLog.query.one()
+        assert klodа.worker_id == worker_id
+        # device_id zostaje — to dwie różne informacje, nie zamiennik
+        assert klodа.device_id
+
+
+def test_pomiar_bez_profilu_przechodzi_bez_atrybucji(client, app):
+    """
+    Kill-switch wyłączony: brak nagłówka nie może zablokować pomiaru.
+    Trakownia ma działać tak samo jak przed wdrożeniem profili.
+    """
+    token = _urzadzenie(app)
+    order_id = _zlecenie(app)
+
+    odp = client.post(f'/api/mobile/sawmill/orders/{order_id}/logs',
+                      headers=_naglowki(token, operation_id='op-2'),
+                      json=dict(POMIAR, measured_at='2026-08-11T10:00:00'))
+
+    assert odp.status_code == 201
+    with app.app_context():
+        assert SawmillLog.query.one().worker_id is None
+
+
+def test_nieznany_pracownik_odrzucony(client, app):
+    token = _urzadzenie(app)
+    order_id = _zlecenie(app)
+
+    odp = client.post(f'/api/mobile/sawmill/orders/{order_id}/logs',
+                      headers=_naglowki(token, operation_id='op-3',
+                                        worker_ids='999'),
+                      json=dict(POMIAR, measured_at='2026-08-11T10:00:00'))
+
+    assert odp.status_code == 404
+    assert odp.get_json()['error'] == 'worker_not_found'
+    with app.app_context():
+        assert SawmillLog.query.count() == 0
+
+
+def test_zamkniecie_zlecenia_zapisuje_kto_w_audycie(client, app):
+    """
+    Zamknięcie to DECYZJA (zmierzona objętość idzie do rozliczenia z dostawcą),
+    więc jej autor trafia do śladu audytowego, a nie na samo zlecenie.
+    """
+    token = _urzadzenie(app)
+    order_id = _zlecenie(app)
+    worker_id = _pracownik(app)
+    naglowki = _naglowki(token, operation_id='op-4', worker_ids=str(worker_id))
+
+    client.post(f'/api/mobile/sawmill/orders/{order_id}/logs', headers=naglowki,
+                json=dict(POMIAR, measured_at='2026-08-11T10:00:00'))
+    odp = client.post(f'/api/mobile/sawmill/orders/{order_id}/complete',
+                      headers=_naglowki(token, operation_id='op-5',
+                                        worker_ids=str(worker_id)))
+
+    assert odp.status_code == 200
+    with app.app_context():
+        zamkniecie = SawmillAudit.query.filter_by(action='order_complete').one()
+        assert zamkniecie.worker_id == worker_id
+
+
+def test_korekta_i_usuniecie_pomiaru_trafiaja_do_audytu_z_autorem(client, app):
+    token = _urzadzenie(app)
+    order_id = _zlecenie(app)
+    worker_id = _pracownik(app)
+
+    client.post(f'/api/mobile/sawmill/orders/{order_id}/logs',
+                headers=_naglowki(token, operation_id='op-6',
+                                  worker_ids=str(worker_id)),
+                json=dict(POMIAR, measured_at='2026-08-11T10:00:00'))
+    with app.app_context():
+        log_id = SawmillLog.query.one().id
+
+    client.patch(f'/api/mobile/sawmill/logs/{log_id}',
+                 headers=_naglowki(token, operation_id='op-7',
+                                   worker_ids=str(worker_id)),
+                 json=dict(POMIAR, mid_circumference_cm=130.0,
+                           measured_at='2026-08-11T10:05:00'))
+    client.delete(f'/api/mobile/sawmill/logs/{log_id}',
+                  headers=_naglowki(token, operation_id='op-8',
+                                    worker_ids=str(worker_id)))
+
+    with app.app_context():
+        for akcja in ('log_update', 'log_delete'):
+            wpis = SawmillAudit.query.filter_by(action=akcja).one()
+            assert wpis.worker_id == worker_id, akcja

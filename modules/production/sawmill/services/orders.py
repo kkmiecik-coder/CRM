@@ -130,8 +130,15 @@ def _log_snapshot(log):
 
 
 def write_audit(order_id, action, log_id=None, before=None, after=None,
-                device_id=None, user_id=None):
-    """Dopisuje wpis audytowy. Nie commituje."""
+                device_id=None, user_id=None, worker_id=None):
+    """
+    Dopisuje wpis audytowy. Nie commituje.
+
+    worker_id to profil wybrany na tablecie (nagłówek X-Worker-Ids) — odrębny
+    od user_id, które oznacza konto CRM operatora panelu. Dzięki niemu w audycie
+    widać, KTO zamknął zlecenie, czyli kto zdecydował, że zmierzona objętość
+    idzie do rozliczenia z dostawcą.
+    """
     entry = SawmillAudit(
         order_id=order_id,
         log_id=log_id,
@@ -143,6 +150,7 @@ def write_audit(order_id, action, log_id=None, before=None, after=None,
         after_json=json.dumps(after, ensure_ascii=False) if after is not None else None,
         device_id=device_id,
         user_id=user_id,
+        worker_id=worker_id,
         created_at=datetime.now(),
     )
     db.session.add(entry)
@@ -173,7 +181,8 @@ def _apply_measurements(log, measurements):
     )
 
 
-def add_log(order, measurements, measured_at, device_id=None, user_id=None, manual=False):
+def add_log(order, measurements, measured_at, device_id=None, user_id=None,
+            manual=False, worker_id=None):
     """
     Dodaje pomiar. Insert idzie w SAVEPOINT — po IntegrityError na kolizji
     sequence_no sesja jest nieużywalna, a zwykły rollback skasowałby też wpis
@@ -186,6 +195,10 @@ def add_log(order, measurements, measured_at, device_id=None, user_id=None, manu
         order_id=order.id,
         sequence_no=next_sequence_no(order.id),
         device_id=device_id,
+        # Kto fizycznie zmierzył tę kłodę — patrz komentarz przy kolumnie
+        # w modelu. Puste dla pomiarów sprzed wdrożenia profili i dla wpisów
+        # robionych z panelu.
+        worker_id=worker_id,
         measured_at=measured_at,
         created_at=datetime.now(),
     )
@@ -227,7 +240,7 @@ def add_log(order, measurements, measured_at, device_id=None, user_id=None, manu
     return log
 
 
-def update_log(log, measurements, device_id=None, user_id=None):
+def update_log(log, measurements, device_id=None, user_id=None, worker_id=None):
     # Rozstrzygnięcie panel/tablet po tym, który argument jest różny od None:
     # w całym zaprojektowanym systemie tablet przekazuje WYŁĄCZNIE device_id
     # (z g.device.device_id, po require_device_token), a panel WYŁĄCZNIE
@@ -242,18 +255,18 @@ def update_log(log, measurements, device_id=None, user_id=None):
     db.session.flush()
     write_audit(log.order_id, 'log_update', log_id=log.id,
                 before=before, after=_log_snapshot(log),
-                device_id=device_id, user_id=user_id)
+                device_id=device_id, user_id=user_id, worker_id=worker_id)
     return log
 
 
-def delete_log(log, device_id=None, user_id=None):
+def delete_log(log, device_id=None, user_id=None, worker_id=None):
     _guard_writable(_order_of(log), panel=user_id is not None)
     before = _log_snapshot(log)
     log.is_deleted = True
     log.deleted_at = datetime.now()
     db.session.flush()
     write_audit(log.order_id, 'log_delete', log_id=log.id, before=before,
-                device_id=device_id, user_id=user_id)
+                device_id=device_id, user_id=user_id, worker_id=worker_id)
 
 
 def _order_of(log):
@@ -277,7 +290,7 @@ def _guard_writable(order, panel=False):
 
 # ── Przejścia statusów ──────────────────────────────────────────────────────
 
-def complete_order(order, device_id):
+def complete_order(order, device_id, worker_id=None):
     if order.status not in OPEN_STATUSES:
         raise SawmillStateError(u'zlecenie nie jest otwarte')
     count, _ = order_totals(order.id)
@@ -287,7 +300,12 @@ def complete_order(order, device_id):
     order.status = STATUS_COMPLETED
     order.completed_at = datetime.now()
     order.completed_by_device = device_id
-    write_audit(order.id, 'order_complete', device_id=device_id)
+    # worker_id w audycie zamiast osobnej kolumny na zleceniu: zamknięcie to
+    # DECYZJA (od tej chwili zmierzona objętość idzie do rozliczenia
+    # z dostawcą), a nie praca pomiarowa — jej miejsce jest w śladzie
+    # audytowym razem z korektami i usunięciami.
+    write_audit(order.id, 'order_complete', device_id=device_id,
+                worker_id=worker_id)
 
 
 def reopen_order(order, user_id):

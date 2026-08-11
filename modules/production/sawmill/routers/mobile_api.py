@@ -36,6 +36,8 @@ from modules.production.sawmill.services.validation import (
 from modules.production.services.mobile_api_service import (
     require_device_token, with_idempotency,
 )
+from modules.production.services import worker_service
+from modules.production.services.worker_service import WorkerError
 from modules.production.utils.cache import (
     cached_json, if_none_match, make_weak_etag, not_modified,
 )
@@ -43,6 +45,38 @@ from modules.production.utils.cache import (
 logger = get_structured_logger('production.sawmill.mobile_api')
 
 STATION_CODE = 'sawmill'
+
+# Te same kody, po ktorych wpis MUSI zostac w kolejce offline, co w API
+# produkcyjnym: wszystkie wychodza z walidacji profilu i sa odwracalne bez
+# udzialu tabletu. 409 bylo tu juz wczesniej — trakownia uzywa go, gdy zlecenie
+# zostalo zamkniete, a tablet dosyla pomiary z kolejki.
+BLEDY_DO_PONOWIENIA = {400, 404, 409}
+
+
+def _profil_z_naglowka():
+    """
+    Czyta X-Worker-Ids i zwraca (worker_id, error_response).
+
+    Trakownia zapisuje POJEDYNCZEGO pracownika (kolumna worker_id na kłodzie),
+    wiec bierzemy pierwszego z listy — apka i tak wysyla dokladnie jedno id
+    (jeden tablet = jeden pracownik). Brak naglowka nie jest bledem, dopoki
+    kill-switch WORKER_SELECTION_REQUIRED jest wylaczony; wtedy worker_id
+    zostaje None i pomiar zapisuje sie bez atrybucji, jak dotad.
+    """
+    try:
+        worker_ids = worker_service.resolve_worker_ids(
+            request.headers.get('X-Worker-Ids'))
+    except WorkerError as e:
+        payload, status = e.as_response()
+        return None, (jsonify(payload), status)
+
+    if not worker_ids:
+        return None, None
+
+    # Odswiezenie sesji dziala tak samo jak przy akcjach produkcyjnych —
+    # pomiar kłody to praca, wiec przesuwa moment bezczynnosci.
+    worker_service.touch_sessions(worker_ids, device_id=g.device.device_id)
+    return worker_ids[0], None
 
 
 def require_sawmill_device(f):
@@ -182,7 +216,7 @@ def sawmill_config():
 @sawmill_mobile_bp.route('/orders/<int:order_id>/logs', methods=['POST'])
 @require_device_token
 @require_sawmill_device
-@with_idempotency(retryable_statuses={409}, require_operation_id=True)
+@with_idempotency(retryable_statuses=BLEDY_DO_PONOWIENIA, require_operation_id=True)
 def sawmill_add_log(order_id):
     order = _load_order(order_id)
     if order is None:
@@ -196,8 +230,13 @@ def sawmill_add_log(order_id):
     except SawmillValidationError as exc:
         return _validation_response(exc)
 
+    worker_id, blad = _profil_z_naglowka()
+    if blad:
+        return blad
+
     try:
-        log = add_log(order, measurements, measured_at, device_id=g.device.device_id)
+        log = add_log(order, measurements, measured_at,
+                      device_id=g.device.device_id, worker_id=worker_id)
     except SawmillStateError as exc:
         return jsonify({'error': 'order_not_open', 'detail': exc.detail}), 409
 
@@ -211,7 +250,7 @@ def sawmill_add_log(order_id):
 @sawmill_mobile_bp.route('/logs/<int:log_id>', methods=['PATCH'])
 @require_device_token
 @require_sawmill_device
-@with_idempotency(retryable_statuses={409}, require_operation_id=True)
+@with_idempotency(retryable_statuses=BLEDY_DO_PONOWIENIA, require_operation_id=True)
 def sawmill_update_log(log_id):
     log = db.session.query(SawmillLog).get(log_id)
     if log is None or log.is_deleted:
@@ -219,13 +258,19 @@ def sawmill_update_log(log_id):
 
     order = _load_order(log.order_id)
     payload = request.get_json(silent=True) or {}
+
+    worker_id, blad = _profil_z_naglowka()
+    if blad:
+        return blad
+
     try:
         measurements = validate_measurements(payload, get_sawmill_settings())
     except SawmillValidationError as exc:
         return _validation_response(exc)
 
     try:
-        update_log(log, measurements, device_id=g.device.device_id)
+        update_log(log, measurements, device_id=g.device.device_id,
+                   worker_id=worker_id)
     except SawmillStateError as exc:
         return jsonify({'error': 'order_not_open', 'detail': exc.detail}), 409
 
@@ -239,15 +284,19 @@ def sawmill_update_log(log_id):
 @sawmill_mobile_bp.route('/logs/<int:log_id>', methods=['DELETE'])
 @require_device_token
 @require_sawmill_device
-@with_idempotency(retryable_statuses={409}, require_operation_id=True)
+@with_idempotency(retryable_statuses=BLEDY_DO_PONOWIENIA, require_operation_id=True)
 def sawmill_delete_log(log_id):
     log = db.session.query(SawmillLog).get(log_id)
     if log is None or log.is_deleted:
         return jsonify({'error': 'log_not_found'}), 404
 
     order = _load_order(log.order_id)
+    worker_id, blad = _profil_z_naglowka()
+    if blad:
+        return blad
+
     try:
-        delete_log(log, device_id=g.device.device_id)
+        delete_log(log, device_id=g.device.device_id, worker_id=worker_id)
     except SawmillStateError as exc:
         return jsonify({'error': 'order_not_open', 'detail': exc.detail}), 409
 
@@ -258,14 +307,19 @@ def sawmill_delete_log(log_id):
 @sawmill_mobile_bp.route('/orders/<int:order_id>/complete', methods=['POST'])
 @require_device_token
 @require_sawmill_device
-@with_idempotency(retryable_statuses={409}, require_operation_id=True)
+@with_idempotency(retryable_statuses=BLEDY_DO_PONOWIENIA, require_operation_id=True)
 def sawmill_complete_order(order_id):
     order = _load_order(order_id)
     if order is None:
         return jsonify({'error': 'order_not_found'}), 404
 
+    worker_id, blad = _profil_z_naglowka()
+    if blad:
+        return blad
+
     try:
-        complete_order(order, device_id=g.device.device_id)
+        complete_order(order, device_id=g.device.device_id,
+                       worker_id=worker_id)
     except SawmillStateError as exc:
         return jsonify({'error': 'order_not_open', 'detail': exc.detail}), 409
 
