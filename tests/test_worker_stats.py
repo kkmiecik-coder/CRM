@@ -227,6 +227,92 @@ def test_bez_sesji_tempo_jest_puste_a_nie_zerowe(app):
         assert raport['worker_totals'][0]['minutes'] == 0
 
 
+def test_wszystkie_widgety_maja_te_sama_definicje_zrobione(app):
+    """
+    Trzy widgety na jednym ekranie liczą z prod_station_events. Jeśli tylko
+    jeden filtruje eventy automatu, kierownik widzi dla formatowania dwie różne
+    liczby i nie da się tego wytłumaczyć wierszem "Nieprzypisane" — tych sztuk
+    w liczniku pracowniczym w ogóle nie ma.
+    """
+    from modules.production.services import station_events_service
+
+    with app.app_context():
+        produkt = _produkt(volume=0.5, quantity=20)
+        adam, = _pracownicy(1)
+
+        produkt.set_quantity_done('formatting', 8, source='mobile',
+                                  actor_worker_ids=[adam.id])
+        produkt.set_quantity_done('formatting', 20, source='auto_skip')
+        db.session.commit()
+
+        poczatek = datetime.combine(_dzis(), datetime.min.time())
+        koniec = poczatek + timedelta(days=1)
+        stanowiskowo = station_events_service.get_station_work_in_range(
+            'formatting', poczatek, koniec)
+        pracowniczo = worker_stats_service.raport_wydajnosci(_dzis(), _dzis())
+
+        # Oba źródła widzą te same 8 sztuk, nie 8 i 20
+        assert stanowiskowo['pieces_done'] == 8
+        assert pracowniczo['summary']['pieces'] == 8.0
+        assert pracowniczo['summary']['unassigned_pieces'] == 0
+
+
+def test_pracownik_z_sesja_bez_wyniku_jest_widoczny(app):
+    """
+    Ktoś, kto miał otwartą sesję i nie odbił ani jednej sztuki, MUSI być
+    w tabeli — wiersz "8 h / 0 m³" to jedyna odpowiedź na pytanie "czy ktoś
+    stoi bezczynnie". Wcześniej tabela powstawała tylko z atrybucji, więc
+    taka osoba znikała, a jej godziny zostawały w sumie zbiorczej.
+    """
+    with app.app_context():
+        pracujacy, bezczynny = _pracownicy(2)
+        produkt = _produkt()
+        produkt.set_quantity_done('gluing', 10, source='mobile',
+                                  actor_worker_ids=[pracujacy.id])
+
+        start = get_local_now().replace(hour=8, minute=0, second=0, microsecond=0)
+        db.session.add(ProductionWorkerSession(
+            worker_id=bezczynny.id, station_code='gluing', session_group='pusta',
+            started_at=start, last_activity_at=start,
+            ended_at=start + timedelta(hours=8), work_date=_dzis()))
+        db.session.commit()
+
+        raport = worker_stats_service.raport_wydajnosci(_dzis(), _dzis())
+        wiersz = next(w for w in raport['worker_totals']
+                      if w['worker_id'] == bezczynny.id)
+
+        assert wiersz['hours'] == 8.0
+        assert wiersz['pieces'] == 0
+        assert wiersz['m3'] == 0
+        # 0.0, nie None: czas JEST zmierzony, więc tempo jest znane i wynosi zero.
+        # None rezerwujemy dla braku sesji, czyli "nie wiadomo" — te dwa stany
+        # znaczą co innego dla kierownika patrzącego na raport.
+        assert wiersz['pace_m3_per_hour'] == 0.0
+
+
+def test_pokrycie_atrybucja_nie_przekracza_stu_procent(app):
+    """
+    delta bywa UJEMNA: korekty z panelu CRM idą bez profilu, więc trafiają
+    do nieprzypisanych ze znakiem minus. Liczenie pokrycia na sumie ze znakiem
+    dawało mianownik mniejszy od licznika i wynik w rodzaju 105%.
+    """
+    with app.app_context():
+        produkt = _produkt(quantity=100)
+        adam, = _pracownicy(1)
+
+        produkt.set_quantity_done('gluing', 10, source='mobile',
+                                  actor_worker_ids=[adam.id])
+        produkt.set_quantity_done('gluing', 5, source='admin')   # korekta w dół
+        db.session.commit()
+
+        raport = worker_stats_service.raport_wydajnosci(_dzis(), _dzis())
+        pokrycie = raport['summary']['attribution_coverage_pct']
+
+        assert raport['summary']['unassigned_pieces'] == -5.0
+        assert 0 <= pokrycie <= 100, f'pokrycie poza zakresem: {pokrycie}'
+        assert pokrycie == 66.7      # 10 z 15 jednostek ruchu
+
+
 def test_czas_pracy_respektuje_filtr_stanowiska(app):
     """
     Licznik (m³ z jednego stanowiska) i mianownik (czas pracy) muszą być

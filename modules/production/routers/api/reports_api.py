@@ -14,20 +14,14 @@ from sqlalchemy.orm import joinedload
 from . import api_bp, logger, ProductionItem, ProductionSyncLog, get_local_now
 from modules.production.models import ProductionConfiguration
 
-VALID_STATIONS = {
-    'cutting', 'assembly', 'gluing', 'formatting',
-    'finishing', 'painting', 'packaging'
-}
+from ...services.station_catalog import (
+    STATION_LABELS, STATION_ORDER, station_choices, station_label,
+)
 
-STATION_LABELS = {
-    'cutting': 'Wycinanie',
-    'assembly': 'Składanie',
-    'gluing': 'Sklejanie',
-    'formatting': 'Formatowanie',
-    'finishing': 'Wykańczanie',
-    'painting': 'Lakiernia',
-    'packaging': 'Pakowanie',
-}
+# Jedno źródło nazw i kolejności — patrz services/station_catalog.py. Wcześniej
+# ten moduł miał własną kopię etykiet ('Wycinanie'), a tabela pod widgetem brała
+# je skądinąd ('Wycinanie - mikro') — w jednym widoku dwie nazwy tego samego.
+VALID_STATIONS = set(STATION_ORDER)
 
 
 def _parsuj_zakres_dat():
@@ -238,13 +232,37 @@ def reports_station_output():
     range_end = datetime.combine(end_date, datetime.max.time())
 
     try:
-        # Wspólne filtry zakresu czasu (+ ewentualnie konkretne stanowisko)
+        # Wspólne filtry zakresu czasu (+ ewentualnie konkretne stanowisko).
+        # Filtr ZRODLA_AUTOMATU jest OBOWIĄZKOWY i wspólny ze
+        # station_events_service oraz worker_stats_service: complete_task()
+        # generuje sztuczne eventy dla stanowisk POMINIĘTYCH (produkt
+        # nieprzycinany na wymiar przeskakuje formatowanie i wykańczanie).
+        # Bez niego trzy widgety na jednym ekranie pokazywały trzy różne
+        # odpowiedzi na pytanie "ile zrobiono na formatowaniu" — a różnicy
+        # nie dawało się wytłumaczyć wierszem "Nieprzypisane", bo tych sztuk
+        # w liczniku pracowniczym w ogóle nie ma.
+        from ...services.station_events_service import ZRODLA_AUTOMATU
+
         time_filters = [
             ProductionStationEvent.created_at >= range_start,
             ProductionStationEvent.created_at <= range_end,
+            ~ProductionStationEvent.source.in_(ZRODLA_AUTOMATU),
         ]
         if not is_all_stations:
             time_filters.append(ProductionStationEvent.station_code == station)
+
+        # Ile sztuk automat przeskoczył w tym zakresie — pokazujemy to jawnie
+        # w widgecie, żeby nikt nie szukał "brakujących" sztuk po zmianie.
+        pominiete_filtry = [
+            ProductionStationEvent.created_at >= range_start,
+            ProductionStationEvent.created_at <= range_end,
+            ProductionStationEvent.source.in_(ZRODLA_AUTOMATU),
+        ]
+        if not is_all_stations:
+            pominiete_filtry.append(ProductionStationEvent.station_code == station)
+        auto_pominiete = db.session.query(
+            func.coalesce(func.sum(ProductionStationEvent.delta), 0)
+        ).filter(*pominiete_filtry).scalar() or 0
 
         # Per (item, station) agregacja eventów w zakresie.
         # Group by zawsze po (item_id, station_code) — dla pojedynczego
@@ -389,6 +407,10 @@ def reports_station_output():
                 'total_quantity_done_eod': sum_qty_done_eod,
                 'total_day_delta': sum_day_delta,
                 'total_volume_done_eod_m3': round(sum_volume_done_eod, 4),
+                # Sztuki, które automat przeskoczył — NIE są wliczone powyżej.
+                # Pokazujemy je jawnie, żeby nikt nie szukał różnicy między
+                # tym widgetem a stanem quantity_done produktu.
+                'auto_skipped_pieces': int(auto_pominiete),
             },
             'timeline': {
                 'buckets': bucket_labels,
@@ -616,7 +638,11 @@ def reports_tab_content():
 
         # Renderuj komponent - używamy dict z bracket notation w Jinja
         rendered_html = render_template('components/reports-tab-content.html',
-                              reports_data=reports_data_dict)
+                              reports_data=reports_data_dict,
+                              # Listy stanowisk generowane serwerowo z jednego
+                              # katalogu — inaczej każdy <select> ma własną kopię
+                              # nazw i rozjeżdża się z tabelą pod sobą.
+                              station_choices=station_choices())
         
         return jsonify({
             'success': True,

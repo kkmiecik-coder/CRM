@@ -95,12 +95,13 @@
                             <th>Stanowisko</th>
                             <th>Tablet</th>
                             <th>Od</th>
-                            <th>Ostatnia akcja</th>
-                            <th>Czas</th>
+                            <th title="Czas od ostatniej odbitej sztuki">Bezczynny</th>
+                            <th>Czas sesji</th>
+                            <th class="text-end">Zrobione</th>
                             <th></th>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody id="workers-sessions-body">
                         {% for s in active_sessions %}
                         <tr>
                             <td>
@@ -110,8 +111,26 @@
                             <td>{{ s.station_label }}</td>
                             <td><code>{{ s.device_id or '—' }}</code></td>
                             <td>{{ s.started_at[11:16] if s.started_at else '—' }}</td>
-                            <td>{{ s.last_activity_at[11:16] if s.last_activity_at else '—' }}</td>
+                            <td>
+                                {# Ta kolumna odpowiada na "czy ktoś stoi bezczynnie" —
+                                   wcześniej trzeba było odejmować godziny w pamięci #}
+                                {% if s.idle_minutes is none %}
+                                    <span class="workers-muted">—</span>
+                                {% else %}
+                                    <span class="{{ 'workers-idle-alert' if s.idle_over_timeout else '' }}">
+                                        {{ s.idle_minutes }} min
+                                    </span>
+                                {% endif %}
+                            </td>
                             <td>{{ s.duration_minutes }} min</td>
+                            <td class="text-end">
+                                {% if s.pieces %}
+                                    <strong>{{ s.pieces }}</strong> szt.
+                                    <span class="workers-muted">/ {{ s.m3 }} m³</span>
+                                {% else %}
+                                    <span class="workers-muted">nic jeszcze</span>
+                                {% endif %}
+                            </td>
                             <td class="text-end">
                                 <button class="btn btn-outline-danger btn-sm workers-close-session"
                                         data-session-id="{{ s.id }}" title="Domknij sesję">
@@ -179,7 +198,9 @@
                             {% endif %}
                         </td>
                         <td>
-                            {% if w.pieces_7d %}
+                            {# is none, nie samo `if`: 0.0 znaczy "pracował, ale netto
+                               wyszło zero" i to co innego niż brak jakichkolwiek danych #}
+                            {% if w.pieces_7d is not none and w.last_activity_at %}
                                 <strong>{{ w.pieces_7d }}</strong> szt.
                                 <span class="workers-muted">/ {{ w.m3_7d }} m³</span>
                             {% else %}
@@ -376,13 +397,61 @@
         }
     }
 
+    function escapuj(tekst) {
+        const el = document.createElement('div');
+        el.textContent = tekst == null ? '' : String(tekst);
+        return el.innerHTML;
+    }
+
+    // Odświeżanie SAMEJ tabeli sesji przez istniejący endpoint JSON, zamiast
+    // przeładowywania całej zakładki. Sesje zmieniają się co kilka minut,
+    // a katalog pracowników prawie nigdy.
+    async function odswiezSesje() {
+        try {
+            const dane = await api('/workers/active-sessions', { method: 'GET' });
+            const tbody = document.getElementById('workers-sessions-body');
+            if (!tbody) return;
+
+            if (!dane.sessions.length) {
+                document.getElementById('workers-sessions-list').innerHTML =
+                    '<p class="text-muted mb-0"><i class="fas fa-moon me-1"></i>' +
+                    'Nikt nie ma teraz otwartej sesji.</p>';
+                return;
+            }
+
+            tbody.innerHTML = dane.sessions.map(s => `
+                <tr>
+                    <td><span class="worker-chip" style="background: ${escapuj(s.color_hex)}">${escapuj(s.initials)}</span> ${escapuj(s.worker_name)}</td>
+                    <td>${escapuj(s.station_label)}</td>
+                    <td><code>${escapuj(s.device_id || '—')}</code></td>
+                    <td>${s.started_at ? escapuj(s.started_at.substring(11, 16)) : '—'}</td>
+                    <td>${s.idle_minutes === null ? '<span class="workers-muted">—</span>'
+                        : `<span class="${s.idle_over_timeout ? 'workers-idle-alert' : ''}">${s.idle_minutes} min</span>`}</td>
+                    <td>${s.duration_minutes} min</td>
+                    <td class="text-end">${s.pieces
+                        ? `<strong>${s.pieces}</strong> szt. <span class="workers-muted">/ ${s.m3} m³</span>`
+                        : '<span class="workers-muted">nic jeszcze</span>'}</td>
+                    <td class="text-end">
+                        <button class="btn btn-outline-danger btn-sm workers-close-session"
+                                data-session-id="${s.id}" title="Domknij sesję">
+                            <i class="fas fa-right-from-bracket"></i>
+                        </button>
+                    </td>
+                </tr>`).join('');
+
+            document.getElementById('workers-count-onfloor').textContent = dane.sessions.length;
+        } catch (e) {
+            toast(`Nie udało się odświeżyć sesji: ${e.message}`, 'error');
+        }
+    }
+
     root.addEventListener('click', async (ev) => {
         const cel = ev.target.closest('button');
         if (!cel) return;
 
         if (cel.id === 'workers-add-btn') return otworzFormularz(null);
         if (cel.id === 'workers-save-btn') return zapisz();
-        if (cel.id === 'workers-refresh-sessions') return odswiezZakladke();
+        if (cel.id === 'workers-refresh-sessions') return odswiezSesje();
 
         if (cel.classList.contains('workers-edit')) {
             return otworzFormularz(JSON.parse(cel.dataset.worker));
@@ -412,10 +481,22 @@
             try {
                 await api(`/workers/sessions/${cel.dataset.sessionId}/close`, { method: 'POST' });
                 toast('Sesja domknięta', 'success');
-                odswiezZakladke();
+                odswiezSesje();
             } catch (e) { toast(e.message, 'error'); }
         }
     });
+
+    // Automatyczne odświeżanie panelu hali. 60 s to kompromis: bezczynność
+    // liczy się w minutach, więc częściej nie ma sensu, a rzadziej kierownik
+    // patrzyłby na nieaktualny obraz. Interwał czyścimy, gdy zakładka znika
+    // z DOM — inaczej po kilku przełączeniach tykałoby kilka kopii naraz.
+    const licznikSesji = setInterval(() => {
+        if (!document.body.contains(root)) {
+            clearInterval(licznikSesji);
+            return;
+        }
+        if (document.visibilityState === 'visible') odswiezSesje();
+    }, 60000);
 
     document.getElementById('workers-show-inactive')?.addEventListener('change', (ev) => {
         root.querySelectorAll('tr[data-active="0"]').forEach(tr => {

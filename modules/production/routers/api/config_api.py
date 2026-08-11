@@ -208,11 +208,11 @@ def config_tab_content():
             # na bazie bez nich zakładka Konfiguracja wywalała się w całości
             # błędem 500 ("SimpleNamespace has no attribute ..."). Na produkcji
             # siedzą w prod_config i dlatego problem był niewidoczny; wychodził
-            # dopiero na świeżym środowisku. Wartość 0 to placeholder — żaden kod
-            # tych kluczy nie czyta przez get_config(), służą wyłącznie do
-            # wyświetlenia i ustawienia z panelu, więc nie zgaduję tu ID statusów.
-            'BASELINKER_SOURCE_STATUS_PAID':      ('sync', 0,            'integer'),
-            'BASELINKER_TARGET_STATUS_PRODUCTION': ('sync', 0,           'integer'),
+            # dopiero na świeżym środowisku. Wartości wzięte z defaultValues
+            # w config-module.js, żeby "przywróć domyślne" w panelu i domyślka
+            # serwera mówiły to samo.
+            'BASELINKER_SOURCE_STATUS_PAID':      ('sync', 155824,       'integer'),
+            'BASELINKER_TARGET_STATUS_PRODUCTION': ('sync', 138619,      'integer'),
 
             # Stations (Stanowiska produkcyjne)
             'STATION_ALLOWED_IPS':          ('stations',    '192.168.1.100,192.168.1.101', 'ip_list'),

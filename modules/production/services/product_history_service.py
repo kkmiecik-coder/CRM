@@ -93,15 +93,8 @@ def aggregate_station_events(events):
 
 
 # Nazwy stanowisk — spójne z routers/stations/__init__.py:624 i monitors.py:184
-STATION_NAMES = {
-    'cutting': 'Wycinanie - mikro',
-    'assembly': 'Składanie - lite',
-    'gluing': 'Sklejanie',
-    'formatting': 'Formatowanie',
-    'finishing': 'Wykańczanie',
-    'painting': 'Lakiernia',
-    'packaging': 'Pakowanie',
-}
+# Jedno źródło nazw stanowisk — patrz services/station_catalog.py
+from .station_catalog import STATION_LABELS as STATION_NAMES  # noqa: E402
 
 # Powody działania automatu — czytelne dla człowieka
 SYSTEM_REASONS = {

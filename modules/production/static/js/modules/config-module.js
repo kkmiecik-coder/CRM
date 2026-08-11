@@ -25,6 +25,14 @@ class ConfigModule {
 
         // Wartości domyślne dla konfiguracji
         this.defaultValues = {
+            // Profile pracowników — muszą zgadzać się z EXPECTED w config_api.py
+            // i z migracją 2026-08-11-05-worker-config-keys.sql, inaczej
+            // "przywróć domyślne" cofnie ustawienie do innej wartości niż
+            // ta, którą serwer uzna za domyślną.
+            'WORKER_SELECTION_REQUIRED': false,
+            'WORKER_SESSION_IDLE_TIMEOUT_MINUTES': 120,
+            'WORKER_SESSION_NIGHT_CUTOFF': '23:00',
+            'WORKER_QUICK_PICK_COUNT': 8,
             'SYNC_ENABLED': true,
             'MAX_SYNC_ITEMS_PER_BATCH': 1000,
             'BASELINKER_TARGET_STATUS_COMPLETED': 138623,
@@ -228,6 +236,10 @@ class ConfigModule {
                 'label_printer_offset_ls': 'LABEL_PRINTER_OFFSET_LS',
                 'label_printer_allowed_stations': 'LABEL_PRINTER_ALLOWED_STATIONS',
                 'label_printer_use_agent': 'LABEL_PRINTER_USE_AGENT',
+                'worker_selection_required': 'WORKER_SELECTION_REQUIRED',
+                'worker_session_idle_timeout_minutes': 'WORKER_SESSION_IDLE_TIMEOUT_MINUTES',
+                'worker_session_night_cutoff': 'WORKER_SESSION_NIGHT_CUTOFF',
+                'worker_quick_pick_count': 'WORKER_QUICK_PICK_COUNT',
                 'label_printer_agent_token': 'LABEL_PRINTER_AGENT_TOKEN'
             };
 
@@ -658,6 +670,10 @@ class ConfigModule {
             'LABEL_PRINTER_OFFSET_LS': 'label_printer_offset_ls',
             'LABEL_PRINTER_ALLOWED_STATIONS': 'label_printer_allowed_stations',
             'LABEL_PRINTER_USE_AGENT': 'label_printer_use_agent',
+            'WORKER_SELECTION_REQUIRED': 'worker_selection_required',
+            'WORKER_SESSION_IDLE_TIMEOUT_MINUTES': 'worker_session_idle_timeout_minutes',
+            'WORKER_SESSION_NIGHT_CUTOFF': 'worker_session_night_cutoff',
+            'WORKER_QUICK_PICK_COUNT': 'worker_quick_pick_count',
             'LABEL_PRINTER_AGENT_TOKEN': 'label_printer_agent_token',
             'STATION_ALLOWED_IPS': 'ip-list-items'
         };
@@ -781,6 +797,10 @@ class ConfigModule {
             'LABEL_PRINTER_OFFSET_LS': 'label_printer_offset_ls',
             'LABEL_PRINTER_ALLOWED_STATIONS': 'label_printer_allowed_stations',
             'LABEL_PRINTER_USE_AGENT': 'label_printer_use_agent',
+            'WORKER_SELECTION_REQUIRED': 'worker_selection_required',
+            'WORKER_SESSION_IDLE_TIMEOUT_MINUTES': 'worker_session_idle_timeout_minutes',
+            'WORKER_SESSION_NIGHT_CUTOFF': 'worker_session_night_cutoff',
+            'WORKER_QUICK_PICK_COUNT': 'worker_quick_pick_count',
             'LABEL_PRINTER_AGENT_TOKEN': 'label_printer_agent_token',
             'STATION_ALLOWED_IPS': 'ip-list-items'
         };

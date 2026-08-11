@@ -810,13 +810,9 @@
         <div class="widget-controls">
             <select id="so-station-select" class="form-select form-select-sm">
                 <option value="all">Wszystkie stanowiska</option>
-                <option value="cutting">Wycinanie</option>
-                <option value="assembly">Składanie</option>
-                <option value="gluing">Sklejanie</option>
-                <option value="formatting">Formatowanie</option>
-                <option value="finishing">Wykańczanie</option>
-                <option value="painting">Lakiernia</option>
-                <option value="packaging" selected>Pakowanie</option>
+                {% for kod, nazwa in station_choices %}
+                <option value="{{ kod }}"{% if kod == 'packaging' %} selected{% endif %}>{{ nazwa }}</option>
+                {% endfor %}
             </select>
             <select id="so-preset-select" class="form-select form-select-sm" title="Zakres dat">
                 <option value="today" selected>Dziś</option>
@@ -870,6 +866,11 @@
                 <span class="so-stat-value" id="so-summary-volume">0.000</span>
                 <span class="so-stat-label" id="so-summary-volume-label">m³ wykonane (EOD)</span>
             </div>
+            <div class="so-stat" id="so-summary-auto-box" style="display: none;"
+                 title="Sztuki, które system przeskoczył automatycznie — produkt nieprzycinany na wymiar omija formatowanie i wykańczanie. Nikt ich fizycznie nie wykonał, więc nie są wliczone w liczby obok.">
+                <span class="so-stat-value" id="so-summary-auto">0</span>
+                <span class="so-stat-label">pominięte automatycznie</span>
+            </div>
         </div>
         <div id="so-table-wrapper">
             <div class="station-output-empty" id="so-empty-state">
@@ -915,13 +916,9 @@
         <div class="widget-controls">
             <select id="wo-station-select" class="form-select form-select-sm">
                 <option value="all" selected>Wszystkie stanowiska</option>
-                <option value="cutting">Wycinanie</option>
-                <option value="assembly">Składanie</option>
-                <option value="gluing">Sklejanie</option>
-                <option value="formatting">Formatowanie</option>
-                <option value="finishing">Wykańczanie</option>
-                <option value="painting">Lakiernia</option>
-                <option value="packaging">Pakowanie</option>
+                {% for kod, nazwa in station_choices %}
+                <option value="{{ kod }}">{{ nazwa }}</option>
+                {% endfor %}
             </select>
             <select id="wo-preset-select" class="form-select form-select-sm" title="Zakres dat">
                 <option value="today">Dziś</option>
@@ -950,7 +947,7 @@
         <div class="wo-summary" id="wo-summary" style="display: none;">
             <div class="wo-stat">
                 <span class="wo-stat-value" id="wo-sum-pieces">0</span>
-                <span class="wo-stat-label">sztuk przypisanych</span>
+                <span class="wo-stat-label">wkład w sztukach</span>
             </div>
             <div class="wo-stat">
                 <span class="wo-stat-value" id="wo-sum-m3">0</span>
@@ -990,7 +987,9 @@
                         <tr>
                             <th>Pracownik</th>
                             <th>Stanowiska</th>
-                            <th class="text-end">Sztuki</th>
+                            <th class="text-end" title="Praca zespołowa dzieli się po równo: dwie osoby przy 10 sztukach mają po 5. Stąd wartości ułamkowe.">
+                                Wkład (szt.) <i class="fas fa-circle-info wo-info-ikona"></i>
+                            </th>
                             <th class="text-end">m³</th>
                             <th class="text-end">Godziny</th>
                             <th class="text-end">Tempo (m³/h)</th>
@@ -1008,7 +1007,7 @@
                             <th>Data</th>
                             <th>Pracownik</th>
                             <th>Stanowisko</th>
-                            <th class="text-end">Sztuki</th>
+                            <th class="text-end">Wkład (szt.)</th>
                             <th class="text-end">m³</th>
                         </tr>
                     </thead>
@@ -1028,12 +1027,9 @@
         <div class="chart-controls">
             <select id="reports-chart-station-select" class="form-select form-select-sm" title="Wybierz stanowisko">
                 <option value="all" selected>Wszystkie stanowiska</option>
-                <option value="cutting">Wycinanie - mikro</option>
-                <option value="assembly">Składanie - lite</option>
-                <option value="gluing">Sklejanie</option>
-                <option value="formatting">Formatowanie</option>
-                <option value="finishing">Wykańczanie</option>
-                <option value="packaging">Pakowanie</option>
+                {% for kod, nazwa in station_choices %}
+                <option value="{{ kod }}">{{ nazwa }}</option>
+                {% endfor %}
             </select>
             <select id="reports-chart-period-select" class="form-select form-select-sm">
                 <option value="30" selected>30 dni</option>
@@ -1312,6 +1308,14 @@ function initReportsTab() {
 // Zakres dat liczymy tą samą funkcją co widget stanowisk (soResolveRange),
 // żeby oba widgety rozumiały presety identycznie.
 // ════════════════════════════════════════════════════════════════════
+function toastRaportu(wiadomosc) {
+    if (window.ProductionApp?.shared?.toastSystem) {
+        window.ProductionApp.shared.toastSystem.show(wiadomosc, 'warning');
+    } else {
+        alert(wiadomosc);
+    }
+}
+
 function woBuildQuery() {
     const preset = document.getElementById('wo-preset-select').value;
     const zakres = soResolveRange(
@@ -1319,6 +1323,9 @@ function woBuildQuery() {
         document.getElementById('wo-start-date'),
         document.getElementById('wo-end-date')
     );
+    if (!zakres) {
+        throw new Error('Uzupełnij obie daty zakresu');
+    }
     const stanowisko = document.getElementById('wo-station-select').value;
     return `start_date=${zakres.start}&end_date=${zakres.end}&station=${stanowisko}`;
 }
@@ -1384,7 +1391,9 @@ function woRender(raport) {
             <td class="text-end">${w.pace_m3_per_hour === null ? '—' : w.pace_m3_per_hour}</td>
         </tr>`).join('');
 
-    if (p.unassigned_pieces > 0) {
+    // != 0, nie > 0: korekty z panelu mają ujemną deltę, więc ujemna reszta
+    // nieprzypisana też musi być widoczna zamiast po cichu znikać.
+    if (p.unassigned_pieces !== 0) {
         totalsBody.insertAdjacentHTML('beforeend', `
             <tr class="wo-unassigned">
                 <td><i class="fas fa-question-circle me-1"></i>Nieprzypisane</td>
@@ -1435,7 +1444,14 @@ function initWorkerOutputWidget() {
     endEl.addEventListener('change', woLoad);
 
     document.getElementById('wo-export-btn').addEventListener('click', () => {
-        window.location = `/production/api/reports/worker-output?${woBuildQuery()}&format=xlsx`;
+        // try/catch, bo soResolveRange zwraca null przy presecie "własny zakres"
+        // z niewypełnionym drugim polem — bez tego przycisk po prostu cicho
+        // nie działał i nikt nie wiedział dlaczego.
+        try {
+            window.location = `/production/api/reports/worker-output?${woBuildQuery()}&format=xlsx`;
+        } catch (e) {
+            toastRaportu('Uzupełnij obie daty zakresu, żeby pobrać plik');
+        }
     });
 
     woLoad();
@@ -1664,6 +1680,13 @@ async function loadStationOutput(station, startDate, endDate) {
         deltaEl.style.color = delta >= 0 ? '#16a34a' : '#dc2626';
         document.getElementById('so-summary-volume').textContent =
             data.summary.total_volume_done_eod_m3.toFixed(3) + ' m³';
+
+        // Kafelek pojawia się tylko wtedy, gdy automat faktycznie coś przeskoczył —
+        // przy większości stanowisk będzie zawsze ukryty i nie zaśmieci widoku.
+        const pominiete = data.summary.auto_skipped_pieces || 0;
+        document.getElementById('so-summary-auto').textContent = pominiete + ' szt.';
+        document.getElementById('so-summary-auto-box').style.display =
+            pominiete ? '' : 'none';
 
         // Zapis stanu do paginacji + render strony 1
         soCurrentItems = data.items;

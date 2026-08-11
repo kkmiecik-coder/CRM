@@ -212,42 +212,46 @@ def _format_dimension(value):
 # dashboard_api.py i reports_api.py.
 
 
-# Mapowanie kodu stanowiska na status w bazie i etykiete
+# Mapowanie kodu stanowiska na status w bazie i etykiete.
+# Etykiety pochodzą z services/station_catalog — jedynego źródła nazw
+# stanowisk. Wcześniej ta mapa była jedną z pięciu równoległych kopii.
+from ...services.station_catalog import station_label as _nazwa_stanowiska
+
 MONITOR_STATION_MAP = {
     'cutting': {
         'status': 'czeka_na_wyciecie',
         'quantity_col': 'quantity_done_cutting',
-        'label': 'Wycinanie - mikro',
+        'label': _nazwa_stanowiska('cutting'),
         'css_class': 'status-cutting',
     },
     'assembly': {
         'status': 'czeka_na_skladanie',
         'quantity_col': 'quantity_done_assembly',
-        'label': 'Składanie - lite',
+        'label': _nazwa_stanowiska('assembly'),
         'css_class': 'status-assembly',
     },
     'gluing': {
         'status': 'czeka_na_sklejanie',
         'quantity_col': 'quantity_done_gluing',
-        'label': 'Sklejanie',
+        'label': _nazwa_stanowiska('gluing'),
         'css_class': 'status-gluing',
     },
     'formatting': {
         'status': 'czeka_na_formatowanie',
         'quantity_col': 'quantity_done_formatting',
-        'label': 'Formatowanie',
+        'label': _nazwa_stanowiska('formatting'),
         'css_class': 'status-formatting',
     },
     'finishing': {
         'status': 'czeka_na_wykanczanie',
         'quantity_col': 'quantity_done_finishing',
-        'label': 'Wykańczanie',
+        'label': _nazwa_stanowiska('finishing'),
         'css_class': 'status-finishing',
     },
     'packaging': {
         'status': 'czeka_na_pakowanie',
         'quantity_col': 'quantity_done_packaging',
-        'label': 'Pakowanie',
+        'label': _nazwa_stanowiska('packaging'),
         'css_class': 'status-packaging',
     },
 }

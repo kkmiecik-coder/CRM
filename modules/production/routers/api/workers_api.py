@@ -73,7 +73,7 @@ def workers_tab_content():
         return render_template(
             'components/workers-tab-content.html',
             workers=[_serialize_worker(w, statystyki) for w in pracownicy],
-            active_sessions=[worker_service.serialize_session_for_panel(s) for s in sesje],
+            active_sessions=worker_service.serialize_sessions_for_panel(sesje),
             config=worker_service.get_worker_config(),
             station_choices=worker_service.station_choices(),
             crm_users=worker_service.find_crm_users(),
@@ -170,7 +170,7 @@ def workers_active_sessions():
         station_code=request.args.get('station') or None)
     return jsonify({
         'success': True,
-        'sessions': [worker_service.serialize_session_for_panel(s) for s in sesje],
+        'sessions': worker_service.serialize_sessions_for_panel(sesje),
     })
 
 

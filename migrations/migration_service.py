@@ -338,15 +338,24 @@ class MigrationService:
         """Zwraca status wszystkich migracji."""
         self.ensure_migrations_table()
 
-        # Pobierz wszystkie migracje z plików
+        # Pobierz wszystkie migracje z plików.
+        # Używamy self._match, nie nieistniejącego MIGRATION_PATTERN — ten
+        # atrybut zniknął, gdy runner dostał DWA wzorce nazw (numeryczny
+        # i datowany), a ta metoda została z odwołaniem do starego pola.
+        # Skutek: `flask migrate-status` wywalał się z AttributeError —
+        # a to pierwsza komenda, po którą sięga operator, gdy deploy zgłosi
+        # problem z migracjami. Katalogi (np. migrations/archive) pomijamy.
         all_migrations = []
         for file in sorted(self.MIGRATIONS_DIR.iterdir()):
-            match = self.MIGRATION_PATTERN.match(file.name)
+            if file.is_dir() or file.name in self.NON_MIGRATION_FILES:
+                continue
+            match = self._match(file.name)
             if match:
+                version, name, extension = match
                 all_migrations.append({
-                    'version': match.group(1),
-                    'name': match.group(2),
-                    'extension': match.group(3)
+                    'version': version,
+                    'name': name,
+                    'extension': extension,
                 })
 
         # Pobierz wykonane migracje z bazy

@@ -21,6 +21,15 @@ from sqlalchemy import func, distinct
 from extensions import db
 from ..models import ProductionItem, ProductionOrder, ProductionStationEvent
 
+# Eventy, których NIKT fizycznie nie wykonał: complete_task() generuje je dla
+# stanowisk pomijanych — produkt nieprzycinany na wymiar przeskakuje
+# formatowanie i wykańczanie, surowy bez obróbki krawędzi przeskakuje
+# wykańczanie. Do 2026-08 wchodziły do wszystkich metryk przerobu, więc
+# formatowanie i wykańczanie miały w raportach sztuki, których nie tknął żaden
+# człowiek. Filtr jest wspólny z worker_stats_service — trzy widgety na jednym
+# ekranie muszą mieć JEDNĄ definicję słowa "zrobione".
+ZRODLA_AUTOMATU = ('auto_skip', 'system')
+
 
 def get_station_work_in_range(station_code, range_start, range_end):
     """
@@ -51,6 +60,7 @@ def get_station_work_in_range(station_code, range_start, range_end):
         ProductionStationEvent.station_code == station_code,
         ProductionStationEvent.created_at >= range_start,
         ProductionStationEvent.created_at < range_end,
+        ~ProductionStationEvent.source.in_(ZRODLA_AUTOMATU),
     ).one()
 
     # items_count i orders_count — tylko pozycje z dodatnim netto
@@ -61,6 +71,7 @@ def get_station_work_in_range(station_code, range_start, range_end):
         ProductionStationEvent.station_code == station_code,
         ProductionStationEvent.created_at >= range_start,
         ProductionStationEvent.created_at < range_end,
+        ~ProductionStationEvent.source.in_(ZRODLA_AUTOMATU),
     ).group_by(ProductionStationEvent.production_item_id).subquery()
 
     counts = db.session.query(
@@ -109,6 +120,7 @@ def get_station_work_per_day(station_code, start_date, end_date):
         ProductionStationEvent.station_code == station_code,
         func.date(ProductionStationEvent.created_at) >= start_date,
         func.date(ProductionStationEvent.created_at) <= end_date,
+        ~ProductionStationEvent.source.in_(ZRODLA_AUTOMATU),
     ).group_by(
         func.date(ProductionStationEvent.created_at)
     ).all()

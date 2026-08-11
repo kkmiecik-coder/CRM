@@ -27,6 +27,7 @@ from modules.logging import get_structured_logger
 from ..models import (
     ProductionDevice, ProductionWorker, ProductionWorkerSession, get_local_now,
 )
+from . import station_catalog
 from .config_service import get_config
 
 logger = get_structured_logger('production.workers')
@@ -52,45 +53,20 @@ DOMYSLNA_KONFIGURACJA = {
 DNI_SZYBKIEGO_WYBORU = 7
 
 
-def station_label(station_code):
-    """
-    Kod stanowiska → nazwa po polsku, do pokazania człowiekowi.
-
-    Etykiety bierzemy z MONITOR_STATION_MAP (routers/stations), żeby nie zrobić
-    drugiego źródła prawdy — panel i monitory hali mają mówić o stanowiskach
-    tak samo. Import lokalny, bo tamten moduł ładuje blueprint.
-
-    Dwa kody nie mają wpisu w tamtej mapie i dokładamy je tutaj:
-    'sawmill' (trakownia jest poza pipeline'em produktów) oraz 'painting'
-    (lakiernia — nie ma własnego monitora, ale complete_task potrafi tam
-    przenieść produkt, więc eventy z tym kodem istnieją i muszą mieć nazwę
-    w raportach).
-    """
-    if not station_code:
-        return '—'
-
-    dodatkowe = {'sawmill': 'Trakownia', 'painting': 'Lakiernia'}
-    if station_code in dodatkowe:
-        return dodatkowe[station_code]
-
-    try:
-        from ..routers.stations import MONITOR_STATION_MAP
-        wpis = MONITOR_STATION_MAP.get(station_code)
-        if wpis and wpis.get('label'):
-            return wpis['label']
-    except ImportError:
-        logger.warning("Brak MONITOR_STATION_MAP — pokazuję surowy kod stanowiska",
-                       extra={'station_code': station_code})
-
-    return station_code
+# Nazwy stanowisk mają JEDNO źródło — station_catalog. Re-eksport, żeby
+# dotychczasowi wołający worker_service.station_label() nie musieli się zmieniać.
+station_label = station_catalog.station_label
 
 
 def station_choices():
-    """[(kod, nazwa po polsku)] dla formularzy — w kolejności procesu, nie alfabetycznie."""
-    kolejnosc = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing',
-                 'packaging', 'sawmill']
-    znane = set(ProductionDevice.VALID_STATION_CODES)
-    return [(kod, station_label(kod)) for kod in kolejnosc if kod in znane]
+    """
+    [(kod, nazwa)] do formularza pracownika — pełna lista stanowisk produkcyjnych
+    RAZEM z lakiernią i trakownią.
+
+    Wcześniej lista pomijała 'painting', więc nie dało się nikogo przypisać do
+    stanowiska, po którym raport pozwalał filtrować.
+    """
+    return station_catalog.station_choices(include_sawmill=True)
 
 
 class WorkerError(Exception):
@@ -602,7 +578,10 @@ def close_stale_sessions(now=None):
 
     for sesja in otwarte:
         granica_nocna = datetime.combine(sesja.work_date, cutoff)
-        if teraz > granica_nocna:
+        # started_at < granica: sesja zaczęta PO nocnym cutoffie (druga zmiana
+        # wchodząca o 23:30 przy cutoffie 23:00) należy już do następnej doby
+        # i nie wolno jej ubić przy najbliższym przebiegu crona z czasem 0 min.
+        if teraz > granica_nocna and sesja.started_at < granica_nocna:
             # Sesja nie mogła się zacząć po swoim cutoffie, ale gdyby zegar
             # tabletu spłatał figla — nie cofamy końca przed początek.
             koniec = max(granica_nocna, sesja.started_at)
@@ -626,7 +605,53 @@ def close_stale_sessions(now=None):
 # PANEL "KTO TERAZ NA HALI"
 # ============================================================================
 
-def serialize_session_for_panel(sesja):
+def sessions_output(sesje):
+    """
+    {session_id: {'pieces': x, 'm3': y}} — ile zrobiono W TEJ sesji.
+
+    Jedno zapytanie dla całej listy. Spec §7.1 wymagała „roboty w tej sesji",
+    bez niej panel jest listą zalogowanych, a nie obrazem hali: nie widać
+    różnicy między kimś, kto pracuje, a kimś, kto tylko się zalogował.
+    """
+    from ..models import ProductionProduct, ProductionStationEvent, ProductionStationEventWorker
+
+    identyfikatory = [s.id for s in sesje if s.id]
+    if not identyfikatory:
+        return {}
+
+    wiersze = db.session.query(
+        ProductionStationEventWorker.session_id,
+        func.sum(ProductionStationEvent.delta * ProductionStationEventWorker.share),
+        func.sum(func.coalesce(ProductionProduct.volume_m3, 0)
+                 * ProductionStationEvent.delta * ProductionStationEventWorker.share),
+    ).join(
+        ProductionStationEvent,
+        ProductionStationEvent.id == ProductionStationEventWorker.event_id,
+    ).join(
+        ProductionProduct,
+        ProductionProduct.id == ProductionStationEvent.production_item_id,
+    ).filter(
+        ProductionStationEventWorker.session_id.in_(identyfikatory),
+        # Ten sam filtr co w raportach — eventy automatu nie są niczyją pracą
+        ~ProductionStationEvent.source.in_(('auto_skip', 'system')),
+    ).group_by(ProductionStationEventWorker.session_id).all()
+
+    return {
+        sid: {'pieces': round(float(sztuki or 0), 1), 'm3': round(float(metry or 0), 3)}
+        for sid, sztuki, metry in wiersze
+    }
+
+
+def serialize_session_for_panel(sesja, wynik=None):
+    """
+    wynik: wpis z sessions_output() — gdy podany, panel pokazuje dorobek sesji.
+    """
+    teraz = get_local_now()
+    bezczynnosc = None
+    if sesja.last_activity_at:
+        bezczynnosc = max(0, int((teraz - sesja.last_activity_at).total_seconds() // 60))
+
+    dorobek = wynik or {}
     return {
         'id': sesja.id,
         'worker_id': sesja.worker_id,
@@ -640,8 +665,22 @@ def serialize_session_for_panel(sesja):
         'last_activity_at': (sesja.last_activity_at.isoformat()
                              if sesja.last_activity_at else None),
         'duration_minutes': sesja.duration_minutes,
+        # Czas od OSTATNIEJ AKCJI, nie od startu sesji — to jest ta liczba,
+        # która odpowiada na pytanie "czy ktoś stoi bezczynnie". Wcześniej
+        # kierownik musiał odejmować w pamięci dwie godziny w formacie HH:MM.
+        'idle_minutes': bezczynnosc,
+        'idle_over_timeout': (bezczynnosc is not None
+                              and bezczynnosc >= get_idle_timeout_minutes()),
+        'pieces': dorobek.get('pieces', 0),
+        'm3': dorobek.get('m3', 0),
         'session_group': sesja.session_group,
     }
+
+
+def serialize_sessions_for_panel(sesje):
+    """Cała lista naraz — dorobek liczony jednym zapytaniem, nie jednym na sesję."""
+    wyniki = sessions_output(sesje)
+    return [serialize_session_for_panel(s, wyniki.get(s.id)) for s in sesje]
 
 
 def get_workers_activity_summary(dni=7):

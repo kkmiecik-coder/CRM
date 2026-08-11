@@ -242,6 +242,21 @@ def raport_wydajnosci(start_date, end_date, station=None, worker_id=None):
         wpis['m3'] += w['m3']
         wpis['stations'].add(w['station_label'])
 
+    # Pracownicy, którzy MIELI SESJĘ, ale nie odbili ani jednej sztuki, też
+    # muszą się pojawić — wiersz "8,0 h / 0 m³ / tempo —" sam rzuca się w oczy
+    # i jest jedyną odpowiedzią na pytanie "czy ktoś stoi bezczynnie".
+    # Wcześniej tabela powstawała wyłącznie z atrybucji, więc taka osoba
+    # znikała, a jej godziny zostawały tylko w sumie zbiorczej.
+    braki = {wid for (wid, _d) in minuty if wid not in per_pracownik}
+    if braki:
+        for pracownik in ProductionWorker.query.filter(
+                ProductionWorker.id.in_(list(braki))).all():
+            per_pracownik[pracownik.id] = {
+                'worker_id': pracownik.id,
+                'worker_name': pracownik.full_name,
+                'pieces': 0.0, 'm3': 0.0, 'minutes': 0, 'stations': set(),
+            }
+
     for (wid, _dzien), minut in minuty.items():
         wpis = per_pracownik.get(wid)
         if wpis is not None:
@@ -284,7 +299,13 @@ def raport_wydajnosci(start_date, end_date, station=None, worker_id=None):
 
     sztuki_nieprzypisane = sum(w['pieces'] for w in nieprzypisane)
     sztuki_przypisane = sum(w['pieces'] for w in wiersze)
-    razem = sztuki_przypisane + sztuki_nieprzypisane
+
+    # Pokrycie liczymy na WARTOŚCIACH BEZWZGLĘDNYCH. delta bywa ujemna —
+    # korekty z panelu CRM idą bez profilu, więc trafiają do "nieprzypisanych"
+    # ze znakiem minus. Przy 100 sztukach przypisanych i korekcie -5 mianownik
+    # spadał do 95 i pokrycie wychodziło 105%, czyli liczba bez sensu.
+    ruch_przypisany = sum(abs(w['pieces']) for w in wiersze)
+    ruch_razem = ruch_przypisany + sum(abs(w['pieces']) for w in nieprzypisane)
 
     return {
         'start_date': start_date.isoformat(),
@@ -314,7 +335,7 @@ def raport_wydajnosci(start_date, end_date, station=None, worker_id=None):
             # Ile produkcji w tym okresie wiadomo komu przypisać. Ten jeden
             # procent mówi, na ile raportowi w ogóle można ufać.
             'attribution_coverage_pct': _zaokraglij(
-                100 * sztuki_przypisane / razem, 1) if razem else None,
+                100 * ruch_przypisany / ruch_razem, 1) if ruch_razem else None,
         },
     }
 

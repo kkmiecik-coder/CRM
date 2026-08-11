@@ -308,8 +308,11 @@ def chart_data():
         start_date_param = request.args.get('start_date', type=str)
         end_date_param = request.args.get('end_date', type=str)
 
-        # Walidacja stanowiska
-        valid_stations = ['all', 'cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging']
+        # Walidacja stanowiska — lista z jednego katalogu (services/station_catalog),
+        # żeby nie rozjeżdżała się z listami rozwijanymi. Wcześniej brakowało tu
+        # lakierni, przez co „Wydajność dzienna" jako jedyny widget jej nie znała.
+        from ...services.station_catalog import STATION_ORDER
+        valid_stations = ['all'] + list(STATION_ORDER)
         if station_filter not in valid_stations:
             return jsonify({
                 'success': False,
@@ -1074,14 +1077,8 @@ def dashboard_data():
 
         # Per stanowisko: kolejka (current_status), pending_m3 (kolejka),
         # completed_today (faktyczne pozycje ruszane dziś — z prod_station_events)
-        _STATION_NAMES = {
-            'cutting': 'Wycinanie - mikro',
-            'assembly': 'Składanie - lite',
-            'gluing': 'Sklejanie',
-            'formatting': 'Formatowanie',
-            'finishing': 'Wykańczanie',
-            'packaging': 'Pakowanie',
-        }
+        # Jedno źródło nazw stanowisk — patrz services/station_catalog.py
+        from ...services.station_catalog import station_label
         for station_code, pending_status in _STATION_PENDING_STATUS.items():
             count = ProductionItem.query.filter(
                 ProductionItem.current_status == pending_status
@@ -1093,7 +1090,7 @@ def dashboard_data():
 
             stations_data.append({
                 'code': station_code,
-                'name': _STATION_NAMES[station_code],
+                'name': station_label(station_code),
                 'status': 'active' if count > 0 else 'idle',
                 'status_class': 'station-active' if count > 0 else 'station-idle',
                 'active_orders': count,

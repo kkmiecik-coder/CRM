@@ -183,10 +183,13 @@ def products_tab_content():
         # Kto pracował przy produktach — JEDNO zapytanie na całą listę, nie jedno
         # na produkt (docs/worker-profiles-backend.md §7.3). Awaria tej części nie
         # może wywrócić listy produktów: brak nazwisk jest znośny, brak listy nie.
+        # Rollback jest tu konieczny — bez niego sesja zostaje w stanie failed
+        # i wywraca DOPIERO kolejne zapytanie, w zupełnie innym miejscu kodu.
         try:
             from ...services.worker_stats_service import get_workers_for_products
             workers_by_product = get_workers_for_products([p.id for p in products])
         except Exception as e:
+            db.session.rollback()
             logger.warning("Nie udało się pobrać atrybucji pracowników do listy",
                            extra={'error': str(e)})
             workers_by_product = {}

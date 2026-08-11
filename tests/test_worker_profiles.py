@@ -794,6 +794,61 @@ def test_pracownik_z_ograniczeniem_stanowisk(app):
 # ZAKŁADKA PANELU CRM
 # ============================================================================
 
+def test_panel_hali_pokazuje_bezczynnosc_i_dorobek(app):
+    """
+    Sesja bez wskaźnika bezczynności i bez wyniku to lista zalogowanych,
+    nie obraz hali (spec §7.1 wymagała "roboty w tej sesji").
+    """
+    ids = _pracownicy(app, 2)
+    produkt_id = _produkt(app, quantity=20)
+
+    with app.app_context():
+        produkt = ProductionProduct.query.get(produkt_id)
+        produkt.volume_m3 = 0.4          # bez objętości kolumna m³ zawsze byłaby zerem
+        pracujacy = worker_service.start_session([ids[0]], 'gluing',
+                                                 device_id='TABLET-1',
+                                                 session_group='pracuje')[0]
+        worker_service.start_session([ids[1]], 'gluing', device_id='TABLET-2',
+                                     session_group='stoi')
+
+        produkt.set_quantity_done('gluing', 6, source='mobile',
+                                  actor_worker_ids=[ids[0]],
+                                  actor_session_ids={ids[0]: pracujacy.id})
+        # Ten pracownik odbił coś godzinę temu i od tego czasu nic
+        pracujacy.last_activity_at = get_local_now() - timedelta(minutes=75)
+        db.session.commit()
+
+        sesje = worker_service.serialize_sessions_for_panel(
+            worker_service.get_active_sessions())
+        wg_pracownika = {s['worker_id']: s for s in sesje}
+
+        z_dorobkiem = wg_pracownika[ids[0]]
+        assert z_dorobkiem['pieces'] == 6.0
+        assert z_dorobkiem['m3'] > 0
+        assert 74 <= z_dorobkiem['idle_minutes'] <= 76
+        # 75 min < domyślny timeout 120 min, więc jeszcze bez alarmu
+        assert z_dorobkiem['idle_over_timeout'] is False
+
+        bez_dorobku = wg_pracownika[ids[1]]
+        assert bez_dorobku['pieces'] == 0
+        assert bez_dorobku['idle_minutes'] is not None
+
+
+def test_panel_hali_oznacza_przekroczony_timeout(app):
+    ids = _pracownicy(app, 1)
+    with app.app_context():
+        sesja = worker_service.start_session(ids, 'gluing', device_id='TABLET-1',
+                                             session_group='dawno')[0]
+        sesja.last_activity_at = get_local_now() - timedelta(minutes=200)
+        db.session.commit()
+
+        wynik = worker_service.serialize_sessions_for_panel(
+            worker_service.get_active_sessions())[0]
+
+        assert wynik['idle_minutes'] >= 199
+        assert wynik['idle_over_timeout'] is True
+
+
 def test_zakladka_pracownikow_renderuje_sie(app):
     """
     Renderowanie templatki zakładki — łapie błędy Jinja (literówki w polach,
