@@ -118,7 +118,7 @@
               <span class="il-station-badge {% if dashboard_stats.stations.cutting.tablet_status.active|default(false) %}active{% else %}inactive{% endif %}" id="cutting-tablet-badge">
                 {{ dashboard_stats.stations.cutting.tablet_status.status_label|default('Niedostępne') }}
               </span>
-              <a href="{{ url_for('production.production_stations.cutting_station') }}" class="il-station-link" title="Otwórz stanowisko"><i class="fas fa-external-link-alt"></i></a>
+              <a href="{{ url_for('production.production_stations.monitor_station', station_code='cutting') }}" class="il-station-link" title="Podgląd monitora"><i class="fas fa-external-link-alt"></i></a>
             </div>
           </div>
           <div class="il-station-body">
@@ -156,7 +156,7 @@
               <span class="il-station-badge {% if dashboard_stats.stations.assembly.tablet_status.active|default(false) %}active{% else %}inactive{% endif %}" id="assembly-tablet-badge">
                 {{ dashboard_stats.stations.assembly.tablet_status.status_label|default('Niedostępne') }}
               </span>
-              <a href="{{ url_for('production.production_stations.assembly_station') }}" class="il-station-link" title="Otwórz stanowisko"><i class="fas fa-external-link-alt"></i></a>
+              <a href="{{ url_for('production.production_stations.monitor_station', station_code='assembly') }}" class="il-station-link" title="Podgląd monitora"><i class="fas fa-external-link-alt"></i></a>
             </div>
           </div>
           <div class="il-station-body">
@@ -194,7 +194,7 @@
               <span class="il-station-badge {% if dashboard_stats.stations.gluing.tablet_status.active|default(false) %}active{% else %}inactive{% endif %}" id="gluing-tablet-badge">
                 {{ dashboard_stats.stations.gluing.tablet_status.status_label|default('Niedostępne') }}
               </span>
-              <a href="{{ url_for('production.production_stations.gluing_station') }}" class="il-station-link" title="Otwórz stanowisko"><i class="fas fa-external-link-alt"></i></a>
+              <a href="{{ url_for('production.production_stations.monitor_station', station_code='gluing') }}" class="il-station-link" title="Podgląd monitora"><i class="fas fa-external-link-alt"></i></a>
             </div>
           </div>
           <div class="il-station-body">
@@ -232,7 +232,7 @@
               <span class="il-station-badge {% if dashboard_stats.stations.formatting.tablet_status.active|default(false) %}active{% else %}inactive{% endif %}" id="formatting-tablet-badge">
                 {{ dashboard_stats.stations.formatting.tablet_status.status_label|default('Niedostępne') }}
               </span>
-              <a href="{{ url_for('production.production_stations.formatting_station') }}" class="il-station-link" title="Otwórz stanowisko"><i class="fas fa-external-link-alt"></i></a>
+              <a href="{{ url_for('production.production_stations.monitor_station', station_code='formatting') }}" class="il-station-link" title="Podgląd monitora"><i class="fas fa-external-link-alt"></i></a>
             </div>
           </div>
           <div class="il-station-body">
@@ -270,7 +270,7 @@
               <span class="il-station-badge {% if dashboard_stats.stations.finishing.tablet_status.active|default(false) %}active{% else %}inactive{% endif %}" id="finishing-tablet-badge">
                 {{ dashboard_stats.stations.finishing.tablet_status.status_label|default('Niedostępne') }}
               </span>
-              <a href="{{ url_for('production.production_stations.finishing_station') }}" class="il-station-link" title="Otwórz stanowisko"><i class="fas fa-external-link-alt"></i></a>
+              <a href="{{ url_for('production.production_stations.monitor_station', station_code='finishing') }}" class="il-station-link" title="Podgląd monitora"><i class="fas fa-external-link-alt"></i></a>
             </div>
           </div>
           <div class="il-station-body">
@@ -327,7 +327,7 @@
               <span class="il-station-badge {% if dashboard_stats.stations.packaging.tablet_status.active|default(false) %}active{% else %}inactive{% endif %}" id="packaging-tablet-badge">
                 {{ dashboard_stats.stations.packaging.tablet_status.status_label|default('Niedostępne') }}
               </span>
-              <a href="{{ url_for('production.production_stations.packaging_station') }}" class="il-station-link" title="Otwórz stanowisko"><i class="fas fa-external-link-alt"></i></a>
+              <a href="{{ url_for('production.production_stations.monitor_station', station_code='packaging') }}" class="il-station-link" title="Podgląd monitora"><i class="fas fa-external-link-alt"></i></a>
             </div>
           </div>
           <div class="il-station-body">

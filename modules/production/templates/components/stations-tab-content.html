@@ -47,9 +47,9 @@
                         </div>
                     </div>
                 </div>
-                <a href="{{ url_for('production.production_stations.' + station_key + '_station') }}"
+                <a href="{{ url_for('production.production_stations.monitor_station', station_code=station_key) }}"
                    class="btn-link-station">
-                    Przejdź do stanowiska <i class="fas fa-arrow-right ms-1"></i>
+                    Podgląd monitora <i class="fas fa-arrow-right ms-1"></i>
                 </a>
             </div>
 
@@ -223,12 +223,12 @@ function initStationRefreshTimers() {
 
 function navigateToStation(stationKey) {
     const stationUrls = {
-        'cutting': '{{ url_for("production.production_stations.cutting_station") }}',
-        'assembly': '{{ url_for("production.production_stations.assembly_station") }}',
-        'gluing': '{{ url_for("production.production_stations.gluing_station") }}',
-        'formatting': '{{ url_for("production.production_stations.formatting_station") }}',
-        'finishing': '{{ url_for("production.production_stations.finishing_station") }}',
-        'packaging': '{{ url_for("production.production_stations.packaging_station") }}'
+        'cutting': '{{ url_for("production.production_stations.monitor_station", station_code="cutting") }}',
+        'assembly': '{{ url_for("production.production_stations.monitor_station", station_code="assembly") }}',
+        'gluing': '{{ url_for("production.production_stations.monitor_station", station_code="gluing") }}',
+        'formatting': '{{ url_for("production.production_stations.monitor_station", station_code="formatting") }}',
+        'finishing': '{{ url_for("production.production_stations.monitor_station", station_code="finishing") }}',
+        'packaging': '{{ url_for("production.production_stations.monitor_station", station_code="packaging") }}'
     };
 
     if (stationUrls[stationKey]) {
@@ -244,12 +244,12 @@ function refreshWorkflowData() {
 
 function viewFullStationList(stationKey) {
     const stationUrls = {
-        'cutting': '{{ url_for("production.production_stations.cutting_station") }}',
-        'assembly': '{{ url_for("production.production_stations.assembly_station") }}',
-        'gluing': '{{ url_for("production.production_stations.gluing_station") }}',
-        'formatting': '{{ url_for("production.production_stations.formatting_station") }}',
-        'finishing': '{{ url_for("production.production_stations.finishing_station") }}',
-        'packaging': '{{ url_for("production.production_stations.packaging_station") }}'
+        'cutting': '{{ url_for("production.production_stations.monitor_station", station_code="cutting") }}',
+        'assembly': '{{ url_for("production.production_stations.monitor_station", station_code="assembly") }}',
+        'gluing': '{{ url_for("production.production_stations.monitor_station", station_code="gluing") }}',
+        'formatting': '{{ url_for("production.production_stations.monitor_station", station_code="formatting") }}',
+        'finishing': '{{ url_for("production.production_stations.monitor_station", station_code="finishing") }}',
+        'packaging': '{{ url_for("production.production_stations.monitor_station", station_code="packaging") }}'
     };
 
     if (stationUrls[stationKey]) {

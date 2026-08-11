@@ -3,12 +3,12 @@
 Station monitors + monitor AJAX endpoints
 """
 
-from flask import render_template, request, url_for, jsonify
+from flask import render_template, request, url_for, jsonify, redirect
 from datetime import datetime, date
 from extensions import db
 import traceback
 
-from . import station_bp, logger, get_station_config, get_station_summary, MONITOR_STATION_MAP, _get_monitor_station_data
+from . import station_bp, logger, get_station_config, MONITOR_STATION_MAP, _get_monitor_station_data
 
 
 # ============================================================================
@@ -19,42 +19,10 @@ from . import station_bp, logger, get_station_config, get_station_summary, MONIT
 @station_bp.route('/station-select')
 def station_select():
     """
-    Interfejs wyboru stanowiska (strona glowna dla stanowisk)
-
-    Returns:
-        HTML: Interfejs wyboru stanowiska
+    Panele wykonawcze stanowisk zniknely w Etapie 0 profili pracownikow
+    (docs/worker-profiles-backend.md) - przekierowanie na wybor monitora hali.
     """
-    try:
-        # Pobranie podsumowania stanowisk
-        stations_summary = get_station_summary()
-
-        # Konfiguracja interfejsu
-        config = get_station_config()
-
-        # Czas ostatniej aktualizacji
-        last_updated = datetime.utcnow()
-
-        return render_template(
-            'stations/select.html',
-            stations=stations_summary,
-            config=config,
-            last_updated=last_updated,
-            page_title="Wybor stanowiska produkcyjnego"
-        )
-
-    except Exception as e:
-        logger.error("Blad interfejsu wyboru stanowiska", extra={
-            'client_ip': request.remote_addr,
-            'error': str(e)
-        })
-
-        # Fallback template z bledem
-        return render_template(
-            'stations/access_denied.html',
-            error_message="Blad ladowania interfejsu wyboru stanowiska",
-            error_details=str(e),
-            back_url=None
-        ), 500
+    return redirect(url_for('production.production_stations.monitors_select'))
 
 
 # ============================================================================

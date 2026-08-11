@@ -493,53 +493,6 @@ def baselinker_health():
         })
     
 
-@api_bp.route('/station-health')
-def station_health_check():
-    """
-    GET /production/api/station-health - Uproszczony health check dla stanowisk produkcyjnych
-    
-    Prosty endpoint do wykrywania połączenia przez Connection Monitor w station-common.js.
-    Bez autoryzacji - publiczny endpoint używany przez heartbeat monitoring.
-    
-    Używany przez:
-    - station-common.js → checkHealth() → heartbeat co 15s
-    - Wszystkie stanowiska: cutting, assembly, packaging
-    
-    Returns:
-        JSON: {"status": "OK"} jeśli backend działa i DB połączona
-        JSON: {"status": "ERROR", "message": "..."} jeśli błąd
-    """
-    try:
-        # Prosty test połączenia z bazą danych (timeout po stronie DB)
-        db.session.execute(text('SELECT 1')).scalar()
-        
-        # Sukces - backend działa, DB połączona
-        response = jsonify({"status": "OK"})
-        
-        # Wyłącz cache dla health checks (wymaganie PRD)
-        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-        response.headers['Pragma'] = 'no-cache'
-        response.headers['Expires'] = '0'
-        
-        logger.debug("Station health check: OK")
-        return response, 200
-        
-    except Exception as e:
-        # Błąd - backend nie działa lub DB niedostępna
-        logger.error("Station health check failed", extra={
-            'error': str(e),
-            'endpoint': '/production/api/station-health'
-        })
-        
-        response = jsonify({
-            "status": "ERROR",
-            "message": "Service unavailable"
-        })
-        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-        
-        return response, 500
-
-
 @api_bp.route('/health')
 def health_check():
     """
