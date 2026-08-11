@@ -602,6 +602,77 @@ def serialize_session_for_panel(sesja):
     }
 
 
+def get_workers_activity_summary(dni=7):
+    """
+    {worker_id: {'pieces': float, 'm3': float, 'last_activity_at': datetime|None}}
+    dla listy w panelu — jedno zapytanie na całą tabelę, nie jedno na wiersz.
+
+    Filtr source NOT IN ('auto_skip','system') jest OBOWIĄZKOWY, nie kosmetyczny
+    (§7.2 i pułapka nr 2): to eventy stanowisk POMINIĘTYCH, których nikt
+    fizycznie nie wykonał. Bez filtra sklejacz dostałby kredyt za formatowanie,
+    którego nie było.
+
+    To skrócona wersja liczenia dla listy pracowników. Pełny raport wydajności
+    (dzień × pracownik × stanowisko, tempo, eksport) to osobny
+    worker_stats_service — etap 6, jeszcze nieistniejący.
+    """
+    from ..models import ProductionProduct, ProductionStationEvent, ProductionStationEventWorker
+
+    prog = get_local_now() - timedelta(days=dni)
+
+    robota = db.session.query(
+        ProductionStationEventWorker.worker_id,
+        func.sum(ProductionStationEvent.delta * ProductionStationEventWorker.share),
+        func.sum(func.coalesce(ProductionProduct.volume_m3, 0)
+                 * ProductionStationEvent.delta * ProductionStationEventWorker.share),
+    ).join(
+        ProductionStationEvent,
+        ProductionStationEvent.id == ProductionStationEventWorker.event_id,
+    ).join(
+        ProductionProduct,
+        ProductionProduct.id == ProductionStationEvent.production_item_id,
+    ).filter(
+        ProductionStationEvent.created_at >= prog,
+        ~ProductionStationEvent.source.in_(('auto_skip', 'system')),
+    ).group_by(ProductionStationEventWorker.worker_id).all()
+
+    aktywnosc = db.session.query(
+        ProductionWorkerSession.worker_id,
+        func.max(ProductionWorkerSession.last_activity_at),
+    ).group_by(ProductionWorkerSession.worker_id).all()
+
+    podsumowanie = {}
+    for worker_id, sztuki, metry in robota:
+        podsumowanie.setdefault(worker_id, {})
+        podsumowanie[worker_id]['pieces'] = round(float(sztuki or 0), 1)
+        podsumowanie[worker_id]['m3'] = round(float(metry or 0), 3)
+
+    for worker_id, ostatnia in aktywnosc:
+        podsumowanie.setdefault(worker_id, {})
+        podsumowanie[worker_id]['last_activity_at'] = ostatnia
+
+    return podsumowanie
+
+
+def find_crm_users(fraza=None, limit=20):
+    """
+    Konta CRM do opcjonalnego powiązania z profilem (§7.1). Zwraca lekkie dicty —
+    formularz potrzebuje tylko id i etykiety.
+    """
+    from modules.users.models import User
+
+    zapytanie = User.query
+    if fraza:
+        wzorzec = f'%{fraza.strip()}%'
+        zapytanie = zapytanie.filter(User.email.ilike(wzorzec))
+
+    return [
+        {'id': u.id,
+         'label': getattr(u, 'first_name', None) and f'{u.first_name} ({u.email})' or u.email}
+        for u in zapytanie.order_by(User.email.asc()).limit(limit).all()
+    ]
+
+
 def close_session_by_admin(session_id):
     sesja = ProductionWorkerSession.query.get(session_id)
     if not sesja:

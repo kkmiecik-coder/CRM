@@ -692,7 +692,8 @@ def test_zakladka_pracownikow_renderuje_sie(app):
         html = render_template('components/workers-tab-content.html',
                                workers=pracownicy, active_sessions=sesje,
                                config=konfiguracja,
-                               station_codes=['gluing', 'packaging'])
+                               station_codes=['gluing', 'packaging'],
+                               crm_users=[{'id': 1, 'label': 'admin@woodpower.pl'}])
 
     assert 'Imie0 Nazwisko0' in html
     assert 'IN' in html                      # kafelek z inicjałami
@@ -700,3 +701,31 @@ def test_zakladka_pracownikow_renderuje_sie(app):
     # Kill-switch wyłączony → ostrzeżenie o pracy bez wyboru profilu
     assert 'WORKER_SELECTION_REQUIRED' in html
     assert 'Dodaj pracownika' in html
+    assert 'Robota z 7 dni' in html
+    assert 'Konto CRM' in html
+
+
+def test_podsumowanie_roboty_liczy_udzialy_i_pomija_eventy_automatu(app):
+    """
+    Kolumna "robota z 7 dni" musi dzielić sztuki wg share i pomijać eventy
+    stanowisk pominiętych (auto_skip/system) — inaczej sklejacz dostałby
+    kredyt za formatowanie, którego nikt nie wykonał.
+    """
+    ids = _pracownicy(app, 2)
+    produkt_id = _produkt(app, quantity=10)
+
+    with app.app_context():
+        produkt = ProductionProduct.query.get(produkt_id)
+        produkt.volume_m3 = 0.5
+        produkt.set_quantity_done('gluing', 8, source='mobile', actor_worker_ids=ids)
+        # Event automatu — z atrybucją, żeby sprawdzić, że filtr działa po
+        # source, a nie po samym braku wiersza atrybucji.
+        produkt.set_quantity_done('formatting', 10, source='auto_skip',
+                                  actor_worker_ids=[ids[0]])
+        db.session.commit()
+
+        podsumowanie = worker_service.get_workers_activity_summary()
+
+        assert podsumowanie[ids[0]]['pieces'] == 4.0      # 8 sztuk / 2 osoby
+        assert podsumowanie[ids[1]]['pieces'] == 4.0
+        assert podsumowanie[ids[0]]['m3'] == 2.0          # 0.5 m³ × 8 × 0.5

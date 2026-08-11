@@ -155,6 +155,11 @@
     opacity: 0.6;
 }
 
+.workers-muted {
+    color: var(--il-text-muted, #9ba3b0);
+    font-size: 12px;
+}
+
 /* ─── KAFELEK Z INICJAŁAMI ─── */
 /* Odpowiednik kafelka na tablecie: bez zdjęć, inicjały na kolorze. */
 .worker-chip {

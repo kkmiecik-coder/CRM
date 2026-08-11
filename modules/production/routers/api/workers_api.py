@@ -28,6 +28,7 @@ def _blad(e):
 
 
 def _serialize_worker(worker, statystyki=None):
+    """statystyki: mapa z get_workers_activity_summary(), gdy lista ma pokazać robotę."""
     dane = {
         'id': worker.id,
         'first_name': worker.first_name,
@@ -43,8 +44,11 @@ def _serialize_worker(worker, statystyki=None):
         'worker_code': worker.worker_code,
         'deactivated_at': worker.deactivated_at.isoformat() if worker.deactivated_at else None,
     }
-    if statystyki:
-        dane.update(statystyki.get(worker.id, {}))
+    wiersz = (statystyki or {}).get(worker.id, {})
+    ostatnia = wiersz.get('last_activity_at')
+    dane['pieces_7d'] = wiersz.get('pieces', 0)
+    dane['m3_7d'] = wiersz.get('m3', 0)
+    dane['last_activity_at'] = ostatnia.isoformat() if ostatnia else None
     return dane
 
 
@@ -62,13 +66,15 @@ def workers_tab_content():
     try:
         pracownicy = worker_service.list_workers(include_inactive=True)
         sesje = worker_service.get_active_sessions()
+        statystyki = worker_service.get_workers_activity_summary()
 
         return render_template(
             'components/workers-tab-content.html',
-            workers=[_serialize_worker(w) for w in pracownicy],
+            workers=[_serialize_worker(w, statystyki) for w in pracownicy],
             active_sessions=[worker_service.serialize_session_for_panel(s) for s in sesje],
             config=worker_service.get_worker_config(),
             station_codes=sorted(ProductionDevice.VALID_STATION_CODES),
+            crm_users=worker_service.find_crm_users(),
         )
     except Exception as e:
         logger.error("Błąd zakładki pracowników", extra={

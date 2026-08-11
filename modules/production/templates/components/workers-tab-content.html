@@ -130,6 +130,8 @@
                         <th style="width:60px"></th>
                         <th>Imię i nazwisko</th>
                         <th>Stanowiska</th>
+                        <th>Ostatnia aktywność</th>
+                        <th>Robota z 7 dni</th>
                         <th>Kolejność</th>
                         <th>Status</th>
                         <th class="text-end">Akcje</th>
@@ -146,6 +148,21 @@
                                 {% for st in w.allowed_stations %}<span class="badge bg-secondary me-1">{{ st }}</span>{% endfor %}
                             {% else %}
                                 <span class="text-muted">wszystkie</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if w.last_activity_at %}
+                                <span class="workers-muted">{{ w.last_activity_at[:10] }} {{ w.last_activity_at[11:16] }}</span>
+                            {% else %}
+                                <span class="workers-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if w.pieces_7d %}
+                                <strong>{{ w.pieces_7d }}</strong> szt.
+                                <span class="workers-muted">/ {{ w.m3_7d }} m³</span>
+                            {% else %}
+                                <span class="workers-muted">—</span>
                             {% endif %}
                         </td>
                         <td>{{ w.sort_order }}</td>
@@ -215,6 +232,18 @@
                         <div class="form-text">Mniejsza liczba = wyżej na liście</div>
                     </div>
                     <div class="col-12">
+                        <label class="form-label">Konto CRM (opcjonalnie)</label>
+                        <select class="form-select" id="worker-user-id">
+                            <option value="">— bez powiązania —</option>
+                            {% for u in crm_users %}
+                            <option value="{{ u.id }}">{{ u.label }}</option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">
+                            Tylko informacyjnie — profil na tablecie działa niezależnie od konta w CRM
+                        </div>
+                    </div>
+                    <div class="col-12">
                         <label class="form-label">Stanowiska</label>
                         <div id="worker-stations">
                             {% for st in station_codes %}
@@ -282,6 +311,7 @@
         document.getElementById('worker-last-name').value = worker ? worker.last_name : '';
         document.getElementById('worker-color').value = (worker && worker.color_hex) || '#3E7C59';
         document.getElementById('worker-sort-order').value = worker ? worker.sort_order : 0;
+        document.getElementById('worker-user-id').value = (worker && worker.user_id) || '';
 
         const wybrane = new Set((worker && worker.allowed_stations) || []);
         root.querySelectorAll('.worker-station-cb').forEach(cb => { cb.checked = wybrane.has(cb.value); });
@@ -296,7 +326,8 @@
             last_name: document.getElementById('worker-last-name').value.trim(),
             color_hex: document.getElementById('worker-color').value,
             sort_order: parseInt(document.getElementById('worker-sort-order').value, 10) || 0,
-            allowed_stations: stanowiska
+            allowed_stations: stanowiska,
+            user_id: parseInt(document.getElementById('worker-user-id').value, 10) || null
         };
 
         try {
