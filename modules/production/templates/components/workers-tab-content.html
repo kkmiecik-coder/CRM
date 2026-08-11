@@ -31,8 +31,15 @@
             <div class="workers-stat-item">
                 <div class="workers-stat-icon"><i class="fas fa-toggle-{{ 'on' if config.selection_required else 'off' }}"></i></div>
                 <div class="workers-stat-info">
-                    <h6>Wymóg wyboru profilu</h6>
-                    <div class="stat-value">{{ 'Włączony' if config.selection_required else 'Wyłączony' }}</div>
+                    <h6>Wybór na tablecie</h6>
+                    <div class="stat-value">{{ 'Obowiązkowy' if config.selection_required else 'Dobrowolny' }}</div>
+                </div>
+            </div>
+            <div class="workers-stat-item">
+                <div class="workers-stat-icon"><i class="fas fa-hourglass-half"></i></div>
+                <div class="workers-stat-info">
+                    <h6>Wylogowanie po</h6>
+                    <div class="stat-value">{{ config.idle_timeout_minutes }} min</div>
                 </div>
             </div>
             <button class="btn btn-light btn-sm ms-auto" id="workers-add-btn">
@@ -44,9 +51,23 @@
     {% if not config.selection_required %}
     <div class="alert alert-info workers-killswitch-note">
         <i class="fas fa-info-circle me-2"></i>
-        Tablety mogą pracować bez wybierania profilu (<code>WORKER_SELECTION_REQUIRED = false</code>).
-        Akcje z wybranym profilem i tak są zapisywane. Wymóg włącza się w zakładce Konfiguracja —
-        dopiero po roll-oucie aplikacji, która potrafi wysyłać wybór.
+        <strong>Wybór pracownika na tablecie jest teraz dobrowolny.</strong>
+        Kto się wskaże — tego praca zostanie policzona imiennie. Kto pominie wybór,
+        i tak normalnie pracuje, tylko przy tej robocie nie będzie wiadomo, kto ją wykonał.
+        <br>
+        Żeby wybór stał się obowiązkowy, przejdź do zakładki <strong>Konfiguracja</strong>
+        → sekcja <strong>„Pracownicy na tabletach"</strong> → ustaw
+        <strong>„Wymagaj wyboru pracownika"</strong> na <em>Tak</em>.
+        Zrób to dopiero wtedy, gdy wszystkie tablety mają nową wersję aplikacji.
+    </div>
+    {% else %}
+    <div class="alert alert-warning workers-killswitch-note">
+        <i class="fas fa-triangle-exclamation me-2"></i>
+        <strong>Tablety wymagają wyboru pracownika przed rozpoczęciem pracy.</strong>
+        Jeśli hala stanie, bo ktoś nie może przejść dalej z ekranu wyboru — przejdź do zakładki
+        <strong>Konfiguracja</strong> → sekcja <strong>„Pracownicy na tabletach"</strong> →
+        ustaw <strong>„Wymagaj wyboru pracownika"</strong> na <em>Nie</em>.
+        Produkcja ruszy od razu, bez czekania na informatyka.
     </div>
     {% endif %}
 
@@ -86,7 +107,7 @@
                                 <span class="worker-chip" style="background: {{ s.color_hex }}">{{ s.initials }}</span>
                                 {{ s.worker_name }}
                             </td>
-                            <td>{{ s.station_code }}</td>
+                            <td>{{ s.station_label }}</td>
                             <td><code>{{ s.device_id or '—' }}</code></td>
                             <td>{{ s.started_at[11:16] if s.started_at else '—' }}</td>
                             <td>{{ s.last_activity_at[11:16] if s.last_activity_at else '—' }}</td>
@@ -144,8 +165,8 @@
                         <td><span class="worker-chip" style="background: {{ w.color_hex }}">{{ w.initials }}</span></td>
                         <td>{{ w.full_name }}</td>
                         <td>
-                            {% if w.allowed_stations %}
-                                {% for st in w.allowed_stations %}<span class="badge bg-secondary me-1">{{ st }}</span>{% endfor %}
+                            {% if w.allowed_stations_labels %}
+                                {% for nazwa in w.allowed_stations_labels %}<span class="badge bg-secondary me-1">{{ nazwa }}</span>{% endfor %}
                             {% else %}
                                 <span class="text-muted">wszystkie</span>
                             {% endif %}
@@ -246,10 +267,10 @@
                     <div class="col-12">
                         <label class="form-label">Stanowiska</label>
                         <div id="worker-stations">
-                            {% for st in station_codes %}
+                            {% for kod, nazwa in station_choices %}
                             <div class="form-check form-check-inline">
-                                <input class="form-check-input worker-station-cb" type="checkbox" value="{{ st }}" id="st-{{ st }}">
-                                <label class="form-check-label" for="st-{{ st }}">{{ st }}</label>
+                                <input class="form-check-input worker-station-cb" type="checkbox" value="{{ kod }}" id="st-{{ kod }}">
+                                <label class="form-check-label" for="st-{{ kod }}">{{ nazwa }}</label>
                             </div>
                             {% endfor %}
                         </div>

@@ -187,12 +187,24 @@ def config_tab_content():
             'MAX_SYNC_ITEMS_PER_BATCH':     ('sync',        1000,        'integer'),
             'BASELINKER_TARGET_STATUS_COMPLETED': ('sync', 138623,       'integer'),
             'SYNC_RETRY_COUNT':             ('sync',        3,           'integer'),
+            # Te dwa klucze szablon renderował, ale nie miały wpisu w EXPECTED —
+            # na bazie bez nich zakładka Konfiguracja wywalała się w całości
+            # błędem 500 ("SimpleNamespace has no attribute ..."). Na produkcji
+            # siedzą w prod_config i dlatego problem był niewidoczny; wychodził
+            # dopiero na świeżym środowisku. Wartość 0 to placeholder — żaden kod
+            # tych kluczy nie czyta przez get_config(), służą wyłącznie do
+            # wyświetlenia i ustawienia z panelu, więc nie zgaduję tu ID statusów.
+            'BASELINKER_SOURCE_STATUS_PAID':      ('sync', 0,            'integer'),
+            'BASELINKER_TARGET_STATUS_PRODUCTION': ('sync', 0,           'integer'),
 
             # Stations (Stanowiska produkcyjne)
             'STATION_ALLOWED_IPS':          ('stations',    '192.168.1.100,192.168.1.101', 'ip_list'),
             'REFRESH_INTERVAL_SECONDS':     ('stations',    30,          'integer'),
             'STATION_AUTO_REFRESH_ENABLED': ('stations',    True,        'boolean'),
             'STATION_MAX_PRODUCTS_DISPLAY': ('stations',    50,          'integer'),
+            # Domyślna wartość wzięta z jedynego czytelnika w kodzie:
+            # get_station_config() w routers/stations/__init__.py
+            'STATION_SHOW_DETAILED_INFO':   ('stations',    True,        'boolean'),
 
             # Priorytety i Deadlines
             'DEADLINE_DEFAULT_DAYS':        ('priorities',  16,          'integer'),
@@ -218,6 +230,14 @@ def config_tab_content():
             'LABEL_PRINTER_USE_AGENT':       ('printer',     'false',                    'boolean'),
             'LABEL_PRINTER_AGENT_TOKEN':     ('printer',     'change-me-in-prod',        'string'),
 
+            # Profile pracowników (docs/worker-profiles-backend.md §4.5).
+            # WORKER_SELECTION_REQUIRED to KILL-SWITCH: przy 'true' awaria katalogu
+            # zatrzymuje halę, więc musi być przełączalny stąd, bez deployu.
+            'WORKER_SELECTION_REQUIRED':           ('workers', 'false', 'boolean'),
+            'WORKER_SESSION_IDLE_TIMEOUT_MINUTES': ('workers', 120,     'integer'),
+            'WORKER_SESSION_NIGHT_CUTOFF':         ('workers', '23:00', 'string'),
+            'WORKER_QUICK_PICK_COUNT':             ('workers', 8,       'integer'),
+
             # Cache i Inne (UWAGA: mimo "BASELINKER" klucz ma być w OTHER, zgodnie z HTML)
             'BASELINKER_STATUSES_CACHE':    ('other',       '{"id": 105112, "name": "Nowe - opłacone", "color": "ffffff"}', 'json'),
             'MAX_PRODUCTS_PER_ORDER':       ('other',       999,         'integer'),
@@ -237,7 +257,8 @@ def config_tab_content():
                 }
 
         # --- 3c) Grupowanie: najpierw whitelist, potem heurystyka dla reszty ---
-        config_groups = {'sync': {}, 'stations': {}, 'priorities': {}, 'system': {}, 'printer': {}, 'other': {}}
+        config_groups = {'sync': {}, 'stations': {}, 'priorities': {}, 'system': {},
+                         'printer': {}, 'workers': {}, 'other': {}}
 
         def assign_group(key: str) -> str:
             if key in EXPECTED:
@@ -245,6 +266,8 @@ def config_tab_content():
             k = key.upper()
             if 'PRINTER' in k:
                 return 'printer'
+            if k.startswith('WORKER_'):
+                return 'workers'
             if any(s in k for s in ('SYNC', 'BASELINKER')):
                 return 'sync'
             if any(s in k for s in ('STATION', 'REFRESH')):
@@ -463,6 +486,10 @@ def update_configs():
             'LABEL_PRINTER_RETRY_COUNT', 'LABEL_PRINTER_OFFSET_LT', 'LABEL_PRINTER_OFFSET_LS',
             'LABEL_PRINTER_ALLOWED_STATIONS',
             'LABEL_PRINTER_USE_AGENT', 'LABEL_PRINTER_AGENT_TOKEN',
+            # Profile pracowników — bez tego przełącznik w UI istnieje, ale zapis
+            # wraca błędem "Niepozwolone klucze konfiguracji".
+            'WORKER_SELECTION_REQUIRED', 'WORKER_SESSION_IDLE_TIMEOUT_MINUTES',
+            'WORKER_SESSION_NIGHT_CUTOFF', 'WORKER_QUICK_PICK_COUNT',
         }
         
         invalid_keys = set(configs_dict.keys()) - allowed_config_keys

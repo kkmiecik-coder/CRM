@@ -38,6 +38,8 @@ def _serialize_worker(worker, statystyki=None):
         'color_hex': worker.tile_color,
         'color_hex_raw': worker.color_hex,
         'allowed_stations': worker.allowed_stations_list,
+        'allowed_stations_labels': [worker_service.station_label(s)
+                                    for s in worker.allowed_stations_list],
         'is_active': bool(worker.is_active),
         'sort_order': worker.sort_order or 0,
         'user_id': worker.user_id,
@@ -73,7 +75,7 @@ def workers_tab_content():
             workers=[_serialize_worker(w, statystyki) for w in pracownicy],
             active_sessions=[worker_service.serialize_session_for_panel(s) for s in sesje],
             config=worker_service.get_worker_config(),
-            station_codes=sorted(ProductionDevice.VALID_STATION_CODES),
+            station_choices=worker_service.station_choices(),
             crm_users=worker_service.find_crm_users(),
         )
     except Exception as e:

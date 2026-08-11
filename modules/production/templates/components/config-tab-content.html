@@ -586,6 +586,164 @@
             </div>
         </div>
 
+        <!-- Profile pracowników na tabletach -->
+        <div class="config-card">
+            <div class="config-card-header">
+                <div class="config-card-title">
+                    <div class="config-card-icon">
+                        <i class="fas fa-id-badge"></i>
+                    </div>
+                    <div>
+                        <h4>Pracownicy na tabletach</h4>
+                        <p class="config-card-subtitle">Kto pracuje na stanowisku — wybór profilu i czas trwania zmiany</p>
+                    </div>
+                </div>
+            </div>
+            <div class="config-card-body">
+
+                <!-- WORKER_SELECTION_REQUIRED -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-user-check"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">Wymagaj wyboru pracownika <span class="default-badge">domyślnie: nie</span></h5>
+                                    <p class="config-item-description">
+                                        <strong>Nie</strong> — pracownik może zacząć pracę bez wskazania siebie na tablecie.
+                                        Robota zostanie policzona stanowisku, ale nie będzie wiadomo, kto ją wykonał.<br>
+                                        <strong>Tak</strong> — tablet nie pozwoli zacząć pracy, dopóki ktoś nie wybierze swojego profilu.
+                                        Włączaj dopiero wtedy, gdy wszystkie tablety mają nową wersję aplikacji.
+                                        <strong>Jeśli hala nagle stanie na ekranie wyboru — przestaw tu z powrotem na „nie".</strong>
+                                    </p>
+                                </div>
+                            </div>
+                            <div class="config-item-meta">
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-clock"></i>
+                                    <span>{{ config_groups.workers.WORKER_SELECTION_REQUIRED.updated_at|default('---') }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <select class="form-control" id="worker_selection_required"
+                                            onchange="configChanged('WORKER_SELECTION_REQUIRED', this.value)">
+                                        <option value="false" {% if (config_groups.workers.WORKER_SELECTION_REQUIRED.value|default('false'))|string|lower not in ['true','1','yes','on'] %}selected{% endif %}>Nie — wybór jest dobrowolny</option>
+                                        <option value="true" {% if (config_groups.workers.WORKER_SELECTION_REQUIRED.value|default('false'))|string|lower in ['true','1','yes','on'] %}selected{% endif %}>Tak — bez wyboru ani rusz</option>
+                                    </select>
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('WORKER_SELECTION_REQUIRED')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- WORKER_SESSION_IDLE_TIMEOUT_MINUTES -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-hourglass-half"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">Wylogowanie po bezczynności <span class="default-badge">domyślnie: 120 min</span></h5>
+                                    <p class="config-item-description">
+                                        Po ilu minutach bez odbicia ani jednej sztuki pracownik zostaje automatycznie
+                                        wylogowany ze stanowiska. Liczy się praca, nie samo dotykanie ekranu.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="number" class="form-control" id="worker_session_idle_timeout_minutes"
+                                           value="{{ config_groups.workers.WORKER_SESSION_IDLE_TIMEOUT_MINUTES.value|default(120) }}"
+                                           onchange="configChanged('WORKER_SESSION_IDLE_TIMEOUT_MINUTES', this.value)">
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('WORKER_SESSION_IDLE_TIMEOUT_MINUTES')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- WORKER_SESSION_NIGHT_CUTOFF -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-moon"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">Godzina zamknięcia dnia <span class="default-badge">domyślnie: 23:00</span></h5>
+                                    <p class="config-item-description">
+                                        O tej godzinie system domyka wszystkie sesje, które ktoś zapomniał zakończyć —
+                                        żeby jedna osoba nie „pracowała" przez całą noc.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="text" class="form-control" id="worker_session_night_cutoff"
+                                           value="{{ config_groups.workers.WORKER_SESSION_NIGHT_CUTOFF.value|default('23:00') }}"
+                                           placeholder="23:00"
+                                           onchange="configChanged('WORKER_SESSION_NIGHT_CUTOFF', this.value)">
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('WORKER_SESSION_NIGHT_CUTOFF')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- WORKER_QUICK_PICK_COUNT -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-bolt"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">Kafelki w szybkim wyborze <span class="default-badge">domyślnie: 8</span></h5>
+                                    <p class="config-item-description">
+                                        Ilu pracowników tablet pokazuje od razu na wierzchu — tych, którzy ostatnio
+                                        pracowali na tym stanowisku. Reszta jest na pełnej liście.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="number" class="form-control" id="worker_quick_pick_count"
+                                           value="{{ config_groups.workers.WORKER_QUICK_PICK_COUNT.value|default(8) }}"
+                                           onchange="configChanged('WORKER_QUICK_PICK_COUNT', this.value)">
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('WORKER_QUICK_PICK_COUNT')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
         <!-- Drukarka etykiet -->
         <div class="config-card">
             <div class="config-card-header">

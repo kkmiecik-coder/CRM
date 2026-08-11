@@ -692,17 +692,40 @@ def test_zakladka_pracownikow_renderuje_sie(app):
         html = render_template('components/workers-tab-content.html',
                                workers=pracownicy, active_sessions=sesje,
                                config=konfiguracja,
-                               station_codes=['gluing', 'packaging'],
+                               station_choices=[('gluing', 'Sklejanie'),
+                                                ('packaging', 'Pakowanie')],
                                crm_users=[{'id': 1, 'label': 'admin@woodpower.pl'}])
 
     assert 'Imie0 Nazwisko0' in html
     assert 'IN' in html                      # kafelek z inicjałami
     assert 'TABLET-1' in html                # sekcja "kto teraz na hali"
-    # Kill-switch wyłączony → ostrzeżenie o pracy bez wyboru profilu
-    assert 'WORKER_SELECTION_REQUIRED' in html
     assert 'Dodaj pracownika' in html
+    # Komunikat o kill-switchu ma być po ludzku i odsyłać do konkretnego miejsca
+    # w panelu — bez nazw kluczy konfiguracyjnych, których nikt na hali nie zna.
+    assert 'Wybór pracownika na tablecie jest teraz dobrowolny' in html
+    assert 'Wymagaj wyboru pracownika' in html
+    assert 'WORKER_SELECTION_REQUIRED' not in html
     assert 'Robota z 7 dni' in html
     assert 'Konto CRM' in html
+    # Stanowiska po polsku — użytkownik panelu nie musi znać kodów z API
+    assert 'Sklejanie' in html
+    assert '>gluing<' not in html
+
+
+def test_etykiety_stanowisk_sa_po_polsku(app):
+    with app.app_context():
+        assert worker_service.station_label('gluing') == 'Sklejanie'
+        assert worker_service.station_label('cutting') == 'Wycinanie - mikro'
+        assert worker_service.station_label('packaging') == 'Pakowanie'
+        assert worker_service.station_label('sawmill') == 'Trakownia'
+        # Nieznany kod nie wywraca widoku — pokazujemy go surowo
+        assert worker_service.station_label('cos_nowego') == 'cos_nowego'
+        assert worker_service.station_label(None) == '—'
+
+        kody = [kod for kod, _ in worker_service.station_choices()]
+        # Kolejność procesu, nie alfabetyczna
+        assert kody[:3] == ['cutting', 'assembly', 'gluing']
+        assert all(nazwa != kod for kod, nazwa in worker_service.station_choices())
 
 
 def test_podsumowanie_roboty_liczy_udzialy_i_pomija_eventy_automatu(app):

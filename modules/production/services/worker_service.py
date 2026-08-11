@@ -52,6 +52,44 @@ DOMYSLNA_KONFIGURACJA = {
 DNI_SZYBKIEGO_WYBORU = 7
 
 
+def station_label(station_code):
+    """
+    Kod stanowiska → nazwa po polsku, do pokazania człowiekowi.
+
+    Etykiety bierzemy z MONITOR_STATION_MAP (routers/stations), żeby nie zrobić
+    drugiego źródła prawdy — panel i monitory hali mają mówić o stanowiskach
+    tak samo. Import lokalny, bo tamten moduł ładuje blueprint.
+
+    'sawmill' nie ma wpisu w tamtej mapie (trakownia jest poza pipeline'em
+    produktów), więc dokładamy ją tutaj.
+    """
+    if not station_code:
+        return '—'
+
+    dodatkowe = {'sawmill': 'Trakownia'}
+    if station_code in dodatkowe:
+        return dodatkowe[station_code]
+
+    try:
+        from ..routers.stations import MONITOR_STATION_MAP
+        wpis = MONITOR_STATION_MAP.get(station_code)
+        if wpis and wpis.get('label'):
+            return wpis['label']
+    except ImportError:
+        logger.warning("Brak MONITOR_STATION_MAP — pokazuję surowy kod stanowiska",
+                       extra={'station_code': station_code})
+
+    return station_code
+
+
+def station_choices():
+    """[(kod, nazwa po polsku)] dla formularzy — w kolejności procesu, nie alfabetycznie."""
+    kolejnosc = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing',
+                 'packaging', 'sawmill']
+    znane = set(ProductionDevice.VALID_STATION_CODES)
+    return [(kod, station_label(kod)) for kod in kolejnosc if kod in znane]
+
+
 class WorkerError(Exception):
     """
     Błąd walidacji do zamiany na odpowiedź HTTP. Kody i statusy są kontraktem
@@ -593,6 +631,7 @@ def serialize_session_for_panel(sesja):
         'initials': sesja.worker.initials if sesja.worker else '?',
         'color_hex': sesja.worker.tile_color if sesja.worker else None,
         'station_code': sesja.station_code,
+        'station_label': station_label(sesja.station_code),
         'device_id': sesja.device_id,
         'started_at': sesja.started_at.isoformat() if sesja.started_at else None,
         'last_activity_at': (sesja.last_activity_at.isoformat()
