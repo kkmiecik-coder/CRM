@@ -62,6 +62,19 @@ def _resolve_station_code(requested):
         }), 403)
     return code, None
 
+# Kody, po których wpis MUSI zostać w kolejce offline zamiast zostać zapamiętany
+# przez @with_idempotency. Wszystkie trzy wychodzą z walidacji profilu
+# (_resolve_workers) i wszystkie są odwracalne bez udziału tabletu:
+#   400 worker_ids_required — admin wyłącza kill-switch,
+#   404 worker_not_found    — katalog się odświeża,
+#   409 worker_inactive     — admin przywraca pracownika.
+# Bez tego dekorator zapisuje odpowiedź pod X-Operation-Id i przy ponowieniu
+# ODTWARZA ją bez wywołania handlera — wykonana robota przepada bezpowrotnie,
+# mimo że przyczyna błędu już nie istnieje. Trakownia używa tego mechanizmu
+# z dokładnie tego powodu (sawmill/routers/mobile_api.py:185).
+BLEDY_DO_PONOWIENIA = {400, 404, 409}
+
+
 def _resolve_workers():
     """
     Czyta nagłówek X-Worker-Ids, waliduje i odświeża sesje.
@@ -280,7 +293,7 @@ def order_details(order_id):
 
 @mobile_api_bp.route('/orders/<int:order_id>/complete', methods=['POST'])
 @require_device_token
-@with_idempotency
+@with_idempotency(retryable_statuses=BLEDY_DO_PONOWIENIA)
 def order_complete(order_id):
     """
     POST /api/mobile/orders/<id>/complete
@@ -334,7 +347,7 @@ def order_complete(order_id):
 
 @mobile_api_bp.route('/orders/<int:order_id>/quantity', methods=['PATCH'])
 @require_device_token
-@with_idempotency
+@with_idempotency(retryable_statuses=BLEDY_DO_PONOWIENIA)
 def order_quantity(order_id):
     """
     PATCH /api/mobile/orders/<id>/quantity
@@ -380,7 +393,7 @@ def order_quantity(order_id):
 
 @mobile_api_bp.route('/orders/<int:order_id>/reject', methods=['POST'])
 @require_device_token
-@with_idempotency
+@with_idempotency(retryable_statuses=BLEDY_DO_PONOWIENIA)
 def order_reject(order_id):
     """
     POST /api/mobile/orders/<id>/reject
@@ -755,7 +768,16 @@ def workers_catalog():
     """
     station_code = g.device.station_code
 
-    etag = make_weak_etag('workers', station_code, worker_service.get_catalog_version())
+    # catalog_version to MAX(prod_workers.updated_at), a payload niesie też
+    # selection_required / idle_timeout_minutes / night_cutoff / quick_pick_count
+    # z prod_config. Bez segmentu konfiguracji zmiana samego przełącznika nie
+    # unieważnia ETag i tablet (OkHttp) dostaje 304 ze starym ustawieniem —
+    # ten sam błąd naprawiono wcześniej w /stations/<code>/summary.
+    config_max_updated = db.session.query(func.max(ProductionConfig.updated_at)).scalar()
+    config_etag_ts = int(config_max_updated.timestamp()) if config_max_updated else 0
+
+    etag = make_weak_etag('workers', station_code,
+                          worker_service.get_catalog_version(), config_etag_ts)
     if if_none_match(etag):
         return not_modified(etag)
 
@@ -765,7 +787,7 @@ def workers_catalog():
 
 @mobile_api_bp.route('/sessions/start', methods=['POST'])
 @require_device_token
-@with_idempotency
+@with_idempotency(retryable_statuses=BLEDY_DO_PONOWIENIA)
 def session_start():
     """
     POST /api/mobile/sessions/start

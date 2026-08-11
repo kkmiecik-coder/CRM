@@ -510,6 +510,84 @@ def test_complete_po_odbiciu_wszystkich_sztuk_nie_dubluje_eventu(client, app):
         assert eventy[0].delta == 5
 
 
+def test_retry_po_reaktywacji_pracownika_zapisuje_prace(client, app):
+    """
+    Najgroźniejszy scenariusz kolejki offline: tablet wysyła wykonaną robotę,
+    dostaje 409 (pracownik dezaktywowany), admin przywraca pracownika, tablet
+    ponawia z tym samym X-Operation-Id. Bez retryable_statuses dekorator
+    ODTWARZAŁBY zapamiętane 409 bez wywołania handlera i praca przepadłaby,
+    mimo że przyczyna błędu już nie istnieje.
+    """
+    token = _token(app)
+    ids = _pracownicy(app, 1)
+    produkt_id = _produkt(app, quantity=10)
+    naglowki = _naglowki(token, worker_ids=str(ids[0]), operation_id='op-offline-1')
+
+    with app.app_context():
+        ProductionWorker.query.get(ids[0]).deactivate()
+        db.session.commit()
+
+    odrzucone = client.patch(f'/api/mobile/orders/{produkt_id}/quantity',
+                             headers=naglowki, json={'quantity_done': 6})
+    assert odrzucone.status_code == 409
+
+    with app.app_context():
+        # 409 z walidacji profilu NIE MOŻE zostać zapamiętane
+        assert ProcessedMobileOperation.query.filter_by(
+            operation_id='op-offline-1').count() == 0
+        ProductionWorker.query.get(ids[0]).reactivate()
+        db.session.commit()
+
+    ponowione = client.patch(f'/api/mobile/orders/{produkt_id}/quantity',
+                             headers=naglowki, json={'quantity_done': 6})
+
+    assert ponowione.status_code == 200
+    with app.app_context():
+        assert ProductionProduct.query.get(produkt_id).quantity_done_gluing == 6
+        assert ProductionStationEventWorker.query.count() == 1
+
+
+def test_udana_akcja_nadal_jest_zapamietywana(client, app):
+    """Kontrola: poluzowanie idempotencji nie może otworzyć drogi duplikatom."""
+    token = _token(app)
+    ids = _pracownicy(app, 1)
+    produkt_id = _produkt(app, quantity=10)
+    naglowki = _naglowki(token, worker_ids=str(ids[0]), operation_id='op-udane')
+
+    client.patch(f'/api/mobile/orders/{produkt_id}/quantity',
+                 headers=naglowki, json={'quantity_done': 4})
+    client.patch(f'/api/mobile/orders/{produkt_id}/quantity',
+                 headers=naglowki, json={'quantity_done': 4})
+
+    with app.app_context():
+        assert ProcessedMobileOperation.query.filter_by(
+            operation_id='op-udane').count() == 1
+        assert ProductionStationEvent.query.filter_by(station_code='gluing').count() == 1
+
+
+def test_zmiana_konfiguracji_uniewaznia_etag_katalogu(client, app):
+    """
+    Payload katalogu niesie ustawienia z prod_config. Gdyby ETag ich nie
+    obejmował, tablet dostawałby 304 ze starym selection_required — czyli
+    przestawiony kill-switch nie docierałby na halę.
+    """
+    token = _token(app)
+    _pracownicy(app, 1)
+
+    pierwsza = client.get('/api/mobile/workers', headers=_naglowki(token))
+    etag_przed = pierwsza.headers['ETag']
+
+    _ustaw_config(app, 'WORKER_SELECTION_REQUIRED', 'true')
+
+    naglowki = _naglowki(token)
+    naglowki['If-None-Match'] = etag_przed
+    druga = client.get('/api/mobile/workers', headers=naglowki)
+
+    assert druga.status_code == 200, 'katalog odpowiedział 304 mimo zmiany konfiguracji'
+    assert druga.headers['ETag'] != etag_przed
+    assert druga.get_json()['selection_required'] is True
+
+
 def test_complete_nie_cofa_sztuk_gdy_quantity_spadlo(client, app):
     """
     quantity potrafi SPAŚĆ poniżej już odbitych sztuk: doróbka zabiera sztuki

@@ -117,8 +117,23 @@ SYSTEM_REASONS = {
 
 
 def actor_label(actor_type, user_name=None, device_name=None,
-                station_code=None, source=None):
+                station_code=None, source=None, worker_name=None):
     """Czysta funkcja: etykieta aktora do wyświetlenia w modalu."""
+    # 'worker' PRZED 'device': wybrany profil jest konkretniejszy niż tablet,
+    # z którego przyszło żądanie. Bez tej gałęzi akcja wykonana Z profilem
+    # wpadała do ostatniego returna i podpisywała się „System" — czyli gorzej
+    # niż ta sama akcja BEZ profilu, która pokazuje nazwę tabletu. Włączenie
+    # profili pogarszałoby audyt, a „System" jest w tym module zarezerwowane
+    # dla automatu pomijającego stanowiska.
+    if actor_type == 'worker':
+        if worker_name:
+            return worker_name
+        if device_name:
+            return device_name
+        if station_code:
+            return STATION_NAMES.get(station_code, station_code)
+        return 'Tablet'
+
     if actor_type == 'user':
         return f'{user_name} (panel)' if user_name else 'Panel web'
 
@@ -154,6 +169,20 @@ def merge_history(status_events, station_entries):
     merged = list(status_events) + list(station_entries)
     merged.sort(key=lambda e: e['at'], reverse=True)
     return merged
+
+
+def _worker_names(worker_ids):
+    """Mapa prod_workers.id → 'Adam K.' — jedno zapytanie, nie N."""
+    if not worker_ids:
+        return {}
+
+    from modules.production.models import ProductionWorker
+
+    return {
+        w.id: w.short_name
+        for w in ProductionWorker.query.filter(
+            ProductionWorker.id.in_(list(worker_ids))).all()
+    }
 
 
 def _name_maps(user_ids, device_ids):
@@ -201,14 +230,20 @@ def build_product_history(product_id):
     device_ids = {r.device_id for r in status_rows if r.device_id}
     device_ids |= {r.device_id for r in station_rows if r.device_id}
     users, devices = _name_maps(user_ids, device_ids)
+    # prod_product_events.worker_id wypełnia się przy akcjach z X-Worker-Ids
+    # (product_events.build_actor). prod_station_events tej kolumny nie ma —
+    # tam atrybucja żyje w osobnej tabeli i dokładamy ją niżej jako `workers`.
+    workers = _worker_names({r.worker_id for r in status_rows
+                             if getattr(r, 'worker_id', None)})
 
-    def _label(actor_type, user_id, device_id, station_code, source):
+    def _label(actor_type, user_id, device_id, station_code, source, worker_id=None):
         return actor_label(
             actor_type,
             user_name=users.get(user_id),
             device_name=devices.get(device_id),
             station_code=station_code,
             source=source,
+            worker_name=workers.get(worker_id),
         )
 
     status_entries = []
@@ -223,7 +258,8 @@ def build_product_history(product_id):
             'source': r.source,
             'endpoint': r.endpoint,
             'note': r.note,
-            'actor_label': _label(r.actor_type, r.user_id, r.device_id, None, r.source),
+            'actor_label': _label(r.actor_type, r.user_id, r.device_id, None, r.source,
+                                  getattr(r, 'worker_id', None)),
         }
         entry['manual'] = is_manual_status_change(entry)
         status_entries.append(entry)

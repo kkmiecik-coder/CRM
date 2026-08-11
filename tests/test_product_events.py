@@ -7,6 +7,26 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from modules.production.models import ProductionProductEvent
 
 
+def test_worker_podpisuje_sie_nazwiskiem_nie_systemem():
+    """
+    Akcja wykonana Z wybranym profilem musi podpisywać się nazwiskiem.
+    Wcześniej actor_type='worker' spadał do ostatniego returna i dawał
+    „System" — czyli gorzej niż ta sama akcja BEZ profilu, która pokazuje
+    nazwę tabletu. „System" jest zarezerwowane dla automatu.
+    """
+    from modules.production.services.product_history_service import actor_label
+
+    assert actor_label('worker', worker_name='Adam K.', device_name='Tablet Sklejanie',
+                       source='mobile') == 'Adam K.'
+    # Bez nazwiska (pracownik skasowany z katalogu) spadamy na urządzenie,
+    # nie na „System"
+    assert actor_label('worker', device_name='Tablet Sklejanie',
+                       source='mobile') == 'Tablet Sklejanie'
+    assert actor_label('worker', station_code='gluing', source='mobile') == 'Sklejanie'
+    # Automat dalej ma być Systemem
+    assert actor_label('system', source='auto_skip') != 'Adam K.'
+
+
 def test_model_ma_wymagane_kolumny():
     cols = set(ProductionProductEvent.__table__.columns.keys())
     assert cols == {
