@@ -1364,11 +1364,15 @@ function woRender(raport) {
     boxPokrycia.classList.toggle('wo-stat-warning',
         p.attribution_coverage_pct !== null && p.attribution_coverage_pct < 100);
 
+    // escapeHtml na nazwiskach i stanowiskach: imię i nazwisko wpisuje admin
+    // w zakładce Pracownicy, a serwis zapisuje je bez sanityzacji (sam .strip()).
+    // Bez tego wpis w polu "imię" wstrzykuje skrypt każdemu, kto otworzy Raporty —
+    // czyli w dół ról, bo zakładkę czyta każdy zalogowany, a nie tylko admin.
     const totalsBody = document.getElementById('wo-totals-body');
     totalsBody.innerHTML = raport.worker_totals.map(w => `
         <tr>
-            <td>${w.worker_name}</td>
-            <td class="wo-muted">${w.stations.join(', ')}</td>
+            <td>${escapeHtml(w.worker_name)}</td>
+            <td class="wo-muted">${escapeHtml(w.stations.join(', '))}</td>
             <td class="text-end">${w.pieces}</td>
             <td class="text-end">${w.m3}</td>
             <td class="text-end">${w.hours || '—'}</td>
@@ -1393,9 +1397,9 @@ function woRender(raport) {
 
     document.getElementById('wo-rows-body').innerHTML = wiersze.map(w => `
         <tr${w.worker_name === 'Nieprzypisane' ? ' class="wo-unassigned"' : ''}>
-            <td>${w.work_date}</td>
-            <td>${w.worker_name}</td>
-            <td>${w.station_label}</td>
+            <td>${escapeHtml(w.work_date)}</td>
+            <td>${escapeHtml(w.worker_name)}</td>
+            <td>${escapeHtml(w.station_label)}</td>
             <td class="text-end">${w.pieces}</td>
             <td class="text-end">${w.m3}</td>
         </tr>`).join('');

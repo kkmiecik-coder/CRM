@@ -227,6 +227,50 @@ def test_bez_sesji_tempo_jest_puste_a_nie_zerowe(app):
         assert raport['worker_totals'][0]['minutes'] == 0
 
 
+def test_czas_pracy_respektuje_filtr_stanowiska(app):
+    """
+    Licznik (m³ z jednego stanowiska) i mianownik (czas pracy) muszą być
+    filtrowane tak samo — inaczej tempo m³/h zaniża się tym, którzy pracują
+    na kilku stanowiskach.
+    """
+    with app.app_context():
+        adam, = _pracownicy(1)
+        start = get_local_now().replace(hour=8, minute=0, second=0, microsecond=0)
+        for kod, godziny in (('gluing', 2), ('packaging', 3)):
+            db.session.add(ProductionWorkerSession(
+                worker_id=adam.id, station_code=kod, session_group=f'g-{kod}',
+                started_at=start, last_activity_at=start,
+                ended_at=start + timedelta(hours=godziny), work_date=start.date()))
+        db.session.commit()
+
+        wszystkie = worker_stats_service.czas_pracy(_dzis(), _dzis())
+        tylko_klejenie = worker_stats_service.czas_pracy(_dzis(), _dzis(), station='gluing')
+
+        assert wszystkie[(adam.id, _dzis().isoformat())] == 300     # 2h + 3h
+        assert tylko_klejenie[(adam.id, _dzis().isoformat())] == 120
+
+
+def test_zapomniana_sesja_nie_fabrykuje_setek_godzin(app):
+    """
+    Dopóki nie ma wpisu w crontabie domykającego sesje, w bazie będą wisieć
+    sesje sprzed tygodni. Bez przycięcia do nocnego cutoffu jedna taka sesja
+    dawała w raporcie kilkaset godzin w jednej dobie.
+    """
+    with app.app_context():
+        adam, = _pracownicy(1)
+        dawno = get_local_now() - timedelta(days=30)
+        db.session.add(ProductionWorkerSession(
+            worker_id=adam.id, station_code='gluing', session_group='zapomniana',
+            started_at=dawno.replace(hour=8, minute=0, second=0, microsecond=0),
+            last_activity_at=dawno, work_date=dawno.date()))
+        db.session.commit()
+
+        minuty = worker_stats_service.czas_pracy(dawno.date(), _dzis())
+
+        # Od 8:00 do nocnego cutoffu 23:00 to 15 godzin, nie 30 dni
+        assert minuty[(adam.id, dawno.date().isoformat())] == 15 * 60
+
+
 def test_otwarta_sesja_liczy_sie_do_teraz(app):
     with app.app_context():
         adam, = _pracownicy(1)

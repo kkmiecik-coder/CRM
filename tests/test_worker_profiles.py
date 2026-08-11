@@ -510,6 +510,57 @@ def test_complete_po_odbiciu_wszystkich_sztuk_nie_dubluje_eventu(client, app):
         assert eventy[0].delta == 5
 
 
+def test_complete_nie_cofa_sztuk_gdy_quantity_spadlo(client, app):
+    """
+    quantity potrafi SPAŚĆ poniżej już odbitych sztuk: doróbka zabiera sztuki
+    oryginałowi, sync Baselinkera koryguje zamówienie w dół. Wcześniej
+    mark_order_complete() przypisywał quantity twardo, więc kolejne "gotowe"
+    dawało delta < 0 — kasowało historyczny quantity_done, wpisywało do audytu
+    fałszywe "cofnięcie" i odejmowało pracownikowi sztuki w raporcie imiennym.
+    """
+    token = _token(app)
+    ids = _pracownicy(app, 1)
+    produkt_id = _produkt(app, quantity=10)
+    naglowki = _naglowki(token, worker_ids=str(ids[0]))
+
+    client.post(f'/api/mobile/orders/{produkt_id}/complete', headers=naglowki, json={})
+
+    with app.app_context():
+        produkt = ProductionProduct.query.get(produkt_id)
+        produkt.quantity = 7            # doróbka / korekta zamówienia
+        db.session.commit()
+
+    client.post(f'/api/mobile/orders/{produkt_id}/complete', headers=naglowki, json={})
+
+    with app.app_context():
+        eventy = ProductionStationEvent.query.filter_by(station_code='gluing').all()
+        assert all(e.delta > 0 for e in eventy), \
+            f'ujemne delty: {[e.delta for e in eventy]}'
+        # Drugie "gotowe" nie ma czego dodać, więc nie powstaje nowy event
+        assert len(eventy) == 1
+        assert eventy[0].delta == 10
+        # Historyczny dorobek stanowiska zostaje nietknięty
+        assert ProductionProduct.query.get(produkt_id).quantity_done_gluing == 10
+
+
+def test_complete_domyka_brakujace_sztuki_normalnie(client, app):
+    """Kontrola do testu wyżej: przy niepełnym odbiciu complete dalej dolicza resztę."""
+    token = _token(app)
+    ids = _pracownicy(app, 1)
+    produkt_id = _produkt(app, quantity=10)
+    naglowki = _naglowki(token, worker_ids=str(ids[0]))
+
+    client.patch(f'/api/mobile/orders/{produkt_id}/quantity',
+                 headers=naglowki, json={'quantity_done': 4})
+    client.post(f'/api/mobile/orders/{produkt_id}/complete', headers=naglowki, json={})
+
+    with app.app_context():
+        eventy = ProductionStationEvent.query.filter_by(
+            station_code='gluing').order_by(ProductionStationEvent.id).all()
+        assert [e.delta for e in eventy] == [4, 6]
+        assert ProductionProduct.query.get(produkt_id).quantity_done_gluing == 10
+
+
 def test_reject_zapisuje_pierwszego_pracownika_w_audycie(client, app):
     token = _token(app, station_code='formatting')
     ids = _pracownicy(app, 2)

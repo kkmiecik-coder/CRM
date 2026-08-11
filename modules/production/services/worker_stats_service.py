@@ -177,27 +177,40 @@ def praca_nieprzypisana(start_date, end_date, station=None):
     ]
 
 
-def czas_pracy(start_date, end_date, worker_id=None):
+def czas_pracy(start_date, end_date, worker_id=None, station=None):
     """
     {(worker_id, 'YYYY-MM-DD'): minuty} z sesji pracy.
 
-    Sesje otwarte liczymy do teraz — brygadzista patrzący na dzisiejszy raport
-    ma widzieć narastający czas, a nie zero.
+    `station` MUSI być przekazywane razem z filtrem stanowiska na wydajności —
+    inaczej licznik (m³ z jednego stanowiska) dzieli się przez mianownik (czas
+    ze wszystkich), co zaniża tempo tym, którzy pracują na kilku stanowiskach.
+
+    Sesja otwarta liczy się do teraz, ale NIE dłużej niż do nocnego cutoffu
+    swojej doby. Bez tego ogranicznika sesja zapomniana miesiąc temu — a taka
+    powstanie, dopóki nie ma wpisu w crontabie domykającego zapomniane sesje —
+    dorzucałaby do jednej doby setki godzin i rozwalała tempo w raporcie.
 
     Liczone w Pythonie, nie w SQL: TIMESTAMPDIFF nie istnieje w SQLite,
     a wolumen danych jest znikomy.
     """
+    from .worker_service import get_night_cutoff
+
     zapytanie = ProductionWorkerSession.query.filter(
         ProductionWorkerSession.work_date >= start_date,
         ProductionWorkerSession.work_date <= end_date,
     )
     if worker_id:
         zapytanie = zapytanie.filter(ProductionWorkerSession.worker_id == worker_id)
+    if station and station != 'all':
+        zapytanie = zapytanie.filter(ProductionWorkerSession.station_code == station)
 
     teraz = get_local_now()
+    cutoff = get_night_cutoff()
+
     minuty = {}
     for sesja in zapytanie.all():
-        koniec = sesja.ended_at or teraz
+        granica_doby = datetime.combine(sesja.work_date, cutoff)
+        koniec = min(sesja.ended_at or teraz, teraz, granica_doby)
         trwanie = max(0, int((koniec - sesja.started_at).total_seconds() // 60))
         klucz = (sesja.worker_id, sesja.work_date.isoformat())
         minuty[klucz] = minuty.get(klucz, 0) + trwanie
@@ -213,7 +226,8 @@ def raport_wydajnosci(start_date, end_date, station=None, worker_id=None):
     czas pracy — bez sesji tempo byłoby dzieleniem przez zero, a nie zerem.
     """
     wiersze = wydajnosc_pracownikow(start_date, end_date, station, worker_id)
-    minuty = czas_pracy(start_date, end_date, worker_id)
+    # Ten sam filtr stanowiska co w liczniku — patrz docstring czas_pracy()
+    minuty = czas_pracy(start_date, end_date, worker_id, station)
     nieprzypisane = [] if worker_id else praca_nieprzypisana(start_date, end_date, station)
 
     # Sumy per pracownik

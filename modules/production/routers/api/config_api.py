@@ -446,7 +446,13 @@ def get_config_days_range():
 
 
 @api_bp.route('/update-configs', methods=['POST'])
-@login_required
+# @admin_required, nie @login_required: to jest ŚCIEŻKA ZAPISU konfiguracji
+# używana przez panel, a jej allowlista obejmuje klucze o dużej sile rażenia —
+# whitelistę IP stanowisk, token print-agenta, a od tej zmiany także
+# WORKER_SELECTION_REQUIRED, którym da się zatrzymać całą halę. Pojedynczy
+# /update-config obok wymagał admina od zawsze; ten wariant był luźniejszy
+# przez przeoczenie.
+@admin_required
 def update_configs():
     """
     POST /production/api/update-configs

@@ -1116,9 +1116,17 @@ def mark_order_complete(item, station_code, *, device_id=None,
     if station_code not in STATION_QUANTITY_FIELD:
         raise ValueError(f'Nieznane stanowisko: {station_code}')
 
+    # max(), nie samo item.quantity: quantity potrafi SPAŚĆ poniżej już odbitych
+    # sztuk — doróbka zabiera sztuki oryginałowi (rework_service), a sync
+    # Baselinkera potrafi skorygować zamówienie w dół. Twarde przypisanie dawało
+    # wtedy delta < 0 przy kolejnym "gotowe" (retry z kolejki offline, dwuklik,
+    # powrót doróbki): kasowało historyczny quantity_done, wpisywało do audytu
+    # fałszywe "cofnięcie" (product_history_service traktuje delta<0 jako reject)
+    # i odejmowało pracownikowi sztuki w raporcie imiennym.
+    # "Gotowe" znaczy "wszystko zrobione", nigdy "zrób mniej niż już zrobiono".
     item.set_quantity_done(
         station_code,
-        item.quantity,
+        max(item.quantity, item.get_quantity_done(station_code) or 0),
         actor_device_id=device_id,
         source='mobile',
         actor_worker_ids=worker_ids,
