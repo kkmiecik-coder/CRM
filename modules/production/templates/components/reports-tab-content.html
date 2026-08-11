@@ -501,13 +501,15 @@
 
 <!-- Wydajność stanowiska w wybranym dniu (event log z prod_station_events) -->
 <style>
-.station-output-widget {
+.station-output-widget,
+.worker-output-widget {
     background: var(--il-bg-card, #fff);
     border: 1px solid var(--il-border, #c8cdd5);
     border-radius: var(--il-radius, 3px);
     margin-bottom: 16px;
 }
-.station-output-widget .widget-header {
+.station-output-widget .widget-header,
+.worker-output-widget .widget-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -516,7 +518,8 @@
     padding: 10px 14px;
     border-bottom: 2px solid var(--il-bg-base, #eef0f4);
 }
-.station-output-widget .widget-header h4 {
+.station-output-widget .widget-header h4,
+.worker-output-widget .widget-header h4 {
     margin: 0;
     font-family: 'JetBrains Mono', monospace;
     font-size: 14px;
@@ -525,13 +528,16 @@
     text-transform: uppercase;
     letter-spacing: 1.5px;
 }
-.station-output-widget .widget-controls {
+.station-output-widget .widget-controls,
+.worker-output-widget .widget-controls {
     display: flex;
     gap: 6px;
     align-items: center;
 }
 .station-output-widget .widget-controls .form-select,
-.station-output-widget .widget-controls .form-control {
+.station-output-widget .widget-controls .form-control,
+.worker-output-widget .widget-controls .form-select,
+.worker-output-widget .widget-controls .form-control {
     width: auto;
     font-size: 12px;
     padding: 4px 8px;
@@ -540,56 +546,15 @@
 }
 /* Bootstrap form-select renderuje strzalke v przez background-image —
    trzeba zarezerwowac padding-right zeby tekst pod nia nie wchodzil. */
-.station-output-widget .widget-controls .form-select {
+.station-output-widget .widget-controls .form-select,
+.worker-output-widget .widget-controls .form-select {
     padding-right: 28px;
 }
-.station-output-widget .widget-content {
-    padding: 14px;
-}
-.station-output-summary {
-    display: flex;
-    gap: 16px;
-    flex-wrap: wrap;
-    margin-bottom: 12px;
-    padding: 8px 10px;
-    background: var(--il-bg-base, #eef0f4);
-    border-radius: var(--il-radius, 3px);
-    font-size: 12px;
-}
-.station-output-summary .so-stat {
-    display: flex;
-    flex-direction: column;
-}
-.station-output-summary .so-stat-value {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 16px;
-    font-weight: 700;
-    color: var(--il-text-primary, #1a1a2e);
-}
-.station-output-summary .so-stat-label {
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--il-text-secondary, #7a8291);
-}
-/* ─── Widget wydajności pracowników (§7.2) ─── */
-.worker-output-widget {
-    background: var(--il-bg-card, #fff);
-    border: 1px solid var(--il-border, #c8cdd5);
-    border-radius: var(--il-radius, 3px);
-    margin-bottom: 16px;
-}
+.station-output-widget .widget-content,
 .worker-output-widget .widget-content {
     padding: 14px;
 }
-.wo-disclaimer {
-    font-size: 11px;
-    color: var(--il-text-secondary, #7a8291);
-    background: var(--il-bg-base, #eef0f4);
-    border-left: 3px solid var(--il-border, #c8cdd5);
-    padding: 8px 10px;
-    margin-bottom: 12px;
-}
+.station-output-summary,
 .wo-summary {
     display: flex;
     gap: 16px;
@@ -598,42 +563,51 @@
     padding: 8px 10px;
     background: var(--il-bg-base, #eef0f4);
     border-radius: var(--il-radius, 3px);
+    font-size: 12px;
 }
-.wo-stat {
+.station-output-summary .so-stat,
+.wo-summary .wo-stat {
     display: flex;
     flex-direction: column;
 }
-.wo-stat-value {
+.station-output-summary .so-stat-value,
+.wo-summary .wo-stat-value {
     font-family: 'JetBrains Mono', monospace;
     font-size: 16px;
     font-weight: 700;
     color: var(--il-text-primary, #1a1a2e);
 }
-.wo-stat-label {
+.station-output-summary .so-stat-label,
+.wo-summary .wo-stat-label {
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
     color: var(--il-text-secondary, #7a8291);
+}
+/* ─── Widget wydajności pracowników (§7.2) ─── */
+/* Wygląd dziedziczy po widgecie stanowiskowym — wspólne selektory wyżej.
+   Tutaj TYLKO to, czego tamten nie ma: zastrzeżenie o poglądowości danych,
+   ostrzeżenie o niepełnym pokryciu i wyróżnienie wiersza nieprzypisanych. */
+.wo-disclaimer {
+    font-size: 11px;
+    color: var(--il-text-secondary, #7a8291);
+    background: var(--il-bg-base, #eef0f4);
+    border-left: 3px solid var(--il-border, #c8cdd5);
+    padding: 8px 10px;
+    margin-bottom: 12px;
 }
 /* Pokrycie < 100% znaczy, że część roboty poszła bez wyboru profilu */
 .wo-stat-warning .wo-stat-value {
     color: #b45309;
 }
 .wo-table-title {
-    font-size: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 1px;
     color: var(--il-text-secondary, #7a8291);
     margin: 14px 0 6px;
-}
-.wo-table {
-    font-size: 12px;
-}
-.wo-table thead th {
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--il-text-secondary, #7a8291);
 }
 .wo-muted {
     color: var(--il-text-secondary, #7a8291);
@@ -643,20 +617,24 @@
     background: rgba(180, 83, 9, 0.06);
     font-style: italic;
 }
-.wo-loader,
-.wo-empty {
-    padding: 18px;
-    text-align: center;
-    color: var(--il-text-secondary, #7a8291);
-    font-size: 12px;
+.wo-info-ikona {
+    color: var(--il-text-muted, #9ba3b0);
+    font-size: 9px;
+}
+/* Bez Bootstrapowego .table-responsive — ono dokłada własne marginesy,
+   których wzorcowy widget stanowiskowy nie ma. */
+.wo-table-wrapper {
+    overflow-x: auto;
 }
 
-.station-output-table {
+.station-output-table,
+.wo-table {
     width: 100%;
     font-size: 13px;
     border-collapse: collapse;
 }
-.station-output-table th {
+.station-output-table th,
+.wo-table th {
     font-family: 'JetBrains Mono', monospace;
     font-size: 11px;
     font-weight: 600;
@@ -667,7 +645,8 @@
     padding: 8px 10px;
     text-align: left;
 }
-.station-output-table td {
+.station-output-table td,
+.wo-table td {
     padding: 7px 10px;
     border-bottom: 1px solid var(--il-border-light, #e2e5ea);
     vertical-align: middle;
@@ -678,7 +657,9 @@
 }
 .station-output-table .so-delta-pos { color: #16a34a; font-weight: 600; }
 .station-output-table .so-delta-neg { color: #dc2626; font-weight: 600; }
-.station-output-empty {
+.station-output-empty,
+.wo-empty,
+.wo-loader {
     padding: 20px;
     text-align: center;
     color: var(--il-text-secondary, #7a8291);
@@ -981,8 +962,8 @@
 
         <div class="wo-tables" id="wo-tables" style="display: none;">
             <h5 class="wo-table-title">Podsumowanie okresu</h5>
-            <div class="table-responsive">
-                <table class="table table-sm wo-table">
+            <div class="wo-table-wrapper">
+                <table class="wo-table">
                     <thead>
                         <tr>
                             <th>Pracownik</th>
@@ -1000,8 +981,8 @@
             </div>
 
             <h5 class="wo-table-title">Dzień po dniu</h5>
-            <div class="table-responsive">
-                <table class="table table-sm wo-table">
+            <div class="wo-table-wrapper">
+                <table class="wo-table">
                     <thead>
                         <tr>
                             <th>Data</th>
