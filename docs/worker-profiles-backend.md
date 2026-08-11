@@ -237,8 +237,15 @@ użytkownika → usuwamy razem z resztą.
   nietknięty — to jedyna zmiana w tym pliku.
 - **`station_bp`** — blueprint zostaje (hostuje monitory) razem z `apply_station_security()`,
   `log_station_access()`, `add_station_headers()`, handlerami 403/500, `get_station_config()`,
-  `get_station_summary()`, `MONITOR_STATION_MAP`, `_get_monitor_station_data()`, `_format_dimension()`
-- **`IPSecurityService`** — używany globalnie (`routers/__init__.py:254, 296`), nie ruszać
+  `MONITOR_STATION_MAP`, `_get_monitor_station_data()`, `_format_dimension()`
+
+  > **Korekta po wdrożeniu:** `get_station_summary()` zasilała wyłącznie `select.html`,
+  > więc po Etapie 0 została bez użytkownika i poszła razem z nim (commit sprzątający).
+- **`IPSecurityService`** — używany globalnie (`routers/__init__.py:254, 296`), nie ruszać.
+  `ip_security_middleware()` **jest aktywny** — wisi na `station_bp.before_request`
+  (`apply_station_security()` → `apply_security()`), więc `PROTECTED_ROUTERS` realnie
+  chroni monitory hali. Z listy usunięto tylko cztery martwe prefiksy bez `/stations`;
+  wpis `/production/` — który jako jedyny cokolwiek łapał — został.
 - **`ProductionProduct.complete_task()`** (`models.py:474`) — używa go mobile.
   Uwaga: `ProductionItem` to tylko alias zgodności (`models.py:533`, z komentarzem
   „zostanie usunięty osobnym commitem"); właściwa klasa nazywa się `ProductionProduct`.

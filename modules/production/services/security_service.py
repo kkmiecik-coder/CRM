@@ -52,12 +52,15 @@ class IPSecurityService:
     # Adresy IP które są zawsze dozwolone (localhost, development)
     ALWAYS_ALLOWED_IPS = ['127.0.0.1', '::1', 'localhost']
     
-    # Routy które wymagają zabezpieczeń IP
+    # Prefiksy ścieżek chronionych przez ip_security_middleware().
+    # Middleware jest podpięty pod station_bp (before_request w
+    # routers/stations/__init__.py), więc realnie dotyczy tylko monitorów hali
+    # pod /production/stations/* — pozostałe trasy modułu nie przechodzą tędy.
+    # Wpisy /production/cutting, /production/assembly, /production/packaging
+    # i /production/station-select usunięto po Etapie 0 profili pracowników:
+    # nigdy nie pasowały (prawdziwe ścieżki mają prefiks /production/stations/),
+    # a wszystko, co miały łapać, łapie i tak wpis poniżej.
     PROTECTED_ROUTERS = [
-        '/production/cutting',
-        '/production/assembly', 
-        '/production/packaging',
-        '/production/station-select',
         '/production/'
     ]
     

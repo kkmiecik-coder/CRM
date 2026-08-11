@@ -64,41 +64,10 @@ def cron_secret_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-def ip_validation_required(f):
-    """
-    Dekorator dla walidacji IP stanowisk
-    Używany dla: complete-task
-    """
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        try:
-            from ...services.security_service import IPSecurityService
-
-            client_ip = IPSecurityService.get_client_ip(request)
-
-            if not IPSecurityService.is_ip_allowed(client_ip):
-                logger.warning("IP validation failed", extra={
-                    'client_ip': client_ip,
-                    'endpoint': request.endpoint,
-                    'user_agent': request.headers.get('User-Agent', 'Unknown')
-                })
-                return jsonify({'success': False, 'error': 'IP nie autoryzowany'}), 403
-
-            logger.debug("IP validation success", extra={
-                'client_ip': client_ip,
-                'endpoint': request.endpoint
-            })
-
-        except Exception as e:
-            logger.error("IP validation error", extra={
-                'error': str(e),
-                'client_ip': request.remote_addr,
-                'endpoint': request.endpoint
-            })
-            return jsonify({'success': False, 'error': 'Błąd walidacji IP'}), 500
-
-        return f(*args, **kwargs)
-    return decorated_function
+# Dekorator ip_validation_required() usunięto w Etapie 0 profili pracowników -
+# jego jedynym użytkownikiem był POST /production/api/complete-task z panelu
+# webowego stanowiska. Mobile API ma własną autoryzację (JWT), a monitory hali
+# chroni ip_security_middleware() podpięty pod station_bp.
 
 
 # ============================================================================

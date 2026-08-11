@@ -1025,8 +1025,9 @@ def serialize_order(item, station_code=None):
     if station_code and station_code in STATION_QUANTITY_FIELD:
         quantity_done = getattr(item, STATION_QUANTITY_FIELD[station_code], None)
 
-    # Kategoria dostawy — kolejność warunków 1:1 z web-templatką
-    # modules/production/templates/stations/packaging.html (delivery-badge-container).
+    # Kategoria dostawy — kolejność warunków przeniesiona z badge'a dostawy
+    # w panelu pakowania (templates/stations/packaging.html, usunięty w Etapie 0
+    # profili pracowników; kod w historii gita, commit 0391556).
     # Odrębna od property ProductionItem.delivery_type (zwracającej tylko 2 wartości).
     override_delivery = item.order.override_delivery_method if item.order else None
     is_personal = item.order.is_personal_pickup if item.order else False

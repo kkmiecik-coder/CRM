@@ -11,10 +11,9 @@ Sub-modules:
 - monitors.py: Station monitors + monitor AJAX
 """
 
-from flask import Blueprint, render_template, request, url_for, jsonify
-from datetime import datetime, date, timedelta
+from flask import Blueprint, render_template, request, url_for
+from datetime import datetime, date
 from modules.logging import get_structured_logger
-from extensions import db
 from sqlalchemy.orm import joinedload
 
 # Blueprint definition
@@ -207,85 +206,10 @@ def _format_dimension(value):
     return f"{v:.1f}".replace('.', ',')
 
 
-def get_station_summary():
-    """
-    Pobiera podsumowanie wszystkich stanowisk dla wyboru stanowiska
-
-    Returns:
-        Dict[str, Dict]: Podsumowanie per stanowisko
-    """
-    try:
-        from ...models import ProductionItem
-        from sqlalchemy import func
-
-        # Query dla wszystkich statusow jednoczesnie - POPRAWKA: priority_rank zamiast priority_score
-        summary_data = db.session.query(
-            ProductionItem.current_status,
-            func.count(ProductionItem.id).label('count'),
-            func.sum(ProductionItem.volume_m3 * ProductionItem.quantity).label('volume'),
-            func.avg(ProductionItem.priority_rank).label('avg_rank')
-        ).filter(
-            ProductionItem.current_status.in_([
-                'czeka_na_wyciecie',
-                'czeka_na_skladanie',
-                'czeka_na_pakowanie'
-            ])
-        ).group_by(ProductionItem.current_status).all()
-
-        # Mapowanie na stacje
-        status_to_station = {
-            'czeka_na_wyciecie': 'cutting',
-            'czeka_na_skladanie': 'assembly',
-            'czeka_na_pakowanie': 'packaging'
-        }
-
-        station_names = {
-            'cutting': 'Wycinanie - mikro',
-            'assembly': 'Składanie - lite',
-            'packaging': 'Pakowanie'
-        }
-
-        summary = {}
-
-        # Inicjalizacja wszystkich stacji
-        for station_code, station_name in station_names.items():
-            summary[station_code] = {
-                'name': station_name,
-                'count': 0,
-                'volume_m3': 0.0,
-                'avg_priority_rank': 999,
-                'status_class': 'station-empty'
-            }
-
-        # Wypelnienie danymi
-        for status, count, volume, avg_rank in summary_data:
-            station_code = status_to_station.get(status)
-            if station_code:
-                summary[station_code].update({
-                    'count': count,
-                    'volume_m3': float(volume or 0),
-                    'avg_priority_rank': round(float(avg_rank or 999), 1)
-                })
-
-                # Okreslenie klasy CSS na podstawie liczby zadan
-                if count == 0:
-                    summary[station_code]['status_class'] = 'station-empty'
-                elif count <= 5:
-                    summary[station_code]['status_class'] = 'station-low'
-                elif count <= 15:
-                    summary[station_code]['status_class'] = 'station-medium'
-                else:
-                    summary[station_code]['status_class'] = 'station-high'
-
-        return summary
-
-    except Exception as e:
-        logger.error("Blad pobierania podsumowania stanowisk", extra={'error': str(e)})
-        return {
-            'cutting': {'name': 'Wycinanie - mikro', 'count': 0, 'volume_m3': 0.0, 'avg_priority_rank': 999, 'status_class': 'station-empty'},
-            'assembly': {'name': 'Składanie - lite', 'count': 0, 'volume_m3': 0.0, 'avg_priority_rank': 999, 'status_class': 'station-empty'},
-            'packaging': {'name': 'Pakowanie', 'count': 0, 'volume_m3': 0.0, 'avg_priority_rank': 999, 'status_class': 'station-empty'}
-        }
+# Funkcja get_station_summary() usunieta w Etapie 0 profili pracownikow -
+# zasilala wylacznie stations/select.html (ekran wyboru panelu wykonawczego),
+# a i tak znala tylko 3 stanowiska z 6. Podsumowania dla panelu CRM licza
+# dashboard_api.py i reports_api.py.
 
 
 # Mapowanie kodu stanowiska na status w bazie i etykiete
