@@ -260,7 +260,12 @@ def raport_wydajnosci(start_date, end_date, station=None, worker_id=None):
             'stations': sorted(wpis['stations']),
             'pace_m3_per_hour': _zaokraglij(wpis['m3'] / godziny, 3) if godziny else None,
         })
-    podsumowanie_pracownikow.sort(key=lambda p: p['m3'], reverse=True)
+    # Sortowanie po NAZWISKU, nie po m³. Sortowanie malejąco po objętości robi
+    # z tej tabeli ranking wydajności, a m³ nie są porównywalne między
+    # stanowiskami: spakowanie metra sześciennego trwa minuty, sklejenie —
+    # godziny. Na górze zawsze lądowałby pakowacz, niezależnie od tego, kto
+    # naprawdę się narobił. Kto chce rankingu, filtruje po stanowisku.
+    podsumowanie_pracownikow.sort(key=lambda p: p['worker_name'])
 
     # Sumy dzienne (razem z nieprzypisanymi — to nadal wykonana produkcja)
     per_dzien = {}
@@ -293,8 +298,16 @@ def raport_wydajnosci(start_date, end_date, station=None, worker_id=None):
         'summary': {
             'pieces': _zaokraglij(sztuki_przypisane),
             'm3': _zaokraglij(sum(w['m3'] for w in wiersze), 3),
-            'minutes': sum(minuty.values()),
-            'hours': _zaokraglij(sum(minuty.values()) / 60, 1),
+            # Godziny liczone z TEGO SAMEGO zbioru pracowników co tabela niżej.
+            # Suma wszystkich sesji w zakresie pokazywałaby czas ludzi, których
+            # w tabeli nie ma (pracowali bez wybranego profilu albo na innym
+            # stanowisku niż filtrowane) — kafelek kłóciłby się z tabelą pod nim.
+            # Pełne osobogodziny na hali są osobno, pod własną nazwą.
+            'minutes': sum(p['minutes'] for p in podsumowanie_pracownikow),
+            'hours': _zaokraglij(
+                sum(p['minutes'] for p in podsumowanie_pracownikow) / 60, 1),
+            'session_minutes_all': sum(minuty.values()),
+            'session_hours_all': _zaokraglij(sum(minuty.values()) / 60, 1),
             'workers_count': len(podsumowanie_pracownikow),
             'unassigned_pieces': _zaokraglij(sztuki_nieprzypisane),
             'unassigned_m3': _zaokraglij(sum(w['m3'] for w in nieprzypisane), 3),

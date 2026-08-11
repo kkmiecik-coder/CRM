@@ -958,7 +958,11 @@
             </div>
             <div class="wo-stat">
                 <span class="wo-stat-value" id="wo-sum-hours">0</span>
-                <span class="wo-stat-label">godzin pracy</span>
+                <span class="wo-stat-label">godzin przypisanych</span>
+            </div>
+            <div class="wo-stat">
+                <span class="wo-stat-value" id="wo-sum-hours-all">0</span>
+                <span class="wo-stat-label">osobogodzin na hali</span>
             </div>
             <div class="wo-stat">
                 <span class="wo-stat-value" id="wo-sum-workers">0</span>
@@ -1355,6 +1359,7 @@ function woRender(raport) {
     document.getElementById('wo-sum-pieces').textContent = p.pieces;
     document.getElementById('wo-sum-m3').textContent = p.m3;
     document.getElementById('wo-sum-hours').textContent = p.hours;
+    document.getElementById('wo-sum-hours-all').textContent = p.session_hours_all;
     document.getElementById('wo-sum-workers').textContent = p.workers_count;
     document.getElementById('wo-coverage').textContent =
         p.attribution_coverage_pct === null ? '—' : `${p.attribution_coverage_pct}%`;
