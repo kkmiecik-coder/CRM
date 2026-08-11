@@ -74,17 +74,34 @@ def update_config():
             'user_id': current_user.id
         })
         
-        from ...models import ProductionConfig
-        
-        # Użycie metody z modelu dla aktualizacji konfiguracji
-        ProductionConfig.set_config(
+        # Zapis idzie przez SERWIS, nie przez model: ProductionConfig to czysta
+        # encja i nigdy nie miała metody set_config — wywołanie jej tutaj kończyło
+        # się zawsze błędem 500 ("type object 'ProductionConfig' has no attribute
+        # 'set_config'"). Panel konfiguracji tego nie zauważył, bo używa wariantu
+        # batch /update-configs; ten endpoint wywracał się tylko przy wywołaniu
+        # z zewnątrz.
+        from ...services.config_service import get_config_service
+
+        zapisano = get_config_service().set_config(
             key=config_key,
             value=config_value,
             user_id=current_user.id,
             description=config_description,
             config_type=config_type
         )
-        
+
+        # Serwis zwraca False zamiast rzucać wyjątkiem (loguje i robi rollback),
+        # więc bez tego sprawdzenia odpowiadalibyśmy sukcesem po nieudanym zapisie.
+        if not zapisano:
+            logger.error("API: Nie udało się zapisać konfiguracji", extra={
+                'config_key': config_key,
+                'user_id': current_user.id,
+            })
+            return jsonify({
+                'success': False,
+                'error': f'Nie udało się zapisać konfiguracji {config_key}'
+            }), 500
+
         logger.info("API: Zaktualizowano konfigurację", extra={
             'config_key': config_key,
             'user_id': current_user.id,

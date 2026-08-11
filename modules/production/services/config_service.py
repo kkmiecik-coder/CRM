@@ -346,8 +346,19 @@ class ProductionConfigService:
             str: Zserializowana wartość
         """
         if config_type == 'boolean':
+            # Panel wysyła wartości jako TEKST ('true'/'false' z <select>), a
+            # w Pythonie każdy niepusty string jest prawdziwy — samo `if value`
+            # zamieniało 'false' na 'true'. Skutek: przełączniki w zakładce
+            # Konfiguracja dawały się tylko włączyć, nigdy wyłączyć.
+            # Najgroźniejsze dla WORKER_SELECTION_REQUIRED: to kill-switch,
+            # którego jedynym zadaniem jest odblokowanie hali, gdy coś padnie.
+            # Zbiór wartości prawdziwych jest ten sam co w
+            # ProductionConfig.parsed_value, żeby zapis i odczyt się nie rozjechały.
+            if isinstance(value, str):
+                return 'true' if value.strip().lower() in ('true', '1', 'yes', 'on') else 'false'
             return 'true' if value else 'false'
-            
+
+
         elif config_type == 'integer':
             return str(int(value))
             
