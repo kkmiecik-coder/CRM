@@ -628,10 +628,36 @@ def app_apk():
 # ============================================================================
 
 
+def _profil_do_logu():
+    """
+    Kto wydrukował etykietę — WYŁĄCZNIE do logu, bez zapisu w bazie.
+
+    Decyzja właściciela: wydruk etykiety to czynność pomocnicza, nie praca
+    produkcyjna, więc nie zasługuje na kolumnę ani na wiersz atrybucji.
+    W logu zostaje, bo przy sporze "kto wydrukował tę etykietę" to jedyny ślad,
+    a kosztuje jedno pole w zdarzeniu, które i tak powstaje.
+
+    Nagłówek jest tu MIĘKKI: błędny albo nieznany profil nie może zablokować
+    druku. Etykieta bywa potrzebna natychmiast, a brak nazwiska w logu jest
+    nieporównanie mniej dotkliwy niż stanowisko, które nie może niczego okleić.
+    """
+    surowy = request.headers.get('X-Worker-Ids')
+    if not surowy:
+        return None
+    try:
+        worker_ids = worker_service.resolve_worker_ids(surowy, required=False)
+    except WorkerError as e:
+        logger.info("Wydruk etykiety: nagłówek profilu odrzucony, drukuję mimo to",
+                    extra={'device_id': g.device.device_id, 'powod': e.error_code})
+        return None
+    return worker_ids[0] if worker_ids else None
+
+
 @mobile_api_bp.route('/products/<short_product_id>/print-label', methods=['POST'])
 @require_device_token
 def mobile_print_label_single(short_product_id):
     station_code = (g.device.station_code or '').strip()
+    worker_id = _profil_do_logu()
     try:
         result = label_print_service.print_labels_batch(
             [short_product_id],
@@ -640,6 +666,14 @@ def mobile_print_label_single(short_product_id):
         )
     except StationNotAllowed as e:
         return jsonify({'success': False, 'message': str(e)}), 403
+
+    logger.info("Mobile API: wydruk etykiety", extra={
+        'short_product_id': short_product_id,
+        'station_code': station_code,
+        'device_id': g.device.device_id,
+        'worker_id': worker_id,
+        'sukces': result['success'],
+    })
 
     if result['connection_error']:
         return jsonify({'success': False, 'message': result['message']}), 502
@@ -650,6 +684,7 @@ def mobile_print_label_single(short_product_id):
 @require_device_token
 def mobile_print_labels_for_order(baselinker_order_id):
     station_code = (g.device.station_code or '').strip()
+    worker_id = _profil_do_logu()
     items = (ProductionItem.query
              .join(ProductionOrder)
              .filter(ProductionOrder.baselinker_order_id == baselinker_order_id)
@@ -667,6 +702,15 @@ def mobile_print_labels_for_order(baselinker_order_id):
         )
     except StationNotAllowed as e:
         return jsonify({'success': False, 'message': str(e)}), 403
+
+    logger.info("Mobile API: wydruk etykiet zamówienia", extra={
+        'baselinker_order_id': baselinker_order_id,
+        'station_code': station_code,
+        'device_id': g.device.device_id,
+        'worker_id': worker_id,
+        'etykiet': len(short_ids),
+        'udanych': result['success_count'],
+    })
 
     if result['connection_error']:
         return jsonify({

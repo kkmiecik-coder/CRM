@@ -1727,3 +1727,49 @@ def test_podsumowanie_roboty_liczy_udzialy_i_pomija_eventy_automatu(app):
         assert podsumowanie[ids[0]]['pieces'] == 4.0      # 8 sztuk / 2 osoby
         assert podsumowanie[ids[1]]['pieces'] == 4.0
         assert podsumowanie[ids[0]]['m3'] == 2.0          # 0.5 m³ × 8 × 0.5
+
+
+# ── Wydruk etykiet: sam log, bez zapisu w bazie ─────────────────────────────
+
+def test_wydruk_etykiety_nie_blokuje_sie_na_zlym_profilu(client, app, monkeypatch):
+    """
+    Nagłówek przy wydruku jest MIĘKKI: etykieta bywa potrzebna natychmiast,
+    a brak nazwiska w logu jest nieporównanie mniej dotkliwy niż stanowisko,
+    które nie może niczego okleić. Nieznany profil ma tylko zniknąć z logu.
+    """
+    token = _token(app, station_code='packaging')
+    produkt_id = _produkt(app, status='czeka_na_pakowanie')
+
+    with app.app_context():
+        krotkie_id = ProductionProduct.query.get(produkt_id).short_product_id
+
+    monkeypatch.setattr(
+        'modules.production.services.label_print_service.print_labels_batch',
+        lambda *a, **k: {'success': True, 'message': 'ok', 'connection_error': False})
+
+    odp = client.post(f'/api/mobile/products/{krotkie_id}/print-label',
+                      headers=_naglowki(token, worker_ids='999'))
+
+    assert odp.status_code == 200
+    assert odp.get_json()['success'] is True
+
+
+def test_wydruk_etykiety_z_poprawnym_profilem_przechodzi(client, app, monkeypatch):
+    token = _token(app, station_code='packaging')
+    ids = _pracownicy(app, 1)
+    produkt_id = _produkt(app, status='czeka_na_pakowanie')
+
+    with app.app_context():
+        krotkie_id = ProductionProduct.query.get(produkt_id).short_product_id
+
+    monkeypatch.setattr(
+        'modules.production.services.label_print_service.print_labels_batch',
+        lambda *a, **k: {'success': True, 'message': 'ok', 'connection_error': False})
+
+    odp = client.post(f'/api/mobile/products/{krotkie_id}/print-label',
+                      headers=_naglowki(token, worker_ids=str(ids[0])))
+
+    assert odp.status_code == 200
+    # Wydruk NIE tworzy atrybucji ani eventu — to czynność pomocnicza
+    with app.app_context():
+        assert ProductionStationEventWorker.query.count() == 0
