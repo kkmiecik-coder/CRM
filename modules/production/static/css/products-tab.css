@@ -2584,6 +2584,14 @@
     color: var(--il-text-muted, #9ba3b0);
 }
 
+/* Pracownicy przy stanowisku — odrębne od .timeline-actor, bo to inna
+   informacja: tam urządzenie albo konto CRM, tutaj ludzie z hali. */
+.timeline-workers {
+    margin: 0 0 4px 0;
+    font-size: 0.8125rem;
+    color: var(--il-text-secondary, #7a8291);
+}
+
 /* ============================================================================
    HISTORIA ZDARZEŃ PRODUKTU
    ----------------------------------------------------------------------------

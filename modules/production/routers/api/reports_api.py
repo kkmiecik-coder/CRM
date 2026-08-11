@@ -30,6 +30,139 @@ STATION_LABELS = {
 }
 
 
+def _parsuj_zakres_dat():
+    """
+    Wspólne parsowanie start_date/end_date dla raportów. Zwraca
+    (start_date, end_date, error_response) — jak w reports_station_output,
+    tylko wyciągnięte, żeby nie kopiować walidacji do raportu pracowników.
+    """
+    start_str = request.args.get('start_date', '').strip()
+    end_str = request.args.get('end_date', '').strip()
+
+    try:
+        if start_str and end_str:
+            start = datetime.strptime(start_str, '%Y-%m-%d').date()
+            end = datetime.strptime(end_str, '%Y-%m-%d').date()
+        else:
+            # Domyślnie bieżący tydzień wstecz — sensowny zakres na wejściu
+            end = date.today()
+            start = end - timedelta(days=6)
+    except ValueError:
+        return None, None, (jsonify({
+            'success': False,
+            'error': 'Nieprawidłowy format daty (oczekiwane YYYY-MM-DD)'
+        }), 400)
+
+    return start, end, None
+
+
+@api_bp.route('/reports/worker-output')
+@login_required
+def reports_worker_output():
+    """
+    GET /production/api/reports/worker-output
+        ?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
+        &station=all|<station_code>&worker_id=<opcjonalnie>
+        &format=json|xlsx
+
+    Wydajność pracowników liczona z atrybucji eventów stanowiskowych
+    (docs/worker-profiles-backend.md §7.2). Jeden event dzieli się między
+    pracowników przez share = 1/N, więc sumy są ułamkowe.
+
+    Dane są POGLĄDOWE: wybór profilu na tablecie nie jest chroniony hasłem.
+    Odpowiedź niesie attribution_coverage_pct — ile produkcji w okresie
+    w ogóle da się komuś przypisać.
+    """
+    from ...services import worker_stats_service
+    from ...services.worker_stats_service import ZakresError
+
+    start_date, end_date, err = _parsuj_zakres_dat()
+    if err:
+        return err
+
+    station = request.args.get('station', 'all').strip().lower() or 'all'
+    if station != 'all' and station not in VALID_STATIONS:
+        return jsonify({
+            'success': False,
+            'error': f'Nieprawidłowe stanowisko. Dozwolone: all, {sorted(VALID_STATIONS)}'
+        }), 400
+
+    worker_id = request.args.get('worker_id', '').strip()
+    try:
+        worker_id = int(worker_id) if worker_id else None
+    except ValueError:
+        return jsonify({'success': False, 'error': 'worker_id musi być liczbą'}), 400
+
+    try:
+        raport = worker_stats_service.raport_wydajnosci(
+            start_date, end_date, station=station, worker_id=worker_id)
+    except ZakresError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+    if request.args.get('format', 'json').strip().lower() == 'xlsx':
+        return _eksport_raportu_pracownikow(raport)
+
+    return jsonify({'success': True, 'report': raport})
+
+
+def _eksport_raportu_pracownikow(raport):
+    """XLSX z dwoma arkuszami: podsumowanie per pracownik i pełne wiersze."""
+    from io import BytesIO
+
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font
+    except ImportError:
+        logger.warning("openpyxl niedostępne — eksport raportu pracowników odrzucony")
+        return jsonify({'success': False,
+                        'error': 'Eksport XLSX niedostępny (brak openpyxl)'}), 501
+
+    wb = Workbook()
+
+    ark = wb.active
+    ark.title = 'Podsumowanie'
+    ark.append(['Pracownik', 'Sztuki', 'm3', 'Godziny', 'Tempo (m3/h)', 'Stanowiska'])
+    for komorka in ark[1]:
+        komorka.font = Font(bold=True)
+    for wiersz in raport['worker_totals']:
+        ark.append([
+            wiersz['worker_name'], wiersz['pieces'], wiersz['m3'],
+            wiersz['hours'], wiersz['pace_m3_per_hour'],
+            ', '.join(wiersz['stations']),
+        ])
+
+    podsumowanie = raport['summary']
+    ark.append([])
+    ark.append(['Nieprzypisane', podsumowanie['unassigned_pieces'],
+                podsumowanie['unassigned_m3']])
+    ark.append(['Pokrycie atrybucją (%)', podsumowanie['attribution_coverage_pct']])
+    ark.append(['UWAGA: wybór profilu na tablecie nie jest chroniony hasłem — '
+                'dane mają charakter poglądowy'])
+
+    szczegoly = wb.create_sheet('Szczegóły')
+    szczegoly.append(['Data', 'Pracownik', 'Stanowisko', 'Sztuki', 'm3'])
+    for komorka in szczegoly[1]:
+        komorka.font = Font(bold=True)
+    for wiersz in raport['rows']:
+        szczegoly.append([wiersz['work_date'], wiersz['worker_name'],
+                          wiersz['station_label'], wiersz['pieces'], wiersz['m3']])
+    for wiersz in raport['unassigned']:
+        szczegoly.append([wiersz['work_date'], 'Nieprzypisane',
+                          wiersz['station_label'], wiersz['pieces'], wiersz['m3']])
+
+    strumien = BytesIO()
+    wb.save(strumien)
+    strumien.seek(0)
+
+    from flask import Response
+    nazwa = f"wydajnosc_pracownikow_{raport['start_date']}_{raport['end_date']}.xlsx"
+    odpowiedz = Response(
+        strumien.getvalue(),
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    odpowiedz.headers['Content-Disposition'] = f'attachment; filename={nazwa}'
+    return odpowiedz
+
+
 @api_bp.route('/reports/station-output')
 @login_required
 def reports_station_output():

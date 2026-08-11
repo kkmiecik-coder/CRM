@@ -4198,7 +4198,18 @@ class ProductsModule {
         const flow = this.state.productHistory && this.state.productHistory.flow;
         const entry = flow && flow[stationCode];
         if (!entry || !entry.actor_label) return '';
-        return `<p class="timeline-actor">Przez: ${this.escapeHtml(entry.actor_label)}</p>`;
+
+        let linie = `<p class="timeline-actor">Przez: ${this.escapeHtml(entry.actor_label)}</p>`;
+
+        // Kto fizycznie pracował — z profili wybranych na tablecie. Odrębne od
+        // "Przez:", które mówi o urządzeniu albo koncie CRM. Puste dla produktów
+        // sprzed wdrożenia profili, więc linijki wtedy w ogóle nie pokazujemy.
+        if (entry.workers && entry.workers.length) {
+            linie += `<p class="timeline-workers">` +
+                     `<i class="fas fa-user-group me-1"></i>` +
+                     `${this.escapeHtml(entry.workers.join(', '))}</p>`;
+        }
+        return linie;
     }
 
     /**

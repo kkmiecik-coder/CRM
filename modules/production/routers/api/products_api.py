@@ -180,6 +180,17 @@ def products_tab_content():
             if crt is not None and (agg['created_at'] is None or crt < agg['created_at']):
                 agg['created_at'] = crt
 
+        # Kto pracował przy produktach — JEDNO zapytanie na całą listę, nie jedno
+        # na produkt (docs/worker-profiles-backend.md §7.3). Awaria tej części nie
+        # może wywrócić listy produktów: brak nazwisk jest znośny, brak listy nie.
+        try:
+            from ...services.worker_stats_service import get_workers_for_products
+            workers_by_product = get_workers_for_products([p.id for p in products])
+        except Exception as e:
+            logger.warning("Nie udało się pobrać atrybucji pracowników do listy",
+                           extra={'error': str(e)})
+            workers_by_product = {}
+
         # Renderuj HTML template (osobny komponent dla widoku archiwum)
         template_name = (
             'components/archive-tab-content.html'
@@ -252,6 +263,10 @@ def products_tab_content():
                 'current_status': get_attr(product, 'current_status', 'czeka_na_wyciecie'),
                 'priority_rank': get_attr(product, 'priority_rank', None),
                 'priority_manual_override': get_attr(product, 'priority_manual_override', False),
+
+                # {station_code: ['Adam K.', ...]} — puste dla produktów sprzed
+                # wdrożenia profili i dla pracy bez wybranego profilu na tablecie
+                'workers_by_station': workers_by_product.get(product.id, {}),
 
                 # Wymiary i wartości
                 'volume_m3': volume_m3,

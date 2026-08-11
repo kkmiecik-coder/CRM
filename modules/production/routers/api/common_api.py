@@ -275,8 +275,14 @@ def register_middleware(bp):
     def add_api_headers(response):
         """Dodaje nagłówki do wszystkich odpowiedzi API"""
         try:
-            # Nagłówki dla API
-            response.headers['Content-Type'] = 'application/json; charset=utf-8'
+            # Content-Type ustawiamy TYLKO dla odpowiedzi, które naprawdę są
+            # JSON-em (dokładamy charset). Wcześniej szło to bezwarunkowo na
+            # każdą odpowiedź blueprintu, więc eksporty plików — /products/export
+            # (XLSX/CSV/PDF) i raport wydajności pracowników — jechały do
+            # przeglądarki opisane jako JSON, mimo że w środku był plik.
+            # Ta sama linia okłamywała endpointy *-tab-content, które zwracają HTML.
+            if response.mimetype == 'application/json':
+                response.headers['Content-Type'] = 'application/json; charset=utf-8'
             response.headers['X-API-Version'] = '1.0'
             response.headers['X-Production-Module'] = 'WoodPower-Production-API'
 

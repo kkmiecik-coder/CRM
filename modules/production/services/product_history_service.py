@@ -251,6 +251,18 @@ def build_product_history(product_id):
             entry['station_code'], entry['station_code'])
         entry['manual'] = False
 
+    # Kto fizycznie pracował przy tym produkcie — z atrybucji profili
+    # (docs/worker-profiles-backend.md §7.3). Odrębne od actor_label, który
+    # mówi o URZĄDZENIU albo koncie CRM: tablet w sklejalni to jedno, a Adam
+    # i Bartek, którzy przy nim stali, to co innego. Puste dla produktów
+    # sprzed wdrożenia profili i dla pracy bez wybranego profilu.
+    from .worker_stats_service import get_workers_for_products
+    pracownicy_stanowisk = get_workers_for_products([product_id]).get(product_id, {})
+
+    for entry in station_entries:
+        if entry['kind'] == 'work':
+            entry['workers'] = pracownicy_stanowisk.get(entry['station_code'], [])
+
     # flow — ostatnie zdarzenie pracy na każdym stanowisku wskazuje autora domknięcia
     flow = {}
     for entry in station_entries:
@@ -259,6 +271,7 @@ def build_product_history(product_id):
         flow[entry['station_code']] = {
             'completed_at': entry['last_at'].isoformat(),
             'actor_label': entry['actor_label'],
+            'workers': entry.get('workers', []),
         }
 
     history = merge_history(status_entries, station_entries)

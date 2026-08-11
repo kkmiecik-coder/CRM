@@ -60,13 +60,16 @@ def station_label(station_code):
     drugiego źródła prawdy — panel i monitory hali mają mówić o stanowiskach
     tak samo. Import lokalny, bo tamten moduł ładuje blueprint.
 
-    'sawmill' nie ma wpisu w tamtej mapie (trakownia jest poza pipeline'em
-    produktów), więc dokładamy ją tutaj.
+    Dwa kody nie mają wpisu w tamtej mapie i dokładamy je tutaj:
+    'sawmill' (trakownia jest poza pipeline'em produktów) oraz 'painting'
+    (lakiernia — nie ma własnego monitora, ale complete_task potrafi tam
+    przenieść produkt, więc eventy z tym kodem istnieją i muszą mieć nazwę
+    w raportach).
     """
     if not station_code:
         return '—'
 
-    dodatkowe = {'sawmill': 'Trakownia'}
+    dodatkowe = {'sawmill': 'Trakownia', 'painting': 'Lakiernia'}
     if station_code in dodatkowe:
         return dodatkowe[station_code]
 

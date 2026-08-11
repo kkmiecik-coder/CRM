@@ -572,6 +572,85 @@
     letter-spacing: 0.5px;
     color: var(--il-text-secondary, #7a8291);
 }
+/* ─── Widget wydajności pracowników (§7.2) ─── */
+.worker-output-widget {
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    margin-bottom: 16px;
+}
+.worker-output-widget .widget-content {
+    padding: 14px;
+}
+.wo-disclaimer {
+    font-size: 11px;
+    color: var(--il-text-secondary, #7a8291);
+    background: var(--il-bg-base, #eef0f4);
+    border-left: 3px solid var(--il-border, #c8cdd5);
+    padding: 8px 10px;
+    margin-bottom: 12px;
+}
+.wo-summary {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+    padding: 8px 10px;
+    background: var(--il-bg-base, #eef0f4);
+    border-radius: var(--il-radius, 3px);
+}
+.wo-stat {
+    display: flex;
+    flex-direction: column;
+}
+.wo-stat-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--il-text-primary, #1a1a2e);
+}
+.wo-stat-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--il-text-secondary, #7a8291);
+}
+/* Pokrycie < 100% znaczy, że część roboty poszła bez wyboru profilu */
+.wo-stat-warning .wo-stat-value {
+    color: #b45309;
+}
+.wo-table-title {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--il-text-secondary, #7a8291);
+    margin: 14px 0 6px;
+}
+.wo-table {
+    font-size: 12px;
+}
+.wo-table thead th {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--il-text-secondary, #7a8291);
+}
+.wo-muted {
+    color: var(--il-text-secondary, #7a8291);
+    font-size: 11px;
+}
+.wo-unassigned td {
+    background: rgba(180, 83, 9, 0.06);
+    font-style: italic;
+}
+.wo-loader,
+.wo-empty {
+    padding: 18px;
+    text-align: center;
+    color: var(--il-text-secondary, #7a8291);
+    font-size: 12px;
+}
+
 .station-output-table {
     width: 100%;
     font-size: 13px;
@@ -823,6 +902,119 @@
 </div>
 
 <!-- Wykres wydajności dziennej per stanowisko (identyczny jak na Dashboard) -->
+<!-- ════════════════════════════════════════════════════════════════════
+     Widget: Wydajność pracowników (atrybucja eventów stanowiskowych)
+     docs/worker-profiles-backend.md §7.2
+     ════════════════════════════════════════════════════════════════════ -->
+<div class="widget worker-output-widget mt-4">
+    <div class="widget-header">
+        <h4>
+            <i class="fas fa-id-badge me-2"></i>
+            Wydajność pracowników
+        </h4>
+        <div class="widget-controls">
+            <select id="wo-station-select" class="form-select form-select-sm">
+                <option value="all" selected>Wszystkie stanowiska</option>
+                <option value="cutting">Wycinanie</option>
+                <option value="assembly">Składanie</option>
+                <option value="gluing">Sklejanie</option>
+                <option value="formatting">Formatowanie</option>
+                <option value="finishing">Wykańczanie</option>
+                <option value="painting">Lakiernia</option>
+                <option value="packaging">Pakowanie</option>
+            </select>
+            <select id="wo-preset-select" class="form-select form-select-sm" title="Zakres dat">
+                <option value="today">Dziś</option>
+                <option value="yesterday">Wczoraj</option>
+                <option value="7d" selected>Ostatnie 7 dni</option>
+                <option value="30d">Ostatnie 30 dni</option>
+                <option value="custom">Własny zakres</option>
+            </select>
+            <input type="date" id="wo-start-date" class="form-control form-control-sm" style="display: none;" title="Data od">
+            <input type="date" id="wo-end-date" class="form-control form-control-sm" style="display: none;" title="Data do">
+            <button id="wo-refresh-btn" class="btn btn-outline-primary btn-sm" title="Odśwież">
+                <i class="fas fa-sync-alt"></i>
+            </button>
+            <button id="wo-export-btn" class="btn btn-outline-secondary btn-sm" title="Pobierz XLSX">
+                <i class="fas fa-file-excel"></i>
+            </button>
+        </div>
+    </div>
+    <div class="widget-content">
+        <p class="wo-disclaimer">
+            <i class="fas fa-circle-info me-1"></i>
+            Wybór pracownika na tablecie nie jest chroniony hasłem, więc te liczby są
+            <strong>poglądowe</strong> — pokazują, kto zadeklarował pracę, a nie kto ją formalnie potwierdził.
+        </p>
+
+        <div class="wo-summary" id="wo-summary" style="display: none;">
+            <div class="wo-stat">
+                <span class="wo-stat-value" id="wo-sum-pieces">0</span>
+                <span class="wo-stat-label">sztuk przypisanych</span>
+            </div>
+            <div class="wo-stat">
+                <span class="wo-stat-value" id="wo-sum-m3">0</span>
+                <span class="wo-stat-label">m³</span>
+            </div>
+            <div class="wo-stat">
+                <span class="wo-stat-value" id="wo-sum-hours">0</span>
+                <span class="wo-stat-label">godzin pracy</span>
+            </div>
+            <div class="wo-stat">
+                <span class="wo-stat-value" id="wo-sum-workers">0</span>
+                <span class="wo-stat-label">pracowników</span>
+            </div>
+            <div class="wo-stat" id="wo-coverage-box">
+                <span class="wo-stat-value" id="wo-coverage">—</span>
+                <span class="wo-stat-label">pokrycia atrybucją</span>
+            </div>
+        </div>
+
+        <div class="wo-loader" id="wo-loader" style="display: none;">
+            <i class="fas fa-spinner fa-spin me-2"></i>Liczę…
+        </div>
+
+        <div class="wo-empty" id="wo-empty" style="display: none;">
+            Brak zarejestrowanej pracy w wybranym zakresie.
+        </div>
+
+        <div class="wo-tables" id="wo-tables" style="display: none;">
+            <h5 class="wo-table-title">Podsumowanie okresu</h5>
+            <div class="table-responsive">
+                <table class="table table-sm wo-table">
+                    <thead>
+                        <tr>
+                            <th>Pracownik</th>
+                            <th>Stanowiska</th>
+                            <th class="text-end">Sztuki</th>
+                            <th class="text-end">m³</th>
+                            <th class="text-end">Godziny</th>
+                            <th class="text-end">Tempo (m³/h)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="wo-totals-body"></tbody>
+                </table>
+            </div>
+
+            <h5 class="wo-table-title">Dzień po dniu</h5>
+            <div class="table-responsive">
+                <table class="table table-sm wo-table">
+                    <thead>
+                        <tr>
+                            <th>Data</th>
+                            <th>Pracownik</th>
+                            <th>Stanowisko</th>
+                            <th class="text-end">Sztuki</th>
+                            <th class="text-end">m³</th>
+                        </tr>
+                    </thead>
+                    <tbody id="wo-rows-body"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="widget performance-widget">
     <div class="widget-header">
         <h4>
@@ -1097,6 +1289,9 @@ function initReportsTab() {
     // Widget wykonania stanowiska w dniu
     initStationOutputWidget();
 
+    // Widget wydajności pracowników
+    initWorkerOutputWidget();
+
     // Inicjalizuj wykresy
     initializeDailyChart();
     initializeStatusCountChart();
@@ -1106,6 +1301,135 @@ function initReportsTab() {
     initializeThicknessChart();
     initializeTechnologyChart();
     initializeWoodClassChart();
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Widget: Wydajność pracowników (§7.2)
+// Zakres dat liczymy tą samą funkcją co widget stanowisk (soResolveRange),
+// żeby oba widgety rozumiały presety identycznie.
+// ════════════════════════════════════════════════════════════════════
+function woBuildQuery() {
+    const preset = document.getElementById('wo-preset-select').value;
+    const zakres = soResolveRange(
+        preset,
+        document.getElementById('wo-start-date'),
+        document.getElementById('wo-end-date')
+    );
+    const stanowisko = document.getElementById('wo-station-select').value;
+    return `start_date=${zakres.start}&end_date=${zakres.end}&station=${stanowisko}`;
+}
+
+function woPokaz(id, widoczny) {
+    const el = document.getElementById(id);
+    if (el) el.style.display = widoczny ? '' : 'none';
+}
+
+async function woLoad() {
+    woPokaz('wo-loader', true);
+    woPokaz('wo-empty', false);
+    woPokaz('wo-tables', false);
+    woPokaz('wo-summary', false);
+
+    try {
+        const odp = await fetch(`/production/api/reports/worker-output?${woBuildQuery()}`, {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        });
+        const dane = await odp.json();
+        if (!odp.ok || !dane.success) {
+            throw new Error(dane.error || `HTTP ${odp.status}`);
+        }
+        woRender(dane.report);
+    } catch (e) {
+        console.error('[Reports] Wydajność pracowników:', e);
+        const pusty = document.getElementById('wo-empty');
+        if (pusty) pusty.textContent = `Nie udało się pobrać danych: ${e.message}`;
+        woPokaz('wo-empty', true);
+    } finally {
+        woPokaz('wo-loader', false);
+    }
+}
+
+function woRender(raport) {
+    const p = raport.summary;
+
+    document.getElementById('wo-sum-pieces').textContent = p.pieces;
+    document.getElementById('wo-sum-m3').textContent = p.m3;
+    document.getElementById('wo-sum-hours').textContent = p.hours;
+    document.getElementById('wo-sum-workers').textContent = p.workers_count;
+    document.getElementById('wo-coverage').textContent =
+        p.attribution_coverage_pct === null ? '—' : `${p.attribution_coverage_pct}%`;
+
+    // Niepełne pokrycie to sygnał, że część roboty poszła bez wyboru profilu.
+    const boxPokrycia = document.getElementById('wo-coverage-box');
+    boxPokrycia.classList.toggle('wo-stat-warning',
+        p.attribution_coverage_pct !== null && p.attribution_coverage_pct < 100);
+
+    const totalsBody = document.getElementById('wo-totals-body');
+    totalsBody.innerHTML = raport.worker_totals.map(w => `
+        <tr>
+            <td>${w.worker_name}</td>
+            <td class="wo-muted">${w.stations.join(', ')}</td>
+            <td class="text-end">${w.pieces}</td>
+            <td class="text-end">${w.m3}</td>
+            <td class="text-end">${w.hours || '—'}</td>
+            <td class="text-end">${w.pace_m3_per_hour === null ? '—' : w.pace_m3_per_hour}</td>
+        </tr>`).join('');
+
+    if (p.unassigned_pieces > 0) {
+        totalsBody.insertAdjacentHTML('beforeend', `
+            <tr class="wo-unassigned">
+                <td><i class="fas fa-question-circle me-1"></i>Nieprzypisane</td>
+                <td class="wo-muted">praca bez wybranego profilu</td>
+                <td class="text-end">${p.unassigned_pieces}</td>
+                <td class="text-end">${p.unassigned_m3}</td>
+                <td class="text-end">—</td>
+                <td class="text-end">—</td>
+            </tr>`);
+    }
+
+    const wiersze = raport.rows.concat(raport.unassigned.map(u => Object.assign(
+        {}, u, { worker_name: 'Nieprzypisane' })));
+    wiersze.sort((a, b) => (b.work_date || '').localeCompare(a.work_date || ''));
+
+    document.getElementById('wo-rows-body').innerHTML = wiersze.map(w => `
+        <tr${w.worker_name === 'Nieprzypisane' ? ' class="wo-unassigned"' : ''}>
+            <td>${w.work_date}</td>
+            <td>${w.worker_name}</td>
+            <td>${w.station_label}</td>
+            <td class="text-end">${w.pieces}</td>
+            <td class="text-end">${w.m3}</td>
+        </tr>`).join('');
+
+    const cokolwiek = raport.worker_totals.length > 0 || p.unassigned_pieces > 0;
+    woPokaz('wo-summary', true);
+    woPokaz('wo-tables', cokolwiek);
+    woPokaz('wo-empty', !cokolwiek);
+}
+
+function initWorkerOutputWidget() {
+    const presetSelect = document.getElementById('wo-preset-select');
+    if (!presetSelect) return;
+
+    const startEl = document.getElementById('wo-start-date');
+    const endEl = document.getElementById('wo-end-date');
+
+    presetSelect.addEventListener('change', () => {
+        const wlasny = presetSelect.value === 'custom';
+        startEl.style.display = wlasny ? '' : 'none';
+        endEl.style.display = wlasny ? '' : 'none';
+        if (!wlasny) woLoad();
+    });
+
+    document.getElementById('wo-station-select').addEventListener('change', woLoad);
+    document.getElementById('wo-refresh-btn').addEventListener('click', woLoad);
+    startEl.addEventListener('change', woLoad);
+    endEl.addEventListener('change', woLoad);
+
+    document.getElementById('wo-export-btn').addEventListener('click', () => {
+        window.location = `/production/api/reports/worker-output?${woBuildQuery()}&format=xlsx`;
+    });
+
+    woLoad();
 }
 
 // ════════════════════════════════════════════════════════════════════
