@@ -1517,6 +1517,62 @@ def parse_since_ts(ts_str):
     return dt.astimezone(warsaw).replace(tzinfo=None)
 
 
+# Ile przyszłości tolerujemy w znaczniku od klienta, zanim przytniemy go do
+# „teraz". Tablety chodzą na czasie sieciowym, więc realny dryf to sekundy;
+# minuta z zapasem pokrywa też opóźnienie samego żądania w drodze.
+TOLERANCJA_ZEGARA_KLIENTA = timedelta(minutes=1)
+
+
+def parse_client_local_ts(ts_str, now=None):
+    """
+    Parsuje znacznik CZASU ZDARZENIA przysłany przez tablet (started_at,
+    ended_at w /sessions/start i /sessions/end).
+
+    Znacznik BEZ offsetu jest czytany jako CZAS LOKALNY, nie jako UTC — i to
+    jest cała różnica wobec parse_since_ts, którego tu świadomie NIE używamy.
+
+    Dlaczego osobna funkcja zamiast poprawienia parse_since_ts: to dwa różne
+    kontrakty. `since` w delta sync jest znacznikiem KURSORA, klient odsyła
+    tam wartość, którą sam dostał od serwera (z 'Z'), i zmiana konwencji
+    przesunęłaby okno synchronizacji kolejek na wszystkich tabletach.
+    Tu chodzi o moment, w którym człowiek stanął przy stanowisku.
+
+    Apka wysyła `LocalDateTime.ofInstant(instant, Europe/Warsaw)` sformatowany
+    jako ISO_LOCAL_DATE_TIME (SyncQueueDrainer.toLocalIso) — czyli czas
+    warszawski bez offsetu, dokładnie tak jak `measured_at` trakowni
+    (sawmill/services/validation.py:parse_measured_at). Czytanie tego jako UTC
+    przesuwało KAŻDĄ sesję o pełny offset strefy: sesja z kolejki offline
+    lądowała 1-2 h za późno, czas pracy w raporcie był zaniżony o tyle samo,
+    ended_at potrafił trafić w przyszłość, a start po 22:00 wpadał do
+    następnej doby raportowej (work_date).
+
+    Offset, gdy jest, akceptujemy i przeliczamy na czas lokalny — kontrakt
+    dopuszcza obie formy, żeby ewentualne przejście apki na
+    ISO_OFFSET_DATE_TIME nie wymagało zmiany serwera.
+
+    Przyszłość powyżej TOLERANCJA_ZEGARA_KLIENTA PRZYCINAMY do `now`, nie
+    odrzucamy: 4xx w kolejce offline to u klienta wpis do interwencji biura,
+    więc dryf zegara tabletu trwale zablokowałby synchronizację.
+    """
+    if not ts_str:
+        raise ValueError('timestamp is required')
+
+    s = str(ts_str).strip().replace('Z', '+00:00')
+    try:
+        dt = datetime.fromisoformat(s)
+    except ValueError as e:
+        raise ValueError(f'Invalid ISO timestamp: {e}')
+
+    if dt.tzinfo is not None:
+        warsaw = pytz.timezone('Europe/Warsaw')
+        dt = dt.astimezone(warsaw).replace(tzinfo=None)
+
+    teraz = now or get_local_now()
+    if dt > teraz + TOLERANCJA_ZEGARA_KLIENTA:
+        return teraz
+    return dt
+
+
 def get_station_queue_delta(station_code, since_ts):
     """
     Delta sync dla stanowiska. Zwraca:

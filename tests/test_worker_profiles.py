@@ -12,7 +12,7 @@ gubiłyby całą pracę zamykaną przyciskiem "gotowe".
 """
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -137,8 +137,33 @@ def _produkt(app, status='czeka_na_sklejanie', quantity=10):
         return produkt.id
 
 
-def _ustaw_config(app, klucz, wartosc, typ='boolean'):
-    from modules.production.services.config_service import invalidate_config_cache
+def _iso_apki(dt):
+    """
+    DOKŁADNIE to, co wysyła tablet: naive czas warszawski BEZ offsetu, ucięty
+    do sekund — `SyncQueueDrainer.toLocalIso()` (ISO_LOCAL_DATE_TIME).
+
+    Domyślny helper znaczników w tym pliku. Testy sesji jadące na formacie
+    z offsetem przechodziły, gdy serwer czytał naive jako UTC — czyli maskowały
+    rozjazd o pełną strefę na każdej sesji z kolejki offline.
+    """
+    return dt.replace(microsecond=0).isoformat()
+
+
+def _iso_z_offsetem(dt):
+    """Naive czas warszawski → ISO Z OFFSETEM. Kontrakt dopuszcza obie formy."""
+    import pytz
+    return pytz.timezone('Europe/Warsaw').localize(dt).isoformat()
+
+
+def _zapisz_config(app, klucz, wartosc, typ='boolean', updated_at=None):
+    """
+    Sam zapis do prod_config — BEZ dotykania cache'u w tym procesie.
+
+    updated_at (gdy podany) dociskamy osobnym UPDATE-em na poziomie Core.
+    Kolumna ma `onupdate=datetime.utcnow`, więc przypisanie na obiekcie ORM
+    zostałoby nadpisane i test "dwie zmiany w tej samej sekundzie" mierzyłby
+    przypadek zamiast tego, co miał mierzyć.
+    """
     with app.app_context():
         wpis = ProductionConfig.query.filter_by(config_key=klucz).first()
         if wpis:
@@ -147,7 +172,30 @@ def _ustaw_config(app, klucz, wartosc, typ='boolean'):
             db.session.add(ProductionConfig(config_key=klucz, config_value=str(wartosc),
                                             config_type=typ))
         db.session.commit()
+
+        if updated_at is not None:
+            db.session.execute(
+                ProductionConfig.__table__.update()
+                .where(ProductionConfig.__table__.c.config_key == klucz)
+                .values(updated_at=updated_at))
+            db.session.commit()
+
+
+def _ustaw_config(app, klucz, wartosc, typ='boolean', updated_at=None):
+    from modules.production.services.config_service import invalidate_config_cache
+    _zapisz_config(app, klucz, wartosc, typ, updated_at)
     invalidate_config_cache()
+
+
+def _ustaw_config_z_innego_procesu(app, klucz, wartosc, typ='boolean'):
+    """
+    Zmiana konfiguracji widziana tak, jak widzi ją proces SERWUJĄCY tablety:
+    wiersz w bazie już nowy, ale cache tego procesu nadal trzyma starą wartość.
+
+    Dokładnie ta sytuacja na produkcji — Passenger trzyma kilka procesów,
+    a set_config invaliduje cache tylko w tym, który obsłużył panel.
+    """
+    _zapisz_config(app, klucz, wartosc, typ)
 
 
 # ============================================================================
@@ -202,6 +250,115 @@ def test_katalog_odpowiada_304_gdy_nic_sie_nie_zmienilo(client, app):
     assert druga.status_code == 304
 
 
+def test_catalog_version_jest_tym_samym_stringiem_co_etag(client, app):
+    """
+    Apka NIE echuje nagłówka ETag. Wysyła jako If-None-Match POLE
+    `catalog_version` z ciała (WorkerRepositoryImpl: `configStore
+    .catalogVersion()`, zapisywane z `body.catalogVersion`).
+
+    Dopóki to były dwa różne stringi, warunkowy GET nie trafiał NIGDY: tablet
+    dostawał 200 z pełnym katalogiem przy każdym starcie i każdym odświeżeniu,
+    a gałąź NOT_MODIFIED po ich stronie była martwa.
+    """
+    token = _token(app)
+    _pracownicy(app, 1)
+
+    pierwsza = client.get('/api/mobile/workers', headers=_naglowki(token))
+    catalog_version = pierwsza.get_json()['catalog_version']
+    assert catalog_version == pierwsza.headers['ETag']
+
+    naglowki = _naglowki(token)
+    naglowki['If-None-Match'] = catalog_version
+    assert client.get('/api/mobile/workers', headers=naglowki).status_code == 304
+
+
+def test_kazdy_klucz_konfiguracji_uniewaznia_catalog_version(client, app):
+    """
+    Odpowiedź na pytanie zespołu mobilnego: ETag obejmuje WSZYSTKIE cztery
+    klucze konfiguracji, więc zmiana kill-switcha dojeżdża na tablety.
+    Sprawdzane po tej wartości, którą apka faktycznie odsyła.
+    """
+    token = _token(app)
+    _pracownicy(app, 1)
+
+    zmiany = (
+        ('WORKER_SELECTION_REQUIRED', 'true', 'boolean', 'selection_required', True),
+        ('WORKER_SESSION_IDLE_TIMEOUT_MINUTES', 45, 'integer', 'idle_timeout_minutes', 45),
+        ('WORKER_SESSION_NIGHT_CUTOFF', '22:30', 'string', 'night_cutoff', '22:30'),
+        ('WORKER_QUICK_PICK_COUNT', 6, 'integer', 'quick_pick_count', 6),
+    )
+
+    for klucz, wartosc, typ, pole, oczekiwane in zmiany:
+        poprzedni = client.get('/api/mobile/workers',
+                               headers=_naglowki(token)).get_json()['catalog_version']
+        _ustaw_config(app, klucz, wartosc, typ=typ)
+
+        naglowki = _naglowki(token)
+        naglowki['If-None-Match'] = poprzedni
+        odp = client.get('/api/mobile/workers', headers=naglowki)
+
+        assert odp.status_code == 200, f'304 mimo zmiany {klucz}'
+        assert odp.get_json()[pole] == oczekiwane
+
+
+def test_kill_switch_z_innego_procesu_dojezdza_mimo_cache(client, app):
+    """
+    ETag liczyliśmy prosto z bazy, a ciało z 60-minutowego cache PROCESU.
+    Zmiana z panelu obsługiwanego przez inny proces Passengera dawała więc
+    odpowiedź NOWY ETag + STARA wartość: tablet zapisywał ją i od następnego
+    żądania dostawał 304, czyli zostawał na starym kill-switchu także po
+    wygaśnięciu cache.
+    """
+    token = _token(app)
+    _pracownicy(app, 1)
+
+    pierwsza = client.get('/api/mobile/workers', headers=_naglowki(token))
+    assert pierwsza.get_json()['selection_required'] is False
+    catalog_version = pierwsza.get_json()['catalog_version']
+
+    _ustaw_config_z_innego_procesu(app, 'WORKER_SELECTION_REQUIRED', 'true')
+
+    naglowki = _naglowki(token)
+    naglowki['If-None-Match'] = catalog_version
+    druga = client.get('/api/mobile/workers', headers=naglowki)
+
+    assert druga.status_code == 200
+    assert druga.get_json()['selection_required'] is True
+    assert druga.get_json()['catalog_version'] != catalog_version
+
+
+def test_dwie_zmiany_w_tej_samej_sekundzie_docieraja_na_tablet(client, app):
+    """
+    Segment konfiguracji w ETagu bierzemy z WARTOŚCI, nie z MAX(updated_at).
+    Znacznik ma rozdzielczość sekundy (a kolumna jest `datetime NULL` bez
+    ON UPDATE), więc druga zmiana w tej samej sekundzie — dwuklik "Zapisz",
+    dwa zapisy z różnych podsystemów — była dla tabletu nieosiągalna na
+    zawsze: dostawał 304 z ETagiem sprzed niej.
+    """
+    token = _token(app)
+    _pracownicy(app, 1)
+    znacznik = get_local_now().replace(microsecond=0)
+
+    _ustaw_config(app, 'WORKER_QUICK_PICK_COUNT', 8, typ='integer', updated_at=znacznik)
+    pierwsza = client.get('/api/mobile/workers', headers=_naglowki(token))
+    poprzedni = pierwsza.get_json()['catalog_version']
+
+    # Ta sama sekunda w updated_at — dla ETagu liczonego ze znacznika czasu
+    # ta zmiana jest niewidoczna.
+    _ustaw_config(app, 'WORKER_QUICK_PICK_COUNT', 2, typ='integer', updated_at=znacznik)
+
+    naglowki = _naglowki(token)
+    naglowki['If-None-Match'] = poprzedni
+    odp = client.get('/api/mobile/workers', headers=naglowki)
+
+    assert odp.status_code == 200
+    assert odp.get_json()['quick_pick_count'] == 2
+    # Asercja wprost na nagłówku: bez odcisku wartości ETag byłby identyczny,
+    # więc każdy klient trzymający poprzedni dostawałby 304 aż do następnej
+    # zmiany prod_config.
+    assert odp.headers['ETag'] != pierwsza.headers['ETag']
+
+
 # ============================================================================
 # SESJE
 # ============================================================================
@@ -213,7 +370,7 @@ def test_start_sesji_tworzy_wiersz_na_pracownika(client, app):
     odp = client.post('/api/mobile/sessions/start', headers=_naglowki(token),
                       json={'worker_ids': ids, 'session_group': 'grupa-1'})
 
-    assert odp.status_code == 201
+    assert odp.status_code == 200
     dane = odp.get_json()
     assert dane['session_group'] == 'grupa-1'
     assert len(dane['sessions']) == 2
@@ -259,24 +416,83 @@ def test_start_sesji_nie_przyjmuje_czasu_z_przyszlosci(client, app):
         assert sesja.started_at <= get_local_now() + timedelta(minutes=1)
 
 
-def test_started_at_bez_strefy_jest_czytany_jako_utc(client, app):
+def test_started_at_bez_strefy_jest_czytany_jako_czas_lokalny(client, app):
     """
-    KONTRAKT Z APKĄ: timestamp bez offsetu jest interpretowany jako UTC
-    (parse_since_ts, tak samo jak w delta sync). Apka MUSI wysyłać ISO
-    z offsetem albo z 'Z' — inaczej sesja rozpoczęta o 6:12 czasu lokalnego
-    zapisze się jako 8:12 i zawyży czas pracy o różnicę stref.
+    KONTRAKT Z APKĄ: timestamp BEZ offsetu to CZAS LOKALNY.
+
+    Apka wysyła dokładnie taki string (SyncQueueDrainer.toLocalIso →
+    ISO_LOCAL_DATE_TIME w Europe/Warsaw), tak samo jak measured_at trakowni.
+    Czytanie go jako UTC przesuwało sesję rozpoczętą o 6:12 na 8:12 i o tyle
+    samo zaniżało czas pracy w raporcie.
     """
     token = _token(app)
     ids = _pracownicy(app, 1)
 
     client.post('/api/mobile/sessions/start', headers=_naglowki(token),
                 json={'worker_ids': ids, 'session_group': 'g',
-                      'started_at': '2026-08-11T06:12:00+02:00'})
+                      'started_at': '2026-08-11T06:12:00'})
 
     with app.app_context():
         sesja = ProductionWorkerSession.query.one()
         assert sesja.started_at == datetime(2026, 8, 11, 6, 12)
         assert sesja.work_date == datetime(2026, 8, 11).date()
+
+
+def test_started_at_z_offsetem_jest_przeliczany_na_czas_lokalny(client, app):
+    """
+    Kontrakt dopuszcza OBIE formy, żeby ewentualne przejście apki na
+    ISO_OFFSET_DATE_TIME nie wymagało zmiany serwera. 04:12 UTC = 06:12 lokalnie.
+    """
+    token = _token(app)
+    ids = _pracownicy(app, 1)
+
+    client.post('/api/mobile/sessions/start', headers=_naglowki(token),
+                json={'worker_ids': ids, 'session_group': 'g',
+                      'started_at': '2026-08-11T04:12:00Z'})
+
+    with app.app_context():
+        assert ProductionWorkerSession.query.one().started_at == datetime(2026, 8, 11, 6, 12)
+
+
+def test_ended_at_z_kolejki_offline_nie_lezy_w_przyszlosci(client, app):
+    """
+    Tablet online kończy sesję "teraz". Gdy serwer czytał naive jako UTC,
+    ended_at lądował o pełny offset strefy PO czasie serwera — sesja trwająca
+    30 minut raportowała 2,5 godziny, a panel pokazywał koniec w przyszłości.
+    """
+    token = _token(app)
+    ids = _pracownicy(app, 1)
+    start = get_local_now() - timedelta(minutes=30)
+
+    client.post('/api/mobile/sessions/start', headers=_naglowki(token),
+                json={'worker_ids': ids, 'session_group': 'g',
+                      'started_at': _iso_apki(start)})
+    odp = client.post('/api/mobile/sessions/end', headers=_naglowki(token),
+                      json={'session_group': 'g', 'reason': 'manual',
+                            'ended_at': _iso_apki(get_local_now())})
+
+    assert odp.status_code == 200
+    with app.app_context():
+        sesja = ProductionWorkerSession.query.one()
+        assert sesja.ended_at <= get_local_now()
+        assert 29 <= sesja.duration_minutes <= 31
+
+
+def test_zegar_tabletu_z_przyszlosci_jest_przycinany_a_nie_odrzucany(client, app):
+    """
+    Dryf zegara nie może zablokować kolejki: 4xx to u klienta wpis do
+    interwencji biura, więc znacznik z przyszłości PRZYCINAMY do teraz.
+    """
+    token = _token(app)
+    ids = _pracownicy(app, 1)
+
+    odp = client.post('/api/mobile/sessions/start', headers=_naglowki(token),
+                      json={'worker_ids': ids, 'session_group': 'g',
+                            'started_at': _iso_apki(get_local_now() + timedelta(hours=5))})
+
+    assert odp.status_code == 200
+    with app.app_context():
+        assert ProductionWorkerSession.query.one().started_at <= get_local_now()
 
 
 def test_start_sesji_odrzuca_nieaktywnego_pracownika(client, app):
@@ -300,8 +516,8 @@ def test_start_sesji_jest_idempotentny(client, app):
     druga = client.post('/api/mobile/sessions/start', headers=naglowki,
                         json={'worker_ids': ids, 'session_group': 'g'})
 
-    assert pierwsza.status_code == 201
-    assert druga.status_code == 201
+    assert pierwsza.status_code == 200
+    assert druga.status_code == 200
     with app.app_context():
         assert ProductionWorkerSession.query.count() == 1
 
@@ -315,7 +531,8 @@ def test_koniec_sesji_domyka_cala_grupe(client, app):
     odp = client.post('/api/mobile/sessions/end', headers=_naglowki(token),
                       json={'session_group': 'grupa-x', 'reason': 'manual'})
 
-    assert odp.status_code == 204
+    assert odp.status_code == 200
+    assert odp.get_json()['closed'] == 2
     with app.app_context():
         sesje = ProductionWorkerSession.query.all()
         assert all(s.ended_at is not None and s.end_reason == 'manual' for s in sesje)
@@ -346,6 +563,580 @@ def test_aktywne_sesje_po_restarcie_apki(client, app):
     assert dane['session_group'] == 'g'
     assert len(dane['sessions']) == 2
     assert dane['sessions'][0]['worker_name'] == 'Imie0 Nazwisko0'
+
+
+# ============================================================================
+# PRZEJĘCIE PROFILU MIĘDZY TABLETAMI (wariant A) I SPÓŹNIONY START
+#
+# Decyzja zespołu mobilnego z 11.08.2026: jeden tablet = jeden pracownik,
+# a kolizję rozstrzyga SERWER — wskazanie tego samego profilu na drugim
+# tablecie domyka poprzednią sesję jako 'replaced'. Kolizja nie jest błędem:
+# 409 oznaczałoby w kolejce offline "wpis czeka na interwencję biura".
+# ============================================================================
+
+def test_przejecie_profilu_domyka_sesje_na_pierwszym_tablecie(client, app):
+    """Wariant A: jeden pracownik = maksymalnie jedna otwarta sesja."""
+    token1 = _token(app, device_id='TABLET-1')
+    token2 = _token(app, device_id='TABLET-2')
+    ids = _pracownicy(app, 1)
+
+    client.post('/api/mobile/sessions/start', headers=_naglowki(token1),
+                json={'worker_ids': ids, 'session_group': 'na-tablecie-1'})
+    druga = client.post('/api/mobile/sessions/start', headers=_naglowki(token2),
+                        json={'worker_ids': ids, 'session_group': 'na-tablecie-2'})
+
+    # Przejęcie profilu to normalna sytuacja — nigdy 409.
+    assert druga.status_code == 200
+
+    with app.app_context():
+        pierwsza = ProductionWorkerSession.query.filter_by(
+            session_group='na-tablecie-1').one()
+        assert pierwsza.ended_at is not None
+        assert pierwsza.end_reason == 'replaced'
+        assert pierwsza.duration_minutes >= 0
+
+        otwarte = ProductionWorkerSession.query.filter_by(ended_at=None).all()
+        assert len(otwarte) == 1
+        assert otwarte[0].device_id == 'TABLET-2'
+
+
+def test_stary_tablet_po_przejeciu_wraca_na_bramke(client, app):
+    """
+    Apka wykrywa przejęcie pollingiem /sessions/active co 60 s — endpoint
+    MUSI oddać session_group: null, inaczej tablet nigdy nie wróci na ekran
+    wyboru i będzie podpisywał pracę cudzym profilem.
+    """
+    token1 = _token(app, device_id='TABLET-1')
+    token2 = _token(app, device_id='TABLET-2')
+    ids = _pracownicy(app, 1)
+
+    client.post('/api/mobile/sessions/start', headers=_naglowki(token1),
+                json={'worker_ids': ids, 'session_group': 'g1'})
+    client.post('/api/mobile/sessions/start', headers=_naglowki(token2),
+                json={'worker_ids': ids, 'session_group': 'g2'})
+
+    stary = client.get('/api/mobile/sessions/active', headers=_naglowki(token1))
+    nowy = client.get('/api/mobile/sessions/active', headers=_naglowki(token2))
+
+    assert stary.status_code == 200
+    assert stary.get_json()['session_group'] is None
+    assert stary.get_json()['sessions'] == []
+    assert nowy.get_json()['session_group'] == 'g2'
+
+
+def test_przejecie_profilu_nie_rusza_obsady_innych_tabletow(client, app):
+    """Domykamy sesje TEGO pracownika i TEGO urządzenia — nie całą halę."""
+    token1 = _token(app, device_id='TABLET-1')
+    token2 = _token(app, device_id='TABLET-2')
+    token3 = _token(app, device_id='TABLET-3')
+    ids = _pracownicy(app, 2)
+
+    client.post('/api/mobile/sessions/start', headers=_naglowki(token1),
+                json={'worker_ids': [ids[0]], 'session_group': 'przejmowana'})
+    client.post('/api/mobile/sessions/start', headers=_naglowki(token2),
+                json={'worker_ids': [ids[1]], 'session_group': 'obca'})
+    client.post('/api/mobile/sessions/start', headers=_naglowki(token3),
+                json={'worker_ids': [ids[0]], 'session_group': 'przejmujaca'})
+
+    with app.app_context():
+        stan = {s.session_group: s.ended_at for s in ProductionWorkerSession.query.all()}
+        assert stan['przejmowana'] is not None
+        assert stan['obca'] is None            # kolega przy sąsiednim tablecie pracuje dalej
+        assert stan['przejmujaca'] is None
+
+
+def test_spozniony_start_nie_cofa_obsady(client, app):
+    """
+    Tablet-1 był offline od rana i dopiero teraz dosyła SESSION_START sprzed
+    czterech godzin. Nowsza sesja na Tablecie-2 (przejęty profil) ma zostać
+    nietknięta — inaczej pracownik "wraca" na tablet, przy którym nie stoi.
+    """
+    token1 = _token(app, device_id='TABLET-1')
+    token2 = _token(app, device_id='TABLET-2')
+    ids = _pracownicy(app, 1)
+
+    biezaca = client.post('/api/mobile/sessions/start', headers=_naglowki(token2),
+                          json={'worker_ids': ids, 'session_group': 'biezaca'})
+    assert biezaca.status_code == 200
+
+    rano = get_local_now() - timedelta(hours=4)
+    spozniona = client.post('/api/mobile/sessions/start', headers=_naglowki(token1),
+                            json={'worker_ids': ids, 'session_group': 'spozniona',
+                                  'started_at': _iso_apki(rano)})
+
+    # 2xx, nie 4xx — 4xx zablokowałoby kolejkę offline tabletu.
+    assert spozniona.status_code == 200
+    dane = spozniona.get_json()
+    assert dane['superseded'] is True
+    # Tablet-1 nie ma już żadnej otwartej sesji — apka pójdzie na bramkę.
+    assert dane['session_group'] is None
+    assert dane['sessions'] == []
+
+    with app.app_context():
+        otwarte = ProductionWorkerSession.query.filter_by(ended_at=None).all()
+        assert [s.session_group for s in otwarte] == ['biezaca']
+
+        # Spóźniony start zapisuje się jako sesja HISTORYCZNA: czas pracy sprzed
+        # przejęcia nie znika z raportu, ale nie wraca na halę.
+        stara = ProductionWorkerSession.query.filter_by(session_group='spozniona').one()
+        assert stara.end_reason == 'replaced'
+        assert stara.ended_at == otwarte[0].started_at
+        assert stara.work_date == rano.date()
+        assert 235 <= stara.duration_minutes <= 240
+
+
+def test_spozniony_start_nie_daje_ujemnego_czasu_pracy(client, app):
+    """
+    Ten sam tablet, kolejka wysłana nie po kolei. Domknięcie bieżącej sesji
+    czasem sprzed jej startu dawało ended_at < started_at i ujemne minuty
+    w panelu "kto na hali".
+    """
+    token = _token(app, device_id='TABLET-1')
+    ids = _pracownicy(app, 2)
+
+    client.post('/api/mobile/sessions/start', headers=_naglowki(token),
+                json={'worker_ids': [ids[0]], 'session_group': 'biezaca'})
+    odp = client.post('/api/mobile/sessions/start', headers=_naglowki(token),
+                      json={'worker_ids': [ids[1]], 'session_group': 'z-poranka',
+                            'started_at': _iso_apki(get_local_now() - timedelta(hours=3))})
+
+    assert odp.status_code == 200
+    with app.app_context():
+        sesje = ProductionWorkerSession.query.all()
+        assert all(s.duration_minutes >= 0 for s in sesje)
+        biezaca = ProductionWorkerSession.query.filter_by(session_group='biezaca').one()
+        assert biezaca.ended_at is None      # świeższa obsada zostaje na stanowisku
+
+
+def test_spozniony_start_nie_zabiera_pracownikowi_biezacej_sesji(client, app):
+    """
+    Na tablecie wisi sesja INNEGO pracownika, nowsza niż znacznik z kolejki.
+    Start jest wtedy spóźniony — i wolno mu tylko zapisać wiersz historyczny.
+
+    Dawniej domykał przy okazji wszystkie starsze kolizje, w tym sesję
+    WSKAZANEGO pracownika na jego własnym tablecie. Efekt: człowiek, który
+    stał przy TABLET-A i pracował, tracił sesję, nowej nie dostawał (bo
+    historyczna nie wchodzi na halę) i znikał z panelu "kto na hali".
+    """
+    tab_a = _token(app, device_id='TABLET-A')
+    tab_b = _token(app, device_id='TABLET-B')
+    beata, celina = _pracownicy(app, 2)
+    t = (get_local_now() - timedelta(hours=1)).replace(microsecond=0)
+
+    client.post('/api/mobile/sessions/start', headers=_naglowki(tab_a),
+                json={'worker_ids': [celina], 'session_group': 'A-celina',
+                      'started_at': _iso_apki(t)})
+    client.post('/api/mobile/sessions/start', headers=_naglowki(tab_b),
+                json={'worker_ids': [beata], 'session_group': 'B-beata',
+                      'started_at': _iso_apki(t + timedelta(minutes=5))})
+
+    # Z kolejki TABLET-B dochodzi wybór Celiny ze znacznikiem SPRZED Beaty.
+    odp = client.post('/api/mobile/sessions/start', headers=_naglowki(tab_b),
+                      json={'worker_ids': [celina], 'session_group': 'B-celina',
+                            'started_at': _iso_apki(t)})
+
+    assert odp.status_code == 200
+    with app.app_context():
+        otwarte = {s.session_group for s
+                   in ProductionWorkerSession.query.filter_by(ended_at=None).all()}
+        assert otwarte == {'A-celina', 'B-beata'}, 'spóźniony start ruszył obsadę'
+
+        historyczna = ProductionWorkerSession.query.filter_by(
+            session_group='B-celina').one()
+        assert historyczna.end_reason == 'replaced'
+        assert historyczna.ended_at == t + timedelta(minutes=5)
+
+
+def test_spozniony_start_po_zamknietej_sesji_nie_zaklada_widma(client, app):
+    """
+    Tablet był offline cały dzień. Zanim jego start dotarł, pracownik zdążył
+    przepracować dzień na innym tablecie i wyjść — jego sesje są ZAMKNIĘTE.
+
+    Wykrywanie spóźnienia patrzyło tylko na sesje OTWARTE, więc nie widziało
+    tu żadnej kolizji i zakładało wiersz OTWARTY WSTECZ: pracownik wracał na
+    panel "kto na hali" godziny po wyjściu z hali, z licznikiem lecącym dalej.
+    """
+    tab_a = _token(app, device_id='TABLET-A')
+    tab_b = _token(app, device_id='TABLET-B')
+    ids = _pracownicy(app, 1)
+    t = (get_local_now() - timedelta(hours=6)).replace(microsecond=0)
+    dzienna = t + timedelta(hours=2)
+
+    client.post('/api/mobile/sessions/start', headers=_naglowki(tab_b),
+                json={'worker_ids': ids, 'session_group': 'B-dzienna',
+                      'started_at': _iso_apki(dzienna)})
+    client.post('/api/mobile/sessions/end', headers=_naglowki(tab_b),
+                json={'session_group': 'B-dzienna', 'reason': 'manual',
+                      'ended_at': _iso_apki(get_local_now() - timedelta(hours=1))})
+
+    odp = client.post('/api/mobile/sessions/start', headers=_naglowki(tab_a),
+                      json={'worker_ids': ids, 'session_group': 'A-zalegla',
+                            'started_at': _iso_apki(t)})
+
+    assert odp.status_code == 200
+    assert odp.get_json()['superseded'] is True
+    with app.app_context():
+        assert ProductionWorkerSession.query.filter_by(ended_at=None).count() == 0
+        zalegla = ProductionWorkerSession.query.filter_by(session_group='A-zalegla').one()
+        assert zalegla.ended_at == dzienna
+        assert zalegla.duration_minutes == 120
+
+
+def test_start_z_poprzedniej_doby_domyka_sie_na_nocnym_cutoffie(client, app):
+    """
+    Start z wczoraj, którego nikt nie zastąpił (tablet offline od poprzedniego
+    dnia, pracownik dziś jeszcze nie siadł). Zostawiony otwarty pokazywałby
+    dziś kilkanaście godzin pracy. Domykamy go tam, gdzie domknąłby go cron.
+    """
+    token = _token(app)
+    ids = _pracownicy(app, 1)
+    wczoraj = (get_local_now() - timedelta(days=1)).replace(
+        hour=14, minute=0, second=0, microsecond=0)
+
+    odp = client.post('/api/mobile/sessions/start', headers=_naglowki(token),
+                      json={'worker_ids': ids, 'session_group': 'wczorajsza',
+                            'started_at': _iso_apki(wczoraj)})
+
+    assert odp.status_code == 200
+    with app.app_context():
+        sesja = ProductionWorkerSession.query.one()
+        assert sesja.is_open is False
+        assert sesja.end_reason == 'night_cutoff'
+        assert sesja.ended_at == datetime.combine(wczoraj.date(), time(23, 0))
+        assert sesja.work_date == wczoraj.date()
+
+
+def test_spozniony_end_koryguje_czas_ale_nie_powod(client, app):
+    """
+    'replaced' to nasze ZGADNIĘCIE końca ("do startu następczyni"). Gdy tablet
+    dosyła prawdziwą godzinę wyjścia, jest ona bliższa prawdzie — bez korekty
+    raport dopisywał człowiekowi cały czas między wyjściem a przejęciem profilu.
+
+    Powód zostaje 'replaced' — wymóg (c) zespołu mobilnego dotyczy POWODU.
+    """
+    tab_a = _token(app, device_id='TABLET-A')
+    tab_b = _token(app, device_id='TABLET-B')
+    ids = _pracownicy(app, 1)
+    rano = (get_local_now() - timedelta(hours=6)).replace(microsecond=0)
+    prawdziwy_koniec = rano + timedelta(hours=2)
+
+    client.post('/api/mobile/sessions/start', headers=_naglowki(tab_a),
+                json={'worker_ids': ids, 'session_group': 'A-rano',
+                      'started_at': _iso_apki(rano)})
+    client.post('/api/mobile/sessions/start', headers=_naglowki(tab_b),
+                json={'worker_ids': ids, 'session_group': 'B-po',
+                      'started_at': _iso_apki(rano + timedelta(hours=4))})
+
+    odp = client.post('/api/mobile/sessions/end', headers=_naglowki(tab_a),
+                      json={'session_group': 'A-rano', 'reason': 'manual',
+                            'ended_at': _iso_apki(prawdziwy_koniec)})
+
+    assert odp.status_code == 200
+    assert odp.get_json()['no_op'] is True      # domknięcia nie było, była korekta
+    with app.app_context():
+        sesja = ProductionWorkerSession.query.filter_by(session_group='A-rano').one()
+        assert sesja.end_reason == 'replaced'
+        assert sesja.ended_at == prawdziwy_koniec
+        assert sesja.duration_minutes == 120
+
+
+def test_spozniony_end_nie_wydluza_sesji_domknietej_przez_serwer(client, app):
+    """
+    Korekta działa TYLKO w dół, w oknie [started_at, obecny ended_at).
+    Koniec późniejszy niż przejęcie profilu oznaczałby, że pracownik był
+    w dwóch miejscach naraz — takiego cofnięcia nie robimy nigdy.
+    """
+    tab_a = _token(app, device_id='TABLET-A')
+    tab_b = _token(app, device_id='TABLET-B')
+    ids = _pracownicy(app, 1)
+    rano = (get_local_now() - timedelta(hours=6)).replace(microsecond=0)
+    przejecie = rano + timedelta(hours=2)
+
+    client.post('/api/mobile/sessions/start', headers=_naglowki(tab_a),
+                json={'worker_ids': ids, 'session_group': 'A-rano',
+                      'started_at': _iso_apki(rano)})
+    client.post('/api/mobile/sessions/start', headers=_naglowki(tab_b),
+                json={'worker_ids': ids, 'session_group': 'B-po',
+                      'started_at': _iso_apki(przejecie)})
+
+    client.post('/api/mobile/sessions/end', headers=_naglowki(tab_a),
+                json={'session_group': 'A-rano', 'reason': 'manual',
+                      'ended_at': _iso_apki(rano + timedelta(hours=5))})
+
+    with app.app_context():
+        sesja = ProductionWorkerSession.query.filter_by(session_group='A-rano').one()
+        assert sesja.ended_at == przejecie
+        assert sesja.end_reason == 'replaced'
+
+
+def test_powtorka_startu_tej_samej_grupy_nie_dubluje_sesji(client, app):
+    """
+    Retry z kolejki offline potrafi przyjść z innym X-Operation-Id (albo bez
+    niego), więc dekorator idempotencji tego nie złapie. Drugi komplet wierszy
+    dla tego samego UUID podwoiłby czas pracy w raporcie.
+    """
+    token = _token(app, device_id='TABLET-1')
+    ids = _pracownicy(app, 1)
+
+    pierwsza = client.post('/api/mobile/sessions/start',
+                           headers=_naglowki(token, operation_id='op-1'),
+                           json={'worker_ids': ids, 'session_group': 'ta-sama'})
+    druga = client.post('/api/mobile/sessions/start',
+                        headers=_naglowki(token, operation_id='op-2'),
+                        json={'worker_ids': ids, 'session_group': 'ta-sama'})
+
+    assert pierwsza.status_code == 200
+    assert druga.status_code == 200
+    assert druga.get_json()['session_group'] == 'ta-sama'
+    with app.app_context():
+        assert ProductionWorkerSession.query.count() == 1
+        assert ProductionWorkerSession.query.one().ended_at is None
+
+
+def test_akcje_z_kolejki_starego_tabletu_przechodza_po_przejeciu(client, app):
+    """
+    Wymóg (a) zespołu mobilnego: akcja jest przyjmowana na podstawie samego
+    X-Worker-Ids, BEZ otwartej sesji. Po przejęciu profilu w kolejce starego
+    tabletu leżą akcje wykonane wcześniej offline — odrzucenie ich ("brak
+    otwartej sesji") wróciłoby do apki jako BLOCKED i zatrzymało halę.
+    """
+    _ustaw_config(app, 'WORKER_SELECTION_REQUIRED', 'true')   # bramka WŁĄCZONA
+    token1 = _token(app, device_id='TABLET-1')
+    token2 = _token(app, device_id='TABLET-2')
+    ids = _pracownicy(app, 1)
+    produkt_id = _produkt(app, quantity=8)
+
+    client.post('/api/mobile/sessions/start', headers=_naglowki(token1),
+                json={'worker_ids': ids, 'session_group': 'stara'})
+    client.post('/api/mobile/sessions/start', headers=_naglowki(token2),
+                json={'worker_ids': ids, 'session_group': 'nowa'})
+
+    odp = client.post(f'/api/mobile/orders/{produkt_id}/complete',
+                      headers=_naglowki(token1, worker_ids=str(ids[0])), json={})
+
+    assert odp.status_code == 200
+    with app.app_context():
+        event = ProductionStationEvent.query.filter_by(station_code='gluing').one()
+        atrybucja = ProductionStationEventWorker.query.one()
+        assert atrybucja.worker_id == ids[0]
+        assert atrybucja.event_id == event.id
+        assert str(atrybucja.share) == '1.000000'
+        # Sesja na TABLECIE-1 jest już domknięta, więc atrybucja nie wskazuje
+        # żadnej — praca liczy się po worker_id i nie ginie.
+        assert atrybucja.session_id is None
+        # Domknięta sesja NIE ożywa przy spóźnionej akcji.
+        stara = ProductionWorkerSession.query.filter_by(session_group='stara').one()
+        assert stara.ended_at is not None
+
+
+# ============================================================================
+# KONTRAKT PRZEWODOWY SESJI (kształt JSON, kody, nagłówki)
+#
+# Pisma zespołu mobilnego z 11.08.2026 + kod klienta (crm_prod_app):
+#   ActiveSessionResponseDto  — {session_group, worker_ids, started_at}
+#   SyncQueueDrainer          — 2xx = Success, 4xx = wpis wypada z kolejki
+#                               albo czeka na interwencję biura
+#   CrmApi.getActiveSession   — @Headers("Cache-Control: no-store")
+#
+# Te testy pilnują KSZTAŁTU, nie logiki — logika sesji wyżej. Rozjazd kształtu
+# nie wysypie apki (ignoreUnknownKeys), tylko po cichu da wartości domyślne
+# z DTO: pusta lista pracowników i null zamiast grupy.
+# ============================================================================
+
+def test_active_ma_pola_kontraktu_na_poziomie_glownym(client, app):
+    """
+    worker_ids i started_at MUSZĄ leżeć obok session_group, nie w sessions[].
+    Apka czyta wyłącznie poziom główny — zagnieżdżone widzi jako brak danych.
+    """
+    token = _token(app)
+    ids = _pracownicy(app, 1)
+    client.post('/api/mobile/sessions/start', headers=_naglowki(token),
+                json={'worker_ids': ids, 'session_group': 'kontrakt-1'})
+
+    dane = client.get('/api/mobile/sessions/active',
+                      headers=_naglowki(token)).get_json()
+
+    assert dane['session_group'] == 'kontrakt-1'
+    assert dane['worker_ids'] == ids
+    assert isinstance(dane['started_at'], str) and dane['started_at']
+    # Pola dodatkowe zostają — panel i diagnostyka z nich korzystają, a apka
+    # je ignoruje (ignoreUnknownKeys = true w NetworkModule).
+    assert dane['sessions'][0]['worker_name'] == 'Imie0 Nazwisko0'
+    assert dane['station_code'] == 'gluing'
+    assert dane['idle_timeout_minutes'] == 120
+
+
+def test_active_bez_sesji_ma_pelny_ksztalt_a_nie_puste_cialo(client, app):
+    """Brak sesji to 200 z session_group: null — nie 404 i nie {}."""
+    token = _token(app)
+
+    odp = client.get('/api/mobile/sessions/active', headers=_naglowki(token))
+
+    assert odp.status_code == 200
+    dane = odp.get_json()
+    assert dane['session_group'] is None
+    assert dane['worker_ids'] == []
+    assert dane['started_at'] is None
+    # Klucze kontraktu są ZAWSZE, także w stanie pustym — apka nie musi
+    # rozróżniać "null" od "brak pola".
+    assert {'session_group', 'worker_ids', 'started_at'} <= set(dane)
+
+
+def test_active_nie_wolno_cachowac(client, app):
+    """
+    Odpowiedź "sesja nadal Twoja" przetrzymana w cache = tablet, który po
+    przejęciu profilu dalej podpisuje pracę cudzym nazwiskiem. Endpoint
+    celowo NIE używa cached_json (ETag + max-age=15 jak /workers).
+    """
+    token = _token(app)
+
+    odp = client.get('/api/mobile/sessions/active', headers=_naglowki(token))
+
+    assert odp.headers['Cache-Control'] == 'no-store'
+    assert 'max-age' not in odp.headers['Cache-Control']
+    assert odp.headers.get('ETag') is None
+
+
+def test_active_oddaje_najnowsza_grupe_gdy_urzadzenie_ma_widmo(client, app):
+    """
+    Dane zastane: sesja otwarta sprzed wdrożenia wariantu A wisi na tym samym
+    urządzeniu. get_active_sessions() sortuje rosnąco, więc branie sesje[0]
+    oddawało apce grupę NAJSTARSZĄ — tablet trzymałby się widma.
+    """
+    token = _token(app, device_id='TABLET-1')
+    ids = _pracownicy(app, 2)
+
+    with app.app_context():
+        wczoraj = get_local_now() - timedelta(hours=20)
+        db.session.add(ProductionWorkerSession(
+            worker_id=ids[1], station_code='gluing', device_id='TABLET-1',
+            session_group='widmo', started_at=wczoraj, last_activity_at=wczoraj,
+            work_date=wczoraj.date(), source='mobile'))
+        db.session.commit()
+
+    client.post('/api/mobile/sessions/start', headers=_naglowki(token),
+                json={'worker_ids': [ids[0]], 'session_group': 'biezaca'})
+
+    dane = client.get('/api/mobile/sessions/active',
+                      headers=_naglowki(token)).get_json()
+
+    assert dane['session_group'] == 'biezaca'
+    assert dane['worker_ids'] == [ids[0]]
+    assert len(dane['sessions']) == 1      # widmo nie doklejone do listy
+
+
+def test_start_zwraca_200_takze_przy_kolizji(client, app):
+    """
+    Kontrakt mówi 200 dla każdego przyjętego startu. Klient klasyfikuje całe
+    2xx jako Success (classifySyncOutcome), więc zmiana z 201 nic mu nie robi —
+    ale usuwa rozjazd z dokumentem, na którym oprze się ich test kontraktowy.
+    """
+    token1 = _token(app, device_id='TABLET-1')
+    token2 = _token(app, device_id='TABLET-2')
+    ids = _pracownicy(app, 1)
+
+    pierwszy = client.post('/api/mobile/sessions/start', headers=_naglowki(token1),
+                           json={'worker_ids': ids, 'session_group': 'a'})
+    kolizja = client.post('/api/mobile/sessions/start', headers=_naglowki(token2),
+                          json={'worker_ids': ids, 'session_group': 'b'})
+
+    assert pierwszy.status_code == 200
+    assert kolizja.status_code == 200
+    # Kod HTTP nie niesie już informacji "otwarto czy nie" — niesie ją flaga.
+    assert pierwszy.get_json()['superseded'] is False
+    assert kolizja.get_json()['superseded'] is False
+    # Start oddaje ten sam komplet pól co /sessions/active (nadzbiór).
+    assert kolizja.get_json()['worker_ids'] == ids
+    assert kolizja.get_json()['session_group'] == 'b'
+
+
+def test_end_dla_sesji_domknietej_przez_serwer_jest_no_opem(client, app):
+    """
+    Spóźniony end z kolejki offline dla grupy, którą serwer domknął jako
+    'replaced'. Ma być 200 i NIE MOŻE nadpisać powodu — inaczej raport
+    pokazałby ręczne zakończenie zamiast przejęcia profilu.
+    """
+    token1 = _token(app, device_id='TABLET-1')
+    token2 = _token(app, device_id='TABLET-2')
+    ids = _pracownicy(app, 1)
+
+    client.post('/api/mobile/sessions/start', headers=_naglowki(token1),
+                json={'worker_ids': ids, 'session_group': 'przejeta'})
+    client.post('/api/mobile/sessions/start', headers=_naglowki(token2),
+                json={'worker_ids': ids, 'session_group': 'przejmujaca'})
+
+    odp = client.post('/api/mobile/sessions/end', headers=_naglowki(token1),
+                      json={'session_group': 'przejeta', 'reason': 'manual'})
+
+    assert odp.status_code == 200
+    assert odp.get_json()['no_op'] is True
+    assert odp.get_json()['closed'] == 0
+    with app.app_context():
+        sesja = ProductionWorkerSession.query.filter_by(
+            session_group='przejeta').one()
+        assert sesja.end_reason == 'replaced'
+
+
+def test_end_nieznanej_grupy_jest_no_opem_a_nie_404(client, app):
+    """
+    end potrafi dojść przed swoim startem (jedna kolejka offline, inna
+    kolejność wysyłki). 404 klasyfikowało się u klienta jako Rejected: wpis
+    wypadał z kolejki i liczył się jako błąd sesji.
+    """
+    token = _token(app)
+
+    odp = client.post('/api/mobile/sessions/end', headers=_naglowki(token),
+                      json={'session_group': 'nigdy-nie-istniala',
+                            'reason': 'manual'})
+
+    assert odp.status_code == 200
+    assert odp.get_json()['no_op'] is True
+    with app.app_context():
+        # No-op nie zakłada wierszy "na wszelki wypadek".
+        assert ProductionWorkerSession.query.count() == 0
+
+
+def test_end_zwraca_cialo_json_a_nie_puste_204(client, app):
+    """
+    Apka deklaruje Response<Unit>, więc ciało jest jej obojętne — ale przy
+    200 konwerter kotlinx MUSI mieć co sparsować. Puste ciało poszłoby jako
+    SerializationException, czyli wpis wracałby do kolejki jako Transient
+    i mielił się do MAX_RETRIES.
+    """
+    token = _token(app)
+    ids = _pracownicy(app, 1)
+    client.post('/api/mobile/sessions/start', headers=_naglowki(token),
+                json={'worker_ids': ids, 'session_group': 'g'})
+
+    odp = client.post('/api/mobile/sessions/end', headers=_naglowki(token),
+                      json={'session_group': 'g', 'reason': 'manual'})
+
+    assert odp.status_code == 200
+    assert odp.headers['Content-Type'].startswith('application/json')
+    assert odp.data.strip()                     # 204 dawało tu pusty bajt-string
+    assert isinstance(odp.get_json(), dict)
+
+
+def test_end_powtorzony_z_tym_samym_operation_id_oddaje_200_z_cialem(client, app):
+    """
+    Replay idempotencji odtwarza ZAPAMIĘTANY status i ciało. Przy 204 zapisywał
+    się pusty string, a przy 404 (nieznana grupa) — trwałe 404 pod tym
+    X-Operation-Id, bez szansy na ponowienie.
+    """
+    token = _token(app)
+    ids = _pracownicy(app, 1)
+    client.post('/api/mobile/sessions/start', headers=_naglowki(token),
+                json={'worker_ids': ids, 'session_group': 'g'})
+    naglowki = _naglowki(token, operation_id='op-end-77')
+
+    pierwszy = client.post('/api/mobile/sessions/end', headers=naglowki,
+                           json={'session_group': 'g', 'reason': 'manual'})
+    replay = client.post('/api/mobile/sessions/end', headers=naglowki,
+                         json={'session_group': 'g', 'reason': 'manual'})
+
+    assert pierwszy.status_code == 200
+    assert replay.status_code == 200
+    assert replay.get_json() == pierwszy.get_json()
 
 
 # ============================================================================

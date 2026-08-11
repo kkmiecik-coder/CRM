@@ -18,6 +18,7 @@ from modules.production.utils.cache import (
     cached_json,
     if_none_match,
     make_weak_etag,
+    no_store_json,
     not_modified,
 )
 from modules.production.services import label_print_service, worker_service
@@ -31,6 +32,7 @@ from modules.production.services.mobile_api_service import (
     get_app_version_info,
     get_station_queue_delta,
     mark_order_complete,
+    parse_client_local_ts,
     parse_since_ts,
     register_device,
     require_device_token,
@@ -763,26 +765,115 @@ def workers_catalog():
     recent_on_station liczone dla stanowiska z JWT urządzenia — zasila sekcję
     "szybki wybór".
 
-    ETag: catalog_version = MAX(updated_at) z katalogu. Apka wysyła
-    If-None-Match przy starcie i przy pustej zmianie dostaje 304.
+    ETag — JEDEN string w dwóch miejscach. Apka wysyła jako If-None-Match nie
+    nagłówek ETag, tylko POLE `catalog_version` z ciała (WorkerRepositoryImpl:
+    `configStore.catalogVersion()`, zapisywane z `body.catalogVersion`).
+    Dopóki były to różne stringi, warunkowy GET NIGDY nie trafiał: tablet
+    dostawał 200 z pełnym katalogiem przy każdym starcie i przy każdym
+    odświeżeniu. Dlatego `catalog_version` = dokładnie ta wartość, którą
+    wystawiamy w nagłówku.
+
+    W ETag wchodzą TRZY rzeczy:
+      1. station_code z JWT — recent_on_station jest per stanowisko;
+      2. MAX(prod_workers.updated_at) — zmiana katalogu (dodanie, edycja,
+         dezaktywacja pracownika);
+      3. odcisk WARTOŚCI konfiguracji: selection_required, idle_timeout_minutes,
+         night_cutoff, quick_pick_count.
+
+    Punkt 3 liczymy z tego, co idzie w ciele, a nie z MAX(prod_config
+    .updated_at) — patrz get_config_fingerprint(). Plus wymuszenie świeżości
+    konfiguracji w tym procesie (odswiez_konfiguracje_jesli_nieaktualna),
+    inaczej kill-switch zmieniony z panelu obsługiwanego przez inny proces
+    Passengera nie dojechałby na tablety.
     """
     station_code = g.device.station_code
 
-    # catalog_version to MAX(prod_workers.updated_at), a payload niesie też
-    # selection_required / idle_timeout_minutes / night_cutoff / quick_pick_count
-    # z prod_config. Bez segmentu konfiguracji zmiana samego przełącznika nie
-    # unieważnia ETag i tablet (OkHttp) dostaje 304 ze starym ustawieniem —
-    # ten sam błąd naprawiono wcześniej w /stations/<code>/summary.
-    config_max_updated = db.session.query(func.max(ProductionConfig.updated_at)).scalar()
-    config_etag_ts = int(config_max_updated.timestamp()) if config_max_updated else 0
+    worker_service.odswiez_konfiguracje_jesli_nieaktualna()
 
     etag = make_weak_etag('workers', station_code,
-                          worker_service.get_catalog_version(), config_etag_ts)
+                          worker_service.get_catalog_version(),
+                          worker_service.get_config_fingerprint())
     if if_none_match(etag):
         return not_modified(etag)
 
-    katalog = worker_service.build_mobile_catalog(station_code=station_code)
+    katalog = worker_service.build_mobile_catalog(station_code=station_code,
+                                                  catalog_version=etag)
     return cached_json(katalog, etag)
+
+
+def _kontrakt_sesji(sesje):
+    """
+    Trzy pola KONTRAKTU PRZEWODOWEGO sesji — na POZIOMIE GŁÓWNYM odpowiedzi:
+
+        {"session_group": "...", "worker_ids": [1], "started_at": "..."}
+
+    Dokładnie tego szuka apka: `ActiveSessionResponseDto` ma te trzy pola
+    i nic więcej, a `RouterViewModel` porównuje `session_group` z lokalnym,
+    żeby wykryć przejęcie profilu. Zagnieżdżenie ich w `sessions[]` (jak było)
+    znaczyło, że tablet czytał `worker_ids` = pustą listę z domyślnej wartości
+    DTO, choć sesja istniała.
+
+    Pola diagnostyczne (nazwiska, kolory, stanowisko) dokładamy OBOK, nie
+    zamiast — apka ma `ignoreUnknownKeys = true`, więc nadmiar jej nie boli,
+    a panel i podgląd ruchu z tabletu na nim stoją.
+
+    Pusta lista → session_group: null + worker_ids: [] (nie brak klucza):
+    kontrakt mówi wprost „przy braku sesji 200 z session_group: null", a stały
+    zestaw kluczy oszczędza apce gałęzi na null vs. brak pola.
+    """
+    if not sesje:
+        return {'session_group': None, 'worker_ids': [], 'started_at': None}
+
+    return {
+        'session_group': sesje[0].session_group,
+        'worker_ids': [s.worker_id for s in sesje],
+        'started_at': sesje[0].started_at.isoformat() if sesje[0].started_at else None,
+    }
+
+
+def _biezaca_grupa(sesje):
+    """
+    Z otwartych sesji urządzenia zostawia NAJNOWSZĄ grupę.
+
+    Po wariancie A urządzenie ma normalnie jedną otwartą grupę, ale dane
+    zastane (sesje sprzed wdrożenia, domykane dopiero przy kolejnym starcie
+    albo przez cron) potrafią zostawić dwie. Wtedy `session_group` musi
+    wskazywać tę, przy której ktoś faktycznie stoi — get_active_sessions()
+    sortuje rosnąco, więc branie `sesje[0]` oddawało apce grupę NAJSTARSZĄ,
+    czyli widmo.
+    """
+    if not sesje:
+        return []
+    najnowsza = max(sesje, key=lambda s: (s.started_at, s.id)).session_group
+    return [s for s in sesje if s.session_group == najnowsza]
+
+
+def _odpowiedz_startu(sesje, superseded=False):
+    """
+    Ciało odpowiedzi /sessions/start. Ten sam kształt dla startu udanego
+    i dla spóźnionego — apka ma jeden parser, a różnicę widzi po fladze
+    `superseded`.
+
+    Kształt jest NADZBIOREM /sessions/active (te same trzy pola kontraktu
+    plus `sessions[]` i `expires_at`), żeby obie odpowiedzi dały się czytać
+    jednym DTO.
+    """
+    dane = _kontrakt_sesji(sesje)
+    dane.update({
+        'sessions': [
+            {'id': s.id, 'worker_id': s.worker_id, 'started_at': s.started_at.isoformat()}
+            for s in sesje
+        ],
+        'expires_at': None,
+        # Zawsze obecne (nie tylko przy True) — stały zestaw kluczy pozwala
+        # apce czytać flagę bez rozróżniania null/brak.
+        'superseded': bool(superseded),
+    })
+    if sesje:
+        wygasa = sesje[0].started_at + timedelta(
+            minutes=worker_service.get_idle_timeout_minutes())
+        dane['expires_at'] = wygasa.isoformat()
+    return dane
 
 
 @mobile_api_bp.route('/sessions/start', methods=['POST'])
@@ -799,12 +890,28 @@ def session_start():
         started_at: ISO8601       opcjonalne — sesja mogła zacząć się offline
     }
 
-    UWAGA na strefę: started_at bez offsetu jest czytany jako UTC (parse_since_ts,
-    ta sama konwencja co delta sync). Apka musi wysyłać ISO z offsetem albo z 'Z',
-    inaczej sesja zapisze się przesunięta o różnicę stref.
+    STREFA: started_at bez offsetu jest czytany jako CZAS LOKALNY
+    (parse_client_local_ts) — tak samo jak measured_at trakowni i dokładnie tak,
+    jak apka to wysyła (SyncQueueDrainer.toLocalIso). Offset, gdy przyjdzie,
+    jest przeliczany. Do 08.2026 szedł tu parse_since_ts, który naive czytał
+    jako UTC i przesuwał każdą sesję o offset strefy.
 
-    Poprzednie sesje TEGO urządzenia są domykane z end_reason='replaced' —
-    zmiana obsady to koniec poprzedniej sesji, nie jej modyfikacja.
+    Domykane z end_reason='replaced' są poprzednie sesje TEGO urządzenia
+    (zmiana obsady na tablecie) ORAZ sesje WSKAZANYCH pracowników wiszące na
+    innych tabletach (wariant A: przejęcie profilu, jeden pracownik = jedna
+    sesja). Kolizja NIE jest błędem — nigdy nie odpowiadamy 409, bo w kolejce
+    offline 4xx oznacza wpis do interwencji biura i zatrzymuje synchronizację.
+
+    Kod: ZAWSZE 200 dla żądania przyjętego — także przy kolizji (przejęcie
+    profilu) i przy starcie spóźnionym. Wcześniej udany start dawał 201.
+    Zmiana jest czysto kontraktowa: dokument mobilny mówi 200, a klient
+    (SyncQueueDrainer.throwIfError → Response.isSuccessful, classifySyncOutcome
+    `200..299 -> Success`) traktuje całe 2xx tak samo, więc nic po drodze się
+    nie psuje. Zostawienie 201 utrzymywałoby rozjazd z dokumentem, o który
+    prędzej czy później rozbije się kontraktowy test po ich stronie.
+
+    Czy sesja została OTWARTA, mówi pole `superseded` w ciele (false = otwarta,
+    true = zaksięgowana jako historyczna), a nie kod HTTP.
 
     Idempotency: powtórka z tym samym X-Operation-Id zwraca zapisaną odpowiedź,
     nie zakłada drugiego kompletu sesji.
@@ -828,7 +935,7 @@ def session_start():
     started_at = None
     if data.get('started_at'):
         try:
-            started_at = parse_since_ts(data['started_at'])
+            started_at = parse_client_local_ts(data['started_at'])
         except ValueError as e:
             return jsonify({'error': 'invalid_started_at', 'detail': str(e)}), 422
 
@@ -844,18 +951,18 @@ def session_start():
     except WorkerError as e:
         return _worker_error_response(e)
 
-    pierwsza = sesje[0]
-    wygasa = pierwsza.started_at + timedelta(
-        minutes=worker_service.get_idle_timeout_minutes())
+    if not sesje[0].is_open:
+        # SPÓŹNIONY START: obsadę przejęła w międzyczasie nowsza sesja, więc
+        # żądanie zostało zaksięgowane jako sesja historyczna (już domknięta)
+        # i NIE wróciło na halę. Oddajemy stan BIEŻĄCY tego urządzenia (ten
+        # sam, który za chwilę pokaże /sessions/active), żeby tablet od razu
+        # wiedział, że jego grupa jest nieaktualna i wrócił na bramkę. Pusty
+        # stan = session_group: null, dokładnie jak w /sessions/active.
+        biezace = _biezaca_grupa(
+            worker_service.get_active_sessions(device_id=g.device.device_id))
+        return jsonify(_odpowiedz_startu(biezace, superseded=True)), 200
 
-    return jsonify({
-        'session_group': pierwsza.session_group,
-        'sessions': [
-            {'id': s.id, 'worker_id': s.worker_id, 'started_at': s.started_at.isoformat()}
-            for s in sesje
-        ],
-        'expires_at': wygasa.isoformat(),
-    }), 201
+    return jsonify(_odpowiedz_startu(sesje)), 200
 
 
 @mobile_api_bp.route('/sessions/end', methods=['POST'])
@@ -871,6 +978,26 @@ def session_end():
     egzekwuje timeouty lokalnie, żeby UX był natychmiastowy, i raportuje powód —
     serwer go przyjmuje zamiast nadpisywać własnym. 'replaced' i 'admin'
     ustawia wyłącznie backend, więc przysłane z tabletu dają 422.
+
+    ZAWSZE 200 dla poprawnego żądania — również gdy grupa jest już domknięta
+    albo w ogóle nie istnieje w bazie. To nie jest kosmetyka kodów:
+
+    - end potrafi przyjść Z KOLEJKI OFFLINE dla sesji, którą serwer domknął
+      sam jako 'replaced' (przejęcie profilu). Wcześniejsze 404 klasyfikowało
+      się u nich jako Rejected — wpis znikał z kolejki i zliczał się jako błąd
+      sesji, choć nic złego się nie stało;
+    - 404 było przy tym ZAPAMIĘTYWANE przez @with_idempotency (ten dekorator
+      zapisuje 4xx), więc powtórka z tym samym X-Operation-Id dostawała 404
+      z bazy, bez wywołania handlera — na zawsze.
+
+    Odpowiadamy JSON-em, nie 204: przy 204 Werkzeug usuwa ciało, a apka
+    deklaruje `Response<Unit>` — czyli ciało i tak jest jej obojętne. Ale 200
+    Z PUSTYM ciałem wywróciłoby konwerter kotlinx (SerializationException →
+    wpis wraca do kolejki jako Transient), więc skoro przechodzimy na 200,
+    ciało MUSI być poprawnym obiektem JSON.
+
+    Domknięta sesja NIE dostaje nadpisanego end_reason — ProductionWorkerSession
+    .close() jest idempotentne, więc spóźniony 'manual' nie zamaże 'replaced'.
     """
     data = request.get_json(silent=True) or {}
 
@@ -881,12 +1008,12 @@ def session_end():
     ended_at = None
     if data.get('ended_at'):
         try:
-            ended_at = parse_since_ts(data['ended_at'])
+            ended_at = parse_client_local_ts(data['ended_at'])
         except ValueError as e:
             return jsonify({'error': 'invalid_ended_at', 'detail': str(e)}), 422
 
     try:
-        worker_service.end_session(
+        _, domkniete = worker_service.end_session(
             session_group,
             ended_at=ended_at,
             reason=(data.get('reason') or 'manual'),
@@ -896,7 +1023,14 @@ def session_end():
     except WorkerError as e:
         return _worker_error_response(e)
 
-    return '', 204
+    return jsonify({
+        'session_group': session_group,
+        'closed': domkniete,
+        # true = nie było czego domykać (grupa nieznana albo już zamknięta).
+        # Apka tego nie czyta, ale w logach ruchu odróżnia realne zamknięcie
+        # od spóźnionego echa kolejki.
+        'no_op': domkniete == 0,
+    }), 200
 
 
 @mobile_api_bp.route('/sessions/active', methods=['GET'])
@@ -905,14 +1039,24 @@ def sessions_active():
     """
     GET /api/mobile/sessions/active
 
-    Otwarte sesje TEGO urządzenia. Apka woła to po restarcie albo crashu, żeby
-    nie zmuszać brygady do ponownego wybierania profili.
-    """
-    sesje = worker_service.get_active_sessions(device_id=g.device.device_id)
+    Otwarta sesja TEGO urządzenia (device_id z JWT — nigdy per pracownik ani
+    globalnie). Apka woła to po restarcie/crashu, żeby nie zmuszać do ponownego
+    wyboru profilu, ORAZ pollingiem co 60 s, żeby wykryć, że serwer domknął jej
+    sesję (przejęcie profilu na innym tablecie albo cron).
 
-    return jsonify({
+    Kontrakt: 200 zawsze — przy braku sesji session_group: null i worker_ids: []
+    (nie 404 i nie puste ciało; apka toleruje warianty, ale ustalony jest ten).
+
+    Bez cache: patrz no_store_json(). Endpoint ŚWIADOMIE nie używa cached_json —
+    ETag + max-age byłyby tu szkodliwe, bo cała wartość odpowiedzi polega na
+    tym, że jest świeża.
+    """
+    sesje = _biezaca_grupa(
+        worker_service.get_active_sessions(device_id=g.device.device_id))
+
+    dane = _kontrakt_sesji(sesje)
+    dane.update({
         'station_code': g.device.station_code,
-        'session_group': sesje[0].session_group if sesje else None,
         'idle_timeout_minutes': worker_service.get_idle_timeout_minutes(),
         'sessions': [
             {
@@ -928,4 +1072,5 @@ def sessions_active():
             }
             for s in sesje
         ],
-    }), 200
+    })
+    return no_store_json(dane)
