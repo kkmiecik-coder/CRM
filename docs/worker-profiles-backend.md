@@ -473,16 +473,61 @@ POST /api/mobile/sessions/start
 ```
 
 1. Walidacja: wszystkie `worker_ids` istnieją i mają `is_active = 1`
-2. **Domknięcie poprzednich sesji tego urządzenia** — `end_reason = 'replaced'`
-   (zmiana obsady = koniec poprzedniej sesji, nie jej modyfikacja)
+2. **Domknięcie sesji kolidujących** — `end_reason = 'replaced'`. Kolidujące to suma
+   dwóch zakresów:
+   - sesje **tego urządzenia** (zmiana obsady = koniec poprzedniej sesji, nie jej
+     modyfikacja),
+   - sesje **wskazanych pracowników na dowolnym urządzeniu** — wariant A kolizji
+     (decyzja zespołu mobilnego z 11.08.2026: jeden tablet = jeden pracownik, więc
+     jeden pracownik = maksymalnie jedna otwarta sesja). Przejęcie profilu na drugim
+     tablecie **nie jest błędem** — nigdy nie odpowiadamy 409, bo w kolejce offline
+     4xx oznacza wpis do interwencji biura i zatrzymuje synchronizację.
 3. `session_group` bierzemy **z requestu** — apka zawsze generuje UUID lokalnie, bo sesja
    startuje offline i `sessionGroup` jest kluczem głównym encji w Room. Serwer generuje
    własny UUID **wyłącznie** dla sesji zakładanych z panelu CRM.
+   Gdy grupa z requestu **jest już otwarta**, żądanie jest no-opem (retry z kolejki
+   offline potrafi przyjść z innym `X-Operation-Id`, więc dekorator idempotencji go
+   nie złapie, a drugi komplet wierszy podwoiłby czas pracy w raporcie).
 4. Insert N wierszy: `started_at`, `last_activity_at = started_at`, `work_date = DATE(started_at)`
-5. Aktualizacja `prod_devices.last_worker_session_at`
+5. Aktualizacja `prod_devices.last_worker_session_at` — **tylko przy realnym
+   otwarciu sesji i tylko do przodu**. To znacznik „kiedy ostatnio ktoś siadł do
+   tego tabletu", a nie „kiedy przyszło ostatnie żądanie", więc start spóźniony
+   go nie rusza i nie cofa
 
 `started_at` przyjmujemy **z klienta** (sesja mogła się zacząć offline), ale przycinamy
 do `min(client_ts, now)` — nie akceptujemy przyszłości.
+
+**Spóźniony start.** Start jest spóźniony, gdy istnieje sesja NOWSZA niż jego
+`started_at`. Sprawdzamy to na dwóch zbiorach naraz:
+
+1. **otwarte kolizje** — sesje tego urządzenia i wskazanych pracowników. To jest
+   reguła kolejności z pisma zespołu mobilnego: świeża obsada tabletu wygrywa
+   z wpisem, który przyszedł z kolejki;
+2. **sesje wskazanych pracowników, także ZAMKNIĘTE**. Sesja domknięta
+   w międzyczasie (brygadzista z panelu, nocny cron) też dowodzi, że pracownik
+   poszedł dalej — a wśród otwartych jej nie widać. Bez tego punktu start
+   z tabletu offline od rana zakładał wiersz **otwarty wstecz** i pracownik
+   wracał na panel „kto na hali" godziny po wyjściu z hali.
+
+Obsady wtedy **nie cofamy** i **nie domykamy niczego**. Żądanie zapisujemy jako
+sesję **historyczną** — od razu domkniętą `replaced` z `ended_at = started_at`
+następczyni — i odpowiadamy stanem bieżącym urządzenia (`superseded: true`; przy
+braku otwartej sesji `session_group: null`, tak jak `/sessions/active`). Powody:
+- odrzucenie (4xx) zablokowałoby kolejkę offline tabletu,
+- domknięcie nowszej sesji czasem sprzed jej startu dawało `ended_at < started_at`,
+  czyli ujemny czas pracy w panelu,
+- pominięcie wpisu gubiłoby czas pracy: akcje z tej samej kolejki i tak wchodzą
+  (idą po `X-Worker-Ids`), więc raport miałby sztuki bez minut i tempo w kosmosie.
+
+> Domykanie kolizji na ścieżce spóźnionej było błędem: gdy na tablecie wisiała
+> sesja INNEGO pracownika (nowsza), wskazany pracownik tracił sesję, którą realnie
+> miał na swoim tablecie, nowej nie dostawał — bo historyczna nie wchodzi na halę —
+> i znikał z panelu „kto na hali" z zerem sesji.
+
+**Start z poprzedniej doby**, którego nikt nie zastąpił (tablet offline od
+wczoraj), domykamy na **nocnym cutoffie jego doby** z powodem `night_cutoff` —
+tą samą regułą, którą stosuje `close_stale_sessions`. Zostawiony otwarty
+pokazywałby dziś kilkanaście godzin pracy.
 
 ### 5.2 Przedłużanie
 
@@ -497,7 +542,7 @@ Skutek uboczny, który jest tu zaletą: pracownik, który stoi i nic nie robi pr
 | Powód | Kto zamyka | Kiedy |
 |---|---|---|
 | `manual` | apka / panel | Pracownik klika „Zmień pracownika" lub „Zakończ" |
-| `replaced` | backend | Nowa sesja na tym samym `device_id` |
+| `replaced` | backend | Nowa sesja na tym samym `device_id` **albo dla tego samego `worker_id` na innym urządzeniu** (przejęcie profilu, wariant A) |
 | `idle_timeout` | **cron** | `last_activity_at < now - WORKER_SESSION_IDLE_TIMEOUT_MINUTES` |
 | `night_cutoff` | **cron** | Po `WORKER_SESSION_NIGHT_CUTOFF` |
 | `admin` | panel CRM | Ręczne domknięcie przez brygadzistę |
@@ -560,7 +605,7 @@ Authorization: Bearer <JWT>
 
 ```json
 {
-  "catalog_version": "2026-08-11T09:14:22",
+  "catalog_version": "W/\"workers:gluing:2026-08-11T09:14:22:faabdc81b3b5\"",
   "quick_pick_count": 8,
   "selection_required": true,
   "idle_timeout_minutes": 120,
@@ -583,8 +628,26 @@ Authorization: Bearer <JWT>
 
 - `recent_on_station` — czy pracował na stanowisku z JWT w ciągu ostatnich 7 dni;
   apka używa tego do sekcji „szybki wybór"
-- `catalog_version` — `MAX(updated_at)` z `prod_workers`; obsługa `ETag` / `If-None-Match`,
-  żeby apka nie ciągnęła listy przy każdym starcie
+- `catalog_version` — **dokładnie ten sam string, który idzie w nagłówku `ETag`**.
+  Apka NIE echuje nagłówka: wysyła jako `If-None-Match` pole `catalog_version`
+  z ciała (`WorkerRepositoryImpl`: `configStore.catalogVersion()` zapisywane
+  z `body.catalogVersion`). Do 08.2026 były to dwa różne stringi, więc warunkowy
+  GET nie trafiał NIGDY — tablet ciągnął pełny katalog przy każdym odświeżeniu,
+  a gałąź `CatalogRefresh.NOT_MODIFIED` była martwa.
+
+  W ETag wchodzą trzy rzeczy: `station_code` z JWT (bo `recent_on_station` jest
+  per stanowisko), `MAX(prod_workers.updated_at)` i **odcisk WARTOŚCI
+  konfiguracji** (`selection_required`, `idle_timeout_minutes`, `night_cutoff`,
+  `quick_pick_count`). Odcisk liczymy z wartości, nie z `MAX(prod_config
+  .updated_at)`: znacznik ma rozdzielczość sekundy (dwie zmiany w tej samej
+  sekundzie dawały ten sam ETag, czyli drugą nieosiągalną dla tabletu), a kolumna
+  jest `datetime NULL` bez `ON UPDATE`, więc zmiana surowym SQL-em go nie ruszała.
+
+  Przed złożeniem ETagu wołamy `odswiez_konfiguracje_jesli_nieaktualna()`:
+  Passenger trzyma kilka procesów, każdy z 60-minutowym cache konfiguracji
+  invalidowanym tylko tam, gdzie wykonano `set_config`. Bez tego proces
+  serwujący tablety oddawał NOWY ETag ze STARĄ wartością kill-switcha, tablet
+  ją zapisywał i od następnego żądania dostawał `304`.
 - Zwracamy **tylko** `is_active = 1`
 - `avatar_url` musi być **pełnym URL-em**, nie ścieżką root-relative. `BASE_URL` w apce
   kończy się na `/api/mobile/` (`NetworkModule.kt:135`), więc `/static/...` by się nie
@@ -612,20 +675,68 @@ X-Operation-Id: <UUID>
 }
 ```
 
-Odpowiedź `201`:
+> **STREFA CZASOWA — `started_at` i `ended_at`.** Znacznik **bez offsetu to CZAS
+> LOKALNY** (Europe/Warsaw), czyli dokładnie to, co wysyła apka
+> (`SyncQueueDrainer.toLocalIso()` → `ISO_LOCAL_DATE_TIME`), i ta sama konwencja
+> co `measured_at` trakowni. Offset, gdy przyjdzie, jest przeliczany na czas
+> lokalny — obie formy są poprawne.
+>
+> Do 08.2026 szedł tu `parse_since_ts`, który naive czytał jako **UTC**. Skutek
+> był systematyczny, nie brzegowy: każda sesja z kolejki offline zapisywała się
+> 1-2 h za późno, czas pracy w raporcie był o tyle samo zaniżony, `ended_at`
+> potrafił wylądować w przyszłości, a start po 22:00 wpadał do następnej doby
+> raportowej (`work_date`). Przy tablecie ONLINE błąd był NIEWIDOCZNY, bo
+> `min(started_at, now)` przycinał wynik do „teraz".
+>
+> `parse_since_ts` zostaje bez zmian dla `since` w delta sync — tam klient odsyła
+> wartość, którą sam dostał od serwera (z `Z`), i to jest kursor, nie moment
+> zdarzenia.
+>
+> Przyszłość powyżej minuty jest **przycinana** do „teraz", nie odrzucana: `4xx`
+> w kolejce offline to u klienta wpis do interwencji biura, więc dryf zegara
+> tabletu trwale zablokowałby synchronizację.
+
+Odpowiedź **`200`** — zawsze, dla każdego przyjętego startu (także przy kolizji,
+czyli przejęciu profilu). Ciało jest **nadzbiorem** `/sessions/active`: te same trzy
+pola kontraktu na poziomie głównym plus `sessions[]` i `expires_at`.
 
 ```json
 {
   "session_group": "6f1c...",
+  "worker_ids": [3, 7],
+  "started_at": "2026-08-11T06:12:00",
   "sessions": [
     {"id": 4412, "worker_id": 3, "started_at": "2026-08-11T06:12:00"},
     {"id": 4413, "worker_id": 7, "started_at": "2026-08-11T06:12:00"}
   ],
-  "expires_at": "2026-08-11T08:12:00"
+  "expires_at": "2026-08-11T08:12:00",
+  "superseded": false
 }
 ```
 
-Objęte `@with_idempotency` — offline retry nie tworzy duplikatów.
+> Do 08.2026 udany start oddawał `201`. Klient klasyfikuje całe `200..299` jako
+> `Success` (`classifySyncOutcome`), więc zmiana jest dla niego niewidoczna —
+> chodziło o zgodność z dokumentem mobilnym, który mówi `200`.
+
+**Czy sesja została otwarta, mówi `superseded`, a nie kod HTTP.** `superseded: true`
+= **start spóźniony** (obsadę przejęła w międzyczasie nowsza sesja, §5.1): sesja
+z żądania została zapisana jako historyczna i **nie jest otwarta**, a ciało niesie
+stan BIEŻĄCY tego urządzenia — ten sam, który za chwilę odda `/sessions/active`:
+
+```json
+{
+  "session_group": null,
+  "worker_ids": [],
+  "started_at": null,
+  "sessions": [],
+  "expires_at": null,
+  "superseded": true
+}
+```
+
+Objęte `@with_idempotency` — offline retry nie tworzy duplikatów. Powtórka startu
+z **tym samym `session_group`**, ale innym `X-Operation-Id`, też nie: serwer oddaje
+istniejącą sesję zamiast zakładać drugą.
 
 ### 6.3 Koniec sesji
 
@@ -638,7 +749,38 @@ X-Operation-Id: <UUID>
 { "session_group": "6f1c...", "ended_at": "2026-08-11T14:03:00", "reason": "manual" }
 ```
 
-Odpowiedź `204`. Objęte `@with_idempotency` — ten request też idzie przez kolejkę offline,
+Odpowiedź **`200`** z ciałem:
+
+```json
+{ "session_group": "6f1c...", "closed": 2, "no_op": false }
+```
+
+**Zawsze 200 — także gdy nie ma czego domykać** (`closed: 0`, `no_op: true`):
+grupa jest już zamknięta albo w ogóle nie istnieje w bazie. `end` idzie tą samą
+kolejką offline co `start`, więc potrafi dojść PRZED swoim startem albo dla sesji,
+którą serwer domknął sam jako `replaced`. Dawne `404 session_not_found`
+klasyfikowało się u klienta jako `Rejected` (wpis wypadał z kolejki i liczył się
+jako błąd sesji) i **zapamiętywało się** w `@with_idempotency`, więc ponowienie
+z tym samym `X-Operation-Id` dostawało 404 z bazy, bez wywołania handlera.
+
+Domknięta sesja **nie dostaje nadpisanego `end_reason`** — `close()` jest
+idempotentne, więc spóźniony `manual` nie zamaże `replaced`.
+
+**Czas końca natomiast KORYGUJEMY w dół.** `replaced` to serwerowe zgadnięcie
+(„koniec = start następczyni"); gdy tablet dosyła prawdziwą godzinę wyjścia,
+jest ona bliższa prawdzie. Skracamy `ended_at` wyłącznie w oknie
+`[started_at, obecny ended_at)` i wyłącznie dla `end_reason = 'replaced'` —
+powód zostaje nietknięty, a raport przestaje dopisywać człowiekowi czas między
+realnym wyjściem a przejęciem profilu (przy tablecie offline od poprzedniej doby:
+do nocnego cutoffu włącznie). Wydłużania nie robimy nigdy — oznaczałoby cofnięcie
+przejęcia profilu. Taka odpowiedź ma `closed: 0, no_op: true`: domknięcia nie
+było, była korekta.
+
+Do 08.2026 odpowiedź brzmiała `204` (bez ciała). Apka deklaruje `Response<Unit>`,
+więc ciała nie czyta — ale przy `200` konwerter kotlinx **musi** mieć co
+sparsować, dlatego ciało jest obiektem JSON, nigdy pustym stringiem.
+
+Objęte `@with_idempotency` — ten request też idzie przez kolejkę offline,
 więc obowiązuje go ta sama zasada „jeden wpis w kolejce = jeden `X-Operation-Id`".
 
 **Dozwolone wartości `reason` od klienta:** `manual`, `idle_timeout`, `night_cutoff`.
@@ -652,8 +794,43 @@ serwer go przyjmuje zamiast nadpisywać własnym. Wartości `replaced` i `admin`
 GET /api/mobile/sessions/active
 ```
 
-Zwraca otwarte sesje dla `device_id` z JWT. Apka woła to po restarcie/crashu, żeby
-nie zmuszać do ponownego wyboru profilu.
+Zwraca otwartą sesję dla `device_id` z JWT — **nie** per pracownik i **nie** globalnie.
+Apka woła to po restarcie/crashu (żeby nie zmuszać do ponownego wyboru profilu)
+oraz **pollingiem co 60 s**, żeby wykryć, że serwer domknął jej sesję (przejęcie
+profilu na innym tablecie, cron `idle_timeout`/`night_cutoff`).
+
+Odpowiedź **`200`**, zawsze. Trzy pola kontraktu (`session_group`, `worker_ids`,
+`started_at`) leżą na **poziomie głównym** — tego szuka `ActiveSessionResponseDto`,
+a zagnieżdżenie ich w `sessions[]` znaczyło, że tablet czytał wartości domyślne DTO
+(pusta lista, `null`) mimo istniejącej sesji. Pola dodatkowe (`sessions[]` z nazwiskami
+i kolorami, `station_code`, `idle_timeout_minutes`) zostają dla panelu i diagnostyki —
+apka ma `ignoreUnknownKeys = true`.
+
+```json
+{
+  "session_group": "6f1c...",
+  "worker_ids": [3],
+  "started_at": "2026-08-11T06:12:00",
+  "station_code": "gluing",
+  "idle_timeout_minutes": 120,
+  "sessions": [{"id": 4412, "worker_id": 3, "worker_name": "Jan Kowalski",
+                "initials": "JK", "color_hex": "#2F6690", "station_code": "gluing",
+                "started_at": "2026-08-11T06:12:00",
+                "last_activity_at": "2026-08-11T07:41:00"}]
+}
+```
+
+Brak sesji → `200` z pełnym kształtem: `session_group: null`, `worker_ids: []`,
+`started_at: null` (nie `404`, nie puste ciało — apka toleruje warianty, ale ustalony
+jest ten).
+
+**`Cache-Control: no-store`** (+ `Vary: Authorization`). Endpoint świadomie **nie
+używa `cached_json`**: ETag i `max-age` byłyby tu szkodliwe, bo cała wartość
+odpowiedzi polega na tym, że jest świeża. Przetrzymana odpowiedź „sesja nadal Twoja"
+oznacza tablet, który po przejęciu profilu dalej podpisuje pracę cudzym nazwiskiem.
+
+Gdy urządzenie ma **więcej niż jedną** otwartą grupę (dane zastane sprzed wariantu A),
+zwracamy **najnowszą** — najstarsza jest widmem, które domknie kolejny start albo cron.
 
 ### 6.5 Zmiana w istniejących akcjach
 
