@@ -27,6 +27,7 @@ from . import stations_api
 from . import config_api
 from . import sync_api
 from . import logistics_api
+from . import workers_api
 
 logger.info("Zainicjalizowano API routers modułu production (sub-package)", extra={
     'blueprint_name': api_bp.name,

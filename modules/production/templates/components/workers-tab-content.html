@@ -1,0 +1,374 @@
+<!-- workers-tab-content.html -->
+<!-- Zakładka Pracownicy: katalog profili wybieranych na tabletach + podgląd hali -->
+
+<div class="workers-tab-content">
+<div class="workers-container">
+
+    <div class="workers-main-header">
+        <h2><i class="fas fa-id-badge me-2"></i>Pracownicy produkcji</h2>
+        <p>
+            Profile wybierane na tabletach stanowiskowych. Wybór profilu nie jest chroniony
+            hasłem — dane o wydajności są <strong>poglądowe</strong>, nie rozliczeniowe.
+        </p>
+
+        <div class="workers-stats-row">
+            <div class="workers-stat-item">
+                <div class="workers-stat-icon"><i class="fas fa-users"></i></div>
+                <div class="workers-stat-info">
+                    <h6>Aktywni</h6>
+                    <div class="stat-value" id="workers-count-active">
+                        {{ workers | selectattr('is_active') | list | length }}
+                    </div>
+                </div>
+            </div>
+            <div class="workers-stat-item">
+                <div class="workers-stat-icon"><i class="fas fa-industry"></i></div>
+                <div class="workers-stat-info">
+                    <h6>Teraz na hali</h6>
+                    <div class="stat-value" id="workers-count-onfloor">{{ active_sessions | length }}</div>
+                </div>
+            </div>
+            <div class="workers-stat-item">
+                <div class="workers-stat-icon"><i class="fas fa-toggle-{{ 'on' if config.selection_required else 'off' }}"></i></div>
+                <div class="workers-stat-info">
+                    <h6>Wymóg wyboru profilu</h6>
+                    <div class="stat-value">{{ 'Włączony' if config.selection_required else 'Wyłączony' }}</div>
+                </div>
+            </div>
+            <button class="btn btn-light btn-sm ms-auto" id="workers-add-btn">
+                <i class="fas fa-plus me-1"></i>Dodaj pracownika
+            </button>
+        </div>
+    </div>
+
+    {% if not config.selection_required %}
+    <div class="alert alert-info workers-killswitch-note">
+        <i class="fas fa-info-circle me-2"></i>
+        Tablety mogą pracować bez wybierania profilu (<code>WORKER_SELECTION_REQUIRED = false</code>).
+        Akcje z wybranym profilem i tak są zapisywane. Wymóg włącza się w zakładce Konfiguracja —
+        dopiero po roll-oucie aplikacji, która potrafi wysyłać wybór.
+    </div>
+    {% endif %}
+
+    <!-- ================= KTO TERAZ NA HALI ================= -->
+    <div class="workers-card">
+        <div class="workers-card-header">
+            <div class="workers-card-title">
+                <div class="workers-card-icon"><i class="fas fa-satellite-dish"></i></div>
+                <div>
+                    <h4>Kto teraz na hali</h4>
+                    <p class="workers-card-subtitle">Otwarte sesje pracy — odświeżane przy każdej akcji z tabletu</p>
+                </div>
+            </div>
+            <button class="btn btn-outline-secondary btn-sm" id="workers-refresh-sessions">
+                <i class="fas fa-rotate"></i>
+            </button>
+        </div>
+        <div class="workers-card-body">
+            <div id="workers-sessions-list">
+                {% if active_sessions %}
+                <table class="table workers-table align-middle">
+                    <thead>
+                        <tr>
+                            <th>Pracownik</th>
+                            <th>Stanowisko</th>
+                            <th>Tablet</th>
+                            <th>Od</th>
+                            <th>Ostatnia akcja</th>
+                            <th>Czas</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for s in active_sessions %}
+                        <tr>
+                            <td>
+                                <span class="worker-chip" style="background: {{ s.color_hex }}">{{ s.initials }}</span>
+                                {{ s.worker_name }}
+                            </td>
+                            <td>{{ s.station_code }}</td>
+                            <td><code>{{ s.device_id or '—' }}</code></td>
+                            <td>{{ s.started_at[11:16] if s.started_at else '—' }}</td>
+                            <td>{{ s.last_activity_at[11:16] if s.last_activity_at else '—' }}</td>
+                            <td>{{ s.duration_minutes }} min</td>
+                            <td class="text-end">
+                                <button class="btn btn-outline-danger btn-sm workers-close-session"
+                                        data-session-id="{{ s.id }}" title="Domknij sesję">
+                                    <i class="fas fa-right-from-bracket"></i>
+                                </button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <p class="text-muted mb-0"><i class="fas fa-moon me-1"></i>Nikt nie ma teraz otwartej sesji.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= KATALOG ================= -->
+    <div class="workers-card">
+        <div class="workers-card-header">
+            <div class="workers-card-title">
+                <div class="workers-card-icon"><i class="fas fa-address-book"></i></div>
+                <div>
+                    <h4>Katalog pracowników</h4>
+                    <p class="workers-card-subtitle">Kafelki widoczne na ekranie wyboru na tablecie</p>
+                </div>
+            </div>
+            <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" id="workers-show-inactive">
+                <label class="form-check-label" for="workers-show-inactive">Pokaż nieaktywnych</label>
+            </div>
+        </div>
+        <div class="workers-card-body">
+            <table class="table workers-table align-middle">
+                <thead>
+                    <tr>
+                        <th style="width:60px"></th>
+                        <th>Imię i nazwisko</th>
+                        <th>Stanowiska</th>
+                        <th>Kolejność</th>
+                        <th>Status</th>
+                        <th class="text-end">Akcje</th>
+                    </tr>
+                </thead>
+                <tbody id="workers-table-body">
+                    {% for w in workers %}
+                    <tr data-worker-id="{{ w.id }}" data-active="{{ '1' if w.is_active else '0' }}"
+                        {% if not w.is_active %}class="workers-row-inactive" style="display:none"{% endif %}>
+                        <td><span class="worker-chip" style="background: {{ w.color_hex }}">{{ w.initials }}</span></td>
+                        <td>{{ w.full_name }}</td>
+                        <td>
+                            {% if w.allowed_stations %}
+                                {% for st in w.allowed_stations %}<span class="badge bg-secondary me-1">{{ st }}</span>{% endfor %}
+                            {% else %}
+                                <span class="text-muted">wszystkie</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ w.sort_order }}</td>
+                        <td>
+                            {% if w.is_active %}
+                                <span class="badge bg-success">aktywny</span>
+                            {% else %}
+                                <span class="badge bg-secondary">nieaktywny</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">
+                            <button class="btn btn-outline-secondary btn-sm workers-edit"
+                                    data-worker='{{ w | tojson }}'><i class="fas fa-pen"></i></button>
+                            {% if w.is_active %}
+                            <button class="btn btn-outline-danger btn-sm workers-deactivate"
+                                    data-worker-id="{{ w.id }}" title="Dezaktywuj (nie kasuje historii)">
+                                <i class="fas fa-user-slash"></i>
+                            </button>
+                            {% else %}
+                            <button class="btn btn-outline-success btn-sm workers-reactivate"
+                                    data-worker-id="{{ w.id }}" title="Przywróć">
+                                <i class="fas fa-user-check"></i>
+                            </button>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% if not workers %}
+            <p class="text-muted mb-0">
+                <i class="fas fa-user-plus me-1"></i>
+                Katalog jest pusty. Dodaj pierwszego pracownika, żeby tablety miały co pokazać.
+            </p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- ================= MODAL FORMULARZA ================= -->
+<div class="modal fade" id="workers-modal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="workers-modal-title">Nowy pracownik</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="worker-id">
+                <div class="row g-3">
+                    <div class="col-6">
+                        <label class="form-label">Imię</label>
+                        <input type="text" class="form-control" id="worker-first-name" maxlength="64">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">Nazwisko</label>
+                        <input type="text" class="form-control" id="worker-last-name" maxlength="64">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">Kolor kafelka</label>
+                        <input type="color" class="form-control form-control-color" id="worker-color" value="#3E7C59">
+                        <div class="form-text">Tło pod inicjałami na tablecie</div>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">Kolejność</label>
+                        <input type="number" class="form-control" id="worker-sort-order" value="0">
+                        <div class="form-text">Mniejsza liczba = wyżej na liście</div>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Stanowiska</label>
+                        <div id="worker-stations">
+                            {% for st in station_codes %}
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input worker-station-cb" type="checkbox" value="{{ st }}" id="st-{{ st }}">
+                                <label class="form-check-label" for="st-{{ st }}">{{ st }}</label>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        <div class="form-text">Nic nie zaznaczone = pracownik może pracować wszędzie</div>
+                    </div>
+                </div>
+                <div class="alert alert-danger mt-3 d-none" id="worker-form-error"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Anuluj</button>
+                <button type="button" class="btn btn-primary" id="workers-save-btn">Zapisz</button>
+            </div>
+        </div>
+    </div>
+</div>
+</div>
+
+<script>
+(function () {
+    // Zakładka ładowana AJAX-em i wstrzykiwana przez innerHTML — ten skrypt
+    // odpala executeInlineScripts() z production-app-loader.js. Cały stan
+    // trzymamy lokalnie, żeby powtórne wejście na zakładkę nie dublowało
+    // listenerów na document.
+    const API = '/production/api';
+    const modalEl = document.getElementById('workers-modal');
+    const modal = modalEl ? new bootstrap.Modal(modalEl) : null;
+    const root = document.querySelector('.workers-tab-content');
+    if (!root) return;
+
+    // Globalna instancja loadera nazywa się ProductionApp (duże P) — patrz
+    // koniec production-app-loader.js.
+    const app = window.ProductionApp;
+
+    function toast(msg, typ) {
+        if (app?.shared?.toastSystem) {
+            app.shared.toastSystem.show(msg, typ || 'info');
+        } else {
+            console.log('[workers]', msg);
+        }
+    }
+
+    async function api(sciezka, opcje) {
+        const res = await fetch(API + sciezka, Object.assign({
+            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
+        }, opcje || {}));
+        const dane = await res.json().catch(() => ({}));
+        if (!res.ok || dane.success === false) {
+            throw new Error(dane.error || `HTTP ${res.status}`);
+        }
+        return dane;
+    }
+
+    function otworzFormularz(worker) {
+        document.getElementById('worker-form-error').classList.add('d-none');
+        document.getElementById('workers-modal-title').textContent =
+            worker ? 'Edycja pracownika' : 'Nowy pracownik';
+        document.getElementById('worker-id').value = worker ? worker.id : '';
+        document.getElementById('worker-first-name').value = worker ? worker.first_name : '';
+        document.getElementById('worker-last-name').value = worker ? worker.last_name : '';
+        document.getElementById('worker-color').value = (worker && worker.color_hex) || '#3E7C59';
+        document.getElementById('worker-sort-order').value = worker ? worker.sort_order : 0;
+
+        const wybrane = new Set((worker && worker.allowed_stations) || []);
+        root.querySelectorAll('.worker-station-cb').forEach(cb => { cb.checked = wybrane.has(cb.value); });
+        modal?.show();
+    }
+
+    async function zapisz() {
+        const id = document.getElementById('worker-id').value;
+        const stanowiska = Array.from(root.querySelectorAll('.worker-station-cb:checked')).map(cb => cb.value);
+        const payload = {
+            first_name: document.getElementById('worker-first-name').value.trim(),
+            last_name: document.getElementById('worker-last-name').value.trim(),
+            color_hex: document.getElementById('worker-color').value,
+            sort_order: parseInt(document.getElementById('worker-sort-order').value, 10) || 0,
+            allowed_stations: stanowiska
+        };
+
+        try {
+            await api(id ? `/workers/${id}` : '/workers', {
+                method: id ? 'PATCH' : 'POST',
+                body: JSON.stringify(payload)
+            });
+            modal?.hide();
+            toast(id ? 'Zapisano zmiany' : 'Dodano pracownika', 'success');
+            odswiezZakladke();
+        } catch (e) {
+            const box = document.getElementById('worker-form-error');
+            box.textContent = e.message;
+            box.classList.remove('d-none');
+        }
+    }
+
+    function odswiezZakladke() {
+        // Najprościej i najpewniej: każ loaderowi przeładować zakładkę od zera.
+        if (app?.state?.tabCache) {
+            app.state.tabCache.delete('workers-tab');
+            app.loadTabContent('workers-tab');
+        } else {
+            window.location.reload();
+        }
+    }
+
+    root.addEventListener('click', async (ev) => {
+        const cel = ev.target.closest('button');
+        if (!cel) return;
+
+        if (cel.id === 'workers-add-btn') return otworzFormularz(null);
+        if (cel.id === 'workers-save-btn') return zapisz();
+        if (cel.id === 'workers-refresh-sessions') return odswiezZakladke();
+
+        if (cel.classList.contains('workers-edit')) {
+            return otworzFormularz(JSON.parse(cel.dataset.worker));
+        }
+
+        if (cel.classList.contains('workers-deactivate')) {
+            if (!confirm('Dezaktywować pracownika? Historia i statystyki zostaną nienaruszone.')) return;
+            try {
+                await api(`/workers/${cel.dataset.workerId}`, { method: 'DELETE' });
+                toast('Pracownik dezaktywowany', 'success');
+                odswiezZakladke();
+            } catch (e) { toast(e.message, 'error'); }
+            return;
+        }
+
+        if (cel.classList.contains('workers-reactivate')) {
+            try {
+                await api(`/workers/${cel.dataset.workerId}/reactivate`, { method: 'POST' });
+                toast('Pracownik przywrócony', 'success');
+                odswiezZakladke();
+            } catch (e) { toast(e.message, 'error'); }
+            return;
+        }
+
+        if (cel.classList.contains('workers-close-session')) {
+            if (!confirm('Domknąć sesję tego pracownika?')) return;
+            try {
+                await api(`/workers/sessions/${cel.dataset.sessionId}/close`, { method: 'POST' });
+                toast('Sesja domknięta', 'success');
+                odswiezZakladke();
+            } catch (e) { toast(e.message, 'error'); }
+        }
+    });
+
+    document.getElementById('workers-show-inactive')?.addEventListener('change', (ev) => {
+        root.querySelectorAll('tr[data-active="0"]').forEach(tr => {
+            tr.style.display = ev.target.checked ? '' : 'none';
+        });
+    });
+})();
+</script>

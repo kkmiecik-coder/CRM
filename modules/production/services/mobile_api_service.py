@@ -1085,7 +1085,8 @@ def serialize_order(item, station_code=None):
 # AKCJE NA ZLECENIACH
 # ============================================================================
 
-def mark_order_complete(item, station_code):
+def mark_order_complete(item, station_code, *, device_id=None,
+                        worker_ids=None, session_ids=None):
     """
     Oznacza zlecenie jako ukończone na danym stanowisku.
 
@@ -1096,12 +1097,33 @@ def mark_order_complete(item, station_code):
     bez krawędzi, lakiernia dla olejowanych/lakierowanych, personal_pickup
     omija logistykę) są obsłużone w modelu.
 
+    NAJPIERW domykamy sztuki przez set_quantity_done(), DOPIERO POTEM
+    complete_task(). Powód (docs/worker-profiles-backend.md §8, pułapka nr 1):
+    complete_task() tworzy ProductionStationEvent WYŁĄCZNIE dla stanowisk
+    pomijanych (auto_skip / system), więc samo zamknięcie stanowiska nie
+    zostawiało dotąd ŻADNEGO śladu w prod_station_events. Po usunięciu paneli
+    webowych ta ścieżka jest jedyną, którą zamyka się stanowisko — bez tej
+    kolejności atrybucja pokryłaby tylko PATCH /quantity, a statystyki
+    stanowisk gubiłyby całą pracę zamykaną przyciskiem "gotowe".
+
+    Gdy wszystkie sztuki były już odbite wcześniej, set_quantity_done()
+    nie tworzy niczego (delta = 0) — duplikatu nie ma.
+
     Rejestruje też hook do BL (uruchamiany po commit decoratora
     `with_idempotency`) który może zmienić status zamówienia w BaseLinker
     na "Produkcja zakończona" / "Zamówienie spakowane".
     """
     if station_code not in STATION_QUANTITY_FIELD:
         raise ValueError(f'Nieznane stanowisko: {station_code}')
+
+    item.set_quantity_done(
+        station_code,
+        item.quantity,
+        actor_device_id=device_id,
+        source='mobile',
+        actor_worker_ids=worker_ids,
+        actor_session_ids=session_ids,
+    )
 
     item.complete_task(station_code)
 
@@ -1110,12 +1132,14 @@ def mark_order_complete(item, station_code):
         schedule_after_station_complete(item.order.internal_order_number, station_code)
 
 
-def update_order_quantity(item, station_code, quantity_done, *, device_id=None):
+def update_order_quantity(item, station_code, quantity_done, *, device_id=None,
+                          worker_ids=None, session_ids=None):
     """
     Aktualizuje liczbę ukończonych sztuk na stanowisku (0 <= qd <= item.quantity).
 
     Deleguje do `ProductionItem.set_quantity_done()` żeby spójnie z webem
-    zalogować zdarzenie w `prod_station_events` (source='mobile').
+    zalogować zdarzenie w `prod_station_events` (source='mobile') i — gdy
+    tablet przysłał X-Worker-Ids — dopiąć atrybucję dzieloną.
     """
     if station_code not in STATION_QUANTITY_FIELD:
         raise ValueError(f'Nieznane stanowisko: {station_code}')
@@ -1132,6 +1156,8 @@ def update_order_quantity(item, station_code, quantity_done, *, device_id=None):
         quantity_done,
         actor_device_id=device_id,
         source='mobile',
+        actor_worker_ids=worker_ids,
+        actor_session_ids=session_ids,
     )
 
 

@@ -12,6 +12,7 @@
     <link rel="stylesheet" href="{{ url_for('production.static', filename='css/archive-tab.css') }}?v=20260427b">
     <link rel="stylesheet" href="{{ url_for('production.static', filename='css/production-panel.css') }}">
     <link rel="stylesheet" href="{{ url_for('production.static', filename='css/config-tab.css') }}">
+    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/workers-tab.css') }}?v=20260811">
     <!-- CSS dla komponentów -->
     <link rel="stylesheet" href="{{ url_for('production.static', filename='css/dashboard_bl_sync_modal.css') }}">
     <!-- CSS uzupełniające -->
@@ -72,6 +73,15 @@
                             aria-controls="reports-tab-content"
                             aria-selected="false">
                         <i class="fas fa-chart-bar me-2"></i>Raporty
+                    </button>
+                    <button class="nav-link"
+                            id="workers-tab"
+                            data-bs-toggle="tab"
+                            data-bs-target="#workers-tab-content"
+                            type="button" role="tab"
+                            aria-controls="workers-tab-content"
+                            aria-selected="false">
+                        <i class="fas fa-id-badge me-2"></i>Pracownicy
                     </button>
                     <button class="nav-link"
                             id="config-tab"
@@ -235,6 +245,10 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- Workers Tab (profile pracowników na tabletach) -->
+                    <!-- Pusty kontener: endpoint zwraca gotowy HTML, tak jak trakownia -->
+                    <div class="tab-pane fade" id="workers-tab-content" role="tabpanel" aria-labelledby="workers-tab"></div>
 
                     <!-- Config Tab (tylko admin) -->
                     <div class="tab-pane fade"

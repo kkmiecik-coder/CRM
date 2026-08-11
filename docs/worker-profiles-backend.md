@@ -431,16 +431,25 @@ Format datowany, zgodnie z konwencją (`CLAUDE.md` → *Migracje bazy*). Idempot
 bez `DELIMITER`:
 
 ```
-migrations/2026-08-XX-prod-workers.sql              — prod_workers + seed z listy pracowników
-migrations/2026-08-XX-prod-worker-sessions.sql      — prod_worker_sessions
-migrations/2026-08-XX-prod-station-event-workers.sql— tabela atrybucji
-migrations/2026-08-XX-prod-worker-fk-extensions.sql — ALTER: worker_id w prod_product_events
-                                                      i prod_rework_log, last_worker_session_at
-                                                      w prod_devices, MODIFY actor_type
-                                                      (+'worker'), MODIFY prod_station_events.source
-                                                      (+'auto_skip' — naprawa zastanego rozjazdu)
-migrations/2026-08-XX-worker-config-keys.sql        — INSERT IGNORE do prod_config
+migrations/2026-08-11-01-prod-workers.sql              — prod_workers (bez seeda, katalog uzupełnia panel)
+migrations/2026-08-11-02-prod-worker-sessions.sql      — prod_worker_sessions
+migrations/2026-08-11-03-prod-station-event-workers.sql— tabela atrybucji
+migrations/2026-08-11-04-prod-worker-fk-extensions.sql — ALTER: worker_id w prod_product_events
+                                                         i prod_rework_log, last_worker_session_at
+                                                         w prod_devices, MODIFY actor_type
+                                                         (+'worker'), MODIFY prod_station_events.source
+                                                         (+'auto_skip' — naprawa zastanego rozjazdu)
+migrations/2026-08-11-05-worker-config-keys.sql        — INSERT IGNORE do prod_config
 ```
+
+> **Numer po dacie jest obowiązkowy, nie kosmetyczny.** Runner wykonuje migracje
+> posortowane **alfabetycznie po nazwie pliku**, a ta piątka ma zależności przez
+> klucze obce. Bez numerów kolejność wychodziła
+> `prod-station-event-workers` → `prod-worker-fk-extensions` → `prod-worker-sessions`
+> → `prod-workers`, czyli tabela atrybucji powstawała **przed** tabelami, do których
+> ma FK. MySQL odbijał to błędem 1824 „Failed to open the referenced table",
+> co przerywa deploy przed restartem aplikacji. Wykryte dopiero przy uruchomieniu
+> migracji na MySQL — testy chodzą na SQLite i takiej kolejności nie sprawdzają.
 
 `ALTER TABLE ... ADD COLUMN` **nie jest** idempotentne w MySQL (błąd 1060 przy powtórce —
 dokładnie ten problem opisuje `migrations/2026-08-05-prod-devices-telemetry.sql`).
@@ -841,6 +850,14 @@ działa nawet gdy ktoś kiedyś nieopatrznie dopisze atrybucję do tych ścieże
 ---
 
 ## 9. Kolejność wdrożenia
+
+> **Stan na 2026-08-11:** etapy **1-3 zaimplementowane** (gałąź `worktree-worker-profiles`).
+> Migracje przetestowane na MySQL 8.4 — wykonują się na czystym schemacie i są
+> idempotentne przy powtórce. `WORKER_SELECTION_REQUIRED = false`, więc hala
+> pracuje dokładnie jak dotąd. Do zrobienia poza kodem CRM:
+> **wpis w crontabie** wołający `/production/api/workers/close-stale-sessions`
+> (bez niego sesje wiszą do ręcznego domknięcia) oraz etapy 4-5, czyli roll-out
+> apki i dopiero potem włączenie bramki. Etap 6 (raporty) nietknięty.
 
 | Etap | Zakres | Ryzyko |
 |---|---|---|

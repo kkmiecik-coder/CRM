@@ -1,0 +1,174 @@
+/* ═══════════════════════════════════════════ */
+/* WORKERS TAB — Industrial Light Design       */
+/* Zmienne --il-* pochodzą z motywu panelu     */
+/* produkcji; fallbacki jak w config-tab.css.  */
+/* ═══════════════════════════════════════════ */
+
+.workers-container {
+    width: 100%;
+    padding: 0;
+    padding-bottom: 100px;
+}
+
+/* ─── HEADER ─── */
+.workers-main-header {
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    padding: 14px 16px;
+    margin-bottom: 16px;
+}
+
+.workers-main-header h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--il-text-secondary, #7a8291);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 4px;
+}
+
+.workers-main-header h2 i {
+    color: var(--il-text-muted, #9ba3b0);
+    margin-right: 8px;
+}
+
+.workers-main-header p {
+    color: var(--il-text-muted, #9ba3b0);
+    font-size: 12px;
+    margin-bottom: 12px;
+}
+
+.workers-stats-row {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.workers-stat-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--il-bg-base, #eef0f4);
+    padding: 8px 12px;
+    border-radius: var(--il-radius, 3px);
+    border: 1px solid var(--il-border, #c8cdd5);
+}
+
+.workers-stat-icon {
+    color: var(--il-text-muted, #9ba3b0);
+    font-size: 14px;
+}
+
+.workers-stat-info h6 {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--il-text-muted, #9ba3b0);
+    margin: 0;
+}
+
+.workers-stat-info .stat-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--il-text-primary, #2b303a);
+    line-height: 1.2;
+}
+
+.workers-killswitch-note {
+    font-size: 12px;
+    border-radius: var(--il-radius, 3px);
+}
+
+.workers-killswitch-note code {
+    font-size: 11px;
+}
+
+/* ─── KARTY ─── */
+.workers-card {
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    margin-bottom: 16px;
+}
+
+.workers-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--il-border, #c8cdd5);
+}
+
+.workers-card-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.workers-card-icon {
+    color: var(--il-text-muted, #9ba3b0);
+    font-size: 16px;
+}
+
+.workers-card-title h4 {
+    font-size: 13px;
+    font-weight: 600;
+    margin: 0;
+    color: var(--il-text-primary, #2b303a);
+}
+
+.workers-card-subtitle {
+    font-size: 11px;
+    color: var(--il-text-muted, #9ba3b0);
+    margin: 0;
+}
+
+.workers-card-body {
+    padding: 12px 16px;
+}
+
+/* ─── TABELA ─── */
+.workers-table {
+    font-size: 13px;
+    margin-bottom: 0;
+}
+
+.workers-table thead th {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--il-text-muted, #9ba3b0);
+    font-weight: 600;
+    border-bottom: 1px solid var(--il-border, #c8cdd5);
+}
+
+.workers-table code {
+    font-size: 11px;
+}
+
+.workers-row-inactive {
+    opacity: 0.6;
+}
+
+/* ─── KAFELEK Z INICJAŁAMI ─── */
+/* Odpowiednik kafelka na tablecie: bez zdjęć, inicjały na kolorze. */
+.worker-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    color: #fff;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    margin-right: 6px;
+    flex: 0 0 auto;
+}

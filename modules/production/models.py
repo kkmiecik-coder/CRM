@@ -17,6 +17,7 @@ Data: 2025-01-22
 """
 
 from datetime import datetime, date
+from decimal import Decimal, ROUND_HALF_UP
 from sqlalchemy import Column, Integer, BigInteger, String, Text, DateTime, Date, Numeric, Enum, Boolean, JSON, ForeignKey, SmallInteger, Float, Index
 from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.orm import relationship, validates, backref
@@ -418,7 +419,18 @@ class ProductionProduct(db.Model):
         return getattr(self, f'quantity_done_{station_code}', 0)
 
     def set_quantity_done(self, station_code, value, *,
-                          actor_user_id=None, actor_device_id=None, source='web'):
+                          actor_user_id=None, actor_device_id=None, source='web',
+                          actor_worker_ids=None, actor_session_ids=None):
+        """
+        actor_worker_ids — lista prod_workers.id z nagłówka X-Worker-Ids. Gdy
+        podana, event dostaje wiersze atrybucji z share = 1/N. Eventy sztuczne
+        (auto_skip, system z complete_task) tej listy nie dostają, bo nikt ich
+        fizycznie nie wykonał.
+
+        actor_session_ids — opcjonalna mapa {worker_id: session_id}, żeby
+        atrybucja wskazywała konkretną sesję. Brak mapy nie blokuje zapisu:
+        akcja mogła powstać offline, a sesja zamknąć się nocnym cutoffem.
+        """
         attr_name = f'quantity_done_{station_code}'
         old_value = getattr(self, attr_name, 0) or 0
         # quantity_done może przekraczać quantity gdy oryginał stracił sztuki przez reject
@@ -450,6 +462,7 @@ class ProductionProduct(db.Model):
                 source=normalized_source,
             )
             db.session.add(event)
+            attach_worker_attribution(event, actor_worker_ids, actor_session_ids)
         return value
 
     def increment_quantity_done(self, station_code, amount=1, **actor_kwargs):
@@ -878,6 +891,8 @@ class ProductionDevice(db.Model):
     last_battery_charging = Column(Boolean, nullable=True)
     last_temperature_c = Column(Float, nullable=True)
     last_app_version_code = Column(Integer, nullable=True)
+    last_worker_session_at = Column(DateTime, nullable=True,
+                                    comment='Kiedy ostatnio ktoś zaczął tu sesję pracownika')
 
     VALID_STATION_CODES = {
         'packaging', 'cutting', 'assembly', 'gluing', 'formatting', 'finishing',
@@ -1076,10 +1091,16 @@ class ProductionProductEvent(db.Model):
     new_value = Column(String(64), nullable=True)
 
     actor_type = Column(
-        Enum('user', 'device', 'system', name='product_event_actor'),
+        Enum('user', 'device', 'system', 'worker', name='product_event_actor'),
         nullable=False
     )
     user_id = Column(Integer, ForeignKey('users.id'), nullable=True, index=True)
+    # Audyt, nie statystyka: przy pracy zespołowej ląduje tu PIERWSZY pracownik
+    # z nagłówka X-Worker-Ids. Pełna, dzielona atrybucja żyje w
+    # prod_station_event_workers.
+    worker_id = Column(Integer, ForeignKey('prod_workers.id', ondelete='SET NULL'),
+                       nullable=True, index=True,
+                       comment='prod_workers.id — kto wykonał akcję')
     device_id = Column(String(64), nullable=True,
                        comment='prod_devices.device_id (gdy tablet)')
     source = Column(
@@ -1154,6 +1175,9 @@ class ProductionReworkLog(db.Model):
                        comment='Kiedy doróbka wróciła do statusu czeka_na_formatowanie')
 
     user_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    worker_id = Column(Integer, ForeignKey('prod_workers.id', ondelete='SET NULL'),
+                       nullable=True, index=True,
+                       comment='prod_workers.id — kto zgłosił doróbkę')
     device_id = Column(String(64), nullable=True,
                        comment='ID tabletu z mobile API; NULL dla operacji web')
 
@@ -1164,6 +1188,247 @@ class ProductionReworkLog(db.Model):
         return (f'<ProductionReworkLog #{self.id} '
                 f'{self.original_product_id}→{self.rework_product_id} '
                 f'qty={self.quantity} reason={self.reason_category}>')
+
+
+class ProductionWorker(db.Model):
+    """
+    Katalog pracowników produkcji — profile wybierane z kafelków na tablecie.
+
+    ZASADA TWARDA: pracowników nigdy nie kasujemy. Odejście z firmy to
+    is_active = 0 + deactivated_at; FK z prod_station_event_workers i tak
+    by kasowania nie pozwolił, a statystyki historyczne muszą przetrwać.
+
+    Wybór profilu NIE jest chroniony hasłem (pin_hash to rezerwa na przyszłość) —
+    dane z tej funkcji są poglądowe, nie rozliczeniowe.
+    """
+    __tablename__ = 'prod_workers'
+
+    id = Column(Integer, primary_key=True)
+    first_name = Column(String(64), nullable=False)
+    last_name = Column(String(64), nullable=False)
+    worker_code = Column(String(16), nullable=True, unique=True,
+                         comment='Rezerwa pod QR/badge, dziś nieużywane')
+    pin_hash = Column(String(255), nullable=True,
+                      comment='Rezerwa pod przyszłe PIN-y, dziś zawsze NULL')
+    avatar_path = Column(String(255), nullable=True,
+                         comment='Rezerwa — dziś kafelki pokazują inicjały na color_hex')
+    color_hex = Column(String(7), nullable=True,
+                       comment='Tło kafelka z inicjałami, np. #3E7C59')
+    # CSV, nie tabela łącząca ani JSON: pracowników są dziesiątki, filtrujemy
+    # w Pythonie po pobraniu całej listy. Osobna tabela to niepotrzebny JOIN.
+    allowed_stations = Column(String(255), nullable=True,
+                              comment='CSV kodów stanowisk; NULL/pusty = wszystkie')
+    is_active = Column(Boolean, nullable=False, default=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'),
+                     nullable=True, index=True,
+                     comment='Opcjonalne powiązanie z kontem CRM')
+    sort_order = Column(SmallInteger, nullable=False, default=0)
+    created_at = Column(DateTime, default=get_local_now, nullable=False)
+    updated_at = Column(DateTime, default=get_local_now, onupdate=get_local_now,
+                        nullable=False)
+    deactivated_at = Column(DateTime, nullable=True)
+
+    user = relationship('User')
+
+    # Domyślna paleta kafelków — wybierana deterministycznie po id, gdy nikt
+    # nie ustawił color_hex ręcznie. Kolory z ciemnego końca, bo inicjały
+    # rysujemy na biało.
+    DEFAULT_COLORS = (
+        '#3E7C59', '#2F6690', '#8C5A3C', '#6B4E9E', '#A34B4B',
+        '#2E7D7B', '#7A6320', '#4A5568',
+    )
+
+    @property
+    def full_name(self):
+        return f'{self.first_name} {self.last_name}'.strip()
+
+    @property
+    def short_name(self):
+        """'Adam K.' — format do list i raportów, gdzie pełne nazwisko nie mieści się."""
+        inicjal = f'{self.last_name[0]}.' if self.last_name else ''
+        return f'{self.first_name} {inicjal}'.strip()
+
+    @property
+    def initials(self):
+        """Inicjały na kafelek. Bez zdjęć to jedyna wizualna identyfikacja."""
+        pierwsza = self.first_name[0].upper() if self.first_name else ''
+        druga = self.last_name[0].upper() if self.last_name else ''
+        return f'{pierwsza}{druga}' or '?'
+
+    @property
+    def tile_color(self):
+        """color_hex albo deterministyczny kolor z palety — kafelek zawsze ma tło."""
+        if self.color_hex:
+            return self.color_hex
+        return self.DEFAULT_COLORS[(self.id or 0) % len(self.DEFAULT_COLORS)]
+
+    @property
+    def allowed_stations_list(self):
+        """CSV → lista. Pusta lista znaczy 'wszystkie stanowiska'."""
+        if not self.allowed_stations:
+            return []
+        return [s.strip() for s in self.allowed_stations.split(',') if s.strip()]
+
+    def can_work_at(self, station_code):
+        dozwolone = self.allowed_stations_list
+        return not dozwolone or station_code in dozwolone
+
+    def deactivate(self):
+        """Dezaktywacja zamiast kasowania — patrz docstring klasy."""
+        self.is_active = False
+        self.deactivated_at = get_local_now()
+
+    def reactivate(self):
+        self.is_active = True
+        self.deactivated_at = None
+
+    def __repr__(self):
+        stan = 'aktywny' if self.is_active else 'nieaktywny'
+        return f'<ProductionWorker #{self.id} {self.full_name} [{stan}]>'
+
+
+class ProductionWorkerSession(db.Model):
+    """
+    Sesja pracy: jeden pracownik przy jednym stanowisku.
+
+    Praca zespołowa na jednym tablecie to N sesji z tym samym session_group
+    i device_id — bez dodatkowych kolumn. session_group pozwala zamknąć całą
+    obsadę jednym requestem i odtworzyć "kto z kim pracował".
+
+    last_activity_at odświeża KAŻDA akcja produkcyjna (complete/quantity/reject),
+    nie dotknięcie ekranu. Skutek uboczny jest tu zaletą: kto stoi i nic nie robi
+    przez dwie godziny, faktycznie zostaje wylogowany — metryka mierzy pracę,
+    nie obecność.
+    """
+    __tablename__ = 'prod_worker_sessions'
+
+    # Powody domknięcia, które wolno przysłać klientowi. 'replaced' i 'admin'
+    # ustawia wyłącznie backend — przysłane z tabletu dają 422.
+    CLIENT_END_REASONS = frozenset({'manual', 'idle_timeout', 'night_cutoff'})
+
+    id = Column(Integer, primary_key=True)
+    worker_id = Column(Integer, ForeignKey('prod_workers.id'), nullable=False)
+    station_code = Column(String(32), nullable=False)
+    device_id = Column(String(64), nullable=True, comment='prod_devices.device_id')
+    session_group = Column(String(36), nullable=False, index=True,
+                           comment='UUID; łączy sesje wystartowane razem')
+    started_at = Column(DateTime, nullable=False)
+    last_activity_at = Column(DateTime, nullable=False)
+    ended_at = Column(DateTime, nullable=True, index=True)
+    end_reason = Column(
+        Enum('manual', 'idle_timeout', 'night_cutoff', 'replaced', 'admin',
+             name='worker_session_end_reason'),
+        nullable=True
+    )
+    work_date = Column(Date, nullable=False,
+                       comment='DATE(started_at) — doba raportowa, liczona serwerowo')
+    source = Column(
+        Enum('mobile', 'web', 'admin', name='worker_session_source'),
+        nullable=False, default='mobile'
+    )
+    created_at = Column(DateTime, default=get_local_now, nullable=False)
+
+    worker = relationship('ProductionWorker', backref=backref('sessions', lazy='dynamic'))
+
+    __table_args__ = (
+        Index('idx_worker_date', 'worker_id', 'work_date'),
+        Index('idx_station_date', 'station_code', 'work_date'),
+        Index('idx_device_open', 'device_id', 'ended_at'),
+    )
+
+    @property
+    def is_open(self):
+        return self.ended_at is None
+
+    @property
+    def duration_minutes(self):
+        """Długość sesji w minutach; dla otwartej — do teraz."""
+        koniec = self.ended_at or get_local_now()
+        return int((koniec - self.started_at).total_seconds() // 60)
+
+    def close(self, reason, ended_at=None):
+        """Domyka sesję. Idempotentne — już zamkniętej nie rusza."""
+        if self.ended_at is not None:
+            return False
+        self.ended_at = ended_at or get_local_now()
+        self.end_reason = reason
+        return True
+
+    def __repr__(self):
+        stan = 'otwarta' if self.is_open else f'zamknięta/{self.end_reason}'
+        return (f'<ProductionWorkerSession #{self.id} worker={self.worker_id} '
+                f'{self.station_code} [{stan}]>')
+
+
+class ProductionStationEventWorker(db.Model):
+    """
+    Atrybucja eventu stanowiskowego do pracowników — warstwa DOKŁADANA
+    do prod_station_events, nie przebudowa. Event zostaje niemutowalny,
+    więc wszyscy jego dotychczasowi konsumenci działają bez zmian.
+
+    share = 1/N (N = liczba pracowników przy evencie). Denormalizacja jest tu
+    bezpieczna, bo wartość jest niemutowalna: zapisana raz przy tworzeniu eventu,
+    nigdy nie aktualizowana. Przy trzech osobach suma to 0.999999 — raporty
+    zaokrąglają do jednego miejsca i to wystarcza.
+    """
+    __tablename__ = 'prod_station_event_workers'
+
+    event_id = Column(Integer, ForeignKey('prod_station_events.id', ondelete='CASCADE'),
+                      primary_key=True)
+    worker_id = Column(Integer, ForeignKey('prod_workers.id'),
+                       primary_key=True, index=True)
+    session_id = Column(Integer, ForeignKey('prod_worker_sessions.id', ondelete='SET NULL'),
+                        nullable=True, index=True)
+    share = Column(Numeric(9, 6), nullable=False,
+                   comment='1/N gdzie N = liczba pracowników przy evencie')
+
+    event = relationship('ProductionStationEvent',
+                         backref=backref('worker_attributions', passive_deletes=True))
+    worker = relationship('ProductionWorker')
+    session = relationship('ProductionWorkerSession')
+
+    def __repr__(self):
+        return (f'<ProductionStationEventWorker event={self.event_id} '
+                f'worker={self.worker_id} share={self.share}>')
+
+
+def attach_worker_attribution(event, worker_ids, session_ids=None):
+    """
+    Dopina atrybucję do świeżo utworzonego eventu stanowiskowego.
+
+    Wiersze wchodzą przez kolekcję relacji, nie przez event_id — event nie ma
+    jeszcze id przed flushem, a SQLAlchemy uzupełni FK sam.
+
+    worker_ids bierzemy Z REQUESTU (nagłówek X-Worker-Ids), nie z listy
+    otwartych sesji: akcja mogła powstać offline, a sesja zamknąć się w
+    międzyczasie nocnym cutoffem. Atrybucja ma odzwierciedlać stan w momencie
+    akcji, nie w momencie synchronizacji.
+
+    Zwraca listę utworzonych wierszy (pustą, gdy nie było czego dopiąć).
+    """
+    if not worker_ids:
+        return []
+
+    # dict.fromkeys zamiast set(): kolejność ma znaczenie, bo "pierwszy z listy"
+    # trafia do jednokolumnowego audytu w prod_product_events / prod_rework_log.
+    unikalne = list(dict.fromkeys(int(w) for w in worker_ids))
+    if not unikalne:
+        return []
+
+    share = (Decimal(1) / Decimal(len(unikalne))).quantize(
+        Decimal('0.000001'), rounding=ROUND_HALF_UP)
+    mapa_sesji = session_ids or {}
+
+    wiersze = []
+    for worker_id in unikalne:
+        wiersz = ProductionStationEventWorker(
+            worker_id=worker_id,
+            share=share,
+            session_id=mapa_sesji.get(worker_id),
+        )
+        event.worker_attributions.append(wiersz)
+        wiersze.append(wiersz)
+    return wiersze
 
 
 # Rejestracja audytu zdarzeń produktu. Import na końcu pliku, bo

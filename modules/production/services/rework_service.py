@@ -61,12 +61,19 @@ def reject_product_quantity(
     rejected_at_station: str,
     user_id: int | None = None,
     device_id: str | None = None,
+    worker_ids: list[int] | None = None,
 ) -> tuple[ProductionProduct, ProductionProduct, ProductionReworkLog]:
     """
     Wykonuje reject `quantity` sztuk z `product_id` na stanowisku `rejected_at_station`.
 
     Zwraca: (oryginał_po_update, doróbka, wpis_w_rework_log).
     Cały flow w jednej transakcji z SELECT ... FOR UPDATE na oryginale.
+
+    worker_ids: profile wybrane na tablecie (nagłówek X-Worker-Ids). Doróbka NIE
+    generuje eventu stanowiskowego — nie woła set_quantity_done() — więc nie ma
+    do czego dopiąć atrybucji dzielonej. Zapisujemy wyłącznie PIERWSZEGO
+    pracownika z listy w prod_rework_log.worker_id; to audyt, nie statystyka
+    (docs/worker-profiles-backend.md §4.4).
 
     Raises: RejectError z `code` w {'invalid_quantity', 'invalid_reason',
             'invalid_station', 'product_not_found', 'product_not_in_formatting'}.
@@ -223,6 +230,7 @@ def reject_product_quantity(
         reason_category=reason_category,
         created_at=now,
         user_id=user_id,
+        worker_id=(worker_ids[0] if worker_ids else None),
         device_id=device_id,
     )
     db.session.add(log_entry)

@@ -5,7 +5,7 @@ Blueprint zarejestrowany w app.py pod prefixem `/api/mobile`.
 Logika biznesowa w `services/mobile_api_service.py` — router jest cienki.
 """
 
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 
 from flask import Blueprint, g, jsonify, request
 from sqlalchemy import func, or_
@@ -20,8 +20,9 @@ from modules.production.utils.cache import (
     make_weak_etag,
     not_modified,
 )
-from modules.production.services import label_print_service
+from modules.production.services import label_print_service, worker_service
 from modules.production.services.label_print_service import StationNotAllowed
+from modules.production.services.worker_service import WorkerError
 from modules.production.services.mobile_api_service import (
     STATION_STATUS_MAP,
     STATUS_TO_STATION,
@@ -60,6 +61,35 @@ def _resolve_station_code(requested):
             'requested_station': code,
         }), 403)
     return code, None
+
+def _resolve_workers():
+    """
+    Czyta nagłówek X-Worker-Ids, waliduje i odświeża sesje.
+
+    Zwraca (worker_ids, session_ids, error_response). Gdy error_response != None,
+    wywołujący ma go zwrócić natychmiast. Pusta lista worker_ids znaczy
+    "bramka wyłączona i tablet nie przysłał nagłówka" — akcja przechodzi
+    bez atrybucji.
+
+    Sesje odświeżamy po samym device_id, nie po station_code: tablet
+    wykańczalni zamyka też pozycje z lakierni (station_code='painting'),
+    a sesja jest założona na stanowisku z JWT.
+    """
+    try:
+        worker_ids = worker_service.resolve_worker_ids(
+            request.headers.get('X-Worker-Ids'))
+    except WorkerError as e:
+        return None, None, _worker_error_response(e)
+
+    # Audyt zmian statusu (product_events.current_actor) czyta to z g —
+    # dzięki temu prod_product_events.worker_id wypełnia się bez przekazywania
+    # listy przez cały łańcuch wywołań aż do listenera SQLAlchemy.
+    g.worker_ids = worker_ids
+
+    session_ids = worker_service.touch_sessions(
+        worker_ids, device_id=g.device.device_id) if worker_ids else {}
+    return worker_ids, session_ids, None
+
 
 logger = get_structured_logger('production.mobile_api.routes')
 
@@ -272,12 +302,17 @@ def order_complete(order_id):
     if err:
         return err
 
+    worker_ids, session_ids, err = _resolve_workers()
+    if err:
+        return err
+
     item = ProductionItem.query.get(order_id)
     if not item:
         return jsonify({'error': 'order_not_found'}), 404
 
     try:
-        mark_order_complete(item, station_code)
+        mark_order_complete(item, station_code, device_id=g.device.device_id,
+                            worker_ids=worker_ids, session_ids=session_ids)
     except ValueError as e:
         return jsonify({'error': 'invalid_station', 'detail': str(e)}), 400
     except Exception as e:
@@ -319,12 +354,18 @@ def order_quantity(order_id):
     if err:
         return err
 
+    worker_ids, session_ids, err = _resolve_workers()
+    if err:
+        return err
+
     item = ProductionItem.query.get(order_id)
     if not item:
         return jsonify({'error': 'order_not_found'}), 404
 
     try:
-        update_order_quantity(item, station_code, quantity_done, device_id=g.device.device_id)
+        update_order_quantity(item, station_code, quantity_done,
+                              device_id=g.device.device_id,
+                              worker_ids=worker_ids, session_ids=session_ids)
     except ValueError as e:
         return jsonify({'error': 'invalid_quantity', 'detail': str(e)}), 400
     except Exception as e:
@@ -366,6 +407,10 @@ def order_reject(order_id):
     quantity = data.get('quantity')
     reason_category = (data.get('reason_category') or '').strip()
 
+    worker_ids, _sesje, err = _resolve_workers()
+    if err:
+        return err
+
     try:
         original, rework, log_entry = reject_product_quantity(
             product_id=order_id,
@@ -374,6 +419,7 @@ def order_reject(order_id):
             rejected_at_station=station_code,
             user_id=None,  # mobile API używa device, nie user
             device_id=g.device.device_id,
+            worker_ids=worker_ids,
         )
     except RejectError as e:
         logger.warning(
@@ -677,3 +723,187 @@ def device_heartbeat():
     })
 
     return '', 204
+
+
+# ============================================================================
+# PROFILE PRACOWNIKÓW
+# docs/worker-profiles-backend.md §6
+# ============================================================================
+
+def _worker_error_response(e):
+    """WorkerError → (JSON, status) w konwencji mobile API ({error, detail})."""
+    payload, status = e.as_response()
+    return jsonify(payload), status
+
+
+@mobile_api_bp.route('/workers', methods=['GET'])
+@require_device_token
+def workers_catalog():
+    """
+    GET /api/mobile/workers
+
+    Katalog aktywnych pracowników do ekranu wyboru profilu, razem z PEŁNĄ
+    konfiguracją (selection_required, idle_timeout_minutes, night_cutoff,
+    quick_pick_count) — apka nie hardkoduje żadnej z tych wartości i nie
+    pobiera ich osobnym requestem.
+
+    recent_on_station liczone dla stanowiska z JWT urządzenia — zasila sekcję
+    "szybki wybór".
+
+    ETag: catalog_version = MAX(updated_at) z katalogu. Apka wysyła
+    If-None-Match przy starcie i przy pustej zmianie dostaje 304.
+    """
+    station_code = g.device.station_code
+
+    etag = make_weak_etag('workers', station_code, worker_service.get_catalog_version())
+    if if_none_match(etag):
+        return not_modified(etag)
+
+    katalog = worker_service.build_mobile_catalog(station_code=station_code)
+    return cached_json(katalog, etag)
+
+
+@mobile_api_bp.route('/sessions/start', methods=['POST'])
+@require_device_token
+@with_idempotency
+def session_start():
+    """
+    POST /api/mobile/sessions/start
+
+    Body JSON: {
+        worker_ids: [int],        wymagane
+        station_code: str,        opcjonalne — domyślnie stanowisko z JWT
+        session_group: str,       UUID wygenerowany w apce (klucz encji w Room)
+        started_at: ISO8601       opcjonalne — sesja mogła zacząć się offline
+    }
+
+    UWAGA na strefę: started_at bez offsetu jest czytany jako UTC (parse_since_ts,
+    ta sama konwencja co delta sync). Apka musi wysyłać ISO z offsetem albo z 'Z',
+    inaczej sesja zapisze się przesunięta o różnicę stref.
+
+    Poprzednie sesje TEGO urządzenia są domykane z end_reason='replaced' —
+    zmiana obsady to koniec poprzedniej sesji, nie jej modyfikacja.
+
+    Idempotency: powtórka z tym samym X-Operation-Id zwraca zapisaną odpowiedź,
+    nie zakłada drugiego kompletu sesji.
+    """
+    data = request.get_json(silent=True) or {}
+
+    worker_ids = data.get('worker_ids')
+    if not isinstance(worker_ids, list) or not worker_ids:
+        return jsonify({'error': 'invalid_worker_ids',
+                        'detail': 'worker_ids musi być niepustą listą'}), 422
+    try:
+        worker_ids = [int(w) for w in worker_ids]
+    except (TypeError, ValueError):
+        return jsonify({'error': 'invalid_worker_ids',
+                        'detail': 'worker_ids musi zawierać liczby'}), 422
+
+    station_code, err = _resolve_station_code(data.get('station_code'))
+    if err:
+        return err
+
+    started_at = None
+    if data.get('started_at'):
+        try:
+            started_at = parse_since_ts(data['started_at'])
+        except ValueError as e:
+            return jsonify({'error': 'invalid_started_at', 'detail': str(e)}), 422
+
+    try:
+        sesje = worker_service.start_session(
+            worker_ids, station_code,
+            device_id=g.device.device_id,
+            session_group=data.get('session_group'),
+            started_at=started_at,
+            source='mobile',
+            commit=False,          # commit robi @with_idempotency
+        )
+    except WorkerError as e:
+        return _worker_error_response(e)
+
+    pierwsza = sesje[0]
+    wygasa = pierwsza.started_at + timedelta(
+        minutes=worker_service.get_idle_timeout_minutes())
+
+    return jsonify({
+        'session_group': pierwsza.session_group,
+        'sessions': [
+            {'id': s.id, 'worker_id': s.worker_id, 'started_at': s.started_at.isoformat()}
+            for s in sesje
+        ],
+        'expires_at': wygasa.isoformat(),
+    }), 201
+
+
+@mobile_api_bp.route('/sessions/end', methods=['POST'])
+@require_device_token
+@with_idempotency
+def session_end():
+    """
+    POST /api/mobile/sessions/end
+
+    Body JSON: { session_group: str, ended_at: ISO8601, reason: str }
+
+    Dozwolone reason od klienta: manual, idle_timeout, night_cutoff. Apka
+    egzekwuje timeouty lokalnie, żeby UX był natychmiastowy, i raportuje powód —
+    serwer go przyjmuje zamiast nadpisywać własnym. 'replaced' i 'admin'
+    ustawia wyłącznie backend, więc przysłane z tabletu dają 422.
+    """
+    data = request.get_json(silent=True) or {}
+
+    session_group = (data.get('session_group') or '').strip()
+    if not session_group:
+        return jsonify({'error': 'missing_session_group'}), 422
+
+    ended_at = None
+    if data.get('ended_at'):
+        try:
+            ended_at = parse_since_ts(data['ended_at'])
+        except ValueError as e:
+            return jsonify({'error': 'invalid_ended_at', 'detail': str(e)}), 422
+
+    try:
+        worker_service.end_session(
+            session_group,
+            ended_at=ended_at,
+            reason=(data.get('reason') or 'manual'),
+            device_id=g.device.device_id,
+            commit=False,          # commit robi @with_idempotency
+        )
+    except WorkerError as e:
+        return _worker_error_response(e)
+
+    return '', 204
+
+
+@mobile_api_bp.route('/sessions/active', methods=['GET'])
+@require_device_token
+def sessions_active():
+    """
+    GET /api/mobile/sessions/active
+
+    Otwarte sesje TEGO urządzenia. Apka woła to po restarcie albo crashu, żeby
+    nie zmuszać brygady do ponownego wybierania profili.
+    """
+    sesje = worker_service.get_active_sessions(device_id=g.device.device_id)
+
+    return jsonify({
+        'station_code': g.device.station_code,
+        'session_group': sesje[0].session_group if sesje else None,
+        'idle_timeout_minutes': worker_service.get_idle_timeout_minutes(),
+        'sessions': [
+            {
+                'id': s.id,
+                'worker_id': s.worker_id,
+                'worker_name': s.worker.full_name if s.worker else None,
+                'initials': s.worker.initials if s.worker else None,
+                'color_hex': s.worker.tile_color if s.worker else None,
+                'station_code': s.station_code,
+                'started_at': s.started_at.isoformat() if s.started_at else None,
+                'last_activity_at': (s.last_activity_at.isoformat()
+                                     if s.last_activity_at else None),
+            }
+            for s in sesje
+        ],
+    }), 200

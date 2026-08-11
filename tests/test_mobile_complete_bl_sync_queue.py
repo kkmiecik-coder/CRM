@@ -22,6 +22,7 @@ from extensions import db
 from modules.production.models import (
     ProcessedMobileOperation, ProductionConfig, ProductionConfiguration,
     ProductionDevice, ProductionOrder, ProductionProduct, ProductionReworkLog,
+    ProductionStationEvent,
 )
 from modules.production.routers.mobile_api import mobile_api_bp
 from modules.production.services.mobile_api_service import generate_token
@@ -37,6 +38,10 @@ from modules.quotes.models import QuoteStatus  # noqa: F401
 _TABLES = [m.__table__ for m in (
     User, ProductionDevice, ProductionConfig, ProcessedMobileOperation,
     ProductionOrder, ProductionProduct, ProductionConfiguration, ProductionReworkLog,
+    # prod_station_events doszło, bo mark_order_complete() domyka teraz sztuki
+    # przez set_quantity_done() i zostawia event stanowiskowy — patrz naprawa
+    # pułapki nr 1 w docs/worker-profiles-backend.md §8.
+    ProductionStationEvent,
 )]
 
 # SQLite (tylko testy) nie zna typu MySQL LONGTEXT (ProductionOrder.shipping_label_base64) -

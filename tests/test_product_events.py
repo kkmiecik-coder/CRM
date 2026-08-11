@@ -11,7 +11,9 @@ def test_model_ma_wymagane_kolumny():
     cols = set(ProductionProductEvent.__table__.columns.keys())
     assert cols == {
         'id', 'production_item_id', 'event_type', 'old_value', 'new_value',
-        'actor_type', 'user_id', 'device_id', 'source', 'endpoint',
+        # worker_id doszedł z profilami pracowników (docs/worker-profiles-backend.md
+        # §4.4) — audyt zapisuje PIERWSZEGO pracownika z X-Worker-Ids.
+        'actor_type', 'user_id', 'worker_id', 'device_id', 'source', 'endpoint',
         'ip_address', 'note', 'created_at',
     }
 

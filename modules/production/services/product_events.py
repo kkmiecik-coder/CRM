@@ -13,7 +13,10 @@ from modules.logging import get_structured_logger
 
 logger = get_structured_logger('production.product_events')
 
-Actor = namedtuple('Actor', 'actor_type user_id device_id source endpoint ip_address')
+# worker_id na końcu i z wartością domyślną, żeby istniejące pozycyjne
+# konstrukcje Actor(...) z sześcioma polami dalej działały.
+Actor = namedtuple('Actor', 'actor_type user_id device_id source endpoint ip_address worker_id')
+Actor.__new__.__defaults__ = (None,)
 
 # Śledzone pola ProductionProduct → typ zdarzenia
 TRACKED_FIELDS = {
@@ -23,9 +26,17 @@ TRACKED_FIELDS = {
 
 
 def build_actor(*, user=None, device=None, endpoint=None, ip_address=None,
-                in_request=False):
+                in_request=False, worker_ids=None):
     """
     Czysta funkcja: składa Actor z podanych elementów kontekstu.
+
+    Kolejność pierwszeństwa: worker → device → user → system.
+
+    Wybrany profil pracownika bije urządzenie, bo jest bardziej konkretny:
+    "Adam Kowalski na tablecie sklejania" niesie więcej niż sam "tablet
+    sklejania". device_id zostaje wypełnione mimo to — audyt ma pokazywać
+    oba. Przy pracy zespołowej zapisujemy PIERWSZEGO z listy; pełna,
+    dzielona atrybucja żyje w prod_station_event_workers, nie tutaj.
 
     Urządzenie ma pierwszeństwo przed użytkownikiem — żądania z tabletu
     lecą przez JWT urządzenia i to ono jest sprawcą, nawet gdyby w tej
@@ -40,6 +51,10 @@ def build_actor(*, user=None, device=None, endpoint=None, ip_address=None,
     logowaniem. Operator czytający historię musi umieć odróżnić człowieka
     przy stanowisku od automatu pomijającego stanowiska.
     """
+    if worker_ids:
+        return Actor('worker', None, getattr(device, 'device_id', None),
+                     'mobile', endpoint, ip_address, worker_ids[0])
+
     if device is not None:
         return Actor('device', None, getattr(device, 'device_id', None),
                      'mobile', endpoint, ip_address)
@@ -80,6 +95,9 @@ def current_actor():
         return build_actor(
             user=user,
             device=device,
+            # Ustawiane przez _resolve_workers() w mobile_api przy akcjach
+            # produkcyjnych; poza nimi po prostu nie istnieje.
+            worker_ids=getattr(g, 'worker_ids', None),
             endpoint=request.endpoint,
             ip_address=request.remote_addr,
             # Wołane tylko wtedy, gdy kontekst żądania istnieje (sprawdzone
@@ -110,6 +128,10 @@ def build_event_rows(product_id, changes, actor, now):
             'new_value': None if new is None else str(new),
             'actor_type': actor.actor_type,
             'user_id': actor.user_id,
+            # getattr, nie actor.worker_id: aktor bywa duck-typem bez tego pola
+            # (testy, starszy kod wołający build_event_rows z własnym obiektem),
+            # a audyt nie ma prawa wywrócić operacji biznesowej.
+            'worker_id': getattr(actor, 'worker_id', None),
             'device_id': actor.device_id,
             'source': actor.source,
             'endpoint': actor.endpoint,

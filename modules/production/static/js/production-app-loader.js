@@ -88,7 +88,7 @@ class ProductionApp {
         if (tabParam) {
             const tabName = tabParam.endsWith('-tab') ? tabParam : `${tabParam}-tab`;
             const validTabs = ['dashboard-tab', 'products-tab', 'archive-tab',
-                               'sawmill-tab', 'reports-tab', 'config-tab'];
+                               'sawmill-tab', 'reports-tab', 'workers-tab', 'config-tab'];
             if (validTabs.includes(tabName)) {
                 return tabName;
             }
@@ -266,6 +266,7 @@ class ProductionApp {
             case 'archive-tab': await this.loadArchiveTab(); break;
             case 'sawmill-tab': await this.loadSawmillTab(); break;
             case 'reports-tab': await this.loadReportsTab(); break;
+            case 'workers-tab': await this.loadWorkersTab(); break;
             case 'config-tab': await this.loadConfigTab(); break;
             default: throw new Error(`Unknown tab: ${normalizedTabName}`);
         }
@@ -387,6 +388,43 @@ class ProductionApp {
         } catch (error) {
             console.error('[ProductionApp] Sawmill loading failed:', error);
             this.showTabError('sawmill-tab', error.message);
+            throw error;
+        }
+    }
+
+    /**
+     * Ładowanie zakładki Pracownicy. Jak trakownia: endpoint
+     * /production/api/workers/tab-content zwraca gotowy HTML (render_template),
+     * nie JSON {success, html}, więc pobieramy go zwykłym fetch().
+     */
+    async loadWorkersTab() {
+        console.log('[ProductionApp] Loading workers tab...');
+        try {
+            const response = await fetch('/production/api/workers/tab-content', {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            });
+
+            if (!response.ok) {
+                if (response.status === 403) {
+                    throw new Error('Brak dostępu do modułu produkcji');
+                }
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const html = await response.text();
+            const container = document.getElementById('workers-tab-content');
+
+            if (container) {
+                container.innerHTML = html;
+                // innerHTML nie wykonuje <script>, a obsługa CRUD siedzi inline
+                // w templatce — bez tego przyciski byłyby martwe.
+                this.executeInlineScripts(container);
+            }
+
+            console.log('[ProductionApp] Workers tab loaded');
+        } catch (error) {
+            console.error('[ProductionApp] Workers loading failed:', error);
+            this.showTabError('workers-tab', error.message);
             throw error;
         }
     }
