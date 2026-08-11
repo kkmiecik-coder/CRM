@@ -1773,3 +1773,36 @@ def test_wydruk_etykiety_z_poprawnym_profilem_przechodzi(client, app, monkeypatc
     # Wydruk NIE tworzy atrybucji ani eventu — to czynność pomocnicza
     with app.app_context():
         assert ProductionStationEventWorker.query.count() == 0
+
+
+def test_zgaszenie_bramki_odblokowuje_hale_natychmiast(client, app):
+    """
+    Kill-switch ma JEDNO zadanie: odblokować produkcję od razu.
+
+    Konfiguracja siedzi w 60-minutowym cache PROCESU, a produkcja chodzi na
+    kilku procesach — admin gasi bramkę w procesie A, a proces B obsługujący
+    tablety bez tej ścieżki odrzucałby pracę jeszcze przez godzinę. Dlatego
+    zmiana idzie tu przez _ustaw_config_z_innego_procesu: wiersz w bazie już
+    nowy, cache tego procesu nadal stary. Zwykłe set_config unieważnia cache
+    lokalnie i test przechodziłby także bez poprawki, czyli nie mierzyłby nic.
+    """
+    token = _token(app)
+    produkt_id = _produkt(app)
+    _ustaw_config(app, 'WORKER_SELECTION_REQUIRED', 'true',
+                  updated_at=datetime(2026, 8, 11, 8, 0, 0))
+
+    odrzucone = client.patch(f'/api/mobile/orders/{produkt_id}/quantity',
+                             headers=_naglowki(token), json={'quantity_done': 3})
+    assert odrzucone.status_code == 400
+    assert odrzucone.get_json()['error'] == 'worker_ids_required'
+
+    # Admin gasi kill-switch w INNYM procesie — nasz cache o tym nie wie
+    _ustaw_config_z_innego_procesu(app, 'WORKER_SELECTION_REQUIRED', 'false')
+
+    przepuszczone = client.patch(f'/api/mobile/orders/{produkt_id}/quantity',
+                                 headers=_naglowki(token), json={'quantity_done': 3})
+
+    assert przepuszczone.status_code == 200, \
+        'kill-switch nie odblokował hali — praca dalej odrzucana mimo zgaszonej bramki'
+    with app.app_context():
+        assert ProductionProduct.query.get(produkt_id).quantity_done_gluing == 3

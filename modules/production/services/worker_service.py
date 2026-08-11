@@ -455,6 +455,17 @@ def resolve_worker_ids(raw_header, *, required=None):
     worker_ids = parse_worker_ids_header(raw_header)
     if worker_ids is None:
         if required:
+            # Zanim odrzucimy pracę, upewnijmy się, że bramka NAPRAWDĘ jest
+            # jeszcze włączona. Konfiguracja siedzi w 60-minutowym cache
+            # PROCESU, a produkcja chodzi na kilku workerach gunicorna: admin
+            # gasi kill-switch w procesie A, a proces B jeszcze przez godzinę
+            # odrzucałby akcje z hali. Kill-switch ma jedno zadanie — odblokować
+            # produkcję natychmiast — więc płacimy jeden SELECT MAX(updated_at),
+            # ale TYLKO tutaj, na ścieżce odmowy. Akcja z poprawnym nagłówkiem
+            # nie płaci nic.
+            odswiez_konfiguracje_jesli_nieaktualna()
+            if not is_selection_required():
+                return []
             raise WorkerError(400, 'worker_ids_required',
                               'Nagłówek X-Worker-Ids jest wymagany')
         return []
