@@ -730,7 +730,8 @@
 }
 
 /* ─── Paginacja tabeli ─── */
-.so-pagination {
+.so-pagination,
+.wo-pagination {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -739,17 +740,20 @@
     flex-wrap: wrap;
     gap: 8px;
 }
-.so-pagination-info {
+.so-pagination-info,
+.wo-pagination-info {
     font-size: 11px;
     color: var(--il-text-secondary, #7a8291);
     font-family: 'JetBrains Mono', monospace;
 }
-.so-pagination-controls {
+.so-pagination-controls,
+.wo-pagination-controls {
     display: inline-flex;
     gap: 2px;
     align-items: center;
 }
-.so-pagination-controls button {
+.so-pagination-controls button,
+.wo-pagination-controls button {
     background: var(--il-bg-card, #fff);
     border: 1px solid var(--il-border, #c8cdd5);
     border-radius: var(--il-radius, 3px);
@@ -760,22 +764,26 @@
     cursor: pointer;
     min-width: 28px;
 }
-.so-pagination-controls button:hover:not(:disabled):not(.active) {
+.so-pagination-controls button:hover:not(:disabled):not(.active),
+.wo-pagination-controls button:hover:not(:disabled):not(.active) {
     background: var(--il-bg-base, #eef0f4);
     color: var(--il-status-info, #2563eb);
     border-color: var(--il-status-info, #2563eb);
 }
-.so-pagination-controls button.active {
+.so-pagination-controls button.active,
+.wo-pagination-controls button.active {
     background: var(--il-status-info, #2563eb);
     color: #fff;
     border-color: var(--il-status-info, #2563eb);
     font-weight: 600;
 }
-.so-pagination-controls button:disabled {
+.so-pagination-controls button:disabled,
+.wo-pagination-controls button:disabled {
     opacity: 0.4;
     cursor: not-allowed;
 }
-.so-pagination-controls .so-page-ellipsis {
+.so-pagination-controls .so-page-ellipsis,
+.wo-pagination-controls .so-page-ellipsis {
     padding: 0 4px;
     color: var(--il-text-secondary, #7a8291);
     font-size: 12px;
@@ -994,6 +1002,10 @@
                     </thead>
                     <tbody id="wo-rows-body"></tbody>
                 </table>
+                <div class="wo-pagination" id="wo-pagination" style="display: none;">
+                    <div class="wo-pagination-info" id="wo-pagination-info"></div>
+                    <div class="wo-pagination-controls" id="wo-pagination-controls"></div>
+                </div>
             </div>
         </div>
     </div>
@@ -1289,6 +1301,81 @@ function initReportsTab() {
 // Zakres dat liczymy tą samą funkcją co widget stanowisk (soResolveRange),
 // żeby oba widgety rozumiały presety identycznie.
 // ════════════════════════════════════════════════════════════════════
+// Stan paginacji rozbicia dziennego. 15 wierszy na stronę, nie 10 jak
+// w widgecie stanowiskowym: tam wiersz to pozycja produkcyjna z opisem,
+// tutaj jedna linijka liczb, więc mieści się gęściej bez zmęczenia oka.
+const WO_ROZMIAR_STRONY = 15;
+let woWiersze = [];
+let woStrona = 1;
+
+function woRenderujStrone() {
+    const tbody = document.getElementById('wo-rows-body');
+    const paginacja = document.getElementById('wo-pagination');
+    if (!tbody) return;
+
+    const razem = woWiersze.length;
+    const stron = Math.max(1, Math.ceil(razem / WO_ROZMIAR_STRONY));
+    if (woStrona > stron) woStrona = stron;
+    if (woStrona < 1) woStrona = 1;
+
+    const od = (woStrona - 1) * WO_ROZMIAR_STRONY;
+    const do_ = Math.min(od + WO_ROZMIAR_STRONY, razem);
+
+    tbody.innerHTML = woWiersze.slice(od, do_).map(w => `
+        <tr${w.worker_name === 'Nieprzypisane' ? ' class="wo-unassigned"' : ''}>
+            <td>${escapeHtml(w.work_date)}</td>
+            <td>${escapeHtml(w.worker_name)}</td>
+            <td>${escapeHtml(w.station_label)}</td>
+            <td class="text-end">${w.pieces}</td>
+            <td class="text-end">${w.m3}</td>
+        </tr>`).join('');
+
+    if (!paginacja) return;
+    if (stron <= 1) {
+        paginacja.style.display = 'none';
+        return;
+    }
+    paginacja.style.display = 'flex';
+    woRenderujKontrolki(stron, razem, od, do_);
+}
+
+function woRenderujKontrolki(stron, razem, od, do_) {
+    const info = document.getElementById('wo-pagination-info');
+    const kontrolki = document.getElementById('wo-pagination-controls');
+    if (!info || !kontrolki) return;
+
+    info.textContent = `${od + 1}–${do_} z ${razem} wierszy`;
+
+    // computeSoPageList jest wspólne z widgetem stanowiskowym — ta sama
+    // logika elips (1 … 4 5 6 … 12), więc obie paginacje zachowują się tak samo.
+    const strony = computeSoPageList(woStrona, stron);
+    const czesci = [`<button type="button" data-act="prev" ${woStrona === 1 ? 'disabled' : ''} title="Poprzednia">‹</button>`];
+    for (const s of strony) {
+        czesci.push(s === '…'
+            ? '<span class="so-page-ellipsis">…</span>'
+            : `<button type="button" data-page="${s}" class="${s === woStrona ? 'active' : ''}">${s}</button>`);
+    }
+    czesci.push(`<button type="button" data-act="next" ${woStrona === stron ? 'disabled' : ''} title="Następna">›</button>`);
+    kontrolki.innerHTML = czesci.join('');
+
+    kontrolki.querySelectorAll('button').forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (btn.dataset.act === 'prev' && woStrona > 1) {
+                woStrona -= 1;
+            } else if (btn.dataset.act === 'next' && woStrona < stron) {
+                woStrona += 1;
+            } else if (btn.dataset.page) {
+                const s = parseInt(btn.dataset.page, 10);
+                if (isNaN(s) || s === woStrona) return;
+                woStrona = s;
+            } else {
+                return;
+            }
+            woRenderujStrone();
+        });
+    });
+}
+
 function toastRaportu(wiadomosc) {
     if (window.ProductionApp?.shared?.toastSystem) {
         window.ProductionApp.shared.toastSystem.show(wiadomosc, 'warning');
@@ -1386,18 +1473,15 @@ function woRender(raport) {
             </tr>`);
     }
 
-    const wiersze = raport.rows.concat(raport.unassigned.map(u => Object.assign(
+    // Rozbicie dzienne to iloczyn pracownik × dzień × stanowisko — przy
+    // miesięcznym zakresie robi się z tego kilkaset wierszy. Trzymamy je
+    // w stanie i pokazujemy stronami, tym samym mechanizmem co widget
+    // stanowiskowy (patrz renderSoItemsPage / computeSoPageList).
+    woWiersze = raport.rows.concat(raport.unassigned.map(u => Object.assign(
         {}, u, { worker_name: 'Nieprzypisane' })));
-    wiersze.sort((a, b) => (b.work_date || '').localeCompare(a.work_date || ''));
-
-    document.getElementById('wo-rows-body').innerHTML = wiersze.map(w => `
-        <tr${w.worker_name === 'Nieprzypisane' ? ' class="wo-unassigned"' : ''}>
-            <td>${escapeHtml(w.work_date)}</td>
-            <td>${escapeHtml(w.worker_name)}</td>
-            <td>${escapeHtml(w.station_label)}</td>
-            <td class="text-end">${w.pieces}</td>
-            <td class="text-end">${w.m3}</td>
-        </tr>`).join('');
+    woWiersze.sort((a, b) => (b.work_date || '').localeCompare(a.work_date || ''));
+    woStrona = 1;
+    woRenderujStrone();
 
     const cokolwiek = raport.worker_totals.length > 0 || p.unassigned_pieces > 0;
     woPokaz('wo-summary', true);
