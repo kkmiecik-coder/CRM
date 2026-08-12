@@ -89,21 +89,49 @@ _CFG_CALY_DZIEN = {
 }
 
 
-def test_czekanie_na_push_nie_zjada_okna_pollingu():
-    """Gdyby broker zamilkł, a limit czytania był dłuższy niż okno zapasowego
-    pollingu, etykieta czekałaby DŁUŻEJ niż gdyby pusha w ogóle nie było."""
-    stream = _FakeStream()
-    deadline = time.monotonic() + 2
+class _PingujacyStream:
+    """Strumień, który regularnie przysyła pingi — jak żywy broker."""
+    def __init__(self, odstep):
+        self.odstep = odstep
+        self.timeouts_requested = []
+
+    def read_line(self, timeout):
+        self.timeouts_requested.append(timeout)
+        time.sleep(self.odstep)
+        return b'data: {}'
+
+
+def test_nigdy_nie_przerywamy_czytania_w_pol():
+    """Regresja z produkcji 12.08.2026: kanał push padał równo co 60 s.
+
+    Przerwany timeoutem readline() TRWALE psuje bufor strumienia (kolejne
+    czytania rzucają "cannot read from timed out object"). Przycinanie limitu
+    czytania do deadline'u zapasowego pollingu oznaczało więc wymuszony timeout
+    przy każdym oknie — czyli zabijanie zdrowego połączenia co minutę.
+
+    Limit czytania musi być ZAWSZE pełnym limitem ciszy: wtedy timeout zdarza
+    się tylko wtedy, gdy i tak zrywamy połączenie.
+    """
+    stream = _PingujacyStream(odstep=0.2)
+
+    print_agent.wait_for_signal(stream, time.monotonic() + 0.5, _CFG_CALY_DZIEN)
+
+    assert stream.timeouts_requested, 'strumień nie był w ogóle czytany'
+    assert set(stream.timeouts_requested) == {print_agent.SSE_PING_TIMEOUT_SECONDS}, (
+        'limit czytania został przycięty — to psuje bufor przy każdym oknie pollingu'
+    )
+
+
+def test_deadline_konczy_czekanie_na_najblizszej_ramce():
+    """Deadline dotrzymujemy z dokładnością do jednego odstępu między pingami —
+    zegar sprawdzamy MIĘDZY ramkami, nie przerywając czytania."""
+    stream = _PingujacyStream(odstep=0.2)
     start = time.monotonic()
 
-    outcome = print_agent.wait_for_signal(stream, deadline, _CFG_CALY_DZIEN)
+    outcome = print_agent.wait_for_signal(stream, time.monotonic() + 0.5, _CFG_CALY_DZIEN)
 
     assert outcome == 'poll', 'koniec okna czekania to nie awaria brokera'
-    assert time.monotonic() <= deadline + 1, 'przekroczony deadline zapasowego pollingu'
-    # Limit pojedynczego czytania musi być przycięty do czasu do deadline'u,
-    # a nie ustawiony na pełny limit ciszy (40 s).
-    assert max(stream.timeouts_requested) <= 2.0
-    assert time.monotonic() - start < 5
+    assert time.monotonic() - start < 2, 'czekanie nie zakończyło się na kolejnej ramce'
 
 
 def test_cisza_dluzsza_niz_limit_pinga_zamyka_polaczenie():

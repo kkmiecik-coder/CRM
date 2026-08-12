@@ -246,7 +246,12 @@ class SseStream:
         self._resp = resp
 
     def read_line(self, timeout):
-        """Czyta jedną linię, czekając najwyżej `timeout` sekund."""
+        """Czyta jedną linię, czekając najwyżej `timeout` sekund.
+
+        Timeout przerywa czytanie w pół i TRWALE psuje bufor — kolejne czytania
+        rzucają „cannot read from timed out object”. Po timeoucie strumień
+        nadaje się już tylko do zamknięcia, nigdy do dalszego użycia.
+        """
         if self._sock is not None:
             try:
                 self._sock.settimeout(max(1.0, timeout))
@@ -335,20 +340,29 @@ def wait_for_signal(stream, poll_deadline, cfg):
                    godziny pracy; pętla główna i tak zrobi swoje
         'closed' — strumień padł (brak pinga, zamknięcie, błąd sieci)
 
-    Gwarancja: funkcja NIE przekroczy `poll_deadline`, nawet gdy broker zamilknie
-    w połowie zdania. Limit pojedynczego czytania jest przycinany do czasu, jaki
-    został do deadline'u — inaczej czekanie na push mogłoby zjeść okno zapasowego
-    pollingu i etykieta czekałaby dłużej, niż gdyby pusha w ogóle nie było.
+    Deadline sprawdzamy MIĘDZY ramkami, nigdy nie przerywając czytania w pół.
+
+    Dlaczego nie przycinamy limitu czytania do deadline'u (kuszące i błędne):
+    przerwany timeoutem `readline()` TRWALE psuje bufor strumienia — każde
+    kolejne czytanie rzuca wtedy „cannot read from timed out object”. Przycinanie
+    limitu oznaczałoby więc wymuszony timeout przy każdym oknie pollingu, czyli
+    zabijanie zdrowego połączenia co 60 s. Tak właśnie padał kanał na produkcji
+    12.08.2026.
+
+    Deadline jest przez to dotrzymywany z dokładnością do jednego odstępu między
+    pingami (Centrifugo: 25 s), bo dopiero ramka daje okazję do sprawdzenia
+    zegara. Zapasowy polling wykonuje się więc po ~60-85 s zamiast równo po 60 —
+    i to jest w porządku, bo jego zadaniem jest złapać zgubiony sygnał, a nie
+    trzymać rytm co do sekundy.
     """
     while True:
-        time_left = poll_deadline - time.monotonic()
-        if time_left <= 0:
+        if time.monotonic() >= poll_deadline or not in_working_hours(cfg):
             return 'poll'
         try:
-            raw = stream.read_line(min(SSE_PING_TIMEOUT_SECONDS, time_left))
+            raw = stream.read_line(SSE_PING_TIMEOUT_SECONDS)
         except (socket.timeout, TimeoutError):
-            if time.monotonic() >= poll_deadline:
-                return 'poll'   # to nie awaria, tylko koniec okna czekania
+            # Timeout zdarza się TYLKO przy prawdziwej ciszy brokera — a wtedy
+            # i tak zrywamy połączenie, więc zepsuty bufor nikomu nie szkodzi.
             warn("Brak pinga z brokera — uznaję połączenie push za martwe")
             return 'closed'
         except (OSError, ValueError, URLError, HTTPException) as e:
