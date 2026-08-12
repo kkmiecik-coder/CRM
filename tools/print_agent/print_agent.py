@@ -185,6 +185,11 @@ SSE_CONNECT_TIMEOUT_SECONDS = 5
 SSE_RECONNECT_MAX_SECONDS = 60
 # Co która nieudana próba połączenia trafia do logu (poza pierwszą, zawsze głośną).
 _CONNECT_LOG_EVERY = 30
+# Ile porcji po `jobs_limit` wolno pobrać w jednym cyklu, zanim oddamy sterowanie
+# pętli głównej. Bezpiecznik przed zapętleniem na kolejce, która rośnie szybciej,
+# niż drukarka nadąża — przy limicie 10 to 200 etykiet na cykl, czyli grubo
+# ponad dzienny wolumen.
+_MAX_BATCHES_PER_CYCLE = 20
 
 
 def fetch_realtime_config(cfg, quiet=False):
@@ -394,6 +399,10 @@ def close_sse(stream):
     return None
 
 
+# Do tylu sekund różnicy zegarów huba i serwera traktujemy wiek zadania jak zero.
+_CLOCK_SKEW_TOLERANCE_SECONDS = 5
+
+
 def _utcnow():
     """Naive UTC — odpowiednik `datetime.utcnow()`, ale bez ostrzeżenia.
 
@@ -436,7 +445,12 @@ def _describe_job_age(requested_at_iso):
         return ''
     age = (_utcnow() - req).total_seconds()
     if age < 0:
-        # Zegar huba rozjechany z serwerem albo strefa się popsuła.
+        # Zegar huba idzie odrobinę za serwerem — przy wydruku w ułamku sekundy
+        # od zlecenia wychodzi z tego ujemny wiek. Kilka sekund różnicy między
+        # maszynami to normalka, więc pokazujemy zero zamiast straszyć.
+        if age > -_CLOCK_SKEW_TOLERANCE_SECONDS:
+            return ' (czekało 0.0s)'
+        # Większy rozjazd to już realny problem z zegarem — pokazujemy surowo.
         return f' (req {requested_at_iso})'
     if age < 60:
         return f' (czekało {age:.2f}s)' if age < 1 else f' (czekało {age:.1f}s)'
@@ -482,7 +496,7 @@ def print_banner(cfg):
 
 # === Main loop ===
 def run_once(cfg, signal_at=None):
-    """Jeden cykl: pobierz pending, wydrukuj, ACK.
+    """Jeden cykl: opróżnij kolejkę — pobierz, wydrukuj, ACK, powtórz.
 
     signal_at: znacznik monotoniczny chwili, w której przyszedł sygnał push
         (None = cykl z pollingu). Służy tylko do zmierzenia czasu reakcji
@@ -495,23 +509,44 @@ def run_once(cfg, signal_at=None):
     Awaria pojedynczego wydruku (drukarka offline) NIE liczy się jako fail
     komunikacji z CRM — ACK i tak idzie z success=False dla tego joba, więc
     serwer nie próbuje go ponownie i nie ma sensu uruchamiać backoffu.
+
+    DLACZEGO PĘTLA, a nie jedna porcja: `/jobs` oddaje najwyżej `jobs_limit`
+    (domyślnie 10) zadań, a CRM wysyła JEDEN sygnał na całe zlecenie, choćby
+    miało 20 etykiet. Pobranie jednej porcji i pójście spać zostawiało resztę
+    w kolejce do następnego obudzenia — i to się samo napędzało, bo kolejny
+    sygnał szedł na dociągnięcie zaległości, a zadanie, które ten sygnał
+    wywołało, stawało się nową zaległością. Tak właśnie 12.08.2026 jedna
+    etykieta czekała 85 s przy sprawnym kanale push.
     """
+    for _ in range(_MAX_BATCHES_PER_CYCLE):
+        wynik = _process_one_batch(cfg, signal_at)
+        if wynik != 'more':
+            return wynik == 'ok'
+        # Pełna porcja = w kolejce może czekać więcej. Dociągamy od razu,
+        # zamiast czekać na następny sygnał albo na zapasowy polling.
+    warn(f"Przerwano opróżnianie kolejki po {_MAX_BATCHES_PER_CYCLE} porcjach — "
+         "reszta pójdzie następnym cyklem")
+    return True
+
+
+def _process_one_batch(cfg, signal_at=None):
+    """Jedna porcja zadań. Zwraca 'ok' | 'more' (porcja była pełna) | 'error'."""
     try:
         data = fetch_jobs(cfg)
     except HTTPError as e:
         if e.code == 401:
             log_error("401 Unauthorized z CRM — sprawdź token w panelu. Czekam 60s.")
             time.sleep(60)
-            return False
+            return 'error'
         log_error(f"CRM HTTP {e.code}: {e.reason}", exc=e)
-        return False
+        return 'error'
     except (URLError, TimeoutError, OSError) as e:
         log_error(f"Błąd sieci do CRM: {e}", exc=e)
-        return False
+        return 'error'
 
     jobs = data.get('jobs', [])
     if not jobs:
-        return True  # cisza w logach przy braku zadań
+        return 'ok'  # cisza w logach przy braku zadań
 
     info(f"Pobrano {len(jobs)} zadań → drukuję...")
     results = []
@@ -530,10 +565,13 @@ def run_once(cfg, signal_at=None):
         resp = ack_jobs(cfg, results)
         success_count = sum(1 for r in results if r['success'])
         ok(f"ACK: {success_count}/{len(results)} OK (server updated={resp.get('updated', '?')})")
-        return True
     except (URLError, HTTPError, TimeoutError, OSError) as e:
         log_error(f"Nie udało się wysłać ACK: {e}", exc=e)
-        return False
+        return 'error'
+
+    # Porcja pełna po brzegi = serwer prawdopodobnie miał więcej, niż zmieściło
+    # się w limicie. Wracamy po resztę bez czekania.
+    return 'more' if len(jobs) >= cfg['jobs_limit'] else 'ok'
 
 
 def _reconnect_delay(failures):

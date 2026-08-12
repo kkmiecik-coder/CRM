@@ -197,6 +197,87 @@ def test_limit_nawiazania_polaczenia_krotszy_niz_limit_ciszy():
     assert print_agent.SSE_CONNECT_TIMEOUT_SECONDS <= 10
 
 
+def test_agent_oproznia_kolejke_a_nie_pobiera_jednej_porcji(monkeypatch):
+    """Regresja z produkcji 12.08.2026: etykieta czekała 85 s przy sprawnym pushu.
+
+    /jobs oddaje najwyżej jobs_limit zadań, a CRM wysyła JEDEN sygnał na całe
+    zlecenie — także takie na 20 etykiet. Pobranie jednej porcji i pójście spać
+    zostawiało resztę do następnego obudzenia, a kolejny sygnał szedł na
+    dociągnięcie zaległości, więc zadanie, które go wywołało, stawało się nową
+    zaległością.
+    """
+    cfg = {'jobs_limit': 10, 'request_timeout': 5, 'printer_ip': '127.0.0.1',
+           'printer_port': 9100, 'printer_timeout': 5}
+    porcje = [
+        {'jobs': [{'id': i, 'short_product_id': 'X', 'zpl_payload': '^XA^XZ',
+                   'requested_at': None} for i in range(10)]},          # pełna
+        {'jobs': [{'id': 100, 'short_product_id': 'X', 'zpl_payload': '^XA^XZ',
+                   'requested_at': None}]},                             # resztka
+        {'jobs': []},
+    ]
+    pobrania = []
+    wydrukowane = []
+
+    monkeypatch.setattr(print_agent, 'fetch_jobs', lambda c: (pobrania.append(1), porcje.pop(0))[1])
+    monkeypatch.setattr(print_agent, 'send_to_printer', lambda c, z: wydrukowane.append(z))
+    monkeypatch.setattr(print_agent, 'ack_jobs', lambda c, r: {'updated': len(r)})
+
+    assert print_agent.run_once(cfg) is True
+    assert len(pobrania) == 2, 'po pełnej porcji agent musi wrócić po resztę bez czekania'
+    assert len(wydrukowane) == 11
+
+
+def test_niepelna_porcja_konczy_cykl(monkeypatch):
+    """Nie odpytujemy w kółko, gdy kolejka jest już pusta."""
+    cfg = {'jobs_limit': 10, 'request_timeout': 5, 'printer_ip': '127.0.0.1',
+           'printer_port': 9100, 'printer_timeout': 5}
+    pobrania = []
+
+    def fetch(c):
+        pobrania.append(1)
+        return {'jobs': [{'id': 1, 'short_product_id': 'X', 'zpl_payload': '^XA^XZ',
+                          'requested_at': None}]}
+
+    monkeypatch.setattr(print_agent, 'fetch_jobs', fetch)
+    monkeypatch.setattr(print_agent, 'send_to_printer', lambda c, z: None)
+    monkeypatch.setattr(print_agent, 'ack_jobs', lambda c, r: {'updated': len(r)})
+
+    print_agent.run_once(cfg)
+    assert len(pobrania) == 1
+
+
+def test_oproznianie_kolejki_ma_bezpiecznik(monkeypatch):
+    """Kolejka rosnąca szybciej niż drukarka nie może zablokować pętli głównej."""
+    cfg = {'jobs_limit': 2, 'request_timeout': 5, 'printer_ip': '127.0.0.1',
+           'printer_port': 9100, 'printer_timeout': 5}
+    pobrania = []
+
+    def fetch(c):
+        pobrania.append(1)
+        return {'jobs': [{'id': 1, 'short_product_id': 'X', 'zpl_payload': '^XA^XZ',
+                          'requested_at': None}] * 2}          # zawsze pełna porcja
+
+    monkeypatch.setattr(print_agent, 'fetch_jobs', fetch)
+    monkeypatch.setattr(print_agent, 'send_to_printer', lambda c, z: None)
+    monkeypatch.setattr(print_agent, 'ack_jobs', lambda c, r: {'updated': len(r)})
+
+    assert print_agent.run_once(cfg) is True
+    assert len(pobrania) == print_agent._MAX_BATCHES_PER_CYCLE
+
+
+def test_maly_rozjazd_zegarow_nie_straszy_w_logu():
+    """Zegar huba idzie ułamek sekundy za serwerem — wiek wychodzi ujemny."""
+    from datetime import datetime, timedelta
+    przyszlosc = (datetime.utcnow() + timedelta(seconds=0.8)).isoformat()
+    assert print_agent._describe_job_age(przyszlosc) == ' (czekało 0.0s)'
+
+
+def test_duzy_rozjazd_zegarow_jest_widoczny():
+    from datetime import datetime, timedelta
+    daleko = (datetime.utcnow() + timedelta(seconds=600)).isoformat()
+    assert 'req ' in print_agent._describe_job_age(daleko)
+
+
 def test_czas_reakcji_pokazywany_w_milisekundach():
     assert print_agent._format_reaction(0.089) == '89 ms'
     assert print_agent._format_reaction(1.34) == '1.3 s'
