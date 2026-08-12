@@ -227,6 +227,44 @@ def test_agent_oproznia_kolejke_a_nie_pobiera_jednej_porcji(monkeypatch):
     assert len(wydrukowane) == 11
 
 
+def test_martwa_drukarka_nie_pali_calej_kolejki(monkeypatch):
+    """Regresja z produkcji 12.08.2026: 51 etykiet w kolejce, drukarka nie
+    przyjmuje danych.
+
+    Bez tego zabezpieczenia agent przemieliłby całą kolejkę jednym ciągiem:
+    każda etykieta blokuje się na pełny send_timeout_seconds, a ACK oznacza
+    zadanie jako `failed`, czyli bezpowrotnie. Przy 50 zadaniach to kilkanaście
+    minut blokady i 50 spalonych etykiet — operator musiałby klikać od nowa.
+
+    Poprawnie: próbujemy jedną, resztę zostawiamy w kolejce jako `pending`.
+    """
+    cfg = {'jobs_limit': 10, 'request_timeout': 5, 'printer_ip': '127.0.0.1',
+           'printer_port': 9100, 'printer_timeout': 5}
+    proby_druku = []
+    potwierdzone = []
+    pobrania = []
+
+    def fetch(c):
+        pobrania.append(1)
+        return {'jobs': [{'id': i, 'short_product_id': 'X', 'zpl_payload': '^XA^XZ',
+                          'requested_at': None} for i in range(10)]}
+
+    def martwa_drukarka(c, z):
+        proby_druku.append(z)
+        raise OSError('timed out')
+
+    monkeypatch.setattr(print_agent, 'fetch_jobs', fetch)
+    monkeypatch.setattr(print_agent, 'send_to_printer', martwa_drukarka)
+    monkeypatch.setattr(print_agent, 'ack_jobs',
+                        lambda c, r: (potwierdzone.extend(r), {'updated': len(r)})[1])
+
+    print_agent.run_once(cfg)
+
+    assert len(proby_druku) == 1, 'nie dobijamy się do martwej drukarki resztą porcji'
+    assert len(potwierdzone) == 1, 'tylko jedno zadanie spalone, reszta zostaje pending'
+    assert len(pobrania) == 1, 'po nieudanej porcji nie ciągniemy kolejnych'
+
+
 def test_niepelna_porcja_konczy_cykl(monkeypatch):
     """Nie odpytujemy w kółko, gdy kolejka jest już pusta."""
     cfg = {'jobs_limit': 10, 'request_timeout': 5, 'printer_ip': '127.0.0.1',

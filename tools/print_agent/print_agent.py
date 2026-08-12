@@ -550,8 +550,15 @@ def _process_one_batch(cfg, signal_at=None):
 
     info(f"Pobrano {len(jobs)} zadań → drukuję...")
     results = []
+    drukarka_padla = False
     for j in jobs:
         timing = _describe_timing(signal_at, j.get('requested_at'))
+        if drukarka_padla:
+            # Nie dobijamy się do martwej drukarki resztą porcji — każda próba
+            # to kolejne `send_timeout_seconds` blokady, a efekt i tak ten sam.
+            # Te zadania zostawiamy w kolejce (bez ACK), więc pozostaną `pending`
+            # i wyjadą, gdy drukarka wróci.
+            continue
         try:
             send_to_printer(cfg, j['zpl_payload'])
             ok(f"  ✓ id={j['id']} short={j['short_product_id']}{timing}")
@@ -560,6 +567,7 @@ def _process_one_batch(cfg, signal_at=None):
             err(f"  ✗ id={j['id']} short={j['short_product_id']}{timing} ({e})")
             log_error(f"Drukowanie id={j['id']} nieudane{timing}: {e}", exc=e)
             results.append({'id': j['id'], 'success': False, 'error': str(e)[:200]})
+            drukarka_padla = True
 
     try:
         resp = ack_jobs(cfg, results)
@@ -569,8 +577,18 @@ def _process_one_batch(cfg, signal_at=None):
         log_error(f"Nie udało się wysłać ACK: {e}", exc=e)
         return 'error'
 
-    # Porcja pełna po brzegi = serwer prawdopodobnie miał więcej, niż zmieściło
-    # się w limicie. Wracamy po resztę bez czekania.
+    # Po resztę wracamy TYLKO wtedy, gdy porcja była pełna I cała się wydrukowała.
+    #
+    # Warunek „cała się wydrukowała" jest tu kluczowy. Przy niedostępnej drukarce
+    # każda etykieta blokuje się na pełny `send_timeout_seconds`, a ACK oznacza
+    # zadania jako `failed` — czyli bezpowrotnie. Bez tego warunku agent
+    # przemieliłby na porażki CAŁĄ kolejkę jednym ciągiem (przy 50 zadaniach to
+    # kilkanaście minut blokady i 50 spalonych etykiet). Zatrzymujemy się na
+    # pierwszej porcji z błędem: operator zdąży zauważyć problem z drukarką,
+    # a reszta zadań zostaje w kolejce jako `pending`.
+    if success_count < len(results):
+        warn("Drukarka nie przyjęła części etykiet — przerywam opróżnianie kolejki")
+        return 'ok'
     return 'more' if len(jobs) >= cfg['jobs_limit'] else 'ok'
 
 
