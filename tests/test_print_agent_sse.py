@@ -6,6 +6,8 @@ więc ładujemy go z pliku.
 import importlib.util
 import os
 import sys
+import time
+from datetime import time as dtime
 
 import pytest
 
@@ -66,6 +68,59 @@ def test_niesparsowalny_json_jest_sygnalem():
 def test_bajty_sa_dekodowane():
     assert print_agent.classify_sse_line(b'data: {}') == 'ping'
     assert print_agent.classify_sse_line(b'data: {"pub":{}}') == 'signal'
+
+
+class _FakeStream:
+    """Strumień, który milczy — czekanie kończy się timeoutem po pełnym limicie,
+    tak jak zrobiłoby to prawdziwe gniazdo."""
+    def __init__(self, sleep_scale=1.0):
+        self.timeouts_requested = []
+        self._sleep_scale = sleep_scale
+
+    def read_line(self, timeout):
+        self.timeouts_requested.append(timeout)
+        time.sleep(timeout * self._sleep_scale)
+        raise TimeoutError('brak danych')
+
+
+_CFG_CALY_DZIEN = {
+    'workdays_start': dtime(0, 0), 'workdays_end': dtime(23, 59),
+    'saturday_start': dtime(0, 0), 'saturday_end': dtime(23, 59),
+}
+
+
+def test_czekanie_na_push_nie_zjada_okna_pollingu():
+    """Gdyby broker zamilkł, a limit czytania był dłuższy niż okno zapasowego
+    pollingu, etykieta czekałaby DŁUŻEJ niż gdyby pusha w ogóle nie było."""
+    stream = _FakeStream()
+    deadline = time.monotonic() + 2
+    start = time.monotonic()
+
+    outcome = print_agent.wait_for_signal(stream, deadline, _CFG_CALY_DZIEN)
+
+    assert outcome == 'poll', 'koniec okna czekania to nie awaria brokera'
+    assert time.monotonic() <= deadline + 1, 'przekroczony deadline zapasowego pollingu'
+    # Limit pojedynczego czytania musi być przycięty do czasu do deadline'u,
+    # a nie ustawiony na pełny limit ciszy (40 s).
+    assert max(stream.timeouts_requested) <= 2.0
+    assert time.monotonic() - start < 5
+
+
+def test_cisza_dluzsza_niz_limit_pinga_zamyka_polaczenie():
+    # sleep_scale=0: nie chcemy czekać w teście realnych 40 s ciszy.
+    stream = _FakeStream(sleep_scale=0)
+    # Deadline daleko → decyduje limit ciszy, a brak pinga to realna awaria.
+    outcome = print_agent.wait_for_signal(stream, time.monotonic() + 3600, _CFG_CALY_DZIEN)
+
+    assert outcome == 'closed'
+    assert stream.timeouts_requested == [print_agent.SSE_PING_TIMEOUT_SECONDS]
+
+
+def test_limit_nawiazania_polaczenia_krotszy_niz_limit_ciszy():
+    """Zawieszony broker (przyjmuje TCP, milczy) nie może zablokować pętli
+    agenta — a razem z nią zapasowego pollingu — na czas limitu ciszy."""
+    assert print_agent.SSE_CONNECT_TIMEOUT_SECONDS < print_agent.SSE_PING_TIMEOUT_SECONDS
+    assert print_agent.SSE_CONNECT_TIMEOUT_SECONDS <= 10
 
 
 def test_backoff_reconnectu_rosnie_i_ma_sufit():

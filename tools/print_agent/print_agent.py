@@ -35,8 +35,10 @@ import sys
 import time
 import traceback
 from datetime import datetime, time as dtime
+from http.client import HTTPConnection, HTTPException, HTTPSConnection
 from urllib import request as urlreq
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlsplit
 
 try:
     import colorama
@@ -175,6 +177,11 @@ def ack_jobs(cfg, results):
 # co 25 s, więc 40 s daje zapas na zadyszkę sieci, a jednocześnie wyłapuje
 # "zawieszone" połączenie (TCP żyje, ruchu nie ma) w rozsądnym czasie.
 SSE_PING_TIMEOUT_SECONDS = 40
+# Limit na SAMO nawiązanie połączenia — celowo osobny i krótki. Broker, który
+# przyjmuje TCP i milczy (zawieszony, a nie padnięty), zablokowałby inaczej całą
+# pętlę agenta na czas limitu ciszy, a razem z nią zapasowy polling. Czekanie na
+# push nigdy nie może opóźnić drogi awaryjnej.
+SSE_CONNECT_TIMEOUT_SECONDS = 5
 SSE_RECONNECT_MAX_SECONDS = 60
 # Co która nieudana próba połączenia trafia do logu (poza pierwszą, zawsze głośną).
 _CONNECT_LOG_EVERY = 30
@@ -215,20 +222,58 @@ def fetch_realtime_config(cfg, quiet=False):
     return {'token': data['token'], 'sse_url': sse_url}
 
 
+class SseStream:
+    """Otwarty strumień SSE razem z połączeniem, żeby dało się je domknąć.
+
+    Używamy `http.client` zamiast `urlopen`, bo tylko tak mamy dostęp do gniazda
+    (`conn.sock`) i możemy sterować limitem czasu ODDZIELNIE dla nawiązania
+    połączenia i dla czekania na dane. `urlopen` przyjmuje jeden timeout na
+    jedno i drugie, a to są tu dwie zupełnie różne sprawy.
+    """
+
+    def __init__(self, conn, resp):
+        self._conn = conn
+        self._resp = resp
+
+    def read_line(self, timeout):
+        """Czyta jedną linię, czekając najwyżej `timeout` sekund."""
+        if self._conn.sock is not None:
+            self._conn.sock.settimeout(max(1.0, timeout))
+        return self._resp.readline()
+
+    def close(self):
+        try:
+            self._resp.close()
+        finally:
+            self._conn.close()
+
+
 def open_sse(sse_url, token):
-    """Otwiera strumień SSE. Zwraca obiekt odpowiedzi albo None.
+    """Otwiera strumień SSE. Zwraca SseStream albo rzuca wyjątkiem sieciowym.
 
     Centrifugo przyjmuje na tym endpoincie POST z JSON-em w ciele — dzięki temu
-    wystarczy urllib, bez klienta EventSource i bez zewnętrznych pakietów.
+    wystarczy stdlib, bez klienta EventSource i bez zewnętrznych pakietów.
     """
-    body = json.dumps({'token': token}).encode('utf-8')
-    req = urlreq.Request(
-        sse_url,
-        data=body,
-        headers={'Content-Type': 'application/json', 'Accept': 'text/event-stream'},
-        method='POST',
+    parts = urlsplit(sse_url)
+    connection_class = HTTPSConnection if parts.scheme == 'https' else HTTPConnection
+    default_port = 443 if parts.scheme == 'https' else 80
+    conn = connection_class(
+        parts.hostname, parts.port or default_port,
+        timeout=SSE_CONNECT_TIMEOUT_SECONDS,
     )
-    return urlreq.urlopen(req, timeout=SSE_PING_TIMEOUT_SECONDS)
+    path = parts.path or '/'
+    if parts.query:
+        path = f'{path}?{parts.query}'
+    conn.request(
+        'POST', path,
+        body=json.dumps({'token': token}).encode('utf-8'),
+        headers={'Content-Type': 'application/json', 'Accept': 'text/event-stream'},
+    )
+    resp = conn.getresponse()
+    if resp.status != 200:
+        conn.close()
+        raise OSError(f"broker odpowiedział HTTP {resp.status} {resp.reason}")
+    return SseStream(conn, resp)
 
 
 def classify_sse_line(raw):
@@ -273,14 +318,24 @@ def wait_for_signal(stream, poll_deadline, cfg):
         'poll'   — minął deadline zapasowego pollingu albo skończyły się
                    godziny pracy; pętla główna i tak zrobi swoje
         'closed' — strumień padł (brak pinga, zamknięcie, błąd sieci)
+
+    Gwarancja: funkcja NIE przekroczy `poll_deadline`, nawet gdy broker zamilknie
+    w połowie zdania. Limit pojedynczego czytania jest przycinany do czasu, jaki
+    został do deadline'u — inaczej czekanie na push mogłoby zjeść okno zapasowego
+    pollingu i etykieta czekałaby dłużej, niż gdyby pusha w ogóle nie było.
     """
     while True:
+        time_left = poll_deadline - time.monotonic()
+        if time_left <= 0:
+            return 'poll'
         try:
-            raw = stream.readline()
+            raw = stream.read_line(min(SSE_PING_TIMEOUT_SECONDS, time_left))
         except (socket.timeout, TimeoutError):
+            if time.monotonic() >= poll_deadline:
+                return 'poll'   # to nie awaria, tylko koniec okna czekania
             warn("Brak pinga z brokera — uznaję połączenie push za martwe")
             return 'closed'
-        except (OSError, ValueError, URLError) as e:
+        except (OSError, ValueError, URLError, HTTPException) as e:
             log_error(f"Strumień push przerwany: {e}", exc=e)
             return 'closed'
 
@@ -436,7 +491,7 @@ def connect_push(cfg, failures=0):
         return None
     try:
         stream = open_sse(realtime['sse_url'], realtime['token'])
-    except (HTTPError, URLError, TimeoutError, OSError) as e:
+    except (HTTPError, URLError, TimeoutError, OSError, HTTPException) as e:
         if not quiet:
             log_error(f"Nie udało się otworzyć kanału push ({realtime['sse_url']}): {e}", exc=e)
         return None
