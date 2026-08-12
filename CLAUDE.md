@@ -12,7 +12,7 @@ WoodPower CRM - A Flask-based CRM application for manufacturing/production manag
 
 Codzienny start (kontenery NIE wstają same po zamknięciu Docker Desktop):
 ```bash
-cd <katalog repo> && docker compose up -d    # np. ~/Documents/GitHub/CRM
+cd <katalog repo> && docker compose up -d    # macOS: ~/Documents/woodpower-crm
 ```
 
 Pierwszy raz / po zmianie Dockerfile lub requirements.txt:
@@ -20,8 +20,19 @@ Pierwszy raz / po zmianie Dockerfile lub requirements.txt:
 docker compose up -d --build
 ```
 
-App: http://localhost:5000 (Flask dev server, auto-reload przy zmianie plików).
-MySQL 8.4: port 3306 na hoście (wolumen `db_data` — dane przeżywają restart kontenerów).
+Porty pochodzą z pliku `.env` (poza gitem, bo różnią się między maszynami):
+
+```
+CRM_APP_PORT=5002
+CRM_DB_PORT=3308
+```
+
+Bez `.env` `docker-compose.yml` używa domyślnych **5000** i **3306**. Na macOS Konrada
+te domyślne są zajęte (5000 — odbiornik AirPlay, 3306 — MariaDB z XAMPP, która musi dalej
+działać dla bazy `thunder_orders` innego projektu), stąd 5002 i 3308.
+
+App: http://localhost:5002, Flask dev server z auto-reloadem przy zmianie plików.
+MySQL 8.4: port 3308 na hoście (wolumen `db_data` — dane przeżywają restart kontenerów).
 
 Testy:
 ```bash
@@ -35,6 +46,12 @@ płasko (`import catalog` itp.) i wymaga bycia uruchomionym z własnego katalogu
 - Docker Desktop (repo jest rozwijane i na Windows, i na macOS — nie zakładaj systemu)
 - WeasyPrint działa od razu w kontenerze (biblioteki systemowe w `docker/python/Dockerfile`) —
   bez ręcznej instalacji MSYS2 + GTK3
+- Fonty PDF: obraz ma `fonts-liberation` **i** `fonts-dejavu-core`. DejaVu jest za symbole
+  Unicode, których Liberation nie ma (np. flaga U+2691 w nagłówku protokołu trakowni).
+  Bez niego WeasyPrint wstawia `.notdef` i psuje mapę ToUnicode całej linii — PDF wygląda
+  źle, a `test_protocol_pdf_renderuje_polskie_znaki` oblewa
+- Testy jadą na SQLite in-memory, więc **nie sprawdzają MySQL-a**. Zmiany dotykające
+  specyfiki MySQL trzeba weryfikować osobno, na działającym kontenerze `db`
 
 ### Migracje bazy
 
