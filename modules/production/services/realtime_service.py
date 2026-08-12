@@ -167,9 +167,16 @@ def publish(channel, data):
         _consecutive_failures = 0
 
     # Logujemy też SUKCES — bez tego nie da się odróżnić „CRM nie wysłał sygnału"
-    # od „wysłał, ale nie dotarł", a to dwa zupełnie różne śledztwa. Wolumen jest
-    # znikomy (rzędu 600 etykiet miesięcznie), więc szum żaden.
-    logger.info("Sygnał realtime wysłany", extra={'channel': channel, 'data': data})
+    # od „wysłał, ale nie dotarł", a to dwa zupełnie różne śledztwa.
+    #
+    # Poziom sterowany flagą, bo logger aplikacji zapisuje do pliku dopiero od
+    # WARNING — na INFO ten wpis nigdzie nie dolatuje. Przy `debug_log: true`
+    # w konfiguracji podnosimy go do WARNING, żeby był widoczny w czasie
+    # diagnozy; domyślnie zostaje INFO, czyli praktycznie cicho.
+    if _config().get('debug_log'):
+        logger.warning("Sygnał realtime wysłany", extra={'channel': channel, 'data': data})
+    else:
+        logger.info("Sygnał realtime wysłany", extra={'channel': channel, 'data': data})
     return True
 
 

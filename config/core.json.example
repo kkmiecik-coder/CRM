@@ -91,6 +91,7 @@
         "token_ttl_seconds": 3600,
         "sse_url": "https://crm.woodpower.pl/realtime/connection/uni_sse",
         "connect_timeout_seconds": 0.3,
-        "read_timeout_seconds": 0.7
+        "read_timeout_seconds": 0.7,
+        "debug_log": false
     }
 }
