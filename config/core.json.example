@@ -82,5 +82,15 @@
     },
     "BOT_API_KEY": "wygeneruj-dlugi-losowy-klucz",
     "BOT_USER_ID": 0,
-    "APP_BASE_URL": "https://crm.woodpower.pl"
+    "APP_BASE_URL": "https://crm.woodpower.pl",
+    "REALTIME": {
+        "enabled": false,
+        "api_url": "http://127.0.0.1:8091/api/publish",
+        "api_key": "WYGENERUJ_LOSOWY_KLUCZ_ROWNY_http_api.key_W_CENTRIFUGO",
+        "token_hmac_secret": "WYGENERUJ_LOSOWY_KLUCZ_ROWNY_client.token.hmac_secret_key_W_CENTRIFUGO",
+        "token_ttl_seconds": 3600,
+        "sse_url": "https://crm.woodpower.pl/realtime/connection/uni_sse",
+        "connect_timeout_seconds": 0.3,
+        "read_timeout_seconds": 0.7
+    }
 }

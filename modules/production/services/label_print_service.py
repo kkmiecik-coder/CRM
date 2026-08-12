@@ -16,6 +16,7 @@ from datetime import datetime
 from extensions import db
 from modules.logging import get_structured_logger
 from modules.production.models import LabelPrintJob, ProductionConfig, ProductionItem, ProductionOrder
+from modules.production.services import realtime_service
 from sqlalchemy.orm import joinedload
 
 logger = get_structured_logger('production.label_print')
@@ -695,6 +696,14 @@ def _enqueue_labels(ids, items_by_id, station_code, actor, cfg):
     failed_count = len(ids) - success_count
     total_labels = sum(r.get('copies_requested', 0) for r in results)
     printed_labels = sum(r.get('copies_printed', 0) for r in results)
+
+    # Sygnał "są zadania" — dopiero PO commicie. Odwrotna kolejność to wyścig:
+    # agent dostałby budzik szybciej, niż transakcja stałaby się widoczna, wrócił
+    # z pustymi rękami i czekał do następnego pollingu.
+    # publish() nie rzuca i ma krótki timeout — patrz realtime_service.publish().
+    if success_count > 0:
+        realtime_service.publish_print_signal(printed_labels)
+
     return {
         'success': success_count > 0,
         'success_count': success_count,

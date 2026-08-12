@@ -3,13 +3,17 @@ Endpointy dla print-agenta (skrypt na hubie biura).
 Autoryzacja: nagłówek `Authorization: Bearer <LABEL_PRINTER_AGENT_TOKEN>`.
 NIE wymaga sesji webowej.
 
-Polling pattern: agent co 5s woła GET /api/print-agent/jobs?limit=10,
-drukuje lokalnie ZPL z pola zpl_payload, potem POST /api/print-agent/ack
-z listą wyników.
+Wzorzec: agent budzi się na sygnał push (Centrifugo, kanał `print:agent`),
+woła GET /api/print-agent/jobs?limit=10, drukuje lokalnie ZPL z pola
+zpl_payload, potem POST /api/print-agent/ack z listą wyników. Polling został
+jako siatka bezpieczeństwa — 60 s gdy kanał push żyje, 10 s gdy padł.
+Token do połączenia z brokerem agent bierze z GET /realtime-token.
 
-TTL: pending starsze niż 1h są oznaczane jako 'expired' przy każdym
-GET /jobs i nigdy nie drukowane. Operator powinien ponownie kliknąć.
+TTL: pending starsze niż 1h są oznaczane jako 'expired' i nigdy nie drukowane
+(operator powinien kliknąć ponownie). Sprzątanie jest throttlowane — patrz
+_expire_stale_pending().
 """
+import time
 from datetime import datetime, timedelta
 from functools import wraps
 
@@ -19,12 +23,21 @@ from sqlalchemy.exc import NoSuchColumnError, OperationalError, ResourceClosedEr
 from extensions import db
 from modules.logging import get_structured_logger
 from modules.production.models import LabelPrintJob, ProductionConfig
+from modules.production.services import realtime_service
 
 logger = get_structured_logger('production.print_agent')
 
 print_agent_bp = Blueprint('print_agent', __name__)
 
 _AGENT_JOB_TTL = timedelta(hours=1)
+
+# Minimalny odstęp między przebiegami sprzątania wygasłych zadań.
+# None = jeszcze nie sprzątaliśmy w tym workerze. Celowo None, a nie 0.0:
+# time.monotonic() bywa liczone od startu procesu (tak jest na macOS), więc
+# zero jako "dawno temu" oznaczałoby, że świeży worker przez pierwszą minutę
+# nie sprząta w ogóle.
+_EXPIRE_THROTTLE_SECONDS = 60
+_last_expire_at = None
 
 # Wyjątki które wskazują na padnięte połączenie z poola — agent puka co 5s,
 # więc co jakiś czas trafia na martwy socket mimo pool_pre_ping.
@@ -75,8 +88,23 @@ def require_agent_token(view):
     return wrapper
 
 
-def _expire_stale_pending():
-    """Oznacza pending starsze niż _AGENT_JOB_TTL jako expired."""
+def _expire_stale_pending(force=False):
+    """Oznacza pending starsze niż _AGENT_JOB_TTL jako expired.
+
+    Throttlowane do raz na _EXPIRE_THROTTLE_SECONDS: TTL to godzina, więc
+    sprzątanie przy każdym GET /jobs było marnotrawstwem już przy pollingu co
+    10 s, a przy sygnale push kadencja przestała być przewidywalna — seria
+    wydruków potrafi zawołać /jobs kilkanaście razy w minutę.
+
+    Licznik jest per-worker gunicorna. To wystarcza: kilku workerów oznacza
+    kilka przebiegów na minutę zamiast jednego, a sam UPDATE jest idempotentny.
+    """
+    global _last_expire_at
+    now = time.monotonic()
+    if not force and _last_expire_at is not None and (now - _last_expire_at) < _EXPIRE_THROTTLE_SECONDS:
+        return 0
+    _last_expire_at = now
+
     cutoff = datetime.utcnow() - _AGENT_JOB_TTL
     expired_count = (LabelPrintJob.query
                      .filter(LabelPrintJob.status == 'pending',
@@ -163,3 +191,42 @@ def ack_jobs():
         logger.info("Print agent ACK processed", extra={'updated': updated})
 
     return jsonify({'updated': updated}), 200
+
+
+@print_agent_bp.route('/realtime-token', methods=['GET'])
+@require_agent_token
+def realtime_token():
+    """
+    GET /api/print-agent/realtime-token
+
+    Wymienia stały Bearer agenta (LABEL_PRINTER_AGENT_TOKEN z prod_config) na
+    krótkotrwały JWT do Centrifugo. Dzięki temu na hubie biura nie ląduje żaden
+    dodatkowy sekret — agent ma dalej jedno hasło, to samo co do REST API.
+
+    Zwraca 503 gdy realtime jest wyłączony albo nieskonfigurowany. Agent traktuje
+    to jako "brak pusha" i spada na polling — bez błędu, bez retry-spamu.
+
+    Response 200:
+        {"enabled": true, "token": "<JWT>", "channel": "print:agent",
+         "sse_url": "https://crm.woodpower.pl/realtime/connection/uni_sse",
+         "expires_in": 3600}
+    """
+    if not realtime_service.is_enabled():
+        return jsonify({'enabled': False, 'reason': 'realtime disabled'}), 503
+
+    try:
+        token, ttl = realtime_service.issue_connection_token(
+            'print-agent', [realtime_service.CHANNEL_PRINT_AGENT],
+        )
+    except RuntimeError as e:
+        logger.error("Nie udało się wystawić tokena realtime dla agenta",
+                     extra={'error': str(e)})
+        return jsonify({'enabled': False, 'reason': 'misconfigured'}), 503
+
+    return jsonify({
+        'enabled': True,
+        'token': token,
+        'channel': realtime_service.CHANNEL_PRINT_AGENT,
+        'sse_url': realtime_service.sse_url(),
+        'expires_in': ttl,
+    }), 200
