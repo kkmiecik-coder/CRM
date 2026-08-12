@@ -12,7 +12,7 @@ WoodPower CRM - A Flask-based CRM application for manufacturing/production manag
 
 Codzienny start (kontenery NIE wstają same po zamknięciu Docker Desktop):
 ```bash
-cd ~/Documents/woodpower-crm && docker compose up -d
+cd <katalog repo> && docker compose up -d    # np. ~/Documents/GitHub/CRM
 ```
 
 Pierwszy raz / po zmianie Dockerfile lub requirements.txt:
@@ -21,7 +21,7 @@ docker compose up -d --build
 ```
 
 App: http://localhost:5000 (Flask dev server, auto-reload przy zmianie plików).
-MySQL: port 3306 na hoście (wolumen `db_data` — dane przeżywają restart kontenerów).
+MySQL 8.4: port 3306 na hoście (wolumen `db_data` — dane przeżywają restart kontenerów).
 
 Testy:
 ```bash
@@ -32,7 +32,7 @@ Gołe `pytest` z korzenia repo NIE działa — `integrations/blog_seo` importuje
 płasko (`import catalog` itp.) i wymaga bycia uruchomionym z własnego katalogu jako cwd.
 
 ### Local Environment Requirements
-- Docker Desktop (Windows)
+- Docker Desktop (repo jest rozwijane i na Windows, i na macOS — nie zakładaj systemu)
 - WeasyPrint działa od razu w kontenerze (biblioteki systemowe w `docker/python/Dockerfile`) —
   bez ręcznej instalacji MSYS2 + GTK3
 
@@ -70,48 +70,78 @@ flask setup-db
 # Or set RUN_DB_SETUP: true in config/core.json for auto-setup on startup
 ```
 
-### Background Scheduler
-```bash
-# Run scheduler daemon separately from web server
-python scheduler_daemon.py
-```
+### Zadania cykliczne (cron)
+
+**Nie ma żadnego schedulera w aplikacji.** `scheduler_daemon.py` został usunięty
+commitem `0684949` (2026-05-18) razem z APScheduler/tzlocal/tzdata — nie planuj
+zadań pod nieistniejący daemon.
+
+Wzorzec dla pracy cyklicznej: **endpoint wołany zewnętrznym cronem hostingu**,
+autoryzowany tokenem (nie `@login_required` — cron nie ma sesji). Przykład
+w kodzie: `/production/api/sync-cron`. Nowy wpis w crontabie trzeba dodać
+ręcznie przy wdrożeniu — to element zakresu zadania, nie coś, co samo wstanie.
 
 ## Deployment
 
-### Automatic Deployment (GitHub Actions)
-Push to `main` branch triggers automatic deployment:
-```bash
-git add .
-git commit -m "message"
-git push
-```
+### Automatyczny deploy (webhook GitHub)
 
-GitHub Actions workflow (`.github/workflows/deploy.yml`):
-1. SSH connects to production server (195.78.66.85:222)
-2. Pulls latest code from `main` branch
-3. Installs dependencies from requirements.txt
-4. Restarts Passenger app server via `touch tmp/restart.txt`
+Push do `main` uruchamia deploy. Ścieżka: GitHub wysyła webhook push na
+`POST /deploy/webhook` (HTTPS/443) → `modules/deploy/routes.py` weryfikuje
+podpis HMAC-SHA256 (`GITHUB_WEBHOOK_SECRET`) i sprawdza gałąź → odpala
+`deploy.sh` przez `subprocess.Popen(start_new_session=True)`, żeby skrypt
+przeżył restart gunicorna.
 
-### Production Server
+Kroki `deploy.sh`:
+1. Lock `/tmp/crm-deploy.lock` — blokada równoległych deployów
+2. `git fetch` + `git reset --hard origin/main`
+3. `venv/bin/pip install -r requirements.txt` (best-effort)
+4. `flask sync-changelog` (best-effort)
+5. **`flask migrate` — PRZED restartem.** Niepowodzenie PRZERYWA deploy:
+   kod jest pobrany, ale proces chodzi dalej na starym, więc stary kod
+   i stary schemat zostają spójne
+6. `sudo /usr/local/sbin/crm-fix-logs-perms.sh` — chown katalogu logów
+   (bez tego gunicorn może nie wstać → nginx 502)
+7. `sudo /usr/bin/supervisorctl restart crm_woodpower`
+
+`.github/workflows/deploy.yml` istnieje, ale ma **`on: workflow_dispatch`** —
+tylko ręczne uruchomienie, jako fallback. Deploy po SSH był loteryjny przez
+ochronę SSH Hostingera, stąd przejście na webhook (2026-06-24).
+
+### Serwer produkcyjny
+
+Po migracji na Hostinger KVM4 (cutover 2026-06-24, szczegóły w `MIGRATION_PLAN.md`):
+
 - Host: crm.woodpower.pl
-- Path: `~/domains/crm.woodpower.pl/public_html/app`
-- Python: 3.9 virtualenv at `~/virtualenv/domains/crm.woodpower.pl/public_html/3.9/`
-- App server: Phusion Passenger (entry: `passenger_wsgi.py`)
+- Ścieżka: `/home/woodpower-crm/htdocs/crm.woodpower.pl/`
+- Użytkownik systemowy: `woodpower-crm`
+- App server: **gunicorn** na `127.0.0.1:8090`, pod **supervisorem**
+  (program `crm_woodpower`), za nginx
+- venv w katalogu aplikacji: `venv/` (Python 3.9)
 
-### Manual Deployment
+`passenger_wsgi.py` leży jeszcze w repo, ale jest **martwy** — pozostałość
+po Passengerze na starym hostingu współdzielonym. Nie jest wejściem aplikacji.
+
+### Ręczny deploy / restart
+
 ```bash
-# On production server
-cd ~/domains/crm.woodpower.pl/public_html/app
-git pull origin main
-source ~/virtualenv/domains/crm.woodpower.pl/public_html/3.9/bin/activate
-pip install -r requirements.txt
-touch tmp/restart.txt
+# na serwerze produkcyjnym
+cd /home/woodpower-crm/htdocs/crm.woodpower.pl
+git fetch origin main && git reset --hard origin/main
+venv/bin/pip install -r requirements.txt
+venv/bin/flask migrate
+sudo /usr/bin/supervisorctl restart crm_woodpower
 ```
 
-### Important Notes
-- Password hashing: Production uses `scrypt`, local uses `pbkdf2` (Werkzeug compatibility)
-- Sync requirements.txt with server when adding dependencies
-- GitHub secret `SSH_PASSWORD` required for deployment
+Albo po prostu `./deploy.sh` — robi dokładnie to samo, z lockiem i logami.
+
+### Ważne
+
+- Restart to kilka sekund niedostępności. Tablety hali to przetrwają —
+  akcje lądują w kolejce offline apki i dosynchronizują się same
+- Hasła: produkcja używa `scrypt`, lokalnie `pbkdf2` (zgodność Werkzeug)
+- Dodając zależność, pamiętaj o `requirements.txt` — deploy instaluje z niego
+- API mobilne (`/api/mobile/*`) jest **niezależne** od paneli webowych
+  produkcji; zmiany w `modules/production/routers/stations/` nie dotykają tabletów
 
 ## Architecture
 
