@@ -364,8 +364,27 @@ def close_sse(stream):
     return None
 
 
+# Poniżej tylu sekund wiek zadania z kolejki jest nieodróżnialny od szumu
+# pomiarowego — patrz _describe_job_age().
+_AGE_RESOLUTION_SECONDS = 2
+
+
+def _format_reaction(seconds):
+    """'42 ms' / '1.3 s' — czas reakcji agenta, mierzony zegarem monotonicznym."""
+    if seconds < 1:
+        return f'{seconds * 1000:.0f} ms'
+    return f'{seconds:.1f} s'
+
+
 def _describe_job_age(requested_at_iso):
-    """Zwraca ' (zlecone Xs temu)' lub '' jeśli brak/błąd parsowania.
+    """Zwraca ' (czekało ~Xs)' albo '' — jak długo zadanie leżało w kolejce.
+
+    UWAGA na dokładność: kolumna `requested_at` to DATETIME bez ułamków sekundy,
+    więc zapis gubi część sekundy i dla świeżych zadań wiek potrafi zawyżać
+    o prawie całą sekundę (etykieta wydrukowana w 90 ms pokazywała się jako
+    „0,9 s"). Dlatego wiek poniżej _AGE_RESOLUTION_SECONDS w ogóle nie jest
+    pokazywany, a powyżej — ze znakiem „~". Rzeczywisty czas reakcji agenta
+    mierzymy osobno i dokładnie (pole „reakcja” w logu wydruku).
 
     Pole requested_at z API to naive UTC (datetime.utcnow w modelu),
     isoformat bez offsetu — porównujemy też z datetime.utcnow().
@@ -380,11 +399,25 @@ def _describe_job_age(requested_at_iso):
     if age < 0:
         # Zegar huba rozjechany z serwerem albo strefa się popsuła.
         return f' (req {requested_at_iso})'
+    if age < _AGE_RESOLUTION_SECONDS:
+        return ''
     if age < 60:
-        return f' (zlecone {age:.1f}s temu)'
+        return f' (czekało ~{int(age)}s)'
     if age < 3600:
-        return f' (zlecone {int(age // 60)}m {int(age % 60)}s temu)'
-    return f' (zlecone {int(age // 3600)}h {int((age % 3600) // 60)}m temu)'
+        return f' (czekało ~{int(age // 60)}m {int(age % 60)}s)'
+    return f' (czekało ~{int(age // 3600)}h {int((age % 3600) // 60)}m)'
+
+
+def _describe_timing(signal_at, requested_at_iso):
+    """Sufiks do logu wydruku: czas reakcji na sygnał + ewentualny czas w kolejce.
+
+    Reakcja pokazywana tylko dla zadań pobranych po sygnale push — przy pollingu
+    liczba nic by nie znaczyła, bo zadanie mogło czekać całe okno pollingu.
+    """
+    parts = ''
+    if signal_at is not None:
+        parts += f' (reakcja {_format_reaction(time.monotonic() - signal_at)})'
+    return parts + _describe_job_age(requested_at_iso)
 
 
 # === Printer (TCP) ===
@@ -411,8 +444,12 @@ def print_banner(cfg):
 
 
 # === Main loop ===
-def run_once(cfg):
+def run_once(cfg, signal_at=None):
     """Jeden cykl: pobierz pending, wydrukuj, ACK.
+
+    signal_at: znacznik monotoniczny chwili, w której przyszedł sygnał push
+        (None = cykl z pollingu). Służy tylko do zmierzenia czasu reakcji
+        do logu — zegar monotoniczny, więc odporny na zmianę czasu w systemie.
 
     Zwraca:
         True  — komunikacja z CRM OK (fetch + ACK przeszły, lub brak zadań).
@@ -442,14 +479,14 @@ def run_once(cfg):
     info(f"Pobrano {len(jobs)} zadań → drukuję...")
     results = []
     for j in jobs:
-        age_suffix = _describe_job_age(j.get('requested_at'))
+        timing = _describe_timing(signal_at, j.get('requested_at'))
         try:
             send_to_printer(cfg, j['zpl_payload'])
-            ok(f"  ✓ id={j['id']} short={j['short_product_id']}{age_suffix}")
+            ok(f"  ✓ id={j['id']} short={j['short_product_id']}{timing}")
             results.append({'id': j['id'], 'success': True})
         except (socket.timeout, ConnectionRefusedError, OSError) as e:
-            err(f"  ✗ id={j['id']} short={j['short_product_id']}{age_suffix} ({e})")
-            log_error(f"Drukowanie id={j['id']} nieudane{age_suffix}: {e}", exc=e)
+            err(f"  ✗ id={j['id']} short={j['short_product_id']}{timing} ({e})")
+            log_error(f"Drukowanie id={j['id']} nieudane{timing}: {e}", exc=e)
             results.append({'id': j['id'], 'success': False, 'error': str(e)[:200]})
 
     try:
@@ -522,6 +559,7 @@ def main():
     stream = None            # otwarty kanał push albo None (= jedziemy na pollingu)
     sse_failures = 0         # nieudane próby połączenia z rzędu → backoff
     sse_retry_at = 0.0       # monotonic; przed tym czasem nie próbujemy ponownie
+    signal_at = None         # monotonic chwili sygnału — do pomiaru czasu reakcji
     while True:
         try:
             if not in_working_hours(cfg):
@@ -557,7 +595,8 @@ def main():
                     sse_failures = 0
                     stream = new_stream
 
-            ok_run = run_once(cfg)
+            ok_run = run_once(cfg, signal_at=signal_at)
+            signal_at = None
             if ok_run:
                 if consecutive_errors >= BACKOFF_THRESHOLD:
                     ok(f"CRM odpowiada — reset backoffu (po {consecutive_errors} błędach)")
@@ -581,7 +620,9 @@ def main():
             in_backoff = consecutive_errors >= BACKOFF_THRESHOLD
             if stream is not None and not in_backoff:
                 outcome = wait_for_signal(stream, time.monotonic() + wait_seconds, cfg)
-                if outcome == 'closed':
+                if outcome == 'signal':
+                    signal_at = time.monotonic()
+                elif outcome == 'closed':
                     stream = close_sse(stream)
                     sse_failures += 1
                     sse_retry_at = time.monotonic() + _reconnect_delay(sse_failures)

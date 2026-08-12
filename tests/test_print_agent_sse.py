@@ -123,6 +123,33 @@ def test_limit_nawiazania_polaczenia_krotszy_niz_limit_ciszy():
     assert print_agent.SSE_CONNECT_TIMEOUT_SECONDS <= 10
 
 
+def test_czas_reakcji_pokazywany_w_milisekundach():
+    assert print_agent._format_reaction(0.089) == '89 ms'
+    assert print_agent._format_reaction(1.34) == '1.3 s'
+
+
+def test_wiek_zadania_ponizej_rozdzielczosci_nie_jest_pokazywany():
+    """requested_at to DATETIME bez ułamków sekundy — dla świeżych zadań wiek
+    zawyżał o prawie sekundę i log kłamał (90 ms pokazywane jako 0,9 s)."""
+    from datetime import datetime, timedelta
+    swieze = (datetime.utcnow() - timedelta(seconds=0.5)).isoformat()
+    assert print_agent._describe_job_age(swieze) == ''
+
+
+def test_wiek_zadania_powyzej_rozdzielczosci_jest_przyblizony():
+    from datetime import datetime, timedelta
+    stare = (datetime.utcnow() - timedelta(seconds=45)).isoformat()
+    opis = print_agent._describe_job_age(stare)
+    assert 'czekało ~' in opis and 's)' in opis
+    assert '~' in opis, 'wiek z kolejki jest znany tylko z dokładnością do sekundy'
+
+
+def test_reakcja_tylko_dla_zadan_z_sygnalu():
+    """Przy pollingu czas reakcji nic nie znaczy — zadanie mogło czekać całe okno."""
+    assert 'reakcja' in print_agent._describe_timing(time.monotonic(), None)
+    assert 'reakcja' not in print_agent._describe_timing(None, None)
+
+
 def test_backoff_reconnectu_rosnie_i_ma_sufit():
     delays = [print_agent._reconnect_delay(n) for n in range(1, 10)]
     assert delays[0] < delays[3], 'backoff musi rosnąć'
