@@ -229,7 +229,15 @@ class ApiClient {
     async getProductsTabContent(filters = {}) {
         const params = new URLSearchParams();
         Object.entries(filters).forEach(([key, value]) => {
-            if (value !== null && value !== '' && value !== 'all') {
+            // Tablica = filtr wielokrotnego wyboru → powtórzony parametr
+            // (`?wood_species=dąb&wood_species=buk`), bo backend czyta go
+            // przez request.args.getlist(). Sklejenie w "dąb,buk" rozjechałoby
+            // się na wartościach zawierających przecinek.
+            if (Array.isArray(value)) {
+                value.forEach(v => {
+                    if (v !== null && v !== undefined && v !== '') params.append(key, v);
+                });
+            } else if (value !== null && value !== '' && value !== 'all') {
                 params.append(key, value);
             }
         });

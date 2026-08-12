@@ -7,6 +7,11 @@
  * Bez: drag&drop, gwiazdki priorytetu, edycji statusu, recalc kolejki.
  * Zamiast: filtr zakresu dat, presety, statystyki archiwum (avg czas realizacji),
  *          kolumna "Zakończono" zamiast "Termin", sortowanie completedAt DESC.
+ *
+ * WAŻNE: filtrowanie, sortowanie i paginacja są PO STRONIE SERWERA. Ten moduł
+ * trzyma w pamięci wyłącznie bieżącą stronę — do archiwum trafia cała historia
+ * firmy (tysiące zamówień) i trzymanie jej w JS kosztowało kilka sekund na
+ * każde wejście w zakładkę. Każda zmiana filtra lub strony = nowy request.
  */
 
 const STATUS_DISPLAY_NAMES = {
@@ -31,7 +36,6 @@ class ArchiveModule {
         this.state = {
             products: [],
             orders: [],
-            filteredOrders: [],
             filterOptions: {
                 wood_species: [],
                 technologies: [],
@@ -46,6 +50,14 @@ class ArchiveModule {
                 thicknesses: new Set(),
                 completedFrom: '',
                 completedTo: ''
+            },
+            pagination: {
+                page: 1,
+                perPage: 25,
+                totalOrders: 0,
+                totalPages: 1,
+                hasPrev: false,
+                hasNext: false
             },
             stats: null,
             expandedOrders: new Set(),
@@ -69,12 +81,13 @@ class ArchiveModule {
             await this.fetchData();
         }
 
-        this.populateMultiselectOptions();
         this.attachEventListeners();
-        this.applyFiltersAndRender();
+        this.render();
 
         this._initialized = true;
-        console.log('[ArchiveModule] Loaded with', this.state.orders.length, 'orders');
+        console.log('[ArchiveModule] Loaded page', this.state.pagination.page,
+            'of', this.state.pagination.totalPages,
+            `(${this.state.pagination.totalOrders} zamówień w archiwum)`);
     }
 
     cacheElements() {
@@ -101,6 +114,10 @@ class ArchiveModule {
             completedFrom: document.getElementById('arch-completed-from'),
             completedTo: document.getElementById('arch-completed-to'),
             datePresets: root.querySelectorAll('.arch-date-preset'),
+            // paginacja
+            pagination: document.getElementById('arch-pagination'),
+            paginationSummary: document.getElementById('arch-pagination-summary'),
+            paginationPages: document.getElementById('arch-pagination-pages'),
             // stats
             statOrders: document.getElementById('arch-stats-orders'),
             statProducts: document.getElementById('arch-stats-products'),
@@ -133,17 +150,32 @@ class ArchiveModule {
     // DATA FETCH
     // ──────────────────────────────────────────────────────────────────────
 
+    /**
+     * Buduje komplet parametrów zapytania z aktualnego stanu filtrów.
+     * Wszystkie sześć filtrów idzie na backend — przeglądarka dostaje już
+     * tylko gotową stronę wyników.
+     */
+    buildQueryParams() {
+        const f = this.state.filters;
+        const params = { view: 'archive', page: this.state.pagination.page };
+        if (f.search) params.search = f.search;
+        if (f.completedFrom) params.completed_from = f.completedFrom;
+        if (f.completedTo) params.completed_to = f.completedTo;
+        if (f.woodSpecies.size) params.wood_species = Array.from(f.woodSpecies);
+        if (f.technologies.size) params.technology = Array.from(f.technologies);
+        if (f.woodClasses.size) params.wood_class = Array.from(f.woodClasses);
+        if (f.thicknesses.size) params.thickness = Array.from(f.thicknesses);
+        return params;
+    }
+
     async fetchData() {
         if (this.state.isLoading) return;
         this.state.isLoading = true;
         this.showLoading();
         try {
-            const params = { view: 'archive' };
-            if (this.state.filters.completedFrom) params.completed_from = this.state.filters.completedFrom;
-            if (this.state.filters.completedTo) params.completed_to = this.state.filters.completedTo;
-
-            const resp = await this.shared.apiClient.getProductsTabContent(params);
+            const resp = await this.shared.apiClient.getProductsTabContent(this.buildQueryParams());
             if (!resp.success) throw new Error(resp.error || 'Błąd pobierania archiwum');
+            this.hideError();
             this.consumePayload(resp.initial_data);
         } catch (err) {
             console.error('[ArchiveModule] fetchData failed:', err);
@@ -154,11 +186,31 @@ class ArchiveModule {
         }
     }
 
+    /**
+     * Pobiera dane i od razu przerysowuje widok. Zmiana filtra albo strony
+     * NIE przeładowuje całej zakładki — tylko ten jeden request.
+     */
+    async reload({ resetPage = false } = {}) {
+        if (resetPage) this.state.pagination.page = 1;
+        await this.fetchData();
+        this.render();
+    }
+
     consumePayload(data) {
         this.state.products = data.products || [];
         this.state.filterOptions = data.filters || this.state.filterOptions;
         this.state.stats = data.stats || null;
         this.state.orders = this.groupProductsByOrder(this.state.products);
+
+        const p = data.pagination || {};
+        this.state.pagination = {
+            page: p.page || 1,
+            perPage: p.per_page || this.state.pagination.perPage,
+            totalOrders: p.total_orders || 0,
+            totalPages: p.total_pages || 1,
+            hasPrev: Boolean(p.has_prev),
+            hasNext: Boolean(p.has_next)
+        };
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -227,77 +279,112 @@ class ArchiveModule {
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    // FILTERING / SORTING
+    // RENDER
     // ──────────────────────────────────────────────────────────────────────
 
-    applyFiltersAndRender() {
-        this.state.filteredOrders = this.state.orders.filter(o => this.orderPassesFilters(o));
-        this.sortOrdersByCompletedDesc();
+    render() {
+        this.populateMultiselectOptions();
         this.renderActiveFiltersBadges();
         this.renderStats();
         this.renderOrders();
+        this.renderPagination();
     }
 
-    orderPassesFilters(order) {
-        const f = this.state.filters;
-
-        if (f.search) {
-            const needle = f.search.toLowerCase();
-            const hay = [
-                order.clientName,
-                order.internalOrderNumber,
-                order.baselinkerOrderId ? `bl-${order.baselinkerOrderId}` : '',
-                order.clientOrderNumber,
-                order.quoteNumber,
-                ...order.products.map(p => p.original_product_name || ''),
-                ...order.products.map(p => p.short_product_id || ''),
-                ...order.products.map(p => p.quote_number || '')
-            ].filter(Boolean).join(' ').toLowerCase();
-            if (!hay.includes(needle)) return false;
-        }
-
-        if (f.woodSpecies.size && !order.products.some(p => f.woodSpecies.has(p.parsed_wood_species))) return false;
-        if (f.technologies.size && !order.products.some(p => f.technologies.has(p.parsed_technology))) return false;
-        if (f.woodClasses.size && !order.products.some(p => f.woodClasses.has(p.parsed_wood_class))) return false;
-        if (f.thicknesses.size) {
-            const hit = order.products.some(p => {
-                if (!p.parsed_thickness_cm) return false;
-                return f.thicknesses.has(`${p.parsed_thickness_cm}cm`);
-            });
-            if (!hit) return false;
-        }
-
-        return true;
-    }
-
-    sortOrdersByCompletedDesc() {
-        this.state.filteredOrders.sort((a, b) => {
-            if (!a.completedAt && !b.completedAt) return 0;
-            if (!a.completedAt) return 1;
-            if (!b.completedAt) return -1;
-            return b.completedAt.localeCompare(a.completedAt);
-        });
-    }
-
-    // ──────────────────────────────────────────────────────────────────────
-    // RENDER: STATS
-    // ──────────────────────────────────────────────────────────────────────
-
+    /**
+     * Statystyki przychodzą policzone przez serwer dla CAŁEGO przefiltrowanego
+     * archiwum. Liczenie ich z `this.state.orders` pokazałoby sumy z jednej
+     * strony — czyli sumy „ostatnich 25 zamówień", nie te, o które pyta szef.
+     */
     renderStats() {
-        const orders = this.state.filteredOrders;
-        const productsCount = orders.reduce((acc, o) => acc + o.productCount, 0);
-        const totalVolume = orders.reduce((acc, o) => acc + (o.totalVolume || 0), 0);
-        const totalValue = orders.reduce((acc, o) => acc + (o.totalValue || 0), 0);
+        const a = (this.state.stats && this.state.stats.archive) || {};
+        const ordersCount = a.orders_count || 0;
+        const productsCount = a.products_count || 0;
+        const totalVolume = a.total_volume || 0;
+        const totalValue = a.total_value || 0;
+        const avgDays = (typeof a.avg_realization_days === 'number') ? a.avg_realization_days : null;
 
-        const days = orders.map(o => o.realizationDays).filter(v => typeof v === 'number');
-        const avgDays = days.length ? Math.round((days.reduce((a, b) => a + b, 0) / days.length) * 10) / 10 : null;
-
-        if (this.elements.statOrders) this.elements.statOrders.textContent = orders.length;
+        if (this.elements.statOrders) this.elements.statOrders.textContent = ordersCount;
         if (this.elements.statProducts) this.elements.statProducts.textContent = productsCount;
         if (this.elements.statVolume) this.elements.statVolume.textContent = `${totalVolume.toFixed(4)} m³`;
         if (this.elements.statValue) this.elements.statValue.textContent = `${totalValue.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} zł`;
         if (this.elements.statAvgDays) {
             this.elements.statAvgDays.textContent = avgDays === null ? '— dni' : `${avgDays} dni`;
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // RENDER: PAGINACJA
+    // ──────────────────────────────────────────────────────────────────────
+
+    renderPagination() {
+        const { pagination: el, paginationSummary, paginationPages } = this.elements;
+        if (!el || !paginationPages || !paginationSummary) return;
+
+        const p = this.state.pagination;
+        if (!p.totalOrders) {
+            el.style.display = 'none';
+            return;
+        }
+        el.style.display = '';
+
+        const from = (p.page - 1) * p.perPage + 1;
+        const to = Math.min(p.page * p.perPage, p.totalOrders);
+        paginationSummary.textContent = `Zamówienia ${from}–${to} z ${p.totalOrders}`;
+
+        paginationPages.textContent = '';
+        if (p.totalPages <= 1) return;
+
+        paginationPages.appendChild(this.createPageButton('‹ Poprzednia', p.page - 1, !p.hasPrev));
+        this.pageWindow(p.page, p.totalPages).forEach(item => {
+            if (item === '…') {
+                const gap = document.createElement('span');
+                gap.className = 'arch-page-gap';
+                gap.textContent = '…';
+                paginationPages.appendChild(gap);
+                return;
+            }
+            paginationPages.appendChild(
+                this.createPageButton(String(item), item, false, item === p.page));
+        });
+        paginationPages.appendChild(this.createPageButton('Następna ›', p.page + 1, !p.hasNext));
+    }
+
+    /** Okno numerów stron: 1 … n-1 [n] n+1 … ostatnia. */
+    pageWindow(current, total) {
+        const pages = new Set([1, total, current, current - 1, current + 1]);
+        const sorted = Array.from(pages).filter(n => n >= 1 && n <= total).sort((a, b) => a - b);
+        const out = [];
+        sorted.forEach((n, idx) => {
+            if (idx > 0 && n - sorted[idx - 1] > 1) out.push('…');
+            out.push(n);
+        });
+        return out;
+    }
+
+    createPageButton(label, targetPage, disabled, active = false) {
+        // createElement + textContent zamiast innerHTML — nawet dla własnych
+        // etykiet, żeby ten kawałek nie stał się kiedyś furtką na dane z bazy.
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'arch-page-btn' + (active ? ' active' : '');
+        btn.textContent = label;
+        if (disabled || active || this.state.isLoading) {
+            btn.disabled = true;
+        } else {
+            btn.addEventListener('click', () => this.goToPage(targetPage));
+        }
+        return btn;
+    }
+
+    goToPage(page) {
+        const p = this.state.pagination;
+        if (page < 1 || page > p.totalPages || page === p.page) return;
+        p.page = page;
+        this.reload();
+        // Powrót na górę listy — inaczej po zmianie strony użytkownik ląduje
+        // w środku nowego zestawu kart.
+        if (this.elements.root && this.elements.root.scrollIntoView) {
+            this.elements.root.scrollIntoView({ block: 'start' });
         }
     }
 
@@ -312,14 +399,14 @@ class ArchiveModule {
         // Wyczyść poprzednie karty (stany loading/empty/error zostają)
         container.querySelectorAll('.arch-order-card').forEach(el => el.remove());
 
-        if (!this.state.filteredOrders.length) {
+        if (!this.state.orders.length) {
             this.showEmpty();
             return;
         }
         this.hideEmpty();
 
         const fragment = document.createDocumentFragment();
-        this.state.filteredOrders.forEach(order => {
+        this.state.orders.forEach(order => {
             fragment.appendChild(this.createOrderCard(order));
         });
         container.appendChild(fragment);
@@ -334,6 +421,12 @@ class ArchiveModule {
         this.populateOrderMeta(card, order);
         this.attachOrderListeners(card, order);
 
+        // Zamówienie rozwinięte przed przeładowaniem listy ma zostać rozwinięte.
+        // Bez tego stan i DOM się rozjeżdżają i pierwsze kliknięcie nic nie robi.
+        if (this.state.expandedOrders.has(order.orderKey)) {
+            this.expandOrderCard(card, order);
+        }
+
         return card;
     }
 
@@ -346,19 +439,21 @@ class ArchiveModule {
         // Client + IDs
         header.querySelector('.il-order-client').textContent = order.clientName;
         const idsContainer = header.querySelector('.il-order-ids');
-        idsContainer.innerHTML = '';
-        if (order.internalOrderNumber) {
-            idsContainer.innerHTML += `<span class="il-order-id-tag">${this.escapeHtml(order.internalOrderNumber)}</span>`;
-        }
-        if (order.baselinkerOrderId) {
-            idsContainer.innerHTML += `<span class="il-order-id-tag">BL-${order.baselinkerOrderId}</span>`;
-        }
-        if (order.clientOrderNumber) {
-            idsContainer.innerHTML += `<span class="il-order-id-tag">${this.escapeHtml(order.clientOrderNumber)}</span>`;
-        }
-        if (order.quoteNumber) {
-            idsContainer.innerHTML += `<span class="il-order-id-tag">${this.escapeHtml(order.quoteNumber)}</span>`;
-        }
+        idsContainer.textContent = '';
+        // Wszystkie te wartości pochodzą z bazy (m.in. z BaseLinkera, czyli
+        // spoza naszej kontroli) — dlatego trafiają przez textContent, nie
+        // przez innerHTML. Brak escapowania w tym module był już podatnością XSS.
+        const addTag = (value) => {
+            if (!value && value !== 0) return;
+            const tag = document.createElement('span');
+            tag.className = 'il-order-id-tag';
+            tag.textContent = String(value);
+            idsContainer.appendChild(tag);
+        };
+        addTag(order.internalOrderNumber);
+        if (order.baselinkerOrderId) addTag(`BL-${order.baselinkerOrderId}`);
+        addTag(order.clientOrderNumber);
+        addTag(order.quoteNumber);
 
         header.querySelector('.il-order-positions').textContent = order.productCount;
         header.querySelector('.il-order-volume').textContent = `${order.totalVolume.toFixed(4)} m³`;
@@ -386,34 +481,60 @@ class ArchiveModule {
     populateOrderMeta(card, order) {
         const meta = card.querySelector('.il-order-card-meta');
         if (!meta) return;
-        const parts = [];
+        meta.textContent = '';
+
         const metrics = [];
         if (order.totalVolume) metrics.push(`${order.totalVolume.toFixed(4)} m³`);
         if (order.totalValue) metrics.push(`${order.totalValue.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} zł`);
-        if (metrics.length) parts.push(`<span class="il-card-meta-metrics">${metrics.join(' · ')}</span>`);
-        if (order.completedAt) {
-            parts.push(`<span class="il-card-meta-deadline deadline-normal"><i class="fas fa-calendar-check"></i> Zakończono: ${this.formatDatePL(order.completedAt)}${order.realizationDays !== null ? ` (${order.realizationDays} dni)` : ''}</span>`);
+        if (metrics.length) {
+            const span = document.createElement('span');
+            span.className = 'il-card-meta-metrics';
+            span.textContent = metrics.join(' · ');
+            meta.appendChild(span);
         }
-        meta.innerHTML = parts.join('');
+
+        if (order.completedAt) {
+            // formatDatePL przy nieparsowalnej dacie zwraca surową wartość z bazy,
+            // więc tekst budujemy przez textContent, nie przez sklejanie HTML-a.
+            const span = document.createElement('span');
+            span.className = 'il-card-meta-deadline deadline-normal';
+            const icon = document.createElement('i');
+            icon.className = 'fas fa-calendar-check';
+            span.appendChild(icon);
+            const days = order.realizationDays !== null ? ` (${order.realizationDays} dni)` : '';
+            span.appendChild(document.createTextNode(
+                ` Zakończono: ${this.formatDatePL(order.completedAt)}${days}`));
+            meta.appendChild(span);
+        }
+    }
+
+    expandOrderCard(card, order) {
+        const header = card.querySelector('.arch-order-header');
+        const productsContainer = card.querySelector('.il-order-products');
+        this.renderOrderProducts(productsContainer, order);
+        productsContainer.classList.remove('collapsed');
+        header.querySelector('.il-order-expand').textContent = '▼';
+    }
+
+    collapseOrderCard(card) {
+        const header = card.querySelector('.arch-order-header');
+        const productsContainer = card.querySelector('.il-order-products');
+        productsContainer.classList.add('collapsed');
+        productsContainer.textContent = '';
+        header.querySelector('.il-order-expand').textContent = '▶';
     }
 
     attachOrderListeners(card, order) {
         const header = card.querySelector('.arch-order-header');
-        const productsContainer = card.querySelector('.il-order-products');
 
         header.addEventListener('click', (e) => {
             if (e.target.closest('.il-order-actions')) return;
-            const isExpanded = this.state.expandedOrders.has(order.orderKey);
-            if (isExpanded) {
+            if (this.state.expandedOrders.has(order.orderKey)) {
                 this.state.expandedOrders.delete(order.orderKey);
-                productsContainer.classList.add('collapsed');
-                productsContainer.innerHTML = '';
-                header.querySelector('.il-order-expand').textContent = '▶';
+                this.collapseOrderCard(card);
             } else {
                 this.state.expandedOrders.add(order.orderKey);
-                this.renderOrderProducts(productsContainer, order);
-                productsContainer.classList.remove('collapsed');
-                header.querySelector('.il-order-expand').textContent = '▼';
+                this.expandOrderCard(card, order);
             }
         });
 
@@ -467,7 +588,7 @@ class ArchiveModule {
     }
 
     renderOrderProducts(container, order) {
-        container.innerHTML = '';
+        container.textContent = '';
         const tpl = document.getElementById('arch-product-template');
         const fragment = document.createDocumentFragment();
         order.products.forEach(p => {
@@ -496,44 +617,65 @@ class ArchiveModule {
     // FILTERS UI
     // ──────────────────────────────────────────────────────────────────────
 
+    /**
+     * Listy wartości przychodzą z backendu (jedno DISTINCT po całym archiwum
+     * w wybranym zakresie dat) — przy paginacji nie da się ich już zebrać
+     * z widocznych zamówień, bo widać tylko jedną stronę.
+     */
     populateMultiselectOptions() {
         const opts = this.state.filterOptions;
-        this.fillDropdown('wood-species', opts.wood_species);
-        this.fillDropdown('technology', opts.technologies);
-        this.fillDropdown('wood-class', opts.wood_classes);
-        this.fillDropdown('thickness', opts.thicknesses);
+        const f = this.state.filters;
+        this.fillDropdown('wood-species', opts.wood_species, f.woodSpecies);
+        this.fillDropdown('technology', opts.technologies, f.technologies);
+        this.fillDropdown('wood-class', opts.wood_classes, f.woodClasses);
+        this.fillDropdown('thickness', opts.thicknesses, f.thicknesses);
     }
 
-    fillDropdown(filterKey, values) {
+    fillDropdown(filterKey, values, selected) {
         const ms = this.elements.multiselects[filterKey];
         if (!ms || !ms.dropdown) return;
         // Usuń poprzednie opcje (oprócz search-input i "zaznacz wszystkie")
         ms.dropdown.querySelectorAll('.il-multiselect-option').forEach((opt, idx) => {
             if (idx > 0) opt.remove();
         });
-        (values || []).forEach(v => {
+
+        // Zaznaczona wartość, której nie ma już na liście (np. po zawężeniu
+        // zakresu dat), i tak musi się pokazać — inaczej filtr zostaje aktywny,
+        // a użytkownik nie ma czym go odkliknąć.
+        const all = Array.from(new Set([...(values || []), ...(selected || [])]));
+
+        all.forEach(v => {
             const label = document.createElement('label');
             label.className = 'il-multiselect-option';
-            label.innerHTML = `<input type="checkbox" value="${this.escapeHtml(v)}"> ${this.escapeHtml(v)}`;
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.value = v;
+            cb.checked = Boolean(selected && selected.has(v));
+            label.appendChild(cb);
+            // textContent, nie innerHTML — gatunek/technologia/klasa to dane z bazy
+            label.appendChild(document.createTextNode(' ' + v));
             ms.dropdown.appendChild(label);
         });
     }
 
     attachEventListeners() {
-        // Search (debounced)
+        // Search (debounced) — szukanie jest server-side, więc dłuższy debounce
+        // niż przy filtrowaniu w pamięci: 350 ms zamiast 200 ms.
         if (this.elements.search) {
             this.elements.search.addEventListener('input', (e) => {
                 clearTimeout(this._searchDebounceTimer);
+                const value = e.target.value.trim();
                 this._searchDebounceTimer = setTimeout(() => {
-                    this.state.filters.search = e.target.value.trim();
-                    this.applyFiltersAndRender();
-                }, 200);
+                    if (value === this.state.filters.search) return;
+                    this.state.filters.search = value;
+                    this.reload({ resetPage: true });
+                }, 350);
             });
         }
 
         // Apply / clear
         if (this.elements.applyFiltersBtn) {
-            this.elements.applyFiltersBtn.addEventListener('click', () => this.commitFiltersFromDOM(true));
+            this.elements.applyFiltersBtn.addEventListener('click', () => this.commitFiltersFromDOM());
         }
         if (this.elements.clearAllBtn) {
             this.elements.clearAllBtn.addEventListener('click', () => this.clearAllFilters());
@@ -542,7 +684,7 @@ class ArchiveModule {
             this.elements.clearFiltersEmptyBtn.addEventListener('click', () => this.clearAllFilters());
         }
         if (this.elements.retryBtn) {
-            this.elements.retryBtn.addEventListener('click', () => this.fetchData().then(() => this.applyFiltersAndRender()));
+            this.elements.retryBtn.addEventListener('click', () => this.reload());
         }
 
         // Multiselects: open/close + checkboxes
@@ -609,7 +751,7 @@ class ArchiveModule {
         });
     }
 
-    commitFiltersFromDOM(refetchDates) {
+    commitFiltersFromDOM() {
         // Multiselecty → state
         const collect = (key) => {
             const ms = this.elements.multiselects[key];
@@ -625,20 +767,14 @@ class ArchiveModule {
         this.state.filters.woodClasses = collect('wood-class');
         this.state.filters.thicknesses = collect('thickness');
 
-        const fromVal = this.elements.completedFrom ? this.elements.completedFrom.value : '';
-        const toVal = this.elements.completedTo ? this.elements.completedTo.value : '';
-        const dateChanged = (fromVal !== this.state.filters.completedFrom) || (toVal !== this.state.filters.completedTo);
-        this.state.filters.completedFrom = fromVal;
-        this.state.filters.completedTo = toVal;
+        this.state.filters.completedFrom = this.elements.completedFrom ? this.elements.completedFrom.value : '';
+        this.state.filters.completedTo = this.elements.completedTo ? this.elements.completedTo.value : '';
 
         if (this.elements.applyFiltersBtn) this.elements.applyFiltersBtn.classList.remove('pending');
 
-        // Filtry dat są server-side — wymagają refetchu
-        if (refetchDates && dateChanged) {
-            this.fetchData().then(() => this.applyFiltersAndRender());
-        } else {
-            this.applyFiltersAndRender();
-        }
+        // Każdy filtr jest server-side — zmiana zawsze oznacza nowy request
+        // i powrót na pierwszą stronę (na stronie 12 nowego wyniku może nie być).
+        this.reload({ resetPage: true });
     }
 
     clearAllFilters() {
@@ -656,7 +792,7 @@ class ArchiveModule {
         Object.values(this.elements.multiselects).forEach(ms => {
             if (ms.dropdown) ms.dropdown.querySelectorAll('input[type="checkbox"]').forEach(cb => { cb.checked = false; });
         });
-        this.fetchData().then(() => this.applyFiltersAndRender());
+        this.reload({ resetPage: true });
     }
 
     applyDatePreset(preset) {
@@ -683,7 +819,7 @@ class ArchiveModule {
         }
         if (this.elements.completedFrom) this.elements.completedFrom.value = from;
         if (this.elements.completedTo) this.elements.completedTo.value = to;
-        this.commitFiltersFromDOM(true);
+        this.commitFiltersFromDOM();
     }
 
     renderActiveFiltersBadges() {
@@ -702,10 +838,11 @@ class ArchiveModule {
             return;
         }
         this.elements.activeFilters.style.display = '';
-        this.elements.filterBadges.innerHTML = '';
+        this.elements.filterBadges.textContent = '';
         items.forEach(it => {
             const tpl = document.getElementById('arch-filter-badge-template');
             const badge = tpl.content.cloneNode(true).firstElementChild;
+            // textContent — etykieta zawiera wartość z bazy (gatunek, klasa)
             badge.querySelector('.il-filter-badge-text').textContent = it.label;
             badge.querySelector('.il-filter-badge-remove').addEventListener('click', () => this.removeFilter(it));
             this.elements.filterBadges.appendChild(badge);
@@ -714,15 +851,12 @@ class ArchiveModule {
 
     removeFilter(item) {
         const f = this.state.filters;
-        let needRefetch = false;
         if (item.key === 'completedFrom') {
             f.completedFrom = '';
             if (this.elements.completedFrom) this.elements.completedFrom.value = '';
-            needRefetch = true;
         } else if (item.key === 'completedTo') {
             f.completedTo = '';
             if (this.elements.completedTo) this.elements.completedTo.value = '';
-            needRefetch = true;
         } else if (f[item.key] instanceof Set) {
             f[item.key].delete(item.value);
             // odznacz checkbox w odpowiednim multiselectcie
@@ -740,19 +874,22 @@ class ArchiveModule {
                 }
             }
         }
-        if (needRefetch) {
-            this.fetchData().then(() => this.applyFiltersAndRender());
-        } else {
-            this.applyFiltersAndRender();
-        }
+        this.reload({ resetPage: true });
     }
 
     // ──────────────────────────────────────────────────────────────────────
     // STATE: LOADING / EMPTY / ERROR
     // ──────────────────────────────────────────────────────────────────────
 
-    showLoading() { if (this.elements.loading) this.elements.loading.style.display = ''; }
-    hideLoading() { if (this.elements.loading) this.elements.loading.style.display = 'none'; }
+    showLoading() {
+        if (this.elements.loading) this.elements.loading.style.display = '';
+        // Wygaszenie starej listy, żeby było widać, że wynik jeszcze się zmienia
+        if (this.elements.ordersList) this.elements.ordersList.classList.add('arch-loading');
+    }
+    hideLoading() {
+        if (this.elements.loading) this.elements.loading.style.display = 'none';
+        if (this.elements.ordersList) this.elements.ordersList.classList.remove('arch-loading');
+    }
     showEmpty() {
         if (!this.elements.empty) return;
         this.elements.empty.style.display = '';
@@ -772,6 +909,7 @@ class ArchiveModule {
         this.elements.error.style.display = '';
         if (this.elements.errorMessage) this.elements.errorMessage.textContent = msg;
     }
+    hideError() { if (this.elements.error) this.elements.error.style.display = 'none'; }
 
     hasActiveFilters() {
         const f = this.state.filters;

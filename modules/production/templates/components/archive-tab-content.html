@@ -127,6 +127,14 @@
     </div>
   </div>
 
+  {# ─── PAGINACJA ─── #}
+  {# Archiwum ma tysiące zamówień — serwer oddaje po jednej stronie, więc pasek
+     nawigacji jest jedynym sposobem dojścia do starszych pozycji. #}
+  <div class="arch-pagination" id="arch-pagination" style="display:none;">
+    <span class="arch-pagination-summary" id="arch-pagination-summary"></span>
+    <div class="arch-pagination-pages" id="arch-pagination-pages"></div>
+  </div>
+
 </div>
 
 {# ─── TEMPLATES (cloneNode) ─── #}

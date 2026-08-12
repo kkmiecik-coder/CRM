@@ -5,16 +5,589 @@ Extracted from api_routers.py.
 """
 
 import json
+import math
 import traceback
 from datetime import datetime, date, timedelta
 from flask import request, jsonify, render_template, current_app
 from flask_login import login_required, current_user
 from extensions import db
-from sqlalchemy import and_, or_, func, distinct, cast, String, case
+from sqlalchemy import and_, or_, func, distinct, cast, literal, String, case
+from sqlalchemy.orm import joinedload
 
 from . import api_bp, logger, ProductionItem, ProductionError, get_local_now
 from .common_api import admin_required, _format_status, _validate_config_value
 from modules.production.models import ProductionOrder, ProductionConfiguration
+
+
+# Ile zamówień archiwalnych na stronę.
+# Do archiwum wchodzi się po konkretne zamówienie (reklamacja, "co dokładnie
+# im wysłaliśmy w marcu"), a nie żeby przewijać historię firmy — dlatego liczy
+# się szybka pierwsza strona i filtry, nie długość listy. 25 kart to ok. dwa
+# ekrany scrolla i ~70 pozycji produktowych, czyli ~200 KB odpowiedzi.
+ARCHIVE_ORDERS_PER_PAGE = 25
+
+
+# ============================================================================
+# HELPERY WSPÓLNE DLA WIDOKÓW LISTY PRODUKTÓW
+# ============================================================================
+
+
+def _parse_date_arg(raw):
+    """'YYYY-MM-DD' → datetime; nieparsowalne / puste → None (filtr nieaktywny)."""
+    raw = (raw or '').strip()
+    if not raw:
+        return None
+    try:
+        return datetime.strptime(raw, '%Y-%m-%d')
+    except ValueError:
+        return None
+
+
+def _format_thickness_option(value):
+    """
+    Etykieta grubości dla filtra, np. 4.0 → '4cm', 1.5 → '1.5cm'.
+
+    Format musi być taki, jaki JS-owy `${p.parsed_thickness_cm}cm` wyprodukowałby
+    z liczby po JSON.parse — inaczej opcja z listy nigdy nie trafi w produkt
+    (JS renderuje 4.0 jako '4', Python jako '4.0').
+    """
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    if f <= 0:
+        return None
+    return f'{f:g}cm'
+
+
+def _parse_thickness_option(label):
+    """Odwrotność `_format_thickness_option` — '4cm' → 4.0. Śmieci → None."""
+    try:
+        return float(str(label).strip().lower().replace('cm', ''))
+    except (TypeError, ValueError):
+        return None
+
+
+def _product_counts_by_order(order_ids):
+    """
+    {order_id: liczba pozycji} jednym GROUP BY zamiast COUNT-a per produkt.
+
+    Wcześniej serializer robił osobne `SELECT COUNT(*) WHERE order_id = ?` dla
+    każdego produktu — na archiwum dawało to 2315 zapytań z 3152.
+    """
+    ids = [oid for oid in set(order_ids) if oid]
+    if not ids:
+        return {}
+    rows = db.session.query(
+        ProductionItem.order_id, func.count(ProductionItem.id)
+    ).filter(ProductionItem.order_id.in_(ids)).group_by(ProductionItem.order_id).all()
+    return {oid: cnt for oid, cnt in rows}
+
+
+def _workers_for_products(product_ids):
+    """
+    Kto pracował przy produktach — JEDNO zapytanie na całą listę, nie jedno
+    na produkt (docs/worker-profiles-backend.md §7.3). Awaria tej części nie
+    może wywrócić listy produktów: brak nazwisk jest znośny, brak listy nie.
+    Rollback jest tu konieczny — bez niego sesja zostaje w stanie failed
+    i wywraca DOPIERO kolejne zapytanie, w zupełnie innym miejscu kodu.
+    """
+    try:
+        from ...services.worker_stats_service import get_workers_for_products
+        return get_workers_for_products(product_ids)
+    except Exception as e:
+        db.session.rollback()
+        logger.warning("Nie udało się pobrać atrybucji pracowników do listy",
+                       extra={'error': str(e)})
+        return {}
+
+
+def _serialize_product(product, workers_by_product, product_counts_by_order):
+    """
+    Produkt → dict dla frontendu. Wyciągnięte z pętli endpointu, żeby widok
+    archiwum i widok aktywnych korzystały z jednego formatu.
+
+    `product.order` i `product.configuration` MUSZĄ być tu już doczytane
+    (joinedload) — inaczej każde odwołanie do sąsiedniej tabeli to osobny SELECT.
+    """
+    def get_attr(obj, attr_name, default=None):
+        return getattr(obj, attr_name, default) if hasattr(obj, attr_name) else default
+
+    # Oblicz dni do deadline
+    days_to_deadline = None
+    if hasattr(product, 'deadline_date') and product.deadline_date:
+        try:
+            deadline = product.deadline_date
+            if isinstance(deadline, str):
+                deadline = datetime.strptime(deadline, '%Y-%m-%d').date()
+            days_to_deadline = (deadline - date.today()).days
+        except Exception:
+            days_to_deadline = None
+
+    # Bezpieczne pobieranie objętości
+    volume_m3 = 0.0
+    try:
+        vol = get_attr(product, 'volume_m3', 0)
+        volume_m3 = float(vol) if vol is not None else 0.0
+    except (ValueError, TypeError):
+        volume_m3 = 0.0
+
+    # Bezpieczne pobieranie wartości netto
+    total_value_net = 0.0
+    try:
+        val = get_attr(product, 'total_value_net', 0)
+        total_value_net = float(val) if val is not None else 0.0
+    except (ValueError, TypeError):
+        total_value_net = 0.0
+
+    # Bezpieczne pobieranie ceny jednostkowej
+    unit_price_net = 0.0
+    try:
+        price = get_attr(product, 'unit_price_net', 0)
+        unit_price_net = float(price) if price is not None else 0.0
+    except (ValueError, TypeError):
+        unit_price_net = 0.0
+
+    # Bezpieczne pobieranie parsowanych wymiarów
+    parsed_length_cm = 0.0
+    parsed_width_cm = 0.0
+    parsed_thickness_cm = 0.0
+    try:
+        if get_attr(product, 'parsed_length_cm') is not None:
+            parsed_length_cm = float(get_attr(product, 'parsed_length_cm', 0))
+        if get_attr(product, 'parsed_width_cm') is not None:
+            parsed_width_cm = float(get_attr(product, 'parsed_width_cm', 0))
+        if get_attr(product, 'parsed_thickness_cm') is not None:
+            parsed_thickness_cm = float(get_attr(product, 'parsed_thickness_cm', 0))
+    except (ValueError, TypeError):
+        pass
+
+    order = product.order
+    config = product.configuration
+
+    return {
+        # Podstawowe dane
+        'id': product.id,
+        'short_product_id': get_attr(product, 'short_product_id', ''),
+        'original_product_name': get_attr(product, 'original_product_name', ''),
+        'current_status': get_attr(product, 'current_status', 'czeka_na_wyciecie'),
+        'priority_rank': get_attr(product, 'priority_rank', None),
+        'priority_manual_override': get_attr(product, 'priority_manual_override', False),
+
+        # {station_code: ['Adam K.', ...]} — puste dla produktów sprzed
+        # wdrożenia profili i dla pracy bez wybranego profilu na tablecie
+        'workers_by_station': workers_by_product.get(product.id, {}),
+
+        # Wymiary i wartości
+        'volume_m3': volume_m3,
+        'total_value_net': total_value_net,
+        'unit_price_net': unit_price_net,
+
+        # Deadline
+        'deadline_date': get_attr(product, 'deadline_date').isoformat() if get_attr(product, 'deadline_date') else None,
+        'days_until_deadline': days_to_deadline,
+
+        # Dane klienta
+        'client_name': (order.client_name if order else None) or '',
+        'client_email': (order.client_email if order else None) or '',
+        'client_phone': (order.client_phone if order else None) or '',
+        'delivery_address': (order.delivery_address if order else None) or '',
+
+        # Dane zamówienia
+        'internal_order_number': (order.internal_order_number if order else None) or '',
+        'baselinker_order_id': order.baselinker_order_id if order else None,
+        'baselinker_product_id': get_attr(product, 'baselinker_product_id', ''),
+        'product_sequence_in_order': get_attr(product, 'product_sequence_in_order', 1),
+        'total_products_in_order': product_counts_by_order.get(product.order_id, 1) if product.order_id else 1,
+
+        # POPRAWIONE: Specyfikacja produktu - PARSOWANE POLA z bazy danych
+        'parsed_wood_species': config.species if config else None,
+        'parsed_technology': config.technology if config else None,
+        'parsed_wood_class': config.wood_class if config else None,
+        'parsed_length_cm': parsed_length_cm,
+        'parsed_width_cm': parsed_width_cm,
+        'parsed_thickness_cm': parsed_thickness_cm,
+        'parsed_finish_state': get_attr(product, 'parsed_finish_state', None),
+        'parsed_edge_processing': get_attr(product, 'parsed_edge_processing', False),
+        'cut_to_size': bool(get_attr(product, 'cut_to_size', True)),
+        'shape': get_attr(product, 'shape', None),
+
+        # Produkcja - statusy i czasami
+        'cutting_started_at': get_attr(product, 'cutting_started_at').isoformat() if get_attr(product, 'cutting_started_at') else None,
+        'cutting_completed_at': get_attr(product, 'cutting_completed_at').isoformat() if get_attr(product, 'cutting_completed_at') else None,
+        'cutting_duration_minutes': get_attr(product, 'cutting_duration_minutes', None),
+        'assembly_started_at': get_attr(product, 'assembly_started_at').isoformat() if get_attr(product, 'assembly_started_at') else None,
+        'assembly_completed_at': get_attr(product, 'assembly_completed_at').isoformat() if get_attr(product, 'assembly_completed_at') else None,
+        'assembly_duration_minutes': get_attr(product, 'assembly_duration_minutes', None),
+        'packaging_started_at': get_attr(product, 'packaging_started_at').isoformat() if get_attr(product, 'packaging_started_at') else None,
+        'packaging_completed_at': get_attr(product, 'packaging_completed_at').isoformat() if get_attr(product, 'packaging_completed_at') else None,
+        'packaging_duration_minutes': get_attr(product, 'packaging_duration_minutes', None),
+
+        # Logistyka
+        'logistics_completed_at': order.logistics_completed_at.isoformat() if order and order.logistics_completed_at else None,
+        'painting_completed_at': get_attr(product, 'painting_completed_at').isoformat() if get_attr(product, 'painting_completed_at') else None,
+        'override_delivery_method': order.override_delivery_method if order else None,
+        'is_personal_pickup': order.is_personal_pickup if order else None,
+
+        # Przypisani pracownicy
+        'cutting_assigned_worker_id': get_attr(product, 'cutting_assigned_worker_id', None),
+        'assembly_assigned_worker_id': get_attr(product, 'assembly_assigned_worker_id', None),
+        'packaging_assigned_worker_id': get_attr(product, 'packaging_assigned_worker_id', None),
+
+        # Notatki i problemy
+        'production_notes': get_attr(product, 'production_notes', ''),
+        'quality_issues': get_attr(product, 'quality_issues', ''),
+
+        # Timestampy
+        'created_at': product.created_at.isoformat() if hasattr(product, 'created_at') and product.created_at else None,
+        'updated_at': product.updated_at.isoformat() if hasattr(product, 'updated_at') and product.updated_at else None,
+        'sync_source': order.sync_source if order else None,
+
+        # Załączniki
+        'attachment_file_name': order.attachment_file_name if order else None,
+        'attachment_file_url': order.attachment_file_url if order else None,
+
+        # NOWE: Quantity fields (2025-11)
+        'quantity': get_attr(product, 'quantity', 1),
+        'quantity_done_cutting': get_attr(product, 'quantity_done_cutting', 0),
+        'quantity_done_assembly': get_attr(product, 'quantity_done_assembly', 0),
+        'quantity_done_gluing': get_attr(product, 'quantity_done_gluing', 0),
+        'quantity_done_formatting': get_attr(product, 'quantity_done_formatting', 0),
+        'quantity_done_finishing': get_attr(product, 'quantity_done_finishing', 0),
+        'quantity_done_painting': get_attr(product, 'quantity_done_painting', 0),
+        'quantity_done_packaging': get_attr(product, 'quantity_done_packaging', 0),
+
+        # Dodatkowe pola z zamówienia
+        'client_order_number': order.client_order_number if order else None,
+        'quote_number': order.quote_number if order else None,
+        'order_notes': order.order_notes if order else None,
+
+        # Priorytet ręczny (gwiazdka)
+        'is_priority': get_attr(product, 'is_priority', False),
+
+        # Unique identifier dla frontend
+        'unique_id': f"{get_attr(product, 'short_product_id', '')}-{product.id}"
+    }
+
+
+# ============================================================================
+# WIDOK ARCHIWUM — filtry + paginacja po stronie serwera
+# ============================================================================
+
+
+def _archived_order_condition():
+    """
+    Zamówienie należy do archiwum, gdy:
+     - WSZYSTKIE pozycje mają status 'spakowane' (zakończone produkcyjnie), LUB
+     - WSZYSTKIE pozycje mają status 'anulowane' (całe zamówienie anulowane).
+    Warunek działa w HAVING nad GROUP BY internal_order_number.
+    """
+    fully_packed = func.sum(
+        case((ProductionItem.current_status != 'spakowane', 1), else_=0)
+    ) == 0
+    fully_cancelled = func.sum(
+        case((ProductionItem.current_status != 'anulowane', 1), else_=0)
+    ) == 0
+    return or_(fully_packed, fully_cancelled)
+
+
+def _any_product_matches(condition):
+    """
+    HAVING-owy odpowiednik JS-owego `order.products.some(...)`.
+
+    Warunek MUSI iść do HAVING, nie do WHERE: filtr wybiera CAŁE zamówienia
+    mające choć jedną pasującą pozycję, a w WHERE obciąłby pozostałe pozycje
+    i zafałszował sumy objętości/wartości oraz licznik pozycji.
+    """
+    return func.sum(case((condition, 1), else_=0)) > 0
+
+
+def _archive_orders_query(completed_from_dt=None, completed_to_dt=None, filters=None):
+    """
+    Agregat "jedno zamówienie = jeden wiersz", kluczowany po internal_order_number
+    (tak samo, jak UI skleja karty zamówień).
+
+    `filters` (opcjonalne) to dict z kluczami search / wood_species / technologies /
+    wood_classes / thicknesses — każdy filtr to osobne HAVING, więc filtry łączą
+    się przez AND, a wartości w obrębie jednego filtra przez OR (IN). Dokładnie
+    tak, jak działa dziś `orderPassesFilters()` w archive-module.js.
+    """
+    q = db.session.query(
+        ProductionOrder.internal_order_number.label('ion'),
+        func.max(ProductionItem.packaging_completed_at).label('completed_at'),
+        func.min(ProductionItem.created_at).label('created_at'),
+        func.count(ProductionItem.id).label('products_count'),
+        func.sum(ProductionItem.quantity).label('quantity'),
+        func.sum(ProductionItem.volume_m3 * ProductionItem.quantity).label('volume'),
+        func.sum(ProductionItem.total_value_net).label('value'),
+    ).select_from(ProductionOrder).join(
+        ProductionItem, ProductionItem.order_id == ProductionOrder.id
+    ).outerjoin(
+        ProductionConfiguration,
+        ProductionItem.configuration_id == ProductionConfiguration.id
+    ).filter(
+        ProductionOrder.internal_order_number.isnot(None)
+    ).group_by(
+        ProductionOrder.internal_order_number
+    ).having(_archived_order_condition())
+
+    # Zakres dat liczony na poziomie zamówienia (MAX z pozycji), nie pojedynczej sztuki
+    if completed_from_dt is not None:
+        q = q.having(func.max(ProductionItem.packaging_completed_at) >= completed_from_dt)
+    if completed_to_dt is not None:
+        q = q.having(func.max(ProductionItem.packaging_completed_at) < completed_to_dt)
+
+    filters = filters or {}
+
+    search_query = (filters.get('search') or '').strip()
+    if search_query:
+        pattern = f"%{search_query}%"
+        # Te same pola, po których szuka dziś JS. baselinker_order_id sklejamy
+        # z prefiksem 'bl-', bo w JS haystackiem jest właśnie `bl-<id>` —
+        # dzięki temu i "bl-252" i samo "25208907" nadal trafiają.
+        # Sklejanie przez operator `+` na typie String, nie przez func.concat():
+        # SQLAlchemy renderuje je jako CONCAT() na MySQL i `||` na SQLite
+        # (którego używają testy) — func.concat() wywraca się na SQLite.
+        bl_label = literal('bl-') + cast(ProductionOrder.baselinker_order_id, String)
+        q = q.having(_any_product_matches(or_(
+            ProductionOrder.client_name.ilike(pattern),
+            ProductionOrder.internal_order_number.ilike(pattern),
+            ProductionOrder.client_order_number.ilike(pattern),
+            ProductionOrder.quote_number.ilike(pattern),
+            bl_label.ilike(pattern),
+            ProductionItem.original_product_name.ilike(pattern),
+            ProductionItem.short_product_id.ilike(pattern),
+        )))
+
+    if filters.get('wood_species'):
+        q = q.having(_any_product_matches(
+            ProductionConfiguration.species.in_(filters['wood_species'])))
+    if filters.get('technologies'):
+        q = q.having(_any_product_matches(
+            ProductionConfiguration.technology.in_(filters['technologies'])))
+    if filters.get('wood_classes'):
+        q = q.having(_any_product_matches(
+            ProductionConfiguration.wood_class.in_(filters['wood_classes'])))
+    if filters.get('thicknesses'):
+        q = q.having(_any_product_matches(
+            ProductionItem.parsed_thickness_cm.in_(filters['thicknesses'])))
+
+    return q
+
+
+def _archive_filter_options(completed_from_dt, completed_to_dt):
+    """
+    Listy wartości do multiselectów — JEDNO zapytanie DISTINCT po zakresie
+    archiwum (z uwzględnieniem zakresu dat, bez pozostałych filtrów, żeby dało
+    się filtr zdjąć). Przy paginacji nie da się ich już zebrać z załadowanych
+    zamówień — widać tylko jedną stronę.
+    """
+    ion_subq = _archive_orders_query(completed_from_dt, completed_to_dt).subquery()
+
+    rows = db.session.query(
+        ProductionConfiguration.species,
+        ProductionConfiguration.technology,
+        ProductionConfiguration.wood_class,
+        ProductionItem.parsed_thickness_cm,
+        ProductionItem.current_status,
+    ).select_from(ProductionItem).join(
+        ProductionOrder, ProductionItem.order_id == ProductionOrder.id
+    ).outerjoin(
+        ProductionConfiguration,
+        ProductionItem.configuration_id == ProductionConfiguration.id
+    ).filter(
+        ProductionOrder.internal_order_number.in_(db.session.query(ion_subq.c.ion))
+    ).distinct().all()
+
+    species, technologies, wood_classes, thicknesses, statuses = set(), set(), set(), set(), set()
+    for row in rows:
+        if row.species:
+            species.add(row.species)
+        if row.technology:
+            technologies.add(row.technology)
+        if row.wood_class:
+            wood_classes.add(row.wood_class)
+        label = _format_thickness_option(row.parsed_thickness_cm)
+        if label:
+            thicknesses.add(label)
+        if row.current_status:
+            statuses.add(row.current_status)
+
+    return {
+        'wood_species': sorted(species),
+        'technologies': sorted(technologies),
+        'wood_classes': sorted(wood_classes),
+        'thicknesses': sorted(thicknesses, key=lambda x: _parse_thickness_option(x) or 0),
+        'statuses': sorted(statuses),
+    }
+
+
+def _archive_sort_key_split(rows):
+    """
+    Sortowanie zgodne z `sortOrdersByCompletedDesc()`: data zakończenia malejąco,
+    zamówienia bez daty na końcu. Numer zamówienia jako drugi klucz — JS go nie
+    miał, ale bez deterministycznego remisu ta sama pozycja potrafiłaby wypaść
+    na dwóch stronach naraz albo zniknąć.
+    """
+    z_data = [r for r in rows if r.completed_at is not None]
+    bez_daty = [r for r in rows if r.completed_at is None]
+    z_data.sort(key=lambda r: (r.completed_at, r.ion or ''), reverse=True)
+    bez_daty.sort(key=lambda r: (r.ion or ''), reverse=True)
+    return z_data + bez_daty
+
+
+def _archive_stats(rows):
+    """
+    Statystyki nagłówka archiwum liczone na CAŁYM przefiltrowanym wyniku
+    (nie na bieżącej stronie) — inaczej liczniki zmieniałyby się przy przewijaniu.
+    Zaokrąglenia per zamówienie odtwarzają to, co robił dotąd JS.
+    """
+    orders_count = len(rows)
+    products_count = 0
+    total_quantity = 0
+    total_volume = 0.0
+    total_value = 0.0
+    durations = []
+
+    for r in rows:
+        products_count += int(r.products_count or 0)
+        total_quantity += int(r.quantity or 0)
+        total_volume += round(float(r.volume or 0), 4)
+        total_value += round(float(r.value or 0), 2)
+        if r.completed_at and r.created_at:
+            delta = (r.completed_at - r.created_at).total_seconds()
+            if delta >= 0:
+                durations.append(round(delta / 86400.0, 1))
+
+    avg_days = round(sum(durations) / len(durations), 1) if durations else None
+
+    return {
+        'total_count': products_count,
+        'total_quantity': total_quantity,
+        'total_volume': round(total_volume, 4),
+        'total_value': round(total_value, 2),
+        'urgent_count': 0,
+        'status_breakdown': {},
+        'archive': {
+            'orders_count': orders_count,
+            'products_count': products_count,
+            'total_volume': round(total_volume, 4),
+            'total_value': round(total_value, 2),
+            'avg_realization_days': avg_days,
+        }
+    }
+
+
+def _archive_tab_content():
+    """
+    GET /production/api/products-tab-content?view=archive
+
+    Zwraca JEDNĄ stronę zamówień archiwalnych: filtry i paginacja liczone
+    w bazie, statystyki i listy wartości filtrów — dla całego przefiltrowanego
+    zbioru, nie dla widocznej strony.
+    """
+    completed_from_dt = _parse_date_arg(request.args.get('completed_from'))
+    completed_to_raw = (request.args.get('completed_to') or '').strip()
+    completed_to_dt = _parse_date_arg(completed_to_raw)
+    if completed_to_dt is not None:
+        # "do" włącznie — porównujemy z początkiem następnego dnia
+        completed_to_dt = completed_to_dt + timedelta(days=1)
+
+    thickness_values = [
+        v for v in (_parse_thickness_option(t) for t in request.args.getlist('thickness'))
+        if v is not None
+    ]
+    filters = {
+        'search': (request.args.get('search') or '').strip(),
+        'wood_species': [v for v in request.args.getlist('wood_species') if v],
+        'technologies': [v for v in request.args.getlist('technology') if v],
+        'wood_classes': [v for v in request.args.getlist('wood_class') if v],
+        'thicknesses': thickness_values,
+    }
+
+    order_rows = _archive_orders_query(completed_from_dt, completed_to_dt, filters).all()
+    stats_data = _archive_stats(order_rows)
+
+    try:
+        page = int(request.args.get('page', 1))
+    except (TypeError, ValueError):
+        page = 1
+    total_pages = max(1, math.ceil(len(order_rows) / ARCHIVE_ORDERS_PER_PAGE))
+    page = min(max(1, page), total_pages)
+
+    sorted_rows = _archive_sort_key_split(order_rows)
+    offset = (page - 1) * ARCHIVE_ORDERS_PER_PAGE
+    page_rows = sorted_rows[offset:offset + ARCHIVE_ORDERS_PER_PAGE]
+    page_ions = [r.ion for r in page_rows]
+    completed_by_ion = {r.ion: r.completed_at for r in page_rows}
+
+    products = []
+    if page_ions:
+        # joinedload jest tu obowiązkowy: bez niego każde `product.order` /
+        # `product.configuration` w serializerze to osobny SELECT (823 zapytania
+        # na pełnym archiwum).
+        products = ProductionItem.query.options(
+            joinedload(ProductionItem.order),
+            joinedload(ProductionItem.configuration),
+        ).filter(
+            ProductionItem.order_id.in_(
+                db.session.query(ProductionOrder.id).filter(
+                    ProductionOrder.internal_order_number.in_(page_ions)
+                )
+            )
+        ).order_by(
+            ProductionItem.product_sequence_in_order.asc(),
+            ProductionItem.id.asc()
+        ).all()
+
+        # Kolejność zamówień musi odpowiadać posortowanej stronie — frontend
+        # grupuje karty w kolejności napotkania produktów.
+        ion_order = {ion: idx for idx, ion in enumerate(page_ions)}
+        products.sort(key=lambda p: (
+            ion_order.get(p.order.internal_order_number if p.order else None, 10 ** 6),
+            p.product_sequence_in_order or 0,
+            p.id,
+        ))
+
+    workers_by_product = _workers_for_products([p.id for p in products])
+    product_counts = _product_counts_by_order([p.order_id for p in products])
+
+    products_data = []
+    for product in products:
+        product_dict = _serialize_product(product, workers_by_product, product_counts)
+        completed_at = completed_by_ion.get(product_dict['internal_order_number'])
+        product_dict['order_completed_at'] = completed_at.isoformat() if completed_at else None
+        products_data.append(product_dict)
+
+    filters_data = _archive_filter_options(completed_from_dt, completed_to_dt)
+
+    logger.info("Archiwum: zwrócono stronę zamówień", extra={
+        'page': page,
+        'total_pages': total_pages,
+        'orders_after_filters': len(order_rows),
+        'products_on_page': len(products_data),
+    })
+
+    return jsonify({
+        'success': True,
+        'html': render_template('components/archive-tab-content.html'),
+        'initial_data': {
+            'products': products_data,
+            'stats': stats_data,
+            'filters': filters_data,
+            'pagination': {
+                'page': page,
+                'per_page': ARCHIVE_ORDERS_PER_PAGE,
+                'total_orders': len(order_rows),
+                'total_pages': total_pages,
+                'has_prev': page > 1,
+                'has_next': page < total_pages,
+            },
+            'total_count': len(products_data),
+            'load_all': False,
+        },
+        'products_count': len(products_data),
+    })
 
 
 # ============================================================================
@@ -26,15 +599,14 @@ from modules.production.models import ProductionOrder, ProductionConfiguration
 @login_required  
 def products_tab_content():
     """
-    Endpoint zwracający zawartość taba produktów - NAPRAWIONY
-    BUGFIX: Usuwa limit 100 produktów, zwraca wszystkie produkty z parsowanymi polami
+    Zawartość zakładki produktów (widoki active / all) oraz archiwum.
+
+    active/all zwracają wszystkie pasujące pozycje naraz — to zbiór rzędu setek
+    pozycji w toku, który mieści się w jednej odpowiedzi. Archiwum rośnie bez
+    końca (cała historia firmy), więc ma osobną ścieżkę z paginacją i filtrami
+    liczonymi w bazie — patrz `_archive_tab_content`.
     """
     try:
-        # Pobierz podstawowe parametry
-        status_filter = request.args.get('status', 'all')
-        search_query = request.args.get('search', '')
-        load_all = request.args.get('load_all', 'true').lower() == 'true'
-
         # Tryb widoku: active (default) | archive | all
         # active  → ukrywa zamówienia, w których WSZYSTKIE pozycje mają status 'spakowane'
         # archive → pokazuje wyłącznie te zamówienia
@@ -43,74 +615,43 @@ def products_tab_content():
         if view_mode not in ('active', 'archive', 'all'):
             view_mode = 'active'
 
-        # Filtr zakresu dat zakończenia (działa tylko w archive/all, na packaging_completed_at)
-        completed_from_raw = request.args.get('completed_from', '').strip()
-        completed_to_raw = request.args.get('completed_to', '').strip()
-        completed_from_dt = None
-        completed_to_dt = None
-        if completed_from_raw:
-            try:
-                completed_from_dt = datetime.strptime(completed_from_raw, '%Y-%m-%d')
-            except ValueError:
-                completed_from_dt = None
-        if completed_to_raw:
-            try:
-                completed_to_dt = datetime.strptime(completed_to_raw, '%Y-%m-%d') + timedelta(days=1)
-            except ValueError:
-                completed_to_dt = None
+        # Archiwum ma własną ścieżkę: filtry i paginacja po stronie bazy.
+        # Bez tego całe 2300+ spakowanych pozycji ładowałoby się do jednego HTML-a.
+        if view_mode == 'archive':
+            return _archive_tab_content()
+
+        # Pobierz podstawowe parametry
+        status_filter = request.args.get('status', 'all')
+        search_query = request.args.get('search', '')
+        load_all = request.args.get('load_all', 'true').lower() == 'true'
 
         # Pobierz produkty z bazy danych - BEZ LIMITU
         # Zawsze joinujemy ProductionOrder — potrzebne do filtrowania i wyszukiwania po polach order-level
-        products_query = ProductionItem.query.join(ProductionOrder)
+        # joinedload: serializer sięga do product.order i product.configuration przy
+        # KAŻDEJ pozycji — bez eager loadingu to setki dodatkowych SELECT-ów.
+        products_query = ProductionItem.query.join(ProductionOrder).options(
+            joinedload(ProductionItem.order),
+            joinedload(ProductionItem.configuration),
+        )
 
-        # Subquery: numery zamówień, w których KAŻDA pozycja ma status 'spakowane'
-        # (z agregacją MAX/MIN dat na poziomie zamówienia, do filtrowania po dacie zakończenia)
-        if view_mode in ('active', 'archive'):
-            order_agg_q = db.session.query(
-                ProductionOrder.internal_order_number.label('ion'),
-                func.max(ProductionItem.packaging_completed_at).label('order_completed_at'),
-                func.sum(case((ProductionItem.current_status != 'spakowane', 1), else_=0)).label('non_packed_cnt')
-            ).join(ProductionItem, ProductionItem.order_id == ProductionOrder.id).filter(
+        # active: odetnij zamówienia archiwalne (wszystkie pozycje spakowane
+        # albo wszystkie anulowane) — ten sam warunek co w widoku archiwum.
+        if view_mode == 'active':
+            archived_subq = db.session.query(
+                ProductionOrder.internal_order_number.label('ion')
+            ).join(
+                ProductionItem, ProductionItem.order_id == ProductionOrder.id
+            ).filter(
                 ProductionOrder.internal_order_number.isnot(None)
             ).group_by(
                 ProductionOrder.internal_order_number
+            ).having(_archived_order_condition()).subquery()
+
+            products_query = products_query.filter(
+                ~ProductionOrder.internal_order_number.in_(
+                    db.session.query(archived_subq.c.ion)
+                )
             )
-
-            # Zamówienie należy do archiwum, gdy:
-            #  - WSZYSTKIE pozycje mają status 'spakowane' (zakończone produkcyjnie), LUB
-            #  - WSZYSTKIE pozycje mają status 'anulowane' (całe zamówienie anulowane)
-            fully_packed_cond = func.sum(
-                case((ProductionItem.current_status != 'spakowane', 1), else_=0)
-            ) == 0
-            fully_cancelled_cond = func.sum(
-                case((ProductionItem.current_status != 'anulowane', 1), else_=0)
-            ) == 0
-            archived_cond = or_(fully_packed_cond, fully_cancelled_cond)
-
-            # archive: tylko zamówienia archiwalne + opcjonalnie zakres dat zakończenia (na poziomie zamówienia)
-            if view_mode == 'archive':
-                order_agg_q = order_agg_q.having(archived_cond)
-                if completed_from_dt is not None:
-                    order_agg_q = order_agg_q.having(
-                        func.max(ProductionItem.packaging_completed_at) >= completed_from_dt
-                    )
-                if completed_to_dt is not None:
-                    order_agg_q = order_agg_q.having(
-                        func.max(ProductionItem.packaging_completed_at) < completed_to_dt
-                    )
-                matching_orders_subq = order_agg_q.subquery()
-                products_query = products_query.filter(
-                    ProductionOrder.internal_order_number.in_(
-                        db.session.query(matching_orders_subq.c.ion)
-                    )
-                )
-            else:  # active
-                archived_subq = order_agg_q.having(archived_cond).subquery()
-                products_query = products_query.filter(
-                    ~ProductionOrder.internal_order_number.in_(
-                        db.session.query(archived_subq.c.ion)
-                    )
-                )
 
         # Filtrowanie po statusie
         if status_filter and status_filter != 'all':
@@ -180,192 +721,18 @@ def products_tab_content():
             if crt is not None and (agg['created_at'] is None or crt < agg['created_at']):
                 agg['created_at'] = crt
 
-        # Kto pracował przy produktach — JEDNO zapytanie na całą listę, nie jedno
-        # na produkt (docs/worker-profiles-backend.md §7.3). Awaria tej części nie
-        # może wywrócić listy produktów: brak nazwisk jest znośny, brak listy nie.
-        # Rollback jest tu konieczny — bez niego sesja zostaje w stanie failed
-        # i wywraca DOPIERO kolejne zapytanie, w zupełnie innym miejscu kodu.
-        try:
-            from ...services.worker_stats_service import get_workers_for_products
-            workers_by_product = get_workers_for_products([p.id for p in products])
-        except Exception as e:
-            db.session.rollback()
-            logger.warning("Nie udało się pobrać atrybucji pracowników do listy",
-                           extra={'error': str(e)})
-            workers_by_product = {}
+        workers_by_product = _workers_for_products([p.id for p in products])
+        product_counts = _product_counts_by_order([p.order_id for p in products])
 
-        # Renderuj HTML template (osobny komponent dla widoku archiwum)
-        template_name = (
-            'components/archive-tab-content.html'
-            if view_mode == 'archive'
-            else 'components/products-tab-content.html'
-        )
-        html_content = render_template(template_name)
-        
+        html_content = render_template('components/products-tab-content.html')
+
         # Przygotuj dane produktów z bezpiecznym dostępem do atrybutów
         products_data = []
         for product in products:
-            # Bezpieczne pobieranie wartości z fallback
-            def get_attr(obj, attr_name, default=None):
-                return getattr(obj, attr_name, default) if hasattr(obj, attr_name) else default
-            
-            # Oblicz dni do deadline
-            days_to_deadline = None
-            if hasattr(product, 'deadline_date') and product.deadline_date:
-                try:
-                    deadline = product.deadline_date
-                    if isinstance(deadline, str):
-                        deadline = datetime.strptime(deadline, '%Y-%m-%d').date()
-                    days_to_deadline = (deadline - date.today()).days
-                except:
-                    days_to_deadline = None
-            
-            # Bezpieczne pobieranie objętości
-            volume_m3 = 0.0
-            try:
-                vol = get_attr(product, 'volume_m3', 0)
-                volume_m3 = float(vol) if vol is not None else 0.0
-            except (ValueError, TypeError):
-                volume_m3 = 0.0
-            
-            # Bezpieczne pobieranie wartości netto
-            total_value_net = 0.0
-            try:
-                val = get_attr(product, 'total_value_net', 0)
-                total_value_net = float(val) if val is not None else 0.0
-            except (ValueError, TypeError):
-                total_value_net = 0.0
-            
-            # Bezpieczne pobieranie ceny jednostkowej
-            unit_price_net = 0.0
-            try:
-                price = get_attr(product, 'unit_price_net', 0)
-                unit_price_net = float(price) if price is not None else 0.0
-            except (ValueError, TypeError):
-                unit_price_net = 0.0
-            
-            # Bezpieczne pobieranie parsowanych wymiarów
-            parsed_length_cm = 0.0
-            parsed_width_cm = 0.0
-            parsed_thickness_cm = 0.0
-            try:
-                if get_attr(product, 'parsed_length_cm') is not None:
-                    parsed_length_cm = float(get_attr(product, 'parsed_length_cm', 0))
-                if get_attr(product, 'parsed_width_cm') is not None:
-                    parsed_width_cm = float(get_attr(product, 'parsed_width_cm', 0))
-                if get_attr(product, 'parsed_thickness_cm') is not None:
-                    parsed_thickness_cm = float(get_attr(product, 'parsed_thickness_cm', 0))
-            except (ValueError, TypeError):
-                pass
-            
-            product_dict = {
-                # Podstawowe dane
-                'id': product.id,
-                'short_product_id': get_attr(product, 'short_product_id', ''),
-                'original_product_name': get_attr(product, 'original_product_name', ''),
-                'current_status': get_attr(product, 'current_status', 'czeka_na_wyciecie'),
-                'priority_rank': get_attr(product, 'priority_rank', None),
-                'priority_manual_override': get_attr(product, 'priority_manual_override', False),
-
-                # {station_code: ['Adam K.', ...]} — puste dla produktów sprzed
-                # wdrożenia profili i dla pracy bez wybranego profilu na tablecie
-                'workers_by_station': workers_by_product.get(product.id, {}),
-
-                # Wymiary i wartości
-                'volume_m3': volume_m3,
-                'total_value_net': total_value_net,
-                'unit_price_net': unit_price_net,
-                
-                # Deadline
-                'deadline_date': get_attr(product, 'deadline_date').isoformat() if get_attr(product, 'deadline_date') else None,
-                'days_until_deadline': days_to_deadline,
-                
-                # Dane klienta
-                'client_name': (product.order.client_name if product.order else None) or '',
-                'client_email': (product.order.client_email if product.order else None) or '',
-                'client_phone': (product.order.client_phone if product.order else None) or '',
-                'delivery_address': (product.order.delivery_address if product.order else None) or '',
-
-                # Dane zamówienia
-                'internal_order_number': (product.order.internal_order_number if product.order else None) or '',
-                'baselinker_order_id': product.order.baselinker_order_id if product.order else None,
-                'baselinker_product_id': get_attr(product, 'baselinker_product_id', ''),
-                'product_sequence_in_order': get_attr(product, 'product_sequence_in_order', 1),
-                'total_products_in_order': db.session.query(func.count(ProductionItem.id)).filter(
-                    ProductionItem.order_id == product.order_id
-                ).scalar() if product.order_id else 1,
-
-                # POPRAWIONE: Specyfikacja produktu - PARSOWANE POLA z bazy danych
-                'parsed_wood_species': product.configuration.species if product.configuration else None,
-                'parsed_technology': product.configuration.technology if product.configuration else None,
-                'parsed_wood_class': product.configuration.wood_class if product.configuration else None,
-                'parsed_length_cm': parsed_length_cm,
-                'parsed_width_cm': parsed_width_cm,
-                'parsed_thickness_cm': parsed_thickness_cm,
-                'parsed_finish_state': get_attr(product, 'parsed_finish_state', None),
-                'parsed_edge_processing': get_attr(product, 'parsed_edge_processing', False),
-                'cut_to_size': bool(get_attr(product, 'cut_to_size', True)),
-                'shape': get_attr(product, 'shape', None),
-
-                # Produkcja - statusy i czasami
-                'cutting_started_at': get_attr(product, 'cutting_started_at').isoformat() if get_attr(product, 'cutting_started_at') else None,
-                'cutting_completed_at': get_attr(product, 'cutting_completed_at').isoformat() if get_attr(product, 'cutting_completed_at') else None,
-                'cutting_duration_minutes': get_attr(product, 'cutting_duration_minutes', None),
-                'assembly_started_at': get_attr(product, 'assembly_started_at').isoformat() if get_attr(product, 'assembly_started_at') else None,
-                'assembly_completed_at': get_attr(product, 'assembly_completed_at').isoformat() if get_attr(product, 'assembly_completed_at') else None,
-                'assembly_duration_minutes': get_attr(product, 'assembly_duration_minutes', None),
-                'packaging_started_at': get_attr(product, 'packaging_started_at').isoformat() if get_attr(product, 'packaging_started_at') else None,
-                'packaging_completed_at': get_attr(product, 'packaging_completed_at').isoformat() if get_attr(product, 'packaging_completed_at') else None,
-                'packaging_duration_minutes': get_attr(product, 'packaging_duration_minutes', None),
-
-                # Logistyka
-                'logistics_completed_at': product.order.logistics_completed_at.isoformat() if product.order and product.order.logistics_completed_at else None,
-                'painting_completed_at': get_attr(product, 'painting_completed_at').isoformat() if get_attr(product, 'painting_completed_at') else None,
-                'override_delivery_method': product.order.override_delivery_method if product.order else None,
-                'is_personal_pickup': product.order.is_personal_pickup if product.order else None,
-
-                # Przypisani pracownicy
-                'cutting_assigned_worker_id': get_attr(product, 'cutting_assigned_worker_id', None),
-                'assembly_assigned_worker_id': get_attr(product, 'assembly_assigned_worker_id', None),
-                'packaging_assigned_worker_id': get_attr(product, 'packaging_assigned_worker_id', None),
-                
-                # Notatki i problemy
-                'production_notes': get_attr(product, 'production_notes', ''),
-                'quality_issues': get_attr(product, 'quality_issues', ''),
-                
-                # Timestampy
-                'created_at': product.created_at.isoformat() if hasattr(product, 'created_at') and product.created_at else None,
-                'updated_at': product.updated_at.isoformat() if hasattr(product, 'updated_at') and product.updated_at else None,
-                'sync_source': product.order.sync_source if product.order else None,
-
-                # Załączniki
-                'attachment_file_name': product.order.attachment_file_name if product.order else None,
-                'attachment_file_url': product.order.attachment_file_url if product.order else None,
-
-                # NOWE: Quantity fields (2025-11)
-                'quantity': get_attr(product, 'quantity', 1),
-                'quantity_done_cutting': get_attr(product, 'quantity_done_cutting', 0),
-                'quantity_done_assembly': get_attr(product, 'quantity_done_assembly', 0),
-                'quantity_done_gluing': get_attr(product, 'quantity_done_gluing', 0),
-                'quantity_done_formatting': get_attr(product, 'quantity_done_formatting', 0),
-                'quantity_done_finishing': get_attr(product, 'quantity_done_finishing', 0),
-                'quantity_done_painting': get_attr(product, 'quantity_done_painting', 0),
-                'quantity_done_packaging': get_attr(product, 'quantity_done_packaging', 0),
-
-                # Dodatkowe pola z zamówienia
-                'client_order_number': product.order.client_order_number if product.order else None,
-                'quote_number': product.order.quote_number if product.order else None,
-                'order_notes': product.order.order_notes if product.order else None,
-
-                # Priorytet ręczny (gwiazdka)
-                'is_priority': get_attr(product, 'is_priority', False),
-
-                # Unique identifier dla frontend
-                'unique_id': f"{get_attr(product, 'short_product_id', '')}-{product.id}"
-            }
+            product_dict = _serialize_product(product, workers_by_product, product_counts)
 
             # Data zakończenia zamówienia (MAX packaging_completed_at po wszystkich pozycjach
-            # tego samego internal_order_number) — używane głównie w widoku archiwum.
+            # tego samego internal_order_number).
             ion = product_dict['internal_order_number']
             agg = order_aggregates.get(ion) if ion else None
             product_dict['order_completed_at'] = (
@@ -374,36 +741,29 @@ def products_tab_content():
 
             products_data.append(product_dict)
         
-        # Statystyki — w widoku 'active' liczone per niespakowana sztuka
+        # Statystyki liczone per niespakowana sztuka
         # (remaining = quantity - quantity_done_packaging). Pozycje w pełni spakowane
-        # są ignorowane mimo że należą do nieukończonych jeszcze zamówień. W widoku
-        # 'archive' (wszystko spakowane) pokazujemy pełne wartości historyczne.
-        if view_mode == 'archive':
-            total_volume = sum(p['volume_m3'] * p['quantity'] for p in products_data)
-            total_value = sum(p['total_value_net'] for p in products_data)
-            total_quantity = sum(p['quantity'] for p in products_data)
-            total_count = len(products_data)
-            stats_breakdown_source = products_data
-        else:
-            total_volume = 0.0
-            total_value = 0.0
-            total_quantity = 0
-            total_count = 0
-            stats_breakdown_source = []
-            for p in products_data:
-                if p.get('current_status') in ('spakowane', 'anulowane'):
-                    continue
-                qty = int(p.get('quantity') or 0)
-                done = int(p.get('quantity_done_packaging') or 0)
-                remaining = qty - done
-                if remaining <= 0:
-                    continue
-                ratio = remaining / qty if qty else 0
-                total_volume += float(p.get('volume_m3') or 0) * remaining
-                total_value += float(p.get('total_value_net') or 0) * ratio
-                total_quantity += remaining
-                total_count += 1
-                stats_breakdown_source.append(p)
+        # są ignorowane mimo że należą do nieukończonych jeszcze zamówień.
+        # Archiwum ma własne statystyki — patrz `_archive_stats`.
+        total_volume = 0.0
+        total_value = 0.0
+        total_quantity = 0
+        total_count = 0
+        stats_breakdown_source = []
+        for p in products_data:
+            if p.get('current_status') in ('spakowane', 'anulowane'):
+                continue
+            qty = int(p.get('quantity') or 0)
+            done = int(p.get('quantity_done_packaging') or 0)
+            remaining = qty - done
+            if remaining <= 0:
+                continue
+            ratio = remaining / qty if qty else 0
+            total_volume += float(p.get('volume_m3') or 0) * remaining
+            total_value += float(p.get('total_value_net') or 0) * ratio
+            total_quantity += remaining
+            total_count += 1
+            stats_breakdown_source.append(p)
 
         # Oblicz pilne produkty (deadline <= 3 dni) — tylko z policzonych pozycji
         urgent_count = 0
@@ -426,39 +786,22 @@ def products_tab_content():
             'status_breakdown': status_breakdown
         }
 
-        # Statystyki specyficzne dla widoku archiwum:
-        # liczba spakowanych zamówień + średni czas realizacji w dniach
-        # (od MIN(created_at) do MAX(packaging_completed_at) per zamówienie).
-        if view_mode == 'archive':
-            durations_days = []
-            for ion, agg in order_aggregates.items():
-                if agg['completed_at'] and agg['created_at']:
-                    delta = agg['completed_at'] - agg['created_at']
-                    if delta.total_seconds() >= 0:
-                        durations_days.append(delta.total_seconds() / 86400.0)
-            avg_realization_days = (
-                round(sum(durations_days) / len(durations_days), 1)
-                if durations_days else None
-            )
-            stats_data['archive'] = {
-                'orders_count': len(order_aggregates),
-                'avg_realization_days': avg_realization_days
-            }
-        
         # Przygotuj opcje filtrów z produktów
         filters_data = {
             'wood_species': list(set(p['parsed_wood_species'] for p in products_data if p['parsed_wood_species'])),
             'technologies': list(set(p['parsed_technology'] for p in products_data if p['parsed_technology'])),
             'wood_classes': list(set(p['parsed_wood_class'] for p in products_data if p['parsed_wood_class'])),
-            'thicknesses': list(set(f"{p['parsed_thickness_cm']}cm" for p in products_data if p['parsed_thickness_cm'] and p['parsed_thickness_cm'] > 0)),
+            'thicknesses': list({label for label in (
+                _format_thickness_option(p['parsed_thickness_cm']) for p in products_data
+            ) if label}),
             'statuses': list(set(p['current_status'] for p in products_data if p['current_status']))
         }
-        
+
         # Sortuj opcje filtrów
         filters_data['wood_species'].sort()
         filters_data['technologies'].sort()
         filters_data['wood_classes'].sort()
-        filters_data['thicknesses'].sort(key=lambda x: float(x.replace('cm', '')))
+        filters_data['thicknesses'].sort(key=lambda x: _parse_thickness_option(x) or 0)
         filters_data['statuses'].sort()
         
         logger.info(f"Statystyki: {stats_data}")
