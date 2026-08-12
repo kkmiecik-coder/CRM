@@ -8,10 +8,13 @@ services:
       FLASK_DEBUG: "1"
     volumes:
       - ./:/app:cached
+    # Porty konfigurowalne przez .env (gitignored) — domyślne wartości zostawiają
+    # zachowanie sprzed zmiany, żeby drugie środowisko deweloperskie działało bez .env.
     ports:
-      - "5000:5000"
+      - "${CRM_APP_PORT:-5000}:5000"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     restart: unless-stopped
 
   db:
@@ -20,9 +23,17 @@ services:
       MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
       MYSQL_DATABASE: woodpower_crm_local
     ports:
-      - "3306:3306"
+      - "${CRM_DB_PORT:-3306}:3306"
     volumes:
       - db_data:/var/lib/mysql
+    # Bez healthchecka aplikacja startuje, zanim MySQL zacznie przyjmować połączenia,
+    # i pierwszy `up` kończy się błędem połączenia z bazą.
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
     restart: unless-stopped
 
 volumes:
