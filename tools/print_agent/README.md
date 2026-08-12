@@ -91,12 +91,18 @@ Jeśli hub ma `config.ini` sprzed wdrożenia pusha, **nie trzeba go ruszać** �
 
 ## Aktualizacje
 
-Agent siedzi w tym samym repo co CRM, w `tools/print_agent/`. Żeby zaktualizować na hubie:
+Agent siedzi w tym samym repo co CRM, w `tools/print_agent/`. Sposób aktualizacji zależy od tego, jak agent trafił na huba — sprawdź, czy w `C:\WoodPower\print_agent\` jest ukryty folder `.git`:
+
+**Jeśli hub ma klon repozytorium** (`.git` istnieje):
 
 ```
 cd C:\WoodPower\print_agent
 git pull
 ```
+
+**Jeśli folder został po prostu skopiowany** (`.git` nie istnieje — tak wygląda instalacja opisana wyżej): skopiuj z repo na huba **sam plik `print_agent.py`**, nadpisując stary. To jedyny plik, od którego zależy działanie agenta. `config.example.ini` i ten README są tylko wzorcem i dokumentacją — nie trzeba ich kopiować, choć nie zaszkodzi.
+
+Agent nie używa żadnych zewnętrznych pakietów, więc aktualizacja nigdy nie wymaga `pip install`.
 
 Potem zamknij okno agenta i odpal `start.bat` ponownie. `config.ini` i logi nie są w gicie, więc `git pull` ich nie ruszy.
 
