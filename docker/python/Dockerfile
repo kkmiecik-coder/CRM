@@ -11,6 +11,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libmagic1 \
     shared-mime-info \
     fonts-liberation \
+    # DejaVu jest tu za symbole Unicode, ktorych Liberation nie ma (np. flaga U+2691
+    # w naglowku protokolu trakowni). Bez tego WeasyPrint wstawia .notdef i psuje
+    # mape ToUnicode calej linii — PDF wyglada zle i nie da sie z niego wyciagnac tekstu.
+    fonts-dejavu-core \
     build-essential \
     python3-dev \
     pkg-config \
