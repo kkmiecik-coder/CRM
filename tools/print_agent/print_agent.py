@@ -477,6 +477,54 @@ def send_to_printer(cfg, zpl):
         sock.sendall(zpl.encode('utf-8'))
 
 
+# Zapytania o stan drukarki. Port 9100 jest dwukierunkowy — drukarka potrafi
+# odpowiedzieć, o ile firmware to wspiera. XP-423B ma EMULACJĘ ZPL, nie
+# oryginalny firmware Zebry, więc nie każda z tych komend musi zadziałać.
+# Dlatego pytamy kilkoma i logujemy surowe odpowiedzi zamiast udawać, że
+# rozumiemy format.
+_PRINTER_QUERIES = (
+    ('~HQES', 'stan błędów i ostrzeżeń'),
+    ('~HS', 'status hosta'),
+    ('~HI', 'identyfikacja modelu'),
+)
+_PRINTER_QUERY_TIMEOUT = 3
+
+
+def query_printer_status(cfg):
+    """Pyta drukarkę o stan. Zwraca listę (komenda, opis, odpowiedź).
+
+    Nigdy nie rzuca i nigdy nie blokuje dłużej niż _PRINTER_QUERY_TIMEOUT na
+    komendę — wołamy to z pętli drukowania, a ta nie może się zawiesić na
+    diagnostyce. Osobne gniazdo na każdą komendę, żeby odpowiedzi się nie
+    posklejały.
+    """
+    wyniki = []
+    for komenda, opis in _PRINTER_QUERIES:
+        try:
+            with socket.create_connection((cfg['printer_ip'], cfg['printer_port']),
+                                          timeout=_PRINTER_QUERY_TIMEOUT) as sock:
+                sock.settimeout(_PRINTER_QUERY_TIMEOUT)
+                sock.sendall(komenda.encode('ascii'))
+                surowa = sock.recv(4096)
+            odpowiedz = surowa.decode('ascii', 'replace').strip() or '(pusta odpowiedź)'
+        except (socket.timeout, TimeoutError):
+            odpowiedz = '(brak odpowiedzi w limicie — drukarka milczy)'
+        except OSError as e:
+            odpowiedz = f'(błąd połączenia: {e})'
+        wyniki.append((komenda, opis, odpowiedz))
+    return wyniki
+
+
+def log_printer_status(cfg):
+    """Wypytuje drukarkę i wypisuje odpowiedzi do konsoli oraz logu błędów."""
+    warn("Pytam drukarkę o stan...")
+    linie = []
+    for komenda, opis, odpowiedz in query_printer_status(cfg):
+        info(f"  {komenda} ({opis}): {odpowiedz}")
+        linie.append(f"{komenda}={odpowiedz}")
+    err_logger.error("Stan drukarki po nieudanym wydruku: " + " | ".join(linie))
+
+
 # === Banner ===
 def print_banner(cfg):
     masked = (cfg['token'][:4] + '...' + cfg['token'][-4:]) if len(cfg['token']) > 12 else '***'
@@ -568,6 +616,10 @@ def _process_one_batch(cfg, signal_at=None):
             log_error(f"Drukowanie id={j['id']} nieudane{timing}: {e}", exc=e)
             results.append({'id': j['id'], 'success': False, 'error': str(e)[:200]})
             drukarka_padla = True
+            # Raz na porcję pytamy drukarkę, co jej dolega — sam komunikat
+            # gniazda („timed out") nie odróżnia braku etykiet od wyłączonego
+            # zasilania, a operator przy maszynie potrzebuje właśnie tego.
+            log_printer_status(cfg)
 
     try:
         resp = ack_jobs(cfg, results)
@@ -733,5 +785,23 @@ def main():
             time.sleep(60)
 
 
+def printer_status_mode():
+    """`python print_agent.py --drukarka` — sprawdza drukarkę i kończy.
+
+    Do odpalenia w drugim oknie, bez zatrzymywania agenta: pytania idą osobnym
+    połączeniem i nie mieszają się z kolejką wydruków.
+    """
+    cfg = load_config(os.path.join(SCRIPT_DIR, 'config.ini'))
+    print(f"{C.BOLD}{C.CYAN}Drukarka {cfg['printer_ip']}:{cfg['printer_port']}{C.RESET}\n")
+    for komenda, opis, odpowiedz in query_printer_status(cfg):
+        print(f"  {C.BOLD}{komenda}{C.RESET} ({opis}):\n      {odpowiedz}\n")
+    print("Brak odpowiedzi na wszystkie komendy nie musi znaczyć awarii — XP-423B ma\n"
+          "emulację ZPL i może nie wspierać zapytań o stan. Ale jeśli nie udaje się\n"
+          "nawet POŁĄCZYĆ, drukarka jest odcięta i to jest odpowiedź sama w sobie.")
+
+
 if __name__ == '__main__':
-    main()
+    if '--drukarka' in sys.argv or '--printer-status' in sys.argv:
+        printer_status_mode()
+    else:
+        main()
