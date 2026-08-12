@@ -316,6 +316,64 @@ def test_duzy_rozjazd_zegarow_jest_widoczny():
     assert 'req ' in print_agent._describe_job_age(daleko)
 
 
+def test_quick_edit_nie_wywala_sie_poza_windowsem():
+    """Wyłączanie QuickEdit musi być bezpieczne na każdym systemie — agent
+    bywa uruchamiany do testów na macOS/Linuksie."""
+    wynik = print_agent.disable_console_quick_edit()
+    assert isinstance(wynik, str) and wynik
+    if os.name != 'nt':
+        assert 'pominięte' in wynik
+
+
+def test_czujka_zglasza_zastoj_do_pliku(monkeypatch):
+    """Regresja z produkcji 12.08.2026: agent zamilkł bez JEDNEGO wpisu w logu.
+
+    Czujka musi pisać do PLIKU, nigdy na konsolę — bo najczęstsza przyczyna
+    zastoju (QuickEdit) blokuje właśnie zapis na konsolę i uciszyłaby też ją.
+    """
+    zapisane = []
+    monkeypatch.setattr(print_agent.err_logger, 'error', lambda m: zapisane.append(m))
+    monkeypatch.setattr(print_agent, '_zastoj_zgloszony', False)
+    monkeypatch.setattr(print_agent, '_CZUJKA_CO_SEKUND', 0.05)
+    monkeypatch.setattr(print_agent, '_ZASTOJ_PO_SEKUNDACH', 0.1)
+    # Pętla główna "stanęła" dawno temu.
+    monkeypatch.setattr(print_agent, '_ostatni_postep', time.monotonic() - 60)
+
+    watek = print_agent.start_czujki()
+    for _ in range(40):
+        if zapisane:
+            break
+        time.sleep(0.05)
+
+    assert zapisane, 'czujka nie zgłosiła zastoju'
+    assert 'ZASTÓJ' in zapisane[0]
+    assert 'QuickEdit' in zapisane[0], 'komunikat ma podpowiadać najczęstszą przyczynę'
+
+
+def test_czujka_milczy_gdy_petla_sie_rusza(monkeypatch):
+    zapisane = []
+    monkeypatch.setattr(print_agent.err_logger, 'error', lambda m: zapisane.append(m))
+    monkeypatch.setattr(print_agent, '_zastoj_zgloszony', False)
+    monkeypatch.setattr(print_agent, '_ostatni_postep', time.monotonic())
+    monkeypatch.setattr(print_agent, '_CZUJKA_CO_SEKUND', 0.05)
+    monkeypatch.setattr(print_agent, '_ZASTOJ_PO_SEKUNDACH', 5)
+
+    print_agent.start_czujki()
+    time.sleep(0.3)
+    assert not zapisane
+
+
+def test_oznaczenie_postepu_odnotowuje_powrot(monkeypatch):
+    zapisane = []
+    monkeypatch.setattr(print_agent.err_logger, 'error', lambda m: zapisane.append(m))
+    monkeypatch.setattr(print_agent, '_zastoj_zgloszony', True)
+
+    print_agent._oznacz_postep()
+
+    assert zapisane and 'ruszyła z powrotem' in zapisane[0]
+    assert print_agent._zastoj_zgloszony is False
+
+
 def test_czas_reakcji_pokazywany_w_milisekundach():
     assert print_agent._format_reaction(0.089) == '89 ms'
     assert print_agent._format_reaction(1.34) == '1.3 s'
@@ -344,13 +402,31 @@ def test_reakcja_tylko_dla_zadan_z_sygnalu():
     assert 'reakcja' not in print_agent._describe_timing(None, None)
 
 
-def test_backoff_reconnectu_rosnie_i_ma_sufit():
-    delays = [print_agent._reconnect_delay(n) for n in range(1, 10)]
-    assert delays[0] < delays[3], 'backoff musi rosnąć'
-    assert max(delays) <= print_agent.SSE_RECONNECT_MAX_SECONDS + 3, 'sufit backoffu przekroczony'
+def test_drabinka_ponawiania_ma_zadane_stopnie():
+    """Uzgodnione z właścicielem: 1, 2, 5, 10, 15, 30, 60 s — potem co minutę."""
+    oczekiwane = (1, 2, 5, 10, 15, 30, 60)
+    assert print_agent.SSE_RECONNECT_LADDER == oczekiwane
+
+    for numer_proby, stopien in enumerate(oczekiwane, start=1):
+        opoznienie = print_agent._reconnect_delay(numer_proby)
+        assert stopien * 0.9 <= opoznienie <= stopien * 1.1, (
+            f'próba {numer_proby} powinna czekać ~{stopien}s, a czeka {opoznienie:.2f}s')
 
 
-def test_backoff_ma_jitter():
-    """Bez jittera wszystkie klienty wracają do brokera w tej samej chwili."""
-    probes = {print_agent._reconnect_delay(5) for _ in range(20)}
+def test_po_wyczerpaniu_drabinki_pytamy_co_minute():
+    for numer_proby in (8, 20, 500):
+        opoznienie = print_agent._reconnect_delay(numer_proby)
+        assert 54 <= opoznienie <= 66, 'po ostatnim stopniu zostajemy przy minucie'
+
+
+def test_pierwsza_proba_jest_natychmiastowa():
+    """Najczęstsze zerwanie jest chwilowe — kanał ma wrócić w sekundę,
+    a nie po kilkunastu."""
+    assert print_agent._reconnect_delay(1) <= 1.1
+
+
+def test_drabinka_ma_jitter():
+    """Bez jittera wszystkie klienty wracają do brokera w tej samej chwili
+    (etap 2: sześć tabletów hali na tym samym brokerze)."""
+    probes = {round(print_agent._reconnect_delay(5), 4) for _ in range(20)}
     assert len(probes) > 1

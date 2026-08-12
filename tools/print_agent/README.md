@@ -84,6 +84,20 @@ Agent wróci do samego pollingu co `interval_seconds`. To samo da się zrobić c
 
 Jeśli hub ma `config.ini` sprzed wdrożenia pusha, **nie trzeba go ruszać** — brakujące klucze mają domyślne wartości (push włączony, adres brokera brany z CRM).
 
+## Gdy agent milczy
+
+**Najpierw kliknij w okno agenta i wciśnij Esc.** W konsoli Windows zaznaczenie tekstu myszą (tryb QuickEdit) **zamraża cały proces** — agent nie drukuje, nie loguje, nie odpytuje serwera, a system widzi go jako żywy. Dokładnie to zdarzyło się 12.08.2026: 51 etykiet czekało w kolejce, a w oknie panowała cisza.
+
+Agent od tej wersji **sam wyłącza QuickEdit przy starcie** — w banerze widać wynik (`QuickEdit WYŁĄCZONY`). Jeśli baner pokazuje `nie udało się`, zrób to ręcznie: prawy klawisz na pasku tytułu okna → Właściwości → odznacz „Tryb szybkiej edycji".
+
+Jeśli Esc nie pomaga, w `print_agent_errors.log` szukaj wpisu `ZASTÓJ` — czujka zapisuje go po 3 minutach bezruchu pętli. Wpis trafia do pliku nawet wtedy, gdy konsola jest zamrożona.
+
+## Zerwanie kanału push
+
+Agent ponawia połączenie w odstępach **1, 2, 5, 10, 15, 30, 60 s**, a potem próbuje co minutę bez końca. W oknie zobaczysz `Kanał push zerwany`, a po odzyskaniu `Kanał push wrócił`.
+
+Przez cały ten czas etykiety **wychodzą normalnie**, tylko wolniej — agent odpytuje serwer co 10 s zamiast dostawać sygnał. To zachowanie sprzed wdrożenia pusha, nikt nie musi nic robić.
+
 ## Logi
 
 - **Konsola** (okno cmd) — pokazuje na bieżąco co się dzieje. Banner przy starcie, info o pobranych zadaniach, ✓ / ✗ dla każdego wydruku. Brak spamu, jak nie ma zadań.

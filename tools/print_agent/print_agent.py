@@ -32,6 +32,7 @@ import os
 import random
 import socket
 import sys
+import threading
 import time
 import traceback
 from datetime import datetime, time as dtime, timezone
@@ -95,6 +96,107 @@ def log_error(msg, exc=None):
         err_logger.error(f"{msg}\n{traceback.format_exc()}")
     else:
         err_logger.error(msg)
+
+
+# === Konsola Windows: QuickEdit ===
+def disable_console_quick_edit():
+    """Wyłącza tryb QuickEdit w konsoli Windows. Zwraca opis wyniku.
+
+    ===========================================================================
+    TO NIE JEST KOSMETYKA — bez tego agent potrafi zamilknąć na godziny.
+    ===========================================================================
+    W cmd.exe QuickEdit jest domyślnie WŁĄCZONY. Przypadkowe kliknięcie w oknie
+    (albo samo przeciągnięcie myszą) przechodzi w tryb zaznaczania i
+    ZAWIESZA PROCES przy najbliższym zapisie na stdout — do czasu wciśnięcia
+    Esc lub Enter. Proces nie pada, nie loguje, nie odpytuje serwera; system
+    widzi go jako żywy, połączenia TCP zostają otwarte.
+
+    Objaw z produkcji 12.08.2026: agent stanął po `POST /connection/uni_sse`,
+    a przed `GET /jobs` — czyli dokładnie na instrukcji `info("Otwarto kanał
+    push")`. Zero wpisów w logu błędów, broker cały czas widział klienta jako
+    podłączonego, 51 etykiet czekało w kolejce, pomagał tylko restart.
+
+    Dla agenta pracującego 24/7 w otwartym oknie na hubie to nie jest scenariusz
+    teoretyczny — to kwestia czasu.
+    """
+    if os.name != 'nt':
+        return 'pominięte (nie Windows)'
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        STD_INPUT_HANDLE = -10
+        ENABLE_QUICK_EDIT_MODE = 0x0040
+        ENABLE_INSERT_MODE = 0x0020
+        ENABLE_EXTENDED_FLAGS = 0x0080
+
+        kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+        uchwyt = kernel32.GetStdHandle(STD_INPUT_HANDLE)
+        if uchwyt in (0, -1, None):
+            return 'nie udało się (brak uchwytu konsoli)'
+
+        tryb = wintypes.DWORD()
+        if not kernel32.GetConsoleMode(uchwyt, ctypes.byref(tryb)):
+            # Brak prawdziwej konsoli (usługa, przekierowanie) = brak problemu.
+            return 'pominięte (brak konsoli — stdin przekierowany)'
+
+        if not tryb.value & ENABLE_QUICK_EDIT_MODE:
+            return 'już był wyłączony'
+
+        # ENABLE_EXTENDED_FLAGS trzeba ustawić RAZEM ze zmianą, inaczej Windows
+        # zignoruje wyczyszczenie bitu QuickEdit.
+        nowy = (tryb.value & ~ENABLE_QUICK_EDIT_MODE & ~ENABLE_INSERT_MODE) | ENABLE_EXTENDED_FLAGS
+        if not kernel32.SetConsoleMode(uchwyt, nowy):
+            return f'nie udało się (SetConsoleMode, błąd {ctypes.get_last_error()})'
+        return 'WYŁĄCZONY (kliknięcie w oknie nie zamrozi już agenta)'
+    except Exception as e:
+        return f'nie udało się ({type(e).__name__}: {e})'
+
+
+# === Czujka zastoju ===
+#
+# Wątek-czujka pilnuje, czy pętla główna się rusza. Pisze WYŁĄCZNIE do pliku,
+# nigdy na konsolę — bo najczęstsza przyczyna zastoju (QuickEdit, patrz
+# disable_console_quick_edit) blokuje właśnie zapis na konsolę i uciszyłaby
+# także czujkę. Czujka nie potrafi odwiesić pętli; jej zadaniem jest zamienić
+# „agent zamilkł bez śladu" w „agent zamilkł o 15:52:33, oto wpis w logu".
+_ostatni_postep = time.monotonic()
+_zastoj_zgloszony = False
+# Po tylu sekundach bez obiegu pętli uznajemy zastój. Najdłuższy normalny obieg
+# to okno pollingu (60 s) plus zapas na ping brokera — 180 s daje margines,
+# żeby nie krzyczeć przy zwykłej zadyszce sieci.
+_ZASTOJ_PO_SEKUNDACH = 180
+_CZUJKA_CO_SEKUND = 30
+
+
+def _oznacz_postep():
+    """Wołane na początku każdego obiegu pętli głównej."""
+    global _ostatni_postep, _zastoj_zgloszony
+    _ostatni_postep = time.monotonic()
+    if _zastoj_zgloszony:
+        err_logger.error("Pętla główna ruszyła z powrotem po zastoju")
+        _zastoj_zgloszony = False
+
+
+def _czujka_zastoju():
+    global _zastoj_zgloszony
+    while True:
+        time.sleep(_CZUJKA_CO_SEKUND)
+        cisza = time.monotonic() - _ostatni_postep
+        if cisza > _ZASTOJ_PO_SEKUNDACH and not _zastoj_zgloszony:
+            _zastoj_zgloszony = True
+            err_logger.error(
+                f"ZASTÓJ: pętla główna nie ruszyła się od {int(cisza)}s. "
+                "Najczęstsza przyczyna na Windowsie to zaznaczenie tekstu w oknie "
+                "konsoli (QuickEdit) — wciśnij Esc w oknie agenta. Jeśli to nie "
+                "pomoże, zrestartuj agenta i wyślij ten log."
+            )
+
+
+def start_czujki():
+    watek = threading.Thread(target=_czujka_zastoju, name='czujka-zastoju', daemon=True)
+    watek.start()
+    return watek
 
 
 # === Config ===
@@ -182,7 +284,10 @@ SSE_PING_TIMEOUT_SECONDS = 40
 # pętlę agenta na czas limitu ciszy, a razem z nią zapasowy polling. Czekanie na
 # push nigdy nie może opóźnić drogi awaryjnej.
 SSE_CONNECT_TIMEOUT_SECONDS = 5
-SSE_RECONNECT_MAX_SECONDS = 60
+# Drabinka ponawiania połączenia z brokerem (sekundy). Po ostatnim stopniu
+# zostajemy na nim — czyli próba co minutę, bez końca.
+SSE_RECONNECT_LADDER = (1, 2, 5, 10, 15, 30, 60)
+SSE_RECONNECT_MAX_SECONDS = SSE_RECONNECT_LADDER[-1]
 # Co która nieudana próba połączenia trafia do logu (poza pierwszą, zawsze głośną).
 _CONNECT_LOG_EVERY = 30
 # Ile porcji po `jobs_limit` wolno pobrać w jednym cyklu, zanim oddamy sterowanie
@@ -538,13 +643,20 @@ def print_banner(cfg):
     info(f"Polling co:     {cfg['push_idle_interval']}s z pushem / {cfg['poll_interval']}s bez")
     info(f"Godziny pracy:  pn-pt {cfg['workdays_start'].strftime('%H:%M')}-{cfg['workdays_end'].strftime('%H:%M')}, "
          f"sb {cfg['saturday_start'].strftime('%H:%M')}-{cfg['saturday_end'].strftime('%H:%M')}, niedz: idle")
+    info(f"Konsola:        QuickEdit {cfg.get('_quick_edit', 'nie sprawdzano')}")
     info(f"Log błędów:     {ERROR_LOG_PATH}")
     print(f"{C.BOLD}{C.CYAN}{'=' * 60}{C.RESET}\n", flush=True)
 
 
 # === Main loop ===
-def run_once(cfg, signal_at=None):
+def run_once(cfg, signal_at=None, stan=None):
     """Jeden cykl: opróżnij kolejkę — pobierz, wydrukuj, ACK, powtórz.
+
+    stan: opcjonalny słownik na sygnały poboczne dla pętli głównej. Ustawiamy
+        w nim 'drukarka_padla', żeby main mógł skrócić czekanie — po awarii
+        drukarki WIEMY, że zadania czekają, więc nie ma po co spać pełnego okna
+        pollingu. Wartość zwracana zostaje bez zmian (True/False = zdrowie
+        komunikacji z CRM), żeby nie ruszać kontraktu funkcji.
 
     signal_at: znacznik monotoniczny chwili, w której przyszedł sygnał push
         (None = cykl z pollingu). Służy tylko do zmierzenia czasu reakcji
@@ -567,7 +679,7 @@ def run_once(cfg, signal_at=None):
     etykieta czekała 85 s przy sprawnym kanale push.
     """
     for _ in range(_MAX_BATCHES_PER_CYCLE):
-        wynik = _process_one_batch(cfg, signal_at)
+        wynik = _process_one_batch(cfg, signal_at, stan=stan)
         if wynik != 'more':
             return wynik == 'ok'
         # Pełna porcja = w kolejce może czekać więcej. Dociągamy od razu,
@@ -577,7 +689,7 @@ def run_once(cfg, signal_at=None):
     return True
 
 
-def _process_one_batch(cfg, signal_at=None):
+def _process_one_batch(cfg, signal_at=None, stan=None):
     """Jedna porcja zadań. Zwraca 'ok' | 'more' (porcja była pełna) | 'error'."""
     try:
         data = fetch_jobs(cfg)
@@ -640,18 +752,26 @@ def _process_one_batch(cfg, signal_at=None):
     # a reszta zadań zostaje w kolejce jako `pending`.
     if success_count < len(results):
         warn("Drukarka nie przyjęła części etykiet — przerywam opróżnianie kolejki")
+        if stan is not None:
+            stan['drukarka_padla'] = True
         return 'ok'
     return 'more' if len(jobs) >= cfg['jobs_limit'] else 'ok'
 
 
 def _reconnect_delay(failures):
-    """Backoff reconnectu do brokera, z losowym jitterem.
+    """Odstęp do kolejnej próby połączenia z brokerem, wg drabinki.
 
-    Jitter, żeby po restarcie Centrifugo wszystkie odcięte klienty nie wróciły
-    w tej samej milisekundzie. Dziś agent jest jeden, ale etap 2 dokłada na ten
-    sam broker tablety hali.
+    Pierwsze próby są gęste, bo najczęstsze zerwanie jest chwilowe (restart
+    brokera, mrugnięcie sieci) i wtedy kanał wraca w sekundę. Dopiero trwała
+    awaria schodzi do sprawdzania raz na minutę — i tam zostaje, bez końca.
+
+    Jitter ±10%: przy jednym agencie bez znaczenia, ale etap 2 dokłada na ten
+    sam broker tablety hali. Po jego restarcie wszystkie odcięte klienty
+    ruszyłyby w tej samej milisekundzie. Celowo mały, żeby nie rozmywać
+    drabinki — 1 s ma zostać sekundą, nie czterema.
     """
-    return min(2 ** min(failures, 6), SSE_RECONNECT_MAX_SECONDS) + random.uniform(0, 3)
+    stopien = SSE_RECONNECT_LADDER[min(max(failures, 1), len(SSE_RECONNECT_LADDER)) - 1]
+    return stopien * random.uniform(0.9, 1.1)
 
 
 def connect_push(cfg, failures=0):
@@ -689,6 +809,11 @@ def main():
         err(f"Błąd ładowania konfiguracji: {e}")
         sys.exit(1)
 
+    # Kolejność ma znaczenie: QuickEdit wyłączamy PRZED pierwszym wypisaniem
+    # czegokolwiek na konsolę, bo to właśnie zapis na konsolę potrafi zamrozić.
+    cfg['_quick_edit'] = disable_console_quick_edit()
+    start_czujki()
+
     print_banner(cfg)
 
     # Exponential backoff przy seryjnych błędach komunikacji z CRM.
@@ -696,8 +821,14 @@ def main():
     # connections") agent stuknął ~58 razy co 20s spamując i logi i serwer.
     # Po BACKOFF_THRESHOLD błędach z rzędu sleep dwoi się do BACKOFF_MAX_SECONDS.
     # Reset licznika po pierwszym sukcesie.
+    #
+    # Sufit obniżony z 300 s do 60 s (12.08.2026). 300 s znaczyło, że jedno
+    # potknięcie sieci wyłączało agenta na pięć minut — przy operatorze stojącym
+    # przy drukarce to wieczność, a serwerowi nic nie daje: przy 4 workerach
+    # gunicorna jedno zapytanie na minutę i jedno na pięć minut to ta sama
+    # znikoma różnica.
     BACKOFF_THRESHOLD = 3
-    BACKOFF_MAX_SECONDS = 300
+    BACKOFF_MAX_SECONDS = 60
 
     in_idle = False
     consecutive_errors = 0
@@ -707,6 +838,7 @@ def main():
     signal_at = None         # monotonic chwili sygnału — do pomiaru czasu reakcji
     while True:
         try:
+            _oznacz_postep()
             if not in_working_hours(cfg):
                 stream = close_sse(stream)
                 if not in_idle:
@@ -727,7 +859,12 @@ def main():
             # Łączymy się PRZED pobraniem zadań. Odwrotna kolejność zostawia okno
             # wyścigu: sygnał wysłany między naszym GET /jobs a otwarciem kanału
             # przepadłby, a etykieta czekałaby do zapasowego pollingu.
-            if cfg['realtime_enabled'] and stream is None and time.monotonic() >= sse_retry_at:
+            # Przy backoffie CRM-a nie łączymy się z brokerem: token do niego
+            # wydaje ten sam CRM, więc próba i tak padnie i tylko rozpędzi
+            # drabinkę bez powodu.
+            crm_sie_dlawi = consecutive_errors >= BACKOFF_THRESHOLD
+            if (cfg['realtime_enabled'] and stream is None and not crm_sie_dlawi
+                    and time.monotonic() >= sse_retry_at):
                 new_stream = connect_push(cfg, failures=sse_failures)
                 if new_stream is None:
                     sse_failures += 1
@@ -740,7 +877,8 @@ def main():
                     sse_failures = 0
                     stream = new_stream
 
-            ok_run = run_once(cfg, signal_at=signal_at)
+            stan_cyklu = {}
+            ok_run = run_once(cfg, signal_at=signal_at, stan=stan_cyklu)
             signal_at = None
             if ok_run:
                 if consecutive_errors >= BACKOFF_THRESHOLD:
@@ -750,7 +888,13 @@ def main():
                 # Bez niego wracamy do dotychczasowej częstotliwości (10 s) —
                 # inaczej awaria brokera byłaby dla operatora GORSZA niż stan
                 # sprzed wdrożenia pusha, a ma być co najwyżej taka sama.
-                wait_seconds = cfg['push_idle_interval'] if stream is not None else cfg['poll_interval']
+                if stan_cyklu.get('drukarka_padla'):
+                    # Wiemy, że w kolejce zostały zadania — czekamy krótko,
+                    # żeby złapać moment powrotu drukarki. Bez tego operator
+                    # czekałby pełne okno pollingu po dołożeniu etykiet.
+                    wait_seconds = cfg['poll_interval']
+                else:
+                    wait_seconds = cfg['push_idle_interval'] if stream is not None else cfg['poll_interval']
             else:
                 consecutive_errors += 1
                 if consecutive_errors >= BACKOFF_THRESHOLD:
@@ -763,15 +907,44 @@ def main():
                     wait_seconds = cfg['poll_interval']
 
             in_backoff = consecutive_errors >= BACKOFF_THRESHOLD
+            if in_backoff and stream is not None:
+                # Wchodząc w backoff ZAMYKAMY kanał push. Wcześniej strumień
+                # zostawał otwarty i nieczytany przez cały sen — czyli push
+                # i polling padały razem, a po powrocie łączności agent czytał
+                # z gniazda, które od minut nikt nie obsługiwał. Sygnały i tak
+                # przychodzą z CRM-a, a skoro to z nim nie umiemy się dogadać,
+                # nie ma czego nasłuchiwać.
+                warn("Backoff — zamykam kanał push do czasu odzyskania łączności")
+                stream = close_sse(stream)
             if stream is not None and not in_backoff:
                 outcome = wait_for_signal(stream, time.monotonic() + wait_seconds, cfg)
                 if outcome == 'signal':
                     signal_at = time.monotonic()
                 elif outcome == 'closed':
+                    # Zerwanie kanału MUSI być widoczne. Wcześniej operator nie
+                    # dostawał ani słowa — ani na konsoli, ani w logu — bo
+                    # komunikat siedział tylko w gałęzi nieudanego łączenia,
+                    # a licznik prób był już wtedy podbity i wyciszał go.
+                    warn(f"Kanał push zerwany — ponawiam, w międzyczasie polling "
+                         f"co {cfg['poll_interval']}s")
+                    err_logger.error("Kanał push zerwany (strumień zamknięty przez drugą stronę)")
                     stream = close_sse(stream)
-                    sse_failures += 1
-                    sse_retry_at = time.monotonic() + _reconnect_delay(sse_failures)
+                    # Zerwanie ZUŻYWA pierwszy stopień drabinki: próbujemy po
+                    # sekundzie, a licznik ustawiamy na 1, żeby kolejna nieudana
+                    # próba wzięła stopień DRUGI (2 s), a nie znowu pierwszy.
+                    # Bez tego odstępy wychodziły 1, 1, 2, 5... zamiast 1, 2, 5...
+                    sse_failures = 1
+                    sse_retry_at = time.monotonic() + _reconnect_delay(1)
             else:
+                # Gdy kanał push jest zerwany, śpimy najwyżej do najbliższej
+                # zaplanowanej próby połączenia. Bez tego drabinka ponawiania
+                # jest więźniem cyklu pętli: zaplanowane 1 s czekałoby na
+                # kolejny obieg, czyli pełne okno pollingu, i pierwsze stopnie
+                # (1, 2, 5 s) nigdy by się nie odpaliły.
+                if cfg['realtime_enabled'] and stream is None and not in_backoff:
+                    do_ponowienia = sse_retry_at - time.monotonic()
+                    if 0 < do_ponowienia < wait_seconds:
+                        wait_seconds = max(0.5, do_ponowienia)
                 # Backoff obowiązuje też przy żywym pushu: skoro CRM się dławi,
                 # sygnał nie jest powodem, żeby do niego wracać częściej.
                 time.sleep(wait_seconds)
