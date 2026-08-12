@@ -116,6 +116,52 @@ def test_cisza_dluzsza_niz_limit_pinga_zamyka_polaczenie():
     assert stream.timeouts_requested == [print_agent.SSE_PING_TIMEOUT_SECONDS]
 
 
+def test_limit_czytania_nie_dziedziczy_limitu_nawiazania_polaczenia(monkeypatch):
+    """Regresja z produkcji 12.08.2026: kanał push rozpadał się co 5 sekund.
+
+    http.client dla odpowiedzi bez Content-Length (a taki jest strumień SSE)
+    „przekazuje gniazdo odpowiedzi” i ustawia conn.sock = None. Ustawianie
+    limitu czytania przez conn.sock po cichu nic nie robiło, więc gniazdo
+    zostawało z limitem od nawiązywania połączenia — krótszym niż odstęp
+    między pingami brokera.
+
+    Test używa CELOWO różnych wartości obu limitów. Poprzednia wersja
+    ustawiała je na tę samą liczbę i przechodziła mimo błędu.
+    """
+    import socket as socket_mod
+    import threading
+
+    monkeypatch.setattr(print_agent, 'SSE_CONNECT_TIMEOUT_SECONDS', 1)
+    monkeypatch.setattr(print_agent, 'SSE_PING_TIMEOUT_SECONDS', 30)
+
+    CISZA_SEKUND = 3          # dłużej niż limit nawiązania, krócej niż limit ciszy
+
+    def broker(sock):
+        conn, _ = sock.accept()
+        conn.recv(4096)
+        conn.sendall(b'HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\r\n')
+        conn.sendall(b'data: {"connect":{"ping":25}}\n\n')
+        time.sleep(CISZA_SEKUND)
+        conn.sendall(b'data: {"channel":"print:agent","pub":{"data":{"kind":"print"}}}\n\n')
+        time.sleep(30)
+
+    srv = socket_mod.socket()
+    srv.setsockopt(socket_mod.SOL_SOCKET, socket_mod.SO_REUSEADDR, 1)
+    srv.bind(('127.0.0.1', 0))
+    port = srv.getsockname()[1]
+    srv.listen(1)
+    threading.Thread(target=broker, args=(srv,), daemon=True).start()
+
+    stream = print_agent.open_sse(f'http://127.0.0.1:{port}/connection/uni_sse', 'token')
+    start = time.monotonic()
+    outcome = print_agent.wait_for_signal(stream, time.monotonic() + 20, _CFG_CALY_DZIEN)
+    elapsed = time.monotonic() - start
+    stream.close()
+
+    assert outcome == 'signal', 'cisza krótsza niż limit ciszy nie może zrywać kanału'
+    assert elapsed >= CISZA_SEKUND - 0.5, 'połączenie padło przed nadejściem ramki'
+
+
 def test_limit_nawiazania_polaczenia_krotszy_niz_limit_ciszy():
     """Zawieszony broker (przyjmuje TCP, milczy) nie może zablokować pętli
     agenta — a razem z nią zapasowego pollingu — na czas limitu ciszy."""

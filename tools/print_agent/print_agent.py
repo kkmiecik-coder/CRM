@@ -34,7 +34,7 @@ import socket
 import sys
 import time
 import traceback
-from datetime import datetime, time as dtime
+from datetime import datetime, time as dtime, timezone
 from http.client import HTTPConnection, HTTPException, HTTPSConnection
 from urllib import request as urlreq
 from urllib.error import HTTPError, URLError
@@ -226,19 +226,32 @@ class SseStream:
     """Otwarty strumień SSE razem z połączeniem, żeby dało się je domknąć.
 
     Używamy `http.client` zamiast `urlopen`, bo tylko tak mamy dostęp do gniazda
-    (`conn.sock`) i możemy sterować limitem czasu ODDZIELNIE dla nawiązania
-    połączenia i dla czekania na dane. `urlopen` przyjmuje jeden timeout na
-    jedno i drugie, a to są tu dwie zupełnie różne sprawy.
+    i możemy sterować limitem czasu ODDZIELNIE dla nawiązania połączenia i dla
+    czekania na dane. `urlopen` przyjmuje jeden timeout na jedno i drugie,
+    a to są tu dwie zupełnie różne sprawy.
+
+    UWAGA: gniazdo trzeba zapamiętać SAMEMU, przed `getresponse()`. Odpowiedź
+    bez `Content-Length` (a taki jest strumień SSE) trwa do zamknięcia
+    połączenia, więc http.client „przekazuje gniazdo odpowiedzi” i ustawia
+    `conn.sock = None`. Sam deskryptor żyje dalej, bo trzyma go plik zrobiony
+    przez `makefile()` — ale `conn.sock` jest już nie do użycia. Sięganie po
+    limit czasu przez `conn.sock` po cichu nic nie robi i gniazdo zostaje
+    z limitem od nawiązywania połączenia (5 s), czyli krótszym niż odstęp
+    między pingami brokera (25 s) — połączenie rozpada się co pięć sekund.
     """
 
-    def __init__(self, conn, resp):
+    def __init__(self, conn, sock, resp):
         self._conn = conn
+        self._sock = sock
         self._resp = resp
 
     def read_line(self, timeout):
         """Czyta jedną linię, czekając najwyżej `timeout` sekund."""
-        if self._conn.sock is not None:
-            self._conn.sock.settimeout(max(1.0, timeout))
+        if self._sock is not None:
+            try:
+                self._sock.settimeout(max(1.0, timeout))
+            except OSError:
+                pass
         return self._resp.readline()
 
     def close(self):
@@ -269,11 +282,14 @@ def open_sse(sse_url, token):
         body=json.dumps({'token': token}).encode('utf-8'),
         headers={'Content-Type': 'application/json', 'Accept': 'text/event-stream'},
     )
+    # Gniazdo zapamiętujemy PRZED getresponse() — potem `conn.sock` bywa None.
+    # Powód i skutki pomyłki: patrz docstring SseStream.
+    sock = conn.sock
     resp = conn.getresponse()
     if resp.status != 200:
         conn.close()
         raise OSError(f"broker odpowiedział HTTP {resp.status} {resp.reason}")
-    return SseStream(conn, resp)
+    return SseStream(conn, sock, resp)
 
 
 def classify_sse_line(raw):
@@ -364,6 +380,17 @@ def close_sse(stream):
     return None
 
 
+def _utcnow():
+    """Naive UTC — odpowiednik `datetime.utcnow()`, ale bez ostrzeżenia.
+
+    Od Pythona 3.12 `utcnow()` jest przestarzałe i wypisuje DeprecationWarning
+    wprost do okna agenta na hubie. Zwracamy czas nieświadomy strefy, bo taki
+    przychodzi z API CRM-a (`datetime.utcnow` w modelu) i takie dwie wartości
+    wolno od siebie odejmować.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
 def _format_reaction(seconds):
     """'42 ms' / '1.3 s' — czas reakcji agenta, mierzony zegarem monotonicznym."""
     if seconds < 1:
@@ -383,8 +410,9 @@ def _describe_job_age(requested_at_iso):
     cały mierzony czas. Do oceny reakcji agenta służy pole „reakcja”, liczone
     jednym zegarem monotonicznym na jednej maszynie.
 
-    Pole requested_at z API to naive UTC (datetime.utcnow w modelu),
-    isoformat bez offsetu — porównujemy też z datetime.utcnow().
+    Pole requested_at z API to naive UTC (datetime.utcnow w modelu CRM-a),
+    isoformat bez offsetu — dlatego po naszej stronie też schodzimy do naive UTC
+    (`_utcnow()`), zamiast mieszać czas świadomy strefy z nieświadomym.
     """
     if not requested_at_iso:
         return ''
@@ -392,7 +420,7 @@ def _describe_job_age(requested_at_iso):
         req = datetime.fromisoformat(requested_at_iso.rstrip('Z'))
     except (ValueError, TypeError, AttributeError):
         return ''
-    age = (datetime.utcnow() - req).total_seconds()
+    age = (_utcnow() - req).total_seconds()
     if age < 0:
         # Zegar huba rozjechany z serwerem albo strefa się popsuła.
         return f' (req {requested_at_iso})'
