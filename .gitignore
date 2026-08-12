@@ -191,7 +191,8 @@ config/core.local.json
 modules/logging/logs/
 
 # Uploadowane pliki użytkowników
-modules/partner_academy/static/media/documents/
+# UWAGA: media/documents/ NIE jest tu wymienione celowo — to statyczne oferty PDF
+# linkowane z recruitment.html, muszą jechać z repo (deploy = git reset --hard).
 modules/partner_academy/static/media/nda_users/
 modules/sales/static/media/nda_users/
 modules/preview3d_ar/static/ar-models/temp/
