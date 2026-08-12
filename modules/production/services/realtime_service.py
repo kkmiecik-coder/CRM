@@ -165,6 +165,11 @@ def publish(channel, data):
         logger.info("Realtime znowu odpowiada",
                     extra={'channel': channel, 'after_failures': _consecutive_failures})
         _consecutive_failures = 0
+
+    # Logujemy też SUKCES — bez tego nie da się odróżnić „CRM nie wysłał sygnału"
+    # od „wysłał, ale nie dotarł", a to dwa zupełnie różne śledztwa. Wolumen jest
+    # znikomy (rzędu 600 etykiet miesięcznie), więc szum żaden.
+    logger.info("Sygnał realtime wysłany", extra={'channel': channel, 'data': data})
     return True
 
 
