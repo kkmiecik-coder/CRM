@@ -52,7 +52,14 @@ class ZakresError(ValueError):
     """Nieprawidłowy zakres dat — router zamienia to na 400."""
 
 
-def _granice(start_date, end_date):
+def granice_zakresu(start_date, end_date):
+    """
+    (początek, koniec) jako naive datetime + walidacja zakresu.
+
+    Publiczna, bo reports_service liczy z tych samych tabel i musi rozumieć
+    zakres identycznie — inaczej ten sam „ostatni tydzień" obejmowałby w dwóch
+    widgetach różne godziny ostatniej doby.
+    """
     if start_date > end_date:
         raise ZakresError('Data początkowa musi być wcześniejsza lub równa końcowej')
     if (end_date - start_date).days + 1 > MAKS_ZAKRES_DNI:
@@ -65,6 +72,91 @@ def _zaokraglij(wartosc, miejsca=1):
     return round(float(wartosc or 0), miejsca)
 
 
+# Ile miejsc po przecinku ma „wkład w sztukach". Wkład bywa ułamkowy, bo przy
+# brygadzie share = 1/N — i przy jednym miejscu trzy udziały po 0.3 nie składają
+# się z powrotem w sztukę (0.9 ≠ 1). Stała jest publiczna i wspólna z wykresem
+# „Kto ile zrobił na stanowisku": ta sama osoba, to samo stanowisko i ten sam
+# dzień muszą dawać tę samą liczbę w obu podzakładkach, bo użytkownik przechodzi
+# między nimi jednym kliknięciem.
+MIEJSC_WKLADU = 2
+
+
+def zaokr_wklad(wartosc):
+    """Zaokrąglenie wkładu w sztukach — jedno dla wszystkich widgetów."""
+    return _zaokraglij(wartosc, MIEJSC_WKLADU)
+
+
+def granica_nocna_sesji(sesja, cutoff):
+    """
+    Do której chwili wolno liczyć sesję OTWARTĄ — nocny cutoff jej doby.
+
+    Sesja zaczęta PO cutoffie swojej doby (druga zmiana wchodząca o 23:55 przy
+    cutoffie 23:00) należy już do doby NASTĘPNEJ, więc jej granicą jest cutoff
+    dnia następnego. Ta sama reguła co w worker_service.close_stale_sessions(),
+    gdzie warunek `sesja.started_at < granica_nocna` chroni taką sesję przed
+    domknięciem z czasem zero.
+    """
+    granica = datetime.combine(sesja.work_date, cutoff)
+    if sesja.started_at >= granica:
+        granica = datetime.combine(sesja.work_date + timedelta(days=1), cutoff)
+    return granica
+
+
+def minuty_sesji(sesja, teraz, cutoff, idle_minut=None):
+    """
+    Ile minut liczy się z jednej sesji pracy.
+
+    DWA STANY, DWIE REGUŁY:
+
+    1. Sesja DOMKNIĘTA ma autorytatywny koniec i liczy się w całości — dokładnie
+       tak, jak liczy ją ProductionWorkerSession.duration_minutes. Koniec stawia
+       albo serwer (cutoff / idle_timeout w close_stale_sessions), albo tablet,
+       a korekta z tabletu działa wyłącznie W DÓŁ, w oknie
+       [started_at, obecny ended_at) — nie ma tu czego przycinać.
+    2. Sesja OTWARTA liczy się do NAJWCZEŚNIEJSZEJ z trzech granic:
+       teraz, nocny cutoff swojej doby, ostatnia aktywność + idle_timeout.
+       To DOKŁADNIE ta sama trójka, którą stosuje worker_service
+       .close_stale_sessions() na ścieżce ZAPISU.
+
+    Reguła bezczynności musi tu być, bo inaczej ta sama sesja ma dwie różne
+    długości zależnie od tego, czy cron zdążył ją domknąć. Zmierzone
+    2026-08-12 o 11:31: sesja 12 (pakowanie, Owsiany, start 06:16:57, ostatnia
+    aktywność 08:33:18) liczyła się na 314 min, a cron domknąłby ją na
+    10:33:18, czyli 256 min — kafelek „osobogodzin" i tempo m³/h kurczyły się
+    WSTECZ po każdym przebiegu crona. Że ścieżka zapisu tak właśnie liczy,
+    widać w danych: sesja 5 ma ended_at dokładnie 120 minut po last_activity_at.
+
+    Poprzednia wersja przycinała OBA stany do `min(teraz, combine(work_date,
+    cutoff))` i miała przez to dwie dziury, obie widoczne tylko o pewnych
+    porach doby — dlatego przeszły w ciągu dnia i wjechały na produkcję:
+
+      • sesja rozpoczęta PO cutoffie swojej doby miała granicę WCZEŚNIEJ niż
+        własny start, więc wychodziło ZERO minut. Cała zmiana takiego
+        pracownika znikała z raportu, a tempo m³/h dzieliło przez zero;
+      • sesja domknięta, która przekroczyła cutoff (22:55 → 00:55) albo miała
+        koniec późniejszy niż moment liczenia raportu, gubiła przepracowane
+        minuty — z dwóch godzin robiło się pięć minut.
+
+    Wyciągnięte z czas_pracy(), bo tę samą regułę stosuje wykres „Obsada vs
+    przerób" w reports_service. Dwie kopie tej reguły to dwie różne odpowiedzi
+    na pytanie „ile godzin przepracowało stanowisko".
+    """
+    if sesja.ended_at is not None:
+        koniec = sesja.ended_at
+    else:
+        if idle_minut is None:
+            from .worker_service import get_idle_timeout_minutes
+            idle_minut = get_idle_timeout_minutes()
+        # last_activity_at bywa puste na świeżo wstawionym wierszu (kolumna ma
+        # default dopiero na poziomie bazy) — wtedy odpowiednikiem ostatniej
+        # aktywności jest sam start sesji.
+        ostatnia = sesja.last_activity_at or sesja.started_at
+        koniec = min(teraz,
+                     granica_nocna_sesji(sesja, cutoff),
+                     ostatnia + timedelta(minutes=idle_minut))
+    return max(0, int((koniec - sesja.started_at).total_seconds() // 60))
+
+
 def wydajnosc_pracownikow(start_date, end_date, station=None, worker_id=None):
     """
     Wiersze dzień × pracownik × stanowisko.
@@ -72,7 +164,7 @@ def wydajnosc_pracownikow(start_date, end_date, station=None, worker_id=None):
     Zwraca listę dictów posortowaną po dacie malejąco, potem po nazwisku —
     tak jak ma się wyświetlać w tabeli, żeby front nie musiał sortować.
     """
-    poczatek, koniec = _granice(start_date, end_date)
+    poczatek, koniec = granice_zakresu(start_date, end_date)
 
     zapytanie = db.session.query(
         ProductionStationEventWorker.worker_id,
@@ -119,7 +211,7 @@ def wydajnosc_pracownikow(start_date, end_date, station=None, worker_id=None):
             'work_date': str(dzien)[:10],
             'station_code': kod,
             'station_label': station_label(kod),
-            'pieces': _zaokraglij(sztuki),
+            'pieces': zaokr_wklad(sztuki),
             'm3': _zaokraglij(metry, 3),
         })
 
@@ -136,7 +228,7 @@ def praca_nieprzypisana(start_date, end_date, station=None):
     (§4.7). Przy filtrze na konkretnego pracownika ta sekcja i tak nie ma sensu,
     więc router jej wtedy nie woła.
     """
-    poczatek, koniec = _granice(start_date, end_date)
+    poczatek, koniec = granice_zakresu(start_date, end_date)
 
     zapytanie = db.session.query(
         func.date(ProductionStationEvent.created_at).label('dzien'),
@@ -170,7 +262,7 @@ def praca_nieprzypisana(start_date, end_date, station=None):
             'work_date': str(dzien)[:10],
             'station_code': kod,
             'station_label': station_label(kod),
-            'pieces': _zaokraglij(sztuki),
+            'pieces': zaokr_wklad(sztuki),
             'm3': _zaokraglij(metry, 3),
         }
         for dzien, kod, sztuki, metry in zapytanie.all()
@@ -193,7 +285,7 @@ def czas_pracy(start_date, end_date, worker_id=None, station=None):
     Liczone w Pythonie, nie w SQL: TIMESTAMPDIFF nie istnieje w SQLite,
     a wolumen danych jest znikomy.
     """
-    from .worker_service import get_night_cutoff
+    from .worker_service import get_night_cutoff, get_idle_timeout_minutes
 
     zapytanie = ProductionWorkerSession.query.filter(
         ProductionWorkerSession.work_date >= start_date,
@@ -206,15 +298,69 @@ def czas_pracy(start_date, end_date, worker_id=None, station=None):
 
     teraz = get_local_now()
     cutoff = get_night_cutoff()
+    # Konfiguracja czytana RAZ na wywołanie, nie raz na sesję: get_config()
+    # trafia do bazy, a sesji bywają dziesiątki.
+    idle_minut = get_idle_timeout_minutes()
 
     minuty = {}
     for sesja in zapytanie.all():
-        granica_doby = datetime.combine(sesja.work_date, cutoff)
-        koniec = min(sesja.ended_at or teraz, teraz, granica_doby)
-        trwanie = max(0, int((koniec - sesja.started_at).total_seconds() // 60))
+        trwanie = minuty_sesji(sesja, teraz, cutoff, idle_minut)
         klucz = (sesja.worker_id, sesja.work_date.isoformat())
         minuty[klucz] = minuty.get(klucz, 0) + trwanie
     return minuty
+
+
+def liczba_eventow_pracy(start_date, end_date, station=None):
+    """
+    Ile ZDARZEŃ ludzkich zarejestrowano w zakresie (z filtrem stanowiska).
+
+    Osobna liczba od sumy delt, bo suma delt potrafi wyjść ZERO na dobie,
+    w której pracowano: 2026-04-29 formatowanie ma 4 eventy (2 dorobki i
+    2 cofnięcia), netto 0. Raport rozstrzygający pustkę po netto pisał wtedy
+    „żadne stanowisko nie zarejestrowało wykonania", podczas gdy widget obok
+    (pokrycie atrybucją) raportował 4 sztuki ruchu. Pustkę rozstrzyga się po
+    LICZBIE ZDARZEŃ, nie po ich wypadkowej.
+
+    Ta sama rola co pole `station_events` w reports_service
+    .wklad_pracownikow_na_stanowisku — jedna definicja „czy coś się działo".
+    """
+    poczatek, koniec = granice_zakresu(start_date, end_date)
+
+    zapytanie = db.session.query(func.count(ProductionStationEvent.id)).filter(
+        ProductionStationEvent.created_at >= poczatek,
+        ProductionStationEvent.created_at <= koniec,
+        ~ProductionStationEvent.source.in_(ZRODLA_AUTOMATU),
+    )
+    if station and station != 'all':
+        zapytanie = zapytanie.filter(ProductionStationEvent.station_code == station)
+    return int(zapytanie.scalar() or 0)
+
+
+def otwarte_sesje(start_date, end_date, worker_id=None, station=None):
+    """
+    {worker_id: ile} sesji BEZ ended_at w zakresie.
+
+    Godziny takiej sesji rosną w trakcie oglądania raportu, więc tempo w jej
+    wierszu jest wartością chwilową. Widget „Obsada vs przerób" mówi o tym
+    wprost od początku (kafelek „otwartych sesji"); tabela wydajności — jako
+    jedyna podająca tempo PER OSOBA — nie miała skąd wziąć tej liczby.
+    """
+    zapytanie = db.session.query(
+        ProductionWorkerSession.worker_id,
+        func.count(ProductionWorkerSession.id),
+    ).filter(
+        ProductionWorkerSession.work_date >= start_date,
+        ProductionWorkerSession.work_date <= end_date,
+        ProductionWorkerSession.ended_at.is_(None),
+    )
+    if worker_id:
+        zapytanie = zapytanie.filter(ProductionWorkerSession.worker_id == worker_id)
+    if station and station != 'all':
+        zapytanie = zapytanie.filter(ProductionWorkerSession.station_code == station)
+
+    return {wid: int(ile or 0)
+            for wid, ile in zapytanie.group_by(
+                ProductionWorkerSession.worker_id).all()}
 
 
 def raport_wydajnosci(start_date, end_date, station=None, worker_id=None):
@@ -222,8 +368,10 @@ def raport_wydajnosci(start_date, end_date, station=None, worker_id=None):
     Komplet danych do raportu: wiersze, sumy per pracownik, sumy dzienne,
     praca nieprzypisana i podsumowanie okresu.
 
-    Tempo = m³ / (minuty / 60). Liczymy je tylko tam, gdzie jest zmierzony
-    czas pracy — bez sesji tempo byłoby dzieleniem przez zero, a nie zerem.
+    Tempo = m³ / (minuty / 60). Liczymy je tylko tam, gdzie pracownik ma
+    JAKĄKOLWIEK atrybucję: bez sesji tempo byłoby dzieleniem przez zero,
+    a bez atrybucji — dzieleniem zera, czyli „0 m³/h" postawionym przy
+    nazwisku człowieka, o którym raport nic nie wie.
     """
     wiersze = wydajnosc_pracownikow(start_date, end_date, station, worker_id)
     # Ten sam filtr stanowiska co w liczniku — patrz docstring czas_pracy()
@@ -262,18 +410,35 @@ def raport_wydajnosci(start_date, end_date, station=None, worker_id=None):
         if wpis is not None:
             wpis['minutes'] += minut
 
+    otwarte = otwarte_sesje(start_date, end_date, worker_id, station)
+
     podsumowanie_pracownikow = []
     for wpis in per_pracownik.values():
         godziny = wpis['minutes'] / 60 if wpis['minutes'] else 0
+        # `stations` jest niepuste dokładnie wtedy, gdy pracownik ma choć jeden
+        # wiersz atrybucji — to jedyny sygnał odróżniający „zmierzone zero"
+        # od „nie wiemy nic".
+        ma_atrybucje = bool(wpis['stations'])
         podsumowanie_pracownikow.append({
             'worker_id': wpis['worker_id'],
             'worker_name': wpis['worker_name'],
-            'pieces': _zaokraglij(wpis['pieces']),
+            'pieces': zaokr_wklad(wpis['pieces']),
             'm3': _zaokraglij(wpis['m3'], 3),
             'minutes': wpis['minutes'],
             'hours': _zaokraglij(godziny, 1),
             'stations': sorted(wpis['stations']),
-            'pace_m3_per_hour': _zaokraglij(wpis['m3'] / godziny, 3) if godziny else None,
+            # Bramka na atrybucji, nie tylko na godzinach. Sama bramka `if
+            # godziny` chroniła przed dzieleniem PRZEZ zero, ale nie przed
+            # dzieleniem ZERA: Józef Pustelnik (87 min sesji, ani jednej
+            # atrybucji) dostawał „tempo 0.0 m³/h", czyli zarzut bezczynności
+            # postawiony na podstawie braku danych. Docstring obok obiecuje
+            # dla takiego wiersza „8,0 h / 0 m³ / tempo —" i to jest ta obietnica.
+            'pace_m3_per_hour': (_zaokraglij(wpis['m3'] / godziny, 3)
+                                 if godziny and ma_atrybucje else None),
+            'has_attribution': ma_atrybucje,
+            # Wiersz z otwartą sesją ma mianownik, który rośnie w trakcie
+            # oglądania — front oznacza go gwiazdką zamiast udawać pomiar.
+            'open_sessions': otwarte.get(wpis['worker_id'], 0),
         })
     # Sortowanie po NAZWISKU, nie po m³. Sortowanie malejąco po objętości robi
     # z tej tabeli ranking wydajności, a m³ nie są porównywalne między
@@ -293,19 +458,42 @@ def raport_wydajnosci(start_date, end_date, station=None, worker_id=None):
 
     podsumowanie_dzienne = sorted(
         ({'work_date': w['work_date'],
-          'pieces': _zaokraglij(w['pieces']),
+          'pieces': zaokr_wklad(w['pieces']),
           'm3': _zaokraglij(w['m3'], 3)} for w in per_dzien.values()),
         key=lambda w: w['work_date'])
 
     sztuki_nieprzypisane = sum(w['pieces'] for w in nieprzypisane)
     sztuki_przypisane = sum(w['pieces'] for w in wiersze)
 
-    # Pokrycie liczymy na WARTOŚCIACH BEZWZGLĘDNYCH. delta bywa ujemna —
-    # korekty z panelu CRM idą bez profilu, więc trafiają do "nieprzypisanych"
-    # ze znakiem minus. Przy 100 sztukach przypisanych i korekcie -5 mianownik
-    # spadał do 95 i pokrycie wychodziło 105%, czyli liczba bez sensu.
-    ruch_przypisany = sum(abs(w['pieces']) for w in wiersze)
-    ruch_razem = ruch_przypisany + sum(abs(w['pieces']) for w in nieprzypisane)
+    # Pokrycie liczy JEDNA funkcja — ta sama, która rysuje wykres „Pokrycie
+    # atrybucją w czasie". Kafelek i wykres stojące obok siebie nie mają jak
+    # pokazać dwóch różnych liczb.
+    #
+    # Wcześniej liczyło się tutaj, z wartości bezwzględnych nałożonych na sumę
+    # NETTO per (dzień, stanowisko) — a to za późno: cofnięcia kasowały się
+    # z dorobkami w mianowniku. Zmierzone na 2026-08-01..08-11: 80.2% zamiast
+    # uczciwych 73.2%; realny przykład to 2026-08-11 na sklejaniu bez
+    # atrybucji, gdzie netto wynosi +1 przy 39 sztukach ruchu i 11 eventach
+    # ujemnych. Nowa wersja bierze ABS na poziomie EVENTU, więc licznik jest
+    # podzbiorem mianownika i wynik jest z definicji zamknięty w 0-100%.
+    #
+    # Import lokalny, bo reports_service importuje ten moduł na górze pliku.
+    from .reports_service import pokrycie_atrybucji_dziennie
+
+    pokrycie = pokrycie_atrybucji_dziennie(
+        start_date, end_date, station=station)['summary']
+
+    # Osobogodziny CAŁEJ hali — bez filtra stanowiska i bez filtra pracownika.
+    # Wcześniej ta liczba brała się z tego samego dictu `minuty` co kafelek
+    # obok, więc obie były z definicji identyczne (blok `braki` dopisuje do
+    # tabeli każdego pracownika z sesją, więc zbiory kluczy są równe) — a przy
+    # filtrze stanowiska kafelek podpisany „na hali" pokazywał godziny jednego
+    # stanowiska: zmierzone 2026-08-12 „Składanie - lite" 5.4 h przy 24.5 h
+    # przepracowanych na hali. Teraz to dwie RÓŻNE liczby o dwóch różnych
+    # definicjach, zgodne z podpisami.
+    minuty_hali = (sum(czas_pracy(start_date, end_date).values())
+                   if (station and station != 'all') or worker_id
+                   else sum(minuty.values()))
 
     return {
         'start_date': start_date.isoformat(),
@@ -317,25 +505,33 @@ def raport_wydajnosci(start_date, end_date, station=None, worker_id=None):
         'worker_totals': podsumowanie_pracownikow,
         'daily_totals': podsumowanie_dzienne,
         'summary': {
-            'pieces': _zaokraglij(sztuki_przypisane),
+            'pieces': zaokr_wklad(sztuki_przypisane),
             'm3': _zaokraglij(sum(w['m3'] for w in wiersze), 3),
-            # Godziny liczone z TEGO SAMEGO zbioru pracowników co tabela niżej.
-            # Suma wszystkich sesji w zakresie pokazywałaby czas ludzi, których
-            # w tabeli nie ma (pracowali bez wybranego profilu albo na innym
-            # stanowisku niż filtrowane) — kafelek kłóciłby się z tabelą pod nim.
-            # Pełne osobogodziny na hali są osobno, pod własną nazwą.
+            # Godziny liczone z TEGO SAMEGO zbioru pracowników co tabela niżej,
+            # czyli z aktywnym filtrem stanowiska. Kafelek ma się zgadzać
+            # z kolumną „Godziny" zsumowaną wzrokiem; osobogodziny CAŁEJ hali
+            # (bez filtra) jadą osobno jako session_*_all.
             'minutes': sum(p['minutes'] for p in podsumowanie_pracownikow),
             'hours': _zaokraglij(
                 sum(p['minutes'] for p in podsumowanie_pracownikow) / 60, 1),
-            'session_minutes_all': sum(minuty.values()),
-            'session_hours_all': _zaokraglij(sum(minuty.values()) / 60, 1),
+            'session_minutes_all': minuty_hali,
+            'session_hours_all': _zaokraglij(minuty_hali / 60, 1),
             'workers_count': len(podsumowanie_pracownikow),
-            'unassigned_pieces': _zaokraglij(sztuki_nieprzypisane),
+            'open_sessions': sum(otwarte.values()),
+            # Liczba ZDARZEŃ, nie ich wypadkowa: doba, w której tyle samo
+            # odhaczono, co cofnięto, ma netto 0 i bez tego pola front pisał
+            # o niej „nic nie zarejestrowano". Patrz liczba_eventow_pracy().
+            'station_events': liczba_eventow_pracy(start_date, end_date, station),
+            'unassigned_pieces': zaokr_wklad(sztuki_nieprzypisane),
             'unassigned_m3': _zaokraglij(sum(w['m3'] for w in nieprzypisane), 3),
             # Ile produkcji w tym okresie wiadomo komu przypisać. Ten jeden
             # procent mówi, na ile raportowi w ogóle można ufać.
-            'attribution_coverage_pct': _zaokraglij(
-                100 * ruch_przypisany / ruch_razem, 1) if ruch_razem else None,
+            #
+            # UWAGA: to pokrycie CAŁEJ produkcji w zakresie (z filtrem
+            # stanowiska), a nie udział wybranego pracownika — przy
+            # worker_id=... liczba się NIE zmienia i tak ma być. „Ile roboty
+            # ma podpis" nie zależy od tego, czyj wiersz ktoś właśnie ogląda.
+            'attribution_coverage_pct': pokrycie['coverage_pct'],
         },
     }
 

@@ -48,6 +48,7 @@ DOMYSLNA_KONFIGURACJA = {
     'WORKER_SESSION_IDLE_TIMEOUT_MINUTES': 120,
     'WORKER_SESSION_NIGHT_CUTOFF': '23:00',
     'WORKER_QUICK_PICK_COUNT': 8,
+    'WORKER_LEARNING_DAYS': 14,
 }
 
 # Ile dni wstecz liczy się jako "ostatnio pracował na tym stanowisku"
@@ -140,6 +141,20 @@ def get_quick_pick_count():
     return _to_int(get_config('WORKER_QUICK_PICK_COUNT',
                               DOMYSLNA_KONFIGURACJA['WORKER_QUICK_PICK_COUNT']),
                    DOMYSLNA_KONFIGURACJA['WORKER_QUICK_PICK_COUNT'])
+
+
+def get_learning_days():
+    """
+    Ile dni PRODUKCYJNYCH z sesjami musi się uzbierać, zanim badge „Trwa nauka"
+    zgaśnie (reports_service.stan_nauki).
+
+    W konfiguracji, nie na sztywno: właściciel będzie chciał ruszyć ten próg,
+    gdy zobaczy, jak szybko rośnie pokrycie. Wartość <= 0 znaczyłaby „badge
+    nigdy się nie zapala", więc pilnujemy minimum 1.
+    """
+    return max(1, _to_int(get_config('WORKER_LEARNING_DAYS',
+                                     DOMYSLNA_KONFIGURACJA['WORKER_LEARNING_DAYS']),
+                          DOMYSLNA_KONFIGURACJA['WORKER_LEARNING_DAYS']))
 
 
 def get_worker_config():

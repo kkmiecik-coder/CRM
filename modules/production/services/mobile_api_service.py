@@ -31,6 +31,7 @@ from modules.production.models import (
     ProductionItem,
     get_local_now,
 )
+from modules.production.services.station_catalog import STATION_PENDING_STATUS
 
 logger = get_structured_logger('production.mobile_api')
 
@@ -50,15 +51,13 @@ def _rework_open_count(item):
 # ============================================================================
 
 # station_code → current_status w bazie (queue filter)
-STATION_STATUS_MAP = {
-    'packaging': 'czeka_na_pakowanie',
-    'cutting': 'czeka_na_wyciecie',
-    'assembly': 'czeka_na_skladanie',
-    'gluing': 'czeka_na_sklejanie',
-    'formatting': 'czeka_na_formatowanie',
-    'finishing': 'czeka_na_wykanczanie',
-    'painting': 'czeka_na_lakiernie',
-}
+#
+# Zawartość mieszka w station_catalog.STATION_PENDING_STATUS — ta sama mapa
+# była wcześniej przepisana także w dashboard_api (tam bez lakierni), więc
+# panel i tablet mogły odpowiedzieć inaczej na to samo pytanie „co czeka na
+# stanowisku". Nazwa STATION_STATUS_MAP zostaje, bo używa jej pół modułu
+# mobilnego i cała odwrotna mapa niżej.
+STATION_STATUS_MAP = dict(STATION_PENDING_STATUS)
 
 # station_code → nazwa kolumny z licznikiem wykonanych sztuk
 STATION_QUANTITY_FIELD = {

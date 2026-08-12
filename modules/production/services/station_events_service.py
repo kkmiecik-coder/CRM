@@ -16,6 +16,8 @@ i pozostałe metryki dashboardu. Filtry datowe operują na naive datetime
 w strefie Warszawy.
 """
 
+from datetime import date, datetime
+
 from sqlalchemy import func, distinct
 
 from extensions import db
@@ -29,6 +31,22 @@ from ..models import ProductionItem, ProductionOrder, ProductionStationEvent
 # człowiek. Filtr jest wspólny z worker_stats_service — trzy widgety na jednym
 # ekranie muszą mieć JEDNĄ definicję słowa "zrobione".
 ZRODLA_AUTOMATU = ('auto_skip', 'system')
+
+
+def _na_date(wartosc):
+    """
+    func.date() oddaje obiekt `date` w MySQL, a TEKST w SQLite. Bez normalizacji
+    get_station_work_per_day() łamie własny kontrakt („Returns: dict[date]")
+    na jednym z dwóch silników, a konsument sięgający po `slownik[jakas_data]`
+    dostaje pustkę zamiast liczby — cicho, bo .get() ma wartość domyślną.
+    """
+    if wartosc is None:
+        return None
+    if isinstance(wartosc, datetime):
+        return wartosc.date()
+    if isinstance(wartosc, date):
+        return wartosc
+    return datetime.strptime(str(wartosc)[:10], '%Y-%m-%d').date()
 
 
 def get_station_work_in_range(station_code, range_start, range_end):
@@ -126,7 +144,7 @@ def get_station_work_per_day(station_code, start_date, end_date):
     ).all()
 
     return {
-        row.day: {
+        _na_date(row.day): {
             'pieces': int(row.pieces or 0),
             'm3': float(row.m3 or 0),
             'value_net': float(row.value_net or 0),

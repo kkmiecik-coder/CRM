@@ -454,12 +454,17 @@ def test_started_at_z_offsetem_jest_przeliczany_na_czas_lokalny(client, app):
         assert ProductionWorkerSession.query.one().started_at == datetime(2026, 8, 11, 6, 12)
 
 
-def test_ended_at_z_kolejki_offline_nie_lezy_w_przyszlosci(client, app):
+def test_ended_at_z_kolejki_offline_nie_lezy_w_przyszlosci(client, app, zegar):
     """
     Tablet online kończy sesję "teraz". Gdy serwer czytał naive jako UTC,
     ended_at lądował o pełny offset strefy PO czasie serwera — sesja trwająca
     30 minut raportowała 2,5 godziny, a panel pokazywał koniec w przyszłości.
+
+    Zegar zamrożony w środku zmiany: pakiet uruchomiony tuż przed 23:00 miał
+    tu sesję przeciętą nocnym cutoffem (27 minut zamiast 30) i przewracał się
+    na strefie czasowej, której nikt nie zepsuł.
     """
+    zegar(godzina=12)
     token = _token(app)
     ids = _pracownicy(app, 1)
     start = get_local_now() - timedelta(minutes=30)
@@ -708,7 +713,7 @@ def test_spozniony_start_nie_daje_ujemnego_czasu_pracy(client, app):
         assert biezaca.ended_at is None      # świeższa obsada zostaje na stanowisku
 
 
-def test_spozniony_start_nie_zabiera_pracownikowi_biezacej_sesji(client, app):
+def test_spozniony_start_nie_zabiera_pracownikowi_biezacej_sesji(client, app, zegar):
     """
     Na tablecie wisi sesja INNEGO pracownika, nowsza niż znacznik z kolejki.
     Start jest wtedy spóźniony — i wolno mu tylko zapisać wiersz historyczny.
@@ -717,7 +722,11 @@ def test_spozniony_start_nie_zabiera_pracownikowi_biezacej_sesji(client, app):
     WSKAZANEGO pracownika na jego własnym tablecie. Efekt: człowiek, który
     stał przy TABLET-A i pracował, tracił sesję, nowej nie dostawał (bo
     historyczna nie wchodzi na halę) i znikał z panelu "kto na hali".
+
+    Zegar zamrożony: po 23:00 obie sesje domykał nocny cutoff i „kto na hali"
+    było puste, choć badany mechanizm w ogóle o cutoffie nie mówi.
     """
+    zegar(godzina=12)
     tab_a = _token(app, device_id='TABLET-A')
     tab_b = _token(app, device_id='TABLET-B')
     beata, celina = _pracownicy(app, 2)
@@ -806,14 +815,20 @@ def test_start_z_poprzedniej_doby_domyka_sie_na_nocnym_cutoffie(client, app):
         assert sesja.work_date == wczoraj.date()
 
 
-def test_spozniony_end_koryguje_czas_ale_nie_powod(client, app):
+def test_spozniony_end_koryguje_czas_ale_nie_powod(client, app, zegar):
     """
     'replaced' to nasze ZGADNIĘCIE końca ("do startu następczyni"). Gdy tablet
     dosyła prawdziwą godzinę wyjścia, jest ona bliższa prawdzie — bez korekty
     raport dopisywał człowiekowi cały czas między wyjściem a przejęciem profilu.
 
     Powód zostaje 'replaced' — wymóg (c) zespołu mobilnego dotyczy POWODU.
+
+    Zegar zamrożony, bo test opisuje PRZEJĘCIE PROFILU, a nie nocny cutoff:
+    uruchomiony w nocy liczył „sześć godzin temu" na wczoraj przed 23:00,
+    więc start domykał się od razu jako 'night_cutoff' i test przewracał się
+    na zdaniu, którego nie sprawdza.
     """
+    zegar(godzina=12)
     tab_a = _token(app, device_id='TABLET-A')
     tab_b = _token(app, device_id='TABLET-B')
     ids = _pracownicy(app, 1)
@@ -840,12 +855,17 @@ def test_spozniony_end_koryguje_czas_ale_nie_powod(client, app):
         assert sesja.duration_minutes == 120
 
 
-def test_spozniony_end_nie_wydluza_sesji_domknietej_przez_serwer(client, app):
+def test_spozniony_end_nie_wydluza_sesji_domknietej_przez_serwer(client, app, zegar):
     """
     Korekta działa TYLKO w dół, w oknie [started_at, obecny ended_at).
     Koniec późniejszy niż przejęcie profilu oznaczałby, że pracownik był
     w dwóch miejscach naraz — takiego cofnięcia nie robimy nigdy.
+
+    Zegar zamrożony z tego samego powodu co w teście wyżej: sprawdzamy korektę
+    przy przejęciu profilu, więc obie sesje muszą zmieścić się w jednej dobie
+    niezależnie od pory uruchomienia pakietu.
     """
+    zegar(godzina=12)
     tab_a = _token(app, device_id='TABLET-A')
     tab_b = _token(app, device_id='TABLET-B')
     ids = _pracownicy(app, 1)

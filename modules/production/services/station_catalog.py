@@ -46,6 +46,27 @@ STATION_LABELS = {
 }
 
 
+# Stanowisko → status pozycji CZEKAJĄCEJ na tym stanowisku (kolejka).
+#
+# Ta mapa miała dwie kopie: STATION_STATUS_MAP w mobile_api_service (7 pozycji)
+# i _STATION_PENDING_STATUS w dashboard_api (6 — bez lakierni). Skutek był
+# widoczny w liczbach: dashboard nie pokazywał kolejki lakierni w ogóle, mimo
+# że to na niej stoi dziś najdłuższy zapas (raport „Dni zapasu przed
+# stanowiskiem" liczy jej 6,6 dnia). Obie kopie czytają teraz stąd.
+#
+# 'sawmill' celowo nie występuje — trakownia nie ma statusów ProductionProduct,
+# liczy się z własnych tabel prod_sawmill_*.
+STATION_PENDING_STATUS = {
+    'cutting': 'czeka_na_wyciecie',
+    'assembly': 'czeka_na_skladanie',
+    'gluing': 'czeka_na_sklejanie',
+    'formatting': 'czeka_na_formatowanie',
+    'finishing': 'czeka_na_wykanczanie',
+    'painting': 'czeka_na_lakiernie',
+    'packaging': 'czeka_na_pakowanie',
+}
+
+
 def station_label(station_code):
     """Kod → nazwa po polsku. Nieznany kod zwracamy surowo, zamiast wywracać widok."""
     if not station_code:
