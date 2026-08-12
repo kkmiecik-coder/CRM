@@ -747,6 +747,29 @@ function showWeatherError(msg) {
 }
 
 /**
+ * Czeka, aż kontener wykresu dostanie realną szerokość, i dopiero wtedy rysuje.
+ * Potrzebne, bo przy starcie strony layout bywa jeszcze nierozłożony (rect = 0).
+ */
+let obserwatorSzerokosciWykresu = null;
+
+function obserwujSzerokoscKontenera(container) {
+    // Jeden obserwator wystarczy — kolejne wywołania nie mnożą nasłuchów.
+    if (obserwatorSzerokosciWykresu || typeof ResizeObserver === 'undefined') {
+        return;
+    }
+
+    obserwatorSzerokosciWykresu = new ResizeObserver(() => {
+        if (container.getBoundingClientRect().width - 16 > 0) {
+            obserwatorSzerokosciWykresu.disconnect();
+            obserwatorSzerokosciWykresu = null;
+            drawRealChart();
+        }
+    });
+
+    obserwatorSzerokosciWykresu.observe(container);
+}
+
+/**
  * Inicjalizacja wykresu wycen
  */
 function initQuotesChart() {
@@ -790,6 +813,19 @@ function drawRealChart() {
 
     // Ustaw rozmiar canvas na podstawie kontenera
     const containerRect = container.getBoundingClientRect();
+
+    // DOMContentLoaded odpala się, zanim CSS rozłoży layout — kontener potrafi mieć wtedy
+    // zerową szerokość. Bezwarunkowe odjęcie 16 dawało wartość ujemną, która schodziła w dół
+    // przez padding → chartWidth → barWidth aż do ctx.arc() z ujemnym promieniem. Wyjątek
+    // leciał z handlera DOMContentLoaded i ubijał WSZYSTKIE kolejne inicjalizacje
+    // (m.in. widget changelogu, który zostawał na "Ładowanie nowości...").
+    // Zamiast liczyć na ujemnych wymiarach czekamy, aż kontener dostanie realną szerokość.
+    if (containerRect.width - 16 <= 0) {
+        console.log('[Dashboard] Kontener wykresu nie ma jeszcze szerokości — rysowanie odroczone');
+        obserwujSzerokoscKontenera(container);
+        return;
+    }
+
     const dpr = window.devicePixelRatio || 1;
     
     // Rozmiar wyświetlania (CSS)
@@ -873,8 +909,11 @@ function drawRealChart() {
         
         // Funkcja rysowania słupka z zaokrąglonymi górami
         function drawRoundedBar(x, y, width, height, color) {
-            if (height < 2) return;
-            
+            // Strażnik na oba wymiary: ujemna szerokość wywala ctx.arc() (IndexSizeError),
+            // a wyjątek stąd potrafi ubić całą inicjalizację dashboardu. Pojedynczy zły
+            // wymiar ma pomijać słupek, nie zatrzymywać skryptu.
+            if (height < 2 || width <= 0) return;
+
             ctx.fillStyle = color;
             ctx.fillRect(x, y, width, height);
             
