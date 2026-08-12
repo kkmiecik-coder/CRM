@@ -1,0 +1,832 @@
+{# Podzakładka Raporty → TERMINY I PRZEPŁYW.
+
+   Oba widgety odpowiadają na jedno pytanie: „czy nadążamy". Pierwszy patrzy na
+   to od strony zobowiązań (co się pali i na jakim stanowisku stoi), drugi od
+   strony przepływu (czy tempo produkcji nadąża za napływem i czy rozjazd
+   narasta). Rozdzielenie ich zrobiłoby dwie podzakładki na jedno pytanie.
+
+   Markup i identyfikatory są kontraktem z endpointami:
+     • #dp-*  → GET /production/api/reports/deadline-progress   (bez parametrów)
+     • #fio-* → GET /production/api/reports/flow-in-out?start_date&end_date
+
+   BADGE „TRWA NAUKA" CELOWO NIE WYSTĘPUJE NA TEJ PODZAKŁADCE. Badge mówi
+   „profile pracowników dopiero wchodzą na halę, tym liczbom jeszcze nie ufaj",
+   a żaden z tych dwóch wykresów nie czyta ani sesji pracy, ani atrybucji:
+   pierwszy liczy terminy i statusy produktów, drugi objętości wejścia i
+   wyjścia. Backend też nie zwraca im pola `learning` (jest tylko przy
+   staffing-vs-output i worker-output) i tak ma zostać — doklejenie badge'a
+   tutaj kazałoby wątpić w liczby, które od profili nie zależą w ogóle.
+
+   Fragment nie ma i nie może mieć własnego bloku stylów: wchodzi do DOM przez
+   innerHTML, więc każdy taki blok zostawiałby po sobie kolejną kopię tych samych
+   reguł. Wygląd widgetów raportów siedzi w static/css/reports-tab.css. #}
+
+<!-- Wykres 2: termin vs postęp — MIGAWKA stanu bieżącego, bez zakresu dat -->
+<div class="widget report-widget" id="dp-widget">
+    <div class="widget-header">
+        <h4>
+            <i class="fas fa-hourglass-half me-2"></i>
+            Termin vs postęp
+        </h4>
+        <div class="widget-controls">
+            <label class="report-toggle" title="Ukrywa koszyki 8+ dni i „bez terminu” i przeskalowuje oś — słupek 1-2 dni bywa 2% wysokości największego i bez tego ginie.">
+                <input type="checkbox" id="dp-only-urgent">
+                <span>Tylko pilne (≤7 dni)</span>
+            </label>
+            <button id="dp-refresh-btn" class="btn btn-outline-primary btn-sm" title="Odśwież">
+                <i class="fas fa-sync-alt"></i>
+            </button>
+        </div>
+    </div>
+    <div class="widget-content">
+        <div class="report-chart-wrapper" id="dp-chart-wrapper">
+            <canvas id="dp-chart"></canvas>
+        </div>
+        {# Jedno miejsce na trzy stany widgetu (ładowanie / błąd / brak danych) —
+           dwa osobne pudełka prędzej czy później pokazałyby się naraz. #}
+        <div class="report-empty" id="dp-empty" style="display: none;"></div>
+        <div class="report-note" id="dp-note"></div>
+
+        <div class="report-breadcrumb" id="dp-breadcrumb" style="display: none;"></div>
+        <div class="wo-table-wrapper" id="dp-table-wrapper" style="display: none;">
+            <table class="wo-table">
+                <thead>
+                    <tr>
+                        <th>BL #</th>
+                        <th>Produkt</th>
+                        <th>Klient</th>
+                        <th>Etap</th>
+                        <th>Termin</th>
+                        <th>Dni</th>
+                        <th>Szt.</th>
+                        <th>m³</th>
+                    </tr>
+                </thead>
+                <tbody id="dp-table-body"></tbody>
+            </table>
+            <div class="wo-pagination" id="dp-pagination" style="display: none;">
+                <div class="wo-pagination-info" id="dp-pagination-info"></div>
+                <div class="wo-pagination-controls" id="dp-pagination-controls"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Wykres 3: wejście vs wyjście hali — oś 7-dniowa, weekendów NIE wycinamy -->
+<div class="widget report-widget" id="fio-widget">
+    <div class="widget-header">
+        <h4>
+            <i class="fas fa-exchange-alt me-2"></i>
+            Wejście vs wyjście hali
+        </h4>
+        <div class="widget-controls">
+            {# Etykiety presetów NIE obiecują agregacji („Ostatni rok (tygodniowo)”
+               kłamałoby w dniu, w którym historia jest krótsza niż próg
+               tygodniowy). O tym, czy słupki są dzienne czy tygodniowe, mówi
+               podpis pod wykresem — i mówi to, co faktycznie przyszło z API. #}
+            <select id="fio-preset-select" class="form-select form-select-sm" title="Zakres dat">
+                <option value="30d">Ostatnie 30 dni</option>
+                <option value="90d" selected>Ostatnie 90 dni</option>
+                <option value="365d">Ostatni rok</option>
+            </select>
+            <button id="fio-refresh-btn" class="btn btn-outline-primary btn-sm" title="Odśwież">
+                <i class="fas fa-sync-alt"></i>
+            </button>
+        </div>
+    </div>
+    <div class="widget-content">
+        <div class="report-chart-wrapper report-chart-tall" id="fio-chart-wrapper">
+            <canvas id="fio-chart"></canvas>
+        </div>
+        <div class="report-empty" id="fio-empty" style="display: none;"></div>
+        <div class="report-note" id="fio-note"></div>
+    </div>
+</div>
+
+<script>
+// IIFE izoluje deklaracje fragmentu. executeInlineScripts() klonuje <script>
+// i podmienia węzeł, więc kod leci w scope globalnym i wykonuje się od nowa
+// przy każdym przeładowaniu zakładki — bez IIFE drugie wejście wywala się na
+// "duplicate declaration" i zabija cały fragment.
+(function () {
+const root = document.getElementById('reports-sub-pane-terminy');
+const wspolne = window.ReportsShared;
+if (!root || !wspolne) return;
+
+// Funkcje używane przez więcej niż jeden fragment mieszkają w szkielecie —
+// każdy fragment ma własny scope i to jest jedyny most między nimi.
+const { escapeHtml, soFormatLocalDate, computeSoPageList, zniszczWykres } = wspolne;
+
+// Szukamy po własnym panelu, nie po document: panele sąsiednich podzakładek
+// zostają w DOM (tylko schowane), więc globalne getElementById potrafiłoby
+// sięgnąć do cudzego markupu.
+const el = (id) => root.querySelector('#' + id);
+
+// ════════════════════════════════════════════════════════════════════
+// Drobiazgi wspólne dla obu widgetów
+// ════════════════════════════════════════════════════════════════════
+
+const m3 = (v) => (Number(v) || 0).toFixed(3);
+
+// Chart.js jedzie osobnym <script> panelu produkcji (static/vendor —
+// świadomie bez CDN, Safari ITP blokuje jsdelivr). Fragment potrafi wejść do
+// DOM, zanim biblioteka się wykona, więc czekamy — ale SKOŃCZONĄ liczbę razy.
+// Nieskończone ponawianie przy zablokowanym pliku zostawia użytkownika
+// z wiecznym „Ładowanie…" i zerową informacją, co jest nie tak.
+const CHART_PROBY = 30;   // 30 × 100 ms = 3 s
+function zChartem(gdyGotowy, gdyBrak, proba) {
+    if (typeof Chart !== 'undefined') { gdyGotowy(); return; }
+    if ((proba || 0) >= CHART_PROBY) { gdyBrak(); return; }
+    setTimeout(() => zChartem(gdyGotowy, gdyBrak, (proba || 0) + 1), 100);
+}
+
+// Trzy stany widgetu przez jedno pudełko: ładowanie, błąd, brak danych.
+// `tresc` wchodzi jako TEKST (textContent), więc komunikat z serwera nie ma
+// jak przemycić znacznika — a komunikaty błędów bywają sklejane z danych.
+function pokazStan(idStanu, idWrappera, tresc) {
+    const stan = el(idStanu);
+    const wrapper = el(idWrappera);
+    if (stan) {
+        stan.textContent = tresc;
+        stan.style.display = 'block';
+    }
+    if (wrapper) wrapper.style.display = 'none';
+}
+
+function schowajStan(idStanu, idWrappera) {
+    const stan = el(idStanu);
+    const wrapper = el(idWrappera);
+    if (stan) stan.style.display = 'none';
+    if (wrapper) wrapper.style.display = '';
+}
+
+// Kręcąca się strzałka na przycisku odświeżania. Bez tego dwa kliknięcia pod
+// rząd wyglądają jak „nic się nie stało" i lecą dwa zapytania.
+function zajetyPrzycisk(idPrzycisku, zajety) {
+    const btn = el(idPrzycisku);
+    if (!btn) return;
+    btn.disabled = zajety;
+    btn.querySelector('i')?.classList.toggle('fa-spin', zajety);
+}
+
+// Jedna droga do komunikatu o błędzie: i 400/500 z kopertą JSON, i padnięty
+// fetch mają skończyć tym samym zdaniem plus podpowiedzią, co zrobić.
+async function pobierzJson(url) {
+    const odp = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+    let dane = null;
+    try {
+        dane = await odp.json();
+    } catch (e) {
+        throw new Error(`serwer odpowiedział ${odp.status} bez danych`);
+    }
+    if (!odp.ok || !dane || dane.success !== true) {
+        throw new Error((dane && dane.error) || `błąd HTTP ${odp.status}`);
+    }
+    return dane;
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Wykres 2: Termin vs postęp (migawka — bez zakresu dat)
+// ════════════════════════════════════════════════════════════════════
+
+const DP_KLUCZ = 'production.reports.deadlineProgress';
+const DP_ROZMIAR_STRONY = 10;
+
+// Ile koszyków zostaje po włączeniu „tylko pilne": po terminie, dziś, 1-2, 3-7.
+// Liczba, nie lista kodów — kolejność koszyków jest SKALĄ PILNOŚCI ustaloną po
+// stronie serwera (KOSZYKI_TERMINU) i front nie ma prawa jej przestawiać.
+const DP_PILNE_DO = 4;
+
+// Kolory po KODZIE stanowiska, nie po pozycji w tablicy: gdy stanowisko
+// przestaje mieć kolejkę i wypada z odpowiedzi, wszystkim pozostałym
+// przeskoczyłby kolor i ten sam wykres po odświeżeniu wyglądałby na inny.
+// Etykiety pobieramy WYŁĄCZNIE z backendu (dataset.label) — tu są same kody.
+const DP_KOLORY = {
+    cutting: '#2563eb',
+    assembly: '#7c3aed',
+    gluing: '#0891b2',
+    formatting: '#16a34a',
+    finishing: '#65a30d',
+    painting: '#d97706',
+    packaging: '#0f766e',
+    czeka_na_logistyke: '#64748b',
+    wstrzymane: '#dc2626',
+    w_realizacji: '#94a3b8',
+};
+// Segment spoza mapy (nowy status w bazie) dostaje kolor z rezerwy zamiast
+// wywalać wykres albo malować się na przezroczysto.
+const DP_KOLORY_REZERWA = ['#9333ea', '#e11d48', '#0ea5e9', '#f59e0b', '#10b981'];
+
+let dpDane = null;        // ostatnia odpowiedź endpointu
+let dpKoszykiWidoczne = []; // kody koszyków w kolejności osi (po filtrze „pilne")
+let dpPozycje = [];       // wynik drill-downu (podzbiór dpDane.items)
+let dpStrona = 1;
+let dpTylkoPilne = false;
+
+// Suma koszyka. Gdy widać KOMPLET serii, bierzemy ją gotową z backendu
+// (totals.m3), a nie z dodawania słupków: serwer sumuje surowe objętości
+// i zaokrągla RAZ, my dodawalibyśmy osiem liczb już zaokrąglonych. Zmierzone na
+// kopii produkcyjnej: koszyk „8+ dni" to 5.215 m³ z totals i 5.214 m³ z dodawania
+// słupków. Dwie różne liczby na jednym wykresie to dokładnie ta klasa błędu,
+// którą raport ma likwidować, a nie produkować.
+// Po ukryciu serii w legendzie pytanie się zmienia („ile bez lakierni") i wtedy
+// jedyną możliwą odpowiedzią jest suma widocznych słupków.
+function dpSumaKoszyka(chart, idx, zBackendu) {
+    const komplet = chart.data.datasets.every((_, i) => chart.isDatasetVisible(i));
+    if (komplet && zBackendu && zBackendu[idx] !== undefined) return zBackendu[idx];
+    return chart.data.datasets.reduce(
+        (acc, ds, i) => acc + (chart.isDatasetVisible(i) ? (Number(ds.data[idx]) || 0) : 0), 0);
+}
+
+// Podpis nad każdym słupkiem. Bez tego stos trzeba czytać z osi, a różnica
+// między 0.104 a 0.999 m³ jest na oku nie do odczytania.
+const dpWtyczkaSum = {
+    id: 'dpSumyNadSlupkami',
+    afterDatasetsDraw(chart, args, opcje) {
+        const osX = chart.scales.x;
+        const osY = chart.scales.y;
+        if (!osX || !osY) return;
+
+        const ctx = chart.ctx;
+        ctx.save();
+        ctx.font = '600 10px "JetBrains Mono", monospace';
+        ctx.fillStyle = '#7a8291';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        chart.data.labels.forEach((_, idx) => {
+            const suma = dpSumaKoszyka(chart, idx, opcje && opcje.sumy);
+            if (!suma) return;
+            ctx.fillText(suma.toFixed(3), osX.getPixelForValue(idx), osY.getPixelForValue(suma) - 4);
+        });
+        ctx.restore();
+    },
+};
+
+function dpEtykietaSegmentu(kod) {
+    // Nazwa stanowiska WYŁĄCZNIE z odpowiedzi backendu. Zaszyta lista rozjeżdżała
+    // się z katalogiem stanowisk (użytkownik wybierał „Wycinanie", w tabeli
+    // czytał „Wycinanie - mikro") — dlatego szukamy po kodzie w datasetach.
+    const wpis = (dpDane?.datasets || []).find(d => d.code === kod);
+    return wpis ? wpis.label : kod;
+}
+
+function dpEtykietaKoszyka(kod) {
+    const idx = (dpDane?.buckets || []).indexOf(kod);
+    return idx >= 0 ? dpDane.bucket_labels[idx] : kod;
+}
+
+async function loadDeadlineProgress() {
+    pokazStan('dp-empty', 'dp-chart-wrapper', 'Ładowanie…');
+    // Drill-down zawsze startuje pusty: dane mogły się zmienić, a tabela
+    // z poprzedniego kliknięcia opisywałaby stan, którego już nie ma.
+    dpWyczyscFiltr();
+    zajetyPrzycisk('dp-refresh-btn', true);
+
+    try {
+        dpDane = await pobierzJson('/production/api/reports/deadline-progress');
+        renderDeadlineProgress();
+    } catch (err) {
+        console.error('[Terminy] deadline-progress:', err);
+        dpDane = null;
+        const nota = el('dp-note');
+        if (nota) { nota.textContent = ''; nota.classList.remove('report-note-warn'); }
+        pokazStan('dp-empty', 'dp-chart-wrapper',
+            `Nie udało się pobrać terminów: ${err.message}. Kliknij ↻, żeby spróbować ponownie.`);
+    } finally {
+        zajetyPrzycisk('dp-refresh-btn', false);
+    }
+}
+
+function renderDeadlineProgress() {
+    if (!dpDane) return;
+
+    const nota = el('dp-note');
+    const wszystkieKoszyki = dpDane.buckets || [];
+    const ileKoszykow = dpTylkoPilne ? Math.min(DP_PILNE_DO, wszystkieKoszyki.length)
+                                     : wszystkieKoszyki.length;
+    dpKoszykiWidoczne = wszystkieKoszyki.slice(0, ileKoszykow);
+    const etykiety = (dpDane.bucket_labels || []).slice(0, ileKoszykow);
+
+    // Serie zerowe w widocznym wycinku wypadają — inaczej legenda po włączeniu
+    // „tylko pilne" wymienia siedem stanowisk, z których sześć nie ma słupka.
+    const serie = (dpDane.datasets || [])
+        .map((ds, i) => ({ ds, i }))
+        .filter(({ ds }) => ds.m3.slice(0, ileKoszykow).some(v => v > 0));
+
+    const sumaWidoczna = serie.reduce(
+        (acc, { ds }) => acc + ds.m3.slice(0, ileKoszykow).reduce((a, b) => a + b, 0), 0);
+
+    // ── Podpis pod wykresem: skąd te liczby i czego w nich nie ma ──
+    if (nota) {
+        const czesci = [
+            `Stan na <strong>${escapeHtml(dpDane.as_of || '—')}</strong>`,
+            `${dpDane.totals.items_total} poz. / ${m3(dpDane.totals.m3_total)} m³ w toku`,
+            'pozycje spakowane i anulowane nie są liczone',
+        ];
+        let html = czesci.join(' · ') + '.';
+        if (dpDane.totals.items_total > 0) {
+            html += ' Kliknij słupek, żeby zobaczyć pozycje, które się na niego składają.';
+        }
+        if (dpDane.items_truncated) {
+            html += ` <strong>Tabela pod wykresem pokazuje pierwsze ${dpDane.items.length} pozycji</strong> —`
+                 + ' słupki liczą wszystkie, lista jest przycięta.';
+        }
+        nota.innerHTML = html;
+        nota.classList.toggle('report-note-warn', !!dpDane.items_truncated);
+    }
+
+    // ── Stan pusty: dwa różne „nic tu nie ma", dwa różne komunikaty ──
+    if (!dpDane.totals.items_total) {
+        pokazStan('dp-empty', 'dp-chart-wrapper',
+            'Nic nie stoi w produkcji — każda pozycja jest spakowana albo anulowana. '
+            + 'Słupki pojawią się, gdy z BaseLinkera wejdzie pierwsze niezamknięte zamówienie.');
+        zniszczWykres(el('dp-chart'));
+        return;
+    }
+    if (!sumaWidoczna) {
+        pokazStan('dp-empty', 'dp-chart-wrapper',
+            'Nic pilnego — wszystko, co stoi w produkcji, ma termin za 8+ dni albo nie ma go wcale. '
+            + 'Odznacz „Tylko pilne”, żeby zobaczyć całość.');
+        zniszczWykres(el('dp-chart'));
+        return;
+    }
+
+    schowajStan('dp-empty', 'dp-chart-wrapper');
+
+    const canvas = el('dp-chart');
+    if (!canvas) return;
+    zChartem(
+        () => dpRysuj(canvas, etykiety, serie, ileKoszykow),
+        () => pokazStan('dp-empty', 'dp-chart-wrapper',
+            'Nie wczytała się biblioteka wykresów (Chart.js). Odśwież stronę — '
+            + 'jeśli to nie pomoże, blokuje ją rozszerzenie przeglądarki.')
+    );
+}
+
+function dpRysuj(canvas, etykiety, serie, ileKoszykow) {
+    // Autorytatywne sumy koszyków — patrz dpSumaKoszyka().
+    const sumyKoszykow = (dpDane.totals.m3 || []).slice(0, ileKoszykow);
+    const datasety = serie.map(({ ds, i }) => ({
+        label: ds.label,
+        data: ds.m3.slice(0, ileKoszykow),
+        backgroundColor: DP_KOLORY[ds.code] || DP_KOLORY_REZERWA[i % DP_KOLORY_REZERWA.length],
+        borderWidth: 0,
+        // Własne pola datasetu przeżywają w Chart.js nietknięte — dzięki temu
+        // tooltip pokazuje pozycje i sztuki bez drugiej struktury obok wykresu.
+        dpKod: ds.code,
+        dpPozycje: ds.items.slice(0, ileKoszykow),
+        dpSztuki: ds.pieces.slice(0, ileKoszykow),
+    }));
+
+    zniszczWykres(canvas);
+    new Chart(canvas.getContext('2d'), {
+        type: 'bar',
+        data: { labels: etykiety, datasets: datasety },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            // Klik w segment filtruje tabelę bez drugiego requestu — pozycje
+            // przyjechały w tej samej odpowiedzi.
+            onClick: (evt, elementy, chart) => {
+                if (!elementy.length) return;
+                const trafiony = elementy[0];
+                const ds = chart.data.datasets[trafiony.datasetIndex];
+                dpUstawFiltr(dpKoszykiWidoczne[trafiony.index], ds.dpKod);
+            },
+            onHover: (evt, elementy) => {
+                // `native` bywa puste, gdy Chart.js sam wywołuje hover przy
+                // update() — bez ostrożnego dostępu wykres wywala się po
+                // przerysowaniu z kursorem nad płótnem.
+                const cel = evt?.native?.target;
+                if (cel) cel.style.cursor = elementy.length ? 'pointer' : 'default';
+            },
+            plugins: {
+                // Opcje wtyczki idą pod jej id — wtyczka jest modułowa, więc
+                // sumy z backendu muszą do niej dojechać tą drogą, nie domknięciem.
+                dpSumyNadSlupkami: { sumy: sumyKoszykow },
+                legend: { position: 'top', labels: { font: { size: 11 }, boxWidth: 10 } },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => {
+                            const poz = ctx.dataset.dpPozycje?.[ctx.dataIndex] ?? 0;
+                            const szt = ctx.dataset.dpSztuki?.[ctx.dataIndex] ?? 0;
+                            return `${ctx.dataset.label}: ${m3(ctx.parsed.y)} m³ · ${poz} poz. / ${szt} szt.`;
+                        },
+                        footer: (items) => {
+                            if (!items.length) return '';
+                            // Ta sama funkcja co podpis nad słupkiem — tooltip
+                            // i etykieta nie mają prawa podać innej liczby.
+                            const suma = dpSumaKoszyka(items[0].chart, items[0].dataIndex, sumyKoszykow);
+                            return `Razem w koszyku: ${m3(suma)} m³`;
+                        },
+                    },
+                },
+            },
+            scales: {
+                x: { stacked: true, grid: { display: false }, ticks: { font: { size: 10 } } },
+                y: {
+                    stacked: true,
+                    beginAtZero: true,
+                    title: { display: true, text: 'm³ w toku', font: { size: 10 } },
+                    ticks: { font: { size: 10 }, callback: v => v.toFixed(2) },
+                    grid: { color: 'rgba(0,0,0,0.05)' },
+                },
+            },
+        },
+        plugins: [dpWtyczkaSum],   // lokalnie, nie Chart.register — globalna
+                                   // rejestracja dopisałaby etykiety do KAŻDEGO
+                                   // wykresu w panelu, także cudzego.
+    });
+}
+
+// ── Drill-down: koszyk + stanowisko → tabela ──
+
+function dpUstawFiltr(kodKoszyka, kodStanowiska) {
+    if (!dpDane || !kodKoszyka) return;
+    dpPozycje = (dpDane.items || []).filter(p =>
+        p.bucket === kodKoszyka && (!kodStanowiska || p.station_code === kodStanowiska));
+    dpStrona = 1;
+    dpRenderBreadcrumb(kodKoszyka, kodStanowiska);
+    dpRenderStrone();
+}
+
+function dpWyczyscFiltr() {
+    dpPozycje = [];
+    dpStrona = 1;
+    const breadcrumb = el('dp-breadcrumb');
+    const tabela = el('dp-table-wrapper');
+    if (breadcrumb) { breadcrumb.innerHTML = ''; breadcrumb.style.display = 'none'; }
+    if (tabela) tabela.style.display = 'none';
+}
+
+function dpRenderBreadcrumb(kodKoszyka, kodStanowiska) {
+    const breadcrumb = el('dp-breadcrumb');
+    if (!breadcrumb) return;
+
+    const sumaM3 = dpPozycje.reduce((a, p) => a + (Number(p.m3) || 0), 0);
+    // escapeHtml na etykietach mimo że idą z katalogu stanowisk: to i tak jest
+    // treść z bazy, a w tym module wstawianie takich napisów bez escapowania
+    // było już potwierdzoną podatnością XSS.
+    const czesci = [`<span>${escapeHtml(dpEtykietaKoszyka(kodKoszyka))}</span>`];
+    if (kodStanowiska) {
+        czesci.push('<span>›</span>');
+        czesci.push(`<span>${escapeHtml(dpEtykietaSegmentu(kodStanowiska))}</span>`);
+    }
+    czesci.push(`<span>· ${dpPozycje.length} poz. / ${m3(sumaM3)} m³</span>`);
+    if (kodStanowiska) {
+        czesci.push('<button type="button" data-act="koszyk">cały koszyk</button>');
+    }
+    czesci.push('<button type="button" data-act="wyczysc" title="Zamknij listę">×</button>');
+
+    breadcrumb.innerHTML = czesci.join(' ');
+    breadcrumb.style.display = 'flex';
+    breadcrumb.querySelector('[data-act="koszyk"]')
+        ?.addEventListener('click', () => dpUstawFiltr(kodKoszyka, null));
+    breadcrumb.querySelector('[data-act="wyczysc"]')
+        ?.addEventListener('click', dpWyczyscFiltr);
+}
+
+function dpWiersz(p) {
+    const dni = p.days;
+    // Kolor tylko tam, gdzie niesie znaczenie: po terminie i „dziś/jutro".
+    let styl = '';
+    if (dni !== null && dni !== undefined) {
+        if (dni < 0) styl = 'color: #dc2626; font-weight: 600;';
+        else if (dni <= 2) styl = 'color: #d97706; font-weight: 600;';
+    }
+    const priorytet = p.is_priority
+        ? ' <i class="fas fa-bolt" title="Priorytet" style="color: #d97706;"></i>'
+        : '';
+    return `
+        <tr>
+            <td><strong>${escapeHtml(p.baselinker_order_id ?? '—')}</strong></td>
+            <td style="font-family: monospace; font-size: 12px;">${escapeHtml(p.short_product_id || '—')}${priorytet}</td>
+            <td style="font-size: 12px;">${escapeHtml(p.client || '—')}</td>
+            <td style="font-size: 12px;">${escapeHtml(p.station_label || p.station_code || '—')}</td>
+            <td style="font-family: monospace; font-size: 12px;">${escapeHtml(p.deadline || '—')}</td>
+            <td style="font-family: monospace; ${styl}">${dni === null || dni === undefined ? '—' : (dni > 0 ? '+' + dni : dni)}</td>
+            <td>${escapeHtml(p.quantity ?? 0)}</td>
+            <td style="font-family: monospace;">${m3(p.m3)}</td>
+        </tr>
+    `;
+}
+
+function dpRenderStrone() {
+    const tbody = el('dp-table-body');
+    const tabela = el('dp-table-wrapper');
+    const paginacja = el('dp-pagination');
+    if (!tbody || !tabela) return;
+
+    tabela.style.display = 'block';
+
+    if (!dpPozycje.length) {
+        // Realny przypadek przy items_truncated: słupek liczy pozycje, których
+        // nie ma w przyciętej liście. Milczenie wyglądałoby jak zepsuty filtr.
+        tbody.innerHTML = '<tr><td colspan="8" class="wo-muted" style="padding: 14px;">'
+            + 'Te pozycje nie zmieściły się w liście przysłanej z serwera (limit 500). '
+            + 'Zawęź wybór, klikając w pojedyncze stanowisko na słupku.</td></tr>';
+        if (paginacja) paginacja.style.display = 'none';
+        return;
+    }
+
+    const total = dpPozycje.length;
+    const stron = Math.max(1, Math.ceil(total / DP_ROZMIAR_STRONY));
+    if (dpStrona > stron) dpStrona = stron;
+    if (dpStrona < 1) dpStrona = 1;
+
+    const od = (dpStrona - 1) * DP_ROZMIAR_STRONY;
+    const doo = Math.min(od + DP_ROZMIAR_STRONY, total);
+    tbody.innerHTML = dpPozycje.slice(od, doo).map(dpWiersz).join('');
+
+    if (!paginacja) return;
+    if (stron <= 1) {
+        paginacja.style.display = 'none';
+        return;
+    }
+    paginacja.style.display = 'flex';
+    dpRenderPaginacje(stron, total, od, doo);
+}
+
+function dpRenderPaginacje(stron, total, od, doo) {
+    const info = el('dp-pagination-info');
+    const kontrolki = el('dp-pagination-controls');
+    if (!info || !kontrolki) return;
+
+    info.textContent = `${od + 1}–${doo} z ${total} pozycji`;
+
+    // Ta sama funkcja co paginacja stanowisk i ludzi — trzy widgety mają
+    // zachowywać się identycznie, więc lista stron jest jedna na cały panel.
+    const strony = computeSoPageList(dpStrona, stron);
+    const czesci = [`<button type="button" data-act="prev" ${dpStrona === 1 ? 'disabled' : ''} title="Poprzednia">‹</button>`];
+    for (const p of strony) {
+        if (p === '…') {
+            czesci.push('<span class="so-page-ellipsis">…</span>');
+        } else {
+            czesci.push(`<button type="button" data-page="${p}" class="${p === dpStrona ? 'active' : ''}">${p}</button>`);
+        }
+    }
+    czesci.push(`<button type="button" data-act="next" ${dpStrona === stron ? 'disabled' : ''} title="Następna">›</button>`);
+    kontrolki.innerHTML = czesci.join('');
+
+    kontrolki.querySelectorAll('button').forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (btn.dataset.act === 'prev' && dpStrona > 1) dpStrona -= 1;
+            else if (btn.dataset.act === 'next' && dpStrona < stron) dpStrona += 1;
+            else if (btn.dataset.page) {
+                const p = parseInt(btn.dataset.page, 10);
+                if (isNaN(p) || p === dpStrona) return;
+                dpStrona = p;
+            } else return;
+            dpRenderStrone();
+        });
+    });
+}
+
+function initDeadlineProgress() {
+    const toggle = el('dp-only-urgent');
+    try {
+        dpTylkoPilne = localStorage.getItem(DP_KLUCZ) === '1';
+    } catch (e) { /* tryb prywatny potrafi rzucić na samym dostępie */ }
+    if (toggle) {
+        toggle.checked = dpTylkoPilne;
+        toggle.addEventListener('change', () => {
+            dpTylkoPilne = toggle.checked;
+            try { localStorage.setItem(DP_KLUCZ, dpTylkoPilne ? '1' : '0'); } catch (e) { }
+            // Przerysowanie z tego, co już mamy — filtr jest czysto frontowy,
+            // endpoint i tak zwraca komplet sześciu koszyków.
+            dpWyczyscFiltr();
+            renderDeadlineProgress();
+        });
+    }
+    el('dp-refresh-btn')?.addEventListener('click', loadDeadlineProgress);
+    loadDeadlineProgress();
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Wykres 3: Wejście vs wyjście hali
+// ════════════════════════════════════════════════════════════════════
+
+const FIO_KLUCZ = 'production.reports.flowInOut';
+const FIO_PRESETY = { '30d': 30, '90d': 90, '365d': 365 };
+
+const FIO_KOLOR_WE = '#2563eb';
+const FIO_KOLOR_WY = '#16a34a';
+const FIO_KOLOR_KUM = '#d97706';
+
+function fioZakres(preset) {
+    const dni = FIO_PRESETY[preset] || 90;
+    const dzis = new Date();
+    dzis.setHours(0, 0, 0, 0);
+    const start = new Date(dzis);
+    start.setDate(start.getDate() - (dni - 1));
+    // soFormatLocalDate, nie toISOString: ten drugi konwertuje na UTC i po 22:00
+    // czasu lokalnego zaczyna wysyłać wczorajszą datę końca zakresu.
+    return { start: soFormatLocalDate(start), end: soFormatLocalDate(dzis) };
+}
+
+function fioDataZIso(iso) {
+    // Ręczny rozbiór zamiast new Date(iso): konstruktor z samą datą czyta ją
+    // jako UTC, więc etykieta dnia potrafi się cofnąć o dobę.
+    const [r, m, d] = String(iso).split('-').map(Number);
+    return new Date(r, (m || 1) - 1, d || 1);
+}
+
+function fioEtykieta(iso) {
+    const [, m, d] = String(iso).split('-');
+    return `${d}.${m}`;
+}
+
+async function loadFlowInOut() {
+    const select = el('fio-preset-select');
+    const preset = select ? select.value : '90d';
+    const { start, end } = fioZakres(preset);
+
+    pokazStan('fio-empty', 'fio-chart-wrapper', 'Ładowanie…');
+    zajetyPrzycisk('fio-refresh-btn', true);
+
+    try {
+        const dane = await pobierzJson('/production/api/reports/flow-in-out'
+            + `?start_date=${encodeURIComponent(start)}&end_date=${encodeURIComponent(end)}`);
+        renderFlowInOut(dane);
+    } catch (err) {
+        console.error('[Terminy] flow-in-out:', err);
+        const nota = el('fio-note');
+        if (nota) { nota.textContent = ''; nota.classList.remove('report-note-warn'); }
+        pokazStan('fio-empty', 'fio-chart-wrapper',
+            `Nie udało się pobrać przepływu: ${err.message}. Kliknij ↻, żeby spróbować ponownie.`);
+    } finally {
+        zajetyPrzycisk('fio-refresh-btn', false);
+    }
+}
+
+function renderFlowInOut(dane) {
+    const dni = dane.days || [];
+    const tygodniowo = dane.granularity === 'tydzien';
+    const nota = el('fio-note');
+
+    // ── Podpis: zakres, ziarno, sumy i co ta linia W OGÓLE mierzy ──
+    if (nota) {
+        const dryf = dane.cumulative_end_m3;
+        const czesci = [
+            `${escapeHtml(dane.start_date)} – ${escapeHtml(dane.end_date)}`,
+            tygodniowo ? 'słupki tygodniowe (data = poniedziałek)' : 'słupki dzienne',
+            `weszło ${m3(dane.total_in_m3)} m³, wyszło ${m3(dane.total_out_m3)} m³`,
+            `dryf ${dryf >= 0 ? '+' : ''}${m3(dryf)} m³`,
+        ];
+        let html = czesci.join(' · ') + '.';
+        html += ' Linia kumulacji startuje od zera w pierwszym dniu zakresu, więc mierzy'
+             + ' <strong>dryf w oknie</strong> („weszło o tyle więcej, niż wyszło”), a nie to,'
+             + ' ile m³ leży dziś w hali. Oś jest 7-dniowa — zamówienia wpadają też w weekend,'
+             + ' choć hala wtedy nie pracuje. Wyjście liczy wyłącznie pracę ludzi na pakowaniu'
+             + ' (pominięcia automatyczne nie wchodzą).';
+        if (dane.range_trimmed) {
+            html += ` <strong>Zakres przycięty do ${escapeHtml(dane.first_product_date || dane.start_date)}</strong>`
+                 + ' — wcześniej nie ma w systemie ani jednego produktu.';
+        }
+        nota.innerHTML = html;
+        nota.classList.toggle('report-note-warn', !!dane.range_trimmed);
+    }
+
+    if (!dni.length) {
+        pokazStan('fio-empty', 'fio-chart-wrapper',
+            'Dla tego zakresu nie ma ani jednego dnia z danymi — w systemie nie ma jeszcze produktów.');
+        zniszczWykres(el('fio-chart'));
+        return;
+    }
+
+    const cokolwiek = dni.some(d => d.in_m3 !== 0 || d.out_m3 !== 0);
+    if (!cokolwiek) {
+        pokazStan('fio-empty', 'fio-chart-wrapper',
+            'W tym zakresie nic nie weszło do produkcji i nic nie wyszło z pakowania. '
+            + 'Jeśli hala wtedy pracowała, sprawdź, czy tablety na pakowaniu domykają pozycje.');
+        zniszczWykres(el('fio-chart'));
+        return;
+    }
+
+    schowajStan('fio-empty', 'fio-chart-wrapper');
+
+    const canvas = el('fio-chart');
+    if (!canvas) return;
+    zChartem(
+        () => fioRysuj(canvas, dni, tygodniowo),
+        () => pokazStan('fio-empty', 'fio-chart-wrapper',
+            'Nie wczytała się biblioteka wykresów (Chart.js). Odśwież stronę — '
+            + 'jeśli to nie pomoże, blokuje ją rozszerzenie przeglądarki.')
+    );
+}
+
+function fioRysuj(canvas, dni, tygodniowo) {
+    const etykiety = dni.map(d => fioEtykieta(d.date));
+    const jednostka = tygodniowo ? 'm³ / tydzień' : 'm³ / dzień';
+
+    zniszczWykres(canvas);
+    new Chart(canvas.getContext('2d'), {
+        type: 'bar',
+        data: {
+            labels: etykiety,
+            datasets: [
+                {
+                    label: 'Weszło',
+                    data: dni.map(d => d.in_m3),
+                    backgroundColor: FIO_KOLOR_WE,
+                    borderWidth: 0,
+                    order: 2,
+                },
+                {
+                    label: 'Wyszło (pakowanie)',
+                    data: dni.map(d => d.out_m3),
+                    backgroundColor: FIO_KOLOR_WY,
+                    borderWidth: 0,
+                    order: 2,
+                },
+                {
+                    // Kumulacja ma własną oś: chodzi o ±kilka m³ przy słupkach
+                    // rzędu 1-2 m³, więc na wspólnej osi albo znika, albo
+                    // spłaszcza słupki do paska przy zerze.
+                    type: 'line',
+                    label: 'Kumulacja (dryf w oknie)',
+                    data: dni.map(d => d.cumulative_diff_m3),
+                    borderColor: FIO_KOLOR_KUM,
+                    backgroundColor: FIO_KOLOR_KUM,
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                    tension: 0.2,
+                    yAxisID: 'y1',
+                    order: 1,
+                },
+            ],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { position: 'top', labels: { font: { size: 11 }, boxWidth: 10 } },
+                tooltip: {
+                    callbacks: {
+                        title: (items) => {
+                            if (!items.length) return '';
+                            const iso = dni[items[0].dataIndex].date;
+                            const data = fioDataZIso(iso);
+                            // Dzień tygodnia przy ziarnie dziennym nie jest ozdobą:
+                            // bez niego zerowe wyjście w sobotę czyta się jak awaria.
+                            return tygodniowo
+                                ? `tydzień od ${data.toLocaleDateString('pl-PL')}`
+                                : data.toLocaleDateString('pl-PL', {
+                                    weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' });
+                        },
+                        label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y >= 0 && ctx.dataset.yAxisID === 'y1' ? '+' : ''}${m3(ctx.parsed.y)} m³`,
+                    },
+                },
+            },
+            scales: {
+                x: {
+                    grid: { display: false },
+                    ticks: { font: { size: 10 }, autoSkip: true, maxTicksLimit: 15 },
+                },
+                y: {
+                    beginAtZero: true,
+                    position: 'left',
+                    title: { display: true, text: jednostka, font: { size: 10 } },
+                    ticks: { font: { size: 10 }, callback: v => v.toFixed(1) },
+                    grid: { color: 'rgba(0,0,0,0.05)' },
+                },
+                y1: {
+                    position: 'right',
+                    title: { display: true, text: 'Kumulacja m³', font: { size: 10 }, color: FIO_KOLOR_KUM },
+                    ticks: { font: { size: 10 }, color: FIO_KOLOR_KUM, callback: v => v.toFixed(1) },
+                    grid: { drawOnChartArea: false },
+                },
+            },
+        },
+    });
+}
+
+function initFlowInOut() {
+    const select = el('fio-preset-select');
+    if (select) {
+        try {
+            const zapamietany = localStorage.getItem(FIO_KLUCZ);
+            if (zapamietany && FIO_PRESETY[zapamietany]) select.value = zapamietany;
+        } catch (e) { /* j.w. */ }
+        select.addEventListener('change', () => {
+            try { localStorage.setItem(FIO_KLUCZ, select.value); } catch (e) { }
+            loadFlowInOut();
+        });
+    }
+    el('fio-refresh-btn')?.addEventListener('click', loadFlowInOut);
+    loadFlowInOut();
+}
+
+// Init synchronicznie na końcu fragmentu, bez setTimeout: executeInlineScripts
+// podmienia węzeł przez replaceChild, czyli wykonuje ten skrypt dopiero po
+// wstawieniu markupu do DOM.
+//
+// Oba widgety startują OSOBNYMI zadaniami i nikt na nikogo nie czeka (żadnego
+// await między nimi): migawka terminów i przepływ to dwa niezależne agregaty,
+// a wolniejszy z nich nie ma prawa trzymać drugiego w stanie „Ładowanie…".
+initDeadlineProgress();
+initFlowInOut();
+})();
+</script>

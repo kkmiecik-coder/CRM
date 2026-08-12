@@ -150,7 +150,8 @@
 .performance-widget,
 .status-breakdown-widget,
 .analytics-widget,
-.sync-history-widget {
+.sync-history-widget,
+.report-widget {
     background: var(--il-bg-card, #fff);
     border: 1px solid var(--il-border, #c8cdd5);
     border-radius: var(--il-radius, 3px);
@@ -161,7 +162,8 @@
 .performance-widget:hover,
 .status-breakdown-widget:hover,
 .analytics-widget:hover,
-.sync-history-widget:hover {
+.sync-history-widget:hover,
+.report-widget:hover {
     box-shadow: none;
 }
 
@@ -174,7 +176,8 @@
 .analytics-widget .widget-header,
 .sync-history-widget .widget-header,
 .station-output-widget .widget-header,
-.worker-output-widget .widget-header {
+.worker-output-widget .widget-header,
+.report-widget .widget-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -186,7 +189,8 @@
    waskim ekranie, zeby kontrolki nie wyjechaly poza kafelek. */
 .performance-widget .widget-header,
 .station-output-widget .widget-header,
-.worker-output-widget .widget-header {
+.worker-output-widget .widget-header,
+.report-widget .widget-header {
     flex-wrap: wrap;
     gap: 10px;
 }
@@ -196,7 +200,8 @@
 .analytics-widget .widget-header h4,
 .sync-history-widget .widget-header h4,
 .station-output-widget .widget-header h4,
-.worker-output-widget .widget-header h4 {
+.worker-output-widget .widget-header h4,
+.report-widget .widget-header h4 {
     margin: 0;
     font-family: 'JetBrains Mono', monospace;
     font-size: 14px;
@@ -211,7 +216,8 @@
 .analytics-widget .widget-content,
 .sync-history-widget .widget-content,
 .station-output-widget .widget-content,
-.worker-output-widget .widget-content {
+.worker-output-widget .widget-content,
+.report-widget .widget-content {
     padding: 14px;
 }
 
@@ -514,14 +520,16 @@
 }
 
 .station-output-widget,
-.worker-output-widget {
+.worker-output-widget,
+.report-widget {
     background: var(--il-bg-card, #fff);
     border: 1px solid var(--il-border, #c8cdd5);
     border-radius: var(--il-radius, 3px);
     margin-bottom: 16px;
 }
 .station-output-widget .widget-controls,
-.worker-output-widget .widget-controls {
+.worker-output-widget .widget-controls,
+.report-widget .widget-controls {
     display: flex;
     gap: 6px;
     align-items: center;
@@ -529,7 +537,9 @@
 .station-output-widget .widget-controls .form-select,
 .station-output-widget .widget-controls .form-control,
 .worker-output-widget .widget-controls .form-select,
-.worker-output-widget .widget-controls .form-control {
+.worker-output-widget .widget-controls .form-control,
+.report-widget .widget-controls .form-select,
+.report-widget .widget-controls .form-control {
     width: auto;
     font-size: 12px;
     padding: 4px 8px;
@@ -539,7 +549,8 @@
 /* Bootstrap form-select renderuje strzalke v przez background-image —
    trzeba zarezerwowac padding-right zeby tekst pod nia nie wchodzil. */
 .station-output-widget .widget-controls .form-select,
-.worker-output-widget .widget-controls .form-select {
+.worker-output-widget .widget-controls .form-select,
+.report-widget .widget-controls .form-select {
     padding-right: 28px;
 }
 .station-output-summary,
@@ -609,6 +620,13 @@
     color: var(--il-text-muted, #9ba3b0);
     font-size: 9px;
 }
+/* Gwiazdka przy nazwisku pracownika z niezamknieta sesja — jego godziny
+   (mianownik tempa) rosna w trakcie ogladania raportu. */
+.wo-open-marker {
+    color: var(--il-warning, #b45309);
+    font-weight: 700;
+    cursor: help;
+}
 /* Bez Bootstrapowego .table-responsive — ono dokłada własne marginesy,
    których wzorcowy widget stanowiskowy nie ma. */
 .wo-table-wrapper {
@@ -647,7 +665,8 @@
 .station-output-table .so-delta-neg { color: #dc2626; font-weight: 600; }
 .station-output-empty,
 .wo-empty,
-.wo-loader {
+.wo-loader,
+.report-empty {
     padding: 20px;
     text-align: center;
     color: var(--il-text-secondary, #7a8291);
@@ -775,4 +794,604 @@
     padding: 0 4px;
     color: var(--il-text-secondary, #7a8291);
     font-size: 12px;
+}
+
+/* ─── Nowe widgety raportow (dni zapasu, terminy, przeplyw, heatmapa,
+       obsada, pokrycie, dorobki) ───
+
+   Wszystkie nosza klase .report-widget i przez to dziedzicza CALY wyglad
+   kafelka po widgecie stanowiskowym — naglowek, kontrolki, tresc i puste stany
+   sa dopisane do TYCH SAMYCH list selektorow wyzej, nie skopiowane. Ponizej
+   siedzi wylacznie to, czego zaden dotychczasowy widget nie mial. */
+
+/* Badge „Trwa nauka" — pigulka w naglowku widgetu, obok <h4>.
+   Znaczy „tym liczbom jeszcze nie ufaj, bo profile dopiero wchodza na hale",
+   liczona Z DANYCH (dwa wymiary naraz: dni z danymi i pokrycie stanowisk).
+   NIE pojawia sie na wykresie pokrycia atrybucja (to on JEST miernikiem nauki)
+   ani na dorobkach (tam chodzi o brak rejestracji, nie o dojrzalosc danych). */
+.badge-nauka {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 8px;
+    border: 1px solid var(--il-status-warn, #d97706);
+    border-radius: 10px;
+    background: rgba(217, 119, 6, 0.1);
+    color: var(--il-status-warn, #d97706);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+    cursor: help;
+}
+.badge-nauka i {
+    font-size: 10px;
+}
+/* Naglowek z badge'em: tytul i pigulka trzymaja sie razem, kontrolki zostaja
+   po prawej. Bez tego badge ladowal na drugiej linii przy waskim kafelku. */
+.report-widget .widget-header h4 .badge-nauka,
+.worker-output-widget .widget-header h4 .badge-nauka {
+    margin-left: 10px;
+    vertical-align: middle;
+}
+
+/* Podpis pod wykresem: zakres okna, dzielnik, zastrzezenie metodyczne.
+   Wersja .report-note-warn (kolor ostrzegawczy) wlacza sie sama, gdy okno jest
+   za krotkie — to samo sie tlumaczy i samo wraca do normy, bez odliczania dni. */
+.report-note {
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--il-text-secondary, #7a8291);
+    margin-top: 10px;
+}
+.report-note-warn {
+    color: var(--il-status-warn, #d97706);
+}
+.report-note:empty {
+    display: none;
+}
+
+/* Kontener plotna. Chart.js bierze rozmiar z rodzica W CHWILI rysowania, wiec
+   wysokosc musi byc na kontenerze, a nie na <canvas>. */
+.report-chart-wrapper {
+    position: relative;
+    height: 240px;
+    width: 100%;
+}
+.report-chart-tall {
+    height: 320px;
+}
+
+/* Przelacznik w naglowku (np. „Tylko pilne (<=7 dni)") — ten sam monospace
+   i ten sam rozmiar co reszta kontrolek widgetu. */
+.report-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--il-text-secondary, #7a8291);
+    cursor: pointer;
+    white-space: nowrap;
+}
+.report-toggle input {
+    cursor: pointer;
+    margin: 0;
+}
+
+/* Sciezka drill-downu nad tabela: „Po terminie > Logistyka (1 poz.) x" */
+.report-breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 12px 0 4px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--il-status-info, #2563eb);
+}
+.report-breadcrumb button {
+    background: transparent;
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    padding: 1px 6px;
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--il-text-secondary, #7a8291);
+    cursor: pointer;
+}
+.report-breadcrumb button:hover {
+    border-color: var(--il-status-info, #2563eb);
+    color: var(--il-status-info, #2563eb);
+}
+
+/* ─── Heatmapa „kiedy hala realnie pracuje" ───
+
+   Czysty CSS Grid, nie Chart.js: wtyczki matrix nie ma w static/vendor, a CDN
+   jest w tym projekcie zakazany (Safari ITP). 168 komorek to kilkanascie linii
+   siatki, a realny DOM daje za darmo tooltip przez title, zaznaczanie, druk
+   i dostep z klawiatury — canvas nie daje nic z tego.
+
+   24 kolumny, nie „tylko godziny pracy": „w nocy nic sie nie dzieje" to
+   ODPOWIEDZ tego widgetu, a nie puste miejsce do zaoszczedzenia. Przy waskim
+   ekranie siatka scrolluje sie w poziomie, zamiast zwijac kolumny. */
+.hm-scroll {
+    overflow-x: auto;
+    padding-bottom: 4px;
+}
+.hm-grid {
+    display: grid;
+    grid-template-columns: 34px repeat(24, minmax(22px, 1fr));
+    gap: 2px;
+    min-width: 620px;
+}
+.hm-hour,
+.hm-day {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: var(--il-text-secondary, #7a8291);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: flex;
+    align-items: center;
+}
+.hm-hour {
+    justify-content: center;
+    padding-bottom: 2px;
+}
+.hm-day {
+    justify-content: flex-end;
+    padding-right: 6px;
+}
+.hm-cell {
+    height: 22px;
+    border-radius: 2px;
+    background: var(--il-bg-base, #eef0f4);
+    cursor: help;
+}
+/* Komorki ujemne (cofniecia) maja wlasna rampe — kolor ustawia JS, ale obrys
+   jest tutaj, zeby cofniecie bylo widoczne takze przy malej wartosci. */
+.hm-cell-neg {
+    outline: 1px solid var(--il-status-danger, #dc2626);
+    outline-offset: -1px;
+}
+.hm-legend {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--il-text-secondary, #7a8291);
+}
+.hm-legend-scale {
+    display: inline-flex;
+    gap: 2px;
+}
+.hm-legend-scale span {
+    width: 18px;
+    height: 10px;
+    border-radius: 2px;
+}
+
+/* ─── PODZAKLADKA PRZEGLAD (.ov-*) ───
+
+   Przeglad jest podzakladka DOMYSLNA, wiec laduje sie kazdemu i przy kazdym
+   wejsciu na Raporty. Stad dwie zasady rzadzace cala ta sekcja:
+
+   1. ZERO CANVASU. Wszystkie paski to <div>/<span> o rozmiarze w procentach.
+      Chart.js bierze rozmiar w chwili rysowania i przy panelu jeszcze
+      niewidocznym zapamietuje 0x0 — cala machineria odswiezWykresyPanelu()
+      w szkielecie istnieje wylacznie z tego powodu. Podzakladka domyslna nie ma
+      prawa tego ryzyka dokladac.
+   2. ZERO NOWEJ KONWENCJI. Kafelki nosza .widget.report-widget i dziedzicza
+      caly wyglad (naglowek, tresc, puste stany, .report-note, .badge-nauka)
+      po widgecie stanowiskowym. Ponizej siedzi wylacznie to, czego zaden
+      dotychczasowy widget nie mial. */
+
+/* Stempel swiezosci nad pierwszym kafelkiem. Po 15 minutach JS dopisuje
+   „· sprzed X min" i zapala .ov-stamp-stale — strona sama przyznaje sie, ze
+   jest stara, zamiast odswiezac sie w tle bez czytelnika. */
+.ov-stamp {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+.ov-stamp-text {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--il-text-secondary, #7a8291);
+}
+.ov-stamp-stale {
+    color: var(--il-status-warn, #d97706);
+}
+
+/* ─── Element 2: kolejki przed stanowiskami ─── */
+.ov-queue {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+/* Wiersz jest <button>, nie <div role="button">: drill-down w stanowisko ma
+   dzialac z klawiatury i z czytnika ekranu bez dopisywania obslugi. */
+.ov-queue-row {
+    display: grid;
+    grid-template-columns: 150px 1fr auto;
+    grid-template-areas:
+        "nazwa pasek dni"
+        "nazwa sub   sub";
+    align-items: center;
+    gap: 2px 10px;
+    width: 100%;
+    padding: 7px 8px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--il-radius, 3px);
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.1s, border-color 0.1s;
+}
+.ov-queue-row:hover {
+    background: var(--il-bg-base, #eef0f4);
+    border-color: var(--il-border, #c8cdd5);
+}
+.ov-queue-name {
+    grid-area: nazwa;
+    font-size: 13px;
+    color: var(--il-text-primary, #2c3038);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.ov-queue-bar {
+    grid-area: pasek;
+    display: block;
+    height: 12px;
+    background: var(--il-bg-base, #eef0f4);
+    border-radius: 2px;
+    overflow: hidden;
+}
+.ov-queue-bar-fill {
+    display: block;
+    height: 100%;
+    background: var(--il-status-info, #2563eb);
+    border-radius: 2px;
+}
+.ov-queue-days {
+    grid-area: dni;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--il-text-primary, #2c3038);
+    white-space: nowrap;
+}
+.ov-queue-sub {
+    grid-area: sub;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--il-text-secondary, #7a8291);
+}
+/* LIDER dostaje mocniejsza typografie i NIC WIECEJ — zadnego koloru alarmowego.
+   Backtest 60 dob: liderem bylo to samo stanowisko 60/60 razy, wiec flaga
+   „waskie gardlo" bylaby dekoracja, a nie informacja. */
+.ov-queue-lead .ov-queue-days {
+    font-size: 15px;
+    font-weight: 700;
+}
+/* Jedyna binarna flaga tego elementu: kolejka stoi, a stanowisko nie zrobilo
+   w oknie NIC. Zmierzone 0/60 dob — normalnie zgaszona. */
+.ov-queue-warn .ov-queue-bar-fill {
+    background: var(--il-status-danger, #dc2626);
+}
+.ov-queue-warn .ov-queue-days {
+    color: var(--il-status-danger, #dc2626);
+    font-weight: 700;
+}
+/* Ani pracy, ani kolejki — stanowisko bez roboty nie jest waskim gardlem. */
+.ov-queue-idle {
+    opacity: 0.55;
+}
+
+/* ─── Kafelki (elementy 3 i 5) ─── */
+.ov-tiles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.ov-tile {
+    flex: 1 1 130px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 10px 12px;
+    background: var(--il-bg-base, #eef0f4);
+    border: 1px solid var(--il-border-light, #e2e5ea);
+    border-radius: var(--il-radius, 3px);
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.1s;
+}
+.ov-tile:hover {
+    border-color: var(--il-status-info, #2563eb);
+}
+.ov-tile-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--il-text-primary, #2c3038);
+    white-space: nowrap;
+}
+.ov-tile-label {
+    font-size: 11px;
+    color: var(--il-text-secondary, #7a8291);
+}
+.ov-tile-warn .ov-tile-value {
+    color: var(--il-status-warn, #d97706);
+}
+/* Kafelek z zerem ZOSTAJE, tylko przygaszony: skala pilnosci ma stala os, wiec
+   przy dobrej robocie ma byc widac, ze koszyk jest pusty — a nie, ze zniknal. */
+.ov-tile-zero {
+    opacity: 0.5;
+}
+.ov-tile-total {
+    background: var(--il-bg-card, #fff);
+    border-style: dashed;
+}
+
+/* Trzy segmenty z najwiekszym udzialem — „przed czym to stoi". */
+.ov-seg {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 10px;
+}
+.ov-seg:empty {
+    display: none;
+}
+.ov-seg-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--il-text-secondary, #7a8291);
+}
+.ov-seg-item {
+    padding: 3px 8px;
+    font-size: 11px;
+    color: var(--il-text-primary, #2c3038);
+    background: var(--il-bg-base, #eef0f4);
+    border: 1px solid var(--il-border-light, #e2e5ea);
+    border-radius: 10px;
+    cursor: pointer;
+}
+.ov-seg-item:hover {
+    border-color: var(--il-status-info, #2563eb);
+}
+.ov-seg-item strong {
+    font-family: 'JetBrains Mono', monospace;
+    margin-left: 4px;
+}
+
+/* ─── Linie (elementy 4 i 7) ─── */
+.ov-line {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 10px;
+    margin-bottom: 4px;
+    background: var(--il-bg-base, #eef0f4);
+    border: 1px solid var(--il-border-light, #e2e5ea);
+    border-left-width: 3px;
+    border-radius: var(--il-radius, 3px);
+    text-align: left;
+    font-size: 13px;
+    cursor: pointer;
+}
+.ov-line:hover {
+    border-color: var(--il-status-info, #2563eb);
+}
+.ov-line-label {
+    color: var(--il-text-secondary, #7a8291);
+}
+.ov-line strong {
+    font-family: 'JetBrains Mono', monospace;
+}
+/* Robota po terminie STOJACA NA HALI — jedyny czlon alarmowy tego elementu. */
+.ov-line-alarm {
+    border-left-color: var(--il-status-danger, #dc2626);
+}
+.ov-line-alarm strong {
+    color: var(--il-status-danger, #dc2626);
+}
+.ov-line-ok {
+    border-left-color: var(--il-border, #c8cdd5);
+}
+/* Zaleglosc administracyjna (Logistyka, Wstrzymane) — NIE alarm hali. */
+.ov-line-neutral {
+    border-left-color: var(--il-text-muted, #9ba3b0);
+}
+/* Linia, ktora nigdzie nie prowadzi (ostrzezenie o bezczynnych sesjach).
+   Kazdy inny element Przegladu ma dokladnie jedno wyjscie, wiec brak kursora
+   jest tu informacja, a nie niedorobka. */
+.ov-line-static {
+    cursor: default;
+}
+.ov-line-static:hover {
+    border-color: var(--il-border-light, #e2e5ea);
+    border-left-color: var(--il-status-danger, #dc2626);
+}
+.ov-nauka-braki {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--il-text-secondary, #7a8291);
+}
+
+/* ─── Element 5: lista ludzi na hali ─── */
+.ov-crew {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-top: 10px;
+}
+.ov-crew-row {
+    display: grid;
+    grid-template-columns: minmax(140px, 1fr) minmax(160px, 1.2fr) auto;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 7px 8px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-left-width: 3px;
+    border-radius: var(--il-radius, 3px);
+    text-align: left;
+    cursor: pointer;
+}
+.ov-crew-row:hover {
+    background: var(--il-bg-base, #eef0f4);
+    border-color: var(--il-border, #c8cdd5);
+}
+.ov-crew-name {
+    font-size: 13px;
+    color: var(--il-text-primary, #2c3038);
+}
+.ov-crew-meta,
+.ov-crew-out {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--il-text-secondary, #7a8291);
+}
+.ov-crew-out {
+    text-align: right;
+    white-space: nowrap;
+}
+/* Prog bezczynnosci przychodzi Z KONFIGURACJI (prod_config), nie z CSS-a ani
+   z szablonu — tutaj zostaje sam kolor. */
+.ov-crew-warn {
+    border-left-color: var(--il-status-warn, #d97706);
+    background: rgba(217, 119, 6, 0.06);
+}
+.ov-crew-idle {
+    color: var(--il-status-warn, #d97706);
+    font-weight: 600;
+}
+
+/* ─── Element 6: wejscie/wyjscie hali ─── */
+.ov-flow-scroll {
+    overflow-x: auto;
+    padding-bottom: 4px;
+}
+.ov-flow {
+    display: flex;
+    align-items: flex-end;
+    gap: 4px;
+    min-width: 420px;
+    height: 130px;
+}
+.ov-flow-day {
+    flex: 1 1 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    height: 100%;
+    cursor: help;
+}
+.ov-flow-bars {
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 2px;
+    height: 100%;
+    border-bottom: 1px solid var(--il-border, #c8cdd5);
+}
+.ov-flow-in,
+.ov-flow-out {
+    width: 45%;
+    max-width: 14px;
+    border-radius: 2px 2px 0 0;
+}
+.ov-flow-in {
+    background: var(--il-status-info, #2563eb);
+}
+.ov-flow-out {
+    background: #16a34a;
+}
+/* Doba bez wejscia i bez wyjscia (weekend) to BRAK SLUPKA, nie zero na osi —
+   zero sugerowaloby dzien pracy, w ktorym nic nie zrobiono. */
+.ov-flow-none {
+    display: block;
+    width: 100%;
+}
+.ov-flow-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    text-align: center;
+    color: var(--il-text-secondary, #7a8291);
+    padding-top: 3px;
+    white-space: nowrap;
+}
+/* Dzien dzisiejszy jest ZAWSZE oznaczony — to jedyny sposob, zeby slupek
+   liczony do polowy zmiany nie klamal, ze hala zwolnila. */
+.ov-flow-today .ov-flow-bars {
+    background: repeating-linear-gradient(
+        45deg,
+        transparent, transparent 3px,
+        rgba(122, 130, 145, 0.18) 3px, rgba(122, 130, 145, 0.18) 6px);
+    border-bottom-color: var(--il-status-warn, #d97706);
+}
+.ov-flow-today .ov-flow-label {
+    color: var(--il-status-warn, #d97706);
+    font-weight: 700;
+}
+.ov-flow-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--il-text-secondary, #7a8291);
+}
+.ov-swatch {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    margin-right: 4px;
+    border-radius: 2px;
+    vertical-align: middle;
+}
+.ov-swatch-in { background: var(--il-status-info, #2563eb); }
+.ov-swatch-out { background: #16a34a; }
+.ov-swatch-today {
+    background: repeating-linear-gradient(
+        45deg,
+        transparent, transparent 3px,
+        rgba(122, 130, 145, 0.35) 3px, rgba(122, 130, 145, 0.35) 6px);
+    border: 1px solid var(--il-status-warn, #d97706);
+}
+
+/* Waski ekran: kolejki i lista ludzi zwijaja sie do jednej kolumny, zeby
+   nazwisko i stanowisko nie ucinaly sie w polowie. */
+@media (max-width: 640px) {
+    .ov-queue-row {
+        grid-template-columns: 1fr auto;
+        grid-template-areas:
+            "nazwa dni"
+            "pasek pasek"
+            "sub   sub";
+    }
+    .ov-crew-row {
+        grid-template-columns: 1fr;
+        gap: 2px;
+    }
+    .ov-crew-out {
+        text-align: left;
+    }
 }

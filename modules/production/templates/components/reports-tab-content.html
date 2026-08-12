@@ -7,30 +7,44 @@
 
 
 <!-- Podsumowanie tygodniowe + Eksport -->
+{# Kafelki niosą JEDNOSTKĘ i OKNO w podpisie, a definicję w title.
+   „Ukończone w tygodniu: 163" czytało się jako sztuki, a to POZYCJE — sztuk
+   w tym samym oknie było 355, czyli 2,2× więcej. Okno („ostatnie 7 dni")
+   też nie było nigdzie napisane. #}
 <div class="reports-summary-row">
-    <div class="summary-card">
+    <div class="summary-card"
+         title="Pozycje ze statusem „spakowane" według daty zakończenia pakowania, z ostatnich 7 dni (włącznie z dziś). To pozycje, nie sztuki — jedna pozycja bywa wielosztukowa.">
         <div class="summary-icon">📈</div>
         <div class="summary-data">
             <div class="summary-value">{{ reports_summary['week_completed'] }}</div>
-            <div class="summary-label">Ukończone w tygodniu</div>
+            <div class="summary-label">Ukończone (poz., 7 dni)</div>
         </div>
     </div>
-    <div class="summary-card">
+    <div class="summary-card"
+         title="PEŁNA objętość tych pozycji (volume_m3 × quantity), nie ruch eventów. Widgety w podzakładkach liczą ruch (delta × volume) i na dłuższych oknach różnią się o ułamek procenta.">
         <div class="summary-icon">📊</div>
         <div class="summary-data">
             <div class="summary-value">{{ "%.2f"|format(reports_summary['week_volume']) }}</div>
-            <div class="summary-label">m³ w tygodniu</div>
+            <div class="summary-label">m³ ukończone (7 dni)</div>
         </div>
     </div>
-    <div class="summary-card">
+    <div class="summary-card"
+         title="Wszystkie pozycje z niepustym statusem — cała baza, bez zakresu dat.">
         <div class="summary-icon">🏭</div>
         <div class="summary-data">
             <div class="summary-value">{{ reports_summary['total_in_system'] }}</div>
             <div class="summary-label">Produktów w systemie</div>
         </div>
     </div>
+    {# Te przyciski eksportują CAŁY katalog produktów, nie oglądaną podzakładkę
+       — i tak mają, bo pasek KPI jest ogólnosystemowy (kafelek obok liczy
+       wszystkie 2491 pozycji). Podpis musi to mówić, bo widget „Wydajność
+       pracowników" ma własny przycisk XLSX, który zakres i stanowisko
+       respektuje: dwa różnie zachowujące się „Pobierz" na jednym ekranie to
+       gotowa pomyłka. #}
     <div class="summary-export">
-        <div class="summary-label" style="margin-bottom: 6px;">Pobierz</div>
+        <div class="summary-label" style="margin-bottom: 6px;"
+             title="Eksport całej listy produktów — niezależny od wybranej podzakładki, zakresu dat i filtra stanowiska.">Pobierz pełną listę produktów</div>
         <button class="btn btn-outline-success btn-sm" onclick="exportToExcel()" style="width: 100%; margin-bottom: 4px;">
             <i class="fas fa-file-excel me-1"></i> Excel
         </button>
@@ -47,7 +61,9 @@
    .tab-pane przy każdej zmianie zakładki głównej (updateTabUI). Podzakładka
    z tymi atrybutami dostałaby toast "Unknown tab" i gubiła stan .active. #}
 <div class="reports-subnav" role="tablist">
-    <button type="button" class="reports-subnav-btn active" data-sub="stanowiska" role="tab" aria-selected="true">Stanowiska</button>
+    <button type="button" class="reports-subnav-btn active" data-sub="przeglad" role="tab" aria-selected="true">Przegląd</button>
+    <button type="button" class="reports-subnav-btn" data-sub="stanowiska" role="tab" aria-selected="false">Stanowiska</button>
+    <button type="button" class="reports-subnav-btn" data-sub="terminy" role="tab" aria-selected="false">Terminy i przepływ</button>
     <button type="button" class="reports-subnav-btn" data-sub="ludzie" role="tab" aria-selected="false">Ludzie</button>
     <button type="button" class="reports-subnav-btn" data-sub="miks" role="tab" aria-selected="false">Miks produkcji</button>
     <button type="button" class="reports-subnav-btn" data-sub="system" role="tab" aria-selected="false">System</button>
@@ -69,9 +85,26 @@
 // zostaje w DOM (schowany) — powrót nie kosztuje ani jednego zapytania,
 // a wykresy Chart.js i stan filtrów przeżywają przełączenie.
 // ════════════════════════════════════════════════════════════════════
-const PODZAKLADKI = ['stanowiska', 'ludzie', 'miks', 'system'];
-const PODZAKLADKA_DOMYSLNA = 'stanowiska';
-const KLUCZ_PAMIECI = 'reportsSubTab';
+// Lista MUSI zgadzać się z _PODZAKLADKI w reports_api.py — nazwa spoza niej
+// nie ma jak dojechać do render_template, a nazwa brakująca tutaj czyni
+// podzakładkę nieosiągalną z paska.
+const PODZAKLADKI = ['przeglad', 'stanowiska', 'terminy', 'ludzie', 'miks', 'system'];
+const PODZAKLADKA_DOMYSLNA = 'przeglad';
+// KLUCZ Z SUFIKSEM .v2 — jednorazowy reset zapamiętanego wyboru. Bez niego
+// każdy, kto choć raz był w Raportach, ma w localStorage 'stanowiska' i nowej
+// domyślnej podzakładki NIGDY by nie zobaczył — łącznie z właścicielem, dla
+// którego powstała. Po tym jednym resecie wybór użytkownika znów jest
+// respektowany, bo zapisuje się już pod nowym kluczem.
+const KLUCZ_PAMIECI = 'reportsSubTab.v2';
+
+// Klucze localStorage współdzielone przez fragmenty. Mieszkają TUTAJ, a nie
+// w stations.html, bo od teraz zapisuje je także Przegląd (drill-down z
+// „Kolejek" w konkretne stanowisko). Dwie kopie tego samego literału to
+// gwarancja, że zmiana jednej strony po cichu urwie drugą.
+const KLUCZE = {
+    stanowisko: 'production.reports.station',            // wspólny wybór stanowiska
+    wykonanieStanowiska: 'production.reports.stationOutput', // stan widgetu „Wykonanie stanowiska w dniu"
+};
 
 const panele = new Map();    // nazwa -> element panelu obecny w DOM
 const wTrakcie = new Map();  // nazwa -> Promise pobrania (gwardia przed podwójnym fetch)
@@ -346,6 +379,45 @@ function przywrocPodzakladke() {
     aktywujPodzakladke(aktywny?.dataset.sub || wybranaNaStarcie());
 }
 
+// ════════════════════════════════════════════════════════════════════
+// Skoki między podzakładkami (używa ich Przegląd, który jest indeksem,
+// a nie kopią pozostałych widgetów)
+// ════════════════════════════════════════════════════════════════════
+
+// Zwykły skok. NIENISZCZĄCY: raz załadowany panel zostaje w DOM, więc
+// przeskok kosztuje ZERO zapytań — również powrót na Przegląd.
+// aktywujPodzakladke widzi tylko ten moduł, stąd cienki wrapper w moście.
+function przejdzDoPodzakladki(nazwa) {
+    return aktywujPodzakladke(nazwa);
+}
+
+// Skok w KONKRETNE stanowisko: kliknięcie w wiersz „Kolejek" ma otworzyć
+// Stanowiska już nastawione na to, o które użytkownik zapytał.
+//
+// PRESET '30d', a nie domyślne „Dziś" — świadome nadpisanie. Klik w kolejkę
+// zadaje pytanie o TEMPO („dlaczego to się nie schodzi"), nie o dzisiejszą
+// dobę. Zmierzone: lakiernia ma 40 eventów w 14 dobach roboczych i pracowała
+// w 6 z nich, więc na presecie „Dziś" widget wylądowałby pusty w 8 wejściach
+// na 14 i wyglądałoby to na awarię, a nie na odpowiedź.
+//
+// Przeładowanie panelu jest tu konieczne I wystarczające: stations.html czyta
+// oba klucze dopiero w initStationOutputWidget(), czyli raz, przy budowie
+// fragmentu. Dla panelu nigdy niezaładowanego panele.get() zwraca undefined
+// i ścieżka i tak działa.
+function przejdzDoStanowiska(kod, preset) {
+    try {
+        localStorage.setItem(KLUCZE.stanowisko, kod);
+        const wpis = JSON.parse(localStorage.getItem(KLUCZE.wykonanieStanowiska) || '{}');
+        wpis.station = kod;
+        wpis.preset = preset || '30d';
+        localStorage.setItem(KLUCZE.wykonanieStanowiska, JSON.stringify(wpis));
+    } catch (e) {
+        // Tryb prywatny / wyłączony localStorage — skok ma się odbyć mimo to,
+        // tylko bez nastawienia selecta. Lepsze niż martwe kliknięcie.
+    }
+    return przeladujPodzakladke('stanowiska');
+}
+
 window.ReportsShared = {
     escapeHtml,
     soFormatLocalDate,
@@ -354,7 +426,10 @@ window.ReportsShared = {
     toastRaportu,
     zniszczWykres,
     przeladujPodzakladke,
-    przywrocPodzakladke
+    przywrocPodzakladke,
+    przejdzDoPodzakladki,
+    przejdzDoStanowiska,
+    KLUCZE
 };
 
 // ════════════════════════════════════════════════════════════════════

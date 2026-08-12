@@ -1,0 +1,786 @@
+{# Podzakładka Raporty → PRZEGLĄD. Pierwsza i domyślna.
+
+   PRZEGLĄD JEST INDEKSEM, NIE KOPIĄ. Każdy element odpowiada na jedno pytanie
+   decyzyjne i ma DOKŁADNIE JEDNO wyjście do podzakładki, w której to samo jest
+   rozwinięte. Nic tu nie jest liczone po raz drugi: wszystkie liczby pochodzą
+   z pięciu endpointów, które już istnieją i już mają swoich konsumentów.
+   Powtórzenie widgetu z sąsiedniej podzakładki dałoby drugą liczbę na to samo
+   pytanie — a to jest ten sam błąd, który w tej zakładce łapaliśmy już dwa razy.
+
+   KOLEJNOŚĆ = PILNOŚĆ DECYZJI, nie ważność tematu:
+     kolejki → terminy → praca po terminie → kto na hali → przepływ → profile.
+
+   ZERO CHART.JS. Wszystkie paski to <div> o szerokości w procentach. Powód nie
+   jest estetyczny: szkielet utrzymuje odswiezWykresyPanelu(), zniszczWykres()
+   i posprzatajOsieroconeWykresy() WYŁĄCZNIE dlatego, że canvasy potrafią
+   narysować się w pudełku 0×0, gdy panel jeszcze nie jest widoczny. Podzakładka
+   DOMYŚLNA, ładowana przy każdym wejściu na Raporty, nie ma prawa dokładać tego
+   ryzyka. 7 pasków kolejek i 14 par słupków przepływu nie potrzebują biblioteki.
+
+   BRAK AUTO-ODŚWIEŻANIA. Zamiast tego stempel „Stan na HH:MM", który po 15
+   minutach sam się przyznaje, że jest stary. Zakładka zostawiona otwarta na
+   godzinę biłaby po 13 zapytań na cykl bez czytelnika.
+
+   Fragment nie ma i nie może mieć własnego bloku stylów — wchodzi do DOM przez
+   innerHTML, więc każdy taki blok zostawiałby kolejną kopię tych samych reguł.
+   Wygląd siedzi w static/css/reports-tab.css, sekcja .ov-*. #}
+
+<!-- ELEMENT 1: stempel świeżości. Zero zapytań — godzina z get_local_now()
+     przy renderowaniu fragmentu, starzenie liczy przeglądarka. -->
+<div class="ov-stamp">
+    <span class="ov-stamp-text" id="ov-stamp-text">Stan na {{ przeglad_stan_na }}</span>
+    <button type="button" id="ov-refresh-btn" class="btn btn-outline-primary btn-sm"
+            title="Pobierz wszystko od nowa">
+        <i class="fas fa-sync-alt"></i>
+    </button>
+</div>
+
+<!-- ELEMENT 2: kolejki przed stanowiskami — RDZEŃ STRONY -->
+<div class="widget report-widget" id="ov-kolejki-widget">
+    <div class="widget-header">
+        <h4>
+            <i class="fas fa-layer-group me-2"></i>
+            Kolejki przed stanowiskami
+        </h4>
+    </div>
+    <div class="widget-content">
+        <div class="report-empty" id="ov-kolejki-stan"></div>
+        <div class="ov-queue" id="ov-kolejki-body" style="display: none;"></div>
+        <div class="report-note" id="ov-kolejki-note"></div>
+    </div>
+</div>
+
+<!-- ELEMENT 3: zagrożone terminy -->
+<div class="widget report-widget" id="ov-terminy-widget">
+    <div class="widget-header">
+        <h4>
+            <i class="fas fa-hourglass-half me-2"></i>
+            Zagrożone terminy
+        </h4>
+    </div>
+    <div class="widget-content">
+        <div class="report-empty" id="ov-terminy-stan"></div>
+        <div id="ov-terminy-body" style="display: none;">
+            <div class="ov-tiles" id="ov-terminy-kafelki"></div>
+            <div class="ov-seg" id="ov-terminy-segmenty"></div>
+        </div>
+        <div class="report-note" id="ov-terminy-note"></div>
+    </div>
+</div>
+
+<!-- ELEMENT 4: praca po terminie.
+     Element WARUNKOWY — znika w całości, gdy koszyk „Po terminie" jest pusty.
+     Nie ma własnego stanu ładowania ani błędu, bo dzieli żądanie z elementem 3:
+     jeżeli terminy nie doszły, komunikat stoi tam, jeden raz, a nie dwa. -->
+<div class="widget report-widget" id="ov-po-terminie-widget" style="display: none;">
+    <div class="widget-header">
+        <h4>
+            <i class="fas fa-triangle-exclamation me-2"></i>
+            Praca po terminie
+        </h4>
+    </div>
+    <div class="widget-content">
+        <div id="ov-po-terminie-body"></div>
+        <div class="report-note" id="ov-po-terminie-note"></div>
+    </div>
+</div>
+
+<!-- ELEMENT 5: kto jest teraz na hali. Jedyne miejsce z badge'em „Trwa nauka" -->
+<div class="widget report-widget" id="ov-hala-widget">
+    <div class="widget-header">
+        <h4>
+            <i class="fas fa-user-clock me-2"></i>
+            Kto jest teraz na hali
+            <span id="ov-hala-badge"></span>
+        </h4>
+    </div>
+    <div class="widget-content">
+        <div class="report-empty" id="ov-hala-stan"></div>
+        <div id="ov-hala-body" style="display: none;">
+            <div class="ov-tiles" id="ov-hala-kafelki"></div>
+            {# .ov-line-static: to jedyna linia Przeglądu, która NIGDZIE nie
+               prowadzi — bez tego dziedziczyłaby po .ov-line kursor i hover,
+               czyli obiecywała kliknięcie, którego nie ma. #}
+            <div class="ov-line ov-line-alarm ov-line-static" id="ov-hala-alarm"
+                 style="display: none;"></div>
+            <div class="ov-crew" id="ov-hala-lista"></div>
+        </div>
+    </div>
+</div>
+
+<!-- ELEMENT 6: wejście i wyjście hali, 14 dni -->
+<div class="widget report-widget" id="ov-przeplyw-widget">
+    <div class="widget-header">
+        <h4>
+            <i class="fas fa-right-left me-2"></i>
+            Wejście i wyjście hali — 14 dni
+        </h4>
+    </div>
+    <div class="widget-content">
+        <div class="report-empty" id="ov-przeplyw-stan"></div>
+        <div id="ov-przeplyw-body" style="display: none;">
+            <div class="ov-flow-scroll">
+                <div class="ov-flow" id="ov-przeplyw-slupki"></div>
+            </div>
+            <div class="ov-flow-legend">
+                <span><i class="ov-swatch ov-swatch-in"></i>wejście (nowe pozycje)</span>
+                <span><i class="ov-swatch ov-swatch-out"></i>wyjście (pakowanie)</span>
+                <span><i class="ov-swatch ov-swatch-today"></i>dzień w toku</span>
+            </div>
+        </div>
+        <div class="report-note" id="ov-przeplyw-note"></div>
+    </div>
+</div>
+
+<!-- ELEMENT 7: wdrożenie profili. SAMOWYGASZAJĄCY — znika, gdy stan_nauki()
+     przestaje mówić „trwa nauka". Dzieli żądanie z elementem 5. -->
+<div class="widget report-widget" id="ov-nauka-widget" style="display: none;">
+    <div class="widget-header">
+        <h4>
+            <i class="fas fa-id-badge me-2"></i>
+            Wdrożenie profili
+        </h4>
+    </div>
+    <div class="widget-content">
+        <div id="ov-nauka-body"></div>
+        <div class="report-note" id="ov-nauka-note"></div>
+    </div>
+</div>
+
+<script>
+// IIFE izoluje deklaracje fragmentu. executeInlineScripts() klonuje <script>
+// i podmienia węzeł, więc kod leci w scope globalnym i wykonuje się od nowa
+// przy każdym wejściu — bez IIFE drugie wejście wywala się na "duplicate
+// declaration" i zabija cały fragment.
+(function () {
+const root = document.getElementById('reports-sub-pane-przeglad');
+const wspolne = window.ReportsShared;
+if (!root || !wspolne) return;
+
+const { escapeHtml, przejdzDoPodzakladki, przejdzDoStanowiska } = wspolne;
+
+// Szukamy po własnym panelu, nie po document: panele sąsiednich podzakładek
+// zostają w DOM (tylko schowane), więc globalne getElementById potrafiłoby
+// sięgnąć do cudzego markupu.
+const el = (id) => root.querySelector('#' + id);
+
+// ── Dane z serwera (kontekst szablonu, zero zapytań) ────────────────────────
+// Daty liczy SERWER przez get_local_now(). Nie `new Date()` w przeglądarce:
+// kontener chodzi na UTC, a przeglądarka bywa w innej strefie — data wysyłana
+// do endpointów musi być tą samą dobą, którą serwis nazywa „dziś" w as_of.
+const DZIS = {{ przeglad_dzis|tojson }};
+const PRZEPLYW_OD = {{ przeglad_przeplyw_od|tojson }};
+const IDLE_MINUT = {{ przeglad_idle_minut|tojson }};
+// Kody stanowisk Z KATALOGU (station_catalog.STATION_ORDER). Potrzebne, żeby
+// odróżnić „po terminie na produkcji" od „po terminie poza produkcją".
+// Lista literałów w JS byłaby drugim, cichnącym z czasem zestawem nazw.
+const KODY_STANOWISK = new Set({{ przeglad_kody_stanowisk|tojson }});
+
+// ════════════════════════════════════════════════════════════════════
+// Drobiazgi wspólne elementów
+// ════════════════════════════════════════════════════════════════════
+
+const m3 = (v) => (Number(v) || 0).toFixed(3);
+const dni2 = (v) => (Number(v) || 0).toFixed(2);
+
+// Odmiana rzeczownika po liczbie. „1 pozycja / 2 pozycje / 5 pozycji" —
+// „1 poz." wszędzie byłoby prostsze, ale ten ekran czyta właściciel, nie serwer.
+function odmien(n, poj, mno, dop) {
+    const abs = Math.abs(n);
+    if (abs === 1) return poj;
+    const dziesiatki = abs % 100;
+    const jednosci = abs % 10;
+    if (jednosci >= 2 && jednosci <= 4 && !(dziesiatki >= 12 && dziesiatki <= 14)) return mno;
+    return dop;
+}
+
+// Trzy stany elementu przez jedno pudełko: ładowanie, błąd, brak danych.
+// `tresc` wchodzi jako TEKST (textContent), więc komunikat serwera nie ma jak
+// przemycić znacznika — a komunikaty błędów bywają sklejane z danych.
+function pokazStan(idStanu, idCiala, tresc) {
+    const stan = el(idStanu);
+    const cialo = el(idCiala);
+    if (stan) {
+        stan.textContent = tresc;
+        stan.style.display = 'block';
+    }
+    if (cialo) cialo.style.display = 'none';
+}
+
+function schowajStan(idStanu, idCiala) {
+    const stan = el(idStanu);
+    const cialo = el(idCiala);
+    if (stan) stan.style.display = 'none';
+    if (cialo) cialo.style.display = '';
+}
+
+// Jedna droga do komunikatu o błędzie: i koperta 400/500, i padnięty fetch mają
+// skończyć tym samym zdaniem. Treść z serwera jest już generyczna (endpointy
+// nie oddają str(e) — to była naprawiona podatność), ale i tak nie wchodzi
+// nigdzie indziej niż przez textContent.
+async function pobierzJson(url) {
+    const odp = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+    let dane = null;
+    try {
+        dane = await odp.json();
+    } catch (e) {
+        throw new Error(`serwer odpowiedział ${odp.status} bez danych`);
+    }
+    if (!odp.ok || !dane || dane.success !== true) {
+        throw new Error((dane && dane.error) || `błąd HTTP ${odp.status}`);
+    }
+    return dane;
+}
+
+function tekstBledu(powod) {
+    const p = String(powod || '').trim();
+    // Serwer oddaje GOTOWE, pełne zdanie („Nie udało się policzyć danych.
+    // Szczegóły w logach serwera.") — własna ramka tylko by je zdublowała
+    // razem z radą, co zrobić. Doklejamy ją wyłącznie do krótkich powodów
+    // technicznych: padniętego fetcha albo gołego „błąd HTTP 502".
+    if (/[.!?]$/.test(p)) return p;
+    return `Nie udało się pobrać danych (${p || 'brak szczegółów'}). `
+         + 'Spróbuj odświeżyć; jeśli wraca, szczegóły są w logach serwera.';
+}
+
+// Podpięcie jednego żądania pod jeden element. Rysowanie jest opakowane
+// w try, bo wyjątek w rysowaniu jednego elementu nie ma prawa zabrać
+// pozostałych pięciu — każdy element odpowiada na inne pytanie.
+function podepnij(obietnica, idStanu, idCiala, rysuj) {
+    obietnica.then((dane) => {
+        try {
+            rysuj(dane);
+        } catch (e) {
+            console.error('[Raporty/przegląd] Błąd rysowania:', idCiala, e);
+            pokazStan(idStanu, idCiala, tekstBledu('nieoczekiwany kształt odpowiedzi'));
+        }
+    }).catch((e) => {
+        console.error('[Raporty/przegląd] Błąd pobrania:', idCiala, e);
+        pokazStan(idStanu, idCiala, tekstBledu(e && e.message));
+    });
+}
+
+// ════════════════════════════════════════════════════════════════════
+// ELEMENT 2 — Kolejki przed stanowiskami
+//
+// Gdzie stoi robota i jak długo będzie stała przy obecnym tempie.
+// Kolejność z serwera (brak_przerobu → malejąco po dniach → pusto) jest już
+// właściwa i NIE SORTUJEMY jej ponownie — drugie sortowanie to druga definicja.
+//
+// ŚWIADOMIE BEZ FLAGI „WĄSKIE GARDŁO". Backtest 60 kolejnych dób: liderem była
+// Lakiernia 60/60 razy, iloraz lider/drugi ≥2 w 60/60 i ≥3 w 60/60, a każdy
+// próg na dniach zapasu (≥2, ≥3, ≥5, ≥7) zapalałby się codziennie z tą samą
+// nazwą. Badge byłby dekoracją. Informację niosą LICZBY i kolejność miejsc
+// 2-7, więc lider dostaje wyłącznie mocniejszą typografię.
+// Jedyna binarna flaga to `brak_przerobu` — zmierzone 0/60 dób, czyli gdy
+// zapłonie, naprawdę coś się stało.
+// ════════════════════════════════════════════════════════════════════
+
+function rysujKolejki(dane) {
+    const cialo = el('ov-kolejki-body');
+    const nota = el('ov-kolejki-note');
+    const stanowiska = dane.stations || [];
+
+    if (!stanowiska.length) {
+        // Ten sam komunikat co w podzakładce Stanowiska — jedno brzmienie
+        // pustki na jedną przyczynę.
+        pokazStan('ov-kolejki-stan', 'ov-kolejki-body',
+            'Za mało danych, żeby policzyć tempo — w historii nie ma jeszcze ani '
+            + 'jednego dnia z przerobem. Kolejki pojawią się po pierwszym dniu pracy hali.');
+        if (nota) nota.textContent = '';
+        return;
+    }
+
+    // Skala paska z NAJDŁUŻSZEJ policzalnej kolejki. Wiersze bez przerobu nie
+    // mają liczby dni (dzielenie przez zero), więc dostają pełny pasek — to
+    // najgorszy możliwy stan, nie brak danych.
+    const maks = Math.max(...stanowiska.map(s => s.days_of_supply || 0), 0);
+    const lider = stanowiska.find(s => s.reason === null);
+
+    cialo.innerHTML = stanowiska.map((s) => {
+        const czyLider = lider && s.station_code === lider.station_code;
+        let klasa = 'ov-queue-row';
+        let szerokosc = 0;
+        let prawa = '';
+
+        if (s.reason === 'brak_przerobu') {
+            klasa += ' ov-queue-warn';
+            szerokosc = 100;
+            prawa = `kolejka ${m3(s.pending_m3)} m³, zero przerobu w oknie`;
+        } else if (s.reason === 'pusto') {
+            klasa += ' ov-queue-idle';
+            prawa = 'bez kolejki';
+        } else {
+            if (czyLider) klasa += ' ov-queue-lead';
+            szerokosc = maks > 0 ? Math.max(2, (s.days_of_supply / maks) * 100) : 0;
+            // Zawsze „dnia", bez odmiany przez liczbę: po ułamku dziesiętnym
+            // polski wymaga dopełniacza liczby pojedynczej („2,04 dnia",
+            // „0,76 dnia"), a odmiana po zaokrągleniu dawała „1,38 dzień".
+            prawa = `${dni2(s.days_of_supply)} dnia`;
+        }
+
+        // Dzielnik pod spodem zamiast liczby dób z pracą: „ile dób pracowało"
+        // nie ma w kontrakcie tego endpointu, a wzięte z obsady byłoby z innego
+        // okna (30 dni kalendarzowych vs 14 roboczych) i tworzyłoby rozjazd.
+        // Właściciel czyta „0.0740 m³/dzień" i sam widzi, że to strużka.
+        const dzielnik = s.reason === 'pusto'
+            ? ''
+            : `${m3(s.pending_m3)} m³ ÷ ${(Number(s.avg_daily_m3) || 0).toFixed(4)} m³/dzień`;
+
+        return `<button type="button" class="${klasa}" data-station="${escapeHtml(s.station_code)}"
+                        title="Otwórz Stanowiska nastawione na: ${escapeHtml(s.station_label)}">
+                    <span class="ov-queue-name">${escapeHtml(s.station_label)}</span>
+                    <span class="ov-queue-bar"><span class="ov-queue-bar-fill" style="width: ${szerokosc.toFixed(1)}%"></span></span>
+                    <span class="ov-queue-days">${escapeHtml(prawa)}</span>
+                    <span class="ov-queue-sub">${escapeHtml(dzielnik)}</span>
+                </button>`;
+    }).join('');
+
+    cialo.querySelectorAll('.ov-queue-row').forEach((btn) => {
+        btn.addEventListener('click', () => przejdzDoStanowiska(btn.dataset.station));
+    });
+
+    schowajStan('ov-kolejki-stan', 'ov-kolejki-body');
+
+    // Podpis OBOWIĄZKOWY — przenosi ostrzeżenie z docstringu agregatu. Bez
+    // niego liczba obiecuje więcej, niż wie: licznik to STAN (pełna objętość
+    // pozycji), mianownik to RUCH eventów.
+    if (nota) {
+        nota.textContent =
+            `Okno: ${dane.okno_od}–${dane.okno_do}, ${dane.okno_dni} `
+            + `${odmien(dane.okno_dni, 'dzień roboczy', 'dni robocze', 'dni roboczych')}. `
+            + 'Kolejka to STAN (pełna objętość pozycji), tempo to RUCH eventów — licznik jest zawyżony. '
+            + 'Kliknij wiersz, żeby zobaczyć to stanowisko w Stanowiskach (30 dni).';
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════
+// ELEMENT 3 — Zagrożone terminy
+//
+// Cztery koszyki w STAŁEJ kolejności, indeksy brane z `buckets`, nigdy
+// z pozycji w liście: skala pilności ma stałą oś, tak jak w widgecie źródłowym.
+// Kafelek z zerem zostaje (przygaszony) — gdyby puste wypadały, nie dałoby się
+// porównać dwóch dni.
+// ════════════════════════════════════════════════════════════════════
+
+// „3-7 dni" celowo NIE jest alarmem — to horyzont planowania.
+const KOSZYKI_PILNE = [
+    { kod: 'po_terminie', etykieta: 'Po terminie', alarm: true },
+    { kod: 'dzis',        etykieta: 'Dziś',        alarm: true },
+    { kod: '1_2_dni',     etykieta: '1-2 dni',     alarm: true },
+    { kod: '3_7_dni',     etykieta: '3-7 dni',     alarm: false },
+];
+
+function indeksyPilne(dane) {
+    const buckets = dane.buckets || [];
+    return KOSZYKI_PILNE
+        .map(k => ({ ...k, idx: buckets.indexOf(k.kod) }))
+        .filter(k => k.idx >= 0);
+}
+
+function rysujTerminy(dane) {
+    const kafelki = el('ov-terminy-kafelki');
+    const segmenty = el('ov-terminy-segmenty');
+    const nota = el('ov-terminy-note');
+    const pilne = indeksyPilne(dane);
+    const totals = dane.totals || {};
+
+    if (!pilne.length) {
+        pokazStan('ov-terminy-stan', 'ov-terminy-body',
+            'Serwer nie oddał koszyków terminu — nie ma czego pokazać.');
+        return;
+    }
+
+    const poz = (i) => (totals.items || [])[i] || 0;
+    const met = (i) => (totals.m3 || [])[i] || 0;
+
+    // JEDYNE miejsce, w którym Przegląd KOMPONUJE, a nie cytuje. Wolno, bo
+    // wszystkie składniki pochodzą z jednego wywołania jednej funkcji i nie ma
+    // z czym się rozjechać. Warunek: title wypisuje składniki.
+    const sumaPoz = pilne.reduce((a, k) => a + poz(k.idx), 0);
+    const sumaM3 = pilne.reduce((a, k) => a + met(k.idx), 0);
+    const skladniki = pilne.map(k => m3(met(k.idx))).join(' + ');
+
+    kafelki.innerHTML = pilne.map((k) => {
+        const n = poz(k.idx);
+        let klasa = 'ov-tile';
+        if (n === 0) klasa += ' ov-tile-zero';
+        else if (k.alarm) klasa += ' ov-tile-warn';
+        return `<button type="button" class="${klasa}">
+                    <span class="ov-tile-value">${n} poz. / ${m3(met(k.idx))} m³</span>
+                    <span class="ov-tile-label">${escapeHtml(k.etykieta)}</span>
+                </button>`;
+    }).join('')
+    + `<button type="button" class="ov-tile ov-tile-total"
+               title="Suma czterech koszyków: ${escapeHtml(skladniki)} = ${m3(sumaM3)} m³">
+           <span class="ov-tile-value">${sumaPoz} poz. / ${m3(sumaM3)} m³</span>
+           <span class="ov-tile-label">razem do 7 dni</span>
+       </button>`;
+
+    // Trzy segmenty z największym udziałem — liczone z `datasets` po tych
+    // samych czterech indeksach, żeby suma segmentów i suma kafelków były
+    // z definicji tą samą liczbą.
+    const udzialy = (dane.datasets || []).map((ds) => ({
+        label: ds.label,
+        items: pilne.reduce((a, k) => a + ((ds.items || [])[k.idx] || 0), 0),
+        m3: pilne.reduce((a, k) => a + ((ds.m3 || [])[k.idx] || 0), 0),
+    })).filter(s => s.items > 0).sort((a, b) => b.m3 - a.m3).slice(0, 3);
+
+    segmenty.innerHTML = udzialy.length
+        ? '<span class="ov-seg-title">Przed czym stoi:</span>' + udzialy.map(s =>
+            `<button type="button" class="ov-seg-item">${escapeHtml(s.label)}
+                 <strong>${s.items} / ${m3(s.m3)} m³</strong></button>`).join('')
+        : '';
+
+    root.querySelectorAll('#ov-terminy-kafelki .ov-tile, #ov-terminy-segmenty .ov-seg-item')
+        .forEach(b => b.addEventListener('click', () => przejdzDoPodzakladki('terminy')));
+
+    schowajStan('ov-terminy-stan', 'ov-terminy-body');
+
+    if (nota) {
+        nota.textContent = sumaPoz === 0
+            ? `Stan na ${dane.as_of}: nic nie ma terminu w najbliższych 7 dniach. `
+              + 'Kliknij kafelek, żeby zobaczyć pełny rozkład w Terminach.'
+            : `Stan na ${dane.as_of}. Migawka, nie historia — pozycje spakowane `
+              + 'i anulowane są poza wykresem. Kliknij kafelek, żeby zobaczyć listę w Terminach.';
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════
+// ELEMENT 4 — Praca po terminie
+//
+// Rozdzielenie „na produkcji" / „poza produkcją" jest OBOWIĄZKOWE. Bez niego
+// właściciel czyta „0.794 m³ po terminie na produkcji", co jest nieprawdą:
+// dziś cała ta objętość stoi w Logistyce (zamknięte zlecenie sprzed trzech
+// miesięcy), a nie na hali. Element ma realny wyłącznik — ktoś domyka zlecenie
+// i linia gaśnie.
+// ════════════════════════════════════════════════════════════════════
+
+function rysujPoTerminie(dane) {
+    const widget = el('ov-po-terminie-widget');
+    const cialo = el('ov-po-terminie-body');
+    const nota = el('ov-po-terminie-note');
+    const idx = (dane.buckets || []).indexOf('po_terminie');
+    if (idx < 0 || !widget) return;
+
+    const razem = (dane.totals && dane.totals.items || [])[idx] || 0;
+    if (razem === 0) {
+        // Element znika W CAŁOŚCI. Zero w kafelku elementu 3 mówi to samo,
+        // a osobny widget krzyczący „0" uczy ignorowania tego miejsca.
+        widget.style.display = 'none';
+        return;
+    }
+
+    let prodPoz = 0, prodM3 = 0, pozaPoz = 0, pozaM3 = 0;
+    const pozaNazwy = [];
+    (dane.datasets || []).forEach((ds) => {
+        const poz = (ds.items || [])[idx] || 0;
+        const met = (ds.m3 || [])[idx] || 0;
+        if (!poz && !met) return;
+        if (KODY_STANOWISK.has(ds.code)) {
+            prodPoz += poz; prodM3 += met;
+        } else {
+            pozaPoz += poz; pozaM3 += met;
+            pozaNazwy.push(ds.label);
+        }
+    });
+
+    const opisPoza = pozaNazwy.length ? ` (${pozaNazwy.join(', ')})` : '';
+    cialo.innerHTML =
+        `<button type="button" class="ov-line ${prodPoz ? 'ov-line-alarm' : 'ov-line-ok'}">
+             <span class="ov-line-label">na produkcji:</span>
+             <strong>${prodPoz} poz. / ${m3(prodM3)} m³</strong>
+         </button>`
+      + `<button type="button" class="ov-line ov-line-neutral">
+             <span class="ov-line-label">poza produkcją${escapeHtml(opisPoza)}:</span>
+             <strong>${pozaPoz} poz. / ${m3(pozaM3)} m³</strong>
+         </button>`;
+
+    cialo.querySelectorAll('.ov-line')
+        .forEach(b => b.addEventListener('click', () => przejdzDoPodzakladki('terminy')));
+
+    widget.style.display = '';
+    if (nota) {
+        nota.textContent = prodPoz
+            ? 'Człon „na produkcji" to robota, która stoi na hali z przekroczonym terminem. '
+              + 'Człon „poza produkcją" to zaległość administracyjna — zwykle niezamknięte zlecenie.'
+            : 'Nic po terminie nie stoi na hali. To, co widać, to zaległość administracyjna: '
+              + 'pozycja czeka poza produkcją i gaśnie, gdy ktoś domknie zlecenie.';
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════
+// ELEMENT 5 — Kto jest teraz na hali
+//
+// Lista BEZ SORTOWANIA PO TEMPIE i bez rankingu. m³/h nie są porównywalne
+// między stanowiskami (spakowanie metra trwa minuty, sklejenie godziny), więc
+// każde sortowanie po dorobku byłoby rankingiem ludzi za wybór stanowiska.
+// Kolejność jest taka, jak z serwera: po godzinie rozpoczęcia sesji.
+// ════════════════════════════════════════════════════════════════════
+
+function rysujHale(sesje, obsada) {
+    const kafelki = el('ov-hala-kafelki');
+    const lista = el('ov-hala-lista');
+    const alarm = el('ov-hala-alarm');
+    const badge = el('ov-hala-badge');
+    const otwarte = sesje.sessions || [];
+    const podsumowanie = obsada.summary || {};
+
+    // Badge „Trwa nauka" wisi TUTAJ I TYLKO TUTAJ. Na kolejkach, terminach
+    // i przepływie go nie ma — tamte liczby idą z eventów, nie z podpisów,
+    // i badge sugerowałby niepewność, której tam nie ma.
+    const nauka = obsada.learning || {};
+    if (badge) {
+        badge.innerHTML = nauka.learning
+            ? `<span class="badge-nauka" title="${escapeHtml((nauka.stations_without_profiles || []).length
+                    ? 'Bez profili: ' + (nauka.stations_without_profiles || []).join(', ')
+                    : 'Wszystkie pracujące stanowiska raportują profile')}">
+                   <i class="fas fa-graduation-cap"></i>${escapeHtml(nauka.label || 'Trwa nauka')}
+               </span>`
+            : '';
+    }
+
+    if (!otwarte.length) {
+        // STAN SPOCZYNKU, nie brak danych: po zmianie nikt nie jest zalogowany
+        // i to jest poprawna, informacyjna odpowiedź.
+        pokazStan('ov-hala-stan', 'ov-hala-body',
+            'Nikt nie jest teraz zalogowany na żadnym stanowisku.');
+        return;
+    }
+
+    const godziny = Number(podsumowanie.person_hours || 0);
+    const metry = Number(podsumowanie.m3 || 0);
+    kafelki.innerHTML =
+        `<button type="button" class="ov-tile">
+             <span class="ov-tile-value">${otwarte.length}</span>
+             <span class="ov-tile-label">${escapeHtml(odmien(otwarte.length,
+                 'osoba zalogowana', 'osoby zalogowane', 'osób zalogowanych'))}</span>
+         </button>`
+      // Uczciwość liczby godzin: sesje otwarte liczą się DO TERAZ i urosną do
+      // końca zmiany. Bez tego title kafelek udaje liczbę domkniętą.
+      + `<button type="button" class="ov-tile"
+                 title="Sesje otwarte liczą się do teraz i urosną do końca zmiany. Otwartych sesji: ${podsumowanie.open_sessions || 0}.">
+             <span class="ov-tile-value">${godziny.toFixed(1)}</span>
+             <span class="ov-tile-label">osobogodzin dziś</span>
+         </button>`
+      + `<button type="button" class="ov-tile"
+                 title="Przerób wszystkich stanowisk dziś, netto eventów (bez auto_skip i system).">
+             <span class="ov-tile-value">${m3(metry)}</span>
+             <span class="ov-tile-label">m³ przerobu dziś</span>
+         </button>`;
+
+    lista.innerHTML = otwarte.map((s) => {
+        const odKiedy = s.started_at ? String(s.started_at).slice(11, 16) : '—';
+        const bezczynny = s.idle_over_timeout
+            ? `<span class="ov-crew-idle">bezczynny ${s.idle_minutes} min</span>`
+            : '';
+        return `<button type="button" class="ov-crew-row${s.idle_over_timeout ? ' ov-crew-warn' : ''}">
+                    <span class="ov-crew-name">${escapeHtml(s.worker_name)}</span>
+                    <span class="ov-crew-meta">${escapeHtml(s.station_label)} · od ${escapeHtml(odKiedy)} ${bezczynny}</span>
+                    <span class="ov-crew-out">${(Number(s.pieces) || 0).toFixed(0)} szt. / ${m3(s.m3)} m³ w tej sesji</span>
+                </button>`;
+    }).join('');
+
+    root.querySelectorAll('#ov-hala-kafelki .ov-tile, #ov-hala-lista .ov-crew-row')
+        .forEach(b => b.addEventListener('click', () => przejdzDoPodzakladki('ludzie')));
+
+    // Wszystkie otwarte sesje przekroczyły próg bezczynności — najostrzejszy
+    // sygnał na tej stronie. Próg CZYTANY Z KONFIGURACJI (prod_config), nigdy
+    // zaszyty w szablonie. Przy jednej sesji milczy: jeden człowiek na przerwie
+    // to nie to samo co cała hala zalogowana i zostawiona.
+    const wszystkieBezczynne = otwarte.length >= 2 && otwarte.every(s => s.idle_over_timeout);
+    if (alarm) {
+        alarm.style.display = wszystkieBezczynne ? '' : 'none';
+        alarm.textContent = wszystkieBezczynne
+            ? `Wszystkie otwarte sesje przekroczyły ${IDLE_MINUT} min bezczynności — `
+              + 'sprawdź, czy tablety nie zostały zalogowane.'
+            : '';
+    }
+
+    schowajStan('ov-hala-stan', 'ov-hala-body');
+}
+
+// ════════════════════════════════════════════════════════════════════
+// ELEMENT 6 — Wejście i wyjście hali, 14 dni
+//
+// Czy hala nadąża za tym, co wchodzi. ŚWIADOMIE BEZ „% NORMY": te same dane
+// dają dziś 49.2% normy (przerób stanowisk wobec średniej dobowej) albo 4.0%
+// (wyjście hali wobec mediany dnia roboczego) — 12.2× różnicy, obie liczby
+// poprawne, obie zasłużyłyby na ten sam podpis. Do tego przez całe
+// przedpołudnie porównywałyby dobę częściową z pełnymi. Zamiast tego słupek
+// dzisiejszy jest jawnie oznaczony jako „dzień w toku".
+// ════════════════════════════════════════════════════════════════════
+
+function rysujPrzeplyw(dane) {
+    const slupki = el('ov-przeplyw-slupki');
+    const nota = el('ov-przeplyw-note');
+    const dni = dane.days || [];
+
+    if (!dni.length) {
+        pokazStan('ov-przeplyw-stan', 'ov-przeplyw-body',
+            'Brak danych o przepływie — w tym oknie nie ma ani jednej pozycji '
+            + 'ani wejściowej, ani wyjściowej.');
+        if (nota) nota.textContent = '';
+        return;
+    }
+
+    const maks = Math.max(...dni.map(d => Math.max(d.in_m3 || 0, d.out_m3 || 0)), 0);
+    const wys = (v) => (maks > 0 && v > 0 ? Math.max(3, (v / maks) * 100) : 0);
+
+    slupki.innerHTML = dni.map((d) => {
+        const dzisiaj = d.date === DZIS;
+        // Doba z in=0 i out=0 (weekend) rysuje się jako BRAK SŁUPKA, nie jako
+        // zero na osi — tak samo jak w widgecie źródłowym.
+        const pusty = !(d.in_m3 > 0) && !(d.out_m3 > 0);
+        const tytul = dzisiaj
+            ? `${d.date} — DZIEŃ W TOKU: wejście ${m3(d.in_m3)} m³, wyjście ${m3(d.out_m3)} m³ (do tej pory)`
+            : `${d.date}: wejście ${m3(d.in_m3)} m³, wyjście ${m3(d.out_m3)} m³`;
+        return `<div class="ov-flow-day${dzisiaj ? ' ov-flow-today' : ''}" title="${escapeHtml(tytul)}">
+                    <span class="ov-flow-bars">
+                        ${pusty ? '<span class="ov-flow-none"></span>' : `
+                        <span class="ov-flow-in" style="height: ${wys(d.in_m3).toFixed(1)}%"></span>
+                        <span class="ov-flow-out" style="height: ${wys(d.out_m3).toFixed(1)}%"></span>`}
+                    </span>
+                    <span class="ov-flow-label">${escapeHtml(String(d.date).slice(5))}</span>
+                </div>`;
+    }).join('');
+
+    schowajStan('ov-przeplyw-stan', 'ov-przeplyw-body');
+
+    // Próg dryfu Z DANYCH, nie z kalendarza: dwie średnie dobowe wyjścia,
+    // liczone po dobach, w których cokolwiek wyjechało. Zmierzone: na 14 dniach
+    // próg 2.15 m³ przy dryfie 0.091 (zgaszone), na 60 dniach próg ok. 2.09
+    // przy dryfie 2.747 (zapalone) — próg zapala się i gaśnie na realnych
+    // danych, a nie tylko w teorii.
+    const dobyZWyjsciem = dni.filter(d => (d.out_m3 || 0) > 0).length;
+    const dryf = Number(dane.cumulative_end_m3 || 0);
+    const prog = dobyZWyjsciem ? 2 * (Number(dane.total_out_m3 || 0) / dobyZWyjsciem) : null;
+    const alarmuj = prog !== null && Math.abs(dryf) >= prog;
+
+    if (nota) {
+        nota.textContent =
+            `Dryf ${dane.days.length} dni: ${dryf > 0 ? '+' : ''}${m3(dryf)} m³ `
+            + `(weszło ${m3(dane.total_in_m3)} m³, wyszło ${m3(dane.total_out_m3)} m³). `
+            + (alarmuj
+                ? `To już ponad dwa dni typowego wyjścia (próg ${m3(prog)} m³) — hala nie nadąża.`
+                : 'Ostatni słupek to dzień w toku — urośnie do końca zmiany.');
+        nota.classList.toggle('report-note-warn', alarmuj);
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════
+// ELEMENT 7 — Wdrożenie profili (samowygaszający)
+//
+// ZAKAZ „ZOSTAŁO X DNI" — taka reguła nie potrafi wrócić, gdy jeden tablet
+// wypadnie. stan_nauki() zwraca gotowy, wracalny tekst i to jego wyświetlamy
+// DOSŁOWNIE, bez składania własnego brzmienia obok.
+// ════════════════════════════════════════════════════════════════════
+
+function rysujNauke(obsada) {
+    const widget = el('ov-nauka-widget');
+    const cialo = el('ov-nauka-body');
+    const nota = el('ov-nauka-note');
+    const nauka = obsada.learning || {};
+
+    if (!nauka.learning) {
+        // Jedyny element strony z GWARANTOWANYM wyłącznikiem: gdy wszystkie
+        // pracujące stanowiska się podpisują i uzbiera się próg dni, znika.
+        widget.style.display = 'none';
+        return;
+    }
+
+    const braki = nauka.stations_without_profiles || [];
+    cialo.innerHTML =
+        `<button type="button" class="ov-line ov-line-neutral">
+             <span class="ov-line-label">${escapeHtml(nauka.text || '')}</span>
+         </button>`
+      + (braki.length
+            ? `<div class="ov-nauka-braki">Bez profili: <strong>${escapeHtml(braki.join(', '))}</strong></div>`
+            : '<div class="ov-nauka-braki">Wszystkie pracujące stanowiska już się podpisują — '
+              + 'zostało uzbieranie dni.</div>');
+
+    cialo.querySelectorAll('.ov-line')
+        .forEach(b => b.addEventListener('click', () => przejdzDoPodzakladki('ludzie')));
+
+    widget.style.display = '';
+    if (nota) {
+        nota.textContent =
+            'Ten element zniknie sam, gdy dane dojrzeją — bez odliczania dni, '
+            + 'bo odliczanie nie potrafi wrócić, gdy jedno stanowisko wypadnie.';
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Stempel świeżości
+// ════════════════════════════════════════════════════════════════════
+
+const STEMPEL_BAZOWY = el('ov-stamp-text') ? el('ov-stamp-text').textContent : '';
+const PROG_STAROSCI_MIN = 15;
+const zaladowano = Date.now();
+
+// Interval sam się kasuje, gdy panel zniknie z DOM. Nikt nie woła destruktora
+// fragmentu, a przeładowanie podzakładki USUWA węzeł — bez tej kontroli po
+// kilku odświeżeniach tykałoby kilka timerów naraz.
+const tykanie = setInterval(() => {
+    const pole = el('ov-stamp-text');
+    if (!pole || !document.body.contains(root)) {
+        clearInterval(tykanie);
+        return;
+    }
+    const minut = Math.floor((Date.now() - zaladowano) / 60000);
+    if (minut < PROG_STAROSCI_MIN) return;
+    pole.textContent = `${STEMPEL_BAZOWY} · sprzed ${minut} min`;
+    pole.classList.add('ov-stamp-stale');
+}, 60000);
+
+// ════════════════════════════════════════════════════════════════════
+// Start: pięć żądań równolegle, sześć elementów
+//
+// Pięć, nie sześć: element „Praca po terminie" dzieli odpowiedź z „Zagrożonymi
+// terminami", a „Wdrożenie profili" — z „Kto jest na hali" (stan_nauki jedzie
+// w kopercie staffing-vs-output). Osobne żądanie po stan nauki byłoby DRUGIM
+// wywołaniem tej samej funkcji na jednym ekranie.
+// ════════════════════════════════════════════════════════════════════
+
+function zaladuj() {
+    ['ov-kolejki', 'ov-terminy', 'ov-hala', 'ov-przeplyw'].forEach((id) => {
+        pokazStan(`${id}-stan`, `${id}-body`, 'Ładowanie…');
+    });
+    el('ov-po-terminie-widget').style.display = 'none';
+    el('ov-nauka-widget').style.display = 'none';
+
+    const zapas = pobierzJson('/production/api/reports/days-of-supply');
+    // ?items=0 — Przegląd czyta wyłącznie totals/datasets. Z listą pozycji ta
+    // odpowiedź waży 59.5 kB zamiast 1.6 kB, a lista jest o jedno kliknięcie
+    // dalej, w podzakładce Terminy, ze stronicowaniem.
+    const terminy = pobierzJson('/production/api/reports/deadline-progress?items=0');
+    const sesje = pobierzJson('/production/api/workers/active-sessions');
+    const obsada = pobierzJson(
+        `/production/api/reports/staffing-vs-output?start_date=${DZIS}&end_date=${DZIS}`);
+    const przeplyw = pobierzJson(
+        `/production/api/reports/flow-in-out?start_date=${PRZEPLYW_OD}&end_date=${DZIS}`);
+
+    podepnij(zapas, 'ov-kolejki-stan', 'ov-kolejki-body', rysujKolejki);
+    podepnij(terminy, 'ov-terminy-stan', 'ov-terminy-body', (d) => {
+        rysujTerminy(d);
+        rysujPoTerminie(d);
+    });
+    podepnij(Promise.all([sesje, obsada]), 'ov-hala-stan', 'ov-hala-body', ([s, o]) => {
+        rysujHale(s, o);
+        rysujNauke(o);
+    });
+    podepnij(przeplyw, 'ov-przeplyw-stan', 'ov-przeplyw-body', rysujPrzeplyw);
+}
+
+// Odświeżenie przeładowuje CAŁY fragment, a nie tylko dane: dzięki temu
+// stempel „Stan na HH:MM" odnawia się z tego samego zegara (get_local_now)
+// co reszta aplikacji, zamiast z zegara przeglądarki.
+el('ov-refresh-btn')?.addEventListener('click', () => {
+    clearInterval(tykanie);
+    wspolne.przeladujPodzakladke('przeglad');
+});
+
+zaladuj();
+console.log('[Raporty/przegląd] Fragment zainicjalizowany');
+})();
+</script>

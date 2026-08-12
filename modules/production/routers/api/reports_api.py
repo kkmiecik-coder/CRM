@@ -9,13 +9,13 @@ from flask import request, jsonify, render_template
 from flask_login import login_required, current_user
 from extensions import db
 from sqlalchemy import func
-from sqlalchemy.orm import joinedload
 
 from . import api_bp, logger, ProductionItem, ProductionSyncLog, get_local_now
-from modules.production.models import ProductionConfiguration
+from modules.production.models import ProductionConfiguration, ProductionOrder
 
 from ...services.station_catalog import (
-    STATION_LABELS, STATION_ORDER, station_choices, station_label,
+    STATION_LABELS, STATION_ORDER, STATION_PENDING_STATUS,
+    station_choices, station_label,
 )
 
 # Jedno źródło nazw i kolejności — patrz services/station_catalog.py. Wcześniej
@@ -24,23 +24,41 @@ from ...services.station_catalog import (
 VALID_STATIONS = set(STATION_ORDER)
 
 
-def _parsuj_zakres_dat():
+def _parsuj_zakres_dat(domyslne_dni=7):
     """
     Wspólne parsowanie start_date/end_date dla raportów. Zwraca
     (start_date, end_date, error_response) — jak w reports_station_output,
     tylko wyciągnięte, żeby nie kopiować walidacji do raportu pracowników.
+
+    Domyślny zakres liczymy z get_local_now(), NIE z date.today(): kontener
+    chodzi na UTC, więc między północą a 02:00 czasu polskiego date.today()
+    oddaje wczoraj i nocna zmiana wchodząca na Raporty bez ustawienia zakresu
+    widziała poprzedni dzień.
+
+    NIEPEŁNA PARA DAT TO BŁĄD, nie zaproszenie do zakresu domyślnego. Warunek
+    `if start and end` po cichu wyrzucał do kosza całe podane wejście:
+    ?start_date=2026-05-01 oddawało HTTP 200 z danymi ostatnich siedmiu dni,
+    a eksport XLSX wychodził z domyślnym zakresem w nazwie pliku. Zapisany
+    link albo ręcznie sklejony URL odpowiadał wtedy na inne pytanie, niż
+    zadano, i nic tego nie sygnalizowało.
     """
     start_str = request.args.get('start_date', '').strip()
     end_str = request.args.get('end_date', '').strip()
+
+    if bool(start_str) != bool(end_str):
+        return None, None, (jsonify({
+            'success': False,
+            'error': 'Podaj obie daty zakresu (start_date i end_date) albo żadnej'
+        }), 400)
 
     try:
         if start_str and end_str:
             start = datetime.strptime(start_str, '%Y-%m-%d').date()
             end = datetime.strptime(end_str, '%Y-%m-%d').date()
         else:
-            # Domyślnie bieżący tydzień wstecz — sensowny zakres na wejściu
-            end = date.today()
-            start = end - timedelta(days=6)
+            # Domyślnie ostatnie `domyslne_dni` dni — sensowny zakres na wejściu
+            end = get_local_now().date()
+            start = end - timedelta(days=domyslne_dni - 1)
     except ValueError:
         return None, None, (jsonify({
             'success': False,
@@ -48,6 +66,376 @@ def _parsuj_zakres_dat():
         }), 400)
 
     return start, end, None
+
+
+# Ile wierszy listy pozycji oddajemy domyślnie. Front pokazuje dziesięć naraz
+# (SO_PAGE_SIZE w stations.html) — wcześniej dostawał WSZYSTKIE i stronicował
+# w przeglądarce, co przy jednym kliknięciu w preset „30 dni" znaczyło 1.3 MB
+# JSON-a, a przy 90 dniach 3.4 MB.
+DOMYSLNY_LIMIT_POZYCJI = 10
+MAKS_LIMIT_POZYCJI = 200
+
+
+def _parsuj_stronicowanie(domyslny_limit=DOMYSLNY_LIMIT_POZYCJI):
+    """(limit, offset, error_response) — wspólna walidacja limit/offset."""
+    def _liczba(nazwa, domyslna, minimum, maksimum):
+        surowa = request.args.get(nazwa, '').strip()
+        if not surowa:
+            return domyslna, None
+        if not surowa.isdigit():
+            return None, (jsonify({
+                'success': False,
+                'error': f'{nazwa} musi być liczbą całkowitą nieujemną'
+            }), 400)
+        return max(minimum, min(int(surowa), maksimum)), None
+
+    limit, err = _liczba('limit', domyslny_limit, 1, MAKS_LIMIT_POZYCJI)
+    if err:
+        return None, None, err
+    offset, err = _liczba('offset', 0, 0, 10 ** 7)
+    if err:
+        return None, None, err
+    return limit, offset, None
+
+
+def _blad_serwera(nazwa, wyjatek, **kontekst):
+    """
+    Awaria endpointu: szczegóły do logu, do klienta stały komunikat.
+
+    Treść wyjątku NIE MOŻE jechać do przeglądarki. Przy błędzie SQLAlchemy
+    str(e) niesie pełne zapytanie razem z parametrami — czyli nazwy klientów
+    i produktów z BaseLinkera — a wszystkie te endpointy mają wyłącznie
+    @login_required, bez sprawdzania roli. Do tego front w kilku miejscach
+    wstawia `data.error` do innerHTML, więc treść wyjątku jest jednocześnie
+    ścieżką wykonania kodu.
+    """
+    logger.error(f"Błąd {nazwa}", extra=dict(
+        kontekst, user_id=current_user.id, error=str(wyjatek)))
+    return jsonify({
+        'success': False,
+        'error': 'Nie udało się policzyć danych. Szczegóły w logach serwera.',
+    }), 500
+
+
+def _odpowiedz_wykresu(nazwa, buduj):
+    """
+    Wspólna koperta endpointów wykresów.
+
+    Każdy wykres ma WŁASNY endpoint (a nie jeden gruby /reports/all) dokładnie
+    po to, żeby awaria albo wolne zapytanie kładło jeden widget, a nie całą
+    podzakładkę. Ta funkcja tego pilnuje: zły zakres → 400, awaria → 500
+    z logiem, sukces → {'success': True, ...payload}.
+    """
+    from ...services.worker_stats_service import ZakresError
+
+    try:
+        payload = buduj()
+    except ZakresError as e:
+        # ZakresError niesie WYŁĄCZNIE nasz własny komunikat walidacji
+        # („Maksymalny zakres to 365 dni") — ten wolno pokazać.
+        return jsonify({'success': False, 'error': str(e)}), 400
+    except Exception as e:
+        return _blad_serwera("wykresu raportów", e, wykres=nazwa)
+
+    payload['success'] = True
+    return jsonify(payload)
+
+
+def _waliduj_stanowisko(domyslne='all'):
+    """(kod, error_response) — 'all' albo kod z jedynej listy stanowisk."""
+    station = request.args.get('station', domyslne).strip().lower() or domyslne
+    if station != 'all' and station not in VALID_STATIONS:
+        return None, (jsonify({
+            'success': False,
+            'error': f'Nieprawidłowe stanowisko. Dozwolone: all, {sorted(VALID_STATIONS)}'
+        }), 400)
+    return station, None
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Wykresy zakładki Raporty
+#
+# Osiem endpointów, jeden na wykres. Agregaty siedzą w services/reports_service
+# — tutaj zostaje wyłącznie parsowanie parametrów i koperta odpowiedzi, bo
+# router nie jest miejscem na definicję tego, co znaczy „zrobione".
+# ════════════════════════════════════════════════════════════════════════════
+
+@api_bp.route('/reports/days-of-supply')
+@login_required
+def reports_days_of_supply():
+    """
+    GET /production/api/reports/days-of-supply
+
+    Wykres 1: ile dni roboczych zajmie wypalenie kolejki przed stanowiskiem
+    przy jego ostatnim tempie. Bez parametrów — to migawka stanu bieżącego
+    zestawiona ze średnią z 14 ostatnich DNI ROBOCZYCH (liczonych z danych,
+    nie z kalendarza).
+
+    Odpowiedź niesie okno_dni/okno_od/okno_do i front MUSI je pokazać
+    w nagłówku: przy krótszym oknie liczby skaczą (test na oknie jednodniowym
+    dał wykańczaniu 64 dni zapasu zamiast 4,3) i bez podpisu nikt tego nie
+    wytłumaczy.
+
+    Badge „Trwa nauka" tu NIE występuje — wykres nie czyta atrybucji ani razu.
+    """
+    from ...services import reports_service
+
+    return _odpowiedz_wykresu('days-of-supply',
+                              reports_service.dni_zapasu_stanowisk)
+
+
+@api_bp.route('/reports/deadline-progress')
+@login_required
+def reports_deadline_progress():
+    """
+    GET /production/api/reports/deadline-progress
+
+    Wykres 2: ile m³ stoi w którym koszyku terminu i na jakim stanowisku.
+    Bez parametrów — migawka stanu bieżącego, bez zakresu dat i presetów.
+
+    `items` (do 500 pozycji + flaga items_truncated) jedzie w tej samej
+    odpowiedzi, żeby klik w segment filtrował tabelę bez drugiego requestu.
+    To nie ozdoba: w dniu wdrożenia wszystkie trzy pozycje ze słupka
+    „Po terminie" to brud w danych (zamknięta logistyka ze statusem sprzed
+    trzech miesięcy, pozycje z pakowaniem 3/3 i statusem „czeka na
+    formatowanie") — sama liczba jest myląca, dopiero lista mówi, co z tym
+    zrobić.
+
+    ?items=0 — sama migawka koszyków, bez listy pozycji. Przegląd czyta
+    WYŁĄCZNIE totals/datasets i lista jest dla niego czystym balastem:
+    zmierzone na kopii produkcji 59.5 kB JSON (165 pozycji razem z nazwami
+    klientów) wobec 1.6 kB samych agregatów. To nie jest nowy agregat — ten
+    sam `termin_vs_postep()`, tylko z parametrem, który serwis miał od
+    początku (limit_pozycji). Domyślne zachowanie bez parametru się nie
+    zmienia, więc podzakładka Terminy nic o tym nie musi wiedzieć.
+    """
+    from ...services import reports_service
+
+    bez_pozycji = request.args.get('items', '').strip() == '0'
+
+    def buduj():
+        if not bez_pozycji:
+            return reports_service.termin_vs_postep()
+        payload = reports_service.termin_vs_postep(limit_pozycji=0)
+        # Przy limit_pozycji=0 serwis liczy przycięcie względem zera i ZAWSZE
+        # oddaje items_truncated=True przy items=[] — czyli „lista przycięta",
+        # choć listy nie było jak przyciąć. Skoro jej nie zamawiano, oba klucze
+        # wypadają: brak pola jest uczciwszy niż pole kłamiące.
+        payload.pop('items', None)
+        payload.pop('items_truncated', None)
+        return payload
+
+    return _odpowiedz_wykresu('deadline-progress', buduj)
+
+
+@api_bp.route('/reports/flow-in-out')
+@login_required
+def reports_flow_in_out():
+    """
+    GET /production/api/reports/flow-in-out
+        ?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
+        &granularity=auto|dzien|tydzien
+
+    Wykres 3: m³ wchodzące (nowe pozycje) vs wychodzące (pakowanie) dzień po
+    dniu plus skumulowana różnica. Domyślnie 90 dni.
+
+    `days` jest ZAWSZE ciągłe i pełne (z zerami), a cumulative_diff_m3 jest już
+    policzone narastająco po stronie serwera — dwa widgety nie mają jak
+    skumulować tego samego inaczej. Oś jest 7-dniowa: zamówienia wpadają też
+    w weekend, choć hala wtedy nie pracuje.
+    """
+    from ...services import reports_service
+
+    start_date, end_date, err = _parsuj_zakres_dat(domyslne_dni=90)
+    if err:
+        return err
+
+    granulacja = request.args.get('granularity', 'auto').strip().lower()
+    if granulacja not in ('auto', 'dzien', 'tydzien'):
+        return jsonify({'success': False,
+                        'error': 'granularity: auto | dzien | tydzien'}), 400
+
+    return _odpowiedz_wykresu(
+        'flow-in-out',
+        lambda: reports_service.wejscie_vs_wyjscie(start_date, end_date, granulacja))
+
+
+@api_bp.route('/reports/hourly-heatmap')
+@login_required
+def reports_hourly_heatmap():
+    """
+    GET /production/api/reports/hourly-heatmap
+        ?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
+
+    Wykres 4: siatka 7 × 24 (wiersz 0 = poniedziałek) ze ŚREDNIM m³ na jedno
+    wystąpienie danego dnia tygodnia. Domyślnie 30 dni.
+
+    grid_m3 jest JUŻ ZNORMALIZOWANY — front nie dzieli przez nic. Dzielnik
+    jedzie osobno (weekday_occurrences) do podpisu, bo okno 30-dniowe potrafi
+    mieć pięć poniedziałków i cztery czwartki.
+    """
+    from ...services import reports_service
+
+    start_date, end_date, err = _parsuj_zakres_dat(domyslne_dni=30)
+    if err:
+        return err
+
+    return _odpowiedz_wykresu(
+        'hourly-heatmap',
+        lambda: reports_service.heatmapa_godzinowa(start_date, end_date))
+
+
+@api_bp.route('/reports/staffing-vs-output')
+@login_required
+def reports_staffing_vs_output():
+    """
+    GET /production/api/reports/staffing-vs-output
+        ?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
+
+    Wykres 5: osobogodziny (z sesji pracy) vs przerób (z eventów) per
+    stanowisko, plus iloraz m³ na osobogodzinę. Domyślnie 7 dni.
+
+    Odpowiedź niesie `learning` — to główny konsument badge'a „Trwa nauka":
+    obsada jest wiarygodna wyłącznie tam, gdzie ludzie się logują. Front
+    porównuje stanowisko ZE SOBĄ W CZASIE, nigdy stanowiska między sobą
+    (m³ nie są porównywalne: spakowanie metra trwa minuty, sklejenie godziny).
+    """
+    from ...services import reports_service
+
+    start_date, end_date, err = _parsuj_zakres_dat()
+    if err:
+        return err
+
+    def buduj():
+        payload = reports_service.obsada_vs_przerob(start_date, end_date)
+        # Badge liczony na KONIEC zakresu, nie na jego długość — patrz
+        # docstring reports_service.stan_nauki().
+        payload['learning'] = reports_service.stan_nauki(end_date=end_date)
+        return payload
+
+    return _odpowiedz_wykresu('staffing-vs-output', buduj)
+
+
+@api_bp.route('/reports/attribution-coverage')
+@login_required
+def reports_attribution_coverage():
+    """
+    GET /production/api/reports/attribution-coverage
+        ?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD&station=all|<kod>
+
+    Wykres 6: jaki procent zarejestrowanego ruchu ma podpis pracownika, dzień
+    po dniu. Domyślnie 7 dni.
+
+    Badge „Trwa nauka" tu NIE występuje i to jest świadome: ten wykres JEST
+    miernikiem nauki, więc oznaczanie go byłoby błędnym kołem.
+
+    Dzień bez produkcji ma coverage_pct = None (dziura w linii, spanGaps:false),
+    a nie zero. summary.coverage_pct to suma liczników / suma mianowników,
+    czyli wartość ważona wykresu — tą samą liczbą zasilany jest kafelek
+    pokrycia w widgecie wydajności pracowników.
+    """
+    from ...services import reports_service
+
+    start_date, end_date, err = _parsuj_zakres_dat()
+    if err:
+        return err
+
+    station, err = _waliduj_stanowisko()
+    if err:
+        return err
+
+    return _odpowiedz_wykresu(
+        'attribution-coverage',
+        lambda: reports_service.pokrycie_atrybucji_dziennie(
+            start_date, end_date, station=station))
+
+
+@api_bp.route('/reports/rework-registration')
+@login_required
+def reports_rework_registration():
+    """
+    GET /production/api/reports/rework-registration
+        ?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
+
+    Wykres 7: doróbki tydzień po tygodniu. Domyślnie 90 dni.
+
+    UWAGA DLA FRONTU: dopóki `threshold_met` jest false, widget ma rysować
+    PANEL INFORMACYJNY (liczby + zdanie diagnozy z `reporting_stations`),
+    a nie pusty wykres. Powód jest merytoryczny: zgłaszać doróbkę da się dziś
+    tylko z formatowania, więc słupek „prawie zero doróbek" czyta się jako
+    „jakość świetna", a znaczy „sześć z siedmiu stanowisk nie ma jak zgłosić".
+    Pusty canvas z napisem „brak danych w wybranym okresie" byłby tu
+    podpowiedzią, że wystarczy zmienić zakres dat — a nie wystarczy.
+
+    Badge „Trwa nauka" tu NIE występuje: ograniczeniem jest zakres endpointu
+    mobilnego, nie doświadczenie hali z apką. Czekanie niczego nie zmieni.
+    """
+    from ...services import reports_service
+
+    start_date, end_date, err = _parsuj_zakres_dat(domyslne_dni=90)
+    if err:
+        return err
+
+    return _odpowiedz_wykresu(
+        'rework-registration',
+        lambda: reports_service.rejestracja_dorobek(start_date, end_date))
+
+
+@api_bp.route('/reports/station-worker-output')
+@login_required
+def reports_station_worker_output():
+    """
+    GET /production/api/reports/station-worker-output
+        ?station=<kod>&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
+
+    Wykres 8: kto ile zrobił na JEDNYM stanowisku — m³ (oś lewa) i wkład
+    w sztukach (oś prawa), plus wyszarzony słupek „Nieprzypisane". Domyślnie
+    jeden dzień, jak sąsiedni widget „Wykonanie stanowiska w dniu".
+
+    `station` jest OBOWIĄZKOWE i 'all' leci 400, a nie sumą wszystkich
+    stanowisk. To nie jest niedoróbka walidacji, tylko warunek, pod którym ten
+    wykres w ogóle powstał: porównywanie ludzi między stanowiskami mierzy, kto
+    stał na końcu procesu (spakowanie metra trwa minuty, sklejenie godziny),
+    a nie kto się narobił. Wewnątrz jednego stanowiska to samo porównanie jest
+    uczciwe — i tylko takie ten endpoint oddaje.
+
+    Odpowiedź niesie `learning`: widget stoi w całości na atrybucji, więc badge
+    „Trwa nauka" należy mu się tak samo jak wykresowi obsady. Liczony na koniec
+    zakresu, nie na jego długość.
+
+    Bramka stoi PO OBU STRONACH: tutaj (żeby przeglądarka dostała czytelne 400
+    z listą dozwolonych kodów) i w serwisie (żeby każdy inny konsument dostał
+    to samo). Router bez serwisu przepuszczał literówkę w kodzie stanowiska
+    wszędzie tam, gdzie agregat woła się bezpośrednio — a odpowiedzią było
+    ciche „stanowisko nic nie zrobiło".
+    """
+    from ...services import reports_service
+
+    start_date, end_date, err = _parsuj_zakres_dat(domyslne_dni=1)
+    if err:
+        return err
+
+    station = request.args.get('station', '').strip().lower()
+    if station in ('', 'all'):
+        return jsonify({
+            'success': False,
+            'error': ('Podaj JEDNO stanowisko — m³ nie są porównywalne między '
+                      'stanowiskami, więc wykres zbiorczy nie znaczyłby nic. '
+                      f'Dozwolone: {sorted(VALID_STATIONS)}'),
+        }), 400
+    if station not in VALID_STATIONS:
+        return jsonify({
+            'success': False,
+            'error': f'Nieprawidłowe stanowisko. Dozwolone: {sorted(VALID_STATIONS)}',
+        }), 400
+
+    def buduj():
+        payload = reports_service.wklad_pracownikow_na_stanowisku(
+            station, start_date, end_date)
+        payload['learning'] = reports_service.stan_nauki(end_date=end_date)
+        return payload
+
+    return _odpowiedz_wykresu('station-worker-output', buduj)
 
 
 @api_bp.route('/reports/worker-output')
@@ -90,6 +478,11 @@ def reports_worker_output():
     try:
         raport = worker_stats_service.raport_wydajnosci(
             start_date, end_date, station=station, worker_id=worker_id)
+        # Badge „Trwa nauka" należy do tego widgetu tak samo jak do wykresu
+        # obsady: tabela mówi o LUDZIACH, a mówi o nich tyle, ile tablety
+        # zdążyły zaraportować. Liczony na koniec zakresu, nie na jego długość.
+        from ...services import reports_service
+        raport['learning'] = reports_service.stan_nauki(end_date=end_date)
     except ZakresError as e:
         return jsonify({'success': False, 'error': str(e)}), 400
 
@@ -132,6 +525,12 @@ def _eksport_raportu_pracownikow(raport):
     ark.append(['Pokrycie atrybucją (%)', podsumowanie['attribution_coverage_pct']])
     ark.append(['UWAGA: wybór profilu na tablecie nie jest chroniony hasłem — '
                 'dane mają charakter poglądowy'])
+    # Zastrzeżenie o dojrzałości danych jedzie do arkusza pod istniejącym
+    # ostrzeżeniem — wyeksportowana tabela nie ma prawa zgubić kontekstu,
+    # który widać w widgecie.
+    nauka = raport.get('learning') or {}
+    if nauka.get('learning'):
+        ark.append([nauka['text']])
 
     szczegoly = wb.create_sheet('Szczegóły')
     szczegoly.append(['Data', 'Pracownik', 'Stanowisko', 'Sztuki', 'm3'])
@@ -178,6 +577,11 @@ def reports_station_output():
     - volume_per_unit, volume_done_eod (m³)
     - meta: short_product_id, original_product_name, baselinker_order_id, status, gatunek/grubość
 
+    Lista jest STRONICOWANA PO STRONIE SERWERA (limit/offset, patrz
+    `pagination` w odpowiedzi). Kafelki i timeline liczą się z osobnych
+    agregatów, więc nie zależą od strony — przełączanie stron nie zmienia
+    ani jednej liczby u góry widgetu.
+
     Timeline: 48 bucketów po 30 min, sumy delta i delta*volume_m3
     (przez wszystkie stanowiska gdy station='all'). Frontend dzieli
     przez days_count żeby uzyskać średnią dzienną.
@@ -185,7 +589,6 @@ def reports_station_output():
     Sortowanie: po ostatnim evencie w zakresie (najnowsze najpierw).
     """
     from ...models import ProductionStationEvent
-    from sqlalchemy import and_
 
     station = request.args.get('station', '').strip().lower()
     start_date_str = request.args.get('start_date', '').strip()
@@ -199,7 +602,18 @@ def reports_station_output():
             'error': f'Nieprawidłowe stanowisko. Dozwolone: all, {sorted(VALID_STATIONS)}'
         }), 400
 
+    limit, offset, err = _parsuj_stronicowanie()
+    if err:
+        return err
+
     # Parsowanie zakresu: preferuj start_date/end_date, fallback na date.
+    # Podanie TYLKO jednej z dwóch granic to błąd, nie zaproszenie do domyślnego
+    # zakresu — patrz _parsuj_zakres_dat().
+    if bool(start_date_str) != bool(end_date_str):
+        return jsonify({
+            'success': False,
+            'error': 'Podaj obie daty zakresu (start_date i end_date) albo żadnej'
+        }), 400
     try:
         if start_date_str and end_date_str:
             start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
@@ -208,7 +622,10 @@ def reports_station_output():
             start_date = datetime.strptime(date_str, '%Y-%m-%d').date()
             end_date = start_date
         else:
-            start_date = end_date = date.today()
+            # get_local_now(), NIE date.today(): kontener chodzi na UTC, więc
+            # między północą a 02:00 czasu polskiego date.today() oddawał
+            # wczoraj — patrz _parsuj_zakres_dat().
+            start_date = end_date = get_local_now().date()
     except ValueError:
         return jsonify({
             'success': False,
@@ -269,90 +686,126 @@ def reports_station_output():
         # stanowiska wszystkie wiersze i tak mają to samo station_code,
         # więc koszt jest zerowy a kod jest unifikowany.
         # day_delta_sum = SUM(delta) (mimo nazwy — to ruch w całym zakresie)
-        # last_event_at = MAX(created_at)
-        agg = db.session.query(
+        # last_event_at = MAX(created_at), last_event_id = MAX(id)
+        agg_q = db.session.query(
             ProductionStationEvent.production_item_id.label('item_id'),
             ProductionStationEvent.station_code.label('station_code'),
             func.sum(ProductionStationEvent.delta).label('day_delta_sum'),
             func.max(ProductionStationEvent.created_at).label('last_event_at'),
+            func.max(ProductionStationEvent.id).label('last_event_id'),
             func.count(ProductionStationEvent.id).label('event_count'),
         ).filter(*time_filters).group_by(
             ProductionStationEvent.production_item_id,
             ProductionStationEvent.station_code,
-        ).subquery()
+        )
+        agg = agg_q.subquery()
 
-        # quantity_done_after z ostatniego eventu w zakresie per (item, station).
-        # Join po (item, station, last_event_at) — w razie remisu created_at
-        # join produkcyjnie zwróci wszystkie kolizje, później dedup w pętli.
-        last_event = db.session.query(
-            ProductionStationEvent.production_item_id.label('item_id'),
-            ProductionStationEvent.station_code.label('station_code'),
-            ProductionStationEvent.created_at.label('last_event_at'),
-            ProductionStationEvent.quantity_done_after.label('quantity_done_eod'),
-        ).filter(*time_filters).subquery()
+        # ── Kafelki: z osobnych agregatów, NIE z sumowania stronicowanej listy ──
+        #
+        # Liczba WIERSZY (pozycja × stanowisko) i liczba różnych PRODUKTÓW to
+        # dwie różne liczby i w trybie „Wszystkie stanowiska" różnią się
+        # trzykrotnie: 30 dni to 2540 wierszy przy 789 produktach. Kafelek
+        # podpisany „Pozycje" pokazywał tę pierwszą.
+        rows_count = db.session.query(func.count()).select_from(agg).scalar() or 0
+        distinct_items = db.session.query(
+            func.count(func.distinct(ProductionStationEvent.production_item_id))
+        ).filter(*time_filters).scalar() or 0
+        # Ruch jest ADDYTYWNY — suma delt po wierszach to dokładnie suma delt
+        # po eventach, więc jedno skalarne zapytanie zamiast pętli po payloadzie.
+        sum_day_delta = int(db.session.query(
+            func.coalesce(func.sum(ProductionStationEvent.delta), 0)
+        ).filter(*time_filters).scalar() or 0)
 
+        # STAN (EOD) sumujemy WYŁĄCZNIE dla jednego stanowiska. W trybie
+        # zbiorczym suma stanów z siedmiu stanowisk nie jest stanem czegokolwiek
+        # — zmierzone na 30 dniach: 84.180 m³ „wykonane" przy 28.260 m³ pełnej
+        # objętości tych produktów, czyli kafelek przekraczał fizyczne maksimum
+        # trzykrotnie. Front w tym trybie chowa oba kafelki stanu (None).
+        sum_qty_done_eod = None
+        sum_volume_done_eod = None
+        if not is_all_stations:
+            stan_q = db.session.query(
+                func.coalesce(func.sum(ProductionStationEvent.quantity_done_after), 0),
+                func.coalesce(func.sum(
+                    ProductionStationEvent.quantity_done_after
+                    * func.coalesce(ProductionItem.volume_m3, 0)), 0),
+            ).select_from(agg).join(
+                ProductionStationEvent,
+                ProductionStationEvent.id == agg.c.last_event_id,
+            ).join(
+                ProductionItem, ProductionItem.id == agg.c.item_id
+            ).one()
+            sum_qty_done_eod = int(stan_q[0] or 0)
+            sum_volume_done_eod = round(float(stan_q[1] or 0.0), 4)
+
+        # ── Strona listy ──
+        #
+        # Jawna lista kolumn zamiast encji ProductionItem: serializer niżej
+        # czyta siedem pól, a encja ciągnęła z bazy także shape_svg (1.58 MB
+        # w tabeli) i edge_svg (0.69 MB), których nikt tu nie ogląda.
+        # Join po `last_event_id` (MAX(id)), nie po `last_event_at`: przy
+        # remisie created_at — a tablet zapisuje wsad kilkoma eventami w tej
+        # samej sekundzie, takich grup jest w bazie 3053 — join po znaczniku
+        # czasu oddawał N wierszy i dedup w pętli brał PIERWSZY Z BRZEGU.
+        # Zmierzone 2026-08-12: pozycja 887_1 pokazywała „1 / 3" przy eventach
+        # kończących się na quantity_done_after = 3. MAX(id) jest przy okazji
+        # właściwą definicją „stanu po ostatnim zdarzeniu": quantity_done_after
+        # to migawka zapisana w chwili INSERT-u, więc rozstrzyga kolejność
+        # zapisu, nie znacznik czasu (który admin może wpisać wstecz).
         rows = db.session.query(
-            ProductionItem,
+            agg.c.item_id,
             agg.c.station_code,
             agg.c.day_delta_sum,
             agg.c.last_event_at,
             agg.c.event_count,
-            last_event.c.quantity_done_eod,
-        ).options(
-            joinedload(ProductionItem.order),
-            joinedload(ProductionItem.configuration),
+            ProductionStationEvent.quantity_done_after.label('quantity_done_eod'),
+            ProductionItem.short_product_id,
+            ProductionItem.original_product_name,
+            ProductionItem.current_status,
+            ProductionItem.quantity,
+            ProductionItem.volume_m3,
+            ProductionItem.parsed_thickness_cm,
+            ProductionOrder.baselinker_order_id,
+            ProductionOrder.internal_order_number,
+            ProductionConfiguration.species,
+        ).select_from(agg).join(
+            ProductionStationEvent,
+            ProductionStationEvent.id == agg.c.last_event_id,
         ).join(
-            agg, ProductionItem.id == agg.c.item_id
-        ).join(
-            last_event,
-            and_(
-                last_event.c.item_id == agg.c.item_id,
-                last_event.c.station_code == agg.c.station_code,
-                last_event.c.last_event_at == agg.c.last_event_at,
-            )
-        ).order_by(agg.c.last_event_at.desc()).all()
+            ProductionItem, ProductionItem.id == agg.c.item_id
+        ).outerjoin(
+            ProductionOrder, ProductionOrder.id == ProductionItem.order_id
+        ).outerjoin(
+            ProductionConfiguration,
+            ProductionConfiguration.id == ProductionItem.configuration_id
+        ).order_by(
+            agg.c.last_event_at.desc(), agg.c.item_id.desc()
+        ).limit(limit).offset(offset).all()
 
         items_payload = []
-        sum_qty_done_eod = 0
-        sum_volume_done_eod = 0.0
-        sum_day_delta = 0
-
-        # Dedup po (item_id, station_code) — w razie remisu created_at
-        # na ostatnim evencie agregat i tak ten sam, bierzemy pierwszy zwrot.
-        seen_keys = set()
-        for item, station_code_row, day_delta_sum, last_event_at, event_count, qty_done_eod in rows:
-            key = (item.id, station_code_row)
-            if key in seen_keys:
-                continue
-            seen_keys.add(key)
-
-            qty_done_eod = int(qty_done_eod or 0)
-            day_delta_sum = int(day_delta_sum or 0)
-            volume_per_unit = float(item.volume_m3 or 0)
-            volume_done_eod = volume_per_unit * qty_done_eod
-
-            sum_qty_done_eod += qty_done_eod
-            sum_volume_done_eod += volume_done_eod
-            sum_day_delta += day_delta_sum
-
+        for w in rows:
+            qty_done_eod = int(w.quantity_done_eod or 0)
+            volume_per_unit = float(w.volume_m3 or 0)
             items_payload.append({
-                'item_id': item.id,
-                'short_product_id': item.short_product_id,
-                'product_name': item.original_product_name,
-                'baselinker_order_id': item.order.baselinker_order_id if item.order else None,
-                'internal_order_number': item.order.internal_order_number if item.order else None,
-                'current_status': item.current_status,
-                'quantity': item.quantity,
+                'item_id': w.item_id,
+                'short_product_id': w.short_product_id,
+                'product_name': w.original_product_name,
+                'baselinker_order_id': w.baselinker_order_id,
+                'internal_order_number': w.internal_order_number,
+                'current_status': w.current_status,
+                'quantity': w.quantity,
                 'quantity_done_eod': qty_done_eod,
-                'day_delta_sum': day_delta_sum,
-                'event_count': int(event_count or 0),
+                'day_delta_sum': int(w.day_delta_sum or 0),
+                'event_count': int(w.event_count or 0),
                 'volume_per_unit_m3': round(volume_per_unit, 4),
-                'volume_done_eod_m3': round(volume_done_eod, 4),
-                'wood_species': item.configuration.species if item.configuration else None,
-                'thickness_cm': float(item.parsed_thickness_cm) if item.parsed_thickness_cm else None,
-                'last_event_at': last_event_at.isoformat() if last_event_at else None,
-                'station_code': station_code_row,
-                'station_label': STATION_LABELS.get(station_code_row, station_code_row),
+                'volume_done_eod_m3': round(volume_per_unit * qty_done_eod, 4),
+                'wood_species': w.species,
+                'thickness_cm': (float(w.parsed_thickness_cm)
+                                 if w.parsed_thickness_cm else None),
+                'last_event_at': (w.last_event_at.isoformat()
+                                  if w.last_event_at else None),
+                'station_code': w.station_code,
+                'station_label': STATION_LABELS.get(w.station_code, w.station_code),
             })
 
         # Timeline 48 bucketów po 30 minut (00:00, 00:30, ..., 23:30)
@@ -402,11 +855,21 @@ def reports_station_output():
             'end_date': end_date.isoformat(),
             'days_count': days_count,
             'items': items_payload,
+            'pagination': {
+                'limit': limit,
+                'offset': offset,
+                'total': int(rows_count),
+            },
             'summary': {
-                'items_count': len(items_payload),
+                # Wiersz = pozycja × stanowisko. W trybie zbiorczym ta liczba
+                # NIE jest liczbą produktów — stąd druga obok.
+                'items_count': int(rows_count),
+                'distinct_items_count': int(distinct_items),
+                # None w trybie zbiorczym: suma stanów z różnych stanowisk nie
+                # jest stanem niczego (patrz komentarz przy stan_q wyżej).
                 'total_quantity_done_eod': sum_qty_done_eod,
+                'total_volume_done_eod_m3': sum_volume_done_eod,
                 'total_day_delta': sum_day_delta,
-                'total_volume_done_eod_m3': round(sum_volume_done_eod, 4),
                 # Sztuki, które automat przeskoczył — NIE są wliczone powyżej.
                 # Pokazujemy je jawnie, żeby nikt nie szukał różnicy między
                 # tym widgetem a stanem quantity_done produktu.
@@ -421,14 +884,11 @@ def reports_station_output():
         })
 
     except Exception as e:
-        logger.error("Błąd /reports/station-output", extra={
-            'user_id': current_user.id,
-            'station': station,
-            'start_date': start_date.isoformat() if 'start_date' in locals() else None,
-            'end_date': end_date.isoformat() if 'end_date' in locals() else None,
-            'error': str(e),
-        })
-        return jsonify({'success': False, 'error': str(e)}), 500
+        # str(e) idzie do LOGU, nie do przeglądarki: przy błędzie SQLAlchemy
+        # tekst wyjątku niesie pełne zapytanie razem z bindami (nazwy klientów
+        # i produktów z BaseLinkera), a zakładkę czyta każdy zalogowany —
+        # endpoint ma tylko @login_required, bez sprawdzania roli.
+        return _blad_serwera("/reports/station-output", e, station=station)
 
 
 @api_bp.route('/reports-tab-content')
@@ -448,7 +908,14 @@ def reports_tab_content():
 
         from ...models import ProductionItem
 
-        today = date.today()
+        # get_local_now(), NIE date.today(): kontener chodzi na UTC (tzname
+        # ('UTC','UTC'), datetime.now() 09:07 przy get_local_now() 11:07), więc
+        # date.today() między północą a 02:00 czasu polskiego oddaje WCZORAJ.
+        # Wszystkie widgety pod tym paskiem liczą z czasu lokalnego, więc pasek
+        # KPI pokazywał wtedy inne okno niż one: zmierzone na prod_products,
+        # okno lokalne 08-06..08-12 = 163 poz / 5.849 m³, okno przesunięte
+        # o dobę = 195 poz / 7.657 m³ (+19.6% / +30.9%).
+        today = get_local_now().date()
 
         # Kafelki KPI: ukończone i m³ z ostatnich 7 dni. Wcześniej liczyła to
         # pętla po dniach — 14 zapytań na dwie liczby, które i tak zaraz były
@@ -516,6 +983,70 @@ def reports_tab_content():
 # zapytań.
 # ════════════════════════════════════════════════════════════════════════════
 
+def _kontekst_przeglad():
+    """
+    PRZEGLĄD — pierwsza i domyślna podzakładka. Sześć elementów, ZERO SQL tutaj.
+
+    BUDŻET (zmierzony test_clientem na kopii produkcji 2026-08-12, mediana
+    z 5 przebiegów po rozgrzewce, kontener worker-profiles-app-1):
+      ten kontekst / cały fragment       0 zapytań  (zegar + katalog + konfig)
+      /reports-tab-content               2 zapytania — bez zmian, nie dotykamy
+      /reports/days-of-supply            3 zapytania / 20.3 ms / 1.7 kB
+      /reports/deadline-progress?items=0 2 zapytania /  4.1 ms / 3.5 kB
+      /workers/active-sessions           2 zapytania /  0.7 ms / 2.3 kB
+      /reports/staffing-vs-output        7 zapytań   /  8.1 ms / 2.5 kB
+      /reports/flow-in-out               3 zapytania /  3.1 ms / 2.0 kB
+      ────────────────────────────────────────────────────────────────────
+      pięć żądań danych razem:  17 zapytań / 36.4 ms SQL / 12.0 kB
+      wejście na Raporty z Przeglądem:  2 + 17 = 19 zapytań
+      to samo wejście ze Stanowiskami:  2 + 34 = 36 zapytań (7 żądań, 129 kB)
+
+    TWARDY LIMIT: 20 zapytań. Przekroczenie znaczy, że element ma wypaść albo
+    zacytować liczbę już policzoną — nie że dokładamy szóste żądanie.
+
+    Przegląd nie ma ANI JEDNEGO własnego agregatu — cytuje pięć endpointów,
+    które już istnieją i już mają swoich konsumentów:
+
+      /reports/days-of-supply                      → Kolejki
+      /reports/deadline-progress?items=0           → Terminy + Praca po terminie
+      /workers/active-sessions                     → Kto jest na hali (lista)
+      /reports/staffing-vs-output?start=end=dziś   → osobogodziny + badge nauki
+      /reports/flow-in-out?start=dziś-13&end=dziś  → Wejście/wyjście hali
+
+    `stan_nauki()` leci przez to DOKŁADNIE RAZ na wejście — jedzie w kopercie
+    staffing-vs-output i zasila zarówno badge „Trwa nauka", jak i element
+    „Wdrożenie profili". Osobne żądanie po stan nauki byłoby drugim wywołaniem
+    tej samej funkcji w tym samym ekranie.
+
+    Wszystkie trzy wartości niżej są liczone z GET_LOCAL_NOW(), nie z zegara
+    przeglądarki: kontener chodzi na UTC, a przeglądarka bywa w innej strefie —
+    data wysyłana do endpointów musi być tą samą dobą, którą serwis nazywa
+    „dziś" w polu as_of.
+    """
+    from ...services.worker_service import get_idle_timeout_minutes
+
+    teraz = get_local_now()
+    dzis = teraz.date()
+
+    return {
+        # Stempel „Stan na HH:MM" — element 1 Przeglądu. Odświeżenie przeładowuje
+        # cały fragment, więc stempel odnawia się razem z danymi.
+        'przeglad_stan_na': teraz.strftime('%H:%M'),
+        'przeglad_dzis': dzis.isoformat(),
+        # Okno przepływu: 14 dni włącznie z dziś. Poniżej progu agregacji
+        # tygodniowej (120 dni), więc granularity='dzien' jest gwarantowane.
+        'przeglad_przeplyw_od': (dzis - timedelta(days=13)).isoformat(),
+        # Próg bezczynności do zdania „wszystkie sesje przekroczyły N min".
+        # Z konfiguracji (cache'owanej), nigdy zaszyty w szablonie — admin
+        # zmienia go w prod_config bez deployu.
+        'przeglad_idle_minut': get_idle_timeout_minutes(),
+        # Które kody to STANOWISKA — do rozdzielenia „po terminie na produkcji"
+        # od „po terminie poza produkcją (Logistyka, Wstrzymane)". Z katalogu,
+        # nie z listy literałów w JS (zasada: nazwy stanowisk tylko stamtąd).
+        'przeglad_kody_stanowisk': list(STATION_ORDER),
+    }
+
+
 def _kontekst_stanowiska():
     """Wykonanie stanowiska w dniu + wydajność dzienna. Zero SQL — oba widgety
     dociągają swoje liczby własnymi endpointami po stronie przeglądarki."""
@@ -526,6 +1057,56 @@ def _kontekst_ludzie():
     """Wydajność pracowników. Jak wyżej: sam <select> stanowisk, dane z
     /reports/worker-output."""
     return {'station_choices': station_choices()}
+
+
+def _kontekst_terminy():
+    """
+    „Czy nadążamy": termin vs postęp + wejście vs wyjście hali.
+
+    Zero SQL — oba widgety dociągają swoje liczby własnymi endpointami
+    (/reports/deadline-progress i /reports/flow-in-out) po stronie
+    przeglądarki. Wejście na zakładkę Raporty ma dalej kosztować dwa agregaty
+    do kafelków KPI i ani jednego zapytania więcej.
+
+    Selektora stanowisk tu nie ma celowo: pierwszy widget jest migawką całej
+    hali rozbitą na stanowiska, drugi pyta o przepływ hali jako całości.
+    """
+    return {}
+
+
+# Odwrotność STATION_PENDING_STATUS — status kolejki → kod stanowiska.
+_STATUS_NA_STANOWISKO = {
+    status: kod for kod, status in STATION_PENDING_STATUS.items()
+}
+
+# Statusy, które stanowiskiem NIE SĄ. Osobny słownik, bo station_catalog ich
+# nie zna i znać nie powinien — to etapy cyklu życia pozycji, nie miejsca
+# w hali. Nazwy zgodne z reports_service.ETAPY_POZA_STANOWISKAMI.
+_ETYKIETY_STATUSOW_POZA_PIPELINE = {
+    'spakowane': 'Spakowane',
+    'anulowane': 'Anulowane',
+    'czeka_na_logistyke': 'Logistyka',
+    'wstrzymane': 'Wstrzymane',
+    'w_realizacji': 'W realizacji',
+}
+
+
+def _etykieta_statusu(status):
+    """
+    Nazwa statusu do wyświetlenia — Z KATALOGU, nie ze składania stringów.
+
+    Szablon robił dotąd `status.replace('czeka_na_','').replace('_',' ').title()`
+    i produkował TRZECI zestaw nazw tych samych stanowisk: „Lakiernie" zamiast
+    „Lakiernia", „Skladanie" zamiast „Składanie - lite", „Wykanczanie" zamiast
+    „Wykańczanie" — pięć z dziesięciu wierszy pod inną nazwą niż reszta
+    aplikacji i bez polskich znaków. Liczby zgadzały się co do trzeciego
+    miejsca; rozjeżdżały się wyłącznie etykiety.
+    """
+    kod = _STATUS_NA_STANOWISKO.get(status)
+    if kod:
+        return station_label(kod)
+    return _ETYKIETY_STATUSOW_POZA_PIPELINE.get(
+        status, str(status or '').replace('_', ' ').capitalize())
 
 
 def _kontekst_miks():
@@ -547,6 +1128,10 @@ def _kontekst_miks():
     status_report = [
         {
             'status': row[0],
+            # Gotowa etykieta jedzie z serwera. Szablon i JS mają ją tylko
+            # wypisać — składanie nazwy w dwóch miejscach (Jinja i Chart.js)
+            # to dwie kopie tej samej reguły i dwie okazje do rozjazdu.
+            'label': _etykieta_statusu(row[0]),
             'count': row[1],
             'volume': float(row[2] or 0)
         }
@@ -702,7 +1287,14 @@ def _kontekst_system():
 # w tym samym miejscu, więc nowa podzakładka to jedna linia, a nieznany slug
 # z URL-a nie ma jak dojechać do render_template.
 _PODZAKLADKI = {
+    # Przegląd PIERWSZY, bo jest domyślny. Sama kolejność w tym słowniku nie
+    # wystarcza — o domyślnej podzakładce decyduje PODZAKLADKA_DOMYSLNA
+    # w reports-tab-content.html, a lista PODZAKLADKI tam musi zgadzać się
+    # z kluczami tutaj (nazwa spoza tej mapy dostaje 404, nazwa brakująca tam
+    # jest nieosiągalna z paska).
+    'przeglad': (_kontekst_przeglad, 'components/reports/overview.html'),
     'stanowiska': (_kontekst_stanowiska, 'components/reports/stations.html'),
+    'terminy': (_kontekst_terminy, 'components/reports/deadlines.html'),
     'ludzie': (_kontekst_ludzie, 'components/reports/workers.html'),
     'miks': (_kontekst_miks, 'components/reports/mix.html'),
     'system': (_kontekst_system, 'components/reports/system.html'),
@@ -737,7 +1329,16 @@ def reports_subtab(nazwa):
             'podzakladka': nazwa,
             'error': str(e),
         })
+        # STAŁY komunikat, bez treści wyjątku. Front wstawia to ciało przez
+        # `panel.innerHTML = await odp.text()` BEZWARUNKOWO (komentarz w kodzie:
+        # „treść wstawiamy zawsze"), więc f-string z {e} był niezabezpieczonym
+        # wstrzyknięciem do DOM: odtworzone realnym żądaniem — wyjątek
+        # RuntimeError('<img src=x onerror=alert(1)>') wracał HTTP 500 z tym
+        # tagiem dosłownie w ciele, a innerHTML nie wykonuje <script>, ale
+        # onerror na <img> odpala się normalnie. To było jedyne miejsce
+        # w przepływie Raportów łamiące zasadę „escapuj wszystko z bazy".
         return (
-            f'<div class="alert alert-danger">Błąd ładowania: {e}</div>',
+            '<div class="alert alert-danger">Nie udało się wczytać podzakładki. '
+            'Szczegóły w logach serwera.</div>',
             500,
         )

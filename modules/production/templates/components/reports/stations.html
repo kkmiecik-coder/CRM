@@ -1,13 +1,53 @@
 {# Podzakładka Raporty → STANOWISKA.
 
-   Oba widgety odpowiadają na to samo pytanie „gdzie się korkuje": pierwszy to
-   drill-down jednego dnia, drugi ten sam trend rozciągnięty na 30 dni. Oba są
-   kluczowane stanowiskiem i oba czytają tę samą definicję „zrobione", więc
-   rozdzielenie ich zrobiłoby dwie podzakładki na jedno pytanie.
+   Wszystkie widgety odpowiadają na to samo pytanie „gdzie się korkuje", tylko
+   z różnej odległości: zapas przed stanowiskiem (stan na teraz), drill-down
+   jednego dnia, rozbicie tego samego dnia na ludzi, rytm tygodnia, trend
+   30 dni i na końcu doróbki. Wszystkie są kluczowane stanowiskiem i wszystkie
+   czytają tę samą definicję „zrobione" (bez source auto_skip/system), więc
+   rozdzielenie ich zrobiłoby kilka podzakładek na jedno pytanie.
+
+   „KTO ILE ZROBIŁ" JEST TUTAJ, A NIE W PODZAKŁADCE LUDZIE, i to jest decyzja
+   merytoryczna: widget zaczyna się od wyboru STANOWISKA, a ludzie są dopiero
+   jego rozbiciem. Przeniesiony do „Ludzi" zapraszałby do czytania w drugą
+   stronę — najpierw osoba, potem stanowisko — czyli do porównywania ludzi
+   między stanowiskami, którego m³ nie znoszą.
+
+   HEATMAPA OBOK TIMELINE'U, NIE ZAMIAST NIEGO. Timeline 48 kubełków odpowiada
+   na „co się działo w TYM dniu na TYM stanowisku" (drill-down, sztuki i m³,
+   filtr stanowiska), heatmapa na „o której hala w ogóle pracuje w typowym
+   tygodniu" (wszystkie stanowiska naraz, średnia na wystąpienie dnia tygodnia).
+   Skasowanie timeline'u zabrałoby jedyne miejsce, w którym widać godzinę
+   pojedynczej zmiany; skasowanie heatmapy zostawiłoby pytanie o rytm tygodnia
+   bez odpowiedzi. Stoją więc jedno pod drugim, od szczegółu do wzorca.
 
    Fragment nie ma i nie może mieć własnego bloku stylów: wchodzi do DOM przez
    innerHTML, więc każdy taki blok zostawiałby po sobie kolejną kopię tych samych
    reguł. Wygląd widgetów raportów siedzi w static/css/reports-tab.css. #}
+
+<!-- Wykres 1: dni zapasu przed stanowiskiem — MIGAWKA, bez zakresu dat.
+     Okno tempa (14 dni ROBOCZYCH liczonych z danych) ustala backend i podaje
+     w odpowiedzi; front ma je pokazać, bo przy krótszym oknie liczby skaczą. -->
+<div class="widget report-widget" id="dos-widget">
+    <div class="widget-header">
+        <h4>
+            <i class="fas fa-layer-group me-2"></i>
+            Dni zapasu przed stanowiskiem
+        </h4>
+        <div class="widget-controls">
+            <button id="dos-refresh-btn" class="btn btn-outline-primary btn-sm" title="Odśwież">
+                <i class="fas fa-sync-alt"></i>
+            </button>
+        </div>
+    </div>
+    <div class="widget-content">
+        <div class="report-chart-wrapper report-chart-tall" id="dos-chart-wrapper" style="display: none;">
+            <canvas id="dos-chart"></canvas>
+        </div>
+        <div class="report-empty" id="dos-empty" style="display: none;"></div>
+        <div class="report-note" id="dos-note"></div>
+    </div>
+</div>
 
 <!-- Wydajność stanowiska w wybranym dniu (event log z prod_station_events) -->
 
@@ -60,11 +100,17 @@
         </div>
 
         <div class="station-output-summary" id="so-summary" style="display: none;">
-            <div class="so-stat">
+            <div class="so-stat" id="so-summary-items-box">
                 <span class="so-stat-value" id="so-summary-items">0</span>
-                <span class="so-stat-label">Pozycje</span>
+                <span class="so-stat-label" id="so-summary-items-label">Pozycje</span>
             </div>
-            <div class="so-stat">
+            {# OBA kafelki STANU znikają w trybie „Wszystkie stanowiska".
+               Suma stanów z siedmiu stanowisk nie jest stanem niczego: ta sama
+               pozycja liczy się raz na każde stanowisko, przez które przeszła,
+               więc na 30 dniach wychodziło 84.180 m³ „wykonane" przy 28.260 m³
+               PEŁNEJ objętości tych produktów — kafelek przekraczał fizyczne
+               maksimum trzykrotnie. Ruch (suma delt) jest addytywny i zostaje. #}
+            <div class="so-stat" id="so-summary-qty-box">
                 <span class="so-stat-value" id="so-summary-qty">0</span>
                 <span class="so-stat-label" id="so-summary-qty-label">Sztuki na koniec dnia</span>
             </div>
@@ -72,9 +118,20 @@
                 <span class="so-stat-value" id="so-summary-delta">0</span>
                 <span class="so-stat-label" id="so-summary-delta-label">Ruch dnia</span>
             </div>
-            <div class="so-stat">
+            {# Kafelek pokazuje STAN (ile jest wykonane po ostatnim evencie
+               zakresu), a widget „Kto ile zrobił" pod spodem pokazuje RUCH
+               (ile przybyło w zakresie). Te dwie liczby różnią się z definicji
+               — zmierzone 06-12.08 na pakowaniu: 5.250 stanu wobec 5.849
+               ruchu — więc obie mają w podpisie jednostkę, a nie samo „m³". #}
+            <div class="so-stat" id="so-summary-volume-box"
+                 title="STAN po ostatnim zdarzeniu zakresu na TYM stanowisku: ile z tych pozycji jest już wykonane. To NIE jest przyrost w zakresie — ten pokazuje widget „Kto ile zrobił na stanowisku" pod spodem. W trybie „Wszystkie stanowiska" ten kafelek nie istnieje, bo suma stanów z różnych stanowisk nie jest stanem pozycji.">
                 <span class="so-stat-value" id="so-summary-volume">0.000</span>
-                <span class="so-stat-label" id="so-summary-volume-label">m³ wykonane (EOD)</span>
+                <span class="so-stat-label" id="so-summary-volume-label">m³ wykonane — stan (EOD)</span>
+            </div>
+            <div class="so-stat" id="so-summary-distinct-box" style="display: none;"
+                 title="Ile RÓŻNYCH produktów dotknęło w tym zakresie jakiekolwiek stanowisko. Kafelek obok liczy WIERSZE (pozycja × stanowisko), więc jest większy — ta sama pozycja przechodzi przez kilka stanowisk.">
+                <span class="so-stat-value" id="so-summary-distinct">0</span>
+                <span class="so-stat-label">Różnych produktów</span>
             </div>
             <div class="so-stat" id="so-summary-auto-box" style="display: none;"
                  title="Sztuki, które system przeskoczył automatycznie — produkt nieprzycinany na wymiar omija formatowanie i wykańczanie. Nikt ich fizycznie nie wykonał, więc nie są wliczone w liczby obok.">
@@ -109,6 +166,129 @@
                 </div>
             </div>
         </div>
+    </div>
+</div>
+
+<!-- Wykres 8: wkład osób na wybranym stanowisku.
+     GET /production/api/reports/station-worker-output
+
+     STOI TUŻ POD „WYKONANIEM STANOWISKA W DNIU" I TO JEST CELOWE: tamten
+     widget mówi ILE zrobiło stanowisko, ten rozbija tę samą liczbę na ludzi.
+     Suma słupków (osoby + „Bez podpisu") ma się zgadzać z RUCHEM stanowiska
+     co do trzeciego miejsca — obie strony liczą z tym samym filtrem źródła.
+     UWAGA: kafelek „m³ wykonane — stan (EOD)" u sąsiada to INNA liczba (stan
+     po ostatnim evencie, nie przyrost w zakresie) i oba kafelki mają to
+     napisane w podpisie, żeby nikt ich nie zestawiał jako rozjazdu.
+
+     W SELEKCIE NIE MA I NIE MOŻE BYĆ „WSZYSTKICH STANOWISK". Wykres, który
+     zestawia ludzi z różnych stanowisk w jednej osi, mierzy nie wysiłek, tylko
+     miejsce w procesie — spakowanie metra sześciennego trwa minuty, sklejenie
+     godziny. Backend odrzuca 'all' błędem 400 z tego samego powodu; gdyby ktoś
+     kiedyś dopisał tu <option value="all">, widget przestałby działać, zamiast
+     po cichu zacząć kłamać. -->
+<div class="widget report-widget" id="sw-widget">
+    <div class="widget-header">
+        <h4>
+            <i class="fas fa-user-check me-2"></i>
+            Kto ile zrobił na stanowisku
+            <span class="badge-nauka" id="sw-learning" style="display: none;">
+                <i class="fas fa-seedling"></i><span data-rola="tekst"></span>
+            </span>
+        </h4>
+        <div class="widget-controls">
+            {# Nazwy WYŁĄCZNIE z services/station_catalog.py (station_choices).
+               Zaszyte <option> były źródłem błędu P7: użytkownik wybierał
+               „Wycinanie", a w tabeli obok czytał „Wycinanie - mikro". #}
+            <select id="sw-station-select" class="form-select form-select-sm" title="Stanowisko">
+                {% for kod, nazwa in station_choices %}
+                <option value="{{ kod }}"{% if kod == 'packaging' %} selected{% endif %}>{{ nazwa }}</option>
+                {% endfor %}
+            </select>
+            <select id="sw-preset-select" class="form-select form-select-sm" title="Zakres dat">
+                <option value="today" selected>Dziś</option>
+                <option value="yesterday">Wczoraj</option>
+                <option value="7d">Ostatnie 7 dni</option>
+                <option value="30d">Ostatnie 30 dni</option>
+                <option value="custom">Własny zakres</option>
+            </select>
+            <input type="date" id="sw-start-date" class="form-control form-control-sm" style="display: none;" title="Data od">
+            <input type="date" id="sw-end-date" class="form-control form-control-sm" style="display: none;" title="Data do">
+            <button id="sw-refresh-btn" class="btn btn-outline-primary btn-sm" title="Odśwież">
+                <i class="fas fa-sync-alt"></i>
+            </button>
+        </div>
+    </div>
+    <div class="widget-content">
+        {# JEDNOSTKA W PODPISIE KAŻDEGO KAFELKA — to nie jest ozdoba.
+           „m³ stanowiska" stało dwa centymetry pod „m³ wykonane (EOD)"
+           z widgetu wyżej i pokazywało inną liczbę, bo tamten liczy STAN,
+           a ten RUCH w zakresie (zmierzone 06-12.08, pakowanie: 5.250 vs
+           5.849). Kafelek pokrycia ma jednostkę z tego samego powodu:
+           liczy ruch w SZTUKACH, nie udział m³. #}
+        <div class="wo-summary" id="sw-summary" style="display: none;">
+            <div class="wo-stat"
+                 title="RUCH netto w zakresie: ile m³ przybyło na tym stanowisku (dorobki minus cofnięcia). Widget wyżej pokazuje STAN na koniec zakresu — to inna liczba i ma prawo się różnić.">
+                <span class="wo-stat-value" id="sw-sum-m3">0</span>
+                <span class="wo-stat-label">m³ ruchu w zakresie</span>
+            </div>
+            <div class="wo-stat"
+                 title="RUCH netto w zakresie w sztukach — dorobki minus cofnięcia.">
+                <span class="wo-stat-value" id="sw-sum-pieces">0</span>
+                <span class="wo-stat-label">sztuk ruchu w zakresie</span>
+            </div>
+            <div class="wo-stat"
+                 title="Osoby z podpisem pod jakimkolwiek zdarzeniem ORAZ osoby, które miały tu sesję — także te, które nie odbiły ani jednej sztuki.">
+                <span class="wo-stat-value" id="sw-sum-workers">0</span>
+                <span class="wo-stat-label">osób z aktywnością</span>
+            </div>
+            <div class="wo-stat" id="sw-share-box"
+                 title="Ta sama liczba, co na wykresie „Pokrycie atrybucją w czasie" w podzakładce Ludzie — jedna definicja, liczona raz. Jednostką jest RUCH W SZTUKACH liczony na wartościach bezwzględnych zdarzeń, nie udział m³.">
+                <span class="wo-stat-value" id="sw-sum-share">—</span>
+                <span class="wo-stat-label">ruchu (szt.) z podpisem</span>
+            </div>
+        </div>
+        <div class="report-chart-wrapper report-chart-tall" id="sw-chart-wrapper" style="display: none;">
+            <canvas id="sw-chart"></canvas>
+        </div>
+        {# Panel „stanowisko pracowało, ale nikt się nie podpisał" — to informacja
+           o wdrożeniu profili, nie o produkcji, więc dostaje własne miejsce
+           i własny ton, a nie kursywę pustego stanu. #}
+        <p class="wo-disclaimer" id="sw-brak-profili" style="display: none;"></p>
+        <div class="report-empty" id="sw-empty" style="display: none;"></div>
+        <div class="report-note" id="sw-note"></div>
+        <div class="report-note report-note-warn" id="sw-warn"></div>
+    </div>
+</div>
+
+<!-- Wykres 4: kiedy hala realnie pracuje (godzina × dzień tygodnia).
+     Siatka CSS Grid, nie Chart.js — wtyczki matrix nie ma w static/vendor,
+     a CDN jest w tym projekcie zakazany. Szczegóły w reports-tab.css (.hm-*). -->
+<div class="widget report-widget" id="hm-widget">
+    <div class="widget-header">
+        <h4>
+            <i class="fas fa-th me-2"></i>
+            Kiedy hala realnie pracuje
+        </h4>
+        <div class="widget-controls">
+            <select id="hm-preset-select" class="form-select form-select-sm" title="Zakres dat">
+                <option value="30d" selected>Ostatnie 30 dni</option>
+                <option value="90d">Ostatnie 90 dni</option>
+                <option value="custom">Własny zakres</option>
+            </select>
+            <input type="date" id="hm-start-date" class="form-control form-control-sm" style="display: none;" title="Data od">
+            <input type="date" id="hm-end-date" class="form-control form-control-sm" style="display: none;" title="Data do">
+            <button id="hm-refresh-btn" class="btn btn-outline-primary btn-sm" title="Odśwież">
+                <i class="fas fa-sync-alt"></i>
+            </button>
+        </div>
+    </div>
+    <div class="widget-content">
+        <div class="hm-scroll" id="hm-scroll" style="display: none;">
+            <div class="hm-grid" id="hm-grid"></div>
+        </div>
+        <div class="hm-legend" id="hm-legend" style="display: none;"></div>
+        <div class="report-empty" id="hm-empty" style="display: none;"></div>
+        <div class="report-note" id="hm-note"></div>
     </div>
 </div>
 
@@ -177,6 +357,80 @@
     </div>
 </div>
 
+<!-- Wykres 7: doróbki — na samym końcu podzakładki, bo to jedyny widget, który
+     na dziś nie mówi nic o hali, tylko o zasięgu rejestracji.
+     Dopóki backend zwraca threshold_met = false, rysujemy PANEL, nie wykres:
+     słupek „prawie zero doróbek" czytałby się jako „jakość świetna", a znaczy
+     „sześć z siedmiu stanowisk nie ma jak zgłosić". Wykres zapala się sam. -->
+<div class="widget report-widget" id="rw-widget">
+    <div class="widget-header">
+        <h4>
+            <i class="fas fa-tools me-2"></i>
+            Doróbki: ile i z czego
+        </h4>
+        <div class="widget-controls">
+            <select id="rw-preset-select" class="form-select form-select-sm" title="Zakres dat">
+                <option value="30d">Ostatnie 30 dni</option>
+                <option value="90d" selected>Ostatnie 90 dni</option>
+                <option value="365d">Ostatni rok</option>
+            </select>
+            <button id="rw-refresh-btn" class="btn btn-outline-primary btn-sm" title="Odśwież">
+                <i class="fas fa-sync-alt"></i>
+            </button>
+        </div>
+    </div>
+    <div class="widget-content">
+        <div class="report-empty" id="rw-empty" style="display: none;"></div>
+
+        <!-- Zastrzeżenie i liczby są WSPÓLNE dla obu trybów: nawet gdy wykres
+             się zapali, doróbkę wciąż zgłasza garstka stanowisk i to trzeba
+             czytać razem ze słupkami, a nie zamiast nich.
+             Klasy .wo-disclaimer / .station-output-summary są tu użyte celowo:
+             to ten sam element wizualny, co w sąsiednich widgetach, a arkusz
+             reports-tab.css nie należy do tego fragmentu i nie wolno go ruszać. -->
+        <p class="wo-disclaimer" id="rw-diagnoza" style="display: none;"></p>
+        <div class="station-output-summary" id="rw-summary" style="display: none;">
+            <div class="so-stat">
+                <span class="so-stat-value" id="rw-entries">0</span>
+                <span class="so-stat-label">zgłoszeń doróbki</span>
+            </div>
+            <div class="so-stat">
+                <span class="so-stat-value" id="rw-pieces">0</span>
+                <span class="so-stat-label">sztuk do poprawki</span>
+            </div>
+            <div class="so-stat">
+                <span class="so-stat-value" id="rw-formatted">0</span>
+                <span class="so-stat-label">sztuk sformatowanych</span>
+            </div>
+            <div class="so-stat">
+                <span class="so-stat-value" id="rw-rate">—</span>
+                <span class="so-stat-label">udział doróbek</span>
+            </div>
+        </div>
+
+        <!-- Tryb PANELU: rozbicie na powody zamiast wykresu tygodniowego -->
+        <div class="wo-table-wrapper" id="rw-reasons-wrapper" style="display: none;">
+            <table class="wo-table">
+                <thead>
+                    <tr>
+                        <th>Powód</th>
+                        <th class="text-end">Zgłoszenia</th>
+                        <th class="text-end">Sztuki</th>
+                    </tr>
+                </thead>
+                <tbody id="rw-reasons-body"></tbody>
+            </table>
+        </div>
+
+        <!-- Tryb WYKRESU: zapala się dopiero po przekroczeniu progu -->
+        <div class="report-chart-wrapper" id="rw-chart-wrapper" style="display: none;">
+            <canvas id="rw-chart"></canvas>
+        </div>
+
+        <div class="report-note" id="rw-note"></div>
+    </div>
+</div>
+
 <script>
 // IIFE izoluje deklaracje fragmentu. executeInlineScripts() klonuje <script>
 // i podmienia węzeł, więc kod leci w scope globalnym i wykonuje się od nowa
@@ -197,19 +451,92 @@ const { escapeHtml, soFormatLocalDate, soResolveRange, computeSoPageList, zniszc
 const el = (id) => root.querySelector('#' + id);
 const els = (sel) => root.querySelectorAll(sel);
 
+// Instancja wykresu „Wydajność dzienna". Jawna deklaracja, bo bez niej
+// przypisanie `dailyChart = ...` tworzyło zmienną GLOBALNĄ, która przeżywała
+// usunięcie panelu — a IIFE istnieje właśnie po to, żeby stan fragmentu ginął
+// razem z nim.
+let dailyChart = null;
+
+// ════════════════════════════════════════════════════════════════════
+// JEDNO STANOWISKO NA CAŁĄ PODZAKŁADKĘ
+//
+// „Wykonanie stanowiska w dniu" i „Kto ile zrobił na stanowisku" stoją jeden
+// pod drugim i drugi z nich rozbija liczbę pierwszego na ludzi — a każdy miał
+// własny select i własny stan w localStorage. Użytkownik przestawiał jeden
+// i nie miał jak się domyślić, dlaczego sąsiad pokazuje inne stanowisko.
+// Wybór jest teraz jeden: zmiana w dowolnym selekcie przestawia drugi
+// i przeładowuje oba.
+//
+// Wyjątek: „Wszystkie stanowiska" istnieje TYLKO w pierwszym widgecie (wykres
+// osób zbiorczo byłby odrzuconym przez audyt rankingiem ludzi między
+// stanowiskami), więc tego jednego wyboru nie przenosimy — drugi widget
+// zostaje wtedy na swoim ostatnim stanowisku.
+//
+// NAZWA KLUCZA JEDZIE Z MOSTU, nie z literału tutaj: Przegląd zapisuje ten sam
+// klucz, gdy ktoś kliknie w wiersz „Kolejek" (drill-down w stanowisko). Dwie
+// kopie literału to gwarancja, że zmiana jednej strony po cichu urwie drugą.
+// ════════════════════════════════════════════════════════════════════
+const STANOWISKO_KLUCZ = wspolne.KLUCZE.stanowisko;
+
+function wczytajStanowisko(zapasowe) {
+    try { return localStorage.getItem(STANOWISKO_KLUCZ) || zapasowe; }
+    catch { return zapasowe; }
+}
+
+function zapiszStanowisko(kod) {
+    try { localStorage.setItem(STANOWISKO_KLUCZ, kod); }
+    catch { /* localStorage może być wyłączony — pomijamy */ }
+}
+
+// Czy select w ogóle zna taki kod. Osobno od ustawiania, bo „nie ustawiłem"
+// ma dwie różne przyczyny (nie zna kodu / już go ma) i przy odtwarzaniu stanu
+// trzeba je rozróżnić.
+function maOpcje(select, kod) {
+    return !!kod && Array.from(select.options).some(o => o.value === kod);
+}
+
+// Ustawia wartość selecta TYLKO gdy taka opcja istnieje. Bez tej kontroli
+// przypisanie nieznanego kodu (inna lista stanowisk, stary wpis w localStorage)
+// zeruje value i do backendu leci pusty parametr.
+function ustawJesliZnane(select, kod) {
+    if (!maOpcje(select, kod) || select.value === kod) return false;
+    select.value = kod;
+    return true;
+}
+
+// Odtworzenie wyboru przy wejściu na podzakładkę: najpierw wspólny klucz,
+// a gdy ten niesie kod nieznany temu selektowi — własny, ostatni wybór
+// widgetu. Dotyczy głównie „Wszystkich stanowisk": widget osób ich nie ma,
+// więc bez zapasu wracałby po każdym takim wyborze do domyślnego stanowiska
+// z szablonu, zamiast do tego, które użytkownik naprawdę oglądał.
+function przywrocStanowisko(select, wlasne) {
+    const wspolne = wczytajStanowisko(null);
+    ustawJesliZnane(select, maOpcje(select, wspolne) ? wspolne : wlasne);
+}
+
+// Wypełniane przez init-y obu widgetów; wołane krzyżowo przy zmianie selecta.
+let soPrzestawStanowisko = null;
+let swPrzestawStanowisko = null;
+
 // ════════════════════════════════════════════════════════════════════
 // Widget: Wykonanie stanowiska w dniu (event log)
 // ════════════════════════════════════════════════════════════════════
-const SO_STORAGE_KEY = 'production.reports.stationOutput';
+// Jak wyżej — nazwa klucza z mostu, bo Przegląd nastawia tu `station`
+// i `preset` przed skokiem w tę podzakładkę.
+const SO_STORAGE_KEY = wspolne.KLUCZE.wykonanieStanowiska;
 const SO_PAGE_SIZE = 10;
 
 // Stan widgetu
-let soCurrentItems = [];          // pełna lista z ostatniego loadu
+let soCurrentItems = [];          // TYLKO bieżąca strona (10 wierszy)
+let soItemsTotal = 0;             // ile wierszy ma cały zakres (z backendu)
 let soCurrentPage = 1;            // 1-based
 let soChartMode = 'pieces';       // 'pieces' | 'volume' | 'both'
 let soTimelineChart = null;       // instancja Chart.js
 let soCurrentTimeline = null;     // ostatnia odebrana struktura timeline
 let soIsAllStations = false;      // true gdy aktualnie wybrane 'Wszystkie stanowiska'
+// Parametry ostatniego udanego zapytania — przewracanie strony dociąga
+// kolejne wiersze z serwera, a nie kroi listę, której już nie mamy w pamięci.
+let soLastQuery = null;
 
 function initStationOutputWidget() {
     const stationSel = el('so-station-select');
@@ -226,9 +553,9 @@ function initStationOutputWidget() {
         catch { return {}; }
     })();
 
-    if (saved.station) {
-        stationSel.value = saved.station;
-    }
+    // Stanowisko czytamy ze WSPÓLNEGO klucza, z wpisem tego widgetu jako
+    // zapasem — inaczej pierwsze wejście po zmianie rozjeżdżałoby oba selecty.
+    przywrocStanowisko(stationSel, saved.station);
 
     // Default daty dla custom: ostatnie 7 dni
     const today = new Date();
@@ -254,6 +581,7 @@ function initStationOutputWidget() {
     });
 
     const persist = () => {
+        zapiszStanowisko(stationSel.value);
         try {
             localStorage.setItem(SO_STORAGE_KEY, JSON.stringify({
                 station: stationSel.value,
@@ -273,7 +601,20 @@ function initStationOutputWidget() {
         loadStationOutput(stationSel.value, range.start, range.end);
     };
 
-    stationSel.addEventListener('change', reload);
+    // Przestawienie z zewnątrz (drugi widget) — bez pętli zwrotnej, bo
+    // przypisanie do .value nie generuje zdarzenia 'change'.
+    soPrzestawStanowisko = (kod) => {
+        if (ustawJesliZnane(stationSel, kod)) reload();
+    };
+
+    stationSel.addEventListener('change', () => {
+        reload();
+        // 'all' nie ma odpowiednika w widgecie osób — patrz komentarz przy
+        // STANOWISKO_KLUCZ.
+        if (stationSel.value !== 'all' && swPrzestawStanowisko) {
+            swPrzestawStanowisko(stationSel.value);
+        }
+    });
     presetSel.addEventListener('change', () => {
         const isCustomNow = presetSel.value === 'custom';
         startInput.style.display = isCustomNow ? '' : 'none';
@@ -310,7 +651,7 @@ function initStationOutputWidget() {
     }
 }
 
-async function loadStationOutput(station, startDate, endDate) {
+async function loadStationOutput(station, startDate, endDate, page = 1) {
     const tableContainer = el('so-table-container');
     const emptyState = el('so-empty-state');
     const summary = el('so-summary');
@@ -320,6 +661,8 @@ async function loadStationOutput(station, startDate, endDate) {
 
     if (!tableContainer || !tbody) return;
 
+    soLastQuery = { station, startDate, endDate };
+
     // Loading
     emptyState.textContent = 'Ładowanie...';
     emptyState.style.display = 'block';
@@ -328,10 +671,16 @@ async function loadStationOutput(station, startDate, endDate) {
     if (pagination) pagination.style.display = 'none';
 
     try {
+        // Stronicowanie jest po stronie SERWERA. Wcześniej endpoint oddawał
+        // całą listę, a przeglądarka kroiła ją po dziesięć wierszy: jedno
+        // kliknięcie w preset „30 dni" ściągało 1.3 MB JSON-a (90 dni — 3.4 MB),
+        // z czego widać było dziesięć wierszy. Kafelki i timeline liczą się
+        // z osobnych agregatów, więc przewracanie stron ich nie rusza.
         const url = `/production/api/reports/station-output`
             + `?station=${encodeURIComponent(station)}`
             + `&start_date=${encodeURIComponent(startDate)}`
-            + `&end_date=${encodeURIComponent(endDate)}`;
+            + `&end_date=${encodeURIComponent(endDate)}`
+            + `&limit=${SO_PAGE_SIZE}&offset=${(page - 1) * SO_PAGE_SIZE}`;
         const resp = await fetch(url);
         const data = await resp.json();
 
@@ -366,21 +715,31 @@ async function loadStationOutput(station, startDate, endDate) {
             timelineWrapper.style.display = 'none';
         }
 
-        if (!data.items || data.items.length === 0) {
+        const total = (data.pagination && data.pagination.total) || 0;
+        if (!total) {
             emptyState.textContent = `Brak operacji na stanowisku "${data.station_label}" w zakresie ${rangeLabel}.`;
             soCurrentItems = [];
+            soItemsTotal = 0;
             return;
         }
 
         // Render summary
         el('so-summary-items').textContent = data.summary.items_count;
-        el('so-summary-qty').textContent = data.summary.total_quantity_done_eod + ' szt.';
+        el('so-summary-distinct').textContent = data.summary.distinct_items_count;
         const deltaEl = el('so-summary-delta');
         const delta = data.summary.total_day_delta;
         deltaEl.textContent = (delta >= 0 ? '+' : '') + delta + ' szt.';
         deltaEl.style.color = delta >= 0 ? '#16a34a' : '#dc2626';
-        el('so-summary-volume').textContent =
-            data.summary.total_volume_done_eod_m3.toFixed(3) + ' m³';
+        // Kafelki stanu tylko dla POJEDYNCZEGO stanowiska — w trybie zbiorczym
+        // backend oddaje null i soUpdateStationColumn() je chowa.
+        if (data.summary.total_quantity_done_eod !== null) {
+            el('so-summary-qty').textContent =
+                data.summary.total_quantity_done_eod + ' szt.';
+        }
+        if (data.summary.total_volume_done_eod_m3 !== null) {
+            el('so-summary-volume').textContent =
+                data.summary.total_volume_done_eod_m3.toFixed(3) + ' m³';
+        }
 
         // Kafelek pojawia się tylko wtedy, gdy automat faktycznie coś przeskoczył —
         // przy większości stanowisk będzie zawsze ukryty i nie zaśmieci widoku.
@@ -389,9 +748,9 @@ async function loadStationOutput(station, startDate, endDate) {
         el('so-summary-auto-box').style.display =
             pominiete ? '' : 'none';
 
-        // Zapis stanu do paginacji + render strony 1
-        soCurrentItems = data.items;
-        soCurrentPage = 1;
+        soCurrentItems = data.items || [];
+        soItemsTotal = total;
+        soCurrentPage = page;
         renderSoItemsPage();
 
         emptyState.style.display = 'none';
@@ -407,11 +766,36 @@ async function loadStationOutput(station, startDate, endDate) {
     }
 }
 
-// Pokaż/ukryj kolumnę "Stanowisko" w nagłówku tabeli.
-// Komórki w wierszach są dodawane/pomijane przez renderSoItemRow().
+// Tryb zbiorczy zmienia ZNACZENIE kafelków, nie tylko kolumnę tabeli.
+//
+// Wiersz w tym trybie to (pozycja × stanowisko), więc „Pozycje" kłamało:
+// 2540 wierszy przy 789 różnych produktach na oknie 30-dniowym. Kafelki STANU
+// (sztuki i m³ na koniec zakresu) w ogóle nie mają w tym trybie sensu —
+// backend oddaje dla nich null, a my je chowamy zamiast rysować sumę stanów
+// z siedmiu różnych etapów procesu.
 function soUpdateStationColumn(isAll) {
     const colHeader = el('so-col-station-label');
     if (colHeader) colHeader.style.display = isAll ? '' : 'none';
+
+    const itemsLabel = el('so-summary-items-label');
+    if (itemsLabel) {
+        itemsLabel.textContent = isAll ? 'Wiersze (pozycja × stanowisko)' : 'Pozycje';
+    }
+    const itemsBox = el('so-summary-items-box');
+    if (itemsBox) {
+        itemsBox.title = isAll
+            ? 'Jedna pozycja daje tyle wierszy, przez ile stanowisk przeszła '
+              + 'w tym zakresie. Liczbę różnych produktów pokazuje kafelek obok.'
+            : '';
+    }
+
+    const distinctBox = el('so-summary-distinct-box');
+    if (distinctBox) distinctBox.style.display = isAll ? '' : 'none';
+
+    const qtyBox = el('so-summary-qty-box');
+    if (qtyBox) qtyBox.style.display = isAll ? 'none' : '';
+    const volBox = el('so-summary-volume-box');
+    if (volBox) volBox.style.display = isAll ? 'none' : '';
 }
 
 // Aktualizuje labelki summary i nagłówki kolumn tabeli w zależności od liczby dni.
@@ -432,7 +816,8 @@ function soUpdateRangeLabels(daysCount) {
     if (deltaLabel) deltaLabel.textContent = isRange ? 'Ruch w zakresie' : 'Ruch dnia';
 
     const volLabel = el('so-summary-volume-label');
-    if (volLabel) volLabel.textContent = isRange ? 'm³ wykonane (koniec zakresu)' : 'm³ wykonane (EOD)';
+    if (volLabel) volLabel.textContent = isRange
+        ? 'm³ wykonane — stan (koniec zakresu)' : 'm³ wykonane — stan (EOD)';
 
     const colEod = el('so-col-eod-label');
     if (colEod) colEod.textContent = isRange ? 'Wykonano (koniec zakresu)' : 'Wykonano (EOD)';
@@ -481,18 +866,16 @@ function renderSoItemsPage() {
     const pagination = el('so-pagination');
     if (!tbody) return;
 
-    const total = soCurrentItems.length;
-    const totalPages = Math.max(1, Math.ceil(total / SO_PAGE_SIZE));
-
-    // Walidacja zakresu (np. po przerysowaniu)
+    // `soCurrentItems` to JEDNA strona z serwera, a `soItemsTotal` mówi, ile
+    // wierszy ma cały zakres — stąd biorą się numery stron.
+    const totalPages = Math.max(1, Math.ceil(soItemsTotal / SO_PAGE_SIZE));
     if (soCurrentPage > totalPages) soCurrentPage = totalPages;
     if (soCurrentPage < 1) soCurrentPage = 1;
 
     const start = (soCurrentPage - 1) * SO_PAGE_SIZE;
-    const end = Math.min(start + SO_PAGE_SIZE, total);
-    const slice = soCurrentItems.slice(start, end);
+    const end = start + soCurrentItems.length;
 
-    tbody.innerHTML = slice.map(renderSoItemRow).join('');
+    tbody.innerHTML = soCurrentItems.map(renderSoItemRow).join('');
 
     // Renderuj kontrolki paginacji tylko gdy >1 strona
     if (!pagination) return;
@@ -500,8 +883,16 @@ function renderSoItemsPage() {
         pagination.style.display = 'none';
     } else {
         pagination.style.display = 'flex';
-        renderSoPaginationControls(totalPages, total, start, end);
+        renderSoPaginationControls(totalPages, soItemsTotal, start, end);
     }
+}
+
+// Przejście na inną stronę = nowe żądanie. Kafelki i timeline liczą się
+// z agregatów niezależnych od strony, więc nie migoczą.
+function soIdzDoStrony(strona) {
+    if (!soLastQuery) return;
+    loadStationOutput(soLastQuery.station, soLastQuery.startDate,
+                      soLastQuery.endDate, strona);
 }
 
 function renderSoPaginationControls(totalPages, total, start, end) {
@@ -509,7 +900,10 @@ function renderSoPaginationControls(totalPages, total, start, end) {
     const controls = el('so-pagination-controls');
     if (!info || !controls) return;
 
-    info.textContent = `${start + 1}–${end} z ${total} pozycji`;
+    // „wierszy", nie „pozycji": w trybie zbiorczym wiersz to (pozycja ×
+    // stanowisko), więc ta sama pozycja występuje kilka razy.
+    info.textContent = `${start + 1}–${end} z ${total} `
+        + (soIsAllStations ? 'wierszy' : 'pozycji');
 
     // Buduje listę numerów stron z elipsami: 1 ... 4 5 6 ... 12
     const pages = computeSoPageList(soCurrentPage, totalPages);
@@ -530,17 +924,12 @@ function renderSoPaginationControls(totalPages, total, start, end) {
     controls.querySelectorAll('button').forEach(btn => {
         btn.addEventListener('click', () => {
             if (btn.dataset.act === 'prev' && soCurrentPage > 1) {
-                soCurrentPage -= 1;
-                renderSoItemsPage();
+                soIdzDoStrony(soCurrentPage - 1);
             } else if (btn.dataset.act === 'next' && soCurrentPage < totalPages) {
-                soCurrentPage += 1;
-                renderSoItemsPage();
+                soIdzDoStrony(soCurrentPage + 1);
             } else if (btn.dataset.page) {
                 const p = parseInt(btn.dataset.page, 10);
-                if (!isNaN(p) && p !== soCurrentPage) {
-                    soCurrentPage = p;
-                    renderSoItemsPage();
-                }
+                if (!isNaN(p) && p !== soCurrentPage) soIdzDoStrony(p);
             }
         });
     });
@@ -805,10 +1194,19 @@ async function initializeDailyChart() {
     await loadReportsChartData(30, 'all');
 }
 
+// Numer ostatniego żądania wykresu. Zmiana presetu na „własny przedział"
+// i wpisanie dat wystrzeliwują dwa żądania niemal równocześnie, a odpowiedzi
+// potrafią wrócić w odwrotnej kolejności — wtedy starsza nadpisywała nowszą
+// i widget pokazywał wykres dla zakresu, którego nikt nie wybrał (złapane
+// przy weryfikacji pustego stanu: zakres w przyszłości wracał jako wykres
+// z lipca). Odpowiedź nie ze swojej kolejki jest po prostu odrzucana.
+let soZadanieWykresu = 0;
+
 async function loadReportsChartData(period, station = 'all', startDate = null, endDate = null) {
     const loader = el('reports-chart-loader');
     const canvas = el('reports-performance-chart');
     const summaryDiv = el('reports-chart-summary');
+    const mojeZadanie = ++soZadanieWykresu;
 
     // Pokaż loader
     if (loader) loader.style.display = 'flex';
@@ -824,8 +1222,23 @@ async function loadReportsChartData(period, station = 'all', startDate = null, e
         const response = await fetch(url);
         const data = await response.json();
 
+        // W międzyczasie poleciało nowsze żądanie — ta odpowiedź jest już
+        // nieaktualna i nie ma prawa niczego narysować.
+        if (mojeZadanie !== soZadanieWykresu) return;
+
         if (data.success) {
             const effectivePeriod = data.period || period;
+
+            // PUSTY STAN zamiast siedmiu krzywych leżących na zerze. Do tej
+            // pory zakres w przyszłości, niedziela bez pracy i okres sprzed
+            // pierwszego produktu dawały identyczny obraz płaskich zer —
+            // a każdy inny widget tej zakładki ma na to własne zdanie.
+            if (data.summary && data.summary.days_with_events === 0) {
+                pokazPustyWykres(data);
+                if (summaryDiv) summaryDiv.style.display = 'none';
+                return;
+            }
+            przywrocPlotnoWykresu();
             createReportsPerformanceChart(data.chart_data, effectivePeriod, data.mode, data.station);
 
             // Aktualizuj tabelkę podsumowania (tylko dla pojedynczego stanowiska)
@@ -845,9 +1258,13 @@ async function loadReportsChartData(period, station = 'all', startDate = null, e
         showReportsChartError('Błąd połączenia z serwerem');
         if (summaryDiv) summaryDiv.style.display = 'none';
     } finally {
-        // Ukryj loader
-        if (loader) loader.style.display = 'none';
-        if (canvas) canvas.style.opacity = '1';
+        // Loader gasi WYŁĄCZNIE najnowsze żądanie — inaczej odpowiedź, którą
+        // przed chwilą odrzuciliśmy jako nieaktualną, zdejmowałaby spinner
+        // trwającemu jeszcze zapytaniu.
+        if (mojeZadanie === soZadanieWykresu) {
+            if (loader) loader.style.display = 'none';
+            if (canvas) canvas.style.opacity = '1';
+        }
     }
 }
 
@@ -1100,16 +1517,52 @@ function createReportsPerformanceChart(chartData, period, mode = 'all_stations',
     }
 }
 
+// Komunikat serwera wstawiamy jako TEKST, nie jako HTML: `data.error` przychodzi
+// z backendu i przez lata niósł tam treść wyjątku. Backend zwraca dziś stały
+// komunikat, ale sink w innerHTML nie ma prawa zostać otwarty „na zapas".
 function showReportsChartError(message) {
     const wrapper = root.querySelector('.performance-widget .chart-wrapper');
     if (wrapper) {
         wrapper.innerHTML = `
             <div class="alert alert-danger m-3">
                 <i class="fas fa-exclamation-triangle me-2"></i>
-                <strong>Błąd wykresu:</strong> ${message}
+                <strong>Błąd wykresu:</strong> ${escapeHtml(message)}
             </div>
         `;
     }
+}
+
+// Pusty stan i powrót do rysowania. innerHTML wrappera niszczy <canvas>, więc
+// obie funkcje muszą go odtwarzać — inaczej po jednym pustym zakresie widget
+// zostawał pusty do końca życia panelu.
+function pokazPustyWykres(dane) {
+    const wrapper = root.querySelector('.performance-widget .chart-wrapper');
+    if (!wrapper) return;
+    zniszczWykres(el('reports-performance-chart'));
+    dailyChart = null;
+
+    const zakres = dane.date_range || {};
+    const dzis = soFormatLocalDate(new Date());
+    let powod;
+    if ((zakres.start || '') > dzis) {
+        powod = 'Ten zakres jest w PRZYSZŁOŚCI — nie ma z czego rysować.';
+    } else if ((zakres.end || '') === (zakres.start || '')) {
+        powod = 'W tej dobie hala nie zarejestrowała ani jednego zgłoszenia '
+              + 'ze stanowiska (weekend, święto albo postój).';
+    } else {
+        powod = 'W tym zakresie nie ma ani jednego zgłoszenia ze stanowiska. '
+              + 'Sprawdź, czy zakres nie wypada przed pierwszym produktem '
+              + 'w systemie.';
+    }
+    wrapper.innerHTML = `<div class="report-empty" style="display:block">`
+        + `${escapeHtml(zakres.start || '')} – ${escapeHtml(zakres.end || '')}: `
+        + `${escapeHtml(powod)}</div>`;
+}
+
+function przywrocPlotnoWykresu() {
+    const wrapper = root.querySelector('.performance-widget .chart-wrapper');
+    if (!wrapper || wrapper.querySelector('#reports-performance-chart')) return;
+    wrapper.innerHTML = '<canvas id="reports-performance-chart"></canvas>';
 }
 
 function updateChartSummary(summary) {
@@ -1129,11 +1582,1194 @@ function updateChartSummary(summary) {
     }
 }
 
+// ════════════════════════════════════════════════════════════════════
+// Wspólne dla trzech nowych widgetów (zapas / heatmapa / doróbki)
+// ════════════════════════════════════════════════════════════════════
+
+// Trzy stany widgetu przechodzą przez jedno miejsce, żeby „liczę", „nie ma
+// czego liczyć" i „nie udało się policzyć" nie zaczęły wyglądać tak samo —
+// dla brygadzisty to trzy różne informacje i trzy różne reakcje.
+function stanWidgetu(elKomunikat, tryb, tekst) {
+    if (!elKomunikat) return;
+    if (tryb === 'ok') {
+        elKomunikat.style.display = 'none';
+        elKomunikat.innerHTML = '';
+        return;
+    }
+    const ikona = tryb === 'loading' ? 'fa-spinner fa-spin'
+        : tryb === 'error' ? 'fa-exclamation-triangle'
+        : 'fa-circle-info';
+    // Kolor inline, bo osobnej klasy błędu nie ma w reports-tab.css, a arkusz
+    // jest wspólny dla wszystkich podzakładek i nie należy do tego fragmentu.
+    elKomunikat.style.color = tryb === 'error' ? 'var(--il-status-danger, #dc2626)' : '';
+    elKomunikat.style.display = 'block';
+    elKomunikat.innerHTML = `<i class="fas ${ikona} me-2"></i>${escapeHtml(tekst)}`;
+}
+
+// Liczba z backendu do tekstu. Rysowanie wykresu leci wewnątrz Chart.js, więc
+// wyjątek na `null.toFixed()` zabiłby całe płótno, a nie jedną etykietę —
+// stąd jedno miejsce, które zawsze zwraca coś do wypisania.
+function liczba(wartosc, miejsca) {
+    const v = Number(wartosc);
+    return Number.isFinite(v) ? v.toFixed(miejsca) : '—';
+}
+
+// Wspólny opis awarii: użytkownik ma wiedzieć, że to nie jest „zero roboty".
+function tekstBledu(zrodlo) {
+    return 'Nie udało się pobrać danych: ' + (zrodlo || 'nieznany błąd')
+        + '. To awaria zapytania, nie brak pracy na hali.';
+}
+
+// Preset → {start, end}. Dla presetów, które zna szkielet, delegujemy do
+// soResolveRange — inaczej „30 dni" znaczyłoby tu co innego niż w sąsiednim
+// widgecie. Dokładamy tylko okna dłuższe, których szkielet nie ma.
+function zakresPresetu(preset, startEl, endEl) {
+    const dluzsze = { '90d': 90, '365d': 365 };
+    if (dluzsze[preset]) {
+        const dzis = new Date();
+        dzis.setHours(0, 0, 0, 0);
+        const start = new Date(dzis);
+        start.setDate(start.getDate() - (dluzsze[preset] - 1));
+        return { start: soFormatLocalDate(start), end: soFormatLocalDate(dzis) };
+    }
+    return soResolveRange(preset, startEl, endEl);
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Wykres 1: Dni zapasu przed stanowiskiem
+//
+// Poziome słupki, bo etykiety stanowisk są długie („Wycinanie - mikro"),
+// a wierszy jest siedem — pionowo nazwy trzeba by obracać.
+// ════════════════════════════════════════════════════════════════════
+
+// Jeden kolor dla policzonych słupków. Progi „czerwony powyżej N dni" byłyby
+// wymyślone przy tym stole — nikt nie ustalił, ile dni zapasu jest złe. Kolor
+// niosą wyłącznie stany, które backend nazwał wprost (brak przerobu / pusto).
+const DOS_KOLOR = '#2563eb';
+const DOS_KOLOR_BRAK = '#dc2626';
+const DOS_KOLOR_PUSTO = '#c8cdd5';
+
+// Wtyczka lokalna (nie rejestrowana globalnie), więc nie dotyka sąsiednich
+// wykresów. Dopisuje wartość za słupkiem, a wierszom BEZ słupka — tym, dla
+// których dni zapasu nie da się policzyć — daje tekst zamiast pustego miejsca.
+// Bez tego najgorszy stan („kolejka stoi, nikt nic nie zrobił") wyglądałby na
+// wykresie jak brak problemu.
+const dosWtyczkaEtykiet = {
+    id: 'dosEtykiety',
+    afterDatasetsDraw(chart, args, opcje) {
+        const wiersze = (opcje && opcje.wiersze) || [];
+        const meta = chart.getDatasetMeta(0);
+        const ctx = chart.ctx;
+        ctx.save();
+        ctx.font = '600 11px "JetBrains Mono", monospace';
+        ctx.textBaseline = 'middle';
+        ctx.textAlign = 'left';
+        meta.data.forEach((slupek, i) => {
+            const w = wiersze[i];
+            if (!w) return;
+            if (w.reason === 'brak_przerobu') {
+                ctx.fillStyle = DOS_KOLOR_BRAK;
+                ctx.fillText(`brak przerobu — kolejka ${liczba(w.pending_m3, 3)} m³`,
+                             chart.scales.x.left + 6, slupek.y);
+            } else if (w.reason === 'pusto') {
+                ctx.fillStyle = '#7a8291';
+                ctx.fillText('bez kolejki i bez pracy w oknie',
+                             chart.scales.x.left + 6, slupek.y);
+            } else {
+                ctx.fillStyle = '#1a1a2e';
+                ctx.fillText(`${liczba(w.days_of_supply, 2)} dnia`, slupek.x + 6, slupek.y);
+            }
+        });
+        ctx.restore();
+    }
+};
+
+function initDniZapasu() {
+    el('dos-refresh-btn')?.addEventListener('click', () => zaladujDniZapasu());
+    zaladujDniZapasu();
+}
+
+async function zaladujDniZapasu() {
+    const wrapper = el('dos-chart-wrapper');
+    const pusty = el('dos-empty');
+    const nota = el('dos-note');
+    if (!wrapper || !pusty) return;
+
+    wrapper.style.display = 'none';
+    if (nota) {
+        nota.textContent = '';
+        nota.classList.remove('report-note-warn');
+    }
+    stanWidgetu(pusty, 'loading', 'Liczę tempo z ostatnich dni roboczych…');
+
+    try {
+        const odp = await fetch('/production/api/reports/days-of-supply');
+        const dane = await odp.json();
+
+        if (!dane.success) {
+            stanWidgetu(pusty, 'error', tekstBledu(dane.error));
+            return;
+        }
+        if (!dane.stations || dane.stations.length === 0) {
+            stanWidgetu(pusty, 'empty',
+                'Za mało danych, żeby policzyć tempo — w historii nie ma jeszcze ani '
+                + 'jednego dnia z przerobem. Wykres pojawi się po pierwszym dniu pracy hali.');
+            return;
+        }
+
+        stanWidgetu(pusty, 'ok');
+        wrapper.style.display = 'block';
+        renderujDniZapasu(dane);
+        opiszDniZapasu(dane);
+
+    } catch (err) {
+        console.error('[Raporty/zapas] Błąd pobrania:', err);
+        stanWidgetu(pusty, 'error', tekstBledu(err.message));
+    }
+}
+
+function renderujDniZapasu(dane) {
+    const canvas = el('dos-chart');
+    if (!canvas) return;
+    if (typeof Chart === 'undefined') {
+        setTimeout(() => renderujDniZapasu(dane), 100);
+        return;
+    }
+
+    const stanowiska = dane.stations;
+    // Nazwy idą na canvas, a nie do innerHTML — Chart.js rysuje je jako tekst,
+    // więc escapowanie nic by tu nie wniosło poza „&amp;" na ekranie. Wszystko,
+    // co ląduje w innerHTML (nota, komunikaty), przechodzi przez escapeHtml.
+    const etykiety = stanowiska.map(s => s.station_label || s.station_code || '—');
+    const wartosci = stanowiska.map(s => s.days_of_supply);
+    const kolory = stanowiska.map(s => s.reason === 'brak_przerobu' ? DOS_KOLOR_BRAK
+        : s.reason === 'pusto' ? DOS_KOLOR_PUSTO : DOS_KOLOR);
+
+    zniszczWykres(canvas);
+
+    new Chart(canvas.getContext('2d'), {
+        type: 'bar',
+        data: {
+            labels: etykiety,
+            datasets: [{
+                label: 'Dni zapasu',
+                data: wartosci,
+                backgroundColor: kolory,
+                borderWidth: 0,
+            }],
+        },
+        plugins: [dosWtyczkaEtykiet],
+        options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            // Miejsce na etykiety dopisywane za słupkiem przez wtyczkę.
+            layout: { padding: { right: 150 } },
+            plugins: {
+                legend: { display: false },
+                dosEtykiety: { wiersze: stanowiska },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => {
+                            const s = stanowiska[ctx.dataIndex];
+                            if (s.reason === 'brak_przerobu') {
+                                return 'Brak przerobu w oknie — dni zapasu nie da się policzyć';
+                            }
+                            if (s.reason === 'pusto') return 'Ani kolejki, ani pracy w oknie';
+                            return `${liczba(s.days_of_supply, 2)} dnia zapasu`;
+                        },
+                        afterLabel: (ctx) => {
+                            const s = stanowiska[ctx.dataIndex];
+                            return [
+                                `Kolejka: ${liczba(s.pending_m3, 3)} m³`,
+                                `Tempo: ${liczba(s.avg_daily_m3, 3)} m³/dzień `
+                                    + `(${liczba(s.window_m3, 3)} m³ w oknie)`,
+                                // Chart.js nie zawija tekstu, więc łamiemy sami.
+                                'Kolejka to całe pozycje czekające,',
+                                'tempo to netto zrobionych sztuk —',
+                                'zapas jest z tej różnicy zawyżony.',
+                            ];
+                        },
+                    },
+                },
+            },
+            scales: {
+                x: {
+                    beginAtZero: true,
+                    title: { display: true, text: 'Dni robocze zapasu', font: { size: 10 } },
+                    ticks: { font: { size: 10 } },
+                    grid: { color: 'rgba(0,0,0,0.05)' },
+                },
+                y: {
+                    ticks: { font: { size: 11 } },
+                    grid: { display: false },
+                },
+            },
+        },
+    });
+}
+
+function opiszDniZapasu(dane) {
+    const nota = el('dos-note');
+    if (!nota) return;
+
+    const czesci = [
+        `Tempo ze średniej z ${dane.okno_dni} dni roboczych (${dane.okno_od} – ${dane.okno_do}); `
+        + 'dzień roboczy wyznaczany z danych, nie z kalendarza.',
+        'Zdarzenia automatu (auto_skip, system) nie są wliczone — to nie jest praca człowieka.',
+    ];
+    // Krótkie okno to nie awaria, tylko zastrzeżenie: przy średniej z dwóch dni
+    // każdy nowy dzień przestawia słupki. Próg „tydzień roboczy" jest decyzją
+    // frontu (backend nie zwraca długości docelowej), stąd 5 dni.
+    if (dane.okno_dni < 5) {
+        czesci.unshift(`Okno ma tylko ${dane.okno_dni} dni roboczych — `
+            + 'przy tak krótkiej średniej liczby skaczą z dnia na dzień.');
+    }
+    nota.textContent = czesci.join(' ');
+    nota.classList.toggle('report-note-warn', dane.okno_dni < 5);
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Wykres 4: Kiedy hala realnie pracuje (heatmapa godzina × dzień tygodnia)
+//
+// Siatka to realny DOM, nie canvas: 168 komórek daje za darmo tooltip przez
+// title, zaznaczanie, druk i dostęp z klawiatury, a wtyczki matrix do Chart.js
+// i tak nie mamy lokalnie (CDN w tym projekcie jest zakazany).
+// ════════════════════════════════════════════════════════════════════
+const HM_DNI = ['Poniedziałek', 'Wtorek', 'Środa', 'Czwartek', 'Piątek', 'Sobota', 'Niedziela'];
+const HM_DNI_SKROT = ['Pn', 'Wt', 'Śr', 'Cz', 'Pt', 'So', 'Nd'];
+// Dopełniacz liczby mnogiej do tooltipa: „z 5 poniedziałków" zamiast
+// „dzielnik 5". Dzielnik jest tu najważniejszą liczbą i musi się dać przeczytać
+// bez znajomości tego, jak liczy backend.
+const HM_DNI_MNOGA = ['poniedziałków', 'wtorków', 'śród', 'czwartków',
+                      'piątków', 'sobót', 'niedziel'];
+
+function initHeatmape() {
+    const preset = el('hm-preset-select');
+    const startInput = el('hm-start-date');
+    const endInput = el('hm-end-date');
+    if (!preset || !startInput || !endInput) return;
+
+    // Domyślne daty dla własnego zakresu: te same 30 dni, co preset startowy —
+    // przełączenie na „Własny zakres" nie ma zmieniać obrazu, tylko odblokować
+    // pola.
+    const dzis = new Date();
+    dzis.setHours(0, 0, 0, 0);
+    const miesiacTemu = new Date(dzis);
+    miesiacTemu.setDate(miesiacTemu.getDate() - 29);
+    startInput.value = soFormatLocalDate(miesiacTemu);
+    endInput.value = soFormatLocalDate(dzis);
+
+    const przeladuj = () => {
+        const zakres = zakresPresetu(preset.value, startInput, endInput);
+        if (!zakres) return; // własny zakres bez kompletu dat
+        zaladujHeatmape(zakres.start, zakres.end);
+    };
+
+    preset.addEventListener('change', () => {
+        const wlasny = preset.value === 'custom';
+        startInput.style.display = wlasny ? '' : 'none';
+        endInput.style.display = wlasny ? '' : 'none';
+        przeladuj();
+    });
+    startInput.addEventListener('change', () => {
+        if (preset.value === 'custom') przeladuj();
+    });
+    endInput.addEventListener('change', () => {
+        if (preset.value === 'custom') przeladuj();
+    });
+    el('hm-refresh-btn')?.addEventListener('click', przeladuj);
+
+    przeladuj();
+}
+
+async function zaladujHeatmape(startDate, endDate) {
+    const scroll = el('hm-scroll');
+    const legenda = el('hm-legend');
+    const pusty = el('hm-empty');
+    const nota = el('hm-note');
+    if (!scroll || !pusty) return;
+
+    scroll.style.display = 'none';
+    if (legenda) legenda.style.display = 'none';
+    if (nota) {
+        nota.textContent = '';
+        nota.classList.remove('report-note-warn');
+    }
+    stanWidgetu(pusty, 'loading', 'Układam zdarzenia w siatkę tygodnia…');
+
+    try {
+        const url = '/production/api/reports/hourly-heatmap'
+            + `?start_date=${encodeURIComponent(startDate)}`
+            + `&end_date=${encodeURIComponent(endDate)}`;
+        const odp = await fetch(url);
+        const dane = await odp.json();
+
+        if (!dane.success) {
+            stanWidgetu(pusty, 'error', tekstBledu(dane.error));
+            return;
+        }
+        if (!dane.events_total) {
+            stanWidgetu(pusty, 'empty',
+                `Między ${dane.range_from} a ${dane.range_to} hala nie zarejestrowała ani `
+                + 'jednego zgłoszenia ze stanowiska. Weź szerszy zakres albo sprawdź, '
+                + 'czy tablety wysyłają zgłoszenia.');
+            return;
+        }
+
+        stanWidgetu(pusty, 'ok');
+        scroll.style.display = 'block';
+        renderujHeatmape(dane);
+        renderujLegendeHeatmapy(dane);
+        opiszHeatmape(dane);
+
+    } catch (err) {
+        console.error('[Raporty/heatmapa] Błąd pobrania:', err);
+        stanWidgetu(pusty, 'error', tekstBledu(err.message));
+    }
+}
+
+// Kolor komórki. Pierwiastek zamiast proporcji wprost, bo rozkład jest skośny:
+// kilka godzin zbiera większość metrów i przy skali liniowej reszta dnia
+// zlewa się z tłem, choć hala wtedy pracuje.
+function hmKolorKomorki(wartosc, maks) {
+    if (!wartosc) return '';
+    const udzial = Math.min(1, Math.abs(wartosc) / (maks || Math.abs(wartosc)));
+    const alfa = (0.12 + 0.88 * Math.sqrt(udzial)).toFixed(3);
+    return wartosc < 0 ? `rgba(220, 38, 38, ${alfa})` : `rgba(37, 99, 235, ${alfa})`;
+}
+
+function hmGodzina(g) {
+    return String(g).padStart(2, '0') + ':00';
+}
+
+function renderujHeatmape(dane) {
+    const siatka = el('hm-grid');
+    if (!siatka) return;
+
+    const maks = dane.max_abs_m3 || 0;
+    const czesci = [];
+
+    // Wiersz nagłówka: pusty róg + 24 godziny.
+    czesci.push('<div class="hm-hour"></div>');
+    for (let g = 0; g < 24; g++) {
+        czesci.push(`<div class="hm-hour">${String(g).padStart(2, '0')}</div>`);
+    }
+
+    for (let d = 0; d < 7; d++) {
+        const wystapienia = (dane.weekday_occurrences || [])[d] || 0;
+        const tytulDnia = `${HM_DNI[d]} — w oknie wypadło `
+            + `${wystapienia} ${HM_DNI_MNOGA[d]}`;
+        czesci.push(`<div class="hm-day" title="${escapeHtml(tytulDnia)}">${HM_DNI_SKROT[d]}</div>`);
+
+        for (let g = 0; g < 24; g++) {
+            const wartosc = ((dane.grid_m3 || [])[d] || [])[g] || 0;
+            const zdarzenia = ((dane.grid_events || [])[d] || [])[g] || 0;
+            const kolor = hmKolorKomorki(wartosc, maks);
+            const opis = wartosc === 0 && zdarzenia === 0
+                ? `${HM_DNI[d]} ${hmGodzina(g)}–${hmGodzina(g + 1)} · nic nie zgłoszono`
+                : `${HM_DNI[d]} ${hmGodzina(g)}–${hmGodzina(g + 1)} · średnio `
+                    + `${liczba(wartosc, 3)} m³ · ${zdarzenia} zdarzeń `
+                    + `z ${wystapienia} ${HM_DNI_MNOGA[d]}`;
+            const styl = kolor ? ` style="background: ${kolor}"` : '';
+            czesci.push(`<div class="hm-cell${wartosc < 0 ? ' hm-cell-neg' : ''}"`
+                + ` title="${escapeHtml(opis)}"${styl}></div>`);
+        }
+    }
+
+    siatka.innerHTML = czesci.join('');
+}
+
+function renderujLegendeHeatmapy(dane) {
+    const legenda = el('hm-legend');
+    if (!legenda) return;
+
+    const maks = dane.max_abs_m3 || 0;
+    const probki = [0.05, 0.25, 0.5, 0.75, 1]
+        .map(u => `<span style="background: ${hmKolorKomorki(u * maks, maks)}"></span>`)
+        .join('');
+
+    const czesci = [
+        '<span>mniej</span>',
+        `<span class="hm-legend-scale">${probki}</span>`,
+        `<span>więcej (maks ${escapeHtml(maks.toFixed(3))} m³/godz.)</span>`,
+    ];
+    if (dane.has_negative) {
+        // Cofnięcia mają własną rampę i obrys, bo inaczej „minus" wygląda jak
+        // „prawie zero" i znika akurat tam, gdzie ktoś poprawiał błąd.
+        czesci.push('<span class="hm-cell-neg" style="width: 18px; height: 10px;'
+            + ' border-radius: 2px; background: rgba(220, 38, 38, 0.6);"></span>');
+        czesci.push('<span>cofnięcia</span>');
+    }
+
+    legenda.innerHTML = czesci.join('');
+    legenda.style.display = 'flex';
+}
+
+function opiszHeatmape(dane) {
+    const nota = el('hm-note');
+    if (!nota) return;
+
+    // Dzielniki wypisujemy wprost: okno 30-dniowe potrafi mieć pięć
+    // poniedziałków i cztery czwartki, a bez tego zdania „średnia" jest
+    // słowem, któremu trzeba wierzyć na słowo.
+    const wg = {};
+    (dane.weekday_occurrences || []).forEach((ile, d) => {
+        (wg[ile] = wg[ile] || []).push(HM_DNI_SKROT[d]);
+    });
+    const dzielniki = Object.keys(wg)
+        .sort((a, b) => b - a)
+        .map(ile => `po ${ile}: ${wg[ile].join(', ')}`)
+        .join(' · ');
+
+    const czesci = [
+        `Wartość w komórce to ŚREDNIE m³ na jedno wystąpienie danego dnia tygodnia `
+        + `w oknie ${dane.range_from} – ${dane.range_to} (${dzielniki}), nie suma.`,
+        `${dane.events_total} zdarzeń, bez auto_skip i system — to samo „zrobione", `
+        + 'co w pozostałych widgetach.',
+    ];
+    if (dane.has_negative) {
+        czesci.push('Komórki z czerwonym obrysem są ujemne: w tej godzinie cofnięto '
+            + 'więcej, niż zrobiono.');
+    }
+    if (!dane.max_abs_m3) {
+        czesci.push('Zdarzenia są, ale netto wychodzi zero — tyle samo cofnięć co postępu.');
+    }
+    nota.textContent = czesci.join(' ');
+    nota.classList.toggle('report-note-warn', !dane.max_abs_m3);
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Wykres 7: Doróbki — panel albo wykres, decyduje backend (threshold_met)
+// ════════════════════════════════════════════════════════════════════
+const RW_PALETA = ['#2563eb', '#d97706', '#16a34a', '#dc2626', '#7c3aed', '#0891b2'];
+
+function initDorobki() {
+    const preset = el('rw-preset-select');
+    if (!preset) return;
+
+    const przeladuj = () => {
+        const zakres = zakresPresetu(preset.value, null, null);
+        if (!zakres) return;
+        zaladujDorobki(zakres.start, zakres.end);
+    };
+
+    preset.addEventListener('change', przeladuj);
+    el('rw-refresh-btn')?.addEventListener('click', przeladuj);
+    przeladuj();
+}
+
+async function zaladujDorobki(startDate, endDate) {
+    const pusty = el('rw-empty');
+    const nota = el('rw-note');
+    if (!pusty) return;
+
+    ['rw-diagnoza', 'rw-summary', 'rw-reasons-wrapper', 'rw-chart-wrapper']
+        .forEach(id => { const w = el(id); if (w) w.style.display = 'none'; });
+    if (nota) {
+        nota.textContent = '';
+        nota.classList.remove('report-note-warn');
+    }
+    stanWidgetu(pusty, 'loading', 'Zbieram zgłoszenia doróbek…');
+
+    try {
+        const url = '/production/api/reports/rework-registration'
+            + `?start_date=${encodeURIComponent(startDate)}`
+            + `&end_date=${encodeURIComponent(endDate)}`;
+        const odp = await fetch(url);
+        const dane = await odp.json();
+
+        if (!dane.success) {
+            stanWidgetu(pusty, 'error', tekstBledu(dane.error));
+            return;
+        }
+
+        opiszDorobki(dane);
+
+        // Zero zgłoszeń to osobny stan, nie rząd zer: rząd zer wygląda na
+        // zmierzony wynik („jakość idealna"), a tu chodzi o to, że nikt nie
+        // miał czym zgłosić.
+        if (!dane.entries) {
+            stanWidgetu(pusty, 'empty', tekstBrakuDorobek(dane));
+            return;
+        }
+
+        stanWidgetu(pusty, 'ok');
+        renderujDorobkiDiagnoze(dane);
+        renderujDorobkiLiczby(dane);
+        if (dane.threshold_met) {
+            renderujDorobkiWykres(dane);
+        } else {
+            renderujDorobkiPowody(dane);
+        }
+
+    } catch (err) {
+        console.error('[Raporty/doróbki] Błąd pobrania:', err);
+        stanWidgetu(pusty, 'error', tekstBledu(err.message));
+    }
+}
+
+// Lista stanowisk, z których w ogóle da się dziś zgłosić doróbkę. Nazwy biorą
+// się WYŁĄCZNIE z odpowiedzi backendu (rework_service.VALID_REJECT_STATIONS) —
+// zaszycie ich w szablonie skończyłoby się tym, że lista rozjedzie się po
+// pierwszej zmianie w mobilnym API i nikt tego nie zauważy.
+function rwSkadMoznaZglosic(dane) {
+    const stanowiska = dane.reporting_stations || [];
+    return {
+        ile: stanowiska.length,
+        nazwy: stanowiska
+            .map(s => escapeHtml(s.station_label || s.station_code || '—'))
+            .join(', ') || '—',
+    };
+}
+
+function tekstBrakuDorobek(dane) {
+    const skad = rwSkadMoznaZglosic(dane);
+    // Bez escapowania: stanWidgetu i tak przepuszcza cały tekst przez
+    // escapeHtml, więc nazwy stanowisk podajemy tu surowe.
+    const nazwy = (dane.reporting_stations || [])
+        .map(s => s.station_label || s.station_code || '—').join(', ') || '—';
+    return `Między ${dane.start_date} a ${dane.end_date} nikt nie zgłosił doróbki. `
+        + `Zgłoszenie da się dziś wysłać tylko z ${skad.ile} z ${dane.stations_total} `
+        + `stanowisk (${nazwy}), więc to zero mówi o zasięgu rejestracji, a nie `
+        + 'o tym, że nic nie wraca do poprawki.';
+}
+
+function renderujDorobkiDiagnoze(dane) {
+    const diagnoza = el('rw-diagnoza');
+    if (!diagnoza) return;
+    const skad = rwSkadMoznaZglosic(dane);
+    diagnoza.innerHTML = '<i class="fas fa-circle-info me-1"></i>'
+        + `Doróbkę da się dziś zgłosić z <strong>${skad.ile} z ${dane.stations_total}</strong> `
+        + `stanowisk (${skad.nazwy}). Te liczby mówią więc o <strong>zasięgu `
+        + 'rejestracji</strong>, a nie o jakości produkcji.';
+    diagnoza.style.display = 'block';
+}
+
+function renderujDorobkiLiczby(dane) {
+    const summary = el('rw-summary');
+    if (!summary) return;
+    el('rw-entries').textContent = dane.entries;
+    el('rw-pieces').textContent = dane.pieces + ' szt.';
+    el('rw-formatted').textContent = dane.formatted_pieces + ' szt.';
+    el('rw-rate').textContent = (dane.rate_pct === null || dane.rate_pct === undefined)
+        ? '—'
+        : liczba(dane.rate_pct, 2) + '%';
+    summary.style.display = 'flex';
+}
+
+function renderujDorobkiPowody(dane) {
+    const wrapperPowodow = el('rw-reasons-wrapper');
+    const cialo = el('rw-reasons-body');
+    const powody = dane.reasons || [];
+    if (!cialo || !wrapperPowodow || powody.length === 0) return;
+
+    cialo.innerHTML = powody.map(p => `
+        <tr>
+            <td>${escapeHtml(p.label || p.code || '—')}</td>
+            <td class="text-end">${p.entries}</td>
+            <td class="text-end">${p.pieces}</td>
+        </tr>
+    `).join('');
+    wrapperPowodow.style.display = 'block';
+}
+
+// Oś tygodni z ciągłego kalendarza, nie z listy tygodni z danymi: backend
+// zwraca wyłącznie tygodnie, w których coś zgłoszono, więc rysowanie ich obok
+// siebie ściskałoby przerwy i sugerowało regularność, której nie ma.
+function rwOsTygodni(startISO, endISO) {
+    const naDate = (iso) => {
+        const [r, m, d] = iso.split('-').map(Number);
+        return new Date(r, m - 1, d);
+    };
+    const poniedzialek = (d) => {
+        const kopia = new Date(d);
+        kopia.setDate(kopia.getDate() - ((kopia.getDay() + 6) % 7));
+        return kopia;
+    };
+    const os = [];
+    let biezacy = poniedzialek(naDate(startISO));
+    const koniec = naDate(endISO);
+    while (biezacy <= koniec) {
+        os.push(soFormatLocalDate(biezacy));
+        biezacy = new Date(biezacy);
+        biezacy.setDate(biezacy.getDate() + 7);
+    }
+    return os;
+}
+
+function renderujDorobkiWykres(dane) {
+    const wrapper = el('rw-chart-wrapper');
+    const canvas = el('rw-chart');
+    if (!wrapper || !canvas) return;
+    if (typeof Chart === 'undefined') {
+        setTimeout(() => renderujDorobkiWykres(dane), 100);
+        return;
+    }
+
+    wrapper.style.display = 'block';
+
+    const os = rwOsTygodni(dane.start_date, dane.end_date);
+    const wgTygodnia = {};
+    (dane.weeks || []).forEach(w => { wgTygodnia[w.week_start] = w.reasons || {}; });
+
+    // Kolejność powodów z `reasons` (backend sortuje malejąco po sztukach) —
+    // największy powód zawsze na dole stosu, więc słupki da się porównywać.
+    const kody = (dane.reasons || []).map(r => r.code);
+    const etykietyPowodow = {};
+    (dane.reasons || []).forEach(r => { etykietyPowodow[r.code] = r.label || r.code; });
+
+    const datasety = kody.map((kod, i) => ({
+        label: etykietyPowodow[kod],
+        data: os.map(tydzien => (wgTygodnia[tydzien]?.[kod]?.pieces) || 0),
+        backgroundColor: RW_PALETA[i % RW_PALETA.length],
+        borderWidth: 0,
+        stack: 'dorobki',
+    }));
+
+    const etykietyOsi = os.map(iso => iso.slice(8, 10) + '.' + iso.slice(5, 7));
+
+    zniszczWykres(canvas);
+
+    new Chart(canvas.getContext('2d'), {
+        type: 'bar',
+        data: { labels: etykietyOsi, datasets: datasety },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'top', labels: { font: { size: 11 }, boxWidth: 10 } },
+                tooltip: {
+                    callbacks: {
+                        title: (items) => items.length
+                            ? 'Tydzień od ' + os[items[0].dataIndex]
+                            : '',
+                        label: (ctx) => {
+                            const tydzien = os[ctx.dataIndex];
+                            const kod = kody[ctx.datasetIndex];
+                            const wpis = wgTygodnia[tydzien]?.[kod];
+                            const zgloszen = wpis ? wpis.entries : 0;
+                            return `${ctx.dataset.label}: ${ctx.parsed.y} szt. `
+                                + `(${zgloszen} zgł.)`;
+                        },
+                    },
+                },
+            },
+            scales: {
+                x: {
+                    stacked: true,
+                    ticks: { font: { size: 10 }, autoSkip: true, maxTicksLimit: 16 },
+                    grid: { display: false },
+                },
+                y: {
+                    stacked: true,
+                    beginAtZero: true,
+                    title: { display: true, text: 'Sztuki do poprawki', font: { size: 10 } },
+                    ticks: { font: { size: 10 }, precision: 0 },
+                },
+            },
+        },
+    });
+}
+
+function opiszDorobki(dane) {
+    const nota = el('rw-note');
+    if (!nota) return;
+
+    // Przy zerze zakres jest już w komunikacie pustego stanu — powtarzanie go
+    // tutaj robiłoby z podpisu drugą wersję tej samej informacji.
+    const czesci = [];
+    if (dane.entries) {
+        czesci.push(`Zakres ${dane.start_date} – ${dane.end_date}.`);
+        czesci.push(`Pierwsze zgłoszenie ${dane.first_entry}, ostatnie ${dane.last_entry}.`);
+    }
+    czesci.push('Udział liczony do sztuk sformatowanych w tym samym zakresie, '
+        + 'bez auto_skip i system — inaczej mianownik rósłby o przeskoki automatu '
+        + 'i wskaźnik spadałby sam z siebie.');
+    if (!dane.threshold_met) {
+        // Warunek zapalenia wykresu podajemy wprost i z aktualnym stanem, żeby
+        // panel nie wyglądał na docelowy widok, tylko na etap.
+        czesci.push(`Wykres tygodniowy zapali się sam przy ${dane.threshold_entries} `
+            + `zgłoszeniach z co najmniej ${dane.threshold_weeks} różnych tygodni — `
+            + `dziś jest ${dane.entries} zgłoszeń z ${(dane.weeks || []).length} tygodni.`);
+    }
+    nota.textContent = czesci.join(' ');
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Wykres 8: Kto ile zrobił na stanowisku
+// GET /production/api/reports/station-worker-output
+//
+// Dwa słupki na osobę i DWIE osie, bo m³ i sztuki to dwie różne jednostki —
+// ten sam układ, co „Obsada vs przerób" w podzakładce Ludzie. Kolory też te
+// same (zielony = m³, niebieski = druga miara), żeby przejście między
+// podzakładkami nie wymagało uczenia się nowej legendy.
+//
+// Oś X to LUDZIE, ale wyłącznie w obrębie stanowiska wybranego w nagłówku.
+// Wykresu „wszystkie stanowiska naraz" tu nie ma i nie może być — patrz
+// komentarz przy markupie widgetu.
+// ════════════════════════════════════════════════════════════════════
+const SW_KLUCZ = 'production.reports.stationWorkers';
+const SW_KOLOR_M3 = '#16a34a';
+const SW_KOLOR_SZT = '#2563eb';
+// Praca bez podpisu jest wyszarzona, nie kolorowa: to nie jest kolejna osoba,
+// tylko dziura w wiedzy. Kolor ostrzegawczy sugerowałby błąd, a to normalny
+// stan — do czasu, aż wszystkie tablety zaczną wysyłać profile.
+const SW_KOLOR_BRAK = '#c8cdd5';
+// Ujemne netto (cofnięcia) dostaje własny kolor, bo słupek pod zerem czyta się
+// inaczej niż krótki słupek nad zerem, a jedno i drugie znaczy co innego.
+const SW_KOLOR_UJEMNY = '#dc2626';
+
+// „Nieprzypisane" czytało się jak awaria albo brak danych. Dla pracy sprzed
+// wdrożenia profili to normalny, TRWAŁY stan: nikt się wtedy nie logował
+// i nigdy nie zaloguje, bo atrybucji nie da się dorobić wstecz. Stąd etykieta
+// opisowa — plus przypis pod wykresem, który mówi to wprost.
+const SW_ETYKIETA_BRAK = 'Bez podpisu';
+
+function swZapisz(stationSel, presetSel) {
+    zapiszStanowisko(stationSel.value);
+    try {
+        localStorage.setItem(SW_KLUCZ, JSON.stringify({
+            station: stationSel.value,
+            preset: presetSel.value,
+        }));
+    } catch { /* localStorage może być wyłączony — pomijamy */ }
+}
+
+function initWkladOsob() {
+    const stationSel = el('sw-station-select');
+    const preset = el('sw-preset-select');
+    const startInput = el('sw-start-date');
+    const endInput = el('sw-end-date');
+    if (!stationSel || !preset || !startInput || !endInput) return;
+
+    const zapisane = (() => {
+        try { return JSON.parse(localStorage.getItem(SW_KLUCZ) || '{}'); }
+        catch { return {}; }
+    })();
+    // Wspólny klucz stanowiska, z wpisem tego widgetu jako zapasem. Kod spoza
+    // katalogu (stary wpis, 'all' zapisane przez sąsiedni widget) jest
+    // odrzucany — zostaje wtedy ostatni własny wybór, a w ostateczności
+    // domyślny z szablonu. Do backendu nigdy nie leci nieistniejący kod.
+    przywrocStanowisko(stationSel, zapisane.station);
+    if (!stationSel.value) stationSel.selectedIndex = 0;
+    const presety = ['today', 'yesterday', '7d', '30d', 'custom'];
+    if (presety.includes(zapisane.preset)) preset.value = zapisane.preset;
+
+    const dzis = new Date();
+    dzis.setHours(0, 0, 0, 0);
+    const tydzienTemu = new Date(dzis);
+    tydzienTemu.setDate(tydzienTemu.getDate() - 6);
+    startInput.value = soFormatLocalDate(tydzienTemu);
+    endInput.value = soFormatLocalDate(dzis);
+
+    const wlasnyNaStarcie = preset.value === 'custom';
+    startInput.style.display = wlasnyNaStarcie ? '' : 'none';
+    endInput.style.display = wlasnyNaStarcie ? '' : 'none';
+
+    const przeladuj = () => {
+        const zakres = zakresPresetu(preset.value, startInput, endInput);
+        if (!zakres) return; // własny zakres bez kompletu dat
+        swZapisz(stationSel, preset);
+        zaladujWkladOsob(stationSel.value, zakres.start, zakres.end);
+    };
+
+    swPrzestawStanowisko = (kod) => {
+        if (ustawJesliZnane(stationSel, kod)) przeladuj();
+    };
+
+    stationSel.addEventListener('change', () => {
+        przeladuj();
+        if (soPrzestawStanowisko) soPrzestawStanowisko(stationSel.value);
+    });
+    preset.addEventListener('change', () => {
+        const wlasny = preset.value === 'custom';
+        startInput.style.display = wlasny ? '' : 'none';
+        endInput.style.display = wlasny ? '' : 'none';
+        przeladuj();
+    });
+    startInput.addEventListener('change', () => {
+        if (preset.value === 'custom') przeladuj();
+    });
+    endInput.addEventListener('change', () => {
+        if (preset.value === 'custom') przeladuj();
+    });
+    el('sw-refresh-btn')?.addEventListener('click', przeladuj);
+
+    przeladuj();
+}
+
+async function zaladujWkladOsob(station, startDate, endDate) {
+    const pusty = el('sw-empty');
+    if (!pusty) return;
+
+    el('sw-chart-wrapper').style.display = 'none';
+    el('sw-summary').style.display = 'none';
+    el('sw-brak-profili').style.display = 'none';
+    el('sw-note').textContent = '';
+    el('sw-warn').textContent = '';
+    zniszczWykres(el('sw-chart'));
+    stanWidgetu(pusty, 'loading', 'Rozbijam przerób stanowiska na osoby…');
+
+    try {
+        const url = '/production/api/reports/station-worker-output'
+            + `?station=${encodeURIComponent(station)}`
+            + `&start_date=${encodeURIComponent(startDate)}`
+            + `&end_date=${encodeURIComponent(endDate)}`;
+        const odp = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        const dane = await odp.json();
+
+        if (!odp.ok || !dane.success) {
+            stanWidgetu(pusty, 'error', tekstBledu(dane.error));
+            ustawBadgeNaukiStanowisk(null);
+            return;
+        }
+        renderujWkladOsob(dane);
+    } catch (err) {
+        console.error('[Reports] Wkład osób na stanowisku:', err);
+        stanWidgetu(pusty, 'error', tekstBledu(err.message));
+        ustawBadgeNaukiStanowisk(null);
+    }
+}
+
+// Badge „Trwa nauka" — cały tekst składa serwer (learning.text), front decyduje
+// wyłącznie o tym, CZY pigułka wisi. Ten sam mechanizm i to samo brzmienie, co
+// w widgetach podzakładki Ludzie; dwie różne wersje tego zdania byłyby dwiema
+// różnymi odpowiedziami na pytanie „czy tym liczbom można już ufać".
+function ustawBadgeNaukiStanowisk(nauka) {
+    const badge = el('sw-learning');
+    if (!badge) return;
+    if (!nauka || !nauka.learning) {
+        badge.style.display = 'none';
+        return;
+    }
+    // textContent, nie innerHTML: tekst niesie nazwy stanowisk prosto z bazy.
+    badge.querySelector('[data-rola="tekst"]').textContent = nauka.text;
+    badge.title = [
+        'Dane z profili jeszcze dojrzewają. Badge znika, gdy OBA warunki są '
+        + 'spełnione naraz, i wraca, gdy któryś się cofnie.',
+        `• Czas: ${nauka.days_with_data} z ${nauka.days_required} dni `
+        + `produkcyjnych ma sesje${nauka.days_ok ? ' ✔' : ''}`,
+        nauka.stations_working
+            ? `• Pokrycie: profile na ${nauka.stations_with_profiles} z `
+              + `${nauka.stations_working} pracujących stanowisk`
+              + `${nauka.stations_ok ? ' ✔' : ''}`
+            : null,
+        (nauka.stations_without_profiles || []).length
+            ? `• Bez profili: ${nauka.stations_without_profiles.join(', ')}`
+            : null,
+    ].filter(Boolean).join('\n');
+    badge.style.display = '';
+}
+
+function renderujWkladOsob(dane) {
+    const pusty = el('sw-empty');
+    const p = dane.summary;
+    ustawBadgeNaukiStanowisk(dane.learning);
+
+    // (a) STANOWISKO NIC NIE ZROBIŁO — informacja o produkcji. Sensowną reakcją
+    // jest zmiana zakresu dat albo stanowiska, więc mówimy o zakresie.
+    if (p.empty_reason === 'brak_pracy') {
+        stanWidgetu(pusty, 'empty',
+            `Na stanowisku ${dane.station_label} nie zarejestrowano pracy `
+            + `w okresie ${dane.start_date} – ${dane.end_date}. `
+            + 'Weź szerszy zakres albo wybierz inne stanowisko.');
+        return;
+    }
+
+    swKafelki(dane);
+
+    // (b) STANOWISKO PRACOWAŁO, ALE NA OSI NIE MA ANI JEDNEJ OSOBY — informacja
+    // o wdrożeniu, nie o produkcji. Panel to WYJAŚNIA, ale wykresu NIE zastępuje:
+    // właściciel chce widzieć dane historyczne („jak wybiorę ten poniedziałek,
+    // to będę widział, ile na danym stanowisku zostało zrobione tego dnia"),
+    // a dla nich jedyną poprawną odpowiedzią jest wykres z jednym szarym
+    // słupkiem. Chowanie go zamieniało fakt w komunikat o błędzie.
+    if (p.empty_reason === 'brak_profili') {
+        const panel = el('sw-brak-profili');
+        panel.textContent =
+            `${dane.station_label}: w okresie ${dane.start_date} – ${dane.end_date} `
+            + `przeszło tędy ${liczba(p.station_m3, 3)} m³ (${p.station_pieces} szt.) `
+            + 'i ani jedna sztuka nie ma podpisu pracownika. To nie jest brak '
+            + 'pracy ani brak danych — na wykresie widać całość jako jeden '
+            + `słupek „${SW_ETYKIETA_BRAK}". Nazwiska pojawią się na osi wtedy, `
+            + 'gdy praca z tego okresu zostanie odbita z profilem.';
+        panel.style.display = 'block';
+    }
+
+    stanWidgetu(pusty, 'ok');
+    el('sw-chart-wrapper').style.display = 'block';
+    swRysuj(dane);
+    swNotatka(dane);
+}
+
+function swKafelki(dane) {
+    const p = dane.summary;
+    el('sw-sum-m3').textContent = liczba(p.station_m3, 3);
+    el('sw-sum-pieces').textContent = p.station_pieces;
+    el('sw-sum-workers').textContent = p.workers_count;
+    // JEDNA liczba pokrycia w całej aplikacji — serwer liczy ją tą samą
+    // funkcją, z której rysuje się wykres „Pokrycie atrybucją w czasie".
+    // Wcześniej stała tu druga definicja (udział m³ zamiast ruchu w sztukach)
+    // i te dwa widgety podawały dwie różne odpowiedzi na to samo pytanie.
+    el('sw-sum-share').textContent =
+        p.attribution_coverage_pct === null
+            ? '—' : `${liczba(p.attribution_coverage_pct, 1)}%`;
+    // Kafelek świeci, dopóki część roboty idzie bez podpisu — to jedyna rzecz,
+    // która odróżnia „wykres pokazuje całe stanowisko" od „wykres pokazuje
+    // wycinek stanowiska".
+    el('sw-share-box').classList.toggle('wo-stat-warning',
+        p.attribution_coverage_pct !== null && p.attribution_coverage_pct < 100);
+    el('sw-summary').style.display = 'flex';
+}
+
+// Osoby + jeden słupek „Bez podpisu" na końcu. Kolejność ustala backend
+// (malejąco po m³), front jej NIE zmienia — inaczej dwa odświeżenia tego
+// samego zakresu dałyby dwa różne wykresy.
+function swSlupki(dane) {
+    const slupki = (dane.workers || []).map(w => ({
+        etykieta: w.worker_name,
+        m3: w.m3,
+        pieces: w.pieces,
+        events: w.events,
+        negative: w.negative,
+        zero: w.zero,
+        brak: false,
+    }));
+    // Doklejane ZAWSZE na koniec i poza sortowaniem: to nie jest osoba, więc
+    // nie ma prawa wylądować w środku rankingu ani zniknąć przy zerze — bez
+    // tego słupka wykres sugerowałby, że ludzie na osi zrobili całe stanowisko.
+    // Flagi (negative/zero) bierzemy z backendu tak samo jak dla osób: praca
+    // bez podpisu też potrafi wyjść na minus, gdy w zakresie było więcej
+    // cofnięć niż dorobków, a zaszyte `false` malowało wtedy słupek pod zerem
+    // na kolor „normalnie".
+    if (dane.unassigned && dane.unassigned.present) {
+        slupki.push({
+            etykieta: SW_ETYKIETA_BRAK,
+            m3: dane.unassigned.m3,
+            pieces: dane.unassigned.pieces,
+            events: null,
+            negative: !!dane.unassigned.negative,
+            zero: !!dane.unassigned.zero,
+            brak: true,
+        });
+    }
+    return slupki;
+}
+
+function swRysuj(dane) {
+    const canvas = el('sw-chart');
+    if (!canvas) return;
+    if (typeof Chart === 'undefined') {
+        // Chart.js jedzie z lokalnego vendora (static/vendor/chart.umd.min.js),
+        // ale ładowanie skryptu i wstawienie fragmentu to dwa różne zdarzenia.
+        setTimeout(() => swRysuj(dane), 100);
+        return;
+    }
+
+    const slupki = swSlupki(dane);
+
+    // Liczba miejsc na osi m³ zależy od skali: przy dniu, w którym pakowanie
+    // zrobiło 0.038 m³, jedno miejsce dawało kolumnę samych zer.
+    const maksM3 = Math.max(0, ...slupki.map(s => Math.abs(s.m3) || 0));
+    const miejscM3 = maksM3 && maksM3 < 1 ? 3 : 2;
+
+    const kolorM3 = slupki.map(s => s.brak ? SW_KOLOR_BRAK
+        : (s.negative ? SW_KOLOR_UJEMNY : SW_KOLOR_M3));
+    const kolorSzt = slupki.map(s => s.brak ? SW_KOLOR_BRAK
+        : (s.negative ? SW_KOLOR_UJEMNY : SW_KOLOR_SZT));
+
+    zniszczWykres(canvas);
+    new Chart(canvas.getContext('2d'), {
+        type: 'bar',
+        data: {
+            labels: slupki.map(s => s.etykieta),
+            datasets: [
+                {
+                    label: 'm³',
+                    data: slupki.map(s => s.m3),
+                    backgroundColor: kolorM3,
+                    borderWidth: 0,
+                    yAxisID: 'y',
+                },
+                {
+                    label: 'Wkład (szt.)',
+                    data: slupki.map(s => s.pieces),
+                    backgroundColor: kolorSzt,
+                    borderWidth: 0,
+                    yAxisID: 'y1',
+                },
+            ],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'top',
+                    labels: { font: { size: 11 }, boxWidth: 10 },
+                },
+                tooltip: {
+                    callbacks: {
+                        title: (items) => slupki[items[0]?.dataIndex ?? 0]?.etykieta || '',
+                        label: (ctx) => {
+                            const s = slupki[ctx.dataIndex] || {};
+                            return ctx.datasetIndex === 0
+                                ? `m³: ${liczba(s.m3, 3)}`
+                                : `Wkład: ${liczba(s.pieces, 2)} szt.`;
+                        },
+                        afterBody: (items) => {
+                            const s = slupki[items[0]?.dataIndex ?? 0] || {};
+                            const linie = [];
+                            if (s.brak) {
+                                linie.push('Praca bez wybranego profilu — '
+                                    + 'nie wiadomo, kto ją wykonał.');
+                            } else {
+                                linie.push(`Zdarzeń: ${s.events}`);
+                            }
+                            if (s.negative) {
+                                linie.push(s.brak
+                                    ? 'Netto na minusie: w tym okresie bez '
+                                      + 'podpisu więcej cofnięto, niż odhaczono.'
+                                    : 'Netto na minusie: w tym okresie ta '
+                                      + 'osoba więcej cofnęła, niż odhaczyła.');
+                            }
+                            // Słupek o wysokości zero jest niewidoczny — bez tej
+                            // linijki nazwisko wisi na osi bez niczego obok
+                            // i wygląda jak usterka wykresu.
+                            if (s.zero) {
+                                linie.push(s.events
+                                    ? 'Netto zero: tyle samo cofnięte, co odhaczone '
+                                      + '— słupka nie widać, bo ma wysokość zero.'
+                                    : 'Była sesja na tym stanowisku, ale ani jednej '
+                                      + 'odbitej sztuki — słupek ma wysokość zero.');
+                            }
+                            // Tablica, nie sklejony string: Chart.js łamie linie
+                            // tylko po elementach, '\n' zostawia w tekście.
+                            return linie;
+                        },
+                    },
+                },
+            },
+            scales: {
+                x: {
+                    ticks: { font: { size: 10 }, autoSkip: false },
+                    grid: { display: false },
+                },
+                y: {
+                    type: 'linear',
+                    position: 'left',
+                    beginAtZero: true,
+                    title: { display: true, text: 'm³', font: { size: 10 },
+                             color: SW_KOLOR_M3 },
+                    ticks: { font: { size: 10 }, color: SW_KOLOR_M3,
+                             callback: (v) => v.toFixed(miejscM3) },
+                    grid: { color: 'rgba(0,0,0,0.05)' },
+                },
+                y1: {
+                    type: 'linear',
+                    position: 'right',
+                    beginAtZero: true,
+                    title: { display: true, text: 'Wkład (szt.)', font: { size: 10 },
+                             color: SW_KOLOR_SZT },
+                    // Etykieta tylko na pełnych sztukach: wkład bywa ułamkowy
+                    // (share = 1/N), ale oś podpisana „0.3 0.7 1.0" sugerowałaby,
+                    // że ktoś zrobił jedną trzecią deski.
+                    ticks: { font: { size: 10 }, color: SW_KOLOR_SZT,
+                             callback: (v) => Number.isInteger(v) ? v : '' },
+                    grid: { drawOnChartArea: false },
+                },
+            },
+        },
+    });
+}
+
+// Przypis, bez którego szary słupek na danych historycznych czyta się jak
+// awaria. Przed wdrożeniem profili nikt się nie logował i JUŻ NIGDY nie
+// zaloguje — atrybucji nie da się dorobić wstecz, więc brak podpisu dla
+// tamtych dni jest stanem docelowym, a nie luką do nadrobienia. Datę bierzemy
+// z danych (pierwszy podpisany event NA TYM stanowisku), a nie z zaszytej
+// stałej: każde stanowisko rusza z profilami w swoim tempie.
+function swPrzypisHistoryczny(dane) {
+    const pierwszy = dane.summary.first_attribution_at;
+    if (!pierwszy) {
+        return `Na stanowisku ${dane.station_label} nie ma jeszcze ani jednego `
+            + 'podpisu — profile tu nie ruszyły, więc cała praca siedzi '
+            + `w słupku „${SW_ETYKIETA_BRAK}".`;
+    }
+    const data = pierwszy.slice(0, 10);
+    if (dane.start_date >= data) return '';
+    return `Podpisy na tym stanowisku zaczynają się ${data} — pracy sprzed tej `
+        + `daty nie da się przypisać wstecz, więc słupek „${SW_ETYKIETA_BRAK}" `
+        + 'jest tam z definicji, a nie z powodu awarii.';
+}
+
+function swNotatka(dane) {
+    const p = dane.summary;
+    // Wykres jedzie zawsze, gdy stanowisko w ogóle pracowało — także wtedy,
+    // gdy jedynym słupkiem jest szary „Bez podpisu".
+    const jestWykres = p.empty_reason !== 'brak_pracy';
+    const czesci = [`${dane.station_label} · ${dane.start_date} – ${dane.end_date}.`];
+    if (jestWykres) {
+        czesci.push('Wkład w sztukach dzieli się między osoby przez udział 1/N, '
+            + 'więc przy brygadzie wychodzą ułamki — nikt nie zrobił jednej '
+            + 'trzeciej deski, każdy uczestniczył w całej.');
+        czesci.push('Porównuj osoby WYŁĄCZNIE w obrębie tego jednego stanowiska: '
+            + 'm³ na sklejaniu i m³ na pakowaniu to inna robota.');
+        czesci.push(swPrzypisHistoryczny(dane));
+    }
+    // textContent, nie innerHTML — w podpisie siedzi nazwa stanowiska z bazy.
+    el('sw-note').textContent = czesci.filter(Boolean).join(' ');
+
+    const ostrzezenia = [];
+    if (jestWykres && dane.unassigned && dane.unassigned.present) {
+        ostrzezenia.push(`Bez podpisu: ${liczba(dane.unassigned.m3, 3)} m³ `
+            + `(${dane.unassigned.pieces} szt.) — szary słupek „${SW_ETYKIETA_BRAK}" `
+            + 'na końcu wykresu. Bez niego suma osób wyglądałaby na całą '
+            + 'produkcję stanowiska.');
+    }
+    if (p.workers_negative) {
+        ostrzezenia.push(`Osób z ujemnym netto: ${p.workers_negative} — ich `
+            + 'słupki idą pod zero i to jest informacja, a nie błąd: w tym '
+            + 'okresie cofnęły więcej, niż odhaczyły.');
+    }
+    // Słupek zerowy jest NIEWIDOCZNY, więc bez tego zdania nazwisko na osi
+    // wygląda na usterkę wykresu, a nie na odpowiedź „był i nic nie odbił".
+    if (p.workers_zero) {
+        ostrzezenia.push(`Osób bez widocznego słupka: ${p.workers_zero} — netto `
+            + 'zero. Albo miały tu sesję i nie odbiły ani sztuki, albo cofnęły '
+            + 'dokładnie tyle, ile odhaczyły. Zostają na osi, bo to też jest '
+            + 'odpowiedź na pytanie „kto tu był".');
+    }
+    if (dane.unassigned && dane.unassigned.negative) {
+        ostrzezenia.push('Szary słupek jest pod zerem: w tym okresie bez podpisu '
+            + 'więcej cofnięto, niż odhaczono.');
+    }
+    if (!p.sums_match) {
+        // Nie powinno się zdarzyć (udziały sumują się do 1.0 na event), ale
+        // gdyby się zdarzyło, użytkownik ma to zobaczyć, zanim porówna widget
+        // z sąsiadem i uzna, że jeden z nich kłamie.
+        ostrzezenia.push('Suma słupków nie zgadza się z przerobem stanowiska '
+            + `(${liczba(p.attributed_m3, 3)} + ${liczba(p.unassigned_m3, 3)} `
+            + `≠ ${liczba(p.station_m3, 3)} m³) — zgłoś to, bo udziały eventów `
+            + 'powinny sumować się do całości.');
+    }
+    el('sw-warn').textContent = ostrzezenia.join(' ');
+}
+
 // Init synchronicznie na końcu fragmentu, bez setTimeout: executeInlineScripts
 // podmienia węzeł przez replaceChild, czyli wykonuje ten skrypt dopiero po
 // wstawieniu markupu do DOM. Czekanie na cokolwiek byłoby wyścigiem, nie
 // ostrożnością.
+//
+// Każdy widget startuje WŁASNE pobranie i nikt nikogo nie awaituje: wolny
+// agregat ma zatrzymać swój kafelek, a nie całą podzakładkę.
 initStationOutputWidget();
+initWkladOsob();
 initializeDailyChart();
+initDniZapasu();
+initHeatmape();
+initDorobki();
 })();
 </script>

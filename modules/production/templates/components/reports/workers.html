@@ -1,8 +1,17 @@
 {# Podzakładka Raporty → LUDZIE.
 
    Atrybucja eventów stanowiskowych do profili pracowników
-   (docs/worker-profiles-backend.md §7.2). Widget siedzi sam, bo odpowiada na
-   inne pytanie niż stanowiska — „kto", nie „gdzie".
+   (docs/worker-profiles-backend.md §7.2). Podzakładka odpowiada na inne
+   pytanie niż stanowiska — „kto", nie „gdzie" — i czyta się z góry na dół
+   jako jedna historia:
+
+     1. Wydajność pracowników — kto ile zrobił,
+     2. Pokrycie atrybucją (wykres 6) — na ile tym liczbom można dziś ufać;
+        siedzi POD tabelą, bo jest rozwinięciem jej kafelka „pokrycia atrybucją",
+     3. Obsada vs przerób (wykres 5) — ilu ludzi stało przy ilu m³.
+
+   Badge „Trwa nauka" wisi na (1) i (3). Na (2) go NIE MA i to jest świadome:
+   ten wykres JEST miernikiem nauki, więc oznaczanie go byłoby błędnym kołem.
 
    Fragment nie ma i nie może mieć własnego bloku stylów: wchodzi do DOM przez
    innerHTML, więc każdy taki blok zostawiałby po sobie kolejną kopię tych samych
@@ -17,6 +26,11 @@
         <h4>
             <i class="fas fa-id-badge me-2"></i>
             Wydajność pracowników
+            {# Treść badge'a składa serwer (learning.text) — tu jest tylko
+               pojemnik. Tekst wjeżdża przez textContent, nie innerHTML. #}
+            <span class="badge-nauka" id="wo-learning" style="display: none;">
+                <i class="fas fa-seedling"></i><span data-rola="tekst"></span>
+            </span>
         </h4>
         <div class="widget-controls">
             <select id="wo-station-select" class="form-select form-select-sm">
@@ -49,20 +63,29 @@
             <strong>poglądowe</strong> — pokazują, kto zadeklarował pracę, a nie kto ją formalnie potwierdził.
         </p>
 
+        {# Każdy kafelek ma JEDNOSTKĘ w podpisie i DEFINICJĘ w title — wzorem
+           widgetu „Kto ile zrobił na stanowisku". Bez tego kafelek „m³" (praca
+           Z PODPISEM) stał obok kafelka „m³ przerobu" z widgetu obsady (CAŁA
+           hala) i wyglądało to jak rozjazd 10-krotny, choć obie liczby są
+           poprawne i opisują co innego. #}
         <div class="wo-summary" id="wo-summary" style="display: none;">
-            <div class="wo-stat">
+            <div class="wo-stat"
+                 title="Wkład osób, które wybrały profil na tablecie. Praca zespołowa dzieli się po równo (share = 1/N), stąd wartości ułamkowe. Reszta hali jest w wierszu „Bez podpisu" w tabeli niżej.">
                 <span class="wo-stat-value" id="wo-sum-pieces">0</span>
-                <span class="wo-stat-label">wkład w sztukach</span>
+                <span class="wo-stat-label">wkład w sztukach (z podpisem)</span>
             </div>
-            <div class="wo-stat">
+            <div class="wo-stat"
+                 title="Objętość pracy Z PODPISEM — podzbiór przerobu całej hali. Przerób hali pokazuje widget „Obsada vs przerób" niżej; różnica to wiersz „Bez podpisu".">
                 <span class="wo-stat-value" id="wo-sum-m3">0</span>
-                <span class="wo-stat-label">m³</span>
+                <span class="wo-stat-label">m³ z podpisem</span>
             </div>
-            <div class="wo-stat">
+            <div class="wo-stat"
+                 title="Suma kolumny „Godziny" z tabeli niżej — z aktywnym filtrem stanowiska. Obejmuje też ludzi bez ani jednej atrybucji, jeśli mieli sesję.">
                 <span class="wo-stat-value" id="wo-sum-hours">0</span>
-                <span class="wo-stat-label">godzin przypisanych</span>
+                <span class="wo-stat-label">godzin ludzi w tabeli</span>
             </div>
-            <div class="wo-stat">
+            <div class="wo-stat"
+                 title="Wszystkie sesje w zakresie, BEZ filtra stanowiska — ile godzin przepracowała cała hala. Przy wybranym stanowisku ta liczba jest większa od kafelka obok i tak ma być.">
                 <span class="wo-stat-value" id="wo-sum-hours-all">0</span>
                 <span class="wo-stat-label">osobogodzin na hali</span>
             </div>
@@ -70,9 +93,20 @@
                 <span class="wo-stat-value" id="wo-sum-workers">0</span>
                 <span class="wo-stat-label">pracowników</span>
             </div>
-            <div class="wo-stat" id="wo-coverage-box">
+            <div class="wo-stat" id="wo-open-box" style="display: none;"
+                 title="Sesje bez zamknięcia liczą się do teraz (albo do momentu, w którym domknie je bezczynność). Godziny i tempo tych ludzi jeszcze się zmienią — w tabeli są oznaczone gwiazdką.">
+                <span class="wo-stat-value" id="wo-sum-open">0</span>
+                <span class="wo-stat-label">otwartych sesji</span>
+            </div>
+            {# Ten sam podpis i ten sam tooltip co w widgecie „Kto ile zrobił
+               na stanowisku": mianownikiem jest suma ABS(delta) na EVENCIE,
+               więc to udział RUCHU W SZTUKACH — nie udział m³ i nie netto.
+               Bez tego czytelnik dzielił kafelki obok i wychodziły mu inne
+               procenty (25,4% vs 28,4% z m³ vs 23,0% ze sztuk). #}
+            <div class="wo-stat" id="wo-coverage-box"
+                 title="Ile RUCHU (suma wartości bezwzględnych delt na poziomie zdarzenia) ma podpis pracownika. To NIE jest udział m³ ani wynik dzielenia kafelków obok — cofnięcia liczą się tu tak samo jak dorobki.">
                 <span class="wo-stat-value" id="wo-coverage">—</span>
-                <span class="wo-stat-label">pokrycia atrybucją</span>
+                <span class="wo-stat-label">% ruchu (szt.) z podpisem</span>
             </div>
         </div>
 
@@ -97,12 +131,18 @@
                             </th>
                             <th class="text-end">m³</th>
                             <th class="text-end">Godziny</th>
-                            <th class="text-end">Tempo (m³/h)</th>
+                            <th class="text-end" id="wo-col-pace">Tempo (m³/h)</th>
                         </tr>
                     </thead>
                     <tbody id="wo-totals-body"></tbody>
                 </table>
             </div>
+            {# To samo zdanie, które niosą sv-note i sw-note. Ta tabela jest
+               jedynym miejscem w zakładce, gdzie tempo stoi PER OSOBA obok
+               kolumny „Stanowiska", więc zaprasza do rankingu wzrokiem —
+               a zmierzony rozstrzał między pakowaczem a składaczem to 39×.
+               Sortowanie po nazwisku samo w sobie tego nie powstrzymuje. #}
+            <div class="report-note" id="wo-note"></div>
 
             <h5 class="wo-table-title">Dzień po dniu</h5>
             <div class="wo-table-wrapper">
@@ -127,6 +167,133 @@
     </div>
 </div>
 
+<!-- ════════════════════════════════════════════════════════════════════
+     Wykres 6: pokrycie atrybucją w czasie
+     GET /production/api/reports/attribution-coverage
+
+     Stoi POD tabelą wydajności, bo jest jej przypisem: kafelek „pokrycia
+     atrybucją" w tabeli to jedna liczba za cały zakres, a tutaj widać, z czego
+     ta liczba się bierze dzień po dniu. Bez badge'a „Trwa nauka" — świadomie.
+     ════════════════════════════════════════════════════════════════════ -->
+<div class="widget report-widget" id="ac-widget">
+    <div class="widget-header">
+        <h4>
+            <i class="fas fa-user-check me-2"></i>
+            Pokrycie atrybucją w czasie
+        </h4>
+        <div class="widget-controls">
+            {# Lista stanowisk WYŁĄCZNIE z backendu (station_catalog przez
+               _kontekst_ludzie) — ta sama, z której lecą etykiety w tabeli.
+               Własne <option> z nazwami rozjeżdżały się z tym, co widać
+               w wynikach („Wycinanie" w filtrze, „Wycinanie - mikro" w tabeli). #}
+            <select id="ac-station-select" class="form-select form-select-sm" title="Stanowisko">
+                <option value="all" selected>Wszystkie stanowiska</option>
+                {% for kod, nazwa in station_choices %}
+                <option value="{{ kod }}">{{ nazwa }}</option>
+                {% endfor %}
+            </select>
+            <select id="ac-preset-select" class="form-select form-select-sm" title="Zakres dat">
+                <option value="7d">Ostatnie 7 dni</option>
+                <option value="30d" selected>Ostatnie 30 dni</option>
+                <option value="custom">Własny zakres</option>
+            </select>
+            <input type="date" id="ac-start-date" class="form-control form-control-sm" style="display: none;" title="Data od">
+            <input type="date" id="ac-end-date" class="form-control form-control-sm" style="display: none;" title="Data do">
+            <button id="ac-refresh-btn" class="btn btn-outline-primary btn-sm" title="Odśwież">
+                <i class="fas fa-sync-alt"></i>
+            </button>
+        </div>
+    </div>
+    <div class="widget-content">
+        <div class="report-chart-wrapper" id="ac-chart-wrapper">
+            <canvas id="ac-chart"></canvas>
+        </div>
+        <div class="wo-loader" id="ac-loader" style="display: none;">
+            <i class="fas fa-spinner fa-spin me-2"></i>Liczę…
+        </div>
+        <div class="report-empty" id="ac-empty" style="display: none;"></div>
+        <div class="report-note" id="ac-note"></div>
+        <div class="report-note report-note-warn" id="ac-warn"></div>
+    </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════
+     Wykres 5: obsada vs przerób
+     GET /production/api/reports/staffing-vs-output
+
+     Dwa słupki na stanowisko: osobogodziny (z sesji) i m³ (z eventów). Iloraz
+     m³/h NIE jest osobnym słupkiem i to jest decyzja, nie przeoczenie —
+     narysowany jako długość zapraszałby do rankingu stanowisk, a te liczby są
+     nieporównywalne (spakowanie metra trwa minuty, sklejenie godziny). Dlatego
+     jedzie w podpisie osi i w tooltipie, czyli tam, gdzie czyta się go per
+     stanowisko, a nie jako wyścig.
+     ════════════════════════════════════════════════════════════════════ -->
+<div class="widget report-widget" id="sv-widget">
+    <div class="widget-header">
+        <h4>
+            <i class="fas fa-user-clock me-2"></i>
+            Obsada vs przerób
+            <span class="badge-nauka" id="sv-learning" style="display: none;">
+                <i class="fas fa-seedling"></i><span data-rola="tekst"></span>
+            </span>
+        </h4>
+        <div class="widget-controls">
+            <select id="sv-preset-select" class="form-select form-select-sm" title="Zakres dat">
+                <option value="today">Dziś</option>
+                <option value="yesterday">Wczoraj</option>
+                <option value="7d" selected>Ostatnie 7 dni</option>
+                <option value="30d">Ostatnie 30 dni</option>
+                <option value="custom">Własny zakres</option>
+            </select>
+            <input type="date" id="sv-start-date" class="form-control form-control-sm" style="display: none;" title="Data od">
+            <input type="date" id="sv-end-date" class="form-control form-control-sm" style="display: none;" title="Data do">
+            <button id="sv-refresh-btn" class="btn btn-outline-primary btn-sm" title="Odśwież">
+                <i class="fas fa-sync-alt"></i>
+            </button>
+        </div>
+    </div>
+    <div class="widget-content">
+        <div class="wo-summary" id="sv-summary" style="display: none;">
+            <div class="wo-stat">
+                <span class="wo-stat-value" id="sv-sum-hours">0</span>
+                <span class="wo-stat-label">osobogodzin</span>
+            </div>
+            <div class="wo-stat">
+                <span class="wo-stat-value" id="sv-sum-m3">0</span>
+                <span class="wo-stat-label">m³ przerobu</span>
+            </div>
+            <div class="wo-stat">
+                <span class="wo-stat-value" id="sv-sum-pieces">0</span>
+                <span class="wo-stat-label">sztuk</span>
+            </div>
+            {# Ten kafelek liczy z WYBRANEGO ZAKRESU, a badge „Trwa nauka"
+               w nagłówku obok — ze stałego okna ostatnich 14 dób
+               produkcyjnych. Dwa różne okna, więc liczby mogą się różnić
+               („4 / 4" przy „profile na 4 z 7") i to nie jest błąd. Bez tego
+               title nie da się tego odczytać z ekranu. #}
+            <div class="wo-stat" id="sv-stations-box"
+                 title="Liczone z WYBRANEGO zakresu dat. Badge „Trwa nauka" w nagłówku liczy z innego, stałego okna: ostatnich 14 dób produkcyjnych — dlatego obie pary liczb bywają różne.">
+                <span class="wo-stat-value" id="sv-sum-stations">0</span>
+                <span class="wo-stat-label">stanowisk z sesją / z pracą w zakresie</span>
+            </div>
+            <div class="wo-stat" id="sv-open-box" style="display: none;"
+                 title="Sesje bez zamknięcia liczą się do teraz — ich godziny urosną do końca zmiany albo do nocnego domknięcia.">
+                <span class="wo-stat-value" id="sv-sum-open">0</span>
+                <span class="wo-stat-label">otwartych sesji</span>
+            </div>
+        </div>
+        <div class="report-chart-wrapper report-chart-tall" id="sv-chart-wrapper">
+            <canvas id="sv-chart"></canvas>
+        </div>
+        <div class="wo-loader" id="sv-loader" style="display: none;">
+            <i class="fas fa-spinner fa-spin me-2"></i>Liczę…
+        </div>
+        <div class="report-empty" id="sv-empty" style="display: none;"></div>
+        <div class="report-note" id="sv-note"></div>
+        <div class="report-note report-note-warn" id="sv-warn"></div>
+    </div>
+</div>
+
 <script>
 // IIFE izoluje deklaracje fragmentu. executeInlineScripts() klonuje <script>
 // i podmienia węzeł, więc kod leci w scope globalnym i wykonuje się od nowa
@@ -139,13 +306,134 @@ if (!root || !wspolne) return;
 
 // Funkcje używane przez więcej niż jeden fragment mieszkają w szkielecie —
 // każdy fragment ma własny scope i to jest jedyny most między nimi.
-const { escapeHtml, soResolveRange, computeSoPageList, toastRaportu } = wspolne;
+const { escapeHtml, soResolveRange, soFormatLocalDate, computeSoPageList,
+        toastRaportu, zniszczWykres } = wspolne;
 
 // Szukamy po własnym panelu, nie po document. Dzięki temu id-ki są lokalne dla
 // fragmentu naprawdę, a nie umownie: panele sąsiadów zostają w DOM (tylko
 // schowane), więc globalne getElementById potrafiłoby sięgnąć do cudzego markupu.
 const el = (id) => root.querySelector('#' + id);
 const els = (sel) => root.querySelectorAll(sel);
+
+// ════════════════════════════════════════════════════════════════════
+// Wspólne dla trzech widgetów tej podzakładki
+// ════════════════════════════════════════════════════════════════════
+
+// Ta sama etykieta, co szary słupek w podzakładce Stanowiska. „Nieprzypisane"
+// czytało się jak awaria albo brak danych; dla pracy sprzed wdrożenia profili
+// to stan TRWAŁY — atrybucji nie da się dorobić wstecz. Dwie nazwy tego samego
+// zjawiska w dwóch podzakładkach kazałyby zgadywać, czy to na pewno to samo.
+const ETYKIETA_BEZ_PODPISU = 'Bez podpisu';
+
+function pokaz(id, widoczny) {
+    const pole = el(id);
+    if (pole) pole.style.display = widoczny ? '' : 'none';
+}
+
+// Podpisy pod wykresami składamy z fragmentów HTML (pogrubienia, <br>), więc
+// wszystko, co przyszło z bazy, przechodzi wcześniej przez escapeHtml.
+function ustawHtml(id, html) {
+    const pole = el(id);
+    if (pole) pole.innerHTML = html;
+}
+
+// Wykres znika razem z danymi. Bez tego pusty stan zasłaniałby poprzedni
+// wykres tylko wizualnie, a przy powrocie na podzakładkę (odswiezWykresyPanelu)
+// nieaktualne słupki wracałyby na ekran.
+function schowajWykres(idWrappera, idCanvas) {
+    zniszczWykres(el(idCanvas));
+    pokaz(idWrappera, false);
+}
+
+// Liczby z backendu są już zaokrąglone, ale JSON gubi końcowe zera (7.6 zamiast
+// 7.600) i kolumna liczb przestaje się wyrównywać. Formatujemy przy wyświetlaniu.
+function liczba(v, miejsc) {
+    return (typeof v === 'number' && isFinite(v)) ? v.toFixed(miejsc) : '—';
+}
+
+// Data ISO → „11.08" na oś wykresu. Pełna data zostaje w tooltipie.
+function krotkaData(iso) {
+    const cz = String(iso || '').split('-');
+    return cz.length === 3 ? `${cz[2]}.${cz[1]}` : String(iso || '');
+}
+
+// Polski ma trzy formy liczby mnogiej i „2 sesji jest otwartych" czyta się jak
+// tekst z automatu — a to ma być zdanie napisane do brygadzisty.
+function odmiana(n, jedna, kilka, wiele) {
+    if (n === 1) return jedna;
+    const dziesiatki = n % 100;
+    const jednosci = n % 10;
+    return (jednosci >= 2 && jednosci <= 4 && !(dziesiatki >= 12 && dziesiatki <= 14))
+        ? kilka : wiele;
+}
+
+// ── Badge „Trwa nauka" ──────────────────────────────────────────────
+//
+// Cały tekst pigułki składa serwer (learning.text), więc widget, XLSX i każdy
+// przyszły konsument mówią dokładnie to samo. Front decyduje wyłącznie o tym,
+// CZY badge wisi — a to jest gotowa flaga `learning`, liczona z danych (dni
+// z sesjami + pokrycie stanowisk), nigdy z kalendarza. Dzięki temu badge wraca
+// sam, gdy jeden tablet wypadnie; odliczanie „zostało X dni" by tego nie umiało.
+function ustawBadgeNauki(id, nauka) {
+    const badge = el(id);
+    if (!badge) return;
+    if (!nauka || !nauka.learning) {
+        badge.style.display = 'none';
+        return;
+    }
+    // textContent, nie innerHTML: tekst niesie nazwy stanowisk i liczby z bazy.
+    badge.querySelector('[data-rola="tekst"]').textContent = nauka.text;
+    badge.title = tooltipNauki(nauka);
+    badge.style.display = '';
+}
+
+function tooltipNauki(n) {
+    const ptak = (ok) => ok ? ' ✔' : '';
+    const linie = [
+        'Dane z profili jeszcze dojrzewają. Badge znika, gdy OBA warunki są '
+        + 'spełnione naraz, i wraca, gdy któryś się cofnie.',
+        `• Czas: ${n.days_with_data} z ${n.days_required} dni produkcyjnych `
+        + `ma sesje${ptak(n.days_ok)}`,
+    ];
+    if (n.stations_working) {
+        linie.push(`• Pokrycie: profile na ${n.stations_with_profiles} z `
+            + `${n.stations_working} stanowisk, które w tym oknie cokolwiek `
+            + `zrobiły${ptak(n.stations_ok)}`);
+    }
+    if (n.stations_without_profiles && n.stations_without_profiles.length) {
+        linie.push(`• Bez profili: ${n.stations_without_profiles.join(', ')}`);
+    }
+    if (n.window_start) {
+        linie.push(`• Okno: ${n.window_start} – ${n.window_end}`);
+    }
+    // Atrybut title, nie innerHTML — nazwy stanowisk nie mają jak nic wykonać.
+    return linie.join('\n');
+}
+
+// Presety obsługujemy tak samo w każdym widgecie: pola dat pokazują się
+// wyłącznie przy „własnym zakresie", a zmiana presetu od razu przeładowuje.
+function podepnijPresety(prefiks, przeladuj) {
+    const preset = el(prefiks + '-preset-select');
+    const start = el(prefiks + '-start-date');
+    const koniec = el(prefiks + '-end-date');
+    if (!preset || !start || !koniec) return null;
+
+    preset.addEventListener('change', () => {
+        const wlasny = preset.value === 'custom';
+        start.style.display = wlasny ? '' : 'none';
+        koniec.style.display = wlasny ? '' : 'none';
+        if (!wlasny) przeladuj();
+    });
+    start.addEventListener('change', () => {
+        if (preset.value === 'custom') przeladuj();
+    });
+    koniec.addEventListener('change', () => {
+        if (preset.value === 'custom') przeladuj();
+    });
+    el(prefiks + '-refresh-btn')?.addEventListener('click', przeladuj);
+
+    return () => soResolveRange(preset.value, start, koniec);
+}
 
 // ════════════════════════════════════════════════════════════════════
 // Widget: Wydajność pracowników (§7.2)
@@ -173,7 +461,7 @@ function woRenderujStrone() {
     const do_ = Math.min(od + WO_ROZMIAR_STRONY, razem);
 
     tbody.innerHTML = woWiersze.slice(od, do_).map(w => `
-        <tr${w.worker_name === 'Nieprzypisane' ? ' class="wo-unassigned"' : ''}>
+        <tr${w.worker_name === ETYKIETA_BEZ_PODPISU ? ' class="wo-unassigned"' : ''}>
             <td>${escapeHtml(w.work_date)}</td>
             <td>${escapeHtml(w.worker_name)}</td>
             <td>${escapeHtml(w.station_label)}</td>
@@ -227,13 +515,12 @@ function woRenderujKontrolki(stron, razem, od, do_) {
     });
 }
 
+// Ustawiane w init: () => {start, end} albo null przy niekompletnym „własnym
+// zakresie". Jedna funkcja zamiast trzech odczytów kontrolek w każdym miejscu.
+let woZakres = null;
+
 function woBuildQuery() {
-    const preset = el('wo-preset-select').value;
-    const zakres = soResolveRange(
-        preset,
-        el('wo-start-date'),
-        el('wo-end-date')
-    );
+    const zakres = woZakres ? woZakres() : null;
     if (!zakres) {
         throw new Error('Uzupełnij obie daty zakresu');
     }
@@ -241,16 +528,11 @@ function woBuildQuery() {
     return `start_date=${zakres.start}&end_date=${zakres.end}&station=${stanowisko}`;
 }
 
-function woPokaz(id, widoczny) {
-    const pole = el(id);
-    if (pole) pole.style.display = widoczny ? '' : 'none';
-}
-
 async function woLoad() {
-    woPokaz('wo-loader', true);
-    woPokaz('wo-empty', false);
-    woPokaz('wo-tables', false);
-    woPokaz('wo-summary', false);
+    pokaz('wo-loader', true);
+    pokaz('wo-empty', false);
+    pokaz('wo-tables', false);
+    pokaz('wo-summary', false);
 
     try {
         const odp = await fetch(`/production/api/reports/worker-output?${woBuildQuery()}`, {
@@ -265,20 +547,50 @@ async function woLoad() {
         console.error('[Reports] Wydajność pracowników:', e);
         const pusty = el('wo-empty');
         if (pusty) pusty.textContent = `Nie udało się pobrać danych: ${e.message}`;
-        woPokaz('wo-empty', true);
+        pokaz('wo-empty', true);
+        // Badge znika razem z danymi — pigułka „trwa nauka" obok komunikatu
+        // o błędzie opisywałaby stan, którego nikt w tej chwili nie zna.
+        ustawBadgeNauki('wo-learning', null);
     } finally {
-        woPokaz('wo-loader', false);
+        pokaz('wo-loader', false);
     }
+}
+
+// „—" znaczy NIE ZMIERZONO, a `w.hours || '—'` traktowało tak samo zmierzone
+// 0.0 h. Wychodził z tego wiersz „— godzin, tempo 0", który sam sobie
+// przeczy (Jakub Bujdasz: sesja 64 sekundy, hours 0.0, pace 0.0). Sesja
+// krótsza niż sześć minut dostaje „<0,1 h" — widać, że pomiar był.
+function woGodziny(w) {
+    if (w.hours === null || w.hours === undefined) return '—';
+    if (w.hours === 0 && w.minutes > 0) return '&lt;0,1 h';
+    return w.hours;
+}
+
+// Gwiazdka przy nazwisku człowieka z niezamkniętą sesją: jego godziny (czyli
+// MIANOWNIK tempa) rosną w trakcie oglądania raportu.
+function woGwiazdka(w) {
+    if (!w.open_sessions) return '';
+    return ' <span class="wo-open-marker" title="Sesja jeszcze trwa — godziny'
+        + ' i tempo w tym wierszu zmienią się do końca zmiany.">*</span>';
 }
 
 function woRender(raport) {
     const p = raport.summary;
+
+    // Badge nad tabelą, bo tabela mówi o ludziach dokładnie tyle, ile tablety
+    // zdążyły zaraportować — a to widać dopiero po zestawieniu dwóch wymiarów,
+    // których sama tabela nie pokazuje.
+    ustawBadgeNauki('wo-learning', raport.learning);
 
     el('wo-sum-pieces').textContent = p.pieces;
     el('wo-sum-m3').textContent = p.m3;
     el('wo-sum-hours').textContent = p.hours;
     el('wo-sum-hours-all').textContent = p.session_hours_all;
     el('wo-sum-workers').textContent = p.workers_count;
+    el('wo-sum-open').textContent = p.open_sessions;
+    // Kafelek otwartych sesji tylko wtedy, gdy jakaś jest — inaczej co dnia
+    // po zmianie świeciłoby zero i przestałoby cokolwiek znaczyć.
+    pokaz('wo-open-box', p.open_sessions > 0);
     el('wo-coverage').textContent =
         p.attribution_coverage_pct === null ? '—' : `${p.attribution_coverage_pct}%`;
 
@@ -294,11 +606,11 @@ function woRender(raport) {
     const totalsBody = el('wo-totals-body');
     totalsBody.innerHTML = raport.worker_totals.map(w => `
         <tr>
-            <td>${escapeHtml(w.worker_name)}</td>
+            <td>${escapeHtml(w.worker_name)}${woGwiazdka(w)}</td>
             <td class="wo-muted">${escapeHtml(w.stations.join(', '))}</td>
             <td class="text-end">${w.pieces}</td>
             <td class="text-end">${w.m3}</td>
-            <td class="text-end">${w.hours || '—'}</td>
+            <td class="text-end">${woGodziny(w)}</td>
             <td class="text-end">${w.pace_m3_per_hour === null ? '—' : w.pace_m3_per_hour}</td>
         </tr>`).join('');
 
@@ -307,7 +619,7 @@ function woRender(raport) {
     if (p.unassigned_pieces !== 0) {
         totalsBody.insertAdjacentHTML('beforeend', `
             <tr class="wo-unassigned">
-                <td><i class="fas fa-question-circle me-1"></i>Nieprzypisane</td>
+                <td><i class="fas fa-question-circle me-1"></i>${ETYKIETA_BEZ_PODPISU}</td>
                 <td class="wo-muted">praca bez wybranego profilu</td>
                 <td class="text-end">${p.unassigned_pieces}</td>
                 <td class="text-end">${p.unassigned_m3}</td>
@@ -321,35 +633,69 @@ function woRender(raport) {
     // w stanie i pokazujemy stronami, tym samym mechanizmem co widget
     // stanowiskowy (patrz renderSoItemsPage / computeSoPageList).
     woWiersze = raport.rows.concat(raport.unassigned.map(u => Object.assign(
-        {}, u, { worker_name: 'Nieprzypisane' })));
+        {}, u, { worker_name: ETYKIETA_BEZ_PODPISU })));
     woWiersze.sort((a, b) => (b.work_date || '').localeCompare(a.work_date || ''));
     woStrona = 1;
     woRenderujStrone();
 
-    const cokolwiek = raport.worker_totals.length > 0 || p.unassigned_pieces > 0;
-    woPokaz('wo-summary', true);
-    woPokaz('wo-tables', cokolwiek);
-    woPokaz('wo-empty', !cokolwiek);
+    // Pustkę rozstrzyga LICZBA ZDARZEŃ, nie suma delt. Doba, w której tyle
+    // samo odhaczono, co cofnięto, ma netto 0 przy realnej pracy — i widget
+    // pisał wtedy „żadne stanowisko nie zarejestrowało wykonania", podczas gdy
+    // wykres pokrycia dwa centymetry niżej raportował dla tej samej doby
+    // 4 sztuki ruchu. Dwa widgety obok siebie, dwie sprzeczne odpowiedzi.
+    // Ten sam próg (`!== 0`) co wiersz „Bez podpisu" wyżej — wcześniej wiersz
+    // wstawiał się przy `!== 0`, a tabela pokazywała przy `> 0`, więc przy
+    // ujemnym netto wiersz lądował w tabeli, którą front zaraz chował.
+    const cokolwiek = raport.worker_totals.length > 0
+        || p.unassigned_pieces !== 0
+        || p.station_events > 0;
+    // Tekst pustego stanu ustawiamy tutaj, bo ten sam element niesie komunikat
+    // o błędzie: bez nadpisania udany, ale pusty load pokazywałby błąd sprzed
+    // odświeżenia.
+    const pusty = el('wo-empty');
+    if (pusty && !cokolwiek) {
+        pusty.textContent = 'W tym zakresie żadne stanowisko nie zarejestrowało '
+            + 'wykonania — ani z profilem, ani bez. Spróbuj szerszego zakresu.';
+    }
+    woNotatka(raport);
+    pokaz('wo-summary', true);
+    pokaz('wo-tables', cokolwiek);
+    pokaz('wo-empty', !cokolwiek);
+}
+
+function woNotatka(raport) {
+    const p = raport.summary;
+    const czesci = [escapeHtml(`${raport.start_date} – ${raport.end_date}`)];
+
+    // To samo ostrzeżenie, które niosą sv-note i sw-note. m³ nie są
+    // porównywalne między stanowiskami, a tabela domyślnie miesza wszystkie.
+    czesci.push('tempo porównuj wyłącznie w obrębie JEDNEGO stanowiska — '
+        + 'spakowanie metra trwa minuty, sklejenie godziny');
+
+    // Doba o zerowym netto przy niezerowej liczbie zdarzeń to nie pustka,
+    // tylko zniesienie się dorobek i cofnięć — i trzeba to nazwać, bo tabela
+    // z samymi zerami wygląda wtedy na awarię.
+    if (p.station_events > 0 && !p.pieces && !p.unassigned_pieces) {
+        czesci.push('<strong>ruch był, ale odhaczenia i cofnięcia się zniosły</strong> — '
+            + `${p.station_events} ${odmiana(p.station_events,
+                'zdarzenie', 'zdarzenia', 'zdarzeń')} przy zerowym wyniku netto`);
+    }
+
+    if (p.open_sessions) {
+        czesci.push(`${p.open_sessions} ${odmiana(p.open_sessions,
+            'sesja jest wciąż otwarta', 'sesje są wciąż otwarte',
+            'sesji jest wciąż otwartych')} (wiersze z gwiazdką) — ich godziny `
+            + 'i tempo jeszcze się zmienią');
+    }
+
+    ustawHtml('wo-note', czesci.join(' · '));
 }
 
 function initWorkerOutputWidget() {
-    const presetSelect = el('wo-preset-select');
-    if (!presetSelect) return;
-
-    const startEl = el('wo-start-date');
-    const endEl = el('wo-end-date');
-
-    presetSelect.addEventListener('change', () => {
-        const wlasny = presetSelect.value === 'custom';
-        startEl.style.display = wlasny ? '' : 'none';
-        endEl.style.display = wlasny ? '' : 'none';
-        if (!wlasny) woLoad();
-    });
+    woZakres = podepnijPresety('wo', woLoad);
+    if (!woZakres) return;
 
     el('wo-station-select').addEventListener('change', woLoad);
-    el('wo-refresh-btn').addEventListener('click', woLoad);
-    startEl.addEventListener('change', woLoad);
-    endEl.addEventListener('change', woLoad);
 
     el('wo-export-btn').addEventListener('click', () => {
         // try/catch, bo soResolveRange zwraca null przy presecie "własny zakres"
@@ -365,10 +711,487 @@ function initWorkerOutputWidget() {
     woLoad();
 }
 
+// ════════════════════════════════════════════════════════════════════
+// WYKRES 6: Pokrycie atrybucją w czasie
+// GET /production/api/reports/attribution-coverage
+//
+// Linia procentu ruchu z podpisem pracownika, dzień po dniu. Dziura w linii
+// (coverage_pct === null) to dzień BEZ PRODUKCJI, nie zero pokrycia — dlatego
+// spanGaps zostaje wyłączone. Płaska linia po zerze czytałaby się jako
+// „pracowali i nikt się nie podpisał", co jest inną, nieprawdziwą diagnozą.
+// ════════════════════════════════════════════════════════════════════
+let acZakres = null;
+
+async function acLoad() {
+    const zakres = acZakres ? acZakres() : null;
+    if (!zakres) return;   // „własny zakres" z jedną datą — czekamy na drugą
+
+    pokaz('ac-loader', true);
+    pokaz('ac-empty', false);
+    schowajWykres('ac-chart-wrapper', 'ac-chart');
+    ustawHtml('ac-note', '');
+    ustawHtml('ac-warn', '');
+
+    const stanowisko = el('ac-station-select').value;
+    try {
+        const odp = await fetch('/production/api/reports/attribution-coverage'
+            + `?start_date=${zakres.start}&end_date=${zakres.end}`
+            + `&station=${encodeURIComponent(stanowisko)}`,
+            { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        const dane = await odp.json();
+        if (!odp.ok || !dane.success) {
+            throw new Error(dane.error || `HTTP ${odp.status}`);
+        }
+        acRender(dane);
+    } catch (e) {
+        console.error('[Reports] Pokrycie atrybucją:', e);
+        el('ac-empty').textContent = `Nie udało się pobrać danych: ${e.message}`;
+        pokaz('ac-empty', true);
+    } finally {
+        pokaz('ac-loader', false);
+    }
+}
+
+function acRender(dane) {
+    const p = dane.summary;
+    // days_with_data == 0 znaczy „hala nic nie zrobiła", a nie „nikt się nie
+    // podpisał" — to dwie różne odpowiedzi i pusty stan musi mówić tę właściwą.
+    if (!p.days_with_data) {
+        const wybrane = el('ac-station-select');
+        const nazwa = wybrane.value === 'all'
+            ? 'żadne stanowisko'
+            : wybrane.options[wybrane.selectedIndex].text;
+        // Zakres w treści, bo pusty stan najczęściej znaczy „preset wskazał
+        // inne dni, niż myślałem", a nie „system nic nie ma".
+        el('ac-empty').textContent = `W zakresie ${dane.start_date} – `
+            + `${dane.end_date} ${nazwa} nie zarejestrowało ruchu `
+            + 'produkcyjnego — nie ma czego przypisywać do ludzi.';
+        pokaz('ac-empty', true);
+        acNotatka(dane, false);
+        return;
+    }
+
+    pokaz('ac-chart-wrapper', true);
+    acRysuj(dane);
+    acNotatka(dane, dane.points.some(x => x.small_sample));
+}
+
+function acNotatka(dane, malaProbka) {
+    const p = dane.summary;
+    const czesci = [];
+    if (p.coverage_pct !== null) {
+        // Ta sama liczba co kafelek „pokrycia atrybucją" w tabeli wyżej —
+        // backend liczy oba z sumy liczników przez sumę mianowników.
+        czesci.push(`Średnia ważona <strong>${liczba(p.coverage_pct, 1)}%</strong>`);
+        czesci.push(`${p.pieces_attributed} z ${p.pieces_abs} szt. ruchu ma podpis`);
+    }
+    czesci.push(`dane z ${p.days_with_data} z ${p.days_in_range} dni zakresu`);
+    czesci.push('przerwa w linii to dzień bez produkcji, nie zero pokrycia');
+
+    ustawHtml('ac-note', escapeHtml(`${dane.start_date} – ${dane.end_date}`)
+        + ' · ' + czesci.join(' · ')
+        // Nieobecność badge'a jest decyzją, nie przeoczeniem — lepiej ją
+        // napisać, niż liczyć, że nikt nie zapyta.
+        + '<br>Ten wykres celowo nie ma pigułki „Trwa nauka": to on jest '
+        + 'miernikiem nauki, więc oznaczanie go byłoby błędnym kołem.');
+
+    ustawHtml('ac-warn', malaProbka
+        ? 'Kropki puste w środku to dni o małej próbce — przy kilku sztukach '
+          + 'ruchu jeden event przestawia wynik o kilkadziesiąt punktów.'
+        : '');
+}
+
+function acRysuj(dane) {
+    const canvas = el('ac-chart');
+    if (!canvas) return;
+    if (typeof Chart === 'undefined') {
+        // Chart.js siedzi w <script> strony panelu (static/vendor, bez CDN —
+        // Safari ITP blokuje zewnętrzne hosty). Fragment może wjechać wcześniej.
+        setTimeout(() => acRysuj(dane), 100);
+        return;
+    }
+
+    const punkty = dane.points || [];
+    const KOLOR = '#2563eb';
+
+    zniszczWykres(canvas);
+    new Chart(canvas.getContext('2d'), {
+        type: 'line',
+        data: {
+            labels: punkty.map(x => krotkaData(x.work_date)),
+            datasets: [{
+                label: 'Pokrycie atrybucją',
+                data: punkty.map(x => x.coverage_pct),
+                borderColor: KOLOR,
+                backgroundColor: 'rgba(37, 99, 235, 0.08)',
+                borderWidth: 2,
+                fill: true,
+                tension: 0.2,
+                // Dzień o małej próbce dostaje kropkę PUSTĄ W ŚRODKU zamiast
+                // wypełnionej: wartość jest prawdziwa, ale nie da się na niej
+                // niczego oprzeć i oko ma to widzieć bez czytania podpisu.
+                pointRadius: punkty.map(x => x.small_sample ? 5 : 3),
+                pointBackgroundColor: punkty.map(
+                    x => x.small_sample ? '#fff' : KOLOR),
+                pointBorderColor: KOLOR,
+                pointBorderWidth: 2,
+                spanGaps: false,
+            }],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        title: (items) => {
+                            const i = items[0]?.dataIndex ?? 0;
+                            return punkty[i]?.work_date || '';
+                        },
+                        label: (ctx) => {
+                            const x = punkty[ctx.dataIndex] || {};
+                            return `${liczba(x.coverage_pct, 1)}% · `
+                                + `${x.pieces_attributed} z ${x.pieces_abs} szt.`;
+                        },
+                        afterLabel: (ctx) => {
+                            const x = punkty[ctx.dataIndex] || {};
+                            const linie = [`${x.events} eventów`];
+                            if (x.negative_events) {
+                                linie.push(`w tym ${x.negative_events} cofnięć`);
+                            }
+                            if (x.small_sample) linie.push('mała próbka');
+                            return linie.join(' · ');
+                        },
+                    },
+                },
+            },
+            scales: {
+                x: {
+                    ticks: { autoSkip: true, maxTicksLimit: 12, font: { size: 10 } },
+                    grid: { display: false },
+                },
+                y: {
+                    // Sztywne 0-100: skala automatyczna rozciągała 67-80% na całą
+                    // wysokość i wahnięcie o 3 punkty wyglądało jak zapaść.
+                    min: 0,
+                    max: 100,
+                    ticks: { font: { size: 10 }, callback: (v) => `${v}%` },
+                    grid: { color: 'rgba(0,0,0,0.05)' },
+                },
+            },
+        },
+    });
+}
+
+function initCoverageWidget() {
+    acZakres = podepnijPresety('ac', acLoad);
+    if (!acZakres) return;
+    el('ac-station-select').addEventListener('change', acLoad);
+    acLoad();
+}
+
+// ════════════════════════════════════════════════════════════════════
+// WYKRES 5: Obsada vs przerób
+// GET /production/api/reports/staffing-vs-output
+//
+// Dwa słupki na stanowisko i DWIE osie, bo to dwie różne jednostki. Iloraz
+// m³/h jedzie w podpisie osi X i w tooltipie, a nie jako trzeci słupek —
+// patrz komentarz przy markupie widgetu.
+// ════════════════════════════════════════════════════════════════════
+let svZakres = null;
+
+async function svLoad() {
+    const zakres = svZakres ? svZakres() : null;
+    if (!zakres) return;
+
+    pokaz('sv-loader', true);
+    pokaz('sv-empty', false);
+    schowajWykres('sv-chart-wrapper', 'sv-chart');
+    pokaz('sv-summary', false);
+    ustawHtml('sv-note', '');
+    ustawHtml('sv-warn', '');
+
+    try {
+        const odp = await fetch('/production/api/reports/staffing-vs-output'
+            + `?start_date=${zakres.start}&end_date=${zakres.end}`,
+            { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        const dane = await odp.json();
+        if (!odp.ok || !dane.success) {
+            throw new Error(dane.error || `HTTP ${odp.status}`);
+        }
+        svRender(dane);
+    } catch (e) {
+        console.error('[Reports] Obsada vs przerób:', e);
+        el('sv-empty').textContent = `Nie udało się pobrać danych: ${e.message}`;
+        pokaz('sv-empty', true);
+        ustawBadgeNauki('sv-learning', null);
+    } finally {
+        pokaz('sv-loader', false);
+    }
+}
+
+function svRender(dane) {
+    const p = dane.summary;
+    ustawBadgeNauki('sv-learning', dane.learning);
+
+    const wiersze = dane.rows || [];
+    if (!wiersze.length) {
+        el('sv-empty').textContent = `W zakresie ${dane.start_date} – `
+            + `${dane.end_date} nikt nie otworzył sesji na tablecie i żadne `
+            + 'stanowisko nie zarejestrowało wykonania. Wybierz szerszy zakres '
+            + 'albo sprawdź, czy tablety są włączone.';
+        pokaz('sv-empty', true);
+        return;
+    }
+
+    el('sv-sum-hours').textContent = liczba(p.person_hours, 1);
+    el('sv-sum-m3').textContent = liczba(p.m3, 3);
+    el('sv-sum-pieces').textContent = p.pieces;
+    el('sv-sum-stations').textContent =
+        `${p.stations_with_hours} / ${p.stations_with_work}`;
+    // Rozjazd „stanowisk z sesją" i „stanowisk z pracą" to główna rzecz, której
+    // ten widget pilnuje — dlatego kafelek świeci, a nie tylko informuje.
+    // Świeci w OBIE strony: „4 / 0" (sesje bez przerobu, zwykle niedomknięte
+    // na tablecie) jest tak samo podejrzane jak „0 / 4" (praca bez profilu).
+    el('sv-stations-box').classList.toggle('wo-stat-warning',
+        p.stations_with_hours !== p.stations_with_work);
+    el('sv-sum-open').textContent = p.open_sessions;
+    pokaz('sv-open-box', p.open_sessions > 0);
+
+    pokaz('sv-summary', true);
+    pokaz('sv-chart-wrapper', true);
+    svRysuj(wiersze);
+    svNotatka(dane, wiersze);
+}
+
+function svNotatka(dane, wiersze) {
+    ustawHtml('sv-note', escapeHtml(`${dane.start_date} – ${dane.end_date}`)
+        + ' · m³ na osobogodzinę czytaj dla JEDNEGO stanowiska w czasie, nigdy '
+        + 'między stanowiskami — spakowanie metra trwa minuty, sklejenie godziny.');
+
+    const p = dane.summary;
+    const ostrzezenia = [];
+
+    // Stanowiska, które coś zrobiły, ale nikt się na nich nie zalogował. Bez
+    // tego zdania pusty słupek obsady czyta się jako „nikt tam nie pracował".
+    const bezSesji = wiersze
+        .filter(w => !w.person_minutes && (w.pieces || w.m3))
+        .map(w => w.station_label);
+    if (bezSesji.length) {
+        ostrzezenia.push(`Bez ani jednej sesji, mimo wykonanej pracy: `
+            + `${escapeHtml(bezSesji.join(', '))} — tam słupek obsady jest pusty, `
+            + `bo nikt nie wybrał profilu, a nie dlatego, że nikt nie pracował.`);
+    }
+
+    // Odwrotny rozjazd: godziny są, przerobu nie ma. Zwykle sesja, której nikt
+    // nie zamknął (domyka ją dopiero nocny cutoff), więc warto to nazwać.
+    const bezPrzerobu = wiersze
+        .filter(w => w.person_minutes && !w.pieces && !w.m3 && w.in_pipeline)
+        .map(w => w.station_label);
+    if (bezPrzerobu.length) {
+        ostrzezenia.push(`Godziny bez przerobu: `
+            + `${escapeHtml(bezPrzerobu.join(', '))} — sesja trwała, a stanowisko `
+            + `nic nie odhaczyło. Najczęściej to sesja niezamknięta na tablecie.`);
+    }
+
+    // Stanowisko spoza rejestru eventów (trakownia): sesja tam bywa, ale
+    // prod_station_events tego kodu nie zna, więc „8 h / 0 m³" nie znaczy nic.
+    const pozaRejestrem = wiersze
+        .filter(w => !w.in_pipeline && w.person_minutes)
+        .map(w => w.station_label);
+    if (pozaRejestrem.length) {
+        ostrzezenia.push(`Poza rejestrem eventów produkcyjnych: `
+            + `${escapeHtml(pozaRejestrem.join(', '))} — godziny widać, przerobu `
+            + `nie ma jak policzyć, więc tempo zostaje puste.`);
+    }
+
+    // Stan POŚREDNI, którego żadne z ostrzeżeń wyżej nie łapało: stanowisko MA
+    // i godziny, i przerób, ale sesje pokrywają tylko część dób zakresu.
+    // Tempo takiego wiersza liczy się z tych kilku dób, a słupek m³ z całego
+    // zakresu — bez tego zdania czytelnik zestawia dwie różne skale.
+    const czesciowe = wiersze
+        .filter(w => w.m3_per_person_hour !== null
+                     && w.days_with_sessions < w.days_in_range)
+        .map(w => `${w.station_label} (${w.days_with_sessions} z ${w.days_in_range})`);
+    if (czesciowe.length) {
+        ostrzezenia.push('Tempo z części zakresu: '
+            + `${escapeHtml(czesciowe.join(', '))} — sesje są tylko w niektórych `
+            + 'dobach, więc m³/h liczy się WYŁĄCZNIE z nich. Słupek m³ obok '
+            + 'pokazuje cały zakres i tych dwóch liczb nie wolno dzielić.');
+    }
+
+    if (p.open_sessions) {
+        // Zdanie „urosną do końca zmiany" jest prawdziwe tylko dla sesji
+        // z dzisiaj. Starsze otwarte sesje są już przycięte (bezczynnością
+        // albo nocnym cutoffem) i ich godziny nie urosną nigdy.
+        const dzisWZakresie = dane.end_date >= soFormatLocalDate(new Date());
+        ostrzezenia.push(`${p.open_sessions} ${odmiana(p.open_sessions,
+            'sesja jest wciąż otwarta', 'sesje są wciąż otwarte',
+            'sesji jest wciąż otwartych')} — ` + (dzisWZakresie
+                ? 'te godziny liczą się do teraz i urosną do końca zmiany.'
+                : 'nikt ich nie zamknął, więc ucięliśmy je na bezczynności '
+                  + 'albo na nocnym cutoffie ich doby — już nie urosną.'));
+    }
+
+    ustawHtml('sv-warn', ostrzezenia.join('<br>'));
+}
+
+function svRysuj(wiersze) {
+    const canvas = el('sv-chart');
+    if (!canvas) return;
+    if (typeof Chart === 'undefined') {
+        setTimeout(() => svRysuj(wiersze), 100);
+        return;
+    }
+
+    const KOLOR_GODZIN = '#2563eb';
+    const KOLOR_M3 = '#16a34a';
+
+    // Liczba miejsc po przecinku na osi m³ zależy od skali zakresu: przy dniu,
+    // w którym pracowała sama lakiernia (max 0.37 m³), jedno miejsce dawało
+    // „0.1, 0.1, 0.2, 0.2" — dwie różne kreski z tą samą etykietą.
+    const maxM3 = Math.max(0, ...wiersze.map(w => w.m3 || 0));
+    const miejscM3 = maxM3 && maxM3 < 1 ? 2 : 1;
+
+    // Etykieta osi jest dwuliniowa: nazwa stanowiska + jego tempo. Tempo jako
+    // tekst, nie jako długość słupka — liczba pod nazwą nie zaprasza do
+    // porównywania stanowisk wzrokiem.
+    const etykiety = wiersze.map(w => [
+        w.station_label,
+        w.m3_per_person_hour === null
+            ? (w.in_pipeline ? 'brak sesji' : 'poza rejestrem')
+            // Gdy sesje pokrywają tylko część dób, liczba pochodzi WYŁĄCZNIE
+            // z nich — i musi to być widać w tym samym miejscu, w którym stoi.
+            : `${liczba(w.m3_per_person_hour, 3)} m³/h`
+              + (w.days_with_sessions < w.days_in_range
+                 ? ` (z ${w.days_with_sessions}/${w.days_in_range} dni)` : ''),
+    ]);
+
+    zniszczWykres(canvas);
+    new Chart(canvas.getContext('2d'), {
+        type: 'bar',
+        data: {
+            labels: etykiety,
+            datasets: [
+                {
+                    label: 'Osobogodziny',
+                    // Z minut, nie z person_hours: to pole jest zaokrąglone do
+                    // 0.1 h i przy siedmiu stanowiskach słupki nie sumowałyby
+                    // się do kafelka z podsumowaniem (backend liczy go z minut).
+                    data: wiersze.map(w => w.person_minutes / 60),
+                    backgroundColor: KOLOR_GODZIN,
+                    borderWidth: 0,
+                    yAxisID: 'y',
+                },
+                {
+                    label: 'Przerób (m³)',
+                    data: wiersze.map(w => w.m3),
+                    backgroundColor: KOLOR_M3,
+                    borderWidth: 0,
+                    yAxisID: 'y1',
+                },
+            ],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'top',
+                    labels: { font: { size: 11 }, boxWidth: 10 },
+                },
+                tooltip: {
+                    callbacks: {
+                        title: (items) => {
+                            const w = wiersze[items[0]?.dataIndex ?? 0] || {};
+                            return w.station_label || '';
+                        },
+                        label: (ctx) => {
+                            const w = wiersze[ctx.dataIndex] || {};
+                            return ctx.datasetIndex === 0
+                                ? `Osobogodziny: ${liczba(w.person_minutes / 60, 1)} h`
+                                : `Przerób: ${liczba(w.m3, 3)} m³ · ${w.pieces} szt.`;
+                        },
+                        afterBody: (items) => {
+                            const w = wiersze[items[0]?.dataIndex ?? 0] || {};
+                            const linie = [];
+                            if (w.m3_per_person_hour !== null) {
+                                linie.push(`Tempo: ${liczba(w.m3_per_person_hour, 3)} m³/h`);
+                                if (w.days_with_sessions < w.days_in_range) {
+                                    linie.push(`Liczone z ${w.days_with_sessions} `
+                                        + `z ${w.days_in_range} dni zakresu `
+                                        + `(${liczba(w.m3_in_session_days, 3)} m³ `
+                                        + 'w tych dobach)');
+                                }
+                            } else if (!w.in_pipeline) {
+                                linie.push('Tempo: nie liczymy — stanowisko poza '
+                                    + 'rejestrem eventów produkcyjnych');
+                            } else {
+                                linie.push('Tempo: nie ma z czego — zero '
+                                    + 'zalogowanych godzin');
+                            }
+                            if (w.open_sessions) {
+                                linie.push(`Otwarte sesje: ${w.open_sessions}`);
+                            }
+                            // Tablica, nie sklejony string: Chart.js łamie
+                            // linie tylko po elementach, '\n' zostawia w tekście.
+                            return linie;
+                        },
+                    },
+                },
+            },
+            scales: {
+                x: {
+                    ticks: { font: { size: 10 }, autoSkip: false },
+                    grid: { display: false },
+                },
+                y: {
+                    type: 'linear',
+                    position: 'left',
+                    beginAtZero: true,
+                    title: { display: true, text: 'Osobogodziny',
+                             font: { size: 10 }, color: KOLOR_GODZIN },
+                    // Etykieta tylko na pełnych godzinach. Przy zakresie bez
+                    // ani jednej sesji oś schodzi do 0-1 i zaokrąglanie każdego
+                    // ticka dawało kolumnę „0 0 0 0 1 1 1" — pięć razy ta sama
+                    // liczba wygląda jak błąd renderowania.
+                    ticks: { font: { size: 10 }, color: KOLOR_GODZIN,
+                             callback: (v) => Number.isInteger(v) ? v : '' },
+                    grid: { color: 'rgba(0,0,0,0.05)' },
+                },
+                y1: {
+                    type: 'linear',
+                    position: 'right',
+                    beginAtZero: true,
+                    title: { display: true, text: 'm³', font: { size: 10 },
+                             color: KOLOR_M3 },
+                    ticks: { font: { size: 10 }, color: KOLOR_M3,
+                             callback: (v) => v.toFixed(miejscM3) },
+                    grid: { drawOnChartArea: false },
+                },
+            },
+        },
+    });
+}
+
+function initStaffingWidget() {
+    svZakres = podepnijPresety('sv', svLoad);
+    if (!svZakres) return;
+    svLoad();
+}
+
 // Init synchronicznie na końcu fragmentu, bez setTimeout: executeInlineScripts
 // podmienia węzeł przez replaceChild, czyli wykonuje ten skrypt dopiero po
 // wstawieniu markupu do DOM. Czekanie na cokolwiek byłoby wyścigiem, nie
 // ostrożnością.
+//
+// Każdy widget startuje WŁASNYM zapytaniem i nikt na nikogo nie czeka: trzy
+// agregaty idą równolegle, a wolny albo wywrócony jeden nie blokuje pozostałych
+// (endpointy też są osobne właśnie po to).
 initWorkerOutputWidget();
+initCoverageWidget();
+initStaffingWidget();
 })();
 </script>

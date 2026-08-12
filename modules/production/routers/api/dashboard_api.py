@@ -18,16 +18,30 @@ from ...services.station_events_service import (
     get_station_work_in_range,
     get_station_work_per_day,
 )
+from ...services.station_catalog import (
+    STATION_ORDER, STATION_PENDING_STATUS,
+    station_label as station_label_catalog,
+)
 
 
-# Mapowanie stanowisko → status czekania (kolejka)
+# Mapowanie stanowisko → status czekania (kolejka).
+#
+# Same nazwy statusów mieszkają w station_catalog.STATION_PENDING_STATUS —
+# to jedyne źródło, wspólne z mobile_api_service i z raportami. Wcześniej
+# dashboard miał własną kopię i przy pierwszej zmianie nazwy statusu kafelki
+# rozjechałyby się z resztą aplikacji po cichu.
+#
+# ZESTAW stanowisk jest tu WĘŻSZY niż w katalogu i to jest jawna decyzja, nie
+# przeoczenie: dashboard rysuje sześć kafelków i nie zna lakierni (nie ma jej
+# ani w _station_count_map niżej, ani w szablonie). Raport „Dni zapasu przed
+# stanowiskiem" pokazuje wszystkie siedem i to właśnie lakiernia ma dziś
+# najdłuższą kolejkę — dołożenie jej tutaj wymaga decyzji właściciela i zmiany
+# szablonu dashboardu, więc idzie osobnym zadaniem.
+_DASHBOARD_STATIONS = (
+    'cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging',
+)
 _STATION_PENDING_STATUS = {
-    'cutting': 'czeka_na_wyciecie',
-    'assembly': 'czeka_na_skladanie',
-    'gluing': 'czeka_na_sklejanie',
-    'formatting': 'czeka_na_formatowanie',
-    'finishing': 'czeka_na_wykanczanie',
-    'packaging': 'czeka_na_pakowanie',
+    kod: STATION_PENDING_STATUS[kod] for kod in _DASHBOARD_STATIONS
 }
 
 
@@ -303,15 +317,33 @@ def chart_data():
     try:
         from datetime import datetime, timedelta, date
 
-        period = request.args.get('period', 7, type=int)
+        # Bez type=int: przy błędzie konwersji Flask oddaje wartość DOMYŚLNĄ,
+        # więc ?period=abc stawało się cichym „7 dni" JESZCZE PRZED białą listą
+        # niżej — podczas gdy ?period=0 dostawało uczciwe 400. To samo złe
+        # wejście, dwa różne kody odpowiedzi.
+        period_raw = (request.args.get('period') or '').strip()
+        if period_raw and not period_raw.isdigit():
+            return jsonify({
+                'success': False,
+                'error': 'Nieprawidłowy okres. Dozwolone: 7, 14, 30, 90, 180, 365 dni'
+            }), 400
+        period = int(period_raw) if period_raw else 7
         station_filter = request.args.get('station', 'all', type=str)
         start_date_param = request.args.get('start_date', type=str)
         end_date_param = request.args.get('end_date', type=str)
 
+        # Niepełna para dat to błąd, nie zaproszenie do zakresu domyślnego —
+        # ta sama reguła co w reports_api._parsuj_zakres_dat(). Wcześniej
+        # ?start_date=2026-05-01 oddawało 200 z ostatnim tygodniem.
+        if bool(start_date_param) != bool(end_date_param):
+            return jsonify({
+                'success': False,
+                'error': 'Podaj obie daty zakresu (start_date i end_date) albo żadnej'
+            }), 400
+
         # Walidacja stanowiska — lista z jednego katalogu (services/station_catalog),
         # żeby nie rozjeżdżała się z listami rozwijanymi. Wcześniej brakowało tu
         # lakierni, przez co „Wydajność dzienna" jako jedyny widget jej nie znała.
-        from ...services.station_catalog import STATION_ORDER
         valid_stations = ['all'] + list(STATION_ORDER)
         if station_filter not in valid_stations:
             return jsonify({
@@ -351,7 +383,10 @@ def chart_data():
                     'error': 'Nieprawidłowy okres. Dozwolone: 7, 14, 30, 90, 180, 365 dni'
                 }), 400
 
-            end_date = date.today()
+            # get_local_now(), NIE date.today(): kontener chodzi na UTC, więc
+            # między północą a 02:00 czasu polskiego preset „30 dni" kończył
+            # się na wczorajszej dacie, a widgety obok liczyły z lokalnej.
+            end_date = get_local_now().date()
             start_date = end_date - timedelta(days=period - 1)
 
         logger.info(f"AJAX: Pobieranie danych wykresów dla {period} dni, stanowisko: {station_filter}", extra={
@@ -365,33 +400,16 @@ def chart_data():
         from ...models import ProductionItem
         from sqlalchemy import and_, func
 
-        # Mapowanie stanowisk
-        station_completion_mapping = {
-            'cutting': 'cutting_completed_at',
-            'assembly': 'assembly_completed_at',
-            'gluing': 'gluing_completed_at',
-            'formatting': 'formatting_completed_at',
-            'finishing': 'finishing_completed_at',
-            'packaging': 'packaging_completed_at'
-        }
-
-        station_quantity_mapping = {
-            'cutting': 'quantity_done_cutting',
-            'assembly': 'quantity_done_assembly',
-            'gluing': 'quantity_done_gluing',
-            'formatting': 'quantity_done_formatting',
-            'finishing': 'quantity_done_finishing',
-            'packaging': 'quantity_done_packaging'
-        }
-
-        station_labels = {
-            'cutting': 'Wycinanie - mikro',
-            'assembly': 'Składanie - lite',
-            'gluing': 'Sklejanie',
-            'formatting': 'Formatowanie',
-            'finishing': 'Wykańczanie',
-            'packaging': 'Pakowanie'
-        }
+        # ŹRÓDŁEM listy stanowisk jest KATALOG, nie literał w tym pliku.
+        # Wcześniej były tu trzy równoległe listy sześciu kodów (mapa etykiet,
+        # zaszyte datasety trybu 'all', trzy gałęzie agregacji) — wszystkie bez
+        # lakierni, mimo że walidacja wyżej przepuszcza siedem stanowisk
+        # ze STATION_ORDER i tyle samo pozycji ma lista rozwijana. Skutek:
+        # „Wydajność dzienna" w trybie zbiorczym rysowała SZEŚĆ krzywych
+        # zamiast siedmiu i gubiła 1.164 m³ z 94.895 m³ na oknie 30-dniowym —
+        # akurat na stanowisku, które ma dziś 15,1 dnia zapasu, czyli
+        # najdłuższą kolejkę hali.
+        kody_stanowisk = list(STATION_ORDER)
 
         station_colors = {
             'cutting': {'border': '#fd7e14', 'bg': 'rgba(253, 126, 20, 0.1)'},
@@ -399,8 +417,10 @@ def chart_data():
             'gluing': {'border': '#9c27b0', 'bg': 'rgba(156, 39, 176, 0.1)'},
             'formatting': {'border': '#ff5722', 'bg': 'rgba(255, 87, 34, 0.1)'},
             'finishing': {'border': '#00bcd4', 'bg': 'rgba(0, 188, 212, 0.1)'},
+            'painting': {'border': '#e91e63', 'bg': 'rgba(233, 30, 99, 0.1)'},
             'packaging': {'border': '#28a745', 'bg': 'rgba(40, 167, 69, 0.1)'}
         }
+        KOLOR_REZERWOWY = {'border': '#6c757d', 'bg': 'rgba(108, 117, 125, 0.1)'}
 
         # NOWE: Określ typ agregacji na podstawie okresu
         if period <= 31:
@@ -414,8 +434,18 @@ def chart_data():
         # TRYB: Pojedyncze stanowisko (3 krzywe: objętość + ilość + wartość netto)
         # =====================================================================
         if station_filter != 'all':
-            station_label = station_labels[station_filter]
-            station_color = station_colors[station_filter]
+            # Etykieta z katalogu, nie z lokalnej mapy: walidacja wyżej
+            # przepuszcza wszystkie siedem stanowisk (STATION_ORDER), a ta mapa
+            # ma sześć — wybranie „Lakierni" w liście rozwijanej kończyło się
+            # KeyError('painting') i HTTP 500 zamiast wykresu. Zmierzone na
+            # kopii produkcyjnej: wykres „Obsada vs przerób" pokazuje dla
+            # lakierni 0.368 m³ / 9 szt. w tygodniu 05-11.08, a „Wydajność
+            # dzienna" tego samego stanowiska w ogóle nie umiała narysować.
+            from ...services.station_catalog import station_label as _etykieta
+            station_label = _etykieta(station_filter)
+            # Kolor jest wyłącznie prezentacją — brak wpisu ma dać szarą
+            # krzywą, a nie wywrócić cały widget.
+            station_color = station_colors.get(station_filter, KOLOR_REZERWOWY)
 
             # Faktyczna praca per dzień — z prod_station_events (uwzględnia partial work)
             try:
@@ -426,7 +456,10 @@ def chart_data():
                 })
                 return jsonify({
                     'success': False,
-                    'error': f'Błąd pobierania danych: {e}'
+                    # Bez treści wyjątku — patrz komentarz przy handlerze
+                    # na końcu tej funkcji.
+                    'error': 'Nie udało się pobrać danych stanowiska. '
+                             'Szczegóły w logach serwera.'
                 }), 500
 
             daily_data = {
@@ -537,6 +570,12 @@ def chart_data():
                 'aggregation_type': aggregation_type,
                 'station': station_filter,
                 'station_label': station_label,
+                # Ile DÓB w zakresie ma choć jedno zdarzenie. Bez tego front
+                # nie odróżniał „nikt nic nie zrobił" od „narysowaliśmy zera":
+                # zakres w przyszłości, niedziela i okres sprzed pierwszego
+                # produktu dawały identyczny obraz płaskiej linii na zerze,
+                # podczas gdy każdy inny widget zakładki ma jawny pusty stan.
+                'days_with_events': len(per_day),
                 'total_volume': round(total_volume, 2),
                 'total_quantity': total_quantity,
                 'total_value': round(total_value, 2),
@@ -562,66 +601,35 @@ def chart_data():
             return jsonify(response_data)
 
         # =====================================================================
-        # TRYB: Wszystkie stanowiska (6 krzywych, tylko objętość)
+        # TRYB: Wszystkie stanowiska (po jednej krzywej objętości na stanowisko)
+        #
+        # Datasety i agregacja lecą Z PĘTLI po katalogu, nie z zaszytej listy.
+        # Trzy równoległe listy literałów (etykiety, datasety, kody w trzech
+        # gałęziach agregacji) miały po sześć pozycji przy siedmiu stanowiskach
+        # w katalogu — i nikt tego nie zauważył, bo test regresyjny iterował
+        # `station={kod}`, a `station=all` nie był wołany ani razu.
         # =====================================================================
         chart_data_result = {
             'labels': [],
             'datasets': [
                 {
-                    'label': 'Wycinanie - mikro',
+                    'label': station_label_catalog(kod),
                     'data': [],
-                    'borderColor': '#fd7e14',
-                    'backgroundColor': 'rgba(253, 126, 20, 0.1)',
+                    'borderColor': station_colors.get(kod, KOLOR_REZERWOWY)['border'],
+                    'backgroundColor': station_colors.get(kod, KOLOR_REZERWOWY)['bg'],
                     'tension': 0.4,
-                    'fill': True
-                },
-                {
-                    'label': 'Składanie - lite',
-                    'data': [],
-                    'borderColor': '#007bff',
-                    'backgroundColor': 'rgba(0, 123, 255, 0.1)',
-                    'tension': 0.4,
-                    'fill': True
-                },
-                {
-                    'label': 'Sklejanie',
-                    'data': [],
-                    'borderColor': '#9c27b0',
-                    'backgroundColor': 'rgba(156, 39, 176, 0.1)',
-                    'tension': 0.4,
-                    'fill': True
-                },
-                {
-                    'label': 'Formatowanie',
-                    'data': [],
-                    'borderColor': '#ff5722',
-                    'backgroundColor': 'rgba(255, 87, 34, 0.1)',
-                    'tension': 0.4,
-                    'fill': True
-                },
-                {
-                    'label': 'Wykańczanie',
-                    'data': [],
-                    'borderColor': '#00bcd4',
-                    'backgroundColor': 'rgba(0, 188, 212, 0.1)',
-                    'tension': 0.4,
-                    'fill': True
-                },
-                {
-                    'label': 'Pakowanie',
-                    'data': [],
-                    'borderColor': '#28a745',
-                    'backgroundColor': 'rgba(40, 167, 69, 0.1)',
-                    'tension': 0.4,
-                    'fill': True
+                    'fill': True,
+                    'stationCode': kod,
                 }
-            ]
+                for kod in kody_stanowisk
+            ],
         }
 
         # Pobierz dane wydajności dla każdego stanowiska — z prod_station_events
         daily_data = {}
+        pusty_dzien = {kod: 0.0 for kod in kody_stanowisk}
 
-        for station in station_completion_mapping.keys():
+        for station in kody_stanowisk:
             try:
                 per_day = get_station_work_per_day(station, start_date, end_date)
             except Exception as e:
@@ -632,115 +640,73 @@ def chart_data():
 
             for completion_date, stats in per_day.items():
                 if completion_date not in daily_data:
-                    daily_data[completion_date] = {
-                        'cutting': 0.0,
-                        'assembly': 0.0,
-                        'gluing': 0.0,
-                        'formatting': 0.0,
-                        'finishing': 0.0,
-                        'packaging': 0.0
-                    }
+                    daily_data[completion_date] = dict(pusty_dzien)
                 daily_data[completion_date][station] = float(stats['m3'])
 
-        # NOWE: Agreguj dane według typu
+        def dosyp(klucz_okresu, zrodlo):
+            """Dokłada jeden punkt na każdą krzywą — po kolejności katalogu."""
+            chart_data_result['labels'].append(klucz_okresu)
+            for idx, kod in enumerate(kody_stanowisk):
+                chart_data_result['datasets'][idx]['data'].append(zrodlo.get(kod, 0.0))
+
         if aggregation_type == 'daily':
             current_date = start_date
             while current_date <= end_date:
-                label = current_date.strftime('%Y-%m-%d')
-                chart_data_result['labels'].append(label)
-
-                if current_date not in daily_data:
-                    daily_data[current_date] = {
-                        'cutting': 0.0, 'assembly': 0.0, 'gluing': 0.0,
-                        'formatting': 0.0, 'finishing': 0.0, 'packaging': 0.0
-                    }
-
-                chart_data_result['datasets'][0]['data'].append(daily_data[current_date]['cutting'])
-                chart_data_result['datasets'][1]['data'].append(daily_data[current_date]['assembly'])
-                chart_data_result['datasets'][2]['data'].append(daily_data[current_date]['gluing'])
-                chart_data_result['datasets'][3]['data'].append(daily_data[current_date]['formatting'])
-                chart_data_result['datasets'][4]['data'].append(daily_data[current_date]['finishing'])
-                chart_data_result['datasets'][5]['data'].append(daily_data[current_date]['packaging'])
+                dosyp(current_date.strftime('%Y-%m-%d'),
+                      daily_data.get(current_date, pusty_dzien))
                 current_date += timedelta(days=1)
 
         elif aggregation_type == 'weekly':
             from collections import defaultdict
-            weekly_data = defaultdict(lambda: {
-                'cutting': 0.0, 'assembly': 0.0, 'gluing': 0.0,
-                'formatting': 0.0, 'finishing': 0.0, 'packaging': 0.0
-            })
+            weekly_data = defaultdict(lambda: dict(pusty_dzien))
 
             for day_date, volumes in daily_data.items():
                 week_start = day_date - timedelta(days=day_date.weekday())
-                for station in ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging']:
-                    weekly_data[week_start][station] += volumes[station]
+                for kod in kody_stanowisk:
+                    weekly_data[week_start][kod] += volumes[kod]
 
             current_date = start_date - timedelta(days=start_date.weekday())
             while current_date <= end_date:
-                week_label = current_date.strftime('%Y-%m-%d')
-                chart_data_result['labels'].append(week_label)
-                chart_data_result['datasets'][0]['data'].append(weekly_data[current_date]['cutting'])
-                chart_data_result['datasets'][1]['data'].append(weekly_data[current_date]['assembly'])
-                chart_data_result['datasets'][2]['data'].append(weekly_data[current_date]['gluing'])
-                chart_data_result['datasets'][3]['data'].append(weekly_data[current_date]['formatting'])
-                chart_data_result['datasets'][4]['data'].append(weekly_data[current_date]['finishing'])
-                chart_data_result['datasets'][5]['data'].append(weekly_data[current_date]['packaging'])
+                dosyp(current_date.strftime('%Y-%m-%d'), weekly_data[current_date])
                 current_date += timedelta(weeks=1)
 
         elif aggregation_type == 'monthly':
             from collections import defaultdict
-            monthly_data = defaultdict(lambda: {
-                'cutting': 0.0, 'assembly': 0.0, 'gluing': 0.0,
-                'formatting': 0.0, 'finishing': 0.0, 'packaging': 0.0
-            })
+            monthly_data = defaultdict(lambda: dict(pusty_dzien))
 
             for day_date, volumes in daily_data.items():
                 month_start = date(day_date.year, day_date.month, 1)
-                for station in ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging']:
-                    monthly_data[month_start][station] += volumes[station]
+                for kod in kody_stanowisk:
+                    monthly_data[month_start][kod] += volumes[kod]
 
             current_month = date(start_date.year, start_date.month, 1)
             end_month = date(end_date.year, end_date.month, 1)
-
             while current_month <= end_month:
-                month_label = current_month.strftime('%Y-%m-01')
-                chart_data_result['labels'].append(month_label)
-                chart_data_result['datasets'][0]['data'].append(monthly_data[current_month]['cutting'])
-                chart_data_result['datasets'][1]['data'].append(monthly_data[current_month]['assembly'])
-                chart_data_result['datasets'][2]['data'].append(monthly_data[current_month]['gluing'])
-                chart_data_result['datasets'][3]['data'].append(monthly_data[current_month]['formatting'])
-                chart_data_result['datasets'][4]['data'].append(monthly_data[current_month]['finishing'])
-                chart_data_result['datasets'][5]['data'].append(monthly_data[current_month]['packaging'])
-
+                dosyp(current_month.strftime('%Y-%m-01'), monthly_data[current_month])
                 if current_month.month == 12:
                     current_month = date(current_month.year + 1, 1, 1)
                 else:
                     current_month = date(current_month.year, current_month.month + 1, 1)
 
+
         # Oblicz statystyki podsumowujące
         total_volumes = {
-            'cutting': sum(chart_data_result['datasets'][0]['data']),
-            'assembly': sum(chart_data_result['datasets'][1]['data']),
-            'gluing': sum(chart_data_result['datasets'][2]['data']),
-            'formatting': sum(chart_data_result['datasets'][3]['data']),
-            'finishing': sum(chart_data_result['datasets'][4]['data']),
-            'packaging': sum(chart_data_result['datasets'][5]['data'])
+            kod: sum(chart_data_result['datasets'][idx]['data'])
+            for idx, kod in enumerate(kody_stanowisk)
         }
 
         num_periods = len(chart_data_result['labels']) if chart_data_result['labels'] else 1
-        avg_per_period = {
-            'cutting': total_volumes['cutting'] / num_periods,
-            'assembly': total_volumes['assembly'] / num_periods,
-            'packaging': total_volumes['packaging'] / num_periods
-        }
+        avg_per_period = {kod: suma / num_periods
+                          for kod, suma in total_volumes.items()}
 
-        # Znajdź najlepszy okres
+        # Znajdź najlepszy okres — po SUMIE WSZYSTKICH stanowisk, nie po trzech
+        # pierwszych krzywych. Poprzednia wersja sumowała datasety 0-2, czyli
+        # wycinanie + składanie + sklejanie, i „najlepszy okres" był najlepszy
+        # wyłącznie dla początku procesu.
         best_period_idx = 0
         best_period_total = 0
         for i in range(len(chart_data_result['labels'])):
-            period_total = (chart_data_result['datasets'][0]['data'][i] +
-                          chart_data_result['datasets'][1]['data'][i] +
-                          chart_data_result['datasets'][2]['data'][i])
+            period_total = sum(ds['data'][i] for ds in chart_data_result['datasets'])
             if period_total > best_period_total:
                 best_period_total = period_total
                 best_period_idx = i
@@ -748,6 +714,9 @@ def chart_data():
         summary = {
             'period_days': period,
             'aggregation_type': aggregation_type,
+            # Patrz komentarz w gałęzi pojedynczego stanowiska — front rysuje
+            # pusty stan zamiast siedmiu krzywych leżących na zerze.
+            'days_with_events': len(daily_data),
             'total_volumes': total_volumes,
             'avg_per_period': {k: round(v, 2) for k, v in avg_per_period.items()},
             'best_period': {
@@ -786,9 +755,13 @@ def chart_data():
             'error': str(e)
         })
 
+        # Treść wyjątku zostaje w logu. Przy błędzie SQLAlchemy str(e) niesie
+        # pełne zapytanie z parametrami (nazwy klientów i produktów
+        # z BaseLinkera), a endpoint ma wyłącznie @login_required — do tego
+        # front wstawia `data.error` do innerHTML.
         return jsonify({
             'success': False,
-            'error': f'Błąd pobierania danych wykresów: {str(e)}'
+            'error': 'Nie udało się pobrać danych wykresu. Szczegóły w logach serwera.'
         }), 500
 
 
