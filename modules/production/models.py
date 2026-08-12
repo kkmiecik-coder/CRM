@@ -19,7 +19,7 @@ Data: 2025-01-22
 from datetime import datetime, date
 from decimal import Decimal, ROUND_HALF_UP
 from sqlalchemy import Column, Integer, BigInteger, String, Text, DateTime, Date, Numeric, Enum, Boolean, JSON, ForeignKey, SmallInteger, Float, Index
-from sqlalchemy.dialects.mysql import LONGTEXT
+from sqlalchemy.dialects.mysql import DATETIME as MYSQL_DATETIME, LONGTEXT
 from sqlalchemy.orm import relationship, validates, backref
 from sqlalchemy.sql import func
 from sqlalchemy.exc import SQLAlchemyError
@@ -791,7 +791,14 @@ class LabelPrintJob(db.Model):
     station_code = Column(String(50), nullable=False)
     requested_by_type = Column(String(20), nullable=False, comment='user|device')
     requested_by_id = Column(String(100), nullable=False)
-    requested_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    # DATETIME(3) — bez ułamków sekundy nie dało się zmierzyć czasu życia
+    # zadania w kolejce, a po wdrożeniu sygnału push cała interesująca skala
+    # mieści się poniżej sekundy. with_variant, żeby SQLite (testy, fallback)
+    # dalej działał — fsp jest składnią MySQL-a.
+    requested_at = Column(
+        DateTime().with_variant(MYSQL_DATETIME(fsp=3), 'mysql'),
+        default=datetime.utcnow, nullable=False,
+    )
     status = Column(
         Enum('pending', 'printed', 'failed', 'expired', name='print_job_status'),
         default='pending', nullable=False, index=True,

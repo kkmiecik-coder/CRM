@@ -128,20 +128,21 @@ def test_czas_reakcji_pokazywany_w_milisekundach():
     assert print_agent._format_reaction(1.34) == '1.3 s'
 
 
-def test_wiek_zadania_ponizej_rozdzielczosci_nie_jest_pokazywany():
-    """requested_at to DATETIME bez ułamków sekundy — dla świeżych zadań wiek
-    zawyżał o prawie sekundę i log kłamał (90 ms pokazywane jako 0,9 s)."""
+def test_wiek_zadania_ponizej_sekundy_ma_ulamki():
+    """Po migracji requested_at na DATETIME(3) ułamki sekundy nie giną w bazie,
+    a po wdrożeniu pusha cała interesująca skala jest właśnie poniżej sekundy."""
     from datetime import datetime, timedelta
-    swieze = (datetime.utcnow() - timedelta(seconds=0.5)).isoformat()
-    assert print_agent._describe_job_age(swieze) == ''
+    swieze = (datetime.utcnow() - timedelta(seconds=0.12)).isoformat()
+    opis = print_agent._describe_job_age(swieze)
+    assert 'czekało 0.1' in opis
 
 
-def test_wiek_zadania_powyzej_rozdzielczosci_jest_przyblizony():
+def test_wiek_zadania_w_sekundach_i_minutach():
     from datetime import datetime, timedelta
-    stare = (datetime.utcnow() - timedelta(seconds=45)).isoformat()
-    opis = print_agent._describe_job_age(stare)
-    assert 'czekało ~' in opis and 's)' in opis
-    assert '~' in opis, 'wiek z kolejki jest znany tylko z dokładnością do sekundy'
+    assert 'czekało 45.0s' in print_agent._describe_job_age(
+        (datetime.utcnow() - timedelta(seconds=45)).isoformat())
+    assert 'czekało 7m' in print_agent._describe_job_age(
+        (datetime.utcnow() - timedelta(seconds=444)).isoformat())
 
 
 def test_reakcja_tylko_dla_zadan_z_sygnalu():

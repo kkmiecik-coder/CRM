@@ -364,11 +364,6 @@ def close_sse(stream):
     return None
 
 
-# Poniżej tylu sekund wiek zadania z kolejki jest nieodróżnialny od szumu
-# pomiarowego — patrz _describe_job_age().
-_AGE_RESOLUTION_SECONDS = 2
-
-
 def _format_reaction(seconds):
     """'42 ms' / '1.3 s' — czas reakcji agenta, mierzony zegarem monotonicznym."""
     if seconds < 1:
@@ -377,14 +372,16 @@ def _format_reaction(seconds):
 
 
 def _describe_job_age(requested_at_iso):
-    """Zwraca ' (czekało ~Xs)' albo '' — jak długo zadanie leżało w kolejce.
+    """Zwraca ' (czekało Xs)' albo '' — jak długo zadanie leżało w kolejce.
 
-    UWAGA na dokładność: kolumna `requested_at` to DATETIME bez ułamków sekundy,
-    więc zapis gubi część sekundy i dla świeżych zadań wiek potrafi zawyżać
-    o prawie całą sekundę (etykieta wydrukowana w 90 ms pokazywała się jako
-    „0,9 s"). Dlatego wiek poniżej _AGE_RESOLUTION_SECONDS w ogóle nie jest
-    pokazywany, a powyżej — ze znakiem „~". Rzeczywisty czas reakcji agenta
-    mierzymy osobno i dokładnie (pole „reakcja” w logu wydruku).
+    Od migracji 2026-08-12 kolumna `requested_at` to DATETIME(3), więc ułamki
+    sekundy nie giną już przy zapisie i wiek ma sens także poniżej sekundy.
+
+    Czego ta liczba NIE mierzy: szybkości samego agenta. `requested_at` stawia
+    zegar serwera CRM, odejmowanie robi zegar huba — różnica zegarów obu maszyn
+    wchodzi w wynik. Przy niezsynchronizowanym hubie potrafi to być więcej niż
+    cały mierzony czas. Do oceny reakcji agenta służy pole „reakcja”, liczone
+    jednym zegarem monotonicznym na jednej maszynie.
 
     Pole requested_at z API to naive UTC (datetime.utcnow w modelu),
     isoformat bez offsetu — porównujemy też z datetime.utcnow().
@@ -399,13 +396,11 @@ def _describe_job_age(requested_at_iso):
     if age < 0:
         # Zegar huba rozjechany z serwerem albo strefa się popsuła.
         return f' (req {requested_at_iso})'
-    if age < _AGE_RESOLUTION_SECONDS:
-        return ''
     if age < 60:
-        return f' (czekało ~{int(age)}s)'
+        return f' (czekało {age:.2f}s)' if age < 1 else f' (czekało {age:.1f}s)'
     if age < 3600:
-        return f' (czekało ~{int(age // 60)}m {int(age % 60)}s)'
-    return f' (czekało ~{int(age // 3600)}h {int((age % 3600) // 60)}m)'
+        return f' (czekało {int(age // 60)}m {int(age % 60)}s)'
+    return f' (czekało {int(age // 3600)}h {int((age % 3600) // 60)}m)'
 
 
 def _describe_timing(signal_at, requested_at_iso):
