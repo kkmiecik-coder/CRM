@@ -169,8 +169,17 @@ class DashboardModule {
                 this.updateStationsWidget(data.data.stations);
                 // Update extended station data
                 if (data.data.stations) {
+                    // Trakownia ma własne metryki — odświeżamy ją niezależnie od formatu
+                    // (słownik przy starcie, tablica przy cyklicznym odświeżeniu).
+                    this.updateSawmillStation(
+                        Array.isArray(data.data.stations)
+                            ? data.data.stations.find(s => s.code === 'sawmill')
+                            : data.data.stations.sawmill
+                    );
+
                     if (Array.isArray(data.data.stations)) {
                         data.data.stations.forEach(s => {
+                            if (s.code === 'sawmill') return;
                             this.updateElementText(`${s.code}-pending`, s.active_orders || 0);
                             if (s.tablet_status) this.updateStationTabletStatus(s.code, s.tablet_status);
                             if (s.completed_today !== undefined) {
@@ -316,6 +325,9 @@ class DashboardModule {
 
             // Update station extended data (completed_today, pending_m3, tablet status, progress bars)
             if (initialData.stations) {
+                // Trakownia celowo poza tą listą — ma własny zestaw metryk, patrz updateSawmillStation().
+                this.updateSawmillStation(initialData.stations.sawmill);
+
                 const stations = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging'];
                 stations.forEach(station => {
                     const stationData = initialData.stations[station];
@@ -567,10 +579,42 @@ class DashboardModule {
     // WIDGET UPDATE METHODS - Przeniesione z production-dashboard.js
     // ========================================================================
 
+    /**
+     * Odświeża kafelek trakowni. Ma inny zestaw metryk niż pozostałe stanowiska,
+     * bo liczy surowiec na tabelach prod_sawmill_*, a nie zlecenia produkcyjne.
+     * Bez tej metody liczby trakowni pochodziły wyłącznie z renderu szablonu
+     * i zostawały zamrożone na wartościach z chwili wejścia na stronę.
+     */
+    updateSawmillStation(dane) {
+        if (!dane) return;
+
+        this.updateElementText('sawmill-open', dane.open_orders || 0);
+        this.updateElementText('sawmill-logs-today', dane.logs_today || 0);
+        this.updateElementText('sawmill-m3-today', (parseFloat(dane.volume_today_m3) || 0).toFixed(3));
+        this.updateElementText('sawmill-to-settle', dane.to_settle || 0);
+
+        const procent = parseFloat(dane.progress_pct) || 0;
+        const wypelnienie = document.getElementById('sawmill-bar-fill');
+        if (wypelnienie) wypelnienie.style.width = `${procent}%`;
+        this.updateElementText('sawmill-bar-pct', `${procent}%`);
+
+        if (dane.tablet_status) {
+            this.updateStationTabletStatus('sawmill', dane.tablet_status);
+        }
+    }
+
     updateStationsWidget(stationsData) {
         console.log('[Dashboard Module] Updating stations widget...', stationsData);
 
         stationsData.forEach(station => {
+            // Trakownia nie przerabia zleceń ProductionItem, więc z założenia nie ma
+            // pola "-pending" — ma własne metryki (otwarte / kłód dziś / m³ / do rozliczenia),
+            // odświeżane przez updateSawmillStation(). Bez tego pominięcia leciało tu
+            // mylące ostrzeżenie "Element sawmill-pending not found" przy każdym odświeżeniu.
+            if (station.code === 'sawmill') {
+                return;
+            }
+
             // Aktualizuj liczby oczekujących dla każdej stacji
             const pendingElement = document.getElementById(`${station.code}-pending`);
             if (pendingElement) {
