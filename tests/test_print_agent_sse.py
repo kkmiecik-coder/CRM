@@ -430,3 +430,62 @@ def test_drabinka_ma_jitter():
     (etap 2: sześć tabletów hali na tym samym brokerze)."""
     probes = {round(print_agent._reconnect_delay(5), 4) for _ in range(20)}
     assert len(probes) > 1
+
+
+def test_zerwanie_po_pelnym_ttl_to_planowe_odnowienie():
+    """Godzinny token wygasa — to rutyna, a nie awaria kanału.
+
+    Centrifugo zamyka połączenie dopiero po TTL plus czas łaski (domyślnie
+    25 s), stąd życie połączenia odrobinę dłuższe niż sam TTL.
+    """
+    assert print_agent.czy_token_wygasl_planowo(3625, 3600) is True
+
+
+def test_zerwanie_tuz_przed_ttl_tez_jest_planowe():
+    """Token jest wystawiany chwilę PRZED otwarciem połączenia, a zegary huba
+    i serwera nie są zsynchronizowane co do sekundy — połączenie potrafi więc
+    paść ociupinę przed nominalnym TTL. To wciąż to samo zdarzenie."""
+    assert print_agent.czy_token_wygasl_planowo(3570, 3600) is True
+
+
+def test_wczesne_zerwanie_zostaje_awaria():
+    """Kanał, który padł po trzech minutach, to prawdziwy problem — ma być
+    głośny, bo tylko wtedy ktokolwiek go zauważy."""
+    assert print_agent.czy_token_wygasl_planowo(180, 3600) is False
+
+
+def test_bez_znanego_ttl_traktujemy_zerwanie_jak_awarie():
+    """Starszy CRM nie poda `expires_in`. Wtedy nie mamy czym odróżnić rutyny
+    od awarii — a milczenie o prawdziwej awarii kosztuje więcej niż zbędne
+    ostrzeżenie o rutynie."""
+    assert print_agent.czy_token_wygasl_planowo(3625, None) is False
+
+
+def test_expires_in_dojezdza_z_crm_do_agenta(monkeypatch):
+    """TTL bierzemy z odpowiedzi CRM-a, a nie ze stałej w agencie — inaczej
+    zmiana `token_ttl_seconds` w config/core.json po cichu zamieniłaby rutynowe
+    odnowienia w serię fałszywych alarmów."""
+    monkeypatch.setattr(print_agent, 'crm_request', lambda *a, **kw: {
+        'enabled': True, 'token': 'jwt', 'sse_url': 'https://crm/realtime/connection/uni_sse',
+        'expires_in': 900,
+    })
+    cfg = {'crm_url': 'https://crm', 'token': 't', 'request_timeout': 10, 'realtime_sse_url': ''}
+    assert print_agent.fetch_realtime_config(cfg)['expires_in'] == 900
+
+
+def test_brak_expires_in_nie_wywraca_polaczenia(monkeypatch):
+    """Pole doszło później niż sam mechanizm push — jego brak ma tylko wyłączyć
+    rozpoznawanie rutyny, nie zabrać agentowi kanału."""
+    monkeypatch.setattr(print_agent, 'crm_request', lambda *a, **kw: {
+        'enabled': True, 'token': 'jwt', 'sse_url': 'https://crm/x',
+    })
+    cfg = {'crm_url': 'https://crm', 'token': 't', 'request_timeout': 10, 'realtime_sse_url': ''}
+    realtime = print_agent.fetch_realtime_config(cfg)
+    assert realtime['token'] == 'jwt'
+    assert realtime['expires_in'] is None
+
+
+def test_strumien_pamieta_kiedy_zostal_otwarty():
+    """Bez znacznika otwarcia nie da się policzyć, jak długo kanał żył."""
+    stream = print_agent.SseStream(conn=None, sock=None, resp=None)
+    assert stream.czas_zycia() < 1.0

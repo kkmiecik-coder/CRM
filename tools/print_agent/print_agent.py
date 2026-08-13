@@ -56,6 +56,9 @@ class C:
     YELLOW = '\033[33m'
     RED = '\033[31m'
     CYAN = '\033[36m'
+    # Jasny niebieski (94), nie zwykły (34) — ten drugi na czarnym tle konsoli
+    # Windows jest ciemnogranatowy i praktycznie nieczytelny.
+    BLUE = '\033[94m'
     BOLD = '\033[1m'
 
 
@@ -64,7 +67,10 @@ def ts():
 
 
 def info(msg):
-    print(f"{C.DIM}{ts()}{C.RESET} {msg}", flush=True)
+    """Wpis informacyjny — niebieski. Kolory w oknie agenta niosą znaczenie:
+    niebieski = idzie normalnie, zielony = udało się, żółty = zajrzyj tu,
+    czerwony = coś nie wyszło. Operator ma widzieć stan kątem oka."""
+    print(f"{C.DIM}{ts()}{C.RESET} {C.BLUE}{msg}{C.RESET}", flush=True)
 
 
 def ok(msg):
@@ -329,7 +335,16 @@ def fetch_realtime_config(cfg, quiet=False):
     sse_url = (cfg['realtime_sse_url'] or data.get('sse_url') or '').strip()
     if not sse_url:
         sse_url = f"{cfg['crm_url']}/realtime/connection/uni_sse"
-    return {'token': data['token'], 'sse_url': sse_url}
+    # `expires_in` bierzemy z CRM-a zamiast trzymać własną stałą: TTL jest
+    # ustawiany po stronie serwera (REALTIME.token_ttl_seconds), więc kopia
+    # w agencie rozjechałaby się przy pierwszej zmianie konfiguracji — i to
+    # cicho, zamieniając rutynowe odnowienia w serię fałszywych alarmów.
+    expires_in = data.get('expires_in')
+    try:
+        expires_in = int(expires_in) if expires_in is not None else None
+    except (TypeError, ValueError):
+        expires_in = None
+    return {'token': data['token'], 'sse_url': sse_url, 'expires_in': expires_in}
 
 
 class SseStream:
@@ -354,6 +369,15 @@ class SseStream:
         self._conn = conn
         self._sock = sock
         self._resp = resp
+        # Znacznik otwarcia (monotoniczny) — po zerwaniu z niego wychodzi, czy
+        # kanał dożył swojego tokena (rutyna), czy padł przedwcześnie (awaria).
+        self._otwarty_o = time.monotonic()
+        # TTL tokena, którym się połączyliśmy; None gdy CRM go nie podał.
+        self.expires_in = None
+
+    def czas_zycia(self):
+        """Ile sekund kanał był otwarty."""
+        return time.monotonic() - self._otwarty_o
 
     def read_line(self, timeout):
         """Czyta jedną linię, czekając najwyżej `timeout` sekund.
@@ -774,6 +798,32 @@ def _reconnect_delay(failures):
     return stopien * random.uniform(0.9, 1.1)
 
 
+# O tyle sekund wcześniej niż nominalny TTL wolno paść połączeniu, żeby wciąż
+# uznać to za planowe wygaśnięcie tokena. Token jest wystawiany chwilę PRZED
+# otwarciem kanału, a zegary huba i serwera nie chodzą co do sekundy równo —
+# margines pokrywa jedno i drugie. Od góry marginesu nie potrzeba: Centrifugo
+# domyka dopiero po TTL plus czas łaski (domyślnie 25 s), więc rutynowe
+# zerwanie zawsze wypada PO terminie, nie przed.
+_TTL_TOLERANCJA_SEKUND = 60
+
+
+def czy_token_wygasl_planowo(czas_zycia, expires_in):
+    """Czy zerwanie kanału to rutynowa wymiana wygasłego tokena?
+
+    Agent celowo nie odnawia tokena w tle — bierze świeży przy każdym
+    połączeniu (patrz connect_push). Kanał ma więc z założenia paść raz na TTL
+    i wrócić w sekundę. To normalna praca, a nie awaria, i nie ma powodu
+    straszyć tym operatora ani zaśmiecać `print_agent_errors.log`, w którym
+    rutynowy wpis co godzinę rozcieńcza prawdziwe błędy drukowania.
+
+    Bez znanego TTL (starszy CRM nie podaje `expires_in`) odpowiadamy False:
+    przemilczana awaria kosztuje więcej niż zbędne ostrzeżenie o rutynie.
+    """
+    if not expires_in:
+        return False
+    return czas_zycia >= expires_in - _TTL_TOLERANCJA_SEKUND
+
+
 def connect_push(cfg, failures=0):
     """Pobiera świeży token i otwiera kanał push. Zwraca strumień albo None.
 
@@ -797,6 +847,7 @@ def connect_push(cfg, failures=0):
         if not quiet:
             log_error(f"Nie udało się otworzyć kanału push ({realtime['sse_url']}): {e}", exc=e)
         return None
+    stream.expires_in = realtime['expires_in']
     info(f"Otwarto kanał push: {realtime['sse_url']}")
     return stream
 
@@ -853,7 +904,7 @@ def main():
                 continue
 
             if in_idle:
-                info(f"{C.GREEN}Wracam do pracy (okno {cfg['workdays_start']}-{cfg['workdays_end']}){C.RESET}")
+                ok(f"Wracam do pracy (okno {cfg['workdays_start']}-{cfg['workdays_end']})")
                 in_idle = False
 
             # Łączymy się PRZED pobraniem zadań. Odwrotna kolejność zostawia okno
@@ -921,20 +972,41 @@ def main():
                 if outcome == 'signal':
                     signal_at = time.monotonic()
                 elif outcome == 'closed':
-                    # Zerwanie kanału MUSI być widoczne. Wcześniej operator nie
-                    # dostawał ani słowa — ani na konsoli, ani w logu — bo
-                    # komunikat siedział tylko w gałęzi nieudanego łączenia,
-                    # a licznik prób był już wtedy podbity i wyciszał go.
-                    warn(f"Kanał push zerwany — ponawiam, w międzyczasie polling "
-                         f"co {cfg['poll_interval']}s")
-                    err_logger.error("Kanał push zerwany (strumień zamknięty przez drugą stronę)")
+                    # Dwa różne zdarzenia wyglądają tu tak samo — strumień jest
+                    # zamknięty — a znaczą co innego. Odróżnia je czas życia
+                    # kanału: dożył swojego tokena = rutyna, padł wcześniej =
+                    # awaria. Wrzucanie obu do jednego żółtego ostrzeżenia
+                    # nauczyło operatora ignorować je oba.
+                    zyl = stream.czas_zycia()
+                    planowe = czy_token_wygasl_planowo(zyl, stream.expires_in)
+                    if planowe:
+                        info(f"Token kanału push wygasł po {int(zyl // 60)} min — "
+                             "biorę nowy")
+                    else:
+                        # Zerwanie MUSI być widoczne. Wcześniej operator nie
+                        # dostawał ani słowa — ani na konsoli, ani w logu — bo
+                        # komunikat siedział tylko w gałęzi nieudanego łączenia,
+                        # a licznik prób był już wtedy podbity i wyciszał go.
+                        warn(f"Kanał push zerwany po {int(zyl)}s — ponawiam, "
+                             f"w międzyczasie polling co {cfg['poll_interval']}s")
+                        err_logger.error(
+                            f"Kanał push zerwany po {int(zyl)}s "
+                            "(strumień zamknięty przez drugą stronę)")
                     stream = close_sse(stream)
-                    # Zerwanie ZUŻYWA pierwszy stopień drabinki: próbujemy po
-                    # sekundzie, a licznik ustawiamy na 1, żeby kolejna nieudana
-                    # próba wzięła stopień DRUGI (2 s), a nie znowu pierwszy.
-                    # Bez tego odstępy wychodziły 1, 1, 2, 5... zamiast 1, 2, 5...
-                    sse_failures = 1
-                    sse_retry_at = time.monotonic() + _reconnect_delay(1)
+                    if planowe:
+                        # Wygasł token, nie broker — nie ma na co czekać ani
+                        # czego odrabiać. Zerowy licznik wycisza też „Kanał push
+                        # wrócił" przy ponownym połączeniu: ten komunikat ma
+                        # znaczyć „awaria się skończyła", a tu żadnej nie było.
+                        sse_failures = 0
+                        sse_retry_at = 0.0
+                    else:
+                        # Zerwanie ZUŻYWA pierwszy stopień drabinki: próbujemy po
+                        # sekundzie, a licznik ustawiamy na 1, żeby kolejna nieudana
+                        # próba wzięła stopień DRUGI (2 s), a nie znowu pierwszy.
+                        # Bez tego odstępy wychodziły 1, 1, 2, 5... zamiast 1, 2, 5...
+                        sse_failures = 1
+                        sse_retry_at = time.monotonic() + _reconnect_delay(1)
             else:
                 # Gdy kanał push jest zerwany, śpimy najwyżej do najbliższej
                 # zaplanowanej próby połączenia. Bez tego drabinka ponawiania
