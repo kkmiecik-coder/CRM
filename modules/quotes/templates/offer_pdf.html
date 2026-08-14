@@ -786,7 +786,12 @@
             <ul>
                 {% set has_attachment = namespace(value=false) %}
                 {% for detail in finishing_details %}
-                    {% if (detail.edges_config and detail.edges_config|length > 0) or detail.shape_svg %}
+                    {# Podgląd kształtu liczy się tylko wtedy, gdy naprawdę mamy co pokazać:
+                       PNG albo OCZYSZCZONY SVG. Surowej kolumny detail.shape_svg tu nie
+                       używamy — mogła nie przejść sanityzacji i wtedy nie ma podglądu. #}
+                    {% if (detail.edges_config and detail.edges_config|length > 0)
+                          or (shape_images and shape_images.get(detail.product_index))
+                          or (shape_svg_safe and shape_svg_safe.get(detail.product_index)) %}
                         {% set has_attachment.value = true %}
                     {% endif %}
                 {% endfor %}
@@ -807,7 +812,9 @@
     <!-- ========== ZAŁĄCZNIK NR 1 - WIZUALIZACJA PRODUKTÓW ========== -->
     {% set attachment_items = [] %}
     {% for detail in finishing_details %}
-        {% if (detail.edges_config and detail.edges_config|length > 0) or detail.shape_svg %}
+        {% if (detail.edges_config and detail.edges_config|length > 0)
+              or (shape_images and shape_images.get(detail.product_index))
+              or (shape_svg_safe and shape_svg_safe.get(detail.product_index)) %}
             {% set _ = attachment_items.append(detail) %}
         {% endif %}
     {% endfor %}
@@ -831,7 +838,7 @@
                 </div>
 
                 <!-- Podglądy: kształt + (lamele) + izometria -->
-                {% set has_shape = (shape_images and shape_images.get(detail.product_index)) or detail.shape_svg %}
+                {% set has_shape = (shape_images and shape_images.get(detail.product_index)) or (shape_svg_safe and shape_svg_safe.get(detail.product_index)) %}
                 {% set has_edges = edges_images and edges_images.get(detail.product_index) %}
                 {% set has_lamella = lamella_images and lamella_images.get(detail.product_index) %}
                 {% set col_count = [has_shape, has_lamella, has_edges]|select|list|length %}
@@ -844,8 +851,10 @@
                             <div class="preview-label">Widok kształtu</div>
                             {% if shape_images and shape_images.get(detail.product_index) %}
                             <img src="{{ shape_images[detail.product_index] }}" alt="Kształt" />
-                            {% elif detail.shape_svg %}
-                            <div class="edge-item-svg-inline">{{ detail.shape_svg|safe }}</div>
+                            {% elif shape_svg_safe and shape_svg_safe.get(detail.product_index) %}
+                            {# |safe TYLKO na wartości z sanitizera (build_quote_preview_assets),
+                               NIGDY na surowej kolumnie detail.shape_svg #}
+                            <div class="edge-item-svg-inline">{{ shape_svg_safe[detail.product_index]|safe }}</div>
                             {% endif %}
                         </td>
                         {% endif %}

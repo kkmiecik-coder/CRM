@@ -342,7 +342,12 @@ class EdgesPdfGenerator:
         def add_dasharray(match):
             tag = match.group(0)
             if 'stroke-dasharray' not in tag:
-                tag = re.sub(r'>$', ' stroke-dasharray="5,3">', tag)
+                # Tag moze byc samozamykajacy (<line .../>) albo otwierajacy (<line ...>).
+                # Dawny wzorzec '>$' wstawial atrybut ZA ukosnikiem, produkujac
+                # '<line .../ stroke-dasharray="5,3">' — czyli XML nie do sparsowania.
+                # Nie bylo tego widac, dopoki funkcja dostawala wylacznie surowe SVG
+                # z przegladarki (<line></line>); sanityzator emituje forme skrocona.
+                tag = re.sub(r'\s*/?>$', ' stroke-dasharray="5,3"' + ('/>' if tag.rstrip().endswith('/>') else '>'), tag)
             return tag
 
         svg_html = re.sub(

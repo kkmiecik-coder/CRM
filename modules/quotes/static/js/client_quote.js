@@ -1,10 +1,30 @@
-// ===================================
-// CLIENT QUOTE JS - Wood Power v3.0
-// Redesign 2025
-// ===================================
+// =============================================================================
+// PUBLICZNA STRONA WYCENY  /quotes/c/<token>  —  warstwa renderu
+//
+// Kierunek C: zdjęcie WYBRANEGO wariantu jest podkładem góry strony, warianty
+// są kafelkami w poziomym pasku ze scroll-snap, a pod nimi stoją dwie osobne
+// sekcje: kształt + specyfikacja oraz obróbka krawędzi.
+//
+// UMOWA CENOWA (całe liczenie kwot siedzi w obiekcie `money`):
+//   * item.final_price_*   — CAŁKOWITA cena materiału pozycji (jednostkowa × ilość),
+//   * item.unit_price_*    — cena materiału za sztukę (używana tylko jako awaryjna),
+//   * finishing_price_*    — CAŁKOWITY koszt wykończenia pozycji,
+//   * edges_price_*        — CAŁKOWITY koszt obróbki krawędzi pozycji.
+//   Render operuje więc WYŁĄCZNIE kwotami w skali całej pozycji — nigdzie nie
+//   miesza ich z cenami jednostkowymi, więc nigdzie nie dzieli przez ilość sztuk.
+//   Wykończenie i obróbka krawędzi to od teraz DWA OSOBNE wiersze podsumowania;
+//   wcześniej krawędzie były doliczane do wykończenia w pięciu miejscach tego
+//   pliku, każde z własną kopią wzoru.
+//
+// SUMA CAŁKOWITA: dopóki wybór klienta jest zgodny z tym, co ma serwer,
+//   bierzemy `costs` z API bez żadnych przeliczeń (dokładnie ta sama kwota,
+//   co przed redesignem). Podgląd liczony lokalnie włącza się dopiero po
+//   kliknięciu innego wariantu — i wtedy powtarza arytmetykę serwera
+//   (calculate_costs_with_vat) 1:1.
+// =============================================================================
 
 // ===================================
-// GLOBAL STATE
+// STAN GLOBALNY
 // ===================================
 const globalState = {
     quoteData: null,
@@ -15,8 +35,14 @@ const globalState = {
     hasUnsavedChanges: false
 };
 
+// Stawka VAT — ta sama, którą stosuje calculate_costs_with_vat na serwerze
+const VAT_RATE = 0.23;
+
+// Polskie nazwy typów obróbki krawędzi (jak w offer_pdf.html)
+const EDGE_TYPE_PL = { round: 'Zaokrąglenie', chamfer: 'Fazowanie' };
+
 // ===================================
-// API CALLS
+// API
 // ===================================
 const api = {
     /**
@@ -56,17 +82,15 @@ const api = {
     /**
      * Pobiera dane wyceny
      * @param {string} token - Token publiczny wyceny
-     * @returns {Promise} Dane wyceny
      */
     async getQuoteData(token) {
         return this.call(`/quotes/api/client/quote/${token}`);
     },
 
     /**
-     * Aktualizuje wybrany wariant
+     * Zapisuje wybrany wariant
      * @param {string} token - Token publiczny wyceny
      * @param {number} itemId - ID wybranego wariantu
-     * @returns {Promise} Odpowiedź z API
      */
     async updateVariant(token, itemId) {
         return this.call(`/quotes/api/client/quote/${token}/update-variant`, {
@@ -79,7 +103,6 @@ const api = {
      * Akceptuje wycenę
      * @param {string} token - Token publiczny wyceny
      * @param {Object} data - Dane do akceptacji
-     * @returns {Promise} Odpowiedź z API
      */
     async acceptQuote(token, data) {
         return this.call(`/quotes/api/client/quote/${token}/accept`, {
@@ -90,25 +113,72 @@ const api = {
 };
 
 // ===================================
-// UTILS
+// NARZĘDZIA
 // ===================================
 const utils = {
     /**
-     * Formatuje kwotę w PLN
-     * @param {number} amount - Kwota
-     * @returns {string} Sformatowana kwota
+     * Escapuje tekst wstawiany do HTML. Render składa markup ze stringów,
+     * więc KAŻDA wartość z API musi tędy przejść — wyjątkiem są tylko
+     * shape_svg i edges_svg, które serwer oczyszcza whitelistą (sanitize_svg).
+     * @param {*} value
+     * @returns {string}
      */
-    formatCurrency(amount) {
+    esc(value) {
+        if (value === null || value === undefined) return '';
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    },
+
+    /**
+     * Kwota bez waluty: "1 234,56"
+     */
+    amount(value) {
+        const number = parseFloat(value);
+        return new Intl.NumberFormat('pl-PL', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        }).format(Number.isFinite(number) ? number : 0);
+    },
+
+    /**
+     * Kwota z walutą: "1 234,56 zł"
+     */
+    formatCurrency(value) {
+        const number = parseFloat(value);
         return new Intl.NumberFormat('pl-PL', {
             style: 'currency',
             currency: 'PLN'
-        }).format(amount || 0);
+        }).format(Number.isFinite(number) ? number : 0);
+    },
+
+    /**
+     * Liczba bez zer na końcu: 109 → "109", 95.5 → "95,5"
+     */
+    number(value, maxFractionDigits = 2) {
+        const number = parseFloat(value);
+        return new Intl.NumberFormat('pl-PL', {
+            maximumFractionDigits: maxFractionDigits
+        }).format(Number.isFinite(number) ? number : 0);
+    },
+
+    /**
+     * Polska odmiana przez liczbę: plural(5, 'wariant', 'warianty', 'wariantów')
+     */
+    plural(count, one, few, many) {
+        const abs = Math.abs(Math.trunc(count || 0));
+        if (abs === 1) return one;
+        const last = abs % 10;
+        const lastTwo = abs % 100;
+        if (last >= 2 && last <= 4 && !(lastTwo >= 12 && lastTwo <= 14)) return few;
+        return many;
     },
 
     /**
      * Tłumaczy kod wariantu na czytelną nazwę
-     * @param {string} code - Kod wariantu
-     * @returns {string} Nazwa wariantu
      */
     translateVariantCode(code) {
         const dict = {
@@ -125,17 +195,27 @@ const utils = {
     },
 
     /**
-     * Sprawdza czy urządzenie jest mobilne
-     * @returns {boolean} True jeśli mobilne
+     * Ścieżka do zdjęcia wariantu. Podwójne "quotes" jest poprawne —
+     * blueprint quotes ma prefiks /quotes i własny katalog static.
      */
+    variantImage(code) {
+        return `/quotes/quotes/static/img/${encodeURIComponent(code || '')}.jpg`;
+    },
+
+    /**
+     * Zdjęcie na podkład hero — osobny, panoramiczny kadr 1600x760.
+     * Kafelkowe 700x700 rozmywałoby się na pasie 1425 px szerokości,
+     * a ładowanie hero we wszystkich ośmiu kafelkach byłoby marnotrawstwem:
+     * kafelki razem ważą 588 KB, jedno hero 175 KB.
+     */
+    variantImageHero(code) {
+        return `/quotes/quotes/static/img/${encodeURIComponent(code || '')}-hero.jpg`;
+    },
+
     isMobile() {
         return window.innerWidth <= 768;
     },
 
-    /**
-     * Pokazuje/ukrywa loading
-     * @param {boolean} show - Czy pokazać loading
-     */
     setLoading(show) {
         const loadingEl = document.getElementById('loadingOverlay');
         if (loadingEl) {
@@ -145,1109 +225,1115 @@ const utils = {
     },
 
     /**
-     * Pokazuje alert z komunikatem
-     * @param {string} message - Treść komunikatu
-     * @param {string} type - Typ komunikatu (success, error, warning)
+     * Komunikat dla klienta. Błędów NIE wolno gubić po cichu — strona wyceny
+     * nie ma własnego systemu toastów, a niewidoczna porażka zapisu wygląda
+     * jak martwy przycisk.
      */
     showAlert(message, type = 'info') {
-        // TODO: Implementacja toastu/alertu
         console.log(`[Alert ${type}]:`, message);
+        if (type === 'error' && typeof window.alert === 'function') {
+            window.alert(message);
+        }
+    },
+
+};
+
+// ===================================
+// KWOTY — jedyne miejsce, w którym liczymy pieniądze
+// ===================================
+const money = {
+    num(value) {
+        const number = parseFloat(value);
+        return Number.isFinite(number) ? number : 0;
+    },
+
+    round2(value) {
+        return Math.round((value + Number.EPSILON) * 100) / 100;
     },
 
     /**
-    * Generuje kod QR
-    * @param {string} text - Tekst do zakodowania
-    * @param {string} elementId - ID elementu canvas
-    */
-    generateQRCode(text, elementId = 'qrCode') {
-        const canvas = document.getElementById(elementId);
-        if (!canvas) {
-            console.error('QR Canvas element not found:', elementId);
-            return;
-        }
+     * Wpis wykończenia/krawędzi dla danej pozycji
+     */
+    finishingFor(productIndex) {
+        const list = globalState.quoteData && globalState.quoteData.finishing;
+        if (!Array.isArray(list)) return null;
+        return list.find(entry => entry.product_index === productIndex) || null;
+    },
 
-        if (!window.QRCode) {
-            console.error('QRCode library not loaded');
-            return;
+    /**
+     * Cena MATERIAŁU dla całej pozycji (final_price_* jest już z ilością sztuk).
+     *
+     * Brutto liczymy z netto tą samą stawką, którą serwer stosuje do sumy
+     * (calculate_costs_with_vat). Gdyby brać brutto wprost z bazy — a tam jest
+     * ono zaokrąglone na cenie JEDNOSTKOWEJ i dopiero potem mnożone przez ilość —
+     * różnica na kafelku rozjeżdżałaby się o kilka groszy ze zmianą kwoty
+     * "Do zapłaty", a to klient widzi na jednym ekranie.
+     * @returns {{netto: number, brutto: number}}
+     */
+    material(item) {
+        if (!item) return { netto: 0, brutto: 0 };
+        const quantity = item.quantity || 1;
+        const netto = this.num(item.final_price_netto) || this.num(item.unit_price_netto) * quantity;
+        if (netto > 0) {
+            return { netto: netto, brutto: this.round2(netto * (1 + VAT_RATE)) };
         }
+        // wariant bez ceny netto = niedostępny; brutto z bazy tylko po to,
+        // żeby nie uznać za niedostępny czegoś, co cenę jednak ma
+        return {
+            netto: netto,
+            brutto: this.num(item.final_price_brutto) || this.num(item.unit_price_brutto) * quantity
+        };
+    },
 
-        // Wyczyść poprzedni kod
-        canvas.innerHTML = '';
+    /**
+     * SAMO wykończenie pozycji (bez krawędzi)
+     */
+    finishingOnly(productIndex) {
+        const finishing = this.finishingFor(productIndex);
+        return {
+            netto: this.num(finishing && finishing.finishing_price_netto),
+            brutto: this.num(finishing && finishing.finishing_price_brutto)
+        };
+    },
 
-        try {
-            new QRCode(canvas, {
-                text: text,
-                width: 200,
-                height: 200,
-                colorDark: '#000000',
-                colorLight: '#ffffff',
-                correctLevel: QRCode.CorrectLevel.H
-            });
-            console.log('QR code generated successfully for:', text);
-        } catch (error) {
-            console.error('Error generating QR code:', error);
+    /**
+     * SAMA obróbka krawędzi pozycji (bez wykończenia)
+     */
+    edgesOnly(productIndex) {
+        const finishing = this.finishingFor(productIndex);
+        return {
+            netto: this.num(finishing && finishing.edges_price_netto),
+            brutto: this.num(finishing && finishing.edges_price_brutto)
+        };
+    },
+
+    /**
+     * Suma wykończenia i suma krawędzi po wszystkich pozycjach wyceny.
+     * Serwer trzyma je razem w costs.finishing — tu rozdzielamy je na dwa
+     * wiersze podsumowania, nie ruszając sumy: finishing + edges === costs.finishing.
+     */
+    extrasTotals() {
+        const list = (globalState.quoteData && globalState.quoteData.finishing) || [];
+        let finishingNetto = 0;
+        let edgesNetto = 0;
+        list.forEach(entry => {
+            finishingNetto += this.num(entry.finishing_price_netto);
+            edgesNetto += this.num(entry.edges_price_netto);
+        });
+        return {
+            finishingNetto: this.round2(finishingNetto),
+            edgesNetto: this.round2(edgesNetto),
+            // brutto liczymy tak jak serwer: netto * (1 + VAT), zaokrąglone na końcu
+            finishingBrutto: this.round2(finishingNetto * (1 + VAT_RATE)),
+            edgesBrutto: this.round2(edgesNetto * (1 + VAT_RATE)),
+            // odpowiednik costs.finishing.netto z serwera (round(sum(fin + edges), 2))
+            totalNetto: this.round2(finishingNetto + edgesNetto)
+        };
+    },
+
+    /**
+     * Powtórzenie serwerowego calculate_costs_with_vat dla LOKALNEGO wyboru
+     * wariantów. Używane wyłącznie jako podgląd po kliknięciu kafelka —
+     * dopóki wybór jest zapisany, podsumowanie bierze kwoty prosto z API.
+     */
+    computeLocalCosts() {
+        const products = render.products();
+        let productsNetto = 0;
+        products.forEach(product => {
+            const item = render.selectedItem(product);
+            productsNetto += this.material(item).netto;
+        });
+        productsNetto = this.round2(productsNetto);
+
+        const extras = this.extrasTotals();
+        const finishingNetto = extras.totalNetto;
+        const shippingBrutto = this.num(globalState.quoteData && globalState.quoteData.shipping_cost_brutto);
+
+        const productsVat = productsNetto * VAT_RATE;
+        const finishingVat = finishingNetto * VAT_RATE;
+        const shippingNetto = shippingBrutto / (1 + VAT_RATE);
+        const shippingVat = shippingBrutto - shippingNetto;
+
+        const totalNetto = productsNetto + finishingNetto + shippingNetto;
+        const totalVat = productsVat + finishingVat + shippingVat;
+
+        return {
+            products: {
+                netto: this.round2(productsNetto),
+                vat: this.round2(productsVat),
+                brutto: this.round2(productsNetto + productsVat)
+            },
+            finishing: {
+                netto: this.round2(finishingNetto),
+                vat: this.round2(finishingVat),
+                brutto: this.round2(finishingNetto + finishingVat)
+            },
+            shipping: {
+                netto: this.round2(shippingNetto),
+                vat: this.round2(shippingVat),
+                brutto: this.round2(shippingBrutto)
+            },
+            total: {
+                netto: this.round2(totalNetto),
+                vat: this.round2(totalVat),
+                brutto: this.round2(totalNetto + totalVat)
+            }
+        };
+    },
+
+    /**
+     * Kwoty do wyświetlenia. Bez niezapisanych zmian — dokładnie to, co
+     * policzył serwer. Z niezapisanym wyborem — podgląd lokalny.
+     */
+    view() {
+        if (!globalState.hasUnsavedChanges) {
+            return (globalState.quoteData && globalState.quoteData.costs) || {};
         }
+        return this.computeLocalCosts();
+    },
+
+    /**
+     * Bezpieczny odczyt zagnieżdżonej kwoty (costs.total.brutto itp.)
+     */
+    pick(costs, group, kind) {
+        const section = costs && costs[group];
+        return this.num(section && section[kind]);
     }
 };
 
 // ===================================
-// RENDER FUNCTIONS
+// RENDER
 // ===================================
 const render = {
+
+    // -------------------------------------------------------------------------
+    // DANE POMOCNICZE
+    // -------------------------------------------------------------------------
+
     /**
-     * Renderuje przyciski/dropdown produktów
+     * Pozycje wyceny pogrupowane po product_index
      */
-    productTabs() {
-        const buttonsContainer = document.getElementById('productButtons');
-        const selectElement = document.getElementById('productSelect');
-
-        if (!buttonsContainer || !selectElement || !globalState.quoteData) return;
-
-        buttonsContainer.innerHTML = '';
-        selectElement.innerHTML = '';
-
-        // Grupuj produkty według product_index
-        const products = this.groupProductsByIndex();
-
-        products.forEach(product => {
-            // Desktop button
-            const button = document.createElement('button');
-            button.className = `product-button ${product.index === globalState.currentProductIndex ? 'active' : ''}`;
-            button.onclick = () => handlers.switchProduct(product.index);
-            button.innerHTML = `
-                <div class="product-button-title">Produkt ${product.index}</div>
-                <div class="product-button-dimensions">${product.dimensions}</div>
-            `;
-            buttonsContainer.appendChild(button);
-
-            // Mobile option
-            const option = document.createElement('option');
-            option.value = product.index;
-            option.textContent = `Produkt ${product.index} - ${product.dimensions}`;
-            option.selected = product.index === globalState.currentProductIndex;
-            selectElement.appendChild(option);
-        });
-    },
-
-    /**
-     * Renderuje sekcje produktów
-     */
-    productSections() {
-        const sectionsContainer = document.getElementById('productSections');
-        if (!sectionsContainer || !globalState.quoteData) return;
-
-        sectionsContainer.innerHTML = '';
-
-        const products = this.groupProductsByIndex();
-
-        products.forEach(product => {
-            const section = document.createElement('div');
-            section.className = `product-section ${product.index === globalState.currentProductIndex ? 'active' : ''}`;
-            section.id = `product-${product.index}`;
-
-            const ctsFinishing = globalState.quoteData?.finishing?.find(f => f.product_index === product.index);
-            const cutToSize = ctsFinishing?.cut_to_size;
-
-            section.innerHTML = `
-                <div class="product-header">
-                    <div class="product-info">
-                        <h2>Produkt ${product.index}</h2>
-                        <div class="product-details">
-                            <div class="product-detail">
-                                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path>
-                                </svg>
-                                <span>${product.dimensions}</span>
-                            </div>
-                            <div class="product-detail">
-                                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"></path>
-                                </svg>
-                                <span>${product.finishing}</span>
-                            </div>
-                            ${cutToSize === false ? `
-                            <div class="product-detail cut-to-size-warning">
-                                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M5 19h14a2 2 0 001.84-2.75L13.74 4a2 2 0 00-3.5 0L3.16 16.25A2 2 0 005 19z"></path>
-                                </svg>
-                                <span>Docięcie do wymiaru: <strong>Nie</strong></span>
-                            </div>` : ''}
-                            <div class="product-detail">
-                                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14"></path>
-                                </svg>
-                                <span>Ilość: ${product.quantity} szt.</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="product-actions">
-                        <button class="btn btn-3d" onclick="handlers.open3DViewer(${product.index})">
-                            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path>
-                            </svg>
-                            3D
-                        </button>
-                        <button class="btn btn-ar" onclick="handlers.openARModal(${product.index})">
-                            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path>
-                            </svg>
-                            AR
-                        </button>
-                    </div>
-                </div>
-
-                <div class="variants-grid">
-                    ${this.renderVariants(product)}
-                </div>
-
-                ${this.renderEdgesSection(product)}
-
-                <div class="save-changes-section ${globalState.hasUnsavedChanges ? 'visible' : 'hidden'}" id="saveChangesSection-${product.index}">
-                    <div class="save-changes-content">
-                        <span class="save-changes-text">Masz niezapisane zmiany</span>
-                        <button class="btn-save-changes" onclick="handlers.saveChanges()">
-                            Zapisz zmiany
-                        </button>
-                    </div>
-                </div>
-            `;
-
-            sectionsContainer.appendChild(section);
-        });
-    },
-
-    /**
-     * Renderuje sekcję obróbki krawędzi (tylko podgląd) pod wariantami
-     * @param {Object} product - Dane produktu
-     * @returns {string} HTML sekcji krawędzi
-     */
-    renderEdgesSection(product) {
-        if (!globalState.quoteData?.finishing) return '';
-
-        const finishing = globalState.quoteData.finishing.find(
-            f => f.product_index === product.index
-        );
-
-        // Sprawdź czy są dane krawędzi
-        if (!finishing || !finishing.edges_config || !Array.isArray(finishing.edges_config) || finishing.edges_config.length === 0) {
-            return '';
-        }
-
-        const edgesConfig = finishing.edges_config;
-        const edgesType = finishing.edges_type;
-        const edgesRValue = finishing.edges_r_value;
-        const edgesSvg = finishing.edges_svg || '';
-
-        // Nazwy krawędzi
-        const edgeNames = {
-            'A': 'Góra przednia', 'B': 'Góra tylna',
-            'C': 'Góra lewa', 'D': 'Góra prawa',
-            'E': 'Dół przednia', 'F': 'Dół tylna',
-            'G': 'Dół lewa', 'H': 'Dół prawa',
-            'N1': 'Narożnik przedni lewy', 'N2': 'Narożnik przedni prawy',
-            'N3': 'Narożnik tylny lewy', 'N4': 'Narożnik tylny prawy',
-            'KG': 'Krawędź górna (obwód)', 'KD': 'Krawędź dolna (obwód)'
-        };
-
-        const isAdvanced = finishing.edges_mode === 'advanced';
-
-        // Helper grupujący per-edge config po (type, r_value, angle_value)
-        const groupEdgesByType = (cfg) => {
-            const TYPE_PL = { round: 'Zaokrąglenie', chamfer: 'Fazowanie' };
-            const groups = new Map();
-            cfg.forEach(e => {
-                const key = `${e.type || ''}|${e.r_value}|${e.angle_value != null ? e.angle_value : ''}`;
-                if (!groups.has(key)) groups.set(key, { key, type: e.type, r: e.r_value, angle: e.angle_value, letters: [] });
-                groups.get(key).letters.push(e.letter);
-            });
-            const arr = Array.from(groups.values());
-            arr.sort((a, b) => a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
-            return arr.map(g => ({
-                typeName: TYPE_PL[g.type] || g.type,
-                r: g.r,
-                angle: g.angle,
-                letters: g.letters.slice().sort()
-            }));
-        };
-
-        // Typ obróbki (basic)
-        const typeLabel = edgesType === 'chamfer' ? 'Fazowanie' : 'Zaokrąglenie';
-
-        // Kąt (tylko dla fazowania)
-        const firstEdge = edgesConfig[0];
-        const angleValue = firstEdge?.angle_value;
-        const angleInfo = (edgesType === 'chamfer' && angleValue) ? `, kąt ${angleValue}°` : '';
-
-        // Pogrupuj krawędzie
-        const topEdges = edgesConfig.filter(e => ['A','B','C','D'].includes(e.letter));
-        const bottomEdges = edgesConfig.filter(e => ['E','F','G','H'].includes(e.letter));
-        const cornerEdges = edgesConfig.filter(e => e.letter && e.letter.startsWith('N'));
-        const roundEdges = edgesConfig.filter(e => ['KG','KD'].includes(e.letter));
-
-        const renderEdgeGroup = (label, edges) => {
-            if (edges.length === 0) return '';
-            return `
-                <div class="edges-spec-group">
-                    <div class="edges-spec-group-label">${label}</div>
-                    <div class="edges-spec-items">
-                        ${edges.map(e => `
-                            <span class="edges-spec-tag">${e.letter} <span class="edges-spec-tag-name">– ${edgeNames[e.letter] || e.letter}</span></span>
-                        `).join('')}
-                    </div>
-                </div>
-            `;
-        };
-
-        // SVG podgląd - jeśli zapisany, użyj go; w przeciwnym razie generuj
-        let svgPreview = '';
-        if (edgesSvg) {
-            svgPreview = `<div class="edges-preview-svg">${edgesSvg}</div>`;
-        } else {
-            const firstItem = product.variants[0];
-            if (firstItem) {
-                svgPreview = `<div class="edges-preview-svg">${this.generateEdgesIsometricSVG(
-                    firstItem.length_cm, firstItem.width_cm, firstItem.thickness_cm, edgesConfig
-                )}</div>`;
-            }
-        }
-
-        return `
-            <div class="edges-display-section">
-                <div class="edges-display-header">
-                    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6z"></path>
-                    </svg>
-                    <h3>Obróbka krawędzi</h3>
-                </div>
-                <div class="edges-display-content">
-                    ${svgPreview}
-                    <div class="edges-display-spec">
-                        <div class="edges-spec-summary">
-                            ${isAdvanced ? `
-                                <div class="edges-spec-row">
-                                    <span class="edges-spec-label">Sposób obróbki:</span>
-                                    <span class="edges-spec-value">Mieszana</span>
-                                </div>
-                                <div class="edges-spec-row" style="align-items: flex-start;">
-                                    <span class="edges-spec-label">Konfiguracja:</span>
-                                    <span class="edges-spec-value">
-                                        <ul style="margin: 0; padding-left: 18px;">
-                                            ${groupEdgesByType(edgesConfig).map(g => `
-                                                <li>${g.typeName} R${g.r}${(g.typeName === 'Fazowanie' && g.angle) ? ` ${g.angle}°` : ''} — ${g.letters.join(', ')}</li>
-                                            `).join('')}
-                                        </ul>
-                                    </span>
-                                </div>
-                                <div class="edges-spec-row">
-                                    <span class="edges-spec-label">Liczba krawędzi:</span>
-                                    <span class="edges-spec-value">${edgesConfig.length}</span>
-                                </div>
-                            ` : `
-                                <div class="edges-spec-row">
-                                    <span class="edges-spec-label">Sposób obróbki:</span>
-                                    <span class="edges-spec-value">${typeLabel}</span>
-                                </div>
-                                <div class="edges-spec-row">
-                                    <span class="edges-spec-label">Promień R:</span>
-                                    <span class="edges-spec-value">${edgesRValue} mm${angleInfo}</span>
-                                </div>
-                                <div class="edges-spec-row">
-                                    <span class="edges-spec-label">Liczba krawędzi:</span>
-                                    <span class="edges-spec-value">${edgesConfig.length}</span>
-                                </div>
-                            `}
-                        </div>
-                        <div class="edges-spec-details">
-                            ${renderEdgeGroup('Krawędzie górne', topEdges)}
-                            ${renderEdgeGroup('Krawędzie dolne', bottomEdges)}
-                            ${renderEdgeGroup('Narożniki', cornerEdges)}
-                            ${renderEdgeGroup('Krawędzie obwodowe', roundEdges)}
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-    },
-
-    /**
-     * Generuje izometryczny SVG podglądu produktu z zaznaczonymi krawędziami
-     * @param {number} length - długość w cm
-     * @param {number} width - szerokość w cm
-     * @param {number} thickness - grubość w cm
-     * @param {Array} edgesConfig - konfiguracja krawędzi
-     * @returns {string} HTML SVG
-     */
-    generateEdgesIsometricSVG(length, width, thickness, edgesConfig) {
-        const viewBoxWidth = 320;
-        const viewBoxHeight = 220;
-        const margin = 35;
-        const workWidth = viewBoxWidth - 2 * margin;
-        const workHeight = viewBoxHeight - 2 * margin;
-        const isoAngle = Math.PI / 6;
-
-        const maxDim = Math.max(length, width);
-        const effectiveThickness = Math.max(thickness, maxDim * 0.15);
-
-        const projectedWidth = (length + width) * Math.cos(isoAngle);
-        const projectedHeight = (length + width) * Math.sin(isoAngle) + effectiveThickness;
-
-        const scale = Math.min(workWidth / projectedWidth, workHeight / projectedHeight) * 0.85;
-
-        const L = length * scale;
-        const W = width * scale;
-        const T = effectiveThickness * scale;
-
-        const vecX = { x: Math.cos(isoAngle), y: Math.sin(isoAngle) };
-        const vecY = { x: -Math.cos(isoAngle), y: Math.sin(isoAngle) };
-
-        const totalProjWidth = L * vecX.x + W * Math.abs(vecY.x);
-        const totalProjHeight = L * vecX.y + W * vecY.y + T;
-
-        const startX = (viewBoxWidth - totalProjWidth) / 2 + W * Math.abs(vecY.x);
-        const startY = (viewBoxHeight - totalProjHeight) / 2 + T;
-
-        const tld = { x: startX, y: startY };
-        const tpd = { x: tld.x + L * vecX.x, y: tld.y + L * vecX.y };
-        const ppd = { x: tpd.x + W * vecY.x, y: tpd.y + W * vecY.y };
-        const pld = { x: tld.x + W * vecY.x, y: tld.y + W * vecY.y };
-        const tlg = { x: tld.x, y: tld.y - T };
-        const tpg = { x: tpd.x, y: tpd.y - T };
-        const ppg = { x: ppd.x, y: ppd.y - T };
-        const plg = { x: pld.x, y: pld.y - T };
-
-        const selectedLetters = new Set(edgesConfig.map(e => e.letter));
-        const mid = (p1, p2) => ({ x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 });
-
-        const edgeCoords = {
-            'A': [plg, ppg], 'B': [tlg, tpg], 'C': [tlg, plg], 'D': [tpg, ppg],
-            'E': [pld, ppd], 'F': [tld, tpd], 'G': [tld, pld], 'H': [tpd, ppd],
-            'N1': [plg, pld], 'N2': [ppg, ppd], 'N3': [tlg, tld], 'N4': [tpg, tpd]
-        };
-        const hiddenEdges = new Set(['F', 'G', 'N3']);
-
-        const renderLine = (letter) => {
-            const [p1, p2] = edgeCoords[letter];
-            const isActive = selectedLetters.has(letter);
-            const isHidden = hiddenEdges.has(letter);
-            return `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}"
-                stroke="${isActive ? '#ED6B24' : '#666'}" stroke-width="${isActive ? '3' : '2'}"
-                ${isHidden && !isActive ? 'stroke-dasharray="4 3"' : ''} fill="none"/>`;
-        };
-
-        const renderLabel = (letter, pos, offsetX = 0) => {
-            const isActive = selectedLetters.has(letter);
-            const r = letter.startsWith('N') ? 14 : 12;
-            return `<g>
-                <circle cx="${pos.x + offsetX}" cy="${pos.y}" r="${r}"
-                    fill="${isActive ? '#ED6B24' : '#f5f5f5'}" stroke="${isActive ? '#ED6B24' : '#ccc'}" stroke-width="1"/>
-                <text x="${pos.x + offsetX}" y="${pos.y + 4}" text-anchor="middle" font-size="10"
-                    font-family="Poppins, sans-serif" font-weight="600"
-                    fill="${isActive ? '#fff' : '#666'}">${letter}</text>
-            </g>`;
-        };
-
-        return `<svg viewBox="0 0 ${viewBoxWidth} ${viewBoxHeight}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;max-width:320px;">
-            <polygon points="${tld.x},${tld.y} ${tpd.x},${tpd.y} ${tpg.x},${tpg.y} ${tlg.x},${tlg.y}" fill="#b8b8b8" stroke="none"/>
-            <polygon points="${tld.x},${tld.y} ${pld.x},${pld.y} ${plg.x},${plg.y} ${tlg.x},${tlg.y}" fill="#d0d0d0" stroke="none"/>
-            <polygon points="${tlg.x},${tlg.y} ${tpg.x},${tpg.y} ${ppg.x},${ppg.y} ${plg.x},${plg.y}" fill="#e8e8e8" stroke="none"/>
-            <polygon points="${pld.x},${pld.y} ${ppd.x},${ppd.y} ${ppg.x},${ppg.y} ${plg.x},${plg.y}" fill="#d8d8d8" stroke="none"/>
-            <polygon points="${tpd.x},${tpd.y} ${ppd.x},${ppd.y} ${ppg.x},${ppg.y} ${tpg.x},${tpg.y}" fill="#c8c8c8" stroke="none"/>
-            ${['F','G','N3','B','C','A','D','E','H','N1','N2','N4'].map(renderLine).join('')}
-            ${renderLabel('A', mid(plg, ppg))}
-            ${renderLabel('B', mid(tlg, tpg))}
-            ${renderLabel('C', mid(tlg, plg))}
-            ${renderLabel('D', mid(tpg, ppg))}
-            ${renderLabel('E', mid(pld, ppd))}
-            ${renderLabel('F', mid(tld, tpd))}
-            ${renderLabel('G', mid(tld, pld))}
-            ${renderLabel('H', mid(tpd, ppd))}
-            ${renderLabel('N1', mid(plg, pld), -14)}
-            ${renderLabel('N2', mid(ppg, ppd), 14)}
-            ${renderLabel('N3', mid(tlg, tld), -14)}
-            ${renderLabel('N4', mid(tpg, tpd), 14)}
-        </svg>`;
-    },
-
-    /**
- * Renderuje karty wariantów
- * @param {Object} product - Dane produktu
- * @returns {string} HTML wariantów
- */
-    renderVariants(product) {
-        // Pobierz koszty wykończenia i krawędzi dla tego produktu (wspólne dla wszystkich wariantów)
-        const finishing = globalState.quoteData?.finishing?.find(
-            f => f.product_index === product.index
-        );
-        const finishingNetto = (finishing ? (parseFloat(finishing.finishing_price_netto) || 0) + (parseFloat(finishing.edges_price_netto) || 0) : 0);
-        const finishingBrutto = (finishing ? (parseFloat(finishing.finishing_price_brutto) || 0) + (parseFloat(finishing.edges_price_brutto) || 0) : 0);
-
-        return product.variants
-            .filter(v => v.show_on_client_page !== false)
-            .map(variant => {
-                const isSelected = globalState.selectedVariants.get(product.index) === variant.id;
-                const isDisabled = globalState.isQuoteAccepted && !isSelected;
-
-                // Użyj ścieżki z podwójnym quotes
-                const variantImagePath = `/quotes/quotes/static/img/${variant.variant_code}.jpg`;
-
-                // Ceny surowe (już przemnożone przez ilość w API) + koszty wykończenia/krawędzi
-                const rawBrutto = variant.final_price_brutto || variant.unit_price_brutto || 0;
-                const rawNetto = variant.final_price_netto || variant.unit_price_netto || 0;
-                const totalBrutto = rawBrutto + finishingBrutto;
-                const totalNetto = rawNetto + finishingNetto;
-
-                // Oblicz cenę jednostkową (podziel przez ilość)
-                const quantity = variant.quantity || 1;
-                const unitPriceBrutto = totalBrutto / quantity;
-                const unitPriceNetto = totalNetto / quantity;
-
-                return `
-            <div class="variant-card ${isSelected ? 'selected' : ''} ${isDisabled ? 'disabled' : ''}" 
-                 ${globalState.isQuoteAccepted ? '' : `onclick="handlers.selectVariant(${product.index}, ${variant.id})"`}>
-                <div class="variant-content">
-                    <div class="variant-image" 
-                         style="background-image: url('${variantImagePath}')" 
-                         onerror="console.error('Failed to load image: ${variantImagePath}')">
-                        <div class="variant-badge-overlay ${isSelected ? 'selected' : 'available'}">
-                            ${globalState.isQuoteAccepted ? (isSelected ? 'Wybrany' : '') : (isSelected ? 'Wybrany' : 'Wybierz')}
-                        </div>
-                    </div>
-                    <div class="variant-info">
-                        <div class="variant-header">
-                            <div class="variant-name">${utils.translateVariantCode(variant.variant_code)}</div>
-                        </div>
-                        <div class="variant-pricing-flex">
-                            <div class="price-left">
-                                <div class="price-label">Cena:</div>
-                                <div class="price-brutto">${utils.formatCurrency(unitPriceBrutto)}</div>
-                                <div class="price-netto">${utils.formatCurrency(unitPriceNetto)} netto</div>
-                            </div>
-                            <div class="price-right">
-                                <div class="price-label">Wartość:</div>
-                                <div class="price-brutto total">${utils.formatCurrency(totalBrutto)}</div>
-                                <div class="price-netto">${utils.formatCurrency(totalNetto)} netto</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-            }).join('');
-    },
-
-    /**
-     * Renderuje tabelę porównania wariantów
-     */
-    comparison() {
-        const tbody = document.getElementById('comparisonBody');
-        if (!tbody || !globalState.quoteData) return;
-
-        const variants = this.getUniqueVariants();
-
-        // POPRAWKA: Pobierz pierwszy produkt jako bazę do porównania
-        const firstProduct = this.groupProductsByIndex()[0];
-        if (!firstProduct) return;
-
-        // Koszty wykończenia/krawędzi wspólne dla wszystkich wariantów danego produktu
-        const finishing = globalState.quoteData?.finishing?.find(f => f.product_index === firstProduct.index);
-        const finNetto = finishing ? (parseFloat(finishing.finishing_price_netto) || 0) + (parseFloat(finishing.edges_price_netto) || 0) : 0;
-        const finBrutto = finishing ? (parseFloat(finishing.finishing_price_brutto) || 0) + (parseFloat(finishing.edges_price_brutto) || 0) : 0;
-
-        tbody.innerHTML = variants.map(variant => {
-            // POPRAWKA: Znajdź wariant dla pierwszego produktu
-            const variantForProduct = firstProduct.variants.find(v => v.variant_code === variant.code);
-            if (!variantForProduct) return '';
-
-            // Oblicz ceny dla tego konkretnego wariantu (surowe + wykończenie)
-            const totalBrutto = (variantForProduct.final_price_brutto || variantForProduct.unit_price_brutto || 0) + finBrutto;
-            const totalNetto = (variantForProduct.final_price_netto || variantForProduct.unit_price_netto || 0) + finNetto;
-
-            // Sprawdź czy jest wybrany
-            const isSelected = globalState.selectedVariants.get(firstProduct.index) === variantForProduct.id;
-
-            // Oblicz różnicę względem aktualnie wybranego (finishing się skraca)
-            const selectedVariantId = globalState.selectedVariants.get(firstProduct.index);
-            const selectedVariant = firstProduct.variants.find(v => v.id === selectedVariantId);
-            const selectedTotal = selectedVariant ? (selectedVariant.final_price_brutto || selectedVariant.unit_price_brutto || 0) + finBrutto : 0;
-            const difference = totalBrutto - selectedTotal;
-
-            return `
-            <tr class="${isSelected ? 'selected-row' : ''}">
-                <td>${variant.name}</td>
-                <td class="price-cell">${utils.formatCurrency(totalNetto)}</td>
-                <td class="price-cell">${utils.formatCurrency(totalBrutto)}</td>
-                <td class="price-cell">
-                    ${difference !== 0 ? (difference > 0 ? '+' : '') + utils.formatCurrency(difference) : '-'}
-                </td>
-            </tr>
-        `;
-        }).filter(row => row !== '').join('');
-    },
-
-    /**
-    * Renderuje podsumowanie na desktop z cenami brutto i netto
-    */
-    desktopSummary() {
-        const summaryContainer = document.getElementById('desktopSummaryContent');
-        const totalContainer = document.getElementById('desktopTotalSummary');
-
-        if (!summaryContainer || !totalContainer || !globalState.quoteData) return;
-
-        const selectedItems = this.getSelectedItems();
-        const costs = globalState.quoteData.costs || {};
-
-        // Renderuj karty produktów z podziałem na surowe / wykończenie
-        summaryContainer.innerHTML = selectedItems.map(item => {
-            const product = this.getProductByIndex(item.product_index);
-            const variantName = utils.translateVariantCode(item.variant_code);
-            const quantity = item.quantity || 1;
-            const productName = product ? product.full_name || `Produkt ${item.product_index}` : `Produkt ${item.product_index}`;
-
-            // Koszty wykończenia dla tego produktu
-            const finishing = globalState.quoteData?.finishing?.find(f => f.product_index === item.product_index);
-            const finishingNetto = finishing ? (parseFloat(finishing.finishing_price_netto) || 0) + (parseFloat(finishing.edges_price_netto) || 0) : 0;
-            const finishingBrutto = finishing ? (parseFloat(finishing.finishing_price_brutto) || 0) + (parseFloat(finishing.edges_price_brutto) || 0) : 0;
-            const hasFinishing = finishingNetto > 0;
-
-            return `
-        <div class="summary-product-card ${item.product_index === globalState.currentProductIndex ? 'active' : ''}" data-product-index="${item.product_index}">
-            <div class="summary-product-title">${productName} · ${variantName} <small>(${quantity} szt.)</small></div>
-            <div class="summary-product-rows">
-                <div class="summary-product-row">
-                    <span>Produkt:</span>
-                    <span class="summary-product-price">${utils.formatCurrency(item.final_price_brutto)} <small>${utils.formatCurrency(item.final_price_netto)} netto</small></span>
-                </div>
-                ${hasFinishing ? `
-                <div class="summary-product-row">
-                    <span>Wykończenie:</span>
-                    <span class="summary-product-price">${utils.formatCurrency(finishingBrutto)} <small>${utils.formatCurrency(finishingNetto)} netto</small></span>
-                </div>` : ''}
-            </div>
-        </div>
-    `;
-        }).join('');
-
-        // Renderuj podsumowanie całkowite
-        totalContainer.innerHTML = `
-    <div class="summary-total-row">
-        <span class="summary-total-label">Produkty:</span>
-        <div class="summary-total-value">
-            <div class="price-brutto">${utils.formatCurrency(costs.products?.brutto || 0)}</div>
-            <div class="price-netto">${utils.formatCurrency(costs.products?.netto || 0)} netto</div>
-        </div>
-    </div>
-    <div class="summary-total-row">
-        <span class="summary-total-label">Wykończenie:</span>
-        <div class="summary-total-value">
-            <div class="price-brutto">${utils.formatCurrency(costs.finishing?.brutto || 0)}</div>
-            <div class="price-netto">${utils.formatCurrency(costs.finishing?.netto || 0)} netto</div>
-        </div>
-    </div>
-    <div class="summary-total-row">
-        <span class="summary-total-label">Transport:</span>
-        <div class="summary-total-value">
-            <div class="price-brutto">${utils.formatCurrency(costs.shipping?.brutto || 0)}</div>
-            <div class="price-netto">${utils.formatCurrency(costs.shipping?.netto || 0)} netto</div>
-        </div>
-    </div>
-    <div class="summary-total-row total-row">
-        <span class="summary-total-label summary-total-main">RAZEM:</span>
-        <div class="summary-total-value">
-            <div class="price-brutto summary-total-main">${utils.formatCurrency(costs.total?.brutto || 0)}</div>
-            <div class="price-netto total-netto">${utils.formatCurrency(costs.total?.netto || 0)} netto</div>
-        </div>
-    </div>
-    `;
-    },
-
-    /**
- * Aktualizuje mobilne podsumowanie z cenami brutto i netto
- */
-    mobileSummary() {
-        const detailsContent = document.getElementById('mobileDetailsContent');
-        const totalPrice = document.getElementById('mobileTotalPrice');
-
-        if (!detailsContent || !totalPrice || !globalState.quoteData) return;
-
-        const selectedItems = this.getSelectedItems();
-        const costs = globalState.quoteData.costs || {};
-
-        // Aktualizuj całkowitą cenę
-        totalPrice.innerHTML = `
-        <div class="price-netto mobile-total-netto">${utils.formatCurrency(costs.total?.netto || 0)} netto</div>
-        <div class="price-brutto">${utils.formatCurrency(costs.total?.brutto || 0)}</div>
-    `;
-
-        // Renderuj karty produktów z podziałem surowe / wykończenie
-        detailsContent.innerHTML = `
-        <div class="mobile-summary-details">
-            ${selectedItems.map(item => {
-            const product = this.getProductByIndex(item.product_index);
-            const variantName = utils.translateVariantCode(item.variant_code);
-            const quantity = item.quantity || 1;
-            const productName = product ? product.full_name || `Produkt ${item.product_index}` : `Produkt ${item.product_index}`;
-
-            const finishing = globalState.quoteData?.finishing?.find(f => f.product_index === item.product_index);
-            const finishingNetto = finishing ? (parseFloat(finishing.finishing_price_netto) || 0) + (parseFloat(finishing.edges_price_netto) || 0) : 0;
-            const finishingBrutto = finishing ? (parseFloat(finishing.finishing_price_brutto) || 0) + (parseFloat(finishing.edges_price_brutto) || 0) : 0;
-            const hasFinishing = finishingNetto > 0;
-
-            return `
-                    <div class="mobile-summary-product-card">
-                        <div class="mobile-summary-product-title">${productName} · ${variantName} <small>(${quantity} szt.)</small></div>
-                        <div class="mobile-summary-item">
-                            <span>Produkt:</span>
-                            <span class="mobile-summary-price">${utils.formatCurrency(item.final_price_brutto)} <small>${utils.formatCurrency(item.final_price_netto)} netto</small></span>
-                        </div>
-                        ${hasFinishing ? `
-                        <div class="mobile-summary-item">
-                            <span>Wykończenie:</span>
-                            <span class="mobile-summary-price">${utils.formatCurrency(finishingBrutto)} <small>${utils.formatCurrency(finishingNetto)} netto</small></span>
-                        </div>` : ''}
-                    </div>
-                `;
-        }).join('')}
-
-        <div class="mobile-summary-section">
-            <div class="mobile-summary-item">
-                <span>Produkty:</span>
-                <div class="mobile-price-stack">
-                    <div class="price-netto">${utils.formatCurrency(costs.products?.netto || 0)} netto</div>
-                    <div class="price-brutto">${utils.formatCurrency(costs.products?.brutto || 0)}</div>
-                </div>
-            </div>
-            <div class="mobile-summary-item">
-                <span>Wykończenie:</span>
-                <div class="mobile-price-stack">
-                    <div class="price-netto">${utils.formatCurrency(costs.finishing?.netto || 0)} netto</div>
-                    <div class="price-brutto">${utils.formatCurrency(costs.finishing?.brutto || 0)}</div>
-                </div>
-            </div>
-            <div class="mobile-summary-item">
-                <span>Transport:</span>
-                <div class="mobile-price-stack">
-                    <div class="price-netto">${utils.formatCurrency(costs.shipping?.netto || 0)} netto</div>
-                    <div class="price-brutto">${utils.formatCurrency(costs.shipping?.brutto || 0)}</div>
-                </div>
-            </div>
-            <div class="mobile-summary-item total">
-                <span>RAZEM:</span>
-                <div class="mobile-price-stack">
-                    <div class="price-netto">${utils.formatCurrency(costs.total?.netto || 0)} netto</div>
-                    <div class="price-brutto">${utils.formatCurrency(costs.total?.brutto || 0)}</div>
-                </div>
-            </div>
-        </div>
-    </div>
-    `;
-    },
-
-    /**
-    * Renderuje porównanie wariantów na desktop
-    */
-    desktopComparison() {
-        const tbody = document.getElementById('desktopComparisonBody');
-        if (!tbody || !globalState.quoteData) return;
-
-        const variants = this.getUniqueVariants();
-
-        // POPRAWKA: Pobierz pierwszy produkt jako bazę do porównania
-        const firstProduct = this.groupProductsByIndex()[0];
-        if (!firstProduct) return;
-
-        // Koszty wykończenia/krawędzi wspólne dla wszystkich wariantów
-        const finishing = globalState.quoteData?.finishing?.find(f => f.product_index === firstProduct.index);
-        const finNetto = finishing ? (parseFloat(finishing.finishing_price_netto) || 0) + (parseFloat(finishing.edges_price_netto) || 0) : 0;
-        const finBrutto = finishing ? (parseFloat(finishing.finishing_price_brutto) || 0) + (parseFloat(finishing.edges_price_brutto) || 0) : 0;
-
-        tbody.innerHTML = variants.map(variant => {
-            // POPRAWKA: Znajdź wariant dla pierwszego produktu
-            const variantForProduct = firstProduct.variants.find(v => v.variant_code === variant.code);
-            if (!variantForProduct) return '';
-
-            // Oblicz ceny dla tego konkretnego wariantu (surowe + wykończenie)
-            const totalBrutto = (variantForProduct.final_price_brutto || variantForProduct.unit_price_brutto || 0) + finBrutto;
-            const totalNetto = (variantForProduct.final_price_netto || variantForProduct.unit_price_netto || 0) + finNetto;
-
-            // Sprawdź czy jest wybrany
-            const isSelected = globalState.selectedVariants.get(firstProduct.index) === variantForProduct.id;
-
-            // Oblicz różnicę względem aktualnie wybranego (finishing się skraca)
-            const selectedVariantId = globalState.selectedVariants.get(firstProduct.index);
-            const selectedVariant = firstProduct.variants.find(v => v.id === selectedVariantId);
-            const selectedTotal = selectedVariant ? (selectedVariant.final_price_brutto || selectedVariant.unit_price_brutto || 0) + finBrutto : 0;
-            const difference = totalBrutto - selectedTotal;
-
-            return `
-            <tr class="${isSelected ? 'selected-row' : ''}">
-                <td>${variant.name}</td>
-                <td class="price-cell">${utils.formatCurrency(totalNetto)}</td>
-                <td class="price-cell">${utils.formatCurrency(totalBrutto)}</td>
-                <td class="price-cell">
-                    ${difference !== 0 ? (difference > 0 ?
-                    `+${utils.formatCurrency(difference)}` :
-                    `${utils.formatCurrency(difference)}`
-                ) : '-'}
-                </td>
-            </tr>
-        `;
-        }).filter(row => row !== '').join('');
-    },
-
-    /**
-     * Pobiera wybrane pozycje wyceny
-     */
-    getSelectedItems() {
-        if (!globalState.quoteData?.items) return [];
-        return globalState.quoteData.items.filter(item => item.is_selected);
-    },
-
-    /**
-     * Pobiera produkt według indeksu
-     */
-    getProductByIndex(index) {
-        const products = this.groupProductsByIndex();
-        return products.find(p => p.index === index);
-    },
-
-    // Helper functions
-    groupProductsByIndex() {
-        if (!globalState.quoteData || !globalState.quoteData.items) return [];
+    products() {
+        if (!globalState.quoteData || !Array.isArray(globalState.quoteData.items)) return [];
 
         const groups = new Map();
-
         globalState.quoteData.items.forEach(item => {
             if (!groups.has(item.product_index)) {
-                // Pobierz dane o wykończeniu dla tego produktu
-                const finishing = globalState.quoteData.finishing?.find(
-                    f => f.product_index === item.product_index
-                );
-
+                const finishing = money.finishingFor(item.product_index);
                 groups.set(item.product_index, {
                     index: item.product_index,
-                    dimensions: `${item.length_cm} × ${item.width_cm} × ${item.thickness_cm} cm`,
-                    volume: `${item.volume_m3.toFixed(3)} m³`,
-                    finishing: this.formatFinishing(finishing),
-                    quantity: finishing?.quantity || 1,
+                    length: item.length_cm,
+                    width: item.width_cm,
+                    thickness: item.thickness_cm,
+                    quantity: (finishing && finishing.quantity) || item.quantity || 1,
+                    finishing: finishing,
                     variants: []
                 });
             }
-
             groups.get(item.product_index).variants.push(item);
         });
 
         return Array.from(groups.values()).sort((a, b) => a.index - b.index);
     },
 
+    productAt(productIndex) {
+        return this.products().find(product => product.index === productIndex) || null;
+    },
+
+    /**
+     * Warianty widoczne dla klienta
+     */
+    visibleVariants(product) {
+        if (!product) return [];
+        return product.variants.filter(variant => variant.show_on_client_page !== false);
+    },
+
+    /**
+     * Wariant wybrany dla pozycji (lokalny wybór klienta ma pierwszeństwo)
+     */
+    selectedItem(product) {
+        if (!product) return null;
+        const variants = this.visibleVariants(product);
+        const selectedId = globalState.selectedVariants.get(product.index);
+        return variants.find(variant => variant.id === selectedId)
+            || variants.find(variant => variant.is_selected)
+            || variants.find(variant => money.material(variant).brutto > 0)
+            || variants[0]
+            || null;
+    },
+
+    /**
+     * Powierzchnia jednej sztuki w m²
+     */
+    areaM2(item) {
+        if (!item) return 0;
+        const length = money.num(item.length_cm);
+        const width = money.num(item.width_cm);
+        if (length <= 0 || width <= 0) return 0;
+        return (length * width) / 10000;
+    },
+
+    /**
+     * Opis wykończenia pozycji
+     */
     formatFinishing(finishing) {
         if (!finishing || !finishing.finishing_type || finishing.finishing_type === 'Brak') {
             return 'Brak wykończenia';
         }
+        return [
+            finishing.finishing_type,
+            finishing.finishing_variant,
+            finishing.finishing_gloss_level,
+            finishing.finishing_color
+        ].filter(part => part && part !== 'Brak').join(' · ');
+    },
 
+    /**
+     * Powód niedostępności wariantu. Cena 0 znaczy "nie ma takiej płyty
+     * w tej grubości" — pokazanie "0,00 zł" i różnicy "−952,34 zł"
+     * wyglądało jak awaria systemu.
+     */
+    unavailableReason(item) {
+        const thicknessMm = Math.round(money.num(item && item.thickness_cm) * 10);
+        if (thicknessMm > 0) return `niedostępna w ${thicknessMm} mm`;
+        return 'niedostępna w tym wymiarze';
+    },
+
+    // -------------------------------------------------------------------------
+    // GÓRA STRONY
+    // -------------------------------------------------------------------------
+
+    /**
+     * Zdjęcie-podkład, nadtytuł, tytuł i wymiary. Wszystko trzy reaguje na
+     * wybór wariantu: tytułem pozycji jest NAZWA WYBRANEGO WARIANTU (CRM nie
+     * wie, czy pozycja to blat, parapet czy stopień — product_type jest NULL
+     * dla wycen z kalkulatora).
+     */
+    hero() {
+        const shot = document.getElementById('stageShot');
+        const kicker = document.getElementById('identKicker');
+        const title = document.getElementById('identTitle');
+        const dims = document.getElementById('identDims');
+
+        const products = this.products();
+        if (products.length === 0) return;
+
+        const position = Math.max(0, products.findIndex(p => p.index === globalState.currentProductIndex));
+        const product = products[position];
+        const item = this.selectedItem(product);
+
+        if (shot && item) {
+            this.swapHeroImage(shot, utils.variantImageHero(item.variant_code));
+        }
+        if (kicker) {
+            kicker.textContent = `Produkt ${position + 1} z ${products.length}`;
+        }
+        if (title && item) {
+            title.textContent = utils.translateVariantCode(item.variant_code);
+        }
+        if (dims) {
+            dims.textContent = this.dimsText(product, item);
+        }
+    },
+
+    dimsText(product, item) {
         const parts = [];
-        if (finishing.finishing_type) parts.push(finishing.finishing_type);
-        if (finishing.finishing_variant) parts.push(finishing.finishing_variant);
-        if (finishing.finishing_gloss_level) parts.push(finishing.finishing_gloss_level);
-        if (finishing.finishing_color) parts.push(finishing.finishing_color);
-
-        return parts.join(' | ');
+        if (item) {
+            parts.push(
+                `${utils.number(item.length_cm)} × ${utils.number(item.width_cm)} × ${utils.number(item.thickness_cm)} cm`
+            );
+        }
+        const area = this.areaM2(item);
+        if (area > 0) parts.push(`${utils.number(area, 2)} m²`);
+        parts.push(`${product.quantity} szt.`);
+        return parts.join(' · ');
     },
 
-    getUniqueVariants() {
-        const variantsMap = new Map();
-        const products = this.groupProductsByIndex();
+    // -------------------------------------------------------------------------
+    // PRZEŁĄCZNIK POZYCJI
+    // -------------------------------------------------------------------------
 
-        products.forEach(product => {
-            product.variants
-                .filter(v => v.show_on_client_page !== false)
-                .forEach(variant => {
-                    if (!variantsMap.has(variant.variant_code)) {
-                        variantsMap.set(variant.variant_code, {
-                            code: variant.variant_code,
-                            name: utils.translateVariantCode(variant.variant_code)
-                        });
-                    }
-                });
-        });
+    productTabs() {
+        const buttonsContainer = document.getElementById('productButtons');
+        const selectElement = document.getElementById('productSelect');
+        if (!buttonsContainer || !selectElement) return;
 
-        return Array.from(variantsMap.values());
+        const products = this.products();
+
+        buttonsContainer.innerHTML = products.map((product, position) => {
+            const active = product.index === globalState.currentProductIndex ? ' active' : '';
+            const item = this.selectedItem(product);
+            // Pełne trzy wymiary — grubość jest tym, co odróżnia dwie pozycje
+            // o tym samym obrysie, więc jej brak czynił przycisk bezużytecznym
+            const dimensions = item
+                ? `${utils.number(item.length_cm)} × ${utils.number(item.width_cm)} × ${utils.number(item.thickness_cm)} cm`
+                : `${product.quantity} szt.`;
+            return `
+                <button type="button" class="product-button${active}" data-product-index="${product.index}">
+                    <div class="product-button-title">Produkt ${position + 1}</div>
+                    <div class="product-button-dimensions">${utils.esc(dimensions)}</div>
+                </button>`;
+        }).join('');
+
+        selectElement.innerHTML = products.map((product, position) => {
+            const selected = product.index === globalState.currentProductIndex ? ' selected' : '';
+            return `<option value="${product.index}"${selected}>Produkt ${position + 1}</option>`;
+        }).join('');
     },
 
-    calculateVariantTotal(variantCode) {
-        let totalNetto = 0;
-        let totalBrutto = 0;
-        const products = this.groupProductsByIndex();
+    // -------------------------------------------------------------------------
+    // SEKCJE POZYCJI
+    // -------------------------------------------------------------------------
 
-        products.forEach(product => {
-            const variant = product.variants.find(v => v.variant_code === variantCode);
-            if (variant) {
-                // POPRAWKA: Użyj final_price zamiast price
-                const priceBrutto = variant.final_price_brutto || variant.unit_price_brutto || 0;
-                const priceNetto = variant.final_price_netto || variant.unit_price_netto || 0;
+    productSections() {
+        const container = document.getElementById('productSections');
+        if (!container) return;
 
-                totalNetto += priceNetto * product.quantity;
-                totalBrutto += priceBrutto * product.quantity;
+        const products = this.products();
+        container.innerHTML = products.map(product => {
+            const active = product.index === globalState.currentProductIndex ? ' active' : '';
+            return `
+                <div class="product-section${active}" id="product-${product.index}">
+                    ${this.variantsSection(product)}
+                    ${this.shapeSection(product)}
+                    ${this.edgesSection(product)}
+                </div>`;
+        }).join('');
+
+        this.setupRails();
+    },
+
+    /**
+     * Kontekst wspólny dla wszystkich kafelków jednej pozycji
+     */
+    tileContext(product) {
+        const selected = this.selectedItem(product);
+        const selectedPrice = money.material(selected);
+        return {
+            productIndex: product.index,
+            selectedId: selected ? selected.id : null,
+            // porównujemy tylko z wariantem, który MA cenę — inaczej różnica
+            // względem niedostępnego wariantu byłaby bez sensu
+            selectedBrutto: selectedPrice.brutto > 0 ? selectedPrice.brutto : null,
+            interactive: !globalState.isQuoteAccepted
+        };
+    },
+
+    /**
+     * SEKCJA 1 — warianty materiału jako kafelki
+     */
+    variantsSection(product) {
+        const variants = this.visibleVariants(product);
+        if (variants.length === 0) return '';
+
+        const context = this.tileContext(product);
+        const optionsLabel = `${variants.length} ${utils.plural(variants.length, 'opcja', 'opcje', 'opcji')}`;
+        const hintParts = [optionsLabel];
+        if (product.quantity > 1) {
+            hintParts.push(`cena za ${product.quantity} szt.`);
+        } else if (context.interactive) {
+            hintParts.push('dotknij, aby wybrać');
+        }
+
+        const tiles = variants.map(item => this.tileMarkup(item, context)).join('');
+        const railhint = variants.length > 1
+            ? `<div class="railhint">
+                   <span data-rail-text></span>
+                   <span class="raildots" data-rail-dots></span>
+               </div>`
+            : '';
+
+        // 3D i AR siedzą w nagłówku wariantów, bo to jedyny nagłówek, który
+        // klient ogląda przy każdej pozycji. Podpowiedź o liczbie opcji
+        // i przeliczniku sztuk schodzi pod nagłówek.
+        return `
+            <div class="sect">
+                <div class="sect-hd sect-hd--actions">
+                    <div class="sect-hd-txt">
+                        <h3>Wariant materiału</h3>
+                        <p class="sect-note">${utils.esc(hintParts.join(' · '))}</p>
+                    </div>
+                    <div class="product-actions">
+                        <button type="button" class="btn-3d" data-action="view-3d" data-product-index="${product.index}">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M21 7.5 12 12m9-4.5v9L12 21m9-13.5L12 3 3 7.5m9 4.5v9m0-9L3 7.5m0 0v9L12 21"/></svg>
+                            Podgląd 3D
+                        </button>
+                        <button type="button" class="btn-ar" data-action="view-ar" data-product-index="${product.index}">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 8V5.5A1.5 1.5 0 0 1 4.5 4H7m10 0h2.5A1.5 1.5 0 0 1 21 5.5V8m0 8v2.5a1.5 1.5 0 0 1-1.5 1.5H17M7 20H4.5A1.5 1.5 0 0 1 3 18.5V16"/><rect x="8" y="9" width="8" height="6" rx="1"/></svg>
+                            Zobacz u siebie
+                        </button>
+                    </div>
+                </div>
+                <div class="tiles rail" data-rail data-product-index="${product.index}">${tiles}</div>
+                ${railhint}
+            </div>`;
+    },
+
+    tileMarkup(item, context) {
+        const price = money.material(item);
+        const available = price.brutto > 0;
+        const isSelected = item.id === context.selectedId;
+
+        const classes = ['tile'];
+        if (isSelected) classes.push('sel');
+        if (!available) classes.push('off');
+
+        // niedostępnego wariantu nie da się wybrać; przy zaakceptowanej wycenie
+        // nie da się wybrać żadnego
+        const disabled = (!available || !context.interactive) ? ' disabled' : '';
+
+        return `
+            <button type="button" class="${classes.join(' ')}"${disabled}
+                    data-item-id="${item.id}" data-product-index="${context.productIndex}"
+                    aria-pressed="${isSelected ? 'true' : 'false'}">
+                ${this.tileInner(item, context)}
+            </button>`;
+    },
+
+    /**
+     * Wnętrze kafelka — osobno, bo przy zmianie wyboru podmieniamy tylko je
+     * (przebudowa całego paska zresetowałaby jego przewinięcie).
+     */
+    tileInner(item, context) {
+        const price = money.material(item);
+        const available = price.brutto > 0;
+        const isSelected = item.id === context.selectedId;
+        const name = utils.translateVariantCode(item.variant_code);
+        const photo = `<div class="ph" style="background-image:url('${utils.variantImage(item.variant_code)}')"></div>`;
+        const flag = isSelected ? '<div class="flag">✓ wybrany</div>' : '';
+
+        if (!available) {
+            return `${photo}
+                <div class="tb">
+                    <div class="tn">${utils.esc(name)}</div>
+                    <div class="tp">${utils.esc(this.unavailableReason(item))}</div>
+                </div>`;
+        }
+
+        return `${photo}${flag}
+            <div class="tb">
+                <div class="tn">${utils.esc(name)}</div>
+                <div class="tp">${utils.esc(utils.formatCurrency(price.brutto))}</div>
+                <div class="tnet">${utils.esc(utils.amount(price.netto))} netto</div>
+                ${this.chipMarkup(price.brutto, isSelected, context)}
+            </div>`;
+    },
+
+    /**
+     * Chip z różnicą względem wybranego wariantu (na wybranym go nie ma)
+     */
+    chipMarkup(brutto, isSelected, context) {
+        if (isSelected || context.selectedBrutto === null) return '';
+
+        const difference = money.round2(brutto - context.selectedBrutto);
+        if (Math.abs(difference) < 0.005) {
+            return '<div class="chip eq">bez różnicy</div>';
+        }
+        const cssClass = difference < 0 ? 'dn' : 'up';
+        // U+2212 (minus) zamiast dywizu — jak w makiecie
+        const sign = difference < 0 ? '−' : '+';
+        return `<div class="chip ${cssClass}">${sign}${utils.esc(utils.formatCurrency(Math.abs(difference)))}</div>`;
+    },
+
+    /**
+     * SEKCJA 2 — kształt i specyfikacja.
+     * Warunek pokazania rysunku kształtu jest NIEZALEŻNY od obróbki krawędzi:
+     * wcześniej cały blok wisiał na niepustym edges_config, więc produkt
+     * z ciekawym kształtem, ale bez obróbki krawędzi nie pokazywał nic.
+     */
+    shapeSection(product) {
+        const finishing = product.finishing;
+        const item = this.selectedItem(product);
+        const shapeSvg = (finishing && finishing.shape_svg) || '';
+
+        const rows = [];
+        rows.push(['Wykończenie', this.formatFinishing(finishing)]);
+        if (finishing && typeof finishing.cut_to_size === 'boolean') {
+            rows.push(['Docięcie do wymiaru', finishing.cut_to_size ? 'Tak' : 'Nie']);
+        }
+        if (item && money.num(item.thickness_cm) > 0) {
+            rows.push(['Grubość', `${utils.number(money.num(item.thickness_cm) * 10)} mm`]);
+        }
+        const area = this.areaM2(item);
+        if (area > 0) rows.push(['Powierzchnia', `${utils.number(area, 2)} m²`]);
+        rows.push(['Ilość', `${product.quantity} szt.`]);
+        if (finishing && finishing.lamella_direction !== null && finishing.lamella_direction !== undefined) {
+            rows.push(['Kierunek lameli', `${utils.number(finishing.lamella_direction)}°`]);
+        }
+
+        const rowsHtml = rows.map(([label, value]) => `
+            <div><dt>${utils.esc(label)}</dt><dd>${utils.esc(value)}</dd></div>`).join('');
+
+        // shape_svg jest oczyszczony na serwerze (sanitize_svg, whitelist tagów),
+        // dlatego jako jedyny obok edges_svg wchodzi bez escapowania
+        const drawing = shapeSvg ? `<div class="draw">${shapeSvg}</div>` : '';
+        const bodyClass = shapeSvg ? 'sect-bd shapegrid' : 'sect-bd';
+        const heading = shapeSvg ? 'Kształt i specyfikacja' : 'Specyfikacja';
+
+        return `
+            <div class="sect">
+                <div class="sect-hd">
+                    <h3>${heading}</h3>
+                </div>
+                <div class="${bodyClass}">
+                    ${drawing}
+                    <dl class="rows">${rowsHtml}</dl>
+                </div>
+            </div>`;
+    },
+
+    /**
+     * SEKCJA 3 — obróbka krawędzi.
+     * Etykiety krawędzi bierzemy z pola "label", które backend dopisuje do
+     * każdego wpisu edges_config (human_edge_label). Lokalna mapa liter znała
+     * tylko prostokąt A-H i obwód KG/KD, więc dla kształtów nieregularnych
+     * (G1/D1/P1) i krawędzi wycięć (H1.G2) lista renderowała się PUSTA.
+     * Gdy edges_svg jest puste, NIE generujemy zastępczej izometrii —
+     * rysowanie prostopadłościanu dla koła wprowadzało klienta w błąd.
+     */
+    edgesSection(product) {
+        const finishing = product.finishing;
+        const config = finishing && finishing.edges_config;
+        if (!Array.isArray(config) || config.length === 0) return '';
+
+        const edgesSvg = finishing.edges_svg || '';
+        const isAdvanced = finishing.edges_mode === 'advanced';
+        const countLabel = `${config.length} ${utils.plural(config.length, 'krawędź', 'krawędzie', 'krawędzi')}`;
+
+        let headline;
+        let detailLines;
+
+        if (isAdvanced) {
+            // Tryb mieszany: edges_r_value i edges_angle_value są NULL na poziomie
+            // wyceny, promień siedzi per krawędź — grupujemy jak offer_pdf.html
+            headline = `Obróbka mieszana — ${countLabel}`;
+            detailLines = this.groupEdges(config).map(group => {
+                const typeName = EDGE_TYPE_PL[group.type] || group.type || 'Obróbka';
+                const radius = group.r !== null && group.r !== undefined ? ` R${utils.number(group.r)}` : '';
+                const angle = (group.type === 'chamfer' && group.angle) ? ` ${utils.number(group.angle)}°` : '';
+                return `${typeName}${radius}${angle} — ${group.labels.join(', ')}`;
+            });
+        } else {
+            const first = config[0] || {};
+            const type = finishing.edges_type || first.type || '';
+            const typeName = EDGE_TYPE_PL[type] || 'Obróbka krawędzi';
+            const rValue = finishing.edges_r_value !== null && finishing.edges_r_value !== undefined
+                ? finishing.edges_r_value
+                : first.r_value;
+            const angleValue = finishing.edges_angle_value !== null && finishing.edges_angle_value !== undefined
+                ? finishing.edges_angle_value
+                : first.angle_value;
+
+            const radius = (rValue !== null && rValue !== undefined) ? ` R${utils.number(rValue)} mm` : '';
+            const angle = (type === 'chamfer' && angleValue) ? `, kąt ${utils.number(angleValue)}°` : '';
+            headline = `${typeName}${radius}${angle} — ${countLabel}`;
+            detailLines = [this.edgeLabels(config).join(', ')];
+        }
+
+        const details = detailLines
+            .filter(line => line && line.length > 0)
+            .map(line => `<span>${utils.esc(line)}</span>`)
+            .join('');
+
+        // edges_svg jest oczyszczony na serwerze (sanitize_svg)
+        return `
+            <div class="sect">
+                <div class="sect-hd"><h3>Obróbka krawędzi</h3></div>
+                <div class="sect-bd">
+                    <div class="edge">
+                        ${edgesSvg}
+                        <div class="etxt">
+                            <b>${utils.esc(headline)}</b>
+                            ${details}
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+    },
+
+    /**
+     * Czytelne nazwy krawędzi, posortowane po oznaczeniu (G1, G3, G4...)
+     */
+    edgeLabels(config) {
+        return config
+            .slice()
+            .sort((a, b) => String(a.letter || '').localeCompare(String(b.letter || ''), 'pl', { numeric: true }))
+            .map(entry => entry.label || entry.letter || '')
+            .filter(label => label.length > 0);
+    },
+
+    /**
+     * Grupowanie krawędzi po (type, r_value, angle_value) — klucz i sortowanie
+     * jak w offer_pdf.html, żeby PDF i strona mówiły to samo.
+     */
+    groupEdges(config) {
+        const groups = new Map();
+        config.forEach(entry => {
+            const key = `${entry.type || ''}|${entry.r_value}|${entry.angle_value !== null && entry.angle_value !== undefined ? entry.angle_value : ''}`;
+            if (!groups.has(key)) {
+                groups.set(key, { key: key, type: entry.type, r: entry.r_value, angle: entry.angle_value, entries: [] });
             }
+            groups.get(key).entries.push(entry);
         });
 
-        // Add shipping
-        if (globalState.quoteData.shipping_cost_netto) {
-            totalNetto += globalState.quoteData.shipping_cost_netto;
-        }
-        if (globalState.quoteData.shipping_cost_brutto) {
-            totalBrutto += globalState.quoteData.shipping_cost_brutto;
-        }
-
-        return { netto: totalNetto, brutto: totalBrutto };
+        return Array.from(groups.values())
+            .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
+            .map(group => ({
+                type: group.type,
+                r: group.r,
+                angle: group.angle,
+                labels: this.edgeLabels(group.entries)
+            }));
     },
 
-    calculateCurrentTotal() {
-        let totalNetto = 0;
-        let totalBrutto = 0;
-        const products = this.groupProductsByIndex();
+    /**
+     * Informacja o niezapisanym wyborze — pokazywana POD podsumowaniem,
+     * bo tam klient patrzy tuż przed akceptacją. Dopóki wisi, przycisk
+     * akceptacji jest zablokowany: wysłanie wyceny z niezapisanym wyborem
+     * zamówiłoby STARY wariant, a modal pokazywałby kwoty podglądu.
+     */
+    unsavedNotice() {
+        const visibility = globalState.hasUnsavedChanges ? 'visible' : 'hidden';
+        return `
+            <div class="save-changes-section ${visibility}">
+                <div class="save-changes-content">
+                    <span class="save-changes-text">Masz niezapisany wybór wariantu — zapisz go, żeby móc zaakceptować wycenę.</span>
+                    <button type="button" class="btn-save-changes" data-action="save-changes">Zapisz zmiany</button>
+                </div>
+            </div>`;
+    },
 
-        products.forEach(product => {
-            const selectedId = globalState.selectedVariants.get(product.index);
-            const variant = product.variants.find(v => v.id === selectedId);
-            if (variant) {
-                // POPRAWKA: Użyj final_price zamiast price
-                const priceBrutto = variant.final_price_brutto || variant.unit_price_brutto || 0;
-                const priceNetto = variant.final_price_netto || variant.unit_price_netto || 0;
+    /**
+     * Przenikanie zdjęcia w tle przy zmianie wariantu.
+     *
+     * Nowy obraz wgrywamy do warstwy wierzchniej i wypuszczamy dopiero PO
+     * jego wczytaniu — inaczej przenikalibyśmy do pustego tła i klient
+     * zobaczyłby mignięcie. Po przejściu obraz ląduje na warstwie bazowej,
+     * a wierzchnia wraca do zera z wyłączoną animacją (bez tego wracałaby
+     * widocznym rozjaśnieniem).
+     */
+    swapHeroImage(base, url) {
+        const css = `url('${url}')`;
+        const next = document.getElementById('stageShotNext');
 
-                totalNetto += priceNetto * product.quantity;
-                totalBrutto += priceBrutto * product.quantity;
+        // pierwszy render albo brak warstwy przenikania — ustaw wprost
+        if (!next || !base.style.backgroundImage) {
+            base.style.backgroundImage = css;
+            return;
+        }
+        if (base.style.backgroundImage === css) return;
+
+        const zamien = () => {
+            base.style.backgroundImage = css;
+            next.style.transition = 'none';
+            next.classList.remove('on');
+            // wymuszenie reflow, żeby wyłączenie animacji zdążyło zadziałać
+            void next.offsetWidth;
+            next.style.transition = '';
+        };
+
+        const img = new Image();
+        img.onload = () => {
+            next.style.backgroundImage = css;
+            requestAnimationFrame(() => next.classList.add('on'));
+            window.setTimeout(zamien, 520);
+        };
+        img.onerror = () => { base.style.backgroundImage = css; };
+        img.src = url;
+    },
+
+    /**
+     * Blokuje przyciski akceptacji, dopóki wybór nie jest zapisany.
+     */
+    syncAcceptButtons() {
+        const zablokowane = globalState.hasUnsavedChanges || globalState.isQuoteAccepted;
+        ['acceptQuoteBtnDesktop', 'acceptQuoteBtnMobile'].forEach(id => {
+            const btn = document.getElementById(id);
+            if (!btn) return;
+            btn.disabled = zablokowane;
+            if (globalState.isQuoteAccepted) {
+                btn.title = '';
+            } else {
+                btn.title = globalState.hasUnsavedChanges
+                    ? 'Najpierw zapisz wybrany wariant'
+                    : '';
             }
-        });
-
-        // Add shipping
-        if (globalState.quoteData.shipping_cost_netto) {
-            totalNetto += globalState.quoteData.shipping_cost_netto;
-        }
-        if (globalState.quoteData.shipping_cost_brutto) {
-            totalBrutto += globalState.quoteData.shipping_cost_brutto;
-        }
-
-        return { netto: totalNetto, brutto: totalBrutto };
-    },
-
-    isVariantSelected(variantCode) {
-        const products = this.groupProductsByIndex();
-
-        return products.some(product => {
-            const selectedId = globalState.selectedVariants.get(product.index);
-            const variant = product.variants.find(v => v.id === selectedId);
-            return variant && variant.variant_code === variantCode;
         });
     },
 
     /**
-     * Odświeża wszystkie elementy UI
+     * Podmienia wnętrza kafelków po zmianie wyboru. Świadomie NIE przebudowuje
+     * paska — inaczej po kliknięciu kafelka pasek wracałby na początek.
+     */
+    refreshTiles(productIndex) {
+        const product = this.productAt(productIndex);
+        if (!product) return;
+
+        const section = document.getElementById(`product-${productIndex}`);
+        if (!section) return;
+
+        const context = this.tileContext(product);
+        const byId = new Map(this.visibleVariants(product).map(item => [String(item.id), item]));
+
+        section.querySelectorAll('.tile').forEach(tile => {
+            const item = byId.get(tile.dataset.itemId);
+            if (!item) return;
+            const isSelected = item.id === context.selectedId;
+            const available = money.material(item).brutto > 0;
+            tile.classList.toggle('sel', isSelected);
+            tile.classList.toggle('off', !available);
+            tile.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+            tile.disabled = !available || !context.interactive;
+            tile.innerHTML = this.tileInner(item, context);
+        });
+    },
+
+    // -------------------------------------------------------------------------
+    // PASEK KAFELKÓW — kropki i podpowiedź przewijania
+    // -------------------------------------------------------------------------
+
+    setupRails() {
+        document.querySelectorAll('[data-rail]').forEach(rail => {
+            if (!rail.dataset.railBound) {
+                rail.addEventListener('scroll', () => this.updateRail(rail), { passive: true });
+                rail.dataset.railBound = '1';
+            }
+            this.updateRail(rail);
+        });
+    },
+
+    updateRail(rail) {
+        const section = rail.closest('.sect');
+        if (!section) return;
+
+        const dotsBox = section.querySelector('[data-rail-dots]');
+        const textBox = section.querySelector('[data-rail-text]');
+        if (!dotsBox && !textBox) return;
+
+        const tiles = Array.from(rail.querySelectorAll('.tile'));
+        const railBox = rail.getBoundingClientRect();
+
+        // ile kafelków nie mieści się w kadrze przy obecnym przewinięciu
+        const hidden = tiles.filter(tile => {
+            const box = tile.getBoundingClientRect();
+            return box.left < railBox.left - 1 || box.right > railBox.right + 1;
+        }).length;
+
+        if (textBox) {
+            textBox.innerHTML = hidden > 0
+                ? `Przesuń, aby zobaczyć pozostałe <b>${hidden} ${utils.plural(hidden, 'wariant', 'warianty', 'wariantów')}</b>`
+                : 'To wszystkie warianty';
+        }
+
+        if (dotsBox) {
+            const pages = Math.max(1, Math.min(8, Math.ceil(rail.scrollWidth / Math.max(1, rail.clientWidth))));
+            const active = Math.max(0, Math.min(pages - 1, Math.round(rail.scrollLeft / Math.max(1, rail.clientWidth))));
+            if (dotsBox.children.length !== pages) {
+                dotsBox.innerHTML = new Array(pages).fill('<i></i>').join('');
+            }
+            Array.from(dotsBox.children).forEach((dot, index) => {
+                dot.classList.toggle('on', index === active);
+            });
+        }
+    },
+
+    // -------------------------------------------------------------------------
+    // PODSUMOWANIE
+    // -------------------------------------------------------------------------
+
+    /**
+     * Wiersze podsumowania (kwoty NETTO) — wykończenie i obróbka krawędzi
+     * stoją tu jako DWA OSOBNE wiersze; ich suma to dokładnie ta kwota,
+     * którą serwer trzyma razem w costs.finishing.
+     */
+    summaryRows() {
+        const costs = money.view();
+        const products = this.products();
+        const extras = money.extrasTotals();
+        const rows = [];
+
+        products.forEach((product, position) => {
+            const item = this.selectedItem(product);
+            rows.push({
+                label: `Produkt ${position + 1} · ${product.quantity} szt.`,
+                // pod pozycją nazwa wybranego wariantu — inaczej "Produkt 1"
+                // i "Produkt 2" niczym się nie różnią
+                sub: item ? utils.translateVariantCode(item.variant_code) : '',
+                value: money.material(item).netto
+            });
+        });
+
+        // Koszty dodatkowe o wartości zero nie są pokazywane — pusty wiersz
+        // "Wykończenie 0,00 zł" niczego klientowi nie mówi. Dostawa jest
+        // wyjątkiem: jej brak to informacja (odbiór osobisty / gratis).
+        const dodatkowe = [
+            { label: 'Wykończenie', value: extras.finishingNetto },
+            { label: 'Obróbka krawędzi', value: extras.edgesNetto }
+        ].filter(row => money.round2(row.value) !== 0);
+
+        dodatkowe.forEach(row => rows.push(row));
+        rows.push({ label: 'Dostawa', value: money.pick(costs, 'shipping', 'netto') });
+
+        // Filtrujemy PRZED liczeniem brutto — inaczej reszta groszowa mogłaby
+        // trafić na wiersz, którego klient nie widzi, i kolumna przestałaby
+        // się sumować do kwoty "Do zapłaty".
+        //
+        // Osobnego wiersza VAT nie ma — każdy wiersz pokazuje brutto i netto,
+        // więc podatek jest widoczny jako różnica między nimi.
+        //
+        // Brutto każdego wiersza to round2(netto * 1,23), ale serwer zaokrągla
+        // dopiero sumę (calculate_costs_with_vat), więc suma zaokrąglonych
+        // wierszy potrafi różnić się o grosz od kwoty "Do zapłaty" — a klient
+        // sprawdza właśnie tę pionową sumę.
+        //
+        // Resztę doklejamy do wiersza kosztu dodatkowego (dostawa / krawędzie /
+        // wykończenie), NIE do pozycji. Rozrzucanie jej po pozycjach sprawiało,
+        // że dwie identyczne pozycje pokazywały 2545,80 i 2545,81.
+        rows.forEach(row => {
+            row.brutto = money.round2(row.value * (1 + VAT_RATE));
+        });
+
+        const docelowoBrutto = money.pick(costs, 'total', 'brutto');
+        const sumaBrutto = money.round2(rows.reduce((acc, row) => acc + row.brutto, 0));
+        const reszta = money.round2(docelowoBrutto - sumaBrutto);
+
+        if (reszta !== 0) {
+            const kandydaci = rows.filter(row => !row.sub && row.value > 0);
+            const nosnik = kandydaci.length
+                ? kandydaci[kandydaci.length - 1]
+                : rows[rows.length - 1];
+            if (nosnik) nosnik.brutto = money.round2(nosnik.brutto + reszta);
+        }
+
+        return rows;
+    },
+
+    summaryLinesHtml() {
+        return this.summaryRows().map(row => {
+            const podpis = row.sub
+                ? `<span class="sumline-sub">${utils.esc(row.sub)}</span>`
+                : '';
+            return `
+            <div class="sumline">
+                <span class="sumline-label">${utils.esc(row.label)}${podpis}</span>
+                <span class="sumline-amounts">
+                    <b>${utils.esc(utils.formatCurrency(row.brutto))}</b>
+                    <span class="sumline-netto">netto ${utils.esc(utils.formatCurrency(row.value))}</span>
+                </span>
+            </div>`;
+        }).join('');
+    },
+
+    /**
+     * Podsumowanie w kolumnie desktopowej.
+     * Klasy price-brutto/summary-total-main i price-netto/total-netto MUSZĄ
+     * zostać — z nich korzysta awaryjny scraper w client_accept_modal.js.
+     * Z tego samego powodu nigdzie wyżej na stronie nie używamy tych klas.
+     */
+    desktopSummary() {
+        const summaryContainer = document.getElementById('desktopSummaryContent');
+        const totalContainer = document.getElementById('desktopTotalSummary');
+        if (!summaryContainer || !totalContainer) return;
+
+        const costs = money.view();
+        summaryContainer.innerHTML = this.summaryLinesHtml();
+        totalContainer.innerHTML = `
+            <div class="sumtot">
+                <span>Do zapłaty</span>
+                <b class="price-brutto summary-total-main">${utils.esc(utils.formatCurrency(money.pick(costs, 'total', 'brutto')))}</b>
+            </div>
+            <div class="price-netto total-netto">${utils.esc(utils.amount(money.pick(costs, 'total', 'netto')))} netto</div>`;
+
+        // ostrzeżenie POD przyciskiem akceptacji, nie nad nim
+        const notice = document.getElementById('desktopUnsavedNotice');
+        if (notice) notice.innerHTML = this.unsavedNotice();
+
+        this.syncAcceptButtons();
+    },
+
+    /**
+     * Dolny pasek mobilny i jego rozwijana szuflada
+     */
+    mobileSummary() {
+        const detailsContent = document.getElementById('mobileDetailsContent');
+        const totalPrice = document.getElementById('mobileTotalPrice');
+        const costs = money.view();
+
+        if (totalPrice) {
+            totalPrice.innerHTML = `
+                <b class="price-brutto">${utils.esc(utils.formatCurrency(money.pick(costs, 'total', 'brutto')))}</b>
+                <span class="price-netto">${utils.esc(utils.amount(money.pick(costs, 'total', 'netto')))} netto</span>`;
+        }
+
+        if (detailsContent) {
+            detailsContent.innerHTML = `
+                ${this.summaryLinesHtml()}
+                <div class="sumtot">
+                    <span>Do zapłaty</span>
+                    <b>${utils.esc(utils.formatCurrency(money.pick(costs, 'total', 'brutto')))}</b>
+                </div>`;
+        }
+
+        // poza szufladą, żeby było widać także przy zwiniętym podsumowaniu
+        const notice = document.getElementById('barUnsavedNotice');
+        if (notice) notice.innerHTML = this.unsavedNotice();
+
+        this.syncAcceptButtons();
+        this.syncBarHeight();
+    },
+
+    /**
+     * Rezerwacja miejsca pod dolnym paskiem liczona z JEGO REALNEJ wysokości.
+     * Sztywne 80 px przy pasku wysokim na 222 px chowało 142 px treści.
+     */
+    syncBarHeight() {
+        const wrap = document.getElementById('mobileBottomBar');
+        if (!wrap) return;
+
+        // Szuflada podsumowania jest chwilowa — rezerwujemy miejsce tylko pod
+        // stałą częścią paska (razem z jego górną kreską), więc jej wysokość
+        // odejmujemy, gdy akurat jest rozwinięta.
+        const details = document.getElementById('bottomBarDetails');
+        const height = Math.round(
+            wrap.getBoundingClientRect().height - (details ? details.getBoundingClientRect().height : 0)
+        );
+        if (height > 0) {
+            document.documentElement.style.setProperty('--barh', `${height}px`);
+        }
+    },
+
+    /**
+     * Pełne odświeżenie widoku
      */
     refreshUI() {
+        this.hero();
         this.productTabs();
         this.productSections();
-        this.comparison();
-        this.mobileSummary();
         this.desktopSummary();
-        this.desktopComparison();
+        this.mobileSummary();
     }
-
 };
 
 // ===================================
-// EVENT HANDLERS
+// ZDARZENIA
 // ===================================
 const handlers = {
     /**
-     * Przełącza między produktami
-     * @param {number} index - Indeks produktu
+     * Przełącza między pozycjami wyceny
      */
     switchProduct(index) {
         globalState.currentProductIndex = index;
 
-        // Update tabs
-        document.querySelectorAll('.product-button').forEach((btn, i) => {
-            const products = render.groupProductsByIndex();
-            btn.classList.toggle('active', products[i]?.index === index);
+        document.querySelectorAll('.product-button').forEach(button => {
+            button.classList.toggle('active', Number(button.dataset.productIndex) === index);
         });
 
-        // Update sections
         document.querySelectorAll('.product-section').forEach(section => {
-            section.classList.remove('active');
+            section.classList.toggle('active', section.id === `product-${index}`);
         });
-        const activeSection = document.getElementById(`product-${index}`);
-        if (activeSection) {
-            activeSection.classList.add('active');
-        }
 
-        // Update mobile select
         const mobileSelect = document.getElementById('productSelect');
-        if (mobileSelect) {
-            mobileSelect.value = index;
-        }
+        if (mobileSelect) mobileSelect.value = String(index);
 
-        // Update summary product cards
-        document.querySelectorAll('.summary-product-card').forEach(card => {
-            card.classList.toggle('active', parseInt(card.dataset.productIndex) === index);
-        });
+        render.hero();
+        // pasek kafelków dopiero co stał się widoczny — kropki liczą się
+        // z wymiarów, więc trzeba je przeliczyć po pokazaniu sekcji
+        render.setupRails();
     },
 
     /**
-     * Wybiera wariant produktu
-     * @param {number} productIndex - Indeks produktu
-     * @param {number} variantId - ID wariantu
+     * Wybiera wariant pozycji (zapis dopiero po kliknięciu "Zapisz zmiany")
      */
-    async selectVariant(productIndex, variantId) {
+    selectVariant(productIndex, variantId) {
         if (globalState.isQuoteAccepted || globalState.isLoading) return;
+        if (globalState.selectedVariants.get(productIndex) === variantId) return;
 
-        // POPRAWKA: Sprawdź czy już wybrany wariant
-        const currentlySelected = globalState.selectedVariants.get(productIndex);
-        if (currentlySelected === variantId) {
-            console.log('Wariant już wybrany, nie pokazuj przycisku');
-            return; // Nie rób nic jeśli kliknięto już wybrany wariant
-        }
-
-        // Zaktualizuj stan lokalny BEZ wywoływania API
         globalState.selectedVariants.set(productIndex, variantId);
         globalState.hasUnsavedChanges = true;
 
-        // Odśwież UI żeby pokazać nowy wybór i przycisk Zapisz
-        render.productSections();
-        render.comparison();
-        render.mobileSummary();
+        render.refreshTiles(productIndex);
+        render.hero();
         render.desktopSummary();
-        render.desktopComparison();
-
-        // Pokaż przycisk zapisz
+        render.mobileSummary();
         this.showSaveButton();
-
-        utils.showAlert('Wariant został wybrany. Kliknij "Zapisz" aby potwierdzić.', 'info');
     },
 
-    // NOWA funkcja zapisywania zmian:
+    /**
+     * Zapisuje wybrane warianty na serwerze
+     */
     async saveChanges() {
         if (!globalState.hasUnsavedChanges || globalState.isLoading) return;
 
-        const saveButton = document.querySelector('.btn-save-changes');
-        if (saveButton) {
-            saveButton.disabled = true;
-            saveButton.textContent = 'Zapisywanie...';
-        }
+        const saveButtons = Array.from(document.querySelectorAll('.btn-save-changes'));
+        saveButtons.forEach(button => {
+            button.disabled = true;
+            button.textContent = 'Zapisywanie...';
+        });
 
         try {
             utils.setLoading(true);
 
-            // Znajdź ostatnio zmieniony wariant
             const changes = [];
             globalState.selectedVariants.forEach((variantId, productIndex) => {
                 changes.push({ productIndex, variantId });
             });
 
-            // Zapisz każdą zmianę przez API
             for (const change of changes) {
                 await api.updateVariant(window.QUOTE_TOKEN, change.variantId);
             }
 
-            // Oznacz zmiany jako zapisane
             globalState.hasUnsavedChanges = false;
-
-            // Ukryj przycisk
             this.hideSaveButton();
 
-            // Odśwież dane z serwera
             await init.loadQuoteData();
-
-            utils.showAlert('Zmiany zostały zapisane!', 'success');
+            utils.showAlert('Zmiany zostały zapisane', 'success');
 
         } catch (error) {
             console.error('Błąd przy zapisywaniu zmian:', error);
-            utils.showAlert('Błąd przy zapisywaniu zmian', 'error');
-
-            // Przywróć przycisk w przypadku błędu
-            if (saveButton) {
-                saveButton.disabled = false;
-                saveButton.textContent = 'Zapisz zmiany';
-            }
+            utils.showAlert('Nie udało się zapisać wyboru wariantu. Spróbuj ponownie.', 'error');
+            saveButtons.forEach(button => {
+                button.disabled = false;
+                button.textContent = 'Zapisz zmiany';
+            });
         } finally {
             utils.setLoading(false);
         }
     },
 
-    // NOWE funkcje pomocnicze:
     showSaveButton() {
         document.querySelectorAll('.save-changes-section').forEach(section => {
             section.classList.remove('hidden');
-
-            // Opóźnienie żeby animacja zadziałała
-            requestAnimationFrame(() => {
-                section.classList.add('visible');
-            });
+            requestAnimationFrame(() => section.classList.add('visible'));
         });
+        render.syncAcceptButtons();
+        render.syncBarHeight();
     },
 
     hideSaveButton() {
         document.querySelectorAll('.save-changes-section').forEach(section => {
-            section.classList.remove('visible');
-
-            // Opóźnienie przed ukryciem
-            setTimeout(() => {
-                section.classList.add('hidden');
-            }, 400);
+            section.classList.remove('visible', 'pulse');
+            section.classList.add('hidden');
         });
+        render.syncAcceptButtons();
+        render.syncBarHeight();
     },
 
     /**
-    * Otwiera AR - inteligentnie wybiera między bezpośrednim AR a QR code
-    * @param {number} productIndex - Indeks produktu
-    */
+     * Otwiera AR — na telefonie bezpośrednio, na desktopie przez kod QR
+     */
     openARModal(productIndex) {
-        console.log('[ClientAR] Otwieranie AR dla produktu:', productIndex);
-
-        // Sprawdź czy ARHandler jest dostępny
         if (typeof window.ARHandler === 'undefined') {
-            console.error('[ClientAR] ARHandler nie jest załadowany');
-            utils.showAlert('Błąd: Moduł AR nie jest dostępny. Odśwież stronę.', 'error');
+            utils.showAlert('Moduł AR nie jest dostępny. Odśwież stronę.', 'error');
             return;
         }
 
-        // Sprawdź czy są dane wyceny
-        if (!globalState.quoteData || !globalState.quoteData.items) {
-            console.error('[ClientAR] Brak danych wyceny');
-            utils.showAlert('Błąd: Brak danych wyceny', 'error');
-            return;
-        }
-
-        // Znajdź produkty dla danego indeksu
-        const productItems = globalState.quoteData.items.filter(item =>
-            item.product_index === productIndex
-        );
-
-        if (productItems.length === 0) {
-            console.error('[ClientAR] Brak produktów dla indeksu:', productIndex);
-            utils.showAlert('Błąd: Nie znaleziono produktów', 'error');
-            return;
-        }
-
-        // Znajdź aktualnie wybrany wariant
-        const currentVariantId = globalState.selectedVariants.get(productIndex);
-        let selectedItem = null;
-
-        if (currentVariantId) {
-            selectedItem = productItems.find(item => item.id === currentVariantId);
-        }
-
-        // Fallback: użyj pierwszego dostępnego lub zaznaczonego
+        const product = render.productAt(productIndex);
+        const selectedItem = render.selectedItem(product);
         if (!selectedItem) {
-            selectedItem = productItems.find(item => item.is_selected) || productItems[0];
-        }
-
-        if (!selectedItem) {
-            console.error('[ClientAR] Nie znaleziono wybranego wariantu');
-            utils.showAlert('Błąd: Nie można określić wariantu produktu', 'error');
+            utils.showAlert('Nie można określić wariantu produktu', 'error');
             return;
         }
 
-        // Przygotuj dane produktu w formacie oczekiwanym przez ARHandler
         const productData = {
             variant_code: selectedItem.variant_code,
             product_index: selectedItem.product_index,
@@ -1259,277 +1345,104 @@ const handlers = {
             quantity: selectedItem.quantity || 1
         };
 
-        console.log('[ClientAR] Dane produktu dla AR:', productData);
-
-        // INTELIGENTNY WYBÓR: Mobile vs Desktop
         if (utils.isMobile()) {
-            // Na mobile - BEZPOŚREDNIO uruchom AR bez modala
-            try {
-                console.log('[ClientAR] Mobile detected - launching AR directly');
-                this.launchDirectAR(productData);
-            } catch (error) {
-                console.error('[ClientAR] Błąd bezpośredniego AR:', error);
-                utils.showAlert(`Błąd AR: ${error.message}`, 'error');
-            }
+            this.launchDirectAR(productData);
         } else {
-            // Na desktop - pokaż nowy modal z QR code
-            console.log('[ClientAR] Desktop detected - showing AR modal with QR code');
             this.showDesktopARModal(productData);
         }
     },
 
-    /**
-     * Uruchamia AR bezpośrednio na mobile (bez modala)
-     */
     async launchDirectAR(productData) {
-        console.log('[ClientAR] Bezpośrednie uruchomienie AR dla mobile');
-
-        // Sprawdź czy jesteśmy na iOS Safari
         const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
         const isSafari = /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
 
         if (!isIOS) {
-            // Android - pokaż komunikat
             utils.showAlert('AR jest dostępne tylko na iPhone i iPad', 'info');
             return;
         }
-
         if (!isSafari) {
-            // iOS ale nie Safari - pokaż komunikat
-            utils.showAlert('AR wymaga przeglądarki Safari', 'warning');
+            utils.showAlert('AR wymaga przeglądarki Safari', 'info');
             return;
         }
 
         try {
-            // Pokaż krótki loading
-            utils.setLoading(true, 'Przygotowywanie AR...');
-
-            console.log('[ClientAR] Wywołanie ARHandler.initiateIOSAR...');
-
-            // Użyj bezpośrednio metody z ARHandler
+            utils.setLoading(true);
             await window.ARHandler.initiateIOSAR(productData);
-
-            utils.setLoading(false);
-            console.log('[ClientAR] AR uruchomiony pomyślnie');
-
         } catch (error) {
-            utils.setLoading(false);
             console.error('[ClientAR] Błąd bezpośredniego AR:', error);
             utils.showAlert(`Nie udało się uruchomić AR: ${error.message}`, 'error');
+        } finally {
+            utils.setLoading(false);
         }
     },
 
-    /**
-     * NOWA METODA: Pokazuje przycisk do ręcznego uruchomienia AR (fallback)
-     */
-    showManualARButton(usdzUrl, productData, errorMessage) {
-        console.log('[ClientAR] Pokazuję ręczny przycisk AR jako fallback');
-
-        // Utwórz modal z przyciskiem AR
-        const modal = this.createARModalElement('Uruchom AR ręcznie', {
-            icon: '📱',
-            title: 'Kliknij przycisk poniżej aby uruchomić AR',
-            message: `Wystąpił problem z automatycznym uruchomieniem AR.\n\nBłąd: ${errorMessage}\n\nModel: ${productData.variant_code}`,
-            buttons: [
-                {
-                    text: 'Uruchom AR',
-                    action: () => {
-                        window.location.href = usdzUrl;
-                        this.closeARModal();
-                    },
-                    primary: true
-                },
-                {
-                    text: 'Anuluj',
-                    action: () => this.closeARModal(),
-                    primary: false
-                }
-            ]
-        });
-
-        this.showARModal(modal);
-    },
-
-    /**
-     * Pokazuje nowy modal AR dla desktop z QR code
-     */
     showDesktopARModal(productData) {
-        const variant = productData.variant_code || 'Produkt';
         const dims = productData.dimensions || {};
         const dimensions = `${dims.length || 0}×${dims.width || 0}×${dims.thickness || 0} cm`;
         const currentUrl = window.location.href;
 
-        // Utwórz modal w stylu preview3d_ar
         const modal = this.createARModalElement('Rzeczywistość rozszerzona', {
             icon: '🖥️',
             title: 'Zeskanuj kod QR swoim telefonem',
-            message: `Model: ${variant}\nWymiary: ${dimensions}\n\nFunkcja AR działa na iPhone i iPad z iOS 12+ oraz Safari.`,
+            message: `Model: ${utils.translateVariantCode(productData.variant_code)}\nWymiary: ${dimensions}\n\nFunkcja AR działa na iPhone i iPad z iOS 12+ oraz Safari.`,
             qrUrl: currentUrl,
             buttons: [
-                {
-                    text: 'Zamknij',
-                    action: () => this.closeARModal(),
-                    primary: false
-                }
+                { text: 'Zamknij', action: () => this.closeARModal(), primary: false }
             ]
         });
 
         this.showARModal(modal);
-
-        // Wygeneruj QR code po pokazaniu modala
-        setTimeout(() => {
-            this.generateQRCodeInModal(currentUrl);
-        }, 100);
+        setTimeout(() => this.generateQRCodeInModal(currentUrl), 100);
     },
 
-    /**
-    * Tworzy element AR modal (w stylu preview3d_ar)
-    */
     createARModalElement(title, options) {
         const modal = document.createElement('div');
         modal.className = 'ar-modal-overlay';
 
-        const qrHtml = options.qrUrl ? '<div class="ar-qr-container"><div class="ar-qr-code" id="arQrCode"></div><div class="ar-qr-url" id="arQrUrl"></div></div>' : '';
+        const qrHtml = options.qrUrl
+            ? '<div class="ar-qr-container"><div class="ar-qr-code" id="arQrCode"></div><div class="ar-qr-url" id="arQrUrl"></div></div>'
+            : '';
 
-        const buttonsHtml = options.buttons ? options.buttons.map(btn =>
-            `<button class="ar-modal-btn ${btn.primary ? 'primary' : ''}" data-action="${btn.text}">${btn.text}</button>`
-        ).join('') : '';
+        const buttonsHtml = (options.buttons || []).map(button =>
+            `<button type="button" class="ar-modal-btn ${button.primary ? 'primary' : ''}" data-action="${utils.esc(button.text)}">${utils.esc(button.text)}</button>`
+        ).join('');
 
         modal.innerHTML = `
-        <div class="ar-modal-content">
-            <div class="ar-modal-header">
-                <div class="ar-modal-icon">${options.icon}</div>
-                <h2 class="ar-modal-title">${title}</h2>
-            </div>
-            <div class="ar-modal-body">
-                <div class="ar-modal-message" style="white-space: pre-line;">${options.message}</div>
-                ${qrHtml}
-            </div>
-            <div class="ar-modal-footer">
-                ${buttonsHtml}
-            </div>
-        </div>
-    `;
+            <div class="ar-modal-content">
+                <div class="ar-modal-header">
+                    <div class="ar-modal-icon">${utils.esc(options.icon)}</div>
+                    <h2 class="ar-modal-title">${utils.esc(title)}</h2>
+                </div>
+                <div class="ar-modal-body">
+                    <div class="ar-modal-message" style="white-space: pre-line;">${utils.esc(options.message)}</div>
+                    ${qrHtml}
+                </div>
+                <div class="ar-modal-footer">${buttonsHtml}</div>
+            </div>`;
 
-        // Event listenery dla przycisków
-        if (options.buttons) {
-            options.buttons.forEach(btn => {
-                const btnElement = modal.querySelector(`[data-action="${btn.text}"]`);
-                if (btnElement) {
-                    btnElement.addEventListener('click', btn.action);
-                }
-            });
-        }
+        (options.buttons || []).forEach(button => {
+            const element = modal.querySelector(`[data-action="${button.text}"]`);
+            if (element) element.addEventListener('click', button.action);
+        });
 
         return modal;
     },
 
-    /**
-     * Pokazuje AR modal
-     */
     showARModal(modal) {
-        this.closeARModal(); // Zamknij poprzedni jeśli istnieje
+        this.closeARModal();
         modal.id = 'ar-modal';
         document.body.appendChild(modal);
 
-        // ESC key handler
-        this._escHandler = (e) => {
-            if (e.key === 'Escape') {
-                this.closeARModal();
-            }
+        this._escHandler = (event) => {
+            if (event.key === 'Escape') this.closeARModal();
         };
         document.addEventListener('keydown', this._escHandler);
 
-        // Click outside handler
-        modal.addEventListener('click', (e) => {
-            if (e.target === modal) {
-                this.closeARModal();
-            }
+        modal.addEventListener('click', (event) => {
+            if (event.target === modal) this.closeARModal();
         });
     },
 
-    /**
- * Otwiera nową kartę z Quote Viewer 3D/AR (zamiast modal iframe)
- * @param {number} productIndex - Indeks produktu
- */
-    open3DViewer(productIndex) {
-        console.log('[Client3D] Otwieranie Quote Viewer 3D/AR dla produktu:', productIndex);
-
-        // Walidacja
-        if (!window.QUOTE_TOKEN) {
-            console.error('[Client3D] Brak tokenu wyceny');
-            utils.showAlert('Błąd: Brak tokenu zabezpieczającego', 'error');
-            return;
-        }
-
-        if (!globalState.quoteData || !globalState.quoteData.items) {
-            console.error('[Client3D] Brak danych wyceny');
-            utils.showAlert('Błąd: Brak danych wyceny', 'error');
-            return;
-        }
-
-        // Sprawdź czy są produkty w wycenie
-        const productItems = globalState.quoteData.items.filter(item =>
-            item.product_index === productIndex
-        );
-
-        if (productItems.length === 0) {
-            console.error('[Client3D] Brak produktów dla indeksu:', productIndex);
-            utils.showAlert('Błąd: Nie znaleziono produktów w wycenie', 'error');
-            return;
-        }
-
-        try {
-            // URL nowego viewer'a z tokenem (tak samo jak w modalu quotes)
-            const viewerUrl = `/preview3d-ar/${window.QUOTE_TOKEN}`;
-
-            // Parametry okna - takie same jak w modalu quotes
-            const windowFeatures = [
-                'width=1600',
-                'height=1000',
-                'scrollbars=yes',
-                'resizable=yes',
-                'menubar=no',
-                'toolbar=no',
-                'location=no',
-                'status=no',
-                'left=' + Math.max(0, (screen.width - 1600) / 2),
-                'top=' + Math.max(0, (screen.height - 1000) / 2)
-            ].join(',');
-
-            console.log('[Client3D] Otwieranie URL:', viewerUrl);
-
-            // Otwórz nową kartę/okno
-            const viewer3DWindow = window.open(viewerUrl, 'QuoteViewer3D_' + window.QUOTE_TOKEN, windowFeatures);
-
-            if (!viewer3DWindow) {
-                // Fallback - spróbuj otworzyć w nowej karcie
-                window.open(viewerUrl, '_blank');
-                utils.showAlert('Quote Viewer 3D/AR został otwarty w nowej karcie (sprawdź ustawienia blokady popup)', 'info');
-            } else {
-                console.log('[Client3D] Quote Viewer 3D/AR otwarty pomyślnie');
-
-                // Spróbuj ustawić tytuł okna
-                try {
-                    viewer3DWindow.addEventListener('load', function () {
-                        if (viewer3DWindow.document) {
-                            viewer3DWindow.document.title = `${window.QUOTE_NUMBER} - Podgląd 3D/AR`;
-                        }
-                    });
-                } catch (e) {
-                    // Ignore cross-origin errors
-                }
-            }
-
-        } catch (error) {
-            console.error('[Client3D] Błąd uruchamiania Quote Viewer:', error);
-            utils.showAlert('Błąd uruchamiania Quote Viewer 3D/AR', 'error');
-        }
-    },
-
-    /**
-     * Zamyka AR modal
-     */
     closeARModal() {
         const modal = document.getElementById('ar-modal');
         if (modal) {
@@ -1541,159 +1454,85 @@ const handlers = {
         }
     },
 
-    /**
-     * Generuje QR code w modal
-     */
     generateQRCodeInModal(url) {
         const qrContainer = document.getElementById('arQrCode');
         const urlDisplay = document.getElementById('arQrUrl');
+        if (!qrContainer || !urlDisplay || !window.QRCode) return;
 
-        if (qrContainer && urlDisplay) {
-            // Wyczyść poprzedni QR code
-            qrContainer.innerHTML = '';
-
-            // Wygeneruj nowy QR code
-            new QRCode(qrContainer, {
-                text: url,
-                width: 200,
-                height: 200,
-                colorDark: '#000000',
-                colorLight: '#ffffff',
-                correctLevel: QRCode.CorrectLevel.M
-            });
-
-            // Pokaż URL
-            urlDisplay.textContent = url;
-
-            console.log('QR code generated in AR modal');
-        }
+        qrContainer.innerHTML = '';
+        new QRCode(qrContainer, {
+            text: url,
+            width: 200,
+            height: 200,
+            colorDark: '#000000',
+            colorLight: '#ffffff',
+            correctLevel: QRCode.CorrectLevel.M
+        });
+        urlDisplay.textContent = url;
     },
 
     /**
-     * Pokazuje modal akceptacji
+     * Otwiera podgląd 3D/AR w nowym oknie
      */
-    showAcceptModal() {
-        if (globalState.isQuoteAccepted) return;
+    open3DViewer(productIndex) {
+        if (!window.QUOTE_TOKEN) {
+            utils.showAlert('Brak tokenu zabezpieczającego', 'error');
+            return;
+        }
 
-        const modal = document.getElementById('acceptModal');
-        if (modal) {
-            modal.classList.add('active');
+        const viewerUrl = `/preview3d-ar/${window.QUOTE_TOKEN}`;
+        const windowFeatures = [
+            'width=1600', 'height=1000', 'scrollbars=yes', 'resizable=yes',
+            'menubar=no', 'toolbar=no', 'location=no', 'status=no',
+            'left=' + Math.max(0, (screen.width - 1600) / 2),
+            'top=' + Math.max(0, (screen.height - 1000) / 2)
+        ].join(',');
+
+        const viewerWindow = window.open(viewerUrl, 'QuoteViewer3D_' + window.QUOTE_TOKEN, windowFeatures);
+        if (!viewerWindow) {
+            window.open(viewerUrl, '_blank');
         }
     },
 
     /**
-     * Obsługa formularza akceptacji
-     * @param {Event} event - Event formularza
-     */
-    async handleAcceptSubmit(event) {
-        event.preventDefault();
-
-        // Pobierz dane z formularza
-        const email = document.getElementById('acceptEmail').value;
-        const phone = document.getElementById('acceptPhone').value;
-        const comments = document.getElementById('acceptComments').value;
-        const terms = document.getElementById('acceptTerms').checked;
-
-        // Walidacja
-        let hasErrors = false;
-
-        if (!email || !email.includes('@')) {
-            document.getElementById('emailError').textContent = 'Podaj prawidłowy adres email';
-            document.getElementById('emailError').classList.remove('hidden');
-            hasErrors = true;
-        }
-
-        if (!phone || phone.length < 9) {
-            document.getElementById('phoneError').textContent = 'Podaj prawidłowy numer telefonu';
-            document.getElementById('phoneError').classList.remove('hidden');
-            hasErrors = true;
-        }
-
-        if (!terms) {
-            document.getElementById('termsError').textContent = 'Musisz zaakceptować warunki';
-            document.getElementById('termsError').classList.remove('hidden');
-            hasErrors = true;
-        }
-
-        if (hasErrors) return;
-
-        try {
-            utils.setLoading(true);
-
-            // Wyślij dane do API
-            const response = await api.acceptQuote(window.QUOTE_TOKEN, {
-                email_or_phone: email,
-                phone: phone,
-                comments: comments
-            });
-
-            // Sukces - odśwież stronę
-            utils.showAlert('Wycena została zaakceptowana!', 'success');
-            setTimeout(() => {
-                window.location.reload();
-            }, 1500);
-
-        } catch (error) {
-            console.error('Błąd akceptacji:', error);
-            utils.showAlert(error.message || 'Błąd podczas akceptacji wyceny', 'error');
-        } finally {
-            utils.setLoading(false);
-        }
-    },
-
-    /**
-     * Zamyka modal
-     * @param {string} modalId - ID modala
+     * Zamyka modal sterowany klasą .active (np. #qrModal)
      */
     closeModal(modalId) {
         const modal = document.getElementById(modalId);
-        if (modal) {
-            modal.classList.remove('active');
-        }
+        if (modal) modal.classList.remove('active');
 
-        // Wyczyść błędy formularza
-        document.querySelectorAll('.form-error').forEach(el => {
-            el.classList.add('hidden');
-            el.textContent = '';
+        document.querySelectorAll('.form-error').forEach(element => {
+            element.classList.add('hidden');
+            element.textContent = '';
         });
     },
 
     /**
-     * Przełącza widoczność podsumowania mobilnego
+     * Rozwija/zwija szufladę podsumowania w dolnym pasku
      */
     toggleSummary() {
         const details = document.getElementById('bottomBarDetails');
         const chevron = document.getElementById('summaryChevron');
-
-        if (details && chevron) {
-            details.classList.toggle('open');
-            chevron.classList.toggle('open');
-        }
+        if (details) details.classList.toggle('open');
+        if (chevron) chevron.classList.toggle('open');
     }
 };
 
 // ===================================
-// INITIALIZATION
+// START
 // ===================================
 const init = {
-    /**
-     * Ładuje dane wyceny
-     */
     async loadQuoteData() {
         try {
             utils.setLoading(true);
 
             const token = window.QUOTE_TOKEN;
-            if (!token) {
-                throw new Error('Brak tokenu wyceny');
-            }
+            if (!token) throw new Error('Brak tokenu wyceny');
 
-            // Pobierz dane z API
             globalState.quoteData = await api.getQuoteData(token);
-            console.log('Załadowano dane wyceny:', globalState.quoteData);
 
-            // Ustaw domyślnie wybrane warianty
-            if (globalState.quoteData.items) {
+            globalState.selectedVariants.clear();
+            if (Array.isArray(globalState.quoteData.items)) {
                 globalState.quoteData.items.forEach(item => {
                     if (item.is_selected) {
                         globalState.selectedVariants.set(item.product_index, item.id);
@@ -1701,140 +1540,193 @@ const init = {
                 });
             }
 
-            // Sprawdź czy wycena jest zaakceptowana
-            globalState.isQuoteAccepted = !globalState.quoteData.is_client_editable;
+            const products = render.products();
+            if (products.length > 0 && !products.some(p => p.index === globalState.currentProductIndex)) {
+                globalState.currentProductIndex = products[0].index;
+            }
 
-            // Renderuj UI
-            this.renderAll();
+            globalState.isQuoteAccepted = !globalState.quoteData.is_client_editable;
+            globalState.hasUnsavedChanges = false;
+
+            this.syncAcceptModalData();
+            render.refreshUI();
+
+            if (globalState.isQuoteAccepted) this.disableInteractions();
 
         } catch (error) {
             console.error('Błąd ładowania danych:', error);
-            utils.showAlert('Błąd ładowania danych wyceny', 'error');
+            utils.showAlert('Nie udało się wczytać wyceny. Odśwież stronę.', 'error');
         } finally {
             utils.setLoading(false);
         }
     },
 
     /**
-     * Renderuje wszystkie elementy UI
+     * Modal akceptacji czyta kwoty z window.currentQuoteData (szablon wstrzykuje
+     * je przy renderze). Po zapisie wariantu te kwoty byłyby nieaktualne,
+     * więc odświeżamy je razem z danymi z API.
      */
-    renderAll() {
-        render.productTabs();
-        render.productSections();
-        render.comparison();
-        render.mobileSummary();
-        render.desktopSummary();
-        render.desktopComparison();
-
-        // Pokaż/ukryj elementy w zależności od stanu
-        if (globalState.isQuoteAccepted) {
-            this.disableInteractions();
-        }
+    syncAcceptModalData() {
+        const costs = (globalState.quoteData && globalState.quoteData.costs) || {};
+        window.currentQuoteData = Object.assign({}, window.currentQuoteData, {
+            quote_number: globalState.quoteData.quote_number,
+            total_netto: money.pick(costs, 'total', 'netto').toFixed(2),
+            total_vat: money.pick(costs, 'total', 'vat').toFixed(2),
+            total_brutto: money.pick(costs, 'total', 'brutto').toFixed(2)
+        });
     },
 
-    /**
-     * Wyłącza interakcje dla zaakceptowanej wyceny
-     */
     disableInteractions() {
-        // Wyłącz przycisk akceptacji
-        const acceptBtn = document.querySelector('.btn-accept');
-        if (acceptBtn) {
-            acceptBtn.disabled = true;
-            acceptBtn.textContent = 'Wycena zaakceptowana';
-        }
-
-        // Dodaj klasę do body
+        document.querySelectorAll('.btn-accept').forEach(button => {
+            button.disabled = true;
+        });
         document.body.classList.add('quote-accepted');
     },
 
     /**
-     * Ustawia event listenery
+     * Akceptacja z niezapisanym wyborem wariantu wysłałaby na serwer STARY
+     * wariant, a modal pokazałby kwoty podglądu. Dlatego przy niezapisanym
+     * wyborze modal się NIE otwiera — klient musi najpierw kliknąć "Zapisz
+     * zmiany". Świadomie nie zapisujemy za niego po cichu: zapis zmienia
+     * wycenę na serwerze i ma być decyzją, a nie efektem ubocznym.
      */
+    guardAcceptModal() {
+        const original = window.openAcceptModal;
+        if (typeof original !== 'function' || original.__wpGuarded) return;
+
+        const guarded = function (quoteData) {
+            if (globalState.hasUnsavedChanges) {
+                init.highlightUnsavedNotice();
+                return undefined;
+            }
+            return original.call(this, quoteData || window.currentQuoteData);
+        };
+        guarded.__wpGuarded = true;
+        window.openAcceptModal = guarded;
+    },
+
+    /**
+     * Zwraca uwagę na informację o niezapisanym wyborze — gdy przycisk
+     * akceptacji jest zablokowany, klient musi wiedzieć dlaczego.
+     */
+    highlightUnsavedNotice() {
+        const notices = Array.from(document.querySelectorAll('.save-changes-section.visible'));
+        const widoczna = notices.find(el => el.offsetParent !== null);
+        if (!widoczna) return;
+
+        widoczna.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        widoczna.classList.remove('pulse');
+        // reflow, żeby animacja odpaliła też przy powtórnym kliknięciu
+        void widoczna.offsetWidth;
+        widoczna.classList.add('pulse');
+    },
+
     setupEventListeners() {
-        // Product selection (mobile)
+        // "Zapisz zmiany" żyje teraz POD podsumowaniem, czyli poza
+        // #productSections — delegacja z tamtej sekcji już go nie łapie.
+        document.addEventListener('click', (event) => {
+            const btn = event.target.closest('[data-action="save-changes"]');
+            if (btn) handlers.saveChanges();
+        });
+
+        // Wybór pozycji (telefon)
         const productSelect = document.getElementById('productSelect');
         if (productSelect) {
-            productSelect.addEventListener('change', (e) => {
-                handlers.switchProduct(parseInt(e.target.value));
+            productSelect.addEventListener('change', (event) => {
+                handlers.switchProduct(parseInt(event.target.value, 10));
             });
         }
 
-        // Close modals on outside click
+        // Przełącznik pozycji (desktop) — delegacja, bo przyciski powstają w renderze
+        const productButtons = document.getElementById('productButtons');
+        if (productButtons) {
+            productButtons.addEventListener('click', (event) => {
+                const button = event.target.closest('.product-button');
+                if (!button) return;
+                handlers.switchProduct(Number(button.dataset.productIndex));
+            });
+        }
+
+        // Kafelki wariantów, przyciski 3D/AR i zapis zmian — jedna delegacja
+        const sections = document.getElementById('productSections');
+        if (sections) {
+            sections.addEventListener('click', (event) => {
+                const actionButton = event.target.closest('[data-action]');
+                if (actionButton) {
+                    const productIndex = Number(actionButton.dataset.productIndex);
+                    if (actionButton.dataset.action === 'view-3d') return handlers.open3DViewer(productIndex);
+                    if (actionButton.dataset.action === 'view-ar') return handlers.openARModal(productIndex);
+                    if (actionButton.dataset.action === 'save-changes') return handlers.saveChanges();
+                    return undefined;
+                }
+
+                const tile = event.target.closest('.tile');
+                if (!tile || tile.disabled) return undefined;
+                handlers.selectVariant(Number(tile.dataset.productIndex), Number(tile.dataset.itemId));
+                return undefined;
+            });
+        }
+
+        // Zamykanie modali klasą .active
         document.querySelectorAll('.modal-overlay').forEach(modal => {
-            modal.addEventListener('click', (e) => {
-                if (e.target === modal) {
-                    handlers.closeModal(modal.id);
-                }
+            modal.addEventListener('click', (event) => {
+                if (event.target === modal) handlers.closeModal(modal.id);
             });
         });
 
-        // Close 3D viewer on click outside
-        const viewerModal = document.getElementById('viewerModal');
-        if (viewerModal) {
-            viewerModal.addEventListener('click', (e) => {
-                if (e.target === viewerModal) {
-                    handlers.close3DViewer();
-                }
-            });
-        }
-
-        // DODANE: Close QR modal on click outside
-        const qrModal = document.getElementById('qrModal');
-        if (qrModal) {
-            qrModal.addEventListener('click', (e) => {
-                if (e.target === qrModal) {
-                    handlers.closeModal('qrModal');
-                }
-            });
-        }
-
-        // DODANE: Close QR modal on ESC key
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') {
-                const activeModal = document.querySelector('.modal-overlay.active');
-                if (activeModal) {
-                    handlers.closeModal(activeModal.id);
-                }
-            }
+        document.addEventListener('keydown', (event) => {
+            if (event.key !== 'Escape') return;
+            const activeModal = document.querySelector('.modal-overlay.active');
+            if (activeModal) handlers.closeModal(activeModal.id);
         });
 
-        // Expose handlers to global scope for onclick attributes
+        // Wysokość dolnego paska zmienia się razem z układem strony
+        window.addEventListener('resize', () => {
+            render.syncBarHeight();
+            document.querySelectorAll('[data-rail]').forEach(rail => render.updateRail(rail));
+        });
+
+        const bar = document.querySelector('#mobileBottomBar .bar');
+        if (bar && typeof ResizeObserver !== 'undefined') {
+            new ResizeObserver(() => render.syncBarHeight()).observe(bar);
+        }
+
+        // Rozwinięcie szuflady nie może zmienić rezerwacji miejsca pod paskiem
+        const summaryToggle = document.getElementById('summaryToggle');
+        if (summaryToggle) {
+            summaryToggle.addEventListener('click', () => render.syncBarHeight());
+        }
+
+        // Funkcje wołane z atrybutów onclick w szablonie
         window.handlers = handlers;
-        window.toggleSummary = handlers.toggleSummary;
-        window.showAcceptModal = handlers.showAcceptModal;
-        window.closeModal = handlers.closeModal;
-        window.handleAcceptSubmit = handlers.handleAcceptSubmit;
+        window.toggleSummary = () => handlers.toggleSummary();
+        window.closeModal = (modalId) => handlers.closeModal(modalId);
     }
 };
 
 // ===================================
-// MAIN ENTRY POINT
+// WEJŚCIE
 // ===================================
 document.addEventListener('DOMContentLoaded', async () => {
-    console.log('Client Quote JS - Initializing...');
-
     try {
-        // Ustaw event listenery
         init.setupEventListeners();
-
-        // Załaduj dane wyceny
+        init.guardAcceptModal();
+        render.syncBarHeight();
         await init.loadQuoteData();
-
-        console.log('Client Quote JS - Ready');
-
     } catch (error) {
         console.error('Błąd inicjalizacji:', error);
-        utils.showAlert('Błąd ładowania strony', 'error');
+        utils.showAlert('Nie udało się wczytać strony wyceny. Odśwież stronę.', 'error');
     }
 });
 
 // ===================================
-// PUBLIC API (dla debugowania)
+// API PUBLICZNE (debug i testy)
 // ===================================
 window.clientQuote = {
     state: globalState,
     api: api,
     utils: utils,
+    money: money,
     render: render,
     handlers: handlers,
     init: init

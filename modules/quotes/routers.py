@@ -6,6 +6,8 @@ from modules.clients.models import Client
 from .chatwoot_match import olx_buyer_prefix, name_matches_olx_prefix
 from modules.baselinker.service import BaselinkerService
 from modules.baselinker.models import BaselinkerConfig
+from modules.calculator.services.edge_calculator import human_edge_label, EDGE_DEFINITIONS
+from modules.quotes.services.svg_sanitizer import sanitize_svg
 from modules.users.decorators import require_module_access
 from modules.logging import get_logger
 from extensions import db, mail
@@ -395,44 +397,12 @@ def generate_quote_pdf(token, format):
         selected_items = [item for item in quote.items if item.is_selected]
         finishing_details = db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()
 
-        # Konwersja SVG → PNG za pomocą EdgesPdfGenerator (sprawdzona metoda)
-        from modules.baselinker.edges_pdf_generator import EdgesPdfGenerator
-        pdf_gen = EdgesPdfGenerator(logger=logger)
-
-        edges_images = {}
-        shape_images = {}
-        for fd in finishing_details:
-            if fd.edges_svg:
-                try:
-                    svg_fixed = pdf_gen._ensure_dashed_lines(fd.edges_svg)
-                    png_data_uri = pdf_gen._svg_to_png_base64(svg_fixed, 300, preserve_aspect=True)
-                    if png_data_uri:
-                        edges_images[fd.product_index] = png_data_uri
-                    else:
-                        logger.warning(f"[PDF {quote.quote_number}] Poz {fd.product_index}: edges PNG = None (sanitize/cairo fail) — fallback inline SVG")
-                except Exception as e:
-                    logger.error(f"[PDF {quote.quote_number}] Poz {fd.product_index}: edges PNG BŁĄD: {e}", exc_info=True)
-            if fd.shape_svg:
-                try:
-                    png_data_uri = pdf_gen._svg_to_png_base64(fd.shape_svg, 300, preserve_aspect=True)
-                    if png_data_uri:
-                        shape_images[fd.product_index] = png_data_uri
-                    else:
-                        logger.warning(f"[PDF {quote.quote_number}] Poz {fd.product_index}: shape PNG = None (sanitize/cairo fail) — fallback inline SVG")
-                except Exception as e:
-                    logger.error(f"[PDF {quote.quote_number}] Poz {fd.product_index}: shape PNG BŁĄD: {e}", exc_info=True)
-
-        # Lamella direction icons
-        lamella_images = {}
-        for detail in finishing_details:
-            if detail.lamella_direction is not None:
-                try:
-                    lamella_svg = pdf_gen._generate_lamella_svg(detail.lamella_direction, 60)
-                    png_uri = pdf_gen._svg_to_png_base64(lamella_svg, 60)
-                    if png_uri:
-                        lamella_images[detail.product_index] = png_uri
-                except Exception:
-                    pass
+        # Podglądy (PNG + oczyszczony SVG) — wspólne dla pobrania PDF i maila
+        preview_assets = build_quote_preview_assets(finishing_details, quote.quote_number)
+        edges_images = preview_assets['edges_images']
+        shape_images = preview_assets['shape_images']
+        lamella_images = preview_assets['lamella_images']
+        shape_svg_safe = preview_assets['shape_svg_safe']
 
         cost_products_netto = round(sum(item.get_total_price_netto() for item in selected_items), 2)
         cost_finishing_netto = round(sum(float(d.finishing_price_netto or 0) + float(d.edges_price_netto or 0) for d in finishing_details), 2)
@@ -493,6 +463,7 @@ def generate_quote_pdf(token, format):
                                  edges_images=edges_images,  # PNG obrazy krawędzi
                                  shape_images=shape_images,  # PNG obrazy kształtów
                                  lamella_images=lamella_images,  # PNG ikonki kierunku lameli
+                                 shape_svg_safe=shape_svg_safe,  # OCZYSZCZONY SVG kształtu (fallback dla |safe)
                                  icons=icons)
                 
         # Utwórz HTML object z base_url dla względnych ścieżek
@@ -549,14 +520,23 @@ def send_email(quote_id):
     # Załaduj ikony (opcjonalnie - można pominąć dla emaili)
     icons = {}  # Można dodać ikony jeśli potrzebne
 
-    rendered = render_template("quotes/templates/offer_pdf.html", 
-                              quote=quote, 
-                              client=client, 
-                              user=user, 
+    # Te same podglądy co przy pobieraniu PDF. Bez nich warunek {% if shape_images ... %}
+    # w szablonie był ZAWSZE fałszywy i załącznik mailowy leciał gałęzią z surowym SVG
+    # (WeasyPrint pobiera http(s) — SSRF z serwera CRM + piksel śledzący).
+    preview_assets = build_quote_preview_assets(finishing_details, quote.quote_number)
+
+    rendered = render_template("quotes/templates/offer_pdf.html",
+                              quote=quote,
+                              client=client,
+                              user=user,
                               status=status,
                               costs=costs,
                               selected_items=selected_items,
                               finishing_details=finishing_details,
+                              edges_images=preview_assets['edges_images'],
+                              shape_images=preview_assets['shape_images'],
+                              lamella_images=preview_assets['lamella_images'],
+                              shape_svg_safe=preview_assets['shape_svg_safe'],
                               icons=icons)
     
     pdf_file = BytesIO()
@@ -949,6 +929,225 @@ def apply_total_discount(quote_id):
 
 
 
+# ============================================================
+# STRONA KLIENTA (publiczna) — helpery wspólne dla widoku i API
+# ============================================================
+
+def build_quote_costs(quote):
+    """
+    Liczy koszty wyceny (produkty + wykończenie + wysyłka) razem z VAT.
+
+    Jedno źródło prawdy dla API strony klienta i dla renderu szablonu —
+    dzięki temu modal akceptacji pokazuje dokładnie te same kwoty,
+    co podsumowanie wyceny.
+    """
+    products_netto = round(
+        sum(i.get_total_price_netto() for i in quote.items if i.is_selected), 2
+    )
+    details = db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()
+    finishing_netto = round(
+        sum(float(d.finishing_price_netto or 0) + float(d.edges_price_netto or 0) for d in details),
+        2
+    )
+    shipping_brutto = quote.shipping_cost_brutto or 0.0
+
+    return calculate_costs_with_vat(products_netto, finishing_netto, shipping_brutto)
+
+
+def flatten_costs_for_template(costs):
+    """
+    Szablon client_quote.html wstrzykuje do window.currentQuoteData PŁASKIE klucze
+    total_netto / total_vat / total_brutto, a build_quote_costs zwraca strukturę
+    zagnieżdżoną (używaną przez API). Dokładamy płaskie aliasy, zostawiając resztę.
+    """
+    flat = dict(costs or {})
+    total = (costs or {}).get('total') or {}
+
+    for key in ('netto', 'vat', 'brutto'):
+        try:
+            value = float(total.get(key) or 0)
+        except (TypeError, ValueError):
+            value = 0.0
+        flat['total_' + key] = '{:.2f}'.format(value)
+
+    return flat
+
+
+def _safe_sanitize_svg(raw):
+    """
+    Sanitizer SVG nie może wywalić całej publicznej strony wyceny —
+    w razie błędu po prostu nie pokazujemy podglądu.
+    """
+    try:
+        return sanitize_svg(raw)
+    except Exception as e:
+        logger.warning(f"[_safe_sanitize_svg] Nie udało się oczyścić SVG: {e}")
+        return None
+
+
+def build_quote_preview_assets(finishing_details, quote_number=''):
+    """
+    Buduje podglądy kształtu / krawędzi / lameli dla PDF-a oferty (offer_pdf.html).
+
+    Zwraca słownik czterech map, każda kluczowana po product_index:
+      * edges_images   — PNG data URI widoku izometrycznego krawędzi
+      * shape_images   — PNG data URI widoku kształtu
+      * lamella_images — PNG data URI ikonki kierunku lameli
+      * shape_svg_safe — OCZYSZCZONY SVG kształtu; szablon renderuje go przez
+                         |safe, gdy konwersja na PNG się nie powiodła
+
+    KLUCZOWE (bezpieczeństwo): kolumny quote_items_details.shape_svg / edges_svg
+    zapisujemy do bazy verbatim, więc surowa wartość nie może trafić ANI do
+    cairosvg (PNG), ANI do szablonu. Oba parsery pobierają zasoby po http(s)
+    z serwera CRM — zapisane w wycenie <image xlink:href="http://atakujacy/x">
+    daje żądanie wychodzące (SSRF + piksel śledzący), a WeasyPrint dodatkowo
+    renderuje aktywną treść SVG. Dlatego KAŻDE wyjście przechodzi przez
+    sanitize_svg (whitelist, fail-closed: None = brak podglądu, nie surowy SVG).
+
+    Helper jest wspólny dla ścieżki pobrania PDF i ścieżki mailowej — mail
+    wcześniej nie dostawał żadnej z map, więc zawsze wpadał w gałąź z surowym SVG.
+    """
+    from modules.baselinker.edges_pdf_generator import EdgesPdfGenerator
+
+    pdf_gen = EdgesPdfGenerator(logger=logger)
+
+    edges_images = {}
+    shape_images = {}
+    lamella_images = {}
+    shape_svg_safe = {}
+
+    for detail in finishing_details or []:
+        index = getattr(detail, 'product_index', None)
+
+        edges_raw = getattr(detail, 'edges_svg', None)
+        if edges_raw:
+            try:
+                # Sanityzacja NAJPIERW, tuż przy źródle: dalej idzie już tylko
+                # _ensure_dashed_lines, które dokłada stroke-dasharray i nie ma
+                # jak wprowadzić URL-a. Kolejność 1:1 jak przed zmianą, żeby nie
+                # ruszać profilu udanych/nieudanych konwersji cairosvg.
+                edges_safe = _safe_sanitize_svg(edges_raw)
+                png_data_uri = None
+                if edges_safe:
+                    svg_fixed = pdf_gen._ensure_dashed_lines(edges_safe)
+                    png_data_uri = pdf_gen._svg_to_png_base64(svg_fixed, 300, preserve_aspect=True)
+                if png_data_uri:
+                    edges_images[index] = png_data_uri
+                else:
+                    logger.warning(f"[PDF {quote_number}] Poz {index}: edges PNG = None (sanitize/cairo fail) — bez podglądu")
+            except Exception as e:
+                logger.error(f"[PDF {quote_number}] Poz {index}: edges PNG BŁĄD: {e}", exc_info=True)
+
+        shape_raw = getattr(detail, 'shape_svg', None)
+        if shape_raw:
+            try:
+                shape_safe = _safe_sanitize_svg(shape_raw)
+                if shape_safe:
+                    # Fallback dla szablonu: inline SVG, ale JUŻ oczyszczony.
+                    shape_svg_safe[index] = shape_safe
+                png_data_uri = None
+                if shape_safe:
+                    png_data_uri = pdf_gen._svg_to_png_base64(shape_safe, 300, preserve_aspect=True)
+                if png_data_uri:
+                    shape_images[index] = png_data_uri
+                else:
+                    logger.warning(f"[PDF {quote_number}] Poz {index}: shape PNG = None (sanitize/cairo fail) — fallback inline SVG")
+            except Exception as e:
+                logger.error(f"[PDF {quote_number}] Poz {index}: shape PNG BŁĄD: {e}", exc_info=True)
+
+        # Ikonka kierunku lameli powstaje w całości po naszej stronie
+        # (_generate_lamella_svg) — nie ma tu treści z bazy, nie sanityzujemy.
+        lamella_direction = getattr(detail, 'lamella_direction', None)
+        if lamella_direction is not None:
+            try:
+                lamella_svg = pdf_gen._generate_lamella_svg(lamella_direction, 60)
+                png_uri = pdf_gen._svg_to_png_base64(lamella_svg, 60)
+                if png_uri:
+                    lamella_images[index] = png_uri
+            except Exception:
+                pass
+
+    return {
+        'edges_images': edges_images,
+        'shape_images': shape_images,
+        'lamella_images': lamella_images,
+        'shape_svg_safe': shape_svg_safe,
+    }
+
+
+def build_edges_config_with_labels(edges_config):
+    """
+    Dopisuje do każdego wpisu edges_config czytelną etykietę PL pod kluczem "label".
+
+    Front zna tylko oznaczenia prostokąta (A-H, N1-N4), więc dla kształtów
+    nieregularnych (G1/D1/P1) i krawędzi wycięć (H1.G2) etykietę liczymy na serwerze.
+    Całość defensywnie: brak klucza "letter", nietypowy wpis albo błąd translatora
+    nie może przerwać serializacji wyceny.
+    """
+    if not isinstance(edges_config, list):
+        return edges_config
+
+    result = []
+    for entry in edges_config:
+        if not isinstance(entry, dict):
+            result.append(entry)
+            continue
+
+        enriched = dict(entry)
+        letter = enriched.get('letter')
+        if letter:
+            try:
+                label = human_edge_label(letter)
+                # human_edge_label nie zna oznaczeń prostokąta (A-H) i oddaje wtedy
+                # surowe ID — w takim wypadku sięgamy po pełną nazwę z definicji krawędzi
+                if label == str(letter):
+                    definition = EDGE_DEFINITIONS.get(letter)
+                    if definition:
+                        label = definition.get('name_full') or definition.get('name') or label
+                enriched['label'] = label
+            except Exception as e:
+                logger.warning(f"[build_edges_config_with_labels] Nie udało się opisać krawędzi: {e}")
+
+        result.append(enriched)
+
+    return result
+
+
+def build_client_finishing_entry(detail):
+    """
+    Buduje PUBLICZNY słownik wykończenia / krawędzi / kształtu dla strony klienta.
+
+    Świadomie jawna biała lista pól — NIE używamy detail.to_dict(), bo wystawiłoby
+    to publicznie dane wewnętrzne (id, quote_id, product_type,
+    baselinker_order_product_id, round_surcharge_netto/brutto).
+    Oba pola SVG przechodzą przez sanitizer.
+    """
+    return {
+        "product_index": detail.product_index,
+        "finishing_type": detail.finishing_type,
+        "finishing_variant": detail.finishing_variant,
+        "finishing_color": detail.finishing_color,
+        "finishing_gloss_level": detail.finishing_gloss_level,
+        "finishing_price_netto": float(detail.finishing_price_netto or 0),
+        "finishing_price_brutto": float(detail.finishing_price_brutto or 0),
+        "quantity": detail.quantity or 1,
+        # Dane obróbki krawędzi
+        "edges_config": build_edges_config_with_labels(detail.edges_config),
+        "edges_type": detail.edges_type,
+        "edges_mode": detail.edges_mode,
+        "edges_r_value": detail.edges_r_value,
+        "edges_angle_value": detail.edges_angle_value,
+        "edges_price_netto": float(detail.edges_price_netto or 0),
+        "edges_price_brutto": float(detail.edges_price_brutto or 0),
+        "edges_svg": _safe_sanitize_svg(detail.edges_svg),
+        # Kształt produktu (podgląd na stronie klienta)
+        "shape": detail.shape,
+        "shape_svg": _safe_sanitize_svg(detail.shape_svg),
+        "lamella_direction": detail.lamella_direction,
+        "cut_to_size": bool(detail.cut_to_size) if detail.cut_to_size is not None else True
+    }
+
+
 @quotes_bp.route("/c/<token>")
 def client_quote_view(token):
     """Widok strony klienta z redesignem"""
@@ -971,12 +1170,22 @@ def client_quote_view(token):
         
         # Przekazujemy dodatkowe dane potrzebne w nowym designie
         current_year = datetime.now().year
-        
-        return render_template("quotes/templates/client_quote.html", 
+
+        # Koszty liczone identycznie jak w API strony klienta — szablon wstrzykuje je
+        # do window.currentQuoteData, z którego korzysta modal akceptacji.
+        # Bez tego modal widział 0.00 i zgadywał kwoty z DOM.
+        try:
+            costs = flatten_costs_for_template(build_quote_costs(quote))
+        except Exception as e:
+            logger.warning(f"[client_quote_view] Nie udało się policzyć kosztów dla {quote_number}: {e}")
+            costs = None
+
+        return render_template("quotes/templates/client_quote.html",
                              quote=quote,
                              quote_number=quote_number,
                              token=token,
                              is_accepted=not quote.is_client_editable,
+                             costs=costs,
                              current_year=current_year)
         
     except Exception as e:
@@ -1004,12 +1213,10 @@ def get_client_quote_data(token):
                 "message": "Wycena nie została znaleziona"
             }), 404
         
-        # Oblicz koszty
-        cost_products_netto = round(sum(i.get_total_price_netto() for i in quote.items if i.is_selected), 2)
-        cost_finishing_netto = round(sum(float(d.finishing_price_netto or 0) + float(d.edges_price_netto or 0) for d in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()), 2)
+        # Oblicz koszty (wspólny helper — ten sam, którego używa widok strony klienta)
         cost_shipping_brutto = quote.shipping_cost_brutto or 0.0
         cost_shipping_netto = quote.shipping_cost_netto or 0.0
-        costs = calculate_costs_with_vat(cost_products_netto, cost_finishing_netto, cost_shipping_brutto)
+        costs = build_quote_costs(quote)
         
         # Pobierz wszystkie pozycje jeśli wycena jest zaakceptowana, 
         # w przeciwnym razie tylko te oznaczone jako widoczne
@@ -1024,25 +1231,7 @@ def get_client_quote_data(token):
         # Przygotuj dane o wykończeniach z obrazkami
         finishing_data = []
         for detail in finishing_details:
-            finishing_info = {
-                "product_index": detail.product_index,
-                "finishing_type": detail.finishing_type,
-                "finishing_variant": detail.finishing_variant,
-                "finishing_color": detail.finishing_color,
-                "finishing_gloss_level": detail.finishing_gloss_level,
-                "finishing_price_netto": float(detail.finishing_price_netto or 0),
-                "finishing_price_brutto": float(detail.finishing_price_brutto or 0),
-                "quantity": detail.quantity or 1,
-                # Dane obróbki krawędzi
-                "edges_config": detail.edges_config,
-                "edges_type": detail.edges_type,
-                "edges_mode": detail.edges_mode,
-                "edges_r_value": detail.edges_r_value,
-                "edges_price_netto": float(detail.edges_price_netto or 0),
-                "edges_price_brutto": float(detail.edges_price_brutto or 0),
-                "edges_svg": detail.edges_svg,
-                "cut_to_size": bool(detail.cut_to_size) if detail.cut_to_size is not None else True
-            }
+            finishing_info = build_client_finishing_entry(detail)
 
             # Dodaj ścieżkę do obrazka jeśli istnieje kolor
             if detail.finishing_color and detail.finishing_color != 'Brak':

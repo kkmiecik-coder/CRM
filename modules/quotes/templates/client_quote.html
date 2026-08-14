@@ -6,7 +6,7 @@
     <title>Wycena #{{ quote.quote_number }} - Wood Power</title>
     <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
 
-    <!-- Google Fonts -->
+    <!-- Google Fonts — jedna rodzina na całej stronie (Poppins) -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -14,190 +14,149 @@
     <!-- Styles -->
     <link rel="stylesheet" href="{{ url_for('quotes.static', filename='css/client_quote.css') }}">
 </head>
-<body>
-    <div class="client-page-wrapper">
-        <!-- Header -->
-        <header class="client-header">
-            <div class="client-header-content">
-                <img src="{{ url_for('static', filename='images/logo.svg') }}" alt="Logo Woodpower" style="max-width: 250px;">
-                <div class="client-header-info">
-                    <span>Wycena: #{{ quote.quote_number }}</span>
-                    <span>{{ quote.created_at.strftime('%d.%m.%Y') if quote.created_at else '' }}</span>
-                </div>
-            </div>
-        </header>
+<!-- data-quote-token: awaryjne źródło tokenu dla modala akceptacji (getCurrentQuoteToken) -->
+<body data-quote-token="{{ quote.public_token }}">
 
-        <!-- Acceptance Banner -->
-        {% if is_accepted %}
-        <div class="acceptance-banner" id="acceptanceBanner">
-            <div class="acceptance-banner-content">
-                <svg class="acceptance-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                </svg>
-                <div>
-                    <div class="acceptance-text">Wycena została zaakceptowana</div>
-                    {% if quote.acceptance_date %}
-                    <div class="acceptance-date">{{ quote.acceptance_date.strftime('%d.%m.%Y o %H:%M') }}</div>
-                    {% endif %}
-                </div>
+    <!-- ============================================================
+         GÓRNY PASEK — biały, tylko logo i numer wyceny.
+         Zdjęcie materiału zaczyna się dopiero pod nim.
+         ============================================================ -->
+    <header class="topbar">
+        <div class="hd">
+            <div class="logo">
+                <img src="{{ url_for('static', filename='images/logo.svg') }}" alt="Wood Power">
+            </div>
+            <div class="hd-meta">
+                <strong>#{{ quote.quote_number }}</strong>
+                {{ quote.created_at.strftime('%d.%m.%Y') if quote.created_at else '' }}
             </div>
         </div>
-        {% endif %}
+    </header>
 
-        <!-- Main Content -->
-        <main class="client-main-content">
-            <!-- Product Tabs (Desktop) -->
-            <div class="product-tabs">
-                <h3 class="product-tabs-header">Wybierz produkt:</h3>
-                <div class="product-buttons" id="productButtons">
-                    <!-- Generowane przez JS -->
-                </div>
+    <!-- Baner: wycena już zaakceptowana -->
+    {% if is_accepted %}
+    <div class="acceptance-banner" id="acceptanceBanner">
+        <div class="acceptance-banner-content">
+            <svg class="acceptance-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+            <div>
+                <div class="acceptance-text">Wycena została zaakceptowana</div>
+                {% if quote.acceptance_date %}
+                <div class="acceptance-date">{{ quote.acceptance_date.strftime('%d.%m.%Y o %H:%M') }}</div>
+                {% endif %}
             </div>
+        </div>
+    </div>
+    {% endif %}
 
-            <!-- Product Dropdown (Mobile) -->
-            <div class="product-dropdown">
-                <select class="product-select" id="productSelect">
-                    <!-- Generowane przez JS -->
-                </select>
-            </div>
+    <!-- ============================================================
+         STAGE — zdjęcie wybranego materiału jest PODKŁADEM góry strony.
+         .shot leży w warstwie 0, .veil rozpuszcza je w tle,
+         a nagłówek pozycji i pierwsze karty płyną po nim.
+         ============================================================ -->
+    <main class="stage">
+        {# Dwie warstwy zdjęcia, żeby zmiana wariantu była przenikaniem, a nie
+           przeskokiem: JS wgrywa nowy obraz w #stageShotNext, wypuszcza go
+           płynnie na wierzch, a po przejściu przenosi na warstwę bazową. #}
+        <div class="shot" id="stageShot" aria-hidden="true"></div>
+        <div class="shot shot-next" id="stageShotNext" aria-hidden="true"></div>
+        <div class="veil" aria-hidden="true"></div>
 
-            <!-- Desktop Layout: Content + Sidebar -->
-            <div class="desktop-layout">
-                <!-- Left Content Area -->
-                <div class="content-area">
-                    <!-- Product Sections -->
-                    <div id="productSections">
-                        <!-- Generowane przez JS -->
-                    </div>
+        <div class="ident">
+            <p class="kicker" id="identKicker">Wycena</p>
+            <!-- Tytułem pozycji jest NAZWA WYBRANEGO WARIANTU — CRM nie wie,
+                 czy pozycja to blat, parapet czy stopień (product_type = NULL
+                 dla wycen z kalkulatora). Do czasu załadowania danych: numer wyceny. -->
+            <h2 id="identTitle">Wycena #{{ quote.quote_number }}</h2>
+            <div class="dims" id="identDims"></div>
+        </div>
 
-                    <!-- PRZENIESIONE: Comparison Table - pod wyborem wariantów -->
-                    <div class="comparison-section desktop-only">
-                        <h3 class="comparison-header">Porównanie wariantów produktu</h3>
-                        <div class="comparison-container" id="desktopComparisonContainer">
-                            <table class="comparison-table">
-                                <thead>
-                                    <tr>
-                                        <th>Wariant</th>
-                                        <th>Cena netto</th>
-                                        <th>Cena brutto</th>
-                                        <th>Różnica</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="desktopComparisonBody">
-                                    <!-- Generowane przez JS -->
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-
-                    <!-- Summary Comparison - Mobile only -->
-                    <div class="summary-section mobile-only">
-                        <h3 class="summary-header">Porównanie wariantów produktu</h3>
-                        <div class="comparison-container" id="comparisonContainer">
-                            <table class="comparison-table">
-                                <thead>
-                                    <tr>
-                                        <th>Wariant</th>
-                                        <th>Cena netto</th>
-                                        <th>Cena brutto</th>
-                                        <th>Różnica</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="comparisonBody">
-                                    <!-- Generowane przez JS -->
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
+        <div class="body">
+            <div class="colL">
+                <!-- Przełącznik pozycji. Warstwa przejściowa: wypełnia go stary
+                     render.productTabs(); przy jednej pozycji chowa go CSS (:has). -->
+                <div class="poslist" id="posSwitch">
+                    <div class="product-buttons" id="productButtons"></div>
+                    <select class="product-select" id="productSelect" aria-label="Wybierz pozycję wyceny"></select>
                 </div>
 
-                <!-- Right Sidebar Desktop -->
-                <aside class="desktop-sidebar">
-                    <!-- Quote Summary -->
-                    <div class="quote-summary-card">
-                        <div class="summary-header">
-                            <h3>Podsumowanie wyceny</h3>
-                        </div>
-                        <div class="summary-content" id="desktopSummaryContent">
-                            <!-- Generowane przez JS -->
-                        </div>
-                        <div class="summary-total" id="desktopTotalSummary">
-                            <!-- Generowane przez JS -->
-                        </div>
+                <!-- Sekcje pozycji (warianty, kształt, krawędzie) — renderuje JS -->
+                <div id="productSections"></div>
+            </div>
+
+            <aside class="colR">
+                <div class="sect">
+                    <div class="sect-hd"><h3>Podsumowanie</h3></div>
+                    <div class="sect-bd">
+                        <div id="desktopSummaryContent"></div>
+                        <div id="desktopTotalSummary"></div>
                         {% if not is_accepted %}
-                        <button class="btn-accept desktop" onclick="showAcceptModal()">
-                            Akceptuj wycenę
-                        </button>
+                        <button type="button" class="cta btn-accept" id="acceptQuoteBtnDesktop">Akceptuj wycenę</button>
                         {% else %}
-                        <button class="btn-accept desktop" disabled>
-                            Wycena zaakceptowana
-                        </button>
+                        <button type="button" class="cta btn-accept" disabled>Wycena zaakceptowana</button>
                         {% endif %}
+                        {# Ostrzeżenie o niezapisanym wyborze stoi POD przyciskiem —
+                           wypełnia je render.desktopSummary(). #}
+                        <div id="desktopUnsavedNotice"></div>
                     </div>
-                </aside>
-            </div>
-        </main>
-
-        <!-- Footer -->
-        <footer class="client-footer">
-            <div class="client-footer-content">
-                <p class="client-footer-text">
-                    © {{ current_year }} Wood Power. Wszystkie prawa zastrzeżone.
-                </p>
-            </div>
-        </footer>
-    </div>
-
-    <!-- Mobile Bottom Bar -->
-    <div class="mobile-bottom-bar" id="mobileBottomBar">
-        <div class="bottom-bar-summary" onclick="toggleSummary()">
-            <div class="summary-toggle">
-                <span>Podsumowanie</span>
-                <svg class="summary-chevron" id="summaryChevron" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-                </svg>
-            </div>
-            <div class="summary-total">
-                <div class="summary-label">Do zapłaty:</div>
-                <div class="summary-value" id="mobileTotalPrice">0,00 PLN</div>
-            </div>
+                </div>
+            </aside>
         </div>
-        <div class="bottom-bar-details" id="bottomBarDetails">
-            <div class="bottom-bar-details-content" id="mobileDetailsContent">
-                <!-- Generowane przez JS -->
-            </div>
-        </div>
-        {% if not is_accepted %}
-        <div class="bottom-bar-action">
-            <button class="btn-accept" onclick="showAcceptModal()">
-                Akceptuj wycenę
-            </button>
-        </div>
-        {% else %}
-        <div class="bottom-bar-action">
-            <button class="btn-accept" disabled>
-                Wycena zaakceptowana
-            </button>
-        </div>
-        {% endif %}
-    </div>
+    </main>
 
-    <!-- Modal z ustaloną wysokością i wewnętrznym scrollem -->
-    <div class="modal-overlay" id="acceptModal" style="display: none;">
-        <div class="modal-content accept-modal-content">
+    <footer class="foot">
+        &copy; {{ current_year }} Wood Power. Wszystkie prawa zastrzeżone.
+    </footer>
 
-            <!-- STICKY HEADER -->
-            <div class="modal-header">
-                <h3 class="modal-title">Akceptacja wyceny</h3>
-                <button class="modal-close" onclick="closeModal('acceptModal')">
-                    <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+    <!-- ============================================================
+         PASEK DOLNY (mobile) — kwota i akceptacja, nad nim rozwijane
+         szczegóły podsumowania.
+         ============================================================ -->
+    <div class="barwrap" id="mobileBottomBar">
+        <div class="bar-details" id="bottomBarDetails">
+            <div class="bar-details-bd" id="mobileDetailsContent"></div>
+        </div>
+        {# Informacja o niezapisanym wyborze musi być POZA zwijaną szufladą —
+           przy zamkniętej szufladzie klient widziałby tylko zablokowany
+           przycisk, bez powodu. Wypełnia ją render.mobileUnsavedNotice(). #}
+        <div id="barUnsavedNotice"></div>
+        <div class="bar">
+            <button type="button" class="amt" id="summaryToggle" aria-expanded="false" aria-controls="bottomBarDetails">
+                <i>
+                    Do zapłaty
+                    <svg class="summary-chevron" id="summaryChevron" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
                     </svg>
-                </button>
+                </i>
+                <div class="amt-val" id="mobileTotalPrice">0,00 zł</div>
+            </button>
+            {% if not is_accepted %}
+            <button type="button" class="cta btn-accept" id="acceptQuoteBtnMobile">Akceptuj</button>
+            {% else %}
+            <button type="button" class="cta btn-accept" disabled>Zaakceptowana</button>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- ============================================================
+         MODAL AKCEPTACJI — 3 kroki. Wszystkie id i klasy stanu zgodne
+         z client_accept_modal.js (jedyna ścieżka konwersji na tej stronie).
+         Widocznością steruje JS przez style.display, dlatego zostaje
+         inline display:none.
+         ============================================================ -->
+    <div class="modal-overlay mstage" id="acceptModal" style="display: none;">
+        <div class="modal-content accept-modal-content sheet">
+
+            <div class="m-hd modal-header">
+                <div>
+                    <h3 class="modal-title">Akceptacja wyceny</h3>
+                    <p class="m-sub">Trzy kroki: kontakt, dane, potwierdzenie</p>
+                </div>
+                <button type="button" class="m-x modal-close" aria-label="Zamknij" onclick="closeAcceptModal()">&#10005;</button>
             </div>
 
-            <!-- STICKY PROGRESS BAR -->
-            <div class="accept-modal-progress">
+            <div class="m-prog accept-modal-progress">
                 <div class="progress-bar">
                     <div class="progress-step active" data-step="1">
                         <div class="progress-circle">1</div>
@@ -214,100 +173,95 @@
                 </div>
             </div>
 
-            <!-- SCROLLOWALNA ZAWARTOŚĆ -->
-            <div class="modal-scrollable-content">
+            <div class="m-bd modal-scrollable-content">
 
-                <!-- Step 1: Kontakt -->
+                <!-- KROK 1: kontakt -->
                 <div class="accept-step" id="accept-step-1">
                     <div class="step-header">
                         <h4>Dane kontaktowe</h4>
-                        <p>Podaj swój email i telefon, abyśmy mogli się z Tobą skontaktować</p>
+                        <p>Podaj email i telefon, abyśmy mogli się z Tobą skontaktować.</p>
                     </div>
 
                     <div class="step-content">
-                        <div class="form-group">
-                            <label class="form-label" for="acceptEmail">Email *</label>
+                        <div class="fg form-group">
+                            <label class="form-label" for="acceptEmail"><b>Email</b> *</label>
                             <input type="email" class="form-input" id="acceptEmail" required
-                                   placeholder="jan.kowalski@example.com">
+                                   autocomplete="email" placeholder="jan.kowalski@example.com">
                             <div class="form-error hidden" id="emailError"></div>
                         </div>
 
-                        <div class="form-group">
-                            <label class="form-label" for="acceptPhone">Telefon *</label>
+                        <div class="fg form-group">
+                            <label class="form-label" for="acceptPhone"><b>Telefon</b> *</label>
                             <input type="tel" class="form-input" id="acceptPhone" required
-                                   placeholder="+48 123 456 789">
+                                   autocomplete="tel" placeholder="+48 123 456 789">
                             <div class="form-error hidden" id="phoneError"></div>
                         </div>
 
-                        <!-- Info o automatycznym uzupełnieniu -->
-                        <div class="auto-fill-info" id="autoFillInfo" style="display: none;">
-                            <div class="info-icon">ℹ️</div>
+                        <div class="hintbox auto-fill-info" id="autoFillInfo" style="display: none;">
+                            <div class="info-icon" aria-hidden="true">&#9432;</div>
                             <div>
-                                <strong>Znaleźliśmy Twoje dane!</strong><br>
-                                Automatycznie wypełnimy formularz na podstawie poprzednich zamówień.
+                                <b>Znaleźliśmy Twoje dane.</b>
+                                Formularz wypełnimy na podstawie poprzednich zamówień.
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Step 2: Dane dostawy i faktury -->
+                <!-- KROK 2: dostawa i faktura -->
                 <div class="accept-step" id="accept-step-2" style="display: none;">
                     <div class="step-header">
                         <h4>Dane dostawy i faktury</h4>
-                        <p>Uzupełnij informacje potrzebne do realizacji zamówienia</p>
+                        <p>Uzupełnij informacje potrzebne do realizacji zamówienia.</p>
                     </div>
 
                     <div class="step-content">
-                        <!-- Opcje dostawy -->
-                        <div class="delivery-options">
-                            <div class="form-group">
-                                <div class="form-checkbox">
-                                    <input type="checkbox" id="selfPickup">
-                                    <label for="selfPickup">
-                                        <strong>Odbiór osobisty</strong> - odbiorę zamówienie we własnym zakresie
-                                    </label>
-                                </div>
-                            </div>
+                        <div class="chk delivery-options">
+                            <input type="checkbox" id="selfPickup">
+                            <span>
+                                <label for="selfPickup">Odbiór osobisty</label>
+                                <em>Odbiorę zamówienie we własnym zakresie — pola adresu znikną.</em>
+                            </span>
                         </div>
 
-                        <!-- Adres dostawy -->
-                        <div class="delivery-section" id="deliverySection">
-                            <h5 class="section-title">Adres dostawy</h5>
+                        <div class="m-sec delivery-section" id="deliverySection">
+                            <h4 class="section-title">Adres dostawy</h4>
 
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label class="form-label" for="deliveryName">Imię i nazwisko *</label>
-                                    <input type="text" class="form-input" id="deliveryName" required>
+                            <div class="frow">
+                                <div class="fg form-group">
+                                    <label class="form-label" for="deliveryName"><b>Imię i nazwisko</b> *</label>
+                                    <input type="text" class="form-input" id="deliveryName" required autocomplete="name">
                                     <div class="form-error hidden" id="deliveryNameError"></div>
                                 </div>
-                                <div class="form-group">
+                                <div class="fg form-group">
                                     <label class="form-label" for="deliveryCompany">Firma</label>
-                                    <input type="text" class="form-input" id="deliveryCompany">
+                                    <input type="text" class="form-input" id="deliveryCompany"
+                                           autocomplete="organization" placeholder="opcjonalnie">
                                 </div>
                             </div>
 
-                            <div class="form-group">
-                                <label class="form-label" for="deliveryAddress">Ulica i numer domu *</label>
+                            <div class="fg form-group">
+                                <label class="form-label" for="deliveryAddress"><b>Ulica i numer domu</b> *</label>
                                 <input type="text" class="form-input" id="deliveryAddress" required
-                                       placeholder="ul. Przykładowa 123">
+                                       autocomplete="street-address" placeholder="ul. Przykładowa 123">
                                 <div class="form-error hidden" id="deliveryAddressError"></div>
                             </div>
 
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label class="form-label" for="deliveryZip">Kod pocztowy *</label>
+                            <div class="frow">
+                                <div class="fg form-group">
+                                    <label class="form-label" for="deliveryZip"><b>Kod pocztowy</b> *</label>
                                     <input type="text" class="form-input" id="deliveryZip" required
-                                           placeholder="12-345">
+                                           autocomplete="postal-code" inputmode="numeric" placeholder="12-345">
                                     <div class="form-error hidden" id="deliveryZipError"></div>
                                 </div>
-                                <div class="form-group">
-                                    <label class="form-label" for="deliveryCity">Miasto *</label>
-                                    <input type="text" class="form-input" id="deliveryCity" required>
+                                <div class="fg form-group">
+                                    <label class="form-label" for="deliveryCity"><b>Miasto</b> *</label>
+                                    <input type="text" class="form-input" id="deliveryCity" required
+                                           autocomplete="address-level2">
                                     <div class="form-error hidden" id="deliveryCityError"></div>
                                 </div>
                             </div>
 
-                            <div class="form-group">
+                            <div class="fg form-group">
                                 <label class="form-label" for="deliveryRegion">Województwo</label>
                                 <select class="form-input" id="deliveryRegion">
                                     <option value="">Wybierz województwo</option>
@@ -331,77 +285,70 @@
                             </div>
                         </div>
 
-                        <!-- Faktura -->
-                        <div class="invoice-section">
-                            <div class="form-group">
-                                <div class="form-checkbox">
-                                    <input type="checkbox" id="wantInvoice">
-                                    <label for="wantInvoice">
-                                        <strong>Potrzebuję faktury</strong>
-                                    </label>
-                                </div>
+                        <div class="m-sec invoice-section">
+                            <h4 class="section-title">Faktura</h4>
+
+                            <div class="chk">
+                                <input type="checkbox" id="wantInvoice">
+                                <span><label for="wantInvoice">Potrzebuję faktury</label></span>
                             </div>
 
                             <div class="invoice-fields" id="invoiceFields" style="display: none;">
-                                <h5 class="section-title">Dane do faktury</h5>
-
                                 <div class="copy-delivery-info">
                                     <button type="button" class="btn-copy" onclick="copyDeliveryToInvoice()">
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                                             <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z" />
                                         </svg>
                                         Kopiuj z adresu dostawy
                                     </button>
                                 </div>
 
-                                <div class="form-row">
-                                    <div class="form-group">
+                                <div class="fg form-group nip-group">
+                                    <label class="form-label" for="invoiceNip">NIP</label>
+                                    <div class="nip nip-input-wrapper">
+                                        <input type="text" class="form-input" id="invoiceNip"
+                                               inputmode="numeric" placeholder="1234567890">
+                                        <button type="button" class="btn-gus" id="gusLookupBtn">Pobierz z GUS</button>
+                                    </div>
+                                    <div class="form-error hidden" id="invoiceNipError"></div>
+                                </div>
+
+                                <div class="frow">
+                                    <div class="fg form-group">
                                         <label class="form-label" for="invoiceName">Imię i nazwisko</label>
                                         <input type="text" class="form-input" id="invoiceName">
                                         <div class="form-error hidden" id="invoiceNameError"></div>
                                     </div>
-                                    <div class="form-group">
+                                    <div class="fg form-group">
                                         <label class="form-label" for="invoiceCompany">Firma</label>
                                         <input type="text" class="form-input" id="invoiceCompany">
                                     </div>
                                 </div>
 
-                                <div class="form-group">
+                                <div class="fg form-group">
                                     <label class="form-label" for="invoiceAddress">Adres</label>
                                     <input type="text" class="form-input" id="invoiceAddress">
                                     <div class="form-error hidden" id="invoiceAddressError"></div>
                                 </div>
 
-                                <div class="form-row">
-                                    <div class="form-group">
+                                <div class="frow">
+                                    <div class="fg form-group">
                                         <label class="form-label" for="invoiceZip">Kod pocztowy</label>
                                         <input type="text" class="form-input" id="invoiceZip" placeholder="12-345">
                                         <div class="form-error hidden" id="invoiceZipError"></div>
                                     </div>
-                                    <div class="form-group">
+                                    <div class="fg form-group">
                                         <label class="form-label" for="invoiceCity">Miasto</label>
                                         <input type="text" class="form-input" id="invoiceCity">
                                         <div class="form-error hidden" id="invoiceCityError"></div>
                                     </div>
                                 </div>
-
-                                <div class="form-group nip-group">
-                                    <label class="form-label" for="invoiceNip">NIP</label>
-                                    <div class="nip-input-wrapper">
-                                        <input type="text" class="form-input" id="invoiceNip"
-                                               placeholder="1234567890">
-                                        <button type="button" class="btn-gus" id="gusLookupBtn">
-                                            Pobierz z GUS
-                                        </button>
-                                    </div>
-                                    <div class="form-error hidden" id="invoiceNipError"></div>
-                                </div>
                             </div>
                         </div>
 
-                        <!-- Uwagi -->
-                        <div class="comments-section">
-                            <div class="form-group">
+                        <div class="m-sec comments-section">
+                            <h4 class="section-title">Uwagi</h4>
+                            <div class="fg form-group">
                                 <label class="form-label" for="acceptComments">Uwagi do zamówienia</label>
                                 <textarea class="form-textarea" id="acceptComments"
                                           placeholder="Dodatkowe informacje lub uwagi..."></textarea>
@@ -410,113 +357,98 @@
                     </div>
                 </div>
 
-                <!-- Step 3: Podsumowanie -->
+                <!-- KROK 3: podsumowanie -->
                 <div class="accept-step" id="accept-step-3" style="display: none;">
                     <div class="step-header">
-                        <h4>Podsumowanie</h4>
-                        <p>Sprawdź wszystkie dane przed finalną akceptacją</p>
+                        <h4>Sprawdź i zatwierdź</h4>
+                        <p>Sprawdź wszystkie dane przed finalną akceptacją.</p>
                     </div>
 
                     <div class="step-content">
-                        <!-- Podsumowanie danych -->
-                        <div class="summary-section">
-                            <h5 class="section-title">Dane kontaktowe</h5>
-                            <div class="summary-item">
-                                <span class="label">Email:</span>
-                                <span class="value" id="summaryEmail"></span>
+                        <div class="m-sec summary-section">
+                            <h4 class="section-title">Kontakt</h4>
+                            <div class="m-sum summary-item">
+                                <span class="label">Email</span>
+                                <b class="value" id="summaryEmail"></b>
                             </div>
-                            <div class="summary-item">
-                                <span class="label">Telefon:</span>
-                                <span class="value" id="summaryPhone"></span>
+                            <div class="m-sum summary-item">
+                                <span class="label">Telefon</span>
+                                <b class="value" id="summaryPhone"></b>
                             </div>
                         </div>
 
-                        <div class="summary-section" id="summaryDelivery">
-                            <h5 class="section-title">Dostawa</h5>
-                            <div class="summary-item">
-                                <span class="label">Sposób dostawy:</span>
-                                <span class="value" id="summaryDeliveryMethod"></span>
+                        <div class="m-sec summary-section" id="summaryDelivery">
+                            <h4 class="section-title">Dostawa</h4>
+                            <div class="m-sum summary-item">
+                                <span class="label">Sposób</span>
+                                <b class="value" id="summaryDeliveryMethod"></b>
                             </div>
                             <div class="delivery-address-summary" id="deliveryAddressSummary">
-                                <div class="summary-item">
-                                    <span class="label">Adres:</span>
-                                    <span class="value" id="summaryDeliveryAddress"></span>
+                                <div class="m-sum summary-item">
+                                    <span class="label">Adres</span>
+                                    <b class="value" id="summaryDeliveryAddress"></b>
                                 </div>
                             </div>
                         </div>
 
-                        <div class="summary-section" id="summaryInvoice" style="display: none;">
-                            <h5 class="section-title">Faktura</h5>
-                            <div class="summary-item">
-                                <span class="label">Dane do faktury:</span>
-                                <span class="value" id="summaryInvoiceData"></span>
+                        <div class="m-sec summary-section" id="summaryInvoice" style="display: none;">
+                            <h4 class="section-title">Faktura</h4>
+                            <div class="m-sum summary-item">
+                                <span class="label">Dane do faktury</span>
+                                <b class="value" id="summaryInvoiceData"></b>
                             </div>
                         </div>
 
-                        <div class="summary-section" id="summaryComments" style="display: none;">
-                            <h5 class="section-title">Uwagi</h5>
-                            <div class="summary-item">
-                                <span class="value" id="summaryCommentsText"></span>
+                        <div class="m-sec summary-section" id="summaryComments" style="display: none;">
+                            <h4 class="section-title">Uwagi</h4>
+                            <div class="m-sum summary-item">
+                                <b class="value" id="summaryCommentsText"></b>
                             </div>
                         </div>
 
-                        <!-- Podsumowanie wyceny -->
-                        <div class="quote-summary-section">
-                            <h5 class="section-title">Podsumowanie wyceny</h5>
-                            <div class="quote-summary-content" id="quoteSummaryContent">
-                                <!-- Wypełniane dynamicznie -->
-                            </div>
+                        <div class="m-sec quote-summary-section">
+                            <h4 class="section-title">Wycena #{{ quote.quote_number }}</h4>
+                            <!-- wypełnia updateQuoteSummary() z window.currentQuoteData -->
+                            <div class="quote-summary-content" id="quoteSummaryContent"></div>
                         </div>
 
-                        <!-- Zgody -->
                         <div class="terms-section">
-                            <div class="form-group">
-                                <div class="form-checkbox">
-                                    <input type="checkbox" id="acceptTerms" required>
-                                    <label for="acceptTerms">
-                                        Akceptuję warunki wyceny i wyrażam zgodę na przetwarzanie danych osobowych *
-                                    </label>
-                                </div>
-                                <div class="form-error hidden" id="termsError"></div>
+                            <div class="chk">
+                                <input type="checkbox" id="acceptTerms" required>
+                                <span>
+                                    <label for="acceptTerms">Akceptuję warunki wyceny *</label>
+                                    <em>oraz wyrażam zgodę na przetwarzanie danych osobowych w celu realizacji zamówienia</em>
+                                </span>
                             </div>
+                            <div class="form-error hidden" id="termsError"></div>
                         </div>
                     </div>
                 </div>
 
             </div>
-            <!-- KONIEC SCROLLOWALNEJ ZAWARTOŚCI -->
-            <!-- STICKY FOOTER Z AKCJAMI -->
-            <div class="step-actions">
-                <!-- Przyciski będą dodawane dynamicznie przez JavaScript -->
+
+            <!-- Stopka modala — JS przełącza widoczność grup przycisków.
+                 Nawigację między krokami podpina attachStepButtons() po
+                 selektorach "#step-N-actions .btn-primary/.btn-secondary",
+                 dlatego przyciski NIE mają inline onclick — wcześniej miały
+                 oba i każde kliknięcie szło do goToStep() dwa razy
+                 (dwa strzały w /validate-contact). -->
+            <div class="m-ft step-actions">
                 <div id="step-1-actions">
-                    <button type="button" class="btn btn-primary btn-next" onclick="goToStep(2)">
-                        Dalej
-                    </button>
+                    <button type="button" class="btn btn-primary btn-next">Dalej</button>
                 </div>
 
                 <div id="step-2-actions" style="display: none;">
-                    <button type="button" class="btn btn-secondary btn-prev" onclick="goToStep(1)">
-                        Wstecz
-                    </button>
-                    <button type="button" class="btn btn-primary btn-next" onclick="goToStep(3)">
-                        Dalej
-                    </button>
+                    <button type="button" class="btn btn-secondary btn-prev">Wstecz</button>
+                    <button type="button" class="btn btn-primary btn-next">Dalej</button>
                 </div>
 
                 <div id="step-3-actions" style="display: none;">
-                    <button type="button" class="btn btn-secondary btn-prev" onclick="goToStep(2)">
-                        Wstecz
-                    </button>
-                    <button type="button" class="btn btn-success btn-submit" id="finalSubmitBtn">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z" />
-                        </svg>
-                        Akceptuj wycenę
-                    </button>
+                    <button type="button" class="btn btn-secondary btn-prev">Wstecz</button>
+                    <button type="button" class="btn btn-primary btn-success btn-submit" id="finalSubmitBtn">Akceptuję</button>
                 </div>
             </div>
 
-            <!-- Loading overlay -->
             <div class="loading-overlay" id="acceptLoadingOverlay" style="display: none;">
                 <div class="loading-spinner"></div>
                 <p>Przetwarzanie zamówienia...</p>
@@ -524,47 +456,37 @@
         </div>
     </div>
 
-    <!-- QR Code Modal -->
-    <div class="modal-overlay" id="qrModal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 class="modal-title">Rzeczywistość rozszerzona (AR)</h3>
-                <button class="modal-close" onclick="closeModal('qrModal')">
-                    <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-                    </svg>
-                </button>
-            </div>
-            <div class="modal-body">
-                <div class="qr-content">
-                    <p class="qr-description">
-                        Funkcja AR jest dostępna tylko na urządzeniach mobilnych. Aby wyświetlić produkt w rzeczywistości rozszerzonej (AR), zeskanuj poniższy kod QR swoim telefonem:
-                    </p>
-                    <div class="qr-code-container">
-                        <div class="qr-code" id="qrCode"></div>
-                    </div>
-                    <p class="qr-url" id="qrUrl"></p>
-                </div>
-            </div>
-        </div>
-    </div>
+    {# Modal QR dla AR nie jest juz statyczny — handlers.showDesktopARModal() buduje go
+       w locie jako .ar-modal-overlay z wlasnym #arQrCode. Dawny statyczny #qrModal
+       zostal usuniety, bo nic go nie otwieralo, a jego id sugerowaly, ze zyje. #}
 
-    <!-- Loading overlay -->
+    <!-- Globalny loader -->
     <div class="loading hidden" id="loadingOverlay">
         <div class="spinner"></div>
     </div>
 
     <!-- Scripts -->
     <script>
-        // Przekazanie danych z backendu
+        // Dane z backendu dla client_quote.js
         window.QUOTE_TOKEN = "{{ token }}";
         window.QUOTE_NUMBER = "{{ quote.quote_number }}";
         window.IS_ACCEPTED = {{ 'true' if is_accepted else 'false' }};
         window.CURRENT_YEAR = new Date().getFullYear();
+
+        // Dane dla modala akceptacji. Widok podaje koszty już spłaszczone
+        // (flatten_costs_for_template), więc modal nie musi zgadywać kwot z DOM.
+        window.currentQuoteToken = "{{ quote.public_token }}";
+        window.currentQuoteData = {
+            quote_number: "{{ quote.quote_number }}",
+            total_netto: "{{ costs.total_netto if costs else '0.00' }}",
+            total_vat: "{{ costs.total_vat if costs else '0.00' }}",
+            total_brutto: "{{ costs.total_brutto if costs else '0.00' }}"
+        };
     </script>
 
-    <!-- QR Code Library -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <!-- Biblioteka QR — lokalnie, bez CDN (Safari ITP potrafi blokować CDN-y) -->
+    <script src="{{ url_for('quotes.static', filename='vendor/qrcode.min.js') }}"
+            onerror="console.warn('[quotes] Brak vendor/qrcode.min.js — kod QR dla AR nie zostanie wygenerowany');"></script>
 
     <!-- Main Script -->
     <script src="{{ url_for('preview3d_ar.static', filename='js/ar-handler.js') }}"></script>
@@ -572,42 +494,29 @@
     <script src="{{ url_for('quotes.static', filename='js/client_accept_modal.js') }}"></script>
 
     <script>
-    // Zmienne globalne dla nowego modala
-    window.currentQuoteToken = "{{ quote.public_token }}";
-    window.currentQuoteData = {
-        quote_number: "{{ quote.quote_number }}",
-        total_netto: "{{ costs.total_netto if costs else '0.00' }}",
-        total_vat: "{{ costs.total_vat if costs else '0.00' }}",
-        total_brutto: "{{ costs.total_brutto if costs else '0.00' }}"
-    };
-
-    // Inicjalizacja po załadowaniu strony
+        // Podpięcie zdarzeń PO ID — bez zgadywania po treści przycisku.
         document.addEventListener('DOMContentLoaded', function () {
-            // Znajdź wszystkie przyciski akceptacji
-            const acceptButtons = document.querySelectorAll('button, input[type="button"], input[type="submit"]');
-
-            acceptButtons.forEach(btn => {
-                const text = btn.textContent.trim().toLowerCase();
-                if (text.includes('akceptuj') || btn.className.includes('submit') || btn.id.includes('accept')) {
-                    // Pomijamy przyciski wewnątrz modala
-                    if (btn.closest('.accept-modal-content')) return;
-
-                    console.log('🔗 Podpinam event do przycisku:', btn.textContent.trim());
-
-                    // Usuń stary onclick
-                    btn.removeAttribute('onclick');
-
-                    // Dodaj nowy event
-                    btn.addEventListener('click', function (e) {
-                        e.preventDefault();
-                        e.stopPropagation();
-
-                        if (typeof window.openAcceptModal === 'function') {
-                            window.openAcceptModal(window.currentQuoteData);
-                        }
-                    });
-                }
+            ['acceptQuoteBtnDesktop', 'acceptQuoteBtnMobile'].forEach(function (id) {
+                var btn = document.getElementById(id);
+                if (!btn) return;
+                btn.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    if (typeof window.openAcceptModal === 'function') {
+                        window.openAcceptModal(window.currentQuoteData);
+                    }
+                });
             });
+
+            var toggle = document.getElementById('summaryToggle');
+            var details = document.getElementById('bottomBarDetails');
+            if (toggle && details) {
+                toggle.addEventListener('click', function () {
+                    if (typeof window.toggleSummary === 'function') {
+                        window.toggleSummary();
+                    }
+                    toggle.setAttribute('aria-expanded', details.classList.contains('open') ? 'true' : 'false');
+                });
+            }
         });
     </script>
 </body>
