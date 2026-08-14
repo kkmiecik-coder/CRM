@@ -50,11 +50,17 @@
     </div>
     {% endif %}
 
-    {# Nagłówek pozycji (zdjęcie-podkład, nazwa wariantu, wymiary) został
-       usunięty — treść zaczyna się od razu od wyboru pozycji i wariantów.
-       Wymiary, wykończenie i ilość żyją teraz w karcie "Kształt i specyfikacja",
-       nazwa wariantu na zaznaczonym kafelku i w podsumowaniu. #}
+    {# Tekst nagłówka ("Produkt X z Y", nazwa wariantu, wymiary) został usunięty —
+       treść zaczyna się od razu od wyboru pozycji. Zostaje samo zdjęcie
+       wybranego materiału jako podkład, żeby sekcje nie startowały wprost
+       na pasku z logo. Wymiary i materiał przeniosły się do karty
+       "Kształt i specyfikacja". #}
     <main class="page">
+        {# Dwie warstwy, żeby zmiana wariantu była przenikaniem, a nie przeskokiem #}
+        <div class="shot" id="stageShot" aria-hidden="true"></div>
+        <div class="shot shot-next" id="stageShotNext" aria-hidden="true"></div>
+        <div class="veil" aria-hidden="true"></div>
+
         <div class="body">
             <div class="colL">
                 <!-- Przełącznik pozycji. Warstwa przejściowa: wypełnia go stary

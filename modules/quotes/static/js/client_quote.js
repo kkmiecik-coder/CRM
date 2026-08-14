@@ -205,6 +205,15 @@ const utils = {
         return `/quotes/quotes/static/img/${encodeURIComponent(code || '')}.jpg`;
     },
 
+    /**
+     * Zdjęcie na podkład — osobny, panoramiczny kadr 1600x760. Kafelkowe
+     * 700x700 rozmywałoby się na pasie 1425 px, a ładowanie hero we
+     * wszystkich ośmiu kafelkach byłoby marnotrawstwem.
+     */
+    variantImageHero(code) {
+        return `/quotes/quotes/static/img/${encodeURIComponent(code || '')}-hero.jpg`;
+    },
+
 
     isMobile() {
         return window.innerWidth <= 768;
@@ -502,6 +511,45 @@ const render = {
     // -------------------------------------------------------------------------
     // PRZEŁĄCZNIK POZYCJI
     // -------------------------------------------------------------------------
+
+    /**
+     * Podkład góry strony — zdjęcie WYBRANEGO wariantu. Nowy obraz wgrywamy
+     * do warstwy wierzchniej i wypuszczamy dopiero PO jego wczytaniu, żeby
+     * nie przenikać do pustego tła; po przejściu ląduje na warstwie bazowej,
+     * a wierzchnia wraca do zera z wyłączoną animacją.
+     */
+    backdrop() {
+        const base = document.getElementById('stageShot');
+        const next = document.getElementById('stageShotNext');
+        if (!base) return;
+
+        const products = this.products();
+        if (products.length === 0) return;
+        const product = products.find(p => p.index === globalState.currentProductIndex) || products[0];
+        const item = this.selectedItem(product);
+        if (!item) return;
+
+        const css = `url('${utils.variantImageHero(item.variant_code)}')`;
+        if (!next || !base.style.backgroundImage) { base.style.backgroundImage = css; return; }
+        if (base.style.backgroundImage === css) return;
+
+        const zamien = () => {
+            base.style.backgroundImage = css;
+            next.style.transition = 'none';
+            next.classList.remove('on');
+            void next.offsetWidth;
+            next.style.transition = '';
+        };
+
+        const img = new Image();
+        img.onload = () => {
+            next.style.backgroundImage = css;
+            requestAnimationFrame(() => next.classList.add('on'));
+            window.setTimeout(zamien, 520);
+        };
+        img.onerror = () => { base.style.backgroundImage = css; };
+        img.src = utils.variantImageHero(item.variant_code);
+    },
 
     productTabs() {
         const buttonsContainer = document.getElementById('productButtons');
@@ -1124,6 +1172,7 @@ const render = {
      * Pełne odświeżenie widoku
      */
     refreshUI() {
+        this.backdrop();
         this.productTabs();
         this.productSections();
         this.desktopSummary();
@@ -1154,6 +1203,7 @@ const handlers = {
 
         // pasek kafelków dopiero co stał się widoczny — kropki liczą się
         // z wymiarów, więc trzeba je przeliczyć po pokazaniu sekcji
+        render.backdrop();
         render.setupRails();
     },
 
@@ -1168,6 +1218,7 @@ const handlers = {
         globalState.hasUnsavedChanges = true;
 
         render.refreshTiles(productIndex);
+        render.backdrop();
         render.desktopSummary();
         render.mobileSummary();
         this.showSaveButton();

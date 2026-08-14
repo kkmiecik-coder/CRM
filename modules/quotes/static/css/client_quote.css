@@ -126,18 +126,52 @@ img { max-width: 100%; }
 .acceptance-date { font-size: 11.5px; color: #4A7A54; }
 
 /* =========================================================================
-   3. SZKIELET GORY STRONY
+   3. PODKŁAD — zdjęcie wybranego materiału
    ========================================================================= */
-/* Naglowek pozycji (zdjecie-podklad, nazwa wariantu, wymiary) zostal
-   usuniety — tresc zaczyna sie od razu od wyboru pozycji i wariantow. */
+/* Tekst nagłówka zniknął, zdjęcie zostaje: bez niego sekcje startowały
+   wprost na pasku z logo, sklejone z nim krawędziami. */
 .page { position: relative; background: var(--paper); }
+
+.shot {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 260px;
+    z-index: 0;
+    background-size: cover;
+    background-position: center;
+    background-color: #DED5C8;
+}
+/* warstwa przenikania — leży nad bazową i wjeżdża opacity */
+.shot-next { opacity: 0; transition: opacity .5s ease; }
+.shot-next.on { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+    .shot-next { transition: none; }
+}
+/* rozpuszcza zdjęcie w tle strony, żeby karty miały na czym stanąć */
+.veil {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 260px;
+    z-index: 1;
+    pointer-events: none;
+    background: linear-gradient(to bottom,
+        rgba(241, 243, 244, .18) 0%,
+        rgba(241, 243, 244, .30) 30%,
+        rgba(241, 243, 244, .70) 62%,
+        rgb(241, 243, 244) 92%);
+}
+/* treść płynie po podkładzie; odstęp od paska z logo, żeby sekcje
+   nie sklejały się z nim krawędziami */
+.body { position: relative; z-index: 2; }
 
 /* =========================================================================
    4. SZKIELET TREŚCI
    ========================================================================= */
 /* MOBILE: sekcje na pełną szerokość ekranu — zero marginesów bocznych,
    zero zaokrągleń, zero szarego tła między sekcjami. Rozdziela je włos. */
-.body { padding: 0; }
+/* odstęp od paska z logo — bez niego pierwsza sekcja skleja się z nim
+   krawędziami; boki zostają na zero, bo na telefonie karty idą pełną szerokością */
+.body { padding: 26px 0 0; }
 .colL { min-width: 0; }
 #productSections { display: flex; flex-direction: column; }
 
@@ -1008,6 +1042,7 @@ img { max-width: 100%; }
     body { padding-bottom: 0; }
 
 
+    .shot, .veil { height: 320px; }
     .hd { max-width: 1200px; margin: 0 auto; width: 100%; padding: 15px 32px; }
     .logo img { height: 30px; }
 
@@ -1015,7 +1050,7 @@ img { max-width: 100%; }
     .body {
         max-width: 1200px;
         margin: 0 auto;
-        padding: 0 32px 26px;
+        padding: 26px 32px;
         display: grid;
         grid-template-columns: minmax(0, 1fr) 330px;
         gap: 20px;
