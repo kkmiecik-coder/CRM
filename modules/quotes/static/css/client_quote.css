@@ -238,8 +238,9 @@ img { max-width: 100%; }
     border-bottom: 1px solid var(--rule);
 }
 .poslist::-webkit-scrollbar { display: none; }
-/* jedna pozycja = nie ma czego przełączać */
-.poslist:not(:has(.product-button + .product-button)) { display: none; }
+/* Belka pokazuje się ZAWSZE, także przy jednej pozycji. Nie jest już samym
+   przełącznikiem — niesie wymiary produktu, a te po usunięciu nagłówka
+   nie mają gdzie indziej stanąć nad treścią. */
 .poslist .product-select { display: none; }
 .poslist .product-buttons { display: flex; gap: 8px; }
 
