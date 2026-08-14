@@ -132,6 +132,10 @@ img { max-width: 100%; }
    wprost na pasku z logo, sklejone z nim krawędziami. */
 .page { position: relative; background: var(--paper); }
 
+/* MOBILE: bez tekstury — podkład wraca dopiero na desktopie (>= 901 px) */
+.shot,
+.veil { display: none; }
+
 .shot {
     position: absolute;
     top: 0; left: 0; right: 0;
@@ -1042,7 +1046,7 @@ img { max-width: 100%; }
     body { padding-bottom: 0; }
 
 
-    .shot, .veil { height: 320px; }
+    .shot, .veil { display: block; height: 320px; }
     .hd { max-width: 1200px; margin: 0 auto; width: 100%; padding: 15px 32px; }
     .logo img { height: 30px; }
 
