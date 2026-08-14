@@ -50,28 +50,11 @@
     </div>
     {% endif %}
 
-    <!-- ============================================================
-         STAGE — zdjęcie wybranego materiału jest PODKŁADEM góry strony.
-         .shot leży w warstwie 0, .veil rozpuszcza je w tle,
-         a nagłówek pozycji i pierwsze karty płyną po nim.
-         ============================================================ -->
-    <main class="stage">
-        {# Dwie warstwy zdjęcia, żeby zmiana wariantu była przenikaniem, a nie
-           przeskokiem: JS wgrywa nowy obraz w #stageShotNext, wypuszcza go
-           płynnie na wierzch, a po przejściu przenosi na warstwę bazową. #}
-        <div class="shot" id="stageShot" aria-hidden="true"></div>
-        <div class="shot shot-next" id="stageShotNext" aria-hidden="true"></div>
-        <div class="veil" aria-hidden="true"></div>
-
-        <div class="ident">
-            <p class="kicker" id="identKicker">Wycena</p>
-            <!-- Tytułem pozycji jest NAZWA WYBRANEGO WARIANTU — CRM nie wie,
-                 czy pozycja to blat, parapet czy stopień (product_type = NULL
-                 dla wycen z kalkulatora). Do czasu załadowania danych: numer wyceny. -->
-            <h2 id="identTitle">Wycena #{{ quote.quote_number }}</h2>
-            <div class="dims" id="identDims"></div>
-        </div>
-
+    {# Nagłówek pozycji (zdjęcie-podkład, nazwa wariantu, wymiary) został
+       usunięty — treść zaczyna się od razu od wyboru pozycji i wariantów.
+       Wymiary, wykończenie i ilość żyją teraz w karcie "Kształt i specyfikacja",
+       nazwa wariantu na zaznaczonym kafelku i w podsumowaniu. #}
+    <main class="page">
         <div class="body">
             <div class="colL">
                 <!-- Przełącznik pozycji. Warstwa przejściowa: wypełnia go stary

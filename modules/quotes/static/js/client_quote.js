@@ -1,9 +1,12 @@
 // =============================================================================
 // PUBLICZNA STRONA WYCENY  /quotes/c/<token>  —  warstwa renderu
 //
-// Kierunek C: zdjęcie WYBRANEGO wariantu jest podkładem góry strony, warianty
-// są kafelkami w poziomym pasku ze scroll-snap, a pod nimi stoją dwie osobne
-// sekcje: kształt + specyfikacja oraz obróbka krawędzi.
+// Strona zaczyna się od razu od wyboru pozycji i wariantów — nagłówek pozycji
+// (zdjęcie-podkład, nazwa wariantu, wymiary) został usunięty. Warianty są
+// kafelkami w poziomym pasku ze scroll-snap, a pod nimi stoją dwie osobne
+// sekcje: kształt + specyfikacja oraz obróbka krawędzi. Wymiary i materiał
+// przeniosły się do karty specyfikacji, bo była to jedyna droga, żeby ich
+// nie stracić przy wycenie z jedną pozycją (przyciski pozycji chowa wtedy CSS).
 //
 // UMOWA CENOWA (całe liczenie kwot siedzi w obiekcie `money`):
 //   * item.final_price_*   — CAŁKOWITA cena materiału pozycji (jednostkowa × ilość),
@@ -202,15 +205,6 @@ const utils = {
         return `/quotes/quotes/static/img/${encodeURIComponent(code || '')}.jpg`;
     },
 
-    /**
-     * Zdjęcie na podkład hero — osobny, panoramiczny kadr 1600x760.
-     * Kafelkowe 700x700 rozmywałoby się na pasie 1425 px szerokości,
-     * a ładowanie hero we wszystkich ośmiu kafelkach byłoby marnotrawstwem:
-     * kafelki razem ważą 588 KB, jedno hero 175 KB.
-     */
-    variantImageHero(code) {
-        return `/quotes/quotes/static/img/${encodeURIComponent(code || '')}-hero.jpg`;
-    },
 
     isMobile() {
         return window.innerWidth <= 768;
@@ -503,51 +497,7 @@ const render = {
     // GÓRA STRONY
     // -------------------------------------------------------------------------
 
-    /**
-     * Zdjęcie-podkład, nadtytuł, tytuł i wymiary. Wszystko trzy reaguje na
-     * wybór wariantu: tytułem pozycji jest NAZWA WYBRANEGO WARIANTU (CRM nie
-     * wie, czy pozycja to blat, parapet czy stopień — product_type jest NULL
-     * dla wycen z kalkulatora).
-     */
-    hero() {
-        const shot = document.getElementById('stageShot');
-        const kicker = document.getElementById('identKicker');
-        const title = document.getElementById('identTitle');
-        const dims = document.getElementById('identDims');
 
-        const products = this.products();
-        if (products.length === 0) return;
-
-        const position = Math.max(0, products.findIndex(p => p.index === globalState.currentProductIndex));
-        const product = products[position];
-        const item = this.selectedItem(product);
-
-        if (shot && item) {
-            this.swapHeroImage(shot, utils.variantImageHero(item.variant_code));
-        }
-        if (kicker) {
-            kicker.textContent = `Produkt ${position + 1} z ${products.length}`;
-        }
-        if (title && item) {
-            title.textContent = utils.translateVariantCode(item.variant_code);
-        }
-        if (dims) {
-            dims.textContent = this.dimsText(product, item);
-        }
-    },
-
-    dimsText(product, item) {
-        const parts = [];
-        if (item) {
-            parts.push(
-                `${utils.number(item.length_cm)} × ${utils.number(item.width_cm)} × ${utils.number(item.thickness_cm)} cm`
-            );
-        }
-        const area = this.areaM2(item);
-        if (area > 0) parts.push(`${utils.number(area, 2)} m²`);
-        parts.push(`${product.quantity} szt.`);
-        return parts.join(' · ');
-    },
 
     // -------------------------------------------------------------------------
     // PRZEŁĄCZNIK POZYCJI
@@ -747,13 +697,19 @@ const render = {
         const shapeSvg = (finishing && finishing.shape_svg) || '';
 
         const rows = [];
+        // Wymiary i wybrany materiał stały wcześniej w nagłówku strony.
+        // Po jego usunięciu to jedyne miejsce, w którym klient je widzi —
+        // przyciski pozycji chowają się, gdy wycena ma tylko jeden produkt.
+        if (item) {
+            rows.push(['Wymiary', `${utils.number(item.length_cm)} × ${utils.number(item.width_cm)} × ${utils.number(item.thickness_cm)} cm`]);
+            rows.push(['Materiał', utils.translateVariantCode(item.variant_code)]);
+        }
         rows.push(['Wykończenie', this.formatFinishing(finishing)]);
         if (finishing && typeof finishing.cut_to_size === 'boolean') {
             rows.push(['Docięcie do wymiaru', finishing.cut_to_size ? 'Tak' : 'Nie']);
         }
-        if (item && money.num(item.thickness_cm) > 0) {
-            rows.push(['Grubość', `${utils.number(money.num(item.thickness_cm) * 10)} mm`]);
-        }
+        // Osobnego wiersza "Grubość" już nie ma — trzeci wymiar stoi
+        // w "Wymiary", a powtarzanie go w milimetrach tylko myliło.
         const area = this.areaM2(item);
         if (area > 0) rows.push(['Powierzchnia', `${utils.number(area, 2)} m²`]);
         rows.push(['Ilość', `${product.quantity} szt.`]);
@@ -903,44 +859,6 @@ const render = {
             </div>`;
     },
 
-    /**
-     * Przenikanie zdjęcia w tle przy zmianie wariantu.
-     *
-     * Nowy obraz wgrywamy do warstwy wierzchniej i wypuszczamy dopiero PO
-     * jego wczytaniu — inaczej przenikalibyśmy do pustego tła i klient
-     * zobaczyłby mignięcie. Po przejściu obraz ląduje na warstwie bazowej,
-     * a wierzchnia wraca do zera z wyłączoną animacją (bez tego wracałaby
-     * widocznym rozjaśnieniem).
-     */
-    swapHeroImage(base, url) {
-        const css = `url('${url}')`;
-        const next = document.getElementById('stageShotNext');
-
-        // pierwszy render albo brak warstwy przenikania — ustaw wprost
-        if (!next || !base.style.backgroundImage) {
-            base.style.backgroundImage = css;
-            return;
-        }
-        if (base.style.backgroundImage === css) return;
-
-        const zamien = () => {
-            base.style.backgroundImage = css;
-            next.style.transition = 'none';
-            next.classList.remove('on');
-            // wymuszenie reflow, żeby wyłączenie animacji zdążyło zadziałać
-            void next.offsetWidth;
-            next.style.transition = '';
-        };
-
-        const img = new Image();
-        img.onload = () => {
-            next.style.backgroundImage = css;
-            requestAnimationFrame(() => next.classList.add('on'));
-            window.setTimeout(zamien, 520);
-        };
-        img.onerror = () => { base.style.backgroundImage = css; };
-        img.src = url;
-    },
 
     /**
      * Blokuje przyciski akceptacji, dopóki wybór nie jest zapisany.
@@ -1206,7 +1124,6 @@ const render = {
      * Pełne odświeżenie widoku
      */
     refreshUI() {
-        this.hero();
         this.productTabs();
         this.productSections();
         this.desktopSummary();
@@ -1235,7 +1152,6 @@ const handlers = {
         const mobileSelect = document.getElementById('productSelect');
         if (mobileSelect) mobileSelect.value = String(index);
 
-        render.hero();
         // pasek kafelków dopiero co stał się widoczny — kropki liczą się
         // z wymiarów, więc trzeba je przeliczyć po pokazaniu sekcji
         render.setupRails();
@@ -1252,7 +1168,6 @@ const handlers = {
         globalState.hasUnsavedChanges = true;
 
         render.refreshTiles(productIndex);
-        render.hero();
         render.desktopSummary();
         render.mobileSummary();
         this.showSaveButton();
