@@ -521,7 +521,7 @@
             '<option value="dab-lity-bb">Dąb Lity B/B</option>' +
             '<option value="dab-micro-ab">Dąb Mikrowczep A/B</option>' +
             '<option value="dab-micro-bb">Dąb Mikrowczep B/B</option>' +
-            '<option value="jes-lity-ab" disabled>Jesion Lity A/B</option>' +
+            '<option value="jes-lity-ab">Jesion Lity A/B</option>' +
             '<option value="jes-micro-ab">Jesion Mikrowczep A/B</option>' +
             '<option value="buk-lity-ab">Buk Lity A/B</option>' +
             '<option value="buk-micro-ab">Buk Mikrowczep A/B</option>';

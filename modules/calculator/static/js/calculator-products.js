@@ -969,10 +969,10 @@ function scrollToLatestProduct() {
 
 // Warianty niedostępne — ustawiane przez kod, nie przez użytkownika.
 // Stan niedostępności definiowany jest w HTML (class="unavailable", disabled na radio).
-// Jesion lity świadomie zablokowany do wyboru (brak materiału) — opcja zostaje widoczna,
-// ale wyszarzona i nieklikalna (initializeVariantAvailability ustawia disabled + .unavailable).
 // Jesion mikrowczep odblokowany 10.08.2026 (materiał wrócił, wszystkie grubości/wykończenia).
-const unavailableVariants = ['jes-lity-ab'];
+// Jesion lity TYMCZASOWO odblokowany 18.08.2026 (jednorazowa wycena dla klienta) —
+// po jej zapisaniu wraca tu 'jes-lity-ab' i znikają ceny jesionu litego z tabeli `prices`.
+const unavailableVariants = [];
 
 /**
  * Inicjalizuje niedostępność wariantów na podstawie konfiguracji.
