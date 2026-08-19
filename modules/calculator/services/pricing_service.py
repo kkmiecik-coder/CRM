@@ -69,7 +69,9 @@ class PricingData:
     multipliers: dict = field(default_factory=dict)            # client_type -> float(multiplier)
     finishing_options_by_id: dict = field(default_factory=dict)   # id -> dict opcji (price_netto, full_path, ...)
     finishing_options_by_path: dict = field(default_factory=dict) # full_path -> float(price_netto)
-    edge_prices: dict = field(default_factory=dict)            # type -> {'per_mb': float, 'per_corner': float}
+    # type -> {'per_mb', 'per_corner' + geometria: 'r_min', 'r_max', 'r_default',
+    #          'chamfer_angles', 'angle_default'}
+    edge_prices: dict = field(default_factory=dict)
     cutout_price_netto: float = 0.0
     round_surcharge_netto: float = 0.0
 
@@ -148,6 +150,14 @@ def _build_pricing_data():
         edge_prices[e.type] = {
             'per_mb': float(e.price_per_mb or 0),
             'per_corner': float(e.corner_price or 0),
+            # Parametry geometrii krawędzi — konsumenci (bot API, sklep) muszą
+            # znać dopuszczalne promienie i kąty fazowania z BAZY, żeby nie
+            # trzymać ich zaszytych u siebie i nie rozjechać się z produkcją.
+            'r_min': e.r_min,
+            'r_max': e.r_max,
+            'r_default': e.r_default,
+            'chamfer_angles': e.chamfer_angles,
+            'angle_default': e.angle_default,
         }
 
     surcharge = float(CalculatorSetting.get_value('round_shape_surcharge_netto', '50.00'))
