@@ -715,12 +715,24 @@ class DashboardModule {
                         const count = alert.products_count || 1;
                         const prodLabel = count === 1 ? 'produkt' : (count >= 2 && count <= 4 ? 'produkty' : 'produktów');
 
+                        // Pigułka stanowiska — wąskie gardło zamówienia, czyli pozycja
+                        // najmniej zaawansowana; "+N" to liczba pozostałych stanowisk.
+                        // Musi być identyczna jak w dashboard-tab-content.html, bo kafel
+                        // renderuje się raz Jinją (wejście), raz stąd (odświeżanie).
+                        const others = alert.other_stations_count || 0;
+                        const stationHtml = alert.station_code
+                            ? `<span class="il-alert-station" data-station="${alert.station_code}">${alert.station_label || ''}${others ? ` +${others}` : ''}</span>`
+                            : '';
+
                         return `
                             <div class="il-alert-item">
                                 <div class="il-alert-dot ${dotClass}"></div>
                                 <div class="il-alert-info">
                                     <div class="il-alert-client">${alert.client_name || 'Brak danych'}</div>
-                                    <div class="il-alert-order">${alert.baselinker_order_id || ''} · ${count} ${prodLabel}</div>
+                                    <div class="il-alert-order">
+                                        <span>${alert.baselinker_order_id || ''} · ${count} ${prodLabel}</span>
+                                        ${stationHtml}
+                                    </div>
                                 </div>
                                 <div class="il-alert-right">
                                     <div class="il-alert-days" style="color: ${daysColor};">${daysText}</div>

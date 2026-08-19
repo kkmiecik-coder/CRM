@@ -422,7 +422,14 @@
                 <div class="il-alert-dot {% if alert.days_remaining < 0 %}danger{% elif alert.days_remaining <= 1 %}warn{% else %}info{% endif %}"></div>
                 <div class="il-alert-info">
                   <div class="il-alert-client">{{ alert.client_name|default('Brak danych') }}</div>
-                  <div class="il-alert-order">{{ alert.baselinker_order_id|default('') }} · {{ alert.products_count|default(1) }} {{ 'produkt' if alert.products_count == 1 else ('produkty' if alert.products_count in [2,3,4] else 'produktów') }}</div>
+                  <div class="il-alert-order">
+                    <span>{{ alert.baselinker_order_id|default('') }} · {{ alert.products_count|default(1) }} {{ 'produkt' if alert.products_count == 1 else ('produkty' if alert.products_count in [2,3,4] else 'produktów') }}</span>
+                    {% if alert.station_code %}
+                      {# Pigułka pokazuje stanowisko NAJMNIEJ zaawansowanej pozycji (wąskie
+                         gardło zamówienia); "+N" = tyle innych stanowisk ma to zamówienie. #}
+                      <span class="il-alert-station" data-station="{{ alert.station_code }}">{{ alert.station_label }}{% if alert.other_stations_count %} +{{ alert.other_stations_count }}{% endif %}</span>
+                    {% endif %}
+                  </div>
                 </div>
                 <div class="il-alert-right">
                   <div class="il-alert-days" style="color: {% if alert.days_remaining < 0 %}var(--il-status-danger){% elif alert.days_remaining <= 1 %}var(--il-status-warn){% else %}var(--il-status-info){% endif %};">

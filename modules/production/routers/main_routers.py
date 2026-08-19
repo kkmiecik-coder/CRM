@@ -23,6 +23,7 @@ from modules.logging import get_structured_logger
 from extensions import db
 from modules.users.decorators import require_module_access
 from sqlalchemy.orm import joinedload
+from ..services.dashboard_alerts import build_deadline_alerts
 
 # Utworzenie Blueprint dla głównych routów
 main_bp = Blueprint('production_main', __name__)
@@ -175,30 +176,13 @@ def dashboard():
             'm3': round(m3_remaining, 2)
         }
 
-        # Alerty deadline - produkty zbliżające się do terminu
-        deadline_alerts = ProductionItem.query.options(
-            joinedload(ProductionItem.order),
-        ).filter(
-            ProductionItem.deadline_date <= date.today() + timedelta(days=3),
-            ProductionItem.current_status != 'spakowane'
-        ).order_by(ProductionItem.deadline_date.asc()).limit(5).all()
-
-        dashboard_stats['deadline_alerts'] = [
-            {
-                'product_id': alert.short_product_id,
-                'short_product_id': alert.short_product_id,
-                'days_remaining': (alert.deadline_date - date.today()).days if alert.deadline_date else 0,
-                'deadline_date': alert.deadline_date.isoformat() if alert.deadline_date else None,
-                'deadline_date_formatted': alert.deadline_date.strftime('%d.%m.%Y') if alert.deadline_date else '',
-                'current_station': alert.current_status.replace('czeka_na_', '') if alert.current_status else 'unknown',
-                'client_name': (alert.order.client_name if alert.order else None) or 'Brak danych',
-                'client_order_number': (alert.order.client_order_number if alert.order else None) or '',
-                'baselinker_order_id': alert.order.baselinker_order_id if alert.order else None,
-                'product_name': alert.original_product_name or '',
-                'quantity': alert.quantity or 1
-            }
-            for alert in deadline_alerts
-        ]
+        # Alerty deadline — zamówienia zbliżające się do terminu.
+        #
+        # Ten sam serwis co w dashboard_api (odświeżanie w tle). Wcześniej
+        # stała tu druga, własna wersja: jeden alert na POZYCJĘ i limit pięciu,
+        # przez co po pierwszym odświeżeniu kafel przebudowywał się użytkownikowi
+        # pod palcami — pozycje zlewały się w zamówienia, a limit znikał.
+        dashboard_stats['deadline_alerts'] = build_deadline_alerts()
         
         return render_template(
             'panel/dashboard.html',

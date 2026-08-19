@@ -85,5 +85,32 @@ def station_choices(include_sawmill=False):
     return wybor
 
 
+# Skrócone nazwy — WYŁĄCZNIE do miejsc, gdzie etykieta musi zmieścić się
+# w wąskiej pigułce obok innej treści (dziś: kafel „Alerty terminów" na
+# dashboardzie produkcji, gdzie w jednej linii stoją już numer zamówienia
+# i liczba produktów).
+#
+# Stoją TUTAJ, a nie w widoku, dokładnie z powodu opisanego na górze pliku:
+# każda kopia nazw stanowisk poza tym modułem po jakimś czasie rozjeżdża się
+# z resztą. Kto zmienia STATION_LABELS, ma obie mapy przed oczami.
+#
+# Formy pełne ('Wycinanie - mikro', 'Składanie - lite') zostają domyślne —
+# krótkiej wersji używa się świadomie, wołając station_short_label().
+STATION_SHORT_LABELS = {
+    'cutting': 'Wycinanie',
+    'assembly': 'Składanie',
+}
+
+
+def station_short_label(station_code):
+    """
+    Kod → krótka nazwa do wąskich elementów UI. Gdy skrótu nie ma,
+    zwraca nazwę pełną — czyli zawsze coś sensownego.
+    """
+    if not station_code:
+        return '—'
+    return STATION_SHORT_LABELS.get(station_code, station_label(station_code))
+
+
 def is_production_station(station_code):
     return station_code in STATION_ORDER

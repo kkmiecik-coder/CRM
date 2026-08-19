@@ -22,6 +22,7 @@ from ...services.station_catalog import (
     STATION_ORDER, STATION_PENDING_STATUS,
     station_label as station_label_catalog,
 )
+from ...services.dashboard_alerts import build_deadline_alerts
 
 
 # Mapowanie stanowisko → status czekania (kolejka).
@@ -952,34 +953,9 @@ def dashboard_tab_content():
             'm3': round(ip_m3_remaining, 2)
         }
 
-        deadline_items = ProductionItem.query.options(
-            joinedload(ProductionItem.order),
-        ).filter(
-            ProductionItem.deadline_date <= (today + timedelta(days=3)),
-            ProductionItem.current_status != 'spakowane'
-        ).order_by(ProductionItem.deadline_date.asc()).all()
-
-        # Group by order (baselinker_order_id)
-        orders_map = {}
-        for item in deadline_items:
-            oid = (item.order.baselinker_order_id if item.order else None) or item.short_product_id
-            if oid not in orders_map:
-                orders_map[oid] = {
-                    'baselinker_order_id': item.order.baselinker_order_id if item.order else None,
-                    'client_name': (item.order.client_name if item.order else None) or 'Brak danych',
-                    'deadline_date': item.deadline_date,
-                    'deadline_date_formatted': item.deadline_date.strftime('%d.%m.%Y') if item.deadline_date else '',
-                    'days_remaining': (item.deadline_date - today).days if item.deadline_date else 0,
-                    'products_count': 0,
-                }
-            orders_map[oid]['products_count'] += 1
-            # Use earliest deadline for the order
-            if item.deadline_date and (orders_map[oid]['deadline_date'] is None or item.deadline_date < orders_map[oid]['deadline_date']):
-                orders_map[oid]['deadline_date'] = item.deadline_date
-                orders_map[oid]['deadline_date_formatted'] = item.deadline_date.strftime('%d.%m.%Y')
-                orders_map[oid]['days_remaining'] = (item.deadline_date - today).days
-
-        dashboard_stats['deadline_alerts'] = sorted(orders_map.values(), key=lambda x: x.get('days_remaining', 0))
+        # Grupowanie po zamówieniu i wybór stanowiska siedzą w serwisie —
+        # ten sam kod obsługuje pierwszy render strony (main_routers).
+        dashboard_stats['deadline_alerts'] = build_deadline_alerts()
 
         errors_24h = ProductionError.query.filter(
             ProductionError.error_occurred_at >= (get_local_now() - timedelta(hours=24)),

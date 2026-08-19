@@ -2550,7 +2550,45 @@ body {
 .il-alert-dot.info { background: var(--il-status-info); }
 .il-alert-info { flex: 1; }
 .il-alert-client { font-size: 17px; font-weight: 600; color: var(--il-text-primary); }
-.il-alert-order { font-size: 14px; color: var(--il-text-secondary); margin-top: 1px; }
+.il-alert-order {
+  font-size: 14px; color: var(--il-text-secondary); margin-top: 1px;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+
+/* Pigułka ze stanowiskiem, na którym stoi zamówienie.
+   flex-wrap wyżej jest celowy: przy długiej nazwie klienta albo wąskim oknie
+   pigułka schodzi do drugiej linii zamiast rozpychać kafel i wypychać kolumnę
+   z liczbą dni poza kartę. */
+.il-alert-station {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+  letter-spacing: 0.2px;
+  color: #fff;
+  background: var(--il-text-secondary);
+  white-space: nowrap;
+}
+
+/* Kolory z tej samej palety, co kafelki w gridzie „Stanowiska produkcyjne"
+   wyżej na stronie — pigułka „Sklejanie" ma być tym samym fioletem, co
+   nagłówek kafelka sklejania, inaczej to dwa niezależne kodowania kolorem
+   na jednym ekranie. */
+.il-alert-station[data-station="cutting"]    { background: var(--il-station-cut); }
+.il-alert-station[data-station="assembly"]   { background: var(--il-station-asm); }
+.il-alert-station[data-station="gluing"]     { background: var(--il-station-glu); }
+.il-alert-station[data-station="formatting"] { background: var(--il-station-fmt); }
+.il-alert-station[data-station="finishing"]  { background: var(--il-station-fin); }
+/* Lakiernia nie ma kafelka w gridzie, więc bierze wolny kolor z palety
+   (--il-station-cmp został po wycofanym stanowisku kompletacji). */
+.il-alert-station[data-station="painting"]   { background: var(--il-station-cmp); }
+.il-alert-station[data-station="logistics"]  { background: #6366f1; }
+.il-alert-station[data-station="packaging"]  { background: var(--il-station-pak); }
+/* Wstrzymane to nie etap produkcji, tylko blokada — czerwień jak przy alertach,
+   żeby odróżniała się od kolorów stanowisk. */
+.il-alert-station[data-station="hold"]       { background: var(--il-status-danger); }
 .il-alert-right { text-align: right; flex-shrink: 0; }
 .il-alert-days { font-size: 17px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
 .il-alert-date { font-size: 14px; color: var(--il-text-secondary); margin-top: 2px; }
