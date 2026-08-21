@@ -2886,15 +2886,10 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
         ? '<div class="shape-preview-item shape-zoomable" data-svg-title="Widok izometryczny"><div class="shape-preview-label">Izometria</div>' + edgesSvgHtml + edgesCaption + '</div>'
         : '';
 
-    // Lamella direction icon
-    const lamellaHtml = finishing && finishing.lamella_direction != null
-        ? '<div class="shape-preview-item" data-svg-title="Kierunek lameli"><div class="shape-preview-label">Kierunek lameli</div><div class="lamella-direction-preview">' + LamellaIcon.generateSvg(finishing.lamella_direction, 60) + '</div></div>'
-        : '';
-
     // Kolumna podglądu (2D + 3D)
-    const hasShapePreview = shapeSvgHtml || edgesSvgWithLabel || lamellaHtml;
+    const hasShapePreview = shapeSvgHtml || edgesSvgWithLabel;
     const previewColumnHtml = hasShapePreview
-        ? '<div class="vsh-col vsh-preview">' + shapeSvgHtml + lamellaHtml + edgesSvgWithLabel + '</div>'
+        ? '<div class="vsh-col vsh-preview">' + shapeSvgHtml + edgesSvgWithLabel + '</div>'
         : '';
 
     // Buduj tabelę Produkt

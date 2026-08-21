@@ -837,13 +837,12 @@
                     {% endif %}
                 </div>
 
-                <!-- Podglądy: kształt + (lamele) + izometria -->
+                <!-- Podglądy: kształt + izometria -->
                 {% set has_shape = (shape_images and shape_images.get(detail.product_index)) or (shape_svg_safe and shape_svg_safe.get(detail.product_index)) %}
                 {% set has_edges = edges_images and edges_images.get(detail.product_index) %}
-                {% set has_lamella = lamella_images and lamella_images.get(detail.product_index) %}
-                {% set col_count = [has_shape, has_lamella, has_edges]|select|list|length %}
+                {% set col_count = [has_shape, has_edges]|select|list|length %}
                 {% set col_width = (100 / col_count)|round(2) if col_count > 0 else 50 %}
-                {% if has_shape or has_edges or has_lamella %}
+                {% if has_shape or has_edges %}
                 <table class="edge-item-previews-table" style="width:100%;table-layout:fixed;">
                     <tr>
                         {% if has_shape %}
@@ -856,12 +855,6 @@
                                NIGDY na surowej kolumnie detail.shape_svg #}
                             <div class="edge-item-svg-inline">{{ shape_svg_safe[detail.product_index]|safe }}</div>
                             {% endif %}
-                        </td>
-                        {% endif %}
-                        {% if has_lamella %}
-                        <td style="width:{{ col_width }}%;text-align:center;vertical-align:top;">
-                            <div class="preview-label">Kierunek lameli</div>
-                            <img src="{{ lamella_images[detail.product_index] }}" alt="Kierunek lameli" style="width:50px;height:50px;" />
                         </td>
                         {% endif %}
                         {% if has_edges %}

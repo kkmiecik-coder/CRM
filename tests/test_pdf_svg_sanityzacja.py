@@ -42,7 +42,7 @@ TEMPLATE_PATH = os.path.join(_ROOT, "modules", "quotes", "templates", "offer_pdf
 
 # Mapy obrazków, które szablon offer_pdf.html musi dostać w OBU ścieżkach
 # (pobranie PDF-a i wysyłka mailem).
-WYMAGANE_MAPY = {"edges_images", "shape_images", "lamella_images", "shape_svg_safe"}
+WYMAGANE_MAPY = {"edges_images", "shape_images", "shape_svg_safe"}
 
 ATAKUJACY = "atakujacy.example"
 
@@ -77,13 +77,12 @@ SHAPE_SVG_CZYSTY = (
 )
 
 
-def _detail(product_index=1, shape_svg=None, edges_svg=None, lamella_direction=None):
+def _detail(product_index=1, shape_svg=None, edges_svg=None):
     """Minimalny odpowiednik wiersza QuoteItemDetails."""
     return SimpleNamespace(
         product_index=product_index,
         shape_svg=shape_svg,
         edges_svg=edges_svg,
-        lamella_direction=lamella_direction,
     )
 
 
@@ -243,7 +242,6 @@ def test_brak_svg_nie_wywraca_helpera(przechwycone_svg):
     assert assets == {
         "edges_images": {},
         "shape_images": {},
-        "lamella_images": {},
         "shape_svg_safe": {},
     }
 
@@ -258,8 +256,7 @@ def test_pusta_lista_detali(przechwycone_svg):
 def test_oczyszczony_svg_nadal_konwertuje_sie_do_png():
     """Bez atrapy: sprawdzamy, że wynik sanitizera cairosvg nadal łyka."""
     assets = build_quote_preview_assets([
-        _detail(shape_svg=SHAPE_SVG_CZYSTY, lamella_direction=90),
+        _detail(shape_svg=SHAPE_SVG_CZYSTY),
     ])
 
     assert assets["shape_images"][1].startswith("data:image/png;base64,")
-    assert assets["lamella_images"][1].startswith("data:image/png;base64,")

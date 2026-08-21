@@ -266,36 +266,6 @@ class EdgesPdfGenerator:
                 f'fill="{fill}" fill-opacity="{fill_op}" stroke="{stroke}" stroke-width="{sw}" rx="1"/>'
                 f'</svg>')
 
-    def _generate_lamella_svg(self, direction, size=60):
-        """Generuje SVG ikonki kierunku lameli."""
-        half = size / 2
-        bar_w = size * 0.27
-        bar_h = size * 0.87
-        gap = size * 0.03
-        start_x = (size - (bar_w * 3 + gap * 2)) / 2
-        start_y = (size - bar_h) / 2
-        r = size * 0.03
-
-        bars = ''
-        for i in range(3):
-            x = start_x + i * (bar_w + gap)
-            bars += f'<rect x="{x:.1f}" y="{start_y:.1f}" width="{bar_w:.1f}" height="{bar_h:.1f}" rx="{r:.1f}" fill="#e67e22"/>'
-
-        # Przy 45/135 stopniach skalujemy paski o sqrt(2) zeby wypelnialy caly kwadrat
-        is_diagonal = direction in (45, 135)
-        s = 1.42 if is_diagonal else 1
-        if direction:
-            transform = f' transform="translate({half} {half}) rotate({direction}) scale({s}) translate(-{half} -{half})"'
-        else:
-            transform = ''
-
-        m = size * 0.07
-        clip = (f'<defs><clipPath id="lc"><rect x="{m:.1f}" y="{m:.1f}" '
-                f'width="{size - m * 2:.1f}" height="{size - m * 2:.1f}" rx="{r:.1f}"/></clipPath></defs>')
-
-        return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {size} {size}" '
-                f'width="{size}" height="{size}">{clip}<g clip-path="url(#lc)"><g{transform}>{bars}</g></g></svg>')
-
     def _svg_to_png_base64(self, svg_html: str, output_width=300, preserve_aspect=False) -> str:
         """Konwertuje SVG na PNG base64 data URI.
 
@@ -549,20 +519,6 @@ class EdgesPdfGenerator:
             margin-left: 4%;
         }}
 
-        /* 3 kolumny */
-        .cell-preview-labels.cols-3 .cell-preview-label {{
-            width: 31%;
-        }}
-        .cell-preview-labels.cols-3 .cell-preview-label + .cell-preview-label {{
-            margin-left: 3.5%;
-        }}
-        .cell-previews.cols-3 .cell-preview-box {{
-            width: 31%;
-        }}
-        .cell-previews.cols-3 .cell-preview-box + .cell-preview-box {{
-            margin-left: 3.5%;
-        }}
-
         .cell-preview-box img {{
             max-width: 100%;
             max-height: 35mm;
@@ -648,42 +604,26 @@ class EdgesPdfGenerator:
                 has_edges_img = True
                 edges_img_html = f'<div class="cell-preview-box"><img src="{png_uri}" alt="Krawędzie" /></div>'
 
-        # Podglad kierunku lameli
-        lamella_img_html = ''
-        has_lamella = False
-        lamella_direction = product.get('lamella_direction')
-        if lamella_direction is not None:
-            lamella_svg = self._generate_lamella_svg(lamella_direction, 60)
-            png_uri = self._svg_to_png_base64(lamella_svg, 60)
-            if png_uri:
-                has_lamella = True
-                lamella_img_html = f'<div class="cell-preview-box"><img src="{png_uri}" alt="Lamele" /></div>'
-
         # Jeśli tylko jeden podgląd — dodaj klasę single (większy obrazek)
-        preview_count = sum([has_shape, has_edges_img, has_lamella])
+        preview_count = sum([has_shape, has_edges_img])
         if preview_count == 1:
             if has_shape:
                 shape_img_html = shape_img_html.replace('cell-preview-box', 'cell-preview-box single')
             if has_edges_img:
                 edges_img_html = edges_img_html.replace('cell-preview-box', 'cell-preview-box single')
-            if has_lamella:
-                lamella_img_html = lamella_img_html.replace('cell-preview-box', 'cell-preview-box single')
 
         # Nagłówki podglądów (oddzielone od obrazków)
         labels_html = ''
         previews_html = ''
-        if has_shape or has_edges_img or has_lamella:
-            col_count = sum([has_shape, has_lamella, has_edges_img])
+        if has_shape or has_edges_img:
+            col_count = sum([has_shape, has_edges_img])
             cols_class = f'cols-{col_count}'
-            # Kolejnosc: ksztalt, lamele, izometria
+            # Kolejnosc: ksztalt, izometria
             label_items = ''
             preview_items = ''
             if has_shape:
                 label_items += '<div class="cell-preview-label">Kształt</div>'
                 preview_items += shape_img_html
-            if has_lamella:
-                label_items += '<div class="cell-preview-label">Kierunek lameli</div>'
-                preview_items += lamella_img_html
             if has_edges_img:
                 label_items += '<div class="cell-preview-label">Izometria</div>'
                 preview_items += edges_img_html

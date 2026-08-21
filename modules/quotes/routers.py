@@ -401,7 +401,6 @@ def generate_quote_pdf(token, format):
         preview_assets = build_quote_preview_assets(finishing_details, quote.quote_number)
         edges_images = preview_assets['edges_images']
         shape_images = preview_assets['shape_images']
-        lamella_images = preview_assets['lamella_images']
         shape_svg_safe = preview_assets['shape_svg_safe']
 
         cost_products_netto = round(sum(item.get_total_price_netto() for item in selected_items), 2)
@@ -462,7 +461,6 @@ def generate_quote_pdf(token, format):
                                  finishing_details=finishing_details,  # Dodaj finishing_details
                                  edges_images=edges_images,  # PNG obrazy krawędzi
                                  shape_images=shape_images,  # PNG obrazy kształtów
-                                 lamella_images=lamella_images,  # PNG ikonki kierunku lameli
                                  shape_svg_safe=shape_svg_safe,  # OCZYSZCZONY SVG kształtu (fallback dla |safe)
                                  icons=icons)
                 
@@ -535,7 +533,6 @@ def send_email(quote_id):
                               finishing_details=finishing_details,
                               edges_images=preview_assets['edges_images'],
                               shape_images=preview_assets['shape_images'],
-                              lamella_images=preview_assets['lamella_images'],
                               shape_svg_safe=preview_assets['shape_svg_safe'],
                               icons=icons)
     
@@ -987,12 +984,11 @@ def _safe_sanitize_svg(raw):
 
 def build_quote_preview_assets(finishing_details, quote_number=''):
     """
-    Buduje podglądy kształtu / krawędzi / lameli dla PDF-a oferty (offer_pdf.html).
+    Buduje podglądy kształtu / krawędzi dla PDF-a oferty (offer_pdf.html).
 
-    Zwraca słownik czterech map, każda kluczowana po product_index:
+    Zwraca słownik trzech map, każda kluczowana po product_index:
       * edges_images   — PNG data URI widoku izometrycznego krawędzi
       * shape_images   — PNG data URI widoku kształtu
-      * lamella_images — PNG data URI ikonki kierunku lameli
       * shape_svg_safe — OCZYSZCZONY SVG kształtu; szablon renderuje go przez
                          |safe, gdy konwersja na PNG się nie powiodła
 
@@ -1013,7 +1009,6 @@ def build_quote_preview_assets(finishing_details, quote_number=''):
 
     edges_images = {}
     shape_images = {}
-    lamella_images = {}
     shape_svg_safe = {}
 
     for detail in finishing_details or []:
@@ -1055,22 +1050,9 @@ def build_quote_preview_assets(finishing_details, quote_number=''):
             except Exception as e:
                 logger.error(f"[PDF {quote_number}] Poz {index}: shape PNG BŁĄD: {e}", exc_info=True)
 
-        # Ikonka kierunku lameli powstaje w całości po naszej stronie
-        # (_generate_lamella_svg) — nie ma tu treści z bazy, nie sanityzujemy.
-        lamella_direction = getattr(detail, 'lamella_direction', None)
-        if lamella_direction is not None:
-            try:
-                lamella_svg = pdf_gen._generate_lamella_svg(lamella_direction, 60)
-                png_uri = pdf_gen._svg_to_png_base64(lamella_svg, 60)
-                if png_uri:
-                    lamella_images[index] = png_uri
-            except Exception:
-                pass
-
     return {
         'edges_images': edges_images,
         'shape_images': shape_images,
-        'lamella_images': lamella_images,
         'shape_svg_safe': shape_svg_safe,
     }
 
