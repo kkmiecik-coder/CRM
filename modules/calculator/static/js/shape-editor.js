@@ -98,10 +98,11 @@ var ShapeEditor = (function() {
             })(toolButtons[ti]);
         }
 
-        // Skróty V/A/D — tylko gdy canvas aktywny i fokus poza inputami
+        // Skróty V/A/D/R — tylko gdy canvas aktywny i fokus poza inputami
         document.addEventListener('keydown', function(e) {
             if (!canvas) return;
             if (!form.classList.contains('shape-canvas-active')) return;
+            if (e.ctrlKey || e.metaKey || e.altKey) return;
             var tag = (document.activeElement && document.activeElement.tagName) || '';
             if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
             var key = e.key.toLowerCase();

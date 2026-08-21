@@ -852,7 +852,9 @@ class QuoteItemDetails(db.Model):
     shape_data = db.Column(db.Text, nullable=True)  # JSON: params, vertices, real_area_cm2, bbox
     shape_svg = db.Column(db.Text, nullable=True)    # SVG string for display in quotes/PDF
     # Kąt obrotu kształtu w stopniach (0-359). Geometria w shape_data jest już
-    # obrócona — kąt trzymamy do wyświetlenia i do opisu pozycji w PDF produkcji.
+    # obrócona — kąt trzymamy wyłącznie do odtworzenia stanu edytora przy
+    # ponownym otwarciu wyceny. Nigdzie nie jest wyświetlany — informację
+    # o układzie słojów niesie sam rysunek (poziome linie lameli w obróconym kształcie).
     shape_rotation = db.Column(db.Integer, nullable=True)
 
     # Docięcie do wymiaru (czy klient otrzymuje produkt docięty do wymiaru z kalkulatora)

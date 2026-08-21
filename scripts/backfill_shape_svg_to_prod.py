@@ -72,12 +72,12 @@ def main():
 
             print(f"  [match] pp.id={pp.id} short={pp.short_product_id} "
                   f"← qid={detail.id} (svg {len(detail.shape_svg)}B, "
-                  f"lamella={detail.lamella_direction})")
+                  f"rotation={detail.shape_rotation})")
 
             if apply_changes:
                 pp.shape_svg = detail.shape_svg
-                if detail.lamella_direction is not None:
-                    pp.lamella_direction = detail.lamella_direction
+                if detail.shape_rotation is not None:
+                    pp.shape_rotation = detail.shape_rotation
                 pp.quote_item_detail_id = detail.id
                 updated += 1
 
