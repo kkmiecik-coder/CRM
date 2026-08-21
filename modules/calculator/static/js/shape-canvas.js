@@ -1083,6 +1083,9 @@ var ShapeCanvas = (function() {
                         baseHoles: state.holes.map(function(h) {
                             return h.map(function(v) { return [v[0], v[1]]; });
                         }),
+                        // Typ sprzed ewentualnej konwersji na wielokąt w mousemove —
+                        // potrzebny, żeby przywrócić go, gdy gest wróci do delty 0.
+                        prevShapeType: state.shapeType,
                         deltaDeg: 0,
                         undoPushed: false,
                         cursorPx: [mx, my]
@@ -1508,6 +1511,10 @@ var ShapeCanvas = (function() {
          * Kończy gest obrotu: zaokrągla geometrię, przesuwa kształt z powrotem
          * do początku układu i dolicza kąt. Wołane i z mouseup, i z mouseleave —
          * inaczej wyjechanie kursorem poza canvas zostawiłoby gest w zawieszeniu.
+         * Gdy gest wrócił do delty 0 (np. Shift+snap cofnął się do startu),
+         * cofa pusty wpis w historii cofania i przywraca typ kształtu sprzed
+         * ewentualnej konwersji na wielokąt — bez tego kliknięcie, które
+         * przypadkiem wróciło do zera, zostawiałoby trapez trwale przemianowany.
          */
         function _finishRotate() {
             if (!state.rotateDrag) return;
@@ -1525,8 +1532,15 @@ var ShapeCanvas = (function() {
                 // Kursor wrócił do punktu startowego (albo Shift+snap zszedł
                 // z powrotem do zera) — wpis w historii cofania nie odpowiada
                 // żadnej realnej zmianie, więc go zdejmujemy, zamiast zostawiać
-                // pusty krok w undo.
+                // pusty krok w undo. Geometria jest przy delcie 0 bit-identyczna
+                // z wyjściową, więc jeśli po drodze doszło do konwersji na
+                // wielokąt, przywracamy oryginalny typ — parametry (np. trapezu)
+                // nadal poprawnie opisują tę geometrię.
                 state.undoStack.pop();
+                if (state.shapeType !== rd.prevShapeType) {
+                    state.shapeType = rd.prevShapeType;
+                    state.onShapeTypeChange(state.shapeType);
+                }
             }
             render();
         }
@@ -1645,6 +1659,11 @@ var ShapeCanvas = (function() {
             state.activeHole = null;
             state.rotation = 0;
             state.rotateDrag = null;
+            // Nie wołamy tu _finishRotate() — setShape wczytuje nowy kształt,
+            // więc dopisywanie kąta ze starego gestu byłoby błędem. Samą klasę
+            // trzeba jednak zdjąć ręcznie, żeby nie zostać z kursorem "grabbing"
+            // po wczytaniu kształtu w trakcie trwającego gestu obrotu.
+            canvasElement.classList.remove('rotating-shape');
             state.undoStack = [];
             state.redoStack = [];
             fitToView();
@@ -1826,10 +1845,14 @@ var ShapeCanvas = (function() {
         function setActiveTool(tool) {
             if (tool !== 'cursor' && tool !== 'add' && tool !== 'remove' && tool !== 'rotate') return;
             state.activeTool = tool;
-            // Zmiana narzędzia w trakcie gestu obrotu (np. skrótem klawiszowym
-            // przy wciśniętym przycisku myszy) urywa gest — bez tego kolejny
-            // setShape mógłby nadpisać nowy kształt obróconym baseVerts starego.
-            state.rotateDrag = null;
+            // Zmiana narzędzia w trakcie trwającego gestu obrotu (np. skrótem
+            // klawiszowym przy wciąż wciśniętym przycisku myszy) musi domknąć
+            // gest tak samo jak mouseup — inaczej geometria zostaje obrócona,
+            // a state.rotation (aktualizowane wyłącznie w _finishRotate) się z nią
+            // rozjeżdża, i canvas zostaje z namalowanym krzyżykiem/etykietą kąta
+            // aż do kolejnego render(). _finishRotate() jest no-opem, gdy gest
+            // nie trwa (rotateDrag === null).
+            _finishRotate();
             canvasElement.classList.remove('tool-cursor', 'tool-add', 'tool-remove', 'tool-rotate', 'rotating-shape');
             canvasElement.classList.add('tool-' + tool);
             // Anuluj activeHole przy zmianie narzędzia
