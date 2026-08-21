@@ -36,6 +36,22 @@ def _coerce_cut_to_size(product_data):
         return True
     return bool(value)
 
+
+def _normalizuj_kat_obrotu(wartosc):
+    """Sprowadza kąt obrotu kształtu do zakresu 0-359 albo zwraca None.
+
+    Frontend wysyła liczbę całkowitą, ale payload przechodzi przez JSON
+    i przez bota, więc nie ufamy typowi. Kąt spoza zakresu zawijamy zamiast
+    odrzucać — 370 stopni to ten sam obrót co 10.
+    """
+    if wartosc is None or wartosc == '':
+        return None
+    try:
+        kat = int(round(float(wartosc)))
+    except (TypeError, ValueError):
+        return None
+    return kat % 360
+
 logger = logging.getLogger(__name__)
 
 
@@ -103,7 +119,7 @@ def load_quote_for_edit(edit_uuid, current_user):
                 "shape": detail.shape if detail else "rectangular",
                 "shape_data": detail.shape_data if detail else None,
                 "shape_svg": detail.shape_svg if detail else None,
-                "lamella_direction": detail.lamella_direction if detail else None,
+                "shape_rotation": detail.shape_rotation if detail else None,
                 "cut_to_size": bool(detail.cut_to_size) if detail else True,
                 "round_surcharge_netto": float(detail.round_surcharge_netto) if detail and detail.round_surcharge_netto else 0,
                 "round_surcharge_brutto": float(detail.round_surcharge_brutto) if detail and detail.round_surcharge_brutto else 0,
@@ -284,7 +300,7 @@ def _update_or_create_product(quote, product_data):
     shape = product_data.get('shape', 'rectangular')
     shape_data_json = product_data.get('shape_data')  # JSON string z frontendu
     shape_svg = product_data.get('shape_svg')
-    lamella_direction = product_data.get('lamella_direction')
+    shape_rotation = _normalizuj_kat_obrotu(product_data.get('shape_rotation'))
     round_surcharge_netto = 0
     round_surcharge_brutto = 0
     if shape in ('round', 'circle'):
@@ -368,7 +384,7 @@ def _update_or_create_product(quote, product_data):
         detail.shape_svg = shape_svg
         detail.round_surcharge_netto = round_surcharge_netto
         detail.round_surcharge_brutto = round_surcharge_brutto
-        detail.lamella_direction = lamella_direction
+        detail.shape_rotation = shape_rotation
         detail.cut_to_size = cut_to_size
         detail.product_type = product_type
     else:
@@ -395,7 +411,7 @@ def _update_or_create_product(quote, product_data):
             shape_svg=shape_svg,
             round_surcharge_netto=round_surcharge_netto,
             round_surcharge_brutto=round_surcharge_brutto,
-            lamella_direction=lamella_direction,
+            shape_rotation=shape_rotation,
             cut_to_size=cut_to_size,
             product_type=product_type,
         )
@@ -782,9 +798,7 @@ def create_quote(data, user_email):
             product_shape = product.get('shape', 'rectangular')
             product_shape_data = product.get('shape_data')
             product_shape_svg = product.get('shape_svg')
-            lamella_direction = product.get('lamella_direction')
-            if lamella_direction is not None and lamella_direction not in (0, 45, 90, 135):
-                lamella_direction = None
+            shape_rotation = _normalizuj_kat_obrotu(product.get('shape_rotation'))
             round_surcharge_netto = 0
             round_surcharge_brutto = 0
             if product_shape in ('round', 'circle'):
@@ -823,7 +837,7 @@ def create_quote(data, user_email):
                 shape_svg=product_shape_svg if product_shape_svg else None,
                 round_surcharge_netto=round_surcharge_netto,
                 round_surcharge_brutto=round_surcharge_brutto,
-                lamella_direction=lamella_direction,
+                shape_rotation=shape_rotation,
                 cut_to_size=cut_to_size,
                 # Koncept sklepu (blat|schody|parapet) — CRM nie interpretuje, tylko przechowuje
                 # do round-tripu w /api/bot/quotes/by-token. Brak klucza (kalkulator CRM) => None.

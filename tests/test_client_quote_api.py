@@ -87,7 +87,7 @@ def _detail(**overrides):
         edges_svg=CLEAN_SVG,
         shape="irregular",
         shape_svg=CLEAN_SVG,
-        lamella_direction=45,
+        shape_rotation=45,
         cut_to_size=True,
         # Pola wewnętrzne — muszą zostać w bazie, nie w odpowiedzi publicznej
         baselinker_order_product_id=987,
@@ -105,7 +105,7 @@ class TestSerializerPolPublicznych:
 
         assert entry["shape"] == "irregular"
         assert entry["shape_svg"] is not None
-        assert entry["lamella_direction"] == 45
+        assert entry["shape_rotation"] == 45
         assert entry["edges_angle_value"] == 45
 
     def test_zachowuje_dotychczasowe_pola(self):
@@ -127,13 +127,13 @@ class TestSerializerPolPublicznych:
 
     def test_brak_ksztaltu_nie_wywala(self):
         entry = build_client_finishing_entry(
-            _detail(shape=None, shape_svg=None, edges_svg=None, lamella_direction=None)
+            _detail(shape=None, shape_svg=None, edges_svg=None, shape_rotation=None)
         )
 
         assert entry["shape"] is None
         assert entry["shape_svg"] is None
         assert entry["edges_svg"] is None
-        assert entry["lamella_direction"] is None
+        assert entry["shape_rotation"] is None
 
     def test_cut_to_size_null_domyslnie_true(self):
         entry = build_client_finishing_entry(_detail(cut_to_size=None))

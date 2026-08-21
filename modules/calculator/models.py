@@ -851,7 +851,9 @@ class QuoteItemDetails(db.Model):
 
     shape_data = db.Column(db.Text, nullable=True)  # JSON: params, vertices, real_area_cm2, bbox
     shape_svg = db.Column(db.Text, nullable=True)    # SVG string for display in quotes/PDF
-    lamella_direction = db.Column(db.Integer, nullable=True)  # 0, 45, 90, 135 — tylko kszalty nieregularne
+    # Kąt obrotu kształtu w stopniach (0-359). Geometria w shape_data jest już
+    # obrócona — kąt trzymamy do wyświetlenia i do opisu pozycji w PDF produkcji.
+    shape_rotation = db.Column(db.Integer, nullable=True)
 
     # Docięcie do wymiaru (czy klient otrzymuje produkt docięty do wymiaru z kalkulatora)
     cut_to_size = db.Column(db.Boolean, nullable=False, default=True, server_default='1')
@@ -891,7 +893,7 @@ class QuoteItemDetails(db.Model):
             'shape_data': self.shape_data,
             'shape_svg': self.shape_svg,
             'cut_to_size': bool(self.cut_to_size),
-            'lamella_direction': self.lamella_direction,
+            'shape_rotation': self.shape_rotation,
             'product_type': self.product_type,
         }
 

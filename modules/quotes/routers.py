@@ -1143,7 +1143,7 @@ def build_client_finishing_entry(detail):
         # Kształt produktu (podgląd na stronie klienta)
         "shape": detail.shape,
         "shape_svg": _safe_sanitize_svg(detail.shape_svg),
-        "lamella_direction": detail.lamella_direction,
+        "shape_rotation": detail.shape_rotation,
         "cut_to_size": bool(detail.cut_to_size) if detail.cut_to_size is not None else True
     }
 
