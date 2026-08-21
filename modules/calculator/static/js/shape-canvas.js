@@ -1071,14 +1071,14 @@ var ShapeCanvas = (function() {
                     var bbRot = ShapeGeometry.calculateBbox(state.shapeType, state.params, state.vertices);
                     var minXRot = state.vertices.reduce(function(m, v) { return Math.min(m, v[0]); }, Infinity);
                     var minYRot = state.vertices.reduce(function(m, v) { return Math.min(m, v[1]); }, Infinity);
-                    // Zmiana typu na wielokąt PRZED obrotem: extractParams
-                    // liczy "podstawę"/"wysokość" przy założeniu osiowości,
-                    // więc na obróconym trapezie wpisałby bzdury do pól.
-                    _convertToPolygonIfNeeded();
+                    var pivotRot = [minXRot + bbRot.width / 2, minYRot + bbRot.height / 2];
+                    // Konwersja typu na wielokąt NIE dzieje się tu, w mousedown —
+                    // samo kliknięcie narzędziem obrotu bez ruchu myszy nie może
+                    // nieodwracalnie zmienić typu kształtu. Konwersja jest w
+                    // mousemove, przy pierwszym realnym ruchu (patrz tam).
                     state.rotateDrag = {
-                        pivot: [minXRot + bbRot.width / 2, minYRot + bbRot.height / 2],
-                        startAngle: Math.atan2(cmStart[1] - (minYRot + bbRot.height / 2),
-                                               cmStart[0] - (minXRot + bbRot.width / 2)),
+                        pivot: pivotRot,
+                        startAngle: Math.atan2(cmStart[1] - pivotRot[1], cmStart[0] - pivotRot[0]),
                         baseVerts: state.vertices.map(function(v) { return [v[0], v[1]]; }),
                         baseHoles: state.holes.map(function(h) {
                             return h.map(function(v) { return [v[0], v[1]]; });
@@ -1148,11 +1148,18 @@ var ShapeCanvas = (function() {
 
                 // Undo dopisujemy przy PIERWSZYM realnym ruchu, ze stanem
                 // sprzed obrotu — dzięki temu samo kliknięcie narzędziem
-                // nie zaśmieca historii pustym krokiem.
+                // nie zaśmieca historii pustym krokiem. Tu też, a nie w
+                // mousedown, ląduje konwersja typu na wielokąt: extractParams
+                // liczy "podstawę"/"wysokość" przy założeniu osiowości, więc na
+                // obróconym trapezie wpisałby bzdury do pól — a skoro dzieje się
+                // to przed _emitChange() poniżej, żadna emisja nie zobaczy
+                // obróconego trapezu z nieprzekonwertowanym typem.
                 if (delta !== 0 && !rd.undoPushed) {
+                    _convertToPolygonIfNeeded();
                     state.undoStack.push(JSON.stringify({
                         vertices: rd.baseVerts,
-                        holes: rd.baseHoles
+                        holes: rd.baseHoles,
+                        rotation: state.rotation
                     }));
                     if (state.undoStack.length > state.maxUndo) state.undoStack.shift();
                     state.redoStack = [];
@@ -1514,6 +1521,12 @@ var ShapeCanvas = (function() {
                 state.holes = pierscienie.slice(1);
                 state.rotation = ((state.rotation + rd.deltaDeg) % 360 + 360) % 360;
                 _emitChange();
+            } else if (rd.undoPushed) {
+                // Kursor wrócił do punktu startowego (albo Shift+snap zszedł
+                // z powrotem do zera) — wpis w historii cofania nie odpowiada
+                // żadnej realnej zmianie, więc go zdejmujemy, zamiast zostawiać
+                // pusty krok w undo.
+                state.undoStack.pop();
             }
             render();
         }
@@ -1521,7 +1534,8 @@ var ShapeCanvas = (function() {
         function _pushUndo() {
             state.undoStack.push(JSON.stringify({
                 vertices: state.vertices,
-                holes: state.holes
+                holes: state.holes,
+                rotation: state.rotation
             }));
             if (state.undoStack.length > state.maxUndo) state.undoStack.shift();
             state.redoStack = [];
@@ -1531,11 +1545,14 @@ var ShapeCanvas = (function() {
             if (state.undoStack.length === 0) return;
             state.redoStack.push(JSON.stringify({
                 vertices: state.vertices,
-                holes: state.holes
+                holes: state.holes,
+                rotation: state.rotation
             }));
             var prev = JSON.parse(state.undoStack.pop());
             state.vertices = prev.vertices;
             state.holes = prev.holes || [];
+            // Tolerancja na starsze wpisy sprzed dodania kąta do snapshotów.
+            state.rotation = prev.rotation || 0;
             _emitChange();
             render();
         }
@@ -1544,11 +1561,14 @@ var ShapeCanvas = (function() {
             if (state.redoStack.length === 0) return;
             state.undoStack.push(JSON.stringify({
                 vertices: state.vertices,
-                holes: state.holes
+                holes: state.holes,
+                rotation: state.rotation
             }));
             var nxt = JSON.parse(state.redoStack.pop());
             state.vertices = nxt.vertices;
             state.holes = nxt.holes || [];
+            // Tolerancja na starsze wpisy sprzed dodania kąta do snapshotów.
+            state.rotation = nxt.rotation || 0;
             _emitChange();
             render();
         }
@@ -1624,6 +1644,7 @@ var ShapeCanvas = (function() {
             }) : [];
             state.activeHole = null;
             state.rotation = 0;
+            state.rotateDrag = null;
             state.undoStack = [];
             state.redoStack = [];
             fitToView();
@@ -1805,7 +1826,11 @@ var ShapeCanvas = (function() {
         function setActiveTool(tool) {
             if (tool !== 'cursor' && tool !== 'add' && tool !== 'remove' && tool !== 'rotate') return;
             state.activeTool = tool;
-            canvasElement.classList.remove('tool-cursor', 'tool-add', 'tool-remove', 'tool-rotate');
+            // Zmiana narzędzia w trakcie gestu obrotu (np. skrótem klawiszowym
+            // przy wciśniętym przycisku myszy) urywa gest — bez tego kolejny
+            // setShape mógłby nadpisać nowy kształt obróconym baseVerts starego.
+            state.rotateDrag = null;
+            canvasElement.classList.remove('tool-cursor', 'tool-add', 'tool-remove', 'tool-rotate', 'rotating-shape');
             canvasElement.classList.add('tool-' + tool);
             // Anuluj activeHole przy zmianie narzędzia
             if (state.activeHole) {
