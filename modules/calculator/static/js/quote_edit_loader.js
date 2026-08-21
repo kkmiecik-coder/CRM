@@ -172,6 +172,7 @@ class QuoteEditLoader {
     async restoreProduct(form, product) {
 
         // Ksztalt (przed wymiarami - bo nieprosto. blokuje length/width)
+        form._pendingShapeRotation = product.shape_rotation;
         await this.restoreShape(form, product.shape, product.shape_data);
 
         // Grupa cenowa na tym formularzu (przed wymiarami - wplywa na ceny)
@@ -243,6 +244,11 @@ class QuoteEditLoader {
                 try { parsedData = JSON.parse(shapeData); } catch(e) { parsedData = null; }
             }
             editor.restore(mappedShape, parsedData);
+            // Przywroc kat obrotu ksztaltu
+            if (typeof form._pendingShapeRotation !== 'undefined' && form._pendingShapeRotation !== null && editor.setRotation) {
+                editor.setRotation(form._pendingShapeRotation);
+                delete form._pendingShapeRotation;
+            }
         } else {
             // Fallback: ustaw dropdown bezposrednio
             var select = form.querySelector('[data-field="shapeSelect"]');

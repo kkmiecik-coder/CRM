@@ -1165,12 +1165,14 @@ function collectQuoteData() {
         let shapeDataJson = null;
         let shapeSvg = null;
         let productShape = form.dataset.productShape || 'rectangular';
+        let shapeRotation = 0;
 
         if (shapeEditor) {
             const shapeData = shapeEditor.getShapeData();
             shapeDataJson = shapeData ? JSON.stringify(shapeData) : null;
             shapeSvg = shapeEditor.getShapeSvg() || null;
             productShape = shapeEditor.getShapeType();
+            shapeRotation = shapeEditor.getRotation ? shapeEditor.getRotation() : 0;
         }
 
         // Objętość: bbox (do wyceny drewna) vs realna (do wyświetlania/wysyłki)
@@ -1285,6 +1287,7 @@ function collectQuoteData() {
             shape: productShape,
             shape_data: shapeDataJson,
             shape_svg: shapeSvg,
+            shape_rotation: shapeRotation,
             cut_to_size: cutToSize,
         }, productPayload));
     });

@@ -255,6 +255,7 @@ class QuoteDraftBackup {
         const shape = form.dataset.productShape || 'rectangular';
         const shapeEditor = form._shapeEditor;
         const shapeData = shapeEditor ? shapeEditor.getShapeData() : null;
+        const shapeRotation = shapeEditor && shapeEditor.getRotation ? shapeEditor.getRotation() : 0;
 
         const finishingType = form.dataset.finishingType || 'Surowe';
         const finishingVariant = form.dataset.finishingVariant || null;
@@ -290,6 +291,7 @@ class QuoteDraftBackup {
             selectedVariant,
             shape,
             shape_data: shapeData,
+            shape_rotation: shapeRotation,
             cut_to_size: window.cutToSize ? window.cutToSize.get(form) : true,
             clientType,
             finishing: {
@@ -611,6 +613,9 @@ class QuoteDraftBackup {
                     const editor = form._shapeEditor;
                     if (editor) {
                         editor.restore(mappedShape, draftData.products[i].shape_data || null);
+                        if (draftData.products[i].shape_rotation != null && editor.setRotation) {
+                            editor.setRotation(draftData.products[i].shape_rotation);
+                        }
                     } else {
                         const shapeSelect = form.querySelector('[data-field="shapeSelect"]');
                         if (shapeSelect) shapeSelect.value = mappedShape;
@@ -773,6 +778,9 @@ class QuoteDraftBackup {
             const editor = form._shapeEditor;
             if (editor) {
                 editor.restore(mappedShape, productData.shape_data || null);
+                if (productData.shape_rotation != null && editor.setRotation) {
+                    editor.setRotation(productData.shape_rotation);
+                }
             } else {
                 const shapeSelect = form.querySelector('[data-field="shapeSelect"]');
                 if (shapeSelect) {

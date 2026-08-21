@@ -312,7 +312,8 @@ var ShapeEditor = (function() {
             // Trigger re-build listy edges w modalu (gdy otwarty) po zmianie holes/wierzchołków
             if (typeof window.EdgesModule !== 'undefined' && typeof window.EdgesModule.refresh === 'function') {
                 try {
-                    var shapeData = ShapeGeometry.buildShapeData(currentShape, currentParams, vertices, holes);
+                    var rotationE = canvas && typeof canvas.getRotation === 'function' ? canvas.getRotation() : 0;
+                    var shapeData = ShapeGeometry.buildShapeData(currentShape, currentParams, vertices, holes, rotationE);
                     var thicknessInput = form.querySelector('input[data-field="thickness"]');
                     var thicknessVal = thicknessInput ? (parseFloat(thicknessInput.value) || 0) : 0;
                     window.EdgesModule.refresh(shapeData, thicknessVal);
@@ -434,7 +435,8 @@ var ShapeEditor = (function() {
                     vertices = null;
                 }
                 var holesG = canvas && typeof canvas.getHoles === 'function' ? canvas.getHoles() : [];
-                return ShapeGeometry.buildShapeData(currentShape, currentParams, vertices, holesG);
+                var rotationG = canvas && typeof canvas.getRotation === 'function' ? canvas.getRotation() : 0;
+                return ShapeGeometry.buildShapeData(currentShape, currentParams, vertices, holesG, rotationG);
             },
 
             getShapeSvg: function() {
@@ -550,6 +552,8 @@ var ShapeEditor = (function() {
                         : ShapeGeometry.generateVertices(shapeType, currentParams);
                     var holesR = (shapeData && shapeData.holes) ? shapeData.holes : [];
                     canvas.setShape(shapeType, currentParams, vertices, holesR);
+                    // setShape zeruje kąt — przywracamy go z zapisanych danych.
+                    if (shapeData && shapeData.rotation != null) canvas.setRotation(shapeData.rotation);
                 } else if (canvas) {
                     canvas.destroy();
                     canvas = null;
@@ -559,6 +563,14 @@ var ShapeEditor = (function() {
                 _setupCircleSync();
                 _updateBboxDisplay();
                 if (typeof updatePrices === 'function') updatePrices();
+            },
+
+            getRotation: function() {
+                return canvas && typeof canvas.getRotation === 'function' ? canvas.getRotation() : 0;
+            },
+
+            setRotation: function(deg) {
+                if (canvas && typeof canvas.setRotation === 'function') canvas.setRotation(deg);
             },
 
             setColorTheme: function(theme) {
