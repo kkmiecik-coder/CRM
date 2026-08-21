@@ -538,10 +538,109 @@ const ShapeGeometry = (function() {
     }
 
     // ============================================
+    // OBRÓT KSZTAŁTU
+    // ============================================
+
+    /**
+     * Obraca pierścień wokół punktu. Nie zaokrągla — wynik jest używany
+     * także w podglądzie na żywo, gdzie zaokrąglanie co klatkę powodowałoby
+     * kumulację błędu.
+     */
+    function rotateRing(ring, angleDeg, pivot) {
+        if (!ring) return null;
+        const rad = angleDeg * Math.PI / 180;
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+        const cx = pivot[0], cy = pivot[1];
+        return ring.map(function(v) {
+            const dx = v[0] - cx, dy = v[1] - cy;
+            return [cx + dx * cos - dy * sin, cy + dx * sin + dy * cos];
+        });
+    }
+
+    /**
+     * Przesuwa komplet pierścieni tak, by PIERWSZY (kontur) zaczynał się
+     * w początku układu. Wycięcia jadą tym samym wektorem, żeby nie zmienić
+     * ich położenia względem konturu. Wszystkie kształty generowane przez
+     * generateVertices zaczynają się w (0,0) — po obrocie przywracamy tę
+     * własność, bo opiera się na niej eksport SVG i liczenie klamerek.
+     */
+    function normalizeRings(rings) {
+        if (!rings || !rings.length || !rings[0] || !rings[0].length) return rings;
+        let minX = Infinity, minY = Infinity;
+        const outer = rings[0];
+        for (let i = 0; i < outer.length; i++) {
+            if (outer[i][0] < minX) minX = outer[i][0];
+            if (outer[i][1] < minY) minY = outer[i][1];
+        }
+        return rings.map(function(ring) {
+            if (!ring) return ring;
+            return ring.map(function(v) {
+                return [_round(v[0] - minX), _round(v[1] - minY)];
+            });
+        });
+    }
+
+    /**
+     * Poziome odcinki wewnątrz konturu z odjętymi wycięciami — linie lameli.
+     *
+     * Liczymy je geometrycznie (przecięcia prostej z krawędziami + reguła
+     * parzystości), a nie przez ctx.clip(), bo canvas2svg nie przenosi
+     * fill-rule do clipPath — na eksportowanym SVG linie wylewałyby się poza
+     * kształt.
+     *
+     * Zwraca [[x1, x2, y], ...].
+     */
+    function horizontalScanSegments(outer, holes, spacingCm) {
+        const segmenty = [];
+        if (!outer || outer.length < 3 || !(spacingCm > 0)) return segmenty;
+
+        let yMin = Infinity, yMax = -Infinity;
+        for (let i = 0; i < outer.length; i++) {
+            if (outer[i][1] < yMin) yMin = outer[i][1];
+            if (outer[i][1] > yMax) yMax = outer[i][1];
+        }
+        if (!(yMax > yMin)) return segmenty;
+
+        // Zabezpieczenie przed patologią (kształt 50 m przy odstępie 4 cm):
+        // lepiej nie narysować lameli niż zawiesić przeglądarkę.
+        if ((yMax - yMin) / spacingCm > 2000) return segmenty;
+
+        const pierscienie = [outer].concat(holes || []);
+        let k = Math.floor(yMin / spacingCm) + 1;
+
+        for (let y = k * spacingCm; y < yMax; y = (++k) * spacingCm) {
+            const przeciecia = [];
+            for (let ri = 0; ri < pierscienie.length; ri++) {
+                const ring = pierscienie[ri];
+                if (!ring || ring.length < 3) continue;
+                for (let i = 0; i < ring.length; i++) {
+                    const p = ring[i];
+                    const q = ring[(i + 1) % ring.length];
+                    // Krawędzie poziome dają ten sam wynik po obu stronach
+                    // porównania, więc same z siebie nie tworzą przecięcia.
+                    if ((p[1] <= y) === (q[1] <= y)) continue;
+                    przeciecia.push(p[0] + (y - p[1]) * (q[0] - p[0]) / (q[1] - p[1]));
+                }
+            }
+            if (przeciecia.length < 2) continue;
+            przeciecia.sort(function(a, b) { return a - b; });
+            // Reguła parzystości: wnętrze to co drugi przedział.
+            for (let s = 0; s + 1 < przeciecia.length; s += 2) {
+                if (przeciecia[s + 1] - przeciecia[s] > 0.01) {
+                    segmenty.push([przeciecia[s], przeciecia[s + 1], y]);
+                }
+            }
+        }
+
+        return segmenty;
+    }
+
+    // ============================================
     // BUILD shape_data OBJECT FOR PERSISTENCE
     // ============================================
 
-    function buildShapeData(shapeType, params, vertices, holes) {
+    function buildShapeData(shapeType, params, vertices, holes, rotation) {
         var areaObj = calculateAreaWithHoles(shapeType, params, vertices, holes);
         var bbox = calculateBbox(shapeType, params, vertices);
         var roundedHoles = [];
@@ -559,7 +658,10 @@ const ShapeGeometry = (function() {
             real_area_cm2: _round(areaObj.outer),
             holes_area_cm2: _round(areaObj.holes),
             net_area_cm2: _round(areaObj.net),
-            bbox: bbox
+            bbox: bbox,
+            // Kąt obrotu kształtu (0-359). Geometria w `vertices` jest już
+            // obrócona — kąt niesiemy dla podglądu i opisu pozycji.
+            rotation: rotation ? ((Math.round(rotation) % 360) + 360) % 360 : 0
         };
     }
 
@@ -582,7 +684,10 @@ const ShapeGeometry = (function() {
         segmentsIntersect: segmentsIntersect,
         ringSelfIntersects: ringSelfIntersects,
         ringsIntersect: ringsIntersect,
-        holeInsideOuter: holeInsideOuter
+        holeInsideOuter: holeInsideOuter,
+        rotateRing: rotateRing,
+        normalizeRings: normalizeRings,
+        horizontalScanSegments: horizontalScanSegments
     };
 })();
 
