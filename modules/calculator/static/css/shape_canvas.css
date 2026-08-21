@@ -132,52 +132,12 @@
     margin-top: 2px;
 }
 
-/* Ikona kierunku lameli */
-.lamella-icon-container {
-    position: absolute;
-    top: 6px;
-    left: 6px;
-    z-index: 5;
-    background: rgba(200, 200, 200, 0.85);
-    padding: 4px 8px;
-    border-radius: 4px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 3px;
-    cursor: pointer;
-}
-.lamella-icon-label {
-    font-size: 9px;
-    color: #222;
-    font-family: 'Poppins', sans-serif;
-    font-weight: 500;
-    white-space: nowrap;
-}
-.lamella-icon-box {
-    width: 50px;
-    height: 50px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border: 2px solid #555;
-    background: rgba(100, 100, 100, 0.25);
-    border-radius: 6px;
-    overflow: hidden;
-}
-.lamella-icon-box svg {
-    fill: #222;
-}
-.lamella-icon-container:hover .lamella-icon-box {
-    background: rgba(100, 100, 100, 0.4);
-}
-
 /* ============================================
    SHAPE TOOLBAR — narzędzia edycji punktów
    ============================================ */
 .shape-toolbar {
     position: absolute;
-    top: 110px; /* pod kontenerem ikony lameli (lamella-icon-container ma label + 50px box + padding ≈ 95px) */
+    top: 6px;
     left: 6px;
     display: flex;
     flex-direction: column;

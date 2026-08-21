@@ -761,9 +761,6 @@ const render = {
         const area = this.areaM2(item);
         if (area > 0) rows.push(['Powierzchnia', `${utils.number(area, 2)} m²`]);
         rows.push(['Ilość', `${product.quantity} szt.`]);
-        if (finishing && finishing.lamella_direction !== null && finishing.lamella_direction !== undefined) {
-            rows.push(['Kierunek lameli', `${utils.number(finishing.lamella_direction)}°`]);
-        }
 
         const rowsHtml = rows.map(([label, value]) => `
             <div><dt>${utils.esc(label)}</dt><dd>${utils.esc(value)}</dd></div>`).join('');

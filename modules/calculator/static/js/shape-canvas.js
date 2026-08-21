@@ -48,7 +48,6 @@ var ShapeCanvas = (function() {
             height: 0,
             colorTheme: 'normal',
             outOfRangeDims: { length: false, width: false },  // które wymiary bbox na czerwono
-            lamellaDirection: 0,
             activeTool: 'cursor',  // 'cursor' | 'add' | 'remove'
             holes: [],
             activeHole: null,
@@ -1703,8 +1702,6 @@ var ShapeCanvas = (function() {
             resize: resize,
             setColorTheme: setColorTheme,
             setOutOfRangeDims: setOutOfRangeDims,
-            setLamellaDirection: function(deg) { state.lamellaDirection = deg; },
-            getLamellaDirection: function() { return state.lamellaDirection; },
             setActiveTool: setActiveTool,
             getActiveTool: getActiveTool,
             setVisibility: setVisibility,

@@ -239,22 +239,6 @@
                                 <div class="shape-canvas-column">
                                     <div class="shape-canvas-wrapper">
                                         <canvas data-shape-canvas></canvas>
-                                        <!-- Ikona kierunku lameli -->
-                                        <div class="lamella-icon-container" data-lamella-icon style="display:none;">
-                                            <div class="lamella-icon-label">Kierunek lameli</div>
-                                            <div class="lamella-icon-box" title="Kliknij aby obrócić">
-                                                <svg viewBox="-2 -2 34 34" width="34" height="34">
-                                                    <defs>
-                                                        <clipPath id="lamellaClip"><rect x="-2" y="-2" width="34" height="34" rx="1"/></clipPath>
-                                                    </defs>
-                                                    <g data-lamella-bars clip-path="url(#lamellaClip)">
-                                                        <rect x="0" y="0" width="9" height="30" rx="1"/>
-                                                        <rect x="10.5" y="0" width="9" height="30" rx="1"/>
-                                                        <rect x="21" y="0" width="9" height="30" rx="1"/>
-                                                    </g>
-                                                </svg>
-                                            </div>
-                                        </div>
                                         <!-- Toolbar narzędzi edycji -->
                                         <div class="shape-toolbar" data-shape-toolbar style="display:none;">
                                             <button type="button" class="shape-tool-btn active" data-shape-tool="cursor" title="Kursor (V) — przeciągaj wierzchołki i tło">
@@ -671,7 +655,6 @@
     <script src="{{ url_for('calculator.static', filename='js/qdraft_backup.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/vendor/canvas2svg.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/shape-geometry.js') }}"></script>
-    <script src="{{ url_for('calculator.static', filename='js/lamella-icon.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/shape-canvas.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/fullscreen-canvas.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/shape-editor.js') }}"></script>

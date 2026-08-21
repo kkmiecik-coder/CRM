@@ -255,7 +255,6 @@ class QuoteDraftBackup {
         const shape = form.dataset.productShape || 'rectangular';
         const shapeEditor = form._shapeEditor;
         const shapeData = shapeEditor ? shapeEditor.getShapeData() : null;
-        const lamellaDirection = shapeEditor && shapeEditor.getLamellaDirection ? shapeEditor.getLamellaDirection() : null;
 
         const finishingType = form.dataset.finishingType || 'Surowe';
         const finishingVariant = form.dataset.finishingVariant || null;
@@ -291,7 +290,6 @@ class QuoteDraftBackup {
             selectedVariant,
             shape,
             shape_data: shapeData,
-            lamella_direction: lamellaDirection,
             cut_to_size: window.cutToSize ? window.cutToSize.get(form) : true,
             clientType,
             finishing: {
@@ -613,9 +611,6 @@ class QuoteDraftBackup {
                     const editor = form._shapeEditor;
                     if (editor) {
                         editor.restore(mappedShape, draftData.products[i].shape_data || null);
-                        if (draftData.products[i].lamella_direction != null && editor.setLamellaDirection) {
-                            editor.setLamellaDirection(draftData.products[i].lamella_direction);
-                        }
                     } else {
                         const shapeSelect = form.querySelector('[data-field="shapeSelect"]');
                         if (shapeSelect) shapeSelect.value = mappedShape;
@@ -778,9 +773,6 @@ class QuoteDraftBackup {
             const editor = form._shapeEditor;
             if (editor) {
                 editor.restore(mappedShape, productData.shape_data || null);
-                if (productData.lamella_direction != null && editor.setLamellaDirection) {
-                    editor.setLamellaDirection(productData.lamella_direction);
-                }
             } else {
                 const shapeSelect = form.querySelector('[data-field="shapeSelect"]');
                 if (shapeSelect) {
