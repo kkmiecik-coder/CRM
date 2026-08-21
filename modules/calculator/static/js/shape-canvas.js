@@ -55,7 +55,7 @@ var ShapeCanvas = (function() {
             activeHole: null,
             hoverHoleStart: false,
             _hintTimeout: null,
-            visibility: { dimensions: true, brackets: true, guides: true, angles: true }
+            visibility: { dimensions: true, brackets: true, guides: true, angles: true, lamellas: true }
         };
 
         // Load visibility z localStorage (per-przeglądarka)
@@ -462,6 +462,29 @@ var ShapeCanvas = (function() {
 
             ctx.fillStyle = theme.shapeFill;
             ctx.fill('evenodd');
+
+            // Lamele — poziome linie co LAMELLA_SPACING_CM, przycięte
+            // geometrycznie do konturu z odjętymi wycięciami. Kolor musi być
+            // czytelny i na ciemnym canvasie, i na białym tle PDF-a, stąd
+            // średni szary zamiast bieli.
+            if (state.visibility.lamellas) {
+                var lamele = ShapeGeometry.horizontalScanSegments(
+                    verts, state.holes, LAMELLA_SPACING_CM);
+                if (lamele.length) {
+                    ctx.save();
+                    ctx.strokeStyle = 'rgba(138, 138, 138, 0.55)';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    for (var li = 0; li < lamele.length; li++) {
+                        var lp1 = cmToPixel(lamele[li][0], lamele[li][2]);
+                        var lp2 = cmToPixel(lamele[li][1], lamele[li][2]);
+                        ctx.moveTo(lp1[0], lp1[1]);
+                        ctx.lineTo(lp2[0], lp2[1]);
+                    }
+                    ctx.stroke();
+                    ctx.restore();
+                }
+            }
 
             // Outer stroke (2px)
             ctx.beginPath();
@@ -1738,7 +1761,7 @@ var ShapeCanvas = (function() {
                 width: state.width, height: state.height,
                 visibility: Object.assign({}, state.visibility)
             };
-            state.visibility = { dimensions: true, brackets: true, guides: true, angles: true };
+            state.visibility = { dimensions: true, brackets: true, guides: true, angles: true, lamellas: true };
 
             // Policz marginesy potrzebne na klamerki i wymiary (px)
             var bracketCountX = 0, bracketCountY = 0;
