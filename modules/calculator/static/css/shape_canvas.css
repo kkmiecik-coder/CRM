@@ -258,6 +258,14 @@ canvas[data-shape-canvas].tool-cursor {
     cursor: default;
 }
 
+canvas[data-shape-canvas].tool-rotate {
+    cursor: grab;
+}
+
+canvas[data-shape-canvas].tool-rotate.rotating-shape {
+    cursor: grabbing;
+}
+
 /* === Fullscreen canvas modal === */
 
 .shape-canvas-fullscreen-btn {

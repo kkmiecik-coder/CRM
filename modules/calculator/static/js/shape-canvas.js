@@ -1658,9 +1658,9 @@ var ShapeCanvas = (function() {
         }
 
         function setActiveTool(tool) {
-            if (tool !== 'cursor' && tool !== 'add' && tool !== 'remove') return;
+            if (tool !== 'cursor' && tool !== 'add' && tool !== 'remove' && tool !== 'rotate') return;
             state.activeTool = tool;
-            canvasElement.classList.remove('tool-cursor', 'tool-add', 'tool-remove');
+            canvasElement.classList.remove('tool-cursor', 'tool-add', 'tool-remove', 'tool-rotate');
             canvasElement.classList.add('tool-' + tool);
             // Anuluj activeHole przy zmianie narzędzia
             if (state.activeHole) {

@@ -39,7 +39,8 @@ var ShapeEditor = (function() {
         var TOOL_HINTS = {
             cursor: 'Przeciągnij wierzchołek lub tło canvasu',
             add: 'Klik krawędź = dodaj punkt. Klik wnętrze = nowa dziura. Prawy klik = zakończ dziurę.',
-            remove: 'Klik wierzchołek = usuń (min 3 punkty)'
+            remove: 'Klik wierzchołek = usuń (min 3 punkty)',
+            rotate: 'Chwyć wierzchołek lub wnętrze i obracaj. Shift = co 15°. Obrót zmienia formatkę.'
         };
 
         function _setActiveToolButton(tool) {
@@ -108,6 +109,7 @@ var ShapeEditor = (function() {
             if (key === 'v') tool = 'cursor';
             else if (key === 'a') tool = 'add';
             else if (key === 'd') tool = 'remove';
+            else if (key === 'r') tool = 'rotate';
             if (!tool || !toolbarEl) return;
             var btn = toolbarEl.querySelector('[data-shape-tool="' + tool + '"]');
             if (!btn || btn.classList.contains('disabled')) return;
