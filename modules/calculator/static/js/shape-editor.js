@@ -188,6 +188,12 @@ var ShapeEditor = (function() {
 
             _syncToMainDimensions();
 
+            // Etykieta formatki musi się przeliczyć TUTAJ, a nie w _showShapeInputs:
+            // tamto woła się przed _ensureCanvas(), więc nie ma jeszcze wierzchołków
+            // i calculateBbox zwraca zera. Bez tego po wyborze kształtu widniało
+            // "Formatka: 0 × 0 cm" aż do pierwszej edycji.
+            _updateBboxDisplay();
+
             // Koło: listener na input length — kopiuje wartość na width
             _setupCircleSync();
 
