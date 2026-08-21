@@ -49,6 +49,8 @@ var ShapeCanvas = (function() {
             colorTheme: 'normal',
             outOfRangeDims: { length: false, width: false },  // które wymiary bbox na czerwono
             activeTool: 'cursor',  // 'cursor' | 'add' | 'remove'
+            rotation: 0,        // łączny kąt obrotu kształtu (0-359)
+            rotateDrag: null,   // stan gestu obrotu, null gdy nie obracamy
             holes: [],
             activeHole: null,
             hoverHoleStart: false,
@@ -71,6 +73,7 @@ var ShapeCanvas = (function() {
         var COLLISION_RADIUS = 32;         // px — promień detekcji kolizji label krawędzi ↔ bbox
         var ANGLE_COLLISION_RADIUS = 28;   // px — promień detekcji kolizji kąt ↔ bbox
         var SVG_SCALE = 1.5;               // mnożnik fontów i offsetów w trybie eksportu SVG
+        var LAMELLA_SPACING_CM = 4;        // odstęp linii lameli (Task 8)
 
         function _mul() { return state._svgExportMode ? SVG_SCALE : 1; }
         function _scaled(v) { return Math.round(v * _mul()); }
@@ -860,6 +863,53 @@ var ShapeCanvas = (function() {
         // MAIN RENDER
         // ============================================
 
+        /**
+         * Tooltip z kątem przy kursorze + znacznik środka obrotu.
+         * Rysowany w render(), nie w _renderShape(), żeby nie trafił
+         * do eksportowanego SVG.
+         */
+        function _renderRotateTooltip() {
+            var rd = state.rotateDrag;
+            if (!rd) return;
+            var theme = COLOR_THEMES[state.colorTheme] || COLOR_THEMES.normal;
+
+            // Znacznik pivota
+            var pv = cmToPixel(rd.pivot[0], rd.pivot[1]);
+            ctx.save();
+            ctx.strokeStyle = theme.shapeStroke;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(pv[0] - 7, pv[1]); ctx.lineTo(pv[0] + 7, pv[1]);
+            ctx.moveTo(pv[0], pv[1] - 7); ctx.lineTo(pv[0], pv[1] + 7);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(pv[0], pv[1], 4, 0, Math.PI * 2);
+            ctx.stroke();
+
+            // Etykieta z ŁĄCZNYM kątem kształtu po tym geście — to ta wartość
+            // trafia do danych wyceny, więc pokazujemy ją, a nie deltę gestu.
+            var lacznie = ((state.rotation + rd.deltaDeg) % 360 + 360) % 360;
+            var tekst = lacznie + '°';
+            ctx.font = 'bold 13px Poppins, sans-serif';
+            var szer = ctx.measureText(tekst).width + 14;
+            var x = rd.cursorPx[0] + 16;
+            var y = rd.cursorPx[1] - 28;
+            if (x + szer > state.width) x = state.width - szer - 4;
+            if (y < 4) y = rd.cursorPx[1] + 16;
+            ctx.fillStyle = 'rgba(26, 26, 46, 0.92)';
+            ctx.strokeStyle = theme.shapeStroke;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.rect(x, y, szer, 22);
+            ctx.fill();
+            ctx.stroke();
+            ctx.fillStyle = theme.shapeStroke;
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(tekst, x + 7, y + 11);
+            ctx.restore();
+        }
+
         function render() {
             ctx.clearRect(0, 0, state.width, state.height);
 
@@ -868,6 +918,7 @@ var ShapeCanvas = (function() {
 
             _renderGrid();
             _renderShape();
+            _renderRotateTooltip();
 
             if (options.scaleIndicator) {
                 options.scaleIndicator.textContent = getScaleLabel();
@@ -1008,6 +1059,45 @@ var ShapeCanvas = (function() {
                 return;
             }
 
+            // Tryb ROTATE — chwyt za wierzchołek albo wnętrze kształtu.
+            // Pivot liczymy RAZ, na starcie: bbox zmienia się w trakcie
+            // obracania, więc liczony na bieżąco powodowałby dryf kształtu.
+            if (tool === 'rotate' && !isCircleLike) {
+                if (!state.vertices || state.vertices.length < 3) return;
+                var cmStart = pixelToCm(mx, my);
+                var vHitRot = _findVertexAt(mx, my);
+                var wSrodku = ShapeGeometry.pointInPolygon(cmStart[0], cmStart[1], state.vertices);
+                if (_isVertexHit(vHitRot) || wSrodku) {
+                    var bbRot = ShapeGeometry.calculateBbox(state.shapeType, state.params, state.vertices);
+                    var minXRot = state.vertices.reduce(function(m, v) { return Math.min(m, v[0]); }, Infinity);
+                    var minYRot = state.vertices.reduce(function(m, v) { return Math.min(m, v[1]); }, Infinity);
+                    // Zmiana typu na wielokąt PRZED obrotem: extractParams
+                    // liczy "podstawę"/"wysokość" przy założeniu osiowości,
+                    // więc na obróconym trapezie wpisałby bzdury do pól.
+                    _convertToPolygonIfNeeded();
+                    state.rotateDrag = {
+                        pivot: [minXRot + bbRot.width / 2, minYRot + bbRot.height / 2],
+                        startAngle: Math.atan2(cmStart[1] - (minYRot + bbRot.height / 2),
+                                               cmStart[0] - (minXRot + bbRot.width / 2)),
+                        baseVerts: state.vertices.map(function(v) { return [v[0], v[1]]; }),
+                        baseHoles: state.holes.map(function(h) {
+                            return h.map(function(v) { return [v[0], v[1]]; });
+                        }),
+                        deltaDeg: 0,
+                        undoPushed: false,
+                        cursorPx: [mx, my]
+                    };
+                    canvasElement.classList.add('rotating-shape');
+                    return;
+                }
+                // Poza kształtem — zachowanie jak dotąd: przesuwanie widoku.
+                state.isPanning = true;
+                state.panStartX = mx - state.offsetX;
+                state.panStartY = (state.height - my) - state.offsetY;
+                canvasElement.style.cursor = 'grabbing';
+                return;
+            }
+
             // Tryb CURSOR (default) — drag wierzchołka lub pan
             var vi = _findVertexAt(mx, my);
             if (_isVertexHit(vi)) {
@@ -1047,6 +1137,37 @@ var ShapeCanvas = (function() {
             } else if (state.hoverHoleStart) {
                 state.hoverHoleStart = false;
                 render();
+            }
+
+            if (state.rotateDrag) {
+                var rd = state.rotateDrag;
+                var cmNow = pixelToCm(mx, my);
+                var katTeraz = Math.atan2(cmNow[1] - rd.pivot[1], cmNow[0] - rd.pivot[0]);
+                var delta = Math.round((katTeraz - rd.startAngle) * 180 / Math.PI);
+                if (e.shiftKey) delta = Math.round(delta / 15) * 15;
+
+                // Undo dopisujemy przy PIERWSZYM realnym ruchu, ze stanem
+                // sprzed obrotu — dzięki temu samo kliknięcie narzędziem
+                // nie zaśmieca historii pustym krokiem.
+                if (delta !== 0 && !rd.undoPushed) {
+                    state.undoStack.push(JSON.stringify({
+                        vertices: rd.baseVerts,
+                        holes: rd.baseHoles
+                    }));
+                    if (state.undoStack.length > state.maxUndo) state.undoStack.shift();
+                    state.redoStack = [];
+                    rd.undoPushed = true;
+                }
+
+                rd.deltaDeg = delta;
+                rd.cursorPx = [mx, my];
+                state.vertices = ShapeGeometry.rotateRing(rd.baseVerts, delta, rd.pivot);
+                state.holes = rd.baseHoles.map(function(h) {
+                    return ShapeGeometry.rotateRing(h, delta, rd.pivot);
+                });
+                _emitChange();
+                render();
+                return;
             }
 
             if (_isVertexHit(state.dragVertex)) {
@@ -1116,6 +1237,7 @@ var ShapeCanvas = (function() {
         });
 
         canvasElement.addEventListener('mouseup', function() {
+            if (state.rotateDrag) { _finishRotate(); return; }
             if (_isVertexHit(state.dragVertex)) {
                 state.dragVertex = -1;
                 canvasElement.classList.remove('dragging-vertex');
@@ -1125,6 +1247,7 @@ var ShapeCanvas = (function() {
         });
 
         canvasElement.addEventListener('mouseleave', function() {
+            if (state.rotateDrag) { _finishRotate(); }
             state.isPanning = false;
             if (_isVertexHit(state.dragVertex)) {
                 state.dragVertex = -1;
@@ -1374,6 +1497,27 @@ var ShapeCanvas = (function() {
             state.onShapeTypeChange('polygon');
         }
 
+        /**
+         * Kończy gest obrotu: zaokrągla geometrię, przesuwa kształt z powrotem
+         * do początku układu i dolicza kąt. Wołane i z mouseup, i z mouseleave —
+         * inaczej wyjechanie kursorem poza canvas zostawiłoby gest w zawieszeniu.
+         */
+        function _finishRotate() {
+            if (!state.rotateDrag) return;
+            var rd = state.rotateDrag;
+            state.rotateDrag = null;
+            canvasElement.classList.remove('rotating-shape');
+            if (rd.deltaDeg !== 0) {
+                var pierscienie = ShapeGeometry.normalizeRings(
+                    [state.vertices].concat(state.holes));
+                state.vertices = pierscienie[0];
+                state.holes = pierscienie.slice(1);
+                state.rotation = ((state.rotation + rd.deltaDeg) % 360 + 360) % 360;
+                _emitChange();
+            }
+            render();
+        }
+
         function _pushUndo() {
             state.undoStack.push(JSON.stringify({
                 vertices: state.vertices,
@@ -1479,6 +1623,7 @@ var ShapeCanvas = (function() {
                 return h.map(function(v) { return [v[0], v[1]]; });
             }) : [];
             state.activeHole = null;
+            state.rotation = 0;
             state.undoStack = [];
             state.redoStack = [];
             fitToView();
@@ -1706,6 +1851,11 @@ var ShapeCanvas = (function() {
             getActiveTool: getActiveTool,
             setVisibility: setVisibility,
             getVisibility: getVisibility,
+            getRotation: function() { return state.rotation; },
+            setRotation: function(deg) {
+                var v = parseInt(deg, 10);
+                state.rotation = isNaN(v) ? 0 : ((v % 360) + 360) % 360;
+            },
             destroy: function() { resizeObserver.disconnect(); }
         };
     }
