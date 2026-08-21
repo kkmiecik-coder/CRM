@@ -195,7 +195,7 @@ def reject_product_quantity(
         parsed_edges_groups=original.parsed_edges_groups,
         edge_svg=original.edge_svg,
         shape_svg=original.shape_svg,
-        lamella_direction=original.lamella_direction,
+        shape_rotation=original.shape_rotation,
         quote_item_detail_id=original.quote_item_detail_id,
         product_sequence_in_order=original.product_sequence_in_order,
         baselinker_product_id=original.baselinker_product_id,

@@ -1072,7 +1072,7 @@ def serialize_order(item, station_code=None):
         'edge_svg': item.edge_svg,
         'has_edge': bool(item.parsed_edge_processing),
         'cut_to_size': bool(getattr(item, 'cut_to_size', True)),
-        'lamella_direction': item.lamella_direction,
+        'shape_rotation': item.shape_rotation,
         'updated_at': _iso(item.updated_at),
         'is_rework': item.is_rework,
         'original_product_id': item.original_product_id,

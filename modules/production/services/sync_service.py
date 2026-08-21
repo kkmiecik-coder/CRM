@@ -3004,7 +3004,7 @@ class BaselinkerSyncService:
         """
         Kaskada wzbogacania danych z QuoteItemDetails.
         Zawsze próbuje znaleźć detail i kopiuje pola wizualne (shape_svg,
-        lamella_direction). Pola edge'owe kopiuje tylko gdy parsed_edge_processing=True.
+        shape_rotation). Pola edge'owe kopiuje tylko gdy parsed_edge_processing=True.
         Poziom 1: Metadane PDF → Poziom 2: order_product_id → Poziom 3: fallback SVG.
         """
         # Reużyj cache z _resolve_cut_to_size (jeśli było wywołane wcześniej)
@@ -3051,8 +3051,8 @@ class BaselinkerSyncService:
             product_data['shape_svg'] = detail.shape_svg
         if detail.shape:
             product_data['shape'] = detail.shape
-        if detail.lamella_direction is not None:
-            product_data['lamella_direction'] = detail.lamella_direction
+        if detail.shape_rotation is not None:
+            product_data['shape_rotation'] = detail.shape_rotation
         product_data['quote_item_detail_id'] = detail.id
 
         # Pola edge'owe — tylko gdy produkt ma obróbkę krawędzi

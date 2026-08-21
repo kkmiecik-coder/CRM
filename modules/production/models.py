@@ -255,7 +255,8 @@ class ProductionProduct(db.Model):
     edge_svg = Column(Text)
     shape_svg = Column(Text)
     shape = Column(String(50), default='rectangular')  # typ kształtu z quotes: rectangular/round/custom
-    lamella_direction = Column(Integer)
+    # Kąt obrotu kształtu w stopniach (0-359), kopiowany z wyceny.
+    shape_rotation = Column(Integer)
     quote_item_detail_id = Column(Integer)
 
     thickness_group = Column(String(10), index=True)
