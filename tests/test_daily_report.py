@@ -483,6 +483,43 @@ def test_modele_trakowni_uzywaja_czasu_lokalnego(app):
             f'{kolumna} nadal używa czasu kontenera zamiast get_local_now')
 
 
+def test_serwisy_trakowni_nie_nadpisuja_created_at(app, zegar):
+    """
+    Test wyżej patrzy WYŁĄCZNIE na definicję kolumny i przeszedłby także
+    wtedy, gdyby ktoś z powrotem wstawił `created_at=datetime.now()` do
+    konstruktora w add_log()/write_audit() — a to był właśnie znaleziony błąd:
+    jawna wartość w konstruktorze unieważnia `default=` kolumny i SQLAlchemy
+    nigdy jej nie woła.
+
+    Dlatego tu jedziemy przez PRAWDZIWE serwisy, z zamrożonym zegarem
+    lokalnym ustawionym na chwilę, w którą realny zegar kontenera nie ma jak
+    trafić. Asercja czyta wartość PO commicie, czyli to, co faktycznie
+    wylądowało w bazie.
+    """
+    from modules.production.sawmill.services.orders import add_log, write_audit
+
+    chwila = zegar(datetime(2026, 1, 15, 3, 17, 42))
+
+    with app.app_context():
+        zlecenie = _zlecenie_trakowni()
+
+        log = add_log(
+            zlecenie,
+            {'mid_circumference_cm': 120.0, 'length_cm': 400.0},
+            measured_at=datetime.combine(PONIEDZIALEK, time(10, 0)))
+        wpis = write_audit(zlecenie.id, 'log_create', log_id=log.id)
+        db.session.commit()
+
+        assert log.created_at == chwila, (
+            'add_log() ustawia created_at jawnie zamiast zostawić default= kolumny')
+        assert wpis.created_at == chwila, (
+            'write_audit() ustawia created_at jawnie zamiast zostawić default= kolumny')
+        # measured_at przychodzi Z ZEWNĄTRZ (czas z tabletu) i NIE ma się
+        # równać zegarowi serwera — inaczej pomiar z kolejki offline
+        # przypisałby się do doby wysyłki zamiast doby pomiaru.
+        assert log.measured_at == datetime.combine(PONIEDZIALEK, time(10, 0))
+
+
 # ============================================================================
 # EKSPORT XLSX
 # ============================================================================

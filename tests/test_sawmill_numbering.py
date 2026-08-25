@@ -82,11 +82,14 @@ def test_numer_miesci_sie_w_kolumnie(app):
 
 
 def test_domyslny_rok_to_biezacy(app):
-    from datetime import datetime
+    # get_local_now(), nie datetime.now(): tak liczy rok next_order_number().
+    # Test odnoszący się do zegara kontenera (UTC) porównywałby się z innym
+    # źródłem niż kod — i w noc sylwestrową rozjechałby się o cały rocznik.
+    from modules.production.models import get_local_now
     with app.app_context():
         numer = next_order_number()
         db.session.commit()
-        assert numer.startswith('TRK/{}/'.format(datetime.now().year))
+        assert numer.startswith('TRK/{}/'.format(get_local_now().year))
 
 
 def test_wyscig_o_pierwszy_wiersz_rocznika(app):

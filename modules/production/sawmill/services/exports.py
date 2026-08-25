@@ -32,8 +32,13 @@ def sawmill_dashboard_stats():
     policzyć do dnia, w którym faktycznie powstały, inaczej statystyka
     wydajności traka jest bezwartościowa.
     """
-    dzis = datetime.combine(get_local_now().date(), time.min)
-    jutro = datetime.combine(get_local_now().date(), time.max)
+    # Jedno odczytanie zegara na obie granice. Dwa osobne wywołania trafiały
+    # w różne doby, gdy przebieg przypadł na przejście przez północ — a wtedy
+    # `dzis` było z dnia poprzedniego, `jutro` z następnego i zakres wychodził
+    # odwrotny (koniec wcześniej niż początek), czyli statystyka pusta.
+    dzien = get_local_now().date()
+    dzis = datetime.combine(dzien, time.min)
+    jutro = datetime.combine(dzien, time.max)
 
     open_orders = SawmillOrder.query.filter(
         SawmillOrder.status.in_(OPEN_STATUSES)).count()

@@ -20,6 +20,7 @@ from sqlalchemy.orm import joinedload
 import modules.users.decorators as user_decorators
 from extensions import db
 from modules.logging import get_structured_logger
+from modules.production.models import get_local_now
 from modules.production.sawmill import sawmill_panel_bp
 from modules.production.sawmill.models import (
     STATUS_NEW, STATUS_SETTLED, SawmillAudit, SawmillDelivery, SawmillLog,
@@ -196,7 +197,11 @@ def tab_content():
         suppliers=SawmillSupplier.query.filter_by(is_active=True)
                    .order_by(SawmillSupplier.name).all(),
         deviation_threshold_pct=settings.get('deviation_threshold_pct', 5.0),
-        today=date.today().isoformat(),
+        # get_local_now(), nie date.today(): kontener chodzi na UTC,
+        # a to jest DOMYŚLNA DATA formularza — między lokalną północą
+        # a 02:00 podpowiadałaby wczorajszy dzień, czyli przypisywała
+        # dostawę do złej doby.
+        today=get_local_now().date().isoformat(),
     )
 
 
