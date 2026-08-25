@@ -526,6 +526,39 @@ def test_arkusz_stanowiska_ma_naglowek_i_wiersze():
     assert ws.cell(row=2, column=2).value == 6
 
 
+def test_wartosci_stanowiska_zaokraglane_tak_samo_jak_suma():
+    """
+    get_station_work_per_day() liczy wartosc_netto jako total_value_net * delta
+    / quantity, a kolejka_m3 jako sumę volume_m3 * quantity — oba to surowe
+    wyniki dzielenia zmiennoprzecinkowego, bez zaokrąglenia. Wiersz SUMA JEST
+    zaokrąglany, więc bez zaokrąglenia wiersza pojedynczego stanowiska komórka
+    stanowiska pokazywała więcej cyfr po przecinku niż komórka SUMY tej samej
+    kolumny, mimo że dla „ładnych" liczb (6, 600.0, 3.0) różnicy nie widać —
+    dlatego test używa wartości, która się realnie nie dzieli.
+    """
+    dane = _pusty_raport()
+    dane['stanowiska'][0]['wartosc_netto'] = 1000.0 * 7 / 3   # 2333.3333333333335
+    dane['stanowiska'][0]['m3'] = 1 / 3                        # 0.3333333333333333
+    dane['stanowiska'][0]['kolejka_m3'] = 2 / 3                # 0.6666666666666666
+    dane['trakownia'] = {'klody': 12, 'm3': 8.4}
+
+    wb = load_workbook(io.BytesIO(daily_report_export.build_daily_xlsx(dane)))
+    ws = wb['Stanowiska']
+
+    assert ws.cell(row=2, column=3).value == pytest.approx(0.333)      # m³
+    assert ws.cell(row=2, column=4).value == pytest.approx(2333.33)    # wartość netto
+    assert ws.cell(row=2, column=7).value == pytest.approx(0.667)      # kolejka m³
+
+    # Zaokrąglanie nie może zamienić pustych komórek trakowni w zera —
+    # _zaokr() musi przepuszczać None bez rzucania TypeError (round(None, 2)
+    # rzuciłby wprost).
+    wiersz_trakowni = ws.max_row - 1
+    assert ws.cell(row=wiersz_trakowni, column=1).value == 'Trakownia'
+    assert ws.cell(row=wiersz_trakowni, column=4).value is None
+    assert ws.cell(row=wiersz_trakowni, column=6).value is None
+    assert ws.cell(row=wiersz_trakowni, column=7).value is None
+
+
 def test_trakownia_ma_puste_komorki_kolejki_a_nie_zera():
     """
     Trakownia nie ma statusów kolejki. Zero znaczyłoby „policzone i wyszło

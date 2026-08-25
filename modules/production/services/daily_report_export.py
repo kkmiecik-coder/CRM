@@ -35,6 +35,14 @@ _KLUCZE_STANOWISKA = (
     'kolejka_szt', 'kolejka_m3',
 )
 
+# Klucze z _KLUCZE_STANOWISKA, które trzeba zaokrąglić, i do ilu miejsc.
+# m3/kolejka_m3/wartosc_netto to surowe wyniki dzielenia zmiennoprzecinkowego
+# (get_station_work_per_day: total_value_net * delta / quantity) — bez tego
+# komórka pojedynczego stanowiska pokazuje więcej cyfr niż wiersz SUMA pod
+# spodem, który JEST zaokrąglany. Ten sam poziom precyzji co w wierszu SUMA
+# i w wierszu trakowni, żeby wszystkie trzy się zgadzały.
+_ZAOKRAGLENIA_STANOWISKA = {'m3': 3, 'wartosc_netto': 2, 'kolejka_m3': 3}
+
 NAGLOWKI_LUDZIE = (
     'Pracownik', 'Stanowiska', 'Sztuki (wkład)', 'm³ (wkład)',
     'Zdarzenia', 'Godziny', 'm³/h',
@@ -76,6 +84,16 @@ def _dopasuj_szerokosci(ws, naglowki):
         ws.column_dimensions[ws.cell(row=1, column=idx).column_letter].width = \
             max(14, len(naglowek) + 2)
     ws.freeze_panes = 'A2'
+
+
+def _zaokr(wartosc, miejsca):
+    """
+    Zaokrąglenie zachowujące None.
+
+    round(None, 2) rzuca TypeError, a pusta komórka niesie tu znaczenie:
+    „nie dotyczy" to nie to samo co „policzone i wyszło zero".
+    """
+    return None if wartosc is None else round(wartosc, miejsca)
 
 
 def _arkusz_dzien(ws, dane):
@@ -143,7 +161,11 @@ def _arkusz_stanowiska(ws, dane):
     _pogrub_naglowek(ws)
 
     for wiersz in dane['stanowiska']:
-        ws.append([wiersz.get(klucz) for klucz in _KLUCZE_STANOWISKA])
+        ws.append([
+            _zaokr(wiersz.get(klucz), _ZAOKRAGLENIA_STANOWISKA[klucz])
+            if klucz in _ZAOKRAGLENIA_STANOWISKA else wiersz.get(klucz)
+            for klucz in _KLUCZE_STANOWISKA
+        ])
 
     # Kłody w kolumnie „Sztuki", m³ w swojej. Wartość netto i obie kolumny
     # kolejki zostają PUSTE — trakownia ich nie ma i zero byłoby kłamstwem.
