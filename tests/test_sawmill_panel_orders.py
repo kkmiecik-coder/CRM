@@ -6,6 +6,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from datetime import date, datetime
+
+from modules.production.models import get_local_now
 from decimal import Decimal
 
 from extensions import db
@@ -349,15 +351,19 @@ def test_soft_skasowane_pomiary_nadal_blokuja_usuniecie(client, app):
 def test_statystyki_kafelka(client, app):
     # _zlecenie() domyślnie datuje pomiary na sztywne 2026-08-05 09:00 —
     # w referencyjnym briefie to było „dziś" w dniu pisania testu, ale
-    # `sawmill_dashboard_stats` liczy „dziś" względem datetime.now() w
-    # chwili URUCHOMIENIA testu, więc sztywna data jest krucha (przestaje
-    # być dniem bieżącym już następnego dnia). Dokładamy dwa pomiary z
-    # rzeczywistym „teraz", żeby test sprawdzał regułę, a nie kalendarz.
+    # `sawmill_dashboard_stats` liczy „dziś" względem chwili URUCHOMIENIA
+    # testu, więc sztywna data jest krucha (przestaje być dniem bieżącym już
+    # następnego dnia). Dokładamy dwa pomiary z rzeczywistym „teraz".
+    #
+    # get_local_now(), NIE datetime.now(): kontener chodzi na UTC, a kafelek
+    # liczy dobę w czasie lokalnym. Między 22:00 UTC a północą (czyli 00:00-02:00
+    # czasu polskiego) datetime.now() wskazuje jeszcze poprzedni dzień, więc
+    # pomiary wpadały poza liczoną dobę i test padał — ale tylko w nocy.
     oid = _zlecenie(app)
     with app.app_context():
         order = db.session.query(SawmillOrder).get(oid)
-        add_log(order, POMIAR_DEC, datetime.now(), device_id='TRAK-1')
-        add_log(order, POMIAR_DEC, datetime.now(), device_id='TRAK-1')
+        add_log(order, POMIAR_DEC, get_local_now(), device_id='TRAK-1')
+        add_log(order, POMIAR_DEC, get_local_now(), device_id='TRAK-1')
         db.session.commit()
     data = client.get(BASE + '/dashboard-stats').get_json()
     assert data['open_orders'] == 1
@@ -374,7 +380,7 @@ def test_statystyki_licza_dzis_po_measured_at(client, app):
     oid = _zlecenie(app)
     with app.app_context():
         order = db.session.query(SawmillOrder).get(oid)
-        wczoraj = datetime.now() - timedelta(days=1)
+        wczoraj = get_local_now() - timedelta(days=1)
         add_log(order, POMIAR_DEC, wczoraj, device_id='TRAK-1')
         db.session.commit()
     data = client.get(BASE + '/dashboard-stats').get_json()

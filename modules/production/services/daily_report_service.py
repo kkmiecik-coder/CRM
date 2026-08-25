@@ -123,10 +123,10 @@ def _koszyki_terminow(dzien):
     return koszyki
 
 
-def _przerob_stanowisk(dzien, cofniecia, kolejki):
+def _przerob_stanowisk(dzien, cofniecia, kolejki, zamowienia):
     """
     Sztuki, m³ i wartość netto per stanowisko za jeden dzień, wzbogacone
-    o cofnięcia i stan kolejki.
+    o liczbę zamówień, cofnięcia i stan kolejki.
 
     get_station_work_per_day() zwraca komplet trzech liczb w jednym zapytaniu
     i ma już w środku filtr źródeł oraz wzór wartości (total_value_net * delta
@@ -141,6 +141,7 @@ def _przerob_stanowisk(dzien, cofniecia, kolejki):
         wynik.append({
             'kod': kod,
             'etykieta': STATION_LABELS[kod],
+            'zamowienia': zamowienia.get(kod, 0),
             'sztuki': int(dzienne.get('pieces', 0) or 0),
             'm3': float(dzienne.get('m3', 0) or 0),
             'wartosc_netto': float(dzienne.get('value_net', 0) or 0),
@@ -175,6 +176,37 @@ def _zdarzenia_pracownikow(dzien):
     ).group_by(ProductionStationEventWorker.worker_id).all()
 
     return {wid: int(ile or 0) for wid, ile in wiersze}
+
+
+def _zamowienia_stanowisk(dzien):
+    """
+    {kod_stanowiska: liczba zamówień dotkniętych na nim w ciągu doby}.
+
+    Ta sama definicja „dotknięcia" co w _zasieg_dnia(): zamówienie liczy się,
+    gdy przy którejś jego pozycji padło choć jedno zdarzenie człowieka.
+
+    UWAGA dla konsumenta: tych liczb NIE WOLNO sumować między stanowiskami.
+    Jedno zamówienie zwykle przechodzi przez kilka stanowisk tego samego dnia,
+    więc suma kolumny policzyłaby je wielokrotnie — łączną liczbę unikalnych
+    zamówień daje wyłącznie _zasieg_dnia().
+    """
+    poczatek, koniec = _granice_doby(dzien)
+
+    wiersze = db.session.query(
+        ProductionStationEvent.station_code,
+        func.count(func.distinct(ProductionOrder.baselinker_order_id)),
+    ).join(
+        ProductionProduct,
+        ProductionProduct.id == ProductionStationEvent.production_item_id,
+    ).join(
+        ProductionOrder, ProductionOrder.id == ProductionProduct.order_id,
+    ).filter(
+        ProductionStationEvent.created_at >= poczatek,
+        ProductionStationEvent.created_at <= koniec,
+        ~ProductionStationEvent.source.in_(ZRODLA_AUTOMATU),
+    ).group_by(ProductionStationEvent.station_code).all()
+
+    return {kod: int(ile or 0) for kod, ile in wiersze}
 
 
 def _zasieg_dnia(dzien):
@@ -304,7 +336,8 @@ def zbierz_dane(dzien=None):
     dzien = dzien or get_local_now().date()
 
     stanowiska = _przerob_stanowisk(dzien, _cofniecia_stanowisk(dzien),
-                                    _kolejki_stanowisk())
+                                    _kolejki_stanowisk(),
+                                    _zamowienia_stanowisk(dzien))
 
     return {
         'dzien': dzien,

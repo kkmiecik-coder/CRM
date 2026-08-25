@@ -134,6 +134,20 @@ def _stanowisko(dane, kod):
     return next(s for s in dane['stanowiska'] if s['kod'] == kod)
 
 
+def _wiersz_sumy(ws):
+    """
+    Numer wiersza SUMA w arkuszu „Stanowiska".
+
+    Szukamy po etykiecie, a nie przez ws.max_row: pod tabelą stoi jeszcze
+    przypis wyjaśniający sumę zamówień, więc ostatni wiersz arkusza to nie
+    jest wiersz sumy.
+    """
+    for numer in range(ws.max_row, 1, -1):
+        if ws.cell(row=numer, column=1).value == 'SUMA':
+            return numer
+    raise AssertionError('arkusz nie ma wiersza SUMA')
+
+
 # ============================================================================
 # PRZERÓB PER STANOWISKO
 # ============================================================================
@@ -533,7 +547,8 @@ def _pusty_raport():
         'ludzie': {'osoby': 0, 'godziny': 0.0, 'pokrycie_proc': 0.0,
                    'wiersze': [], 'nieprzypisane': {'sztuki': 0.0, 'm3': 0.0}},
         'trakownia': {'klody': 0, 'm3': 0.0},
-        'stanowiska': [{'kod': 'gluing', 'etykieta': 'Sklejanie', 'sztuki': 6,
+        'stanowiska': [{'kod': 'gluing', 'etykieta': 'Sklejanie', 'zamowienia': 3,
+                        'sztuki': 6,
                         'm3': 3.0, 'wartosc_netto': 600.0, 'cofniecia': 1,
                         'kolejka_szt': 14, 'kolejka_m3': 6.0}],
         'terminy': {'po_terminie': 2, 'dzis': 1, '1_2_dni': 0,
@@ -560,7 +575,8 @@ def test_arkusz_stanowiska_ma_naglowek_i_wiersze():
 
     assert [c.value for c in ws[1]] == list(daily_report_export.NAGLOWKI_STANOWISKA)
     assert ws.cell(row=2, column=1).value == 'Sklejanie'
-    assert ws.cell(row=2, column=2).value == 6
+    assert ws.cell(row=2, column=2).value == 3   # zamówienia
+    assert ws.cell(row=2, column=3).value == 6   # sztuki
 
 
 def test_wartosci_stanowiska_zaokraglane_tak_samo_jak_suma():
@@ -582,18 +598,19 @@ def test_wartosci_stanowiska_zaokraglane_tak_samo_jak_suma():
     wb = load_workbook(io.BytesIO(daily_report_export.build_daily_xlsx(dane)))
     ws = wb['Stanowiska']
 
-    assert ws.cell(row=2, column=3).value == pytest.approx(0.333)      # m³
-    assert ws.cell(row=2, column=4).value == pytest.approx(2333.33)    # wartość netto
-    assert ws.cell(row=2, column=7).value == pytest.approx(0.667)      # kolejka m³
+    assert ws.cell(row=2, column=4).value == pytest.approx(0.333)      # m³
+    assert ws.cell(row=2, column=5).value == pytest.approx(2333.33)    # wartość netto
+    assert ws.cell(row=2, column=8).value == pytest.approx(0.667)      # kolejka m³
 
     # Zaokrąglanie nie może zamienić pustych komórek trakowni w zera —
     # _zaokr() musi przepuszczać None bez rzucania TypeError (round(None, 2)
     # rzuciłby wprost).
-    wiersz_trakowni = ws.max_row - 1
+    wiersz_trakowni = _wiersz_sumy(ws) - 1
     assert ws.cell(row=wiersz_trakowni, column=1).value == 'Trakownia'
-    assert ws.cell(row=wiersz_trakowni, column=4).value is None
-    assert ws.cell(row=wiersz_trakowni, column=6).value is None
+    assert ws.cell(row=wiersz_trakowni, column=2).value is None
+    assert ws.cell(row=wiersz_trakowni, column=5).value is None
     assert ws.cell(row=wiersz_trakowni, column=7).value is None
+    assert ws.cell(row=wiersz_trakowni, column=8).value is None
 
 
 def test_trakownia_ma_puste_komorki_kolejki_a_nie_zera():
@@ -610,13 +627,14 @@ def test_trakownia_ma_puste_komorki_kolejki_a_nie_zera():
 
     wb = load_workbook(io.BytesIO(daily_report_export.build_daily_xlsx(dane)))
     ws = wb['Stanowiska']
-    wiersz_trakowni = ws.max_row - 1   # przedostatni; ostatni to SUMA
+    wiersz_trakowni = _wiersz_sumy(ws) - 1   # wiersz nad SUMĄ
 
     assert ws.cell(row=wiersz_trakowni, column=1).value == 'Trakownia'
-    assert ws.cell(row=wiersz_trakowni, column=2).value == 12    # kłody
-    assert ws.cell(row=wiersz_trakowni, column=4).value is None  # wartość netto
-    assert ws.cell(row=wiersz_trakowni, column=6).value is None  # kolejka szt.
-    assert ws.cell(row=wiersz_trakowni, column=7).value is None  # kolejka m³
+    assert ws.cell(row=wiersz_trakowni, column=3).value == 12    # kłody
+    assert ws.cell(row=wiersz_trakowni, column=2).value is None  # zamówienia
+    assert ws.cell(row=wiersz_trakowni, column=5).value is None  # wartość netto
+    assert ws.cell(row=wiersz_trakowni, column=7).value is None  # kolejka szt.
+    assert ws.cell(row=wiersz_trakowni, column=8).value is None  # kolejka m³
 
 
 def test_arkusz_stanowiska_konczy_sie_wierszem_suma():
@@ -628,7 +646,7 @@ def test_arkusz_stanowiska_konczy_sie_wierszem_suma():
     dane = _pusty_raport()
     dane['trakownia'] = {'klody': 12, 'm3': 8.4}
     dane['stanowiska'].append({
-        'kod': 'packaging', 'etykieta': 'Pakowanie', 'sztuki': 4, 'm3': 1.0,
+        'kod': 'packaging', 'etykieta': 'Pakowanie', 'zamowienia': 2, 'sztuki': 4, 'm3': 1.0,
         'wartosc_netto': 200.0, 'cofniecia': 0,
         'kolejka_szt': 7, 'kolejka_m3': 0.7,
     })
@@ -636,9 +654,9 @@ def test_arkusz_stanowiska_konczy_sie_wierszem_suma():
     wb = load_workbook(io.BytesIO(daily_report_export.build_daily_xlsx(dane)))
     ws = wb['Stanowiska']
 
-    assert ws.cell(row=ws.max_row, column=1).value == 'SUMA'
-    assert ws.cell(row=ws.max_row, column=2).value == 10   # 6 + 4, bez trakowni
-    assert ws.cell(row=ws.max_row, column=3).value == pytest.approx(4.0)  # bez 8.4
+    suma = _wiersz_sumy(ws)
+    assert ws.cell(row=suma, column=3).value == 10   # 6 + 4, bez trakowni
+    assert ws.cell(row=suma, column=4).value == pytest.approx(4.0)  # bez 8.4
 
 
 def test_arkusz_ludzie_ma_wiersz_nieprzypisane():
@@ -826,7 +844,7 @@ def test_suma_ludzi_zgadza_sie_z_suma_stanowisk(app):
 
         arkusz_stanowisk = wb['Stanowiska']
         suma_stanowisk = arkusz_stanowisk.cell(
-            row=arkusz_stanowisk.max_row, column=2).value
+            row=_wiersz_sumy(arkusz_stanowisk), column=3).value
 
         arkusz_ludzi = wb['Ludzie']
         suma_ludzi = sum(
@@ -879,9 +897,10 @@ def test_liczby_maja_jawny_format_w_notacji_ooxml():
         daily_report_export.build_daily_xlsx(_pusty_raport())))
     ws = wb['Stanowiska']
 
-    assert ws.cell(row=2, column=2).number_format == '#,##0'      # sztuki
-    assert ws.cell(row=2, column=3).number_format == '#,##0.000'  # m³
-    assert ws.cell(row=2, column=4).number_format == '#,##0.00'   # wartość
+    assert ws.cell(row=2, column=2).number_format == '#,##0'      # zamówienia
+    assert ws.cell(row=2, column=3).number_format == '#,##0'      # sztuki
+    assert ws.cell(row=2, column=4).number_format == '#,##0.000'  # m³
+    assert ws.cell(row=2, column=5).number_format == '#,##0.00'   # wartość
 
     for format_ in ('#,##0', '#,##0.000', '#,##0.00'):
         assert '.' in format_ or ',' in format_
@@ -899,11 +918,12 @@ def test_kolorowanie_nie_zamienia_pustej_komorki_w_zero():
 
     wb = load_workbook(io.BytesIO(daily_report_export.build_daily_xlsx(dane)))
     ws = wb['Stanowiska']
-    wiersz_trakowni = ws.max_row - 1
+    wiersz_trakowni = _wiersz_sumy(ws) - 1
 
     assert ws.cell(row=wiersz_trakowni, column=1).value == 'Trakownia'
     assert ws.cell(row=wiersz_trakowni, column=1).fill.fgColor.rgb.endswith('F2F0ED')
-    for kolumna in (4, 6, 7):
+    # Zamówienia, wartość netto i obie kolumny kolejki — trakownia ich nie ma.
+    for kolumna in (2, 5, 7, 8):
         assert ws.cell(row=wiersz_trakowni, column=kolumna).value is None
 
 
@@ -945,7 +965,7 @@ def test_wiersz_sumy_ma_akcent_i_pogrubienie():
     wb = load_workbook(io.BytesIO(
         daily_report_export.build_daily_xlsx(_pusty_raport())))
     ws = wb['Stanowiska']
-    komorka = ws.cell(row=ws.max_row, column=1)
+    komorka = ws.cell(row=_wiersz_sumy(ws), column=1)
 
     assert komorka.value == 'SUMA'
     assert komorka.font.bold is True
@@ -965,3 +985,97 @@ def test_etykieta_sztuk_tlumaczy_sie_sama():
 
     assert 'Sztuki (wykonane − cofnięte)' in etykiety
     assert 'Sztuki (netto)' not in etykiety
+
+
+def test_suma_zamowien_nie_jest_suma_kolumny():
+    """
+    Jedno zamówienie zwykle przechodzi tego dnia przez kilka stanowisk, więc
+    zsumowanie kolumny „Zamówienia" policzyłoby je wielokrotnie. W wierszu SUMA
+    musi wylądować globalna liczba UNIKALNYCH zamówień z bloku „wykonanie".
+
+    Tu: dwa stanowiska raportują po 3 i 2 zamówienia (suma kolumny = 5), ale
+    realnie dotknięto tylko 4 różnych zamówień — bo jedno przeszło przez oba.
+    """
+    dane = _pusty_raport()
+    dane['wykonanie']['zamowienia'] = 4
+    dane['stanowiska'].append({
+        'kod': 'packaging', 'etykieta': 'Pakowanie', 'zamowienia': 2,
+        'sztuki': 4, 'm3': 1.0, 'wartosc_netto': 200.0, 'cofniecia': 0,
+        'kolejka_szt': 7, 'kolejka_m3': 0.7,
+    })
+
+    wb = load_workbook(io.BytesIO(daily_report_export.build_daily_xlsx(dane)))
+    ws = wb['Stanowiska']
+
+    assert ws.cell(row=2, column=2).value == 3      # sklejanie
+    assert ws.cell(row=3, column=2).value == 2      # pakowanie
+    assert ws.cell(row=_wiersz_sumy(ws), column=2).value == 4   # nie 5
+
+
+def test_zamowienia_per_stanowisko_licza_unikalne_zamowienia(app):
+    """
+    Dwie pozycje z tego samego zamówienia dotknięte na jednym stanowisku to
+    jedno zamówienie, nie dwa. Zdarzenia automatu nie liczą się w ogóle.
+    """
+    with app.app_context():
+        p1 = _produkt()
+        p2 = _produkt()
+        # Druga pozycja tego samego zamówienia co p1.
+        p1b = ProductionProduct(
+            order_id=p1.order_id,
+            # short_product_id ma walidator wymuszający format N_S (models.py:325).
+            short_product_id=f"{p1.short_product_id.split('_')[0]}_2",
+            product_sequence_in_order=2, original_product_name='Blat',
+            quantity=5, volume_m3=0.5, total_value_net=500.0,
+            current_status='czeka_na_sklejanie',
+            created_at=datetime.combine(PONIEDZIALEK, time(9, 0)))
+        db.session.add(p1b)
+        db.session.commit()
+
+        kiedy = datetime.combine(PONIEDZIALEK, time(10, 0))
+        _event(p1, 'gluing', 2, kiedy)
+        _event(p1b, 'gluing', 3, kiedy)
+        _event(p2, 'gluing', 1, kiedy)
+        _event(p2, 'formatting', 4, kiedy, source='auto_skip')
+
+        dane = daily_report_service.zbierz_dane(PONIEDZIALEK)
+
+        assert _stanowisko(dane, 'gluing')['zamowienia'] == 2
+        assert _stanowisko(dane, 'formatting')['zamowienia'] == 0
+
+
+def test_przypis_wyjasnia_dlaczego_suma_zamowien_nie_jest_suma_kolumny():
+    """
+    Suma kolumny „Zamówienia" jest większa niż liczba w wierszu SUMA i bez
+    wyjaśnienia wygląda to na błąd arkusza. Przypis stoi pod tabelą, bo tam
+    czytelnik trafia zaraz po zobaczeniu rozbieżności.
+    """
+    dane = _pusty_raport()
+    dane['wykonanie']['zamowienia'] = 4
+    dane['stanowiska'].append({
+        'kod': 'packaging', 'etykieta': 'Pakowanie', 'zamowienia': 2,
+        'sztuki': 4, 'm3': 1.0, 'wartosc_netto': 200.0, 'cofniecia': 0,
+        'kolejka_szt': 7, 'kolejka_m3': 0.7,
+    })
+
+    wb = load_workbook(io.BytesIO(daily_report_export.build_daily_xlsx(dane)))
+    ws = wb['Stanowiska']
+    ostatni = ws.cell(row=ws.max_row, column=1).value
+
+    assert 'unikalnych zamówień' in ostatni
+    assert 'nie suma kolumny' in ostatni
+    # Przypis stoi POD wierszem SUMA, nie zamiast niego.
+    etykiety = [ws.cell(row=r, column=1).value for r in range(1, ws.max_row + 1)]
+    assert etykiety.index('SUMA') < ws.max_row - 1
+
+
+def test_przypis_nie_rozpycha_kolumny():
+    """
+    Zdanie przypisu ma ponad 150 znaków. Gdyby autoszerokość je uwzględniała,
+    pierwsza kolumna miałaby szerokość całego zdania i tabela stałaby się
+    nieczytelna.
+    """
+    wb = load_workbook(io.BytesIO(
+        daily_report_export.build_daily_xlsx(_pusty_raport())))
+
+    assert wb['Stanowiska'].column_dimensions['A'].width <= 42

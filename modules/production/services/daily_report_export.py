@@ -75,19 +75,19 @@ _FMT_ZL = '#,##0.00'
 _FMT_DZIESIETNY = '#,##0.0'
 
 NAGLOWKI_STANOWISKA = (
-    'Stanowisko', 'Sztuki', 'm³', 'Wartość netto', 'Cofnięcia',
+    'Stanowisko', 'Zamówienia', 'Sztuki', 'm³', 'Wartość netto', 'Cofnięcia',
     'W kolejce (szt.)', 'W kolejce (m³)',
 )
 
 _KLUCZE_STANOWISKA = (
-    'etykieta', 'sztuki', 'm3', 'wartosc_netto', 'cofniecia',
+    'etykieta', 'zamowienia', 'sztuki', 'm3', 'wartosc_netto', 'cofniecia',
     'kolejka_szt', 'kolejka_m3',
 )
 
 # Kolumna (1-indeks) → format liczbowy. Kolumna 1 to tekst, więc jej nie ma.
 _FORMATY_STANOWISKA = {
-    2: _FMT_SZTUKI, 3: _FMT_M3, 4: _FMT_ZL,
-    5: _FMT_SZTUKI, 6: _FMT_SZTUKI, 7: _FMT_M3,
+    2: _FMT_SZTUKI, 3: _FMT_SZTUKI, 4: _FMT_M3, 5: _FMT_ZL,
+    6: _FMT_SZTUKI, 7: _FMT_SZTUKI, 8: _FMT_M3,
 }
 
 # Klucze z _KLUCZE_STANOWISKA, które trzeba zaokrąglić, i do ilu miejsc.
@@ -122,6 +122,16 @@ _ETYKIETY_TERMINOW = (
     ('3_7_dni', 'Termin za 3–7 dni'),
     ('8_dni_plus', 'Termin za 8+ dni'),
     ('bez_terminu', 'Bez terminu'),
+)
+
+# Przypis pod tabelą stanowisk. Bez niego suma kolumny „Zamówienia" (91 dla
+# przykładowego dnia) nie zgadza się z liczbą w wierszu SUMA (83) i wygląda to
+# na błąd arkusza, a jest jedyną poprawną odpowiedzią — to samo zamówienie
+# przechodzi tego dnia przez kilka stanowisk.
+_PRZYPIS_ZAMOWIENIA = (
+    'Zamówienia w wierszu SUMA to liczba unikalnych zamówień, a nie suma '
+    'kolumny — jedno zamówienie przechodzi zwykle przez kilka stanowisk '
+    'tego samego dnia i w każdym z nich liczy się osobno.'
 )
 
 # Granice szerokości kolumny. Dolna, żeby wąskie kolumny liczbowe nie zlewały
@@ -179,8 +189,11 @@ def _autoszerokosc(ws):
     Zamiast stałej szerokości opartej wyłącznie na nagłówku: „Sylwester Rębiś"
     jest dłuższy niż „Pracownik", a „89 817,51" dłuższe niż „Wartość netto".
     """
+    scalone = {zakres.min_row for zakres in ws.merged_cells.ranges}
     for kolumna in ws.columns:
-        najdluzsza = max((_dlugosc_wyswietlana(k) for k in kolumna), default=0)
+        najdluzsza = max(
+            (_dlugosc_wyswietlana(k) for k in kolumna if k.row not in scalone),
+            default=0)
         litera = kolumna[0].column_letter
         ws.column_dimensions[litera].width = min(
             _MAKS_SZEROKOSC, max(_MIN_SZEROKOSC, najdluzsza + 2))
@@ -296,17 +309,25 @@ def _arkusz_stanowiska(ws, dane):
         ])
         _formatuj_wiersz(ws, ws.max_row, _FORMATY_STANOWISKA)
 
-    # Kłody w kolumnie „Sztuki", m³ w swojej. Wartość netto i obie kolumny
-    # kolejki zostają PUSTE — trakownia ich nie ma i zero byłoby kłamstwem.
+    # Kłody w kolumnie „Sztuki", m³ w swojej. Kolumna zamówień, wartość netto
+    # i obie kolumny kolejki zostają PUSTE — trakownia ich nie ma i zero byłoby
+    # kłamstwem. Trakownia ma własne zlecenia (prod_sawmill_orders), ale to
+    # inny byt niż zamówienie klienta z BaseLinkera; wstawienie ich w tę samą
+    # kolumnę sugerowałoby, że da się je zsumować.
     trakownia = dane['trakownia']
-    ws.append([STATION_LABELS['sawmill'], trakownia['klody'],
+    ws.append([STATION_LABELS['sawmill'], None, trakownia['klody'],
                round(trakownia['m3'], 3), None, None, None, None])
     _formatuj_wiersz(ws, ws.max_row, _FORMATY_STANOWISKA)
     for cell in ws[ws.max_row]:
         cell.fill = _TLO_TRAKOWNI
 
+    # Zamówienia biorą się z globalnego licznika, a NIE z sumy kolumny wyżej:
+    # jedno zamówienie zwykle przechodzi tego dnia przez kilka stanowisk, więc
+    # zsumowanie wierszy policzyłoby je wielokrotnie. Suma kolumny „Zamówienia"
+    # jest z definicji większa lub równa tej liczbie i to jest poprawne.
     ws.append([
         'SUMA',
+        dane['wykonanie']['zamowienia'],
         sum(w['sztuki'] for w in dane['stanowiska']),
         round(sum(w['m3'] for w in dane['stanowiska']), 3),
         round(sum(w['wartosc_netto'] or 0 for w in dane['stanowiska']), 2),
@@ -319,6 +340,20 @@ def _arkusz_stanowiska(ws, dane):
         cell.font = Font(bold=True, color=_GRAFIT)
         cell.fill = _TLO_SUMY
         cell.border = _OBRAMOWANIE_SUMY
+
+    # Przypis pod tabelą. Scalony przez szerokość arkusza i z zawijaniem, żeby
+    # nie rozpychał kolumny A — autoszerokość świadomie go pomija (patrz
+    # _autoszerokosc), inaczej pierwsza kolumna miałaby szerokość zdania.
+    ws.append([])
+    ws.append([_PRZYPIS_ZAMOWIENIA])
+    wiersz_przypisu = ws.max_row
+    ws.merge_cells(start_row=wiersz_przypisu, start_column=1,
+                   end_row=wiersz_przypisu, end_column=len(NAGLOWKI_STANOWISKA))
+    komorka = ws.cell(row=wiersz_przypisu, column=1)
+    komorka.font = Font(italic=True, size=9, color=_SZARY_TEKST)
+    komorka.alignment = Alignment(horizontal='left', vertical='top',
+                                  wrap_text=True)
+    ws.row_dimensions[wiersz_przypisu].height = 28
 
     _autoszerokosc(ws)
 
