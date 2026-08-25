@@ -34,12 +34,28 @@ from modules.calculator.models import Multiplier  # noqa: F401
 from modules.clients.models import Client  # noqa: F401
 import modules.quotes.models  # noqa: F401
 
-# Komenda jest zdefiniowana wewnątrz register_cli_commands() w app.py, więc
-# nie da się jej wziąć bez zaimportowania tego modułu — a app.py tworzy na
-# końcu instancję WSGI (`app = create_app()`). Ta instancja jest tu nieużywana
-# i NIE służy do testu: wszystko jedzie na własnej aplikacji z fixture'a,
-# z bazą SQLite w pamięci i zdławioną wysyłką maili.
-from app import register_cli_commands
+# Komenda jest zdefiniowana wewnątrz register_cli_commands() w app.py. Import
+# tej funkcji jest CELOWO odroczony do wnętrza fixture'a `app` (poniżej), a
+# NIE zrobiony tu na poziomie modułu: app.py kończy się linią
+# `app = create_app()` bez osłony `if __name__ == "__main__"`, więc samo
+# zaimportowanie modułu na poziomie modułu — czyli samo ZEBRANIE tego pliku
+# przez pytest, bez odpalenia jakiegokolwiek testu — budowałoby produkcyjną
+# instancję WSGI: łączyłoby się z bazą z config/core.json i (zależnie od
+# configu) odpalało RUN_DB_SETUP (db.create_all() + create_admin()) oraz
+# RUN_MIGRATIONS. Odroczenie importu do fixture'a rozwiązuje problem
+# ZBIERANIA — `pytest tests/ --collect-only` już tego nie dotyka.
+#
+# UWAGA: gdy testy faktycznie się wykonują, fixture i tak importuje `app`,
+# więc create_app() i tak się odpala normalnie. Sprawdzone w app.py: RUN_DB_
+# SETUP i RUN_MIGRATIONS są czytane WYŁĄCZNIE z app.config (zasilanego
+# w całości z config/core.json) — create_app() nie czyta dla nich żadnej
+# zmiennej środowiskowej (jedyne odczytywane tu env vary to FLASK_ENV i
+# FLASK_DEBUG, i te sterują tylko DEBUG). Nie da się więc tych efektów
+# ubocznych wyłączyć z zewnątrz samym env var-em — ochroną jest wyłącznie to,
+# że testy jadą w kontenerze `app`, gdzie kontener `db` już stoi. Instancja
+# WSGI z create_app() jest tu i tak nieużywana do testów: wszystko jedzie na
+# własnej aplikacji z fixture'a, z bazą SQLite w pamięci i zdławioną wysyłką
+# maili.
 
 _TABLES = [m.__table__ for m in (
     User, ProductionDevice, ProductionConfig, ProductionOrder, ProductionProduct,
@@ -64,6 +80,10 @@ _SZABLONY = os.path.join(
 
 @pytest.fixture()
 def app():
+    # Import odroczony celowo do wnętrza fixture'a — patrz komentarz nad
+    # dawnym importem modułowym powyżej.
+    from app import register_cli_commands
+
     app = Flask(__name__, template_folder=_SZABLONY)
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite://'
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
