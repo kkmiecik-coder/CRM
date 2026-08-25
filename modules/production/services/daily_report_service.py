@@ -19,12 +19,16 @@ from datetime import date, datetime, time
 from sqlalchemy import func
 
 from extensions import db
-from ..models import ProductionProduct, ProductionStationEvent, get_local_now
+from ..models import (
+    ProductionOrder, ProductionProduct, ProductionStationEvent,
+    ProductionStationEventWorker, get_local_now,
+)
 from .reports_service import _koszyk_terminu
 from .station_catalog import (
     STATION_LABELS, STATION_ORDER, STATION_PENDING_STATUS,
 )
 from .station_events_service import ZRODLA_AUTOMATU, get_station_work_per_day
+from .worker_stats_service import raport_wydajnosci
 
 
 def _granice_doby(dzien):
@@ -146,6 +150,109 @@ def _przerob_stanowisk(dzien, cofniecia, kolejki):
     return wynik
 
 
+def _zdarzenia_pracownikow(dzien):
+    """
+    {worker_id: liczba zdarzeń} za dobę.
+
+    raport_wydajnosci() podaje liczbę zdarzeń wyłącznie zbiorczo (klucz
+    summary.station_events), a arkusz „Ludzie" ma kolumnę per osoba — stąd
+    osobne zapytanie. Liczy ZDARZENIA, nie sumę delt: doba, w której tyle
+    samo odhaczono co cofnięto, ma netto zero, a pracowano.
+    """
+    poczatek, koniec = _granice_doby(dzien)
+
+    wiersze = db.session.query(
+        ProductionStationEventWorker.worker_id,
+        func.count(ProductionStationEvent.id),
+    ).join(
+        ProductionStationEvent,
+        ProductionStationEvent.id == ProductionStationEventWorker.event_id,
+    ).filter(
+        ProductionStationEvent.created_at >= poczatek,
+        ProductionStationEvent.created_at <= koniec,
+        ~ProductionStationEvent.source.in_(ZRODLA_AUTOMATU),
+    ).group_by(ProductionStationEventWorker.worker_id).all()
+
+    return {wid: int(ile or 0) for wid, ile in wiersze}
+
+
+def _zasieg_dnia(dzien):
+    """
+    (liczba pozycji, liczba zamówień) dotkniętych w ciągu doby.
+
+    Świadomie liczymy POZYCJE DOTKNIĘTE, a nie „pozycje z dodatnim netto"
+    jak get_station_work_in_range(): tamta funkcja działa w obrębie jednego
+    stanowiska, a netto liczone globalnie przez wszystkie stanowiska naraz
+    nie ma sensownej interpretacji. „Dotknięta" znaczy: było przy niej
+    przynajmniej jedno zdarzenie człowieka.
+    """
+    poczatek, koniec = _granice_doby(dzien)
+
+    return db.session.query(
+        func.count(func.distinct(ProductionStationEvent.production_item_id)),
+        func.count(func.distinct(ProductionOrder.baselinker_order_id)),
+    ).join(
+        ProductionProduct,
+        ProductionProduct.id == ProductionStationEvent.production_item_id,
+    ).join(
+        ProductionOrder, ProductionOrder.id == ProductionProduct.order_id,
+    ).filter(
+        ProductionStationEvent.created_at >= poczatek,
+        ProductionStationEvent.created_at <= koniec,
+        ~ProductionStationEvent.source.in_(ZRODLA_AUTOMATU),
+    ).one()
+
+
+def _ludzie(dzien):
+    """
+    Wiersze arkusza „Ludzie" plus liczby zbiorcze.
+
+    Wszystko poza kolumną „Zdarzenia" pochodzi z raport_wydajnosci() — tej
+    samej funkcji, która zasila zakładkę „Pracownicy" w panelu.
+
+    `tempo` zostaje None dla pracownika bez atrybucji: arkusz pokaże pustą
+    komórkę, nie zero. Zero przy nazwisku człowieka, o którym raport nic nie
+    wie, byłoby zarzutem bezczynności postawionym z braku danych.
+    """
+    raport = raport_wydajnosci(dzien, dzien)
+    zdarzenia = _zdarzenia_pracownikow(dzien)
+
+    wiersze = [{
+        'nazwa': w['worker_name'],
+        'stanowiska': ', '.join(w['stations']),
+        'sztuki': w['pieces'],
+        'm3': w['m3'],
+        'zdarzenia': zdarzenia.get(w['worker_id'], 0),
+        'godziny': w['hours'],
+        'tempo': w['pace_m3_per_hour'],
+    } for w in raport['worker_totals']]
+
+    podsumowanie = raport['summary']
+    return {
+        'osoby': podsumowanie['workers_count'],
+        'godziny': podsumowanie['hours'],
+        'pokrycie_proc': podsumowanie['attribution_coverage_pct'],
+        'wiersze': wiersze,
+        'nieprzypisane': {
+            'sztuki': podsumowanie['unassigned_pieces'],
+            'm3': podsumowanie['unassigned_m3'],
+        },
+    }
+
+
+def _wykonanie(stanowiska, dzien):
+    """Sumy nagłówkowe — składane z policzonych już wierszy stanowisk."""
+    pozycje, zamowienia = _zasieg_dnia(dzien)
+    return {
+        'sztuki': sum(s['sztuki'] for s in stanowiska),
+        'm3': sum(s['m3'] for s in stanowiska),
+        'wartosc_netto': sum(s['wartosc_netto'] for s in stanowiska),
+        'cofniecia': sum(s['cofniecia'] for s in stanowiska),
+        'pozycje': int(pozycje or 0),
+        'zamowienia': int(zamowienia or 0),
+    }
+
+
 def zbierz_dane(dzien=None):
     """
     Komplet danych dziennego raportu jako czysty dict.
@@ -160,9 +267,13 @@ def zbierz_dane(dzien=None):
     """
     dzien = dzien or get_local_now().date()
 
+    stanowiska = _przerob_stanowisk(dzien, _cofniecia_stanowisk(dzien),
+                                    _kolejki_stanowisk())
+
     return {
         'dzien': dzien,
-        'stanowiska': _przerob_stanowisk(dzien, _cofniecia_stanowisk(dzien),
-                                         _kolejki_stanowisk()),
+        'wykonanie': _wykonanie(stanowiska, dzien),
+        'ludzie': _ludzie(dzien),
+        'stanowiska': stanowiska,
         'terminy': _koszyki_terminow(dzien),
     }

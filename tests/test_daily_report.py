@@ -283,3 +283,87 @@ def test_wstrzymane_pozycje_licza_sie_do_terminow(app):
         terminy = daily_report_service.zbierz_dane(PONIEDZIALEK)['terminy']
 
         assert terminy['po_terminie'] == 1
+
+
+# ============================================================================
+# LUDZIE I LICZBY ZBIORCZE
+# ============================================================================
+
+def test_wiersz_pracownika(app):
+    with app.app_context():
+        adam = _pracownik('Adam')
+        _sesja(adam, 'gluing', PONIEDZIALEK, godzin=4)
+        p = _produkt()
+        _event(p, 'gluing', 8, datetime.combine(PONIEDZIALEK, time(10, 0)),
+               worker=adam)
+
+        ludzie = daily_report_service.zbierz_dane(PONIEDZIALEK)['ludzie']
+
+        assert ludzie['osoby'] == 1
+        wiersz = ludzie['wiersze'][0]
+        assert wiersz['nazwa'] == 'Adam Nowak'
+        assert wiersz['sztuki'] == pytest.approx(8.0)
+        assert wiersz['zdarzenia'] == 1
+        assert wiersz['godziny'] == pytest.approx(4.0)
+
+
+def test_praca_bez_atrybucji_trafia_do_nieprzypisanych(app):
+    """
+    Bez tego wiersza suma z arkusza „Ludzie" nie zgadza się z sumą z arkusza
+    „Stanowiska" i raport wygląda na zepsuty. Zasada z worker_stats_service:20-25.
+    """
+    with app.app_context():
+        p = _produkt()
+        _event(p, 'gluing', 5, datetime.combine(PONIEDZIALEK, time(10, 0)))
+
+        ludzie = daily_report_service.zbierz_dane(PONIEDZIALEK)['ludzie']
+
+        assert ludzie['wiersze'] == []
+        assert ludzie['nieprzypisane']['sztuki'] == pytest.approx(5.0)
+        assert ludzie['nieprzypisane']['m3'] == pytest.approx(2.5)
+
+
+def test_tempo_bez_atrybucji_jest_puste_a_nie_zerowe(app):
+    """
+    Pracownik z sesją, ale bez ani jednej odbitej sztuki, ma dostać tempo
+    „—", nie „0,0 m³/h". Zero przy nazwisku to zarzut bezczynności
+    postawiony na podstawie braku danych.
+    """
+    with app.app_context():
+        adam = _pracownik('Adam')
+        _sesja(adam, 'gluing', PONIEDZIALEK, godzin=8)
+
+        ludzie = daily_report_service.zbierz_dane(PONIEDZIALEK)['ludzie']
+
+        wiersz = ludzie['wiersze'][0]
+        assert wiersz['godziny'] == pytest.approx(8.0)
+        assert wiersz['tempo'] is None
+
+
+def test_wykonanie_zbiorcze_dnia(app):
+    """Sumy nagłówkowe: sztuki, m³, wartość, pozycje, zamówienia, cofnięcia."""
+    with app.app_context():
+        p1 = _produkt(quantity=10, volume=0.5, wartosc=1000.0)
+        p2 = _produkt(quantity=10, volume=0.2, wartosc=500.0)
+        _event(p1, 'gluing', 6, datetime.combine(PONIEDZIALEK, time(10, 0)))
+        _event(p2, 'packaging', 4, datetime.combine(PONIEDZIALEK, time(11, 0)))
+        _event(p2, 'packaging', -1, datetime.combine(PONIEDZIALEK, time(15, 0)))
+
+        wykonanie = daily_report_service.zbierz_dane(PONIEDZIALEK)['wykonanie']
+
+        assert wykonanie['sztuki'] == 9              # 6 + 4 - 1
+        assert wykonanie['m3'] == pytest.approx(3.6)  # 6×0.5 + 3×0.2
+        assert wykonanie['wartosc_netto'] == pytest.approx(750.0)
+        assert wykonanie['pozycje'] == 2
+        assert wykonanie['zamowienia'] == 2
+        assert wykonanie['cofniecia'] == 1
+
+
+def test_dzien_bez_ruchu_daje_zera_a_nie_wyjatek(app):
+    """Raport idzie także w dniu bez produkcji — brak maila ma znaczyć awarię."""
+    with app.app_context():
+        dane = daily_report_service.zbierz_dane(PONIEDZIALEK)
+
+        assert dane['wykonanie']['sztuki'] == 0
+        assert dane['ludzie']['osoby'] == 0
+        assert dane['ludzie']['wiersze'] == []
