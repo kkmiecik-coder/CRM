@@ -416,6 +416,91 @@ def register_cli_commands(app):
 
         click.echo('[display-monitor] OK')
 
+    @app.cli.command('raport-dzienny')
+    @click.option('--data', 'data_raportu', default=None,
+                  help='Dzień raportu w formacie YYYY-MM-DD (domyślnie dziś).')
+    @click.option('--do', 'adresy', default=None,
+                  help='Adresy odbiorców rozdzielone przecinkami — nadpisuje konfigurację.')
+    @click.option('--sucho', is_flag=True,
+                  help='Policz i wypisz podsumowanie, nie wysyłaj maila.')
+    @click.option('--zapisz', 'sciezka', default=None,
+                  help='Zapisz arkusz do pliku pod podaną ścieżką.')
+    @with_appcontext
+    def raport_dzienny(data_raportu, adresy, sucho, sciezka):
+        """Wysyła dzienny raport produkcji na skonfigurowaną listę adresów."""
+        from datetime import datetime as _datetime
+
+        from modules.production.models import get_local_now
+        from modules.production.services import (
+            daily_report_export, daily_report_service, report_mailer,
+        )
+
+        # get_local_now(), nigdy date.today(): w bazie współistnieją trzy
+        # strefy czasowe, a raport kubełkuje po dobie czasu lokalnego.
+        if data_raportu:
+            try:
+                dzien = _datetime.strptime(data_raportu, '%Y-%m-%d').date()
+            except ValueError:
+                click.echo(f'[raport-dzienny] zła data: {data_raportu} '
+                           f'(oczekiwany format YYYY-MM-DD)', err=True)
+                raise click.Abort()
+        else:
+            dzien = get_local_now().date()
+
+        try:
+            dane = daily_report_service.zbierz_dane(dzien)
+            arkusz = daily_report_export.build_daily_xlsx(dane)
+        except Exception as e:
+            current_app.logger.exception('[raport-dzienny] błąd agregacji')
+            click.echo(f'[raport-dzienny] BŁĄD podczas liczenia: {e}', err=True)
+            raise click.Abort()
+
+        wykonanie = dane['wykonanie']
+        click.echo(
+            f"[raport-dzienny] {dzien}: {wykonanie['sztuki']} szt., "
+            f"{wykonanie['m3']:.3f} m³, {wykonanie['wartosc_netto']:.2f} zł, "
+            f"{dane['ludzie']['osoby']} os. / {dane['ludzie']['godziny']} h"
+        )
+
+        if sciezka:
+            with open(sciezka, 'wb') as plik:
+                plik.write(arkusz)
+            click.echo(f'[raport-dzienny] arkusz zapisany: {sciezka}')
+
+        if sucho:
+            click.echo('[raport-dzienny] tryb --sucho, mail nie został wysłany')
+            return
+
+        lista = ([a.strip() for a in adresy.split(',') if a.strip()]
+                 if adresy else None)
+
+        try:
+            # report_mailer.wyslij_raport() woła render_template(), co odpala
+            # WSZYSTKIE globalne context processory aplikacji — w tym
+            # inject_user() (context_processor niżej w tym pliku). Ta funkcja
+            # czyta session.get('user_email') POZA blokiem try/except, a dalej
+            # (gdy user_email trafi na użytkownika) używa url_for('static',
+            # ...) — obie rzeczy wymagają kontekstu ŻĄDANIA, którego samo
+            # @with_appcontext nie zapewnia. Bez tego opakowania komenda CLI
+            # wywali się RuntimeError zamiast wysłać maila. NIE usuwać —
+            # poprawianie inject_user() jest świadomie poza zakresem tej
+            # zmiany, bo dotyka globalnego context processora całej aplikacji.
+            with current_app.test_request_context():
+                ile = report_mailer.wyslij_raport(dane, arkusz, odbiorcy=lista)
+        except Exception as e:
+            # Kod wyjścia 1 ma znaczenie operacyjne: cron hostingu mailuje
+            # wtedy stderr. Bez tego awaria SMTP byłaby niewidoczna tygodniami.
+            current_app.logger.exception('[raport-dzienny] błąd wysyłki')
+            click.echo(f'[raport-dzienny] BŁĄD wysyłki: {e}', err=True)
+            raise click.Abort()
+
+        if ile == 0:
+            click.echo('[raport-dzienny] brak odbiorców w konfiguracji '
+                       '(DAILY_REPORT_RECIPIENTS) — nie wysłano')
+            return
+
+        click.echo(f'[raport-dzienny] wysłano do {ile} odbiorców')
+
 # Funkcje do generowania i weryfikacji tokena resetującego hasło
 def generate_reset_token(email, secret_key, salt='password-reset-salt'):
     serializer = URLSafeTimedSerializer(secret_key)
