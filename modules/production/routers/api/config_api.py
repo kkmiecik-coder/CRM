@@ -235,6 +235,11 @@ def config_tab_content():
             'CACHE_DURATION_SECONDS':       ('system',      3600,        'integer'),
             'ADMIN_EMAIL_NOTIFICATIONS':    ('system',      'admin@woodpower.pl', 'string'),
             'ERROR_NOTIFICATION_THRESHOLD': ('system',      10,          'integer'),
+            # Raport dzienny. Świadomie osobny klucz, a nie doklejenie
+            # znaczenia do ADMIN_EMAIL_NOTIFICATIONS: tamten ma etykietę
+            # „email administratora" i zero czytelników w Pythonie, więc ktoś
+            # kiedyś zmieni go w innym celu i wyłączy raport, nie wiedząc o tym.
+            'DAILY_REPORT_RECIPIENTS':      ('system',      '',          'string'),
 
             # Drukarka etykiet
             'LABEL_PRINTER_IP':              ('printer',     '192.168.100.199',          'string'),
@@ -502,6 +507,9 @@ def update_configs():
             'STATION_SHOW_DETAILED_INFO', 'STATION_MAX_PRODUCTS_DISPLAY', 'DEADLINE_DEFAULT_DAYS',
             'PRIORITY_RECALC_INTERVAL_HOURS', 'PRIORITY_ALGORITHM_VERSION', 'DEBUG_PRODUCTION_BACKEND',
             'DEBUG_PRODUCTION_FRONTEND', 'CACHE_DURATION_SECONDS', 'ADMIN_EMAIL_NOTIFICATIONS',
+            # Bez tego pole w UI istnieje, ale zapis wraca błędem
+            # „Niepozwolone klucze konfiguracji".
+            'DAILY_REPORT_RECIPIENTS',
             'ERROR_NOTIFICATION_THRESHOLD', 'BASELINKER_STATUSES_CACHE', 'MAX_PRODUCTS_PER_ORDER',
             'STATION_IP_CACHE_DURATION_MINUTES', 'STATION_CUTTING_PRIORITY_SORT',
             'STATION_ASSEMBLY_PRIORITY_SORT', 'STATION_PACKAGING_PRIORITY_SORT',
