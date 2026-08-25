@@ -6,6 +6,26 @@
 
    Układ pionowy, bez tabel z wieloma kolumnami — czytany głównie na telefonie
    o 18:00, a tabele w mailu rozjeżdżają się na klientach mobilnych. #}
+
+{#- Polski zapis liczby: spacja jako separator tysięcy, PRZECINEK dziesiętny.
+    Bez tego mail pokazywał „4.187 m³" obok „28 450 zł" — dwie konwencje
+    w jednym zdaniu. Jinja formatuje po angielsku, więc podmiana jest ręczna:
+    najpierw przecinki tysięcy na spacje, dopiero potem kropka na przecinek
+    (odwrotna kolejność zamieniłaby świeżo wstawione przecinki na spacje). -#}
+{%- macro liczba(wartosc, miejsca=0) -%}
+{{ ('{:,.' ~ miejsca ~ 'f}').format(wartosc)|replace(',', ' ')|replace('.', ',') }}
+{%- endmacro -%}
+
+{#- Odmiana rzeczownika po liczbie. Bez tego mail pisał „2 osób" i „1 kłód".
+    Reguła polska: 1 → liczba pojedyncza, końcówka 2–4 (poza 12–14) → mianownik
+    liczby mnogiej, reszta → dopełniacz. Świadomie w szablonie, bez biblioteki
+    do odmiany — trzy rzeczowniki nie są tego warte. -#}
+{%- macro odmiana(ile, jeden, kilka, wiele) -%}
+{%- if ile == 1 -%}{{ jeden }}
+{%- elif 2 <= ile % 10 <= 4 and not 12 <= ile % 100 <= 14 -%}{{ kilka }}
+{%- else -%}{{ wiele }}
+{%- endif -%}
+{%- endmacro -%}
 <div style="font-family: Arial, Helvetica, sans-serif; font-size: 15px; color: #222; line-height: 1.6;">
     <p style="font-size: 17px; font-weight: bold; margin: 0 0 16px 0;">
         Raport produkcji — {{ dzien_slownie }}
@@ -13,31 +33,47 @@
 
     <p style="margin: 0 0 8px 0;">
         <strong>Wykonane:</strong>
-        {{ wykonanie.sztuki }} szt. ·
-        {{ '%.3f'|format(wykonanie.m3) }} m³ ·
-        {{ '{:,.0f}'.format(wykonanie.wartosc_netto).replace(',', ' ') }} zł netto
-        {%- if wykonanie.cofniecia %} (w tym {{ wykonanie.cofniecia }} szt. cofnięte){% endif %}
+        {{ liczba(wykonanie.sztuki) }} szt. ·
+        {{ liczba(wykonanie.m3, 3) }} m³ ·
+        {{ liczba(wykonanie.wartosc_netto) }} zł netto
+        {%- if wykonanie.cofniecia %} (w tym {{ liczba(wykonanie.cofniecia) }} szt. cofnięte){% endif %}
     </p>
 
+    {# pokrycie_proc bywa None: w dobie bez ŻADNEGO ruchu nie ma z czego
+       policzyć procentu, a raport i tak idzie (brak maila ma oznaczać awarię,
+       nie ciszę — cron 1-5 nie zna świąt). Zero byłoby kłamstwem, więc
+       myślnik, dokładnie jak pusta komórka w arkuszu. #}
     <p style="margin: 0 0 8px 0;">
         <strong>Praca:</strong>
-        {{ ludzie.osoby }} {{ 'osoba' if ludzie.osoby == 1 else 'osób' }},
-        {{ ludzie.godziny }} h (pokrycie {{ ludzie.pokrycie_proc }}%)
+        {{ liczba(ludzie.osoby) }} {{ odmiana(ludzie.osoby, 'osoba', 'osoby', 'osób') }},
+        {{ liczba(ludzie.godziny, 1) }} h
+        (pokrycie {% if ludzie.pokrycie_proc is none %}—{% else %}{{ liczba(ludzie.pokrycie_proc, 1) }}%{% endif %})
     </p>
 
     {% if trakownia.klody %}
     <p style="margin: 0 0 8px 0;">
         <strong>Trakownia:</strong>
-        {{ trakownia.klody }} kłód · {{ '%.3f'|format(trakownia.m3) }} m³
+        {{ liczba(trakownia.klody) }} {{ odmiana(trakownia.klody, 'kłoda', 'kłody', 'kłód') }} ·
+        {{ liczba(trakownia.m3, 3) }} m³
     </p>
     {% endif %}
 
+    {# „W kolejce" i „Po terminie" to DWIE różne populacje, dlatego dwa osobne
+       zdania: kolejka liczy SZTUKI w siedmiu statusach kolejkowych, a termin
+       liczy POZYCJE we wszystkich statusach poza spakowanymi i anulowanymi.
+       Poprzednie „w tym N pozycji po terminie" sugerowało podzbiór i umiało
+       wypisać „0 szt. — w tym 18 pozycji po terminie". #}
     <p style="margin: 0 0 8px 0;">
         <strong>W kolejce:</strong>
-        {{ kolejka_szt }} szt. · {{ '%.3f'|format(kolejka_m3) }} m³
-        {%- if terminy.po_terminie %} — w tym {{ terminy.po_terminie }}
-        {{ 'pozycja' if terminy.po_terminie == 1 else 'pozycji' }} po terminie{% endif %}
+        {{ liczba(kolejka_szt) }} szt. · {{ liczba(kolejka_m3, 3) }} m³
     </p>
+
+    {% if terminy.po_terminie %}
+    <p style="margin: 0 0 8px 0;">
+        <strong>Po terminie:</strong>
+        {{ liczba(terminy.po_terminie) }} poz.
+    </p>
+    {% endif %}
 
     <p style="margin: 20px 0 0 0; color: #666; font-size: 13px;">
         Szczegóły w załączniku.

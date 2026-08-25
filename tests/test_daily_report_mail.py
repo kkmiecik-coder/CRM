@@ -152,3 +152,93 @@ def test_odbiorcy_podani_wprost_maja_pierwszenstwo(app):
                                         odbiorcy=['test@woodpower.pl'])
 
         assert wyslane[0].recipients == ['test@woodpower.pl']
+
+
+def test_brak_pokrycia_nie_wypisuje_none(app):
+    """
+    pokrycie_atrybucji_dziennie() zwraca None, gdy nie było ŻADNEGO ruchu —
+    świadomie, żeby nie kłamać zerem (reports_service.py:938). Raport idzie
+    także w taki dzień (brak maila ma znaczyć awarię, a cron 1-5 nie zna świąt:
+    1 maja czy 11 listopada w dzień roboczy odpali przebieg), więc szablon
+    musi pokazać myślnik. Wprost wstawiona wartość dawała „(pokrycie None%)".
+    """
+    dane = dict(DANE)
+    dane['ludzie'] = dict(DANE['ludzie'], osoby=0, godziny=0.0,
+                          pokrycie_proc=None)
+
+    with app.app_context():
+        _ustaw_odbiorcow('konrad@woodpower.pl')
+
+        with mail.record_messages() as wyslane:
+            report_mailer.wyslij_raport(dane, b'udawane-bajty')
+
+        tresc = wyslane[0].html
+        assert 'None' not in tresc
+        assert 'pokrycie —' in tresc
+
+
+def test_liczby_maja_polski_zapis_dziesietny(app):
+    """
+    Mail miesza jednostki w jednym zdaniu, więc nie może mieszać konwencji:
+    „4.187 m³" obok „28 450 zł" wyglądało jak dwa różne raporty sklejone razem.
+    """
+    with app.app_context():
+        _ustaw_odbiorcow('konrad@woodpower.pl')
+
+        with mail.record_messages() as wyslane:
+            report_mailer.wyslij_raport(DANE, b'udawane-bajty')
+
+        tresc = wyslane[0].html
+        assert '4,187 m³' in tresc
+        assert '37,5 h' in tresc
+        assert '28 450 zł' in tresc
+        assert '4.187' not in tresc
+        assert '37.5' not in tresc
+
+
+def test_odmiana_rzeczownika_po_liczbie(app):
+    """„2 osób" i „1 kłód" to nie jest polski. Reguła: 1 / 2–4 / reszta."""
+    with app.app_context():
+        _ustaw_odbiorcow('konrad@woodpower.pl')
+
+        dane = dict(DANE)
+        dane['ludzie'] = dict(DANE['ludzie'], osoby=2)
+        dane['trakownia'] = {'klody': 1, 'm3': 1.5}
+
+        with mail.record_messages() as wyslane:
+            report_mailer.wyslij_raport(dane, b'udawane-bajty')
+
+        tresc = wyslane[0].html
+        assert '2 osoby' in tresc
+        assert '1 kłoda' in tresc
+
+        dane['ludzie'] = dict(DANE['ludzie'], osoby=5)
+        dane['trakownia'] = {'klody': 12, 'm3': 18.0}
+
+        with mail.record_messages() as wyslane:
+            report_mailer.wyslij_raport(dane, b'udawane-bajty')
+
+        tresc = wyslane[0].html
+        assert '5 osób' in tresc
+        assert '12 kłód' in tresc
+
+
+def test_kolejka_i_termin_to_osobne_zdania(app):
+    """
+    kolejka_szt liczy SZTUKI w statusach kolejkowych, terminy.po_terminie liczy
+    POZYCJE w niemal wszystkich statusach. „0 szt. — w tym 18 pozycji po
+    terminie" sugerowało podzbiór, którym te liczby nie są.
+    """
+    dane = dict(DANE)
+    dane['stanowiska'] = [dict(DANE['stanowiska'][0], kolejka_szt=0,
+                               kolejka_m3=0.0)]
+
+    with app.app_context():
+        _ustaw_odbiorcow('konrad@woodpower.pl')
+
+        with mail.record_messages() as wyslane:
+            report_mailer.wyslij_raport(dane, b'udawane-bajty')
+
+        tresc = wyslane[0].html
+        assert 'w tym 18' not in tresc
+        assert 'Po terminie:' in tresc
