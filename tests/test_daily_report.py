@@ -696,3 +696,150 @@ def test_nazwa_pliku_jest_ascii():
 
     assert nazwa == 'Raport_produkcji_2026-08-10.xlsx'
     nazwa.encode('ascii')   # rzuci UnicodeEncodeError, jeśli się zepsuje
+
+
+def _bloki_arkusza_dzien(ws):
+    """
+    {'WYKONANIE': {'Sztuki (netto)': 342, ...}, ...} — arkusz „Dzień" czytany
+    blokami, nie płaskim słownikiem: etykieta „m³" występuje DWA razy (raz
+    w WYKONANIU, raz w TRAKOWNI) i płaska mapa cicho gubiłaby pierwszą.
+    """
+    bloki = {}
+    biezacy = None
+    for wiersz in range(1, ws.max_row + 1):
+        etykieta = ws.cell(row=wiersz, column=1).value
+        wartosc = ws.cell(row=wiersz, column=2).value
+        if etykieta is None:
+            continue
+        if wartosc is None and etykieta.isupper():
+            biezacy = etykieta
+            bloki[biezacy] = {}
+        elif biezacy is not None:
+            bloki[biezacy][etykieta] = wartosc
+    return bloki
+
+
+def test_arkusz_dzien_ma_cztery_bloki_i_liczby_podsumowania():
+    """
+    Arkusz „Dzień" to pierwsza rzecz, którą widzi otwierający załącznik —
+    dotąd nie był sprawdzany niczym poza własną nazwą.
+    """
+    dane = _pusty_raport()
+    dane['wykonanie'] = {'sztuki': 342, 'm3': 4.18742, 'wartosc_netto': 28450.126,
+                         'pozycje': 51, 'zamowienia': 18, 'cofniecia': 4}
+    dane['ludzie'] = {'osoby': 5, 'godziny': 37.5, 'pokrycie_proc': 92.0,
+                      'wiersze': [], 'nieprzypisane': {'sztuki': 0.0, 'm3': 0.0}}
+    dane['trakownia'] = {'klody': 12, 'm3': 8.4}
+
+    wb = load_workbook(io.BytesIO(daily_report_export.build_daily_xlsx(dane)))
+    bloki = _bloki_arkusza_dzien(wb['Dzień'])
+
+    assert set(bloki) == {'WYKONANIE', 'LUDZIE', 'TRAKOWNIA', 'ZOSTAŁO'}
+
+    wykonanie = bloki['WYKONANIE']
+    assert wykonanie['Sztuki (netto)'] == 342
+    assert wykonanie['m³'] == pytest.approx(4.187)          # zaokrąglone do 3
+    assert wykonanie['Wartość netto (zł)'] == pytest.approx(28450.13)
+    assert wykonanie['Pozycji dotkniętych'] == 51
+    assert wykonanie['Zamówień dotkniętych'] == 18
+    assert wykonanie['Cofnięcia (szt.)'] == 4
+
+    assert bloki['LUDZIE'] == {'Pracowników z pracą': 5, 'Osobogodziny': 37.5,
+                               'Pokrycie atrybucją (%)': 92.0}
+
+    assert bloki['TRAKOWNIA']['Kłody'] == 12
+    assert bloki['TRAKOWNIA']['m³'] == pytest.approx(8.4)
+
+    zostalo = bloki['ZOSTAŁO']
+    # Kolejka z wiersza stanowiska w _pusty_raport(): 14 szt. / 6.0 m³.
+    assert zostalo['W kolejce (szt.)'] == 14
+    assert zostalo['W kolejce (m³)'] == pytest.approx(6.0)
+    assert zostalo['Po terminie'] == 2
+    assert zostalo['Termin dziś'] == 1
+    assert zostalo['Termin za 1–2 dni'] == 0
+    assert zostalo['Termin za 3–7 dni'] == 3
+    assert zostalo['Termin za 8+ dni'] == 5
+    assert zostalo['Bez terminu'] == 1
+
+
+def test_arkusz_dzien_zostawia_puste_pokrycie_a_nie_zero():
+    """
+    Doba bez ŻADNEGO ruchu nie ma z czego policzyć pokrycia — agregat oddaje
+    None, a arkusz ma zostawić PUSTĄ komórkę. Zero znaczyłoby „policzone
+    i wyszło zero", czyli zarzut, że nikt się nie podpisał pod robotą.
+    """
+    dane = _pusty_raport()
+    dane['ludzie']['pokrycie_proc'] = None
+
+    wb = load_workbook(io.BytesIO(daily_report_export.build_daily_xlsx(dane)))
+    bloki = _bloki_arkusza_dzien(wb['Dzień'])
+
+    assert bloki['LUDZIE']['Pokrycie atrybucją (%)'] is None
+
+
+# ============================================================================
+# UZGODNIENIE ARKUSZY
+# ============================================================================
+
+def test_suma_ludzi_zgadza_sie_z_suma_stanowisk(app):
+    """
+    Test uzgodnienia: kolumna „Sztuki (wkład)" w arkuszu „Ludzie" — RAZEM
+    z wierszem „Nieprzypisane" — musi dać tyle samo, co wiersz SUMA
+    w arkuszu „Stanowiska".
+
+    To jedyna asercja, która łapie rozjazd MIĘDZY arkuszami: wkład liczy się
+    przez udziały (share), przerób przez delty zdarzeń, i są to dwie
+    niezależne drogi do tej samej liczby. Tolerancja bierze się z zaokrąglania
+    wkładu do dwóch miejsc (worker_stats_service.MIEJSC_WKLADU).
+    """
+    with app.app_context():
+        adam = _pracownik('Adam')
+        bartek = _pracownik('Bartek')
+        produkt = _produkt(quantity=20, volume=0.5, wartosc=2000.0)
+
+        # 6 szt. w całości Adama.
+        _event(produkt, 'gluing', 6,
+               datetime.combine(PONIEDZIALEK, time(10, 0)), worker=adam)
+
+        # 5 szt. rozdzielone po połowie — udział nie musi być całkowity,
+        # a to właśnie na ułamkach uzgodnienie potrafi się rozjechać.
+        zdarzenie = ProductionStationEvent(
+            production_item_id=produkt.id, station_code='gluing', delta=5,
+            quantity_done_after=11, source='mobile',
+            created_at=datetime.combine(PONIEDZIALEK, time(11, 0)))
+        db.session.add(zdarzenie)
+        db.session.flush()
+        db.session.add_all([
+            ProductionStationEventWorker(event_id=zdarzenie.id,
+                                         worker_id=adam.id, share=0.5),
+            ProductionStationEventWorker(event_id=zdarzenie.id,
+                                         worker_id=bartek.id, share=0.5),
+        ])
+        db.session.commit()
+
+        # 4 szt. bez atrybucji — to one wypełniają wiersz „Nieprzypisane".
+        _event(produkt, 'packaging', 4,
+               datetime.combine(PONIEDZIALEK, time(12, 0)))
+
+        dane = daily_report_service.zbierz_dane(PONIEDZIALEK)
+        wb = load_workbook(io.BytesIO(daily_report_export.build_daily_xlsx(dane)))
+
+        arkusz_stanowisk = wb['Stanowiska']
+        suma_stanowisk = arkusz_stanowisk.cell(
+            row=arkusz_stanowisk.max_row, column=2).value
+
+        arkusz_ludzi = wb['Ludzie']
+        suma_ludzi = sum(
+            arkusz_ludzi.cell(row=wiersz, column=3).value or 0
+            for wiersz in range(2, arkusz_ludzi.max_row + 1))
+
+        assert suma_stanowisk == 15          # 6 + 5 + 4
+        assert suma_ludzi == pytest.approx(suma_stanowisk, abs=0.05)
+
+        # Wiersz „Nieprzypisane" musi tu realnie coś nieść — inaczej test
+        # przechodziłby także wtedy, gdyby eksport go w ogóle nie dopisywał.
+        etykiety = [arkusz_ludzi.cell(row=wiersz, column=1).value
+                    for wiersz in range(2, arkusz_ludzi.max_row + 1)]
+        assert etykiety[-1] == 'Nieprzypisane'
+        assert arkusz_ludzi.cell(
+            row=arkusz_ludzi.max_row, column=3).value == pytest.approx(4.0)

@@ -57,7 +57,11 @@ class ConfigModule {
             'STATION_IP_CACHE_DURATION_MINUTES': 10,
             'STATION_CUTTING_PRIORITY_SORT': 'priority_rank',
             'STATION_ASSEMBLY_PRIORITY_SORT': 'priority_rank',
-            'STATION_PACKAGING_PRIORITY_SORT': 'priority_rank'
+            'STATION_PACKAGING_PRIORITY_SORT': 'priority_rank',
+            // Pusta lista = raport dzienny wyłączony (nie ma osobnego klucza
+            // DAILY_REPORT_ENABLED). Bez tego wpisu "Przywróć domyślne" przy
+            // tym polu nie znajdowało wartości i pokazywało toast błędu.
+            'DAILY_REPORT_RECIPIENTS': ''
         };
 
         console.log('[ConfigModule v2.0] Instance created');

@@ -14,7 +14,7 @@ Zero Flaska (jak reports_service) — serwis ma być wołany zarówno z komendy
 CLI, jak i z testu bez kontekstu żądania.
 """
 
-from datetime import date, datetime, time
+from datetime import datetime, time
 
 from sqlalchemy import func
 
@@ -284,6 +284,14 @@ def _wykonanie(stanowiska, dzien):
 def zbierz_dane(dzien=None):
     """
     Komplet danych dziennego raportu jako czysty dict.
+
+    UWAGA — raport miesza DWA momenty i tak ma być:
+    `wykonanie`, `ludzie`, `trakownia` i koszyki `terminy` liczą się względem
+    `dzien`, ale kolejki stanowisk (`kolejka_szt`, `kolejka_m3`) to stan NA
+    TERAZ — biorą się z bieżącego statusu pozycji, którego historii nie ma
+    z czego odtworzyć. Przy przebiegu o 18:00 tego samego dnia to ta sama
+    data i różnicy nie widać; przy `--data` wskazującym przeszłość arkusz
+    pokaże przerób sprzed tygodnia obok dzisiejszej kolejki.
 
     Args:
         dzien: date. Domyślnie dziś (czas lokalny) — raport idzie o 18:00

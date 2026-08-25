@@ -6,9 +6,11 @@ Pierwszy w repo mail z załącznikiem XLSX. Wzorzec załącznika przeniesiony
 z modules/quotes/routers.py:547 — Flask-Mail 0.9.1 przyjmuje pozycyjnie
 (nazwa, typ MIME, bajty).
 
-Nadawca podawany JAWNIE z MAIL_USERNAME: w konfiguracji nie ma
-MAIL_DEFAULT_SENDER (grep po całym repo daje zero trafień), więc Message()
-bez sender= rzuciłby wyjątkiem dopiero przy wysyłce.
+Nadawca podawany JAWNIE z MAIL_USERNAME: klucz MAIL_DEFAULT_SENDER nie jest
+w tym projekcie nigdzie USTAWIANY (nie ma go w config/core.json; jedyne
+trafienie w repo to modules/partner_academy/services.py:276, gdzie służy
+wyłącznie jako odczyt z fallbackiem do MAIL_USERNAME). Message() bez sender=
+rzuciłby więc wyjątkiem dopiero przy wysyłce.
 
 Błąd SMTP NIE jest tu łapany — propaguje do komendy CLI, która kończy się
 niezerowym kodem wyjścia. Cron hostingu mailuje wtedy stderr. Zjedzenie tego
