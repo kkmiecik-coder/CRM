@@ -8,13 +8,13 @@ sam i wymaga, żeby handler tego nie robił.
 """
 
 import json
-from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
 from extensions import db
+from modules.production.models import get_local_now
 from modules.production.sawmill.models import (
     OPEN_STATUSES, PANEL_WRITABLE_STATUSES, STATUS_COMPLETED, STATUS_IN_PROGRESS,
     STATUS_NEW, STATUS_SETTLED, SawmillAudit, SawmillLog, SawmillOrder,
@@ -151,7 +151,11 @@ def write_audit(order_id, action, log_id=None, before=None, after=None,
         device_id=device_id,
         user_id=user_id,
         worker_id=worker_id,
-        created_at=datetime.now(),
+        # Bez jawnego created_at= — SQLAlchemy stosuje default= kolumny
+        # (get_local_now) tylko wtedy, gdy atrybut NIE jest ustawiony
+        # jawnie w konstruktorze. Jawne datetime.now() tutaj nadpisywało
+        # default i po cichu zapisywało czas kontenera (UTC) zamiast
+        # lokalnego.
     )
     db.session.add(entry)
     return entry
@@ -200,7 +204,8 @@ def add_log(order, measurements, measured_at, device_id=None, user_id=None,
         # robionych z panelu.
         worker_id=worker_id,
         measured_at=measured_at,
-        created_at=datetime.now(),
+        # Bez jawnego created_at= — patrz komentarz w write_audit() wyżej:
+        # jawna wartość nadpisywałaby default= kolumny (get_local_now).
     )
     _apply_measurements(log, measurements)
 
@@ -263,7 +268,7 @@ def delete_log(log, device_id=None, user_id=None, worker_id=None):
     _guard_writable(_order_of(log), panel=user_id is not None)
     before = _log_snapshot(log)
     log.is_deleted = True
-    log.deleted_at = datetime.now()
+    log.deleted_at = get_local_now()
     db.session.flush()
     write_audit(log.order_id, 'log_delete', log_id=log.id, before=before,
                 device_id=device_id, user_id=user_id, worker_id=worker_id)
@@ -298,7 +303,7 @@ def complete_order(order, device_id, worker_id=None):
         raise SawmillStateError(u'nie można zakończyć zlecenia bez pomiarów')
 
     order.status = STATUS_COMPLETED
-    order.completed_at = datetime.now()
+    order.completed_at = get_local_now()
     order.completed_by_device = device_id
     # worker_id w audycie zamiast osobnej kolumny na zleceniu: zamknięcie to
     # DECYZJA (od tej chwili zmierzona objętość idzie do rozliczenia
@@ -352,7 +357,7 @@ def settle_order(order, agreed_volume_m3, notes, user_id):
     order.agreed_volume_m3 = uzgodniona
     order.settlement_notes = notes
     order.status = STATUS_SETTLED
-    order.settled_at = datetime.now()
+    order.settled_at = get_local_now()
     order.settled_by_user_id = user_id
     write_audit(order.id, 'order_settle', user_id=user_id,
                 after={'agreed_volume_m3': str(order.agreed_volume_m3)})

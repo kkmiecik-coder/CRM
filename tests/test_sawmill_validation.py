@@ -10,6 +10,7 @@ from decimal import Decimal
 
 import pytest
 
+from modules.production.sawmill.services import validation
 from modules.production.sawmill.services.settings import DEFAULT_SETTINGS
 from modules.production.sawmill.services.validation import (
     SawmillValidationError,
@@ -152,3 +153,46 @@ def test_nan_i_infinity_daja_422_a_nie_500():
         with pytest.raises(SawmillValidationError) as exc:
             validate_measurements(payload, DEFAULT_SETTINGS)
         assert exc.value.field == 'mid_circumference_cm', wartosc
+
+
+def test_measured_at_bez_now_uzywa_czasu_lokalnego_a_nie_utc_kontenera(monkeypatch):
+    """
+    Regresja: oba routery (routers/mobile_api.py, routers/panel_api.py) wołają
+    parse_measured_at() BEZ argumentu now= — to jest jedyna ścieżka, którą
+    ten kod przechodzi na produkcji, więc to ona musi liczyć „teraz" po
+    czasie LOKALNYM, nie po czasie kontenera (UTC).
+
+    Tablet wysyła measured_at jako naiwny czas LOKALNY (np. 14:00). Dopóki
+    funkcja liczyła `now = datetime.now()`, dostawała czas kontenera w UTC
+    (np. 12:00) — różnica dwóch godzin jest ponad FUTURE_TOLERANCE (5 min),
+    więc warunek `parsed > now + tolerancja` był spełniony przy KAŻDYM
+    pomiarze i funkcja przycinała go do (błędnego) `now`. Każda zmierzona
+    kłoda traciła dwie godziny.
+
+    Test podmienia OBA źródła czasu na kontrolowane wartości, żeby nie
+    zależeć od pory uruchomienia: `datetime` widziany przez moduł walidacji
+    udaje zegar kontenera (stały, 2h wstecz), a get_local_now() udaje zegar
+    lokalny. Gdyby funkcja nadal liczyła `now` z (podstawionego) datetime.now()
+    zamiast get_local_now(), wynik zostałby przycięty do fałszywego UTC i
+    test by to wykrył.
+    """
+    czas_lokalny = datetime(2026, 8, 5, 14, 0, 0)
+    czas_utc_kontenera = datetime(2026, 8, 5, 12, 0, 0)
+
+    class _FakeDatetime:
+        """Podmiennik `datetime` w module walidacji — udaje zegar kontenera."""
+
+        @staticmethod
+        def now():
+            return czas_utc_kontenera
+
+        @staticmethod
+        def fromisoformat(value):
+            return datetime.fromisoformat(value)
+
+    monkeypatch.setattr(validation, 'datetime', _FakeDatetime)
+    monkeypatch.setattr(validation, 'get_local_now', lambda: czas_lokalny)
+
+    wynik = parse_measured_at(czas_lokalny.isoformat())
+
+    assert wynik == czas_lokalny

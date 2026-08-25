@@ -9,11 +9,10 @@ w styczniu dostaje numer z poprzedniego rocznika, wpadając między numery
 już wydane. Chronologia nadawania ma być monotoniczna.
 """
 
-from datetime import datetime
-
 from sqlalchemy.exc import IntegrityError
 
 from extensions import db
+from modules.production.models import get_local_now
 from modules.production.sawmill.models import SawmillCounter
 
 NUMBER_PREFIX = 'TRK'
@@ -37,7 +36,11 @@ def next_order_number(year=None):
     żeby przy wycofaniu transakcji numer nie przepadł.
     """
     if year is None:
-        year = datetime.now().year
+        # get_local_now, nie datetime.now: kontener chodzi na UTC — zlecenie
+        # założone 31.12 wieczorem czasu lokalnego dostałoby numer z
+        # kolejnego rocznika (UTC już po północy), zanim jeszcze lokalnie
+        # wybiła północ.
+        year = get_local_now().year
 
     counter = _select_counter_for_update(year)
 

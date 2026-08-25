@@ -10,6 +10,8 @@ z kolejki sprzed zmiany limitów.
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
+from modules.production.models import get_local_now
+
 MEASUREMENT_FIELDS = ('mid_circumference_cm', 'length_cm')
 CIRCUMFERENCE_FIELDS = ('mid_circumference_cm',)
 
@@ -100,7 +102,15 @@ def parse_measured_at(value, now=None):
     dryfu zegara trwale zgubiłoby poprawny pomiar.
     """
     if now is None:
-        now = datetime.now()
+        # get_local_now, nie datetime.now: `value` z tabletu jest naiwnym
+        # czasem LOKALNYM (Europe/Warsaw), a kontener chodzi na UTC. Przy
+        # datetime.now() pomiar zmierzony o 14:00 porównywał się z „teraz"
+        # = 12:00 (UTC), FUTURE_TOLERANCE (5 min) było więc przekraczane
+        # przy KAŻDYM pomiarze i funkcja przycinała measured_at do 12:00 —
+        # cichy błąd o 2h na każdej kłodzie, niewidoczny w normalnym
+        # użyciu (tablet zawsze woła bez `now=`, patrz routers/mobile_api.py
+        # i routers/panel_api.py).
+        now = get_local_now()
 
     if not value:
         raise SawmillValidationError('measured_at', u'pole jest wymagane')

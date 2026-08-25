@@ -16,6 +16,7 @@ from openpyxl.styles import Alignment, Font
 from sqlalchemy import func
 
 from extensions import db
+from modules.production.models import get_local_now
 from modules.production.sawmill.models import (
     OPEN_STATUSES, STATUS_COMPLETED, STATUS_IN_PROGRESS, STATUS_NEW,
     STATUS_SETTLED, SawmillLog, SawmillOrder,
@@ -31,8 +32,8 @@ def sawmill_dashboard_stats():
     policzyć do dnia, w którym faktycznie powstały, inaczej statystyka
     wydajności traka jest bezwartościowa.
     """
-    dzis = datetime.combine(datetime.now().date(), time.min)
-    jutro = datetime.combine(datetime.now().date(), time.max)
+    dzis = datetime.combine(get_local_now().date(), time.min)
+    jutro = datetime.combine(get_local_now().date(), time.max)
 
     open_orders = SawmillOrder.query.filter(
         SawmillOrder.status.in_(OPEN_STATUSES)).count()
@@ -170,5 +171,5 @@ def build_protocol_context(order, delivery, logs, logs_count,
         'status_label': STATUS_LABELS.get(order.status, order.status),
         # Data wygenerowania na stopce protokołu — kto i kiedy wydrukował
         # dokument idący do dostawcy, niezależnie od daty dostawy czy faktury.
-        'generated_at': datetime.now(),
+        'generated_at': get_local_now(),
     }

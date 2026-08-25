@@ -15,7 +15,7 @@ from sqlalchemy.pool import StaticPool
 
 from extensions import db
 from modules.production.models import (
-    ProcessedMobileOperation, ProductionConfig, ProductionDevice,
+    ProcessedMobileOperation, ProductionConfig, ProductionDevice, get_local_now,
 )
 from modules.production.sawmill import sawmill_mobile_bp
 from modules.production.sawmill.models import (
@@ -341,15 +341,24 @@ def test_nieistniejace_zlecenie_daje_404(client, app):
 
 
 def test_measured_at_z_przyszlosci_jest_przycinany(client, app):
+    """
+    Przycięcie idzie do get_local_now(), NIE do datetime.now() (czasu
+    kontenera, UTC) — walidacja przycina naiwny czas LOKALNY z tabletu do
+    „teraz" w tej samej strefie, patrz komentarz w
+    services/validation.py:parse_measured_at(). Test budował kiedyś
+    oczekiwanie na datetime.now() i przechodził tylko dlatego, że przycięcie
+    było wtedy (błędnie) liczone tak samo — czyli zakładał zepsute
+    zachowanie, które właśnie naprawiamy.
+    """
     token = _urzadzenie(app)
     oid = _zlecenie(app)
-    przyszlosc = (datetime.now() + timedelta(hours=6)).isoformat(timespec='seconds')
+    przyszlosc = (get_local_now() + timedelta(hours=6)).isoformat(timespec='seconds')
     r = client.post('/api/mobile/sawmill/orders/{}/logs'.format(oid),
                     json=dict(POMIAR, measured_at=przyszlosc),
                     headers=_naglowki(token, 'op-1'))
     assert r.status_code == 201
     with app.app_context():
-        assert SawmillLog.query.first().measured_at <= datetime.now() + timedelta(minutes=1)
+        assert SawmillLog.query.first().measured_at <= get_local_now() + timedelta(minutes=1)
 
 
 # ── ETag — GET /orders ───────────────────────────────────────────────────────
