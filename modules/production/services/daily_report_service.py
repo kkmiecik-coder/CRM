@@ -16,9 +16,15 @@ CLI, jak i z testu bez kontekstu żądania.
 
 from datetime import date, datetime, time
 
-from ..models import get_local_now
-from .station_catalog import STATION_LABELS, STATION_ORDER
-from .station_events_service import get_station_work_per_day
+from sqlalchemy import func
+
+from extensions import db
+from ..models import ProductionProduct, ProductionStationEvent, get_local_now
+from .reports_service import _koszyk_terminu
+from .station_catalog import (
+    STATION_LABELS, STATION_ORDER, STATION_PENDING_STATUS,
+)
+from .station_events_service import ZRODLA_AUTOMATU, get_station_work_per_day
 
 
 def _granice_doby(dzien):
@@ -32,9 +38,88 @@ def _granice_doby(dzien):
             datetime.combine(dzien, time.max))
 
 
-def _przerob_stanowisk(dzien):
+# Statusy, które nie są zaległością: pozycja spakowana jest zrobiona,
+# anulowana i wstrzymana nie czekają na nikogo w hali.
+_STATUSY_POZA_BACKLOGIEM = ('spakowane', 'anulowane', 'wstrzymane')
+
+
+def _cofniecia_stanowisk(dzien):
     """
-    Sztuki, m³ i wartość netto per stanowisko za jeden dzień.
+    {kod_stanowiska: liczba cofniętych sztuk} — wartość DODATNIA.
+
+    Osobne zapytanie, bo panel nie ma odpowiednika: get_station_work_per_day()
+    zwraca wyłącznie netto, w którym cofnięcia są niewidoczne.
+    """
+    poczatek, koniec = _granice_doby(dzien)
+
+    wiersze = db.session.query(
+        ProductionStationEvent.station_code,
+        func.sum(ProductionStationEvent.delta),
+    ).filter(
+        ProductionStationEvent.created_at >= poczatek,
+        ProductionStationEvent.created_at <= koniec,
+        ProductionStationEvent.delta < 0,
+        ~ProductionStationEvent.source.in_(ZRODLA_AUTOMATU),
+    ).group_by(ProductionStationEvent.station_code).all()
+
+    return {kod: abs(int(suma or 0)) for kod, suma in wiersze}
+
+
+def _kolejki_stanowisk():
+    """
+    {kod_stanowiska: {'sztuki': int, 'm3': float}} — stan na TERAZ.
+
+    Definicja 1:1 z panelem (reports_service.dni_zapasu_stanowisk:313-321):
+    pozycja czeka jako całość, z pełnym quantity, także wtedy gdy jest
+    w połowie zrobiona. To zawyża kolejkę i jest świadome — dashboard liczy
+    tak samo, a dwie różne definicje kolejki byłyby gorsze niż jedna
+    niedoskonała.
+    """
+    wiersze = db.session.query(
+        ProductionProduct.current_status,
+        func.coalesce(func.sum(ProductionProduct.quantity), 0),
+        func.coalesce(func.sum(func.coalesce(ProductionProduct.volume_m3, 0)
+                               * ProductionProduct.quantity), 0),
+    ).filter(
+        ProductionProduct.current_status.in_(list(STATION_PENDING_STATUS.values()))
+    ).group_by(ProductionProduct.current_status).all()
+
+    po_statusie = {status: (int(szt or 0), float(m3 or 0))
+                   for status, szt, m3 in wiersze}
+
+    wynik = {}
+    for kod, status_kolejki in STATION_PENDING_STATUS.items():
+        sztuki, metry = po_statusie.get(status_kolejki, (0, 0.0))
+        wynik[kod] = {'sztuki': sztuki, 'm3': metry}
+    return wynik
+
+
+def _koszyki_terminow(dzien):
+    """
+    Liczba pozycji w każdym koszyku terminu — to, co ZOSTAŁO do zrobienia.
+
+    Koszyki liczy _koszyk_terminu() z reports_service, ta sama funkcja co
+    wykres „Termin vs postęp". Dwie kopie tej definicji (jedna w SQL, druga
+    w Pythonie) rozjechałyby się na granicy „dziś" — ostrzega o tym wprost
+    docstring tamtej funkcji.
+    """
+    koszyki = {'po_terminie': 0, 'dzis': 0, '1_2_dni': 0,
+               '3_7_dni': 0, '8_dni_plus': 0, 'bez_terminu': 0}
+
+    terminy = db.session.query(ProductionProduct.deadline_date).filter(
+        ~ProductionProduct.current_status.in_(_STATUSY_POZA_BACKLOGIEM)
+    ).all()
+
+    for (deadline,) in terminy:
+        koszyki[_koszyk_terminu(deadline, dzien)] += 1
+
+    return koszyki
+
+
+def _przerob_stanowisk(dzien, cofniecia, kolejki):
+    """
+    Sztuki, m³ i wartość netto per stanowisko za jeden dzień, wzbogacone
+    o cofnięcia i stan kolejki.
 
     get_station_work_per_day() zwraca komplet trzech liczb w jednym zapytaniu
     i ma już w środku filtr źródeł oraz wzór wartości (total_value_net * delta
@@ -45,16 +130,16 @@ def _przerob_stanowisk(dzien):
     wynik = []
     for kod in STATION_ORDER:
         dzienne = get_station_work_per_day(kod, dzien, dzien).get(dzien, {})
+        kolejka = kolejki.get(kod, {'sztuki': 0, 'm3': 0.0})
         wynik.append({
             'kod': kod,
             'etykieta': STATION_LABELS[kod],
             'sztuki': int(dzienne.get('pieces', 0) or 0),
             'm3': float(dzienne.get('m3', 0) or 0),
             'wartosc_netto': float(dzienne.get('value_net', 0) or 0),
-            # Wypełniane przez kolejne kroki agregatu.
-            'cofniecia': 0,
-            'kolejka_szt': None,
-            'kolejka_m3': None,
+            'cofniecia': cofniecia.get(kod, 0),
+            'kolejka_szt': kolejka['sztuki'],
+            'kolejka_m3': kolejka['m3'],
         })
     return wynik
 
@@ -75,5 +160,7 @@ def zbierz_dane(dzien=None):
 
     return {
         'dzien': dzien,
-        'stanowiska': _przerob_stanowisk(dzien),
+        'stanowiska': _przerob_stanowisk(dzien, _cofniecia_stanowisk(dzien),
+                                         _kolejki_stanowisk()),
+        'terminy': _koszyki_terminow(dzien),
     }

@@ -193,3 +193,78 @@ def test_praca_z_sasiedniego_dnia_nie_wchodzi(app):
         dane = daily_report_service.zbierz_dane(PONIEDZIALEK)
 
         assert _stanowisko(dane, 'gluing')['sztuki'] == 3
+
+
+# ============================================================================
+# KOLEJKI, TERMINY, COFNIĘCIA
+# ============================================================================
+
+def test_cofniecia_liczone_osobno_od_netto(app):
+    """
+    Sztuki liczymy netto, więc dzień „10 zrobione, 4 cofnięte" i dzień
+    „6 zrobione bez problemów" dają identyczne 6. Bez osobnej liczby cofnięć
+    te dwa dni są w raporcie nieodróżnialne.
+    """
+    with app.app_context():
+        p = _produkt()
+        _event(p, 'gluing', 10, datetime.combine(PONIEDZIALEK, time(10, 0)))
+        _event(p, 'gluing', -4, datetime.combine(PONIEDZIALEK, time(14, 0)))
+
+        dane = daily_report_service.zbierz_dane(PONIEDZIALEK)
+
+        gluing = _stanowisko(dane, 'gluing')
+        assert gluing['sztuki'] == 6        # netto
+        assert gluing['cofniecia'] == 4     # liczba dodatnia, nie -4
+
+
+def test_kolejka_liczona_z_biezacego_statusu(app):
+    """
+    Definicja 1:1 z panelem (reports_service.dni_zapasu_stanowisk:313-321):
+    pozycja czeka jako CAŁOŚĆ, z pełnym quantity, nawet jeśli jest w połowie
+    zrobiona. Zawyża, i tak ma być — inaczej mail i dashboard pokazałyby dwie
+    różne kolejki.
+    """
+    with app.app_context():
+        _produkt(status='czeka_na_sklejanie', quantity=10, volume=0.5)
+        _produkt(status='czeka_na_sklejanie', quantity=4, volume=0.25)
+        _produkt(status='czeka_na_pakowanie', quantity=7, volume=0.1)
+
+        dane = daily_report_service.zbierz_dane(PONIEDZIALEK)
+
+        gluing = _stanowisko(dane, 'gluing')
+        assert gluing['kolejka_szt'] == 14
+        assert gluing['kolejka_m3'] == pytest.approx(6.0)   # 10×0.5 + 4×0.25
+
+        assert _stanowisko(dane, 'packaging')['kolejka_szt'] == 7
+        assert _stanowisko(dane, 'cutting')['kolejka_szt'] == 0
+
+
+def test_koszyki_terminow(app):
+    """Granice koszyków wg reports_service._koszyk_terminu — jedna definicja."""
+    with app.app_context():
+        _produkt(deadline=PONIEDZIALEK - timedelta(days=1))   # po terminie
+        _produkt(deadline=PONIEDZIALEK)                        # dziś
+        _produkt(deadline=PONIEDZIALEK + timedelta(days=2))    # 1-2 dni
+        _produkt(deadline=PONIEDZIALEK + timedelta(days=7))    # 3-7 dni
+        _produkt(deadline=PONIEDZIALEK + timedelta(days=8))    # 8+
+        _produkt(deadline=None)                                # bez terminu
+
+        terminy = daily_report_service.zbierz_dane(PONIEDZIALEK)['terminy']
+
+        assert terminy == {'po_terminie': 1, 'dzis': 1, '1_2_dni': 1,
+                           '3_7_dni': 1, '8_dni_plus': 1, 'bez_terminu': 1}
+
+
+def test_pozycje_spakowane_nie_licza_sie_do_terminow(app):
+    """
+    Koszyki opisują to, co ZOSTAŁO do zrobienia. Pozycja spakowana albo
+    anulowana nie jest zaległością i nie ma czego pilnować w jej terminie.
+    """
+    with app.app_context():
+        _produkt(status='spakowane', deadline=PONIEDZIALEK - timedelta(days=5))
+        _produkt(status='anulowane', deadline=PONIEDZIALEK - timedelta(days=5))
+        _produkt(status='czeka_na_sklejanie', deadline=PONIEDZIALEK - timedelta(days=5))
+
+        terminy = daily_report_service.zbierz_dane(PONIEDZIALEK)['terminy']
+
+        assert terminy['po_terminie'] == 1
