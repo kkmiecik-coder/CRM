@@ -7,8 +7,6 @@ ogniwem pipeline'u produktów, tylko rejestracją tego, co przyjechało
 od dostawcy i zostało rozcięte.
 """
 
-from datetime import datetime
-
 from sqlalchemy import (
     BigInteger, Boolean, Column, Date, DateTime, ForeignKey, Index, Integer,
     Numeric, SmallInteger, String, Text, UniqueConstraint,
@@ -16,6 +14,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 
 from extensions import db
+from modules.production.models import get_local_now
 
 # ── Statusy zlecenia ────────────────────────────────────────────────────────
 STATUS_NEW = 'new'
@@ -60,8 +59,14 @@ class SawmillSupplier(db.Model):
     notes = Column(Text, nullable=True)
     is_active = Column(Boolean, nullable=False, default=True, index=True)
     created_by_user_id = Column(Integer, ForeignKey('users.id'), nullable=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.now)
-    updated_at = Column(DateTime, nullable=True, onupdate=datetime.now)
+    # get_local_now, nie datetime.now: kontener chodzi na UTC, a cała reszta
+    # bazy (prod_products, prod_orders, prod_station_events) zapisuje czas
+    # Europe/Warsaw. Dopóki trakownia używała czasu kontenera, jej wpisy były
+    # o 2 h wcześniejsze niż wszystko inne, a między 22:00 a północą wpadały
+    # do sąsiedniego dnia — zestawienie obu pionów w jednej dobie rozjeżdżało
+    # się cicho. Wpisy sprzed tej zmiany zostają w UTC i nie są prostowane.
+    created_at = Column(DateTime, nullable=False, default=get_local_now)
+    updated_at = Column(DateTime, nullable=True, onupdate=get_local_now)
 
     def __repr__(self):
         return '<SawmillSupplier {}>'.format(self.name)
@@ -76,7 +81,7 @@ class SawmillSpecies(db.Model):
     short_code = Column(String(8), nullable=True)
     sort_order = Column(Integer, nullable=False, default=0)
     is_active = Column(Boolean, nullable=False, default=True, index=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.now)
+    created_at = Column(DateTime, nullable=False, default=get_local_now)
 
     def __repr__(self):
         return '<SawmillSpecies {}>'.format(self.name)
@@ -109,8 +114,8 @@ class SawmillDelivery(db.Model):
     delivery_date = Column(Date, nullable=False, index=True)
     notes = Column(Text, nullable=True)
     created_by_user_id = Column(Integer, ForeignKey('users.id'), nullable=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.now)
-    updated_at = Column(DateTime, nullable=True, onupdate=datetime.now)
+    created_at = Column(DateTime, nullable=False, default=get_local_now)
+    updated_at = Column(DateTime, nullable=True, onupdate=get_local_now)
 
     supplier = relationship('SawmillSupplier', lazy='joined')
 
@@ -155,8 +160,8 @@ class SawmillOrder(db.Model):
     settled_by_user_id = Column(Integer, ForeignKey('users.id'), nullable=True)
 
     created_by_user_id = Column(Integer, ForeignKey('users.id'), nullable=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.now)
-    updated_at = Column(DateTime, nullable=True, onupdate=datetime.now)
+    created_at = Column(DateTime, nullable=False, default=get_local_now)
+    updated_at = Column(DateTime, nullable=True, onupdate=get_local_now)
 
     delivery = relationship('SawmillDelivery', lazy='joined')
     species = relationship('SawmillSpecies', lazy='joined')
@@ -199,8 +204,8 @@ class SawmillLog(db.Model):
     # Czas z tabletu — przy kolejce offline może być sprzed godzin.
     measured_at = Column(DateTime, nullable=False)
     # Czas wpłynięcia na serwer.
-    created_at = Column(DateTime, nullable=False, default=datetime.now)
-    updated_at = Column(DateTime, nullable=True, onupdate=datetime.now)
+    created_at = Column(DateTime, nullable=False, default=get_local_now)
+    updated_at = Column(DateTime, nullable=True, onupdate=get_local_now)
 
     # Bez index=True — tak samo jak order_id wyżej. Osobny indeks na kolumnie
     # o dwóch wartościach nic nie daje, a w SQL-u DDL go nie ma; rozjazd
@@ -250,7 +255,7 @@ class SawmillAudit(db.Model):
     # Bez ForeignKey — tak samo jak order_id wyżej. Wpis audytowy ma przeżyć
     # usunięcie tego, czego dotyczy; twardy FK odebrałby mu tę własność.
     worker_id = Column(Integer, nullable=True, index=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.now, index=True)
+    created_at = Column(DateTime, nullable=False, default=get_local_now, index=True)
 
     def __repr__(self):
         return '<SawmillAudit {} {}>'.format(self.action, self.order_id)

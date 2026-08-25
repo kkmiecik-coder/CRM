@@ -23,7 +23,7 @@ from modules.production.models import (
     ProductionStationEventWorker, ProductionWorker, ProductionWorkerSession,
 )
 from modules.production.sawmill.models import (
-    SawmillCounter, SawmillDelivery, SawmillLog, SawmillOrder,
+    SawmillAudit, SawmillCounter, SawmillDelivery, SawmillLog, SawmillOrder,
     SawmillSpecies, SawmillSupplier,
 )
 from modules.production.services import daily_report_service
@@ -37,7 +37,7 @@ _TABLES = [m.__table__ for m in (
     ProductionConfiguration, ProductionWorker, ProductionWorkerSession,
     ProductionStationEvent, ProductionStationEventWorker, ProductionReworkLog,
     SawmillSupplier, SawmillSpecies, SawmillCounter, SawmillDelivery,
-    SawmillOrder, SawmillLog,
+    SawmillOrder, SawmillLog, SawmillAudit,
 )]
 
 # shipping_label_base64 jest typem MySQL-owym (LONGTEXT) — SQLite go nie zna.
@@ -367,3 +367,115 @@ def test_dzien_bez_ruchu_daje_zera_a_nie_wyjatek(app):
         assert dane['wykonanie']['sztuki'] == 0
         assert dane['ludzie']['osoby'] == 0
         assert dane['ludzie']['wiersze'] == []
+
+
+# ============================================================================
+# TRAKOWNIA
+# ============================================================================
+
+_licznik_klod = [0]
+
+
+def _zlecenie_trakowni():
+    """
+    Dostawca → gatunek → dostawa → zlecenie. Pełny łańcuch, bo SawmillOrder ma
+    delivery_id i species_id jako NOT NULL. Wzór: tests/test_sawmill_orders.py:68-80.
+    """
+    from decimal import Decimal
+
+    supplier = SawmillSupplier(name='Tartak Testowy')
+    species = SawmillSpecies(name='Dąb')
+    db.session.add_all([supplier, species])
+    db.session.flush()
+    delivery = SawmillDelivery(supplier_id=supplier.id,
+                               delivery_date=PONIEDZIALEK)
+    db.session.add(delivery)
+    db.session.flush()
+    order = SawmillOrder(order_number='TRK/2026/001', delivery_id=delivery.id,
+                         species_id=species.id,
+                         declared_volume_m3=Decimal('80.000'))
+    db.session.add(order)
+    db.session.commit()
+    return order
+
+
+def _kloda(zlecenie, volume=1.5, kiedy=None, usunieta=False):
+    """
+    Kłoda mierzona na tablecie. measured_at, nie created_at — patrz test niżej.
+
+    order_id i sequence_no są NOT NULL, więc kłoda zawsze wisi przy zleceniu,
+    a numer w sekwencji nadaje własny licznik (para order_id+sequence_no jest
+    UNIQUE).
+    """
+    _licznik_klod[0] += 1
+    log = SawmillLog(
+        order_id=zlecenie.id, sequence_no=_licznik_klod[0],
+        mid_circumference_cm=120.0, length_cm=400.0,
+        volume_m3=volume, is_deleted=usunieta,
+        measured_at=kiedy or datetime.combine(PONIEDZIALEK, time(10, 0)))
+    db.session.add(log)
+    db.session.commit()
+    return log
+
+
+def test_blok_trakowni(app):
+    with app.app_context():
+        zlecenie = _zlecenie_trakowni()
+        _kloda(zlecenie, volume=1.5)
+        _kloda(zlecenie, volume=2.0)
+
+        trakownia = daily_report_service.zbierz_dane(PONIEDZIALEK)['trakownia']
+
+        assert trakownia['klody'] == 2
+        assert trakownia['m3'] == pytest.approx(3.5)
+
+
+def test_trakownia_liczy_po_measured_at_nie_created_at(app):
+    """
+    Tablet potrafi rano wysłać pomiary z wczorajszego popołudnia (kolejka
+    offline). Mają się policzyć do dnia, w którym faktycznie powstały —
+    ta sama zasada co w sawmill_dashboard_stats.
+    """
+    with app.app_context():
+        zlecenie = _zlecenie_trakowni()
+        _kloda(zlecenie, volume=1.0,
+               kiedy=datetime.combine(PONIEDZIALEK - timedelta(days=1), time(16, 0)))
+        _kloda(zlecenie, volume=3.0,
+               kiedy=datetime.combine(PONIEDZIALEK, time(9, 0)))
+
+        trakownia = daily_report_service.zbierz_dane(PONIEDZIALEK)['trakownia']
+
+        assert trakownia['klody'] == 1
+        assert trakownia['m3'] == pytest.approx(3.0)
+
+
+def test_usuniete_klody_nie_licza_sie(app):
+    with app.app_context():
+        zlecenie = _zlecenie_trakowni()
+        _kloda(zlecenie, volume=1.0)
+        _kloda(zlecenie, volume=9.0, usunieta=True)
+
+        trakownia = daily_report_service.zbierz_dane(PONIEDZIALEK)['trakownia']
+
+        assert trakownia['klody'] == 1
+        assert trakownia['m3'] == pytest.approx(1.0)
+
+
+def test_modele_trakowni_uzywaja_czasu_lokalnego(app):
+    """
+    Kontener chodzi na UTC, reszta bazy zapisuje czas Europe/Warsaw. Dopóki
+    trakownia używała datetime.now, jej wpisy były o 2 h wcześniejsze niż
+    wszystko inne — a między 22:00 a północą wpadały do sąsiedniego dnia.
+    """
+    from modules.production.sawmill import models as sawmill_models
+
+    kolumny = [
+        sawmill_models.SawmillLog.__table__.c.created_at,
+        sawmill_models.SawmillOrder.__table__.c.created_at,
+        sawmill_models.SawmillAudit.__table__.c.created_at,
+    ]
+    # Po nazwie, nie po tożsamości obiektu: SQLAlchemy opakowuje callable
+    # w ColumnDefault i porównanie `is` bywa zależne od wersji.
+    for kolumna in kolumny:
+        assert kolumna.default.arg.__name__ == 'get_local_now', (
+            f'{kolumna} nadal używa czasu kontenera zamiast get_local_now')

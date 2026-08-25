@@ -23,6 +23,7 @@ from ..models import (
     ProductionOrder, ProductionProduct, ProductionStationEvent,
     ProductionStationEventWorker, get_local_now,
 )
+from ..sawmill.models import SawmillLog
 from .reports_service import _koszyk_terminu
 from .station_catalog import (
     STATION_LABELS, STATION_ORDER, STATION_PENDING_STATUS,
@@ -240,6 +241,33 @@ def _ludzie(dzien):
     }
 
 
+def _trakownia(dzien):
+    """
+    Kłody i m³ przetarte danego dnia.
+
+    Liczone po `measured_at` (czas z tabletu), nie po `created_at` (czas
+    wpłynięcia na serwer) — tak samo jak sawmill_dashboard_stats. Tablet
+    potrafi rano wysłać pomiary z wczorajszego popołudnia i mają się policzyć
+    do dnia, w którym faktycznie powstały.
+
+    Trakownia świadomie NIE wchodzi do sumy przerobu hali: mierzy surowiec
+    przed wejściem na produkcję, więc doliczenie jej m³ liczyłoby ten sam
+    materiał dwa razy.
+    """
+    poczatek, koniec = _granice_doby(dzien)
+
+    ile, metry = db.session.query(
+        func.count(SawmillLog.id),
+        func.coalesce(func.sum(SawmillLog.volume_m3), 0),
+    ).filter(
+        SawmillLog.is_deleted.is_(False),
+        SawmillLog.measured_at >= poczatek,
+        SawmillLog.measured_at <= koniec,
+    ).one()
+
+    return {'klody': int(ile or 0), 'm3': float(metry or 0)}
+
+
 def _wykonanie(stanowiska, dzien):
     """Sumy nagłówkowe — składane z policzonych już wierszy stanowisk."""
     pozycje, zamowienia = _zasieg_dnia(dzien)
@@ -274,6 +302,7 @@ def zbierz_dane(dzien=None):
         'dzien': dzien,
         'wykonanie': _wykonanie(stanowiska, dzien),
         'ludzie': _ludzie(dzien),
+        'trakownia': _trakownia(dzien),
         'stanowiska': stanowiska,
         'terminy': _koszyki_terminow(dzien),
     }
