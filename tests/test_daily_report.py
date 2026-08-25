@@ -700,7 +700,7 @@ def test_nazwa_pliku_jest_ascii():
 
 def _bloki_arkusza_dzien(ws):
     """
-    {'WYKONANIE': {'Sztuki (netto)': 342, ...}, ...} — arkusz „Dzień" czytany
+    {'WYKONANIE': {'Sztuki (wykonane − cofnięte)': 342, ...}, ...} — arkusz czytany
     blokami, nie płaskim słownikiem: etykieta „m³" występuje DWA razy (raz
     w WYKONANIU, raz w TRAKOWNI) i płaska mapa cicho gubiłaby pierwszą.
     """
@@ -737,7 +737,7 @@ def test_arkusz_dzien_ma_cztery_bloki_i_liczby_podsumowania():
     assert set(bloki) == {'WYKONANIE', 'LUDZIE', 'TRAKOWNIA', 'ZOSTAŁO'}
 
     wykonanie = bloki['WYKONANIE']
-    assert wykonanie['Sztuki (netto)'] == 342
+    assert wykonanie['Sztuki (wykonane − cofnięte)'] == 342
     assert wykonanie['m³'] == pytest.approx(4.187)          # zaokrąglone do 3
     assert wykonanie['Wartość netto (zł)'] == pytest.approx(28450.13)
     assert wykonanie['Pozycji dotkniętych'] == 51
@@ -843,3 +843,125 @@ def test_suma_ludzi_zgadza_sie_z_suma_stanowisk(app):
         assert etykiety[-1] == 'Nieprzypisane'
         assert arkusz_ludzi.cell(
             row=arkusz_ludzi.max_row, column=3).value == pytest.approx(4.0)
+
+
+# ============================================================================
+# WYGLĄD ARKUSZA — kolory firmowe, formaty liczb, szerokości kolumn
+# ============================================================================
+
+def test_naglowki_maja_firmowy_grafit_i_bialy_tekst():
+    """
+    Nagłówki mają grafitowe tło (#1F2020 — --secondary-color z CSS aplikacji),
+    a nie pomarańczowe: biały tekst na #ED6B24 daje kontrast ok. 2,8:1, czyli
+    poniżej progu czytelności. Pomarańcz pracuje jako akcent.
+    """
+    wb = load_workbook(io.BytesIO(
+        daily_report_export.build_daily_xlsx(_pusty_raport())))
+
+    for nazwa in ('Stanowiska', 'Ludzie'):
+        komorka = wb[nazwa].cell(row=1, column=1)
+        assert komorka.fill.fgColor.rgb.endswith('1F2020'), nazwa
+        assert komorka.font.color.rgb.endswith('FFFFFF'), nazwa
+        assert komorka.font.bold is True, nazwa
+
+
+def test_liczby_maja_jawny_format_w_notacji_ooxml():
+    """
+    Bez jawnego formatu Excel renderuje liczby wedle ustawień systemu, więc ten
+    sam plik u dwóch osób wygląda inaczej.
+
+    Kod formatu MUSI być w notacji en-US (przecinek = tysiące, kropka =
+    dziesiętne) — Excel podmienia separatory przy wyświetlaniu. Polska notacja
+    („# ##0,00") dałaby format, którego Excel nie rozpozna, więc ten test
+    pilnuje właśnie kropki.
+    """
+    wb = load_workbook(io.BytesIO(
+        daily_report_export.build_daily_xlsx(_pusty_raport())))
+    ws = wb['Stanowiska']
+
+    assert ws.cell(row=2, column=2).number_format == '#,##0'      # sztuki
+    assert ws.cell(row=2, column=3).number_format == '#,##0.000'  # m³
+    assert ws.cell(row=2, column=4).number_format == '#,##0.00'   # wartość
+
+    for format_ in ('#,##0', '#,##0.000', '#,##0.00'):
+        assert '.' in format_ or ',' in format_
+        assert ' ' not in format_
+
+
+def test_kolorowanie_nie_zamienia_pustej_komorki_w_zero():
+    """
+    Wiersz trakowni dostaje własne tło, ale jego puste komórki mają POZOSTAĆ
+    puste. Wypełnienie tła to atrybut stylu, nie wartość — gdyby kolorowanie
+    przechodziło przez zapis wartości, „nie dotyczy" zamieniłoby się w zero.
+    """
+    dane = _pusty_raport()
+    dane['trakownia'] = {'klody': 12, 'm3': 8.4}
+
+    wb = load_workbook(io.BytesIO(daily_report_export.build_daily_xlsx(dane)))
+    ws = wb['Stanowiska']
+    wiersz_trakowni = ws.max_row - 1
+
+    assert ws.cell(row=wiersz_trakowni, column=1).value == 'Trakownia'
+    assert ws.cell(row=wiersz_trakowni, column=1).fill.fgColor.rgb.endswith('F2F0ED')
+    for kolumna in (4, 6, 7):
+        assert ws.cell(row=wiersz_trakowni, column=kolumna).value is None
+
+
+def test_kolumna_rozszerza_sie_do_najdluzszej_zawartosci():
+    """
+    Nazwisko bywa dłuższe niż nagłówek „Pracownik", a lista stanowisk potrafi
+    mieć trzy pozycje. Szerokość liczona z nagłówka ucinałaby jedno i drugie.
+    """
+    dane = _pusty_raport()
+    dane['ludzie']['wiersze'] = [{
+        'nazwa': 'Sylwester Rębiś-Zawadzki', 'stanowiska': 'Lakiernia, Pakowanie',
+        'sztuki': 8.0, 'm3': 4.0, 'zdarzenia': 3, 'godziny': 7.5, 'tempo': 0.533,
+    }]
+
+    wb = load_workbook(io.BytesIO(daily_report_export.build_daily_xlsx(dane)))
+    ws = wb['Ludzie']
+
+    assert ws.column_dimensions['A'].width >= len('Sylwester Rębiś-Zawadzki')
+    assert ws.column_dimensions['B'].width >= len('Lakiernia, Pakowanie')
+
+
+def test_szerokosc_kolumny_ma_gorny_limit():
+    """
+    „Lakiernia, Pakowanie, Wykańczanie" przy każdym pracowniku rozpchałoby
+    arkusz na pół ekranu. Limit trzyma tabelę w rozsądnej szerokości.
+    """
+    dane = _pusty_raport()
+    dane['ludzie']['wiersze'] = [{
+        'nazwa': 'X' * 200, 'stanowiska': '', 'sztuki': 0.0, 'm3': 0.0,
+        'zdarzenia': 0, 'godziny': 0.0, 'tempo': None,
+    }]
+
+    wb = load_workbook(io.BytesIO(daily_report_export.build_daily_xlsx(dane)))
+
+    assert wb['Ludzie'].column_dimensions['A'].width <= 42
+
+
+def test_wiersz_sumy_ma_akcent_i_pogrubienie():
+    wb = load_workbook(io.BytesIO(
+        daily_report_export.build_daily_xlsx(_pusty_raport())))
+    ws = wb['Stanowiska']
+    komorka = ws.cell(row=ws.max_row, column=1)
+
+    assert komorka.value == 'SUMA'
+    assert komorka.font.bold is True
+    assert komorka.fill.fgColor.rgb.endswith('FBE1D3')
+    assert komorka.border.top.color.rgb.endswith('ED6B24')
+
+
+def test_etykieta_sztuk_tlumaczy_sie_sama():
+    """
+    „Sztuki (netto)" wymagało tłumaczenia przy każdym czytaniu raportu —
+    działanie w nawiasie mówi to samo bez żargonu.
+    """
+    wb = load_workbook(io.BytesIO(
+        daily_report_export.build_daily_xlsx(_pusty_raport())))
+    ws = wb['Dzień']
+    etykiety = [ws.cell(row=r, column=1).value for r in range(1, ws.max_row + 1)]
+
+    assert 'Sztuki (wykonane − cofnięte)' in etykiety
+    assert 'Sztuki (netto)' not in etykiety
