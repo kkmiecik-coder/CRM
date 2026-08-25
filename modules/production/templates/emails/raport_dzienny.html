@@ -1,0 +1,45 @@
+{# Treść dziennego raportu produkcji.
+
+   Bez logo i bez obrazków z zewnętrznego hosta: wszystkie osiem istniejących
+   szablonów mailowych linkuje grafiki z serwer2100532.home.pl, który jest
+   przeznaczony do dekomisji po migracji. Ten szablon celowo tego nie powiela.
+
+   Układ pionowy, bez tabel z wieloma kolumnami — czytany głównie na telefonie
+   o 18:00, a tabele w mailu rozjeżdżają się na klientach mobilnych. #}
+<div style="font-family: Arial, Helvetica, sans-serif; font-size: 15px; color: #222; line-height: 1.6;">
+    <p style="font-size: 17px; font-weight: bold; margin: 0 0 16px 0;">
+        Raport produkcji — {{ dzien_slownie }}
+    </p>
+
+    <p style="margin: 0 0 8px 0;">
+        <strong>Wykonane:</strong>
+        {{ wykonanie.sztuki }} szt. ·
+        {{ '%.3f'|format(wykonanie.m3) }} m³ ·
+        {{ '{:,.0f}'.format(wykonanie.wartosc_netto).replace(',', ' ') }} zł netto
+        {%- if wykonanie.cofniecia %} (w tym {{ wykonanie.cofniecia }} szt. cofnięte){% endif %}
+    </p>
+
+    <p style="margin: 0 0 8px 0;">
+        <strong>Praca:</strong>
+        {{ ludzie.osoby }} {{ 'osoba' if ludzie.osoby == 1 else 'osób' }},
+        {{ ludzie.godziny }} h (pokrycie {{ ludzie.pokrycie_proc }}%)
+    </p>
+
+    {% if trakownia.klody %}
+    <p style="margin: 0 0 8px 0;">
+        <strong>Trakownia:</strong>
+        {{ trakownia.klody }} kłód · {{ '%.3f'|format(trakownia.m3) }} m³
+    </p>
+    {% endif %}
+
+    <p style="margin: 0 0 8px 0;">
+        <strong>W kolejce:</strong>
+        {{ kolejka_szt }} szt. · {{ '%.3f'|format(kolejka_m3) }} m³
+        {%- if terminy.po_terminie %} — w tym {{ terminy.po_terminie }}
+        {{ 'pozycja' if terminy.po_terminie == 1 else 'pozycji' }} po terminie{% endif %}
+    </p>
+
+    <p style="margin: 20px 0 0 0; color: #666; font-size: 13px;">
+        Szczegóły w załączniku.
+    </p>
+</div>
