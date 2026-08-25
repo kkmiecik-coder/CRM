@@ -6,6 +6,7 @@ Testy pilnują tego, na czym raport stoi i co już raz wywróciło się w projek
 filtr auto_skip/system, cofnięcia niewidoczne w netto, praca bez atrybucji,
 oraz różnica między pustą komórką a zerem.
 """
+import io
 import os
 import sys
 from datetime import date, datetime, time, timedelta
@@ -14,6 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
 from flask import Flask
+from openpyxl import load_workbook
 from sqlalchemy.pool import StaticPool
 
 from extensions import db
@@ -26,7 +28,7 @@ from modules.production.sawmill.models import (
     SawmillAudit, SawmillCounter, SawmillDelivery, SawmillLog, SawmillOrder,
     SawmillSpecies, SawmillSupplier,
 )
-from modules.production.services import daily_report_service
+from modules.production.services import daily_report_export, daily_report_service
 from modules.users.models import User
 from modules.calculator.models import Multiplier  # noqa: F401
 from modules.clients.models import Client  # noqa: F401
@@ -479,3 +481,148 @@ def test_modele_trakowni_uzywaja_czasu_lokalnego(app):
     for kolumna in kolumny:
         assert kolumna.default.arg.__name__ == 'get_local_now', (
             f'{kolumna} nadal używa czasu kontenera zamiast get_local_now')
+
+
+# ============================================================================
+# EKSPORT XLSX
+# ============================================================================
+
+def _pusty_raport():
+    """Minimalny dict o kształcie kontraktu zbierz_dane() — bez bazy."""
+    return {
+        'dzien': PONIEDZIALEK,
+        'wykonanie': {'sztuki': 0, 'm3': 0.0, 'wartosc_netto': 0.0,
+                      'pozycje': 0, 'zamowienia': 0, 'cofniecia': 0},
+        'ludzie': {'osoby': 0, 'godziny': 0.0, 'pokrycie_proc': 0.0,
+                   'wiersze': [], 'nieprzypisane': {'sztuki': 0.0, 'm3': 0.0}},
+        'trakownia': {'klody': 0, 'm3': 0.0},
+        'stanowiska': [{'kod': 'gluing', 'etykieta': 'Sklejanie', 'sztuki': 6,
+                        'm3': 3.0, 'wartosc_netto': 600.0, 'cofniecia': 1,
+                        'kolejka_szt': 14, 'kolejka_m3': 6.0}],
+        'terminy': {'po_terminie': 2, 'dzis': 1, '1_2_dni': 0,
+                    '3_7_dni': 3, '8_dni_plus': 5, 'bez_terminu': 1},
+    }
+
+
+def test_naglowki_uzywaja_slowa_roznica():
+    """Symbol delty jest zakazany w eksportach — czyta je księgowość."""
+    wszystkie = daily_report_export.NAGLOWKI_STANOWISKA + daily_report_export.NAGLOWKI_LUDZIE
+    assert not any('Δ' in h for h in wszystkie)
+
+
+def test_plik_ma_trzy_arkusze_o_ustalonych_nazwach():
+    wb = load_workbook(io.BytesIO(
+        daily_report_export.build_daily_xlsx(_pusty_raport())))
+    assert wb.sheetnames == ['Dzień', 'Stanowiska', 'Ludzie']
+
+
+def test_arkusz_stanowiska_ma_naglowek_i_wiersze():
+    wb = load_workbook(io.BytesIO(
+        daily_report_export.build_daily_xlsx(_pusty_raport())))
+    ws = wb['Stanowiska']
+
+    assert [c.value for c in ws[1]] == list(daily_report_export.NAGLOWKI_STANOWISKA)
+    assert ws.cell(row=2, column=1).value == 'Sklejanie'
+    assert ws.cell(row=2, column=2).value == 6
+
+
+def test_trakownia_ma_puste_komorki_kolejki_a_nie_zera():
+    """
+    Trakownia nie ma statusów kolejki. Zero znaczyłoby „policzone i wyszło
+    zero", a prawda brzmi „nie dotyczy" — openpyxl zapisuje None jako pustą
+    komórkę. Ta sama zasada co w sawmill/services/exports.py:106-112.
+
+    Wiersz trakowni składa EKSPORT z bloku dane['trakownia'] — agregat nie
+    udaje, że trakownia jest ósmym stanowiskiem.
+    """
+    dane = _pusty_raport()
+    dane['trakownia'] = {'klody': 12, 'm3': 8.4}
+
+    wb = load_workbook(io.BytesIO(daily_report_export.build_daily_xlsx(dane)))
+    ws = wb['Stanowiska']
+    wiersz_trakowni = ws.max_row - 1   # przedostatni; ostatni to SUMA
+
+    assert ws.cell(row=wiersz_trakowni, column=1).value == 'Trakownia'
+    assert ws.cell(row=wiersz_trakowni, column=2).value == 12    # kłody
+    assert ws.cell(row=wiersz_trakowni, column=4).value is None  # wartość netto
+    assert ws.cell(row=wiersz_trakowni, column=6).value is None  # kolejka szt.
+    assert ws.cell(row=wiersz_trakowni, column=7).value is None  # kolejka m³
+
+
+def test_arkusz_stanowiska_konczy_sie_wierszem_suma():
+    """
+    Suma obejmuje wyłącznie stanowiska produkcyjne. Trakownia mierzy surowiec
+    przed wejściem na halę — doliczenie jej m³ liczyłoby ten sam materiał
+    drugi raz.
+    """
+    dane = _pusty_raport()
+    dane['trakownia'] = {'klody': 12, 'm3': 8.4}
+    dane['stanowiska'].append({
+        'kod': 'packaging', 'etykieta': 'Pakowanie', 'sztuki': 4, 'm3': 1.0,
+        'wartosc_netto': 200.0, 'cofniecia': 0,
+        'kolejka_szt': 7, 'kolejka_m3': 0.7,
+    })
+
+    wb = load_workbook(io.BytesIO(daily_report_export.build_daily_xlsx(dane)))
+    ws = wb['Stanowiska']
+
+    assert ws.cell(row=ws.max_row, column=1).value == 'SUMA'
+    assert ws.cell(row=ws.max_row, column=2).value == 10   # 6 + 4, bez trakowni
+    assert ws.cell(row=ws.max_row, column=3).value == pytest.approx(4.0)  # bez 8.4
+
+
+def test_arkusz_ludzie_ma_wiersz_nieprzypisane():
+    """
+    Bez tego wiersza suma arkusza „Ludzie" nie zgadza się z sumą arkusza
+    „Stanowiska" i raport wygląda na zepsuty.
+    """
+    dane = _pusty_raport()
+    dane['ludzie']['wiersze'] = [{
+        'nazwa': 'Adam Nowak', 'stanowiska': 'Sklejanie', 'sztuki': 8.0,
+        'm3': 4.0, 'zdarzenia': 3, 'godziny': 7.5, 'tempo': 0.533,
+    }]
+    dane['ludzie']['nieprzypisane'] = {'sztuki': 5.0, 'm3': 2.5}
+
+    wb = load_workbook(io.BytesIO(daily_report_export.build_daily_xlsx(dane)))
+    ws = wb['Ludzie']
+    etykiety = [ws.cell(row=r, column=1).value for r in range(2, ws.max_row + 1)]
+
+    assert 'Adam Nowak' in etykiety
+    assert 'Nieprzypisane' in etykiety
+
+
+def test_puste_tempo_zostaje_pusta_komorka():
+    dane = _pusty_raport()
+    dane['ludzie']['wiersze'] = [{
+        'nazwa': 'Adam Nowak', 'stanowiska': '', 'sztuki': 0.0, 'm3': 0.0,
+        'zdarzenia': 0, 'godziny': 8.0, 'tempo': None,
+    }]
+
+    wb = load_workbook(io.BytesIO(daily_report_export.build_daily_xlsx(dane)))
+    ws = wb['Ludzie']
+
+    assert ws.cell(row=2, column=7).value is None
+
+
+def test_polskie_znaki_przechodza_bez_okaleczenia():
+    """
+    W repo jest safe_str(), które wycina diakrytyki — to legacy, nie wymóg
+    openpyxl. Ten test pilnuje, żeby nikt go tu nie skopiował.
+    """
+    dane = _pusty_raport()
+    dane['stanowiska'][0]['etykieta'] = 'Wykańczanie — dąb, jesion'
+
+    wb = load_workbook(io.BytesIO(daily_report_export.build_daily_xlsx(dane)))
+
+    assert wb['Stanowiska'].cell(row=2, column=1).value == 'Wykańczanie — dąb, jesion'
+
+
+def test_nazwa_pliku_jest_ascii():
+    """
+    Polskie znaki w nagłówku Content-Disposition rwą odpowiedź (WSGI koduje
+    nagłówki w latin-1) — patrz tests/test_nda_filename_header.py.
+    """
+    nazwa = daily_report_export.nazwa_pliku(PONIEDZIALEK)
+
+    assert nazwa == 'Raport_produkcji_2026-08-10.xlsx'
+    nazwa.encode('ascii')   # rzuci UnicodeEncodeError, jeśli się zepsuje
