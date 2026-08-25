@@ -471,8 +471,12 @@ def register_cli_commands(app):
             click.echo('[raport-dzienny] tryb --sucho, mail nie został wysłany')
             return
 
+        # `is not None`, nie samo `if adresy`: `--do ' , '` to lista PUSTA,
+        # ale JAWNIE podana. Rozróżnienie potrzebne niżej — inaczej komunikat
+        # odsyła do klucza konfiguracji, którego komenda w tym trybie w ogóle
+        # nie przeczytała.
         lista = ([a.strip() for a in adresy.split(',') if a.strip()]
-                 if adresy else None)
+                 if adresy is not None else None)
 
         try:
             # report_mailer.wyslij_raport() woła render_template(), co odpala
@@ -495,10 +499,23 @@ def register_cli_commands(app):
             raise click.Abort()
 
         if ile == 0:
-            click.echo('[raport-dzienny] brak odbiorców w konfiguracji '
-                       '(DAILY_REPORT_RECIPIENTS) — nie wysłano')
+            # Kod wyjścia zostaje ZEROWY: pusta lista to wyłącznik funkcji,
+            # nie awaria. WARNING w logu, bo cisza przy skonfigurowanym cronie
+            # jest jednak czymś, co ktoś powinien kiedyś zobaczyć.
+            komunikat = (
+                '[raport-dzienny] --do nie zawiera żadnego adresu — nie wysłano'
+                if lista is not None else
+                '[raport-dzienny] brak odbiorców w konfiguracji '
+                '(DAILY_REPORT_RECIPIENTS) — nie wysłano'
+            )
+            current_app.logger.warning(komunikat)
+            click.echo(komunikat)
             return
 
+        # INFO do logu aplikacji, nie tylko echo na stdout: stdout widzi
+        # wyłącznie ten, kto akurat patrzy na wyjście crona.
+        current_app.logger.info('[raport-dzienny] %s: wysłano do %d odbiorców',
+                                dzien, ile)
         click.echo(f'[raport-dzienny] wysłano do {ile} odbiorców')
 
 # Funkcje do generowania i weryfikacji tokena resetującego hasło

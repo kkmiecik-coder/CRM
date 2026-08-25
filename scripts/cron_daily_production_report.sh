@@ -13,6 +13,26 @@
 #
 # Ograniczenie do poniedziałku–piątku siedzi we WPISIE CRONA (1-5), nie tutaj:
 # harmonogram jest sprawą harmonogramu, a ręczne odpalenie w sobotę ma działać.
+#
+# ── WPIS CRONTAB — GOTOWY DO SKOPIOWANIA ────────────────────────────────────
+# Plik /etc/cron.d/woodpower-raport-dzienny (18:00, poniedziałek–piątek,
+# jako użytkownik aplikacji). Cała linia, razem z przekierowaniem:
+#
+# 0 18 * * 1-5 woodpower-crm /home/woodpower-crm/htdocs/crm.woodpower.pl/scripts/cron_daily_production_report.sh >> /home/woodpower-crm/logs/raport-dzienny.log 2>&1
+#
+# Przed pierwszym uruchomieniem:
+#     chmod +x /home/woodpower-crm/htdocs/crm.woodpower.pl/scripts/cron_daily_production_report.sh
+#     mkdir -p /home/woodpower-crm/logs && chown woodpower-crm /home/woodpower-crm/logs
+#
+# Przekierowanie NIE jest ozdobą. Na pytanie „czy raport za 20.08 poszedł?"
+# odpowiada właśnie ten plik — komenda wypisuje na stdout podsumowanie doby
+# i liczbę odbiorców, a `>> ... 2>&1` łapie też stderr, czyli treść awarii.
+# Bez przekierowania cron próbuje wysłać wyjście mailem lokalnym, którego na
+# tym VPS-ie nikt nie czyta, a ślad po przebiegu znika.
+#
+# Rotacja: plik rośnie o kilka linii dziennie, więc logrotate nie jest tu
+# konieczny — jeśli jednak ma być, wystarczy wpis `weekly rotate 12`.
+# ────────────────────────────────────────────────────────────────────────────
 
 set -eu
 
