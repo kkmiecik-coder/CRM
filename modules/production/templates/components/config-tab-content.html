@@ -1445,6 +1445,46 @@
                     </div>
                 </div>
 
+                <!-- DAILY_REPORT_RECIPIENTS -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-paper-plane"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">Odbiorcy raportu dziennego</h5>
+                                    <p class="config-item-description">Adresy rozdzielone przecinkami. Raport produkcji wychodzi w dni robocze o 18:00. Puste pole = raport nie jest wysyłany.</p>
+                                </div>
+                            </div>
+                            <div class="config-item-meta">
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-user"></i>
+                                    <span>Ostatnio: {{ config_groups.system.DAILY_REPORT_RECIPIENTS.updated_by|default('System') }}</span>
+                                </div>
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-clock"></i>
+                                    <span>{{ config_groups.system.DAILY_REPORT_RECIPIENTS.updated_at|default('—') }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="text" class="form-control" id="daily_report_recipients"
+                                           placeholder="konrad@woodpower.pl, biuro@woodpower.pl"
+                                           value="{{ config_groups.system.DAILY_REPORT_RECIPIENTS.value|default('') }}"
+                                           oninput="configChanged('DAILY_REPORT_RECIPIENTS', this.value)">
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('DAILY_REPORT_RECIPIENTS')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- ERROR_NOTIFICATION_THRESHOLD -->
                 <div class="config-item">
                     <div class="config-item-row">
