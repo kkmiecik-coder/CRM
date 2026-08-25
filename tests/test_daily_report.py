@@ -268,3 +268,18 @@ def test_pozycje_spakowane_nie_licza_sie_do_terminow(app):
         terminy = daily_report_service.zbierz_dane(PONIEDZIALEK)['terminy']
 
         assert terminy['po_terminie'] == 1
+
+
+def test_wstrzymane_pozycje_licza_sie_do_terminow(app):
+    """
+    Wstrzymana pozycja po terminie MA być widoczna. Panel trzyma ją jako osobny
+    segment wykresu „Termin vs postęp" (reports_service.py:120-124) — gdyby mail
+    ją pomijał, to samo zamówienie byłoby po terminie na ekranie i nieobecne
+    w raporcie.
+    """
+    with app.app_context():
+        _produkt(status='wstrzymane', deadline=PONIEDZIALEK - timedelta(days=3))
+
+        terminy = daily_report_service.zbierz_dane(PONIEDZIALEK)['terminy']
+
+        assert terminy['po_terminie'] == 1

@@ -38,9 +38,11 @@ def _granice_doby(dzien):
             datetime.combine(dzien, time.max))
 
 
-# Statusy, które nie są zaległością: pozycja spakowana jest zrobiona,
-# anulowana i wstrzymana nie czekają na nikogo w hali.
-_STATUSY_POZA_BACKLOGIEM = ('spakowane', 'anulowane', 'wstrzymane')
+# Statusy, które nie są zaległością: praca skończona albo odwołana.
+# 'wstrzymane' NIE jest tu celowo — panel (reports_service.STATUSY_ZAMKNIETE:116)
+# wyklucza tylko te dwa i trzyma wstrzymane jako osobny segment, żeby wstrzymana
+# pozycja po terminie była widoczna. Mail ma pokazywać to samo co panel.
+_STATUSY_POZA_BACKLOGIEM = ('spakowane', 'anulowane')
 
 
 def _cofniecia_stanowisk(dzien):
