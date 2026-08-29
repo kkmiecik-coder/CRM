@@ -82,9 +82,23 @@ def cw_incoming(conv_id, text, attachments=None):
                          data={"content": text or "", "message_type": "incoming"}, files=files, timeout=90)
 
 
-def cw_note(conv_id, text, image_url=None, image_headers=None, token=None):
-    """token=None -> domyslny CW_TOKEN (zachowanie dotychczasowe); quote-bot podaje swoj."""
+def cw_note(conv_id, text, image_url=None, image_headers=None, token=None,
+            image_path=None, image_name=None, image_mime="image/jpeg"):
+    """Prywatna notatka dla agenta. token=None -> domyslny CW_TOKEN.
+    image_url  -> obraz pobierany z sieci (karta oferty z OLX/Allegro),
+    image_path -> obraz z dysku (probki i wzorniki bota w trybie notatki).
+    Nieczytelny plik/obraz NIE gubi tresci — fallback do samego tekstu."""
     tok = token or CW_TOKEN
+    if image_path:
+        try:
+            with open(image_path, "rb") as f:
+                dane = f.read()
+            url = "%s/api/v1/accounts/%s/conversations/%s/messages" % (CW_BASE, CW_ACC, conv_id)
+            files = [("attachments[]", (image_name or "obraz.jpg", dane, image_mime))]
+            return requests.post(url, headers={"api_access_token": tok},
+                                 data={"content": text, "private": "true"}, files=files, timeout=90)
+        except Exception as e:
+            log("note obraz nieczytelny:", repr(e))   # fallback -> sam tekst
     if not image_url:
         return cw("POST", "/conversations/%s/messages" % conv_id, {"content": text, "private": True}, token=tok)
     try:

@@ -42,6 +42,7 @@ def test_tryb_note_dokleja_prefiks():
 
 def test_tryb_note_uzywa_tokenu_z_kontekstu(monkeypatch):
     """Notatka idzie tokenem bota przypisanego do inboxu (_note_token), nie zaszytym."""
+    _zabron_wysylki(monkeypatch)
     uzyte = {}
     monkeypatch.setattr(qb, "cw_note",
                         lambda conv_id, text, **kw: uzyte.update(kw) or True)
@@ -57,6 +58,7 @@ def test_tryb_note_uzywa_tokenu_z_kontekstu(monkeypatch):
 def test_tryb_note_skleja_czesci_w_jedna_notatke(monkeypatch):
     """Podzial na wiadomosci (max_len OLX) zostaje widoczny, ale jako JEDNA notatka —
     inaczej agent dostaje lawine notatek zamiast jednej gotowej tresci."""
+    _zabron_wysylki(monkeypatch)
     notatki = []
     monkeypatch.setattr(qb, "cw_note", lambda conv_id, text, **kw: notatki.append(text) or True)
     t1 = qb._reply_mode.set("note")
@@ -91,16 +93,19 @@ def test_tryb_note_blad_zapisu_zwraca_false(monkeypatch):
         qb._reply_mode.reset(t)
 
 
-def test_tryb_note_pomija_obraz_na_razie(monkeypatch):
-    """Do czasu Task 6 obraz w trybie notatki jest pomijany, ale tekst musi dotrzec."""
-    notatki = []
-    monkeypatch.setattr(qb, "cw_note", lambda conv_id, text, **kw: notatki.append(text) or True)
+def test_tryb_note_przekazuje_obraz_do_notatki(monkeypatch):
+    """Probki i wzorniki trafiaja do notatki jako zalacznik, nie gina."""
+    zlapane = {}
+    monkeypatch.setattr(qb, "cw_note",
+                        lambda conv_id, text, **kw: zlapane.update(kw) or True)
     t = qb._reply_mode.set("note")
     try:
-        assert qb.cw_agent_reply(1, "podpis", image_path="/tmp/x.jpg", token="tok") is True
+        assert qb.cw_agent_reply(1, "podpis", image_path="/tmp/probka.jpg",
+                                 image_name="probka.jpg", token="tok") is True
     finally:
         qb._reply_mode.reset(t)
-    assert len(notatki) == 1
+    assert zlapane.get("image_path") == "/tmp/probka.jpg"
+    assert zlapane.get("image_name") == "probka.jpg"
 
 
 def test_tryb_dla_persony():

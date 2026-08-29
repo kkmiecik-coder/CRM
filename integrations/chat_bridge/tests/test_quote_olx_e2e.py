@@ -32,11 +32,13 @@ def wyslane(monkeypatch):
 
 @pytest.fixture
 def notatki(monkeypatch):
-    """Przechwytuje notatke, w ktorej ladowaloby trafic wyjscie tury OLX/Allegro (tryb note)."""
+    """Przechwytuje notatke, w ktorej ladowaloby trafic wyjscie tury OLX/Allegro (tryb note).
+    Lapie tez argumenty obrazu (image_path/image_name) — notatka moze niesc probke/wzornik
+    jako zalacznik (Task 6)."""
     calls = _Calls()
 
-    def fake(conv_id, text, **kw):
-        calls.append({"text": text})
+    def fake(conv_id, text, image_path=None, image_name=None, **kw):
+        calls.append({"text": text, "image_path": image_path, "image_name": image_name})
         return True
 
     monkeypatch.setattr(quotebot, "cw_note", fake)
@@ -66,6 +68,8 @@ def test_e2e_olx_wycena_plain_text_url_i_jpg(wyslane, notatki, monkeypatch):
     assert "😊" not in laczny and "👇" not in laczny  # brak emoji
     assert "https://woodpower.pl/q/abc123" in laczny  # czytelny goly URL
     assert "1200 zł" in laczny
+    # obraz trafia do notatki jako zalacznik — agent przesyla go dalej jednym ruchem
+    assert notatki[0]["image_path"] == "gatunki_porownanie.jpg"
 
 
 # --- Scenariusz 2: dlugie podsumowanie -> rozbite w limicie OLX, ale w JEDNEJ notatce ---
@@ -85,12 +89,14 @@ def test_e2e_olx_dlugie_podsumowanie_rozbite_w_limicie(wyslane, notatki, monkeyp
     assert all(len(c) <= 2000 for c in czesci)            # kazda czesc w limicie OLX (jak dawniej)
 
 
-# --- Scenariusz 3: obraz pominiety (tryb notatki go jeszcze nie obsluguje), sam tekst idzie ---
+# --- Scenariusz 3: format obrazu spoza caps OLX (gif) odrzucony PRZED notatka, sam tekst idzie ---
+# (Task 6: notatka juz obsluguje zalaczniki — to filtr formatu w cw_agent_reply, nie limit notatki)
 
 def test_e2e_olx_gif_pominiety(wyslane, notatki, monkeypatch):
     _turn_with_reply(monkeypatch, "quote_olx", "Zerknij na wzornik", image_path="wzornik.gif")
     assert wyslane == []
     assert any("Zerknij na wzornik" in c["text"] for c in notatki)
+    assert notatki[0]["image_path"] is None       # gif odfiltrowany zanim dotarl do cw_note
 
 
 # --- Scenariusz 4: livechat BEZ REGRESJI — markdown/emoji/obraz zachowane, jedna wiadomosc ---

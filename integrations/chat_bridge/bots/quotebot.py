@@ -50,13 +50,11 @@ _SEPARATOR_CZESCI = "\n\n--- (druga wiadomość) ---\n\n"
 def _note_reply(conv_id, text, image_path=None, image_name=None, image_mime="image/jpeg"):
     """Wyjscie tury w trybie notatki: tresc, ktora bot wyslalby klientowi, laduje w prywatnej
     notatce. Kontrakt zwrotny bool jest IDENTYCZNY jak w cw_agent_reply — od niego zaleza flagi
-    stanu rozmowy (awaiting_confirm/priced/awaiting_contact), wiec nie wolno go tu zmienic.
-    Obraz jest na tym etapie pomijany (cw_note przyjmuje dopiero URL) — dokłada go Task 6."""
+    stanu rozmowy (awaiting_confirm/priced/awaiting_contact), wiec nie wolno go tu zmienic."""
     tok = _note_token.get() or BOT_QUOTE_CW_AGENT_TOKEN
-    if image_path is not None:
-        log("quotebot: tryb notatki - obraz pominiety (conv %s)" % conv_id)
     try:
-        resp = cw_note(conv_id, _NOTE_PREFIX + (text or ""), token=tok)
+        resp = cw_note(conv_id, _NOTE_PREFIX + (text or ""), token=tok,
+                       image_path=image_path, image_name=image_name, image_mime=image_mime)
     except Exception as e:
         log("note_reply blad:", repr(e))
         return False

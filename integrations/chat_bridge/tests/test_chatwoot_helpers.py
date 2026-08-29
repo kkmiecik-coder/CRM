@@ -105,3 +105,36 @@ def test_cw_agent_reply_brak_pliku_fallback_json(monkeypatch):
     ok = cw.cw_agent_reply(5, "opis", image_path="/nie/ma/pliku.jpg")
     assert ok is True
     assert zapis["json"] == {"content": "opis", "message_type": "outgoing"}
+
+
+def test_cw_note_z_plikiem_wysyla_multipart(monkeypatch, tmp_path):
+    """Notatka z zalacznikiem: agent widzi probke i przesyla ja dalej jednym ruchem."""
+    import core.chatwoot as cwmod
+    plik = tmp_path / "probka.jpg"
+    plik.write_bytes(b"\xff\xd8\xff-udawany-jpeg")
+    zlapane = {}
+
+    class _Resp:
+        status_code = 200
+        def __bool__(self): return True
+
+    def _fake_post(url, headers=None, data=None, files=None, timeout=None):
+        zlapane.update({"url": url, "data": data, "files": files})
+        return _Resp()
+
+    monkeypatch.setattr(cwmod.requests, "post", _fake_post)
+    wynik = cwmod.cw_note(7, "podpis", token="tok", image_path=str(plik),
+                          image_name="probka.jpg")
+    assert bool(wynik) is True
+    assert zlapane["data"]["private"] == "true"
+    assert zlapane["files"][0][1][0] == "probka.jpg"
+
+
+def test_cw_note_z_nieczytelnym_plikiem_wysyla_sam_tekst(monkeypatch):
+    """Brak pliku nie moze zgubic tresci notatki — fallback do samego tekstu."""
+    import core.chatwoot as cwmod
+    wolane = {}
+    monkeypatch.setattr(cwmod, "cw", lambda *a, **kw: wolane.setdefault("cw", True) or True)
+    wynik = cwmod.cw_note(7, "podpis", token="tok", image_path="/nie/ma/takiego.jpg")
+    assert wolane.get("cw") is True
+    assert bool(wynik) is True
