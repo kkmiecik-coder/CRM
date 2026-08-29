@@ -95,6 +95,7 @@ def test_tryb_note_blad_zapisu_zwraca_false(monkeypatch):
 
 def test_tryb_note_przekazuje_obraz_do_notatki(monkeypatch):
     """Probki i wzorniki trafiaja do notatki jako zalacznik, nie gina."""
+    _zabron_wysylki(monkeypatch)
     zlapane = {}
     monkeypatch.setattr(qb, "cw_note",
                         lambda conv_id, text, **kw: zlapane.update(kw) or True)

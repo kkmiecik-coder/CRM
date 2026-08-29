@@ -87,7 +87,8 @@ def cw_note(conv_id, text, image_url=None, image_headers=None, token=None,
     """Prywatna notatka dla agenta. token=None -> domyslny CW_TOKEN.
     image_url  -> obraz pobierany z sieci (karta oferty z OLX/Allegro),
     image_path -> obraz z dysku (probki i wzorniki bota w trybie notatki).
-    Nieczytelny plik/obraz NIE gubi tresci — fallback do samego tekstu."""
+    Nieczytelny plik ORAZ zalacznik odrzucony przez Chatwoot (non-2xx) NIE gubia
+    tresci — w obu przypadkach fallback do samego tekstu."""
     tok = token or CW_TOKEN
     if image_path:
         try:
@@ -95,8 +96,14 @@ def cw_note(conv_id, text, image_url=None, image_headers=None, token=None,
                 dane = f.read()
             url = "%s/api/v1/accounts/%s/conversations/%s/messages" % (CW_BASE, CW_ACC, conv_id)
             files = [("attachments[]", (image_name or "obraz.jpg", dane, image_mime))]
-            return requests.post(url, headers={"api_access_token": tok},
+            resp = requests.post(url, headers={"api_access_token": tok},
                                  data={"content": text, "private": "true"}, files=files, timeout=90)
+            if 200 <= resp.status_code < 300:
+                return resp
+            # Chatwoot odrzucil sam zalacznik (rozmiar/mime/walidacja) - NIE zwracamy tej
+            # odpowiedzi, tylko lecimy dalej do sciezki tekstowej (fallback -> sam tekst),
+            # tak samo jak przy wyjatku ponizej.
+            log("note zalacznik odrzucony przez CW, kod:", resp.status_code)
         except Exception as e:
             log("note obraz nieczytelny:", repr(e))   # fallback -> sam tekst
     if not image_url:

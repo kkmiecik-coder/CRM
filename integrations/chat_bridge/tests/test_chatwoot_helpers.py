@@ -138,3 +138,28 @@ def test_cw_note_z_nieczytelnym_plikiem_wysyla_sam_tekst(monkeypatch):
     wynik = cwmod.cw_note(7, "podpis", token="tok", image_path="/nie/ma/takiego.jpg")
     assert wolane.get("cw") is True
     assert bool(wynik) is True
+
+
+def test_cw_note_z_odrzuconym_zalacznikiem_wysyla_sam_tekst(monkeypatch, tmp_path):
+    """Chatwoot moze odrzucic sam zalacznik (rozmiar/mime/walidacja) mimo poprawnego
+    POST-a (brak wyjatku) — non-2xx NIE moze zgubic tresci notatki, fallback do tekstu."""
+    import core.chatwoot as cwmod
+    plik = tmp_path / "probka.jpg"
+    plik.write_bytes(b"\xff\xd8\xff-udawany-jpeg")
+    wolane = {}
+
+    class _Resp422:
+        status_code = 422
+        def __bool__(self): return False
+
+    def _fake_post(url, headers=None, data=None, files=None, timeout=None):
+        wolane["post_wywolany"] = True
+        return _Resp422()
+
+    monkeypatch.setattr(cwmod.requests, "post", _fake_post)
+    monkeypatch.setattr(cwmod, "cw", lambda *a, **kw: wolane.setdefault("cw", True) or True)
+    wynik = cwmod.cw_note(7, "podpis", token="tok", image_path=str(plik),
+                          image_name="probka.jpg")
+    assert wolane.get("post_wywolany") is True     # proba wyslania zalacznika faktycznie byla
+    assert wolane.get("cw") is True                # ale po odrzuceniu poszla sciezka tekstowa
+    assert bool(wynik) is True
