@@ -33,6 +33,11 @@ PONIEDZIALEK = date(2026, 8, 10)
 
 DANE = {
     'dzien': PONIEDZIALEK,
+    # „zakonczone" (pakowanie) i „wykonanie" (suma stanowisk) celowo mają tu
+    # różne liczby — mail bierze WYŁĄCZNIE to pierwsze i test ma to złapać,
+    # gdyby szablon wrócił do sumy stanowisk.
+    'zakonczone': {'sztuki': 58, 'm3': 1.249, 'wartosc_netto': 9210.0,
+                   'cofniecia': 2},
     'wykonanie': {'sztuki': 342, 'm3': 4.187, 'wartosc_netto': 28450.0,
                   'pozycje': 51, 'zamowienia': 18, 'cofniecia': 4},
     'ludzie': {'osoby': 5, 'godziny': 37.5, 'pokrycie_proc': 92.0,
@@ -135,11 +140,32 @@ def test_tresc_maila_ma_kluczowe_liczby(app):
             report_mailer.wyslij_raport(DANE, b'udawane-bajty')
 
         tresc = wyslane[0].html
-        assert '342' in tresc            # sztuki
-        assert '28 450' in tresc or '28450' in tresc   # wartość
+        assert 'Zakończone:' in tresc
+        assert '58 szt.' in tresc        # sztuki spakowane
+        assert '9 210 zł' in tresc       # wartość spakowanego
         assert '92' in tresc             # pokrycie
         assert '18' in tresc             # po terminie
         assert 'serwer2100532.home.pl' not in tresc    # logo z serwera do dekomisji
+
+
+def test_naglowek_nie_sumuje_stanowisk(app):
+    """
+    Nagłówek maila liczy wyłącznie pakowanie. Dawniej stała tu suma wszystkich
+    stanowisk i tę samą sztukę (razem z jej ceną) liczyła tyle razy, przez ile
+    stanowisk przeszła tego dnia — 276 szt. i 67 497 zł przy realnych
+    kilkudziesięciu sztukach. Liczby z bloku `wykonanie` nie mają prawa
+    pojawić się w treści.
+    """
+    with app.app_context():
+        _ustaw_odbiorcow('konrad@woodpower.pl')
+
+        with mail.record_messages() as wyslane:
+            report_mailer.wyslij_raport(DANE, b'udawane-bajty')
+
+        tresc = wyslane[0].html
+        assert 'Wykonane:' not in tresc
+        assert '342 szt.' not in tresc
+        assert '28 450 zł' not in tresc
 
 
 def test_odbiorcy_podani_wprost_maja_pierwszenstwo(app):
@@ -189,10 +215,10 @@ def test_liczby_maja_polski_zapis_dziesietny(app):
             report_mailer.wyslij_raport(DANE, b'udawane-bajty')
 
         tresc = wyslane[0].html
-        assert '4,187 m³' in tresc
+        assert '1,249 m³' in tresc
         assert '37,5 h' in tresc
-        assert '28 450 zł' in tresc
-        assert '4.187' not in tresc
+        assert '9 210 zł' in tresc
+        assert '1.249' not in tresc
         assert '37.5' not in tresc
 
 

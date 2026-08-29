@@ -88,7 +88,7 @@ def wyslij_raport(dane, zalacznik, odbiorcy=None):
     msg.html = render_template(
         'emails/raport_dzienny.html',
         dzien_slownie=_dzien_slownie(dzien),
-        wykonanie=dane['wykonanie'],
+        zakonczone=dane['zakonczone'],
         ludzie=dane['ludzie'],
         trakownia=dane['trakownia'],
         terminy=dane['terminy'],

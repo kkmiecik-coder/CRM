@@ -31,12 +31,18 @@
         Raport produkcji — {{ dzien_slownie }}
     </p>
 
+    {# „Zakończone" liczy WYŁĄCZNIE pakowanie, bo tylko tam sztuka pada raz.
+       Dawniej stała tu suma wszystkich stanowisk i pisała np. „276 szt. ·
+       67 497 zł" — tę samą sztukę (i jej cenę) liczyła tyle razy, przez ile
+       stanowisk przeszła tego dnia, a mail czytało się jak dzienny wynik hali.
+       Przerób per stanowisko został w załączniku, gdzie ma nagłówki mówiące
+       wprost, czym jest. #}
     <p style="margin: 0 0 8px 0;">
-        <strong>Wykonane:</strong>
-        {{ liczba(wykonanie.sztuki) }} szt. ·
-        {{ liczba(wykonanie.m3, 3) }} m³ ·
-        {{ liczba(wykonanie.wartosc_netto) }} zł netto
-        {%- if wykonanie.cofniecia %} (w tym {{ liczba(wykonanie.cofniecia) }} szt. cofnięte){% endif %}
+        <strong>Zakończone:</strong>
+        {{ liczba(zakonczone.sztuki) }} szt. ·
+        {{ liczba(zakonczone.m3, 3) }} m³ ·
+        {{ liczba(zakonczone.wartosc_netto) }} zł netto
+        {%- if zakonczone.cofniecia %} (w tym {{ liczba(zakonczone.cofniecia) }} szt. cofnięte){% endif %}
     </p>
 
     {# pokrycie_proc bywa None: w dobie bez ŻADNEGO ruchu nie ma z czego

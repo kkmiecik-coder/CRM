@@ -375,6 +375,47 @@ def test_wykonanie_zbiorcze_dnia(app):
         assert wykonanie['cofniecia'] == 1
 
 
+def test_zakonczone_liczy_wylacznie_pakowanie(app):
+    """
+    „Zakończone" to wynik dnia, więc bierze tylko pakowanie — jedyne
+    stanowisko, na którym sztuka pada raz. Suma wszystkich stanowisk
+    (`wykonanie`) liczy tę samą sztukę tyle razy, przez ile stanowisk
+    przeszła, i pod nazwą wyniku dnia zawyżała kilkukrotnie.
+    """
+    with app.app_context():
+        p = _produkt(quantity=10, volume=0.5, wartosc=1000.0)
+        # Jedna i ta sama sztuka na trzech stanowiskach tego samego dnia.
+        _event(p, 'gluing', 4, datetime.combine(PONIEDZIALEK, time(8, 0)))
+        _event(p, 'formatting', 4, datetime.combine(PONIEDZIALEK, time(10, 0)))
+        _event(p, 'packaging', 4, datetime.combine(PONIEDZIALEK, time(14, 0)))
+
+        dane = daily_report_service.zbierz_dane(PONIEDZIALEK)
+
+        assert dane['zakonczone']['sztuki'] == 4
+        assert dane['zakonczone']['m3'] == pytest.approx(2.0)        # 4 × 0.5
+        assert dane['zakonczone']['wartosc_netto'] == pytest.approx(400.0)
+        # Suma stanowisk widzi te same 4 sztuki trzy razy — i tak ma być,
+        # bo to miara ruchu na hali.
+        assert dane['wykonanie']['sztuki'] == 12
+
+
+def test_zakonczone_odejmuje_cofniecia_z_pakowania(app):
+    """
+    Cofnięcie z pakowania obniża wynik dnia, bo produkt wrócił na halę.
+    Sztuki są netto (suma delt), a `cofniecia` idą osobno wyłącznie po to,
+    żeby mail mógł je pokazać w nawiasie.
+    """
+    with app.app_context():
+        p = _produkt(quantity=10, volume=0.5, wartosc=1000.0)
+        _event(p, 'packaging', 5, datetime.combine(PONIEDZIALEK, time(11, 0)))
+        _event(p, 'packaging', -2, datetime.combine(PONIEDZIALEK, time(16, 0)))
+
+        zakonczone = daily_report_service.zbierz_dane(PONIEDZIALEK)['zakonczone']
+
+        assert zakonczone['sztuki'] == 3
+        assert zakonczone['cofniecia'] == 2
+
+
 def test_dzien_bez_ruchu_daje_zera_a_nie_wyjatek(app):
     """Raport idzie także w dniu bez produkcji — brak maila ma znaczyć awarię."""
     with app.app_context():
@@ -542,6 +583,8 @@ def _pusty_raport():
     """Minimalny dict o kształcie kontraktu zbierz_dane() — bez bazy."""
     return {
         'dzien': PONIEDZIALEK,
+        'zakonczone': {'sztuki': 0, 'm3': 0.0, 'wartosc_netto': 0.0,
+                       'cofniecia': 0},
         'wykonanie': {'sztuki': 0, 'm3': 0.0, 'wartosc_netto': 0.0,
                       'pozycje': 0, 'zamowienia': 0, 'cofniecia': 0},
         'ludzie': {'osoby': 0, 'godziny': 0.0, 'pokrycie_proc': 0.0,
@@ -743,6 +786,8 @@ def test_arkusz_dzien_ma_cztery_bloki_i_liczby_podsumowania():
     dotąd nie był sprawdzany niczym poza własną nazwą.
     """
     dane = _pusty_raport()
+    dane['zakonczone'] = {'sztuki': 58, 'm3': 1.24913,
+                          'wartosc_netto': 9210.417, 'cofniecia': 2}
     dane['wykonanie'] = {'sztuki': 342, 'm3': 4.18742, 'wartosc_netto': 28450.126,
                          'pozycje': 51, 'zamowienia': 18, 'cofniecia': 4}
     dane['ludzie'] = {'osoby': 5, 'godziny': 37.5, 'pokrycie_proc': 92.0,
@@ -755,12 +800,19 @@ def test_arkusz_dzien_ma_cztery_bloki_i_liczby_podsumowania():
     assert set(bloki) == {'WYKONANIE', 'LUDZIE', 'TRAKOWNIA', 'ZOSTAŁO'}
 
     wykonanie = bloki['WYKONANIE']
-    assert wykonanie['Sztuki (wykonane − cofnięte)'] == 342
-    assert wykonanie['m³'] == pytest.approx(4.187)          # zaokrąglone do 3
-    assert wykonanie['Wartość netto (zł)'] == pytest.approx(28450.13)
+    # Wynik dnia (pakowanie) i ruch na hali (suma stanowisk) stoją w osobnych
+    # wierszach — jedna etykieta na obie liczby zawyżała wynik kilkukrotnie.
+    assert wykonanie['Zakończone — sztuki (spakowane − cofnięte)'] == 58
+    assert wykonanie['Zakończone — m³'] == pytest.approx(1.249)
+    assert wykonanie['Zakończone — wartość netto (zł)'] == pytest.approx(9210.42)
+    assert wykonanie['Ruch na stanowiskach (szt.)'] == 342
+    assert wykonanie['Ruch na stanowiskach (m³)'] == pytest.approx(4.187)
     assert wykonanie['Pozycji dotkniętych'] == 51
     assert wykonanie['Zamówień dotkniętych'] == 18
     assert wykonanie['Cofnięcia (szt.)'] == 4
+    # Ruch świadomie NIE ma odpowiednika w złotówkach: ta sama pozycja
+    # doliczona na pięciu stanowiskach dałaby pięciokrotną cenę.
+    assert 'Ruch na stanowiskach (zł)' not in wykonanie
 
     assert bloki['LUDZIE'] == {'Pracowników z pracą': 5, 'Osobogodziny': 37.5,
                                'Pokrycie atrybucją (%)': 92.0}
@@ -983,8 +1035,12 @@ def test_etykieta_sztuk_tlumaczy_sie_sama():
     ws = wb['Dzień']
     etykiety = [ws.cell(row=r, column=1).value for r in range(1, ws.max_row + 1)]
 
-    assert 'Sztuki (wykonane − cofnięte)' in etykiety
+    assert 'Zakończone — sztuki (spakowane − cofnięte)' in etykiety
     assert 'Sztuki (netto)' not in etykiety
+    # Sama „Sztuki" też nie wystarcza: arkusz podaje teraz dwie różne miary
+    # sztuk (wynik dnia i ruch na stanowiskach), więc etykieta musi mówić,
+    # o którą chodzi.
+    assert 'Sztuki' not in etykiety
 
 
 def test_suma_zamowien_nie_jest_suma_kolumny():

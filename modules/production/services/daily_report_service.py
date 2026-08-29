@@ -300,8 +300,47 @@ def _trakownia(dzien):
     return {'klody': int(ile or 0), 'm3': float(metry or 0)}
 
 
+def _zakonczone(stanowiska):
+    """
+    Faktyczny wynik dnia: co zeszło z produkcji, czyli wyłącznie pakowanie.
+
+    Pakowanie zamyka drogę produktu — jego ukończenie ustawia status
+    'spakowane' (models.py:497) — więc jest jedynym stanowiskiem, na którym
+    sztuka liczy się dokładnie raz. To odróżnia ten blok od `wykonanie`,
+    który sumuje wszystkie stanowiska i tę samą sztukę liczy tyle razy, przez
+    ile stanowisk przeszła danego dnia.
+
+    Zero nowego zapytania: wiersz pakowania jest już policzony w
+    _przerob_stanowisk(), a jego sztuki, m³ i wartość są NETTO, bo
+    get_station_work_per_day() sumuje delty, a cofnięcie ma deltę ujemną.
+    `cofniecia` idą osobno tylko po to, żeby dało się je pokazać w nawiasie.
+    """
+    wiersz = next((s for s in stanowiska if s['kod'] == 'packaging'), None)
+    if wiersz is None:
+        return {'sztuki': 0, 'm3': 0.0, 'wartosc_netto': 0.0, 'cofniecia': 0}
+
+    return {
+        'sztuki': wiersz['sztuki'],
+        'm3': wiersz['m3'],
+        'wartosc_netto': wiersz['wartosc_netto'],
+        'cofniecia': wiersz['cofniecia'],
+    }
+
+
 def _wykonanie(stanowiska, dzien):
-    """Sumy nagłówkowe — składane z policzonych już wierszy stanowisk."""
+    """
+    Sumy przez WSZYSTKIE stanowiska — miara ruchu na hali, NIE wynik dnia.
+
+    UWAGA dla konsumenta, ta sama pułapka co w _zamowienia_stanowisk():
+    sztuka, która danego dnia przeszła wycinanie → sklejanie → formatowanie →
+    wykańczanie → pakowanie, jest tu policzona PIĘĆ razy, razem
+    z pięciokrotną wartością netto. Jako odpowiedź na „ile dziś zrobiliśmy"
+    te liczby kłamią i nie wolno ich tak podpisywać — od tego jest
+    _zakonczone(). Jako obraz obłożenia hali mają sens i dlatego zostają.
+
+    `pozycje` i `zamowienia` tej wady nie mają — liczy je _zasieg_dnia()
+    po unikatach.
+    """
     pozycje, zamowienia = _zasieg_dnia(dzien)
     return {
         'sztuki': sum(s['sztuki'] for s in stanowiska),
@@ -341,6 +380,7 @@ def zbierz_dane(dzien=None):
 
     return {
         'dzien': dzien,
+        'zakonczone': _zakonczone(stanowiska),
         'wykonanie': _wykonanie(stanowiska, dzien),
         'ludzie': _ludzie(dzien),
         'trakownia': _trakownia(dzien),

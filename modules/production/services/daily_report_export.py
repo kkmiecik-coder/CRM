@@ -131,7 +131,10 @@ _ETYKIETY_TERMINOW = (
 _PRZYPIS_ZAMOWIENIA = (
     'Zamówienia w wierszu SUMA to liczba unikalnych zamówień, a nie suma '
     'kolumny — jedno zamówienie przechodzi zwykle przez kilka stanowisk '
-    'tego samego dnia i w każdym z nich liczy się osobno.'
+    'tego samego dnia i w każdym z nich liczy się osobno. Z tego samego '
+    'powodu sztuki, m³ i wartość w wierszu SUMA opisują ruch na stanowiskach, '
+    'a nie wynik dnia: ile faktycznie zeszło z produkcji, mówi wiersz '
+    '„Pakowanie" i pozycje „Zakończone" w arkuszu „Dzień".'
 )
 
 # Granice szerokości kolumny. Dolna, żeby wąskie kolumny liczbowe nie zlewały
@@ -240,17 +243,33 @@ def _arkusz_dzien(ws, dane):
     ws.cell(row=1, column=2).font = Font(bold=True, size=14, color=_GRAFIT)
     ws.append([])
 
+    zakonczone = dane['zakonczone']
     wykonanie = dane['wykonanie']
     ludzie = dane['ludzie']
     trakownia = dane['trakownia']
 
     bloki = (
+        # Blok świadomie rozdziela DWIE różne miary, które wcześniej stały tu
+        # pod jedną etykietą „Sztuki (wykonane − cofnięte)":
+        #
+        # „Zakończone" to pakowanie, czyli wynik dnia — sztuka pada raz.
+        # „Ruch na stanowiskach" to suma wszystkich stanowisk, w której ta sama
+        # sztuka liczy się tyle razy, przez ile stanowisk przeszła. Jako
+        # obłożenie hali ma to sens, jako wynik dnia zawyżało kilkukrotnie.
+        #
+        # Ruch NIE ma odpowiednika w złotówkach i to jest celowe: pięciokrotnie
+        # policzona cena tej samej pozycji nie odpowiada na żadne pytanie,
+        # a w kolumnie obok wartości „Zakończone" czytałoby się jak przychód.
         ('WYKONANIE', (
             # „netto" wymagało tłumaczenia za każdym razem — działanie w nawiasie
             # mówi to samo bez żargonu.
-            ('Sztuki (wykonane − cofnięte)', wykonanie['sztuki'], _FMT_SZTUKI),
-            ('m³', round(wykonanie['m3'], 3), _FMT_M3),
-            ('Wartość netto (zł)', round(wykonanie['wartosc_netto'], 2), _FMT_ZL),
+            ('Zakończone — sztuki (spakowane − cofnięte)', zakonczone['sztuki'],
+             _FMT_SZTUKI),
+            ('Zakończone — m³', round(zakonczone['m3'], 3), _FMT_M3),
+            ('Zakończone — wartość netto (zł)',
+             round(zakonczone['wartosc_netto'], 2), _FMT_ZL),
+            ('Ruch na stanowiskach (szt.)', wykonanie['sztuki'], _FMT_SZTUKI),
+            ('Ruch na stanowiskach (m³)', round(wykonanie['m3'], 3), _FMT_M3),
             ('Pozycji dotkniętych', wykonanie['pozycje'], _FMT_SZTUKI),
             ('Zamówień dotkniętych', wykonanie['zamowienia'], _FMT_SZTUKI),
             ('Cofnięcia (szt.)', wykonanie['cofniecia'], _FMT_SZTUKI),
