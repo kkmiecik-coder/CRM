@@ -2570,7 +2570,8 @@ def handoff_with_apology(conv_id, reason="błąd techniczny bota (wyczerpane pr�
     """Sciezka awaryjna (po wyczerpaniu retry albo trwalym bledzie 4xx): przeprosiny +
     przekazanie do agenta. Notatka dla konsultanta dziedziczy juz zebrane dane (nie
     zaczynamy od pustego stanu). `reason` opisuje faktyczna przyczyne (patrz
-    quote_worker._fail_permanently).
+    quote_worker._fail_permanently) — domyslny tekst zaklada wyczerpane proby retry, co
+    nie jest prawda dla 4xx-fail-fast (konczy sie po 1 probie).
     UWAGA: wolane z workera POZA run_quote_turn, wiec contextvary trybu trzeba ustawic tutaj —
     inaczej przeprosiny dla klienta wyszlyby na OLX/Allegro mimo trybu notatki."""
     mode_token = _reply_mode.set(_tryb_dla_persony(persona))
@@ -2587,7 +2588,7 @@ def handoff_with_apology(conv_id, reason="błąd techniczny bota (wyczerpane pr�
 def komunikat_obciazenia(conv_id, persona="quote"):
     """Lagodny komunikat przy otwarciu circuit-breakera (awaria LLM). Na livechacie idzie do
     klienta, na OLX/Allegro ladunek trafia do notatki — kupujacy nie wie o istnieniu bota,
-    wiec komunikat o 'obciazeniu systemu' byłby dla niego myllacy.
+    wiec komunikat o 'obciazeniu systemu' bylby dla niego mylacy.
     Nigdy nie rzuca — to sciezka awaryjna, nie moze pogorszyc juz trwajacej awarii."""
     mode_token = _reply_mode.set(_tryb_dla_persony(persona))
     note_tok = _note_token.set(_token_notatki_dla_persony(persona))
