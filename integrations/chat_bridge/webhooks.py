@@ -6,7 +6,8 @@ import time
 import json
 from flask import Blueprint, request, jsonify
 from config import (WEBHOOK_TOKEN, BOT_AGENT_WEBHOOK_TOKEN, BOT_LIVE_AGENT_WEBHOOK_TOKEN,
-                     BOT_QUOTE_AGENT_WEBHOOK_TOKEN)
+                     BOT_QUOTE_AGENT_WEBHOOK_TOKEN,
+                     CW_OLX_INBOX, CW_ALLEGRO_MSG_INBOX)
 from core.log import log
 from core.db import db
 from core.chatwoot import cw_bot_handoff
@@ -17,9 +18,24 @@ from channels.allegro_auth import exchange_authorization_code
 
 bp = Blueprint("webhooks", __name__)
 
-# Kanaly obslugiwane pelnym silnikiem quotebota w trybie notatki (bot 'WoodPower AI').
-# Persona 'mail' celowo poza mapa — skrzynki mailowe zostaja na starym podpowiadaczu.
-_PERSONA_QUOTE_DLA_KANALU = {"olx": "quote_olx", "allegro": "quote_allegro"}
+
+def _quote_persona_dla_inboxu(inbox_id):
+    """Klucz persony quotebota dla inboxu, albo None gdy inbox jest poza zakresem trybu notatki.
+    Rozgalezienie idzie po IDENTYFIKATORZE INBOXU, nie po kluczu persony: persona_for zwraca
+    "allegro" dla KAZDEGO inboxu Channel::Api z "allegro" w nazwie, wiec mapowanie po personie
+    wciagalo w zakres takze inbox "Allegro - Dyskusje" (spory i reklamacje), ktory spec wyklucza
+    wprost (Decyzja 5) — wysoka stawka bledu, a persona i tak kaze oddac reklamacje czlowiekowi.
+    Poza zakresem sa wiec: Dyskusje, skrzynki mailowe i wszystko inne — te zostaja na starym
+    podpowiadaczu (suggest_queue). Identyfikatory bierzemy z konfiguracji (CHATWOOT_*_INBOX_ID),
+    nigdy na sztywno z kodu; sa to STRINGI z env, wiec porownujemy stringi po obu stronach."""
+    iid = str(inbox_id or "").strip()
+    if not iid:
+        return None
+    for skonfigurowany, persona in ((CW_OLX_INBOX, "quote_olx"),
+                                    (CW_ALLEGRO_MSG_INBOX, "quote_allegro")):
+        if skonfigurowany and iid == str(skonfigurowany).strip():
+            return persona
+    return None
 
 
 # ---------- AGENT BOT WEBHOOK ----------
@@ -37,28 +53,43 @@ def _process_agent_bot(d):
     inbox_id = str(d.get("inbox_id") or conv.get("inbox_id") or (d.get("inbox") or {}).get("id") or "")
     content = (d.get("content") or "").strip()
     mid = str(d.get("id") or "")
+    # Tylko zalaczniki-obrazy (file_type == 'image') trafiaja do LLM jako vision — zbierane tak
+    # samo jak w /agent-bot-live i /agent-bot-quote. Bez tego rozpoznawanie obrazow (bots/vision.py)
+    # bylo na OLX/Allegro martwe: bot nie widzial zdjecia przyslanego przez klienta.
+    att = [a.get("data_url") for a in (d.get("attachments") or [])
+           if a.get("data_url") and str(a.get("file_type") or "").lower() == "image"]
     if not conv_id or not inbox_id:
         return
     # Oddaj rozmowe agentom niezaleznie od persony/tresci (idempotentne dla juz otwartej).
     # Handoff MUSI byc wolany dla obu torow, przed rozgalezieniem ponizej — bramka statusu
     # w quotebocie jest zniesiona dla trybu notatki, wiec bez tego rozmowa utknelaby w pending.
     cw_bot_handoff(conv_id)
-    if not content or not mid:
+    if not mid or (not content and not att):
         return
     persona = persona_for(inbox_id)
     if not persona or persona == "livechat":
         log("agent-bot: inbox %s bez persony podpowiedzi - bez podpowiedzi" % inbox_id)
         return
-    quote_persona = _PERSONA_QUOTE_DLA_KANALU.get(persona)
+    quote_persona = _quote_persona_dla_inboxu(inbox_id)
     if quote_persona:
-        # OLX/Allegro: pelna tura quotebota (wycena, lead w CRM) z wyjsciem do notatki.
+        # OLX/Allegro-Wiadomosci: pelna tura quotebota (wycena, lead w CRM) z wyjsciem do notatki.
         # Dedup + okno ciszy atomowo w enqueue_quote_turn — dlatego BEZ wpisu do bot_seen.
-        if enqueue_quote_turn(conv_id, inbox_id, mid, content, persona=quote_persona) == "duplicate":
+        if enqueue_quote_turn(conv_id, inbox_id, mid, content, attachments=att,
+                              persona=quote_persona) == "duplicate":
             return
-        log("agent-bot: zakolejkowano ture quotebota (%s, inbox %s, conv %s)"
-            % (quote_persona, inbox_id, conv_id))
+        log("agent-bot: zakolejkowano ture quotebota (%s, inbox %s, conv %s)%s"
+            % (quote_persona, inbox_id, conv_id, (" +%d obrazy" % len(att)) if att else ""))
         return
-    # Pozostale kanaly (mail) — stary podpowiadacz.
+    if persona in ("olx", "allegro"):
+        # Inbox marketplace POZA mapa z konfiguracji: albo "Allegro - Dyskusje" (swiadomie poza
+        # zakresem), albo brak CHATWOOT_*_INBOX_ID w bridge.env. Logujemy, bo drugi przypadek
+        # to blad konfiguracji, ktory inaczej po cichu zepchnalby kanal na stary podpowiadacz.
+        log("agent-bot: inbox %s (persona %s) poza zakresem quotebota - stary podpowiadacz"
+            % (inbox_id, persona))
+    # Pozostale kanaly (mail, Allegro-Dyskusje) — stary podpowiadacz, ktory pracuje na samym
+    # tekscie: bez tresci nie ma czego podpowiadac (zalaczniki obsluguje tylko tor quotebota).
+    if not content:
+        return
     c = db()
     try:
         c.execute("INSERT INTO bot_seen(mid) VALUES(?)", (mid,)); c.commit()

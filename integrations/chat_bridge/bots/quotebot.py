@@ -37,21 +37,45 @@ _reply_caps = contextvars.ContextVar("quotebot_reply_caps", default=DEFAULT_CAPS
 # Tryb wyjscia biezacej tury: "reply" = wiadomosc do klienta (livechat/Messenger),
 # "note" = prywatna notatka dla agenta (OLX/Allegro — bot NIE pisze do klienta).
 _reply_mode = contextvars.ContextVar("quotebot_reply_mode", default="reply")
-# Token bota, ktorym zapisujemy notatke w trybie "note". Musi to byc bot PRZYPISANY do
-# inboxu w Chatwoocie (na OLX/Allegro: WoodPower AI), inaczej API odrzuci zapis.
+# Token bota, ktorym zapisujemy notatke w trybie "note": bot WIDOCZNY na kanale
+# (na OLX/Allegro: WoodPower AI). Patrz _token_notatki_dla_persony.
 _note_token = contextvars.ContextVar("quotebot_note_token", default=None)
 
 # Naglowek notatki — agent ma od razu widziec, ze to gotowa tresc do wyslania.
-_NOTE_PREFIX = "🤖 Dębuś — propozycja odpowiedzi:\n\n"
+# BEZ emoji CELOWO: prefiks doklejamy PO sanitizacji caps (to_channel_text juz sie nie wykona),
+# a agent kopiuje notatke w calosci na kanal, ktory emoji nie renderuje. Naglowek musi wiec sam
+# z siebie spelniac najostrzejszy format kanalu (czysty tekst, bez emoji i markdownu).
+_NOTE_PREFIX = "Dębuś — propozycja odpowiedzi:\n\n"
 # Separator czesci, gdy tresc nie miesci sie w jednej wiadomosci kanalu (np. limit OLX).
-_SEPARATOR_CZESCI = "\n\n--- (druga wiadomość) ---\n\n"
+# NUMEROWANY: czesci bywa wiecej niz dwie, a staly napis "druga wiadomosc" powtarzalby sie
+# na kazdej granicy i mylil agenta, ktory te czesci wysyla po kolei.
+_SEPARATOR_CZESCI_TPL = "\n\n--- (wiadomość %d) ---\n\n"
+
+
+def _sklej_czesci_notatki(czesci):
+    """Skleja czesci tury w tresc JEDNEJ notatki, znaczac kazda granice numerem wiadomosci."""
+    out = []
+    for i, czesc in enumerate(czesci):
+        if i:
+            out.append(_SEPARATOR_CZESCI_TPL % (i + 1))
+        out.append(czesc)
+    return "".join(out)
+
+
+def _token_notatki():
+    """JEDYNE zrodlo tokenu, ktorym most zapisuje notatki i wola handoff w turze quotebota.
+    Tryb notatki (OLX/Allegro) ustawia _note_token na token bota widocznego na kanale;
+    poza nim (persona 'quote' = livechat/Messenger) contextvar jest pusty i schodzimy na token
+    Debusia — czyli dokladnie dotychczasowe zachowanie. Bez tej jednej funkcji notatki jednej
+    tury byly podpisywane roznymi botami (wrapper jednym, _lead_note i _do_handoff drugim)."""
+    return _note_token.get() or BOT_QUOTE_CW_AGENT_TOKEN
 
 
 def _note_reply(conv_id, text, image_path=None, image_name=None, image_mime="image/jpeg"):
     """Wyjscie tury w trybie notatki: tresc, ktora bot wyslalby klientowi, laduje w prywatnej
     notatce. Kontrakt zwrotny bool jest IDENTYCZNY jak w cw_agent_reply — od niego zaleza flagi
     stanu rozmowy (awaiting_confirm/priced/awaiting_contact), wiec nie wolno go tu zmienic."""
-    tok = _note_token.get() or BOT_QUOTE_CW_AGENT_TOKEN
+    tok = _token_notatki()
     try:
         resp = cw_note(conv_id, _NOTE_PREFIX + (text or ""), token=tok,
                        image_path=image_path, image_name=image_name, image_mime=image_mime)
@@ -69,17 +93,28 @@ def _tryb_dla_persony(persona):
 
 def _token_notatki_dla_persony(persona):
     """Token bota, ktorym zapisujemy notatke. Na OLX/Allegro w Chatwoocie przypisany jest bot
-    'WoodPower AI' (BOT_CW_AGENT_TOKEN) — notatka musi isc JEGO tokenem, bo API nie przyjmie
-    zapisu od bota spoza inboxu. Dla pozostalych person tryb notatki nie obowiazuje. Fallback na
-    token Debusia jest CELOWY (niekompletny config nie ma wywracac tury), ale musi byc GLOSNY —
-    bez tego ostrzezenia notatka na OLX/Allegro zniknie bez sladu (Chatwoot odrzuci zapis botem
-    spoza inboxu), a nikt sie nie dowie dlaczego."""
+    'WoodPower AI' (BOT_CW_AGENT_TOKEN) i notatka idzie JEGO tokenem — chodzi o SPOJNOSC
+    podpisu: agent ma widziec jednego autora notatek, tego samego, ktory jest widoczny na
+    kanale. Chatwoot przyjmuje zapis prywatnej notatki takze od bota NIEPRZYPISANEGO do inboxu
+    (potwierdzone na produkcyjnej bazie: AgentBot ma zapisane notatki na inboksie Channel::Api),
+    wiec zly token nie powoduje utraty notatki — powoduje notatke podpisana innym botem.
+    Dla pozostalych person tryb notatki nie obowiazuje -> None. Fallback na token Debusia jest
+    CELOWY (niekompletny config nie ma wywracac tury), ale musi byc GLOSNY: inaczej notatki na
+    OLX/Allegro po cichu zmienilyby autora i nikt by nie wiedzial dlaczego."""
     if _tryb_dla_persony(persona) == "note":
         if not BOT_CW_AGENT_TOKEN:
-            log("quotebot: BRAK BOT_CW_AGENT_TOKEN - notatka pojdzie tokenem Debusia i Chatwoot "
-                "moze ja odrzucic (persona %s)" % persona)
+            log("quotebot: BRAK BOT_CW_AGENT_TOKEN - notatka zostanie podpisana botem Debusia, "
+                "nie botem widocznym na kanale (persona %s)" % persona)
         return BOT_CW_AGENT_TOKEN or BOT_QUOTE_CW_AGENT_TOKEN
     return None
+
+
+def _wolno_linkowac():
+    """Czy na kanale biezacej tury wolno podac link do wyceny albo obiecac jego wyslanie.
+    Regulamin Allegro tego zabrania (caps 'links' = False), a komunikaty z linkiem sa sklejane
+    w Pythonie, wiec persona LLM ich NIE obejmuje — decyzja musi zapasc tutaj. OLX i livechat
+    linki dopuszczaja (tam link jest glownym sposobem przekazania szczegolow)."""
+    return bool(_reply_caps.get().get("links", True))
 
 
 def _wolno_prowadzic_rozmowe(conv_id):
@@ -120,7 +155,7 @@ def cw_agent_reply(conv_id, text, image_path=None, image_name=None, image_mime="
     # Sanitizacja caps zostala juz zastosowana wyzej — agent kopiuje tresc wprost do kanalu,
     # wiec musi byc w jego formacie (np. OLX = czysty tekst bez markdownu).
     if _reply_mode.get() == "note":
-        tresc = _SEPARATOR_CZESCI.join(czesci) if czesci else tekst
+        tresc = _sklej_czesci_notatki(czesci) if czesci else tekst
         return _note_reply(conv_id, tresc, image_path=image_path,
                            image_name=image_name, image_mime=image_mime)
     if not czesci:
@@ -788,6 +823,15 @@ def _czy_wycena_wariantowa(conv_id, poz):
     return not _brakujace_pozycji(poz)   # kompletna poza wyborem gatunku
 
 
+# Prosba o wybor wariantu po pokazaniu tabeli cen. Wariant "BEZ_LINKU" idzie na kanalach
+# z caps['links']=False (Allegro): ani nie prosi o e-mail, ani nie obiecuje linku do wyceny.
+_WARIANT_WYBOR_PROSBA = ("Którą opcję zapisać? Proszę wskazać gatunek (i pozycję, jeśli porównań "
+                         "jest kilka), a poda Pan/Pani e-mail — wyślę link do wyceny, do której "
+                         "będzie można wracać.")
+_WARIANT_WYBOR_PROSBA_BEZ_LINKU = ("Którą opcję zapisać? Proszę wskazać gatunek (i pozycję, "
+                                   "jeśli porównań jest kilka) w tej rozmowie.")
+
+
 def _obsluz_wyceny_wariantowej(conv_id, dane):
     """Znajduje WSZYSTKIE pozycje kwalifikujace sie do wyceny wariantowej w tej turze (2+
     gatunki do porownania, kompletne, sprzed pierwszej ceny, jeszcze nie pokazane) i pokazuje
@@ -822,9 +866,9 @@ def _obsluz_wyceny_wariantowej(conv_id, dane):
         wyslane_klucze.append(dedup_key)
     if not fragmenty:
         return False
-    fragmenty.append("Którą opcję zapisać? Proszę wskazać gatunek (i pozycję, jeśli porównań "
-                     "jest kilka), a poda Pan/Pani e-mail — wyślę link do wyceny, do której "
-                     "będzie można wracać.")
+    # Wariant bez linku dla kanalow z caps['links']=False (Allegro) — obietnica wyslania linku
+    # jest sklejana w Pythonie, wiec persona 'quote_allegro' jej NIE zatrzyma.
+    fragmenty.append(_WARIANT_WYBOR_PROSBA if _wolno_linkowac() else _WARIANT_WYBOR_PROSBA_BEZ_LINKU)
     if not cw_agent_reply(conv_id, "\n\n".join(fragmenty), token=BOT_QUOTE_CW_AGENT_TOKEN):
         raise RuntimeError("quotebot: wysylka wyceny wariantowej nieudana (conv %s)" % conv_id)
     for k in wyslane_klucze:
@@ -837,9 +881,23 @@ def _obsluz_wyceny_wariantowej(conv_id, dane):
 _PROSBA_KONTAKT = ("Jeśli poda Pan/Pani adres e-mail (lub telefon), zapiszę wycenę pod tym "
                    "kontaktem i wyślę bezpośredni link — będzie Pan/Pani mógł/mogła do niej "
                    "wracać i udostępnić ją, komu trzeba, bez pisania do nas ponownie.")
+# Wariant dla kanalow z caps['links']=False (Allegro): regulamin zabrania kierowania kupujacego
+# poza platforme, a persona 'quote_allegro' zabrania proszenia o e-mail/telefon. Tresc sklejana
+# w Pythonie nie przechodzi przez persone, wiec wariant musi byc jawny.
+_PROSBA_KONTAKT_BEZ_LINKU = ("Gdyby coś w wycenie wymagało zmiany albo pojawiły się pytania — "
+                             "proszę napisać w tej rozmowie, wszystko doprecyzujemy tutaj.")
 # Komunikat przy nieudanym zapisie wyceny (MS-05) — koniec ciszy po podanym mailu.
 _SAVE_FAIL_MSG = ("Dziękuję za kontakt! Mam chwilowy problem techniczny z zapisem wyceny — "
                   "przekazuję rozmowę do konsultanta WoodPower, który dośle link w tej rozmowie.")
+# Wariant bez obietnicy linku dla kanalow z caps['links']=False (Allegro).
+_SAVE_FAIL_MSG_BEZ_LINKU = ("Dziękuję za kontakt! Mam chwilowy problem techniczny z zapisem "
+                            "wyceny — przekazuję rozmowę do konsultanta WoodPower, który wróci "
+                            "z odpowiedzią w tej rozmowie.")
+
+
+def _save_fail_msg():
+    """Komunikat MS-05 dobrany do kanalu: na Allegro bez obietnicy doslania linku."""
+    return _SAVE_FAIL_MSG if _wolno_linkowac() else _SAVE_FAIL_MSG_BEZ_LINKU
 
 
 # Staly prefiks kupujacego OLX z identyfikatora kontaktu. MUSI byc zgodny z
@@ -887,7 +945,7 @@ def _lead_note(conv_id, dane, options, wynik=None):
             lines.append("")
             lines.append("Cena: %s (%s netto)" % (_fmt_pln(totals.get("total_brutto")),
                                                    _fmt_pln(totals.get("total_netto"))))
-        cw_note(conv_id, "\n".join(lines), token=BOT_QUOTE_CW_AGENT_TOKEN)
+        cw_note(conv_id, "\n".join(lines), token=_token_notatki())
     except Exception as e:
         log("quotebot: lead note nieudana (conv %s): %s" % (conv_id, repr(e)))
 
@@ -1795,10 +1853,15 @@ def _do_handoff(conv_id, powod, dane, closing=CLOSING_MSG):
         log_event(conv_id, "turn_limit")
     if closing is CLOSING_MSG and not _w_godzinach_pracy():
         closing = CLOSING_MSG_POZA_GODZINAMI
-    cw_note(conv_id, _summary_note(dane, powod), token=BOT_QUOTE_CW_AGENT_TOKEN)   # rzuca przy awarii -> retry
+    # cw_note NIE rzuca przy odpowiedzi non-2xx (cw() zwraca Response) — bez sprawdzenia wyniku
+    # notatka podsumowujaca przepadala po cichu, i to akurat przy reklamacji, prosbie o czlowieka
+    # i limicie tur. Response jest falsy dla non-2xx, wiec jawny warunek + RuntimeError kieruja
+    # ture na retry workera, dokladnie tak, jak zaklada kolejnosc krokow tej funkcji.
+    if not cw_note(conv_id, _summary_note(dane, powod), token=_token_notatki()):
+        raise RuntimeError("quotebot: notatka podsumowujaca handoff nieudana (conv %s)" % conv_id)
     if not cw_agent_reply(conv_id, closing, token=BOT_QUOTE_CW_AGENT_TOKEN):
         raise RuntimeError("quotebot: wysylka zamkniecia handoffu nieudana (conv %s)" % conv_id)
-    if not cw_bot_handoff(conv_id, token=BOT_QUOTE_CW_AGENT_TOKEN):
+    if not cw_bot_handoff(conv_id, token=_token_notatki()):
         raise RuntimeError("quotebot: handoff nieudany (conv %s)" % conv_id)
     # Miekki reset: zeruj bot_turns/awaiting_*/human_deflected/reject_* (inaczej powrot do pending
     # od razu znow trafilby w limit tur), ZACHOWAJ quote_dane, edit_uuid, kontakt, sent_images.
@@ -1858,7 +1921,7 @@ def _wyslij_cene_i_kontakt(conv_id, dane, identity):
         # follow-upy (prosba o kontakt/oferta wysylki) zaprzeczylyby wlasnie wykonanemu handoffowi.
         return
     if not (email or phone):
-        dopiski = [_PROSBA_KONTAKT]
+        dopiski = [_PROSBA_KONTAKT if _wolno_linkowac() else _PROSBA_KONTAKT_BEZ_LINKU]
         if oferta_wysylki:
             dopiski.append(_WYSYLKA_OFERTA)
         if not cw_agent_reply(conv_id, "\n\n".join(dopiski), token=BOT_QUOTE_CW_AGENT_TOKEN):
@@ -1897,7 +1960,7 @@ def _zapisz_wycene(conv_id, dane, options, email, phone, name, wynik=None, extra
         if email or phone:
             # MS-05: klient JUZ podal kontakt — nie moze zniknac bez sladu, koniec ciszy.
             _do_handoff(conv_id, "błąd zapisu wyceny — link do dosłania przez konsultanta", dane,
-                        closing=_SAVE_FAIL_MSG)
+                        closing=_save_fail_msg())
             return False
         # Bez kontaktu to tylko proba zapisu leada technicznego (LS-01) — cichy blad, bot
         # kontynuuje normalnie (poprosi o kontakt jak zwykle w _wyslij_cene_i_kontakt);
@@ -1935,7 +1998,13 @@ def _zapisz_wycene(conv_id, dane, options, email, phone, name, wynik=None, extra
             # powracajacych klientow). 'matched' NIGDY nie jest True dla wlasnego leada.
             powitanie = kl.get("matched") and not _returning_greeted(conv_id)
             czasownik = "Zaktualizowałem" if juz_widzial_link else "Zapisałem"
-            link = "%s wycenę %s. Link: %s" % (czasownik, q.get("quote_number") or "", q["public_url"])
+            nr = q.get("quote_number") or ""
+            if _wolno_linkowac():
+                link = "%s wycenę %s. Link: %s" % (czasownik, nr, q["public_url"])
+            else:
+                # Allegro (caps['links']=False): adres URL nie moze trafic do tresci, ktora agent
+                # kopiuje na platforme — sam numer wyceny wystarczy, reszta zostaje w watku.
+                link = "%s wycenę %s. Wszystkie szczegóły zostają w tej rozmowie." % (czasownik, nr)
             fragmenty = []
             if powitanie:
                 fragmenty.append("Widzę wcześniejsze wyceny w naszym systemie. Miło nam, że znów "
@@ -1962,7 +2031,7 @@ def _zapisz_wycene(conv_id, dane, options, email, phone, name, wynik=None, extra
     log("quotebot: zapis/aktualizacja wyceny nieudana (conv %s): %s" % (conv_id, q))
     if email or phone:
         _do_handoff(conv_id, "błąd zapisu wyceny — link do dosłania przez konsultanta", dane,
-                    closing=_SAVE_FAIL_MSG)
+                    closing=_save_fail_msg())
         return False
     return True
 

@@ -10,7 +10,8 @@ os.environ.setdefault("BRIDGE_DB", os.path.join(tempfile.mkdtemp(), "bridge_repl
 import importlib
 
 qb = importlib.import_module("bots.quotebot")
-from bots.channel_caps import caps_for
+from bots.channel_caps import caps_for, _EMOJI_RE
+from config import BOT_QUOTE_NOTE_PERSONAS
 
 
 def _zabron_wysylki(monkeypatch):
@@ -35,9 +36,37 @@ def test_tryb_note_nie_dotyka_surowej_wysylki(monkeypatch):
     assert "Dzień dobry, potrzebuję wymiarów." in notatki[0]
 
 
-def test_tryb_note_dokleja_prefiks():
-    """Notatka jest oznaczona jako propozycja bota, zeby agent wiedzial co z nia zrobic."""
+def test_tryb_note_dokleja_prefiks(monkeypatch):
+    """Naglowek MUSI realnie trafic na poczatek notatki — sama niepusta stala nic nie dowodzi."""
+    _zabron_wysylki(monkeypatch)
+    notatki = []
+    monkeypatch.setattr(qb, "cw_note", lambda conv_id, text, **kw: notatki.append(text) or True)
+    t = qb._reply_mode.set("note")
+    try:
+        qb.cw_agent_reply(1, "Treść propozycji.", token="tok")
+    finally:
+        qb._reply_mode.reset(t)
     assert qb._NOTE_PREFIX.strip()
+    assert notatki[0].startswith(qb._NOTE_PREFIX)
+    assert notatki[0] == qb._NOTE_PREFIX + "Treść propozycji."
+
+
+def test_prefiks_notatki_bez_emoji():
+    """Prefiks doklejamy PO sanitizacji caps, a agent kopiuje notatke w calosci na kanal, ktory
+    emoji nie renderuje — naglowek musi wiec sam z siebie byc czystym tekstem."""
+    assert _EMOJI_RE.search(qb._NOTE_PREFIX) is None
+    assert "**" not in qb._NOTE_PREFIX
+
+
+def test_kazda_persona_notatki_ma_caps_czystego_tekstu():
+    """Inwariant: persona dopisana do BOT_QUOTE_NOTE_PERSONAS bez wpisu w mapie caps dalaby
+    notatke z markdownem i emoji do wklejenia wprost na marketplace."""
+    assert BOT_QUOTE_NOTE_PERSONAS, "lista person trybu notatki nie moze byc pusta w domysle"
+    for persona in BOT_QUOTE_NOTE_PERSONAS:
+        caps = caps_for(persona)
+        assert caps.get("markdown") is False, "persona %s renderuje markdown" % persona
+        assert caps.get("emoji") is False, "persona %s przepuszcza emoji" % persona
+        assert caps.get("max_len"), "persona %s bez limitu dlugosci wiadomosci" % persona
 
 
 def test_tryb_note_uzywa_tokenu_z_kontekstu(monkeypatch):
@@ -68,7 +97,16 @@ def test_tryb_note_skleja_czesci_w_jedna_notatke(monkeypatch):
     finally:
         qb._reply_mode.reset(t1); qb._reply_caps.reset(t2)
     assert len(notatki) == 1
-    assert qb._SEPARATOR_CZESCI in notatki[0]
+    # Separator jest NUMEROWANY — przy trzech czesciach agent nie moze dwa razy czytac
+    # "druga wiadomość"; kazda granica nazywa numer wiadomosci, ktora po niej nastepuje.
+    assert (qb._SEPARATOR_CZESCI_TPL % 2) in notatki[0]
+
+
+def test_separator_czesci_numeruje_kolejne_wiadomosci():
+    """Trzy czesci -> granice numerowane 2 i 3, zaden numer sie nie powtarza."""
+    tresc = qb._sklej_czesci_notatki(["A", "B", "C"])
+    assert tresc == "A" + (qb._SEPARATOR_CZESCI_TPL % 2) + "B" + (qb._SEPARATOR_CZESCI_TPL % 3) + "C"
+    assert "druga wiadomość" not in tresc
 
 
 def test_tryb_reply_bez_zmian(monkeypatch):
@@ -149,9 +187,42 @@ def test_bramka_bez_statusu_rzuca_w_trybie_reply(monkeypatch):
         qb._wolno_prowadzic_rozmowe(1)
 
 
+def test_token_notatki_jedno_zrodlo_w_trybie_notatki(monkeypatch):
+    """JEDNO zrodlo tokenu notatki na cala ture. Wczesniej wrapper pisal tokenem z contextvara,
+    a _lead_note i _do_handoff zaszytym tokenem Debusia — jedna tura zostawiala notatki
+    podpisane dwoma roznymi botami."""
+    monkeypatch.setattr(qb, "BOT_QUOTE_CW_AGENT_TOKEN", "token-debusia")
+    t = qb._note_token.set("token-woodpower-ai")
+    try:
+        assert qb._token_notatki() == "token-woodpower-ai"
+    finally:
+        qb._note_token.reset(t)
+
+
+def test_token_notatki_dla_persony_quote_bez_zmian(monkeypatch):
+    """Persona 'quote' (livechat/Messenger): _note_token jest pusty, wiec spadamy na token
+    Debusia — zachowanie IDENTYCZNE jak przed wprowadzeniem jednego zrodla."""
+    monkeypatch.setattr(qb, "BOT_QUOTE_CW_AGENT_TOKEN", "token-debusia")
+    assert qb._note_token.get() is None
+    assert qb._token_notatki() == "token-debusia"
+
+
+def test_lead_note_uzywa_tokenu_notatki(monkeypatch):
+    """Notatka leada (LS-01) tez musi isc tokenem bota widocznego na kanale."""
+    uzyte = {}
+    monkeypatch.setattr(qb, "cw_note", lambda conv_id, text, **kw: uzyte.update(kw) or True)
+    monkeypatch.setattr(qb, "_bloki_pozycji", lambda dane, options: [])
+    t = qb._note_token.set("token-woodpower-ai")
+    try:
+        qb._lead_note(1, {"pozycje": []}, {}, wynik=None)
+    finally:
+        qb._note_token.reset(t)
+    assert uzyte.get("token") == "token-woodpower-ai"
+
+
 def test_token_notatki_uzywa_tokenu_woodpower_ai(monkeypatch):
-    """Notatki na OLX/Allegro MUSZA isc tokenem bota 'WoodPower AI' (przypisanego do inboxu),
-    NIGDY tokenem Debusia z live chatu — inaczej Chatwoot odrzuci zapis (bot spoza inboxu)."""
+    """Notatki na OLX/Allegro ida tokenem bota 'WoodPower AI' (przypisanego do inboxu), a nie
+    tokenem Debusia z live chatu — chodzi o SPOJNOSC podpisu notatek na kanale."""
     monkeypatch.setattr(qb, "BOT_CW_AGENT_TOKEN", "token-woodpower-ai")
     monkeypatch.setattr(qb, "BOT_QUOTE_CW_AGENT_TOKEN", "token-debusia")
     assert qb._token_notatki_dla_persony("quote_olx") == "token-woodpower-ai"

@@ -134,17 +134,32 @@ Gdy `quote_olx` jest w `BOT_QUOTE_NOTE_PERSONAS`:
 
 ### Analogicznie dla Allegro
 
-Allegro zawsze używa webhooka (nie pollers), więc automatyka jest identyczna — 
-gdy `quote_allegro` jest w `BOT_QUOTE_NOTE_PERSONAS`, tury są kolejkowane przez webhook 
-i zapisywane jako notatki.
+Allegro zawsze używa webhooka (nie pollera), więc automatyka jest identyczna — gdy
+`quote_allegro` jest w `BOT_QUOTE_NOTE_PERSONAS`, tury są kolejkowane przez webhook
+i zapisywane jako notatki. Dotyczy to **wyłącznie inboxu „Allegro - Wiadomości"**
+(`CHATWOOT_ALLEGRO_MSG_INBOX_ID`); inbox „Allegro - Dyskusje" jest poza zakresem — patrz
+sekcja „Zakres" niżej.
 
 ## Konfiguracja Chatwoota — NIE ZMIENIA SIĘ
 
 Bot `WoodPower AI` — niezależnie od trybu notatki czy normalnego — zostaje **przypięty do tych samych inboxów**:
 
-- **OLX** (inbox 3)
-- **Allegro** (inbox 4)
-- **Kandydat** (inbox 18, jeśli włączysz na tym etapie)
+- **OLX** (`CHATWOOT_OLX_INBOX_ID`, produkcyjnie inbox 3)
+- **Allegro - Wiadomości** (`CHATWOOT_ALLEGRO_MSG_INBOX_ID`, produkcyjnie inbox 4)
+
+### Zakres: Allegro-Dyskusje jest POZA nim
+
+Inbox **Allegro - Dyskusje** (`CHATWOOT_ALLEGRO_DISPUTE_INBOX_ID`, produkcyjnie inbox 6) jest
+świadomie poza zakresem (spec, Decyzja 5): to spory i reklamacje, ~5 wątków miesięcznie,
+wysoka stawka błędu. Zostaje na starym podpowiadaczu (`suggest_queue`) — żadnej wyceny,
+żadnego leada w CRM.
+
+Rozgałęzienie w `webhooks.py` idzie po **`inbox_id` z konfiguracji**, nie po kluczu persony:
+`persona_for` zwraca `"allegro"` dla KAŻDEGO inboxu `Channel::Api` z „allegro" w nazwie, więc
+mapowanie po personie wciągałoby Dyskusje razem z Wiadomościami. Konsekwencja praktyczna:
+**bez poprawnych `CHATWOOT_*_INBOX_ID` w `bridge.env` kanał wypada z zakresu** i cicho
+schodzi na stary podpowiadacz (w logu mostu: `agent-bot: inbox N (persona …) poza zakresem
+quotebota - stary podpowiadacz`).
 
 To, czy bot pisze notatkę czy do klienta, jest określone przez `BOT_QUOTE_NOTE_PERSONAS`, 
 nie przez konfigurację webhooka w UI. Webhook `/agent-bot` jest identyczny w obu trybach —
@@ -162,31 +177,93 @@ Bot `Dębuś` (`/agent-bot-quote`) obsługuje live chat i Messenger bez zmian.
 
 Zalecana sekwencja, aby zminimalizować ryzyko:
 
-1. **Kandydat** (inbox 18) — testowanie w izolacji
-2. **Allegro** (inbox 4) — mniejszy ruch niż OLX, łatwiej wychwycić problemy
-3. **OLX** (inbox 3) — największy ruch, wdrażamy jako ostatni
+1. **Kandydat** — wyzwolenie tury ręcznie w kontenerze kandydata (patrz Etap 1)
+2. **Allegro - Wiadomości** — mniejszy ruch niż OLX, łatwiej wychwycić problemy
+3. **OLX** — największy ruch, wdrażamy jako ostatni
 
 ### Etap 1: Kandydat (testowanie)
 
+> **Czego NIE da się tu zrobić.** Trybu notatki **nie da się uruchomić na inboksie live chatu**.
+> Inbox „Wsparcie Woodpower - TESTY" (18) jest typu `Channel::WebWidget`, więc `persona_for`
+> zwraca dla niego `"livechat"`: webhook `/agent-bot` taki inbox **pomija** (`inbox … bez persony
+> podpowiedzi`), a `/agent-bot-quote` kolejkuje turę z personą `quote` — czyli w trybie **REPLY**.
+> Napisanie tam testowej wiadomości skończy się odpowiedzią Dębusia **do testera**, a nie notatką.
+> Tryb notatki wchodzi wyłącznie dla person `quote_olx` / `quote_allegro`, a te przydziela
+> wyłącznie mapowanie `inbox_id` → persona z `CHATWOOT_*_INBOX_ID`.
+
+**Wybrana metoda: ręczne wyzwolenie tury w kontenerze kandydata.** Nie wymaga zmian w
+konfiguracji Chatwoota ani przekierowania `CHATWOOT_*_INBOX_ID` na inbox testowy (a to na
+kandydacie przestawiłoby również poller OLX, który tworzy rozmowy w tym samym inboksie).
+Weryfikuje dokładnie to, co jest nowe: silnik + wyjście do notatki. Kolejkowanie po stronie
+webhooka weryfikujemy w Etapie 2, na prawdziwym inboksie Allegro.
+
 ```bash
-# W bridge-candidate.env:
+# 1. bridge-candidate.env — tryb notatki włączony, ID inboxów jak na produkcji:
 BOT_QUOTE_NOTE_PERSONAS=quote_olx,quote_allegro
-BOT_QUOTE_PERSONAS=livechat,olx  # jeśli testujesz OLX
+BOT_CW_AGENT_TOKEN=<access_token bota „WoodPower AI">
+CHATWOOT_OLX_INBOX_ID=3
+CHATWOOT_ALLEGRO_MSG_INBOX_ID=4
 ```
 
-1. Napisz testową wiadomość (wymiary, gatunek, wykończenie)
-2. Sprawdź w UI Chatwoota: pojawia się **prywatna notatka**, zero wiadomości wychodzących
-3. Doprowadź do kompletu danych — wycena zapisuje się w CRM, notatka ma cenę
+```bash
+# 2. Recreate kandydata i sprawdź, że most widzi tryb notatki:
+bridge-deploy.sh
+docker logs <kontener-kandydata> 2>&1 | grep "tryb notatki"
+```
+
+```bash
+# 3. Wybierz w UI Chatwoota istniejącą rozmowę na inboksie Allegro-Wiadomości i weź jej
+#    conv_id z adresu URL (…/conversations/<CONV_ID>). Notatka jest PRYWATNA — kupujący
+#    jej nie zobaczy, a tryb notatki gwarantuje, że nic nie wyjdzie na platformę.
+docker exec <kontener-kandydata> python3 -c "
+from bots.quote_intake import enqueue_quote_turn
+print(enqueue_quote_turn(<CONV_ID>, 4, 'test-notatka-1',
+      'Dzień dobry, blat dębowy lity A/B olejowany 200x60x4, 2 sztuki. Ile to kosztuje?',
+      persona='quote_allegro'))
+"
+# oczekiwane: inserted
+```
+
+```bash
+# 4. Po ~15 s (okno ciszy + tura) sprawdź kolejkę:
+docker exec <kontener-kandydata> python3 -c "
+import sqlite3
+c = sqlite3.connect('/data/bridge.db')
+for row in c.execute('SELECT id, persona, status, attempts, last_error FROM quote_queue ORDER BY id DESC LIMIT 3'):
+    print(row)
+c.close()
+"
+# oczekiwane: persona='quote_allegro', status='sent'
+```
+
+5. Sprawdź rozmowę w UI Chatwoota: pojawia się **prywatna notatka** z nagłówkiem
+   `Dębuś — propozycja odpowiedzi:` i **zero wiadomości wychodzących** w głównym wątku.
+6. Powtórz krok 3 z kolejnymi wiadomościami (dopowiadaj brakujące dane), aż do kompletu —
+   wycena zapisuje się w CRM, a notatka ma cenę. Za każdym razem zmień `'test-notatka-1'`
+   na nowy identyfikator, inaczej dedup (`quote_seen`) odrzuci turę jako duplikat.
+
+**Wariant pełniejszy (opcjonalny), jeśli chcesz przetestować także webhook:** załóż inbox
+`Channel::Api` z „olx" albo „allegro" w nazwie, przypnij do niego bota `WoodPower AI` i wskaż
+jego id w `CHATWOOT_OLX_INBOX_ID` / `CHATWOOT_ALLEGRO_MSG_INBOX_ID` **w bridge-candidate.env**.
+Wtedy wiadomość wstrzyknięta do tego inboxu przejdzie pełną ścieżkę webhook → kolejka → notatka.
+Uwaga: na kandydacie ta sama zmienna steruje pollerem OLX, więc rób to tylko przy wyłączonym
+pollerze (`BOT_QUOTE_PERSONAS=livechat`).
 
 ### Etap 2: Allegro (produkcja)
 
 ```bash
 # W bridge.env na VPS:
 BOT_QUOTE_NOTE_PERSONAS=quote_olx,quote_allegro
+CHATWOOT_ALLEGRO_MSG_INBOX_ID=4        # inbox „Allegro - Wiadomości" — JEDYNY w zakresie
+CHATWOOT_ALLEGRO_DISPUTE_INBOX_ID=6    # „Allegro - Dyskusje" — poza zakresem, tylko dla jasności
 # BOT_QUOTE_PERSONAS — Allegro jest już w webhooku, bez zmian
 ```
 
-Po wdrożeniu: weryfikacja jak wyżej, ale na skrzynce **Allegro** (inbox 4).
+Po wdrożeniu: weryfikacja na skrzynce **Allegro - Wiadomości** (inbox 4) — napisz z konta
+testowego i sprawdź, że pojawia się prywatna notatka. Dodatkowo sprawdź inbox **Dyskusje**
+(6): tam notatki quotebota pojawić się **NIE mogą** — nowa wiadomość ma trafić do
+`suggest_queue`, a w logu mostu ma być `agent-bot: inbox 6 (persona allegro) poza zakresem
+quotebota - stary podpowiadacz`.
 
 ### Etap 3: OLX (produkcja)
 
@@ -194,6 +271,7 @@ Po wdrożeniu: weryfikacja jak wyżej, ale na skrzynce **Allegro** (inbox 4).
 # W bridge.env na VPS — jak w sekcji O2, bez zmian
 BOT_QUOTE_PERSONAS=livechat,olx
 BOT_QUOTE_NOTE_PERSONAS=quote_olx,quote_allegro
+CHATWOOT_OLX_INBOX_ID=3    # MUSI być ustawione — bez tego OLX wypada z zakresu trybu notatki
 ```
 
 Po wdrożeniu: weryfikacja na OLX.
@@ -249,13 +327,56 @@ BOT_QUOTE_PERSONAS=livechat
 Uruchom: `bridge-deploy.sh` (recreate) — JEDNORAZOWO, z obiema zmianami naraz (nie w dwóch
 osobnych deployach — w oknie między nimi kontener chodzi w stanie z podwójnym torem).
 
-**WAŻNE**: Gdy persona zostanie usunięta z `BOT_QUOTE_NOTE_PERSONAS` (i, dla OLX, `olx`
-z `BOT_QUOTE_PERSONAS`), kanał **zaczyna pisać BEZPOŚREDNIO DO KLIENTA** za pośrednictwem
-webhooka `/agent-bot` — to jedyny tor, jaki zostaje aktywny. To **nie jest neutralne
-cofnięcie** — jeśli bot nie jest przygotowany na pisanie tekstem dla danego kanału
-(formatowanie, ton, media), mogą pojawić się artefakty. W praktyce dla OLX i Allegro
-(persony dedykowane, `personas.json`) jest to bezpieczne, ale pamiętaj o tym podczas
-rollbacku.
+**WAŻNE — realnym skutkiem wycofania jest CISZA, nie podwójna odpowiedź do klienta.**
+
+Po zdjęciu persony z `BOT_QUOTE_NOTE_PERSONAS` kanał **nie zaczyna pisać do klienta** — on
+**milknie**. Mechanizm, w kolejności wykonania:
+
+1. `webhooks.py`, `_process_agent_bot` woła `cw_bot_handoff(conv_id)` **PRZED** zakolejkowaniem
+   tury — bezwarunkowo, w każdym trybie. Rozmowa jest więc od pierwszej wiadomości w statusie
+   `open`, nie `pending`.
+2. W trybie `reply` bramka `_wolno_prowadzic_rozmowe` (`bots/quotebot.py`) odpytuje status
+   i przepuszcza turę **tylko** dla `pending`. Dla `open` loguje `quotebot: conv N status=open -
+   bot milczy` i zwraca `False`.
+3. `_run_quote_turn_inner` kończy się na tej bramce w pierwszej linii — tura nie robi nic:
+   ani wiadomości do klienta, ani notatki. W `quote_queue` wiersz i tak kończy jako `sent`
+   (tura przebiegła bez wyjątku), więc **kolejka nie jest sygnałem problemu**.
+
+Bramka jest zniesiona **wyłącznie** dla trybu notatki (notatka jest bezpieczna niezależnie od
+tego, kto prowadzi rozmowę) — i to ona sprawia, że tryb notatki w ogóle działa mimo `open`.
+Zdjęcie persony z listy zabiera tę zniesioną bramkę i kanał traci wszystkie tury po cichu.
+
+**Żeby po wycofaniu kanał faktycznie wrócił do działania**, trzeba usunąć przyczynę statusu
+`open`, czyli bezwarunkowy handoff w webhooku:
+
+- **OLX** — wróć na stary tor pollera: usuń `quote_olx` z `BOT_QUOTE_NOTE_PERSONAS`, zostaw
+  `olx` w `BOT_QUOTE_PERSONAS` i **zdejmij bota `WoodPower AI` z inboxu OLX w Chatwoot UI**
+  (Konfiguracja bota → usuń). Bez przypiętego bota Chatwoot nie woła `/agent-bot`, nie ma
+  handoffu, rozmowy zostają w `pending`, a turę wyzwala poller (`channels/olx.py`) — dokładnie
+  jak przed wdrożeniem trybu notatki. Dopiero wtedy `BOT_QUOTE_PERSONAS=livechat,olx` jest
+  konfiguracją poprawną, a nie podwójnym torem.
+- **Allegro** — nie ma pollera, więc `/agent-bot` jest jedynym torem. Zdjęcie bota z inboxu
+  wyłącza kanał całkowicie. Wycofanie Allegro do trybu „bot pisze do kupującego" **wymaga
+  zmiany kodu** (zniesienia bezwarunkowego `cw_bot_handoff` przed kolejkowaniem albo
+  rozluźnienia bramki statusu) — samą zmianą `bridge.env` się tego nie osiągnie. Wycofanie
+  przez `bridge.env` daje dla Allegro wyłącznie stan „kanał milczy, obsługuje człowiek",
+  co jest bezpiecznym stanem docelowym rollbacku, ale trzeba go świadomie wybrać.
+
+**Podwójna odpowiedź (dwie tury na jedną wiadomość) dotyczy tylko OLX** i tylko wtedy, gdy
+poller i webhook działają równolegle — patrz opis dwóch bramek wyżej. Nawet wtedy druga tura
+milknie na bramce statusu, dopóki bot `WoodPower AI` jest przypięty do inboxu (handoff →
+`open`). Ryzyko realizuje się dopiero po zdjęciu przypięcia, gdy rozmowy wracają do `pending`:
+wtedy dwa tory, dwa różne klucze dedupu (`olx-<id>` w pollerze vs surowy mid Chatwoota
+w webhooku) i klient dostaje odpowiedź dwa razy. Dlatego kolejność wycofania OLX-a jest ważna:
+najpierw `BOT_QUOTE_PERSONAS=livechat` + edycja `bridge.env` i recreate, potem zdjęcie
+przypięcia w UI, a `olx` do `BOT_QUOTE_PERSONAS` wraca dopiero na końcu.
+
+**Weryfikacja po wycofaniu** (nie polegaj na braku błędów w logu):
+
+```bash
+# Kanał milczy? To zobaczysz TYLKO tutaj — kolejka pokazuje 'sent' mimo pustej tury.
+docker logs <kontener-mostu> 2>&1 | grep "bot milczy"
+```
 
 ## Weryfikacja — jak upewnić się, że działa
 
@@ -326,6 +447,25 @@ W rozmowie (w obydwu trybach):
 | `BOT_QUOTE_NOTE_PERSONAS` | `quote_olx,quote_allegro` | Persony piszące do notatek | `bridge.env` |
 | `BOT_QUOTE_PERSONAS` | `livechat` | Kill-switch starego pollera OLX (sekcja O2) — bez wpływu na poprawność trybu notatki, dopóki `quote_olx` jest w `BOT_QUOTE_NOTE_PERSONAS`; przy wycofaniu trybu notatki dla OLX MUSI wrócić do `livechat` (patrz „Wycofanie") | `bridge.env` |
 | `BOT_AGENT_WEBHOOK_TOKEN` | — | Token w URL webhooka `/agent-bot` (obsługuje OLX, Allegro i mail — bez bramki trybu notatki) | `bridge.env` |
-| `BOT_QUOTE_CW_AGENT_TOKEN` | — | Access_token Agenta Bota do wywołań Chatwoot API (odpowiedzi, notatki, handoff) — INNY token niż `BOT_AGENT_WEBHOOK_TOKEN` | `bridge.env` |
+| `BOT_CW_AGENT_TOKEN` | — | **Access_token bota `WoodPower AI`.** Tym tokenem podpisywane są WSZYSTKIE notatki tury na OLX/Allegro (propozycja odpowiedzi, notatka leada, podsumowanie handoffu) oraz handoff. Przy braku wartości kod loguje ostrzeżenie `quotebot: BRAK BOT_CW_AGENT_TOKEN …` i spada na token Dębusia — notatki wtedy powstaną, ale **podpisane innym botem niż widoczny na kanale** | `bridge.env` |
+| `BOT_QUOTE_CW_AGENT_TOKEN` | — | Access_token bota `Dębuś` do wywołań Chatwoot API (odpowiedzi na live chacie/Messengerze) — INNY token niż `BOT_AGENT_WEBHOOK_TOKEN` i niż `BOT_CW_AGENT_TOKEN`. Poza trybem notatki to on podpisuje notatki i handoff | `bridge.env` |
+| `CHATWOOT_OLX_INBOX_ID` | — | **ID inboxu OLX.** Decyduje o zakresie trybu notatki: tylko ten inbox dostaje personę `quote_olx`. Brak wartości = OLX wypada z zakresu i cicho schodzi na stary podpowiadacz | `bridge.env` |
+| `CHATWOOT_ALLEGRO_MSG_INBOX_ID` | `4` | **ID inboxu Allegro - Wiadomości.** Jedyny inbox Allegro w zakresie (persona `quote_allegro`) | `bridge.env` |
+| `CHATWOOT_ALLEGRO_DISPUTE_INBOX_ID` | `6` | ID inboxu Allegro - Dyskusje. **Świadomie POZA zakresem** (spec, Decyzja 5) — zostaje na starym podpowiadaczu | `bridge.env` |
 
 Zmiana dowolnej zmiennej wymaga: `bridge-deploy.sh` (recreate kontenera).
+
+## Checklista przed wdrożeniem
+
+Sprawdź **przed** ustawieniem persony w `BOT_QUOTE_NOTE_PERSONAS`:
+
+- [ ] `BOT_CW_AGENT_TOKEN` ustawiony w `bridge.env` i jest to access_token bota `WoodPower AI`
+      (nie Dębusia, nie token webhooka). Weryfikacja po recreate:
+      `docker logs <kontener-mostu> 2>&1 | grep "BRAK BOT_CW_AGENT_TOKEN"` → **pusto**
+- [ ] `CHATWOOT_OLX_INBOX_ID` i `CHATWOOT_ALLEGRO_MSG_INBOX_ID` wskazują właściwe inboxy;
+      `CHATWOOT_ALLEGRO_DISPUTE_INBOX_ID` NIE jest wpisane w żadną z dwóch poprzednich
+- [ ] Bot `WoodPower AI` przypięty w Chatwoot UI do inboxu OLX i Allegro - Wiadomości
+      (bez przypięcia kanał traci tury całkowicie — patrz OSTRZEŻENIE niżej)
+- [ ] `BOT_QUOTE_CW_AGENT_TOKEN` nadal ustawiony (live chat Dębusia działa niezależnie)
+- [ ] Po recreate: `docker logs <kontener-mostu> 2>&1 | grep "poza zakresem quotebota"` →
+      pojawia się **tylko** dla inboxu Dyskusji, nigdy dla OLX ani Allegro-Wiadomości

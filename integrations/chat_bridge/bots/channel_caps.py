@@ -11,18 +11,42 @@ import re
 #   image_formats: dozwolone formaty obrazu (rozszerzenia) albo None = bez ograniczenia
 #   emoji:         czy zostawiamy emoji (False -> usuwamy)
 #   max_len:       maks. dlugosc jednej wiadomosci (None -> bez limitu; inaczej rozbijamy)
-DEFAULT_CAPS = {"markdown": True, "images": True, "image_formats": None, "emoji": True, "max_len": None}
+#   links:         czy wolno kierowac klienta poza kanal (link do wyceny, obietnica jego
+#                  wyslania). False = regulamin kanalu tego zabrania (Allegro). To NIE jest
+#                  sanitizacja tekstu, tylko WYBOR WARIANTU komunikatu w quotebocie —
+#                  komunikaty sklejane w Pythonie nie przechodza przez persone LLM, wiec
+#                  zakaz musi byc egzekwowany na poziomie caps kanalu.
+DEFAULT_CAPS = {"markdown": True, "images": True, "image_formats": None, "emoji": True,
+                "max_len": None, "links": True}
 
 # Marketplace'y (OLX i Allegro): czat tekstowy, markdown NIE jest renderowany, emoji off, limit
 # konserwatywny. Obrazy WLACZONE (odczyt + wysylka), ale tylko jpg/png (oba marketplace
 # obsluguja te formaty; assety bota i tak sa jpg/png). max_len tunowalny (D2 nie da sie ustalic
-# z kodu) — 2000 to bezpieczny domysl.
+# z kodu) — 2000 to bezpieczny domysl. OLX linki DOPUSZCZA — tam link do wyceny jest glownym
+# sposobem przekazania szczegolow.
 OLX_CAPS = {"markdown": False, "images": True, "image_formats": ("jpg", "jpeg", "png"),
-            "emoji": False, "max_len": 2000}
+            "emoji": False, "max_len": 2000, "links": True}
+
+# Allegro: jak OLX, ale BEZ linkow. Regulamin zabrania kierowania kupujacego poza platforme,
+# a persona 'quote_allegro' zakazuje tego wprost — persona dotyczy jednak wylacznie tekstu od
+# LLM. Komunikaty z linkiem do wyceny i z obietnica jego wyslania sa sklejane w Pythonie, wiec
+# bez tej flagi trafialyby do notatki, ktora agent kopiuje w calosci, a sanitize.py blokowalby
+# potem jej wysylke na platforme.
+ALLEGRO_CAPS = dict(OLX_CAPS, links=False)
 
 # Klucze person/kanalow, ktore wymagaja czystego tekstu (marketplace: OLX i Allegro —
 # zadne z nich nie renderuje markdownu, a bot/agent wkleja tresc wprost do watku).
 _PLAIN_TEXT_PERSONAS = ("quote_olx", "olx", "quote_allegro", "allegro")
+
+# Caps per klucz persony/kanalu. Kazdy klucz z _PLAIN_TEXT_PERSONAS MUSI miec tu wpis —
+# inwariantu pilnuje test: persona dopisana do BOT_QUOTE_NOTE_PERSONAS bez wpisu tutaj dalaby
+# notatke z markdownem i emoji do wklejenia na marketplace.
+_CAPS_DLA_PERSONY = {
+    "quote_olx": OLX_CAPS,
+    "olx": OLX_CAPS,
+    "quote_allegro": ALLEGRO_CAPS,
+    "allegro": ALLEGRO_CAPS,
+}
 
 # Zakresy emoji (bez blokow strzalek 0x2190-0x21FF — "→" bywa uzywana w tekscie jako separator).
 _EMOJI_RE = re.compile(
@@ -68,9 +92,7 @@ def _strip_md_emphasis(text):
 def caps_for(persona_key):
     """Zwraca KOPIE zdolnosci dla klucza persony/kanalu. Nieznany klucz -> DEFAULT_CAPS.
     Kopia, zeby wolajacy nie mutowal wspoldzielonej stalej."""
-    if persona_key in _PLAIN_TEXT_PERSONAS:
-        return dict(OLX_CAPS)
-    return dict(DEFAULT_CAPS)
+    return dict(_CAPS_DLA_PERSONY.get(persona_key, DEFAULT_CAPS))
 
 
 def to_channel_text(text, caps):

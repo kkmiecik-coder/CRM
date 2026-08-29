@@ -9,6 +9,8 @@
 # klienta. Sanitizacja caps (markdown/emoji/limit dlugosci) dziala identycznie jak dotad,
 # tylko tresc laduje w notatce (`cw_note`) zamiast w wiadomosci klienta (`_cw_agent_reply_raw`).
 # Scenariusze OLX ponizej weryfikuja notatke; scenariusz livechat (bez zmian) nadal wysylke.
+import re
+
 import pytest
 from bots import quotebot
 
@@ -80,12 +82,14 @@ def test_e2e_olx_dlugie_podsumowanie_rozbite_w_limicie(wyslane, notatki, monkeyp
     assert wyslane == []
     assert len(notatki) == 1                              # jedna notatka, nie lawina wiadomosci
     tresc = notatki[0]["text"]
-    assert quotebot._SEPARATOR_CZESCI in tresc            # widac podzial czesci w limicie OLX
+    sep2 = quotebot._SEPARATOR_CZESCI_TPL % 2
+    assert sep2 in tresc                                  # widac podzial czesci w limicie OLX
     # Naglowek notatki (_NOTE_PREFIX) to dodatek wrappera notatki, nie tresc kanalu — zdejmujemy
     # go, zeby sprawdzic TWARDY limit realnego kanalu OLX (split_message), a nie limit + naglowek.
     if tresc.startswith(quotebot._NOTE_PREFIX):
         tresc = tresc[len(quotebot._NOTE_PREFIX):]
-    czesci = tresc.split(quotebot._SEPARATOR_CZESCI)
+    # Separator jest numerowany, wiec tniemy po wzorcu, nie po stalym napisie.
+    czesci = re.split(r"\n\n--- \(wiadomość \d+\) ---\n\n", tresc)
     assert all(len(c) <= 2000 for c in czesci)            # kazda czesc w limicie OLX (jak dawniej)
 
 

@@ -1,11 +1,16 @@
 # -*- coding: utf-8 -*-
 # Test: endpoint /agent-bot — handoff zawsze, podpowiedz gdy inbox zmapowany, dedup, filtrowanie outgoing/private.
+import json
 import os, tempfile
 os.environ.setdefault("OLX_CLIENT_ID", "x")
 os.environ.setdefault("OLX_CLIENT_SECRET", "x")
 os.environ.setdefault("OLX_REFRESH_TOKEN", "x")
 os.environ["BRIDGE_DB"] = os.path.join(tempfile.mkdtemp(), "bridge_agentbot.db")
 import importlib
+
+os.environ["CHATWOOT_OLX_INBOX_ID"] = "3"
+os.environ["CHATWOOT_ALLEGRO_MSG_INBOX_ID"] = "4"
+os.environ["CHATWOOT_ALLEGRO_DISPUTE_INBOX_ID"] = "6"
 
 import config; importlib.reload(config)
 db_mod = importlib.import_module("core.db")
@@ -66,7 +71,8 @@ def test_incoming_z_persona_kolejkuje_i_handoff(monkeypatch):
     monkeypatch.setattr(wh, "cw_bot_handoff", lambda conv_id: handoffs.append(conv_id) or True)
     monkeypatch.setattr(wh, "persona_for", lambda inbox_id: "mail")
 
-    wh._process_agent_bot(_payload())
+    # inbox 8 = skrzynka mailowa: POZA mapa CHATWOOT_*_INBOX_ID, wiec stary podpowiadacz.
+    wh._process_agent_bot(_payload(inbox_id=8))
 
     assert len(handoffs) == 1, "cw_bot_handoff powinien byc wywolany raz"
     assert handoffs[0] == 77, "handoff dla conv_id=77"
@@ -234,7 +240,7 @@ def test_toplevel_inbox_id_fallback(monkeypatch):
         "message_type": 0,
         "id": "mTL",
         "content": "pytanie",
-        "inbox_id": 3,
+        "inbox_id": 8,
         "conversation": {
             "id": 88,
         },
@@ -298,3 +304,104 @@ def test_livechat_nadal_pomijany_przez_agent_bot(monkeypatch):
     przed = _count_quote_queue()
     wh._process_agent_bot(_payload(mid="q5", inbox_id=5, conv_id=105))
     assert _count_quote_queue() == przed
+
+
+# ---------------------------------------------------------------------------
+# Testy 15-18: zakres trybu notatki idzie po ID INBOXU, nie po kluczu persony.
+# persona_for zwraca "allegro" dla KAZDEGO inboxu Channel::Api z "allegro" w nazwie, wiec
+# mapowanie po personie wciagalo w zakres takze "Allegro - Dyskusje" (inbox 6), ktory spec
+# (Decyzja 5) wyklucza wprost: spory i reklamacje, wysoka stawka bledu.
+# ---------------------------------------------------------------------------
+
+def test_allegro_dyskusje_nie_trafia_do_quote_queue(monkeypatch):
+    """Inbox Dyskusji (CW_ALLEGRO_DISPUTE_INBOX) zostaje na starym podpowiadaczu — zaden lead
+    w CRM i zadna wycena nie moze powstac ze sporu ani reklamacji."""
+    monkeypatch.setattr(wh, "cw_bot_handoff", lambda conv_id: True)
+    monkeypatch.setattr(wh, "persona_for", lambda inbox_id: "allegro")
+    przed_quote, przed_sugg = _count_quote_queue(), _count_queue()
+    wh._process_agent_bot(_payload(mid="q6", inbox_id=config.CW_ALLEGRO_DISPUTE_INBOX, conv_id=106))
+    assert _count_quote_queue() == przed_quote, "Dyskusje NIE moga trafic do quote_queue"
+    assert _count_queue() == przed_sugg + 1, "Dyskusje zostaja na starym podpowiadaczu"
+
+
+def test_wiadomosci_allegro_i_olx_nadal_trafiaja_do_quote_queue(monkeypatch):
+    """Kontrola pozytywna do testu wyzej: inboxy w zakresie (OLX i Allegro-Wiadomosci) dalej
+    ida na silnik quotebota, mimo ze rozgalezienie zmienilo sie z persony na inbox_id."""
+    monkeypatch.setattr(wh, "cw_bot_handoff", lambda conv_id: True)
+    monkeypatch.setattr(wh, "persona_for", lambda inbox_id: "allegro")
+    wh._process_agent_bot(_payload(mid="q7", inbox_id=wh.CW_ALLEGRO_MSG_INBOX, conv_id=107))
+    monkeypatch.setattr(wh, "persona_for", lambda inbox_id: "olx")
+    wh._process_agent_bot(_payload(mid="q8", inbox_id=wh.CW_OLX_INBOX, conv_id=108))
+    c = db_mod.db()
+    personas = {r["conv_id"]: r["persona"] for r in
+                c.execute("SELECT conv_id, persona FROM quote_queue WHERE conv_id IN (107,108)")}
+    c.close()
+    assert personas == {107: "quote_allegro", 108: "quote_olx"}
+
+
+def test_mapowanie_inboxu_bierze_id_z_konfiguracji(monkeypatch):
+    """Identyfikatory pochodza z CHATWOOT_*_INBOX_ID (stringi z env), nie sa zaszyte w kodzie —
+    porownanie musi dzialac takze dla int-a z payloadu webhooka."""
+    monkeypatch.setattr(wh, "CW_OLX_INBOX", "33")
+    monkeypatch.setattr(wh, "CW_ALLEGRO_MSG_INBOX", "44")
+    assert wh._quote_persona_dla_inboxu(33) == "quote_olx"
+    assert wh._quote_persona_dla_inboxu("44") == "quote_allegro"
+    assert wh._quote_persona_dla_inboxu("6") is None
+    assert wh._quote_persona_dla_inboxu("") is None
+    assert wh._quote_persona_dla_inboxu(None) is None
+
+
+def test_brak_konfiguracji_inboxu_nie_lapie_pustego_id(monkeypatch):
+    """Gdy CHATWOOT_OLX_INBOX_ID nie jest ustawione, pusta wartosc NIE moze pasowac do niczego."""
+    monkeypatch.setattr(wh, "CW_OLX_INBOX", None)
+    monkeypatch.setattr(wh, "CW_ALLEGRO_MSG_INBOX", "")
+    assert wh._quote_persona_dla_inboxu("3") is None
+    assert wh._quote_persona_dla_inboxu("") is None
+
+
+# ---------------------------------------------------------------------------
+# Test 19: zalaczniki-obrazy klienta docieraja do tury (rozpoznawanie obrazow na OLX/Allegro).
+# ---------------------------------------------------------------------------
+
+def test_zalaczniki_obrazy_trafiaja_do_quote_queue(monkeypatch):
+    """Bez tego bots/vision.py bylo na OLX/Allegro martwe — bot nie widzial zdjecia klienta.
+    Do LLM ida TYLKO zalaczniki file_type == 'image', tak jak w /agent-bot-live."""
+    monkeypatch.setattr(wh, "cw_bot_handoff", lambda conv_id: True)
+    monkeypatch.setattr(wh, "persona_for", lambda inbox_id: "olx")
+    payload = _payload(mid="q9", inbox_id=wh.CW_OLX_INBOX, conv_id=109)
+    payload["attachments"] = [
+        {"data_url": "https://cw/blat.jpg", "file_type": "image"},
+        {"data_url": "https://cw/umowa.pdf", "file_type": "file"},
+        {"file_type": "image"},
+    ]
+    wh._process_agent_bot(payload)
+    c = db_mod.db()
+    row = c.execute("SELECT attachments FROM quote_queue WHERE conv_id=109").fetchone()
+    c.close()
+    assert json.loads(row["attachments"]) == ["https://cw/blat.jpg"]
+
+
+def test_sam_obraz_bez_tresci_kolejkuje_ture(monkeypatch):
+    """Zdjecie bez ani jednego slowa to pelnoprawna tura (jak na live chacie) — nie moze wypasc
+    na bramce pustej tresci."""
+    monkeypatch.setattr(wh, "cw_bot_handoff", lambda conv_id: True)
+    monkeypatch.setattr(wh, "persona_for", lambda inbox_id: "olx")
+    payload = _payload(mid="q10", inbox_id=wh.CW_OLX_INBOX, conv_id=110, content="")
+    payload["attachments"] = [{"data_url": "https://cw/probka.png", "file_type": "image"}]
+    wh._process_agent_bot(payload)
+    c = db_mod.db()
+    row = c.execute("SELECT attachments FROM quote_queue WHERE conv_id=110").fetchone()
+    c.close()
+    assert row is not None and json.loads(row["attachments"]) == ["https://cw/probka.png"]
+
+
+def test_stary_podpowiadacz_nadal_wymaga_tresci(monkeypatch):
+    """Mail/Dyskusje pracuja na samym tekscie — sam obraz bez tresci nie moze zalozyc wpisu
+    w suggest_queue z pusta trescia."""
+    monkeypatch.setattr(wh, "cw_bot_handoff", lambda conv_id: True)
+    monkeypatch.setattr(wh, "persona_for", lambda inbox_id: "mail")
+    payload = _payload(mid="q11", inbox_id=8, conv_id=111, content="")
+    payload["attachments"] = [{"data_url": "https://cw/skan.png", "file_type": "image"}]
+    przed = _count_queue()
+    wh._process_agent_bot(payload)
+    assert _count_queue() == przed
