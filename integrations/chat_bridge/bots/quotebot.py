@@ -33,6 +33,34 @@ _TZ_WARSAW = ZoneInfo("Europe/Warsaw")
 # cw_agent_reply. Domyslnie DEFAULT_CAPS (livechat/Messenger) -> wrapper jest przezroczysty.
 _reply_caps = contextvars.ContextVar("quotebot_reply_caps", default=DEFAULT_CAPS)
 
+# Tryb wyjscia biezacej tury: "reply" = wiadomosc do klienta (livechat/Messenger),
+# "note" = prywatna notatka dla agenta (OLX/Allegro — bot NIE pisze do klienta).
+_reply_mode = contextvars.ContextVar("quotebot_reply_mode", default="reply")
+# Token bota, ktorym zapisujemy notatke w trybie "note". Musi to byc bot PRZYPISANY do
+# inboxu w Chatwoocie (na OLX/Allegro: WoodPower AI), inaczej API odrzuci zapis.
+_note_token = contextvars.ContextVar("quotebot_note_token", default=None)
+
+# Naglowek notatki — agent ma od razu widziec, ze to gotowa tresc do wyslania.
+_NOTE_PREFIX = "🤖 Dębuś — propozycja odpowiedzi:\n\n"
+# Separator czesci, gdy tresc nie miesci sie w jednej wiadomosci kanalu (np. limit OLX).
+_SEPARATOR_CZESCI = "\n\n--- (druga wiadomość) ---\n\n"
+
+
+def _note_reply(conv_id, text, image_path=None, image_name=None, image_mime="image/jpeg"):
+    """Wyjscie tury w trybie notatki: tresc, ktora bot wyslalby klientowi, laduje w prywatnej
+    notatce. Kontrakt zwrotny bool jest IDENTYCZNY jak w cw_agent_reply — od niego zaleza flagi
+    stanu rozmowy (awaiting_confirm/priced/awaiting_contact), wiec nie wolno go tu zmienic.
+    Obraz jest na tym etapie pomijany (cw_note przyjmuje dopiero URL) — dokłada go Task 6."""
+    tok = _note_token.get() or BOT_QUOTE_CW_AGENT_TOKEN
+    if image_path is not None:
+        log("quotebot: tryb notatki - obraz pominiety (conv %s)" % conv_id)
+    try:
+        resp = cw_note(conv_id, _NOTE_PREFIX + (text or ""), token=tok)
+    except Exception as e:
+        log("note_reply blad:", repr(e))
+        return False
+    return bool(resp)
+
 
 def cw_agent_reply(conv_id, text, image_path=None, image_name=None, image_mime="image/jpeg", token=None):
     """Wrapper wysylki bota nakladajacy zdolnosci kanalu (caps) z kontekstu tury na KAZDE
@@ -51,6 +79,13 @@ def cw_agent_reply(conv_id, text, image_path=None, image_name=None, image_mime="
             image_name = None
     tekst = to_channel_text(text or "", caps)
     czesci = split_message(tekst, caps)
+    # Tryb notatki: cala tresc tury (ze sklejonymi czesciami) laduje w JEDNEJ notatce.
+    # Sanitizacja caps zostala juz zastosowana wyzej — agent kopiuje tresc wprost do kanalu,
+    # wiec musi byc w jego formacie (np. OLX = czysty tekst bez markdownu).
+    if _reply_mode.get() == "note":
+        tresc = _SEPARATOR_CZESCI.join(czesci) if czesci else tekst
+        return _note_reply(conv_id, tresc, image_path=image_path,
+                           image_name=image_name, image_mime=image_mime)
     if not czesci:
         # Brak tresci po sanitizacji. Gdy zostal obraz — wyslij go z (pustym) tekstem; inaczej
         # zachowaj dotychczasowy kontrakt (pojedyncze wywolanie, np. pusty podpis bez obrazu).
