@@ -168,3 +168,19 @@ def test_regula_gatunkow_w_prompcie():
         low = p.lower()
         assert "dąb" in low and "jesion" in low and "buk" in low
         assert "akacja" in low   # przyklad gatunku spoza oferty w regule
+
+
+def test_persona_quote_allegro_dziedziczy_z_quote():
+    """quote_allegro = pelne umiejetnosci Debusia + reguly Allegro."""
+    from bots.personas import build_system_prompt
+    prompt = build_system_prompt("quote_allegro", "", {})
+    assert "Dębuś" in prompt                      # tozsamosc z persony nadrzednej 'quote'
+    assert "poza Allegro" in prompt                # twarda regula kanalu
+    assert "Wstępną wycenę liczy i wysyła automatycznie system" in prompt
+
+
+def test_persona_quote_allegro_zakazuje_kontaktu_poza_platforma():
+    """Regulamin Allegro: zero telefonow, maili i linkow zewnetrznych."""
+    from bots.personas import build_system_prompt
+    prompt = build_system_prompt("quote_allegro", "", {})
+    assert "NIE proponuj kontaktu poza Allegro" in prompt

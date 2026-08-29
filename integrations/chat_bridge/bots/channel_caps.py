@@ -13,14 +13,16 @@ import re
 #   max_len:       maks. dlugosc jednej wiadomosci (None -> bez limitu; inaczej rozbijamy)
 DEFAULT_CAPS = {"markdown": True, "images": True, "image_formats": None, "emoji": True, "max_len": None}
 
-# OLX: czat tekstowy, markdown NIE jest renderowany, emoji off, limit konserwatywny. Obrazy
-# WLACZONE (odczyt + wysylka), ale tylko jpg/png (OLX obsluguje te formaty; assety bota i tak
-# sa jpg/png). max_len tunowalny (D2 nie da sie ustalic z kodu) — 2000 to bezpieczny domysl.
+# Marketplace'y (OLX i Allegro): czat tekstowy, markdown NIE jest renderowany, emoji off, limit
+# konserwatywny. Obrazy WLACZONE (odczyt + wysylka), ale tylko jpg/png (oba marketplace
+# obsluguja te formaty; assety bota i tak sa jpg/png). max_len tunowalny (D2 nie da sie ustalic
+# z kodu) — 2000 to bezpieczny domysl.
 OLX_CAPS = {"markdown": False, "images": True, "image_formats": ("jpg", "jpeg", "png"),
             "emoji": False, "max_len": 2000}
 
-# Klucze person/kanalow bota, ktore mowia "po OLX-owemu".
-_OLX_PERSONAS = ("quote_olx", "olx")
+# Klucze person/kanalow, ktore wymagaja czystego tekstu (marketplace: OLX i Allegro —
+# zadne z nich nie renderuje markdownu, a bot/agent wkleja tresc wprost do watku).
+_PLAIN_TEXT_PERSONAS = ("quote_olx", "olx", "quote_allegro", "allegro")
 
 # Zakresy emoji (bez blokow strzalek 0x2190-0x21FF — "→" bywa uzywana w tekscie jako separator).
 _EMOJI_RE = re.compile(
@@ -66,7 +68,7 @@ def _strip_md_emphasis(text):
 def caps_for(persona_key):
     """Zwraca KOPIE zdolnosci dla klucza persony/kanalu. Nieznany klucz -> DEFAULT_CAPS.
     Kopia, zeby wolajacy nie mutowal wspoldzielonej stalej."""
-    if persona_key in _OLX_PERSONAS:
+    if persona_key in _PLAIN_TEXT_PERSONAS:
         return dict(OLX_CAPS)
     return dict(DEFAULT_CAPS)
 

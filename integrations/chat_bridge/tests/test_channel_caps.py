@@ -127,3 +127,10 @@ def test_split_twardo_tnie_gdy_brak_granic():
     czesci = split_message(tekst, caps)
     assert all(len(c) <= 100 for c in czesci)
     assert "".join(czesci) == tekst
+
+
+def test_caps_dla_allegro_to_czysty_tekst():
+    """Allegro nie renderuje markdownu — agent kopiuje notatke wprost do watku."""
+    caps = caps_for("quote_allegro")
+    assert caps["markdown"] is False
+    assert caps["emoji"] is False

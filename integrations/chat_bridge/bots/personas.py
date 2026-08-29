@@ -54,6 +54,16 @@ _DEFAULT = {
                 "Gdy przygotujemy wycenę, podaj klientowi publiczny link do niej jako zwykły adres URL; na OLX klient rzadko zostawia e-mail, więc link jest głównym sposobem przekazania szczegółów. O e-mail/telefon poproś raz i uszanuj odmowę.",
             ],
         },
+        "quote_allegro": {
+            "extends": "quote",
+            "opis": "Kanał: Allegro (wiadomości do kupującego). Krótkie, rzeczowe wiadomości.",
+            "zasady": [
+                "Pisz WYŁĄCZNIE czystym tekstem — bez pogrubień, gwiazdek, nagłówków ani emoji.",
+                "NIE proponuj kontaktu poza Allegro (telefon, e-mail, adresy, linki, komunikatory) — także linku do wyceny.",
+                "Faktury i dokumenty tylko na żądanie kupującego.",
+                "NIE proś o e-mail ani telefon — kontakt zostaje w wątku Allegro.",
+            ],
+        },
     },
 }
 
