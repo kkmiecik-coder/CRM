@@ -33,3 +33,29 @@ def test_backoff_tiers_pusty_env_wraca_do_domyslnych(monkeypatch):
     finally:
         monkeypatch.delenv("BOT_BACKOFF_TIERS", raising=False)
         importlib.reload(cfg)
+
+
+def test_note_personas_domyslnie_olx_i_allegro():
+    """Domyslnie notatki pisza OLX i Allegro; persona 'quote' (livechat) NIE podlega trybowi."""
+    importlib.reload(cfg)
+    assert cfg.BOT_QUOTE_NOTE_PERSONAS == {"quote_olx", "quote_allegro"}
+    assert "quote" not in cfg.BOT_QUOTE_NOTE_PERSONAS
+
+
+def test_note_personas_z_env(monkeypatch):
+    """Kill-switch: lista z env nadpisuje domyslna (zdjecie persony = powrot na stary tor)."""
+    monkeypatch.setenv("BOT_QUOTE_NOTE_PERSONAS", "quote_allegro")
+    importlib.reload(cfg)
+    assert cfg.BOT_QUOTE_NOTE_PERSONAS == {"quote_allegro"}
+    monkeypatch.delenv("BOT_QUOTE_NOTE_PERSONAS")
+    importlib.reload(cfg)
+
+
+def test_note_personas_pusta_wartosc_nie_wywala_importu(monkeypatch):
+    """Pusty BOT_QUOTE_NOTE_PERSONAS='' (zla zmienna w deployu) = zaden kanal nie pisze
+    notatek, ale mostek MUSI wstac (jak BOT_BACKOFF_TIERS)."""
+    monkeypatch.setenv("BOT_QUOTE_NOTE_PERSONAS", "")
+    importlib.reload(cfg)
+    assert cfg.BOT_QUOTE_NOTE_PERSONAS == set()
+    monkeypatch.delenv("BOT_QUOTE_NOTE_PERSONAS")
+    importlib.reload(cfg)
