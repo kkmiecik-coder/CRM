@@ -177,6 +177,9 @@ LIMIT_MSG = ("Sporo już ustaliliśmy — przekazuję rozmowę do konsultanta Wo
 _POWOD_LIMIT_TUR = "limit tur bota (bezpiecznik)"
 APOLOGY_MSG = ("Przepraszam, mam chwilowy problem techniczny z odpowiedzią. "
                "Przekazuję rozmowę do konsultanta WoodPower.")
+# Lagodny komunikat przy otwarciu circuit-breakera (TO-04) — uzywany przez komunikat_obciazenia,
+# przeniesiony tu z quote_worker.py, zeby ladunek szedl przez wrapper cw_agent_reply (tryb notatki).
+_OBCIAZENIE_MSG = "Mamy chwilowe obciążenie systemu — odpowiemy za chwilę."
 # Wycena nie policzyla sie automatycznie (najczesciej lakier/olej bez koloru i polysku) —
 # dopytujemy zamiast przekazywac do konsultanta.
 _PROSBA_DOPRECYZ = ("Żeby dokończyć wycenę, potrzebuję jeszcze doprecyzowania wykończenia — przy "
@@ -2563,10 +2566,37 @@ def _run_quote_turn_inner(conv_id, inbox_id, message_id, content, attachments=No
     log("quotebot: odpowiedz wyslana (conv %s, tura %s)" % (conv_id, _bot_turns(conv_id)))
 
 
-def handoff_with_apology(conv_id, reason="błąd techniczny bota (wyczerpane próby)"):
+def handoff_with_apology(conv_id, reason="błąd techniczny bota (wyczerpane próby)", persona="quote"):
     """Sciezka awaryjna (po wyczerpaniu retry albo trwalym bledzie 4xx): przeprosiny +
     przekazanie do agenta. Notatka dla konsultanta dziedziczy juz zebrane dane (nie
     zaczynamy od pustego stanu). `reason` opisuje faktyczna przyczyne (patrz
-    quote_worker._fail_permanently) — domyslny tekst zaklada wyczerpane proby retry, co
-    nie jest prawda dla 4xx-fail-fast (konczy sie po 1 probie)."""
-    _do_handoff(conv_id, reason, _load_dane(conv_id), closing=APOLOGY_MSG)
+    quote_worker._fail_permanently).
+    UWAGA: wolane z workera POZA run_quote_turn, wiec contextvary trybu trzeba ustawic tutaj —
+    inaczej przeprosiny dla klienta wyszlyby na OLX/Allegro mimo trybu notatki."""
+    mode_token = _reply_mode.set(_tryb_dla_persony(persona))
+    note_tok = _note_token.set(_token_notatki_dla_persony(persona))
+    caps_token = _reply_caps.set(caps_for(persona))
+    try:
+        _do_handoff(conv_id, reason, _load_dane(conv_id), closing=APOLOGY_MSG)
+    finally:
+        _reply_caps.reset(caps_token)
+        _note_token.reset(note_tok)
+        _reply_mode.reset(mode_token)
+
+
+def komunikat_obciazenia(conv_id, persona="quote"):
+    """Lagodny komunikat przy otwarciu circuit-breakera (awaria LLM). Na livechacie idzie do
+    klienta, na OLX/Allegro ladunek trafia do notatki — kupujacy nie wie o istnieniu bota,
+    wiec komunikat o 'obciazeniu systemu' byłby dla niego myllacy.
+    Nigdy nie rzuca — to sciezka awaryjna, nie moze pogorszyc juz trwajacej awarii."""
+    mode_token = _reply_mode.set(_tryb_dla_persony(persona))
+    note_tok = _note_token.set(_token_notatki_dla_persony(persona))
+    caps_token = _reply_caps.set(caps_for(persona))
+    try:
+        cw_agent_reply(conv_id, _OBCIAZENIE_MSG, token=BOT_QUOTE_CW_AGENT_TOKEN)
+    except Exception as e:
+        log("quotebot: komunikat o obciazeniu nieudany (conv %s): %s" % (conv_id, repr(e)))
+    finally:
+        _reply_caps.reset(caps_token)
+        _note_token.reset(note_tok)
+        _reply_mode.reset(mode_token)

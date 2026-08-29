@@ -4,12 +4,11 @@
 # failed + przeprosiny i handoff do agenta.
 import time
 from config import (BOT_MAX_ATTEMPTS, BOT_BACKOFF_TIERS, BOT_CIRCUIT_THRESHOLD,
-                    BOT_CIRCUIT_COOLDOWN, BOT_QUOTE_CW_AGENT_TOKEN)
+                    BOT_CIRCUIT_COOLDOWN)
 from core.log import log
 from core.db import db, init_db, meta_get, meta_set
 from core.events import log_event
-from core.chatwoot import cw_agent_reply
-from bots.quotebot import run_quote_turn, handoff_with_apology
+from bots.quotebot import run_quote_turn, handoff_with_apology, komunikat_obciazenia
 
 _STALE_PROCESSING = 180   # rekord 'processing' bez postepu dluzej niz tyle sekund -> odzyskujemy
 
@@ -17,8 +16,6 @@ _STALE_PROCESSING = 180   # rekord 'processing' bez postepu dluzej niz tyle seku
 # trzymane w tabeli meta (przetrwaja restart workera).
 _META_CIRCUIT_UNTIL = "quote_llm_circuit_open_until"
 _META_CIRCUIT_FAILS = "quote_llm_circuit_consecutive_fails"
-
-_OBCIAZENIE_MSG = "Mamy chwilowe obciążenie systemu — odpowiemy za chwilę."
 
 
 def _circuit_open(now):
@@ -59,7 +56,7 @@ def _backoff_for(attempts):
     return BOT_BACKOFF_TIERS[idx]
 
 
-def _fail_permanently(qid, conv_id, attempts, err, retryable):
+def _fail_permanently(qid, conv_id, attempts, err, retryable, persona="quote"):
     """Koniec probowania (4xx od razu, albo retryable po wyczerpaniu BOT_MAX_ATTEMPTS) —
     kolejka 'failed', telemetria i przeprosiny+handoff z powodem opisujacym FAKTYCZNA
     przyczyne (dla 4xx to trwaly blad po 1 probie, nie "wyczerpane proby")."""
@@ -71,7 +68,7 @@ def _fail_permanently(qid, conv_id, attempts, err, retryable):
     reason = ("błąd techniczny bota (wyczerpane próby)" if retryable
               else "błąd techniczny bota (trwały błąd, bez ponawiania)")
     try:
-        handoff_with_apology(conv_id, reason=reason)
+        handoff_with_apology(conv_id, reason=reason, persona=persona)
     except Exception:
         pass
 
@@ -133,19 +130,19 @@ def process_one(now):
         if not retryable:
             # TO-04: 4xx (zla konfiguracja/klucz) -> fail od razu, bez backoffu ani wliczania
             # w prog circuit-breakera (to nie przejsciowa niedostepnosc LLM, tylko trwaly blad).
-            _fail_permanently(qid, conv_id, attempts, err, retryable=False)
+            _fail_permanently(qid, conv_id, attempts, err, retryable=False, persona=persona)
             return True
         if _circuit_record_failure(now):
             # Obwod WLASNIE sie otworzyl — jeden lagodny komunikat zamiast lawiny handoffow
             # z kasowaniem danych (kolejne rekordy z pending poczekaja, bo process_one
             # sprawdza _circuit_open na starcie).
             try:
-                cw_agent_reply(conv_id, _OBCIAZENIE_MSG, token=BOT_QUOTE_CW_AGENT_TOKEN)
+                komunikat_obciazenia(conv_id, persona=persona)
             except Exception:
                 pass
             log("quote_worker: circuit-breaker OTWARTY na %ss (conv %s)" % (BOT_CIRCUIT_COOLDOWN, conv_id))
         if attempts >= BOT_MAX_ATTEMPTS:
-            _fail_permanently(qid, conv_id, attempts, err, retryable=True)
+            _fail_permanently(qid, conv_id, attempts, err, retryable=True, persona=persona)
         else:
             backoff = _backoff_for(attempts)
             # Wracamy do 'pending' (claim ustawil 'processing') z opoznieniem backoff.
