@@ -46,9 +46,11 @@ def test_note_personas_z_env(monkeypatch):
     """Kill-switch: lista z env nadpisuje domyslna (zdjecie persony = powrot na stary tor)."""
     monkeypatch.setenv("BOT_QUOTE_NOTE_PERSONAS", "quote_allegro")
     importlib.reload(cfg)
-    assert cfg.BOT_QUOTE_NOTE_PERSONAS == {"quote_allegro"}
-    monkeypatch.delenv("BOT_QUOTE_NOTE_PERSONAS")
-    importlib.reload(cfg)
+    try:
+        assert cfg.BOT_QUOTE_NOTE_PERSONAS == {"quote_allegro"}
+    finally:
+        monkeypatch.delenv("BOT_QUOTE_NOTE_PERSONAS", raising=False)
+        importlib.reload(cfg)
 
 
 def test_note_personas_pusta_wartosc_nie_wywala_importu(monkeypatch):
@@ -56,6 +58,8 @@ def test_note_personas_pusta_wartosc_nie_wywala_importu(monkeypatch):
     notatek, ale mostek MUSI wstac (jak BOT_BACKOFF_TIERS)."""
     monkeypatch.setenv("BOT_QUOTE_NOTE_PERSONAS", "")
     importlib.reload(cfg)
-    assert cfg.BOT_QUOTE_NOTE_PERSONAS == set()
-    monkeypatch.delenv("BOT_QUOTE_NOTE_PERSONAS")
-    importlib.reload(cfg)
+    try:
+        assert cfg.BOT_QUOTE_NOTE_PERSONAS == set()
+    finally:
+        monkeypatch.delenv("BOT_QUOTE_NOTE_PERSONAS", raising=False)
+        importlib.reload(cfg)
