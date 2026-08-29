@@ -58,6 +58,7 @@ def test_enqueue_gdy_olx_wlaczony(monkeypatch):
 
 def test_nie_enqueue_gdy_olx_wylaczony(monkeypatch):
     monkeypatch.setattr(olx, "BOT_QUOTE_PERSONAS", {"livechat"})
+    monkeypatch.setattr(olx, "BOT_QUOTE_NOTE_PERSONAS", set())  # test kill-switcha olx, nie bramki notatki
     olx._mark_quote_olx_eligible(55)
     olx._enqueue_quote_olx(55, 9002, "Wycena blatu", [])
     assert _rows() == []
@@ -111,6 +112,7 @@ def test_dedup_po_olx_msg_id(monkeypatch):
 
 def test_pusta_tresc_bez_zalacznika_nie_enqueue(monkeypatch):
     monkeypatch.setattr(olx, "BOT_QUOTE_PERSONAS", {"olx"})
+    monkeypatch.setattr(olx, "BOT_QUOTE_NOTE_PERSONAS", set())  # test guardu tresci, nie bramki notatki
     olx._mark_quote_olx_eligible(55)
     olx._enqueue_quote_olx(55, 9004, "   ", [])
     assert _rows() == []
@@ -150,6 +152,7 @@ def test_worker_dostaje_scalona_tresc(monkeypatch):
 def test_nieoznaczona_rozmowa_nie_enqueue(monkeypatch):
     # Rozmowa sprzed go-live (nieoznaczona) -> bot NIE wchodzi, nawet przy nowej wiadomosci.
     monkeypatch.setattr(olx, "BOT_QUOTE_PERSONAS", {"olx"})
+    monkeypatch.setattr(olx, "BOT_QUOTE_NOTE_PERSONAS", set())  # test guardu eligibility, nie bramki notatki
     olx._enqueue_quote_olx(999, 9100, "Nowa wiadomosc w starym watku", [])
     assert _rows() == []
 

@@ -206,6 +206,13 @@ def olx_poller():
         meta_set("olx_start_ts", time.time())
     START_TS = float(meta_get("olx_start_ts"))
     log("OLX poller start, START_TS=%s, interval=%ss" % (int(START_TS), POLL_INTERVAL))
+    # Log jednorazowy przy starcie (nie per wiadomosc - zalalby logi przy interwale 25s):
+    # informuje ktory tor prowadzi tury quote-bota dla OLX, zeby przy zlej kolejnosci
+    # wdrozenia (persona w trybie notatki, webhook /agent-bot jeszcze niepodpiety w
+    # Chatwoocie) byl slad w logach zamiast cichej utraty tur.
+    if "quote_olx" in BOT_QUOTE_NOTE_PERSONAS:
+        log("OLX poller: tryb notatki wlaczony (quote_olx w BOT_QUOTE_NOTE_PERSONAS) - "
+            "tury quote-bota kolejkuje webhook /agent-bot, poller tylko dostarcza wiadomosci")
     while True:
         try:
             data = olx_get("/threads?limit=50&offset=0").get("data", [])
