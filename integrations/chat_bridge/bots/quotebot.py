@@ -12,7 +12,8 @@ import time
 import contextvars
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from config import BOT_HISTORY_LIMIT, BOT_QUOTE_MAX_TURNS, BOT_QUOTE_CW_AGENT_TOKEN, BOT_BUSINESS_HOURS
+from config import (BOT_HISTORY_LIMIT, BOT_QUOTE_MAX_TURNS, BOT_QUOTE_CW_AGENT_TOKEN, BOT_BUSINESS_HOURS,
+                    BOT_QUOTE_NOTE_PERSONAS, BOT_CW_AGENT_TOKEN)
 from core.log import log
 from core.db import db
 from core.events import log_event
@@ -60,6 +61,38 @@ def _note_reply(conv_id, text, image_path=None, image_name=None, image_mime="ima
         log("note_reply blad:", repr(e))
         return False
     return bool(resp)
+
+
+def _tryb_dla_persony(persona):
+    """Tryb wyjscia dla persony tury: "note" dla kanalow z listy BOT_QUOTE_NOTE_PERSONAS
+    (OLX/Allegro), "reply" dla pozostalych (livechat/Messenger)."""
+    return "note" if persona in BOT_QUOTE_NOTE_PERSONAS else "reply"
+
+
+def _token_notatki_dla_persony(persona):
+    """Token bota, ktorym zapisujemy notatke. Na OLX/Allegro w Chatwoocie przypisany jest bot
+    'WoodPower AI' (BOT_CW_AGENT_TOKEN) — notatka musi isc JEGO tokenem, bo API nie przyjmie
+    zapisu od bota spoza inboxu. Dla pozostalych person tryb notatki nie obowiazuje."""
+    if _tryb_dla_persony(persona) == "note":
+        return BOT_CW_AGENT_TOKEN or BOT_QUOTE_CW_AGENT_TOKEN
+    return None
+
+
+def _wolno_prowadzic_rozmowe(conv_id):
+    """Czy bot moze przetworzyc ture. Cisza po handoffie dotyczy TYLKO rozmowy z klientem:
+    do klienta piszemy wylacznie w statusie 'pending'. W trybie notatki bramka NIE obowiazuje —
+    notatka jest bezpieczna niezaleznie od tego, kto prowadzi rozmowe, a na OLX/Allegro rozmowy
+    sa 'open' od pierwszej wiadomosci (handoff robi webhook). Rzuca, gdy statusu nie da sie
+    odczytac w trybie wysylki — wtedy nie zgadujemy i worker ponawia ture."""
+    if _reply_mode.get() == "note":
+        return True
+    status = cw_conv_status(conv_id)
+    if status is None:
+        raise RuntimeError("quotebot: nie mozna odczytac statusu rozmowy (conv %s)" % conv_id)
+    if status != "pending":
+        log("quotebot: conv %s status=%s - bot milczy" % (conv_id, status))
+        return False
+    return True
 
 
 def cw_agent_reply(conv_id, text, image_path=None, image_name=None, image_mime="image/jpeg", token=None):
@@ -2068,6 +2101,8 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None, per
     przy wspoldzielonym watku workera)."""
     t0 = time.monotonic()
     caps_token = _reply_caps.set(caps_for(persona))
+    mode_token = _reply_mode.set(_tryb_dla_persony(persona))
+    note_tok = _note_token.set(_token_notatki_dla_persony(persona))
     try:
         try:
             dane_przed = _load_dane(conv_id)
@@ -2089,18 +2124,14 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None, per
             except Exception:
                 pass
     finally:
+        _note_token.reset(note_tok)
+        _reply_mode.reset(mode_token)
         _reply_caps.reset(caps_token)
 
 
 def _run_quote_turn_inner(conv_id, inbox_id, message_id, content, attachments=None, persona="quote"):
     """Pelna tura bota. Rzuca RuntimeError przy braku odpowiedzi LLM (retry w workerze)."""
-    # Cisza po handoffie: bot prowadzi TYLKO rozmowy w statusie pending.
-    status = cw_conv_status(conv_id)
-    if status is None:
-        # Nie zgadujemy: bez statusu nie wolno pisac do klienta — retry w workerze.
-        raise RuntimeError("quotebot: nie mozna odczytac statusu rozmowy (conv %s)" % conv_id)
-    if status != "pending":
-        log("quotebot: conv %s status=%s - bot milczy" % (conv_id, status))
+    if not _wolno_prowadzic_rozmowe(conv_id):
         return
 
     # --- Twarde wyzwalacze intencji PRZED bramkami kontaktu/kodu (RX-05/LS-03/MS-01: gole 'nie'/

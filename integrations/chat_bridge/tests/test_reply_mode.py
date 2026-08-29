@@ -101,3 +101,43 @@ def test_tryb_note_pomija_obraz_na_razie(monkeypatch):
     finally:
         qb._reply_mode.reset(t)
     assert len(notatki) == 1
+
+
+def test_tryb_dla_persony():
+    """Mapowanie persona -> tryb wyjscia. Livechat rozmawia, marketplace pisze notatki."""
+    assert qb._tryb_dla_persony("quote") == "reply"
+    assert qb._tryb_dla_persony("quote_olx") == "note"
+    assert qb._tryb_dla_persony("quote_allegro") == "note"
+
+
+def test_bramka_w_trybie_notatki_przepuszcza_kazdy_status(monkeypatch):
+    """Rozmowa 'open' (przejeta przez agenta) NIE blokuje notatki — notatka jest zawsze
+    bezpieczna. To swiadome zniesienie bariery, ktora dzis wycisza OLX przypadkiem.
+    W trybie notatki status nie jest nawet odpytywany (oszczedzamy wywolanie API)."""
+    def _boom(conv_id):
+        raise AssertionError("w trybie notatki status rozmowy nie jest potrzebny")
+    monkeypatch.setattr(qb, "cw_conv_status", _boom)
+    t = qb._reply_mode.set("note")
+    try:
+        assert qb._wolno_prowadzic_rozmowe(1) is True
+    finally:
+        qb._reply_mode.reset(t)
+
+
+def test_bramka_w_trybie_reply_blokuje_poza_pending(monkeypatch):
+    """W trybie 'reply' bramka dziala jak dotad: poza 'pending' bot milczy."""
+    monkeypatch.setattr(qb, "cw_conv_status", lambda conv_id: "open")
+    assert qb._wolno_prowadzic_rozmowe(1) is False
+
+
+def test_bramka_w_trybie_reply_przepuszcza_pending(monkeypatch):
+    monkeypatch.setattr(qb, "cw_conv_status", lambda conv_id: "pending")
+    assert qb._wolno_prowadzic_rozmowe(1) is True
+
+
+def test_bramka_bez_statusu_rzuca_w_trybie_reply(monkeypatch):
+    """Brak odczytu statusu = nie zgadujemy, czy wolno pisac do klienta -> retry w workerze."""
+    import pytest
+    monkeypatch.setattr(qb, "cw_conv_status", lambda conv_id: None)
+    with pytest.raises(RuntimeError):
+        qb._wolno_prowadzic_rozmowe(1)
