@@ -72,8 +72,14 @@ def _tryb_dla_persony(persona):
 def _token_notatki_dla_persony(persona):
     """Token bota, ktorym zapisujemy notatke. Na OLX/Allegro w Chatwoocie przypisany jest bot
     'WoodPower AI' (BOT_CW_AGENT_TOKEN) — notatka musi isc JEGO tokenem, bo API nie przyjmie
-    zapisu od bota spoza inboxu. Dla pozostalych person tryb notatki nie obowiazuje."""
+    zapisu od bota spoza inboxu. Dla pozostalych person tryb notatki nie obowiazuje. Fallback na
+    token Debusia jest CELOWY (niekompletny config nie ma wywracac tury), ale musi byc GLOSNY —
+    bez tego ostrzezenia notatka na OLX/Allegro zniknie bez sladu (Chatwoot odrzuci zapis botem
+    spoza inboxu), a nikt sie nie dowie dlaczego."""
     if _tryb_dla_persony(persona) == "note":
+        if not BOT_CW_AGENT_TOKEN:
+            log("quotebot: BRAK BOT_CW_AGENT_TOKEN - notatka pojdzie tokenem Debusia i Chatwoot "
+                "moze ja odrzucic (persona %s)" % persona)
         return BOT_CW_AGENT_TOKEN or BOT_QUOTE_CW_AGENT_TOKEN
     return None
 
@@ -2096,9 +2102,10 @@ def run_quote_turn(conv_id, inbox_id, message_id, content, attachments=None, per
     _run_quote_turn_inner (Python podmienilby go wyjatkiem z finally), ani nie zablokowal samej
     tury (przed jej wywolaniem).
     persona: klucz persony/kanalu ('quote' dla livechat/Messenger, 'quote_olx' dla OLX) —
-    steruje caps wysylki (contextvar _reply_caps) i wyborem promptu. Caps ustawiamy na czas
-    CALEJ tury i ZAWSZE przywracamy w finally (inaczej caps OLX wyciekly by na kolejna ture
-    przy wspoldzielonym watku workera)."""
+    steruje caps wysylki (contextvar _reply_caps), trybem wyjscia tury (_reply_mode: reply/note)
+    i tokenem notatki (_note_token), a takze wyborem promptu. Wszystkie trzy contextvary
+    ustawiamy na czas CALEJ tury i ZAWSZE przywracamy w finally, w kolejnosci odwrotnej do
+    ustawienia (inaczej wyciekly by na kolejna ture przy wspoldzielonym watku workera)."""
     t0 = time.monotonic()
     caps_token = _reply_caps.set(caps_for(persona))
     mode_token = _reply_mode.set(_tryb_dla_persony(persona))

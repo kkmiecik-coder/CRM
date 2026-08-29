@@ -75,7 +75,14 @@ def test_e2e_olx_dlugie_podsumowanie_rozbite_w_limicie(wyslane, notatki, monkeyp
     _turn_with_reply(monkeypatch, "quote_olx", dlugi)
     assert wyslane == []
     assert len(notatki) == 1                              # jedna notatka, nie lawina wiadomosci
-    assert quotebot._SEPARATOR_CZESCI in notatki[0]["text"]  # widac podzial czesci w limicie OLX
+    tresc = notatki[0]["text"]
+    assert quotebot._SEPARATOR_CZESCI in tresc            # widac podzial czesci w limicie OLX
+    # Naglowek notatki (_NOTE_PREFIX) to dodatek wrappera notatki, nie tresc kanalu — zdejmujemy
+    # go, zeby sprawdzic TWARDY limit realnego kanalu OLX (split_message), a nie limit + naglowek.
+    if tresc.startswith(quotebot._NOTE_PREFIX):
+        tresc = tresc[len(quotebot._NOTE_PREFIX):]
+    czesci = tresc.split(quotebot._SEPARATOR_CZESCI)
+    assert all(len(c) <= 2000 for c in czesci)            # kazda czesc w limicie OLX (jak dawniej)
 
 
 # --- Scenariusz 3: obraz pominiety (tryb notatki go jeszcze nie obsluguje), sam tekst idzie ---
@@ -98,7 +105,10 @@ def test_e2e_livechat_bez_regresji(wyslane, monkeypatch):
 
 # --- Scenariusz 5: caps przywracane po turze OLX (kolejna tura livechat nie dziedziczy) ---
 
-def test_e2e_caps_nie_wyciekaja_na_kolejna_ture(wyslane, monkeypatch):
+def test_e2e_caps_nie_wyciekaja_na_kolejna_ture(wyslane, notatki, monkeypatch):
+    # Pierwsza tura (quote_olx) idzie trybem notatki -> cw_note musi byc zamockowany (fixture
+    # `notatki`), inaczej test realnie walilby siecia w CW_BASE (rails:3000) i przechodzil
+    # tylko dzieki temu, ze _note_reply polyka wyjatek transportu. Test ma byc hermetyczny.
     _turn_with_reply(monkeypatch, "quote_olx", "**x** 😊", image_path="a.jpg")
     # druga tura, persona livechat: markdown/emoji musza przetrwac (caps OLX nie wyciekly)
     _turn_with_reply(monkeypatch, "quote", "**y** 😊", image_path="b.jpg")

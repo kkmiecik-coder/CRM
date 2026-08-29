@@ -141,3 +141,23 @@ def test_bramka_bez_statusu_rzuca_w_trybie_reply(monkeypatch):
     monkeypatch.setattr(qb, "cw_conv_status", lambda conv_id: None)
     with pytest.raises(RuntimeError):
         qb._wolno_prowadzic_rozmowe(1)
+
+
+def test_token_notatki_uzywa_tokenu_woodpower_ai(monkeypatch):
+    """Notatki na OLX/Allegro MUSZA isc tokenem bota 'WoodPower AI' (przypisanego do inboxu),
+    NIGDY tokenem Debusia z live chatu — inaczej Chatwoot odrzuci zapis (bot spoza inboxu)."""
+    monkeypatch.setattr(qb, "BOT_CW_AGENT_TOKEN", "token-woodpower-ai")
+    monkeypatch.setattr(qb, "BOT_QUOTE_CW_AGENT_TOKEN", "token-debusia")
+    assert qb._token_notatki_dla_persony("quote_olx") == "token-woodpower-ai"
+    assert qb._token_notatki_dla_persony("quote") is None
+
+
+def test_token_notatki_loguje_ostrzezenie_gdy_brak_tokenu_woodpower_ai(monkeypatch):
+    """Fallback na token Debusia jest celowy (niekompletny config nie ma wywracac tury), ale
+    musi byc GLOSNY — inaczej znikajaca notatka na OLX/Allegro jest niemozliwa do zdiagnozowania."""
+    monkeypatch.setattr(qb, "BOT_CW_AGENT_TOKEN", None)
+    monkeypatch.setattr(qb, "BOT_QUOTE_CW_AGENT_TOKEN", "token-debusia")
+    ostrzezenia = []
+    monkeypatch.setattr(qb, "log", lambda *a, **kw: ostrzezenia.append(a))
+    assert qb._token_notatki_dla_persony("quote_olx") == "token-debusia"
+    assert any("BOT_CW_AGENT_TOKEN" in str(a) for a in ostrzezenia)
