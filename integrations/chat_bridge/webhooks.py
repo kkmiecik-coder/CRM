@@ -17,11 +17,16 @@ from channels.allegro_auth import exchange_authorization_code
 
 bp = Blueprint("webhooks", __name__)
 
+# Kanaly obslugiwane pelnym silnikiem quotebota w trybie notatki (bot 'WoodPower AI').
+# Persona 'mail' celowo poza mapa — skrzynki mailowe zostaja na starym podpowiadaczu.
+_PERSONA_QUOTE_DLA_KANALU = {"olx": "quote_olx", "allegro": "quote_allegro"}
+
 
 # ---------- AGENT BOT WEBHOOK ----------
 def _process_agent_bot(d):
     # Webhook natywnego Agent Bota: ZAWSZE handoff (rozmowa nie utyka w pending),
-    # a jesli inbox ma zmapowana persone -> kolejka podpowiedzi (prywatna notatka).
+    # a jesli inbox ma zmapowana persone -> kolejka podpowiedzi (prywatna notatka)
+    # albo, dla OLX/Allegro, pelna tura silnika quotebota (tez notatka).
     if d.get("event") != "message_created":
         return
     mtype = str(d.get("message_type"))
@@ -35,6 +40,8 @@ def _process_agent_bot(d):
     if not conv_id or not inbox_id:
         return
     # Oddaj rozmowe agentom niezaleznie od persony/tresci (idempotentne dla juz otwartej).
+    # Handoff MUSI byc wolany dla obu torow, przed rozgalezieniem ponizej — bramka statusu
+    # w quotebocie jest zniesiona dla trybu notatki, wiec bez tego rozmowa utknelaby w pending.
     cw_bot_handoff(conv_id)
     if not content or not mid:
         return
@@ -42,6 +49,16 @@ def _process_agent_bot(d):
     if not persona or persona == "livechat":
         log("agent-bot: inbox %s bez persony podpowiedzi - bez podpowiedzi" % inbox_id)
         return
+    quote_persona = _PERSONA_QUOTE_DLA_KANALU.get(persona)
+    if quote_persona:
+        # OLX/Allegro: pelna tura quotebota (wycena, lead w CRM) z wyjsciem do notatki.
+        # Dedup + okno ciszy atomowo w enqueue_quote_turn — dlatego BEZ wpisu do bot_seen.
+        if enqueue_quote_turn(conv_id, inbox_id, mid, content, persona=quote_persona) == "duplicate":
+            return
+        log("agent-bot: zakolejkowano ture quotebota (%s, inbox %s, conv %s)"
+            % (quote_persona, inbox_id, conv_id))
+        return
+    # Pozostale kanaly (mail) — stary podpowiadacz.
     c = db()
     try:
         c.execute("INSERT INTO bot_seen(mid) VALUES(?)", (mid,)); c.commit()
