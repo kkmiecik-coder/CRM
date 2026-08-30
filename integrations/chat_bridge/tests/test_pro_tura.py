@@ -13,6 +13,7 @@ dowodzi, że to naprawdę działa: prawdziwy Router + prawdziwe agenty + prawdzi
 Runner z Agents SDK, wyłącznie model podmieniony na sterowalną atrapę (żeby test
 nie zależał od sieci/klucza API) — NIE atrapa całego Runner.run_sync.
 """
+import json
 import types
 
 import pytest
@@ -120,6 +121,40 @@ class TestGuardrailBlokujeWysylke:
         assert wyslane == ["Cena wynosi 999,00 zł."]
         assert len(fake_runner.wywolania) == 1   # bez korekty - nie bylo naruszenia
 
+    def test_pusta_druga_proba_po_naruszeniu_konczy_sie_handoffem_nie_cisza(self, monkeypatch):
+        # Runda poprawek 1, W1: sciezka `sprawdz_ceny("") == []` (pusty tekst nie ma
+        # zadnych kwot, wiec formalnie "brak naruszen") NIE MOZE zostac odczytana jako
+        # "model sie poprawil" - klient ma dostac czlowieka, nie cisze.
+        conv_id = 96108
+        fake_runner = _FalszywyRunner([
+            "Cena wynosi 999,00 zł.",   # 1. proba - zla kwota
+            "",                          # 2. proba (korekta) - model NIC nie odpisal
+        ])
+        monkeypatch.setattr(tura, "Runner", fake_runner)
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+        powody = []
+        monkeypatch.setattr(stan, "handoff", lambda powod: powody.append(powod) or {"ok": True})
+
+        tura.uruchom(conv_id, "inbox1", "Ile kosztuje blat?", persona="quote")
+
+        assert wyslane == []      # nic bledego (i nic pustego) nie poszlo do klienta
+        assert len(powody) == 1   # ale klient dostal czlowieka - nie zostal bez odpowiedzi
+
+    def test_niepowodzenie_handoffu_jest_logowane(self, monkeypatch):
+        # Drobne z rundy poprawek 1: {"ok": False} ze stan.handoff nie ma wygladac
+        # z zewnatrz identycznie jak udany handoff.
+        conv_id = 96109
+        fake_runner = _FalszywyRunner(["Cena wynosi 999,00 zł.", "Nadal 999,00 zł."])
+        monkeypatch.setattr(tura, "Runner", fake_runner)
+        _wyslane_przechwytywacz(monkeypatch)
+        monkeypatch.setattr(stan, "handoff", lambda powod: {"ok": False})
+        logi = []
+        monkeypatch.setattr(tura, "log", lambda tekst: logi.append(tekst))
+
+        tura.uruchom(conv_id, "inbox1", "Ile kosztuje blat?", persona="quote")
+
+        assert any("NIEUDANY" in wpis for wpis in logi)
+
 
 class TestBrakDublowaniaPodsumowania:
     """podsumowanie.wyslij() (wolane jako narzedzie) sam wysyla i zostawia
@@ -135,6 +170,40 @@ class TestBrakDublowaniaPodsumowania:
 
         assert wyslane == []
         assert len(fake_runner.wywolania) == 1   # bez proby korekty - nie bylo tekstu do sprawdzenia
+
+    def test_niepusty_final_output_po_wyslaniu_podsumowania_tez_nie_jest_wysylany(self, monkeypatch):
+        # Runda poprawek 1, W3: wskazowka "zostaw final_output puste" w podsumowanie.py
+        # to prosba w prompcie, nie bramka - model MOZE ja zignorowac i dopisac wlasnymi
+        # slowami sparafrazowane podsumowanie (nawet z ta sama, prawdziwa cena, ktora G1
+        # by przepuscil). Symulujemy to: fikcyjny Runner odtwarza to, co w prawdziwym
+        # przebiegu robi narzedzie wyslij_podsumowanie (stan.oznacz_podsumowanie_wyslane)
+        # W TRAKCIE run_sync, a POTEM model i tak cos dopisuje w final_output.
+        conv_id = 96112
+
+        class _RunnerZPodsumowaniemWTrakcie:
+            def run_sync(self, agent, tresc, session=None, max_turns=None):
+                stan.oznacz_podsumowanie_wyslane()
+                return types.SimpleNamespace(
+                    final_output="Wyslalem podsumowanie, czekam na Twoja odpowiedz.")
+
+        monkeypatch.setattr(tura, "Runner", _RunnerZPodsumowaniemWTrakcie())
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "poprosze wycene", persona="quote")
+
+        assert wyslane == []
+
+    def test_bez_wyslania_podsumowania_zwykla_odpowiedz_nadal_idzie_do_klienta(self, monkeypatch):
+        # Kontrola negatywna: bramka W3 nie ma blokowac zwyklych odpowiedzi, w
+        # ktorych podsumowanie.wyslij() w ogole nie bylo wolane w tej turze.
+        conv_id = 96113
+        fake_runner = _FalszywyRunner(["Dziekuje, wracam z odpowiedzia."])
+        monkeypatch.setattr(tura, "Runner", fake_runner)
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "test", persona="quote")
+
+        assert wyslane == ["Dziekuje, wracam z odpowiedzia."]
 
 
 class TestPersonaKanaluWTurze:
@@ -227,7 +296,11 @@ class _FalszywyModel(Model):
                             output_schema, handoffs, tracing, *, previous_response_id,
                             conversation_id, prompt):
         licznik = len(self.wywolania)
-        self.wywolania.append({"n_handoffs": len(handoffs), "n_tools": len(tools)})
+        # Zapamietujemy tez SUROWY `input` - drobne z rundy poprawek 1: bez tego test
+        # scenariusza dowodzilby tylko routingu po slowach kluczowych z BIEZACEJ
+        # wiadomosci, a nie tego, ze druga tura NAPRAWDE widziala historie pierwszej
+        # (przeszlaby tak samo, gdyby sesja byla po cichu ignorowana).
+        self.wywolania.append({"n_handoffs": len(handoffs), "n_tools": len(tools), "input": input})
 
         if handoffs:
             tekst = _ostatnia_wiadomosc_uzytkownika(input).lower()
@@ -267,6 +340,15 @@ class TestScenariuszMaterialPotemCena:
         # Router zostal wywolany OD NOWA w KAZDEJ turze (dwa wywolania z handoffs != []).
         wywolania_routera = [w for w in fake_model.wywolania if w["n_handoffs"]]
         assert len(wywolania_routera) == 2
+
+        # Router w DRUGIEJ turze naprawde WIDZIAL historie z pierwszej (odpowiedz
+        # Wiedzy o twardosci debu) - to dowod, ze routing dziala dzieki SESJI, nie
+        # dzieki temu, ze druga wiadomosc akurat zawiera nowe slowo kluczowe. Bez
+        # tej asercji test przeszedlby identycznie, gdyby `_sesja()` po cichu
+        # ignorowala historie (kazda tura widzialaby TYLKO swoja biezaca wiadomosc).
+        wejscie_drugiej_tury = json.dumps(
+            wywolania_routera[-1]["input"], default=str, ensure_ascii=False).lower()
+        assert "twardy" in wejscie_drugiej_tury
 
         # Ostatnie wywolanie modelu w calym przebiegu to NAPRAWDE agent Wyceny
         # (11 narzedzi z NARZEDZIA_WYCENY) - mimo ze poprzednia tura skonczyla

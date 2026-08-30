@@ -271,6 +271,13 @@ def wyslij():
     for czesc in wysylka.przygotuj(tekst, stan.persona()):
         cw_agent_reply(stan.conv_id(), czesc, token=BOT_PRO_CW_AGENT_TOKEN)
 
+    # Bramka (nie dyscyplina promptu — runda poprawek 1, W3): oznacz w stanie tury,
+    # że podsumowanie już poszło. `tura.py` to sprawdza i NIE wyśle niczego więcej w
+    # tej samej turze, nawet gdyby model mimo wskazówki niżej coś dopisał (np.
+    # sparafrazował podsumowanie własnymi słowami — dokładnie to, przed czym ma
+    # chronić wysyłka WYŁĄCZNIE stąd, nie z final_output modelu).
+    stan.oznacz_podsumowanie_wyslane()
+
     return {"ok": True, "wyslano": True, "podpis": oczekiwany,
             "wskazowka": "Podsumowanie wysłane. Twoja odpowiedź w tej turze może być pusta. "
                          "Poczekaj na reakcję klienta."}

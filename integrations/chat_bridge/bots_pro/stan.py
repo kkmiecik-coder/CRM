@@ -8,7 +8,13 @@ identyfikator zapisanej wyceny, dane kontaktowe, fakt podania ceny.
 
 Znane kwoty (do guardraila G1) zbieramy per tura w contextvar — guardrail
 sprawdza odpowiedź zanim opuści proces.
-"""
+
+Analogicznie, fakt wysłania deterministycznego podsumowania (`podsumowanie.wyslij`)
+zbieramy per tura w OSOBNYM contextvarze — `tura.py` sprawdza go PO Runner.run_sync,
+żeby nie wysłać klientowi DRUGIEGO, tym razem sparafrazowanego przez model,
+podsumowania w tej samej turze (patrz komentarz w podsumowanie.py przy `wyslij()`:
+model dostaje wskazówkę zostawić `final_output` puste, ale to dyscyplina promptu,
+nie bramka — bramka jest tutaj)."""
 import contextvars
 import json
 
@@ -17,6 +23,7 @@ from core.db import db
 _conv_id = contextvars.ContextVar("conv_id", default=None)
 _kwoty = contextvars.ContextVar("kwoty", default=None)
 _persona = contextvars.ContextVar("persona", default=None)
+_podsumowanie_wyslane = contextvars.ContextVar("podsumowanie_wyslane", default=False)
 
 _SCHEMAT = """
 CREATE TABLE IF NOT EXISTS pro_dane(
@@ -47,6 +54,7 @@ def ustaw_kontekst(conv_id, persona_tury="pro"):
     _conv_id.set(conv_id)
     _kwoty.set(set())
     _persona.set(persona_tury)
+    _podsumowanie_wyslane.set(False)
 
 
 def conv_id():
@@ -57,6 +65,22 @@ def persona():
     """Persona bieżącej tury (np. 'pro', 'quote_olx', 'quote_allegro') — decyduje
     m.in. o profilu wysyłki w podsumowaniu (bez markdownu na OLX, bez linków na Allegro)."""
     return _persona.get()
+
+
+def oznacz_podsumowanie_wyslane():
+    """Wołane WYŁĄCZNIE przez `podsumowanie.wyslij()`, zaraz po tym, jak sam wyśle
+    deterministyczne podsumowanie do klienta. `tura.py` czyta to niżej
+    (`podsumowanie_wyslane`), żeby nie wysłać jeszcze jednej wiadomości w tej
+    samej turze — nawet jeśli model coś dopisał, a guardrail G1 (integralność
+    ceny) by to przepuścił (bo dopiska nie musi mieć ceny, żeby był problemem —
+    problemem jest DRUGIE podsumowanie własnymi słowami modelu tuż po pierwszym,
+    deterministycznym)."""
+    _podsumowanie_wyslane.set(True)
+
+
+def podsumowanie_wyslane():
+    """Czy w BIEŻĄCEJ turze już wysłano deterministyczne podsumowanie."""
+    return bool(_podsumowanie_wyslane.get())
 
 
 def zapamietaj_kwoty(wartosci):

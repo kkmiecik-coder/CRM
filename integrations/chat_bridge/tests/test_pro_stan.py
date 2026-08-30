@@ -298,6 +298,28 @@ class TestKwoty:
         assert stan.znane_kwoty() == set()
 
 
+class TestPodsumowanieWyslane:
+    """Bramka W3 (runda poprawek 1): `podsumowanie.wyslij()` oznacza w stanie tury,
+    że sam już wysłał deterministyczną treść — `tura.py` to sprawdza, żeby nie
+    wysłać drugiego, sparafrazowanego przez model podsumowania w tej samej turze."""
+
+    def test_domyslnie_falsz(self):
+        stan.ustaw_kontekst(93040)
+        assert stan.podsumowanie_wyslane() is False
+
+    def test_oznaczenie_ustawia_prawde(self):
+        stan.ustaw_kontekst(93041)
+        stan.oznacz_podsumowanie_wyslane()
+        assert stan.podsumowanie_wyslane() is True
+
+    def test_ustaw_kontekst_czysci_flage_z_poprzedniej_tury(self):
+        stan.ustaw_kontekst(93042)
+        stan.oznacz_podsumowanie_wyslane()
+        assert stan.podsumowanie_wyslane() is True
+        stan.ustaw_kontekst(93042)
+        assert stan.podsumowanie_wyslane() is False
+
+
 class TestPersonaIConvId:
     def test_domyslna_persona_to_pro(self):
         stan.ustaw_kontekst(93008)
