@@ -98,6 +98,125 @@ class TestPozycje:
         assert [p["id"] for p in stan.pozycje()] == ["2"]
 
 
+class TestKrawedzie:
+    """Task 2: zapisz_pozycje dostaje edges — ksztalt WEJSCIOWY (litera/typ/r/kat),
+    zgodny z tym, co konsumuje crm_calc.normalize_edges. Zapisywana jest juz
+    postac ZNORMALIZOWANA (litera/typ/r_value/angle_value), bo w tej postaci
+    czyta ja crm_calc.build_products i podsumowanie._opis_edges."""
+
+    def test_niepusta_lista_zapisuje_sie_w_postaci_znormalizowanej(self):
+        stan.ustaw_kontekst(93024)
+        stan.zapisz_pozycje("1", produkt="blat",
+                            edges=[{"litera": "A", "typ": "round", "r": 3}])
+        (poz,) = stan.pozycje()
+        assert poz["edges"] == [
+            {"litera": "A", "typ": "round", "r_value": 3, "angle_value": None}]
+
+    def test_domyslny_promien_i_kat_gdy_nie_podano(self):
+        stan.ustaw_kontekst(93025)
+        stan.zapisz_pozycje("1", produkt="blat", edges=[
+            {"litera": "A", "typ": "round"}, {"litera": "B", "typ": "chamfer"}])
+        (poz,) = stan.pozycje()
+        assert {"litera": "A", "typ": "round", "r_value": 5, "angle_value": None} in poz["edges"]
+        assert {"litera": "B", "typ": "chamfer", "r_value": None, "angle_value": 45} in poz["edges"]
+
+    def test_pominiecie_edges_nie_kasuje_wczesniej_zapisanych(self):
+        # edges=None (domyslne, model nic nie powiedzial o krawedziach w tej
+        # turze) NIE ma kasowac — klient nie musi powtarzac krawedzi co ture.
+        stan.ustaw_kontekst(93026)
+        stan.zapisz_pozycje("1", produkt="blat",
+                            edges=[{"litera": "A", "typ": "round", "r": 5}])
+        stan.zapisz_pozycje("1", grubosc_cm=6)
+        (poz,) = stan.pozycje()
+        assert poz["edges"] == [
+            {"litera": "A", "typ": "round", "r_value": 5, "angle_value": None}]
+        assert poz["grubosc"] == 6
+
+    def test_nowa_niepusta_lista_zastepuje_cala_poprzednia_obrobke(self):
+        # Replace, nie merge per-litera — jak w starym silniku (bots/quotebot.py).
+        # Model musi podac KOMPLET krawedzi, ktore maja obowiazywac.
+        stan.ustaw_kontekst(93027)
+        stan.zapisz_pozycje("1", produkt="blat", edges=[
+            {"litera": "A", "typ": "round", "r": 5}, {"litera": "B", "typ": "round", "r": 5}])
+        stan.zapisz_pozycje("1", edges=[{"litera": "C", "typ": "chamfer", "kat": 30}])
+        (poz,) = stan.pozycje()
+        assert poz["edges"] == [
+            {"litera": "C", "typ": "chamfer", "r_value": None, "angle_value": 30}]
+
+    def test_jawne_ostra_czysci_cala_wczesniej_zapisana_obrobke(self):
+        # Rozstrzygniecie zadania: "sharp" nie jest kolejna wartoscia do zapisania
+        # (crm_calc.normalize_edges sam go pomija jako "brak obrobki") — to sygnal
+        # WYCZYSZCZENIA. Bez osobnej sciezki intencja klienta "chce ostre" ginelaby
+        # w normalize_edges(), a stara obrobka zostawalaby w pozycji na zawsze.
+        stan.ustaw_kontekst(93028)
+        stan.zapisz_pozycje("1", produkt="blat",
+                            edges=[{"litera": "A", "typ": "round", "r": 5}])
+        wynik = stan.zapisz_pozycje("1", edges=[{"litera": "A", "typ": "sharp"}])
+        assert wynik["ok"] is True
+        (poz,) = stan.pozycje()
+        assert poz["edges"] == []
+
+    def test_pusta_lista_bez_sharp_nie_kasuje(self):
+        # normalize_edges([]) == [] i raw_ma_sharp([]) == False -- odrozniamy to
+        # od jawnego sharp powyzej. Pusta lista BEZ zadnego sharp w srodku (np.
+        # gdy warstwa posrednia domyslnie wysyla []) ma sie zachowac jak edges=None.
+        stan.ustaw_kontekst(93029)
+        stan.zapisz_pozycje("1", produkt="blat",
+                            edges=[{"litera": "A", "typ": "round", "r": 5}])
+        stan.zapisz_pozycje("1", edges=[])
+        (poz,) = stan.pozycje()
+        assert poz["edges"] == [
+            {"litera": "A", "typ": "round", "r_value": 5, "angle_value": None}]
+
+    def test_pozycja_z_krawedziami_przechodzi_przez_prawdziwy_build_products(self):
+        # Dowod naprawy: zapisz_pozycje(edges=...) -> stan.pozycje() -> prawdziwy
+        # crm_calc.build_products, bez trafienia w braki_mapowania.
+        from bots import crm_calc
+        stan.ustaw_kontekst(93030)
+        stan.zapisz_pozycje("1", produkt="blat", dlugosc_cm=180, szerokosc_cm=60,
+                            grubosc_cm=4, ilosc=1, selected_variant="dab-lity-ab",
+                            wykonczenie="surowe",
+                            edges=[{"litera": "A", "typ": "round", "r": 3},
+                                   {"litera": "C", "typ": "chamfer", "kat": 30}])
+        products, braki = crm_calc.build_products(stan.pozycje(), {"finishing_options": []})
+        assert braki == []
+        assert products[0]["edges_mode"] == "advanced"
+        assert products[0]["edges"] == [
+            {"letter": "A", "type": "round", "r_value": 3, "angle_value": None},
+            {"letter": "C", "type": "chamfer", "r_value": None, "angle_value": 30},
+        ]
+
+
+class TestOtwory:
+    """Task 2: zapisz_pozycje dostaje otwory — lista opisow (jak stary silnik,
+    bots/quotebot.py: "OTWORY/WYCIECIA: NIE wyceniasz"), NIE wycenianych
+    automatycznie przez crm_calc. Sluza jako notatka dla konsultanta i wchodza
+    do podpisu potwierdzenia (potwierdzenia._POLA_ISTOTNE)."""
+
+    def test_lista_opisow_zapisuje_sie_bez_zmian(self):
+        stan.ustaw_kontekst(93031)
+        stan.zapisz_pozycje("1", produkt="blat",
+                            otwory=["otwór na zlew 50x40 cm", "otwór na baterię"])
+        (poz,) = stan.pozycje()
+        assert poz["otwory"] == ["otwór na zlew 50x40 cm", "otwór na baterię"]
+
+    def test_pominiecie_otwory_nie_kasuje_wczesniej_zapisanych(self):
+        stan.ustaw_kontekst(93032)
+        stan.zapisz_pozycje("1", produkt="blat", otwory=["otwór na zlew"])
+        stan.zapisz_pozycje("1", grubosc_cm=6)
+        (poz,) = stan.pozycje()
+        assert poz["otwory"] == ["otwór na zlew"]
+
+    def test_jawna_pusta_lista_kasuje_otwory(self):
+        # W odroznieniu od edges, otwory nie maja odrebnego sygnalu "sharp" —
+        # jawna pusta lista to jedyny i wystarczajacy sposob wyczyszczenia.
+        stan.ustaw_kontekst(93033)
+        stan.zapisz_pozycje("1", produkt="blat", otwory=["otwór na zlew"])
+        stan.zapisz_pozycje("1", otwory=[])
+        (poz,) = stan.pozycje()
+        assert poz["otwory"] == []
+
+
 class TestKwoty:
     def test_zapamietaj_kwoty_normalizuje_do_dwoch_miejsc(self):
         stan.ustaw_kontekst(93006)

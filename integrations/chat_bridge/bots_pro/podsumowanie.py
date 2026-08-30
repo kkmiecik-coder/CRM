@@ -38,34 +38,83 @@ def _opis_materialu(poz):
     return " ".join(c for c in (gatunek, technologia, klasa) if c)
 
 
-def _linia(poz):
-    """Jedna linia pozycji do podsumowania — wymiary, materiał, wykończenie,
-    krawędzie i otwory. Klient ma potwierdzać WSZYSTKO, co obejmuje podpis
-    (potwierdzenia.podpis) — inaczej I2 chroniłoby dane, których nigdy nie
-    zobaczył (W5)."""
+def _wykonczenie_opis(poz, options):
+    """Opis wykończenia do podsumowania: pełna ścieżka z katalogu (z kolorem/
+    połyskiem) gdy jest finishing_id, inaczej surowy tekst z pola 'wykonczenie'.
+
+    Bez tego klient potwierdzałby ogólnik ('lakierowane'), nie wiedząc, KTÓRY
+    konkretny kolor/połysk (finishing_id) faktycznie trafi do zamówienia — a to
+    pole i tak wchodzi do podpisu potwierdzenia (potwierdzenia.podpis), więc
+    klient podpisywałby decyzję, której nigdy nie zobaczył (Task 2, domknięcie
+    resztki z Task 3 — ten sam problem, który W5 rozwiązało dla materiału)."""
+    fid = poz.get("finishing_id")
+    if fid and options:
+        pelna_sciezka = crm_calc.finishing_full_path(fid, options)
+        if pelna_sciezka:
+            return pelna_sciezka.replace("/", " > ")
+    return str(poz.get("wykonczenie") or "").strip()
+
+
+_TYP_EDGE_PL = {"sharp": "ostre", "chamfer": "fazowane", "round": "zaokrąglone"}
+
+
+def _opis_edges(edges):
+    """Czytelny opis krawędzi do podsumowania, pogrupowany po (typ, promień/kąt):
+    'R5 (A, B); Fazowanie 45° (C)' — zamiast surowej liczby sztuk, która nie mówi
+    klientowi, CO konkretnie podpisuje. Układ wzorowany na bots.quotebot._opis_edges
+    (ten sam pomysł, bez importowania całego ciężkiego modułu quotebota)."""
+    grupy = {}
+    for e in edges or []:
+        if not (isinstance(e, dict) and e.get("litera") and e.get("typ")):
+            continue
+        typ = e["typ"]
+        r_value, angle = e.get("r_value"), e.get("angle_value")
+        if typ == "round":
+            etykieta = "R%s" % r_value if r_value is not None else "Zaokrąglone"
+        elif typ == "chamfer":
+            etykieta = "Fazowanie %s°" % angle if angle is not None else "Fazowanie"
+        else:
+            etykieta = _TYP_EDGE_PL.get(typ, typ).capitalize()
+        grupy.setdefault((typ, r_value, angle), [etykieta, []])[1].append(e["litera"])
+    return "; ".join("%s (%s)" % (etyk, ", ".join(litery)) for etyk, litery in grupy.values())
+
+
+def _linia(poz, options=None):
+    """Jedna linia pozycji do podsumowania — wymiary, materiał, KONKRETNE
+    wykończenie (kolor/połysk z katalogu, nie tylko ogólnik), typy krawędzi
+    (nie tylko ich liczba) i treść otworów/wycięć. Klient ma potwierdzać
+    WSZYSTKO, co obejmuje podpis (potwierdzenia.podpis) — inaczej I2
+    chroniłoby dane, których nigdy nie zobaczył (W5; ten sam problem miały
+    do niedawna finishing_id i typy krawędzi — pokazywana była tylko surowa
+    liczba sztuk, klient nie widział, JAKĄ obróbkę faktycznie potwierdza)."""
     nazwa = str(poz.get("produkt") or "produkt").strip()
     material = _opis_materialu(poz)
     opis = "%s %s" % (nazwa, material) if material else nazwa
     wymiary = "%sx%sx%s cm" % (poz.get("dlugosc"), poz.get("szerokosc"), poz.get("grubosc"))
     linia = "• %s, %s, %s szt." % (opis, wymiary, poz.get("ilosc"))
-    wykonczenie = str(poz.get("wykonczenie") or "").strip()
+    wykonczenie = _wykonczenie_opis(poz, options)
     if wykonczenie:
         linia += ", wykończenie: %s" % wykonczenie
-    krawedzie = poz.get("edges") or []
-    if krawedzie:
-        linia += ", krawędzie: %d szt." % len(krawedzie)
+    opis_krawedzi = _opis_edges(poz.get("edges"))
+    if opis_krawedzi:
+        linia += ", krawędzie: %s" % opis_krawedzi
     otwory = poz.get("otwory") or []
     if otwory:
-        linia += ", otwory: %d szt." % len(otwory)
+        linia += ", otwory: %s" % "; ".join(str(o) for o in otwory)
     return linia
 
 
-def _kwoty_z_wyniku(pozycje, wynik):
+def kwoty_z_wyniku(pozycje, wynik):
     """Wszystkie kwoty z odpowiedzi kalkulatora — nie tylko sumy całości (totals),
     ale i rozbicie per pozycja (materiał wybranego wariantu, wykończenie, krawędzie
     — wynik["products"]). Bot może w kolejnej turze wypowiedzieć dowolną z tych
     liczb (np. "blat 843,04 zł, parapet 320,00 zł"), a guardrail G1 musi je znać —
-    inaczej zgłosi prawdziwą cenę jako halucynację (W4)."""
+    inaczej zgłosi prawdziwą cenę jako halucynację (W4).
+
+    Funkcja dzielona między `wyslij()` (to podsumowanie) i
+    `bots_pro.narzedzia.policz_wycene` (Task 2) — jeden rejestr kwot, jedna
+    definicja tego, co się do niego liczy. Bez publicznej nazwy (bez
+    wiodącego podkreślnika) druga strona nie miałaby jak jej zaimportować."""
     kwoty = []
     totals = wynik.get("totals") or {}
     kwoty.extend(v for v in totals.values() if isinstance(v, (int, float)))
@@ -100,14 +149,16 @@ def wyslij():
     if not pozycje:
         return {"ok": False, "error": "BRAK_POZYCJI"}
 
-    wynik = crm_calc.calculate(pozycje, crm_calc.get_options())
+    options = crm_calc.get_options()
+    wynik = crm_calc.calculate(pozycje, options)
     if not wynik.get("ok"):
         return {"ok": False, "error": "WYCENA_NIEUDANA", "szczegoly": wynik}
 
-    stan.zapamietaj_kwoty(_kwoty_z_wyniku(pozycje, wynik))
+    stan.zapamietaj_kwoty(kwoty_z_wyniku(pozycje, wynik))
 
     totals = wynik.get("totals") or {}
-    tekst = "Podsumowanie do potwierdzenia:\n" + "\n".join(_linia(poz) for poz in pozycje)
+    tekst = "Podsumowanie do potwierdzenia:\n" + "\n".join(
+        _linia(poz, options) for poz in pozycje)
     tekst += "\n\nRazem: %s brutto" % _fmt_pln(totals.get("total_brutto"))
     tekst += "\n\nCzy wszystko się zgadza?"
 

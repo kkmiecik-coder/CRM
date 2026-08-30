@@ -118,9 +118,33 @@ def _rozloz_wariant(kod):
     return cfg["species"], cfg["technology"], cfg["wood_class"]
 
 
+def _zastosuj_krawedzie(biezaca, edges):
+    """Krawędzie są POZA generyczną pętlą pól — jak w starym silniku (patrz
+    bots/quotebot.py, komentarz przy _merge_dane: "Krawedzie — poza
+    _merge_pola. Znormalizowana niepusta lista (round/chamfer) zastepuje.").
+
+    Znormalizowana niepusta lista ZASTĘPUJE w całości wcześniejszą obróbkę tej
+    pozycji — model podaje komplet krawędzi, które mają obowiązywać, nie tylko
+    zmienianą literę. Jawne "sharp" (ostra) w którymś wpisie to sygnał
+    USUNIĘCIA całej wcześniej zapisanej obróbki: crm_calc.normalize_edges
+    milcząco POMIJA wpisy "sharp" (dla niej to "brak obróbki", nie osobna
+    wartość do zapisania), więc bez tej odrębnej ścieżki intencja klienta
+    "chcę ostre, bez fazowania" ginęłaby, a stara obróbka zostawałaby
+    w pozycji na zawsze. `edges=None` (model nic nie powiedział o krawędziach
+    w tej turze) NIE kasuje — nie trzeba ich powtarzać co turę."""
+    from bots.crm_calc import normalize_edges, raw_ma_sharp
+    if edges is None:
+        return
+    znormalizowane = normalize_edges(edges)
+    if znormalizowane:
+        biezaca["edges"] = znormalizowane
+    elif raw_ma_sharp(edges):
+        biezaca["edges"] = []
+
+
 def zapisz_pozycje(id, produkt="", dlugosc_cm=0, szerokosc_cm=0, grubosc_cm=0,
                    ilosc=0, selected_variant="", finishing_option_id=None,
-                   wykonczenie="", usun=False):
+                   wykonczenie="", edges=None, otwory=None, usun=False):
     """Wstawia albo aktualizuje JEDNĄ pozycję pod stałym identyfikatorem.
     Puste pola nie kasują wcześniej ustalonych wartości — model woła to
     narzędzie raz na zmianę, a nie przepisuje całej listy.
@@ -128,7 +152,10 @@ def zapisz_pozycje(id, produkt="", dlugosc_cm=0, szerokosc_cm=0, grubosc_cm=0,
     `selected_variant` jest dodatkowo rozkładany na gatunek/technologia/klasa
     (patrz `_rozloz_wariant`) — bez tego crm_calc.build_products nie rozpozna
     pozycji (czyta te trzy pola osobno, nie kod wariantu) i KAŻDA wycena
-    kończyłaby się `WYCENA_NIEUDANA`, niezależnie od tego, co wybrał klient."""
+    kończyłaby się `WYCENA_NIEUDANA`, niezależnie od tego, co wybrał klient.
+
+    `edges` i `otwory` mają WŁASNĄ semantykę zapisu, inną niż reszta pól —
+    patrz `_zastosuj_krawedzie` (edges) i sekcję niżej (otwory)."""
     dane = _wczytaj()
     pozycje = dane.setdefault("pozycje", [])
     biezaca = next((p for p in pozycje if p.get("id") == id), None)
@@ -155,6 +182,16 @@ def zapisz_pozycje(id, produkt="", dlugosc_cm=0, szerokosc_cm=0, grubosc_cm=0,
         rozlozony = _rozloz_wariant(selected_variant)
         if rozlozony:
             biezaca["gatunek"], biezaca["technologia"], biezaca["klasa"] = rozlozony
+
+    _zastosuj_krawedzie(biezaca, edges)
+
+    # Otwory/wycięcia: opisowa lista, NIE wyceniana automatycznie (koszt
+    # dolicza konsultant — jak w starym silniku, bots/quotebot.py: "OTWORY/
+    # WYCIĘCIA: NIE wyceniasz"). Podana lista (także pusta — jawne
+    # "klient zrezygnował") ZASTĘPUJE poprzednią; `otwory=None` (pole
+    # pominięte w tej turze) niczego nie zmienia.
+    if otwory is not None:
+        biezaca["otwory"] = list(otwory)
 
     _zapisz(dane)
     return {"ok": True, "pozycja": biezaca}

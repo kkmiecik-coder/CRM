@@ -25,13 +25,16 @@ def _zaladuj_atrape_wysylki(monkeypatch):
 
 
 def _pozycja():
-    # gatunek/technologia/klasa/wykonczenie/edges — tak jak realnie wyglada pozycja
-    # po przejsciu przez stan.zapisz_pozycje (K2: rozlozenie selected_variant).
+    # gatunek/technologia/klasa/wykonczenie/edges/otwory — tak jak realnie wyglada
+    # pozycja po przejsciu przez stan.zapisz_pozycje (K2: rozlozenie selected_variant;
+    # Task 2: edges w postaci ZNORMALIZOWANEJ — litera/typ/r_value/angle_value, bo
+    # tak stan.zapisz_pozycje zapisuje je po crm_calc.normalize_edges).
     return {"id": "1", "produkt": "blat", "dlugosc": 180, "szerokosc": 60,
             "grubosc": 4, "ilosc": 1, "selected_variant": "dab-lity-ab",
             "gatunek": "Dąb", "technologia": "Lity", "klasa": "A/B",
             "wykonczenie": "olejowane", "finishing_id": 3,
-            "edges": [{"litera": "A", "typ": "round"}]}
+            "edges": [{"litera": "A", "typ": "round", "r_value": 5, "angle_value": None}],
+            "otwory": ["otwór na zlew 50x40 cm"]}
 
 
 def test_brak_pozycji_zwraca_blad_bez_liczenia_ceny(monkeypatch):
@@ -96,7 +99,48 @@ class TestWyslijSzczesliwaSciezka:
         assert "Dąb lity A/B" in tekst
         assert "dab-lity-ab" not in tekst
         assert "wykończenie: olejowane" in tekst
-        assert "krawędzie: 1 szt." in tekst
+
+    def test_podsumowanie_pokazuje_typy_krawedzi_nie_tylko_liczbe_sztuk(self, monkeypatch):
+        # Domkniecie resztki z Task 3: przed poprawka klient widzial "krawedzie: 1 szt."
+        # -- liczbe, nie TYP obrobki (zaokraglenie/fazowanie/ktora litera) -- mimo ze
+        # cala ta informacja wchodzi do podpisu potwierdzenia (potwierdzenia.podpis
+        # czyta pole "edges" w calosci, wiec klient podpisywal wiecej, niz widzial).
+        _, wyslane = self._przygotuj(monkeypatch, 94009)
+        podsumowanie.wyslij()
+        tekst = wyslane[0][1]
+        assert "krawędzie: R5 (A)" in tekst
+        assert "krawędzie: 1 szt." not in tekst
+
+    def test_podsumowanie_pokazuje_tresc_otworow_nie_liczbe_sztuk(self, monkeypatch):
+        _, wyslane = self._przygotuj(monkeypatch, 94010)
+        podsumowanie.wyslij()
+        tekst = wyslane[0][1]
+        assert "otwory: otwór na zlew 50x40 cm" in tekst
+        assert "otwory: 1 szt." not in tekst
+
+    def test_podsumowanie_pokazuje_konkretny_kolor_polysk_z_katalogu_finishing_id(self, monkeypatch):
+        # Domkniecie resztki z Task 3: finishing_id (KONKRETNY wariant/polysk) nie byl
+        # pokazywany wcale -- klient widzial tylko ogolnik "olejowane", a to
+        # finishing_id (nie sam tekst 'wykonczenie') trafia do zamowienia i do
+        # podpisu potwierdzenia.
+        stan.ustaw_kontekst(94011)
+        poz = [_pozycja()]
+        monkeypatch.setattr(stan, "pozycje", lambda: poz)
+        monkeypatch.setattr(podsumowanie.crm_calc, "get_options", lambda: {
+            "finishing_options": [
+                {"id": 3, "full_path": "Olejowane/Bezbarwne/Olej twardowoskowy"},
+            ]})
+        monkeypatch.setattr(podsumowanie.crm_calc, "calculate", lambda p, o: {
+            "ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}})
+        _zaladuj_atrape_wysylki(monkeypatch)
+        wyslane = []
+        monkeypatch.setattr(podsumowanie, "cw_agent_reply",
+                            lambda cid, tekst, token=None: wyslane.append((cid, tekst, token)) or True)
+
+        podsumowanie.wyslij()
+        tekst = wyslane[0][1]
+        assert "wykończenie: Olejowane > Bezbarwne > Olej twardowoskowy" in tekst
+        assert "wykończenie: olejowane" not in tekst
 
     def test_zapisuje_oczekiwany_podpis_w_pro_stan(self, monkeypatch):
         _, _ = self._przygotuj(monkeypatch, 94005)
