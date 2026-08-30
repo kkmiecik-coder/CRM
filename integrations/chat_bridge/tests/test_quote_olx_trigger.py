@@ -44,6 +44,8 @@ def _rows():
 
 def test_enqueue_gdy_olx_wlaczony(monkeypatch):
     monkeypatch.setattr(olx, "BOT_QUOTE_PERSONAS", {"livechat", "olx"})
+    # stary tryb (bramka trybu notatki wylaczona) - test poza zakresem routingu OLX/webhook.
+    monkeypatch.setattr(olx, "BOT_QUOTE_NOTE_PERSONAS", set())
     olx._mark_quote_olx_eligible(55)   # swieza rozmowa (utworzona po go-live)
     olx._enqueue_quote_olx(55, 9001, "Wycena blatu dąb 200x60", [])
     rows = _rows()
@@ -56,13 +58,52 @@ def test_enqueue_gdy_olx_wlaczony(monkeypatch):
 
 def test_nie_enqueue_gdy_olx_wylaczony(monkeypatch):
     monkeypatch.setattr(olx, "BOT_QUOTE_PERSONAS", {"livechat"})
+    monkeypatch.setattr(olx, "BOT_QUOTE_NOTE_PERSONAS", set())  # test kill-switcha olx, nie bramki notatki
     olx._mark_quote_olx_eligible(55)
     olx._enqueue_quote_olx(55, 9002, "Wycena blatu", [])
     assert _rows() == []
 
 
+# --- Runda poprawek: podwojne zakolejkowanie tej samej wiadomosci OLX (poller vs webhook) ---
+# Gdy persona 'quote_olx' jest w BOT_QUOTE_NOTE_PERSONAS (tryb notatki), tury dla OLX kolejkuje
+# juz webhook /agent-bot (Chatwoot wola go po kazdej wiadomosci dostarczonej przez cw_incoming).
+# Poller i webhook uzywaja INNYCH kluczy dedupu w quote_seen ("olx-<id>" vs surowy mid Chatwoota),
+# wiec bez bramki nizej jedna wiadomosc klienta dalaby DWIE tury (dwa leady w CRM, dwie notatki).
+
+def test_enqueue_gdy_persona_w_note_personas_nie_kolejkuje(monkeypatch):
+    """Bramka trybu notatki: poller ma ustapic samoczynnie, bez kolejkowania. Test odroznia
+    'nie zakolejkowano bo bramka' od 'nie zakolejkowano bo cos rzucilo' — _enqueue_quote_olx ma
+    szerokie `except`, ktore polyka wyjatki, wiec samo `_rows() == []` mogloby przejsc z
+    niewlasciwego powodu. Podmieniamy `log`, zeby upewnic sie, ze funkcja wraca CICHO (bez
+    logu bledu z `except`, bez logu sukcesu z kolejkowania) — czyli dzieki bramce na samym
+    poczatku, a nie dzieki polkanietemu wyjatkowi gdzies w srodku."""
+    monkeypatch.setattr(olx, "BOT_QUOTE_PERSONAS", {"olx"})
+    monkeypatch.setattr(olx, "BOT_QUOTE_NOTE_PERSONAS", {"quote_olx"})
+    wywolania_log = []
+    monkeypatch.setattr(olx, "log", lambda *a, **k: wywolania_log.append(a))
+    olx._mark_quote_olx_eligible(55)
+    olx._enqueue_quote_olx(55, 9005, "Wycena blatu dab", [])
+    assert _rows() == [], "tryb notatki: poller nie ma nic dodawac do quote_queue"
+    assert wywolania_log == [], "brak logu = wczesny return przez bramke, nie polkniety wyjatek"
+
+
+def test_enqueue_gdy_persona_nie_w_note_personas_kolejkuje_jak_dotad(monkeypatch):
+    """Gdy 'quote_olx' NIE jest w BOT_QUOTE_NOTE_PERSONAS (tryb notatki wylaczony/kill-switch),
+    poller ma kolejkowac dokladnie jak przed fixem — upewnia sie, ze bramka nie wylaczyla
+    pollera na zawsze, tylko ustepuje webhookowi wylacznie w trybie notatki."""
+    monkeypatch.setattr(olx, "BOT_QUOTE_PERSONAS", {"olx"})
+    monkeypatch.setattr(olx, "BOT_QUOTE_NOTE_PERSONAS", set())
+    olx._mark_quote_olx_eligible(56)
+    olx._enqueue_quote_olx(56, 9006, "Wycena parapetu", [])
+    rows = _rows()
+    assert len(rows) == 1, "bez bramki notatki poller ma kolejkowac jak dotad"
+    assert rows[0]["conv_id"] == 56
+    assert rows[0]["persona"] == "quote_olx"
+
+
 def test_dedup_po_olx_msg_id(monkeypatch):
     monkeypatch.setattr(olx, "BOT_QUOTE_PERSONAS", {"olx"})
+    monkeypatch.setattr(olx, "BOT_QUOTE_NOTE_PERSONAS", set())  # stary tryb, poza zakresem gate
     olx._mark_quote_olx_eligible(55)
     olx._enqueue_quote_olx(55, 9003, "Wycena", [])
     olx._enqueue_quote_olx(55, 9003, "Wycena (powtorka)", [])
@@ -71,6 +112,7 @@ def test_dedup_po_olx_msg_id(monkeypatch):
 
 def test_pusta_tresc_bez_zalacznika_nie_enqueue(monkeypatch):
     monkeypatch.setattr(olx, "BOT_QUOTE_PERSONAS", {"olx"})
+    monkeypatch.setattr(olx, "BOT_QUOTE_NOTE_PERSONAS", set())  # test guardu tresci, nie bramki notatki
     olx._mark_quote_olx_eligible(55)
     olx._enqueue_quote_olx(55, 9004, "   ", [])
     assert _rows() == []
@@ -81,6 +123,7 @@ def test_pusta_tresc_bez_zalacznika_nie_enqueue(monkeypatch):
 def test_coalesce_dwie_wiadomosci_olx_jedna_tura(monkeypatch):
     # Okno ciszy dziala tez dla OLX: dwie wiadomosci tej samej rozmowy -> jeden rekord.
     monkeypatch.setattr(olx, "BOT_QUOTE_PERSONAS", {"olx"})
+    monkeypatch.setattr(olx, "BOT_QUOTE_NOTE_PERSONAS", set())  # stary tryb, poza zakresem gate
     olx._mark_quote_olx_eligible(55)
     olx._enqueue_quote_olx(55, 8001, "poproszę wycenę", [])
     olx._enqueue_quote_olx(55, 8002, "blat dębowy", [])
@@ -93,6 +136,7 @@ def test_coalesce_dwie_wiadomosci_olx_jedna_tura(monkeypatch):
 def test_worker_dostaje_scalona_tresc(monkeypatch):
     # Fix #2: po scaleniu serii worker przetwarza POLACZONA tresc (re-odczyt po claimie), nie 1. wiadomosc.
     monkeypatch.setattr(olx, "BOT_QUOTE_PERSONAS", {"olx"})
+    monkeypatch.setattr(olx, "BOT_QUOTE_NOTE_PERSONAS", set())  # stary tryb, poza zakresem gate
     olx._mark_quote_olx_eligible(70)
     olx._enqueue_quote_olx(70, 7001, "poproszę wycenę", [])
     olx._enqueue_quote_olx(70, 7002, "blat dębowy 200x60", [])
@@ -108,6 +152,7 @@ def test_worker_dostaje_scalona_tresc(monkeypatch):
 def test_nieoznaczona_rozmowa_nie_enqueue(monkeypatch):
     # Rozmowa sprzed go-live (nieoznaczona) -> bot NIE wchodzi, nawet przy nowej wiadomosci.
     monkeypatch.setattr(olx, "BOT_QUOTE_PERSONAS", {"olx"})
+    monkeypatch.setattr(olx, "BOT_QUOTE_NOTE_PERSONAS", set())  # test guardu eligibility, nie bramki notatki
     olx._enqueue_quote_olx(999, 9100, "Nowa wiadomosc w starym watku", [])
     assert _rows() == []
 

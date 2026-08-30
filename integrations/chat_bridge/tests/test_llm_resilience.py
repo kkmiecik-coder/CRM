@@ -125,7 +125,8 @@ def test_backoff_wielopoziomowy_30_120_300(monkeypatch):
 
 def test_4xx_konczy_sie_od_razu_bez_backoffu(monkeypatch):
     handed = []
-    monkeypatch.setattr(qw, "handoff_with_apology", lambda c, reason=None: handed.append(c))
+    monkeypatch.setattr(qw, "handoff_with_apology",
+                        lambda c, reason=None, persona=None: handed.append(c))
     monkeypatch.setattr(qw, "run_quote_turn",
                         lambda *a, **k: (_ for _ in ()).throw(qb._LLMHttpError("boom", retryable=False)))
     _enqueue(1111)
@@ -150,7 +151,7 @@ def test_circuit_breaker_otwiera_sie_po_progu_i_wstrzymuje_kolejke(monkeypatch):
     monkeypatch.setattr(qw, "BOT_CIRCUIT_COOLDOWN", 60)
     monkeypatch.setattr(qw, "run_quote_turn",
                         lambda *a, **k: (_ for _ in ()).throw(qb._LLMHttpError("boom", retryable=True)))
-    monkeypatch.setattr(qw, "cw_agent_reply", lambda c, t, **kw: True)
+    monkeypatch.setattr(qw, "komunikat_obciazenia", lambda c, persona=None: True)
     _enqueue(1113)
     now = 2_000_000
     qw.process_one(now)   # 1. blad

@@ -3,6 +3,14 @@
 # przez PELNA sciezke run_quote_turn -> caps kanalu -> wrapper cw_agent_reply i sprawdza, co
 # faktycznie poszloby na OLX. Live-E2E (wstrzykniecie na testowym inboxie Api) to osobny krok
 # operacyjny przy deployu — tu weryfikujemy gwarancje, ktore daje kod (bez sieci).
+#
+# UWAGA (Task 3, tryb notatki): run_quote_turn wiaze teraz tryb wyjscia z persony —
+# quote_olx/quote_allegro leca w trybie "note" (notatka dla agenta), NIE surowa wysylka do
+# klienta. Sanitizacja caps (markdown/emoji/limit dlugosci) dziala identycznie jak dotad,
+# tylko tresc laduje w notatce (`cw_note`) zamiast w wiadomosci klienta (`_cw_agent_reply_raw`).
+# Scenariusze OLX ponizej weryfikuja notatke; scenariusz livechat (bez zmian) nadal wysylke.
+import re
+
 import pytest
 from bots import quotebot
 
@@ -24,6 +32,21 @@ def wyslane(monkeypatch):
     return calls
 
 
+@pytest.fixture
+def notatki(monkeypatch):
+    """Przechwytuje notatke, w ktorej ladowaloby trafic wyjscie tury OLX/Allegro (tryb note).
+    Lapie tez argumenty obrazu (image_path/image_name) — notatka moze niesc probke/wzornik
+    jako zalacznik (Task 6)."""
+    calls = _Calls()
+
+    def fake(conv_id, text, image_path=None, image_name=None, **kw):
+        calls.append({"text": text, "image_path": image_path, "image_name": image_name})
+        return True
+
+    monkeypatch.setattr(quotebot, "cw_note", fake)
+    return calls
+
+
 def _turn_with_reply(monkeypatch, persona, text, image_path=None):
     """Symuluje ture: inner (jak LLM) wola cw_agent_reply z gotowa tresc; run_quote_turn
     ustawia caps kanalu wokol tury. Zwraca nic — efekt widac w fixture `wyslane`."""
@@ -33,37 +56,51 @@ def _turn_with_reply(monkeypatch, persona, text, image_path=None):
     quotebot.run_quote_turn(7, 18, "olx-1", "poproszę wycenę", persona=persona)
 
 
-# --- Scenariusz 1: pelna wycena na OLX -> czysty tekst, gole URL, obraz jpg dozwolony ---
+# --- Scenariusz 1: pelna wycena na OLX -> czysty tekst notatki, gole URL, zero surowej wysylki ---
 
-def test_e2e_olx_wycena_plain_text_url_i_jpg(wyslane, monkeypatch):
+def test_e2e_olx_wycena_plain_text_url_i_jpg(wyslane, notatki, monkeypatch):
     _turn_with_reply(
         monkeypatch, "quote_olx",
         "**Twoja wycena:** 1200 zł 😊\nSzczegóły tutaj: https://woodpower.pl/q/abc123\n"
         "- dąb lity\n- wykończenie surowe 👇",
         image_path="gatunki_porownanie.jpg")
-    laczny = "\n".join(c["text"] for c in wyslane)
+    assert wyslane == []                          # OLX = tryb notatki, zero wysylki do klienta
+    laczny = "\n".join(c["text"] for c in notatki)
     assert "**" not in laczny            # brak markdownu
     assert "😊" not in laczny and "👇" not in laczny  # brak emoji
     assert "https://woodpower.pl/q/abc123" in laczny  # czytelny goly URL
     assert "1200 zł" in laczny
-    assert any(c["image_path"] == "gatunki_porownanie.jpg" for c in wyslane)  # jpg dozwolony
+    # obraz trafia do notatki jako zalacznik — agent przesyla go dalej jednym ruchem
+    assert notatki[0]["image_path"] == "gatunki_porownanie.jpg"
 
 
-# --- Scenariusz 2: dlugie podsumowanie rozbite w limicie OLX ---
+# --- Scenariusz 2: dlugie podsumowanie -> rozbite w limicie OLX, ale w JEDNEJ notatce ---
 
-def test_e2e_olx_dlugie_podsumowanie_rozbite_w_limicie(wyslane, monkeypatch):
+def test_e2e_olx_dlugie_podsumowanie_rozbite_w_limicie(wyslane, notatki, monkeypatch):
     dlugi = " ".join("Pozycja numer %d dębowa lita surowa." % i for i in range(300))
     _turn_with_reply(monkeypatch, "quote_olx", dlugi)
-    assert len(wyslane) > 1                       # rozbite na wiele wiadomosci
-    assert all(len(c["text"]) <= 2000 for c in wyslane)  # kazda w limicie OLX
+    assert wyslane == []
+    assert len(notatki) == 1                              # jedna notatka, nie lawina wiadomosci
+    tresc = notatki[0]["text"]
+    sep2 = quotebot._SEPARATOR_CZESCI_TPL % 2
+    assert sep2 in tresc                                  # widac podzial czesci w limicie OLX
+    # Naglowek notatki (_NOTE_PREFIX) to dodatek wrappera notatki, nie tresc kanalu — zdejmujemy
+    # go, zeby sprawdzic TWARDY limit realnego kanalu OLX (split_message), a nie limit + naglowek.
+    if tresc.startswith(quotebot._NOTE_PREFIX):
+        tresc = tresc[len(quotebot._NOTE_PREFIX):]
+    # Separator jest numerowany, wiec tniemy po wzorcu, nie po stalym napisie.
+    czesci = re.split(r"\n\n--- \(wiadomość \d+\) ---\n\n", tresc)
+    assert all(len(c) <= 2000 for c in czesci)            # kazda czesc w limicie OLX (jak dawniej)
 
 
-# --- Scenariusz 3: obraz o zlym formacie (gif) pominiety, sam tekst idzie ---
+# --- Scenariusz 3: format obrazu spoza caps OLX (gif) odrzucony PRZED notatka, sam tekst idzie ---
+# (Task 6: notatka juz obsluguje zalaczniki — to filtr formatu w cw_agent_reply, nie limit notatki)
 
-def test_e2e_olx_gif_pominiety(wyslane, monkeypatch):
+def test_e2e_olx_gif_pominiety(wyslane, notatki, monkeypatch):
     _turn_with_reply(monkeypatch, "quote_olx", "Zerknij na wzornik", image_path="wzornik.gif")
-    assert all(c["image_path"] is None for c in wyslane)      # gif niedozwolony
-    assert any("Zerknij na wzornik" in c["text"] for c in wyslane)
+    assert wyslane == []
+    assert any("Zerknij na wzornik" in c["text"] for c in notatki)
+    assert notatki[0]["image_path"] is None       # gif odfiltrowany zanim dotarl do cw_note
 
 
 # --- Scenariusz 4: livechat BEZ REGRESJI — markdown/emoji/obraz zachowane, jedna wiadomosc ---
@@ -78,7 +115,10 @@ def test_e2e_livechat_bez_regresji(wyslane, monkeypatch):
 
 # --- Scenariusz 5: caps przywracane po turze OLX (kolejna tura livechat nie dziedziczy) ---
 
-def test_e2e_caps_nie_wyciekaja_na_kolejna_ture(wyslane, monkeypatch):
+def test_e2e_caps_nie_wyciekaja_na_kolejna_ture(wyslane, notatki, monkeypatch):
+    # Pierwsza tura (quote_olx) idzie trybem notatki -> cw_note musi byc zamockowany (fixture
+    # `notatki`), inaczej test realnie walilby siecia w CW_BASE (rails:3000) i przechodzil
+    # tylko dzieki temu, ze _note_reply polyka wyjatek transportu. Test ma byc hermetyczny.
     _turn_with_reply(monkeypatch, "quote_olx", "**x** 😊", image_path="a.jpg")
     # druga tura, persona livechat: markdown/emoji musza przetrwac (caps OLX nie wyciekly)
     _turn_with_reply(monkeypatch, "quote", "**y** 😊", image_path="b.jpg")

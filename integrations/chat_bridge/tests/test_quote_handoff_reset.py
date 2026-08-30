@@ -79,3 +79,66 @@ def test_limit_tur_dedykowany_komunikat(monkeypatch):
     tekst = " ".join(replies)
     assert "Dziękuję za informacje" not in tekst
     assert "konsultant" in tekst.lower()
+
+
+class _Odpowiedz403(object):
+    """Atrapa requests.Response z non-2xx: falsy, tak jak prawdziwa (Response.__bool__ = .ok)."""
+    status_code = 403
+
+    def __bool__(self):
+        return False
+
+    __nonzero__ = __bool__
+
+
+def test_handoff_nieudana_notatka_non_2xx_rzuca(monkeypatch):
+    """cw_note NIE rzuca przy odpowiedzi non-2xx (cw() zwraca Response, ktory jest falsy).
+    Bez sprawdzenia wyniku notatka podsumowujaca przepadala po cichu — akurat przy reklamacji,
+    prosbie o czlowieka i limicie tur. Ma byc RuntimeError, a toggle statusu NIE moze sie
+    wykonac (worker ponawia ture na czystym stanie 'pending')."""
+    toggled = {"n": 0}
+    monkeypatch.setattr(qb, "cw_bot_handoff",
+                        lambda conv_id, **kw: toggled.__setitem__("n", toggled["n"] + 1) or True)
+    monkeypatch.setattr(qb, "cw_note", lambda conv_id, text, **kw: _Odpowiedz403())
+    monkeypatch.setattr(qb, "cw_agent_reply", lambda conv_id, text, **kw: True)
+    monkeypatch.setattr(qb.crm_calc, "get_options", lambda: {"finishing_options": []})
+    with pytest.raises(RuntimeError):
+        qb._do_handoff(4004, "klient prosi o konsultanta", _DANE)
+    assert toggled["n"] == 0, "toggle statusu nie moze sie wykonac po nieudanej notatce"
+
+
+def test_handoff_uzywa_jednego_tokenu_notatki(monkeypatch):
+    """Tryb notatki: notatka podsumowujaca i handoff ida tokenem bota widocznego na kanale
+    (_note_token), nie zaszytym tokenem Debusia — inaczej jedna tura zostawia notatki
+    podpisane dwoma roznymi botami."""
+    uzyte = {}
+    monkeypatch.setattr(qb, "cw_note",
+                        lambda conv_id, text, **kw: uzyte.setdefault("note", kw.get("token")) or True)
+    monkeypatch.setattr(qb, "cw_bot_handoff",
+                        lambda conv_id, **kw: uzyte.setdefault("handoff", kw.get("token")) or True)
+    monkeypatch.setattr(qb, "cw_agent_reply", lambda conv_id, text, **kw: True)
+    monkeypatch.setattr(qb.crm_calc, "get_options", lambda: {"finishing_options": []})
+    t1 = qb._reply_mode.set("note")
+    t2 = qb._note_token.set("token-woodpower-ai")
+    try:
+        qb._do_handoff(4005, "reklamacja", _DANE)
+    finally:
+        qb._reply_mode.reset(t1); qb._note_token.reset(t2)
+    assert uzyte["note"] == "token-woodpower-ai"
+    assert uzyte["handoff"] == "token-woodpower-ai"
+
+
+def test_handoff_dla_persony_quote_bez_zmian(monkeypatch):
+    """Livechat (persona 'quote', _note_token = None): oba wywolania nadal tokenem Debusia —
+    dokladnie jak przed ujednoliceniem (zero regresji)."""
+    uzyte = {}
+    monkeypatch.setattr(qb, "cw_note",
+                        lambda conv_id, text, **kw: uzyte.setdefault("note", kw.get("token")) or True)
+    monkeypatch.setattr(qb, "cw_bot_handoff",
+                        lambda conv_id, **kw: uzyte.setdefault("handoff", kw.get("token")) or True)
+    monkeypatch.setattr(qb, "cw_agent_reply", lambda conv_id, text, **kw: True)
+    monkeypatch.setattr(qb.crm_calc, "get_options", lambda: {"finishing_options": []})
+    assert qb._token_notatki_dla_persony("quote") is None
+    qb._do_handoff(4006, "powod", _DANE)
+    assert uzyte["note"] == qb.BOT_QUOTE_CW_AGENT_TOKEN
+    assert uzyte["handoff"] == qb.BOT_QUOTE_CW_AGENT_TOKEN

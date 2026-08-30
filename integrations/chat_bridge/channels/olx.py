@@ -7,7 +7,7 @@ import requests
 from urllib.parse import urlsplit, unquote
 from config import (OLX_CLIENT_ID, OLX_CLIENT_SECRET, OLX_REFRESH_TOKEN,
                     OLX_TOKEN_URL, OLX_API_BASE, POLL_INTERVAL, CW_OLX_INBOX,
-                    BOT_QUOTE_PERSONAS)
+                    BOT_QUOTE_PERSONAS, BOT_QUOTE_NOTE_PERSONAS)
 from core.errors import PermanentSendError
 from core.log import log
 from core.db import db, init_db, meta_get, meta_set
@@ -165,6 +165,16 @@ def _enqueue_quote_olx(conv_id, olx_msg_id, content, att_urls=None):
     zrodlo -> dokladnie raz). Tag persona=quote_olx -> worker dobierze caps i prompt OLX.
     NIGDY nie rzuca — blad kolejkowania nie moze zaklocic dostawy wiadomosci do Chatwoota."""
     try:
+        # Tryb notatki: gdy 'quote_olx' jest w BOT_QUOTE_NOTE_PERSONAS, tury dla OLX kolejkuje
+        # juz webhook /agent-bot (Chatwoot wola go po kazdej wiadomosci dostarczonej ponizej
+        # przez cw_incoming). Poller i webhook uzywaja INNYCH kluczy dedupu w quote_seen
+        # ("olx-<id>" tutaj vs surowy mid Chatwoota w webhooku), wiec nie odsialyby sie
+        # wzajemnie - bez tej bramki jedna wiadomosc klienta dalaby DWIE tury: dwa leady w CRM
+        # i dwie notatki. Poller ustepuje samoczynnie, zamiast polegac na recznej zmianie
+        # BOT_QUOTE_PERSONAS przy wdrozeniu (zawodna bariera, juz raz dala falszywe poczucie
+        # bezpieczenstwa w tym projekcie).
+        if "quote_olx" in BOT_QUOTE_NOTE_PERSONAS:
+            return
         if "olx" not in BOT_QUOTE_PERSONAS:
             return
         content = (content or "").strip()
@@ -196,6 +206,13 @@ def olx_poller():
         meta_set("olx_start_ts", time.time())
     START_TS = float(meta_get("olx_start_ts"))
     log("OLX poller start, START_TS=%s, interval=%ss" % (int(START_TS), POLL_INTERVAL))
+    # Log jednorazowy przy starcie (nie per wiadomosc - zalalby logi przy interwale 25s):
+    # informuje ktory tor prowadzi tury quote-bota dla OLX, zeby przy zlej kolejnosci
+    # wdrozenia (persona w trybie notatki, webhook /agent-bot jeszcze niepodpiety w
+    # Chatwoocie) byl slad w logach zamiast cichej utraty tur.
+    if "quote_olx" in BOT_QUOTE_NOTE_PERSONAS:
+        log("OLX poller: tryb notatki wlaczony (quote_olx w BOT_QUOTE_NOTE_PERSONAS) - "
+            "tury quote-bota kolejkuje webhook /agent-bot, poller tylko dostarcza wiadomosci")
     while True:
         try:
             data = olx_get("/threads?limit=50&offset=0").get("data", [])

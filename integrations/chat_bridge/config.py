@@ -88,6 +88,16 @@ BOT_DEBOUNCE_SECONDS          = int(os.environ.get("BOT_DEBOUNCE_SECONDS", "10")
 BOT_QUOTE_PERSONAS = (set(x.strip() for x in os.environ.get("BOT_QUOTE_PERSONAS", "livechat").split(",") if x.strip())
                       or {"livechat"})
 
+# Persony, ktore pisza PRYWATNA NOTATKE zamiast wiadomosci do klienta (OLX/Allegro).
+# Kill-switch trybu notatki: zdjecie persony z listy przywraca wysylke do klienta, dodanie
+# wycisza kanal. Persona 'quote' (livechat/Messenger) NIE podlega — Debus tam rozmawia.
+# UWAGA: pusta wartosc ("") = zaden kanal nie pisze notatek; swiadomie NIE ma tu fallbacku
+# na domyslna liste, bo cichy powrot do wysylki do klienta bylby grozniejszy niz brak notatek.
+BOT_QUOTE_NOTE_PERSONAS = set(
+    x.strip() for x in os.environ.get("BOT_QUOTE_NOTE_PERSONAS", "quote_olx,quote_allegro").split(",")
+    if x.strip()
+)
+
 # ----- Sweeper "goracy lead" (rozmowa oddana po cenie bota, klient milczy — LS-04) -----
 HOT_LEAD_SWEEP_INTERVAL = int(os.environ.get("HOT_LEAD_SWEEP_INTERVAL", "1800"))  # sekundy; <=0 = wylaczony
 HOT_LEAD_SILENCE_HOURS  = float(os.environ.get("HOT_LEAD_SILENCE_HOURS", "24"))
