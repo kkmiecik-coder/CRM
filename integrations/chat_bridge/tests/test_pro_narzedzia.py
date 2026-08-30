@@ -99,17 +99,32 @@ class TestZestawNarzedzi:
 
 class TestPobierzOpcjePrzycina:
     """Task 5, rozstrzygniecie 1: selected_variant/wykonczenie/litery i typy
-    krawedzi sa enumami w schemacie (Literal[...]) — model NIE potrzebuje juz
-    pelnego katalogu wariantow/typow krawedzi z /api/bot/options, bo SDK i tak
-    odrzuci wartosc spoza enumu zanim cialo narzedzia sie uruchomi. Zostawiamy
-    WYLACZNIE finishing_options (id + full_path, bo finishing_option_id NIE
-    jest enumem — katalog kolorow/polyskow jest zmienny) i limity wymiarowe."""
+    krawedzi (jako WYBIERALNE WARTOSCI) sa enumami w schemacie (Literal[...])
+    — model NIE potrzebuje juz z /api/bot/options listy DOZWOLONYCH KODOW
+    wariantu/typow krawedzi, bo SDK i tak odrzuci wartosc spoza enumu zanim
+    cialo narzedzia sie uruchomi. Zostawiamy finishing_options (id + full_path,
+    bo finishing_option_id NIE jest enumem — katalog kolorow/polyskow jest
+    zmienny) i limity wymiarowe — global_limits ORAZ per-wariant
+    (variant_limits), bo to LICZBY Z CENNIKA (moga sie zmienic bez zmiany
+    kodu), nie zbior dozwolonych kodow. Runda poprawek 1 (recenzja): przycięcie
+    najpierw zgubiło variant_limits calkiem, zamazujac np. ze mikrowczep ma
+    inna (wieksza) maksymalna dlugosc niz technologia lita — global_limits
+    sam w sobie tego rozroznienia nie niesie."""
 
-    def test_zwraca_wylacznie_finishing_options_i_limity(self, monkeypatch):
+    _VARIANTS_MOCK = [
+        {"variant_code": "dab-lity-ab", "species": "Dąb", "technology": "Lity",
+         "wood_class": "A/B", "length_min": 40, "length_max": 450,
+         "width_min": 10, "width_max": 120, "thickness_min": 1.5, "thickness_max": 4},
+        {"variant_code": "dab-micro-ab", "species": "Dąb", "technology": "Mikrowczep",
+         "wood_class": "A/B", "length_min": 40, "length_max": 500,
+         "width_min": 10, "width_max": 120, "thickness_min": 1.5, "thickness_max": 4},
+    ]
+
+    def test_zwraca_finishing_options_i_limity_global_oraz_per_wariant(self, monkeypatch):
         monkeypatch.setattr(n.crm_calc, "get_options", lambda: {
             "ok": True,
-            "variants": [{"variant_code": "dab-lity-ab", "length_max": 450}],
-            "global_limits": {"length_min": 40, "length_max": 450,
+            "variants": self._VARIANTS_MOCK,
+            "global_limits": {"length_min": 40, "length_max": 500,
                                "width_min": 10, "width_max": 120,
                                "thickness_min": 1.5, "thickness_max": 4},
             "finishing_options": [
@@ -125,17 +140,34 @@ class TestPobierzOpcjePrzycina:
         wynik = _wolaj(n.pobierz_opcje)
         assert wynik == {
             "finishing_options": [{"id": 7, "full_path": "Olejowane / Dąb naturalny"}],
-            "global_limits": {"length_min": 40, "length_max": 450,
+            "global_limits": {"length_min": 40, "length_max": 500,
                                "width_min": 10, "width_max": 120,
                                "thickness_min": 1.5, "thickness_max": 4},
+            "variant_limits": [
+                {"variant_code": "dab-lity-ab", "length_min": 40, "length_max": 450,
+                 "width_min": 10, "width_max": 120, "thickness_min": 1.5, "thickness_max": 4},
+                {"variant_code": "dab-micro-ab", "length_min": 40, "length_max": 500,
+                 "width_min": 10, "width_max": 120, "thickness_min": 1.5, "thickness_max": 4},
+            ],
         }
+
+    def test_limit_dlugosci_roznicuje_technologie(self, monkeypatch):
+        # Dowod na rzeczywisty powod przywrocenia variant_limits: lita i
+        # mikrowczep MAJA rozna maksymalna dlugosc, global_limits by to zlaczyl.
+        monkeypatch.setattr(n.crm_calc, "get_options", lambda: {
+            "variants": self._VARIANTS_MOCK, "global_limits": {}, "finishing_options": [],
+        })
+        wynik = _wolaj(n.pobierz_opcje)
+        limity = {w["variant_code"]: w["length_max"] for w in wynik["variant_limits"]}
+        assert limity["dab-lity-ab"] == 450
+        assert limity["dab-micro-ab"] == 500
 
     def test_brak_polaczenia_z_crm_nie_wywala_narzedzia(self, monkeypatch):
         # crm_calc.get_options() zwraca {} przy awarii API (patrz jej docstring)
         # — pobierz_opcje ma wtedy zwrocic puste struktury, nie rzucic wyjatkiem.
         monkeypatch.setattr(n.crm_calc, "get_options", lambda: {})
         wynik = _wolaj(n.pobierz_opcje)
-        assert wynik == {"finishing_options": [], "global_limits": None}
+        assert wynik == {"finishing_options": [], "global_limits": None, "variant_limits": []}
 
 
 class TestSchematZapiszPozycje:

@@ -62,15 +62,21 @@ class Krawedz(TypedDict):
 @function_tool
 def pobierz_opcje() -> dict:
     """Zwraca listę wykończeń z identyfikatorami (finishing_options: id +
-    full_path) oraz globalne limity wymiarowe (global_limits). Wołaj raz na
-    początku rozmowy o wycenę, żeby poznać finishing_option_id pasujące do
-    wyboru klienta przy olejowaniu/lakierowaniu.
+    full_path), globalne limity wymiarowe (global_limits) i limity PER
+    WARIANT (variant_limits) — technologia zmienia maksymalną długość (lita
+    450 cm, mikrowczep 500 cm), więc sam global_limits by to zamazał. Wołaj
+    raz na początku rozmowy o wycenę: żeby poznać finishing_option_id
+    pasujące do wyboru klienta przy olejowaniu/lakierowaniu, i żeby limity
+    wymiarowe w Twoich odpowiedziach brały się z cennika, nie z pamięci.
 
-    Warianty drewna i typy/litery krawędzi NIE są tu zwracane — to enumy w
-    schemacie zapisz_pozycje (SelectedVariant, Litera, TypKrawedzi), model ma
-    je już w podpisie narzędzia i SDK odrzuci wartość spoza listy, zanim
-    ciało narzędzia się uruchomi. Katalog kolorów/połysków (finishing_options)
-    enumem NIE jest — jest danymi, więc został tutaj."""
+    Warianty drewna i typy/litery krawędzi jako WYBIERALNE WARTOŚCI (które
+    wolno wpisać do zapisz_pozycje) NIE są tu zwracane — to enumy w schemacie
+    (SelectedVariant, Litera, TypKrawedzi), model ma je już w podpisie
+    narzędzia i SDK odrzuci wartość spoza listy, zanim ciało narzędzia się
+    uruchomi. variant_limits niżej to co innego: to LICZBY z cennika (mogą
+    się zmienić bez zmiany kodu), nie zbiór dozwolonych kodów wariantu.
+    Katalog kolorów/połysków (finishing_options) enumem też nie jest — jest
+    danymi, więc został tutaj."""
     dane = crm_calc.get_options()
     return {
         "finishing_options": [
@@ -78,6 +84,15 @@ def pobierz_opcje() -> dict:
             for o in (dane.get("finishing_options") or [])
         ],
         "global_limits": dane.get("global_limits"),
+        "variant_limits": [
+            {
+                "variant_code": w.get("variant_code"),
+                "length_min": w.get("length_min"), "length_max": w.get("length_max"),
+                "width_min": w.get("width_min"), "width_max": w.get("width_max"),
+                "thickness_min": w.get("thickness_min"), "thickness_max": w.get("thickness_max"),
+            }
+            for w in (dane.get("variants") or [])
+        ],
     }
 
 
