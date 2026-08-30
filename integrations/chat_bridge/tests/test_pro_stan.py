@@ -421,3 +421,90 @@ class TestOstatniaWiadomoscKlienta:
             {"role": "assistant", "text": "witaj"},
         ])
         assert stan.ostatnia_wiadomosc_klienta() == ""
+
+
+class _FakeResp:
+    def __init__(self, payload):
+        self._p = payload
+    def json(self):
+        return {"payload": self._p}
+
+
+class TestWolnoProwadzicRozmowe:
+    """Bramka ciszy po handoffie (rozstrzygniecie zadania 7, brief o niej nie mowi).
+
+    W Chatwoocie 'Oczekujaca' (pending) to jednoczesnie stan startowy (bot jeszcze
+    sie nie odezwal) I zwykly 'snooze' agenta — agent moze recznie zaparkowac
+    rozmowe w pending PO WLASNEJ odpowiedzi. Sam status wiec NIE wystarcza (patrz
+    audyt, rozmowa #1316: agentka odpisala klientowi, godzine pozniej bot podjal
+    rozmowe od nowa i jej zaprzeczyl). Bramka sprawdza status ORAZ to, czy
+    OSTATNIA (nieprywatna) wiadomosc pochodzi od czlowieka-agenta
+    (sender.type == 'user' w Chatwoocie — ta sama regula co w webhooks.py przy
+    stopce)."""
+
+    def test_status_inny_niz_pending_blokuje(self, monkeypatch):
+        stan.ustaw_kontekst(94001)
+        monkeypatch.setattr(chatwoot_mod, "cw_conv_status", lambda conv_id: "open")
+        wolane_cw = []
+        monkeypatch.setattr(chatwoot_mod, "cw", lambda *a, **k: wolane_cw.append(1) or _FakeResp([]))
+        assert stan.wolno_prowadzic_rozmowe(94001) is False
+        # Status juz przesadzil sprawe - nie ma potrzeby dopytywac o historie wiadomosci.
+        assert wolane_cw == []
+
+    def test_pending_ale_ostatnia_wiadomosc_od_agenta_blokuje(self, monkeypatch):
+        # Dokladnie scenariusz audytu: agent odpisal, rozmowa wrocila/zostala w pending
+        # (recznym snoozem), bot MA milczec mimo statusu pending.
+        stan.ustaw_kontekst(94002)
+        monkeypatch.setattr(chatwoot_mod, "cw_conv_status", lambda conv_id: "pending")
+        monkeypatch.setattr(chatwoot_mod, "cw", lambda *a, **k: _FakeResp([
+            {"content": "dzien dobry", "private": False, "sender": {"type": "contact"}},
+            {"content": "nie robimy naturalnych krawedzi", "private": False,
+             "sender": {"type": "user"}},
+        ]))
+        assert stan.wolno_prowadzic_rozmowe(94002) is False
+
+    def test_pending_i_ostatnia_wiadomosc_od_klienta_pozwala(self, monkeypatch):
+        stan.ustaw_kontekst(94003)
+        monkeypatch.setattr(chatwoot_mod, "cw_conv_status", lambda conv_id: "pending")
+        monkeypatch.setattr(chatwoot_mod, "cw", lambda *a, **k: _FakeResp([
+            {"content": "cena?", "private": False, "sender": {"type": "contact"}},
+        ]))
+        assert stan.wolno_prowadzic_rozmowe(94003) is True
+
+    def test_pending_i_ostatnia_wiadomosc_od_bota_pozwala(self, monkeypatch):
+        # Bot sam byl ostatni (normalny przebieg rozmowy bot<->klient) - to NIE jest
+        # sygnal przejecia rozmowy przez czlowieka.
+        stan.ustaw_kontekst(94004)
+        monkeypatch.setattr(chatwoot_mod, "cw_conv_status", lambda conv_id: "pending")
+        monkeypatch.setattr(chatwoot_mod, "cw", lambda *a, **k: _FakeResp([
+            {"content": "cena?", "private": False, "sender": {"type": "contact"}},
+            {"content": "Juz licze...", "private": False, "sender": {"type": "agent_bot"}},
+        ]))
+        assert stan.wolno_prowadzic_rozmowe(94004) is True
+
+    def test_prywatna_notatka_agenta_nie_liczy_sie_jako_ostatnia_wiadomosc(self, monkeypatch):
+        # Wewnetrzna notatka miedzy agentami nie jest publiczna odpowiedzia klientowi -
+        # bramka ma patrzec na ostatnia PUBLICZNA wiadomosc, pomijajac notatki.
+        stan.ustaw_kontekst(94005)
+        monkeypatch.setattr(chatwoot_mod, "cw_conv_status", lambda conv_id: "pending")
+        monkeypatch.setattr(chatwoot_mod, "cw", lambda *a, **k: _FakeResp([
+            {"content": "cena?", "private": False, "sender": {"type": "contact"}},
+            {"content": "notatka wewnetrzna", "private": True, "sender": {"type": "user"}},
+        ]))
+        assert stan.wolno_prowadzic_rozmowe(94005) is True
+
+    def test_pusta_historia_pozwala(self, monkeypatch):
+        # Zupelnie nowa rozmowa (webhook przyszedl, ale endpoint GET messages jeszcze
+        # nic nie zwraca) - nie ma podstaw do blokady.
+        stan.ustaw_kontekst(94006)
+        monkeypatch.setattr(chatwoot_mod, "cw_conv_status", lambda conv_id: "pending")
+        monkeypatch.setattr(chatwoot_mod, "cw", lambda *a, **k: _FakeResp([]))
+        assert stan.wolno_prowadzic_rozmowe(94006) is True
+
+    def test_blad_odczytu_historii_blokuje_bezpiecznie(self, monkeypatch):
+        stan.ustaw_kontekst(94007)
+        monkeypatch.setattr(chatwoot_mod, "cw_conv_status", lambda conv_id: "pending")
+        def _boom(*a, **k):
+            raise ConnectionError("timeout")
+        monkeypatch.setattr(chatwoot_mod, "cw", _boom)
+        assert stan.wolno_prowadzic_rozmowe(94007) is False

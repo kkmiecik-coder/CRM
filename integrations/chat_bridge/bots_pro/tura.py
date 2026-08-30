@@ -104,13 +104,25 @@ def uruchom(conv_id, inbox_id, tresc, zalaczniki=None, persona="pro"):
     ma chronić `wysylka.py` (link do wyceny w treści zabronionej regulaminem
     marketplace'u).
 
-    `stan.init_pro()` odpala DDL (CREATE TABLE IF NOT EXISTS) przy KAŻDEJ turze, nie
-    tylko raz przy starcie workera — celowo NIEZMIENIONE w tej rundzie poprawek:
-    przeniesienie do startu workera wykracza poza ten moduł (worker Dębusia Pro nie
-    jest jeszcze częścią tego zadania). Koszt jest mały (CREATE TABLE IF NOT EXISTS na
-    już istniejących tabelach), ale odnotowane jako coś do ruszenia, gdy worker powstanie."""
+    Bramka ciszy po handoffie (Task 7): jeśli `stan.wolno_prowadzic_rozmowe(conv_id)`
+    zwróci False (rozmowa nie jest w statusie "pending", albo ostatnia publiczna
+    wiadomość pochodzi od człowieka-agenta), tura kończy się NATYCHMIAST — bez
+    wołania Routera/LLM i bez żadnej wysyłki. Sprawdzana jest PRZED `ustaw_kontekst`,
+    bo cała reszta funkcji jest bez sensu, gdy bot ma milczeć (patrz docstring
+    `bots_pro.stan.wolno_prowadzic_rozmowe` — tam jest pełne uzasadnienie i opis
+    incydentu, który ta bramka ma uniemożliwić).
+
+    `stan.init_pro()` (DDL, CREATE TABLE IF NOT EXISTS) NIE jest już wołane tutaj —
+    przeniesione do startu `quote_worker.py` (jedynego miejsca, które faktycznie
+    woła `uruchom()` w produkcji), zgodnie z tym samym wzorcem co `init_db()` tamże.
+    Odpalanie DDL przy KAŻDEJ turze było niepotrzebnym kosztem bez korzyści — tabele
+    już istnieją po pierwszym starcie procesu."""
+    if not stan.wolno_prowadzic_rozmowe(conv_id):
+        log("tura: bot milczy (rozmowa nie w pending albo ostatnio pisal czlowiek) "
+            "(conv %s)" % conv_id)
+        return
+
     stan.ustaw_kontekst(conv_id, persona_tury=persona)
-    stan.init_pro()
 
     wynik = Runner.run_sync(
         zbuduj_router(), tresc, session=_sesja(conv_id), max_turns=BOT_PRO_MAX_TURNS)

@@ -32,6 +32,16 @@ from bots_pro import agenci, stan, tura
 stan.init_pro()
 
 
+@pytest.fixture(autouse=True)
+def _domyslnie_wolno_prowadzic_rozmowe(monkeypatch):
+    """Wiekszosc testow w tym pliku sprawdza logike SAMEJ tury (guardrail, wysylka,
+    routing) — nie bramki ciszy po handoffie (patrz TestBramkaCiszyPoHandoffie nizej),
+    ktora normalnie odpytuje Chatwoota siecia. Domyslnie pozwalamy botowi mowic (tak
+    jak w prawdziwej nowej rozmowie w statusie pending), zeby zaden z pozostalych
+    testow nie musial tego osobno mockowac. Testy bramki nadpisuja to jawnie."""
+    monkeypatch.setattr(stan, "wolno_prowadzic_rozmowe", lambda conv_id: True)
+
+
 # ---------------------------------------------------------------------------
 # Atrapa CAŁEGO Runner.run_sync — dla testów logiki tury (retry guardraila,
 # brak podwójnej wysyłki), gdzie nie zależy nam na prawdziwym routingu SDK.
@@ -66,6 +76,50 @@ def _wyslane_przechwytywacz(monkeypatch):
     monkeypatch.setattr(tura, "cw_agent_reply",
                          lambda conv_id, tekst, token=None: wyslane.append(tekst))
     return wyslane
+
+
+class TestBramkaCiszyPoHandoffie:
+    """Task 7: bot NIE MOZE odezwac sie w rozmowie, ktora `stan.wolno_prowadzic_rozmowe`
+    uznaje za zajeta przez czlowieka - ani slowem, ani wywolaniem Routera/LLM."""
+
+    def test_gdy_bramka_zabrania_runner_nie_jest_wolany(self, monkeypatch):
+        conv_id = 96201001
+        monkeypatch.setattr(stan, "wolno_prowadzic_rozmowe", lambda cid: False)
+        fake_runner = _FalszywyRunner(["cokolwiek"])
+        monkeypatch.setattr(tura, "Runner", fake_runner)
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "wiadomosc klienta", persona="quote")
+
+        assert fake_runner.wywolania == []   # zero wywolan LLM
+        assert wyslane == []                 # zero wyslanych wiadomosci
+
+    def test_bramka_dostaje_wlasciwy_conv_id(self, monkeypatch):
+        conv_id = 96201002
+        przekazane = []
+        monkeypatch.setattr(stan, "wolno_prowadzic_rozmowe",
+                            lambda cid: przekazane.append(cid) or False)
+        monkeypatch.setattr(tura, "Runner", _FalszywyRunner(["x"]))
+        _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "wiadomosc klienta", persona="quote")
+
+        assert przekazane == [conv_id]
+
+    def test_gdy_bramka_pozwala_tura_przebiega_normalnie(self, monkeypatch):
+        # Kontrola negatywna: bramka nie ma blokowac normalnego przebiegu, kiedy
+        # zwraca True (domyslne zachowanie fixture'a autouse w tym pliku - tu jawnie,
+        # dla czytelnosci testu).
+        conv_id = 96201003
+        monkeypatch.setattr(stan, "wolno_prowadzic_rozmowe", lambda cid: True)
+        fake_runner = _FalszywyRunner(["Dziekuje za wiadomosc."])
+        monkeypatch.setattr(tura, "Runner", fake_runner)
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "wiadomosc klienta", persona="quote")
+
+        assert wyslane == ["Dziekuje za wiadomosc."]
+        assert len(fake_runner.wywolania) == 1
 
 
 class TestGuardrailBlokujeWysylke:

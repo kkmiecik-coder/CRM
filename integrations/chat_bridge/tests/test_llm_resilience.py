@@ -87,6 +87,12 @@ def _reset_circuit():
     from core.db import meta_set
     meta_set(qw._META_CIRCUIT_UNTIL, 0)
     meta_set(qw._META_CIRCUIT_FAILS, 0)
+    # Task 7: obwod persony "pro" ma WLASNY klucz (patrz qw._klucze_obwodu) - resetujemy go
+    # tu tez, zeby test otwierajacy obwod "pro" (test_awaria_debusia_pro_nie_wstrzymuje_kolejki_legacy
+    # i sasiedzi) nie zostawil go otwartego dla kolejnych testow w tym i innych plikach.
+    klucz_until_pro, klucz_fails_pro = qw._klucze_obwodu("pro")
+    meta_set(klucz_until_pro, 0)
+    meta_set(klucz_fails_pro, 0)
 
 
 @pytest.fixture(autouse=True)
@@ -228,3 +234,90 @@ def test_4xx_ma_inny_powod_handoffu_niz_wyczerpane_proby(monkeypatch):
     qw.process_one(1_000_000)
     assert len(powody) == 1
     assert "wyczerpane" not in powody[0]
+
+
+# --- Task 7 (Debus Pro): klasyfikacja retryable dla wyjatkow BEZ atrybutu .retryable ---
+
+def test_wyjatek_bez_retryable_nie_jest_ponawiany_w_kolko(monkeypatch):
+    """Przed poprawka `retryable = getattr(e, "retryable", True)` traktowalo KAZDY
+    nieoznaczony wyjatek (literowka w kodzie bota, TypeError/KeyError...) jak przejsciowa
+    awarie sieci - ponawiane w kolko az do wyczerpania prob. Taki blad ma konczyc sie PO
+    JEDNEJ probie, tak jak 4xx (trwaly blad, nie przejsciowa niedostepnosc)."""
+    monkeypatch.setattr(qw, "run_quote_turn",
+                        lambda *a, **k: (_ for _ in ()).throw(TypeError("literowka w kodzie bota")))
+    monkeypatch.setattr(qw, "handoff_with_apology", lambda *a, **k: None)
+    _enqueue(1118)
+    qw.process_one(1_000_000)
+    c = db_mod.db()
+    row = c.execute("SELECT status, attempts FROM quote_queue WHERE conv_id=1118").fetchone()
+    c.close()
+    assert row["status"] == "failed"
+    assert row["attempts"] == 1   # zero retry - jedna proba i koniec, jak przy 4xx
+
+
+def test_polaczeniowy_wyjatek_bez_retryable_nadal_jest_ponawiany(monkeypatch):
+    """Kontrola negatywna: znane, faktycznie przejsciowe klasy bledow (siec) NADAL maja
+    isc w retry, mimo braku jawnego atrybutu .retryable - to nie ma byc regresja backoffu
+    dla prawdziwych awarii sieciowych, tylko dla NIEZNANYCH (programistycznych) wyjatkow."""
+    monkeypatch.setattr(qw, "run_quote_turn",
+                        lambda *a, **k: (_ for _ in ()).throw(ConnectionError("polaczenie padlo")))
+    _enqueue(1119)
+    qw.process_one(1_000_000)
+    c = db_mod.db()
+    row = c.execute("SELECT status, attempts, next_at FROM quote_queue WHERE conv_id=1119").fetchone()
+    c.close()
+    assert row["status"] == "pending"   # wraca do pending z backoffem, NIE 'failed'
+    assert row["attempts"] == 1
+
+
+# --- Task 7 (Debus Pro): obwod circuit-breakera osobny per persona ---
+
+def test_awaria_debusia_pro_nie_wstrzymuje_kolejki_legacy(monkeypatch):
+    """Ograniczenie 3 zadania 7: obwod byl GLOBALNY, wiec awaria Debusia Pro
+    wstrzymywalaby kolejke OLX/Allegro/livechat. Otwieramy obwod "pro" recznie
+    (bez przechodzenia przez SDK) i sprawdzamy, ze wiersz persony legacy ("quote")
+    i tak zostaje przetworzony."""
+    from core.db import meta_set
+    now = 4_000_000
+    klucz_until, _ = qw._klucze_obwodu("pro")
+    meta_set(klucz_until, now + 999999)
+    monkeypatch.setattr(qw, "run_quote_turn", lambda *a, **k: None)
+    _enqueue(1121)   # persona domyslna "quote" (legacy)
+    assert qw.process_one(now) is True
+    c = db_mod.db()
+    status = c.execute("SELECT status FROM quote_queue WHERE conv_id=1121").fetchone()["status"]
+    c.close()
+    assert status == "sent"
+
+
+def test_awaria_legacy_nie_wstrzymuje_wiersza_pro(monkeypatch):
+    """Odwrotny kierunek: obwod legacy otwarty NIE ma blokowac wiersza persony "pro" -
+    izolacja dziala w OBIE strony, nie tylko tak, jak dosl. brzmi ograniczenie 3."""
+    pytest.importorskip("agents")
+    from bots_pro import tura as tura_pro
+    monkeypatch.setattr(tura_pro, "uruchom", lambda *a, **k: None)
+    from core.db import meta_set
+    now = 4_100_000
+    meta_set(qw._META_CIRCUIT_UNTIL, now + 999999)   # legacy (flat, jak dotychczas)
+    c = db_mod.db()
+    c.execute("DELETE FROM quote_queue")
+    c.execute("INSERT INTO quote_queue(conv_id, inbox_id, message_id, content, persona, next_at) "
+              "VALUES(?,?,?,?,?,0)", (1122, 18, "mZ", "tak", "pro"))
+    c.commit(); c.close()
+    assert qw.process_one(now) is True
+    c = db_mod.db()
+    status = c.execute("SELECT status FROM quote_queue WHERE conv_id=1122").fetchone()["status"]
+    c.close()
+    assert status == "sent"
+
+
+def test_awaria_pro_i_legacy_naraz_nie_bierze_zadnej_pracy(monkeypatch):
+    """Oba obwody otwarte naraz -> process_one nie bierze niczego (kontrola negatywna,
+    zeby filtr SQL "1=0" naprawde dzialal, nie tylko przepuszczal wszystko przez pomylke)."""
+    from core.db import meta_set
+    now = 4_200_000
+    klucz_until, _ = qw._klucze_obwodu("pro")
+    meta_set(klucz_until, now + 999999)
+    meta_set(qw._META_CIRCUIT_UNTIL, now + 999999)
+    _enqueue(1123)
+    assert qw.process_one(now) is False

@@ -118,7 +118,23 @@ BOT_CIRCUIT_COOLDOWN  = int(os.environ.get("BOT_CIRCUIT_COOLDOWN", "120"))  # se
 # Token uzyty explicite w bots_pro.stan.handoff/podsumowanie.wyslij — domyslny cw_bot_handoff
 # siega po token bota-podpowiadacza, wiec Pro potrzebuje wlasnego, jawnie podawanego.
 BOT_PRO_CW_AGENT_TOKEN = os.environ.get("BOT_PRO_CW_AGENT_TOKEN")
+# Token w URL webhooka /agent-bot-pro. Guard startowy w bridge.py przerywa uruchomienie
+# procesu, gdy BOT_PRO_INBOXES jest niepuste, a tego tokenu brak (patrz bridge.py) —
+# inaczej weryfikacja w webhooks.py jest warunkowa (`if TOKEN and ...`) i webhook stoi otworem.
+BOT_PRO_AGENT_WEBHOOK_TOKEN = os.environ.get("BOT_PRO_AGENT_WEBHOOK_TOKEN")
 # Bezpiecznik D (jak BOT_LIVE_MAX_TURNS/BOT_QUOTE_MAX_TURNS): max krokow Runnera w JEDNYM
 # wywolaniu Runner.run_sync (petla narzedzie->model wewnatrz jednej tury), zeby zapetlone
 # wywolania narzedzi nie chodzily w nieskonczonosc.
 BOT_PRO_MAX_TURNS = int(os.environ.get("BOT_PRO_MAX_TURNS", "30"))
+# Rezerwa pod przyszly watchdog tury (jeszcze nie podpieta w zadaniu 7): ile kolejnych tur
+# BEZ POSTEPU (bez zmiany pozycji/stanu) ma dopuszczac bot, zanim sam odda rozmowe czlowiekowi,
+# oraz po ilu minutach ciszy klienta watchdog ma sie odezwac. Wartosci domyslne swiadomie takie
+# same jak w brifie zadania — dolozone teraz, zeby watchdog nie musial dotykac config.py.
+BOT_PRO_MAX_BEZ_POSTEPU = int(os.environ.get("BOT_PRO_MAX_BEZ_POSTEPU", "3"))
+BOT_PRO_WATCHDOG_MINUTES = int(os.environ.get("BOT_PRO_WATCHDOG_MINUTES", "20"))
+# Inboxy obslugiwane przez Debusia Pro. Pusta wartosc = bot wylaczony wszedzie — kill-switch
+# migracji bez zmiany kodu: przelaczamy inbox po inboksie, z natychmiastowym odwrotem (patrz
+# webhooks.py, _process_pro). Zmiana wymaga recreate kontenera mostu, nie pushu kodu.
+BOT_PRO_INBOXES = set(
+    x.strip() for x in os.environ.get("BOT_PRO_INBOXES", "").split(",") if x.strip()
+)

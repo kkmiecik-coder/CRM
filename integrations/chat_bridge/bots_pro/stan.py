@@ -294,6 +294,61 @@ def link_do_checkoutu(edit_uuid):
     return {"ok": True, "edit_uuid": uuid_wyceny}
 
 
+def wolno_prowadzic_rozmowe(conv_id):
+    """Bramka ciszy po handoffie (Task 7, brief o niej nie wspomina — rozstrzygnięcie
+    właściciela zadania, patrz raport).
+
+    Sam status "pending" NIE wystarcza jako bramka: w Chatwoocie "Oczekująca"
+    (pending) to jednocześnie stan startowy (bot jeszcze się nie odezwał) I zwykły
+    "snooze" agenta — agent może ręcznie zaparkować rozmowę w pending PO WŁASNEJ
+    publicznej odpowiedzi (np. czekając na klienta). Dokładnie to wydarzyło się
+    w audycie (rozmowa #1316): agentka odpisała klientowi ("nie robimy naturalnych
+    krawędzi"), a godzinę później bot podjął rozmowę od nowa i jej zaprzeczył,
+    bo widział tylko status. Stary silnik (bots/quotebot.py:_wolno_prowadzic_rozmowe)
+    ma dokładnie tę lukę — sprawdza WYŁĄCZNIE status.
+
+    Bramka sprawdza więc DWA warunki naraz:
+      1) status rozmowy to "pending",
+      2) OSTATNIA publiczna (nie-prywatna) wiadomość w rozmowie NIE została
+         napisana przez człowieka-agenta — w Chatwoocie sender.type == "user"
+         dla człowieka, w odróżnieniu od kontaktu ("contact") i bota ("agent_bot").
+         Ta sama reguła, której webhooks.py używa do doklejania stopki TYLKO do
+         wiadomości ludzkich (nie botowych) — patrz komentarz przy build_footer.
+    Gdy human już odpisał publicznie, bot MILCZY niezależnie od statusu — agent
+    mógł później zasnoozować rozmowę z powrotem do pending, a to i tak nie oddaje
+    głosu botowi.
+
+    Notatki prywatne (private=True) są POMIJANE przy szukaniu "ostatniej
+    wiadomości" — wewnętrzna notatka między agentami nie jest publiczną
+    odpowiedzią klientowi i sama w sobie nie oznacza przejęcia rozmowy.
+
+    Zapytanie o historię idzie PRZEZ `core.chatwoot.cw` (surowe wywołanie API),
+    NIE przez `cw_messages` — `cw_messages` celowo gubi nadawcę (mapuje tylko
+    role user/assistant) i pomija wiadomości z pustą treścią (np. sam załącznik
+    obrazu bez tekstu), co ukryłoby realną odpowiedź agenta przed tą bramką.
+
+    Błąd odczytu (sieć/Chatwoot) -> False (bezpieczny wybor: cisza, nie zgadywanie).
+    W odróżnieniu od starego silnika (który w tym miejscu RZUCA, licząc na retry
+    workera) — Dębuś Pro pisze wprost do klienta, więc niepewność ma kończyć się
+    ciszą w tej turze, nie serią retry-i, z których każdy mógłby, przy błędnym
+    odczycie, wysłać wiadomość, której nie powinno być."""
+    from core.chatwoot import cw_conv_status, cw
+    from core.log import log
+
+    if cw_conv_status(conv_id) != "pending":
+        return False
+    try:
+        wiadomosci = cw("GET", "/conversations/%s/messages" % conv_id).json().get("payload", [])
+    except Exception as e:
+        log("stan: nie mozna odczytac historii rozmowy, bot milczy (conv %s): %r" % (conv_id, e))
+        return False
+    for wiadomosc in reversed(wiadomosci or []):
+        if wiadomosc.get("private"):
+            continue
+        return (wiadomosc.get("sender") or {}).get("type") != "user"
+    return True
+
+
 def ostatnia_wiadomosc_klienta():
     """Treść ostatniej wiadomości przychodzącej — materiał do weryfikacji cytatu."""
     from config import BOT_HISTORY_LIMIT

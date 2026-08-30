@@ -6,7 +6,7 @@ import time
 import json
 from flask import Blueprint, request, jsonify
 from config import (WEBHOOK_TOKEN, BOT_AGENT_WEBHOOK_TOKEN, BOT_LIVE_AGENT_WEBHOOK_TOKEN,
-                     BOT_QUOTE_AGENT_WEBHOOK_TOKEN,
+                     BOT_QUOTE_AGENT_WEBHOOK_TOKEN, BOT_PRO_AGENT_WEBHOOK_TOKEN, BOT_PRO_INBOXES,
                      CW_OLX_INBOX, CW_ALLEGRO_MSG_INBOX)
 from core.log import log
 from core.db import db
@@ -188,6 +188,54 @@ def agent_bot_quote():
         return jsonify(ok=False, error="unauthorized"), 401
     d = request.get_json(force=True, silent=True) or {}
     _process_quotebot(d)
+    return jsonify(ok=True)
+
+
+# ---------- AGENT BOT PRO (Debus Pro, Agents SDK, osobna encja) ----------
+def _process_pro(d):
+    """Debus Pro. Bramka inboxow (BOT_PRO_INBOXES) jest kill-switchem migracji:
+    przelaczamy inbox po inboxie zmienna srodowiskowa, bez zmiany kodu — i bez
+    ruszania starych botow (agent_bot/agent_bot_quote wyzej zostaja nietkniete).
+
+    UWAGA: swiadomie BEZ bezwarunkowego cw_bot_handoff — _process_agent_bot wola
+    go przed jakimkolwiek sprawdzeniem tresci i persony, przez co wybudza rozmowe
+    ze statusu 'pending' zanim ktokolwiek cokolwiek powiedzial. Dla Debusia Pro
+    to bylby zly domyslny wybor: bramka ciszy po handoffie (bots_pro.stan.
+    wolno_prowadzic_rozmowe, wolana wewnatrz tury) i tak wymaga statusu 'pending',
+    wiec przedwczesny handoff tylko psulby stan rozmowy bez potrzeby.
+    """
+    if d.get("event") != "message_created":
+        return
+    if str(d.get("message_type")) not in ("incoming", "0"):
+        return
+    if d.get("private"):
+        return
+
+    conv_id = (d.get("conversation") or {}).get("id") or d.get("conversation_id")
+    inbox_id = str(d.get("inbox_id")
+                   or (d.get("conversation") or {}).get("inbox_id")
+                   or (d.get("inbox") or {}).get("id") or "")
+    content = (d.get("content") or "").strip()
+    mid = str(d.get("id") or "")
+    att = [a.get("data_url") for a in (d.get("attachments") or [])
+           if a.get("data_url") and str(a.get("file_type") or "").lower() == "image"]
+
+    if not conv_id or not mid or (not content and not att):
+        return
+
+    if inbox_id not in BOT_PRO_INBOXES:
+        log("pro: inbox %s poza BOT_PRO_INBOXES — pomijam (conv %s)" % (inbox_id, conv_id))
+        return
+
+    enqueue_quote_turn(conv_id, inbox_id, mid, content, attachments=att, persona="pro")
+
+
+@bp.post("/agent-bot-pro")
+def agent_bot_pro():
+    if BOT_PRO_AGENT_WEBHOOK_TOKEN and request.args.get("token") != BOT_PRO_AGENT_WEBHOOK_TOKEN:
+        return jsonify(ok=False, error="unauthorized"), 401
+    d = request.get_json(force=True, silent=True) or {}
+    _process_pro(d)
     return jsonify(ok=True)
 
 
