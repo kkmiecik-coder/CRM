@@ -188,3 +188,119 @@ def test_rejestruje_rozbicie_per_pozycja_nie_tylko_sumy_calosci(monkeypatch):
     assert {"700.00", "861.00"} <= znane     # material wybranego wariantu (unit/total)
     assert {"200.00", "246.00"} <= znane     # wykonczenie
     assert {"100.00", "123.00"} <= znane     # krawedzie
+
+
+def test_surowe_nigdy_nie_pokazuje_sciezki_katalogowej_nawet_z_duchem_finishing_id(monkeypatch):
+    """W1 (runda poprawek 1): stan.zapisz_pozycje juz czysci finishing_id przy
+    przejsciu na "surowe" (fix w stan.py), ale _wykonczenie_opis ma zostac
+    poprawna NIEZALEZNIE od tego -- ten test symuluje pozycje, w ktorej
+    finishing_id zostal jako "duch" (np. dane sprzed poprawki, recznie
+    naprawiona baza) i sprawdza, ze mimo katalogowego wpisu dla tego id
+    podsumowanie NIE pokazuje koloru/polysku przy cenie surowego blatu."""
+    conv_id = 94012
+    stan.ustaw_kontekst(conv_id)
+    poz_z_duchem = dict(_pozycja())
+    poz_z_duchem["wykonczenie"] = "surowe"
+    poz_z_duchem["finishing_id"] = 3   # "duch" -- nie powinien juz nic znaczyc
+    poz = [poz_z_duchem]
+    monkeypatch.setattr(stan, "pozycje", lambda: poz)
+    monkeypatch.setattr(podsumowanie.crm_calc, "get_options", lambda: {
+        "finishing_options": [
+            {"id": 3, "full_path": "Olejowane/Bezbarwne/Olej twardowoskowy"},
+        ]})
+    monkeypatch.setattr(podsumowanie.crm_calc, "calculate", lambda p, o: {
+        "ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}})
+    _zaladuj_atrape_wysylki(monkeypatch)
+    wyslane = []
+    monkeypatch.setattr(podsumowanie, "cw_agent_reply",
+                        lambda cid, tekst, token=None: wyslane.append((cid, tekst, token)) or True)
+
+    podsumowanie.wyslij()
+    tekst = wyslane[0][1]
+    assert "wykończenie: surowe" in tekst
+    assert "Olejowane" not in tekst
+    assert "Bezbarwne" not in tekst
+
+
+class TestWynikDlaModelu:
+    """W3 (runda poprawek 1): payload calculate() zwracany modelowi ma byc
+    przyciety do wariantu WYBRANEGO -- rejestr I1 (kwoty_z_wyniku) zna tylko
+    jego cene, wiec pelna lista wariantow w wyniku narzedzia byla furtka,
+    przez ktora bot cytujacy PRAWDZIWA cene niewybranego wariantu zostawalby
+    oskarzony o halucynacje przez wlasny wynik wlasnego narzedzia."""
+
+    def _wynik_calculate(self):
+        return {
+            "ok": True,
+            "totals": {"total_netto": 1000.0, "total_brutto": 1230.0},
+            "products": [{
+                "index": 1,
+                "variants": [
+                    {"variant_code": "dab-lity-ab", "available": True,
+                     "unit_netto": 700.0, "unit_brutto": 861.0,
+                     "total_netto": 700.0, "total_brutto": 861.0},
+                    {"variant_code": "jes-lity-ab", "available": True,
+                     "unit_netto": 500.0, "unit_brutto": 615.0,
+                     "total_netto": 500.0, "total_brutto": 615.0},
+                    {"variant_code": "buk-lity-ab", "available": False},
+                ],
+                "finishing": {"netto": 0.0, "brutto": 0.0},
+                "edges": {"netto": 0.0, "brutto": 0.0},
+            }],
+        }
+
+    def test_zostawia_tylko_wariant_wybrany_w_pozycji(self):
+        pozycje = [{"id": "1", "selected_variant": "dab-lity-ab"}]
+        okrojony = podsumowanie.wynik_dla_modelu(pozycje, self._wynik_calculate())
+        [prod] = okrojony["products"]
+        assert [v["variant_code"] for v in prod["variants"]] == ["dab-lity-ab"]
+
+    def test_niedostepny_wybrany_wariant_daje_pusta_liste_nie_bledy(self):
+        # buk-lity-ab jest w wyniku, ale available=False -- nie ma prawdziwej
+        # ceny do pokazania, wiec przyciety wynik ma pusta liste dla tej pozycji.
+        pozycje = [{"id": "1", "selected_variant": "buk-lity-ab"}]
+        okrojony = podsumowanie.wynik_dla_modelu(pozycje, self._wynik_calculate())
+        assert okrojony["products"][0]["variants"] == []
+
+    def test_totals_i_reszta_wyniku_zostaja_bez_zmian(self):
+        pozycje = [{"id": "1", "selected_variant": "dab-lity-ab"}]
+        wynik = self._wynik_calculate()
+        okrojony = podsumowanie.wynik_dla_modelu(pozycje, wynik)
+        assert okrojony["totals"] == wynik["totals"]
+        assert okrojony["ok"] is True
+
+    def test_nie_mutuje_oryginalnego_wyniku(self):
+        # policz_wycene w narzedzia.py najpierw rejestruje kwoty z PELNEGO
+        # wynik["products"], DOPIERO POTEM przycina -- gdyby ta funkcja
+        # mutowala wejscie in-place, kolejnosc miałaby znaczenie w sposob
+        # trudny do zauwazenia. Kopiowanie zamiast mutacji to eliminuje.
+        pozycje = [{"id": "1", "selected_variant": "dab-lity-ab"}]
+        wynik = self._wynik_calculate()
+        liczba_wariantow_przed = len(wynik["products"][0]["variants"])
+        podsumowanie.wynik_dla_modelu(pozycje, wynik)
+        assert len(wynik["products"][0]["variants"]) == liczba_wariantow_przed
+
+    def test_brak_sekcji_products_przechodzi_bez_zmian(self):
+        # np. braki_mapowania -- crm_calc.calculate() zwraca {"ok": False, ...}
+        # BEZ klucza "products" wcale (patrz bots/crm_calc.py:calculate).
+        wynik = {"ok": False, "braki_mapowania": [{"powod": "x"}]}
+        assert podsumowanie.wynik_dla_modelu([], wynik) == wynik
+
+
+class TestOpisEdges:
+    """Runda poprawek 1, drobne: galaz dla nierozpoznanego typu (dawniej z
+    etykieta z martwego _TYP_EDGE_PL) POMIJA wpis, zamiast zgadywac etykiete
+    -- "sharp" nigdy tu nie trafia (normalize_edges go odrzuca przy zapisie
+    w stan.py), ale funkcja ma zostac bezpieczna, gdyby jednak trafil."""
+
+    def test_pomija_wpis_z_nierozpoznanym_typem(self):
+        assert podsumowanie._opis_edges(
+            [{"litera": "A", "typ": "sharp", "r_value": None, "angle_value": None}]) == ""
+
+    def test_grupuje_round_i_chamfer_normalnie(self):
+        opis = podsumowanie._opis_edges([
+            {"litera": "A", "typ": "round", "r_value": 5, "angle_value": None},
+            {"litera": "B", "typ": "round", "r_value": 5, "angle_value": None},
+            {"litera": "C", "typ": "chamfer", "r_value": None, "angle_value": 45},
+        ])
+        assert opis == "R5 (A, B); Fazowanie 45° (C)"

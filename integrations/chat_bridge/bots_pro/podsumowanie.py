@@ -46,23 +46,38 @@ def _wykonczenie_opis(poz, options):
     konkretny kolor/połysk (finishing_id) faktycznie trafi do zamówienia — a to
     pole i tak wchodzi do podpisu potwierdzenia (potwierdzenia.podpis), więc
     klient podpisywałby decyzję, której nigdy nie zobaczył (Task 2, domknięcie
-    resztki z Task 3 — ten sam problem, który W5 rozwiązało dla materiału)."""
+    resztki z Task 3 — ten sam problem, który W5 rozwiązało dla materiału).
+
+    "surowe" NIGDY nie pokazuje ścieżki katalogowej, nawet jeśli finishing_id
+    zostałby w pozycji z poprzedniego (innego) wykończenia — stan.zapisz_pozycje
+    czyści finishing_id automatycznie przy przejściu na "surowe" (W1, runda
+    poprawek 1), ale ta funkcja ma zostać poprawna NAWET gdyby to się kiedyś
+    nie zdarzyło: inaczej klient potwierdzałby KOLOR/POŁYSK przy cenie
+    surowego blatu, której ten kolor/połysk już nie dotyczy (build_products
+    ignoruje finishing_id, gdy ftype == "Surowe")."""
+    tekst = str(poz.get("wykonczenie") or "").strip()
+    if tekst == "surowe":
+        return tekst
     fid = poz.get("finishing_id")
     if fid and options:
         pelna_sciezka = crm_calc.finishing_full_path(fid, options)
         if pelna_sciezka:
             return pelna_sciezka.replace("/", " > ")
-    return str(poz.get("wykonczenie") or "").strip()
-
-
-_TYP_EDGE_PL = {"sharp": "ostre", "chamfer": "fazowane", "round": "zaokrąglone"}
+    return tekst
 
 
 def _opis_edges(edges):
     """Czytelny opis krawędzi do podsumowania, pogrupowany po (typ, promień/kąt):
     'R5 (A, B); Fazowanie 45° (C)' — zamiast surowej liczby sztuk, która nie mówi
     klientowi, CO konkretnie podpisuje. Układ wzorowany na bots.quotebot._opis_edges
-    (ten sam pomysł, bez importowania całego ciężkiego modułu quotebota)."""
+    (ten sam pomysł, bez importowania całego ciężkiego modułu quotebota).
+
+    Obsługuje WYŁĄCZNIE "round"/"chamfer" — "sharp" nigdy tu nie trafia, bo
+    crm_calc.normalize_edges pomija go już przy zapisie (stan._zastosuj_krawedzie
+    zapisuje wyłącznie wynik normalize_edges), więc gałąź na inne/nieznane typy
+    pomija wpis, zamiast zgadywać etykietę dla wartości, która w praktyce nie
+    występuje (runda poprawek 1, drobne: martwa gałąź z etykietą dla "sharp"
+    usunięta razem z nieużywanym słownikiem _TYP_EDGE_PL)."""
     grupy = {}
     for e in edges or []:
         if not (isinstance(e, dict) and e.get("litera") and e.get("typ")):
@@ -74,7 +89,7 @@ def _opis_edges(edges):
         elif typ == "chamfer":
             etykieta = "Fazowanie %s°" % angle if angle is not None else "Fazowanie"
         else:
-            etykieta = _TYP_EDGE_PL.get(typ, typ).capitalize()
+            continue
         grupy.setdefault((typ, r_value, angle), [etykieta, []])[1].append(e["litera"])
     return "; ".join("%s (%s)" % (etyk, ", ".join(litery)) for etyk, litery in grupy.values())
 
@@ -136,6 +151,37 @@ def kwoty_z_wyniku(pozycje, wynik):
                 if isinstance(wartosc, (int, float)):
                     kwoty.append(wartosc)
     return kwoty
+
+
+def wynik_dla_modelu(pozycje, wynik):
+    """Payload crm_calc.calculate() PRZYCIĘTY do tego, co bot smie zacytować.
+
+    Sekcja 'variants' per produkt z definicji niesie WSZYSTKIE 8 wariantów
+    drewna z katalogu (patrz calculate_material_variants w pricing_service —
+    kalkulator CRM zawsze liczy pełną tabelę porównawczą, nie tylko wybrany
+    wariant), a rejestr I1 (kwoty_z_wyniku, wyżej) zna TYLKO cenę wariantu
+    faktycznie WYBRANEGO w danej pozycji. Bez przycięcia bot cytujący cenę
+    INNEGO (niewybranego, ale wciąż PRAWDZIWEGO) wariantu z wyniku WŁASNEGO
+    wywołania narzędzia zostałby przez guardrail G1 oskarżony o halucynację
+    (W3, runda poprawek 1).
+
+    Kierunek naprawy: zwężamy to, co widzi model — NIE poszerzamy rejestru.
+    Poszerzenie rejestru o wszystkie warianty otworzyłoby furtkę do cytowania
+    cen wariantów, o których w rozmowie nigdy nie było mowy (dziś żadne z 11
+    narzędzi nie oferuje klientowi porównania wariantów — takie narzędzie,
+    gdyby powstało, dostałoby WŁASNY, świadomy zakres rejestru)."""
+    if "products" not in wynik:
+        return wynik   # brak sekcji products (np. braki_mapowania) -> nic do przycięcia
+    okrojony = dict(wynik)
+    przyciete_produkty = []
+    for poz, prod in zip(pozycje, wynik.get("products") or []):
+        prod = dict(prod)
+        kod = poz.get("selected_variant")
+        prod["variants"] = [v for v in (prod.get("variants") or [])
+                            if v.get("variant_code") == kod and v.get("available")]
+        przyciete_produkty.append(prod)
+    okrojony["products"] = przyciete_produkty
+    return okrojony
 
 
 def wyslij():

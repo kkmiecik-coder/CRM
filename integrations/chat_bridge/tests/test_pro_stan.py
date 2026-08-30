@@ -186,6 +186,56 @@ class TestKrawedzie:
             {"letter": "C", "type": "chamfer", "r_value": None, "angle_value": 30},
         ]
 
+    def test_sharp_obok_realnej_obrobki_nie_czysci_calosci(self):
+        # Runda poprawek 1, drobne: lista MIESZANA — normalize_edges() zwraca
+        # NIEPUSTA liste (samo B, sharp A jest przez nia pomijane), wiec idzie
+        # sciezka REPLACE ("znormalizowane" niepuste), NIE sciezka CLEAR — A
+        # (sharp) po prostu nie trafia do zapisanego wyniku, B zostaje.
+        # To zachowanie wynika WYLACZNIE z kolejnosci if/elif w
+        # _zastosuj_krawedzie (odwrocona kolejnosc zmienilaby semantyke na
+        # "kazdy sharp w liscie czysci wszystko"), wiec zasluguje na wlasny test.
+        stan.ustaw_kontekst(93034)
+        stan.zapisz_pozycje("1", produkt="blat", edges=[
+            {"litera": "A", "typ": "sharp"}, {"litera": "B", "typ": "round", "r": 5}])
+        (poz,) = stan.pozycje()
+        assert poz["edges"] == [
+            {"litera": "B", "typ": "round", "r_value": 5, "angle_value": None}]
+
+
+class TestSurowyCzysciFinishingId:
+    """W1 (runda poprawek 1): wykonczenie="surowe" musi skasowac finishing_id
+    zapisany przy poprzednim (innym) wykonczeniu — inaczej klient potwierdza
+    KOLOR/POLYSK przy cenie surowego blatu, ktora go juz nie liczy."""
+
+    def test_przejscie_na_surowe_kasuje_wczesniej_zapisany_finishing_id(self):
+        stan.ustaw_kontekst(93035)
+        stan.zapisz_pozycje("1", produkt="blat", wykonczenie="olejowane",
+                            finishing_option_id=3)
+        (poz,) = stan.pozycje()
+        assert poz["finishing_id"] == 3
+
+        stan.zapisz_pozycje("1", wykonczenie="surowe")
+        (poz,) = stan.pozycje()
+        assert "finishing_id" not in poz
+        assert poz["wykonczenie"] == "surowe"
+
+    def test_surowe_bez_wczesniejszego_finishing_id_nie_rzuca(self):
+        stan.ustaw_kontekst(93036)
+        wynik = stan.zapisz_pozycje("1", produkt="blat", wykonczenie="surowe")
+        assert wynik["ok"] is True
+        assert "finishing_id" not in wynik["pozycja"]
+
+    def test_inne_wykonczenie_niz_surowe_nie_rusza_finishing_id(self):
+        # Kontrola negatywna: zmiana grubosci (bez dotykania wykonczenia) MA
+        # zachowac finishing_id -- czyszczenie jest zwiazane WYLACZNIE z
+        # jawnym "surowe", nie z kazda aktualizacja pozycji.
+        stan.ustaw_kontekst(93037)
+        stan.zapisz_pozycje("1", produkt="blat", wykonczenie="olejowane",
+                            finishing_option_id=3)
+        stan.zapisz_pozycje("1", grubosc_cm=6)
+        (poz,) = stan.pozycje()
+        assert poz["finishing_id"] == 3
+
 
 class TestOtwory:
     """Task 2: zapisz_pozycje dostaje otwory — lista opisow (jak stary silnik,

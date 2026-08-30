@@ -13,6 +13,8 @@ na samej górze robi dokładnie to (wzorzec z test_pro_models.py).
 """
 import asyncio
 import json
+import sys
+import types
 
 import pytest
 
@@ -22,7 +24,7 @@ from agents.tool_context import ToolContext
 
 from bots import crm_calc
 from bots_pro import narzedzia as n
-from bots_pro import stan
+from bots_pro import podsumowanie, potwierdzenia, stan
 
 stan.init_pro()
 
@@ -132,6 +134,76 @@ class TestSchematZapiszPozycje:
         wynik = crm_calc.normalize_edges([{"litera": "A", "typ": "round", "r": 3}])
         assert wynik == [{"litera": "A", "typ": "round", "r_value": 3, "angle_value": None}]
 
+    def test_selected_variant_ma_enum_z_pustym_stringiem_i_osmioma_wariantami(self):
+        # W2 (runda poprawek 1): przed poprawka WARIANTY/LITERY_KRAWEDZI byly
+        # martwe -- podpis narzedzia mial zwykly `str`, wiec komentarz "enum
+        # zamyka to na poziomie schematu" byl niezgodny ze stanem kodu.
+        schemat = self._wlasciwosci()["selected_variant"]
+        assert set(schemat["enum"]) == {""} | set(n.WARIANTY)
+
+    def test_wykonczenie_ma_enum_z_trzema_wartosciami_i_pustym_stringiem(self):
+        schemat = self._wlasciwosci()["wykonczenie"]
+        assert set(schemat["enum"]) == {"", "surowe", "olejowane", "lakierowane"}
+
+    def test_litera_krawedzi_w_edges_ma_enum_zgodny_z_litery_krawedzi(self):
+        nazwa_definicji = self._nazwa_definicji_krawedzi()
+        pola = n.zapisz_pozycje.params_json_schema["$defs"][nazwa_definicji]["properties"]
+        assert set(pola["litera"]["enum"]) == set(n.LITERY_KRAWEDZI)
+
+    def test_typ_krawedzi_w_edges_ma_enum_round_chamfer_sharp(self):
+        nazwa_definicji = self._nazwa_definicji_krawedzi()
+        pola = n.zapisz_pozycje.params_json_schema["$defs"][nazwa_definicji]["properties"]
+        assert set(pola["typ"]["enum"]) == {"round", "chamfer", "sharp"}
+
+    def _nazwa_definicji_krawedzi(self):
+        schemat = self._wlasciwosci()["edges"]
+        warianty = schemat.get("anyOf", [schemat])
+        [z_elementami] = [w for w in warianty if "items" in w]
+        return z_elementami["items"]["$ref"].rsplit("/", 1)[-1]
+
+
+class TestWartoscSpozaEnumuOdrzucanaPrzezSchemat:
+    """W2 (runda poprawek 1): dowód na PRAWDZIWEJ ścieżce wywołania SDK (nie
+    tylko na deklaracji schematu), że enum naprawdę zamyka model przed
+    wysłaniem wartości spoza oferty — `on_invoke_tool` odrzuca taki JSON
+    PRZED wykonaniem ciała narzędzia, więc `stan.zapisz_pozycje` w ogóle nie
+    zostaje wywołane i żadna pozycja nie powstaje. Zachowanie zweryfikowane
+    empirycznie w kontenerze: SDK w tej sytuacji zwraca string z komunikatem
+    błędu (nie rzuca wyjątku i nie zwraca dict {"ok": ...})."""
+
+    def test_selected_variant_spoza_enuma(self):
+        stan.ustaw_kontekst(96011)
+        wynik = _wolaj(n.zapisz_pozycje, id="1", selected_variant="jes-lity-bb")
+        assert isinstance(wynik, str)
+        assert "zapisz_pozycje" in wynik
+        assert stan.pozycje() == []
+
+    def test_wykonczenie_spoza_enuma(self):
+        stan.ustaw_kontekst(96012)
+        wynik = _wolaj(n.zapisz_pozycje, id="1", wykonczenie="matowe")
+        assert isinstance(wynik, str)
+        assert stan.pozycje() == []
+
+    def test_litera_krawedzi_spoza_enuma(self):
+        stan.ustaw_kontekst(96013)
+        wynik = _wolaj(n.zapisz_pozycje, id="1",
+                       edges=[{"litera": "Z", "typ": "round", "r": 5, "kat": None}])
+        assert isinstance(wynik, str)
+        assert stan.pozycje() == []
+
+    def test_litera_wszystkie_makro_nie_jest_juz_w_enumie(self):
+        # Świadoma zmiana zachowania (W2): stary silnik (bots/quotebot.py) i
+        # crm_calc.normalize_edges rozumieją "WSZYSTKIE" jako skrót na A,B,C,D
+        # — ale to narzędzie SDK teraz zamyka enum liter na 14 prawdziwych
+        # wartościach z LITERY_KRAWEDZI, więc "WSZYSTKIE" NIE przechodzi przez
+        # schemat. Model musi wypisać cztery osobne wpisy — bezpieczeństwo
+        # zamkniętego enumu jest tu ważniejsze niż wygoda jednej skrótowej
+        # wartości specjalnej.
+        stan.ustaw_kontekst(96014)
+        wynik = _wolaj(n.zapisz_pozycje, id="1",
+                       edges=[{"litera": "WSZYSTKIE", "typ": "round", "r": 5, "kat": None}])
+        assert isinstance(wynik, str)
+
 
 class TestZapiszPozycjeWywolanie:
     """Realne wywołania narzędzia (nie tylko schemat) przez on_invoke_tool —
@@ -197,16 +269,14 @@ class TestZapiszPozycjeWywolanie:
             {"litera": "A", "typ": "round", "r_value": 5, "angle_value": None}]
         assert poz["grubosc"] == 6
 
-    def test_nierozpoznany_wariant_nie_rozklada_gatunku_i_ladnuje_w_braki(self):
-        # Model teoretycznie moze wywolac narzedzie z wartoscia spoza enuma
-        # (np. blad warstwy posredniej) -- stan.py ma i tak nie zgadywac.
-        stan.ustaw_kontekst(96006)
-        _wolaj(n.zapisz_pozycje, id="1", selected_variant="nieistniejacy-wariant")
-        (poz,) = stan.pozycje()
-        assert "gatunek" not in poz
-        products, braki = crm_calc.build_products(stan.pozycje(), {"finishing_options": []})
-        assert products == []
-        assert len(braki) == 1
+    # Test "wartość spoza enuma nie rozkłada gatunku" PRZENIESIONY do
+    # TestWartoscSpozaEnumuOdrzucanaPrzezSchemat (runda poprawek 1, W2):
+    # od czasu, gdy selected_variant dostał Literal, taka wartość w ogóle
+    # nie dociera do stan.zapisz_pozycje przez tę ścieżkę wywołania SDK —
+    # `on_invoke_tool` odrzuca ją wcześniej. Defensywne zachowanie
+    # stan.zapisz_pozycje na wypadek wywołania Z POMINIĘCIEM narzędzia SDK
+    # nadal jest pokryte w tests/test_pro_stan.py
+    # (test_zapisz_pozycje_z_nieznanym_wariantem_nie_rozklada_gatunku).
 
     def test_usun_kasuje_pozycje(self):
         stan.ustaw_kontekst(96007)
@@ -250,3 +320,169 @@ class TestPoliczWyceneRejestrujeKwoty:
             "ok": True, "shipping_netto": 0.0, "shipping_brutto": 0.0})
         _wolaj(n.policz_wysylke, kod_pocztowy="00-000")
         assert "0.00" in stan.znane_kwoty()
+
+
+class TestPoliczWyceneIWysylkePrzycinajaWynik:
+    """W3 (runda poprawek 1): policz_wycene/policz_wysylke muszą zwracać
+    modelowi WYŁĄCZNIE to, co rejestr I1 zna — inaczej bot cytujący prawdziwą
+    cenę z WŁASNEGO wyniku WŁASNEGO narzędzia (ale niewybranego wariantu albo
+    raw_netto/brutto sprzed narzutu na pakowanie) zostałby przez guardrail G1
+    oskarżony o halucynację."""
+
+    def test_policz_wycene_nie_pokazuje_niewybranych_wariantow(self, monkeypatch):
+        stan.ustaw_kontekst(96019)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat", dlugosc_cm=180,
+              szerokosc_cm=60, grubosc_cm=4, ilosc=1,
+              selected_variant="dab-lity-ab", wykonczenie="surowe")
+        monkeypatch.setattr(n.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(n.crm_calc, "calculate", lambda p, o: {
+            "ok": True, "totals": {"total_netto": 700.0, "total_brutto": 861.0},
+            "products": [{
+                "variants": [
+                    {"variant_code": "dab-lity-ab", "available": True,
+                     "unit_netto": 700.0, "unit_brutto": 861.0,
+                     "total_netto": 700.0, "total_brutto": 861.0},
+                    {"variant_code": "jes-lity-ab", "available": True,
+                     "unit_netto": 500.0, "unit_brutto": 615.0,
+                     "total_netto": 500.0, "total_brutto": 615.0},
+                ],
+                "finishing": {"netto": 0.0, "brutto": 0.0},
+                "edges": {"netto": 0.0, "brutto": 0.0},
+            }],
+        })
+        wynik = _wolaj(n.policz_wycene)
+        [prod] = wynik["products"]
+        kody = [v["variant_code"] for v in prod["variants"]]
+        assert kody == ["dab-lity-ab"]
+        assert "jes-lity-ab" not in kody
+        # I1 nadal zna tylko wariant wybrany — spójne z tym, co model widzi.
+        assert "615.00" not in stan.znane_kwoty()
+        assert "861.00" in stan.znane_kwoty()
+
+    def test_policz_wysylke_nie_pokazuje_ceny_kuriera_sprzed_narzutu(self, monkeypatch):
+        # crm_calc.shipping_quote() niesie tez raw_netto/raw_brutto (cena
+        # PRZED PACKING_MULTIPLIER) — to prawdziwe liczby, ktorych rejestr
+        # (tylko shipping_netto/brutto) nie zna.
+        stan.ustaw_kontekst(96020)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat")
+        monkeypatch.setattr(n.crm_calc, "shipping_quote", lambda p, kod: {
+            "ok": True, "carriers": 2, "carrier_name": "DPD",
+            "shipping_netto": 130.0, "shipping_brutto": 159.9,
+            "raw_netto": 100.0, "raw_brutto": 123.0,
+        })
+        wynik = _wolaj(n.policz_wysylke, kod_pocztowy="00-000")
+        assert "raw_netto" not in wynik
+        assert "raw_brutto" not in wynik
+        assert wynik["shipping_netto"] == 130.0
+        assert wynik["shipping_brutto"] == 159.9
+        assert wynik["carrier_name"] == "DPD"
+
+    def test_policz_wysylke_bez_ok_zwraca_wynik_bez_zmian(self, monkeypatch):
+        stan.ustaw_kontekst(96021)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat")
+        monkeypatch.setattr(n.crm_calc, "shipping_quote", lambda p, kod: {
+            "ok": False, "errors": [{"code": "BAD_POSTCODE"}]})
+        wynik = _wolaj(n.policz_wysylke, kod_pocztowy="zly-kod")
+        assert wynik == {"ok": False, "errors": [{"code": "BAD_POSTCODE"}]}
+
+
+def _zaladuj_atrape_wysylki(monkeypatch):
+    """Podmienia bots_pro.wysylka w sys.modules (moduł powstaje dopiero w
+    Task 6) — jak w tests/test_pro_podsumowanie.py i test_pro_i2_integracja.py."""
+    modul = types.ModuleType("bots_pro.wysylka")
+    modul.przygotuj = lambda tekst, persona: [tekst]
+    monkeypatch.setitem(sys.modules, "bots_pro.wysylka", modul)
+
+
+def _potwierdz_biezace_pozycje(monkeypatch, cytat="Tak, zgadzam się"):
+    """Przechodzi PRAWDZIWĄ ścieżkę I2 — podsumowanie.wyslij() ->
+    potwierdzenia.potwierdz() — dokładnie tak, jak zrobiłby to model w
+    prawdziwej rozmowie, żeby bramka (potwierdzenia.sprawdz_bramke) miała co
+    przepuścić. Wzorowane na tests/test_pro_i2_integracja.py."""
+    monkeypatch.setattr(podsumowanie.crm_calc, "get_options", lambda: {})
+    monkeypatch.setattr(podsumowanie.crm_calc, "calculate", lambda p, o: {
+        "ok": True, "totals": {"total_netto": 100.0, "total_brutto": 123.0}})
+    _zaladuj_atrape_wysylki(monkeypatch)
+    monkeypatch.setattr(podsumowanie, "cw_agent_reply", lambda *a, **k: True)
+    monkeypatch.setattr(stan, "ostatnia_wiadomosc_klienta", lambda: cytat)
+    assert podsumowanie.wyslij()["ok"] is True
+    assert potwierdzenia.potwierdz(cytat)["ok"] is True
+
+
+class TestBramkaI2WNarzedziach:
+    """W4 (runda poprawek 1): dowód na PRAWDZIWY efekt uboczny, nie tylko na
+    to, że narzędzie zwraca błąd — bez aktualnego potwierdzenia
+    crm_calc.create_quote/update_quote i stan.link_do_checkoutu NIE MAJĄ
+    zostać wywołane. Ta sama bramka (potwierdzenia.sprawdz_bramke) chroni
+    zapisz_wycene, popraw_wycene (W5) i przygotuj_zamowienie."""
+
+    def test_zapisz_wycene_bez_potwierdzenia_nie_wola_create_quote(self, monkeypatch):
+        stan.ustaw_kontekst(96022)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat")
+        wywolania = []
+        monkeypatch.setattr(n.crm_calc, "create_quote",
+                            lambda *a, **k: wywolania.append(1) or {"ok": True})
+        wynik = _wolaj(n.zapisz_wycene, client_id=1)
+        assert wynik["ok"] is False
+        assert wywolania == []
+
+    def test_zapisz_wycene_z_aktualnym_potwierdzeniem_wola_create_quote(self, monkeypatch):
+        stan.ustaw_kontekst(96023)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat", dlugosc_cm=180,
+              szerokosc_cm=60, grubosc_cm=4, ilosc=1,
+              selected_variant="dab-lity-ab", wykonczenie="surowe")
+        _potwierdz_biezace_pozycje(monkeypatch)
+        wywolania = []
+        monkeypatch.setattr(n.crm_calc, "create_quote",
+                            lambda *a, **k: wywolania.append(a) or {"ok": True, "quote_number": "X"})
+        wynik = _wolaj(n.zapisz_wycene, client_id=1)
+        assert wynik["ok"] is True
+        assert len(wywolania) == 1
+
+    def test_popraw_wycene_bez_potwierdzenia_nie_wola_update_quote(self, monkeypatch):
+        # W5 (runda poprawek 1): popraw_wycene byla JEDYNA sciezka zapisu bez
+        # bramki I2 -- klient pod juz wyslanym linkiem widzialby dane, ktorych
+        # nigdy nie potwierdzil.
+        stan.ustaw_kontekst(96024)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat")
+        wywolania = []
+        monkeypatch.setattr(n.crm_calc, "update_quote",
+                            lambda *a, **k: wywolania.append(1) or {"ok": True})
+        wynik = _wolaj(n.popraw_wycene, edit_uuid="uuid-x")
+        assert wynik["ok"] is False
+        assert wywolania == []
+
+    def test_popraw_wycene_z_aktualnym_potwierdzeniem_wola_update_quote(self, monkeypatch):
+        stan.ustaw_kontekst(96025)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat", dlugosc_cm=180,
+              szerokosc_cm=60, grubosc_cm=4, ilosc=1,
+              selected_variant="dab-lity-ab", wykonczenie="surowe")
+        _potwierdz_biezace_pozycje(monkeypatch)
+        wywolania = []
+        monkeypatch.setattr(n.crm_calc, "update_quote",
+                            lambda *a, **k: wywolania.append(a) or {"ok": True, "quote_number": "X"})
+        wynik = _wolaj(n.popraw_wycene, edit_uuid="uuid-x")
+        assert wynik["ok"] is True
+        assert len(wywolania) == 1
+
+    def test_przygotuj_zamowienie_bez_potwierdzenia_nie_zwraca_linku(self, monkeypatch):
+        stan.ustaw_kontekst(96026)
+        wywolania = []
+        monkeypatch.setattr(stan, "link_do_checkoutu",
+                            lambda uuid: wywolania.append(uuid) or {"ok": True, "edit_uuid": uuid})
+        wynik = _wolaj(n.przygotuj_zamowienie, edit_uuid="uuid-x")
+        assert wynik["ok"] is False
+        assert wywolania == []
+
+    def test_przygotuj_zamowienie_z_aktualnym_potwierdzeniem_zwraca_link(self, monkeypatch):
+        stan.ustaw_kontekst(96027)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat", dlugosc_cm=180,
+              szerokosc_cm=60, grubosc_cm=4, ilosc=1,
+              selected_variant="dab-lity-ab", wykonczenie="surowe")
+        _potwierdz_biezace_pozycje(monkeypatch)
+        wywolania = []
+        monkeypatch.setattr(stan, "link_do_checkoutu",
+                            lambda uuid: wywolania.append(uuid) or {"ok": True, "edit_uuid": uuid})
+        wynik = _wolaj(n.przygotuj_zamowienie, edit_uuid="uuid-x")
+        assert wynik == {"ok": True, "edit_uuid": "uuid-x"}
+        assert wywolania == ["uuid-x"]

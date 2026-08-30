@@ -155,7 +155,9 @@ def zapisz_pozycje(id, produkt="", dlugosc_cm=0, szerokosc_cm=0, grubosc_cm=0,
     kończyłaby się `WYCENA_NIEUDANA`, niezależnie od tego, co wybrał klient.
 
     `edges` i `otwory` mają WŁASNĄ semantykę zapisu, inną niż reszta pól —
-    patrz `_zastosuj_krawedzie` (edges) i sekcję niżej (otwory)."""
+    patrz `_zastosuj_krawedzie` (edges) i sekcję niżej (otwory). `wykonczenie
+    == "surowe"` dodatkowo czyści `finishing_id` — patrz komentarz przy tym
+    warunku (W1, runda poprawek 1)."""
     dane = _wczytaj()
     pozycje = dane.setdefault("pozycje", [])
     biezaca = next((p for p in pozycje if p.get("id") == id), None)
@@ -182,6 +184,20 @@ def zapisz_pozycje(id, produkt="", dlugosc_cm=0, szerokosc_cm=0, grubosc_cm=0,
         rozlozony = _rozloz_wariant(selected_variant)
         if rozlozony:
             biezaca["gatunek"], biezaca["technologia"], biezaca["klasa"] = rozlozony
+
+    if wykonczenie == "surowe":
+        # "surowe" = brak wykończenia -> finishing_id staje się bez znaczenia
+        # dla WYCENY (crm_calc.build_products/_finish_type ignoruje go, gdy
+        # ftype == "Surowe") — ale bez jawnego wyczyszczenia zostawałby w
+        # pozycji jako duch: podsumowanie (i podpis potwierdzenia) pokazywałyby
+        # KOLOR/POŁYSK sprzed zmiany na "surowe", mimo że wycena go już nie
+        # liczy (W1, runda poprawek 1 — ta sama klasa błędu co W5 z poprzedniej
+        # rundy, tylko odwrócona: tam klient widział MNIEJ niż podpisywał, tu
+        # widziałby CO INNEGO). `finishing_option_id` samo w sobie NIE ma
+        # sposobu na wyczyszczenie (0 -> None -> pole pomijane w pętli wyżej,
+        # patrz bots_pro/narzedzia.py:zapisz_pozycje) — czyszczenie musi więc
+        # być automatyczne, wywołane samą zmianą wykończenia na "surowe".
+        biezaca.pop("finishing_id", None)
 
     _zastosuj_krawedzie(biezaca, edges)
 
