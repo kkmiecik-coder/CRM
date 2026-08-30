@@ -294,58 +294,81 @@ def link_do_checkoutu(edit_uuid):
     return {"ok": True, "edit_uuid": uuid_wyceny}
 
 
+class BladOdczytuStanu(Exception):
+    """Statusu rozmowy albo jej historii nie dało się odczytać (sieć/Chatwoot) —
+    PRZEJŚCIOWY błąd. `.retryable = True` jawnie (nie polegamy na hierarchii
+    wyjątków `requests`/`ConnectionError`, która i tak NIE pokrywa np.
+    `requests.exceptions.ConnectionError` — ten nie dziedziczy po wbudowanym
+    `ConnectionError`), żeby `quote_worker._klasyfikuj_retryable` (Task 7, W3
+    code review) zakwalifikowało to jako retry niezależnie od zawężenia dla
+    persony bota (K2 code review) — patrz `wolno_prowadzic_rozmowe` niżej."""
+    retryable = True
+
+
 def wolno_prowadzic_rozmowe(conv_id):
     """Bramka ciszy po handoffie (Task 7, brief o niej nie wspomina — rozstrzygnięcie
-    właściciela zadania, patrz raport).
+    właściciela zadania; przepisana w rundzie poprawek 1 po code review — K1/W3).
 
     Sam status "pending" NIE wystarcza jako bramka: w Chatwoocie "Oczekująca"
     (pending) to jednocześnie stan startowy (bot jeszcze się nie odezwał) I zwykły
     "snooze" agenta — agent może ręcznie zaparkować rozmowę w pending PO WŁASNEJ
     publicznej odpowiedzi (np. czekając na klienta). Dokładnie to wydarzyło się
     w audycie (rozmowa #1316): agentka odpisała klientowi ("nie robimy naturalnych
-    krawędzi"), a godzinę później bot podjął rozmowę od nowa i jej zaprzeczył,
-    bo widział tylko status. Stary silnik (bots/quotebot.py:_wolno_prowadzic_rozmowe)
-    ma dokładnie tę lukę — sprawdza WYŁĄCZNIE status.
+    krawędzi"), a godzinę później bot podjął rozmowę od nowa i jej zaprzeczył.
+    Stary silnik (bots/quotebot.py:_wolno_prowadzic_rozmowe) ma dokładnie tę lukę
+    — sprawdza WYŁĄCZNIE status.
 
-    Bramka sprawdza więc DWA warunki naraz:
-      1) status rozmowy to "pending",
-      2) OSTATNIA publiczna (nie-prywatna) wiadomość w rozmowie NIE została
-         napisana przez człowieka-agenta — w Chatwoocie sender.type == "user"
-         dla człowieka, w odróżnieniu od kontaktu ("contact") i bota ("agent_bot").
-         Ta sama reguła, której webhooks.py używa do doklejania stopki TYLKO do
-         wiadomości ludzkich (nie botowych) — patrz komentarz przy build_footer.
-    Gdy human już odpisał publicznie, bot MILCZY niezależnie od statusu — agent
-    mógł później zasnoozować rozmowę z powrotem do pending, a to i tak nie oddaje
-    głosu botowi.
+    K1 (code review, runda 1): PIERWSZA wersja tej funkcji sprawdzała, kto napisał
+    OSTATNIĄ publiczną wiadomość — ale tura Dębusia Pro jest ZAWSZE wyzwalana
+    świeżą wiadomością `incoming` klienta (webhooks.py + okno ciszy w
+    quote_intake), więc w momencie sprawdzania bramki ostatnią wiadomością jest
+    PRAWIE ZAWSZE wiadomość klienta, niezależnie od tego, czy wcześniej odpisał
+    już agent. Warunek "kto mówił ostatni" był więc martwy — sekwencja
+    [klient, agent, klient] (dokładnie #1316: agent odpisał, klient napisał
+    później) dawała True (bot mówi), mimo że agent już się włączył.
 
-    Notatki prywatne (private=True) są POMIJANE przy szukaniu "ostatniej
-    wiadomości" — wewnętrzna notatka między agentami nie jest publiczną
-    odpowiedzią klientowi i sama w sobie nie oznacza przejęcia rozmowy.
+    Poprawka: bramka sprawdza, czy w PUBLICZNEJ historii rozmowy W OGÓLE
+    pojawiła się wiadomość człowieka-agenta (sender.type == "user" w Chatwoocie —
+    w odróżnieniu od klienta "contact" i samego bota "agent_bot"), niezależnie od
+    pozycji w historii i niezależnie od ewentualnych wiadomości `activity`
+    (systemowych, bez sender) między nią a wiadomością wyzwalającą. Gdy human
+    KIEDYKOLWIEK odpisał publicznie w tej rozmowie, bot milczy TRWALE (dopóki
+    ktoś ręcznie nie przypnie rozmowy z powrotem do bota w Chatwoocie) — to
+    świadomie zachowawcze: koszt fałszywego alarmu (bot niepotrzebnie milczy,
+    mimo że agent tylko przelotnie coś napisał) jest dużo niższy niż koszt
+    #1316 (bot zaprzecza agentowi). Notatki prywatne (private=True) są POMIJANE
+    — wewnętrzna notatka między agentami nie jest publiczną odpowiedzią klientowi.
 
     Zapytanie o historię idzie PRZEZ `core.chatwoot.cw` (surowe wywołanie API),
     NIE przez `cw_messages` — `cw_messages` celowo gubi nadawcę (mapuje tylko
     role user/assistant) i pomija wiadomości z pustą treścią (np. sam załącznik
     obrazu bez tekstu), co ukryłoby realną odpowiedź agenta przed tą bramką.
 
-    Błąd odczytu (sieć/Chatwoot) -> False (bezpieczny wybor: cisza, nie zgadywanie).
-    W odróżnieniu od starego silnika (który w tym miejscu RZUCA, licząc na retry
-    workera) — Dębuś Pro pisze wprost do klienta, więc niepewność ma kończyć się
-    ciszą w tej turze, nie serią retry-i, z których każdy mógłby, przy błędnym
-    odczycie, wysłać wiadomość, której nie powinno być."""
+    W3 (code review, runda 1): błąd odczytu statusu/historii RZUCA
+    `BladOdczytuStanu` (retryable=True), NIE zwraca cicho False. Pierwsza wersja
+    zwracała False przy błędzie — z punktu widzenia `tura.uruchom` to WYGLĄDA
+    identycznie jak legalna blokada (human już rozmawia), więc `quote_worker`
+    oznaczał wiersz kolejki jako 'sent' i CICHO GUBIŁ wiadomość klienta przy
+    zwykłym, przejściowym błędzie sieci. Rzucanie (jak w starym silniku, ten sam
+    powód) oddaje decyzję workerowi: retry z backoffem, a nie zgadywanie tutaj."""
     from core.chatwoot import cw_conv_status, cw
-    from core.log import log
 
-    if cw_conv_status(conv_id) != "pending":
+    status = cw_conv_status(conv_id)
+    if status is None:
+        raise BladOdczytuStanu(
+            "stan: nie mozna odczytac statusu rozmowy (conv %s)" % conv_id)
+    if status != "pending":
         return False
     try:
         wiadomosci = cw("GET", "/conversations/%s/messages" % conv_id).json().get("payload", [])
     except Exception as e:
-        log("stan: nie mozna odczytac historii rozmowy, bot milczy (conv %s): %r" % (conv_id, e))
-        return False
-    for wiadomosc in reversed(wiadomosci or []):
+        raise BladOdczytuStanu(
+            "stan: nie mozna odczytac historii rozmowy (conv %s): %r" % (conv_id, e)) from e
+    for wiadomosc in wiadomosci or []:
         if wiadomosc.get("private"):
             continue
-        return (wiadomosc.get("sender") or {}).get("type") != "user"
+        if (wiadomosc.get("sender") or {}).get("type") == "user":
+            return False
     return True
 
 

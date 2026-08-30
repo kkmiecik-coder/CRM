@@ -54,10 +54,13 @@ def test_process_one_pusta_kolejka():
     assert qw.process_one(9_999_999_999) is False
 
 
-def test_persona_pro_wola_bots_pro_tura_uruchom_nie_run_quote_turn(monkeypatch):
-    """Task 7: rekord persony 'pro' MA isc do bots_pro.tura.uruchom (silnik Agents SDK),
-    a NIE do run_quote_turn (legacy silnik) — to rozgalezienie jest sercem podpiecia
-    Debusia Pro pod istniejacy worker kolejki."""
+def test_wiersz_na_inboksie_pro_wola_bots_pro_tura_uruchom_nie_run_quote_turn(monkeypatch):
+    """Task 7 (rozgalezienie poprawione po W1 code review): wiersz na inboksie
+    Debusia Pro (BOT_PRO_INBOXES) MA isc do bots_pro.tura.uruchom (silnik Agents
+    SDK), a NIE do run_quote_turn (legacy silnik) — to rozgalezienie jest sercem
+    podpiecia Debusia Pro pod istniejacy worker kolejki. Silnik jest okreslany
+    przez inbox_id, NIE przez kolumne persona (ta niesie profil kanalu/caps —
+    patrz webhooks._persona_pro_dla_inboxu)."""
     pytest.importorskip("agents")
     from bots_pro import tura as tura_pro
     wolane_pro = []
@@ -67,11 +70,12 @@ def test_persona_pro_wola_bots_pro_tura_uruchom_nie_run_quote_turn(monkeypatch):
     wolane_legacy = []
     monkeypatch.setattr(qw, "run_quote_turn",
                         lambda *a, **k: wolane_legacy.append((a, k)))
+    monkeypatch.setattr(qw, "BOT_PRO_INBOXES", {"42"})
 
     c = db_mod.db()
     c.execute("DELETE FROM quote_queue")
     c.execute("INSERT INTO quote_queue(conv_id, inbox_id, message_id, content, persona, next_at) "
-              "VALUES(?,?,?,?,?,0)", (7001, "42", "mX", "czesc, ile kosztuje blat?", "pro"))
+              "VALUES(?,?,?,?,?,0)", (7001, "42", "mX", "czesc, ile kosztuje blat?", "olx"))
     c.commit(); c.close()
 
     assert qw.process_one(9_999_999_999) is True
@@ -80,7 +84,9 @@ def test_persona_pro_wola_bots_pro_tura_uruchom_nie_run_quote_turn(monkeypatch):
     conv_id, inbox_id, tresc, zalaczniki, persona = wolane_pro[0]
     # inbox_id ma kolumne TEXT (core/db.py) - SQLite przechowuje ja jako string,
     # wiec porownujemy string, nie int (round-trip przez baze, nie tylko przez Pythona).
-    assert (conv_id, inbox_id, tresc, persona) == (7001, "42", "czesc, ile kosztuje blat?", "pro")
+    # persona="olx" (profil kanalu, nie "pro" na sztywno) - dowod na W1: dispatch silnika
+    # (bots_pro vs legacy) i profil capsow to DWIE NIEZALEZNE rzeczy.
+    assert (conv_id, inbox_id, tresc, persona) == (7001, "42", "czesc, ile kosztuje blat?", "olx")
 
     c = db_mod.db()
     st = c.execute("SELECT status FROM quote_queue WHERE conv_id=7001").fetchone()["status"]

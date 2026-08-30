@@ -7,6 +7,8 @@ Brief zadania 3 nie zawiera testów dla stan.py (tylko dla guardraila i bramki
 potwierdzenia) — te są dopisane zgodnie z rozstrzygnięciem właściciela zadania:
 pokryj zachowanie, nie każdą linijkę.
 """
+import pytest
+
 import config as config_mod
 import core.chatwoot as chatwoot_mod
 from bots_pro import stan
@@ -431,16 +433,16 @@ class _FakeResp:
 
 
 class TestWolnoProwadzicRozmowe:
-    """Bramka ciszy po handoffie (rozstrzygniecie zadania 7, brief o niej nie mowi).
+    """Bramka ciszy po handoffie (rozstrzygniecie zadania 7, brief o niej nie mowi;
+    przepisana w rundzie poprawek 1 po code review — K1/W3).
 
-    W Chatwoocie 'Oczekujaca' (pending) to jednoczesnie stan startowy (bot jeszcze
-    sie nie odezwal) I zwykly 'snooze' agenta — agent moze recznie zaparkowac
-    rozmowe w pending PO WLASNEJ odpowiedzi. Sam status wiec NIE wystarcza (patrz
-    audyt, rozmowa #1316: agentka odpisala klientowi, godzine pozniej bot podjal
-    rozmowe od nowa i jej zaprzeczyl). Bramka sprawdza status ORAZ to, czy
-    OSTATNIA (nieprywatna) wiadomosc pochodzi od czlowieka-agenta
-    (sender.type == 'user' w Chatwoocie — ta sama regula co w webhooks.py przy
-    stopce)."""
+    K1: tura Debusia Pro jest ZAWSZE wyzwalana swieza wiadomoscia klienta, wiec
+    "kto mowil OSTATNI" jest w praktyce prawie zawsze klientem — pierwsza wersja
+    tej bramki (sprawdzajaca ostatniego mowce) byla wiec martwa. Sprawdzamy
+    teraz, czy w PUBLICZNEJ historii W OGOLE pojawila sie wiadomosc czlowieka-
+    -agenta, niezaleznie od pozycji. Sekwencje ponizej odpowiadaja przykladom
+    z code review: A=[klient,agent], B=[klient,agent,klient] (realny #1316),
+    C=[klient,agent,activity], D=[klient]."""
 
     def test_status_inny_niz_pending_blokuje(self, monkeypatch):
         stan.ustaw_kontekst(94001)
@@ -451,9 +453,8 @@ class TestWolnoProwadzicRozmowe:
         # Status juz przesadzil sprawe - nie ma potrzeby dopytywac o historie wiadomosci.
         assert wolane_cw == []
 
-    def test_pending_ale_ostatnia_wiadomosc_od_agenta_blokuje(self, monkeypatch):
-        # Dokladnie scenariusz audytu: agent odpisal, rozmowa wrocila/zostala w pending
-        # (recznym snoozem), bot MA milczec mimo statusu pending.
+    def test_sekwencja_a_klient_agent_blokuje(self, monkeypatch):
+        # A) [klient, agent] - agent odpisal jako ostatni.
         stan.ustaw_kontekst(94002)
         monkeypatch.setattr(chatwoot_mod, "cw_conv_status", lambda conv_id: "pending")
         monkeypatch.setattr(chatwoot_mod, "cw", lambda *a, **k: _FakeResp([
@@ -463,7 +464,36 @@ class TestWolnoProwadzicRozmowe:
         ]))
         assert stan.wolno_prowadzic_rozmowe(94002) is False
 
-    def test_pending_i_ostatnia_wiadomosc_od_klienta_pozwala(self, monkeypatch):
+    def test_sekwencja_b_klient_agent_klient_realny_1316_blokuje(self, monkeypatch):
+        # B) [klient, agent, klient] - DOKLADNIE audyt #1316: agent odpisal, klient
+        # napisal PO NIM. Ostatnia wiadomosc jest znow od klienta, ale agent juz
+        # przejal rozmowe - bot MA milczec, nie tylko gdy agent mowil ostatni.
+        stan.ustaw_kontekst(94008)
+        monkeypatch.setattr(chatwoot_mod, "cw_conv_status", lambda conv_id: "pending")
+        monkeypatch.setattr(chatwoot_mod, "cw", lambda *a, **k: _FakeResp([
+            {"content": "dzien dobry", "private": False, "sender": {"type": "contact"}},
+            {"content": "nie robimy naturalnych krawedzi", "private": False,
+             "sender": {"type": "user"}},
+            {"content": "a jednak chcialbym taki blat", "private": False,
+             "sender": {"type": "contact"}},
+        ]))
+        assert stan.wolno_prowadzic_rozmowe(94008) is False
+
+    def test_sekwencja_c_wiadomosc_activity_bez_sender_nie_maskuje_agenta(self, monkeypatch):
+        # C) [klient, agent, activity] - wiadomosc systemowa (np. "przypisano do X")
+        # bez pola sender nie moze przesloniec faktu, ze agent juz sie odezwal.
+        stan.ustaw_kontekst(94009)
+        monkeypatch.setattr(chatwoot_mod, "cw_conv_status", lambda conv_id: "pending")
+        monkeypatch.setattr(chatwoot_mod, "cw", lambda *a, **k: _FakeResp([
+            {"content": "dzien dobry", "private": False, "sender": {"type": "contact"}},
+            {"content": "nie robimy naturalnych krawedzi", "private": False,
+             "sender": {"type": "user"}},
+            {"content": "Przypisano do zespolu", "private": False},   # activity, brak sender
+        ]))
+        assert stan.wolno_prowadzic_rozmowe(94009) is False
+
+    def test_sekwencja_d_tylko_klient_swieza_rozmowa_pozwala(self, monkeypatch):
+        # D) [klient] - swieza rozmowa, zaden agent sie jeszcze nie odezwal.
         stan.ustaw_kontekst(94003)
         monkeypatch.setattr(chatwoot_mod, "cw_conv_status", lambda conv_id: "pending")
         monkeypatch.setattr(chatwoot_mod, "cw", lambda *a, **k: _FakeResp([
@@ -471,20 +501,21 @@ class TestWolnoProwadzicRozmowe:
         ]))
         assert stan.wolno_prowadzic_rozmowe(94003) is True
 
-    def test_pending_i_ostatnia_wiadomosc_od_bota_pozwala(self, monkeypatch):
-        # Bot sam byl ostatni (normalny przebieg rozmowy bot<->klient) - to NIE jest
-        # sygnal przejecia rozmowy przez czlowieka.
+    def test_sama_odpowiedz_bota_nie_blokuje(self, monkeypatch):
+        # Bot sam odpowiadal wczesniej (normalny przebieg rozmowy bot<->klient) - to
+        # NIE jest sygnal przejecia rozmowy przez czlowieka (sender.type != "user").
         stan.ustaw_kontekst(94004)
         monkeypatch.setattr(chatwoot_mod, "cw_conv_status", lambda conv_id: "pending")
         monkeypatch.setattr(chatwoot_mod, "cw", lambda *a, **k: _FakeResp([
             {"content": "cena?", "private": False, "sender": {"type": "contact"}},
             {"content": "Juz licze...", "private": False, "sender": {"type": "agent_bot"}},
+            {"content": "dzieki, poprosze", "private": False, "sender": {"type": "contact"}},
         ]))
         assert stan.wolno_prowadzic_rozmowe(94004) is True
 
-    def test_prywatna_notatka_agenta_nie_liczy_sie_jako_ostatnia_wiadomosc(self, monkeypatch):
+    def test_prywatna_notatka_agenta_nie_blokuje(self, monkeypatch):
         # Wewnetrzna notatka miedzy agentami nie jest publiczna odpowiedzia klientowi -
-        # bramka ma patrzec na ostatnia PUBLICZNA wiadomosc, pomijajac notatki.
+        # bramka pomija wiadomosci prywatne przy szukaniu wypowiedzi czlowieka.
         stan.ustaw_kontekst(94005)
         monkeypatch.setattr(chatwoot_mod, "cw_conv_status", lambda conv_id: "pending")
         monkeypatch.setattr(chatwoot_mod, "cw", lambda *a, **k: _FakeResp([
@@ -501,10 +532,27 @@ class TestWolnoProwadzicRozmowe:
         monkeypatch.setattr(chatwoot_mod, "cw", lambda *a, **k: _FakeResp([]))
         assert stan.wolno_prowadzic_rozmowe(94006) is True
 
-    def test_blad_odczytu_historii_blokuje_bezpiecznie(self, monkeypatch):
+    def test_blad_odczytu_historii_rzuca_blad_odczytu_stanu(self, monkeypatch):
+        # W3: blad sieci/Chatwoot ma RZUCAC (retryable), NIE cicho zwracac False -
+        # inaczej quote_worker oznaczylby wiersz jako 'sent' i zgubil wiadomosc klienta.
         stan.ustaw_kontekst(94007)
         monkeypatch.setattr(chatwoot_mod, "cw_conv_status", lambda conv_id: "pending")
         def _boom(*a, **k):
             raise ConnectionError("timeout")
         monkeypatch.setattr(chatwoot_mod, "cw", _boom)
-        assert stan.wolno_prowadzic_rozmowe(94007) is False
+        with pytest.raises(stan.BladOdczytuStanu):
+            stan.wolno_prowadzic_rozmowe(94007)
+
+    def test_blad_odczytu_statusu_rzuca_blad_odczytu_stanu(self, monkeypatch):
+        # cw_conv_status zwraca None przy bledzie (patrz core/chatwoot.py) - to TEZ
+        # ma rzucac, nie byc cicho potraktowane jako "status != pending -> False".
+        stan.ustaw_kontekst(94010)
+        monkeypatch.setattr(chatwoot_mod, "cw_conv_status", lambda conv_id: None)
+        wolane_cw = []
+        monkeypatch.setattr(chatwoot_mod, "cw", lambda *a, **k: wolane_cw.append(1) or _FakeResp([]))
+        with pytest.raises(stan.BladOdczytuStanu):
+            stan.wolno_prowadzic_rozmowe(94010)
+        assert wolane_cw == []
+
+    def test_blad_odczytu_stanu_ma_atrybut_retryable_true(self):
+        assert stan.BladOdczytuStanu.retryable is True

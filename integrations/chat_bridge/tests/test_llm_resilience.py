@@ -237,15 +237,22 @@ def test_4xx_ma_inny_powod_handoffu_niz_wyczerpane_proby(monkeypatch):
 
 
 # --- Task 7 (Debus Pro): klasyfikacja retryable dla wyjatkow BEZ atrybutu .retryable ---
+# K2 (code review, runda poprawek 1): zawezenie klasyfikacji MA dotyczyc WYLACZNIE
+# wierszy na inboksie Debusia Pro (BOT_PRO_INBOXES) - zastosowanie go globalnie (jak w
+# pierwszej wersji tego zadania) cofalo retry dla ZYWEGO RUCHU legacy (livechat/OLX/
+# Allegro), ktory sygnalizuje przejsciowe bledy golym RuntimeError w 21+ miejscach
+# bots/quotebot.py. Kazdy test ponizej jest wiec albo o inboksie "pro" (izolowana
+# zmiana zachowania), albo o kanale legacy (zero zmiany zachowania).
 
-def test_wyjatek_bez_retryable_nie_jest_ponawiany_w_kolko(monkeypatch):
-    """Przed poprawka `retryable = getattr(e, "retryable", True)` traktowalo KAZDY
-    nieoznaczony wyjatek (literowka w kodzie bota, TypeError/KeyError...) jak przejsciowa
-    awarie sieci - ponawiane w kolko az do wyczerpania prob. Taki blad ma konczyc sie PO
-    JEDNEJ probie, tak jak 4xx (trwaly blad, nie przejsciowa niedostepnosc)."""
-    monkeypatch.setattr(qw, "run_quote_turn",
+def test_wyjatek_bez_retryable_na_inboksie_pro_nie_jest_ponawiany_w_kolko(monkeypatch):
+    """Na inboksie Debusia Pro nieoznaczony wyjatek (literowka w kodzie bota,
+    TypeError/KeyError...) ma konczyc sie PO JEDNEJ probie, jak 4xx — nie byc
+    ponawiany w kolko jak przejsciowa awaria sieci."""
+    pytest.importorskip("agents")
+    from bots_pro import tura as tura_pro
+    monkeypatch.setattr(tura_pro, "uruchom",
                         lambda *a, **k: (_ for _ in ()).throw(TypeError("literowka w kodzie bota")))
-    monkeypatch.setattr(qw, "handoff_with_apology", lambda *a, **k: None)
+    monkeypatch.setattr(qw, "BOT_PRO_INBOXES", {"18"})   # _enqueue wstawia inbox_id=18
     _enqueue(1118)
     qw.process_one(1_000_000)
     c = db_mod.db()
@@ -255,18 +262,40 @@ def test_wyjatek_bez_retryable_nie_jest_ponawiany_w_kolko(monkeypatch):
     assert row["attempts"] == 1   # zero retry - jedna proba i koniec, jak przy 4xx
 
 
-def test_polaczeniowy_wyjatek_bez_retryable_nadal_jest_ponawiany(monkeypatch):
-    """Kontrola negatywna: znane, faktycznie przejsciowe klasy bledow (siec) NADAL maja
-    isc w retry, mimo braku jawnego atrybutu .retryable - to nie ma byc regresja backoffu
-    dla prawdziwych awarii sieciowych, tylko dla NIEZNANYCH (programistycznych) wyjatkow."""
-    monkeypatch.setattr(qw, "run_quote_turn",
+def test_polaczeniowy_wyjatek_na_inboksie_pro_nadal_jest_ponawiany(monkeypatch):
+    """Kontrola negatywna: na inboksie Debusia Pro znane, faktycznie przejsciowe
+    klasy bledow (siec) NADAL ida w retry - zawezenie nie ma dotykac prawdziwych
+    awarii sieciowych, tylko NIEZNANYCH (programistycznych) wyjatkow."""
+    pytest.importorskip("agents")
+    from bots_pro import tura as tura_pro
+    monkeypatch.setattr(tura_pro, "uruchom",
                         lambda *a, **k: (_ for _ in ()).throw(ConnectionError("polaczenie padlo")))
+    monkeypatch.setattr(qw, "BOT_PRO_INBOXES", {"18"})
     _enqueue(1119)
     qw.process_one(1_000_000)
     c = db_mod.db()
     row = c.execute("SELECT status, attempts, next_at FROM quote_queue WHERE conv_id=1119").fetchone()
     c.close()
     assert row["status"] == "pending"   # wraca do pending z backoffem, NIE 'failed'
+    assert row["attempts"] == 1
+
+
+def test_wyjatek_bez_retryable_na_kanale_legacy_nadal_jest_ponawiany(monkeypatch):
+    """K2: dla wierszy SPOZA BOT_PRO_INBOXES (legacy — livechat/OLX/Allegro)
+    klasyfikacja retryable NIE zmienila sie wzgledem stanu SPRZED zadania 7 -
+    nieoznaczony wyjatek (goly RuntimeError z bots/quotebot.py wlacznie) nadal
+    jest domyslnie retryable=True. test_quote_idempotency.py i zywy ruch legacy
+    licza dokladnie na to zachowanie."""
+    monkeypatch.setattr(qw, "BOT_PRO_INBOXES", set())   # zaden inbox nie jest "pro"
+    monkeypatch.setattr(qw, "run_quote_turn",
+                        lambda *a, **k: (_ for _ in ()).throw(TypeError("literowka gdziekolwiek")))
+    monkeypatch.setattr(qw, "handoff_with_apology", lambda *a, **k: None)
+    _enqueue(1118)
+    qw.process_one(1_000_000)
+    c = db_mod.db()
+    row = c.execute("SELECT status, attempts FROM quote_queue WHERE conv_id=1118").fetchone()
+    c.close()
+    assert row["status"] == "pending"   # NIE 'failed' - retry z backoffem, jak przed zadaniem 7
     assert row["attempts"] == 1
 
 
@@ -281,6 +310,7 @@ def test_awaria_debusia_pro_nie_wstrzymuje_kolejki_legacy(monkeypatch):
     now = 4_000_000
     klucz_until, _ = qw._klucze_obwodu("pro")
     meta_set(klucz_until, now + 999999)
+    monkeypatch.setattr(qw, "BOT_PRO_INBOXES", set())   # inbox 18 (z _enqueue) NIE jest "pro"
     monkeypatch.setattr(qw, "run_quote_turn", lambda *a, **k: None)
     _enqueue(1121)   # persona domyslna "quote" (legacy)
     assert qw.process_one(now) is True
@@ -296,6 +326,7 @@ def test_awaria_legacy_nie_wstrzymuje_wiersza_pro(monkeypatch):
     pytest.importorskip("agents")
     from bots_pro import tura as tura_pro
     monkeypatch.setattr(tura_pro, "uruchom", lambda *a, **k: None)
+    monkeypatch.setattr(qw, "BOT_PRO_INBOXES", {"18"})   # inbox 18 JEST "pro" w tym tescie
     from core.db import meta_set
     now = 4_100_000
     meta_set(qw._META_CIRCUIT_UNTIL, now + 999999)   # legacy (flat, jak dotychczas)
@@ -319,5 +350,6 @@ def test_awaria_pro_i_legacy_naraz_nie_bierze_zadnej_pracy(monkeypatch):
     klucz_until, _ = qw._klucze_obwodu("pro")
     meta_set(klucz_until, now + 999999)
     meta_set(qw._META_CIRCUIT_UNTIL, now + 999999)
+    monkeypatch.setattr(qw, "BOT_PRO_INBOXES", {"18"})
     _enqueue(1123)
     assert qw.process_one(now) is False

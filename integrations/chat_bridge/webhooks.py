@@ -192,6 +192,28 @@ def agent_bot_quote():
 
 
 # ---------- AGENT BOT PRO (Debus Pro, Agents SDK, osobna encja) ----------
+def _persona_pro_dla_inboxu(inbox_id):
+    """Klucz profilu kanalu (caps) dla wiersza kolejki Debusia Pro (Task 7, W1 code
+    review). Rozgraniczenie na silnik (bots_pro vs legacy) w quote_worker.py idzie
+    PO inbox_id/BOT_PRO_INBOXES, NIE po tej wartosci — ta wartosc trafia WYLACZNIE
+    do bots_pro.wysylka.przygotuj (przez stan.persona()) i decyduje o markdownie/
+    emoji/linkach w odpowiedzi.
+
+    Przed ta poprawka kazdy wiersz Debusia Pro szedl z persona="pro" na sztywno,
+    niezaleznie od kanalu — bots.channel_caps.caps_for("pro") nie zna takiego
+    klucza i spada na DEFAULT_CAPS (markdown, emoji I LINKI wlaczone). Po wlaczeniu
+    BOT_PRO_INBOXES na inboksie Allegro dawaloby to dokladnie wyciek linkow, przed
+    ktorym broni caly bots_pro.wysylka (regulamin marketplace'u).
+
+    caps_for() rozpoznaje kanalowe klucze "olx"/"allegro" bezposrednio (patrz
+    bots/channel_caps.py:_CAPS_DLA_PERSONY) — persona_for(inbox_id) juz je zwraca
+    w tym ksztalcie, wiec zadnej dodatkowej mapy nie trzeba. Pozostale kanaly
+    (livechat, mail, nieznany typ) dostaja "pro" — nie ma dla nich osobnych caps
+    (spadaja na DEFAULT_CAPS), a etykieta zostaje czytelna w logach/DB."""
+    kanal = persona_for(inbox_id)
+    return kanal if kanal in ("olx", "allegro") else "pro"
+
+
 def _process_pro(d):
     """Debus Pro. Bramka inboxow (BOT_PRO_INBOXES) jest kill-switchem migracji:
     przelaczamy inbox po inboxie zmienna srodowiskowa, bez zmiany kodu — i bez
@@ -227,7 +249,8 @@ def _process_pro(d):
         log("pro: inbox %s poza BOT_PRO_INBOXES — pomijam (conv %s)" % (inbox_id, conv_id))
         return
 
-    enqueue_quote_turn(conv_id, inbox_id, mid, content, attachments=att, persona="pro")
+    persona = _persona_pro_dla_inboxu(inbox_id)
+    enqueue_quote_turn(conv_id, inbox_id, mid, content, attachments=att, persona=persona)
 
 
 @bp.post("/agent-bot-pro")

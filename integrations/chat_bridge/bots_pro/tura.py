@@ -105,12 +105,18 @@ def uruchom(conv_id, inbox_id, tresc, zalaczniki=None, persona="pro"):
     marketplace'u).
 
     Bramka ciszy po handoffie (Task 7): jeśli `stan.wolno_prowadzic_rozmowe(conv_id)`
-    zwróci False (rozmowa nie jest w statusie "pending", albo ostatnia publiczna
-    wiadomość pochodzi od człowieka-agenta), tura kończy się NATYCHMIAST — bez
-    wołania Routera/LLM i bez żadnej wysyłki. Sprawdzana jest PRZED `ustaw_kontekst`,
-    bo cała reszta funkcji jest bez sensu, gdy bot ma milczeć (patrz docstring
-    `bots_pro.stan.wolno_prowadzic_rozmowe` — tam jest pełne uzasadnienie i opis
-    incydentu, który ta bramka ma uniemożliwić).
+    zwróci False (rozmowa nie jest w statusie "pending", albo w jej publicznej
+    historii pojawiła się już wypowiedź człowieka-agenta), tura kończy się
+    NATYCHMIAST — bez wołania Routera/LLM i bez żadnej wysyłki. Sprawdzana jest
+    PRZED `ustaw_kontekst`, bo cała reszta funkcji jest bez sensu, gdy bot ma
+    milczeć (patrz docstring `bots_pro.stan.wolno_prowadzic_rozmowe` — tam jest
+    pełne uzasadnienie i opis incydentu, który ta bramka ma uniemożliwić).
+
+    Błąd odczytu statusu/historii NIE jest tu łapany — `wolno_prowadzic_rozmowe`
+    rzuca wtedy `stan.BladOdczytuStanu` (`.retryable = True`), która świadomie
+    PRZEPUSZCZA się przez `uruchom()` aż do `quote_worker.process_one` (W3 code
+    review): błąd sieciowy ma skończyć się retry z backoffem, nie cichym
+    zaznaczeniem wiersza kolejki jako 'sent' bez faktycznej odpowiedzi.
 
     `stan.init_pro()` (DDL, CREATE TABLE IF NOT EXISTS) NIE jest już wołane tutaj —
     przeniesione do startu `quote_worker.py` (jedynego miejsca, które faktycznie

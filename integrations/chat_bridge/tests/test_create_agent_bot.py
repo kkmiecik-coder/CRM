@@ -107,6 +107,25 @@ class TestEnsureAgentBotPatchOutgoingUrl:
         assert wolania_patch[0][1] == {"outgoing_url": "https://NOWY"}
         assert bot["outgoing_url"] == "https://NOWY"
 
+    def test_patch_bez_access_tokenu_w_odpowiedzi_nie_gubi_starego(self, monkeypatch):
+        # Code review, drobne: odpowiedz PATCH Chatwoota nie musi zawierac WSZYSTKICH
+        # pol bota (typowo zwraca tylko to, co sie zmienilo) — access_token ma
+        # przetrwac SCALONY ze starym obiektem, inaczej CLI wypisaloby puste
+        # "BOT_PRO_CW_AGENT_TOKEN=" mimo ze bot i jego token realnie istnieja.
+        monkeypatch.setattr(
+            cab, "list_agent_bots",
+            lambda: [{"id": 9, "name": "Dębuś Pro", "outgoing_url": "https://STARY",
+                      "access_token": "STARY-TOKEN"}])
+        monkeypatch.setattr(
+            cab.requests, "patch",
+            lambda url, headers=None, json=None, timeout=None:
+            _FakeResp({"id": 9, "outgoing_url": json["outgoing_url"]}))   # BEZ access_token
+
+        bot = cab.ensure_agent_bot("Dębuś Pro", outgoing_url="https://NOWY")
+
+        assert bot["outgoing_url"] == "https://NOWY"
+        assert bot["access_token"] == "STARY-TOKEN"
+
     def test_patch_nieudany_zwraca_stary_obiekt_bota(self, monkeypatch):
         # Blad PATCH nie ma wywalic calego skryptu — fallback na stary, ale wciaz
         # uzywalny obiekt bota (ma access_token do wypisania).

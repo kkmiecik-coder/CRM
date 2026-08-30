@@ -162,7 +162,11 @@ def ensure_agent_bot(name="WoodPower AI", outgoing_url=None, description=None):
             if bot.get("outgoing_url") != outgoing_url and bot.get("id"):
                 zaktualizowany = _patch_outgoing_url(bot.get("id"), outgoing_url)
                 if zaktualizowany:
-                    return zaktualizowany
+                    # SCALONY ze starym obiektem (code review, drobne): odpowiedz PATCH
+                    # nie musi zawierac WSZYSTKICH pol bota (np. access_token) — goly
+                    # `return zaktualizowany` wypisywalby wtedy puste
+                    # "BOT_PRO_CW_AGENT_TOKEN=" w CLI, mimo ze bot i jego token istnieja.
+                    return dict(bot, **zaktualizowany)
             return bot
 
     # Bot nie istnieje — utwórz
