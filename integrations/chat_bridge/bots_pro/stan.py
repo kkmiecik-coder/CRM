@@ -35,9 +35,11 @@ def init_pro():
     reject_*, sent_images, returning_greeted, human_deflected — przebieg rozmowy
     odtwarza sesja Agents SDK, a te kolumny były księgowaniem tego przebiegu."""
     polaczenie = db()
-    polaczenie.executescript(_SCHEMAT)
-    polaczenie.commit()
-    polaczenie.close()
+    try:
+        polaczenie.executescript(_SCHEMAT)
+        polaczenie.commit()
+    finally:
+        polaczenie.close()
 
 
 def ustaw_kontekst(conv_id, persona_tury="pro"):
@@ -59,13 +61,14 @@ def persona():
 
 def zapamietaj_kwoty(wartosci):
     """Rejestruje kwoty zwrócone przez kalkulator — guardrail porówna z nimi
-    treść odpowiedzi."""
+    treść odpowiedzi. Wartości mogą przyjść jako float (typowo) albo string
+    z polskim przecinkiem dziesiętnym — stąd zamiana przed float()."""
     biezace = _kwoty.get()
     if biezace is None:
         biezace = set()
         _kwoty.set(biezace)
     for w in wartosci:
-        biezace.add("%.2f" % float(w))
+        biezace.add("%.2f" % float(str(w).replace(",", ".")))
 
 
 def znane_kwoty():
@@ -74,20 +77,24 @@ def znane_kwoty():
 
 def _wczytaj():
     polaczenie = db()
-    wiersz = polaczenie.execute(
-        "SELECT dane_json FROM pro_dane WHERE conv_id=?", (conv_id(),)).fetchone()
-    polaczenie.close()
+    try:
+        wiersz = polaczenie.execute(
+            "SELECT dane_json FROM pro_dane WHERE conv_id=?", (conv_id(),)).fetchone()
+    finally:
+        polaczenie.close()
     return json.loads(wiersz["dane_json"]) if wiersz else {"pozycje": []}
 
 
 def _zapisz(dane):
     polaczenie = db()
-    polaczenie.execute(
-        "INSERT INTO pro_dane(conv_id, dane_json) VALUES(?,?) "
-        "ON CONFLICT(conv_id) DO UPDATE SET dane_json=excluded.dane_json",
-        (conv_id(), json.dumps(dane, ensure_ascii=False)))
-    polaczenie.commit()
-    polaczenie.close()
+    try:
+        polaczenie.execute(
+            "INSERT INTO pro_dane(conv_id, dane_json) VALUES(?,?) "
+            "ON CONFLICT(conv_id) DO UPDATE SET dane_json=excluded.dane_json",
+            (conv_id(), json.dumps(dane, ensure_ascii=False)))
+        polaczenie.commit()
+    finally:
+        polaczenie.close()
 
 
 def pozycje():
@@ -95,11 +102,33 @@ def pozycje():
     return _wczytaj().get("pozycje", [])
 
 
+def _rozloz_wariant(kod):
+    """selected_variant (enum bezpieczny dla modelu, np. 'dab-lity-ab') -> (gatunek,
+    technologia, klasa) w języku, którego oczekuje bots.crm_calc.build_products.
+
+    NIE rezygnujemy z enuma jako parametru narzędzia — to on chroni model przed
+    kombinacją spoza oferty (np. 'jes-lity-bb', której nie ma w VARIANT_CODES).
+    Warstwa stanu tłumaczy bezpieczny enum na język kalkulatora, więc obie
+    własności (bezpieczeństwo enuma + zgodność z build_products) są zachowane
+    naraz, zamiast wybierać jedną kosztem drugiej."""
+    from bots.crm_calc import VARIANT_CODES
+    cfg = VARIANT_CODES.get(kod)
+    if not cfg:
+        return None
+    return cfg["species"], cfg["technology"], cfg["wood_class"]
+
+
 def zapisz_pozycje(id, produkt="", dlugosc_cm=0, szerokosc_cm=0, grubosc_cm=0,
-                   ilosc=0, selected_variant="", finishing_option_id=None, usun=False):
+                   ilosc=0, selected_variant="", finishing_option_id=None,
+                   wykonczenie="", usun=False):
     """Wstawia albo aktualizuje JEDNĄ pozycję pod stałym identyfikatorem.
     Puste pola nie kasują wcześniej ustalonych wartości — model woła to
-    narzędzie raz na zmianę, a nie przepisuje całej listy."""
+    narzędzie raz na zmianę, a nie przepisuje całej listy.
+
+    `selected_variant` jest dodatkowo rozkładany na gatunek/technologia/klasa
+    (patrz `_rozloz_wariant`) — bez tego crm_calc.build_products nie rozpozna
+    pozycji (czyta te trzy pola osobno, nie kod wariantu) i KAŻDA wycena
+    kończyłaby się `WYCENA_NIEUDANA`, niezależnie od tego, co wybrał klient."""
     dane = _wczytaj()
     pozycje = dane.setdefault("pozycje", [])
     biezaca = next((p for p in pozycje if p.get("id") == id), None)
@@ -117,12 +146,40 @@ def zapisz_pozycje(id, produkt="", dlugosc_cm=0, szerokosc_cm=0, grubosc_cm=0,
         ("produkt", produkt), ("dlugosc", dlugosc_cm), ("szerokosc", szerokosc_cm),
         ("grubosc", grubosc_cm), ("ilosc", ilosc),
         ("selected_variant", selected_variant), ("finishing_id", finishing_option_id),
+        ("wykonczenie", wykonczenie),
     ):
         if wartosc not in ("", 0, None):
             biezaca[pole] = wartosc
 
+    if selected_variant:
+        rozlozony = _rozloz_wariant(selected_variant)
+        if rozlozony:
+            biezaca["gatunek"], biezaca["technologia"], biezaca["klasa"] = rozlozony
+
     _zapisz(dane)
     return {"ok": True, "pozycja": biezaca}
+
+
+def zapisz_stan(**kolumny):
+    """Upsert dowolnych kolumn `pro_stan` dla bieżącej rozmowy — jedyne miejsce,
+    które pisze do tej tabeli. `potwierdzenia.py` i `podsumowanie.py` wołają to
+    zamiast dublować własny UPSERT do cudzej tabeli (tabela rozjeżdża się przy
+    pierwszej zmianie schematu, tak jak groziło to podwójnemu odczytowi pozycji
+    przed poprawką w tym module)."""
+    if not kolumny:
+        return
+    nazwy = list(kolumny)
+    polaczenie = db()
+    try:
+        polaczenie.execute(
+            "INSERT INTO pro_stan(conv_id, %s) VALUES(?,%s) "
+            "ON CONFLICT(conv_id) DO UPDATE SET %s" % (
+                ",".join(nazwy), ",".join("?" * len(nazwy)),
+                ",".join("%s=excluded.%s" % (n, n) for n in nazwy)),
+            tuple([conv_id()] + [kolumny[n] for n in nazwy]))
+        polaczenie.commit()
+    finally:
+        polaczenie.close()
 
 
 def handoff(powod):
@@ -137,9 +194,11 @@ def handoff(powod):
 def link_do_checkoutu(edit_uuid):
     """Publiczny link, pod którym klient domknie zamówienie i zapłaci."""
     polaczenie = db()
-    wiersz = polaczenie.execute(
-        "SELECT quote_edit_uuid FROM pro_stan WHERE conv_id=?", (conv_id(),)).fetchone()
-    polaczenie.close()
+    try:
+        wiersz = polaczenie.execute(
+            "SELECT quote_edit_uuid FROM pro_stan WHERE conv_id=?", (conv_id(),)).fetchone()
+    finally:
+        polaczenie.close()
     uuid_wyceny = edit_uuid or (wiersz["quote_edit_uuid"] if wiersz else None)
     if not uuid_wyceny:
         return {"ok": False, "error": "Brak zapisanej wyceny — najpierw ją zapisz."}

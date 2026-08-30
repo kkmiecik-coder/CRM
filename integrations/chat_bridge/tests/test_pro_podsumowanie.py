@@ -25,8 +25,13 @@ def _zaladuj_atrape_wysylki(monkeypatch):
 
 
 def _pozycja():
+    # gatunek/technologia/klasa/wykonczenie/edges — tak jak realnie wyglada pozycja
+    # po przejsciu przez stan.zapisz_pozycje (K2: rozlozenie selected_variant).
     return {"id": "1", "produkt": "blat", "dlugosc": 180, "szerokosc": 60,
-            "grubosc": 4, "ilosc": 1, "selected_variant": "dab-lity-ab"}
+            "grubosc": 4, "ilosc": 1, "selected_variant": "dab-lity-ab",
+            "gatunek": "Dąb", "technologia": "Lity", "klasa": "A/B",
+            "wykonczenie": "olejowane", "finishing_id": 3,
+            "edges": [{"litera": "A", "typ": "round"}]}
 
 
 def test_brak_pozycji_zwraca_blad_bez_liczenia_ceny(monkeypatch):
@@ -78,8 +83,20 @@ class TestWyslijSzczesliwaSciezka:
         assert len(wyslane) == 1
         conv, tekst, token = wyslane[0]
         assert conv == 94004
-        assert "843.04" in tekst
+        assert "843,04" in tekst   # polska notacja (przecinek dziesietny), nie "843.04"
         assert "Czy wszystko się zgadza?" in tekst
+
+    def test_podsumowanie_pokazuje_material_wykonczenie_i_krawedzie_nie_surowy_kod(self, monkeypatch):
+        # W5: klient ma widziec WSZYSTKO, co obejmuje podpis (potwierdzenia.podpis) —
+        # gdyby wykonczenie/krawedzie byly niewidoczne, potwierdzalby mniej, niz
+        # faktycznie sie zapisze. Kod enuma ('dab-lity-ab') to nie jest opis dla klienta.
+        _, wyslane = self._przygotuj(monkeypatch, 94008)
+        podsumowanie.wyslij()
+        tekst = wyslane[0][1]
+        assert "Dąb lity A/B" in tekst
+        assert "dab-lity-ab" not in tekst
+        assert "wykończenie: olejowane" in tekst
+        assert "krawędzie: 1 szt." in tekst
 
     def test_zapisuje_oczekiwany_podpis_w_pro_stan(self, monkeypatch):
         _, _ = self._przygotuj(monkeypatch, 94005)
@@ -94,3 +111,36 @@ class TestWyslijSzczesliwaSciezka:
         self._przygotuj(monkeypatch, 94006)
         podsumowanie.wyslij()
         assert "843.04" in stan.znane_kwoty()
+
+
+def test_rejestruje_rozbicie_per_pozycja_nie_tylko_sumy_calosci(monkeypatch):
+    """W4: ceny per pozycja (material/wykonczenie/krawedzie) sa w wynik["products"],
+    nie w totals. Bot mowiacy "material 861,00 zl" (bez wykonczenia/krawedzi w tej
+    kwocie) dostalby falszywe naruszenie, gdyby rejestr znal tylko totale."""
+    conv_id = 94007
+    stan.ustaw_kontekst(conv_id)
+    poz = [_pozycja()]
+    monkeypatch.setattr(stan, "pozycje", lambda: poz)
+    monkeypatch.setattr(podsumowanie.crm_calc, "get_options", lambda: {})
+    monkeypatch.setattr(podsumowanie.crm_calc, "calculate", lambda p, o: {
+        "ok": True,
+        "totals": {"total_netto": 1000.00, "total_brutto": 1230.00},
+        "products": [{
+            "variants": [{"variant_code": "dab-lity-ab", "available": True,
+                          "unit_netto": 700.00, "unit_brutto": 861.00,
+                          "total_netto": 700.00, "total_brutto": 861.00},
+                         {"variant_code": "jes-lity-ab", "available": False}],
+            "finishing": {"netto": 200.00, "brutto": 246.00},
+            "edges": {"netto": 100.00, "brutto": 123.00},
+        }],
+    })
+    _zaladuj_atrape_wysylki(monkeypatch)
+    monkeypatch.setattr(podsumowanie, "cw_agent_reply", lambda *a, **k: True)
+
+    podsumowanie.wyslij()
+
+    znane = stan.znane_kwoty()
+    assert {"1000.00", "1230.00"} <= znane   # sumy calosci (jak wczesniej)
+    assert {"700.00", "861.00"} <= znane     # material wybranego wariantu (unit/total)
+    assert {"200.00", "246.00"} <= znane     # wykonczenie
+    assert {"100.00", "123.00"} <= znane     # krawedzie

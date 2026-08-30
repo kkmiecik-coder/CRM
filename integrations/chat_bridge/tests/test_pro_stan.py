@@ -23,11 +23,53 @@ class TestPozycje:
         stan.ustaw_kontekst(93002)
         wynik = stan.zapisz_pozycje("1", produkt="blat", dlugosc_cm=180, szerokosc_cm=60,
                                     grubosc_cm=4, ilosc=1, selected_variant="dab-lity-ab",
-                                    finishing_option_id=3)
+                                    finishing_option_id=3, wykonczenie="lakierowane")
         assert wynik["ok"] is True
+        # K2: selected_variant jest DODATKOWO rozlozony na gatunek/technologia/klasa —
+        # bez tego crm_calc.build_products nie rozpozna pozycji (patrz test nizej).
         assert stan.pozycje() == [{"id": "1", "produkt": "blat", "dlugosc": 180,
                                    "szerokosc": 60, "grubosc": 4, "ilosc": 1,
-                                   "selected_variant": "dab-lity-ab", "finishing_id": 3}]
+                                   "selected_variant": "dab-lity-ab", "finishing_id": 3,
+                                   "wykonczenie": "lakierowane",
+                                   "gatunek": "Dąb", "technologia": "Lity", "klasa": "A/B"}]
+
+    def test_zapisz_pozycje_z_nieznanym_wariantem_nie_rozklada_gatunku(self):
+        # Enum spoza VARIANT_CODES (literowka modelu, brak w katalogu) — nie zgadujemy,
+        # zostawiamy pozycje bez gatunek/technologia/klasa (build_products i tak ja
+        # odrzuci jako "brak mapowania", co jest bezpieczniejsze niz zmyslanie).
+        stan.ustaw_kontekst(93018)
+        stan.zapisz_pozycje("1", produkt="blat", selected_variant="nieistniejacy-wariant")
+        (poz,) = stan.pozycje()
+        assert "gatunek" not in poz
+        assert poz["selected_variant"] == "nieistniejacy-wariant"
+
+    def test_pozycja_przechodzi_przez_prawdziwy_build_products_bez_brakow(self):
+        # K2, dowod naprawy: to jest DOKLADNIE to, co robi podsumowanie.wyslij() —
+        # bierze stan.pozycje() i podaje je crm_calc.build_products. Przed poprawka
+        # kazda pozycja ladowala w braki_mapowania ("nie rozpoznano wariantu drewna"),
+        # wiec KAZDA wycena konczyla sie WYCENA_NIEUDANA niezaleznie od wyboru klienta.
+        from bots import crm_calc
+        stan.ustaw_kontekst(93019)
+        stan.zapisz_pozycje("1", produkt="blat", dlugosc_cm=180, szerokosc_cm=60,
+                            grubosc_cm=4, ilosc=1, selected_variant="dab-lity-ab",
+                            wykonczenie="surowe")
+        products, braki = crm_calc.build_products(stan.pozycje(), {"finishing_options": []})
+        assert braki == []
+        assert len(products) == 1
+        assert products[0]["selected_variant"] == "dab-lity-ab"
+        assert products[0]["finishing_type"] == "Surowe"
+
+    def test_pozycja_z_wykonczeniem_i_finishing_id_przechodzi_przez_build_products(self):
+        from bots import crm_calc
+        stan.ustaw_kontekst(93020)
+        stan.zapisz_pozycje("1", produkt="parapet", dlugosc_cm=100, szerokosc_cm=30,
+                            grubosc_cm=3, ilosc=2, selected_variant="jes-micro-ab",
+                            wykonczenie="olejowane", finishing_option_id=7)
+        options = {"finishing_options": [{"id": 7, "price_netto": 10}]}
+        products, braki = crm_calc.build_products(stan.pozycje(), options)
+        assert braki == []
+        assert products[0]["finishing_option_id"] == 7
+        assert products[0]["finishing_type"] == "Olejowane"
 
     def test_zapisz_pozycje_pod_tym_samym_id_aktualizuje_bez_kasowania_pustych(self):
         stan.ustaw_kontekst(93003)
@@ -82,6 +124,39 @@ class TestPersonaIConvId:
     def test_conv_id_zwraca_ustawiona_wartosc(self):
         stan.ustaw_kontekst(93010)
         assert stan.conv_id() == 93010
+
+
+class TestZapiszStan:
+    """zapisz_stan — jedyne miejsce piszące do pro_stan (konsolidacja z potwierdzenia.py
+    i podsumowanie.py, które wcześniej dublowały własny UPSERT do tej samej tabeli)."""
+
+    def test_wstawia_nowy_wiersz(self):
+        from core.db import db
+        stan.ustaw_kontekst(93021)
+        stan.zapisz_stan(oczekiwany_podpis="abc123")
+        c = db()
+        wiersz = c.execute("SELECT oczekiwany_podpis FROM pro_stan WHERE conv_id=?",
+                           (93021,)).fetchone()
+        c.close()
+        assert wiersz["oczekiwany_podpis"] == "abc123"
+
+    def test_aktualizuje_bez_kasowania_innych_kolumn(self):
+        from core.db import db
+        stan.ustaw_kontekst(93022)
+        stan.zapisz_stan(quote_edit_uuid="uuid-1", priced=1)
+        stan.zapisz_stan(oczekiwany_podpis="xyz789")   # inna tura, inna kolumna
+        c = db()
+        wiersz = c.execute(
+            "SELECT quote_edit_uuid, priced, oczekiwany_podpis FROM pro_stan WHERE conv_id=?",
+            (93022,)).fetchone()
+        c.close()
+        assert wiersz["quote_edit_uuid"] == "uuid-1"
+        assert wiersz["priced"] == 1
+        assert wiersz["oczekiwany_podpis"] == "xyz789"
+
+    def test_wolane_bez_kolumn_nie_rzuca(self):
+        stan.ustaw_kontekst(93023)
+        stan.zapisz_stan()   # no-op, nie powinno rzucic ani dotknac bazy
 
 
 class TestLinkDoCheckoutu:
