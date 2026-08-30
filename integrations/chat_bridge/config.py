@@ -113,3 +113,8 @@ BOT_BACKOFF_TIERS = ([int(x) for x in os.environ.get("BOT_BACKOFF_TIERS", "30,12
                      or [30, 120, 300])
 BOT_CIRCUIT_THRESHOLD = int(os.environ.get("BOT_CIRCUIT_THRESHOLD", "5"))   # kolejnych bledow -> pauza
 BOT_CIRCUIT_COOLDOWN  = int(os.environ.get("BOT_CIRCUIT_COOLDOWN", "120"))  # sekundy pauzy kolejki
+
+# ----- Bot sprzedazowy "Debus Pro" (Agents SDK, osobna encja od quote-bota) -----
+# Token uzyty explicite w bots_pro.stan.handoff/podsumowanie.wyslij — domyslny cw_bot_handoff
+# siega po token bota-podpowiadacza, wiec Pro potrzebuje wlasnego, jawnie podawanego.
+BOT_PRO_CW_AGENT_TOKEN = os.environ.get("BOT_PRO_CW_AGENT_TOKEN")
