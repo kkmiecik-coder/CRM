@@ -33,17 +33,27 @@ CREATE TABLE IF NOT EXISTS pro_stan(
   quote_edit_uuid TEXT, quote_saved INTEGER DEFAULT 0, priced INTEGER DEFAULT 0,
   contact_email TEXT, contact_phone TEXT, contact_name TEXT,
   oczekiwany_podpis TEXT, potwierdzony_podpis TEXT,
-  potwierdzenie_cytat TEXT, potwierdzenie_ts REAL);
+  potwierdzenie_cytat TEXT, potwierdzenie_ts REAL,
+  czlowiek_odezwal_sie INTEGER DEFAULT 0);
 """
 
 
 def init_pro():
     """Tabele stanu Dębusia Pro. Świadomie BEZ kolumn bot_turns, awaiting_*,
     reject_*, sent_images, returning_greeted, human_deflected — przebieg rozmowy
-    odtwarza sesja Agents SDK, a te kolumny były księgowaniem tego przebiegu."""
+    odtwarza sesja Agents SDK, a te kolumny były księgowaniem tego przebiegu.
+
+    `czlowiek_odezwal_sie` (N2, code review runda 2) dołożona ALTER-em osobno —
+    `CREATE TABLE IF NOT EXISTS` w `_SCHEMAT` nie doda kolumny do tabeli, która
+    już istnieje z wdrożeń sprzed tej zmiany (ten sam wzorzec co w core/db.py)."""
     polaczenie = db()
     try:
         polaczenie.executescript(_SCHEMAT)
+        try:
+            polaczenie.execute(
+                "ALTER TABLE pro_stan ADD COLUMN czlowiek_odezwal_sie INTEGER DEFAULT 0")
+        except Exception:
+            pass
         polaczenie.commit()
     finally:
         polaczenie.close()
@@ -305,9 +315,35 @@ class BladOdczytuStanu(Exception):
     retryable = True
 
 
+def _czlowiek_juz_sie_odezwal(conv_id):
+    """Odczyt sticky-bita (N2, code review runda 2) — NIE przez kontekst `conv_id()`
+    (contextvar), bo ta funkcja jest wołana PRZED `stan.ustaw_kontekst` (patrz
+    `tura.uruchom`). Konto conv_id idzie więc jawnym parametrem, jak w reszcie
+    tego modułu przy podobnych wywołaniach spoza tury (np. `handoff`)."""
+    polaczenie = db()
+    try:
+        wiersz = polaczenie.execute(
+            "SELECT czlowiek_odezwal_sie FROM pro_stan WHERE conv_id=?", (conv_id,)).fetchone()
+    finally:
+        polaczenie.close()
+    return bool(wiersz and wiersz["czlowiek_odezwal_sie"])
+
+
+def _oznacz_czlowiek_odezwal_sie(conv_id):
+    polaczenie = db()
+    try:
+        polaczenie.execute(
+            "INSERT INTO pro_stan(conv_id, czlowiek_odezwal_sie) VALUES(?, 1) "
+            "ON CONFLICT(conv_id) DO UPDATE SET czlowiek_odezwal_sie=1", (conv_id,))
+        polaczenie.commit()
+    finally:
+        polaczenie.close()
+
+
 def wolno_prowadzic_rozmowe(conv_id):
     """Bramka ciszy po handoffie (Task 7, brief o niej nie wspomina — rozstrzygnięcie
-    właściciela zadania; przepisana w rundzie poprawek 1 po code review — K1/W3).
+    właściciela zadania; przepisana w rundzie poprawek 1 i 2 po code review —
+    K1/W3, potem N2).
 
     Sam status "pending" NIE wystarcza jako bramka: w Chatwoocie "Oczekująca"
     (pending) to jednocześnie stan startowy (bot jeszcze się nie odezwał) I zwykły
@@ -350,7 +386,27 @@ def wolno_prowadzic_rozmowe(conv_id):
     identycznie jak legalna blokada (human już rozmawia), więc `quote_worker`
     oznaczał wiersz kolejki jako 'sent' i CICHO GUBIŁ wiadomość klienta przy
     zwykłym, przejściowym błędzie sieci. Rzucanie (jak w starym silniku, ten sam
-    powód) oddaje decyzję workerowi: retry z backoffem, a nie zgadywanie tutaj."""
+    powód) oddaje decyzję workerowi: retry z backoffem, a nie zgadywanie tutaj.
+    `cw()` sam NIE rzuca na odpowiedź błędu (nie robi `raise_for_status`) — gdy
+    ciało błędu sparsuje się jako JSON bez klucza "payload", `.get("payload", [])`
+    cicho dałoby `[]` (pusta historia -> bramka pozwala), więc status HTTP jest
+    sprawdzany JAWNIE (`r.ok`) przed odczytem `payload`.
+
+    N2 (code review, runda 2): semantyka "czy CZŁOWIEK KIEDYKOLWIEK się odezwał"
+    (K1) niejawnie zakłada, że pobrana strona `payload` to CAŁA historia — ale
+    endpoint `/messages` jest stronicowany i bez parametru strony zwraca tylko
+    najświeższą stronę. Gdy po odpowiedzi agenta narośnie dość kolejnych
+    wiadomości KLIENTA (np. kilka dni niecierpliwych ponagleń), odpowiedź agenta
+    wypadnie z pobranej strony i bramka wróci na True — bot znów zaprzeczy
+    agentowi, dokładnie ten sam błąd co #1316, tylko odroczony w czasie zamiast
+    natychmiastowy. Rozwiązanie NIEZALEŻNE od rozmiaru strony: sticky bit
+    `czlowiek_odezwal_sie` w `pro_stan`, ustawiany RAZ (`_oznacz_czlowiek_odezwal_sie`)
+    gdy wiadomość agenta zostanie znaleziona, i sprawdzany PRZED sięgnięciem po
+    historię (`_czlowiek_juz_sie_odezwal`) — raz ustawiony, blokuje TRWALE bez
+    ponownego skanowania /messages. To jednocześnie ogranicza liczbę wywołań API
+    Chatwoota na turę (odmowa scalenia statusu+historii z rundy 1 pozostaje
+    słuszna — patrz raport — ale po ustawieniu sticky bita druga rozmowa idzie
+    już wyłącznie po statusie, bez /messages w ogóle)."""
     from core.chatwoot import cw_conv_status, cw
 
     status = cw_conv_status(conv_id)
@@ -359,8 +415,17 @@ def wolno_prowadzic_rozmowe(conv_id):
             "stan: nie mozna odczytac statusu rozmowy (conv %s)" % conv_id)
     if status != "pending":
         return False
+    if _czlowiek_juz_sie_odezwal(conv_id):
+        return False
     try:
-        wiadomosci = cw("GET", "/conversations/%s/messages" % conv_id).json().get("payload", [])
+        odpowiedz = cw("GET", "/conversations/%s/messages" % conv_id)
+        if not odpowiedz.ok:
+            raise BladOdczytuStanu(
+                "stan: HTTP %s przy odczycie historii rozmowy (conv %s)"
+                % (odpowiedz.status_code, conv_id))
+        wiadomosci = odpowiedz.json().get("payload", [])
+    except BladOdczytuStanu:
+        raise
     except Exception as e:
         raise BladOdczytuStanu(
             "stan: nie mozna odczytac historii rozmowy (conv %s): %r" % (conv_id, e)) from e
@@ -368,6 +433,7 @@ def wolno_prowadzic_rozmowe(conv_id):
         if wiadomosc.get("private"):
             continue
         if (wiadomosc.get("sender") or {}).get("type") == "user":
+            _oznacz_czlowiek_odezwal_sie(conv_id)
             return False
     return True
 

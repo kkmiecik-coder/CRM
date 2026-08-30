@@ -190,3 +190,68 @@ class TestWebhookPro:
         klient.post("/agent-bot-pro", json=_zdarzenie(inbox_id="5"))
 
         assert wolania_handoff == []
+
+
+class TestPersonaProDlaInboxuOdpornaNaAwarieKatalogu:
+    """N1 (code review, runda 2): persona_for(inbox_id) siega siecia po katalog
+    inboksow i przy KAZDYM bledzie HTTP zwraca None (core/chatwoot.cw_inboxes
+    daje [] na blad) — bez tej poprawki kanal spadalby na "pro" (DEFAULT_CAPS,
+    linki WLACZONE) mimo ze inbox faktycznie jest OLX/Allegro. Identyfikacja
+    idzie WIEC NAJPIERW przez identyfikatory z configu (CW_OLX_INBOX/
+    CW_ALLEGRO_MSG_INBOX), ktore nie wymagaja sieci i nie moga "zawiesc"."""
+
+    def test_config_olx_rozpoznany_mimo_katalogu_niedostepnego(self, monkeypatch):
+        monkeypatch.setattr(webhooks, "CW_OLX_INBOX", "18")
+        monkeypatch.setattr(webhooks, "CW_ALLEGRO_MSG_INBOX", "4")
+        # Katalog "padl" - persona_for nie powinien byc w ogole potrzebny.
+        monkeypatch.setattr(webhooks, "persona_for",
+                            lambda inbox_id: (_ for _ in ()).throw(AssertionError(
+                                "identyfikacja po configu nie powinna siegac po siec")))
+        assert webhooks._persona_pro_dla_inboxu("18") == "olx"
+
+    def test_config_allegro_rozpoznany_mimo_katalogu_niedostepnego(self, monkeypatch):
+        monkeypatch.setattr(webhooks, "CW_OLX_INBOX", "18")
+        monkeypatch.setattr(webhooks, "CW_ALLEGRO_MSG_INBOX", "6")
+        monkeypatch.setattr(webhooks, "persona_for",
+                            lambda inbox_id: (_ for _ in ()).throw(AssertionError(
+                                "identyfikacja po configu nie powinna siegac po siec")))
+        assert webhooks._persona_pro_dla_inboxu("6") == "allegro"
+
+    def test_webhook_end_to_end_allegro_z_configu_nie_kolejkuje_linkow(self, klient, monkeypatch):
+        # Dowod na poziomie calego webhooka (nie tylko funkcji pomocniczej): inbox
+        # skonfigurowany jako CW_ALLEGRO_MSG_INBOX trafia do kolejki z persona
+        # "allegro", NIE "pro", nawet gdy katalog inboksow jest niedostepny.
+        monkeypatch.setattr(webhooks, "BOT_PRO_AGENT_WEBHOOK_TOKEN", None)
+        monkeypatch.setattr(webhooks, "BOT_PRO_INBOXES", {"6"})
+        monkeypatch.setattr(webhooks, "CW_OLX_INBOX", "18")
+        monkeypatch.setattr(webhooks, "CW_ALLEGRO_MSG_INBOX", "6")
+        monkeypatch.setattr(webhooks, "persona_for", lambda inbox_id: None)   # katalog padl
+        kolejkowane = []
+        monkeypatch.setattr(webhooks, "enqueue_quote_turn",
+                            lambda *a, **k: kolejkowane.append(k.get("persona")))
+
+        klient.post("/agent-bot-pro", json=_zdarzenie(inbox_id="6"))
+
+        assert kolejkowane == ["allegro"]
+
+    def test_inbox_spoza_configu_pada_na_persona_for_jak_dotychczas(self, monkeypatch):
+        monkeypatch.setattr(webhooks, "CW_OLX_INBOX", "18")
+        monkeypatch.setattr(webhooks, "CW_ALLEGRO_MSG_INBOX", "4")
+        monkeypatch.setattr(webhooks, "persona_for", lambda inbox_id: "allegro")
+        assert webhooks._persona_pro_dla_inboxu("99") == "allegro"
+
+    def test_inbox_spoza_configu_i_katalog_padl_daje_domyslne_pro(self, monkeypatch):
+        # Udokumentowane rezydualne ryzyko: inbox NIGDY nie serwowany przez legacy
+        # (brak identyfikatora w configu) I rownoczesna awaria katalogu nadal
+        # spada na "pro" - to jest swiadomie zaakceptowany, wezszy przypadek
+        # (patrz raport), nie scenariusz migracji, ktory ta poprawka zamyka.
+        monkeypatch.setattr(webhooks, "CW_OLX_INBOX", "18")
+        monkeypatch.setattr(webhooks, "CW_ALLEGRO_MSG_INBOX", "4")
+        monkeypatch.setattr(webhooks, "persona_for", lambda inbox_id: None)
+        assert webhooks._persona_pro_dla_inboxu("99") == "pro"
+
+    def test_pusty_config_nie_wybucha(self, monkeypatch):
+        monkeypatch.setattr(webhooks, "CW_OLX_INBOX", None)
+        monkeypatch.setattr(webhooks, "CW_ALLEGRO_MSG_INBOX", None)
+        monkeypatch.setattr(webhooks, "persona_for", lambda inbox_id: "livechat")
+        assert webhooks._persona_pro_dla_inboxu("18") == "pro"

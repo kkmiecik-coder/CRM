@@ -12,7 +12,7 @@ from core.db import db, init_db, meta_get, meta_set
 from core.events import log_event
 from core.chatwoot import cw_agent_reply as _cw_reply_raw, cw_bot_handoff as _cw_handoff_raw
 from bots.quotebot import (run_quote_turn, handoff_with_apology, komunikat_obciazenia,
-                           _LLMHttpError, APOLOGY_MSG, _OBCIAZENIE_MSG)
+                           APOLOGY_MSG, _OBCIAZENIE_MSG)
 # `bots_pro.stan`/`bots_pro.wysylka` NIE zaleza od pakietu `agents` (SDK) — bezpieczny import
 # na poziomie modulu nawet w wariancie testow "bez SDK" (w odroznieniu od `bots_pro.tura`,
 # importowanego LOKALNIE nizej, w process_one, tylko gdy trafi sie tura na inboksie Pro).
@@ -99,13 +99,34 @@ def _backoff_for(attempts):
     return BOT_BACKOFF_TIERS[idx]
 
 
+# Wartosci kolumny `persona`, jakie PRODUKUJE Debus Pro (webhooks._persona_pro_dla_inboxu).
+# Legacy silnik produkuje WYLACZNIE "quote"/"quote_olx"/"quote_allegro" (webhooks.
+# _quote_persona_dla_inboxu, channels/olx.py, domyslna wartosc kolumny) — dwa zbiory sa
+# ROZLACZNE z konstrukcji, co czyni ponizszy test jednoznacznym (patrz _wiersz_silnika_pro).
+_PERSONY_SILNIKA_PRO = ("pro", "olx", "allegro")
+
+
 def _jest_pro_inbox(inbox_id):
-    """Czy dany inbox nalezy do Debusia Pro — JEDYNE zrodlo prawdy o tym, KTORY
-    silnik obsluguje wiersz kolejki (bots_pro vs legacy run_quote_turn). Task 7,
-    W1 code review: wczesniej rozgraniczal to string persona=="pro", ale persona
-    dzis niesie profil kanalu (moze byc "olx"/"allegro" nawet dla Debusia Pro) —
-    wiec rozgraniczenie silnika MUSI isc inna droga niz rozgraniczenie capsow."""
+    """Czy dany inbox nalezy do Debusia Pro wg konfiguracji (BOT_PRO_INBOXES).
+
+    UWAGA (N3, code review runda 2): to NIE JEST juz samodzielny sygnal silnika —
+    patrz `_wiersz_silnika_pro`. Kluczowanie WYLACZNIE po inboksie (jak w Task 7/
+    W1 code review) przejmuje takze wiersze wyprodukowane przez STARE tory na
+    tym samym inboksie (webhooks._process_agent_bot w trybie notatki, poller
+    channels/olx.py) — realny scenariusz przy migracji inbox-po-inboksie:
+    wiersze zalegle w 'pending' w momencie przelaczenia inboxu do BOT_PRO_INBOXES
+    maja jeszcze persone legacy. Ta funkcja zostaje jako budulec (i dla wstecznej
+    zgodnosci testow), ale dispatch silnika w process_one uzywa zlozenia z persona."""
     return str(inbox_id) in BOT_PRO_INBOXES
+
+
+def _wiersz_silnika_pro(inbox_id, persona):
+    """Czy KONKRETNY wiersz kolejki nalezy do silnika Debusia Pro — JEDYNE
+    zrodlo prawdy dla dispatchu (process_one) i dla filtra circuit-breakera
+    (`_filtr_obwodow_sql`). Wymaga OBU warunkow: inbox jest w BOT_PRO_INBOXES
+    ORAZ persona wiersza nalezy do zbioru, jaki faktycznie produkuje Debus Pro
+    (`_PERSONY_SILNIKA_PRO`) — sam inbox nie wystarcza (patrz `_jest_pro_inbox`)."""
+    return _jest_pro_inbox(inbox_id) and persona in _PERSONY_SILNIKA_PRO
 
 
 def _pro_wyslij(conv_id, tekst, persona):
@@ -164,10 +185,20 @@ def _fail_permanently(qid, conv_id, attempts, err, retryable, persona="quote", j
 
 def _filtr_obwodow_sql(now):
     """Fragment WHERE + parametry wykluczajace z SELECT wiersze silnika, ktorego
-    obwod jest w tej chwili otwarty. Silnik wiersza jest okreslany przez
-    inbox_id + BOT_PRO_INBOXES (`_jest_pro_inbox`), NIE przez kolumne persona —
-    patrz `_klucze_obwodu`. Zwraca (sql, parametry); sql to gotowy fragment
-    " AND ..." (albo pusty string, gdy zaden obwod nie jest otwarty)."""
+    obwod jest w tej chwili otwarty. Silnik wiersza jest okreslany DOKLADNIE tak
+    samo jak w `_wiersz_silnika_pro` — inbox_id w BOT_PRO_INBOXES ORAZ persona
+    nalezaca do `_PERSONY_SILNIKA_PRO` (N3, code review runda 2: sam inbox nie
+    wystarcza, bo stare tory potrafia zakolejkowac wiersz legacy na inboksie juz
+    przelaczonym do Debusia Pro — bez tej spojnosci taki wiersz bylby niepotrzebnie
+    wstrzymywany, gdy akurat otwarty jest WYLACZNIE obwod pro, mimo ze i tak
+    trafi do run_quote_turn, nie do bots_pro). Zwraca (sql, parametry); sql to
+    gotowy fragment " AND ..." (albo pusty string, gdy zaden obwod nie jest otwarty).
+
+    `COALESCE(q.inbox_id,'')` (nie goly `q.inbox_id`) — drobne z code review runda 2:
+    SQL-owa logika trojwartosciowa sprawia, ze `NULL IN (...)` i `NOT (NULL AND ...)`
+    obie dają NULL (nie TRUE/FALSE), wiec wiersz z inbox_id IS NULL znikalby cicho
+    z obu kierunkow filtra. COALESCE sprowadza go do pustego stringa, ktory nigdy
+    nie jest w BOT_PRO_INBOXES — jednoznacznie FALSE zamiast NULL, w OBU kierunkach."""
     legacy_otwarty = _circuit_open(now, kubelek="quote")
     pro_otwarty = _circuit_open(now, kubelek="pro")
     if not legacy_otwarty and not pro_otwarty:
@@ -181,9 +212,24 @@ def _filtr_obwodow_sql(now):
         # obwod legacy otwarty blokuje WSZYSTKO (bo wszystko jest legacy).
         return ("", []) if pro_otwarty else ("AND 1=0", [])
     znaczniki = ",".join("?" * len(pro_inboxy))
+    persony_pro = ",".join("'%s'" % p for p in _PERSONY_SILNIKA_PRO)   # stale, bez parametrow
+    warunek_pro = ("COALESCE(q.inbox_id,'') IN (%s) AND COALESCE(q.persona,'quote') IN (%s)"
+                   % (znaczniki, persony_pro))
     if legacy_otwarty:
-        return "AND q.inbox_id IN (%s)" % znaczniki, list(pro_inboxy)
-    return "AND q.inbox_id NOT IN (%s)" % znaczniki, list(pro_inboxy)
+        # tylko wiersze FAKTYCZNIE nalezace do silnika pro moga przejsc
+        return "AND (%s)" % warunek_pro, list(pro_inboxy)
+    # pro_otwarty: wszystko OPROCZ wierszy FAKTYCZNIE silnika pro moze przejsc
+    return "AND NOT (%s)" % warunek_pro, list(pro_inboxy)
+
+
+# Bledy PROGRAMISTYCZNE (N4, code review runda 2) — literowka w kodzie, zly typ/atrybut/
+# klucz, brakujacy import. Zbior ZAMKNIETY i wyczerpujacy, w odroznieniu od otwartej,
+# stale rosnacej przestrzeni wyjatkow transportowych/API (requests, agents, openai,
+# litellm...), z ktorych ZADEN nie dziedziczy po wbudowanych ConnectionError/TimeoutError
+# (patrz uzasadnienie przy klasyfikacji retryable w process_one nizej). Tylko TE typy sa
+# uznawane za trwale (nieponawialne) dla wierszy silnika pro — wszystko inne jest domyslnie
+# retryable, tak jak bylo dla calej kolejki przed K2.
+_BLEDY_PROGRAMISTYCZNE = (TypeError, AttributeError, KeyError, ValueError, ImportError)
 
 
 def process_one(now):
@@ -214,12 +260,14 @@ def process_one(now):
     mid, content, attempts = row["message_id"], row["content"], row["attempts"]
     # Persona/kanal tury (kolumna dodana dla OLX) — NULL/brak => domyslnie 'quote' (livechat).
     # Dla wierszy Debusia Pro to profil CAPS kanalu ("olx"/"allegro"/"pro" — patrz
-    # webhooks._persona_pro_dla_inboxu), NIE sygnal silnika (ten daje _jest_pro_inbox nizej).
+    # webhooks._persona_pro_dla_inboxu).
     try:
         persona = row["persona"] or "quote"
     except Exception:
         persona = "quote"
-    jest_pro = _jest_pro_inbox(inbox_id)
+    # Sygnal silnika (N3, code review runda 2): inbox W BOT_PRO_INBOXES ORAZ persona
+    # nalezaca do Debusia Pro — sam inbox NIE WYSTARCZA, patrz _wiersz_silnika_pro.
+    jest_pro = _wiersz_silnika_pro(inbox_id, persona)
     kubelek = "pro" if jest_pro else "quote"
     # Atomowy claim (API-09/AR-04): tylko jeden worker przetworzy rekord — deploy/overlap kontenerow
     # nie zdubluje tury. next_at = deadline claimu (stale-recovery po _STALE_PROCESSING).
@@ -266,10 +314,32 @@ def process_one(now):
         # zywego ruchu legacy (livechat/OLX/Allegro), na co nic nie chronilo
         # (test_quote_idempotency.py zaklada, ze po golym RuntimeError przyjdzie retry).
         # Stad rozgraniczenie po `jest_pro`, nie globalnie.
+        #
+        # N4 (code review, runda poprawek 2): PIERWSZA wersja zawezenia dla Pro byla BIALA
+        # LISTA (isinstance przeciw _LLMHttpError/ConnectionError/TimeoutError) — ale silnik
+        # Pro to openai-agents[litellm], ktorego wyjatki (agents.exceptions.*, openai.
+        # APIConnectionError/APITimeoutError/RateLimitError/InternalServerError...) NIE
+        # dziedzicza po wbudowanych ConnectionError/TimeoutError (dokladnie tak samo jak
+        # requests.exceptions.ConnectionError, co juz odnotowano w bots_pro.stan.
+        # BladOdczytuStanu). Skutek: pojedyncze 429/5xx od dostawcy LLM na inboksie Pro =
+        # failed po JEDNEJ probie + handoff, a obwod NIGDY sie nie otwiera
+        # (_circuit_record_failure jest wolane tylko w galezi retryable, ponizej) — przy
+        # prawdziwej awarii dostawcy dostalibysmy lawine handoffow zamiast jednego
+        # lagodnego komunikatu.
+        #
+        # Odwrocone: biala lista wyjatkow sieciowych/API NIGDY nie bylaby kompletna (kazda
+        # biblioteka ma wlasna, rosnaca hierarchie) — czarna lista bledow PROGRAMISTYCZNYCH
+        # jest za to ZAMKNIETA i wyczerpujaca (literowka w kodzie, zly typ/atrybut/klucz,
+        # brakujacy import). Wszystko INNE (w tym cala dzisiejsza i przyszla przestrzen
+        # wyjatkow transportowych/API roznych bibliotek) jest domyslnie retryable —
+        # DOKLADNIE jak dla calej kolejki PRZED K2, tylko teraz swiadomie po obu stronach.
+        # `_LLMHttpError` (legacy) zawsze ustawia `.retryable` jawnie w konstruktorze (patrz
+        # bots/quotebot.py), wiec `getattr` wyzej i tak zwraca jej wartosc PRZED dotarciem
+        # tutaj — to odwrocenie NIE dotyka klasyfikacji 4xx/429 dla legacy w zaden sposob.
         retryable = getattr(e, "retryable", None)
         if retryable is None:
             if jest_pro:
-                retryable = isinstance(e, (_LLMHttpError, ConnectionError, TimeoutError))
+                retryable = not isinstance(e, _BLEDY_PROGRAMISTYCZNE)
             else:
                 retryable = True   # zachowanie legacy SPRZED tego zadania, bez zmian
         if not retryable:

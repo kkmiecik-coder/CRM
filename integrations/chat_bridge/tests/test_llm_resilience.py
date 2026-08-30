@@ -71,15 +71,18 @@ def test_llm_http_error_transport_jest_retryable(monkeypatch):
 
 # --- quote_worker: backoff wielopoziomowy + rozroznienie retryable ---
 
-def _enqueue(conv_id, attempts=0):
+def _enqueue(conv_id, attempts=0, persona=None):
     # process_one() bierze GLOBALNIE najstarszy pasujacy rekord (bez filtra po conv_id) —
     # czyscimy CALA kolejke (nie tylko wiersze tego conv_id), zeby porzucone 'pending' rekordy
     # z innych testow/plikow (dzielony bridge.db w calej sesji testowej) nie zostaly wziete
     # zamiast tego, ktory ten test wlasnie przygotowal.
+    # `persona` domyslnie None (NULL w bazie -> "quote" w process_one) - jak przed N3. Testy,
+    # ktore chca wiersz FAKTYCZNIE nalezacy do silnika pro, musza to podac jawnie (persona
+    # sama, bez BOT_PRO_INBOXES, juz nie wystarcza — patrz quote_worker._wiersz_silnika_pro).
     c = db_mod.db()
     c.execute("DELETE FROM quote_queue")
-    c.execute("INSERT INTO quote_queue(conv_id, inbox_id, message_id, content, attempts, next_at) "
-              "VALUES(?,?,?,?,?,0)", (conv_id, 18, "m1", "tak", attempts))
+    c.execute("INSERT INTO quote_queue(conv_id, inbox_id, message_id, content, attempts, persona, next_at) "
+              "VALUES(?,?,?,?,?,?,0)", (conv_id, 18, "m1", "tak", attempts, persona))
     c.commit(); c.close()
 
 
@@ -253,7 +256,7 @@ def test_wyjatek_bez_retryable_na_inboksie_pro_nie_jest_ponawiany_w_kolko(monkey
     monkeypatch.setattr(tura_pro, "uruchom",
                         lambda *a, **k: (_ for _ in ()).throw(TypeError("literowka w kodzie bota")))
     monkeypatch.setattr(qw, "BOT_PRO_INBOXES", {"18"})   # _enqueue wstawia inbox_id=18
-    _enqueue(1118)
+    _enqueue(1118, persona="pro")   # N3: sam inbox juz nie wystarcza, trzeba tez persony pro
     qw.process_one(1_000_000)
     c = db_mod.db()
     row = c.execute("SELECT status, attempts FROM quote_queue WHERE conv_id=1118").fetchone()
@@ -271,13 +274,75 @@ def test_polaczeniowy_wyjatek_na_inboksie_pro_nadal_jest_ponawiany(monkeypatch):
     monkeypatch.setattr(tura_pro, "uruchom",
                         lambda *a, **k: (_ for _ in ()).throw(ConnectionError("polaczenie padlo")))
     monkeypatch.setattr(qw, "BOT_PRO_INBOXES", {"18"})
-    _enqueue(1119)
+    _enqueue(1119, persona="pro")
     qw.process_one(1_000_000)
     c = db_mod.db()
     row = c.execute("SELECT status, attempts, next_at FROM quote_queue WHERE conv_id=1119").fetchone()
     c.close()
     assert row["status"] == "pending"   # wraca do pending z backoffem, NIE 'failed'
     assert row["attempts"] == 1
+
+
+def test_wyjatek_ksztaltu_sdk_agentow_na_inboksie_pro_jest_ponawiany(monkeypatch):
+    """N4 (code review, runda 2): silnik Pro to openai-agents[litellm] - jego
+    wyjatki (agents.exceptions.*, openai.APIConnectionError/RateLimitError/
+    InternalServerError...) NIE dziedzicza po wbudowanych ConnectionError/
+    TimeoutError. Biala lista z K2 klasyfikowalaby taki blad jako NIEretryable
+    (failed po jednej probie, obwod nigdy sie nie otwiera) - test odtwarza
+    dokladnie taki ksztalt wyjatku (klasa bez zadnego zwiazku z wbudowanymi
+    ConnectionError/TimeoutError ani z czarna lista bledow programistycznych)
+    i dowodzi, ze PO ODWROCENIU reguly (czarna lista) jest retryable."""
+    pytest.importorskip("agents")
+    from bots_pro import tura as tura_pro
+
+    class _RateLimitErrorPodobnyDoOpenAI(Exception):
+        """Nie dziedziczy po ConnectionError/TimeoutError ani po zadnym typie
+        z czarnej listy bledow programistycznych - dokladnie jak prawdziwe
+        openai.RateLimitError/agents.exceptions.*."""
+        pass
+
+    monkeypatch.setattr(tura_pro, "uruchom",
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            _RateLimitErrorPodobnyDoOpenAI("429 z dostawcy LLM")))
+    monkeypatch.setattr(qw, "BOT_PRO_INBOXES", {"18"})
+    _enqueue(1124, persona="pro")
+    qw.process_one(1_000_000)
+    c = db_mod.db()
+    row = c.execute("SELECT status, attempts FROM quote_queue WHERE conv_id=1124").fetchone()
+    c.close()
+    assert row["status"] == "pending"   # retry z backoffem, NIE natychmiastowy 'failed'
+    assert row["attempts"] == 1
+
+
+def test_seria_bledow_sdk_agentow_otwiera_obwod_pro_zamiast_lawiny_handoffow(monkeypatch):
+    """N4: konsekwencja operacyjna odwrocenia reguly - seria bledow ksztaltu SDK
+    agentow MA otworzyc obwod (_circuit_record_failure jest wolane tylko w galezi
+    retryable) i wyslac JEDEN lagodny komunikat, zamiast konczyc kazda probe
+    natychmiastowym _fail_permanently (co bylo skutkiem bialej listy z K2)."""
+    pytest.importorskip("agents")
+    from bots_pro import tura as tura_pro
+
+    class _AwariaDostawcyLLM(Exception):
+        pass
+
+    monkeypatch.setattr(tura_pro, "uruchom",
+                        lambda *a, **k: (_ for _ in ()).throw(_AwariaDostawcyLLM("5xx")))
+    monkeypatch.setattr(qw, "BOT_PRO_INBOXES", {"18"})
+    monkeypatch.setattr(qw, "BOT_CIRCUIT_THRESHOLD", 2)
+    wolane_pro = []
+    monkeypatch.setattr(qw, "_pro_wyslij",
+                        lambda conv_id, tekst, persona: wolane_pro.append((conv_id, tekst)))
+
+    _enqueue(1125, persona="pro")
+    qw.process_one(2_000_000)   # 1. blad
+    _enqueue(1125, attempts=1, persona="pro")
+    qw.process_one(2_000_000)   # 2. blad -> prog=2 -> obwod otwarty, lagodny komunikat
+
+    from core.db import meta_get
+    klucz_until, _ = qw._klucze_obwodu("pro")
+    assert float(meta_get(klucz_until, 0) or 0) > 2_000_000
+    assert len(wolane_pro) == 1
+    assert wolane_pro[0][1] == qw._OBCIAZENIE_MSG
 
 
 def test_wyjatek_bez_retryable_na_kanale_legacy_nadal_jest_ponawiany(monkeypatch):

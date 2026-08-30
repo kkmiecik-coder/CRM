@@ -157,3 +157,103 @@ class TestProcessOneKomunikatObciazeniaRozgalezienie:
         assert len(wolane_pro) == 1
         assert wolane_pro[0][1] == qw._OBCIAZENIE_MSG
         assert wolane_pro[0][2] == "allegro"
+
+
+class TestWierszSilnikaPro:
+    """N3 (code review, runda 2): kluczowanie silnika WYLACZNIE po inboksie
+    (BOT_PRO_INBOXES) przejmuje takze wiersze wyprodukowane przez STARE tory na
+    tym samym inboksie — realny scenariusz przy migracji inbox-po-inboksie.
+    Producenci takich wierszy istnieja naprawde: webhooks._process_agent_bot w
+    trybie notatki (persona "quote_olx"/"quote_allegro") i poller channels/olx.py
+    (persona "quote_olx" na sztywno). `_wiersz_silnika_pro` wymaga OBU warunkow:
+    inbox W BOT_PRO_INBOXES ORAZ persona nalezaca do zbioru, jaki faktycznie
+    produkuje Debus Pro."""
+
+    def test_inbox_pro_z_persona_pro_jest_silnikiem_pro(self, monkeypatch):
+        monkeypatch.setattr(qw, "BOT_PRO_INBOXES", {"7"})
+        assert qw._wiersz_silnika_pro("7", "pro") is True
+        assert qw._wiersz_silnika_pro("7", "olx") is True
+        assert qw._wiersz_silnika_pro("7", "allegro") is True
+
+    def test_inbox_pro_z_persona_legacy_nie_jest_silnikiem_pro(self, monkeypatch):
+        # DOKLADNIE sonda z code review: wiersz persona='quote_olx' na inboksie
+        # nalezacym do BOT_PRO_INBOXES - to NIE jest wiersz Debusia Pro.
+        monkeypatch.setattr(qw, "BOT_PRO_INBOXES", {"7"})
+        assert qw._wiersz_silnika_pro("7", "quote_olx") is False
+        assert qw._wiersz_silnika_pro("7", "quote_allegro") is False
+        assert qw._wiersz_silnika_pro("7", "quote") is False
+
+    def test_inbox_spoza_bot_pro_inboxes_nigdy_nie_jest_pro(self, monkeypatch):
+        monkeypatch.setattr(qw, "BOT_PRO_INBOXES", set())
+        assert qw._wiersz_silnika_pro("7", "pro") is False
+
+
+class TestMigracjaInboxPoInboksieProcessOne:
+    """N3 integracyjnie: wiersz zalegly w kolejce z persony legacy, na inboksie
+    juz przelaczonym do BOT_PRO_INBOXES, MA isc do run_quote_turn (legacy),
+    NIE do bots_pro.tura.uruchom — inaczej wyszedlby PUBLICZNIE do kupujacego
+    na OLX/Allegro zamiast do notatki, ze stanem rozmowy liczonym od zera."""
+
+    def test_wiersz_legacy_na_inboksie_pro_idzie_do_run_quote_turn(self, monkeypatch):
+        monkeypatch.setattr(qw, "BOT_PRO_INBOXES", {"7"})
+        wolane_legacy = []
+        monkeypatch.setattr(qw, "run_quote_turn",
+                            lambda *a, **k: wolane_legacy.append((a, k)))
+
+        c = db_mod.db()
+        c.execute("DELETE FROM quote_queue")
+        # Wiersz zakolejkowany PRZED migracja inboxu do Pro (np. przez
+        # webhooks._process_agent_bot w trybie notatki) - persona legacy.
+        c.execute("INSERT INTO quote_queue(conv_id, inbox_id, message_id, content, persona, next_at) "
+                  "VALUES(?,?,?,?,?,0)", (601, 7, "mL", "ile kosztuje?", "quote_olx"))
+        c.commit(); c.close()
+
+        assert qw.process_one(9_999_999_999) is True
+        assert len(wolane_legacy) == 1
+
+        c = db_mod.db()
+        st = c.execute("SELECT status FROM quote_queue WHERE conv_id=601").fetchone()["status"]
+        c.close()
+        assert st == "sent"
+
+    def test_wiersz_legacy_na_inboksie_pro_nie_idzie_do_bots_pro(self, monkeypatch):
+        pytest.importorskip("agents")
+        from bots_pro import tura as tura_pro
+        wolane_pro = []
+        monkeypatch.setattr(tura_pro, "uruchom",
+                            lambda *a, **k: wolane_pro.append(1))
+        monkeypatch.setattr(qw, "run_quote_turn", lambda *a, **k: None)
+        monkeypatch.setattr(qw, "BOT_PRO_INBOXES", {"7"})
+
+        c = db_mod.db()
+        c.execute("DELETE FROM quote_queue")
+        c.execute("INSERT INTO quote_queue(conv_id, inbox_id, message_id, content, persona, next_at) "
+                  "VALUES(?,?,?,?,?,0)", (602, 7, "mL2", "ile kosztuje?", "quote_allegro"))
+        c.commit(); c.close()
+
+        qw.process_one(9_999_999_999)
+
+        assert wolane_pro == []
+
+    def test_obwod_pro_otwarty_nie_wstrzymuje_zaleglego_wiersza_legacy(self, monkeypatch):
+        # Bez N3 filtr SQL wykluczalby ten wiersz (jego inbox jest w BOT_PRO_INBOXES),
+        # mimo ze to wiersz legacy, ktory nie ma nic wspolnego z awaria Debusia Pro.
+        monkeypatch.setattr(qw, "BOT_PRO_INBOXES", {"7"})
+        from core.db import meta_set
+        now = 5_000_000
+        klucz_until, _ = qw._klucze_obwodu("pro")
+        meta_set(klucz_until, now + 999999)
+        monkeypatch.setattr(qw, "run_quote_turn", lambda *a, **k: None)
+
+        c = db_mod.db()
+        c.execute("DELETE FROM quote_queue")
+        c.execute("INSERT INTO quote_queue(conv_id, inbox_id, message_id, content, persona, next_at) "
+                  "VALUES(?,?,?,?,?,0)", (603, 7, "mL3", "ile kosztuje?", "quote_olx"))
+        c.commit(); c.close()
+
+        assert qw.process_one(now) is True
+        c = db_mod.db()
+        st = c.execute("SELECT status FROM quote_queue WHERE conv_id=603").fetchone()["status"]
+        c.close()
+        assert st == "sent"
+        meta_set(klucz_until, 0)

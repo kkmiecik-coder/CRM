@@ -195,21 +195,42 @@ def agent_bot_quote():
 def _persona_pro_dla_inboxu(inbox_id):
     """Klucz profilu kanalu (caps) dla wiersza kolejki Debusia Pro (Task 7, W1 code
     review). Rozgraniczenie na silnik (bots_pro vs legacy) w quote_worker.py idzie
-    PO inbox_id/BOT_PRO_INBOXES, NIE po tej wartosci — ta wartosc trafia WYLACZNIE
-    do bots_pro.wysylka.przygotuj (przez stan.persona()) i decyduje o markdownie/
-    emoji/linkach w odpowiedzi.
+    PO inbox_id/BOT_PRO_INBOXES (i, po N3, po samej personie tez — patrz
+    quote_worker._jest_pro_inbox), NIE po tej wartosci — ta wartosc trafia
+    WYLACZNIE do bots_pro.wysylka.przygotuj (przez stan.persona()) i decyduje
+    o markdownie/emoji/linkach w odpowiedzi.
 
-    Przed ta poprawka kazdy wiersz Debusia Pro szedl z persona="pro" na sztywno,
+    Przed poprawka W1 kazdy wiersz Debusia Pro szedl z persona="pro" na sztywno,
     niezaleznie od kanalu — bots.channel_caps.caps_for("pro") nie zna takiego
     klucza i spada na DEFAULT_CAPS (markdown, emoji I LINKI wlaczone). Po wlaczeniu
     BOT_PRO_INBOXES na inboksie Allegro dawaloby to dokladnie wyciek linkow, przed
     ktorym broni caly bots_pro.wysylka (regulamin marketplace'u).
 
-    caps_for() rozpoznaje kanalowe klucze "olx"/"allegro" bezposrednio (patrz
-    bots/channel_caps.py:_CAPS_DLA_PERSONY) — persona_for(inbox_id) juz je zwraca
-    w tym ksztalcie, wiec zadnej dodatkowej mapy nie trzeba. Pozostale kanaly
-    (livechat, mail, nieznany typ) dostaja "pro" — nie ma dla nich osobnych caps
-    (spadaja na DEFAULT_CAPS), a etykieta zostaje czytelna w logach/DB."""
+    N1 (code review, runda 2): sama W1 nadal zawodzila NA OTWARTO w tym samym
+    kierunku. `persona_for(inbox_id)` siega siecia po katalog inboksow
+    (`cw_inboxes`), a ten zwraca [] przy KAZDYM bledzie HTTP (core/chatwoot.py) ->
+    `persona_for` daje None -> stara wersja mapowala to na "pro" (DEFAULT_CAPS).
+    Persona jest zapisywana w wierszu kolejki RAZ, przy enqueue, i NIE liczona
+    ponownie przy przetwarzaniu — jedno nieudane `/inboxes` w momencie przyjscia
+    wiadomosci zamrazaloby zle (permisywne) capsy na CALA ture, wysylajac link
+    kupujacemu na Allegro.
+
+    Naprawa: identyfikacja idzie NAJPIERW przez identyfikatory z configu
+    (`CW_OLX_INBOX`/`CW_ALLEGRO_MSG_INBOX`) — DOKLADNIE ten sam wzorzec, ktorego
+    uzywa `_quote_persona_dla_inboxu` dla legacy silnika (patrz wyzej w tym
+    pliku) — BEZ zadnego wywolania sieciowego, wiec nie ma jak zawiesc. To
+    pokrywa dokladnie scenariusz migracji inbox-po-inboksie: inbox przelaczany
+    z legacy na Pro MUSI juz miec `CW_OLX_INBOX`/`CW_ALLEGRO_MSG_INBOX`
+    ustawiony (inaczej legacy nigdy by go nie routowal do trybu notatki), wiec
+    ten identyfikator jest gotowy zanim `BOT_PRO_INBOXES` w ogole go obejmie.
+    `persona_for(inbox_id)` (siec, nazwa inboxu) zostaje jako fallback DLA
+    INBOKSOW SPOZA configu (np. nowy inbox Allegro nigdy nieserwowany przez
+    legacy) — tam ryzyko przejsciowego bledu sieci jest wazsze do zaakceptowania
+    niz przy znanej migracji (rzadszy, nowszy scenariusz, nie zywy ruch)."""
+    if CW_OLX_INBOX and str(inbox_id) == str(CW_OLX_INBOX).strip():
+        return "olx"
+    if CW_ALLEGRO_MSG_INBOX and str(inbox_id) == str(CW_ALLEGRO_MSG_INBOX).strip():
+        return "allegro"
     kanal = persona_for(inbox_id)
     return kanal if kanal in ("olx", "allegro") else "pro"
 

@@ -426,8 +426,10 @@ class TestOstatniaWiadomoscKlienta:
 
 
 class _FakeResp:
-    def __init__(self, payload):
+    def __init__(self, payload, ok=True, status_code=200):
         self._p = payload
+        self.ok = ok
+        self.status_code = status_code
     def json(self):
         return {"payload": self._p}
 
@@ -556,3 +558,89 @@ class TestWolnoProwadzicRozmowe:
 
     def test_blad_odczytu_stanu_ma_atrybut_retryable_true(self):
         assert stan.BladOdczytuStanu.retryable is True
+
+    def test_odpowiedz_http_blad_rzuca_blad_odczytu_stanu(self, monkeypatch):
+        # Drobne (code review runda 2): cw() nie robi raise_for_status - odpowiedz
+        # bledu, ktora sparsuje sie jako JSON bez "payload", dawalaby cicho []
+        # (pusta historia -> bramka pozwala) bez tego jawnego sprawdzenia r.ok.
+        stan.ustaw_kontekst(94011)
+        monkeypatch.setattr(chatwoot_mod, "cw_conv_status", lambda conv_id: "pending")
+        monkeypatch.setattr(chatwoot_mod, "cw",
+                            lambda *a, **k: _FakeResp({"blad": "wewnetrzny"}, ok=False, status_code=500))
+        with pytest.raises(stan.BladOdczytuStanu):
+            stan.wolno_prowadzic_rozmowe(94011)
+
+
+class TestWolnoProwadzicRozmoweStickyBit:
+    """N2 (code review, runda 2): semantyka "czy czlowiek KIEDYKOLWIEK sie
+    odezwal" zaklada, ze pobrana strona /messages to CALA historia - ale
+    endpoint jest stronicowany i bez parametru strony zwraca tylko najswiezsza
+    strone. Gdy po odpowiedzi agenta narosnie dosc kolejnych wiadomosci klienta,
+    odpowiedz agenta wypadnie z pobranej strony i bramka (bez sticky bita)
+    wrocilaby na True. Sticky bit w pro_stan jest NIEZALEZNY od rozmiaru strony:
+    raz ustawiony, blokuje trwale bez ponownego skanowania historii."""
+
+    def test_sticky_bit_ustawiany_gdy_znaleziono_wiadomosc_agenta(self):
+        stan.ustaw_kontekst(94101)
+        assert stan._czlowiek_juz_sie_odezwal(94101) is False
+        stan._oznacz_czlowiek_odezwal_sie(94101)
+        assert stan._czlowiek_juz_sie_odezwal(94101) is True
+
+    def test_wolno_prowadzic_rozmowe_ustawia_sticky_bit_po_znalezieniu_agenta(self, monkeypatch):
+        stan.ustaw_kontekst(94102)
+        monkeypatch.setattr(chatwoot_mod, "cw_conv_status", lambda conv_id: "pending")
+        monkeypatch.setattr(chatwoot_mod, "cw", lambda *a, **k: _FakeResp([
+            {"content": "dzien dobry", "private": False, "sender": {"type": "contact"}},
+            {"content": "juz nie pracujemy nad tym", "private": False, "sender": {"type": "user"}},
+        ]))
+        assert stan.wolno_prowadzic_rozmowe(94102) is False
+        assert stan._czlowiek_juz_sie_odezwal(94102) is True
+
+    def test_druga_tura_nie_siega_juz_po_historie_dzieki_sticky_bitowi(self, monkeypatch):
+        # Kluczowy dowod na N2: gdy sticky bit jest juz ustawiony, bramka NIE
+        # woła /messages wcale - odpowiedz jest wiec odporna na to, co ta
+        # (potencjalnie juz nieaktualna/przepełniona) strona by zwrocila.
+        stan.ustaw_kontekst(94103)
+        stan._oznacz_czlowiek_odezwal_sie(94103)
+        monkeypatch.setattr(chatwoot_mod, "cw_conv_status", lambda conv_id: "pending")
+        wolania_historii = []
+        monkeypatch.setattr(chatwoot_mod, "cw", lambda *a, **k: wolania_historii.append(1) or _FakeResp([]))
+
+        assert stan.wolno_prowadzic_rozmowe(94103) is False
+        assert wolania_historii == []
+
+    def test_agent_wypadl_ze_strony_ale_sticky_bit_nadal_blokuje(self, monkeypatch):
+        # Symulacja dokladnie tego scenariusza z code review: agent odpisal DAWNO,
+        # od tamtej pory narosla nowa strona samych wiadomosci klienta (agent nie
+        # jest juz widoczny w pobranej stronie /messages) - bez sticky bita bramka
+        # zwrocilaby True (blednie). Ze sticky bitem ustawionym w PIERWSZEJ turze
+        # (gdy agent byl jeszcze widoczny), druga tura poprawnie blokuje.
+        stan.ustaw_kontekst(94104)
+        monkeypatch.setattr(chatwoot_mod, "cw_conv_status", lambda conv_id: "pending")
+
+        # Tura 1: agent widoczny w historii -> bramka wykrywa i ustawia sticky bit.
+        monkeypatch.setattr(chatwoot_mod, "cw", lambda *a, **k: _FakeResp([
+            {"content": "dzien dobry", "private": False, "sender": {"type": "contact"}},
+            {"content": "nie robimy naturalnych krawedzi", "private": False, "sender": {"type": "user"}},
+        ]))
+        assert stan.wolno_prowadzic_rozmowe(94104) is False
+
+        # Tura 2: "nowa strona" /messages, gdzie agent JUZ NIE MIESCI SIE (same
+        # pozniejsze wiadomosci klienta) - bez sticky bita to dawaloby True.
+        monkeypatch.setattr(chatwoot_mod, "cw", lambda *a, **k: _FakeResp([
+            {"content": "hej, jest tam ktos?", "private": False, "sender": {"type": "contact"}},
+            {"content": "no to ja czekam", "private": False, "sender": {"type": "contact"}},
+        ]))
+        assert stan.wolno_prowadzic_rozmowe(94104) is False
+
+    def test_brak_sticky_bita_robi_normalny_skan_historii(self, monkeypatch):
+        # Kontrola negatywna: swieza rozmowa (bez sticky bita) nadal dziala jak
+        # przed N2 - bramka i tak siega po historie i poprawnie pozwala.
+        stan.ustaw_kontekst(94105)
+        monkeypatch.setattr(chatwoot_mod, "cw_conv_status", lambda conv_id: "pending")
+        wolania_historii = []
+        monkeypatch.setattr(chatwoot_mod, "cw", lambda *a, **k: wolania_historii.append(1) or _FakeResp([
+            {"content": "cena?", "private": False, "sender": {"type": "contact"}},
+        ]))
+        assert stan.wolno_prowadzic_rozmowe(94105) is True
+        assert wolania_historii == [1]
