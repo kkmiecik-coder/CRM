@@ -54,9 +54,19 @@ def _wykonczenie_opis(poz, options):
     poprawek 1), ale ta funkcja ma zostać poprawna NAWET gdyby to się kiedyś
     nie zdarzyło: inaczej klient potwierdzałby KOLOR/POŁYSK przy cenie
     surowego blatu, której ten kolor/połysk już nie dotyczy (build_products
-    ignoruje finishing_id, gdy ftype == "Surowe")."""
+    ignoruje finishing_id, gdy ftype == "Surowe").
+
+    Sprawdzamy przez crm_calc._finish_type (podciąg "surow", bez względu na
+    wielkość liter/diakrytyki) — DOKŁADNIE ta sama reguła, którą stosuje
+    wycena (crm_calc.build_products), a nie własne, luźniejsze porównanie
+    (runda poprawek 2, N1): `== "surowe"` łapało tylko jedną dokładną
+    pisownię, więc "Surowe"/"surowy dąb" i podobne przechodziły przez tę
+    strażnicę i nadal pokazywały ducha katalogowej ścieżki. Dziś enum
+    narzędzia (Wykonczenie) wysyła wyłącznie dokładne "surowe", więc luka
+    jest nieosiągalna PRZEZ NARZĘDZIE — ale ta funkcja ma być poprawna
+    niezależnie od tego, czy coś kiedyś obejdzie enum."""
     tekst = str(poz.get("wykonczenie") or "").strip()
-    if tekst == "surowe":
+    if crm_calc._finish_type(tekst) == "Surowe":
         return tekst
     fid = poz.get("finishing_id")
     if fid and options:
@@ -169,7 +179,21 @@ def wynik_dla_modelu(pozycje, wynik):
     Poszerzenie rejestru o wszystkie warianty otworzyłoby furtkę do cytowania
     cen wariantów, o których w rozmowie nigdy nie było mowy (dziś żadne z 11
     narzędzi nie oferuje klientowi porównania wariantów — takie narzędzie,
-    gdyby powstało, dostałoby WŁASNY, świadomy zakres rejestru)."""
+    gdyby powstało, dostałoby WŁASNY, świadomy zakres rejestru).
+
+    Runda poprawek 2 (W3, sonda na PRAWDZIWYM kształcie calculate_quote):
+    obcięcie do jednego wariantu NIE WYSTARCZAŁO — nawet ten jeden wariant,
+    'finishing' i 'edges' niosą WŁASNE ceny jednostkowe, których rejestr też
+    nie zna: variants[].price_per_m3 (cena za m3, z której liczy się
+    unit_netto — zarejestrowany jest tylko wynik mnożenia, nie ten czynnik),
+    finishing.price_per_m2 (analogicznie dla wykończenia) i edges.details
+    (lista per-krawędź z WŁASNYMI price_netto/price_brutto per litera —
+    zarejestrowana jest tylko SUMA w edges.netto/brutto, nie rozbicie).
+    Bot cytujący którąkolwiek z tych liczb (np. "zaokrąglenie krawędzi A
+    kosztuje 27,00 zł") cytowałby PRAWDZIWĄ cenę z wyniku WŁASNEGO narzędzia,
+    a mimo to zostałby oskarżony o halucynację. Ta sama zasada: zwężamy widok
+    modelu (usuwamy te trzy pola), NIE poszerzamy rejestru o rozbicie, które
+    nic dziś nie potrzebuje zacytować osobno od sumy."""
     if "products" not in wynik:
         return wynik   # brak sekcji products (np. braki_mapowania) -> nic do przycięcia
     okrojony = dict(wynik)
@@ -177,11 +201,40 @@ def wynik_dla_modelu(pozycje, wynik):
     for poz, prod in zip(pozycje, wynik.get("products") or []):
         prod = dict(prod)
         kod = poz.get("selected_variant")
-        prod["variants"] = [v for v in (prod.get("variants") or [])
-                            if v.get("variant_code") == kod and v.get("available")]
+        prod["variants"] = [
+            {k: v for k, v in wariant.items() if k != "price_per_m3"}
+            for wariant in (prod.get("variants") or [])
+            if wariant.get("variant_code") == kod and wariant.get("available")
+        ]
+        finishing = prod.get("finishing")
+        if isinstance(finishing, dict):
+            prod["finishing"] = {k: v for k, v in finishing.items() if k != "price_per_m2"}
+        edges = prod.get("edges")
+        if isinstance(edges, dict):
+            prod["edges"] = {k: v for k, v in edges.items() if k != "details"}
         przyciete_produkty.append(prod)
     okrojony["products"] = przyciete_produkty
     return okrojony
+
+
+def _bez_wrazliwych_cen(wynik):
+    """Szczegóły nieudanej wyceny do zwrócenia modelowi — WYŁĄCZNIE powód
+    niepowodzenia, nigdy surowy payload kalkulatora.
+
+    Runda poprawek 2, W3b: ta sama klasa wycieku co W3 (wynik_dla_modelu),
+    tylko na ścieżce błędu. crm_calc.calculate() może zwrócić ok=False z
+    NADAL pełną tabelą cen w products[] (np. per-produktowy błąd
+    VARIANT_UNAVAILABLE — pricing_service.calculate_quote dokłada wtedy
+    'variants'/'finishing'/'edges' z tymi samymi cenami, co ścieżka sukcesu),
+    a `kwoty_z_wyniku` na tej ścieżce W OGÓLE nie jest wołane (rejestr
+    zostaje pusty) — więc KAŻDA liczba z takiego payloadu byłaby dla
+    guardraila G1 halucynacją. Model do zakomunikowania niepowodzenia klientowi
+    potrzebuje tylko powodu, nie cen."""
+    bezpieczne = {}
+    for pole in ("errors", "missing_fields", "braki_mapowania"):
+        if wynik.get(pole):
+            bezpieczne[pole] = wynik[pole]
+    return bezpieczne
 
 
 def wyslij():
@@ -198,7 +251,8 @@ def wyslij():
     options = crm_calc.get_options()
     wynik = crm_calc.calculate(pozycje, options)
     if not wynik.get("ok"):
-        return {"ok": False, "error": "WYCENA_NIEUDANA", "szczegoly": wynik}
+        return {"ok": False, "error": "WYCENA_NIEUDANA",
+                "szczegoly": _bez_wrazliwych_cen(wynik)}
 
     stan.zapamietaj_kwoty(kwoty_z_wyniku(pozycje, wynik))
 

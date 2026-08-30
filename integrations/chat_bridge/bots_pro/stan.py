@@ -185,7 +185,8 @@ def zapisz_pozycje(id, produkt="", dlugosc_cm=0, szerokosc_cm=0, grubosc_cm=0,
         if rozlozony:
             biezaca["gatunek"], biezaca["technologia"], biezaca["klasa"] = rozlozony
 
-    if wykonczenie == "surowe":
+    from bots.crm_calc import _finish_type
+    if _finish_type(wykonczenie) == "Surowe":
         # "surowe" = brak wykończenia -> finishing_id staje się bez znaczenia
         # dla WYCENY (crm_calc.build_products/_finish_type ignoruje go, gdy
         # ftype == "Surowe") — ale bez jawnego wyczyszczenia zostawałby w
@@ -197,6 +198,17 @@ def zapisz_pozycje(id, produkt="", dlugosc_cm=0, szerokosc_cm=0, grubosc_cm=0,
         # sposobu na wyczyszczenie (0 -> None -> pole pomijane w pętli wyżej,
         # patrz bots_pro/narzedzia.py:zapisz_pozycje) — czyszczenie musi więc
         # być automatyczne, wywołane samą zmianą wykończenia na "surowe".
+        #
+        # Porównanie przez crm_calc._finish_type (podciąg "surow", bez
+        # względu na wielkość liter/diakrytyki), NIE `== "surowe"` (runda
+        # poprawek 2, N1): to DOKŁADNIE ta sama reguła, którą stosuje wycena
+        # (crm_calc.build_products), więc "czyszczę finishing_id" i "wycena
+        # ignoruje finishing_id" są zawsze zgodne ze sobą — dwa niezależne
+        # porównania tego samego tekstu łatwo rozjeżdżają się przy literówce/
+        # innej pisowni. Dziś enum narzędzia (Wykonczenie) wysyła wyłącznie
+        # dokładne "surowe", więc luka jest nieosiągalna PRZEZ NARZĘDZIE —
+        # ale to samo dotyczyło W2 dla selected_variant, więc obrona ma
+        # działać niezależnie od enumu, nie zamiast niego.
         biezaca.pop("finishing_id", None)
 
     _zastosuj_krawedzie(biezaca, edges)

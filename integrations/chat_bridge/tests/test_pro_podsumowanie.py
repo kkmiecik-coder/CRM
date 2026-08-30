@@ -60,6 +60,46 @@ def test_wycena_nieudana_zwraca_blad_ze_szczegolami(monkeypatch):
     assert wynik["szczegoly"]["errors"] == [{"code": "X"}]
 
 
+def test_wycena_nieudana_nie_oddaje_cen_z_pelnego_payloadu_kalkulatora(monkeypatch):
+    """W3b (runda poprawek 2): crm_calc.calculate() moze zwrocic ok=False z
+    NADAL pelna tabela cen w products[] (np. per-produktowy blad
+    VARIANT_UNAVAILABLE) — kwoty_z_wyniku na tej sciezce W OGOLE nie jest
+    wolane (rejestr pusty), wiec KAZDA liczba z takiego payloadu bylaby dla
+    G1 halucynacja. szczegoly ma niesc WYLACZNIE powod niepowodzenia."""
+    stan.ustaw_kontekst(94013)
+    monkeypatch.setattr(stan, "pozycje", lambda: [_pozycja()])
+    monkeypatch.setattr(podsumowanie.crm_calc, "get_options", lambda: {})
+    monkeypatch.setattr(podsumowanie.crm_calc, "calculate", lambda p, o: {
+        "ok": False,
+        "errors": [{"field": "selected_variant", "code": "VARIANT_UNAVAILABLE",
+                    "message": "Wariant niedostępny dla tych wymiarów."}],
+        "products": [{
+            "index": 1, "errors": [{"code": "VARIANT_UNAVAILABLE"}],
+            "variants": [
+                {"variant_code": "dab-lity-ab", "available": True,
+                 "price_per_m3": 8200.0, "unit_netto": 700.0, "unit_brutto": 861.0},
+            ],
+            "finishing": {"netto": 200.0, "brutto": 246.0, "price_per_m2": 120.0},
+            "edges": {"netto": 34.2, "brutto": 42.07, "details": [
+                {"letter": "A", "type": "round", "price_netto": 27.0, "price_brutto": 33.21},
+            ]},
+        }],
+        "totals": None,
+    })
+    wynik = podsumowanie.wyslij()
+    assert wynik["ok"] is False
+    assert wynik["error"] == "WYCENA_NIEUDANA"
+    # Powod niepowodzenia zostaje...
+    assert wynik["szczegoly"]["errors"][0]["code"] == "VARIANT_UNAVAILABLE"
+    # ...ale ZADNA cena z pelnego payloadu kalkulatora nie wyciekla.
+    assert "products" not in wynik["szczegoly"]
+    assert "totals" not in wynik["szczegoly"]
+    tekst_szczegolow = str(wynik["szczegoly"])
+    assert "8200" not in tekst_szczegolow
+    assert "price_per_m3" not in tekst_szczegolow
+    assert "27.0" not in tekst_szczegolow
+
+
 class TestWyslijSzczesliwaSciezka:
     def _przygotuj(self, monkeypatch, conv_id):
         stan.ustaw_kontekst(conv_id)
@@ -222,12 +262,47 @@ def test_surowe_nigdy_nie_pokazuje_sciezki_katalogowej_nawet_z_duchem_finishing_
     assert "Bezbarwne" not in tekst
 
 
+class TestWykonczenieOpisLapiePodciagSurowNiezaleznieOdPisowni:
+    """N1 (runda poprawek 2): straznik "surowe" porownywal DOKLADNIE, a
+    regula cenowa crm_calc._finish_type lapie PODCIAG "surow" (bez wzgledu
+    na wielkosc liter/diakrytyki) -- "Surowe" (duza litera) czy "surowy dab"
+    tez licza sie jako Surowe dla WYCENY (crm_calc.build_products), ale
+    strazniczka je przepuszczala do sciezki katalogowej. Dzis enum narzedzia
+    (Wykonczenie) wysyla wylacznie dokladne "surowe" (nieosiagalne przez
+    narzedzie), ale funkcja ma byc poprawna niezaleznie od enumu."""
+
+    _OPCJE = {"finishing_options": [
+        {"id": 3, "full_path": "Olejowane/Bezbarwne/Olej twardowoskowy"}]}
+
+    def test_rozne_pisownie_surowego_nie_pokazuja_sciezki_katalogowej(self):
+        for wykonczenie in ("surowe", "Surowe", "SUROWE", "surowy dąb", "surowa deska"):
+            opis = podsumowanie._wykonczenie_opis(
+                {"wykonczenie": wykonczenie, "finishing_id": 3}, self._OPCJE)
+            assert opis == wykonczenie, wykonczenie
+            assert "Olejowane" not in opis
+
+    def test_olejowane_nadal_pokazuje_sciezke_katalogowa(self):
+        # Kontrola negatywna: naprawa nie ma zaszkodzic prawdziwym wykonczeniom.
+        opis = podsumowanie._wykonczenie_opis(
+            {"wykonczenie": "olejowane", "finishing_id": 3}, self._OPCJE)
+        assert opis == "Olejowane > Bezbarwne > Olej twardowoskowy"
+
+
 class TestWynikDlaModelu:
-    """W3 (runda poprawek 1): payload calculate() zwracany modelowi ma byc
+    """W3 (runda poprawek 1 i 2): payload calculate() zwracany modelowi ma byc
     przyciety do wariantu WYBRANEGO -- rejestr I1 (kwoty_z_wyniku) zna tylko
     jego cene, wiec pelna lista wariantow w wyniku narzedzia byla furtka,
     przez ktora bot cytujacy PRAWDZIWA cene niewybranego wariantu zostawalby
-    oskarzony o halucynacje przez wlasny wynik wlasnego narzedzia."""
+    oskarzony o halucynacje przez wlasny wynik wlasnego narzedzia.
+
+    Atrapa `_wynik_calculate` MA REALNY KSZTALT prawdziwego calculate_quote
+    (pricing_service.py: calculate_material_variants/calculate_finishing/
+    calculate_edges_pricing) -- W REALNYM KSZTALCIE, nie w uproszczonej
+    wersji. Runda poprawek 2: pierwsza wersja tego pliku miala atrapy BEZ
+    variants[].price_per_m3, finishing.price_per_m2 i edges.details, wiec
+    caly ten wyciek byl niewidoczny dla pakietu testow mimo ze W3 "przeszlo"
+    -- ta klasa bledu (test dowodzi tego, co atrapa POZWALA udowodnic, nie
+    tego, co robi prawdziwy kod) nie ma sie powtorzyc."""
 
     def _wynik_calculate(self):
         return {
@@ -237,15 +312,23 @@ class TestWynikDlaModelu:
                 "index": 1,
                 "variants": [
                     {"variant_code": "dab-lity-ab", "available": True,
+                     "volume_m3": 0.0432, "price_per_m3": 8200.0, "multiplier": 2.0,
                      "unit_netto": 700.0, "unit_brutto": 861.0,
                      "total_netto": 700.0, "total_brutto": 861.0},
                     {"variant_code": "jes-lity-ab", "available": True,
+                     "volume_m3": 0.0432, "price_per_m3": 5800.0, "multiplier": 2.0,
                      "unit_netto": 500.0, "unit_brutto": 615.0,
                      "total_netto": 500.0, "total_brutto": 615.0},
                     {"variant_code": "buk-lity-ab", "available": False},
                 ],
-                "finishing": {"netto": 0.0, "brutto": 0.0},
-                "edges": {"netto": 0.0, "brutto": 0.0},
+                "finishing": {"netto": 200.0, "brutto": 246.0,
+                              "price_per_m2": 120.0, "surface_m2": 1.67},
+                "edges": {"netto": 34.2, "brutto": 42.07, "details": [
+                    {"letter": "A", "type": "round", "length_cm": 180.0,
+                     "price_netto": 27.0, "price_brutto": 33.21, "is_corner": False},
+                    {"letter": "C", "type": "chamfer", "length_cm": 60.0,
+                     "price_netto": 7.2, "price_brutto": 8.86, "is_corner": False},
+                ]},
             }],
         }
 
@@ -286,6 +369,30 @@ class TestWynikDlaModelu:
         wynik = {"ok": False, "braki_mapowania": [{"powod": "x"}]}
         assert podsumowanie.wynik_dla_modelu([], wynik) == wynik
 
+    def test_usuwa_price_per_m3_z_wariantu(self):
+        # W3, runda poprawek 2: cena za m3 jest CZYNNIKIEM, z ktorego liczy
+        # sie unit_netto (zarejestrowany jest tylko WYNIK mnozenia).
+        pozycje = [{"id": "1", "selected_variant": "dab-lity-ab"}]
+        okrojony = podsumowanie.wynik_dla_modelu(pozycje, self._wynik_calculate())
+        [wariant] = okrojony["products"][0]["variants"]
+        assert "price_per_m3" not in wariant
+        assert wariant["unit_netto"] == 700.0   # reszta pol wariantu zostaje
+
+    def test_usuwa_price_per_m2_z_finishing(self):
+        pozycje = [{"id": "1", "selected_variant": "dab-lity-ab"}]
+        okrojony = podsumowanie.wynik_dla_modelu(pozycje, self._wynik_calculate())
+        finishing = okrojony["products"][0]["finishing"]
+        assert "price_per_m2" not in finishing
+        assert finishing["netto"] == 200.0   # suma (zarejestrowana) zostaje
+
+    def test_usuwa_details_z_edges(self):
+        # details niesie WLASNE price_netto/price_brutto PER KRAWEDZ -- suma
+        # (edges.netto/brutto) jest zarejestrowana, rozbicie per litera nie.
+        pozycje = [{"id": "1", "selected_variant": "dab-lity-ab"}]
+        okrojony = podsumowanie.wynik_dla_modelu(pozycje, self._wynik_calculate())
+        edges = okrojony["products"][0]["edges"]
+        assert "details" not in edges
+        assert edges["netto"] == 34.2   # suma (zarejestrowana) zostaje
 
 class TestOpisEdges:
     """Runda poprawek 1, drobne: galaz dla nierozpoznanego typu (dawniej z

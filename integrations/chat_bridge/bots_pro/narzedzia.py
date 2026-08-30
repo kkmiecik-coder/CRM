@@ -96,24 +96,29 @@ def zapisz_pozycje(
     czyści wcześniej zapisany finishing_option_id (surowe drewno nie ma
     koloru/połysku) — nie musisz nic dodatkowo kasować.
 
-    edges: obróbka krawędzi tej pozycji, lista {litera, typ, r, kat}. Litery:
-    A-D góra, E-H dół, N1-N4 narożniki, KG/KD obwód (kształt okrągły). Typy:
-    "round" (zaokrąglenie, promień w mm w polu r, domyślnie 5) i "chamfer"
-    (fazowanie, kąt w stopniach w polu kat, domyślnie 45). Lista ZASTĘPUJE w
-    całości wcześniejszą obróbkę tej pozycji, NIGDY nie łączy się z nią po
-    literze — podaj w JEDNYM wywołaniu KOMPLET krawędzi, które mają
-    obowiązywać (także te ustalone wcześniej, które klient chce zachować), nie
-    tylko tę, którą właśnie zmienia. Gdy klient nie wspomina krawędzi wcale,
-    pomiń to pole (domyślne None) — nic się nie zmieni.
+    edges: obróbka krawędzi tej pozycji, lista {litera, typ, r, kat}. KAŻDY
+    wpis MUSI mieć WSZYSTKIE CZTERY pola — pominięcie któregokolwiek (nawet
+    nieużywanego w tym wpisie) odrzuca całe wywołanie z błędem. Pole, które
+    nie dotyczy danego typu, ustaw na null (nie pomijaj klucza): dla "round"
+    ustaw kat=null, dla "chamfer" ustaw r=null, dla "sharp" ustaw oba na null.
+    Litery: A-D góra, E-H dół, N1-N4 narożniki, KG/KD obwód (kształt
+    okrągły). Typy: "round" (zaokrąglenie — promień w mm w polu r; null daje
+    domyślne 5 mm) i "chamfer" (fazowanie — kąt w stopniach w polu kat; null
+    daje domyślne 45°). Lista ZASTĘPUJE w całości wcześniejszą obróbkę tej
+    pozycji, NIGDY nie łączy się z nią po literze — podaj w JEDNYM wywołaniu
+    KOMPLET krawędzi, które mają obowiązywać (także te ustalone wcześniej,
+    które klient chce zachować), nie tylko tę, którą właśnie zmienia. Gdy
+    klient nie wspomina krawędzi wcale, pomiń CAŁE pole edges (domyślne
+    None) — nic się nie zmieni.
 
     "sharp" (ostra) ma DWA różne skutki zależnie od tego, co jeszcze jest w
     liście w tym samym wywołaniu: wymieszany z innymi realnymi wpisami
     (round/chamfer) po prostu znika z zapisanego wyniku, a reszta się
     zapisuje — więc "A ostra, B zostaw R5" wymaga podania OBU wpisów w jednej
-    liście: [{litera: A, typ: sharp}, {litera: B, typ: round, r: 5}]. Lista
-    zawierająca WYŁĄCZNIE wpis(y) "sharp" (nic poza tym) KASUJE CAŁĄ
-    dotychczasową obróbkę tej pozycji — to jedyny sposób na całkowite
-    wyczyszczenie krawędzi.
+    liście: [{litera: A, typ: sharp, r: null, kat: null}, {litera: B,
+    typ: round, r: 5, kat: null}]. Lista zawierająca WYŁĄCZNIE wpis(y)
+    "sharp" (nic poza tym) KASUJE CAŁĄ dotychczasową obróbkę tej pozycji —
+    to jedyny sposób na całkowite wyczyszczenie krawędzi.
 
     otwory: opcjonalna lista opisów wycięć/otworów (po jednym opisie na
     otwór, np. "otwór na zlew 50x40 cm"). NIE są automatycznie wyceniane —
@@ -148,7 +153,13 @@ def policz_wycene() -> dict:
 def policz_wysylke(kod_pocztowy: str) -> dict:
     """Szacuje koszt kuriera dla zapisanych pozycji. Kod pocztowy w formacie
     00-000. To JEDYNE źródło cen dostawy. Wołaj dopiero gdy klient już zna
-    cenę produktu (po policz_wycene) i poda kod pocztowy odbiorcy."""
+    cenę produktu (po policz_wycene) i poda kod pocztowy odbiorcy.
+
+    Gdy nie znaleziono kuriera dla gabarytu (carriers=0), wynik NIE ma pól
+    carrier_name/shipping_netto/shipping_brutto wcale (nie ma ich w JSON-ie,
+    nie są ustawione na null) — to znaczy, że wysyłki NIE dało się oszacować,
+    NIE że jest gratis. Nie mów wtedy klientowi, że wysyłka jest darmowa —
+    zaproponuj kontakt z konsultantem."""
     from bots_pro import stan
     wynik = crm_calc.shipping_quote(stan.pozycje(), kod_pocztowy)
     stan.zapamietaj_kwoty(
@@ -162,13 +173,20 @@ def policz_wysylke(kod_pocztowy: str) -> dict:
     # brutto, bo to one trafiają do wyceny). Bez przycięcia bot cytujący
     # raw_* zostałby przez G1 oskarżony o halucynację mimo że liczba pochodzi
     # z wyniku WŁASNEGO wywołania tego narzędzia (W3, runda poprawek 1).
-    return {
+    #
+    # Klucze o wartości None POMIJAMY (nie wpisujemy jawnego null) — runda
+    # poprawek 2, N2: jawne "shipping_netto": null wygląda inaczej niż brak
+    # klucza sprzed tej poprawki i model mógłby odczytać null jako "0 zł/
+    # gratis" zamiast "nie udało się oszacować". Brak klucza jest jednoznaczny
+    # razem z carriers=0 (patrz docstring wyżej).
+    surowy = {
         "ok": True,
         "carriers": wynik.get("carriers"),
         "carrier_name": wynik.get("carrier_name"),
         "shipping_netto": wynik.get("shipping_netto"),
         "shipping_brutto": wynik.get("shipping_brutto"),
     }
+    return {k: v for k, v in surowy.items() if v is not None}
 
 
 @function_tool

@@ -236,6 +236,23 @@ class TestSurowyCzysciFinishingId:
         (poz,) = stan.pozycje()
         assert poz["finishing_id"] == 3
 
+    def test_rozne_pisownie_surowego_tez_czysza_finishing_id(self):
+        # N1 (runda poprawek 2): straznik uzywa teraz crm_calc._finish_type
+        # (podciag "surow", bez wzgledu na wielkosc liter/diakrytyki), nie
+        # scislego porownania `== "surowe"` -- ta sama regula, ktorej uzywa
+        # wycena (crm_calc.build_products), wiec "czyszcze finishing_id" i
+        # "wycena ignoruje finishing_id" sa zawsze zgodne ze soba. Dzis enum
+        # narzedzia (Wykonczenie) wysyla wylacznie dokladne "surowe"
+        # (nieosiagalne przez narzedzie), ale obrona ma dzialac niezaleznie.
+        for i, wykonczenie in enumerate(("Surowe", "SUROWE", "surowy dąb"), start=1):
+            conv_id = 93039 + i
+            stan.ustaw_kontekst(conv_id)
+            stan.zapisz_pozycje("1", produkt="blat", wykonczenie="olejowane",
+                                finishing_option_id=3)
+            stan.zapisz_pozycje("1", wykonczenie=wykonczenie)
+            (poz,) = stan.pozycje()
+            assert "finishing_id" not in poz, wykonczenie
+
 
 class TestOtwory:
     """Task 2: zapisz_pozycje dostaje otwory — lista opisow (jak stary silnik,

@@ -323,31 +323,39 @@ class TestPoliczWyceneRejestrujeKwoty:
 
 
 class TestPoliczWyceneIWysylkePrzycinajaWynik:
-    """W3 (runda poprawek 1): policz_wycene/policz_wysylke muszą zwracać
+    """W3 (runda poprawek 1 i 2): policz_wycene/policz_wysylke muszą zwracać
     modelowi WYŁĄCZNIE to, co rejestr I1 zna — inaczej bot cytujący prawdziwą
-    cenę z WŁASNEGO wyniku WŁASNEGO narzędzia (ale niewybranego wariantu albo
-    raw_netto/brutto sprzed narzutu na pakowanie) zostałby przez guardrail G1
-    oskarżony o halucynację."""
+    cenę z WŁASNEGO wyniku WŁASNEGO narzędzia (niewybrany wariant,
+    price_per_m3/price_per_m2/edges.details, albo raw_netto/brutto sprzed
+    narzutu na pakowanie) zostałby przez guardrail G1 oskarżony o
+    halucynację. Atrapa calculate() ma REALNY kształt (price_per_m3 w
+    wariancie, price_per_m2 w finishing, details w edges) — runda poprawek 2:
+    atrapa bez tych pól była ślepa na dokładnie ten wyciek."""
 
-    def test_policz_wycene_nie_pokazuje_niewybranych_wariantow(self, monkeypatch):
+    def test_policz_wycene_nie_pokazuje_niewybranych_wariantow_ani_cen_jednostkowych(self, monkeypatch):
         stan.ustaw_kontekst(96019)
         _wolaj(n.zapisz_pozycje, id="1", produkt="blat", dlugosc_cm=180,
               szerokosc_cm=60, grubosc_cm=4, ilosc=1,
               selected_variant="dab-lity-ab", wykonczenie="surowe")
         monkeypatch.setattr(n.crm_calc, "get_options", lambda: {})
         monkeypatch.setattr(n.crm_calc, "calculate", lambda p, o: {
-            "ok": True, "totals": {"total_netto": 700.0, "total_brutto": 861.0},
+            "ok": True, "totals": {"total_netto": 934.2, "total_brutto": 1149.07},
             "products": [{
                 "variants": [
                     {"variant_code": "dab-lity-ab", "available": True,
-                     "unit_netto": 700.0, "unit_brutto": 861.0,
+                     "price_per_m3": 8200.0, "unit_netto": 700.0, "unit_brutto": 861.0,
                      "total_netto": 700.0, "total_brutto": 861.0},
                     {"variant_code": "jes-lity-ab", "available": True,
-                     "unit_netto": 500.0, "unit_brutto": 615.0,
+                     "price_per_m3": 5800.0, "unit_netto": 500.0, "unit_brutto": 615.0,
                      "total_netto": 500.0, "total_brutto": 615.0},
                 ],
-                "finishing": {"netto": 0.0, "brutto": 0.0},
-                "edges": {"netto": 0.0, "brutto": 0.0},
+                "finishing": {"netto": 200.0, "brutto": 246.0, "price_per_m2": 120.0},
+                "edges": {"netto": 34.2, "brutto": 42.07, "details": [
+                    {"letter": "A", "type": "round",
+                     "price_netto": 27.0, "price_brutto": 33.21},
+                    {"letter": "C", "type": "chamfer",
+                     "price_netto": 7.2, "price_brutto": 8.86},
+                ]},
             }],
         })
         wynik = _wolaj(n.policz_wycene)
@@ -355,9 +363,17 @@ class TestPoliczWyceneIWysylkePrzycinajaWynik:
         kody = [v["variant_code"] for v in prod["variants"]]
         assert kody == ["dab-lity-ab"]
         assert "jes-lity-ab" not in kody
-        # I1 nadal zna tylko wariant wybrany — spójne z tym, co model widzi.
+        assert "price_per_m3" not in prod["variants"][0]
+        assert "price_per_m2" not in prod["finishing"]
+        assert "details" not in prod["edges"]
+        # I1 nadal zna tylko to, co model widzi po przycięciu.
         assert "615.00" not in stan.znane_kwoty()
+        assert "8200.00" not in stan.znane_kwoty()
+        assert "120.00" not in stan.znane_kwoty()
+        assert "27.00" not in stan.znane_kwoty()
         assert "861.00" in stan.znane_kwoty()
+        assert "200.00" in stan.znane_kwoty()
+        assert "34.20" in stan.znane_kwoty()
 
     def test_policz_wysylke_nie_pokazuje_ceny_kuriera_sprzed_narzutu(self, monkeypatch):
         # crm_calc.shipping_quote() niesie tez raw_netto/raw_brutto (cena
@@ -384,6 +400,20 @@ class TestPoliczWyceneIWysylkePrzycinajaWynik:
             "ok": False, "errors": [{"code": "BAD_POSTCODE"}]})
         wynik = _wolaj(n.policz_wysylke, kod_pocztowy="zly-kod")
         assert wynik == {"ok": False, "errors": [{"code": "BAD_POSTCODE"}]}
+
+    def test_policz_wysylke_bez_kuriera_pomija_klucze_none_zamiast_null(self, monkeypatch):
+        # N2 (runda poprawek 2): dawne {'ok': True, 'carriers': 0} (brak
+        # kuriera dla gabarytu) nie ma dostac jawnych "shipping_netto": null
+        # itp. -- model moglby odczytac null jako "0 zl/gratis".
+        stan.ustaw_kontekst(96028)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat")
+        monkeypatch.setattr(n.crm_calc, "shipping_quote", lambda p, kod: {
+            "ok": True, "carriers": 0})
+        wynik = _wolaj(n.policz_wysylke, kod_pocztowy="00-000")
+        assert wynik == {"ok": True, "carriers": 0}
+        assert "carrier_name" not in wynik
+        assert "shipping_netto" not in wynik
+        assert "shipping_brutto" not in wynik
 
 
 def _zaladuj_atrape_wysylki(monkeypatch):
