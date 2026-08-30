@@ -85,3 +85,28 @@ class TestPrzygotujLinkiRozszerzone:
         wynik = wysylka.przygotuj(
             "Szczegóły wyceny: https://crm.woodpower.pl/quotes/c/ABC", "quote_allegro")
         assert wynik == [] or not wynik[0].rstrip().endswith(":")
+
+
+class TestWytnijLinkiNieRuszaTekstuBezLinku:
+    """Runda poprawek 2, N1 (regresja wprowadzona rundą 1): sprzątanie kikuta
+    ('Link: ' / goły ':') działało bezwarunkowo na końcu KAŻDEJ linii, nie tylko
+    tam, gdzie faktycznie wycięto link. Cztery sondy z recenzji — dwukropek przed
+    wyliczeniem i słowo "link" w zwykłym zdaniu to legalna treść, nie kikut."""
+
+    def test_dwukropek_bez_linku_zostaje(self):
+        wynik = wysylka.przygotuj("Cena zalezy od wymiarow:", "quote_allegro")
+        assert wynik == ["Cena zalezy od wymiarow:"]
+
+    def test_dwukropek_przed_wyliczeniem_w_wielu_liniach_zostaje(self):
+        wynik = wysylka.przygotuj(
+            "Wybierz jedną z opcji:\nDab, buk, jesion.", "quote_allegro")
+        assert wynik == ["Wybierz jedną z opcji:\nDab, buk, jesion."]
+
+    def test_slowo_link_na_koncu_zdania_bez_url_zostaje(self):
+        wynik = wysylka.przygotuj("Prosze kliknij ten link", "quote_allegro")
+        assert wynik == ["Prosze kliknij ten link"]
+
+    def test_slowo_link_jako_ostatnie_slowo_zdania_zostaje(self):
+        wynik = wysylka.przygotuj(
+            "To zdanie konczy sie slowem link", "quote_allegro")
+        assert wynik == ["To zdanie konczy sie slowem link"]
