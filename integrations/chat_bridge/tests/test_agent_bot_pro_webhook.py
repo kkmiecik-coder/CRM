@@ -100,14 +100,16 @@ class TestWebhookPro:
     def test_inbox_allegro_dostaje_persone_allegro(self, monkeypatch, klient):
         # Krytyczne: allegro MUSI dostac wlasna persone (links=False), inaczej
         # wyciek linkow do kupujacego na Allegro (regulamin marketplace'u).
+        # Inbox "66" (nie "6") - "6" to domyslny CW_ALLEGRO_DISPUTE_INBOX (config.py),
+        # ktory od U6 jest twardo wykluczony niezaleznie od tego mocka.
         monkeypatch.setattr(webhooks, "BOT_PRO_AGENT_WEBHOOK_TOKEN", None)
-        monkeypatch.setattr(webhooks, "BOT_PRO_INBOXES", {"6"})
+        monkeypatch.setattr(webhooks, "BOT_PRO_INBOXES", {"66"})
         monkeypatch.setattr(webhooks, "persona_for", lambda inbox_id: "allegro")
         kolejkowane = []
         monkeypatch.setattr(webhooks, "enqueue_quote_turn",
                             lambda *a, **k: kolejkowane.append(k.get("persona")))
 
-        klient.post("/agent-bot-pro", json=_zdarzenie(inbox_id="6"))
+        klient.post("/agent-bot-pro", json=_zdarzenie(inbox_id="66"))
 
         assert kolejkowane == ["allegro"]
 
@@ -225,6 +227,9 @@ class TestPersonaProDlaInboxuOdpornaNaAwarieKatalogu:
         monkeypatch.setattr(webhooks, "BOT_PRO_INBOXES", {"6"})
         monkeypatch.setattr(webhooks, "CW_OLX_INBOX", "18")
         monkeypatch.setattr(webhooks, "CW_ALLEGRO_MSG_INBOX", "6")
+        # Jawnie inny inbox niz "6" - nie polegamy na tym, ze prawdziwy config.py
+        # domyslnie ma CW_ALLEGRO_DISPUTE_INBOX="6" (kolizja zepsulaby ten test od U6).
+        monkeypatch.setattr(webhooks, "CW_ALLEGRO_DISPUTE_INBOX", "999")
         monkeypatch.setattr(webhooks, "persona_for", lambda inbox_id: None)   # katalog padl
         kolejkowane = []
         monkeypatch.setattr(webhooks, "enqueue_quote_turn",
@@ -255,3 +260,59 @@ class TestPersonaProDlaInboxuOdpornaNaAwarieKatalogu:
         monkeypatch.setattr(webhooks, "CW_ALLEGRO_MSG_INBOX", None)
         monkeypatch.setattr(webhooks, "persona_for", lambda inbox_id: "livechat")
         assert webhooks._persona_pro_dla_inboxu("18") == "pro"
+
+
+class TestWykluczenieInboxuDyskusjiAllegro:
+    """U6 (code review, runda 3): inbox 'Allegro - Dyskusje' (reklamacje/spory)
+    MA byc wykluczony z Debusia Pro TWARDO, niezaleznie od BOT_PRO_INBOXES —
+    Debus Pro to bot sprzedazowy bez pojecia o procesie reklamacyjnym, ktory
+    odpowiada publicznie i bez nadzoru czlowieka. Wpisanie tego inboxu do
+    BOT_PRO_INBOXES (bledem operatora przy migracji) nie ma go odblokowac."""
+
+    def test_inbox_dyskusji_wykluczony_mimo_obecnosci_w_bot_pro_inboxes(self, klient, monkeypatch):
+        monkeypatch.setattr(webhooks, "BOT_PRO_AGENT_WEBHOOK_TOKEN", None)
+        monkeypatch.setattr(webhooks, "CW_ALLEGRO_DISPUTE_INBOX", "6")
+        # Blad operatora: inbox dyskusji NA LISCIE BOT_PRO_INBOXES.
+        monkeypatch.setattr(webhooks, "BOT_PRO_INBOXES", {"6"})
+        monkeypatch.setattr(webhooks, "persona_for",
+                            lambda inbox_id: (_ for _ in ()).throw(AssertionError(
+                                "wykluczenie ma zadzialac PRZED jakimkolwiek "
+                                "sprawdzeniem persony/katalogu")))
+        kolejkowane = []
+        monkeypatch.setattr(webhooks, "enqueue_quote_turn",
+                            lambda *a, **k: kolejkowane.append(a))
+
+        odp = klient.post("/agent-bot-pro", json=_zdarzenie(inbox_id="6"))
+
+        assert odp.status_code == 200
+        assert kolejkowane == []
+
+    def test_inny_inbox_allegro_niz_dyskusje_nie_jest_wykluczony(self, klient, monkeypatch):
+        # Kontrola negatywna: wykluczenie dotyczy TYLKO skonfigurowanego inboxu
+        # dyskusji, nie kazdego inboxu Allegro.
+        monkeypatch.setattr(webhooks, "BOT_PRO_AGENT_WEBHOOK_TOKEN", None)
+        monkeypatch.setattr(webhooks, "CW_ALLEGRO_DISPUTE_INBOX", "6")
+        monkeypatch.setattr(webhooks, "CW_ALLEGRO_MSG_INBOX", "4")
+        monkeypatch.setattr(webhooks, "BOT_PRO_INBOXES", {"4"})
+        kolejkowane = []
+        monkeypatch.setattr(webhooks, "enqueue_quote_turn",
+                            lambda *a, **k: kolejkowane.append(k.get("persona")))
+
+        klient.post("/agent-bot-pro", json=_zdarzenie(inbox_id="4"))
+
+        assert kolejkowane == ["allegro"]
+
+    def test_pusty_cw_allegro_dispute_inbox_nie_wybucha(self, klient, monkeypatch):
+        # Gdy identyfikator dyskusji nie jest skonfigurowany (pusty/None), bramka
+        # ma po prostu nie wykluczac niczego (nie ma czego porownywac), nie rzucac.
+        monkeypatch.setattr(webhooks, "BOT_PRO_AGENT_WEBHOOK_TOKEN", None)
+        monkeypatch.setattr(webhooks, "CW_ALLEGRO_DISPUTE_INBOX", None)
+        monkeypatch.setattr(webhooks, "BOT_PRO_INBOXES", {"5"})
+        monkeypatch.setattr(webhooks, "persona_for", lambda inbox_id: "livechat")
+        kolejkowane = []
+        monkeypatch.setattr(webhooks, "enqueue_quote_turn",
+                            lambda *a, **k: kolejkowane.append(1))
+
+        klient.post("/agent-bot-pro", json=_zdarzenie(inbox_id="5"))
+
+        assert kolejkowane == [1]

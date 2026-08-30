@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 # Kolejka tur quote-bota: pobiera pending z quote_queue, wola run_quote_turn (albo,
-# dla wierszy na inboksie Debusia Pro — patrz _jest_pro_inbox/BOT_PRO_INBOXES —
-# bots_pro.tura.uruchom), retry+backoff wielopoziomowy, circuit-breaker na seryjne
+# dla wierszy silnika Debusia Pro — patrz _wiersz_silnika_pro: inbox W BOT_PRO_INBOXES
+# ORAZ persona nalezaca do Pro, sam inbox NIE wystarcza (U3/N3) — bots_pro.tura.uruchom),
+# retry+backoff wielopoziomowy, circuit-breaker na seryjne
 # awarie LLM (TO-04) KEYOWANY PER SILNIK (osobno pro/legacy); po wyczerpaniu prob ->
 # failed + przeprosiny i handoff do agenta (osobna sciezka dla Debusia Pro — W2).
 import time
@@ -28,7 +29,7 @@ _STALE_PROCESSING = 180   # rekord 'processing' bez postepu dluzej niz tyle seku
 # NOWEGO silnika (bots_pro, Agents SDK) otwieralaby go i wstrzymywala tez OLX/Allegro/
 # livechat (legacy silnik run_quote_turn), mimo ze to dwa NIEZALEZNE punkty awarii
 # (rozne biblioteki, rozne wywolania sieciowe). `_klucze_obwodu` daje KUBELKOWI "pro"
-# (wiersze na inboksie Debusia Pro, patrz `_jest_pro_inbox`) WLASNY klucz w tabeli meta;
+# (wiersze silnika Debusia Pro, patrz `_wiersz_silnika_pro`) WLASNY klucz w tabeli meta;
 # kubelek "quote" (wszystko inne — legacy silnik) nadal dostaje DOKLADNIE ten sam,
 # nieformatowany klucz co przed tym zadaniem — zero zmiany zachowania/testow dla
 # legacy silnika w typowym przypadku (BOT_PRO_INBOXES puste/tylko jeden silnik w grze).
@@ -40,12 +41,13 @@ def _klucze_obwodu(kubelek):
     """Para (klucz_until, klucz_fails) w tabeli meta dla danego KUBELKA obwodu
     ("pro" = silnik Debusia Pro, "quote" = legacy silnik run_quote_turn).
 
-    UWAGA (W1 code review, runda poprawek 1): argumentem jest KUBELEK obwodu,
-    NIE kolumna `persona` z wiersza kolejki — ta ostatnia dziś niesie WYŁĄCZNIE
-    profil kanału/caps (może być "olx"/"allegro"/"pro" nawet dla wierszy Debusia
-    Pro, patrz `webhooks._persona_pro_dla_inboxu`). Który silnik obsługuje wiersz
-    (a więc i który kubełek obwodu go dotyczy) ustala WYŁĄCZNIE `_jest_pro_inbox`
-    (inbox_id + BOT_PRO_INBOXES) — patrz `process_one`.
+    UWAGA (W1 code review, runda poprawek 1; poprawione U3 w rundzie 3): argumentem
+    jest KUBELEK obwodu, NIE kolumna `persona` z wiersza kolejki — ta ostatnia dziś
+    niesie WYŁĄCZNIE profil kanału/caps (może być "olx"/"allegro"/"pro" nawet dla
+    wierszy Debusia Pro, patrz `webhooks._persona_pro_dla_inboxu`). Który silnik
+    obsługuje wiersz (a więc i który kubełek obwodu go dotyczy) ustala WYŁĄCZNIE
+    `_wiersz_silnika_pro` (inbox_id W BOT_PRO_INBOXES ORAZ persona należąca do Pro —
+    sam inbox NIE wystarcza, patrz N3/`_jest_pro_inbox`) — patrz `process_one`.
 
     "pro" dostaje własny, odrębny klucz. "quote" (wszystko inne — legacy silnik)
     dostaje WSPÓLNY, nieformatowany klucz — DOKŁADNIE ten sam string, którego
@@ -222,14 +224,20 @@ def _filtr_obwodow_sql(now):
     return "AND NOT (%s)" % warunek_pro, list(pro_inboxy)
 
 
-# Bledy PROGRAMISTYCZNE (N4, code review runda 2) — literowka w kodzie, zly typ/atrybut/
-# klucz, brakujacy import. Zbior ZAMKNIETY i wyczerpujacy, w odroznieniu od otwartej,
-# stale rosnacej przestrzeni wyjatkow transportowych/API (requests, agents, openai,
-# litellm...), z ktorych ZADEN nie dziedziczy po wbudowanych ConnectionError/TimeoutError
-# (patrz uzasadnienie przy klasyfikacji retryable w process_one nizej). Tylko TE typy sa
-# uznawane za trwale (nieponawialne) dla wierszy silnika pro — wszystko inne jest domyslnie
-# retryable, tak jak bylo dla calej kolejki przed K2.
-_BLEDY_PROGRAMISTYCZNE = (TypeError, AttributeError, KeyError, ValueError, ImportError)
+# Bledy PROGRAMISTYCZNE (N4, code review runda 2; zawezone w rundzie 3 — U1) —
+# literowka w kodzie, zly typ/atrybut/klucz, brakujacy import. To NIE jest kompletna
+# taksonomia bledow programistycznych (taka nie istnieje) — to zamknieta lista typow,
+# dla ktorych retry NIE MA SENSU, bo powtorka niczego nie zmieni. Swiadomie BEZ
+# ValueError (U1): openai-agents waliduje pydantikiem argumenty narzedzi i output_type,
+# a proxy dostawcy LLM w trakcie awarii regularnie zwraca HTML zamiast JSON — zarowno
+# pydantic ValidationError (dziedziczy po ValueError, patrz jego MRO), jak i
+# json.JSONDecodeError (tez ValueError) sa wiec PRZEJSCIOWE (retry ma sens, obwod ma
+# sie otworzyc), nie programistyczne. ValueError w tej liscie dawalby im dokladnie ten
+# skutek, ktory N4 mial wyeliminowac: failed po jednej probie, obwod nigdy otwarty.
+# Reszta otwartej, stale rosnacej przestrzeni wyjatkow transportowych/API (requests,
+# agents, openai, litellm...) tez jest wiec domyslnie retryable — tak jak bylo dla
+# calej kolejki przed K2.
+_BLEDY_PROGRAMISTYCZNE = (TypeError, AttributeError, KeyError, NameError, ImportError, SyntaxError)
 
 
 def process_one(now):
@@ -329,10 +337,18 @@ def process_one(now):
         #
         # Odwrocone: biala lista wyjatkow sieciowych/API NIGDY nie bylaby kompletna (kazda
         # biblioteka ma wlasna, rosnaca hierarchie) — czarna lista bledow PROGRAMISTYCZNYCH
-        # jest za to ZAMKNIETA i wyczerpujaca (literowka w kodzie, zly typ/atrybut/klucz,
-        # brakujacy import). Wszystko INNE (w tym cala dzisiejsza i przyszla przestrzen
-        # wyjatkow transportowych/API roznych bibliotek) jest domyslnie retryable —
-        # DOKLADNIE jak dla calej kolejki PRZED K2, tylko teraz swiadomie po obu stronach.
+        # (`_BLEDY_PROGRAMISTYCZNE`, definicja wyzej) jest za to ZAMKNIETA. UWAGA (U1, code
+        # review runda 3): "zamknieta" NIE znaczy "wyczerpujaca taksonomia bledow
+        # programistycznych" (taka nie istnieje) — to lista typow, dla ktorych retry NIE MA
+        # SENSU, bo powtorka niczego nie zmieni. Swiadomie BEZ ValueError: openai-agents
+        # waliduje pydantikiem argumenty narzedzi/output_type, a proxy dostawcy LLM w trakcie
+        # awarii regularnie zwraca HTML zamiast JSON — pydantic ValidationError I
+        # json.JSONDecodeError SA ValueError (patrz MRO), ale sa PRZEJSCIOWE, nie
+        # programistyczne. Wlaczenie ValueError dawaloby im dokladnie ten skutek, ktory N4
+        # mial wyeliminowac. Wszystko POZA ta lista (w tym cala dzisiejsza i przyszla
+        # przestrzen wyjatkow transportowych/API roznych bibliotek, WLACZNIE z
+        # ValueError-podobnymi bledami walidacji) jest domyslnie retryable — DOKLADNIE jak
+        # dla calej kolejki PRZED K2, tylko teraz swiadomie po obu stronach.
         # `_LLMHttpError` (legacy) zawsze ustawia `.retryable` jawnie w konstruktorze (patrz
         # bots/quotebot.py), wiec `getattr` wyzej i tak zwraca jej wartosc PRZED dotarciem
         # tutaj — to odwrocenie NIE dotyka klasyfikacji 4xx/429 dla legacy w zaden sposob.

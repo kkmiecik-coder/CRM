@@ -56,11 +56,16 @@ def test_process_one_pusta_kolejka():
 
 def test_wiersz_na_inboksie_pro_wola_bots_pro_tura_uruchom_nie_run_quote_turn(monkeypatch):
     """Task 7 (rozgalezienie poprawione po W1 code review): wiersz na inboksie
-    Debusia Pro (BOT_PRO_INBOXES) MA isc do bots_pro.tura.uruchom (silnik Agents
-    SDK), a NIE do run_quote_turn (legacy silnik) — to rozgalezienie jest sercem
-    podpiecia Debusia Pro pod istniejacy worker kolejki. Silnik jest okreslany
-    przez inbox_id, NIE przez kolumne persona (ta niesie profil kanalu/caps —
-    patrz webhooks._persona_pro_dla_inboxu)."""
+    Debusia Pro (BOT_PRO_INBOXES), z persona nalezaca do Pro, MA isc do
+    bots_pro.tura.uruchom (silnik Agents SDK), a NIE do run_quote_turn (legacy
+    silnik) — to rozgalezienie jest sercem podpiecia Debusia Pro pod istniejacy
+    worker kolejki. Silnik jest okreslany PRZEZ ZLOZENIE inbox_id ORAZ persony
+    (quote_worker._wiersz_silnika_pro, N3 code review runda 2) — sam inbox_id
+    NIE wystarcza (patrz test_quote_worker_pro_failover.py::
+    TestMigracjaInboxPoInboksieProcessOne dla scenariusza, gdzie to sie liczy).
+    Ten test dowodzi drugiej polowki tego samego rozstrzygniecia: persona
+    ("olx" ponizej) niesie WYLACZNIE profil kanalu/caps (webhooks.
+    _persona_pro_dla_inboxu), NIE jest kopiowana 1:1 z dispatchu silnika."""
     pytest.importorskip("agents")
     from bots_pro import tura as tura_pro
     wolane_pro = []

@@ -314,6 +314,85 @@ def test_wyjatek_ksztaltu_sdk_agentow_na_inboksie_pro_jest_ponawiany(monkeypatch
     assert row["attempts"] == 1
 
 
+def test_value_error_na_inboksie_pro_jest_ponawiany(monkeypatch):
+    """U1 (code review, runda 3): ValueError zostal USUNIETY z czarnej listy
+    bledow programistycznych. openai-agents waliduje pydantikiem argumenty
+    narzedzi/output_type (pydantic ValidationError DZIEDZICZY po ValueError —
+    patrz MRO), a proxy dostawcy LLM w trakcie awarii regularnie zwraca HTML
+    zamiast JSON (json.JSONDecodeError TEZ jest ValueError). Oba sa PRZEJSCIOWE,
+    nie programistyczne — z ValueError w czarnej liscie dostawalyby dokladnie
+    ten skutek, ktory N4 mial wyeliminowac: failed po jednej probie, obwod
+    nigdy otwarty."""
+    pytest.importorskip("agents")
+    from bots_pro import tura as tura_pro
+
+    class _ValidationErrorPodobnyDoPydantica(ValueError):
+        """Odtwarza MRO prawdziwego pydantic.ValidationError: dziedziczy po
+        ValueError, nie po zadnym typie z czarnej listy bledow programistycznych."""
+        pass
+
+    monkeypatch.setattr(tura_pro, "uruchom",
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            _ValidationErrorPodobnyDoPydantica(
+                                "1 validation error for WynikNarzedzia")))
+    monkeypatch.setattr(qw, "BOT_PRO_INBOXES", {"18"})
+    _enqueue(1126, persona="pro")
+    qw.process_one(1_000_000)
+    c = db_mod.db()
+    row = c.execute("SELECT status, attempts FROM quote_queue WHERE conv_id=1126").fetchone()
+    c.close()
+    assert row["status"] == "pending"   # retry z backoffem, NIE natychmiastowy 'failed'
+    assert row["attempts"] == 1
+
+
+def test_json_decode_error_na_inboksie_pro_jest_ponawiany(monkeypatch):
+    """U1: json.JSONDecodeError (proxy dostawcy zwraca HTML/502 zamiast JSON
+    w trakcie awarii) tez jest ValueError — ta sama kontrola co wyzej, dla
+    drugiego przykladu z code review."""
+    pytest.importorskip("agents")
+    import json as json_mod
+    from bots_pro import tura as tura_pro
+
+    def _rzuc(*a, **k):
+        json_mod.loads("<html>502 Bad Gateway</html>")
+
+    monkeypatch.setattr(tura_pro, "uruchom", _rzuc)
+    monkeypatch.setattr(qw, "BOT_PRO_INBOXES", {"18"})
+    _enqueue(1127, persona="pro")
+    qw.process_one(1_000_000)
+    c = db_mod.db()
+    row = c.execute("SELECT status, attempts FROM quote_queue WHERE conv_id=1127").fetchone()
+    c.close()
+    assert row["status"] == "pending"
+    assert row["attempts"] == 1
+
+
+def test_bledy_programistyczne_bez_value_error_nadal_nie_sa_ponawiane(monkeypatch):
+    """Kontrola negatywna: usuniecie ValueError nie ma rozmiekczyc reszty
+    czarnej listy - TypeError/AttributeError/KeyError/NameError/ImportError/
+    SyntaxError nadal koncza sie po jednej probie."""
+    pytest.importorskip("agents")
+    from bots_pro import tura as tura_pro
+
+    for i, wyjatek in enumerate((
+        TypeError("zly typ"), AttributeError("brak atrybutu"),
+        KeyError("brak klucza"), NameError("nieznana nazwa"),
+        ImportError("brak modulu"),
+    )):
+        conv_id = 1130 + i
+        monkeypatch.setattr(tura_pro, "uruchom",
+                            lambda *a, w=wyjatek, **k: (_ for _ in ()).throw(w))
+        monkeypatch.setattr(qw, "BOT_PRO_INBOXES", {"18"})
+        _enqueue(conv_id, persona="pro")
+        qw.process_one(1_000_000)
+        c = db_mod.db()
+        row = c.execute("SELECT status, attempts FROM quote_queue WHERE conv_id=?",
+                        (conv_id,)).fetchone()
+        c.close()
+        assert row["status"] == "failed", "%r powinien byc nieponawialny" % wyjatek
+        assert row["attempts"] == 1
+
+
 def test_seria_bledow_sdk_agentow_otwiera_obwod_pro_zamiast_lawiny_handoffow(monkeypatch):
     """N4: konsekwencja operacyjna odwrocenia reguly - seria bledow ksztaltu SDK
     agentow MA otworzyc obwod (_circuit_record_failure jest wolane tylko w galezi

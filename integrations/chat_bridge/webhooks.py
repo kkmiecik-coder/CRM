@@ -7,7 +7,7 @@ import json
 from flask import Blueprint, request, jsonify
 from config import (WEBHOOK_TOKEN, BOT_AGENT_WEBHOOK_TOKEN, BOT_LIVE_AGENT_WEBHOOK_TOKEN,
                      BOT_QUOTE_AGENT_WEBHOOK_TOKEN, BOT_PRO_AGENT_WEBHOOK_TOKEN, BOT_PRO_INBOXES,
-                     CW_OLX_INBOX, CW_ALLEGRO_MSG_INBOX)
+                     CW_OLX_INBOX, CW_ALLEGRO_MSG_INBOX, CW_ALLEGRO_DISPUTE_INBOX)
 from core.log import log
 from core.db import db
 from core.chatwoot import cw_bot_handoff
@@ -195,10 +195,10 @@ def agent_bot_quote():
 def _persona_pro_dla_inboxu(inbox_id):
     """Klucz profilu kanalu (caps) dla wiersza kolejki Debusia Pro (Task 7, W1 code
     review). Rozgraniczenie na silnik (bots_pro vs legacy) w quote_worker.py idzie
-    PO inbox_id/BOT_PRO_INBOXES (i, po N3, po samej personie tez — patrz
-    quote_worker._jest_pro_inbox), NIE po tej wartosci — ta wartosc trafia
-    WYLACZNIE do bots_pro.wysylka.przygotuj (przez stan.persona()) i decyduje
-    o markdownie/emoji/linkach w odpowiedzi.
+    PO inbox_id/BOT_PRO_INBOXES ORAZ po personie wiersza (N3 — patrz
+    quote_worker._wiersz_silnika_pro), NIE po WARTOSCI zwracanej przez ta funkcje —
+    ta wartosc trafia WYLACZNIE do bots_pro.wysylka.przygotuj (przez stan.persona())
+    i decyduje o markdownie/emoji/linkach w odpowiedzi.
 
     Przed poprawka W1 kazdy wiersz Debusia Pro szedl z persona="pro" na sztywno,
     niezaleznie od kanalu — bots.channel_caps.caps_for("pro") nie zna takiego
@@ -246,7 +246,19 @@ def _process_pro(d):
     to bylby zly domyslny wybor: bramka ciszy po handoffie (bots_pro.stan.
     wolno_prowadzic_rozmowe, wolana wewnatrz tury) i tak wymaga statusu 'pending',
     wiec przedwczesny handoff tylko psulby stan rozmowy bez potrzeby.
-    """
+
+    U6 (code review, runda 3): inbox "Allegro - Dyskusje" (CW_ALLEGRO_DISPUTE_INBOX —
+    reklamacje/spory) ma TWARDE wykluczenie, NIEZALEZNE od zawartosci BOT_PRO_INBOXES.
+    Legacy silnik wyklucza go przez design allowlisty (_quote_persona_dla_inboxu zna
+    tylko CW_OLX_INBOX/CW_ALLEGRO_MSG_INBOX, dyskusje po prostu nigdy nie sa dopasowane
+    — patrz komentarz przy tej funkcji), a jego jedyna alternatywna sciezka na tym
+    inboksie to stary PODPOWIADACZ (prywatna notatka do przegladu czlowieka — niskie
+    ryzyko). Debus Pro to bot SPRZEDAZOWY (wyceny, ceny) bez pojecia o procesie
+    reklamacyjnym, ktory odpowiada PUBLICZNIE i BEZ nadzoru czlowieka — wpisanie
+    inboxu dyskusji do BOT_PRO_INBOXES (zmienna srodowiskowa, ktora ktos kiedys ustawi
+    w pospiechu przy migracji) puscilo by go na reklamacje. Dlatego wykluczenie tutaj
+    NIE zalezy od BOT_PRO_INBOXES — dziala nawet gdy operator pomyli sie i doda ten
+    inbox do listy."""
     if d.get("event") != "message_created":
         return
     if str(d.get("message_type")) not in ("incoming", "0"):
@@ -264,6 +276,11 @@ def _process_pro(d):
            if a.get("data_url") and str(a.get("file_type") or "").lower() == "image"]
 
     if not conv_id or not mid or (not content and not att):
+        return
+
+    if CW_ALLEGRO_DISPUTE_INBOX and inbox_id == str(CW_ALLEGRO_DISPUTE_INBOX).strip():
+        log("pro: inbox %s to Allegro-Dyskusje — twarde wykluczenie, niezaleznie "
+            "od BOT_PRO_INBOXES (conv %s)" % (inbox_id, conv_id))
         return
 
     if inbox_id not in BOT_PRO_INBOXES:
