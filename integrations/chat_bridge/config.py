@@ -118,3 +118,7 @@ BOT_CIRCUIT_COOLDOWN  = int(os.environ.get("BOT_CIRCUIT_COOLDOWN", "120"))  # se
 # Token uzyty explicite w bots_pro.stan.handoff/podsumowanie.wyslij — domyslny cw_bot_handoff
 # siega po token bota-podpowiadacza, wiec Pro potrzebuje wlasnego, jawnie podawanego.
 BOT_PRO_CW_AGENT_TOKEN = os.environ.get("BOT_PRO_CW_AGENT_TOKEN")
+# Bezpiecznik D (jak BOT_LIVE_MAX_TURNS/BOT_QUOTE_MAX_TURNS): max krokow Runnera w JEDNYM
+# wywolaniu Runner.run_sync (petla narzedzie->model wewnatrz jednej tury), zeby zapetlone
+# wywolania narzedzi nie chodzily w nieskonczonosc.
+BOT_PRO_MAX_TURNS = int(os.environ.get("BOT_PRO_MAX_TURNS", "30"))
