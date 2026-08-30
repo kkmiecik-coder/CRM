@@ -61,9 +61,24 @@ class Krawedz(TypedDict):
 
 @function_tool
 def pobierz_opcje() -> dict:
-    """Zwraca katalog: warianty drewna, wykończenia z identyfikatorami, typy
-    krawędzi, limity wymiarowe. Wołaj raz na początku rozmowy o wycenę."""
-    return crm_calc.get_options()
+    """Zwraca listę wykończeń z identyfikatorami (finishing_options: id +
+    full_path) oraz globalne limity wymiarowe (global_limits). Wołaj raz na
+    początku rozmowy o wycenę, żeby poznać finishing_option_id pasujące do
+    wyboru klienta przy olejowaniu/lakierowaniu.
+
+    Warianty drewna i typy/litery krawędzi NIE są tu zwracane — to enumy w
+    schemacie zapisz_pozycje (SelectedVariant, Litera, TypKrawedzi), model ma
+    je już w podpisie narzędzia i SDK odrzuci wartość spoza listy, zanim
+    ciało narzędzia się uruchomi. Katalog kolorów/połysków (finishing_options)
+    enumem NIE jest — jest danymi, więc został tutaj."""
+    dane = crm_calc.get_options()
+    return {
+        "finishing_options": [
+            {"id": o["id"], "full_path": o["full_path"]}
+            for o in (dane.get("finishing_options") or [])
+        ],
+        "global_limits": dane.get("global_limits"),
+    }
 
 
 @function_tool

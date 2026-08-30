@@ -97,6 +97,47 @@ class TestZestawNarzedzi:
             assert t.description and len(t.description) > 20
 
 
+class TestPobierzOpcjePrzycina:
+    """Task 5, rozstrzygniecie 1: selected_variant/wykonczenie/litery i typy
+    krawedzi sa enumami w schemacie (Literal[...]) — model NIE potrzebuje juz
+    pelnego katalogu wariantow/typow krawedzi z /api/bot/options, bo SDK i tak
+    odrzuci wartosc spoza enumu zanim cialo narzedzia sie uruchomi. Zostawiamy
+    WYLACZNIE finishing_options (id + full_path, bo finishing_option_id NIE
+    jest enumem — katalog kolorow/polyskow jest zmienny) i limity wymiarowe."""
+
+    def test_zwraca_wylacznie_finishing_options_i_limity(self, monkeypatch):
+        monkeypatch.setattr(n.crm_calc, "get_options", lambda: {
+            "ok": True,
+            "variants": [{"variant_code": "dab-lity-ab", "length_max": 450}],
+            "global_limits": {"length_min": 40, "length_max": 450,
+                               "width_min": 10, "width_max": 120,
+                               "thickness_min": 1.5, "thickness_max": 4},
+            "finishing_options": [
+                {"id": 7, "full_path": "Olejowane / Dąb naturalny",
+                 "price_netto": 12.5, "level": 2},
+            ],
+            "edge_types": [{"type": "round", "price_netto": 3}],
+            "client_types": ["detaliczny"],
+            "cutout_price_netto": 81.3,
+            "shapes": ["rectangular", "round", "circle"],
+            "vat": 1.23,
+        })
+        wynik = _wolaj(n.pobierz_opcje)
+        assert wynik == {
+            "finishing_options": [{"id": 7, "full_path": "Olejowane / Dąb naturalny"}],
+            "global_limits": {"length_min": 40, "length_max": 450,
+                               "width_min": 10, "width_max": 120,
+                               "thickness_min": 1.5, "thickness_max": 4},
+        }
+
+    def test_brak_polaczenia_z_crm_nie_wywala_narzedzia(self, monkeypatch):
+        # crm_calc.get_options() zwraca {} przy awarii API (patrz jej docstring)
+        # — pobierz_opcje ma wtedy zwrocic puste struktury, nie rzucic wyjatkiem.
+        monkeypatch.setattr(n.crm_calc, "get_options", lambda: {})
+        wynik = _wolaj(n.pobierz_opcje)
+        assert wynik == {"finishing_options": [], "global_limits": None}
+
+
 class TestSchematZapiszPozycje:
     """zapisz_pozycje musi wystawiać modelowi edges/otwory/wykończenie — bez
     tego w schemacie stan.zapisz_pozycje (które je już obsługuje) jest martwym
