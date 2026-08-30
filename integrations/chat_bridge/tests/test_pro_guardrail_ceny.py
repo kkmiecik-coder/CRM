@@ -93,3 +93,44 @@ class TestSeparatoryTysiecyIFormyWaluty:
     def test_zmyslona_kwota_zlotych_nie_przechodzi_bez_sladu(self):
         # K5 dokladnie: przed poprawka to zwracalo [] (regex w ogole nie widzial kwoty).
         assert g.sprawdz_ceny("Razem 9999,99 złotych", set()) == ["9999.99"]
+
+
+class TestOdstepNiePrzechodziPrzezNowaLinie:
+    """Runda poprawek 2, N1: naprawa K4 (spacja->separator tysiecy) uzyla \\s* jako
+    odstepu miedzy waluta a liczba, a \\s LAPIE TEZ znak nowej linii. Efekt: waluta
+    z konca jednej linii doklejala sie do przypadkowej liczby z POCZATKU nastepnej
+    — a wypunktowana, wielolinijkowa wycena to normalny ksztalt odpowiedzi bota, nie
+    brzeg. Kierunek byl bezpieczny (falszywe naruszenie na PRAWDZIWEJ kwocie), ale
+    w docelowym podpieciu to wywracaloby prawie kazda wycene z >1 pozycja."""
+
+    def test_waluta_na_koncu_linii_nie_lapie_liczby_z_nastepnej(self):
+        tekst = "Razem 1 000,00 zł\n3 dni robocze na realizację"
+        assert g.znajdz_kwoty(tekst) == {"1000.00"}
+
+    def test_dwukropek_przed_waluta_i_liczba_z_nastepnej_linii(self):
+        tekst = "Blat: 843,04 zł\n2 sztuki parapetu policzę osobno"
+        assert g.znajdz_kwoty(tekst) == {"843.04"}
+
+    def test_waluta_bez_liczby_nie_lapie_wymiarow_z_nastepnej_linii(self):
+        # "Koszt w zł" to samo w sobie nie jest kwota — "zł" nie ma tu przy sobie
+        # liczby w OGOLE, a stary regex i tak doklejal "180" z linii nizej.
+        tekst = "Koszt w zł\n180x60x4 cm"
+        assert g.znajdz_kwoty(tekst) == set()
+
+    def test_sprawdz_ceny_nie_zglasza_falszywego_naruszenia_przez_nowa_linie(self):
+        tekst = "Razem 1 000,00 zł\n3 dni robocze na realizację"
+        assert g.sprawdz_ceny(tekst, {"1000.00"}) == []
+
+
+class TestWalutaOddzielonaDwukropkiem:
+    """Runda poprawek 2, N3: waluta oddzielona od liczby dwukropkiem+spacja
+    ("Cena w zł: 9999,99") nie byla w ogole widziana — zmyslona kwota w takim
+    zapisie przechodzila guardrail bez sladu (ten sam falszywy negatyw co
+    pierwotne K5). Naprawa NIE moze psuc N1 — dwukropek tak, nowa linia nie
+    (patrz TestOdstepNiePrzechodziPrzezNowaLinie wyzej)."""
+
+    def test_dwukropek_i_spacja_miedzy_waluta_a_liczba(self):
+        assert g.znajdz_kwoty("Cena w zł: 9999,99") == {"9999.99"}
+
+    def test_zmyslona_kwota_po_dwukropku_nie_przechodzi_bez_sladu(self):
+        assert g.sprawdz_ceny("Cena w zł: 9999,99", set()) == ["9999.99"]

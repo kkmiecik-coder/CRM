@@ -25,11 +25,18 @@ _LICZBA_PROSTA = r"\d+(?:[,.]\d{2})?"
 
 _LICZBA = r"(?:%s|%s)" % (_LICZBA_GRUPOWANA, _LICZBA_PROSTA)
 
+# Odstęp między liczbą a walutą: spacja (zwykła/NBSP/wąska nierozdzielająca) i/lub
+# dwukropek ("Cena w zł: 9999,99"), w dowolnej kombinacji do 3 znaków. CELOWO bez
+# \s — \s łapie też znak nowej linii, więc "Razem 1000 zł\n3 dni robocze" doklejałoby
+# "3" z kolejnej linii jako kolejną kwotę (bot zwraca wypunktowane, wielolinijkowe
+# odpowiedzi — to normalny kształt wyceny, nie brzeg).
+_ODSTEP = "[ \xa0 :]{0,3}"
+
 # Kwota = liczba + waluta, w DOWOLNEJ kolejności (bot bywa proszony o "PLN 1936,71"
 # tak samo jak o "1936,71 zł") — waluta jest OBOWIĄZKOWA, bez niej "14 dni" czy
 # "120x60x4" wpadałyby jako ceny.
-_KWOTA_LICZBA_WALUTA = re.compile(r"(%s)\s*%s\b" % (_LICZBA, _WALUTA), re.IGNORECASE)
-_KWOTA_WALUTA_LICZBA = re.compile(r"\b%s\s*(%s)" % (_WALUTA, _LICZBA), re.IGNORECASE)
+_KWOTA_LICZBA_WALUTA = re.compile(r"(%s)%s%s\b" % (_LICZBA, _ODSTEP, _WALUTA), re.IGNORECASE)
+_KWOTA_WALUTA_LICZBA = re.compile(r"\b%s%s(%s)" % (_WALUTA, _ODSTEP, _LICZBA), re.IGNORECASE)
 
 
 def _normalizuj_liczbe(tekst):

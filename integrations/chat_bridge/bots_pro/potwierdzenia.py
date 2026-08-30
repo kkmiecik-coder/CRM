@@ -36,6 +36,11 @@ _MIN_DLUGOSC_CYTATU = 2
 # Słowa, które TUŻ PRZED cytowanym fragmentem odwracają jego sens — "nie potwierdzam"
 # nie jest potwierdzeniem, mimo że słowo "potwierdzam" faktycznie pada w wiadomości.
 _NEGACJE = {"nie", "bez", "niestety"}
+# Interpunkcja, którą pomijamy MIĘDZY negacją a cytatem — "nie, tak nie może być"
+# ma wykryć "nie" tuż przed "tak", mimo przecinka. NIE pomijamy słów — "nie mam
+# uwag, potwierdzam" ma NIE liczyć się jako negacja "potwierdzam", bo między "nie"
+# a przecinkiem stoi jeszcze "mam uwag" (to "nie" neguje INNE zdanie).
+_INTERPUNKCJA_KONCOWA = re.compile(r"[\s,;:!?.\-—–]+$")
 
 
 def podpis(pozycje):
@@ -53,9 +58,14 @@ def _znormalizuj(tekst):
 
 
 def _slowo_przed(tekst, pozycja):
-    """Ostatnie słowo w tekście PRZED podaną pozycją — do wykrycia negacji tuż
-    przed cytatem ("nie zgadzam się" — słowo przed "zgadzam się" to "nie")."""
-    dopasowanie = re.search(r"(\w+)\s*$", tekst[:pozycja])
+    """Ostatnie słowo w tekście PRZED podaną pozycją, z pominięciem białych znaków
+    i interpunkcji MIĘDZY nim a cytatem — "nie, tak nie może być" ma wykryć "nie"
+    tuż przed "tak", mimo przecinka. Ale "nie" MUSI być bezpośrednio przed tą
+    interpunkcją: "Nie mam uwag, potwierdzam" ma zwrócić "uwag" (nie "nie"), bo
+    między negacją a przecinkiem stoi jeszcze "mam uwag" — to "nie" neguje INNE
+    zdanie, nie potwierdzenie, które po nim następuje."""
+    bez_interpunkcji = _INTERPUNKCJA_KONCOWA.sub("", tekst[:pozycja])
+    dopasowanie = re.search(r"(\w+)$", bez_interpunkcji)
     return dopasowanie.group(1) if dopasowanie else ""
 
 

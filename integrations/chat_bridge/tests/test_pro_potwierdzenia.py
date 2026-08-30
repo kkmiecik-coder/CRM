@@ -102,6 +102,34 @@ class TestCytatOdmowaINegacja:
         assert p.sprawdz_cytat(cytat, wiadomosc) is True
 
 
+class TestNegacjaPrzezInterpunkcje:
+    """Runda poprawek 2, N2 (resztka po K1): negacja tuz przed cytatem, ale
+    oddzielona przecinkiem/interpunkcja — to DOKLADNIE ten sam atak co K1
+    (falszywa zgoda), tylko z przecinkiem w srodku. "nie, tak nie moze byc" ma
+    dalej znaczyc odmowe, mimo przecinka miedzy "nie" a "tak".
+
+    Rownoczesnie negacja MUSI zostac slowem BEZPOSREDNIO przed przecinkiem —
+    "Nie mam uwag, potwierdzam" to prawdziwa zgoda (negacja "nie" dotyczy "mam
+    uwag", innego zdania), wiec NIE moze zostac odrzucona. Inaczej naprawa N2
+    zjadlaby prawdziwe zgody w tej (bardzo naturalnej) formie."""
+
+    @pytest.mark.parametrize("cytat,wiadomosc", [
+        ("tak", "Nie, tak nie może być"),
+        ("zgadzam się", "nie, zgadzam się tylko z terminem"),
+    ])
+    def test_negacja_oddzielona_przecinkiem_nadal_odrzuca(self, cytat, wiadomosc):
+        assert p.sprawdz_cytat(cytat, wiadomosc) is False
+
+    @pytest.mark.parametrize("cytat,wiadomosc", [
+        ("potwierdzam", "Nie mam uwag, potwierdzam"),
+        ("zgadzam się", "Nie mam pytań, zgadzam się"),
+        ("bierzemy", "no dobra, bierzemy"),
+        ("zamawiam", "ok, zamawiam"),
+    ])
+    def test_negacja_dalekiego_zdania_nie_zjada_prawdziwej_zgody(self, cytat, wiadomosc):
+        assert p.sprawdz_cytat(cytat, wiadomosc) is True
+
+
 class TestBramka:
     def test_brak_potwierdzenia_blokuje(self, monkeypatch):
         monkeypatch.setattr(p, "_stan_potwierdzenia", lambda: (None, None))
