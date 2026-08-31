@@ -60,14 +60,32 @@ class _AtrapaZapytaniaWybuchowa(_AtrapaZapytania):
         raise RuntimeError("baza padła przy odczycie QuoteItemDetails")
 
 
-def _serwis(odpowiedz_getorders, monkeypatch, sesja, pozycje_wyceny=(), zapytanie=None):
-    """Serwis z podmienionym transportem HTTP, sesją bazy i modelem pozycji."""
+def _serwis(odpowiedz_getorders, monkeypatch, sesja, pozycje_wyceny=(), zapytanie=None,
+            wywolania=None):
+    """Serwis z podmienionym transportem HTTP, sesją bazy i modelem pozycji.
+
+    `odpowiedz_getorders` może być listą — wtedy kolejne wywołania dostają
+    kolejne elementy, a element będący wyjątkiem jest rzucany. Tak testujemy
+    ponowienie getOrders.
+    """
     serwis = BaselinkerService.__new__(BaselinkerService)
     serwis.logger = SimpleNamespace(
         info=lambda *a, **k: None, warning=lambda *a, **k: None,
         error=lambda *a, **k: None, debug=lambda *a, **k: None,
     )
-    serwis._make_request = lambda metoda, parametry: odpowiedz_getorders
+
+    odpowiedzi = (list(odpowiedz_getorders)
+                  if isinstance(odpowiedz_getorders, list) else None)
+
+    def _transport(metoda, parametry):
+        if wywolania is not None:
+            wywolania.append(metoda)
+        wynik = odpowiedzi.pop(0) if odpowiedzi else odpowiedz_getorders
+        if isinstance(wynik, Exception):
+            raise wynik
+        return wynik
+
+    serwis._make_request = _transport
     monkeypatch.setattr("modules.baselinker.service.db", SimpleNamespace(session=sesja))
     monkeypatch.setattr(
         "modules.calculator.models.QuoteItemDetails",
@@ -138,3 +156,74 @@ class TestOrderPage:
         assert wycena.baselinker_order_page == "https://blsklep.pl/zamowienie/xyz789"
         assert sesja.commits == 1          # link zapisany PRZED dopasowaniem SKU
         assert sesja.rollbacki == 1        # sesja oddana wywołującemu w stanie zdatnym
+
+
+class TestOdzyskLinkuDoZamowienia:
+    """`getOrders` leżało PRZED osłoną i zabierało ze sobą link do zamówienia.
+
+    Zamówienie w tym momencie już istnieje. Klient bez linku nie dojdzie do
+    płatności, a nikt tego linku nie próbuje pobrać drugi raz — jedyne inne
+    miejsce, które go zapisuje, siedzi za uprawnieniem do modułu baselinker.
+    Ponowienie jest więc jedyną tanią ścieżką odzysku.
+    """
+
+    _UDANA = {
+        "status": "SUCCESS",
+        "orders": [{
+            "order_id": 777,
+            "order_page": "https://blsklep.pl/zamowienie/odzysk",
+            "products": [],
+        }],
+    }
+
+    def test_zerwane_polaczenie_przy_getorders_konczy_sie_ponowieniem(self, monkeypatch):
+        sesja = _AtrapaSesji()
+        wywolania = []
+        serwis = _serwis([ConnectionError("zerwane połączenie"), self._UDANA],
+                         monkeypatch, sesja, wywolania=wywolania)
+        wycena = SimpleNamespace(id=7, baselinker_order_page=None)
+
+        serwis._save_order_product_ids(wycena, 777)
+
+        assert wywolania == ['getOrders', 'getOrders']
+        assert wycena.baselinker_order_page == "https://blsklep.pl/zamowienie/odzysk"
+
+    def test_odpowiedz_bez_order_page_tez_daje_druga_szanse(self, monkeypatch):
+        # Odpowiedź „SUCCESS, ale bez pola" wygląda jak poprawna, a zostawia
+        # klienta bez linku dokładnie tak samo jak błąd.
+        sesja = _AtrapaSesji()
+        wywolania = []
+        bez_pola = {"status": "SUCCESS",
+                    "orders": [{"order_id": 777, "products": []}]}
+        serwis = _serwis([bez_pola, self._UDANA], monkeypatch, sesja,
+                         wywolania=wywolania)
+        wycena = SimpleNamespace(id=7, baselinker_order_page=None)
+
+        serwis._save_order_product_ids(wycena, 777)
+
+        assert wywolania == ['getOrders', 'getOrders']
+        assert wycena.baselinker_order_page == "https://blsklep.pl/zamowienie/odzysk"
+
+    def test_udane_pierwsze_wywolanie_nie_jest_powtarzane(self, monkeypatch):
+        # Kontrola negatywna: ponowienie nie może dokładać wywołań API tam,
+        # gdzie wszystko poszło dobrze.
+        sesja = _AtrapaSesji()
+        wywolania = []
+        serwis = _serwis([self._UDANA], monkeypatch, sesja, wywolania=wywolania)
+        wycena = SimpleNamespace(id=7, baselinker_order_page=None)
+
+        serwis._save_order_product_ids(wycena, 777)
+
+        assert wywolania == ['getOrders']
+
+    def test_dwa_nieudane_wywolania_nie_wywracaja_metody(self, monkeypatch):
+        # Zamówienie istnieje — brak linku jest dolegliwy, ale nie może
+        # wywalić wywołującego wyjątkiem.
+        sesja = _AtrapaSesji()
+        serwis = _serwis([ConnectionError("raz"), ConnectionError("dwa")],
+                         monkeypatch, sesja)
+        wycena = SimpleNamespace(id=7, baselinker_order_page=None)
+
+        serwis._save_order_product_ids(wycena, 777)
+
+        assert wycena.baselinker_order_page is None

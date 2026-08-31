@@ -2186,25 +2186,68 @@ class BaselinkerService:
                            baselinker_id=default_source.baselinker_id)
             return default_source.baselinker_id
 
+    def _pobierz_zamowienie_po_dodaniu(self, baselinker_order_id, prob=2):
+        """getOrders z ponowieniem. Zwraca słownik zamówienia albo None.
+
+        Ponawiamy, bo z tej jednej odpowiedzi bierze się order_page — link,
+        którym klient dochodzi do płatności. Zamówienie w tej chwili już
+        istnieje, więc powtórne zapytanie niczego nie tworzy i nie ma jak
+        zaszkodzić; jego brak kosztuje natomiast klienta całą drogę do
+        zapłaty, bez ścieżki odzysku (jedyny inny zapis linku siedzi
+        w get_sales_documents, za uprawnieniem do modułu baselinker).
+
+        Za nieudaną uznajemy też odpowiedź „SUCCESS, ale bez order_page":
+        z punktu widzenia klienta wygląda dokładnie tak samo jak błąd.
+        """
+        ostatnie = None
+        for numer_proby in range(1, prob + 1):
+            try:
+                response = self._make_request('getOrders', {
+                    'order_id': baselinker_order_id,
+                })
+            except Exception as e:
+                self.logger.warning("getOrders po addOrder nie powiodło się",
+                                    baselinker_order_id=baselinker_order_id,
+                                    proba=numer_proby,
+                                    error=str(e))
+                continue
+
+            if response.get('status') != 'SUCCESS':
+                self.logger.warning("Nie udało się pobrać zamówienia po addOrder",
+                                    baselinker_order_id=baselinker_order_id,
+                                    proba=numer_proby)
+                continue
+
+            orders = response.get('orders') or []
+            if not orders:
+                continue
+
+            ostatnie = orders[0]
+            if ostatnie.get('order_page'):
+                return ostatnie
+
+        if ostatnie is None:
+            self.logger.error("Nie udało się pobrać zamówienia po addOrder mimo "
+                              "ponowienia — zamówienie istnieje, ale wycena nie "
+                              "dostanie linku do strony zamówienia",
+                              baselinker_order_id=baselinker_order_id)
+        else:
+            self.logger.error("BaseLinker nie zwrócił order_page mimo ponowienia — "
+                              "klient nie dostanie linku do strony zamówienia",
+                              baselinker_order_id=baselinker_order_id)
+        return ostatnie
+
     def _save_order_product_ids(self, quote, baselinker_order_id):
         """Po addOrder odpytuje getOrders i zapisuje order_product_id w QuoteItemDetails."""
         try:
             from modules.calculator.models import QuoteItemDetails
 
-            response = self._make_request('getOrders', {
-                'order_id': baselinker_order_id,
-            })
-
-            if response.get('status') != 'SUCCESS':
-                self.logger.warning("Nie udało się pobrać zamówienia po addOrder",
-                                   baselinker_order_id=baselinker_order_id)
+            # Samo wywołanie getOrders leżało wcześniej w zewnętrznym try/except,
+            # który połykał wszystko i wychodził z metody BEZ zapisu linku.
+            bl_order = self._pobierz_zamowienie_po_dodaniu(baselinker_order_id)
+            if not bl_order:
                 return
 
-            orders = response.get('orders', [])
-            if not orders:
-                return
-
-            bl_order = orders[0]
             bl_products = bl_order.get('products', [])
 
             # Link do STRONY ZAMOWIENIA w BaseLinkerze — to nie jest link platniczy.
