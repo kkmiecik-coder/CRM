@@ -124,9 +124,19 @@ class TestAgentWyceny:
         # przez ODWOLANIE do sekcji PORÓWNANIE zamiast powtorzenia jej zakazow
         # (zero kwot, zadnego zestawienia w czacie, zadnego przekazania rozmowy).
         # Zadna cudza regula nie zostala skrocona ani wycieta.
-        # Prog ma 429 znakow zapasu ponad NAJGORSZY przypadek po tej rundzie
-        # (9521 zn = 8765 + 454 + 302 zn sekcji DANE KLIENTA) — praktycznie tyle
-        # samo co po rundzie 2 (412) i 3 (433), wiec pilnuje dokladnie tak samo.
+        # RUNDA NAPRAW 6: prog BEZ ZMIAN (9950). Trzy poprawki sprzecznosci
+        # w prompcie zmienily najgorszy przypadek z 9521 na 9558 zn, czyli
+        # zapas 429 -> 392:
+        #   - POTWIERDZENIE odsyla do WYMIARY przy pytaniu „dlaczego sie
+        #     zmienilo" (P2/S1, +74 zn) — bez tego obie sekcje kazaly w tej
+        #     samej turze zrobic cos odwrotnego;
+        #   - furtka w PYTANIE ZOBOWIAZUJE nazywa KSZTALT i SCHODY (P3/S3,
+        #     +30 zn) — model nie musi sie domyslac, ze zbieranie danych do
+        #     przekazania jest nia objete;
+        #   - P4/S4 budzet ZWOLNIL: obietnica ogladania wszystkich wariantow
+        #     przeniesiona z niebramkowanej sekcji PORÓWNANIE do bramkowanego
+        #     bloku NIEZDECYDOWANY KLIENT, przy okazji dublowanie obu sekcji
+        #     spadlo z 1508 do 1440 zn. Na Allegro prompt zmalal 8765 -> 8712 zn.
         # Kolejne podniesienie ma byc rownie jawne: z lista tego, co doszlo, i po co.
         agent = agenci.zbuduj_agenta_wyceny()
         assert len(agent.instructions) < 9950
