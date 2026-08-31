@@ -809,13 +809,40 @@ function adresToOdbiorOsobisty(adres) {
     return znormalizowany === 'odbiór osobisty' || znormalizowany === 'odbior osobisty';
 }
 
+// Czy TA wycena niesie własną dostawę kurierską — kuriera albo jej koszt.
+// Dane wstrzykuje szablon strony (client_quote.html → window.currentQuoteData).
+// To jedyne dane o dostawie, które należą do konkretnej wyceny: znacznik
+// „ODBIÓR OSOBISTY" siedzi na WSPÓŁDZIELONYM rekordzie klienta i zostaje tam
+// po każdym odbiorze osobistym, także dla wszystkich następnych wycen.
+// Kurier o nazwie „Odbiór osobisty" (tak wpisuje go panel handlowca) kurierem
+// nie jest — ta sama reguła co w checkout_config._wycena_wskazuje_kuriera.
+function wycenaJedzieKurierem() {
+    const dane = window.currentQuoteData || currentQuoteData || {};
+    const kurier = String(dane.courier_name || '').trim();
+    if (kurier && !adresToOdbiorOsobisty(kurier)) return true;
+    return parseFloat(dane.koszt_dostawy || 0) > 0;
+}
+
+// Wartość do wpisania w pole adresu. Znacznik odbioru osobistego adresem NIE
+// JEST: wpisany w formularz pojechałby do BaseLinkera jako adres przesyłki.
+function adresDoFormularza(adres) {
+    return adresToOdbiorOsobisty(adres) ? '' : (adres || '');
+}
+
 // Ustawia checkbox odbioru osobistego zgodnie z danymi zapisanymi na kliencie.
 // Bez tego wycena zaakceptowana WCZEŚNIEJ jako odbiór osobisty wracała do
 // modala z odznaczonym polem i adresem „ODBIÓR OSOBISTY" w polu adresu:
 // formularz mówił wtedy „kurier", dane klienta „odbiór" — a serwer taką
 // sprzeczność odrzuca, bo nie wolno mu jej rozstrzygnąć za klienta.
+//
+// Na wycenie KURIERSKIEJ pola nie zaznaczamy: rozstrzyga wycena, a nie stary
+// znacznik na rekordzie klienta. Dopóki zaznaczaliśmy, zamówienie z dostawą
+// za 123 zł jechało do BaseLinkera jako odbiór osobisty z zerowym kosztem —
+// a klient, który pole odznaczył, dostawał odmowę. Teraz decyduje świadomie:
+// zostawia adres (kurier jak w wycenie) albo sam zaznacza odbiór.
 function ustawOdbiorZDanychKlienta(daneDostawy) {
     if (!daneDostawy || !adresToOdbiorOsobisty(daneDostawy.address)) return false;
+    if (wycenaJedzieKurierem()) return false;
     const pole = document.getElementById('selfPickup');
     if (!pole) return false;
     pole.checked = true;
@@ -831,9 +858,9 @@ function fillFormWithExistingData(data) {
     } else if (data.delivery) {
         document.getElementById('deliveryName').value = data.delivery.name || '';
         document.getElementById('deliveryCompany').value = data.delivery.company || '';
-        document.getElementById('deliveryAddress').value = data.delivery.address || '';
+        document.getElementById('deliveryAddress').value = adresDoFormularza(data.delivery.address);
         document.getElementById('deliveryZip').value = data.delivery.zip || '';
-        document.getElementById('deliveryCity').value = data.delivery.city || '';
+        document.getElementById('deliveryCity').value = adresDoFormularza(data.delivery.city);
         document.getElementById('deliveryRegion').value = data.delivery.region || '';
     }
 
@@ -1874,9 +1901,9 @@ function fillFormWithClientData(clientData) {
 
         if (deliveryName && clientData.delivery.name) deliveryName.value = clientData.delivery.name;
         if (deliveryCompany && clientData.delivery.company) deliveryCompany.value = clientData.delivery.company;
-        if (deliveryAddress && clientData.delivery.address) deliveryAddress.value = clientData.delivery.address;
+        if (deliveryAddress && clientData.delivery.address) deliveryAddress.value = adresDoFormularza(clientData.delivery.address);
         if (deliveryZip && clientData.delivery.zip) deliveryZip.value = clientData.delivery.zip;
-        if (deliveryCity && clientData.delivery.city) deliveryCity.value = clientData.delivery.city;
+        if (deliveryCity && clientData.delivery.city) deliveryCity.value = adresDoFormularza(clientData.delivery.city);
         if (deliveryRegion && clientData.delivery.region) deliveryRegion.value = clientData.delivery.region;
     }
 

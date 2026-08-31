@@ -200,3 +200,43 @@ class TestPanelNieNazywaZamowieniaBledem:
 
         assert 'window.confirm(' in blok
         assert 'detach-order' in blok
+
+
+class TestOdbioruNieZaznaczamyNaWycenieKurierskiej:
+    """N-C: znacznik odbioru z rekordu klienta nie może rozstrzygać o dostawie.
+
+    `clients.delivery_address` należy do KLIENTA, nie do wyceny: zostaje tam po
+    każdym odbiorze osobistym i obowiązuje wszystkie następne wyceny. Modal
+    zaznaczał na tej podstawie „odbiór osobisty" także na wycenie z kurierem
+    i kosztem 123 zł — zamówienie szło z zerową dostawą, a odznaczenie pola
+    kończyło się odmową serwera. Gdy wycena niesie własne dane dostawy, to
+    ona rozstrzyga i pola nie zaznaczamy.
+    """
+
+    def test_wstepne_zaznaczenie_pyta_o_dane_dostawy_wyceny(self):
+        blok = _blok(_zrodlo(JS_MODAL), 'function ustawOdbiorZDanychKlienta(')
+
+        assert 'wycenaJedzieKurierem(' in blok, \
+            'modal zaznacza odbiór, nie patrząc na dostawę zapisaną w wycenie'
+
+    def test_dane_dostawy_wyceny_czytane_z_kuriera_i_kosztu(self):
+        blok = _blok(_zrodlo(JS_MODAL), 'function wycenaJedzieKurierem(')
+
+        assert 'courier_name' in blok
+        assert 'koszt_dostawy' in blok
+        # Kurier o nazwie „Odbiór osobisty" (tak wpisuje go panel) nie jest
+        # kurierem — ta sama reguła co po stronie serwera.
+        assert 'adresToOdbiorOsobisty(' in blok
+
+    def test_znacznik_odbioru_nie_trafia_do_pola_adresu(self):
+        # Gdy pole „odbiór" zostaje odznaczone, w polu adresu nie może wylądować
+        # napis „ODBIÓR OSOBISTY": to znacznik, a nie adres, i klient wysłałby
+        # go do BaseLinkera jako adres przesyłki.
+        zrodlo = _zrodlo(JS_MODAL)
+        for funkcja in ('function fillFormWithExistingData(',
+                        'function fillFormWithClientData('):
+            blok = _blok(zrodlo, funkcja)
+            assert 'adresDoFormularza(' in blok, \
+                '%s wpisuje znacznik odbioru w pole adresu' % funkcja
+        assert 'adresToOdbiorOsobisty(' in _blok(
+            zrodlo, 'function adresDoFormularza(')

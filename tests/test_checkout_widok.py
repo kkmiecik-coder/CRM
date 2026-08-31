@@ -302,3 +302,37 @@ class TestZnacznikProbyNaWierszuWyceny:
 
         assert 'Zamówienie zostało złożone' in html
         assert 'nie składaj go ponownie' not in html.lower()
+
+
+class TestDaneDostawyDlaModala:
+    """N-C: modal musi wiedzieć, czy TA wycena jedzie kurierem.
+
+    Dopóki wstępne zaznaczenie „odbioru osobistego" opierało się wyłącznie na
+    współdzielonym rekordzie klienta, wycena kurierska takiego klienta jechała
+    do BaseLinkera z zerowym kosztem dostawy. Dane dostawy wyceny wstrzykuje
+    szablon — modal nie ma innego źródła.
+    """
+
+    def test_strona_podaje_kuriera_i_koszt_dostawy(self, aplikacja, klient_http):
+        _zasiej(status_id=3, is_client_editable=False)
+
+        html = _strona(klient_http)
+
+        assert 'courier_name' in html
+        assert '"DPD"' in html
+        assert 'koszt_dostawy' in html
+        assert '123.0' in html
+
+    def test_wycena_bez_kuriera_nie_udaje_kurierskiej(self, aplikacja,
+                                                      klient_http):
+        id_wyceny = _zasiej(status_id=3, is_client_editable=False)
+        with aplikacja.app_context():
+            wycena = Quote.query.get(id_wyceny)
+            wycena.courier_name = None
+            wycena.shipping_cost_brutto = 0
+            db.session.commit()
+
+        html = _strona(klient_http)
+
+        assert 'courier_name: ""' in html
+        assert 'koszt_dostawy: 0.0' in html

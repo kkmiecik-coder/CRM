@@ -546,7 +546,14 @@
             quote_number: "{{ quote.quote_number }}",
             total_netto: "{{ costs.total_netto if costs else '0.00' }}",
             total_vat: "{{ costs.total_vat if costs else '0.00' }}",
-            total_brutto: "{{ costs.total_brutto if costs else '0.00' }}"
+            total_brutto: "{{ costs.total_brutto if costs else '0.00' }}",
+            // Dostawa zapisana w TEJ wycenie. Modal potrzebuje jej, żeby nie
+            // zaznaczać „odbioru osobistego" na wycenie kurierskiej tylko
+            // dlatego, że klient kiedykolwiek coś odebrał osobiście — znacznik
+            // odbioru siedzi na współdzielonym rekordzie klienta, a kurier
+            // i jego koszt należą do wyceny.
+            courier_name: {{ (quote.courier_name or '')|tojson }},
+            koszt_dostawy: {{ ((quote.shipping_cost_netto if quote.quote_type == 'netto' else quote.shipping_cost_brutto) or 0)|float|tojson }}
         };
     </script>
 
