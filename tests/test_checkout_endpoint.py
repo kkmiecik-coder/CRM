@@ -318,6 +318,47 @@ class TestEndpointZamowienia:
             assert klient.email == 'jan@example.pl'
             assert klient.phone == '601234567'
 
+    def test_blad_akceptacji_wraca_do_klienta_dokladnie(self, aplikacja,
+                                                        klient_http, baselinker):
+        # Bramka tożsamości przepuszcza na sam telefon, ale akceptacja wymaga
+        # obu pól. Klient ma dostać konkretny powód, a nie ogólne
+        # „nie kwalifikuje się", i żadne zamówienie nie ma prawa powstać.
+        _zasiej()
+
+        odpowiedz = _zamow(klient_http, email='')
+
+        assert odpowiedz.status_code == 400
+        assert odpowiedz.get_json()['error'] == 'Email jest wymagany'
+        assert baselinker.wywolania == []
+        with aplikacja.app_context():
+            assert Quote.query.filter_by(
+                public_token=TOKEN).first().base_linker_order_id is None
+
+    def test_akceptacja_przegrana_w_wyscigu_nie_blokuje_zamowienia(
+            self, aplikacja, klient_http, baselinker, monkeypatch):
+        # Podwójne kliknięcie: równoległe żądanie zdążyło zaakceptować wycenę,
+        # więc NASZA akceptacja odbija się z 400 „już zaakceptowana". Zamówienie
+        # ma i tak powstać — inaczej klient widzi błąd, choć wszystko jest gotowe.
+        _zasiej()
+
+        def _akceptacja_przegrana(token):
+            from flask import jsonify as _jsonify
+            wycena = Quote.query.filter_by(public_token=token).first()
+            wycena.status_id = 3
+            wycena.is_client_editable = False
+            wycena.acceptance_date = datetime(2026, 8, 30, 12, 0, 0)
+            db.session.commit()
+            return _jsonify({"error": "Wycena została już zaakceptowana"}), 400
+
+        monkeypatch.setattr(routers, 'client_accept_quote_with_data',
+                            _akceptacja_przegrana)
+
+        odpowiedz = _zamow(klient_http)
+
+        assert odpowiedz.status_code == 200
+        assert odpowiedz.get_json()['ok'] is True
+        assert len(baselinker.wywolania) == 1
+
     def test_wycena_bez_wybranych_pozycji_jest_odrzucana(self, aplikacja,
                                                          klient_http, baselinker):
         _zasiej()

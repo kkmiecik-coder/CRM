@@ -2248,6 +2248,7 @@ def client_place_order(token):
     # jeszcze edytowalna, przeprowadzamy ją tą samą drogą co /accept-with-data
     # — łącznie z zapisem danych klienta i mailami. Wycena zaakceptowana
     # wcześniej idzie prosto do zamówienia.
+    blad_akceptacji = None
     if quote.is_client_editable:
         odpowiedz_akceptacji = client_accept_quote_with_data(token)
         if isinstance(odpowiedz_akceptacji, tuple):
@@ -2255,7 +2256,14 @@ def client_place_order(token):
         else:
             kod = getattr(odpowiedz_akceptacji, 'status_code', 200)
         if kod != 200:
-            return odpowiedz_akceptacji
+            # Nie odsyłamy błędu od razu. Przy podwójnym kliknięciu równoległe
+            # żądanie mogło zdążyć zaakceptować wycenę i akceptacja odbija się
+            # wtedy z 400 „już zaakceptowana", choć zamówienie jest jak najbardziej
+            # na miejscu. O tym, czy wycena nadaje się do zamówienia, rozstrzyga
+            # jedno miejsce — guard w checkout_service, czytający stan pod blokadą.
+            # Jeśli powie NIE, oddajemy klientowi konkretny błąd akceptacji
+            # (np. „Email jest wymagany") zamiast ogólnika.
+            blad_akceptacji = odpowiedz_akceptacji
 
     zrodlo = BaselinkerConfig.query.filter_by(
         config_type="order_source", name="Dębuś", is_active=True).first()
@@ -2278,6 +2286,8 @@ def client_place_order(token):
 
     if not wynik["ok"]:
         if wynik["error"] == "NIEKWALIFIKOWANA":
+            if blad_akceptacji is not None:
+                return blad_akceptacji
             return jsonify({"error": "Wycena nie kwalifikuje się do zamówienia"}), 400
         logger.error("[client_place_order] Błąd BaseLinkera: %s", wynik["error"])
         # Treść błędu API zostaje w logu — klient dostaje komunikat bez szczegółów.
