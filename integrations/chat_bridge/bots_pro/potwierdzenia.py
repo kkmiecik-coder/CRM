@@ -86,15 +86,47 @@ _NEGACJE = {"nie", "bez", "niestety"}
 # opisanym w `_zanegowany` (samotne "nie," tuż przed cytatem).
 _SEPARATOR_KLAUZULI = re.compile(r"[,;:.!?\n—–]")
 
-# Jawne wycofanie się klienta. W odróżnieniu od negacji NIE jest lokalne dla
-# klauzuli — unieważnia CAŁĄ wypowiedź, także cytat stojący PRZED nim ("To za
-# drogo, rezygnuję": model cytuje pierwszą połowę, a klient właśnie odszedł).
-# Lista jest CELOWO wąska i dotyczy tylko jednoznacznych czasowników rezygnacji —
-# szersza (np. "za drogo") zjadałaby prawdziwe zgody w rodzaju "myślałem, że za
-# drogo, ale biorę". Nowe wpisy dodawać wyłącznie świadomie: fałszywa odmowa
-# kosztuje rundę rozmowy, fałszywa zgoda łamie inwariant I2.
+# Jawne wycofanie się klienta ORAZ zastrzeżenie do niego. Jedno i drugie NIE
+# jest lokalne dla klauzuli — unieważnia CAŁĄ wypowiedź, także cytat stojący
+# PRZED nim ("To za drogo, rezygnuję": model cytuje pierwszą połowę, a klient
+# właśnie odszedł).
+#
+# D1 (rerecenzja rundy D): do czasowników rezygnacji dołączają SPÓJNIKI
+# PRZECIWSTAWNE. Bramka przepuszczała zgodę CZĘŚCIOWĄ i WARUNKOWą — 29 z 34
+# wypowiedzi korpusu rerecenzji ("Ok, tylko zmieńmy grubość na 6 cm." z cytatem
+# „ok") otwierało ją jako pełne potwierdzenie, po czym do CRM szła wartość
+# SPRZED prośby klienta. To ta sama klasa błędu co #2016, tylko innym wejściem
+# niż w rundzie C, i stan zastany — żadna z czterech rund jej nie dotykała.
+# Podpis treści tu NIE ratuje: model prośby klienta nie realizuje, więc pozycje
+# się nie zmieniają i podpis się zgadza.
+#
+# Mechanizm jest ten sam co przy „rezygnuję", bo problem jest ten sam: klient
+# zgłasza zastrzeżenie, a model cytuje drugą, przychylną połowę wypowiedzi.
+# Zasięg musi więc być CAŁĄ wypowiedzią — lokalny (klauzulowy) nie działa,
+# bo zastrzeżenie stoi naturalnie w INNEJ klauzuli niż zacytowana zgoda.
+#
+# Zmierzone na korpusie rerecenzji (sonda `d1e_propozycja.py`, odtworzona
+# w `TestD1ZgodaCzesciowaNieOtwieraBramki`): fałszywe zgody 29/34 → 7/34,
+# koszt 1 prawdziwa zgoda na 11 („myślałem, że za drogo, ALE biorę" — bot
+# dopyta jeszcze raz). Wymiana jest świadoma i asymetryczna: fałszywa zgoda
+# łamie wymóg właściciela („zawsze bot musi mieć potwierdzone od klienta, że
+# wszystko się zgadza") i zapisuje zamówienie wbrew klientowi, fałszywa odmowa
+# kosztuje jedno dodatkowe pytanie. Przy wątpliwości — odmowa.
+#
+# `(?!\w)` na końcu jest OBOWIĄZKOWE, nie kosmetyką: bez niego „ale" łapie
+# „alergię" i „Aleję", „poza" — „pozamiatane", a „lecz" — „lecznicze", czyli
+# cztery fałszywe odmowy na wypowiedziach będących zwykłymi zgodami
+# (zmierzone). Pomiar 7/34 i 1/11 jest przy domknięciu IDENTYCZNY.
+#
+# Nowe wpisy dodawać wyłącznie świadomie i tylko na SPÓJNIKI/PRZYIMKI
+# zastrzeżenia. Poszerzanie o słowa TREŚCIOWE (np. „za drogo") zjadałoby
+# prawdziwe zgody; wyjątki typu „nie, ale" oparte na worku słów zostały już
+# raz cofnięte w rundzie D (C1) — patrz komentarz przy `_NEGACJE`.
 _ODMOWY = re.compile(
-    r"(?<!\w)(?:rezygn\w*|odmawiam|anuluj\w*|wycofuj\w*|odst[ęe]puj\w*)", re.IGNORECASE)
+    r"(?<!\w)(?:rezygn\w*|odmawiam|anuluj\w*|wycofuj\w*|odst[ęe]puj\w*|"
+    r"(?:ale|tylko|jedynie|cho[ćc]|chocia[żz]|jednak|natomiast|lecz|poza|"
+    r"opr[óo]cz|z wyj[ąa]tkiem|pod warunkiem|za to|cz[ęe][śs]ciowo)(?!\w))",
+    re.IGNORECASE)
 
 
 def odcisk_cenotworczy(pozycje):
@@ -185,10 +217,20 @@ def sprawdz_cytat(cytat, ostatnia_wiadomosc_klienta):
     jeszcze raz). Wyjątek, który to przepuszczał, został wycofany razem z
     listą słów zgody; powód i koszt opisuje komentarz przy `_NEGACJE`.
 
+    D1 (rerecenzja rundy D): `_ODMOWY` obejmuje też SPÓJNIKI PRZECIWSTAWNE, więc
+    zgoda CZĘŚCIOWA i WARUNKOWA nie jest już pełnym potwierdzeniem — "Ok, tylko
+    zmieńmy grubość na 6 cm." (cytat "ok") i "Zamawiam pod warunkiem, że
+    zmienicie termin." są odrzucane. Zasięg jest CAŁĄ wypowiedzią, bo
+    zastrzeżenie stoi naturalnie w innej klauzuli niż zacytowana zgoda.
+
     Czego to NADAL nie łapie (świadomie): oceny semantycznej. "A ile to potrwa?"
     zacytowane jako zgoda przejdzie — fragment naprawdę jest w wiadomości i nie ma
-    w niej ani negacji, ani rezygnacji. To ograniczenie mechanizmu opartego na
-    dosłownym cytacie, nie luka do zamknięcia regexem.
+    w niej ani negacji, ani rezygnacji, ani zastrzeżenia. Tak samo przechodzi
+    zastrzeżenie postawione BEZ spójnika, w osobnym zdaniu ("Zgadzam się co do
+    ceny. Termin za długi.") albo w pytaniu ("Czy wszystko się zgadza?") — siedem
+    takich form na korpusie rerecenzji, wymienionych w
+    `TestD1ZgodaCzesciowaNieOtwieraBramki`. To ograniczenie mechanizmu opartego
+    na dosłownym cytacie, nie luka do zamknięcia regexem.
     """
     fragment = _znormalizuj(cytat)
     tekst = _znormalizuj(ostatnia_wiadomosc_klienta)

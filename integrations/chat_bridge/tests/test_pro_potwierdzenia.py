@@ -188,7 +188,10 @@ class TestNegacjaWCalejKlauzuli:
         ("potwierdzam", "nie zmieniam nic, potwierdzam"),
         ("zgadza się", "Nie znalazłem żadnych błędów, zgadza się"),
         ("wszystko się zgadza", "Tak, wszystko się zgadza"),
-        ("biorę", "cena wyższa niż myślałem, ale biorę"),
+        # („biorę" z „cena wyższa niż myślałem, ALE biorę" stało tu do rundy D.
+        # Po D1 spójnik przeciwstawny unieważnia całą wypowiedź, więc ta forma
+        # wymaga dopytania — zmierzona cena poprawki, przeniesiona do
+        # `TestD1ZgodaCzesciowaNieOtwieraBramki`, żeby koszt był JAWNY.)
     ])
     def test_prawdziwa_zgoda_nadal_przechodzi(self, cytat, wiadomosc):
         assert p.sprawdz_cytat(cytat, wiadomosc) is True
@@ -366,6 +369,180 @@ class TestWiodaceNieZawszeNeguje:
         assert wynik["ok"] is False
         assert wynik["error"] == "CYTAT_SPOZA_WIADOMOSCI"
         # Bramka nie może się otworzyć — nic nie ma prawa pójść do CRM.
+        bramka = p.sprawdz_bramke()
+        assert bramka["ok"] is False
+        assert bramka["error"] == "BRAK_POTWIERDZENIA"
+
+
+# --- D1: korpus rerecenzji D (sonda `d1_bramka.py`, sekcja b) -----------------
+#
+# 34 wypowiedzi, w których klient NIE potwierdza wszystkiego: zgoda CZĘŚCIOWA
+# („zgadzam się co do ceny, ale termin nie"), WARUNKOWA („zamawiam pod
+# warunkiem, że...") albo prośba o zmianę podana w formie zgody („ok, tylko
+# zmieńmy grubość na 6 cm"). Cytat jest ZA KAŻDYM RAZEM dosłownym fragmentem
+# wiadomości, więc sama reguła cytatu ich nie odsiewa.
+#
+# Zapisany bez polskich znaków — dokładnie tak, jak w sondzie rerecenzji, żeby
+# liczby w testach niżej były TYMI SAMYMI liczbami co w raporcie.
+_D1_KORPUS_ZGODA_CZESCIOWA = [
+    ("zgadzam sie co do ceny", "Zgadzam sie co do ceny, ale termin nie."),
+    ("zgadzam sie co do ceny", "Zgadzam sie co do ceny. Termin za dlugi."),
+    ("ok", "Ok, tylko zmienmy grubosc na 6 cm."),
+    ("ok", "Ok. Tylko zmienmy grubosc na 6 cm."),
+    ("dobrze", "Dobrze, choc wolalbym dab."),
+    ("dobrze", "Dobrze. Choc wolalbym dab zamiast jesionu."),
+    ("pasuje", "Pasuje, ale prosze o dluzszy blat."),
+    ("wszystko sie zgadza", "Wszystko sie zgadza poza cena."),
+    ("wszystko sie zgadza", "Wszystko sie zgadza, poza cena."),
+    ("wszystko sie zgadza", "Czy wszystko sie zgadza?"),
+    ("zgadza sie", "Nic sie nie zgadza."),
+    ("potwierdzam", "Jeszcze nie potwierdzam."),
+    ("potwierdzam", "Na razie nie potwierdzam, musze przemyslec."),
+    ("biore", "Biore, ale w innej grubosci."),
+    ("zamawiam", "Zamawiam pod warunkiem, ze zmienicie termin."),
+    ("tak", "Tak, ale najpierw prosze o korekte wymiaru."),
+    ("tak", "Tak? A moze jednak inaczej."),
+    ("moze byc", "Moze byc, tylko dodajcie fazowanie."),
+    ("zgoda", "Zgoda na cene, nie na termin."),
+    ("akceptuje", "Akceptuje cene, ale nie akceptuje terminu."),
+    ("wszystko ok", "Wszystko ok oprocz wykonczenia."),
+    ("dobrze", "No dobrze, ale to za drogo."),
+    ("swietnie", "Swietnie, tylko prosze zmienic dlugosc na 200."),
+    ("zgadzam sie", "Zgadzam sie tylko czesciowo."),
+    ("jest ok", "Cena jest ok, reszta nie."),
+    ("potwierdzam", "Potwierdzam odbior wiadomosci, nie zamowienie."),
+    ("tak jest", "Tak jest za drogo."),
+    ("zgadza sie", "Zgadza sie? Bo mnie cos nie pasuje."),
+    ("dobrze", "Dobrze - ale grubosc 6 cm."),
+    ("ok", "Ok — tylko zmienmy gatunek."),
+    ("zgadzam sie", "Nie do konca sie zgadzam."),
+    ("pasuje", "Raczej nie pasuje."),
+    ("w porzadku", "W porzadku, ale prosze o rabat."),
+    ("niech bedzie", "Niech bedzie, chociaz termin mi nie odpowiada."),
+]
+
+# Siedem wypowiedzi z korpusu wyżej, które przechodzą DALEJ — nie niosą
+# spójnika przeciwstawnego, a zastrzeżenie jest wyrażone SEMANTYCZNIE (osobne
+# zdanie, pytanie, „reszta nie"). To udokumentowana granica mechanizmu opartego
+# na dosłownym cytacie, nie luka do zamknięcia kolejnym słowem na liście.
+_D1_NADAL_PRZEPUSZCZANE = [
+    ("zgadzam sie co do ceny", "Zgadzam sie co do ceny. Termin za dlugi."),
+    ("wszystko sie zgadza", "Czy wszystko sie zgadza?"),
+    ("zgoda", "Zgoda na cene, nie na termin."),
+    ("jest ok", "Cena jest ok, reszta nie."),
+    ("potwierdzam", "Potwierdzam odbior wiadomosci, nie zamowienie."),
+    ("tak jest", "Tak jest za drogo."),
+    ("zgadza sie", "Zgadza sie? Bo mnie cos nie pasuje."),
+]
+
+_D1_ODRZUCANE = [x for x in _D1_KORPUS_ZGODA_CZESCIOWA
+                 if x not in _D1_NADAL_PRZEPUSZCZANE]
+
+# Kontrola dodatnia rerecenzji: 11 PRAWDZIWYCH zgód. Dziesięć MUSI przechodzić —
+# fałszywa odmowa kosztuje rundę rozmowy, ale przy skali „co druga zgoda
+# odrzucona" bot przestaje być użyteczny.
+_D1_PRAWDZIWE_ZGODY = [
+    ("tak, zgadzam sie", "Tak, zgadzam sie"),
+    ("wszystko sie zgadza", "Wszystko sie zgadza, prosze o link"),
+    ("potwierdzam", "nie zmieniam nic, potwierdzam"),
+    ("tak, potwierdzam", "Tak, potwierdzam. Prosze o link do zamowienia."),
+    ("wszystko sie zgadza", "Dziekuje, wszystko sie zgadza."),
+    ("wszystko sie zgadza", "Wszystko sie zgadza, dziekuje."),
+    ("tak, zamawiam", "Tak, zamawiam. Prosze o link."),
+    ("potwierdzam", "Potwierdzam, mozemy skladac zamowienie."),
+    ("wszystko ok", "Wszystko ok, czekam na link."),
+    ("zgadza sie", "Zgadza sie, prosze o fakture na firme."),
+]
+
+# Jedenasta — zmierzona CENA poprawki D1, przyjęta świadomie. Druga pozycja to
+# ta sama forma, która do rundy D stała w `TestNegacjaWCalejKlauzuli` jako
+# kontrola dodatnia; po D1 zmienia stronę i jest tu, żeby koszt był JAWNY.
+_D1_UTRACONA_ZGODA = [
+    ("biore", "Myslalem ze za drogo, ale biore."),
+    ("biorę", "cena wyższa niż myślałem, ale biorę"),
+]
+
+
+class TestD1ZgodaCzesciowaNieOtwieraBramki:
+    """D1 (rerecenzja rundy D): bramka przepuszczała zgodę CZĘŚCIOWĄ.
+
+    Klasa błędu jest DOKŁADNIE ta sama co #2016, tylko wejście inne niż w
+    rundzie C: klient prosi o zmianę („Ok, tylko zmieńmy grubość na 6 cm."),
+    model cytuje z tego „ok", bramka się otwiera i do CRM idzie grubość SPRZED
+    prośby. Stan zastany — zachowywało się tak przed rundą D i po niej, żadna
+    z czterech rund tej klasy nie dotykała.
+
+    Naprawa: spójniki przeciwstawne i zastrzeżenia („ale", „tylko", „jedynie",
+    „choć", „jednak", „natomiast", „lecz", „poza", „oprócz", „z wyjątkiem",
+    „pod warunkiem", „za to", „częściowo") unieważniają CAŁĄ wypowiedź —
+    tak, jak robi to „rezygnuję", a nie lokalnie w klauzuli. Zmierzone na
+    korpusie rerecenzji: fałszywe zgody 29/34 → 7/34, koszt 1 prawdziwa
+    zgoda na 11.
+
+    Kierunek jest asymetryczny świadomie: fałszywa zgoda łamie wymóg
+    właściciela („zawsze bot musi mieć potwierdzone od klienta, że wszystko
+    się zgadza") i zapisuje zamówienie wbrew klientowi; fałszywa odmowa
+    kosztuje jedno dodatkowe pytanie. Przy wątpliwości — odmowa."""
+
+    @pytest.mark.parametrize("cytat,wiadomosc", _D1_ODRZUCANE)
+    def test_zgoda_czesciowa_jest_odrzucana(self, cytat, wiadomosc):
+        assert p.sprawdz_cytat(cytat, wiadomosc) is False
+
+    @pytest.mark.parametrize("cytat,wiadomosc", _D1_NADAL_PRZEPUSZCZANE)
+    def test_zastrzezenie_bez_spojnika_przechodzi_swiadomie(self, cytat, wiadomosc):
+        """Udokumentowana GRANICA: te siedem nie ma spójnika przeciwstawnego,
+        a zastrzeżenie stoi w osobnym zdaniu albo jest pytaniem. Odróżnienie
+        ich od zgody wymaga rozumienia zdania, nie kolejnego słowa na liście —
+        każde dołożone tutaj wraca fałszywymi odmowami."""
+        assert p.sprawdz_cytat(cytat, wiadomosc) is True
+
+    @pytest.mark.parametrize("cytat,wiadomosc", _D1_PRAWDZIWE_ZGODY)
+    def test_prawdziwa_zgoda_nadal_przechodzi(self, cytat, wiadomosc):
+        assert p.sprawdz_cytat(cytat, wiadomosc) is True
+
+    @pytest.mark.parametrize("cytat,wiadomosc", _D1_UTRACONA_ZGODA)
+    def test_zgoda_ze_spojnikiem_przeciwstawnym_wymaga_dopytania(self, cytat, wiadomosc):
+        """CENA poprawki: „myślałem, że za drogo, ALE biorę" to prawdziwa
+        zgoda, a mimo to zostanie odrzucona — bot dopyta jeszcze raz. Jedna
+        taka forma na 11 kontrolnych, w zamian za 22 zamknięte fałszywe zgody.
+        Gdyby produkcja pokazała, że ta forma jest częsta, granicę trzeba
+        przesunąć POMIAREM, nie wyjątkiem na „ale" — wyjątek na worku słów
+        został już raz cofnięty w rundzie D (C1)."""
+        assert p.sprawdz_cytat(cytat, wiadomosc) is False
+
+    def test_pomiar_na_calym_korpusie_rerecenzji(self):
+        """Pomiar recenzenta odtworzony co do sztuki: 29 → 7 fałszywych zgód
+        na 34, przy 1 utraconej prawdziwej zgodzie na 11."""
+        przemycone = [x for x in _D1_KORPUS_ZGODA_CZESCIOWA if p.sprawdz_cytat(*x)]
+        assert len(przemycone) == 7, przemycone
+        odrzucone_zgody = [x for x in _D1_PRAWDZIWE_ZGODY if not p.sprawdz_cytat(*x)]
+        assert odrzucone_zgody == []
+        assert p.sprawdz_cytat(*_D1_UTRACONA_ZGODA[0]) is False
+
+    @pytest.mark.parametrize("cytat,wiadomosc", [
+        # Nowe słowa MUSZĄ być dopasowywane na OBU granicach słowa. Bez
+        # domknięcia `(?!\w)` „ale" łapie „alergię" i „Aleję", „poza" łapie
+        # „pozamiatane", a „lecz" — „lecznicze": cztery fałszywe odmowy na
+        # wypowiedziach, które są zwykłymi zgodami (zmierzone, nie hipoteza).
+        ("potwierdzam", "Mam alergie na olej lniany, potwierdzam reszte."),
+        ("zgadza sie", "Aleja Grunwaldzka 5, zgadza sie."),
+        ("wszystko ok", "Pozamiatane, wszystko ok."),
+        ("potwierdzam", "Lecznicze wlasciwosci mnie nie interesuja, potwierdzam."),
+    ])
+    def test_spojnik_nie_lapie_wewnatrz_innego_slowa(self, cytat, wiadomosc):
+        assert p.sprawdz_cytat(cytat, wiadomosc) is True
+
+    def test_pelna_sciezka_2016_prosba_o_zmiane_nie_otwiera_bramki(self, monkeypatch):
+        """Sonda `d1d_2016.py` w całości, nie sam `sprawdz_cytat`: klient prosi
+        o zmianę grubości na 6 cm, model cytuje „ok". Przed D1: `potwierdz()`
+        ok=True, `sprawdz_bramke()` ok=True, a do CRM szła grubość 4 — STARA."""
+        conv_id = 96006
+        _zapisz_pozycje_i_oczekiwany_podpis(conv_id)
+        monkeypatch.setattr(stan, "ostatnia_wiadomosc_klienta",
+                            lambda: "Ok, tylko zmienmy grubosc na 6 cm.")
+        wynik = p.potwierdz("ok")
+        assert wynik["ok"] is False
+        assert wynik["error"] == "CYTAT_SPOZA_WIADOMOSCI"
         bramka = p.sprawdz_bramke()
         assert bramka["ok"] is False
         assert bramka["error"] == "BRAK_POTWIERDZENIA"
