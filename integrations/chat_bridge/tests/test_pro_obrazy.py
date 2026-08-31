@@ -14,6 +14,8 @@ przetestować także w wariancie „bez SDK".
 """
 import json
 
+import pytest
+
 from bots_pro import obrazy
 
 
@@ -154,14 +156,21 @@ class TestNieudanePobranie:
 
         N4: opis idzie rolą "system", NIE "user" — to wewnętrzna instrukcja,
         nie wypowiedź klienta (ta sama poprawka co przy komunikacie korekty
-        guardraila, `tura._KOMUNIKAT_KOREKTY`)."""
+        guardraila, `tura._KOMUNIKAT_KOREKTY`).
+
+        C3: obok noty systemowej stoi rzeczowy marker roli "user" — wejście
+        złożone WYŁĄCZNIE z roli "system" wywalało turę na torze Anthropica
+        (patrz TestWejscieNigdyNieJestSamymSystemem)."""
         monkeypatch.setattr(obrazy, "to_data_uri",
                             _Pobieracz({"https://x/zly.jpg": None}))
 
         wynik = obrazy.wejscie("", ["https://x/zly.jpg"], persona="olx")
 
-        assert wynik == [{"role": "system",
-                          "content": obrazy.ZASTEPNIK_NIEODCZYTANEGO_OBRAZU}]
+        assert wynik == [
+            {"role": "user", "content": [
+                {"type": "input_text", "text": obrazy.MARKER_WIADOMOSCI_BEZ_TEKSTU}]},
+            {"role": "system", "content": obrazy.ZASTEPNIK_NIEODCZYTANEGO_OBRAZU},
+        ]
 
     def test_zastepnik_nigdy_nie_idzie_rola_user(self, monkeypatch):
         """N4: zastępnik trafia na stałe do `SQLiteSession`. W roli "user"
@@ -201,3 +210,86 @@ class TestNieudanePobranie:
         assert wynik == [{"role": "user", "content": [
             {"type": "input_text", "text": "blat"},
             {"type": "input_image", "image_url": "data:image/jpeg;base64,AAA"}]}]
+
+class TestWejscieNigdyNieJestSamymSystemem:
+    """C3 (runda D): po poprawce N4 wiadomość niosąca SAMO nieodczytane zdjęcie
+    dawała wejście złożone WYŁĄCZNIE z roli „system" — zero wiadomości roli
+    „user". Na torze LiteLLM/Anthropic kończyło się to twardym błędem
+    (`BadRequestError: Anthropic requires at least one non-system message`),
+    czyli wywaleniem CAŁEJ tury. Na OpenAI błąd nie występował, więc awaria była
+    widoczna tylko na jednym torze — a przenośność dostawcy jest wymogiem
+    projektu (patrz `bots_pro/models.py`).
+
+    Osiągalne realnie: HEIC albo webp jako PIERWSZA wiadomość na OLX/Allegro
+    (profil kanału dopuszcza jpg/png, więc `to_data_uri` odrzuca resztę).
+
+    Intencja N4 zostaje: instrukcja dla modelu nadal idzie rolą „system" i NIE
+    udaje wypowiedzi klienta — rolą „user" idzie wyłącznie rzeczowy marker
+    mówiący, że wiadomość klienta nie miała tekstu."""
+
+    def _bez_odczytu(self, monkeypatch):
+        monkeypatch.setattr(obrazy, "to_data_uri",
+                            _Pobieracz({"https://x/zly.heic": None}))
+
+    def test_sam_nieodczytany_obraz_daje_wiadomosc_roli_user(self, monkeypatch):
+        self._bez_odczytu(monkeypatch)
+
+        wynik = obrazy.wejscie("", ["https://x/zly.heic"], persona="olx")
+
+        assert [p["role"] for p in wynik] == ["user", "system"]
+        assert wynik[0] == {"role": "user", "content": [
+            {"type": "input_text", "text": obrazy.MARKER_WIADOMOSCI_BEZ_TEKSTU}]}
+        assert wynik[1] == {"role": "system",
+                            "content": obrazy.ZASTEPNIK_NIEODCZYTANEGO_OBRAZU}
+
+    def test_marker_nie_udaje_wypowiedzi_klienta(self, monkeypatch):
+        """Marker opisuje FAKT (wiadomość bez tekstu), nie niesie instrukcji dla
+        modelu — ta zostaje rolą „system". Inaczej wrócilibyśmy do N4: model
+        wziąłby instrukcję za pytanie klienta i sparafrazował mu ją w odpowiedzi."""
+        self._bez_odczytu(monkeypatch)
+
+        wynik = obrazy.wejscie("", ["https://x/zly.heic"], persona="olx")
+
+        uzytkownik = json.dumps([p for p in wynik if p["role"] == "user"],
+                                ensure_ascii=False)
+        assert obrazy.ZASTEPNIK_NIEODCZYTANEGO_OBRAZU not in uzytkownik
+        assert "Poproś" not in uzytkownik
+
+    @pytest.mark.parametrize("tresc,adresy", [
+        ("", ["https://x/zly.heic"]),                              # samo zle zdjecie
+        ("ile taki kosztuje?", ["https://x/zly.heic"]),            # tekst + zle zdjecie
+        ("", ["https://x/ok.jpg", "https://x/zly.heic"]),          # czesciowe niepowodzenie
+    ])
+    def test_tor_openai_wejscie_ma_zawsze_role_user(self, monkeypatch, tresc, adresy):
+        """Tor OpenAI: lista pozycji idzie do modelu tak, jak ją tu składamy."""
+        self._bez_odczytu(monkeypatch)
+
+        wynik = obrazy.wejscie(tresc, adresy, persona="olx")
+
+        assert any(p["role"] == "user" for p in wynik)
+
+    @pytest.mark.parametrize("tresc,adresy", [
+        ("", ["https://x/zly.heic"]),
+        ("ile taki kosztuje?", ["https://x/zly.heic"]),
+        ("", ["https://x/ok.jpg", "https://x/zly.heic"]),
+    ])
+    def test_tor_anthropic_konwersja_daje_wiadomosc_niesystemowa(
+            self, monkeypatch, tresc, adresy):
+        """Tor LiteLLM/Anthropic: to samo wejście po konwersji na format Chat
+        Completions (`Converter.items_to_messages` — dokładnie ta droga, którą
+        idzie `LitellmModel`) MUSI mieć co najmniej jedną wiadomość spoza roli
+        systemowej, inaczej Anthropic odrzuca żądanie."""
+        pytest.importorskip("agents")
+        from agents.models.chatcmpl_converter import Converter
+
+        self._bez_odczytu(monkeypatch)
+
+        wiadomosci = Converter.items_to_messages(
+            obrazy.wejscie(tresc, adresy, persona="olx"))
+
+        assert [w for w in wiadomosci if w.get("role") not in ("system", "developer")]
+
+    def test_wejscie_bez_zalacznikow_nadal_jest_stringiem(self, monkeypatch):
+        # Kontrola negatywna: sciezka bez zdjec (wiekszosc ruchu) bez zmian.
+        self._bez_odczytu(monkeypatch)
+        assert obrazy.wejscie("dzien dobry", None, persona="olx") == "dzien dobry"

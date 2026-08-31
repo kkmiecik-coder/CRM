@@ -54,6 +54,19 @@ ZASTEPNIK_NIEODCZYTANEGO_OBRAZU = (
     "[Klient przysłał załącznik graficzny, którego nie udało się odczytać. "
     "Poproś o ponowne przesłanie zdjęcia albo o opisanie go słowami.]")
 
+# C3 (runda D): wiadomość niosąca SAMO nieodczytane zdjęcie nie zostawiała
+# ŻADNEJ pozycji roli "user" — wejście składało się wyłącznie z noty systemowej,
+# a tor LiteLLM/Anthropic odrzuca takie żądanie twardym błędem („Anthropic
+# requires at least one non-system message"), czyli wywala CAŁĄ turę. Na OpenAI
+# błąd nie występował, więc awaria była widoczna tylko na jednym torze —
+# a przenośność dostawcy jest wymogiem projektu (`bots_pro/models.py`).
+#
+# Marker jest rzeczowym OPISEM tego, co przyszło (wiadomość klienta bez tekstu),
+# nie instrukcją i nie zmyśloną wypowiedzią — intencja N4 zostaje: instrukcja
+# („poproś o ponowne przesłanie") idzie dalej rolą "system", więc model nie
+# sparafrazuje jej klientowi jako jego własnego pytania.
+MARKER_WIADOMOSCI_BEZ_TEKSTU = "[Wiadomość klienta bez tekstu — sam załącznik graficzny.]"
+
 
 def _lista_url(zalaczniki):
     """Adresy załączników z kolumny kolejki. `quote_worker` podaje SUROWĄ
@@ -98,6 +111,10 @@ def wejscie(tresc, zalaczniki=None, persona="pro"):
     niego odwołuje („tak jak na zdjęciu, ile taki kosztuje?"). Dotyczy to też
     niepowodzenia CZĘŚCIOWEGO (jedno zdjęcie z dwóch) — model ma wiedzieć, że
     czegoś nie widzi, zamiast odpowiadać z niepełnego materiału.
+
+    C3 (runda D): zwrócona lista ZAWSZE ma pozycję roli "user" — wejście
+    złożone wyłącznie z noty systemowej wywalało turę na torze Anthropica
+    (patrz MARKER_WIADOMOSCI_BEZ_TEKSTU).
     """
     tekst = (tresc or "").strip()
     adresy = _lista_url(zalaczniki)[:LIMIT_OBRAZOW]
@@ -110,9 +127,12 @@ def wejscie(tresc, zalaczniki=None, persona="pro"):
         czesci.append({"type": "input_text", "text": tekst})
     czesci.extend({"type": "input_image", "image_url": u} for u in uri)
 
-    pozycje = []
-    if czesci:
-        pozycje.append({"role": "user", "content": czesci})
+    if not czesci:
+        # C3: wejście NIGDY nie może być puste ani złożone wyłącznie z roli
+        # "system" — patrz komentarz przy MARKER_WIADOMOSCI_BEZ_TEKSTU.
+        czesci.append({"type": "input_text", "text": MARKER_WIADOMOSCI_BEZ_TEKSTU})
+
+    pozycje = [{"role": "user", "content": czesci}]
     if len(uri) < len(adresy):
         # Ślad dla człowieka czytającego logi ORAZ dla modelu (rola "system",
         # patrz ZASTEPNIK_NIEODCZYTANEGO_OBRAZU) — nie dla klienta.
