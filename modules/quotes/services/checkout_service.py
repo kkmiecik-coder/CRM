@@ -10,6 +10,18 @@ realne zamówienie i nadpisała base_linker_order_id, osierocając pierwsze
 
 Dlatego wiersz wyceny blokujemy (SELECT ... FOR UPDATE) i sprawdzamy warunek
 POD blokadą, na wartości wczytanej świeżo z bazy — patrz zablokuj_wycene().
+
+JAK DŁUGO WISI BLOKADA. Od `zablokuj_wycene()` do commitu wewnątrz
+`create_order_from_quote`, czyli przez całe wywołanie `addOrder` (timeout HTTP
+30 s). Krócej się nie da bez utraty ochrony: warunek „czy ta wycena ma już
+zamówienie" musi być prawdziwy w chwili, w której strzelamy do BaseLinkera,
+a nie tylko chwilę wcześniej. Zwolnienie blokady na czas wywołania wymagałoby
+zaklepania wyceny osobną kolumną („próba w toku") — czyli migracji i drugiego
+stanu do sprzątania; ochronę przed skutkami trzymania blokady daje taniej
+zapis ratunkowy numeru zamówienia w BaselinkerService (lock wait timeout
+i zerwane połączenie nie kończą się już fałszywym „zamówienia nie ma").
+Uwaga: `getOrders` po order_page leci JUŻ PO tym commicie, więc drugiego
+okna 30 s pod blokadą nie ma.
 """
 from extensions import db
 from modules.baselinker.service import BaselinkerService
@@ -48,12 +60,19 @@ def _numer_zamowienia(wartosc):
 
 
 def _odpowiedz(ok, order_id=None, order_page_url=None, duplikat=False, error=None,
-               niepewne=False):
-    """`niepewne` = nie wiemy, czy zamówienie w BaseLinkerze powstało.
+               niepewne=False, zamowienie_utworzone=False):
+    """Trzy różne prawdy o nieudanej próbie — mylenie ich kosztuje pieniądze.
 
-    Ustawia je wyłącznie ścieżka błędu transportowego (patrz create_order_from_quote).
-    Przy takim wyniku nie wolno ani twierdzić, że zamówienie jest, ani że go nie ma,
-    ani zapraszać klienta do ponowienia.
+    `niepewne` = nie wiemy, czy zamówienie w BaseLinkerze powstało. Ustawia je
+    ścieżka błędu transportowego (patrz create_order_from_quote). Przy takim
+    wyniku nie wolno ani twierdzić, że zamówienie jest, ani że go nie ma, ani
+    zapraszać klienta do ponowienia.
+
+    `zamowienie_utworzone` = zamówienie NA PEWNO istnieje (addOrder potwierdził),
+    a nie udało się zapisać jego numeru na wycenie. Wiedza mocniejsza niż
+    `niepewne`: klientowi mówimy wprost, że zamówienie zostało złożone.
+
+    Obie na False = zamówienia NA PEWNO nie ma i powtórka jest bezpieczna.
     """
     return {
         "ok": ok,
@@ -62,6 +81,7 @@ def _odpowiedz(ok, order_id=None, order_page_url=None, duplikat=False, error=Non
         "duplikat": duplikat,
         "error": error,
         "niepewne": niepewne,
+        "zamowienie_utworzone": zamowienie_utworzone,
     }
 
 
@@ -93,13 +113,19 @@ def zloz_zamowienie_klienta(quote, order_source_id, bot_user_id):
     wynik = BaselinkerService().create_order_from_quote(zablokowana, bot_user_id, config)
 
     if not wynik.get("success"):
-        # Serwis nie robi rollbacku w żadnej ścieżce, a base_linker_order_id
-        # nie został zapisany — zostawiamy sesję czystą. Uwaga: „nie zapisany"
-        # NIE znaczy „zamówienia nie ma" (patrz niepewne) — o tym, czy klient
-        # może powtórzyć, rozstrzyga flaga, a nie sam brak zapisu.
-        db.session.rollback()
+        utworzone = bool(wynik.get("zamowienie_utworzone"))
+        if not utworzone:
+            # base_linker_order_id nie został zapisany — zostawiamy sesję czystą.
+            # Gdy zamówienie JEDNAK powstało, serwis zdążył już zrobić własny
+            # rollback i zapis ratunkowy: kolejny rollback tutaj mógłby wywalić
+            # ten zapis, a to on broni przed drugim realnym zamówieniem.
+            db.session.rollback()
+        # Uwaga: „nie zapisany" NIE znaczy „zamówienia nie ma" — o tym, czy
+        # klient może powtórzyć, rozstrzygają flagi, a nie sam brak zapisu.
         return _odpowiedz(False, error=wynik.get("error") or "BLAD_BASELINKER",
-                          niepewne=bool(wynik.get("niepewne")))
+                          order_id=wynik.get("order_id"),
+                          niepewne=bool(wynik.get("niepewne")),
+                          zamowienie_utworzone=utworzone)
 
     return _odpowiedz(
         True,

@@ -1420,13 +1420,24 @@ function pokazPotwierdzenie(wynik) {
     dopiszPrzyciskZamkniecia(kontener);
 }
 
-// Ekran „nie wiemy, czy zamówienie powstało". Świadomie bez przycisku ponawiania:
-// numer zamówienia nie zapisał się na wycenie, więc druga próba utworzyłaby
-// DRUGIE realne zamówienie w BaseLinkerze.
-function pokazNiepewnosc(tekst) {
+// Zapasowa treść dla stanu „zamówienie jest, zapis padł" — gdyby serwer nie
+// przysłał swojej. Nie wolno tu użyć komunikatu o niepewności: byłoby to
+// zaprzeczenie temu, co wiemy na pewno.
+function komunikatZamowienieBezZapisu() {
+    const numer = window.QUOTE_NUMBER
+        || (window.currentQuoteData && window.currentQuoteData.quote_number)
+        || '';
+    return 'Twoje zamówienie zostało złożone, ale nie udało nam się zapisać go '
+        + 'do końca po naszej stronie. Prosimy: nie składaj go ponownie. '
+        + 'Skontaktuj się z nami — ' + kontaktWoodpower() + ' — i podaj numer '
+        + 'wyceny ' + numer + '. Prześlemy potwierdzenie i dane do płatności.';
+}
+
+// Ekran końcowy bez przycisku ponawiania — wspólny dla dwóch stanów, w których
+// druga próba mogłaby utworzyć DRUGIE realne zamówienie w BaseLinkerze.
+function pokazEkranBezPowtorki(naglowekTekst, komunikat) {
     zablokujPrzyciskiZamawiania();
 
-    const komunikat = tekst || komunikatBrakOdpowiedzi();
     const kontener = przelaczNaEkranKoncowy();
     if (!kontener) {
         showErrorMessage(komunikat);
@@ -1435,10 +1446,26 @@ function pokazNiepewnosc(tekst) {
     kontener.classList.add('checkout-done-uncertain');
 
     const naglowek = document.createElement('h3');
-    naglowek.textContent = 'Nie wiemy, czy zamówienie zostało złożone';
+    naglowek.textContent = naglowekTekst;
     kontener.appendChild(naglowek);
     dopiszAkapit(kontener, komunikat);
     dopiszPrzyciskZamkniecia(kontener);
+}
+
+// Ekran „nie wiemy, czy zamówienie powstało". Świadomie bez przycisku ponawiania:
+// numer zamówienia nie zapisał się na wycenie, więc druga próba utworzyłaby
+// DRUGIE realne zamówienie w BaseLinkerze.
+function pokazNiepewnosc(tekst) {
+    pokazEkranBezPowtorki('Nie wiemy, czy zamówienie zostało złożone',
+        tekst || komunikatBrakOdpowiedzi());
+}
+
+// Ekran „zamówienie jest, zapis padł". Tu nie ma żadnej niepewności: serwer
+// dostał z BaseLinkera potwierdzenie utworzenia. Klientowi mówimy to wprost —
+// twierdzenie „nie wiemy" byłoby drugim nieprawdziwym komunikatem pod rząd.
+function pokazZamowienieBezZapisu(tekst) {
+    pokazEkranBezPowtorki('Zamówienie zostało złożone',
+        tekst || komunikatZamowienieBezZapisu());
 }
 
 // Finalne submitowanie — składa zamówienie
@@ -1494,7 +1521,11 @@ async function handleFinalSubmit() {
         }
 
         console.error('[AcceptModal] Zamówienie nieudane:', response.status, result);
-        if (result.niepewne === true) {
+        // Kolejność od najmocniejszej wiedzy: „zamówienie istnieje" bije
+        // „nie wiemy", a obie odbierają prawo do powtórki.
+        if (result.zamowienie_utworzone === true) {
+            pokazZamowienieBezZapisu(result.error);
+        } else if (result.niepewne === true) {
             pokazNiepewnosc(result.error);
         } else {
             mozliwaPowtorka = true;

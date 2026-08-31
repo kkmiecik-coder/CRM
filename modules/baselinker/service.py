@@ -375,6 +375,13 @@ class BaselinkerService:
                              email=client_override.get('email'),
                              want_invoice=client_override.get('want_invoice'))
         
+        # Punkt bez powrotu: od chwili, w której addOrder potwierdzi utworzenie,
+        # zamówienie ISTNIEJE w BaseLinkerze i nie da się go cofnąć. Te dwie
+        # zmienne muszą żyć POZA blokiem try, bo czyta je obsługa wyjątku —
+        # to one rozstrzygają, czy wolno powiedzieć klientowi „nie powstało".
+        zamowienie_utworzone = False
+        baselinker_order_id = None
+
         try:
             # Przygotuj dane zamówienia
             order_data = self._prepare_order_data(quote, config)
@@ -409,7 +416,10 @@ class BaselinkerService:
             
             if response.get('status') == 'SUCCESS':
                 baselinker_order_id = response.get('order_id')
-                
+                # Zamówienie już jest — od tej linii żaden błąd nie ma prawa
+                # zostać zaraportowany jako „zamówienia nie ma".
+                zamowienie_utworzone = True
+
                 # Aktualizuj log
                 log_entry.status = 'success'
                 log_entry.baselinker_order_id = baselinker_order_id
@@ -447,6 +457,7 @@ class BaselinkerService:
                 return {
                     'success': True,
                     'order_id': baselinker_order_id,
+                    'zamowienie_utworzone': True,
                     'message': 'Zamowienie zostalo utworzone pomyslnie'
                 }
             else:
@@ -463,23 +474,56 @@ class BaselinkerService:
                 
                 return {
                     'success': False,
-                    'error': error_msg
+                    'error': error_msg,
+                    # API odpowiedziało i odmówiło — zamówienia NA PEWNO nie ma,
+                    # więc powtórka jest bezpieczna.
+                    'zamowienie_utworzone': False,
+                    'niepewne': False,
                 }
                 
         except Exception as e:
-            if 'log_entry' in locals():
-                log_entry.status = 'error'
-                log_entry.error_message = str(e)
-                db.session.commit()
-                self.logger.debug("Zaktualizowano log entry z błędem", log_id=log_entry.id)
-            
-            self.logger.error("Wyjątek podczas tworzenia zamówienia", 
+            # KOLEJNOŚĆ MA ZNACZENIE. Najpierw ratujemy numer zamówienia na
+            # wycenie: bez niego guard idempotencji (checkout_service) nie ma
+            # czego znaleźć przy kolejnej próbie i klient złoży DRUGIE realne
+            # zamówienie. Log błędu jest ważny, ale drugorzędny.
+            zapis_uratowany = False
+            if zamowienie_utworzone:
+                zapis_uratowany = self._awaryjny_zapis_numeru_zamowienia(
+                    quote, baselinker_order_id)
+
+            self._zapisz_blad_w_logu(locals().get('log_entry'), e)
+
+            self.logger.error("Wyjątek podczas tworzenia zamówienia",
                             quote_id=quote.id,
                             error=str(e),
-                            error_type=type(e).__name__)
+                            error_type=type(e).__name__,
+                            zamowienie_utworzone=zamowienie_utworzone,
+                            baselinker_order_id=baselinker_order_id,
+                            zapis_uratowany=zapis_uratowany)
+
+            if zamowienie_utworzone and zapis_uratowany:
+                # Zamówienie jest w BaseLinkerze, a jego numer w bazie — czyli
+                # wszystko, co rozstrzyga o pieniądzach, jest na miejscu.
+                # Przepadły rzeczy odwracalne: link do strony zamówienia
+                # i order_product_id. Klient dostaje normalne potwierdzenie,
+                # tyle że bez linku („prześlemy w osobnej wiadomości").
+                return {
+                    'success': True,
+                    'order_id': baselinker_order_id,
+                    'zamowienie_utworzone': True,
+                    'zapis_awaryjny': True,
+                    'message': 'Zamowienie zostalo utworzone (zapis awaryjny)',
+                }
+
             return {
                 'success': False,
                 'error': str(e),
+                # Zamówienie POWSTAŁO, a my nie zdołaliśmy zapisać jego numeru.
+                # To nie jest „nie wiemy" i tym bardziej nie „nie powstało":
+                # klientowi wolno powiedzieć wyłącznie, że zamówienie jest,
+                # i poprosić o kontakt z numerem wyceny.
+                'zamowienie_utworzone': zamowienie_utworzone,
+                'order_id': baselinker_order_id,
                 # Wyjątek z warstwy transportowej (timeout, zerwane połączenie)
                 # znaczy, że NIE wiemy, czy BaseLinker zdążył utworzyć
                 # zamówienie: żądanie mogło dojść i zostać obsłużone, a zginąć
@@ -490,8 +534,67 @@ class BaselinkerService:
                 # Każdy inny wyjątek leci przed wysyłką żądania (np. brak
                 # konfiguracji API, błąd składania danych) — zamówienia na
                 # pewno nie ma i powtórka jest bezpieczna.
-                'niepewne': isinstance(e, requests.exceptions.RequestException),
+                # Po udanym addOrder flaga jest bez znaczenia (rozstrzyga
+                # zamowienie_utworzone), więc trzymamy ją na False, żeby nie
+                # produkować drugiego, sprzecznego komunikatu.
+                'niepewne': (not zamowienie_utworzone
+                             and isinstance(e, requests.exceptions.RequestException)),
             }
+
+    def _awaryjny_zapis_numeru_zamowienia(self, quote, baselinker_order_id):
+        """Ostatnia próba wpisania numeru zamówienia na wycenę. Zwraca True/False.
+
+        Wołane wyłącznie wtedy, gdy addOrder już potwierdził utworzenie
+        zamówienia, a zapis wyceny padł. Sesja jest wtedy w stanie po nieudanym
+        commicie, więc zaczynamy od rollbacku; obiekt wyceny jest trwały
+        (wczytany z bazy), więc po rollbacku wciąż da się na nim ustawić pola.
+
+        Świadomie zapisujemy MINIMUM: numer zamówienia i status „Złożone".
+        To one bronią przed drugim zamówieniem i to one sterują widokiem
+        klienta. Metadanych akceptacji tu nie odtwarzamy — ich brak nikogo
+        nie kosztuje pieniędzy, a każde dodatkowe pole to kolejna szansa na
+        to, że ten ostatni commit też padnie.
+        """
+        try:
+            db.session.rollback()
+            quote.base_linker_order_id = baselinker_order_id
+            quote.status_id = 4
+            db.session.commit()
+            self.logger.warning("Awaryjny zapis numeru zamówienia powiódł się",
+                                quote_id=quote.id,
+                                baselinker_order_id=baselinker_order_id)
+            return True
+        except Exception as blad_zapisu:
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+            self.logger.error("Awaryjny zapis numeru zamówienia NIE powiódł się — "
+                              "zamówienie istnieje w BaseLinkerze, a wycena o nim nie wie",
+                              quote_id=getattr(quote, 'id', None),
+                              baselinker_order_id=baselinker_order_id,
+                              error=str(blad_zapisu))
+            return False
+
+    def _zapisz_blad_w_logu(self, log_entry, wyjatek):
+        """Best-effort dopisanie błędu do BaselinkerOrderLog.
+
+        Ten zapis NIE MOŻE wyjść wyjątkiem: gdy sesja jest zerwana, jego
+        niepowodzenie wypychało wyjątek z create_order_from_quote i wywołujący
+        zamiast rozstrzygnięcia dostawał 500 — czyli o losie zamówienia
+        decydował przypadek.
+        """
+        if log_entry is None:
+            return
+        try:
+            log_entry.status = 'error'
+            log_entry.error_message = str(wyjatek)
+            db.session.commit()
+        except Exception:
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
     
     def _prepare_order_data(self, quote, config: Dict) -> Dict:
         """Przygotowuje dane zamówienia dla API Baselinker"""

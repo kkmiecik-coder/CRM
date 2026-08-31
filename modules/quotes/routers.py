@@ -2230,10 +2230,18 @@ def client_accept_quote_with_data(token):
 KONTAKT_WOODPOWER = "biuro@woodpower.pl lub telefonicznie +48 690 002 109"
 
 
-def komunikat_bledu_zamowienia(quote, niepewne):
+def komunikat_bledu_zamowienia(numer_wyceny, niepewne, zamowienie_utworzone=False):
     """Zdanie dla klienta po nieudanej próbie złożenia zamówienia.
 
     Rozstrzyga to, co klient naprawdę chce wiedzieć: czy zamówienie powstało.
+
+    Bierze SAM NUMER wyceny, a nie obiekt: w tych ścieżkach sesja bazy bywa po
+    rollbacku i sięgnięcie po atrybut wyceny potrafi wystrzelić kolejnym błędem
+    — akurat w miejscu, w którym mamy klientowi powiedzieć prawdę.
+
+    zamowienie_utworzone=True — addOrder potwierdził, zamówienie ISTNIEJE, padł
+    dopiero zapis po naszej stronie. Nie wolno powiedzieć ani „nie powstało",
+    ani „nie wiemy": mówimy wprost, że zamówienie jest, i prosimy o kontakt.
 
     niepewne=False — żądanie nie wyszło albo BaseLinker je odrzucił: zamówienia
     NA PEWNO nie ma i powtórka jest bezpieczna.
@@ -2244,7 +2252,15 @@ def komunikat_bledu_zamowienia(quote, niepewne):
     „zamówiliśmy", ani „nie zamówiliśmy" — i musi odwieść od ponowienia,
     bo drugie kliknięcie to drugie REALNE zamówienie w BaseLinkerze.
     """
-    numer = quote.quote_number or "-"
+    numer = numer_wyceny or "-"
+    if zamowienie_utworzone:
+        return (
+            "Twoje zamówienie zostało złożone, ale nie udało nam się zapisać go "
+            "do końca po naszej stronie. Prosimy: nie składaj go ponownie. "
+            "Skontaktuj się z nami — {kontakt} — i podaj numer wyceny {numer}. "
+            "Prześlemy potwierdzenie i dane do płatności.".format(
+                kontakt=KONTAKT_WOODPOWER, numer=numer)
+        )
     if niepewne:
         return (
             "Straciliśmy łączność z systemem zamówień i nie wiemy, czy Twoje "
@@ -2280,6 +2296,11 @@ def client_place_order(token):
     if not quote:
         return jsonify({"error": "Nie znaleziono wyceny"}), 404
 
+    # Numer wyceny czytamy TERAZ, dopóki sesja bazy jest na pewno zdrowa —
+    # ścieżki błędu niżej bywają wołane po rollbacku i wtedy odczyt atrybutu
+    # z wyceny potrafi rzucić kolejnym wyjątkiem.
+    numer_wyceny = quote.quote_number
+
     client = quote.client
     if not client:
         return jsonify({"error": "Brak przypisanego klienta do wyceny"}), 400
@@ -2307,9 +2328,10 @@ def client_place_order(token):
         logger.error("[client_place_order] Brak źródła zamówień o baselinker_id=%s "
                      "w baselinker_config — nie wykonała się migracja?", ID_ZRODLA_DEBUS)
         return jsonify({
-            "error": komunikat_bledu_zamowienia(quote, niepewne=False),
+            "error": komunikat_bledu_zamowienia(numer_wyceny, niepewne=False),
             "niepewne": False,
-            "quote_number": quote.quote_number,
+            "zamowienie_utworzone": False,
+            "quote_number": numer_wyceny,
         }), 503
 
     # Akceptacja jest warunkiem kwalifikacji (status_id == 3). Gdy wycena jest
@@ -2355,29 +2377,37 @@ def client_place_order(token):
             return jsonify({
                 "error": "Tej wyceny nie można zamówić przez stronę. Skontaktuj się "
                          "z nami — {kontakt} — i podaj numer wyceny {numer}.".format(
-                             kontakt=KONTAKT_WOODPOWER, numer=quote.quote_number or "-"),
+                             kontakt=KONTAKT_WOODPOWER, numer=numer_wyceny or "-"),
                 "niepewne": False,
-                "quote_number": quote.quote_number,
+                "zamowienie_utworzone": False,
+                "quote_number": numer_wyceny,
             }), 400
-        logger.error("[client_place_order] Błąd BaseLinkera: %s (niepewne=%s)",
-                     wynik["error"], wynik["niepewne"])
+        logger.error("[client_place_order] Błąd BaseLinkera: %s "
+                     "(niepewne=%s zamowienie_utworzone=%s order_id=%s)",
+                     wynik["error"], wynik["niepewne"],
+                     wynik["zamowienie_utworzone"], wynik["order_id"])
         # Treść błędu API zostaje w logu — klient dostaje komunikat bez szczegółów,
         # za to rozstrzygający, czy zamówienie powstało (albo mówiący wprost, że
         # tego nie wiemy).
         return jsonify({
-            "error": komunikat_bledu_zamowienia(quote, niepewne=wynik["niepewne"]),
+            "error": komunikat_bledu_zamowienia(
+                numer_wyceny, niepewne=wynik["niepewne"],
+                zamowienie_utworzone=wynik["zamowienie_utworzone"]),
             "niepewne": wynik["niepewne"],
-            "quote_number": quote.quote_number,
+            # Ta flaga wyłącza w przeglądarce ponowienie tak samo jak `niepewne`,
+            # ale niesie mocniejszą wiedzę: zamówienie NA PEWNO istnieje.
+            "zamowienie_utworzone": wynik["zamowienie_utworzone"],
+            "quote_number": numer_wyceny,
         }), 502
 
     logger.info("[client_place_order] Zamówienie złożone przez klienta: quote=%s "
                 "order_id=%s duplikat=%s",
-                quote.quote_number, wynik["order_id"], wynik["duplikat"])
+                numer_wyceny, wynik["order_id"], wynik["duplikat"])
 
     return jsonify({
         "ok": True,
         "order_id": wynik["order_id"],
-        "quote_number": quote.quote_number,
+        "quote_number": numer_wyceny,
         "order_page_url": wynik["order_page_url"],
         "duplikat": wynik["duplikat"],
     }), 200

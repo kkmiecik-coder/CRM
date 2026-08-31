@@ -122,7 +122,7 @@ def baselinker(monkeypatch):
     """Atrapa BaselinkerService zachowująca się jak realny serwis po sukcesie."""
     wywolania = []
     zachowanie = {'sukces': True, 'error': 'Brak tokenu API',
-                  'niepewne': False}
+                  'niepewne': False, 'zamowienie_utworzone': False}
 
     class _Atrapa:
         def __init__(self, *a, **k):
@@ -133,7 +133,9 @@ def baselinker(monkeypatch):
                               'quote_id': quote.id})
             if not zachowanie['sukces']:
                 return {'success': False, 'error': zachowanie['error'],
-                        'niepewne': zachowanie['niepewne']}
+                        'niepewne': zachowanie['niepewne'],
+                        'zamowienie_utworzone': zachowanie['zamowienie_utworzone'],
+                        'order_id': 999 if zachowanie['zamowienie_utworzone'] else None}
             numer = 500 + len(wywolania)
             quote.base_linker_order_id = str(numer)
             quote.baselinker_order_page = f'https://blsklep.pl/z/{numer}'
@@ -483,3 +485,130 @@ class TestZnacznikNiepewnosciWSerwisie:
 
         assert wynik['success'] is False
         assert wynik['niepewne'] is False
+
+
+class _SesjaPadajaca:
+    """Prawdziwa sesja SQLAlchemy, w której pierwsze N commitów rzuca wyjątkiem.
+
+    Odwzorowuje to, co realnie potrafi się zdarzyć po udanym `addOrder`:
+    zerwane połączenie z bazą albo lock wait timeout na wierszu wyceny
+    (blokada FOR UPDATE wisi przez cały czas wywołania do BaseLinkera).
+    Reszta metod leci do prawdziwej sesji, żeby zapis ratunkowy dało się
+    sprawdzić odczytem z bazy.
+    """
+
+    def __init__(self, sesja, padnij_razy):
+        self._sesja = sesja
+        self._zostalo = padnij_razy
+        self.udane_commity = 0
+
+    def __getattr__(self, nazwa):
+        return getattr(self._sesja, nazwa)
+
+    def commit(self):
+        if self._zostalo > 0:
+            self._zostalo -= 1
+            raise RuntimeError('Lost connection to MySQL server during query')
+        self.udane_commity += 1
+        self._sesja.commit()
+
+
+class TestBladPoUdanymAddOrder:
+    """Punkt bez powrotu: `addOrder` zwrócił SUCCESS, więc zamówienie ISTNIEJE.
+
+    Każdy wyjątek PO tym punkcie (commit wyceny, zapis loga, cokolwiek) nie może
+    być raportowany jako „zamówienia nie ma" — klient dostawał wtedy zaproszenie
+    do złożenia DRUGIEGO realnego zamówienia.
+    """
+
+    def _serwis(self, monkeypatch, padnij_razy):
+        from modules.baselinker import service as modul_serwisu
+
+        serwis = modul_serwisu.BaselinkerService.__new__(modul_serwisu.BaselinkerService)
+        serwis.logger = SimpleNamespace(
+            info=lambda *a, **k: None, warning=lambda *a, **k: None,
+            error=lambda *a, **k: None, debug=lambda *a, **k: None,
+        )
+        serwis._prepare_order_data = lambda quote, config: {}
+        serwis._make_request = lambda metoda, parametry: {
+            'status': 'SUCCESS', 'order_id': 999}
+        serwis._save_order_product_ids = lambda quote, oid: None
+
+        sesja = _SesjaPadajaca(db.session, padnij_razy)
+        monkeypatch.setattr(modul_serwisu, 'db', SimpleNamespace(session=sesja))
+        return serwis
+
+    def test_numer_zamowienia_trafia_do_bazy_mimo_padnietego_zapisu(
+            self, aplikacja, monkeypatch):
+        # Bez tego zabezpieczenie przed duplikatem nie ma czego znaleźć przy
+        # kolejnej próbie — a zamówienie 999 już istnieje w BaseLinkerze.
+        _zasiej(status_id=3, is_client_editable=False)
+        wycena = Quote.query.filter_by(public_token=TOKEN).first()
+        serwis = self._serwis(monkeypatch, padnij_razy=1)
+
+        wynik = serwis.create_order_from_quote(wycena, None, {})
+
+        assert wynik['zamowienie_utworzone'] is True
+        assert wynik['order_id'] == 999
+        assert wynik.get('niepewne') is not True
+        db.session.expire_all()
+        w_bazie = Quote.query.filter_by(public_token=TOKEN).first()
+        assert str(w_bazie.base_linker_order_id) == '999'
+
+    def test_nieuratowany_zapis_nie_twierdzi_ze_zamowienia_nie_ma(
+            self, aplikacja, monkeypatch):
+        # Nawet gdy zapis ratunkowy też padnie, wynik ma mówić prawdę:
+        # zamówienie POWSTAŁO. I nie może wyjść wyjątkiem — wywołujący musi
+        # dostać rozstrzygnięcie, a nie 500 z przypadku.
+        _zasiej(status_id=3, is_client_editable=False)
+        wycena = Quote.query.filter_by(public_token=TOKEN).first()
+        serwis = self._serwis(monkeypatch, padnij_razy=99)
+
+        wynik = serwis.create_order_from_quote(wycena, None, {})
+
+        assert wynik['success'] is False
+        assert wynik['zamowienie_utworzone'] is True
+        assert wynik['order_id'] == 999
+        # „Nie wiemy" byłoby drugim kłamstwem — wiemy, że zamówienie powstało.
+        assert wynik['niepewne'] is False
+
+    def test_wyjatek_przed_addorder_nie_udaje_utworzonego_zamowienia(
+            self, aplikacja, monkeypatch):
+        # Kontrola negatywna: flaga nie może zapalać się „na wszelki wypadek".
+        _zasiej(status_id=3, is_client_editable=False)
+        wycena = Quote.query.filter_by(public_token=TOKEN).first()
+        serwis = self._serwis(monkeypatch, padnij_razy=0)
+
+        def _rzuc(metoda, parametry):
+            raise ValueError('Brak konfiguracji API Baselinker')
+
+        serwis._make_request = _rzuc
+
+        wynik = serwis.create_order_from_quote(wycena, None, {})
+
+        assert wynik['success'] is False
+        assert wynik['zamowienie_utworzone'] is False
+        assert wynik['niepewne'] is False
+
+
+class TestKomunikatGdyZamowienieIstniejeAleZapisPadl:
+    """Klient nie może przeczytać „NIE zostało złożone" o istniejącym zamówieniu."""
+
+    def test_klient_dostaje_informacje_ze_zamowienie_powstalo(
+            self, aplikacja, klient_http, baselinker):
+        _zasiej()
+        baselinker.zachowanie['sukces'] = False
+        baselinker.zachowanie['zamowienie_utworzone'] = True
+
+        odpowiedz = _zamow(klient_http)
+        body = odpowiedz.get_json()
+
+        assert odpowiedz.status_code == 502
+        assert body['zamowienie_utworzone'] is True
+        # Zdanie, którego brief zabrania — i zaproszenie do powtórki.
+        assert 'NIE zostało złożone' not in body['error']
+        assert 'Spróbuj ponownie' not in body['error']
+        # Prawda: zamówienie jest, prosimy o kontakt i numer wyceny.
+        assert 'zostało złożone' in body['error']
+        assert 'nie składaj' in body['error'].lower()
+        assert '410/08/26/W' in body['error']
