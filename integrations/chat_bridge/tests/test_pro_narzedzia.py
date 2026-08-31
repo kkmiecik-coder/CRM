@@ -1025,3 +1025,66 @@ class TestAllegroKonczyNotatka:
                             lambda powod: pytest.fail("handoff bez wyceny"))
 
         assert _wolaj(n.przygotuj_zamowienie)["ok"] is False
+
+
+class TestLinkNieWracaNaKanaleBezLinkow:
+    """N8 (rerecenzja gałęzi): U11 zamknęło wyjście linku z
+    `przygotuj_zamowienie` — „nie po to, żeby go potem wyciąć w wysyłce, tylko
+    żeby w ogóle nie było czego wycinać". `zapisz_wycene` i `popraw_wycene`
+    nadal jednak oddawały `public_url` w payloadzie dla modelu, o dwa
+    wywołania wcześniej i razem z docstringiem obiecującym „publiczny link dla
+    klienta". Jedyną obroną zostawało `wysylka._wytnij_linki` — mechanizm, na
+    którym U11 świadomie nie chciało polegać, bo okalecza zdanie w postaci
+    naturalnej, a zaciemnioną („crm[.]woodpower[.]pl") i tak przepuszcza.
+
+    Regulamin Allegro zabrania kierowania kupującego poza platformę."""
+
+    URL = "https://crm.woodpower.pl/quotes/public/abc123"
+
+    def _rozmowa(self, monkeypatch, conv_id, persona):
+        stan.ustaw_kontekst(conv_id, persona_tury=persona)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat", dlugosc_cm=180,
+               szerokosc_cm=60, grubosc_cm=4, ilosc=1,
+               selected_variant="dab-lity-ab", wykonczenie="surowe")
+        _potwierdz_biezace_pozycje(monkeypatch)
+        monkeypatch.setattr(n.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(n.crm_calc, "create_quote", lambda *a, **k: {
+            "ok": True, "quote_number": "W/2026/9", "edit_uuid": "UUID-ALG",
+            "public_url": self.URL})
+        monkeypatch.setattr(n.crm_calc, "update_quote", lambda *a, **k: {
+            "ok": True, "edit_uuid": "UUID-ALG", "public_url": self.URL})
+
+    def test_zapisz_wycene_na_allegro_nie_oddaje_linku(self, monkeypatch):
+        self._rozmowa(monkeypatch, 96061, "allegro")
+
+        wynik = _wolaj(n.zapisz_wycene, client_id=1)
+
+        assert wynik["ok"] is True
+        assert wynik["quote_number"] == "W/2026/9"
+        assert "public_url" not in wynik
+        assert "crm.woodpower.pl" not in json.dumps(wynik, ensure_ascii=False)
+
+    def test_popraw_wycene_na_allegro_nie_oddaje_linku(self, monkeypatch):
+        self._rozmowa(monkeypatch, 96062, "allegro")
+        _wolaj(n.zapisz_wycene, client_id=1)
+
+        wynik = _wolaj(n.popraw_wycene)
+
+        assert wynik["ok"] is True
+        assert "public_url" not in wynik
+        assert "crm.woodpower.pl" not in json.dumps(wynik, ensure_ascii=False)
+
+    def test_link_jest_zapisany_w_stanie_mimo_ze_nie_wraca_do_modelu(self, monkeypatch):
+        # Notatka dla konsultanta (prywatna) MUSI mieć link — obcinamy widok
+        # MODELU, nie stan rozmowy.
+        self._rozmowa(monkeypatch, 96063, "allegro")
+        _wolaj(n.zapisz_wycene, client_id=1)
+        assert stan.zapisana_wycena()["public_url"] == self.URL
+
+    @pytest.mark.parametrize("persona", ["pro", "olx"])
+    def test_na_kanale_z_linkami_nic_sie_nie_zmienia(self, monkeypatch, persona):
+        self._rozmowa(monkeypatch, 96064 if persona == "pro" else 96065, persona)
+
+        wynik = _wolaj(n.zapisz_wycene, client_id=1)
+
+        assert wynik["public_url"] == self.URL

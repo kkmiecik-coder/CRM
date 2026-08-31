@@ -289,6 +289,34 @@ def potwierdz(cytat_klienta: str) -> dict:
     return potwierdzenia.potwierdz(cytat_klienta)
 
 
+def _bez_linku_gdy_kanal_zabrania(wynik):
+    """Payload dla MODELU bez `public_url`, gdy kanał zabrania linkowania (N8).
+
+    U11 zamknęło wyjście linku z `przygotuj_zamowienie` — świadomie NIE przez
+    wycinanie go z tekstu, tylko przez niewydawanie go modelowi w ogóle („żeby
+    nie było czego wycinać"). `zapisz_wycene`/`popraw_wycene` omijały tę
+    zasadę: oddawały adres o dwa wywołania wcześniej, więc jedyną obroną
+    zostawał `wysylka._wytnij_linki` — a ten okalecza zdanie w postaci
+    naturalnej („Wycena gotowa:") i przepuszcza zaciemnioną
+    („crm[.]woodpower[.]pl"). Regulamin Allegro zabrania kierowania kupującego
+    poza platformę, więc model nie ma prawa dostać adresu do ręki.
+
+    Obcinamy WYŁĄCZNIE widok modelu — `stan.zapamietaj_wycene` zapisuje link
+    wcześniej, więc prywatna notatka dla konsultanta (`notatki`) i
+    `link_do_checkoutu` mają go dalej."""
+    from bots_pro import stan, wysylka
+    if not isinstance(wynik, dict) or "public_url" not in wynik:
+        return wynik
+    if wysylka.wolno_linkowac(stan.persona()):
+        return wynik
+    okrojony = {k: v for k, v in wynik.items() if k != "public_url"}
+    okrojony["wskazowka"] = (
+        "Na tym kanale nie wolno wysyłać linków, więc adresu wyceny NIE "
+        "dostajesz i nie wolno go obiecywać. Domknij zamówienie przez "
+        "przygotuj_zamowienie — wycena trafi do konsultanta.")
+    return okrojony
+
+
 def _dopisz_dostawe(stan, edit_uuid, notatka):
     """Dopisuje kuriera i koszt wysyłki do ŚWIEŻO UTWORZONEJ wyceny (U3/U4).
 
@@ -310,7 +338,10 @@ def _dopisz_dostawe(stan, edit_uuid, notatka):
 
 @function_tool
 def zapisz_wycene(client_id: int, notatka: str = "") -> dict:
-    """Zapisuje wycenę w CRM i zwraca jej numer oraz publiczny link dla klienta.
+    """Zapisuje wycenę w CRM i zwraca jej numer. Na kanałach, gdzie wolno
+    linkować, zwraca też publiczny link dla klienta — na kanale, którego
+    regulamin tego zabrania (Allegro), linku NIE dostaniesz w ogóle i nie wolno
+    go klientowi obiecywać; tam zamówienie domyka przygotuj_zamowienie.
     Wymaga wcześniejszego potwierdzenia klienta — bez niego odmówi. Wołaj RAZ,
     zaraz po tym, jak klient potwierdzi podsumowanie (potwierdz) i masz jego
     client_id (ze znajdz_klienta). Kolejne zmiany tej samej wyceny rób przez
@@ -365,7 +396,7 @@ def zapisz_wycene(client_id: int, notatka: str = "") -> dict:
                                      "który klient potwierdził — linku NIE WOLNO podać. "
                                      "Rozmowa jest już u konsultanta; napisz klientowi "
                                      "krótko, że konsultant domknie zamówienie."}
-    return wynik
+    return _bez_linku_gdy_kanal_zabrania(wynik)   # N8
 
 
 @function_tool
@@ -412,7 +443,7 @@ def popraw_wycene(edit_uuid: str = "", notatka: str = "") -> dict:
         # `courier_name` idzie w tym samym żądaniu), więc wycena w CRM jest
         # znów zgodna z tym, co klient potwierdził: blokada linku znika.
         stan.oznacz_dostawe_niedopisana(False)
-    return wynik
+    return _bez_linku_gdy_kanal_zabrania(wynik)   # N8
 
 
 @function_tool
