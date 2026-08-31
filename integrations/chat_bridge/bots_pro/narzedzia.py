@@ -20,6 +20,7 @@ from typing import List, Literal, Optional, TypedDict
 from agents import function_tool
 
 from bots import crm_calc
+from bots_pro.obrazy_do_klienta import OBRAZY_DLA_KLIENTA
 from core.log import log
 
 # Osiem kombinacji z VARIANT_CODES. B/B istnieje WYŁĄCZNIE dla dębu.
@@ -47,6 +48,11 @@ SelectedVariant = Literal[("",) + WARIANTY]
 Litera = Literal[LITERY_KRAWEDZI]
 TypKrawedzi = Literal["round", "chamfer", "sharp"]
 Wykonczenie = Literal["", "surowe", "olejowane", "lakierowane"]
+# Ten sam wzorzec, co wyżej: enum w schemacie JSON budowany z JEDNEJ stałej
+# (`obrazy_do_klienta.OBRAZY_DLA_KLIENTA`), żeby model nie mógł nawet WYRAZIĆ
+# prośby o plik spoza białej listy — sprawdzenie w ciele narzędzia zostaje jako
+# druga warstwa, bo enum nie chroni przed wołaniem funkcji z Pythona.
+Obraz = Literal[OBRAZY_DLA_KLIENTA]
 
 
 class Krawedz(TypedDict):
@@ -586,9 +592,30 @@ def oddaj_czlowiekowi(powod: str) -> dict:
     return stan.handoff(powod)
 
 
+@function_tool
+def wyslij_obraz(obraz: Obraz) -> dict:
+    """Pokazuje klientowi jeden z naszych stałych obrazów poglądowych. Wybierasz
+    TYLKO który — plik i podpis dobiera system, więc nie opisuj obrazu ponownie
+    w swojej odpowiedzi i nie powtarzaj podpisu własnymi słowami.
+
+    gatunki_porownanie — dąb, buk i jesion obok siebie (lite, surowe): różnice
+      w usłojeniu i kolorze. Pokaż, gdy klient nie wie, jaki gatunek wybrać —
+      RAZEM z poradą i propozycją wyceny, nie zamiast nich.
+    wymiary — jak liczymy wymiary blatu (długość, szerokość, grubość).
+    krawedzie — jak oznaczamy krawędzie (A-D góra, E-H dół, N1-N4 narożniki);
+      pokaż, gdy klient ma wskazać, które zaokrąglić albo sfazować.
+    kolory — wzornik kolorów lakieru; pokaż przy wyborze odcienia.
+
+    Innych obrazów nie wyślesz — to zamknięta lista. Gdy narzędzie odmówi (kanał
+    nie przyjmuje obrazów albo pliku brakuje), opisz rzecz słowami i NIE
+    zapowiadaj klientowi żadnego zdjęcia."""
+    from bots_pro import obrazy_do_klienta
+    return obrazy_do_klienta.wyslij(obraz)
+
+
 NARZEDZIA_WYCENY = [
     pobierz_opcje, zapisz_pozycje, policz_wycene, policz_wysylke,
     wyslij_podsumowanie, potwierdz,
     znajdz_klienta, zapisz_wycene, popraw_wycene,
-    przygotuj_zamowienie, oddaj_czlowiekowi,
+    przygotuj_zamowienie, oddaj_czlowiekowi, wyslij_obraz,
 ]

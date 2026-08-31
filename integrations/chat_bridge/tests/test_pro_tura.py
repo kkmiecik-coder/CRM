@@ -29,8 +29,16 @@ from openai.types.responses import (
 
 import config as config_mod
 from bots_pro import agenci, notatki, stan, tura
+from bots_pro.narzedzia import NARZEDZIA_WYCENY
 
 stan.init_pro()
+
+# Atrapy modelu nizej rozpoznaja, KTORY agent je wolal, po LICZBIE NARZEDZI
+# (Router 0, Wiedza 2, Wycena — komplet). Liczba dla Wyceny brana z prawdziwego
+# zestawu, a nie wpisana na sztywno (runda napraw 4): dopisanie narzedzia — jak
+# `wyslij_obraz` w P2 — przestawialo ja i te testy oblewaly z powodu zupelnie
+# niezwiazanego z tym, czego dowodza (routing i handoffy).
+_NARZEDZI_WYCENY = len(NARZEDZIA_WYCENY)
 
 
 @pytest.fixture(autouse=True)
@@ -772,7 +780,8 @@ class _FalszywyModel(Model):
     w miejscu prawdziwego LLM tylko po to, zeby test nie potrzebowal sieci ani
     klucza API. Rozroznia role po ksztalcie wywolania: router dostaje niepusta
     liste `handoffs` (agenci wyspecjalizowani maja handoffs=[]), a konkretnego
-    agenta wyspecjalizowanego po liczbie narzedzi (Wycena=11, Wiedza=2)."""
+    agenta wyspecjalizowanego po liczbie narzedzi (Wycena=_NARZEDZI_WYCENY,
+    Wiedza=2)."""
 
     def __init__(self):
         self.wywolania = []
@@ -797,7 +806,7 @@ class _FalszywyModel(Model):
                 return _wywolanie_transferu("Wycena", licznik)
             return _wywolanie_transferu("Wiedza", licznik)
 
-        if len(tools) == 11:
+        if len(tools) == _NARZEDZI_WYCENY:
             return _wiadomosc_tekstowa(
                 "Aby przygotowac wycene, potrzebuje material, wymiary i ilosc sztuk.", licznik)
         return _wiadomosc_tekstowa(
@@ -843,9 +852,9 @@ class TestScenariuszMaterialPotemCena:
         assert "twardy" in wejscie_drugiej_tury
 
         # Ostatnie wywolanie modelu w calym przebiegu to NAPRAWDE agent Wyceny
-        # (11 narzedzi z NARZEDZIA_WYCENY) - mimo ze poprzednia tura skonczyla
-        # sie na Wiedzy (2 narzedzia), ktora nie ma wlasnego handoffu do Wyceny.
-        assert fake_model.wywolania[-1]["n_tools"] == 11
+        # (komplet NARZEDZIA_WYCENY) - mimo ze poprzednia tura skonczyla sie na
+        # Wiedzy (2 narzedzia), ktora nie ma wlasnego handoffu do Wyceny.
+        assert fake_model.wywolania[-1]["n_tools"] == _NARZEDZI_WYCENY
 
 
 class _FalszywyModelZlozonePytanie(Model):
@@ -873,7 +882,7 @@ class _FalszywyModelZlozonePytanie(Model):
             # rozmowe do Wyceny WEWNATRZ TEJ SAMEJ tury - nowy handoff, ktorego
             # przed B4 Wiedza nie miala.
             return _wywolanie_transferu("Wycena", licznik)
-        # Wycena (11 narzedzi) - dokonczenie w tej samej turze.
+        # Wycena (komplet NARZEDZIA_WYCENY) - dokonczenie w tej samej turze.
         return _wiadomosc_tekstowa(
             "Blaty robimy z debu, jesionu i buku. Dla 180x60x4 cm potrzebuje jeszcze "
             "ilosci sztuk i wybranego gatunku, zeby policzyc cene.", licznik)
@@ -902,8 +911,8 @@ class TestHandoffWiedzaDoWyceny:
         assert len(wyslane) == 1
         assert "blaty" in wyslane[0].lower()
 
-        # Trasa: Router (0 narzedzi) -> Wiedza (2 narzedzia) -> Wycena (11 narzedzi).
-        assert [w["n_tools"] for w in fake_model.wywolania] == [0, 2, 11]
+        # Trasa: Router (0 narzedzi) -> Wiedza (2 narzedzia) -> Wycena (komplet).
+        assert [w["n_tools"] for w in fake_model.wywolania] == [0, 2, _NARZEDZI_WYCENY]
 
 
 class TestZalacznikiTrafiajaDoModelu:

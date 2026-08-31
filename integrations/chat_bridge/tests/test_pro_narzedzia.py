@@ -79,13 +79,15 @@ class TestZestawNarzedzi:
             "wyslij_podsumowanie", "potwierdz",
             "zapisz_wycene", "popraw_wycene", "znajdz_klienta",
             "przygotuj_zamowienie", "oddaj_czlowiekowi",
+            "wyslij_obraz",
         }
 
-    def test_jedenascie_narzedzi_dokladnie(self):
+    def test_dwanascie_narzedzi_dokladnie(self):
         # Konsolidacja kwoty_z_wyniku (rozstrzygniecie Task 2) NIE dodaje ani nie
         # usuwa zadnego narzedzia -- to prywatna wewnetrznie funkcja pomocnicza
         # wolana przez cialo policz_wycene, a nie osobny wpis w NARZEDZIA_WYCENY.
-        assert len(n.NARZEDZIA_WYCENY) == 11
+        # RUNDA NAPRAW 4 (P2): doszlo `wyslij_obraz` — 11 -> 12.
+        assert len(n.NARZEDZIA_WYCENY) == 12
 
     def test_zadne_narzedzie_nie_jest_hostowane_przez_dostawce(self):
         # Inwariant 1b: file_search, web_search i spolka zamykaja droge do Anthropica.
@@ -1357,3 +1359,46 @@ class TestP1WskazowkaPrzyNiedostepnymWariancie:
         # wskazowka po prostu przestanie sie pojawiac. Stala nazwana + ten test
         # sa jedynym miejscem, w ktorym to zalozenie jest zapisane wprost.
         assert n.KOD_WARIANT_NIEDOSTEPNY == "VARIANT_UNAVAILABLE"
+
+
+class TestP2NarzedzieWysylkiObrazu:
+    """Runda napraw 4, P2: stary silnik potrafi pokazac probke gatunkow, wzornik
+    kolorow, schemat wymiarow i schemat krawedzi (`bots/livechat.py:845`,
+    `bots/quotebot.py:2620`). Debus Pro nie mial tej sciezki wcale, choc
+    transport (`cw_agent_reply` z `image_path`) i biala lista (`bots/images.py`)
+    byly gotowe.
+
+    Zachowanie samej wysylki testuje test_pro_obrazy_do_klienta.py — tutaj
+    pilnujemy KONTRAKTU narzedzia SDK: zamkniety enum (model nie ma jak
+    poprosic o plik spoza listy) i cienka warstwa nad modulem, ktory robi
+    robote."""
+
+    def test_narzedzie_jest_w_zestawie_agenta_wyceny(self):
+        assert "wyslij_obraz" in {t.name for t in n.NARZEDZIA_WYCENY}
+
+    def test_enum_narzedzia_to_dokladnie_biala_lista(self):
+        # SONDA spojnosci: enum w schemacie JSON i biala lista modulu wysylki
+        # musza byc TYM SAMYM zbiorem. Rozjazd oznaczalby albo identyfikator,
+        # ktorego model nie moze wybrac, albo taki, ktory wybierze i nic sie nie
+        # wysle (cicha awaria).
+        from bots_pro import obrazy_do_klienta
+        schemat = n.wyslij_obraz.params_json_schema
+        wlasciwosci = schemat["properties"]["obraz"]
+        assert set(wlasciwosci["enum"]) == set(obrazy_do_klienta.OBRAZY_DLA_KLIENTA)
+
+    def test_opis_narzedzia_mowi_kiedy_pokazac_probke_gatunkow(self):
+        # Wskazowka „przy kliencie niezdecydowanym" mieszka w OPISIE NARZEDZIA,
+        # a nie w prompcie (P1) — budzet ROLA+WYCENA jest na wyczerpaniu, a opis
+        # narzedzia i tak trafia do modelu razem ze schematem.
+        opis = n.wyslij_obraz.description
+        assert "gatunki_porownanie" in opis
+        assert "nie wie" in opis
+
+    def test_narzedzie_deleguje_do_modulu_wysylki(self, monkeypatch):
+        from bots_pro import obrazy_do_klienta
+        wywolania = []
+        monkeypatch.setattr(obrazy_do_klienta, "wyslij",
+                            lambda ident: wywolania.append(ident) or {"ok": True})
+        wynik = _wolaj(n.wyslij_obraz, obraz="wymiary")
+        assert wywolania == ["wymiary"]
+        assert wynik["ok"] is True

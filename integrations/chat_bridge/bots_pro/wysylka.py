@@ -8,10 +8,13 @@ oparty wyłącznie na prompcie jest nieskuteczny.
 
 Zakres: TYLKO profil TEKSTU (markdown/emoji przez `to_channel_text`, linki, limit
 długości). Flagi `images`/`image_formats` z `channel_caps.py` NIE są tu egzekwowane —
-`przygotuj()` przyjmuje wyłącznie `tekst`, Dębuś Pro dziś nie ma ścieżki wysyłki obrazu,
-więc nie ma czego filtrować. Gdy taka ścieżka powstanie, ma sprawdzać te flagi SAMA,
-analogicznie do tego, jak `links`/`max_len` są egzekwowane tutaj — ten moduł nie obiecuje
-więcej, niż faktycznie robi.
+`przygotuj()` przyjmuje wyłącznie `tekst`, więc nie ma czego filtrować.
+
+Ścieżka wysyłki OBRAZU powstała w rundzie napraw 4 i mieszka w
+`bots_pro/obrazy_do_klienta.py`. Sprawdza tamte dwie flagi SAMA — dokładnie tak, jak
+zapowiadał ten komentarz, zanim ścieżka istniała — a sam PODPIS obrazu przepuszcza
+przez `przygotuj()` niżej, żeby profil tekstowy dalej był egzekwowany w jednym miejscu.
+Ten moduł nie obiecuje więcej, niż faktycznie robi.
 """
 import re
 

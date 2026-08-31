@@ -47,8 +47,11 @@ class TestRouter:
 
 class TestAgentWyceny:
     def test_agent_wyceny_ma_narzedzia(self):
+        # RUNDA NAPRAW 4 (P2): 11 -> 12, doszlo `wyslij_obraz` (probka gatunkow,
+        # wzornik kolorow, schemat wymiarow, schemat krawedzi — regres wobec
+        # starego silnika).
         agent = agenci.zbuduj_agenta_wyceny()
-        assert len(agent.tools) == 11
+        assert len(agent.tools) == 12
 
     def test_prompt_wyceny_ma_hojny_ale_skonczony_budzet(self):
         # Runda poprawek 1: nie ograniczamy tresci merytorycznej (reguly
