@@ -118,7 +118,18 @@ def stan_proby(quote):
 
 
 def wisi_nierozstrzygnieta_proba(quote):
-    """Czy na wycenie wisi próba, po której nie wolno pokazać przycisku „Zamów"."""
+    """Czy na wycenie wisi próba, po której nie wolno pokazać przycisku „Zamów".
+
+    KIERUNEK NA PRZYSZŁOŚĆ (świadomie poza zakresem tej rundy). Dziś stan
+    „nie wiemy" zamyka klientowi drogę, dopóki człowiek nie sprawdzi
+    w BaseLinkerze, czy zamówienie powstało. Tę samą robotę da się wykonać
+    automatycznie: numer wyceny jedzie do BaseLinkera w custom_extra_fields,
+    więc `getOrders` filtrowane po źródle „Dębuś VPS" i dacie pozwala
+    sprawdzić, czy zamówienie z tym numerem wyceny istnieje — i albo dopisać
+    jego numer na wycenie, albo zdjąć znacznik. Kolejna próba mogłaby wtedy
+    NAJPIERW zapytać, zamiast odmawiać na ślepo. Wymaga to własnego zadania:
+    ustalenia okna czasowego, zachowania przy wielu trafieniach i limitów API.
+    """
     return stan_proby(quote) is not None
 
 

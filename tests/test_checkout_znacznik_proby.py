@@ -17,6 +17,7 @@ BaselinkerService jest zawsze atrapą — żaden test nie dotyka BaseLinkera.
 import os
 import sys
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 from flask import Flask
@@ -294,3 +295,91 @@ class TestBladBazyPrzedWywolaniem:
         assert wynik['niepewne'] is False
         assert wynik['zamowienie_utworzone'] is False
         assert wywolania == []
+
+
+class TestAlarmDlaCzlowieka:
+    """N8: o nierozstrzygniętej próbie ktoś musi się dowiedzieć.
+
+    Klient czyta „skontaktuj się z nami" i nie może zamówić, dopóki człowiek
+    nie zamknie sprawy — a dotąd nikt się o tej sprawie nie dowiadywał: wpis
+    w baselinker_order_logs czyta wyłącznie kod, endpoint /order-logs nie jest
+    wołany przez żaden front-end. Rzadka awaria zamieniała się w cichą utratę
+    zamówienia.
+    """
+
+    @pytest.fixture()
+    def alarm(self, aplikacja, monkeypatch):
+        bledy, maile = [], []
+
+        monkeypatch.setattr(checkout_service.logger, 'error',
+                            lambda *a, **k: bledy.append((a, k)))
+
+        class _Poczta:
+            def send(self, wiadomosc):
+                maile.append(wiadomosc)
+
+        aplikacja.config['MAIL_USERNAME'] = 'powiadomienia@woodpower.pl'
+        import extensions
+        monkeypatch.setattr(extensions, 'mail', _Poczta())
+        return SimpleNamespace(bledy=bledy, maile=maile)
+
+    def test_niepewna_proba_zostawia_log_bledu_i_mail(self, aplikacja, monkeypatch,
+                                                      alarm):
+        _atrapa(monkeypatch, lambda q, n: {
+            'success': False, 'error': 'ReadTimeout', 'niepewne': True,
+            'zamowienie_utworzone': False, 'order_id': None})
+        wycena = _zasiej()
+
+        _zamow(wycena)
+
+        assert any('NIEROZSTRZYGNIĘTA' in a[0] for a, _ in alarm.bledy), \
+            'nierozstrzygnięta próba nie zostawiła śladu na poziomie ERROR'
+        assert len(alarm.maile) == 1
+        assert '430/08/26/W' in alarm.maile[0].subject
+        assert 'nie składaj' in alarm.maile[0].body.lower()
+
+    def test_zamowienie_bez_zapisu_tez_wzywa_czlowieka(self, aplikacja, monkeypatch,
+                                                       alarm):
+        _atrapa(monkeypatch, lambda q, n: {
+            'success': False, 'error': 'Lost connection', 'niepewne': False,
+            'zamowienie_utworzone': True, 'order_id': 900})
+        wycena = _zasiej()
+
+        _zamow(wycena)
+
+        assert len(alarm.maile) == 1
+        assert '900' in alarm.maile[0].body
+
+    def test_zwykla_odmowa_baselinkera_nikogo_nie_budzi(self, aplikacja, monkeypatch,
+                                                        alarm):
+        # Kontrola negatywna: „zamówienia na pewno nie ma" to zwykła sytuacja,
+        # klient po prostu próbuje jeszcze raz. Alarm na każdą taką próbę
+        # zamieniłby skrzynkę biura w szum, w którym zginie prawdziwy przypadek.
+        _atrapa(monkeypatch, lambda q, n: {
+            'success': False, 'error': 'Brak tokenu API', 'niepewne': False,
+            'zamowienie_utworzone': False, 'order_id': None})
+        wycena = _zasiej()
+
+        _zamow(wycena)
+
+        assert alarm.maile == []
+
+    def test_padnieta_poczta_nie_wywraca_zamowienia(self, aplikacja, monkeypatch,
+                                                    alarm):
+        # Alarm jest best-effort: awaria poczty nie może zmienić odpowiedzi,
+        # którą dostaje klient.
+        class _PadnietaPoczta:
+            def send(self, wiadomosc):
+                raise RuntimeError('SMTP nie odpowiada')
+
+        import extensions
+        monkeypatch.setattr(extensions, 'mail', _PadnietaPoczta())
+        _atrapa(monkeypatch, lambda q, n: {
+            'success': False, 'error': 'ReadTimeout', 'niepewne': True,
+            'zamowienie_utworzone': False, 'order_id': None})
+        wycena = _zasiej()
+
+        wynik = _zamow(wycena)
+
+        assert wynik['niepewne'] is True
+        assert wynik['ok'] is False
