@@ -46,14 +46,19 @@ _KWOTA_WALUTA_LICZBA = re.compile(r"\b%s%s(%s)" % (_WALUTA, _ODSTEP, _LICZBA), r
 # tu tyle samo co przepuszczenie (patrz U6: niepotrzebna runda korekty, a przy
 # drugim niepowodzeniu oddanie rozmowy człowiekowi na końcu udanej wyceny).
 #
-# Trzy warunki naraz — dopiero komplet robi z gołej liczby „kwotę":
+# Cztery warunki naraz — dopiero komplet robi z gołej liczby „kwotę":
 #   1. liczba stoi BEZPOŚREDNIO przy słowie cenowym (najwyżej jedno słowo
 #      wtrącone, i to z zamkniętej listy zwrotów przybliżających),
 #   2. jest WIĘKSZA niż próg (`_PROG_GOLEJ_KWOTY`, 50 zł — patrz jego komentarz):
 #      „razem 3 pozycje" i „łącznie 12 sztuk" to rzeczy policzalne, nie ceny,
-#   3. NIE ma tuż za sobą jednostki — ani skróconej („240 cm"), ani zapisanej
+#   3. ZAMYKA KLAUZULĘ — nie stoi przed nią zwykłe słowo (`_ZAMKNIECIE_GOLEJ_KWOTY`,
+#      C4): „około 2400 brutto" łapiemy, „około 80 blatów" nie,
+#   4. NIE ma tuż za sobą jednostki — ani skróconej („240 cm"), ani zapisanej
 #      pełnym słowem („90 centymetrów", „55 kilogramów", „240 minut"): patrz
-#      `_JEDNOSTKI` i N1 niżej.
+#      `_JEDNOSTKI` i N1 niżej. Po C4 to DRUGA linia obrony (jednostka jest
+#      zwykłym słowem, więc warunek 3 odsiewa ją pierwszy) — zostaje, bo
+#      dokumentuje dziedzinę i pilnuje wzorca „liczba PRZED słowem cenowym",
+#      który jawnie dopuszcza jednostkę w środku („Blat 180 cm netto").
 # Wymiary („180x60x4") wypadają wcześniej, na granicy słowa: po liczbie stoi
 # tam „x", który jest znakiem słownym.
 _SLOWA_CENOWE = (r"(?:brutto|netto|razem|[łl][ąa]cznie|cen[aeyęą]|kosztuj\w*|koszt\w*|"
@@ -129,6 +134,34 @@ _GOLA_PRZED_SLOWEM_CENOWYM = re.compile(
 
 _JEDNOSTKA_ZA_LICZBA = re.compile(r"[ \xa0 ]*%s(?!\w)" % _JEDNOSTKI, re.IGNORECASE)
 
+# Co MOŻE stać za gołą liczbą, żeby wciąż była kandydatem na kwotę (C4).
+#
+# Po rundzie N1 została jedna klasa fałszywych alarmów: liczba, po której stoi
+# RZECZOWNIK POLICZALNY spoza białej listy jednostek, poprzedzona słowem cenowym
+# („około 80 blatów dębowych", „około 90 lamel", „razem 150 zamówień",
+# „łącznie 400 pozycji"). Pierwsze z brzegu to normalne odpowiedzi bazy wiedzy o
+# blatach, więc alarm zdarzałby się w zwykłej rozmowie. Biała lista jednostek
+# zawsze będzie niepełna — dokładanie do niej „blatów", „lamel", „odcieni" jest
+# przegraną grą, bo rzeczowników policzalnych jest nieskończenie wiele.
+#
+# Dlatego reguła jest ODWRÓCONA: goła liczba jest podejrzana o bycie kwotą tylko
+# wtedy, gdy NIE następuje po niej zwykłe słowo — czyli gdy ZAMYKA klauzulę:
+# stoi na końcu tekstu, przed znakiem interpunkcyjnym albo przed „brutto"/
+# „netto", które samo zamyka klauzulę. Koniec LINII jest zamknięciem świadomie:
+# bot pisze wypunktowane wyceny („- Razem: 2650\n- Termin: 14 dni").
+#
+# ZNANY KOSZT: kwota, po której model dopisze zwykłe słowo („razem 2650 za
+# komplet"), przestaje być łapana jako goła liczba. Z tokenem waluty („2650 zł
+# za komplet") łapie ją normalnie `_KWOTA_LICZBA_WALUTA`. Wymiana jest opłacalna
+# — fałszywy alarm kosztuje rundę korekty, a przy powtórce oddanie rozmowy
+# człowiekowi w momencie zamykania sprzedaży.
+#
+# Myślnik CELOWO nie jest zamknięciem: „Blat 180-200 cm" to zakres wymiarów,
+# a nie kwota kończąca zdanie.
+_ZAMKNIECIE_GOLEJ_KWOTY = re.compile(
+    r"[ \xa0 ]*(?:(?:brutto|netto)(?!\w))?[ \xa0 ]*(?:[.,;:!?…)\]\n\r]|$)",
+    re.IGNORECASE)
+
 # Poniżej tego progu goła liczba przy słowie cenowym to prawie zawsze liczebnik
 # ("razem 3 pozycje"), nie kwota. Kwoty ZNANE rejestrowi i tak nie są
 # naruszeniem, więc próg ogranicza wyłącznie zasięg wykrywania halucynacji.
@@ -179,12 +212,17 @@ def znajdz_gole_kwoty(tekst):
     Osobna funkcja od `znajdz_kwoty` świadomie: tamta odpowiada na pytanie „co
     w tym tekście JEST kwotą", i „14 dni" ma tam nadal nie być kwotą. Ta
     odpowiada na węższe: „co w tym tekście WYGLĄDA jak wypowiedziana cena, mimo
-    braku »zł«" — i jest używana wyłącznie przez `sprawdz_ceny`."""
+    braku »zł«" — i jest używana wyłącznie przez `sprawdz_ceny`.
+
+    C4: goła liczba musi ZAMYKAĆ klauzulę (patrz `_ZAMKNIECIE_GOLEJ_KWOTY`) —
+    liczba, po której stoi zwykłe słowo, jest rzeczą policzalną, nie ceną."""
     tekst = tekst or ""
     wynik = set()
     for wzorzec in (_GOLA_PO_SLOWIE_CENOWYM, _GOLA_PRZED_SLOWEM_CENOWYM):
         for dopasowanie in wzorzec.finditer(tekst):
             liczba = dopasowanie.group(1)
+            if not _ZAMKNIECIE_GOLEJ_KWOTY.match(tekst, dopasowanie.end(1)):
+                continue   # "około 80 blatów dębowych" — rzecz policzalna, nie cena
             if _JEDNOSTKA_ZA_LICZBA.match(tekst, dopasowanie.end(1)):
                 continue   # "Razem 240 cm" — wymiar, nie cena
             znormalizowana = _normalizuj_liczbe(liczba)

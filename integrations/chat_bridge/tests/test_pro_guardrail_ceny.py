@@ -384,3 +384,88 @@ class TestN1ProgPiecdziesiatBezFalszywychAlarmow:
     ])
     def test_zmyslone_kwoty_50_100_bez_jednostki_nadal_lapane(self, tekst, oczekiwana):
         assert g.sprawdz_ceny(tekst, set()) == [oczekiwana]
+
+class TestC4GolaLiczbaMusiZamykacKlauzule:
+    """C4 (runda D): po rundzie N1 zostawała JEDNA klasa fałszywych alarmów —
+    liczba, po której stoi RZECZOWNIK POLICZALNY spoza białej listy jednostek,
+    poprzedzona „około"/„razem"/„łącznie": „około 80 blatów dębowych",
+    „około 90 lamel", „razem 150 zamówień". Cztery pierwsze to prawdopodobne
+    odpowiedzi z bazy wiedzy o blatach, więc alarm zdarzałby się w normalnej
+    rozmowie.
+
+    Biała lista jednostek zawsze będzie niepełna, więc reguła jest ODWRÓCONA:
+    goła liczba jest kandydatem na kwotę tylko wtedy, gdy ZAMYKA klauzulę —
+    stoi na końcu zdania, przed znakiem interpunkcyjnym albo przed
+    „brutto"/„netto", które samo zamyka klauzulę. „około 2400 brutto" łapiemy,
+    „około 80 blatów" nie.
+
+    Rejestr kwot jak w sondzie rerecenzji."""
+
+    ZNANE = {"843.04", "1093.04", "1686.08", "250.00", "203.25", "1936.71", "2382.15"}
+
+    @pytest.mark.parametrize("tekst", [
+        "Mamy w ofercie około 120 wzorów wykończenia.",
+        "W magazynie mamy około 80 blatów dębowych.",
+        "Około 200 klientów miesięcznie zamawia blaty dębowe.",
+        "Zrobiliśmy już około 500 schodów dębowych.",
+        "Do wyboru jest około 60 odcieni oleju.",
+        "Blat składa się z około 90 lamel.",
+        "Suszarnia mieści około 300 blatów naraz.",
+        "Razem 150 zamówień w tym miesiącu.",
+        "Łącznie 400 pozycji w katalogu.",
+        "Nasza załoga to około 55 osób.",
+        # Kierunek „przed brutto/netto": nazwa handlowa, a prawdziwa cena stoi
+        # dalej — „netto" nie zamyka tu klauzuli.
+        "Blat 200 netto kosztuje 843,04 zł.",
+    ])
+    def test_rzeczownik_po_liczbie_nie_jest_falszywym_alarmem(self, tekst):
+        assert g.sprawdz_ceny(tekst, self.ZNANE) == []
+
+    @pytest.mark.parametrize("tekst,oczekiwane", [
+        ("Blat kosztuje 1 936,71 zł netto, czyli około 2400 brutto.", ["2400.00"]),
+        ("Z wysyłką wyjdzie razem jakieś 2650.", ["2650.00"]),
+        ("Dopłata 90", ["90.00"]),
+        ("Opcja wycięcia kosztuje 81,30", ["81.30"]),
+    ])
+    def test_zmyslone_kwoty_z_sondy_nadal_lapane(self, tekst, oczekiwane):
+        assert sorted(g.sprawdz_ceny(tekst, self.ZNANE)) == oczekiwane
+
+    @pytest.mark.parametrize("tekst,oczekiwana", [
+        # Zamkniecie klauzuli to takze przecinek, srednik i koniec LINII —
+        # bot pisze wypunktowane wyceny, wiec kwota konczy wiersz.
+        ("Razem 2650, z dostawą.", "2650.00"),
+        ("Cena to 2400; dostawa osobno.", "2400.00"),
+        ("- Razem: 2650\n- Termin: 14 dni", "2650.00"),
+    ])
+    def test_interpunkcja_i_koniec_linii_tez_zamykaja_kwote(self, tekst, oczekiwana):
+        assert g.sprawdz_ceny(tekst, self.ZNANE) == [oczekiwana]
+
+    @pytest.mark.parametrize("tekst", [
+        "Razem 2650 za komplet.",
+        "Cena to 2400 z dostawą.",
+        "Koszt wynosi 350 dopłaty.",
+    ])
+    def test_kwota_ze_zwyklym_slowem_za_soba_przechodzi_swiadomie(self, tekst):
+        """Udokumentowana GRANICA mechanizmu i cena odwrócenia reguły: te trzy
+        formy były łapane przed C4 i teraz przechodzą. To świadomy kompromis —
+        po gołej liczbie stoi zwykłe słowo, więc nie da się jej odróżnić od
+        „około 80 blatów" bez rozumienia zdania. Z tokenem waluty kwota jest
+        łapana normalnie (test niżej), a fałszywy alarm kosztuje rundę korekty
+        i — przy powtórce — oddanie rozmowy w momencie zamykania sprzedaży."""
+        assert g.sprawdz_ceny(tekst, self.ZNANE) == []
+
+    def test_ta_sama_kwota_z_waluta_jest_nadal_lapana(self):
+        # Druga strona kompromisu wyżej: token waluty wystarcza niezależnie od
+        # tego, co stoi za kwotą.
+        assert g.sprawdz_ceny("Razem 2650 zł za komplet.", self.ZNANE) == ["2650.00"]
+
+    def test_zdania_naprawione_w_rundzie_c_nadal_ciche(self):
+        # Kontrola, ze odwrocenie reguly nie cofa niczego z N1.
+        for tekst in ("Wysokość blatu wynosi 90 centymetrów.",
+                      "Waga takiego blatu wynosi 55 kilogramów.",
+                      "Nasz zakład jest około 80 km od Olsztyna.",
+                      "Olej schnie około 240 minut.",
+                      "Wysyłka trwa około 72 h.",
+                      "Blat 180 razem 1 686,08 zł brutto.",
+                      "Zamówienie 100234 kosztuje 843,04 zł."):
+            assert g.sprawdz_ceny(tekst, self.ZNANE) == [], tekst
