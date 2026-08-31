@@ -326,10 +326,19 @@ def _dopisz_dostawe(stan, edit_uuid, notatka):
     tuż po zapisie. Dokładnie tak robi stary silnik (bots/quotebot.py:1983-1991).
     Bez tego klient potwierdza cenę Z dostawą, a pod linkiem widzi wycenę BEZ niej.
 
-    Zwraca wynik aktualizacji albo None, gdy nie było czego dopisywać."""
+    Zwraca wynik aktualizacji albo None, gdy nie było czego dopisywać.
+
+    N10 (rerecenzja): „nie ma czego dopisywać" i „nie wiem, DO CZEGO dopisać"
+    to DWA różne stany i nie mogą dawać tego samego `None` — `zapisz_wycene`
+    traktuje `None` jak sukces, więc brak `edit_uuid` przy potwierdzonej
+    dostawie wypuszczałby link do wyceny BEZ niej. Dziś nieosiągalne przez
+    prawdziwy CRM (`POST /api/bot/quotes` zwraca `edit_uuid` zawsze przy
+    ok=True), ale cała reszta R1 jest fail-closed i to jedno miejsce też ma być."""
     dostawa = stan.dostawa()
-    if not (edit_uuid and dostawa.get("kurier")):
+    if not dostawa.get("kurier"):
         return None
+    if not edit_uuid:
+        return {"ok": False, "error": "BRAK_EDIT_UUID"}
     return crm_calc.update_quote(edit_uuid, stan.pozycje(), crm_calc.get_options(),
                                  notes=notatka, courier_name=dostawa["kurier"],
                                  shipping_netto=dostawa.get("netto"),

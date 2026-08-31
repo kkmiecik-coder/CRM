@@ -865,6 +865,34 @@ class TestNieudaneDopisanieDostawy:
         assert wynik["ok"] is False
         assert wynik["error"] == "WYCENA_BEZ_DOSTAWY"
 
+    def test_brak_edit_uuid_przy_potwierdzonej_dostawie_blokuje_link(self, monkeypatch):
+        """N10 (rerecenzja, hipoteza): „nie ma czego dopisywać" i „nie wiem, DO
+        CZEGO dopisać" dawały ten sam wynik `None`, który `zapisz_wycene`
+        traktuje jak sukces — więc klient dostawał link do wyceny BEZ dostawy,
+        mimo że potwierdził cenę Z dostawą. Dziś nieosiągalne przez prawdziwy
+        CRM (POST /api/bot/quotes zwraca `edit_uuid` zawsze przy ok=True), ale
+        cała reszta R1 jest fail-closed i to jedno miejsce ma być też."""
+        stan.ustaw_kontekst(96056, persona_tury="pro")
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat", dlugosc_cm=180,
+               szerokosc_cm=60, grubosc_cm=4, ilosc=1,
+               selected_variant="dab-lity-ab", wykonczenie="surowe")
+        stan.zapisz_dostawe("00-001", kurier="DPD", netto=203.25, brutto=250.0)
+        _potwierdz_biezace_pozycje(monkeypatch)
+        monkeypatch.setattr(n.crm_calc, "create_quote", lambda *a, **k: {
+            "ok": True, "quote_number": "W/2026/3",
+            "public_url": "https://crm.example/q/CCC"})   # BEZ edit_uuid
+        monkeypatch.setattr(n.crm_calc, "update_quote",
+                            lambda *a, **k: pytest.fail("nie ma DO CZEGO dopisac"))
+        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst: True)
+        monkeypatch.setattr(stan, "handoff", lambda powod: {"ok": True})
+
+        wynik = _wolaj(n.zapisz_wycene, client_id=1)
+
+        assert wynik["ok"] is False
+        assert wynik["error"] == "DOSTAWA_NIEDOPISANA"
+        assert "crm.example" not in json.dumps(wynik, ensure_ascii=False)
+        assert stan.dostawa_niedopisana() is True
+
     def test_udane_dopisanie_zwraca_link_normalnie(self, monkeypatch):
         # Kontrola pozytywna: sciezka szczesliwa bez zmian.
         self._wycena_z_dostawa(monkeypatch, 96054, {
