@@ -496,7 +496,86 @@ Sprawdź **przed** ustawieniem persony w `BOT_QUOTE_NOTE_PERSONAS`:
 > Ta sekcja dotyczy **nowego** silnika (`BOT_PRO_INBOXES`), nie quote-bota wyżej.
 > Przeczytaj ją **zanim** wpiszesz pierwszy inbox do `BOT_PRO_INBOXES`.
 
-## Znane ograniczenie: suma „produkt + dostawa" liczona po stronie mostka
+## 1. Testy MUSZĄ iść z zainstalowaną biblioteką agentową
+
+Bez `openai-agents` **cztery pliki testów silnika Pro (~2900 linii) są po cichu
+POMIJANE** — `pytest.importorskip("agents")` na poziomie modułu wycina
+`test_pro_tura.py`, `test_pro_narzedzia.py`, `test_replay_odtworz.py` i
+`test_pro_agenci.py` w całości, plus pojedyncze testy w `test_llm_resilience.py`,
+`test_pro_models.py`, `test_quote_worker.py` i `test_quote_worker_pro_failover.py`.
+Zielony wynik **nic wtedy nie dowodzi o Dębusiu Pro**: pętla tury, warstwa narzędzi
+i harness odtwarzania nie są w ogóle uruchamiane.
+
+Jedyna poprawna komenda (ta sama, co w ramce na górze pliku):
+
+```
+docker run --rm -v <ścieżka repo>:/app -w /app/integrations/chat_bridge \
+  woodpower-crm-app:latest sh -c \
+  "pip install -q 'openai-agents[litellm]==0.22.0' && python -m pytest -q"
+```
+
+**Punkty odniesienia** (stan po rundzie poprawek zamykającej recenzję końcową):
+
+| wariant | wynik |
+|---|---|
+| z SDK (jedyny miarodajny) | **1339 passed, 0 failed** |
+| bez SDK (kontrola: stary silnik importuje się bez biblioteki) | 1171 passed, **18 skipped** |
+
+Liczba `skipped` inna niż 0 w wariancie z SDK = biblioteka NIE została zainstalowana
+w tej samej komendzie i wynik jest bezwartościowy dla Pro.
+
+## 2. Pierwszy deploy unieważni potwierdzenia w toku
+
+Materiał podpisu potwierdzenia (inwariant I2) zmienił kształt — obejmuje teraz
+także **dostawę** (kod pocztowy, kurier, koszt), więc ma postać
+`{"pozycje": …, "dostawa": …}` zamiast samej listy pozycji.
+
+Skutek: `oczekiwany_podpis` i `potwierdzony_podpis` zapisane w `pro_stan` PRZED
+wdrożeniem przestaną pasować do podpisu liczonego po wdrożeniu. Klienci, którzy
+w momencie deployu są w połowie ścieżki (widzieli podsumowanie, jeszcze nie
+potwierdzili — albo potwierdzili, ale wycena nie została jeszcze zapisana),
+zostaną **poproszeni o ponowne „tak"**.
+
+Kierunek jest bezpieczny (bot woli poprosić drugi raz niż zapisać
+niepotwierdzone dane), ale wygląda dla klienta jak powtórka — warto wiedzieć,
+zanim przyjdzie pytanie z obsługi. Deploy poza godzinami szczytu rozmów
+minimalizuje liczbę dotkniętych wątków.
+
+## 3. Kolejność WYCOFANIA jest istotna
+
+Usunięcie inboxu z `BOT_PRO_INBOXES`, gdy w `quote_queue` czekają jeszcze wiersze
+z personą Pro (`pro`/`olx`/`allegro`), **przepchnie je do starego silnika** —
+`quote_worker._wiersz_silnika_pro` wymaga OBU warunków (inbox + persona), więc
+zdjęcie inboxu kieruje te wiersze do `run_quote_turn`. A tam persona spoza
+`BOT_QUOTE_NOTE_PERSONAS` oznacza **odpowiedź PUBLICZNĄ** — na OLX/Allegro
+dokładnie to, czego tryb notatki miał nie dopuścić.
+
+Bezpieczna kolejność:
+
+1. W Chatwoot UI przepnij bota inboxu z `Dębuś Pro` z powrotem na starego bota
+   (`WoodPower AI` dla OLX/Allegro, `Asystent AI v1` dla live chatu) — od tej
+   chwili nic nowego nie trafia do kolejki z personą Pro.
+2. Opróżnij kolejkę — poczekaj, aż nie będzie wierszy Pro w stanie
+   `pending`/`processing` (ten sam sposób odpytania bazy, co w „Krok 2"
+   wyżej — kontener nie ma binarki `sqlite3`, tylko Pythona):
+   ```bash
+   docker exec <kontener-mostu> python3 -c "
+   import sqlite3
+   c = sqlite3.connect('/data/bridge.db')
+   print(list(c.execute(
+       \"SELECT id, persona, status FROM quote_queue \"
+       \"WHERE status IN ('pending','processing') \"
+       \"AND persona IN ('pro','olx','allegro')\")))
+   c.close()
+   "
+   ```
+   → oczekiwane `[]`.
+3. Dopiero teraz usuń inbox z `BOT_PRO_INBOXES` w `bridge.env` i zrób recreate.
+
+Odwrotna kolejność (najpierw `bridge.env`) jest tą, która puszcza zaległe wiersze
+publicznie.
+
+## 4. Znane ograniczenie: suma „produkt + dostawa" liczona po stronie mostka
 
 Podsumowanie, które klient potwierdza, pokazuje **Razem z dostawą** — a ta jedna liczba
 jest **dodawana w Pythonie** (`bots_pro/podsumowanie.py`, `wyslij()`), nie pobierana
