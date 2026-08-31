@@ -737,6 +737,109 @@ class TestBramkaI2WNarzedziach:
         assert wywolania == ["uuid-x"]
 
 
+class TestNieudaneDopisanieDostawy:
+    """R1 (recenzja końcowa, runda 2): `zapisz_wycene` dopisuje dostawę OSOBNYM
+    wywołaniem (`PUT /api/bot/quotes/<uuid>`), bo endpoint tworzący wycenę nie
+    przyjmuje kuriera. Poprzednia runda zrobiła to best-effort — nieudane
+    dopisanie tylko się logowało. To otwierało dokładnie tę dziurę, którą U4
+    zamykało: klient potwierdza cenę Z DOSTAWĄ, a dostaje link do wyceny BEZ
+    niej. Link nie może wtedy wyjść; rozmowa idzie do człowieka."""
+
+    def _wycena_z_dostawa(self, monkeypatch, conv_id, wynik_update):
+        stan.ustaw_kontekst(conv_id, persona_tury="pro")
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat", dlugosc_cm=180,
+               szerokosc_cm=60, grubosc_cm=4, ilosc=1,
+               selected_variant="dab-lity-ab", wykonczenie="surowe")
+        stan.zapisz_dostawe("00-001", kurier="DPD", netto=203.25, brutto=250.0)
+        _potwierdz_biezace_pozycje(monkeypatch)
+        monkeypatch.setattr(n.crm_calc, "create_quote", lambda *a, **k: {
+            "ok": True, "quote_number": "W/1", "edit_uuid": "UUID-XYZ",
+            "public_url": "https://crm.example/q/abc"})
+        monkeypatch.setattr(n.crm_calc, "update_quote", lambda *a, **k: wynik_update)
+
+    def test_nieudane_dopisanie_nie_zwraca_linku(self, monkeypatch):
+        self._wycena_z_dostawa(monkeypatch, 96051, {"ok": False, "errors": [{"code": "X"}]})
+        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst: True)
+        monkeypatch.setattr(stan, "handoff", lambda powod: {"ok": True})
+
+        wynik = _wolaj(n.zapisz_wycene, client_id=1)
+
+        assert wynik["ok"] is False
+        assert "public_url" not in wynik
+        assert "crm.example" not in json.dumps(wynik, ensure_ascii=False)
+
+    def test_nieudane_dopisanie_oddaje_rozmowe_czlowiekowi_z_notatka(self, monkeypatch):
+        self._wycena_z_dostawa(monkeypatch, 96052, {"ok": False, "errors": []})
+        notatki_wyslane = []
+        monkeypatch.setattr(notatki, "wyslij_notatke",
+                            lambda cid, tekst: notatki_wyslane.append(tekst) or True)
+        powody = []
+        monkeypatch.setattr(stan, "handoff", lambda powod: powody.append(powod) or {"ok": True})
+
+        _wolaj(n.zapisz_wycene, client_id=1)
+
+        assert len(powody) == 1
+        assert "dostaw" in powody[0].lower()
+
+    def test_po_nieudanym_dopisaniu_link_do_checkoutu_odmawia(self, monkeypatch):
+        self._wycena_z_dostawa(monkeypatch, 96053, {"ok": False, "errors": []})
+        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst: True)
+        monkeypatch.setattr(stan, "handoff", lambda powod: {"ok": True})
+        _wolaj(n.zapisz_wycene, client_id=1)
+
+        # Model NIE MOZE obejsc blokady, wolajac po prostu przygotuj_zamowienie.
+        wynik = _wolaj(n.przygotuj_zamowienie)
+        assert wynik["ok"] is False
+        assert wynik["error"] == "WYCENA_BEZ_DOSTAWY"
+
+    def test_udane_dopisanie_zwraca_link_normalnie(self, monkeypatch):
+        # Kontrola pozytywna: sciezka szczesliwa bez zmian.
+        self._wycena_z_dostawa(monkeypatch, 96054, {
+            "ok": True, "quote_number": "W/1", "edit_uuid": "UUID-XYZ",
+            "public_url": "https://crm.example/q/abc"})
+        monkeypatch.setattr(stan, "handoff",
+                            lambda powod: pytest.fail("udany zapis nie oddaje rozmowy"))
+
+        wynik = _wolaj(n.zapisz_wycene, client_id=1)
+
+        assert wynik["ok"] is True
+        assert _wolaj(n.przygotuj_zamowienie)["public_url"] == "https://crm.example/q/abc"
+
+    def test_bez_dostawy_zachowanie_bez_zmian(self, monkeypatch):
+        # Klient odbiera osobiscie — nie ma czego dopisywac, wiec nie ma czego
+        # blokowac. `update_quote` w ogole nie jest wolane.
+        stan.ustaw_kontekst(96055, persona_tury="pro")
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat", dlugosc_cm=180,
+               szerokosc_cm=60, grubosc_cm=4, ilosc=1,
+               selected_variant="dab-lity-ab", wykonczenie="surowe")
+        _potwierdz_biezace_pozycje(monkeypatch)
+        monkeypatch.setattr(n.crm_calc, "create_quote", lambda *a, **k: {
+            "ok": True, "quote_number": "W/1", "edit_uuid": "UUID-XYZ",
+            "public_url": "https://crm.example/q/abc"})
+        monkeypatch.setattr(n.crm_calc, "update_quote",
+                            lambda *a, **k: pytest.fail("brak dostawy = brak PUT"))
+        monkeypatch.setattr(stan, "handoff",
+                            lambda powod: pytest.fail("brak dostawy nie oddaje rozmowy"))
+
+        assert _wolaj(n.zapisz_wycene, client_id=1)["ok"] is True
+        assert _wolaj(n.przygotuj_zamowienie)["public_url"] == "https://crm.example/q/abc"
+
+    def test_udana_korekta_odblokowuje_link(self, monkeypatch):
+        # Konsultant (albo bot w kolejnej turze) poprawia wycene — udany PUT z
+        # kurierem znaczy, ze wycena JEST juz kompletna, wiec blokada znika.
+        self._wycena_z_dostawa(monkeypatch, 96056, {"ok": False, "errors": []})
+        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst: True)
+        monkeypatch.setattr(stan, "handoff", lambda powod: {"ok": True})
+        _wolaj(n.zapisz_wycene, client_id=1)
+        assert _wolaj(n.przygotuj_zamowienie)["ok"] is False
+
+        monkeypatch.setattr(n.crm_calc, "update_quote", lambda *a, **k: {
+            "ok": True, "quote_number": "W/1", "edit_uuid": "UUID-XYZ",
+            "public_url": "https://crm.example/q/abc"})
+        assert _wolaj(n.popraw_wycene)["ok"] is True
+        assert _wolaj(n.przygotuj_zamowienie)["public_url"] == "https://crm.example/q/abc"
+
+
 def _wycena_gotowa_do_zamowienia(monkeypatch, conv_id, persona="allegro"):
     """Rozmowa doprowadzona do stanu „wycena zapisana i potwierdzona" — punkt,
     w którym `przygotuj_zamowienie` ma sens."""

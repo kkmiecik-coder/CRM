@@ -300,7 +300,7 @@ def zapisz_wycene(client_id: int, notatka: str = "") -> dict:
 
     Identyfikator wyceny jest zapamiętywany na stałe w tej rozmowie, więc
     popraw_wycene i przygotuj_zamowienie możesz wołać BEZ podawania edit_uuid."""
-    from bots_pro import potwierdzenia, stan
+    from bots_pro import notatki, potwierdzenia, stan
     bramka = potwierdzenia.sprawdz_bramke()
     if not bramka["ok"]:
         return bramka
@@ -313,11 +313,30 @@ def zapisz_wycene(client_id: int, notatka: str = "") -> dict:
         if z_dostawa is not None:
             if z_dostawa.get("ok"):
                 stan.zapamietaj_wycene(z_dostawa)
+                stan.oznacz_dostawe_niedopisana(False)
             else:
-                # Wycena JEST zapisana, brakuje jej tylko wysyłki — nie psujemy
-                # z tego powodu udanego zapisu, ale nie może to być ciche.
+                # R1 (recenzja końcowa, runda 2): to NIE MOŻE być best-effort.
+                # Wycena JEST w CRM, ale TAŃSZA niż ta, którą klient potwierdził
+                # (bez dostawy) — wydanie linku do niej to dokładnie ta dziura,
+                # którą U4 zamykało. Blokujemy link i oddajemy rozmowę człowiekowi
+                # z notatką: to jedyny moment, w którym ktokolwiek jeszcze może
+                # dopisać wysyłkę, zanim klient zobaczy złą cenę.
                 log("narzedzia: nieudane dopisanie wysylki do wyceny %s: %s"
                     % (wynik.get("edit_uuid"), z_dostawa))
+                stan.oznacz_dostawe_niedopisana()
+                notatki.wyslij_notatke(stan.conv_id(), notatki.tresc_dla_agenta(
+                    "wycena zapisana BEZ kosztu dostawy — nie udało się dopisać "
+                    "kuriera do wyceny w CRM, link do niej NIE został wysłany",
+                    pozycje=stan.pozycje(), dostawa=stan.dostawa(),
+                    wycena=stan.zapisana_wycena(),
+                    potwierdzenie=stan.cytat_potwierdzenia()))
+                stan.handoff("wycena bez dopisanej dostawy — link wstrzymany")
+                return {"ok": False, "error": "DOSTAWA_NIEDOPISANA",
+                        "quote_number": wynik.get("quote_number"),
+                        "wskazowka": "Wycena zapisała się, ale bez kosztu dostawy, "
+                                     "który klient potwierdził — linku NIE WOLNO podać. "
+                                     "Rozmowa jest już u konsultanta; napisz klientowi "
+                                     "krótko, że konsultant domknie zamówienie."}
     return wynik
 
 
@@ -360,6 +379,11 @@ def popraw_wycene(edit_uuid: str = "", notatka: str = "") -> dict:
                                   shipping_netto=dostawa.get("netto"),
                                   shipping_brutto=dostawa.get("brutto"))
     stan.zapamietaj_wycene(wynik)   # U3: odśwież zapisany link po aktualizacji
+    if wynik.get("ok"):
+        # R1: udany PUT niesie KOMPLET danych razem z dostawą (patrz wyżej —
+        # `courier_name` idzie w tym samym żądaniu), więc wycena w CRM jest
+        # znów zgodna z tym, co klient potwierdził: blokada linku znika.
+        stan.oznacz_dostawe_niedopisana(False)
     return wynik
 
 

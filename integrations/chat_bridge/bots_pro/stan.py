@@ -97,7 +97,7 @@ CREATE TABLE IF NOT EXISTS pro_stan(
   ostatni_liczony_mid TEXT,
   dostawa_kod TEXT, dostawa_kurier TEXT,
   dostawa_netto REAL, dostawa_brutto REAL,
-  quote_public_url TEXT);
+  quote_public_url TEXT, quote_dostawa_niedopisana INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS pro_kwoty(
   conv_id INTEGER, kwota TEXT, PRIMARY KEY(conv_id, kwota));
 """
@@ -137,6 +137,10 @@ def init_pro():
             # bazowego CRM, więc jedynym źródłem prawdy jest to, co zwróciło
             # create_quote/update_quote. Bez tej kolumny nie ma czego wysłać.
             "ALTER TABLE pro_stan ADD COLUMN quote_public_url TEXT",
+            # R1: wycena zapisana w CRM, ale BEZ potwierdzonej przez klienta
+            # dostawy (nieudany PUT dopisujacy kuriera). Link do takiej wyceny
+            # NIE MOZE wyjsc — klient zobaczylby inna cene niz potwierdzil.
+            "ALTER TABLE pro_stan ADD COLUMN quote_dostawa_niedopisana INTEGER DEFAULT 0",
         ):
             try:
                 polaczenie.execute(stmt)
@@ -704,6 +708,30 @@ def zapisana_wycena():
     return {k: v for k, v in surowe.items() if v}
 
 
+def oznacz_dostawe_niedopisana(niedopisana=True):
+    """Zaznacza (albo zdejmuje) blokadę „wycena w CRM nie ma dostawy, którą
+    klient potwierdził" — R1.
+
+    `zapisz_wycene` tworzy wycenę POST-em, który nie przyjmuje kuriera, i
+    dopisuje dostawę osobnym PUT-em. Gdy ten PUT padnie, w CRM leży wycena
+    TAŃSZA niż to, co klient potwierdził. Wypuszczenie linku do niej byłoby
+    dokładnie tą dziurą, którą U4 zamykało (klient potwierdza cenę z dostawą,
+    widzi cenę bez niej), więc `link_do_checkoutu` odmawia, dopóki flaga stoi."""
+    zapisz_stan(quote_dostawa_niedopisana=1 if niedopisana else 0)
+
+
+def dostawa_niedopisana():
+    """Czy zapisana wycena jest niekompletna o dostawę (patrz wyżej)."""
+    polaczenie = db()
+    try:
+        wiersz = polaczenie.execute(
+            "SELECT quote_dostawa_niedopisana FROM pro_stan WHERE conv_id=?",
+            (conv_id(),)).fetchone()
+    finally:
+        polaczenie.close()
+    return bool(wiersz and wiersz["quote_dostawa_niedopisana"])
+
+
 def cytat_potwierdzenia():
     """Dosłowny fragment, którym klient potwierdził podsumowanie — albo None.
     Do notatki dla konsultanta (U7): człowiek przejmujący rozmowę ma widzieć,
@@ -739,6 +767,14 @@ def link_do_checkoutu(edit_uuid=""):
         return {"ok": False, "error": "INNA_WYCENA",
                 "wskazowka": "Ta rozmowa ma zapisaną inną wycenę. Wywołaj to narzędzie "
                              "bez edit_uuid, żeby dostać link do właściwej."}
+    if dostawa_niedopisana():
+        # R1: wycena JEST w CRM, ale bez dostawy, którą klient potwierdził —
+        # link pokazałby mu inną (niższą) cenę niż ta, na którą się zgodził.
+        return {"ok": False, "error": "WYCENA_BEZ_DOSTAWY",
+                "wskazowka": "Wyceny w CRM nie udało się uzupełnić o koszt dostawy, "
+                             "więc link pokazałby cenę BEZ wysyłki. Rozmowa jest już "
+                             "u konsultanta — nie podawaj klientowi żadnego adresu, "
+                             "napisz tylko, że konsultant domknie zamówienie."}
     if not zapisana.get("public_url"):
         return {"ok": False, "error": "BRAK_LINKU",
                 "wskazowka": "Nie mam publicznego linku do tej wyceny — zapisz ją "
