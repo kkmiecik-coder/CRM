@@ -63,6 +63,55 @@ class TestWyslijNotatke:
         assert notatki.wyslij_notatke(1, "tresc") is False
 
 
+class _Odpowiedz:
+    """Namiastka `requests.Response` — `cw_note` zwraca wlasnie taki obiekt."""
+
+    def __init__(self, status_code):
+        self.status_code = status_code
+        self.text = ""
+
+
+class TestKodHttpNotatki:
+    """W2: `wyslij_notatke` lapala wylacznie WYJATEK i meldowala sukces przy
+    KAZDYM kodzie HTTP. Bledny albo wygasly BOT_PRO_CW_AGENT_TOKEN daje 401,
+    ktore przechodzilo jako "notatka wyslana" — a oznaczenie notatki w stanie
+    tury (`oznacz_notatke_w_turze`) blokowalo wtedy ponowna probe z
+    `notatka_stanu`. Zly token objawial sie w notatkach CISZA zamiast bledu.
+    `bots_pro/podsumowanie.py` wynik wysylki sprawdza — tu jest tak samo."""
+
+    def test_401_to_porazka_nie_sukces(self, monkeypatch):
+        monkeypatch.setattr(notatki, "cw_note", lambda *a, **k: _Odpowiedz(401))
+        assert notatki.wyslij_notatke(4243, "tresc") is False
+
+    def test_403_i_500_tez_sa_porazka(self, monkeypatch):
+        for kod in (403, 404, 422, 500, 502):
+            monkeypatch.setattr(notatki, "cw_note", lambda *a, _k=kod, **kw: _Odpowiedz(_k))
+            assert notatki.wyslij_notatke(4244, "tresc") is False, "kod %s" % kod
+
+    def test_200_i_201_to_sukces(self, monkeypatch):
+        for kod in (200, 201, 204):
+            monkeypatch.setattr(notatki, "cw_note", lambda *a, _k=kod, **kw: _Odpowiedz(_k))
+            assert notatki.wyslij_notatke(4245, "tresc") is True, "kod %s" % kod
+
+    def test_zly_kod_jest_widoczny_w_logu(self, monkeypatch):
+        logi = []
+        monkeypatch.setattr(notatki, "log", lambda *czesci: logi.append(" ".join(str(c) for c in czesci)))
+        monkeypatch.setattr(notatki, "cw_note", lambda *a, **k: _Odpowiedz(401))
+
+        notatki.wyslij_notatke(4246, "tresc")
+
+        assert any("401" in wpis for wpis in logi)
+
+    def test_nieudana_notatka_nie_oznacza_notatki_w_turze(self, monkeypatch):
+        """Sedno bledu: oznaczenie w stanie tury blokuje PONOWNA probe, wiec
+        notatka odrzucona przez Chatwoota nie moze sie liczyc jako napisana."""
+        stan.ustaw_kontekst(96402010, persona_tury="pro")
+        monkeypatch.setattr(notatki, "cw_note", lambda *a, **k: _Odpowiedz(401))
+
+        assert notatki.wyslij_notatke(96402010, "notatka odrzucona") is False
+        assert stan.notatka_w_turze() is False
+
+
 class TestHandoffZostawiaNotatke:
     """Notatka siedzi w `stan.handoff`, więc obejmuje TAKŻE handoff wywołany
     przez sam model (narzędzie `oddaj_czlowiekowi`), nie tylko bezpieczniki tury."""

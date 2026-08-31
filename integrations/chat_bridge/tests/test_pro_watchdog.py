@@ -331,6 +331,54 @@ class TestWatchdogOnce:
         assert any("NIEUDANY" in wpis for wpis in logi)
 
 
+class _OdpowiedzNotatki:
+    """Namiastka `requests.Response` — `cw_note` zwraca wlasnie taki obiekt."""
+
+    def __init__(self, status_code):
+        self.status_code = status_code
+        self.text = ""
+
+
+class TestKodHttpNotatkiWatchdoga:
+    """W2: notatka watchdoga byla owinieta w goly `except Exception: pass`, wiec
+    KAZDY kod HTTP przechodzil bez sladu. Bledny albo wygasly BOT_PRO_CW_AGENT_TOKEN
+    daje 401 — a wtedy handoff juz sie odbyl (inny token, inna sciezka), rozmowa
+    jest 'open', tylko konsultant nie wie DLACZEGO ja dostal. Zly token objawia sie
+    w notatkach cisza zamiast bledu."""
+
+    def _kandydat(self, monkeypatch, odpowiedz_notatki):
+        monkeypatch.setattr(w, "cw_pending_conversations",
+                            lambda: [_rozmowa(1, "outgoing", 25)])
+        monkeypatch.setattr(w, "_jest_pro_inbox", lambda inbox_id: True)
+        monkeypatch.setattr(w, "_bot_naprawde_mowil_ostatni", lambda conv_id: True)
+        monkeypatch.setattr(w, "cw_bot_handoff", lambda conv_id, token=None: True)
+        monkeypatch.setattr(w, "cw_note", lambda conv_id, tekst, **k: odpowiedz_notatki)
+        logi = []
+        monkeypatch.setattr(w, "log", lambda *a: logi.append(" ".join(str(x) for x in a)))
+        return logi
+
+    def test_401_notatki_jest_logowane(self, monkeypatch):
+        logi = self._kandydat(monkeypatch, _OdpowiedzNotatki(401))
+
+        w.watchdog_once(1_000_000)
+
+        assert any("401" in wpis for wpis in logi)
+
+    def test_udana_notatka_nie_generuje_alarmu(self, monkeypatch):
+        logi = self._kandydat(monkeypatch, _OdpowiedzNotatki(200))
+
+        w.watchdog_once(1_000_000)
+
+        assert not any("notatka" in wpis.lower() and "nieudana" in wpis.lower() for wpis in logi)
+
+    def test_handoff_pozostaje_zaliczony_mimo_zlej_notatki(self, monkeypatch):
+        """Notatka to sciezka pomocnicza — jej porazka NIE moze cofnac oddania
+        rozmowy, ktore juz sie udalo."""
+        self._kandydat(monkeypatch, _OdpowiedzNotatki(401))
+
+        assert w.watchdog_once(1_000_000) == 1
+
+
 class TestWatchdogWylacznik:
     """Minor (runda poprawek 1): <=0 ma WYLACZAC bezpiecznik, nie dawac
     najagresywniejszego zachowania (wzorzec z sweeper.py/hot_lead_sweeper.py)."""

@@ -32,6 +32,7 @@ w reszcie mostka) ma obejmować TEŻ ten wątek, nie tylko trasy webhooków.
 """
 import time
 
+from bots_pro.notatki import kod_notatki_ok
 from config import (BOT_PRO_CW_AGENT_TOKEN, BOT_PRO_INBOXES, BOT_PRO_WATCHDOG_INTERVAL,
                     BOT_PRO_WATCHDOG_MINUTES)
 from core.chatwoot import cw, cw_bot_handoff, cw_note, cw_pending_conversations
@@ -148,11 +149,22 @@ def watchdog_once(teraz):
         if cw_bot_handoff(conv_id, token=BOT_PRO_CW_AGENT_TOKEN):
             oddane += 1
             log("watchdog: rozmowa %s porzucona przez bota -> konsultant" % conv_id)
+            # W2: sprawdzamy KOD HTTP, nie tylko brak wyjatku. Goly `except: pass`
+            # przepuszczal KAZDY kod — bledny albo wygasly BOT_PRO_CW_AGENT_TOKEN
+            # (401) konczyl sie tym, ze rozmowa jest juz oddana (handoff idzie inna
+            # sciezka), a konsultant nie wie, DLACZEGO ja dostal. Zly token objawial
+            # sie w notatkach cisza zamiast bledu. Porazka notatki NIE cofa handoffu,
+            # ktory sie udal — dlatego tylko log, bez zmiany licznika.
             try:
-                cw_note(conv_id, "⏱️ Watchdog: bot nie doczekał się odpowiedzi klienta — "
-                        "rozmowa oddana automatycznie.", token=BOT_PRO_CW_AGENT_TOKEN)
-            except Exception:
-                pass
+                odpowiedz = cw_note(
+                    conv_id, "⏱️ Watchdog: bot nie doczekał się odpowiedzi klienta — "
+                    "rozmowa oddana automatycznie.", token=BOT_PRO_CW_AGENT_TOKEN)
+                if not kod_notatki_ok(odpowiedz):
+                    log("watchdog: notatka ODRZUCONA przez Chatwoota (conv %s, HTTP %s) — "
+                        "sprawdz BOT_PRO_CW_AGENT_TOKEN"
+                        % (conv_id, getattr(odpowiedz, "status_code", "?")))
+            except Exception as e:
+                log("watchdog: notatka NIEUDANA (conv %s): %r" % (conv_id, e))
         else:
             # W4: log NIEUDANEGO handoffu byl wczesniej TYLKO w galezi sukcesu — czesc
             # inboksow moglaby po cichu nie dzialac bez sladu w logach.

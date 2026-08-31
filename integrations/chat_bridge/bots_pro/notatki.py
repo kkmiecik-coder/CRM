@@ -82,18 +82,43 @@ def tresc_dla_agenta(powod, pozycje=None, dostawa=None, wycena=None, potwierdzen
     return "\n".join(linie)
 
 
+def kod_notatki_ok(odpowiedz):
+    """Czy Chatwoot PRZYJĄŁ notatkę (W2).
+
+    `cw_note` zwraca obiekt odpowiedzi `requests`, a nie bool — samo „nie rzuciło
+    wyjątku" NIC nie mówi o tym, czy notatka powstała. Sprawdzamy więc kod HTTP.
+    Brak czytelnego `status_code` traktujemy jako sukces: produkcyjny `cw_note`
+    zawsze zwraca odpowiedź `requests`, więc ta gałąź dotyczy wyłącznie atrap
+    w testach — i lepiej, żeby nie generowała fałszywych alarmów."""
+    kod = getattr(odpowiedz, "status_code", None)
+    if kod is None:
+        return True
+    return 200 <= kod < 300
+
+
 def wyslij_notatke(conv_id, tekst):
     """Wysyła notatkę. NIGDY nie rzuca — to ścieżka awaryjna, brak notatki nie
     może zablokować oddania rozmowy człowiekowi (ale MUSI być widoczny w logach,
     inaczej cichy brak notatki wygląda z zewnątrz jak jej obecność).
 
+    W2: sprawdzamy KOD HTTP, nie tylko brak wyjątku. Wcześniejsza wersja
+    meldowała sukces przy KAŻDYM kodzie, więc błędny albo wygasły
+    `BOT_PRO_CW_AGENT_TOKEN` (401) przechodził jako „notatka wysłana" — a
+    oznaczenie notatki w stanie tury blokowało wtedy ponowną próbę z
+    `notatka_stanu`. Zły token objawiał się w notatkach CISZĄ zamiast błędem.
+    `bots_pro/podsumowanie.py` wynik wysyłki sprawdza od U1 — tu jest tak samo.
+
     Udana notatka jest odnotowywana w stanie TURY (N7), żeby `notatka_stanu`
     nie dołożyła zaraz po niej drugiej, prawie identycznej. Zapis stanu tury
     nie może wywrócić wysyłki, która się już udała — stąd osobny `try`."""
     try:
-        cw_note(conv_id, tekst, token=BOT_PRO_CW_AGENT_TOKEN)
+        odpowiedz = cw_note(conv_id, tekst, token=BOT_PRO_CW_AGENT_TOKEN)
     except Exception as e:
         log("notatki: notatka dla agenta NIEUDANA (conv %s): %r" % (conv_id, e))
+        return False
+    if not kod_notatki_ok(odpowiedz):
+        log("notatki: notatka dla agenta ODRZUCONA przez Chatwoota (conv %s, HTTP %s) — "
+            "sprawdz BOT_PRO_CW_AGENT_TOKEN" % (conv_id, getattr(odpowiedz, "status_code", "?")))
         return False
     try:
         from bots_pro import stan
