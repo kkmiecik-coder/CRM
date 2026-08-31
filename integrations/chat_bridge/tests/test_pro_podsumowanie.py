@@ -18,9 +18,18 @@ stan.init_pro()
 
 def _zaladuj_atrape_wysylki(monkeypatch):
     """Podmienia bots_pro.wysylka w sys.modules — `from bots_pro import wysylka`
-    wewnątrz wyslij() znajdzie tę atrapę zamiast szukać nieistniejącego pliku."""
+    wewnątrz wyslij() znajdzie tę atrapę zamiast szukać nieistniejącego pliku.
+
+    `przygotuj` jest atrapą (tekst ma zostać W CAŁOŚCI, bez cięcia na części
+    i bez profilu kanału), ale `wolno_linkowac` delegujemy do PRAWDZIWEGO
+    modułu — od rundy napraw 3 podsumowanie pyta o profil kanału (zdanie
+    o wszystkich wariantach ma sens tylko tam, gdzie klient dostanie link do
+    wyceny), więc atrapa z własną, uproszczoną odpowiedzią mierzyłaby siebie,
+    nie `bots.channel_caps`."""
+    from bots_pro import wysylka as prawdziwa_wysylka
     modul = types.ModuleType("bots_pro.wysylka")
     modul.przygotuj = lambda tekst, persona: [tekst]
+    modul.wolno_linkowac = prawdziwa_wysylka.wolno_linkowac
     monkeypatch.setitem(sys.modules, "bots_pro.wysylka", modul)
 
 
@@ -157,6 +166,57 @@ class TestWyslijSzczesliwaSciezka:
         tekst = wyslane[0][1]
         assert "otwory: otwór na zlew 50x40 cm" in tekst
         assert "otwory: 1 szt." not in tekst
+
+    def test_przy_otworach_podsumowanie_mowi_ze_ich_koszt_nie_jest_wliczony(self, monkeypatch):
+        # N3 (naprawa po testach na zywym czacie): wyciecia SA w podsumowaniu,
+        # ich koszt NIE jest w cenie (pole `otwory` nigdy nie dochodzi do
+        # kalkulatora — patrz _POLA_OPISOWE w potwierdzenia.py), a podsumowanie
+        # o tym milczalo. Bot mowil prawde dopiero zapytany wprost. Klient
+        # potwierdzal wiec cene, ktora nie obejmowala tego, co widzial obok niej.
+        #
+        # UWAGA: to naprawa KOMUNIKATU, nie ceny. Faktyczne wliczenie wyciec do
+        # wyceny jest osobnym, wiekszym zadaniem.
+        _, wyslane = self._przygotuj(monkeypatch, 94012)
+        podsumowanie.wyslij()
+        tekst = wyslane[0][1]
+        assert "koszt wycięć nie jest wliczony w tę cenę" in tekst
+
+    def test_adnotacja_o_wycieciach_miesci_sie_w_zawezonej_regule_CENY(self):
+        """P2: adnotację składa KOD, więc reguła promptu jej nie dotyczy — ale
+        model widzi wysłane podsumowanie w historii i mógł tę frazę uogólnić na
+        całą wycenę. Sekcja CENY dopuszcza ją dziś wprost i oba brzmienia mają
+        zostać zgodne: gdyby ktoś przeredagował adnotację, ten test pokaże, że
+        zgoda w prompcie przestała do niej pasować."""
+        import re
+
+        from bots_pro import prompty
+        linia = podsumowanie._linia({"produkt": "blat", "dlugosc": 180,
+                                     "szerokosc": 60, "grubosc": 4, "ilosc": 1,
+                                     "otwory": ["otwór na zlew 50x40 cm"]})
+        assert "wycenia je konsultant" in linia
+        # Prompt jest w źródle zawijany do ~90 kolumn, więc szukana fraza potrafi
+        # mieć w środku znak nowej linii — porównujemy po normalizacji białych
+        # znaków, tak samo jak test_pro_prompty.py.
+        assert "wycięcia i otwory wycenia konsultant" in re.sub(r"\s+", " ", prompty.WYCENA)
+
+    def test_bez_otworow_podsumowanie_nie_wspomina_o_wycieciach(self, monkeypatch):
+        # Kontrola negatywna: adnotacja wisi przy otworach, nie przy kazdej
+        # pozycji — wzmianka o wycieciach w pozycji, ktora ich nie ma, byloby
+        # zaproszeniem do rozmowy, ktorej prompt zabrania zaczynac (CZEGO NIE
+        # WOLNO: nie wspominaj o wycieciach z wlasnej inicjatywy).
+        stan.ustaw_kontekst(94013)
+        poz = _pozycja()
+        poz.pop("otwory")
+        monkeypatch.setattr(stan, "pozycje", lambda: [poz])
+        monkeypatch.setattr(podsumowanie.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(podsumowanie.crm_calc, "calculate", lambda p, o: {
+            "ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}})
+        _zaladuj_atrape_wysylki(monkeypatch)
+        wyslane = []
+        monkeypatch.setattr(podsumowanie, "cw_agent_reply",
+                            lambda conv, tekst, token=None: wyslane.append(tekst) or True)
+        podsumowanie.wyslij()
+        assert "wycięć" not in wyslane[0]
 
     def test_podsumowanie_pokazuje_konkretny_kolor_polysk_z_katalogu_finishing_id(self, monkeypatch):
         # Domkniecie resztki z Task 3: finishing_id (KONKRETNY wariant/polysk) nie byl
@@ -585,3 +645,214 @@ class TestWyslijNieudanaWysylka:
         assert stan.podsumowanie_wyslane() is True
         assert stan.podsumowanie_nieudane() is False
         assert self._oczekiwany_podpis_w_bazie(94025) == wynik["podpis"]
+
+
+class TestP1WszystkieWariantyWWycenie:
+    """Runda napraw 3, P1. Rozstrzygnięcie właściciela: „czasem klient nie wie
+    co wybrać, więc nie możemy go zmuszać do wyboru, wtedy proponujemy szerszy
+    zakres, czyli wszystkie warianty".
+
+    Podsumowanie pokazuje cenę JEDNEGO wariantu — tego przyjętego do rachunku
+    — a strona wyceny pokazuje wszystkie osiem z cenami (`_products_with_all_variants`
+    w modules/calculator/routers/bot_api.py zapisuje komplet kodów, ceny dokłada
+    `_inject_backend_prices` w quote_service.py, a client_quote.js renderuje je
+    razem z powodem niedostępności). Klient ma się o tym dowiedzieć zdaniem,
+    które składa KOD — dokładnie z tego powodu, dla którego kod składa adnotację
+    o wycięciach: żeby stało przy KAŻDYM podsumowaniu, a nie wtedy, gdy model
+    akurat sobie o nim przypomni.
+
+    Zdanie NIE niesie żadnej kwoty — porównanie jest na stronie wyceny, nie
+    w czacie, więc rejestr G1 nie rośnie ani o jedną pozycję."""
+
+    def _wyslij(self, monkeypatch, conv_id, persona="pro"):
+        stan.ustaw_kontekst(conv_id, persona_tury=persona)
+        monkeypatch.setattr(stan, "pozycje", lambda: [_pozycja()])
+        monkeypatch.setattr(podsumowanie.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(podsumowanie.crm_calc, "calculate", lambda p, o: {
+            "ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}})
+        _zaladuj_atrape_wysylki(monkeypatch)
+        wyslane = []
+        monkeypatch.setattr(podsumowanie, "cw_agent_reply",
+                            lambda cid, tekst, token=None: wyslane.append(tekst) or True)
+        podsumowanie.wyslij()
+        return wyslane[0]
+
+    def test_podsumowanie_mowi_o_cenach_wszystkich_wariantow(self, monkeypatch):
+        tekst = self._wyslij(monkeypatch, 94051)
+        assert podsumowanie.ZDANIE_O_WARIANTACH.strip() in tekst
+
+    def test_zdanie_wymienia_gatunki_z_oferty(self, monkeypatch):
+        tekst = self._wyslij(monkeypatch, 94052)
+        for gatunek in ("dębu", "jesionu", "buku"):
+            assert gatunek in tekst, gatunek
+
+    def test_zdanie_nie_wnosi_do_rozmowy_zadnej_kwoty(self):
+        # Cała istota rozstrzygnięcia P1: klient widzi porównanie NA STRONIE
+        # wyceny, nie w czacie — więc rejestr G1 (i jego tolerancja
+        # zaokrąglenia do pełnych złotych) nie rośnie ani o jedną kwotę.
+        from bots_pro import guardraile
+        assert guardraile.znajdz_kwoty(podsumowanie.ZDANIE_O_WARIANTACH) == set()
+        assert guardraile.znajdz_gole_kwoty(podsumowanie.ZDANIE_O_WARIANTACH) == set()
+
+    def test_zdanie_nie_zmienia_rejestru_kwot(self, monkeypatch):
+        self._wyslij(monkeypatch, 94053)
+        assert stan.znane_kwoty() == {"685.40", "843.04"}
+
+    def test_na_kanale_bez_linkow_zdania_nie_ma(self, monkeypatch):
+        # Allegro: linku do wyceny klient NIE dostanie (regulamin), więc
+        # obietnica „zobaczy Pan wszystkie warianty" byłaby obietnicą bez
+        # pokrycia — czyli dokładnie tym błędem, który ta runda naprawia.
+        tekst = self._wyslij(monkeypatch, 94054, persona="allegro")
+        assert podsumowanie.ZDANIE_O_WARIANTACH.strip() not in tekst
+
+    def test_na_olx_zdanie_jest_bo_link_wolno_wyslac(self, monkeypatch):
+        tekst = self._wyslij(monkeypatch, 94055, persona="olx")
+        assert podsumowanie.ZDANIE_O_WARIANTACH.strip() in tekst
+
+    def test_zdanie_stoi_przed_pytaniem_o_zgode(self, monkeypatch):
+        # Kolejność jest treścią: klient ma przeczytać o wariantach ZANIM
+        # odpowie „czy wszystko się zgadza".
+        tekst = self._wyslij(monkeypatch, 94056)
+        assert tekst.index(podsumowanie.ZDANIE_O_WARIANTACH.strip()) < \
+            tekst.index("Czy wszystko się zgadza?")
+
+    def test_zdanie_i_regula_promptu_nie_rozjezdzaja_sie(self):
+        # SONDA spojnosci (P1): to samo zdanie o wszystkich wariantach mowi
+        # KOD (tutaj, przy kazdym podsumowaniu) i PROMPT. Przeredagowanie
+        # jednego bez drugiego dawaloby klientowi dwie rozne obietnice
+        # w jednej rozmowie.
+        #
+        # RUNDA NAPRAW 6 (P4, sprzecznosc S4): strona PROMPTU to juz nie
+        # niebramkowana sekcja PORÓWNANIE, tylko blok NIEZDECYDOWANY KLIENT —
+        # bramkowany DOKLADNIE tym samym predykatem (`wysylka.wolno_linkowac`)
+        # co to zdanie. Sonda jest przez to MOCNIEJSZA niz byla: sprawdza, ze
+        # obie strony obietnicy znikaja i pojawiaja sie razem, a nie tylko ze
+        # brzmia tak samo.
+        import re as _re
+
+        from bots_pro import prompty
+        regula = _re.sub(r"\s+", " ", prompty.blok_wyboru_w_wycenie(True))
+        zdanie = _re.sub(r"\s+", " ", podsumowanie.ZDANIE_O_WARIANTACH)
+        assert "ceny wszystkich wariantów drewna" in regula
+        assert "ceny wszystkich wariantów drewna" in zdanie
+        # Kontrola negatywna: na kanale bez linku nie ma ANI zdania w kodzie
+        # (testy wyzej), ANI reguly w prompcie.
+        assert prompty.blok_wyboru_w_wycenie(False) == ""
+
+    def test_zdanie_nie_wchodzi_do_podpisu_potwierdzenia(self, monkeypatch):
+        # `potwierdzenia.podpis` liczy odcisk z pozycji i dostawy, nie z tekstu
+        # — dopisek nie ma prawa unieważnić potwierdzenia, bo nie zmienia
+        # niczego, co klient potwierdza.
+        stan.ustaw_kontekst(94057)
+        przed = potwierdzenia.podpis([_pozycja()], {})
+        self._wyslij(monkeypatch, 94057)
+        assert potwierdzenia.podpis([_pozycja()], {}) == przed
+
+
+class TestR6NazwaProduktuNiePrzemycaKsztaltu:
+    """Runda napraw 6, P5 — recenzja §5/U-N5 (pochodna U2).
+
+    Sonda recenzenta:
+
+        _linia({"produkt": "Blat okrągły dębowy", "dlugosc": 120,
+                "szerokosc": 120, ...})
+        -> „• Blat okrągły dębowy Dąb lita A/B, 120x120x4 cm, ..."
+
+    Nazwa produktu szła do klienta DOSŁOWNIE z pola tekstowego wypełnianego
+    przez model, a `podsumowanie.py` nie znało słowa „kształt" ani razu.
+    Reguła KSZTAŁT („NIE wyceniaj i NIE nazywaj kształtu w podsumowaniu") była
+    więc niesprawdzalna kodem — a kwota, która stoi obok takiej nazwy, jest
+    policzona jak prostokąt o tych samych wymiarach (⌀120 to 1,13 m2, kwadrat
+    120x120 to 1,44 m2 — 27% materiału bez pokrycia).
+
+    To NIE jest walidator nazw i nie ma nim być. To jedna zamknięta lista słów
+    kształtu i jedna bramka: podsumowanie z takim słowem w nazwie NIE wychodzi
+    do klienta, model dostaje jednoznaczny błąd odsyłający do reguły KSZTAŁT,
+    a trafienie zostaje w logu — czyli sytuacja przestaje przechodzić po cichu.
+    Kierunek jest ten sam co przy `wyslij_obraz` i `policz_wycene`: bramka
+    odmawia, zamiast wysyłać klientowi coś, czego nie umiemy policzyć."""
+
+    def _pozycja_o_nazwie(self, nazwa):
+        return dict(_pozycja(), produkt=nazwa)
+
+    def _sprobuj_wyslac(self, monkeypatch, conv_id, nazwa):
+        stan.ustaw_kontekst(conv_id)
+        monkeypatch.setattr(stan, "pozycje", lambda: [self._pozycja_o_nazwie(nazwa)])
+        monkeypatch.setattr(podsumowanie.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(podsumowanie.crm_calc, "calculate", lambda p, o: {
+            "ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}})
+        _zaladuj_atrape_wysylki(monkeypatch)
+        wyslane = []
+        monkeypatch.setattr(podsumowanie, "cw_agent_reply",
+                            lambda cid, tekst, token=None: wyslane.append(tekst) or True)
+        return podsumowanie.wyslij(), wyslane
+
+    def test_ksztalt_w_nazwie_nie_dociera_do_klienta(self, monkeypatch):
+        wynik, wyslane = self._sprobuj_wyslac(monkeypatch, 94061, "Blat okrągły dębowy")
+        assert wynik["ok"] is False
+        assert wynik["error"] == "KSZTALT_W_NAZWIE"
+        assert wyslane == []
+
+    def test_blad_odsyla_model_do_reguly_ksztalt(self, monkeypatch):
+        wynik, _ = self._sprobuj_wyslac(monkeypatch, 94062, "Blat okrągły dębowy")
+        assert "KSZTAŁT" in wynik["wskazowka"]
+        assert "oddaj_czlowiekowi" in wynik["wskazowka"]
+
+    def test_podpis_potwierdzenia_NIE_zostaje_zapisany(self, monkeypatch):
+        # Kluczowe dla I2: gdyby bramka odmawiała PO zapisaniu podpisu, klient
+        # mógłby w kolejnej turze „potwierdzić" podsumowanie, którego nigdy nie
+        # zobaczył — dokładnie to obejście, które zamknęła recenzja U1.
+        self._sprobuj_wyslac(monkeypatch, 94063, "Blat okrągły dębowy")
+        assert not stan.podsumowanie_wyslane()
+
+    def test_lapie_kazdy_ksztalt_z_reguly_KSZTALT(self, monkeypatch):
+        nazwy = ("Blat okrągły", "Blat owalny", "Blat w kształcie litery L",
+                 "Blat z łukiem", "Blat nieregularny", "Blat półokrągły",
+                 "Blat eliptyczny", "Blat L-kształtny")
+        for numer, nazwa in enumerate(nazwy):
+            wynik, wyslane = self._sprobuj_wyslac(monkeypatch, 94070 + numer, nazwa)
+            assert wynik.get("error") == "KSZTALT_W_NAZWIE", nazwa
+            assert wyslane == [], nazwa
+
+    def test_dziala_bez_diakrytykow(self, monkeypatch):
+        # Kanały marketplace potrafią rozebrać polskie znaki (sanitize.py),
+        # a nazwę pisze model — nie zakładamy, że zawsze z ogonkami.
+        wynik, _ = self._sprobuj_wyslac(monkeypatch, 94080, "Blat okragly debowy")
+        assert wynik.get("error") == "KSZTALT_W_NAZWIE"
+
+    def test_zwykla_nazwa_przechodzi(self, monkeypatch):
+        # Kontrola negatywna — bramka ma być wąska. Prostokątne blaty to
+        # cały normalny ruch i żaden z nich nie może się o nią potknąć.
+        for numer, nazwa in enumerate(("Blat", "blat kuchenny dębowy",
+                                       "Parapet jesionowy", "Stopnie schodowe",
+                                       "Blat roboczy 180x60")):
+            wynik, wyslane = self._sprobuj_wyslac(monkeypatch, 94090 + numer, nazwa)
+            assert wynik["ok"] is True, nazwa
+            assert wyslane, nazwa
+
+    def test_slowo_ksztaltu_w_INNYM_polu_nie_blokuje_podsumowania(self, monkeypatch):
+        # Bramka patrzy WYŁĄCZNIE na nazwę produktu. Okrągły otwór pod baterię
+        # w prostokątnym blacie jest normalną, poprawną pozycją — i jego opis
+        # ma dalej dochodzić do klienta razem z adnotacją o kosztach wycięć.
+        stan.ustaw_kontekst(94095)
+        pozycja = dict(_pozycja(), produkt="Blat kuchenny",
+                       otwory=["okrągły otwór pod baterię fi 35"])
+        monkeypatch.setattr(stan, "pozycje", lambda: [pozycja])
+        monkeypatch.setattr(podsumowanie.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(podsumowanie.crm_calc, "calculate", lambda p, o: {
+            "ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}})
+        _zaladuj_atrape_wysylki(monkeypatch)
+        wyslane = []
+        monkeypatch.setattr(podsumowanie, "cw_agent_reply",
+                            lambda cid, tekst, token=None: wyslane.append(tekst) or True)
+        wynik = podsumowanie.wyslij()
+        assert wynik["ok"] is True
+        assert "okrągły otwór pod baterię" in wyslane[0]
+
+    def test_bramka_zostawia_slad_w_logu(self, monkeypatch):
+        # „Nie przechodzi po cichu": trafienie ma dać się policzyć na skrzynce
+        # testowej tak samo jak trafienia guardraila G3.
+        linie = []
+        monkeypatch.setattr(podsumowanie, "log", lambda tekst: linie.append(tekst))
+        self._sprobuj_wyslac(monkeypatch, 94096, "Blat okrągły dębowy")
+        assert any("ksztalt w nazwie" in linia for linia in linie), linie

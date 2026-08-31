@@ -1130,6 +1130,30 @@ def build_client_finishing_entry(detail):
     }
 
 
+def bezpieczny_link_zamowienia(adres):
+    """Do href wpuszczamy wyłącznie http/https. Poza tym None.
+
+    Ta sama biała lista, którą ma modal zamawiania (client_accept_modal.js,
+    bezpiecznyLinkZamowienia) — szablon obsługuje ścieżkę CZĘSTSZĄ: każde
+    wejście na zamówioną wycenę, także po odświeżeniu strony. Wartość
+    pochodzi z odpowiedzi BaseLinkera, więc ryzyko jest niskie, ale
+    „javascript:..." w href wykonałoby się po kliknięciu, a jedno miejsce
+    ze sprawdzeniem i drugie bez to zaproszenie do pomyłki.
+
+    Świadomie ostrzej niż wersja w JS: wymagamy schematu wprost, więc adres
+    względny i protokołowo-względny („//gdzies") też odpadają. BaseLinker
+    zwraca w order_page pełny adres, więc nic poprawnego na tym nie tracimy.
+    """
+    if not adres:
+        return None
+    schemat = str(adres).split(':', 1)[0].strip().lower() if ':' in str(adres) else ''
+    if schemat in ('http', 'https'):
+        return adres
+    logger.warning("[client_quote_view] Odrzucony link do zamówienia o schemacie %r",
+                   schemat)
+    return None
+
+
 @quotes_bp.route("/c/<token>")
 def client_quote_view(token):
     """Widok strony klienta z redesignem"""
@@ -1162,11 +1186,42 @@ def client_quote_view(token):
             logger.warning(f"[client_quote_view] Nie udało się policzyć kosztów dla {quote_number}: {e}")
             costs = None
 
+        # Stany przycisku zamawiania. Sam `is_accepted` nie wystarcza: wycena
+        # zaakceptowana, ale jeszcze niezamówiona, dostawała wyłącznie
+        # zablokowany przycisk „Wycena zaakceptowana" i klient nie miał czym
+        # zamówić — dokładnie tu utknął właściciel.
+        ma_zamowienie = bool(quote.base_linker_order_id)
+        # is_client_editable = wycena jeszcze nieprzyjęta; endpoint /order
+        # zaakceptuje ją po drodze, więc zamówić się da. Wycena już przyjęta
+        # idzie prosto do zamówienia i decyduje o niej ta sama reguła
+        # kwalifikacji, co po stronie serwera (jedno źródło prawdy).
+        mozna_zamowic = (not ma_zamowienie) and bool(
+            quote.is_client_editable or quote.is_eligible_for_order())
+
+        # Po próbie, której losu nie znamy — albo która właśnie trwa — przycisku
+        # nie ma. Blokada w JavaScripcie znikała przy odświeżeniu strony —
+        # a klient, który przeczytał „nie wiemy", odruchowo odświeża. Pytamy
+        # bazę tylko wtedy, gdy przycisk faktycznie by się pokazał.
+        # Czytamy znacznik z wiersza wyceny, a nie sam wpis w logu: wpis
+        # powstaje w obsłudze wyjątku, więc przy niesprawnej bazie nie powstaje
+        # wcale, a znacznik jest zapisany PRZED wywołaniem BaseLinkera.
+        from modules.quotes.services.checkout_service import (
+            wisi_nierozstrzygnieta_proba)
+        niepewna_proba = bool(mozna_zamowic
+                              and wisi_nierozstrzygnieta_proba(quote))
+        if niepewna_proba:
+            mozna_zamowic = False
+
         return render_template("quotes/templates/client_quote.html",
                              quote=quote,
                              quote_number=quote_number,
                              token=token,
                              is_accepted=not quote.is_client_editable,
+                             ma_zamowienie=ma_zamowienie,
+                             mozna_zamowic=mozna_zamowic,
+                             niepewna_proba=niepewna_proba,
+                             link_zamowienia=bezpieczny_link_zamowienia(
+                                 quote.baselinker_order_page),
                              costs=costs,
                              current_year=current_year)
         
@@ -1998,6 +2053,45 @@ def send_user_acceptance_email_to_client(quote, accepting_user):
         print(f"[send_user_acceptance_email_to_client] Błąd wysyłki maila do klienta: {e}", file=sys.stderr)
         raise
 
+def dopasowanie_danych_klienta(client, email, phone):
+    """Zwraca (email_pasuje, telefon_pasuje) dla danych podanych przez klienta.
+
+    Wydzielone z client_accept_quote_with_data, żeby checkout używał DOKŁADNIE
+    tej samej reguły tożsamości i żeby dała się przetestować bez Flaska.
+
+    Świadomie zwracamy PARĘ, a nie jeden bool: akceptacja używa obu flag osobno
+    (zgodność telefonu pozwala uzupełnić telefon, ale NIE nadpisać adresu email,
+    na który idzie mail z akceptacją). Sklejenie ich otwierałoby przejęcie
+    adresu przez kogoś, kto zna tylko numer telefonu.
+    """
+    client_email = (client.email or "").lower().strip()
+    client_phone_digits = re.sub(r'[^\d]', '', client.phone or '')
+    input_email = (email or "").lower().strip()
+    input_phone_digits = re.sub(r'[^\d]', '', phone or '')
+
+    # Usuń +48 z początku jeśli istnieje
+    if input_phone_digits.startswith('48') and len(input_phone_digits) > 9:
+        input_phone_digits = input_phone_digits[2:]
+    if client_phone_digits.startswith('48') and len(client_phone_digits) > 9:
+        client_phone_digits = client_phone_digits[2:]
+
+    email_matches = bool(client_email) and input_email == client_email
+    phone_matches = bool(
+        client_phone_digits and input_phone_digits and
+        len(input_phone_digits) >= 9 and
+        (input_phone_digits == client_phone_digits or
+         input_phone_digits in client_phone_digits or
+         client_phone_digits in input_phone_digits)
+    )
+    return email_matches, phone_matches
+
+
+def dane_pasuja_do_klienta(client, email, phone):
+    """Bramka tożsamości: email LUB telefon musi zgadzać się z klientem wyceny."""
+    email_matches, phone_matches = dopasowanie_danych_klienta(client, email, phone)
+    return email_matches or phone_matches
+
+
 @quotes_bp.route("/api/client/quote/<token>/accept-with-data", methods=["POST"])
 def client_accept_quote_with_data(token):
     """Akceptacja wyceny przez klienta z pełnymi danymi - ROZSZERZONA WERSJA"""
@@ -2034,8 +2128,15 @@ def client_accept_quote_with_data(token):
         if len(phone_digits) < 9 or len(phone_digits) > 15:
             return jsonify({"error": "Nieprawidłowy numer telefonu"}), 400
 
-        # Pobierz dodatkowe dane z formularza
-        is_self_pickup = data.get('is_self_pickup', False)
+        # Pobierz dodatkowe dane z formularza.
+        # Odbiór osobisty czytamy TĄ SAMĄ funkcją co checkout (czy_odbior_osobisty),
+        # bo obie ścieżki idą z jednego formularza i muszą rozumieć go tak samo.
+        # Dopóki tu było data.get('is_self_pickup', False), napis 'false' był
+        # PRAWDĄ: akceptacja zapisywała klientowi na stałe adres „ODBIÓR
+        # OSOBISTY", checkout czytał ściśle („kurier") i odmawiał — a odmowa
+        # dotyczyła potem KAŻDEJ kolejnej, uczciwej próby, bo znacznik został
+        # na współdzielonym rekordzie klienta.
+        is_self_pickup = czy_odbior_osobisty(data)
         wants_invoice = data.get('wants_invoice', False)
         invoice_nip = data.get('invoice_nip', '').strip() if wants_invoice else None
 
@@ -2046,25 +2147,10 @@ def client_accept_quote_with_data(token):
         if not client:
             return jsonify({"error": "Brak przypisanego klienta do wyceny"}), 400
 
-        # Normalizacja danych do porównania
-        client_email = (client.email or "").lower().strip()
-        client_phone_digits = re.sub(r'[^\d]', '', client.phone or '')
-        input_email = email.lower().strip()
-        input_phone_digits = re.sub(r'[^\d]', '', phone)
-
-        # Usuń +48 z początku jeśli istnieje
-        if input_phone_digits.startswith('48') and len(input_phone_digits) > 9:
-            input_phone_digits = input_phone_digits[2:]
-        if client_phone_digits.startswith('48') and len(client_phone_digits) > 9:
-            client_phone_digits = client_phone_digits[2:]
-
-        # Sprawdź zgodność email LUB telefonu
-        email_matches = client_email and input_email == client_email
-        phone_matches = (client_phone_digits and input_phone_digits and 
-                        len(input_phone_digits) >= 9 and
-                        (input_phone_digits == client_phone_digits or 
-                         input_phone_digits in client_phone_digits or 
-                         client_phone_digits in input_phone_digits))
+        # Zgodność email LUB telefonu — jedna reguła wspólna z checkoutem
+        # (dopasowanie_danych_klienta wyżej w tym pliku). Obie flagi są potrzebne
+        # osobno: niżej decydują, które pole klienta wolno uzupełnić.
+        email_matches, phone_matches = dopasowanie_danych_klienta(client, email, phone)
 
         if not (email_matches or phone_matches):
             return jsonify({
@@ -2087,6 +2173,17 @@ def client_accept_quote_with_data(token):
             client.phone = normalized_phone
         
         # === DANE DOSTAWY ===
+        # UWAGA (stan zastany, świadomie nietknięty). Bramka wyżej przepuszcza
+        # na zgodność SAMEGO telefonu, a poniżej adres dostawy bierze się
+        # w całości z żądania. Adres e-mail klienta jest broniony osobną flagą
+        # (email_matches), adres dostawy — nie, bo klient wpisuje go w modalu
+        # i inaczej być nie może.
+        # Co się zmieniło: dotąd zgodność samego telefonu pozwalała najwyżej
+        # OZNACZYĆ wycenę jako zaakceptowaną. Odkąd ta sama ścieżka tworzy
+        # zamówienie w BaseLinkerze, pozwala WYSŁAĆ TOWAR pod wskazany adres.
+        # Ryzyko zależy więc od jakości danych w clients.phone — decyzja
+        # właściciela, osobny tor (patrz też dopasowanie przez podciąg
+        # w dopasowanie_danych_klienta).
         if not is_self_pickup:
             client.delivery_name = data.get('delivery_name', '').strip()
             client.delivery_company = data.get('delivery_company', '').strip()
@@ -2188,19 +2285,348 @@ def client_accept_quote_with_data(token):
         db.session.rollback()
         return jsonify({"error": "Wystąpił błąd podczas przetwarzania żądania"}), 500
 
+KONTAKT_WOODPOWER = "biuro@woodpower.pl lub telefonicznie +48 690 002 109"
+
+
+def komunikat_bledu_zamowienia(numer_wyceny, niepewne, zamowienie_utworzone=False):
+    """Zdanie dla klienta po nieudanej próbie złożenia zamówienia.
+
+    Rozstrzyga to, co klient naprawdę chce wiedzieć: czy zamówienie powstało.
+
+    Bierze SAM NUMER wyceny, a nie obiekt: w tych ścieżkach sesja bazy bywa po
+    rollbacku i sięgnięcie po atrybut wyceny potrafi wystrzelić kolejnym błędem
+    — akurat w miejscu, w którym mamy klientowi powiedzieć prawdę.
+
+    zamowienie_utworzone=True — addOrder potwierdził, zamówienie ISTNIEJE, padł
+    dopiero zapis po naszej stronie. Nie wolno powiedzieć ani „nie powstało",
+    ani „nie wiemy": mówimy wprost, że zamówienie jest, i prosimy o kontakt.
+
+    niepewne=False — żądanie nie wyszło albo BaseLinker je odrzucił: zamówienia
+    NA PEWNO nie ma i powtórka jest bezpieczna.
+
+    niepewne=True — łączność padła w trakcie: zamówienie mogło powstać po
+    stronie BaseLinkera, a my nie mamy jak tego stwierdzić (numer zamówienia
+    nie zapisał się na wycenie). Komunikat NIE MOŻE wtedy twierdzić ani
+    „zamówiliśmy", ani „nie zamówiliśmy" — i musi odwieść od ponowienia,
+    bo drugie kliknięcie to drugie REALNE zamówienie w BaseLinkerze.
+    """
+    numer = numer_wyceny or "-"
+    if zamowienie_utworzone:
+        return (
+            "Twoje zamówienie zostało złożone, ale nie udało nam się zapisać go "
+            "do końca po naszej stronie. Prosimy: nie składaj go ponownie. "
+            "Skontaktuj się z nami — {kontakt} — i podaj numer wyceny {numer}. "
+            "Prześlemy potwierdzenie i dane do płatności.".format(
+                kontakt=KONTAKT_WOODPOWER, numer=numer)
+        )
+    if niepewne:
+        return (
+            "Straciliśmy łączność z systemem zamówień i nie wiemy, czy Twoje "
+            "zamówienie zostało przyjęte. Prosimy: nie składaj go ponownie. "
+            "Skontaktuj się z nami — {kontakt} — i podaj numer wyceny {numer}. "
+            "Sprawdzimy to i potwierdzimy.".format(kontakt=KONTAKT_WOODPOWER, numer=numer)
+        )
+    return (
+        "Nie udało się złożyć zamówienia — NIE zostało złożone. Spróbuj ponownie "
+        "za kilka minut. Jeśli to nie pomoże, skontaktuj się z nami — {kontakt} — "
+        "i podaj numer wyceny {numer}.".format(kontakt=KONTAKT_WOODPOWER, numer=numer)
+    )
+
+
+def czy_odbior_osobisty(dane):
+    """Czy klient zaznaczył odbiór osobisty. Czyta ŚCIŚLE.
+
+    Front-end wysyła `.checked`, czyli prawdziwy bool, ale zwykłe
+    bool(dane.get(...)) uznaje też ciągi 'false' i '0' za prawdę. Dopóki
+    sprzeczny wybór kończył się cichym rozstrzygnięciem, kosztowało to
+    najwyżej dziwne zamówienie z ręcznie sklejonego żądania; odkąd
+    sprzeczność bywa odmową, ten sam ciąg potrafi zablokować poprawne
+    zamówienie albo obciążyć klienta kurierem.
+    """
+    wartosc = dane.get("is_self_pickup")
+    if isinstance(wartosc, str):
+        return wartosc.strip().lower() in ('true', '1', 'yes', 'on', 'tak')
+    return bool(wartosc)
+
+
+def dane_dostawy_z_zadania(dane):
+    """Pola adresu dostawy z żądania zamówienia — surowe, bez interpretacji.
+
+    Te same nazwy pól, których używa akceptacja wyceny
+    (client_accept_quote_with_data). Rozstrzyganie, czy wolno ich użyć, siedzi
+    w jednym miejscu — checkout_config.rozstrzygnij_odbior_osobisty — a nie tu.
+    """
+    return {klucz: dane.get(klucz) for klucz in
+            ('delivery_name', 'delivery_company', 'delivery_address',
+             'delivery_postcode', 'delivery_city', 'delivery_region')}
+
+
+@quotes_bp.route("/api/client/quote/<token>/order", methods=["POST"])
+def client_place_order(token):
+    """Cienka obudowa na _client_place_order — gwarantuje odpowiedź w JSON-ie.
+
+    Każde 500 bez JSON-a (strona błędu Flaska, proxy) modal czyta jako „nie
+    wiemy, czy zamówienie zostało złożone" i pokazuje klientowi ekran bez
+    możliwości powtórki — czyli najbardziej niepokojący komunikat w całej
+    ścieżce, w sytuacji, w której do BaseLinkera nie poszło NIC.
+
+    Wolno tu twierdzić „NIE zostało złożone", bo wszystko, co może rzucić
+    wyjątkiem, dzieje się PRZED wywołaniem BaseLinkera: samo
+    zloz_zamowienie_klienta wyjątków nie propaguje (ma własne try/except po
+    obu stronach wywołania).
+    """
+    try:
+        return _client_place_order(token)
+    except Exception as blad:
+        logger.exception("[client_place_order] Nieoczekiwany błąd przed "
+                         "wywołaniem BaseLinkera: %s", blad)
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        return jsonify({
+            "error": komunikat_bledu_zamowienia(None, niepewne=False),
+            "niepewne": False,
+            "zamowienie_utworzone": False,
+        }), 503
+
+
+def _client_place_order(token):
+    """Klient składa zamówienie ze strony wyceny.
+
+    Akceptacja wyceny (dane klienta, status, maile) idzie tą samą ścieżką co
+    /accept-with-data; następnie tworzymy zamówienie w BaseLinkerze i zwracamy
+    link do strony zamówienia. Idempotencja siedzi w checkout_service — tu
+    NIE dokładamy własnej, żeby nie było dwóch reguł na jedno zamówienie.
+    """
+    from modules.quotes.services.checkout_config import ID_ZRODLA_DEBUS
+    from modules.quotes.services.checkout_service import zloz_zamowienie_klienta
+
+    data = request.get_json(silent=True) or {}
+
+    if not data.get("akceptacja_regulaminu"):
+        return jsonify({"error": "Wymagana akceptacja warunków zamówienia"}), 400
+
+    quote = Quote.query.filter_by(public_token=token).first()
+    if not quote:
+        return jsonify({"error": "Nie znaleziono wyceny"}), 404
+
+    # Numer wyceny czytamy TERAZ, dopóki sesja bazy jest na pewno zdrowa —
+    # ścieżki błędu niżej bywają wołane po rollbacku i wtedy odczyt atrybutu
+    # z wyceny potrafi rzucić kolejnym wyjątkiem.
+    numer_wyceny = quote.quote_number
+
+    client = quote.client
+    if not client:
+        return jsonify({"error": "Brak przypisanego klienta do wyceny"}), 400
+
+    email = (data.get("email") or "").strip()
+    phone = (data.get("phone") or "").strip()
+    if not dane_pasuja_do_klienta(client, email, phone):
+        return jsonify({
+            "error": "Podane dane nie pasują do danych przypisanych do tej wyceny. "
+                     "Sprawdź email lub numer telefonu."
+        }), 403
+
+    # Konfigurację sprawdzamy PRZED akceptacją. Gdyby szła po niej, brak źródła
+    # zostawiałby wycenę zaakceptowaną (z mailami do klienta i handlowca), ale
+    # bez zamówienia — czyli w stanie, w który klient sam się wepchnął, a nie
+    # w takim, o który prosił.
+    # Szukamy po baselinker_id, a NIE po nazwie: nazwa źródła jest polem
+    # redagowalnym w panelu BaseLinkera, więc wiązanie się z nią znaczyło, że
+    # przemianowanie źródła kładzie cały checkout. Nie filtrujemy też po
+    # is_active — to flaga widoczności na listach w panelu CRM, a nie
+    # włącznik składania zamówień.
+    zrodlo = BaselinkerConfig.query.filter_by(
+        config_type="order_source", baselinker_id=ID_ZRODLA_DEBUS).first()
+    if not zrodlo:
+        logger.error("[client_place_order] Brak źródła zamówień o baselinker_id=%s "
+                     "w baselinker_config — nie wykonała się migracja?", ID_ZRODLA_DEBUS)
+        return jsonify({
+            "error": komunikat_bledu_zamowienia(numer_wyceny, niepewne=False),
+            "niepewne": False,
+            "zamowienie_utworzone": False,
+            "quote_number": numer_wyceny,
+        }), 503
+
+    # Kwalifikacja — również PRZED akceptacją, z tego samego powodu co źródło.
+    # Pełnego is_eligible_for_order() nie da się tu wywołać: wymaga statusu 3,
+    # który nadaje dopiero akceptacja. Sprawdzamy więc te warunki, których
+    # akceptacja NIE zmienia (zaznaczone pozycje, klient, dane kontaktowe) —
+    # bez tego wycena bez pozycji zostawała zaakceptowana wraz z mailami do
+    # klienta i handlowca, a klient zaraz potem czytał, że zamówić się nie da.
+    # Wycena, która ma już zamówienie, celowo NIE jest tu odrzucana: to
+    # powtórka, którą checkout_service obsługuje jako duplikat.
+    if not quote.base_linker_order_id and not quote.ma_dane_do_zamowienia():
+        logger.warning("[client_place_order] Wycena %s nie kwalifikuje się do "
+                       "zamówienia — odmowa przed akceptacją", numer_wyceny)
+        return jsonify({
+            "error": "Tej wyceny nie można zamówić przez stronę. Skontaktuj się "
+                     "z nami — {kontakt} — i podaj numer wyceny {numer}.".format(
+                         kontakt=KONTAKT_WOODPOWER, numer=numer_wyceny or "-"),
+            "niepewne": False,
+            "zamowienie_utworzone": False,
+            "quote_number": numer_wyceny,
+        }), 400
+
+    # Akceptacja jest warunkiem kwalifikacji (status_id == 3). Gdy wycena jest
+    # jeszcze edytowalna, przeprowadzamy ją tą samą drogą co /accept-with-data
+    # — łącznie z zapisem danych klienta i mailami. Wycena zaakceptowana
+    # wcześniej idzie prosto do zamówienia.
+    blad_akceptacji = None
+    if quote.is_client_editable:
+        odpowiedz_akceptacji = client_accept_quote_with_data(token)
+        if isinstance(odpowiedz_akceptacji, tuple):
+            kod = odpowiedz_akceptacji[1]
+        else:
+            kod = getattr(odpowiedz_akceptacji, 'status_code', 200)
+        if kod != 200:
+            # Nie odsyłamy błędu od razu. Przy podwójnym kliknięciu równoległe
+            # żądanie mogło zdążyć zaakceptować wycenę i akceptacja odbija się
+            # wtedy z 400 „już zaakceptowana", choć zamówienie jest jak najbardziej
+            # na miejscu. O tym, czy wycena nadaje się do zamówienia, rozstrzyga
+            # jedno miejsce — guard w checkout_service, czytający stan pod blokadą.
+            # Jeśli powie NIE, oddajemy klientowi konkretny błąd akceptacji
+            # (np. „Email jest wymagany") zamiast ogólnika.
+            blad_akceptacji = odpowiedz_akceptacji
+
+    # Konto bota może nie istnieć w bazie (BOT_USER_ID=0 lub nieustawione).
+    # created_by w logu BaseLinkera jest nullable, więc zamiast łamać FK
+    # zostawiamy None — tak samo jak /api/bot (bot_api.py:226-231).
+    bot_user_id = current_app.config.get("BOT_USER_ID")
+    if bot_user_id and not User.query.get(bot_user_id):
+        bot_user_id = None
+
+    wynik = zloz_zamowienie_klienta(
+        quote,
+        order_source_id=zrodlo.baselinker_id,
+        bot_user_id=bot_user_id,
+        # Wybór dostawy z tego samego formularza, z którego czyta go akceptacja.
+        # Bez przekazania go dalej zamówienie jechało kurierem i z kosztem
+        # dostawy mimo zaznaczonego odbioru osobistego.
+        is_self_pickup=czy_odbior_osobisty(data),
+        # Adres z formularza. Używany WYŁĄCZNIE wtedy, gdy wycena kurierska
+        # musi przebić stary znacznik odbioru osobistego z rekordu klienta —
+        # inaczej jedyną odpowiedzią na taką wycenę byłaby odmowa.
+        dane_dostawy_z_formularza=dane_dostawy_z_zadania(data),
+    )
+
+    if not wynik["ok"]:
+        if wynik["error"] == "BLAD_BAZY":
+            # Żądanie nie dotarło do BaseLinkera — awaria jest po naszej stronie
+            # i zamówienia NA PEWNO nie ma. Dawniej wychodziło stąd 500 bez
+            # JSON-a, a przeglądarka zamieniała brak odpowiedzi na najbardziej
+            # niepokojący ekran w całej ścieżce: „nie wiemy, czy zamówienie
+            # zostało złożone". Klient ma tu usłyszeć prawdę: spróbuj za chwilę.
+            return jsonify({
+                "error": komunikat_bledu_zamowienia(numer_wyceny, niepewne=False),
+                "niepewne": False,
+                "zamowienie_utworzone": False,
+                "quote_number": numer_wyceny,
+            }), 503
+
+        if wynik["error"] == "KONFLIKT_DOSTAWY":
+            # Formularz przeczy danym dostawy zapisanym na kliencie. Zamówienia
+            # nie składamy: albo wysłalibyśmy przesyłkę pod adres „ODBIÓR
+            # OSOBISTY", albo obciążyli klienta kurierem, którego odznaczył.
+            return jsonify({
+                "error": "Nie możemy potwierdzić sposobu dostawy dla tej wyceny "
+                         "— dane w formularzu nie zgadzają się z tym, co mamy "
+                         "zapisane. Zamówienie NIE zostało złożone. Skontaktuj "
+                         "się z nami — {kontakt} — i podaj numer wyceny "
+                         "{numer}.".format(kontakt=KONTAKT_WOODPOWER,
+                                           numer=numer_wyceny or "-"),
+                "niepewne": False,
+                "zamowienie_utworzone": False,
+                "quote_number": numer_wyceny,
+            }), 400
+
+        if wynik["w_toku"]:
+            # Inne żądanie właśnie składa to zamówienie (drugie okno, retry
+            # przeglądarki, handlowiec w panelu). Nie straszymy — mówimy wprost,
+            # co się dzieje, i odbieramy prawo do powtórki.
+            return jsonify({
+                "error": "Twoje zamówienie jest właśnie przetwarzane. Prosimy: "
+                         "nie składaj go ponownie. Odśwież tę stronę za chwilę "
+                         "— pojawi się na niej potwierdzenie. Jeśli się nie "
+                         "pojawi, skontaktuj się z nami — {kontakt} — i podaj "
+                         "numer wyceny {numer}.".format(
+                             kontakt=KONTAKT_WOODPOWER, numer=numer_wyceny or "-"),
+                "niepewne": False,
+                "zamowienie_utworzone": False,
+                "w_toku": True,
+                "quote_number": numer_wyceny,
+            }), 409
+
+        if wynik["error"] == "NIEKWALIFIKOWANA":
+            if blad_akceptacji is not None:
+                return blad_akceptacji
+            # Ten sam powód, który strona pokazuje zamiast przycisku „Zamów"
+            # — klient ma dostać zdanie, a nie klasyfikację.
+            return jsonify({
+                "error": "Tej wyceny nie można zamówić przez stronę. Skontaktuj się "
+                         "z nami — {kontakt} — i podaj numer wyceny {numer}.".format(
+                             kontakt=KONTAKT_WOODPOWER, numer=numer_wyceny or "-"),
+                "niepewne": False,
+                "zamowienie_utworzone": False,
+                "quote_number": numer_wyceny,
+            }), 400
+        logger.error("[client_place_order] Błąd BaseLinkera: %s "
+                     "(niepewne=%s zamowienie_utworzone=%s order_id=%s)",
+                     wynik["error"], wynik["niepewne"],
+                     wynik["zamowienie_utworzone"], wynik["order_id"])
+        # Treść błędu API zostaje w logu — klient dostaje komunikat bez szczegółów,
+        # za to rozstrzygający, czy zamówienie powstało (albo mówiący wprost, że
+        # tego nie wiemy).
+        return jsonify({
+            "error": komunikat_bledu_zamowienia(
+                numer_wyceny, niepewne=wynik["niepewne"],
+                zamowienie_utworzone=wynik["zamowienie_utworzone"]),
+            "niepewne": wynik["niepewne"],
+            # Ta flaga wyłącza w przeglądarce ponowienie tak samo jak `niepewne`,
+            # ale niesie mocniejszą wiedzę: zamówienie NA PEWNO istnieje.
+            "zamowienie_utworzone": wynik["zamowienie_utworzone"],
+            "quote_number": numer_wyceny,
+        }), 502
+
+    logger.info("[client_place_order] Zamówienie złożone przez klienta: quote=%s "
+                "order_id=%s duplikat=%s",
+                numer_wyceny, wynik["order_id"], wynik["duplikat"])
+
+    return jsonify({
+        "ok": True,
+        "order_id": wynik["order_id"],
+        "quote_number": numer_wyceny,
+        "order_page_url": wynik["order_page_url"],
+        "duplikat": wynik["duplikat"],
+    }), 200
+
+
 @quotes_bp.route("/api/client/quote/<token>/validate-contact", methods=["POST"])
 def validate_client_contact(token):
-    """Waliduje dane kontaktowe klienta przed przejściem do następnego kroku"""
+    """Waliduje dane kontaktowe klienta przed przejściem do następnego kroku.
+
+    ŚWIADOMIE BEZ BRAMKI `is_client_editable`. Ten endpoint niczego nie
+    zapisuje — sprawdza wyłącznie, czy podany email albo telefon pasuje do
+    klienta wyceny. Dopóki odrzucał wyceny już zaakceptowane, gasił CAŁĄ
+    ścieżkę zamawiania dla takiej wyceny: krok 1 modala (jedyne wejście do
+    składania zamówienia) na odpowiedzi 400 nie przechodził dalej, choć strona
+    pokazywała aktywny przycisk „Zamów" właśnie dla tego stanu. Wystarczyło
+    jedno potknięcie BaseLinkera — wycena zostaje zaakceptowana, zamówienia
+    brak — żeby klient został z zaproszeniem „spróbuj ponownie", którego nie da
+    się wykonać. Dokładnie tu utknął właściciel.
+
+    Blokady, które ZOSTAJĄ (i mają zostać): edycja wariantów
+    (client_update_variant → 403) i sama akceptacja (client_accept_quote_*
+    → 400). Wycena zaakceptowana jest niezmienna — ale nadal zamawialna.
+    """
     try:
         data = request.get_json()
-        
+
         quote = Quote.query.filter_by(public_token=token).first()
         if not quote:
             return jsonify({"error": "Nie znaleziono wyceny"}), 404
-        
-        if not quote.is_client_editable:
-            return jsonify({"error": "Wycena została już zaakceptowana"}), 400
-        
+
         email = data.get('email', '').strip().lower()
         phone = data.get('phone', '').strip()
         

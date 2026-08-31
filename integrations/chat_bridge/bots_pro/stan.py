@@ -89,6 +89,13 @@ _handoff_w_turze = contextvars.ContextVar("handoff_w_turze", default=False)
 # a ten dokladal druga, prawie identyczna (`notatki.notatka_stanu`). Jedna
 # notatka na ture — wygrywa ta napisana PIERWSZA, bo to zawsze ta konkretniejsza.
 _notatka_w_turze = contextvars.ContextVar("notatka_w_turze", default=False)
+# N6 (runda napraw 2): tozsamosc klienta odczytana z Chatwoota na starcie tury —
+# {name, email, phone}. Per TURA, nie per rozmowa: dane na kontakcie moga sie
+# miedzy turami zmienic (konsultant je poprawi, klient dopisze telefon w profilu),
+# a stan sprzed dwoch tur jest tu gorszy niz swiezy odczyt. `ustaw_kontekst`
+# zeruje ten var — inaczej kolejna rozmowa obsluzona w tym samym watku workera
+# zobaczylaby CUDZY adres e-mail, a bot ma go klientowi pokazac.
+_kontakt = contextvars.ContextVar("kontakt", default=None)
 
 _SCHEMAT = """
 CREATE TABLE IF NOT EXISTS pro_dane(
@@ -177,10 +184,52 @@ def ustaw_kontekst(conv_id, persona_tury="pro"):
     _podsumowanie_nieudane.set(False)
     _handoff_w_turze.set(False)
     _notatka_w_turze.set(False)
+    _kontakt.set(None)
 
 
 def conv_id():
     return _conv_id.get()
+
+
+def wczytaj_kontakt(conv_id):
+    """Tozsamosc klienta z kontaktu rozmowy w Chatwoocie — do udostepnienia
+    agentowi Wyceny (N6).
+
+    DLACZEGO w ogole: formularz wstepny widgetu zapisuje e-mail i nazwe na
+    KONTAKCIE rozmowy, a Debus Pro i tak prosil po wycenie o „e-mail i telefon".
+    To regres wobec starego silnika, nie brakujaca funkcja — `cw_contact_full`
+    istnieje w `core/chatwoot.py` i `bots/quotebot.py` z niej korzysta; przy
+    przepisywaniu na `bots_pro/` po prostu nie przeniesiono ani jednego
+    wywolania. Rozstrzygniecie wlasciciela: „bot moze co najwyzej potwierdzic
+    czy sie zgadza".
+
+    ODCZYT, nie zapis — idzie tokenem admina jak reszta odczytow Pro (patrz
+    docstring `test_pro_zapora_core_chatwoot.py`: zapora dotyczy ZAPISOW, bo to
+    one zostawiaja w rozmowie slad podpisany cudza tozsamoscia).
+
+    NIE RZUCA. `cw_contact_full` sama lapie wyjatki, ale osloniecie jest tu
+    dodatkowe i celowe: brak kontaktu ma byc brakiem DANYCH (bot poprosi o
+    e-mail, jak dotad), nigdy przerwana tura. Odwrotnie niz
+    `wolno_prowadzic_rozmowe`, gdzie blad odczytu MUSI przejsc dalej, bo cisza
+    jest tam bezpieczniejsza od zgadywania.
+
+    Wolane jako atrybut modulu (`stan.wczytaj_kontakt`), zeby dalo sie je
+    podmienic w `e2e/replay.py` tak samo jak pozostale odczyty z Chatwoota."""
+    try:
+        from core.chatwoot import cw_contact_full
+        dane = cw_contact_full(conv_id) or {}
+    except Exception as blad:
+        log("stan: nie udalo sie wczytac kontaktu klienta (conv %s): %s" % (conv_id, blad))
+        dane = {}
+    _kontakt.set(dane)
+    return dane
+
+
+def kontakt():
+    """Kontakt wczytany w TEJ turze; pusty slownik, gdy odczytu nie bylo albo
+    Chatwoot nic nie zna (kanaly bez formularza wstepnego — OLX, Allegro).
+    Zawsze slownik, nigdy None — inaczej oslone musialby miec KAZDY wolajacy."""
+    return _kontakt.get() or {}
 
 
 def persona():
@@ -1003,3 +1052,38 @@ def ostatnia_wiadomosc_klienta():
         if wiadomosc.get("role") == "user":
             return wiadomosc.get("text") or ""
     return ""
+
+
+def rozmowy_z_pokazana_cena(conv_ids):
+    """Które z podanych rozmów Pro pokazały już klientowi cenę — zbiór conv_id.
+
+    JEDYNA funkcja w tym module czytająca WIELE rozmów naraz i jedyna, która
+    NIE bierze conv_id z kontekstu: woła ją `hot_lead_sweeper`, który chodzi po
+    wszystkich otwartych rozmowach kanału i nie prowadzi żadnej z nich (N11).
+    Zbiorczo, JEDNYM zapytaniem — odpytywanie bazy per rozmowa skalowałoby się
+    z długością kolejki agenta.
+
+    Sygnałem jest `oczekiwany_podpis`, nie kolumna `priced` (ta istnieje
+    w schemacie, ale silnik Pro nigdy jej nie zapisuje). `oczekiwany_podpis`
+    zapisuje `podsumowanie.wyslij()` DOPIERO po udanej wysyłce zestawienia
+    z ceną — czyli dokładnie w tym momencie, w którym stary silnik ustawiał
+    `priced` (bots/quotebot.py, tuż po `cw_agent_reply` z ceną). To ten sam
+    fakt w obu silnikach: „klient zobaczył cenę".
+
+    ZNANA LUKA: cena wypowiedziana przez model w wolnym tekście, bez wołania
+    `wyslij_podsumowanie`, nie ustawia `oczekiwany_podpis` i taka rozmowa tu nie
+    wejdzie. Alternatywą byłby niepusty rejestr `pro_kwoty`, ale ten mówi tylko,
+    że KALKULATOR coś policzył — bot mógł tej kwoty nigdy nie wypowiedzieć,
+    a notatka sweepera twierdzi wprost, że klient wycenę dostał."""
+    identyfikatory = [c for c in (conv_ids or []) if c is not None]
+    if not identyfikatory:
+        return set()
+    polaczenie = db()
+    try:
+        wiersze = polaczenie.execute(
+            "SELECT conv_id FROM pro_stan WHERE conv_id IN (%s) "
+            "AND oczekiwany_podpis IS NOT NULL AND oczekiwany_podpis != ''"
+            % ",".join("?" * len(identyfikatory)), identyfikatory).fetchall()
+    finally:
+        polaczenie.close()
+    return {w["conv_id"] for w in wiersze}

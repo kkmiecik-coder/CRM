@@ -34,6 +34,10 @@ const globalState = {
     selectedVariants: new Map(),
     currentProductIndex: 1,
     isQuoteAccepted: window.IS_ACCEPTED || false,
+    // Czy klient może z tej strony ZAMÓWIĆ. To nie to samo co isQuoteAccepted:
+    // wycena zaakceptowana wciąż czeka na zamówienie. Wylicza to serwer
+    // (routers.client_quote_view), bo tylko on widzi base_linker_order_id.
+    mozeZamawiac: window.MOZNA_ZAMOWIC === true,
     isLoading: false,
     hasUnsavedChanges: false
 };
@@ -909,18 +913,14 @@ const render = {
      * Blokuje przyciski akceptacji, dopóki wybór nie jest zapisany.
      */
     syncAcceptButtons() {
-        const zablokowane = globalState.hasUnsavedChanges || globalState.isQuoteAccepted;
+        const zablokowane = globalState.hasUnsavedChanges || !globalState.mozeZamawiac;
         ['acceptQuoteBtnDesktop', 'acceptQuoteBtnMobile'].forEach(id => {
             const btn = document.getElementById(id);
             if (!btn) return;
             btn.disabled = zablokowane;
-            if (globalState.isQuoteAccepted) {
-                btn.title = '';
-            } else {
-                btn.title = globalState.hasUnsavedChanges
-                    ? 'Najpierw zapisz wybrany wariant'
-                    : '';
-            }
+            btn.title = (globalState.mozeZamawiac && globalState.hasUnsavedChanges)
+                ? 'Najpierw zapisz wybrany wariant'
+                : '';
         });
     },
 
@@ -1539,11 +1539,20 @@ const init = {
         });
     },
 
+    /**
+     * Wycena zaakceptowana = koniec edycji wariantów. NIE gasimy tu przycisku
+     * zamawiania: wycena zaakceptowana i jeszcze niezamówiona ma dać się
+     * zamówić — o stanie przycisku decyduje wyłącznie syncAcceptButtons()
+     * na podstawie mozeZamawiac.
+     */
     disableInteractions() {
-        document.querySelectorAll('.btn-accept').forEach(button => {
-            button.disabled = true;
-        });
         document.body.classList.add('quote-accepted');
+        // `render.`, nie `this.` — ta metoda mieszka na obiekcie `render`,
+        // a wołamy ją z `init`. Wywołanie przez `this` kończyło się
+        // TypeError-em, który `loadQuoteData` łapało i zamieniało na fałszywe
+        // „Nie udało się wczytać wyceny. Odśwież stronę." na KAŻDEJ
+        // zaakceptowanej wycenie.
+        render.syncAcceptButtons();
     },
 
     /**

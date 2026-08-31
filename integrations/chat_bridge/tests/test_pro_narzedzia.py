@@ -13,6 +13,7 @@ na samej górze robi dokładnie to (wzorzec z test_pro_models.py).
 """
 import asyncio
 import json
+import re
 import sys
 import types
 
@@ -78,13 +79,15 @@ class TestZestawNarzedzi:
             "wyslij_podsumowanie", "potwierdz",
             "zapisz_wycene", "popraw_wycene", "znajdz_klienta",
             "przygotuj_zamowienie", "oddaj_czlowiekowi",
+            "wyslij_obraz",
         }
 
-    def test_jedenascie_narzedzi_dokladnie(self):
+    def test_dwanascie_narzedzi_dokladnie(self):
         # Konsolidacja kwoty_z_wyniku (rozstrzygniecie Task 2) NIE dodaje ani nie
         # usuwa zadnego narzedzia -- to prywatna wewnetrznie funkcja pomocnicza
         # wolana przez cialo policz_wycene, a nie osobny wpis w NARZEDZIA_WYCENY.
-        assert len(n.NARZEDZIA_WYCENY) == 11
+        # RUNDA NAPRAW 4 (P2): doszlo `wyslij_obraz` — 11 -> 12.
+        assert len(n.NARZEDZIA_WYCENY) == 12
 
     def test_zadne_narzedzie_nie_jest_hostowane_przez_dostawce(self):
         # Inwariant 1b: file_search, web_search i spolka zamykaja droge do Anthropica.
@@ -483,13 +486,75 @@ class TestNieudanaWysylkaNieOddajeSurowychCen:
 
     def test_udana_wysylka_bez_zmian(self, monkeypatch):
         # Kontrola negatywna: sciezka sukcesu nadal oddaje kuriera i koszt.
+        # `wskazowka` (N2) to jedyne pole, ktore doszlo — patrz klasa nizej.
         wynik = self._nieudana(monkeypatch, 96064, {
             "ok": True, "carriers": 2, "carrier_name": "DPD",
             "shipping_netto": 203.25, "shipping_brutto": 250.0,
             "raw_netto": 156.35, "raw_brutto": 192.31})
 
         assert wynik == {"ok": True, "carriers": 2, "carrier_name": "DPD",
-                         "shipping_netto": 203.25, "shipping_brutto": 250.0}
+                         "shipping_netto": 203.25, "shipping_brutto": 250.0,
+                         "wskazowka": n.WSKAZOWKA_PO_DOSTAWIE}
+
+
+class TestWskazowkaPoDoliczeniuDostawy:
+    """N2 (naprawa po testach na zywym czacie): po doliczeniu dostawy bot
+    prosil o ponowne potwierdzenie, NIE pokazujac nowego podsumowania —
+    klient mial potwierdzic kwote, ktorej nie widzial. Regula siedzi w
+    prompcie (POTWIERDZENIE), a to jest jej wzmocnienie w miejscu, w ktorym
+    model realnie podejmuje decyzje: w wyniku narzedzia."""
+
+    def _udana(self, monkeypatch, conv_id):
+        stan.ustaw_kontekst(conv_id)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat")
+        monkeypatch.setattr(n.crm_calc, "shipping_quote", lambda p, kod: {
+            "ok": True, "carriers": 2, "carrier_name": "DPD",
+            "shipping_netto": 203.25, "shipping_brutto": 250.0})
+        return _wolaj(n.policz_wysylke, kod_pocztowy="00-000")
+
+    def test_udane_oszacowanie_niesie_wskazowke(self, monkeypatch):
+        wynik = self._udana(monkeypatch, 96071)
+        assert "wyslij_podsumowanie" in wynik["wskazowka"]
+
+    def test_wskazowka_nie_zawiera_ZADNEJ_kwoty(self, monkeypatch):
+        # Wskazowka jedzie do modelu w tym samym wyniku co prawdziwe kwoty.
+        # Gdyby sama niosla liczbe, model mialby dwa zrodla ceny zamiast
+        # jednego — a rejestr G1 zna tylko to drugie. Zero cyfr = zero
+        # szans, ze wskazowka stanie sie zrodlem kwoty.
+        wynik = self._udana(monkeypatch, 96072)
+        assert not re.search(r"\d", wynik["wskazowka"])
+
+    def test_brak_kuriera_przy_ok_true_nie_dostaje_wskazowki(self, monkeypatch):
+        # `ok=True, carriers=0` (brak kuriera dla gabarytu) idzie ta sama
+        # galezia co sukces — patrz docstring policz_wysylke. Nie ma tam
+        # czego doliczyc do podsumowania, wiec wskazowki tez nie ma.
+        stan.ustaw_kontekst(96074)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat")
+        monkeypatch.setattr(n.crm_calc, "shipping_quote", lambda p, kod: {
+            "ok": True, "carriers": 0})
+        wynik = _wolaj(n.policz_wysylke, kod_pocztowy="00-000")
+        assert "wskazowka" not in wynik
+
+    def test_wysylka_gratis_dostaje_wskazowke(self, monkeypatch):
+        # 0.00 zl to PRAWDZIWY koszt, nie brak danych — podsumowanie ma sie
+        # przeliczyc tak samo jak przy 250 zl.
+        stan.ustaw_kontekst(96075)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat")
+        monkeypatch.setattr(n.crm_calc, "shipping_quote", lambda p, kod: {
+            "ok": True, "carriers": 1, "carrier_name": "DPD",
+            "shipping_netto": 0.0, "shipping_brutto": 0.0})
+        wynik = _wolaj(n.policz_wysylke, kod_pocztowy="00-000")
+        assert wynik["wskazowka"] == n.WSKAZOWKA_PO_DOSTAWIE
+
+    def test_nieudane_oszacowanie_nie_dostaje_wskazowki(self, monkeypatch):
+        # Bez kuriera nie ma czego doliczac do podsumowania — wskazowka
+        # "wyslij podsumowanie ponownie" bylaby tu myszaca.
+        stan.ustaw_kontekst(96073)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat")
+        monkeypatch.setattr(n.crm_calc, "shipping_quote", lambda p, kod: {
+            "ok": False, "carriers": 0, "errors": []})
+        wynik = _wolaj(n.policz_wysylke, kod_pocztowy="00-000")
+        assert "wskazowka" not in wynik
 
 
 class TestPoliczWyceneIWysylkePrzycinajaWynik:
@@ -1133,3 +1198,207 @@ class TestLinkNieWracaNaKanaleBezLinkow:
         wynik = _wolaj(n.zapisz_wycene, client_id=1)
 
         assert wynik["public_url"] == self.URL
+
+
+class TestN6ZnajdzKlientaUzupelniaZKontaktu:
+    """N6, druga połowa: skoro bot NIE pyta już o e-mail, który zna, to musi go
+    mieć czym uzupełnić przy zakładaniu klienta w CRM.
+
+    Przed N6 model pytał o wszystko, więc zawsze miał komplet w treści rozmowy.
+    Po N6 pyta zwykle już tylko o telefon — a `znajdz_klienta` bierze dane
+    WYŁĄCZNIE z argumentów modelu. Bez tej siatki wystarczyłoby, że model nie
+    powtórzy adresu, którego przed chwilą nie musiał pytać, i w CRM powstałby
+    klient bez e-maila. To byłby NOWY błąd, wprowadzony naprawą.
+
+    Uzupełniamy wyłącznie pola PUSTE. Argument podany przez model zawsze wygrywa
+    — inaczej klient, który świadomie podał inny adres i to potwierdził, i tak
+    dostałby wycenę na stary (a reguła KONTAKT tę drogę wprost przewiduje)."""
+
+    def _przechwyc(self, monkeypatch):
+        zapisane = []
+        monkeypatch.setattr(
+            n.crm_calc, "find_or_create_client",
+            lambda email, phone, name, client_number=None: zapisane.append(
+                (email, phone, name)) or {"ok": True, "client_id": 1})
+        return zapisane
+
+    def test_brakujacy_email_bierze_sie_z_kontaktu_rozmowy(self, monkeypatch):
+        stan.ustaw_kontekst(96410)
+        monkeypatch.setattr(stan, "kontakt", lambda: {
+            "name": "TEST S5", "email": "test-s5@example.invalid", "phone": ""})
+        zapisane = self._przechwyc(monkeypatch)
+
+        _wolaj(n.znajdz_klienta, telefon="500100200")
+
+        assert zapisane == [("test-s5@example.invalid", "500100200", "TEST S5")]
+
+    def test_dane_podane_przez_model_maja_pierwszenstwo(self, monkeypatch):
+        # Klient podal inny adres i potwierdzil go — model przekazuje NOWY,
+        # a kontakt z formularza nie ma prawa go cofnac.
+        stan.ustaw_kontekst(96411)
+        monkeypatch.setattr(stan, "kontakt", lambda: {
+            "name": "TEST S5", "email": "stary@example.invalid", "phone": ""})
+        zapisane = self._przechwyc(monkeypatch)
+
+        _wolaj(n.znajdz_klienta, email="nowy@example.invalid",
+                 telefon="500100200", imie="Jan")
+
+        assert zapisane == [("nowy@example.invalid", "500100200", "Jan")]
+
+    def test_bez_kontaktu_zachowanie_jest_takie_jak_dotad(self, monkeypatch):
+        # Kanaly bez formularza wstepnego (OLX, Allegro): pusty kontakt niczego
+        # nie dokłada, brakujące pola lecą do CRM jako None, jak przed N6.
+        stan.ustaw_kontekst(96412)
+        monkeypatch.setattr(stan, "kontakt", dict)
+        zapisane = self._przechwyc(monkeypatch)
+
+        _wolaj(n.znajdz_klienta, telefon="500100200")
+
+        assert zapisane == [(None, "500100200", None)]
+
+
+class TestP1WskazowkaPrzyNiedostepnymWariancie:
+    """Runda napraw 3, P1: przekroczony limit wariantu konczyl sie oddaniem
+    rozmowy konsultantowi, a strona wyceny w tej samej sytuacji po prostu
+    PODAJE POWOD („niedostepna w 40 mm" — `unavailableReason` w
+    modules/quotes/static/js/client_quote.js). Bot ma robic to samo.
+
+    Powod i lista dostepnych wariantow sa juz w `errors[].message` z CRM
+    (`VARIANT_UNAVAILABLE` w pricing_service.calculate_quote) — brakowalo
+    wskazowki, CO z tym zrobic, w miejscu, w ktorym model podejmuje decyzje.
+    Ten sam wzorzec co WSKAZOWKA_PO_DOSTAWIE."""
+
+    def _policz(self, monkeypatch, conv_id, wynik):
+        stan.ustaw_kontekst(conv_id)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat", dlugosc_cm=180,
+               szerokosc_cm=60, grubosc_cm=4, ilosc=1,
+               selected_variant="jes-lity-ab", wykonczenie="surowe")
+        monkeypatch.setattr(n.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(n.crm_calc, "calculate", lambda p, o: wynik)
+        return _wolaj(n.policz_wycene)
+
+    def _wynik_niedostepny(self):
+        return {
+            "ok": False,
+            "errors": [{"field": "selected_variant", "code": "VARIANT_UNAVAILABLE",
+                        "message": 'Wariant "jes-lity-ab" jest niedostepny dla tych '
+                                   'wymiarow. Dostepne warianty: dab-lity-ab, buk-lity-ab.',
+                        "product_index": 1}],
+            "products": [{
+                "index": 1,
+                "variants": [{"variant_code": "jes-lity-ab", "available": False},
+                             {"variant_code": "dab-lity-ab", "available": True,
+                              "unit_netto": 700.0, "unit_brutto": 861.0,
+                              "total_netto": 700.0, "total_brutto": 861.0}],
+                "finishing": {"netto": 0.0, "brutto": 0.0},
+                "edges": {"netto": 0.0, "brutto": 0.0},
+            }],
+            "totals": None,
+        }
+
+    def test_wskazowka_jest_przy_niedostepnym_wariancie(self, monkeypatch):
+        wynik = self._policz(monkeypatch, 96061, self._wynik_niedostepny())
+        assert wynik["wskazowka"] == n.WSKAZOWKA_WARIANT_NIEDOSTEPNY
+
+    def test_wskazowka_zabrania_oddania_rozmowy(self, monkeypatch):
+        wynik = self._policz(monkeypatch, 96062, self._wynik_niedostepny())
+        assert "nie przekazuj rozmowy" in wynik["wskazowka"].lower()
+
+    def test_powod_i_dostepne_warianty_zostaja_w_wyniku(self, monkeypatch):
+        # Wskazowka mowi, CO zrobic; tresc powodu ma nadal pochodzic z CRM.
+        wynik = self._policz(monkeypatch, 96063, self._wynik_niedostepny())
+        assert wynik["errors"][0]["code"] == "VARIANT_UNAVAILABLE"
+        assert "Dostepne warianty" in wynik["errors"][0]["message"]
+
+    def test_wskazowka_nie_zawiera_ZADNEJ_kwoty(self):
+        # Ta sama zasada co przy WSKAZOWKA_PO_DOSTAWIE: wskazowka jedzie do
+        # modelu w tym samym slowniku co prawdziwe ceny, wiec nie ma prawa
+        # niesc wlasnej liczby — rejestr G1 zna wylacznie te drugie.
+        from bots_pro import guardraile
+        tekst = n.WSKAZOWKA_WARIANT_NIEDOSTEPNY
+        assert guardraile.znajdz_kwoty(tekst) == set()
+        assert guardraile.znajdz_gole_kwoty(tekst) == set()
+
+    def test_udana_wycena_nie_dostaje_tej_wskazowki(self, monkeypatch):
+        wynik = self._policz(monkeypatch, 96064, {
+            "ok": True, "totals": {"total_netto": 700.0, "total_brutto": 861.0},
+            "products": [{"index": 1, "variants": [
+                {"variant_code": "jes-lity-ab", "available": True,
+                 "unit_netto": 700.0, "unit_brutto": 861.0,
+                 "total_netto": 700.0, "total_brutto": 861.0}],
+                "finishing": {"netto": 0.0, "brutto": 0.0},
+                "edges": {"netto": 0.0, "brutto": 0.0}}]})
+        assert "wskazowka" not in wynik
+
+    def test_inny_blad_wyceny_nie_dostaje_tej_wskazowki(self, monkeypatch):
+        # Wskazowka jest o JEDNEJ sytuacji (limit wariantu), nie o kazdym
+        # niepowodzeniu — przy braku danych „wymien dostepne warianty" byloby
+        # instrukcja bez pokrycia.
+        wynik = self._policz(monkeypatch, 96065, {
+            "ok": False, "errors": [{"field": "length", "code": "MAX_EXCEEDED",
+                                     "message": "Maksymalna dlugosc to 450 cm."}],
+            "products": []})
+        assert "wskazowka" not in wynik
+
+    def test_wskazowka_i_regula_promptu_mowia_to_samo(self):
+        # SONDA spojnosci (P1). Ta sama decyzja jest opisana w DWOCH miejscach:
+        # w prompcie (sekcja PORÓWNANIE, kilka tysiecy znakow przed decyzja)
+        # i w wyniku narzedzia (tuz przy niej). Gdyby ktos przeredagowal jedno
+        # bez drugiego, model dostawalby dwie rozne instrukcje na te sama
+        # sytuacje — a to bylby gorszy stan niz brak jednej z nich.
+        from bots_pro import prompty
+        regula = re.sub(r"\s+", " ", prompty.WYCENA)
+        assert "niedostępny dla tych wymiarów" in regula
+        assert "nie" in regula.split("niedostępny dla tych wymiarów")[1][:40]
+        assert "przekazuj rozmowy" in regula
+        assert "nie przekazuj rozmowy" in n.WSKAZOWKA_WARIANT_NIEDOSTEPNY.lower()
+
+    def test_kod_bledu_zgadza_sie_z_kalkulatorem_crm(self):
+        # Predykat stoi na STRINGU z cudzego modulu (pricing_service.calculate_quote).
+        # Literowka albo zmiana kodu po stronie CRM nie wywali niczego glosno —
+        # wskazowka po prostu przestanie sie pojawiac. Stala nazwana + ten test
+        # sa jedynym miejscem, w ktorym to zalozenie jest zapisane wprost.
+        assert n.KOD_WARIANT_NIEDOSTEPNY == "VARIANT_UNAVAILABLE"
+
+
+class TestP2NarzedzieWysylkiObrazu:
+    """Runda napraw 4, P2: stary silnik potrafi pokazac probke gatunkow, wzornik
+    kolorow, schemat wymiarow i schemat krawedzi (`bots/livechat.py:845`,
+    `bots/quotebot.py:2620`). Debus Pro nie mial tej sciezki wcale, choc
+    transport (`cw_agent_reply` z `image_path`) i biala lista (`bots/images.py`)
+    byly gotowe.
+
+    Zachowanie samej wysylki testuje test_pro_obrazy_do_klienta.py — tutaj
+    pilnujemy KONTRAKTU narzedzia SDK: zamkniety enum (model nie ma jak
+    poprosic o plik spoza listy) i cienka warstwa nad modulem, ktory robi
+    robote."""
+
+    def test_narzedzie_jest_w_zestawie_agenta_wyceny(self):
+        assert "wyslij_obraz" in {t.name for t in n.NARZEDZIA_WYCENY}
+
+    def test_enum_narzedzia_to_dokladnie_biala_lista(self):
+        # SONDA spojnosci: enum w schemacie JSON i biala lista modulu wysylki
+        # musza byc TYM SAMYM zbiorem. Rozjazd oznaczalby albo identyfikator,
+        # ktorego model nie moze wybrac, albo taki, ktory wybierze i nic sie nie
+        # wysle (cicha awaria).
+        from bots_pro import obrazy_do_klienta
+        schemat = n.wyslij_obraz.params_json_schema
+        wlasciwosci = schemat["properties"]["obraz"]
+        assert set(wlasciwosci["enum"]) == set(obrazy_do_klienta.OBRAZY_DLA_KLIENTA)
+
+    def test_opis_narzedzia_mowi_kiedy_pokazac_probke_gatunkow(self):
+        # Wskazowka „przy kliencie niezdecydowanym" mieszka w OPISIE NARZEDZIA,
+        # a nie w prompcie (P1) — budzet ROLA+WYCENA jest na wyczerpaniu, a opis
+        # narzedzia i tak trafia do modelu razem ze schematem.
+        opis = n.wyslij_obraz.description
+        assert "gatunki_porownanie" in opis
+        assert "nie wie" in opis
+
+    def test_narzedzie_deleguje_do_modulu_wysylki(self, monkeypatch):
+        from bots_pro import obrazy_do_klienta
+        wywolania = []
+        monkeypatch.setattr(obrazy_do_klienta, "wyslij",
+                            lambda ident: wywolania.append(ident) or {"ok": True})
+        wynik = _wolaj(n.wyslij_obraz, obraz="wymiary")
+        assert wywolania == ["wymiary"]
+        assert wynik["ok"] is True

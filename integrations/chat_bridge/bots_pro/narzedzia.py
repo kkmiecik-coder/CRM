@@ -20,6 +20,7 @@ from typing import List, Literal, Optional, TypedDict
 from agents import function_tool
 
 from bots import crm_calc
+from bots_pro.obrazy_do_klienta import OBRAZY_DLA_KLIENTA
 from core.log import log
 
 # Osiem kombinacji z VARIANT_CODES. B/B istnieje WYŁĄCZNIE dla dębu.
@@ -47,6 +48,11 @@ SelectedVariant = Literal[("",) + WARIANTY]
 Litera = Literal[LITERY_KRAWEDZI]
 TypKrawedzi = Literal["round", "chamfer", "sharp"]
 Wykonczenie = Literal["", "surowe", "olejowane", "lakierowane"]
+# Ten sam wzorzec, co wyżej: enum w schemacie JSON budowany z JEDNEJ stałej
+# (`obrazy_do_klienta.OBRAZY_DLA_KLIENTA`), żeby model nie mógł nawet WYRAZIĆ
+# prośby o plik spoza białej listy — sprawdzenie w ciele narzędzia zostaje jako
+# druga warstwa, bo enum nie chroni przed wołaniem funkcji z Pythona.
+Obraz = Literal[OBRAZY_DLA_KLIENTA]
 
 
 class Krawedz(TypedDict):
@@ -164,6 +170,39 @@ def zapisz_pozycje(
     )
 
 
+# Kod błędu kalkulatora CRM dla „ten wariant nie istnieje w cenniku dla tych
+# wymiarów" — modules/calculator/services/pricing_service.py::calculate_quote.
+KOD_WARIANT_NIEDOSTEPNY = "VARIANT_UNAVAILABLE"
+
+# P1 (runda napraw 3): przekroczony limit wariantu kończył się oddaniem rozmowy
+# konsultantowi. Strona wyceny w tej samej sytuacji po prostu PODAJE POWÓD
+# („niedostępna w 40 mm" — `unavailableReason` w modules/quotes/static/js/
+# client_quote.js), więc bot ma robić to samo: to normalna informacja o cenniku,
+# nie sprawa dla człowieka.
+#
+# Powód i lista wariantów dostępnych są JUŻ w `errors[].message` z CRM — tutaj
+# dokładamy wyłącznie to, czego tam nie ma: co z tym zrobić. Regułą nadrzędną
+# jest sekcja PORÓWNANIE w `prompty.WYCENA`; to jest jej wzmocnienie w miejscu,
+# w którym model faktycznie podejmuje decyzję (wynik narzędzia), a nie kilka
+# tysięcy znaków wcześniej — ten sam wzorzec co WSKAZOWKA_PO_DOSTAWIE.
+#
+# ZERO KWOT, świadomie i z tego samego powodu co tam: wskazówka jedzie do modelu
+# w tym samym słowniku co prawdziwe ceny z kalkulatora, a rejestr G1
+# (stan.znane_kwoty) zna wyłącznie te drugie. Pilnuje tego
+# test_wskazowka_nie_zawiera_ZADNEJ_kwoty.
+WSKAZOWKA_WARIANT_NIEDOSTEPNY = (
+    "Ten wariant nie występuje w cenniku dla tych wymiarów — to informacja o ofercie, "
+    "nie awaria: nie przekazuj rozmowy konsultantowi. Napisz klientowi, którego wariantu "
+    "to dotyczy i przy jakim wymiarze, wymień warianty dostępne wprost z pola message "
+    "w errors i poproś o wybór albo o zmianę wymiaru.")
+
+
+def _wariant_niedostepny(wynik):
+    """Czy kalkulator odmówił z powodu niedostępności WYBRANEGO wariantu."""
+    return any(isinstance(blad, dict) and blad.get("code") == KOD_WARIANT_NIEDOSTEPNY
+               for blad in (wynik.get("errors") or []))
+
+
 @function_tool
 def policz_wycene() -> dict:
     """Liczy cenę wszystkich zapisanych pozycji w kalkulatorze CRM. Zwraca sumy
@@ -172,12 +211,40 @@ def policz_wycene() -> dict:
     JEDYNE źródło cen produktu — nigdy nie licz samodzielnie i nigdy nie
     podawaj kwoty, której nie ma w wyniku tego narzędzia. Wołaj za każdym
     razem, gdy klient ustalił/zmienił dane pozycji i chcesz poznać albo
-    zaktualizować cenę — także kilka razy w jednej rozmowie."""
+    zaktualizować cenę — także kilka razy w jednej rozmowie.
+
+    Cen INNYCH wariantów drewna to narzędzie nie zwraca i nie ma ich skąd
+    wziąć — porównanie wariantów klient zobaczy w gotowej wycenie, gdzie stoją
+    obok siebie razem z powodem niedostępności (patrz sekcja PORÓWNANIE)."""
     from bots_pro import podsumowanie, stan
     pozycje = stan.pozycje()
     wynik = crm_calc.calculate(pozycje, crm_calc.get_options())
     stan.zapamietaj_kwoty(podsumowanie.kwoty_z_wyniku(pozycje, wynik))   # inwariant I1
-    return podsumowanie.wynik_dla_modelu(pozycje, wynik)
+    dla_modelu = podsumowanie.wynik_dla_modelu(pozycje, wynik)
+    if _wariant_niedostepny(wynik) and isinstance(dla_modelu, dict):
+        # Kopia, nie mutacja: `wynik_dla_modelu` przy braku sekcji `products`
+        # oddaje TEN SAM obiekt, który dostało — dopisanie klucza w miejscu
+        # zmieniłoby cudzy słownik.
+        dla_modelu = dict(dla_modelu)
+        dla_modelu["wskazowka"] = WSKAZOWKA_WARIANT_NIEDOSTEPNY
+    return dla_modelu
+
+
+# N2 (naprawa po testach na żywym czacie): po doliczeniu dostawy bot prosił
+# klienta o ponowne potwierdzenie, NIE wysyłając nowego podsumowania — klient
+# miał potwierdzić kwotę, której nigdy nie zobaczył, czyli dokładnie to, przed
+# czym chroni bramka potwierdzenia I2, wpuszczone bocznymi drzwiami. Regułą
+# nadrzędną jest zdanie w `prompty.WYCENA` (sekcja POTWIERDZENIE); to jest jej
+# wzmocnienie w miejscu, w którym model faktycznie podejmuje decyzję — w wyniku
+# narzędzia, a nie kilka tysięcy znaków wcześniej.
+#
+# ZERO KWOT w tej wskazówce, świadomie: jedzie do modelu w tym samym słowniku
+# co prawdziwe `shipping_netto`/`shipping_brutto`. Gdyby niosła własną liczbę,
+# model miałby dwa źródła ceny zamiast jednego, a rejestr G1 (stan.znane_kwoty)
+# zna wyłącznie to drugie. Pilnuje tego test_wskazowka_nie_zawiera_ZADNEJ_kwoty.
+WSKAZOWKA_PO_DOSTAWIE = (
+    "Koszt dostawy doliczony. Wyślij podsumowanie ponownie (wyslij_podsumowanie), "
+    "zanim poprosisz klienta o potwierdzenie — ma zobaczyć kwotę z dostawą.")
 
 
 @function_tool
@@ -253,15 +320,38 @@ def policz_wysylke(kod_pocztowy: str) -> dict:
         "shipping_netto": wynik.get("shipping_netto"),
         "shipping_brutto": wynik.get("shipping_brutto"),
     }
-    return {k: v for k, v in surowy.items() if v is not None}
+    okrojony = {k: v for k, v in surowy.items() if v is not None}
+    # N2: wskazówka DOPIERO gdy koszt faktycznie się oszacował. `ok=True`
+    # z `carriers=0` przechodzi tą samą gałęzią (patrz docstring wyżej —
+    # brak kuriera dla gabarytu NIE jest błędem wywołania), a wtedy nie ma
+    # czego doliczać do podsumowania i wskazówka byłaby myląca. Zero jest tu
+    # prawdziwym kosztem (wysyłka gratis), więc warunkiem jest OBECNOŚĆ
+    # klucza, nie jego prawdziwość.
+    if "shipping_netto" in okrojony or "shipping_brutto" in okrojony:
+        okrojony["wskazowka"] = WSKAZOWKA_PO_DOSTAWIE
+    return okrojony
 
 
 @function_tool
 def znajdz_klienta(email: str = "", telefon: str = "", imie: str = "") -> dict:
-    """Znajduje lub zakłada klienta w CRM. Wołaj dopiero PO przygotowaniu wyceny."""
+    """Znajduje lub zakłada klienta w CRM. Wołaj dopiero PO przygotowaniu wyceny.
+    Pola, których nie podasz, uzupełnimy danymi z kontaktu rozmowy, jeśli je znamy."""
     from bots_pro import stan
+    # N6: pola PUSTE uzupelniamy kontaktem rozmowy (formularz wstepny widgetu).
+    # Do N6 model pytal o wszystko, wiec komplet zawsze byl w tresci rozmowy;
+    # dzis prompt kaze mu pytac WYLACZNIE o to, czego system nie zna — najczesciej
+    # o sam telefon. Bez tej siatki wystarczyloby, ze model nie powtorzy adresu,
+    # o ktory przed chwila nie musial pytac, i w CRM powstalby klient bez e-maila:
+    # nowy blad, wprowadzony naprawa.
+    #
+    # Argument modelu ZAWSZE wygrywa (`or`, nie odwrotnie). Klient, ktory swiadomie
+    # podal inny adres i potwierdzil go, ma dostac wycene na TEN adres — regula
+    # KONTAKT w prompcie wprost tej drogi nie zamyka, wiec kod tez jej nie moze.
+    kontakt = stan.kontakt()
     return crm_calc.find_or_create_client(
-        email or None, telefon or None, imie or None,
+        email or kontakt.get("email") or None,
+        telefon or kontakt.get("phone") or None,
+        imie or kontakt.get("name") or None,
         client_number="chat-%s" % stan.conv_id(),
     )
 
@@ -502,9 +592,30 @@ def oddaj_czlowiekowi(powod: str) -> dict:
     return stan.handoff(powod)
 
 
+@function_tool
+def wyslij_obraz(obraz: Obraz) -> dict:
+    """Pokazuje klientowi jeden z naszych stałych obrazów poglądowych. Wybierasz
+    TYLKO który — plik i podpis dobiera system, więc nie opisuj obrazu ponownie
+    w swojej odpowiedzi i nie powtarzaj podpisu własnymi słowami.
+
+    gatunki_porownanie — dąb, buk i jesion obok siebie (lite, surowe): różnice
+      w usłojeniu i kolorze. Pokaż, gdy klient nie wie, jaki gatunek wybrać —
+      RAZEM z poradą i propozycją wyceny, nie zamiast nich.
+    wymiary — jak liczymy wymiary blatu (długość, szerokość, grubość).
+    krawedzie — jak oznaczamy krawędzie (A-D góra, E-H dół, N1-N4 narożniki);
+      pokaż, gdy klient ma wskazać, które zaokrąglić albo sfazować.
+    kolory — wzornik kolorów lakieru; pokaż przy wyborze odcienia.
+
+    Innych obrazów nie wyślesz — to zamknięta lista. Gdy narzędzie odmówi (kanał
+    nie przyjmuje obrazów albo pliku brakuje), opisz rzecz słowami i NIE
+    zapowiadaj klientowi żadnego zdjęcia."""
+    from bots_pro import obrazy_do_klienta
+    return obrazy_do_klienta.wyslij(obraz)
+
+
 NARZEDZIA_WYCENY = [
     pobierz_opcje, zapisz_pozycje, policz_wycene, policz_wysylke,
     wyslij_podsumowanie, potwierdz,
     znajdz_klienta, zapisz_wycene, popraw_wycene,
-    przygotuj_zamowienie, oddaj_czlowiekowi,
+    przygotuj_zamowienie, oddaj_czlowiekowi, wyslij_obraz,
 ]

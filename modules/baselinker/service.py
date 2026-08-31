@@ -5,9 +5,63 @@ import json
 from typing import Dict, List, Optional
 from flask import current_app, session, request
 from extensions import db
-from .models import BaselinkerOrderLog, BaselinkerConfig
+from .models import BaselinkerOrderLog, BaselinkerConfig, STATUS_PROBA_NIEPEWNA
 from modules.logging import get_structured_logger
 from datetime import datetime
+
+
+# Wyjątki requests, po których wiemy NA PEWNO, że żądanie nie wyszło poza nasz
+# proces — a więc zamówienia po stronie BaseLinkera na pewno nie ma i powtórka
+# jest bezpieczna. Dotąd „nie wiemy" wyzwalał KAŻDY RequestException, łącznie
+# z nieudanym nawiązaniem połączenia i błędem DNS: klient dostawał wtedy
+# blokadę i prośbę o kontakt, choć nic nigdzie nie poszło.
+_BLEDY_ZADANIE_NIE_WYSZLO = (
+    requests.exceptions.ConnectTimeout,   # nie zdążyliśmy nawiązać połączenia
+    requests.exceptions.MissingSchema,
+    requests.exceptions.InvalidSchema,
+    requests.exceptions.InvalidURL,
+    requests.exceptions.URLRequired,
+)
+
+# Klasy wyjątków urllib3 oznaczające awarię NAWIĄZYWANIA połączenia (DNS,
+# odmowa połączenia). requests zawija je w ConnectionError — a tej klasy nie da
+# się potraktować hurtem jako „nie wyszło", bo pod tą samą nazwą leci też
+# zerwanie połączenia JUŻ PO wysłaniu żądania (ProtocolError). Rozpoznajemy po
+# nazwie klasy, żeby nie wiązać się z prywatnym API urllib3.
+_URLLIB3_BLEDY_POLACZENIA = ('NewConnectionError', 'NameResolutionError')
+
+
+def _zadanie_moglo_dojsc_do_baselinkera(wyjatek):
+    """Czy przy tym wyjątku BaseLinker mógł zobaczyć nasze żądanie.
+
+    True = „nie wiemy, czy zamówienie powstało" (blokujemy powtórkę i wołamy
+    człowieka). False = zamówienia NA PEWNO nie ma i klient może spróbować
+    jeszcze raz — a tego stanu nie wolno bez potrzeby zamieniać na blokadę,
+    bo każda taka blokada to utracone zamówienie i telefon do biura.
+    """
+    if not isinstance(wyjatek, requests.exceptions.RequestException):
+        # Wyjątek sprzed wysyłki: brak konfiguracji API, błąd składania danych.
+        return False
+    if isinstance(wyjatek, _BLEDY_ZADANIE_NIE_WYSZLO):
+        return False
+    if isinstance(wyjatek, requests.exceptions.ConnectionError):
+        # Odróżniamy „nie udało się połączyć" (DNS, connection refused) od
+        # „połączenie padło w trakcie" — tylko to drugie jest niepewne.
+        do_sprawdzenia, odwiedzone = [wyjatek], 0
+        while do_sprawdzenia and odwiedzone < 20:
+            biezacy = do_sprawdzenia.pop()
+            odwiedzone += 1
+            if type(biezacy).__name__ in _URLLIB3_BLEDY_POLACZENIA:
+                return False
+            do_sprawdzenia.extend(
+                [a for a in getattr(biezacy, 'args', ()) if isinstance(a, BaseException)])
+            for powiazany in (getattr(biezacy, '__cause__', None),
+                              getattr(biezacy, '__context__', None),
+                              getattr(biezacy, 'reason', None)):
+                if isinstance(powiazany, BaseException):
+                    do_sprawdzenia.append(powiazany)
+    return True
+
 
 class BaselinkerService:
     """Serwis do komunikacji z API Baselinker"""
@@ -375,6 +429,13 @@ class BaselinkerService:
                              email=client_override.get('email'),
                              want_invoice=client_override.get('want_invoice'))
         
+        # Punkt bez powrotu: od chwili, w której addOrder potwierdzi utworzenie,
+        # zamówienie ISTNIEJE w BaseLinkerze i nie da się go cofnąć. Te dwie
+        # zmienne muszą żyć POZA blokiem try, bo czyta je obsługa wyjątku —
+        # to one rozstrzygają, czy wolno powiedzieć klientowi „nie powstało".
+        zamowienie_utworzone = False
+        baselinker_order_id = None
+
         try:
             # Przygotuj dane zamówienia
             order_data = self._prepare_order_data(quote, config)
@@ -409,7 +470,10 @@ class BaselinkerService:
             
             if response.get('status') == 'SUCCESS':
                 baselinker_order_id = response.get('order_id')
-                
+                # Zamówienie już jest — od tej linii żaden błąd nie ma prawa
+                # zostać zaraportowany jako „zamówienia nie ma".
+                zamowienie_utworzone = True
+
                 # Aktualizuj log
                 log_entry.status = 'success'
                 log_entry.baselinker_order_id = baselinker_order_id
@@ -417,9 +481,17 @@ class BaselinkerService:
                 
                 # Zaktualizuj wycenę
                 quote.base_linker_order_id = baselinker_order_id
-                
+
                 # NOWE: Zmień status wyceny na "Złożone" (ID=4)
                 quote.status_id = 4
+
+                # Znacznik „próba w toku" (checkout_service) zdejmujemy TYM SAMYM
+                # commitem, którym zapisujemy numer zamówienia — jedna operacja,
+                # jeden wynik: albo wycena wie o zamówieniu i przestaje blokować,
+                # albo nie wie i blokuje dalej. Rozjechanie tych dwóch stanów
+                # dawałoby albo drugie zamówienie, albo wycenę zablokowaną
+                # mimo udanego zamówienia.
+                quote.order_attempt_started_at = None
 
                 # Zamówiona wycena jest z definicji zaakceptowana — uzupełnij dane
                 # akceptacji, jeśli nie były ustawione. Status zostaje "Złożone" (4),
@@ -447,6 +519,7 @@ class BaselinkerService:
                 return {
                     'success': True,
                     'order_id': baselinker_order_id,
+                    'zamowienie_utworzone': True,
                     'message': 'Zamowienie zostalo utworzone pomyslnie'
                 }
             else:
@@ -463,24 +536,143 @@ class BaselinkerService:
                 
                 return {
                     'success': False,
-                    'error': error_msg
+                    'error': error_msg,
+                    # API odpowiedziało i odmówiło — zamówienia NA PEWNO nie ma,
+                    # więc powtórka jest bezpieczna.
+                    'zamowienie_utworzone': False,
+                    'niepewne': False,
                 }
                 
         except Exception as e:
-            if 'log_entry' in locals():
-                log_entry.status = 'error'
-                log_entry.error_message = str(e)
-                db.session.commit()
-                self.logger.debug("Zaktualizowano log entry z błędem", log_id=log_entry.id)
-            
-            self.logger.error("Wyjątek podczas tworzenia zamówienia", 
+            # KOLEJNOŚĆ MA ZNACZENIE. Najpierw ratujemy numer zamówienia na
+            # wycenie: bez niego guard idempotencji (checkout_service) nie ma
+            # czego znaleźć przy kolejnej próbie i klient złoży DRUGIE realne
+            # zamówienie. Log błędu jest ważny, ale drugorzędny.
+            zapis_uratowany = False
+            if zamowienie_utworzone:
+                zapis_uratowany = self._awaryjny_zapis_numeru_zamowienia(
+                    quote, baselinker_order_id)
+
+            # Wyjątek z warstwy transportowej PO wysłaniu żądania (timeout
+            # odczytu, zerwane połączenie w trakcie, 5xx od brzegu BaseLinkera)
+            # znaczy, że NIE wiemy, czy BaseLinker zdążył utworzyć zamówienie:
+            # żądanie mogło dojść i zostać obsłużone, a zginąć miała tylko
+            # odpowiedź. base_linker_order_id nie zapisze się wtedy na wycenie,
+            # więc ponowienie utworzyłoby DRUGIE realne zamówienie.
+            # Wyjątki sprzed wysyłki — brak konfiguracji API, błąd składania
+            # danych, nieudane nawiązanie połączenia, błąd DNS — znaczą, że
+            # zamówienia NA PEWNO nie ma i powtórka jest bezpieczna; blokowanie
+            # klienta po nich było czystą stratą (patrz
+            # _zadanie_moglo_dojsc_do_baselinkera). Po udanym addOrder flaga jest
+            # bez znaczenia (rozstrzyga zamowienie_utworzone), więc trzymamy ją
+            # na False, żeby nie produkować drugiego, sprzecznego komunikatu.
+            niepewne = (not zamowienie_utworzone
+                        and _zadanie_moglo_dojsc_do_baselinkera(e))
+
+            # Wpis w logu jest jednocześnie TRWAŁYM znacznikiem takiej próby:
+            # czyta go checkout klienta, żeby odświeżenie strony nie kończyło
+            # się drugim zamówieniem (blokada w JavaScripcie znika przy F5).
+            self._zapisz_blad_w_logu(
+                locals().get('log_entry'), e,
+                status=STATUS_PROBA_NIEPEWNA if niepewne else 'error')
+
+            self.logger.error("Wyjątek podczas tworzenia zamówienia",
                             quote_id=quote.id,
                             error=str(e),
-                            error_type=type(e).__name__)
+                            error_type=type(e).__name__,
+                            zamowienie_utworzone=zamowienie_utworzone,
+                            baselinker_order_id=baselinker_order_id,
+                            zapis_uratowany=zapis_uratowany)
+
+            if zamowienie_utworzone and zapis_uratowany:
+                # Zamówienie jest w BaseLinkerze, a jego numer w bazie — czyli
+                # wszystko, co rozstrzyga o pieniądzach, jest na miejscu.
+                # Przepadły rzeczy odwracalne: link do strony zamówienia
+                # i order_product_id. Klient dostaje normalne potwierdzenie,
+                # tyle że bez linku („prześlemy w osobnej wiadomości").
+                return {
+                    'success': True,
+                    'order_id': baselinker_order_id,
+                    'zamowienie_utworzone': True,
+                    'zapis_awaryjny': True,
+                    'message': 'Zamowienie zostalo utworzone (zapis awaryjny)',
+                }
+
             return {
                 'success': False,
-                'error': str(e)
+                'error': str(e),
+                # Zamówienie POWSTAŁO, a my nie zdołaliśmy zapisać jego numeru.
+                # To nie jest „nie wiemy" i tym bardziej nie „nie powstało":
+                # klientowi wolno powiedzieć wyłącznie, że zamówienie jest,
+                # i poprosić o kontakt z numerem wyceny.
+                'zamowienie_utworzone': zamowienie_utworzone,
+                'order_id': baselinker_order_id,
+                # Checkout klienta czyta tę flagę i zamiast zapraszać
+                # do ponowienia — prosi o kontakt (patrz wyżej).
+                'niepewne': niepewne,
             }
+
+    def _awaryjny_zapis_numeru_zamowienia(self, quote, baselinker_order_id):
+        """Ostatnia próba wpisania numeru zamówienia na wycenę. Zwraca True/False.
+
+        Wołane wyłącznie wtedy, gdy addOrder już potwierdził utworzenie
+        zamówienia, a zapis wyceny padł. Sesja jest wtedy w stanie po nieudanym
+        commicie, więc zaczynamy od rollbacku; obiekt wyceny jest trwały
+        (wczytany z bazy), więc po rollbacku wciąż da się na nim ustawić pola.
+
+        Świadomie zapisujemy MINIMUM: numer zamówienia, status „Złożone"
+        i zdjęcie znacznika próby. To one bronią przed drugim zamówieniem
+        i to one sterują widokiem klienta; wszystkie trzy idą jednym UPDATE-em
+        na tym samym wierszu, więc nie dokładają szansy na kolejną awarię.
+        Metadanych akceptacji tu nie odtwarzamy — ich brak nikogo nie kosztuje
+        pieniędzy, a każde dodatkowe pole to kolejna szansa na to, że ten
+        ostatni commit też padnie.
+        """
+        try:
+            db.session.rollback()
+            quote.base_linker_order_id = baselinker_order_id
+            quote.status_id = 4
+            quote.order_attempt_started_at = None
+            db.session.commit()
+            self.logger.warning("Awaryjny zapis numeru zamówienia powiódł się",
+                                quote_id=quote.id,
+                                baselinker_order_id=baselinker_order_id)
+            return True
+        except Exception as blad_zapisu:
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+            self.logger.error("Awaryjny zapis numeru zamówienia NIE powiódł się — "
+                              "zamówienie istnieje w BaseLinkerze, a wycena o nim nie wie",
+                              quote_id=getattr(quote, 'id', None),
+                              baselinker_order_id=baselinker_order_id,
+                              error=str(blad_zapisu))
+            return False
+
+    def _zapisz_blad_w_logu(self, log_entry, wyjatek, status='error'):
+        """Best-effort dopisanie błędu do BaselinkerOrderLog.
+
+        `status` = STATUS_PROBA_NIEPEWNA dla prób, po których nie wiemy, czy
+        zamówienie powstało — ten wpis jest wtedy jedynym trwałym śladem, po
+        którym checkout klienta pozna, że nie wolno próbować drugi raz.
+
+        Ten zapis NIE MOŻE wyjść wyjątkiem: gdy sesja jest zerwana, jego
+        niepowodzenie wypychało wyjątek z create_order_from_quote i wywołujący
+        zamiast rozstrzygnięcia dostawał 500 — czyli o losie zamówienia
+        decydował przypadek.
+        """
+        if log_entry is None:
+            return
+        try:
+            log_entry.status = status
+            log_entry.error_message = str(wyjatek)
+            db.session.commit()
+        except Exception:
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
     
     def _prepare_order_data(self, quote, config: Dict) -> Dict:
         """Przygotowuje dane zamówienia dla API Baselinker"""
@@ -765,9 +957,24 @@ class BaselinkerService:
                 'want_invoice': bool(client.invoice_nip)
             }
         else:
-            self.logger.error("Wycena nie ma przypisanego klienta i brak danych w formularzu", 
+            self.logger.error("Wycena nie ma przypisanego klienta i brak danych w formularzu",
                              quote_id=quote.id)
             raise ValueError("Wycena nie ma przypisanego klienta")
+
+        # Wąskie nadpisanie SAMYCH pól dostawy — w odróżnieniu od client_data,
+        # które podmienia komplet danych klienta (mail, faktura, login).
+        # Używa go checkout klienta przy odbiorze osobistym wybranym na wycenie,
+        # która ma na kliencie zapisany realny adres: bez tego zamówienie szłoby
+        # z metodą „Odbiór osobisty", zerowym kosztem dostawy I pełnym adresem
+        # kurierskim naraz — magazyn dostawałby sprzeczne zlecenie, a przesyłka
+        # mogła pojechać za darmo. Nie ruszamy przy tym danych klienta w bazie:
+        # adres zostaje na kliencie, bo należy też do innych jego wycen.
+        nadpisanie_dostawy = config.get('delivery_override')
+        if nadpisanie_dostawy:
+            client_data.update(nadpisanie_dostawy)
+            self.logger.info("Nadpisano dane dostawy w zamówieniu",
+                             quote_id=quote.id,
+                             pola=sorted(nadpisanie_dostawy.keys()))
 
         # Konfiguracja zamówienia
         order_source_id = config.get('order_source_id')
@@ -2072,53 +2279,135 @@ class BaselinkerService:
                            baselinker_id=default_source.baselinker_id)
             return default_source.baselinker_id
 
+    def _pobierz_zamowienie_po_dodaniu(self, baselinker_order_id, prob=2):
+        """getOrders z ponowieniem. Zwraca słownik zamówienia albo None.
+
+        Ponawiamy, bo z tej jednej odpowiedzi bierze się order_page — link,
+        którym klient dochodzi do płatności. Zamówienie w tej chwili już
+        istnieje, więc powtórne zapytanie niczego nie tworzy i nie ma jak
+        zaszkodzić; jego brak kosztuje natomiast klienta całą drogę do
+        zapłaty, bez ścieżki odzysku (jedyny inny zapis linku siedzi
+        w get_sales_documents, za uprawnieniem do modułu baselinker).
+
+        Za nieudaną uznajemy też odpowiedź „SUCCESS, ale bez order_page":
+        z punktu widzenia klienta wygląda dokładnie tak samo jak błąd.
+        """
+        ostatnie = None
+        for numer_proby in range(1, prob + 1):
+            try:
+                response = self._make_request('getOrders', {
+                    'order_id': baselinker_order_id,
+                })
+            except Exception as e:
+                self.logger.warning("getOrders po addOrder nie powiodło się",
+                                    baselinker_order_id=baselinker_order_id,
+                                    proba=numer_proby,
+                                    error=str(e))
+                continue
+
+            if response.get('status') != 'SUCCESS':
+                self.logger.warning("Nie udało się pobrać zamówienia po addOrder",
+                                    baselinker_order_id=baselinker_order_id,
+                                    proba=numer_proby)
+                continue
+
+            orders = response.get('orders') or []
+            if not orders:
+                continue
+
+            ostatnie = orders[0]
+            if ostatnie.get('order_page'):
+                return ostatnie
+
+        if ostatnie is None:
+            self.logger.error("Nie udało się pobrać zamówienia po addOrder mimo "
+                              "ponowienia — zamówienie istnieje, ale wycena nie "
+                              "dostanie linku do strony zamówienia",
+                              baselinker_order_id=baselinker_order_id)
+        else:
+            self.logger.error("BaseLinker nie zwrócił order_page mimo ponowienia — "
+                              "klient nie dostanie linku do strony zamówienia",
+                              baselinker_order_id=baselinker_order_id)
+        return ostatnie
+
     def _save_order_product_ids(self, quote, baselinker_order_id):
         """Po addOrder odpytuje getOrders i zapisuje order_product_id w QuoteItemDetails."""
         try:
             from modules.calculator.models import QuoteItemDetails
 
-            response = self._make_request('getOrders', {
-                'order_id': baselinker_order_id,
-            })
-
-            if response.get('status') != 'SUCCESS':
-                self.logger.warning("Nie udało się pobrać zamówienia po addOrder",
-                                   baselinker_order_id=baselinker_order_id)
+            # Samo wywołanie getOrders leżało wcześniej w zewnętrznym try/except,
+            # który połykał wszystko i wychodził z metody BEZ zapisu linku.
+            bl_order = self._pobierz_zamowienie_po_dodaniu(baselinker_order_id)
+            if not bl_order:
                 return
 
-            orders = response.get('orders', [])
-            if not orders:
-                return
+            bl_products = bl_order.get('products', [])
 
-            bl_products = orders[0].get('products', [])
+            # Link do STRONY ZAMOWIENIA w BaseLinkerze — to nie jest link platniczy.
+            # getOrders i tak jest tu wołane po order_product_id, a order_page
+            # przychodzi w tej samej odpowiedzi i bez tego odczytu ginie — checkout
+            # nie ma wtedy czym pokazać klientowi jego zamówienia (jedyny inny zapis
+            # jest w get_sales_documents, za uprawnieniem do modułu baselinker).
+            # Link zapisujemy i commitujemy PRZED dopasowaniem SKU. W tym miejscu
+            # realne zamówienie w BaseLinkerze już istnieje i nie da się go cofnąć,
+            # a dopasowanie SKU niżej potrafi rzucić wyjątkiem (padnięte połączenie,
+            # wyjątek w generatorze SKU). Wspólny commit na końcu oznaczałby, że
+            # taki wyjątek zabiera ze sobą link do strony zamówienia — klient nie
+            # ma wtedy jak dojść do płatności i nie ma skąd tego linku odzyskać.
+            # Sam commit linku też we własnym try/except: gdy padnie, a sesja
+            # zostanie w stanie po nieudanej transakcji, wywołujący wywróci się
+            # na pierwszym odczycie z wyceny — i klient dostanie „nie wiemy"
+            # o zamówieniu, które istnieje i jest zapisane.
+            order_page = bl_order.get('order_page')
+            if order_page:
+                try:
+                    quote.baselinker_order_page = order_page
+                    db.session.commit()
+                    self.logger.info("Zapisano stronę zamówienia",
+                                     baselinker_order_id=baselinker_order_id)
+                except Exception as blad_linku:
+                    db.session.rollback()
+                    self.logger.error("Nie udało się zapisać strony zamówienia",
+                                      baselinker_order_id=baselinker_order_id,
+                                      error=str(blad_linku))
 
-            # Pobierz QuoteItemDetails dla tego quote
-            details = QuoteItemDetails.query.filter_by(quote_id=quote.id).all()
+            # Dopasowanie SKU we własnym try/except — jego niepowodzenie jest
+            # dolegliwe (brak order_product_id w QuoteItemDetails), ale nie może
+            # unieważniać zapisanego wyżej linku ani zostawiać sesji w stanie,
+            # w którym wywołujący nie odczyta już nic z bazy.
+            try:
+                # Pobierz QuoteItemDetails dla tego quote
+                details = QuoteItemDetails.query.filter_by(quote_id=quote.id).all()
 
-            # Matchuj po SKU
-            details_by_sku = {}
-            for detail in details:
-                sku = self._generate_sku_for_detail(detail)
-                if sku:
-                    details_by_sku[sku] = detail
+                # Matchuj po SKU
+                details_by_sku = {}
+                for detail in details:
+                    sku = self._generate_sku_for_detail(detail)
+                    if sku:
+                        details_by_sku[sku] = detail
 
-            matched = 0
-            bl_skus = []
-            for bl_product in bl_products:
-                bl_sku = bl_product.get('sku', '')
-                bl_skus.append(bl_sku)
-                if bl_sku in details_by_sku:
-                    details_by_sku[bl_sku].baselinker_order_product_id = int(bl_product['order_product_id'])
-                    matched += 1
+                matched = 0
+                bl_skus = []
+                for bl_product in bl_products:
+                    bl_sku = bl_product.get('sku', '')
+                    bl_skus.append(bl_sku)
+                    if bl_sku in details_by_sku:
+                        details_by_sku[bl_sku].baselinker_order_product_id = int(bl_product['order_product_id'])
+                        matched += 1
 
-            self.logger.info(f"order_product_id matchowanie: BL SKUs={bl_skus}, detail SKUs={list(details_by_sku.keys())}, matched={matched}")
+                self.logger.info(f"order_product_id matchowanie: BL SKUs={bl_skus}, detail SKUs={list(details_by_sku.keys())}, matched={matched}")
 
-            if matched > 0:
-                db.session.commit()
-                self.logger.info("Zapisano order_product_id",
-                               matched=matched,
-                               total_bl=len(bl_products),
-                               total_details=len(details))
+                if matched > 0:
+                    db.session.commit()
+                    self.logger.info("Zapisano order_product_id",
+                                   matched=matched,
+                                   total_bl=len(bl_products),
+                                   total_details=len(details))
+            except Exception as e:
+                import traceback
+                db.session.rollback()
+                self.logger.error(f"Błąd dopasowania SKU (order_page zachowany): "
+                                  f"{str(e)}\n{traceback.format_exc()}")
 
         except Exception as e:
             import traceback

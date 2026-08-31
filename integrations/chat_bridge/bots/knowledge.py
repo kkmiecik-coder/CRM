@@ -116,6 +116,47 @@ def retrieve(query, k=None):
     return [ch for _, ch in scored[:k]]
 
 
+def retrieve_scored(query, k=None):
+    # Jak retrieve, ale ODDAJE miare podobienstwa zamiast ja wyrzucac: lista par
+    # (cosine, chunk), posortowana malejaco, przyciecie do top-K takie samo.
+    #
+    # Po co: retrieve zwraca K NAJBLIZSZYCH fragmentow takze dla pytania, ktorego
+    # w bazie NIE MA — nie ma zadnego progu, wiec "nic nie pasuje" jest z zewnatrz
+    # nieodroznialne od "pasuje idealnie". Regula bezpieczenstwa agenta Wiedzy
+    # ("pusta lista -> oddaj rozmowe czlowiekowi") odpala sie przez to wylacznie
+    # przy awarii indeksu. Ta funkcja jest CZYSTYM POMIAREM przed ustawieniem
+    # progu: bots_pro/wiedza.py loguje z niej najlepszy i ostatni wynik, zeby
+    # prog dalo sie potem dobrac Z DANYCH, a nie zgadnac.
+    #
+    # DLACZEGO KOPIA PETLI, A NIE WSPOLNY KOD: retrieve obsluguje ZYWY ruch
+    # starego silnika (bots/quotebot.py, bots/livechat.py, bots/suggester.py)
+    # i zostaje nietkniety — zmiana jest czysto addytywna. Cene tej decyzji
+    # (dwie kopie, ktore moga sie rozjechac) placi sonda
+    # tests/test_pro_wiedza.py::test_obie_funkcje_zwracaja_te_same_fragmenty.
+    # Gdy prog zostanie juz dobrany z danych, naturalnym krokiem jest oparcie
+    # retrieve na tej funkcji — ale to zmiana zachowania i ma byc osobna.
+    k = k or BOT_RETRIEVAL_K
+    c = db()
+    rows = c.execute("SELECT chunk, embedding FROM kb_chunks").fetchall()
+    c.close()
+    if not rows:
+        return []
+    qv = embed([query])
+    if not qv or qv[0] is None:
+        # zabezpieczenie: brak/uszkodzony embedding zapytania -> brak wynikow
+        return []
+    qv = qv[0]
+    scored = []
+    for r in rows:
+        try:
+            v = json.loads(r["embedding"])
+        except Exception:
+            continue
+        scored.append((cosine(qv, v), r["chunk"]))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return scored[:k]
+
+
 def index_loop():
     # Watek tla: cykliczna synchronizacja indeksu wiedzy.
     while True:

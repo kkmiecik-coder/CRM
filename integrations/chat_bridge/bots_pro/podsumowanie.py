@@ -12,6 +12,7 @@ from bots import crm_calc
 from bots_pro import potwierdzenia, stan
 from config import BOT_PRO_CW_AGENT_TOKEN
 from core.chatwoot import cw_agent_reply
+from core.log import log
 
 
 def _fmt_pln(v):
@@ -126,7 +127,83 @@ def _linia(poz, options=None):
     otwory = poz.get("otwory") or []
     if otwory:
         linia += ", otwory: %s" % "; ".join(str(o) for o in otwory)
+        # N3 (naprawa po testach na żywym czacie): wycięcia SĄ w podsumowaniu,
+        # ich koszt NIE jest w cenie — pole `otwory` nigdy nie dociera do
+        # kalkulatora (jest jawnie OPISOWE, patrz `_POLA_OPISOWE` i
+        # `odcisk_cenotworczy` w potwierdzenia.py) — a podsumowanie o tym
+        # milczało. Bot mówił prawdę dopiero zapytany wprost, więc klient
+        # potwierdzał cenę, która nie obejmowała tego, co widział tuż obok niej.
+        # Adnotację składa KOD, nie model — dokładnie jak resztę tej linii; to
+        # jedyny sposób, żeby stała przy KAŻDYM podsumowaniu z wycięciami, a nie
+        # wtedy, gdy model akurat sobie o niej przypomni.
+        #
+        # To naprawa KOMUNIKATU, nie ceny: faktyczne wliczenie wycięć do wyceny
+        # jest osobnym, większym zadaniem (wymaga mapowania opisu na pozycję
+        # cennika, dziś FinishingOption CUTOUT w CRM).
+        linia += " (koszt wycięć nie jest wliczony w tę cenę — wycenia je konsultant)"
     return linia
+
+
+# --- Bramka kształtu w nazwie produktu (U-N5, runda napraw 6) ----------------
+#
+# `_linia` drukuje `poz["produkt"]` DOSŁOWNIE, a to pole wypełnia model
+# swobodnym tekstem. Recenzja pokazała sondą, że nazwa omija każdą kontrolę:
+#
+#     • Blat okrągły dębowy Dąb lita A/B, 120x120x4 cm, 1 szt., ...
+#
+# Reguła KSZTAŁT w `prompty.WYCENA` zabrania i liczenia takiego blatu, i
+# nazywania kształtu w podsumowaniu — ale była WYŁĄCZNIE promptowa, a prompt
+# jest prośbą, nie bramką (ta sama różnica, dla której powstały G1 i G3).
+# Kwota stojąca obok takiej nazwy jest policzona jak prostokąt o tych samych
+# wymiarach: ⌀120 to 1,13 m2, kwadrat 120x120 to 1,44 m2 — 27% materiału bez
+# pokrycia, podane klientowi jako cena do potwierdzenia.
+#
+# CO TO JEST, A CZYM NIE JEST: to nie jest walidator nazw i nie ma nim być.
+# To jedna ZAMKNIĘTA lista słów kształtu i jedna bramka na wejściu `wyslij`.
+# Sprawdzamy WYŁĄCZNIE pole `produkt` — „okrągły otwór pod baterię" w polu
+# `otwory` jest normalną, poprawną pozycją prostokątnego blatu i ma dochodzić
+# do klienta bez przeszkód.
+#
+# DLACZEGO ODMOWA, A NIE WYCIĘCIE SŁOWA Z NAZWY: usunięcie „okrągły" dałoby
+# podsumowanie wyglądające POPRAWNIE przy cenie, która nadal jest zła —
+# ukrycie dowodu, nie naprawa. Odmowa zostawia model tam, gdzie reguła
+# KSZTAŁT każe mu być: przy `oddaj_czlowiekowi`.
+#
+# ZNANY KOSZT: model może obejść bramkę, po prostu zmieniając nazwę. To nie
+# jest luka, tylko granica tego, co da się sprawdzić po nazwie — wtedy jednak
+# obchodzi ją ŚWIADOMIE i po komunikacie wskazującym regułę, zamiast wysyłać
+# złą cenę bez żadnego śladu. Trafienia zostają w logu, tak jak trafienia G3,
+# więc na skrzynce testowej da się je policzyć.
+_SLOWA_KSZTALTU = (
+    r"okr[ąa]g[łl]\w*",          # okrągły, okrągła, okragly
+    r"p[óo][łl]okr[ąa]g[łl]\w*",  # półokrągły — osobno, bo granica słowa
+    r"owaln\w*",
+    r"elipt\w*|elips\w*",
+    r"nieregularn\w*",
+    r"[łl]uk\w*",                # łuk, łukiem, łukowy
+    # „kształt" i „kształcie" — wymiana t:c w odmianie, stąd klasa [tc]
+    r"kszta[łl][tc]\w*",
+)
+_KSZTALT_W_NAZWIE = re.compile(
+    r"(?<!\w)(?:%s)(?!\w)" % "|".join(_SLOWA_KSZTALTU), re.IGNORECASE)
+
+_WSKAZOWKA_KSZTALT = (
+    "Nazwa pozycji %r mówi o kształcie innym niż prostokąt. Kalkulator liczy "
+    "WYŁĄCZNIE prostokąty i kwadraty, więc podsumowanie NIE zostało wysłane — "
+    "cena obok takiej nazwy byłaby ceną prostokąta o tych samych wymiarach. "
+    "Postąp zgodnie z regułą KSZTAŁT: zbierz brakujące dane i wołaj "
+    "oddaj_czlowiekowi z powodem 'kształt inny niż prostokąt: <opis klienta>'. "
+    "Jeśli blat JEST prostokątny, popraw nazwę pozycji (zapisz_pozycje) tak, "
+    "żeby nie nazywała kształtu, i spróbuj ponownie.")
+
+
+def _nazwa_z_ksztaltem(pozycje):
+    """Nazwa pierwszej pozycji, która przemyca kształt — albo None."""
+    for poz in pozycje or []:
+        nazwa = str(poz.get("produkt") or "")
+        if _KSZTALT_W_NAZWIE.search(nazwa):
+            return nazwa
+    return None
 
 
 def kwoty_z_wyniku(pozycje, wynik):
@@ -237,6 +314,33 @@ def _bez_wrazliwych_cen(wynik):
     return bezpieczne
 
 
+# P1 (runda napraw 3) — rozstrzygnięcie właściciela: „czasem klient nie wie co
+# wybrać, więc nie możemy go zmuszać do wyboru, wtedy proponujemy szerszy zakres,
+# czyli wszystkie warianty".
+#
+# Podsumowanie pokazuje cenę JEDNEGO wariantu — tego przyjętego do rachunku —
+# i to jest w porządku, bo strona wyceny pokazuje wszystkie osiem z cenami
+# (`_products_with_all_variants` w modules/calculator/routers/bot_api.py zapisuje
+# komplet kodów wariantów, ceny dokłada `_inject_backend_prices` w
+# quote_service.py, a client_quote.js renderuje je razem z powodem
+# niedostępności). Brakowało jedynie tego, żeby klient o tym WIEDZIAŁ, zanim
+# zacznie się zastanawiać, dlaczego widzi jedną kwotę zamiast porównania.
+#
+# Zdanie składa KOD, nie model — dokładnie tak jak adnotację o wycięciach
+# (`_linia`): tylko wtedy stoi przy KAŻDYM podsumowaniu, a nie wtedy, gdy model
+# akurat sobie o nim przypomni.
+#
+# ZERO KWOT, świadomie: porównanie jest NA STRONIE wyceny, nie w czacie, więc
+# rejestr G1 nie rośnie ani o jedną pozycję i tolerancja guardraila zostaje
+# nietknięta. To jest właśnie ta różnica, która przesądziła o kształcie tej
+# naprawy — zestawianie kwot w oknie czatu wymagałoby zarejestrowania cen
+# wszystkich wariantów i poszerzyłoby ślepą plamkę G1 kilkukrotnie.
+ZDANIE_O_WARIANTACH = (
+    "\n\nW wycenie, którą przygotowujemy, są ceny wszystkich wariantów drewna "
+    "— dębu, jesionu i buku — do porównania; niedostępne dla tych wymiarów są "
+    "tam oznaczone.")
+
+
 def wyslij():
     """Liczy cenę, składa podsumowanie, zapisuje oczekiwany podpis i wysyła.
 
@@ -247,6 +351,17 @@ def wyslij():
     pozycje = stan.pozycje()
     if not pozycje:
         return {"ok": False, "error": "BRAK_POZYCJI"}
+
+    # U-N5: kształt przemycony w nazwie produktu. Sprawdzamy PRZED wołaniem
+    # kalkulatora — i tak nie ma czego z niego wysłać, a cena prostokąta dla
+    # blatu okrągłego nie ma po co powstawać. Patrz komentarz nad
+    # `_SLOWA_KSZTALTU`.
+    nazwa_z_ksztaltem = _nazwa_z_ksztaltem(pozycje)
+    if nazwa_z_ksztaltem:
+        log("podsumowanie: ksztalt w nazwie pozycji %r -> NIE wysylam (conv %s)"
+            % (nazwa_z_ksztaltem, stan.conv_id()))
+        return {"ok": False, "error": "KSZTALT_W_NAZWIE",
+                "wskazowka": _WSKAZOWKA_KSZTALT % nazwa_z_ksztaltem}
 
     options = crm_calc.get_options()
     wynik = crm_calc.calculate(pozycje, options)
@@ -317,6 +432,15 @@ def wyslij():
             tekst += ("\n\nDostawa: jeszcze nie wyceniona — koszt poznamy po podaniu "
                       "kodu pocztowego.")
         tekst += "\nRazem za produkty (bez dostawy): %s brutto" % _fmt_pln(razem_produkty)
+
+    # P1: zdanie o wszystkich wariantach — WYŁĄCZNIE tam, gdzie klient dostanie
+    # link do wyceny. Na Allegro linku nie wolno wysłać (regulamin, `wysylka.
+    # wolno_linkowac`), a wycena trafia do konsultanta — obietnica „zobaczy Pan
+    # wszystkie warianty" byłaby tam obietnicą bez pokrycia, czyli dokładnie tym
+    # błędem, który ta runda naprawia.
+    from bots_pro import wysylka
+    if wysylka.wolno_linkowac(stan.persona()):
+        tekst += ZDANIE_O_WARIANTACH
     tekst += "\n\nCzy wszystko się zgadza?"
 
     stan.zapamietaj_kwoty(kwoty)
@@ -337,7 +461,9 @@ def wyslij():
     # fragmencie odpowiedzi klienta, a wycena i link szły do CRM bez potwierdzenia
     # czegokolwiek. Kolejność (wyślij -> sprawdź -> zapisz podpis) jest istotą tej
     # poprawki, nie kosmetyką.
-    from bots_pro import wysylka
+    #
+    # `wysylka` jest już zaimportowana wyżej (zdanie o wariantach, P1) — drugi,
+    # identyczny import w tej samej funkcji byłby martwy.
     for czesc in wysylka.przygotuj(tekst, stan.persona()):
         if not cw_agent_reply(stan.conv_id(), czesc, token=BOT_PRO_CW_AGENT_TOKEN):
             # Przerywamy PO PIERWSZEJ nieudanej części: dosłanie ogona po dziurze

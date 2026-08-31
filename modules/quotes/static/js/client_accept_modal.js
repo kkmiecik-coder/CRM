@@ -800,15 +800,67 @@ function showAutoFillInfo() {
     infoElement.style.display = 'flex';
 }
 
+
+// Czy adres zapisany na kliencie to znacznik odbioru osobistego. Ta sama
+// konwencja co po stronie serwera (checkout_config._ZNACZNIKI_ODBIORU).
+function adresToOdbiorOsobisty(adres) {
+    if (!adres) return false;
+    const znormalizowany = String(adres).trim().toLowerCase();
+    return znormalizowany === 'odbiór osobisty' || znormalizowany === 'odbior osobisty';
+}
+
+// Czy TA wycena niesie własną dostawę kurierską — kuriera albo jej koszt.
+// Dane wstrzykuje szablon strony (client_quote.html → window.currentQuoteData).
+// To jedyne dane o dostawie, które należą do konkretnej wyceny: znacznik
+// „ODBIÓR OSOBISTY" siedzi na WSPÓŁDZIELONYM rekordzie klienta i zostaje tam
+// po każdym odbiorze osobistym, także dla wszystkich następnych wycen.
+// Kurier o nazwie „Odbiór osobisty" (tak wpisuje go panel handlowca) kurierem
+// nie jest — ta sama reguła co w checkout_config._wycena_wskazuje_kuriera.
+function wycenaJedzieKurierem() {
+    const dane = window.currentQuoteData || currentQuoteData || {};
+    const kurier = String(dane.courier_name || '').trim();
+    if (kurier && !adresToOdbiorOsobisty(kurier)) return true;
+    return parseFloat(dane.koszt_dostawy || 0) > 0;
+}
+
+// Wartość do wpisania w pole adresu. Znacznik odbioru osobistego adresem NIE
+// JEST: wpisany w formularz pojechałby do BaseLinkera jako adres przesyłki.
+function adresDoFormularza(adres) {
+    return adresToOdbiorOsobisty(adres) ? '' : (adres || '');
+}
+
+// Ustawia checkbox odbioru osobistego zgodnie z danymi zapisanymi na kliencie.
+// Bez tego wycena zaakceptowana WCZEŚNIEJ jako odbiór osobisty wracała do
+// modala z odznaczonym polem i adresem „ODBIÓR OSOBISTY" w polu adresu:
+// formularz mówił wtedy „kurier", dane klienta „odbiór" — a serwer taką
+// sprzeczność odrzuca, bo nie wolno mu jej rozstrzygnąć za klienta.
+//
+// Na wycenie KURIERSKIEJ pola nie zaznaczamy: rozstrzyga wycena, a nie stary
+// znacznik na rekordzie klienta. Dopóki zaznaczaliśmy, zamówienie z dostawą
+// za 123 zł jechało do BaseLinkera jako odbiór osobisty z zerowym kosztem —
+// a klient, który pole odznaczył, dostawał odmowę. Teraz decyduje świadomie:
+// zostawia adres (kurier jak w wycenie) albo sam zaznacza odbiór.
+function ustawOdbiorZDanychKlienta(daneDostawy) {
+    if (!daneDostawy || !adresToOdbiorOsobisty(daneDostawy.address)) return false;
+    if (wycenaJedzieKurierem()) return false;
+    const pole = document.getElementById('selfPickup');
+    if (!pole) return false;
+    pole.checked = true;
+    handleSelfPickupChange();
+    return true;
+}
+
 // Wypełnij formularz istniejącymi danymi
 function fillFormWithExistingData(data) {
     // Dane dostawy
-    if (data.delivery) {
+    if (data.delivery && ustawOdbiorZDanychKlienta(data.delivery)) {
+        // Odbiór osobisty — pola adresu są ukryte i puste, nie ma czego wpisywać.
+    } else if (data.delivery) {
         document.getElementById('deliveryName').value = data.delivery.name || '';
         document.getElementById('deliveryCompany').value = data.delivery.company || '';
-        document.getElementById('deliveryAddress').value = data.delivery.address || '';
+        document.getElementById('deliveryAddress').value = adresDoFormularza(data.delivery.address);
         document.getElementById('deliveryZip').value = data.delivery.zip || '';
-        document.getElementById('deliveryCity').value = data.delivery.city || '';
+        document.getElementById('deliveryCity').value = adresDoFormularza(data.delivery.city);
         document.getElementById('deliveryRegion').value = data.delivery.region || '';
     }
 
@@ -1297,11 +1349,193 @@ function updateQuoteSummary() {
     summaryContainer.innerHTML = summary;
 }
 
-// Finalne submitowanie
-async function handleFinalSubmit() {
-    console.log('[AcceptModal] Rozpoczęcie finalnego submitowania');
+// === SKŁADANIE ZAMÓWIENIA ===
+// Modal kończy się teraz zamówieniem, a nie samą akceptacją: jedno kliknięcie
+// „Zamawiam" akceptuje wycenę (jeśli trzeba) i tworzy zamówienie w BaseLinkerze.
+// Ta sama ścieżka dla wszystkich wycen — bez rozróżniania, kto wycenę wystawił.
 
-    // POPRAWKA: Sprawdź checkbox akceptacji warunków
+// Zamówienie złożone w tej sesji — zamknięcie modala ma wtedy przeładować
+// stronę, żeby klient zobaczył baner i link do zamówienia, a nie znowu formularz.
+let zamowienieZlozone = false;
+
+function kontaktWoodpower() {
+    return 'biuro@woodpower.pl lub telefonicznie +48 690 002 109';
+}
+
+// Komunikat na wypadek, gdy odpowiedź w ogóle do nas nie dotarła (padła sieć
+// albo serwer). Nie wiemy wtedy nawet tego, czy żądanie zostało obsłużone,
+// więc nie wolno twierdzić ani „zamówiliśmy", ani „nie zamówiliśmy".
+function komunikatBrakOdpowiedzi() {
+    const numer = window.QUOTE_NUMBER
+        || (window.currentQuoteData && window.currentQuoteData.quote_number)
+        || '';
+    return 'Nie mamy potwierdzenia z systemu zamówień i nie wiemy, czy Twoje zamówienie '
+        + 'zostało przyjęte. Prosimy: nie składaj go ponownie. Skontaktuj się z nami — '
+        + kontaktWoodpower() + ' — i podaj numer wyceny ' + numer + '. '
+        + 'Sprawdzimy to i potwierdzimy.';
+}
+
+// Do href wpuszczamy wyłącznie http/https. order_page_url przychodzi z odpowiedzi
+// BaseLinkera; "javascript:..." w atrybucie href wykonałoby się po kliknięciu.
+function bezpiecznyLinkZamowienia(adres) {
+    if (!adres) return null;
+    try {
+        const url = new URL(adres, window.location.origin);
+        return (url.protocol === 'http:' || url.protocol === 'https:') ? url.href : null;
+    } catch (e) {
+        console.warn('[AcceptModal] Odrzucony link do zamówienia:', adres);
+        return null;
+    }
+}
+
+// Chowa kroki formularza i oddaje kontener na ekran końcowy.
+function przelaczNaEkranKoncowy() {
+    const modal = document.getElementById('acceptModal');
+    if (!modal) return null;
+    modal.querySelectorAll('.m-prog, .modal-scrollable-content, .step-actions')
+        .forEach(function (el) { el.style.display = 'none'; });
+    const kontener = document.getElementById('checkoutPotwierdzenie');
+    if (!kontener) return null;
+    kontener.textContent = '';
+    kontener.style.display = 'block';
+    return kontener;
+}
+
+// Blokuje przyciski zamawiania na samej stronie — po zamówieniu i po utracie
+// łączności ponowne otwarcie modala nie może być jednym kliknięciem.
+function zablokujPrzyciskiZamawiania() {
+    ['acceptQuoteBtnDesktop', 'acceptQuoteBtnMobile'].forEach(function (id) {
+        const btn = document.getElementById(id);
+        if (btn) btn.disabled = true;
+    });
+}
+
+function dopiszAkapit(kontener, tekst, klasa) {
+    const p = document.createElement('p');
+    if (klasa) p.className = klasa;
+    p.textContent = tekst;
+    kontener.appendChild(p);
+    return p;
+}
+
+function dopiszPrzyciskZamkniecia(kontener) {
+    const zamknij = document.createElement('button');
+    zamknij.type = 'button';
+    zamknij.className = 'btn btn-secondary';
+    zamknij.textContent = 'Zamknij';
+    zamknij.addEventListener('click', closeAcceptModal);
+    kontener.appendChild(zamknij);
+}
+
+// Ekran „zamówienie przyjęte". Buduje się węzłami DOM i textContent — wartości
+// z odpowiedzi (numer wyceny, adres strony zamówienia) NIE trafiają do innerHTML.
+function pokazPotwierdzenie(wynik) {
+    zamowienieZlozone = true;
+    zablokujPrzyciskiZamawiania();
+
+    const kontener = przelaczNaEkranKoncowy();
+    if (!kontener) {
+        showSuccessMessage('Zamówienie zostało złożone.');
+        return;
+    }
+
+    const naglowek = document.createElement('h3');
+    naglowek.textContent = (wynik && wynik.duplikat)
+        ? 'To zamówienie zostało już złożone'
+        : 'Zamówienie zostało złożone';
+    kontener.appendChild(naglowek);
+
+    const numerWyceny = (wynik && wynik.quote_number) || window.QUOTE_NUMBER || '';
+    if (numerWyceny) {
+        dopiszAkapit(kontener, 'Wycena nr ' + numerWyceny, 'podpowiedz');
+    }
+
+    const link = bezpiecznyLinkZamowienia(wynik && wynik.order_page_url);
+    if (link) {
+        const a = document.createElement('a');
+        a.className = 'btn btn-primary btn-zamowienie';
+        a.href = link;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.textContent = 'Otwórz stronę zamówienia';
+        kontener.appendChild(a);
+        // To NIE jest link płatniczy — płatność uruchamia dopiero przycisk
+        // na stronie zamówienia.
+        dopiszAkapit(kontener,
+            'Znajdziesz tam szczegóły zamówienia i przycisk opłacenia.', 'podpowiedz');
+    } else {
+        // Brak order_page nie jest błędem zamówienia — zamówienie istnieje.
+        dopiszAkapit(kontener,
+            'Szczegóły zamówienia i dane do płatności prześlemy w osobnej wiadomości.');
+    }
+
+    dopiszPrzyciskZamkniecia(kontener);
+}
+
+// Zapasowa treść dla stanu „zamówienie jest, zapis padł" — gdyby serwer nie
+// przysłał swojej. Nie wolno tu użyć komunikatu o niepewności: byłoby to
+// zaprzeczenie temu, co wiemy na pewno.
+function komunikatZamowienieBezZapisu() {
+    const numer = window.QUOTE_NUMBER
+        || (window.currentQuoteData && window.currentQuoteData.quote_number)
+        || '';
+    return 'Twoje zamówienie zostało złożone, ale nie udało nam się zapisać go '
+        + 'do końca po naszej stronie. Prosimy: nie składaj go ponownie. '
+        + 'Skontaktuj się z nami — ' + kontaktWoodpower() + ' — i podaj numer '
+        + 'wyceny ' + numer + '. Prześlemy potwierdzenie i dane do płatności.';
+}
+
+// Ekran końcowy bez przycisku ponawiania — wspólny dla stanów, w których
+// druga próba mogłaby utworzyć DRUGIE realne zamówienie w BaseLinkerze.
+function pokazEkranBezPowtorki(naglowekTekst, komunikat) {
+    zablokujPrzyciskiZamawiania();
+
+    const kontener = przelaczNaEkranKoncowy();
+    if (!kontener) {
+        showErrorMessage(komunikat);
+        return;
+    }
+    kontener.classList.add('checkout-done-uncertain');
+
+    const naglowek = document.createElement('h3');
+    naglowek.textContent = naglowekTekst;
+    kontener.appendChild(naglowek);
+    dopiszAkapit(kontener, komunikat);
+    dopiszPrzyciskZamkniecia(kontener);
+}
+
+// Ekran „nie wiemy, czy zamówienie powstało". Świadomie bez przycisku ponawiania:
+// numer zamówienia nie zapisał się na wycenie, więc druga próba utworzyłaby
+// DRUGIE realne zamówienie w BaseLinkerze.
+function pokazNiepewnosc(tekst) {
+    pokazEkranBezPowtorki('Nie wiemy, czy zamówienie zostało złożone',
+        tekst || komunikatBrakOdpowiedzi());
+}
+
+// Ekran „zamówienie jest, zapis padł". Tu nie ma żadnej niepewności: serwer
+// dostał z BaseLinkera potwierdzenie utworzenia. Klientowi mówimy to wprost —
+// twierdzenie „nie wiemy" byłoby drugim nieprawdziwym komunikatem pod rząd.
+function pokazZamowienieBezZapisu(tekst) {
+    pokazEkranBezPowtorki('Zamówienie zostało złożone',
+        tekst || komunikatZamowienieBezZapisu());
+}
+
+// Ekran „zamówienie jest właśnie przetwarzane" — inne żądanie (drugie okno,
+// retry przeglądarki, handlowiec w panelu) siedzi w tej chwili w BaseLinkerze.
+// Powtórki nie ma, bo to ona utworzyłaby drugie realne zamówienie, ale to NIE
+// jest awaria: nagłówek „Nie wiemy, czy zamówienie zostało złożone" byłby tu
+// niepotrzebnym straszeniem.
+function pokazPrzetwarzanie(tekst) {
+    pokazEkranBezPowtorki('Zamówienie jest przetwarzane',
+        tekst || ('Twoje zamówienie jest właśnie przetwarzane. Prosimy: nie '
+            + 'składaj go ponownie. Odśwież tę stronę za chwilę — pojawi się '
+            + 'na niej potwierdzenie.'));
+}
+
+// Finalne submitowanie — składa zamówienie
+async function handleFinalSubmit() {
+    console.log('[AcceptModal] Rozpoczęcie składania zamówienia');
+
     const termsAccepted = document.getElementById('acceptTerms').checked;
 
     if (!termsAccepted) {
@@ -1309,23 +1543,24 @@ async function handleFinalSubmit() {
         return;
     }
 
-    // Wyczyść błąd checkbox
     clearFieldError('termsError');
 
     const submitBtn = document.getElementById('finalSubmitBtn');
     const loadingOverlay = document.getElementById('acceptLoadingOverlay');
 
-    // Pokaż loading
     submitBtn.disabled = true;
     loadingOverlay.style.display = 'flex';
 
-    try {
-        // Przygotuj dane do wysłania
-        const formData = collectFormData();
+    // Przycisk wraca do gry TYLKO wtedy, gdy wiemy na pewno, że zamówienie
+    // nie powstało. Po sukcesie i po utracie łączności zostaje wyłączony.
+    let mozliwaPowtorka = false;
 
-        // Wyślij dane
+    try {
+        const formData = collectFormData();
+        formData.akceptacja_regulaminu = true;
+
         const token = getCurrentQuoteToken();
-        const response = await fetch(`/quotes/api/client/quote/${token}/accept-with-data`, {
+        const response = await fetch(`/quotes/api/client/quote/${token}/order`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -1333,32 +1568,45 @@ async function handleFinalSubmit() {
             body: JSON.stringify(formData)
         });
 
-        const result = await response.json();
+        let result = {};
+        try {
+            result = await response.json();
+        } catch (e) {
+            // Odpowiedź bez JSON-a (np. strona błędu proxy) — traktujemy jak brak
+            // odpowiedzi, bo nie wiemy, na jakim etapie żądanie stanęło.
+            result = {};
+            if (!response.ok) result.niepewne = true;
+        }
 
         if (response.ok) {
-            console.log('[AcceptModal] Wycena zaakceptowana pomyślnie:', result);
+            console.log('[AcceptModal] Zamówienie złożone:', result);
+            pokazPotwierdzenie(result);
+            return;
+        }
 
-            if (result.redirect_url) {
-                window.location.href = result.redirect_url;
-            } else {
-                showSuccessMessage('Wycena została zaakceptowana pomyślnie!');
-                closeAcceptModal();
-                setTimeout(() => {
-                    window.location.reload();
-                }, 2000);
-            }
-
+        console.error('[AcceptModal] Zamówienie nieudane:', response.status, result);
+        // Kolejność od najmocniejszej wiedzy: „zamówienie istnieje" bije
+        // „nie wiemy", to bije „przetwarzamy" — a wszystkie trzy odbierają
+        // prawo do powtórki.
+        if (result.zamowienie_utworzone === true) {
+            pokazZamowienieBezZapisu(result.error);
+        } else if (result.niepewne === true) {
+            pokazNiepewnosc(result.error);
+        } else if (result.w_toku === true) {
+            pokazPrzetwarzanie(result.error);
         } else {
-            console.error('[AcceptModal] Błąd akceptacji:', result);
-            showErrorMessage(result.error || 'Wystąpił błąd podczas akceptacji wyceny');
+            mozliwaPowtorka = true;
+            showErrorMessage(result.error || 'Nie udało się złożyć zamówienia.');
         }
 
     } catch (error) {
-        console.error('[AcceptModal] Błąd sieciowy:', error);
-        showErrorMessage('Błąd połączenia. Spróbuj ponownie.');
+        // Wyjątek fetch: żądanie mogło dojść do serwera i zostać obsłużone,
+        // a zginąć miała tylko odpowiedź. Nie rozstrzygamy.
+        console.error('[AcceptModal] Brak odpowiedzi serwera:', error);
+        pokazNiepewnosc(null);
     } finally {
-        submitBtn.disabled = false;
         loadingOverlay.style.display = 'none';
+        submitBtn.disabled = !mozliwaPowtorka;
     }
 }
 
@@ -1544,6 +1792,20 @@ function resetAcceptModal() {
 
     currentStep = 1;
 
+    // Przywróć kroki po ekranie końcowym — inaczej ponowne otwarcie modala
+    // pokazałoby pusty kadłubek bez formularza.
+    const modalReset = document.getElementById('acceptModal');
+    if (modalReset) {
+        modalReset.querySelectorAll('.m-prog, .modal-scrollable-content, .step-actions')
+            .forEach(function (el) { el.style.display = ''; });
+    }
+    const potwierdzenie = document.getElementById('checkoutPotwierdzenie');
+    if (potwierdzenie) {
+        potwierdzenie.style.display = 'none';
+        potwierdzenie.textContent = '';
+        potwierdzenie.classList.remove('checkout-done-uncertain');
+    }
+
     // Ukryj wszystkie kroki
     document.querySelectorAll('#acceptModal .accept-step').forEach(step => {
         step.style.display = 'none';
@@ -1627,7 +1889,9 @@ async function loadAndFillClientData(email, phone) {
 // Wypełnij formularz danymi klienta
 function fillFormWithClientData(clientData) {
     // Dane dostawy
-    if (clientData.delivery) {
+    if (clientData.delivery && ustawOdbiorZDanychKlienta(clientData.delivery)) {
+        // Odbiór osobisty — pola adresu są ukryte i puste, nie ma czego wpisywać.
+    } else if (clientData.delivery) {
         const deliveryName = document.getElementById('deliveryName');
         const deliveryCompany = document.getElementById('deliveryCompany');
         const deliveryAddress = document.getElementById('deliveryAddress');
@@ -1637,9 +1901,9 @@ function fillFormWithClientData(clientData) {
 
         if (deliveryName && clientData.delivery.name) deliveryName.value = clientData.delivery.name;
         if (deliveryCompany && clientData.delivery.company) deliveryCompany.value = clientData.delivery.company;
-        if (deliveryAddress && clientData.delivery.address) deliveryAddress.value = clientData.delivery.address;
+        if (deliveryAddress && clientData.delivery.address) deliveryAddress.value = adresDoFormularza(clientData.delivery.address);
         if (deliveryZip && clientData.delivery.zip) deliveryZip.value = clientData.delivery.zip;
-        if (deliveryCity && clientData.delivery.city) deliveryCity.value = clientData.delivery.city;
+        if (deliveryCity && clientData.delivery.city) deliveryCity.value = adresDoFormularza(clientData.delivery.city);
         if (deliveryRegion && clientData.delivery.region) deliveryRegion.value = clientData.delivery.region;
     }
 
@@ -1945,10 +2209,18 @@ function openAcceptModal(quoteData = null) {
 
 // Zamknij modal (zintegrować z istniejącą funkcją closeModal)
 function closeAcceptModal() {
-    console.log('[AcceptModal] Zamykanie modala akceptacji');
+    console.log('[AcceptModal] Zamykanie modala');
 
     const modal = document.getElementById('acceptModal');
     modal.style.display = 'none';
+
+    if (zamowienieZlozone) {
+        // Strona pod modalem nadal pokazuje stan sprzed zamówienia. Przeładowanie
+        // wraca z banerem „Zamówienie zostało złożone" i linkiem do zamówienia,
+        // zamiast zostawiać klienta z formularzem, który nie ma już czego zrobić.
+        window.location.reload();
+        return;
+    }
 
     setTimeout(() => {
         resetAcceptModal();
@@ -1997,12 +2269,15 @@ document.addEventListener('DOMContentLoaded', function () {
 
 console.log('[AcceptModal] Moduł załadowany pomyślnie');
 
-if (!document.querySelector('#contact-validation-styles')) {
-    const styleSheet = document.createElement('style');
-    styleSheet.id = 'contact-validation-styles';
-    styleSheet.innerHTML = spinnerStyles;
-    document.head.appendChild(styleSheet);
-}
+// USUNIĘTO duplikat wstrzykiwania stylów #contact-validation-styles.
+// Robi to addContactValidationStyles() (wywołanie tuż pod definicją funkcji),
+// razem z tym samym warunkiem ochronnym. Duplikat sięgał po `spinnerStyles`,
+// które jest `const` WEWNĄTRZ tamtej funkcji, więc na poziomie modułu nie
+// istnieje. Nie wybuchał wyłącznie dlatego, że funkcja zdążyła wcześniej dodać
+// element o tym id i warunek był zawsze fałszywy — czyli martwy kod trzymał się
+// na tym, że nigdy się nie wykonuje. Zmiana id albo kolejności ładowania
+// zamieniłaby go w ReferenceError wywracający cały modal, a modal jest jedyną
+// drogą klienta do złożenia zamówienia.
 
 // === DODAJ TEN KOD NA SAMYM KOŃCU PLIKU ===
 

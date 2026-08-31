@@ -572,6 +572,19 @@ class Quote(db.Model):
     # Strona informacyjna
     baselinker_order_page = db.Column(db.String(255), nullable=True)
 
+    # Znacznik próby złożenia zamówienia — chwila, w której RUSZYŁA próba
+    # (UTC), zapisana i zacommitowana ZANIM poleci addOrder do BaseLinkera.
+    #
+    # Po co osobna kolumna, skoro jest już base_linker_order_id: numer
+    # zamówienia zapisuje się dopiero PO powrocie z BaseLinkera, więc każda
+    # awaria po drodze (timeout, zerwana sesja bazy, ubity worker) zostawiała
+    # wycenę bez jakiegokolwiek śladu próby — a klient po odświeżeniu strony
+    # dostawał z powrotem przycisk „Zamów" i składał DRUGIE realne zamówienie.
+    # Znacznik powstaje przed strzałem, więc przeżywa awarię wszystkiego, co
+    # dzieje się później; zdejmuje go dopiero rozstrzygnięcie (sukces albo
+    # pewność, że zamówienia nie ma) — patrz modules/quotes/services/checkout_service.py.
+    order_attempt_started_at = db.Column(db.DateTime, nullable=True)
+
     # Relacje
     user = db.relationship('User', foreign_keys=[user_id], backref='quotes')
     client = db.relationship('Client', backref='quotes')
@@ -628,11 +641,19 @@ class Quote(db.Model):
     def get_total_discount_amount_brutto(self):
         return self.get_total_original_price_brutto() - self.get_total_current_price_brutto()
 
-    def is_eligible_for_order(self):
-        if self.status_id != 3:
-            return False
-        if self.base_linker_order_id:
-            return False
+    def ma_dane_do_zamowienia(self):
+        """Warunki kwalifikacji NIEZALEŻNE od statusu i od istniejącego zamówienia.
+
+        Wydzielone, bo checkout klienta musi je sprawdzić PRZED akceptacją:
+        akceptacja ustawia status na 3, więc pełne is_eligible_for_order() nie
+        da się tam wywołać wcześniej. Bez tego wycena bez zaznaczonych pozycji
+        zostawała zaakceptowana (z mailami do klienta i handlowca), a klient
+        zaraz potem czytał, że zamówić się nie da.
+
+        Świadomie NIE sprawdza base_linker_order_id: wycena, która ma już
+        zamówienie, nie jest „niekwalifikująca się" — to powtórka, którą
+        checkout obsługuje jako duplikat i pokazuje klientowi jego zamówienie.
+        """
         selected_items = [item for item in self.items if item.is_selected]
         if not selected_items:
             return False
@@ -641,6 +662,13 @@ class Quote(db.Model):
         if not self.client.email and not self.client.phone:
             return False
         return True
+
+    def is_eligible_for_order(self):
+        if self.status_id != 3:
+            return False
+        if self.base_linker_order_id:
+            return False
+        return self.ma_dane_do_zamowienia()
 
     def apply_total_discount(self, discount_percentage, reason_id=None):
         all_items = [item for item in self.items]

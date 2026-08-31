@@ -330,6 +330,11 @@ def odtworz(rozmowa, conv_id_bazowy=900000, persona="pro"):
       - odczyt statusu/historii rozmowy — bramka ciszy po handoffie
         (`stan.wolno_prowadzic_rozmowe`) — syntetyczny `conv_id` i tak nie
         odpowiada żadnej realnej rozmowie w Chatwoocie,
+      - odczyt kontaktu klienta z rozmowy (`stan.wczytaj_kontakt` — N6: tura
+        czyta go, żeby nie prosić o e-mail, który już zna; syntetyczny
+        `conv_id` żadnej realnej rozmowie nie odpowiada, a shard transkryptu
+        nie niesie danych kontaktowych, więc replay dostaje pustkę i mierzy
+        wariant „system nic nie wie" — ten sam, co na OLX i Allegro),
       - odczyt „ostatniej wiadomości klienta" do weryfikacji cytatu
         potwierdzenia (`stan.ostatnia_wiadomosc_klienta` — W1: bez tego
         `potwierdzenia.potwierdz` odpytuje PRAWDZIWY Chatwoot o historię
@@ -515,6 +520,12 @@ def odtworz(rozmowa, conv_id_bazowy=900000, persona="pro"):
                 uzycia.append(uzycie)
             return wynik
 
+    def _bez_kontaktu(conv_id):
+        """N6: replay nie odpytuje Chatwoota o kontakt — patrz nagłówek modułu.
+        Zerowania kontaktu tutaj NIE MA i nie trzeba: `stan.ustaw_kontekst`,
+        wołane przed odtworzeniem każdej rozmowy, samo czyści ten contextvar."""
+        return {}
+
     oryginalny_sprawdz_ceny = guardraile.sprawdz_ceny
 
     def _sprawdz_ceny_ze_zliczeniem(tekst, znane_kwoty):
@@ -529,6 +540,7 @@ def odtworz(rozmowa, conv_id_bazowy=900000, persona="pro"):
         podmiany.enter_context(_podmien(tura, "Runner", _SzpiegRunnera()))
         podmiany.enter_context(_podmien(stan, "handoff", _przechwyc_handoff))
         podmiany.enter_context(_podmien(stan, "wolno_prowadzic_rozmowe", _wolno_zawsze))
+        podmiany.enter_context(_podmien(stan, "wczytaj_kontakt", _bez_kontaktu))
         podmiany.enter_context(_podmien(
             stan, "ostatnia_wiadomosc_klienta", _ostatnia_wiadomosc_klienta_z_transkryptu))
         podmiany.enter_context(_podmien(guardraile, "sprawdz_ceny", _sprawdz_ceny_ze_zliczeniem))

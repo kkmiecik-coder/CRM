@@ -33,8 +33,30 @@
         </div>
     </header>
 
-    <!-- Baner: wycena już zaakceptowana -->
-    {% if is_accepted %}
+    {# Baner stanu. Zamówienie jest stanem MOCNIEJSZYM niż akceptacja — wycena
+       zamówiona jest z definicji zaakceptowana, więc pokazujemy tylko jeden
+       komunikat, ten dalej posunięty. #}
+    {% if ma_zamowienie %}
+    <div class="acceptance-banner" id="acceptanceBanner">
+        <div class="acceptance-banner-content">
+            <svg class="acceptance-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+            <div>
+                <div class="acceptance-text">Zamówienie zostało złożone</div>
+                {% if link_zamowienia %}
+                {# Nie jest to link płatniczy — płatność uruchamia przycisk
+                   na stronie zamówienia w BaseLinkerze. #}
+                <div class="acceptance-date">
+                    <a href="{{ link_zamowienia }}" target="_blank" rel="noopener">Otwórz stronę zamówienia</a>
+                </div>
+                {% else %}
+                <div class="acceptance-date">Szczegóły zamówienia prześlemy w osobnej wiadomości.</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% elif is_accepted %}
     <div class="acceptance-banner" id="acceptanceBanner">
         <div class="acceptance-banner-content">
             <svg class="acceptance-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -80,10 +102,37 @@
                     <div class="sect-bd">
                         <div id="desktopSummaryContent"></div>
                         <div id="desktopTotalSummary"></div>
-                        {% if not is_accepted %}
-                        <button type="button" class="cta btn-accept" id="acceptQuoteBtnDesktop">Akceptuj wycenę</button>
+                        {# Jedna ścieżka dla wszystkich wycen — „Zamów" niezależnie
+                           od tego, kto wycenę wystawił (decyzja właściciela).
+                           Wyceny zamówionej nie da się zamówić drugi raz, a wycena
+                           niekwalifikująca się dostaje powód zamiast martwego
+                           przycisku. #}
+                        {% if mozna_zamowic %}
+                        <button type="button" class="cta btn-accept" id="acceptQuoteBtnDesktop">Zamów</button>
+                        {% elif ma_zamowienie %}
+                        {% if link_zamowienia %}
+                        <a class="cta btn-accept btn-order-page" href="{{ link_zamowienia }}"
+                           target="_blank" rel="noopener">Otwórz stronę zamówienia</a>
                         {% else %}
-                        <button type="button" class="cta btn-accept" disabled>Wycena zaakceptowana</button>
+                        <button type="button" class="cta btn-accept" disabled>Zamówienie złożone</button>
+                        {% endif %}
+                        {% elif niepewna_proba %}
+                        {# Poprzednia próba nie została rozstrzygnięta: zamówienie
+                           mogło powstać po stronie BaseLinkera. Przycisku tu nie
+                           ma świadomie — drugie kliknięcie to drugie REALNE
+                           zamówienie. #}
+                        <p class="order-unavailable">
+                            Sprawdzamy, czy Twoje poprzednie zamówienie zostało przyjęte.
+                            Prosimy: nie składaj go ponownie. Skontaktuj się z nami —
+                            biuro@woodpower.pl lub telefonicznie +48 690 002 109 —
+                            i podaj numer wyceny #{{ quote.quote_number }}.
+                        </p>
+                        {% else %}
+                        <p class="order-unavailable">
+                            Tej wyceny nie można w tej chwili zamówić przez stronę.
+                            Skontaktuj się z nami — biuro@woodpower.pl lub telefonicznie
+                            +48 690 002 109 — i podaj numer wyceny #{{ quote.quote_number }}.
+                        </p>
                         {% endif %}
                         {# Ostrzeżenie o niezapisanym wyborze stoi POD przyciskiem —
                            wypełnia je render.desktopSummary(). #}
@@ -120,10 +169,20 @@
                 </i>
                 <div class="amt-val" id="mobileTotalPrice">0,00 zł</div>
             </button>
-            {% if not is_accepted %}
-            <button type="button" class="cta btn-accept" id="acceptQuoteBtnMobile">Akceptuj</button>
+            {% if mozna_zamowic %}
+            <button type="button" class="cta btn-accept" id="acceptQuoteBtnMobile">Zamów</button>
+            {% elif ma_zamowienie %}
+            {% if link_zamowienia %}
+            <a class="cta btn-accept btn-order-page" href="{{ link_zamowienia }}"
+               target="_blank" rel="noopener">Zamówienie</a>
             {% else %}
-            <button type="button" class="cta btn-accept" disabled>Zaakceptowana</button>
+            <button type="button" class="cta btn-accept" disabled>Zamówione</button>
+            {% endif %}
+            {% else %}
+            {# W pasku mobilnym nie ma miejsca na akapit, więc powód zastępuje
+               działanie: gotowy mail z numerem wyceny w temacie. #}
+            <a class="cta btn-accept btn-order-page"
+               href="mailto:biuro@woodpower.pl?subject=Wycena {{ quote.quote_number }}">Napisz do nas</a>
             {% endif %}
         </div>
     </div>
@@ -139,7 +198,7 @@
 
             <div class="m-hd modal-header">
                 <div>
-                    <h3 class="modal-title">Akceptacja wyceny</h3>
+                    <h3 class="modal-title">Składanie zamówienia</h3>
                     <p class="m-sub">Trzy kroki: kontakt, dane, potwierdzenie</p>
                 </div>
                 <button type="button" class="m-x modal-close" aria-label="Zamknij" onclick="closeAcceptModal()">&#10005;</button>
@@ -401,11 +460,16 @@
                             <div class="quote-summary-content" id="quoteSummaryContent"></div>
                         </div>
 
+                        {# Jedna zgoda, nie dwie: pole #acceptTerms istniało tu
+                           wcześniej i jest już walidowane przez modal. Druga,
+                           osobna zgoda „na regulamin" znaczyłaby dla klienta
+                           to samo i tylko dokładała klikanie. Jej stan jedzie
+                           do endpointu jako akceptacja_regulaminu. #}
                         <div class="terms-section">
                             <div class="chk">
                                 <input type="checkbox" id="acceptTerms" required>
                                 <span>
-                                    <label for="acceptTerms">Akceptuję warunki wyceny *</label>
+                                    <label for="acceptTerms">Zapoznałem się z warunkami zamówienia i akceptuję je *</label>
                                     <em>oraz wyrażam zgodę na przetwarzanie danych osobowych w celu realizacji zamówienia</em>
                                 </span>
                             </div>
@@ -434,9 +498,17 @@
 
                 <div id="step-3-actions" style="display: none;">
                     <button type="button" class="btn btn-secondary btn-prev">Wstecz</button>
-                    <button type="button" class="btn btn-primary btn-success btn-submit" id="finalSubmitBtn">Akceptuję</button>
+                    <button type="button" class="btn btn-primary btn-success btn-submit" id="finalSubmitBtn">Zamawiam</button>
                 </div>
             </div>
+
+            {# Ekran po złożeniu zamówienia. Treść wstawia pokazPotwierdzenie()
+               z client_accept_modal.js — węzłami DOM i textContent, NIE przez
+               innerHTML: order_page_url przychodzi z odpowiedzi BaseLinkera,
+               więc wklejanie go w atrybut href jako tekst byłoby wstrzyknięciem.
+               Widocznością steruje JS, stąd inline display:none. #}
+            <div class="m-bd checkout-done" id="checkoutPotwierdzenie" style="display: none;"
+                 role="status" aria-live="polite"></div>
 
             <div class="loading-overlay" id="acceptLoadingOverlay" style="display: none;">
                 <div class="loading-spinner"></div>
@@ -460,6 +532,11 @@
         window.QUOTE_TOKEN = "{{ token }}";
         window.QUOTE_NUMBER = "{{ quote.quote_number }}";
         window.IS_ACCEPTED = {{ 'true' if is_accepted else 'false' }};
+        // Osobna flaga od IS_ACCEPTED: „zaakceptowana" blokuje EDYCJĘ wariantów,
+        // ale nie zamawianie. Wycena przyjęta, a jeszcze niezamówiona, ma
+        // działający przycisk „Zamów" — client_quote.js czyta to stąd, zamiast
+        // wyprowadzać z is_client_editable (i gasić przycisk, który ma działać).
+        window.MOZNA_ZAMOWIC = {{ 'true' if mozna_zamowic else 'false' }};
         window.CURRENT_YEAR = new Date().getFullYear();
 
         // Dane dla modala akceptacji. Widok podaje koszty już spłaszczone
@@ -469,7 +546,14 @@
             quote_number: "{{ quote.quote_number }}",
             total_netto: "{{ costs.total_netto if costs else '0.00' }}",
             total_vat: "{{ costs.total_vat if costs else '0.00' }}",
-            total_brutto: "{{ costs.total_brutto if costs else '0.00' }}"
+            total_brutto: "{{ costs.total_brutto if costs else '0.00' }}",
+            // Dostawa zapisana w TEJ wycenie. Modal potrzebuje jej, żeby nie
+            // zaznaczać „odbioru osobistego" na wycenie kurierskiej tylko
+            // dlatego, że klient kiedykolwiek coś odebrał osobiście — znacznik
+            // odbioru siedzi na współdzielonym rekordzie klienta, a kurier
+            // i jego koszt należą do wyceny.
+            courier_name: {{ (quote.courier_name or '')|tojson }},
+            koszt_dostawy: {{ ((quote.shipping_cost_netto if quote.quote_type == 'netto' else quote.shipping_cost_brutto) or 0)|float|tojson }}
         };
     </script>
 

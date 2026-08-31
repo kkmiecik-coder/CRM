@@ -29,8 +29,16 @@ from openai.types.responses import (
 
 import config as config_mod
 from bots_pro import agenci, notatki, stan, tura
+from bots_pro.narzedzia import NARZEDZIA_WYCENY
 
 stan.init_pro()
+
+# Atrapy modelu nizej rozpoznaja, KTORY agent je wolal, po LICZBIE NARZEDZI
+# (Router 0, Wiedza 2, Wycena — komplet). Liczba dla Wyceny brana z prawdziwego
+# zestawu, a nie wpisana na sztywno (runda napraw 4): dopisanie narzedzia — jak
+# `wyslij_obraz` w P2 — przestawialo ja i te testy oblewaly z powodu zupelnie
+# niezwiazanego z tym, czego dowodza (routing i handoffy).
+_NARZEDZI_WYCENY = len(NARZEDZIA_WYCENY)
 
 
 @pytest.fixture(autouse=True)
@@ -41,6 +49,17 @@ def _domyslnie_wolno_prowadzic_rozmowe(monkeypatch):
     jak w prawdziwej nowej rozmowie w statusie pending), zeby zaden z pozostalych
     testow nie musial tego osobno mockowac. Testy bramki nadpisuja to jawnie."""
     monkeypatch.setattr(stan, "wolno_prowadzic_rozmowe", lambda conv_id: True)
+
+
+@pytest.fixture(autouse=True)
+def _kontakt_klienta_bez_sieci(monkeypatch):
+    """N6: `tura.uruchom` wczytuje teraz kontakt rozmowy z Chatwoota na starcie
+    tury. Domyslnie oddajemy pustke, zeby testy SAMEJ tury nie chodzily po
+    siec (ten sam powod, co przy `wolno_prowadzic_rozmowe` wyzej). Testy N6
+    nadpisuja to jawnie."""
+    import core.chatwoot as core_cw
+    monkeypatch.setattr(core_cw, "cw_contact_full", lambda conv_id: {
+        "name": "", "identifier": "", "email": "", "phone": ""})
 
 
 # ---------------------------------------------------------------------------
@@ -63,9 +82,11 @@ class _FalszywyRunner:
         self._odpowiedzi = list(odpowiedzi)
         self._rejestruj_kwoty = list(rejestruj_kwoty or [])
         self.wywolania = []   # tresc kazdego wywolania, w kolejnosci
+        self.agenci = []      # agent (router) przekazany do kazdego wywolania
 
     def run_sync(self, agent, tresc, session=None, max_turns=None):
         self.wywolania.append(tresc)
+        self.agenci.append(agent)
         if self._rejestruj_kwoty:
             kwoty = self._rejestruj_kwoty.pop(0)
             if kwoty:
@@ -191,6 +212,84 @@ class TestSesjaOgraniczaHistorie:
         assert "function_call_output" not in typy, (
             "wejscie do modelu niesie osierocony function_call_output bez pary "
             "function_call: %r" % model.ostatnie_wejscie)
+
+
+class TestGuardrailZobowiazanBlokujeWysylke:
+    """G3 (N9): zakazane zobowiazanie NIE dostaje rundy korekty — jedynym
+    wyjsciem jest czlowiek. Do tej rundy guardrail wyjsciowy pilnowal
+    WYLACZNIE kwot; "gwarantujemy", "wytrzyma", "mamy atest" wychodzily do
+    klienta bez zadnej kontroli."""
+
+    def test_obietnica_nie_trafia_do_klienta_i_konczy_sie_handoffem(self, monkeypatch):
+        conv_id = 96131
+        fake_runner = _FalszywyRunner(["Ten blat wytrzyma 200 kg, gwarantujemy."])
+        monkeypatch.setattr(tura, "Runner", fake_runner)
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+        powody = []
+        monkeypatch.setattr(stan, "handoff", lambda powod: powody.append(powod) or {"ok": True})
+
+        tura.uruchom(conv_id, "inbox1", "Czy blat wytrzyma zlew?", persona="quote")
+
+        assert wyslane == [tura.KOMUNIKAT_HANDOFF]
+        assert len(powody) == 1
+        assert "zobowi" in powody[0].lower()
+
+    def test_nie_ma_rundy_korekty(self, monkeypatch):
+        # Roznica wobec G1: tam druga proba ma sens (kwota moze byc poprawiona
+        # na prawdziwa). Tu "napisz to jeszcze raz bez obietnicy" dalby te sama
+        # tresc innymi slowami — a pytanie i tak nalezy do czlowieka.
+        conv_id = 96132
+        fake_runner = _FalszywyRunner(["Gwarantujemy trwalosc.", "druga proba"])
+        monkeypatch.setattr(tura, "Runner", fake_runner)
+        _wyslane_przechwytywacz(monkeypatch)
+        monkeypatch.setattr(stan, "handoff", lambda powod: {"ok": True})
+
+        tura.uruchom(conv_id, "inbox1", "Czy daje Pan gwarancje?", persona="quote")
+
+        assert len(fake_runner.wywolania) == 1
+
+    def test_powod_handoffu_mowi_KTORY_zwrot(self, monkeypatch):
+        conv_id = 96133
+        monkeypatch.setattr(tura, "Runner", _FalszywyRunner(["Mamy atest higieniczny."]))
+        _wyslane_przechwytywacz(monkeypatch)
+        powody = []
+        monkeypatch.setattr(stan, "handoff", lambda powod: powody.append(powod) or {"ok": True})
+
+        tura.uruchom(conv_id, "inbox1", "Macie atesty?", persona="quote")
+
+        assert "atest" in powody[0]
+
+    def test_odpowiedz_poprawiona_po_G1_tez_przechodzi_przez_G3(self, monkeypatch):
+        # Korekta cenowa produkuje NOWY tekst. Gdyby G3 patrzyl wylacznie na
+        # pierwsza wersje, obietnica dopisana w drugiej wychodzilaby do klienta
+        # przez te sama dziure, ktora G3 mial zamknac.
+        conv_id = 96134
+        fake_runner = _FalszywyRunner([
+            "Cena wynosi 999,00 zł.",                    # 1. proba — kwota spoza rejestru
+            "Nie mam ceny, ale blat wytrzyma zlew.",     # 2. proba — cena OK, obietnica NIE
+        ])
+        monkeypatch.setattr(tura, "Runner", fake_runner)
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+        powody = []
+        monkeypatch.setattr(stan, "handoff", lambda powod: powody.append(powod) or {"ok": True})
+
+        tura.uruchom(conv_id, "inbox1", "Ile kosztuje i czy wytrzyma?", persona="quote")
+
+        assert wyslane == [tura.KOMUNIKAT_HANDOFF]
+        assert "zobowi" in powody[0].lower()
+
+    def test_zwykla_odpowiedz_przechodzi_bez_zmian(self, monkeypatch):
+        # Kontrola negatywna: G3 nie ma dotykac normalnej rozmowy.
+        conv_id = 96135
+        monkeypatch.setattr(tura, "Runner",
+                            _FalszywyRunner(["Jaka grubość Pana interesuje?"]))
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+        monkeypatch.setattr(stan, "handoff",
+                            lambda powod: pytest.fail("nie powinno dojsc do handoffu"))
+
+        tura.uruchom(conv_id, "inbox1", "Dzien dobry", persona="quote")
+
+        assert wyslane == ["Jaka grubość Pana interesuje?"]
 
 
 class TestGuardrailBlokujeWysylke:
@@ -681,7 +780,8 @@ class _FalszywyModel(Model):
     w miejscu prawdziwego LLM tylko po to, zeby test nie potrzebowal sieci ani
     klucza API. Rozroznia role po ksztalcie wywolania: router dostaje niepusta
     liste `handoffs` (agenci wyspecjalizowani maja handoffs=[]), a konkretnego
-    agenta wyspecjalizowanego po liczbie narzedzi (Wycena=11, Wiedza=2)."""
+    agenta wyspecjalizowanego po liczbie narzedzi (Wycena=_NARZEDZI_WYCENY,
+    Wiedza=2)."""
 
     def __init__(self):
         self.wywolania = []
@@ -706,7 +806,7 @@ class _FalszywyModel(Model):
                 return _wywolanie_transferu("Wycena", licznik)
             return _wywolanie_transferu("Wiedza", licznik)
 
-        if len(tools) == 11:
+        if len(tools) == _NARZEDZI_WYCENY:
             return _wiadomosc_tekstowa(
                 "Aby przygotowac wycene, potrzebuje material, wymiary i ilosc sztuk.", licznik)
         return _wiadomosc_tekstowa(
@@ -752,9 +852,9 @@ class TestScenariuszMaterialPotemCena:
         assert "twardy" in wejscie_drugiej_tury
 
         # Ostatnie wywolanie modelu w calym przebiegu to NAPRAWDE agent Wyceny
-        # (11 narzedzi z NARZEDZIA_WYCENY) - mimo ze poprzednia tura skonczyla
-        # sie na Wiedzy (2 narzedzia), ktora nie ma wlasnego handoffu do Wyceny.
-        assert fake_model.wywolania[-1]["n_tools"] == 11
+        # (komplet NARZEDZIA_WYCENY) - mimo ze poprzednia tura skonczyla sie na
+        # Wiedzy (2 narzedzia), ktora nie ma wlasnego handoffu do Wyceny.
+        assert fake_model.wywolania[-1]["n_tools"] == _NARZEDZI_WYCENY
 
 
 class _FalszywyModelZlozonePytanie(Model):
@@ -782,7 +882,7 @@ class _FalszywyModelZlozonePytanie(Model):
             # rozmowe do Wyceny WEWNATRZ TEJ SAMEJ tury - nowy handoff, ktorego
             # przed B4 Wiedza nie miala.
             return _wywolanie_transferu("Wycena", licznik)
-        # Wycena (11 narzedzi) - dokonczenie w tej samej turze.
+        # Wycena (komplet NARZEDZIA_WYCENY) - dokonczenie w tej samej turze.
         return _wiadomosc_tekstowa(
             "Blaty robimy z debu, jesionu i buku. Dla 180x60x4 cm potrzebuje jeszcze "
             "ilosci sztuk i wybranego gatunku, zeby policzyc cene.", licznik)
@@ -811,8 +911,8 @@ class TestHandoffWiedzaDoWyceny:
         assert len(wyslane) == 1
         assert "blaty" in wyslane[0].lower()
 
-        # Trasa: Router (0 narzedzi) -> Wiedza (2 narzedzia) -> Wycena (11 narzedzi).
-        assert [w["n_tools"] for w in fake_model.wywolania] == [0, 2, 11]
+        # Trasa: Router (0 narzedzi) -> Wiedza (2 narzedzia) -> Wycena (komplet).
+        assert [w["n_tools"] for w in fake_model.wywolania] == [0, 2, _NARZEDZI_WYCENY]
 
 
 class TestZalacznikiTrafiajaDoModelu:
@@ -1160,3 +1260,96 @@ class TestBramkaIdempotencjiNieUciszaKomunikatu:
         tura.uruchom(conv_id, "inbox1", "ile kosztuje?", persona="allegro")
 
         assert uzyte_persony == ["allegro"]
+
+
+class TestN6KontaktNaStarcieTury:
+    """N6: dane z formularza wstepnego widgetu (e-mail, nazwa) leza na kontakcie
+    rozmowy w Chatwoocie, a bot i tak prosil o nie po wycenie. Tura ma je
+    wczytac ZANIM zbuduje agentow — inaczej regula KONTAKT w prompcie mowilaby
+    o sekcji, ktorej nie ma."""
+
+    def _kontakt(self, monkeypatch, dane):
+        import core.chatwoot as core_cw
+        monkeypatch.setattr(core_cw, "cw_contact_full", lambda cid: dane)
+
+    def _agent_wyceny(self, router):
+        for h in router.handoffs:
+            if getattr(h, "name", "") == "Wycena":
+                return h
+        raise AssertionError("router nie ma agenta Wyceny")
+
+    def test_agent_wyceny_dostaje_email_z_kontaktu_rozmowy(self, monkeypatch):
+        conv_id = 96209001
+        self._kontakt(monkeypatch, {"name": "TEST S5", "identifier": "",
+                                    "email": "test-s5@example.invalid", "phone": ""})
+        fake = _FalszywyRunner(["Juz licze."])
+        monkeypatch.setattr(tura, "Runner", fake)
+        _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "Poprosze o wycene blatu", persona="quote")
+
+        agent = self._agent_wyceny(fake.agenci[0])
+        assert "test-s5@example.invalid" in agent.instructions
+        assert "TEST S5" in agent.instructions
+
+    def test_odczyt_dotyczy_tej_rozmowy(self, monkeypatch):
+        conv_id = 96209002
+        przekazane = []
+        import core.chatwoot as core_cw
+        monkeypatch.setattr(core_cw, "cw_contact_full",
+                            lambda cid: przekazane.append(cid) or {})
+        monkeypatch.setattr(tura, "Runner", _FalszywyRunner(["ok"]))
+        _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "cokolwiek", persona="quote")
+
+        assert przekazane == [conv_id]
+
+    def test_pusty_kontakt_nie_dokleja_sekcji(self, monkeypatch):
+        # OLX i Allegro: brak formularza wstepnego, wiec kontakt bywa pusty
+        # i pytanie o e-mail jest tam uzasadnione.
+        conv_id = 96209003
+        self._kontakt(monkeypatch, {"name": "", "identifier": "", "email": "", "phone": ""})
+        fake = _FalszywyRunner(["ok"])
+        monkeypatch.setattr(tura, "Runner", fake)
+        _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "cokolwiek", persona="quote_olx")
+
+        # Kotwica to naglowek SEKCJI: sama fraza „DANE KLIENTA" wystepuje takze
+        # w regule KONTAKT, ktora stoi w prompcie zawsze.
+        assert "DANE KLIENTA znane systemowi" not in (
+            self._agent_wyceny(fake.agenci[0]).instructions)
+
+    def test_gdy_bot_ma_milczec_kontakt_nie_jest_odpytywany(self, monkeypatch):
+        # Bramka ciszy konczy ture PRZED wolaniem modelu — nie ma powodu placic
+        # przy okazji za odczyt kontaktu z Chatwoota.
+        conv_id = 96209004
+        przekazane = []
+        import core.chatwoot as core_cw
+        monkeypatch.setattr(core_cw, "cw_contact_full",
+                            lambda cid: przekazane.append(cid) or {})
+        monkeypatch.setattr(stan, "wolno_prowadzic_rozmowe", lambda cid: False)
+        monkeypatch.setattr(tura, "Runner", _FalszywyRunner(["ok"]))
+        _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "cokolwiek", persona="quote")
+
+        assert przekazane == []
+
+    def test_blad_odczytu_kontaktu_nie_przerywa_tury(self, monkeypatch):
+        # Klient ma dostac odpowiedz nawet wtedy, gdy odczyt kontaktu padnie —
+        # bez danych bot poprosi o e-mail, jak dotad.
+        conv_id = 96209005
+
+        def _wybucha(cid):
+            raise RuntimeError("Chatwoot padl")
+
+        import core.chatwoot as core_cw
+        monkeypatch.setattr(core_cw, "cw_contact_full", _wybucha)
+        monkeypatch.setattr(tura, "Runner", _FalszywyRunner(["Dzien dobry."]))
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "cokolwiek", persona="quote")
+
+        assert wyslane == ["Dzien dobry."]

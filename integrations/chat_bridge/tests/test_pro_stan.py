@@ -1048,3 +1048,73 @@ class TestKwotyDostawyCzyszczoneNaNoweOszacowanie:
         stan.zapamietaj_kwoty([250.0])                            # ta sama kwota z wyceny
         stan.zapisz_dostawe("80-000", kurier="DPD", netto=146.34, brutto=180.0)
         assert "250.00" in stan.znane_kwoty()
+
+
+class TestN6KontaktKlienta:
+    """N6 (runda napraw 2): formularz wstępny widgetu zapisuje e-mail i nazwę na
+    KONTAKCIE rozmowy w Chatwoocie, a bot i tak prosił po wycenie o „e-mail
+    i telefon". Regres wobec starego silnika: `core.chatwoot.cw_contact_full`
+    istnieje i `bots/quotebot.py` z niej korzysta, a w całym `bots_pro/` nie było
+    ANI JEDNEGO wywołania — przy przepisywaniu tego nie przeniesiono.
+
+    Kontakt żyje per TURA (contextvar), nie per rozmowa: dane w Chatwoocie mogą
+    się zmienić między turami (konsultant je poprawi, klient dopisze telefon),
+    a stan sprzed dwóch tur jest tu gorszy niż świeży odczyt.
+
+    Odczyt idzie tokenem admina, tak jak pozostałe odczyty Pro — zapora
+    `test_pro_zapora_core_chatwoot.py` dotyczy wyłącznie ZAPISÓW."""
+
+    def test_wczytany_kontakt_jest_dostepny_w_turze(self, monkeypatch):
+        import core.chatwoot as core_cw
+        monkeypatch.setattr(core_cw, "cw_contact_full", lambda cid: {
+            "name": "TEST S5", "identifier": "abc",
+            "email": "test-s5@example.invalid", "phone": ""})
+        stan.ustaw_kontekst(93300)
+        stan.wczytaj_kontakt(93300)
+        assert stan.kontakt()["email"] == "test-s5@example.invalid"
+        assert stan.kontakt()["name"] == "TEST S5"
+
+    def test_wczytaj_kontakt_dostaje_conv_id_tej_rozmowy(self, monkeypatch):
+        import core.chatwoot as core_cw
+        przekazane = []
+        monkeypatch.setattr(core_cw, "cw_contact_full",
+                            lambda cid: przekazane.append(cid) or {})
+        stan.ustaw_kontekst(93301)
+        stan.wczytaj_kontakt(93301)
+        assert przekazane == [93301]
+
+    def test_ustaw_kontekst_czysci_kontakt_z_poprzedniej_tury(self, monkeypatch):
+        # Bez tego kolejna rozmowa obsłużona w tym samym wątku workera
+        # zobaczyłaby cudzy adres e-mail — a bot ma go klientowi POKAZAĆ
+        # w prośbie o potwierdzenie.
+        import core.chatwoot as core_cw
+        monkeypatch.setattr(core_cw, "cw_contact_full",
+                            lambda cid: {"name": "Jan", "email": "jan@example.invalid",
+                                         "phone": "", "identifier": ""})
+        stan.ustaw_kontekst(93302)
+        stan.wczytaj_kontakt(93302)
+        assert stan.kontakt()
+
+        stan.ustaw_kontekst(93303)          # NOWA tura, inna rozmowa
+        assert stan.kontakt() == {}
+
+    def test_bez_wczytania_kontakt_jest_pusty_a_nie_none(self):
+        # Kanały bez formularza wstępnego (OLX, Allegro) i każdy kod, który
+        # czyta kontakt przed odczytem, mają dostawać słownik — `None` wymusiłby
+        # osłonę u KAŻDEGO wołającego.
+        stan.ustaw_kontekst(93304)
+        assert stan.kontakt() == {}
+
+    def test_blad_odczytu_z_chatwoota_nie_przerywa_tury(self, monkeypatch):
+        # `cw_contact_full` z definicji nie rzuca (zwraca puste stringi), ale
+        # gdyby kiedyś zaczęła — brak kontaktu ma być brakiem danych, nie
+        # przerwaną turą: bot poprosi wtedy o e-mail, jak dotąd.
+        import core.chatwoot as core_cw
+
+        def _wybucha(cid):
+            raise RuntimeError("Chatwoot padl")
+
+        monkeypatch.setattr(core_cw, "cw_contact_full", _wybucha)
+        stan.ustaw_kontekst(93305)
+        assert stan.wczytaj_kontakt(93305) == {}
+        assert stan.kontakt() == {}

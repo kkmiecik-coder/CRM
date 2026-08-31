@@ -119,6 +119,101 @@ def generate_sku_for_modal(item, finishing_details=None):
     except Exception:
         return f"WP-{item.variant_code.upper()}-{item.id}" if item.variant_code else f"WP-UNKNOWN-{item.id}"
 
+def _odmowa_panelu(quote_id, quote, wynik):
+    """Odpowiedź panelu dla każdego wyniku, który NIE jest utworzonym zamówieniem.
+
+    Zwraca (jsonify, kod) albo None, gdy zamówienie powstało.
+
+    Handlowiec ma dostać dokładnie tę samą prawdę, co klient: czy zamówienie
+    powstało. Dotąd router czytał wyłącznie `success` i `error`, więc przy
+    błędzie bazy PO udanym addOrder pokazywał surowy komunikat MySQL-a —
+    a handlowiec, widząc „błąd", miał pełne prawo kliknąć drugi raz i utworzyć
+    DRUGIE realne zamówienie.
+    """
+    if wynik.get('ok') and not wynik.get('duplikat'):
+        return None
+
+    numer = wynik.get('order_id')
+    numer_wyceny = getattr(quote, 'quote_number', None)
+
+    if wynik.get('duplikat'):
+        baselinker_logger.warning("Próba ponownego zamówienia wyceny, która ma "
+                                  "już zamówienie",
+                                  quote_id=quote_id, quote_number=numer_wyceny,
+                                  baselinker_order_id=numer)
+        return jsonify({
+            'success': False,
+            'order_id': numer,
+            'error': 'Ta wycena ma już zamówienie w BaseLinkerze (nr {numer}). '
+                     'Ponowne złożenie utworzyłoby drugie zamówienie i podmieniło '
+                     'link, który dostał klient. Sprawdź zamówienie {numer} '
+                     'w BaseLinkerze.'.format(numer=numer),
+            # Sygnał dla panelu: administrator może odpiąć zamówienie od wyceny
+            # (np. gdy zostało anulowane w BaseLinkerze albo złożone pomyłkowo).
+            'mozna_odpiac': True,
+        }), 409
+
+    if wynik.get('zamowienie_utworzone'):
+        # Punkt bez powrotu: addOrder potwierdził utworzenie. Zamówienia nie da
+        # się cofnąć jednym ruchem, więc jedyne, co wolno tu napisać, to prawda.
+        return jsonify({
+            'success': False,
+            'order_id': numer,
+            'zamowienie_utworzone': True,
+            'niepewne': False,
+            'error': 'Zamówienie ZOSTAŁO utworzone w BaseLinkerze (nr {numer}), '
+                     'ale nie udało się zapisać go na wycenie. NIE składaj go '
+                     'ponownie — drugie kliknięcie utworzy drugie zamówienie. '
+                     'Sprawdź zamówienie {numer} w BaseLinkerze i dopisz jego '
+                     'numer na wycenie.'.format(numer=numer),
+        }), 409
+
+    if wynik.get('niepewne'):
+        return jsonify({
+            'success': False,
+            'order_id': numer,
+            'niepewne': True,
+            'error': 'Straciliśmy łączność z BaseLinkerem w trakcie składania '
+                     'zamówienia i nie wiemy, czy powstało. NIE składaj go '
+                     'ponownie — sprawdź najpierw w BaseLinkerze, czy zamówienie '
+                     'dla tej wyceny istnieje. Jeśli nie istnieje, odblokuj '
+                     'wycenę akcją „Odepnij zamówienie".',
+            'mozna_odpiac': True,
+        }), 409
+
+    if wynik.get('w_toku'):
+        return jsonify({
+            'success': False,
+            'error': 'To zamówienie jest właśnie składane (klient ze strony '
+                     'wyceny albo inne okno panelu). NIE składaj go ponownie — '
+                     'odśwież wycenę za chwilę i sprawdź, czy zamówienie '
+                     'w BaseLinkerze się pojawiło.',
+        }), 409
+
+    if wynik.get('error') == 'BLAD_BAZY':
+        return jsonify({
+            'success': False,
+            'error': 'Baza danych nie odpowiedziała, zamówienie NIE zostało '
+                     'złożone. Spróbuj ponownie za chwilę.',
+        }), 503
+
+    if wynik.get('error') == 'NIEKWALIFIKOWANA':
+        return jsonify({
+            'success': False,
+            'error': 'Tej wyceny nie da się teraz zamówić (mogła zostać usunięta '
+                     'albo zmieniona w trakcie).',
+        }), 400
+
+    baselinker_logger.error("Tworzenie zamówienia nie powiodło się",
+                           quote_id=quote_id, error=wynik.get('error'))
+    return jsonify({
+        'success': False,
+        'zamowienie_utworzone': False,
+        'niepewne': False,
+        'error': wynik.get('error') or 'Nieznany błąd podczas tworzenia zamówienia',
+    }), 500
+
+
 @baselinker_bp.route('/api/quote/<int:quote_id>/create-order', methods=['POST'])
 @require_module_access('baselinker')
 def create_order(quote_id):
@@ -139,6 +234,14 @@ def create_order(quote_id):
                             notes=quote.notes,  # ✅ DODANE: Dodaj do logowania
                             has_notes=bool(quote.notes and quote.notes.strip()))
         
+        # UWAGA: guard idempotencji NIE siedzi już tutaj. Wycena, która ma
+        # zamówienie albo nierozstrzygniętą próbę, odbija się w
+        # checkout_service.zloz_zamowienie — pod blokadą wiersza i na stanie
+        # wczytanym świeżo z bazy. Kopia guardu w tym miejscu czytała bez
+        # blokady i PRZED addOrder, więc przegrywała wyścig z checkoutem
+        # klienta: dwa równoległe żądania dawały DWA realne zamówienia.
+        # Poniżej zostają wyłącznie walidacje wejścia panelu.
+
         # Sprawdź czy wycena ma wybrane produkty
         selected_items = [item for item in quote.items if item.is_selected]
         if not selected_items:
@@ -206,63 +309,70 @@ def create_order(quote_id):
                               source_name=source_exists.name,
                               status_id_hardcoded=105112)
         
-        # Utwórz zamówienie
-        service = BaselinkerService()
-        result = service.create_order_from_quote(quote, user.id, config)
-        
-        baselinker_logger.info("Otrzymano wynik z serwisu Baselinker",
+        # Utwórz zamówienie WSPÓLNYM torem — tym samym, którym idzie checkout
+        # klienta. Jedno zamówienie, jedna reguła idempotencji: blokada wiersza,
+        # guardy pod blokadą i trwały znacznik próby zapisany PRZED addOrder.
+        from modules.quotes.services.checkout_service import zloz_zamowienie
+
+        wynik = zloz_zamowienie(
+            quote, user.id, lambda _zablokowana: config,
+            # Panel składa zamówienia także z wycen, które nie mają statusu
+            # „Zaakceptowane" — tego warunku nigdy tu nie było i dołożenie go
+            # zablokowałoby normalną pracę handlowca.
+            sprawdz_kwalifikacje=False)
+
+        baselinker_logger.info("Otrzymano wynik z toru składania zamówienia",
                               quote_id=quote_id,
-                              service_success=result.get('success'),
-                              baselinker_order_id=result.get('order_id'),
-                              error=result.get('error'))
-        
-        if result['success']:
-            # Zaktualizuj status wyceny na "Złożone" (ID: 4)
-            try:
-                from modules.quotes.models import QuoteStatus
-                ordered_status = QuoteStatus.query.filter_by(id=4).first()
-                if ordered_status:
-                    old_status_id = quote.status_id
-                    quote.status_id = ordered_status.id
-                    db.session.commit()
-                    
-                    baselinker_logger.info("Status wyceny został zaktualizowany",
-                                          quote_id=quote_id,
-                                          old_status_id=old_status_id,
-                                          new_status_id=ordered_status.id,
-                                          new_status_name=ordered_status.name)
-                else:
-                    baselinker_logger.warning("Nie znaleziono statusu 'Złożone' w bazie",
-                                             expected_status_id=4,
-                                             quote_id=quote_id)
-            except Exception as status_error:
-                baselinker_logger.error("Błąd podczas zmiany statusu wyceny",
-                                       quote_id=quote_id,
-                                       error=str(status_error),
-                                       error_type=type(status_error).__name__)
-            
-            baselinker_logger.info("Zamówienie zostało pomyślnie utworzone",
-                                  quote_id=quote_id,
-                                  quote_number=quote.quote_number,
-                                  baselinker_order_id=result['order_id'],
-                                  user_id=user.id)
-            
-            return jsonify({
-                'success': True,
-                'order_id': result['order_id'],
-                'quote_number': quote.quote_number,
-                'message': 'Zamówienie zostało pomyślnie utworzone w Baselinker'
-            })
-        else:
-            baselinker_logger.error("Tworzenie zamówienia nie powiodło się",
+                              ok=wynik.get('ok'),
+                              duplikat=wynik.get('duplikat'),
+                              baselinker_order_id=wynik.get('order_id'),
+                              niepewne=wynik.get('niepewne'),
+                              zamowienie_utworzone=wynik.get('zamowienie_utworzone'),
+                              error=wynik.get('error'))
+
+        odmowa = _odmowa_panelu(quote_id, quote, wynik)
+        if odmowa is not None:
+            return odmowa
+
+        # Od tego miejsca zamówienie ISTNIEJE — wszystkie odmowy obsłużył
+        # _odmowa_panelu wyżej.
+        # Zaktualizuj status wyceny na "Złożone" (ID: 4)
+        try:
+            from modules.quotes.models import QuoteStatus
+            ordered_status = QuoteStatus.query.filter_by(id=4).first()
+            if ordered_status:
+                old_status_id = quote.status_id
+                quote.status_id = ordered_status.id
+                db.session.commit()
+
+                baselinker_logger.info("Status wyceny został zaktualizowany",
+                                      quote_id=quote_id,
+                                      old_status_id=old_status_id,
+                                      new_status_id=ordered_status.id,
+                                      new_status_name=ordered_status.name)
+            else:
+                baselinker_logger.warning("Nie znaleziono statusu 'Złożone' w bazie",
+                                         expected_status_id=4,
+                                         quote_id=quote_id)
+        except Exception as status_error:
+            baselinker_logger.error("Błąd podczas zmiany statusu wyceny",
                                    quote_id=quote_id,
-                                   error=result.get('error', 'Nieznany błąd'),
-                                   user_id=user.id)
-            return jsonify({
-                'success': False,
-                'error': result.get('error', 'Nieznany błąd podczas tworzenia zamówienia')
-            }), 500
-        
+                                   error=str(status_error),
+                                   error_type=type(status_error).__name__)
+
+        baselinker_logger.info("Zamówienie zostało pomyślnie utworzone",
+                              quote_id=quote_id,
+                              quote_number=quote.quote_number,
+                              baselinker_order_id=wynik['order_id'],
+                              user_id=user.id)
+
+        return jsonify({
+            'success': True,
+            'order_id': wynik['order_id'],
+            'quote_number': quote.quote_number,
+            'message': 'Zamówienie zostało pomyślnie utworzone w Baselinker'
+        })
+
     except Exception as e:
         baselinker_logger.error("Nieoczekiwany błąd podczas tworzenia zamówienia",
                                quote_id=quote_id,
@@ -277,8 +387,67 @@ def create_order(quote_id):
             'error': f'Błąd serwera: {str(e)}'
         }), 500
 
+@baselinker_bp.route('/api/quote/<int:quote_id>/detach-order', methods=['POST'])
+@require_module_access('baselinker', as_json=True)
+def detach_order(quote_id):
+    """Odpina zamówienie od wyceny — droga wyjścia z odmowy 409. TYLKO ADMIN.
+
+    Bez tego uzasadnione przypadki były zablokowane bez wyjścia: w całym
+    modules/ nie było ani jednego miejsca, które kasuje base_linker_order_id,
+    więc zamówienie anulowane w BaseLinkerze albo złożone pomyłkowo zamykało
+    wycenę na zawsze — ratunkiem był ręczny UPDATE w bazie.
+
+    Świadomie za rolą admina, a nie za samym dostępem do modułu: ta akcja
+    kasuje jedyny ślad wiążący wycenę z realnym zamówieniem i po niej wycena
+    da się zamówić PONOWNIE. Dla klienta nie ma jej w ogóle — endpoint jest
+    w panelu, za sesją i uprawnieniami.
+    """
+    user = User.query.filter_by(email=session.get('user_email')).first()
+    if not user or user.role != 'admin':
+        baselinker_logger.warning("Próba odpięcia zamówienia bez uprawnień admina",
+                                  quote_id=quote_id,
+                                  user_email=session.get('user_email'))
+        return jsonify({
+            'success': False,
+            'error': 'Odpiąć zamówienie od wyceny może wyłącznie administrator.'
+        }), 403
+
+    quote = Quote.query.get_or_404(quote_id)
+    poprzedni_numer = quote.base_linker_order_id
+
+    from modules.quotes.services.checkout_service import (
+        ODMOWA_ODPIECIA_PROBA_W_TOKU, odepnij_zamowienie,
+    )
+
+    udalo_sie, blad = odepnij_zamowienie(quote, powod_uzytkownik_id=user.id)
+    if not udalo_sie:
+        # Trwająca próba to nie awaria, tylko „jeszcze nie wiadomo" — 409 jak
+        # przy odmowie składania zamówienia, a nie 500. Odpięcie w tym oknie
+        # kasowałoby jedyną rzecz, która blokuje drugie realne zamówienie.
+        if blad == ODMOWA_ODPIECIA_PROBA_W_TOKU:
+            baselinker_logger.warning(
+                "Odmowa odpięcia zamówienia — próba zamówienia w toku",
+                quote_id=quote_id, user_id=user.id, user_email=user.email)
+            return jsonify({'success': False, 'error': blad, 'w_toku': True}), 409
+        return jsonify({'success': False, 'error': blad}), 500
+
+    baselinker_logger.warning("Administrator odpiął zamówienie od wyceny",
+                              quote_id=quote_id,
+                              quote_number=quote.quote_number,
+                              baselinker_order_id=poprzedni_numer,
+                              user_id=user.id, user_email=user.email)
+    return jsonify({
+        'success': True,
+        'order_id': poprzedni_numer,
+        'message': 'Zamówienie {} zostało odpięte od wyceny. Wycenę można '
+                   'zamówić ponownie — sprawdź wcześniej w BaseLinkerze, czy '
+                   'stare zamówienie zostało anulowane.'.format(
+                       poprzedni_numer or '(brak numeru)')
+    })
+
+
 @baselinker_bp.route('/api/sync-config')
-@require_module_access('baselinker') 
+@require_module_access('baselinker')
 def sync_config():
     """Synchronizuje konfigurację z Baselinker (źródła, statusy)"""
     baselinker_logger.info("Rozpoczęcie synchronizacji konfiguracji Baselinker",
