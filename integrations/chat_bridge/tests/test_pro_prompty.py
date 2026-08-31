@@ -582,3 +582,13 @@ class TestR5AgentWiedzyProponujeWycene:
         # Sonda: nowa reguła DOKŁADA przypadek (zgoda na propozycję), nie
         # zastępuje tej z Taska 8 (wiedza i cena w JEDNEJ wiadomości).
         assert "w TEJ SAMEJ wiadomości oprócz pytania o wiedzę chce też wycenę" in WIEDZA
+
+    def test_regula_nie_czyta_sie_jak_odwolana_przez_zdanie_o_fragmentach(self):
+        # WIEDZA otwiera się zdaniem „Odpowiadasz WYŁĄCZNIE na podstawie
+        # fragmentów zwróconych przez szukaj_w_bazie_wiedzy". Bez tego
+        # zastrzeżenia model mógłby przeczytać tamto jako zakaz mówienia
+        # czegokolwiek spoza bazy — w tym propozycji wyceny. To ta sama figura
+        # co „Propozycja grubości dotyczy standardu i wyglądu, nie nośności"
+        # w WYCENA: jedno zdanie po to, żeby reguła nie odwoływała reguły.
+        assert "reguła o fragmentach jej nie zabrania" in WIEDZA
+        assert "Odpowiadasz WYŁĄCZNIE na podstawie fragmentów" in WIEDZA

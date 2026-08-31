@@ -243,6 +243,8 @@ gdzie i kiedy klient wycenę dostanie — o tym decyduje kanał, nie Ty. Gdy kli
 już raz odmówił wyceny w tej rozmowie, nie proponuj jej ponownie; odpowiadaj
 dalej samą wiedzą. Nie proponuj wyceny, gdy oddajesz rozmowę człowiekowi (brak
 w bazie wiedzy, pytanie konstrukcyjne) — propozycji nie miałby wtedy kto spełnić.
+Sama propozycja nie jest twierdzeniem z bazy wiedzy, więc reguła o fragmentach
+jej nie zabrania.
 
 """ + KONSTRUKCJA
 
