@@ -2271,12 +2271,22 @@ class BaselinkerService:
             # wyjątek w generatorze SKU). Wspólny commit na końcu oznaczałby, że
             # taki wyjątek zabiera ze sobą link do strony zamówienia — klient nie
             # ma wtedy jak dojść do płatności i nie ma skąd tego linku odzyskać.
+            # Sam commit linku też we własnym try/except: gdy padnie, a sesja
+            # zostanie w stanie po nieudanej transakcji, wywołujący wywróci się
+            # na pierwszym odczycie z wyceny — i klient dostanie „nie wiemy"
+            # o zamówieniu, które istnieje i jest zapisane.
             order_page = bl_order.get('order_page')
             if order_page:
-                quote.baselinker_order_page = order_page
-                db.session.commit()
-                self.logger.info("Zapisano stronę zamówienia",
-                                 baselinker_order_id=baselinker_order_id)
+                try:
+                    quote.baselinker_order_page = order_page
+                    db.session.commit()
+                    self.logger.info("Zapisano stronę zamówienia",
+                                     baselinker_order_id=baselinker_order_id)
+                except Exception as blad_linku:
+                    db.session.rollback()
+                    self.logger.error("Nie udało się zapisać strony zamówienia",
+                                      baselinker_order_id=baselinker_order_id,
+                                      error=str(blad_linku))
 
             # Dopasowanie SKU we własnym try/except — jego niepowodzenie jest
             # dolegliwe (brak order_product_id w QuoteItemDetails), ale nie może

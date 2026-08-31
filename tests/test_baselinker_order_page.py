@@ -216,6 +216,22 @@ class TestOdzyskLinkuDoZamowienia:
 
         assert wywolania == ['getOrders']
 
+    def test_padniety_commit_linku_oddaje_sesje_w_stanie_zdatnym(self, monkeypatch):
+        # Bez rollbacku wywołujący wywali się na pierwszym odczycie z wyceny,
+        # a klient dostanie „nie wiemy" o zamówieniu, które istnieje.
+        class _SesjaZPadajacymCommitem(_AtrapaSesji):
+            def commit(self):
+                self.commits += 1
+                raise RuntimeError('Lost connection to MySQL server during query')
+
+        sesja = _SesjaZPadajacymCommitem()
+        serwis = _serwis(self._UDANA, monkeypatch, sesja)
+        wycena = SimpleNamespace(id=7, baselinker_order_page=None)
+
+        serwis._save_order_product_ids(wycena, 777)
+
+        assert sesja.rollbacki >= 1
+
     def test_dwa_nieudane_wywolania_nie_wywracaja_metody(self, monkeypatch):
         # Zamówienie istnieje — brak linku jest dolegliwy, ale nie może
         # wywalić wywołującego wyjątkiem.
