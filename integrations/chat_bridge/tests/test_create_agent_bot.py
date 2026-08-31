@@ -208,3 +208,76 @@ class TestEnsureAgentBotPatchOutgoingUrl:
         cab.ensure_agent_bot("Dębuś Pro", outgoing_url="https://x/pro")
 
         assert wolania_patch == []
+
+
+class TestWalidacjaArgumentu:
+    """W3: nieznany argument (literówka, albo naturalne `cand` przy wdrażaniu
+    kandydata) spadał po cichu do gałęzi domyślnej i ruszał PRODUKCYJNEGO bota
+    „WoodPower AI". A ponieważ `ensure_agent_bot` PATCHuje `outgoing_url` przy
+    różnicy, pomyłka przy zakładaniu bota kandydata mogła przestawić webhook
+    żywego bota na produkcji. Nieznany argument ma być twardym błędem."""
+
+    def _bez_sieci(self, monkeypatch):
+        wywolania = []
+        monkeypatch.setattr(cab, "ensure_agent_bot",
+                            lambda name="WoodPower AI", outgoing_url=None, description=None:
+                            wywolania.append(name) or {"id": 1, "access_token": "T"})
+        return wywolania
+
+    def test_nieznany_argument_konczy_sie_kodem_2(self, monkeypatch, capsys):
+        wywolania = self._bez_sieci(monkeypatch)
+        assert cab.main(["cand"]) == 2
+        assert wywolania == [], "nieznany argument NIE MOZE ruszyc zadnego bota"
+        assert "cand" in capsys.readouterr().err
+
+    def test_literowka_w_znanym_wariancie_tez_jest_bledem(self, monkeypatch):
+        wywolania = self._bez_sieci(monkeypatch)
+        for zly in ("Pro", "PRO", "quotes", "pro ", "--pro"):
+            assert cab.main([zly]) == 2, zly
+        assert wywolania == []
+
+    def test_brak_argumentu_to_jedyna_droga_do_galezi_domyslnej(self, monkeypatch):
+        wywolania = self._bez_sieci(monkeypatch)
+        assert cab.main([]) == 0
+        assert wywolania == ["WoodPower AI"]
+
+    def test_znane_warianty_dzialaja_dalej(self, monkeypatch):
+        wywolania = self._bez_sieci(monkeypatch)
+        assert cab.main(["quote"]) == 0
+        assert cab.main(["pro"]) == 0
+        assert wywolania[0] == "Asystent AI v1"
+        assert len(wywolania) == 2
+
+
+class TestNazwaBotaPro:
+    """W4: nazwa bota wariantu „pro" była zaszyta w kodzie, więc bota kandydata
+    nie dało się założyć pod własną nazwą bez edycji pliku — a nazwa jest
+    JEDYNYM kluczem idempotencji w `ensure_agent_bot`, więc zaszyta nazwa
+    oznaczała, że kandydat i produkcja celowałyby w TEN SAM byt w Chatwoocie."""
+
+    def _przechwyc(self, monkeypatch):
+        wywolania = []
+        monkeypatch.setattr(cab, "ensure_agent_bot",
+                            lambda name="WoodPower AI", outgoing_url=None, description=None:
+                            wywolania.append(name) or {"id": 1, "access_token": "T"})
+        return wywolania
+
+    def test_domyslna_nazwa_bez_zmiennej(self, monkeypatch):
+        monkeypatch.delenv("BOT_PRO_NAME", raising=False)
+        wywolania = self._przechwyc(monkeypatch)
+        cab.main(["pro"])
+        assert wywolania == ["Dębuś Pro"]
+
+    def test_wlasna_nazwa_ze_zmiennej_srodowiskowej(self, monkeypatch):
+        monkeypatch.setenv("BOT_PRO_NAME", "Debus Pro KANDYDAT (staging)")
+        wywolania = self._przechwyc(monkeypatch)
+        cab.main(["pro"])
+        assert wywolania == ["Debus Pro KANDYDAT (staging)"]
+
+    def test_pusta_zmienna_wraca_do_domyslnej(self, monkeypatch):
+        # Pusta nazwa nie ma sensu jako klucz idempotencji — lepiej domyslna
+        # niz proba zalozenia bota bez nazwy.
+        monkeypatch.setenv("BOT_PRO_NAME", "   ")
+        wywolania = self._przechwyc(monkeypatch)
+        cab.main(["pro"])
+        assert wywolania == ["Dębuś Pro"]

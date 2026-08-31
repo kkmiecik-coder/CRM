@@ -225,9 +225,50 @@ def ensure_agent_bot(name="WoodPower AI", outgoing_url=None, description=None):
 # Punkt wejścia CLI
 # ---------------------------------------------------------------------------
 
-if __name__ == "__main__":
+# Wszystkie wspierane warianty. Argument spoza tej listy jest BŁĘDEM, nie
+# cichym „to pewnie domyślny" — patrz `main`.
+_WARIANTY = ("quote", "pro")
+
+_NAZWA_PRO_DOMYSLNA = "Dębuś Pro"
+
+
+def nazwa_bota_pro():
+    """Nazwa Agent Bota wariantu „pro" — z `BOT_PRO_NAME`, domyślnie „Dębuś Pro" (W4).
+
+    Nazwa jest JEDYNYM kluczem idempotencji w `ensure_agent_bot`, więc zaszyta
+    na sztywno oznaczała, że kandydat i produkcja celują w TEN SAM byt
+    w Chatwoocie: uruchomienie skryptu na kandydacie znajdowało produkcyjnego
+    „Dębusia Pro" i PATCHowało jego `outgoing_url` na adres kandydata. Własna
+    nazwa (np. „Dębuś Pro KANDYDAT (staging)") rozdziela te dwa byty bez
+    edycji kodu.
+
+    Pusta/białoznakowa wartość wraca do domyślnej — bot bez nazwy nie ma sensu
+    jako klucz idempotencji."""
+    return os.environ.get("BOT_PRO_NAME", "").strip() or _NAZWA_PRO_DOMYSLNA
+
+
+def main(argv):
+    """Punkt wejścia CLI. `argv` to argumenty BEZ nazwy programu. Zwraca kod wyjścia.
+
+    Wydzielone z `if __name__ == "__main__":` (W3), żeby walidację argumentu dało
+    się przetestować bez uruchamiania procesu i bez sieci."""
+    if argv:
+        wariant = argv[0]
+        if wariant not in _WARIANTY:
+            # W3: KAŻDY nieznany argument to twardy błąd. Wcześniej literówka albo
+            # naturalne przy wdrażaniu kandydata `cand` spadały do gałęzi domyślnej
+            # i ruszały PRODUKCYJNEGO bota „WoodPower AI" — a `ensure_agent_bot`
+            # PATCHuje `outgoing_url` przy różnicy, więc pomyłka mogła przestawić
+            # webhook żywego bota na adres kandydata.
+            print("BLAD: nieznany argument %r. Dozwolone: %s (albo BRAK argumentu — "
+                  "wariant domyslny 'WoodPower AI')."
+                  % (wariant, ", ".join(repr(w) for w in _WARIANTY)), file=sys.stderr)
+            return 2
+    else:
+        wariant = None
+
     # Wariant "quote": tworzy osobnego bota "Asystent AI v1" pod webhook /agent-bot-quote
-    if len(sys.argv) > 1 and sys.argv[1] == "quote":
+    if wariant == "quote":
         _, _, _, q_url = _cfg_quote()
         print("Tworzenie / weryfikacja Agent Bota 'Asystent AI v1'...")
         print("outgoing_url:", q_url)
@@ -237,39 +278,43 @@ if __name__ == "__main__":
             bot = ensure_agent_bot("Asystent AI v1", outgoing_url=q_url)
         except RuntimeError as e:
             print(str(e), file=sys.stderr)
-            sys.exit(1)
+            return 1
 
         access_token = bot.get("access_token") or bot.get("agent_bot_access_token", "")
         print("Asystent AI v1 access_token:", access_token)
         print("outgoing_url:", q_url)
         print()
         print("Wklej do bridge.env: BOT_QUOTE_CW_AGENT_TOKEN=%s" % access_token)
-        raise SystemExit(0)
+        return 0
 
-    # Wariant "pro": tworzy osobna encje "Dębuś Pro" pod webhook /agent-bot-pro (Agents SDK) —
+    # Wariant "pro": tworzy osobna encje Debusia Pro pod webhook /agent-bot-pro (Agents SDK) —
     # OBOK istniejacych botow, zeby migracje dalo sie przelaczac inbox po inboxie (BOT_PRO_INBOXES)
-    # z natychmiastowym odwrotem, bez ruszania starych botow.
-    if len(sys.argv) > 1 and sys.argv[1] == "pro":
+    # z natychmiastowym odwrotem, bez ruszania starych botow. Nazwa i adres webhooka ida
+    # ze srodowiska (BOT_PRO_NAME, BOT_PRO_AGENT_WEBHOOK_URL), zeby ten sam skrypt zalozyl
+    # bota kandydata pod wlasna tozsamoscia.
+    if wariant == "pro":
         _, _, _, p_url = _cfg_pro()
-        print("Tworzenie / weryfikacja Agent Bota 'Dębuś Pro'...")
+        nazwa = nazwa_bota_pro()
+        print("Tworzenie / weryfikacja Agent Bota %r..." % nazwa)
         print("outgoing_url:", p_url)
         print()
 
         try:
             bot = ensure_agent_bot(
-                "Dębuś Pro", outgoing_url=p_url,
+                nazwa, outgoing_url=p_url,
                 description="Dębuś Pro - agent sprzedażowy (odpowiada bezpośrednio klientowi)")
         except RuntimeError as e:
             print(str(e), file=sys.stderr)
-            sys.exit(1)
+            return 1
 
         access_token = bot.get("access_token") or bot.get("agent_bot_access_token", "")
-        print("Dębuś Pro access_token:", access_token)
+        print("%s access_token: %s" % (nazwa, access_token))
         print("outgoing_url:", p_url)
         print()
         print("Wklej do bridge.env: BOT_PRO_CW_AGENT_TOKEN=%s" % access_token)
-        raise SystemExit(0)
+        return 0
 
+    # Wariant domyslny — osiagalny WYLACZNIE przy braku argumentu (W3).
     _, _, _, outgoing_url = _cfg()
 
     print("Tworzenie / weryfikacja Agent Bota 'WoodPower AI'...")
@@ -280,7 +325,7 @@ if __name__ == "__main__":
         bot = ensure_agent_bot("WoodPower AI")
     except RuntimeError as e:
         print(str(e), file=sys.stderr)
-        sys.exit(1)
+        return 1
 
     bot_id = bot.get("id")
     access_token = bot.get("access_token") or bot.get("agent_bot_access_token", "")
@@ -295,3 +340,8 @@ if __name__ == "__main__":
     print()
     print("Następnie: docker compose restart (lub bridge-deploy.sh) + przypnij bota")
     print("do skrzynki w Chatwoocie: Inbox → Konfiguracja bota → WoodPower AI → Aktualizuj.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
