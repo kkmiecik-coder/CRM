@@ -58,6 +58,16 @@ def ensure_conversation(channel, thread_id, inbox_id, name, ident, card_text=Non
 
 
 def cw_incoming(conv_id, text, attachments=None):
+    """UWAGA (W6): NIE WOLNO wolac tej funkcji ze sciezki Debusia Pro (bots_pro/,
+    pro_watchdog.py). Nie przyjmuje parametru `token` i pisze do rozmowy KONTEM
+    ADMINA (CW_TOKEN, na sztywno w naglowku nizej) — slad w rozmowie bylby wtedy
+    podpisany cudza tozsamoscia zamiast tozsamoscia Pro, a na tej izolacji stoi
+    caly slot kandydata. Pilnuje tego tests/test_pro_zapora_core_chatwoot.py.
+    Sygnatury NIE zmieniamy: `core/` jest wspoldzielone ze starym silnikiem
+    obslugujacym zywy ruch (livechat, OLX, Allegro) i zmiany w plikach
+    wspoldzielonych juz dwa razy wywolaly regresje na produkcji.
+    Dla Pro sa odpowiedniki przyjmujace token: cw_agent_reply / cw_bot_handoff /
+    cw_note z token=BOT_PRO_CW_AGENT_TOKEN."""
     text = html_to_text(text)
     if not attachments:
         return cw("POST", "/conversations/%s/messages" % conv_id, {"content": text, "message_type": "incoming"})
@@ -125,6 +135,10 @@ def cw_mark_failed(conv_id, msg_id, error=None):
 
     Chatwoot dopuszcza zmiane statusu tylko dla skrzynek typu API (OLX, Allegro) —
     dla pozostalych zwraca 403 i to nie jest blad, ktory ma cokolwiek przerywac.
+
+    UWAGA (W6): NIE WOLNO wolac tej funkcji ze sciezki Debusia Pro (bots_pro/,
+    pro_watchdog.py) — nie przyjmuje `token` i pisze KONTEM ADMINA. Powody
+    i zapora: patrz komentarz przy `cw_incoming`.
     """
     if not conv_id or not msg_id:
         return None
@@ -153,6 +167,18 @@ def clear_thread_conv(channel, tid):
     c = db()
     c.execute("UPDATE threads SET conv_id=NULL WHERE thread_id=? AND channel=?", (str(tid), channel))
     c.commit(); c.close()
+
+
+# ---------------------------------------------------------------------------
+# ODCZYTY — stan zastany, SWIADOMIE zaakceptowany (W6)
+#
+# `cw_messages`, `cw_conv_status` i `cw_pending_conversations` nie przyjmuja
+# parametru `token`, wiec ODCZYTY Debusia Pro (bots_pro/stan.py, pro_watchdog.py)
+# ida tokenem admina. To NIE jest do naprawy: odczyt nie zostawia w rozmowie
+# zadnego sladu, wiec nie miesza tozsamosci botow tak, jak zrobilby to zapis.
+# Zapora tests/test_pro_zapora_core_chatwoot.py pilnuje wylacznie ZAPISOW
+# (cw_reopen / cw_incoming / cw_mark_failed).
+# ---------------------------------------------------------------------------
 
 
 def cw_messages(conv_id, limit=12):
@@ -253,7 +279,14 @@ def cw_bot_handoff(conv_id, token=None):
 
 def cw_reopen(conv_id):
     """Przywraca rozmowe do statusu open (np. gdy most zablokowal wysylke i agent
-    musi poprawic tresc). Token admina. Nigdy nie rzuca."""
+    musi poprawic tresc). Token admina. Nigdy nie rzuca.
+
+    UWAGA (W6): NIE WOLNO wolac tej funkcji ze sciezki Debusia Pro (bots_pro/,
+    pro_watchdog.py) — nie przyjmuje `token` i przelacza status KONTEM ADMINA.
+    Dla Pro jest `cw_bot_handoff(conv_id, token=BOT_PRO_CW_AGENT_TOKEN)`. Powody
+    i zapora: patrz komentarz przy `cw_incoming`. Dodatkowo przelaczenie rozmowy
+    Pro poza 'pending' TRWALE wycisza bota (bots_pro/stan.py) — ten sam mechanizm,
+    przed ktorym chroni filtr inboksow Pro w sweeper.py (W5)."""
     if not conv_id:
         return False
     try:
