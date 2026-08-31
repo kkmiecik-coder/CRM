@@ -168,14 +168,27 @@ def _fail_permanently(qid, conv_id, attempts, err, retryable, persona="quote", j
 
     `jest_pro` (Task 7, W2 code review) rozgalezia sciezke przeprosin: Debus Pro
     dostaje WLASNA (`_pro_apologia_i_handoff`, wlasny token + wlasne caps kanalu),
-    legacy silnik zachowuje dotychczasowa `handoff_with_apology` bez zmian."""
+    legacy silnik zachowuje dotychczasowa `handoff_with_apology` bez zmian.
+
+    W1: rozgalezienie patrzy TAKZE na persone WIERSZA, nie tylko na `jest_pro`.
+    `jest_pro` jest liczone w momencie przetwarzania z AKTUALNEJ zawartosci
+    `BOT_PRO_INBOXES` — wiersz zakolejkowany jako Pro i przetworzony po
+    wyczyszczeniu tej listy (recznie albo AUTOMATYCZNIE przez guard startowy,
+    ktory przy zlej konfiguracji gasi Pro) wpadalby w legacy handoff. Klient
+    dostawalby wtedy widoczne przeprosiny podpisane tokenem starego bota, z
+    capsami innego kanalu. Okno jest waskie, ale odpala sie dokladnie w
+    scenariuszu awaryjnym, w ktorym guard SAM gasi Pro. Persona wiersza jest
+    zapisana w kolejce i sie nie zmienia, a zbiory person obu silnikow sa
+    ROZLACZNE z konstrukcji (patrz `_PERSONY_SILNIKA_PRO`), wiec sama persona
+    jednoznacznie wskazuje wlasciciela wiersza — dla person legacy nic sie nie
+    zmienia."""
     c = db(); c.execute("UPDATE quote_queue SET status='failed', attempts=?, last_error=? WHERE id=?",
                         (attempts, err, qid)); c.commit(); c.close()
     log("quotebot: tura NIEUDANA%s (conv %s): %s" %
         ("" if retryable else " (4xx, bez retry)", conv_id, err))
     log_event(conv_id, "failed", {"powod": err, "retryable": retryable})
     try:
-        if jest_pro:
+        if jest_pro or persona in _PERSONY_SILNIKA_PRO:
             _pro_apologia_i_handoff(conv_id, APOLOGY_MSG, persona)
         else:
             reason = ("błąd techniczny bota (wyczerpane próby)" if retryable

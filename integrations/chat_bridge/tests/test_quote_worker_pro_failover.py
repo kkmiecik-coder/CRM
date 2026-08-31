@@ -122,6 +122,60 @@ class TestFailPermanentlyRozgalezienie:
         assert len(wolane_legacy) == 1
 
 
+class TestFailPermanentlyPatrzyNaPersoneWiersza:
+    """W1: `jest_pro` jest liczone w momencie PRZETWARZANIA, z aktualnej zawartosci
+    `BOT_PRO_INBOXES`. Wiersz zakolejkowany jako Pro i przetworzony PO wyczyszczeniu
+    tej listy — recznie albo AUTOMATYCZNIE przez guard startowy — wpadal w legacy
+    handoff: klient dostawal widoczne przeprosiny podpisane tokenem starego bota
+    ("Dębuś | Asystent"), z innymi capsami kanalu. Okno jest waskie, ale odpala sie
+    dokladnie w scenariuszu awaryjnym, w ktorym guard SAM gasi Pro.
+
+    Persona wiersza jest zapisana w kolejce i sie nie zmienia, a zbiory person obu
+    silnikow sa ROZLACZNE z konstrukcji (_PERSONY_SILNIKA_PRO vs quote/quote_olx/
+    quote_allegro), wiec sama persona jednoznacznie wskazuje wlasciciela wiersza."""
+
+    def test_persona_pro_uzywa_apologii_pro_mimo_pustej_listy_inboxow(self, monkeypatch):
+        monkeypatch.setattr(qw, "BOT_PRO_INBOXES", set())   # guard wlasnie zgasil Pro
+        wolane_legacy = []
+        wolane_pro = []
+        monkeypatch.setattr(qw, "handoff_with_apology", lambda *a, **k: wolane_legacy.append(a))
+        monkeypatch.setattr(qw, "_pro_apologia_i_handoff",
+                            lambda conv_id, tekst, persona: wolane_pro.append((conv_id, persona)))
+
+        qw._fail_permanently(1, 571, 3, "err", retryable=True, persona="olx", jest_pro=False)
+
+        assert wolane_legacy == []
+        assert wolane_pro == [(571, "olx")]
+
+    def test_kazda_persona_silnika_pro_jest_rozpoznana(self, monkeypatch):
+        monkeypatch.setattr(qw, "BOT_PRO_INBOXES", set())
+        wolane_pro = []
+        monkeypatch.setattr(qw, "handoff_with_apology", lambda *a, **k: None)
+        monkeypatch.setattr(qw, "_pro_apologia_i_handoff",
+                            lambda conv_id, tekst, persona: wolane_pro.append(persona))
+
+        for persona in qw._PERSONY_SILNIKA_PRO:
+            qw._fail_permanently(1, 572, 3, "err", retryable=True, persona=persona, jest_pro=False)
+
+        assert wolane_pro == list(qw._PERSONY_SILNIKA_PRO)
+
+    def test_persona_legacy_bez_inboxu_pro_nadal_idzie_stara_sciezka(self, monkeypatch):
+        """Kontrola negatywna — zmiana ma byc czysto addytywna dla starego silnika."""
+        monkeypatch.setattr(qw, "BOT_PRO_INBOXES", set())
+        wolane_legacy = []
+        wolane_pro = []
+        monkeypatch.setattr(
+            qw, "handoff_with_apology",
+            lambda conv_id, reason=None, persona=None: wolane_legacy.append(persona))
+        monkeypatch.setattr(qw, "_pro_apologia_i_handoff", lambda *a, **k: wolane_pro.append(1))
+
+        for persona in ("quote", "quote_olx", "quote_allegro"):
+            qw._fail_permanently(1, 573, 3, "err", retryable=True, persona=persona, jest_pro=False)
+
+        assert wolane_pro == []
+        assert wolane_legacy == ["quote", "quote_olx", "quote_allegro"]
+
+
 class _BladRetryable(Exception):
     """Wyjatek symulujacy przejsciowa awarie (np. SDK) — jawnie retryable=True,
     zeby test wymusil sciezke circuit-breakera (nie natychmiastowy _fail_permanently
