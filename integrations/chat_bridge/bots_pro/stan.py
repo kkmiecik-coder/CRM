@@ -1003,3 +1003,38 @@ def ostatnia_wiadomosc_klienta():
         if wiadomosc.get("role") == "user":
             return wiadomosc.get("text") or ""
     return ""
+
+
+def rozmowy_z_pokazana_cena(conv_ids):
+    """Które z podanych rozmów Pro pokazały już klientowi cenę — zbiór conv_id.
+
+    JEDYNA funkcja w tym module czytająca WIELE rozmów naraz i jedyna, która
+    NIE bierze conv_id z kontekstu: woła ją `hot_lead_sweeper`, który chodzi po
+    wszystkich otwartych rozmowach kanału i nie prowadzi żadnej z nich (N11).
+    Zbiorczo, JEDNYM zapytaniem — odpytywanie bazy per rozmowa skalowałoby się
+    z długością kolejki agenta.
+
+    Sygnałem jest `oczekiwany_podpis`, nie kolumna `priced` (ta istnieje
+    w schemacie, ale silnik Pro nigdy jej nie zapisuje). `oczekiwany_podpis`
+    zapisuje `podsumowanie.wyslij()` DOPIERO po udanej wysyłce zestawienia
+    z ceną — czyli dokładnie w tym momencie, w którym stary silnik ustawiał
+    `priced` (bots/quotebot.py, tuż po `cw_agent_reply` z ceną). To ten sam
+    fakt w obu silnikach: „klient zobaczył cenę".
+
+    ZNANA LUKA: cena wypowiedziana przez model w wolnym tekście, bez wołania
+    `wyslij_podsumowanie`, nie ustawia `oczekiwany_podpis` i taka rozmowa tu nie
+    wejdzie. Alternatywą byłby niepusty rejestr `pro_kwoty`, ale ten mówi tylko,
+    że KALKULATOR coś policzył — bot mógł tej kwoty nigdy nie wypowiedzieć,
+    a notatka sweepera twierdzi wprost, że klient wycenę dostał."""
+    identyfikatory = [c for c in (conv_ids or []) if c is not None]
+    if not identyfikatory:
+        return set()
+    polaczenie = db()
+    try:
+        wiersze = polaczenie.execute(
+            "SELECT conv_id FROM pro_stan WHERE conv_id IN (%s) "
+            "AND oczekiwany_podpis IS NOT NULL AND oczekiwany_podpis != ''"
+            % ",".join("?" * len(identyfikatory)), identyfikatory).fetchall()
+    finally:
+        polaczenie.close()
+    return {w["conv_id"] for w in wiersze}
