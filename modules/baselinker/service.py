@@ -2090,7 +2090,17 @@ class BaselinkerService:
             if not orders:
                 return
 
-            bl_products = orders[0].get('products', [])
+            bl_order = orders[0]
+            bl_products = bl_order.get('products', [])
+
+            # Link do STRONY ZAMOWIENIA w BaseLinkerze — to nie jest link platniczy.
+            # getOrders i tak jest tu wołane po order_product_id, a order_page
+            # przychodzi w tej samej odpowiedzi i bez tego odczytu ginie — checkout
+            # nie ma wtedy czym pokazać klientowi jego zamówienia (jedyny inny zapis
+            # jest w get_sales_documents, za uprawnieniem do modułu baselinker).
+            order_page = bl_order.get('order_page')
+            if order_page:
+                quote.baselinker_order_page = order_page
 
             # Pobierz QuoteItemDetails dla tego quote
             details = QuoteItemDetails.query.filter_by(quote_id=quote.id).all()
@@ -2113,7 +2123,9 @@ class BaselinkerService:
 
             self.logger.info(f"order_product_id matchowanie: BL SKUs={bl_skus}, detail SKUs={list(details_by_sku.keys())}, matched={matched}")
 
-            if matched > 0:
+            # Sam order_page też wymaga commitu — zamówienie bez ani jednego
+            # dopasowanego SKU nadal ma stronę, którą trzeba pokazać klientowi.
+            if matched > 0 or order_page:
                 db.session.commit()
                 self.logger.info("Zapisano order_product_id",
                                matched=matched,
