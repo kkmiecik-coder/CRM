@@ -76,6 +76,12 @@ _podsumowanie_wyslane = contextvars.ContextVar("podsumowanie_wyslane", default=F
 # wiecej", ten mowi "klient NIC nie dostal, a mial dostac". `tura.py` czyta go, zeby
 # tura, w ktorej model dodatkowo nic nie napisal, skonczyla sie handoffem, nie cisza.
 _podsumowanie_nieudane = contextvars.ContextVar("podsumowanie_nieudane", default=False)
+# U11/U7: w tej turze doszlo juz do handoffu — WYWOLANEGO Z NARZEDZIA, wewnatrz
+# Runner.run_sync (`oddaj_czlowiekowi`, albo `przygotuj_zamowienie` na Allegro).
+# `tura.py` czyta to, zeby tura, w ktorej model po handoffie NIC nie napisal,
+# nie skonczyla sie cisza. Per TURA (contextvar), nie per rozmowa — pytanie
+# brzmi "czy klient dostal cos w TEJ turze", nie "czy kiedykolwiek".
+_handoff_w_turze = contextvars.ContextVar("handoff_w_turze", default=False)
 
 _SCHEMAT = """
 CREATE TABLE IF NOT EXISTS pro_dane(
@@ -153,6 +159,7 @@ def ustaw_kontekst(conv_id, persona_tury="pro"):
     _persona.set(persona_tury)
     _podsumowanie_wyslane.set(False)
     _podsumowanie_nieudane.set(False)
+    _handoff_w_turze.set(False)
 
 
 def conv_id():
@@ -195,6 +202,16 @@ def oznacz_podsumowanie_nieudane():
 def podsumowanie_nieudane():
     """Czy w BIEŻĄCEJ turze próba wysłania podsumowania się NIE powiodła."""
     return bool(_podsumowanie_nieudane.get())
+
+
+def handoff_w_turze():
+    """Czy w BIEŻĄCEJ turze rozmowa została już oddana konsultantowi.
+
+    Prawdziwe TYLKO dla handoffu z wnętrza tury (`stan.handoff`) — czyta to
+    `tura.py`, żeby tura, w której model oddał rozmowę narzędziem i NIC nie
+    napisał, nie skończyła się ciszą (U11: `przygotuj_zamowienie` na Allegro
+    kończy notatką i handoffem, a wskazówka dla modelu to tylko prośba)."""
+    return bool(_handoff_w_turze.get())
 
 
 def _wymagany_conv_id():
@@ -645,6 +662,7 @@ def handoff(powod):
     biezacy = conv_id()
     notatki.notatka_stanu(biezacy, powod)
     udane = cw_bot_handoff(biezacy, token=BOT_PRO_CW_AGENT_TOKEN)
+    _handoff_w_turze.set(True)
     return {"ok": bool(udane), "powod": powod}
 
 

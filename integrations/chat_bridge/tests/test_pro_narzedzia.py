@@ -24,7 +24,8 @@ from agents.tool_context import ToolContext
 
 from bots import crm_calc
 from bots_pro import narzedzia as n
-from bots_pro import podsumowanie, potwierdzenia, stan
+from bots_pro import notatki, podsumowanie, potwierdzenia, stan
+from bots_pro import wysylka as prawdziwa_wysylka
 
 stan.init_pro()
 
@@ -514,9 +515,16 @@ class TestPoliczWyceneIWysylkePrzycinajaWynik:
 
 def _zaladuj_atrape_wysylki(monkeypatch):
     """Podmienia bots_pro.wysylka w sys.modules (moduł powstaje dopiero w
-    Task 6) — jak w tests/test_pro_podsumowanie.py i test_pro_i2_integracja.py."""
+    Task 6) — jak w tests/test_pro_podsumowanie.py i test_pro_i2_integracja.py.
+
+    `wolno_linkowac` jest PRAWDZIWE, nie zaatrapowane (U11): to od niego zależy,
+    czy `przygotuj_zamowienie` zwróci link, czy skończy notatką dla agenta —
+    atrapa tej funkcji sprawdzałaby wyłącznie własną atrapę, a nie profil kanału
+    z `bots.channel_caps`. `przygotuj` zostaje atrapą, bo tu chodzi o wywołanie
+    ciała narzędzia, nie o formatowanie wysyłki."""
     modul = types.ModuleType("bots_pro.wysylka")
     modul.przygotuj = lambda tekst, persona: [tekst]
+    modul.wolno_linkowac = prawdziwa_wysylka.wolno_linkowac
     monkeypatch.setitem(sys.modules, "bots_pro.wysylka", modul)
 
 
@@ -727,3 +735,103 @@ class TestBramkaI2WNarzedziach:
         wynik = _wolaj(n.przygotuj_zamowienie, edit_uuid="uuid-x")
         assert wynik == {"ok": True, "edit_uuid": "uuid-x"}
         assert wywolania == ["uuid-x"]
+
+
+def _wycena_gotowa_do_zamowienia(monkeypatch, conv_id, persona="allegro"):
+    """Rozmowa doprowadzona do stanu „wycena zapisana i potwierdzona" — punkt,
+    w którym `przygotuj_zamowienie` ma sens."""
+    stan.ustaw_kontekst(conv_id, persona_tury=persona)
+    _wolaj(n.zapisz_pozycje, id="1", produkt="blat", dlugosc_cm=180,
+           szerokosc_cm=60, grubosc_cm=4, ilosc=1,
+           selected_variant="dab-lity-ab", wykonczenie="surowe")
+    stan.zapisz_dostawe("00-001", kurier="DPD", netto=203.25, brutto=250.0)
+    _potwierdz_biezace_pozycje(monkeypatch)
+    stan.zapamietaj_wycene({"ok": True, "edit_uuid": "UUID-ALG",
+                            "public_url": "https://crm.example/q/abc"})
+
+
+class TestAllegroKonczyNotatka:
+    """U11 (recenzja końcowa) + specyfikacja D8, wiersz 394: „livechat,
+    Messenger i OLX dostają link do checkoutu. **Allegro kończy notatką dla
+    agenta**". Profil kanału Allegro ma `links=False` (regulamin marketplace'u
+    zakazuje kierowania kupującego poza platformę), więc `wysylka._wytnij_linki`
+    i tak skasowałby `public_url` z odpowiedzi modelu — szczęśliwa ścieżka na
+    Allegro była strukturalnie niedomykalna."""
+
+    def test_na_allegro_model_nie_dostaje_linku(self, monkeypatch):
+        _wycena_gotowa_do_zamowienia(monkeypatch, 96041)
+        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst: True)
+        monkeypatch.setattr(stan, "handoff", lambda powod: {"ok": True})
+
+        wynik = _wolaj(n.przygotuj_zamowienie)
+
+        assert wynik["ok"] is True
+        assert wynik["tryb"] == "notatka"
+        assert "public_url" not in wynik
+        assert "crm.example" not in json.dumps(wynik, ensure_ascii=False)
+
+    def test_notatka_niesie_komplet_danych_wraz_z_linkiem(self, monkeypatch):
+        _wycena_gotowa_do_zamowienia(monkeypatch, 96042)
+        notatki_wyslane = []
+        monkeypatch.setattr(notatki, "wyslij_notatke",
+                            lambda cid, tekst: notatki_wyslane.append((cid, tekst)) or True)
+        monkeypatch.setattr(stan, "handoff", lambda powod: {"ok": True})
+
+        _wolaj(n.przygotuj_zamowienie)
+
+        assert len(notatki_wyslane) == 1
+        conv, tekst = notatki_wyslane[0]
+        assert conv == 96042
+        # Notatka jest PRYWATNA, wiec link moze i MUSI sie w niej znalezc.
+        assert "https://crm.example/q/abc" in tekst
+        assert "UUID-ALG" in tekst
+        assert "180.0x60.0x4.0 cm" in tekst   # opis pozycji, nie sam identyfikator
+        assert "DPD" in tekst
+
+    def test_na_allegro_rozmowa_idzie_do_czlowieka(self, monkeypatch):
+        _wycena_gotowa_do_zamowienia(monkeypatch, 96043)
+        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst: True)
+        powody = []
+        monkeypatch.setattr(stan, "handoff", lambda powod: powody.append(powod) or {"ok": True})
+
+        _wolaj(n.przygotuj_zamowienie)
+
+        assert len(powody) == 1
+        assert "allegro" in powody[0].lower()
+
+    def test_na_olx_link_nadal_idzie_do_klienta(self, monkeypatch):
+        # Kontrola negatywna: OLX ma links=True, wiec sciezka linku zostaje bez zmian.
+        _wycena_gotowa_do_zamowienia(monkeypatch, 96044, persona="olx")
+        monkeypatch.setattr(notatki, "wyslij_notatke",
+                            lambda cid, tekst: pytest.fail("OLX nie konczy notatka"))
+        monkeypatch.setattr(stan, "handoff",
+                            lambda powod: pytest.fail("OLX nie oddaje rozmowy tutaj"))
+
+        wynik = _wolaj(n.przygotuj_zamowienie)
+
+        assert wynik["public_url"] == "https://crm.example/q/abc"
+
+    def test_bramka_potwierdzenia_dziala_przed_notatka(self, monkeypatch):
+        # I2 jest PIERWSZA: bez potwierdzenia nie ma ani linku, ani notatki.
+        stan.ustaw_kontekst(96045, persona_tury="allegro")
+        monkeypatch.setattr(notatki, "wyslij_notatke",
+                            lambda cid, tekst: pytest.fail("notatka bez potwierdzenia"))
+        monkeypatch.setattr(stan, "handoff",
+                            lambda powod: pytest.fail("handoff bez potwierdzenia"))
+
+        assert _wolaj(n.przygotuj_zamowienie)["ok"] is False
+
+    def test_brak_zapisanej_wyceny_na_allegro_nie_wysyla_notatki(self, monkeypatch):
+        # Nie ma czego przekazywac czlowiekowi, dopoki wycena nie istnieje w CRM —
+        # model ma dostac ten sam blad co na kazdym innym kanale.
+        stan.ustaw_kontekst(96046, persona_tury="allegro")
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat", dlugosc_cm=180,
+               szerokosc_cm=60, grubosc_cm=4, ilosc=1,
+               selected_variant="dab-lity-ab", wykonczenie="surowe")
+        _potwierdz_biezace_pozycje(monkeypatch)
+        monkeypatch.setattr(notatki, "wyslij_notatke",
+                            lambda cid, tekst: pytest.fail("notatka bez wyceny"))
+        monkeypatch.setattr(stan, "handoff",
+                            lambda powod: pytest.fail("handoff bez wyceny"))
+
+        assert _wolaj(n.przygotuj_zamowienie)["ok"] is False

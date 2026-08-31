@@ -94,6 +94,26 @@ def wyslij_notatke(conv_id, tekst):
         return False
 
 
+def zamowienie_do_agenta(wycena):
+    """Allegro (U11, spec D8 wiersz 394): zamiast linku dla kupującego —
+    notatka dla konsultanta z KOMPLETEM danych i oddanie mu rozmowy.
+
+    Na Allegro `ALLEGRO_CAPS['links'] = False`, więc `wysylka._wytnij_linki`
+    i tak skasowałby `public_url` z odpowiedzi modelu: bot obiecywałby link,
+    którego kupujący nigdy nie zobaczy, i sprzedaży nie dałoby się domknąć.
+    Notatka jest prywatna, więc link może w niej zostać — człowiek dostaje
+    dokładnie to, czego bot nie ma prawa wysłać.
+
+    Zwraca True, gdy notatka poszła."""
+    from bots_pro import stan
+    tekst = tresc_dla_agenta(
+        "Allegro — zamówienie do domknięcia przez konsultanta "
+        "(regulamin marketplace'u zabrania wysłania linku kupującemu)",
+        pozycje=stan.pozycje(), dostawa=stan.dostawa(), wycena=wycena,
+        potwierdzenie=stan.cytat_potwierdzenia())
+    return wyslij_notatke(stan.conv_id(), tekst)
+
+
 def notatka_stanu(conv_id, powod):
     """Notatka złożona z BIEŻĄCEGO stanu rozmowy (`bots_pro.stan`) — jedno
     wywołanie dla wszystkich wyjść handoffowych, żeby żadne z nich nie musiało

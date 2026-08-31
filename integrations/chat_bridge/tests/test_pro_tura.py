@@ -28,7 +28,7 @@ from openai.types.responses import (
 )
 
 import config as config_mod
-from bots_pro import agenci, stan, tura
+from bots_pro import agenci, notatki, stan, tura
 
 stan.init_pro()
 
@@ -937,6 +937,47 @@ class TestWyjsciaHandoffoweNieSaCiche:
         tura.uruchom(conv_id, "inbox1", "wiadomosc 2", persona="allegro")
 
         assert uzyte_persony == ["allegro", "allegro"]
+
+    def test_handoff_z_narzedzia_bez_odpowiedzi_modelu_nie_zostawia_ciszy(self, monkeypatch):
+        """Model sam oddal rozmowe (narzedzie `oddaj_czlowiekowi`, albo
+        `przygotuj_zamowienie` na Allegro — U11) i NIC nie napisal. Klient nie
+        moze zostac w ciszy tylko dlatego, ze handoff poszedl z narzedzia,
+        a nie z bezpiecznika tury."""
+        conv_id = 96204006
+        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst: True)
+        monkeypatch.setattr("core.chatwoot.cw_bot_handoff", lambda cid, token=None: True)
+
+        class _RunnerZHandoffemZNarzedzia:
+            def run_sync(self, agent, tresc, session=None, max_turns=None):
+                stan.handoff("klient prosi o czlowieka")
+                return types.SimpleNamespace(final_output="")
+
+        monkeypatch.setattr(tura, "Runner", _RunnerZHandoffemZNarzedzia())
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "prosze o konsultanta", persona="quote")
+
+        assert wyslane == [tura.KOMUNIKAT_HANDOFF]
+
+    def test_handoff_z_narzedzia_z_odpowiedzia_modelu_nie_dubluje_komunikatu(self, monkeypatch):
+        # Kontrola negatywna: model napisal wlasne pozegnanie — drugi, sklejony
+        # w kodzie komunikat bylby zbedna powtorka.
+        conv_id = 96204007
+        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst: True)
+        monkeypatch.setattr("core.chatwoot.cw_bot_handoff", lambda cid, token=None: True)
+
+        class _RunnerZHandoffemIOdpowiedzia:
+            def run_sync(self, agent, tresc, session=None, max_turns=None):
+                stan.handoff("reklamacja")
+                return types.SimpleNamespace(
+                    final_output="Rozumiem, przekazuje sprawe konsultantowi.")
+
+        monkeypatch.setattr(tura, "Runner", _RunnerZHandoffemIOdpowiedzia())
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "reklamacja", persona="quote")
+
+        assert wyslane == ["Rozumiem, przekazuje sprawe konsultantowi."]
 
     def test_nieudane_podsumowanie_bez_odpowiedzi_modelu_konczy_komunikatem(self, monkeypatch):
         conv_id = 96204005

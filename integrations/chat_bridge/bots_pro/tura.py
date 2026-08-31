@@ -276,6 +276,19 @@ def uruchom(conv_id, inbox_id, tresc, zalaczniki=None, persona="pro", message_id
         _oddaj_konsultantowi("podsumowanie nie dotarlo do klienta", conv_id, persona)
         return
 
+    # U11: rozmowa zostala oddana konsultantowi Z WNETRZA tury (narzedzie
+    # `oddaj_czlowiekowi`, albo `przygotuj_zamowienie` na Allegro — tam handoff
+    # jest CZESCIA szczesliwej sciezki, patrz spec D8), a model nic nie napisal.
+    # Wskazowka zwracana przez narzedzie to PROSBA w prompcie, nie bramka —
+    # bramka jest tutaj. Handoff juz byl, wiec wysylamy sam komunikat.
+    if stan.handoff_w_turze() and not odpowiedz and not stan.podsumowanie_wyslane():
+        log("tura: handoff z narzedzia, model nic nie napisal -> komunikat "
+            "zamiast ciszy (conv %s)" % conv_id)
+        for czesc in wysylka.przygotuj(KOMUNIKAT_HANDOFF, persona):
+            if czesc:
+                cw_agent_reply(conv_id, czesc, token=BOT_PRO_CW_AGENT_TOKEN)
+        return
+
     # B2: bezpiecznik braku postepu — ZAWSZE, niezaleznie od tego, co powyzej
     # wyslano (albo nie wyslano) w tej turze. `podsumowanie.wyslij()` samo juz
     # wyslalo tresc i zapisalo `oczekiwany_podpis` (realny postep), wiec ta

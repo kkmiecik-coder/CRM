@@ -365,18 +365,39 @@ def popraw_wycene(edit_uuid: str = "", notatka: str = "") -> dict:
 
 @function_tool
 def przygotuj_zamowienie(edit_uuid: str = "") -> dict:
-    """Zwraca link (public_url) do strony, na której klient obejrzy wycenę i
-    domknie zamówienie. PODAJ KLIENTOWI DOKŁADNIE ten adres — nigdy nie układaj
-    adresu samodzielnie i nie powtarzaj linku z wcześniejszej rozmowy.
+    """Domyka zamówienie: na większości kanałów zwraca link (public_url) do
+    strony, na której klient obejrzy wycenę i złoży zamówienie. PODAJ KLIENTOWI
+    DOKŁADNIE ten adres — nigdy nie układaj adresu samodzielnie i nie powtarzaj
+    linku z wcześniejszej rozmowy.
     Wołaj dopiero po zapisaniu wyceny i po tym, jak klient wyrazi chęć zamówienia.
     Wymaga aktualnego potwierdzenia klienta — bez niego odmówi.
 
+    Na kanałach, których regulamin zabrania kierowania klienta poza platformę
+    (Allegro), narzędzie NIE zwraca linku — zamiast tego przekazuje wycenę
+    konsultantowi i zwraca `tryb: "notatka"`. Wtedy NIE obiecuj klientowi
+    żadnego adresu ani wiadomości e-mail: napisz, że wycena jest gotowa i
+    konsultant odezwie się tutaj, w tej rozmowie.
+
     edit_uuid możesz POMINĄĆ — system zna wycenę zapisaną w tej rozmowie."""
-    from bots_pro import potwierdzenia, stan
+    from bots_pro import notatki, potwierdzenia, stan, wysylka
     bramka = potwierdzenia.sprawdz_bramke()
     if not bramka["ok"]:
         return bramka
-    return stan.link_do_checkoutu(edit_uuid)
+    wynik = stan.link_do_checkoutu(edit_uuid)
+    if not wynik.get("ok") or wysylka.wolno_linkowac(stan.persona()):
+        return wynik
+
+    # U11 / spec D8 (wiersz 394): „Allegro kończy notatką dla agenta". Link
+    # NIE wraca do modelu — nie po to, żeby go potem wyciąć w wysyłce, tylko
+    # żeby w ogóle nie było czego wycinać (osierocone „Link:" i obietnica
+    # adresu, którego kupujący nigdy nie dostanie, to ta sama awaria).
+    notatki.zamowienie_do_agenta(wynik)
+    stan.handoff("Allegro — gotowa wycena do domkniecia przez konsultanta")
+    return {"ok": True, "tryb": "notatka",
+            "wskazowka": "Na tym kanale nie wolno wysyłać linków. Wycena i komplet "
+                         "danych trafiły do konsultanta, rozmowa jest już u niego. "
+                         "Napisz klientowi krótko, że wycena jest gotowa i konsultant "
+                         "odezwie się w tej rozmowie — NIE podawaj adresu ani e-maila."}
 
 
 @function_tool
