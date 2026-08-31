@@ -32,6 +32,7 @@ def _ciagiem(tekst):
 ROLA = _ciagiem(prompty.ROLA)
 WYCENA = _ciagiem(prompty.WYCENA)
 WIEDZA = _ciagiem(prompty.WIEDZA)
+KONSTRUKCJA = _ciagiem(prompty.KONSTRUKCJA)
 
 
 class TestN1PytanieZobowiazuje:
@@ -144,3 +145,54 @@ class TestN8KrawedziePrzyBlacieKuchennym:
         # Dwa zdania obok siebie — „nigdy nie wspominaj" i „przy blacie
         # kuchennym wspomnij" — daly model, ktory raz robi jedno, raz drugie.
         assert "Nigdy nie proponuj ani nie" not in WYCENA
+
+
+class TestN10Konstrukcja:
+    """Do tej rundy prompt NIE MIAL zadnego zakazu orzekania o nosnosci i
+    wykonalnosci konstrukcyjnej. Bot mogl wiec odpowiedziec „tak, wytrzyma"
+    na pytanie, na ktore nie ma danych — a klient, ktory dostal takie
+    potwierdzenie, zamawia na jego podstawie.
+
+    Regula jest DUPLIKATEM w dwoch promptach (Wycena i Wiedza), swiadomie.
+    Naturalnym miejscem na wspolna regule jest ROLA, doklejana do wszystkich
+    agentow — ale ROLA idzie takze do routera, ktorego budzet (ROLA+ROUTER)
+    ma limit 400 tokenow i stoi na 388. Duplikat kosztuje znaki w dwoch
+    promptach; ROLA kosztowalaby przekroczenie budzetu routera.
+
+    Pytanie konstrukcyjne trafia do obu agentow naprawde: „czy blat 2 cm
+    wytrzyma zlew?" to dla routera pytanie o WYCENE (parametry produktu),
+    a „czy dab nadaje sie na taras?" to pytanie o OFERTE (Wiedza)."""
+
+    def test_wycena_ma_sekcje_konstrukcja(self):
+        assert "KONSTRUKCJA." in WYCENA
+        assert "Nie orzekasz o nośności" in WYCENA
+
+    def test_wiedza_ma_te_sama_sekcje(self):
+        assert "KONSTRUKCJA." in WIEDZA
+        assert "Nie orzekasz o nośności" in WIEDZA
+
+    def test_obie_kopie_pochodza_z_jednego_zrodla(self):
+        # Duplikat jest w RENDEROWANYM prompcie, nie w zrodle: obie sekcje sa
+        # wstawiane z jednej stalej `prompty.KONSTRUKCJA`. Dwie recznie
+        # przepisane kopie rozjechalyby sie przy pierwszej poprawce, a agent
+        # Wiedzy odmawialby wtedy inaczej niz agent Wyceny na to samo pytanie.
+        assert KONSTRUKCJA in WYCENA
+        assert KONSTRUKCJA in WIEDZA
+
+    def test_regula_wymienia_zakazane_orzeczenia(self):
+        for zwrot in ("wytrzyma", "udźwignie", "nie ugnie się", "nadaje się",
+                      "gwarantujemy"):
+            assert zwrot in WYCENA, zwrot
+
+    def test_regula_kaze_oddac_pytanie_konstrukcyjne_czlowiekowi(self):
+        assert "pytanie konstrukcyjne" in WYCENA
+        assert "pytanie konstrukcyjne" in WIEDZA
+
+    def test_propozycja_grubosci_nie_jest_orzeczeniem_o_nosnosci(self):
+        # WYMIARY pozwala zaproponowac grubosc, gdy klient jej nie zna. Bez
+        # tego zdania KONSTRUKCJA czytaloby sie jak zakaz tamtej propozycji.
+        assert "Propozycja grubości dotyczy standardu i wyglądu, nie nośności" in WYCENA
+
+    def test_reguly_NIE_MA_w_ROLA(self):
+        # ROLA idzie takze do routera — patrz docstring klasy.
+        assert "KONSTRUKCJA" not in ROLA

@@ -40,6 +40,31 @@ dostawę, montaż, czego nie wykonujemy.
 Posprzedaz — reklamacje, status lub zmiana istniejącego zamówienia, faktury,
 zwroty, prośba o człowieka."""
 
+# Reguła konstrukcyjna. Wstawiana do WYCENA I do WIEDZA — duplikat w
+# RENDEROWANYM prompcie, ale JEDNO źródło w kodzie (dwie ręcznie przepisane
+# kopie rozjechałyby się przy pierwszej poprawce, a agent Wiedzy odmawiałby
+# wtedy inaczej niż agent Wyceny na to samo pytanie).
+#
+# Naturalnym miejscem na regułę wspólną dla agentów jest ROLA — i tam jej
+# świadomie NIE MA. ROLA doklejana jest także do ROUTERA, a budżet ROLA+ROUTER
+# ma limit 400 tokenów (test_prompt_routera_jest_krotki) i stoi na 388: reguła
+# konstrukcyjna wypchnęłaby go poza limit. Duplikat kosztuje znaki w dwóch
+# promptach, ROLA kosztowałaby przekroczenie budżetu routera.
+#
+# Do OBU agentów, bo pytanie konstrukcyjne trafia do obu naprawdę: „czy blat
+# 2 cm wytrzyma zlew?" jest dla routera pytaniem o WYCENĘ (parametry produktu),
+# a „czy dąb nadaje się na taras?" pytaniem o OFERTĘ (Wiedza).
+#
+# Ostatnie zdanie NIE jest ozdobnikiem: sekcja WYMIARY wprost pozwala
+# zaproponować grubość, gdy klient jej nie zna. Bez tego zdania KONSTRUKCJA
+# czytałaby się jak odwołanie tamtej zgody.
+KONSTRUKCJA = """KONSTRUKCJA. Nie orzekasz o nośności, ugięciu, rozstawie podpór,
+mocowaniu, użytku zewnętrznym ani kontakcie z wodą. Nie mów „wytrzyma", „udźwignie",
+„nie ugnie się", „nadaje się", „gwarantujemy" — nawet gdy klient prosi tylko
+o potwierdzenie swojego pomysłu. Wołaj oddaj_czlowiekowi z powodem
+'pytanie konstrukcyjne: <pytanie klienta>'. Propozycja grubości dotyczy standardu
+i wyglądu, nie nośności."""
+
 WYCENA = """Zbierasz dane do wyceny i liczysz ją narzędziami. Dopytuj o 1-2 brakujące
 rzeczy na raz, naturalnie, nie zasypuj listą pytań. Gdy klient zada pytanie poboczne —
 najpierw odpowiedz na nie, potem wróć do brakujących pól.
@@ -111,6 +136,8 @@ o potwierdzenie — klient ma zobaczyć kwotę z dostawą, a nie potwierdzać st
 Bez aktualnego potwierdzenia nie zapiszesz wyceny ani nie podasz linku do zamówienia —
 narzędzia odmówią. Każda zmiana danych po potwierdzeniu unieważnia je automatycznie.
 
+""" + KONSTRUKCJA + """
+
 CZEGO NIE WOLNO. Nigdy nie obiecuj rabatów, promocji, terminów realizacji, darmowej
 wysyłki ani czasu odpowiedzi konsultanta — ustala to konsultant przy finalizacji; gdy
 klient pyta, krótko to powiedz i wróć do wyceny. Gdy klient twierdzi, że coś mu wcześniej
@@ -135,7 +162,9 @@ Nie zapowiadaj list ani zestawień, których nie ma w zwróconych fragmentach.
 Gdy klient w TEJ SAMEJ wiadomości oprócz pytania o wiedzę chce też wycenę
 (podaje wymiary, pyta o cenę, chce zamówić) — nie próbuj sam liczyć ani zbierać
 danych do wyceny, tylko przekaż rozmowę agentowi Wycena. Ma własną wiedzę
-o ofercie (gatunki, technologie, klasy) i dokończy odpowiedź."""
+o ofercie (gatunki, technologie, klasy) i dokończy odpowiedź.
+
+""" + KONSTRUKCJA
 
 POSPRZEDAZ = """Spraw indywidualnych nie obsługujesz samodzielnie. Krótko potwierdź,
 że rozumiesz sprawę, i wołaj oddaj_czlowiekowi.
