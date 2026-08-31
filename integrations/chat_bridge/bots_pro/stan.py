@@ -71,6 +71,11 @@ from core.db import db
 _conv_id = contextvars.ContextVar("conv_id", default=None)
 _persona = contextvars.ContextVar("persona", default=None)
 _podsumowanie_wyslane = contextvars.ContextVar("podsumowanie_wyslane", default=False)
+# U1 (recenzja koncowa): wysylka podsumowania do Chatwoota NIE POWIODLA sie w tej
+# turze. Osobny sygnal od `_podsumowanie_wyslane` — tamten mowi "nie wysylaj nic
+# wiecej", ten mowi "klient NIC nie dostal, a mial dostac". `tura.py` czyta go, zeby
+# tura, w ktorej model dodatkowo nic nie napisal, skonczyla sie handoffem, nie cisza.
+_podsumowanie_nieudane = contextvars.ContextVar("podsumowanie_nieudane", default=False)
 
 _SCHEMAT = """
 CREATE TABLE IF NOT EXISTS pro_dane(
@@ -132,6 +137,7 @@ def ustaw_kontekst(conv_id, persona_tury="pro"):
     _conv_id.set(conv_id)
     _persona.set(persona_tury)
     _podsumowanie_wyslane.set(False)
+    _podsumowanie_nieudane.set(False)
 
 
 def conv_id():
@@ -158,6 +164,22 @@ def oznacz_podsumowanie_wyslane():
 def podsumowanie_wyslane():
     """Czy w BIEŻĄCEJ turze już wysłano deterministyczne podsumowanie."""
     return bool(_podsumowanie_wyslane.get())
+
+
+def oznacz_podsumowanie_nieudane():
+    """Wołane przez `podsumowanie.wyslij()`, gdy Chatwoot NIE przyjął podsumowania
+    (`cw_agent_reply` zwróciło False — ta funkcja nigdy nie rzuca, więc bez
+    sprawdzenia wartości niepowodzenie jest niewidoczne).
+
+    Świadomie NIE ustawia `_podsumowanie_wyslane`: tamta flaga BLOKUJE dalszą
+    wysyłkę w tej turze, a tu jest odwrotna potrzeba — klient nie dostał nic i
+    trzeba mu cokolwiek powiedzieć (albo oddać rozmowę konsultantowi)."""
+    _podsumowanie_nieudane.set(True)
+
+
+def podsumowanie_nieudane():
+    """Czy w BIEŻĄCEJ turze próba wysłania podsumowania się NIE powiodła."""
+    return bool(_podsumowanie_nieudane.get())
 
 
 def _wymagany_conv_id():

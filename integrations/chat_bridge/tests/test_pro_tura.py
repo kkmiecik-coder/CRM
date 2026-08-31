@@ -347,6 +347,50 @@ class TestBrakDublowaniaPodsumowania:
 
         assert wyslane == []
 
+    def test_nieudane_podsumowanie_i_pusta_odpowiedz_konczy_sie_handoffem_nie_cisza(
+            self, monkeypatch):
+        # U1 (recenzja koncowa): gdy Chatwoot nie przyjal podsumowania, `wyslij()`
+        # NIE oznacza tury jako obsluzonej — wiec zwykla odpowiedz modelu i tak by
+        # poszla. Ale model moze nic nie napisac (wskazowka z promptu: "final_output
+        # moze byc puste"). Wtedy tura konczy sie BEZ ANI JEDNEJ wiadomosci — ta sama
+        # awaria co w audycie. Ma byc handoff, nie cisza.
+        conv_id = 96131
+
+        class _RunnerZNieudanymPodsumowaniem:
+            def run_sync(self, agent, tresc, session=None, max_turns=None):
+                stan.oznacz_podsumowanie_nieudane()
+                return types.SimpleNamespace(final_output="")
+
+        monkeypatch.setattr(tura, "Runner", _RunnerZNieudanymPodsumowaniem())
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+        powody = []
+        monkeypatch.setattr(stan, "handoff", lambda powod: powody.append(powod) or {"ok": True})
+
+        tura.uruchom(conv_id, "inbox1", "poprosze wycene", persona="quote")
+
+        assert wyslane == []
+        assert len(powody) == 1
+
+    def test_nieudane_podsumowanie_z_odpowiedzia_modelu_nie_daje_handoffu(self, monkeypatch):
+        # Kontrola negatywna: gdy model mimo wszystko cos napisal, klient dostaje
+        # wiadomosc — handoff bylby wtedy niepotrzebna eskalacja.
+        conv_id = 96132
+
+        class _RunnerZNieudanymPodsumowaniem:
+            def run_sync(self, agent, tresc, session=None, max_turns=None):
+                stan.oznacz_podsumowanie_nieudane()
+                return types.SimpleNamespace(
+                    final_output="Przepraszam, sprobuje jeszcze raz za chwile.")
+
+        monkeypatch.setattr(tura, "Runner", _RunnerZNieudanymPodsumowaniem())
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+        monkeypatch.setattr(stan, "handoff",
+                            lambda powod: pytest.fail("nie powinno dojsc do handoffu"))
+
+        tura.uruchom(conv_id, "inbox1", "poprosze wycene", persona="quote")
+
+        assert wyslane == ["Przepraszam, sprobuje jeszcze raz za chwile."]
+
     def test_bez_wyslania_podsumowania_zwykla_odpowiedz_nadal_idzie_do_klienta(self, monkeypatch):
         # Kontrola negatywna: bramka W3 nie ma blokowac zwyklych odpowiedzi, w
         # ktorych podsumowanie.wyslij() w ogole nie bylo wolane w tej turze.

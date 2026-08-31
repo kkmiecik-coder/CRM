@@ -411,3 +411,89 @@ class TestOpisEdges:
             {"litera": "C", "typ": "chamfer", "r_value": None, "angle_value": 45},
         ])
         assert opis == "R5 (A, B); Fazowanie 45° (C)"
+
+
+class TestWyslijNieudanaWysylka:
+    """U1 (recenzja końcowa gałęzi): `cw_agent_reply` NIGDY nie rzuca — przy
+    429/5xx/timeoucie po prostu zwraca False (core/chatwoot.py). Podsumowanie,
+    którego Chatwoot NIE przyjął, nie może liczyć się jako doręczone: zapisany
+    `oczekiwany_podpis` + `podsumowanie_wyslane` otwierają bramkę I2 na treść,
+    której klient NIGDY nie zobaczył (wycena zapisana i link wysłany bez
+    potwierdzenia czegokolwiek — sonda P2 z recenzji)."""
+
+    def _przygotuj(self, monkeypatch, conv_id, wyniki_wysylki, czesci=1):
+        stan.ustaw_kontekst(conv_id)
+        poz = [_pozycja()]
+        monkeypatch.setattr(stan, "pozycje", lambda: poz)
+        monkeypatch.setattr(podsumowanie.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(podsumowanie.crm_calc, "calculate", lambda p, o: {
+            "ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}})
+        # `from bots_pro import wysylka` wewnątrz wyslij() sięga po ATRYBUT paczki
+        # (moduł jest już zaimportowany), więc podmiana w sys.modules nic by nie
+        # dała — łatamy prawdziwy moduł, żeby sterować liczbą części wysyłki.
+        from bots_pro import wysylka as prawdziwa_wysylka
+        monkeypatch.setattr(prawdziwa_wysylka, "przygotuj",
+                            lambda tekst, persona: [tekst] * czesci)
+        proby, wyniki = [], list(wyniki_wysylki)
+
+        def _reply(cid, tekst, token=None):
+            proby.append(tekst)
+            return wyniki.pop(0)
+
+        monkeypatch.setattr(podsumowanie, "cw_agent_reply", _reply)
+        return proby
+
+    def _oczekiwany_podpis_w_bazie(self, conv_id):
+        c = db()
+        wiersz = c.execute("SELECT oczekiwany_podpis FROM pro_stan WHERE conv_id=?",
+                           (conv_id,)).fetchone()
+        c.close()
+        return wiersz["oczekiwany_podpis"] if wiersz else None
+
+    def test_nieudana_wysylka_zwraca_blad_nie_ok(self, monkeypatch):
+        self._przygotuj(monkeypatch, 94020, [False])
+        wynik = podsumowanie.wyslij()
+        assert wynik["ok"] is False
+        assert wynik["error"] == "PODSUMOWANIE_NIEWYSLANE"
+        assert "wyslano" not in wynik
+
+    def test_nieudana_wysylka_nie_zapisuje_oczekiwanego_podpisu(self, monkeypatch):
+        self._przygotuj(monkeypatch, 94021, [False])
+        podsumowanie.wyslij()
+        assert self._oczekiwany_podpis_w_bazie(94021) is None
+
+    def test_nieudana_wysylka_nie_oznacza_tury_jako_obsluzonej(self, monkeypatch):
+        # `podsumowanie_wyslane()` blokuje w tura.py wysyłkę czegokolwiek innego w
+        # tej turze — po NIEUDANEJ wysyłce ta blokada zostawiłaby klienta w ciszy.
+        self._przygotuj(monkeypatch, 94022, [False])
+        podsumowanie.wyslij()
+        assert stan.podsumowanie_wyslane() is False
+        assert stan.podsumowanie_nieudane() is True
+
+    def test_nieudana_wysylka_nie_otwiera_bramki_i2(self, monkeypatch):
+        # Pełne obejście I2 z sondy P2: podpis w bazie -> potwierdz('tak') przechodzi
+        # -> sprawdz_bramke() przechodzi -> wycena zapisana bez wiedzy klienta.
+        self._przygotuj(monkeypatch, 94023, [False])
+        monkeypatch.setattr(stan, "ostatnia_wiadomosc_klienta", lambda: "tak")
+        podsumowanie.wyslij()
+        assert potwierdzenia.potwierdz("tak")["ok"] is False
+        assert potwierdzenia.sprawdz_bramke()["ok"] is False
+
+    def test_polowicznie_wyslane_podsumowanie_nie_liczy_sie_jako_doreczone(self, monkeypatch):
+        # Wieloczęściowa wysyłka (OLX/Allegro, max_len): część 1 przeszła, część 2 nie.
+        # Klient widzi urwane podsumowanie — podpis NIE może zostać zapisany, a
+        # kolejnych części nie dosyłamy (ogon po dziurze byłby jeszcze gorszy).
+        proby = self._przygotuj(monkeypatch, 94024, [True, False, True], czesci=3)
+        wynik = podsumowanie.wyslij()
+        assert wynik["error"] == "PODSUMOWANIE_NIEWYSLANE"
+        assert self._oczekiwany_podpis_w_bazie(94024) is None
+        assert len(proby) == 2   # trzecia część już nie poleciała
+
+    def test_udana_wysylka_nie_ustawia_flagi_niepowodzenia(self, monkeypatch):
+        # Kontrola negatywna dla ścieżki szczęśliwej.
+        self._przygotuj(monkeypatch, 94025, [True])
+        wynik = podsumowanie.wyslij()
+        assert wynik["ok"] is True and wynik["wyslano"] is True
+        assert stan.podsumowanie_wyslane() is True
+        assert stan.podsumowanie_nieudane() is False
+        assert self._oczekiwany_podpis_w_bazie(94025) == wynik["podpis"]

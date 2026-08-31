@@ -228,6 +228,18 @@ def uruchom(conv_id, inbox_id, tresc, zalaczniki=None, persona="pro", message_id
             if czesc:
                 cw_agent_reply(conv_id, czesc, token=BOT_PRO_CW_AGENT_TOKEN)
 
+    # U1: podsumowania NIE udalo sie wyslac (Chatwoot odrzucil), a model nic nie
+    # napisal — bo prompt wprost pozwala mu zostawic final_output puste po wolaniu
+    # wyslij_podsumowanie. Tura konczylaby sie wtedy BEZ ANI JEDNEJ wiadomosci do
+    # klienta: dokladnie ta awaria, ktora audyt wskazal jako przyczyne porzucen.
+    # Oddajemy rozmowe konsultantowi zamiast milczec. Gdy model jednak cos napisal,
+    # klient dostal wiadomosc (wyzej) i handoff bylby zbedna eskalacja.
+    if stan.podsumowanie_nieudane() and not odpowiedz:
+        log("tura: podsumowanie nie dotarlo do klienta i model nic nie napisal "
+            "-> handoff (conv %s)" % conv_id)
+        _oddaj_konsultantowi("podsumowanie nie dotarlo do klienta", conv_id)
+        return
+
     # B2: bezpiecznik braku postepu — ZAWSZE, niezaleznie od tego, co powyzej
     # wyslano (albo nie wyslano) w tej turze. `podsumowanie.wyslij()` samo juz
     # wyslalo tresc i zapisalo `oczekiwany_podpis` (realny postep), wiec ta

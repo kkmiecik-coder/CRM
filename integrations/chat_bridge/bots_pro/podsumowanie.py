@@ -263,13 +263,35 @@ def wyslij():
     tekst += "\n\nCzy wszystko się zgadza?"
 
     oczekiwany = potwierdzenia.podpis(pozycje)
-    stan.zapisz_stan(oczekiwany_podpis=oczekiwany)
 
     # WYSYŁAMY TU, nie zwracamy tekstu modelowi. Gdyby treść wróciła do modelu,
     # ten mógłby ją sparafrazować i klient potwierdzałby parafrazę zamiast danych.
+    #
+    # U1 (recenzja końcowa): wynik `cw_agent_reply` JEST sprawdzany, a
+    # `oczekiwany_podpis` zapisywany DOPIERO PO udanej wysyłce. `cw_agent_reply`
+    # nigdy nie rzuca — przy 429/5xx/timeoucie zwraca False (core/chatwoot.py) —
+    # więc wcześniejsza wersja (zapis podpisu PRZED wysyłką, wynik ignorowany)
+    # meldowała `{"ok": True, "wyslano": True}` dla podsumowania, którego klient
+    # NIGDY nie zobaczył. To było pełne obejście I2: podpis w bazie sprawiał, że
+    # `potwierdz` i `sprawdz_bramke` przechodziły w kolejnej turze na DOWOLNYM
+    # fragmencie odpowiedzi klienta, a wycena i link szły do CRM bez potwierdzenia
+    # czegokolwiek. Kolejność (wyślij -> sprawdź -> zapisz podpis) jest istotą tej
+    # poprawki, nie kosmetyką.
     from bots_pro import wysylka
     for czesc in wysylka.przygotuj(tekst, stan.persona()):
-        cw_agent_reply(stan.conv_id(), czesc, token=BOT_PRO_CW_AGENT_TOKEN)
+        if not cw_agent_reply(stan.conv_id(), czesc, token=BOT_PRO_CW_AGENT_TOKEN):
+            # Przerywamy PO PIERWSZEJ nieudanej części: dosłanie ogona po dziurze
+            # dałoby klientowi podsumowanie z brakującym środkiem, a i tak nie
+            # byłoby czego podpisywać. Podpis NIE trafia do bazy, tura NIE jest
+            # oznaczana jako obsłużona — model dostaje jednoznaczny błąd.
+            stan.oznacz_podsumowanie_nieudane()
+            return {"ok": False, "error": "PODSUMOWANIE_NIEWYSLANE",
+                    "wskazowka": "Podsumowanie NIE dotarło do klienta (błąd wysyłki). "
+                                 "Klient go nie widział, więc nie może go potwierdzić. "
+                                 "Napisz krótko, że za chwilę wrócisz z podsumowaniem, "
+                                 "albo spróbuj wysłać je ponownie w kolejnej turze."}
+
+    stan.zapisz_stan(oczekiwany_podpis=oczekiwany)
 
     # Bramka (nie dyscyplina promptu — runda poprawek 1, W3): oznacz w stanie tury,
     # że podsumowanie już poszło. `tura.py` to sprawdza i NIE wyśle niczego więcej w
