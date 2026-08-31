@@ -1130,6 +1130,30 @@ def build_client_finishing_entry(detail):
     }
 
 
+def bezpieczny_link_zamowienia(adres):
+    """Do href wpuszczamy wyłącznie http/https. Poza tym None.
+
+    Ta sama biała lista, którą ma modal zamawiania (client_accept_modal.js,
+    bezpiecznyLinkZamowienia) — szablon obsługuje ścieżkę CZĘSTSZĄ: każde
+    wejście na zamówioną wycenę, także po odświeżeniu strony. Wartość
+    pochodzi z odpowiedzi BaseLinkera, więc ryzyko jest niskie, ale
+    „javascript:..." w href wykonałoby się po kliknięciu, a jedno miejsce
+    ze sprawdzeniem i drugie bez to zaproszenie do pomyłki.
+
+    Świadomie ostrzej niż wersja w JS: wymagamy schematu wprost, więc adres
+    względny i protokołowo-względny („//gdzies") też odpadają. BaseLinker
+    zwraca w order_page pełny adres, więc nic poprawnego na tym nie tracimy.
+    """
+    if not adres:
+        return None
+    schemat = str(adres).split(':', 1)[0].strip().lower() if ':' in str(adres) else ''
+    if schemat in ('http', 'https'):
+        return adres
+    logger.warning("[client_quote_view] Odrzucony link do zamówienia o schemacie %r",
+                   schemat)
+    return None
+
+
 @quotes_bp.route("/c/<token>")
 def client_quote_view(token):
     """Widok strony klienta z redesignem"""
@@ -1193,7 +1217,8 @@ def client_quote_view(token):
                              ma_zamowienie=ma_zamowienie,
                              mozna_zamowic=mozna_zamowic,
                              niepewna_proba=niepewna_proba,
-                             link_zamowienia=quote.baselinker_order_page,
+                             link_zamowienia=bezpieczny_link_zamowienia(
+                                 quote.baselinker_order_page),
                              costs=costs,
                              current_year=current_year)
         
@@ -2138,6 +2163,17 @@ def client_accept_quote_with_data(token):
             client.phone = normalized_phone
         
         # === DANE DOSTAWY ===
+        # UWAGA (stan zastany, świadomie nietknięty). Bramka wyżej przepuszcza
+        # na zgodność SAMEGO telefonu, a poniżej adres dostawy bierze się
+        # w całości z żądania. Adres e-mail klienta jest broniony osobną flagą
+        # (email_matches), adres dostawy — nie, bo klient wpisuje go w modalu
+        # i inaczej być nie może.
+        # Co się zmieniło: dotąd zgodność samego telefonu pozwalała najwyżej
+        # OZNACZYĆ wycenę jako zaakceptowaną. Odkąd ta sama ścieżka tworzy
+        # zamówienie w BaseLinkerze, pozwala WYSŁAĆ TOWAR pod wskazany adres.
+        # Ryzyko zależy więc od jakości danych w clients.phone — decyzja
+        # właściciela, osobny tor (patrz też dopasowanie przez podciąg
+        # w dopasowanie_danych_klienta).
         if not is_self_pickup:
             client.delivery_name = data.get('delivery_name', '').strip()
             client.delivery_company = data.get('delivery_company', '').strip()

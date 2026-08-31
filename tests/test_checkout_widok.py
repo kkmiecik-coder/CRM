@@ -175,6 +175,39 @@ class TestPrzyciskZamawiania:
         assert 'skontaktuj się z nami' in html.lower()
 
 
+class TestBialaListaSchematowLinku:
+    """Szablon wstawiał `link_zamowienia` do href bez sprawdzenia schematu.
+
+    Wartość pochodzi z odpowiedzi BaseLinkera, więc ryzyko jest niskie — ale
+    JavaScript ma tę białą listę od początku (bezpiecznyLinkZamowienia),
+    a szablon obsługuje ścieżkę CZĘSTSZĄ: każde wejście na zamówioną wycenę.
+    """
+
+    def test_link_http_przechodzi(self, aplikacja, klient_http):
+        _zasiej(status_id=4, is_client_editable=False, order_id='501',
+                order_page='https://blsklep.pl/z/501')
+
+        assert 'https://blsklep.pl/z/501' in _strona(klient_http)
+
+    def test_schemat_javascript_nie_trafia_do_href(self, aplikacja, klient_http):
+        _zasiej(status_id=4, is_client_editable=False, order_id='501',
+                order_page='javascript:alert(1)')
+
+        html = _strona(klient_http)
+
+        assert 'javascript:alert' not in html
+        # Brak linku nie może zamienić się w odnośnik prowadzący donikąd —
+        # klient dostaje ten sam stan co przy braku order_page.
+        assert 'Zamówienie zostało złożone' in html
+        assert 'href=""' not in html
+
+    def test_schemat_data_nie_trafia_do_href(self, aplikacja, klient_http):
+        _zasiej(status_id=4, is_client_editable=False, order_id='501',
+                order_page='data:text/html,<script>alert(1)</script>')
+
+        assert 'data:text/html' not in _strona(klient_http)
+
+
 class TestNierozstrzygnietaProbaZamowienia:
     """Timeout BaseLinkera + odświeżenie strony = drugie realne zamówienie.
 
