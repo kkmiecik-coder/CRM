@@ -182,6 +182,46 @@ danymi drugiej. Gdy nie wiadomo, czy klient koryguje pozycję czy dodaje nową �
 Wspólną cechę, którą klient poda dla wszystkich naraz (np. „wszystko z dębu") zastosuj
 do każdej pozycji osobno."""
 
+# Reguła PO ODPOWIEDZI PROPONUJ WYCENĘ (P1, runda napraw 5) — rozstrzygnięcie
+# właściciela, dosłownie: „zawsze proponuj wycenę po udzieleniu porady".
+#
+# Runda 4 nauczyła tego agenta WYCENY (blok `WYBOR_W_WYCENIE`), ale tamta
+# rozmowa trafiła do Wyceny tylko dlatego, że padło w niej pytanie o cenę.
+# Czyste „nie wiem, co polecacie na blat?" router kieruje do WIEDZY — i to
+# najbardziej niezdecydowany klient wypadał ze ścieżki sprzedaży.
+#
+# DLACZEGO TU, A NIE W BLOKU BRAMKOWANYM KANAŁEM (jak `WYBOR_W_WYCENIE`):
+# ta reguła nie obiecuje niczego kanałowego. Wycena powstaje na KAŻDYM kanale —
+# na Allegro, gdzie linku wysłać nie wolno, trafia do konsultanta w prywatnej
+# notatce (`narzedzia.przygotuj_zamowienie` -> `notatki.zamowienie_do_agenta`),
+# nie do kupującego linkiem. Blok z rundy 4 wymagał bramki, bo mówił klientowi,
+# że SAM wybierze wariant na stronie wyceny; tutaj takiej obietnicy nie ma,
+# a zakaz zapowiadania, GDZIE i KIEDY klient wycenę dostanie, jest wpisany
+# wprost — to ta sama ostrożność, którą runda 3 wpisała do sekcji PORÓWNANIE.
+#
+# POKRYCIE OBIETNICY: agent Wiedzy nie ma ani `policz_wycene`, ani
+# `zapisz_wycene`, więc propozycji nie zrealizuje sam. Całe pokrycie leży
+# w handoffie Wiedza -> Wycena (`agenci.zbuduj_agenta_wiedzy`, Task 8/B4) oraz
+# w tym, że każda następna tura wchodzi od nowa przez Router (`tura.py`).
+# Dotychczasowe zdanie o handoffie obejmowało WYŁĄCZNIE przypadek „klient
+# w TEJ SAMEJ wiadomości chce też wycenę" — zgoda na propozycję to nowy
+# przypadek, więc reguła dokłada go jawnie zamiast liczyć na to, że model
+# rozciągnie tamten warunek sam. Sonda spójności:
+# test_pro_agenci.py::TestR5PropozycjaWycenyMaPokrycieWDrodze.
+#
+# INTERPRETACJA „ZAWSZE": propozycja pada po odpowiedzi merytorycznej, ale NIE
+# powtarza się, gdy klient już raz w tej rozmowie odmówił, i nie pada, gdy
+# agent i tak oddaje rozmowę człowiekowi (brak w bazie wiedzy, pytanie
+# konstrukcyjne — tam propozycji nie miałby kto spełnić, dokładnie jak przy
+# regule N1 „PYTANIE ZOBOWIĄZUJE"). Wyciszenie po odmowie NIE wymaga nowego
+# stanu: historia rozmowy leci przez `SQLiteSession` (`tura._sesja`), więc
+# model widzi wcześniejszą odmowę tak samo, jak widzi własne wcześniejsze
+# odpowiedzi. Ograniczenie tej drogi — okno `BOT_PRO_SESSION_ITEMS_LIMIT` —
+# jest opisane w raporcie rundy 5.
+#
+# Reguła NIE trafia do ROLA (naturalne miejsce na treść wspólną): ROLA idzie
+# także do ROUTERA, którego budżet ROLA+ROUTER ma limit 400 tokenów i stoi
+# na 388. `WIEDZA` własnego sufitu nie ma.
 WIEDZA = """Odpowiadasz WYŁĄCZNIE na podstawie fragmentów zwróconych przez
 szukaj_w_bazie_wiedzy. Gdy narzędzie zwróci pustą listę — NIE zmyślaj i NIE pisz,
 że sprawdzimy i wrócimy z odpowiedzią. Wołaj oddaj_czlowiekowi z powodem
@@ -192,6 +232,17 @@ Gdy klient w TEJ SAMEJ wiadomości oprócz pytania o wiedzę chce też wycenę
 (podaje wymiary, pyta o cenę, chce zamówić) — nie próbuj sam liczyć ani zbierać
 danych do wyceny, tylko przekaż rozmowę agentowi Wycena. Ma własną wiedzę
 o ofercie (gatunki, technologie, klasy) i dokończy odpowiedź.
+
+PO ODPOWIEDZI PROPONUJ WYCENĘ. Po każdej odpowiedzi merytorycznej z bazy wiedzy
+w tej samej wiadomości zaproponuj przygotowanie wyceny i zapytaj, czy klient tego
+chce. Sam jej nie liczysz i danych do niej nie zbierasz: gdy klient się zgodzi
+albo od razu poda wymiary czy parametry, przekaż rozmowę agentowi Wycena.
+Propozycja jest pytaniem — nie wołaj w tej samej turze oddaj_czlowiekowi, tylko
+poczekaj na odpowiedź klienta. Nie podawaj kwot ani terminów i nie zapowiadaj,
+gdzie i kiedy klient wycenę dostanie — o tym decyduje kanał, nie Ty. Gdy klient
+już raz odmówił wyceny w tej rozmowie, nie proponuj jej ponownie; odpowiadaj
+dalej samą wiedzą. Nie proponuj wyceny, gdy oddajesz rozmowę człowiekowi (brak
+w bazie wiedzy, pytanie konstrukcyjne) — propozycji nie miałby wtedy kto spełnić.
 
 """ + KONSTRUKCJA
 

@@ -304,3 +304,35 @@ class TestP1RegulaWyboruWWycenieBramkowanaKanalem:
         # Budżet routera to 400 tokenów — reguła handlowa mieszka w agencie Wyceny.
         router = agenci.zbuduj_router()
         assert "NIEZDECYDOWANY KLIENT." not in router.instructions
+
+
+class TestR5PropozycjaWycenyMaPokrycieWDrodze:
+    """Runda napraw 5, P1 — sonda spójności między promptem a składem agentów.
+
+    Reguła „PO ODPOWIEDZI PROPONUJ WYCENĘ" w `prompty.WIEDZA` każe agentowi
+    Wiedzy zaproponować wycenę, a po zgodzie klienta przekazać rozmowę
+    agentowi o nazwie `Wycena`. Agent Wiedzy sam wyceny nie policzy (nie ma
+    ani `policz_wycene`, ani `zapisz_wycene`), więc CAŁE pokrycie tej obietnicy
+    leży w handoffie. Gdyby ten handoff kiedykolwiek zniknął — albo gdyby
+    agent Wyceny został przemianowany — reguła obiecywałaby klientowi coś,
+    czego bot nie zrobi. To dokładnie ta awaria, którą naprawiały rundy 1-4,
+    więc pilnuje jej test, a nie tylko komentarz.
+
+    Druga droga (główna, opisana w `tura.py`) jest MIĘDZY turami: zgoda klienta
+    przychodzi następną wiadomością i wchodzi od nowa przez Router. Ta sonda
+    pilnuje drogi WEWNĄTRZ tury — tej jedynej, której Router nie ratuje, gdy
+    odeśle „tak, poproszę" do Wiedzy zamiast do Wyceny."""
+
+    def test_nazwa_agenta_z_reguly_odpowiada_prawdziwemu_przekazaniu(self):
+        from bots_pro import prompty
+        agent = agenci.zbuduj_agenta_wiedzy()
+        assert "przekaż rozmowę agentowi Wycena" in prompty.WIEDZA
+        assert "Wycena" in {h.name for h in agent.handoffs}
+
+    def test_agent_wiedzy_nadal_nie_liczy_wyceny_sam(self):
+        # Kontrola negatywna do testu wyżej: reguła nie jest realizowalna
+        # z pozycji Wiedzy, więc handoff nie jest wygodą, tylko warunkiem.
+        agent = agenci.zbuduj_agenta_wiedzy()
+        nazwy = {t.name for t in agent.tools}
+        assert "policz_wycene" not in nazwy
+        assert "wyslij_podsumowanie" not in nazwy

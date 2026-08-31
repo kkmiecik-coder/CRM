@@ -494,3 +494,91 @@ class TestP1BotSamProponujeWycenePrzyNiezdecydowaniu:
         # zniknęła z WYCENA, odwołanie wskazywałoby w próżnię.
         assert "PORÓWNANIE" in self._blok()
         assert "PORÓWNANIE." in WYCENA
+
+
+class TestR5AgentWiedzyProponujeWycene:
+    """Runda napraw 5, P1 — rozstrzygnięcie właściciela, dosłownie: „zawsze
+    proponuj wycenę po udzieleniu porady".
+
+    Skąd to. Runda 4 nauczyła agenta WYCENY, żeby przy niezdecydowanym kliencie
+    sam proponował przygotowanie wyceny (`prompty.WYBOR_W_WYCENIE`). Ale tamta
+    rozmowa trafiła do Wyceny dlatego, że padło w niej pytanie o cenę („czy
+    mikrowczep jest tańszy"). Czyste „nie wiem, co polecacie na blat?" — bez ani
+    jednego sygnału cenowego — router kieruje do WIEDZY (`ROUTER`: „Wiedza —
+    pytania o ofertę, materiały…"), a ta odpowiadała z bazy wiedzy i kończyła.
+    Najbardziej niezdecydowany klient wypadał więc ze ścieżki sprzedaży.
+
+    Reguła siedzi w `WIEDZA`, a NIE w bloku bramkowanym kanałem (jak
+    `WYBOR_W_WYCENIE`), bo niczego kanałowego nie obiecuje: mówi tylko „możemy
+    przygotować wycenę", a wycena powstaje na KAŻDYM kanale — na Allegro trafia
+    do konsultanta w prywatnej notatce (`narzedzia.przygotuj_zamowienie`,
+    `notatki.zamowienie_do_agenta`), nie do kupującego linkiem. Zakaz zapowiadania,
+    GDZIE i KIEDY klient wycenę dostanie, jest w regule wprost — to ta sama
+    ostrożność, którą runda 3 wpisała do sekcji PORÓWNANIE.
+
+    Interpretacja „zawsze", wdrożona świadomie: propozycja pada po odpowiedzi
+    merytorycznej, ale NIE powtarza się, gdy klient już raz w tej rozmowie
+    odmówił. Nie wymaga to żadnego nowego stanu — historia rozmowy leci przez
+    `SQLiteSession` (`tura._sesja`), więc model widzi wcześniejszą odmowę."""
+
+    def test_wiedza_ma_regule_proponowania_wyceny(self):
+        assert "PO ODPOWIEDZI PROPONUJ WYCENĘ." in WIEDZA
+
+    def test_propozycja_pada_po_odpowiedzi_merytorycznej(self):
+        # Propozycja DOCHODZI do porady, nie zastępuje jej — tak samo jak
+        # w bloku NIEZDECYDOWANY KLIENT z rundy 4.
+        assert "zaproponuj przygotowanie wyceny" in WIEDZA
+
+    def test_regula_nie_obiecuje_gdzie_i_kiedy_klient_wycene_dostanie(self):
+        # Na Allegro wycena idzie do konsultanta w notatce, nie linkiem do
+        # kupującego. Reguła nie jest bramkowana kanałem, więc obietnicy
+        # kanałowej nie wolno jej w ogóle złożyć.
+        assert "o tym decyduje kanał, nie Ty" in WIEDZA
+
+    def test_regula_nie_pozwala_agentowi_wiedzy_liczyc_samemu(self):
+        # Agent Wiedzy nie ma ani `policz_wycene`, ani `zapisz_wycene` —
+        # reguła obiecująca coś, czego agent nie umie zrobić, to dokładnie ta
+        # awaria, którą naprawiały rundy 1-4.
+        assert "przekaż rozmowę agentowi Wycena" in WIEDZA
+
+    def test_zgoda_klienta_prowadzi_do_agenta_wyceny(self):
+        # Dotychczasowa reguła handoffu obejmowała WYŁĄCZNIE przypadek „klient
+        # w TEJ SAMEJ wiadomości chce też wycenę". Zgoda na propozycję to nowy
+        # przypadek i musi mieć własne pokrycie, inaczej bot proponuje wycenę,
+        # a po „tak, poproszę" nie ma dokąd pójść.
+        assert "klient się zgodzi" in WIEDZA
+
+    def test_propozycja_jest_pytaniem_wiec_nie_konczy_tury_przekazaniem(self):
+        # Ta sama figura co N1 „PYTANIE ZOBOWIĄZUJE" w WYCENA: bot, który
+        # pyta i w tej samej turze woła oddaj_czlowiekowi, zostawia klienta
+        # z pytaniem bez adresata.
+        assert "nie wołaj w tej samej turze oddaj_czlowiekowi" in WIEDZA
+
+    def test_odmowa_klienta_wycisza_propozycje_do_konca_rozmowy(self):
+        # Interpretacja „zawsze" — patrz docstring klasy. Trzy oferty pod rząd
+        # po trzech pytaniach zmieniłyby doradcę w natręta.
+        assert "już raz odmówił" in WIEDZA
+        assert "nie proponuj jej ponownie" in WIEDZA
+
+    def test_propozycji_NIE_MA_gdy_wiedza_oddaje_rozmowe_czlowiekowi(self):
+        # Dwie ścieżki wyjścia agenta Wiedzy kończą się handoffem: pusta lista
+        # z bazy wiedzy i pytanie konstrukcyjne. Propozycja wyceny dołożona do
+        # przekazania rozmowy byłaby obietnicą bez adresata — rozmowa jest już
+        # u człowieka, więc odpowiedź klienta trafiłaby w próżnię.
+        assert "Nie proponuj wyceny, gdy oddajesz rozmowę człowiekowi" in WIEDZA
+
+    def test_regula_nie_wnosi_ZADNEJ_kwoty(self):
+        # Rejestr G1 (`stan.znane_kwoty`) zna wyłącznie liczby z kalkulatora
+        # CRM — żadna reguła promptu nie ma prawa wnieść własnej.
+        from bots_pro import guardraile
+        assert guardraile.sprawdz_ceny(prompty.WIEDZA, set()) == []
+
+    def test_regula_nie_osiada_w_ROLA(self):
+        # ROLA doklejana jest także do ROUTERA, którego budżet ROLA+ROUTER ma
+        # limit 400 tokenów i stoi na 388.
+        assert "PROPONUJ WYCENĘ" not in ROLA
+
+    def test_stara_regula_handoffu_zostaje_nietknieta(self):
+        # Sonda: nowa reguła DOKŁADA przypadek (zgoda na propozycję), nie
+        # zastępuje tej z Taska 8 (wiedza i cena w JEDNEJ wiadomości).
+        assert "w TEJ SAMEJ wiadomości oprócz pytania o wiedzę chce też wycenę" in WIEDZA
