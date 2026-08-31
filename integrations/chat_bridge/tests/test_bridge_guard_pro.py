@@ -2,10 +2,11 @@
 """
 Guard startowy Debusia Pro (`guard_pro.sprawdz_guard_pro`).
 
-Dwie kontrole: brak BOT_PRO_AGENT_WEBHOOK_TOKEN przy niepustym BOT_PRO_INBOXES
+Trzy kontrole: brak BOT_PRO_AGENT_WEBHOOK_TOKEN przy niepustym BOT_PRO_INBOXES
 (weryfikacja tokenu w webhooks.py jest warunkowa — `if TOKEN and ...` — wiec
-webhook /agent-bot-pro stalby otworem) oraz konflikt konfiguracji OLX (U10,
-patrz TestGuardWyscigNaOlx).
+webhook /agent-bot-pro stalby otworem), brak BOT_PRO_CW_AGENT_TOKEN przy tych
+samych inboksach (patrz TestGuardWymagaTokenuTozsamosci) oraz konflikt
+konfiguracji OLX (U10, patrz TestGuardWyscigNaOlx).
 
 Reakcja na blad to WYLACZENIE Pro, nie ubicie procesu (U14b, patrz
 TestGuardNieUbijaKontenera) — w tym samym kontenerze mieszka stary silnik
@@ -36,6 +37,7 @@ def _przechwyc_logi(monkeypatch):
 def _zdrowa_konfiguracja(monkeypatch):
     """Komplet tokenow Pro — punkt wyjscia dla testow, ktore psuja JEDNA rzecz."""
     monkeypatch.setattr(guard_pro, "BOT_PRO_AGENT_WEBHOOK_TOKEN", "sekret-webhook")
+    monkeypatch.setattr(guard_pro, "BOT_PRO_CW_AGENT_TOKEN", "sekret-tozsamosc")
 
 
 def test_brak_tokenu_i_niepuste_inboxy_wylacza_pro(monkeypatch):
@@ -67,6 +69,7 @@ def test_pusty_bot_pro_inboxes_nie_wymaga_tokenu(monkeypatch):
     # Bot wylaczony wszedzie (kill-switch) - brak tokenu jest wtedy nieszkodliwy,
     # bo i tak nic sie nie kolejkuje (webhooks._process_pro filtruje po inboxie).
     monkeypatch.setattr(guard_pro, "BOT_PRO_AGENT_WEBHOOK_TOKEN", None)
+    monkeypatch.setattr(guard_pro, "BOT_PRO_CW_AGENT_TOKEN", None)
     monkeypatch.setattr(guard_pro, "BOT_PRO_INBOXES", set())
     assert guard_pro.sprawdz_guard_pro() is True
 
@@ -77,6 +80,63 @@ def test_token_ustawiony_pozwala_startowac_mimo_inboxow(monkeypatch):
     monkeypatch.setattr(guard_pro, "BOT_PRO_INBOXES", inboxy)
     assert guard_pro.sprawdz_guard_pro() is True
     assert inboxy == {"5", "18"}   # nietkniete
+
+
+class TestGuardWymagaTokenuTozsamosci:
+    """B2: cala izolacja tozsamosci Debusia Pro stoi na `BOT_PRO_CW_AGENT_TOKEN`,
+    a nic tego nie egzekwowalo — `config.py` czyta go golym `os.environ.get` bez
+    domyslnej. Przy pustej zmiennej `token=None` trafia do WSZYSTKICH wywolan
+    Pro i po cichu spada na fallbacki w `core/chatwoot.py`: `cw_agent_reply` ->
+    token live-bota, `cw_bot_handoff` -> bot-podpowiadacz, `cw_note` -> konto
+    admina. Kazde z nich zwraca 200, wiec klient dostaje odpowiedz podpisana
+    CUDZA tozsamoscia, a w logach jest cicho — nie ma czego szukac."""
+
+    def test_brak_tokenu_tozsamosci_wylacza_pro(self, monkeypatch):
+        _zdrowa_konfiguracja(monkeypatch)
+        monkeypatch.setattr(guard_pro, "BOT_PRO_CW_AGENT_TOKEN", None)
+        inboxy = {"18"}
+        monkeypatch.setattr(guard_pro, "BOT_PRO_INBOXES", inboxy)
+        logi = _przechwyc_logi(monkeypatch)
+
+        assert guard_pro.sprawdz_guard_pro() is False
+        assert inboxy == set()
+        assert any("BOT_PRO_CW_AGENT_TOKEN" in wpis for wpis in logi)
+
+    def test_pusty_string_tozsamosci_tez_wylacza(self, monkeypatch):
+        _zdrowa_konfiguracja(monkeypatch)
+        monkeypatch.setattr(guard_pro, "BOT_PRO_CW_AGENT_TOKEN", "")
+        monkeypatch.setattr(guard_pro, "BOT_PRO_INBOXES", {"18"})
+        _przechwyc_logi(monkeypatch)
+
+        assert guard_pro.sprawdz_guard_pro() is False
+
+    def test_komunikat_mowi_co_sie_stanie_nie_tylko_ze_brak_tokenu(self, monkeypatch):
+        """Sam „brak tokenu" nie mowi operatorowi NICZEGO o skutku — a skutek
+        (odpowiedz do klienta podpisana innym botem, 200 w kazdym wywolaniu)
+        jest jedynym powodem, dla ktorego ta kontrola istnieje."""
+        _zdrowa_konfiguracja(monkeypatch)
+        monkeypatch.setattr(guard_pro, "BOT_PRO_CW_AGENT_TOKEN", None)
+        monkeypatch.setattr(guard_pro, "BOT_PRO_INBOXES", {"18"})
+        logi = _przechwyc_logi(monkeypatch)
+
+        guard_pro.sprawdz_guard_pro()
+        komunikat = " ".join(logi)
+        # Nazwy fallbackow, na ktore spada `token=None` — operator ma wiedziec, CZYJA
+        # tozsamoscia odezwie sie bot, nie tylko ze "czegos brakuje".
+        assert "cw_agent_reply" in komunikat
+        assert "cw_bot_handoff" in komunikat
+        assert "cw_note" in komunikat
+
+    def test_oba_braki_naraz_daja_oba_powody(self, monkeypatch):
+        monkeypatch.setattr(guard_pro, "BOT_PRO_AGENT_WEBHOOK_TOKEN", None)
+        monkeypatch.setattr(guard_pro, "BOT_PRO_CW_AGENT_TOKEN", None)
+        monkeypatch.setattr(guard_pro, "BOT_PRO_INBOXES", {"18"})
+        logi = _przechwyc_logi(monkeypatch)
+
+        assert guard_pro.sprawdz_guard_pro() is False
+        komunikat = " ".join(logi)
+        assert "BOT_PRO_AGENT_WEBHOOK_TOKEN" in komunikat
+        assert "BOT_PRO_CW_AGENT_TOKEN" in komunikat
 
 
 # ---------------------------------------------------------------------------

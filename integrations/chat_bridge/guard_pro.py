@@ -16,8 +16,13 @@ tokenu w `webhooks.py` jest WARUNKOWA (`if BOT_PRO_AGENT_WEBHOOK_TOKEN and
 ...`). Wstrzyknięty JSON z `conv_id` i `inbox_id` 18 wywoływał PUBLICZNĄ
 odpowiedź bota. Na produkcji ten sam błąd kończył się głośnym logiem i
 wyłączeniem Pro; u kandydata nie było nawet wpisu w logu.
+
+Guard sprawdza OBA tokeny Pro (B2). Sam `BOT_PRO_AGENT_WEBHOOK_TOKEN` broni
+wejścia (kto może wywołać bota), `BOT_PRO_CW_AGENT_TOKEN` broni wyjścia (czyim
+imieniem bot się odezwie) — brak tego drugiego nie wywala niczego, tylko po
+cichu podstawia cudze tokeny z fallbacków `core/chatwoot.py`.
 """
-from config import (BOT_PRO_AGENT_WEBHOOK_TOKEN, BOT_PRO_INBOXES,
+from config import (BOT_PRO_AGENT_WEBHOOK_TOKEN, BOT_PRO_CW_AGENT_TOKEN, BOT_PRO_INBOXES,
                     BOT_QUOTE_NOTE_PERSONAS, BOT_QUOTE_PERSONAS, CW_OLX_INBOX)
 from core.log import log
 
@@ -67,12 +72,15 @@ def sprawdz_guard_pro():
     """Guard startowy Debusia Pro. Zwraca True, gdy konfiguracja Pro jest zdrowa;
     przy bledzie WYLACZA Pro (czysci BOT_PRO_INBOXES), glosno loguje i zwraca False.
 
-    Dwie kontrole:
+    Trzy kontrole:
     1. (Task 7) Weryfikacja tokenu webhooka /agent-bot-pro jest WARUNKOWA
        (`if BOT_PRO_AGENT_WEBHOOK_TOKEN and ...` w webhooks.py) — brak tokenu przy
        WLACZONYCH inboksach oznacza, ze endpoint przyjmuje DOWOLNE zadanie bez
        autoryzacji.
-    2. (U10) Sprzezenie BOT_PRO_INBOXES <-> BOT_QUOTE_NOTE_PERSONAS na OLX —
+    2. (B2) Brak BOT_PRO_CW_AGENT_TOKEN przy wlaczonych inboksach — cala izolacja
+       TOZSAMOSCI Debusia Pro stoi na tej jednej zmiennej, a `config.py` czyta ja
+       golym `os.environ.get`, bez domyslnej i bez zadnej kontroli.
+    3. (U10) Sprzezenie BOT_PRO_INBOXES <-> BOT_QUOTE_NOTE_PERSONAS na OLX —
        patrz `_konflikt_olx_pro`.
 
     U14b (recenzja koncowa): to NIE JEST juz `SystemExit`. Wadliwa konfiguracja
@@ -98,6 +106,19 @@ def sprawdz_guard_pro():
         powody.append(
             "BOT_PRO_INBOXES ustawione, a BOT_PRO_AGENT_WEBHOOK_TOKEN puste — "
             "webhook /agent-bot-pro stalby otworem. Uzupelnij bridge.env.")
+    if not BOT_PRO_CW_AGENT_TOKEN and BOT_PRO_INBOXES:
+        # Komunikat mowi, CO SIE STANIE, nie tylko "brak tokenu": pusta zmienna nie
+        # wywala niczego, tylko przepuszcza `token=None` do wszystkich wywolan Pro,
+        # a `core/chatwoot.py` po cichu podstawia CUDZE tokeny w fallbackach. Kazde
+        # z tych wywolan konczy sie kodem 200, wiec bez tego guarda jedynym objawem
+        # jest odpowiedz do klienta podpisana niewlasciwym botem.
+        powody.append(
+            "BOT_PRO_INBOXES ustawione, a BOT_PRO_CW_AGENT_TOKEN puste — Debus Pro "
+            "odezwalby sie CUDZA tozsamoscia. token=None spada na fallbacki w "
+            "core/chatwoot.py: cw_agent_reply -> token live-bota, cw_bot_handoff -> "
+            "bot-podpowiadacz, cw_note -> konto admina. Wszystkie trzy zwracaja 200, "
+            "wiec klient dostaje odpowiedz podpisana innym botem, a w logach jest "
+            "cicho. Uzupelnij bridge.env (access_token z setup/create_agent_bot.py).")
     konflikt = _konflikt_olx_pro()
     if konflikt:
         powody.append(konflikt)
