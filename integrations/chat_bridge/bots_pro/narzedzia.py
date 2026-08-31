@@ -197,21 +197,27 @@ def policz_wysylke(kod_pocztowy: str) -> dict:
     znika z podsumowania."""
     from bots_pro import stan
     wynik = crm_calc.shipping_quote(stan.pozycje(), kod_pocztowy)
-    stan.zapamietaj_kwoty(
-        wynik[pole] for pole in ("shipping_netto", "shipping_brutto")
-        if isinstance(wynik.get(pole), (int, float)))
 
     # U4: zapamiętujemy oszacowanie TRWALE — bez tego dostawa nie ma jak wejść ani
     # do podpisu potwierdzenia, ani do podsumowania, ani do korekty wyceny w CRM,
     # a wymóg właściciela mówi wprost: cena to produkt + ew. dostawa. Kurier/koszt
     # tylko przy udanym oszacowaniu z kurierem — inaczej zapisujemy sam kod
     # pocztowy, co jednocześnie CZYŚCI koszt sprzed zmiany (patrz zapisz_dostawe).
+    #
+    # KOLEJNOŚĆ jest istotna (N2): `zapisz_dostawe` kasuje z rejestru G1 kwoty
+    # POPRZEDNIEGO oszacowania, więc nowe kwoty rejestrujemy PO nim — odwrotna
+    # kolejność skasowałaby to, co właśnie zapisaliśmy.
     if wynik.get("ok") and wynik.get("carriers"):
         stan.zapisz_dostawe(kod_pocztowy, kurier=wynik.get("carrier_name"),
                             netto=wynik.get("shipping_netto"),
                             brutto=wynik.get("shipping_brutto"))
     else:
         stan.zapisz_dostawe(kod_pocztowy)
+
+    stan.zapamietaj_kwoty(
+        (wynik[pole] for pole in ("shipping_netto", "shipping_brutto")
+         if isinstance(wynik.get(pole), (int, float))),
+        zrodlo="dostawa")
 
     if not wynik.get("ok"):
         # U9: sam POWÓD niepowodzenia, nigdy surowy payload. Nieudane oszacowanie

@@ -989,3 +989,62 @@ class TestWolnoProwadzicRozmoweStickyBit:
         ]))
         assert stan.wolno_prowadzic_rozmowe(94105) is True
         assert wolania_historii == [1]
+
+
+class TestKwotyDostawyCzyszczoneNaNoweOszacowanie:
+    """N2 (rerecenzja gałęzi): rejestr kwot G1 trzymał koszt dostawy WIECZNIE.
+    `_zapisz` czyści rejestr, gdy zmieni się pole cenotwórcze pozycji, ale
+    `zapisz_dostawe` nie czyściło niczego — więc po zmianie kodu pocztowego
+    (250,00 -> 180,00) bot mógł nadal legalnie zacytować 250,00 zł i sumę z
+    nieaktualną dostawą. Dla ceny PRODUKTU ten sam mechanizm działał poprawnie;
+    to była asymetria, nie decyzja projektowa.
+
+    Skutek dla klienta jest taki sam jak przy halucynacji: usłyszy cenę, której
+    nie zapłaci."""
+
+    def _pierwsze_oszacowanie(self, conv_id):
+        stan.ustaw_kontekst(conv_id)
+        stan.zapamietaj_kwoty([843.04])                          # cena produktu
+        stan.zapisz_dostawe("10-900", kurier="DPD", netto=203.25, brutto=250.0)
+        stan.zapamietaj_kwoty([203.25, 250.0], zrodlo="dostawa")
+        stan.zapamietaj_kwoty([1093.04], zrodlo="dostawa")       # razem z dostawa
+
+    def test_nowe_oszacowanie_uniewaznia_poprzednie_kwoty_dostawy(self):
+        self._pierwsze_oszacowanie(93090)
+        assert {"203.25", "250.00", "1093.04"} <= stan.znane_kwoty()
+
+        stan.zapisz_dostawe("80-000", kurier="DPD", netto=146.34, brutto=180.0)
+
+        assert stan.znane_kwoty() == {"843.04"}
+
+    def test_cena_produktu_przezywa_zmiane_dostawy(self):
+        # Kontrola negatywna: unieważniamy WYŁĄCZNIE kwoty dostawy — cena
+        # produktu nie zmieniła się przez podanie innego kodu pocztowego.
+        self._pierwsze_oszacowanie(93091)
+        stan.zapisz_dostawe("80-000", kurier="DPD", netto=146.34, brutto=180.0)
+        assert "843.04" in stan.znane_kwoty()
+
+    def test_brak_kuriera_dla_gabarytu_tez_uniewaznia_kwoty_dostawy(self):
+        # Nowy kod pocztowy bez kuriera: koszt sprzed zmiany przestaje
+        # obowiązywać dokładnie tak samo jak przy innym koszcie.
+        self._pierwsze_oszacowanie(93092)
+        stan.zapisz_dostawe("99-999")
+        assert stan.znane_kwoty() == {"843.04"}
+
+    def test_powtorzone_to_samo_oszacowanie_nie_czysci_rejestru(self):
+        # Ta sama zasada co przy pozycjach (N1 z rundy 2): zapis BEZ faktycznej
+        # zmiany nie ma prawa kasować prawdziwych kwot.
+        self._pierwsze_oszacowanie(93093)
+        stan.zapisz_dostawe("10-900", kurier="DPD", netto=203.25, brutto=250.0)
+        assert {"843.04", "203.25", "250.00", "1093.04"} <= stan.znane_kwoty()
+
+    def test_kwota_bedaca_takze_cena_produktu_nie_znika_z_rejestrem_dostawy(self):
+        # Zbieg okoliczności: koszt kuriera równy jednej z cen produktu.
+        # Kasowanie kwot dostawy nie może zabrać kwoty, którą zna też
+        # kalkulator produktu — inaczej PRAWDZIWA cena stałaby się halucynacją.
+        stan.ustaw_kontekst(93094)
+        stan.zapisz_dostawe("10-900", kurier="DPD", netto=203.25, brutto=250.0)
+        stan.zapamietaj_kwoty([250.0], zrodlo="dostawa")
+        stan.zapamietaj_kwoty([250.0])                            # ta sama kwota z wyceny
+        stan.zapisz_dostawe("80-000", kurier="DPD", netto=146.34, brutto=180.0)
+        assert "250.00" in stan.znane_kwoty()

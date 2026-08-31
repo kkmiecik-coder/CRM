@@ -99,7 +99,8 @@ CREATE TABLE IF NOT EXISTS pro_stan(
   dostawa_netto REAL, dostawa_brutto REAL,
   quote_public_url TEXT, quote_dostawa_niedopisana INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS pro_kwoty(
-  conv_id INTEGER, kwota TEXT, PRIMARY KEY(conv_id, kwota));
+  conv_id INTEGER, kwota TEXT, zrodlo TEXT DEFAULT 'produkt',
+  PRIMARY KEY(conv_id, kwota));
 """
 
 
@@ -141,6 +142,10 @@ def init_pro():
             # dostawy (nieudany PUT dopisujacy kuriera). Link do takiej wyceny
             # NIE MOZE wyjsc — klient zobaczylby inna cene niz potwierdzil.
             "ALTER TABLE pro_stan ADD COLUMN quote_dostawa_niedopisana INTEGER DEFAULT 0",
+            # N2: skąd wzięła się kwota w rejestrze G1 — 'produkt' albo
+            # 'dostawa'. Bez tego nowe oszacowanie kuriera nie miało jak
+            # unieważnić poprzedniego kosztu wysyłki (patrz `zapisz_dostawe`).
+            "ALTER TABLE pro_kwoty ADD COLUMN zrodlo TEXT DEFAULT 'produkt'",
         ):
             try:
                 polaczenie.execute(stmt)
@@ -239,18 +244,28 @@ def _wymagany_conv_id():
     return biezacy
 
 
-def zapamietaj_kwoty(wartosci):
+def zapamietaj_kwoty(wartosci, zrodlo="produkt"):
     """Rejestruje kwoty zwrócone przez kalkulator — guardrail porówna z nimi
     treść odpowiedzi. Wartości mogą przyjść jako float (typowo) albo string
     z polskim przecinkiem dziesiętnym — stąd zamiana przed float().
 
     Trwały zapis w tabeli `pro_kwoty` (Task 8, B1 + W1 code review), nie
     contextvar ani jeden blob JSON — patrz docstring modułu. Każda kwota to
-    OSOBNY wiersz (`INSERT OR IGNORE`): żaden krok nie czyta "starego" zbioru
-    przed zapisem, więc dwa równoległe wywołania (Agents SDK woła narzędzia z
-    jednego kroku modelu przez `asyncio.gather`) nie mogą się nawzajem
-    nadpisać (W1) — w najgorszym razie oba INSERT-y po prostu się skolejkują
-    na poziomie SQLite."""
+    OSOBNY wiersz: żaden krok nie czyta "starego" zbioru przed zapisem, więc
+    dwa równoległe wywołania (Agents SDK woła narzędzia z jednego kroku modelu
+    przez `asyncio.gather`) nie mogą się nawzajem nadpisać (W1) — w najgorszym
+    razie oba INSERT-y po prostu się skolejkują na poziomie SQLite.
+
+    `zrodlo` (N2, rerecenzja gałęzi): 'produkt' albo 'dostawa'. Kwoty dostawy
+    (koszt kuriera i suma „produkt + dostawa") tracą ważność przy KAŻDYM nowym
+    oszacowaniu wysyłki — `zapisz_dostawe` kasuje wtedy właśnie je, tak jak
+    `_zapisz` kasuje cały rejestr przy zmianie pola cenotwórczego pozycji.
+
+    Przy konflikcie (ta sama kwota już w rejestrze) 'produkt' WYPIERA 'dostawa',
+    nigdy odwrotnie. To jest ochrona przed zbiegiem okoliczności „koszt kuriera
+    równy jednej z cen produktu": kasowanie kwot dostawy nie ma prawa zabrać
+    kwoty, którą zna także kalkulator produktu, bo wtedy PRAWDZIWA cena stałaby
+    się dla guardraila halucynacją."""
     biezacy_conv_id = _wymagany_conv_id()
     znormalizowane = {"%.2f" % float(str(w).replace(",", ".")) for w in wartosci}
     if not znormalizowane:
@@ -258,8 +273,10 @@ def zapamietaj_kwoty(wartosci):
     polaczenie = db()
     try:
         polaczenie.executemany(
-            "INSERT OR IGNORE INTO pro_kwoty(conv_id, kwota) VALUES(?,?)",
-            [(biezacy_conv_id, k) for k in znormalizowane])
+            "INSERT INTO pro_kwoty(conv_id, kwota, zrodlo) VALUES(?,?,?) "
+            "ON CONFLICT(conv_id, kwota) DO UPDATE SET zrodlo='produkt' "
+            "WHERE excluded.zrodlo='produkt'",
+            [(biezacy_conv_id, k, zrodlo) for k in znormalizowane])
         polaczenie.commit()
     finally:
         polaczenie.close()
@@ -461,6 +478,18 @@ def pozycje():
     return _wczytaj().get("pozycje", [])
 
 
+def _zapomnij_kwoty_dostawy():
+    """Kasuje z rejestru G1 kwoty pochodzące z oszacowania wysyłki (N2)."""
+    polaczenie = db()
+    try:
+        polaczenie.execute(
+            "DELETE FROM pro_kwoty WHERE conv_id=? AND zrodlo='dostawa'",
+            (_wymagany_conv_id(),))
+        polaczenie.commit()
+    finally:
+        polaczenie.close()
+
+
 def zapisz_dostawe(kod_pocztowy, kurier=None, netto=None, brutto=None):
     """Zapamiętuje oszacowanie dostawy dla tej rozmowy (U4).
 
@@ -470,9 +499,22 @@ def zapisz_dostawe(kod_pocztowy, kurier=None, netto=None, brutto=None):
 
     Dostawa mieszka w `pro_stan`, nie w `pro_dane` (pozycje), świadomie: to stan
     PER ROZMOWA, a nie pole pozycji, i nie ma powodu, żeby jej zapis przechodził
-    przez logikę czyszczenia rejestru kwot z `_zapisz`."""
+    przez logikę czyszczenia rejestru kwot z `_zapisz`.
+
+    N2 (rerecenzja gałęzi): ma jednak swoją WŁASNĄ, węższą — zmiana kuriera albo
+    kosztu unieważnia kwoty dostawy w rejestrze G1 (sam koszt i sumę „produkt +
+    dostawa"). Bez tego stara cena wysyłki zostawała w rejestrze na zawsze i bot
+    mógł ją legalnie zacytować klientowi po zmianie kodu pocztowego — asymetria
+    wobec ceny produktu, którą `_zapisz` chroni od U6/N1. Czyścimy WYŁĄCZNIE
+    przy faktycznej zmianie (ta sama zasada co tam): powtórzone identyczne
+    oszacowanie nie ma prawa kasować niczego."""
+    poprzednia = dostawa()
     zapisz_stan(dostawa_kod=kod_pocztowy or None, dostawa_kurier=kurier or None,
                 dostawa_netto=netto, dostawa_brutto=brutto)
+    bylo = (poprzednia.get("kurier"), poprzednia.get("netto"), poprzednia.get("brutto"))
+    jest = (kurier or None, netto, brutto)
+    if bylo != jest:
+        _zapomnij_kwoty_dostawy()
 
 
 def dostawa():

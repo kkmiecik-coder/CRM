@@ -286,9 +286,13 @@ def wyslij():
     # Sygnał ostrzegawczy: pojawienie się w odpowiedzi któregokolwiek z tych
     # endpointów pola z sumą razem z wysyłką — wtedy użyć JEGO, nie tego dodawania.
     # Ostrzeżenie powtórzone w DEPLOY-quotebot.md.
+    kwoty_dostawy = []
     if dostawa.get("kurier") and isinstance(dostawa_brutto, (int, float)):
         razem_z_dostawa = round(float(razem_produkty or 0) + float(dostawa_brutto), 2)
-        kwoty.append(razem_z_dostawa)
+        # N2: suma „produkt + dostawa" to kwota DOSTAWY — traci ważność razem z
+        # kosztem kuriera, więc rejestrujemy ją z tym źródłem, żeby nowe
+        # oszacowanie wysyłki (stan.zapisz_dostawe) mogło ją unieważnić.
+        kwoty_dostawy.append(razem_z_dostawa)
         tekst += "\n\nRazem produkty: %s brutto" % _fmt_pln(razem_produkty)
         tekst += "\nDostawa (%s): %s brutto" % (dostawa["kurier"], _fmt_pln(dostawa_brutto))
         tekst += "\nRazem z dostawą: %s brutto" % _fmt_pln(razem_z_dostawa)
@@ -300,6 +304,7 @@ def wyslij():
     tekst += "\n\nCzy wszystko się zgadza?"
 
     stan.zapamietaj_kwoty(kwoty)
+    stan.zapamietaj_kwoty(kwoty_dostawy, zrodlo="dostawa")
 
     oczekiwany = potwierdzenia.podpis(pozycje, dostawa)
 

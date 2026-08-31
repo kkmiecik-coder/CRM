@@ -459,6 +459,20 @@ class TestPodsumowaniePokazujeDostawe:
         assert "966,04" in wyslane[0]                  # 843,04 + 123,00, co do grosza
         assert "%.2f" % (843.04 + 123.00) == "966.04"
 
+    def test_suma_z_dostawa_znika_z_rejestru_po_nowym_oszacowaniu(self, monkeypatch):
+        """N2 (rerecenzja): suma „produkt + dostawa" jest kwotą DOSTAWY —
+        po nowym oszacowaniu kuriera przestaje obowiązywać i musi zniknąć z
+        rejestru G1 razem z samym kosztem wysyłki. Cena produktu zostaje."""
+        self._przygotuj(monkeypatch, 94034)
+        stan.zapisz_dostawe("10-900", kurier="DPD", netto=203.25, brutto=250.00)
+        podsumowanie.wyslij()
+        assert "1093.04" in stan.znane_kwoty()
+
+        stan.zapisz_dostawe("80-000", kurier="DPD", netto=146.34, brutto=180.00)
+
+        assert "1093.04" not in stan.znane_kwoty()
+        assert "843.04" in stan.znane_kwoty()
+
     def test_bez_znanej_dostawy_podsumowanie_wyglada_jak_dotad(self, monkeypatch):
         # Kontrola negatywna: dopoki wysylka nie zostala oszacowana, nie
         # dopisujemy do podsumowania ani kuriera, ani zmyslonego "0 zl".

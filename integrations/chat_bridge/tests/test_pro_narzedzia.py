@@ -407,6 +407,29 @@ class TestPoliczWyceneRejestrujeKwoty:
         assert stan.dostawa() == {"kod_pocztowy": "00-001", "kurier": "DPD",
                                   "netto": 203.25, "brutto": 250.0}
 
+    def test_ponowne_oszacowanie_uniewaznia_poprzedni_koszt_w_rejestrze(self, monkeypatch):
+        """N2 (rerecenzja): klient poprawia kod pocztowy, wysyłka tanieje z
+        250,00 na 180,00 — stara kwota NIE MOŻE zostać w rejestrze G1, bo bot
+        mógłby ją legalnie zacytować klientowi jako obowiązującą."""
+        stan.ustaw_kontekst(96013)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat")
+        stan.zapamietaj_kwoty([843.04])           # cena produktu (policz_wycene)
+        monkeypatch.setattr(n.crm_calc, "shipping_quote", lambda p, kod: {
+            "ok": True, "carriers": 2, "carrier_name": "DPD",
+            "shipping_netto": 203.25, "shipping_brutto": 250.0})
+        _wolaj(n.policz_wysylke, kod_pocztowy="10-900")
+        assert {"203.25", "250.00"} <= stan.znane_kwoty()
+
+        monkeypatch.setattr(n.crm_calc, "shipping_quote", lambda p, kod: {
+            "ok": True, "carriers": 2, "carrier_name": "DPD",
+            "shipping_netto": 146.34, "shipping_brutto": 180.0})
+        _wolaj(n.policz_wysylke, kod_pocztowy="80-000")
+
+        assert {"146.34", "180.00"} <= stan.znane_kwoty()
+        assert "250.00" not in stan.znane_kwoty()
+        assert "203.25" not in stan.znane_kwoty()
+        assert "843.04" in stan.znane_kwoty()   # cena produktu bez zmian
+
     def test_policz_wysylke_bez_kuriera_czysci_wczesniejszy_koszt(self, monkeypatch):
         # Nowy kod pocztowy bez kuriera dla gabarytu NIE moze zostawic w stanie
         # kosztu sprzed zmiany — klient potwierdzilby nieaktualna cene dostawy.
