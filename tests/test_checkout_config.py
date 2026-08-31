@@ -177,3 +177,110 @@ class TestOdbiorOsobisty:
     def test_wycena_bez_klienta_nie_wywraca_buildera(self):
         cfg = build_checkout_order_config(_wycena(), order_source_id=1)
         assert cfg["delivery_method"] == "DPD"
+
+
+class TestKurierJakWWycenie:
+    """Trzecie wyjście z konfliktu: wycena niesie kuriera, więc ona rozstrzyga.
+
+    Znacznik „ODBIÓR OSOBISTY" siedzi na WSPÓŁDZIELONYM rekordzie klienta —
+    zostaje tam po każdej wycenie odebranej osobiście i obowiązuje wszystkie
+    następne. Dopóki jedynymi wyjściami były odmowa i darmowa wysyłka, wycena
+    kurierska takiego klienta kończyła się albo telefonem do biura, albo utratą
+    kosztu dostawy. Wycena wie, jakim kurierem i za ile — i to ona ma tu
+    rozstrzygać.
+
+    Adres nadal nie jest WYMYŚLANY: jedzie ten, który klient wpisał w tym samym
+    formularzu (ta sama bramka tożsamości co przy akceptacji). Gdy formularz
+    adresu nie niesie, zostaje odmowa — przesyłka pod znacznik „ODBIÓR
+    OSOBISTY" byłaby gorsza od braku zamówienia.
+    """
+
+    ADRES_Z_FORMULARZA = {
+        'delivery_name': 'Jan Testowy',
+        'delivery_address': 'Nowa 5',
+        'delivery_postcode': '00-001',
+        'delivery_city': 'Warszawa',
+        'delivery_region': 'mazowieckie',
+        'delivery_company': 'Firma',
+    }
+
+    def _wycena_ze_znacznikiem(self, **nadpisania):
+        return _wycena(client=SimpleNamespace(delivery_address='ODBIÓR OSOBISTY',
+                                              delivery_city='ODBIÓR OSOBISTY'),
+                       **nadpisania)
+
+    def test_kurier_z_wyceny_wygrywa_ze_stalym_znacznikiem_odbioru(self):
+        cfg = build_checkout_order_config(
+            self._wycena_ze_znacznikiem(), order_source_id=1,
+            is_self_pickup=False,
+            dane_dostawy_z_formularza=self.ADRES_Z_FORMULARZA)
+
+        assert cfg["delivery_method"] == "DPD"
+        assert cfg["shipping_cost_override"] == 123.00
+
+    def test_adres_bierze_sie_z_formularza_a_nie_ze_znacznika(self):
+        # Znacznik odbioru NIE MOŻE pojechać jako adres przesyłki kurierskiej.
+        cfg = build_checkout_order_config(
+            self._wycena_ze_znacznikiem(), order_source_id=1,
+            is_self_pickup=False,
+            dane_dostawy_z_formularza=self.ADRES_Z_FORMULARZA)
+
+        nadpisanie = cfg["delivery_override"]
+        assert nadpisanie["delivery_address"] == 'Nowa 5'
+        assert nadpisanie["delivery_city"] == 'Warszawa'
+        assert nadpisanie["delivery_postcode"] == '00-001'
+        assert 'ODBIÓR' not in str(nadpisanie).upper()
+
+    def test_bez_adresu_w_formularzu_zostaje_odmowa(self):
+        # Nie ma dokąd wysłać — a zamówienie kurierskie pod znacznik odbioru
+        # to przesyłka, która nigdy nie dojdzie.
+        with pytest.raises(KonfliktDostawy):
+            build_checkout_order_config(self._wycena_ze_znacznikiem(),
+                                        order_source_id=1, is_self_pickup=False,
+                                        dane_dostawy_z_formularza={})
+
+    def test_niepelny_adres_w_formularzu_to_odmowa(self):
+        with pytest.raises(KonfliktDostawy):
+            build_checkout_order_config(
+                self._wycena_ze_znacznikiem(), order_source_id=1,
+                is_self_pickup=False,
+                dane_dostawy_z_formularza={'delivery_address': 'Nowa 5'})
+
+    def test_wycena_bez_kuriera_nie_ma_czym_rozstrzygnac(self):
+        # Wycena nie niesie danych dostawy, więc nie ma trzeciego wyjścia:
+        # zostaje odmowa, dokładnie jak przed tą zmianą.
+        with pytest.raises(KonfliktDostawy):
+            build_checkout_order_config(
+                self._wycena_ze_znacznikiem(courier_name=None),
+                order_source_id=1, is_self_pickup=False,
+                dane_dostawy_z_formularza=self.ADRES_Z_FORMULARZA)
+
+    def test_kurier_o_nazwie_odbior_osobisty_to_nie_kurier(self):
+        # Panel wpisuje tę samą nazwę przy odbiorze osobistym — takiej wyceny
+        # nie wolno czytać jako kurierskiej.
+        with pytest.raises(KonfliktDostawy):
+            build_checkout_order_config(
+                self._wycena_ze_znacznikiem(courier_name='Odbiór osobisty'),
+                order_source_id=1, is_self_pickup=False,
+                dane_dostawy_z_formularza=self.ADRES_Z_FORMULARZA)
+
+    def test_odbior_z_formularza_nadal_wygrywa_na_wycenie_kurierskiej(self):
+        # Kontrola negatywna: świeży wybór klienta „odbieram osobiście" zostaje
+        # uszanowany i NIE zamienia się w rachunek za kuriera.
+        cfg = build_checkout_order_config(
+            self._wycena_ze_znacznikiem(), order_source_id=1, is_self_pickup=True,
+            dane_dostawy_z_formularza=self.ADRES_Z_FORMULARZA)
+
+        assert cfg["delivery_method"] == "Odbiór osobisty"
+        assert cfg["shipping_cost_override"] == 0.0
+
+    def test_realny_adres_na_kliencie_nie_jest_nadpisywany_formularzem(self):
+        # Kontrola negatywna: bez konfliktu formularz nie ma prawa podmieniać
+        # adresu — zamówienie jedzie pod adres zapisany na kliencie.
+        wycena = _wycena(client=SimpleNamespace(delivery_address='Leśna 12'))
+
+        cfg = build_checkout_order_config(
+            wycena, order_source_id=1, is_self_pickup=False,
+            dane_dostawy_z_formularza=self.ADRES_Z_FORMULARZA)
+
+        assert "delivery_override" not in cfg
