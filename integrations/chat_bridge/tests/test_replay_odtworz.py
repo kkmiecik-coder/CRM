@@ -770,6 +770,14 @@ class TestGlownyCliOdpornoscIWyjscieJson:
         assert dane["wyniki"][0]["id"] == 1
         assert len(dane["bledy"]) == 1
         assert dane["bledy"][0]["plik"] == zly
+        # Drobne z recenzji koncowej: blad na poziomie PLIKU nie ma numeru rozmowy,
+        # wiec nie udaje go kluczem "id": None obok prawdziwych identyfikatorow.
+        assert "id" not in dane["bledy"][0]
+
+    def test_podsumowanie_opisuje_blad_pliku_sciezka_nie_slowem_none(self, capsys):
+        assert replay._opis_bledu({"plik": "/dane/shard.txt", "blad": "x"}) == \
+            "plik /dane/shard.txt"
+        assert replay._opis_bledu({"id": 42, "blad": "x"}) == "#42"
 
     def test_flaga_persona_dociera_do_odtworz(self, monkeypatch, tmp_path):
         plik = tmp_path / "shard.txt"

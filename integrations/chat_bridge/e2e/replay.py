@@ -105,10 +105,25 @@ _LINIA_RE = re.compile(
 # ("12" jako odpowiedź na "ile sztuk") i klienta piszącego WERSALIKAMI.
 _BLOK_METADANYCH_RE = re.compile(r"^[A-ZĄĆĘŁŃÓŚŹŻ0-9][A-ZĄĆĘŁŃÓŚŹŻ0-9 \-/]*$")
 
-# Znane etykiety nagłówków bloków metadanych w formacie audytu — dopasowanie
-# DOKŁADNE (bez dalszej weryfikacji) wystarcza dla tych. Dla nieznanych linii
-# pasujących do `_BLOK_METADANYCH_RE` wymagamy DODATKOWO potwierdzenia przez
-# wcięcie następnej linii — patrz `_jest_naglowkiem_bloku`.
+# Znane etykiety nagłówków bloków metadanych — dopasowanie DOKŁADNE, do CAŁEJ
+# linii po `strip()`. To jedyny warunek, jaki te trzy wartości sprawdzają.
+#
+# UWAGA na kształt danych (sprostowanie opisu): w realnych transkryptach audytu
+# metadane występują też — i najczęściej — jako JEDNA linia z ładunkiem doklejonym
+# po etykiecie, w postaci `ETYKIETA (detal): {json}` (np. `ZDARZENIA (bot): {...}`).
+# TAKA linia NIE trafia w ten zbiór (nie jest równa samej etykiecie) ani w
+# `_BLOK_METADANYCH_RE` (małe litery, nawiasy, klamry), więc `wczytaj_rozmowy`
+# traktuje ją jak zwykłą kontynuację i dokleja do ostatniej rozpoznanej
+# wiadomości. Jest to akceptowalne (`odtworz()` czyta wyłącznie linie KLIENT, a
+# metadane stoją po liniach BOT/SYSTEM), ale trzeba o tym wiedzieć, zanim się
+# ten zbiór ruszy: rozszerzenie go o prefiksowe dopasowanie („linia ZACZYNA się
+# od etykiety") wciągnęłoby w to samo sito prozę pisaną WERSALIKAMI i zerwało
+# kontynuację wiadomości — dokładnie regresja N1 z poprzedniej rundy.
+#
+# Wariant „nagłówek w osobnej linii + wcięta lista pod spodem" też występuje i
+# to jego dotyczy druga ścieżka rozpoznania: dla nieznanych linii pasujących do
+# `_BLOK_METADANYCH_RE` wymagamy DODATKOWO potwierdzenia wcięciem następnej
+# linii — patrz `_jest_naglowkiem_bloku`.
 _NAGLOWKI_BLOKOW = frozenset({"ZDARZENIA", "STAN BOTA", "ZEBRANE DANE"})
 
 # Persony ważne dla silnika Pro (bots_pro) — patrz quote_worker._PERSONY_SILNIKA_PRO
@@ -122,6 +137,18 @@ PERSONY_PRO = ("pro", "olx", "allegro")
 # jest globalnym przełącznikiem SDK, wywołanie go wielokrotnie jest
 # nieszkodliwe, ale bez sensu.
 _tracing_wylaczone = False
+
+
+def _opis_bledu(wpis):
+    """Etykieta blednego wpisu w podsumowaniu: numer rozmowy ALBO sciezka pliku.
+
+    Dwa rodzaje bledow trafiaja do tej samej listy — nieprzeczytany PLIK (brak
+    numeru rozmowy) i wywrocona pojedyncza ROZMOWA. Wypisywanie ich jednym
+    wzorcem sprawialo, ze plik pokazywal sie jako "None" obok prawdziwych
+    identyfikatorow rozmow."""
+    if wpis.get("id") is not None:
+        return "#%s" % wpis["id"]
+    return "plik %s" % wpis.get("plik", "?")
 
 
 def _pierwsza_niepusta_od(linie, start):
@@ -596,12 +623,16 @@ def main(argv):
             # CALY przebieg, gubiac wyniki juz policzonych plikow i (przed
             # ta poprawka) nawet nie zapisujac ich do --out. Ta sama klasa
             # awarii co W5 (blad pojedynczej rozmowy), tylko pietro wyzej —
-            # runbook every each polecenie podaje WSZYSTKIE shardy naraz.
+            # runbookowe polecenie podaje WSZYSTKIE shardy naraz.
             try:
                 rozmowy_z_pliku = wczytaj_rozmowy(sciezka)
             except Exception as e:
                 print("   [BLAD] nie udalo sie wczytac pliku %s: %r" % (sciezka, e))
-                bledy.append({"id": None, "plik": sciezka, "blad": repr(e)})
+                # Blad na poziomie PLIKU nie ma numeru rozmowy — NIE udajemy go
+                # kluczem "id": None. Wypisany obok prawdziwych identyfikatorow
+                # rozmow czytal sie jak "rozmowa numer None", czyli jak uszkodzony
+                # wynik, a nie jak nieprzeczytany plik (patrz `_opis_bledu`).
+                bledy.append({"plik": sciezka, "blad": repr(e)})
                 continue
             for rozmowa in rozmowy_z_pliku:
                 # W5: jedna rozmowa, ktora wywali wyjatek (np. przejsciowy blad
@@ -657,8 +688,8 @@ def main(argv):
 
     print("\n=== PODSUMOWANIE (%s rozmow odtworzonych, %s z bledem) ===" % (razem, len(bledy)))
     if bledy:
-        print("rozmowy z bledem (pominiete w reszcie podsumowania): %s"
-              % ", ".join(str(b["id"]) for b in bledy))
+        print("pominiete w reszcie podsumowania: %s"
+              % ", ".join(_opis_bledu(b) for b in bledy))
     print("z wyjsciem (handoff albo link): %s (%.0f%%)"
           % (z_wyjsciem, 100.0 * z_wyjsciem / razem if razem else 0))
     print("powtorzonych formulek lacznie: %s (dokladnie) / %s (z tolerancja na liczby)"
