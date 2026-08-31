@@ -14,7 +14,24 @@ w słowo — przeredagowanie stylu ma przechodzić, wycięcie reguły ma oblewa�
 w odróżnieniu od test_pro_agenci.py — NIE ma `importorskip` i chodzi także
 w obrazie bez SDK.
 """
+import re
+
 from bots_pro import prompty
+
+
+def _ciagiem(tekst):
+    """Prompt bez łamania wierszy — jeden ciąg, pojedyncze spacje.
+
+    Reguły są w źródle zawijane do ~90 kolumn, więc szukana fraza potrafi mieć
+    w środku znak nowej linii („nie wspominaj z własnej\ninicjatywy"). Test ma
+    oblewać na WYCIĘCIU reguły, nie na przelaniu akapitu przy dopisaniu jednego
+    słowa gdzieś wyżej — stąd normalizacja białych znaków przed porównaniem."""
+    return re.sub(r"\s+", " ", tekst)
+
+
+ROLA = _ciagiem(prompty.ROLA)
+WYCENA = _ciagiem(prompty.WYCENA)
+WIEDZA = _ciagiem(prompty.WIEDZA)
 
 
 class TestN1PytanieZobowiazuje:
@@ -26,8 +43,8 @@ class TestN1PytanieZobowiazuje:
     rozmowa była już u człowieka, więc odpowiedź klienta trafiała w próżnię."""
 
     def test_rola_kaze_poczekac_na_odpowiedz_po_pytaniu_o_bota(self):
-        assert "czy to bot" in prompty.ROLA
-        assert "poczekaj na odpowiedź klienta" in prompty.ROLA
+        assert "czy to bot" in ROLA
+        assert "poczekaj na odpowiedź klienta" in ROLA
 
     def test_rola_nie_wozi_juz_dopisku_o_imieniu_klienta(self):
         # Ta zmiana jest opłaceniem tej wyżej: ROLA doklejana jest do WSZYSTKICH
@@ -35,11 +52,11 @@ class TestN1PytanieZobowiazuje:
         # tokenów i stał na 393. Dopisek o imieniu klienta jest kosmetyką stylu
         # — reguła o czekaniu na odpowiedź chroni przed zostawieniem klienta
         # bez adresata. Wycięcie zwolniło zapas: 393 -> 388 tokenów.
-        assert "imieniem klienta" not in prompty.ROLA
+        assert "imieniem klienta" not in ROLA
 
     def test_wycena_ma_regule_pytanie_zobowiazuje(self):
-        assert "PYTANIE ZOBOWIĄZUJE" in prompty.WYCENA
-        assert "nie wołaj w tej samej turze oddaj_czlowiekowi" in prompty.WYCENA
+        assert "PYTANIE ZOBOWIĄZUJE" in WYCENA
+        assert "nie wołaj w tej samej turze oddaj_czlowiekowi" in WYCENA
 
 
 class TestN2PodsumowaniePoDoliczeniuDostawy:
@@ -50,8 +67,8 @@ class TestN2PodsumowaniePoDoliczeniuDostawy:
     bocznymi drzwiami."""
 
     def test_wycena_kaze_wyslac_podsumowanie_ponownie_po_dostawie(self):
-        assert "Po policz_wysylke zawsze wołaj wyslij_podsumowanie ponownie" in prompty.WYCENA
-        assert "nie potwierdzać starą" in prompty.WYCENA
+        assert "Po policz_wysylke zawsze wołaj wyslij_podsumowanie ponownie" in WYCENA
+        assert "nie potwierdzać starą" in WYCENA
 
 
 class TestN4KsztaltInnyNizProstokat:
@@ -63,18 +80,18 @@ class TestN4KsztaltInnyNizProstokat:
     jest człowiek."""
 
     def test_wycena_ma_sekcje_ksztalt(self):
-        assert "KSZTAŁT." in prompty.WYCENA
-        assert "Wyceniamy wyłącznie prostokąty i kwadraty" in prompty.WYCENA
+        assert "KSZTAŁT." in WYCENA
+        assert "Wyceniamy wyłącznie prostokąty i kwadraty" in WYCENA
 
     def test_wycena_wymienia_ksztalty_ktorych_nie_liczymy(self):
         for ksztalt in ("okrągły", "owalny", "litery L", "łukiem", "nieregularny"):
-            assert ksztalt in prompty.WYCENA, ksztalt
+            assert ksztalt in WYCENA, ksztalt
 
     def test_wycena_zabrania_liczenia_ksztaltu_jak_prostokata(self):
-        assert "Nigdy nie licz takiego kształtu jak prostokąta" in prompty.WYCENA
+        assert "Nigdy nie licz takiego kształtu jak prostokąta" in WYCENA
 
     def test_wycena_kaze_oddac_taki_ksztalt_czlowiekowi(self):
-        assert "kształt inny niż prostokąt" in prompty.WYCENA
+        assert "kształt inny niż prostokąt" in WYCENA
 
 
 class TestN5WymiaryIPoprawkiKlienta:
@@ -94,10 +111,36 @@ class TestN5WymiaryIPoprawkiKlienta:
     podsumowanie po odpowiedzi klienta."""
 
     def test_wycena_zabrania_cichej_zamiany_dlugosci_i_szerokosci(self):
-        assert "Nie zmieniaj po cichu tego, który wymiar jest długością" in prompty.WYCENA
+        assert "Nie zmieniaj po cichu tego, który wymiar jest długością" in WYCENA
 
     def test_wycena_kaze_stosowac_poprawke_doslownie(self):
-        assert "zastosuj poprawkę dosłownie" in prompty.WYCENA
+        assert "zastosuj poprawkę dosłownie" in WYCENA
 
     def test_wycena_kaze_wyjasnic_zanim_wysle_podsumowanie(self):
-        assert "najpierw wyjaśnij jednym zdaniem" in prompty.WYCENA
+        assert "najpierw wyjaśnij jednym zdaniem" in WYCENA
+
+
+class TestN8KrawedziePrzyBlacieKuchennym:
+    """Wymóg właściciela, nie naprawa błędu: bot ma przy BLATACH KUCHENNYCH sam
+    wspomnieć o możliwości obróbki krawędzi. Dotąd prompt zabraniał tego wprost
+    („nigdy nie proponuj ani nie wspominaj o otworach, wycięciach i obróbce
+    krawędzi z własnej inicjatywy"), więc to zamiana zdania W MIEJSCU, nie
+    dołożenie drugiej, sprzecznej reguły obok pierwszej.
+
+    Zakres wyjątku jest wąski i celowo taki został: JEDEN raz, tylko krawędzie,
+    tylko blaty kuchenne. Otwory i wycięcia zostają po stronie zakazu — one
+    nadal nie wchodzą do ceny (patrz N3), więc zaczynanie o nich rozmowy
+    z własnej inicjatywy tworzyłoby oczekiwanie bez pokrycia w wycenie."""
+
+    def test_wycena_pozwala_wspomniec_o_krawedziach_przy_blacie_kuchennym(self):
+        assert "Przy blacie kuchennym JEDEN raz" in WYCENA
+        assert "obróbki krawędzi" in WYCENA
+
+    def test_wycena_dalej_zabrania_zaczynania_o_otworach_i_wycieciach(self):
+        assert "poza blatami kuchennymi" in WYCENA
+        assert "nie wspominaj z własnej inicjatywy" in WYCENA
+
+    def test_stary_zakaz_bezwarunkowy_znikl_a_nie_zostal_obok(self):
+        # Dwa zdania obok siebie — „nigdy nie wspominaj" i „przy blacie
+        # kuchennym wspomnij" — daly model, ktory raz robi jedno, raz drugie.
+        assert "Nigdy nie proponuj ani nie" not in WYCENA
