@@ -67,6 +67,7 @@ import contextvars
 import json
 
 from core.db import db
+from core.log import log
 
 _conv_id = contextvars.ContextVar("conv_id", default=None)
 _persona = contextvars.ContextVar("persona", default=None)
@@ -82,6 +83,12 @@ _podsumowanie_nieudane = contextvars.ContextVar("podsumowanie_nieudane", default
 # nie skonczyla sie cisza. Per TURA (contextvar), nie per rozmowa — pytanie
 # brzmi "czy klient dostal cos w TEJ turze", nie "czy kiedykolwiek".
 _handoff_w_turze = contextvars.ContextVar("handoff_w_turze", default=False)
+# N7 (rerecenzja): w tej turze konsultant dostal juz prywatna notatke. Wyjscia,
+# ktore pisza WLASNA, bogatsza notatke (Allegro w `przygotuj_zamowienie`,
+# nieudane dopisanie dostawy w `zapisz_wycene`) wolaja zaraz po niej `handoff`,
+# a ten dokladal druga, prawie identyczna (`notatki.notatka_stanu`). Jedna
+# notatka na ture — wygrywa ta napisana PIERWSZA, bo to zawsze ta konkretniejsza.
+_notatka_w_turze = contextvars.ContextVar("notatka_w_turze", default=False)
 
 _SCHEMAT = """
 CREATE TABLE IF NOT EXISTS pro_dane(
@@ -169,6 +176,7 @@ def ustaw_kontekst(conv_id, persona_tury="pro"):
     _podsumowanie_wyslane.set(False)
     _podsumowanie_nieudane.set(False)
     _handoff_w_turze.set(False)
+    _notatka_w_turze.set(False)
 
 
 def conv_id():
@@ -219,8 +227,23 @@ def handoff_w_turze():
     Prawdziwe TYLKO dla handoffu z wnętrza tury (`stan.handoff`) — czyta to
     `tura.py`, żeby tura, w której model oddał rozmowę narzędziem i NIC nie
     napisał, nie skończyła się ciszą (U11: `przygotuj_zamowienie` na Allegro
-    kończy notatką i handoffem, a wskazówka dla modelu to tylko prośba)."""
+    kończy notatką i handoffem, a wskazówka dla modelu to tylko prośba).
+
+    N7: czyta to także sam `handoff` — drugie oddanie rozmowy w tej samej
+    turze jest już bezczynne."""
     return bool(_handoff_w_turze.get())
+
+
+def oznacz_notatke_w_turze():
+    """Wołane przez `notatki.wyslij_notatke` po UDANYM wysłaniu notatki (N7).
+    Notatka, która NIE doszła, świadomie się nie liczy — inaczej awaria
+    Chatwoota zostawiałaby konsultanta bez czegokolwiek."""
+    _notatka_w_turze.set(True)
+
+
+def notatka_w_turze():
+    """Czy w BIEŻĄCEJ turze konsultant dostał już prywatną notatkę (N7)."""
+    return bool(_notatka_w_turze.get())
 
 
 def _wymagany_conv_id():
@@ -701,11 +724,23 @@ def handoff(powod):
     czysto, zamiast zostawić rozmowę w 'open' bez śladu, dlaczego. Notatka
     siedzi TUTAJ, a nie w `tura._oddaj_konsultantowi`, żeby objąć TAKŻE
     handoff wywołany przez sam model (narzędzie `oddaj_czlowiekowi`) — inaczej
-    najczęstsze wyjście handoffowe zostałoby jedynym bez notatki."""
+    najczęstsze wyjście handoffowe zostałoby jedynym bez notatki.
+
+    N7 (rerecenzja): IDEMPOTENTNE w obrębie tury. Model potrafi wołać
+    `oddaj_czlowiekowi` i przy tym napisać pożegnanie — wtedy tura nie zmienia
+    stanu biznesowego i bezpiecznik braku postępu (`tura.py`) oddaje rozmowę
+    DRUGI RAZ: druga notatka, druga wiadomość i drugie przełączenie statusu
+    rozmowy, która jest już w 'open' i należy do człowieka. Drugie wywołanie w
+    tej samej turze nie robi więc nic i melduje sukces — z punktu widzenia
+    wołającego cel („rozmowa jest u konsultanta") jest osiągnięty."""
     from config import BOT_PRO_CW_AGENT_TOKEN
     from core.chatwoot import cw_bot_handoff
     from bots_pro import notatki
     biezacy = conv_id()
+    if handoff_w_turze():
+        log("stan: rozmowa juz oddana w tej turze — pomijam powtorny handoff "
+            "(conv %s, powod=%r)" % (biezacy, powod))
+        return {"ok": True, "powod": powod, "pominiety": True}
     notatki.notatka_stanu(biezacy, powod)
     udane = cw_bot_handoff(biezacy, token=BOT_PRO_CW_AGENT_TOKEN)
     _handoff_w_turze.set(True)

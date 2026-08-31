@@ -989,6 +989,23 @@ class TestAllegroKonczyNotatka:
         assert len(powody) == 1
         assert "allegro" in powody[0].lower()
 
+    def test_allegro_zostawia_jedna_notatke_nie_dwie(self, monkeypatch):
+        """N7 (rerecenzja): `zamowienie_do_agenta` pisze bogatą notatkę, a
+        stojący zaraz za nim `stan.handoff` dokładał drugą, prawie identyczną.
+        Konsultant dostawał dwa wpisy o tym samym."""
+        _wycena_gotowa_do_zamowienia(monkeypatch, 96047)
+        notatki_wyslane = []
+        monkeypatch.setattr(notatki, "cw_note",
+                            lambda cid, tekst, token=None: notatki_wyslane.append(tekst) or True)
+        monkeypatch.setattr("core.chatwoot.cw_bot_handoff", lambda cid, token=None: True)
+
+        _wolaj(n.przygotuj_zamowienie)
+
+        assert len(notatki_wyslane) == 1
+        # Zostaje ta BOGATSZA — z linkiem do wyceny i powodem tej konkretnej ścieżki.
+        assert "https://crm.example/q/abc" in notatki_wyslane[0]
+        assert "Allegro" in notatki_wyslane[0]
+
     def test_na_olx_link_nadal_idzie_do_klienta(self, monkeypatch):
         # Kontrola negatywna: OLX ma links=True, wiec sciezka linku zostaje bez zmian.
         _wycena_gotowa_do_zamowienia(monkeypatch, 96044, persona="olx")

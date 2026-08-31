@@ -85,13 +85,22 @@ def tresc_dla_agenta(powod, pozycje=None, dostawa=None, wycena=None, potwierdzen
 def wyslij_notatke(conv_id, tekst):
     """Wysyła notatkę. NIGDY nie rzuca — to ścieżka awaryjna, brak notatki nie
     może zablokować oddania rozmowy człowiekowi (ale MUSI być widoczny w logach,
-    inaczej cichy brak notatki wygląda z zewnątrz jak jej obecność)."""
+    inaczej cichy brak notatki wygląda z zewnątrz jak jej obecność).
+
+    Udana notatka jest odnotowywana w stanie TURY (N7), żeby `notatka_stanu`
+    nie dołożyła zaraz po niej drugiej, prawie identycznej. Zapis stanu tury
+    nie może wywrócić wysyłki, która się już udała — stąd osobny `try`."""
     try:
         cw_note(conv_id, tekst, token=BOT_PRO_CW_AGENT_TOKEN)
-        return True
     except Exception as e:
         log("notatki: notatka dla agenta NIEUDANA (conv %s): %r" % (conv_id, e))
         return False
+    try:
+        from bots_pro import stan
+        stan.oznacz_notatke_w_turze()
+    except Exception as e:   # pragma: no cover - obrona, nie sciezka
+        log("notatki: nie udalo sie oznaczyc notatki w turze (conv %s): %r" % (conv_id, e))
+    return True
 
 
 def zamowienie_do_agenta(wycena):
@@ -117,8 +126,18 @@ def zamowienie_do_agenta(wycena):
 def notatka_stanu(conv_id, powod):
     """Notatka złożona z BIEŻĄCEGO stanu rozmowy (`bots_pro.stan`) — jedno
     wywołanie dla wszystkich wyjść handoffowych, żeby żadne z nich nie musiało
-    samo zbierać tych samych czterech kawałków."""
+    samo zbierać tych samych czterech kawałków.
+
+    N7 (rerecenzja): pomijana, gdy konsultant dostał już notatkę w TEJ turze.
+    Wyjścia z własną, bogatszą notatką (Allegro w `przygotuj_zamowienie`,
+    nieudane dopisanie dostawy w `zapisz_wycene`) wołają zaraz po niej
+    `stan.handoff`, więc bez tego konsultant dostawał dwa wpisy o tym samym.
+    Pierwsza notatka wygrywa, bo to zawsze ta konkretniejsza."""
     from bots_pro import stan
+    if stan.notatka_w_turze():
+        log("notatki: notatka w tej turze juz byla — pomijam notatke stanu "
+            "(conv %s, powod=%r)" % (conv_id, powod))
+        return True
     try:
         tekst = tresc_dla_agenta(
             powod, pozycje=stan.pozycje(), dostawa=stan.dostawa(),

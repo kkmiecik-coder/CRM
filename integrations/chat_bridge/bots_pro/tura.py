@@ -130,7 +130,19 @@ def _oddaj_konsultantowi(powod, conv_id, persona="pro"):
     przechodzi przez personę modelu, więc bez tego omijałby caps kanału.
 
     NOTATKI dla konsultanta tu NIE MA — pisze ją `stan.handoff` (patrz jej
-    docstring), żeby objąć też handoff wywołany przez sam model."""
+    docstring), żeby objąć też handoff wywołany przez sam model.
+
+    N7 (rerecenzja): gdy rozmowa została już oddana W TEJ TURZE (model wołał
+    `oddaj_czlowiekowi` albo `przygotuj_zamowienie` na Allegro), nie robimy
+    NICZEGO — ani komunikatu, ani powtórnego handoffu. Bramka `handoff_w_turze()
+    and not odpowiedz` wyżej nie łapie przypadku, w którym model po handoffie
+    JEDNAK coś napisał: klient dostał wtedy pożegnanie modelu, a bezpiecznik
+    braku postępu dokładał zaraz po nim drugą wiadomość, drugą notatkę i drugie
+    przełączenie statusu — do rozmowy, która jest już u człowieka."""
+    if stan.handoff_w_turze():
+        log("tura: rozmowa juz oddana w tej turze -> pomijam powtorne przekazanie, "
+            "powod=%r (conv %s)" % (powod, conv_id))
+        return {"ok": True, "powod": powod, "pominiety": True}
     for czesc in wysylka.przygotuj(KOMUNIKAT_HANDOFF, persona):
         if czesc:
             cw_agent_reply(conv_id, czesc, token=BOT_PRO_CW_AGENT_TOKEN)

@@ -89,3 +89,73 @@ class TestHandoffZostawiaNotatke:
         monkeypatch.setattr("core.chatwoot.cw_bot_handoff", lambda cid, token=None: True)
 
         assert stan.handoff("powod")["ok"] is True
+
+
+class TestJednaNotatkaNaTure:
+    """N7 (rerecenzja gałęzi): notatka dublowała się na szczęśliwej ścieżce
+    Allegro — `przygotuj_zamowienie` pisze bogatą notatkę
+    (`zamowienie_do_agenta`), a stojący zaraz za nim `stan.handoff` dokładał
+    drugą, prawie identyczną (`notatka_stanu`). Konsultant dostawał dwa wpisy
+    o tym samym.
+
+    Zasada: JEDNA notatka na turę. Wygrywa ta napisana pierwsza, bo to zawsze
+    ta bardziej szczegółowa (powód konkretnej ścieżki), a `notatka_stanu` jest
+    ogólnym uzupełnieniem dla wyjść, które własnej notatki nie mają."""
+
+    def _slady(self, monkeypatch):
+        slady = {"notatki": [], "toggle": []}
+        monkeypatch.setattr(notatki, "cw_note",
+                            lambda cid, tekst, token=None: slady["notatki"].append(tekst) or True)
+        monkeypatch.setattr("core.chatwoot.cw_bot_handoff",
+                            lambda cid, token=None: slady["toggle"].append(cid) or True)
+        return slady
+
+    def test_notatka_stanu_nie_dubluje_wczesniejszej_notatki_tury(self, monkeypatch):
+        stan.ustaw_kontekst(96402001, persona_tury="allegro")
+        slady = self._slady(monkeypatch)
+
+        notatki.wyslij_notatke(96402001, "bogata notatka o zamowieniu")
+        stan.handoff("Allegro — gotowa wycena do domkniecia")
+
+        assert slady["notatki"] == ["bogata notatka o zamowieniu"]
+        assert len(slady["toggle"]) == 1
+
+    def test_bez_wczesniejszej_notatki_handoff_pisze_swoja(self, monkeypatch):
+        # Kontrola negatywna: najczestsze wyjscie (oddaj_czlowiekowi) nie moze
+        # zostac bez notatki.
+        stan.ustaw_kontekst(96402002, persona_tury="pro")
+        slady = self._slady(monkeypatch)
+
+        stan.handoff("klient prosi o czlowieka")
+
+        assert len(slady["notatki"]) == 1
+        assert "klient prosi o czlowieka" in slady["notatki"][0]
+
+    def test_nieudana_notatka_nie_blokuje_notatki_handoffu(self, monkeypatch):
+        # Notatka, ktora NIE doszla, nie liczy sie jako "notatka tury" —
+        # inaczej awaria Chatwoota zostawialaby konsultanta bez czegokolwiek.
+        stan.ustaw_kontekst(96402003, persona_tury="pro")
+        slady = self._slady(monkeypatch)
+
+        def _padnij(cid, tekst, token=None):
+            raise RuntimeError("Chatwoot 500")
+
+        monkeypatch.setattr(notatki, "cw_note", _padnij)
+        assert notatki.wyslij_notatke(96402003, "notatka, ktora nie doszla") is False
+        monkeypatch.setattr(notatki, "cw_note",
+                            lambda cid, tekst, token=None: slady["notatki"].append(tekst) or True)
+
+        stan.handoff("powod")
+
+        assert len(slady["notatki"]) == 1
+
+    def test_nowa_tura_znowu_pozwala_napisac_notatke(self, monkeypatch):
+        conv_id = 96402004
+        stan.ustaw_kontekst(conv_id, persona_tury="pro")
+        slady = self._slady(monkeypatch)
+        notatki.wyslij_notatke(conv_id, "notatka z tury 1")
+
+        stan.ustaw_kontekst(conv_id, persona_tury="pro")   # NOWA tura
+        stan.handoff("powod")
+
+        assert len(slady["notatki"]) == 2

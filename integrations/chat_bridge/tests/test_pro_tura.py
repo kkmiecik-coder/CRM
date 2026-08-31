@@ -989,3 +989,81 @@ class TestWyjsciaHandoffoweNieSaCiche:
         tura.uruchom(conv_id, "inbox1", "tak", persona="quote")
 
         assert wyslane == [tura.KOMUNIKAT_HANDOFF]
+
+
+class TestHandoffIdempotentnyWTurze:
+    """N7 (rerecenzja gałęzi): model woła narzędzie oddania rozmowy I pisze
+    pożegnanie. Tura nie zmienia stanu biznesowego, więc bezpiecznik braku
+    postępu oddaje rozmowę DRUGI RAZ: dwie notatki, dwie wiadomości, dwa
+    przełączenia statusu — do rozmowy, która jest już w 'open' i należy do
+    człowieka. Konsultant dostaje dwie prawie identyczne notatki, klient dwie
+    wiadomości pod rząd.
+
+    Bramka `handoff_w_turze() and not odpowiedz` (U11) tego nie łapała, bo
+    model COŚ napisał."""
+
+    def _slady_handoffu(self, monkeypatch):
+        """Liczy PRAWDZIWE skutki uboczne oddania rozmowy (notatka + toggle) —
+        `stan.handoff` NIE jest tu podmieniony, bo to jego idempotencji
+        dotyczy ten test."""
+        slady = {"notatki": [], "toggle": []}
+        monkeypatch.setattr(notatki, "cw_note",
+                            lambda cid, tekst, token=None: slady["notatki"].append(tekst) or True)
+        monkeypatch.setattr("core.chatwoot.cw_bot_handoff",
+                            lambda cid, token=None: slady["toggle"].append(cid) or True)
+        return slady
+
+    def test_narzedzie_i_bezpiecznik_nie_oddaja_rozmowy_dwa_razy(self, monkeypatch):
+        conv_id = 96131
+        monkeypatch.setattr(tura, "BOT_PRO_MAX_TURNS", 100)
+        monkeypatch.setattr(tura, "BOT_PRO_MAX_BEZ_POSTEPU", 1)
+        slady = self._slady_handoffu(monkeypatch)
+
+        class _RunnerZHandoffemIPozegnaniem:
+            wywolania = []
+
+            def run_sync(self, agent, tresc, session=None, max_turns=None):
+                self.wywolania.append(tresc)
+                stan.handoff("klient prosi o czlowieka")   # narzedzie oddaj_czlowiekowi
+                return types.SimpleNamespace(
+                    final_output="Jasne, przekazuje Cie konsultantowi.")
+
+        monkeypatch.setattr(tura, "Runner", _RunnerZHandoffemIPozegnaniem())
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "chce rozmawiac z czlowiekiem", persona="quote")
+
+        assert wyslane == ["Jasne, przekazuje Cie konsultantowi."]
+        assert len(slady["notatki"]) == 1
+        assert len(slady["toggle"]) == 1
+
+    def test_bezpiecznik_nadal_oddaje_rozmowe_gdy_narzedzie_tego_nie_zrobilo(
+            self, monkeypatch):
+        # Kontrola negatywna: idempotencja NIE MOŻE uciszyć bezpiecznika w
+        # turze, w której handoffu jeszcze nie było.
+        conv_id = 96132
+        monkeypatch.setattr(tura, "BOT_PRO_MAX_TURNS", 100)
+        monkeypatch.setattr(tura, "BOT_PRO_MAX_BEZ_POSTEPU", 1)
+        slady = self._slady_handoffu(monkeypatch)
+        monkeypatch.setattr(tura, "Runner", _FalszywyRunner(["kreci sie w kolko"]))
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "wiadomosc", persona="quote")
+
+        assert wyslane == ["kreci sie w kolko", tura.KOMUNIKAT_HANDOFF]
+        assert len(slady["notatki"]) == 1
+        assert len(slady["toggle"]) == 1
+
+    def test_kolejna_tura_moze_oddac_rozmowe_od_nowa(self, monkeypatch):
+        # Idempotencja jest PER TURA (contextvar), nie per rozmowa.
+        conv_id = 96133
+        monkeypatch.setattr(tura, "BOT_PRO_MAX_TURNS", 100)
+        monkeypatch.setattr(tura, "BOT_PRO_MAX_BEZ_POSTEPU", 1)
+        slady = self._slady_handoffu(monkeypatch)
+        monkeypatch.setattr(tura, "Runner", _FalszywyRunner(["a", "b"]))
+        _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "wiadomosc 1", persona="quote")
+        tura.uruchom(conv_id, "inbox1", "wiadomosc 2", persona="quote")
+
+        assert len(slady["toggle"]) == 2
