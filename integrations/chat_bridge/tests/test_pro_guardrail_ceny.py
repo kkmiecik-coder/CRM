@@ -6,6 +6,8 @@ Audyt 117 rozmów: w 8 rozmowach wycena zapisana w CRM miała inną kwotę niż 
 którą bot podał klientowi (rekord: bot mówi 1 936,71 zł, w CRM leży 1 268,97 zł).
 Guardrail nie pozwala wysłać kwoty, która nie wyszła z kalkulatora.
 """
+import pytest
+
 from bots_pro import guardraile as g
 
 
@@ -134,3 +136,51 @@ class TestWalutaOddzielonaDwukropkiem:
 
     def test_zmyslona_kwota_po_dwukropku_nie_przechodzi_bez_sladu(self):
         assert g.sprawdz_ceny("Cena w zł: 9999,99", set()) == ["9999.99"]
+
+
+class TestGolaKwotaPrzySlowieCenowym:
+    """U8 (recenzja koncowa): waluta byla w regexie OBOWIAZKOWA, wiec najczestsza
+    forma halucynacji z audytu — "okolo X brutto", "razem jakies Y" — przechodzila
+    zupelnie niezauwazona. Naprawa jest WASKA: gola liczba liczy sie jako kwota
+    tylko powyzej progu i tylko w bezposrednim sasiedztwie slowa cenowego."""
+
+    def test_sonda_p3_z_recenzji_lapie_obie_zmyslone_liczby(self):
+        tekst = ("Blat kosztuje 1 936,71 zł netto, czyli około 2400 brutto. "
+                 "Z wysyłką wyjdzie razem jakieś 2650.")
+        assert sorted(g.sprawdz_ceny(tekst, {"1936.71"})) == ["2400.00", "2650.00"]
+
+    @pytest.mark.parametrize("tekst,oczekiwana", [
+        ("Razem 2400 brutto", "2400.00"),
+        ("Cena to 2400", "2400.00"),
+        ("Koszt wynosi 2400", "2400.00"),
+        ("Łącznie jakieś 2400", "2400.00"),
+        ("Dopłata około 350", "350.00"),
+        ("2400 netto", "2400.00"),
+    ])
+    def test_gola_liczba_przy_slowie_cenowym_jest_naruszeniem(self, tekst, oczekiwana):
+        assert g.sprawdz_ceny(tekst, set()) == [oczekiwana]
+
+    @pytest.mark.parametrize("tekst", [
+        # Wymiary — najczestszy falszywy alarm, gdyby lapac kazda gola liczbe.
+        "Blat 180x60x4 cm",
+        "Razem 240 cm długości",
+        "Łącznie 150 cm szerokości",
+        # Sztuki, terminy, kontakt, lata.
+        "Razem 12 sztuk",
+        "Termin to 14 dni",
+        "Cena obowiązuje do 2026 roku",
+        "Proszę o kontakt: 500 123 456",
+        # Liczba ponizej progu tuz przy slowie cenowym — to policzalna rzecz,
+        # nie kwota (bot pisze "razem 3 pozycje" czesciej niz "razem 3 zl").
+        "Razem 3 pozycje",
+    ])
+    def test_liczby_niebedace_cenami_nie_sa_zglaszane(self, tekst):
+        assert g.sprawdz_ceny(tekst, set()) == []
+
+    def test_prawdziwa_kwota_bez_waluty_nadal_przechodzi(self):
+        # Kontrola negatywna: kwota Z REJESTRU wypowiedziana bez "zl" to nie
+        # halucynacja — falszywy alarm kosztuje tu tyle samo co przepuszczenie.
+        assert g.sprawdz_ceny("Razem 843,04 brutto", {"843.04"}) == []
+
+    def test_zaokraglona_kwota_z_rejestru_bez_waluty_przechodzi(self):
+        assert g.sprawdz_ceny("Razem około 843 brutto", {"843.04"}) == []

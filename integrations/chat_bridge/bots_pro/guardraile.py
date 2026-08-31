@@ -38,6 +38,53 @@ _ODSTEP = "[ \xa0 :]{0,3}"
 _KWOTA_LICZBA_WALUTA = re.compile(r"(%s)%s%s\b" % (_LICZBA, _ODSTEP, _WALUTA), re.IGNORECASE)
 _KWOTA_WALUTA_LICZBA = re.compile(r"\b%s%s(%s)" % (_WALUTA, _ODSTEP, _LICZBA), re.IGNORECASE)
 
+# --- Kwota BEZ waluty, przy słowie cenowym (U8, recenzja końcowa) -------------
+#
+# Waluta wyżej jest obowiązkowa świadomie, ale skutek był taki, że NAJCZĘSTSZA
+# forma halucynacji z audytu — „czyli około 2400 brutto", „razem jakieś 2650" —
+# przechodziła bez śladu. Naprawa jest CELOWO wąska, bo fałszywy alarm kosztuje
+# tu tyle samo co przepuszczenie (patrz U6: niepotrzebna runda korekty, a przy
+# drugim niepowodzeniu oddanie rozmowy człowiekowi na końcu udanej wyceny).
+#
+# Trzy warunki naraz — dopiero komplet robi z gołej liczby „kwotę":
+#   1. liczba stoi BEZPOŚREDNIO przy słowie cenowym (najwyżej jedno słowo
+#      wtrącone, i to z zamkniętej listy zwrotów przybliżających),
+#   2. jest WIĘKSZA niż próg — „razem 3 pozycje" i „łącznie 12 sztuk" to rzeczy
+#      policzalne, nie ceny; próg 100 zł jest niżej niż jakakolwiek realna suma
+#      wyceny blatu, a wyżej niż typowe liczebniki, terminy i liczby sztuk,
+#   3. NIE ma tuż za sobą jednostki (cm/mm/szt./dni/kg/%) — „Razem 240 cm
+#      długości" nadal nie jest kwotą.
+# Wymiary („180x60x4") wypadają wcześniej, na granicy słowa: po liczbie stoi
+# tam „x", który jest znakiem słownym.
+_SLOWA_CENOWE = (r"(?:brutto|netto|razem|[łl][ąa]cznie|cen[aeyęą]|kosztuj\w*|koszt\w*|"
+                 r"dop[łl]at\w*|wynosi|wyniesie|oko[łl]o|sum[aęy]|w sumie)")
+
+# Zwroty przybliżające, które model wtrąca MIĘDZY słowo cenowe a liczbę
+# („razem JAKIEŚ 2650"). Zamknięta lista, nie „dowolne słowo" — inaczej „cena
+# obowiązuje do 2026 roku" byłaby naruszeniem.
+_PRZYBLIZENIE = (r"(?:jakie[śs]|oko[łl]o|ok|mniej wi[ęe]cej|to|wynosi|wyniesie|"
+                 r"jest|b[ęe]dzie|wychodzi|wyjdzie)")
+
+# Odstęp między słowem a liczbą — jak _ODSTEP, CELOWO bez \s (nowa linia nie
+# łączy słowa cenowego z liczbą z następnego wiersza; patrz N1 wyżej).
+_ODSTEP_SLOWNY = "[ \xa0 :,\\-–—]{1,3}"
+
+_JEDNOSTKI = r"(?:cm|mm|m2|m3|m|szt\w*|dni|dzie[ńn]|tygod\w*|godz\w*|kg|%)"
+
+_GOLA_PO_SLOWIE_CENOWYM = re.compile(
+    r"(?<!\w)%s%s(?:%s%s)?(%s)(?!\w)" % (
+        _SLOWA_CENOWE, _ODSTEP_SLOWNY, _PRZYBLIZENIE, _ODSTEP_SLOWNY, _LICZBA),
+    re.IGNORECASE)
+_GOLA_PRZED_SLOWEM_CENOWYM = re.compile(
+    r"(?<!\w)(%s)%s%s(?!\w)" % (_LICZBA, _ODSTEP_SLOWNY, _SLOWA_CENOWE), re.IGNORECASE)
+
+_JEDNOSTKA_ZA_LICZBA = re.compile(r"[ \xa0 ]*%s(?!\w)" % _JEDNOSTKI, re.IGNORECASE)
+
+# Poniżej tego progu goła liczba przy słowie cenowym to prawie zawsze liczebnik
+# ("razem 3 pozycje"), nie kwota. Kwoty ZNANE rejestrowi i tak nie są
+# naruszeniem, więc próg ogranicza wyłącznie zasięg wykrywania halucynacji.
+_PROG_GOLEJ_KWOTY = 100.0
+
 
 def _normalizuj_liczbe(tekst):
     """'1 936,71' / '1.936,71' / '1936.71' / '843' -> 'NNNN.GG'.
@@ -67,15 +114,43 @@ def znajdz_kwoty(tekst):
     return wynik
 
 
+def znajdz_gole_kwoty(tekst):
+    """Kwoty BEZ tokenu waluty, rozpoznane po sąsiedztwie słowa cenowego (U8).
+
+    Osobna funkcja od `znajdz_kwoty` świadomie: tamta odpowiada na pytanie „co
+    w tym tekście JEST kwotą", i „14 dni" ma tam nadal nie być kwotą. Ta
+    odpowiada na węższe: „co w tym tekście WYGLĄDA jak wypowiedziana cena, mimo
+    braku »zł«" — i jest używana wyłącznie przez `sprawdz_ceny`."""
+    tekst = tekst or ""
+    wynik = set()
+    for wzorzec in (_GOLA_PO_SLOWIE_CENOWYM, _GOLA_PRZED_SLOWEM_CENOWYM):
+        for dopasowanie in wzorzec.finditer(tekst):
+            liczba = dopasowanie.group(1)
+            if _JEDNOSTKA_ZA_LICZBA.match(tekst, dopasowanie.end(1)):
+                continue   # "Razem 240 cm" — wymiar, nie cena
+            znormalizowana = _normalizuj_liczbe(liczba)
+            try:
+                if float(znormalizowana) <= _PROG_GOLEJ_KWOTY:
+                    continue   # "razem 3 pozycje" — liczebnik, nie cena
+            except ValueError:
+                continue
+            wynik.add(znormalizowana)
+    return wynik
+
+
 def sprawdz_ceny(tekst, znane_kwoty):
     """Kwoty z tekstu, których NIE ma wśród zwróconych przez kalkulator.
 
     Zaokrąglenie do pełnych złotych jest dozwolone — bot bywa proszony
     o przybliżenie, a 843,04 zł jako „około 843 zł" nie jest halucynacją.
+
+    Sprawdzamy kwoty z walutą ORAZ gołe liczby przy słowie cenowym (U8) — bez
+    tych drugich „około 2400 brutto" przechodziło bez śladu, a to najczęstsza
+    forma zmyślonej ceny w audycie.
     """
     pelne_zlote = {k.split(".")[0] for k in znane_kwoty}
     naruszenia = []
-    for kwota in znajdz_kwoty(tekst):
+    for kwota in znajdz_kwoty(tekst) | znajdz_gole_kwoty(tekst):
         if kwota in znane_kwoty:
             continue
         if kwota.endswith(".00") and kwota.split(".")[0] in pelne_zlote:
