@@ -268,6 +268,24 @@ def wyslij():
     # pokazywało wyłącznie cenę produktu, choć bot mówił mu "produkt + wysyłka".
     # Suma jest liczona z DWÓCH liczb kalkulatora CRM (nie zgadywana) i trafia do
     # rejestru G1, żeby bot mógł ją potem legalnie zacytować.
+    #
+    # R3 (recenzja końcowa, runda 2) — ŚWIADOMY WYJĄTEK od zasady „cena zawsze
+    # z CRM". To JEDYNA arytmetyka cenowa po stronie mostka. Sprawdzone: żaden
+    # endpoint bota NIE zwraca sumy obejmującej wysyłkę, więc nie ma czego użyć
+    # zamiast dodawania:
+    #   - POST /api/bot/calculate -> `totals` liczone WYŁĄCZNIE z pozycji
+    #     (kalkulator nie zna kodu pocztowego, więc nie ma jak doliczyć kuriera),
+    #   - POST /api/bot/shipping-quote -> sam koszt wysyłki, bez produktu,
+    #   - POST i PUT /api/bot/quotes -> {ok, quote_number, quote_id, edit_uuid,
+    #     public_url} — ZERO kwot,
+    #   - GET /api/bot/quotes(/by-token) -> `totals` z komentarzem wprost
+    #     „Wysyłki NIE doliczamy — liczy ją sklep" (bot_api.py, serializer sklepu).
+    # RYZYKO, które ten wyjątek niesie: gdyby CRM zaczął kiedyś stosować rabat na
+    # poziomie SUMY (np. darmowa wysyłka powyżej progu), ta linia pokazywałaby
+    # klientowi cenę WYŻSZĄ niż faktyczna, i to w treści, którą klient podpisuje.
+    # Sygnał ostrzegawczy: pojawienie się w odpowiedzi któregokolwiek z tych
+    # endpointów pola z sumą razem z wysyłką — wtedy użyć JEGO, nie tego dodawania.
+    # Ostrzeżenie powtórzone w DEPLOY-quotebot.md.
     if dostawa.get("kurier") and isinstance(dostawa_brutto, (int, float)):
         razem_z_dostawa = round(float(razem_produkty or 0) + float(dostawa_brutto), 2)
         kwoty.append(razem_z_dostawa)

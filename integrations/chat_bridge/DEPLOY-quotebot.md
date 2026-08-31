@@ -488,3 +488,30 @@ Sprawdź **przed** ustawieniem persony w `BOT_QUOTE_NOTE_PERSONAS`:
 - [ ] `BOT_QUOTE_CW_AGENT_TOKEN` nadal ustawiony (live chat Dębusia działa niezależnie)
 - [ ] Po recreate: `docker logs <kontener-mostu> 2>&1 | grep "poza zakresem quotebota"` →
       pojawia się **tylko** dla inboxu Dyskusji, nigdy dla OLX ani Allegro-Wiadomości
+
+---
+
+# Dębuś Pro (`bots_pro/`, Agents SDK) — przed włączeniem pierwszego inboxu
+
+> Ta sekcja dotyczy **nowego** silnika (`BOT_PRO_INBOXES`), nie quote-bota wyżej.
+> Przeczytaj ją **zanim** wpiszesz pierwszy inbox do `BOT_PRO_INBOXES`.
+
+## Znane ograniczenie: suma „produkt + dostawa" liczona po stronie mostka
+
+Podsumowanie, które klient potwierdza, pokazuje **Razem z dostawą** — a ta jedna liczba
+jest **dodawana w Pythonie** (`bots_pro/podsumowanie.py`, `wyslij()`), nie pobierana
+z CRM. To jedyny wyjątek od zasady „cena zawsze z CRM" i jest świadomy: sprawdzone,
+że **żaden** endpoint bota nie zwraca sumy obejmującej wysyłkę —
+`/api/bot/calculate` liczy `totals` wyłącznie z pozycji (nie zna kodu pocztowego),
+`/api/bot/shipping-quote` zwraca sam koszt kuriera, `POST`/`PUT /api/bot/quotes`
+nie zwracają żadnych kwot, a serializer `GET /api/bot/quotes` ma w kodzie komentarz
+wprost: „Wysyłki NIE doliczamy — liczy ją sklep".
+
+**Kiedy to przestanie być bezpieczne:** gdy CRM zacznie stosować rabat na poziomie
+SUMY (np. darmowa wysyłka powyżej progu) albo inaczej modyfikować cenę końcową.
+Bot pokazywałby wtedy klientowi kwotę **wyższą niż faktyczna**, i to w treści,
+którą klient podpisuje (inwariant I2).
+
+**Co zrobić przy takiej zmianie w CRM:** jeśli w odpowiedzi któregokolwiek z tych
+endpointów pojawi się pole z sumą razem z wysyłką — użyć JEGO zamiast dodawania
+(jedno miejsce w kodzie, oznaczone komentarzem `R3`).

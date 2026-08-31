@@ -448,6 +448,17 @@ class TestPodsumowaniePokazujeDostawe:
         podsumowanie.wyslij()
         assert "1093.04" in stan.znane_kwoty()
 
+    def test_suma_jest_dokladnie_soma_dwoch_liczb_z_crm(self, monkeypatch):
+        """R3: dodawanie po stronie mostka to ŚWIADOMY WYJĄTEK od „cena zawsze
+        z CRM" (żaden endpoint bota nie zwraca sumy z wysyłką — dowód w
+        komentarzu przy `wyslij()`). Skoro tak, to ma być DODAWANIE I NIC WIĘCEJ:
+        żadnego zaokrąglania w górę, narzutu ani rabatu wymyślonego tutaj."""
+        wyslane = self._przygotuj(monkeypatch, 94033)
+        stan.zapisz_dostawe("00-002", kurier="DPD", netto=100.00, brutto=123.00)
+        podsumowanie.wyslij()
+        assert "966,04" in wyslane[0]                  # 843,04 + 123,00, co do grosza
+        assert "%.2f" % (843.04 + 123.00) == "966.04"
+
     def test_bez_znanej_dostawy_podsumowanie_wyglada_jak_dotad(self, monkeypatch):
         # Kontrola negatywna: dopoki wysylka nie zostala oszacowana, nie
         # dopisujemy do podsumowania ani kuriera, ani zmyslonego "0 zl".
