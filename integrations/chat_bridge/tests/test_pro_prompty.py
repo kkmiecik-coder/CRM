@@ -75,3 +75,29 @@ class TestN4KsztaltInnyNizProstokat:
 
     def test_wycena_kaze_oddac_taki_ksztalt_czlowiekowi(self):
         assert "kształt inny niż prostokąt" in prompty.WYCENA
+
+
+class TestN5WymiaryIPoprawkiKlienta:
+    """Rozmowa z żywego czatu, trzy błędy w jednym wątku: bot po cichu zmienił
+    interpretację, który z podanych wymiarów jest szerokością, a który
+    długością; zignorował poprawkę, którą klient podał wprost; a na zadane na
+    wprost „o co chodzi?" odesłał samo podsumowanie, bez ani jednego zdania
+    wyjaśnienia.
+
+    UWAGA przy czytaniu ostatniej części reguły („najpierw wyjaśnij jednym
+    zdaniem, dopiero potem wyślij podsumowanie"): wyjaśnienie i
+    `wyslij_podsumowanie` w JEDNEJ turze się wykluczają — `tura.py` (bramka W3)
+    świadomie NIE wysyła `final_output`, gdy w tej samej turze poszło
+    deterministyczne podsumowanie (dowód: test_pro_tura.py::
+    test_niepusty_final_output_po_wyslaniu_podsumowania_tez_nie_jest_wysylany).
+    Reguła jest więc spełnialna wyłącznie w czasie: wyjaśnienie w tej turze,
+    podsumowanie po odpowiedzi klienta."""
+
+    def test_wycena_zabrania_cichej_zamiany_dlugosci_i_szerokosci(self):
+        assert "Nie zmieniaj po cichu tego, który wymiar jest długością" in prompty.WYCENA
+
+    def test_wycena_kaze_stosowac_poprawke_doslownie(self):
+        assert "zastosuj poprawkę dosłownie" in prompty.WYCENA
+
+    def test_wycena_kaze_wyjasnic_zanim_wysle_podsumowanie(self):
+        assert "najpierw wyjaśnij jednym zdaniem" in prompty.WYCENA
