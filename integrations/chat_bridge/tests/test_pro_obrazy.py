@@ -129,20 +129,75 @@ class TestProfilKanalu:
 
 
 class TestNieudanePobranie:
-    def test_nieudany_obraz_jest_pomijany_a_tekst_zostaje(self, monkeypatch):
+    def test_nieodczytany_obraz_zostawia_slad_mimo_tekstu(self, monkeypatch):
+        """N5 (rerecenzja gałęzi): nieodczytane zdjęcie GINĘŁO BEZ ŚLADU, gdy
+        wiadomość miała też tekst — model dostawał sam tekst i nie wiedział, że
+        załącznik w ogóle był. „Tak jak na zdjęciu, ile taki kosztuje?" +
+        niepobrane zdjęcie = odpowiedź udająca, że zdjęcia nie było, na
+        wiadomość, która się do niego odwołuje."""
         monkeypatch.setattr(obrazy, "to_data_uri",
                             _Pobieracz({"https://x/zly.jpg": None}))
 
-        assert obrazy.wejscie("mam pytanie", ["https://x/zly.jpg"], persona="olx") == "mam pytanie"
+        wynik = obrazy.wejscie("tak jak na zdjęciu, ile taki kosztuje?",
+                               ["https://x/zly.jpg"], persona="olx")
+
+        assert wynik == [
+            {"role": "user", "content": [
+                {"type": "input_text", "text": "tak jak na zdjęciu, ile taki kosztuje?"}]},
+            {"role": "system", "content": obrazy.ZASTEPNIK_NIEODCZYTANEGO_OBRAZU},
+        ]
 
     def test_sam_nieudany_obraz_bez_tekstu_daje_zastepnik_nie_pustke(self, monkeypatch):
         """Wiadomość była SAMYM zdjęciem, a zdjęcia nie dało się pobrać —
         model NIE MOŻE dostać pustego promptu (cisza w rozmowie). Dostaje
-        jednoznaczny opis sytuacji i może poprosić o ponowne przesłanie."""
+        jednoznaczny opis sytuacji i może poprosić o ponowne przesłanie.
+
+        N4: opis idzie rolą "system", NIE "user" — to wewnętrzna instrukcja,
+        nie wypowiedź klienta (ta sama poprawka co przy komunikacie korekty
+        guardraila, `tura._KOMUNIKAT_KOREKTY`)."""
         monkeypatch.setattr(obrazy, "to_data_uri",
                             _Pobieracz({"https://x/zly.jpg": None}))
 
         wynik = obrazy.wejscie("", ["https://x/zly.jpg"], persona="olx")
 
-        assert isinstance(wynik, str) and wynik.strip()
-        assert wynik == obrazy.ZASTEPNIK_NIEODCZYTANEGO_OBRAZU
+        assert wynik == [{"role": "system",
+                          "content": obrazy.ZASTEPNIK_NIEODCZYTANEGO_OBRAZU}]
+
+    def test_zastepnik_nigdy_nie_idzie_rola_user(self, monkeypatch):
+        """N4: zastępnik trafia na stałe do `SQLiteSession`. W roli "user"
+        model mógłby wziąć go za prawdziwe pytanie klienta i sparafrazować mu
+        go w odpowiedzi — dokładnie ta klasa problemu, dla której komunikat
+        korekty przeniesiono na rolę "system"."""
+        monkeypatch.setattr(obrazy, "to_data_uri",
+                            _Pobieracz({"https://x/zly.jpg": None}))
+
+        for tresc in ("", "mam pytanie"):
+            for pozycja in obrazy.wejscie(tresc, ["https://x/zly.jpg"], persona="olx"):
+                if obrazy.ZASTEPNIK_NIEODCZYTANEGO_OBRAZU in json.dumps(
+                        pozycja, ensure_ascii=False):
+                    assert pozycja["role"] == "system"
+
+    def test_czesciowe_niepowodzenie_tez_zostawia_slad(self, monkeypatch):
+        # Jedno zdjęcie się pobrało, drugie nie — model ma wiedzieć, że czegoś
+        # nie widzi, zamiast odpowiadać z niepełnego materiału.
+        monkeypatch.setattr(obrazy, "to_data_uri",
+                            _Pobieracz({"https://x/zly.jpg": None}))
+
+        wynik = obrazy.wejscie("dwa blaty", ["https://x/ok.jpg", "https://x/zly.jpg"],
+                               persona="olx")
+
+        assert wynik[0]["role"] == "user"
+        assert {"type": "input_image", "image_url": "data:image/jpeg;base64,AAA"} \
+            in wynik[0]["content"]
+        assert wynik[-1] == {"role": "system",
+                             "content": obrazy.ZASTEPNIK_NIEODCZYTANEGO_OBRAZU}
+
+    def test_wszystkie_obrazy_odczytane_nie_dokladaja_zastepnika(self, monkeypatch):
+        # Kontrola negatywna: udana ścieżka multimodalna bez zmian.
+        monkeypatch.setattr(obrazy, "to_data_uri", _Pobieracz())
+
+        wynik = obrazy.wejscie("blat", ["https://x/ok.jpg"], persona="olx")
+
+        assert wynik == [{"role": "user", "content": [
+            {"type": "input_text", "text": "blat"},
+            {"type": "input_image", "image_url": "data:image/jpeg;base64,AAA"}]}]

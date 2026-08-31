@@ -40,10 +40,16 @@ from core.log import log
 # każdy obraz to kilkaset kB base64 w prompcie, a klienci potrafią wkleić serię.
 LIMIT_OBRAZOW = 2
 
-# Wiadomość była SAMYM zdjęciem, którego nie dało się pobrać/odczytać. Model
-# NIE MOŻE dostać wtedy pustego promptu — pusty prompt to cisza w rozmowie,
-# czyli dokładnie ta awaria, którą U2 naprawia. Zamiast tego dostaje
+# Załącznika graficznego NIE dało się pobrać/odczytać. Model NIE MOŻE wtedy
+# dostać pustego promptu (pusty prompt to cisza w rozmowie, czyli dokładnie ta
+# awaria, którą U2 naprawia) ani udawać, że załącznika nie było — dostaje
 # jednoznaczny opis sytuacji i może poprosić o ponowne przesłanie.
+#
+# N4 (rerecenzja gałęzi): ten opis idzie rolą "system", NIGDY "user". To
+# wewnętrzna instrukcja, nie wypowiedź klienta, a trafia na stałe do
+# `SQLiteSession` — w roli "user" model mógłby wziąć ją za prawdziwe pytanie i
+# sparafrazować klientowi. Dokładnie ta sama klasa problemu i ta sama naprawa
+# co przy komunikacie korekty guardraila (`tura._KOMUNIKAT_KOREKTY`, W2).
 ZASTEPNIK_NIEODCZYTANEGO_OBRAZU = (
     "[Klient przysłał załącznik graficzny, którego nie udało się odczytać. "
     "Poproś o ponowne przesłanie zdjęcia albo o opisanie go słowami.]")
@@ -84,20 +90,33 @@ def wejscie(tresc, zalaczniki=None, persona="pro"):
     Rozmowa BEZ zdjęć dostaje DOKŁADNIE to co dotąd — string — żeby zmiana nie
     dotykała ścieżki, którą chodzi większość ruchu (i żeby historia sesji SDK
     miała ten sam kształt co przed poprawką).
+
+    N5 (rerecenzja gałęzi): KAŻDY nieodczytany załącznik zostawia ślad —
+    zastępnik dla modelu i wpis w logu. Wcześniej ginął bez śladu, gdy
+    wiadomość miała też tekst (gałąź `if not uri: if tekst: return tekst`):
+    model odpowiadał tak, jakby zdjęcia nie było, na wiadomość, która się do
+    niego odwołuje („tak jak na zdjęciu, ile taki kosztuje?"). Dotyczy to też
+    niepowodzenia CZĘŚCIOWEGO (jedno zdjęcie z dwóch) — model ma wiedzieć, że
+    czegoś nie widzi, zamiast odpowiadać z niepełnego materiału.
     """
     tekst = (tresc or "").strip()
-    uri = data_uri_obrazow(zalaczniki, persona)
-    if not uri:
-        if tekst:
-            return tekst
-        # Były załączniki (webhook przepuścił wiadomość bez tekstu), ale żaden
-        # się nie pobrał — patrz ZASTEPNIK_NIEODCZYTANEGO_OBRAZU.
-        if _lista_url(zalaczniki):
-            log("obrazy: zaden zalacznik nie zostal odczytany — wejscie zastepcze")
-            return ZASTEPNIK_NIEODCZYTANEGO_OBRAZU
+    adresy = _lista_url(zalaczniki)[:LIMIT_OBRAZOW]
+    if not adresy:
         return tekst
+
+    uri = data_uri_obrazow(zalaczniki, persona)
     czesci = []
     if tekst:
         czesci.append({"type": "input_text", "text": tekst})
     czesci.extend({"type": "input_image", "image_url": u} for u in uri)
-    return [{"role": "user", "content": czesci}]
+
+    pozycje = []
+    if czesci:
+        pozycje.append({"role": "user", "content": czesci})
+    if len(uri) < len(adresy):
+        # Ślad dla człowieka czytającego logi ORAZ dla modelu (rola "system",
+        # patrz ZASTEPNIK_NIEODCZYTANEGO_OBRAZU) — nie dla klienta.
+        log("obrazy: %s z %s zalacznikow nie zostalo odczytanych — zastepnik dla modelu"
+            % (len(adresy) - len(uri), len(adresy)))
+        pozycje.append({"role": "system", "content": ZASTEPNIK_NIEODCZYTANEGO_OBRAZU})
+    return pozycje
