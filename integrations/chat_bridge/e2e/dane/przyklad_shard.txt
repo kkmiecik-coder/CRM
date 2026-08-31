@@ -1,0 +1,19 @@
+ROZMOWA #1001 (przyklad syntetyczny, inbox 18, 2026-01-05)
+[10:02] KLIENT: dzien dobry, chcialbym wycene blatu debowego
+[10:02] BOT: Dzien dobry! Chetnie pomoge z wycena — prosze o wymiary (dlugosc x szerokosc x grubosc w cm), technologie (lita/mikrowczep), klase i ilosc sztuk.
+[10:05] KLIENT: 200x60x4, lity, klasa A/B, 1 sztuka, surowy
+[10:05] BOT: Podsumowuje: blat debowy lity A/B, 200x60x4 cm, 1 szt, surowy. Zgadza sie?
+[10:06] KLIENT: tak
+
+ROZMOWA #1002 (przyklad syntetyczny, inbox 18, 2026-01-06)
+[09:00] KLIENT: jaki olej polecacie do blatu kuchennego?
+[09:01] BOT: Do blatow kuchennych polecamy olej twardowoskowy — latwy w konserwacji i odporny na wilgoc.
+[09:03] KLIENT: a macie olej w kolorze orzech?
+[09:03] BOT: Do blatow kuchennych polecamy olej twardowoskowy — latwy w konserwacji i odporny na wilgoc.
+[09:10] AGENT: Dzien dobry, tak mamy olej w odcieniu orzech, dopisze to do zamowienia.
+[09:15] NOTATKA-PRYW: klient pytal o kolor oleju, przekazano do konsultanta
+
+ROZMOWA #1003 (przyklad syntetyczny, inbox 18, 2026-01-07)
+[14:00] KLIENT: chcialbym reklamowac blat, ktory pekl
+[14:01] BOT: Rozumiem, przekazuje sprawe do konsultanta.
+[14:01] SYSTEM: rozmowa przekazana do zespolu obslugi
