@@ -26,7 +26,8 @@ from sqlalchemy.pool import StaticPool
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from extensions import db  # noqa: E402
-from modules.baselinker.models import BaselinkerConfig  # noqa: E402
+from modules.baselinker.models import BaselinkerConfig, BaselinkerOrderLog  # noqa: E402
+from modules.quotes.services.checkout_service import STATUS_PROBA_NIEPEWNA  # noqa: E402
 from modules.calculator.models import (  # noqa: E402
     Quote, QuoteItem, QuoteItemDetails, Price, Multiplier,
     FinishingOption, EdgeOption, CalculatorSetting, QuoteCounter, QuoteLog,
@@ -43,7 +44,7 @@ KORZEN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _TABELE = [m.__table__ for m in (
     Price, Multiplier, FinishingOption, EdgeOption, CalculatorSetting, User, Client,
     Quote, QuoteItem, QuoteItemDetails, QuoteCounter, QuoteLog, QuoteStatus,
-    BaselinkerConfig,
+    BaselinkerConfig, BaselinkerOrderLog,
 )]
 
 
@@ -79,7 +80,8 @@ def klient_http(aplikacja):
 
 
 def _zasiej(status_id=1, is_client_editable=True, order_id=None,
-            order_page=None, wybrana_pozycja=True, email='jan@example.pl'):
+            order_page=None, wybrana_pozycja=True, email='jan@example.pl',
+            niepewna_proba=False):
     db.session.add(QuoteStatus(id=3, name='Zaakceptowane'))
     db.session.add(QuoteStatus(id=4, name='Złożone'))
     klient = Client(client_number='K-1', client_name='Jan Testowy',
@@ -101,6 +103,11 @@ def _zasiej(status_id=1, is_client_editable=True, order_id=None,
         quote_id=wycena.id, product_index=1, variant_code='dab-lity-ab',
         length_cm=100, width_cm=50, thickness_cm=3,
         price_netto=100.0, price_brutto=123.0, is_selected=wybrana_pozycja))
+    if niepewna_proba:
+        # Ślad po próbie, po której nie wiemy, czy zamówienie powstało.
+        db.session.add(BaselinkerOrderLog(
+            quote_id=wycena.id, action='create_order',
+            status=STATUS_PROBA_NIEPEWNA, created_at=datetime(2026, 8, 30, 13, 0)))
     db.session.commit()
     return wycena.id
 
@@ -166,6 +173,42 @@ class TestPrzyciskZamawiania:
 
         assert '>Zamów<' not in html
         assert 'skontaktuj się z nami' in html.lower()
+
+
+class TestNierozstrzygnietaProbaZamowienia:
+    """Timeout BaseLinkera + odświeżenie strony = drugie realne zamówienie.
+
+    Po utracie łączności numer zamówienia nie zapisuje się na wycenie, więc
+    guard idempotencji nie ma czego znaleźć. Jedyną obroną był JavaScript
+    (wygaszony przycisk w modalu), a F5 omijało ją w całości — klient po
+    komunikacie „nie wiemy" odruchowo odświeża stronę.
+    """
+
+    def test_po_nierozstrzygnietej_probie_nie_ma_przycisku_zamow(
+            self, aplikacja, klient_http):
+        _zasiej(status_id=3, is_client_editable=False, niepewna_proba=True)
+
+        html = _strona(klient_http)
+
+        assert '>Zamów<' not in html
+        assert 'window.MOZNA_ZAMOWIC = false' in html
+
+    def test_klient_dostaje_powod_a_nie_sam_brak_przycisku(self, aplikacja,
+                                                           klient_http):
+        _zasiej(status_id=3, is_client_editable=False, niepewna_proba=True)
+
+        html = _strona(klient_http)
+
+        assert 'Sprawdzamy' in html
+        assert 'nie składaj' in html.lower()
+        assert '410/08/26/W' in html
+
+    def test_wycena_bez_nierozstrzygnietej_proby_ma_przycisk(self, aplikacja,
+                                                             klient_http):
+        # Kontrola negatywna: blokada nie może zapalać się bez powodu.
+        _zasiej(status_id=3, is_client_editable=False)
+
+        assert '>Zamów<' in _strona(klient_http)
 
 
 class TestFlagaDlaSkryptuStrony:

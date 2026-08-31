@@ -2,6 +2,15 @@
 from extensions import db
 from datetime import datetime
 
+# Status wpisu w baselinker_order_logs dla próby złożenia zamówienia, po której
+# NIE WIEMY, czy zamówienie po stronie BaseLinkera powstało (padła łączność
+# w trakcie żądania). Zwykły 'error' by tu nie wystarczył: znaczy „na pewno nie
+# powstało" i powtórka po nim jest bezpieczna. Ten wpis jest jedynym TRWAŁYM
+# śladem takiej próby — czyta go checkout klienta, żeby odświeżenie strony nie
+# skończyło się drugim realnym zamówieniem.
+STATUS_PROBA_NIEPEWNA = 'uncertain'
+
+
 class BaselinkerOrderLog(db.Model):
     """Model do logowania operacji z Baselinker API"""
     __tablename__ = 'baselinker_order_logs'

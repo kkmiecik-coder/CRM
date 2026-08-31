@@ -601,6 +601,80 @@ class TestBladPoUdanymAddOrder:
         assert wynik['niepewne'] is False
 
 
+class TestNierozstrzygnietaProbaBlokujeKolejna:
+    """Po timeoucie BaseLinkera kolejna próba nie może pójść do API.
+
+    Numer zamówienia nie zapisał się, więc guard idempotencji jest ślepy —
+    a zamówienie mogło powstać. Znacznik nierozstrzygniętej próby (wpis
+    w baselinker_order_logs) przeżywa odświeżenie strony, czego JS nie potrafi.
+    """
+
+    def test_serwis_znaczy_probe_jako_nierozstrzygnieta(self, aplikacja, monkeypatch):
+        import requests
+        from modules.baselinker import service as modul_serwisu
+
+        _zasiej(status_id=3, is_client_editable=False)
+        wycena = Quote.query.filter_by(public_token=TOKEN).first()
+
+        serwis = modul_serwisu.BaselinkerService.__new__(modul_serwisu.BaselinkerService)
+        serwis.logger = SimpleNamespace(
+            info=lambda *a, **k: None, warning=lambda *a, **k: None,
+            error=lambda *a, **k: None, debug=lambda *a, **k: None,
+        )
+        serwis._prepare_order_data = lambda quote, config: {}
+
+        def _timeout(metoda, parametry):
+            raise requests.exceptions.ReadTimeout('read timed out')
+
+        serwis._make_request = _timeout
+
+        wynik = serwis.create_order_from_quote(wycena, None, {})
+
+        assert wynik['niepewne'] is True
+        wpisy = BaselinkerOrderLog.query.filter_by(quote_id=wycena.id).all()
+        assert [w.status for w in wpisy] == [checkout_service.STATUS_PROBA_NIEPEWNA]
+
+    def test_kolejna_proba_nie_wola_baselinkera(self, aplikacja, klient_http,
+                                                baselinker):
+        id_wyceny = _zasiej(status_id=3, is_client_editable=False)
+        with aplikacja.app_context():
+            db.session.add(BaselinkerOrderLog(
+                quote_id=id_wyceny, action='create_order',
+                status=checkout_service.STATUS_PROBA_NIEPEWNA,
+                created_at=datetime(2026, 8, 30, 13, 0)))
+            db.session.commit()
+
+        odpowiedz = _zamow(klient_http)
+        body = odpowiedz.get_json()
+
+        assert odpowiedz.status_code == 502
+        assert baselinker.wywolania == [], 'drugie realne zamówienie w BaseLinkerze'
+        assert body['niepewne'] is True
+        assert 'nie składaj' in body['error'].lower()
+        assert '410/08/26/W' in body['error']
+
+    def test_zamowienie_zapisane_pozniej_konczy_blokade(self, aplikacja, klient_http,
+                                                        baselinker):
+        # Gdy handlowiec dopisze zamówienie z panelu, klient ma zobaczyć swoje
+        # zamówienie (duplikat), a nie w kółko komunikat o sprawdzaniu.
+        id_wyceny = _zasiej(status_id=3, is_client_editable=False)
+        with aplikacja.app_context():
+            db.session.add(BaselinkerOrderLog(
+                quote_id=id_wyceny, action='create_order',
+                status=checkout_service.STATUS_PROBA_NIEPEWNA,
+                created_at=datetime(2026, 8, 30, 13, 0)))
+            wycena = Quote.query.get(id_wyceny)
+            wycena.base_linker_order_id = '501'
+            wycena.baselinker_order_page = 'https://blsklep.pl/z/501'
+            db.session.commit()
+
+        odpowiedz = _zamow(klient_http)
+
+        assert odpowiedz.status_code == 200
+        assert odpowiedz.get_json()['duplikat'] is True
+        assert baselinker.wywolania == []
+
+
 class TestKomunikatGdyZamowienieIstniejeAleZapisPadl:
     """Klient nie może przeczytać „NIE zostało złożone" o istniejącym zamówieniu."""
 

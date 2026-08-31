@@ -5,7 +5,7 @@ import json
 from typing import Dict, List, Optional
 from flask import current_app, session, request
 from extensions import db
-from .models import BaselinkerOrderLog, BaselinkerConfig
+from .models import BaselinkerOrderLog, BaselinkerConfig, STATUS_PROBA_NIEPEWNA
 from modules.logging import get_structured_logger
 from datetime import datetime
 
@@ -491,7 +491,25 @@ class BaselinkerService:
                 zapis_uratowany = self._awaryjny_zapis_numeru_zamowienia(
                     quote, baselinker_order_id)
 
-            self._zapisz_blad_w_logu(locals().get('log_entry'), e)
+            # Wyjątek z warstwy transportowej (timeout, zerwane połączenie)
+            # znaczy, że NIE wiemy, czy BaseLinker zdążył utworzyć zamówienie:
+            # żądanie mogło dojść i zostać obsłużone, a zginąć miała tylko
+            # odpowiedź. base_linker_order_id nie zapisze się wtedy na wycenie,
+            # więc ponowienie utworzyłoby DRUGIE realne zamówienie. Każdy inny
+            # wyjątek leci przed wysyłką żądania (np. brak konfiguracji API,
+            # błąd składania danych) — zamówienia na pewno nie ma i powtórka
+            # jest bezpieczna. Po udanym addOrder flaga jest bez znaczenia
+            # (rozstrzyga zamowienie_utworzone), więc trzymamy ją na False,
+            # żeby nie produkować drugiego, sprzecznego komunikatu.
+            niepewne = (not zamowienie_utworzone
+                        and isinstance(e, requests.exceptions.RequestException))
+
+            # Wpis w logu jest jednocześnie TRWAŁYM znacznikiem takiej próby:
+            # czyta go checkout klienta, żeby odświeżenie strony nie kończyło
+            # się drugim zamówieniem (blokada w JavaScripcie znika przy F5).
+            self._zapisz_blad_w_logu(
+                locals().get('log_entry'), e,
+                status=STATUS_PROBA_NIEPEWNA if niepewne else 'error')
 
             self.logger.error("Wyjątek podczas tworzenia zamówienia",
                             quote_id=quote.id,
@@ -524,21 +542,9 @@ class BaselinkerService:
                 # i poprosić o kontakt z numerem wyceny.
                 'zamowienie_utworzone': zamowienie_utworzone,
                 'order_id': baselinker_order_id,
-                # Wyjątek z warstwy transportowej (timeout, zerwane połączenie)
-                # znaczy, że NIE wiemy, czy BaseLinker zdążył utworzyć
-                # zamówienie: żądanie mogło dojść i zostać obsłużone, a zginąć
-                # miała tylko odpowiedź. base_linker_order_id nie zapisze się
-                # wtedy na wycenie, więc ponowienie utworzyłoby DRUGIE realne
-                # zamówienie. Checkout klienta czyta tę flagę i zamiast
-                # zapraszać do ponowienia — prosi o kontakt.
-                # Każdy inny wyjątek leci przed wysyłką żądania (np. brak
-                # konfiguracji API, błąd składania danych) — zamówienia na
-                # pewno nie ma i powtórka jest bezpieczna.
-                # Po udanym addOrder flaga jest bez znaczenia (rozstrzyga
-                # zamowienie_utworzone), więc trzymamy ją na False, żeby nie
-                # produkować drugiego, sprzecznego komunikatu.
-                'niepewne': (not zamowienie_utworzone
-                             and isinstance(e, requests.exceptions.RequestException)),
+                # Checkout klienta czyta tę flagę i zamiast zapraszać
+                # do ponowienia — prosi o kontakt (patrz wyżej).
+                'niepewne': niepewne,
             }
 
     def _awaryjny_zapis_numeru_zamowienia(self, quote, baselinker_order_id):
@@ -576,8 +582,12 @@ class BaselinkerService:
                               error=str(blad_zapisu))
             return False
 
-    def _zapisz_blad_w_logu(self, log_entry, wyjatek):
+    def _zapisz_blad_w_logu(self, log_entry, wyjatek, status='error'):
         """Best-effort dopisanie błędu do BaselinkerOrderLog.
+
+        `status` = STATUS_PROBA_NIEPEWNA dla prób, po których nie wiemy, czy
+        zamówienie powstało — ten wpis jest wtedy jedynym trwałym śladem, po
+        którym checkout klienta pozna, że nie wolno próbować drugi raz.
 
         Ten zapis NIE MOŻE wyjść wyjątkiem: gdy sesja jest zerwana, jego
         niepowodzenie wypychało wyjątek z create_order_from_quote i wywołujący
@@ -587,7 +597,7 @@ class BaselinkerService:
         if log_entry is None:
             return
         try:
-            log_entry.status = 'error'
+            log_entry.status = status
             log_entry.error_message = str(wyjatek)
             db.session.commit()
         except Exception:

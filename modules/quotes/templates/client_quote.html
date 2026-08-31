@@ -116,6 +116,17 @@
                         {% else %}
                         <button type="button" class="cta btn-accept" disabled>Zamówienie złożone</button>
                         {% endif %}
+                        {% elif niepewna_proba %}
+                        {# Poprzednia próba nie została rozstrzygnięta: zamówienie
+                           mogło powstać po stronie BaseLinkera. Przycisku tu nie
+                           ma świadomie — drugie kliknięcie to drugie REALNE
+                           zamówienie. #}
+                        <p class="order-unavailable">
+                            Sprawdzamy, czy Twoje poprzednie zamówienie zostało przyjęte.
+                            Prosimy: nie składaj go ponownie. Skontaktuj się z nami —
+                            biuro@woodpower.pl lub telefonicznie +48 690 002 109 —
+                            i podaj numer wyceny #{{ quote.quote_number }}.
+                        </p>
                         {% else %}
                         <p class="order-unavailable">
                             Tej wyceny nie można w tej chwili zamówić przez stronę.

@@ -70,6 +70,10 @@ def serwis_bl(monkeypatch):
 
     monkeypatch.setattr(checkout_service, "BaselinkerService", _Atrapa)
     monkeypatch.setattr(checkout_service, "zablokuj_wycene", lambda q: q)
+    # Znacznik nierozstrzygniętej próby ma własne testy (niżej, na prawdziwej
+    # sesji) — ta grupa chodzi bez bazy, więc odpowiada „brak takiej próby".
+    monkeypatch.setattr(checkout_service, "istnieje_nierozstrzygnieta_proba",
+                        lambda quote_id: False)
     monkeypatch.setattr(checkout_service.db, "session",
                         SimpleNamespace(rollback=lambda: None))
     return wywolania
@@ -131,6 +135,8 @@ class TestZlozZamowienieKlienta:
 
         monkeypatch.setattr(checkout_service, "BaselinkerService", _AtrapaBledna)
         monkeypatch.setattr(checkout_service, "zablokuj_wycene", lambda q: q)
+        monkeypatch.setattr(checkout_service, "istnieje_nierozstrzygnieta_proba",
+                            lambda quote_id: False)
         monkeypatch.setattr(checkout_service.db, "session",
                             SimpleNamespace(rollback=lambda: None))
 
@@ -160,6 +166,8 @@ class TestZlozZamowienieKlienta:
 
         monkeypatch.setattr(checkout_service, "BaselinkerService", _AtrapaRazBledna)
         monkeypatch.setattr(checkout_service, "zablokuj_wycene", lambda q: q)
+        monkeypatch.setattr(checkout_service, "istnieje_nierozstrzygnieta_proba",
+                            lambda quote_id: False)
         monkeypatch.setattr(checkout_service.db, "session",
                             SimpleNamespace(rollback=lambda: None))
 
@@ -200,10 +208,14 @@ from modules.clients.models import Client  # noqa: E402
 
 import modules.quotes.models  # noqa: E402,F401 — rejestr mapperów
 from modules.quotes.models import QuoteStatus  # noqa: E402
+from modules.baselinker.models import (  # noqa: E402
+    BaselinkerOrderLog, STATUS_PROBA_NIEPEWNA,
+)
 
 _TABELE = [m.__table__ for m in (
     Price, Multiplier, FinishingOption, EdgeOption, CalculatorSetting, User, Client,
     Quote, QuoteItem, QuoteItemDetails, QuoteCounter, QuoteLog, QuoteStatus,
+    BaselinkerOrderLog,
 )]
 
 
@@ -352,4 +364,77 @@ class TestBlokadaWiersza:
         assert drugi["duplikat"] is True
         assert drugi["order_id"] == 888
         assert drugi["order_page_url"] == 'https://blsklep.pl/z/osiem'
+        assert len(wywolania) == 1
+
+
+class TestNierozstrzygnietaProba:
+    """Znacznik trwały tam, gdzie numeru zamówienia jeszcze nie ma.
+
+    Po timeoucie BaseLinkera nie wiemy, czy zamówienie powstało, i nie mamy
+    jego numeru — guard idempotencji jest wtedy ślepy. Blokadę trzymał tylko
+    JavaScript, a odświeżenie strony kasowało ją w całości.
+    """
+
+    def _atrapa(self, monkeypatch, wywolania):
+        class _Atrapa:
+            def __init__(self, *a, **k):
+                pass
+
+            def create_order_from_quote(self, quote, user_id, config):
+                wywolania.append(config)
+                quote.base_linker_order_id = '999'
+                db.session.commit()
+                return {"success": True, "order_id": 999}
+
+        monkeypatch.setattr(checkout_service, "BaselinkerService", _Atrapa)
+
+    def _znacznik(self, quote_id, status=STATUS_PROBA_NIEPEWNA):
+        db.session.add(BaselinkerOrderLog(
+            quote_id=quote_id, action='create_order', status=status))
+        db.session.commit()
+
+    def test_nierozstrzygnieta_proba_nie_wpuszcza_do_baselinkera(
+            self, aplikacja, monkeypatch):
+        wywolania = []
+        self._atrapa(monkeypatch, wywolania)
+        wycena = _zasiej_wycene(numer='403/08/26/W',
+                                token='TOKENIDEMPOTENCJA0000000000004')
+        self._znacznik(wycena.id)
+
+        wynik = checkout_service.zloz_zamowienie_klienta(
+            wycena, order_source_id=99001, bot_user_id=None)
+
+        assert wynik["ok"] is False
+        assert wynik["error"] == "NIEPEWNA_PROBA"
+        assert wynik["niepewne"] is True
+        assert wywolania == [], "drugie realne zamówienie w BaseLinkerze"
+
+    def test_zwykly_blad_nie_blokuje_kolejnej_proby(self, aplikacja, monkeypatch):
+        # Kontrola negatywna: wpis 'error' znaczy „zamówienia na pewno nie ma",
+        # więc powtórka po nim musi przechodzić.
+        wywolania = []
+        self._atrapa(monkeypatch, wywolania)
+        wycena = _zasiej_wycene(numer='404/08/26/W',
+                                token='TOKENIDEMPOTENCJA0000000000005')
+        self._znacznik(wycena.id, status='error')
+
+        wynik = checkout_service.zloz_zamowienie_klienta(
+            wycena, order_source_id=99001, bot_user_id=None)
+
+        assert wynik["ok"] is True
+        assert len(wywolania) == 1
+
+    def test_znacznik_z_innej_wyceny_nie_blokuje(self, aplikacja, monkeypatch):
+        wywolania = []
+        self._atrapa(monkeypatch, wywolania)
+        obca = _zasiej_wycene(numer='405/08/26/W',
+                              token='TOKENIDEMPOTENCJA0000000000006')
+        wycena = _zasiej_wycene(numer='406/08/26/W',
+                                token='TOKENIDEMPOTENCJA0000000000007')
+        self._znacznik(obca.id)
+
+        wynik = checkout_service.zloz_zamowienie_klienta(
+            wycena, order_source_id=99001, bot_user_id=None)
+
+        assert wynik["ok"] is True
         assert len(wywolania) == 1

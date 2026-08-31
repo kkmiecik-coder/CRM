@@ -1174,6 +1174,17 @@ def client_quote_view(token):
         mozna_zamowic = (not ma_zamowienie) and bool(
             quote.is_client_editable or quote.is_eligible_for_order())
 
+        # Po próbie, po której nie wiemy, czy zamówienie powstało, przycisku
+        # nie ma. Blokada w JavaScripcie znikała przy odświeżeniu strony —
+        # a klient, który przeczytał „nie wiemy", odruchowo odświeża. Pytamy
+        # bazę tylko wtedy, gdy przycisk faktycznie by się pokazał.
+        from modules.quotes.services.checkout_service import (
+            istnieje_nierozstrzygnieta_proba)
+        niepewna_proba = bool(mozna_zamowic
+                              and istnieje_nierozstrzygnieta_proba(quote.id))
+        if niepewna_proba:
+            mozna_zamowic = False
+
         return render_template("quotes/templates/client_quote.html",
                              quote=quote,
                              quote_number=quote_number,
@@ -1181,6 +1192,7 @@ def client_quote_view(token):
                              is_accepted=not quote.is_client_editable,
                              ma_zamowienie=ma_zamowienie,
                              mozna_zamowic=mozna_zamowic,
+                             niepewna_proba=niepewna_proba,
                              link_zamowienia=quote.baselinker_order_page,
                              costs=costs,
                              current_year=current_year)

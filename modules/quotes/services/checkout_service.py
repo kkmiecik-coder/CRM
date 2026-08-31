@@ -24,9 +24,34 @@ Uwaga: `getOrders` po order_page leci JUŻ PO tym commicie, więc drugiego
 okna 30 s pod blokadą nie ma.
 """
 from extensions import db
+from modules.baselinker.models import BaselinkerOrderLog, STATUS_PROBA_NIEPEWNA
 from modules.baselinker.service import BaselinkerService
 from modules.calculator.models import Quote
 from modules.quotes.services.checkout_config import build_checkout_order_config
+
+__all__ = ['STATUS_PROBA_NIEPEWNA', 'zablokuj_wycene',
+           'istnieje_nierozstrzygnieta_proba', 'zloz_zamowienie_klienta']
+
+
+def istnieje_nierozstrzygnieta_proba(quote_id):
+    """Czy na wycenie wisi próba zamówienia, której losu nie znamy.
+
+    To jest znacznik trwały — w odróżnieniu od blokady w JavaScripcie, którą
+    odświeżenie strony kasowało w całości. Po timeoucie numer zamówienia nie
+    zapisuje się na wycenie, więc guard idempotencji jest ślepy: bez tego
+    znacznika F5 po komunikacie „nie wiemy" przywracał aktywny przycisk
+    i kończył się DRUGIM realnym zamówieniem.
+
+    Znacznik zdejmuje się sam w chwili, w której wycena dostaje numer
+    zamówienia (guard duplikatu rozstrzyga wcześniej). Gdy zamówienia jednak
+    nie było, sprawę zamyka człowiek — zgodnie z komunikatem, który klient
+    dostał: „skontaktuj się z nami".
+    """
+    return db.session.query(BaselinkerOrderLog.id).filter_by(
+        quote_id=quote_id,
+        action='create_order',
+        status=STATUS_PROBA_NIEPEWNA,
+    ).first() is not None
 
 
 def zablokuj_wycene(quote):
@@ -111,6 +136,11 @@ def zloz_zamowienie_klienta(quote, order_source_id, bot_user_id,
             order_page_url=zablokowana.baselinker_order_page,
             duplikat=True,
         )
+
+    # Po nierozstrzygniętej próbie NIE wolno strzelać do BaseLinkera drugi raz:
+    # tamto zamówienie mogło powstać, a my nie mamy jak tego sprawdzić.
+    if istnieje_nierozstrzygnieta_proba(zablokowana.id):
+        return _odpowiedz(False, error="NIEPEWNA_PROBA", niepewne=True)
 
     if not zablokowana.is_eligible_for_order():
         return _odpowiedz(False, error="NIEKWALIFIKOWANA")
