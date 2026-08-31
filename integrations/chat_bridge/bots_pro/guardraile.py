@@ -49,9 +49,8 @@ _KWOTA_WALUTA_LICZBA = re.compile(r"\b%s%s(%s)" % (_WALUTA, _ODSTEP, _LICZBA), r
 # Trzy warunki naraz — dopiero komplet robi z gołej liczby „kwotę":
 #   1. liczba stoi BEZPOŚREDNIO przy słowie cenowym (najwyżej jedno słowo
 #      wtrącone, i to z zamkniętej listy zwrotów przybliżających),
-#   2. jest WIĘKSZA niż próg — „razem 3 pozycje" i „łącznie 12 sztuk" to rzeczy
-#      policzalne, nie ceny; próg 100 zł jest niżej niż jakakolwiek realna suma
-#      wyceny blatu, a wyżej niż typowe liczebniki, terminy i liczby sztuk,
+#   2. jest WIĘKSZA niż próg (`_PROG_GOLEJ_KWOTY`, 50 zł — patrz jego komentarz):
+#      „razem 3 pozycje" i „łącznie 12 sztuk" to rzeczy policzalne, nie ceny,
 #   3. NIE ma tuż za sobą jednostki (cm/mm/szt./dni/kg/%) — „Razem 240 cm
 #      długości" nadal nie jest kwotą.
 # Wymiary („180x60x4") wypadają wcześniej, na granicy słowa: po liczbie stoi
@@ -83,7 +82,17 @@ _JEDNOSTKA_ZA_LICZBA = re.compile(r"[ \xa0 ]*%s(?!\w)" % _JEDNOSTKI, re.IGNORECA
 # Poniżej tego progu goła liczba przy słowie cenowym to prawie zawsze liczebnik
 # ("razem 3 pozycje"), nie kwota. Kwoty ZNANE rejestrowi i tak nie są
 # naruszeniem, więc próg ogranicza wyłącznie zasięg wykrywania halucynacji.
-_PROG_GOLEJ_KWOTY = 100.0
+#
+# R2 (recenzja końcowa, runda 2): 50, nie 100. Setka była wybrana bez oparcia w
+# danych i przepuszczała zmyślone kwoty poniżej — a cennik WoodPower ma REALNE
+# pozycje w tym przedziale (opcja wycięcia w blacie: 81,30 zł), więc „dopłata 90"
+# wygląda dla klienta całkowicie wiarygodnie. Obniżka nie dokłada fałszywych
+# alarmów: liczby 50-100 pojawiają się w odpowiedziach bota głównie jako WYMIARY
+# (szerokość, grubość, długość), ilości i terminy — a te odsiewa filtr jednostki
+# (`_JEDNOSTKA_ZA_LICZBA`) i granica słowa przy „x" w zapisie wymiarów; numery
+# telefonu zapisane grupami są dla regexu jedną liczbą (500 123 456) i tak czy
+# owak nie sąsiadują ze słowem cenowym. Komplet dowodów: TestProgGolejKwoty.
+_PROG_GOLEJ_KWOTY = 50.0
 
 
 def _normalizuj_liczbe(tekst):

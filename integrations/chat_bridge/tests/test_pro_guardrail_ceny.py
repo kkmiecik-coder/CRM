@@ -184,3 +184,57 @@ class TestGolaKwotaPrzySlowieCenowym:
 
     def test_zaokraglona_kwota_z_rejestru_bez_waluty_przechodzi(self):
         assert g.sprawdz_ceny("Razem około 843 brutto", {"843.04"}) == []
+
+
+class TestProgGolejKwoty:
+    """R2 (recenzja końcowa, runda 2): próg 100 zł był wybrany „z palca" i
+    przepuszczał zmyślone kwoty poniżej — a w cenniku WoodPower są realne
+    pozycje w tym przedziale (opcja wycięcia w blacie: 81,30 zł). Próg to 50 zł:
+    niżej niż najtańsza realna pozycja cennika, wyżej niż liczebniki, którymi
+    bot się posługuje."""
+
+    def test_prog_wynosi_50(self):
+        assert g._PROG_GOLEJ_KWOTY == 50.0
+
+    @pytest.mark.parametrize("tekst,oczekiwana", [
+        # Sonda z recenzji: przy progu 100 ta zmyslona doplata przechodzila.
+        ("Dopłata 90", "90.00"),
+        # Realna pozycja cennika (wyciecie w blacie 81,30 zl) — zmyslona przez
+        # model kwota w tym przedziale wyglada wiarygodnie, wiec musi byc lapana.
+        ("Opcja wycięcia kosztuje 81,30", "81.30"),
+        ("Razem 55 brutto", "55.00"),
+    ])
+    def test_przedzial_50_100_jest_teraz_lapany(self, tekst, oczekiwana):
+        assert g.sprawdz_ceny(tekst, set()) == [oczekiwana]
+
+    @pytest.mark.parametrize("tekst", [
+        # WYMIARY — liczby 50-100 sa tu najczestsze ze wszystkich (szerokosc
+        # blatu, grubosc, dlugosc parapetu), wiec to najwazniejszy test progu.
+        "Blat 90x60x4 cm",
+        "Razem 90 cm długości",
+        "Łącznie 80 cm szerokości",
+        "Szerokość maksymalnie 90 cm",
+        # ILOSCI.
+        "Razem 60 sztuk",
+        "Łącznie 75 szt.",
+        # DNI (terminy realizacji).
+        "Termin to 60 dni",
+        "Razem 90 dni roboczych",
+        # NUMERY TELEFONU — polski numer zapisany grupami ("500 123 456") jest
+        # dla regexu JEDNA liczba grupowana, wiec prog go nie dotyczy w ogole;
+        # liczy sie brak slowa cenowego w sasiedztwie.
+        "Proszę o kontakt: 500 123 456",
+        "Numer telefonu to 600 700 800",
+        "Zostawiam numer 89 123 45 67",
+        # Rok i liczebnik ponizej progu — kontrola, ze nic sie nie zmienilo.
+        "Cena obowiązuje do 2026 roku",
+        "Razem 3 pozycje",
+    ])
+    def test_prog_50_nie_lapie_wymiarow_ilosci_dni_ani_telefonow(self, tekst):
+        assert g.sprawdz_ceny(tekst, set()) == []
+
+    def test_ponizej_progu_nadal_przechodzi_swiadomie(self):
+        # Udokumentowana granica mechanizmu: gola liczba ponizej 50 zl przy slowie
+        # cenowym nadal nie jest naruszeniem. To swiadomy kompromis — ponizej tego
+        # progu liczebniki ("razem 12 sztuk", "3 pozycje") sa czestsze niz kwoty.
+        assert g.sprawdz_ceny("Dopłata 40", set()) == []
