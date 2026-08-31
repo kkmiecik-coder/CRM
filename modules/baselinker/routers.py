@@ -139,6 +139,29 @@ def create_order(quote_id):
                             notes=quote.notes,  # ✅ DODANE: Dodaj do logowania
                             has_notes=bool(quote.notes and quote.notes.strip()))
         
+        # Wycena, która ma już zamówienie, nie może dostać drugiego.
+        # Bez tego guardu ponowne kliknięcie „Zamów" w panelu tworzyło DRUGIE
+        # realne zamówienie w BaseLinkerze, nadpisywało base_linker_order_id
+        # ORAZ baselinker_order_page — czyli link, który klient już dostał na
+        # swojej stronie wyceny, zaczynał wskazywać cudze zamówienie,
+        # a pierwsze zostawało osierocone. Odmowa zamiast cichego nadpisania:
+        # zamówienia w BaseLinkerze nie da się cofnąć jednym ruchem, więc
+        # o powtórce musi zdecydować człowiek, po sprawdzeniu, co tam jest.
+        if quote.base_linker_order_id:
+            baselinker_logger.warning("Próba ponownego zamówienia wyceny, która ma "
+                                      "już zamówienie",
+                                      quote_id=quote_id,
+                                      quote_number=quote.quote_number,
+                                      baselinker_order_id=quote.base_linker_order_id)
+            return jsonify({
+                'success': False,
+                'order_id': quote.base_linker_order_id,
+                'error': 'Ta wycena ma już zamówienie w BaseLinkerze (nr {numer}). '
+                         'Ponowne złożenie utworzyłoby drugie zamówienie i podmieniło '
+                         'link, który dostał klient. Sprawdź zamówienie {numer} '
+                         'w BaseLinkerze.'.format(numer=quote.base_linker_order_id)
+            }), 409
+
         # Sprawdź czy wycena ma wybrane produkty
         selected_items = [item for item in quote.items if item.is_selected]
         if not selected_items:
