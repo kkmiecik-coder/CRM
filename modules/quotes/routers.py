@@ -2128,8 +2128,15 @@ def client_accept_quote_with_data(token):
         if len(phone_digits) < 9 or len(phone_digits) > 15:
             return jsonify({"error": "Nieprawidłowy numer telefonu"}), 400
 
-        # Pobierz dodatkowe dane z formularza
-        is_self_pickup = data.get('is_self_pickup', False)
+        # Pobierz dodatkowe dane z formularza.
+        # Odbiór osobisty czytamy TĄ SAMĄ funkcją co checkout (czy_odbior_osobisty),
+        # bo obie ścieżki idą z jednego formularza i muszą rozumieć go tak samo.
+        # Dopóki tu było data.get('is_self_pickup', False), napis 'false' był
+        # PRAWDĄ: akceptacja zapisywała klientowi na stałe adres „ODBIÓR
+        # OSOBISTY", checkout czytał ściśle („kurier") i odmawiał — a odmowa
+        # dotyczyła potem KAŻDEJ kolejnej, uczciwej próby, bo znacznik został
+        # na współdzielonym rekordzie klienta.
+        is_self_pickup = czy_odbior_osobisty(data)
         wants_invoice = data.get('wants_invoice', False)
         invoice_nip = data.get('invoice_nip', '').strip() if wants_invoice else None
 
@@ -2342,6 +2349,18 @@ def czy_odbior_osobisty(dane):
     return bool(wartosc)
 
 
+def dane_dostawy_z_zadania(dane):
+    """Pola adresu dostawy z żądania zamówienia — surowe, bez interpretacji.
+
+    Te same nazwy pól, których używa akceptacja wyceny
+    (client_accept_quote_with_data). Rozstrzyganie, czy wolno ich użyć, siedzi
+    w jednym miejscu — checkout_config.rozstrzygnij_odbior_osobisty — a nie tu.
+    """
+    return {klucz: dane.get(klucz) for klucz in
+            ('delivery_name', 'delivery_company', 'delivery_address',
+             'delivery_postcode', 'delivery_city', 'delivery_region')}
+
+
 @quotes_bp.route("/api/client/quote/<token>/order", methods=["POST"])
 def client_place_order(token):
     """Cienka obudowa na _client_place_order — gwarantuje odpowiedź w JSON-ie.
@@ -2486,6 +2505,10 @@ def _client_place_order(token):
         # Bez przekazania go dalej zamówienie jechało kurierem i z kosztem
         # dostawy mimo zaznaczonego odbioru osobistego.
         is_self_pickup=czy_odbior_osobisty(data),
+        # Adres z formularza. Używany WYŁĄCZNIE wtedy, gdy wycena kurierska
+        # musi przebić stary znacznik odbioru osobistego z rekordu klienta —
+        # inaczej jedyną odpowiedzią na taką wycenę byłaby odmowa.
+        dane_dostawy_z_formularza=dane_dostawy_z_zadania(data),
     )
 
     if not wynik["ok"]:
@@ -2581,17 +2604,29 @@ def _client_place_order(token):
 
 @quotes_bp.route("/api/client/quote/<token>/validate-contact", methods=["POST"])
 def validate_client_contact(token):
-    """Waliduje dane kontaktowe klienta przed przejściem do następnego kroku"""
+    """Waliduje dane kontaktowe klienta przed przejściem do następnego kroku.
+
+    ŚWIADOMIE BEZ BRAMKI `is_client_editable`. Ten endpoint niczego nie
+    zapisuje — sprawdza wyłącznie, czy podany email albo telefon pasuje do
+    klienta wyceny. Dopóki odrzucał wyceny już zaakceptowane, gasił CAŁĄ
+    ścieżkę zamawiania dla takiej wyceny: krok 1 modala (jedyne wejście do
+    składania zamówienia) na odpowiedzi 400 nie przechodził dalej, choć strona
+    pokazywała aktywny przycisk „Zamów" właśnie dla tego stanu. Wystarczyło
+    jedno potknięcie BaseLinkera — wycena zostaje zaakceptowana, zamówienia
+    brak — żeby klient został z zaproszeniem „spróbuj ponownie", którego nie da
+    się wykonać. Dokładnie tu utknął właściciel.
+
+    Blokady, które ZOSTAJĄ (i mają zostać): edycja wariantów
+    (client_update_variant → 403) i sama akceptacja (client_accept_quote_*
+    → 400). Wycena zaakceptowana jest niezmienna — ale nadal zamawialna.
+    """
     try:
         data = request.get_json()
-        
+
         quote = Quote.query.filter_by(public_token=token).first()
         if not quote:
             return jsonify({"error": "Nie znaleziono wyceny"}), 404
-        
-        if not quote.is_client_editable:
-            return jsonify({"error": "Wycena została już zaakceptowana"}), 400
-        
+
         email = data.get('email', '').strip().lower()
         phone = data.get('phone', '').strip()
         

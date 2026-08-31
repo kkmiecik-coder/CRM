@@ -824,7 +824,20 @@ class TestProbaWToku:
 
 
 class TestKonfliktSposobuDostawy:
-    """N6: formularz mówi „kurier", a na kliencie siedzi znacznik odbioru."""
+    """N6: formularz mówi „kurier", a na kliencie siedzi znacznik odbioru.
+
+    ZMIANA ZAKRESU (N-C). Ten test przypinał odmowę także dla wyceny, która
+    NIESIE własnego kuriera — a taka wycena ma się dziś zamówić kurierem, jak
+    w wycenie (patrz TestKurierJakWWycenieWEndpoincie). Powód: znacznik odbioru
+    siedzi na współdzielonym rekordzie klienta i zostaje tam po każdej wycenie
+    odebranej osobiście, więc odmowa trafiała również w wyceny kurierskie,
+    z odbiorem osobistym niezwiązane — a jedyną alternatywą było zamówienie
+    z zerowym kosztem dostawy.
+
+    Odmowa ZOSTAJE tam, gdzie naprawdę nie ma czym rozstrzygnąć: wycena bez
+    kuriera. Wtedy oba źródła milczą albo mówią „odbiór", a formularz sam nie
+    wymyśli, czym i za ile przesyłka miałaby pojechać.
+    """
 
     def test_kurier_przy_znaczniku_odbioru_konczy_sie_odmowa(
             self, aplikacja, klient_http, baselinker):
@@ -833,6 +846,11 @@ class TestKonfliktSposobuDostawy:
             klient = Client.query.first()
             klient.delivery_address = 'ODBIÓR OSOBISTY'
             klient.delivery_city = 'ODBIÓR OSOBISTY'
+            wycena = Quote.query.filter_by(public_token=TOKEN).first()
+            # Wycena nie niesie własnych danych dostawy — nie ma czym przebić
+            # znacznika z rekordu klienta.
+            wycena.courier_name = None
+            wycena.shipping_cost_brutto = 0
             db.session.commit()
 
         odpowiedz = _zamow(klient_http, is_self_pickup=False,
@@ -887,3 +905,156 @@ class TestFlagaOdbioruZFormularza:
 
         assert odpowiedz.status_code == 200
         assert baselinker.wywolania[0]['config']['delivery_method'] == 'Odbiór osobisty'
+
+
+def _waliduj_kontakt(klient_http, token=TOKEN, **nadpisania):
+    dane = {'email': 'jan@example.pl', 'phone': '601234567'}
+    dane.update(nadpisania)
+    return klient_http.post(
+        f'/quotes/api/client/quote/{token}/validate-contact', json=dane)
+
+
+class TestKrokKontaktowyNaWycenieZaakceptowanej:
+    """N-A: pierwszy krok modala musi wpuścić klienta z wyceny zaakceptowanej.
+
+    Strona pokazuje przycisk „Zamów" dokładnie dla takich wycen (mozna_zamowic),
+    a modal odbijał się o /validate-contact z komunikatem „Wycena została już
+    zaakceptowana". Innego wejścia do składania zamówienia nie ma, więc jedno
+    potknięcie BaseLinkera (wycena zostaje zaakceptowana, zamówienia brak)
+    trwale odcinało klienta od samoobsługi — dokładnie stan, na którym utknął
+    właściciel. Endpoint niczego nie zapisuje: sprawdza wyłącznie, czy podane
+    dane kontaktowe pasują do klienta wyceny.
+    """
+
+    def test_zaakceptowana_wycena_przepuszcza_krok_kontaktowy(
+            self, aplikacja, klient_http):
+        _zasiej(status_id=3, is_client_editable=False)
+
+        odpowiedz = _waliduj_kontakt(klient_http)
+
+        assert odpowiedz.status_code == 200
+        assert odpowiedz.get_json()['success'] is True
+
+    def test_edytowalna_wycena_dalej_przechodzi(self, aplikacja, klient_http):
+        _zasiej()
+
+        assert _waliduj_kontakt(klient_http).status_code == 200
+
+    def test_obce_dane_dalej_odbijaja_sie_takze_na_zaakceptowanej(
+            self, aplikacja, klient_http):
+        # Bramka tożsamości nie może zniknąć razem z blokadą: to ona strzeże
+        # danych klienta w kroku 2 modala.
+        _zasiej(status_id=3, is_client_editable=False)
+
+        odpowiedz = _waliduj_kontakt(klient_http, email='ktos@obcy.pl',
+                                     phone='509999999')
+
+        assert odpowiedz.status_code == 403
+
+    def test_edycja_wariantow_na_zaakceptowanej_wycenie_dalej_zablokowana(
+            self, aplikacja, klient_http):
+        # Odblokowanie kroku kontaktowego NIE może otworzyć edycji wyceny:
+        # to dwa różne uprawnienia i tylko jedno z nich klientowi przysługuje.
+        id_wyceny = _zasiej(status_id=3, is_client_editable=False)
+        with aplikacja.app_context():
+            pozycja = QuoteItem.query.filter_by(quote_id=id_wyceny).first()
+            id_pozycji = pozycja.id
+
+        odpowiedz = klient_http.patch(
+            f'/quotes/api/client/quote/{TOKEN}/update-variant',
+            json={'item_id': id_pozycji})
+
+        assert odpowiedz.status_code == 403
+
+    def test_akceptacja_zaakceptowanej_wyceny_dalej_odmawia(self, aplikacja,
+                                                            klient_http):
+        # Druga bramka, która ma zostać: dane akceptacji zapisuje się raz.
+        _zasiej(status_id=3, is_client_editable=False)
+
+        odpowiedz = klient_http.post(
+            f'/quotes/api/client/quote/{TOKEN}/accept-with-data',
+            json=_dane())
+
+        assert odpowiedz.status_code == 400
+
+
+class TestZgodnoscCzytaniaOdbioruZAkceptacja:
+    """N-D: akceptacja i checkout muszą czytać `is_self_pickup` tak samo.
+
+    Akceptacja czytała `data.get('is_self_pickup', False)`, więc napis 'false'
+    był dla niej PRAWDĄ: zapisywała klientowi na stałe adres „ODBIÓR OSOBISTY",
+    checkout czytał ściśle („kurier") i odmawiał. Każda kolejna, uczciwa próba
+    też kończyła się odmową — bo znacznik został na współdzielonym rekordzie
+    klienta i odpięcie zamówienia go nie zdejmuje.
+    """
+
+    def test_napis_false_nie_znakuje_klienta_odbiorem(self, aplikacja,
+                                                      klient_http, baselinker):
+        _zasiej(status_id=1, is_client_editable=True)
+
+        odpowiedz = _zamow(klient_http, is_self_pickup='false',
+                           delivery_name='Jan Testowy',
+                           delivery_address='Nowa 5',
+                           delivery_postcode='00-001',
+                           delivery_city='Warszawa')
+
+        assert odpowiedz.status_code == 200
+        with aplikacja.app_context():
+            klient = Client.query.first()
+            assert klient.delivery_address == 'Nowa 5'
+            assert klient.delivery_city == 'Warszawa'
+
+    def test_prawdziwy_odbior_nadal_znakuje_klienta(self, aplikacja, klient_http,
+                                                    baselinker):
+        # Kontrola negatywna: ścisłe czytanie nie może zjeść prawdziwego wyboru.
+        _zasiej(status_id=1, is_client_editable=True)
+
+        odpowiedz = _zamow(klient_http, is_self_pickup=True)
+
+        assert odpowiedz.status_code == 200
+        with aplikacja.app_context():
+            assert Client.query.first().delivery_address == 'ODBIÓR OSOBISTY'
+
+
+class TestKurierJakWWycenieWEndpoincie:
+    """N-C: wycena kurierska + stary znacznik odbioru na kliencie.
+
+    Modal zaznaczał „odbiór osobisty" wyłącznie na podstawie współdzielonego
+    rekordu klienta, więc wycena z kurierem i kosztem 123 zł jechała do
+    BaseLinkera jako odbiór osobisty z zerową dostawą; odznaczenie pola kończyło
+    się odmową. Trzecie wyjście — „kurier jak w wycenie" — rozstrzyga to
+    danymi wyceny, a adres bierze z formularza, nie ze znacznika.
+    """
+
+    def _zasiej_ze_znacznikiem(self):
+        id_wyceny = _zasiej(status_id=3, is_client_editable=False)
+        klient = Client.query.first()
+        klient.delivery_address = 'ODBIÓR OSOBISTY'
+        klient.delivery_city = 'ODBIÓR OSOBISTY'
+        db.session.commit()
+        return id_wyceny
+
+    def test_kurier_z_wyceny_zamawia_zamiast_odmawiac(self, aplikacja,
+                                                      klient_http, baselinker):
+        self._zasiej_ze_znacznikiem()
+
+        odpowiedz = _zamow(klient_http, is_self_pickup=False,
+                           delivery_name='Jan Testowy',
+                           delivery_address='Nowa 5',
+                           delivery_postcode='00-001',
+                           delivery_city='Warszawa')
+
+        assert odpowiedz.status_code == 200
+        config = baselinker.wywolania[0]['config']
+        assert config['delivery_method'] == 'DPD'
+        assert config['shipping_cost_override'] == 123.0
+        assert config['delivery_override']['delivery_address'] == 'Nowa 5'
+
+    def test_bez_adresu_w_formularzu_zostaje_odmowa(self, aplikacja, klient_http,
+                                                    baselinker):
+        self._zasiej_ze_znacznikiem()
+
+        odpowiedz = _zamow(klient_http, is_self_pickup=False)
+
+        assert odpowiedz.status_code == 400
+        assert baselinker.wywolania == []
