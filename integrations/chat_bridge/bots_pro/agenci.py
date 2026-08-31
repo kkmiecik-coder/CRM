@@ -36,7 +36,7 @@ korzyści.
 from agents import Agent, set_tracing_disabled
 
 from config import BOT_PRO_TRACING
-from bots_pro import prompty, stan
+from bots_pro import prompty, stan, wysylka
 from bots_pro.models import model_dla_roli
 from bots_pro.narzedzia import NARZEDZIA_WYCENY, oddaj_czlowiekowi
 
@@ -70,10 +70,22 @@ def zbuduj_agenta_wyceny():
 
     Dane trafiają WYŁĄCZNIE do agenta Wyceny: to on prosi o e-mail i telefon
     (Wiedza i Posprzedaż nie mają narzędzi zapisu wyceny), a Router ma budżet
-    400 tokenów i do wyboru agenta adres klienta jest mu zbędny."""
+    400 tokenów i do wyboru agenta adres klienta jest mu zbędny.
+
+    P1 (runda napraw 4): blok NIEZDECYDOWANY KLIENT doklejany jest WYŁĄCZNIE na
+    kanałach, na których wolno wysłać link — obiecuje, że klient sam wybierze
+    wariant na stronie wyceny, a na Allegro tej strony nie zobaczy (patrz
+    komentarz przy `prompty.WYBOR_W_WYCENIE`). Ta sama bramka co dla
+    `podsumowanie.ZDANIE_O_WARIANTACH`. Persona tury jest już ustawiona, bo
+    `tura.uruchom` woła `stan.ustaw_kontekst` przed `zbuduj_router()`; poza turą
+    (testy, budowa agenta bez kontekstu) `stan.persona()` jest None, a
+    `caps_for(None)` oddaje DEFAULT_CAPS z links=True — czyli wariant NAJDŁUŻSZY,
+    ten, który mierzy sufit budżetu promptu."""
     return Agent(
         name="Wycena",
         instructions=(prompty.ROLA + "\n\n" + prompty.WYCENA
+                      + prompty.blok_wyboru_w_wycenie(
+                          wysylka.wolno_linkowac(stan.persona()))
                       + prompty.blok_danych_klienta(stan.kontakt())),
         model=model_dla_roli("wycena"),
         tools=NARZEDZIA_WYCENY,

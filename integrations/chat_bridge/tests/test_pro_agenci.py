@@ -102,13 +102,31 @@ class TestAgentWyceny:
         #     odpowie" model czytal jako licencje na przekazanie PO odpowiedzi,
         #     czyli dokladnie na obserwowana sekwencje: zapytaj, poczekaj,
         #     przekaz.
-        # Prog ma nadal 433 znaki zapasu ponad NAJGORSZY przypadek po tej
-        # rundzie (9067 zn = 8765 + 302 zn sekcji DANE KLIENTA) — tyle samo co
-        # po rundzie 2 — i dalej jest ok. 50% dlugosci STAREGO promptu (8203 zn
-        # kontraktu formatu + 10416 zn regul). Kolejne podniesienie ma byc
-        # rownie jawne: z lista tego, co doszlo, i po co.
+        # RUNDA NAPRAW 4: prog podniesiony 9500 -> 9950. JEDNA pozycja, 454 znaki
+        # ponad stan po rundzie 3 (ROLA+WYCENA 8765 zn + blok 454 zn = 9219 zn):
+        #   - NIEZDECYDOWANY KLIENT (P1, 454 zn, `prompty.WYBOR_W_WYCENIE`) —
+        #     rozstrzygniecie wlasciciela: „jak klient nie jest zdecydowany na
+        #     gatunek czy technologie, to bot sam proponuje pokazanie wszystkich
+        #     wariantow – cen – dopiero klient wybiera". Sekcja PORÓWNANIE
+        #     z rundy 3 wyzwala sie PROSBA o porownanie, a klient z zywego czatu
+        #     o porownanie nie prosil („nie wiem czy dab czy jesion, co
+        #     polecasz") — brakowal wiec sam WYZWALACZ i obietnica, ze wyboru
+        #     dokona klient na stronie wyceny.
+        # Blok jest BRAMKOWANY kanalem (`prompty.blok_wyboru_w_wycenie`
+        # + `wysylka.wolno_linkowac`) — na Allegro go NIE MA, wiec ten test
+        # mierzy wariant NAJDLUZSZY (bez kontekstu rozmowy persona jest None,
+        # a `caps_for(None)` oddaje DEFAULT_CAPS z links=True).
+        # PRZEFORMULOWANIE ZAMIAST DOPISYWANIA, tak jak nakazywalo zlecenie:
+        # regula w naturalnym brzmieniu miala ok. 600 znakow; skrocona zostala
+        # przez ODWOLANIE do sekcji PORÓWNANIE zamiast powtorzenia jej zakazow
+        # (zero kwot, zadnego zestawienia w czacie, zadnego przekazania rozmowy).
+        # Zadna cudza regula nie zostala skrocona ani wycieta.
+        # Prog ma 429 znakow zapasu ponad NAJGORSZY przypadek po tej rundzie
+        # (9521 zn = 8765 + 454 + 302 zn sekcji DANE KLIENTA) — praktycznie tyle
+        # samo co po rundzie 2 (412) i 3 (433), wiec pilnuje dokladnie tak samo.
+        # Kolejne podniesienie ma byc rownie jawne: z lista tego, co doszlo, i po co.
         agent = agenci.zbuduj_agenta_wyceny()
-        assert len(agent.instructions) < 9500
+        assert len(agent.instructions) < 9950
 
 
 class TestAgentWiedzy:
@@ -237,4 +255,49 @@ class TestN6KontaktWPrompcieAgentaWyceny:
         maks = "x" * prompty._MAX_DLUGOSC_POLA
         self._z_kontaktem(monkeypatch, {"name": maks, "email": maks, "phone": maks})
         agent = agenci.zbuduj_agenta_wyceny()
-        assert len(agent.instructions) < 9500
+        assert len(agent.instructions) < 9950
+
+
+class TestP1RegulaWyboruWWycenieBramkowanaKanalem:
+    """Runda napraw 4, P1: reguła „klient nie musi wybierać teraz, bo wybierze
+    w wycenie" jest obietnicą, która ma pokrycie WYŁĄCZNIE tam, gdzie klient
+    dostanie link do wyceny. Na Allegro regulamin zabrania kierowania
+    kupującego poza platformę (`ALLEGRO_CAPS['links'] = False`), a wycena idzie
+    do konsultanta w prywatnej notatce — obietnica byłaby bez pokrycia.
+
+    Bramkowanie jest DOKŁADNIE takie samo jak dla `podsumowanie.
+    ZDANIE_O_WARIANTACH` z rundy 3: `wysylka.wolno_linkowac(stan.persona())`.
+    Prompt jest składany raz na turę (`tura.uruchom` -> `zbuduj_router` ->
+    `zbuduj_agenta_wyceny`), więc persona tury jest już wtedy ustawiona."""
+
+    def _z_persona(self, monkeypatch, persona):
+        monkeypatch.setattr(agenci.stan, "persona", lambda: persona)
+
+    def test_livechat_dostaje_regule(self):
+        # Bez kontekstu rozmowy persona jest None -> DEFAULT_CAPS (links=True).
+        agent = agenci.zbuduj_agenta_wyceny()
+        assert "NIEZDECYDOWANY KLIENT." in agent.instructions
+
+    def test_olx_dostaje_regule(self, monkeypatch):
+        # OLX linki DOPUSZCZA — tam link do wyceny jest głównym sposobem
+        # przekazania szczegółów (patrz OLX_CAPS w bots/channel_caps.py).
+        self._z_persona(monkeypatch, "quote_olx")
+        agent = agenci.zbuduj_agenta_wyceny()
+        assert "NIEZDECYDOWANY KLIENT." in agent.instructions
+
+    def test_allegro_reguly_NIE_dostaje(self, monkeypatch):
+        self._z_persona(monkeypatch, "quote_allegro")
+        agent = agenci.zbuduj_agenta_wyceny()
+        assert "NIEZDECYDOWANY KLIENT." not in agent.instructions
+
+    def test_reszta_promptu_na_allegro_zostaje_nietknieta(self, monkeypatch):
+        # Kontrola negatywna: bramkujemy JEDEN blok, nie okrajamy promptu.
+        self._z_persona(monkeypatch, "quote_allegro")
+        agent = agenci.zbuduj_agenta_wyceny()
+        assert "PORÓWNANIE." in agent.instructions
+        assert "KONSTRUKCJA." in agent.instructions
+
+    def test_router_reguly_nie_dostaje(self):
+        # Budżet routera to 400 tokenów — reguła handlowa mieszka w agencie Wyceny.
+        router = agenci.zbuduj_router()
+        assert "NIEZDECYDOWANY KLIENT." not in router.instructions

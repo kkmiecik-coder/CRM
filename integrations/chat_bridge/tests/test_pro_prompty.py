@@ -399,3 +399,98 @@ class TestP1OdpowiedzKlientaNieOdblokowujePrzekazania:
 
     def test_odpowiedz_klienta_jest_materialem_do_dalszej_pracy(self):
         assert "Odpowiedź klienta jest materiałem do dalszej pracy" in WYCENA
+
+
+class TestP1BotSamProponujeWycenePrzyNiezdecydowaniu:
+    """Runda napraw 4, P1 — rozstrzygnięcie właściciela, dosłownie: „jak klient
+    nie jest zdecydowany na gatunek czy technologie, to bot sam proponuje
+    pokazanie wszystkich wariantów – cen – dopiero klient wybiera".
+
+    Rozmowa z żywego czatu, która to wywołała:
+
+        KLIENT: a właściwie to nie wiem czy dąb czy jesion. co polecasz do biurka?
+                i czy mikrowczep jest tańszy
+        BOT:    Do biurka polecamy jesion... Mikrowczep ma widoczne łączenia...
+                ale cenę sprawdzamy dopiero po wyborze wariantu — czy zmieniamy
+                blat na jesion?
+
+    Doradztwo było rzeczowe i ZOSTAJE (właściciel go nie kwestionował). Brakowało
+    drugiej połowy: bot kazał wybierać w ciemno, zamiast powiedzieć „nie musi Pan
+    wybierać teraz — przygotuję wycenę, w której zobaczy Pan ceny wszystkich
+    wariantów i tam wybierze". Runda 3 dała regułę PORÓWNANIE, ale wyzwalaną
+    PROŚBĄ o porównanie — klient, który się tylko waha, o porównanie nie prosi.
+
+    Reguła jest osobnym blokiem składanym w KODZIE, a nie zdaniem w `WYCENA`,
+    z jednego powodu: obiecuje, że klient „sam wybierze w wycenie", a na Allegro
+    linku do wyceny wysłać nie wolno (regulamin, `ALLEGRO_CAPS['links'] = False`).
+    Bramkowanie jest takie samo jak dla `podsumowanie.ZDANIE_O_WARIANTACH`
+    z rundy 3 — `wysylka.wolno_linkowac(stan.persona())`."""
+
+    def _blok(self):
+        return _ciagiem(prompty.blok_wyboru_w_wycenie(True))
+
+    def test_blok_ma_wlasny_naglowek(self):
+        assert "NIEZDECYDOWANY KLIENT." in self._blok()
+
+    def test_regula_wyzwala_sie_na_wahaniu_a_nie_na_prosbie_o_porownanie(self):
+        # Sedno naprawy: klient z rozmowy wyżej NIE poprosił o porównanie.
+        blok = self._blok()
+        assert "o porównanie nie prosi" in blok
+        assert "waha się" in blok
+
+    def test_regula_wymienia_gatunek_technologie_i_klase(self):
+        blok = self._blok()
+        for pole in ("gatunku", "technologii", "klasie"):
+            assert pole in blok, pole
+
+    def test_regula_cytuje_zdania_klienta_ktore_ja_uruchamiaja(self):
+        # Bez przykładów „nie wiem" / „co polecacie" model rozpoznaje wyłącznie
+        # jawną prośbę o porównanie — czyli dokładnie to, co już umiał.
+        blok = self._blok()
+        for fraza in ("nie wiem", "polecacie", "lepszy", "tańszy"):
+            assert fraza in blok, fraza
+
+    def test_bot_ma_zaproponowac_wycene_Z_WLASNEJ_INICJATYWY(self):
+        assert "SAM zaproponuj" in self._blok()
+
+    def test_doradztwo_zostaje_a_nie_jest_zastepowane_propozycja(self):
+        # Właściciel doradztwa nie kwestionował — propozycja ma DOJŚĆ, nie
+        # zastąpić poradę.
+        assert "doradź jak dotąd" in self._blok()
+
+    def test_regula_mowi_ze_wyboru_dokonuje_klient_w_wycenie(self):
+        # Strona wyceny naprawdę na to pozwala: kafelki wariantów są klikalne
+        # („N opcji · dotknij, aby wybrać" — `variantsSection`/`selectVariant`
+        # w modules/quotes/static/js/client_quote.js), a suma przelicza się po
+        # wyborze. Obietnica ma pokrycie.
+        blok = self._blok()
+        assert "w wycenie sam go wybierze" in blok
+        assert "nie musi" in blok
+
+    def test_wariant_do_rachunku_jest_nazwany_punktem_wyjscia(self):
+        # Wymóg właściciela z rundy 3 zostaje: bez wariantu przyjętego do
+        # rachunku nie ma czego policzyć. Nowe jest tylko powiedzenie wprost,
+        # że to punkt wyjścia, a nie wybór ostateczny.
+        assert "punkt wyjścia" in self._blok()
+
+    def test_regula_nie_otwiera_drogi_do_kwot_w_czacie(self):
+        assert "Kwot nadal nie podajesz" in self._blok()
+
+    def test_blok_nie_wnosi_ZADNEJ_kwoty(self):
+        # Ten sam wymóg co dla `podsumowanie.ZDANIE_O_WARIANTACH` i wskazówek
+        # narzędzi: rejestr G1 (`stan.znane_kwoty`) zna wyłącznie liczby
+        # z kalkulatora, więc reguła nie ma prawa wnieść własnej.
+        from bots_pro import guardraile
+        assert guardraile.sprawdz_ceny(self._blok(), set()) == []
+
+    def test_na_kanale_bez_linku_reguly_nie_ma(self):
+        # Allegro: linku wysłać nie wolno, więc „zobaczy Pan w wycenie i tam
+        # wybierze" byłoby obietnicą bez pokrycia — czyli tą samą klasą błędu,
+        # którą ta runda naprawia.
+        assert prompty.blok_wyboru_w_wycenie(False) == ""
+
+    def test_regula_powoluje_sie_na_sekcje_ktora_naprawde_istnieje(self):
+        # Sonda spójności: blok deleguje zakazy do sekcji PORÓWNANIE. Gdyby ta
+        # zniknęła z WYCENA, odwołanie wskazywałoby w próżnię.
+        assert "PORÓWNANIE" in self._blok()
+        assert "PORÓWNANIE." in WYCENA

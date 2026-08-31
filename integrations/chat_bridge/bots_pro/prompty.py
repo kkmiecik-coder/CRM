@@ -203,6 +203,61 @@ Nie obiecuj konkretnego czasu odpowiedzi konsultanta."""
 
 
 # --------------------------------------------------------------------------
+# Blok NIEZDECYDOWANY KLIENT (P1, runda napraw 4) — doklejany do promptu agenta
+# Wyceny przez `agenci.zbuduj_agenta_wyceny()`, WYŁĄCZNIE na kanałach, na
+# których wolno wysłać link.
+#
+# Rozstrzygnięcie właściciela, dosłownie: „jak klient nie jest zdecydowany na
+# gatunek czy technologie, to bot sam proponuje pokazanie wszystkich wariantów
+# – cen – dopiero klient wybiera".
+#
+# Runda 3 dała sekcję PORÓWNANIE, ale wyzwalaną PROŚBĄ o porównanie. Klient
+# z żywego czatu o porównanie nie prosił — powiedział „nie wiem czy dąb czy
+# jesion, co polecasz" — więc reguła się nie uruchamiała i bot kazał wybierać
+# w ciemno. Ten blok dokłada BRAKUJĄCY WYZWALACZ (wahanie zamiast prośby)
+# i brakującą obietnicę (wybór następuje na stronie wyceny). Reszta zakazów
+# — zero kwot, żadnego zestawienia w czacie, żadnego przekazania rozmowy —
+# zostaje w PORÓWNANIE i jest stamtąd przywołana, nie powtórzona: kopia
+# rozjechałaby się przy pierwszej poprawce tamtej sekcji.
+#
+# DLACZEGO OSOBNY BLOK, A NIE ZDANIE W `WYCENA`: obiecuje, że klient „sam
+# wybierze w wycenie". Ta obietnica ma pokrycie tylko tam, gdzie klient dostanie
+# link — strona wyceny pokazuje osiem wariantów z cenami i pozwala je KLIKNĄĆ
+# (`variantsSection` -> „N opcji · dotknij, aby wybrać", `selectVariant`
+# w modules/quotes/static/js/client_quote.js; suma przelicza się od razu,
+# „Zapisz zmiany" utrwala wybór). Na Allegro linku wysłać nie wolno (regulamin,
+# `ALLEGRO_CAPS['links'] = False`) i wycena idzie do konsultanta w prywatnej
+# notatce, więc tam byłaby to obietnica bez pokrycia. Bramkowanie jest DOKŁADNIE
+# takie samo jak dla `podsumowanie.ZDANIE_O_WARIANTACH` z rundy 3:
+# `wysylka.wolno_linkowac(stan.persona())`.
+#
+# Sekcja PORÓWNANIE zostaje w `WYCENA` NIEBRAMKOWANA i to jest świadome: runda 3
+# napisała ją tak, żeby nie zapowiadała, GDZIE i KIEDY klient wycenę dostanie
+# („o tym decyduje kanał, nie Ty"), więc na Allegro nadal jest prawdziwa. Nowy
+# blok tej ostrożności utrzymać nie może — cały jego sens to powiedzieć klientowi,
+# że wybierze SAM — i dlatego to on, a nie tamta, wymaga bramki.
+# --------------------------------------------------------------------------
+
+WYBOR_W_WYCENIE = """
+
+NIEZDECYDOWANY KLIENT. Sekcja PORÓWNANIE obowiązuje też wtedy, gdy klient o porównanie
+nie prosi, a tylko waha się przy gatunku, technologii albo klasie („nie wiem", „co
+polecacie", „który lepszy", „a ile w jesionie", „czy mikrowczep tańszy"): doradź jak
+dotąd, a potem SAM zaproponuj przygotowanie wyceny. Powiedz, że wariantu nie musi
+wybierać teraz, bo w wycenie sam go wybierze, a ten przyjęty do rachunku to punkt
+wyjścia. Kwot nadal nie podajesz."""
+
+
+def blok_wyboru_w_wycenie(wolno_linkowac):
+    """Blok NIEZDECYDOWANY KLIENT albo pusty string na kanale bez linków.
+
+    Argument, nie odczyt `stan.persona()` w środku — `prompty` jest modułem
+    gołych stringów (bez zależności od stanu rozmowy), tak samo jak
+    `blok_danych_klienta` dostaje gotowy kontakt zamiast sam go wczytywać."""
+    return WYBOR_W_WYCENIE if wolno_linkowac else ""
+
+
+# --------------------------------------------------------------------------
 # Sekcja DANE KLIENTA (N6) — doklejana do promptu agenta Wyceny przez
 # `agenci.zbuduj_agenta_wyceny()`, na podstawie kontaktu wczytanego przez
 # `stan.wczytaj_kontakt()` na starcie tury.
