@@ -674,24 +674,65 @@ class TestZapiszStan:
 
 
 class TestLinkDoCheckoutu:
-    def test_zwraca_podany_uuid_bez_zapisanej_wyceny(self):
+    """U3 (recenzja koncowa): specyfikacja (wiersz 442) mowi, ze
+    `przygotuj_zamowienie` oddaje modelowi `public_url`. Poprzednia wersja
+    zwracala SAM identyfikator wyceny — model nie zna adresu bazowego, wiec albo
+    go zmyslal, albo powtarzal link sprzed kilku tur."""
+
+    def test_sam_uuid_bez_zapisanego_linku_jest_bledem(self):
+        # Bez zapisanego public_url nie ma czego dac klientowi — lepiej odeslac
+        # model do zapisu wyceny niz pozwolic mu wymyslic adres.
         stan.ustaw_kontekst(93011)
         wynik = stan.link_do_checkoutu("uuid-podany")
-        assert wynik == {"ok": True, "edit_uuid": "uuid-podany"}
+        assert wynik["ok"] is False
 
     def test_bez_uuid_i_bez_zapisanej_wyceny_jest_bledem(self):
         stan.ustaw_kontekst(93012)
         wynik = stan.link_do_checkoutu(None)
         assert wynik["ok"] is False
 
-    def test_bez_argumentu_pobiera_zapisany_uuid_z_bazy(self):
+    def test_bez_argumentu_pobiera_zapisana_wycene_z_bazy(self):
         from core.db import db
         stan.ustaw_kontekst(93013)
         c = db()
-        c.execute("INSERT INTO pro_stan(conv_id, quote_edit_uuid) VALUES(?,?)",
-                  (93013, "uuid-z-bazy"))
+        c.execute("INSERT INTO pro_stan(conv_id, quote_edit_uuid, quote_public_url) "
+                  "VALUES(?,?,?)", (93013, "uuid-z-bazy", "https://crm.example/q/tok"))
         c.commit(); c.close()
-        assert stan.link_do_checkoutu(None) == {"ok": True, "edit_uuid": "uuid-z-bazy"}
+        assert stan.link_do_checkoutu(None) == {
+            "ok": True, "edit_uuid": "uuid-z-bazy",
+            "public_url": "https://crm.example/q/tok"}
+
+
+class TestZapamietajWycene:
+    """U3: `quote_edit_uuid`/`quote_saved` byly CZYTANE (link_do_checkoutu,
+    migawka_postepu), ale zadna sciezka produkcyjna ich nie zapisywala — grep
+    znajdowal wylacznie testy. Skutek: fallback linku martwy, a po wypadnieciu
+    edit_uuid z okna sesji SDK popraw_wycene/przygotuj_zamowienie stawaly sie
+    nieosiagalne dokladnie na kroku "domknij sprzedaz"."""
+
+    def test_zapisuje_uuid_link_i_flage(self):
+        stan.ustaw_kontekst(93090)
+        stan.zapamietaj_wycene({"ok": True, "edit_uuid": "UUID-XYZ",
+                                "public_url": "https://crm.example/q/abc",
+                                "quote_number": "W/1"})
+        assert stan.zapisana_wycena() == {"edit_uuid": "UUID-XYZ",
+                                          "public_url": "https://crm.example/q/abc"}
+
+    def test_nieudany_zapis_nie_nadpisuje_stanu(self):
+        stan.ustaw_kontekst(93091)
+        stan.zapamietaj_wycene({"ok": True, "edit_uuid": "UUID-1",
+                                "public_url": "https://crm.example/q/1"})
+        stan.zapamietaj_wycene({"ok": False, "errors": [{"code": "X"}]})
+        assert stan.zapisana_wycena()["edit_uuid"] == "UUID-1"
+
+    def test_zapis_wyceny_jest_widoczny_jako_postep(self):
+        # Bezpiecznik BOT_PRO_MAX_BEZ_POSTEPU nie moze oddac rozmowy czlowiekowi
+        # zaraz PO najcenniejszym kroku rozmowy.
+        stan.ustaw_kontekst(93092)
+        przed = stan.migawka_postepu()
+        stan.zapamietaj_wycene({"ok": True, "edit_uuid": "UUID-2",
+                                "public_url": "https://crm.example/q/2"})
+        assert stan.migawka_postepu() != przed
 
 
 class TestHandoff:

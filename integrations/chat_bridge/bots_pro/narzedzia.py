@@ -20,6 +20,7 @@ from typing import List, Literal, Optional, TypedDict
 from agents import function_tool
 
 from bots import crm_calc
+from core.log import log
 
 # Osiem kombinacji z VARIANT_CODES. B/B istnieje WYŁĄCZNIE dla dębu.
 WARIANTY = (
@@ -269,6 +270,25 @@ def potwierdz(cytat_klienta: str) -> dict:
     return potwierdzenia.potwierdz(cytat_klienta)
 
 
+def _dopisz_dostawe(stan, edit_uuid, notatka):
+    """Dopisuje kuriera i koszt wysyłki do ŚWIEŻO UTWORZONEJ wyceny (U3/U4).
+
+    `POST /api/bot/quotes` nie przyjmuje pól wysyłki — przyjmuje je wyłącznie
+    `PUT /api/bot/quotes/<edit_uuid>` (patrz `_shipping_settings` w
+    `modules/calculator/routers/bot_api.py`), więc jedyną drogą jest aktualizacja
+    tuż po zapisie. Dokładnie tak robi stary silnik (bots/quotebot.py:1983-1991).
+    Bez tego klient potwierdza cenę Z dostawą, a pod linkiem widzi wycenę BEZ niej.
+
+    Zwraca wynik aktualizacji albo None, gdy nie było czego dopisywać."""
+    dostawa = stan.dostawa()
+    if not (edit_uuid and dostawa.get("kurier")):
+        return None
+    return crm_calc.update_quote(edit_uuid, stan.pozycje(), crm_calc.get_options(),
+                                 notes=notatka, courier_name=dostawa["kurier"],
+                                 shipping_netto=dostawa.get("netto"),
+                                 shipping_brutto=dostawa.get("brutto"))
+
+
 @function_tool
 def zapisz_wycene(client_id: int, notatka: str = "") -> dict:
     """Zapisuje wycenę w CRM i zwraca jej numer oraz publiczny link dla klienta.
@@ -276,49 +296,82 @@ def zapisz_wycene(client_id: int, notatka: str = "") -> dict:
     zaraz po tym, jak klient potwierdzi podsumowanie (potwierdz) i masz jego
     client_id (ze znajdz_klienta). Kolejne zmiany tej samej wyceny rób przez
     popraw_wycene, nie przez ponowne wołanie tego narzędzia — inaczej w CRM
-    powstanie druga, zbędna wycena dla tej samej rozmowy."""
+    powstanie druga, zbędna wycena dla tej samej rozmowy.
+
+    Identyfikator wyceny jest zapamiętywany na stałe w tej rozmowie, więc
+    popraw_wycene i przygotuj_zamowienie możesz wołać BEZ podawania edit_uuid."""
     from bots_pro import potwierdzenia, stan
     bramka = potwierdzenia.sprawdz_bramke()
     if not bramka["ok"]:
         return bramka
-    return crm_calc.create_quote(stan.pozycje(), crm_calc.get_options(),
-                                 client_id, notes=notatka)
+    wynik = crm_calc.create_quote(stan.pozycje(), crm_calc.get_options(),
+                                  client_id, notes=notatka)
+    stan.zapamietaj_wycene(wynik)   # U3: bez tego fallback linku jest martwy
+
+    if wynik.get("ok"):
+        z_dostawa = _dopisz_dostawe(stan, wynik.get("edit_uuid"), notatka)
+        if z_dostawa is not None:
+            if z_dostawa.get("ok"):
+                stan.zapamietaj_wycene(z_dostawa)
+            else:
+                # Wycena JEST zapisana, brakuje jej tylko wysyłki — nie psujemy
+                # z tego powodu udanego zapisu, ale nie może to być ciche.
+                log("narzedzia: nieudane dopisanie wysylki do wyceny %s: %s"
+                    % (wynik.get("edit_uuid"), z_dostawa))
+    return wynik
 
 
 @function_tool
-def popraw_wycene(edit_uuid: str, notatka: str = "") -> dict:
+def popraw_wycene(edit_uuid: str = "", notatka: str = "") -> dict:
     """Nadpisuje wcześniej zapisaną wycenę (zapisz_wycene) aktualnym stanem
     pozycji. Wołaj, gdy dane zmieniają się PO tym, jak wycena już istnieje w
     CRM (np. klient dokłada pozycję albo poprawia wymiar już zapisanego
-    zamówienia) — edit_uuid pochodzi z wyniku zapisz_wycene (albo
-    poprzedniego popraw_wycene). NIE twórz przez to nowej wyceny wywołaniem
-    zapisz_wycene — to zdublowałoby wycenę w CRM zamiast ją zaktualizować.
+    zamówienia). NIE twórz przez to nowej wyceny wywołaniem zapisz_wycene —
+    to zdublowałoby wycenę w CRM zamiast ją zaktualizować.
     Wymaga aktualnego potwierdzenia klienta — bez niego odmówi: to zmiana
     danych, które klient zobaczy pod już wysłanym linkiem, więc wymaga tego
     samego potwierdzenia co pierwszy zapis (wyślij nowe podsumowanie przez
-    wyslij_podsumowanie i poczekaj na potwierdz, zanim wywołasz to narzędzie)."""
+    wyslij_podsumowanie i poczekaj na potwierdz, zanim wywołasz to narzędzie).
+
+    edit_uuid możesz POMINĄĆ — system zna identyfikator wyceny zapisanej w tej
+    rozmowie. Podawaj go tylko wtedy, gdy masz go pod ręką z wyniku
+    zapisz_wycene."""
     from bots_pro import potwierdzenia, stan
     bramka = potwierdzenia.sprawdz_bramke()
     if not bramka["ok"]:
         return bramka
+    # U3: fallback na zapisany identyfikator — bez niego wypadnięcie edit_uuid
+    # z okna sesji SDK (BOT_PRO_SESSION_ITEMS_LIMIT) czyniło to narzędzie
+    # nieosiągalnym, a docstring zapisz_wycene zabrania ratować się drugim zapisem.
+    edit_uuid = edit_uuid or stan.zapisana_wycena().get("edit_uuid") or ""
+    if not edit_uuid:
+        return {"ok": False, "error": "BRAK_ZAPISANEJ_WYCENY",
+                "wskazowka": "W tej rozmowie nie ma jeszcze zapisanej wyceny — "
+                             "użyj zapisz_wycene."}
     # U4: dostawa dopisywana do wyceny w CRM — dokładnie jak w starym silniku
     # (bots/quotebot.py, _zapisz_wycene/_obsluz_kod_pocztowy). Bez tego klient
     # potwierdzał cenę Z dostawą, a pod linkiem widział wycenę BEZ niej.
     # `update_quote` dopisuje wysyłkę tylko gdy `courier_name` jest prawdziwe, więc
     # brak oszacowania (None) świadomie nie trafia do CRM jako "0 zł".
     dostawa = stan.dostawa()
-    return crm_calc.update_quote(edit_uuid, stan.pozycje(),
-                                 crm_calc.get_options(), notes=notatka,
-                                 courier_name=dostawa.get("kurier"),
-                                 shipping_netto=dostawa.get("netto"),
-                                 shipping_brutto=dostawa.get("brutto"))
+    wynik = crm_calc.update_quote(edit_uuid, stan.pozycje(),
+                                  crm_calc.get_options(), notes=notatka,
+                                  courier_name=dostawa.get("kurier"),
+                                  shipping_netto=dostawa.get("netto"),
+                                  shipping_brutto=dostawa.get("brutto"))
+    stan.zapamietaj_wycene(wynik)   # U3: odśwież zapisany link po aktualizacji
+    return wynik
 
 
 @function_tool
-def przygotuj_zamowienie(edit_uuid: str) -> dict:
-    """Zwraca link do strony, na której klient domknie zamówienie.
+def przygotuj_zamowienie(edit_uuid: str = "") -> dict:
+    """Zwraca link (public_url) do strony, na której klient obejrzy wycenę i
+    domknie zamówienie. PODAJ KLIENTOWI DOKŁADNIE ten adres — nigdy nie układaj
+    adresu samodzielnie i nie powtarzaj linku z wcześniejszej rozmowy.
     Wołaj dopiero po zapisaniu wyceny i po tym, jak klient wyrazi chęć zamówienia.
-    Wymaga aktualnego potwierdzenia klienta — bez niego odmówi."""
+    Wymaga aktualnego potwierdzenia klienta — bez niego odmówi.
+
+    edit_uuid możesz POMINĄĆ — system zna wycenę zapisaną w tej rozmowie."""
     from bots_pro import potwierdzenia, stan
     bramka = potwierdzenia.sprawdz_bramke()
     if not bramka["ok"]:

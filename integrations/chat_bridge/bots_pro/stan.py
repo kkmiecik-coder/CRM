@@ -90,7 +90,8 @@ CREATE TABLE IF NOT EXISTS pro_stan(
   tury_rozmowy INTEGER DEFAULT 0, tury_bez_postepu INTEGER DEFAULT 0,
   ostatni_liczony_mid TEXT,
   dostawa_kod TEXT, dostawa_kurier TEXT,
-  dostawa_netto REAL, dostawa_brutto REAL);
+  dostawa_netto REAL, dostawa_brutto REAL,
+  quote_public_url TEXT);
 CREATE TABLE IF NOT EXISTS pro_kwoty(
   conv_id INTEGER, kwota TEXT, PRIMARY KEY(conv_id, kwota));
 """
@@ -125,6 +126,11 @@ def init_pro():
             "ALTER TABLE pro_stan ADD COLUMN dostawa_kurier TEXT",
             "ALTER TABLE pro_stan ADD COLUMN dostawa_netto REAL",
             "ALTER TABLE pro_stan ADD COLUMN dostawa_brutto REAL",
+            # U3: publiczny link do wyceny. Modelu NIE da się poprosić o jego
+            # złożenie — token publiczny nie jest edit_uuid i bot nie zna adresu
+            # bazowego CRM, więc jedynym źródłem prawdy jest to, co zwróciło
+            # create_quote/update_quote. Bez tej kolumny nie ma czego wysłać.
+            "ALTER TABLE pro_stan ADD COLUMN quote_public_url TEXT",
         ):
             try:
                 polaczenie.execute(stmt)
@@ -630,18 +636,72 @@ def handoff(powod):
     return {"ok": bool(udane), "powod": powod}
 
 
-def link_do_checkoutu(edit_uuid):
-    """Publiczny link, pod którym klient domknie zamówienie i zapłaci."""
+def zapamietaj_wycene(wynik):
+    """Trwale zapisuje identyfikator i publiczny link wyceny zwróconej przez CRM
+    (U3). Wołane po `create_quote` i po `update_quote`.
+
+    Nieudany wynik NIE nadpisuje niczego — inaczej nieudana korekta skasowałaby
+    link do wyceny, którą klient już dostał. `quote_saved` ustawiamy dopiero tu,
+    bo dopiero teraz istnieje obiekt wyceny w CRM; `migawka_postepu` czyta obie
+    kolumny, więc zapis wyceny jest wreszcie WIDOCZNY jako postęp rozmowy (dotąd
+    bezpiecznik „brak postępu" mógł oddać rozmowę człowiekowi zaraz po
+    najcenniejszym kroku)."""
+    if not (isinstance(wynik, dict) and wynik.get("ok")):
+        return
+    kolumny = {}
+    if wynik.get("edit_uuid"):
+        kolumny["quote_edit_uuid"] = wynik["edit_uuid"]
+    if wynik.get("public_url"):
+        kolumny["quote_public_url"] = wynik["public_url"]
+    if kolumny:
+        kolumny["quote_saved"] = 1
+        zapisz_stan(**kolumny)
+
+
+def zapisana_wycena():
+    """`{"edit_uuid": ..., "public_url": ...}` zapisanej wyceny; `{}` gdy jej nie ma."""
     polaczenie = db()
     try:
         wiersz = polaczenie.execute(
-            "SELECT quote_edit_uuid FROM pro_stan WHERE conv_id=?", (conv_id(),)).fetchone()
+            "SELECT quote_edit_uuid, quote_public_url FROM pro_stan WHERE conv_id=?",
+            (conv_id(),)).fetchone()
     finally:
         polaczenie.close()
-    uuid_wyceny = edit_uuid or (wiersz["quote_edit_uuid"] if wiersz else None)
+    if not wiersz:
+        return {}
+    surowe = {"edit_uuid": wiersz["quote_edit_uuid"],
+              "public_url": wiersz["quote_public_url"]}
+    return {k: v for k, v in surowe.items() if v}
+
+
+def link_do_checkoutu(edit_uuid=""):
+    """Publiczny link, pod którym klient obejrzy wycenę i domknie zamówienie.
+
+    U3: zwracamy `public_url`, nie sam identyfikator — tak mówi specyfikacja
+    (wiersz 442), i tak wygląda kontrakt docstringu narzędzia („link do strony").
+    Model nie zna adresu bazowego CRM ani publicznego tokenu wyceny (to NIE jest
+    `edit_uuid`), więc z samego identyfikatora nie da się złożyć adresu — mógłby
+    go tylko zmyślić albo powtórzyć link sprzed kilku tur.
+
+    `edit_uuid` jest opcjonalny: brak argumentu bierze wycenę zapisaną w stanie
+    rozmowy. Podany identyfikator INNY niż zapisany jest błędem — na rozmowę
+    przypada jedna wycena (patrz docstring `zapisz_wycene`), więc rozjazd znaczy,
+    że model pomylił identyfikator, a nie że są dwie wyceny."""
+    zapisana = zapisana_wycena()
+    uuid_wyceny = zapisana.get("edit_uuid") or edit_uuid or None
     if not uuid_wyceny:
         return {"ok": False, "error": "Brak zapisanej wyceny — najpierw ją zapisz."}
-    return {"ok": True, "edit_uuid": uuid_wyceny}
+    if edit_uuid and zapisana.get("edit_uuid") and edit_uuid != zapisana["edit_uuid"]:
+        return {"ok": False, "error": "INNA_WYCENA",
+                "wskazowka": "Ta rozmowa ma zapisaną inną wycenę. Wywołaj to narzędzie "
+                             "bez edit_uuid, żeby dostać link do właściwej."}
+    if not zapisana.get("public_url"):
+        return {"ok": False, "error": "BRAK_LINKU",
+                "wskazowka": "Nie mam publicznego linku do tej wyceny — zapisz ją "
+                             "(zapisz_wycene) albo zaktualizuj (popraw_wycene), a link "
+                             "przyjdzie z CRM. NIE układaj adresu samodzielnie."}
+    return {"ok": True, "edit_uuid": uuid_wyceny,
+            "public_url": zapisana["public_url"]}
 
 
 class BladOdczytuStanu(Exception):

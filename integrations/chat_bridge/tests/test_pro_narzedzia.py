@@ -624,6 +624,88 @@ class TestBramkaI2WNarzedziach:
         _wolaj(n.popraw_wycene, edit_uuid="uuid-x")
         assert przekazane[0].get("courier_name") is None
 
+    def test_zapisz_wycene_zapamietuje_edit_uuid_i_link(self, monkeypatch):
+        # Sonda P4 z recenzji: po create_quote zwracajacym edit_uuid stan zostawal
+        # PUSTY, a link_do_checkoutu('') odpowiadalo "Brak zapisanej wyceny".
+        stan.ustaw_kontekst(96030)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat", dlugosc_cm=180,
+              szerokosc_cm=60, grubosc_cm=4, ilosc=1,
+              selected_variant="dab-lity-ab", wykonczenie="surowe")
+        _potwierdz_biezace_pozycje(monkeypatch)
+        monkeypatch.setattr(n.crm_calc, "create_quote", lambda *a, **k: {
+            "ok": True, "quote_number": "W/1", "edit_uuid": "UUID-XYZ",
+            "public_url": "https://crm.example/q/abc"})
+        _wolaj(n.zapisz_wycene, client_id=1)
+        assert stan.zapisana_wycena() == {"edit_uuid": "UUID-XYZ",
+                                          "public_url": "https://crm.example/q/abc"}
+
+    def test_przygotuj_zamowienie_zwraca_public_url_bez_podanego_uuid(self, monkeypatch):
+        # Specyfikacja, wiersz 442: model dostaje `public_url`. Fallback na
+        # zapisany identyfikator dziala, gdy uuid wypadl juz z okna sesji SDK.
+        stan.ustaw_kontekst(96031)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat", dlugosc_cm=180,
+              szerokosc_cm=60, grubosc_cm=4, ilosc=1,
+              selected_variant="dab-lity-ab", wykonczenie="surowe")
+        _potwierdz_biezace_pozycje(monkeypatch)
+        monkeypatch.setattr(n.crm_calc, "create_quote", lambda *a, **k: {
+            "ok": True, "quote_number": "W/1", "edit_uuid": "UUID-XYZ",
+            "public_url": "https://crm.example/q/abc"})
+        _wolaj(n.zapisz_wycene, client_id=1)
+
+        wynik = _wolaj(n.przygotuj_zamowienie)
+        assert wynik["ok"] is True
+        assert wynik["public_url"] == "https://crm.example/q/abc"
+
+    def test_popraw_wycene_bez_podanego_uuid_uzywa_zapisanego(self, monkeypatch):
+        stan.ustaw_kontekst(96032)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat", dlugosc_cm=180,
+              szerokosc_cm=60, grubosc_cm=4, ilosc=1,
+              selected_variant="dab-lity-ab", wykonczenie="surowe")
+        _potwierdz_biezace_pozycje(monkeypatch)
+        stan.zapamietaj_wycene({"ok": True, "edit_uuid": "UUID-ZAPISANY",
+                                "public_url": "https://crm.example/q/abc"})
+        przekazane = []
+        monkeypatch.setattr(n.crm_calc, "update_quote",
+                            lambda uuid, *a, **k: przekazane.append(uuid) or {"ok": True})
+        _wolaj(n.popraw_wycene)
+        assert przekazane == ["UUID-ZAPISANY"]
+
+    def test_zapisz_wycene_dopisuje_dostawe_przez_update_quote(self, monkeypatch):
+        # POST /api/bot/quotes NIE przyjmuje kuriera (patrz bot_api.py) — jedyna
+        # droga to PUT tuz po zapisie, dokladnie jak w starym silniku
+        # (bots/quotebot.py:1983-1991). Bez tego klient potwierdza cene Z dostawa,
+        # a pod linkiem widzi wycene BEZ niej.
+        stan.ustaw_kontekst(96033)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat", dlugosc_cm=180,
+              szerokosc_cm=60, grubosc_cm=4, ilosc=1,
+              selected_variant="dab-lity-ab", wykonczenie="surowe")
+        stan.zapisz_dostawe("00-001", kurier="DPD", netto=203.25, brutto=250.0)
+        _potwierdz_biezace_pozycje(monkeypatch)
+        monkeypatch.setattr(n.crm_calc, "create_quote", lambda *a, **k: {
+            "ok": True, "quote_number": "W/1", "edit_uuid": "UUID-XYZ",
+            "public_url": "https://crm.example/q/abc"})
+        przekazane = []
+        monkeypatch.setattr(n.crm_calc, "update_quote",
+                            lambda uuid, *a, **k: przekazane.append((uuid, k)) or {"ok": True})
+        _wolaj(n.zapisz_wycene, client_id=1)
+        assert przekazane[0][0] == "UUID-XYZ"
+        assert przekazane[0][1]["courier_name"] == "DPD"
+
+    def test_zapisz_wycene_bez_dostawy_nie_wola_update_quote(self, monkeypatch):
+        stan.ustaw_kontekst(96034)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat", dlugosc_cm=180,
+              szerokosc_cm=60, grubosc_cm=4, ilosc=1,
+              selected_variant="dab-lity-ab", wykonczenie="surowe")
+        _potwierdz_biezace_pozycje(monkeypatch)
+        monkeypatch.setattr(n.crm_calc, "create_quote", lambda *a, **k: {
+            "ok": True, "quote_number": "W/1", "edit_uuid": "UUID-XYZ",
+            "public_url": "https://crm.example/q/abc"})
+        wywolania = []
+        monkeypatch.setattr(n.crm_calc, "update_quote",
+                            lambda *a, **k: wywolania.append(1) or {"ok": True})
+        _wolaj(n.zapisz_wycene, client_id=1)
+        assert wywolania == []
+
     def test_przygotuj_zamowienie_bez_potwierdzenia_nie_zwraca_linku(self, monkeypatch):
         stan.ustaw_kontekst(96026)
         wywolania = []
