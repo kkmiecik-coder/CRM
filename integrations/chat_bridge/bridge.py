@@ -9,6 +9,7 @@ from flask import Flask
 from config import (BOT_PRO_AGENT_WEBHOOK_TOKEN, BOT_PRO_INBOXES, BOT_QUOTE_NOTE_PERSONAS,
                     BOT_QUOTE_PERSONAS, CW_OLX_INBOX)
 from core.db import init_db
+from core.log import log
 from channels import REGISTRY
 from worker import worker
 from suggest_worker import suggest_worker
@@ -68,23 +69,49 @@ def _konflikt_olx_pro():
 
 
 def sprawdz_guard_pro():
-    """Guard startowy (Task 7): weryfikacja tokenu webhooka /agent-bot-pro jest WARUNKOWA
-    (`if BOT_PRO_AGENT_WEBHOOK_TOKEN and ...` w webhooks.py) — brak tokenu przy WLACZONYCH
-    inboksach (BOT_PRO_INBOXES niepuste) oznacza, ze endpoint przyjmuje DOWOLNE zadanie bez
-    autoryzacji. Przerywamy start procesu z czytelnym komunikatem zamiast wystawiac dziurawy
-    webhook na produkcji — lepiej, zeby caly kontener nie wstal, niz zeby wstal bez ochrony.
-    Wydzielone z `if __name__ == "__main__":` do osobnej funkcji, zeby dalo sie to
-    przetestowac bez uruchamiania calego procesu (watki/app.run).
+    """Guard startowy Debusia Pro. Zwraca True, gdy konfiguracja Pro jest zdrowa;
+    przy bledzie WYLACZA Pro (czysci BOT_PRO_INBOXES), glosno loguje i zwraca False.
 
-    Druga kontrola (U10, recenzja koncowa): sprzezenie BOT_PRO_INBOXES <->
-    BOT_QUOTE_NOTE_PERSONAS na OLX — patrz `_konflikt_olx_pro`."""
+    Dwie kontrole:
+    1. (Task 7) Weryfikacja tokenu webhooka /agent-bot-pro jest WARUNKOWA
+       (`if BOT_PRO_AGENT_WEBHOOK_TOKEN and ...` w webhooks.py) — brak tokenu przy
+       WLACZONYCH inboksach oznacza, ze endpoint przyjmuje DOWOLNE zadanie bez
+       autoryzacji.
+    2. (U10) Sprzezenie BOT_PRO_INBOXES <-> BOT_QUOTE_NOTE_PERSONAS na OLX —
+       patrz `_konflikt_olx_pro`.
+
+    U14b (recenzja koncowa): to NIE JEST juz `SystemExit`. Wadliwa konfiguracja
+    dotyczaca WYLACZNIE Pro ubijala CALY kontener mostka — razem ze STARYM
+    silnikiem, ktory obsluguje dzis zywy ruch na livechacie, OLX i Allegro, oraz
+    z pollerami kanalow, sweeperami i indeksem bazy wiedzy. Proporcja byla zla:
+    "Pro nie wstaje" to niedostarczona nowa funkcja, "kontener nie wstaje" to
+    awaria produkcji. Wylaczamy wiec dokladnie to, co jest wadliwe.
+
+    Mechanizm wylaczenia to TEN SAM kill-switch, co pusta zmienna srodowiskowa:
+    `BOT_PRO_INBOXES` jest JEDNYM obiektem wspoldzielonym przez webhooks.py,
+    quote_worker.py i pro_watchdog.py (`from config import ...` wiaze ten sam
+    zbior), wiec jego wyczyszczenie odcina Pro we wszystkich trzech naraz —
+    webhook odrzuca kazdy inbox, worker kieruje 100% wierszy do starego silnika,
+    watchdog wraca natychmiast bez wywolan API.
+
+    Wydzielone z `if __name__ == "__main__":` do osobnej funkcji, zeby dalo sie to
+    przetestowac bez uruchamiania calego procesu (watki/app.run)."""
+    powody = []
     if not BOT_PRO_AGENT_WEBHOOK_TOKEN and BOT_PRO_INBOXES:
-        raise SystemExit(
+        powody.append(
             "BOT_PRO_INBOXES ustawione, a BOT_PRO_AGENT_WEBHOOK_TOKEN puste — "
             "webhook /agent-bot-pro stalby otworem. Uzupelnij bridge.env.")
     konflikt = _konflikt_olx_pro()
     if konflikt:
-        raise SystemExit(konflikt)
+        powody.append(konflikt)
+    if not powody:
+        return True
+    for powod in powody:
+        log("GUARD PRO: %s" % powod)
+    log("GUARD PRO: WYLACZAM Debusia Pro (BOT_PRO_INBOXES wyczyszczone). Stary silnik "
+        "i pozostale watki mostka dzialaja dalej. Popraw bridge.env i zrob recreate.")
+    BOT_PRO_INBOXES.clear()
+    return False
 
 
 if __name__ == "__main__":
