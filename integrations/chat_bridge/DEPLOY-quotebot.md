@@ -1,5 +1,24 @@
 # Wdrożenie bota „Asystent AI v1" (quote-bot)
 
+> **UWAGA (Task 8, code review runda poprawek 2): weryfikacja Dębusia Pro (silnik
+> `bots_pro/`, Agents SDK) MUSI iść przez obraz z `docker/python/Dockerfile`
+> (Python 3.12 + `requirements.txt`), NIE przez lokalne środowisko developera.**
+> Lokalne interpretery mają zwykle inną wersję Pythona/`openai-agents`, a pakiet
+> testów `bots_pro`/`tests/test_pro_*.py` w ogóle się nie zbiera poza 3.12
+> (importy specyficzne dla tej wersji). Różnica wersji SDK realnie zmienia
+> zachowanie biblioteki — dokładnie to było bezpośrednią przyczyną sporu K2
+> w rundzie poprawek 1 (zarzut o `SessionSettings(limit=...)` osierocającym
+> `function_call_output`, sprawdzony na `openai-agents==0.8.4` lokalnie,
+> nieodtwarzalny na `openai-agents==0.22.0` — dokładnej wersji przypiętej w
+> `requirements.txt` i faktycznie używanej w kontenerze). Komenda testowa:
+> ```
+> docker run --rm -v <ścieżka repo>:/app -w /app/integrations/chat_bridge \
+>   woodpower-crm-app:latest sh -c \
+>   "pip install -q 'openai-agents[litellm]==0.22.0' && python -m pytest -q"
+> ```
+> Bez `pip install` w tej samej komendzie = wariant „bez SDK" (część testów
+> pomijana `pytest.importorskip("agents")`, ale to i tak ten sam obraz/Python).
+
 ## 1. bridge.env (VPS, NIE w gicie)
 CRM_API_BASE=https://crm.woodpower.pl
 CRM_BOT_API_KEY=<= BOT_API_KEY z config/core.json CRM>

@@ -98,7 +98,25 @@ def _bot_naprawde_mowil_ostatni(conv_id):
     (`sender.type == 'agent_bot'`). Błąd sieci/parsowania -> False (ostrożnie:
     nie oddawaj rozmowy człowiekowi, gdy nie jesteśmy PEWNI, że to bot mówił
     ostatni — false negative tu jest tani, false positive kasuje czyjąś
-    decyzję)."""
+    decyzję).
+
+    N2 (code review, runda poprawek 2): PIERWSZA wersja przerywała pętlę na
+    PIERWSZEJ nieprywatnej pozycji od końca — ale wiadomości SYSTEMOWE
+    Chatwoota ("Konwersacja oznaczona jako oczekująca", zmiana przypisania,
+    etykiety — `message_type == 2`, "activity") są NIEPRYWATNE i NIE MAJĄ
+    `sender`. Gdy taka wiadomość jest ostatnia (a bywa — dokładnie to zdarzenie
+    często PRZEŁĄCZA rozmowę z powrotem w 'pending', czyli generuje kandydata
+    dla tego watchdoga), pierwsza wersja zwracała False, mimo że bot NAPRAWDĘ
+    mówił ostatni przed nią — cichym skutkiem było, że watchdog nic nie robił.
+    To NIESPÓJNE z `bots_pro.stan.wolno_prowadzic_rozmowe`, gdzie `activity` jest
+    już jawnie inertne (patrz przypadek C w `TestWolnoProwadzicRozmowe`). Poza
+    tym `znajdz_porzucone` wyżej czyta `last_msg_type` z
+    `last_non_activity_message` (Chatwoot udostępnia to pole właśnie DLATEGO,
+    że ostatnia wiadomość bywa systemowa) — więc kandydat był wybierany po
+    "ostatniej NIE-systemowej", a weryfikowany tu po "ostatniej DOWOLNEJ": dwa
+    niespójne źródła. Naprawa: pomijamy (`continue`, nie `return`) też
+    wiadomości bez `sender` ALBO z `message_type == 2` — dwa niezależne
+    warunki, bo Chatwoot nie zawsze ustawia je spójnie w każdej wersji API."""
     try:
         odpowiedz = cw("GET", "/conversations/%s/messages" % conv_id)
         if not odpowiedz.ok:
@@ -109,7 +127,10 @@ def _bot_naprawde_mowil_ostatni(conv_id):
     for wiadomosc in reversed(wiadomosci or []):
         if wiadomosc.get("private"):
             continue
-        return (wiadomosc.get("sender") or {}).get("type") == _NADAWCA_BOT
+        nadawca = wiadomosc.get("sender")
+        if wiadomosc.get("message_type") == 2 or not nadawca:
+            continue   # N2: wiadomosc systemowa (activity) - nie liczy sie jako "kto mowil ostatni"
+        return nadawca.get("type") == _NADAWCA_BOT
     return False
 
 

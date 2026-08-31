@@ -49,11 +49,13 @@ konfiguracji (klient zmienia materiał/wymiary między przeliczeniami; prompt
 WPROST zachęca do liczenia kilka razy w rozmowie) rósł bez ograniczeń i
 zawierał też ceny konfiguracji już porzuconych, które bot mógłby zacytować, a
 guardrail by je przepuścił (formalnie "znane"). `zapisz_pozycje` TERAZ czyści
-cały rejestr tej rozmowy przy KAŻDEJ zmianie pozycji (patrz `_wyczysc_kwoty`,
-wołane z `_zapisz`) — kolejne `policz_wycene`/`wyslij_podsumowanie` musi go
-zasilić od nowa, zanim bot znów będzie mógł zacytować jakąkolwiek cenę.
-Dokładnie ten sam kształt co I2 (potwierdzenia.py), tylko zastosowany do
-rejestru cen zamiast do podpisu potwierdzenia.
+cały rejestr tej rozmowy przy KAŻDEJ FAKTYCZNEJ zmianie pozycji (patrz `_zapisz`
+— porównanie starego/nowego `dane_json`, uszczelnione w rundzie poprawek 2, N1,
+po tym jak bezwarunkowe czyszczenie kasowało też no-opowe zapisy) — kolejne
+`policz_wycene`/`wyslij_podsumowanie` musi go zasilić od nowa, zanim bot znów
+będzie mógł zacytować jakąkolwiek cenę. Dokładnie ten sam kształt co I2
+(potwierdzenia.py), tylko zastosowany do rejestru cen zamiast do podpisu
+potwierdzenia.
 
 Analogicznie, fakt wysłania deterministycznego podsumowania (`podsumowanie.wyslij`)
 zbieramy per tura w OSOBNYM contextvarze — `tura.py` sprawdza go PO Runner.run_sync,
@@ -207,8 +209,9 @@ def zapamietaj_kwoty(wartosci):
 
 def znane_kwoty():
     """Kwoty znane guardrailowi G1 dla BIEŻĄCEJ rozmowy (conv_id z kontekstu) —
-    zbiór trwa przez całą rozmowę (dopóki jej pozycje się nie zmienią — patrz
-    `_wyczysc_kwoty`, W2), nie tylko bieżącą turę (patrz docstring modułu)."""
+    zbiór trwa przez całą rozmowę (dopóki jej pozycje się FAKTYCZNIE nie
+    zmienią — patrz `_zapisz`, W2/N1), nie tylko bieżącą turę (patrz docstring
+    modułu)."""
     polaczenie = db()
     try:
         wiersze = polaczenie.execute(
@@ -216,25 +219,6 @@ def znane_kwoty():
     finally:
         polaczenie.close()
     return {w["kwota"] for w in wiersze}
-
-
-def _wyczysc_kwoty():
-    """Czyści rejestr kwot BIEŻĄCEJ rozmowy — wołane przy KAŻDEJ zmianie pozycji
-    (`_zapisz`, Task 8, W2 code review runda poprawek 1). Bez tego rejestr
-    trwały per rozmowa (B1) rósł bez ograniczeń przez CAŁĄ rozmowę: po kilku
-    przeliczeniach RÓŻNYCH konfiguracji (klient zmienia materiał/wymiary między
-    przeliczeniami) zawierał też ceny konfiguracji już porzuconych — bot mógł
-    zacytować nieaktualną cenę, a guardrail by ją przepuścił (formalnie
-    "znana"). Każda zmiana pozycji wymaga więc PONOWNEGO `policz_wycene`, zanim
-    bot znów będzie mógł zacytować jakąkolwiek cenę — dokładnie ten sam kształt
-    co I2 (potwierdzenia.py), tylko dla rejestru cen zamiast podpisu
-    potwierdzenia."""
-    polaczenie = db()
-    try:
-        polaczenie.execute("DELETE FROM pro_kwoty WHERE conv_id=?", (conv_id(),))
-        polaczenie.commit()
-    finally:
-        polaczenie.close()
 
 
 def zarejestruj_ture(message_id=None):
@@ -353,21 +337,41 @@ def _wczytaj():
 def _zapisz(dane):
     """Jedyne miejsce piszące do `pro_dane` — obie ścieżki `zapisz_pozycje`
     (zwykły zapis i `usun=True`) przechodzą przez tę funkcję. Dlatego to
-    właśnie TU, a nie w `zapisz_pozycje`, siedzi `_wyczysc_kwoty()` (W2, code
-    review runda poprawek 1): gwarantuje, że KAŻDA zmiana pozycji czyści
-    rejestr kwot, niezależnie od tego, którą ścieżką `zapisz_pozycje` do niej
-    doszło — i niezależnie od przyszłych wywołujących, gdyby jacyś powstali."""
+    właśnie TU, a nie w `zapisz_pozycje`, siedzi czyszczenie rejestru kwot (W2,
+    code review runda poprawek 1): gwarantuje, że KAŻDA zmiana pozycji czyści
+    rejestr, niezależnie od tego, którą ścieżką `zapisz_pozycje` do niej
+    doszło — i niezależnie od przyszłych wywołujących, gdyby jacyś powstali.
+
+    N1 (code review, runda poprawek 2): czyszczenie było BEZWARUNKOWE — każde
+    wywołanie `_zapisz` (a więc każde `zapisz_pozycje`, TAKŻE bez faktycznej
+    zmiany treści, np. model powtarza identyczne dane albo dopisuje puste
+    `otwory=[]` PO tym, jak już policzył cenę) kasowało rejestr, mimo że nic
+    się nie zmieniło. Naprawa: PRZED zapisem odczytujemy STARY `dane_json` NA
+    TYM SAMYM połączeniu i czyścimy TYLKO gdy treść faktycznie się różni — w
+    JEDNEJ transakcji z UPSERT-em pozycji, przed wspólnym commitem (nie jako
+    osobne, późniejsze wywołanie na nowym połączeniu). Dwa efekty: (1) no-opowy
+    zapis nigdy nie czyści (zamyka to w całości sekwencyjny przebieg z sondy
+    code review); (2) gdy czyszczenie NAPRAWDĘ następuje (prawdziwa zmiana
+    pozycji), dzieje się to w tej samej transakcji co zapis pozycji, więc okno
+    na wyścig z równoległym `policz_wycene`/`zapamietaj_kwoty` (W1) jest węższe
+    — DELETE nie jest już osobną, PÓŹNIEJSZĄ operacją na osobnym połączeniu,
+    czekającą na własną kolejkę I/O już PO commicie zapisu pozycji."""
     biezacy_conv_id = _wymagany_conv_id()
+    nowy_json = json.dumps(dane, ensure_ascii=False)
     polaczenie = db()
     try:
+        stary = polaczenie.execute(
+            "SELECT dane_json FROM pro_dane WHERE conv_id=?", (biezacy_conv_id,)).fetchone()
+        tresc_sie_zmienila = stary is None or stary["dane_json"] != nowy_json
         polaczenie.execute(
             "INSERT INTO pro_dane(conv_id, dane_json) VALUES(?,?) "
             "ON CONFLICT(conv_id) DO UPDATE SET dane_json=excluded.dane_json",
-            (biezacy_conv_id, json.dumps(dane, ensure_ascii=False)))
+            (biezacy_conv_id, nowy_json))
+        if tresc_sie_zmienila:
+            polaczenie.execute("DELETE FROM pro_kwoty WHERE conv_id=?", (biezacy_conv_id,))
         polaczenie.commit()
     finally:
         polaczenie.close()
-    _wyczysc_kwoty()
 
 
 def pozycje():

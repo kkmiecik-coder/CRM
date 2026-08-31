@@ -21,6 +21,35 @@ import pytest
 
 import pro_watchdog as w
 
+# Drobne (runda poprawek 2, code review): asercja tożsamości POZA zasięgiem
+# fixture'a autouse niżej — ten podmienia `w._jest_pro_inbox` w KAŻDYM teście
+# (nawet w TestZawezenieDoInboksowPro::test_uzywa_prawdziwego_predykatu_z_quote_worker,
+# który sam też go nadpisuje przed sprawdzeniem), więc ŻADEN test nie sprawdzał
+# PRAWDZIWEGO, niepodmienionego stanu importu z pro_watchdog.py. Gdyby ktoś
+# zastąpił `from quote_worker import _jest_pro_inbox` lokalną kopią logiki (tą
+# samą nazwą, inną/rozjeżdżającą się implementacją), cały plik nadal byłby
+# zielony. Ta asercja działa PRZY IMPORCIE modułu testowego (zbieranie testów),
+# zanim jakikolwiek fixture (autouse czy nie) w ogóle się uruchomi.
+#
+# UWAGA: sprawdzamy `__module__`, NIE identyczność obiektu (`is`) — kilka innych
+# plików w tym pakiecie (test_quote_worker.py, test_quote_worker_pro_failover.py)
+# robi `importlib.reload(quote_worker)` NA POZIOMIE MODUŁU (przy zbieraniu
+# testów), co tworzy NOWY obiekt funkcji dla KAŻDEGO `def` w quote_worker.py —
+# `is` byłoby więc fałszywie czerwone zależnie od KOLEJNOŚCI zbierania plików
+# testowych przez pytest (przy pełnym pakiecie, nie przy tym pliku osobno),
+# mimo że import w pro_watchdog.py jest poprawny. `__module__` przeżywa reload
+# (funkcja zdefiniowana w quote_worker.py ma `__module__ == "quote_worker"'
+# zarówno przed, jak i po jego przeładowaniu) i nadal wykrywa PRAWDZIWĄ
+# regresję: lokalna kopia logiki w pro_watchdog.py miałaby
+# `__module__ == "pro_watchdog"`.
+assert w._jest_pro_inbox.__module__ == "quote_worker", (
+    "pro_watchdog._jest_pro_inbox musi pochodzic z 'from quote_worker import "
+    "_jest_pro_inbox' (__module__ == 'quote_worker'), nie z lokalnej kopii "
+    "logiki w pro_watchdog.py - K1 (code review) mogl(a)by cicho zregresowac "
+    "bez wykrycia przez testy nizej, ktore i tak podmieniaja te nazwe "
+    "fixture'em/w tescie."
+)
+
 
 @pytest.fixture(autouse=True)
 def _domyslnie_wszystkie_inboxy_sa_pro(monkeypatch):
@@ -175,6 +204,47 @@ class TestBotNaprawdeMowilOstatni:
 
     def test_pusta_historia_zwraca_falsz(self, monkeypatch):
         monkeypatch.setattr(w, "cw", lambda method, path: _FakeResp([]))
+        assert w._bot_naprawde_mowil_ostatni(123) is False
+
+    def test_wiadomosc_systemowa_activity_na_koncu_jest_pomijana_bot_wciaz_ostatni(self, monkeypatch):
+        # N2 (runda poprawek 2, code review WAZNE): wiadomosci systemowe Chatwoota
+        # ("Konwersacja oznaczona jako oczekujaca", zmiana przypisania, etykiety) sa
+        # NIEPRYWATNE i NIE MAJA sender — pierwsza wersja tej funkcji przerywala
+        # petle na pierwszej nieprywatnej pozycji od konca, wiec activity na samym
+        # koncu dawalo False, mimo ze bot naprawde mowil ostatni PRZED nia. Kolejnosc
+        # (najstarsza->najnowsza w liscie, wiec activity na koncu listy): klient, bot,
+        # activity(message_type=2, brak sender).
+        monkeypatch.setattr(w, "cw", lambda method, path: _FakeResp([
+            _wiadomosc("contact"),
+            _wiadomosc("agent_bot"),
+            _wiadomosc(None, message_type=2),
+        ]))
+        assert w._bot_naprawde_mowil_ostatni(123) is True
+
+    def test_wiadomosc_systemowa_bez_sender_ale_typu_1_tez_pomijana(self, monkeypatch):
+        # Zabezpieczenie NIEZALEZNE od message_type: sam BRAK sender (niezaleznie
+        # od zadeklarowanego message_type) tez ma byc pomijany, nie tylko typ=2 —
+        # Chatwoot moze nie ustawic tego pola spojnie we wszystkich wersjach API.
+        monkeypatch.setattr(w, "cw", lambda method, path: _FakeResp([
+            _wiadomosc("agent_bot"),
+            _wiadomosc(None, message_type=1),
+        ]))
+        assert w._bot_naprawde_mowil_ostatni(123) is True
+
+    def test_activity_nie_maskuje_prawdziwej_odpowiedzi_czlowieka(self, monkeypatch):
+        # Kontrola negatywna: activity na koncu NIE MA odwracac wyniku, gdy
+        # publiczna wiadomosc PRZED nia byla od czlowieka — pomijanie activity nie
+        # ma stac sie furtka do false positive w drugim kierunku.
+        monkeypatch.setattr(w, "cw", lambda method, path: _FakeResp([
+            _wiadomosc("user"),
+            _wiadomosc(None, message_type=2),
+        ]))
+        assert w._bot_naprawde_mowil_ostatni(123) is False
+
+    def test_sama_wiadomosc_activity_bez_niczego_innego_zwraca_falsz(self, monkeypatch):
+        monkeypatch.setattr(w, "cw", lambda method, path: _FakeResp([
+            _wiadomosc(None, message_type=2),
+        ]))
         assert w._bot_naprawde_mowil_ostatni(123) is False
 
 

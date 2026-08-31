@@ -448,6 +448,105 @@ class TestKwotyCzyszczoneNaZmianePozycji:
         assert stan.znane_kwoty() == set()
 
 
+class TestKwotyNieCzyszczoneBezFaktycznejZmianyPozycji:
+    """N1 (runda poprawek 2, code review WAZNE): W2 wolal _wyczysc_kwoty()
+    BEZWARUNKOWO z kazdego _zapisz, a zapisz_pozycje wola _zapisz ZAWSZE — TAKZE
+    gdy tresc danych sie NIE zmienila (np. model dopisuje puste otwory=[] po
+    tym, jak juz policzyl cene, albo powtarza identyczne wywolanie).
+    Skutek: cena poprawnie policzona W TEJ SAMEJ turze stawala sie dla
+    guardraila halucynacja przy DOWOLNYM kolejnym, nawet no-opowym,
+    zapisz_pozycje. Naprawa: _zapisz porownuje STARY i NOWY dane_json NA TYM
+    SAMYM polaczeniu/w tej samej transakcji co UPSERT i czysci rejestr TYLKO
+    gdy tresc faktycznie sie rozni."""
+
+    def test_identyczne_powtorzenie_zapisz_pozycje_nie_czysci_kwot(self):
+        stan.ustaw_kontekst(93056)
+        kwargs = dict(produkt="blat", dlugosc_cm=100, szerokosc_cm=60,
+                     grubosc_cm=4, ilosc=1, selected_variant="dab-lity-ab",
+                     wykonczenie="surowe")
+        stan.zapisz_pozycje("1", **kwargs)
+        stan.zapamietaj_kwoty([1936.71])
+        assert stan.znane_kwoty() == {"1936.71"}
+
+        # Identyczne wywolanie - zaden nowy fakt, tylko powtorzenie tych samych danych
+        # (np. model dopisuje otwory=[] po wycenie - patrz sonda z code review).
+        stan.zapisz_pozycje("1", **kwargs)
+        assert stan.znane_kwoty() == {"1936.71"}
+
+    def test_puste_otwory_po_wycenie_nie_czyszcza_kwot(self):
+        # Dokladny scenariusz z code review: model dopisuje otwory=[] (jawna,
+        # ale NIEZMIENIAJACA pusta lista) PO tym, jak juz policzyl cene.
+        stan.ustaw_kontekst(93057)
+        stan.zapisz_pozycje("1", produkt="blat", dlugosc_cm=100, szerokosc_cm=60,
+                            grubosc_cm=4, ilosc=1, selected_variant="dab-lity-ab",
+                            wykonczenie="surowe", otwory=[])
+        stan.zapamietaj_kwoty([843.04])
+        assert stan.znane_kwoty() == {"843.04"}
+
+        stan.zapisz_pozycje("1", otwory=[])   # ta sama, pusta lista - bez realnej zmiany
+        assert stan.znane_kwoty() == {"843.04"}
+
+    def test_faktyczna_zmiana_nadal_czysci_kwoty(self):
+        # Kontrola negatywna: naprawa NIE MA cofnac calego W2 - PRAWDZIWA zmiana
+        # pozycji ma nadal czyscic rejestr.
+        stan.ustaw_kontekst(93058)
+        stan.zapisz_pozycje("1", produkt="blat", dlugosc_cm=100)
+        stan.zapamietaj_kwoty([999])
+        assert stan.znane_kwoty() == {"999.00"}
+
+        stan.zapisz_pozycje("1", dlugosc_cm=200)   # REALNA zmiana wymiaru
+        assert stan.znane_kwoty() == set()
+
+    def test_pierwszy_zapis_pozycji_nowej_rozmowy_nie_rzuca(self):
+        # Kontrola negatywna: brak wczesniejszego wiersza pro_dane (stary=None)
+        # ma byc traktowany jako "zmiana" (jest co czyscic tylko gdy jest co
+        # czyscic — ale przede wszystkim nie ma tu wywalic sie na None).
+        stan.ustaw_kontekst(93059)
+        wynik = stan.zapisz_pozycje("1", produkt="blat")
+        assert wynik["ok"] is True
+
+    def test_wspolbiezny_no_op_zapis_pozycji_nie_gubi_rownolegle_rejestrowanej_kwoty(self):
+        # N1, przebieg 2 z code review: zapisz_pozycje (bez realnej zmiany) i
+        # zapamietaj_kwoty (symulujace policz_wycene) w "jednym kroku modelu"
+        # (tu: prawdziwe watki z bariera). Naprawiona wersja NIGDY nie odpala
+        # DELETE dla no-opowego zapisu, wiec nie ma czym scigac sie z INSERT-em.
+        import threading
+
+        conv_id = 93060
+        stan.ustaw_kontekst(conv_id)
+        stan.zapisz_pozycje("1", produkt="blat", dlugosc_cm=100)   # ustal poczatkowy stan
+
+        start = threading.Barrier(2)
+        bledy = []
+
+        def _zapisz_ponownie():
+            try:
+                start.wait(timeout=5)
+                stan._conv_id.set(conv_id)
+                stan.zapisz_pozycje("1", produkt="blat", dlugosc_cm=100)   # BEZ zmiany
+            except Exception as e:
+                bledy.append(e)
+
+        def _zarejestruj():
+            try:
+                start.wait(timeout=5)
+                stan._conv_id.set(conv_id)
+                stan.zapamietaj_kwoty([1936.71])
+            except Exception as e:
+                bledy.append(e)
+
+        w1 = threading.Thread(target=_zapisz_ponownie)
+        w2 = threading.Thread(target=_zarejestruj)
+        w1.start()
+        w2.start()
+        w1.join()
+        w2.join()
+
+        assert bledy == []
+        stan.ustaw_kontekst(conv_id)
+        assert stan.znane_kwoty() == {"1936.71"}
+
+
 class TestPodsumowanieWyslane:
     """Bramka W3 (runda poprawek 1): `podsumowanie.wyslij()` oznacza w stanie tury,
     że sam już wysłał deterministyczną treść — `tura.py` to sprawdza, żeby nie
