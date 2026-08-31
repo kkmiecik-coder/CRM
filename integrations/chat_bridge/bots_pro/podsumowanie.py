@@ -254,15 +254,36 @@ def wyslij():
         return {"ok": False, "error": "WYCENA_NIEUDANA",
                 "szczegoly": _bez_wrazliwych_cen(wynik)}
 
-    stan.zapamietaj_kwoty(kwoty_z_wyniku(pozycje, wynik))
-
+    kwoty = kwoty_z_wyniku(pozycje, wynik)
     totals = wynik.get("totals") or {}
+    dostawa = stan.dostawa()
+
     tekst = "Podsumowanie do potwierdzenia:\n" + "\n".join(
         _linia(poz, options) for poz in pozycje)
-    tekst += "\n\nRazem: %s brutto" % _fmt_pln(totals.get("total_brutto"))
+    razem_produkty = totals.get("total_brutto")
+    dostawa_brutto = dostawa.get("brutto")
+
+    # U4: dostawa jest CZĘŚCIĄ ceny (wymóg właściciela: produkt + ew. dostawa),
+    # więc klient ma ją WIDZIEĆ w tym, co potwierdza — wcześniej podsumowanie
+    # pokazywało wyłącznie cenę produktu, choć bot mówił mu "produkt + wysyłka".
+    # Suma jest liczona z DWÓCH liczb kalkulatora CRM (nie zgadywana) i trafia do
+    # rejestru G1, żeby bot mógł ją potem legalnie zacytować.
+    if dostawa.get("kurier") and isinstance(dostawa_brutto, (int, float)):
+        razem_z_dostawa = round(float(razem_produkty or 0) + float(dostawa_brutto), 2)
+        kwoty.append(razem_z_dostawa)
+        tekst += "\n\nRazem produkty: %s brutto" % _fmt_pln(razem_produkty)
+        tekst += "\nDostawa (%s): %s brutto" % (dostawa["kurier"], _fmt_pln(dostawa_brutto))
+        tekst += "\nRazem z dostawą: %s brutto" % _fmt_pln(razem_z_dostawa)
+    else:
+        # Wysyłka jeszcze nieoszacowana albo gabaryt bez kuriera — NIE dopisujemy
+        # ani zmyślonego "0 zł", ani nieaktualnego kosztu sprzed zmiany pozycji
+        # (stan.zapisz_dostawe/_zapisz dbają o to, żeby stary koszt tu nie dotrwał).
+        tekst += "\n\nRazem: %s brutto" % _fmt_pln(razem_produkty)
     tekst += "\n\nCzy wszystko się zgadza?"
 
-    oczekiwany = potwierdzenia.podpis(pozycje)
+    stan.zapamietaj_kwoty(kwoty)
+
+    oczekiwany = potwierdzenia.podpis(pozycje, dostawa)
 
     # WYSYŁAMY TU, nie zwracamy tekstu modelowi. Gdyby treść wróciła do modelu,
     # ten mógłby ją sparafrazować i klient potwierdzałby parafrazę zamiast danych.

@@ -394,6 +394,29 @@ class TestPoliczWyceneRejestrujeKwoty:
         _wolaj(n.policz_wysylke, kod_pocztowy="00-000")
         assert "0.00" in stan.znane_kwoty()
 
+    def test_policz_wysylke_zapamietuje_dostawe_w_stanie(self, monkeypatch):
+        # U4: bez trwalego zapisu dostawa nie ma jak wejsc ani do podpisu, ani do
+        # podsumowania, ani do korekty wyceny w CRM.
+        stan.ustaw_kontekst(96011)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat")
+        monkeypatch.setattr(n.crm_calc, "shipping_quote", lambda p, kod: {
+            "ok": True, "carriers": 2, "carrier_name": "DPD",
+            "shipping_netto": 203.25, "shipping_brutto": 250.0})
+        _wolaj(n.policz_wysylke, kod_pocztowy="00-001")
+        assert stan.dostawa() == {"kod_pocztowy": "00-001", "kurier": "DPD",
+                                  "netto": 203.25, "brutto": 250.0}
+
+    def test_policz_wysylke_bez_kuriera_czysci_wczesniejszy_koszt(self, monkeypatch):
+        # Nowy kod pocztowy bez kuriera dla gabarytu NIE moze zostawic w stanie
+        # kosztu sprzed zmiany — klient potwierdzilby nieaktualna cene dostawy.
+        stan.ustaw_kontekst(96012)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat")
+        stan.zapisz_dostawe("00-001", kurier="DPD", netto=203.25, brutto=250.0)
+        monkeypatch.setattr(n.crm_calc, "shipping_quote",
+                            lambda p, kod: {"ok": True, "carriers": 0})
+        _wolaj(n.policz_wysylke, kod_pocztowy="80-001")
+        assert stan.dostawa() == {"kod_pocztowy": "80-001"}
+
 
 class TestPoliczWyceneIWysylkePrzycinajaWynik:
     """W3 (runda poprawek 1 i 2): policz_wycene/policz_wysylke muszą zwracać
@@ -567,6 +590,39 @@ class TestBramkaI2WNarzedziach:
         wynik = _wolaj(n.popraw_wycene, edit_uuid="uuid-x")
         assert wynik["ok"] is True
         assert len(wywolania) == 1
+
+    def test_popraw_wycene_przekazuje_kuriera_i_koszt_dostawy(self, monkeypatch):
+        # U4 (recenzja koncowa): crm_calc.update_quote PRZYJMUJE courier_name/
+        # shipping_*, stary silnik ich uzywa (bots/quotebot.py:1989), a Pro NIGDY —
+        # wiec w CRM ladowala wycena BEZ dostawy, mimo ze klient potwierdzil cene
+        # z dostawa.
+        stan.ustaw_kontekst(96028)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat", dlugosc_cm=180,
+              szerokosc_cm=60, grubosc_cm=4, ilosc=1,
+              selected_variant="dab-lity-ab", wykonczenie="surowe")
+        stan.zapisz_dostawe("00-001", kurier="DPD", netto=203.25, brutto=250.0)
+        _potwierdz_biezace_pozycje(monkeypatch)
+        przekazane = []
+        monkeypatch.setattr(n.crm_calc, "update_quote",
+                            lambda *a, **k: przekazane.append(k) or {"ok": True})
+        _wolaj(n.popraw_wycene, edit_uuid="uuid-x")
+        assert przekazane[0]["courier_name"] == "DPD"
+        assert przekazane[0]["shipping_netto"] == 203.25
+        assert przekazane[0]["shipping_brutto"] == 250.0
+
+    def test_popraw_wycene_bez_znanej_dostawy_nie_wysyla_kuriera(self, monkeypatch):
+        # Kontrola negatywna: brak oszacowania wysylki NIE moze trafic do CRM jako
+        # "kurier None / 0 zl" — update_quote dopisuje wysylke tylko gdy courier_name.
+        stan.ustaw_kontekst(96029)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat", dlugosc_cm=180,
+              szerokosc_cm=60, grubosc_cm=4, ilosc=1,
+              selected_variant="dab-lity-ab", wykonczenie="surowe")
+        _potwierdz_biezace_pozycje(monkeypatch)
+        przekazane = []
+        monkeypatch.setattr(n.crm_calc, "update_quote",
+                            lambda *a, **k: przekazane.append(k) or {"ok": True})
+        _wolaj(n.popraw_wycene, edit_uuid="uuid-x")
+        assert przekazane[0].get("courier_name") is None
 
     def test_przygotuj_zamowienie_bez_potwierdzenia_nie_zwraca_linku(self, monkeypatch):
         stan.ustaw_kontekst(96026)

@@ -61,6 +61,35 @@ class TestPodpisPolaCenotworcze:
         assert p.podpis(poz_a) != p.podpis(poz_b)
 
 
+class TestPodpisObejmujeDostawe:
+    """U4 (recenzja koncowa): koszt dostawy byl CALKOWICIE poza podpisem — klient
+    potwierdzal wylacznie cene produktu, a zmiana kodu pocztowego (a wiec i ceny
+    kuriera) NIE uniewazniala potwierdzenia. Wymog wlasciciela mowi wprost: cena
+    z CRM to produkt + ew. dostawa, i klient ma potwierdzic calosc."""
+
+    def _dostawa(self, **nadpisz):
+        baza = {"kod_pocztowy": "00-001", "kurier": "DPD",
+                "netto": 200.0, "brutto": 246.0}
+        baza.update(nadpisz)
+        return baza
+
+    def test_ta_sama_dostawa_daje_ten_sam_podpis(self):
+        assert p.podpis(_pozycje(), self._dostawa()) == p.podpis(_pozycje(), self._dostawa())
+
+    def test_brak_dostawy_i_dostawa_daja_rozne_podpisy(self):
+        assert p.podpis(_pozycje()) != p.podpis(_pozycje(), self._dostawa())
+
+    @pytest.mark.parametrize("pole,wartosc", [
+        ("kod_pocztowy", "80-001"),
+        ("kurier", "InPost"),
+        ("netto", 300.0),
+        ("brutto", 369.0),
+    ])
+    def test_zmiana_pola_dostawy_zmienia_podpis(self, pole, wartosc):
+        assert p.podpis(_pozycje(), self._dostawa()) != p.podpis(
+            _pozycje(), self._dostawa(**{pole: wartosc}))
+
+
 class TestCytat:
     def test_cytat_z_ostatniej_wiadomosci_przechodzi(self):
         wynik = p.sprawdz_cytat("tak, zgadza się", "Tak, zgadza się — proszę o wycenę")
@@ -169,6 +198,7 @@ class TestBramka:
     def test_brak_potwierdzenia_blokuje(self, monkeypatch):
         monkeypatch.setattr(p, "_stan_potwierdzenia", lambda: (None, None))
         monkeypatch.setattr(p, "_biezace_pozycje", lambda: _pozycje())
+        monkeypatch.setattr(p, "_biezaca_dostawa", dict)
         wynik = p.sprawdz_bramke()
         assert wynik["ok"] is False
         assert wynik["error"] == "BRAK_POTWIERDZENIA"
@@ -177,6 +207,7 @@ class TestBramka:
         podpis = p.podpis(_pozycje())
         monkeypatch.setattr(p, "_stan_potwierdzenia", lambda: (podpis, "tak"))
         monkeypatch.setattr(p, "_biezace_pozycje", lambda: _pozycje())
+        monkeypatch.setattr(p, "_biezaca_dostawa", dict)
         assert p.sprawdz_bramke()["ok"] is True
 
     def test_zmiana_po_potwierdzeniu_uniewaznia(self, monkeypatch):
@@ -184,6 +215,7 @@ class TestBramka:
         podpis_stary = p.podpis(_pozycje(grubosc=10))
         monkeypatch.setattr(p, "_stan_potwierdzenia", lambda: (podpis_stary, "Tak"))
         monkeypatch.setattr(p, "_biezace_pozycje", lambda: _pozycje(grubosc=6))
+        monkeypatch.setattr(p, "_biezaca_dostawa", dict)
         wynik = p.sprawdz_bramke()
         assert wynik["ok"] is False
         assert wynik["error"] == "POTWIERDZENIE_NIEAKTUALNE"

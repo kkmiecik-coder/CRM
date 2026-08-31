@@ -30,6 +30,14 @@ _POLA_ISTOTNE = ("id", "produkt", "dlugosc", "szerokosc", "grubosc", "ilosc",
                  "selected_variant", "gatunek", "technologia", "klasa",
                  "wykonczenie", "finishing_id", "edges", "otwory")
 
+# Pola DOSTAWY wchodzące do podpisu (U4). Osobna lista od `_POLA_ISTOTNE`, bo
+# dostawa jest stanem PER ROZMOWA (`bots_pro.stan.dostawa`), nie polem pozycji —
+# ale obowiązuje ją dokładnie ta sama reguła: pominięcie pola tutaj znaczy „zmiana
+# tego pola NIE unieważnia potwierdzenia". Wymóg właściciela mówi wprost, że cena
+# to produkt + ew. dostawa, więc zmiana kodu pocztowego, kuriera albo kosztu
+# wysyłki musi wymusić nowe podsumowanie i nowe „tak" klienta.
+_POLA_DOSTAWY = ("kod_pocztowy", "kurier", "netto", "brutto")
+
 # Cytat musi mieć sensowną długość — pojedynczy znak interpunkcyjny ("." wyrwane
 # z końca zdania klienta) nie jest potwierdzeniem.
 _MIN_DLUGOSC_CYTATU = 2
@@ -57,13 +65,16 @@ _ODMOWY = re.compile(
     r"(?<!\w)(?:rezygn\w*|odmawiam|anuluj\w*|wycofuj\w*|odst[ęe]puj\w*)", re.IGNORECASE)
 
 
-def podpis(pozycje):
-    """Stabilny odcisk tego, co klient potwierdza."""
+def podpis(pozycje, dostawa=None):
+    """Stabilny odcisk tego, co klient potwierdza — pozycje ORAZ dostawa (U4)."""
     istotne = [
         {k: p.get(k) for k in _POLA_ISTOTNE if k in p}
         for p in sorted(pozycje or [], key=lambda x: str(x.get("id")))
     ]
-    material = json.dumps(istotne, ensure_ascii=False, sort_keys=True)
+    istotna_dostawa = {k: (dostawa or {}).get(k)
+                       for k in _POLA_DOSTAWY if k in (dostawa or {})}
+    material = json.dumps({"pozycje": istotne, "dostawa": istotna_dostawa},
+                          ensure_ascii=False, sort_keys=True)
     return hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
 
 
@@ -145,6 +156,17 @@ def _biezace_pozycje():
     return stan.pozycje()
 
 
+def _biezaca_dostawa():
+    from bots_pro import stan
+    return stan.dostawa()
+
+
+def _biezacy_podpis():
+    """Podpis BIEŻĄCEGO stanu rozmowy — pozycje + dostawa. Jedno miejsce, żeby
+    `potwierdz` i `sprawdz_bramke` nie rozjechały się co do zakresu podpisu."""
+    return podpis(_biezace_pozycje(), _biezaca_dostawa())
+
+
 def _stan_potwierdzenia():
     """(potwierdzony_podpis, cytat) dla bieżącej rozmowy."""
     from bots_pro import stan
@@ -189,7 +211,7 @@ def potwierdz(cytat_klienta):
                              "Jeśli klient nie potwierdził — nie wołaj tego narzędzia."}
 
     oczekiwany = _oczekiwany_podpis()
-    biezacy = podpis(_biezace_pozycje())
+    biezacy = _biezacy_podpis()
     if not oczekiwany or oczekiwany != biezacy:
         return {"ok": False, "error": "DANE_ZMIENIONE_OD_PODSUMOWANIA",
                 "wskazowka": "Dane zmieniły się od wysłania podsumowania (albo podsumowanie "
@@ -208,7 +230,7 @@ def sprawdz_bramke():
         return {"ok": False, "error": "BRAK_POTWIERDZENIA",
                 "wskazowka": "Najpierw wyślij podsumowanie i poczekaj, aż klient je potwierdzi."}
 
-    if zapisany != podpis(_biezace_pozycje()):
+    if zapisany != _biezacy_podpis():
         return {"ok": False, "error": "POTWIERDZENIE_NIEAKTUALNE",
                 "wskazowka": "Dane zmieniły się po potwierdzeniu. Wyślij nowe podsumowanie "
                              "i poproś o ponowne potwierdzenie."}

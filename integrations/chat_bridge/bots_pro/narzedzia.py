@@ -189,12 +189,29 @@ def policz_wysylke(kod_pocztowy: str) -> dict:
     carrier_name/shipping_netto/shipping_brutto wcale (nie ma ich w JSON-ie,
     nie są ustawione na null) — to znaczy, że wysyłki NIE dało się oszacować,
     NIE że jest gratis. Nie mów wtedy klientowi, że wysyłka jest darmowa —
-    zaproponuj kontakt z konsultantem."""
+    zaproponuj kontakt z konsultantem.
+
+    Koszt zależy od GABARYTU, więc po KAŻDEJ zmianie pozycji (zapisz_pozycje)
+    policz wysyłkę ponownie — stare oszacowanie przestaje wtedy obowiązywać i
+    znika z podsumowania."""
     from bots_pro import stan
     wynik = crm_calc.shipping_quote(stan.pozycje(), kod_pocztowy)
     stan.zapamietaj_kwoty(
         wynik[pole] for pole in ("shipping_netto", "shipping_brutto")
         if isinstance(wynik.get(pole), (int, float)))
+
+    # U4: zapamiętujemy oszacowanie TRWALE — bez tego dostawa nie ma jak wejść ani
+    # do podpisu potwierdzenia, ani do podsumowania, ani do korekty wyceny w CRM,
+    # a wymóg właściciela mówi wprost: cena to produkt + ew. dostawa. Kurier/koszt
+    # tylko przy udanym oszacowaniu z kurierem — inaczej zapisujemy sam kod
+    # pocztowy, co jednocześnie CZYŚCI koszt sprzed zmiany (patrz zapisz_dostawe).
+    if wynik.get("ok") and wynik.get("carriers"):
+        stan.zapisz_dostawe(kod_pocztowy, kurier=wynik.get("carrier_name"),
+                            netto=wynik.get("shipping_netto"),
+                            brutto=wynik.get("shipping_brutto"))
+    else:
+        stan.zapisz_dostawe(kod_pocztowy)
+
     if not wynik.get("ok"):
         return wynik
     # crm_calc.shipping_quote niesie też raw_netto/raw_brutto — cenę kuriera
@@ -284,8 +301,17 @@ def popraw_wycene(edit_uuid: str, notatka: str = "") -> dict:
     bramka = potwierdzenia.sprawdz_bramke()
     if not bramka["ok"]:
         return bramka
+    # U4: dostawa dopisywana do wyceny w CRM — dokładnie jak w starym silniku
+    # (bots/quotebot.py, _zapisz_wycene/_obsluz_kod_pocztowy). Bez tego klient
+    # potwierdzał cenę Z dostawą, a pod linkiem widział wycenę BEZ niej.
+    # `update_quote` dopisuje wysyłkę tylko gdy `courier_name` jest prawdziwe, więc
+    # brak oszacowania (None) świadomie nie trafia do CRM jako "0 zł".
+    dostawa = stan.dostawa()
     return crm_calc.update_quote(edit_uuid, stan.pozycje(),
-                                 crm_calc.get_options(), notes=notatka)
+                                 crm_calc.get_options(), notes=notatka,
+                                 courier_name=dostawa.get("kurier"),
+                                 shipping_netto=dostawa.get("netto"),
+                                 shipping_brutto=dostawa.get("brutto"))
 
 
 @function_tool

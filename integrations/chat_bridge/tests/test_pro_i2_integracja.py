@@ -94,3 +94,23 @@ def test_bez_zmian_potwierdzenie_przechodzi_przez_cala_sciezke(monkeypatch):
     assert podsumowanie.wyslij()["ok"] is True
     assert potwierdzenia.potwierdz("tak, zgadzam się")["ok"] is True
     assert potwierdzenia.sprawdz_bramke()["ok"] is True
+
+
+def test_zmiana_dostawy_po_potwierdzeniu_blokuje_bramke(monkeypatch):
+    """U4: dostawa jest CZĘŚCIĄ ceny (wymóg właściciela: produkt + ew. dostawa),
+    więc zmiana kuriera/kodu pocztowego PO potwierdzeniu musi unieważnić zgodę
+    dokładnie tak samo, jak zmiana grubości blatu."""
+    conv_id = 95004
+    _przygotuj(monkeypatch, conv_id, grubosc=4, ostatnia_wiadomosc="Tak")
+    stan.zapisz_dostawe("00-001", kurier="DPD", netto=200.0, brutto=246.0)
+
+    assert podsumowanie.wyslij()["ok"] is True
+    assert potwierdzenia.potwierdz("Tak")["ok"] is True
+    assert potwierdzenia.sprawdz_bramke()["ok"] is True
+
+    # Klient podaje inny adres -> inny kurier i inny koszt dostawy.
+    stan.zapisz_dostawe("80-001", kurier="InPost", netto=300.0, brutto=369.0)
+
+    wynik = potwierdzenia.sprawdz_bramke()
+    assert wynik["ok"] is False
+    assert wynik["error"] == "POTWIERDZENIE_NIEAKTUALNE"

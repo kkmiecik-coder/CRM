@@ -413,6 +413,51 @@ class TestOpisEdges:
         assert opis == "R5 (A, B); Fazowanie 45° (C)"
 
 
+class TestPodsumowaniePokazujeDostawe:
+    """U4 (recenzja końcowa): klient potwierdzał podsumowanie zawierające WYŁĄCZNIE
+    cenę produktu, mimo że bot mówił mu wcześniej "produkt + wysyłka". Dostawa ma
+    być w treści, którą klient podpisuje — inaczej I2 chroni połowę ceny."""
+
+    def _przygotuj(self, monkeypatch, conv_id):
+        stan.ustaw_kontekst(conv_id)
+        poz = [_pozycja()]
+        monkeypatch.setattr(stan, "pozycje", lambda: poz)
+        monkeypatch.setattr(podsumowanie.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(podsumowanie.crm_calc, "calculate", lambda p, o: {
+            "ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}})
+        _zaladuj_atrape_wysylki(monkeypatch)
+        wyslane = []
+        monkeypatch.setattr(podsumowanie, "cw_agent_reply",
+                            lambda cid, tekst, token=None: wyslane.append(tekst) or True)
+        return wyslane
+
+    def test_znana_dostawa_jest_widoczna_w_podsumowaniu(self, monkeypatch):
+        wyslane = self._przygotuj(monkeypatch, 94030)
+        stan.zapisz_dostawe("00-001", kurier="DPD", netto=203.25, brutto=250.00)
+        podsumowanie.wyslij()
+        tekst = wyslane[0]
+        assert "DPD" in tekst
+        assert "250,00" in tekst
+        assert "1 093,04" in tekst   # produkt 843,04 + dostawa 250,00
+
+    def test_suma_z_dostawa_trafia_do_rejestru_kwot_g1(self, monkeypatch):
+        # Bot moze te sume zacytowac w kolejnej turze — guardrail musi ja znac,
+        # inaczej zglosi PRAWDZIWA cene jako halucynacje.
+        self._przygotuj(monkeypatch, 94031)
+        stan.zapisz_dostawe("00-001", kurier="DPD", netto=203.25, brutto=250.00)
+        podsumowanie.wyslij()
+        assert "1093.04" in stan.znane_kwoty()
+
+    def test_bez_znanej_dostawy_podsumowanie_wyglada_jak_dotad(self, monkeypatch):
+        # Kontrola negatywna: dopoki wysylka nie zostala oszacowana, nie
+        # dopisujemy do podsumowania ani kuriera, ani zmyslonego "0 zl".
+        wyslane = self._przygotuj(monkeypatch, 94032)
+        podsumowanie.wyslij()
+        tekst = wyslane[0]
+        assert "Razem: 843,04 zł brutto" in tekst
+        assert "ostawa" not in tekst
+
+
 class TestWyslijNieudanaWysylka:
     """U1 (recenzja końcowa gałęzi): `cw_agent_reply` NIGDY nie rzuca — przy
     429/5xx/timeoucie po prostu zwraca False (core/chatwoot.py). Podsumowanie,

@@ -88,7 +88,9 @@ CREATE TABLE IF NOT EXISTS pro_stan(
   potwierdzenie_cytat TEXT, potwierdzenie_ts REAL,
   czlowiek_odezwal_sie INTEGER DEFAULT 0,
   tury_rozmowy INTEGER DEFAULT 0, tury_bez_postepu INTEGER DEFAULT 0,
-  ostatni_liczony_mid TEXT);
+  ostatni_liczony_mid TEXT,
+  dostawa_kod TEXT, dostawa_kurier TEXT,
+  dostawa_netto REAL, dostawa_brutto REAL);
 CREATE TABLE IF NOT EXISTS pro_kwoty(
   conv_id INTEGER, kwota TEXT, PRIMARY KEY(conv_id, kwota));
 """
@@ -116,6 +118,13 @@ def init_pro():
             "ALTER TABLE pro_stan ADD COLUMN tury_rozmowy INTEGER DEFAULT 0",
             "ALTER TABLE pro_stan ADD COLUMN tury_bez_postepu INTEGER DEFAULT 0",
             "ALTER TABLE pro_stan ADD COLUMN ostatni_liczony_mid TEXT",
+            # U4: dostawa jest CZĘŚCIĄ ceny (wymóg właściciela: produkt + ew.
+            # dostawa), więc musi być trwała jak reszta stanu biznesowego —
+            # inaczej nie ma jak wejść ani do podpisu, ani do podsumowania.
+            "ALTER TABLE pro_stan ADD COLUMN dostawa_kod TEXT",
+            "ALTER TABLE pro_stan ADD COLUMN dostawa_kurier TEXT",
+            "ALTER TABLE pro_stan ADD COLUMN dostawa_netto REAL",
+            "ALTER TABLE pro_stan ADD COLUMN dostawa_brutto REAL",
         ):
             try:
                 polaczenie.execute(stmt)
@@ -391,6 +400,13 @@ def _zapisz(dane):
             (biezacy_conv_id, nowy_json))
         if tresc_sie_zmienila:
             polaczenie.execute("DELETE FROM pro_kwoty WHERE conv_id=?", (biezacy_conv_id,))
+            # U4: koszt dostawy zależy od GABARYTU, więc zmiana pozycji unieważnia
+            # go tak samo jak cenę produktu. Kod pocztowy ZOSTAJE (klient go już
+            # podał, nie ma powodu pytać drugi raz) — znika tylko kurier i koszt,
+            # żeby podsumowanie nie pokazało ceny dostawy sprzed zmiany wymiarów.
+            polaczenie.execute(
+                "UPDATE pro_stan SET dostawa_kurier=NULL, dostawa_netto=NULL, "
+                "dostawa_brutto=NULL WHERE conv_id=?", (biezacy_conv_id,))
         polaczenie.commit()
     finally:
         polaczenie.close()
@@ -399,6 +415,41 @@ def _zapisz(dane):
 def pozycje():
     """Pozycje wyceny zapisane w tej rozmowie."""
     return _wczytaj().get("pozycje", [])
+
+
+def zapisz_dostawe(kod_pocztowy, kurier=None, netto=None, brutto=None):
+    """Zapamiętuje oszacowanie dostawy dla tej rozmowy (U4).
+
+    NADPISUJE komplet czterech pól, nie łączy z poprzednim stanem: nowy kod
+    pocztowy bez kuriera (gabaryt poza standardem) MUSI wyczyścić koszt sprzed
+    zmiany, inaczej klient potwierdziłby nieaktualną cenę dostawy.
+
+    Dostawa mieszka w `pro_stan`, nie w `pro_dane` (pozycje), świadomie: to stan
+    PER ROZMOWA, a nie pole pozycji, i nie ma powodu, żeby jej zapis przechodził
+    przez logikę czyszczenia rejestru kwot z `_zapisz`."""
+    zapisz_stan(dostawa_kod=kod_pocztowy or None, dostawa_kurier=kurier or None,
+                dostawa_netto=netto, dostawa_brutto=brutto)
+
+
+def dostawa():
+    """Oszacowanie dostawy tej rozmowy — `{}` gdy nic nie policzono.
+
+    Klucze pojawiają się tylko dla wartości USTAWIONYCH: brak `kurier`/`brutto`
+    znaczy „wysyłki nie udało się oszacować", nie „gratis" (ta sama zasada, co
+    w `narzedzia.policz_wysylke`, gdzie klucze o wartości None są pomijane).
+    Ten sam kształt trafia do podpisu potwierdzenia i do podsumowania."""
+    polaczenie = db()
+    try:
+        wiersz = polaczenie.execute(
+            "SELECT dostawa_kod, dostawa_kurier, dostawa_netto, dostawa_brutto "
+            "FROM pro_stan WHERE conv_id=?", (conv_id(),)).fetchone()
+    finally:
+        polaczenie.close()
+    if not wiersz:
+        return {}
+    surowe = {"kod_pocztowy": wiersz["dostawa_kod"], "kurier": wiersz["dostawa_kurier"],
+              "netto": wiersz["dostawa_netto"], "brutto": wiersz["dostawa_brutto"]}
+    return {k: v for k, v in surowe.items() if v is not None}
 
 
 def _rozloz_wariant(kod):
