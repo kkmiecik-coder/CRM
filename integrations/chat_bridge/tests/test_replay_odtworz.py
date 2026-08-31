@@ -127,19 +127,60 @@ class TestPrzechwycenieWysylki:
         assert wynik["handoff"] is True     # i fakt handoffu jest zarejestrowany
 
     def test_prawdziwy_chatwoot_nie_jest_odpytywany_o_status_ani_historie(self, monkeypatch):
+        """Runda poprawek 3, P2: ten test NIE MOGL zaczerwienic sie na czesci
+        wyciekow, ktorych pilnowal — byl czesciowo bezzebny.
+
+        Poprzednia wersja podmieniala `cw_conv_status` I surowe `cw` na atrape
+        RZUCAJACA `AssertionError`. Dla odczytu STATUSU to dzialalo (`stan.
+        wolno_prowadzic_rozmowe` wola `cw_conv_status` bez try/except, wiec
+        wyjatek wychodzil na wierzch), ale straznik na `cw` byl slepy na
+        WSZYSTKIE pozostale odczyty: kazda funkcja `cw_*` w `core/chatwoot.py`
+        (`cw_contact_full`, `cw_messages`, `cw_contact`, `cw_inboxes`, ...)
+        opakowuje wywolanie `cw` wlasnym `except Exception` i po cichu zwraca
+        pustke — a `AssertionError` JEST `Exception`. Zmierzone: po usunieciu z
+        `replay.odtworz` podmiany `stan.wczytaj_kontakt` (czyli przy PRAWDZIWYM
+        wycieku odczytu kontaktu do produkcyjnego Chatwoota) ten test nadal
+        przechodzil na zielono, a czerwony robil sie wylacznie sasiedni
+        `test_prawdziwy_kontakt_klienta_nie_jest_odpytywany` — bo tamten uzywa
+        REJESTRATORA.
+
+        Naprawa: ten sam wzorzec co u sasiada — REJESTRUJEMY wywolania zamiast
+        rzucac, i sprawdzamy rejestr asercja. Atrapy zwracaja wartosci, przy
+        ktorych kod plynie DALEJ tak, jakby siec zadzialala ("pending" +
+        odpowiedz z pustym `payload`): dzieki temu wyciek objawia sie WPISEM
+        w rejestrze, a nie wyjatkiem z przypadkowego miejsca, ktore mogloby
+        zamaskowac kolejne wywolania."""
         import core.chatwoot as cw
+        wolania = []
 
-        def _wybuchnij(*a, **kw):
-            raise AssertionError(
-                "replay odpytal PRAWDZIWEGO Chatwoota o status/historie rozmowy "
-                "(bramka ciszy po handoffie)")
+        class _PustaOdpowiedz:
+            """Minimalny ksztalt `requests.Response`, jakiego oczekuje
+            `stan.wolno_prowadzic_rozmowe`: `.ok`, `.status_code`, `.json()`.
+            Pusty `payload` => historia bez wypowiedzi czlowieka => bramka
+            przepuszcza ture i ewentualne DALSZE odczyty tez sie zarejestruja."""
+            ok = True
+            status_code = 200
 
-        monkeypatch.setattr(cw, "cw_conv_status", _wybuchnij)
-        monkeypatch.setattr(cw, "cw", _wybuchnij)
+            @staticmethod
+            def json():
+                return {}
+
+        def _rejestruj_cw(method, path, payload=None, token=None):
+            wolania.append(("cw", method, path))
+            return _PustaOdpowiedz()
+
+        def _rejestruj_status(conv_id):
+            wolania.append(("cw_conv_status", conv_id))
+            return "pending"
+
+        monkeypatch.setattr(cw, "cw_conv_status", _rejestruj_status)
+        monkeypatch.setattr(cw, "cw", _rejestruj_cw)
         monkeypatch.setattr(tura, "Runner", _FalszywyRunnerRoutingu(["ok"]))
 
         rozmowa = {"id": 503, "wiadomosci": [("KLIENT", "dzien dobry")]}
-        replay.odtworz(rozmowa)  # brak wyjatku == bramka nie posiegnela po siec
+        replay.odtworz(rozmowa)
+
+        assert wolania == []
 
     def test_prawdziwy_kontakt_klienta_nie_jest_odpytywany(self, monkeypatch):
         # N6: `tura.uruchom` czyta kontakt rozmowy z Chatwoota. Syntetyczny
