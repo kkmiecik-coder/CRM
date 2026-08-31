@@ -16,7 +16,15 @@ odpowiedzi, obiektach/dictach Usage, listach czasów). Dzięki temu dają się
 testować (i używać) bez zainstalowanego SDK. Samo ZBIERANIE tych danych z
 żywej rozmowy należy do `e2e/replay.py::odtworz`.
 """
+import itertools
 import math
+import re
+
+# Sentinel unikalny (nie `None` — `None` mógłby kiedyś być legalną nazwą
+# "brak agenta" w jednej z list) do wyrównania list różnej długości w
+# `trafnosc_routingu` — patrz jej docstring, dlaczego zwykłe `zip()` jest tam
+# błędem, nie uproszczeniem.
+_BRAK_POZYCJI = object()
 
 
 def powtorzone_formulki(odpowiedzi):
@@ -38,6 +46,28 @@ def powtorzone_formulki(odpowiedzi):
     return powtorki
 
 
+def powtorzone_formulki_przyblizone(odpowiedzi):
+    """Jak `powtorzone_formulki`, ale PO zamianie cyfr na jeden wspólny
+    symbol przed porównaniem — porównanie DOKŁADNE z definicji nie łapie
+    powtórki różniącej się tylko jedną liczbą (inna cena/wymiar w tej samej,
+    w kółko powtarzanej formułce), a to konkretny tryb awarii z audytu.
+    Osobna funkcja, NIE zamiennik dla dokładnej: to LUŹNIEJSZE kryterium
+    mogłoby (rzadko) złapać też dwie NAPRAWDĘ różne odpowiedzi o identycznym
+    szkielecie tekstu bez liczb — dlatego oba pomiary są raportowane OSOBNO
+    (`replay.main`), nigdy scalane w jedną liczbę."""
+    widziane = set()
+    powtorki = 0
+    for odpowiedz in odpowiedzi or []:
+        znormalizowana = re.sub(r"\d+", "#", " ".join((odpowiedz or "").split()).lower())
+        if not znormalizowana.strip(" #"):
+            continue
+        if znormalizowana in widziane:
+            powtorki += 1
+        else:
+            widziane.add(znormalizowana)
+    return powtorki
+
+
 def zawiera_link(odpowiedzi):
     """Czy KTÓRAKOLWIEK odpowiedź niesie link (np. do zapisanej wyceny/
     checkoutu) — jeden z dwóch legalnych „wyjść" z rozmowy obok handoffu."""
@@ -56,10 +86,11 @@ def zakonczona_poprawnie(odpowiedzi, handoff, link):
     return bool(handoff or link)
 
 
-def trafnosc_routingu(pary):
-    """Ułamek trafień w liście par (oczekiwany_agent, faktyczny_agent).
+def trafnosc_routingu(oczekiwane, faktyczne):
+    """Ułamek trafień MIĘDZY DWIEMA LISTAMI, pozycja po pozycji (kolejny
+    element `oczekiwane` z kolejnym elementem `faktyczne`).
 
-    Generyczna i czysta — nie zakłada, SKĄD `oczekiwany` pochodzi (etykieta
+    Generyczna i czysta — nie zakłada, SKĄD `oczekiwane` pochodzi (etykieta
     ręcznie przypisana do scenariusza testowego, oznaczony podzbiór audytu...).
     Realne transkrypty audytu NIE niosą etykiety „który agent SDK powinien
     odpowiedzieć" — to surowy tekst rozmowy, nie oznaczenie routingu — więc
@@ -68,13 +99,29 @@ def trafnosc_routingu(pary):
     i przetestowana — do użycia z każdym źródłem etykiet, jakie kiedyś powstanie
     (np. ręcznie oznaczony podzbiór audytu).
 
-    Zwraca None dla pustej listy — brak pomiaru to NIE 0% trafności, tylko
-    „nie zmierzono", żeby te dwa stany nie zlewały się w raporcie."""
-    pary = list(pary or [])
-    if not pary:
+    Przyjmuje DWIE LISTY, nie gotowe pary — celowo, żeby żaden wywołujący nie
+    mógł powtórzyć błędu z rundy poprawek 1: `zip(oczekiwane, faktyczne)` na
+    listach różnej długości MILCZĄCO obcina do krótszej, więc
+    `oczekiwane=["Wycena","Wiedza"]` przy `faktyczne=["Wycena"]` (router zrobił
+    JEDEN przeskok zamiast dwóch — to jest błąd routingu) dałoby zwykłym `zip`
+    trafność 1.0 zamiast poprawnych 0.5. Tutaj wyrównujemy
+    `itertools.zip_longest` z unikalnym sentinelem — brakująca/nadmiarowa
+    pozycja NIGDY nie może "przypadkiem" trafić, więc liczy się jako pudło,
+    nie znika z mianownika.
+
+    Zwraca None, gdy `oczekiwane` jest puste — brak etykiety to NIE 0%
+    trafności, tylko „nie zmierzono", żeby te dwa stany nie zlewały się w
+    raporcie. `faktyczne` puste przy niepustym `oczekiwane` to NAPRAWDĘ 0%
+    (router miał zrobić przeskok i tego nie zrobił) — inaczej niż brak
+    etykiety w ogóle."""
+    oczekiwane = list(oczekiwane or [])
+    if not oczekiwane:
         return None
-    trafienia = sum(1 for oczekiwany, faktyczny in pary if oczekiwany == faktyczny)
-    return trafienia / len(pary)
+    faktyczne = list(faktyczne or [])
+    pary = itertools.zip_longest(oczekiwane, faktyczne, fillvalue=_BRAK_POZYCJI)
+    trafienia = sum(1 for oczekiwany, faktyczny in pary
+                    if oczekiwany == faktyczny and oczekiwany is not _BRAK_POZYCJI)
+    return trafienia / len(oczekiwane)
 
 
 def handoffy_na_100(liczba_rozmow, liczba_handoffow):
@@ -90,14 +137,18 @@ def handoffy_na_100(liczba_rozmow, liczba_handoffow):
 # Brak realnych cenników dla modeli używanych w tym projekcie — identyfikatory
 # per-rola (np. 'gpt-5.6-terra', 'litellm/anthropic/claude-sonnet-5', patrz
 # bots_pro/models.py) to WEWNĘTRZNA konfiguracja bez publicznego cennika w tym
-# repo. Domyślny cennik liczy więc PROXY porównawcze: koszt = suma tokenów
-# (wejście+wyjście), stawka 1.0/token — użyteczne do porównania DWÓCH
-# przebiegów tego samego korpusu (mniej/więcej tokenów = taniej/drożej), nie
-# realna kwota w żadnej walucie. Podaj własny `cennik` (np.
-# {"input": 0.000003, "output": 0.000015} — USD za token), żeby dostać
-# rzeczywistą kwotę — jednostka wyniku jest wtedy taka sama jak jednostka
-# podanych stawek.
-CENNIK_DOMYSLNY = {"input": 1.0, "output": 1.0}
+# repo. Domyślny cennik liczy więc PROXY porównawcze, nie realną kwotę w
+# żadnej walucie — ale wagi NIE SĄ równe: token wyjściowy u każdego liczącego
+# się dostawcy (OpenAI, Anthropic — patrz cenniki obu) kosztuje kilkukrotnie
+# więcej niż token wejściowy (rząd wielkości 4-5x), więc równa waga 1:1
+# (poprzednia wersja) byłaby zwykłym licznikiem tokenów pod inną nazwą —
+# ranking dwóch przebiegów różniących się głównie długością ODPOWIEDZI (nie
+# promptu) wyszedłby z niego zafałszowany. 4.0 to zaokrąglony środek tego
+# przedziału, wciąż PROXY, nie kwota. Podaj własny `cennik` (np.
+# {"input": 0.000003, "output": 0.000015} — USD za token, realne stawki
+# dostawcy), żeby dostać rzeczywistą kwotę — jednostka wyniku jest wtedy taka
+# sama jak jednostka podanych stawek.
+CENNIK_DOMYSLNY = {"input": 1.0, "output": 4.0}
 
 
 def _liczba_tokenow(uzycie, pole):
@@ -166,5 +217,5 @@ def ocen(rozmowa, odpowiedzi, handoff=False, link=None, kwoty_niezgodne=0,
         "p95_czasu_tury": p95_czas(czasy_tur),
     }
     if oczekiwana_trasa is not None:
-        wynik["trafnosc_routingu"] = trafnosc_routingu(zip(oczekiwana_trasa, trasa or []))
+        wynik["trafnosc_routingu"] = trafnosc_routingu(oczekiwana_trasa, trasa or [])
     return wynik

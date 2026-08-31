@@ -4,7 +4,8 @@ Odtwarzanie zapisanych rozmów (audyt produkcji) przeciwko bieżącej
 konfiguracji modeli Dębusia Pro — Task 9, harness ewaluacyjny.
 
 Użycie:
-    python e2e/replay.py sciezka/do/shard_1.txt [shard_2.txt ...]
+    python e2e/replay.py sciezka/do/shard_1.txt [shard_2.txt ...] [--persona pro|olx|allegro]
+                                                                    [--out wyniki.json]
 
 Transkrypty NIGDY nie leżą w repo — zawierają dane osobowe klientów (nazwiska,
 adresy dostawy, telefony), a repo auto-deployuje się na produkcję. Podaj
@@ -22,20 +23,59 @@ polecenia z inną wartością, np.:
     ANTHROPIC_API_KEY=... python e2e/replay.py ...
 
 BEZPIECZEŃSTWO (krytyczne — harness NIE MOŻE pisać do prawdziwego Chatwoota
-ani go odpytywać siecią). `bots_pro.tura` importuje `cw_agent_reply` PRZEZ
-NAZWĘ (`from core.chatwoot import cw_agent_reply`) — ta linia WIĄŻE referencję
-w przestrzeni nazw `tura` RAZ, przy imporcie modułu. Podmiana atrybutu na
-module źródłowym `core.chatwoot` PO fakcie (naiwne podejście, jakie sugerował
-pierwotny brief tego zadania) nie ma WIĘC żadnego wpływu na to, co
-`tura.uruchom()` faktycznie wywołuje — trzeba podmienić `tura.cw_agent_reply`
-i `tura.Runner` (oba importowane przez nazwę), NIE ich moduły źródłowe.
-`stan.handoff`/`stan.wolno_prowadzic_rozmowe` są używane przez `tura.py` jako
-atrybuty MODUŁU (`from bots_pro import stan`, potem `stan.handoff(...)`), więc
-dla nich wystarczy podmiana atrybutu modułu — `odtworz()` niżej traktuje oba
-przypadki jednolicie (`_podmien`), żeby przyszła zmiana stylu importu w
-tura.py nie przemyciła po cichu regresji w tym punkcie. Zobacz
-tests/test_replay_odtworz.py::TestPrzechwycenieWysylki — to WŁAŚNIE ten błąd
-(podmiana złego miejsca) ma tam złapać.
+ani produkcyjnego CRM, ani ich odpytywać siecią). Trzy NIEZALEŻNE miejsca w
+kodzie bota importują sieciowe funkcje PRZEZ NAZWĘ (`from X import y`) — ta
+konstrukcja WIĄŻE referencję w przestrzeni nazw importującego modułu RAZ, przy
+imporcie. Podmiana atrybutu na module ŹRÓDŁOWYM po fakcie (naiwne podejście,
+jakie sugerował pierwotny brief tego zadania) nie ma WIĘC żadnego wpływu na
+to, co te moduły faktycznie wywołują:
+
+  1. `bots_pro/tura.py`: `from core.chatwoot import cw_agent_reply` — wysyłka
+     zwykłej odpowiedzi bota.
+  2. `bots_pro/podsumowanie.py`: WŁASNE, OSOBNE `from core.chatwoot import
+     cw_agent_reply` — wysyłka deterministycznego podsumowania (Runda
+     poprawek 1, K1: pierwsza wersja tego harnessu łatała TYLKO (1), więc
+     KAŻDA rozmowa, w której model wołał narzędzie `wyslij_podsumowanie`,
+     wysyłała prawdziwą wiadomość do prawdziwego Chatwoota — a treść tej
+     wiadomości NIE trafiała do `odpowiedzi`, więc harness jej nawet nie
+     mierzył, mierząc tylko ciszę, której nie było).
+
+`odtworz()` niżej podmienia właściwe miejsca — `tura.cw_agent_reply` ORAZ
+`podsumowanie.cw_agent_reply` (osobno, bo to DWIE różne referencje), oraz
+`tura.Runner`. `stan.handoff`/`stan.wolno_prowadzic_rozmowe` są używane przez
+`tura.py` jako atrybuty MODUŁU (`from bots_pro import stan`, potem
+`stan.handoff(...)`), więc dla nich wystarcza podmiana atrybutu modułu —
+`odtworz()` traktuje wszystkie przypadki jednolicie (`_podmien`).
+
+Druga, NIEZALEŻNA klasa wycieku (Runda poprawek 1, K2): `bots_pro/narzedzia.py`
+woła `bots.crm_calc.find_or_create_client`/`.create_quote`/`.update_quote` —
+funkcje PISZĄCE do produkcyjnego CRM (nowy klient/nowa wycena/aktualizacja
+wyceny). W odróżnieniu od `cw_agent_reply`, te są dostępne przez ATRYBUT
+MODUŁU (`from bots import crm_calc`, potem `crm_calc.find_or_create_client(...)`),
+więc podmiana działa identycznie jak dla `stan.handoff` — ale bez niej
+KAŻDA rozmowa dochodząca do etapu "podaj kontakt"/"zapisz wycenę" zakładałaby
+REALNEGO klienta pod `client_number="chat-<900000+id>"` w produkcyjnym CRM.
+`crm_calc` ma DWIE rozłączne grupy funkcji: LICZĄCE (`get_options`,
+`calculate`, `shipping_quote` — muszą zostać PRAWDZIWE, inaczej inwariant I1
+"cena wyłącznie z kalkulatora CRM" byłby zmierzony na atrapie, nie na
+prawdziwym systemie) i PISZĄCE (te trzy wyżej — nie mają NIC wspólnego z I1,
+tylko tworzą rekordy w produkcji). `odtworz()` przechwytuje WYŁĄCZNIE grupę
+piszącą.
+
+Testy `tests/test_replay_odtworz.py::TestZadneWywolanieSieciowe` dowodzą
+braku wycieku na WSZYSTKICH tych ścieżkach naraz — flagowy test podmienia
+`requests.post`/`.request` (warstwa transportowa, przez którą przechodzą
+WSZYSTKIE wywołania sieciowe niezależnie od tego, jak dana funkcja została
+zaimportowana) na REJESTRATOR wywołań (NIE atrapę, która rzuca wyjątek —
+`cw_agent_reply`/`cw_bot_handoff`/`crm_calc._send` łapią wyjątki z `requests`
+WEWNĄTRZ SIEBIE i nigdy same nie rzucają, więc rzucająca atrapa na tym
+poziomie zostałaby po cichu połknięta, a test „przeszedłby” NAWET PRZY
+REALNYM WYCIEKU — rejestrator, sprawdzany na końcu testu, jest jedynym
+niezawodnym sposobem). Patrz też K3 w raporcie zadania: test podmieniający
+WYŁĄCZNIE `core.chatwoot.cw_agent_reply` (atrybut modułu źródłowego) jest w
+stosunku do (1)/(2) bezzębny — nie dosięga żadnego z nich, niezależnie od
+tego, co robi `odtworz()` — i dlatego NIE jest już jedynym testem
+bezpieczeństwa w tym module.
 
 Import `bots_pro.tura` (a więc i `agents`) jest LENIWY — dopiero wewnątrz
 `odtworz()` — żeby parser transkryptów (`wczytaj_rozmowy`) dawał się używać
@@ -43,6 +83,7 @@ Import `bots_pro.tura` (a więc i `agents`) jest LENIWY — dopiero wewnątrz
 tests/test_pro_tura.py.
 """
 import contextlib
+import json
 import os
 import re
 import sys
@@ -51,6 +92,49 @@ import time
 _NAGLOWEK_RE = re.compile(r"^ROZMOWA\s*#\s*(\d+)")
 _LINIA_RE = re.compile(
     r"^\[[^\]]*\]\s*(KLIENT|BOT|AGENT|NOTATKA-PRYW|SYSTEM):\s*(.*)$")
+# Nagłówek bloku metadanych (np. "ZDARZENIA" z listą zdarzeń pod spodem) —
+# linia złożona WYŁĄCZNIE z wielkich liter polskiego alfabetu/cyfr/spacji/
+# myślnika, bez ani jednej litery małej. Realna proza klienta w tym formacie
+# jest pisana normalnie (małymi literami z rzadka Wielką na początku zdania),
+# więc taka linia praktycznie na pewno NIE jest treścią wiadomości — patrz
+# `_koniec_doklejania` niżej i jej docstring o incydencie, który to wykrył.
+_BLOK_METADANYCH_RE = re.compile(r"^[A-ZĄĆĘŁŃÓŚŹŻ0-9][A-ZĄĆĘŁŃÓŚŹŻ0-9 \-/]*$")
+
+# Persony ważne dla silnika Pro (bots_pro) — patrz quote_worker._PERSONY_SILNIKA_PRO
+# i webhooks._persona_pro_dla_inboxu. "quote_olx"/"quote_allegro" (z
+# bots/channel_caps.py) NALEŻĄ do starego silnika, nie do Debusia Pro — użycie
+# ich tutaj dawałoby caps istniejące, ale NIGDY faktycznie produkowane przez
+# Pro w produkcji.
+PERSONY_PRO = ("pro", "olx", "allegro")
+
+# Woła się raz na proces, nie raz na rozmowę — `agents.set_tracing_disabled`
+# jest globalnym przełącznikiem SDK, wywołanie go wielokrotnie jest
+# nieszkodliwe, ale bez sensu.
+_tracing_wylaczone = False
+
+
+def _koniec_doklejania(linia):
+    """Czy `linia` kończy doklejanie do bieżącej wiadomości — bo wygląda na
+    strukturalne metadane transkryptu (nagłówek bloku typu "ZDARZENIA" z
+    listą zdarzeń pod spodem, np. zmian statusu/handoffu), nie na dalszy
+    ciąg zdania klienta/bota.
+
+    Zgłoszony incydent (Runda poprawek 1, W2): pierwsza wersja doklejała
+    KAŻDĄ niepustą, niedopasowaną linię do ostatniej wiadomości — więc blok
+    "ZDARZENIA" z wciętymi podpunktami zdarzeń, występujący w realnym
+    formacie BEZPOŚREDNIO po linii wiadomości (bez pustej linii oddzielającej),
+    trafiał W CAŁOŚCI do treści KLIENTA i szedł do bota jako część jego
+    wiadomości. Dwa niezależne sygnały, każdy osobno wystarczający:
+      1. linia z WCIĘCIEM (zaczyna się białym znakiem) — realne wiadomości
+         klienta/bota w tym formacie nie są wcinane, podpunkty metadanych są;
+      2. linia złożona WYŁĄCZNIE z wielkich liter/cyfr/spacji/myślnika, bez
+         ani jednej litery małej — nagłówki bloków ("ZDARZENIA"), nie proza.
+    Fixture w e2e/dane/ nie zawierał takiego bloku, więc żaden test tego nie
+    łapał — dodany osobno w tests/test_replay_kryteria.py, reprodukujący
+    dokładnie ten kształt."""
+    if linia != linia.lstrip():
+        return True  # linia zaczyna się bialym znakiem = wciety podpunkt bloku
+    return bool(_BLOK_METADANYCH_RE.match(linia.strip()))
 
 
 def wczytaj_rozmowy(sciezka):
@@ -68,12 +152,15 @@ def wczytaj_rozmowy(sciezka):
     tu i tak sparsowana (nie odrzucana), żeby wywołujący mógł np. policzyć,
     ile razy STARY bot się powtarzał, do porównania z nowym.
 
-    Linie, które nie pasują do żadnego wzorca — puste ALBO kontynuacja
-    wieloliniowej wiadomości (realne transkrypty łamią np. adres dostawy na
-    kilka linii) — są DOKLEJANE do OSTATNIO rozpoznanej wiadomości TEJ
-    rozmowy. Puste linie same nie doklejają się, ale NIE zamykają też
-    możliwości doklejenia kolejnej niepustej linii do tej samej wiadomości —
-    akapit rozdzielony pustą linią to wciąż JEDNA wiadomość."""
+    Linie, które nie pasują do żadnego wzorca, dzielą się na trzy rodzaje:
+      - puste — nie doklejają się, ale NIE przerywają kontynuacji (akapit
+        rozdzielony pustą linią to wciąż JEDNA wiadomość, np. wieloliniowy
+        adres dostawy);
+      - blok metadanych (wykryty przez `_koniec_doklejania` — linia wcięta
+        albo złożona wyłącznie z wielkich liter, patrz jej docstring) —
+        PRZERYWA kontynuację i sama nie trafia nigdzie;
+      - wszystko inne — DOKLEJANE do OSTATNIO rozpoznanej wiadomości (dalszy
+        ciąg zdania klienta/bota złamany na kilka linii)."""
     rozmowy = []
     biezaca = None
     ostatnia = None  # [kto, tresc] — mutowalna referencja do domklejania
@@ -92,7 +179,13 @@ def wczytaj_rozmowy(sciezka):
             if trafienie:
                 ostatnia = [trafienie.group(1), trafienie.group(2)]
                 biezaca["wiadomosci"].append(ostatnia)
-            elif linia.strip() and ostatnia is not None:
+                continue
+            if not linia.strip():
+                continue  # pusta linia - nie dokleja, ale NIE przerywa kontynuacji
+            if _koniec_doklejania(linia):
+                ostatnia = None  # naglowek bloku metadanych - koniec doklejania
+                continue
+            if ostatnia is not None:
                 ostatnia[1] = (ostatnia[1] + "\n" + linia).strip()
     for rozmowa in rozmowy:
         rozmowa["wiadomosci"] = [(k, t) for k, t in rozmowa["wiadomosci"]]
@@ -113,19 +206,88 @@ def _podmien(obiekt, atrybut, nowa_wartosc):
         setattr(obiekt, atrybut, stara_wartosc)
 
 
-def odtworz(rozmowa, conv_id_bazowy=900000):
+def _wyczysc_poprzedni_stan(conv_id):
+    """Zeruje WSZYSTKO, co harness zostawił po ewentualnym POPRZEDNIM
+    przebiegu dla TEGO SAMEGO conv_id (`conv_id_bazowy + rozmowa['id']` jest
+    deterministyczny — dwa uruchomienia `replay.py` na tym samym shardzie i
+    tym samym DB_PATH liczą się do TEJ SAMEJ rozmowy w bazie).
+
+    Bez tego DRUGI przebieg (typowo: ten sam shard z innym MODEL_* — cały
+    sens porównania dwóch dostawców) dziedziczyłby stan z PIERWSZEGO: historię
+    sesji SDK (SQLiteSession — model widziałby własne, stare wiadomości jako
+    już wypowiedziane), zapisane pozycje/kwoty/podpisy potwierdzenia
+    (pro_stan/pro_dane/pro_kwoty). Efekt: druga rozmowa mogłaby np. zobaczyć
+    "już potwierdzoną" wycenę z zupełnie INNEGO dostawcy modelu, robiąc
+    porównanie bezwartościowym. Czyścimy WYŁĄCZNIE dane TEGO conv_id — inne
+    rozmowy w tym samym przebiegu (i ich historia z WCZEŚNIEJSZYCH przebiegów)
+    zostają nietknięte."""
+    import asyncio
+
+    from agents import SQLiteSession
+    from bots_pro.stan import init_pro
+    from config import DB_PATH
+    from core.db import db
+
+    init_pro()  # gwarantuje istnienie pro_stan/pro_dane/pro_kwoty przed DELETE
+
+    sesja = SQLiteSession(str(conv_id), DB_PATH)
+    asyncio.run(sesja.clear_session())
+
+    polaczenie = db()
+    try:
+        for tabela in ("pro_stan", "pro_dane", "pro_kwoty"):
+            polaczenie.execute("DELETE FROM %s WHERE conv_id=?" % tabela, (conv_id,))
+        polaczenie.commit()
+    finally:
+        polaczenie.close()
+
+
+def odtworz(rozmowa, conv_id_bazowy=900000, persona="pro"):
     """Odtwarza JEDNĄ rozmowę: kolejne wiadomości KLIENTA idą do
     `tura.uruchom()` — prawdziwy Router, prawdziwi agenci wyspecjalizowani,
-    prawdziwe narzędzia/kalkulator CRM, prawdziwe guardraile (I1 integralność
-    ceny/G1, I2 potwierdzenie klienta) — harness ma te inwarianty MIERZYĆ, nie
-    omijać. Jedyne, co jest przechwycone (nigdy nie leci siecią do
-    prawdziwego Chatwoota): wysłanie odpowiedzi do klienta, oddanie rozmowy
-    konsultantowi i odczyt statusu/historii rozmowy (bramka ciszy po
-    handoffie, `stan.wolno_prowadzic_rozmowe`) — syntetyczny `conv_id`
-    (`conv_id_bazowy + rozmowa['id']`) i tak nie odpowiada żadnej realnej
-    rozmowie w Chatwoocie, więc bez tego przechwycenia każda tura kończyłaby
-    się błędem sieci (albo, gdyby akurat trafiła na istniejące konto/ID,
-    czymś dużo gorszym: realnym zapisem).
+    prawdziwe narzędzia i prawdziwy kalkulator CRM (LICZENIE, nie zapis —
+    patrz niżej), prawdziwe guardraile (I1 integralność ceny/G1, I2
+    potwierdzenie klienta) — harness ma te inwarianty MIERZYĆ, nie omijać.
+
+    `persona` (Runda poprawek 1, W3) MUSI odpowiadać kanałowi, z którego
+    pochodzi transkrypt — `bots_pro.wysylka.przygotuj` egzekwuje profil
+    kanału (np. `links=False` na Allegro), więc odtwarzanie rozmowy z Allegro
+    z domyślną personą "pro" mierzyłoby kryterium "ma link" tam, gdzie z
+    definicji nie ma prawa wystąpić. Prawidłowe wartości: `PERSONY_PRO` —
+    "pro" (live-chat/Messenger), "olx", "allegro" (NIE "quote_olx"/
+    "quote_allegro" — te klucze istnieją w bots/channel_caps.py, ale należą
+    do STAREGO silnika, Pro nigdy ich nie produkuje, patrz
+    quote_worker._PERSONY_SILNIKA_PRO).
+
+    Co jest przechwycone (nigdy nie leci siecią do prawdziwego Chatwoota ani
+    nie zakłada rekordów w produkcyjnym CRM) — patrz też akapit
+    "BEZPIECZEŃSTWO" w nagłówku modułu, tam jest pełne uzasadnienie KAŻDEGO
+    punktu:
+      - wysłanie odpowiedzi/podsumowania do klienta (`tura.cw_agent_reply`
+        ORAZ `podsumowanie.cw_agent_reply` — DWIE osobne referencje, K1),
+      - oddanie rozmowy konsultantowi (`stan.handoff`),
+      - odczyt statusu/historii rozmowy — bramka ciszy po handoffie
+        (`stan.wolno_prowadzic_rozmowe`) — syntetyczny `conv_id` i tak nie
+        odpowiada żadnej realnej rozmowie w Chatwoocie,
+      - odczyt „ostatniej wiadomości klienta" do weryfikacji cytatu
+        potwierdzenia (`stan.ostatnia_wiadomosc_klienta` — W1: bez tego
+        `potwierdzenia.potwierdz` odpytuje PRAWDZIWY Chatwoot o historię
+        nieistniejącej rozmowy, dostaje pustkę/błąd i ZAWSZE odmawia
+        `CYTAT_SPOZA_WIADOMOSCI` — inwariant I2 nigdy by się nie domknął w
+        replayu, a `zawiera_link`/`ma_wyjscie` degenerowałyby się do samego
+        handoffu, robiąc porównanie z audytem bezwartościowym),
+      - założenie/zaktualizowanie klienta i zapis/aktualizacja wyceny w CRM
+        (`crm_calc.find_or_create_client`/`.create_quote`/`.update_quote` —
+        K2; `crm_calc.get_options`/`.calculate`/`.shipping_quote` ZOSTAJĄ
+        prawdziwe — to one liczą cenę, a I1 ma być zmierzone na PRAWDZIWYM
+        kalkulatorze).
+
+    Dwie DODATKOWE rzeczy dzieją się przy każdym wywołaniu (Runda poprawek 1,
+    drobne): tracing Agents SDK jest wyłączany raz na proces (transkrypty
+    NIE mają wyciekać do zewnętrznego endpointu tracingu tej samej klasy
+    powodu, dla którego w ogóle nie wolno ich commitować), i stan tego
+    conv_id z EWENTUALNEGO poprzedniego przebiegu jest czyszczony
+    (`_wyczysc_poprzedni_stan`) — patrz jej docstring.
 
     Zwraca dict:
       odpowiedzi      — publiczne odpowiedzi bota, w kolejności (jedna tura
@@ -146,10 +308,30 @@ def odtworz(rozmowa, conv_id_bazowy=900000):
                         czas tej tury, nie pojedynczego wywołania modelu)
       kwoty_niezgodne — ile razy guardrail G1 złapał w odpowiedzi cenę spoza
                         kalkulatora (licząc też próbę korekty — patrz
-                        docstring `tura.uruchom`)."""
-    from bots_pro import guardraile, stan, tura
+                        docstring `tura.uruchom`)
+      crm_zapisy_przechwycone — ile razy narzędzie próbowało założyć klienta
+                        albo zapisać/zaktualizować wycenę w CRM — informacyjne,
+                        dowód że I2/zapis faktycznie były wołane w tej rozmowie
+                        (bez tego pola nie dałoby się tego odróżnić od
+                        rozmowy, która nigdy tam nie doszła)."""
+    if persona not in PERSONY_PRO:
+        raise ValueError(
+            "replay.odtworz: nieznana persona %r — dozwolone: %s "
+            "(NIE 'quote_olx'/'quote_allegro', te naleza do STAREGO silnika)"
+            % (persona, PERSONY_PRO))
+
+    global _tracing_wylaczone
+    if not _tracing_wylaczone:
+        import agents
+        agents.set_tracing_disabled(True)
+        _tracing_wylaczone = True
+
+    from bots import crm_calc
+    from bots_pro import guardraile, podsumowanie, stan, tura
 
     conv_id = conv_id_bazowy + rozmowa["id"]
+    _wyczysc_poprzedni_stan(conv_id)
+
     odpowiedzi = []
     trasa = []
     uzycia = []
@@ -157,6 +339,8 @@ def odtworz(rozmowa, conv_id_bazowy=900000):
     zdarzenia_handoff = []
     naruszenia_g1 = []
     wyslane_w_turze = []
+    zapisy_crm = []
+    biezaca_wiadomosc_klienta = [""]
 
     def _przechwyc_wyslanie(_conv_id, tekst, image_path=None, image_name=None,
                             image_mime="image/jpeg", token=None):
@@ -176,6 +360,44 @@ def odtworz(rozmowa, conv_id_bazowy=900000):
         # usunięcie zależności od stanu zewnętrznego systemu, którego
         # replay z definicji nie posiada.
         return True
+
+    def _ostatnia_wiadomosc_klienta_z_transkryptu():
+        # W1: podmienia `stan.ostatnia_wiadomosc_klienta`, która normalnie
+        # odpytuje PRAWDZIWY Chatwoot (core.chatwoot.cw_messages) o historię
+        # rozmowy, której w replayu nie ma. Zwraca treść wiadomości KLIENTA,
+        # którą WŁAŚNIE przetwarza bieżąca tura (patrz pętla niżej) — dokładnie
+        # to, co zwróciłby prawdziwy Chatwoot, gdyby ta rozmowa w nim istniała.
+        return biezaca_wiadomosc_klienta[0]
+
+    def _stub_find_or_create_client(email, phone, name, client_number=None):
+        # K2: odpowiednik POST /api/bot/clients/find-or-create — kontrakt
+        # (pola ok/matched/created/client.id/client_name/email/phone)
+        # potwierdzony w modules/calculator/routers/bot_api.py::bot_find_or_create_client.
+        zapisy_crm.append(("find_or_create_client", email, phone, name, client_number))
+        return {"ok": True, "matched": False, "created": True,
+                "client": {"id": conv_id, "client_name": name or email or phone
+                           or client_number or "Klient replay (nie zapisany)",
+                           "email": email, "phone": phone}}
+
+    def _nastepny_edit_uuid():
+        return "replay-%s-%s" % (conv_id, len(zapisy_crm) + 1)
+
+    def _stub_create_quote(pozycje, options, client_id, notes=""):
+        # K2: odpowiednik POST /api/bot/quotes (bot_create_quote) — kontrakt
+        # (ok/quote_number/quote_id/edit_uuid/public_url) jw.
+        edit_uuid = _nastepny_edit_uuid()
+        zapisy_crm.append(("create_quote", client_id, edit_uuid))
+        return {"ok": True, "quote_number": "REPLAY-%s" % conv_id, "quote_id": conv_id,
+                "edit_uuid": edit_uuid,
+                "public_url": "https://crm.woodpower.pl/quotes/c/%s" % edit_uuid}
+
+    def _stub_update_quote(edit_uuid, pozycje, options, notes="",
+                           courier_name=None, shipping_netto=None, shipping_brutto=None):
+        # K2: odpowiednik PUT /api/bot/quotes/<edit_uuid> (bot_update_quote).
+        zapisy_crm.append(("update_quote", edit_uuid))
+        return {"ok": True, "quote_number": "REPLAY-%s" % conv_id, "quote_id": conv_id,
+                "edit_uuid": edit_uuid,
+                "public_url": "https://crm.woodpower.pl/quotes/c/%s" % edit_uuid}
 
     oryginalny_runner = tura.Runner
 
@@ -211,18 +433,26 @@ def odtworz(rozmowa, conv_id_bazowy=900000):
 
     with contextlib.ExitStack() as podmiany:
         podmiany.enter_context(_podmien(tura, "cw_agent_reply", _przechwyc_wyslanie))
+        podmiany.enter_context(_podmien(podsumowanie, "cw_agent_reply", _przechwyc_wyslanie))
         podmiany.enter_context(_podmien(tura, "Runner", _SzpiegRunnera()))
         podmiany.enter_context(_podmien(stan, "handoff", _przechwyc_handoff))
         podmiany.enter_context(_podmien(stan, "wolno_prowadzic_rozmowe", _wolno_zawsze))
+        podmiany.enter_context(_podmien(
+            stan, "ostatnia_wiadomosc_klienta", _ostatnia_wiadomosc_klienta_z_transkryptu))
         podmiany.enter_context(_podmien(guardraile, "sprawdz_ceny", _sprawdz_ceny_ze_zliczeniem))
+        podmiany.enter_context(_podmien(
+            crm_calc, "find_or_create_client", _stub_find_or_create_client))
+        podmiany.enter_context(_podmien(crm_calc, "create_quote", _stub_create_quote))
+        podmiany.enter_context(_podmien(crm_calc, "update_quote", _stub_update_quote))
 
         stan.ustaw_kontekst(conv_id)
         for kto, tresc in rozmowa["wiadomosci"]:
             if kto != "KLIENT" or not tresc.strip():
                 continue
+            biezaca_wiadomosc_klienta[0] = tresc
             wyslane_w_turze.clear()
             poczatek = time.monotonic()
-            tura.uruchom(conv_id, "replay", tresc, persona="pro")
+            tura.uruchom(conv_id, "replay", tresc, persona=persona)
             czasy_tur.append(time.monotonic() - poczatek)
             odpowiedzi.extend(wyslane_w_turze)
 
@@ -233,19 +463,53 @@ def odtworz(rozmowa, conv_id_bazowy=900000):
         "uzycia": uzycia,
         "czasy_tur": czasy_tur,
         "kwoty_niezgodne": len(naruszenia_g1),
+        "crm_zapisy_przechwycone": len(zapisy_crm),
     }
 
 
-def main(sciezki):
+def _parsuj_argumenty(argv):
+    import argparse
+
+    ap = argparse.ArgumentParser(
+        description="Odtwarza zapisane rozmowy audytu przez biezacy silnik Debusia Pro.")
+    # nargs="*" (nie "+"): pusta lista ma dac przyjazny komunikat uzycia
+    # (patrz main() nizej), nie twardy SystemExit z argparse.
+    ap.add_argument("sciezki", nargs="*", help="pliki transkryptow (ROZMOWA #<id>...)")
+    ap.add_argument("--persona", default="pro", choices=PERSONY_PRO,
+                    help="profil kanalu calego przebiegu (domyslnie 'pro' — "
+                         "live-chat/Messenger; 'olx'/'allegro' dla tych kanalow — "
+                         "patrz docstring odtworz())")
+    ap.add_argument("--out", help="zapisz pelny wynik (lista ocen + bledy) jako JSON")
+    ap.add_argument("--cennik-input", type=float, default=None,
+                    help="nadpisz stawke za token wejsciowy w kryteria.koszt_rozmowy "
+                         "(domyslnie proxy tokenowe, patrz kryteria.CENNIK_DOMYSLNY)")
+    ap.add_argument("--cennik-output", type=float, default=None,
+                    help="nadpisz stawke za token wyjsciowy (jw.)")
+    return ap.parse_args(argv)
+
+
+def main(argv):
     """Runner CLI: odtwarza wszystkie rozmowy z podanych plików transkryptów,
     drukuje wynik KAŻDEJ i podsumowanie zbiorcze — do numerycznego porównania
     dwóch silników uruchom to polecenie DWA RAZY, z inną wartością MODEL_*
-    (bots_pro/models.py) między przebiegami, i porównaj podsumowania."""
+    (bots_pro/models.py) między przebiegami, i porównaj podsumowania (albo
+    pliki `--out`, jeśli podane — porównanie liczbowe nie ma polegać na
+    diffowaniu wydruku terminala)."""
     from e2e import kryteria
 
-    if not sciezki:
-        print("Uzycie: python e2e/replay.py sciezka/do/shard_1.txt [shard_2.txt ...]")
+    args = _parsuj_argumenty(argv)
+    if not args.sciezki:
+        print("Uzycie: python e2e/replay.py sciezka/do/shard_1.txt [shard_2.txt ...] "
+              "[--persona pro|olx|allegro] [--out wyniki.json]")
         return
+
+    cennik = None
+    if args.cennik_input is not None or args.cennik_output is not None:
+        domyslny = kryteria.CENNIK_DOMYSLNY
+        cennik = {"input": args.cennik_input if args.cennik_input is not None
+                  else domyslny["input"],
+                  "output": args.cennik_output if args.cennik_output is not None
+                  else domyslny["output"]}
 
     # `quote_worker.py` (jedyny inny wolajacy tura.uruchom() w produkcji) robi
     # to raz, przy starcie procesu — replay.py jest OSOBNYM procesem/skryptem,
@@ -257,10 +521,21 @@ def main(sciezki):
     init_pro()
 
     wyniki = []
+    bledy = []
     wszystkie_czasy_tur = []
-    for sciezka in sciezki:
+    for sciezka in args.sciezki:
         for rozmowa in wczytaj_rozmowy(sciezka):
-            wynik_odtworzenia = odtworz(rozmowa)
+            # W5: jedna rozmowa, ktora wywali wyjatek (np. przejsciowy blad
+            # sieci/limit dostawcy modelu w polowie ze 117), NIE MA prawa
+            # ukrasc wynikow WSZYSTKICH juz odtworzonych rozmow — bez tego
+            # jeden RateLimitError na np. 40. rozmowie kasowalby caly
+            # przebieg, zmuszajac do odpalania od zera.
+            try:
+                wynik_odtworzenia = odtworz(rozmowa, persona=args.persona)
+            except Exception as e:
+                print("   [BLAD] rozmowa #%s: %r" % (rozmowa.get("id"), e))
+                bledy.append({"id": rozmowa.get("id"), "blad": repr(e)})
+                continue
             wszystkie_czasy_tur.extend(wynik_odtworzenia["czasy_tur"])
             ocena = kryteria.ocen(
                 rozmowa, wynik_odtworzenia["odpowiedzi"],
@@ -269,29 +544,40 @@ def main(sciezki):
                 trasa=wynik_odtworzenia["trasa"],
                 uzycia=wynik_odtworzenia["uzycia"],
                 czasy_tur=wynik_odtworzenia["czasy_tur"])
+            ocena["powtorki_przyblizone"] = kryteria.powtorzone_formulki_przyblizone(
+                wynik_odtworzenia["odpowiedzi"])
+            ocena["crm_zapisy_przechwycone"] = wynik_odtworzenia["crm_zapisy_przechwycone"]
+            if cennik is not None:
+                ocena["koszt"] = kryteria.koszt_rozmowy(wynik_odtworzenia["uzycia"], cennik)
             wyniki.append(ocena)
-            print("#%s tur=%s powtorki=%s wyjscie=%s handoff=%s kwoty_niezgodne=%s "
+            print("#%s tur=%s powtorki=%s(~%s) wyjscie=%s handoff=%s kwoty_niezgodne=%s "
                   "trasa=%s koszt=%.2f"
-                  % (ocena["id"], ocena["tur"], ocena["powtorki"], ocena["ma_wyjscie"],
-                     ocena["handoff"], ocena["kwoty_niezgodne"],
+                  % (ocena["id"], ocena["tur"], ocena["powtorki"], ocena["powtorki_przyblizone"],
+                     ocena["ma_wyjscie"], ocena["handoff"], ocena["kwoty_niezgodne"],
                      "->".join(ocena["trasa"]) or "-", ocena["koszt"]))
 
     razem = len(wyniki)
     z_wyjsciem = sum(1 for w in wyniki if w["ma_wyjscie"])
     powtorki = sum(w["powtorki"] for w in wyniki)
+    powtorki_przyblizone = sum(w["powtorki_przyblizone"] for w in wyniki)
     kwoty_niezgodne = sum(w["kwoty_niezgodne"] for w in wyniki)
     handoffy = sum(1 for w in wyniki if w["handoff"])
     koszt_calkowity = sum(w["koszt"] for w in wyniki)
     p95 = kryteria.p95_czas(wszystkie_czasy_tur)
 
-    print("\n=== PODSUMOWANIE (%s rozmow) ===" % razem)
+    print("\n=== PODSUMOWANIE (%s rozmow odtworzonych, %s z bledem) ===" % (razem, len(bledy)))
+    if bledy:
+        print("rozmowy z bledem (pominiete w reszcie podsumowania): %s"
+              % ", ".join(str(b["id"]) for b in bledy))
     print("z wyjsciem (handoff albo link): %s (%.0f%%)"
           % (z_wyjsciem, 100.0 * z_wyjsciem / razem if razem else 0))
-    print("powtorzonych formulek lacznie: %s" % powtorki)
+    print("powtorzonych formulek lacznie: %s (dokladnie) / %s (z tolerancja na liczby)"
+          % (powtorki, powtorki_przyblizone))
     print("kwot spoza kalkulatora (G1) lacznie: %s" % kwoty_niezgodne)
     print("handoffy na 100 rozmow: %.1f" % kryteria.handoffy_na_100(razem, handoffy))
-    print("koszt calkowity (proxy tokenowe, patrz kryteria.CENNIK_DOMYSLNY): %.2f"
-          % koszt_calkowity)
+    print("koszt calkowity (%s): %.2f"
+          % ("cennik podany flagami --cennik-*" if cennik is not None
+             else "proxy tokenowe, patrz kryteria.CENNIK_DOMYSLNY", koszt_calkowity))
     print("p95 czasu tury: %s" % ("%.2fs" % p95 if p95 is not None else "brak danych"))
     print("trafnosc routingu: NIE liczona automatycznie — realne transkrypty audytu "
           "nie niosa etykiety 'ktory agent SDK POWINIEN odpowiedziec' (surowy tekst "
@@ -299,6 +585,11 @@ def main(sciezki):
           "do uzycia z kazdym zrodlem takich etykiet, gdy powstanie (patrz jej "
           "docstring i tests/test_replay_odtworz.py, gdzie liczona jest na "
           "syntetycznych danych ze znanym oczekiwanym routingiem).")
+
+    if args.out:
+        with open(args.out, "w", encoding="utf-8") as f:
+            json.dump({"wyniki": wyniki, "bledy": bledy}, f, ensure_ascii=False, indent=2)
+        print("\nPelny wynik (JSON): %s" % args.out)
 
 
 if __name__ == "__main__":

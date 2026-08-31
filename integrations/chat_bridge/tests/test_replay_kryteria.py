@@ -51,6 +51,33 @@ class TestPowtorzonaFormulka:
         assert kryteria.powtorzone_formulki(None) == 0
 
 
+class TestPowtorzoneFormulkiPrzyblizone:
+    """Runda poprawek 1 (drobne): porownanie DOKLADNE nie lapie powtorki
+    roznizacej sie jedna liczba (audyt: ta sama formulka z inna cena/wymiarem
+    powtarzana w kolko) — `powtorzone_formulki` zanizalby wynik wzgledem
+    audytu. To NOWA, DODATKOWA metryka — nie zastepuje dokladnej."""
+
+    def test_ta_sama_formulka_z_inna_liczba_jest_zgloszona(self):
+        odpowiedzi = ["Cena wynosi 999,00 zl.", "Cena wynosi 1050,00 zl."]
+        assert kryteria.powtorzone_formulki(odpowiedzi) == 0  # dokladne NIE lapie
+        assert kryteria.powtorzone_formulki_przyblizone(odpowiedzi) == 1  # przyblizone lapie
+
+    def test_naprawde_rozne_odpowiedzi_nie_sa_powtorka(self):
+        odpowiedzi = ["Jaki gatunek Pan/Pani wybiera?", "Ile sztuk potrzeba?"]
+        assert kryteria.powtorzone_formulki_przyblizone(odpowiedzi) == 0
+
+    def test_dokladna_powtorka_jest_tez_zgloszona_jako_przyblizona(self):
+        # kontrola spojnosci: dokladna powtorka (bez liczb) to TEZ przyblizona
+        odpowiedzi = ["Dzien dobry", "Dzien dobry"]
+        assert kryteria.powtorzone_formulki(odpowiedzi) == 1
+        assert kryteria.powtorzone_formulki_przyblizone(odpowiedzi) == 1
+
+    def test_puste_i_brak_nie_wybuchaja(self):
+        assert kryteria.powtorzone_formulki_przyblizone(["", "  "]) == 0
+        assert kryteria.powtorzone_formulki_przyblizone([]) == 0
+        assert kryteria.powtorzone_formulki_przyblizone(None) == 0
+
+
 class TestZawieraLink:
     def test_link_https_jest_wykrywany(self):
         assert kryteria.zawiera_link(
@@ -85,22 +112,48 @@ class TestZakonczenie:
 
 
 class TestTrafnoscRoutingu:
+    """Sygnatura bierze DWIE LISTY (nie gotowe pary) — runda poprawek 1:
+    poprzednia wersja budowala pary przez zwykly `zip(oczekiwana, faktyczna)`
+    w `kryteria.ocen`, ktory MILCZACO obcina do krotszej listy. Sygnatura z
+    dwiema listami usuwa mozliwosc powtorzenia tego bledu u KAZDEGO
+    wywolujacego, nie tylko w jednym miejscu wywolania."""
+
     def test_wszystkie_trafienia_daja_1(self):
         assert kryteria.trafnosc_routingu(
-            [("Wycena", "Wycena"), ("Wiedza", "Wiedza")]) == 1.0
+            ["Wycena", "Wiedza"], ["Wycena", "Wiedza"]) == 1.0
 
     def test_polowa_trafien_daje_0_5(self):
         assert kryteria.trafnosc_routingu(
-            [("Wycena", "Wycena"), ("Wiedza", "Posprzedaz")]) == 0.5
+            ["Wycena", "Wiedza"], ["Wycena", "Posprzedaz"]) == 0.5
 
     def test_zero_trafien_daje_0(self):
-        assert kryteria.trafnosc_routingu([("Wycena", "Wiedza")]) == 0.0
+        assert kryteria.trafnosc_routingu(["Wycena"], ["Wiedza"]) == 0.0
 
-    def test_pusta_lista_to_brak_pomiaru_nie_zero(self):
+    def test_pusta_lista_oczekiwanych_to_brak_pomiaru_nie_zero(self):
         # None != 0.0 — brak etykiet (jak w realnych transkryptach audytu)
         # nie ma zostac odczytany jako "0% trafnosci".
-        assert kryteria.trafnosc_routingu([]) is None
-        assert kryteria.trafnosc_routingu(None) is None
+        assert kryteria.trafnosc_routingu([], []) is None
+        assert kryteria.trafnosc_routingu(None, None) is None
+
+    def test_krotsza_faktyczna_trasa_nie_jest_cicho_obcinana(self):
+        # Regresja rundy poprawek 1: router mial zrobic DWA przeskoki
+        # (Wycena->Wiedza), zrobil jeden (utknal na Wycena) - to POLOWA
+        # trafien (1 z 2), NIE 100% jak dawaloby zwykle zip() obcinajace
+        # oczekiwana liste do dlugosci faktycznej.
+        assert kryteria.trafnosc_routingu(["Wycena", "Wiedza"], ["Wycena"]) == 0.5
+
+    def test_dluzsza_faktyczna_trasa_nie_zawyza_wyniku(self):
+        # Odwrotny przypadek: faktyczna trasa DLUZSZA niz oczekiwana (router
+        # zrobil dodatkowy, niepotrzebny przeskok) - nadmiarowy wpis nie ma
+        # jak "trafic" (dzielimy przez dlugosc oczekiwanej), ale tez nie ma
+        # wywalic wyjatkiem.
+        assert kryteria.trafnosc_routingu(["Wycena"], ["Wycena", "Wiedza"]) == 1.0
+
+    def test_pusta_faktyczna_trasa_przy_niepustej_oczekiwanej_to_zero(self):
+        # Rozne od "brak pomiaru" (oba None) - tu ETYKIETA jest, ale bot
+        # nie zrobil ZADNEGO przeskoku (np. Runner sie wywalil) - to
+        # naprawde 0%, nie brak danych.
+        assert kryteria.trafnosc_routingu(["Wycena"], []) == 0.0
 
 
 class TestHandoffyNa100:
@@ -115,15 +168,18 @@ class TestHandoffyNa100:
 
 
 class TestKosztRozmowy:
-    def test_domyslny_cennik_liczy_suma_tokenow(self):
+    def test_domyslny_cennik_wazy_wyjscie_mocniej_niz_wejscie(self):
+        # Runda poprawek 1: waga 1:1 z pierwszej wersji byla zwyklym
+        # licznikiem tokenow pod inna nazwa — kazdy liczacy sie dostawca
+        # liczy token WYJSCIOWY kilkukrotnie drozej niz wejsciowy.
         uzycia = [{"input_tokens": 100, "output_tokens": 50}]
-        assert kryteria.koszt_rozmowy(uzycia) == 150.0
+        assert kryteria.koszt_rozmowy(uzycia) == 100 * 1.0 + 50 * 4.0
 
     def test_wiele_wywolan_w_jednej_rozmowie_sie_sumuje(self):
         # jedna tura moze wywolac Runner.run_sync dwa razy (korekta G1)
         uzycia = [{"input_tokens": 100, "output_tokens": 50},
                   {"input_tokens": 40, "output_tokens": 10}]
-        assert kryteria.koszt_rozmowy(uzycia) == 200.0
+        assert kryteria.koszt_rozmowy(uzycia) == (100 + 40) * 1.0 + (50 + 10) * 4.0
 
     def test_wlasny_cennik_nadpisuje_domyslny(self):
         uzycia = [{"input_tokens": 1000, "output_tokens": 1000}]
@@ -137,7 +193,7 @@ class TestKosztRozmowy:
             input_tokens = 20
             output_tokens = 5
 
-        assert kryteria.koszt_rozmowy([UzycieAtrapa()]) == 25.0
+        assert kryteria.koszt_rozmowy([UzycieAtrapa()]) == 20 * 1.0 + 5 * 4.0
 
     def test_brak_pola_na_obiekcie_liczy_sie_jako_zero(self):
         class UzycieBezPol:
@@ -190,7 +246,7 @@ class TestOcenZbiorczo:
         wynik = kryteria.ocen(
             rozmowa, ["odp"], uzycia=[{"input_tokens": 10, "output_tokens": 5}],
             czasy_tur=[1.0, 2.0])
-        assert wynik["koszt"] == 15.0
+        assert wynik["koszt"] == 10 * 1.0 + 5 * 4.0
         assert wynik["p95_czasu_tury"] == 2.0
 
     def test_trafnosc_routingu_liczy_sie_tylko_gdy_podano_oczekiwana_trase(self):
@@ -270,6 +326,58 @@ class TestParserTranskryptu:
 
         klient = [t for k, t in rozmowy[0]["wiadomosci"] if k == "KLIENT"]
         assert klient == ["pierwsza czesc\ndruga czesc (po pustej linii)"]
+
+    def test_blok_metadanych_nie_dokleja_sie_do_wiadomosci_klienta(self, tmp_path):
+        # Runda poprawek 1, W2 — reprodukcja zgloszonej sondy: blok "ZDARZENIA"
+        # z wcietymi podpunktami, wystepujacy BEZPOSREDNIO po linii KLIENT (bez
+        # pustej linii oddzielajacej), NIE MA prawa trafic do tresci klienta —
+        # bot dostalby wtedy metadane harnessu jako czesc wiadomosci klienta.
+        plik = tmp_path / "shard_zdarzenia.txt"
+        plik.write_text(
+            "ROZMOWA #8\n"
+            "[10:05] KLIENT: 200x60x4\n"
+            "ZDARZENIA\n"
+            "  10:06 handoff -> konsultant\n"
+            "  10:07 status: open\n"
+            "[10:08] BOT: Dziekuje.\n",
+            encoding="utf-8")
+
+        rozmowy = replay.wczytaj_rozmowy(str(plik))
+
+        klient = [t for k, t in rozmowy[0]["wiadomosci"] if k == "KLIENT"]
+        assert klient == ["200x60x4"]
+        bot = [t for k, t in rozmowy[0]["wiadomosci"] if k == "BOT"]
+        assert bot == ["Dziekuje."]
+
+    def test_blok_metadanych_na_koncu_pliku_nie_wybucha(self, tmp_path):
+        plik = tmp_path / "shard_zdarzenia_koniec.txt"
+        plik.write_text(
+            "ROZMOWA #9\n"
+            "[10:05] KLIENT: pytanie\n"
+            "ZDARZENIA\n"
+            "  10:06 status: pending\n",
+            encoding="utf-8")
+
+        rozmowy = replay.wczytaj_rozmowy(str(plik))
+
+        klient = [t for k, t in rozmowy[0]["wiadomosci"] if k == "KLIENT"]
+        assert klient == ["pytanie"]
+
+    def test_wcieta_linia_bez_naglowka_bloku_tez_nie_dokleja_sie(self, tmp_path):
+        # Drugi, niezalezny sygnal (samo wciecie, bez linii-naglowka) — obrona
+        # w glab, gdyby jakis blok metadanych nie mial wlasnego naglowka.
+        plik = tmp_path / "shard_wciecie.txt"
+        plik.write_text(
+            "ROZMOWA #10\n"
+            "[10:05] KLIENT: pytanie\n"
+            "  cos co wyglada na podpunkt\n"
+            "[10:06] BOT: odpowiedz\n",
+            encoding="utf-8")
+
+        rozmowy = replay.wczytaj_rozmowy(str(plik))
+
+        klient = [t for k, t in rozmowy[0]["wiadomosci"] if k == "KLIENT"]
+        assert klient == ["pytanie"]
 
     def test_tekst_przed_pierwszym_naglowkiem_jest_ignorowany(self, tmp_path):
         plik = tmp_path / "shard_smieci.txt"
