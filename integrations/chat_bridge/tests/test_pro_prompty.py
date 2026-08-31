@@ -141,6 +141,26 @@ class TestN5WymiaryIPoprawkiKlienta:
         assert "dopiero w następnej turze" in WYCENA
 
 
+class TestP2CenyProduktuAObrobkaNiestandardowa:
+    """Runda napraw 2, P2 — sekcja CENY zderzała się z adnotacją, którą N3
+    dokleja do podsumowania z wycięciami („koszt wycięć nie jest wliczony w tę
+    cenę — wycenia je konsultant").
+
+    Oba zdania są prawdziwe, bo mówią o różnych rzeczach: wycenę PRODUKTU liczy
+    automat (i obiecywanie tam konsultanta było obietnicą, której nikt by nie
+    spełnił), a wycięcia i otwory faktycznie wycenia człowiek — pole `otwory`
+    nigdy nie dociera do kalkulatora. Reguła zapisana BEZ zakresu kazała jednak
+    modelowi przemilczeć również ten drugi przypadek, a wysłane podsumowanie
+    zostaje w historii rozmowy i kusi, żeby frazę z niego uogólnić na całość.
+    Zawężamy więc regułę; treści podsumowania NIE ruszamy — ona jest prawdziwa."""
+
+    def test_zakaz_dotyczy_wyceny_produktu_a_nie_kazdej_kwoty(self):
+        assert "Nie pisz, że wycenę produktu przygotuje albo policzy konsultant" in WYCENA
+
+    def test_wolno_powiedziec_ze_obrobke_niestandardowa_wycenia_konsultant(self):
+        assert "wycięcia i otwory wycenia konsultant" in WYCENA
+
+
 class TestN8KrawedziePrzyBlacieKuchennym:
     """Wymóg właściciela, nie naprawa błędu: bot ma przy BLATACH KUCHENNYCH sam
     wspomnieć o możliwości obróbki krawędzi. Dotąd prompt zabraniał tego wprost

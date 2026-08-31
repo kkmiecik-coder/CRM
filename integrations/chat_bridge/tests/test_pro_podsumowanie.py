@@ -172,6 +172,24 @@ class TestWyslijSzczesliwaSciezka:
         tekst = wyslane[0][1]
         assert "koszt wycięć nie jest wliczony w tę cenę" in tekst
 
+    def test_adnotacja_o_wycieciach_miesci_sie_w_zawezonej_regule_CENY(self):
+        """P2: adnotację składa KOD, więc reguła promptu jej nie dotyczy — ale
+        model widzi wysłane podsumowanie w historii i mógł tę frazę uogólnić na
+        całą wycenę. Sekcja CENY dopuszcza ją dziś wprost i oba brzmienia mają
+        zostać zgodne: gdyby ktoś przeredagował adnotację, ten test pokaże, że
+        zgoda w prompcie przestała do niej pasować."""
+        import re
+
+        from bots_pro import prompty
+        linia = podsumowanie._linia({"produkt": "blat", "dlugosc": 180,
+                                     "szerokosc": 60, "grubosc": 4, "ilosc": 1,
+                                     "otwory": ["otwór na zlew 50x40 cm"]})
+        assert "wycenia je konsultant" in linia
+        # Prompt jest w źródle zawijany do ~90 kolumn, więc szukana fraza potrafi
+        # mieć w środku znak nowej linii — porównujemy po normalizacji białych
+        # znaków, tak samo jak test_pro_prompty.py.
+        assert "wycięcia i otwory wycenia konsultant" in re.sub(r"\s+", " ", prompty.WYCENA)
+
     def test_bez_otworow_podsumowanie_nie_wspomina_o_wycieciach(self, monkeypatch):
         # Kontrola negatywna: adnotacja wisi przy otworach, nie przy kazdej
         # pozycji — wzmianka o wycieciach w pozycji, ktora ich nie ma, byloby
