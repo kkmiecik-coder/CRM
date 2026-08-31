@@ -165,6 +165,31 @@ def _oddaj_konsultantowi(powod, conv_id, persona="pro",
     return wynik
 
 
+def _oddaj_po_zobowiazaniu(odpowiedz, conv_id, persona):
+    """Guardrail G3 (N9): odpowiedź z zakazanym zobowiązaniem NIE idzie do klienta —
+    rozmowa idzie do człowieka. Zwraca True, gdy do tego doszło (wołający ma wtedy
+    zakończyć turę).
+
+    BEZ rundy korekty, w odróżnieniu od G1. Tam druga próba ma sens, bo zmyśloną
+    kwotę da się zastąpić prawdziwą z rejestru — model ma czym poprawić. Tu
+    „napisz to jeszcze raz bez obietnicy" dałoby tę samą treść innymi słowami,
+    a pytanie, które taką obietnicę wywołało (nośność, użytek zewnętrzny,
+    gwarancja, atest), i tak należy do człowieka — mówi to wprost sekcja
+    KONSTRUKCJA w `prompty.WYCENA`/`prompty.WIEDZA`.
+
+    `klient_dostal_wiadomosc` czytane tak samo jak przy G1: jedyną rzeczą, którą
+    klient mógł już w tej turze dostać, jest deterministyczne podsumowanie."""
+    zobowiazania = guardraile.znajdz_zakazane_zobowiazania(odpowiedz)
+    if not zobowiazania:
+        return False
+    log("guardrail G3: zakazane zobowiazania %s -> handoff (conv %s)"
+        % (zobowiazania, conv_id))
+    _oddaj_konsultantowi(
+        "guardrail zobowiązań — odpowiedź obiecywała: %s" % ", ".join(zobowiazania),
+        conv_id, persona, klient_dostal_wiadomosc=stan.podsumowanie_wyslane())
+    return True
+
+
 def uruchom(conv_id, inbox_id, tresc, zalaczniki=None, persona="pro", message_id=None):
     """Przeprowadza jedną turę i wysyła odpowiedź do klienta.
 
@@ -263,6 +288,12 @@ def uruchom(conv_id, inbox_id, tresc, zalaczniki=None, persona="pro", message_id
     odpowiedz = (wynik.final_output or "").strip()
 
     if odpowiedz:
+        # Guardrail G3: zakazane zobowiązanie nie opuszcza procesu (N9). BEZ rundy
+        # korekty — patrz `_oddaj_po_zobowiazaniu`. Sprawdzany PRZED G1, żeby
+        # obietnica nie kosztowała najpierw (bezużytecznego tutaj) wywołania modelu
+        # na poprawkę ceny.
+        if _oddaj_po_zobowiazaniu(odpowiedz, conv_id, persona):
+            return
         # Guardrail G1: kwota spoza kalkulatora nie opuszcza procesu (inwariant I1).
         naruszenia = guardraile.sprawdz_ceny(odpowiedz, stan.znane_kwoty())
         if naruszenia:
@@ -280,6 +311,11 @@ def uruchom(conv_id, inbox_id, tresc, zalaczniki=None, persona="pro", message_id
                 _oddaj_konsultantowi(
                     "guardrail ceny — dwie próby z kwotą spoza kalkulatora", conv_id, persona,
                     klient_dostal_wiadomosc=stan.podsumowanie_wyslane())
+                return
+            # Korekta cenowa produkuje NOWY tekst — G3 ogląda go tak samo jak
+            # pierwszą wersję. Bez tego obietnica dopisana dopiero w poprawce
+            # wychodziłaby do klienta przez tę samą dziurę, którą G3 zamyka.
+            if _oddaj_po_zobowiazaniu(odpowiedz, conv_id, persona):
                 return
 
     # W3: podsumowanie.wyslij() (wolane jako narzedzie, w KTORYMKOLWIEK z powyzszych

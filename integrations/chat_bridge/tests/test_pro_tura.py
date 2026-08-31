@@ -193,6 +193,84 @@ class TestSesjaOgraniczaHistorie:
             "function_call: %r" % model.ostatnie_wejscie)
 
 
+class TestGuardrailZobowiazanBlokujeWysylke:
+    """G3 (N9): zakazane zobowiazanie NIE dostaje rundy korekty — jedynym
+    wyjsciem jest czlowiek. Do tej rundy guardrail wyjsciowy pilnowal
+    WYLACZNIE kwot; "gwarantujemy", "wytrzyma", "mamy atest" wychodzily do
+    klienta bez zadnej kontroli."""
+
+    def test_obietnica_nie_trafia_do_klienta_i_konczy_sie_handoffem(self, monkeypatch):
+        conv_id = 96131
+        fake_runner = _FalszywyRunner(["Ten blat wytrzyma 200 kg, gwarantujemy."])
+        monkeypatch.setattr(tura, "Runner", fake_runner)
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+        powody = []
+        monkeypatch.setattr(stan, "handoff", lambda powod: powody.append(powod) or {"ok": True})
+
+        tura.uruchom(conv_id, "inbox1", "Czy blat wytrzyma zlew?", persona="quote")
+
+        assert wyslane == [tura.KOMUNIKAT_HANDOFF]
+        assert len(powody) == 1
+        assert "zobowi" in powody[0].lower()
+
+    def test_nie_ma_rundy_korekty(self, monkeypatch):
+        # Roznica wobec G1: tam druga proba ma sens (kwota moze byc poprawiona
+        # na prawdziwa). Tu "napisz to jeszcze raz bez obietnicy" dalby te sama
+        # tresc innymi slowami — a pytanie i tak nalezy do czlowieka.
+        conv_id = 96132
+        fake_runner = _FalszywyRunner(["Gwarantujemy trwalosc.", "druga proba"])
+        monkeypatch.setattr(tura, "Runner", fake_runner)
+        _wyslane_przechwytywacz(monkeypatch)
+        monkeypatch.setattr(stan, "handoff", lambda powod: {"ok": True})
+
+        tura.uruchom(conv_id, "inbox1", "Czy daje Pan gwarancje?", persona="quote")
+
+        assert len(fake_runner.wywolania) == 1
+
+    def test_powod_handoffu_mowi_KTORY_zwrot(self, monkeypatch):
+        conv_id = 96133
+        monkeypatch.setattr(tura, "Runner", _FalszywyRunner(["Mamy atest higieniczny."]))
+        _wyslane_przechwytywacz(monkeypatch)
+        powody = []
+        monkeypatch.setattr(stan, "handoff", lambda powod: powody.append(powod) or {"ok": True})
+
+        tura.uruchom(conv_id, "inbox1", "Macie atesty?", persona="quote")
+
+        assert "atest" in powody[0]
+
+    def test_odpowiedz_poprawiona_po_G1_tez_przechodzi_przez_G3(self, monkeypatch):
+        # Korekta cenowa produkuje NOWY tekst. Gdyby G3 patrzyl wylacznie na
+        # pierwsza wersje, obietnica dopisana w drugiej wychodzilaby do klienta
+        # przez te sama dziure, ktora G3 mial zamknac.
+        conv_id = 96134
+        fake_runner = _FalszywyRunner([
+            "Cena wynosi 999,00 zł.",                    # 1. proba — kwota spoza rejestru
+            "Nie mam ceny, ale blat wytrzyma zlew.",     # 2. proba — cena OK, obietnica NIE
+        ])
+        monkeypatch.setattr(tura, "Runner", fake_runner)
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+        powody = []
+        monkeypatch.setattr(stan, "handoff", lambda powod: powody.append(powod) or {"ok": True})
+
+        tura.uruchom(conv_id, "inbox1", "Ile kosztuje i czy wytrzyma?", persona="quote")
+
+        assert wyslane == [tura.KOMUNIKAT_HANDOFF]
+        assert "zobowi" in powody[0].lower()
+
+    def test_zwykla_odpowiedz_przechodzi_bez_zmian(self, monkeypatch):
+        # Kontrola negatywna: G3 nie ma dotykac normalnej rozmowy.
+        conv_id = 96135
+        monkeypatch.setattr(tura, "Runner",
+                            _FalszywyRunner(["Jaka grubość Pana interesuje?"]))
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+        monkeypatch.setattr(stan, "handoff",
+                            lambda powod: pytest.fail("nie powinno dojsc do handoffu"))
+
+        tura.uruchom(conv_id, "inbox1", "Dzien dobry", persona="quote")
+
+        assert wyslane == ["Jaka grubość Pana interesuje?"]
+
+
 class TestGuardrailBlokujeWysylke:
     """Guardrail G1 ma NAPRAWDĘ zatrzymać wysyłkę (nie tylko zalogować)."""
 

@@ -291,3 +291,64 @@ def sprawdz_ceny(tekst, znane_kwoty):
             continue
         naruszenia.append(kwota)
     return naruszenia
+
+
+# --- G3: zakazane zobowiązania (N9) ------------------------------------------
+#
+# G1 wyżej pilnuje WYŁĄCZNIE kwot. Twarde fakty, których firma nie może
+# obiecać — „wytrzyma", „gwarantujemy", „nie ugnie się", „mamy atest" — mogły
+# do tej rundy wyjść do klienta w dowolnej postaci, bo żaden mechanizm ich nie
+# oglądał. Prompt (sekcja KONSTRUKCJA) mówi modelowi, żeby tego nie robił, ale
+# prompt jest prośbą, nie bramką — dokładnie ta sama różnica, dla której G1
+# powstał mimo reguły CENY w prompcie.
+#
+# ZAMKNIĘTA LISTA, świadomie: to NIE jest próba rozpoznania „każdej obietnicy"
+# (tego regex nie potrafi), tylko dziewięciu zwrotów, które padły w audycie
+# rozmów albo wprost wymienia sekcja KONSTRUKCJA promptu. Każdy dopisany zwrot
+# to nowa klasa fałszywych alarmów, a fałszywy alarm G3 kosztuje CAŁĄ rozmowę
+# (handoff bez rundy korekty, patrz `tura.py`) — pilnuje tego
+# `test_zamknieta_lista_nie_rosnie_po_cichu`.
+#
+# ZNANY KOSZT, przyjęty świadomie: wzorce łapią zwrot także wtedy, gdy stoi
+# przy nim przeczenie („nie gwarantujemy terminu", „nie mamy atestu", „nie
+# nadaje się na zewnątrz"). Część z tych zdań to POPRAWNE odpowiedzi, więc
+# guardrail wyśle wtedy rozmowę do człowieka bez potrzeby. Zostawiamy tak,
+# bo kierunek pomyłki jest bezpieczny (człowiek zamiast obietnicy), a rozbiór
+# przeczeń per zwrot byłby regułą gramatyczną w miejscu, w którym ma stać
+# lista faktów; „nie ugnie się" i „nie odkształci się" pokazują zresztą, że
+# samo „nie" niczego tu nie rozstrzyga — to nadal orzeczenie o konstrukcji.
+#
+# Diakrytyki są opcjonalne w każdym wzorcu (kanały marketplace potrafią je
+# rozebrać — patrz sanitize.py), a dopasowanie jest bez względu na wielkość
+# liter. Granice słowa trzymają „wytrzyma" z dala od „wytrzymałość": to
+# RZECZOWNIK, który pada w zdaniu, którym bot poprawnie ODMAWIA orzekania —
+# gdyby wpadał w regex, guardrail karałby dokładnie to zachowanie, które
+# prompt każe modelowi wybrać.
+ZAKAZANE_ZOBOWIAZANIA = (
+    ("gwarantujemy", r"gwarantujemy"),
+    # czasownik, nie rzeczownik: „wytrzyma"/„wytrzymają", nie „wytrzymałość"
+    ("wytrzyma", r"wytrzyma(?:j[ąa])?"),
+    ("udźwignie", r"ud[źz]wign\w*"),
+    ("nie ugnie się", r"nie ugn(?:ie|[ąa]) si[ęe]"),
+    ("nie odkształci się", r"nie odkszta[łl]c(?:i|[ąa]) si[ęe]"),
+    ("nadaje się na zewnątrz", r"nadaj(?:e|[ąa]) si[ęe] na zewn[ąa]trz"),
+    ("jest bezpieczny", r"(?:jest|s[ąa]) bezpieczn\w*"),
+    ("certyfikat", r"certyfikat\w*"),
+    ("atest", r"atest\w*"),
+)
+
+_ZAKAZANE_ZOBOWIAZANIA_RE = tuple(
+    (nazwa, re.compile(r"(?<!\w)%s(?!\w)" % wzorzec, re.IGNORECASE))
+    for nazwa, wzorzec in ZAKAZANE_ZOBOWIAZANIA)
+
+
+def znajdz_zakazane_zobowiazania(tekst):
+    """Zwroty z `ZAKAZANE_ZOBOWIAZANIA` obecne w tekście — po NAZWACH, nie po
+    surowych dopasowaniach.
+
+    Nazwa (a nie to, co dokładnie dopasował regex) idzie do powodu handoffu,
+    czyli do prywatnej notatki konsultanta: ma powiedzieć, CO bot obiecał,
+    a nie tylko że coś obiecał."""
+    tekst = tekst or ""
+    return [nazwa for nazwa, wzorzec in _ZAKAZANE_ZOBOWIAZANIA_RE
+            if wzorzec.search(tekst)]
