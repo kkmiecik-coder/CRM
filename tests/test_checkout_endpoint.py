@@ -73,7 +73,7 @@ from flask import Flask  # noqa: E402
 from sqlalchemy.pool import StaticPool  # noqa: E402
 
 from extensions import db  # noqa: E402
-from modules.baselinker.models import BaselinkerConfig  # noqa: E402
+from modules.baselinker.models import BaselinkerConfig, BaselinkerOrderLog  # noqa: E402
 from modules.calculator.models import (  # noqa: E402
     Quote, QuoteItem, QuoteItemDetails, Price, Multiplier,
     FinishingOption, EdgeOption, CalculatorSetting, QuoteCounter, QuoteLog,
@@ -90,7 +90,7 @@ ZRODLO_DEBUS = 85727
 _TABELE = [m.__table__ for m in (
     Price, Multiplier, FinishingOption, EdgeOption, CalculatorSetting, User, Client,
     Quote, QuoteItem, QuoteItemDetails, QuoteCounter, QuoteLog, QuoteStatus,
-    BaselinkerConfig,
+    BaselinkerConfig, BaselinkerOrderLog,
 )]
 
 
@@ -121,7 +121,8 @@ def klient_http(aplikacja):
 def baselinker(monkeypatch):
     """Atrapa BaselinkerService zachowująca się jak realny serwis po sukcesie."""
     wywolania = []
-    zachowanie = {'sukces': True, 'error': 'Brak tokenu API'}
+    zachowanie = {'sukces': True, 'error': 'Brak tokenu API',
+                  'niepewne': False}
 
     class _Atrapa:
         def __init__(self, *a, **k):
@@ -131,7 +132,8 @@ def baselinker(monkeypatch):
             wywolania.append({'config': config, 'user_id': user_id,
                               'quote_id': quote.id})
             if not zachowanie['sukces']:
-                return {'success': False, 'error': zachowanie['error']}
+                return {'success': False, 'error': zachowanie['error'],
+                        'niepewne': zachowanie['niepewne']}
             numer = 500 + len(wywolania)
             quote.base_linker_order_id = str(numer)
             quote.baselinker_order_page = f'https://blsklep.pl/z/{numer}'
@@ -144,13 +146,14 @@ def baselinker(monkeypatch):
 
 
 def _zasiej(status_id=1, is_client_editable=True, ze_zrodlem=True,
-            email='jan@example.pl', phone='601234567'):
+            email='jan@example.pl', phone='601234567',
+            nazwa_zrodla='Dębuś VPS'):
     db.session.add(QuoteStatus(id=3, name='Zaakceptowane'))
     db.session.add(QuoteStatus(id=4, name='Złożone'))
     if ze_zrodlem:
         db.session.add(BaselinkerConfig(
             config_type='order_source', baselinker_id=ZRODLO_DEBUS,
-            name='Dębuś', is_default=False, is_active=True, sort_order=100,
+            name=nazwa_zrodla, is_default=False, is_active=True, sort_order=100,
             created_at=datetime(2026, 8, 30), updated_at=datetime(2026, 8, 30)))
     klient = Client(client_number='K-1', client_name='Jan Testowy',
                     email=email, phone=phone)
@@ -279,8 +282,34 @@ class TestEndpointZamowienia:
 
         odpowiedz = _zamow(klient_http)
 
-        assert odpowiedz.status_code == 500
+        # 503, nie 500: to nie jest awaria żądania klienta, tylko brakująca
+        # konfiguracja po naszej stronie — i klient dostaje o tym zdanie
+        # po polsku, a nie samo „Błąd konfiguracji zamówień".
+        assert odpowiedz.status_code == 503
         assert baselinker.wywolania == []
+        body = odpowiedz.get_json()
+        assert 'NIE zostało złożone' in body['error']
+        assert '410/08/26/W' in body['error']
+        # Zamówienie na pewno nie powstało — klient może spróbować ponownie.
+        assert body['niepewne'] is False
+        # I nic po drodze się nie zatwierdziło: brak konfiguracji nie może
+        # zostawiać wyceny zaakceptowanej (z mailem do klienta) bez zamówienia.
+        with aplikacja.app_context():
+            wycena = Quote.query.filter_by(public_token=TOKEN).first()
+            assert wycena.is_client_editable is True
+            assert wycena.base_linker_order_id is None
+
+    def test_zrodlo_znajdowane_po_id_a_nie_po_nazwie(self, aplikacja, klient_http,
+                                                     baselinker):
+        # Nazwa źródła to pole redagowalne w panelu BaseLinkera. Gdy kod szukał
+        # po niej, samo przemianowanie źródła kładło checkout. Wiąże nas
+        # baselinker_id — ta sama stała, którą wstawia migracja.
+        _zasiej(nazwa_zrodla='Zamówienia ze strony')
+
+        odpowiedz = _zamow(klient_http)
+
+        assert odpowiedz.status_code == 200
+        assert baselinker.wywolania[0]['config']['order_source_id'] == ZRODLO_DEBUS
 
     def test_blad_baselinkera_nie_udaje_sukcesu_i_pozwala_powtorzyc(
             self, aplikacja, klient_http, baselinker):
@@ -370,3 +399,87 @@ class TestEndpointZamowienia:
 
         assert odpowiedz.status_code == 400
         assert baselinker.wywolania == []
+
+
+class TestKomunikatPoNieudanymZamowieniu:
+    """D2 — klient ma wiedzieć, czy zamówienie powstało, czy nie."""
+
+    def test_odmowa_baselinkera_mowi_wprost_ze_zamowienia_nie_ma(
+            self, aplikacja, klient_http, baselinker):
+        # API odpowiedziało i odmówiło — wiemy na pewno, że zamówienia nie ma.
+        _zasiej()
+        baselinker.zachowanie['sukces'] = False
+        baselinker.zachowanie['niepewne'] = False
+
+        body = _zamow(klient_http).get_json()
+
+        assert body['niepewne'] is False
+        assert 'NIE zostało złożone' in body['error']
+        assert '410/08/26/W' in body['error']
+
+    def test_zerwana_lacznosc_nie_twierdzi_ze_zamowienia_nie_ma(
+            self, aplikacja, klient_http, baselinker):
+        # Najgorszy przypadek: BaseLinker mógł zamówienie utworzyć, a odpowiedź
+        # zginęła po drodze. Komunikat nie może twierdzić ani „zamówiliśmy",
+        # ani „nie zamówiliśmy" — ma poprosić o kontakt i podać numer wyceny.
+        _zasiej()
+        baselinker.zachowanie['sukces'] = False
+        baselinker.zachowanie['niepewne'] = True
+
+        odpowiedz = _zamow(klient_http)
+        body = odpowiedz.get_json()
+
+        assert odpowiedz.status_code == 502
+        assert body['niepewne'] is True
+        assert '410/08/26/W' in body['error']
+        assert 'nie wiemy' in body['error']
+        # Żadnego rozstrzygnięcia w którąkolwiek stronę.
+        assert 'NIE zostało złożone' not in body['error']
+        # I wyraźny zakaz ponawiania — drugie kliknięcie to drugie realne
+        # zamówienie, bo base_linker_order_id nie zdążył się zapisać.
+        assert 'nie składaj' in body['error'].lower()
+
+
+class TestZnacznikNiepewnosciWSerwisie:
+    """Skąd bierze się `niepewne`: wyjątek transportowy w create_order_from_quote."""
+
+    def _wycena(self):
+        _zasiej()
+        return Quote.query.filter_by(public_token=TOKEN).first()
+
+    def _serwis(self, aplikacja, monkeypatch, wyjatek):
+        from modules.baselinker.service import BaselinkerService
+        serwis = BaselinkerService()
+        monkeypatch.setattr(serwis, '_prepare_order_data', lambda quote, config: {})
+
+        def _rzuc(method, parameters):
+            raise wyjatek
+
+        monkeypatch.setattr(serwis, '_make_request', _rzuc)
+        return serwis
+
+    def test_timeout_polaczenia_oznacza_wynik_jako_niepewny(self, aplikacja,
+                                                            monkeypatch):
+        import requests
+        wycena = self._wycena()
+        serwis = self._serwis(aplikacja, monkeypatch,
+                              requests.exceptions.ReadTimeout('read timed out'))
+
+        wynik = serwis.create_order_from_quote(wycena, None, {})
+
+        assert wynik['success'] is False
+        assert wynik['niepewne'] is True
+
+    def test_blad_przed_wyslaniem_zadania_nie_jest_niepewny(self, aplikacja,
+                                                            monkeypatch):
+        # Wyjątek, który nie pochodzi z warstwy transportowej (np. brak
+        # konfiguracji API), znaczy, że żądanie nigdy nie wyszło — zamówienia
+        # na pewno nie ma i klient może spróbować ponownie.
+        wycena = self._wycena()
+        serwis = self._serwis(aplikacja, monkeypatch,
+                              ValueError('Brak konfiguracji API Baselinker'))
+
+        wynik = serwis.create_order_from_quote(wycena, None, {})
+
+        assert wynik['success'] is False
+        assert wynik['niepewne'] is False

@@ -479,7 +479,18 @@ class BaselinkerService:
                             error_type=type(e).__name__)
             return {
                 'success': False,
-                'error': str(e)
+                'error': str(e),
+                # Wyjątek z warstwy transportowej (timeout, zerwane połączenie)
+                # znaczy, że NIE wiemy, czy BaseLinker zdążył utworzyć
+                # zamówienie: żądanie mogło dojść i zostać obsłużone, a zginąć
+                # miała tylko odpowiedź. base_linker_order_id nie zapisze się
+                # wtedy na wycenie, więc ponowienie utworzyłoby DRUGIE realne
+                # zamówienie. Checkout klienta czyta tę flagę i zamiast
+                # zapraszać do ponowienia — prosi o kontakt.
+                # Każdy inny wyjątek leci przed wysyłką żądania (np. brak
+                # konfiguracji API, błąd składania danych) — zamówienia na
+                # pewno nie ma i powtórka jest bezpieczna.
+                'niepewne': isinstance(e, requests.exceptions.RequestException),
             }
     
     def _prepare_order_data(self, quote, config: Dict) -> Dict:

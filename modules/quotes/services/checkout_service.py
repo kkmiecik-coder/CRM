@@ -47,20 +47,28 @@ def _numer_zamowienia(wartosc):
         return wartosc
 
 
-def _odpowiedz(ok, order_id=None, order_page_url=None, duplikat=False, error=None):
+def _odpowiedz(ok, order_id=None, order_page_url=None, duplikat=False, error=None,
+               niepewne=False):
+    """`niepewne` = nie wiemy, czy zamówienie w BaseLinkerze powstało.
+
+    Ustawia je wyłącznie ścieżka błędu transportowego (patrz create_order_from_quote).
+    Przy takim wyniku nie wolno ani twierdzić, że zamówienie jest, ani że go nie ma,
+    ani zapraszać klienta do ponowienia.
+    """
     return {
         "ok": ok,
         "order_id": order_id,
         "order_page_url": order_page_url,
         "duplikat": duplikat,
         "error": error,
+        "niepewne": niepewne,
     }
 
 
 def zloz_zamowienie_klienta(quote, order_source_id, bot_user_id):
     """Tworzy zamówienie w BaseLinkerze dla zaakceptowanej wyceny.
 
-    Zwraca {"ok", "order_id", "order_page_url", "duplikat", "error"}.
+    Zwraca {"ok", "order_id", "order_page_url", "duplikat", "error", "niepewne"}.
     Nie rzuca wyjątków — create_order_from_quote też ich nie propaguje.
     """
     zablokowana = zablokuj_wycene(quote)
@@ -85,10 +93,13 @@ def zloz_zamowienie_klienta(quote, order_source_id, bot_user_id):
     wynik = BaselinkerService().create_order_from_quote(zablokowana, bot_user_id, config)
 
     if not wynik.get("success"):
-        # Serwis nie robi rollbacku w żadnej ścieżce, a zamówienie NIE powstało —
-        # zostawiamy sesję czystą, żeby klient mógł spróbować jeszcze raz.
+        # Serwis nie robi rollbacku w żadnej ścieżce, a base_linker_order_id
+        # nie został zapisany — zostawiamy sesję czystą. Uwaga: „nie zapisany"
+        # NIE znaczy „zamówienia nie ma" (patrz niepewne) — o tym, czy klient
+        # może powtórzyć, rozstrzyga flaga, a nie sam brak zapisu.
         db.session.rollback()
-        return _odpowiedz(False, error=wynik.get("error") or "BLAD_BASELINKER")
+        return _odpowiedz(False, error=wynik.get("error") or "BLAD_BASELINKER",
+                          niepewne=bool(wynik.get("niepewne")))
 
     return _odpowiedz(
         True,

@@ -1162,11 +1162,26 @@ def client_quote_view(token):
             logger.warning(f"[client_quote_view] Nie udało się policzyć kosztów dla {quote_number}: {e}")
             costs = None
 
+        # Stany przycisku zamawiania. Sam `is_accepted` nie wystarcza: wycena
+        # zaakceptowana, ale jeszcze niezamówiona, dostawała wyłącznie
+        # zablokowany przycisk „Wycena zaakceptowana" i klient nie miał czym
+        # zamówić — dokładnie tu utknął właściciel.
+        ma_zamowienie = bool(quote.base_linker_order_id)
+        # is_client_editable = wycena jeszcze nieprzyjęta; endpoint /order
+        # zaakceptuje ją po drodze, więc zamówić się da. Wycena już przyjęta
+        # idzie prosto do zamówienia i decyduje o niej ta sama reguła
+        # kwalifikacji, co po stronie serwera (jedno źródło prawdy).
+        mozna_zamowic = (not ma_zamowienie) and bool(
+            quote.is_client_editable or quote.is_eligible_for_order())
+
         return render_template("quotes/templates/client_quote.html",
                              quote=quote,
                              quote_number=quote_number,
                              token=token,
                              is_accepted=not quote.is_client_editable,
+                             ma_zamowienie=ma_zamowienie,
+                             mozna_zamowic=mozna_zamowic,
+                             link_zamowienia=quote.baselinker_order_page,
                              costs=costs,
                              current_year=current_year)
         
@@ -2212,6 +2227,38 @@ def client_accept_quote_with_data(token):
         db.session.rollback()
         return jsonify({"error": "Wystąpił błąd podczas przetwarzania żądania"}), 500
 
+KONTAKT_WOODPOWER = "biuro@woodpower.pl lub telefonicznie +48 690 002 109"
+
+
+def komunikat_bledu_zamowienia(quote, niepewne):
+    """Zdanie dla klienta po nieudanej próbie złożenia zamówienia.
+
+    Rozstrzyga to, co klient naprawdę chce wiedzieć: czy zamówienie powstało.
+
+    niepewne=False — żądanie nie wyszło albo BaseLinker je odrzucił: zamówienia
+    NA PEWNO nie ma i powtórka jest bezpieczna.
+
+    niepewne=True — łączność padła w trakcie: zamówienie mogło powstać po
+    stronie BaseLinkera, a my nie mamy jak tego stwierdzić (numer zamówienia
+    nie zapisał się na wycenie). Komunikat NIE MOŻE wtedy twierdzić ani
+    „zamówiliśmy", ani „nie zamówiliśmy" — i musi odwieść od ponowienia,
+    bo drugie kliknięcie to drugie REALNE zamówienie w BaseLinkerze.
+    """
+    numer = quote.quote_number or "-"
+    if niepewne:
+        return (
+            "Straciliśmy łączność z systemem zamówień i nie wiemy, czy Twoje "
+            "zamówienie zostało przyjęte. Prosimy: nie składaj go ponownie. "
+            "Skontaktuj się z nami — {kontakt} — i podaj numer wyceny {numer}. "
+            "Sprawdzimy to i potwierdzimy.".format(kontakt=KONTAKT_WOODPOWER, numer=numer)
+        )
+    return (
+        "Nie udało się złożyć zamówienia — NIE zostało złożone. Spróbuj ponownie "
+        "za kilka minut. Jeśli to nie pomoże, skontaktuj się z nami — {kontakt} — "
+        "i podaj numer wyceny {numer}.".format(kontakt=KONTAKT_WOODPOWER, numer=numer)
+    )
+
+
 @quotes_bp.route("/api/client/quote/<token>/order", methods=["POST"])
 def client_place_order(token):
     """Klient składa zamówienie ze strony wyceny.
@@ -2221,6 +2268,7 @@ def client_place_order(token):
     link do strony zamówienia. Idempotencja siedzi w checkout_service — tu
     NIE dokładamy własnej, żeby nie było dwóch reguł na jedno zamówienie.
     """
+    from modules.quotes.services.checkout_config import ID_ZRODLA_DEBUS
     from modules.quotes.services.checkout_service import zloz_zamowienie_klienta
 
     data = request.get_json(silent=True) or {}
@@ -2244,6 +2292,26 @@ def client_place_order(token):
                      "Sprawdź email lub numer telefonu."
         }), 403
 
+    # Konfigurację sprawdzamy PRZED akceptacją. Gdyby szła po niej, brak źródła
+    # zostawiałby wycenę zaakceptowaną (z mailami do klienta i handlowca), ale
+    # bez zamówienia — czyli w stanie, w który klient sam się wepchnął, a nie
+    # w takim, o który prosił.
+    # Szukamy po baselinker_id, a NIE po nazwie: nazwa źródła jest polem
+    # redagowalnym w panelu BaseLinkera, więc wiązanie się z nią znaczyło, że
+    # przemianowanie źródła kładzie cały checkout. Nie filtrujemy też po
+    # is_active — to flaga widoczności na listach w panelu CRM, a nie
+    # włącznik składania zamówień.
+    zrodlo = BaselinkerConfig.query.filter_by(
+        config_type="order_source", baselinker_id=ID_ZRODLA_DEBUS).first()
+    if not zrodlo:
+        logger.error("[client_place_order] Brak źródła zamówień o baselinker_id=%s "
+                     "w baselinker_config — nie wykonała się migracja?", ID_ZRODLA_DEBUS)
+        return jsonify({
+            "error": komunikat_bledu_zamowienia(quote, niepewne=False),
+            "niepewne": False,
+            "quote_number": quote.quote_number,
+        }), 503
+
     # Akceptacja jest warunkiem kwalifikacji (status_id == 3). Gdy wycena jest
     # jeszcze edytowalna, przeprowadzamy ją tą samą drogą co /accept-with-data
     # — łącznie z zapisem danych klienta i mailami. Wycena zaakceptowana
@@ -2265,12 +2333,6 @@ def client_place_order(token):
             # (np. „Email jest wymagany") zamiast ogólnika.
             blad_akceptacji = odpowiedz_akceptacji
 
-    zrodlo = BaselinkerConfig.query.filter_by(
-        config_type="order_source", name="Dębuś", is_active=True).first()
-    if not zrodlo:
-        logger.error("[client_place_order] Brak źródła zamówień 'Dębuś' w baselinker_config")
-        return jsonify({"error": "Błąd konfiguracji zamówień"}), 500
-
     # Konto bota może nie istnieć w bazie (BOT_USER_ID=0 lub nieustawione).
     # created_by w logu BaseLinkera jest nullable, więc zamiast łamać FK
     # zostawiamy None — tak samo jak /api/bot (bot_api.py:226-231).
@@ -2288,10 +2350,25 @@ def client_place_order(token):
         if wynik["error"] == "NIEKWALIFIKOWANA":
             if blad_akceptacji is not None:
                 return blad_akceptacji
-            return jsonify({"error": "Wycena nie kwalifikuje się do zamówienia"}), 400
-        logger.error("[client_place_order] Błąd BaseLinkera: %s", wynik["error"])
-        # Treść błędu API zostaje w logu — klient dostaje komunikat bez szczegółów.
-        return jsonify({"error": "Nie udało się złożyć zamówienia. Prosimy o kontakt."}), 502
+            # Ten sam powód, który strona pokazuje zamiast przycisku „Zamów"
+            # — klient ma dostać zdanie, a nie klasyfikację.
+            return jsonify({
+                "error": "Tej wyceny nie można zamówić przez stronę. Skontaktuj się "
+                         "z nami — {kontakt} — i podaj numer wyceny {numer}.".format(
+                             kontakt=KONTAKT_WOODPOWER, numer=quote.quote_number or "-"),
+                "niepewne": False,
+                "quote_number": quote.quote_number,
+            }), 400
+        logger.error("[client_place_order] Błąd BaseLinkera: %s (niepewne=%s)",
+                     wynik["error"], wynik["niepewne"])
+        # Treść błędu API zostaje w logu — klient dostaje komunikat bez szczegółów,
+        # za to rozstrzygający, czy zamówienie powstało (albo mówiący wprost, że
+        # tego nie wiemy).
+        return jsonify({
+            "error": komunikat_bledu_zamowienia(quote, niepewne=wynik["niepewne"]),
+            "niepewne": wynik["niepewne"],
+            "quote_number": quote.quote_number,
+        }), 502
 
     logger.info("[client_place_order] Zamówienie złożone przez klienta: quote=%s "
                 "order_id=%s duplikat=%s",

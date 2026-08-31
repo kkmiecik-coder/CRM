@@ -12,6 +12,14 @@ utworzy zamówienie.
 """
 
 
+# Realne id źródła „Dębuś VPS" w panelu BaseLinkera (Ustawienia -> Źródła
+# zamówień). Ta sama wartość, którą wstawia migracja
+# migrations/2026-08-30-zrodlo-zamowien-debus.sql — i po NIEJ, a nie po nazwie,
+# szuka się źródła w bazie. Nazwa jest polem redagowalnym w panelu: dopóki
+# wiązała nas nazwa, samo przemianowanie źródła kładło cały checkout.
+ID_ZRODLA_DEBUS = 85727
+
+
 def _na_float(wartosc):
     """Decimal/None/str -> float. Brak wartości = 0.0 (a nie wyjątek)."""
     if wartosc is None:
@@ -24,7 +32,7 @@ def build_checkout_order_config(quote, order_source_id):
 
     quote            — obiekt Quote (albo dowolny z polami quote_type,
                        courier_name, shipping_cost_netto/brutto)
-    order_source_id  — baselinker_id źródła „Dębuś" z tabeli baselinker_config
+    order_source_id  — baselinker_id źródła „Dębuś VPS" (ID_ZRODLA_DEBUS)
     """
     # Tryb cen czytamy tak samo jak serwis (service.py:527): getattr z domyślnym
     # 'brutto', bo pusta wartość w kolumnie też ma znaczyć brutto.
