@@ -51,8 +51,9 @@ _KWOTA_WALUTA_LICZBA = re.compile(r"\b%s%s(%s)" % (_WALUTA, _ODSTEP, _LICZBA), r
 #      wtrącone, i to z zamkniętej listy zwrotów przybliżających),
 #   2. jest WIĘKSZA niż próg (`_PROG_GOLEJ_KWOTY`, 50 zł — patrz jego komentarz):
 #      „razem 3 pozycje" i „łącznie 12 sztuk" to rzeczy policzalne, nie ceny,
-#   3. ZAMYKA KLAUZULĘ — nie stoi przed nią zwykłe słowo (`_ZAMKNIECIE_GOLEJ_KWOTY`,
-#      C4): „około 2400 brutto" łapiemy, „około 80 blatów" nie,
+#   3. ZAMYKA KLAUZULĘ — nie stoi przed nią zwykłe słowo TREŚCIOWE
+#      (`_ZAMKNIECIE_GOLEJ_KWOTY`, C4+D2): „około 2400 brutto", „razem 2650 za
+#      komplet" i „2400 brutto za cały blat" łapiemy, „około 80 blatów" nie,
 #   4. NIE ma tuż za sobą jednostki — ani skróconej („240 cm"), ani zapisanej
 #      pełnym słowem („90 centymetrów", „55 kilogramów", „240 minut"): patrz
 #      `_JEDNOSTKI` i N1 niżej. Po C4 to DRUGA linia obrony (jednostka jest
@@ -146,21 +147,53 @@ _JEDNOSTKA_ZA_LICZBA = re.compile(r"[ \xa0 ]*%s(?!\w)" % _JEDNOSTKI, re.IGNORECA
 #
 # Dlatego reguła jest ODWRÓCONA: goła liczba jest podejrzana o bycie kwotą tylko
 # wtedy, gdy NIE następuje po niej zwykłe słowo — czyli gdy ZAMYKA klauzulę:
-# stoi na końcu tekstu, przed znakiem interpunkcyjnym albo przed „brutto"/
-# „netto", które samo zamyka klauzulę. Koniec LINII jest zamknięciem świadomie:
-# bot pisze wypunktowane wyceny („- Razem: 2650\n- Termin: 14 dni").
+# stoi na końcu tekstu, przed znakiem interpunkcyjnym, przed „brutto"/„netto"
+# (które samo zamyka klauzulę) albo przed SŁOWEM FUNKCYJNYM z listy niżej.
+# Koniec LINII jest zamknięciem świadomie: bot pisze wypunktowane wyceny
+# („- Razem: 2650\n- Termin: 14 dni").
 #
-# ZNANY KOSZT: kwota, po której model dopisze zwykłe słowo („razem 2650 za
-# komplet"), przestaje być łapana jako goła liczba. Z tokenem waluty („2650 zł
-# za komplet") łapie ją normalnie `_KWOTA_LICZBA_WALUTA`. Wymiana jest opłacalna
-# — fałszywy alarm kosztuje rundę korekty, a przy powtórce oddanie rozmowy
-# człowiekowi w momencie zamykania sprzedaży.
+# D2 (rerecenzja rundy D): pierwsza wersja C4 uznawała za zamknięcie WYŁĄCZNIE
+# interpunkcję i koniec tekstu, przez co „brutto"/„netto" zamykało klauzulę
+# tylko wtedy, gdy stało tuż przed kropką. Zmierzone na 40 naturalnych formach
+# zmyślonej ceny: trafienia spadły z 98% do 55%, a przepuszczane były m.in.
+# `Około 2400 brutto za cały blat.` i `Razem 2650 brutto plus transport.` —
+# czyli NAJCZĘSTSZY kształt wypowiedzi bota, nie przypadek brzegowy. Bot pisze
+# pełnymi zdaniami, a cena prawie zawsze coś obejmuje („za komplet",
+# „z dostawą", „plus transport", „od sztuki", „przy tej grubości"); wariant,
+# w którym liczba jest ostatnim znakiem zdania, jest typowy dla wypunktowania,
+# nie dla prozy.
+#
+# Rozwiązaniem NIE jest powrót do reguły sprzed C4 (45% fałszywych alarmów —
+# bot korygowałby się co drugą odpowiedź z bazy wiedzy), tylko przesunięcie
+# granicy: obok interpunkcji klauzulę zamyka ZAMKNIĘTA LISTA SŁÓW FUNKCYJNYCH.
+# Przyimek ani spójnik NIGDY nie wprowadza rzeczownika policzalnego („80
+# blatów", „150 zamówień"), a prawie zawsze wprowadza to, co kwota obejmuje.
+# Zmierzone na tym samym korpusie: 55% → 92% trafień przy NIEZMIENNYCH
+# 0% fałszywych alarmów (`TestD2SlowaFunkcyjneZamykajaKlauzule`).
+#
+# Lista jest ZAMKNIĘTA i tylko funkcyjna. NIE dopisywać do niej słów
+# TREŚCIOWYCH („razem", „dopłaty", „sztuk"): dowód z N1 mówi, że każde takie
+# poszerzenie wraca fałszywymi alarmami na nazwach handlowych i numerach.
+# Zmiana tej listy ma wynikać z POMIARU na obu korpusach, nie z pojedynczego
+# przykładu; pilnuje tego `test_lista_slow_funkcyjnych_jest_zamknieta`.
+_SLOWA_FUNKCYJNE_ZAMYKAJACE = ("za", "z", "plus", "i", "przy", "od", "do",
+                               "wraz", "bez", "na", "oraz")
+# Dłuższe warianty pierwsze — „za"/„z" muszą mieć szansę dopasować się przed
+# krótszym prefiksem; `(?!\w)` i tak wymusza granicę słowa, więc kolejność jest
+# tu dla czytelności, nie dla poprawności.
+_FUNKCYJNE = r"(?:%s)(?!\w)" % "|".join(
+    sorted(_SLOWA_FUNKCYJNE_ZAMYKAJACE, key=len, reverse=True))
+#
+# ZNANY KOSZT (po D2 znacznie węższy): kwota, po której model dopisze słowo
+# TREŚCIOWE spoza listy („w sumie 2650 brutto RAZEM z kurierem", „koszt wynosi
+# 350 DOPŁATY"), nadal nie jest łapana jako goła liczba. Z tokenem waluty
+# („2650 zł razem z kurierem") łapie ją normalnie `_KWOTA_LICZBA_WALUTA`.
 #
 # Myślnik CELOWO nie jest zamknięciem: „Blat 180-200 cm" to zakres wymiarów,
 # a nie kwota kończąca zdanie.
 _ZAMKNIECIE_GOLEJ_KWOTY = re.compile(
-    r"[ \xa0 ]*(?:(?:brutto|netto)(?!\w))?[ \xa0 ]*(?:[.,;:!?…)\]\n\r]|$)",
-    re.IGNORECASE)
+    r"[ \xa0 ]*(?:(?:brutto|netto)(?!\w))?[ \xa0 ]*(?:[.,;:!?…)\]\n\r]|%s|$)"
+    % _FUNKCYJNE, re.IGNORECASE)
 
 # Poniżej tego progu goła liczba przy słowie cenowym to prawie zawsze liczebnik
 # ("razem 3 pozycje"), nie kwota. Kwoty ZNANE rejestrowi i tak nie są
@@ -215,7 +248,11 @@ def znajdz_gole_kwoty(tekst):
     braku »zł«" — i jest używana wyłącznie przez `sprawdz_ceny`.
 
     C4: goła liczba musi ZAMYKAĆ klauzulę (patrz `_ZAMKNIECIE_GOLEJ_KWOTY`) —
-    liczba, po której stoi zwykłe słowo, jest rzeczą policzalną, nie ceną."""
+    liczba, po której stoi zwykłe słowo, jest rzeczą policzalną, nie ceną.
+    D2: klauzulę zamyka też SŁOWO FUNKCYJNE („za komplet", „z dostawą",
+    „plus transport") — przyimek nie wprowadza rzeczownika policzalnego,
+    a wprowadza to, co kwota obejmuje. Bez tego przechodziło 45% naturalnych
+    form zmyślonej ceny, w tym najczęstsza („2400 brutto za cały blat")."""
     tekst = tekst or ""
     wynik = set()
     for wzorzec in (_GOLA_PO_SLOWIE_CENOWYM, _GOLA_PRZED_SLOWEM_CENOWYM):

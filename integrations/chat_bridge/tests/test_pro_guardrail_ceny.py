@@ -441,17 +441,19 @@ class TestC4GolaLiczbaMusiZamykacKlauzule:
         assert g.sprawdz_ceny(tekst, self.ZNANE) == [oczekiwana]
 
     @pytest.mark.parametrize("tekst", [
-        "Razem 2650 za komplet.",
-        "Cena to 2400 z dostawą.",
         "Koszt wynosi 350 dopłaty.",
     ])
     def test_kwota_ze_zwyklym_slowem_za_soba_przechodzi_swiadomie(self, tekst):
-        """Udokumentowana GRANICA mechanizmu i cena odwrócenia reguły: te trzy
-        formy były łapane przed C4 i teraz przechodzą. To świadomy kompromis —
-        po gołej liczbie stoi zwykłe słowo, więc nie da się jej odróżnić od
-        „około 80 blatów" bez rozumienia zdania. Z tokenem waluty kwota jest
-        łapana normalnie (test niżej), a fałszywy alarm kosztuje rundę korekty
-        i — przy powtórce — oddanie rozmowy w momencie zamykania sprzedaży."""
+        """Udokumentowana GRANICA mechanizmu: po gołej liczbie stoi słowo
+        TREŚCIOWE, więc nie da się jej odróżnić od „około 80 blatów" bez
+        rozumienia zdania. Z tokenem waluty kwota jest łapana normalnie
+        (test niżej).
+
+        D2 zawęziło tę granicę: „Razem 2650 za komplet." i „Cena to 2400
+        z dostawą." stały tu do rerecenzji rundy D i BYŁY kosztem C4. Po
+        dopuszczeniu słów funkcyjnych jako zamknięcia klauzuli są znowu łapane
+        — patrz `TestD2SlowaFunkcyjneZamykajaKlauzule`. Zostaje wyłącznie
+        kształt „kwota + rzeczownik", którego odróżnić się nie da."""
         assert g.sprawdz_ceny(tekst, self.ZNANE) == []
 
     def test_ta_sama_kwota_z_waluta_jest_nadal_lapana(self):
@@ -469,3 +471,193 @@ class TestC4GolaLiczbaMusiZamykacKlauzule:
                       "Blat 180 razem 1 686,08 zł brutto.",
                       "Zamówienie 100234 kosztuje 843,04 zł."):
             assert g.sprawdz_ceny(tekst, self.ZNANE) == [], tekst
+
+
+# --- D2: korpusy rerecenzji D (sonda `d4b_kompromis.py`) ----------------------
+#
+# 40 naturalnych sposobów, w jakie bot sprzedażowy podaje kwotę BEZ tokenu
+# waluty, i 40 zdań bazy wiedzy z gołą liczbą, która kwotą NIE jest. Ten sam
+# korpus mierzył recenzent przed i po C4 — zapisany dosłownie, bez polskich
+# znaków, żeby liczby w testach niżej były TYMI SAMYMI liczbami co w raporcie.
+_D2_REJESTR = {"843.04", "1093.04", "1686.08", "250.00", "203.25", "1936.71", "2382.15"}
+
+# (zdanie, kwota którą MUSI zgłosić) — 37 z 40 form korpusu.
+_D2_ZMYSLONE_LAPANE = [
+    ("Czyli razem 2650.", "2650.00"),
+    ("Razem 2650 za komplet.", "2650.00"),
+    ("Cena to 2400 brutto.", "2400.00"),
+    ("Cena to 2400 brutto za caly blat.", "2400.00"),
+    ("Lacznie wychodzi 2650.", "2650.00"),
+    ("Lacznie wychodzi 2650 z dostawa.", "2650.00"),
+    ("Koszt blatu to okolo 2400.", "2400.00"),
+    ("Koszt blatu to okolo 2400 plus wysylka.", "2400.00"),
+    ("Doplata 90.", "90.00"),
+    ("Doplata 90 za wyciecie.", "90.00"),
+    ("W sumie 2650 brutto.", "2650.00"),
+    ("Cena wyniesie 2650.", "2650.00"),
+    ("Cena wyniesie 2650 przy tej grubosci.", "2650.00"),
+    ("Razem jakies 2650.", "2650.00"),
+    ("Razem jakies 2650 za dwie sztuki.", "2650.00"),
+    ("Blat debowy 2400 netto.", "2400.00"),
+    ("Blat debowy 2400 netto plus VAT.", "2400.00"),
+    ("Suma 2650.", "2650.00"),
+    ("Suma 2650 do zaplaty przy odbiorze.", "2650.00"),
+    ("Koszt wynosi 350.", "350.00"),
+    ("- Razem: 2650\n- Termin: 14 dni", "2650.00"),
+    ("- Razem: 2650 brutto\n- Termin: 14 dni", "2650.00"),
+    ("Cena okolo 2650 brutto.", "2650.00"),
+    ("Cena okolo 2650 brutto za sztuke.", "2650.00"),
+    ("Razem 2650, plus dostawa.", "2650.00"),
+    ("Razem 2650 i dostawa osobno.", "2650.00"),
+    ("Lacznie 2650 netto.", "2650.00"),
+    ("Lacznie 2650 netto za komplet.", "2650.00"),
+    ("Mniej wiecej 2650 brutto.", "2650.00"),
+    ("Cena bedzie 2650.", "2650.00"),
+    ("Cena bedzie 2650 od sztuki.", "2650.00"),
+    ("Koszt: 2650.", "2650.00"),
+    ("Koszt: 2650 z montazem.", "2650.00"),
+    ("Razem 2650 brutto.", "2650.00"),
+    ("Razem 2650 brutto plus transport.", "2650.00"),
+    ("Doplata za fazowanie 120 brutto.", "120.00"),
+    ("Cena 2400 netto, dostawa gratis.", "2400.00"),
+]
+
+# Trzy formy korpusu, które przechodzą DALEJ — udokumentowana granica.
+_D2_ZMYSLONE_PRZEPUSZCZANE = [
+    # po kwocie stoi „razem"/„dopłaty" — słowo TREŚCIOWE, nie funkcyjne
+    "W sumie 2650 brutto razem z kurierem.",
+    "Koszt wynosi 350 doplaty.",
+    # dwa wyrazy odstępu między słowem cenowym a liczbą — ta forma przechodziła
+    # także PRZED C4, nie jest kosztem odwrócenia reguły
+    "Doplata za fazowanie 120.",
+]
+
+_D2_NIE_KWOTY = [
+    "Mamy okolo 120 wzorow wykonczenia.",
+    "W magazynie mamy okolo 80 blatow debowych.",
+    "Okolo 200 klientow miesiecznie zamawia blaty.",
+    "Zrobilismy juz okolo 500 schodow debowych.",
+    "Do wyboru jest okolo 60 odcieni oleju.",
+    "Blat sklada sie z okolo 90 lamel.",
+    "Suszarnia miesci okolo 300 blatow naraz.",
+    "Razem 150 zamowien w tym miesiacu.",
+    "Lacznie 400 pozycji w katalogu.",
+    "Nasza zaloga to okolo 55 osob.",
+    "Lacznie 220 wariantow wykonczenia.",
+    "Razem 96 lamel w blacie 240 cm.",
+    "W sumie 75 gatunkow drewna.",
+    "Cena zalezy od okolo 300 czynnikow.",
+    "Razem 12 krawedzi do obrobki.",
+    "Lacznie 240 blatow wyprodukowanych w lipcu.",
+    "W sumie 65 zamowien czeka na wysylke.",
+    "Okolo 180 firm wspolpracuje z nami.",
+    "Razem 320 metrow biezacych lameli.",
+    "Lacznie 99 wzorow krawedzi.",
+    "Blat ma 180 cm dlugosci.",
+    "Wysokosc blatu wynosi 90 centymetrow.",
+    "Waga blatu wynosi 55 kilogramow.",
+    "Olej schnie okolo 240 minut.",
+    "Jestesmy okolo 80 km od Olsztyna.",
+    "Termin to okolo 14 dni roboczych.",
+    "Wilgotnosc wynosi okolo 8 procent.",
+    "Blat 180-200 cm to najczestszy wybor.",
+    "Sezonowanie trwa okolo 12 miesiecy.",
+    "Temperatura suszenia wynosi okolo 60 stopni.",
+    "Rabat wynosi 10 procent przy dwoch blatach.",
+    "Blat 200 cm netto wazy okolo 60 kg.",
+    "Zamowienie 100234 jest w produkcji.",
+    "Numer wyceny to 20260830.",
+    "Gwarancja to 24 miesiace.",
+    "Razem 3 sztuki, kazda 4 cm grubosci.",
+    "Lacznie 12 sztuk lameli na metr.",
+    "Cena obowiazuje do 2026 roku.",
+    "Okolo 70 procent klientow wybiera olej.",
+    "Razem 5 pozycji w tej wycenie.",
+]
+
+
+class TestD2SlowaFunkcyjneZamykajaKlauzule:
+    """D2 (rerecenzja rundy D): po C4 guardrail łapał 55% naturalnych form
+    zmyślonej ceny.
+
+    C4 odwrócił regułę (goła liczba musi ZAMYKAĆ klauzulę) i zabił fałszywe
+    alarmy — 0/40, potwierdzone. Zawęził jednak wykrywanie dużo mocniej, niż
+    raportowano: 98% → 55% na korpusie 40 naturalnych sformułowań. Kluczowe
+    przeoczenie: „brutto"/„netto" zamykało klauzulę TYLKO przed interpunkcją,
+    więc `Około 2400 brutto za cały blat.` przechodziło bez śladu — a to
+    NAJCZĘSTSZY kształt wypowiedzi bota, nie przypadek brzegowy. Bot pisze
+    pełnymi zdaniami, a cena prawie zawsze coś obejmuje („za komplet",
+    „z dostawą", „plus transport", „od sztuki", „przy tej grubości").
+
+    Naprawa: obok interpunkcji klauzulę zamyka też ZAMKNIĘTA LISTA SŁÓW
+    FUNKCYJNYCH (`_SLOWA_FUNKCYJNE`). Przyimek ani spójnik nie wprowadza
+    rzeczownika policzalnego („80 blatów", „150 zamówień"), a prawie zawsze
+    wprowadza to, co kwota obejmuje. Zmierzone na tym korpusie:
+    trafienia 22/40 (55%) → 37/40 (92%), fałszywe alarmy nadal 0/40."""
+
+    @pytest.mark.parametrize("tekst,oczekiwana", _D2_ZMYSLONE_LAPANE)
+    def test_zmyslona_kwota_jest_lapana(self, tekst, oczekiwana):
+        assert g.sprawdz_ceny(tekst, _D2_REJESTR) == [oczekiwana]
+
+    @pytest.mark.parametrize("tekst", _D2_ZMYSLONE_PRZEPUSZCZANE)
+    def test_trzy_formy_przechodza_swiadomie(self, tekst):
+        """Udokumentowana GRANICA: po kwocie stoi słowo TREŚCIOWE („razem",
+        „dopłaty"), a nie funkcyjne. Dołożenie ich do listy zamknięć wraca
+        fałszywymi alarmami na nazwach i numerach — lista funkcyjnych jest
+        ZAMKNIĘTA świadomie. Trzecia forma („dopłata ZA FAZOWANIE 120")
+        przechodziła także PRZED C4: to dwa wyrazy odstępu między słowem
+        cenowym a liczbą, osobna sprawa niż zamknięcie klauzuli."""
+        assert g.sprawdz_ceny(tekst, _D2_REJESTR) == []
+
+    @pytest.mark.parametrize("tekst", _D2_NIE_KWOTY)
+    def test_gola_liczba_niebedaca_kwota_nie_alarmuje(self, tekst):
+        assert g.sprawdz_ceny(tekst, _D2_REJESTR) == []
+
+    def test_pomiar_na_obu_korpusach_rerecenzji(self):
+        """Pomiar recenzenta odtworzony co do sztuki: 22/40 → 37/40 trafień
+        przy niezmiennych 0/40 fałszywych alarmów."""
+        wszystkie = ([t for t, _ in _D2_ZMYSLONE_LAPANE]
+                     + list(_D2_ZMYSLONE_PRZEPUSZCZANE))
+        assert len(wszystkie) == 40
+        trafione = [t for t in wszystkie if g.sprawdz_ceny(t, _D2_REJESTR)]
+        assert len(trafione) == 37
+        falszywe = [t for t in _D2_NIE_KWOTY if g.sprawdz_ceny(t, _D2_REJESTR)]
+        assert falszywe == []
+
+    @pytest.mark.parametrize("tekst,oczekiwana", [
+        # Zdanie, które recenzja wskazała jako najczęstszy kształt wypowiedzi
+        # bota — z polskimi znakami, bo tak bot pisze do klienta.
+        ("Około 2400 brutto za cały blat.", "2400.00"),
+        ("Razem 2650 brutto plus transport.", "2650.00"),
+        ("Łącznie 2650 netto za komplet.", "2650.00"),
+        ("Dopłata 90 za wycięcie.", "90.00"),
+        ("Cena to 2400 z dostawą.", "2400.00"),
+    ])
+    def test_najczestszy_ksztalt_wypowiedzi_bota_jest_lapany(self, tekst, oczekiwana):
+        assert g.sprawdz_ceny(tekst, _D2_REJESTR) == [oczekiwana]
+
+    @pytest.mark.parametrize("tekst", [
+        # Kontrola, że lista funkcyjnych NIE otwiera z powrotem klasy fałszywych
+        # alarmów zamkniętej w C4: po liczbie stoi rzeczownik policzalny.
+        "W magazynie mamy około 80 blatów dębowych.",
+        "Blat składa się z około 90 lamel.",
+        "Razem 150 zamówień w tym miesiącu.",
+        "Łącznie 400 pozycji w katalogu.",
+        # ...ani klasy zamkniętej w N1: jednostka po polsku.
+        "Wysokość blatu wynosi 90 centymetrów.",
+        "Nasz zakład jest około 80 km od Olsztyna.",
+        # Przyimek po JEDNOSTCE nie robi z wymiaru kwoty — filtr jednostki
+        # jest drugą linią obrony i musi zadziałać przed listą funkcyjnych.
+        "Zużycie oleju to około 80 mililitrów na metr kwadratowy.",
+        "Blat ma około 180 centymetrów do krawędzi.",
+    ])
+    def test_lista_funkcyjnych_nie_wraca_falszywymi_alarmami(self, tekst):
+        assert g.sprawdz_ceny(tekst, _D2_REJESTR) == []
+
+    def test_lista_slow_funkcyjnych_jest_zamknieta(self):
+        """Lista jest ZAMKNIĘTA i krótka świadomie — każde poszerzenie o słowo
+        treściowe wraca fałszywymi alarmami na nazwach handlowych i numerach
+        (dowód: N1). Ten test jest zaporą na ciche dopisanie kolejnego słowa:
+        zmiana listy ma być decyzją opartą na pomiarze, nie odruchem."""
+        assert g._SLOWA_FUNKCYJNE_ZAMYKAJACE == (
+            "za", "z", "plus", "i", "przy", "od", "do", "wraz", "bez", "na", "oraz")
