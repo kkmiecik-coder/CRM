@@ -12,6 +12,7 @@ from bots import crm_calc
 from bots_pro import potwierdzenia, stan
 from config import BOT_PRO_CW_AGENT_TOKEN
 from core.chatwoot import cw_agent_reply
+from core.log import log
 
 
 def _fmt_pln(v):
@@ -141,6 +142,68 @@ def _linia(poz, options=None):
         # cennika, dziś FinishingOption CUTOUT w CRM).
         linia += " (koszt wycięć nie jest wliczony w tę cenę — wycenia je konsultant)"
     return linia
+
+
+# --- Bramka kształtu w nazwie produktu (U-N5, runda napraw 6) ----------------
+#
+# `_linia` drukuje `poz["produkt"]` DOSŁOWNIE, a to pole wypełnia model
+# swobodnym tekstem. Recenzja pokazała sondą, że nazwa omija każdą kontrolę:
+#
+#     • Blat okrągły dębowy Dąb lita A/B, 120x120x4 cm, 1 szt., ...
+#
+# Reguła KSZTAŁT w `prompty.WYCENA` zabrania i liczenia takiego blatu, i
+# nazywania kształtu w podsumowaniu — ale była WYŁĄCZNIE promptowa, a prompt
+# jest prośbą, nie bramką (ta sama różnica, dla której powstały G1 i G3).
+# Kwota stojąca obok takiej nazwy jest policzona jak prostokąt o tych samych
+# wymiarach: ⌀120 to 1,13 m2, kwadrat 120x120 to 1,44 m2 — 27% materiału bez
+# pokrycia, podane klientowi jako cena do potwierdzenia.
+#
+# CO TO JEST, A CZYM NIE JEST: to nie jest walidator nazw i nie ma nim być.
+# To jedna ZAMKNIĘTA lista słów kształtu i jedna bramka na wejściu `wyslij`.
+# Sprawdzamy WYŁĄCZNIE pole `produkt` — „okrągły otwór pod baterię" w polu
+# `otwory` jest normalną, poprawną pozycją prostokątnego blatu i ma dochodzić
+# do klienta bez przeszkód.
+#
+# DLACZEGO ODMOWA, A NIE WYCIĘCIE SŁOWA Z NAZWY: usunięcie „okrągły" dałoby
+# podsumowanie wyglądające POPRAWNIE przy cenie, która nadal jest zła —
+# ukrycie dowodu, nie naprawa. Odmowa zostawia model tam, gdzie reguła
+# KSZTAŁT każe mu być: przy `oddaj_czlowiekowi`.
+#
+# ZNANY KOSZT: model może obejść bramkę, po prostu zmieniając nazwę. To nie
+# jest luka, tylko granica tego, co da się sprawdzić po nazwie — wtedy jednak
+# obchodzi ją ŚWIADOMIE i po komunikacie wskazującym regułę, zamiast wysyłać
+# złą cenę bez żadnego śladu. Trafienia zostają w logu, tak jak trafienia G3,
+# więc na skrzynce testowej da się je policzyć.
+_SLOWA_KSZTALTU = (
+    r"okr[ąa]g[łl]\w*",          # okrągły, okrągła, okragly
+    r"p[óo][łl]okr[ąa]g[łl]\w*",  # półokrągły — osobno, bo granica słowa
+    r"owaln\w*",
+    r"elipt\w*|elips\w*",
+    r"nieregularn\w*",
+    r"[łl]uk\w*",                # łuk, łukiem, łukowy
+    # „kształt" i „kształcie" — wymiana t:c w odmianie, stąd klasa [tc]
+    r"kszta[łl][tc]\w*",
+)
+_KSZTALT_W_NAZWIE = re.compile(
+    r"(?<!\w)(?:%s)(?!\w)" % "|".join(_SLOWA_KSZTALTU), re.IGNORECASE)
+
+_WSKAZOWKA_KSZTALT = (
+    "Nazwa pozycji %r mówi o kształcie innym niż prostokąt. Kalkulator liczy "
+    "WYŁĄCZNIE prostokąty i kwadraty, więc podsumowanie NIE zostało wysłane — "
+    "cena obok takiej nazwy byłaby ceną prostokąta o tych samych wymiarach. "
+    "Postąp zgodnie z regułą KSZTAŁT: zbierz brakujące dane i wołaj "
+    "oddaj_czlowiekowi z powodem 'kształt inny niż prostokąt: <opis klienta>'. "
+    "Jeśli blat JEST prostokątny, popraw nazwę pozycji (zapisz_pozycje) tak, "
+    "żeby nie nazywała kształtu, i spróbuj ponownie.")
+
+
+def _nazwa_z_ksztaltem(pozycje):
+    """Nazwa pierwszej pozycji, która przemyca kształt — albo None."""
+    for poz in pozycje or []:
+        nazwa = str(poz.get("produkt") or "")
+        if _KSZTALT_W_NAZWIE.search(nazwa):
+            return nazwa
+    return None
 
 
 def kwoty_z_wyniku(pozycje, wynik):
@@ -288,6 +351,17 @@ def wyslij():
     pozycje = stan.pozycje()
     if not pozycje:
         return {"ok": False, "error": "BRAK_POZYCJI"}
+
+    # U-N5: kształt przemycony w nazwie produktu. Sprawdzamy PRZED wołaniem
+    # kalkulatora — i tak nie ma czego z niego wysłać, a cena prostokąta dla
+    # blatu okrągłego nie ma po co powstawać. Patrz komentarz nad
+    # `_SLOWA_KSZTALTU`.
+    nazwa_z_ksztaltem = _nazwa_z_ksztaltem(pozycje)
+    if nazwa_z_ksztaltem:
+        log("podsumowanie: ksztalt w nazwie pozycji %r -> NIE wysylam (conv %s)"
+            % (nazwa_z_ksztaltem, stan.conv_id()))
+        return {"ok": False, "error": "KSZTALT_W_NAZWIE",
+                "wskazowka": _WSKAZOWKA_KSZTALT % nazwa_z_ksztaltem}
 
     options = crm_calc.get_options()
     wynik = crm_calc.calculate(pozycje, options)

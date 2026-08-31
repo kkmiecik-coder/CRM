@@ -747,3 +747,112 @@ class TestP1WszystkieWariantyWWycenie:
         przed = potwierdzenia.podpis([_pozycja()], {})
         self._wyslij(monkeypatch, 94057)
         assert potwierdzenia.podpis([_pozycja()], {}) == przed
+
+
+class TestR6NazwaProduktuNiePrzemycaKsztaltu:
+    """Runda napraw 6, P5 — recenzja §5/U-N5 (pochodna U2).
+
+    Sonda recenzenta:
+
+        _linia({"produkt": "Blat okrągły dębowy", "dlugosc": 120,
+                "szerokosc": 120, ...})
+        -> „• Blat okrągły dębowy Dąb lita A/B, 120x120x4 cm, ..."
+
+    Nazwa produktu szła do klienta DOSŁOWNIE z pola tekstowego wypełnianego
+    przez model, a `podsumowanie.py` nie znało słowa „kształt" ani razu.
+    Reguła KSZTAŁT („NIE wyceniaj i NIE nazywaj kształtu w podsumowaniu") była
+    więc niesprawdzalna kodem — a kwota, która stoi obok takiej nazwy, jest
+    policzona jak prostokąt o tych samych wymiarach (⌀120 to 1,13 m2, kwadrat
+    120x120 to 1,44 m2 — 27% materiału bez pokrycia).
+
+    To NIE jest walidator nazw i nie ma nim być. To jedna zamknięta lista słów
+    kształtu i jedna bramka: podsumowanie z takim słowem w nazwie NIE wychodzi
+    do klienta, model dostaje jednoznaczny błąd odsyłający do reguły KSZTAŁT,
+    a trafienie zostaje w logu — czyli sytuacja przestaje przechodzić po cichu.
+    Kierunek jest ten sam co przy `wyslij_obraz` i `policz_wycene`: bramka
+    odmawia, zamiast wysyłać klientowi coś, czego nie umiemy policzyć."""
+
+    def _pozycja_o_nazwie(self, nazwa):
+        return dict(_pozycja(), produkt=nazwa)
+
+    def _sprobuj_wyslac(self, monkeypatch, conv_id, nazwa):
+        stan.ustaw_kontekst(conv_id)
+        monkeypatch.setattr(stan, "pozycje", lambda: [self._pozycja_o_nazwie(nazwa)])
+        monkeypatch.setattr(podsumowanie.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(podsumowanie.crm_calc, "calculate", lambda p, o: {
+            "ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}})
+        _zaladuj_atrape_wysylki(monkeypatch)
+        wyslane = []
+        monkeypatch.setattr(podsumowanie, "cw_agent_reply",
+                            lambda cid, tekst, token=None: wyslane.append(tekst) or True)
+        return podsumowanie.wyslij(), wyslane
+
+    def test_ksztalt_w_nazwie_nie_dociera_do_klienta(self, monkeypatch):
+        wynik, wyslane = self._sprobuj_wyslac(monkeypatch, 94061, "Blat okrągły dębowy")
+        assert wynik["ok"] is False
+        assert wynik["error"] == "KSZTALT_W_NAZWIE"
+        assert wyslane == []
+
+    def test_blad_odsyla_model_do_reguly_ksztalt(self, monkeypatch):
+        wynik, _ = self._sprobuj_wyslac(monkeypatch, 94062, "Blat okrągły dębowy")
+        assert "KSZTAŁT" in wynik["wskazowka"]
+        assert "oddaj_czlowiekowi" in wynik["wskazowka"]
+
+    def test_podpis_potwierdzenia_NIE_zostaje_zapisany(self, monkeypatch):
+        # Kluczowe dla I2: gdyby bramka odmawiała PO zapisaniu podpisu, klient
+        # mógłby w kolejnej turze „potwierdzić" podsumowanie, którego nigdy nie
+        # zobaczył — dokładnie to obejście, które zamknęła recenzja U1.
+        self._sprobuj_wyslac(monkeypatch, 94063, "Blat okrągły dębowy")
+        assert not stan.podsumowanie_wyslane()
+
+    def test_lapie_kazdy_ksztalt_z_reguly_KSZTALT(self, monkeypatch):
+        nazwy = ("Blat okrągły", "Blat owalny", "Blat w kształcie litery L",
+                 "Blat z łukiem", "Blat nieregularny", "Blat półokrągły",
+                 "Blat eliptyczny", "Blat L-kształtny")
+        for numer, nazwa in enumerate(nazwy):
+            wynik, wyslane = self._sprobuj_wyslac(monkeypatch, 94070 + numer, nazwa)
+            assert wynik.get("error") == "KSZTALT_W_NAZWIE", nazwa
+            assert wyslane == [], nazwa
+
+    def test_dziala_bez_diakrytykow(self, monkeypatch):
+        # Kanały marketplace potrafią rozebrać polskie znaki (sanitize.py),
+        # a nazwę pisze model — nie zakładamy, że zawsze z ogonkami.
+        wynik, _ = self._sprobuj_wyslac(monkeypatch, 94080, "Blat okragly debowy")
+        assert wynik.get("error") == "KSZTALT_W_NAZWIE"
+
+    def test_zwykla_nazwa_przechodzi(self, monkeypatch):
+        # Kontrola negatywna — bramka ma być wąska. Prostokątne blaty to
+        # cały normalny ruch i żaden z nich nie może się o nią potknąć.
+        for numer, nazwa in enumerate(("Blat", "blat kuchenny dębowy",
+                                       "Parapet jesionowy", "Stopnie schodowe",
+                                       "Blat roboczy 180x60")):
+            wynik, wyslane = self._sprobuj_wyslac(monkeypatch, 94090 + numer, nazwa)
+            assert wynik["ok"] is True, nazwa
+            assert wyslane, nazwa
+
+    def test_slowo_ksztaltu_w_INNYM_polu_nie_blokuje_podsumowania(self, monkeypatch):
+        # Bramka patrzy WYŁĄCZNIE na nazwę produktu. Okrągły otwór pod baterię
+        # w prostokątnym blacie jest normalną, poprawną pozycją — i jego opis
+        # ma dalej dochodzić do klienta razem z adnotacją o kosztach wycięć.
+        stan.ustaw_kontekst(94095)
+        pozycja = dict(_pozycja(), produkt="Blat kuchenny",
+                       otwory=["okrągły otwór pod baterię fi 35"])
+        monkeypatch.setattr(stan, "pozycje", lambda: [pozycja])
+        monkeypatch.setattr(podsumowanie.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(podsumowanie.crm_calc, "calculate", lambda p, o: {
+            "ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}})
+        _zaladuj_atrape_wysylki(monkeypatch)
+        wyslane = []
+        monkeypatch.setattr(podsumowanie, "cw_agent_reply",
+                            lambda cid, tekst, token=None: wyslane.append(tekst) or True)
+        wynik = podsumowanie.wyslij()
+        assert wynik["ok"] is True
+        assert "okrągły otwór pod baterię" in wyslane[0]
+
+    def test_bramka_zostawia_slad_w_logu(self, monkeypatch):
+        # „Nie przechodzi po cichu": trafienie ma dać się policzyć na skrzynce
+        # testowej tak samo jak trafienia guardraila G3.
+        linie = []
+        monkeypatch.setattr(podsumowanie, "log", lambda tekst: linie.append(tekst))
+        self._sprobuj_wyslac(monkeypatch, 94096, "Blat okrągły dębowy")
+        assert any("ksztalt w nazwie" in linia for linia in linie), linie
