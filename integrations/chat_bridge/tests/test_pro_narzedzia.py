@@ -874,6 +874,20 @@ class TestNieudaneDopisanieDostawy:
         assert _wolaj(n.zapisz_wycene, client_id=1)["ok"] is True
         assert _wolaj(n.przygotuj_zamowienie)["public_url"] == "https://crm.example/q/abc"
 
+    def test_ponowny_zapis_po_bledzie_nie_dubluje_wyceny(self, monkeypatch):
+        # Skutek uboczny R1: `zapisz_wycene` zwraca teraz ok=False MIMO zapisanej
+        # wyceny, a blad zacheca model do ponowienia. Druga wycena w CRM dla tej
+        # samej rozmowy to dokladnie to, czego zabrania docstring narzedzia —
+        # pilnuje tego STAN, nie dyscyplina promptu.
+        self._wycena_z_dostawa(monkeypatch, 96057, {"ok": False, "errors": []})
+        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst: True)
+        monkeypatch.setattr(stan, "handoff", lambda powod: {"ok": True})
+        assert _wolaj(n.zapisz_wycene, client_id=1)["error"] == "DOSTAWA_NIEDOPISANA"
+
+        monkeypatch.setattr(n.crm_calc, "create_quote",
+                            lambda *a, **k: pytest.fail("druga wycena w CRM"))
+        assert _wolaj(n.zapisz_wycene, client_id=1)["error"] == "WYCENA_JUZ_ZAPISANA"
+
     def test_udana_korekta_odblokowuje_link(self, monkeypatch):
         # Konsultant (albo bot w kolejnej turze) poprawia wycene — udany PUT z
         # kurierem znaczy, ze wycena JEST juz kompletna, wiec blokada znika.

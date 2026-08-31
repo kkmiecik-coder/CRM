@@ -317,6 +317,15 @@ def zapisz_wycene(client_id: int, notatka: str = "") -> dict:
     bramka = potwierdzenia.sprawdz_bramke()
     if not bramka["ok"]:
         return bramka
+    # R1: ta funkcja potrafi teraz zwrocic ok=False MIMO ZAPISANEJ wyceny (nieudane
+    # dopisanie dostawy, nizej) — a blad zacheca model do ponowienia. Ponowienie
+    # utworzyloby DRUGA wycene dla tej samej rozmowy, dokladnie to, czego zabrania
+    # docstring. Sprawdzamy wiec stan, nie ufamy dyscyplinie promptu.
+    if stan.zapisana_wycena().get("edit_uuid"):
+        return {"ok": False, "error": "WYCENA_JUZ_ZAPISANA",
+                "wskazowka": "Ta rozmowa ma już zapisaną wycenę w CRM. Zmiany rób przez "
+                             "popraw_wycene, a link przez przygotuj_zamowienie — ponowny "
+                             "zapis zdublowałby wycenę."}
     wynik = crm_calc.create_quote(stan.pozycje(), crm_calc.get_options(),
                                   client_id, notes=notatka)
     stan.zapamietaj_wycene(wynik)   # U3: bez tego fallback linku jest martwy

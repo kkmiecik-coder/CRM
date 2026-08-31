@@ -518,7 +518,7 @@ docker run --rm -v <ścieżka repo>:/app -w /app/integrations/chat_bridge \
 
 | wariant | wynik |
 |---|---|
-| z SDK (jedyny miarodajny) | **1339 passed, 0 failed** |
+| z SDK (jedyny miarodajny) | **1340 passed, 0 failed** |
 | bez SDK (kontrola: stary silnik importuje się bez biblioteki) | 1171 passed, **18 skipped** |
 
 Liczba `skipped` inna niż 0 w wariancie z SDK = biblioteka NIE została zainstalowana
