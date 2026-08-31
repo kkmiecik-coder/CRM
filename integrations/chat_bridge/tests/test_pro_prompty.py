@@ -102,14 +102,16 @@ class TestN5WymiaryIPoprawkiKlienta:
     wprost „o co chodzi?" odesłał samo podsumowanie, bez ani jednego zdania
     wyjaśnienia.
 
-    UWAGA przy czytaniu ostatniej części reguły („najpierw wyjaśnij jednym
-    zdaniem, dopiero potem wyślij podsumowanie"): wyjaśnienie i
-    `wyslij_podsumowanie` w JEDNEJ turze się wykluczają — `tura.py` (bramka W3)
-    świadomie NIE wysyła `final_output`, gdy w tej samej turze poszło
-    deterministyczne podsumowanie (dowód: test_pro_tura.py::
+    Runda 1 zapisała regułę jako „najpierw wyjaśnij jednym zdaniem, dopiero
+    potem wyślij podsumowanie" i zostawiła w tym miejscu ostrzeżenie, że jest
+    ona NIEWYKONALNA w jednej turze: `tura.py` (bramka W3) świadomie nie wysyła
+    `final_output`, gdy w tej samej turze poszło deterministyczne podsumowanie
+    (dowód: test_pro_tura.py::
     test_niepusty_final_output_po_wyslaniu_podsumowania_tez_nie_jest_wysylany).
-    Reguła jest więc spełnialna wyłącznie w czasie: wyjaśnienie w tej turze,
-    podsumowanie po odpowiedzi klienta."""
+    Runda 2 (P1) dopisała brakującą połowę wprost do promptu — zakaz wołania
+    `wyslij_podsumowanie` w turze z wyjaśnieniem i przeniesienie zestawienia na
+    turę następną — więc reguła jest dziś spełnialna dokładnie tak, jak brzmi.
+    Pilnują tego dwa ostatnie testy tej klasy."""
 
     def test_wycena_zabrania_cichej_zamiany_dlugosci_i_szerokosci(self):
         assert "Nie zmieniaj po cichu tego, który wymiar jest długością" in WYCENA
@@ -119,6 +121,24 @@ class TestN5WymiaryIPoprawkiKlienta:
 
     def test_wycena_kaze_wyjasnic_zanim_wysle_podsumowanie(self):
         assert "najpierw wyjaśnij jednym zdaniem" in WYCENA
+
+    def test_wycena_zabrania_podsumowania_w_turze_z_wyjasnieniem(self):
+        """Runda napraw 2, P1 — bez tego zastrzeżenia reguła jest NIEWYKONALNA.
+
+        Bramka W3 w `tura.py` świadomie nie wysyła `final_output`, gdy w tej
+        samej turze poszło deterministyczne podsumowanie (dowód:
+        test_pro_tura.py::test_niepusty_final_output_po_wyslaniu_podsumowania_
+        tez_nie_jest_wysylany). Model, który wykonałby regułę dosłownie w JEDNEJ
+        turze — napisałby wyjaśnienie i zawołał `wyslij_podsumowanie` — odtworzy
+        dokładnie tę awarię, którą reguła miała naprawić: klient dostanie samo
+        zestawienie, bez ani jednego zdania wyjaśnienia. Reguła jest spełnialna
+        WYŁĄCZNIE w czasie i prompt musi to mówić wprost."""
+        assert "nie wołaj wyslij_podsumowanie" in WYCENA
+
+    def test_wycena_odklada_zestawienie_na_nastepna_ture(self):
+        """Druga połowa tego samego zastrzeżenia: sam zakaz zostawiłby klienta
+        bez podsumowania w ogóle. Reguła ma mówić, KIEDY je wysłać."""
+        assert "dopiero w następnej turze" in WYCENA
 
 
 class TestN8KrawedziePrzyBlacieKuchennym:
