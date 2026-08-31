@@ -22,13 +22,28 @@ import time
 
 from core.db import db
 
-# Pola cenotwórcze — KAŻDE z nich zmienia wynik kalkulatora, więc pominięcie
-# któregoś tutaj oznacza „nie unieważniaj podpisu przy zmianie tego pola". Każde
-# nowe pole wpływające na cenę MUSI trafić do tej listy świadomie — inaczej
-# powtórzy się klasa błędu #2016 (bramka przepuszcza mimo zmiany danych).
-_POLA_ISTOTNE = ("id", "produkt", "dlugosc", "szerokosc", "grubosc", "ilosc",
-                 "selected_variant", "gatunek", "technologia", "klasa",
-                 "wykonczenie", "finishing_id", "edges", "otwory")
+# Pola CENOTWÓRCZE — KAŻDE z nich czyta `crm_calc.build_products`, więc jego
+# zmiana zmienia wynik kalkulatora. Pominięcie któregoś tutaj oznacza „zmiana
+# tego pola NIE unieważnia ani podpisu, ani rejestru kwot" — każde nowe pole
+# wpływające na cenę MUSI trafić do tej listy świadomie, inaczej powtórzy się
+# klasa błędu #2016 (bramka przepuszcza mimo zmiany danych).
+#
+# JEDNA definicja dla DWÓCH mechanizmów (U6): podpisu potwierdzenia (niżej) i
+# czyszczenia rejestru kwot G1 (`bots_pro.stan._zapisz` woła `odcisk_cenotworczy`).
+# Wcześniej rejestr czyścił się przy zmianie DOWOLNEGO pola `dane_json`, więc
+# dopisanie otworu — pola jawnie NIEWYCENIANEGO — kasowało prawdziwe ceny i
+# guardrail zgłaszał je jako halucynację.
+_POLA_CENOTWORCZE = ("id", "dlugosc", "szerokosc", "grubosc", "ilosc",
+                     "selected_variant", "gatunek", "technologia", "klasa",
+                     "wykonczenie", "finishing_id", "edges")
+
+# Pola OPISOWE — ceny NIE zmieniają (`build_products` ich nie czyta), ale klient
+# widzi je w podsumowaniu, więc wchodzą do PODPISU: zmiana nazwy produktu albo
+# listy otworów po potwierdzeniu ma wymagać nowego „tak", choć rejestr kwot
+# zostaje nietknięty (cena się nie zmieniła).
+_POLA_OPISOWE = ("produkt", "otwory")
+
+_POLA_ISTOTNE = _POLA_CENOTWORCZE + _POLA_OPISOWE
 
 # Pola DOSTAWY wchodzące do podpisu (U4). Osobna lista od `_POLA_ISTOTNE`, bo
 # dostawa jest stanem PER ROZMOWA (`bots_pro.stan.dostawa`), nie polem pozycji —
@@ -63,6 +78,20 @@ _SEPARATOR_KLAUZULI = re.compile(r"[,;:.!?\n—–]")
 # kosztuje rundę rozmowy, fałszywa zgoda łamie inwariant I2.
 _ODMOWY = re.compile(
     r"(?<!\w)(?:rezygn\w*|odmawiam|anuluj\w*|wycofuj\w*|odst[ęe]puj\w*)", re.IGNORECASE)
+
+
+def odcisk_cenotworczy(pozycje):
+    """Kanoniczny obraz pozycji OGRANICZONY do pól cenotwórczych (U6).
+
+    `bots_pro.stan._zapisz` porównuje ten odcisk sprzed i po zapisie, żeby
+    zdecydować, czy wyczyścić rejestr kwot G1. Mieszka tutaj, a nie w `stan`,
+    bo to ta sama definicja „co zmienia cenę", której używa podpis — dwie
+    kopie tej listy rozjechałyby się przy pierwszym nowym polu."""
+    istotne = [
+        {k: p.get(k) for k in _POLA_CENOTWORCZE if k in p}
+        for p in sorted(pozycje or [], key=lambda x: str(x.get("id")))
+    ]
+    return json.dumps(istotne, ensure_ascii=False, sort_keys=True)
 
 
 def podpis(pozycje, dostawa=None):

@@ -386,19 +386,36 @@ def _zapisz(dane):
     pozycji), dzieje się to w tej samej transakcji co zapis pozycji, więc okno
     na wyścig z równoległym `policz_wycene`/`zapamietaj_kwoty` (W1) jest węższe
     — DELETE nie jest już osobną, PÓŹNIEJSZĄ operacją na osobnym połączeniu,
-    czekającą na własną kolejkę I/O już PO commicie zapisu pozycji."""
+    czekającą na własną kolejkę I/O już PO commicie zapisu pozycji.
+
+    U6 (recenzja końcowa): porównanie idzie po POLACH CENOTWÓRCZYCH
+    (`potwierdzenia.odcisk_cenotworczy`), nie po całym `dane_json`. Poprzednia
+    wersja czyściła rejestr przy zmianie DOWOLNEGO pola — w tym `otwory`
+    (jawnie NIEWYCENIANE, `build_products` ich nie czyta) i `produkt`. Typowa
+    tura „dopisuję wycięcie na zlew, cena blatu to nadal 1 936,71 zł" kończyła
+    się więc naruszeniem G1 na PRAWDZIWEJ kwocie: runda korekty, a przy drugim
+    niepowodzeniu oddanie rozmowy człowiekowi — na końcu udanej wyceny.
+    Definicja „pola cenotwórczego" jest JEDNA i mieszka w `potwierdzenia.py`
+    razem z listą pól podpisu."""
+    from bots_pro.potwierdzenia import odcisk_cenotworczy
+
     biezacy_conv_id = _wymagany_conv_id()
     nowy_json = json.dumps(dane, ensure_ascii=False)
     polaczenie = db()
     try:
         stary = polaczenie.execute(
             "SELECT dane_json FROM pro_dane WHERE conv_id=?", (biezacy_conv_id,)).fetchone()
-        tresc_sie_zmienila = stary is None or stary["dane_json"] != nowy_json
+        if stary is None:
+            cena_sie_zmienila = True
+        else:
+            stare_pozycje = (json.loads(stary["dane_json"]) or {}).get("pozycje")
+            cena_sie_zmienila = (odcisk_cenotworczy(stare_pozycje)
+                                 != odcisk_cenotworczy(dane.get("pozycje")))
         polaczenie.execute(
             "INSERT INTO pro_dane(conv_id, dane_json) VALUES(?,?) "
             "ON CONFLICT(conv_id) DO UPDATE SET dane_json=excluded.dane_json",
             (biezacy_conv_id, nowy_json))
-        if tresc_sie_zmienila:
+        if cena_sie_zmienila:
             polaczenie.execute("DELETE FROM pro_kwoty WHERE conv_id=?", (biezacy_conv_id,))
             # U4: koszt dostawy zależy od GABARYTU, więc zmiana pozycji unieważnia
             # go tak samo jak cenę produktu. Kod pocztowy ZOSTAJE (klient go już

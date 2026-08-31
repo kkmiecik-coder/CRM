@@ -547,6 +547,63 @@ class TestKwotyNieCzyszczoneBezFaktycznejZmianyPozycji:
         assert stan.znane_kwoty() == {"1936.71"}
 
 
+class TestKwotyCzyszczoneTylkoPrzezPolaCenotworcze:
+    """U6 (recenzja koncowa): `_zapisz` czyscil rejestr przy KAZDEJ zmianie tresci
+    `dane_json`, a `dane_json` zawiera tez pola, ktorych `build_products` w ogole
+    nie czyta (`otwory` — jawnie NIEWYCENIANE — i `produkt`). Typowa tura
+    "dopisuje wyciecie na zlew, cena blatu to nadal 1 936,71 zl" konczyla sie wiec
+    naruszeniem G1 na PRAWDZIWEJ kwocie: runda korekty, a przy drugim
+    niepowodzeniu handoff — dokladnie na koncu udanej wyceny."""
+
+    _BAZA = dict(produkt="blat", dlugosc_cm=180, szerokosc_cm=60, grubosc_cm=4,
+                 ilosc=1, selected_variant="dab-lity-ab", wykonczenie="surowe")
+
+    def _rozmowa(self, conv_id):
+        stan.ustaw_kontekst(conv_id)
+        stan.zapisz_pozycje("1", **self._BAZA)
+        stan.zapamietaj_kwoty([1936.71, 2382.15])
+        assert stan.znane_kwoty() == {"1936.71", "2382.15"}
+
+    def test_dopisanie_otworow_nie_czysci_rejestru(self):
+        # Sonda L5 z recenzji.
+        self._rozmowa(93070)
+        stan.zapisz_pozycje("1", otwory=["otwór na zlew 50x40 cm"])
+        assert stan.znane_kwoty() == {"1936.71", "2382.15"}
+
+    def test_zmiana_nazwy_produktu_nie_czysci_rejestru(self):
+        self._rozmowa(93071)
+        stan.zapisz_pozycje("1", produkt="blat kuchenny")
+        assert stan.znane_kwoty() == {"1936.71", "2382.15"}
+
+    @pytest.mark.parametrize("conv_id,zmiana", [
+        (93080, {"grubosc_cm": 6}),
+        (93081, {"ilosc": 2}),
+        (93082, {"selected_variant": "jes-lity-ab"}),
+        (93083, {"wykonczenie": "olejowane", "finishing_option_id": 3}),
+        (93084, {"edges": [{"litera": "A", "typ": "round", "r": 5, "kat": None}]}),
+    ])
+    def test_zmiana_pola_cenotworczego_nadal_czysci_rejestr(self, conv_id, zmiana):
+        # Kontrola negatywna: naprawa NIE MA cofnac W2 — pole, ktore FAKTYCZNIE
+        # zmienia wynik kalkulatora, ma dalej uniewazniac rejestr.
+        self._rozmowa(conv_id)
+        stan.zapisz_pozycje("1", **zmiana)
+        assert stan.znane_kwoty() == set()
+
+    def test_dopisanie_otworow_nie_czysci_kosztu_dostawy(self):
+        self._rozmowa(93074)
+        stan.zapisz_dostawe("00-001", kurier="DPD", netto=203.25, brutto=250.0)
+        stan.zapisz_pozycje("1", otwory=["otwór na zlew"])
+        assert stan.dostawa()["kurier"] == "DPD"
+
+    def test_zmiana_wymiaru_czysci_koszt_dostawy_zostawiajac_kod(self):
+        # Koszt kuriera zalezy od GABARYTU — po zmianie wymiaru jest nieaktualny,
+        # ale kod pocztowy klienta zostaje (nie pytamy o niego drugi raz).
+        self._rozmowa(93075)
+        stan.zapisz_dostawe("00-001", kurier="DPD", netto=203.25, brutto=250.0)
+        stan.zapisz_pozycje("1", dlugosc_cm=200)
+        assert stan.dostawa() == {"kod_pocztowy": "00-001"}
+
+
 class TestPodsumowanieWyslane:
     """Bramka W3 (runda poprawek 1): `podsumowanie.wyslij()` oznacza w stanie tury,
     że sam już wysłał deterministyczną treść — `tura.py` to sprawdza, żeby nie
