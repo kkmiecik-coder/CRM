@@ -733,6 +733,9 @@ class TestOdbiorOsobistyWZamowieniu:
         # dostawy, więc znacznik na kliencie zostaje stary (adres kurierski).
         # Wybór z bieżącego formularza musi mimo to dojechać do zamówienia —
         # inaczej klient płaci za kuriera, którego przed chwilą odznaczył.
+        # Razem z nim musi dojechać ZDJĘCIE adresu: metoda „Odbiór osobisty"
+        # przy pełnym adresie kurierskim to sprzeczne zlecenie dla magazynu
+        # i przesyłka, która może pojechać za darmo.
         _zasiej(status_id=3, is_client_editable=False)
         with aplikacja.app_context():
             klient = Client.query.first()
@@ -746,3 +749,7 @@ class TestOdbiorOsobistyWZamowieniu:
         config = baselinker.wywolania[0]['config']
         assert config['delivery_method'] == 'Odbiór osobisty'
         assert config['shipping_cost_override'] == 0.0
+        assert config['delivery_override']['delivery_address'] == 'ODBIÓR OSOBISTY'
+        # Adres zostaje na kliencie — należy też do jego innych wycen.
+        with aplikacja.app_context():
+            assert Client.query.first().delivery_address == 'Leśna 12'

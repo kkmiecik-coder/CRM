@@ -572,6 +572,19 @@ class Quote(db.Model):
     # Strona informacyjna
     baselinker_order_page = db.Column(db.String(255), nullable=True)
 
+    # Znacznik próby złożenia zamówienia — chwila, w której RUSZYŁA próba
+    # (UTC), zapisana i zacommitowana ZANIM poleci addOrder do BaseLinkera.
+    #
+    # Po co osobna kolumna, skoro jest już base_linker_order_id: numer
+    # zamówienia zapisuje się dopiero PO powrocie z BaseLinkera, więc każda
+    # awaria po drodze (timeout, zerwana sesja bazy, ubity worker) zostawiała
+    # wycenę bez jakiegokolwiek śladu próby — a klient po odświeżeniu strony
+    # dostawał z powrotem przycisk „Zamów" i składał DRUGIE realne zamówienie.
+    # Znacznik powstaje przed strzałem, więc przeżywa awarię wszystkiego, co
+    # dzieje się później; zdejmuje go dopiero rozstrzygnięcie (sukces albo
+    # pewność, że zamówienia nie ma) — patrz modules/quotes/services/checkout_service.py.
+    order_attempt_started_at = db.Column(db.DateTime, nullable=True)
+
     # Relacje
     user = db.relationship('User', foreign_keys=[user_id], backref='quotes')
     client = db.relationship('Client', backref='quotes')

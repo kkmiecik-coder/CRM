@@ -9,6 +9,60 @@ from .models import BaselinkerOrderLog, BaselinkerConfig, STATUS_PROBA_NIEPEWNA
 from modules.logging import get_structured_logger
 from datetime import datetime
 
+
+# Wyjątki requests, po których wiemy NA PEWNO, że żądanie nie wyszło poza nasz
+# proces — a więc zamówienia po stronie BaseLinkera na pewno nie ma i powtórka
+# jest bezpieczna. Dotąd „nie wiemy" wyzwalał KAŻDY RequestException, łącznie
+# z nieudanym nawiązaniem połączenia i błędem DNS: klient dostawał wtedy
+# blokadę i prośbę o kontakt, choć nic nigdzie nie poszło.
+_BLEDY_ZADANIE_NIE_WYSZLO = (
+    requests.exceptions.ConnectTimeout,   # nie zdążyliśmy nawiązać połączenia
+    requests.exceptions.MissingSchema,
+    requests.exceptions.InvalidSchema,
+    requests.exceptions.InvalidURL,
+    requests.exceptions.URLRequired,
+)
+
+# Klasy wyjątków urllib3 oznaczające awarię NAWIĄZYWANIA połączenia (DNS,
+# odmowa połączenia). requests zawija je w ConnectionError — a tej klasy nie da
+# się potraktować hurtem jako „nie wyszło", bo pod tą samą nazwą leci też
+# zerwanie połączenia JUŻ PO wysłaniu żądania (ProtocolError). Rozpoznajemy po
+# nazwie klasy, żeby nie wiązać się z prywatnym API urllib3.
+_URLLIB3_BLEDY_POLACZENIA = ('NewConnectionError', 'NameResolutionError')
+
+
+def _zadanie_moglo_dojsc_do_baselinkera(wyjatek):
+    """Czy przy tym wyjątku BaseLinker mógł zobaczyć nasze żądanie.
+
+    True = „nie wiemy, czy zamówienie powstało" (blokujemy powtórkę i wołamy
+    człowieka). False = zamówienia NA PEWNO nie ma i klient może spróbować
+    jeszcze raz — a tego stanu nie wolno bez potrzeby zamieniać na blokadę,
+    bo każda taka blokada to utracone zamówienie i telefon do biura.
+    """
+    if not isinstance(wyjatek, requests.exceptions.RequestException):
+        # Wyjątek sprzed wysyłki: brak konfiguracji API, błąd składania danych.
+        return False
+    if isinstance(wyjatek, _BLEDY_ZADANIE_NIE_WYSZLO):
+        return False
+    if isinstance(wyjatek, requests.exceptions.ConnectionError):
+        # Odróżniamy „nie udało się połączyć" (DNS, connection refused) od
+        # „połączenie padło w trakcie" — tylko to drugie jest niepewne.
+        do_sprawdzenia, odwiedzone = [wyjatek], 0
+        while do_sprawdzenia and odwiedzone < 20:
+            biezacy = do_sprawdzenia.pop()
+            odwiedzone += 1
+            if type(biezacy).__name__ in _URLLIB3_BLEDY_POLACZENIA:
+                return False
+            do_sprawdzenia.extend(
+                [a for a in getattr(biezacy, 'args', ()) if isinstance(a, BaseException)])
+            for powiazany in (getattr(biezacy, '__cause__', None),
+                              getattr(biezacy, '__context__', None),
+                              getattr(biezacy, 'reason', None)):
+                if isinstance(powiazany, BaseException):
+                    do_sprawdzenia.append(powiazany)
+    return True
+
+
 class BaselinkerService:
     """Serwis do komunikacji z API Baselinker"""
     
@@ -427,9 +481,17 @@ class BaselinkerService:
                 
                 # Zaktualizuj wycenę
                 quote.base_linker_order_id = baselinker_order_id
-                
+
                 # NOWE: Zmień status wyceny na "Złożone" (ID=4)
                 quote.status_id = 4
+
+                # Znacznik „próba w toku" (checkout_service) zdejmujemy TYM SAMYM
+                # commitem, którym zapisujemy numer zamówienia — jedna operacja,
+                # jeden wynik: albo wycena wie o zamówieniu i przestaje blokować,
+                # albo nie wie i blokuje dalej. Rozjechanie tych dwóch stanów
+                # dawałoby albo drugie zamówienie, albo wycenę zablokowaną
+                # mimo udanego zamówienia.
+                quote.order_attempt_started_at = None
 
                 # Zamówiona wycena jest z definicji zaakceptowana — uzupełnij dane
                 # akceptacji, jeśli nie były ustawione. Status zostaje "Złożone" (4),
@@ -491,18 +553,21 @@ class BaselinkerService:
                 zapis_uratowany = self._awaryjny_zapis_numeru_zamowienia(
                     quote, baselinker_order_id)
 
-            # Wyjątek z warstwy transportowej (timeout, zerwane połączenie)
+            # Wyjątek z warstwy transportowej PO wysłaniu żądania (timeout
+            # odczytu, zerwane połączenie w trakcie, 5xx od brzegu BaseLinkera)
             # znaczy, że NIE wiemy, czy BaseLinker zdążył utworzyć zamówienie:
             # żądanie mogło dojść i zostać obsłużone, a zginąć miała tylko
             # odpowiedź. base_linker_order_id nie zapisze się wtedy na wycenie,
-            # więc ponowienie utworzyłoby DRUGIE realne zamówienie. Każdy inny
-            # wyjątek leci przed wysyłką żądania (np. brak konfiguracji API,
-            # błąd składania danych) — zamówienia na pewno nie ma i powtórka
-            # jest bezpieczna. Po udanym addOrder flaga jest bez znaczenia
-            # (rozstrzyga zamowienie_utworzone), więc trzymamy ją na False,
-            # żeby nie produkować drugiego, sprzecznego komunikatu.
+            # więc ponowienie utworzyłoby DRUGIE realne zamówienie.
+            # Wyjątki sprzed wysyłki — brak konfiguracji API, błąd składania
+            # danych, nieudane nawiązanie połączenia, błąd DNS — znaczą, że
+            # zamówienia NA PEWNO nie ma i powtórka jest bezpieczna; blokowanie
+            # klienta po nich było czystą stratą (patrz
+            # _zadanie_moglo_dojsc_do_baselinkera). Po udanym addOrder flaga jest
+            # bez znaczenia (rozstrzyga zamowienie_utworzone), więc trzymamy ją
+            # na False, żeby nie produkować drugiego, sprzecznego komunikatu.
             niepewne = (not zamowienie_utworzone
-                        and isinstance(e, requests.exceptions.RequestException))
+                        and _zadanie_moglo_dojsc_do_baselinkera(e))
 
             # Wpis w logu jest jednocześnie TRWAŁYM znacznikiem takiej próby:
             # czyta go checkout klienta, żeby odświeżenie strony nie kończyło
@@ -555,16 +620,19 @@ class BaselinkerService:
         commicie, więc zaczynamy od rollbacku; obiekt wyceny jest trwały
         (wczytany z bazy), więc po rollbacku wciąż da się na nim ustawić pola.
 
-        Świadomie zapisujemy MINIMUM: numer zamówienia i status „Złożone".
-        To one bronią przed drugim zamówieniem i to one sterują widokiem
-        klienta. Metadanych akceptacji tu nie odtwarzamy — ich brak nikogo
-        nie kosztuje pieniędzy, a każde dodatkowe pole to kolejna szansa na
-        to, że ten ostatni commit też padnie.
+        Świadomie zapisujemy MINIMUM: numer zamówienia, status „Złożone"
+        i zdjęcie znacznika próby. To one bronią przed drugim zamówieniem
+        i to one sterują widokiem klienta; wszystkie trzy idą jednym UPDATE-em
+        na tym samym wierszu, więc nie dokładają szansy na kolejną awarię.
+        Metadanych akceptacji tu nie odtwarzamy — ich brak nikogo nie kosztuje
+        pieniędzy, a każde dodatkowe pole to kolejna szansa na to, że ten
+        ostatni commit też padnie.
         """
         try:
             db.session.rollback()
             quote.base_linker_order_id = baselinker_order_id
             quote.status_id = 4
+            quote.order_attempt_started_at = None
             db.session.commit()
             self.logger.warning("Awaryjny zapis numeru zamówienia powiódł się",
                                 quote_id=quote.id,
@@ -889,9 +957,24 @@ class BaselinkerService:
                 'want_invoice': bool(client.invoice_nip)
             }
         else:
-            self.logger.error("Wycena nie ma przypisanego klienta i brak danych w formularzu", 
+            self.logger.error("Wycena nie ma przypisanego klienta i brak danych w formularzu",
                              quote_id=quote.id)
             raise ValueError("Wycena nie ma przypisanego klienta")
+
+        # Wąskie nadpisanie SAMYCH pól dostawy — w odróżnieniu od client_data,
+        # które podmienia komplet danych klienta (mail, faktura, login).
+        # Używa go checkout klienta przy odbiorze osobistym wybranym na wycenie,
+        # która ma na kliencie zapisany realny adres: bez tego zamówienie szłoby
+        # z metodą „Odbiór osobisty", zerowym kosztem dostawy I pełnym adresem
+        # kurierskim naraz — magazyn dostawałby sprzeczne zlecenie, a przesyłka
+        # mogła pojechać za darmo. Nie ruszamy przy tym danych klienta w bazie:
+        # adres zostaje na kliencie, bo należy też do innych jego wycen.
+        nadpisanie_dostawy = config.get('delivery_override')
+        if nadpisanie_dostawy:
+            client_data.update(nadpisanie_dostawy)
+            self.logger.info("Nadpisano dane dostawy w zamówieniu",
+                             quote_id=quote.id,
+                             pola=sorted(nadpisanie_dostawy.keys()))
 
         # Konfiguracja zamówienia
         order_source_id = config.get('order_source_id')

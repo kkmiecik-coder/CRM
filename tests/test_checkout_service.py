@@ -74,8 +74,11 @@ def serwis_bl(monkeypatch):
     # sesji) — ta grupa chodzi bez bazy, więc odpowiada „brak takiej próby".
     monkeypatch.setattr(checkout_service, "istnieje_nierozstrzygnieta_proba",
                         lambda quote_id: False)
+    # commit() — znacznik próby zapisuje się PRZED wywołaniem BaseLinkera
+    # i musi się zacommitować, inaczej nie przeżyłby awarii, która nastąpi później.
     monkeypatch.setattr(checkout_service.db, "session",
-                        SimpleNamespace(rollback=lambda: None))
+                        SimpleNamespace(rollback=lambda: None,
+                                        commit=lambda: None))
     return wywolania
 
 
@@ -138,7 +141,8 @@ class TestZlozZamowienieKlienta:
         monkeypatch.setattr(checkout_service, "istnieje_nierozstrzygnieta_proba",
                             lambda quote_id: False)
         monkeypatch.setattr(checkout_service.db, "session",
-                            SimpleNamespace(rollback=lambda: None))
+                            SimpleNamespace(rollback=lambda: None,
+                                            commit=lambda: None))
 
         wynik = checkout_service.zloz_zamowienie_klienta(
             _wycena(), order_source_id=99001, bot_user_id=55)
@@ -169,7 +173,8 @@ class TestZlozZamowienieKlienta:
         monkeypatch.setattr(checkout_service, "istnieje_nierozstrzygnieta_proba",
                             lambda quote_id: False)
         monkeypatch.setattr(checkout_service.db, "session",
-                            SimpleNamespace(rollback=lambda: None))
+                            SimpleNamespace(rollback=lambda: None,
+                                            commit=lambda: None))
 
         wycena = _wycena()
         pierwszy = checkout_service.zloz_zamowienie_klienta(

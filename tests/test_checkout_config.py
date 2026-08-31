@@ -13,7 +13,11 @@ from types import SimpleNamespace
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from modules.quotes.services.checkout_config import build_checkout_order_config  # noqa: E402
+import pytest  # noqa: E402
+
+from modules.quotes.services.checkout_config import (  # noqa: E402
+    KonfliktDostawy, build_checkout_order_config,
+)
 
 
 def _wycena(**nadpisania):
@@ -115,21 +119,54 @@ class TestOdbiorOsobisty:
         assert cfg["delivery_method"] == "DPD"
         assert cfg["shipping_cost_override"] == 123.00
 
-    def test_adres_odbioru_osobistego_na_kliencie_tez_zdejmuje_kuriera(self):
-        # Wycena zaakceptowana wcześniej (np. starą ścieżką /accept-with-data)
-        # nie przechodzi już przez zapis danych dostawy, więc jedynym śladem
-        # wyboru jest znacznik zapisany na kliencie. Bez tego zamówienie
-        # jechałoby kurierem pod adres „ODBIÓR OSOBISTY".
+    def test_kurier_w_formularzu_przy_znaczniku_odbioru_to_odmowa(self):
+        # Dawniej odbiór osobisty wygrywał tu po cichu: klient prosił o kuriera,
+        # a zamówienie szło jako odbiór, więc czekał na przesyłkę, która nigdy
+        # nie wyjechała. Honorowanie kuriera wymagałoby WYMYŚLENIA adresu —
+        # z pól formularza, których ta ścieżka nie zapisuje i nikt nie
+        # zweryfikował. Odmawiamy.
         wycena = _wycena(client=SimpleNamespace(delivery_address='ODBIÓR OSOBISTY'))
-        cfg = build_checkout_order_config(wycena, order_source_id=1,
-                                          is_self_pickup=False)
-        assert cfg["delivery_method"] == "Odbiór osobisty"
-        assert cfg["shipping_cost_override"] == 0.0
+        with pytest.raises(KonfliktDostawy):
+            build_checkout_order_config(wycena, order_source_id=1,
+                                        is_self_pickup=False)
 
     def test_znacznik_bez_diakrytykow_tez_jest_rozpoznawany(self):
+        # Ten sam konflikt, znacznik zapisany bez polskich znaków.
         wycena = _wycena(client=SimpleNamespace(delivery_address='Odbior osobisty'))
-        cfg = build_checkout_order_config(wycena, order_source_id=1)
+        with pytest.raises(KonfliktDostawy):
+            build_checkout_order_config(wycena, order_source_id=1)
+
+    def test_zgodny_odbior_osobisty_po_obu_stronach_przechodzi(self):
+        # Kontrola negatywna: gdy oba źródła mówią to samo, nie ma konfliktu.
+        wycena = _wycena(client=SimpleNamespace(delivery_address='ODBIÓR OSOBISTY'))
+        cfg = build_checkout_order_config(wycena, order_source_id=1,
+                                          is_self_pickup=True)
         assert cfg["delivery_method"] == "Odbiór osobisty"
+        assert cfg["shipping_cost_override"] == 0.0
+        # Adres na kliencie JEST już znacznikiem odbioru — nie ma czego zdejmować.
+        assert "delivery_override" not in cfg
+
+    def test_odbior_w_formularzu_przy_realnym_adresie_zdejmuje_adres(self):
+        # Świeża decyzja klienta wygrywa, ale zamówienie musi być spójne:
+        # metoda „Odbiór osobisty" + zerowa dostawa + PEŁNY adres kurierski
+        # to sprzeczne zlecenie dla magazynu i darmowa wysyłka.
+        wycena = _wycena(client=SimpleNamespace(delivery_address='Leśna 12',
+                                                delivery_city='Gdańsk'))
+        cfg = build_checkout_order_config(wycena, order_source_id=1,
+                                          is_self_pickup=True)
+        assert cfg["delivery_method"] == "Odbiór osobisty"
+        assert cfg["shipping_cost_override"] == 0.0
+        assert cfg["delivery_override"]["delivery_address"] == 'ODBIÓR OSOBISTY'
+        assert cfg["delivery_override"]["delivery_city"] == 'ODBIÓR OSOBISTY'
+        assert cfg["delivery_override"]["delivery_postcode"] == ''
+
+    def test_kurier_przy_realnym_adresie_nie_zdejmuje_niczego(self):
+        # Kontrola negatywna: dostawa kurierska nie może gubić adresu.
+        wycena = _wycena(client=SimpleNamespace(delivery_address='Leśna 12'))
+        cfg = build_checkout_order_config(wycena, order_source_id=1,
+                                          is_self_pickup=False)
+        assert cfg["delivery_method"] == "DPD"
+        assert "delivery_override" not in cfg
 
     def test_zwykly_adres_dostawy_nie_udaje_odbioru(self):
         wycena = _wycena(client=SimpleNamespace(delivery_address='Leśna 12'))
