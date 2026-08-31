@@ -61,6 +61,51 @@ def test_nieudany_toggle_bez_notatki_i_bez_zliczenia(monkeypatch):
     assert calls["note"] == []
 
 
+class TestPomijaInboksyPro:
+    """W5: sweeper otwiera rozmowy, w których ostatnie słowo ma KLIENT. Tura
+    Dębusia Pro zablokowana w ponawianiu dłużej niż SWEEP_PENDING_AGE wygląda
+    dokładnie tak — i zostawała przełączona z 'pending' na 'open' TOKENEM ADMINA.
+    A `bots_pro/stan.py` (`if status != "pending": return False`) wycisza wtedy
+    bota TRWALE: rozmowa, którą sweeper miał „naprawić", kończyła się ciszą
+    zamiast odpowiedzi.
+
+    Dotyczy wyłącznie produkcji (u kandydata sweeper nie startuje). Zmiana jest
+    czysto addytywna — dla inboksów spoza BOT_PRO_INBOXES nic się nie zmienia."""
+
+    def test_rozmowa_z_inboksu_pro_nie_jest_otwierana(self, monkeypatch):
+        calls = _mock(monkeypatch, [_conv(cid=11, last_type=0, age=99999)])
+        monkeypatch.setattr(sw, "_jest_pro_inbox", lambda inbox_id: True)
+
+        assert sw.sweep_once(100000) == 0
+        assert calls["handoff"] == []
+        assert calls["note"] == []
+
+    def test_rozmowa_spoza_inboksow_pro_dziala_jak_dotad(self, monkeypatch):
+        calls = _mock(monkeypatch, [_conv(cid=12, last_type=0, age=99999)])
+        monkeypatch.setattr(sw, "_jest_pro_inbox", lambda inbox_id: False)
+
+        assert sw.sweep_once(100000) == 1
+        assert calls["handoff"] == [(12, config.CW_TOKEN)]
+
+    def test_mieszana_lista_otwiera_tylko_rozmowy_spoza_pro(self, monkeypatch):
+        rozmowy = [
+            {"id": 21, "inbox_id": 18, "last_msg_type": 0, "last_msg_ts": 0},   # Pro
+            {"id": 22, "inbox_id": 3, "last_msg_type": 0, "last_msg_ts": 0},    # legacy
+        ]
+        calls = _mock(monkeypatch, rozmowy)
+        monkeypatch.setattr(sw, "_jest_pro_inbox", lambda inbox_id: str(inbox_id) == "18")
+
+        assert sw.sweep_once(100000) == 1
+        assert [cid for cid, _ in calls["handoff"]] == [22]
+
+    def test_uzywa_prawdziwego_predykatu_z_quote_worker(self):
+        """Ten sam, JEDEN predykat co `pro_watchdog` — dwie kopie tej samej
+        logiki rozjeżdżają się przy pierwszej zmianie definicji inboksów Pro."""
+        import importlib
+        qw = importlib.import_module("quote_worker")
+        assert sw._jest_pro_inbox is qw._jest_pro_inbox
+
+
 def test_sweeper_wylaczony_przez_interval_zero(monkeypatch):
     """SWEEP_INTERVAL<=0 -> sweeper() wraca natychmiast (petla nie startuje)."""
     monkeypatch.setattr(sw, "SWEEP_INTERVAL", 0)
