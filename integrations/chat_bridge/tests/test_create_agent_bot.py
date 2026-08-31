@@ -140,6 +140,63 @@ class TestEnsureAgentBotPatchOutgoingUrl:
 
         assert bot["access_token"] == "STARY-TOKEN"
 
+    def test_patch_nie_zdejmuje_tokenu_z_url_istniejacego_bota(self, monkeypatch):
+        """U12 (recenzja końcowa): `ensure_agent_bot` zaczęło PATCHować
+        `outgoing_url` istniejących botów. Uruchomienie skryptu w powłoce BEZ
+        `BOT_*_AGENT_WEBHOOK_TOKEN` (typowe: `docker exec` bez pliku env, ręczne
+        odpalenie „żeby sprawdzić, czy bot istnieje") wylicza URL BEZ `?token=`
+        i nadpisuje nim działający adres z tokenem. Efekt: webhooks.py zaczyna
+        zwracać 401 i STARY bot cicho przestaje działać na produkcji."""
+        monkeypatch.setattr(
+            cab, "list_agent_bots",
+            lambda: [{"id": 9, "name": "WoodPower AI", "access_token": "T",
+                      "outgoing_url": "https://x/agent-bot?token=SEKRET"}])
+        wolania_patch = []
+        monkeypatch.setattr(cab.requests, "patch",
+                            lambda *a, **k: wolania_patch.append(1) or _FakeResp({}))
+
+        bot = cab.ensure_agent_bot("WoodPower AI", outgoing_url="https://x/agent-bot")
+
+        assert wolania_patch == []
+        assert bot["outgoing_url"] == "https://x/agent-bot?token=SEKRET"
+
+    def test_patch_z_tokenem_na_token_dziala_normalnie(self, monkeypatch):
+        # Kontrola negatywna: realny powod istnienia PATCHa — token zmieniony w
+        # bridge.env — ma nadal dzialac. Blokujemy WYLACZNIE utrate tokenu.
+        monkeypatch.setattr(
+            cab, "list_agent_bots",
+            lambda: [{"id": 9, "name": "WoodPower AI",
+                      "outgoing_url": "https://x/agent-bot?token=STARY"}])
+        wolania_patch = []
+
+        def _patch(url, headers=None, json=None, timeout=None):
+            wolania_patch.append(json)
+            return _FakeResp({"id": 9, "outgoing_url": json["outgoing_url"]})
+
+        monkeypatch.setattr(cab.requests, "patch", _patch)
+
+        bot = cab.ensure_agent_bot("WoodPower AI",
+                                   outgoing_url="https://x/agent-bot?token=NOWY")
+
+        assert wolania_patch == [{"outgoing_url": "https://x/agent-bot?token=NOWY"}]
+        assert bot["outgoing_url"] == "https://x/agent-bot?token=NOWY"
+
+    def test_bot_bez_tokenu_w_url_nadal_da_sie_zaktualizowac(self, monkeypatch):
+        # Bot zalozony kiedys bez tokenu — dopisanie tokenu to poprawa, nie utrata.
+        monkeypatch.setattr(
+            cab, "list_agent_bots",
+            lambda: [{"id": 9, "name": "WoodPower AI", "outgoing_url": "https://x/agent-bot"}])
+        wolania_patch = []
+        monkeypatch.setattr(
+            cab.requests, "patch",
+            lambda url, headers=None, json=None, timeout=None:
+            wolania_patch.append(json) or _FakeResp({"id": 9,
+                                                     "outgoing_url": json["outgoing_url"]}))
+
+        cab.ensure_agent_bot("WoodPower AI", outgoing_url="https://x/agent-bot?token=NOWY")
+
+        assert wolania_patch == [{"outgoing_url": "https://x/agent-bot?token=NOWY"}]
+
     def test_nowy_bot_nie_wola_patcha(self, monkeypatch):
         monkeypatch.setattr(cab, "list_agent_bots", lambda: [])
         wolania_patch = []

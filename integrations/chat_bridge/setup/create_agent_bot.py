@@ -132,6 +132,23 @@ def _patch_outgoing_url(bot_id, outgoing_url):
     return data if isinstance(data, dict) else None
 
 
+def _zdjelby_token(stary_url, nowy_url):
+    """Czy PATCH zamieniłby URL Z tokenem na URL BEZ tokenu (U12).
+
+    `ensure_agent_bot` PATCHuje `outgoing_url`, żeby zmiana tokenu w `bridge.env`
+    realnie docierała do Chatwoota. Ale ten sam mechanizm działa też w drugą,
+    NIEZAMIERZONĄ stronę: skrypt uruchomiony w powłoce bez `BOT_*_AGENT_WEBHOOK_TOKEN`
+    (typowo `docker exec` bez pliku env, albo ręczne „sprawdzę, czy bot istnieje")
+    wylicza URL BEZ `?token=` i nadpisuje nim działający adres z tokenem. Wtedy
+    `webhooks.py` zaczyna odrzucać żądania Chatwoota (401) i STARY bot cicho
+    przestaje działać na produkcji — a operator nie ma powodu łączyć jednego
+    z drugim.
+
+    Sprawdzamy obecność samego parametru, nie jego wartość: zmiana tokenu na INNY
+    token to legalny, zamierzony PATCH i ma przechodzić."""
+    return "token=" in (stary_url or "") and "token=" not in (nowy_url or "")
+
+
 def ensure_agent_bot(name="WoodPower AI", outgoing_url=None, description=None):
     """
     Idempotentnie tworzy Agent Bota o podanej nazwie.
@@ -140,6 +157,9 @@ def ensure_agent_bot(name="WoodPower AI", outgoing_url=None, description=None):
     token webhooka zmieniony w bridge.env) — inaczej idempotencja po cichu
     zamieniałaby się w "nigdy już nie aktualizuj", a webhook zostawałby trwale
     nieaktualny mimo poprawnego configu (Task 7, Step 6).
+
+    JEDEN wyjątek od tego PATCHa (U12, recenzja końcowa): nigdy nie zamieniamy
+    URL-a Z tokenem na URL BEZ tokenu — patrz `_zdjelby_token`.
     Zwraca dict bota z polami id, access_token (i innymi).
     Rzuca RuntimeError przy błędzie tworzenia.
 
@@ -159,6 +179,14 @@ def ensure_agent_bot(name="WoodPower AI", outgoing_url=None, description=None):
     existing = list_agent_bots()
     for bot in existing:
         if bot.get("name") == name:
+            if _zdjelby_token(bot.get("outgoing_url"), outgoing_url):
+                # U12: NIE nadpisujemy dzialajacego adresu z tokenem adresem bez
+                # tokenu — to zdjelo by ochrone webhooka istniejacego bota (401).
+                print("UWAGA: pomijam aktualizacje outgoing_url bota %r — wyliczony URL "
+                      "nie ma ?token=, a obecny ma. Ustaw odpowiedni "
+                      "BOT_*_AGENT_WEBHOOK_TOKEN w srodowisku i uruchom ponownie."
+                      % name, file=sys.stderr)
+                return bot
             if bot.get("outgoing_url") != outgoing_url and bot.get("id"):
                 zaktualizowany = _patch_outgoing_url(bot.get("id"), outgoing_url)
                 if zaktualizowany:
