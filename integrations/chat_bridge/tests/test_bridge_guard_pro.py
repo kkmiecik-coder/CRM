@@ -140,7 +140,7 @@ class TestGuardWymagaTokenuTozsamosci:
 
 
 # ---------------------------------------------------------------------------
-# B1 — guard w OBU entrypointach
+# B1/B3/B4 — guard i watki tla w OBU entrypointach
 # ---------------------------------------------------------------------------
 
 def _blok_main(nazwa_pliku):
@@ -166,6 +166,19 @@ def _nazwy_wolanych(instrukcje):
             if isinstance(wezel, ast.Call) and isinstance(wezel.func, ast.Name):
                 nazwy.append(wezel.func.id)
     return nazwy
+
+
+def _cele_watkow(instrukcje):
+    """Nazwy przekazane jako `target=` do `threading.Thread(...)` w bloku."""
+    cele = []
+    for instrukcja in instrukcje:
+        for wezel in ast.walk(instrukcja):
+            if not isinstance(wezel, ast.Call):
+                continue
+            for kw in wezel.keywords:
+                if kw.arg == "target" and isinstance(kw.value, ast.Name):
+                    cele.append(kw.value.id)
+    return cele
 
 
 class TestGuardWObuEntrypointach:
@@ -220,6 +233,38 @@ class TestGuardWObuEntrypointach:
                                         OLX_REFRESH_TOKEN="x"))
         assert wynik.returncode == 0, wynik.stderr
         assert "OK" in wynik.stdout
+
+
+class TestWatkiTlaKandydata:
+    """B3/B4: kandydat ma WLASNA baze, wiec `kb_chunks` powstaje pusta i nikt
+    jej nie zapelni bez `index_loop` — a `bots.knowledge.retrieve` zwraca wtedy
+    pusta liste, ktora wg `bots_pro/wiedza.py` jest STANEM BLEDU (agent wiedzy
+    oddaje rozmowe czlowiekowi). Alert „indeks wiedzy jest PUSTY" zyje WEWNATRZ
+    `index_loop`, wiec bez tego watku pusta baza jest calkowicie cicha.
+
+    Watchdog Pro (`pro_watchdog`) to z kolei JEDYNA droga wyjscia z rozmowy, w
+    ktorej bot odezwal sie ostatni, a klient zamilkl — bez niego takie rozmowy
+    zostaja w 'pending' bez wlasciciela. Watek sam sie wylacza przy pustym
+    `BOT_PRO_INBOXES`, wiec jego obecnosc jest bezpieczna takze zanim slot
+    zostanie zajety."""
+
+    def test_kandydat_indeksuje_baze_wiedzy(self):
+        assert "index_loop" in _cele_watkow(_blok_main("bridge_quote_candidate.py"))
+
+    def test_kandydat_uruchamia_watchdog_pro(self):
+        cele = _cele_watkow(_blok_main("bridge_quote_candidate.py"))
+        assert "pro_watchdog" in cele or "watchdog" in cele
+
+    def test_kandydat_nadal_ma_quote_worker(self):
+        assert "quote_worker" in _cele_watkow(_blok_main("bridge_quote_candidate.py"))
+
+    def test_kandydat_nadal_bez_pollerow_i_sweeperow(self):
+        """Zakres kandydata sie NIE rozszerza: pollery kanalow, live/suggest worker
+        i sweepery zostaja na produkcji (kontener cw-olx-bridge), zeby kandydat
+        nie dublowal zywego ruchu."""
+        cele = _cele_watkow(_blok_main("bridge_quote_candidate.py"))
+        for zakazany in ("sweeper", "hot_lead_sweeper", "live_worker", "suggest_worker", "worker"):
+            assert zakazany not in cele, "kandydat nie powinien uruchamiac %s" % zakazany
 
 
 class TestGuardNieUbijaKontenera:
