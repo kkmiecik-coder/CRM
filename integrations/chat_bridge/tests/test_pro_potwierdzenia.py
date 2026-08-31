@@ -282,19 +282,47 @@ class TestPotwierdzFunkcja:
         assert wynik["error"] == "DANE_ZMIENIONE_OD_PODSUMOWANIA"
 
 
-class TestZgodaPoWiodacymNie:
-    """N6 (rerecenzja gałęzi): „nie, wszystko się zgadza" to POTWIERDZENIE —
-    klient przeczy poprzedniemu PYTANIU bota („czy coś jeszcze zmieniamy?"),
-    nie wycenie. Bramka odrzucała je, gdy model zacytował samą zgodę bez
-    wiodącego „nie," — a to najnaturalniejszy wybór cytatu, bo właśnie ta część
-    jest potwierdzeniem. Istniejący test pokrywał WYŁĄCZNIE wariant, w którym
-    cytat jest całą wiadomością.
+class TestWiodaceNieZawszeNeguje:
+    """Runda D (C1): wiodące „nie," ZAWSZE neguje cytat z następnej klauzuli.
 
-    Wyjątek „samotne »nie,« tuż przed cytatem" (N2 z poprzedniej rundy) musi
-    przy tym zostać szczelny: odpuszczamy go tylko wtedy, gdy cytat obejmuje
-    CAŁĄ klauzulę, klauzula nie ma własnej negacji i jest jawną zgodą."""
+    Poprzednia runda (`96bb162`) dołożyła wyjątek: negację odpuszczano, gdy
+    klauzula za „nie," zawierała słowo z listy zgody. Rerecenzja przemyciła przez
+    ten wyjątek 15 fałszywych zgód — bo to test typu „worek słów" na klauzuli,
+    która bywa CAŁYM zdaniem odmownym, a treść odmowy stoi naturalnie w
+    NASTĘPNEJ klauzuli („Nie, dobrze. Proszę poprawić wymiar na 200 cm."). Warunek
+    „cytat obejmuje resztę klauzuli" tego nie ratuje. Polszczyzna ma nieskończenie
+    wiele form „nie, ale", więc wyjątek został WYCOFANY — świadomie, nie przez
+    przeoczenie.
+
+    Znany i ZAAKCEPTOWANY koszt: klient piszący „nie, wszystko się zgadza"
+    dostanie prośbę o potwierdzenie jeszcze raz (jedno pytanie). Fałszywa zgoda
+    kosztuje zamówienie zapisane wbrew klientowi — te dwa błędy nie ważą tyle
+    samo. NIE dokładać tu z powrotem listy słów zgody ani innego wyjątku
+    „nie, ale": kierunek bezpieczny to odrzucenie."""
 
     @pytest.mark.parametrize("cytat,wiadomosc", [
+        # Sondy rerecenzji rundy C — KAŻDA musi być odrzucona. Cytat jest
+        # prawdziwym fragmentem wiadomości, ale klient w niej ODMAWIA.
+        ("dobrze", "Nie, dobrze. Prosze poprawic wymiar na 200 cm."),
+        ("ok", "Nie, ok. Ale zmienmy grubosc na 6 cm."),
+        ("poprawnie ma byc 200 cm", "Nie, poprawnie ma byc 200 cm."),
+        ("biore", "Nie, biore. Ale dwa blaty, nie jeden."),
+        ("tak", "Nie, tak. Ale dlugosc 200 zamiast 180."),
+        ("pasuje", "Nie, pasuje. Tylko wykonczenie na olej."),
+        ("zgoda", "Nie, zgoda. Ale bez dostawy, odbior osobisty."),
+        ("dobrze", "Nie, dobrze, ale grubosc ma byc 6 cm."),
+        ("zamawiam ale w innej grubosci", "Nie, zamawiam ale w innej grubosci."),
+        ("dobrze byloby taniej", "Nie, dobrze byloby taniej."),
+        ("super drogo", "Nie, super drogo."),
+        ("dobrze ze pytacie", "Nie, dobrze ze pytacie. Cena jest za wysoka."),
+    ])
+    def test_zgoda_przemycona_po_wiodacym_nie_jest_odrzucona(self, cytat, wiadomosc):
+        assert p.sprawdz_cytat(cytat, wiadomosc) is False
+
+    @pytest.mark.parametrize("cytat,wiadomosc", [
+        # Te warianty przechodziły po `96bb162`. Po cofnięciu wyjątku są
+        # odrzucane — to CENA przywróconego inwariantu, nie usterka: bot
+        # dopyta jeszcze raz.
         ("wszystko się zgadza", "nie, wszystko się zgadza"),
         ("wszystko się zgadza", "Nie, wszystko się zgadza."),
         ("wszystko się zgadza", "Nie, wszystko się zgadza, proszę o link"),
@@ -303,19 +331,41 @@ class TestZgodaPoWiodacymNie:
         ("wszystko ok", "nie, wszystko ok"),
         ("zamawiam", "nie, zamawiam"),
     ])
-    def test_zgoda_po_wiodacym_nie_przechodzi(self, cytat, wiadomosc):
-        assert p.sprawdz_cytat(cytat, wiadomosc) is True
+    def test_zgoda_po_wiodacym_nie_tez_wymaga_dopytania(self, cytat, wiadomosc):
+        assert p.sprawdz_cytat(cytat, wiadomosc) is False
 
     @pytest.mark.parametrize("cytat,wiadomosc", [
-        # Wyjatek z poprzedniej rundy (N2) MUSI dalej odrzucac.
         ("tak", "Nie, tak nie może być"),
         ("zgadzam się", "nie, zgadzam się tylko z terminem"),
-        # Cytat obejmuje CALA klauzule, ale klauzula nie jest zgoda.
         ("dziękuję", "nie, dziękuję"),
         ("na razie wstrzymuję się", "nie, na razie wstrzymuję się"),
-        # Cytat urwany w polowie klauzuli — negacja go dosiega.
         ("wszystko", "nie, wszystko trzeba przeliczyć od nowa"),
         ("zgadza", "nie, cena się nie zgadza"),
     ])
-    def test_odmowa_po_wiodacym_nie_nadal_odrzucona(self, cytat, wiadomosc):
+    def test_jawna_odmowa_po_wiodacym_nie_nadal_odrzucona(self, cytat, wiadomosc):
         assert p.sprawdz_cytat(cytat, wiadomosc) is False
+
+    @pytest.mark.parametrize("cytat,wiadomosc", [
+        # Kontrola dodatnia: cofnięcie wyjątku NIE może zjeść zwykłych zgód —
+        # tu przed cytatem nie stoi samotne „nie,".
+        ("tak, zgadzam się", "Tak, zgadzam się"),
+        ("wszystko się zgadza", "Wszystko się zgadza, proszę o link"),
+        ("potwierdzam", "nie zmieniam nic, potwierdzam"),
+    ])
+    def test_zwykla_zgoda_nadal_przechodzi(self, cytat, wiadomosc):
+        assert p.sprawdz_cytat(cytat, wiadomosc) is True
+
+    def test_pelna_sciezka_potwierdz_i_bramka_odrzuca_falszywa_zgode(self, monkeypatch):
+        """Sonda rerecenzji w całości, nie sam `sprawdz_cytat`: klient prosi o
+        zmianę wymiaru, a do CRM szły pozycje SPRZED zmiany (klasa #2016)."""
+        conv_id = 96005
+        _zapisz_pozycje_i_oczekiwany_podpis(conv_id)
+        monkeypatch.setattr(stan, "ostatnia_wiadomosc_klienta",
+                            lambda: "Nie, dobrze. Prosze poprawic wymiar na 200 cm.")
+        wynik = p.potwierdz("dobrze")
+        assert wynik["ok"] is False
+        assert wynik["error"] == "CYTAT_SPOZA_WIADOMOSCI"
+        # Bramka nie może się otworzyć — nic nie ma prawa pójść do CRM.
+        bramka = p.sprawdz_bramke()
+        assert bramka["ok"] is False
+        assert bramka["error"] == "BRAK_POTWIERDZENIA"
