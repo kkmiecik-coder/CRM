@@ -300,7 +300,23 @@ def wyslij():
         # Wysyłka jeszcze nieoszacowana albo gabaryt bez kuriera — NIE dopisujemy
         # ani zmyślonego "0 zł", ani nieaktualnego kosztu sprzed zmiany pozycji
         # (stan.zapisz_dostawe/_zapisz dbają o to, żeby stary koszt tu nie dotrwał).
-        tekst += "\n\nRazem: %s brutto" % _fmt_pln(razem_produkty)
+        #
+        # N3 (rerecenzja gałęzi): ale MILCZEĆ o dostawie też nie wolno. Odkąd
+        # podsumowanie CZASEM pokazuje trzy linie z kurierem, brak takiej linii
+        # czyta się jak „dostawa gratis" — a klient potwierdza tę kwotę jako
+        # cenę całości. Mówimy więc wprost, że kosztu wysyłki tu NIE MA, i
+        # rozróżniamy dwie sytuacje, bo znaczą dla klienta co innego: „jeszcze
+        # nie pytaliśmy o kod" i „kod jest, ale kuriera dla tego gabarytu nie
+        # znaleźliśmy" (dokładnie ta, dla której napisano docstring
+        # narzędzia policz_wysylke: carriers=0 to NIE jest darmowa wysyłka).
+        kod = dostawa.get("kod_pocztowy")
+        if kod:
+            tekst += ("\n\nDostawa (kod %s): nie udało się wycenić kuriera dla tego "
+                      "gabarytu — koszt ustali konsultant." % kod)
+        else:
+            tekst += ("\n\nDostawa: jeszcze nie wyceniona — koszt poznamy po podaniu "
+                      "kodu pocztowego.")
+        tekst += "\nRazem za produkty (bez dostawy): %s brutto" % _fmt_pln(razem_produkty)
     tekst += "\n\nCzy wszystko się zgadza?"
 
     stan.zapamietaj_kwoty(kwoty)

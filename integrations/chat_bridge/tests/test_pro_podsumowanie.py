@@ -473,14 +473,32 @@ class TestPodsumowaniePokazujeDostawe:
         assert "1093.04" not in stan.znane_kwoty()
         assert "843.04" in stan.znane_kwoty()
 
-    def test_bez_znanej_dostawy_podsumowanie_wyglada_jak_dotad(self, monkeypatch):
-        # Kontrola negatywna: dopoki wysylka nie zostala oszacowana, nie
-        # dopisujemy do podsumowania ani kuriera, ani zmyslonego "0 zl".
+    def test_bez_wycenionej_dostawy_podsumowanie_mowi_o_tym_wprost(self, monkeypatch):
+        """N3 (rerecenzja gałęzi): po U4 podsumowanie CZASEM pokazuje dostawę,
+        więc jej BRAK czyta się jak „dostawa gratis" — klient potwierdzał
+        „Razem: 843,04 zł" jako cenę całości. Musi być powiedziane wprost, że
+        koszt dostawy nie jest znany i NIE jest w tej kwocie zawarty.
+
+        Nadal nie dopisujemy ani kuriera, ani zmyślonego „0 zł"."""
         wyslane = self._przygotuj(monkeypatch, 94032)
         podsumowanie.wyslij()
         tekst = wyslane[0]
-        assert "Razem: 843,04 zł brutto" in tekst
-        assert "ostawa" not in tekst
+        assert "Razem za produkty (bez dostawy): 843,04 zł brutto" in tekst
+        assert "Dostawa: jeszcze nie wyceniona" in tekst
+        assert "0,00 zł" not in tekst
+
+    def test_kod_pocztowy_bez_kuriera_mowi_ze_wysylki_nie_wyceniono(self, monkeypatch):
+        """N3, wariant z sondy: klient PODAŁ kod pocztowy, `policz_wysylke`
+        zwróciło carriers=0 (gabaryt bez kuriera). Milczenie o dostawie w tym
+        miejscu jest najgroźniejsze — klient wie, że o wysyłce była mowa."""
+        wyslane = self._przygotuj(monkeypatch, 94035)
+        stan.zapisz_dostawe("10-900")
+        podsumowanie.wyslij()
+        tekst = wyslane[0]
+        assert "Razem za produkty (bez dostawy): 843,04 zł brutto" in tekst
+        assert "10-900" in tekst
+        assert "nie udało się wycenić" in tekst
+        assert "0,00 zł" not in tekst
 
 
 class TestWyslijNieudanaWysylka:
