@@ -118,8 +118,16 @@ def _oddaj_konsultantowi(powod, conv_id):
     return wynik
 
 
-def uruchom(conv_id, inbox_id, tresc, zalaczniki=None, persona="pro"):
+def uruchom(conv_id, inbox_id, tresc, zalaczniki=None, persona="pro", message_id=None):
     """Przeprowadza jedną turę i wysyła odpowiedź do klienta.
+
+    `message_id` (Task 8, W3 code review runda poprawek 1): identyfikator
+    wiadomości klienta, którą przetwarza ta tura — wołane z `quote_worker`
+    (`mid` wiersza kolejki). Idzie WYŁĄCZNIE do `stan.zarejestruj_ture`, żeby
+    odróżnić PRAWDZIWĄ nową turę od PONOWNEJ PRÓBY workera tej samej
+    wiadomości po błędzie przejściowym (patrz docstring `zarejestruj_ture`).
+    Domyślnie `None` — wywołania bez tego argumentu (w tym większość testów w
+    tym pliku) liczą się ZAWSZE jako nowa tura, zachowanie sprzed W3.
 
     `persona` MUSI trafić do `stan.ustaw_kontekst` (nie tylko zostać lokalnym
     parametrem) — `podsumowanie.wyslij()`, wołane jako narzędzie WEWNĄTRZ tej tury,
@@ -151,15 +159,25 @@ def uruchom(conv_id, inbox_id, tresc, zalaczniki=None, persona="pro"):
 
     Dwa bezpieczniki kończące PORZUCONĄ/ZAPĘTLONĄ rozmowę (Task 8, B2 — audyt: stary
     limit 30 tur, dziś BOT_PRO_MAX_RUNNER_STEPS, nie uratował ANI JEDNEJ z 10
-    zapętlonych rozmów w zbadanym shardzie, klienci odpadali przy 10-28 turach):
+    zapętlonych rozmów w zbadanym shardzie, klienci odpadali przy 10-28 turach).
+    UWAGA na asymetrię porównań (drobne, code review runda poprawek 1) — oba progi
+    czytane sąsiednio, ale różnie: `BOT_PRO_MAX_TURNS` używa `>` (N tur PRZECHODZI,
+    N+1 jest zablokowana — próg to LICZBA DOZWOLONYCH tur), `BOT_PRO_MAX_BEZ_POSTEPU`
+    używa `>=` (próg to LICZBA, przy KTÓREJ już blokujemy — "3" oznacza tam "2
+    dozwolone"). Nie ujednolicono świadomie: pierwszy sprawdzany jest PRZED turą
+    (naturalne "czy ta n-ta tura jeszcze się mieści"), drugi PO turze (naturalne
+    "czy licznik po tej turze już osiągnął próg") — ale czytelnik nie ma prawa
+    zakładać symetrii tylko z sąsiedztwa w kodzie.
     1. `BOT_PRO_MAX_TURNS` — licznik TUR CAŁEJ ROZMOWY (`stan.zarejestruj_ture`).
        Sprawdzany PRZED wywołaniem Routera/LLM — rozmowa, która już przekroczyła
        budżet, nie dostaje kolejnej (kosztownej) próbki modelu, od razu handoff.
+       <=0 WYŁĄCZA ten bezpiecznik (nie: "0 tur dozwolonych" — wzorzec jak w
+       sweeper.py/hot_lead_sweeper.py, patrz config.py).
     2. `BOT_PRO_MAX_BEZ_POSTEPU` — licznik KOLEJNYCH tur BEZ ŻADNEJ zmiany stanu
        biznesowego (`stan.migawka_postepu` przed/po turze — patrz jej docstring).
        Mierzalny dopiero PO turze, więc odpowiedź z TEJ (n-tej bez postępu) tury
        nadal idzie do klienta jak zwykle — bezpiecznik dokłada handoff PO wysyłce,
-       nie zamiast niej."""
+       nie zamiast niej. <=0 WYŁĄCZA analogicznie."""
     if not stan.wolno_prowadzic_rozmowe(conv_id):
         log("tura: bot milczy (rozmowa nie w pending albo ostatnio pisal czlowiek) "
             "(conv %s)" % conv_id)
@@ -167,7 +185,11 @@ def uruchom(conv_id, inbox_id, tresc, zalaczniki=None, persona="pro"):
 
     stan.ustaw_kontekst(conv_id, persona_tury=persona)
 
-    if stan.zarejestruj_ture() > BOT_PRO_MAX_TURNS:
+    # Licznik zarejestruj_ture() dziala ZAWSZE (bookkeeping niezalezny od tego, czy
+    # bezpiecznik jest wlaczony) — spojnie z zarejestruj_brak_postepu() nizej, gdzie
+    # tez tylko EGZEKWOWANIE (handoff) jest gated przez prog>0, nie samo liczenie.
+    tury_rozmowy = stan.zarejestruj_ture(message_id)
+    if BOT_PRO_MAX_TURNS > 0 and tury_rozmowy > BOT_PRO_MAX_TURNS:
         log("tura: limit %s tur rozmowy przekroczony -> handoff (conv %s)"
             % (BOT_PRO_MAX_TURNS, conv_id))
         _oddaj_konsultantowi("limit dlugosci rozmowy (ponad %s tur)" % BOT_PRO_MAX_TURNS, conv_id)
@@ -215,6 +237,6 @@ def uruchom(conv_id, inbox_id, tresc, zalaczniki=None, persona="pro"):
     else:
         bez_postepu = 0
         stan.zresetuj_brak_postepu()
-    if bez_postepu >= BOT_PRO_MAX_BEZ_POSTEPU:
+    if BOT_PRO_MAX_BEZ_POSTEPU > 0 and bez_postepu >= BOT_PRO_MAX_BEZ_POSTEPU:
         log("tura: %s kolejnych tur bez postepu -> handoff (conv %s)" % (bez_postepu, conv_id))
         _oddaj_konsultantowi("brak postepu przez %s kolejnych tur" % bez_postepu, conv_id)

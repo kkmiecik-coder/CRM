@@ -136,6 +136,62 @@ class TestSesjaOgraniczaHistorie:
         sesja = tura._sesja(96301)
         assert sesja.session_settings.limit == config_mod.BOT_PRO_SESSION_ITEMS_LIMIT
 
+    def test_okno_przeciete_w_srodku_pary_narzedzia_nie_wysyla_osieroconego_wpisu(self):
+        # K2 (runda poprawek 1, code review): zarzut, ze SessionSettings(limit=...) tnie
+        # okno historii W SRODKU pary narzedzia (function_call bez function_call_output,
+        # LUB odwrotnie) - SDK mial usuwac WYLACZNIE osierocone function_call
+        # (drop_orphan_function_calls), NIGDY osierocone function_call_output, wiec takie
+        # wejscie mialoby byc odrzucane przez Responses API (400).
+        #
+        # SPRAWDZONE reprodukcja NA PRAWDZIWYM Runner.run_sync (nie golym
+        # session.get_items() w izolacji - TO faktycznie zwraca osierocony wpis, bo samo
+        # nie sprząta par) z realna SQLiteSession o malym limicie i historia specjalnie
+        # przecieta W SRODKU pary narzedzia. Wynik: model dostaje CZYSTE wejscie. Powod
+        # (patrz tez komentarz przy BOT_PRO_SESSION_ITEMS_LIMIT w config.py):
+        # `prepare_input_with_session` (wolane przez Runner.run_sync, NIE golie
+        # session.get_items()) ustawia `output_pruning_indexes` WLASNIE wtedy, gdy
+        # SessionSettings.limit jest ustawiony - `drop_orphan_function_calls` z tym
+        # argumentem czysci OBIE strony pary, nie tylko osierocone wywolania.
+        import asyncio
+
+        from agents import Agent, SessionSettings, SQLiteSession
+        from agents import Runner as PrawdziwyRunner
+
+        class _ModelPrzechwytujacyWejscie(Model):
+            def __init__(self):
+                self.ostatnie_wejscie = None
+
+            async def get_response(self, system_instructions, input, model_settings, tools,
+                                    output_schema, handoffs, tracing, *, previous_response_id,
+                                    conversation_id, prompt):
+                self.ostatnie_wejscie = input
+                return _wiadomosc_tekstowa("ok", 0)
+
+            def stream_response(self, *a, **k):
+                raise NotImplementedError
+
+        model = _ModelPrzechwytujacyWejscie()
+        agent = Agent(name="Test", instructions="test", model=model, tools=[])
+        sesja = SQLiteSession("k2-repro", ":memory:", session_settings=SessionSettings(limit=2))
+        # Historia: para narzedzia (wywolanie+wynik), potem wiadomosc asystenta - limit=2
+        # bierze OSTATNIE 2 itemy = [function_call_output, assistant]. Wywolanie WYPADA z
+        # okna, wynik zostalby OSIEROCONY, gdyby SDK go nie posprzatal.
+        asyncio.run(sesja.add_items([
+            {"role": "user", "content": "pytanie 1"},
+            {"type": "function_call", "call_id": "c1", "name": "narzedzie", "arguments": "{}",
+             "id": "fc_1"},
+            {"type": "function_call_output", "call_id": "c1", "output": "{}"},
+            {"role": "assistant", "content": "odpowiedz 1"},
+        ]))
+
+        wynik = PrawdziwyRunner.run_sync(agent, "pytanie 2", session=sesja, max_turns=5)
+
+        assert wynik.final_output == "ok"
+        typy = [it.get("type") for it in model.ostatnie_wejscie if isinstance(it, dict)]
+        assert "function_call_output" not in typy, (
+            "wejscie do modelu niesie osierocony function_call_output bez pary "
+            "function_call: %r" % model.ostatnie_wejscie)
+
 
 class TestGuardrailBlokujeWysylke:
     """Guardrail G1 ma NAPRAWDĘ zatrzymać wysyłkę (nie tylko zalogować)."""
@@ -344,6 +400,25 @@ class TestBezpiecznikDlugosciRozmowy:
         assert len(powody) == 1
         assert "tur" in powody[0].lower()
 
+    def test_zero_wylacza_bezpiecznik_nie_daje_natychmiastowego_handoffu(self, monkeypatch):
+        # Minor (runda poprawek 1): operator wpisujacy 0, zeby WYLACZYC bezpiecznik,
+        # nie ma dostac najagresywniejszego ustawienia (handoff od pierwszej tury).
+        # BOT_PRO_MAX_BEZ_POSTEPU tez wylaczony — atrapa nizej celowo NIE zmienia
+        # stanu (izolujemy dokladnie ZACHOWANIE LICZNIKA TUR, nie oba bezpieczniki naraz).
+        conv_id = 96121
+        monkeypatch.setattr(tura, "BOT_PRO_MAX_TURNS", 0)
+        monkeypatch.setattr(tura, "BOT_PRO_MAX_BEZ_POSTEPU", 0)
+        fake_runner = _FalszywyRunner(["odp1"] * 20)
+        monkeypatch.setattr(tura, "Runner", fake_runner)
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+        monkeypatch.setattr(stan, "handoff",
+                            lambda powod: pytest.fail("bezpiecznik mial byc wylaczony"))
+
+        for i in range(20):
+            tura.uruchom(conv_id, "inbox1", "wiadomosc %s" % i, persona="quote")
+
+        assert len(wyslane) == 20
+
 
 class TestBezpiecznikBrakuPostepu:
     """Task 8, B2: osobny licznik tur BEZ POSTEPU (bez zadnej zmiany stanu
@@ -395,6 +470,84 @@ class TestBezpiecznikBrakuPostepu:
         tura.uruchom(conv_id, "inbox1", "wiadomosc 3", persona="quote")   # bez postepu (1, NIE 3)
 
         assert powody == []   # prog 2 nigdy nie zostal osiagniety DWA RAZY Z RZEDU
+
+    def test_zero_wylacza_bezpiecznik_nie_daje_natychmiastowego_handoffu(self, monkeypatch):
+        conv_id = 96122
+        monkeypatch.setattr(tura, "BOT_PRO_MAX_TURNS", 100)
+        monkeypatch.setattr(tura, "BOT_PRO_MAX_BEZ_POSTEPU", 0)
+        fake_runner = _FalszywyRunner(["a"] * 10)
+        monkeypatch.setattr(tura, "Runner", fake_runner)
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+        monkeypatch.setattr(stan, "handoff",
+                            lambda powod: pytest.fail("bezpiecznik mial byc wylaczony"))
+
+        for i in range(10):
+            tura.uruchom(conv_id, "inbox1", "wiadomosc %s" % i, persona="quote")
+
+        assert len(wyslane) == 10
+
+
+class TestLicznikTurNieMylonyZRetryWorkera:
+    """W3 (runda poprawek 1, code review KRYTYCZNE): `quote_worker.process_one`
+    po wyjatku przejsciowym wraca wierszem kolejki do 'pending' i woła
+    `tura.uruchom` PONOWNIE dla TEJ SAMEJ wiadomosci klienta (ten sam
+    message_id) — retry NIE MOZE zuzywac budzetu BOT_PRO_MAX_TURNS, bo kilka
+    bledow sieci konczyloby sie przedwczesnym handoffem "limit dlugosci
+    rozmowy" bez zadnego udzialu klienta."""
+
+    def test_dwa_wywolania_z_tym_samym_message_id_licza_sie_jako_jedna_tura(self, monkeypatch):
+        from core.db import db
+
+        conv_id = 96118
+        fake_runner = _FalszywyRunner(["odp1", "odp2"])
+        monkeypatch.setattr(tura, "Runner", fake_runner)
+        _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "wiadomosc 1", persona="quote", message_id="mid-1")
+        tura.uruchom(conv_id, "inbox1", "wiadomosc 1", persona="quote", message_id="mid-1")
+
+        c = db()
+        wiersz = c.execute("SELECT tury_rozmowy FROM pro_stan WHERE conv_id=?",
+                           (conv_id,)).fetchone()
+        c.close()
+        assert wiersz["tury_rozmowy"] == 1
+
+    def test_nowy_message_id_liczy_sie_jako_nowa_tura(self, monkeypatch):
+        from core.db import db
+
+        conv_id = 96119
+        fake_runner = _FalszywyRunner(["odp1", "odp2"])
+        monkeypatch.setattr(tura, "Runner", fake_runner)
+        _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "wiadomosc 1", persona="quote", message_id="mid-1")
+        tura.uruchom(conv_id, "inbox1", "wiadomosc 2", persona="quote", message_id="mid-2")
+
+        c = db()
+        wiersz = c.execute("SELECT tury_rozmowy FROM pro_stan WHERE conv_id=?",
+                           (conv_id,)).fetchone()
+        c.close()
+        assert wiersz["tury_rozmowy"] == 2
+
+    def test_brak_message_id_liczy_sie_zawsze_jako_nowa_tura(self, monkeypatch):
+        # Bez identyfikatora nie da sie wykryc retry — zachowanie SPRZED W3
+        # (kazde wywolanie to nowa tura), zeby wywolania bez message_id (np.
+        # istniejace testy w tym pliku) nie zmienily zachowania.
+        from core.db import db
+
+        conv_id = 96120
+        fake_runner = _FalszywyRunner(["odp1", "odp2"])
+        monkeypatch.setattr(tura, "Runner", fake_runner)
+        _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "wiadomosc 1", persona="quote")
+        tura.uruchom(conv_id, "inbox1", "wiadomosc 2", persona="quote")
+
+        c = db()
+        wiersz = c.execute("SELECT tury_rozmowy FROM pro_stan WHERE conv_id=?",
+                           (conv_id,)).fetchone()
+        c.close()
+        assert wiersz["tury_rozmowy"] == 2
 
 
 class TestPersonaKanaluWTurze:

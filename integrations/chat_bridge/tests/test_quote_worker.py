@@ -69,9 +69,10 @@ def test_wiersz_na_inboksie_pro_wola_bots_pro_tura_uruchom_nie_run_quote_turn(mo
     pytest.importorskip("agents")
     from bots_pro import tura as tura_pro
     wolane_pro = []
-    monkeypatch.setattr(tura_pro, "uruchom",
-                        lambda conv_id, inbox_id, tresc, zalaczniki=None, persona="pro":
-                        wolane_pro.append((conv_id, inbox_id, tresc, zalaczniki, persona)))
+    monkeypatch.setattr(
+        tura_pro, "uruchom",
+        lambda conv_id, inbox_id, tresc, zalaczniki=None, persona="pro", message_id=None:
+        wolane_pro.append((conv_id, inbox_id, tresc, zalaczniki, persona, message_id)))
     wolane_legacy = []
     monkeypatch.setattr(qw, "run_quote_turn",
                         lambda *a, **k: wolane_legacy.append((a, k)))
@@ -86,12 +87,15 @@ def test_wiersz_na_inboksie_pro_wola_bots_pro_tura_uruchom_nie_run_quote_turn(mo
     assert qw.process_one(9_999_999_999) is True
     assert wolane_legacy == []
     assert len(wolane_pro) == 1
-    conv_id, inbox_id, tresc, zalaczniki, persona = wolane_pro[0]
+    conv_id, inbox_id, tresc, zalaczniki, persona, message_id = wolane_pro[0]
     # inbox_id ma kolumne TEXT (core/db.py) - SQLite przechowuje ja jako string,
     # wiec porownujemy string, nie int (round-trip przez baze, nie tylko przez Pythona).
     # persona="olx" (profil kanalu, nie "pro" na sztywno) - dowod na W1: dispatch silnika
     # (bots_pro vs legacy) i profil capsow to DWIE NIEZALEZNE rzeczy.
-    assert (conv_id, inbox_id, tresc, persona) == (7001, "42", "czesc, ile kosztuje blat?", "olx")
+    # message_id="mX" (Task 8, W3 code review) - watchdog dlugosci rozmowy w tura.py
+    # odroznia PRAWDZIWA nowa ture od retry workera TEJ SAMEJ wiadomosci wlasnie po tym.
+    assert (conv_id, inbox_id, tresc, persona, message_id) == (
+        7001, "42", "czesc, ile kosztuje blat?", "olx", "mX")
 
     c = db_mod.db()
     st = c.execute("SELECT status FROM quote_queue WHERE conv_id=7001").fetchone()["status"]

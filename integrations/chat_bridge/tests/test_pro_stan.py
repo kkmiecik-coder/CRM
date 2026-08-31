@@ -329,6 +329,125 @@ class TestKwoty:
         assert stan.znane_kwoty() == {"10.00", "20.00"}
 
 
+class TestConvIdWymaganyPrzyZapisie:
+    """K3 (runda poprawek 1, code review KRYTYCZNE): SQLite traktuje NULL w
+    conv_id (INTEGER PRIMARY KEY) jako autoinkrement — zapis bez ustawionego
+    conv_id NIE rzucal, tylko cicho ladowal w wierszu NASTEPNEJ (przypadkowej)
+    rozmowy. Sonda z code review: `stan._conv_id.set(None);
+    stan.zapamietaj_kwoty([777])` -> kwota ladowala w wierszu INNEJ, realnej
+    rozmowy. Identyfikatory Chatwoota rosna monotonicznie, wiec to zwykle
+    PRAWDZIWA, dopiero nadchodzaca rozmowa — jej rejestr kwot startowalby z
+    podrzucona kwota, ktora guardrail by przepuscil (przeciw inwariantowi I1).
+    Warunek wstepny jest dzis nieosiagalny w normalnym przebiegu (tura.uruchom
+    zawsze woła ustaw_kontekst PRZED czymkolwiek innym) — ale to dokladnie ten
+    warunek, o ktory chodzilo w B3: stara wersja na nim zawodzila BEZPIECZNIE
+    (falszywy alarm guardraila), ta bez naprawy zawodzilaby NA OTWARTO."""
+
+    def test_zapisz_stan_bez_conv_id_rzuca(self):
+        stan._conv_id.set(None)
+        with pytest.raises(RuntimeError):
+            stan.zapisz_stan(oczekiwany_podpis="x")
+
+    def test_zapamietaj_kwoty_bez_conv_id_rzuca_zamiast_ladowac_w_cudzej_rozmowie(self):
+        stan._conv_id.set(None)
+        with pytest.raises(RuntimeError):
+            stan.zapamietaj_kwoty([777])
+
+    def test_zapisz_pozycje_bez_conv_id_rzuca(self):
+        stan._conv_id.set(None)
+        with pytest.raises(RuntimeError):
+            stan.zapisz_pozycje("1", produkt="blat")
+
+
+class TestZapamietajKwotyWspolbieznie:
+    """W1 (runda poprawek 1, code review WAZNE): poprzednia wersja
+    (pojedynczy JSON blob w pro_stan.znane_kwoty_json, read-modify-write) gubila
+    kwoty pod PRAWDZIWA wspolbieznoscia — Agents SDK woła wszystkie narzedzia
+    z JEDNEGO kroku modelu ROWNOLEGLE (asyncio.gather w tool_execution.py), a
+    synchroniczne cialo @function_tool idzie przez asyncio.to_thread. Dwa
+    rownolegle policz_wycene/policz_wysylke moglyby wiec odczytac ten sam
+    "stary" zbior, dopisac WLASNA kwote i nadpisac — jedna strona przegrywa
+    wyscig i jej kwota znika.
+
+    Naprawa: kazda kwota to OSOBNY wiersz (INSERT OR IGNORE) w tabeli
+    pro_kwoty, nie jeden wspolny blob. Bez kroku "odczytaj caly zbior, policz
+    unie, zapisz caly zbior z powrotem" nie ma czego zgubic w przeplocie —
+    kazdy INSERT jest atomowy sam w sobie.
+
+    Test uzywa PRAWDZIWYCH watkow (nie atrapy synchronizacji), zeby faktycznie
+    wymusic przeplot dwoch zapisow do TEJ SAMEJ rozmowy w tym samym momencie."""
+
+    def test_wspolbiezne_wywolania_nie_gubia_kwot(self):
+        import threading
+
+        conv_id = 93052
+        stan.ustaw_kontekst(conv_id)
+
+        start = threading.Barrier(2)
+        bledy = []
+
+        def _wolaj(kwota):
+            try:
+                start.wait(timeout=5)
+                # Kazdy watek startuje z WLASNYM, pustym kontekstem (contextvary NIE
+                # propagujace sie automatycznie do nowych watkow — inaczej niz przy
+                # asyncio.to_thread, ktore kopiuje kontekst) — ustawiamy jawnie,
+                # symulujac to, co realnie robi SDK (K3 dba o to, zeby brak takiego
+                # ustawienia rzucal, nie ladowal gdziekolwiek).
+                stan._conv_id.set(conv_id)
+                stan.zapamietaj_kwoty([kwota])
+            except Exception as e:
+                bledy.append(e)
+
+        w1 = threading.Thread(target=_wolaj, args=(111,))
+        w2 = threading.Thread(target=_wolaj, args=(222,))
+        w1.start()
+        w2.start()
+        w1.join()
+        w2.join()
+
+        assert bledy == []
+        stan.ustaw_kontekst(conv_id)   # kontekst watku glownego mogl zostac nadpisany
+        assert {"111.00", "222.00"} <= stan.znane_kwoty()
+
+
+class TestKwotyCzyszczoneNaZmianePozycji:
+    """W2 (runda poprawek 1, code review WAZNE): rejestr trwaly per rozmowa
+    (B1) nigdy sam nie wygasal — po kilku przeliczeniach ROZNYCH konfiguracji
+    (klient zmienia material/wymiary miedzy przeliczeniami, prompt WPROST
+    zacheca do liczenia kilka razy w rozmowie) rejestr rosl bez ograniczen i
+    zawieral TEZ ceny konfiguracji, ktore klient juz porzucil — bot mogl
+    zacytowac NIEAKTUALNA cene, a guardrail by ja przepuscil (bo formalnie
+    "znana"). Naprawa: KAZDA zmiana pozycji (zapisz_pozycje, w tym usuniecie)
+    czysci caly rejestr tej rozmowy — kolejne policz_wycene/wyslij_podsumowanie
+    musi go zasilic OD NOWA, zanim bot bedzie mogl znowu cytowac jakakolwiek
+    cene. Analogicznie do I2 (potwierdzenia.py), ktore po kazdej zmianie
+    pozycji tez wymaga ponownego potwierdzenia — ten sam ksztalt problemu,
+    zastosowany do rejestru cen zamiast do podpisu potwierdzenia."""
+
+    def test_zmiana_pozycji_czysci_wczesniej_zarejestrowane_kwoty(self):
+        stan.ustaw_kontekst(93053)
+        stan.zapamietaj_kwoty([999])
+        assert stan.znane_kwoty() == {"999.00"}
+        stan.zapisz_pozycje("1", produkt="blat", dlugosc_cm=100)
+        assert stan.znane_kwoty() == set()
+
+    def test_kwota_zarejestrowana_po_zmianie_pozycji_zostaje(self):
+        # Kontrola negatywna: czyszczenie nie ma blokowac normalnego przebiegu
+        # (zapisz_pozycje -> policz_wycene rejestruje kwote PO zmianie).
+        stan.ustaw_kontekst(93054)
+        stan.zapisz_pozycje("1", produkt="blat")
+        stan.zapamietaj_kwoty([500])
+        assert stan.znane_kwoty() == {"500.00"}
+
+    def test_usuniecie_pozycji_tez_czysci_rejestr(self):
+        stan.ustaw_kontekst(93055)
+        stan.zapisz_pozycje("1", produkt="blat")
+        stan.zapamietaj_kwoty([500])
+        stan.zapisz_pozycje("1", usun=True)
+        assert stan.znane_kwoty() == set()
+
+
 class TestPodsumowanieWyslane:
     """Bramka W3 (runda poprawek 1): `podsumowanie.wyslij()` oznacza w stanie tury,
     że sam już wysłał deterministyczną treść — `tura.py` to sprawdza, żeby nie

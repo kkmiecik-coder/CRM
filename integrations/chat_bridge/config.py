@@ -137,25 +137,40 @@ BOT_PRO_MAX_RUNNER_STEPS = int(os.environ.get("BOT_PRO_MAX_RUNNER_STEPS", "30"))
 # limit 30 tur (poprzednik tej zmiennej pod starą nazwą) nie uratował ANI JEDNEJ z 10
 # zapętlonych rozmów w zbadanym shardzie — klienci odpadali przy 10-28 turach, więc próg musi
 # być NIŻSZY niż cierpliwość klienta. 12 to nowy próg ze specyfikacji zadania.
+# <=0 WYLACZA bezpiecznik (nie: "0 tur dozwolonych" — analogicznie do SWEEP_INTERVAL/
+# HOT_LEAD_SWEEP_INTERVAL, patrz sweeper.py/hot_lead_sweeper.py), sprawdzane w tura.py.
 BOT_PRO_MAX_TURNS = int(os.environ.get("BOT_PRO_MAX_TURNS", "12"))
 # Ile kolejnych tur BEZ POSTĘPU (bez żadnej zmiany stanu biznesowego rozmowy — pozycji,
 # wysłanego podsumowania, potwierdzenia klienta, zapisanej wyceny; patrz
 # bots_pro.stan.migawka_postepu) ma dopuszczać bot, zanim sam odda rozmowę człowiekowi. Task 8,
 # B2: PODPIĘTE (poprzednio deklarowane w configu, ale nieużywane nigdzie — "rezerwa pod
-# przyszły watchdog tury").
+# przyszły watchdog tury"). <=0 WYLACZA bezpiecznik, jak wyżej.
 BOT_PRO_MAX_BEZ_POSTEPU = int(os.environ.get("BOT_PRO_MAX_BEZ_POSTEPU", "3"))
 # Próg ciszy (minuty) dla watchdoga porzuconych rozmów (Task 8, część A) — patrz pro_watchdog.py.
+# <=0 WYLACZA caly watchdog (NIE "handoff natychmiast" — runda poprawek 1, drobne: operator
+# wpisujacy zero, zeby wylaczyc, nie ma dostac najagresywniejszego ustawienia).
 BOT_PRO_WATCHDOG_MINUTES = int(os.environ.get("BOT_PRO_WATCHDOG_MINUTES", "20"))
+# Interwal (sekundy) miedzy przejsciami watchdoga — byl zaszyty w kodzie (300), wyciagniety do
+# configu dla spojnosci z reszta sweeperow (SWEEP_INTERVAL, HOT_LEAD_SWEEP_INTERVAL).
+BOT_PRO_WATCHDOG_INTERVAL = int(os.environ.get("BOT_PRO_WATCHDOG_INTERVAL", "300"))
 # Okno historii SQLiteSession Agents SDK (Task 8, B5) — bots_pro/tura.py:_sesja. Bez tego
 # SQLiteSession podaje modelowi CAŁĄ historię sesji (a Router płaci ją drugi raz co turę) —
-# koszt/opóźnienie rosnące liniowo z długością rozmowy, nie poprawność (w odróżnieniu od
-# BOT_HISTORY_LIMIT starego silnika — TA liczba to ITEMS SDK, nie wiadomości czatu: jedna
-# tura z narzędziami to wiele par function_call/function_call_output, więc "12" starego
-# silnika byłoby tu absurdalnie ciasne, ledwie mieszczące JEDNĄ turę z paroma narzędziami).
-# Wartość dobrana z zapasem pod BOT_PRO_MAX_TURNS (limit 12 tur rozmowy, wyżej) — to
-# optymalizacja kosztu, nie inwariant poprawności, więc nie ma tu twardej gwarancji zera
-# obcięć w skrajnie długich/zapętlonych rozmowach (te i tak kończy bezpiecznik długości
-# rozmowy powyżej).
+# koszt/opóźnienie rosnące liniowo z długością rozmowy, nie poprawność (BOT_HISTORY_LIMIT
+# starego silnika liczył WIADOMOŚCI czatu — tu limit jest w ITEMS SDK, stąd osobna stała).
+#
+# K2 (code review, runda poprawek 1): zarzut, że okno cięte W ŚRODKU pary narzędzia zostawia
+# osierocony `function_call_output` (call bez wyjścia SDK usuwa —
+# `drop_orphan_function_calls` — ale rzekomo NIE odwrotnie), co Responses API miałoby odrzucać
+# (400). SPRAWDZONE reprodukcją NA ŻYWYM `Runner.run` (nie tylko `session.get_items()` w
+# izolacji — TO dawało osierocony wpis, patrz niżej) z realną `SQLiteSession(session_settings=
+# SessionSettings(limit=2))` i historią specjalnie przeciętą w środku pary narzędzia: model
+# dostał CZYSTE wejście, bez osieroconych `function_call`/`function_call_output`. Powód: SDK
+# (openai-agents==0.22.0, dokładnie wersja z requirements.txt) w `prepare_input_with_session`
+# (wołanym przez `Runner.run_sync`, NIE gołe `session.get_items()`) ustawia
+# `output_pruning_indexes` WŁAŚNIE wtedy, gdy `SessionSettings.limit` jest ustawiony —
+# `drop_orphan_function_calls` z tym argumentem czyści OBIE strony pary, nie tylko osierocone
+# wywołania. Regresja tego zachowania (np. przy podbiciu wersji SDK) złapie
+# test_pro_tura.py::TestSesjaOgraniczaHistorie::test_okno_przeciete_w_srodku_pary_narzedzia_nie_wysyla_osieroconego_wpisu.
 BOT_PRO_SESSION_ITEMS_LIMIT = int(os.environ.get("BOT_PRO_SESSION_ITEMS_LIMIT", "60"))
 # Inboxy obslugiwane przez Debusia Pro. Pusta wartosc = bot wylaczony wszedzie — kill-switch
 # migracji bez zmiany kodu: przelaczamy inbox po inboksie, z natychmiastowym odwrotem (patrz

@@ -304,7 +304,12 @@ def process_one(now):
             # gdy naprawde trafi sie tura na inboksie Pro (i wtedy leci w except ponizej,
             # traktowany jak kazdy inny blad — patrz klasyfikacja retryable nizej).
             from bots_pro.tura import uruchom as uruchom_pro
-            uruchom_pro(conv_id, inbox_id, content, zalaczniki=attachments, persona=persona)
+            # message_id=mid (Task 8, W3 code review): odrozniania NOWEJ tury od
+            # PONOWNEJ PROBY tej samej wiadomosci po bledzie przejsciowym (ponizej,
+            # attempts += 1 -> wraca do 'pending' -> ten sam wiersz trafi tu znowu
+            # z TYM SAMYM mid) — patrz bots_pro.stan.zarejestruj_ture.
+            uruchom_pro(conv_id, inbox_id, content, zalaczniki=attachments, persona=persona,
+                       message_id=mid)
         else:
             run_quote_turn(conv_id, inbox_id, mid, content, attachments=attachments, persona=persona)
         c = db(); c.execute("UPDATE quote_queue SET status='sent' WHERE id=?", (qid,)); c.commit(); c.close()
