@@ -121,8 +121,10 @@ class TestPrzechwycenieWysylki:
         rozmowa = {"id": 502, "wiadomosci": [("KLIENT", "ile kosztuje blat?")]}
         wynik = replay.odtworz(rozmowa)
 
-        assert wynik["odpowiedzi"] == []   # zla cena NIGDY nie "dotarla do klienta"
-        assert wynik["handoff"] is True     # ale fakt handoffu jest zarejestrowany
+        # U7: zla cena NIGDY nie "dotarla do klienta", ale wyjscie handoffowe nie
+        # jest juz ciche — klient dostaje jedno zdanie o przekazaniu rozmowy.
+        assert wynik["odpowiedzi"] == [tura.KOMUNIKAT_HANDOFF]
+        assert wynik["handoff"] is True     # i fakt handoffu jest zarejestrowany
 
     def test_prawdziwy_chatwoot_nie_jest_odpytywany_o_status_ani_historie(self, monkeypatch):
         import core.chatwoot as cw

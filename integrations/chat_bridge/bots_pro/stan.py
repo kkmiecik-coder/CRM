@@ -629,10 +629,22 @@ def zapisz_stan(**kolumny):
 
 def handoff(powod):
     """Oddaje rozmowę konsultantowi. Token bota Pro przekazujemy JAWNIE —
-    domyślny cw_bot_handoff sięga po token bota-podpowiadacza."""
+    domyślny cw_bot_handoff sięga po token bota-podpowiadacza.
+
+    U7 (recenzja końcowa): NAJPIERW prywatna notatka z powodem i zebranym
+    stanem, DOPIERO POTEM przełączenie statusu. Ta kolejność jest ta sama, co
+    w starym silniku (`bots.quotebot._do_handoff`, API-05): gdy notatka
+    padnie, rozmowa wciąż jest w 'pending', więc worker może ponowić turę
+    czysto, zamiast zostawić rozmowę w 'open' bez śladu, dlaczego. Notatka
+    siedzi TUTAJ, a nie w `tura._oddaj_konsultantowi`, żeby objąć TAKŻE
+    handoff wywołany przez sam model (narzędzie `oddaj_czlowiekowi`) — inaczej
+    najczęstsze wyjście handoffowe zostałoby jedynym bez notatki."""
     from config import BOT_PRO_CW_AGENT_TOKEN
     from core.chatwoot import cw_bot_handoff
-    udane = cw_bot_handoff(conv_id(), token=BOT_PRO_CW_AGENT_TOKEN)
+    from bots_pro import notatki
+    biezacy = conv_id()
+    notatki.notatka_stanu(biezacy, powod)
+    udane = cw_bot_handoff(biezacy, token=BOT_PRO_CW_AGENT_TOKEN)
     return {"ok": bool(udane), "powod": powod}
 
 
@@ -672,6 +684,20 @@ def zapisana_wycena():
     surowe = {"edit_uuid": wiersz["quote_edit_uuid"],
               "public_url": wiersz["quote_public_url"]}
     return {k: v for k, v in surowe.items() if v}
+
+
+def cytat_potwierdzenia():
+    """Dosłowny fragment, którym klient potwierdził podsumowanie — albo None.
+    Do notatki dla konsultanta (U7): człowiek przejmujący rozmowę ma widzieć,
+    CZY i CZYM klient się zgodził, nie tylko że bot uznał zgodę za ważną."""
+    polaczenie = db()
+    try:
+        wiersz = polaczenie.execute(
+            "SELECT potwierdzenie_cytat FROM pro_stan WHERE conv_id=?",
+            (conv_id(),)).fetchone()
+    finally:
+        polaczenie.close()
+    return wiersz["potwierdzenie_cytat"] if wiersz else None
 
 
 def link_do_checkoutu(edit_uuid=""):

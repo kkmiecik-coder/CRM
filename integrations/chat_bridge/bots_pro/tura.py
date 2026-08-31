@@ -77,6 +77,14 @@ from bots_pro.agenci import zbuduj_router
 from core.chatwoot import cw_agent_reply
 from core.log import log
 
+# Jedno zdanie do klienta na KAŻDYM wyjściu handoffowym (U7). Świadomie bez
+# obietnicy czasu odpowiedzi konsultanta — `prompty.WYCENA` zabrania jej modelowi,
+# więc komunikat sklejany w kodzie tym bardziej nie może jej składać. Bez linków
+# i bez markdownu, żeby był bezpieczny w każdym profilu kanału jeszcze przed
+# `wysylka.przygotuj` (ta i tak go przepuszcza, ale komunikat awaryjny nie ma
+# zależeć od czyszczenia).
+KOMUNIKAT_HANDOFF = "Przekazuję rozmowę konsultantowi WoodPower — poprowadzi ją dalej."
+
 # Rola "system" (nie goły string / rola "user") - patrz akapit o W2 w docstringu modułu.
 _KOMUNIKAT_KOREKTY = [{
     "role": "system",
@@ -107,11 +115,25 @@ def _sesja(conv_id):
                          session_settings=SessionSettings(limit=BOT_PRO_SESSION_ITEMS_LIMIT))
 
 
-def _oddaj_konsultantowi(powod, conv_id):
+def _oddaj_konsultantowi(powod, conv_id, persona="pro"):
     """`stan.handoff` zwraca {"ok": False, ...} przy nieudanej wysyłce do Chatwoota —
     bez logu ten stan wygląda z zewnątrz identycznie jak udany handoff (runda poprawek 1,
     drobne). Nie rzucamy wyjątku — brak handoffu nie ma dobrej ścieżki odzysku w tej
-    turze, ale ma być WIDOCZNY w logach, nie cichy."""
+    turze, ale ma być WIDOCZNY w logach, nie cichy.
+
+    U7 (recenzja końcowa): przed przekazaniem klient dostaje JEDNO zdanie o tym,
+    co się dzieje. Trzy z czterech wyjść handoffowych robiły wcześniej `return`
+    bez żadnej wysyłki — klient zostawał w ciszy dokładnie w momencie, w którym
+    bot rezygnował z prowadzenia rozmowy (audyt wskazał ciszę jako przyczynę
+    porzuceń). Komunikat idzie przez `wysylka.przygotuj`, więc podlega profilowi
+    kanału tak samo jak zwykła odpowiedź — sklejony w Pythonie tekst NIE
+    przechodzi przez personę modelu, więc bez tego omijałby caps kanału.
+
+    NOTATKI dla konsultanta tu NIE MA — pisze ją `stan.handoff` (patrz jej
+    docstring), żeby objąć też handoff wywołany przez sam model."""
+    for czesc in wysylka.przygotuj(KOMUNIKAT_HANDOFF, persona):
+        if czesc:
+            cw_agent_reply(conv_id, czesc, token=BOT_PRO_CW_AGENT_TOKEN)
     wynik = stan.handoff(powod)
     if not wynik.get("ok"):
         log("tura: handoff do konsultanta NIEUDANY, powod=%r (conv %s)" % (powod, conv_id))
@@ -199,7 +221,8 @@ def uruchom(conv_id, inbox_id, tresc, zalaczniki=None, persona="pro", message_id
     if BOT_PRO_MAX_TURNS > 0 and tury_rozmowy > BOT_PRO_MAX_TURNS:
         log("tura: limit %s tur rozmowy przekroczony -> handoff (conv %s)"
             % (BOT_PRO_MAX_TURNS, conv_id))
-        _oddaj_konsultantowi("limit dlugosci rozmowy (ponad %s tur)" % BOT_PRO_MAX_TURNS, conv_id)
+        _oddaj_konsultantowi("limit dlugosci rozmowy (ponad %s tur)" % BOT_PRO_MAX_TURNS,
+                             conv_id, persona)
         return
 
     migawka_przed = stan.migawka_postepu()
@@ -230,7 +253,7 @@ def uruchom(conv_id, inbox_id, tresc, zalaczniki=None, persona="pro", message_id
             if not odpowiedz or guardraile.sprawdz_ceny(odpowiedz, stan.znane_kwoty()):
                 log("guardrail G1: druga proba tez z naruszeniem -> handoff (conv %s)" % conv_id)
                 _oddaj_konsultantowi(
-                    "guardrail ceny — dwie próby z kwotą spoza kalkulatora", conv_id)
+                    "guardrail ceny — dwie próby z kwotą spoza kalkulatora", conv_id, persona)
                 return
 
     # W3: podsumowanie.wyslij() (wolane jako narzedzie, w KTORYMKOLWIEK z powyzszych
@@ -250,7 +273,7 @@ def uruchom(conv_id, inbox_id, tresc, zalaczniki=None, persona="pro", message_id
     if stan.podsumowanie_nieudane() and not odpowiedz:
         log("tura: podsumowanie nie dotarlo do klienta i model nic nie napisal "
             "-> handoff (conv %s)" % conv_id)
-        _oddaj_konsultantowi("podsumowanie nie dotarlo do klienta", conv_id)
+        _oddaj_konsultantowi("podsumowanie nie dotarlo do klienta", conv_id, persona)
         return
 
     # B2: bezpiecznik braku postepu — ZAWSZE, niezaleznie od tego, co powyzej
@@ -264,4 +287,5 @@ def uruchom(conv_id, inbox_id, tresc, zalaczniki=None, persona="pro", message_id
         stan.zresetuj_brak_postepu()
     if BOT_PRO_MAX_BEZ_POSTEPU > 0 and bez_postepu >= BOT_PRO_MAX_BEZ_POSTEPU:
         log("tura: %s kolejnych tur bez postepu -> handoff (conv %s)" % (bez_postepu, conv_id))
-        _oddaj_konsultantowi("brak postepu przez %s kolejnych tur" % bez_postepu, conv_id)
+        _oddaj_konsultantowi("brak postepu przez %s kolejnych tur" % bez_postepu,
+                             conv_id, persona)

@@ -209,8 +209,9 @@ class TestGuardrailBlokujeWysylke:
 
         tura.uruchom(conv_id, "inbox1", "Ile kosztuje blat?", persona="quote")
 
-        # Zadna wersja bledej ceny NIE trafila do klienta.
-        assert wyslane == []
+        # Zadna wersja bledej ceny NIE trafila do klienta — poszedl WYLACZNIE
+        # komunikat o przekazaniu rozmowy (U7: wyjscie handoffowe nie jest ciche).
+        assert wyslane == [tura.KOMUNIKAT_HANDOFF]
         # Doszlo do oddania rozmowy czlowiekowi - dokladnie raz.
         assert len(powody) == 1
         assert "guardrail" in powody[0].lower()
@@ -291,8 +292,10 @@ class TestGuardrailBlokujeWysylke:
 
         tura.uruchom(conv_id, "inbox1", "Ile kosztuje blat?", persona="quote")
 
-        assert wyslane == []      # nic bledego (i nic pustego) nie poszlo do klienta
-        assert len(powody) == 1   # ale klient dostal czlowieka - nie zostal bez odpowiedzi
+        # Nic bledego ani pustego nie poszlo do klienta — tylko komunikat o
+        # przekazaniu rozmowy (U7).
+        assert wyslane == [tura.KOMUNIKAT_HANDOFF]
+        assert len(powody) == 1   # i klient dostal czlowieka - nie zostal bez odpowiedzi
 
     def test_niepowodzenie_handoffu_jest_logowane(self, monkeypatch):
         # Drobne z rundy poprawek 1: {"ok": False} ze stan.handoff nie ma wygladac
@@ -368,7 +371,8 @@ class TestBrakDublowaniaPodsumowania:
 
         tura.uruchom(conv_id, "inbox1", "poprosze wycene", persona="quote")
 
-        assert wyslane == []
+        # U7: zamiast ciszy klient dostaje komunikat o przekazaniu rozmowy.
+        assert wyslane == [tura.KOMUNIKAT_HANDOFF]
         assert len(powody) == 1
 
     def test_nieudane_podsumowanie_z_odpowiedzia_modelu_nie_daje_handoffu(self, monkeypatch):
@@ -438,8 +442,9 @@ class TestBezpiecznikDlugosciRozmowy:
         tura.uruchom(conv_id, "inbox1", "wiadomosc 2", persona="quote")
         tura.uruchom(conv_id, "inbox1", "wiadomosc 3", persona="quote")   # 3. > prog 2
 
-        # Trzecia tura NIE wywolala Routera/LLM w ogole — limit przekroczony PRZED nim.
-        assert wyslane == ["odp1", "odp2"]
+        # Trzecia tura NIE wywolala Routera/LLM w ogole — limit przekroczony PRZED nim,
+        # ale klient dostal komunikat o przekazaniu rozmowy (U7).
+        assert wyslane == ["odp1", "odp2", tura.KOMUNIKAT_HANDOFF]
         assert len(fake_runner.wywolania) == 2
         assert len(powody) == 1
         assert "tur" in powody[0].lower()
@@ -483,8 +488,9 @@ class TestBezpiecznikBrakuPostepu:
         tura.uruchom(conv_id, "inbox1", "wiadomosc 2", persona="quote")   # 2. bez postepu -> prog
 
         # Odpowiedz WCIAZ wyslana w obu turach — to NIE jest guardrail, bot po
-        # prostu nie posuwa sprawy do przodu (np. zapetlone dopytywanie).
-        assert wyslane == ["a", "b"]
+        # prostu nie posuwa sprawy do przodu (np. zapetlone dopytywanie). Po
+        # drugiej turze dochodzi komunikat o przekazaniu rozmowy (U7).
+        assert wyslane == ["a", "b", tura.KOMUNIKAT_HANDOFF]
         assert len(powody) == 1
         assert "postep" in powody[0].lower()
 
@@ -867,3 +873,78 @@ class TestZalacznikiTrafiajaDoModelu:
         tura.uruchom(conv_id, "inbox1", "dzien dobry", persona="pro")
 
         assert fake_runner.wywolania == ["dzien dobry"]
+
+
+class TestWyjsciaHandoffoweNieSaCiche:
+    """U7 (recenzja końcowa): trzy z czterech wyjść handoffowych robiły `return`
+    bez ŻADNEJ wysyłki — klient dostawał ciszę, a konsultant nie wiedział,
+    dlaczego dostał rozmowę. Każde z czterech ma teraz zostawić wiadomość do
+    klienta (przez profil kanału) ORAZ notatkę dla agenta (ta druga siedzi w
+    `stan.handoff`, patrz test_pro_notatki.py)."""
+
+    def test_limit_tur_mowi_klientowi_ze_przekazuje(self, monkeypatch):
+        conv_id = 96204001
+        monkeypatch.setattr(tura, "BOT_PRO_MAX_TURNS", 1)
+        monkeypatch.setattr(tura, "Runner", _FalszywyRunner(["odp1"]))
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+        monkeypatch.setattr(stan, "handoff", lambda powod: {"ok": True})
+
+        tura.uruchom(conv_id, "inbox1", "wiadomosc 1", persona="quote")
+        tura.uruchom(conv_id, "inbox1", "wiadomosc 2", persona="quote")   # ponad limit
+
+        assert wyslane == ["odp1", tura.KOMUNIKAT_HANDOFF]
+
+    def test_podwojne_naruszenie_guardraila_mowi_klientowi(self, monkeypatch):
+        conv_id = 96204002
+        monkeypatch.setattr(tura, "Runner",
+                            _FalszywyRunner(["Cena to 999,00 zl", "Nadal 999,00 zl"]))
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+        monkeypatch.setattr(stan, "handoff", lambda powod: {"ok": True})
+
+        tura.uruchom(conv_id, "inbox1", "ile kosztuje?", persona="quote")
+
+        # Zadna z dwoch halucynacji NIE poszla do klienta, ale klient NIE zostal
+        # w ciszy — dostal komunikat o przekazaniu.
+        assert wyslane == [tura.KOMUNIKAT_HANDOFF]
+
+    def test_brak_postepu_mowi_klientowi_po_zwyklej_odpowiedzi(self, monkeypatch):
+        conv_id = 96204003
+        monkeypatch.setattr(tura, "BOT_PRO_MAX_TURNS", 100)
+        monkeypatch.setattr(tura, "BOT_PRO_MAX_BEZ_POSTEPU", 1)
+        monkeypatch.setattr(tura, "Runner", _FalszywyRunner(["a"]))
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+        monkeypatch.setattr(stan, "handoff", lambda powod: {"ok": True})
+
+        tura.uruchom(conv_id, "inbox1", "wiadomosc", persona="quote")
+
+        assert wyslane == ["a", tura.KOMUNIKAT_HANDOFF]
+
+    def test_komunikat_przechodzi_przez_profil_kanalu(self, monkeypatch):
+        """Na Allegro/OLX komunikat MUSI iść przez `wysylka.przygotuj` — inaczej
+        omija profil kanału tak samo, jak omijały go dawne (nieistniejące) komunikaty."""
+        conv_id = 96204004
+        monkeypatch.setattr(tura, "BOT_PRO_MAX_TURNS", 1)
+        monkeypatch.setattr(tura, "Runner", _FalszywyRunner(["odp1"]))
+        _wyslane_przechwytywacz(monkeypatch)
+        monkeypatch.setattr(stan, "handoff", lambda powod: {"ok": True})
+        uzyte_persony = []
+        prawdziwa = tura.wysylka.przygotuj
+        monkeypatch.setattr(tura.wysylka, "przygotuj",
+                            lambda tekst, persona: uzyte_persony.append(persona) or
+                            prawdziwa(tekst, persona))
+
+        tura.uruchom(conv_id, "inbox1", "wiadomosc 1", persona="allegro")
+        tura.uruchom(conv_id, "inbox1", "wiadomosc 2", persona="allegro")
+
+        assert uzyte_persony == ["allegro", "allegro"]
+
+    def test_nieudane_podsumowanie_bez_odpowiedzi_modelu_konczy_komunikatem(self, monkeypatch):
+        conv_id = 96204005
+        monkeypatch.setattr(tura, "Runner", _FalszywyRunner([""]))
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+        monkeypatch.setattr(stan, "podsumowanie_nieudane", lambda: True)
+        monkeypatch.setattr(stan, "handoff", lambda powod: {"ok": True})
+
+        tura.uruchom(conv_id, "inbox1", "tak", persona="quote")
+
+        assert wyslane == [tura.KOMUNIKAT_HANDOFF]
