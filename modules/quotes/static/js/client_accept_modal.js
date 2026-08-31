@@ -1297,11 +1297,154 @@ function updateQuoteSummary() {
     summaryContainer.innerHTML = summary;
 }
 
-// Finalne submitowanie
-async function handleFinalSubmit() {
-    console.log('[AcceptModal] Rozpoczęcie finalnego submitowania');
+// === SKŁADANIE ZAMÓWIENIA ===
+// Modal kończy się teraz zamówieniem, a nie samą akceptacją: jedno kliknięcie
+// „Zamawiam" akceptuje wycenę (jeśli trzeba) i tworzy zamówienie w BaseLinkerze.
+// Ta sama ścieżka dla wszystkich wycen — bez rozróżniania, kto wycenę wystawił.
 
-    // POPRAWKA: Sprawdź checkbox akceptacji warunków
+// Zamówienie złożone w tej sesji — zamknięcie modala ma wtedy przeładować
+// stronę, żeby klient zobaczył baner i link do zamówienia, a nie znowu formularz.
+let zamowienieZlozone = false;
+
+function kontaktWoodpower() {
+    return 'biuro@woodpower.pl lub telefonicznie +48 690 002 109';
+}
+
+// Komunikat na wypadek, gdy odpowiedź w ogóle do nas nie dotarła (padła sieć
+// albo serwer). Nie wiemy wtedy nawet tego, czy żądanie zostało obsłużone,
+// więc nie wolno twierdzić ani „zamówiliśmy", ani „nie zamówiliśmy".
+function komunikatBrakOdpowiedzi() {
+    const numer = window.QUOTE_NUMBER
+        || (window.currentQuoteData && window.currentQuoteData.quote_number)
+        || '';
+    return 'Nie mamy potwierdzenia z systemu zamówień i nie wiemy, czy Twoje zamówienie '
+        + 'zostało przyjęte. Prosimy: nie składaj go ponownie. Skontaktuj się z nami — '
+        + kontaktWoodpower() + ' — i podaj numer wyceny ' + numer + '. '
+        + 'Sprawdzimy to i potwierdzimy.';
+}
+
+// Do href wpuszczamy wyłącznie http/https. order_page_url przychodzi z odpowiedzi
+// BaseLinkera; "javascript:..." w atrybucie href wykonałoby się po kliknięciu.
+function bezpiecznyLinkZamowienia(adres) {
+    if (!adres) return null;
+    try {
+        const url = new URL(adres, window.location.origin);
+        return (url.protocol === 'http:' || url.protocol === 'https:') ? url.href : null;
+    } catch (e) {
+        console.warn('[AcceptModal] Odrzucony link do zamówienia:', adres);
+        return null;
+    }
+}
+
+// Chowa kroki formularza i oddaje kontener na ekran końcowy.
+function przelaczNaEkranKoncowy() {
+    const modal = document.getElementById('acceptModal');
+    if (!modal) return null;
+    modal.querySelectorAll('.m-prog, .modal-scrollable-content, .step-actions')
+        .forEach(function (el) { el.style.display = 'none'; });
+    const kontener = document.getElementById('checkoutPotwierdzenie');
+    if (!kontener) return null;
+    kontener.textContent = '';
+    kontener.style.display = 'block';
+    return kontener;
+}
+
+// Blokuje przyciski zamawiania na samej stronie — po zamówieniu i po utracie
+// łączności ponowne otwarcie modala nie może być jednym kliknięciem.
+function zablokujPrzyciskiZamawiania() {
+    ['acceptQuoteBtnDesktop', 'acceptQuoteBtnMobile'].forEach(function (id) {
+        const btn = document.getElementById(id);
+        if (btn) btn.disabled = true;
+    });
+}
+
+function dopiszAkapit(kontener, tekst, klasa) {
+    const p = document.createElement('p');
+    if (klasa) p.className = klasa;
+    p.textContent = tekst;
+    kontener.appendChild(p);
+    return p;
+}
+
+function dopiszPrzyciskZamkniecia(kontener) {
+    const zamknij = document.createElement('button');
+    zamknij.type = 'button';
+    zamknij.className = 'btn btn-secondary';
+    zamknij.textContent = 'Zamknij';
+    zamknij.addEventListener('click', closeAcceptModal);
+    kontener.appendChild(zamknij);
+}
+
+// Ekran „zamówienie przyjęte". Buduje się węzłami DOM i textContent — wartości
+// z odpowiedzi (numer wyceny, adres strony zamówienia) NIE trafiają do innerHTML.
+function pokazPotwierdzenie(wynik) {
+    zamowienieZlozone = true;
+    zablokujPrzyciskiZamawiania();
+
+    const kontener = przelaczNaEkranKoncowy();
+    if (!kontener) {
+        showSuccessMessage('Zamówienie zostało złożone.');
+        return;
+    }
+
+    const naglowek = document.createElement('h3');
+    naglowek.textContent = (wynik && wynik.duplikat)
+        ? 'To zamówienie zostało już złożone'
+        : 'Zamówienie zostało złożone';
+    kontener.appendChild(naglowek);
+
+    const numerWyceny = (wynik && wynik.quote_number) || window.QUOTE_NUMBER || '';
+    if (numerWyceny) {
+        dopiszAkapit(kontener, 'Wycena nr ' + numerWyceny, 'podpowiedz');
+    }
+
+    const link = bezpiecznyLinkZamowienia(wynik && wynik.order_page_url);
+    if (link) {
+        const a = document.createElement('a');
+        a.className = 'btn btn-primary btn-zamowienie';
+        a.href = link;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.textContent = 'Otwórz stronę zamówienia';
+        kontener.appendChild(a);
+        // To NIE jest link płatniczy — płatność uruchamia dopiero przycisk
+        // na stronie zamówienia.
+        dopiszAkapit(kontener,
+            'Znajdziesz tam szczegóły zamówienia i przycisk opłacenia.', 'podpowiedz');
+    } else {
+        // Brak order_page nie jest błędem zamówienia — zamówienie istnieje.
+        dopiszAkapit(kontener,
+            'Szczegóły zamówienia i dane do płatności prześlemy w osobnej wiadomości.');
+    }
+
+    dopiszPrzyciskZamkniecia(kontener);
+}
+
+// Ekran „nie wiemy, czy zamówienie powstało". Świadomie bez przycisku ponawiania:
+// numer zamówienia nie zapisał się na wycenie, więc druga próba utworzyłaby
+// DRUGIE realne zamówienie w BaseLinkerze.
+function pokazNiepewnosc(tekst) {
+    zablokujPrzyciskiZamawiania();
+
+    const komunikat = tekst || komunikatBrakOdpowiedzi();
+    const kontener = przelaczNaEkranKoncowy();
+    if (!kontener) {
+        showErrorMessage(komunikat);
+        return;
+    }
+    kontener.classList.add('checkout-done-uncertain');
+
+    const naglowek = document.createElement('h3');
+    naglowek.textContent = 'Nie wiemy, czy zamówienie zostało złożone';
+    kontener.appendChild(naglowek);
+    dopiszAkapit(kontener, komunikat);
+    dopiszPrzyciskZamkniecia(kontener);
+}
+
+// Finalne submitowanie — składa zamówienie
+async function handleFinalSubmit() {
+    console.log('[AcceptModal] Rozpoczęcie składania zamówienia');
+
     const termsAccepted = document.getElementById('acceptTerms').checked;
 
     if (!termsAccepted) {
@@ -1309,23 +1452,24 @@ async function handleFinalSubmit() {
         return;
     }
 
-    // Wyczyść błąd checkbox
     clearFieldError('termsError');
 
     const submitBtn = document.getElementById('finalSubmitBtn');
     const loadingOverlay = document.getElementById('acceptLoadingOverlay');
 
-    // Pokaż loading
     submitBtn.disabled = true;
     loadingOverlay.style.display = 'flex';
 
-    try {
-        // Przygotuj dane do wysłania
-        const formData = collectFormData();
+    // Przycisk wraca do gry TYLKO wtedy, gdy wiemy na pewno, że zamówienie
+    // nie powstało. Po sukcesie i po utracie łączności zostaje wyłączony.
+    let mozliwaPowtorka = false;
 
-        // Wyślij dane
+    try {
+        const formData = collectFormData();
+        formData.akceptacja_regulaminu = true;
+
         const token = getCurrentQuoteToken();
-        const response = await fetch(`/quotes/api/client/quote/${token}/accept-with-data`, {
+        const response = await fetch(`/quotes/api/client/quote/${token}/order`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -1333,32 +1477,38 @@ async function handleFinalSubmit() {
             body: JSON.stringify(formData)
         });
 
-        const result = await response.json();
+        let result = {};
+        try {
+            result = await response.json();
+        } catch (e) {
+            // Odpowiedź bez JSON-a (np. strona błędu proxy) — traktujemy jak brak
+            // odpowiedzi, bo nie wiemy, na jakim etapie żądanie stanęło.
+            result = {};
+            if (!response.ok) result.niepewne = true;
+        }
 
         if (response.ok) {
-            console.log('[AcceptModal] Wycena zaakceptowana pomyślnie:', result);
+            console.log('[AcceptModal] Zamówienie złożone:', result);
+            pokazPotwierdzenie(result);
+            return;
+        }
 
-            if (result.redirect_url) {
-                window.location.href = result.redirect_url;
-            } else {
-                showSuccessMessage('Wycena została zaakceptowana pomyślnie!');
-                closeAcceptModal();
-                setTimeout(() => {
-                    window.location.reload();
-                }, 2000);
-            }
-
+        console.error('[AcceptModal] Zamówienie nieudane:', response.status, result);
+        if (result.niepewne === true) {
+            pokazNiepewnosc(result.error);
         } else {
-            console.error('[AcceptModal] Błąd akceptacji:', result);
-            showErrorMessage(result.error || 'Wystąpił błąd podczas akceptacji wyceny');
+            mozliwaPowtorka = true;
+            showErrorMessage(result.error || 'Nie udało się złożyć zamówienia.');
         }
 
     } catch (error) {
-        console.error('[AcceptModal] Błąd sieciowy:', error);
-        showErrorMessage('Błąd połączenia. Spróbuj ponownie.');
+        // Wyjątek fetch: żądanie mogło dojść do serwera i zostać obsłużone,
+        // a zginąć miała tylko odpowiedź. Nie rozstrzygamy.
+        console.error('[AcceptModal] Brak odpowiedzi serwera:', error);
+        pokazNiepewnosc(null);
     } finally {
-        submitBtn.disabled = false;
         loadingOverlay.style.display = 'none';
+        submitBtn.disabled = !mozliwaPowtorka;
     }
 }
 
@@ -1543,6 +1693,20 @@ function resetAcceptModal() {
     console.log('[AcceptModal] Reset modala do stanu początkowego');
 
     currentStep = 1;
+
+    // Przywróć kroki po ekranie końcowym — inaczej ponowne otwarcie modala
+    // pokazałoby pusty kadłubek bez formularza.
+    const modalReset = document.getElementById('acceptModal');
+    if (modalReset) {
+        modalReset.querySelectorAll('.m-prog, .modal-scrollable-content, .step-actions')
+            .forEach(function (el) { el.style.display = ''; });
+    }
+    const potwierdzenie = document.getElementById('checkoutPotwierdzenie');
+    if (potwierdzenie) {
+        potwierdzenie.style.display = 'none';
+        potwierdzenie.textContent = '';
+        potwierdzenie.classList.remove('checkout-done-uncertain');
+    }
 
     // Ukryj wszystkie kroki
     document.querySelectorAll('#acceptModal .accept-step').forEach(step => {
@@ -1945,10 +2109,18 @@ function openAcceptModal(quoteData = null) {
 
 // Zamknij modal (zintegrować z istniejącą funkcją closeModal)
 function closeAcceptModal() {
-    console.log('[AcceptModal] Zamykanie modala akceptacji');
+    console.log('[AcceptModal] Zamykanie modala');
 
     const modal = document.getElementById('acceptModal');
     modal.style.display = 'none';
+
+    if (zamowienieZlozone) {
+        // Strona pod modalem nadal pokazuje stan sprzed zamówienia. Przeładowanie
+        // wraca z banerem „Zamówienie zostało złożone" i linkiem do zamówienia,
+        // zamiast zostawiać klienta z formularzem, który nie ma już czego zrobić.
+        window.location.reload();
+        return;
+    }
 
     setTimeout(() => {
         resetAcceptModal();

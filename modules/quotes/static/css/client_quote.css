@@ -1442,3 +1442,59 @@ img { max-width: 100%; }
     }
     .edges-display-content { grid-template-columns: 1.4fr 1fr; align-items: center; gap: 20px; }
 }
+
+/* =========================================================================
+   CHECKOUT KLIENTA — stany zamawiania
+   ========================================================================= */
+
+/* Link do strony zamówienia stoi w miejscu przycisku „Zamów", więc musi
+   wyglądać jak on. .cta jest <button>-em, a to jest <a> — stąd domknięcie
+   pudełka i wyśrodkowanie, których przycisk dostaje od przeglądarki. */
+.btn-order-page {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    box-sizing: border-box;
+}
+.colR .btn-order-page { width: 100%; }
+
+/* Powód zamiast martwego przycisku, gdy wyceny nie da się zamówić. */
+.order-unavailable {
+    margin: 12px 0 0;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--off);
+}
+
+/* Ekran końcowy modala: potwierdzenie zamówienia albo utrata łączności. */
+.checkout-done {
+    display: block;
+    padding: 24px 20px;
+    text-align: center;
+}
+.checkout-done h3 {
+    margin: 0 0 8px;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--ink);
+}
+.checkout-done p {
+    margin: 0 0 12px;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--ink);
+}
+.checkout-done .podpowiedz {
+    font-size: 12.5px;
+    color: var(--off);
+}
+.checkout-done .btn { margin: 4px 4px 0; }
+.checkout-done .btn-zamowienie {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+}
+/* Utrata łączności to nie sukces — nie może wyglądać jak potwierdzenie. */
+.checkout-done-uncertain h3 { color: #A15C00; }
