@@ -214,7 +214,20 @@ def policz_wysylke(kod_pocztowy: str) -> dict:
         stan.zapisz_dostawe(kod_pocztowy)
 
     if not wynik.get("ok"):
-        return wynik
+        # U9: sam POWÓD niepowodzenia, nigdy surowy payload. Nieudane oszacowanie
+        # potrafi nieść `raw_netto`/`raw_brutto` (cena kuriera SPRZED narzutu na
+        # pakowanie) — liczby PRAWDZIWE, ale rejestrowi G1 NIEZNANE, bo na tej
+        # ścieżce `zapamietaj_kwoty` dostało pusty zbiór. Bot cytujący je zostawał
+        # oskarżony o halucynację i rozmowa szła do człowieka dokładnie wtedy, gdy
+        # wysyłki i tak nie dało się oszacować. Ta sama zasada i ta sama funkcja
+        # co dla nieudanego `calculate` (W3b) — jedna definicja „co wolno oddać
+        # modelowi przy błędzie", nie dwie.
+        from bots_pro.podsumowanie import _bez_wrazliwych_cen
+        bezpieczny = {"ok": False}
+        if wynik.get("carriers") is not None:
+            bezpieczny["carriers"] = wynik["carriers"]   # liczba kurierów, nie cena
+        bezpieczny.update(_bez_wrazliwych_cen(wynik))
+        return bezpieczny
     # crm_calc.shipping_quote niesie też raw_netto/raw_brutto — cenę kuriera
     # SPRZED narzutu na pakowanie (PACKING_MULTIPLIER) — to PRAWDZIWE liczby,
     # których rejestr powyżej NIE zna (rejestrujemy tylko shipping_netto/

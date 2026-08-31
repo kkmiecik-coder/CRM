@@ -419,6 +419,56 @@ class TestPoliczWyceneRejestrujeKwoty:
         assert stan.dostawa() == {"kod_pocztowy": "80-001"}
 
 
+class TestNieudanaWysylkaNieOddajeSurowychCen:
+    """U9 (recenzja końcowa): przy `ok=False` narzędzie oddawało modelowi CAŁY
+    payload — razem z `raw_netto`/`raw_brutto` (cena kuriera SPRZED narzutu na
+    pakowanie), których rejestr G1 nie zna, bo na tej ścieżce w ogóle nie jest
+    zasilany. Bot cytujący którąkolwiek z tych liczb zostawał oskarżony o
+    halucynację i rozmowa szła do człowieka — dokładnie wtedy, gdy wysyłki i tak
+    nie dało się oszacować. Ta sama klasa co W3b w `podsumowanie._bez_wrazliwych_cen`,
+    domknięta dotąd tylko po stronie `calculate`."""
+
+    def _nieudana(self, monkeypatch, conv_id, wynik):
+        stan.ustaw_kontekst(conv_id)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat")
+        monkeypatch.setattr(n.crm_calc, "shipping_quote", lambda p, kod: wynik)
+        return _wolaj(n.policz_wysylke, kod_pocztowy="00-000")
+
+    def test_surowe_kwoty_nie_wracaja_do_modelu(self, monkeypatch):
+        wynik = self._nieudana(monkeypatch, 96061, {
+            "ok": False, "carriers": 0, "raw_netto": 210.0, "raw_brutto": 258.3,
+            "errors": [{"code": "NO_CARRIER", "message": "Brak kuriera dla gabarytu"}]})
+
+        assert wynik["ok"] is False
+        assert "raw_netto" not in wynik
+        assert "raw_brutto" not in wynik
+        assert "258" not in json.dumps(wynik, ensure_ascii=False)
+
+    def test_powod_niepowodzenia_zostaje(self, monkeypatch):
+        # Model musi wiedziec, CO powiedziec klientowi — sam powod wystarczy.
+        wynik = self._nieudana(monkeypatch, 96062, {
+            "ok": False, "raw_netto": 210.0,
+            "errors": [{"code": "NO_CARRIER", "message": "Brak kuriera dla gabarytu"}]})
+
+        assert wynik["errors"] == [{"code": "NO_CARRIER",
+                                    "message": "Brak kuriera dla gabarytu"}]
+
+    def test_rejestr_kwot_nie_dostaje_surowych_liczb(self, monkeypatch):
+        self._nieudana(monkeypatch, 96063, {
+            "ok": False, "raw_netto": 210.0, "raw_brutto": 258.3, "errors": []})
+        assert stan.znane_kwoty() == set()
+
+    def test_udana_wysylka_bez_zmian(self, monkeypatch):
+        # Kontrola negatywna: sciezka sukcesu nadal oddaje kuriera i koszt.
+        wynik = self._nieudana(monkeypatch, 96064, {
+            "ok": True, "carriers": 2, "carrier_name": "DPD",
+            "shipping_netto": 203.25, "shipping_brutto": 250.0,
+            "raw_netto": 156.35, "raw_brutto": 192.31})
+
+        assert wynik == {"ok": True, "carriers": 2, "carrier_name": "DPD",
+                         "shipping_netto": 203.25, "shipping_brutto": 250.0}
+
+
 class TestPoliczWyceneIWysylkePrzycinajaWynik:
     """W3 (runda poprawek 1 i 2): policz_wycene/policz_wysylke muszą zwracać
     modelowi WYŁĄCZNIE to, co rejestr I1 zna — inaczej bot cytujący prawdziwą
