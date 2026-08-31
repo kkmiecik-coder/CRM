@@ -26,9 +26,13 @@ from modules.baselinker.service import BaselinkerService  # noqa: E402
 class _AtrapaSesji:
     def __init__(self):
         self.commits = 0
+        self.rollbacki = 0
 
     def commit(self):
         self.commits += 1
+
+    def rollback(self):
+        self.rollbacki += 1
 
 
 class _AtrapaZapytania:
@@ -44,7 +48,19 @@ class _AtrapaZapytania:
         return list(self._pozycje)
 
 
-def _serwis(odpowiedz_getorders, monkeypatch, sesja, pozycje_wyceny=()):
+class _AtrapaZapytaniaWybuchowa(_AtrapaZapytania):
+    """Query, które wywala się przy odczycie pozycji wyceny.
+
+    Odwzorowuje dowolne niepowodzenie dopasowania SKU (padnięte połączenie,
+    zmiana schematu, wyjątek w generatorze SKU) — czyli jedyny etap tej metody
+    wykonywany JUŻ PO utworzeniu realnego zamówienia w BaseLinkerze.
+    """
+
+    def all(self):
+        raise RuntimeError("baza padła przy odczycie QuoteItemDetails")
+
+
+def _serwis(odpowiedz_getorders, monkeypatch, sesja, pozycje_wyceny=(), zapytanie=None):
     """Serwis z podmienionym transportem HTTP, sesją bazy i modelem pozycji."""
     serwis = BaselinkerService.__new__(BaselinkerService)
     serwis.logger = SimpleNamespace(
@@ -55,7 +71,7 @@ def _serwis(odpowiedz_getorders, monkeypatch, sesja, pozycje_wyceny=()):
     monkeypatch.setattr("modules.baselinker.service.db", SimpleNamespace(session=sesja))
     monkeypatch.setattr(
         "modules.calculator.models.QuoteItemDetails",
-        SimpleNamespace(query=_AtrapaZapytania(pozycje_wyceny)),
+        SimpleNamespace(query=zapytanie or _AtrapaZapytania(pozycje_wyceny)),
     )
     return serwis
 
@@ -98,3 +114,27 @@ class TestOrderPage:
         serwis._save_order_product_ids(wycena, 1)
 
         assert wycena.baselinker_order_page is None
+
+    def test_order_page_przezywa_blad_dopasowania_sku(self, monkeypatch):
+        # Zamówienie w BaseLinkerze JUŻ istnieje, gdy zaczyna się dopasowanie SKU.
+        # Jeśli ten etap się wywróci, link do strony zamówienia NIE MOŻE przepaść
+        # razem z nim: zamówienia nie da się cofnąć, a klient bez linku nie ma jak
+        # dojść do płatności ani odzyskać go później.
+        sesja = _AtrapaSesji()
+        odpowiedz = {
+            "status": "SUCCESS",
+            "orders": [{
+                "order_id": 777,
+                "order_page": "https://blsklep.pl/zamowienie/xyz789",
+                "products": [{"order_product_id": 1, "sku": "BLAT-DAB"}],
+            }],
+        }
+        serwis = _serwis(odpowiedz, monkeypatch, sesja,
+                         zapytanie=_AtrapaZapytaniaWybuchowa(()))
+        wycena = SimpleNamespace(id=7, baselinker_order_page=None)
+
+        serwis._save_order_product_ids(wycena, 777)
+
+        assert wycena.baselinker_order_page == "https://blsklep.pl/zamowienie/xyz789"
+        assert sesja.commits == 1          # link zapisany PRZED dopasowaniem SKU
+        assert sesja.rollbacki == 1        # sesja oddana wywołującemu w stanie zdatnym

@@ -2098,39 +2098,56 @@ class BaselinkerService:
             # przychodzi w tej samej odpowiedzi i bez tego odczytu ginie — checkout
             # nie ma wtedy czym pokazać klientowi jego zamówienia (jedyny inny zapis
             # jest w get_sales_documents, za uprawnieniem do modułu baselinker).
+            # Link zapisujemy i commitujemy PRZED dopasowaniem SKU. W tym miejscu
+            # realne zamówienie w BaseLinkerze już istnieje i nie da się go cofnąć,
+            # a dopasowanie SKU niżej potrafi rzucić wyjątkiem (padnięte połączenie,
+            # wyjątek w generatorze SKU). Wspólny commit na końcu oznaczałby, że
+            # taki wyjątek zabiera ze sobą link do strony zamówienia — klient nie
+            # ma wtedy jak dojść do płatności i nie ma skąd tego linku odzyskać.
             order_page = bl_order.get('order_page')
             if order_page:
                 quote.baselinker_order_page = order_page
-
-            # Pobierz QuoteItemDetails dla tego quote
-            details = QuoteItemDetails.query.filter_by(quote_id=quote.id).all()
-
-            # Matchuj po SKU
-            details_by_sku = {}
-            for detail in details:
-                sku = self._generate_sku_for_detail(detail)
-                if sku:
-                    details_by_sku[sku] = detail
-
-            matched = 0
-            bl_skus = []
-            for bl_product in bl_products:
-                bl_sku = bl_product.get('sku', '')
-                bl_skus.append(bl_sku)
-                if bl_sku in details_by_sku:
-                    details_by_sku[bl_sku].baselinker_order_product_id = int(bl_product['order_product_id'])
-                    matched += 1
-
-            self.logger.info(f"order_product_id matchowanie: BL SKUs={bl_skus}, detail SKUs={list(details_by_sku.keys())}, matched={matched}")
-
-            # Sam order_page też wymaga commitu — zamówienie bez ani jednego
-            # dopasowanego SKU nadal ma stronę, którą trzeba pokazać klientowi.
-            if matched > 0 or order_page:
                 db.session.commit()
-                self.logger.info("Zapisano order_product_id",
-                               matched=matched,
-                               total_bl=len(bl_products),
-                               total_details=len(details))
+                self.logger.info("Zapisano stronę zamówienia",
+                                 baselinker_order_id=baselinker_order_id)
+
+            # Dopasowanie SKU we własnym try/except — jego niepowodzenie jest
+            # dolegliwe (brak order_product_id w QuoteItemDetails), ale nie może
+            # unieważniać zapisanego wyżej linku ani zostawiać sesji w stanie,
+            # w którym wywołujący nie odczyta już nic z bazy.
+            try:
+                # Pobierz QuoteItemDetails dla tego quote
+                details = QuoteItemDetails.query.filter_by(quote_id=quote.id).all()
+
+                # Matchuj po SKU
+                details_by_sku = {}
+                for detail in details:
+                    sku = self._generate_sku_for_detail(detail)
+                    if sku:
+                        details_by_sku[sku] = detail
+
+                matched = 0
+                bl_skus = []
+                for bl_product in bl_products:
+                    bl_sku = bl_product.get('sku', '')
+                    bl_skus.append(bl_sku)
+                    if bl_sku in details_by_sku:
+                        details_by_sku[bl_sku].baselinker_order_product_id = int(bl_product['order_product_id'])
+                        matched += 1
+
+                self.logger.info(f"order_product_id matchowanie: BL SKUs={bl_skus}, detail SKUs={list(details_by_sku.keys())}, matched={matched}")
+
+                if matched > 0:
+                    db.session.commit()
+                    self.logger.info("Zapisano order_product_id",
+                                   matched=matched,
+                                   total_bl=len(bl_products),
+                                   total_details=len(details))
+            except Exception as e:
+                import traceback
+                db.session.rollback()
+                self.logger.error(f"Błąd dopasowania SKU (order_page zachowany): "
+                                  f"{str(e)}\n{traceback.format_exc()}")
 
         except Exception as e:
             import traceback
