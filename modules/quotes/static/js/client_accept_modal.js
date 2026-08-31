@@ -2269,12 +2269,15 @@ document.addEventListener('DOMContentLoaded', function () {
 
 console.log('[AcceptModal] Moduł załadowany pomyślnie');
 
-if (!document.querySelector('#contact-validation-styles')) {
-    const styleSheet = document.createElement('style');
-    styleSheet.id = 'contact-validation-styles';
-    styleSheet.innerHTML = spinnerStyles;
-    document.head.appendChild(styleSheet);
-}
+// USUNIĘTO duplikat wstrzykiwania stylów #contact-validation-styles.
+// Robi to addContactValidationStyles() (wywołanie tuż pod definicją funkcji),
+// razem z tym samym warunkiem ochronnym. Duplikat sięgał po `spinnerStyles`,
+// które jest `const` WEWNĄTRZ tamtej funkcji, więc na poziomie modułu nie
+// istnieje. Nie wybuchał wyłącznie dlatego, że funkcja zdążyła wcześniej dodać
+// element o tym id i warunek był zawsze fałszywy — czyli martwy kod trzymał się
+// na tym, że nigdy się nie wykonuje. Zmiana id albo kolejności ładowania
+// zamieniłaby go w ReferenceError wywracający cały modal, a modal jest jedyną
+// drogą klienta do złożenia zamówienia.
 
 // === DODAJ TEN KOD NA SAMYM KOŃCU PLIKU ===
 
