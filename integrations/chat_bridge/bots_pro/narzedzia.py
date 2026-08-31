@@ -284,10 +284,24 @@ def policz_wysylke(kod_pocztowy: str) -> dict:
 
 @function_tool
 def znajdz_klienta(email: str = "", telefon: str = "", imie: str = "") -> dict:
-    """Znajduje lub zakłada klienta w CRM. Wołaj dopiero PO przygotowaniu wyceny."""
+    """Znajduje lub zakłada klienta w CRM. Wołaj dopiero PO przygotowaniu wyceny.
+    Pola, których nie podasz, uzupełnimy danymi z kontaktu rozmowy, jeśli je znamy."""
     from bots_pro import stan
+    # N6: pola PUSTE uzupelniamy kontaktem rozmowy (formularz wstepny widgetu).
+    # Do N6 model pytal o wszystko, wiec komplet zawsze byl w tresci rozmowy;
+    # dzis prompt kaze mu pytac WYLACZNIE o to, czego system nie zna — najczesciej
+    # o sam telefon. Bez tej siatki wystarczyloby, ze model nie powtorzy adresu,
+    # o ktory przed chwila nie musial pytac, i w CRM powstalby klient bez e-maila:
+    # nowy blad, wprowadzony naprawa.
+    #
+    # Argument modelu ZAWSZE wygrywa (`or`, nie odwrotnie). Klient, ktory swiadomie
+    # podal inny adres i potwierdzil go, ma dostac wycene na TEN adres — regula
+    # KONTAKT w prompcie wprost tej drogi nie zamyka, wiec kod tez jej nie moze.
+    kontakt = stan.kontakt()
     return crm_calc.find_or_create_client(
-        email or None, telefon or None, imie or None,
+        email or kontakt.get("email") or None,
+        telefon or kontakt.get("phone") or None,
+        imie or kontakt.get("name") or None,
         client_number="chat-%s" % stan.conv_id(),
     )
 

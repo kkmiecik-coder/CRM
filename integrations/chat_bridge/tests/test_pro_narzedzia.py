@@ -1196,3 +1196,60 @@ class TestLinkNieWracaNaKanaleBezLinkow:
         wynik = _wolaj(n.zapisz_wycene, client_id=1)
 
         assert wynik["public_url"] == self.URL
+
+
+class TestN6ZnajdzKlientaUzupelniaZKontaktu:
+    """N6, druga połowa: skoro bot NIE pyta już o e-mail, który zna, to musi go
+    mieć czym uzupełnić przy zakładaniu klienta w CRM.
+
+    Przed N6 model pytał o wszystko, więc zawsze miał komplet w treści rozmowy.
+    Po N6 pyta zwykle już tylko o telefon — a `znajdz_klienta` bierze dane
+    WYŁĄCZNIE z argumentów modelu. Bez tej siatki wystarczyłoby, że model nie
+    powtórzy adresu, którego przed chwilą nie musiał pytać, i w CRM powstałby
+    klient bez e-maila. To byłby NOWY błąd, wprowadzony naprawą.
+
+    Uzupełniamy wyłącznie pola PUSTE. Argument podany przez model zawsze wygrywa
+    — inaczej klient, który świadomie podał inny adres i to potwierdził, i tak
+    dostałby wycenę na stary (a reguła KONTAKT tę drogę wprost przewiduje)."""
+
+    def _przechwyc(self, monkeypatch):
+        zapisane = []
+        monkeypatch.setattr(
+            n.crm_calc, "find_or_create_client",
+            lambda email, phone, name, client_number=None: zapisane.append(
+                (email, phone, name)) or {"ok": True, "client_id": 1})
+        return zapisane
+
+    def test_brakujacy_email_bierze_sie_z_kontaktu_rozmowy(self, monkeypatch):
+        stan.ustaw_kontekst(96410)
+        monkeypatch.setattr(stan, "kontakt", lambda: {
+            "name": "TEST S5", "email": "test-s5@example.invalid", "phone": ""})
+        zapisane = self._przechwyc(monkeypatch)
+
+        _wolaj(n.znajdz_klienta, telefon="500100200")
+
+        assert zapisane == [("test-s5@example.invalid", "500100200", "TEST S5")]
+
+    def test_dane_podane_przez_model_maja_pierwszenstwo(self, monkeypatch):
+        # Klient podal inny adres i potwierdzil go — model przekazuje NOWY,
+        # a kontakt z formularza nie ma prawa go cofnac.
+        stan.ustaw_kontekst(96411)
+        monkeypatch.setattr(stan, "kontakt", lambda: {
+            "name": "TEST S5", "email": "stary@example.invalid", "phone": ""})
+        zapisane = self._przechwyc(monkeypatch)
+
+        _wolaj(n.znajdz_klienta, email="nowy@example.invalid",
+                 telefon="500100200", imie="Jan")
+
+        assert zapisane == [("nowy@example.invalid", "500100200", "Jan")]
+
+    def test_bez_kontaktu_zachowanie_jest_takie_jak_dotad(self, monkeypatch):
+        # Kanaly bez formularza wstepnego (OLX, Allegro): pusty kontakt niczego
+        # nie dokłada, brakujące pola lecą do CRM jako None, jak przed N6.
+        stan.ustaw_kontekst(96412)
+        monkeypatch.setattr(stan, "kontakt", dict)
+        zapisane = self._przechwyc(monkeypatch)
+
+        _wolaj(n.znajdz_klienta, telefon="500100200")
+
+        assert zapisane == [(None, "500100200", None)]
