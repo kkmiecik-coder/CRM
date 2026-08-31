@@ -158,6 +158,39 @@ class TestWyslijSzczesliwaSciezka:
         assert "otwory: otwór na zlew 50x40 cm" in tekst
         assert "otwory: 1 szt." not in tekst
 
+    def test_przy_otworach_podsumowanie_mowi_ze_ich_koszt_nie_jest_wliczony(self, monkeypatch):
+        # N3 (naprawa po testach na zywym czacie): wyciecia SA w podsumowaniu,
+        # ich koszt NIE jest w cenie (pole `otwory` nigdy nie dochodzi do
+        # kalkulatora — patrz _POLA_OPISOWE w potwierdzenia.py), a podsumowanie
+        # o tym milczalo. Bot mowil prawde dopiero zapytany wprost. Klient
+        # potwierdzal wiec cene, ktora nie obejmowala tego, co widzial obok niej.
+        #
+        # UWAGA: to naprawa KOMUNIKATU, nie ceny. Faktyczne wliczenie wyciec do
+        # wyceny jest osobnym, wiekszym zadaniem.
+        _, wyslane = self._przygotuj(monkeypatch, 94012)
+        podsumowanie.wyslij()
+        tekst = wyslane[0][1]
+        assert "koszt wycięć nie jest wliczony w tę cenę" in tekst
+
+    def test_bez_otworow_podsumowanie_nie_wspomina_o_wycieciach(self, monkeypatch):
+        # Kontrola negatywna: adnotacja wisi przy otworach, nie przy kazdej
+        # pozycji — wzmianka o wycieciach w pozycji, ktora ich nie ma, byloby
+        # zaproszeniem do rozmowy, ktorej prompt zabrania zaczynac (CZEGO NIE
+        # WOLNO: nie wspominaj o wycieciach z wlasnej inicjatywy).
+        stan.ustaw_kontekst(94013)
+        poz = _pozycja()
+        poz.pop("otwory")
+        monkeypatch.setattr(stan, "pozycje", lambda: [poz])
+        monkeypatch.setattr(podsumowanie.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(podsumowanie.crm_calc, "calculate", lambda p, o: {
+            "ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}})
+        _zaladuj_atrape_wysylki(monkeypatch)
+        wyslane = []
+        monkeypatch.setattr(podsumowanie, "cw_agent_reply",
+                            lambda conv, tekst, token=None: wyslane.append(tekst) or True)
+        podsumowanie.wyslij()
+        assert "wycięć" not in wyslane[0]
+
     def test_podsumowanie_pokazuje_konkretny_kolor_polysk_z_katalogu_finishing_id(self, monkeypatch):
         # Domkniecie resztki z Task 3: finishing_id (KONKRETNY wariant/polysk) nie byl
         # pokazywany wcale -- klient widzial tylko ogolnik "olejowane", a to

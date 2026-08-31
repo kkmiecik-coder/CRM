@@ -126,6 +126,20 @@ def _linia(poz, options=None):
     otwory = poz.get("otwory") or []
     if otwory:
         linia += ", otwory: %s" % "; ".join(str(o) for o in otwory)
+        # N3 (naprawa po testach na żywym czacie): wycięcia SĄ w podsumowaniu,
+        # ich koszt NIE jest w cenie — pole `otwory` nigdy nie dociera do
+        # kalkulatora (jest jawnie OPISOWE, patrz `_POLA_OPISOWE` i
+        # `odcisk_cenotworczy` w potwierdzenia.py) — a podsumowanie o tym
+        # milczało. Bot mówił prawdę dopiero zapytany wprost, więc klient
+        # potwierdzał cenę, która nie obejmowała tego, co widział tuż obok niej.
+        # Adnotację składa KOD, nie model — dokładnie jak resztę tej linii; to
+        # jedyny sposób, żeby stała przy KAŻDYM podsumowaniu z wycięciami, a nie
+        # wtedy, gdy model akurat sobie o niej przypomni.
+        #
+        # To naprawa KOMUNIKATU, nie ceny: faktyczne wliczenie wycięć do wyceny
+        # jest osobnym, większym zadaniem (wymaga mapowania opisu na pozycję
+        # cennika, dziś FinishingOption CUTOUT w CRM).
+        linia += " (koszt wycięć nie jest wliczony w tę cenę — wycenia je konsultant)"
     return linia
 
 
