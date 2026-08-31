@@ -13,6 +13,7 @@ na samej górze robi dokładnie to (wzorzec z test_pro_models.py).
 """
 import asyncio
 import json
+import re
 import sys
 import types
 
@@ -483,13 +484,75 @@ class TestNieudanaWysylkaNieOddajeSurowychCen:
 
     def test_udana_wysylka_bez_zmian(self, monkeypatch):
         # Kontrola negatywna: sciezka sukcesu nadal oddaje kuriera i koszt.
+        # `wskazowka` (N2) to jedyne pole, ktore doszlo — patrz klasa nizej.
         wynik = self._nieudana(monkeypatch, 96064, {
             "ok": True, "carriers": 2, "carrier_name": "DPD",
             "shipping_netto": 203.25, "shipping_brutto": 250.0,
             "raw_netto": 156.35, "raw_brutto": 192.31})
 
         assert wynik == {"ok": True, "carriers": 2, "carrier_name": "DPD",
-                         "shipping_netto": 203.25, "shipping_brutto": 250.0}
+                         "shipping_netto": 203.25, "shipping_brutto": 250.0,
+                         "wskazowka": n.WSKAZOWKA_PO_DOSTAWIE}
+
+
+class TestWskazowkaPoDoliczeniuDostawy:
+    """N2 (naprawa po testach na zywym czacie): po doliczeniu dostawy bot
+    prosil o ponowne potwierdzenie, NIE pokazujac nowego podsumowania —
+    klient mial potwierdzic kwote, ktorej nie widzial. Regula siedzi w
+    prompcie (POTWIERDZENIE), a to jest jej wzmocnienie w miejscu, w ktorym
+    model realnie podejmuje decyzje: w wyniku narzedzia."""
+
+    def _udana(self, monkeypatch, conv_id):
+        stan.ustaw_kontekst(conv_id)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat")
+        monkeypatch.setattr(n.crm_calc, "shipping_quote", lambda p, kod: {
+            "ok": True, "carriers": 2, "carrier_name": "DPD",
+            "shipping_netto": 203.25, "shipping_brutto": 250.0})
+        return _wolaj(n.policz_wysylke, kod_pocztowy="00-000")
+
+    def test_udane_oszacowanie_niesie_wskazowke(self, monkeypatch):
+        wynik = self._udana(monkeypatch, 96071)
+        assert "wyslij_podsumowanie" in wynik["wskazowka"]
+
+    def test_wskazowka_nie_zawiera_ZADNEJ_kwoty(self, monkeypatch):
+        # Wskazowka jedzie do modelu w tym samym wyniku co prawdziwe kwoty.
+        # Gdyby sama niosla liczbe, model mialby dwa zrodla ceny zamiast
+        # jednego — a rejestr G1 zna tylko to drugie. Zero cyfr = zero
+        # szans, ze wskazowka stanie sie zrodlem kwoty.
+        wynik = self._udana(monkeypatch, 96072)
+        assert not re.search(r"\d", wynik["wskazowka"])
+
+    def test_brak_kuriera_przy_ok_true_nie_dostaje_wskazowki(self, monkeypatch):
+        # `ok=True, carriers=0` (brak kuriera dla gabarytu) idzie ta sama
+        # galezia co sukces — patrz docstring policz_wysylke. Nie ma tam
+        # czego doliczyc do podsumowania, wiec wskazowki tez nie ma.
+        stan.ustaw_kontekst(96074)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat")
+        monkeypatch.setattr(n.crm_calc, "shipping_quote", lambda p, kod: {
+            "ok": True, "carriers": 0})
+        wynik = _wolaj(n.policz_wysylke, kod_pocztowy="00-000")
+        assert "wskazowka" not in wynik
+
+    def test_wysylka_gratis_dostaje_wskazowke(self, monkeypatch):
+        # 0.00 zl to PRAWDZIWY koszt, nie brak danych — podsumowanie ma sie
+        # przeliczyc tak samo jak przy 250 zl.
+        stan.ustaw_kontekst(96075)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat")
+        monkeypatch.setattr(n.crm_calc, "shipping_quote", lambda p, kod: {
+            "ok": True, "carriers": 1, "carrier_name": "DPD",
+            "shipping_netto": 0.0, "shipping_brutto": 0.0})
+        wynik = _wolaj(n.policz_wysylke, kod_pocztowy="00-000")
+        assert wynik["wskazowka"] == n.WSKAZOWKA_PO_DOSTAWIE
+
+    def test_nieudane_oszacowanie_nie_dostaje_wskazowki(self, monkeypatch):
+        # Bez kuriera nie ma czego doliczac do podsumowania — wskazowka
+        # "wyslij podsumowanie ponownie" bylaby tu myszaca.
+        stan.ustaw_kontekst(96073)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat")
+        monkeypatch.setattr(n.crm_calc, "shipping_quote", lambda p, kod: {
+            "ok": False, "carriers": 0, "errors": []})
+        wynik = _wolaj(n.policz_wysylke, kod_pocztowy="00-000")
+        assert "wskazowka" not in wynik
 
 
 class TestPoliczWyceneIWysylkePrzycinajaWynik:

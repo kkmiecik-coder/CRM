@@ -180,6 +180,23 @@ def policz_wycene() -> dict:
     return podsumowanie.wynik_dla_modelu(pozycje, wynik)
 
 
+# N2 (naprawa po testach na żywym czacie): po doliczeniu dostawy bot prosił
+# klienta o ponowne potwierdzenie, NIE wysyłając nowego podsumowania — klient
+# miał potwierdzić kwotę, której nigdy nie zobaczył, czyli dokładnie to, przed
+# czym chroni bramka potwierdzenia I2, wpuszczone bocznymi drzwiami. Regułą
+# nadrzędną jest zdanie w `prompty.WYCENA` (sekcja POTWIERDZENIE); to jest jej
+# wzmocnienie w miejscu, w którym model faktycznie podejmuje decyzję — w wyniku
+# narzędzia, a nie kilka tysięcy znaków wcześniej.
+#
+# ZERO KWOT w tej wskazówce, świadomie: jedzie do modelu w tym samym słowniku
+# co prawdziwe `shipping_netto`/`shipping_brutto`. Gdyby niosła własną liczbę,
+# model miałby dwa źródła ceny zamiast jednego, a rejestr G1 (stan.znane_kwoty)
+# zna wyłącznie to drugie. Pilnuje tego test_wskazowka_nie_zawiera_ZADNEJ_kwoty.
+WSKAZOWKA_PO_DOSTAWIE = (
+    "Koszt dostawy doliczony. Wyślij podsumowanie ponownie (wyslij_podsumowanie), "
+    "zanim poprosisz klienta o potwierdzenie — ma zobaczyć kwotę z dostawą.")
+
+
 @function_tool
 def policz_wysylke(kod_pocztowy: str) -> dict:
     """Szacuje koszt kuriera dla zapisanych pozycji. Kod pocztowy w formacie
@@ -253,7 +270,16 @@ def policz_wysylke(kod_pocztowy: str) -> dict:
         "shipping_netto": wynik.get("shipping_netto"),
         "shipping_brutto": wynik.get("shipping_brutto"),
     }
-    return {k: v for k, v in surowy.items() if v is not None}
+    okrojony = {k: v for k, v in surowy.items() if v is not None}
+    # N2: wskazówka DOPIERO gdy koszt faktycznie się oszacował. `ok=True`
+    # z `carriers=0` przechodzi tą samą gałęzią (patrz docstring wyżej —
+    # brak kuriera dla gabarytu NIE jest błędem wywołania), a wtedy nie ma
+    # czego doliczać do podsumowania i wskazówka byłaby myląca. Zero jest tu
+    # prawdziwym kosztem (wysyłka gratis), więc warunkiem jest OBECNOŚĆ
+    # klucza, nie jego prawdziwość.
+    if "shipping_netto" in okrojony or "shipping_brutto" in okrojony:
+        okrojony["wskazowka"] = WSKAZOWKA_PO_DOSTAWIE
+    return okrojony
 
 
 @function_tool

@@ -40,3 +40,15 @@ class TestN1PytanieZobowiazuje:
     def test_wycena_ma_regule_pytanie_zobowiazuje(self):
         assert "PYTANIE ZOBOWIĄZUJE" in prompty.WYCENA
         assert "nie wołaj w tej samej turze oddaj_czlowiekowi" in prompty.WYCENA
+
+
+class TestN2PodsumowaniePoDoliczeniuDostawy:
+    """Rozmowa z żywego czatu: po policz_wysylke bot poprosił o ponowne
+    potwierdzenie, NIE pokazując nowego podsumowania — musiałem sam poprosić
+    o zestawienie. Klient miałby potwierdzić kwotę, której nigdy nie zobaczył,
+    czyli dokładnie to, przed czym chroni wymóg potwierdzenia (I2), wpuszczone
+    bocznymi drzwiami."""
+
+    def test_wycena_kaze_wyslac_podsumowanie_ponownie_po_dostawie(self):
+        assert "Po policz_wysylke zawsze wołaj wyslij_podsumowanie ponownie" in prompty.WYCENA
+        assert "nie potwierdzać starą" in prompty.WYCENA

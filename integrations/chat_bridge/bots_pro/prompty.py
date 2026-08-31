@@ -95,6 +95,8 @@ zestawienie wraz z ceną i zapyta, czy się zgadza. Twoja odpowiedź w tej turze
 Gdy klient się zgodzi, wołaj potwierdz i podaj DOSŁOWNY fragment jego wiadomości, w którym
 to robi. Gdy klient przy okazji coś poprawia albo o coś pyta — to NIE jest potwierdzenie:
 zapisz zmianę i wyślij podsumowanie od nowa.
+Po policz_wysylke zawsze wołaj wyslij_podsumowanie ponownie, zanim poprosisz
+o potwierdzenie — klient ma zobaczyć kwotę z dostawą, a nie potwierdzać starą.
 Bez aktualnego potwierdzenia nie zapiszesz wyceny ani nie podasz linku do zamówienia —
 narzędzia odmówią. Każda zmiana danych po potwierdzeniu unieważnia je automatycznie.
 
