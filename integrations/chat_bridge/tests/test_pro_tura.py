@@ -807,3 +807,63 @@ class TestHandoffWiedzaDoWyceny:
 
         # Trasa: Router (0 narzedzi) -> Wiedza (2 narzedzia) -> Wycena (11 narzedzi).
         assert [w["n_tools"] for w in fake_model.wywolania] == [0, 2, 11]
+
+
+class TestZalacznikiTrafiajaDoModelu:
+    """U2 (recenzja końcowa): `zalaczniki` były WYŁĄCZNIE w sygnaturze `uruchom`
+    (zero użyć w ciele), więc wiadomość samym zdjęciem szła do modelu jako PUSTY
+    string, a obrazy do kosza. Webhook celowo przepuszcza wiadomość bez tekstu,
+    gdy ma obraz (`webhooks._process_pro`), a klienci WoodPower przysyłają zdjęcia
+    rutynowo."""
+
+    def test_sam_obraz_nie_daje_pustego_wejscia(self, monkeypatch):
+        conv_id = 96203001
+        monkeypatch.setattr(tura.obrazy, "to_data_uri",
+                            lambda url, formats=None: "data:image/jpeg;base64,AAA")
+        fake_runner = _FalszywyRunner(["Widze zdjecie, prosze o wymiary."])
+        monkeypatch.setattr(tura, "Runner", fake_runner)
+        _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "", zalaczniki=["https://x/foto.jpg"], persona="olx")
+
+        wejscie = fake_runner.wywolania[0]
+        assert wejscie != ""
+        assert wejscie == [{"role": "user", "content": [
+            {"type": "input_image", "image_url": "data:image/jpeg;base64,AAA"}]}]
+
+    def test_tekst_z_obrazem_leci_razem(self, monkeypatch):
+        conv_id = 96203002
+        monkeypatch.setattr(tura.obrazy, "to_data_uri",
+                            lambda url, formats=None: "data:image/jpeg;base64,BBB")
+        fake_runner = _FalszywyRunner(["ok"])
+        monkeypatch.setattr(tura, "Runner", fake_runner)
+        _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "taki jak na zdjeciu",
+                     zalaczniki='["https://x/foto.jpg"]', persona="pro")
+
+        czesci = fake_runner.wywolania[0][0]["content"]
+        assert [c["type"] for c in czesci] == ["input_text", "input_image"]
+
+    def test_profil_kanalu_decyduje_o_dozwolonych_formatach(self, monkeypatch):
+        conv_id = 96203003
+        pytania = []
+        monkeypatch.setattr(tura.obrazy, "to_data_uri",
+                            lambda url, formats=None: pytania.append(formats) or None)
+        monkeypatch.setattr(tura, "Runner", _FalszywyRunner(["ok"]))
+        _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "tekst", zalaczniki=["https://x/a.webp"],
+                     persona="allegro")
+
+        assert pytania == [("jpg", "jpeg", "png")]
+
+    def test_bez_zalacznikow_wejscie_zostaje_stringiem(self, monkeypatch):
+        conv_id = 96203004
+        fake_runner = _FalszywyRunner(["ok"])
+        monkeypatch.setattr(tura, "Runner", fake_runner)
+        _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "dzien dobry", persona="pro")
+
+        assert fake_runner.wywolania == ["dzien dobry"]

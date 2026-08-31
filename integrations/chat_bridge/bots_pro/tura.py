@@ -72,7 +72,7 @@ from agents import SessionSettings, SQLiteSession
 
 from config import (BOT_PRO_CW_AGENT_TOKEN, BOT_PRO_MAX_BEZ_POSTEPU, BOT_PRO_MAX_RUNNER_STEPS,
                     BOT_PRO_MAX_TURNS, BOT_PRO_SESSION_ITEMS_LIMIT, DB_PATH)
-from bots_pro import guardraile, stan, wysylka
+from bots_pro import guardraile, obrazy, stan, wysylka
 from bots_pro.agenci import zbuduj_router
 from core.chatwoot import cw_agent_reply
 from core.log import log
@@ -128,6 +128,13 @@ def uruchom(conv_id, inbox_id, tresc, zalaczniki=None, persona="pro", message_id
     wiadomości po błędzie przejściowym (patrz docstring `zarejestruj_ture`).
     Domyślnie `None` — wywołania bez tego argumentu (w tym większość testów w
     tym pliku) liczą się ZAWSZE jako nowa tura, zachowanie sprzed W3.
+
+    `zalaczniki` (U2, recenzja końcowa): adresy obrazów z tej wiadomości —
+    lista albo SUROWY tekst JSON z kolumny `quote_queue.attachments`. Idą do
+    modelu jako wejście multimodalne (`bots_pro.obrazy.wejscie`), z formatami
+    ograniczonymi profilem kanału. Do tej poprawki parametr istniał WYŁĄCZNIE
+    w sygnaturze: wiadomość samym zdjęciem (webhook celowo taką przepuszcza)
+    dawała modelowi pusty string.
 
     `persona` MUSI trafić do `stan.ustaw_kontekst` (nie tylko zostać lokalnym
     parametrem) — `podsumowanie.wyslij()`, wołane jako narzędzie WEWNĄTRZ tej tury,
@@ -197,8 +204,14 @@ def uruchom(conv_id, inbox_id, tresc, zalaczniki=None, persona="pro", message_id
 
     migawka_przed = stan.migawka_postepu()
 
+    # U2: zdjecia klienta ida do modelu RAZEM z tekstem (wejscie multimodalne,
+    # bots_pro/obrazy.py). Bez zalacznikow `wejscie()` zwraca goly string —
+    # sciezka bez zdjec zachowuje sie DOKLADNIE jak przed ta poprawka.
+    wejscie_modelu = obrazy.wejscie(tresc, zalaczniki, persona)
+
     wynik = Runner.run_sync(
-        zbuduj_router(), tresc, session=_sesja(conv_id), max_turns=BOT_PRO_MAX_RUNNER_STEPS)
+        zbuduj_router(), wejscie_modelu, session=_sesja(conv_id),
+        max_turns=BOT_PRO_MAX_RUNNER_STEPS)
     odpowiedz = (wynik.final_output or "").strip()
 
     if odpowiedz:
