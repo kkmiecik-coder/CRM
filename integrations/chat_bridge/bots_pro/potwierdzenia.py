@@ -33,14 +33,28 @@ _POLA_ISTOTNE = ("id", "produkt", "dlugosc", "szerokosc", "grubosc", "ilosc",
 # Cytat musi mieć sensowną długość — pojedynczy znak interpunkcyjny ("." wyrwane
 # z końca zdania klienta) nie jest potwierdzeniem.
 _MIN_DLUGOSC_CYTATU = 2
-# Słowa, które TUŻ PRZED cytowanym fragmentem odwracają jego sens — "nie potwierdzam"
-# nie jest potwierdzeniem, mimo że słowo "potwierdzam" faktycznie pada w wiadomości.
+# Cząstki negujące. Działają LOKALNIE — na KLAUZULI, w której stoją, nie na
+# jednym następnym słowie (U5, recenzja końcowa). "Nie zgadzam się na tę cenę"
+# jest odmową w całości, więc cytat wyjęty z jej środka ("się na tę cenę") NIE
+# jest zgodą — a właśnie tak działała poprzednia wersja, patrząc wyłącznie na
+# słowo bezpośrednio przed cytatem. Zasięg klauzuli (a nie całej wypowiedzi) jest
+# tu istotny w DRUGĄ stronę: "nie zmieniam nic, potwierdzam" to ZGODA — tam "nie"
+# neguje "zmieniam", nie "potwierdzam" zza przecinka.
 _NEGACJE = {"nie", "bez", "niestety"}
-# Interpunkcja, którą pomijamy MIĘDZY negacją a cytatem — "nie, tak nie może być"
-# ma wykryć "nie" tuż przed "tak", mimo przecinka. NIE pomijamy słów — "nie mam
-# uwag, potwierdzam" ma NIE liczyć się jako negacja "potwierdzam", bo między "nie"
-# a przecinkiem stoi jeszcze "mam uwag" (to "nie" neguje INNE zdanie).
-_INTERPUNKCJA_KONCOWA = re.compile(r"[\s,;:!?.\-—–]+$")
+
+# Granice klauzul. Negacja NIE przechodzi przez taką granicę — z jednym wyjątkiem
+# opisanym w `_zanegowany` (samotne "nie," tuż przed cytatem).
+_SEPARATOR_KLAUZULI = re.compile(r"[,;:.!?\n—–]")
+
+# Jawne wycofanie się klienta. W odróżnieniu od negacji NIE jest lokalne dla
+# klauzuli — unieważnia CAŁĄ wypowiedź, także cytat stojący PRZED nim ("To za
+# drogo, rezygnuję": model cytuje pierwszą połowę, a klient właśnie odszedł).
+# Lista jest CELOWO wąska i dotyczy tylko jednoznacznych czasowników rezygnacji —
+# szersza (np. "za drogo") zjadałaby prawdziwe zgody w rodzaju "myślałem, że za
+# drogo, ale biorę". Nowe wpisy dodawać wyłącznie świadomie: fałszywa odmowa
+# kosztuje rundę rozmowy, fałszywa zgoda łamie inwariant I2.
+_ODMOWY = re.compile(
+    r"(?<!\w)(?:rezygn\w*|odmawiam|anuluj\w*|wycofuj\w*|odst[ęe]puj\w*)", re.IGNORECASE)
 
 
 def podpis(pozycje):
@@ -57,16 +71,36 @@ def _znormalizuj(tekst):
     return (tekst or "").strip().lower()
 
 
-def _slowo_przed(tekst, pozycja):
-    """Ostatnie słowo w tekście PRZED podaną pozycją, z pominięciem białych znaków
-    i interpunkcji MIĘDZY nim a cytatem — "nie, tak nie może być" ma wykryć "nie"
-    tuż przed "tak", mimo przecinka. Ale "nie" MUSI być bezpośrednio przed tą
-    interpunkcją: "Nie mam uwag, potwierdzam" ma zwrócić "uwag" (nie "nie"), bo
-    między negacją a przecinkiem stoi jeszcze "mam uwag" — to "nie" neguje INNE
-    zdanie, nie potwierdzenie, które po nim następuje."""
-    bez_interpunkcji = _INTERPUNKCJA_KONCOWA.sub("", tekst[:pozycja])
-    dopasowanie = re.search(r"(\w+)$", bez_interpunkcji)
-    return dopasowanie.group(1) if dopasowanie else ""
+def _slowa(fragment):
+    return re.findall(r"\w+", fragment or "")
+
+
+def _zanegowany(tekst, pozycja):
+    """Czy cytat zaczynający się w `pozycja` stoi w klauzuli, którą klient zanegował.
+
+    Patrzymy na CAŁĄ klauzulę przed cytatem, nie na jedno słowo (U5): w "Nie
+    zgadzam się na tę cenę" cytat "się na tę cenę" ma przed sobą "Nie zgadzam" —
+    negacja jest o dwa słowa dalej, ale neguje całą tę wypowiedź.
+
+    Klauzula kończy się na przecinku/średniku/kropce — dzięki temu "nie zmieniam
+    nic, potwierdzam" pozostaje ZGODĄ ("nie" neguje "zmieniam", nie "potwierdzam").
+    WYJĄTEK: gdy cytat zaczyna nową klauzulę, a poprzednia to SAMA negacja
+    ("nie, tak nie może być"), negacja jednak go dosięga — to nadal ta sama
+    odmowa, tylko z przecinkiem w środku (N2 z poprzedniej rundy)."""
+    przed = tekst[:pozycja]
+    granice = list(_SEPARATOR_KLAUZULI.finditer(przed))
+    if not granice:
+        return any(s in _NEGACJE for s in _slowa(przed))
+
+    ostatnia = granice[-1]
+    klauzula = przed[ostatnia.end():]
+    slowa_klauzuli = _slowa(klauzula)
+    if slowa_klauzuli:
+        return any(s in _NEGACJE for s in slowa_klauzuli)
+
+    poczatek_poprzedniej = granice[-2].end() if len(granice) > 1 else 0
+    poprzednia = _slowa(przed[poczatek_poprzedniej:ostatnia.start()])
+    return len(poprzednia) == 1 and poprzednia[0] in _NEGACJE
 
 
 def sprawdz_cytat(cytat, ostatnia_wiadomosc_klienta):
@@ -76,17 +110,32 @@ def sprawdz_cytat(cytat, ostatnia_wiadomosc_klienta):
     To jest zabezpieczenie przed zgodą, której nie było: model nie może wymyślić
     potwierdzenia, bo musi wskazać fragment realnego tekstu. Dopasowanie idzie na
     granicach słów (żeby "tak" nie trafiało w środek "taka" ani "kontakt"), wymaga
-    sensownej długości cytatu, i odrzuca dopasowanie, przed którym stoi negacja —
-    inaczej cytat "potwierdzam" wyłowiony z "nie potwierdzam, proszę o korektę"
-    przepchnąłby zgodę, której klient nie wyraził.
+    sensownej długości cytatu, i odrzuca dopasowanie, którego klauzula jest
+    zanegowana — inaczej cytat "potwierdzam" wyłowiony z "nie potwierdzam, proszę
+    o korektę" (albo "się na tę cenę" z "Nie zgadzam się na tę cenę") przepchnąłby
+    zgodę, której klient nie wyraził.
+
+    U5 (recenzja końcowa): dwie zmiany zakresu wobec poprzedniej wersji. (1)
+    negacja jest szukana w CAŁEJ klauzuli przed cytatem, nie w jednym słowie —
+    przesunięcie początku cytatu o słowo nie omija już bramki. (2) jawne
+    wycofanie się klienta (`_ODMOWY`) unieważnia całą wypowiedź, także cytat
+    stojący PRZED nim — "To za drogo, rezygnuję" nie jest zgodą w żadnej swojej
+    połowie.
+
+    Czego to NADAL nie łapie (świadomie): oceny semantycznej. "A ile to potrwa?"
+    zacytowane jako zgoda przejdzie — fragment naprawdę jest w wiadomości i nie ma
+    w niej ani negacji, ani rezygnacji. To ograniczenie mechanizmu opartego na
+    dosłownym cytacie, nie luka do zamknięcia regexem.
     """
     fragment = _znormalizuj(cytat)
     tekst = _znormalizuj(ostatnia_wiadomosc_klienta)
     if not fragment or not tekst or len(fragment) < _MIN_DLUGOSC_CYTATU:
         return False
+    if _ODMOWY.search(tekst):
+        return False
     wzorzec = re.compile(r"(?<!\w)%s(?!\w)" % re.escape(fragment))
     for dopasowanie in wzorzec.finditer(tekst):
-        if _slowo_przed(tekst, dopasowanie.start()) not in _NEGACJE:
+        if not _zanegowany(tekst, dopasowanie.start()):
             return True
     return False
 

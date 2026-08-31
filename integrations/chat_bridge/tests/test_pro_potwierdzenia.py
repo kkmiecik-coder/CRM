@@ -130,6 +130,41 @@ class TestNegacjaPrzezInterpunkcje:
         assert p.sprawdz_cytat(cytat, wiadomosc) is True
 
 
+class TestNegacjaWCalejKlauzuli:
+    """U5 (recenzja koncowa): bramka negacji patrzyla WYLACZNIE na JEDNO slowo
+    bezposrednio przed cytatem, wiec wystarczylo przesunac poczatek cytatu o jedno
+    slowo, zeby wyjac ZGODE z ODMOWY ("sie na te cene" z "Nie zgadzam sie na te
+    cene"). Negacja obowiazuje w calej KLAUZULI, w ktorej stoi — a jawne wycofanie
+    sie ("rezygnuje") uniewaznia CALA wypowiedz, tez gdy stoi PO cytacie."""
+
+    @pytest.mark.parametrize("cytat,wiadomosc", [
+        # sonda P1b/P1c z recenzji — cytat przesuniety o jedno/dwa slowa
+        ("się na tę cenę", "Nie zgadzam się na tę cenę"),
+        ("na tę cenę", "Nie zgadzam się na tę cenę"),
+        ("cenę", "Nie zgadzam się na tę cenę"),
+        ("pasuje mi ta grubość", "Nie pasuje mi ta grubość"),
+        # sonda P1e — odmowa stoi PO cytacie, w kolejnej klauzuli
+        ("To za drogo", "To za drogo, rezygnuję"),
+        ("wszystko ok", "wszystko ok było wcześniej, ale rezygnuję"),
+        ("zgadza się", "cena zgadza się z ofertą, ale anuluję zamówienie"),
+    ])
+    def test_cytat_wyjety_z_odmowy_odrzucony(self, cytat, wiadomosc):
+        assert p.sprawdz_cytat(cytat, wiadomosc) is False
+
+    @pytest.mark.parametrize("cytat,wiadomosc", [
+        # Druga strona: falszywa odmowa kosztuje sprzedaz. Te MUSZA przechodzic.
+        ("nie mam uwag", "nie mam uwag"),
+        ("nie, wszystko się zgadza", "nie, wszystko się zgadza"),
+        ("nie zmieniam nic, potwierdzam", "nie zmieniam nic, potwierdzam"),
+        ("potwierdzam", "nie zmieniam nic, potwierdzam"),
+        ("zgadza się", "Nie znalazłem żadnych błędów, zgadza się"),
+        ("wszystko się zgadza", "Tak, wszystko się zgadza"),
+        ("biorę", "cena wyższa niż myślałem, ale biorę"),
+    ])
+    def test_prawdziwa_zgoda_nadal_przechodzi(self, cytat, wiadomosc):
+        assert p.sprawdz_cytat(cytat, wiadomosc) is True
+
+
 class TestBramka:
     def test_brak_potwierdzenia_blokuje(self, monkeypatch):
         monkeypatch.setattr(p, "_stan_potwierdzenia", lambda: (None, None))
