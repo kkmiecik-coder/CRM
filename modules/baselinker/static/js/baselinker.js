@@ -1619,7 +1619,20 @@ class BaselinkerModal {
                 this.closeModal();
             } else {
                 console.error('[Baselinker] ❌ Błąd tworzenia zamówienia:', result);
-                this.showAlert(`Błąd podczas tworzenia zamówienia: ${result.error}`, 'error');
+                // Komunikat serwera niesie rozstrzygnięcie, czy zamówienie
+                // powstało (zamowienie_utworzone / niepewne). NIE dopisujemy
+                // przed nim słowa „Błąd": handlowiec, który przeczyta „błąd",
+                // klika drugi raz — a przy zamówieniu, które JUŻ istnieje,
+                // drugie kliknięcie to drugie realne zamówienie.
+                const powstalo = result.zamowienie_utworzone === true;
+                this.showAlert(result.error || 'Nie udało się utworzyć zamówienia.',
+                    powstalo ? 'warning' : 'error');
+                // Odmowa, z której da się wyjść: administrator może odpiąć
+                // zamówienie od wyceny. Bez tego wycena z anulowanym albo
+                // pomyłkowym zamówieniem była zamknięta na zawsze.
+                if (result.mozna_odpiac === true) {
+                    this.zaproponujOdpiecieZamowienia(result.order_id);
+                }
             }
 
         } catch (error) {
@@ -1636,6 +1649,43 @@ class BaselinkerModal {
                 if (btnText) btnText.style.display = 'flex';
                 if (btnLoading) btnLoading.style.display = 'none';
             }
+        }
+    }
+
+    /**
+     * Droga wyjścia z odmowy 409: odpięcie zamówienia od wyceny.
+     *
+     * Endpoint jest dostępny wyłącznie dla administratora — zwykły handlowiec
+     * dostanie 403 i o tym się dowie. Potwierdzenie jest tu obowiązkowe:
+     * odpięcie kasuje jedyny ślad wiążący wycenę z realnym zamówieniem
+     * w BaseLinkerze, więc wolno je zrobić dopiero PO sprawdzeniu, co tam jest.
+     */
+    async zaproponujOdpiecieZamowienia(orderId) {
+        const quoteId = this.modalData && this.modalData.quote && this.modalData.quote.id;
+        if (!quoteId) return;
+
+        const potwierdzenie = window.confirm(
+            'Odpiąć zamówienie ' + (orderId || '(bez numeru)') + ' od tej wyceny?\n\n'
+            + 'Zrób to TYLKO wtedy, gdy sprawdziłeś w BaseLinkerze, że tego '
+            + 'zamówienia nie ma albo zostało anulowane.\n\n'
+            + 'Po odpięciu wycenę będzie można zamówić ponownie — czyli utworzyć '
+            + 'w BaseLinkerze NOWE, realne zamówienie.');
+        if (!potwierdzenie) return;
+
+        try {
+            const odpowiedz = await fetch(
+                `/baselinker/api/quote/${quoteId}/detach-order`, { method: 'POST' });
+            const wynik = await odpowiedz.json();
+            if (odpowiedz.ok && wynik.success) {
+                this.showAlert(wynik.message || 'Zamówienie zostało odpięte od wyceny.',
+                    'success');
+            } else {
+                this.showAlert(wynik.error || 'Nie udało się odpiąć zamówienia.', 'error');
+            }
+        } catch (error) {
+            console.error('[Baselinker] Błąd odpinania zamówienia:', error);
+            this.showAlert(`Błąd sieci przy odpinaniu zamówienia: ${error.message}`,
+                'error');
         }
     }
 

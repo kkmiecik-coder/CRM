@@ -753,3 +753,137 @@ class TestOdbiorOsobistyWZamowieniu:
         # Adres zostaje na kliencie — należy też do jego innych wycen.
         with aplikacja.app_context():
             assert Client.query.first().delivery_address == 'Leśna 12'
+
+
+class TestBladBazyNieStraszyKlienta:
+    """N5 / sonda W2: żądanie, które nie doszło do BaseLinkera, nie może
+    sugerować, że pieniądze mogły wyjść.
+
+    Lock wait timeout na blokadzie wyceny wychodził z endpointu jako 500 bez
+    JSON-a, a modal zamieniał brak JSON-a na `niepewne` i pokazywał ekran
+    „Nie wiemy, czy zamówienie zostało złożone… skontaktuj się z nami" — choć
+    do BaseLinkera nie poszło NIC.
+    """
+
+    def test_padnieta_blokada_daje_uczciwe_sprobuj_ponownie(
+            self, aplikacja, klient_http, baselinker, monkeypatch):
+        from sqlalchemy.exc import OperationalError
+
+        def padnij(_quote):
+            raise OperationalError('SELECT ... FOR UPDATE', {},
+                                   Exception('Lock wait timeout exceeded'))
+
+        monkeypatch.setattr(checkout_service, 'zablokuj_wycene', padnij)
+        _zasiej()
+
+        odpowiedz = _zamow(klient_http)
+        body = odpowiedz.get_json()
+
+        assert odpowiedz.status_code == 503
+        assert body['niepewne'] is False
+        assert body['zamowienie_utworzone'] is False
+        assert 'NIE zostało złożone' in body['error']
+        assert baselinker.wywolania == []
+
+    def test_odpowiedz_jest_jsonem_a_nie_strona_bledu(self, aplikacja, klient_http,
+                                                      baselinker, monkeypatch):
+        # Sedno W2: to brak JSON-a zamieniał się w przeglądarce w „nie wiemy".
+        def padnij(_quote):
+            raise RuntimeError('cokolwiek padło przed BaseLinkerem')
+
+        monkeypatch.setattr(checkout_service, 'zablokuj_wycene', padnij)
+        _zasiej()
+
+        odpowiedz = _zamow(klient_http)
+
+        assert odpowiedz.is_json
+        assert odpowiedz.get_json()['niepewne'] is False
+
+
+class TestProbaWToku:
+    """Równoległe żądanie na tej samej wycenie — komunikat bez straszenia."""
+
+    def test_drugie_zadanie_dostaje_informacje_o_przetwarzaniu(
+            self, aplikacja, klient_http, baselinker):
+        id_wyceny = _zasiej()
+        with aplikacja.app_context():
+            wycena = Quote.query.get(id_wyceny)
+            wycena.order_attempt_started_at = datetime.utcnow()
+            db.session.commit()
+
+        odpowiedz = _zamow(klient_http)
+        body = odpowiedz.get_json()
+
+        assert odpowiedz.status_code == 409
+        assert body['w_toku'] is True
+        # Ani „zamówiliśmy", ani „nie wiemy" — po prostu „przetwarzamy".
+        assert body['niepewne'] is False
+        assert body['zamowienie_utworzone'] is False
+        assert 'nie składaj' in body['error'].lower()
+        assert baselinker.wywolania == [], 'DRUGIE realne zamówienie w BaseLinkerze'
+
+
+class TestKonfliktSposobuDostawy:
+    """N6: formularz mówi „kurier", a na kliencie siedzi znacznik odbioru."""
+
+    def test_kurier_przy_znaczniku_odbioru_konczy_sie_odmowa(
+            self, aplikacja, klient_http, baselinker):
+        _zasiej(status_id=3, is_client_editable=False)
+        with aplikacja.app_context():
+            klient = Client.query.first()
+            klient.delivery_address = 'ODBIÓR OSOBISTY'
+            klient.delivery_city = 'ODBIÓR OSOBISTY'
+            db.session.commit()
+
+        odpowiedz = _zamow(klient_http, is_self_pickup=False,
+                           delivery_name='Jan Testowy',
+                           delivery_address='Leśna 12',
+                           delivery_postcode='11-111',
+                           delivery_city='Gdańsk')
+        body = odpowiedz.get_json()
+
+        assert odpowiedz.status_code == 400
+        assert baselinker.wywolania == []
+        assert body['niepewne'] is False
+        assert body['zamowienie_utworzone'] is False
+        assert 'dostaw' in body['error'].lower()
+        with aplikacja.app_context():
+            wycena = Quote.query.filter_by(public_token=TOKEN).first()
+            # Odmowa nie zostawia po sobie znacznika — klient ma wrócić
+            # do zamawiania, gdy tylko człowiek uporządkuje dane.
+            assert wycena.order_attempt_started_at is None
+
+
+class TestFlagaOdbioruZFormularza:
+    """N10: `is_self_pickup` z ręcznie sklejonego żądania.
+
+    Odkąd sprzeczność między formularzem a danymi klienta bywa odmową,
+    ciąg 'false' zinterpretowany jako prawda potrafi zamienić poprawne
+    zamówienie w odmowę (albo odwrotnie) — więc czytamy go ściśle.
+    """
+
+    def test_napis_false_znaczy_falsz(self, aplikacja, klient_http, baselinker):
+        _zasiej(status_id=3, is_client_editable=False)
+
+        odpowiedz = _zamow(klient_http, is_self_pickup='false')
+
+        assert odpowiedz.status_code == 200
+        assert baselinker.wywolania[0]['config']['delivery_method'] == 'DPD'
+
+    def test_zero_znaczy_falsz(self, aplikacja, klient_http, baselinker):
+        _zasiej(status_id=3, is_client_editable=False)
+
+        odpowiedz = _zamow(klient_http, is_self_pickup='0')
+
+        assert odpowiedz.status_code == 200
+        assert baselinker.wywolania[0]['config']['delivery_method'] == 'DPD'
+
+    def test_prawdziwy_true_dalej_znaczy_odbior(self, aplikacja, klient_http,
+                                                baselinker):
+        # Kontrola negatywna: ścisłe czytanie nie może zjeść prawidłowego wyboru.
+        _zasiej(status_id=3, is_client_editable=False)
+
+        odpowiedz = _zamow(klient_http, is_self_pickup=True)
+
+        assert odpowiedz.status_code == 200
+        assert baselinker.wywolania[0]['config']['delivery_method'] == 'Odbiór osobisty'

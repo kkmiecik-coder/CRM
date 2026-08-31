@@ -117,3 +117,86 @@ class TestWywolaniaThisWObiekcieInit:
         # na init, poprawka „render." stałaby się błędna.
         zrodlo = _zrodlo(JS_WYCENA)
         assert 'syncAcceptButtons' in _metody(_obiekt(zrodlo, 'render'))
+
+
+JS_PANEL = os.path.join(KORZEN, 'modules', 'baselinker', 'static', 'js',
+                        'baselinker.js')
+
+
+class TestEkranPrzetwarzania:
+    """Trzeci stan bez powtórki: inne żądanie właśnie składa to zamówienie."""
+
+    def test_flaga_w_toku_sprawdzana_przed_dopuszczeniem_powtorki(self):
+        blok = _blok(_zrodlo(JS_MODAL), 'async function handleFinalSubmit()')
+
+        assert 'result.w_toku' in blok, \
+            'handleFinalSubmit wpuszcza powtórkę na próbie, która trwa'
+        assert blok.index('result.w_toku') < blok.index('mozliwaPowtorka = true')
+
+    def test_ekran_przetwarzania_nie_straszy_niepewnoscia(self):
+        zrodlo = _zrodlo(JS_MODAL)
+        blok = _blok(zrodlo, 'function pokazPrzetwarzanie(')
+
+        # Zamówienie jest w trakcie składania — „nie wiemy" byłoby tu
+        # niepotrzebnym straszeniem, ale powtórki dalej być nie może.
+        assert 'Nie wiemy' not in blok
+        assert 'przetwarzane' in blok
+        assert 'pokazEkranBezPowtorki(' in blok
+
+
+class TestWstepneZaznaczenieOdbioru:
+    """Formularz nie może przeczyć danym dostawy zapisanym na kliencie.
+
+    Serwer odrzuca sprzeczność („kurier" w formularzu przy znaczniku odbioru
+    na kliencie), bo nie wolno mu jej rozstrzygnąć za klienta. Modal musi więc
+    wracać do klienta w tym stanie, w jakim jego dane naprawdę są.
+    """
+
+    def test_obie_sciezki_autouzupelniania_ustawiaja_odbior(self):
+        zrodlo = _zrodlo(JS_MODAL)
+
+        assert 'function ustawOdbiorZDanychKlienta(' in zrodlo
+        for funkcja in ('function fillFormWithExistingData(',
+                        'function fillFormWithClientData('):
+            blok = _blok(zrodlo, funkcja)
+            assert 'ustawOdbiorZDanychKlienta(' in blok, \
+                '%s nie zaznacza odbioru osobistego z danych klienta' % funkcja
+
+    def test_znacznik_rozpoznawany_tak_samo_jak_na_serwerze(self):
+        blok = _blok(_zrodlo(JS_MODAL), 'function adresToOdbiorOsobisty(')
+
+        # Ta sama para wariantów co checkout_config._ZNACZNIKI_ODBIORU.
+        assert 'odbiór osobisty' in blok
+        assert 'odbior osobisty' in blok
+
+
+class TestPanelNieNazywaZamowieniaBledem:
+    """N4 po stronie panelu: komunikat serwera rozstrzyga, czy zamówienie jest."""
+
+    def test_komunikat_serwera_nie_jest_poprzedzany_slowem_blad(self):
+        zrodlo = _zrodlo(JS_PANEL)
+        poczatek = zrodlo.index("console.error('[Baselinker] ❌ Błąd tworzenia zamówienia:'")
+        blok = zrodlo[poczatek:poczatek + 1200]
+
+        assert 'Błąd podczas tworzenia zamówienia' not in blok, \
+            'handlowiec czyta „błąd" i klika drugi raz — przy zamówieniu, ' \
+            'które JUŻ istnieje, to drugie realne zamówienie'
+        assert 'zamowienie_utworzone' in blok
+
+    def test_odmowa_z_wyjsciem_proponuje_odpiecie(self):
+        zrodlo = _zrodlo(JS_PANEL)
+        poczatek = zrodlo.index("console.error('[Baselinker] ❌ Błąd tworzenia zamówienia:'")
+        blok = zrodlo[poczatek:poczatek + 1200]
+
+        assert 'mozna_odpiac' in blok
+        assert 'zaproponujOdpiecieZamowienia(' in blok
+
+    def test_odpiecie_wymaga_potwierdzenia(self):
+        # Kasuje jedyny ślad wiążący wycenę z realnym zamówieniem — nie może
+        # wykonać się jednym przypadkowym kliknięciem.
+        zrodlo = _zrodlo(JS_PANEL)
+        poczatek = zrodlo.index('async zaproponujOdpiecieZamowienia(')
+        blok = zrodlo[poczatek:zrodlo.index('\n    }', poczatek)]
+
+        assert 'window.confirm(' in blok
+        assert 'detach-order' in blok

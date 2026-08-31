@@ -263,3 +263,42 @@ class TestFlagaDlaSkryptuStrony:
                 order_page='https://blsklep.pl/z/501')
 
         assert 'window.MOZNA_ZAMOWIC = false' in _strona(klient_http)
+
+
+class TestZnacznikProbyNaWierszuWyceny:
+    """Strona musi widzieć znacznik z wiersza wyceny, nie tylko wpis w logu.
+
+    Wpis w logu powstaje w obsłudze wyjątku — a gdy niesprawna jest baza, nie
+    powstaje wcale (sonda D3b recenzji). Znacznik na wycenie jest zapisany
+    PRZED wywołaniem BaseLinkera, więc to on rozstrzyga, czy klientowi wolno
+    pokazać przycisk.
+    """
+
+    def test_swiezy_znacznik_bez_wpisu_w_logu_gasi_przycisk(self, aplikacja,
+                                                            klient_http):
+        id_wyceny = _zasiej(status_id=3, is_client_editable=False)
+        with aplikacja.app_context():
+            wycena = Quote.query.get(id_wyceny)
+            wycena.order_attempt_started_at = datetime.utcnow()
+            db.session.commit()
+
+        html = _strona(klient_http)
+
+        assert 'id="acceptQuoteBtnDesktop"' not in html
+        assert 'nie składaj go ponownie' in html.lower()
+
+    def test_zamowiona_wycena_ze_znacznikiem_pokazuje_zamowienie(self, aplikacja,
+                                                                  klient_http):
+        # Kontrola negatywna: gdy zamówienie JEST, znacznik nie ma prawa
+        # zamienić potwierdzenia w komunikat o niepewności.
+        id_wyceny = _zasiej(status_id=4, is_client_editable=False, order_id='501',
+                            order_page='https://blsklep.pl/z/501')
+        with aplikacja.app_context():
+            wycena = Quote.query.get(id_wyceny)
+            wycena.order_attempt_started_at = datetime.utcnow()
+            db.session.commit()
+
+        html = _strona(klient_http)
+
+        assert 'Zamówienie zostało złożone' in html
+        assert 'nie składaj go ponownie' not in html.lower()

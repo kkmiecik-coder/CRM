@@ -800,10 +800,35 @@ function showAutoFillInfo() {
     infoElement.style.display = 'flex';
 }
 
+
+// Czy adres zapisany na kliencie to znacznik odbioru osobistego. Ta sama
+// konwencja co po stronie serwera (checkout_config._ZNACZNIKI_ODBIORU).
+function adresToOdbiorOsobisty(adres) {
+    if (!adres) return false;
+    const znormalizowany = String(adres).trim().toLowerCase();
+    return znormalizowany === 'odbiór osobisty' || znormalizowany === 'odbior osobisty';
+}
+
+// Ustawia checkbox odbioru osobistego zgodnie z danymi zapisanymi na kliencie.
+// Bez tego wycena zaakceptowana WCZEŚNIEJ jako odbiór osobisty wracała do
+// modala z odznaczonym polem i adresem „ODBIÓR OSOBISTY" w polu adresu:
+// formularz mówił wtedy „kurier", dane klienta „odbiór" — a serwer taką
+// sprzeczność odrzuca, bo nie wolno mu jej rozstrzygnąć za klienta.
+function ustawOdbiorZDanychKlienta(daneDostawy) {
+    if (!daneDostawy || !adresToOdbiorOsobisty(daneDostawy.address)) return false;
+    const pole = document.getElementById('selfPickup');
+    if (!pole) return false;
+    pole.checked = true;
+    handleSelfPickupChange();
+    return true;
+}
+
 // Wypełnij formularz istniejącymi danymi
 function fillFormWithExistingData(data) {
     // Dane dostawy
-    if (data.delivery) {
+    if (data.delivery && ustawOdbiorZDanychKlienta(data.delivery)) {
+        // Odbiór osobisty — pola adresu są ukryte i puste, nie ma czego wpisywać.
+    } else if (data.delivery) {
         document.getElementById('deliveryName').value = data.delivery.name || '';
         document.getElementById('deliveryCompany').value = data.delivery.company || '';
         document.getElementById('deliveryAddress').value = data.delivery.address || '';
@@ -1433,7 +1458,7 @@ function komunikatZamowienieBezZapisu() {
         + 'wyceny ' + numer + '. Prześlemy potwierdzenie i dane do płatności.';
 }
 
-// Ekran końcowy bez przycisku ponawiania — wspólny dla dwóch stanów, w których
+// Ekran końcowy bez przycisku ponawiania — wspólny dla stanów, w których
 // druga próba mogłaby utworzyć DRUGIE realne zamówienie w BaseLinkerze.
 function pokazEkranBezPowtorki(naglowekTekst, komunikat) {
     zablokujPrzyciskiZamawiania();
@@ -1466,6 +1491,18 @@ function pokazNiepewnosc(tekst) {
 function pokazZamowienieBezZapisu(tekst) {
     pokazEkranBezPowtorki('Zamówienie zostało złożone',
         tekst || komunikatZamowienieBezZapisu());
+}
+
+// Ekran „zamówienie jest właśnie przetwarzane" — inne żądanie (drugie okno,
+// retry przeglądarki, handlowiec w panelu) siedzi w tej chwili w BaseLinkerze.
+// Powtórki nie ma, bo to ona utworzyłaby drugie realne zamówienie, ale to NIE
+// jest awaria: nagłówek „Nie wiemy, czy zamówienie zostało złożone" byłby tu
+// niepotrzebnym straszeniem.
+function pokazPrzetwarzanie(tekst) {
+    pokazEkranBezPowtorki('Zamówienie jest przetwarzane',
+        tekst || ('Twoje zamówienie jest właśnie przetwarzane. Prosimy: nie '
+            + 'składaj go ponownie. Odśwież tę stronę za chwilę — pojawi się '
+            + 'na niej potwierdzenie.'));
 }
 
 // Finalne submitowanie — składa zamówienie
@@ -1522,11 +1559,14 @@ async function handleFinalSubmit() {
 
         console.error('[AcceptModal] Zamówienie nieudane:', response.status, result);
         // Kolejność od najmocniejszej wiedzy: „zamówienie istnieje" bije
-        // „nie wiemy", a obie odbierają prawo do powtórki.
+        // „nie wiemy", to bije „przetwarzamy" — a wszystkie trzy odbierają
+        // prawo do powtórki.
         if (result.zamowienie_utworzone === true) {
             pokazZamowienieBezZapisu(result.error);
         } else if (result.niepewne === true) {
             pokazNiepewnosc(result.error);
+        } else if (result.w_toku === true) {
+            pokazPrzetwarzanie(result.error);
         } else {
             mozliwaPowtorka = true;
             showErrorMessage(result.error || 'Nie udało się złożyć zamówienia.');
@@ -1822,7 +1862,9 @@ async function loadAndFillClientData(email, phone) {
 // Wypełnij formularz danymi klienta
 function fillFormWithClientData(clientData) {
     // Dane dostawy
-    if (clientData.delivery) {
+    if (clientData.delivery && ustawOdbiorZDanychKlienta(clientData.delivery)) {
+        // Odbiór osobisty — pola adresu są ukryte i puste, nie ma czego wpisywać.
+    } else if (clientData.delivery) {
         const deliveryName = document.getElementById('deliveryName');
         const deliveryCompany = document.getElementById('deliveryCompany');
         const deliveryAddress = document.getElementById('deliveryAddress');

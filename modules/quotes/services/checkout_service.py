@@ -453,11 +453,19 @@ def zloz_zamowienie(quote, user_id, buduj_config, sprawdz_kwalifikacje=True):
     if getattr(zablokowana, 'order_attempt_started_at', None) is not None:
         _zdejmij_znacznik(zablokowana)
 
-    return _odpowiedz(
-        True,
-        order_id=wynik.get("order_id"),
-        order_page_url=zablokowana.baselinker_order_page,
-    )
+    # Odczyt linku osłonięty, bo to JEDYNE miejsce po sukcesie, które jeszcze
+    # sięga do bazy. Wyjątek stąd wyleciałby z całej funkcji i wywołujący
+    # dostałby 500 zamiast potwierdzenia zamówienia, które NA PEWNO powstało —
+    # a przeglądarka zamieniłaby to na „nie wiemy". Brak linku kosztuje jedno
+    # zdanie („szczegóły prześlemy w osobnej wiadomości"), nie pieniądze.
+    try:
+        link = zablokowana.baselinker_order_page
+    except Exception as blad:
+        logger.error("Nie udało się odczytać linku do strony zamówienia",
+                     quote_id=getattr(quote, 'id', None), error=str(blad))
+        link = None
+
+    return _odpowiedz(True, order_id=wynik.get("order_id"), order_page_url=link)
 
 
 def zloz_zamowienie_klienta(quote, order_source_id, bot_user_id,

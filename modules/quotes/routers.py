@@ -1198,14 +1198,17 @@ def client_quote_view(token):
         mozna_zamowic = (not ma_zamowienie) and bool(
             quote.is_client_editable or quote.is_eligible_for_order())
 
-        # Po próbie, po której nie wiemy, czy zamówienie powstało, przycisku
+        # Po próbie, której losu nie znamy — albo która właśnie trwa — przycisku
         # nie ma. Blokada w JavaScripcie znikała przy odświeżeniu strony —
         # a klient, który przeczytał „nie wiemy", odruchowo odświeża. Pytamy
         # bazę tylko wtedy, gdy przycisk faktycznie by się pokazał.
+        # Czytamy znacznik z wiersza wyceny, a nie sam wpis w logu: wpis
+        # powstaje w obsłudze wyjątku, więc przy niesprawnej bazie nie powstaje
+        # wcale, a znacznik jest zapisany PRZED wywołaniem BaseLinkera.
         from modules.quotes.services.checkout_service import (
-            istnieje_nierozstrzygnieta_proba)
+            wisi_nierozstrzygnieta_proba)
         niepewna_proba = bool(mozna_zamowic
-                              and istnieje_nierozstrzygnieta_proba(quote.id))
+                              and wisi_nierozstrzygnieta_proba(quote))
         if niepewna_proba:
             mozna_zamowic = False
 
@@ -2323,8 +2326,53 @@ def komunikat_bledu_zamowienia(numer_wyceny, niepewne, zamowienie_utworzone=Fals
     )
 
 
+def czy_odbior_osobisty(dane):
+    """Czy klient zaznaczył odbiór osobisty. Czyta ŚCIŚLE.
+
+    Front-end wysyła `.checked`, czyli prawdziwy bool, ale zwykłe
+    bool(dane.get(...)) uznaje też ciągi 'false' i '0' za prawdę. Dopóki
+    sprzeczny wybór kończył się cichym rozstrzygnięciem, kosztowało to
+    najwyżej dziwne zamówienie z ręcznie sklejonego żądania; odkąd
+    sprzeczność bywa odmową, ten sam ciąg potrafi zablokować poprawne
+    zamówienie albo obciążyć klienta kurierem.
+    """
+    wartosc = dane.get("is_self_pickup")
+    if isinstance(wartosc, str):
+        return wartosc.strip().lower() in ('true', '1', 'yes', 'on', 'tak')
+    return bool(wartosc)
+
+
 @quotes_bp.route("/api/client/quote/<token>/order", methods=["POST"])
 def client_place_order(token):
+    """Cienka obudowa na _client_place_order — gwarantuje odpowiedź w JSON-ie.
+
+    Każde 500 bez JSON-a (strona błędu Flaska, proxy) modal czyta jako „nie
+    wiemy, czy zamówienie zostało złożone" i pokazuje klientowi ekran bez
+    możliwości powtórki — czyli najbardziej niepokojący komunikat w całej
+    ścieżce, w sytuacji, w której do BaseLinkera nie poszło NIC.
+
+    Wolno tu twierdzić „NIE zostało złożone", bo wszystko, co może rzucić
+    wyjątkiem, dzieje się PRZED wywołaniem BaseLinkera: samo
+    zloz_zamowienie_klienta wyjątków nie propaguje (ma własne try/except po
+    obu stronach wywołania).
+    """
+    try:
+        return _client_place_order(token)
+    except Exception as blad:
+        logger.exception("[client_place_order] Nieoczekiwany błąd przed "
+                         "wywołaniem BaseLinkera: %s", blad)
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        return jsonify({
+            "error": komunikat_bledu_zamowienia(None, niepewne=False),
+            "niepewne": False,
+            "zamowienie_utworzone": False,
+        }), 503
+
+
+def _client_place_order(token):
     """Klient składa zamówienie ze strony wyceny.
 
     Akceptacja wyceny (dane klienta, status, maile) idzie tą samą ścieżką co
@@ -2437,10 +2485,56 @@ def client_place_order(token):
         # Wybór dostawy z tego samego formularza, z którego czyta go akceptacja.
         # Bez przekazania go dalej zamówienie jechało kurierem i z kosztem
         # dostawy mimo zaznaczonego odbioru osobistego.
-        is_self_pickup=bool(data.get("is_self_pickup")),
+        is_self_pickup=czy_odbior_osobisty(data),
     )
 
     if not wynik["ok"]:
+        if wynik["error"] == "BLAD_BAZY":
+            # Żądanie nie dotarło do BaseLinkera — awaria jest po naszej stronie
+            # i zamówienia NA PEWNO nie ma. Dawniej wychodziło stąd 500 bez
+            # JSON-a, a przeglądarka zamieniała brak odpowiedzi na najbardziej
+            # niepokojący ekran w całej ścieżce: „nie wiemy, czy zamówienie
+            # zostało złożone". Klient ma tu usłyszeć prawdę: spróbuj za chwilę.
+            return jsonify({
+                "error": komunikat_bledu_zamowienia(numer_wyceny, niepewne=False),
+                "niepewne": False,
+                "zamowienie_utworzone": False,
+                "quote_number": numer_wyceny,
+            }), 503
+
+        if wynik["error"] == "KONFLIKT_DOSTAWY":
+            # Formularz przeczy danym dostawy zapisanym na kliencie. Zamówienia
+            # nie składamy: albo wysłalibyśmy przesyłkę pod adres „ODBIÓR
+            # OSOBISTY", albo obciążyli klienta kurierem, którego odznaczył.
+            return jsonify({
+                "error": "Nie możemy potwierdzić sposobu dostawy dla tej wyceny "
+                         "— dane w formularzu nie zgadzają się z tym, co mamy "
+                         "zapisane. Zamówienie NIE zostało złożone. Skontaktuj "
+                         "się z nami — {kontakt} — i podaj numer wyceny "
+                         "{numer}.".format(kontakt=KONTAKT_WOODPOWER,
+                                           numer=numer_wyceny or "-"),
+                "niepewne": False,
+                "zamowienie_utworzone": False,
+                "quote_number": numer_wyceny,
+            }), 400
+
+        if wynik["w_toku"]:
+            # Inne żądanie właśnie składa to zamówienie (drugie okno, retry
+            # przeglądarki, handlowiec w panelu). Nie straszymy — mówimy wprost,
+            # co się dzieje, i odbieramy prawo do powtórki.
+            return jsonify({
+                "error": "Twoje zamówienie jest właśnie przetwarzane. Prosimy: "
+                         "nie składaj go ponownie. Odśwież tę stronę za chwilę "
+                         "— pojawi się na niej potwierdzenie. Jeśli się nie "
+                         "pojawi, skontaktuj się z nami — {kontakt} — i podaj "
+                         "numer wyceny {numer}.".format(
+                             kontakt=KONTAKT_WOODPOWER, numer=numer_wyceny or "-"),
+                "niepewne": False,
+                "zamowienie_utworzone": False,
+                "w_toku": True,
+                "quote_number": numer_wyceny,
+            }), 409
+
         if wynik["error"] == "NIEKWALIFIKOWANA":
             if blad_akceptacji is not None:
                 return blad_akceptacji
