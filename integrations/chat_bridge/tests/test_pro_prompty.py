@@ -52,3 +52,26 @@ class TestN2PodsumowaniePoDoliczeniuDostawy:
     def test_wycena_kaze_wyslac_podsumowanie_ponownie_po_dostawie(self):
         assert "Po policz_wysylke zawsze wołaj wyslij_podsumowanie ponownie" in prompty.WYCENA
         assert "nie potwierdzać starą" in prompty.WYCENA
+
+
+class TestN4KsztaltInnyNizProstokat:
+    """Rozmowa z żywego czatu: klient poprosił o blat okrągły ⌀120. Bot nazwał
+    go okrągłym i policzył kwadrat 120x120. Koło o średnicy 120 to 1,13 m2,
+    kwadrat 120x120 to 1,44 m2 — 27% materiału różnicy, czyli kwota bez
+    pokrycia, podana klientowi jako cena wiążąca do potwierdzenia. Kalkulator
+    CRM nie zna innych kształtów niż prostokąt; jedynym poprawnym wyjściem
+    jest człowiek."""
+
+    def test_wycena_ma_sekcje_ksztalt(self):
+        assert "KSZTAŁT." in prompty.WYCENA
+        assert "Wyceniamy wyłącznie prostokąty i kwadraty" in prompty.WYCENA
+
+    def test_wycena_wymienia_ksztalty_ktorych_nie_liczymy(self):
+        for ksztalt in ("okrągły", "owalny", "litery L", "łukiem", "nieregularny"):
+            assert ksztalt in prompty.WYCENA, ksztalt
+
+    def test_wycena_zabrania_liczenia_ksztaltu_jak_prostokata(self):
+        assert "Nigdy nie licz takiego kształtu jak prostokąta" in prompty.WYCENA
+
+    def test_wycena_kaze_oddac_taki_ksztalt_czlowiekowi(self):
+        assert "kształt inny niż prostokąt" in prompty.WYCENA
