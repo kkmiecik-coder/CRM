@@ -124,14 +124,39 @@ BOT_PRO_CW_AGENT_TOKEN = os.environ.get("BOT_PRO_CW_AGENT_TOKEN")
 BOT_PRO_AGENT_WEBHOOK_TOKEN = os.environ.get("BOT_PRO_AGENT_WEBHOOK_TOKEN")
 # Bezpiecznik D (jak BOT_LIVE_MAX_TURNS/BOT_QUOTE_MAX_TURNS): max krokow Runnera w JEDNYM
 # wywolaniu Runner.run_sync (petla narzedzie->model wewnatrz jednej tury), zeby zapetlone
-# wywolania narzedzi nie chodzily w nieskonczonosc.
-BOT_PRO_MAX_TURNS = int(os.environ.get("BOT_PRO_MAX_TURNS", "30"))
-# Rezerwa pod przyszly watchdog tury (jeszcze nie podpieta w zadaniu 7): ile kolejnych tur
-# BEZ POSTEPU (bez zmiany pozycji/stanu) ma dopuszczac bot, zanim sam odda rozmowe czlowiekowi,
-# oraz po ilu minutach ciszy klienta watchdog ma sie odezwac. Wartosci domyslne swiadomie takie
-# same jak w brifie zadania — dolozone teraz, zeby watchdog nie musial dotykac config.py.
+# wywolania narzedzi nie chodzily w nieskonczonosc. PRZEMIANOWANE z BOT_PRO_MAX_TURNS (Task 8,
+# B2 code review) — ta nazwa myliła się z BEZPIECZNIKIEM DŁUGOŚCI ROZMOWY (BOT_PRO_MAX_TURNS
+# poniżej), zupełnie innym pojęciem: to jest limit iteracji narzędzie->model WEWNĄTRZ JEDNEJ
+# tury, tamto jest limit liczby TUR całej rozmowy klient<->bot. Nazwa nie zmieniona od
+# poprzedniego zadania (Task 6/7) NIC nie mierzyła źle — ale audyt Task 8 pokazał, że zajmowała
+# nazwę potrzebną nowemu, faktycznie brakującemu bezpiecznikowi (patrz niżej), więc obie muszą
+# się dać odróżnić na pierwszy rzut oka.
+BOT_PRO_MAX_RUNNER_STEPS = int(os.environ.get("BOT_PRO_MAX_RUNNER_STEPS", "30"))
+# Bezpiecznik DŁUGOŚCI ROZMOWY (Task 8, B2) — licznik TUR całej rozmowy klient<->bot
+# (bots_pro.stan.zarejestruj_ture), NIE mylić z BOT_PRO_MAX_RUNNER_STEPS wyżej. Audyt: stary
+# limit 30 tur (poprzednik tej zmiennej pod starą nazwą) nie uratował ANI JEDNEJ z 10
+# zapętlonych rozmów w zbadanym shardzie — klienci odpadali przy 10-28 turach, więc próg musi
+# być NIŻSZY niż cierpliwość klienta. 12 to nowy próg ze specyfikacji zadania.
+BOT_PRO_MAX_TURNS = int(os.environ.get("BOT_PRO_MAX_TURNS", "12"))
+# Ile kolejnych tur BEZ POSTĘPU (bez żadnej zmiany stanu biznesowego rozmowy — pozycji,
+# wysłanego podsumowania, potwierdzenia klienta, zapisanej wyceny; patrz
+# bots_pro.stan.migawka_postepu) ma dopuszczać bot, zanim sam odda rozmowę człowiekowi. Task 8,
+# B2: PODPIĘTE (poprzednio deklarowane w configu, ale nieużywane nigdzie — "rezerwa pod
+# przyszły watchdog tury").
 BOT_PRO_MAX_BEZ_POSTEPU = int(os.environ.get("BOT_PRO_MAX_BEZ_POSTEPU", "3"))
+# Próg ciszy (minuty) dla watchdoga porzuconych rozmów (Task 8, część A) — patrz pro_watchdog.py.
 BOT_PRO_WATCHDOG_MINUTES = int(os.environ.get("BOT_PRO_WATCHDOG_MINUTES", "20"))
+# Okno historii SQLiteSession Agents SDK (Task 8, B5) — bots_pro/tura.py:_sesja. Bez tego
+# SQLiteSession podaje modelowi CAŁĄ historię sesji (a Router płaci ją drugi raz co turę) —
+# koszt/opóźnienie rosnące liniowo z długością rozmowy, nie poprawność (w odróżnieniu od
+# BOT_HISTORY_LIMIT starego silnika — TA liczba to ITEMS SDK, nie wiadomości czatu: jedna
+# tura z narzędziami to wiele par function_call/function_call_output, więc "12" starego
+# silnika byłoby tu absurdalnie ciasne, ledwie mieszczące JEDNĄ turę z paroma narzędziami).
+# Wartość dobrana z zapasem pod BOT_PRO_MAX_TURNS (limit 12 tur rozmowy, wyżej) — to
+# optymalizacja kosztu, nie inwariant poprawności, więc nie ma tu twardej gwarancji zera
+# obcięć w skrajnie długich/zapętlonych rozmowach (te i tak kończy bezpiecznik długości
+# rozmowy powyżej).
+BOT_PRO_SESSION_ITEMS_LIMIT = int(os.environ.get("BOT_PRO_SESSION_ITEMS_LIMIT", "60"))
 # Inboxy obslugiwane przez Debusia Pro. Pusta wartosc = bot wylaczony wszedzie — kill-switch
 # migracji bez zmiany kodu: przelaczamy inbox po inboksie, z natychmiastowym odwrotem (patrz
 # webhooks.py, _process_pro). Zmiana wymaga recreate kontenera mostu, nie pushu kodu.

@@ -76,6 +76,21 @@ class TestAgentWiedzy:
         nazwy = {t.name for t in agent.tools}
         assert nazwy & _ZAKAZANE_NARZEDZIA == set()
 
+    def test_agent_wiedzy_ma_handoff_do_wyceny(self):
+        # Task 8, B4: przed ta zmiana agenci wyspecjalizowani NIE MIELI wlasnych
+        # handoffs (patrz docstring modulu i tura.py) — droga z Wiedzy do Wyceny
+        # istniala WYLACZNIE miedzy turami, przez ponowne wejscie przez Router.
+        # Skutek: zlozone pytanie w JEDNEJ wiadomosci ("z czego robicie blaty i
+        # ile wyjdzie 180x60x4?") nie dostawalo wyceny w tej samej turze, a
+        # korekta guardraila (tura.py:_KOMUNIKAT_KOREKTY) wracajaca przez Router
+        # mogla trafic do Wiedzy — agenta BEZ policz_wycene, niezdolnego naprawic
+        # ceny. Wiedza dostaje wiec WLASNY handoff do Wyceny (nie odwrotnie —
+        # patrz brak takiego testu dla agenta Wyceny: to on ma juz kompletny
+        # zestaw narzedzi cenowych, nie potrzebuje uciekac donikad).
+        agent = agenci.zbuduj_agenta_wiedzy()
+        nazwy = {h.name for h in agent.handoffs}
+        assert nazwy == {"Wycena"}
+
 
 class TestAgentPosprzedazowy:
     def test_agent_posprzedazowy_nie_ma_narzedzi_cenowych(self):

@@ -27,6 +27,7 @@ from openai.types.responses import (
     ResponseFunctionToolCall, ResponseOutputMessage, ResponseOutputText,
 )
 
+import config as config_mod
 from bots_pro import agenci, stan, tura
 
 stan.init_pro()
@@ -52,10 +53,11 @@ class _FalszywyRunner:
 
     `rejestruj_kwoty` (opcjonalnie, lista list, po jednej na wywołanie) symuluje
     efekt uboczny narzędzia `policz_wycene` (`stan.zapamietaj_kwoty`) - w prawdziwym
-    przebiegu kwoty trafiają do rejestru W TRAKCIE Runner.run_sync, PO tym, jak
-    `tura.uruchom` już wyzerowało rejestr przez `stan.ustaw_kontekst`. Podanie kwot
-    do konstruktora _FalszywyRunner z GÓRY (przed wywołaniem uruchom) nic by nie
-    dało — rejestr i tak zostałby wyczyszczony na starcie tury."""
+    przebiegu kwoty trafiają do rejestru W TRAKCIE Runner.run_sync. Rejestr żyje w
+    `pro_stan`, trwale per ROZMOWA (Task 8, B1 — `stan.ustaw_kontekst` go już NIE
+    zeruje), więc kwota zarejestrowana w jednym wywołaniu `run_sync` widoczna jest
+    też we WSZYSTKICH kolejnych — także w kolejnej turze tej samej rozmowy (patrz
+    TestGuardrailBlokujeWysylke::test_kwota_zarejestrowana_w_turze_1_nie_jest_blokowana_w_turze_2)."""
 
     def __init__(self, odpowiedzi, rejestruj_kwoty=None):
         self._odpowiedzi = list(odpowiedzi)
@@ -122,6 +124,19 @@ class TestBramkaCiszyPoHandoffie:
         assert len(fake_runner.wywolania) == 1
 
 
+class TestSesjaOgraniczaHistorie:
+    """Task 8, B5: SQLiteSession bez konfiguracji podaje modelowi CALA historie
+    sesji, a Router placi ja drugi raz co ture — koszt i opoznienie (nie
+    poprawnosc), rosnace liniowo z dlugoscia rozmowy. SDK (openai-agents==0.22.0)
+    wspiera `SessionSettings(limit=...)` ograniczajace okno zwracane przez
+    `get_items()` (a wiec i to, co Runner wysyla modelowi) — patrz docstring
+    `_sesja` w tura.py."""
+
+    def test_sesja_ma_ustawiony_limit_historii(self):
+        sesja = tura._sesja(96301)
+        assert sesja.session_settings.limit == config_mod.BOT_PRO_SESSION_ITEMS_LIMIT
+
+
 class TestGuardrailBlokujeWysylke:
     """Guardrail G1 ma NAPRAWDĘ zatrzymać wysyłkę (nie tylko zalogować)."""
 
@@ -174,6 +189,35 @@ class TestGuardrailBlokujeWysylke:
 
         assert wyslane == ["Cena wynosi 999,00 zł."]
         assert len(fake_runner.wywolania) == 1   # bez korekty - nie bylo naruszenia
+
+    def test_kwota_zarejestrowana_w_turze_1_nie_jest_blokowana_w_turze_2(self, monkeypatch):
+        # Task 8, B1: rejestr kwot MUSI przetrwac granice tury (patrz docstring
+        # modulu bots_pro/stan.py i TestKwoty w test_pro_stan.py). Tura 1 liczy
+        # wycene i wysyla podsumowanie -- symulujemy to rejestracja kwoty
+        # [1936.71] W TRAKCIE run_sync (jak w prawdziwym przebiegu
+        # policz_wycene/podsumowanie.wyslij, patrz docstring _FalszywyRunner).
+        # Tura 2 to OSOBNE wywolanie tura.uruchom (nowa tura TEJ SAMEJ rozmowy,
+        # wiec nowe stan.ustaw_kontekst) i NIC nie rejestruje -- dokladnie jak
+        # prawdziwe zapisz_wycene, ktore tylko CYTUJE juz ustalona cene, a nie
+        # zasila rejestr od nowa. Model naturalnie potwierdza zapis, cytujac
+        # cene z tury 1 -- guardrail NIE MOZE tego zablokowac.
+        conv_id = 96110
+        fake_runner = _FalszywyRunner(
+            ["Podsumowanie: 1936,71 zł. Czy potwierdza Pan?", "Wycena na 1936,71 zł zapisana."],
+            rejestruj_kwoty=[[1936.71], None])
+        monkeypatch.setattr(tura, "Runner", fake_runner)
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+        monkeypatch.setattr(
+            stan, "handoff",
+            lambda powod: pytest.fail("guardrail nie powinien zablokowac prawdziwej ceny: %r" % powod))
+
+        tura.uruchom(conv_id, "inbox1", "Poprosze wycene blatu", persona="quote")
+        tura.uruchom(conv_id, "inbox1", "Tak, potwierdzam", persona="quote")
+
+        assert wyslane == ["Podsumowanie: 1936,71 zł. Czy potwierdza Pan?",
+                           "Wycena na 1936,71 zł zapisana."]
+        # Obie tury wywolaly Runnera dokladnie raz - bez korekty guardraila.
+        assert len(fake_runner.wywolania) == 2
 
     def test_pusta_druga_proba_po_naruszeniu_konczy_sie_handoffem_nie_cisza(self, monkeypatch):
         # Runda poprawek 1, W1: sciezka `sprawdz_ceny("") == []` (pusty tekst nie ma
@@ -258,6 +302,99 @@ class TestBrakDublowaniaPodsumowania:
         tura.uruchom(conv_id, "inbox1", "test", persona="quote")
 
         assert wyslane == ["Dziekuje, wracam z odpowiedzia."]
+
+
+class TestBezpiecznikDlugosciRozmowy:
+    """Task 8, B2: audyt pokazal, ze stary limit 30 tur (dawne BOT_PRO_MAX_TURNS,
+    dzis BOT_PRO_MAX_RUNNER_STEPS — limit ITERACJI SDK wewnatrz JEDNEJ tury, nie
+    dlugosci rozmowy) nie uratowal ANI JEDNEJ z 10 zapetlonych rozmow w zbadanym
+    shardzie — klienci odpadali przy 10-28 turach. Ten bezpiecznik liczy TURY
+    CALEJ ROZMOWY (bots_pro.stan.zarejestruj_ture) i konczy handoffem PRZED
+    wywolaniem Routera/LLM, gdy rozmowa przekroczy prog."""
+
+    def test_tury_ponizej_progu_przebiegaja_normalnie(self, monkeypatch):
+        conv_id = 96114
+        monkeypatch.setattr(tura, "BOT_PRO_MAX_TURNS", 2)
+        fake_runner = _FalszywyRunner(["odp1", "odp2"])
+        monkeypatch.setattr(tura, "Runner", fake_runner)
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "wiadomosc 1", persona="quote")
+        tura.uruchom(conv_id, "inbox1", "wiadomosc 2", persona="quote")
+
+        assert wyslane == ["odp1", "odp2"]
+        assert len(fake_runner.wywolania) == 2
+
+    def test_tura_przekraczajaca_prog_konczy_sie_handoffem_bez_wywolania_routera(self, monkeypatch):
+        conv_id = 96115
+        monkeypatch.setattr(tura, "BOT_PRO_MAX_TURNS", 2)
+        fake_runner = _FalszywyRunner(["odp1", "odp2", "odp3"])
+        monkeypatch.setattr(tura, "Runner", fake_runner)
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+        powody = []
+        monkeypatch.setattr(stan, "handoff", lambda powod: powody.append(powod) or {"ok": True})
+
+        tura.uruchom(conv_id, "inbox1", "wiadomosc 1", persona="quote")
+        tura.uruchom(conv_id, "inbox1", "wiadomosc 2", persona="quote")
+        tura.uruchom(conv_id, "inbox1", "wiadomosc 3", persona="quote")   # 3. > prog 2
+
+        # Trzecia tura NIE wywolala Routera/LLM w ogole — limit przekroczony PRZED nim.
+        assert wyslane == ["odp1", "odp2"]
+        assert len(fake_runner.wywolania) == 2
+        assert len(powody) == 1
+        assert "tur" in powody[0].lower()
+
+
+class TestBezpiecznikBrakuPostepu:
+    """Task 8, B2: osobny licznik tur BEZ POSTEPU (bez zadnej zmiany stanu
+    biznesowego rozmowy — pozycji, wyslanego podsumowania, potwierdzenia,
+    zapisanej wyceny), niezalezny od licznika dlugosci rozmowy wyzej."""
+
+    def test_kolejne_tury_bez_zadnej_zmiany_stanu_koncza_sie_handoffem(self, monkeypatch):
+        conv_id = 96116
+        monkeypatch.setattr(tura, "BOT_PRO_MAX_TURNS", 100)
+        monkeypatch.setattr(tura, "BOT_PRO_MAX_BEZ_POSTEPU", 2)
+        fake_runner = _FalszywyRunner(["a", "b"])
+        monkeypatch.setattr(tura, "Runner", fake_runner)
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+        powody = []
+        monkeypatch.setattr(stan, "handoff", lambda powod: powody.append(powod) or {"ok": True})
+
+        tura.uruchom(conv_id, "inbox1", "wiadomosc 1", persona="quote")   # 1. bez postepu
+        tura.uruchom(conv_id, "inbox1", "wiadomosc 2", persona="quote")   # 2. bez postepu -> prog
+
+        # Odpowiedz WCIAZ wyslana w obu turach — to NIE jest guardrail, bot po
+        # prostu nie posuwa sprawy do przodu (np. zapetlone dopytywanie).
+        assert wyslane == ["a", "b"]
+        assert len(powody) == 1
+        assert "postep" in powody[0].lower()
+
+    def test_zmiana_stanu_resetuje_licznik_braku_postepu(self, monkeypatch):
+        conv_id = 96117
+        monkeypatch.setattr(tura, "BOT_PRO_MAX_TURNS", 100)
+        monkeypatch.setattr(tura, "BOT_PRO_MAX_BEZ_POSTEPU", 2)
+
+        class _RunnerZapisujacyPozycjeWDrugiejTurze:
+            def __init__(self):
+                self.wywolania = []
+
+            def run_sync(self, agent, tresc, session=None, max_turns=None):
+                self.wywolania.append(tresc)
+                if len(self.wywolania) == 2:
+                    stan.zapisz_pozycje("1", produkt="blat", dlugosc_cm=100)
+                return types.SimpleNamespace(final_output="odp")
+
+        fake_runner = _RunnerZapisujacyPozycjeWDrugiejTurze()
+        monkeypatch.setattr(tura, "Runner", fake_runner)
+        _wyslane_przechwytywacz(monkeypatch)
+        powody = []
+        monkeypatch.setattr(stan, "handoff", lambda powod: powody.append(powod) or {"ok": True})
+
+        tura.uruchom(conv_id, "inbox1", "wiadomosc 1", persona="quote")   # bez postepu (1)
+        tura.uruchom(conv_id, "inbox1", "wiadomosc 2", persona="quote")   # POSTEP -> reset do 0
+        tura.uruchom(conv_id, "inbox1", "wiadomosc 3", persona="quote")   # bez postepu (1, NIE 3)
+
+        assert powody == []   # prog 2 nigdy nie zostal osiagniety DWA RAZY Z RZEDU
 
 
 class TestPersonaKanaluWTurze:
@@ -356,7 +493,11 @@ class _FalszywyModel(Model):
         # (przeszlaby tak samo, gdyby sesja byla po cichu ignorowana).
         self.wywolania.append({"n_handoffs": len(handoffs), "n_tools": len(tools), "input": input})
 
-        if handoffs:
+        # Rozpoznanie PO LICZBIE NARZEDZI (tools=0 => Router), NIE po samej obecnosci
+        # handoffs (Task 8, B4: Wiedza dostala WLASNY handoff do Wyceny, wiec `handoffs`
+        # jest niepuste TEZ dla niej — sprawdzenie "if handoffs:" jak w poprzedniej wersji
+        # tej atrapy zlapaloby wiec Wiedze tak, jakby byla Routerem).
+        if len(tools) == 0:
             tekst = _ostatnia_wiadomosc_uzytkownika(input).lower()
             if any(s in tekst for s in ("kosztowac", "cena", "koszt", "ile to")):
                 return _wywolanie_transferu("Wycena", licznik)
@@ -391,8 +532,11 @@ class TestScenariuszMaterialPotemCena:
         assert "twardy" in wyslane[0].lower()
         assert "wycene" in wyslane[1].lower() or "wymiary" in wyslane[1].lower()
 
-        # Router zostal wywolany OD NOWA w KAZDEJ turze (dwa wywolania z handoffs != []).
-        wywolania_routera = [w for w in fake_model.wywolania if w["n_handoffs"]]
+        # Router zostal wywolany OD NOWA w KAZDEJ turze. Identyfikujemy go po LICZBIE
+        # NARZEDZI (tools=0), NIE po samej obecnosci handoffs (Task 8, B4: Wiedza ma
+        # TERAZ TEZ wlasny handoff do Wyceny, wiec n_handoffs>0 nie jest juz unikalne
+        # dla Routera — patrz komentarz w _FalszywyModel.get_response wyzej).
+        wywolania_routera = [w for w in fake_model.wywolania if w["n_tools"] == 0]
         assert len(wywolania_routera) == 2
 
         # Router w DRUGIEJ turze naprawde WIDZIAL historie z pierwszej (odpowiedz
@@ -408,3 +552,61 @@ class TestScenariuszMaterialPotemCena:
         # (11 narzedzi z NARZEDZIA_WYCENY) - mimo ze poprzednia tura skonczyla
         # sie na Wiedzy (2 narzedzia), ktora nie ma wlasnego handoffu do Wyceny.
         assert fake_model.wywolania[-1]["n_tools"] == 11
+
+
+class _FalszywyModelZlozonePytanie(Model):
+    """Do testu scenariusza (a) z Task 8, B4: pytanie w JEDNEJ wiadomosci laczy
+    prosbe o wiedze (material) i o cene. Router (naturalnie, po pierwszej czesci
+    zdania) trafia najpierw do Wiedzy — ktora TERAZ (B4) ma WLASNY handoff do
+    Wyceny i moze oddac rozmowe DALEJ w TEJ SAMEJ turze, bez czekania na kolejna
+    wiadomosc klienta (przed B4 to bylo niemozliwe — patrz TestScenariuszMaterialPotemCena
+    wyzej, gdzie ten sam przypadek wymagal DWOCH oddzielnych tur)."""
+
+    def __init__(self):
+        self.wywolania = []
+
+    async def get_response(self, system_instructions, input, model_settings, tools,
+                            output_schema, handoffs, tracing, *, previous_response_id,
+                            conversation_id, prompt):
+        licznik = len(self.wywolania)
+        self.wywolania.append({"n_tools": len(tools), "n_handoffs": len(handoffs)})
+        if len(tools) == 0:
+            # Router: zawsze trafia najpierw do Wiedzy - pytanie klienta zaczyna
+            # sie od "z czego robicie", nie od prosby o cene.
+            return _wywolanie_transferu("Wiedza", licznik)
+        if len(tools) == 2:
+            # Wiedza (B4): rozpoznaje, ze pytanie wymaga TEZ wyceny i oddaje
+            # rozmowe do Wyceny WEWNATRZ TEJ SAMEJ tury - nowy handoff, ktorego
+            # przed B4 Wiedza nie miala.
+            return _wywolanie_transferu("Wycena", licznik)
+        # Wycena (11 narzedzi) - dokonczenie w tej samej turze.
+        return _wiadomosc_tekstowa(
+            "Blaty robimy z debu, jesionu i buku. Dla 180x60x4 cm potrzebuje jeszcze "
+            "ilosci sztuk i wybranego gatunku, zeby policzyc cene.", licznik)
+
+    def stream_response(self, *args, **kwargs):
+        raise NotImplementedError
+
+
+class TestHandoffWiedzaDoWyceny:
+    """Task 8, B4: agent Wiedzy dostal WLASNY handoff do Wyceny (agenci.py) —
+    bez atrapowania Runnera, prawdziwy Router + prawdziwi agenci + prawdziwy
+    Runner.run_sync z SDK, jak w TestScenariuszMaterialPotemCena."""
+
+    def test_zlozone_pytanie_material_i_cena_dostaje_wycene_w_jednej_turze(self, monkeypatch):
+        conv_id = 96202
+        fake_model = _FalszywyModelZlozonePytanie()
+        monkeypatch.setattr(agenci, "model_dla_roli", lambda rola: fake_model)
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "Z czego robicie blaty i ile wyjdzie 180x60x4?",
+                     persona="quote")
+
+        # JEDNO wywolanie tura.uruchom (JEDNA wiadomosc klienta), a odpowiedz
+        # przyszla juz od Wyceny - dowod, ze handoff Wiedza -> Wycena zadzialal
+        # WEWNATRZ tej samej tury, nie dopiero w nastepnej.
+        assert len(wyslane) == 1
+        assert "blaty" in wyslane[0].lower()
+
+        # Trasa: Router (0 narzedzi) -> Wiedza (2 narzedzia) -> Wycena (11 narzedzi).
+        assert [w["n_tools"] for w in fake_model.wywolania] == [0, 2, 11]

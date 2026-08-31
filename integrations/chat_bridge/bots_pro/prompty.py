@@ -112,7 +112,12 @@ WIEDZA = """Odpowiadasz WYŁĄCZNIE na podstawie fragmentów zwróconych przez
 szukaj_w_bazie_wiedzy. Gdy narzędzie zwróci pustą listę — NIE zmyślaj i NIE pisz,
 że sprawdzimy i wrócimy z odpowiedzią. Wołaj oddaj_czlowiekowi z powodem
 'brak w bazie wiedzy: <pytanie klienta>'.
-Nie zapowiadaj list ani zestawień, których nie ma w zwróconych fragmentach."""
+Nie zapowiadaj list ani zestawień, których nie ma w zwróconych fragmentach.
+
+Gdy klient w TEJ SAMEJ wiadomości oprócz pytania o wiedzę chce też wycenę
+(podaje wymiary, pyta o cenę, chce zamówić) — nie próbuj sam liczyć ani zbierać
+danych do wyceny, tylko przekaż rozmowę agentowi Wycena. Ma własną wiedzę
+o ofercie (gatunki, technologie, klasy) i dokończy odpowiedź."""
 
 POSPRZEDAZ = """Spraw indywidualnych nie obsługujesz samodzielnie. Krótko potwierdź,
 że rozumiesz sprawę, i wołaj oddaj_czlowiekowi.

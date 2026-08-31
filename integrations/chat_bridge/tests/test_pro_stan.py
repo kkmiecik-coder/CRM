@@ -287,17 +287,46 @@ class TestOtwory:
 
 
 class TestKwoty:
+    """Rejestr kwot (Task 8, B1): PRZENIESIONY z contextvara per-tura do `pro_stan`
+    (trwaly per ROZMOWA). Bylo: `ustaw_kontekst` zerowal `_kwoty` na starcie KAZDEJ
+    tury (`_kwoty.set(set())`), wiec cena zarejestrowana w turze N (np. przez
+    `policz_wycene`/`podsumowanie.wyslij`) znikala na starcie tury N+1 — a
+    `zapisz_wycene` w kolejnej turze NIE zasila rejestru wcale (nie musi, bo
+    tylko cytuje juz ustalona cene). Skutek w praktyce: bot w turze N+1 cytujacy
+    PRAWDZIWA cene z tury N ("wycena na 1936,71 zl zapisana") byl przez guardrail
+    G1 oskarzany o halucynacje — dokladnie w momencie udanego zamkniecia sprzedazy."""
+
     def test_zapamietaj_kwoty_normalizuje_do_dwoch_miejsc(self):
         stan.ustaw_kontekst(93006)
         stan.zapamietaj_kwoty([843.04, "123", 100])
         assert stan.znane_kwoty() == {"843.04", "123.00", "100.00"}
 
-    def test_ustaw_kontekst_czysci_kwoty_z_poprzedniej_tury(self):
-        stan.ustaw_kontekst(93007)
+    def test_kwoty_przetrwaja_granice_tury_tej_samej_rozmowy(self):
+        # B1: DOKLADNA odwrotnosc starego zachowania (patrz docstring klasy) —
+        # to jest fix, nie regresja. `ustaw_kontekst` woluje sie na poczatku
+        # KAZDEJ tury (patrz tura.uruchom), a rejestr tej SAMEJ rozmowy ma
+        # przetrwac to wywolanie.
+        stan.ustaw_kontekst(93043)
         stan.zapamietaj_kwoty([10])
         assert stan.znane_kwoty() == {"10.00"}
-        stan.ustaw_kontekst(93007)
+        stan.ustaw_kontekst(93043)   # nowa tura, TA SAMA rozmowa
+        assert stan.znane_kwoty() == {"10.00"}
+
+    def test_kwoty_nie_przeciekaja_miedzy_roznymi_rozmowami(self):
+        # Odwrotna strona tego samego inwariantu (I1) — przechowywanie w `pro_stan`
+        # (kluczowanym po conv_id) NIE MOZE pozwolic kwocie z jednej rozmowy
+        # "pomoc" guardrailowi w INNEJ.
+        stan.ustaw_kontekst(93044)
+        stan.zapamietaj_kwoty([555])
+        assert stan.znane_kwoty() == {"555.00"}
+        stan.ustaw_kontekst(93045)   # INNA rozmowa
         assert stan.znane_kwoty() == set()
+
+    def test_zapamietaj_kwoty_dopisuje_a_nie_nadpisuje(self):
+        stan.ustaw_kontekst(93046)
+        stan.zapamietaj_kwoty([10])
+        stan.zapamietaj_kwoty([20])
+        assert stan.znane_kwoty() == {"10.00", "20.00"}
 
 
 class TestPodsumowanieWyslane:

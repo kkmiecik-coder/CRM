@@ -6,8 +6,25 @@ Historia rozmowy idzie przez SQLiteSession Agents SDK — tutaj trzymamy
 wyłącznie to, co jest DECYZJĄ BIZNESOWĄ, a nie odtwarzalnym przebiegiem:
 identyfikator zapisanej wyceny, dane kontaktowe, fakt podania ceny.
 
-Znane kwoty (do guardraila G1) zbieramy per tura w contextvar — guardrail
-sprawdza odpowiedź zanim opuści proces.
+Znane kwoty (do guardraila G1) zbieramy w `pro_stan`, TRWALE PER ROZMOWA — nie
+per tura (Task 8, B1). Pierwsza wersja trzymała je w contextvar zerowanym na
+starcie KAŻDEJ tury (`ustaw_kontekst` -> `_kwoty.set(set())`) — to działało w
+JEDNEJ turze (np. `policz_wycene` rejestruje, `wyslij_podsumowanie` cytuje w tej
+samej turze), ale pękało na granicy DWÓCH tur: klient potwierdza w turze N+1,
+model woła `potwierdz` -> `znajdz_klienta` -> `zapisz_wycene` i naturalnie pisze
+"wycena na 1936,71 zł zapisana" — `zapisz_wycene` NIE zasila rejestru (nie musi,
+tylko cytuje już ustaloną cenę), a rejestr TEJ tury jest pusty, bo zerowany na
+starcie. Guardrail uznawał więc PRAWDZIWĄ cenę za halucynację, w momencie
+udanego zamknięcia sprzedaży. Przechowanie w `pro_stan` (kluczowane po conv_id,
+jak reszta tego modułu) usuwa problem u źródła: rejestr żyje tak długo jak
+rozmowa, nie jak pojedyncza tura, i — dzięki kluczowaniu po conv_id — NIE
+przecieka między różnymi rozmowami (patrz TestKwoty w test_pro_stan.py).
+Usuwa to też ryzyko z poprzedniej wersji (B3): `zapamietaj_kwoty` mutowała
+WSPÓLNY set z contextvara i TYLKO DZIĘKI TEJ MUTACJI kwoty w ogóle propagowały
+z kontekstu narzędzia do tury — gałąź `if biezace is None: _kwoty.set(nowy_set)`
+w SKOPIOWANYM kontekście (np. inny wątek/task asyncio) zgubiłaby je PO CICHU,
+z fałszywym alarmem guardraila jako jedynym objawem. Zapis do bazy nie ma tej
+klasy błędu — nie ma kontekstu do skopiowania.
 
 Analogicznie, fakt wysłania deterministycznego podsumowania (`podsumowanie.wyslij`)
 zbieramy per tura w OSOBNYM contextvarze — `tura.py` sprawdza go PO Runner.run_sync,
@@ -21,7 +38,6 @@ import json
 from core.db import db
 
 _conv_id = contextvars.ContextVar("conv_id", default=None)
-_kwoty = contextvars.ContextVar("kwoty", default=None)
 _persona = contextvars.ContextVar("persona", default=None)
 _podsumowanie_wyslane = contextvars.ContextVar("podsumowanie_wyslane", default=False)
 
@@ -34,7 +50,9 @@ CREATE TABLE IF NOT EXISTS pro_stan(
   contact_email TEXT, contact_phone TEXT, contact_name TEXT,
   oczekiwany_podpis TEXT, potwierdzony_podpis TEXT,
   potwierdzenie_cytat TEXT, potwierdzenie_ts REAL,
-  czlowiek_odezwal_sie INTEGER DEFAULT 0);
+  czlowiek_odezwal_sie INTEGER DEFAULT 0,
+  znane_kwoty_json TEXT,
+  tury_rozmowy INTEGER DEFAULT 0, tury_bez_postepu INTEGER DEFAULT 0);
 """
 
 
@@ -43,26 +61,37 @@ def init_pro():
     reject_*, sent_images, returning_greeted, human_deflected — przebieg rozmowy
     odtwarza sesja Agents SDK, a te kolumny były księgowaniem tego przebiegu.
 
-    `czlowiek_odezwal_sie` (N2, code review runda 2) dołożona ALTER-em osobno —
+    `czlowiek_odezwal_sie` (N2, code review runda 2), `znane_kwoty_json` (Task 8,
+    B1) i `tury_rozmowy`/`tury_bez_postepu` (Task 8, B2) dołożone ALTER-em osobno —
     `CREATE TABLE IF NOT EXISTS` w `_SCHEMAT` nie doda kolumny do tabeli, która
     już istnieje z wdrożeń sprzed tej zmiany (ten sam wzorzec co w core/db.py)."""
     polaczenie = db()
     try:
         polaczenie.executescript(_SCHEMAT)
-        try:
-            polaczenie.execute(
-                "ALTER TABLE pro_stan ADD COLUMN czlowiek_odezwal_sie INTEGER DEFAULT 0")
-        except Exception:
-            pass
+        for stmt in (
+            "ALTER TABLE pro_stan ADD COLUMN czlowiek_odezwal_sie INTEGER DEFAULT 0",
+            "ALTER TABLE pro_stan ADD COLUMN znane_kwoty_json TEXT",
+            "ALTER TABLE pro_stan ADD COLUMN tury_rozmowy INTEGER DEFAULT 0",
+            "ALTER TABLE pro_stan ADD COLUMN tury_bez_postepu INTEGER DEFAULT 0",
+        ):
+            try:
+                polaczenie.execute(stmt)
+            except Exception:
+                pass
         polaczenie.commit()
     finally:
         polaczenie.close()
 
 
 def ustaw_kontekst(conv_id, persona_tury="pro"):
-    """Wołane na początku tury przez worker."""
+    """Wołane na początku tury przez worker.
+
+    Świadomie NIE zeruje rejestru kwot (Task 8, B1) — ten żyje w `pro_stan`,
+    trwale per ROZMOWA (conv_id), nie per tura. Zerowanie go tutaj byłoby
+    dokładnie tym błędem, który B1 naprawia: cena ustalona w tej rozmowie w
+    poprzedniej turze ma zostać znana guardrailowi także w kolejnych turach tej
+    samej rozmowy — patrz docstring modułu i TestKwoty w test_pro_stan.py."""
     _conv_id.set(conv_id)
-    _kwoty.set(set())
     _persona.set(persona_tury)
     _podsumowanie_wyslane.set(False)
 
@@ -96,17 +125,104 @@ def podsumowanie_wyslane():
 def zapamietaj_kwoty(wartosci):
     """Rejestruje kwoty zwrócone przez kalkulator — guardrail porówna z nimi
     treść odpowiedzi. Wartości mogą przyjść jako float (typowo) albo string
-    z polskim przecinkiem dziesiętnym — stąd zamiana przed float()."""
-    biezace = _kwoty.get()
-    if biezace is None:
-        biezace = set()
-        _kwoty.set(biezace)
+    z polskim przecinkiem dziesiętnym — stąd zamiana przed float().
+
+    Trwały zapis w `pro_stan` (Task 8, B1), nie contextvar — patrz docstring
+    modułu. Read-modify-write na tym samym połączeniu: w obrębie jednej tury to
+    wystarcza (worker przetwarza rozmowy kolejno per conv_id, patrz
+    quote_worker.py — API-06), a to jedyne miejsce, które w ogóle PISZE do
+    `znane_kwoty_json`, więc nie ma z czym się ścigać."""
+    biezace = znane_kwoty()
     for w in wartosci:
         biezace.add("%.2f" % float(str(w).replace(",", ".")))
+    zapisz_stan(znane_kwoty_json=json.dumps(sorted(biezace)))
 
 
 def znane_kwoty():
-    return set(_kwoty.get() or set())
+    """Kwoty znane guardrailowi G1 dla BIEŻĄCEJ rozmowy (conv_id z kontekstu) —
+    zbiór trwa przez całą rozmowę, nie tylko bieżącą turę (patrz docstring modułu)."""
+    polaczenie = db()
+    try:
+        wiersz = polaczenie.execute(
+            "SELECT znane_kwoty_json FROM pro_stan WHERE conv_id=?", (conv_id(),)).fetchone()
+    finally:
+        polaczenie.close()
+    if not wiersz or not wiersz["znane_kwoty_json"]:
+        return set()
+    return set(json.loads(wiersz["znane_kwoty_json"]))
+
+
+def zarejestruj_ture():
+    """Inkrementuje licznik TUR CAŁEJ ROZMOWY (Task 8, B2) — NIE mylić z
+    BOT_PRO_MAX_RUNNER_STEPS (limit iteracji narzędzie->model WEWNĄTRZ jednej
+    tury, config.py). Wołane RAZ, na samym początku `tura.uruchom`, dla KAŻDEJ
+    tury, w której bot faktycznie działa (a więc już PO bramce ciszy
+    `wolno_prowadzic_rozmowe` — tura, w której bot milczy, nie zużywa budżetu).
+    Zwraca nową wartość licznika PO inkrementacji."""
+    polaczenie = db()
+    try:
+        polaczenie.execute(
+            "INSERT INTO pro_stan(conv_id, tury_rozmowy) VALUES(?, 1) "
+            "ON CONFLICT(conv_id) DO UPDATE SET tury_rozmowy = tury_rozmowy + 1",
+            (conv_id(),))
+        polaczenie.commit()
+        wiersz = polaczenie.execute(
+            "SELECT tury_rozmowy FROM pro_stan WHERE conv_id=?", (conv_id(),)).fetchone()
+    finally:
+        polaczenie.close()
+    return wiersz["tury_rozmowy"]
+
+
+def migawka_postepu():
+    """Odcisk stanu BIZNESOWEGO bieżącej rozmowy — do wykrywania braku postępu
+    między turami (Task 8, B2). Obejmuje zapisane pozycje (`pro_dane`) ORAZ
+    kolumny `pro_stan`, które zmieniają się WYŁĄCZNIE w wyniku realnej decyzji
+    (znana kwota z kalkulatora, wysłane podsumowanie, potwierdzenie klienta,
+    zapisana wycena) — celowo BEZ `tury_rozmowy`/`tury_bez_postepu` (te zmieniają
+    się co turę z definicji, więc wliczenie ich do odcisku zawsze pokazywałoby
+    "postęp" i bezpiecznik nigdy by się nie uruchomił).
+
+    Porównanie odcisku SPRZED i PO turze (w `tura.uruchom`) wykrywa postęp
+    niezależnie od tego, KTÓRE konkretne narzędzie go spowodowało — odporne na
+    nowe narzędzia zmieniające stan dodane w przyszłości bez aktualizacji tej
+    funkcji, w odróżnieniu od ręcznie utrzymywanej listy nazw narzędzi."""
+    polaczenie = db()
+    try:
+        wiersz_stanu = polaczenie.execute(
+            "SELECT quote_edit_uuid, quote_saved, oczekiwany_podpis, potwierdzony_podpis, "
+            "potwierdzenie_cytat, znane_kwoty_json FROM pro_stan WHERE conv_id=?",
+            (conv_id(),)).fetchone()
+        wiersz_pozycji = polaczenie.execute(
+            "SELECT dane_json FROM pro_dane WHERE conv_id=?", (conv_id(),)).fetchone()
+    finally:
+        polaczenie.close()
+    return json.dumps({
+        "stan": dict(wiersz_stanu) if wiersz_stanu else None,
+        "pozycje": wiersz_pozycji["dane_json"] if wiersz_pozycji else None,
+    }, sort_keys=True, ensure_ascii=False)
+
+
+def zarejestruj_brak_postepu():
+    """Inkrementuje licznik KOLEJNYCH tur BEZ ŻADNEJ zmiany stanu biznesowego
+    (patrz `migawka_postepu`). Zwraca nową wartość licznika PO inkrementacji."""
+    polaczenie = db()
+    try:
+        polaczenie.execute(
+            "INSERT INTO pro_stan(conv_id, tury_bez_postepu) VALUES(?, 1) "
+            "ON CONFLICT(conv_id) DO UPDATE SET tury_bez_postepu = tury_bez_postepu + 1",
+            (conv_id(),))
+        polaczenie.commit()
+        wiersz = polaczenie.execute(
+            "SELECT tury_bez_postepu FROM pro_stan WHERE conv_id=?", (conv_id(),)).fetchone()
+    finally:
+        polaczenie.close()
+    return wiersz["tury_bez_postepu"]
+
+
+def zresetuj_brak_postepu():
+    """Wołane, gdy tura ZROBIŁA realny postęp — zeruje licznik z
+    `zarejestruj_brak_postepu`, żeby kolejna seria bezczynności liczyła się od nowa."""
+    zapisz_stan(tury_bez_postepu=0)
 
 
 def _wczytaj():
