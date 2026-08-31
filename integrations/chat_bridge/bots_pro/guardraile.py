@@ -309,14 +309,62 @@ def sprawdz_ceny(tekst, znane_kwoty):
 # (handoff bez rundy korekty, patrz `tura.py`) — pilnuje tego
 # `test_zamknieta_lista_nie_rosnie_po_cichu`.
 #
-# ZNANY KOSZT, przyjęty świadomie: wzorce łapią zwrot także wtedy, gdy stoi
-# przy nim przeczenie („nie gwarantujemy terminu", „nie mamy atestu", „nie
-# nadaje się na zewnątrz"). Część z tych zdań to POPRAWNE odpowiedzi, więc
-# guardrail wyśle wtedy rozmowę do człowieka bez potrzeby. Zostawiamy tak,
-# bo kierunek pomyłki jest bezpieczny (człowiek zamiast obietnicy), a rozbiór
-# przeczeń per zwrot byłby regułą gramatyczną w miejscu, w którym ma stać
-# lista faktów; „nie ugnie się" i „nie odkształci się" pokazują zresztą, że
-# samo „nie" niczego tu nie rozstrzyga — to nadal orzeczenie o konstrukcji.
+# RUNDA NAPRAW 6 (P1, recenzja §5/U-N1): DOBÓR POZYCJI BYŁ ZŁY, nie regex.
+#
+# Pierwsza wersja przyjmowała świadomie „znany koszt": wzorce łapały zwrot
+# także wtedy, gdy stało przy nim przeczenie. Sonda recenzenta zmierzyła, ile
+# ten koszt naprawdę wynosi — SIEDEM NA SIEDEM realistycznych, POPRAWNYCH
+# wypowiedzi bota kończyło się handoffem. G3 nie ma rundy korekty, więc każde
+# takie trafienie to skasowana odpowiedź, generyczne „Przekazuję rozmowę
+# konsultantowi" i martwa wycena w toku. Dwa przypadki były nie do obrony:
+#
+#   * „terminów nie gwarantujemy" to LITERALNE wykonanie sekcji CZEGO NIE
+#     WOLNO w `prompty.WYCENA` („Nigdy nie obiecuj […] terminów realizacji
+#     […]; gdy klient pyta, krótko to powiedz i wróć do wyceny"). Prompt
+#     NAKAZYWAŁ zdanie, które bramka karała utratą rozmowy — o terminy klient
+#     pyta w każdej rozmowie handlowej;
+#   * `certyfikat*`/`atest*` to GOŁE RZECZOWNIKI bez semantyki zobowiązania.
+#     Wystarczyło, że bot powtórzy pytanie klienta („pyta Pan o certyfikat
+#     FSC"), żeby stracić wycenę w toku.
+#
+# ZAKRES ZAKAZU JEST TERAZ WĘŻSZY I NAZWANY WPROST: zabroniona jest OBIETNICA
+# w trybie TWIERDZĄCYM („gwarantujemy", „wytrzyma", „mamy certyfikat"), a nie
+# zaprzeczenie jej ani sam rzeczownik. Realizują to trzy rzeczy:
+#
+#   1. `_PRZECZENIE_PRZED` — przeczenie BEZPOŚREDNIO przed zwrotem rozbraja
+#      dopasowanie („nie gwarantujemy", „nie mamy atestu", „nie nadaje się").
+#      Świadomie WYŁĄCZNIE przyleganie: „nie" w innej klauzuli („Nie znam wagi
+#      zlewu, ale blat wytrzyma każdy") niczego nie zaprzecza. Zwrotów „nie
+#      ugnie się" i „nie odkształci się" ten filtr NIE rozbraja, bo ich „nie"
+#      stoi WEWNĄTRZ zwrotu, nie przed nim — a KONSTRUKCJA wymienia je z nazwy
+#      jako orzeczenia zakazane.
+#   2. `_w_klauzuli_pytajnej` — klauzula otwarta słowem „czy" to pytanie albo
+#      jego zreferowanie („Nie orzekam, czy blat wytrzyma zlew"), nie
+#      orzeczenie. Filtr działa NA KLAUZULĘ (do najbliższej interpunkcji), nie
+#      na całe zdanie, więc twierdząca odpowiedź po pytaniu jest nadal łapana.
+#   3. rzeczowniki `certyfikat`/`atest` wymagają przylegającego CZASOWNIKA
+#      DEKLARATYWNEGO posiadania albo wydania (`_POSIADANIE`) — dokładnie tak,
+#      jak rekomendowała recenzja: „mamy certyfikat" tak, „o certyfikat FSC"
+#      nie.
+#
+# Pozycja „jest bezpieczny" wymaga teraz przysłówka kategoryczności („jest
+# CAŁKOWICIE bezpieczny"). To nie jest osłabienie, tylko ODWRÓCENIE ZŁEGO
+# DOBORU: dotychczasowy wzorzec wymagał przylegania, więc łapał zwykłą
+# odpowiedź bazy wiedzy o olejach do blatów kuchennych („oleje są bezpieczne
+# przy kontakcie z żywnością"), a kategorycznego zapewnienia — czyli kształtu,
+# w którym obietnica pada naprawdę — nie łapał wcale (potwierdzone sondą).
+#
+# ZNANE KOSZTY tego zawężenia, przyjęte świadomie:
+#   * „nie wytrzyma", „nie nadaje się na zewnątrz" przechodzą. To nadal
+#     orzeczenia o konstrukcji, ale w kierunku ODRADZAJĄCYM — nie tworzą
+#     zobowiązania, którego firma nie chce ponieść;
+#   * obietnica ubrana w pytanie retoryczne („Czy wytrzyma? Oczywiście.")
+#     przechodzi w klauzuli z „czy"; druga klauzula nie ma zwrotu z listy;
+#   * „mamy w ofercie certyfikat" (słowo między czasownikiem a rzeczownikiem)
+#     nie jest łapane — przyleganie wybrano celowo, bo luźniejszy wzorzec
+#     wracał fałszywym alarmem na „konsultant ma sprawdzić certyfikat".
+# Rekomendacja recenzji zostaje w mocy: na skrzynce testowej policzyć
+# trafienia w logu (`grep 'guardrail G3'`), zanim to pojedzie na klientów.
 #
 # Diakrytyki są opcjonalne w każdym wzorcu (kanały marketplace potrafią je
 # rozebrać — patrz sanitize.py), a dopasowanie jest bez względu na wielkość
@@ -324,6 +372,25 @@ def sprawdz_ceny(tekst, znane_kwoty):
 # RZECZOWNIK, który pada w zdaniu, którym bot poprawnie ODMAWIA orzekania —
 # gdyby wpadał w regex, guardrail karałby dokładnie to zachowanie, które
 # prompt każe modelowi wybrać.
+
+# Odstęp: spacja zwykła, NBSP (U+00A0), wąska spacja nierozdzielająca (U+202F)
+# — te same trzy, które rozpoznaje część cenowa tego modułu.
+_ODSTEP_ZOBOWIAZANIA = "[ \xa0 ]"
+
+# Przeczenie PRZYLEGAJĄCE do zwrotu. Szerokość stała (3 znaki + klasa), bo
+# `re` nie przyjmuje lookbehindu o zmiennej długości; polskie „nie" i tak stoi
+# bezpośrednio przed czasownikiem, więc nic to nie kosztuje.
+_PRZECZENIE_PRZED = r"(?<!nie%s)" % _ODSTEP_ZOBOWIAZANIA
+
+# Czasowniki DEKLARATYWNE posiadania/wydania — bez nich rzeczownik
+# „certyfikat"/„atest" nie jest zobowiązaniem, tylko tematem rozmowy.
+_POSIADANIE = (r"(?:mamy|posiadamy|dysponujemy|wydajemy|wystawiamy|"
+               r"posiadaj[ąa]|posiada|maj[ąa]|ma)")
+
+# Przysłówki kategoryczności — dopiero one robią z opisu ZAPEWNIENIE.
+_KATEGORYCZNIE = (r"(?:w pe[łl]ni|ca[łl]kowicie|zupe[łl]nie|absolutnie|"
+                  r"w 100%|w stu procentach)")
+
 ZAKAZANE_ZOBOWIAZANIA = (
     ("gwarantujemy", r"gwarantujemy"),
     # czasownik, nie rzeczownik: „wytrzyma"/„wytrzymają", nie „wytrzymałość"
@@ -332,14 +399,37 @@ ZAKAZANE_ZOBOWIAZANIA = (
     ("nie ugnie się", r"nie ugn(?:ie|[ąa]) si[ęe]"),
     ("nie odkształci się", r"nie odkszta[łl]c(?:i|[ąa]) si[ęe]"),
     ("nadaje się na zewnątrz", r"nadaj(?:e|[ąa]) si[ęe] na zewn[ąa]trz"),
-    ("jest bezpieczny", r"(?:jest|s[ąa]) bezpieczn\w*"),
-    ("certyfikat", r"certyfikat\w*"),
-    ("atest", r"atest\w*"),
+    ("jest bezpieczny", r"(?:jest|s[ąa])%s%s%sbezpieczn\w*"
+                        % (_ODSTEP_ZOBOWIAZANIA, _KATEGORYCZNIE, _ODSTEP_ZOBOWIAZANIA)),
+    ("certyfikat", r"%s%scertyfikat\w*" % (_POSIADANIE, _ODSTEP_ZOBOWIAZANIA)),
+    ("atest", r"%s%satest\w*" % (_POSIADANIE, _ODSTEP_ZOBOWIAZANIA)),
 )
 
 _ZAKAZANE_ZOBOWIAZANIA_RE = tuple(
-    (nazwa, re.compile(r"(?<!\w)%s(?!\w)" % wzorzec, re.IGNORECASE))
+    (nazwa, re.compile(r"(?<!\w)%s%s(?!\w)" % (_PRZECZENIE_PRZED, wzorzec),
+                       re.IGNORECASE))
     for nazwa, wzorzec in ZAKAZANE_ZOBOWIAZANIA)
+
+# Granica klauzuli: interpunkcja, myślnik zdaniowy, nawias, koniec linii.
+# Zwykły dywiz CELOWO nie jest granicą („mikrowczep-lita" to jedno pojęcie).
+_GRANICA_KLAUZULI = re.compile(r"[.!?,;:\n\r()\[\]—–]")
+_CZY_OTWIERA_KLAUZULE = re.compile(r"czy(?!\w)", re.IGNORECASE)
+
+
+def _w_klauzuli_pytajnej(tekst, poczatek):
+    """Czy zwrot znaleziony na pozycji `poczatek` stoi w klauzuli otwartej
+    słowem „czy".
+
+    „Nie orzekam, czy blat wytrzyma zlew podblatowy" to zreferowane PYTANIE —
+    bot właśnie ODMAWIA orzekania, czyli robi dokładnie to, czego wymaga
+    sekcja KONSTRUKCJA. Klauzulę bierzemy do najbliższej interpunkcji WSTECZ,
+    nie do początku zdania: dzięki temu „Pyta Pan, czy blat wytrzyma zlew?
+    Wytrzyma bez problemu." nadal jest naruszeniem — pytanie rozbraja własną
+    klauzulę, nie całą wypowiedź."""
+    granica = 0
+    for dopasowanie in _GRANICA_KLAUZULI.finditer(tekst, 0, poczatek):
+        granica = dopasowanie.end()
+    return bool(_CZY_OTWIERA_KLAUZULE.match(tekst[granica:poczatek].lstrip()))
 
 
 def znajdz_zakazane_zobowiazania(tekst):
@@ -348,7 +438,15 @@ def znajdz_zakazane_zobowiazania(tekst):
 
     Nazwa (a nie to, co dokładnie dopasował regex) idzie do powodu handoffu,
     czyli do prywatnej notatki konsultanta: ma powiedzieć, CO bot obiecał,
-    a nie tylko że coś obiecał."""
+    a nie tylko że coś obiecał.
+
+    Liczy się WYŁĄCZNIE dopasowanie w trybie twierdzącym: przeczenie przed
+    zwrotem odsiewa już regex (`_PRZECZENIE_PRZED`), klauzulę pytajną —
+    `_w_klauzuli_pytajnej`. Uzasadnienie obu w komentarzu nad listą."""
     tekst = tekst or ""
-    return [nazwa for nazwa, wzorzec in _ZAKAZANE_ZOBOWIAZANIA_RE
-            if wzorzec.search(tekst)]
+    naruszenia = []
+    for nazwa, wzorzec in _ZAKAZANE_ZOBOWIAZANIA_RE:
+        if any(not _w_klauzuli_pytajnej(tekst, dopasowanie.start())
+               for dopasowanie in wzorzec.finditer(tekst)):
+            naruszenia.append(nazwa)
+    return naruszenia
