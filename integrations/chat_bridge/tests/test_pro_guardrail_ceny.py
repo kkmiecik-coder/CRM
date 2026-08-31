@@ -238,3 +238,149 @@ class TestProgGolejKwoty:
         # cenowym nadal nie jest naruszeniem. To swiadomy kompromis — ponizej tego
         # progu liczebniki ("razem 12 sztuk", "3 pozycje") sa czestsze niz kwoty.
         assert g.sprawdz_ceny("Dopłata 40", set()) == []
+
+
+class TestN1JednostkiWPelnychNazwach:
+    """N1 (rerecenzja gałęzi): biała lista jednostek znała WYŁĄCZNIE skróty
+    (cm/mm/kg/szt/dni/%), więc każde zdanie, w którym bot wypowiada jednostkę
+    po polsku — „90 centymetrów", „55 kilogramów", „80 km", „240 minut" —
+    kończyło się fałszywym alarmem G1 na liczbie, która nigdy nie była ceną.
+
+    Koszt fałszywego alarmu jest DOKŁADNIE taki, jak przepuszczenia
+    halucynacji: runda korekty, a przy powtórzeniu tej samej liczby (model nie
+    wie, co „naprawia") oddanie rozmowy człowiekowi — w momencie zamykania
+    sprzedaży. Zestaw niżej to realistyczne wypowiedzi bota o blatach
+    dębowych, nie sztuczne przypadki brzegowe."""
+
+    # Rejestr kwot typowej rozmowy: blat 843,04 zł, z wysyłką 1 093,04 zł,
+    # drugi blat 1 936,71 zł, para blatów 1 686,08 zł.
+    ZNANE = {"843.04", "1093.04", "1936.71", "1686.08"}
+
+    @pytest.mark.parametrize("tekst", [
+        # WYMIARY po polsku, pełną nazwą jednostki.
+        "Wysokość blatu wynosi 90 centymetrów.",
+        "Maksymalna długość blatu z dębu litego wynosi 450 centymetrów.",
+        "Szerokość parapetu wynosi 60 centymetrów.",
+        "Grubość to około 40 milimetrów.",
+        "Blat ma około 180 centymetrów długości.",
+        "Łącznie 240 centymetrów bieżących.",
+        # WAGI.
+        "Waga takiego blatu wynosi 55 kilogramów.",
+        "Blat waży około 120 kilogramów.",
+        "Paczka waży 55 kg.",
+        # ODLEGŁOŚCI.
+        "Nasz zakład jest około 80 km od Olsztyna.",
+        "Wysyłamy w promieniu około 300 km.",
+        "Do Warszawy jest około 210 kilometrów.",
+        # CZAS.
+        "Olej schnie około 240 minut.",
+        "Wysyłka trwa około 72 h.",
+        "Termin realizacji wynosi około 60 dni roboczych.",
+        "Gwarancja wynosi 60 miesięcy.",
+        "Blat sezonuje około 720 godzin.",
+        # PROCENTY, TEMPERATURY, ZUŻYCIE.
+        "Około 60 procent klientów wybiera dąb lity.",
+        "Wilgotność drewna wynosi około 60 procent.",
+        "Blat wytrzyma temperaturę około 120 stopni.",
+        "Zużycie oleju to około 80 mililitrów na metr kwadratowy.",
+        "Na blat schodzi około 250 ml oleju.",
+        # ILOŚCI.
+        "Łącznie 75 sztuk lameli w blacie.",
+        "Razem 60 sztuk.",
+    ])
+    def test_zdanie_z_jednostka_nie_jest_naruszeniem(self, tekst):
+        assert g.sprawdz_ceny(tekst, self.ZNANE) == []
+
+    @pytest.mark.parametrize("tekst", [
+        # Kontrola POZYTYWNA: prawdziwe kwoty z rejestru przechodzą tak samo
+        # jak dotąd — poprawka nie może uciszyć guardraila na cenach.
+        "Blat dębowy kosztuje 843,04 zł brutto.",
+        "Razem z wysyłką 1 093,04 zł brutto.",
+        "Razem około 843 brutto.",
+        "Drugi blat to 1 936,71 zł brutto.",
+    ])
+    def test_prawdziwe_kwoty_nadal_przechodza(self, tekst):
+        assert g.sprawdz_ceny(tekst, self.ZNANE) == []
+
+    @pytest.mark.parametrize("tekst,oczekiwana", [
+        # Kontrola NEGATYWNA: zmyślone kwoty nadal są łapane — rozszerzenie
+        # listy jednostek nie może otworzyć furtki na halucynacje.
+        ("Blat kosztuje około 2400 zł.", "2400.00"),
+        ("Razem jakieś 2650.", "2650.00"),
+        ("Dopłata 90.", "90.00"),
+        ("Wysyłka kosztuje 180.", "180.00"),
+        ("2400 netto", "2400.00"),
+        ("Razem 55 brutto", "55.00"),
+    ])
+    def test_zmyslona_kwota_nadal_jest_naruszeniem(self, tekst, oczekiwana):
+        assert g.sprawdz_ceny(tekst, self.ZNANE) == [oczekiwana]
+
+
+class TestN1LiczbaPrzedSlowemCenowym:
+    """N1, druga przyczyna: wzorzec „liczba PRZED słowem cenowym" dopuszczał
+    KAŻDE słowo cenowe, także te, które po polsku stoją PRZED kwotą
+    („razem", „cena", „kosztuje", „wynosi"). Liczba tuż przed nimi jest wtedy
+    prawie zawsze czymś INNYM — nazwą handlową („Blat 180"), numerem
+    zamówienia albo numerem wyceny — a prawdziwa cena stoi dopiero ZA słowem
+    cenowym. Filtr jednostki nie miał tam nic do roboty, bo jednostka nie
+    mieści się między liczbą a słowem.
+
+    Zostają wyłącznie „brutto"/„netto" — jedyne słowa cenowe, które w
+    polszczyźnie faktycznie NASTĘPUJĄ po kwocie."""
+
+    ZNANE = {"843.04", "1686.08"}
+
+    @pytest.mark.parametrize("tekst", [
+        "Blat 180 razem 1 686,08 zł brutto.",
+        "Dwa blaty 180 kosztują 1 686,08 zł.",
+        "Wycena 1234 wynosi 843,04 zł brutto.",
+        "Zamówienie 100234 kosztuje 843,04 zł.",
+        "Model 2026 cena 843,04 zł brutto.",
+        "Parapet 120 łącznie 843,04 zł brutto.",
+        "Blat 180 w sumie 843,04 zł.",
+    ])
+    def test_nazwa_handlowa_i_numer_nie_sa_kwota(self, tekst):
+        assert g.sprawdz_ceny(tekst, self.ZNANE) == []
+
+    def test_jednostka_przed_slowem_cenowym_tez_odsiewa(self):
+        # Filtr jednostki działa teraz w OBU kierunkach: liczba z jednostką
+        # nie jest kwotą niezależnie od tego, który wzorzec ją znalazł.
+        assert g.sprawdz_ceny("Blat 180 cm netto waży 55 kg.", self.ZNANE) == []
+
+    @pytest.mark.parametrize("tekst,oczekiwana", [
+        # Kontrola negatywna kierunku „po kwocie" — TA droga ma zostać czynna.
+        ("2400 netto", "2400.00"),
+        ("Blat dębowy 2400 brutto.", "2400.00"),
+    ])
+    def test_kwota_przed_brutto_netto_nadal_lapana(self, tekst, oczekiwana):
+        assert g.sprawdz_ceny(tekst, set()) == [oczekiwana]
+
+
+class TestN1ProgPiecdziesiatBezFalszywychAlarmow:
+    """N1: potwierdzenie, że przyczyną fałszywych alarmów NIE był próg 50 zł,
+    tylko jednostki. Próg zostaje; przy poprawnie rozpoznanych jednostkach
+    liczby z przedziału 50-100 (najczęstsze wymiary i terminy w tej branży)
+    nie generują ani jednego naruszenia."""
+
+    @pytest.mark.parametrize("tekst", [
+        "Wysokość blatu wynosi 90 centymetrów.",
+        "Szerokość parapetu wynosi 60 centymetrów.",
+        "Waga blatu wynosi 55 kilogramów.",
+        "Zakład jest około 80 km od Olsztyna.",
+        "Około 60 procent klientów wybiera dąb lity.",
+        "Termin to około 60 dni roboczych.",
+        "Razem 75 sztuk lameli.",
+        "Łącznie 90 minut szlifowania.",
+    ])
+    def test_liczby_50_100_z_jednostka_sa_ciche(self, tekst):
+        assert g.sprawdz_ceny(tekst, set()) == []
+
+    def test_prog_nadal_wynosi_50(self):
+        assert g._PROG_GOLEJ_KWOTY == 50.0
+
+    @pytest.mark.parametrize("tekst,oczekiwana", [
+        ("Dopłata 90", "90.00"),
+        ("Opcja wycięcia kosztuje 81,30", "81.30"),
+    ])
+    def test_zmyslone_kwoty_50_100_bez_jednostki_nadal_lapane(self, tekst, oczekiwana):
+        assert g.sprawdz_ceny(tekst, set()) == [oczekiwana]

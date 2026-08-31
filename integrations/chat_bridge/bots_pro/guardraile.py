@@ -51,8 +51,9 @@ _KWOTA_WALUTA_LICZBA = re.compile(r"\b%s%s(%s)" % (_WALUTA, _ODSTEP, _LICZBA), r
 #      wtrącone, i to z zamkniętej listy zwrotów przybliżających),
 #   2. jest WIĘKSZA niż próg (`_PROG_GOLEJ_KWOTY`, 50 zł — patrz jego komentarz):
 #      „razem 3 pozycje" i „łącznie 12 sztuk" to rzeczy policzalne, nie ceny,
-#   3. NIE ma tuż za sobą jednostki (cm/mm/szt./dni/kg/%) — „Razem 240 cm
-#      długości" nadal nie jest kwotą.
+#   3. NIE ma tuż za sobą jednostki — ani skróconej („240 cm"), ani zapisanej
+#      pełnym słowem („90 centymetrów", „55 kilogramów", „240 minut"): patrz
+#      `_JEDNOSTKI` i N1 niżej.
 # Wymiary („180x60x4") wypadają wcześniej, na granicy słowa: po liczbie stoi
 # tam „x", który jest znakiem słownym.
 _SLOWA_CENOWE = (r"(?:brutto|netto|razem|[łl][ąa]cznie|cen[aeyęą]|kosztuj\w*|koszt\w*|"
@@ -68,14 +69,63 @@ _PRZYBLIZENIE = (r"(?:jakie[śs]|oko[łl]o|ok|mniej wi[ęe]cej|to|wynosi|wyniesi
 # łączy słowa cenowego z liczbą z następnego wiersza; patrz N1 wyżej).
 _ODSTEP_SLOWNY = "[ \xa0 :,\\-–—]{1,3}"
 
-_JEDNOSTKI = r"(?:cm|mm|m2|m3|m|szt\w*|dni|dzie[ńn]|tygod\w*|godz\w*|kg|%)"
+# Jednostki, po których goła liczba przestaje być kandydatem na kwotę.
+#
+# N1 (rerecenzja gałęzi): lista znała WYŁĄCZNIE skróty, więc każda jednostka
+# wypowiedziana po polsku — a bot mówi do klienta pełnym zdaniem, nie tabelką —
+# dawała fałszywy alarm: „wysokość blatu wynosi 90 centymetrów", „waga wynosi
+# 55 kilogramów", „około 80 km od Olsztyna", „olej schnie około 240 minut".
+# Fałszywy alarm kosztuje tu tyle samo co przepuszczenie halucynacji (runda
+# korekty, przy powtórzeniu handoff), więc odmiany MUSZĄ być rozpoznawane:
+# stąd `\w*` na końcu każdej pełnej nazwy (centymetr/centymetry/centymetrów).
+# Kolejność alternatyw jest bez znaczenia dla poprawności — `(?!\w)` w
+# `_JEDNOSTKA_ZA_LICZBA` wymusza backtracking do wariantu, który kończy się na
+# granicy słowa — ale dłuższe formy stoją pierwsze dla czytelności.
+_JEDNOSTKI = (
+    r"(?:"
+    # DŁUGOŚĆ / ODLEGŁOŚĆ
+    r"centymetr\w*|milimetr\w*|kilometr\w*|metr\w*|"
+    # MASA
+    r"kilogram\w*|dekagram\w*|miligram\w*|gram\w*|ton\w*|"
+    # OBJĘTOŚĆ
+    r"mililitr\w*|litr\w*|"
+    # CZAS
+    r"sekund\w*|minut\w*|godzin\w*|godz\w*|dzie[ńn]\w*|dni\w*|tygod\w*|"
+    r"miesi[ęea]c\w*|miesi[ęe]cy|lat\w*|rok\w*|roku|"
+    # UDZIAŁY, TEMPERATURA
+    r"procent\w*|proc\w*|stopni\w*|stopie[ńn]|"
+    # SZTUKI
+    r"sztuk\w*|szt\w*|"
+    # SKRÓTY
+    r"mm|cm2|cm|km|kg|dag|mb|m2|m3|m[²³]|ml|"
+    r"m|g|l|h|%|°C|°"
+    r")"
+)
+
+# Słowa cenowe, które w polszczyźnie stoją PO kwocie („2400 netto"). Osobna,
+# DUŻO węższa lista niż `_SLOWA_CENOWE` — N1, druga przyczyna fałszywych
+# alarmów: „razem", „cena", „kosztuje", „wynosi", „łącznie" stoją PRZED kwotą,
+# więc liczba tuż PRZED nimi jest prawie zawsze czymś innym (nazwą handlową
+# „Blat 180 razem 1 686,08 zł", numerem zamówienia „Zamówienie 100234 kosztuje
+# 843,04 zł", numerem wyceny), a prawdziwa cena stoi dopiero ZA tym słowem —
+# i tam ją łapie `_GOLA_PO_SLOWIE_CENOWYM`. Zostają dwa słowa, które faktycznie
+# NASTĘPUJĄ po kwocie; poszerzanie tej listy wymaga świadomej decyzji, bo każde
+# dodane słowo wraca fałszywymi alarmami na nazwach i numerach.
+_SLOWA_CENOWE_PO_KWOCIE = r"(?:brutto|netto)"
 
 _GOLA_PO_SLOWIE_CENOWYM = re.compile(
     r"(?<!\w)%s%s(?:%s%s)?(%s)(?!\w)" % (
         _SLOWA_CENOWE, _ODSTEP_SLOWNY, _PRZYBLIZENIE, _ODSTEP_SLOWNY, _LICZBA),
     re.IGNORECASE)
+# Jednostka MIĘDZY liczbą a słowem cenowym („Blat 180 cm netto") jest wprost
+# dopuszczona w tym wzorcu, żeby filtr `_JEDNOSTKA_ZA_LICZBA` niżej działał w
+# OBU kierunkach: liczba z jednostką ma być odrzucona niezależnie od tego,
+# który wzorzec ją znalazł, a nie przez przypadek — dlatego, że klasa znaków
+# `_ODSTEP_SLOWNY` akurat nie przepuszcza liter.
 _GOLA_PRZED_SLOWEM_CENOWYM = re.compile(
-    r"(?<!\w)(%s)%s%s(?!\w)" % (_LICZBA, _ODSTEP_SLOWNY, _SLOWA_CENOWE), re.IGNORECASE)
+    r"(?<!\w)(%s)(?:%s%s)?%s%s(?!\w)" % (
+        _LICZBA, _ODSTEP_SLOWNY, _JEDNOSTKI, _ODSTEP_SLOWNY, _SLOWA_CENOWE_PO_KWOCIE),
+    re.IGNORECASE)
 
 _JEDNOSTKA_ZA_LICZBA = re.compile(r"[ \xa0 ]*%s(?!\w)" % _JEDNOSTKI, re.IGNORECASE)
 
