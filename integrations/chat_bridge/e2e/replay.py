@@ -64,18 +64,24 @@ piszącą.
 
 Testy `tests/test_replay_odtworz.py::TestZadneWywolanieSieciowe` dowodzą
 braku wycieku na WSZYSTKICH tych ścieżkach naraz — flagowy test podmienia
-`requests.post`/`.request` (warstwa transportowa, przez którą przechodzą
-WSZYSTKIE wywołania sieciowe niezależnie od tego, jak dana funkcja została
-zaimportowana) na REJESTRATOR wywołań (NIE atrapę, która rzuca wyjątek —
-`cw_agent_reply`/`cw_bot_handoff`/`crm_calc._send` łapią wyjątki z `requests`
-WEWNĄTRZ SIEBIE i nigdy same nie rzucają, więc rzucająca atrapa na tym
-poziomie zostałaby po cichu połknięta, a test „przeszedłby” NAWET PRZY
-REALNYM WYCIEKU — rejestrator, sprawdzany na końcu testu, jest jedynym
-niezawodnym sposobem). Patrz też K3 w raporcie zadania: test podmieniający
-WYŁĄCZNIE `core.chatwoot.cw_agent_reply` (atrybut modułu źródłowego) jest w
-stosunku do (1)/(2) bezzębny — nie dosięga żadnego z nich, niezależnie od
-tego, co robi `odtworz()` — i dlatego NIE jest już jedynym testem
-bezpieczeństwa w tym module.
+`requests.adapters.HTTPAdapter.send` (wspólna warstwa transportowa POD
+całym `requests` — każdy `Session.request`, a więc i `requests.post`/`.get`/
+`.put`/`.patch`/`.delete`/`.head`, `requests.Session()` czy import
+`from requests import post`, kończy się TU, niezależnie od czasownika czy
+stylu importu — runda poprawek 2 poprawiła to po tym, jak wersja z rundy 1,
+podmieniająca WYŁĄCZNIE `requests.post`/`.request`/`.put`/`.get`, nie łapała
+`Session()` ani `.patch`/`.delete`/`.head`) PLUS twardy strażnik na
+`socket.socket.connect` (nic nie dotknie sieci bez przejścia przez TCP
+connect — łapie też ścieżki całkowicie omijające `requests`) na REJESTRATOR
+wywołań (NIE atrapę, która rzuca wyjątek — `cw_agent_reply`/`cw_bot_handoff`/
+`crm_calc._send` łapią wyjątki z `requests` WEWNĄTRZ SIEBIE i nigdy same nie
+rzucają, więc rzucająca atrapa na tym poziomie zostałaby po cichu połknięta,
+a test „przeszedłby” NAWET PRZY REALNYM WYCIEKU — rejestrator, sprawdzany na
+końcu testu, jest jedynym niezawodnym sposobem). Patrz też K3 w raporcie
+zadania: test podmieniający WYŁĄCZNIE `core.chatwoot.cw_agent_reply`
+(atrybut modułu źródłowego) jest w stosunku do (1)/(2) bezzębny — nie
+dosięga żadnego z nich, niezależnie od tego, co robi `odtworz()` — i dlatego
+NIE jest już jedynym testem bezpieczeństwa w tym module.
 
 Import `bots_pro.tura` (a więc i `agents`) jest LENIWY — dopiero wewnątrz
 `odtworz()` — żeby parser transkryptów (`wczytaj_rozmowy`) dawał się używać
@@ -92,13 +98,18 @@ import time
 _NAGLOWEK_RE = re.compile(r"^ROZMOWA\s*#\s*(\d+)")
 _LINIA_RE = re.compile(
     r"^\[[^\]]*\]\s*(KLIENT|BOT|AGENT|NOTATKA-PRYW|SYSTEM):\s*(.*)$")
-# Nagłówek bloku metadanych (np. "ZDARZENIA" z listą zdarzeń pod spodem) —
-# linia złożona WYŁĄCZNIE z wielkich liter polskiego alfabetu/cyfr/spacji/
-# myślnika, bez ani jednej litery małej. Realna proza klienta w tym formacie
-# jest pisana normalnie (małymi literami z rzadka Wielką na początku zdania),
-# więc taka linia praktycznie na pewno NIE jest treścią wiadomości — patrz
-# `_koniec_doklejania` niżej i jej docstring o incydencie, który to wykrył.
+# Kandydat na nagłówek bloku metadanych — linia złożona WYŁĄCZNIE z wielkich
+# liter polskiego alfabetu/cyfr/spacji/myślnika. SAMO dopasowanie tego wzorca
+# NIE WYSTARCZA (patrz `_jest_naglowkiem_bloku` niżej, N2 w rundzie poprawek
+# 2) — dopasowuje też kod pocztowy z miastem ("31-000 KRAKOW"), samą liczbę
+# ("12" jako odpowiedź na "ile sztuk") i klienta piszącego WERSALIKAMI.
 _BLOK_METADANYCH_RE = re.compile(r"^[A-ZĄĆĘŁŃÓŚŹŻ0-9][A-ZĄĆĘŁŃÓŚŹŻ0-9 \-/]*$")
+
+# Znane etykiety nagłówków bloków metadanych w formacie audytu — dopasowanie
+# DOKŁADNE (bez dalszej weryfikacji) wystarcza dla tych. Dla nieznanych linii
+# pasujących do `_BLOK_METADANYCH_RE` wymagamy DODATKOWO potwierdzenia przez
+# wcięcie następnej linii — patrz `_jest_naglowkiem_bloku`.
+_NAGLOWKI_BLOKOW = frozenset({"ZDARZENIA", "STAN BOTA", "ZEBRANE DANE"})
 
 # Persony ważne dla silnika Pro (bots_pro) — patrz quote_worker._PERSONY_SILNIKA_PRO
 # i webhooks._persona_pro_dla_inboxu. "quote_olx"/"quote_allegro" (z
@@ -113,28 +124,48 @@ PERSONY_PRO = ("pro", "olx", "allegro")
 _tracing_wylaczone = False
 
 
-def _koniec_doklejania(linia):
-    """Czy `linia` kończy doklejanie do bieżącej wiadomości — bo wygląda na
-    strukturalne metadane transkryptu (nagłówek bloku typu "ZDARZENIA" z
-    listą zdarzeń pod spodem, np. zmian statusu/handoffu), nie na dalszy
-    ciąg zdania klienta/bota.
+def _pierwsza_niepusta_od(linie, start):
+    """Pierwsza NIEPUSTA linia w `linie`, poczynając od indeksu `start`
+    (włącznie) — albo None, gdy do końca pliku same puste/koniec listy.
+    Używane WYŁĄCZNIE do zajrzenia o jedną „prawdziwą" linię do przodu przy
+    rozstrzyganiu, czy kandydat na nagłówek bloku faktycznie nim jest (patrz
+    `_jest_naglowkiem_bloku`) — sama funkcja nic nie konsumuje, nie przesuwa
+    żadnego wskaźnika pętli w `wczytaj_rozmowy`."""
+    for linia in linie[start:]:
+        if linia.strip():
+            return linia
+    return None
 
-    Zgłoszony incydent (Runda poprawek 1, W2): pierwsza wersja doklejała
-    KAŻDĄ niepustą, niedopasowaną linię do ostatniej wiadomości — więc blok
-    "ZDARZENIA" z wciętymi podpunktami zdarzeń, występujący w realnym
-    formacie BEZPOŚREDNIO po linii wiadomości (bez pustej linii oddzielającej),
-    trafiał W CAŁOŚCI do treści KLIENTA i szedł do bota jako część jego
-    wiadomości. Dwa niezależne sygnały, każdy osobno wystarczający:
-      1. linia z WCIĘCIEM (zaczyna się białym znakiem) — realne wiadomości
-         klienta/bota w tym formacie nie są wcinane, podpunkty metadanych są;
-      2. linia złożona WYŁĄCZNIE z wielkich liter/cyfr/spacji/myślnika, bez
-         ani jednej litery małej — nagłówki bloków ("ZDARZENIA"), nie proza.
-    Fixture w e2e/dane/ nie zawierał takiego bloku, więc żaden test tego nie
-    łapał — dodany osobno w tests/test_replay_kryteria.py, reprodukujący
-    dokładnie ten kształt."""
-    if linia != linia.lstrip():
-        return True  # linia zaczyna się bialym znakiem = wciety podpunkt bloku
-    return bool(_BLOK_METADANYCH_RE.match(linia.strip()))
+
+def _jest_naglowkiem_bloku(linia, nastepna_niepusta):
+    """Czy `linia` (NIEwcięta, niepusta, nie pasująca do `_LINIA_RE`) jest
+    NAPRAWDĘ nagłówkiem bloku metadanych (np. "ZDARZENIA" z listą zdarzeń pod
+    spodem) — nie zwykłą prozą klienta/bota złamaną na kilka linii.
+
+    Runda poprawek 2, N1 (poprawka poprawki z rundy 1): pierwsza wersja tego
+    rozstrzygnięcia uznawała za nagłówek KAŻDĄ linię złożoną wyłącznie z
+    wielkich liter/cyfr — złapało to nie tylko "ZDARZENIA", ale też kod
+    pocztowy z miastem w adresie dostawy ("31-000 KRAKOW"), samą liczbę jako
+    odpowiedź na pytanie o ilość sztuk ("12"), i klienta piszącego
+    WERSALIKAMI ("PROSZE O ODPOWIEDZ") — a `wczytaj_rozmowy` PRZERYWAŁA na
+    takim fałszywym trafieniu całą dalszą kontynuację wiadomości, więc ginęła
+    nie tylko ta jedna linia, ale też KAŻDA kolejna normalna linia prozy aż do
+    następnego rozpoznanego znacznika. Dwa niezależne, bezpieczniejsze
+    kryteria (jedno z nich wystarcza):
+      1. `linia` (po `strip()`) dokładnie odpowiada jednej ze znanych etykiet
+         (`_NAGLOWKI_BLOKOW`) — te NIGDY nie występują jako proza klienta;
+      2. `linia` pasuje do ogólnego wzorca WERSALIKÓW (`_BLOK_METADANYCH_RE`)
+         ORAZ bezpośrednio po niej idzie linia Z WCIĘCIEM (podpunkt bloku) —
+         wcięcie jest sygnałem, którego zwykła proza klienta (nawet pisana
+         caps lockiem, nawet z kodem pocztowym w jednej linii) nigdy nie ma.
+    Bez potwierdzenia wcięciem NIEZNANY wzorzec wersalików spada do zwykłej
+    kontynuacji — bezpieczniejszy default niż zgadywanie."""
+    tekst = linia.strip()
+    if tekst in _NAGLOWKI_BLOKOW:
+        return True
+    if not _BLOK_METADANYCH_RE.match(tekst):
+        return False
+    return nastepna_niepusta is not None and nastepna_niepusta != nastepna_niepusta.lstrip()
 
 
 def wczytaj_rozmowy(sciezka):
@@ -156,37 +187,40 @@ def wczytaj_rozmowy(sciezka):
       - puste — nie doklejają się, ale NIE przerywają kontynuacji (akapit
         rozdzielony pustą linią to wciąż JEDNA wiadomość, np. wieloliniowy
         adres dostawy);
-      - blok metadanych (wykryty przez `_koniec_doklejania` — linia wcięta
-        albo złożona wyłącznie z wielkich liter, patrz jej docstring) —
-        PRZERYWA kontynuację i sama nie trafia nigdzie;
+      - wcięta linia ALBO potwierdzony nagłówek bloku metadanych (patrz
+        `_jest_naglowkiem_bloku`) — SAMA linia jest pomijana, ale (runda
+        poprawek 2, N1) NIGDY nie przerywa kontynuacji dla linii PO niej —
+        `ostatnia` (wskaźnik na wiadomość, do której doklejamy) nie jest
+        tu resetowany;
       - wszystko inne — DOKLEJANE do OSTATNIO rozpoznanej wiadomości (dalszy
         ciąg zdania klienta/bota złamany na kilka linii)."""
     rozmowy = []
     biezaca = None
     ostatnia = None  # [kto, tresc] — mutowalna referencja do domklejania
     with open(sciezka, encoding="utf-8") as plik:
-        for surowa in plik:
-            linia = surowa.rstrip("\n\r")
-            naglowek = _NAGLOWEK_RE.match(linia)
-            if naglowek:
-                biezaca = {"id": int(naglowek.group(1)), "wiadomosci": []}
-                rozmowy.append(biezaca)
-                ostatnia = None
-                continue
-            if biezaca is None:
-                continue  # tekst przed pierwszym naglowkiem — ignorujemy
-            trafienie = _LINIA_RE.match(linia)
-            if trafienie:
-                ostatnia = [trafienie.group(1), trafienie.group(2)]
-                biezaca["wiadomosci"].append(ostatnia)
-                continue
-            if not linia.strip():
-                continue  # pusta linia - nie dokleja, ale NIE przerywa kontynuacji
-            if _koniec_doklejania(linia):
-                ostatnia = None  # naglowek bloku metadanych - koniec doklejania
-                continue
-            if ostatnia is not None:
-                ostatnia[1] = (ostatnia[1] + "\n" + linia).strip()
+        linie = [surowa.rstrip("\n\r") for surowa in plik]
+    for indeks, linia in enumerate(linie):
+        naglowek = _NAGLOWEK_RE.match(linia)
+        if naglowek:
+            biezaca = {"id": int(naglowek.group(1)), "wiadomosci": []}
+            rozmowy.append(biezaca)
+            ostatnia = None  # nowa ROZMOWA — jedyne miejsce, gdzie resetujemy
+            continue
+        if biezaca is None:
+            continue  # tekst przed pierwszym naglowkiem — ignorujemy
+        trafienie = _LINIA_RE.match(linia)
+        if trafienie:
+            ostatnia = [trafienie.group(1), trafienie.group(2)]
+            biezaca["wiadomosci"].append(ostatnia)
+            continue
+        if not linia.strip():
+            continue  # pusta linia - nie dokleja, ale NIE przerywa kontynuacji
+        if linia != linia.lstrip():
+            continue  # wcieta linia (podpunkt bloku) - zawsze pomijana, NIGDY nie zrywa kontynuacji
+        if _jest_naglowkiem_bloku(linia, _pierwsza_niepusta_od(linie, indeks + 1)):
+            continue  # potwierdzony naglowek bloku - pomijamy SAMA linie, kontynuacja trwa dalej
+        if ostatnia is not None:
+            ostatnia[1] = (ostatnia[1] + "\n" + linia).strip()
     for rozmowa in rozmowy:
         rozmowa["wiadomosci"] = [(k, t) for k, t in rozmowa["wiadomosci"]]
     return rozmowy
@@ -373,18 +407,45 @@ def odtworz(rozmowa, conv_id_bazowy=900000, persona="pro"):
         # K2: odpowiednik POST /api/bot/clients/find-or-create — kontrakt
         # (pola ok/matched/created/client.id/client_name/email/phone)
         # potwierdzony w modules/calculator/routers/bot_api.py::bot_find_or_create_client.
-        zapisy_crm.append(("find_or_create_client", email, phone, name, client_number))
+        #
+        # N2 (runda poprawek 2): przepuszczamy kontakt przez `normalize_email`/
+        # `normalize_phone` — te same, CZYSTE (bez sieci) funkcje, którymi
+        # prawdziwy `crm_calc.find_or_create_client` normalizuje dane PRZED
+        # wysyłką. Bez tego stub zwracał `client.email`/`.phone` DOSŁOWNIE tak,
+        # jak podał model (np. "NIE-EMAIL" bez zmian) — realny system zawsze
+        # normalizuje (lowercase/strip email, same cyfry telefonu), więc
+        # zwrócony rekord byłby niewiarygodny.
+        e = crm_calc.normalize_email(email)
+        p = crm_calc.normalize_phone(phone)
+        zapisy_crm.append(("find_or_create_client", e, p, name, client_number))
         return {"ok": True, "matched": False, "created": True,
-                "client": {"id": conv_id, "client_name": name or email or phone
+                "client": {"id": conv_id, "client_name": name or e or p
                            or client_number or "Klient replay (nie zapisany)",
-                           "email": email, "phone": phone}}
+                           "email": e, "phone": p}}
 
     def _nastepny_edit_uuid():
         return "replay-%s-%s" % (conv_id, len(zapisy_crm) + 1)
 
+    def _blad_mapowania(braki):
+        # N2 (runda poprawek 2, KRYTYCZNE dla trafności metryk): ten sam
+        # kontrakt błędu co prawdziwe crm_calc.create_quote/.update_quote,
+        # kiedy build_products (patrz niżej) zwróci `braki` — bez tego stub
+        # zawsze mówił {"ok": True}, więc rozmowy, którym PRAWDZIWY CRM
+        # odmówiłby zapisu (np. niezmapowany wariant drewna), w replayu
+        # kończyły się sukcesem — dokładnie ta liczba, którą właściciel
+        # zestawia z 64% zepsutych rozmów z audytu, byłaby zawyżona.
+        return {"ok": False, "errors": [{"field": None, "code": "MAP", "message": powod}
+                                        for _, powod in braki]}
+
     def _stub_create_quote(pozycje, options, client_id, notes=""):
         # K2: odpowiednik POST /api/bot/quotes (bot_create_quote) — kontrakt
-        # (ok/quote_number/quote_id/edit_uuid/public_url) jw.
+        # (ok/quote_number/quote_id/edit_uuid/public_url) jw. `build_products`
+        # jest CZYSTA funkcja (bez sieci, zweryfikowane czytając bots/crm_calc.py)
+        # — bezpieczna do wywołania tutaj, i to WŁAŚNIE ona (nie stub) decyduje,
+        # czy te pozycje dałoby się w ogóle zmapować na produkty API (N2).
+        _, braki = crm_calc.build_products(pozycje, options)
+        if braki:
+            return _blad_mapowania(braki)
         edit_uuid = _nastepny_edit_uuid()
         zapisy_crm.append(("create_quote", client_id, edit_uuid))
         return {"ok": True, "quote_number": "REPLAY-%s" % conv_id, "quote_id": conv_id,
@@ -393,7 +454,11 @@ def odtworz(rozmowa, conv_id_bazowy=900000, persona="pro"):
 
     def _stub_update_quote(edit_uuid, pozycje, options, notes="",
                            courier_name=None, shipping_netto=None, shipping_brutto=None):
-        # K2: odpowiednik PUT /api/bot/quotes/<edit_uuid> (bot_update_quote).
+        # K2/N2: odpowiednik PUT /api/bot/quotes/<edit_uuid> (bot_update_quote)
+        # — ten sam sprawdzian mapowania co create_quote wyżej.
+        _, braki = crm_calc.build_products(pozycje, options)
+        if braki:
+            return _blad_mapowania(braki)
         zapisy_crm.append(("update_quote", edit_uuid))
         return {"ok": True, "quote_number": "REPLAY-%s" % conv_id, "quote_id": conv_id,
                 "edit_uuid": edit_uuid,
@@ -523,38 +588,63 @@ def main(argv):
     wyniki = []
     bledy = []
     wszystkie_czasy_tur = []
-    for sciezka in args.sciezki:
-        for rozmowa in wczytaj_rozmowy(sciezka):
-            # W5: jedna rozmowa, ktora wywali wyjatek (np. przejsciowy blad
-            # sieci/limit dostawcy modelu w polowie ze 117), NIE MA prawa
-            # ukrasc wynikow WSZYSTKICH juz odtworzonych rozmow — bez tego
-            # jeden RateLimitError na np. 40. rozmowie kasowalby caly
-            # przebieg, zmuszajac do odpalania od zera.
+    try:
+        for sciezka in args.sciezki:
+            # N3 (runda poprawek 2): `wczytaj_rozmowy` byla POZA jakimkolwiek
+            # try — jeden niewczytywalny plik (literowka w sciezce, brak
+            # uprawnien, zly encoding) wsrod kilku podanych naraz wywalal
+            # CALY przebieg, gubiac wyniki juz policzonych plikow i (przed
+            # ta poprawka) nawet nie zapisujac ich do --out. Ta sama klasa
+            # awarii co W5 (blad pojedynczej rozmowy), tylko pietro wyzej —
+            # runbook every each polecenie podaje WSZYSTKIE shardy naraz.
             try:
-                wynik_odtworzenia = odtworz(rozmowa, persona=args.persona)
+                rozmowy_z_pliku = wczytaj_rozmowy(sciezka)
             except Exception as e:
-                print("   [BLAD] rozmowa #%s: %r" % (rozmowa.get("id"), e))
-                bledy.append({"id": rozmowa.get("id"), "blad": repr(e)})
+                print("   [BLAD] nie udalo sie wczytac pliku %s: %r" % (sciezka, e))
+                bledy.append({"id": None, "plik": sciezka, "blad": repr(e)})
                 continue
-            wszystkie_czasy_tur.extend(wynik_odtworzenia["czasy_tur"])
-            ocena = kryteria.ocen(
-                rozmowa, wynik_odtworzenia["odpowiedzi"],
-                handoff=wynik_odtworzenia["handoff"],
-                kwoty_niezgodne=wynik_odtworzenia["kwoty_niezgodne"],
-                trasa=wynik_odtworzenia["trasa"],
-                uzycia=wynik_odtworzenia["uzycia"],
-                czasy_tur=wynik_odtworzenia["czasy_tur"])
-            ocena["powtorki_przyblizone"] = kryteria.powtorzone_formulki_przyblizone(
-                wynik_odtworzenia["odpowiedzi"])
-            ocena["crm_zapisy_przechwycone"] = wynik_odtworzenia["crm_zapisy_przechwycone"]
-            if cennik is not None:
-                ocena["koszt"] = kryteria.koszt_rozmowy(wynik_odtworzenia["uzycia"], cennik)
-            wyniki.append(ocena)
-            print("#%s tur=%s powtorki=%s(~%s) wyjscie=%s handoff=%s kwoty_niezgodne=%s "
-                  "trasa=%s koszt=%.2f"
-                  % (ocena["id"], ocena["tur"], ocena["powtorki"], ocena["powtorki_przyblizone"],
-                     ocena["ma_wyjscie"], ocena["handoff"], ocena["kwoty_niezgodne"],
-                     "->".join(ocena["trasa"]) or "-", ocena["koszt"]))
+            for rozmowa in rozmowy_z_pliku:
+                # W5: jedna rozmowa, ktora wywali wyjatek (np. przejsciowy blad
+                # sieci/limit dostawcy modelu w polowie ze 117), NIE MA prawa
+                # ukrasc wynikow WSZYSTKICH juz odtworzonych rozmow — bez tego
+                # jeden RateLimitError na np. 40. rozmowie kasowalby caly
+                # przebieg, zmuszajac do odpalania od zera.
+                try:
+                    wynik_odtworzenia = odtworz(rozmowa, persona=args.persona)
+                except Exception as e:
+                    print("   [BLAD] rozmowa #%s: %r" % (rozmowa.get("id"), e))
+                    bledy.append({"id": rozmowa.get("id"), "blad": repr(e)})
+                    continue
+                wszystkie_czasy_tur.extend(wynik_odtworzenia["czasy_tur"])
+                ocena = kryteria.ocen(
+                    rozmowa, wynik_odtworzenia["odpowiedzi"],
+                    handoff=wynik_odtworzenia["handoff"],
+                    kwoty_niezgodne=wynik_odtworzenia["kwoty_niezgodne"],
+                    trasa=wynik_odtworzenia["trasa"],
+                    uzycia=wynik_odtworzenia["uzycia"],
+                    czasy_tur=wynik_odtworzenia["czasy_tur"])
+                ocena["powtorki_przyblizone"] = kryteria.powtorzone_formulki_przyblizone(
+                    wynik_odtworzenia["odpowiedzi"])
+                ocena["crm_zapisy_przechwycone"] = wynik_odtworzenia["crm_zapisy_przechwycone"]
+                if cennik is not None:
+                    ocena["koszt"] = kryteria.koszt_rozmowy(wynik_odtworzenia["uzycia"], cennik)
+                wyniki.append(ocena)
+                print("#%s tur=%s powtorki=%s(~%s) wyjscie=%s handoff=%s kwoty_niezgodne=%s "
+                      "trasa=%s koszt=%.2f"
+                      % (ocena["id"], ocena["tur"], ocena["powtorki"], ocena["powtorki_przyblizone"],
+                         ocena["ma_wyjscie"], ocena["handoff"], ocena["kwoty_niezgodne"],
+                         "->".join(ocena["trasa"]) or "-", ocena["koszt"]))
+    finally:
+        # N3: zapis --out W FINALLY, nie na samym koncu funkcji — jeden
+        # nieprzewidziany wyjatek WEWNATRZ petli (poza dwoma try/except wyzej,
+        # ktore lapia najbardziej prawdopodobne przypadki) nie ma prawa
+        # zabrac ze soba WYNIKOW JUZ POLICZONYCH rozmow/plikow. `wyniki`/
+        # `bledy` sa budowane PRZYROSTOWO, wiec ten finally zawsze zapisuje
+        # dokladnie to, co zdazylo powstac do momentu wyjatku (jesli byl).
+        if args.out:
+            with open(args.out, "w", encoding="utf-8") as f:
+                json.dump({"wyniki": wyniki, "bledy": bledy}, f, ensure_ascii=False, indent=2)
+            print("\nPelny wynik (JSON): %s" % args.out)
 
     razem = len(wyniki)
     z_wyjsciem = sum(1 for w in wyniki if w["ma_wyjscie"])
@@ -585,11 +675,14 @@ def main(argv):
           "do uzycia z kazdym zrodlem takich etykiet, gdy powstanie (patrz jej "
           "docstring i tests/test_replay_odtworz.py, gdzie liczona jest na "
           "syntetycznych danych ze znanym oczekiwanym routingiem).")
-
-    if args.out:
-        with open(args.out, "w", encoding="utf-8") as f:
-            json.dump({"wyniki": wyniki, "bledy": bledy}, f, ensure_ascii=False, indent=2)
-        print("\nPelny wynik (JSON): %s" % args.out)
+    print("UWAGA: agent Wiedzy embedduje pytanie klienta przez OpenAI (bots/knowledge.py::"
+          "retrieve -> bots/llm.py::embed, POST /embeddings) NIEZALEZNIE od MODEL_* — "
+          "wylaczenie tracingu SDK tego nie obejmuje. Puszczajac korpus z danymi osobowymi "
+          "klientow, tresc pytan trafiajacych do agenta Wiedzy i tak wyjdzie do OpenAI.")
+    print("UWAGA: 'powtorki=X(~Y)' — Y (powtorki_przyblizone) zamienia WSZYSTKIE cyfry na "
+          "jeden symbol przed porownaniem, wiec DWIE ROZNE wyceny (inna cena/wymiar) licza "
+          "sie tam jako powtorka. Y mierzy INNA rzecz niz audytowe 65 powtorek (dokladne "
+          "dopasowanie tekstu) — nie zestawiaj Y wprost z ta liczba, tylko X (dokladne).")
 
 
 if __name__ == "__main__":

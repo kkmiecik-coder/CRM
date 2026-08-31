@@ -39,7 +39,15 @@ False/{"ok": False} + log. To ma DWIE konsekwencje dla testow:
       dzialaby jako dowod nieszczelnosci — realna funkcja i tak zlapalaby
       wyjatek WEWNATRZ i zwrocila False, przez co pytest nigdy by go nie
       zobaczyl. Dlatego test transportowy nizej (TestZadneWywolanieSieciowe)
-      uzywa REJESTRATORA (zapisuje wywolania, nie rzuca), nie atrapy rzucajacej."""
+      uzywa REJESTRATORA (zapisuje wywolania, nie rzuca), nie atrapy rzucajacej.
+
+Runda poprawek 2: sam rejestrator na `requests.post/.request/.put/.get`
+(wersja z rundy 1) tez byl niepelny — nie lapal `requests.Session()`,
+`.delete`/`.patch`/`.head` ani modulu robiacego `from requests import post`
+przy imporcie (dokladnie ta sama klasa bledu co K3 wyzej, tylko jedno pietro
+nizej). `TestZadneWywolanieSieciowe` patchuje teraz WSPOLNA warstwe pod
+CALYM `requests` (`HTTPAdapter.send`) plus twardy straznik na
+`socket.socket.connect` — patrz jej docstring."""
 import types
 
 import pytest
@@ -133,33 +141,55 @@ class TestPrzechwycenieWysylki:
 
 
 class TestZadneWywolanieSieciowe:
-    """Test transportowy — K3, sztandarowy dowod braku wycieku. Zamiast ufac
-    KTOREMU atrybutowi (co jest latwo pomylic — K1 to WLASNIE taka pomylka:
-    `podsumowanie.py` mial WLASNA, niezalezna kopie tego samego importu, ktora
-    pierwsza wersja tego harnessu przeoczyla), patchuje sie WARSTWE
-    TRANSPORTOWA (`requests.post`/`.request`) — przez nia przechodzi KAZDE
-    wywolanie sieciowe w `core.chatwoot.*`/`bots.crm_calc.*`, niezaleznie od
-    tego, jak zostalo zaimportowane. REJESTRUJE wywolania zamiast rzucac
-    wyjatek — `cw_agent_reply`/`cw_bot_handoff`/`crm_calc._send` lapia
-    wyjatki z `requests` WEWNATRZ SIEBIE (nigdy nie rzucaja same z siebie,
-    patrz ich docstringi), wiec rzucajaca atrapa na tym poziomie zostalaby po
-    cichu polkniena i test 'przeszedlby' NAWET PRZY REALNYM WYCIEKU."""
+    """Test transportowy — K3, sztandarowy dowod braku wycieku.
 
-    def test_pelny_scenariusz_podsumowanie_potwierdzenie_zapis_klienta_nie_dotyka_sieci(
+    Runda poprawek 2: podmiana `requests.post/.request/.put/.get` (runda 1)
+    NIE łapie `requests.Session()` (wzorzec już jest w `e2e/harness.py`),
+    `requests.delete/.patch/.head` (`requests.patch` jest używane w
+    `setup/create_agent_bot.py`) ani modułu robiącego `from requests import
+    post` przy imporcie — czyli DOKŁADNIE tej klasy błędu (wiązanie nazwy
+    przy imporcie / niepełne pokrycie API), którą ten test ma zamykać.
+    Naprawa: podmiana na WARSTWIE NIŻSZEJ, wspólnej dla WSZYSTKICH wywołań
+    biblioteki `requests` niezależnie od czasownika/stylu importu —
+    `requests.adapters.HTTPAdapter.send` (każdy `Session.request`, a więc
+    i goły `requests.post`/`.get`/..., kończy się TU) — plus twardy strażnik
+    na `socket.socket.connect` (dosłownie NIC nie dotknie sieci bez przejścia
+    przez TCP connect — łapie też ewentualny przyszły kod, który ominąłby
+    `requests` całkowicie, np. `urllib`/`httpx`/goły socket).
+
+    `cw_agent_reply`/`cw_bot_handoff`/`crm_calc._send` łapią wyjątki z
+    `requests` WEWNĄTRZ SIEBIE (nigdy nie rzucają same z siebie) — dlatego
+    `_rejestrujacy_send` REJESTRUJE (nie rzuca) i zwraca neutralną, poprawną
+    `requests.Response`; strażnik na `socket.connect` rzuca, bo do niego
+    (przy poprawnie działającym `_rejestrujacy_send`) nigdy nie powinno dojść
+    — to czysta tropwire dla ścieżek OMIJAJĄCYCH `requests`."""
+
+    def test_pelny_scenariusz_podsumowanie_potwierdzenie_zapis_popraw_handoff_nie_dotyka_sieci(
             self, monkeypatch):
+        import socket
+
         import requests
+        import requests.adapters
+        import requests.models
 
         wywolania_sieciowe = []
 
-        def _zanotuj(*args, **kwargs):
-            wywolania_sieciowe.append((args, kwargs))
-            return types.SimpleNamespace(
-                status_code=200, text="{}", ok=True, json=lambda: {})
+        def _rejestrujacy_send(self_adapter, request, **kwargs):
+            wywolania_sieciowe.append((request.method, request.url))
+            odpowiedz = requests.models.Response()
+            odpowiedz.status_code = 200
+            odpowiedz._content = b"{}"
+            odpowiedz.request = request
+            return odpowiedz
 
-        monkeypatch.setattr(requests, "post", _zanotuj)
-        monkeypatch.setattr(requests, "request", _zanotuj)
-        monkeypatch.setattr(requests, "put", _zanotuj)
-        monkeypatch.setattr(requests, "get", _zanotuj)
+        def _zablokowany_connect(self_socket, *a, **kw):
+            raise AssertionError(
+                "replay probowal nawiazac POLACZENIE TCP (socket.connect) — "
+                "sciezka OMIJAJACA requests.adapters.HTTPAdapter.send, ktora "
+                "nie powinna istniec w tym scenariuszu")
+
+        monkeypatch.setattr(requests.adapters.HTTPAdapter, "send", _rejestrujacy_send)
+        monkeypatch.setattr(socket.socket, "connect", _zablokowany_connect)
 
         # get_options/calculate MAJA zostac PRAWDZIWE w produkcyjnym replayu
         # (I1 — cena wylacznie z kalkulatora) — ale W TYM TESCIE, ktory
@@ -174,10 +204,11 @@ class TestZadneWywolanieSieciowe:
 
         class _RunnerWolajacyNarzedzia:
             """Symuluje EFEKT UBOCZNY narzedzi SDK, ktore model wolalby w
-            prawdziwej rozmowie (wyslij_podsumowanie -> potwierdz ->
-            znajdz_klienta -> zapisz_wycene) — bezposrednie wywolanie funkcji
-            pod spodem narzedzi, bez prawdziwego modelu (jak
-            `_RunnerZPodsumowaniemWTrakcie` w test_pro_tura.py)."""
+            prawdziwej rozmowie: wyslij_podsumowanie -> potwierdz ->
+            znajdz_klienta -> zapisz_wycene -> popraw_wycene -> oddaj_czlowiekowi
+            (handoff) — bezposrednie wywolanie funkcji pod spodem narzedzi,
+            bez prawdziwego modelu (jak _RunnerZPodsumowaniemWTrakcie w
+            test_pro_tura.py). SZEsC narzedzi, cztery tury klienta."""
 
             def __init__(self):
                 self.krok = 0
@@ -185,28 +216,53 @@ class TestZadneWywolanieSieciowe:
             def run_sync(self, agent, tresc, session=None, max_turns=None):
                 self.krok += 1
                 if self.krok == 1:
+                    # N2: wykonczenie MUSI byc ustawione — build_products
+                    # (teraz naprawde wolane przez stub, patrz N2) odmawia
+                    # pozycji bez rozpoznanego wykonczenia.
                     stan.zapisz_pozycje("1", produkt="blat", dlugosc_cm=200,
                                         szerokosc_cm=60, grubosc_cm=4, ilosc=1,
-                                        selected_variant="dab-lity-ab")
+                                        selected_variant="dab-lity-ab",
+                                        wykonczenie="surowe")
                     wynik_wyslania = podsumowanie.wyslij()
                     assert wynik_wyslania["ok"] is True
                     return types.SimpleNamespace(
                         final_output="", last_agent=types.SimpleNamespace(name="Wycena"),
                         context_wrapper=types.SimpleNamespace(usage=None))
-                # krok 2: klient (druga wiadomosc w rozmowie, patrz nizej)
-                # potwierdza — potwierdz() czyta stan.ostatnia_wiadomosc_klienta()
-                # (W1), zakladajacy klient + zapisana wycena to K2.
-                wynik_potw = potwierdzenia.potwierdz("zgadzam sie na wszystko")
-                assert wynik_potw["ok"] is True
-                wynik_klienta = crm_calc.find_or_create_client(
-                    "test@example.com", None, "Test Klient", client_number="chat-test")
-                assert wynik_klienta["ok"] is True
-                wynik_wyceny = crm_calc.create_quote(
-                    stan.pozycje(), {}, wynik_klienta["client"]["id"])
-                assert wynik_wyceny["ok"] is True
+                if self.krok == 2:
+                    # krok 2: klient (druga wiadomosc) potwierdza —
+                    # potwierdz() czyta stan.ostatnia_wiadomosc_klienta() (W1);
+                    # zakladajacy klient + zapisana wycena to K2.
+                    wynik_potw = potwierdzenia.potwierdz("zgadzam sie na wszystko")
+                    assert wynik_potw["ok"] is True
+                    wynik_klienta = crm_calc.find_or_create_client(
+                        "test@example.com", None, "Test Klient", client_number="chat-test")
+                    assert wynik_klienta["ok"] is True
+                    wynik_wyceny = crm_calc.create_quote(
+                        stan.pozycje(), {}, wynik_klienta["client"]["id"])
+                    assert wynik_wyceny["ok"] is True
+                    self.edit_uuid = wynik_wyceny["edit_uuid"]
+                    return types.SimpleNamespace(
+                        final_output="Wycena zapisana: %s" % wynik_wyceny["edit_uuid"],
+                        last_agent=types.SimpleNamespace(name="Wycena"),
+                        context_wrapper=types.SimpleNamespace(usage=None))
+                if self.krok == 3:
+                    # krok 3: klient dokleja pozycje, model poprawia wczesniej
+                    # zapisana wycene (popraw_wycene -> crm_calc.update_quote).
+                    stan.zapisz_pozycje("2", produkt="parapet", dlugosc_cm=100,
+                                        szerokosc_cm=25, grubosc_cm=3, ilosc=1,
+                                        selected_variant="dab-lity-ab",
+                                        wykonczenie="surowe")
+                    wynik_poprawki = crm_calc.update_quote(
+                        self.edit_uuid, stan.pozycje(), {})
+                    assert wynik_poprawki["ok"] is True
+                    return types.SimpleNamespace(
+                        final_output="Wycena zaktualizowana.",
+                        last_agent=types.SimpleNamespace(name="Wycena"),
+                        context_wrapper=types.SimpleNamespace(usage=None))
+                # krok 4: klient prosi o czlowieka -> handoff.
+                stan.handoff("klient prosi o konsultanta")
                 return types.SimpleNamespace(
-                    final_output="Wycena zapisana: %s" % wynik_wyceny["edit_uuid"],
-                    last_agent=types.SimpleNamespace(name="Wycena"),
+                    final_output="", last_agent=types.SimpleNamespace(name="Wycena"),
                     context_wrapper=types.SimpleNamespace(usage=None))
 
         monkeypatch.setattr(tura, "Runner", _RunnerWolajacyNarzedzia())
@@ -214,23 +270,123 @@ class TestZadneWywolanieSieciowe:
         rozmowa = {"id": 901, "wiadomosci": [
             ("KLIENT", "poprosze wycene blatu dab lity A/B 200x60x4, 1 sztuka"),
             ("KLIENT", "tak, zgadzam sie na wszystko"),
+            ("KLIENT", "dolozcie jeszcze parapet 100x25x3"),
+            ("KLIENT", "chce porozmawiac z konsultantem"),
         ]}
         wynik = replay.odtworz(rozmowa)
 
-        # Pozytywny dowod, ze scenariusz FAKTYCZNIE przeszedl przez wszystkie
-        # cztery narzedzia (bez tego test moglby "przechodzic" tylko dlatego,
+        # Pozytywny dowod, ze scenariusz FAKTYCZNIE przeszedl przez WSZYSTKIE
+        # szesc narzedzi (bez tego test moglby "przechodzic" tylko dlatego,
         # ze nic sie nie wydarzylo).
-        assert wynik["crm_zapisy_przechwycone"] == 2  # find_or_create_client + create_quote
+        # find_or_create_client + create_quote + update_quote
+        assert wynik["crm_zapisy_przechwycone"] == 3
         assert any("Podsumowanie do potwierdzenia" in o for o in wynik["odpowiedzi"])
         assert any("Wycena zapisana" in o for o in wynik["odpowiedzi"])
+        assert wynik["handoff"] is True
 
         # I WLASCIWY dowod tego testu: ZERO wywolan warstwy transportowej —
         # ani do Chatwoota (wyslanie/handoff/historia), ani do CRM (klient/
-        # wycena). get_options/calculate tez nie posiegnely po siec, bo byly
-        # stubowane lokalnie (patrz wyzej) — gdyby nie byly, i tak liczylyby
-        # sie jako "measuring", nie "writing", wiec i tak NIE sa przedmiotem
-        # tego konkretnego testu (patrz TestOdtworzTrasaZPrawdziwymRouterem).
+        # wycena/poprawka). get_options/calculate tez nie posiegnely po siec,
+        # bo byly stubowane lokalnie (patrz wyzej) — gdyby nie byly, i tak
+        # liczylyby sie jako "measuring", nie "writing", wiec i tak NIE sa
+        # przedmiotem tego konkretnego testu (patrz
+        # TestOdtworzTrasaZPrawdziwymRouterem).
         assert wywolania_sieciowe == []
+
+
+class TestStubyCrmZgodneZKontraktem:
+    """Runda poprawek 2, N2: stuby narzedzi PISZACYCH (K2) zawsze zwracaly
+    {"ok": True}, wiec rozmowy, ktorym prawdziwy CRM ODMOWILBY zapisu (np.
+    niezmapowany wariant drewna), w replayu konczyly sie sukcesem — dokladnie
+    ta liczba (`ma_wyjscie`), ktora wlasciciel zestawia z 64% zepsutych
+    rozmow z audytu, bylaby zawyzona. Naprawa: stuby wola PRAWDZIWY
+    (czysty, bez sieci) `crm_calc.build_products` i zwracaja TEN SAM kontrakt
+    bledu co oryginal, kiedy `build_products` zglosi `braki`."""
+
+    def test_create_quote_odmawia_gdy_wariant_niezmapowany(self, monkeypatch):
+        # Pozycja BEZ gatunku/technologii/klasy — build_products realnego
+        # crm_calc NIE potrafi jej zmapowac na wariant, wiec zglasza braki.
+        monkeypatch.setattr(tura, "Runner", _FalszywyRunnerRoutingu(["cokolwiek"]))
+
+        def _run_sync(agent, tresc, session=None, max_turns=None):
+            wynik = crm_calc.create_quote(
+                [{"id": "1", "produkt": "blat", "dlugosc": 200, "szerokosc": 60,
+                  "grubosc": 4, "ilosc": 1}],  # brak gatunek/technologia/klasa
+                {}, client_id=1)
+            return types.SimpleNamespace(
+                final_output=("zapisano" if wynik["ok"] else "odmowa: %s" % wynik["errors"]),
+                last_agent=None, context_wrapper=None)
+
+        monkeypatch.setattr(tura, "Runner", types.SimpleNamespace(run_sync=_run_sync))
+        rozmowa = {"id": 951, "wiadomosci": [("KLIENT", "zapisz")]}
+
+        wynik = replay.odtworz(rozmowa)
+
+        assert wynik["crm_zapisy_przechwycone"] == 0  # zaden zapis NIE zostal zarejestrowany
+        assert "odmowa" in wynik["odpowiedzi"][0]
+        assert "nie rozpoznano wariantu drewna" in wynik["odpowiedzi"][0]
+
+    def test_create_quote_zapisuje_gdy_wariant_poprawny(self, monkeypatch):
+        # Kontrola negatywna: poprawnie zmapowana pozycja NADAL konczy sie
+        # sukcesem — naprawa N2 nie ma zamienic wszystkiego w odmowe.
+        def _run_sync(agent, tresc, session=None, max_turns=None):
+            wynik = crm_calc.create_quote(
+                [{"id": "1", "produkt": "blat", "dlugosc": 200, "szerokosc": 60,
+                  "grubosc": 4, "ilosc": 1, "gatunek": "dąb", "technologia": "lita",
+                  "klasa": "A/B", "wykonczenie": "surowe"}],
+                {}, client_id=1)
+            return types.SimpleNamespace(
+                final_output=("zapisano: %s" % wynik.get("edit_uuid") if wynik["ok"]
+                             else "odmowa"),
+                last_agent=None, context_wrapper=None)
+
+        monkeypatch.setattr(tura, "Runner", types.SimpleNamespace(run_sync=_run_sync))
+        rozmowa = {"id": 952, "wiadomosci": [("KLIENT", "zapisz")]}
+
+        wynik = replay.odtworz(rozmowa)
+
+        assert wynik["crm_zapisy_przechwycone"] == 1
+        assert wynik["odpowiedzi"][0].startswith("zapisano: replay-")
+
+    def test_update_quote_odmawia_gdy_wariant_niezmapowany(self, monkeypatch):
+        def _run_sync(agent, tresc, session=None, max_turns=None):
+            wynik = crm_calc.update_quote(
+                "jakis-uuid",
+                [{"id": "1", "produkt": "blat", "dlugosc": 200, "szerokosc": 60,
+                  "grubosc": 4, "ilosc": 1}],
+                {})
+            return types.SimpleNamespace(
+                final_output=("ok" if wynik["ok"] else "odmowa: %s" % wynik["errors"]),
+                last_agent=None, context_wrapper=None)
+
+        monkeypatch.setattr(tura, "Runner", types.SimpleNamespace(run_sync=_run_sync))
+        rozmowa = {"id": 953, "wiadomosci": [("KLIENT", "popraw")]}
+
+        wynik = replay.odtworz(rozmowa)
+
+        assert wynik["crm_zapisy_przechwycone"] == 0
+        assert "odmowa" in wynik["odpowiedzi"][0]
+
+    def test_find_or_create_client_normalizuje_kontakt(self, monkeypatch):
+        # Stub ma normalizowac email/telefon TAK SAMO jak prawdziwy
+        # crm_calc.find_or_create_client (normalize_email/normalize_phone)
+        # PRZED wyslaniem — nie zwracac ich dokladnie tak, jak podal model.
+        przechwycony = {}
+
+        def _run_sync(agent, tresc, session=None, max_turns=None):
+            wynik = crm_calc.find_or_create_client(
+                "  Test@Example.COM  ", "+48 600 100 200", "Jan Kowalski")
+            przechwycony.update(wynik)
+            return types.SimpleNamespace(
+                final_output="ok", last_agent=None, context_wrapper=None)
+
+        monkeypatch.setattr(tura, "Runner", types.SimpleNamespace(run_sync=_run_sync))
+        rozmowa = {"id": 954, "wiadomosci": [("KLIENT", "test@example.com")]}
+
+        replay.odtworz(rozmowa)
+
+        assert przechwycony["client"]["email"] == "test@example.com"
+        assert przechwycony["client"]["phone"] == "600100200"
 
 
 class TestOdtworzZbieraMetryki:
@@ -583,6 +739,35 @@ class TestGlownyCliOdpornoscIWyjscieJson:
         assert dane["wyniki"][0]["id"] == 1
         assert len(dane["bledy"]) == 1
         assert dane["bledy"][0]["id"] == 2
+
+    def test_niewczytywalny_plik_wsrod_kilku_nie_gubi_wynikow_dobrego(self, monkeypatch, tmp_path):
+        # Runda poprawek 2, N3 — dokladna reprodukcja sondy z przegladu:
+        # main([dobry_shard, "nie_ma.txt", "--out", plik]). Przed poprawka
+        # `wczytaj_rozmowy` byla POZA jakimkolwiek try — wyjatek na drugim
+        # pliku wywalal CALY main(), gubiac wyniki PIERWSZEGO (dobrego) pliku
+        # i (przed poprawka) NIE zapisujac nic do --out w ogole.
+        dobry = tmp_path / "dobry_shard.txt"
+        dobry.write_text("ROZMOWA #1\n[08:00] KLIENT: pierwsza\n", encoding="utf-8")
+        zly = str(tmp_path / "nie_ma.txt")  # celowo nieistniejacy plik
+        wyjscie = tmp_path / "wyniki.json"
+
+        def _fake_odtworz(rozmowa, persona="pro"):
+            return {"odpowiedzi": ["odp"], "handoff": True, "trasa": ["Wycena"],
+                    "uzycia": [], "czasy_tur": [0.1], "kwoty_niezgodne": 0,
+                    "crm_zapisy_przechwycone": 0}
+
+        monkeypatch.setattr(replay, "odtworz", _fake_odtworz)
+
+        # main() NIE MA wywalic wyjatku mimo nieistniejacego drugiego pliku.
+        replay.main([str(dobry), zly, "--out", str(wyjscie)])
+
+        import json
+        assert wyjscie.exists(), "--out MUSI powstac mimo bledu odczytu jednego z plikow"
+        dane = json.loads(wyjscie.read_text(encoding="utf-8"))
+        assert len(dane["wyniki"]) == 1  # wynik z DOBREGO pliku NIE zginal
+        assert dane["wyniki"][0]["id"] == 1
+        assert len(dane["bledy"]) == 1
+        assert dane["bledy"][0]["plik"] == zly
 
     def test_flaga_persona_dociera_do_odtworz(self, monkeypatch, tmp_path):
         plik = tmp_path / "shard.txt"

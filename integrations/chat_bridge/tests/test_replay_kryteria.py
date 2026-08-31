@@ -379,6 +379,80 @@ class TestParserTranskryptu:
         klient = [t for k, t in rozmowy[0]["wiadomosci"] if k == "KLIENT"]
         assert klient == ["pytanie"]
 
+    def test_adres_dostawy_z_kodem_pocztowym_nie_ginie(self, tmp_path):
+        # Runda poprawek 2, N1 — dokladna reprodukcja sondy z przegladu:
+        # "31-000 KRAKOW" (kod pocztowy + miasto) pasowal do starego wzorca
+        # "same wielkie litery/cyfry" i byl brany za naglowek bloku, co
+        # KASOWALO te linie ORAZ kazda linie PO niej ("prosze o kuriera") —
+        # nawet zwykla proza ginela, bo `ostatnia` byla zerowana. Po
+        # poprawce: sama linia moze zostac pominieta tylko gdy NASTEPNA linia
+        # jest wcieta (potwierdzenie bloku metadanych) — tu nastepna linia to
+        # normalna proza, wiec adres MA zostac w calosci.
+        plik = tmp_path / "shard_adres.txt"
+        plik.write_text(
+            "ROZMOWA #20\n"
+            "[10:05] KLIENT: adres dostawy:\n"
+            "UL. LESNA 5\n"
+            "31-000 KRAKOW\n"
+            "prosze o kuriera\n",
+            encoding="utf-8")
+
+        rozmowy = replay.wczytaj_rozmowy(str(plik))
+
+        klient = [t for k, t in rozmowy[0]["wiadomosci"] if k == "KLIENT"]
+        assert klient == ["adres dostawy:\nUL. LESNA 5\n31-000 KRAKOW\nprosze o kuriera"]
+
+    def test_pojedyncza_liczba_jako_odpowiedz_nie_ginie(self, tmp_path):
+        # "12" (odpowiedz na "ile sztuk?") pasowala do starego wzorca (same
+        # cyfry) i byla brana za naglowek bloku.
+        plik = tmp_path / "shard_liczba.txt"
+        plik.write_text(
+            "ROZMOWA #21\n"
+            "[10:05] BOT: Ile sztuk potrzebujesz?\n"
+            "[10:06] KLIENT: no to\n"
+            "12\n"
+            "sztuk poprosze\n",
+            encoding="utf-8")
+
+        rozmowy = replay.wczytaj_rozmowy(str(plik))
+
+        klient = [t for k, t in rozmowy[0]["wiadomosci"] if k == "KLIENT"]
+        assert klient == ["no to\n12\nsztuk poprosze"]
+
+    def test_klient_piszacy_wersalikami_nie_ginie(self, tmp_path):
+        # Klient piszacy CAPS LOCKIEM ("PROSZE O ODPOWIEDZ") pasowal do
+        # starego wzorca (same wielkie litery) i byl brany za naglowek bloku.
+        plik = tmp_path / "shard_wersaliki.txt"
+        plik.write_text(
+            "ROZMOWA #22\n"
+            "[10:05] KLIENT: dzien dobry\n"
+            "PROSZE O ODPOWIEDZ\n"
+            "to pilne\n",
+            encoding="utf-8")
+
+        rozmowy = replay.wczytaj_rozmowy(str(plik))
+
+        klient = [t for k, t in rozmowy[0]["wiadomosci"] if k == "KLIENT"]
+        assert klient == ["dzien dobry\nPROSZE O ODPOWIEDZ\nto pilne"]
+
+    def test_znany_naglowek_bloku_bez_potwierdzenia_wcieciem_wciaz_dziala(self, tmp_path):
+        # "ZDARZENIA" jest na bialej liscie znanych etykiet — rozpoznawany
+        # NAWET bez nastepujacej po nim wcietej linii (np. pusty/ostatni blok).
+        plik = tmp_path / "shard_zdarzenia_bez_wciecia.txt"
+        plik.write_text(
+            "ROZMOWA #23\n"
+            "[10:05] KLIENT: pytanie\n"
+            "ZDARZENIA\n"
+            "[10:06] BOT: odpowiedz\n",
+            encoding="utf-8")
+
+        rozmowy = replay.wczytaj_rozmowy(str(plik))
+
+        klient = [t for k, t in rozmowy[0]["wiadomosci"] if k == "KLIENT"]
+        assert klient == ["pytanie"]
+        bot = [t for k, t in rozmowy[0]["wiadomosci"] if k == "BOT"]
+        assert bot == ["odpowiedz"]
+
     def test_tekst_przed_pierwszym_naglowkiem_jest_ignorowany(self, tmp_path):
         plik = tmp_path / "shard_smieci.txt"
         plik.write_text(
