@@ -85,11 +85,17 @@ def _odpowiedz(ok, order_id=None, order_page_url=None, duplikat=False, error=Non
     }
 
 
-def zloz_zamowienie_klienta(quote, order_source_id, bot_user_id):
+def zloz_zamowienie_klienta(quote, order_source_id, bot_user_id,
+                            is_self_pickup=False):
     """Tworzy zamówienie w BaseLinkerze dla zaakceptowanej wyceny.
 
-    Zwraca {"ok", "order_id", "order_page_url", "duplikat", "error", "niepewne"}.
-    Nie rzuca wyjątków — create_order_from_quote też ich nie propaguje.
+    is_self_pickup — wybór klienta z bieżącego formularza. Musi tu dojechać,
+    bo dla wyceny zaakceptowanej wcześniej nie ma go już skąd odczytać: dane
+    dostawy zapisuje wyłącznie akceptacja, a ta się wtedy nie wykonuje.
+
+    Zwraca {"ok", "order_id", "order_page_url", "duplikat", "error", "niepewne",
+    "zamowienie_utworzone"}. Nie rzuca wyjątków — create_order_from_quote też
+    ich nie propaguje.
     """
     zablokowana = zablokuj_wycene(quote)
     if zablokowana is None:
@@ -109,7 +115,8 @@ def zloz_zamowienie_klienta(quote, order_source_id, bot_user_id):
     if not zablokowana.is_eligible_for_order():
         return _odpowiedz(False, error="NIEKWALIFIKOWANA")
 
-    config = build_checkout_order_config(zablokowana, order_source_id)
+    config = build_checkout_order_config(zablokowana, order_source_id,
+                                         is_self_pickup=is_self_pickup)
     wynik = BaselinkerService().create_order_from_quote(zablokowana, bot_user_id, config)
 
     if not wynik.get("success"):

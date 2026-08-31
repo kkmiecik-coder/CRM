@@ -2366,6 +2366,10 @@ def client_place_order(token):
         quote,
         order_source_id=zrodlo.baselinker_id,
         bot_user_id=bot_user_id,
+        # Wybór dostawy z tego samego formularza, z którego czyta go akceptacja.
+        # Bez przekazania go dalej zamówienie jechało kurierem i z kosztem
+        # dostawy mimo zaznaczonego odbioru osobistego.
+        is_self_pickup=bool(data.get("is_self_pickup")),
     )
 
     if not wynik["ok"]:

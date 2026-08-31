@@ -612,3 +612,53 @@ class TestKomunikatGdyZamowienieIstniejeAleZapisPadl:
         assert 'zostało złożone' in body['error']
         assert 'nie składaj' in body['error'].lower()
         assert '410/08/26/W' in body['error']
+
+
+class TestOdbiorOsobistyWZamowieniu:
+    """Wybór klienta z formularza musi dojść aż do konfiguracji zamówienia."""
+
+    def test_odbior_osobisty_jedzie_do_baselinkera_bez_kuriera(
+            self, aplikacja, klient_http, baselinker):
+        _zasiej()
+
+        odpowiedz = _zamow(klient_http, is_self_pickup=True)
+
+        assert odpowiedz.status_code == 200
+        config = baselinker.wywolania[0]['config']
+        assert config['delivery_method'] == 'Odbiór osobisty'
+        assert config['shipping_cost_override'] == 0.0
+
+    def test_dostawa_kurierska_zachowuje_kuriera_i_koszt(
+            self, aplikacja, klient_http, baselinker):
+        _zasiej()
+
+        odpowiedz = _zamow(klient_http, is_self_pickup=False,
+                           delivery_name='Jan Testowy',
+                           delivery_address='Leśna 12',
+                           delivery_postcode='11-111',
+                           delivery_city='Gdańsk')
+
+        assert odpowiedz.status_code == 200
+        config = baselinker.wywolania[0]['config']
+        assert config['delivery_method'] == 'DPD'
+        assert config['shipping_cost_override'] == 123.0
+
+    def test_odbior_wybrany_na_wycenie_juz_zaakceptowanej_tez_dziala(
+            self, aplikacja, klient_http, baselinker):
+        # Wycena zaakceptowana wcześniej nie przechodzi już przez zapis danych
+        # dostawy, więc znacznik na kliencie zostaje stary (adres kurierski).
+        # Wybór z bieżącego formularza musi mimo to dojechać do zamówienia —
+        # inaczej klient płaci za kuriera, którego przed chwilą odznaczył.
+        _zasiej(status_id=3, is_client_editable=False)
+        with aplikacja.app_context():
+            klient = Client.query.first()
+            klient.delivery_address = 'Leśna 12'
+            klient.delivery_city = 'Gdańsk'
+            db.session.commit()
+
+        odpowiedz = _zamow(klient_http, is_self_pickup=True)
+
+        assert odpowiedz.status_code == 200
+        config = baselinker.wywolania[0]['config']
+        assert config['delivery_method'] == 'Odbiór osobisty'
+        assert config['shipping_cost_override'] == 0.0

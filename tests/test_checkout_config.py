@@ -81,3 +81,62 @@ class TestBuildCheckoutOrderConfig:
         )
         cfg = build_checkout_order_config(wycena, order_source_id=1)
         assert cfg["shipping_cost_override"] == 123.00
+
+
+class TestOdbiorOsobisty:
+    """Wybór „odbiór osobisty" musi dojechać do zamówienia.
+
+    W panelu tę decyzję podejmował handlowiec ręcznie (baselinker.js:1568-1601);
+    w ścieżce klienta nie podejmował jej nikt, więc zamówienie szło do
+    BaseLinkera z kurierem i kosztem dostawy przy adresie „ODBIÓR OSOBISTY".
+    Magazyn dostawał zlecenie „wyślij DPD na adres ODBIÓR OSOBISTY", a klient —
+    obciążenie za dostawę, której odmówił.
+    """
+
+    def test_odbior_osobisty_zdejmuje_kuriera(self):
+        cfg = build_checkout_order_config(_wycena(), order_source_id=1,
+                                          is_self_pickup=True)
+        assert cfg["delivery_method"] == "Odbiór osobisty"
+
+    def test_odbior_osobisty_zeruje_koszt_dostawy(self):
+        cfg = build_checkout_order_config(_wycena(), order_source_id=1,
+                                          is_self_pickup=True)
+        assert cfg["shipping_cost_override"] == 0.0
+
+    def test_odbior_osobisty_zeruje_koszt_takze_w_wycenie_netto(self):
+        cfg = build_checkout_order_config(_wycena(quote_type="netto"),
+                                          order_source_id=1, is_self_pickup=True)
+        assert cfg["shipping_cost_override"] == 0.0
+
+    def test_bez_odbioru_osobistego_kurier_i_koszt_zostaja(self):
+        # Kontrola negatywna: dostawa kurierska nie może zniknąć „przy okazji".
+        cfg = build_checkout_order_config(_wycena(), order_source_id=1,
+                                          is_self_pickup=False)
+        assert cfg["delivery_method"] == "DPD"
+        assert cfg["shipping_cost_override"] == 123.00
+
+    def test_adres_odbioru_osobistego_na_kliencie_tez_zdejmuje_kuriera(self):
+        # Wycena zaakceptowana wcześniej (np. starą ścieżką /accept-with-data)
+        # nie przechodzi już przez zapis danych dostawy, więc jedynym śladem
+        # wyboru jest znacznik zapisany na kliencie. Bez tego zamówienie
+        # jechałoby kurierem pod adres „ODBIÓR OSOBISTY".
+        wycena = _wycena(client=SimpleNamespace(delivery_address='ODBIÓR OSOBISTY'))
+        cfg = build_checkout_order_config(wycena, order_source_id=1,
+                                          is_self_pickup=False)
+        assert cfg["delivery_method"] == "Odbiór osobisty"
+        assert cfg["shipping_cost_override"] == 0.0
+
+    def test_znacznik_bez_diakrytykow_tez_jest_rozpoznawany(self):
+        wycena = _wycena(client=SimpleNamespace(delivery_address='Odbior osobisty'))
+        cfg = build_checkout_order_config(wycena, order_source_id=1)
+        assert cfg["delivery_method"] == "Odbiór osobisty"
+
+    def test_zwykly_adres_dostawy_nie_udaje_odbioru(self):
+        wycena = _wycena(client=SimpleNamespace(delivery_address='Leśna 12'))
+        cfg = build_checkout_order_config(wycena, order_source_id=1)
+        assert cfg["delivery_method"] == "DPD"
+        assert cfg["shipping_cost_override"] == 123.00
+
+    def test_wycena_bez_klienta_nie_wywraca_buildera(self):
+        cfg = build_checkout_order_config(_wycena(), order_source_id=1)
+        assert cfg["delivery_method"] == "DPD"
