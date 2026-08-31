@@ -1067,3 +1067,96 @@ class TestHandoffIdempotentnyWTurze:
         tura.uruchom(conv_id, "inbox1", "wiadomosc 2", persona="quote")
 
         assert len(slady["toggle"]) == 2
+
+class TestBramkaIdempotencjiNieUciszaKomunikatu:
+    """C2 (runda D): bramka idempotencji z N7 stała na POCZĄTKU
+    `_oddaj_konsultantowi`, więc gasiła także `KOMUNIKAT_HANDOFF` — nie tylko
+    powtórny handoff. Gdy handoff przyszedł z narzędzia, a wiadomości modelu
+    NIE dotarły do klienta (zablokował je guardrail albo padło podsumowanie),
+    tura kończyła się CISZĄ: klient nie dostawał ANI JEDNEJ wiadomości i nie
+    wiedział, że rozmowę przejmuje człowiek. To ta sama awaria, którą zamykały
+    U1/U7/U11 i którą audyt wskazał jako przyczynę porzuceń.
+
+    Reguła: idempotentne są SKUTKI UBOCZNE (notatka + przełączenie statusu),
+    a nie wiadomość do klienta. Komunikat pomijamy wyłącznie wtedy, gdy klient
+    już dostał w tej turze wypowiedź modelu PO handoffie z narzędzia — wtedy
+    pożegnanie napisał sam model (kontrola w `TestHandoffIdempotentnyWTurze`)."""
+
+    def _slady_handoffu(self, monkeypatch):
+        slady = {"notatki": [], "toggle": []}
+        monkeypatch.setattr(notatki, "cw_note",
+                            lambda cid, tekst, token=None: slady["notatki"].append(tekst) or True)
+        monkeypatch.setattr("core.chatwoot.cw_bot_handoff",
+                            lambda cid, token=None: slady["toggle"].append(cid) or True)
+        return slady
+
+    def test_handoff_z_narzedzia_i_podwojne_naruszenie_guardraila_nie_daja_ciszy(
+            self, monkeypatch):
+        """Sonda rerecenzji (przypadek B): model woła `oddaj_czlowiekowi` i pisze
+        zdanie ze zmyśloną kwotą; korekta też z kwotą (typowe — model nie wie, co
+        naprawia). Obie wypowiedzi blokuje guardrail, więc do klienta NIE poszło
+        nic — komunikat o przekazaniu jest jedyną rzeczą, jaką dostanie."""
+        conv_id = 96141
+        slady = self._slady_handoffu(monkeypatch)
+
+        class _RunnerZHandoffemINaruszeniami:
+            odpowiedzi = ["Cena to 999,00 zl", "Nadal 999,00 zl"]
+
+            def run_sync(self, agent, tresc, session=None, max_turns=None):
+                stan.handoff("klient prosi o czlowieka")   # narzedzie oddaj_czlowiekowi
+                return types.SimpleNamespace(final_output=self.odpowiedzi.pop(0))
+
+        monkeypatch.setattr(tura, "Runner", _RunnerZHandoffemINaruszeniami())
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "ile kosztuje?", persona="quote")
+
+        assert wyslane == [tura.KOMUNIKAT_HANDOFF]
+        assert len(slady["notatki"]) == 1
+        assert len(slady["toggle"]) == 1
+
+    def test_handoff_z_narzedzia_i_nieudane_podsumowanie_nie_daja_ciszy(self, monkeypatch):
+        """Sonda rerecenzji (przypadek C): handoff z narzędzia, podsumowanie nie
+        dotarło do Chatwoota, model nic nie napisał."""
+        conv_id = 96142
+        slady = self._slady_handoffu(monkeypatch)
+        monkeypatch.setattr(stan, "podsumowanie_nieudane", lambda: True)
+
+        class _RunnerZHandoffemBezOdpowiedzi:
+            def run_sync(self, agent, tresc, session=None, max_turns=None):
+                stan.handoff("nie udalo sie wyslac podsumowania")
+                return types.SimpleNamespace(final_output="")
+
+        monkeypatch.setattr(tura, "Runner", _RunnerZHandoffemBezOdpowiedzi())
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "tak", persona="quote")
+
+        assert wyslane == [tura.KOMUNIKAT_HANDOFF]
+        assert len(slady["notatki"]) == 1
+        assert len(slady["toggle"]) == 1
+
+    def test_komunikat_po_handoffie_z_narzedzia_idzie_przez_profil_kanalu(self, monkeypatch):
+        """Komunikat wysyłany z tej ścieżki nadal podlega profilowi kanału —
+        sklejony w Pythonie tekst nie może omijać caps-ów Allegro/OLX."""
+        conv_id = 96143
+        self._slady_handoffu(monkeypatch)
+        uzyte_persony = []
+        prawdziwa = tura.wysylka.przygotuj
+        monkeypatch.setattr(tura.wysylka, "przygotuj",
+                            lambda tekst, persona: uzyte_persony.append(persona) or
+                            prawdziwa(tekst, persona))
+
+        class _RunnerZHandoffemINaruszeniami:
+            odpowiedzi = ["Cena to 999,00 zl", "Nadal 999,00 zl"]
+
+            def run_sync(self, agent, tresc, session=None, max_turns=None):
+                stan.handoff("klient prosi o czlowieka")
+                return types.SimpleNamespace(final_output=self.odpowiedzi.pop(0))
+
+        monkeypatch.setattr(tura, "Runner", _RunnerZHandoffemINaruszeniami())
+        _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "ile kosztuje?", persona="allegro")
+
+        assert uzyte_persony == ["allegro"]

@@ -115,7 +115,8 @@ def _sesja(conv_id):
                          session_settings=SessionSettings(limit=BOT_PRO_SESSION_ITEMS_LIMIT))
 
 
-def _oddaj_konsultantowi(powod, conv_id, persona="pro"):
+def _oddaj_konsultantowi(powod, conv_id, persona="pro",
+                         klient_dostal_wiadomosc=False):
     """`stan.handoff` zwraca {"ok": False, ...} przy nieudanej wysyłce do Chatwoota —
     bez logu ten stan wygląda z zewnątrz identycznie jak udany handoff (runda poprawek 1,
     drobne). Nie rzucamy wyjątku — brak handoffu nie ma dobrej ścieżki odzysku w tej
@@ -133,19 +134,31 @@ def _oddaj_konsultantowi(powod, conv_id, persona="pro"):
     docstring), żeby objąć też handoff wywołany przez sam model.
 
     N7 (rerecenzja): gdy rozmowa została już oddana W TEJ TURZE (model wołał
-    `oddaj_czlowiekowi` albo `przygotuj_zamowienie` na Allegro), nie robimy
-    NICZEGO — ani komunikatu, ani powtórnego handoffu. Bramka `handoff_w_turze()
-    and not odpowiedz` wyżej nie łapie przypadku, w którym model po handoffie
-    JEDNAK coś napisał: klient dostał wtedy pożegnanie modelu, a bezpiecznik
-    braku postępu dokładał zaraz po nim drugą wiadomość, drugą notatkę i drugie
-    przełączenie statusu — do rozmowy, która jest już u człowieka."""
+    `oddaj_czlowiekowi` albo `przygotuj_zamowienie` na Allegro), nie powtarzamy
+    SKUTKÓW UBOCZNYCH — notatki dla konsultanta ani przełączenia statusu. Bramka
+    `handoff_w_turze() and not odpowiedz` wyżej nie łapie przypadku, w którym
+    model po handoffie JEDNAK coś napisał: klient dostał wtedy pożegnanie modelu,
+    a bezpiecznik braku postępu dokładał zaraz po nim drugą wiadomość, drugą
+    notatkę i drugie przełączenie statusu — do rozmowy, która jest już u
+    człowieka.
+
+    C2 (runda D): ta bramka stała wcześniej na POCZĄTKU funkcji, więc gasiła
+    RÓWNIEŻ komunikat do klienta. Gdy handoff przyszedł z narzędzia, a wypowiedzi
+    modelu do klienta nie dotarły (zablokował je guardrail G1 albo padło
+    podsumowanie), tura kończyła się CISZĄ — zero wiadomości, mimo że rozmowę
+    właśnie przejmował człowiek. Idempotentne mają być skutki uboczne, nie
+    pożegnanie: `klient_dostal_wiadomosc` mówi, czy klient JUŻ dostał w tej turze
+    wypowiedź modelu; tylko wtedy (i tylko po handoffie z narzędzia, bo wtedy to
+    model pisze pożegnanie) komunikat pomijamy. W każdym innym przypadku klient
+    dostaje dokładnie jedno zdanie o przekazaniu rozmowy."""
+    if not (stan.handoff_w_turze() and klient_dostal_wiadomosc):
+        for czesc in wysylka.przygotuj(KOMUNIKAT_HANDOFF, persona):
+            if czesc:
+                cw_agent_reply(conv_id, czesc, token=BOT_PRO_CW_AGENT_TOKEN)
     if stan.handoff_w_turze():
         log("tura: rozmowa juz oddana w tej turze -> pomijam powtorne przekazanie, "
             "powod=%r (conv %s)" % (powod, conv_id))
         return {"ok": True, "powod": powod, "pominiety": True}
-    for czesc in wysylka.przygotuj(KOMUNIKAT_HANDOFF, persona):
-        if czesc:
-            cw_agent_reply(conv_id, czesc, token=BOT_PRO_CW_AGENT_TOKEN)
     wynik = stan.handoff(powod)
     if not wynik.get("ok"):
         log("tura: handoff do konsultanta NIEUDANY, powod=%r (conv %s)" % (powod, conv_id))
@@ -265,16 +278,23 @@ def uruchom(conv_id, inbox_id, tresc, zalaczniki=None, persona="pro", message_id
             if not odpowiedz or guardraile.sprawdz_ceny(odpowiedz, stan.znane_kwoty()):
                 log("guardrail G1: druga proba tez z naruszeniem -> handoff (conv %s)" % conv_id)
                 _oddaj_konsultantowi(
-                    "guardrail ceny — dwie próby z kwotą spoza kalkulatora", conv_id, persona)
+                    "guardrail ceny — dwie próby z kwotą spoza kalkulatora", conv_id, persona,
+                    klient_dostal_wiadomosc=stan.podsumowanie_wyslane())
                 return
 
     # W3: podsumowanie.wyslij() (wolane jako narzedzie, w KTORYMKOLWIEK z powyzszych
     # wywolan Runnera) moglo juz samo wyslac deterministyczna tresc - wtedy NIC wiecej
     # w tej turze nie wysylamy, nawet gdy final_output jest niepusty i przeszedl G1.
+    # C2: `klient_dostal_wiadomosc` sledzi, czy klient FAKTYCZNIE cos dostal w tej
+    # turze — to jedyna informacja odrozniajaca „model juz sie pozegnal" od
+    # „wypowiedzi modelu nie dotarly", a od tego zalezy, czy wyjscie handoffowe
+    # ma dolozyc KOMUNIKAT_HANDOFF, czy bylby on powtorka.
+    klient_dostal_wiadomosc = stan.podsumowanie_wyslane()
     if not stan.podsumowanie_wyslane() and odpowiedz:
         for czesc in wysylka.przygotuj(odpowiedz, persona):
             if czesc:
                 cw_agent_reply(conv_id, czesc, token=BOT_PRO_CW_AGENT_TOKEN)
+                klient_dostal_wiadomosc = True
 
     # U1: podsumowania NIE udalo sie wyslac (Chatwoot odrzucil), a model nic nie
     # napisal — bo prompt wprost pozwala mu zostawic final_output puste po wolaniu
@@ -313,4 +333,5 @@ def uruchom(conv_id, inbox_id, tresc, zalaczniki=None, persona="pro", message_id
     if BOT_PRO_MAX_BEZ_POSTEPU > 0 and bez_postepu >= BOT_PRO_MAX_BEZ_POSTEPU:
         log("tura: %s kolejnych tur bez postepu -> handoff (conv %s)" % (bez_postepu, conv_id))
         _oddaj_konsultantowi("brak postepu przez %s kolejnych tur" % bez_postepu,
-                             conv_id, persona)
+                             conv_id, persona,
+                             klient_dostal_wiadomosc=klient_dostal_wiadomosc)
