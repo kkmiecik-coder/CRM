@@ -426,3 +426,48 @@ class TestOdpiecieZamowienia:
         assert odpowiedz.status_code in (401, 302)
         with aplikacja.app_context():
             assert Quote.query.get(id_wyceny).base_linker_order_id == '501'
+
+
+class TestOdpiecieWTrakcieTrwajacejProby:
+    """N-B: odpięcie w oknie tuż po zapisie znacznika dawało DWA zamówienia.
+
+    Sonda B recenzji: znacznik jest już zacommitowany, ale wywołanie
+    BaseLinkera nie zdążyło jeszcze założyć blokady wiersza (przez klucz obcy
+    z wpisu w logu). Odpięcie trafiające w to okno kasowało znacznik, drugi
+    klient przechodził guard i powstawało drugie REALNE zamówienie. Odpięcie
+    ma tu odmówić — sprawy nie da się rozstrzygnąć, dopóki pierwsza próba
+    wisi w BaseLinkerze.
+    """
+
+    def test_odpiecie_w_trakcie_proby_odmawia_i_zostawia_znacznik(
+            self, aplikacja, klient_http_admin, serwis):
+        id_wyceny = _zasiej()
+        with aplikacja.app_context():
+            wycena = Quote.query.get(id_wyceny)
+            wycena.order_attempt_started_at = datetime.utcnow()
+            db.session.commit()
+
+        odpowiedz = klient_http_admin.post(
+            '/baselinker/api/quote/%d/detach-order' % id_wyceny)
+
+        assert odpowiedz.status_code == 409
+        assert odpowiedz.get_json()['success'] is False
+        with aplikacja.app_context():
+            assert Quote.query.get(id_wyceny).order_attempt_started_at is not None
+
+    def test_po_odmowie_wycena_dalej_jest_zablokowana_dla_klienta(
+            self, aplikacja, klient_http_admin, serwis):
+        # Sedno sondy B: gdyby odpięcie przeszło, kolejne żądanie utworzyłoby
+        # drugie realne zamówienie.
+        id_wyceny = _zasiej()
+        with aplikacja.app_context():
+            wycena = Quote.query.get(id_wyceny)
+            wycena.order_attempt_started_at = datetime.utcnow()
+            db.session.commit()
+
+        klient_http_admin.post('/baselinker/api/quote/%d/detach-order' % id_wyceny)
+        ponowne = klient_http_admin.post(
+            '/baselinker/api/quote/%d/create-order' % id_wyceny, json=_config())
+
+        assert ponowne.status_code == 409
+        assert serwis == [], 'DRUGIE realne zamówienie w BaseLinkerze'

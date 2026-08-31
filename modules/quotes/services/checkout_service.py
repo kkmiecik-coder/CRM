@@ -31,16 +31,29 @@ czyta świeży wiersz i widzi znacznik. Zysk jest podwójny:
   zapis awaryjny numeru, padnięty wpis w logu, ubity worker). Poprzednia
   wersja zapisywała ślad dopiero w obsłudze wyjątku — czyli dokładnie wtedy,
   gdy niesprawna bywała właśnie baza;
-* wiersz nie jest zablokowany przez całe wywołanie HTTP (do 30 s), więc nie
-  ma już fałszywych „nie wiemy" z lock wait timeoutu ani wysycania puli
+* nasza WŁASNA blokada `FOR UPDATE` nie trzyma się przez całe wywołanie HTTP,
+  więc żaden guard nie czeka na nią do lock wait timeoutu i nie wysycamy puli
   połączeń (pool_size=2, max_overflow=2 na workera).
 
-CENA. Drugie żądanie, które wchodzi, gdy pierwsze wisi na BaseLinkerze, nie
-czeka już na zwolnienie blokady, tylko dostaje od razu PROBA_W_TOKU
-(„przetwarzamy, nie składaj ponownie"). Dawniej doczekałoby się i zobaczyło
-duplikat z numerem zamówienia. Ten sam komunikat, mniej czekania, zero ryzyka
-drugiego zamówienia — a klasyczne podwójne kliknięcie (dwa żądania jedno po
-drugim) dalej kończy się duplikatem z numerem.
+CO NAPRAWDĘ DZIEJE SIĘ Z BLOKADĄ WIERSZA (zmierzone, nie wydedukowane).
+Zwolnienie blokady w kroku 3 NIE znaczy, że wiersz wyceny jest wolny przez
+całe wywołanie BaseLinkera. `create_order_from_quote` zaczyna od INSERT-a do
+`baselinker_order_logs` (klucz obcy na `quotes.id`) i commituje dopiero po
+powrocie z `addOrder`, więc InnoDB trzyma na wierszu wyceny współdzieloną
+blokadę FK przez cały ten czas. Drugie żądanie, które w tym oknie bierze
+`SELECT ... FOR UPDATE`, po prostu CZEKA — w sondzie W1 recenzji 3,2 s przy
+`addOrder` trwającym 4 s — i dopiero potem widzi zapisany numer zamówienia
+albo znacznik. Wiersz jest naprawdę wolny wyłącznie przez czas
+`_prepare_order_data` (milisekundy), między commitem znacznika a tym INSERT-em.
+Kto pisze do wyceny w tym oknie, ten omija całą tę mechanikę — dlatego
+`odepnij_zamowienie` też wchodzi pod blokadę i odmawia, gdy próba trwa.
+
+CENA. Drugie żądanie, które wejdzie zanim blokada FK się założy, nie czeka
+i dostaje od razu PROBA_W_TOKU („przetwarzamy, nie składaj ponownie").
+Dawniej doczekałoby się i zobaczyło duplikat z numerem zamówienia. Ten sam
+komunikat, mniej czekania, zero ryzyka drugiego zamówienia — a klasyczne
+podwójne kliknięcie (dwa żądania jedno po drugim) dalej kończy się duplikatem
+z numerem.
 
 Znacznika NIE dałoby się zapisać z osobnego połączenia przy trzymanej
 blokadzie: baselinker_order_logs ma klucz obcy na quotes.id, więc INSERT
@@ -61,7 +74,8 @@ from modules.quotes.services.checkout_config import (
 )
 
 __all__ = ['STATUS_PROBA_NIEPEWNA', 'PROBA_W_TOKU', 'PROBA_NIEPEWNA',
-           'PROG_PROBY_W_TOKU_S', 'zablokuj_wycene', 'stan_proby',
+           'PROG_PROBY_W_TOKU_S', 'ODMOWA_ODPIECIA_PROBA_W_TOKU',
+           'zablokuj_wycene', 'stan_proby',
            'istnieje_nierozstrzygnieta_proba', 'wisi_nierozstrzygnieta_proba',
            'zloz_zamowienie', 'zloz_zamowienie_klienta', 'odepnij_zamowienie']
 
@@ -70,6 +84,15 @@ logger = get_structured_logger('quotes.checkout')
 # Stany znacznika próby. Blokują tak samo — różnią się tym, co mówimy człowiekowi.
 PROBA_W_TOKU = 'w_toku'
 PROBA_NIEPEWNA = 'niepewna'
+
+# Komunikat odmowy odpięcia w trakcie trwającej próby. Stała, a nie luźny
+# napis: router panelu rozpoznaje po niej ten jeden przypadek i oddaje 409
+# („spróbuj za chwilę") zamiast 500 („coś się zepsuło") — bo nic się nie
+# zepsuło, po prostu sprawa jeszcze się nie rozstrzygnęła.
+ODMOWA_ODPIECIA_PROBA_W_TOKU = (
+    'Trwa właśnie próba złożenia zamówienia dla tej wyceny. Odpięcie teraz '
+    'mogłoby doprowadzić do DRUGIEGO zamówienia w BaseLinkerze. Odśwież panel '
+    'za chwilę — gdy próba się zakończy, odpięcie znów będzie możliwe.')
 
 # Do ilu sekund od startu próba jest jeszcze „w toku". Jedno wywołanie
 # create_order_from_quote to addOrder (timeout 30 s) plus getOrders z jednym
@@ -233,6 +256,43 @@ def _zdejmij_znacznik(quote):
         return False
 
 
+def _dane_do_alarmu(quote):
+    """(numer wyceny, mail opiekuna) — odczyt osłonięty, bo sesja bywa zerwana."""
+    numer, opiekun = None, None
+    try:
+        numer = quote.quote_number
+        opiekun = getattr(getattr(quote, 'user', None), 'email', None)
+    except Exception:
+        pass
+    return numer, opiekun
+
+
+def _zglos_zablokowana_wycene(quote, wynik):
+    """Alarm, gdy PEWNA odmowa BaseLinkera zostawiła na wycenie znacznik.
+
+    Sytuacja jest gorsza, niż wygląda z odpowiedzi, którą dostaje klient.
+    BaseLinker odmówił, więc zamówienia NA PEWNO nie ma i klient słyszy prawdę
+    („spróbuj ponownie za kilka minut") — ale zdjęcie znacznika padło, więc
+    każda kolejna próba to `409 przetwarzane`, a po PROG_PROBY_W_TOKU_S
+    „nie wiemy". Zwykła, odwracalna odmowa zamienia się w wycenę zablokowaną
+    na głucho. Alarm o nierozstrzygniętej próbie tej ścieżki NIE obejmuje
+    (nic tu nie jest nierozstrzygnięte), a sam wpis w logu czyta wyłącznie kod
+    — więc bez tego maila nikt by się o blokadzie nie dowiedział.
+    """
+    numer, opiekun = _dane_do_alarmu(quote)
+
+    logger.error(
+        "Wycena została ZABLOKOWANA zawieszonym znacznikiem próby — "
+        "BaseLinker odmówił (zamówienia nie ma), a znacznika nie udało się "
+        "zdjąć; wymaga odpięcia zamówienia w panelu",
+        quote_id=getattr(quote, 'id', None),
+        quote_number=numer,
+        blad=str(wynik.get('error'))[:500],
+        opiekun=opiekun)
+
+    _wyslij_alert_do_czlowieka(numer, opiekun, wynik, znacznik_zawieszony=True)
+
+
 def _zglos_nierozstrzygnieta_probe(quote, wynik):
     """Ślad widoczny dla CZŁOWIEKA po próbie, której losu nie znamy.
 
@@ -244,12 +304,7 @@ def _zglos_nierozstrzygnieta_probe(quote, wynik):
     log na poziomie ERROR (zawsze) oraz mail do opiekuna wyceny (gdy poczta
     jest skonfigurowana — w testach nie jest, więc nic nie wychodzi).
     """
-    numer, opiekun = None, None
-    try:
-        numer = quote.quote_number
-        opiekun = getattr(getattr(quote, 'user', None), 'email', None)
-    except Exception:
-        pass
+    numer, opiekun = _dane_do_alarmu(quote)
 
     _dopisz_wpis_o_nierozstrzygnietej_probie(quote, wynik)
 
@@ -299,8 +354,15 @@ def _dopisz_wpis_o_nierozstrzygnietej_probie(quote, wynik):
             pass
 
 
-def _wyslij_alert_do_czlowieka(numer_wyceny, email_opiekuna, wynik):
-    """Mail alarmowy o nierozstrzygniętej próbie. Nigdy nie rzuca."""
+def _wyslij_alert_do_czlowieka(numer_wyceny, email_opiekuna, wynik,
+                               znacznik_zawieszony=False):
+    """Mail alarmowy o zablokowanej wycenie. Nigdy nie rzuca.
+
+    znacznik_zawieszony=True — wiemy WIĘCEJ, nie mniej: BaseLinker odmówił,
+    zamówienia na pewno nie ma, a wycena została zablokowana wyłącznie przez
+    znacznik, którego nie udało się zdjąć. Ten sam mail, inna treść: nie ma
+    czego sprawdzać w BaseLinkerze, wystarczy odpiąć zamówienie.
+    """
     try:
         nadawca = current_app.config.get('MAIL_USERNAME')
         if not nadawca:
@@ -313,6 +375,31 @@ def _wyslij_alert_do_czlowieka(numer_wyceny, email_opiekuna, wynik):
         from flask_mail import Message
 
         from extensions import mail
+
+        if znacznik_zawieszony:
+            tresc = (
+                "Wycena {numer} została ZABLOKOWANA po nieudanej próbie "
+                "zamówienia.\n\n"
+                "BaseLinker odmówił, więc zamówienia NA PEWNO nie ma — ale nie "
+                "udało się zdjąć z wyceny znacznika trwającej próby (awaria "
+                'bazy w tym samym momencie). Klient usłyszał „spróbuj ponownie '
+                'za kilka minut", a każda kolejna próba odbije się o ten '
+                'znacznik: najpierw jako „zamówienie jest przetwarzane", potem '
+                'jako „nie wiemy, czy powstało".\n\n'
+                'Co zrobić: odblokuj wycenę akcją „Odepnij zamówienie" '
+                "w panelu (uprawnienie administratora). W BaseLinkerze nie ma "
+                "czego szukać — zamówienie nie powstało.\n\n"
+                "Szczegóły techniczne: {blad}\n"
+            ).format(numer=numer_wyceny or '-',
+                     blad=str(wynik.get('error'))[:500])
+
+            mail.send(Message(
+                subject="⚠️ Wycena zablokowana po nieudanym zamówieniu — {}".format(
+                    numer_wyceny or '-'),
+                sender=nadawca,
+                recipients=odbiorcy,
+                body=tresc))
+            return
 
         if wynik.get('zamowienie_utworzone'):
             czego_nie_wiemy = (
@@ -347,7 +434,7 @@ def _wyslij_alert_do_czlowieka(numer_wyceny, email_opiekuna, wynik):
             recipients=odbiorcy,
             body=tresc))
     except Exception as blad:
-        logger.error("Nie udało się wysłać alertu o nierozstrzygniętej próbie",
+        logger.error("Nie udało się wysłać alertu o zablokowanej wycenie",
                      quote_number=numer_wyceny, error=str(blad))
 
 
@@ -450,7 +537,10 @@ def zloz_zamowienie(quote, user_id, buduj_config, sprawdz_kwalifikacje=True):
         else:
             # BaseLinker odpowiedział i odmówił albo żądanie w ogóle nie wyszło:
             # zamówienia NA PEWNO nie ma, więc powtórka musi być możliwa.
-            _zdejmij_znacznik(zablokowana)
+            # Gdy zdjęcie znacznika padnie, powtórka możliwa NIE JEST i wycena
+            # zostaje zablokowana — o czym musi się dowiedzieć człowiek.
+            if not _zdejmij_znacznik(zablokowana):
+                _zglos_zablokowana_wycene(zablokowana, wynik)
 
         return _odpowiedz(False, error=wynik.get("error") or "BLAD_BASELINKER",
                           order_id=wynik.get("order_id"),
@@ -480,7 +570,8 @@ def zloz_zamowienie(quote, user_id, buduj_config, sprawdz_kwalifikacje=True):
 
 
 def zloz_zamowienie_klienta(quote, order_source_id, bot_user_id,
-                            is_self_pickup=False):
+                            is_self_pickup=False,
+                            dane_dostawy_z_formularza=None):
     """Checkout publiczny: klient składa zamówienie ze strony wyceny.
 
     is_self_pickup — wybór klienta z bieżącego formularza. Musi tu dojechać,
@@ -489,11 +580,17 @@ def zloz_zamowienie_klienta(quote, order_source_id, bot_user_id,
     Rozstrzygnięcie konfliktu z danymi zapisanymi na kliencie siedzi
     w build_checkout_order_config.
 
+    dane_dostawy_z_formularza — pola adresu z tego samego formularza. Też nie
+    ma innej drogi: dla wyceny zaakceptowanej wcześniej nikt ich nie zapisuje,
+    a bez nich wycena kurierska klienta ze starym znacznikiem odbioru kończy
+    się odmową (patrz checkout_config.rozstrzygnij_odbior_osobisty).
+
     Zwraca słownik z _odpowiedz(). Nie rzuca wyjątków.
     """
     def buduj(zablokowana):
-        return build_checkout_order_config(zablokowana, order_source_id,
-                                           is_self_pickup=is_self_pickup)
+        return build_checkout_order_config(
+            zablokowana, order_source_id, is_self_pickup=is_self_pickup,
+            dane_dostawy_z_formularza=dane_dostawy_z_formularza)
 
     return zloz_zamowienie(quote, bot_user_id, buduj, sprawdz_kwalifikacje=True)
 
@@ -513,7 +610,36 @@ def odepnij_zamowienie(quote, powod_uzytkownik_id=None):
     Zwraca (True, None) albo (False, komunikat). Wpis w logu jest świadomie
     zapisywany z action='detach_order': guard nierozstrzygniętej próby patrzy
     wyłącznie na 'create_order', więc ten ślad niczego nie blokuje.
+
+    ODMOWA W TRAKCIE TRWAJĄCEJ PRÓBY. Odpięcie było jedynym miejscem w kodzie,
+    które pisało znacznik POZA blokadą wiersza i bez spojrzenia, czy próba
+    trwa. Trafione w okno tuż po zapisie znacznika (a przed założeniem blokady
+    FK przez wywołanie BaseLinkera) kasowało jedyną rzecz, która blokowała
+    drugie żądanie — i powstawały DWA REALNE zamówienia, z których wycena
+    znała tylko drugie (sonda B recenzji). Dlatego czytamy stan pod tą samą
+    blokadą co reszta i odmawiamy, dopóki próba jest świeża. Po
+    PROG_PROBY_W_TOKU_S — i po każdej próbie zakończonej nierozstrzygnięciem —
+    odpięcie działa jak dotąd, bo po to właśnie istnieje.
     """
+    zablokowana = zablokuj_wycene(quote)
+    if zablokowana is None:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        return False, 'Nie znaleziono wyceny do odpięcia.'
+
+    if stan_proby(zablokowana) == PROBA_W_TOKU:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        logger.warning("Odmowa odpięcia — próba zamówienia właśnie trwa",
+                       quote_id=getattr(quote, 'id', None),
+                       user_id=powod_uzytkownik_id)
+        return False, ODMOWA_ODPIECIA_PROBA_W_TOKU
+
+    quote = zablokowana
     poprzedni_numer = quote.base_linker_order_id
     try:
         quote.base_linker_order_id = None

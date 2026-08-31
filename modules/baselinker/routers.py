@@ -415,10 +415,20 @@ def detach_order(quote_id):
     quote = Quote.query.get_or_404(quote_id)
     poprzedni_numer = quote.base_linker_order_id
 
-    from modules.quotes.services.checkout_service import odepnij_zamowienie
+    from modules.quotes.services.checkout_service import (
+        ODMOWA_ODPIECIA_PROBA_W_TOKU, odepnij_zamowienie,
+    )
 
     udalo_sie, blad = odepnij_zamowienie(quote, powod_uzytkownik_id=user.id)
     if not udalo_sie:
+        # Trwająca próba to nie awaria, tylko „jeszcze nie wiadomo" — 409 jak
+        # przy odmowie składania zamówienia, a nie 500. Odpięcie w tym oknie
+        # kasowałoby jedyną rzecz, która blokuje drugie realne zamówienie.
+        if blad == ODMOWA_ODPIECIA_PROBA_W_TOKU:
+            baselinker_logger.warning(
+                "Odmowa odpięcia zamówienia — próba zamówienia w toku",
+                quote_id=quote_id, user_id=user.id, user_email=user.email)
+            return jsonify({'success': False, 'error': blad, 'w_toku': True}), 409
         return jsonify({'success': False, 'error': blad}), 500
 
     baselinker_logger.warning("Administrator odpiął zamówienie od wyceny",

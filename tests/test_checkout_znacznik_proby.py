@@ -364,6 +364,28 @@ class TestAlarmDlaCzlowieka:
 
         assert alarm.maile == []
 
+    def test_zawieszony_znacznik_po_pewnej_odmowie_budzi_czlowieka(
+            self, aplikacja, monkeypatch, alarm):
+        # N-E. BaseLinker odmowil, wiec zamowienia NA PEWNO nie ma i klient
+        # slyszy „spróbuj ponownie" — ale zdjecie znacznika padlo i kazda
+        # kolejna proba to juz „przetwarzane", a po dwoch minutach „nie wiemy".
+        # Wycena jest zablokowana na glucho, wiec ktos musi sie o tym dowiedziec
+        # ta sama droga co przy probie nierozstrzygnietej.
+        monkeypatch.setattr(checkout_service, '_zdejmij_znacznik',
+                            lambda wycena: False)
+        _atrapa(monkeypatch, lambda q, n: {
+            'success': False, 'error': 'Nieprawidlowe dane', 'niepewne': False,
+            'zamowienie_utworzone': False, 'order_id': None})
+        wycena = _zasiej()
+
+        wynik = _zamow(wycena)
+
+        assert wynik['niepewne'] is False, 'odmowa BaseLinkera jest PEWNA'
+        assert len(alarm.maile) == 1, 'cicha blokada wyceny — nikt o niej nie wie'
+        assert '430/08/26/W' in alarm.maile[0].subject
+        assert 'Odepnij zam' in alarm.maile[0].body
+        assert alarm.bledy, 'brak sladu na poziomie ERROR'
+
     def test_padnieta_poczta_nie_wywraca_zamowienia(self, aplikacja, monkeypatch,
                                                     alarm):
         # Alarm jest best-effort: awaria poczty nie może zmienić odpowiedzi,
@@ -383,3 +405,87 @@ class TestAlarmDlaCzlowieka:
 
         assert wynik['niepewne'] is True
         assert wynik['ok'] is False
+
+
+class TestOdpinanieZamowienia:
+    """N-B: odpięcie było JEDYNYM miejscem, które pisało znacznik poza blokadą.
+
+    Sonda B recenzji: administrator odpina zamówienie w oknie tuż po zapisie
+    znacznika, a jeszcze przed założeniem blokady wiersza przez wywołanie
+    BaseLinkera — kasowany znacznik przestaje blokować i drugi klient
+    przechodzi guard. Wynik: DWA REALNE zamówienia, wycena wskazuje drugie,
+    pierwsze osierocone. Odpięcie musi wchodzić tym samym torem co reszta:
+    pod blokadą wiersza i z odmową, gdy próba właśnie trwa.
+    """
+
+    def test_odpiecie_w_trakcie_trwajacej_proby_jest_odmawiane(self, aplikacja):
+        wycena = _zasiej()
+        wycena.order_attempt_started_at = datetime.utcnow()
+        db.session.commit()
+
+        udalo_sie, blad = checkout_service.odepnij_zamowienie(wycena)
+
+        assert udalo_sie is False
+        assert blad
+        assert Quote.query.get(wycena.id).order_attempt_started_at is not None, \
+            'znacznik skasowany w trakcie próby — droga do drugiego zamówienia'
+
+    def test_odmowa_nie_rusza_numeru_zamowienia(self, aplikacja):
+        wycena = _zasiej()
+        wycena.base_linker_order_id = '900'
+        wycena.baselinker_order_page = 'https://blsklep.pl/z/900'
+        wycena.order_attempt_started_at = datetime.utcnow()
+        db.session.commit()
+
+        checkout_service.odepnij_zamowienie(wycena)
+
+        z_bazy = Quote.query.get(wycena.id)
+        assert z_bazy.base_linker_order_id == '900'
+        assert z_bazy.baselinker_order_page == 'https://blsklep.pl/z/900'
+
+    def test_odpiecie_czyta_stan_pod_blokada_wiersza(self, aplikacja, monkeypatch):
+        # Bez blokady odpięcie czyta własną, nieaktualną kopię wiersza i nie ma
+        # szans zobaczyć znacznika zapisanego przed chwilą przez inne żądanie.
+        zablokowane = []
+        oryginal = checkout_service.zablokuj_wycene
+
+        def podglad(quote):
+            zablokowane.append(quote.id)
+            return oryginal(quote)
+
+        monkeypatch.setattr(checkout_service, 'zablokuj_wycene', podglad)
+        wycena = _zasiej()
+
+        checkout_service.odepnij_zamowienie(wycena)
+
+        assert zablokowane == [wycena.id]
+
+    def test_po_nierozstrzygnietej_probie_odpiecie_dziala(self, aplikacja):
+        # To jest właśnie sytuacja, dla której ta akcja istnieje: człowiek
+        # sprawdził w BaseLinkerze, że zamówienia nie ma, i odblokowuje wycenę.
+        wycena = _zasiej()
+        wycena.order_attempt_started_at = (
+            datetime.utcnow()
+            - timedelta(seconds=checkout_service.PROG_PROBY_W_TOKU_S + 60))
+        db.session.commit()
+
+        udalo_sie, blad = checkout_service.odepnij_zamowienie(wycena)
+
+        assert udalo_sie is True, blad
+        assert Quote.query.get(wycena.id).order_attempt_started_at is None
+
+    def test_zwykle_odpiecie_dalej_kasuje_numer_i_znacznik(self, aplikacja):
+        # Kontrola negatywna: nowa blokada nie może zablokować normalnej pracy.
+        wycena = _zasiej()
+        wycena.base_linker_order_id = '900'
+        wycena.baselinker_order_page = 'https://blsklep.pl/z/900'
+        db.session.commit()
+
+        udalo_sie, blad = checkout_service.odepnij_zamowienie(wycena)
+
+        assert udalo_sie is True, blad
+        z_bazy = Quote.query.get(wycena.id)
+        assert z_bazy.base_linker_order_id is None
+        assert z_bazy.baselinker_order_page is None
+        assert BaselinkerOrderLog.query.filter_by(
+            quote_id=wycena.id, action='detach_order').first() is not None
