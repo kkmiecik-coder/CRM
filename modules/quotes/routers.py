@@ -1998,6 +1998,45 @@ def send_user_acceptance_email_to_client(quote, accepting_user):
         print(f"[send_user_acceptance_email_to_client] Błąd wysyłki maila do klienta: {e}", file=sys.stderr)
         raise
 
+def dopasowanie_danych_klienta(client, email, phone):
+    """Zwraca (email_pasuje, telefon_pasuje) dla danych podanych przez klienta.
+
+    Wydzielone z client_accept_quote_with_data, żeby checkout używał DOKŁADNIE
+    tej samej reguły tożsamości i żeby dała się przetestować bez Flaska.
+
+    Świadomie zwracamy PARĘ, a nie jeden bool: akceptacja używa obu flag osobno
+    (zgodność telefonu pozwala uzupełnić telefon, ale NIE nadpisać adresu email,
+    na który idzie mail z akceptacją). Sklejenie ich otwierałoby przejęcie
+    adresu przez kogoś, kto zna tylko numer telefonu.
+    """
+    client_email = (client.email or "").lower().strip()
+    client_phone_digits = re.sub(r'[^\d]', '', client.phone or '')
+    input_email = (email or "").lower().strip()
+    input_phone_digits = re.sub(r'[^\d]', '', phone or '')
+
+    # Usuń +48 z początku jeśli istnieje
+    if input_phone_digits.startswith('48') and len(input_phone_digits) > 9:
+        input_phone_digits = input_phone_digits[2:]
+    if client_phone_digits.startswith('48') and len(client_phone_digits) > 9:
+        client_phone_digits = client_phone_digits[2:]
+
+    email_matches = bool(client_email) and input_email == client_email
+    phone_matches = bool(
+        client_phone_digits and input_phone_digits and
+        len(input_phone_digits) >= 9 and
+        (input_phone_digits == client_phone_digits or
+         input_phone_digits in client_phone_digits or
+         client_phone_digits in input_phone_digits)
+    )
+    return email_matches, phone_matches
+
+
+def dane_pasuja_do_klienta(client, email, phone):
+    """Bramka tożsamości: email LUB telefon musi zgadzać się z klientem wyceny."""
+    email_matches, phone_matches = dopasowanie_danych_klienta(client, email, phone)
+    return email_matches or phone_matches
+
+
 @quotes_bp.route("/api/client/quote/<token>/accept-with-data", methods=["POST"])
 def client_accept_quote_with_data(token):
     """Akceptacja wyceny przez klienta z pełnymi danymi - ROZSZERZONA WERSJA"""
@@ -2046,25 +2085,10 @@ def client_accept_quote_with_data(token):
         if not client:
             return jsonify({"error": "Brak przypisanego klienta do wyceny"}), 400
 
-        # Normalizacja danych do porównania
-        client_email = (client.email or "").lower().strip()
-        client_phone_digits = re.sub(r'[^\d]', '', client.phone or '')
-        input_email = email.lower().strip()
-        input_phone_digits = re.sub(r'[^\d]', '', phone)
-
-        # Usuń +48 z początku jeśli istnieje
-        if input_phone_digits.startswith('48') and len(input_phone_digits) > 9:
-            input_phone_digits = input_phone_digits[2:]
-        if client_phone_digits.startswith('48') and len(client_phone_digits) > 9:
-            client_phone_digits = client_phone_digits[2:]
-
-        # Sprawdź zgodność email LUB telefonu
-        email_matches = client_email and input_email == client_email
-        phone_matches = (client_phone_digits and input_phone_digits and 
-                        len(input_phone_digits) >= 9 and
-                        (input_phone_digits == client_phone_digits or 
-                         input_phone_digits in client_phone_digits or 
-                         client_phone_digits in input_phone_digits))
+        # Zgodność email LUB telefonu — jedna reguła wspólna z checkoutem
+        # (dopasowanie_danych_klienta wyżej w tym pliku). Obie flagi są potrzebne
+        # osobno: niżej decydują, które pole klienta wolno uzupełnić.
+        email_matches, phone_matches = dopasowanie_danych_klienta(client, email, phone)
 
         if not (email_matches or phone_matches):
             return jsonify({
@@ -2187,6 +2211,90 @@ def client_accept_quote_with_data(token):
         traceback.print_exc(file=sys.stderr)
         db.session.rollback()
         return jsonify({"error": "Wystąpił błąd podczas przetwarzania żądania"}), 500
+
+@quotes_bp.route("/api/client/quote/<token>/order", methods=["POST"])
+def client_place_order(token):
+    """Klient składa zamówienie ze strony wyceny.
+
+    Akceptacja wyceny (dane klienta, status, maile) idzie tą samą ścieżką co
+    /accept-with-data; następnie tworzymy zamówienie w BaseLinkerze i zwracamy
+    link do strony zamówienia. Idempotencja siedzi w checkout_service — tu
+    NIE dokładamy własnej, żeby nie było dwóch reguł na jedno zamówienie.
+    """
+    from modules.quotes.services.checkout_service import zloz_zamowienie_klienta
+
+    data = request.get_json(silent=True) or {}
+
+    if not data.get("akceptacja_regulaminu"):
+        return jsonify({"error": "Wymagana akceptacja warunków zamówienia"}), 400
+
+    quote = Quote.query.filter_by(public_token=token).first()
+    if not quote:
+        return jsonify({"error": "Nie znaleziono wyceny"}), 404
+
+    client = quote.client
+    if not client:
+        return jsonify({"error": "Brak przypisanego klienta do wyceny"}), 400
+
+    email = (data.get("email") or "").strip()
+    phone = (data.get("phone") or "").strip()
+    if not dane_pasuja_do_klienta(client, email, phone):
+        return jsonify({
+            "error": "Podane dane nie pasują do danych przypisanych do tej wyceny. "
+                     "Sprawdź email lub numer telefonu."
+        }), 403
+
+    # Akceptacja jest warunkiem kwalifikacji (status_id == 3). Gdy wycena jest
+    # jeszcze edytowalna, przeprowadzamy ją tą samą drogą co /accept-with-data
+    # — łącznie z zapisem danych klienta i mailami. Wycena zaakceptowana
+    # wcześniej idzie prosto do zamówienia.
+    if quote.is_client_editable:
+        odpowiedz_akceptacji = client_accept_quote_with_data(token)
+        if isinstance(odpowiedz_akceptacji, tuple):
+            kod = odpowiedz_akceptacji[1]
+        else:
+            kod = getattr(odpowiedz_akceptacji, 'status_code', 200)
+        if kod != 200:
+            return odpowiedz_akceptacji
+
+    zrodlo = BaselinkerConfig.query.filter_by(
+        config_type="order_source", name="Dębuś", is_active=True).first()
+    if not zrodlo:
+        logger.error("[client_place_order] Brak źródła zamówień 'Dębuś' w baselinker_config")
+        return jsonify({"error": "Błąd konfiguracji zamówień"}), 500
+
+    # Konto bota może nie istnieć w bazie (BOT_USER_ID=0 lub nieustawione).
+    # created_by w logu BaseLinkera jest nullable, więc zamiast łamać FK
+    # zostawiamy None — tak samo jak /api/bot (bot_api.py:226-231).
+    bot_user_id = current_app.config.get("BOT_USER_ID")
+    if bot_user_id and not User.query.get(bot_user_id):
+        bot_user_id = None
+
+    wynik = zloz_zamowienie_klienta(
+        quote,
+        order_source_id=zrodlo.baselinker_id,
+        bot_user_id=bot_user_id,
+    )
+
+    if not wynik["ok"]:
+        if wynik["error"] == "NIEKWALIFIKOWANA":
+            return jsonify({"error": "Wycena nie kwalifikuje się do zamówienia"}), 400
+        logger.error("[client_place_order] Błąd BaseLinkera: %s", wynik["error"])
+        # Treść błędu API zostaje w logu — klient dostaje komunikat bez szczegółów.
+        return jsonify({"error": "Nie udało się złożyć zamówienia. Prosimy o kontakt."}), 502
+
+    logger.info("[client_place_order] Zamówienie złożone przez klienta: quote=%s "
+                "order_id=%s duplikat=%s",
+                quote.quote_number, wynik["order_id"], wynik["duplikat"])
+
+    return jsonify({
+        "ok": True,
+        "order_id": wynik["order_id"],
+        "quote_number": quote.quote_number,
+        "order_page_url": wynik["order_page_url"],
+        "duplikat": wynik["duplikat"],
+    }), 200
+
 
 @quotes_bp.route("/api/client/quote/<token>/validate-contact", methods=["POST"])
 def validate_client_contact(token):
