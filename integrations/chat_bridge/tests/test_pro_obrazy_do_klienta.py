@@ -111,6 +111,16 @@ class TestBialaLista:
             podpis = obrazy_do_klienta._meta(ident)[3]
             assert guardraile.sprawdz_ceny(podpis, set()) == [], ident
 
+    def test_zaden_podpis_nie_niesie_zakazanego_zobowiazania(self):
+        # Ta sama luka co wyzej, drugi guardrail: G3 (`znajdz_zakazane_
+        # zobowiazania`) tez oglada WYLACZNIE `final_output` modelu, wiec
+        # „wytrzyma"/„gwarantujemy" w podpisie wyszloby do klienta bez kontroli.
+        # Podpisy sa stale i pochodza z bots/images.py — tego modulu nie wolno
+        # nam zmieniac, wiec sprawdzamy, ze to, co z niego bierzemy, jest czyste.
+        for ident in obrazy_do_klienta.OBRAZY_DLA_KLIENTA:
+            podpis = obrazy_do_klienta._meta(ident)[3]
+            assert guardraile.znajdz_zakazane_zobowiazania(podpis) == [], ident
+
 
 class TestWysylka:
     def test_znany_obraz_leci_z_podpisem_i_wlasciwym_plikiem(self, monkeypatch):
