@@ -63,3 +63,57 @@ class TestBrakPowtorkiGdyZamowienieIstnieje:
         # komunikatu ani odwrotnie.
         blok = _blok(_zrodlo(JS_MODAL), 'function pokazNiepewnosc(')
         assert 'Nie wiemy, czy zamówienie zostało złożone' in blok
+
+
+JS_WYCENA = os.path.join(KORZEN, 'modules', 'quotes', 'static', 'js',
+                         'client_quote.js')
+
+
+def _obiekt(zrodlo, nazwa):
+    """Ciało literału obiektu `const <nazwa> = {` ... `\\n};`."""
+    poczatek = zrodlo.index('const %s = {' % nazwa)
+    reszta = zrodlo[poczatek:]
+    koniec = reszta.index('\n};')
+    return reszta[:koniec]
+
+
+def _metody(cialo_obiektu):
+    """Nazwy metod zadeklarowanych wprost w literale obiektu (wcięcie 4 spacje)."""
+    return set(re.findall(r'^    (?:async )?(\w+)\s*\(', cialo_obiektu, re.MULTILINE))
+
+
+class TestWywolaniaThisWObiekcieInit:
+    """Regresja: `this.syncAcceptButtons()` w `init.disableInteractions()`.
+
+    Metoda żyje na obiekcie `render`, więc `this` w `init` nie miało jej skąd
+    wziąć. TypeError leciał do `catch` w `loadQuoteData` i KAŻDA zaakceptowana
+    wycena witała klienta czerwonym „Nie udało się wczytać wyceny. Odśwież
+    stronę." — w chwili, w której klient ma wydać pieniądze.
+    """
+
+    def test_kazde_this_w_init_wskazuje_na_metode_init(self):
+        zrodlo = _zrodlo(JS_WYCENA)
+        init = _obiekt(zrodlo, 'init')
+        zadeklarowane = _metody(init)
+        assert 'loadQuoteData' in zadeklarowane, 'zmieniła się struktura pliku'
+
+        wolane = set(re.findall(r'this\.(\w+)\s*\(', init))
+        brakujace = sorted(wolane - zadeklarowane)
+
+        assert not brakujace, \
+            'init woła przez this metody, których nie ma na init: %s' % brakujace
+
+    def test_disableinteractions_korzysta_z_render(self):
+        init = _obiekt(_zrodlo(JS_WYCENA), 'init')
+        # Kotwica na DEFINICJI metody (wcięcie 4 spacje), nie na jej wywołaniu.
+        blok = init[init.index('\n    disableInteractions() {'):]
+        blok = blok[:blok.index('\n    }')]
+
+        assert 'render.syncAcceptButtons()' in blok
+        assert 'this.syncAcceptButtons' not in blok
+
+    def test_syncacceptbuttons_mieszka_na_render(self):
+        # Kontrola pozytywna dla obu testów wyżej: gdyby metoda przeniosła się
+        # na init, poprawka „render." stałaby się błędna.
+        zrodlo = _zrodlo(JS_WYCENA)
+        assert 'syncAcceptButtons' in _metody(_obiekt(zrodlo, 'render'))

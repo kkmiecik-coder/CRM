@@ -1547,7 +1547,12 @@ const init = {
      */
     disableInteractions() {
         document.body.classList.add('quote-accepted');
-        this.syncAcceptButtons();
+        // `render.`, nie `this.` — ta metoda mieszka na obiekcie `render`,
+        // a wołamy ją z `init`. Wywołanie przez `this` kończyło się
+        // TypeError-em, który `loadQuoteData` łapało i zamieniało na fałszywe
+        // „Nie udało się wczytać wyceny. Odśwież stronę." na KAŻDEJ
+        // zaakceptowanej wycenie.
+        render.syncAcceptButtons();
     },
 
     /**
