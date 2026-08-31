@@ -268,6 +268,83 @@ Wtedy wiadomość wstrzyknięta do tego inboxu przejdzie pełną ścieżkę webh
 Uwaga: na kandydacie ta sama zmienna steruje pollerem OLX, więc rób to tylko przy wyłączonym
 pollerze (`BOT_QUOTE_PERSONAS=livechat`).
 
+### Etap 1b: Dębuś Pro na slocie kandydata
+
+Kandydat (`bridge_quote_candidate.py`, port 5006, `bridge-candidate.env`, własna baza,
+prefiks `/cand/` za nginxem) obsługuje **także** silnik `bots_pro/`. Poniżej rodzina
+zmiennych, bez której Dębuś Pro albo nie wstanie, albo wstanie niebezpiecznie.
+
+```bash
+# bridge-candidate.env — Dębuś Pro
+BOT_PRO_INBOXES=18                      # kill-switch: puste = Pro całkowicie wyłączony
+BOT_PRO_AGENT_WEBHOOK_TOKEN=<sekret>    # token w URL webhooka /cand/agent-bot-pro
+BOT_PRO_CW_AGENT_TOKEN=<access_token>   # tożsamość bota (z setup/create_agent_bot.py pro)
+OPENAI_API_KEY=<klucz>                  # dostawca modelu
+CRM_BOT_API_KEY=<klucz>                 # = BOT_API_KEY z config/core.json CRM
+CRM_API_BASE=https://crm.woodpower.pl   # PRAWDZIWY CRM — patrz ostrzeżenie niżej
+BOT_QUOTE_CLIENT_TYPE=<grupa cenowa>    # musi pasować do client_types z /api/bot/options
+BOT_HELP_CENTER_SLUG=<slug>             # baza wiedzy — bez tego indeks zostanie PUSTY
+```
+
+Bota zakładasz tym samym skryptem co na produkcji, ale pod **własną nazwą i własnym
+adresem** — nazwa jest jedynym kluczem idempotencji, więc bez `BOT_PRO_NAME` skrypt
+znalazłby produkcyjnego „Dębusia Pro" i PATCHnął jego webhook na adres kandydata:
+
+```bash
+docker exec <kontener-kandydata> env \
+  BOT_PRO_NAME="Dębuś Pro KANDYDAT (staging)" \
+  BOT_PRO_AGENT_WEBHOOK_URL="https://chatbridge.woodpower.pl/cand/agent-bot-pro" \
+  BOT_PRO_AGENT_WEBHOOK_TOKEN="<sekret>" \
+  python3 -m setup.create_agent_bot pro
+# access_token z wydruku -> BOT_PRO_CW_AGENT_TOKEN w bridge-candidate.env
+```
+
+Nieznany argument (`cand`, literówka) kończy się błędem i kodem 2 — gałąź domyślna,
+która rusza **produkcyjnego** bota „WoodPower AI", jest osiągalna wyłącznie przy braku
+argumentu.
+
+**Ostrzeżenia — przeczytaj przed pierwszym uruchomieniem:**
+
+- **Zmienne OLX są wymagane, mimo że poller OLX u kandydata nie działa.**
+  `OLX_CLIENT_ID`, `OLX_CLIENT_SECRET` i `OLX_REFRESH_TOKEN` czytane są przez `config.py`
+  gołym `os.environ[...]` (bez domyślnej) przy imporcie modułu, więc **proces w ogóle nie
+  wstanie** bez nich. Wartości mogą być atrapami — kandydat nie startuje pollerów.
+- **Żadna zmienna wskazująca skrzynkę OLX/Allegro nie może mieć wartości 18.**
+  `CHATWOOT_OLX_INBOX_ID`, `CHATWOOT_ALLEGRO_MSG_INBOX_ID`, `CHATWOOT_ALLEGRO_DISPUTE_INBOX_ID`
+  — wskazanie nimi skrzynki testowej miesza persony kanałów z inboksem Pro i budzi guard
+  konfliktu OLX (`GUARD PRO:` w logu, Pro wyłączony).
+- **CRM nie ma piaskownicy.** `CRM_API_BASE` wskazuje produkcyjny CRM, więc **wyceny
+  wygenerowane przez kandydata zapisują się w prawdziwym CRM** i są widoczne dla zespołu.
+  To nie jest błąd konfiguracji — to fakt, z którym trzeba testować.
+- **Guard startowy wyłącza Pro przy braku któregokolwiek z dwóch tokenów.** Puste
+  `BOT_PRO_AGENT_WEBHOOK_TOKEN` = webhook otwarty na dowolny POST; puste
+  `BOT_PRO_CW_AGENT_TOKEN` = bot odzywa się cudzą tożsamością (fallback na tokeny
+  live-bota / bota-podpowiadacza / konta admina, wszystkie zwracają 200). W obu
+  przypadkach w logu jest `GUARD PRO:` z powodem, a `BOT_PRO_INBOXES` zostaje
+  wyczyszczone — reszta mostka działa dalej.
+
+**nginx musi kierować CAŁY prefiks `/cand/` na port 5006, ze zdjęciem prefiksu.**
+Instancja kandydata montuje trasy **bez** `/cand/` (blueprint `webhooks` daje
+`/agent-bot-pro`, nie `/cand/agent-bot-pro`). Jeśli dzisiejsza reguła jest dopasowana
+dosłownie do `/cand/agent-bot-quote`, sam adres Pro zwróci **404** — a w Chatwoocie
+objawi się to jako bot, który po prostu milczy:
+
+```nginx
+location /cand/ {
+    proxy_pass http://127.0.0.1:5006/;   # KOŃCOWY / = zdjęcie prefiksu /cand/
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+}
+```
+
+Weryfikacja po deployu (401 = trasa działa i token jest wymagany; 404 = zła reguła nginx):
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' -X POST \
+  https://chatbridge.woodpower.pl/cand/agent-bot-pro -d '{}'
+# oczekiwane: 401
+```
+
 ### Etap 2: Allegro (produkcja)
 
 ```bash
