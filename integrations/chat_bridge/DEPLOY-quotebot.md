@@ -276,6 +276,12 @@ zmiennych, bez której Dębuś Pro albo nie wstanie, albo wstanie niebezpiecznie
 
 ```bash
 # bridge-candidate.env — Dębuś Pro
+BRIDGE_DB=/data/bridge-candidate.db     # WŁASNY plik SQLite, inny niż produkcyjny (domyślnie
+                                         # /data/bridge.db) — inaczej oba procesy wyrywają sobie
+                                         # wiersze z tej samej kolejki i kolidują tabele stanu,
+                                         # a do tego historia sesji Agents SDK (SQLiteSession,
+                                         # bots_pro/tura.py) też koliduje, bo ścieżka bazy idzie
+                                         # prosto do sesji biblioteki agentowej.
 BOT_PRO_INBOXES=18                      # kill-switch: puste = Pro całkowicie wyłączony
 BOT_PRO_AGENT_WEBHOOK_TOKEN=<sekret>    # token w URL webhooka /cand/agent-bot-pro
 BOT_PRO_CW_AGENT_TOKEN=<access_token>   # tożsamość bota (z setup/create_agent_bot.py pro)
@@ -309,10 +315,21 @@ argumentu.
   `OLX_CLIENT_ID`, `OLX_CLIENT_SECRET` i `OLX_REFRESH_TOKEN` czytane są przez `config.py`
   gołym `os.environ[...]` (bez domyślnej) przy imporcie modułu, więc **proces w ogóle nie
   wstanie** bez nich. Wartości mogą być atrapami — kandydat nie startuje pollerów.
-- **Żadna zmienna wskazująca skrzynkę OLX/Allegro nie może mieć wartości 18.**
-  `CHATWOOT_OLX_INBOX_ID`, `CHATWOOT_ALLEGRO_MSG_INBOX_ID`, `CHATWOOT_ALLEGRO_DISPUTE_INBOX_ID`
-  — wskazanie nimi skrzynki testowej miesza persony kanałów z inboksem Pro i budzi guard
-  konfliktu OLX (`GUARD PRO:` w logu, Pro wyłączony).
+- **Żadna zmienna wskazująca skrzynkę OLX/Allegro nie może mieć wartości 18.** Guard startowy
+  (`guard_pro.py`, `_konflikt_olx_pro`) TEGO nie wyłapuje — sprawdza wyłącznie `CHATWOOT_OLX_INBOX_ID`
+  i tylko w połączeniu z konkretnym rozjazdem `BOT_QUOTE_NOTE_PERSONAS`/`BOT_QUOTE_PERSONAS`, którego
+  domyślna konfiguracja kandydata nie tworzy. W żadnym z trzech poniższych wariantów `GUARD PRO:`
+  **nie pojawi się** w logu — objawy są ciche i różne dla każdej zmiennej:
+  - `CHATWOOT_OLX_INBOX_ID=18` — `_persona_pro_dla_inboxu` (`webhooks.py`) rozpoznaje inbox 18 jako
+    OLX i po cichu podmienia caps odpowiedzi na marketplace'owe (`OLX_CAPS` w `bots/channel_caps.py`:
+    bez markdownu/emoji, limit 2000 znaków) zamiast domyślnych caps dla `"pro"`.
+  - `CHATWOOT_ALLEGRO_MSG_INBOX_ID=18` — to samo podmienienie persony/caps, ale na `ALLEGRO_CAPS`,
+    które dodatkowo wyłączają linki — test na skrzynce testowej zachowuje się inaczej niż docelowy
+    czat OLX/Allegro-Wiadomości i może fałszywie wyglądać na spadek jakości bota.
+  - `CHATWOOT_ALLEGRO_DISPUTE_INBOX_ID=18` — **Pro odrzuca KAŻDĄ wiadomość na skrzynce testowej.**
+    W `_process_pro` (`webhooks.py`) twarde wykluczenie inboxu Dyskusji jest sprawdzane PRZED bramką
+    `BOT_PRO_INBOXES` i od niej niezależne — bot milczy całkowicie, a jedynym śladem w logu jest
+    `pro: inbox 18 to Allegro-Dyskusje — twarde wykluczenie, niezaleznie od BOT_PRO_INBOXES (...)`.
 - **CRM nie ma piaskownicy.** `CRM_API_BASE` wskazuje produkcyjny CRM, więc **wyceny
   wygenerowane przez kandydata zapisują się w prawdziwym CRM** i są widoczne dla zespołu.
   To nie jest błąd konfiguracji — to fakt, z którym trzeba testować.

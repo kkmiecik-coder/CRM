@@ -21,7 +21,14 @@ def sweep_once(now):
         # (ostatnie slowo klienta, stare), a przelaczenie jej TOKENEM ADMINA na 'open'
         # jest nieodwracalne: bots_pro/stan.py (`if status != "pending": return False`)
         # wycisza wtedy bota TRWALE. Sweeper "naprawialby" rozmowe, konczac ja cisza.
-        # Pro ma wlasna droge wyjscia — pro_watchdog, wlasnym tokenem.
+        # UWAGA (luka, swiadomy kompromis): pro_watchdog.py NIE jest pelnym zastepstwem
+        # tego pominiecia. Watchdog lapie WYLACZNIE odwrotny przypadek — bot mowil
+        # ostatni, klient milczy (patrz znajdz_porzucone/_BOT_MOWIL_OSTATNI w
+        # pro_watchdog.py). Rozmowa na inboksie Pro, w ktorej OSTATNIE SLOWO MA KLIENT,
+        # a bot w ogole nie odpowiedzial (np. zgubiony webhook), nie jest dzis
+        # podnoszona przez NIC: ten sweeper ja pomija (linia wyzej), a watchdog jej nie
+        # zlapie (filtruje po last_msg_type bota). Na skrzynce testowej to nie boli, ale
+        # luka MUSI zostac domknieta, zanim Pro trafi na zywy inboks marketplace'u.
         if _jest_pro_inbox(conv.get("inbox_id")):
             continue
         if conv.get("last_msg_type") not in (0, "incoming"):

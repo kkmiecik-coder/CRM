@@ -118,9 +118,10 @@ BOT_CIRCUIT_COOLDOWN  = int(os.environ.get("BOT_CIRCUIT_COOLDOWN", "120"))  # se
 # Token uzyty explicite w bots_pro.stan.handoff/podsumowanie.wyslij — domyslny cw_bot_handoff
 # siega po token bota-podpowiadacza, wiec Pro potrzebuje wlasnego, jawnie podawanego.
 BOT_PRO_CW_AGENT_TOKEN = os.environ.get("BOT_PRO_CW_AGENT_TOKEN")
-# Token w URL webhooka /agent-bot-pro. Guard startowy w bridge.py przerywa uruchomienie
-# procesu, gdy BOT_PRO_INBOXES jest niepuste, a tego tokenu brak (patrz bridge.py) —
-# inaczej weryfikacja w webhooks.py jest warunkowa (`if TOKEN and ...`) i webhook stoi otworem.
+# Token w URL webhooka /agent-bot-pro. Guard startowy w guard_pro.py wylacza Debusia Pro
+# (czysci BOT_PRO_INBOXES, NIE ubija calego procesu mostka), gdy BOT_PRO_INBOXES jest
+# niepuste, a tego tokenu brak (patrz guard_pro.py) — inaczej weryfikacja w webhooks.py
+# jest warunkowa (`if TOKEN and ...`) i webhook stoi otworem.
 BOT_PRO_AGENT_WEBHOOK_TOKEN = os.environ.get("BOT_PRO_AGENT_WEBHOOK_TOKEN")
 # Bezpiecznik D (jak BOT_LIVE_MAX_TURNS/BOT_QUOTE_MAX_TURNS): max krokow Runnera w JEDNYM
 # wywolaniu Runner.run_sync (petla narzedzie->model wewnatrz jednej tury), zeby zapetlone

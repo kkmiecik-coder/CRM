@@ -12,6 +12,16 @@ przestał pisać, nie ma kto by ją przekazała dalej. Audyt: w jednym shardzie 
 z 24 rozmów kończyło się dokładnie tak — bot ostatni, bez handoffu, bez
 właściciela.
 
+UWAGA (luka, świadomy kompromis — inna sprawa niż K1 niżej): ten watchdog
+pokrywa WYŁĄCZNIE przypadek "bot mówił ostatni, klient milczy" (patrz
+`znajdz_porzucone`, `_BOT_MOWIL_OSTATNI`). Odwrotny przypadek — rozmowa NA
+INBOKSIE PRO, w której OSTATNIE SŁOWO MA KLIENT, a bot w ogóle nie
+odpowiedział (np. zgubiony webhook) — nie ma dziś właściciela: `sweeper.py`
+świadomie pomija inboksy Pro (patrz W5 tam), a ten moduł filtruje po
+`last_msg_type` BOTA, więc tego przypadku nie złapie. Na skrzynce testowej to
+nie boli (mały ruch, obserwacja ręczna) — ale luka MUSI zostać domknięta,
+zanim Pro trafi na żywy inboks marketplace'u (OLX/Allegro).
+
 K1 (code review, runda poprawek 1, KRYTYCZNE): PIERWSZA wersja tego modułu
 wołała `cw_pending_conversations()` bez ŻADNEGO filtra inboksu — działała więc
 na WSZYSTKICH rozmowach pending w całym koncie, nie tylko na inboksach
