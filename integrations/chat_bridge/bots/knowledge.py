@@ -52,6 +52,14 @@ def sync_index():
     # Pobiera artykuly, chunkuje, embeduje TYLKO nowe (dedup po hashu), usuwa nieaktualne.
     init_db()
     arts = cw_articles(BOT_HELP_CENTER_SLUG)
+    # Pusta lista artykulow to prawie zawsze AWARIA POBRANIA, nie skasowanie
+    # wszystkich artykulow w Help Center. Bez tej bramki ponizsza petla DELETE
+    # czysci caly indeks (osłona „embeduj przed usunięciem" nie działa, bo przy
+    # braku artykulow `new` też jest puste) i wiedza nie wraca do nastepnego
+    # udanego cyklu. Na produkcji trwalo to dwa miesiace.
+    if not arts:
+        log("KB sync: pobranie artykulow zwrocilo 0 pozycji — pomijam cykl, KB bez zmian")
+        return None
     wanted = []  # (article_id, chunk, hash)
     for a in arts:
         body = ((a.get("title") or "") + "\n" + (a.get("content") or "")).strip()
@@ -113,7 +121,16 @@ def index_loop():
     while True:
         try:
             n = sync_index()
-            log("KB index: %s chunkow" % n)
+            # sync_index() zwraca None, gdy cykl zostal pominiety (bramka braku
+            # artykulow) — to NIE jest pusty indeks, tylko brak proby synchronizacji,
+            # wiec nie moze wpasc w alert o pustej bazie wiedzy. Realny alert ma sie
+            # odpalac tylko przy n == 0 z udanego pobrania (bramka by go wtedy przechwycila).
+            if n is None:
+                log("KB index: cykl pominiety (brak artykulow z Help Center) — indeks bez zmian")
+            elif n == 0:
+                log("KB ALERT: indeks wiedzy jest PUSTY — bot odpowiada bez bazy wiedzy")
+            else:
+                log("KB index: %s chunkow" % n)
         except Exception as e:
             log("KB index ERROR:", repr(e))
         time.sleep(BOT_INDEX_INTERVAL)

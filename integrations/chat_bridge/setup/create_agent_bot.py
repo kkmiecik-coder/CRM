@@ -52,6 +52,26 @@ def _cfg_quote():
     return base, acc, token, outgoing_url
 
 
+def _cfg_pro():
+    """Konfiguracja dla Dębusia Pro (webhook /agent-bot-pro, silnik Agents SDK)."""
+    base  = os.environ.get("CHATWOOT_BASE", "http://rails:3000").rstrip("/")
+    acc   = os.environ.get("CHATWOOT_ACCOUNT_ID", "1")
+    token = os.environ.get("CHATWOOT_API_TOKEN", "")
+    # Token bezpieczeństwa webhooka Debusia Pro (dodawany do query string URL)
+    bot_token = os.environ.get("BOT_PRO_AGENT_WEBHOOK_TOKEN", "")
+    # Bazowy URL webhooka — można nadpisać przez env; domyślny = produkcja
+    webhook_base = os.environ.get(
+        "BOT_PRO_AGENT_WEBHOOK_URL",
+        "https://chatbridge.woodpower.pl/agent-bot-pro",
+    )
+    # Outgoing URL: jeśli token ustawiony — dołącz jako ?token=
+    if bot_token:
+        outgoing_url = "%s?token=%s" % (webhook_base, bot_token)
+    else:
+        outgoing_url = webhook_base
+    return base, acc, token, outgoing_url
+
+
 def _headers(token):
     """Buduje nagłówki HTTP z tokenem admina Chatwoota."""
     return {
@@ -89,31 +109,99 @@ def list_agent_bots():
         return []
 
 
-def ensure_agent_bot(name="WoodPower AI", outgoing_url=None):
+_OPIS_DOMYSLNY = "Asystent AI - podpowiedzi (prywatne notatki)"
+
+
+def _patch_outgoing_url(bot_id, outgoing_url):
+    """PATCH /agent_bots/{id} — aktualizuje outgoing_url istniejącego bota.
+    Zwraca zaktualizowany dict bota, albo None przy błędzie (wołający ma wtedy
+    fallback na stary obiekt bota z list_agent_bots — patrz ensure_agent_bot)."""
+    base, acc, token, _ = _cfg()
+    url = "%s/api/v1/accounts/%s/agent_bots/%s" % (base, acc, bot_id)
+    try:
+        r = requests.patch(url, headers=_headers(token), json={"outgoing_url": outgoing_url}, timeout=25)
+    except Exception as e:
+        print("BLAD patch_outgoing_url wyjątek: %s" % repr(e), file=sys.stderr)
+        return None
+    if r.status_code not in (200, 201):
+        print("BLAD patch_outgoing_url HTTP %s: %s" % (r.status_code, r.text[:200]), file=sys.stderr)
+        return None
+    data = r.json()
+    if isinstance(data, dict) and "payload" in data:
+        return data["payload"]
+    return data if isinstance(data, dict) else None
+
+
+def _zdjelby_token(stary_url, nowy_url):
+    """Czy PATCH zamieniłby URL Z tokenem na URL BEZ tokenu (U12).
+
+    `ensure_agent_bot` PATCHuje `outgoing_url`, żeby zmiana tokenu w `bridge.env`
+    realnie docierała do Chatwoota. Ale ten sam mechanizm działa też w drugą,
+    NIEZAMIERZONĄ stronę: skrypt uruchomiony w powłoce bez `BOT_*_AGENT_WEBHOOK_TOKEN`
+    (typowo `docker exec` bez pliku env, albo ręczne „sprawdzę, czy bot istnieje")
+    wylicza URL BEZ `?token=` i nadpisuje nim działający adres z tokenem. Wtedy
+    `webhooks.py` zaczyna odrzucać żądania Chatwoota (401) i STARY bot cicho
+    przestaje działać na produkcji — a operator nie ma powodu łączyć jednego
+    z drugim.
+
+    Sprawdzamy obecność samego parametru, nie jego wartość: zmiana tokenu na INNY
+    token to legalny, zamierzony PATCH i ma przechodzić."""
+    return "token=" in (stary_url or "") and "token=" not in (nowy_url or "")
+
+
+def ensure_agent_bot(name="WoodPower AI", outgoing_url=None, description=None):
     """
     Idempotentnie tworzy Agent Bota o podanej nazwie.
-    Jeśli bot o tej nazwie już istnieje — zwraca go bez tworzenia duplikatu.
+    Jeśli bot o tej nazwie już istnieje — zwraca go BEZ tworzenia duplikatu, ale
+    PATCHUJE outgoing_url, gdy różni się od tego, co dziś wynika z configu (np.
+    token webhooka zmieniony w bridge.env) — inaczej idempotencja po cichu
+    zamieniałaby się w "nigdy już nie aktualizuj", a webhook zostawałby trwale
+    nieaktualny mimo poprawnego configu (Task 7, Step 6).
+
+    JEDEN wyjątek od tego PATCHa (U12, recenzja końcowa): nigdy nie zamieniamy
+    URL-a Z tokenem na URL BEZ tokenu — patrz `_zdjelby_token`.
     Zwraca dict bota z polami id, access_token (i innymi).
     Rzuca RuntimeError przy błędzie tworzenia.
 
-    outgoing_url: opcjonalny własny URL webhooka (np. z _cfg_quote()).
+    outgoing_url: opcjonalny własny URL webhooka (np. z _cfg_quote()/_cfg_pro()).
     Gdy nie podany — używany jest domyślny URL z _cfg() (dotychczasowe zachowanie).
+
+    description: opcjonalny opis bota w Chatwoocie. Gdy nie podany — domyślny
+    (dotychczasowy) tekst "Asystent AI - podpowiedzi (prywatne notatki)", który
+    pasuje do WoodPower AI / Asystenta AI v1 (tryb podpowiedzi/notatek), ale NIE
+    do Debusia Pro (ten NIE działa w trybie notatek — odpowiada wprost klientowi).
     """
     base, acc, token, default_url = _cfg()
     outgoing_url = outgoing_url or default_url
+    opis = description or _OPIS_DOMYSLNY
 
     # Sprawdź czy bot już istnieje — idempotencja
     existing = list_agent_bots()
     for bot in existing:
         if bot.get("name") == name:
-            # Bot istnieje — zwróć bez POST
+            if _zdjelby_token(bot.get("outgoing_url"), outgoing_url):
+                # U12: NIE nadpisujemy dzialajacego adresu z tokenem adresem bez
+                # tokenu — to zdjelo by ochrone webhooka istniejacego bota (401).
+                print("UWAGA: pomijam aktualizacje outgoing_url bota %r — wyliczony URL "
+                      "nie ma ?token=, a obecny ma. Ustaw odpowiedni "
+                      "BOT_*_AGENT_WEBHOOK_TOKEN w srodowisku i uruchom ponownie."
+                      % name, file=sys.stderr)
+                return bot
+            if bot.get("outgoing_url") != outgoing_url and bot.get("id"):
+                zaktualizowany = _patch_outgoing_url(bot.get("id"), outgoing_url)
+                if zaktualizowany:
+                    # SCALONY ze starym obiektem (code review, drobne): odpowiedz PATCH
+                    # nie musi zawierac WSZYSTKICH pol bota (np. access_token) — goly
+                    # `return zaktualizowany` wypisywalby wtedy puste
+                    # "BOT_PRO_CW_AGENT_TOKEN=" w CLI, mimo ze bot i jego token istnieja.
+                    return dict(bot, **zaktualizowany)
             return bot
 
     # Bot nie istnieje — utwórz
     url = "%s/api/v1/accounts/%s/agent_bots" % (base, acc)
     payload = {
         "name": name,
-        "description": "Asystent AI - podpowiedzi (prywatne notatki)",
+        "description": opis,
         "outgoing_url": outgoing_url,
     }
     try:
@@ -137,9 +225,50 @@ def ensure_agent_bot(name="WoodPower AI", outgoing_url=None):
 # Punkt wejścia CLI
 # ---------------------------------------------------------------------------
 
-if __name__ == "__main__":
+# Wszystkie wspierane warianty. Argument spoza tej listy jest BŁĘDEM, nie
+# cichym „to pewnie domyślny" — patrz `main`.
+_WARIANTY = ("quote", "pro")
+
+_NAZWA_PRO_DOMYSLNA = "Dębuś Pro"
+
+
+def nazwa_bota_pro():
+    """Nazwa Agent Bota wariantu „pro" — z `BOT_PRO_NAME`, domyślnie „Dębuś Pro" (W4).
+
+    Nazwa jest JEDYNYM kluczem idempotencji w `ensure_agent_bot`, więc zaszyta
+    na sztywno oznaczała, że kandydat i produkcja celują w TEN SAM byt
+    w Chatwoocie: uruchomienie skryptu na kandydacie znajdowało produkcyjnego
+    „Dębusia Pro" i PATCHowało jego `outgoing_url` na adres kandydata. Własna
+    nazwa (np. „Dębuś Pro KANDYDAT (staging)") rozdziela te dwa byty bez
+    edycji kodu.
+
+    Pusta/białoznakowa wartość wraca do domyślnej — bot bez nazwy nie ma sensu
+    jako klucz idempotencji."""
+    return os.environ.get("BOT_PRO_NAME", "").strip() or _NAZWA_PRO_DOMYSLNA
+
+
+def main(argv):
+    """Punkt wejścia CLI. `argv` to argumenty BEZ nazwy programu. Zwraca kod wyjścia.
+
+    Wydzielone z `if __name__ == "__main__":` (W3), żeby walidację argumentu dało
+    się przetestować bez uruchamiania procesu i bez sieci."""
+    if argv:
+        wariant = argv[0]
+        if wariant not in _WARIANTY:
+            # W3: KAŻDY nieznany argument to twardy błąd. Wcześniej literówka albo
+            # naturalne przy wdrażaniu kandydata `cand` spadały do gałęzi domyślnej
+            # i ruszały PRODUKCYJNEGO bota „WoodPower AI" — a `ensure_agent_bot`
+            # PATCHuje `outgoing_url` przy różnicy, więc pomyłka mogła przestawić
+            # webhook żywego bota na adres kandydata.
+            print("BLAD: nieznany argument %r. Dozwolone: %s (albo BRAK argumentu — "
+                  "wariant domyslny 'WoodPower AI')."
+                  % (wariant, ", ".join(repr(w) for w in _WARIANTY)), file=sys.stderr)
+            return 2
+    else:
+        wariant = None
+
     # Wariant "quote": tworzy osobnego bota "Asystent AI v1" pod webhook /agent-bot-quote
-    if len(sys.argv) > 1 and sys.argv[1] == "quote":
+    if wariant == "quote":
         _, _, _, q_url = _cfg_quote()
         print("Tworzenie / weryfikacja Agent Bota 'Asystent AI v1'...")
         print("outgoing_url:", q_url)
@@ -149,15 +278,43 @@ if __name__ == "__main__":
             bot = ensure_agent_bot("Asystent AI v1", outgoing_url=q_url)
         except RuntimeError as e:
             print(str(e), file=sys.stderr)
-            sys.exit(1)
+            return 1
 
         access_token = bot.get("access_token") or bot.get("agent_bot_access_token", "")
         print("Asystent AI v1 access_token:", access_token)
         print("outgoing_url:", q_url)
         print()
         print("Wklej do bridge.env: BOT_QUOTE_CW_AGENT_TOKEN=%s" % access_token)
-        raise SystemExit(0)
+        return 0
 
+    # Wariant "pro": tworzy osobna encje Debusia Pro pod webhook /agent-bot-pro (Agents SDK) —
+    # OBOK istniejacych botow, zeby migracje dalo sie przelaczac inbox po inboxie (BOT_PRO_INBOXES)
+    # z natychmiastowym odwrotem, bez ruszania starych botow. Nazwa i adres webhooka ida
+    # ze srodowiska (BOT_PRO_NAME, BOT_PRO_AGENT_WEBHOOK_URL), zeby ten sam skrypt zalozyl
+    # bota kandydata pod wlasna tozsamoscia.
+    if wariant == "pro":
+        _, _, _, p_url = _cfg_pro()
+        nazwa = nazwa_bota_pro()
+        print("Tworzenie / weryfikacja Agent Bota %r..." % nazwa)
+        print("outgoing_url:", p_url)
+        print()
+
+        try:
+            bot = ensure_agent_bot(
+                nazwa, outgoing_url=p_url,
+                description="Dębuś Pro - agent sprzedażowy (odpowiada bezpośrednio klientowi)")
+        except RuntimeError as e:
+            print(str(e), file=sys.stderr)
+            return 1
+
+        access_token = bot.get("access_token") or bot.get("agent_bot_access_token", "")
+        print("%s access_token: %s" % (nazwa, access_token))
+        print("outgoing_url:", p_url)
+        print()
+        print("Wklej do bridge.env: BOT_PRO_CW_AGENT_TOKEN=%s" % access_token)
+        return 0
+
+    # Wariant domyslny — osiagalny WYLACZNIE przy braku argumentu (W3).
     _, _, _, outgoing_url = _cfg()
 
     print("Tworzenie / weryfikacja Agent Bota 'WoodPower AI'...")
@@ -168,7 +325,7 @@ if __name__ == "__main__":
         bot = ensure_agent_bot("WoodPower AI")
     except RuntimeError as e:
         print(str(e), file=sys.stderr)
-        sys.exit(1)
+        return 1
 
     bot_id = bot.get("id")
     access_token = bot.get("access_token") or bot.get("agent_bot_access_token", "")
@@ -183,3 +340,8 @@ if __name__ == "__main__":
     print()
     print("Następnie: docker compose restart (lub bridge-deploy.sh) + przypnij bota")
     print("do skrzynki w Chatwoocie: Inbox → Konfiguracja bota → WoodPower AI → Aktualizuj.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -6,8 +6,8 @@ import time
 import json
 from flask import Blueprint, request, jsonify
 from config import (WEBHOOK_TOKEN, BOT_AGENT_WEBHOOK_TOKEN, BOT_LIVE_AGENT_WEBHOOK_TOKEN,
-                     BOT_QUOTE_AGENT_WEBHOOK_TOKEN,
-                     CW_OLX_INBOX, CW_ALLEGRO_MSG_INBOX)
+                     BOT_QUOTE_AGENT_WEBHOOK_TOKEN, BOT_PRO_AGENT_WEBHOOK_TOKEN, BOT_PRO_INBOXES,
+                     CW_OLX_INBOX, CW_ALLEGRO_MSG_INBOX, CW_ALLEGRO_DISPUTE_INBOX)
 from core.log import log
 from core.db import db
 from core.chatwoot import cw_bot_handoff
@@ -188,6 +188,115 @@ def agent_bot_quote():
         return jsonify(ok=False, error="unauthorized"), 401
     d = request.get_json(force=True, silent=True) or {}
     _process_quotebot(d)
+    return jsonify(ok=True)
+
+
+# ---------- AGENT BOT PRO (Debus Pro, Agents SDK, osobna encja) ----------
+def _persona_pro_dla_inboxu(inbox_id):
+    """Klucz profilu kanalu (caps) dla wiersza kolejki Debusia Pro (Task 7, W1 code
+    review). Rozgraniczenie na silnik (bots_pro vs legacy) w quote_worker.py idzie
+    PO inbox_id/BOT_PRO_INBOXES ORAZ po personie wiersza (N3 — patrz
+    quote_worker._wiersz_silnika_pro), NIE po WARTOSCI zwracanej przez ta funkcje —
+    ta wartosc trafia WYLACZNIE do bots_pro.wysylka.przygotuj (przez stan.persona())
+    i decyduje o markdownie/emoji/linkach w odpowiedzi.
+
+    Przed poprawka W1 kazdy wiersz Debusia Pro szedl z persona="pro" na sztywno,
+    niezaleznie od kanalu — bots.channel_caps.caps_for("pro") nie zna takiego
+    klucza i spada na DEFAULT_CAPS (markdown, emoji I LINKI wlaczone). Po wlaczeniu
+    BOT_PRO_INBOXES na inboksie Allegro dawaloby to dokladnie wyciek linkow, przed
+    ktorym broni caly bots_pro.wysylka (regulamin marketplace'u).
+
+    N1 (code review, runda 2): sama W1 nadal zawodzila NA OTWARTO w tym samym
+    kierunku. `persona_for(inbox_id)` siega siecia po katalog inboksow
+    (`cw_inboxes`), a ten zwraca [] przy KAZDYM bledzie HTTP (core/chatwoot.py) ->
+    `persona_for` daje None -> stara wersja mapowala to na "pro" (DEFAULT_CAPS).
+    Persona jest zapisywana w wierszu kolejki RAZ, przy enqueue, i NIE liczona
+    ponownie przy przetwarzaniu — jedno nieudane `/inboxes` w momencie przyjscia
+    wiadomosci zamrazaloby zle (permisywne) capsy na CALA ture, wysylajac link
+    kupujacemu na Allegro.
+
+    Naprawa: identyfikacja idzie NAJPIERW przez identyfikatory z configu
+    (`CW_OLX_INBOX`/`CW_ALLEGRO_MSG_INBOX`) — DOKLADNIE ten sam wzorzec, ktorego
+    uzywa `_quote_persona_dla_inboxu` dla legacy silnika (patrz wyzej w tym
+    pliku) — BEZ zadnego wywolania sieciowego, wiec nie ma jak zawiesc. To
+    pokrywa dokladnie scenariusz migracji inbox-po-inboksie: inbox przelaczany
+    z legacy na Pro MUSI juz miec `CW_OLX_INBOX`/`CW_ALLEGRO_MSG_INBOX`
+    ustawiony (inaczej legacy nigdy by go nie routowal do trybu notatki), wiec
+    ten identyfikator jest gotowy zanim `BOT_PRO_INBOXES` w ogole go obejmie.
+    `persona_for(inbox_id)` (siec, nazwa inboxu) zostaje jako fallback DLA
+    INBOKSOW SPOZA configu (np. nowy inbox Allegro nigdy nieserwowany przez
+    legacy) — tam ryzyko przejsciowego bledu sieci jest wazsze do zaakceptowania
+    niz przy znanej migracji (rzadszy, nowszy scenariusz, nie zywy ruch)."""
+    if CW_OLX_INBOX and str(inbox_id) == str(CW_OLX_INBOX).strip():
+        return "olx"
+    if CW_ALLEGRO_MSG_INBOX and str(inbox_id) == str(CW_ALLEGRO_MSG_INBOX).strip():
+        return "allegro"
+    kanal = persona_for(inbox_id)
+    return kanal if kanal in ("olx", "allegro") else "pro"
+
+
+def _process_pro(d):
+    """Debus Pro. Bramka inboxow (BOT_PRO_INBOXES) jest kill-switchem migracji:
+    przelaczamy inbox po inboxie zmienna srodowiskowa, bez zmiany kodu — i bez
+    ruszania starych botow (agent_bot/agent_bot_quote wyzej zostaja nietkniete).
+
+    UWAGA: swiadomie BEZ bezwarunkowego cw_bot_handoff — _process_agent_bot wola
+    go przed jakimkolwiek sprawdzeniem tresci i persony, przez co wybudza rozmowe
+    ze statusu 'pending' zanim ktokolwiek cokolwiek powiedzial. Dla Debusia Pro
+    to bylby zly domyslny wybor: bramka ciszy po handoffie (bots_pro.stan.
+    wolno_prowadzic_rozmowe, wolana wewnatrz tury) i tak wymaga statusu 'pending',
+    wiec przedwczesny handoff tylko psulby stan rozmowy bez potrzeby.
+
+    U6 (code review, runda 3): inbox "Allegro - Dyskusje" (CW_ALLEGRO_DISPUTE_INBOX —
+    reklamacje/spory) ma TWARDE wykluczenie, NIEZALEZNE od zawartosci BOT_PRO_INBOXES.
+    Legacy silnik wyklucza go przez design allowlisty (_quote_persona_dla_inboxu zna
+    tylko CW_OLX_INBOX/CW_ALLEGRO_MSG_INBOX, dyskusje po prostu nigdy nie sa dopasowane
+    — patrz komentarz przy tej funkcji), a jego jedyna alternatywna sciezka na tym
+    inboksie to stary PODPOWIADACZ (prywatna notatka do przegladu czlowieka — niskie
+    ryzyko). Debus Pro to bot SPRZEDAZOWY (wyceny, ceny) bez pojecia o procesie
+    reklamacyjnym, ktory odpowiada PUBLICZNIE i BEZ nadzoru czlowieka — wpisanie
+    inboxu dyskusji do BOT_PRO_INBOXES (zmienna srodowiskowa, ktora ktos kiedys ustawi
+    w pospiechu przy migracji) puscilo by go na reklamacje. Dlatego wykluczenie tutaj
+    NIE zalezy od BOT_PRO_INBOXES — dziala nawet gdy operator pomyli sie i doda ten
+    inbox do listy."""
+    if d.get("event") != "message_created":
+        return
+    if str(d.get("message_type")) not in ("incoming", "0"):
+        return
+    if d.get("private"):
+        return
+
+    conv_id = (d.get("conversation") or {}).get("id") or d.get("conversation_id")
+    inbox_id = str(d.get("inbox_id")
+                   or (d.get("conversation") or {}).get("inbox_id")
+                   or (d.get("inbox") or {}).get("id") or "")
+    content = (d.get("content") or "").strip()
+    mid = str(d.get("id") or "")
+    att = [a.get("data_url") for a in (d.get("attachments") or [])
+           if a.get("data_url") and str(a.get("file_type") or "").lower() == "image"]
+
+    if not conv_id or not mid or (not content and not att):
+        return
+
+    if CW_ALLEGRO_DISPUTE_INBOX and inbox_id == str(CW_ALLEGRO_DISPUTE_INBOX).strip():
+        log("pro: inbox %s to Allegro-Dyskusje — twarde wykluczenie, niezaleznie "
+            "od BOT_PRO_INBOXES (conv %s)" % (inbox_id, conv_id))
+        return
+
+    if inbox_id not in BOT_PRO_INBOXES:
+        log("pro: inbox %s poza BOT_PRO_INBOXES — pomijam (conv %s)" % (inbox_id, conv_id))
+        return
+
+    persona = _persona_pro_dla_inboxu(inbox_id)
+    enqueue_quote_turn(conv_id, inbox_id, mid, content, attachments=att, persona=persona)
+
+
+@bp.post("/agent-bot-pro")
+def agent_bot_pro():
+    if BOT_PRO_AGENT_WEBHOOK_TOKEN and request.args.get("token") != BOT_PRO_AGENT_WEBHOOK_TOKEN:
+        return jsonify(ok=False, error="unauthorized"), 401
+    d = request.get_json(force=True, silent=True) or {}
+    _process_pro(d)
     return jsonify(ok=True)
 
 

@@ -113,3 +113,77 @@ BOT_BACKOFF_TIERS = ([int(x) for x in os.environ.get("BOT_BACKOFF_TIERS", "30,12
                      or [30, 120, 300])
 BOT_CIRCUIT_THRESHOLD = int(os.environ.get("BOT_CIRCUIT_THRESHOLD", "5"))   # kolejnych bledow -> pauza
 BOT_CIRCUIT_COOLDOWN  = int(os.environ.get("BOT_CIRCUIT_COOLDOWN", "120"))  # sekundy pauzy kolejki
+
+# ----- Bot sprzedazowy "Debus Pro" (Agents SDK, osobna encja od quote-bota) -----
+# Token uzyty explicite w bots_pro.stan.handoff/podsumowanie.wyslij — domyslny cw_bot_handoff
+# siega po token bota-podpowiadacza, wiec Pro potrzebuje wlasnego, jawnie podawanego.
+BOT_PRO_CW_AGENT_TOKEN = os.environ.get("BOT_PRO_CW_AGENT_TOKEN")
+# Token w URL webhooka /agent-bot-pro. Guard startowy w guard_pro.py wylacza Debusia Pro
+# (czysci BOT_PRO_INBOXES, NIE ubija calego procesu mostka), gdy BOT_PRO_INBOXES jest
+# niepuste, a tego tokenu brak (patrz guard_pro.py) — inaczej weryfikacja w webhooks.py
+# jest warunkowa (`if TOKEN and ...`) i webhook stoi otworem.
+BOT_PRO_AGENT_WEBHOOK_TOKEN = os.environ.get("BOT_PRO_AGENT_WEBHOOK_TOKEN")
+# Bezpiecznik D (jak BOT_LIVE_MAX_TURNS/BOT_QUOTE_MAX_TURNS): max krokow Runnera w JEDNYM
+# wywolaniu Runner.run_sync (petla narzedzie->model wewnatrz jednej tury), zeby zapetlone
+# wywolania narzedzi nie chodzily w nieskonczonosc. PRZEMIANOWANE z BOT_PRO_MAX_TURNS (Task 8,
+# B2 code review) — ta nazwa myliła się z BEZPIECZNIKIEM DŁUGOŚCI ROZMOWY (BOT_PRO_MAX_TURNS
+# poniżej), zupełnie innym pojęciem: to jest limit iteracji narzędzie->model WEWNĄTRZ JEDNEJ
+# tury, tamto jest limit liczby TUR całej rozmowy klient<->bot. Nazwa nie zmieniona od
+# poprzedniego zadania (Task 6/7) NIC nie mierzyła źle — ale audyt Task 8 pokazał, że zajmowała
+# nazwę potrzebną nowemu, faktycznie brakującemu bezpiecznikowi (patrz niżej), więc obie muszą
+# się dać odróżnić na pierwszy rzut oka.
+BOT_PRO_MAX_RUNNER_STEPS = int(os.environ.get("BOT_PRO_MAX_RUNNER_STEPS", "30"))
+# Bezpiecznik DŁUGOŚCI ROZMOWY (Task 8, B2) — licznik TUR całej rozmowy klient<->bot
+# (bots_pro.stan.zarejestruj_ture), NIE mylić z BOT_PRO_MAX_RUNNER_STEPS wyżej. Audyt: stary
+# limit 30 tur (poprzednik tej zmiennej pod starą nazwą) nie uratował ANI JEDNEJ z 10
+# zapętlonych rozmów w zbadanym shardzie — klienci odpadali przy 10-28 turach, więc próg musi
+# być NIŻSZY niż cierpliwość klienta. 12 to nowy próg ze specyfikacji zadania.
+# <=0 WYLACZA bezpiecznik (nie: "0 tur dozwolonych" — analogicznie do SWEEP_INTERVAL/
+# HOT_LEAD_SWEEP_INTERVAL, patrz sweeper.py/hot_lead_sweeper.py), sprawdzane w tura.py.
+BOT_PRO_MAX_TURNS = int(os.environ.get("BOT_PRO_MAX_TURNS", "12"))
+# Ile kolejnych tur BEZ POSTĘPU (bez żadnej zmiany stanu biznesowego rozmowy — pozycji,
+# wysłanego podsumowania, potwierdzenia klienta, zapisanej wyceny; patrz
+# bots_pro.stan.migawka_postepu) ma dopuszczać bot, zanim sam odda rozmowę człowiekowi. Task 8,
+# B2: PODPIĘTE (poprzednio deklarowane w configu, ale nieużywane nigdzie — "rezerwa pod
+# przyszły watchdog tury"). <=0 WYLACZA bezpiecznik, jak wyżej.
+BOT_PRO_MAX_BEZ_POSTEPU = int(os.environ.get("BOT_PRO_MAX_BEZ_POSTEPU", "3"))
+# Próg ciszy (minuty) dla watchdoga porzuconych rozmów (Task 8, część A) — patrz pro_watchdog.py.
+# <=0 WYLACZA caly watchdog (NIE "handoff natychmiast" — runda poprawek 1, drobne: operator
+# wpisujacy zero, zeby wylaczyc, nie ma dostac najagresywniejszego ustawienia).
+BOT_PRO_WATCHDOG_MINUTES = int(os.environ.get("BOT_PRO_WATCHDOG_MINUTES", "20"))
+# Interwal (sekundy) miedzy przejsciami watchdoga — byl zaszyty w kodzie (300), wyciagniety do
+# configu dla spojnosci z reszta sweeperow (SWEEP_INTERVAL, HOT_LEAD_SWEEP_INTERVAL).
+BOT_PRO_WATCHDOG_INTERVAL = int(os.environ.get("BOT_PRO_WATCHDOG_INTERVAL", "300"))
+# Okno historii SQLiteSession Agents SDK (Task 8, B5) — bots_pro/tura.py:_sesja. Bez tego
+# SQLiteSession podaje modelowi CAŁĄ historię sesji (a Router płaci ją drugi raz co turę) —
+# koszt/opóźnienie rosnące liniowo z długością rozmowy, nie poprawność (BOT_HISTORY_LIMIT
+# starego silnika liczył WIADOMOŚCI czatu — tu limit jest w ITEMS SDK, stąd osobna stała).
+#
+# K2 (code review, runda poprawek 1): zarzut, że okno cięte W ŚRODKU pary narzędzia zostawia
+# osierocony `function_call_output` (call bez wyjścia SDK usuwa —
+# `drop_orphan_function_calls` — ale rzekomo NIE odwrotnie), co Responses API miałoby odrzucać
+# (400). SPRAWDZONE reprodukcją NA ŻYWYM `Runner.run` (nie tylko `session.get_items()` w
+# izolacji — TO dawało osierocony wpis, patrz niżej) z realną `SQLiteSession(session_settings=
+# SessionSettings(limit=2))` i historią specjalnie przeciętą w środku pary narzędzia: model
+# dostał CZYSTE wejście, bez osieroconych `function_call`/`function_call_output`. Powód: SDK
+# (openai-agents==0.22.0, dokładnie wersja z requirements.txt) w `prepare_input_with_session`
+# (wołanym przez `Runner.run_sync`, NIE gołe `session.get_items()`) ustawia
+# `output_pruning_indexes` WŁAŚNIE wtedy, gdy `SessionSettings.limit` jest ustawiony —
+# `drop_orphan_function_calls` z tym argumentem czyści OBIE strony pary, nie tylko osierocone
+# wywołania. Regresja tego zachowania (np. przy podbiciu wersji SDK) złapie
+# test_pro_tura.py::TestSesjaOgraniczaHistorie::test_okno_przeciete_w_srodku_pary_narzedzia_nie_wysyla_osieroconego_wpisu.
+BOT_PRO_SESSION_ITEMS_LIMIT = int(os.environ.get("BOT_PRO_SESSION_ITEMS_LIMIT", "60"))
+# Inboxy obslugiwane przez Debusia Pro. Pusta wartosc = bot wylaczony wszedzie — kill-switch
+# migracji bez zmiany kodu: przelaczamy inbox po inboksie, z natychmiastowym odwrotem (patrz
+# webhooks.py, _process_pro). Zmiana wymaga recreate kontenera mostu, nie pushu kodu.
+BOT_PRO_INBOXES = set(
+    x.strip() for x in os.environ.get("BOT_PRO_INBOXES", "").split(",") if x.strip()
+)
+# Tracing Agents SDK. W bibliotece jest WLACZONY DOMYSLNIE i wysyla tresc rozmow,
+# argumenty narzedzi i handoffy do backendu tracingu OpenAI — TAKZE w konfiguracji
+# Anthropic przez LiteLLM (widac to w przebiegu testow jako "[non-fatal] Tracing
+# client error 401"). Tresc rozmow to dane klientow, wiec domyslnie WYLACZONE;
+# wlaczenie ma byc swiadoma decyzja (U14a, recenzja koncowa). Egzekwowane w
+# bots_pro/agenci.py (`zastosuj_ustawienia_tracingu`), przy imporcie modulu.
+BOT_PRO_TRACING = os.environ.get("BOT_PRO_TRACING", "0").strip().lower() in (
+    "1", "true", "yes", "on")

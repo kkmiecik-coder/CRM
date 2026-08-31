@@ -1,5 +1,24 @@
 # Wdrożenie bota „Asystent AI v1" (quote-bot)
 
+> **UWAGA (Task 8, code review runda poprawek 2): weryfikacja Dębusia Pro (silnik
+> `bots_pro/`, Agents SDK) MUSI iść przez obraz z `docker/python/Dockerfile`
+> (Python 3.12 + `requirements.txt`), NIE przez lokalne środowisko developera.**
+> Lokalne interpretery mają zwykle inną wersję Pythona/`openai-agents`, a pakiet
+> testów `bots_pro`/`tests/test_pro_*.py` w ogóle się nie zbiera poza 3.12
+> (importy specyficzne dla tej wersji). Różnica wersji SDK realnie zmienia
+> zachowanie biblioteki — dokładnie to było bezpośrednią przyczyną sporu K2
+> w rundzie poprawek 1 (zarzut o `SessionSettings(limit=...)` osierocającym
+> `function_call_output`, sprawdzony na `openai-agents==0.8.4` lokalnie,
+> nieodtwarzalny na `openai-agents==0.22.0` — dokładnej wersji przypiętej w
+> `requirements.txt` i faktycznie używanej w kontenerze). Komenda testowa:
+> ```
+> docker run --rm -v <ścieżka repo>:/app -w /app/integrations/chat_bridge \
+>   woodpower-crm-app:latest sh -c \
+>   "pip install -q 'openai-agents[litellm]==0.22.0' && python -m pytest -q"
+> ```
+> Bez `pip install` w tej samej komendzie = wariant „bez SDK" (część testów
+> pomijana `pytest.importorskip("agents")`, ale to i tak ten sam obraz/Python).
+
 ## 1. bridge.env (VPS, NIE w gicie)
 CRM_API_BASE=https://crm.woodpower.pl
 CRM_BOT_API_KEY=<= BOT_API_KEY z config/core.json CRM>
@@ -249,6 +268,100 @@ Wtedy wiadomość wstrzyknięta do tego inboxu przejdzie pełną ścieżkę webh
 Uwaga: na kandydacie ta sama zmienna steruje pollerem OLX, więc rób to tylko przy wyłączonym
 pollerze (`BOT_QUOTE_PERSONAS=livechat`).
 
+### Etap 1b: Dębuś Pro na slocie kandydata
+
+Kandydat (`bridge_quote_candidate.py`, port 5006, `bridge-candidate.env`, własna baza,
+prefiks `/cand/` za nginxem) obsługuje **także** silnik `bots_pro/`. Poniżej rodzina
+zmiennych, bez której Dębuś Pro albo nie wstanie, albo wstanie niebezpiecznie.
+
+```bash
+# bridge-candidate.env — Dębuś Pro
+BRIDGE_DB=/data/bridge-candidate.db     # WŁASNY plik SQLite, inny niż produkcyjny (domyślnie
+                                         # /data/bridge.db) — inaczej oba procesy wyrywają sobie
+                                         # wiersze z tej samej kolejki i kolidują tabele stanu,
+                                         # a do tego historia sesji Agents SDK (SQLiteSession,
+                                         # bots_pro/tura.py) też koliduje, bo ścieżka bazy idzie
+                                         # prosto do sesji biblioteki agentowej.
+BOT_PRO_INBOXES=18                      # kill-switch: puste = Pro całkowicie wyłączony
+BOT_PRO_AGENT_WEBHOOK_TOKEN=<sekret>    # token w URL webhooka /cand/agent-bot-pro
+BOT_PRO_CW_AGENT_TOKEN=<access_token>   # tożsamość bota (z setup/create_agent_bot.py pro)
+OPENAI_API_KEY=<klucz>                  # dostawca modelu
+CRM_BOT_API_KEY=<klucz>                 # = BOT_API_KEY z config/core.json CRM
+CRM_API_BASE=https://crm.woodpower.pl   # PRAWDZIWY CRM — patrz ostrzeżenie niżej
+BOT_QUOTE_CLIENT_TYPE=<grupa cenowa>    # musi pasować do client_types z /api/bot/options
+BOT_HELP_CENTER_SLUG=<slug>             # baza wiedzy — bez tego indeks zostanie PUSTY
+```
+
+Bota zakładasz tym samym skryptem co na produkcji, ale pod **własną nazwą i własnym
+adresem** — nazwa jest jedynym kluczem idempotencji, więc bez `BOT_PRO_NAME` skrypt
+znalazłby produkcyjnego „Dębusia Pro" i PATCHnął jego webhook na adres kandydata:
+
+```bash
+docker exec <kontener-kandydata> env \
+  BOT_PRO_NAME="Dębuś Pro KANDYDAT (staging)" \
+  BOT_PRO_AGENT_WEBHOOK_URL="https://chatbridge.woodpower.pl/cand/agent-bot-pro" \
+  BOT_PRO_AGENT_WEBHOOK_TOKEN="<sekret>" \
+  python3 -m setup.create_agent_bot pro
+# access_token z wydruku -> BOT_PRO_CW_AGENT_TOKEN w bridge-candidate.env
+```
+
+Nieznany argument (`cand`, literówka) kończy się błędem i kodem 2 — gałąź domyślna,
+która rusza **produkcyjnego** bota „WoodPower AI", jest osiągalna wyłącznie przy braku
+argumentu.
+
+**Ostrzeżenia — przeczytaj przed pierwszym uruchomieniem:**
+
+- **Zmienne OLX są wymagane, mimo że poller OLX u kandydata nie działa.**
+  `OLX_CLIENT_ID`, `OLX_CLIENT_SECRET` i `OLX_REFRESH_TOKEN` czytane są przez `config.py`
+  gołym `os.environ[...]` (bez domyślnej) przy imporcie modułu, więc **proces w ogóle nie
+  wstanie** bez nich. Wartości mogą być atrapami — kandydat nie startuje pollerów.
+- **Żadna zmienna wskazująca skrzynkę OLX/Allegro nie może mieć wartości 18.** Guard startowy
+  (`guard_pro.py`, `_konflikt_olx_pro`) TEGO nie wyłapuje — sprawdza wyłącznie `CHATWOOT_OLX_INBOX_ID`
+  i tylko w połączeniu z konkretnym rozjazdem `BOT_QUOTE_NOTE_PERSONAS`/`BOT_QUOTE_PERSONAS`, którego
+  domyślna konfiguracja kandydata nie tworzy. W żadnym z trzech poniższych wariantów `GUARD PRO:`
+  **nie pojawi się** w logu — objawy są ciche i różne dla każdej zmiennej:
+  - `CHATWOOT_OLX_INBOX_ID=18` — `_persona_pro_dla_inboxu` (`webhooks.py`) rozpoznaje inbox 18 jako
+    OLX i po cichu podmienia caps odpowiedzi na marketplace'owe (`OLX_CAPS` w `bots/channel_caps.py`:
+    bez markdownu/emoji, limit 2000 znaków) zamiast domyślnych caps dla `"pro"`.
+  - `CHATWOOT_ALLEGRO_MSG_INBOX_ID=18` — to samo podmienienie persony/caps, ale na `ALLEGRO_CAPS`,
+    które dodatkowo wyłączają linki — test na skrzynce testowej zachowuje się inaczej niż docelowy
+    czat OLX/Allegro-Wiadomości i może fałszywie wyglądać na spadek jakości bota.
+  - `CHATWOOT_ALLEGRO_DISPUTE_INBOX_ID=18` — **Pro odrzuca KAŻDĄ wiadomość na skrzynce testowej.**
+    W `_process_pro` (`webhooks.py`) twarde wykluczenie inboxu Dyskusji jest sprawdzane PRZED bramką
+    `BOT_PRO_INBOXES` i od niej niezależne — bot milczy całkowicie, a jedynym śladem w logu jest
+    `pro: inbox 18 to Allegro-Dyskusje — twarde wykluczenie, niezaleznie od BOT_PRO_INBOXES (...)`.
+- **CRM nie ma piaskownicy.** `CRM_API_BASE` wskazuje produkcyjny CRM, więc **wyceny
+  wygenerowane przez kandydata zapisują się w prawdziwym CRM** i są widoczne dla zespołu.
+  To nie jest błąd konfiguracji — to fakt, z którym trzeba testować.
+- **Guard startowy wyłącza Pro przy braku któregokolwiek z dwóch tokenów.** Puste
+  `BOT_PRO_AGENT_WEBHOOK_TOKEN` = webhook otwarty na dowolny POST; puste
+  `BOT_PRO_CW_AGENT_TOKEN` = bot odzywa się cudzą tożsamością (fallback na tokeny
+  live-bota / bota-podpowiadacza / konta admina, wszystkie zwracają 200). W obu
+  przypadkach w logu jest `GUARD PRO:` z powodem, a `BOT_PRO_INBOXES` zostaje
+  wyczyszczone — reszta mostka działa dalej.
+
+**nginx musi kierować CAŁY prefiks `/cand/` na port 5006, ze zdjęciem prefiksu.**
+Instancja kandydata montuje trasy **bez** `/cand/` (blueprint `webhooks` daje
+`/agent-bot-pro`, nie `/cand/agent-bot-pro`). Jeśli dzisiejsza reguła jest dopasowana
+dosłownie do `/cand/agent-bot-quote`, sam adres Pro zwróci **404** — a w Chatwoocie
+objawi się to jako bot, który po prostu milczy:
+
+```nginx
+location /cand/ {
+    proxy_pass http://127.0.0.1:5006/;   # KOŃCOWY / = zdjęcie prefiksu /cand/
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+}
+```
+
+Weryfikacja po deployu (401 = trasa działa i token jest wymagany; 404 = zła reguła nginx):
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' -X POST \
+  https://chatbridge.woodpower.pl/cand/agent-bot-pro -d '{}'
+# oczekiwane: 401
+```
+
 ### Etap 2: Allegro (produkcja)
 
 ```bash
@@ -469,3 +582,109 @@ Sprawdź **przed** ustawieniem persony w `BOT_QUOTE_NOTE_PERSONAS`:
 - [ ] `BOT_QUOTE_CW_AGENT_TOKEN` nadal ustawiony (live chat Dębusia działa niezależnie)
 - [ ] Po recreate: `docker logs <kontener-mostu> 2>&1 | grep "poza zakresem quotebota"` →
       pojawia się **tylko** dla inboxu Dyskusji, nigdy dla OLX ani Allegro-Wiadomości
+
+---
+
+# Dębuś Pro (`bots_pro/`, Agents SDK) — przed włączeniem pierwszego inboxu
+
+> Ta sekcja dotyczy **nowego** silnika (`BOT_PRO_INBOXES`), nie quote-bota wyżej.
+> Przeczytaj ją **zanim** wpiszesz pierwszy inbox do `BOT_PRO_INBOXES`.
+
+## 1. Testy MUSZĄ iść z zainstalowaną biblioteką agentową
+
+Bez `openai-agents` **cztery pliki testów silnika Pro (~2900 linii) są po cichu
+POMIJANE** — `pytest.importorskip("agents")` na poziomie modułu wycina
+`test_pro_tura.py`, `test_pro_narzedzia.py`, `test_replay_odtworz.py` i
+`test_pro_agenci.py` w całości, plus pojedyncze testy w `test_llm_resilience.py`,
+`test_pro_models.py`, `test_quote_worker.py` i `test_quote_worker_pro_failover.py`.
+Zielony wynik **nic wtedy nie dowodzi o Dębusiu Pro**: pętla tury, warstwa narzędzi
+i harness odtwarzania nie są w ogóle uruchamiane.
+
+Jedyna poprawna komenda (ta sama, co w ramce na górze pliku):
+
+```
+docker run --rm -v <ścieżka repo>:/app -w /app/integrations/chat_bridge \
+  woodpower-crm-app:latest sh -c \
+  "pip install -q 'openai-agents[litellm]==0.22.0' && python -m pytest -q"
+```
+
+**Punkty odniesienia** (stan po rundzie poprawek zamykającej recenzję końcową):
+
+| wariant | wynik |
+|---|---|
+| z SDK (jedyny miarodajny) | **1340 passed, 0 failed** |
+| bez SDK (kontrola: stary silnik importuje się bez biblioteki) | 1171 passed, **18 skipped** |
+
+Liczba `skipped` inna niż 0 w wariancie z SDK = biblioteka NIE została zainstalowana
+w tej samej komendzie i wynik jest bezwartościowy dla Pro.
+
+## 2. Pierwszy deploy unieważni potwierdzenia w toku
+
+Materiał podpisu potwierdzenia (inwariant I2) zmienił kształt — obejmuje teraz
+także **dostawę** (kod pocztowy, kurier, koszt), więc ma postać
+`{"pozycje": …, "dostawa": …}` zamiast samej listy pozycji.
+
+Skutek: `oczekiwany_podpis` i `potwierdzony_podpis` zapisane w `pro_stan` PRZED
+wdrożeniem przestaną pasować do podpisu liczonego po wdrożeniu. Klienci, którzy
+w momencie deployu są w połowie ścieżki (widzieli podsumowanie, jeszcze nie
+potwierdzili — albo potwierdzili, ale wycena nie została jeszcze zapisana),
+zostaną **poproszeni o ponowne „tak"**.
+
+Kierunek jest bezpieczny (bot woli poprosić drugi raz niż zapisać
+niepotwierdzone dane), ale wygląda dla klienta jak powtórka — warto wiedzieć,
+zanim przyjdzie pytanie z obsługi. Deploy poza godzinami szczytu rozmów
+minimalizuje liczbę dotkniętych wątków.
+
+## 3. Kolejność WYCOFANIA jest istotna
+
+Usunięcie inboxu z `BOT_PRO_INBOXES`, gdy w `quote_queue` czekają jeszcze wiersze
+z personą Pro (`pro`/`olx`/`allegro`), **przepchnie je do starego silnika** —
+`quote_worker._wiersz_silnika_pro` wymaga OBU warunków (inbox + persona), więc
+zdjęcie inboxu kieruje te wiersze do `run_quote_turn`. A tam persona spoza
+`BOT_QUOTE_NOTE_PERSONAS` oznacza **odpowiedź PUBLICZNĄ** — na OLX/Allegro
+dokładnie to, czego tryb notatki miał nie dopuścić.
+
+Bezpieczna kolejność:
+
+1. W Chatwoot UI przepnij bota inboxu z `Dębuś Pro` z powrotem na starego bota
+   (`WoodPower AI` dla OLX/Allegro, `Asystent AI v1` dla live chatu) — od tej
+   chwili nic nowego nie trafia do kolejki z personą Pro.
+2. Opróżnij kolejkę — poczekaj, aż nie będzie wierszy Pro w stanie
+   `pending`/`processing` (ten sam sposób odpytania bazy, co w „Krok 2"
+   wyżej — kontener nie ma binarki `sqlite3`, tylko Pythona):
+   ```bash
+   docker exec <kontener-mostu> python3 -c "
+   import sqlite3
+   c = sqlite3.connect('/data/bridge.db')
+   print(list(c.execute(
+       \"SELECT id, persona, status FROM quote_queue \"
+       \"WHERE status IN ('pending','processing') \"
+       \"AND persona IN ('pro','olx','allegro')\")))
+   c.close()
+   "
+   ```
+   → oczekiwane `[]`.
+3. Dopiero teraz usuń inbox z `BOT_PRO_INBOXES` w `bridge.env` i zrób recreate.
+
+Odwrotna kolejność (najpierw `bridge.env`) jest tą, która puszcza zaległe wiersze
+publicznie.
+
+## 4. Znane ograniczenie: suma „produkt + dostawa" liczona po stronie mostka
+
+Podsumowanie, które klient potwierdza, pokazuje **Razem z dostawą** — a ta jedna liczba
+jest **dodawana w Pythonie** (`bots_pro/podsumowanie.py`, `wyslij()`), nie pobierana
+z CRM. To jedyny wyjątek od zasady „cena zawsze z CRM" i jest świadomy: sprawdzone,
+że **żaden** endpoint bota nie zwraca sumy obejmującej wysyłkę —
+`/api/bot/calculate` liczy `totals` wyłącznie z pozycji (nie zna kodu pocztowego),
+`/api/bot/shipping-quote` zwraca sam koszt kuriera, `POST`/`PUT /api/bot/quotes`
+nie zwracają żadnych kwot, a serializer `GET /api/bot/quotes` ma w kodzie komentarz
+wprost: „Wysyłki NIE doliczamy — liczy ją sklep".
+
+**Kiedy to przestanie być bezpieczne:** gdy CRM zacznie stosować rabat na poziomie
+SUMY (np. darmowa wysyłka powyżej progu) albo inaczej modyfikować cenę końcową.
+Bot pokazywałby wtedy klientowi kwotę **wyższą niż faktyczna**, i to w treści,
+którą klient podpisuje (inwariant I2).
+
+**Co zrobić przy takiej zmianie w CRM:** jeśli w odpowiedzi któregokolwiek z tych
+endpointów pojawi się pole z sumą razem z wysyłką — użyć JEGO zamiast dodawania
+(jedno miejsce w kodzie, oznaczone komentarzem `R3`).
