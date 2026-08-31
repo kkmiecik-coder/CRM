@@ -353,7 +353,13 @@ class TestP1PorownanieWariantow:
         assert "PORÓWNANIE." in WYCENA
 
     def test_regula_mowi_ze_wycena_pokazuje_wszystkie_warianty(self):
-        assert "wszystkich wariantów" in WYCENA
+        # RUNDA NAPRAW 6 (P4, sprzeczność S4): obietnica ZOSTAJE, ale przenosi
+        # się do bloku BRAMKOWANEGO kanałem. W `WYCENA` stała niebramkowana,
+        # a na Allegro kupujący tej wyceny nigdy nie zobaczy (idzie do
+        # konsultanta w prywatnej notatce) — czyli była to obietnica bez
+        # pokrycia. Pełny komplet sond: TestR6PorownanieNieObiecujeWyceny_
+        # KtorejKlientNieZobaczy niżej.
+        assert "wszystkich wariantów" in _ciagiem(prompty.blok_wyboru_w_wycenie(True))
 
     def test_prosba_o_porownanie_nie_jest_powodem_do_przekazania_rozmowy(self):
         assert "Prośba o porównanie NIGDY nie jest powodem" in WYCENA
@@ -592,3 +598,138 @@ class TestR5AgentWiedzyProponujeWycene:
         # w WYCENA: jedno zdanie po to, żeby reguła nie odwoływała reguły.
         assert "reguła o fragmentach jej nie zabrania" in WIEDZA
         assert "Odpowiadasz WYŁĄCZNIE na podstawie fragmentów" in WIEDZA
+
+
+class TestR6PotwierdzenieNiePrzeczyWymiarom:
+    """Runda napraw 6, P2 — sprzeczność S1 z recenzji, oceniona tam jako
+    najpoważniejsza.
+
+    Dwie sekcje tego samego promptu mówiły o TEJ SAMEJ turze coś odwrotnego:
+
+      * WYMIARY (naprawa U4, runda 2): „Gdy pyta, dlaczego coś się zmieniło,
+        najpierw wyjaśnij jednym zdaniem i w tej samej turze NIE wołaj
+        wyslij_podsumowanie […] Zestawienie wyślij dopiero w następnej turze."
+      * POTWIERDZENIE: „Gdy klient przy okazji coś poprawia ALBO O COŚ PYTA —
+        to NIE jest potwierdzenie: zapisz zmianę i wyślij podsumowanie od nowa."
+
+    Część wspólna to dokładnie sytuacja z żywego czatu, którą naprawiała runda
+    2: klient po podsumowaniu poprawia wymiar i pyta, dlaczego coś się
+    zmieniło. Jedna reguła kazała wysłać zestawienie w tej turze, druga
+    zakazywała. Naprawa U4 stała więc na tym, którą z dwóch reguł model uzna
+    za bardziej szczegółową — a bramka W3 w `tura.py` kasuje wtedy wyjaśnienie
+    i klient znów zostaje z samymi liczbami.
+
+    Naprawa jest jednozdaniowa i celowo NIE powtarza reguły z WYMIARY, tylko
+    ją przywołuje: powtórka rozjechałaby się przy pierwszej poprawce tamtej."""
+
+    def test_potwierdzenie_nadal_mowi_ze_pytanie_nie_jest_potwierdzeniem(self):
+        # Kontrola negatywna: naprawa nie ma prawa osłabić samego wymogu
+        # właściciela (nic dalej bez potwierdzenia klienta).
+        assert "to NIE jest potwierdzenie" in WYCENA
+        assert "wyślij podsumowanie od nowa" in WYCENA
+
+    def test_potwierdzenie_odsyla_do_wymiarow_przy_pytaniu_o_zmiane(self):
+        assert "patrz WYMIARY" in WYCENA
+
+    def test_potwierdzenie_nie_kaze_juz_wyslac_zestawienia_w_turze_wyjasnienia(self):
+        # Sedno S1: przy pytaniu „dlaczego się zmieniło" zestawienie ma iść
+        # w turze NASTĘPNEJ — tak samo, jak mówi WYMIARY.
+        assert "w turze następnej" in WYCENA
+
+    def test_regula_z_WYMIARY_zostaje_nietknieta(self):
+        # Sonda spójności: POTWIERDZENIE przywołuje regułę, która naprawdę
+        # istnieje. Gdyby tamta zniknęła, odwołanie wskazywałoby w próżnię.
+        assert "w tej samej turze nie wołaj wyslij_podsumowanie" in WYCENA
+        assert "Zestawienie wyślij dopiero w następnej turze" in WYCENA
+
+
+class TestR6PytanieZobowiazujeNazywaKsztaltISchody:
+    """Runda napraw 6, P3 — sprzeczność S3 z recenzji.
+
+    KSZTAŁT i SCHODY każą ZEBRAĆ komplet danych (czyli pytać) i dopiero potem
+    zawołać `oddaj_czlowiekowi`. Ostatnie brakujące pole zawsze przychodzi jako
+    odpowiedź na pytanie — a w tej właśnie turze PYTANIE ZOBOWIĄZUJE mówiło
+    „użyj tego, co podał, i prowadź wycenę dalej", podczas gdy KSZTAŁT mówi
+    „oddaj i NIE wyceniaj". Spełnić oba dało się wyłącznie przez furtkę
+    „sprawa naprawdę wykracza poza Twoje narzędzia", której KSZTAŁT ani SCHODY
+    nie przywoływały — model musiał się tego domyślić.
+
+    Domknięcie jest najtańsze z możliwych: furtka NAZYWA te dwie sekcje
+    z imienia. Zero powtórzenia reguły, jedna wtrącona fraza."""
+
+    def test_furtka_nazywa_ksztalt_i_schody(self):
+        assert "tak jest w KSZTAŁT i SCHODY" in WYCENA
+
+    def test_warunek_furtki_nie_zostal_rozluzniony(self):
+        # Kontrola negatywna: nadal „NAPRAWDĘ wykracza poza Twoje narzędzia",
+        # a nie „kiedy uznasz". Runda 3 zamknęła tu licencję na sekwencję
+        # „zapytaj, poczekaj, przekaż" i to ma zostać zamknięte.
+        assert "sprawa naprawdę wykracza poza Twoje narzędzia" in WYCENA
+        assert "wolno dopiero wtedy, gdy klient odpowie" not in WYCENA
+
+    def test_zakaz_handoffu_w_turze_z_pytaniem_zostaje(self):
+        assert "nie wołaj w tej samej turze oddaj_czlowiekowi" in WYCENA
+
+    def test_sekcje_przywolane_przez_furtke_naprawde_istnieja(self):
+        # Sonda spójności — odwołanie ma wskazywać na coś, co jest w prompcie.
+        assert "KSZTAŁT." in WYCENA
+        assert "SCHODY." in WYCENA
+
+
+class TestR6PorownanieNieObiecujeWyceny_KtorejKlientNieZobaczy:
+    """Runda napraw 6, P4 — sprzeczność S4 z recenzji.
+
+    Runda 4 zbramkowała kanałem SWÓJ blok (NIEZDECYDOWANY KLIENT), bo obiecuje
+    on, że klient sam wybierze wariant na stronie wyceny — a na Allegro linku
+    wysłać nie wolno (`ALLEGRO_CAPS['links'] = False`). Sekcja PORÓWNANIE
+    z rundy 3 została jednak NIEBRAMKOWANA, choć jej pierwsze zdanie mówi
+    kupującemu wprost, że „wycena, którą przygotujesz, pokazuje ceny wszystkich
+    wariantów drewna obok siebie" — z instrukcją „Powiedz mu to wprost".
+    Kupujący na Allegro tej wyceny nigdy nie zobaczy: idzie ona do konsultanta
+    w prywatnej notatce (`narzedzia.przygotuj_zamowienie` ->
+    `notatki.zamowienie_do_agenta`). To ta sama klasa obietnicy bez pokrycia,
+    którą rundy 3 i 4 naprawiały gdzie indziej.
+
+    Naprawa jest jednocześnie odchudzeniem, bo obie sekcje mocno się dublowały
+    (ten sam wyzwalacz „nie wiem, co wybrać", ta sama recepta „zaproponuj
+    wariant przyjęty do rachunku", ten sam zakaz kwot): zdanie o oglądaniu
+    wszystkich wariantów przenosi się do bloku JUŻ bramkowanego, a PORÓWNANIE
+    zostaje z tym, co jest prawdziwe na KAŻDYM kanale."""
+
+    def test_porownanie_nie_obiecuje_juz_ogladania_wszystkich_wariantow(self):
+        assert "pokazuje ceny wszystkich wariantów" not in WYCENA
+
+    def test_obietnica_mieszka_w_bloku_bramkowanym(self):
+        blok = _ciagiem(prompty.blok_wyboru_w_wycenie(True))
+        assert "ceny wszystkich wariantów" in blok
+
+    def test_na_kanale_bez_linku_obietnicy_nie_ma_wcale(self):
+        assert prompty.blok_wyboru_w_wycenie(False) == ""
+
+    def test_porownanie_zostaje_i_dziala_na_kazdym_kanale(self):
+        # Kontrola negatywna: bramkujemy OBIETNICĘ, nie całą sekcję. Zakazy
+        # i recepta zostają w WYCENA, czyli także na Allegro.
+        assert "PORÓWNANIE." in WYCENA
+        assert "Prośba o porównanie NIGDY nie jest powodem" in WYCENA
+        assert "Cen pozostałych wariantów NIE MASZ" in WYCENA
+        assert "przyjęty do rachunku" in WYCENA
+        assert "niedostępny dla tych wymiarów" in WYCENA
+        assert "nie zakładaj drugiej pozycji" in WYCENA
+        assert "o tym decyduje kanał, nie Ty" in WYCENA
+
+    def test_blok_bramkowany_nie_wnosi_ZADNEJ_kwoty(self):
+        # Ten sam wymóg co dotąd: rejestr G1 zna wyłącznie liczby
+        # z kalkulatora, więc reguła nie ma prawa wnieść własnej.
+        from bots_pro import guardraile
+        assert guardraile.sprawdz_ceny(prompty.blok_wyboru_w_wycenie(True), set()) == []
+
+    def test_dublowanie_zmalalo_a_nie_uroslo(self):
+        # Budżet promptu jest ciasny (sufit 9950 znaków, najgorszy przypadek
+        # stał na 9521). Naprawa P4 ma go ZWOLNIĆ, nie zjeść: suma obu sekcji
+        # po przeniesieniu zdania ma być krótsza niż przed rundą 6
+        # (PORÓWNANIE 1056 zn + blok 454 zn = 1510 zn).
+        porownanie = re.search(r"PORÓWNANIE\..*?(?=\n\nWYMIARY)", prompty.WYCENA, re.S)
+        assert porownanie, "sekcja PORÓWNANIE zniknęła z promptu"
+        razem = len(porownanie.group(0)) + len(prompty.WYBOR_W_WYCENIE)
+        assert razem <= 1450, \
+            "PORÓWNANIE + blok mają %d zn, przed rundą 6 było 1508" % razem

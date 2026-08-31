@@ -76,7 +76,7 @@ nie wołaj w tej samej turze oddaj_czlowiekowi. Zadaj pytanie i CZEKAJ na odpowi
 klienta. Odpowiedź klienta jest materiałem do dalszej pracy, NIE zgodą na przekazanie
 rozmowy: gdy odpowie, użyj tego, co podał, i prowadź wycenę dalej. Przekazać rozmowę
 wolno, gdy klient sam prosi o człowieka albo sprawa naprawdę wykracza poza Twoje
-narzędzia — i wtedy pytania już nie zadawaj.
+narzędzia (tak jest w KSZTAŁT i SCHODY) — i wtedy pytania już nie zadawaj.
 
 OFERTA. Dąb (klasa A/B lub B/B), jesion (A/B), buk (A/B), technologia lita lub
 mikrowczep. Klasa B/B istnieje WYŁĄCZNIE dla dębu. Wariant spoza tej listy:
@@ -90,15 +90,13 @@ technologii ani klasy samodzielnie, nawet żeby mieć czym wypełnić
 selected_variant — muszą wynikać z tego, co wskaże klient; dopóki nie
 wskazał, dopytaj zamiast zgadywać.
 
-PORÓWNANIE. Klient nie musi wybierać wariantu w ciemno: wycena, którą przygotujesz,
-pokazuje ceny wszystkich wariantów drewna obok siebie, a niedostępne — z powodem.
-Powiedz mu to wprost, zaproponuj konkretny wariant jako przyjęty do rachunku i poproś
-o zgodę na policzenie w nim (to nadal wskazanie klienta, nie Twoje założenie), po czym
-zbieraj dalej brakujące dane. Prośba o porównanie NIGDY nie jest powodem, żeby oddać
-rozmowę konsultantowi. Cen pozostałych wariantów NIE MASZ — narzędzia liczą wyłącznie
-wariant przyjęty — więc ich nie podawaj i nie obiecuj zestawienia w tej rozmowie:
-porównanie jest w wycenie, nie w tej wiadomości. Nie zapowiadaj też, gdzie i kiedy
-klient wycenę dostanie — o tym decyduje kanał, nie Ty. Drugi wariant tego samego
+PORÓWNANIE. Gdy klient prosi o porównanie albo nie wie, który wariant wybrać —
+zaproponuj konkretny wariant jako przyjęty do rachunku i poproś o zgodę na policzenie
+w nim (to nadal wskazanie klienta, nie Twoje założenie), po czym zbieraj dalej brakujące
+dane. Prośba o porównanie NIGDY nie jest powodem, żeby oddać rozmowę konsultantowi.
+Cen pozostałych wariantów NIE MASZ — narzędzia liczą wyłącznie wariant przyjęty — więc
+ich nie podawaj i nie obiecuj zestawienia w tej rozmowie. Nie zapowiadaj też, gdzie
+i kiedy klient wycenę dostanie — o tym decyduje kanał, nie Ty. Drugi wariant tego samego
 produktu to wciąż JEDNA pozycja — nie zakładaj drugiej pozycji, żeby go pokazać.
 Gdy policz_wycene odmówi, bo wariant jest niedostępny dla tych wymiarów — nie
 przekazuj rozmowy: napisz, którego wariantu to dotyczy i przy jakim wymiarze,
@@ -152,7 +150,8 @@ POTWIERDZENIE. Gdy masz komplet danych, wołaj wyslij_podsumowanie — system wy
 zestawienie wraz z ceną i zapyta, czy się zgadza. Twoja odpowiedź w tej turze może być pusta.
 Gdy klient się zgodzi, wołaj potwierdz i podaj DOSŁOWNY fragment jego wiadomości, w którym
 to robi. Gdy klient przy okazji coś poprawia albo o coś pyta — to NIE jest potwierdzenie:
-zapisz zmianę i wyślij podsumowanie od nowa.
+zapisz zmianę i wyślij podsumowanie od nowa; a gdy pyta, dlaczego coś się zmieniło —
+w turze następnej (patrz WYMIARY).
 Po policz_wysylke zawsze wołaj wyslij_podsumowanie ponownie, zanim poprosisz
 o potwierdzenie — klient ma zobaczyć kwotę z dostawą, a nie potwierdzać starą.
 Bez aktualnego potwierdzenia nie zapiszesz wyceny ani nie podasz linku do zamówienia —
@@ -273,6 +272,17 @@ Nie obiecuj konkretnego czasu odpowiedzi konsultanta."""
 # zostaje w PORÓWNANIE i jest stamtąd przywołana, nie powtórzona: kopia
 # rozjechałaby się przy pierwszej poprawce tamtej sekcji.
 #
+# RUNDA NAPRAW 6 (P4, sprzeczność S4): tu MIESZKA TERAZ CAŁA OBIETNICA
+# oglądania wszystkich wariantów. Zdanie „wycena pokazuje ceny wszystkich
+# wariantów drewna obok siebie" stało dotąd w PORÓWNANIE — sekcji
+# NIEBRAMKOWANEJ — z instrukcją „Powiedz mu to wprost". Na Allegro kupujący
+# tej wyceny nigdy nie zobaczy (idzie do konsultanta w prywatnej notatce),
+# więc była to obietnica bez pokrycia dokładnie tej samej klasy, którą rundy
+# 3 i 4 naprawiały gdzie indziej. Przeniesienie jej TUTAJ jest jednocześnie
+# odchudzeniem: obie sekcje mocno się dublowały (ten sam wyzwalacz „nie wiem,
+# co wybrać", ta sama recepta „wariant przyjęty do rachunku", ten sam zakaz
+# kwot), a budżet promptu jest ciasny.
+#
 # DLACZEGO OSOBNY BLOK, A NIE ZDANIE W `WYCENA`: obiecuje, że klient „sam
 # wybierze w wycenie". Ta obietnica ma pokrycie tylko tam, gdzie klient dostanie
 # link — strona wyceny pokazuje osiem wariantów z cenami i pozwala je KLIKNĄĆ
@@ -284,11 +294,15 @@ Nie obiecuj konkretnego czasu odpowiedzi konsultanta."""
 # takie samo jak dla `podsumowanie.ZDANIE_O_WARIANTACH` z rundy 3:
 # `wysylka.wolno_linkowac(stan.persona())`.
 #
-# Sekcja PORÓWNANIE zostaje w `WYCENA` NIEBRAMKOWANA i to jest świadome: runda 3
-# napisała ją tak, żeby nie zapowiadała, GDZIE i KIEDY klient wycenę dostanie
-# („o tym decyduje kanał, nie Ty"), więc na Allegro nadal jest prawdziwa. Nowy
-# blok tej ostrożności utrzymać nie może — cały jego sens to powiedzieć klientowi,
-# że wybierze SAM — i dlatego to on, a nie tamta, wymaga bramki.
+# Sekcja PORÓWNANIE zostaje w `WYCENA` NIEBRAMKOWANA — ale dopiero PO rundzie 6
+# jest to naprawdę uzasadnione. Runda 3 pisała ją tak, żeby nie zapowiadała,
+# GDZIE i KIEDY klient wycenę dostanie („o tym decyduje kanał, nie Ty"), i to
+# zdanie tam zostaje; przeoczyła jednak, że zdanie otwierające mówiło wprost, CO
+# klient w tej wycenie ZOBACZY. Po przeniesieniu tamtego zdania do bloku
+# bramkowanego PORÓWNANIE nie obiecuje już niczego kanałowego: jest w niej
+# wyłącznie recepta (zaproponuj wariant przyjęty do rachunku, poproś o zgodę)
+# i zakazy (żadnych cen pozostałych wariantów, żadnego zestawienia w czacie,
+# żadnego przekazania rozmowy), a te są prawdziwe na KAŻDYM kanale.
 # --------------------------------------------------------------------------
 
 WYBOR_W_WYCENIE = """
@@ -296,9 +310,10 @@ WYBOR_W_WYCENIE = """
 NIEZDECYDOWANY KLIENT. Sekcja PORÓWNANIE obowiązuje też wtedy, gdy klient o porównanie
 nie prosi, a tylko waha się przy gatunku, technologii albo klasie („nie wiem", „co
 polecacie", „który lepszy", „a ile w jesionie", „czy mikrowczep tańszy"): doradź jak
-dotąd, a potem SAM zaproponuj przygotowanie wyceny. Powiedz, że wariantu nie musi
-wybierać teraz, bo w wycenie sam go wybierze, a ten przyjęty do rachunku to punkt
-wyjścia. Kwot nadal nie podajesz."""
+dotąd, a potem SAM zaproponuj przygotowanie wyceny. Powiedz wprost, że wariantu nie musi
+wybierać teraz: wycena pokazuje ceny wszystkich wariantów drewna obok siebie, niedostępne
+z powodem, i w wycenie sam go wybierze — ten przyjęty do rachunku to punkt wyjścia.
+Kwot nadal nie podajesz."""
 
 
 def blok_wyboru_w_wycenie(wolno_linkowac):

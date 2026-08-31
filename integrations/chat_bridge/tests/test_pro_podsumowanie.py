@@ -718,16 +718,26 @@ class TestP1WszystkieWariantyWWycenie:
 
     def test_zdanie_i_regula_promptu_nie_rozjezdzaja_sie(self):
         # SONDA spojnosci (P1): to samo zdanie o wszystkich wariantach mowi
-        # KOD (tutaj, przy kazdym podsumowaniu) i PROMPT (sekcja PORÓWNANIE,
-        # gdy klient pyta o porownanie). Przeredagowanie jednego bez drugiego
-        # dawaloby klientowi dwie rozne obietnice w jednej rozmowie.
+        # KOD (tutaj, przy kazdym podsumowaniu) i PROMPT. Przeredagowanie
+        # jednego bez drugiego dawaloby klientowi dwie rozne obietnice
+        # w jednej rozmowie.
+        #
+        # RUNDA NAPRAW 6 (P4, sprzecznosc S4): strona PROMPTU to juz nie
+        # niebramkowana sekcja PORÓWNANIE, tylko blok NIEZDECYDOWANY KLIENT —
+        # bramkowany DOKLADNIE tym samym predykatem (`wysylka.wolno_linkowac`)
+        # co to zdanie. Sonda jest przez to MOCNIEJSZA niz byla: sprawdza, ze
+        # obie strony obietnicy znikaja i pojawiaja sie razem, a nie tylko ze
+        # brzmia tak samo.
         import re as _re
 
         from bots_pro import prompty
-        regula = _re.sub(r"\s+", " ", prompty.WYCENA)
+        regula = _re.sub(r"\s+", " ", prompty.blok_wyboru_w_wycenie(True))
         zdanie = _re.sub(r"\s+", " ", podsumowanie.ZDANIE_O_WARIANTACH)
         assert "ceny wszystkich wariantów drewna" in regula
         assert "ceny wszystkich wariantów drewna" in zdanie
+        # Kontrola negatywna: na kanale bez linku nie ma ANI zdania w kodzie
+        # (testy wyzej), ANI reguly w prompcie.
+        assert prompty.blok_wyboru_w_wycenie(False) == ""
 
     def test_zdanie_nie_wchodzi_do_podpisu_potwierdzenia(self, monkeypatch):
         # `potwierdzenia.podpis` liczy odcisk z pozycji i dostawy, nie z tekstu
