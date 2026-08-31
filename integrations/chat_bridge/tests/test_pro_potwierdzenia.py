@@ -280,3 +280,42 @@ class TestPotwierdzFunkcja:
         wynik = p.potwierdz("Tak")
         assert wynik["ok"] is False
         assert wynik["error"] == "DANE_ZMIENIONE_OD_PODSUMOWANIA"
+
+
+class TestZgodaPoWiodacymNie:
+    """N6 (rerecenzja gałęzi): „nie, wszystko się zgadza" to POTWIERDZENIE —
+    klient przeczy poprzedniemu PYTANIU bota („czy coś jeszcze zmieniamy?"),
+    nie wycenie. Bramka odrzucała je, gdy model zacytował samą zgodę bez
+    wiodącego „nie," — a to najnaturalniejszy wybór cytatu, bo właśnie ta część
+    jest potwierdzeniem. Istniejący test pokrywał WYŁĄCZNIE wariant, w którym
+    cytat jest całą wiadomością.
+
+    Wyjątek „samotne »nie,« tuż przed cytatem" (N2 z poprzedniej rundy) musi
+    przy tym zostać szczelny: odpuszczamy go tylko wtedy, gdy cytat obejmuje
+    CAŁĄ klauzulę, klauzula nie ma własnej negacji i jest jawną zgodą."""
+
+    @pytest.mark.parametrize("cytat,wiadomosc", [
+        ("wszystko się zgadza", "nie, wszystko się zgadza"),
+        ("wszystko się zgadza", "Nie, wszystko się zgadza."),
+        ("wszystko się zgadza", "Nie, wszystko się zgadza, proszę o link"),
+        ("zgadza się", "nie, zgadza się"),
+        ("potwierdzam", "nie, potwierdzam"),
+        ("wszystko ok", "nie, wszystko ok"),
+        ("zamawiam", "nie, zamawiam"),
+    ])
+    def test_zgoda_po_wiodacym_nie_przechodzi(self, cytat, wiadomosc):
+        assert p.sprawdz_cytat(cytat, wiadomosc) is True
+
+    @pytest.mark.parametrize("cytat,wiadomosc", [
+        # Wyjatek z poprzedniej rundy (N2) MUSI dalej odrzucac.
+        ("tak", "Nie, tak nie może być"),
+        ("zgadzam się", "nie, zgadzam się tylko z terminem"),
+        # Cytat obejmuje CALA klauzule, ale klauzula nie jest zgoda.
+        ("dziękuję", "nie, dziękuję"),
+        ("na razie wstrzymuję się", "nie, na razie wstrzymuję się"),
+        # Cytat urwany w polowie klauzuli — negacja go dosiega.
+        ("wszystko", "nie, wszystko trzeba przeliczyć od nowa"),
+        ("zgadza", "nie, cena się nie zgadza"),
+    ])
+    def test_odmowa_po_wiodacym_nie_nadal_odrzucona(self, cytat, wiadomosc):
+        assert p.sprawdz_cytat(cytat, wiadomosc) is False

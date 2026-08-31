@@ -65,6 +65,20 @@ _MIN_DLUGOSC_CYTATU = 2
 # neguje "zmieniam", nie "potwierdzam" zza przecinka.
 _NEGACJE = {"nie", "bez", "niestety"}
 
+# Słowa, którymi klient JAWNIE się zgadza. Używane WYŁĄCZNIE w jednym miejscu:
+# w wyjątku „samotne »nie,« tuż przed cytatem" (`_zanegowany`), żeby odróżnić
+# „nie, wszystko się zgadza" (zgoda — »nie« odpowiada na PYTANIE bota „czy coś
+# zmieniamy?") od „nie, dziękuję" (odmowa). Lista jest CELOWO wąska i nigdzie
+# indziej nie osłabia bramki — poza tym wyjątkiem zgodę stwierdza wyłącznie
+# dosłowny cytat, nie słownik (N6).
+_POTWIERDZENIA = {
+    "tak", "zgadza", "zgadzam", "zgadzamy", "zgadzaja", "zgadzają", "zgoda",
+    "potwierdzam", "potwierdzamy", "potwierdzone", "pasuje", "ok", "okej",
+    "okay", "dobrze", "akceptuje", "akceptuję", "zamawiam", "zamawiamy",
+    "biore", "biorę", "bierzemy", "kupuje", "kupuję", "poprawnie",
+    "prawidlowo", "prawidłowo", "jasne", "super",
+}
+
 # Granice klauzul. Negacja NIE przechodzi przez taką granicę — z jednym wyjątkiem
 # opisanym w `_zanegowany` (samotne "nie," tuż przed cytatem).
 _SEPARATOR_KLAUZULI = re.compile(r"[,;:.!?\n—–]")
@@ -115,7 +129,37 @@ def _slowa(fragment):
     return re.findall(r"\w+", fragment or "")
 
 
-def _zanegowany(tekst, pozycja):
+def _samotne_nie_dosiega(tekst, poczatek_klauzuli, koniec_cytatu):
+    """Czy samotne „nie," stojące PRZED klauzulą cytatu neguje także ten cytat.
+
+    N6 (rerecenzja gałęzi): poprzednia wersja odpowiadała ZAWSZE „tak", więc
+    „nie, wszystko się zgadza" — zdanie, w którym klient przeczy PYTANIU bota
+    („czy coś jeszcze zmieniamy?"), a potwierdza wycenę — było odrzucane, gdy
+    model zacytował samą zgodę bez wiodącego „nie,". A to najnaturalniejszy
+    wybór cytatu, bo właśnie ta część jest potwierdzeniem.
+
+    Odpuszczamy negację przy KOMPLECIE trzech warunków — inaczej wyjątek z
+    poprzedniej rundy („nie, tak nie może być" to nadal odmowa) przestałby
+    działać:
+      1. cytat obejmuje CAŁĄ resztę klauzuli (nic za nim nie zostaje) — bez
+         tego „nie, zgadzam się tylko z terminem" zacytowane jako „zgadzam się"
+         przechodziłoby jako pełna zgoda,
+      2. klauzula nie ma WŁASNEJ negacji („nie, tak nie może być"),
+      3. klauzula jest jawną zgodą (`_POTWIERDZENIA`) — bez tego „nie,
+         dziękuję" zacytowane jako „dziękuję" byłoby zgodą.
+    Kierunek pozostaje bezpieczny: przy jakiejkolwiek wątpliwości zwracamy
+    „zanegowany", czyli koszt jednej rundy rozmowy, nie fałszywą zgodę."""
+    nastepna = _SEPARATOR_KLAUZULI.search(tekst, koniec_cytatu)
+    koniec_klauzuli = nastepna.start() if nastepna else len(tekst)
+    if _slowa(tekst[koniec_cytatu:koniec_klauzuli]):
+        return True
+    slowa = _slowa(tekst[poczatek_klauzuli:koniec_klauzuli])
+    if any(s in _NEGACJE for s in slowa):
+        return True
+    return not any(s in _POTWIERDZENIA for s in slowa)
+
+
+def _zanegowany(tekst, pozycja, koniec_cytatu):
     """Czy cytat zaczynający się w `pozycja` stoi w klauzuli, którą klient zanegował.
 
     Patrzymy na CAŁĄ klauzulę przed cytatem, nie na jedno słowo (U5): w "Nie
@@ -125,8 +169,9 @@ def _zanegowany(tekst, pozycja):
     Klauzula kończy się na przecinku/średniku/kropce — dzięki temu "nie zmieniam
     nic, potwierdzam" pozostaje ZGODĄ ("nie" neguje "zmieniam", nie "potwierdzam").
     WYJĄTEK: gdy cytat zaczyna nową klauzulę, a poprzednia to SAMA negacja
-    ("nie, tak nie może być"), negacja jednak go dosięga — to nadal ta sama
-    odmowa, tylko z przecinkiem w środku (N2 z poprzedniej rundy)."""
+    ("nie, tak nie może być"), negacja co do zasady jednak go dosięga — to nadal
+    ta sama odmowa, tylko z przecinkiem w środku (N2 z poprzedniej rundy). Kiedy
+    ten wyjątek NIE obowiązuje, rozstrzyga `_samotne_nie_dosiega` (N6)."""
     przed = tekst[:pozycja]
     granice = list(_SEPARATOR_KLAUZULI.finditer(przed))
     if not granice:
@@ -140,7 +185,9 @@ def _zanegowany(tekst, pozycja):
 
     poczatek_poprzedniej = granice[-2].end() if len(granice) > 1 else 0
     poprzednia = _slowa(przed[poczatek_poprzedniej:ostatnia.start()])
-    return len(poprzednia) == 1 and poprzednia[0] in _NEGACJE
+    if not (len(poprzednia) == 1 and poprzednia[0] in _NEGACJE):
+        return False
+    return _samotne_nie_dosiega(tekst, ostatnia.end(), koniec_cytatu)
 
 
 def sprawdz_cytat(cytat, ostatnia_wiadomosc_klienta):
@@ -162,6 +209,12 @@ def sprawdz_cytat(cytat, ostatnia_wiadomosc_klienta):
     stojący PRZED nim — "To za drogo, rezygnuję" nie jest zgodą w żadnej swojej
     połowie.
 
+    N6 (rerecenzja gałęzi): wiodące "nie," NIE jest odmową, gdy przeczy
+    PYTANIU bota, a nie wycenie ("nie, wszystko się zgadza"). Warunki, przy
+    których bramka je przepuszcza — i przy których nadal nie przepuszcza
+    ("nie, zgadzam się tylko z terminem", "nie, dziękuję") — opisuje
+    `_samotne_nie_dosiega`.
+
     Czego to NADAL nie łapie (świadomie): oceny semantycznej. "A ile to potrwa?"
     zacytowane jako zgoda przejdzie — fragment naprawdę jest w wiadomości i nie ma
     w niej ani negacji, ani rezygnacji. To ograniczenie mechanizmu opartego na
@@ -175,7 +228,7 @@ def sprawdz_cytat(cytat, ostatnia_wiadomosc_klienta):
         return False
     wzorzec = re.compile(r"(?<!\w)%s(?!\w)" % re.escape(fragment))
     for dopasowanie in wzorzec.finditer(tekst):
-        if not _zanegowany(tekst, dopasowanie.start()):
+        if not _zanegowany(tekst, dopasowanie.start(), dopasowanie.end()):
             return True
     return False
 
