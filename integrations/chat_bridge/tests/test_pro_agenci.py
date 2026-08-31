@@ -54,11 +54,28 @@ class TestAgentWyceny:
         # Runda poprawek 1: nie ograniczamy tresci merytorycznej (reguly
         # handlowe z personas.json) sztywnym niskim progiem jak dla routera —
         # ale hojny sufit pilnuje, zeby przyszle zadanie nie dokladalo po
-        # cichu bez zauwazenia. 6000 znakow to ok. 1150 znakow zapasu ponad
-        # stan z tej rundy (ROLA+WYCENA ~5170 zn) — i tak to ok. 28% dlugosci
-        # STAREGO promptu (8203 zn kontraktu formatu + 10416 zn regul).
+        # cichu bez zauwazenia. 6000 znakow to bylo ok. 1150 znakow zapasu
+        # ponad stan tamtej rundy (ROLA+WYCENA ~5170 zn).
+        #
+        # NAPRAWY PO TESTACH NA ZYWYM CZACIE (runda 1, N0): prog podniesiony do
+        # 7800 znakow, bo szesc rozmow z zywego czatu wskazalo szesc regul,
+        # ktorych w prompcie nie bylo, a ktore lacznie zajmuja ok. 1660 znakow:
+        #   - PYTANIE ZOBOWIAZUJE (N1b, ~340 zn) — bot pytal i w tej samej
+        #     turze oddawal rozmowe, klient zostawal z pytaniem bez adresata;
+        #   - KSZTALT (N4, ~445 zn) — blat okragly ⌀120 policzony jak kwadrat
+        #     120x120, czyli 27% materialu roznicy bez pokrycia;
+        #   - dostawa w POTWIERDZENIE (N2, ~155 zn) — prosba o potwierdzenie
+        #     kwoty z dostawa BEZ pokazania nowego podsumowania;
+        #   - WYMIARY: dlugosc/szerokosc i poprawki klienta (N5, ~245 zn);
+        #   - krawedzie przy blatach kuchennych (N8, ~+80 zn wzgledem zdania,
+        #     ktore zastapily) — wymog wlasciciela;
+        #   - KONSTRUKCJA (N10, ~400 zn) — zakaz orzekania o nosnosci.
+        # Prog ma nadal ok. 1000 znakow zapasu ponad stan PO tej rundzie i
+        # dalej jest ok. 42% dlugosci STAREGO promptu (8203 zn kontraktu
+        # formatu + 10416 zn regul). Kolejne podniesienie ma byc rownie jawne:
+        # z lista tego, co doszlo, i po co.
         agent = agenci.zbuduj_agenta_wyceny()
-        assert len(agent.instructions) < 6000
+        assert len(agent.instructions) < 7800
 
 
 class TestAgentWiedzy:
