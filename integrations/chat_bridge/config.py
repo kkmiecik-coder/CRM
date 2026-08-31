@@ -178,3 +178,11 @@ BOT_PRO_SESSION_ITEMS_LIMIT = int(os.environ.get("BOT_PRO_SESSION_ITEMS_LIMIT", 
 BOT_PRO_INBOXES = set(
     x.strip() for x in os.environ.get("BOT_PRO_INBOXES", "").split(",") if x.strip()
 )
+# Tracing Agents SDK. W bibliotece jest WLACZONY DOMYSLNIE i wysyla tresc rozmow,
+# argumenty narzedzi i handoffy do backendu tracingu OpenAI — TAKZE w konfiguracji
+# Anthropic przez LiteLLM (widac to w przebiegu testow jako "[non-fatal] Tracing
+# client error 401"). Tresc rozmow to dane klientow, wiec domyslnie WYLACZONE;
+# wlaczenie ma byc swiadoma decyzja (U14a, recenzja koncowa). Egzekwowane w
+# bots_pro/agenci.py (`zastosuj_ustawienia_tracingu`), przy imporcie modulu.
+BOT_PRO_TRACING = os.environ.get("BOT_PRO_TRACING", "0").strip().lower() in (
+    "1", "true", "yes", "on")

@@ -107,6 +107,34 @@ class TestAgentPosprzedazowy:
         assert nazwy & _ZAKAZANE_NARZEDZIA == set()
 
 
+class TestTracingWylaczonyDomyslnie:
+    """U14a (recenzja końcowa): tracing Agents SDK jest w bibliotece włączony
+    DOMYŚLNIE i wysyła treść rozmów, argumenty narzędzi i handoffy do backendu
+    tracingu OpenAI — TAKŻE w konfiguracji Anthropic przez LiteLLM (w przebiegu
+    testów widać to jako `[non-fatal] Tracing client error 401`). Treść rozmów
+    to dane klientów; ma być wyłączone domyślnie, włączane świadomie."""
+
+    def _czy_wylaczony(self):
+        from agents.tracing import get_trace_provider
+        return get_trace_provider()._disabled
+
+    def test_import_modulu_wylaczyl_tracing(self):
+        # Efekt wywołania na poziomie modułu `agenci` (import jest na górze pliku).
+        assert self._czy_wylaczony() is True
+
+    def test_domyslna_konfiguracja_to_tracing_wylaczony(self):
+        import config
+        assert config.BOT_PRO_TRACING is False
+
+    def test_swiadome_wlaczenie_dziala(self):
+        try:
+            agenci.zastosuj_ustawienia_tracingu(True)
+            assert self._czy_wylaczony() is False
+        finally:
+            agenci.zastosuj_ustawienia_tracingu(False)
+        assert self._czy_wylaczony() is True
+
+
 class TestHandoffeRoutera(object):
     def test_handoffy_routera_to_trzej_wlasciwi_agenci(self):
         # handoffs=[...] w Agent() przyjmuje surowe obiekty Agent (nie owinięte

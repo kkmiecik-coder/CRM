@@ -33,11 +33,33 @@ zdaniu nie jest naturalnym, częstym przypadkiem — a dodanie tu handoffu
 rozmywałoby granicę "sprawy indywidualne = zawsze człowiek" bez wyraźnej
 korzyści.
 """
-from agents import Agent
+from agents import Agent, set_tracing_disabled
 
+from config import BOT_PRO_TRACING
 from bots_pro import prompty
 from bots_pro.models import model_dla_roli
 from bots_pro.narzedzia import NARZEDZIA_WYCENY, oddaj_czlowiekowi
+
+
+def zastosuj_ustawienia_tracingu(wlaczony=None):
+    """Wyłącza tracing Agents SDK, o ile `BOT_PRO_TRACING` nie włączył go świadomie.
+
+    U14a (recenzja końcowa): biblioteka ma tracing WŁĄCZONY domyślnie i wysyła
+    treść rozmów, argumenty narzędzi i handoffy do backendu tracingu OpenAI —
+    TAKŻE gdy modelem jest Anthropic przez LiteLLM (widać to w przebiegu testów
+    jako `[non-fatal] Tracing client error 401`, czyli próbę, która tylko dlatego
+    nie doszła do skutku, że w środowisku testowym nie ma ważnego klucza).
+    Treść rozmów to dane klientów, a spec §10 traktowała tracing jako narzędzie
+    diagnostyczne, nie jako trzeci kanał wysyłki tych danych na zewnątrz.
+
+    Wołane na poziomie MODUŁU (niżej), bo `agenci` jest jedyną drogą do zbudowania
+    czegokolwiek, co Runner uruchomi — a przełącznik SDK jest globalny, więc musi
+    zadziałać ZANIM powstanie pierwszy agent. Parametr istnieje wyłącznie po to,
+    żeby dało się to przetestować w obie strony (patrz test_pro_agenci.py)."""
+    set_tracing_disabled(not (BOT_PRO_TRACING if wlaczony is None else wlaczony))
+
+
+zastosuj_ustawienia_tracingu()
 
 
 def zbuduj_agenta_wyceny():
