@@ -251,6 +251,33 @@ def _bez_wrazliwych_cen(wynik):
     return bezpieczne
 
 
+# P1 (runda napraw 3) — rozstrzygnięcie właściciela: „czasem klient nie wie co
+# wybrać, więc nie możemy go zmuszać do wyboru, wtedy proponujemy szerszy zakres,
+# czyli wszystkie warianty".
+#
+# Podsumowanie pokazuje cenę JEDNEGO wariantu — tego przyjętego do rachunku —
+# i to jest w porządku, bo strona wyceny pokazuje wszystkie osiem z cenami
+# (`_products_with_all_variants` w modules/calculator/routers/bot_api.py zapisuje
+# komplet kodów wariantów, ceny dokłada `_inject_backend_prices` w
+# quote_service.py, a client_quote.js renderuje je razem z powodem
+# niedostępności). Brakowało jedynie tego, żeby klient o tym WIEDZIAŁ, zanim
+# zacznie się zastanawiać, dlaczego widzi jedną kwotę zamiast porównania.
+#
+# Zdanie składa KOD, nie model — dokładnie tak jak adnotację o wycięciach
+# (`_linia`): tylko wtedy stoi przy KAŻDYM podsumowaniu, a nie wtedy, gdy model
+# akurat sobie o nim przypomni.
+#
+# ZERO KWOT, świadomie: porównanie jest NA STRONIE wyceny, nie w czacie, więc
+# rejestr G1 nie rośnie ani o jedną pozycję i tolerancja guardraila zostaje
+# nietknięta. To jest właśnie ta różnica, która przesądziła o kształcie tej
+# naprawy — zestawianie kwot w oknie czatu wymagałoby zarejestrowania cen
+# wszystkich wariantów i poszerzyłoby ślepą plamkę G1 kilkukrotnie.
+ZDANIE_O_WARIANTACH = (
+    "\n\nW wycenie, którą przygotowujemy, są ceny wszystkich wariantów drewna "
+    "— dębu, jesionu i buku — do porównania; niedostępne dla tych wymiarów są "
+    "tam oznaczone.")
+
+
 def wyslij():
     """Liczy cenę, składa podsumowanie, zapisuje oczekiwany podpis i wysyła.
 
@@ -331,6 +358,15 @@ def wyslij():
             tekst += ("\n\nDostawa: jeszcze nie wyceniona — koszt poznamy po podaniu "
                       "kodu pocztowego.")
         tekst += "\nRazem za produkty (bez dostawy): %s brutto" % _fmt_pln(razem_produkty)
+
+    # P1: zdanie o wszystkich wariantach — WYŁĄCZNIE tam, gdzie klient dostanie
+    # link do wyceny. Na Allegro linku nie wolno wysłać (regulamin, `wysylka.
+    # wolno_linkowac`), a wycena trafia do konsultanta — obietnica „zobaczy Pan
+    # wszystkie warianty" byłaby tam obietnicą bez pokrycia, czyli dokładnie tym
+    # błędem, który ta runda naprawia.
+    from bots_pro import wysylka
+    if wysylka.wolno_linkowac(stan.persona()):
+        tekst += ZDANIE_O_WARIANTACH
     tekst += "\n\nCzy wszystko się zgadza?"
 
     stan.zapamietaj_kwoty(kwoty)
@@ -351,7 +387,9 @@ def wyslij():
     # fragmencie odpowiedzi klienta, a wycena i link szły do CRM bez potwierdzenia
     # czegokolwiek. Kolejność (wyślij -> sprawdź -> zapisz podpis) jest istotą tej
     # poprawki, nie kosmetyką.
-    from bots_pro import wysylka
+    #
+    # `wysylka` jest już zaimportowana wyżej (zdanie o wariantach, P1) — drugi,
+    # identyczny import w tej samej funkcji byłby martwy.
     for czesc in wysylka.przygotuj(tekst, stan.persona()):
         if not cw_agent_reply(stan.conv_id(), czesc, token=BOT_PRO_CW_AGENT_TOKEN):
             # Przerywamy PO PIERWSZEJ nieudanej części: dosłanie ogona po dziurze

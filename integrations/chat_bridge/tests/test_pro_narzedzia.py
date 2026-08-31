@@ -1253,3 +1253,107 @@ class TestN6ZnajdzKlientaUzupelniaZKontaktu:
         _wolaj(n.znajdz_klienta, telefon="500100200")
 
         assert zapisane == [(None, "500100200", None)]
+
+
+class TestP1WskazowkaPrzyNiedostepnymWariancie:
+    """Runda napraw 3, P1: przekroczony limit wariantu konczyl sie oddaniem
+    rozmowy konsultantowi, a strona wyceny w tej samej sytuacji po prostu
+    PODAJE POWOD („niedostepna w 40 mm" — `unavailableReason` w
+    modules/quotes/static/js/client_quote.js). Bot ma robic to samo.
+
+    Powod i lista dostepnych wariantow sa juz w `errors[].message` z CRM
+    (`VARIANT_UNAVAILABLE` w pricing_service.calculate_quote) — brakowalo
+    wskazowki, CO z tym zrobic, w miejscu, w ktorym model podejmuje decyzje.
+    Ten sam wzorzec co WSKAZOWKA_PO_DOSTAWIE."""
+
+    def _policz(self, monkeypatch, conv_id, wynik):
+        stan.ustaw_kontekst(conv_id)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat", dlugosc_cm=180,
+               szerokosc_cm=60, grubosc_cm=4, ilosc=1,
+               selected_variant="jes-lity-ab", wykonczenie="surowe")
+        monkeypatch.setattr(n.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(n.crm_calc, "calculate", lambda p, o: wynik)
+        return _wolaj(n.policz_wycene)
+
+    def _wynik_niedostepny(self):
+        return {
+            "ok": False,
+            "errors": [{"field": "selected_variant", "code": "VARIANT_UNAVAILABLE",
+                        "message": 'Wariant "jes-lity-ab" jest niedostepny dla tych '
+                                   'wymiarow. Dostepne warianty: dab-lity-ab, buk-lity-ab.',
+                        "product_index": 1}],
+            "products": [{
+                "index": 1,
+                "variants": [{"variant_code": "jes-lity-ab", "available": False},
+                             {"variant_code": "dab-lity-ab", "available": True,
+                              "unit_netto": 700.0, "unit_brutto": 861.0,
+                              "total_netto": 700.0, "total_brutto": 861.0}],
+                "finishing": {"netto": 0.0, "brutto": 0.0},
+                "edges": {"netto": 0.0, "brutto": 0.0},
+            }],
+            "totals": None,
+        }
+
+    def test_wskazowka_jest_przy_niedostepnym_wariancie(self, monkeypatch):
+        wynik = self._policz(monkeypatch, 96061, self._wynik_niedostepny())
+        assert wynik["wskazowka"] == n.WSKAZOWKA_WARIANT_NIEDOSTEPNY
+
+    def test_wskazowka_zabrania_oddania_rozmowy(self, monkeypatch):
+        wynik = self._policz(monkeypatch, 96062, self._wynik_niedostepny())
+        assert "nie przekazuj rozmowy" in wynik["wskazowka"].lower()
+
+    def test_powod_i_dostepne_warianty_zostaja_w_wyniku(self, monkeypatch):
+        # Wskazowka mowi, CO zrobic; tresc powodu ma nadal pochodzic z CRM.
+        wynik = self._policz(monkeypatch, 96063, self._wynik_niedostepny())
+        assert wynik["errors"][0]["code"] == "VARIANT_UNAVAILABLE"
+        assert "Dostepne warianty" in wynik["errors"][0]["message"]
+
+    def test_wskazowka_nie_zawiera_ZADNEJ_kwoty(self):
+        # Ta sama zasada co przy WSKAZOWKA_PO_DOSTAWIE: wskazowka jedzie do
+        # modelu w tym samym slowniku co prawdziwe ceny, wiec nie ma prawa
+        # niesc wlasnej liczby — rejestr G1 zna wylacznie te drugie.
+        from bots_pro import guardraile
+        tekst = n.WSKAZOWKA_WARIANT_NIEDOSTEPNY
+        assert guardraile.znajdz_kwoty(tekst) == set()
+        assert guardraile.znajdz_gole_kwoty(tekst) == set()
+
+    def test_udana_wycena_nie_dostaje_tej_wskazowki(self, monkeypatch):
+        wynik = self._policz(monkeypatch, 96064, {
+            "ok": True, "totals": {"total_netto": 700.0, "total_brutto": 861.0},
+            "products": [{"index": 1, "variants": [
+                {"variant_code": "jes-lity-ab", "available": True,
+                 "unit_netto": 700.0, "unit_brutto": 861.0,
+                 "total_netto": 700.0, "total_brutto": 861.0}],
+                "finishing": {"netto": 0.0, "brutto": 0.0},
+                "edges": {"netto": 0.0, "brutto": 0.0}}]})
+        assert "wskazowka" not in wynik
+
+    def test_inny_blad_wyceny_nie_dostaje_tej_wskazowki(self, monkeypatch):
+        # Wskazowka jest o JEDNEJ sytuacji (limit wariantu), nie o kazdym
+        # niepowodzeniu — przy braku danych „wymien dostepne warianty" byloby
+        # instrukcja bez pokrycia.
+        wynik = self._policz(monkeypatch, 96065, {
+            "ok": False, "errors": [{"field": "length", "code": "MAX_EXCEEDED",
+                                     "message": "Maksymalna dlugosc to 450 cm."}],
+            "products": []})
+        assert "wskazowka" not in wynik
+
+    def test_wskazowka_i_regula_promptu_mowia_to_samo(self):
+        # SONDA spojnosci (P1). Ta sama decyzja jest opisana w DWOCH miejscach:
+        # w prompcie (sekcja PORÓWNANIE, kilka tysiecy znakow przed decyzja)
+        # i w wyniku narzedzia (tuz przy niej). Gdyby ktos przeredagowal jedno
+        # bez drugiego, model dostawalby dwie rozne instrukcje na te sama
+        # sytuacje — a to bylby gorszy stan niz brak jednej z nich.
+        from bots_pro import prompty
+        regula = re.sub(r"\s+", " ", prompty.WYCENA)
+        assert "niedostępny dla tych wymiarów" in regula
+        assert "nie" in regula.split("niedostępny dla tych wymiarów")[1][:40]
+        assert "przekazuj rozmowy" in regula
+        assert "nie przekazuj rozmowy" in n.WSKAZOWKA_WARIANT_NIEDOSTEPNY.lower()
+
+    def test_kod_bledu_zgadza_sie_z_kalkulatorem_crm(self):
+        # Predykat stoi na STRINGU z cudzego modulu (pricing_service.calculate_quote).
+        # Literowka albo zmiana kodu po stronie CRM nie wywali niczego glosno —
+        # wskazowka po prostu przestanie sie pojawiac. Stala nazwana + ten test
+        # sa jedynym miejscem, w ktorym to zalozenie jest zapisane wprost.
+        assert n.KOD_WARIANT_NIEDOSTEPNY == "VARIANT_UNAVAILABLE"

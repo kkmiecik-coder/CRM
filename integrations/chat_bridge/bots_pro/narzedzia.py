@@ -164,6 +164,39 @@ def zapisz_pozycje(
     )
 
 
+# Kod błędu kalkulatora CRM dla „ten wariant nie istnieje w cenniku dla tych
+# wymiarów" — modules/calculator/services/pricing_service.py::calculate_quote.
+KOD_WARIANT_NIEDOSTEPNY = "VARIANT_UNAVAILABLE"
+
+# P1 (runda napraw 3): przekroczony limit wariantu kończył się oddaniem rozmowy
+# konsultantowi. Strona wyceny w tej samej sytuacji po prostu PODAJE POWÓD
+# („niedostępna w 40 mm" — `unavailableReason` w modules/quotes/static/js/
+# client_quote.js), więc bot ma robić to samo: to normalna informacja o cenniku,
+# nie sprawa dla człowieka.
+#
+# Powód i lista wariantów dostępnych są JUŻ w `errors[].message` z CRM — tutaj
+# dokładamy wyłącznie to, czego tam nie ma: co z tym zrobić. Regułą nadrzędną
+# jest sekcja PORÓWNANIE w `prompty.WYCENA`; to jest jej wzmocnienie w miejscu,
+# w którym model faktycznie podejmuje decyzję (wynik narzędzia), a nie kilka
+# tysięcy znaków wcześniej — ten sam wzorzec co WSKAZOWKA_PO_DOSTAWIE.
+#
+# ZERO KWOT, świadomie i z tego samego powodu co tam: wskazówka jedzie do modelu
+# w tym samym słowniku co prawdziwe ceny z kalkulatora, a rejestr G1
+# (stan.znane_kwoty) zna wyłącznie te drugie. Pilnuje tego
+# test_wskazowka_nie_zawiera_ZADNEJ_kwoty.
+WSKAZOWKA_WARIANT_NIEDOSTEPNY = (
+    "Ten wariant nie występuje w cenniku dla tych wymiarów — to informacja o ofercie, "
+    "nie awaria: nie przekazuj rozmowy konsultantowi. Napisz klientowi, którego wariantu "
+    "to dotyczy i przy jakim wymiarze, wymień warianty dostępne wprost z pola message "
+    "w errors i poproś o wybór albo o zmianę wymiaru.")
+
+
+def _wariant_niedostepny(wynik):
+    """Czy kalkulator odmówił z powodu niedostępności WYBRANEGO wariantu."""
+    return any(isinstance(blad, dict) and blad.get("code") == KOD_WARIANT_NIEDOSTEPNY
+               for blad in (wynik.get("errors") or []))
+
+
 @function_tool
 def policz_wycene() -> dict:
     """Liczy cenę wszystkich zapisanych pozycji w kalkulatorze CRM. Zwraca sumy
@@ -172,12 +205,23 @@ def policz_wycene() -> dict:
     JEDYNE źródło cen produktu — nigdy nie licz samodzielnie i nigdy nie
     podawaj kwoty, której nie ma w wyniku tego narzędzia. Wołaj za każdym
     razem, gdy klient ustalił/zmienił dane pozycji i chcesz poznać albo
-    zaktualizować cenę — także kilka razy w jednej rozmowie."""
+    zaktualizować cenę — także kilka razy w jednej rozmowie.
+
+    Cen INNYCH wariantów drewna to narzędzie nie zwraca i nie ma ich skąd
+    wziąć — porównanie wariantów klient zobaczy w gotowej wycenie, gdzie stoją
+    obok siebie razem z powodem niedostępności (patrz sekcja PORÓWNANIE)."""
     from bots_pro import podsumowanie, stan
     pozycje = stan.pozycje()
     wynik = crm_calc.calculate(pozycje, crm_calc.get_options())
     stan.zapamietaj_kwoty(podsumowanie.kwoty_z_wyniku(pozycje, wynik))   # inwariant I1
-    return podsumowanie.wynik_dla_modelu(pozycje, wynik)
+    dla_modelu = podsumowanie.wynik_dla_modelu(pozycje, wynik)
+    if _wariant_niedostepny(wynik) and isinstance(dla_modelu, dict):
+        # Kopia, nie mutacja: `wynik_dla_modelu` przy braku sekcji `products`
+        # oddaje TEN SAM obiekt, który dostało — dopisanie klucza w miejscu
+        # zmieniłoby cudzy słownik.
+        dla_modelu = dict(dla_modelu)
+        dla_modelu["wskazowka"] = WSKAZOWKA_WARIANT_NIEDOSTEPNY
+    return dla_modelu
 
 
 # N2 (naprawa po testach na żywym czacie): po doliczeniu dostawy bot prosił

@@ -326,3 +326,76 @@ class TestBlokDanychKlienta:
         # handlowe z okna kontekstu.
         blok = prompty.blok_danych_klienta({"name": "A" * 5000, "email": "", "phone": ""})
         assert len(blok) < 300
+
+
+class TestP1PorownanieWariantow:
+    """Runda napraw 3, P1 — rozmowa z żywego czatu:
+
+        KLIENT: chciałbym porównać. ile w dębie a ile w jesionie?
+        BOT:    Możemy porównać, ale potrzebujemy najpierw wskazania klasy...
+        KLIENT: tak, dąb A/B i jesion A/B
+        BOT:    Przekazuję rozmowę konsultantowi WoodPower.
+
+    Bot obiecał porównanie, dopytał, DOSTAŁ odpowiedź i zniknął. Zapytany
+    wcześniej, czy mikrowczep jest tańszy, odpowiadał „cenę sprawdzamy dopiero
+    po wyborze wariantu" — czyli kazał wybierać w ciemno.
+
+    Rozstrzygnięcie właściciela: „czasem klient nie wie co wybrać, więc nie
+    możemy go zmuszać do wyboru, wtedy proponujemy szerszy zakres, czyli
+    wszystkie warianty". Strona wyceny POKAZUJE już wszystkie osiem wariantów
+    z cenami (a niedostępne wygasza z powodem — patrz `unavailableReason`
+    w modules/quotes/static/js/client_quote.js), więc bot ma o tym powiedzieć,
+    a nie próbować zestawiać ceny w oknie czatu: kwot pozostałych wariantów
+    NIE MA (policz_wycene je przycina — `podsumowanie.wynik_dla_modelu`), więc
+    każda wypowiedziana byłaby dla guardraila G1 halucynacją."""
+
+    def test_wycena_ma_sekcje_porownanie(self):
+        assert "PORÓWNANIE." in WYCENA
+
+    def test_regula_mowi_ze_wycena_pokazuje_wszystkie_warianty(self):
+        assert "wszystkich wariantów" in WYCENA
+
+    def test_prosba_o_porownanie_nie_jest_powodem_do_przekazania_rozmowy(self):
+        assert "Prośba o porównanie NIGDY nie jest powodem" in WYCENA
+
+    def test_regula_kaze_zaproponowac_wariant_do_rachunku_zamiast_zmuszac_do_wyboru(self):
+        # „Nie zmuszamy do wyboru" nie znaczy „zgadujemy za klienta" — sekcja
+        # OFERTA zabrania zakładania technologii i klasy samodzielnie, więc
+        # wariant do rachunku ma być ZAPROPONOWANY i przyjęty przez klienta.
+        assert "zaproponuj" in WYCENA
+        assert "przyjęty do rachunku" in WYCENA
+
+    def test_regula_zabrania_podawania_kwot_pozostalych_wariantow(self):
+        assert "Cen pozostałych wariantów NIE MASZ" in WYCENA
+
+    def test_regula_zabrania_obiecywania_zestawienia_w_rozmowie(self):
+        # Sedno awarii: obietnica bez pokrycia. Bot nie ma czym zestawić cen
+        # w czacie, więc nie wolno mu tego zapowiadać.
+        assert "nie obiecuj zestawienia" in WYCENA
+
+    def test_drugi_wariant_nie_zaklada_drugiej_pozycji(self):
+        # Dwa warianty tego samego produktu to JEDNA pozycja. Osobna pozycja
+        # podwoiłaby cenę — dokładnie ten błąd miał stary silnik, stąd zdanie
+        # „'porownania' NIE służy do wyceny nowego produktu" w bots/quotebot.py.
+        assert "nie zakładaj drugiej pozycji" in WYCENA
+
+    def test_niedostepny_wariant_konczy_sie_powodem_a_nie_przekazaniem(self):
+        assert "niedostępny dla tych wymiarów" in WYCENA
+        assert "wymień dostępne warianty" in WYCENA
+
+
+class TestP1OdpowiedzKlientaNieOdblokowujePrzekazania:
+    """Runda napraw 3, P1 — błąd W SAMEJ regule z rundy 1.
+
+    „PYTANIE ZOBOWIĄZUJE" kończyło się zdaniem „Przekazać rozmowę wolno
+    dopiero wtedy, gdy klient odpowie, poprosi o człowieka albo sprawa
+    naprawdę wykracza poza Twoje narzędzia". Intencją było „zakaz obowiązuje,
+    DOPÓKI klient nie odpowie", ale model czyta to jako „gdy klient odpowie,
+    przekazanie jest dozwolone" — czyli licencję na dokładnie tę sekwencję,
+    która wydarzyła się na żywym czacie: zapytaj, poczekaj, przekaż."""
+
+    def test_regula_nie_licencjonuje_juz_przekazania_po_odpowiedzi_klienta(self):
+        assert "wolno dopiero wtedy, gdy klient odpowie" not in WYCENA
+
+    def test_odpowiedz_klienta_jest_materialem_do_dalszej_pracy(self):
+        assert "Odpowiedź klienta jest materiałem do dalszej pracy" in WYCENA

@@ -18,9 +18,18 @@ stan.init_pro()
 
 def _zaladuj_atrape_wysylki(monkeypatch):
     """Podmienia bots_pro.wysylka w sys.modules — `from bots_pro import wysylka`
-    wewnątrz wyslij() znajdzie tę atrapę zamiast szukać nieistniejącego pliku."""
+    wewnątrz wyslij() znajdzie tę atrapę zamiast szukać nieistniejącego pliku.
+
+    `przygotuj` jest atrapą (tekst ma zostać W CAŁOŚCI, bez cięcia na części
+    i bez profilu kanału), ale `wolno_linkowac` delegujemy do PRAWDZIWEGO
+    modułu — od rundy napraw 3 podsumowanie pyta o profil kanału (zdanie
+    o wszystkich wariantach ma sens tylko tam, gdzie klient dostanie link do
+    wyceny), więc atrapa z własną, uproszczoną odpowiedzią mierzyłaby siebie,
+    nie `bots.channel_caps`."""
+    from bots_pro import wysylka as prawdziwa_wysylka
     modul = types.ModuleType("bots_pro.wysylka")
     modul.przygotuj = lambda tekst, persona: [tekst]
+    modul.wolno_linkowac = prawdziwa_wysylka.wolno_linkowac
     monkeypatch.setitem(sys.modules, "bots_pro.wysylka", modul)
 
 
@@ -636,3 +645,95 @@ class TestWyslijNieudanaWysylka:
         assert stan.podsumowanie_wyslane() is True
         assert stan.podsumowanie_nieudane() is False
         assert self._oczekiwany_podpis_w_bazie(94025) == wynik["podpis"]
+
+
+class TestP1WszystkieWariantyWWycenie:
+    """Runda napraw 3, P1. Rozstrzygnięcie właściciela: „czasem klient nie wie
+    co wybrać, więc nie możemy go zmuszać do wyboru, wtedy proponujemy szerszy
+    zakres, czyli wszystkie warianty".
+
+    Podsumowanie pokazuje cenę JEDNEGO wariantu — tego przyjętego do rachunku
+    — a strona wyceny pokazuje wszystkie osiem z cenami (`_products_with_all_variants`
+    w modules/calculator/routers/bot_api.py zapisuje komplet kodów, ceny dokłada
+    `_inject_backend_prices` w quote_service.py, a client_quote.js renderuje je
+    razem z powodem niedostępności). Klient ma się o tym dowiedzieć zdaniem,
+    które składa KOD — dokładnie z tego powodu, dla którego kod składa adnotację
+    o wycięciach: żeby stało przy KAŻDYM podsumowaniu, a nie wtedy, gdy model
+    akurat sobie o nim przypomni.
+
+    Zdanie NIE niesie żadnej kwoty — porównanie jest na stronie wyceny, nie
+    w czacie, więc rejestr G1 nie rośnie ani o jedną pozycję."""
+
+    def _wyslij(self, monkeypatch, conv_id, persona="pro"):
+        stan.ustaw_kontekst(conv_id, persona_tury=persona)
+        monkeypatch.setattr(stan, "pozycje", lambda: [_pozycja()])
+        monkeypatch.setattr(podsumowanie.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(podsumowanie.crm_calc, "calculate", lambda p, o: {
+            "ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}})
+        _zaladuj_atrape_wysylki(monkeypatch)
+        wyslane = []
+        monkeypatch.setattr(podsumowanie, "cw_agent_reply",
+                            lambda cid, tekst, token=None: wyslane.append(tekst) or True)
+        podsumowanie.wyslij()
+        return wyslane[0]
+
+    def test_podsumowanie_mowi_o_cenach_wszystkich_wariantow(self, monkeypatch):
+        tekst = self._wyslij(monkeypatch, 94051)
+        assert podsumowanie.ZDANIE_O_WARIANTACH.strip() in tekst
+
+    def test_zdanie_wymienia_gatunki_z_oferty(self, monkeypatch):
+        tekst = self._wyslij(monkeypatch, 94052)
+        for gatunek in ("dębu", "jesionu", "buku"):
+            assert gatunek in tekst, gatunek
+
+    def test_zdanie_nie_wnosi_do_rozmowy_zadnej_kwoty(self):
+        # Cała istota rozstrzygnięcia P1: klient widzi porównanie NA STRONIE
+        # wyceny, nie w czacie — więc rejestr G1 (i jego tolerancja
+        # zaokrąglenia do pełnych złotych) nie rośnie ani o jedną kwotę.
+        from bots_pro import guardraile
+        assert guardraile.znajdz_kwoty(podsumowanie.ZDANIE_O_WARIANTACH) == set()
+        assert guardraile.znajdz_gole_kwoty(podsumowanie.ZDANIE_O_WARIANTACH) == set()
+
+    def test_zdanie_nie_zmienia_rejestru_kwot(self, monkeypatch):
+        self._wyslij(monkeypatch, 94053)
+        assert stan.znane_kwoty() == {"685.40", "843.04"}
+
+    def test_na_kanale_bez_linkow_zdania_nie_ma(self, monkeypatch):
+        # Allegro: linku do wyceny klient NIE dostanie (regulamin), więc
+        # obietnica „zobaczy Pan wszystkie warianty" byłaby obietnicą bez
+        # pokrycia — czyli dokładnie tym błędem, który ta runda naprawia.
+        tekst = self._wyslij(monkeypatch, 94054, persona="allegro")
+        assert podsumowanie.ZDANIE_O_WARIANTACH.strip() not in tekst
+
+    def test_na_olx_zdanie_jest_bo_link_wolno_wyslac(self, monkeypatch):
+        tekst = self._wyslij(monkeypatch, 94055, persona="olx")
+        assert podsumowanie.ZDANIE_O_WARIANTACH.strip() in tekst
+
+    def test_zdanie_stoi_przed_pytaniem_o_zgode(self, monkeypatch):
+        # Kolejność jest treścią: klient ma przeczytać o wariantach ZANIM
+        # odpowie „czy wszystko się zgadza".
+        tekst = self._wyslij(monkeypatch, 94056)
+        assert tekst.index(podsumowanie.ZDANIE_O_WARIANTACH.strip()) < \
+            tekst.index("Czy wszystko się zgadza?")
+
+    def test_zdanie_i_regula_promptu_nie_rozjezdzaja_sie(self):
+        # SONDA spojnosci (P1): to samo zdanie o wszystkich wariantach mowi
+        # KOD (tutaj, przy kazdym podsumowaniu) i PROMPT (sekcja PORÓWNANIE,
+        # gdy klient pyta o porownanie). Przeredagowanie jednego bez drugiego
+        # dawaloby klientowi dwie rozne obietnice w jednej rozmowie.
+        import re as _re
+
+        from bots_pro import prompty
+        regula = _re.sub(r"\s+", " ", prompty.WYCENA)
+        zdanie = _re.sub(r"\s+", " ", podsumowanie.ZDANIE_O_WARIANTACH)
+        assert "ceny wszystkich wariantów drewna" in regula
+        assert "ceny wszystkich wariantów drewna" in zdanie
+
+    def test_zdanie_nie_wchodzi_do_podpisu_potwierdzenia(self, monkeypatch):
+        # `potwierdzenia.podpis` liczy odcisk z pozycji i dostawy, nie z tekstu
+        # — dopisek nie ma prawa unieważnić potwierdzenia, bo nie zmienia
+        # niczego, co klient potwierdza.
+        stan.ustaw_kontekst(94057)
+        przed = potwierdzenia.podpis([_pozycja()], {})
+        self._wyslij(monkeypatch, 94057)
+        assert potwierdzenia.podpis([_pozycja()], {}) == przed

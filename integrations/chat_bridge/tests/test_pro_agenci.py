@@ -87,12 +87,28 @@ class TestAgentWyceny:
         # dlugosci wszystkich trzech pol (limit `_MAX_DLUGOSC_POLA`). Ten test
         # mierzy prompt BEZ niej (brak kontekstu rozmowy) — wariant z kompletem
         # danych pilnuje test w TestN6KontaktWPrompcieAgentaWyceny nizej.
-        # Prog ma nadal ok. 400 znakow zapasu ponad NAJGORSZY przypadek po tej
-        # rundzie i dalej jest ok. 44% dlugosci STAREGO promptu (8203 zn
+        # RUNDA NAPRAW 3: prog podniesiony 8300 -> 9500. Dwie pozycje, lacznie
+        # 1179 znakow ponad stan po rundzie 2 (ROLA+WYCENA 7586 -> 8765 zn):
+        #   - PORÓWNANIE (P1, 1056 zn) — bot obiecywal porownanie wariantow,
+        #     dopytywal, dostawal odpowiedz i oddawal rozmowe konsultantowi;
+        #     zapytany o cene innego wariantu odsylal do wyboru „w ciemno".
+        #     Sekcja mowi, ze porownanie klient zobaczy w WYCENIE (strona
+        #     wyceny pokazuje wszystkie osiem wariantow z cenami), ze prosba
+        #     o porownanie nie jest powodem do przekazania rozmowy, ze cen
+        #     pozostalych wariantow bot NIE MA (policz_wycene je przycina)
+        #     i co zrobic, gdy wariant jest niedostepny dla tych wymiarow;
+        #   - PYTANIE ZOBOWIAZUJE: przeformulowane zakonczenie (P1, +123 zn) —
+        #     zdanie „przekazac rozmowe wolno DOPIERO wtedy, gdy klient
+        #     odpowie" model czytal jako licencje na przekazanie PO odpowiedzi,
+        #     czyli dokladnie na obserwowana sekwencje: zapytaj, poczekaj,
+        #     przekaz.
+        # Prog ma nadal 433 znaki zapasu ponad NAJGORSZY przypadek po tej
+        # rundzie (9067 zn = 8765 + 302 zn sekcji DANE KLIENTA) — tyle samo co
+        # po rundzie 2 — i dalej jest ok. 50% dlugosci STAREGO promptu (8203 zn
         # kontraktu formatu + 10416 zn regul). Kolejne podniesienie ma byc
         # rownie jawne: z lista tego, co doszlo, i po co.
         agent = agenci.zbuduj_agenta_wyceny()
-        assert len(agent.instructions) < 8300
+        assert len(agent.instructions) < 9500
 
 
 class TestAgentWiedzy:
@@ -221,4 +237,4 @@ class TestN6KontaktWPrompcieAgentaWyceny:
         maks = "x" * prompty._MAX_DLUGOSC_POLA
         self._z_kontaktem(monkeypatch, {"name": maks, "email": maks, "phone": maks})
         agent = agenci.zbuduj_agenta_wyceny()
-        assert len(agent.instructions) < 8300
+        assert len(agent.instructions) < 9500
