@@ -2334,6 +2334,26 @@ def client_place_order(token):
             "quote_number": numer_wyceny,
         }), 503
 
+    # Kwalifikacja — również PRZED akceptacją, z tego samego powodu co źródło.
+    # Pełnego is_eligible_for_order() nie da się tu wywołać: wymaga statusu 3,
+    # który nadaje dopiero akceptacja. Sprawdzamy więc te warunki, których
+    # akceptacja NIE zmienia (zaznaczone pozycje, klient, dane kontaktowe) —
+    # bez tego wycena bez pozycji zostawała zaakceptowana wraz z mailami do
+    # klienta i handlowca, a klient zaraz potem czytał, że zamówić się nie da.
+    # Wycena, która ma już zamówienie, celowo NIE jest tu odrzucana: to
+    # powtórka, którą checkout_service obsługuje jako duplikat.
+    if not quote.base_linker_order_id and not quote.ma_dane_do_zamowienia():
+        logger.warning("[client_place_order] Wycena %s nie kwalifikuje się do "
+                       "zamówienia — odmowa przed akceptacją", numer_wyceny)
+        return jsonify({
+            "error": "Tej wyceny nie można zamówić przez stronę. Skontaktuj się "
+                     "z nami — {kontakt} — i podaj numer wyceny {numer}.".format(
+                         kontakt=KONTAKT_WOODPOWER, numer=numer_wyceny or "-"),
+            "niepewne": False,
+            "zamowienie_utworzone": False,
+            "quote_number": numer_wyceny,
+        }), 400
+
     # Akceptacja jest warunkiem kwalifikacji (status_id == 3). Gdy wycena jest
     # jeszcze edytowalna, przeprowadzamy ją tą samą drogą co /accept-with-data
     # — łącznie z zapisem danych klienta i mailami. Wycena zaakceptowana

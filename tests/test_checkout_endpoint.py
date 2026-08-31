@@ -392,6 +392,11 @@ class TestEndpointZamowienia:
 
     def test_wycena_bez_wybranych_pozycji_jest_odrzucana(self, aplikacja,
                                                          klient_http, baselinker):
+        # Odmowa nie może zostawiać po sobie ZAAKCEPTOWANEJ wyceny: kwalifikacja
+        # była sprawdzana dopiero po akceptacji, więc wycena dostawała status 3,
+        # datę akceptacji i maile do klienta oraz handlowca — a klient zaraz
+        # potem czytał, że zamówić się nie da. Ta sama klasa błędu, którą
+        # naprawiono już dla braku źródła zamówień.
         _zasiej()
         with aplikacja.app_context():
             QuoteItem.query.update({'is_selected': False})
@@ -401,6 +406,11 @@ class TestEndpointZamowienia:
 
         assert odpowiedz.status_code == 400
         assert baselinker.wywolania == []
+        with aplikacja.app_context():
+            wycena = Quote.query.filter_by(public_token=TOKEN).first()
+            assert wycena.is_client_editable is True, 'wycena zaakceptowana mimo odmowy'
+            assert wycena.acceptance_date is None
+            assert wycena.status_id == 1
 
 
 class TestKomunikatPoNieudanymZamowieniu:
