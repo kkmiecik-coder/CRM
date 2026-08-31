@@ -141,6 +141,22 @@ class TestPrzechwycenieWysylki:
         rozmowa = {"id": 503, "wiadomosci": [("KLIENT", "dzien dobry")]}
         replay.odtworz(rozmowa)  # brak wyjatku == bramka nie posiegnela po siec
 
+    def test_prawdziwy_kontakt_klienta_nie_jest_odpytywany(self, monkeypatch):
+        # N6: `tura.uruchom` czyta kontakt rozmowy z Chatwoota. Syntetyczny
+        # conv_id nie odpowiada zadnej realnej rozmowie, wiec odpytanie byloby
+        # samym ruchem sieciowym bez wartosci — i tak jak reszta odczytow ma
+        # byc podmienione. REJESTRUJEMY wywolanie zamiast rzucac: zarowno
+        # `cw_contact_full`, jak i `stan.wczytaj_kontakt` lapia wyjatki u
+        # siebie, wiec strazak, ktory rzuca, zostalby po cichu polkniety.
+        import core.chatwoot as cw
+        wolania = []
+        monkeypatch.setattr(cw, "cw_contact_full", lambda cid: wolania.append(cid) or {})
+        monkeypatch.setattr(tura, "Runner", _FalszywyRunnerRoutingu(["ok"]))
+
+        replay.odtworz({"id": 504, "wiadomosci": [("KLIENT", "dzien dobry")]})
+
+        assert wolania == []
+
 
 class TestZadneWywolanieSieciowe:
     """Test transportowy — K3, sztandarowy dowod braku wycieku.

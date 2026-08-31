@@ -275,6 +275,14 @@ def uruchom(conv_id, inbox_id, tresc, zalaczniki=None, persona="pro", message_id
                              conv_id, persona)
         return
 
+    # N6: tozsamosc klienta z kontaktu rozmowy (e-mail i nazwa z formularza
+    # wstepnego widgetu) — WCZESNIEJ niz `zbuduj_router()` nizej, bo to ono
+    # buduje agenta Wyceny, a ten dokleja sobie sekcje DANE KLIENTA z tego, co
+    # tu wyladuje. Po bramce ciszy, zeby tura, w ktorej bot i tak ma milczec,
+    # nie placila za odczyt. Nie rzuca — brak kontaktu to brak danych (bot
+    # poprosi o e-mail, jak dotad), nie przerwana tura.
+    stan.wczytaj_kontakt(conv_id)
+
     migawka_przed = stan.migawka_postepu()
 
     # U2: zdjecia klienta ida do modelu RAZEM z tekstem (wejscie multimodalne,

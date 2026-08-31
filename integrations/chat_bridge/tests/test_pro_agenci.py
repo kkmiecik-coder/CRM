@@ -70,12 +70,29 @@ class TestAgentWyceny:
         #   - krawedzie przy blatach kuchennych (N8, ~+80 zn wzgledem zdania,
         #     ktore zastapily) — wymog wlasciciela;
         #   - KONSTRUKCJA (N10, ~400 zn) — zakaz orzekania o nosnosci.
-        # Prog ma nadal ok. 1000 znakow zapasu ponad stan PO tej rundzie i
-        # dalej jest ok. 42% dlugosci STAREGO promptu (8203 zn kontraktu
-        # formatu + 10416 zn regul). Kolejne podniesienie ma byc rownie jawne:
-        # z lista tego, co doszlo, i po co.
+        # RUNDA NAPRAW 2: prog podniesiony 7800 -> 8300. Trzy pozycje, lacznie
+        # do ok. 1070 znakow ponad stan po rundzie 1 (ROLA+WYCENA 6816 zn):
+        #   - WYMIARY: zastrzezenie, ze wyjasnienie i podsumowanie ida w
+        #     OSOBNYCH turach (P1, ~145 zn) — bez niego regula z rundy 1 byla
+        #     niewykonalna, bo bramka W3 w tura.py gasi wypowiedz modelu, gdy
+        #     w tej samej turze poszlo deterministyczne podsumowanie;
+        #   - CENY: zawezenie zakazu do wyceny PRODUKTU i jawna zgoda na
+        #     zdanie o obrobce niestandardowej (P2, ~145 zn) — regula bez
+        #     zakresu przeczyla prawdziwej adnotacji, ktora podsumowanie
+        #     dokleja przy wycieciach;
+        #   - KONTAKT (P3/N6, ~475 zn) — bot prosil o e-mail, ktory mial od
+        #     pierwszej sekundy rozmowy, z formularza wstepnego widgetu.
+        # Do tego dochodzi sekcja DANE KLIENTA skladana w KODZIE
+        # (prompty.blok_danych_klienta): do ok. 300 znakow przy maksymalnej
+        # dlugosci wszystkich trzech pol (limit `_MAX_DLUGOSC_POLA`). Ten test
+        # mierzy prompt BEZ niej (brak kontekstu rozmowy) — wariant z kompletem
+        # danych pilnuje test w TestN6KontaktWPrompcieAgentaWyceny nizej.
+        # Prog ma nadal ok. 400 znakow zapasu ponad NAJGORSZY przypadek po tej
+        # rundzie i dalej jest ok. 44% dlugosci STAREGO promptu (8203 zn
+        # kontraktu formatu + 10416 zn regul). Kolejne podniesienie ma byc
+        # rownie jawne: z lista tego, co doszlo, i po co.
         agent = agenci.zbuduj_agenta_wyceny()
-        assert len(agent.instructions) < 7800
+        assert len(agent.instructions) < 8300
 
 
 class TestAgentWiedzy:
@@ -159,3 +176,49 @@ class TestHandoffeRoutera(object):
         router = agenci.zbuduj_router()
         nazwy = {h.name for h in router.handoffs}
         assert nazwy == {"Wycena", "Wiedza", "Posprzedaz"}
+
+
+class TestN6KontaktWPrompcieAgentaWyceny:
+    """N6: dane kontaktowe wczytane na starcie tury (`stan.wczytaj_kontakt`)
+    muszą DOTRZEĆ do agenta Wyceny — reguła KONTAKT odwołuje się do sekcji
+    DANE KLIENTA, więc bez tego doklejenia mówiłaby o czymś, czego nie ma.
+
+    Router ich NIE dostaje: jego budżet to 400 tokenów (test wyżej), a do
+    wyboru agenta e-mail klienta nie jest potrzebny."""
+
+    def _z_kontaktem(self, monkeypatch, kontakt):
+        monkeypatch.setattr(agenci.stan, "kontakt", lambda: kontakt)
+
+    def test_agent_wyceny_widzi_dane_z_kontaktu_rozmowy(self, monkeypatch):
+        self._z_kontaktem(monkeypatch, {"name": "TEST S5", "phone": "",
+                                        "email": "test-s5@example.invalid"})
+        agent = agenci.zbuduj_agenta_wyceny()
+        assert "DANE KLIENTA znane systemowi" in agent.instructions
+        assert "test-s5@example.invalid" in agent.instructions
+
+    def test_bez_kontaktu_prompt_wyceny_jest_taki_jak_dotad(self, monkeypatch):
+        # Kanaly bez formularza wstepnego (OLX, Allegro) — zaden dopisek.
+        # Kotwica to naglowek SEKCJI, nie samo „DANE KLIENTA": ta fraza wystepuje
+        # takze w regule KONTAKT, ktora stoi w prompcie zawsze.
+        self._z_kontaktem(monkeypatch, {})
+        agent = agenci.zbuduj_agenta_wyceny()
+        assert "DANE KLIENTA znane systemowi" not in agent.instructions
+
+    def test_router_nie_dostaje_danych_kontaktowych(self, monkeypatch):
+        self._z_kontaktem(monkeypatch, {"name": "TEST S5", "phone": "",
+                                        "email": "test-s5@example.invalid"})
+        router = agenci.zbuduj_router()
+        assert "test-s5@example.invalid" not in router.instructions
+
+    def test_prompt_wyceny_z_kontaktem_tez_miesci_sie_w_budzecie(self, monkeypatch):
+        # Budzet z TestAgentWyceny mierzy prompt BEZ sekcji DANE KLIENTA (w
+        # tescie nie ma kontekstu rozmowy). Sufit ma obejmowac takze wariant
+        # z kompletem danych — inaczej pilnowalby czegos, co w produkcji nie
+        # wystepuje. Mierzymy NAJGORSZY przypadek: kazde z trzech pol wypelnione
+        # do limitu `prompty._MAX_DLUGOSC_POLA`, bo dlugosc wartosci ustala
+        # klient (wpisuje je w formularzu wstepnym widgetu), nie my.
+        from bots_pro import prompty
+        maks = "x" * prompty._MAX_DLUGOSC_POLA
+        self._z_kontaktem(monkeypatch, {"name": maks, "email": maks, "phone": maks})
+        agent = agenci.zbuduj_agenta_wyceny()
+        assert len(agent.instructions) < 8300

@@ -36,7 +36,7 @@ korzyści.
 from agents import Agent, set_tracing_disabled
 
 from config import BOT_PRO_TRACING
-from bots_pro import prompty
+from bots_pro import prompty, stan
 from bots_pro.models import model_dla_roli
 from bots_pro.narzedzia import NARZEDZIA_WYCENY, oddaj_czlowiekowi
 
@@ -63,9 +63,18 @@ zastosuj_ustawienia_tracingu()
 
 
 def zbuduj_agenta_wyceny():
+    """N6: do promptu dokleja się sekcja DANE KLIENTA z kontaktem rozmowy
+    wczytanym przez `stan.wczytaj_kontakt()` na starcie tury (`tura.uruchom`).
+    Poza turą — w testach i przy budowie agenta bez kontekstu rozmowy —
+    `stan.kontakt()` jest pusty i prompt wygląda dokładnie jak przed N6.
+
+    Dane trafiają WYŁĄCZNIE do agenta Wyceny: to on prosi o e-mail i telefon
+    (Wiedza i Posprzedaż nie mają narzędzi zapisu wyceny), a Router ma budżet
+    400 tokenów i do wyboru agenta adres klienta jest mu zbędny."""
     return Agent(
         name="Wycena",
-        instructions=prompty.ROLA + "\n\n" + prompty.WYCENA,
+        instructions=(prompty.ROLA + "\n\n" + prompty.WYCENA
+                      + prompty.blok_danych_klienta(stan.kontakt())),
         model=model_dla_roli("wycena"),
         tools=NARZEDZIA_WYCENY,
     )

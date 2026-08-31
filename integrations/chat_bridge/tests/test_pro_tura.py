@@ -43,6 +43,17 @@ def _domyslnie_wolno_prowadzic_rozmowe(monkeypatch):
     monkeypatch.setattr(stan, "wolno_prowadzic_rozmowe", lambda conv_id: True)
 
 
+@pytest.fixture(autouse=True)
+def _kontakt_klienta_bez_sieci(monkeypatch):
+    """N6: `tura.uruchom` wczytuje teraz kontakt rozmowy z Chatwoota na starcie
+    tury. Domyslnie oddajemy pustke, zeby testy SAMEJ tury nie chodzily po
+    siec (ten sam powod, co przy `wolno_prowadzic_rozmowe` wyzej). Testy N6
+    nadpisuja to jawnie."""
+    import core.chatwoot as core_cw
+    monkeypatch.setattr(core_cw, "cw_contact_full", lambda conv_id: {
+        "name": "", "identifier": "", "email": "", "phone": ""})
+
+
 # ---------------------------------------------------------------------------
 # Atrapa CAŁEGO Runner.run_sync — dla testów logiki tury (retry guardraila,
 # brak podwójnej wysyłki), gdzie nie zależy nam na prawdziwym routingu SDK.
@@ -63,9 +74,11 @@ class _FalszywyRunner:
         self._odpowiedzi = list(odpowiedzi)
         self._rejestruj_kwoty = list(rejestruj_kwoty or [])
         self.wywolania = []   # tresc kazdego wywolania, w kolejnosci
+        self.agenci = []      # agent (router) przekazany do kazdego wywolania
 
     def run_sync(self, agent, tresc, session=None, max_turns=None):
         self.wywolania.append(tresc)
+        self.agenci.append(agent)
         if self._rejestruj_kwoty:
             kwoty = self._rejestruj_kwoty.pop(0)
             if kwoty:
@@ -1238,3 +1251,96 @@ class TestBramkaIdempotencjiNieUciszaKomunikatu:
         tura.uruchom(conv_id, "inbox1", "ile kosztuje?", persona="allegro")
 
         assert uzyte_persony == ["allegro"]
+
+
+class TestN6KontaktNaStarcieTury:
+    """N6: dane z formularza wstepnego widgetu (e-mail, nazwa) leza na kontakcie
+    rozmowy w Chatwoocie, a bot i tak prosil o nie po wycenie. Tura ma je
+    wczytac ZANIM zbuduje agentow — inaczej regula KONTAKT w prompcie mowilaby
+    o sekcji, ktorej nie ma."""
+
+    def _kontakt(self, monkeypatch, dane):
+        import core.chatwoot as core_cw
+        monkeypatch.setattr(core_cw, "cw_contact_full", lambda cid: dane)
+
+    def _agent_wyceny(self, router):
+        for h in router.handoffs:
+            if getattr(h, "name", "") == "Wycena":
+                return h
+        raise AssertionError("router nie ma agenta Wyceny")
+
+    def test_agent_wyceny_dostaje_email_z_kontaktu_rozmowy(self, monkeypatch):
+        conv_id = 96209001
+        self._kontakt(monkeypatch, {"name": "TEST S5", "identifier": "",
+                                    "email": "test-s5@example.invalid", "phone": ""})
+        fake = _FalszywyRunner(["Juz licze."])
+        monkeypatch.setattr(tura, "Runner", fake)
+        _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "Poprosze o wycene blatu", persona="quote")
+
+        agent = self._agent_wyceny(fake.agenci[0])
+        assert "test-s5@example.invalid" in agent.instructions
+        assert "TEST S5" in agent.instructions
+
+    def test_odczyt_dotyczy_tej_rozmowy(self, monkeypatch):
+        conv_id = 96209002
+        przekazane = []
+        import core.chatwoot as core_cw
+        monkeypatch.setattr(core_cw, "cw_contact_full",
+                            lambda cid: przekazane.append(cid) or {})
+        monkeypatch.setattr(tura, "Runner", _FalszywyRunner(["ok"]))
+        _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "cokolwiek", persona="quote")
+
+        assert przekazane == [conv_id]
+
+    def test_pusty_kontakt_nie_dokleja_sekcji(self, monkeypatch):
+        # OLX i Allegro: brak formularza wstepnego, wiec kontakt bywa pusty
+        # i pytanie o e-mail jest tam uzasadnione.
+        conv_id = 96209003
+        self._kontakt(monkeypatch, {"name": "", "identifier": "", "email": "", "phone": ""})
+        fake = _FalszywyRunner(["ok"])
+        monkeypatch.setattr(tura, "Runner", fake)
+        _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "cokolwiek", persona="quote_olx")
+
+        # Kotwica to naglowek SEKCJI: sama fraza „DANE KLIENTA" wystepuje takze
+        # w regule KONTAKT, ktora stoi w prompcie zawsze.
+        assert "DANE KLIENTA znane systemowi" not in (
+            self._agent_wyceny(fake.agenci[0]).instructions)
+
+    def test_gdy_bot_ma_milczec_kontakt_nie_jest_odpytywany(self, monkeypatch):
+        # Bramka ciszy konczy ture PRZED wolaniem modelu — nie ma powodu placic
+        # przy okazji za odczyt kontaktu z Chatwoota.
+        conv_id = 96209004
+        przekazane = []
+        import core.chatwoot as core_cw
+        monkeypatch.setattr(core_cw, "cw_contact_full",
+                            lambda cid: przekazane.append(cid) or {})
+        monkeypatch.setattr(stan, "wolno_prowadzic_rozmowe", lambda cid: False)
+        monkeypatch.setattr(tura, "Runner", _FalszywyRunner(["ok"]))
+        _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "cokolwiek", persona="quote")
+
+        assert przekazane == []
+
+    def test_blad_odczytu_kontaktu_nie_przerywa_tury(self, monkeypatch):
+        # Klient ma dostac odpowiedz nawet wtedy, gdy odczyt kontaktu padnie —
+        # bez danych bot poprosi o e-mail, jak dotad.
+        conv_id = 96209005
+
+        def _wybucha(cid):
+            raise RuntimeError("Chatwoot padl")
+
+        import core.chatwoot as core_cw
+        monkeypatch.setattr(core_cw, "cw_contact_full", _wybucha)
+        monkeypatch.setattr(tura, "Runner", _FalszywyRunner(["Dzien dobry."]))
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "cokolwiek", persona="quote")
+
+        assert wyslane == ["Dzien dobry."]
