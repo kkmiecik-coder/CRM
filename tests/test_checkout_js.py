@@ -240,3 +240,95 @@ class TestOdbioruNieZaznaczamyNaWycenieKurierskiej:
                 '%s wpisuje znacznik odbioru w pole adresu' % funkcja
         assert 'adresToOdbiorOsobisty(' in _blok(
             zrodlo, 'function adresDoFormularza(')
+
+
+CSS_STRONY = os.path.join(KORZEN, 'modules', 'quotes', 'static', 'css',
+                          'client_quote.css')
+
+
+def _regula(css, selektor):
+    """Ciało reguły CSS o podanym selektorze (pierwsze wystąpienie)."""
+    poczatek = css.index(selektor + ' {')
+    reszta = css[poczatek:]
+    return reszta[:reszta.index('}') + 1]
+
+
+class TestUkladEkranuKoncowego:
+    """Ekran po złożeniu zamówienia — uwagi właściciela po realnym przebiegu.
+
+    Dwa przyciski („Otwórz stronę zamówienia" i „Zamknij") mają stać obok
+    siebie; dotąd rozdzielał je akapit „Znajdziesz tam szczegóły…", więc
+    lądowały jeden pod drugim. Do tego bazowy `.btn` nie ma paddingu
+    poziomego, bo jest pisany pod rozciągany pasek kroku — na tym ekranie
+    napis dotykał krawędzi przycisku.
+
+    Czego te testy NIE dowodzą: jak to WYGLĄDA. Nie ma tu przeglądarki, więc
+    nie sprawdzimy, czy przyciski faktycznie mieszczą się w jednym wierszu,
+    czy zawijają się na wąskim ekranie ani czy odstępy są dobrane trafnie.
+    Sprawdzamy kolejność węzłów i obecność reguł, które to umożliwiają.
+    """
+
+    def test_akapit_stoi_nad_przyciskami(self):
+        blok = _blok(_zrodlo(JS_MODAL), 'function pokazPotwierdzenie(')
+
+        # Żaden tekst nie może wejść MIĘDZY przyciski: wiersz akcji powstaje
+        # dopiero po wszystkich akapitach.
+        assert 'wierszAkcji(' in blok
+        assert blok.index('przycisk opłacenia') < blok.index('wierszAkcji(')
+        assert blok.index('w osobnej wiadomości') < blok.index('wierszAkcji(')
+
+    def test_oba_przyciski_ladują_w_jednym_wierszu(self):
+        blok = _blok(_zrodlo(JS_MODAL), 'function pokazPotwierdzenie(')
+
+        # Link do zamówienia i „Zamknij" trafiają do tego samego kontenera,
+        # a nie osobno do bloku tekstu.
+        assert 'akcje.appendChild(a)' in blok
+        assert 'dopiszPrzyciskZamkniecia(akcje)' in blok
+        assert 'kontener.appendChild(a)' not in blok
+
+    def test_ekran_awaryjny_ma_ten_sam_uklad(self):
+        # „Nie wiemy, czy zamówienie powstało" i „zamówienie jest, zapis padł"
+        # idą przez wspólną funkcję — jej przycisk też musi siedzieć w wierszu
+        # akcji, inaczej zostaje z innym odstępem i innym paddingiem.
+        blok = _blok(_zrodlo(JS_MODAL), 'function pokazEkranBezPowtorki(')
+
+        assert 'dopiszPrzyciskZamkniecia(wierszAkcji(kontener))' in blok
+
+    def test_wiersz_akcji_zawija_sie_i_daje_przyciskom_odstepy(self):
+        css = _zrodlo(CSS_STRONY)
+
+        wiersz = _regula(css, '.checkout-done-akcje')
+        assert 'display: flex' in wiersz
+        assert 'flex-wrap: wrap' in wiersz, \
+            'bez zawijania przyciski wystają poza modal na wąskim ekranie'
+
+        przycisk = _regula(css, '.checkout-done-akcje .btn')
+        assert 'padding: 0 22px' in przycisk, \
+            'bazowy .btn nie ma odstępów po bokach — napis dotyka krawędzi'
+
+
+class TestWierszeZgodWArkuszu:
+    """Pola wyboru w kroku zamawiania — reguły, które robią z wiersza przycisk.
+
+    Czego te testy NIE dowodzą: że tło pod kursorem naprawdę się pojawia,
+    że kwadracik stoi w pionie tam, gdzie ma, i że na ekranie dotykowym nic
+    się nie psuje. To zostaje do sprawdzenia okiem.
+    """
+
+    def test_caly_wiersz_wskazuje_na_klikalnosc(self):
+        chk = _regula(_zrodlo(CSS_STRONY), '.chk')
+
+        assert 'cursor: pointer' in chk
+        assert 'align-items: center' in chk, \
+            'kwadracik ma być wyśrodkowany w pionie przy jednolinijkowej etykiecie'
+
+    def test_stan_hover_uzywa_istniejacej_zmiennej_akcentu(self):
+        css = _zrodlo(CSS_STRONY)
+
+        assert re.search(r'\.chk:hover\s*\{[^}]*background:\s*var\(--acc-bg\)',
+                         css), 'brak tła pod kursorem albo nowy, własny kolor'
+
+    def test_wariant_wielolinijkowy_wyrownuje_do_gory(self):
+        gora = _regula(_zrodlo(CSS_STRONY), '.chk-gora')
+
+        assert 'align-items: flex-start' in gora

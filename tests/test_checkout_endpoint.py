@@ -69,7 +69,7 @@ class TestBramkaTozsamosci:
 
 from datetime import datetime  # noqa: E402
 
-from flask import Flask  # noqa: E402
+from flask import Flask, current_app  # noqa: E402
 from sqlalchemy.pool import StaticPool  # noqa: E402
 
 from extensions import db  # noqa: E402
@@ -121,12 +121,27 @@ def klient_http(aplikacja):
 def baselinker(monkeypatch):
     """Atrapa BaselinkerService zachowująca się jak realny serwis po sukcesie."""
     wywolania = []
+    sugestie = []
     zachowanie = {'sukces': True, 'error': 'Brak tokenu API',
                   'niepewne': False, 'zamowienie_utworzone': False}
 
     class _Atrapa:
         def __init__(self, *a, **k):
             pass
+
+        def suggest_order_source(self, client, user_role, is_flexible_partner=False):
+            # Sugerowanie źródła to czysta logika bazodanowa (BaselinkerConfig
+            # + Quote), bez ani jednego wywołania API — atrapa zapisuje wejście
+            # (żeby dało się sprawdzić, CZYJĄ rolę dostaje) i deleguje do
+            # PRAWDZIWEJ implementacji, żeby test sprawdzał realną regułę
+            # atrybucji, a nie własną, uproszczoną jej wersję.
+            from modules.baselinker.service import BaselinkerService as Prawdziwy
+            sugestie.append({'client_id': getattr(client, 'id', None),
+                             'user_role': user_role,
+                             'is_flexible_partner': is_flexible_partner})
+            return Prawdziwy().suggest_order_source(
+                client=client, user_role=user_role,
+                is_flexible_partner=is_flexible_partner)
 
         def create_order_from_quote(self, quote, user_id, config):
             wywolania.append({'config': config, 'user_id': user_id,
@@ -144,26 +159,62 @@ def baselinker(monkeypatch):
             return {'success': True, 'order_id': numer}
 
     monkeypatch.setattr(checkout_service, 'BaselinkerService', _Atrapa)
-    return SimpleNamespace(wywolania=wywolania, zachowanie=zachowanie)
+    return SimpleNamespace(wywolania=wywolania, zachowanie=zachowanie,
+                           sugestie=sugestie)
+
+
+def _zrodlo(baselinker_id, nazwa, is_default=False, is_active=True):
+    return BaselinkerConfig(
+        config_type='order_source', baselinker_id=baselinker_id,
+        name=nazwa, is_default=is_default, is_active=is_active, sort_order=100,
+        created_at=datetime(2026, 8, 30), updated_at=datetime(2026, 8, 30))
 
 
 def _zasiej(status_id=1, is_client_editable=True, ze_zrodlem=True,
             email='jan@example.pl', phone='601234567',
-            nazwa_zrodla='Dębuś VPS'):
+            nazwa_zrodla='Dębuś VPS',
+            wycena_bota=True, rola_autora='user', bez_autora=False,
+            nip=None, zrodlo_klienta=None, dodatkowe_zrodla=()):
+    """Wycena gotowa do zamówienia.
+
+    Domyślnie wystawiona przez BOTA (konto BOT_USER_ID) — bo to ta ścieżka
+    powstała jako pierwsza i to jej dotyczy większość testów w tym pliku.
+    `wycena_bota=False` daje wycenę handlowca: podpisaną innym kontem, o roli
+    `rola_autora`. `bez_autora=True` to wycena bez user_id (dane sprzed
+    wprowadzenia podpisu) — nie wolno jej wziąć za wycenę bota.
+    """
     db.session.add(QuoteStatus(id=3, name='Zaakceptowane'))
     db.session.add(QuoteStatus(id=4, name='Złożone'))
     if ze_zrodlem:
-        db.session.add(BaselinkerConfig(
-            config_type='order_source', baselinker_id=ZRODLO_DEBUS,
-            name=nazwa_zrodla, is_default=False, is_active=True, sort_order=100,
-            created_at=datetime(2026, 8, 30), updated_at=datetime(2026, 8, 30)))
+        db.session.add(_zrodlo(ZRODLO_DEBUS, nazwa_zrodla))
+    for bl_id, nazwa in dodatkowe_zrodla:
+        db.session.add(_zrodlo(bl_id, nazwa))
+
+    # Konto bota istnieje ZAWSZE (jak na produkcji), ale BOT_USER_ID wskazuje
+    # na nie tylko wtedy, gdy testujemy ścieżkę bota — inaczej konfiguracja
+    # zostaje pusta, tak jak na instalacji bez skonfigurowanego asystenta.
+    bot = User(email='bot@woodpower.pl', first_name='Asystent', last_name='AI',
+               role='user', password='x', active=True)
+    handlowiec = User(email='handlowiec@woodpower.pl', first_name='Han',
+                      last_name='Dlowiec', role=rola_autora, password='x',
+                      active=True)
+    db.session.add_all([bot, handlowiec])
+    db.session.flush()
+    current_app.config['BOT_USER_ID'] = bot.id if wycena_bota else None
+    if bez_autora:
+        autor_id = None
+    else:
+        autor_id = bot.id if wycena_bota else handlowiec.id
+
     klient = Client(client_number='K-1', client_name='Jan Testowy',
-                    email=email, phone=phone)
+                    email=email, phone=phone, invoice_nip=nip,
+                    order_source_id=zrodlo_klienta)
     db.session.add(klient)
     db.session.flush()
     wycena = Quote(quote_number='410/08/26/W', public_token=TOKEN,
                    status_id=status_id, client_id=klient.id, quote_type='brutto',
                    courier_name='DPD', shipping_cost_brutto=123.0,
+                   user_id=autor_id,
                    is_client_editable=is_client_editable)
     if status_id == 3:
         wycena.acceptance_date = datetime(2026, 8, 30, 12, 0, 0)
@@ -1058,3 +1109,189 @@ class TestKurierJakWWycenieWEndpoincie:
 
         assert odpowiedz.status_code == 400
         assert baselinker.wywolania == []
+
+
+# =============================================================================
+# Źródło zamówienia: bot vs handlowiec
+# =============================================================================
+
+DETAL = 91001
+NOWY_B2B = 91002
+PH_NOWY_B2B = 91003
+DOMYSLNE = 91009
+WLASNE_HANDLOWCA = 91010
+
+# Pełny zestaw źródeł jak w panelu — żeby test pokazywał wybór spośród wielu,
+# a nie „jedyne, co było w bazie".
+_ZRODLA_PANELU = (
+    (DETAL, 'Detal'),
+    (NOWY_B2B, 'Nowy B2B'),
+    (91004, 'Stały B2B'),
+    (PH_NOWY_B2B, 'PH Nowy B2B'),
+    (91005, 'PH Stały B2B'),
+)
+
+
+class TestZrodloZamowienia:
+    """Atrybucja zamówienia złożonego przyciskiem „Zamów" na stronie wyceny.
+
+    Przycisk stoi na KAŻDEJ wycenie — także na tych wystawionych przez
+    handlowców, którzy sami ustawiają źródła zamówień. Sztywne „Dębuś VPS"
+    dla wszystkich fałszowało atrybucję w BaseLinkerze: sprzedaż handlowca
+    lądowała jako sprzedaż bota.
+    """
+
+    def test_wycena_bota_idzie_ze_zrodlem_debus(self, aplikacja, klient_http,
+                                                baselinker):
+        # Wycena podpisana kontem BOT_USER_ID — to naprawdę zamówienie
+        # „od Dębusia", mimo że w bazie stoi komplet innych źródeł.
+        _zasiej(wycena_bota=True, dodatkowe_zrodla=_ZRODLA_PANELU)
+
+        odpowiedz = _zamow(klient_http)
+
+        assert odpowiedz.status_code == 200
+        assert baselinker.wywolania[0]['config']['order_source_id'] == ZRODLO_DEBUS
+
+    def test_wycena_handlowca_respektuje_zrodlo_ustawione_na_kliencie(
+            self, aplikacja, klient_http, baselinker):
+        # Rozstrzygnięcie właściciela: „jeśli to nie jest od naszego Dębusia,
+        # to powinno to iść zgodnie z bazą". Źródło ustawione ręcznie na
+        # kliencie bije całą resztę reguł.
+        _zasiej(wycena_bota=False, zrodlo_klienta=WLASNE_HANDLOWCA,
+                dodatkowe_zrodla=_ZRODLA_PANELU + (
+                    (WLASNE_HANDLOWCA, 'Kanał handlowca'),))
+
+        odpowiedz = _zamow(klient_http)
+
+        assert odpowiedz.status_code == 200
+        assert baselinker.wywolania[0]['config']['order_source_id'] \
+            == WLASNE_HANDLOWCA
+
+    def test_wycena_handlowca_dla_klienta_bez_nipu_idzie_jako_detal(
+            self, aplikacja, klient_http, baselinker):
+        _zasiej(wycena_bota=False, dodatkowe_zrodla=_ZRODLA_PANELU)
+
+        odpowiedz = _zamow(klient_http)
+
+        assert odpowiedz.status_code == 200
+        assert baselinker.wywolania[0]['config']['order_source_id'] == DETAL
+
+    def test_wycena_handlowca_dla_klienta_z_nipem_idzie_jako_nowy_b2b(
+            self, aplikacja, klient_http, baselinker):
+        _zasiej(wycena_bota=False, nip='1234567890',
+                dodatkowe_zrodla=_ZRODLA_PANELU)
+
+        odpowiedz = _zamow(klient_http)
+
+        assert odpowiedz.status_code == 200
+        assert baselinker.wywolania[0]['config']['order_source_id'] == NOWY_B2B
+
+    def test_rola_bierze_sie_z_autora_wyceny_a_nie_z_klikajacego_klienta(
+            self, aplikacja, klient_http, baselinker):
+        # Zamawia klient — anonimowy, bez konta i bez roli, więc nie ma czego
+        # od niego wziąć. Rozróżnienie, które robi z tego parametru użytek
+        # (warianty „PH"), dotyczy tego, KTO SPRZEDAŁ — czyli autora wyceny.
+        #
+        # Sprawdzamy WEJŚCIE do suggest_order_source, a nie wynikowe id, bo
+        # sam wybór nazwy w tej funkcji jest zepsuty niezależnie od nas:
+        # dopasowanie jest dwukierunkowe („'nowy b2b' in 'ph nowy b2b'"), więc
+        # wariant „PH Nowy B2B" nigdy nie wygra z „Nowy B2B" stojącym wcześniej
+        # na liście. To defekt WSPÓLNEGO mechanizmu — ten sam, który panel
+        # podpowiada handlowcowi — i naprawa zmieniłaby zachowanie panelu,
+        # czyli wychodzi poza tę poprawkę. Patrz raport.
+        _zasiej(wycena_bota=False, rola_autora='partner', nip='1234567890',
+                dodatkowe_zrodla=_ZRODLA_PANELU)
+
+        odpowiedz = _zamow(klient_http)
+
+        assert odpowiedz.status_code == 200
+        assert len(baselinker.sugestie) == 1
+        assert baselinker.sugestie[0]['user_role'] == 'partner'
+        with aplikacja.app_context():
+            wycena = Quote.query.filter_by(public_token=TOKEN).first()
+            assert baselinker.sugestie[0]['client_id'] == wycena.client_id
+
+    def test_wycena_bota_nie_pyta_o_zrodlo_z_bazy(self, aplikacja, klient_http,
+                                                  baselinker):
+        # Bot nie ma „swoich" klientów w rozumieniu atrybucji handlowej —
+        # jego wyceny mają jechać źródłem Dębusia bez zaglądania w reguły B2B.
+        _zasiej(wycena_bota=True, nip='1234567890',
+                zrodlo_klienta=WLASNE_HANDLOWCA,
+                dodatkowe_zrodla=_ZRODLA_PANELU + (
+                    (WLASNE_HANDLOWCA, 'Kanał handlowca'),))
+
+        odpowiedz = _zamow(klient_http)
+
+        assert odpowiedz.status_code == 200
+        assert baselinker.sugestie == []
+        assert baselinker.wywolania[0]['config']['order_source_id'] == ZRODLO_DEBUS
+
+    def test_brak_konta_bota_nie_czyni_wyceny_bez_autora_wycena_bota(
+            self, aplikacja, klient_http, baselinker):
+        # Pułapka na porównanie „None == None": przy nieustawionym BOT_USER_ID
+        # wycena bez podpisu wyglądałaby na wycenę bota i cała sprzedaż
+        # z takiej instalacji szłaby jako „Dębuś VPS".
+        _zasiej(wycena_bota=False, bez_autora=True,
+                dodatkowe_zrodla=_ZRODLA_PANELU)
+
+        odpowiedz = _zamow(klient_http)
+
+        assert odpowiedz.status_code == 200
+        assert baselinker.wywolania[0]['config']['order_source_id'] == DETAL
+
+    def test_gdy_nic_nie_pasuje_uzywane_jest_zrodlo_domyslne(
+            self, aplikacja, klient_http, baselinker):
+        # Nazwy źródeł w panelu BaseLinkera bywają inne niż te, których szuka
+        # suggest_order_source — wtedy wchodzi źródło oznaczone jako domyślne.
+        _zasiej(wycena_bota=False,
+                dodatkowe_zrodla=((DOMYSLNE, 'Sklep internetowy'),))
+        with aplikacja.app_context():
+            zrodlo = BaselinkerConfig.query.filter_by(
+                baselinker_id=DOMYSLNE).first()
+            zrodlo.is_default = True
+            db.session.commit()
+
+        odpowiedz = _zamow(klient_http)
+
+        assert odpowiedz.status_code == 200
+        assert baselinker.wywolania[0]['config']['order_source_id'] == DOMYSLNE
+
+    def test_gdy_nie_da_sie_dobrac_zrodla_zamowienie_idzie_na_debusia(
+            self, aplikacja, klient_http, baselinker):
+        # Wariant awaryjny musi być JAWNY. Bez niego do BaseLinkera poleciałoby
+        # order_source_id=None — zamówienie bez źródła albo błąd API zamiast
+        # zamówienia. „Dębuś VPS" jest tu uczciwy: tym kanałem klient
+        # faktycznie zamówił.
+        _zasiej(wycena_bota=False)          # w bazie tylko źródło Dębusia
+
+        odpowiedz = _zamow(klient_http)
+
+        assert odpowiedz.status_code == 200
+        assert baselinker.wywolania[0]['config']['order_source_id'] == ZRODLO_DEBUS
+
+    def test_zrodlo_z_klienta_wskazujace_na_nieistniejace_spada_na_debusia(
+            self, aplikacja, klient_http, baselinker):
+        # order_source_id na kliencie to goły int bez klucza obcego. Gdy
+        # wskazuje na źródło skasowane w panelu, nie ma komu tego wyłapać:
+        # w panelu handlowiec widzi listę i wybiera, tutaj nie ma człowieka.
+        _zasiej(wycena_bota=False, zrodlo_klienta=999999)
+
+        odpowiedz = _zamow(klient_http)
+
+        assert odpowiedz.status_code == 200
+        assert baselinker.wywolania[0]['config']['order_source_id'] == ZRODLO_DEBUS
+
+    def test_brak_jakiegokolwiek_zrodla_odmawia_przed_akceptacja(
+            self, aplikacja, klient_http, baselinker):
+        # Gdy nie ma nawet czym awaryjnie zamówić — odmowa PRZED akceptacją,
+        # żeby wycena nie została zaakceptowana (z mailami) bez zamówienia.
+        _zasiej(wycena_bota=False, ze_zrodlem=False)
+
+        odpowiedz = _zamow(klient_http)
+
+        assert odpowiedz.status_code == 503
+        assert baselinker.wywolania == []
+        with aplikacja.app_context():
+            wycena = Quote.query.filter_by(public_token=TOKEN).first()
+            assert wycena.is_client_editable is True
+            assert wycena.base_linker_order_id is None

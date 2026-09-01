@@ -1418,6 +1418,17 @@ function dopiszAkapit(kontener, tekst, klasa) {
     return p;
 }
 
+// Wiersz przycisków ekranu końcowego. Przyciski muszą stać OBOK SIEBIE, a nie
+// jeden pod drugim rozdzielony akapitem — stąd osobny kontener zamiast
+// wrzucania ich prosto do bloku tekstu. Na ciasnym ekranie wiersz się zawija
+// (flex-wrap w arkuszu), więc nic nie wystaje poza modal.
+function wierszAkcji(kontener) {
+    const wiersz = document.createElement('div');
+    wiersz.className = 'checkout-done-akcje';
+    kontener.appendChild(wiersz);
+    return wiersz;
+}
+
 function dopiszPrzyciskZamkniecia(kontener) {
     const zamknij = document.createElement('button');
     zamknij.type = 'button';
@@ -1452,24 +1463,32 @@ function pokazPotwierdzenie(wynik) {
 
     const link = bezpiecznyLinkZamowienia(wynik && wynik.order_page_url);
     if (link) {
-        const a = document.createElement('a');
-        a.className = 'btn btn-primary btn-zamowienie';
-        a.href = link;
-        a.target = '_blank';
-        a.rel = 'noopener';
-        a.textContent = 'Otwórz stronę zamówienia';
-        kontener.appendChild(a);
         // To NIE jest link płatniczy — płatność uruchamia dopiero przycisk
-        // na stronie zamówienia.
+        // na stronie zamówienia. Zdanie stoi NAD przyciskami (dawniej między
+        // nimi), żeby „Otwórz stronę zamówienia" i „Zamknij" mogły stanąć
+        // obok siebie; stąd też „Na stronie zamówienia", a nie „Znajdziesz
+        // tam" — bez przycisku przed sobą to „tam" nie miałoby do czego się
+        // odnieść.
         dopiszAkapit(kontener,
-            'Znajdziesz tam szczegóły zamówienia i przycisk opłacenia.', 'podpowiedz');
+            'Na stronie zamówienia znajdziesz szczegóły i przycisk opłacenia.',
+            'podpowiedz');
     } else {
         // Brak order_page nie jest błędem zamówienia — zamówienie istnieje.
         dopiszAkapit(kontener,
             'Szczegóły zamówienia i dane do płatności prześlemy w osobnej wiadomości.');
     }
 
-    dopiszPrzyciskZamkniecia(kontener);
+    const akcje = wierszAkcji(kontener);
+    if (link) {
+        const a = document.createElement('a');
+        a.className = 'btn btn-primary btn-zamowienie';
+        a.href = link;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.textContent = 'Otwórz stronę zamówienia';
+        akcje.appendChild(a);
+    }
+    dopiszPrzyciskZamkniecia(akcje);
 }
 
 // Zapasowa treść dla stanu „zamówienie jest, zapis padł" — gdyby serwer nie
@@ -1501,7 +1520,9 @@ function pokazEkranBezPowtorki(naglowekTekst, komunikat) {
     naglowek.textContent = naglowekTekst;
     kontener.appendChild(naglowek);
     dopiszAkapit(kontener, komunikat);
-    dopiszPrzyciskZamkniecia(kontener);
+    // Ten sam układ co na potwierdzeniu — ekran awaryjny nie może zostać
+    // rozjechany tylko dlatego, że ma jeden przycisk zamiast dwóch.
+    dopiszPrzyciskZamkniecia(wierszAkcji(kontener));
 }
 
 // Ekran „nie wiemy, czy zamówienie powstało". Świadomie bez przycisku ponawiania:

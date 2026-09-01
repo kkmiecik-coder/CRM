@@ -65,19 +65,22 @@ from datetime import datetime
 from flask import current_app
 
 from extensions import db
-from modules.baselinker.models import BaselinkerOrderLog, STATUS_PROBA_NIEPEWNA
+from modules.baselinker.models import (
+    BaselinkerConfig, BaselinkerOrderLog, STATUS_PROBA_NIEPEWNA,
+)
 from modules.baselinker.service import BaselinkerService
 from modules.calculator.models import Quote
 from modules.logging import get_structured_logger
 from modules.quotes.services.checkout_config import (
-    KonfliktDostawy, build_checkout_order_config,
+    ID_ZRODLA_DEBUS, KonfliktDostawy, build_checkout_order_config,
 )
 
 __all__ = ['STATUS_PROBA_NIEPEWNA', 'PROBA_W_TOKU', 'PROBA_NIEPEWNA',
            'PROG_PROBY_W_TOKU_S', 'ODMOWA_ODPIECIA_PROBA_W_TOKU',
            'zablokuj_wycene', 'stan_proby',
            'istnieje_nierozstrzygnieta_proba', 'wisi_nierozstrzygnieta_proba',
-           'zloz_zamowienie', 'zloz_zamowienie_klienta', 'odepnij_zamowienie']
+           'zloz_zamowienie', 'zloz_zamowienie_klienta', 'odepnij_zamowienie',
+           'czy_wycena_bota', 'ustal_zrodlo_zamowienia']
 
 logger = get_structured_logger('quotes.checkout')
 
@@ -567,6 +570,124 @@ def zloz_zamowienie(quote, user_id, buduj_config, sprawdz_kwalifikacje=True):
         link = None
 
     return _odpowiedz(True, order_id=wynik.get("order_id"), order_page_url=link)
+
+
+# Partnerzy „elastyczni" — ta sama lista, co w baselinker/service.py:688, czyli
+# w module, do którego należy suggest_order_source. W repo są jej cztery kopie
+# i DWIE różne wartości ([14, 15] oraz [14, 15, 16] w baselinker/routers.py:695);
+# nie rozstrzygamy tu, która jest prawdziwa — przepisujemy tę z modułu, którego
+# funkcję wołamy. Dziś nie ma to zresztą żadnego wpływu na wynik: parametr
+# `is_flexible_partner` jest w suggest_order_source WYŁĄCZNIE logowany i nie
+# wchodzi do żadnej decyzji. Przekazujemy go mimo to, żeby log mówił prawdę
+# i żeby ożywienie tego parametru nie zaczęło po cichu kłamać.
+_FLEXIBLE_PARTNER_IDS = (14, 15)
+
+
+def _zrodlo_istnieje(baselinker_id):
+    """Czy w baselinker_config jest źródło zamówień o tym baselinker_id.
+
+    Świadomie BEZ filtra is_active — tak samo jak wyszukanie źródła Dębusia
+    w routerze: is_active to flaga widoczności na listach w panelu CRM, a nie
+    włącznik składania zamówień. Handlowiec mógł ukryć źródło na liście i dalej
+    mieć je przypisane klientowi.
+    """
+    return db.session.query(BaselinkerConfig.id).filter_by(
+        config_type='order_source', baselinker_id=baselinker_id).first() is not None
+
+
+def czy_wycena_bota(quote, bot_user_id):
+    """Czy wycenę wystawił bot („Asystent AI", konto BOT_USER_ID).
+
+    Bot podpisuje wyceny tak samo jak człowiek: bot_api woła create_quote
+    adresem e-mail konta bota, a quote_service zapisuje jego id w
+    `quotes.user_id`. Innego znacznika nie ma i nie trzeba go dokładać.
+
+    `bool(bot_user_id)` jest tu konieczne, a nie ozdobne. Bez niego wycena bez
+    autora (user_id = NULL — dane sprzed wprowadzenia podpisu) na instalacji
+    z nieustawionym BOT_USER_ID dawałaby None == None, czyli „wycena bota",
+    i cała taka sprzedaż szłaby do BaseLinkera jako „Dębuś VPS".
+    """
+    return bool(bot_user_id) and getattr(quote, 'user_id', None) == bot_user_id
+
+
+def ustal_zrodlo_zamowienia(quote, bot_user_id):
+    """baselinker_id źródła dla zamówienia z checkoutu klienta albo None.
+
+    Przycisk „Zamów" stoi na KAŻDEJ wycenie — także na wystawionych przez
+    handlowców, którzy sami ustawiają źródła zamówień swoim klientom. Dopóki
+    checkout wpisywał wszystkim „Dębuś VPS", sprzedaż handlowca lądowała
+    w BaseLinkerze jako sprzedaż bota i psuła atrybucję.
+
+    * wycena bota            -> „Dębuś VPS" (bo to naprawdę jego zamówienie);
+    * każda inna             -> suggest_order_source, czyli ta sama reguła,
+      którą panel podpowiada handlowcowi: źródło ustawione na kliencie, a gdy
+      go nie ma — Detal / Nowy B2B / Stały B2B / warianty PH.
+
+    ROLA BIERZE SIĘ Z AUTORA WYCENY, nie z klikającego. Zamawia klient — osoba
+    anonimowa, bez konta i bez roli, więc nie ma czego od niej wziąć.
+    Rozróżnienie, które robi z tego parametru użytek, dotyczy zresztą tego,
+    KTO SPRZEDAŁ (warianty „PH" dla partnerów), a nie kto kliknął. Autor wyceny
+    daje więc dokładnie tę atrybucję, którą handlowiec dostałby, składając to
+    samo zamówienie z panelu.
+
+    WARIANT AWARYJNY JEST JAWNY. Gdy nie da się dobrać źródła — bo klienta nie
+    ma, bo żadna nazwa nie pasuje i nie ma źródła domyślnego, albo bo
+    `client.order_source_id` (goły int, bez klucza obcego) wskazuje na źródło
+    skasowane w panelu — wchodzi „Dębuś VPS". Nie dlatego, że to prawda
+    o sprzedawcy, tylko dlatego, że jest prawdą o kanale: tą stroną klient
+    faktycznie zamówił. Alternatywą byłoby order_source_id = None w żądaniu do
+    BaseLinkera, czyli zamówienie bez źródła albo błąd API zamiast zamówienia.
+
+    Zwraca None dopiero wtedy, gdy nie ma nawet źródła awaryjnego — router
+    zamienia to na odmowę PRZED akceptacją wyceny.
+    """
+    quote_id = getattr(quote, 'id', None)
+
+    if czy_wycena_bota(quote, bot_user_id):
+        if _zrodlo_istnieje(ID_ZRODLA_DEBUS):
+            return ID_ZRODLA_DEBUS
+        logger.error("Brak źródła Dębusia w baselinker_config — nie wykonała "
+                     "się migracja?", quote_id=quote_id,
+                     baselinker_id=ID_ZRODLA_DEBUS)
+        return None
+
+    autor = getattr(quote, 'user', None)
+    # Wycena bez autora idzie tą samą ścieżką co wycena zwykłego pracownika:
+    # 'user' to jedyna rola, która niczego nie dodaje (warianty „PH" wymagają
+    # wprost roli 'partner'). Zgadywanie roli byłoby tu gorsze od jej braku.
+    rola = getattr(autor, 'role', None) or 'user'
+    flexible = (rola == 'partner'
+                and getattr(autor, 'id', None) in _FLEXIBLE_PARTNER_IDS)
+
+    sugerowane = None
+    try:
+        sugerowane = BaselinkerService().suggest_order_source(
+            client=getattr(quote, 'client', None), user_role=rola,
+            is_flexible_partner=flexible)
+    except Exception as blad:
+        # Dobranie źródła nie może wywrócić składania zamówienia — od tego jest
+        # wariant awaryjny niżej.
+        logger.error("Nie udało się dobrać źródła zamówienia", quote_id=quote_id,
+                     user_role=rola, error=str(blad))
+
+    if sugerowane is not None:
+        if _zrodlo_istnieje(sugerowane):
+            logger.info("Źródło zamówienia dobrane z bazy", quote_id=quote_id,
+                        user_role=rola, order_source_id=sugerowane)
+            return sugerowane
+        logger.warning("Dobrane źródło nie istnieje w baselinker_config — "
+                       "wchodzi źródło awaryjne", quote_id=quote_id,
+                       order_source_id=sugerowane)
+
+    if _zrodlo_istnieje(ID_ZRODLA_DEBUS):
+        logger.warning("Nie dobrano źródła dla wyceny — awaryjnie źródło "
+                       "checkoutu", quote_id=quote_id, user_role=rola,
+                       order_source_id=ID_ZRODLA_DEBUS)
+        return ID_ZRODLA_DEBUS
+
+    logger.error("Brak jakiegokolwiek źródła zamówień w baselinker_config",
+                 quote_id=quote_id)
+    return None
 
 
 def zloz_zamowienie_klienta(quote, order_source_id, bot_user_id,

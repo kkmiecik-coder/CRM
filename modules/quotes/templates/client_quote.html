@@ -263,13 +263,17 @@
                     </div>
 
                     <div class="step-content">
-                        <div class="chk delivery-options">
+                        {# Cały wiersz jest etykietą, więc klika się wszędzie,
+                           nie tylko w kwadracik. Etykieta NIE ma atrybutu `for`:
+                           input siedzi w środku, więc powiązanie jest niejawne
+                           i jednoznaczne. Poprzednia wersja miała <label for=…>
+                           ZAGNIEŻDŻONY w wierszu — a zagnieżdżanie etykiet jest
+                           niepoprawne. Identyfikatory pól zostają bez zmian:
+                           modal czyta je po id. #}
+                        <label class="chk delivery-options">
                             <input type="checkbox" id="selfPickup">
-                            <span>
-                                <label for="selfPickup">Odbiór osobisty</label>
-                                <em>Odbiorę zamówienie we własnym zakresie — pola adresu znikną.</em>
-                            </span>
-                        </div>
+                            <span>Odbiór osobisty</span>
+                        </label>
 
                         <div class="m-sec delivery-section" id="deliverySection">
                             <h4 class="section-title">Adres dostawy</h4>
@@ -336,10 +340,10 @@
                         <div class="m-sec invoice-section">
                             <h4 class="section-title">Faktura</h4>
 
-                            <div class="chk">
+                            <label class="chk">
                                 <input type="checkbox" id="wantInvoice">
-                                <span><label for="wantInvoice">Potrzebuję faktury</label></span>
-                            </div>
+                                <span>Potrzebuję faktury</span>
+                            </label>
 
                             <div class="invoice-fields" id="invoiceFields" style="display: none;">
                                 <div class="copy-delivery-info">
@@ -396,9 +400,14 @@
 
                         <div class="m-sec comments-section">
                             <h4 class="section-title">Uwagi</h4>
+                            {# Nagłówek sekcji mówi już „Uwagi" — druga etykieta
+                               nad polem powtarzała to samo słowo. Zostaje sam
+                               nagłówek, a pole dostaje aria-label, żeby czytnik
+                               ekranu nadal je nazywał (placeholder nazwą nie
+                               jest — znika po wpisaniu pierwszego znaku). #}
                             <div class="fg form-group">
-                                <label class="form-label" for="acceptComments">Uwagi do zamówienia</label>
                                 <textarea class="form-textarea" id="acceptComments"
+                                          aria-label="Uwagi do zamówienia"
                                           placeholder="Dodatkowe informacje lub uwagi..."></textarea>
                             </div>
                         </div>
@@ -466,13 +475,17 @@
                            to samo i tylko dokładała klikanie. Jej stan jedzie
                            do endpointu jako akceptacja_regulaminu. #}
                         <div class="terms-section">
-                            <div class="chk">
+                            {# Ten sam klikalny wiersz co wyżej, ale z klasą
+                               `chk-gora`: pod etykietą jest drugie zdanie, więc
+                               tekst ma dwie linie i wyśrodkowany w pionie
+                               kwadracik odjeżdżałby od pierwszej z nich. #}
+                            <label class="chk chk-gora">
                                 <input type="checkbox" id="acceptTerms" required>
                                 <span>
-                                    <label for="acceptTerms">Zapoznałem się z warunkami zamówienia i akceptuję je *</label>
+                                    Zapoznałem się z warunkami zamówienia i akceptuję je *
                                     <em>oraz wyrażam zgodę na przetwarzanie danych osobowych w celu realizacji zamówienia</em>
                                 </span>
-                            </div>
+                            </label>
                             <div class="form-error hidden" id="termsError"></div>
                         </div>
                     </div>

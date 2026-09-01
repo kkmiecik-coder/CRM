@@ -201,6 +201,30 @@ class TestPanelNaWycenieZamowionej:
         assert odpowiedz.get_json()['success'] is True
         assert len(serwis) == 1
 
+    def test_panel_nie_podmienia_zrodla_wybranego_przez_handlowca(
+            self, aplikacja, klient_http, serwis):
+        # Checkout klienta dobiera źródło sam (wycena bota -> „Dębuś VPS",
+        # reszta -> suggest_order_source). Panel NIE: tu źródło wybiera
+        # człowiek na liście i to jego wybór ma dojechać do BaseLinkera
+        # nietknięty. Obie ścieżki dzielą checkout_service, więc ta granica
+        # potrzebuje własnego testu.
+        id_wyceny = _zasiej()
+        with aplikacja.app_context():
+            db.session.add(BaselinkerConfig(
+                config_type='order_source', baselinker_id=77001, name='Detal',
+                is_default=True, is_active=True, sort_order=10,
+                created_at=datetime(2026, 8, 30), updated_at=datetime(2026, 8, 30)))
+            db.session.commit()
+
+        config = _config()
+        config['order_source_id'] = 77001
+        odpowiedz = klient_http.post(
+            '/baselinker/api/quote/%d/create-order' % id_wyceny, json=config)
+
+        assert odpowiedz.status_code == 200
+        assert serwis[0]['order_source_id'] == 77001
+
+
 class TestPanelANierozstrzygnietaProbaKlienta:
     """N3: wyścig checkout klienta ↔ panel handlowca, w obie strony.
 
