@@ -2399,8 +2399,9 @@ def _client_place_order(token):
     link do strony zamówienia. Idempotencja siedzi w checkout_service — tu
     NIE dokładamy własnej, żeby nie było dwóch reguł na jedno zamówienie.
     """
-    from modules.quotes.services.checkout_config import ID_ZRODLA_DEBUS
-    from modules.quotes.services.checkout_service import zloz_zamowienie_klienta
+    from modules.quotes.services.checkout_service import (
+        ustal_zrodlo_zamowienia, zloz_zamowienie_klienta,
+    )
 
     data = request.get_json(silent=True) or {}
 
@@ -2428,20 +2429,27 @@ def _client_place_order(token):
                      "Sprawdź email lub numer telefonu."
         }), 403
 
+    # Konto bota czytamy TU, bo rozstrzyga o źródle zamówienia (niżej): wycena
+    # podpisana kontem bota to zamówienie „od Dębusia", każda inna idzie ze
+    # źródłem z bazy. Konto może nie istnieć (BOT_USER_ID=0 lub nieustawione) —
+    # created_by w logu BaseLinkera jest nullable, więc zamiast łamać FK
+    # zostawiamy None, tak samo jak /api/bot (bot_api.py:226-231).
+    bot_user_id = current_app.config.get("BOT_USER_ID")
+    if bot_user_id and not User.query.get(bot_user_id):
+        bot_user_id = None
+
     # Konfigurację sprawdzamy PRZED akceptacją. Gdyby szła po niej, brak źródła
     # zostawiałby wycenę zaakceptowaną (z mailami do klienta i handlowca), ale
     # bez zamówienia — czyli w stanie, w który klient sam się wepchnął, a nie
     # w takim, o który prosił.
-    # Szukamy po baselinker_id, a NIE po nazwie: nazwa źródła jest polem
-    # redagowalnym w panelu BaseLinkera, więc wiązanie się z nią znaczyło, że
-    # przemianowanie źródła kładzie cały checkout. Nie filtrujemy też po
-    # is_active — to flaga widoczności na listach w panelu CRM, a nie
-    # włącznik składania zamówień.
-    zrodlo = BaselinkerConfig.query.filter_by(
-        config_type="order_source", baselinker_id=ID_ZRODLA_DEBUS).first()
-    if not zrodlo:
-        logger.error("[client_place_order] Brak źródła zamówień o baselinker_id=%s "
-                     "w baselinker_config — nie wykonała się migracja?", ID_ZRODLA_DEBUS)
+    # Samo dobranie źródła siedzi w checkout_service.ustal_zrodlo_zamowienia:
+    # „Dębuś VPS" dla wycen bota, źródło z bazy (suggest_order_source) dla
+    # wycen handlowców. None znaczy, że nie ma czym zamówić nawet awaryjnie.
+    order_source_id = ustal_zrodlo_zamowienia(quote, bot_user_id)
+    if order_source_id is None:
+        logger.error("[client_place_order] Nie udało się ustalić źródła "
+                     "zamówienia dla wyceny %s — pusta konfiguracja "
+                     "baselinker_config?", numer_wyceny)
         return jsonify({
             "error": komunikat_bledu_zamowienia(numer_wyceny, niepewne=False),
             "niepewne": False,
@@ -2490,16 +2498,9 @@ def _client_place_order(token):
             # (np. „Email jest wymagany") zamiast ogólnika.
             blad_akceptacji = odpowiedz_akceptacji
 
-    # Konto bota może nie istnieć w bazie (BOT_USER_ID=0 lub nieustawione).
-    # created_by w logu BaseLinkera jest nullable, więc zamiast łamać FK
-    # zostawiamy None — tak samo jak /api/bot (bot_api.py:226-231).
-    bot_user_id = current_app.config.get("BOT_USER_ID")
-    if bot_user_id and not User.query.get(bot_user_id):
-        bot_user_id = None
-
     wynik = zloz_zamowienie_klienta(
         quote,
-        order_source_id=zrodlo.baselinker_id,
+        order_source_id=order_source_id,
         bot_user_id=bot_user_id,
         # Wybór dostawy z tego samego formularza, z którego czyta go akceptacja.
         # Bez przekazania go dalej zamówienie jechało kurierem i z kosztem
