@@ -336,3 +336,95 @@ class TestDaneDostawyDlaModala:
 
         assert 'courier_name: ""' in html
         assert 'koszt_dostawy: 0.0' in html
+
+
+class TestKlikalneWierszeZgod:
+    """Krok „Dane dostawy i faktury" — pola wyboru w kroku zamawiania.
+
+    Uwagi właściciela po pierwszym realnym zamówieniu: klikał się wyłącznie
+    kwadracik, a nie cały wiersz. Przy okazji z markupu znika błąd, którego
+    nikt nie zgłosił: etykiety BYŁY ZAGNIEŻDŻONE (label w labelu), co jest
+    niepoprawne i w części przeglądarek psuje właśnie klikalność.
+
+    Czego te testy NIE dowodzą: że w przeglądarce kliknięcie w wiersz
+    przełącza pole, że kwadracik stoi tam, gdzie ma stać, i że tło pod
+    kursorem faktycznie się pojawia. Renderujemy HTML, nie uruchamiamy CSS-a
+    ani zdarzeń — to zostaje do sprawdzenia okiem.
+    """
+
+    def _chk(self, html, id_pola):
+        """Fragment markupu wiersza zawierającego pole o podanym id."""
+        pozycja = html.index('id="%s"' % id_pola)
+        poczatek = html.rindex('<label class="chk', 0, pozycja)
+        return html[poczatek:html.index('</label>', pozycja) + len('</label>')]
+
+    def test_wiersze_zgod_sa_etykietami(self, aplikacja, klient_http):
+        _zasiej()
+
+        html = _strona(klient_http)
+
+        for id_pola in ('selfPickup', 'wantInvoice', 'acceptTerms'):
+            wiersz = self._chk(html, id_pola)
+            # Pole siedzi WEWNĄTRZ etykiety — powiązanie niejawne, cały wiersz
+            # klikalny, bez atrybutu `for` wskazującego samego siebie.
+            assert 'id="%s"' % id_pola in wiersz
+            assert '<label' not in wiersz[len('<label'):], \
+                'zagnieżdżona etykieta w wierszu %s' % id_pola
+
+    def test_zgoda_na_warunki_ma_wyrownanie_do_gory(self, aplikacja, klient_http):
+        # Ta jedna ma zdanie pod etykietą, więc kwadracik wyśrodkowany w pionie
+        # odjechałby od pierwszej linii tekstu.
+        _zasiej()
+
+        html = _strona(klient_http)
+
+        assert 'class="chk chk-gora"' in html
+        assert 'chk-gora' not in self._chk(html, 'selfPickup')
+        assert 'chk-gora' not in self._chk(html, 'wantInvoice')
+
+    def test_odbior_osobisty_bez_zdania_po_mysliku(self, aplikacja, klient_http):
+        _zasiej()
+
+        html = _strona(klient_http)
+
+        assert 'Odbiór osobisty' in html
+        assert 'Odbiorę zamówienie we własnym zakresie' not in html
+        assert 'pola adresu znikną' not in html
+
+    def test_identyfikatory_pol_zostaja(self, aplikacja, klient_http):
+        # Modal czyta te pola po id (getElementById) — zmiana markupu nie może
+        # ich ruszyć.
+        _zasiej()
+
+        html = _strona(klient_http)
+
+        for id_pola in ('selfPickup', 'wantInvoice', 'acceptTerms',
+                        'acceptComments'):
+            assert 'id="%s"' % id_pola in html
+
+
+class TestSekcjaUwag:
+    def test_slowo_uwagi_pada_raz(self, aplikacja, klient_http):
+        # Było dwa razy: nagłówek sekcji i etykieta nad polem.
+        _zasiej()
+
+        html = _strona(klient_http)
+        krok = html[html.index('comments-section'):html.index('KROK 3')]
+
+        # Liczymy WIDOCZNE wystąpienia (tekst zaraz za znacznikiem). Nazwa
+        # dla czytnika ekranu siedzi w atrybucie aria-label i na ekranie się
+        # nie pokazuje, więc nie jest tym drugim „Uwagi", o które chodziło.
+        assert krok.count('>Uwagi') == 1
+        assert 'Uwagi do zamówienia</label>' not in krok
+
+    def test_pole_uwag_zachowuje_dostepna_nazwe(self, aplikacja, klient_http):
+        # Placeholder nazwą pola nie jest — znika po wpisaniu pierwszego znaku,
+        # a czytnik ekranu traktuje go tylko jako podpowiedź.
+        _zasiej()
+
+        html = _strona(klient_http)
+        pozycja = html.index('id="acceptComments"')
+        pole = html[html.rindex('<textarea', 0, pozycja):
+                    html.index('>', pozycja)]
+
+        assert 'aria-label="Uwagi do zamówienia"' in pole

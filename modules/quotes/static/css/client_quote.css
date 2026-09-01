@@ -729,24 +729,35 @@ img { max-width: 100%; }
 
 .frow { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 
+/* Cały wiersz jest etykietą (w szablonie <label class="chk">), więc klikalny
+   jest wiersz, a nie sam kwadracik — stąd kursor i tło pod kursorem na całym
+   bloku. Kolor tła to istniejąca zmienna akcentu, bez wprowadzania nowego. */
 .chk {
     display: flex;
     gap: 11px;
-    align-items: flex-start;
+    align-items: center;
     padding: 12px;
     border: 1px solid var(--rule);
     border-radius: 8px;
     min-height: 48px;
+    cursor: pointer;
 }
+.chk:hover { background: var(--acc-bg); }
+/* Wariant dla etykiety wielolinijkowej (zgoda na warunki ma zdanie pod spodem):
+   wyśrodkowany w pionie kwadracik odjeżdżałby wtedy od pierwszej linii. */
+.chk-gora { align-items: flex-start; }
 .chk input {
     width: 20px;
     height: 20px;
-    margin: 1px 0 0;
+    margin: 0;
     accent-color: var(--acc);
     flex: none;
+    cursor: pointer;
 }
+/* Przy wyrównaniu do góry kwadracik siada odrobinę niżej — na wysokość
+   pierwszej linii tekstu, a nie jej górnej krawędzi. */
+.chk-gora input { margin-top: 1px; }
 .chk span { font-size: 13.5px; line-height: 1.45; }
-.chk span label { cursor: pointer; }
 .chk span em {
     display: block;
     font-style: normal;
@@ -1489,7 +1500,26 @@ img { max-width: 100%; }
     font-size: 12.5px;
     color: var(--off);
 }
-.checkout-done .btn { margin: 4px 4px 0; }
+.checkout-done p:last-of-type { margin-bottom: 0; }
+/* Przyciski ekranu końcowego stoją w jednym wierszu, a przy ciasnym ekranie
+   zawijają się do kolejnego — nigdy nie wystają poza modal. Odstęp od tekstu
+   jest tu, a nie na akapitach: akapitów bywa różna liczba. */
+.checkout-done-akcje {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 20px;
+}
+.checkout-done-akcje .btn {
+    /* Bazowy .btn jest pisany pod pełnowymiarowy pasek kroku (flex: 1, zero
+       paddingu). Tutaj przyciski mają być szerokie na tyle, na ile trzeba,
+       i mieć własne odstępy po bokach — bez nich napis dotykał krawędzi. */
+    flex: 0 1 auto;
+    max-width: 100%;
+    margin: 0;
+    padding: 0 22px;
+}
 .checkout-done .btn-zamowienie {
     display: inline-flex;
     align-items: center;
