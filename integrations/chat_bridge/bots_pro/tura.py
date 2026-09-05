@@ -75,6 +75,7 @@ from config import (BOT_PRO_CW_AGENT_TOKEN, BOT_PRO_MAX_BEZ_POSTEPU, BOT_PRO_MAX
 from bots_pro import guardraile, obrazy, stan, wysylka
 from bots_pro.agenci import zbuduj_router
 from core.chatwoot import cw_agent_reply
+from core.events import log_event
 from core.log import log
 
 # Jedno zdanie do klienta na KAŻDYM wyjściu handoffowym (U7). Świadomie bez
@@ -271,6 +272,24 @@ def uruchom(conv_id, inbox_id, tresc, zalaczniki=None, persona="pro", message_id
     if BOT_PRO_MAX_TURNS > 0 and tury_rozmowy > BOT_PRO_MAX_TURNS:
         log("tura: limit %s tur rozmowy przekroczony -> handoff (conv %s)"
             % (BOT_PRO_MAX_TURNS, conv_id))
+        # T1 (telemetria lejka): `turn_limit` — ta sama nazwa co w starym
+        # silniku. Emitujemy w PUNKCIE WYKRYCIA, a nie wewnątrz handoffu jak
+        # tam: stary silnik rozpoznawał limit po PORÓWNANIU tekstu powodu
+        # (`powod == _POWOD_LIMIT_TUR`, z komentarzem, że musi to być
+        # dopasowanie dokładne, bo `powod` bywa wolnym tekstem od LLM). Tu
+        # takiego rozpoznawania po stringu nie potrzeba i nie chcemy go
+        # wprowadzać — to jedyna gałąź w całym module, na której ten limit w
+        # ogóle zachodzi, więc jedno wywołanie na turę wynika z kształtu kodu.
+        #
+        # PRZED `_oddaj_konsultantowi`, więc w bazie `turn_limit` stoi przed
+        # `handoff` tej samej rozmowy (w starym silniku odwrotnie). Zamiana
+        # kolejności jest świadoma i wynika z tej samej zasady, którą stary
+        # silnik zapisał przy `handoff`: telemetria ma przeżyć nieudaną wysyłkę
+        # do Chatwoota, a `_oddaj_konsultantowi` wysyła klientowi komunikat
+        # ZANIM zdąży zawołać `stan.handoff`. Kolejność jest bez znaczenia dla
+        # odczytu — zapytania lejka pytają o OBECNOŚĆ zdarzenia w rozmowie
+        # (`WHERE event='turn_limit'`), nie o `ts` względem sąsiada.
+        log_event(conv_id, "turn_limit")
         _oddaj_konsultantowi("limit dlugosci rozmowy (ponad %s tur)" % BOT_PRO_MAX_TURNS,
                              conv_id, persona)
         return

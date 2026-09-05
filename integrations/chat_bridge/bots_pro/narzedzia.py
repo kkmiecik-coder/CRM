@@ -21,6 +21,7 @@ from agents import function_tool
 
 from bots import crm_calc
 from bots_pro.obrazy_do_klienta import OBRAZY_DLA_KLIENTA
+from core.events import log_event
 from core.log import log
 
 # Osiem kombinacji z VARIANT_CODES. B/B istnieje WYŁĄCZNIE dla dębu.
@@ -220,6 +221,30 @@ def policz_wycene() -> dict:
     pozycje = stan.pozycje()
     wynik = crm_calc.calculate(pozycje, crm_calc.get_options())
     stan.zapamietaj_kwoty(podsumowanie.kwoty_z_wyniku(pozycje, wynik))   # inwariant I1
+
+    # T1 (telemetria lejka): DOKŁADNIE ta sama nazwa zdarzenia co w starym
+    # silniku (`bots/quotebot.py`, LS-08), żeby oba silniki dały się porównać
+    # zapytaniem do JEDNEJ tabeli `quote_events` — po to jest ten commit.
+    # Nie ma tu żadnego try/except: `core.events.log_event` ma własny i NIGDY
+    # nie rzuca (patrz jego docstring), a druga osłona tylko zaciemniałaby, że
+    # ta linia nie może wywrócić tury.
+    #
+    # UWAGA na różnicę semantyczną wobec starego silnika, istotną przy czytaniu
+    # danych: tam `priced` znaczyło „klient ZOBACZYŁ cenę" (log tuż po udanym
+    # `cw_agent_reply` z ceną), tu znaczy „kalkulator ODDAŁ cenę". Model wolno
+    # woła to narzędzie kilka razy w jednej rozmowie (mówi to wprost docstring
+    # wyżej), więc LICZBA zdarzeń `priced` NIE jest porównywalna między
+    # silnikami — porównywalna jest liczba ROZMÓW z co najmniej jednym `priced`
+    # (COUNT(DISTINCT conv_id)) i to na niej stoi baseline lejka.
+    #
+    # `pozycje` w meta (pole, którego stary silnik nie miał): rozstrzyga spór o
+    # zwinięcie listy 13 elementów do jednej — mówi, ILE pozycji faktycznie
+    # weszło do rachunku, a nie ile klient wymienił w wiadomości.
+    if wynik.get("ok"):
+        log_event(stan.conv_id(), "priced",
+                  {"kwota": (wynik.get("totals") or {}).get("total_brutto"),
+                   "pozycje": len(pozycje)})
+
     dla_modelu = podsumowanie.wynik_dla_modelu(pozycje, wynik)
     if _wariant_niedostepny(wynik) and isinstance(dla_modelu, dict):
         # Kopia, nie mutacja: `wynik_dla_modelu` przy braku sekcji `products`
@@ -278,6 +303,12 @@ def policz_wysylke(kod_pocztowy: str) -> dict:
         stan.zapisz_dostawe(kod_pocztowy, kurier=wynik.get("carrier_name"),
                             netto=wynik.get("shipping_netto"),
                             brutto=wynik.get("shipping_brutto"))
+        # T1: warunek `ok and carriers` jest PRZEPISANY ze starego silnika
+        # (bots/quotebot.py:_obsluz_wysylke) — `ok=True` z `carriers=0` NIE jest
+        # oszacowaniem wysyłki (patrz docstring tego narzędzia: to nie znaczy
+        # „gratis"), więc zdarzenie tam nie leci i lejek nie liczy fałszywych
+        # sukcesów. Dlatego siedzi w TEJ gałęzi, a nie za `if wynik.get("ok")`.
+        log_event(stan.conv_id(), "shipping_quoted", {"carrier": wynik.get("carrier_name")})
     else:
         stan.zapisz_dostawe(kod_pocztowy)
 
@@ -467,6 +498,14 @@ def zapisz_wycene(client_id: int, notatka: str = "") -> dict:
     stan.zapamietaj_wycene(wynik)   # U3: bez tego fallback linku jest martwy
 
     if wynik.get("ok"):
+        # T1: zdarzenie znaczy „wycena JEST w CRM", więc leci TUTAJ, a nie przy
+        # `return` — niżej jest gałąź DOSTAWA_NIEDOPISANA, która oddaje
+        # `ok=False` MIMO zapisanej wyceny (patrz jej komentarz). Logowanie
+        # dopiero na wyjściu gubiłoby w telemetrii dokładnie te rozmowy, w
+        # których wycena powstała, ale coś poszło nie tak — czyli najciekawsze.
+        # Emisja jest z natury pojedyncza: bramka WYCENA_JUZ_ZAPISANA wyżej nie
+        # dopuszcza drugiego zapisu w tej samej rozmowie.
+        log_event(stan.conv_id(), "quote_saved", {"nr": wynik.get("quote_number")})
         z_dostawa = _dopisz_dostawe(stan, wynik.get("edit_uuid"), notatka)
         if z_dostawa is not None:
             if z_dostawa.get("ok"):

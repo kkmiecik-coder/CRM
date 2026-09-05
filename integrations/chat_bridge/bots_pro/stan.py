@@ -67,6 +67,7 @@ import contextvars
 import json
 
 from core.db import db
+from core.events import log_event
 from core.log import log
 
 _conv_id = contextvars.ContextVar("conv_id", default=None)
@@ -673,6 +674,11 @@ def zapisz_pozycje(id, produkt="", dlugosc_cm=0, szerokosc_cm=0, grubosc_cm=0,
     if usun:
         dane["pozycje"] = [p for p in pozycje if p.get("id") != id]
         _zapisz(dane)
+        # T1: patrz log na końcu tej funkcji — kasowanie tak samo zmienia liczbę
+        # pozycji jak zapis, więc bez tej linii „skąd zniknęły pozycje" wciąż nie
+        # dałoby się odpowiedzieć z samych logów.
+        log("stan: pozycja %r usunieta, pozycji po zapisie: %s (conv %s)"
+            % (id, len(dane["pozycje"]), conv_id()))
         return {"ok": True, "usunieto": id}
 
     if biezaca is None:
@@ -730,6 +736,20 @@ def zapisz_pozycje(id, produkt="", dlugosc_cm=0, szerokosc_cm=0, grubosc_cm=0,
         biezaca["otwory"] = list(otwory)
 
     _zapisz(dane)
+    # T1: JEDYNY sposób, żeby na produkcji rozstrzygnąć spór o przyczynę
+    # zwinięcia listy 13 elementów do jednej pozycji — czy model zrobił JEDNO
+    # wywołanie z jedną pozycją, czy TRZYNAŚCIE wywołań, które nadpisały się
+    # nawzajem (lost update na `pro_dane`). Te dwie hipotezy dają identyczny
+    # stan końcowy i różnią się WYŁĄCZNIE liczbą wywołań tej funkcji oraz
+    # przebiegiem licznika po każdym z nich.
+    #
+    # Zwykły `log`, nie `log_event`: to diagnostyka wywołań narzędzia, nie
+    # zdarzenie lejka — do `quote_events` należą etapy sprzedaży, nie zapisy
+    # pól. Nie jest gated `BOT_PRO_TRACING` (dziś 0), bo wtedy pojawiłaby się
+    # dopiero po włączeniu tracingu na produkcji, a ma być widoczna OD RAZU
+    # i PRZED naprawą wyścigu — inaczej nie będzie z czym porównać stanu po niej.
+    log("stan: zapis pozycji %r, pozycji po zapisie: %s (conv %s)"
+        % (id, len(dane.get("pozycje") or []), conv_id()))
     return {"ok": True, "pozycja": biezaca}
 
 
@@ -790,6 +810,25 @@ def handoff(powod):
         log("stan: rozmowa juz oddana w tej turze — pomijam powtorny handoff "
             "(conv %s, powod=%r)" % (biezacy, powod))
         return {"ok": True, "powod": powod, "pominiety": True}
+    # T1 (telemetria lejka): `handoff` emitujemy WYŁĄCZNIE TUTAJ, mimo że
+    # oddanie rozmowy ma dwa wejścia — `tura._oddaj_konsultantowi` (bezpieczniki
+    # tury: limit tur, brak postępu, guardraile) i sam model przez narzędzie
+    # `oddaj_czlowiekowi` / `przygotuj_zamowienie`. To miejsce jest jedynym, przez
+    # które przechodzą OBA, więc żadne wyjście handoffowe nie wypada z telemetrii.
+    #
+    # Podwójne liczenie rozwiązuje się bez nowej flagi turowej: `tura.
+    # _oddaj_konsultantowi` woła tę funkcję, a ona ma OD N7 bramkę
+    # `handoff_w_turze()` kilka linii wyżej — drugie oddanie tej samej rozmowy w
+    # tej samej turze kończy się `return` PRZED tym miejscem. Jedna tura = co
+    # najwyżej jedno zdarzenie `handoff`, i to bez dokładania stanu, który i tak
+    # przebudowuje osobne zadanie.
+    #
+    # PRZED notatką i przed przełączeniem statusu — dokładnie ta sama kolejność
+    # i to samo uzasadnienie co w starym silniku (`bots.quotebot._do_handoff`,
+    # LS-08): telemetria ma zostać nawet wtedy, gdy sama wysyłka do Chatwoota
+    # padnie. Dlatego logujemy fakt DECYZJI o oddaniu rozmowy, a nie jej
+    # powodzenie — powodzenie widać w `ok` zwracanym niżej i w logu `tura.py`.
+    log_event(biezacy, "handoff", {"powod": powod})
     notatki.notatka_stanu(biezacy, powod)
     udane = cw_bot_handoff(biezacy, token=BOT_PRO_CW_AGENT_TOKEN)
     _handoff_w_turze.set(True)

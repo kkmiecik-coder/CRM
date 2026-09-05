@@ -12,6 +12,7 @@ from bots import crm_calc
 from bots_pro import potwierdzenia, stan
 from config import BOT_PRO_CW_AGENT_TOKEN
 from core.chatwoot import cw_agent_reply
+from core.events import log_event
 from core.log import log
 
 
@@ -485,6 +486,17 @@ def wyslij():
     # sparafrazował podsumowanie własnymi słowami — dokładnie to, przed czym ma
     # chronić wysyłka WYŁĄCZNIE stąd, nie z final_output modelu).
     stan.oznacz_podsumowanie_wyslane()
+
+    # T1 (telemetria lejka): ta sama nazwa i to samo pole `positions` co w
+    # starym silniku (bots/quotebot.py, LS-08) — dane z obu silników mają
+    # wpadać do `quote_events` w JEDNEJ jednostce.
+    #
+    # PO pętli wysyłki, nie przed: nieudana część robi wcześniej `return`, więc
+    # zdarzenie z definicji opisuje podsumowanie, które klient FAKTYCZNIE
+    # zobaczył — tak samo jak `oczekiwany_podpis` zapisywany dwie linie wyżej
+    # (U1). Podsumowanie, które nie dotarło, ma zostać w telemetrii NIEobecne;
+    # jego ślad to `podsumowanie_nieudane` -> handoff w `tura.py`.
+    log_event(stan.conv_id(), "summary_sent", {"positions": len(pozycje)})
 
     return {"ok": True, "wyslano": True, "podpis": oczekiwany,
             "wskazowka": "Podsumowanie wysłane. Twoja odpowiedź w tej turze może być pusta. "

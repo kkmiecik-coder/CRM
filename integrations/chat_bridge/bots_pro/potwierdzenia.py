@@ -21,6 +21,7 @@ import re
 import time
 
 from core.db import db
+from core.events import log_event
 
 # Pola CENOTWÓRCZE — KAŻDE z nich czyta `crm_calc.build_products`, więc jego
 # zmiana zmienia wynik kalkulatora. Pominięcie któregoś tutaj oznacza „zmiana
@@ -314,6 +315,14 @@ def potwierdz(cytat_klienta):
 
     stan.zapisz_stan(potwierdzony_podpis=biezacy, potwierdzenie_cytat=cytat_klienta,
                      potwierdzenie_ts=time.time())
+    # T1 (telemetria lejka): `confirmed` — ta sama nazwa co w starym silniku.
+    # PO zapisie podpisu, nie przed: inwariant I2 mówi, że potwierdzenie jest
+    # przypięte do PODPISU TREŚCI, a nie do faktu wywołania narzędzia, więc
+    # zdarzenie ma opisywać potwierdzenie, które naprawdę wylądowało w
+    # `pro_stan`. Obie ścieżki odrzucenia wyżej robią `return` przed tym
+    # miejscem, więc na jedno udane `potwierdz` przypada dokładnie jedno
+    # zdarzenie. Zero zmian w samej bramce I2 — to wyłącznie obserwacja.
+    log_event(stan.conv_id(), "confirmed")
     return {"ok": True, "podpis": biezacy}
 
 
