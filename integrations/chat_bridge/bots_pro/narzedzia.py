@@ -217,10 +217,35 @@ def policz_wycene() -> dict:
     Cen INNYCH wariantów drewna to narzędzie nie zwraca i nie ma ich skąd
     wziąć — porównanie wariantów klient zobaczy w gotowej wycenie, gdzie stoją
     obok siebie razem z powodem niedostępności (patrz sekcja PORÓWNANIE)."""
-    from bots_pro import podsumowanie, stan
-    pozycje = stan.pozycje()
+    from bots_pro import podsumowanie, potwierdzenia, stan
+    # X1: migawka pozycji brana POD zamkiem — inaczej równoległy `zapisz_pozycje`
+    # z tego samego kroku modelu mógłby ją złapać w połowie i kalkulator
+    # policzyłby przypadkowy prefiks listy.
+    with stan.zamek_stanu:
+        pozycje = stan.pozycje()
+        odcisk_wejsciowy = potwierdzenia.odcisk_cenotworczy(pozycje)
+    # Samo wywołanie kalkulatora jest PO ZA zamkiem, świadomie: to HTTP z
+    # timeoutem 30 s, a zamek jest procesowy i wspólny dla wszystkich rozmów —
+    # trzymanie go przez czas obcego I/O zamieniłoby naprawę integralności w
+    # awarię przepustowości.
     wynik = crm_calc.calculate(pozycje, crm_calc.get_options())
-    stan.zapamietaj_kwoty(podsumowanie.kwoty_z_wyniku(pozycje, wynik))   # inwariant I1
+    with stan.zamek_stanu:
+        # Inwariant I1 — ale rejestrujemy TYLKO wtedy, gdy pozycje nie zmieniły
+        # się w trakcie liczenia. To jest ta sama reguła, którą `_zmien_pozycje`
+        # stosuje od drugiej strony (zmiana pola cenotwórczego kasuje rejestr),
+        # tylko zastosowana do kwoty, która przyszła PÓŹNO: cena policzona dla
+        # konfiguracji, z której klient właśnie zrezygnował, nie ma prawa wejść
+        # do rejestru jako „znana", bo wtedy guardrail przepuściłby ją modelowi
+        # do zacytowania (dokładnie awaria opisana jako W2 w docstringu
+        # `bots_pro/stan.py`). Porównanie i zapis MUSZĄ być pod jednym zamkiem —
+        # sprawdzenie bez niego nic nie gwarantuje, bo zapis pozycji zdążyłby
+        # wejść pomiędzy. Ten sam odcisk co przy czyszczeniu rejestru, więc obie
+        # reguły nie mogą się rozjechać.
+        if potwierdzenia.odcisk_cenotworczy(stan.pozycje()) == odcisk_wejsciowy:
+            stan.zapamietaj_kwoty(podsumowanie.kwoty_z_wyniku(pozycje, wynik))
+        else:
+            log("narzedzia: pozycje zmienily sie w trakcie liczenia -> kwot NIE "
+                "rejestruje (conv %s)" % stan.conv_id())
 
     # T1 (telemetria lejka): DOKŁADNIE ta sama nazwa zdarzenia co w starym
     # silniku (`bots/quotebot.py`, LS-08), żeby oba silniki dały się porównać
@@ -299,23 +324,39 @@ def policz_wysylke(kod_pocztowy: str) -> dict:
     # KOLEJNOŚĆ jest istotna (N2): `zapisz_dostawe` kasuje z rejestru G1 kwoty
     # POPRZEDNIEGO oszacowania, więc nowe kwoty rejestrujemy PO nim — odwrotna
     # kolejność skasowałaby to, co właśnie zapisaliśmy.
-    if wynik.get("ok") and wynik.get("carriers"):
-        stan.zapisz_dostawe(kod_pocztowy, kurier=wynik.get("carrier_name"),
-                            netto=wynik.get("shipping_netto"),
-                            brutto=wynik.get("shipping_brutto"))
-        # T1: warunek `ok and carriers` jest PRZEPISANY ze starego silnika
-        # (bots/quotebot.py:_obsluz_wysylke) — `ok=True` z `carriers=0` NIE jest
-        # oszacowaniem wysyłki (patrz docstring tego narzędzia: to nie znaczy
-        # „gratis"), więc zdarzenie tam nie leci i lejek nie liczy fałszywych
-        # sukcesów. Dlatego siedzi w TEJ gałęzi, a nie za `if wynik.get("ok")`.
-        log_event(stan.conv_id(), "shipping_quoted", {"carrier": wynik.get("carrier_name")})
-    else:
-        stan.zapisz_dostawe(kod_pocztowy)
+    #
+    # X1: ta para MUSI być jedną sekcją krytyczną, i to jest wiążące, nie
+    # ozdobne. Kasowanie kwot poprzedniego oszacowania i rejestracja nowych to
+    # dwie operacje na tym samym rejestrze; dwa równoległe `policz_wysylke`
+    # (klient podaje dwa kody pocztowe naraz) mogą je przepleść tak, że w
+    # `pro_stan` zostaje kurier jednego, a w rejestrze G1 kwoty drugiego —
+    # albo, gorzej, że świeżo zarejestrowana kwota ginie pod cudzym DELETE.
+    # Objawem jest fałszywy alarm G1 na PRAWDZIWEJ kwocie kalkulatora, runda
+    # korekty i handoff „guardrail ceny — dwie próby" (tura.py). Zamka nie da
+    # się schować w `zapisz_dostawe`: sekcja krytyczna obejmuje PARĘ, a druga
+    # połowa pary mieszka tutaj. `zamek_stanu` jest RLock-iem, więc zagnieżdżony
+    # zamek wewnątrz `zapisz_dostawe` jest tu bezpieczny.
+    #
+    # Samo `shipping_quote` (HTTP) zostaje POZA zamkiem — jest kilka linii wyżej,
+    # z tego samego powodu co w `policz_wycene`.
+    with stan.zamek_stanu:
+        if wynik.get("ok") and wynik.get("carriers"):
+            stan.zapisz_dostawe(kod_pocztowy, kurier=wynik.get("carrier_name"),
+                                netto=wynik.get("shipping_netto"),
+                                brutto=wynik.get("shipping_brutto"))
+            # T1: warunek `ok and carriers` jest PRZEPISANY ze starego silnika
+            # (bots/quotebot.py:_obsluz_wysylke) — `ok=True` z `carriers=0` NIE jest
+            # oszacowaniem wysyłki (patrz docstring tego narzędzia: to nie znaczy
+            # „gratis"), więc zdarzenie tam nie leci i lejek nie liczy fałszywych
+            # sukcesów. Dlatego siedzi w TEJ gałęzi, a nie za `if wynik.get("ok")`.
+            log_event(stan.conv_id(), "shipping_quoted", {"carrier": wynik.get("carrier_name")})
+        else:
+            stan.zapisz_dostawe(kod_pocztowy)
 
-    stan.zapamietaj_kwoty(
-        (wynik[pole] for pole in ("shipping_netto", "shipping_brutto")
-         if isinstance(wynik.get(pole), (int, float))),
-        zrodlo="dostawa")
+        stan.zapamietaj_kwoty(
+            (wynik[pole] for pole in ("shipping_netto", "shipping_brutto")
+             if isinstance(wynik.get(pole), (int, float))),
+            zrodlo="dostawa")
 
     if not wynik.get("ok"):
         # U9: sam POWÓD niepowodzenia, nigdy surowy payload. Nieudane oszacowanie

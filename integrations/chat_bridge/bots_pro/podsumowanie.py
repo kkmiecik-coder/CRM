@@ -415,7 +415,7 @@ def wyslij():
     else:
         # Wysyłka jeszcze nieoszacowana albo gabaryt bez kuriera — NIE dopisujemy
         # ani zmyślonego "0 zł", ani nieaktualnego kosztu sprzed zmiany pozycji
-        # (stan.zapisz_dostawe/_zapisz dbają o to, żeby stary koszt tu nie dotrwał).
+        # (stan.zapisz_dostawe/_zmien_pozycje dbają o to, żeby stary koszt tu nie dotrwał).
         #
         # N3 (rerecenzja gałęzi): ale MILCZEĆ o dostawie też nie wolno. Odkąd
         # podsumowanie CZASEM pokazuje trzy linie z kurierem, brak takiej linii

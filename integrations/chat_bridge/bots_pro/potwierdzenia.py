@@ -30,7 +30,7 @@ from core.events import log_event
 # klasa błędu #2016 (bramka przepuszcza mimo zmiany danych).
 #
 # JEDNA definicja dla DWÓCH mechanizmów (U6): podpisu potwierdzenia (niżej) i
-# czyszczenia rejestru kwot G1 (`bots_pro.stan._zapisz` woła `odcisk_cenotworczy`).
+# czyszczenia rejestru kwot G1 (`bots_pro.stan._zmien_pozycje` woła `odcisk_cenotworczy`).
 # Wcześniej rejestr czyścił się przy zmianie DOWOLNEGO pola `dane_json`, więc
 # dopisanie otworu — pola jawnie NIEWYCENIANEGO — kasowało prawdziwe ceny i
 # guardrail zgłaszał je jako halucynację.
@@ -133,7 +133,7 @@ _ODMOWY = re.compile(
 def odcisk_cenotworczy(pozycje):
     """Kanoniczny obraz pozycji OGRANICZONY do pól cenotwórczych (U6).
 
-    `bots_pro.stan._zapisz` porównuje ten odcisk sprzed i po zapisie, żeby
+    `bots_pro.stan._zmien_pozycje` porównuje ten odcisk sprzed i po zapisie, żeby
     zdecydować, czy wyczyścić rejestr kwot G1. Mieszka tutaj, a nie w `stan`,
     bo to ta sama definicja „co zmienia cenę", której używa podpis — dwie
     kopie tej listy rozjechałyby się przy pierwszym nowym polu."""

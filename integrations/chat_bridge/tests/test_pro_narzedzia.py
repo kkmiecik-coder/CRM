@@ -359,7 +359,8 @@ class TestZapiszPozycjeWywolanie:
         stan.ustaw_kontekst(96007)
         _wolaj(n.zapisz_pozycje, id="1", produkt="blat")
         wynik = _wolaj(n.zapisz_pozycje, id="1", usun=True)
-        assert wynik == {"ok": True, "usunieto": "1"}
+        # X1: patrz test_pro_stan.py — wynik niesie tez licznik pozycji po zapisie.
+        assert wynik == {"ok": True, "usunieto": "1", "liczba_pozycji": 0}
         assert stan.pozycje() == []
 
 
@@ -1402,3 +1403,61 @@ class TestP2NarzedzieWysylkiObrazu:
         wynik = _wolaj(n.wyslij_obraz, obraz="wymiary")
         assert wywolania == ["wymiary"]
         assert wynik["ok"] is True
+
+
+class TestKwotyNieRejestrujaSieDlaPorzuconejKonfiguracji:
+    """X1, osłona I1. Naprawa wyścigu serializuje zapisy pozycji, więc `DELETE
+    FROM pro_kwoty` (kasowanie rejestru przy zmianie pola cenotwórczego) i
+    `INSERT` świeżej kwoty z kalkulatora układają się w kolejkę zamiast na
+    siebie nachodzić. Gdyby o ważności kwoty decydowała wyłącznie KOLEJNOŚĆ tych
+    dwóch operacji, wystarczyłby jeden niefortunny przeplot, żeby w rejestrze G1
+    została cena policzona dla konfiguracji, z której klient właśnie
+    zrezygnował — a guardrail przepuściłby ją jako „znaną" (dokładnie awaria
+    opisana jako W2 w docstringu `bots_pro/stan.py`).
+
+    Dlatego `policz_wycene` porównuje odcisk cenotwórczy pozycji sprzed i po
+    wywołaniu kalkulatora i rejestruje kwoty TYLKO przy odcisku niezmienionym.
+    To czyni odporność na wyścig WŁASNOŚCIĄ KODU, a nie szczęścia w schedulerze:
+    test niżej nie ma ani jednego wątku i mimo to opisuje dokładnie ten przeplot
+    (zmiana pozycji „w trakcie" liczenia)."""
+
+    def test_zmiana_pozycji_w_trakcie_liczenia_nie_rejestruje_kwot(self, monkeypatch):
+        stan.ustaw_kontekst(96520)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat", dlugosc_cm=180,
+               szerokosc_cm=60, grubosc_cm=4, ilosc=1,
+               selected_variant="dab-lity-ab", wykonczenie="surowe")
+
+        def _kalkulator_z_wyscigiem(pozycje, opcje):
+            # Odpowiednik równoległego `zapisz_pozycje` z tego samego kroku
+            # modelu: klient zmienia grubość, kiedy kalkulator już liczy starą.
+            stan.zapisz_pozycje("1", grubosc_cm=6)
+            return {"ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}}
+
+        monkeypatch.setattr(n.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(n.crm_calc, "calculate", _kalkulator_z_wyscigiem)
+        _wolaj(n.policz_wycene)
+
+        # Kwota dotyczy grubości 4 cm, a zapisane jest 6 cm — do rejestru G1
+        # wejść nie może, bo bot mógłby ją zacytować jako obowiązującą.
+        assert stan.znane_kwoty() == set()
+
+    def test_zmiana_NIECENOTWORCZA_w_trakcie_liczenia_nie_kasuje_kwot(self, monkeypatch):
+        """Kontrola negatywna. Bramka stoi na tym SAMYM odcisku, którego używa
+        czyszczenie rejestru (U6) — dopisanie otworu nie zmienia ceny, więc nie
+        ma prawa ani skasować rejestru, ani zablokować rejestracji. Bez tej
+        symetrii typowa tura „dopisuję wycięcie na zlew, cena bez zmian"
+        kończyłaby się fałszywym alarmem G1 na PRAWDZIWEJ kwocie."""
+        stan.ustaw_kontekst(96521)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat", dlugosc_cm=180,
+               szerokosc_cm=60, grubosc_cm=4, ilosc=1,
+               selected_variant="dab-lity-ab", wykonczenie="surowe")
+
+        def _kalkulator_z_otworem(pozycje, opcje):
+            stan.zapisz_pozycje("1", otwory=["otwór na zlew 50x40 cm"])
+            return {"ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}}
+
+        monkeypatch.setattr(n.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(n.crm_calc, "calculate", _kalkulator_z_otworem)
+        _wolaj(n.policz_wycene)
+
+        assert {"685.40", "843.04"} <= stan.znane_kwoty()
