@@ -517,6 +517,7 @@ def wyslij():
     # endpointów pola z sumą razem z wysyłką — wtedy użyć JEGO, nie tego dodawania.
     # Ostrzeżenie powtórzone w DEPLOY-quotebot.md.
     kwoty_dostawy = []
+    razem_z_dostawa = None
     if dostawa.get("kurier") and isinstance(dostawa_brutto, (int, float)):
         razem_z_dostawa = round(float(razem_produkty or 0) + float(dostawa_brutto), 2)
         # N2: suma „produkt + dostawa" to kwota DOSTAWY — traci ważność razem z
@@ -592,7 +593,21 @@ def wyslij():
                                  "Napisz krótko, że za chwilę wrócisz z podsumowaniem, "
                                  "albo spróbuj wysłać je ponownie w kolejnej turze."}
 
-    stan.zapisz_stan(oczekiwany_podpis=oczekiwany)
+    # Z4: RAZEM z podpisem, jednym zapisem i w tym samym momencie — czyli
+    # dopiero PO udanej wysyłce (U1 wyżej). Osobny, wcześniejszy zapis byłby
+    # powtórzeniem dokładnie tego obejścia, przed którym broni U1: w bazie
+    # leżałby ślad po podsumowaniu, którego klient nigdy nie zobaczył.
+    # To, co widzi klient, to ostatnia linia z sumą: „Razem z dostawą", gdy
+    # kurier jest policzony, w przeciwnym razie „Razem za produkty".
+    # Wartość jest POCHODNA liczb, które zwrócił kalkulator — nie nowym
+    # źródłem ceny (nie idzie do `zapamietaj_kwoty`, więc guardrail G1 jej nie
+    # zna i bot nadal nie może jej wypowiedzieć z tego tytułu). Wychodzi
+    # WYŁĄCZNIE do prywatnej notatki dla konsultanta.
+    kwota_pokazana = razem_z_dostawa if kwoty_dostawy else razem_produkty
+    stan.zapisz_stan(
+        oczekiwany_podpis=oczekiwany,
+        pokazana_kwota=(float(kwota_pokazana)
+                        if isinstance(kwota_pokazana, (int, float)) else None))
 
     # Bramka (nie dyscyplina promptu — runda poprawek 1, W3): oznacz w stanie tury,
     # że podsumowanie już poszło. `tura.py` to sprawdza i NIE wyśle niczego więcej w

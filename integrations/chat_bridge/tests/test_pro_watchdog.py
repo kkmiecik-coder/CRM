@@ -20,6 +20,20 @@ podsumowaniu listy rozmów obejmuje OBIE możliwości.
 import pytest
 
 import pro_watchdog as w
+from bots_pro import notatki, stan
+
+
+class _OdpowiedzNotatki:
+    """Namiastka `requests.Response` — `cw_note` zwraca wlasnie taki obiekt."""
+
+    def __init__(self, status_code):
+        self.status_code = status_code
+        self.text = ""
+
+
+# Notatka watchdoga sklada sie dzis z BIEZACEGO STANU rozmowy (Z4), wiec ten plik
+# dotyka tabel `pro_dane`/`pro_stan`.
+stan.init_pro()
 
 # Drobne (runda poprawek 2, code review): asercja tożsamości POZA zasięgiem
 # fixture'a autouse niżej — ten podmienia `w._jest_pro_inbox` w KAŻDYM teście
@@ -62,6 +76,16 @@ def _domyslnie_wszystkie_inboxy_sa_pro(monkeypatch):
     monkeypatch.setattr(w, "_jest_pro_inbox", lambda inbox_id: True)
 
 
+@pytest.fixture(autouse=True)
+def _notatki_nie_wychodza_do_sieci(monkeypatch):
+    """Z4: notatke sklada teraz `bots_pro.notatki`, wiec `cw_note` trzeba podmienic
+    W TYM module — `pro_watchdog` ma wlasne wiazanie tej nazwy i podmiana `w.cw_note`
+    (jak dotad) zostawialaby prawdziwe wywolanie HTTP w sciezce glownej. Domyslnie
+    zbieramy tresci notatek do listy; testy, ktore chca innego zachowania, nadpisuja
+    to jawnie."""
+    monkeypatch.setattr(notatki, "cw_note", lambda conv_id, tekst, **k: _OdpowiedzNotatki(200))
+
+
 def _rozmowa(conv_id, last_msg_type, minut_temu, teraz=1_000_000, inbox_id="5"):
     return {"id": conv_id, "inbox_id": inbox_id, "last_msg_type": last_msg_type,
             "last_msg_ts": teraz - minut_temu * 60}
@@ -77,6 +101,38 @@ class _FakeResp:
 
     def json(self):
         return {"payload": self._p}
+
+
+def _zbieraj_notatki(monkeypatch):
+    """Podmienia `cw_note` w `bots_pro.notatki` (sciezka GLOWNA notatki watchdoga)
+    i zwraca liste, do ktorej trafia (conv_id, tresc)."""
+    wyslane = []
+    monkeypatch.setattr(notatki, "cw_note", lambda conv_id, tekst, **k: (
+        wyslane.append((conv_id, tekst)) or _OdpowiedzNotatki(200)))
+    return wyslane
+
+
+def _porzucona(monkeypatch, rozmowy):
+    """Ustawia watchdoga tak, zeby `rozmowy` przeszly przez obie bramki do handoffu."""
+    monkeypatch.setattr(w, "cw_pending_conversations", lambda: rozmowy)
+    monkeypatch.setattr(w, "_jest_pro_inbox", lambda inbox_id: True)
+    monkeypatch.setattr(w, "_bot_naprawde_mowil_ostatni", lambda conv_id: True)
+    monkeypatch.setattr(w, "cw_bot_handoff", lambda conv_id, token=None: True)
+
+
+def _rozmowa_z_pozycja(conv, produkt, kwota=None):
+    """Zapisuje pozycje (i ewentualnie kwote pokazana klientowi) dla rozmowy `conv`.
+
+    Na koniec PRZESTAWIA kontekst na inna rozmowe — inaczej testy nizej byly bezwartosciowe:
+    contextvar zostawiony na `conv` sprawilby, ze notatka zlozylaby sie poprawnie
+    NAWET gdyby watchdog w ogole nie ustawial kontekstu."""
+    stan.ustaw_kontekst(conv)
+    stan.zapisz_pozycje("1", produkt=produkt, dlugosc_cm=180, szerokosc_cm=60,
+                        grubosc_cm=4, ilosc=1, selected_variant="dab-lity-ab",
+                        wykonczenie="surowe")
+    if kwota is not None:
+        stan.zapisz_stan(pokazana_kwota=kwota)
+    stan.ustaw_kontekst(99_000_000)
 
 
 def _wiadomosc(sender_type, private=False, message_type=1):
@@ -301,19 +357,19 @@ class TestWatchdogOnce:
         assert przekazany_token == ["TOKEN-PRO"]
 
     def test_zostawia_prywatna_notatke_po_udanym_handoffie(self, monkeypatch):
+        # Z4: notatke sklada `bots_pro.notatki`, wiec podmieniamy `cw_note` TAM —
+        # `w.cw_note` obsluguje dzis wylacznie sciezke awaryjna.
         monkeypatch.setattr(w, "cw_pending_conversations",
                             lambda: [_rozmowa(1, "outgoing", 25)])
         monkeypatch.setattr(w, "_jest_pro_inbox", lambda inbox_id: True)
         monkeypatch.setattr(w, "_bot_naprawde_mowil_ostatni", lambda conv_id: True)
         monkeypatch.setattr(w, "cw_bot_handoff", lambda conv_id, token=None: True)
-        notatki = []
-        monkeypatch.setattr(w, "cw_note",
-                            lambda conv_id, tekst, **k: notatki.append((conv_id, tekst)))
+        wyslane = _zbieraj_notatki(monkeypatch)
 
         w.watchdog_once(1_000_000)
 
-        assert len(notatki) == 1
-        assert notatki[0][0] == 1
+        assert len(wyslane) == 1
+        assert wyslane[0][0] == 1
 
     def test_niepowodzenie_handoffu_jest_logowane_nie_ciche(self, monkeypatch):
         # W4: log sukcesu byl tylko w galezi if — nieudany handoff mogl przejsc bez sladu.
@@ -331,14 +387,6 @@ class TestWatchdogOnce:
         assert any("NIEUDANY" in wpis for wpis in logi)
 
 
-class _OdpowiedzNotatki:
-    """Namiastka `requests.Response` — `cw_note` zwraca wlasnie taki obiekt."""
-
-    def __init__(self, status_code):
-        self.status_code = status_code
-        self.text = ""
-
-
 class TestKodHttpNotatkiWatchdoga:
     """W2: notatka watchdoga byla owinieta w goly `except Exception: pass`, wiec
     KAZDY kod HTTP przechodzil bez sladu. Bledny albo wygasly BOT_PRO_CW_AGENT_TOKEN
@@ -352,6 +400,8 @@ class TestKodHttpNotatkiWatchdoga:
         monkeypatch.setattr(w, "_jest_pro_inbox", lambda inbox_id: True)
         monkeypatch.setattr(w, "_bot_naprawde_mowil_ostatni", lambda conv_id: True)
         monkeypatch.setattr(w, "cw_bot_handoff", lambda conv_id, token=None: True)
+        # OBIE sciezki daja ten sam kod HTTP: glowna (notatka stanu) i awaryjna.
+        monkeypatch.setattr(notatki, "cw_note", lambda conv_id, tekst, **k: odpowiedz_notatki)
         monkeypatch.setattr(w, "cw_note", lambda conv_id, tekst, **k: odpowiedz_notatki)
         logi = []
         monkeypatch.setattr(w, "log", lambda *a: logi.append(" ".join(str(x) for x in a)))
@@ -411,3 +461,160 @@ class TestWatchdogWylacznik:
 
         monkeypatch.setattr(w, "cw_pending_conversations", _nigdy_nie_wolane)
         w.watchdog()
+
+
+class TestNotatkaWatchdoga:
+    """Z4: watchdog oddaje rozmowe TA SAMA notatka, co handoff z tury —
+    z pozycjami, kwota pokazana klientowi i czasem ciszy.
+
+    Zmierzone na produkcji przed ta poprawka: 6 z 6 notatek handoffowych mowilo
+    „Zebrane pozycje: brak", a watchdog nie pisal notatki stanu WCALE — szlo
+    stad jedno zaszyte zdanie. Konsultantka odtwarzala specyfikacje, czytajac
+    caly watek (czasy reakcji: 39 min ... 12 h, raz nigdy)."""
+
+    def test_notatka_zawiera_zebrane_pozycje(self, monkeypatch):
+        # TEST ROZNICUJACY: na kodzie sprzed naprawy notatka byla zaszytym zdaniem
+        # bez pozycji. Oblewa TAKZE wtedy, gdy ktos usunie `ustaw_kontekst_odczytu`
+        # z `_notatka_watchdoga` — `stan.pozycje()` zwroci wtedy PO CICHU pusta
+        # liste (odczyty swiadomie nie wolaja `_wymagany_conv_id`) i notatka
+        # napisze „Zebrane pozycje: brak" na rozmowie, ktora pozycje MA.
+        _rozmowa_z_pozycja(94_101, "parapet debowy")
+        _porzucona(monkeypatch, [_rozmowa(94_101, "outgoing", 25)])
+        wyslane = _zbieraj_notatki(monkeypatch)
+
+        w.watchdog_once(1_000_000)
+
+        (_, tresc), = wyslane
+        assert "Zebrane pozycje:" in tresc
+        assert "parapet debowy" in tresc
+        assert "180x60x4" in tresc
+        assert "Zebrane pozycje: brak" not in tresc
+
+    def test_notatka_zawiera_kwote_pokazana_klientowi(self, monkeypatch):
+        _rozmowa_z_pozycja(94_102, "blat", kwota=1010.54)
+        _porzucona(monkeypatch, [_rozmowa(94_102, "outgoing", 25)])
+        wyslane = _zbieraj_notatki(monkeypatch)
+
+        w.watchdog_once(1_000_000)
+
+        (_, tresc), = wyslane
+        assert "Ostatnia kwota pokazana klientowi" in tresc
+        assert "1 010,54" in tresc
+
+    def test_notatka_podaje_liczbe_minut_ciszy(self, monkeypatch):
+        _porzucona(monkeypatch, [_rozmowa(94_103, "outgoing", 47)])
+        wyslane = _zbieraj_notatki(monkeypatch)
+
+        w.watchdog_once(1_000_000)
+
+        (_, tresc), = wyslane
+        assert "47 min" in tresc
+
+    def test_rozmowa_bez_pozycji_dostaje_sensowna_notatke_i_nic_nie_zmysla(self, monkeypatch):
+        # Rozmowa, w ktorej bot nic nie zdazyl zebrac (3 z 5 rozmow watchdoga na
+        # produkcji): notatka ma byc uczciwa — powod jest, a o pozycjach i kwocie
+        # ma NIE twierdzic, ze cokolwiek jest.
+        _porzucona(monkeypatch, [_rozmowa(94_104, "outgoing", 25)])
+        wyslane = _zbieraj_notatki(monkeypatch)
+
+        w.watchdog_once(1_000_000)
+
+        (_, tresc), = wyslane
+        assert "Zebrane pozycje: brak" in tresc
+        assert "Ostatnia kwota pokazana klientowi" not in tresc
+        assert "Wycena w CRM" not in tresc
+
+    def test_nie_twierdzi_ze_brakuje_tylko_potwierdzenia(self, monkeypatch):
+        """WIAZACE ZASTRZEZENIE: notatka NIE MOZE sugerowac „brakuje juz tylko
+        jego »tak«" na podstawie `oczekiwany_podpis`.
+
+        Ta kolumna ma jednego pisarza (`podsumowanie.wyslij`) i ZERO miejsc
+        czyszczacych — przezywa jawna odmowe klienta. W produkcyjnej rozmowie
+        4912 klient napisal, ze zestawienie pomija ponad 10 elementow, a podpis
+        dalej stal ustawiony przy kwocie osmiokrotnie zanizonej. Notatka
+        twierdzaca „czekamy na potwierdzenie" dalaby konsultantce falszywa
+        pewnosc dokladnie tam, gdzie potrzebna jest czujnosc."""
+        stan.ustaw_kontekst(94_105)
+        stan.zapisz_stan(oczekiwany_podpis="sha-cokolwiek", pokazana_kwota=123.55)
+        stan.ustaw_kontekst(99_000_000)
+        _porzucona(monkeypatch, [_rozmowa(94_105, "outgoing", 25)])
+        wyslane = _zbieraj_notatki(monkeypatch)
+
+        w.watchdog_once(1_000_000)
+
+        (_, tresc), = wyslane
+        maly = tresc.lower()
+        assert "brakuje" not in maly
+        assert "czeka" not in maly
+        assert "nie potwierdzi" not in maly
+        # Sam fakt (kwota, ktora klient zobaczyl) zostaje — to dane, nie ocena.
+        assert "123,55" in tresc
+
+    def test_kontekst_nie_przecieka_miedzy_rozmowami_w_jednym_przejsciu(self, monkeypatch):
+        # Dwie porzucone rozmowy w JEDNYM `watchdog_once`. Druga notatka MUSI pojsc
+        # (dowod, ze bramka „jedna notatka na ture" jej nie zjadla) i NIE MOZE
+        # zawierac pozycji pierwszej (dowod, ze kontekst jest przestawiany, a nie
+        # ustawiany raz).
+        _rozmowa_z_pozycja(94_106, "parapet pierwszy")
+        _rozmowa_z_pozycja(94_107, "blat drugi")
+        _porzucona(monkeypatch, [_rozmowa(94_106, "outgoing", 25),
+                                 _rozmowa(94_107, "outgoing", 30)])
+        wyslane = _zbieraj_notatki(monkeypatch)
+
+        w.watchdog_once(1_000_000)
+
+        assert [conv for conv, _ in wyslane] == [94_106, 94_107]
+        assert "parapet pierwszy" in wyslane[0][1]
+        assert "blat drugi" not in wyslane[0][1]
+        assert "blat drugi" in wyslane[1][1]
+        assert "parapet pierwszy" not in wyslane[1][1]
+
+    def test_nie_kasuje_flag_tury_trwajacej_rownolegle(self, monkeypatch):
+        """Dlatego watchdog uzywa ZAWEZONEGO `ustaw_kontekst_odczytu`, a nie
+        pelnego `ustaw_kontekst`.
+
+        Pelna wersja wola `_wyzeruj_flagi_tury`, a `stan._flagi_tury` to slownik
+        MODULOWY, wspolny dla calego procesu. Watchdog i worker chodza rownolegle,
+        wiec wyzerowanie flag rozmowy z cudzego watku w SRODKU jej tury gasi
+        bezpieczniki X2 (drugie podsumowanie, drugi handoff, cisza po pytaniu bota)."""
+        stan.ustaw_kontekst(94_108)
+        stan.oznacz_podsumowanie_wyslane()
+        assert stan.podsumowanie_wyslane() is True
+        _porzucona(monkeypatch, [_rozmowa(94_108, "outgoing", 25)])
+        _zbieraj_notatki(monkeypatch)
+
+        w.watchdog_once(1_000_000)
+
+        # Kontekst watku testowego (= watku „workera") celowo nie jest tu
+        # przywracany — watchdog dziala w innym watku, wiec contextvar workera
+        # ma zostac nietkniety, a flaga tury nadal zapalona.
+        assert stan.conv_id() == 94_108
+        assert stan.podsumowanie_wyslane() is True
+
+    def test_awaria_notatki_stanu_konczy_sie_notatka_awaryjna(self, monkeypatch):
+        # Uboga notatka jest lepsza niz zero notatek przy rozmowie, ktora juz lezy
+        # u czlowieka — i handoff pozostaje zaliczony.
+        _porzucona(monkeypatch, [_rozmowa(94_109, "outgoing", 33)])
+
+        def _wybuch(*a, **k):
+            raise RuntimeError("Chatwoot padl")
+
+        monkeypatch.setattr(notatki, "cw_note", _wybuch)
+        awaryjne = []
+        monkeypatch.setattr(w, "cw_note", lambda conv_id, tekst, **k: (
+            awaryjne.append((conv_id, tekst)) or _OdpowiedzNotatki(200)))
+
+        assert w.watchdog_once(1_000_000) == 1
+        assert len(awaryjne) == 1
+        assert "33 min" in awaryjne[0][1]
+
+
+class TestMinutyCiszy:
+    def test_liczy_pelne_minuty(self):
+        assert w._minuty_ciszy(1_000_000 - 25 * 60, 1_000_000) == 25
+
+    def test_brak_znacznika_daje_none(self):
+        assert w._minuty_ciszy(None, 1_000_000) is None
+
+    def test_powod_bez_znacznika_uzywa_progu_zamiast_zmyslac_liczbe(self):
+        assert "%s min" % w.BOT_PRO_WATCHDOG_MINUTES in w._powod_watchdoga(None)

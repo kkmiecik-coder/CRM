@@ -1017,3 +1017,53 @@ class TestUN7BramkaKsztaltuPoDeklaracjiIPoNazwie:
             linia = podsumowanie._linia(dict(_pozycja(), ksztalt=deklaracja))
             assert "kształt" not in linia, deklaracja
 
+
+
+class TestZ4PokazanaKwota:
+    """Z4: kwota, ktora klient FAKTYCZNIE zobaczyl, zapisywana do `pro_stan`
+    RAZEM z `oczekiwany_podpis` — do prywatnej notatki dla konsultanta.
+
+    Do tej poprawki notatka handoffowa nie drukowala ceny w ogole i nie dalo sie
+    jej odtworzyc: rejestr `pro_kwoty` zawiera WSZYSTKIE kwoty zwrocone przez
+    kalkulator (ceny jednostkowe, sumy czastkowe), bez sladu, ktora z nich poszla
+    do klienta jako cena calosci."""
+
+    def _przygotuj(self, monkeypatch, conv_id):
+        stan.ustaw_kontekst(conv_id)
+        poz = [_pozycja()]
+        monkeypatch.setattr(stan, "pozycje", lambda: poz)
+        monkeypatch.setattr(podsumowanie.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(podsumowanie.crm_calc, "calculate", lambda p, o: {
+            "ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}})
+        _zaladuj_atrape_wysylki(monkeypatch)
+        monkeypatch.setattr(podsumowanie, "cw_agent_reply", lambda *a, **k: True)
+
+    def test_bez_dostawy_zapisuje_sume_produktow(self, monkeypatch):
+        self._przygotuj(monkeypatch, 94060)
+        podsumowanie.wyslij()
+        assert stan.pokazana_kwota() == 843.04
+
+    def test_z_dostawa_zapisuje_sume_z_dostawa(self, monkeypatch):
+        # Klient widzi w podsumowaniu linie „Razem z dostawa" — to JA ma zobaczyc
+        # konsultant w notatce, nie sama cene produktu.
+        self._przygotuj(monkeypatch, 94061)
+        stan.zapisz_dostawe("00-001", kurier="DPD", netto=203.25, brutto=250.00)
+        podsumowanie.wyslij()
+        assert stan.pokazana_kwota() == 1093.04
+
+    def test_nieudana_wysylka_nie_zapisuje_kwoty(self, monkeypatch):
+        # Ta sama zasada co U1 dla `oczekiwany_podpis`: kwota z podsumowania,
+        # ktore utknelo na bledzie Chatwoota, NIE jest kwota pokazana klientowi.
+        self._przygotuj(monkeypatch, 94062)
+        monkeypatch.setattr(podsumowanie, "cw_agent_reply", lambda *a, **k: False)
+        podsumowanie.wyslij()
+        assert stan.pokazana_kwota() is None
+
+    def test_kwota_nie_wchodzi_do_rejestru_g1(self, monkeypatch):
+        # I1: `pokazana_kwota` jest POCHODNA liczb, ktore kalkulator juz zwrocil,
+        # i nie jest nowym zrodlem ceny — rejestr G1 ma zostac dokladnie taki sam.
+        self._przygotuj(monkeypatch, 94063)
+        podsumowanie.wyslij()
+        przed = stan.znane_kwoty()
+        stan.zapisz_stan(pokazana_kwota=99999.99)
+        assert stan.znane_kwoty() == przed

@@ -1422,3 +1422,56 @@ class TestUN7PoleKsztaltu:
         stan.zapamietaj_kwoty([1936.71, 2382.15])
         stan.zapisz_pozycje("1", produkt="blat dębowy", otwory=["fi 35 na zlew"])
         assert stan.znane_kwoty() == {"1936.71", "2382.15"}
+
+
+class TestZ4PokazanaKwota:
+    def test_brak_wiersza_daje_none(self):
+        stan.ustaw_kontekst(93810)
+        assert stan.pokazana_kwota() is None
+
+    def test_zapisana_kwota_wraca(self):
+        stan.ustaw_kontekst(93811)
+        stan.zapisz_stan(pokazana_kwota=1093.04)
+        assert stan.pokazana_kwota() == 1093.04
+
+    def test_kwota_nie_przecieka_miedzy_rozmowami(self):
+        stan.ustaw_kontekst(93812)
+        stan.zapisz_stan(pokazana_kwota=500.0)
+        stan.ustaw_kontekst(93813)
+        assert stan.pokazana_kwota() is None
+
+
+class TestZ4UstawKontekstOdczytu:
+    """Zawezona wersja `ustaw_kontekst` dla watkow SPOZA tury (dzis: watchdog).
+
+    Ma ustawic conv_id (bez tego odczyty po cichu zwracaja pustke, a notatka
+    dla konsultanta klamie, ze bot nic nie zebral) i NIE MA prawa dotknac
+    slownika flag turowych, ktory jest wspolny dla calego procesu."""
+
+    def test_ustawia_conv_id_dla_odczytow(self):
+        stan.ustaw_kontekst(93820)
+        stan.zapisz_pozycje("1", produkt="blat", dlugosc_cm=180, szerokosc_cm=60,
+                            grubosc_cm=4, ilosc=1, selected_variant="dab-lity-ab")
+        stan.ustaw_kontekst(93821)
+        assert stan.pozycje() == []
+
+        stan.ustaw_kontekst_odczytu(93820)
+        assert len(stan.pozycje()) == 1
+
+    def test_nie_zeruje_flag_tury(self):
+        stan.ustaw_kontekst(93822)
+        stan.oznacz_podsumowanie_wyslane()
+        stan.oznacz_handoff_w_turze()
+
+        stan.ustaw_kontekst_odczytu(93822)
+
+        assert stan.podsumowanie_wyslane() is True
+        assert stan.handoff_w_turze() is True
+
+    def test_pelny_ustaw_kontekst_te_flagi_zeruje(self):
+        # Kontrola pozytywna: roznica miedzy obiema funkcjami jest REALNA, a nie
+        # przypadkiem tego, ze flagi i tak nie byly zapalone.
+        stan.ustaw_kontekst(93823)
+        stan.oznacz_podsumowanie_wyslane()
+        stan.ustaw_kontekst(93823)
+        assert stan.podsumowanie_wyslane() is False

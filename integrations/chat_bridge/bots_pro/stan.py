@@ -173,7 +173,8 @@ CREATE TABLE IF NOT EXISTS pro_stan(
   ostatni_liczony_mid TEXT,
   dostawa_kod TEXT, dostawa_kurier TEXT,
   dostawa_netto REAL, dostawa_brutto REAL,
-  quote_public_url TEXT, quote_dostawa_niedopisana INTEGER DEFAULT 0);
+  quote_public_url TEXT, quote_dostawa_niedopisana INTEGER DEFAULT 0,
+  pokazana_kwota REAL);
 CREATE TABLE IF NOT EXISTS pro_kwoty(
   conv_id INTEGER, kwota TEXT, zrodlo TEXT DEFAULT 'produkt',
   PRIMARY KEY(conv_id, kwota));
@@ -221,6 +222,12 @@ def init_pro():
             # N2: skąd wzięła się kwota w rejestrze G1 — 'produkt' albo
             # 'dostawa'. Bez tego nowe oszacowanie kuriera nie miało jak
             # unieważnić poprzedniego kosztu wysyłki (patrz `zapisz_dostawe`).
+            # Z4: kwota, ktora klient FAKTYCZNIE zobaczyl w podsumowaniu — do
+            # notatki dla konsultanta. Nie da sie jej odtworzyc z `pro_kwoty`:
+            # tam leza WSZYSTKIE kwoty zwrocone przez kalkulator (ceny
+            # jednostkowe kazdej pozycji, sumy czastkowe), bez sladu, ktora z
+            # nich poszla do klienta jako cena calosci.
+            "ALTER TABLE pro_stan ADD COLUMN pokazana_kwota REAL",
             "ALTER TABLE pro_kwoty ADD COLUMN zrodlo TEXT DEFAULT 'produkt'",
         ):
             try:
@@ -244,6 +251,32 @@ def ustaw_kontekst(conv_id, persona_tury="pro"):
     _persona.set(persona_tury)
     _kontakt.set(None)
     _wyzeruj_flagi_tury(conv_id)
+
+
+def ustaw_kontekst_odczytu(conv):
+    """Ustawia conv_id do ODCZYTÓW spoza tury — dziś: wątek `pro_watchdog`,
+    który po automatycznym oddaniu rozmowy musi złożyć notatkę z tego, co bot
+    w niej zebrał.
+
+    ZAWĘŻONA WERSJA `ustaw_kontekst`, i to jest cała jej racja bytu. Bez
+    ustawionego conv_id odczyty (`pozycje`, `dostawa`, `zapisana_wycena`,
+    `pokazana_kwota`) świadomie NIE wołają `_wymagany_conv_id` i po prostu nie
+    znajdą wiersza — notatka napisałaby „Zebrane pozycje: brak" na rozmowie,
+    która pozycje MA, czyli zamieniłaby widoczny brak w niewidoczne kłamstwo.
+    Ale pełne `ustaw_kontekst` w tym miejscu byłoby lekarstwem gorszym od
+    choroby: woła `_wyzeruj_flagi_tury`, a `_flagi_tury` to słownik MODUŁOWY,
+    wspólny dla wszystkich wątków procesu (patrz X2 w docstringu modułu).
+    Watchdog i worker chodzą równolegle, a rozmowa może w tej samej sekundzie
+    dostać wiadomość od klienta i wejść w turę — wyzerowanie jej flag z cudzego
+    wątku w środku tury gasi dokładnie te bezpieczniki, które X2 przywróciło do
+    życia (drugie podsumowanie, drugi handoff, cisza po pytaniu bota). Dlatego
+    tutaj ustawiamy WYŁĄCZNIE contextvary, które są prywatne dla wątku
+    wołającego, i nie dotykamy stanu współdzielonego.
+
+    Persony NIE ustawiamy: notatka dla konsultanta jej nie używa (to profil
+    wysyłki do KLIENTA), a watchdog do klienta nic nie pisze."""
+    _conv_id.set(conv)
+    _kontakt.set(None)
 
 
 def _wyzeruj_flagi_tury(conv_id):
@@ -1124,6 +1157,30 @@ def dostawa_niedopisana():
     finally:
         polaczenie.close()
     return bool(wiersz and wiersz["quote_dostawa_niedopisana"])
+
+
+def pokazana_kwota():
+    """Kwota, którą klient FAKTYCZNIE zobaczył w ostatnim podsumowaniu — albo
+    None, gdy żadne podsumowanie do niego nie doszło (Z4).
+
+    Zapisuje ją `podsumowanie.wyslij()` w TYM SAMYM `zapisz_stan`, co
+    `oczekiwany_podpis`, czyli DOPIERO po udanej wysyłce (U1) — kwota z
+    podsumowania, które utknęło na błędzie Chatwoota, nie ma prawa tu trafić.
+
+    NIE jest to „aktualna cena" i nie wolno jej tak używać: to zapis
+    historyczny, świadomie NIE czyszczony przy zmianie pozycji (inaczej
+    `_zmien_pozycje` kasowałoby jedyny ślad tego, co klient widział, a właśnie
+    po to ta kolumna istnieje). Wychodzi WYŁĄCZNIE do prywatnej notatki dla
+    konsultanta i nie wchodzi do rejestru G1 — guardrail nadal zna tylko to, co
+    policzył kalkulator."""
+    polaczenie = db()
+    try:
+        wiersz = polaczenie.execute(
+            "SELECT pokazana_kwota FROM pro_stan WHERE conv_id=?",
+            (conv_id(),)).fetchone()
+    finally:
+        polaczenie.close()
+    return wiersz["pokazana_kwota"] if wiersz else None
 
 
 def cytat_potwierdzenia():

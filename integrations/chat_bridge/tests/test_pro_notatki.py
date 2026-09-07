@@ -208,3 +208,29 @@ class TestJednaNotatkaNaTure:
         stan.handoff("powod")
 
         assert len(slady["notatki"]) == 2
+
+
+class TestZ4KwotaWNotatce:
+    """Z4: notatka niesie kwote, ktora klient FAKTYCZNIE zobaczyl — konsultant
+    ma widziec, na czym rozmowa stanela, bez czytania calego watku."""
+
+    def test_kwota_jest_w_notatce_po_polsku(self):
+        tresc = notatki.tresc_dla_agenta("powod", pozycje=[], pokazana_kwota=1010.54)
+        assert "Ostatnia kwota pokazana klientowi" in tresc
+        assert "1 010,54 zł" in tresc
+
+    def test_brak_kwoty_nie_tworzy_pustej_linii(self):
+        tresc = notatki.tresc_dla_agenta("powod", pozycje=[])
+        assert "kwota pokazana" not in tresc.lower()
+
+    def test_notatka_nie_twierdzi_ze_brakuje_juz_tylko_potwierdzenia(self):
+        """WIAZACE: jedynym sygnalem „wyslano podsumowanie" jest kolumna
+        `oczekiwany_podpis`, ktora ma jednego pisarza i ZERO miejsc czyszczacych
+        — przezywa jawna odmowe klienta (produkcyjna rozmowa 4912: klient
+        zglosil, ze pominieto ponad 10 elementow, przy kwocie osmiokrotnie
+        zanizonej). Dopoki takiego sygnalu nie ma, notatka podaje FAKTY i nie
+        wystawia konsultantowi oceny „brakuje juz tylko jego «tak»"."""
+        tresc = notatki.tresc_dla_agenta("powod", pozycje=[], pokazana_kwota=123.55).lower()
+        assert "brakuje" not in tresc
+        assert "czeka" not in tresc
+        assert "potwierdzenia klienta" not in tresc
