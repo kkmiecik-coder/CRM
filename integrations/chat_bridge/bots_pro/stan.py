@@ -309,22 +309,34 @@ def _wyzeruj_flagi_tury(conv_id):
             _flagi_tury.pop(next(iter(_flagi_tury)))
 
 
-def _ustaw_flage_tury(nazwa):
+def _ustaw_flage_tury(nazwa, wartosc=True):
     """Zapala flage turowa BIEZACEJ rozmowy.
 
     Swiadomie NIE wola `_wymagany_conv_id()`: flagi to sygnal miedzy narzedziem
     a `tura.py`, a nie zapis do bazy — brak conv_id nie moze tu uszkodzic cudzej
     rozmowy (klucz `None` jest osobnym, wlasnym wpisem), a twardy fail
     zamienialby drobiazg w przerwana ture. Odwrotnie niz przy zapisach, gdzie
-    cichy zapis pod NULL-em lezy w cudzym wierszu (patrz `_wymagany_conv_id`)."""
+    cichy zapis pod NULL-em lezy w cudzym wierszu (patrz `_wymagany_conv_id`).
+
+    `wartosc` jest zwykle `True` (flaga = fakt zaszedl). Jedyny wyjatek —
+    `podsumowanie_bez_wysylki` — trzyma tu KROTKI KOD POWODU, bo `tura.py`
+    musi napisac klientowi co innego przy „lista sie zmienila" niz przy „nie
+    mam ani jednej pozycji". Osobne flagi na kazdy powod rozmnozylyby warunki
+    w turze; wartosc w tej samej fladze trzyma decyzje w jednym miejscu."""
     with zamek_stanu:
-        _flagi_tury.setdefault(conv_id(), {})[nazwa] = True
+        _flagi_tury.setdefault(conv_id(), {})[nazwa] = wartosc
 
 
 def _flaga_tury(nazwa):
     """Czy flaga jest zapalona w BIEZACEJ turze BIEZACEJ rozmowy."""
     with zamek_stanu:
         return bool((_flagi_tury.get(conv_id()) or {}).get(nazwa))
+
+
+def _wartosc_flagi_tury(nazwa):
+    """Wartosc flagi turowej (kod powodu) albo None, gdy flagi nie ma."""
+    with zamek_stanu:
+        return (_flagi_tury.get(conv_id()) or {}).get(nazwa)
 
 
 def conv_id():
@@ -421,10 +433,18 @@ def podsumowanie_nieudane():
     return _flaga_tury("podsumowanie_nieudane")
 
 
-def oznacz_podsumowanie_do_powtorzenia():
-    """P1b: podsumowanie zostało WSTRZYMANE, bo stan zmienił się w trakcie
-    liczenia — treść opisywałaby dane sprzed ostatnich zapisów tego samego
-    kroku modelu, a klient dostałby prefiks listy podany jako komplet.
+def oznacz_podsumowanie_bez_wysylki(powod):
+    """`wyslij_podsumowanie` skończyło się BEZ wysłania czegokolwiek klientowi,
+    a NIE była to awaria kanału. Dwa powody dziś (`powod` to ich krótki kod):
+
+      - `"zmiana_w_trakcie"` (P1b) — stan zmienił się w trakcie liczenia, więc
+        treść opisywałaby dane sprzed ostatnich zapisów tego samego kroku
+        modelu, a klient dostałby prefiks listy podany jako komplet;
+      - `"brak_pozycji"` (R3) — w rozmowie nie ma ani jednej zapisanej pozycji,
+        bo `wyslij_podsumowanie` uszeregowało się PRZED `zapisz_pozycje` tego
+        samego kroku modelu. Ta ścieżka do tej poprawki nie zapalała NICZEGO:
+        narzędzie oddawało `BRAK_POZYCJI`, model po wywołaniu podsumowania ma
+        prawo milczeć — i tura kończyła się ciszą.
 
     TRZECI, osobny sygnał — nie da się go zastąpić żadnym z dwóch istniejących
     i to jest cały powód, dla którego istnieje:
@@ -434,14 +454,19 @@ def oznacz_podsumowanie_do_powtorzenia():
         kanału, i `tura.py` odpowiada na nią HANDOFFEM. Tu awarii nie ma:
         wystarczy policzyć jeszcze raz, gdy zapisy już wylądowały. Handoff
         byłby niepotrzebną eskalacją na w pełni odwracalnym zdarzeniu.
-    `tura.py` czyta ten sygnał, żeby po zakończeniu tury modelu (kiedy żaden
-    równoległy zapis już nie leci) ponowić podsumowanie raz, deterministycznie."""
-    _ustaw_flage_tury("podsumowanie_do_powtorzenia")
+
+    `tura.py` czyta ten sygnał WYŁĄCZNIE po to, żeby tura nie skończyła się
+    ciszą — dosyła klientowi jedno krótkie zdanie dobrane po `powod`. NIE
+    ponawia podsumowania: wysyłka poza przebiegiem modelu rozjeżdżała bazę z
+    pamięcią modelu i potrafiła odezwać się do klienta po oddaniu rozmowy
+    człowiekowi (patrz komentarz w `tura.uruchom`)."""
+    _ustaw_flage_tury("podsumowanie_bez_wysylki", powod)
 
 
-def podsumowanie_do_powtorzenia():
-    """Czy w BIEŻĄCEJ turze podsumowanie wstrzymano z powodu zmiany stanu."""
-    return _flaga_tury("podsumowanie_do_powtorzenia")
+def podsumowanie_bez_wysylki():
+    """Kod powodu, dla którego podsumowanie nie dotarło do klienta w TEJ turze
+    (patrz wyżej), albo None. Prawdziwościowo działa jak flaga."""
+    return _wartosc_flagi_tury("podsumowanie_bez_wysylki")
 
 
 def oznacz_handoff_w_turze():

@@ -86,6 +86,34 @@ from core.log import log
 # zależeć od czyszczenia).
 KOMUNIKAT_HANDOFF = "Przekazuję rozmowę konsultantowi WoodPower — poprowadzi ją dalej."
 
+# R1/R3: zdanie, które dostaje klient, gdy `wyslij_podsumowanie` nie miało czego
+# wysłać, a model nic nie napisał. Zamiast handoffu (wstrzymanie jest przejściowe
+# i w pełni odwracalne) i zamiast ciszy.
+#
+# KAŻDE z tych zdań KOŃCZY SIĘ PYTANIEM I TO NIE JEST STYLISTYKA. Po tej turze
+# nic się samo nie wydarzy: kolejna tura ruszy dopiero, gdy klient napisze.
+# Zdanie w rodzaju „za chwilę wrócę z podsumowaniem" byłoby więc obietnicą bez
+# pokrycia — dokładnie ta klasa nadobietnicy, którą ta runda naprawia w
+# nagłówkach commitów. Pytanie zaprasza klienta do odpowiedzi, a odpowiedź
+# klienta jest jedyną rzeczą, która uruchomi ponowne policzenie.
+#
+# ZERO KWOT, świadomie: rejestr G1 nie rośnie, a guardrail nie ma czego pilnować.
+# Bez linków i markdownu, jak KOMUNIKAT_HANDOFF — bezpieczne w każdym profilu
+# kanału (Allegro) jeszcze przed `wysylka.przygotuj`.
+ZDANIA_BEZ_PODSUMOWANIA = {
+    "zmiana_w_trakcie": (
+        "Dane zmieniały się w trakcie liczenia, więc wstrzymałem podsumowanie — "
+        "nie chcę podawać ceny sprzed zmian. Czy lista jest już kompletna?"),
+    "brak_pozycji": (
+        "Nie mam jeszcze zapisanej ani jednej pozycji, więc nie ma czego "
+        "podsumować. Napiszesz proszę, co dokładnie mam wycenić?"),
+}
+# Powód spoza słownika: nowa ścieżka odmowna w `podsumowanie.wyslij` doda tu
+# klucz, ale do tego czasu klient ma dostać cokolwiek zamiast ciszy.
+ZDANIE_BEZ_PODSUMOWANIA_DOMYSLNE = (
+    "Nie udało mi się przygotować podsumowania na tych danych. "
+    "Możesz potwierdzić, co dokładnie mam wycenić?")
+
 # Rola "system" (nie goły string / rola "user") - patrz akapit o W2 w docstringu modułu.
 _KOMUNIKAT_KOREKTY = [{
     "role": "system",
@@ -345,27 +373,6 @@ def uruchom(conv_id, inbox_id, tresc, zalaczniki=None, persona="pro", message_id
             if _oddaj_po_zobowiazaniu(odpowiedz, conv_id, persona):
                 return
 
-    # P1b: podsumowanie zostalo WSTRZYMANE, bo stan zmienial sie w trakcie
-    # liczenia (rownolegle `zapisz_pozycje` z tego samego kroku modelu). Model
-    # dostal wskazowke „zawolaj jeszcze raz" i zwykle to robi JESZCZE W TYM
-    # przebiegu Runnera — wtedy `podsumowanie_wyslane()` jest juz prawdziwe i
-    # ta galaz nie strzela. Gdy jednak nie zrobil tego, ponawiamy raz TUTAJ:
-    # Runner sie skonczyl, wiec zaden rownolegly zapis juz nie leci i drugie
-    # liczenie widzi stan FINALNY. To jest cala roznica miedzy „klient dostaje
-    # komplet" a „klient nie dostaje nic" — bez tej galezi tura, w ktorej model
-    # zostawil final_output puste (a prompt mu na to pozwala po wolaniu
-    # wyslij_podsumowanie), konczylaby sie handoffem zamiast podsumowaniem.
-    #
-    # `podsumowanie_nieudane()` w warunku, zeby NIE dosylac drugiej tresci po
-    # probie, ktora czesciowo poszla i padla na Chatwoocie (U1) — tam klient
-    # dostalby podsumowanie z dziura, a zaraz po nim drugie w calosci.
-    if (stan.podsumowanie_do_powtorzenia() and not stan.podsumowanie_wyslane()
-            and not stan.podsumowanie_nieudane()):
-        from bots_pro import podsumowanie
-        log("tura: podsumowanie wstrzymane (stan zmienil sie w trakcie) -> "
-            "ponawiam po zakonczeniu tury modelu (conv %s)" % conv_id)
-        podsumowanie.wyslij()
-
     # W3: podsumowanie.wyslij() (wolane jako narzedzie, w KTORYMKOLWIEK z powyzszych
     # wywolan Runnera) moglo juz samo wyslac deterministyczna tresc - wtedy NIC wiecej
     # w tej turze nie wysylamy, nawet gdy final_output jest niepusty i przeszedl G1.
@@ -392,19 +399,54 @@ def uruchom(conv_id, inbox_id, tresc, zalaczniki=None, persona="pro", message_id
         _oddaj_konsultantowi("podsumowanie nie dotarlo do klienta", conv_id, persona)
         return
 
-    # P1b: ta sama zasada co U1 wyzej, dla drugiego powodu, dla ktorego
-    # podsumowanie moze nie dotrzec. Domyka JEDYNA droge do ciszy, ktora
-    # otwiera wstrzymanie podsumowania: model nie ponowil, ponowienie wyzej tez
-    # nie doszlo (padlo na kolejnej zmianie stanu albo na Chatwoocie), a model
-    # nic nie napisal. Osobna galaz, nie warunek dopisany do U1, bo powod
-    # handoffu ma nazywac rzecz po imieniu w notatce dla konsultanta.
-    if (stan.podsumowanie_do_powtorzenia() and not stan.podsumowanie_wyslane()
-            and not odpowiedz):
-        log("tura: wstrzymane podsumowanie nie doszlo tez po ponowieniu i model "
-            "nic nie napisal -> handoff (conv %s)" % conv_id)
-        _oddaj_konsultantowi("podsumowanie wstrzymane — dane zmienialy sie w trakcie",
-                             conv_id, persona)
-        return
+    # R1/R3: `wyslij_podsumowanie` skonczylo sie BEZ tresci dla klienta (stan
+    # zmienil sie w trakcie liczenia albo nie ma jeszcze ani jednej pozycji),
+    # a model nic nie napisal — bo prompt wprost mu na to pozwala po wolaniu
+    # tego narzedzia. Tura konczylaby sie CISZA: dokladnie ta awaria, ktora
+    # audyt 117 rozmow wskazal jako przyczyne porzucen.
+    #
+    # DOSYLAMY JEDNO ZDANIE, NIE PONAWIAMY PODSUMOWANIA. Ponowienie stalo tu
+    # do tej rundy i mialo dwie wady, ktorych nie dalo sie zalatac warunkiem:
+    #   1. wysylalo klientowi tresc PO tym, jak model w tej samej turze oddal
+    #      rozmowe czlowiekowi (`oddaj_czlowiekowi`, albo `przygotuj_zamowienie`
+    #      na Allegro, gdzie handoff jest czescia sciezki szczesliwej) —
+    #      rozmowa byla juz w 'open' i u konsultanta, a bot dopisywal do niej
+    #      cene i pytanie „Czy wszystko sie zgadza?". Bramka
+    #      `stan.wolno_prowadzic_rozmowe` tego nie lapie, bo pyta na POCZATKU
+    #      tury. Zmierzone (20 przebiegow, limity produkcji): podsumowanie po
+    #      handoffie 20/20, komunikat o przekazaniu 0/20 (nie wychodzil, bo
+    #      galaz U11 nizej wymaga `not podsumowanie_wyslane()`);
+    #   2. wysylalo POZA przebiegiem modelu, wiec do `SQLiteSession` nic nie
+    #      trafialo: w bazie stal `oczekiwany_podpis`, klient mial podsumowanie
+    #      na ekranie, a ostatnia rzecz w pamieci modelu to blad ze wskazowka
+    #      „zawolaj jeszcze raz" — w kolejnej turze model wolal i klient
+    #      dostawal DRUGIE, identyczne podsumowanie (bramka W3 tego nie lapie,
+    #      bo jest per TURA).
+    # Dzis ponowienie nalezy do MODELU: wskazowke widzi w swojej sesji i wola
+    # narzedzie jeszcze raz — zwykle w tym samym przebiegu Runnera, a jesli nie,
+    # to w nastepnej turze. Baza, sesja i ekran klienta zostaja spojne.
+    #
+    # `not stan.handoff_w_turze()`: gdy rozmowa jest juz u konsultanta, jedyna
+    # wiadomosc, ktora klientowi sie nalezy, to komunikat o przekazaniu (U11
+    # nizej) — a nie zapowiedz podsumowania, ktorego bot juz nie przygotuje.
+    #
+    # BEZ `return`: to nie jest awaria konczaca ture, wiec bezpiecznik braku
+    # postepu (B2 nizej) ma tu dzialac normalnie. Tura, w ktorej podsumowanie
+    # raz po raz nie dochodzi, nie zmienia stanu biznesowego — i to wlasnie B2
+    # ma ja w koncu oddac konsultantowi, zamiast osobnego handoffu na
+    # POJEDYNCZYM, w pelni odwracalnym wstrzymaniu.
+    powod_bez_wysylki = stan.podsumowanie_bez_wysylki()
+    if (powod_bez_wysylki and not stan.podsumowanie_wyslane()
+            and not odpowiedz and not stan.handoff_w_turze()):
+        log("tura: podsumowanie nie doszlo do klienta (%s) i model nic nie "
+            "napisal -> krotkie zdanie zamiast ciszy (conv %s)"
+            % (powod_bez_wysylki, conv_id))
+        zdanie = ZDANIA_BEZ_PODSUMOWANIA.get(powod_bez_wysylki,
+                                             ZDANIE_BEZ_PODSUMOWANIA_DOMYSLNE)
+        for czesc in wysylka.przygotuj(zdanie, persona):
+            if czesc:
+                cw_agent_reply(conv_id, czesc, token=BOT_PRO_CW_AGENT_TOKEN)
+                klient_dostal_wiadomosc = True
 
     # U11: rozmowa zostala oddana konsultantowi Z WNETRZA tury (narzedzie
     # `oddaj_czlowiekowi`, albo `przygotuj_zamowienie` na Allegro — tam handoff

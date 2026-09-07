@@ -487,7 +487,19 @@ def wyslij():
     # objąć jednym zamkiem".
     pozycje, dostawa = stan.migawka()
     if not pozycje:
-        return {"ok": False, "error": "BRAK_POZYCJI"}
+        # R3: ta gałąź KOŃCZYŁA TURĘ CISZĄ. Nie zapalała niczego, więc `tura.py`
+        # nie miała po czym poznać, że klient nic nie dostał — a prompt pozwala
+        # modelowi milczeć po wywołaniu `wyslij_podsumowanie`. Ścieżka dominuje
+        # w kolejności „podsumowanie pierwsze": narzędzie ustawia się PRZED
+        # `zapisz_pozycje` tego samego kroku modelu i widzi pustą listę.
+        # Sygnał (tak samo jak przy zmianie stanu niżej) NIE jest awarią kanału
+        # — model ma zapisać pozycje i zawołać jeszcze raz.
+        stan.oznacz_podsumowanie_bez_wysylki("brak_pozycji")
+        return {"ok": False, "error": "BRAK_POZYCJI",
+                "wskazowka": "W tej rozmowie nie ma jeszcze ani jednej zapisanej "
+                             "pozycji, więc podsumowania NIE wysłałem. Zapisz pozycje "
+                             "przez zapisz_pozycje i zawołaj wyslij_podsumowanie "
+                             "jeszcze raz."}
 
     # U-N5/U-N7: kształt inny niż prostokąt — zadeklarowany polem `ksztalt`
     # albo przemycony w nazwie produktu. Sprawdzamy PRZED wołaniem kalkulatora
@@ -630,8 +642,10 @@ def wyslij():
             "NIE wysylam i kwot NIE rejestruje (conv %s)" % stan.conv_id())
         # Sygnał dla `tura.py` — NIE `oznacz_podsumowanie_nieudane`, bo to nie
         # jest awaria kanału i nie ma prowadzić do handoffu (patrz docstring
-        # `stan.oznacz_podsumowanie_do_powtorzenia`).
-        stan.oznacz_podsumowanie_do_powtorzenia()
+        # `stan.oznacz_podsumowanie_bez_wysylki`). Tura użyje go WYŁĄCZNIE do
+        # tego, żeby nie skończyć się ciszą; ponowne policzenie należy do
+        # modelu, który widzi tę wskazówkę w swojej sesji.
+        stan.oznacz_podsumowanie_bez_wysylki("zmiana_w_trakcie")
         return {"ok": False, "error": "STAN_ZMIENIONY_W_TRAKCIE",
                 "wskazowka": "Dane zmieniły się w trakcie liczenia, więc podsumowanie "
                              "opisywałoby stan sprzed tych zmian — NIE wysłałem go. "

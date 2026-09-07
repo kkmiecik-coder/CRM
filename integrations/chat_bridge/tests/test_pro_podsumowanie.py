@@ -55,7 +55,13 @@ def test_brak_pozycji_zwraca_blad_bez_liczenia_ceny(monkeypatch):
     monkeypatch.setattr(podsumowanie.crm_calc, "calculate",
                         lambda p, o: wywolano.append(1) or {"ok": True, "totals": {}})
     wynik = podsumowanie.wyslij()
-    assert wynik == {"ok": False, "error": "BRAK_POZYCJI"}
+    assert wynik["ok"] is False
+    assert wynik["error"] == "BRAK_POZYCJI"
+    # R3: ta sciezka konczyla ture CISZA — nie zapalala niczego, wiec `tura.py`
+    # nie miala po czym poznac, ze klient nic nie dostal. Wskazowka mowi modelowi,
+    # co ma zrobic; flaga mowi turze, ze ma sie nie skonczyc milczeniem.
+    assert "zapisz_pozycje" in wynik["wskazowka"]
+    assert stan.podsumowanie_bez_wysylki() == "brak_pozycji"
     assert not wywolano
 
 
@@ -1332,7 +1338,7 @@ class TestWyslijNieWysylaStanuSprzedZmiany:
 
         assert wynik["error"] == "STAN_ZMIENIONY_W_TRAKCIE", wynik
         assert wyslane == [], "klient dostal prefiks listy podany jako komplet"
-        assert stan.podsumowanie_do_powtorzenia() is True
+        assert stan.podsumowanie_bez_wysylki() == "zmiana_w_trakcie"
         # NIE `podsumowanie_nieudane` — to nie awaria kanalu i `tura.py` nie ma
         # z tego robic handoffu (patrz docstring flagi w stan.py).
         assert stan.podsumowanie_nieudane() is False
@@ -1378,7 +1384,7 @@ class TestWyslijNieWysylaStanuSprzedZmiany:
 
         assert wynik["ok"] is True, wynik
         assert sum(tekst.count("•") for tekst in wyslane) == 2
-        assert stan.podsumowanie_do_powtorzenia() is False
+        assert stan.podsumowanie_bez_wysylki() is None
         assert any("Razem z dostawą" in tekst for tekst in wyslane)
 
     def test_powtorzony_identyczny_zapis_dostawy_nie_wstrzymuje(self, monkeypatch):
