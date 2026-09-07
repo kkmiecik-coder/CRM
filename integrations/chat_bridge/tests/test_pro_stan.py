@@ -11,7 +11,7 @@ import pytest
 
 import config as config_mod
 import core.chatwoot as chatwoot_mod
-from bots_pro import stan
+from bots_pro import guardraile, stan
 
 stan.init_pro()
 
@@ -1361,16 +1361,64 @@ class TestUN7PoleKsztaltu:
         stan.zapisz_pozycje("1", ksztalt="prostokąt")
         assert stan.pozycje()[0]["ksztalt"] == "prostokąt"
 
-    def test_zmiana_ksztaltu_NIE_czysci_rejestru_kwot(self):
-        # `crm_calc.build_products` kształtu nie czyta (wpisuje shape:
-        # "rectangular" na sztywno), więc zmiana tego pola nie zmienia ŻADNEJ
-        # liczby zwróconej przez kalkulator — czyszczenie rejestru byłoby
-        # fałszywym alarmem G1 na prawdziwych cenach (ta sama zasada co dla
-        # `otwory` i `produkt`, patrz U6 wyżej).
+    def test_zejscie_z_prostokata_czysci_rejestr_kwot(self):
+        # U-N7b: bramka kształtu zamyka POLICZENIE i PODSUMOWANIE, ale nie
+        # POWTÓRZENIE kwoty policzonej wcześniej dla prostokąta. Dopóki cena
+        # prostokąta siedziała w rejestrze, model mógł ją legalnie podać jako
+        # „orientacyjnie" — G1 jej nie zatrzymywał, bo przyszła z kalkulatora,
+        # a materiał sześciokąta 87x75 tej kwoty nie pokrywa (rozmowa 4727).
         stan.ustaw_kontekst(93303)
+        stan.zapisz_pozycje("1", produkt="blat", dlugosc_cm=87, szerokosc_cm=75,
+                            grubosc_cm=4, ilosc=1, selected_variant="dab-lity-ab",
+                            wykonczenie="surowe")
+        stan.zapamietaj_kwoty([843.04])
+        stan.zapisz_pozycje("1", ksztalt="sześciokąt")
+        assert stan.znane_kwoty() == set()
+
+    def test_po_zejsciu_z_prostokata_G1_lapie_stara_kwote(self):
+        # Ten sam scenariusz od strony guardraila — czyli to, co naprawdę
+        # chroni klienta: zdanie z kotwicą cenową ma zostać zatrzymane.
+        stan.ustaw_kontekst(93304)
+        stan.zapisz_pozycje("1", produkt="blat", dlugosc_cm=87, szerokosc_cm=75,
+                            grubosc_cm=4, ilosc=1, selected_variant="dab-lity-ab",
+                            wykonczenie="surowe")
+        stan.zapamietaj_kwoty([843.04])
+        zdanie = "Sześciokąt musi wycenić konsultant, ale orientacyjnie wychodziło 843,04 zł."
+        assert guardraile.sprawdz_ceny(zdanie, stan.znane_kwoty()) == []
+        stan.zapisz_pozycje("1", ksztalt="sześciokąt")
+        assert guardraile.sprawdz_ceny(zdanie, stan.znane_kwoty()) != []
+
+    def test_powrot_do_prostokata_NIE_czysci_rejestru_kwot(self):
+        # Droga wyjścia z pomyłki nie może kosztować prawdziwej ceny: gdy
+        # pozycja znów jest prostokątem, kwota policzona dla prostokąta wciąż
+        # ją opisuje, a wyczyszczenie rejestru zrobiłoby z niej halucynację.
+        stan.ustaw_kontekst(93305)
+        stan.zapisz_pozycje("1", produkt="blat", dlugosc_cm=87, szerokosc_cm=75,
+                            grubosc_cm=4, ilosc=1, selected_variant="dab-lity-ab",
+                            wykonczenie="surowe", ksztalt="sześciokąt")
+        stan.zapamietaj_kwoty([843.04])
+        stan.zapisz_pozycje("1", ksztalt="prostokąt")
+        assert stan.znane_kwoty() == {"843.04"}
+
+    def test_powtorzona_ta_sama_deklaracja_ksztaltu_nie_czysci_rejestru(self):
+        # N1 obowiązuje dalej: zapis bez faktycznej zmiany treści niczego nie
+        # kasuje, także gdy powtarza deklarację kształtu.
+        stan.ustaw_kontekst(93306)
+        stan.zapisz_pozycje("1", produkt="blat", dlugosc_cm=87, szerokosc_cm=75,
+                            grubosc_cm=4, ilosc=1, selected_variant="dab-lity-ab",
+                            wykonczenie="surowe", ksztalt="sześciokąt")
+        stan.zapamietaj_kwoty([843.04])
+        stan.zapisz_pozycje("1", ksztalt="sześciokąt")
+        assert stan.znane_kwoty() == {"843.04"}
+
+    def test_pole_opisowe_nadal_NIE_czysci_rejestru_kwot(self):
+        # Regresja U6: `otwory` i `produkt` naprawdę nie zmieniają zużycia
+        # materiału, więc ich zmiana dalej zostawia rejestr w spokoju — U-N7b
+        # dokłada wyjątek WYŁĄCZNIE dla kształtu.
+        stan.ustaw_kontekst(93307)
         stan.zapisz_pozycje("1", produkt="blat", dlugosc_cm=180, szerokosc_cm=60,
                             grubosc_cm=4, ilosc=1, selected_variant="dab-lity-ab",
                             wykonczenie="surowe")
         stan.zapamietaj_kwoty([1936.71, 2382.15])
-        stan.zapisz_pozycje("1", ksztalt="sześciokąt")
+        stan.zapisz_pozycje("1", produkt="blat dębowy", otwory=["fi 35 na zlew"])
         assert stan.znane_kwoty() == {"1936.71", "2382.15"}

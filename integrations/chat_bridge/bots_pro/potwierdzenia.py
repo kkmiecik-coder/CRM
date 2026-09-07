@@ -53,10 +53,14 @@ _POLA_OPISOWE = ("produkt", "otwory", "ksztalt")
 # wycenę sześciokąta w cenie prostokąta. Z polem w podpisie taka zmiana
 # unieważnia potwierdzenie i `sprawdz_bramke` odmawia.
 #
-# OPISOWE, nie CENOTWÓRCZE, i to jest zamierzone: `crm_calc.build_products`
-# kształtu nie czyta (wpisuje `shape: "rectangular"` na sztywno), więc zmiana
-# tego pola nie zmienia ŻADNEJ liczby zwróconej przez kalkulator — kasowanie
-# rejestru kwot G1 byłoby fałszywym alarmem na prawdziwych cenach.
+# `ksztalt` NIE jest polem CENOTWÓRCZYM, bo `odcisk_cenotworczy` odpowiada na
+# pytanie „czy kalkulator policzyłby to samo" (`narzedzia.policz_wycene` używa
+# go do wykrycia, że pozycje zmieniły się W TRAKCIE liczenia), a
+# `crm_calc.build_products` kształtu nie czyta — wpisuje `shape: "rectangular"`
+# na sztywno. Rejestr kwot G1 to jednak osobne pytanie: „czy ta kwota nadal
+# opisuje tę pozycję". Odpowiedź jest NIE w chwili, gdy pozycja przestaje być
+# prostokątem, więc zejście z prostokąta czyści rejestr — patrz
+# `ksztalty_nieprostokatne` niżej i `stan._zmien_pozycje`.
 
 _POLA_ISTOTNE = _POLA_CENOTWORCZE + _POLA_OPISOWE
 
@@ -67,6 +71,44 @@ _POLA_ISTOTNE = _POLA_CENOTWORCZE + _POLA_OPISOWE
 # to produkt + ew. dostawa, więc zmiana kodu pocztowego, kuriera albo kosztu
 # wysyłki musi wymusić nowe podsumowanie i nowe „tak" klienta.
 _POLA_DOSTAWY = ("kod_pocztowy", "kurier", "netto", "brutto")
+
+# Deklaracja kształtu z pola `ksztalt` (U-N7). Prostokątem jest pozycja, która
+# pola nie ma wcale (domyślny, milczący przypadek — cały normalny ruch), albo
+# ma w nim SAMO słowo prostokąt/kwadrat w dowolnej odmianie.
+#
+# FAIL-CLOSED I TO ŚWIADOMIE: wszystko inne — także wpis, którego nie umiemy
+# odczytać („prostokąt z zaokrąglonym rogiem", „prostokat?") — jest traktowane
+# jak kształt nieprostokątny i blokuje wycenę. Odwrotna konwencja (nieznane =
+# prostokąt) znaczyłaby, że literówka modelu przywraca dokładnie tę cichą
+# wycenę sześciokąta jak prostokąta, przed którą ta bramka ma chronić. Koszt
+# pomyłki w tę stronę to jedna rozmowa oddana konsultantowi; koszt pomyłki w
+# drugą to zła cena pod podpisem klienta — te dwa błędy nie ważą tyle samo.
+# Docstring narzędzia mówi wprost, żeby wpisywać SAM kształt, nie opis blatu.
+#
+# Definicja mieszka TU, a nie przy bramce w `podsumowanie.py`, bo służy DWÓM
+# mechanizmom naraz — dokładnie jak `_POLA_CENOTWORCZE` wyżej (U6): bramce
+# kształtu (`podsumowanie.blokada_ksztaltu`) i czyszczeniu rejestru kwot G1
+# (`stan._zmien_pozycje`). Dwie kopie tego wyrażenia rozjechałyby się przy
+# pierwszej poprawce i jeden z mechanizmów cicho przestałby działać.
+KSZTALT_PROSTOKATNY = re.compile(r"(?:prostok[ąa]t\w*|kwadrat\w*)", re.IGNORECASE)
+
+
+def ksztalty_nieprostokatne(pozycje):
+    """Zbiór identyfikatorów pozycji ZADEKLAROWANYCH jako coś innego niż
+    prostokąt. Puste/brakujące pole `ksztalt` to prostokąt.
+
+    Po co identyfikatory, a nie samo „czy jest tu nieprostokąt": wołający
+    (`stan._zmien_pozycje`) porównuje zbiór SPRZED zapisu ze zbiorem PO nim i
+    reaguje wyłącznie na pozycje, które właśnie PRZESTAŁY być prostokątem.
+    Dzięki temu powtórzony zapis tej samej deklaracji niczego nie kasuje, a
+    poprawka „jednak prostokąt" (droga wyjścia z pomyłki, którą obiecuje
+    wskazówka bramki) nie unieważnia kwot policzonych wcześniej."""
+    wynik = set()
+    for poz in pozycje or []:
+        deklaracja = str(poz.get("ksztalt") or "").strip()
+        if deklaracja and not KSZTALT_PROSTOKATNY.fullmatch(deklaracja):
+            wynik.add(str(poz.get("id") or ""))
+    return wynik
 
 # Cytat musi mieć sensowną długość — pojedynczy znak interpunkcyjny ("." wyrwane
 # z końca zdania klienta) nie jest potwierdzeniem.

@@ -252,19 +252,12 @@ _WSKAZOWKA_KSZTALT_POLE = (
     "ksztalt='prostokąt' i spróbuj ponownie.")
 
 
-# Deklaracja kształtu z pola `ksztalt` (U-N7). Prostokątem jest pozycja, która
-# pola nie ma wcale (domyślny, milczący przypadek — cały normalny ruch), albo
-# ma w nim SAMO słowo prostokąt/kwadrat w dowolnej odmianie.
-#
-# FAIL-CLOSED I TO ŚWIADOMIE: wszystko inne — także wpis, którego nie umiemy
-# odczytać („prostokąt z zaokrąglonym rogiem", „prostokat?") — jest traktowane
-# jak kształt nieprostokątny i blokuje wycenę. Odwrotna konwencja (nieznane =
-# prostokąt) znaczyłaby, że literówka modelu przywraca dokładnie tę cichą
-# wycenę sześciokąta jak prostokąta, przed którą ta bramka ma chronić. Koszt
-# pomyłki w tę stronę to jedna rozmowa oddana konsultantowi; koszt pomyłki w
-# drugą to zła cena pod podpisem klienta — te dwa błędy nie ważą tyle samo.
-# Docstring narzędzia mówi wprost, żeby wpisywać SAM kształt, nie opis blatu.
-_KSZTALT_PROSTOKATNY = re.compile(r"(?:prostok[ąa]t\w*|kwadrat\w*)", re.IGNORECASE)
+# Definicja „co jest prostokątem" (U-N7) mieszka w `potwierdzenia.py`, razem
+# z listą pól cenotwórczych i z uzasadnieniem konwencji fail-closed — służy
+# DWÓM mechanizmom: tej bramce i czyszczeniu rejestru kwot G1
+# (`stan._zmien_pozycje` przy zejściu pozycji z prostokąta). Jedno wyrażenie,
+# bo dwie kopie rozjechałyby się przy pierwszej poprawce.
+_KSZTALT_PROSTOKATNY = potwierdzenia.KSZTALT_PROSTOKATNY
 
 
 def _nazwa_z_ksztaltem(pozycje):

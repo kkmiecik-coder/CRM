@@ -655,8 +655,21 @@ def _zmien_pozycje(mutator):
     Definicja „pola cenotwórczego" jest JEDNA i mieszka w `potwierdzenia.py`
     razem z listą pól podpisu.
 
+    U-N7b (rerecenzja): rejestr kwot czyści TAKŻE zejście pozycji z prostokąta,
+    mimo że `ksztalt` nie jest polem cenotwórczym i odcisk się nie zmienia. To
+    dwa różne pytania: odcisk odpowiada „czy kalkulator policzyłby to samo"
+    (kształtu nie czyta, więc policzyłby), a rejestr G1 — „czy ta kwota nadal
+    opisuje tę pozycję". Bez tego warunku cena policzona dla prostokąta zostawała
+    w rejestrze po deklaracji „a ma być sześciokątny" i model mógł ją LEGALNIE
+    powtórzyć klientowi jako orientacyjną: G1 jej nie zatrzymywał, bo przyszła
+    z kalkulatora. Bramka kształtu zamyka policzenie i podsumowanie, ale nie
+    POWTÓRZENIE kwoty już zarejestrowanej — a materiał sześciokąta 87x75 tej
+    kwoty nie pokrywa (rozmowa 4727). Fałszywych alarmów to nie tworzy: po
+    takiej deklaracji model i tak nie ma jak przeliczyć, bo bramka odmawia,
+    więc żadnej PRAWDZIWEJ kwoty do wypowiedzenia już nie ma.
+
     Zwraca parę `(wynik mutatora, liczba pozycji PO zapisie)`."""
-    from bots_pro.potwierdzenia import odcisk_cenotworczy
+    from bots_pro.potwierdzenia import ksztalty_nieprostokatne, odcisk_cenotworczy
 
     biezacy_conv_id = _wymagany_conv_id()
     with zamek_stanu:
@@ -674,20 +687,34 @@ def _zmien_pozycje(mutator):
 
             wynik = mutator(dane)
 
-            cena_sie_zmienila = (
+            # Różnica ZBIORÓW, nie „czy jest tu nieprostokąt": reagujemy tylko
+            # na pozycje, które WŁAŚNIE przestały być prostokątem. Powtórzony
+            # zapis tej samej deklaracji nic nie kasuje (N1), a poprawka
+            # „jednak prostokąt" tym bardziej — tam kwota znów obowiązuje.
+            zeszla_z_prostokata = bool(
+                ksztalty_nieprostokatne(dane.get("pozycje"))
+                - ksztalty_nieprostokatne(stare_pozycje))
+            uniewaznic_kwoty = (
                 wiersz is None
-                or odcisk_cenotworczy(stare_pozycje) != odcisk_cenotworczy(dane.get("pozycje")))
+                or odcisk_cenotworczy(stare_pozycje) != odcisk_cenotworczy(dane.get("pozycje"))
+                or zeszla_z_prostokata)
             polaczenie.execute(
                 "INSERT INTO pro_dane(conv_id, dane_json) VALUES(?,?) "
                 "ON CONFLICT(conv_id) DO UPDATE SET dane_json=excluded.dane_json",
                 (biezacy_conv_id, json.dumps(dane, ensure_ascii=False)))
-            if cena_sie_zmienila:
+            if uniewaznic_kwoty:
                 polaczenie.execute(
                     "DELETE FROM pro_kwoty WHERE conv_id=?", (biezacy_conv_id,))
                 # U4: koszt dostawy zależy od GABARYTU, więc zmiana pozycji unieważnia
                 # go tak samo jak cenę produktu. Kod pocztowy ZOSTAJE (klient go już
                 # podał, nie ma powodu pytać drugi raz) — znika tylko kurier i koszt,
                 # żeby podsumowanie nie pokazało ceny dostawy sprzed zmiany wymiarów.
+                # Przy zejściu z prostokąta gabaryt się nie zmienia, a mimo to
+                # kasujemy dostawę tą samą ścieżką: rejestr kwot idzie do zera
+                # CAŁY (kwoty ze źródła 'dostawa' to także suma „produkt +
+                # dostawa", więc niosą w sobie nieaktualną cenę produktu), a
+                # koszt wysyłki zostawiony w `pro_stan` bez pokrycia w rejestrze
+                # byłby dla G1 halucynacją przy następnym podsumowaniu.
                 polaczenie.execute(
                     "UPDATE pro_stan SET dostawa_kurier=NULL, dostawa_netto=NULL, "
                     "dostawa_brutto=NULL WHERE conv_id=?", (biezacy_conv_id,))
