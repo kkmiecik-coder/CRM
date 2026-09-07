@@ -725,11 +725,105 @@ class TestR6PorownanieNieObiecujeWyceny_KtorejKlientNieZobaczy:
 
     def test_dublowanie_zmalalo_a_nie_uroslo(self):
         # Budżet promptu jest ciasny (sufit 9950 znaków, najgorszy przypadek
-        # stał na 9521). Naprawa P4 ma go ZWOLNIĆ, nie zjeść: suma obu sekcji
-        # po przeniesieniu zdania ma być krótsza niż przed rundą 6
-        # (PORÓWNANIE 1056 zn + blok 454 zn = 1510 zn).
-        porownanie = re.search(r"PORÓWNANIE\..*?(?=\n\nWYMIARY)", prompty.WYCENA, re.S)
-        assert porownanie, "sekcja PORÓWNANIE zniknęła z promptu"
-        razem = len(porownanie.group(0)) + len(prompty.WYBOR_W_WYCENIE)
-        assert razem <= 1450, \
-            "PORÓWNANIE + blok mają %d zn, przed rundą 6 było 1508" % razem
+        # stał na 9521). Naprawa P4 ma go ZWOLNIĆ, nie zjeść: suma sekcji
+        # o JEDNYM temacie („klient nie wie, który wariant wybrać") ma maleć.
+        #
+        # ZADANIE 3 (U-N7): mierzymy TRZY sekcje, nie dwie. Runda 6 patrzyła na
+        # PORÓWNANIE + blok, bo tam siedziało całe dublowanie; zadanie 3 scaliło
+        # do PORÓWNANIA także wyzwalacz i receptę z OFERTY („gdy klient nie wie,
+        # jaki gatunek wybrać — dopytaj o zastosowanie i wygląd, zarekomenduj"),
+        # więc PORÓWNANIE z definicji urosło, a OFERTA zmalała o więcej. Miara
+        # na dwóch sekcjach pokazywałaby wtedy wzrost przy FAKTYCZNYM spadku —
+        # i pilnowałaby granicy między sekcjami zamiast rozmiaru duplikatu.
+        # Zmierzone: 764+896+544 = 2204 zn przed zadaniem 3, 654+939+544 = 2137 po.
+        sekcje = {"OFERTA": r"OFERTA\..*?(?=\n\nPORÓWNANIE)",
+                  "PORÓWNANIE": r"PORÓWNANIE\..*?(?=\n\nWYMIARY)"}
+        razem = len(prompty.WYBOR_W_WYCENIE)
+        for nazwa, wzorzec in sekcje.items():
+            znaleziona = re.search(wzorzec, prompty.WYCENA, re.S)
+            assert znaleziona, "sekcja %s zniknęła z promptu" % nazwa
+            razem += len(znaleziona.group(0))
+        assert razem <= 2140, \
+            "OFERTA + PORÓWNANIE + blok mają %d zn, przed zadaniem 3 było 2204" % razem
+
+
+class TestUN7ZapisNaBiezacoIUstepstwoOferty:
+    """Zadanie 3 (U-N7) — dwie poprawki promptu, obie z rozmowy 4727.
+
+    1. Nic nie kazało modelowi zapisywać danych CZĄSTKOWYCH, choć narzędzie je
+       przyjmuje (`stan.zapisz_pozycje` utrwala każde niepuste pole), a
+       `pro_dane.dane_json` jest w migawce postępu — czyli JEDEN częściowy
+       zapis zeruje licznik braku postępu. W 4727 przez trzy tury nie zapisało
+       się nic i bezpiecznik zabrał klientce rozmowę w środku ustalania danych.
+
+    2. OFERTA („dopóki nie wskazał, dopytaj zamiast zgadywać") BIŁA PORÓWNANIE
+       („zaproponuj wariant przyjęty do rachunku"). Klientka trafiła dosłownie
+       w niebramkowany wyzwalacz PORÓWNANIA („Poproszę kosztorys litego
+       i sekcjowanego, surowego i lakierowanego") i mimo to bot trzy razy
+       zażądał jednego wyboru. Reguła BYŁA i została zignorowana — rozszerzanie
+       listy fraz-wyzwalaczy niczego by nie zmieniło, sprzeczność trzeba było
+       usunąć.
+
+    Prompt jest prośbą, nie bramką: te testy pilnują wyłącznie tego, że reguła
+    NIE ZNIKNĘŁA i że nie wróciła sprzeczność — skutku po stronie modelu żaden
+    test tu nie zagwarantuje."""
+
+    def _akapit_zapisu(self):
+        """Sam akapit ZAPISUJ NA BIEŻĄCO, bez reszty promptu."""
+        return _ciagiem(prompty.WYCENA.split("ZAPISUJ NA BIEŻĄCO.")[1]
+                        .split("PYTANIE ZOBOWIĄZUJE.")[0])
+
+    def test_wycena_ma_akapit_zapisu_na_biezaco(self):
+        assert "ZAPISUJ NA BIEŻĄCO." in WYCENA
+        assert "zapisuj przez zapisz_pozycje od razu" in WYCENA
+
+    def test_akapit_stoi_PRZED_reszta_regul(self):
+        # Zapis ma być pierwszym odruchem, nie przypisem na końcu sekcji.
+        assert WYCENA.index("ZAPISUJ NA BIEŻĄCO.") < WYCENA.index("PYTANIE ZOBOWIĄZUJE.")
+
+    def test_akapit_NIE_kaze_zapisywac_gatunku_osobno(self):
+        # `selected_variant` to ATOMOWY enum ośmiu pełnych trójek
+        # (narzedzia.WARIANTY), więc „zapisz sam gatunek, resztę potem" jest
+        # w tym schemacie niewyrażalne — a zachęta do tego kończyłaby się
+        # zgadywaniem klasy, czyli złamaniem reguły OFERTA.
+        akapit = self._akapit_zapisu()
+        assert "gatunek+technologia+klasa" in akapit
+        assert re.search(r"gatunek(?!\+)", akapit) is None, akapit
+
+    def test_akapit_pilnuje_pary_wykonczenie_finishing_option_id(self):
+        # Docstring narzędzia wymaga OBU w jednym wywołaniu — bez tego pozycja
+        # dostaje kolor z poprzedniego wyboru.
+        assert "wykończenie razem z finishing_option_id" in self._akapit_zapisu()
+
+    def test_akapit_kaze_usunac_porzucona_pozycje(self):
+        # Konsekwencja zachęty do zapisu częściowego: pozycja-widmo („klient
+        # wspomniał o parapecie i zrezygnował") blokuje wycenę CAŁEJ listy,
+        # bo `crm_calc.calculate` jest zero-jedynkowe.
+        assert "usun=True" in self._akapit_zapisu()
+
+    def test_klauzula_kompletnosci_mowi_o_KAZDEJ_pozycji(self):
+        # „Gdy masz komplet danych" czytało się jak warunek per pozycja.
+        assert "Gdy KAŻDA zapisana pozycja ma komplet danych" in WYCENA
+
+    def test_oferta_jawnie_ustepuje_porownaniu(self):
+        assert "USTĘPUJE sekcji PORÓWNANIE" in WYCENA
+
+    def test_porownanie_wyzwala_sie_TAKZE_na_wahaniu(self):
+        # Wyzwalacz „waha się" był dotąd WYŁĄCZNIE w bloku NIEZDECYDOWANY
+        # KLIENT, bramkowanym kanałem — czyli na Allegro nie istniał wcale.
+        assert "waha się albo nie wie, który wariant wybrać" in WYCENA
+
+    def test_zakaz_zgadywania_technologii_i_klasy_NIE_zniknal(self):
+        # Ustępstwo dotyczy klienta niezdecydowanego, nie kasuje reguły.
+        assert "Nie zakładaj technologii ani klasy samodzielnie" in WYCENA
+
+    def test_reguly_scalonej_sekcji_OFERTA_nie_wyparowaly(self):
+        # Scalenie dublowania miało zwolnić znaki, nie wyciąć treść.
+        assert "dopytaj o zastosowanie i wygląd" in WYCENA
+        assert "wspominając pozostałe jako alternatywę" in WYCENA
+
+    def test_ksztalt_kaze_zapisac_pole_ksztalt(self):
+        # Pole `ksztalt` jest PIERWSZĄ linią obrony bramki
+        # `podsumowanie.blokada_ksztaltu`; bez tego zdania model nigdy by go
+        # nie ustawił i bramce zostałby sam regex po nazwie produktu.
+        assert "zapisz go w polu ksztalt" in WYCENA

@@ -117,6 +117,7 @@ def zapisz_pozycje(
     finishing_option_id: int = 0,
     edges: Optional[List[Krawedz]] = None,
     otwory: Optional[List[str]] = None,
+    ksztalt: str = "",
     usun: bool = False,
 ) -> dict:
     """Zapisuje lub aktualizuje JEDNĄ pozycję wyceny pod stałym identyfikatorem.
@@ -161,13 +162,22 @@ def zapisz_pozycje(
     otwory: opcjonalna lista opisów wycięć/otworów (po jednym opisie na
     otwór, np. "otwór na zlew 50x40 cm"). NIE są automatycznie wyceniane —
     koszt doliczy konsultant. Podana lista (także pusta) zastępuje poprzednią;
-    pomiń pole, żeby jej nie zmieniać."""
+    pomiń pole, żeby jej nie zmieniać.
+
+    ksztalt: kształt blatu. Domyślnie prostokąt — pomiń to pole dla każdego
+    prostokąta i kwadratu, czyli w praktyce zawsze. Wypełnij je JEDNYM słowem
+    nazywającym kształt (np. "sześciokąt", "okrągły", "litera L", "trapez"),
+    gdy klient prosi o cokolwiek innego. Kalkulator liczy WYŁĄCZNIE prostokąty
+    i kwadraty, więc wypełnione pole zablokuje policz_wycene i
+    wyslij_podsumowanie — i o to chodzi: taka sprawa należy do konsultanta
+    (patrz reguła KSZTAŁT). Wpisuj SAM kształt, nie opis blatu: każda wartość,
+    której nie da się odczytać jako prostokąt/kwadrat, blokuje wycenę."""
     from bots_pro import stan
     return stan.zapisz_pozycje(
         id=id, produkt=produkt, dlugosc_cm=dlugosc_cm, szerokosc_cm=szerokosc_cm,
         grubosc_cm=grubosc_cm, ilosc=ilosc, selected_variant=selected_variant,
         wykonczenie=wykonczenie, finishing_option_id=finishing_option_id or None,
-        edges=edges, otwory=otwory, usun=usun,
+        edges=edges, otwory=otwory, ksztalt=ksztalt, usun=usun,
     )
 
 
@@ -224,6 +234,18 @@ def policz_wycene() -> dict:
     with stan.zamek_stanu:
         pozycje = stan.pozycje()
         odcisk_wejsciowy = potwierdzenia.odcisk_cenotworczy(pozycje)
+
+    # U-N7: bramka kształtu. PRZED wołaniem kalkulatora — cena sześciokąta
+    # policzona jak prostokąt nie ma po co powstawać, bo model może ją
+    # wypowiedzieć klientowi w tej samej turze (rejestr G1 uzna ją za
+    # prawdziwą, bo PRZYSZŁA z kalkulatora), nie dochodząc nigdy do
+    # podsumowania, gdzie do dziś stała jedyna kontrola kształtu.
+    # Definicja bramki mieszka w `podsumowanie` razem z listą słów kształtu —
+    # tu, zgodnie z zasadą warstw, jest wyłącznie jej wywołanie.
+    blokada = podsumowanie.blokada_ksztaltu(pozycje)
+    if blokada:
+        return blokada
+
     # Samo wywołanie kalkulatora jest PO ZA zamkiem, świadomie: to HTTP z
     # timeoutem 30 s, a zamek jest procesowy i wspólny dla wszystkich rozmów —
     # trzymanie go przez czas obcego I/O zamieniłoby naprawę integralności w

@@ -1330,3 +1330,47 @@ class TestFlagiTuryWidoczneMiedzyWatkami:
         assert len(stan._flagi_tury) <= stan._LIMIT_ROZMOW_Z_FLAGAMI
         # Biezaca rozmowa NIGDY nie moze wypasc przy przycinaniu.
         assert stan.podsumowanie_wyslane() is True
+
+
+class TestUN7PoleKsztaltu:
+    """Zadanie 3 (U-N7): pozycja może jawnie powiedzieć, że nie jest prostokątem.
+
+    Dotąd jedynym nośnikiem kształtu była NAZWA produktu — pole, którego
+    poprawnie zachowujący się model nie wypełni kształtem, bo reguła KSZTAŁT
+    zabrania nazywania go w podsumowaniu. Bramka (`podsumowanie.
+    blokada_ksztaltu`) czytała więc pole, które miało być puste."""
+
+    def test_ksztalt_zapisuje_sie_w_pozycji(self):
+        stan.ustaw_kontekst(93300)
+        stan.zapisz_pozycje("1", produkt="blat", ksztalt="sześciokąt")
+        assert stan.pozycje()[0]["ksztalt"] == "sześciokąt"
+
+    def test_pominiecie_ksztaltu_nie_kasuje_deklaracji(self):
+        # WIĄŻĄCE, nie kosmetyczne: gdyby pole miało domyślną wartość
+        # „prostokąt" zamiast pustej, samo doprecyzowanie ilości cofałoby
+        # deklarację kształtu i otwierało bramkę.
+        stan.ustaw_kontekst(93301)
+        stan.zapisz_pozycje("1", produkt="blat", ksztalt="trapez")
+        stan.zapisz_pozycje("1", ilosc=2)
+        assert stan.pozycje()[0]["ksztalt"] == "trapez"
+
+    def test_ksztalt_da_sie_poprawic_na_prostokat(self):
+        # Droga wyjścia z pomyłki, którą obiecuje wskazówka bramki.
+        stan.ustaw_kontekst(93302)
+        stan.zapisz_pozycje("1", produkt="blat", ksztalt="sześciokąt")
+        stan.zapisz_pozycje("1", ksztalt="prostokąt")
+        assert stan.pozycje()[0]["ksztalt"] == "prostokąt"
+
+    def test_zmiana_ksztaltu_NIE_czysci_rejestru_kwot(self):
+        # `crm_calc.build_products` kształtu nie czyta (wpisuje shape:
+        # "rectangular" na sztywno), więc zmiana tego pola nie zmienia ŻADNEJ
+        # liczby zwróconej przez kalkulator — czyszczenie rejestru byłoby
+        # fałszywym alarmem G1 na prawdziwych cenach (ta sama zasada co dla
+        # `otwory` i `produkt`, patrz U6 wyżej).
+        stan.ustaw_kontekst(93303)
+        stan.zapisz_pozycje("1", produkt="blat", dlugosc_cm=180, szerokosc_cm=60,
+                            grubosc_cm=4, ilosc=1, selected_variant="dab-lity-ab",
+                            wykonczenie="surowe")
+        stan.zapamietaj_kwoty([1936.71, 2382.15])
+        stan.zapisz_pozycje("1", ksztalt="sześciokąt")
+        assert stan.znane_kwoty() == {"1936.71", "2382.15"}

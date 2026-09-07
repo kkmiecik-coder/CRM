@@ -119,6 +119,18 @@ def _linia(poz, options=None):
     opis = "%s %s" % (nazwa, material) if material else nazwa
     wymiary = "%sx%sx%s cm" % (poz.get("dlugosc"), poz.get("szerokosc"), poz.get("grubosc"))
     linia = "• %s, %s, %s szt." % (opis, wymiary, poz.get("ilosc"))
+    # U-N7: zadeklarowany kształt inny niż prostokąt. W podsumowaniu DLA KLIENTA
+    # ta gałąź jest nieosiągalna — `wyslij` odmawia wcześniej
+    # (`blokada_ksztaltu`), więc reguła „NIE nazywaj kształtu w podsumowaniu"
+    # zostaje nietknięta. Pisane jest to dla DRUGIEGO odbiorcy tej funkcji:
+    # prywatnej notatki dla konsultanta (`notatki.tresc_dla_agenta`), która
+    # składa się z tych samych linii. Bez tego notatka po handoffie na kształcie
+    # opisywała sześciokąt 87x75 jako zwykły blat 87x75 — czyli konsultant
+    # dostawał specyfikację MYLĄCĄ, a nie tylko niepełną (dokładnie ta sytuacja
+    # z rozmowy 4727: konsultantka musiała sama dopytać o 6 długości krawędzi).
+    ksztalt = str(poz.get("ksztalt") or "").strip()
+    if ksztalt and not _KSZTALT_PROSTOKATNY.fullmatch(ksztalt):
+        linia += ", kształt: %s" % ksztalt
     wykonczenie = _wykonczenie_opis(poz, options)
     if wykonczenie:
         linia += ", wykończenie: %s" % wykonczenie
@@ -184,18 +196,75 @@ _SLOWA_KSZTALTU = (
     r"[łl]uk\w*",                # łuk, łukiem, łukowy
     # „kształt" i „kształcie" — wymiana t:c w odmianie, stąd klasa [tc]
     r"kszta[łl][tc]\w*",
+    # --- U-N7 (zadanie 3): formy, których lista do dziś nie znała ------------
+    # Dwie z dwunastu zmierzonych rozmów produkcyjnych to kształty
+    # nieprostokątne (4727 — blat sześciokątny 87x75 o boku 43 cm, 4819 —
+    # sześciokąt foremny), czyli 17% próbki, a ANI JEDNO z poniższych słów nie
+    # było tu obecne. Sześciokąt z 4727 nie został wyceniony jak prostokąt
+    # WYŁĄCZNIE dlatego, że model nie zapisał żadnego pola i bezpiecznik braku
+    # postępu zabrał rozmowę wcześniej — osłona przypadkowa, która po naprawach
+    # bramki postępu znika.
+    #
+    # Każdy wzorzec w DWÓCH pisowniach (z ogonkami i bez), dokładnie z tego
+    # samego powodu co [ąa]/[łl] w wzorcach wyżej: kanały marketplace potrafią
+    # rozebrać polskie znaki (sanitize.py), a nazwę pozycji pisze model.
+    r"sze[śs][ćc]iok[ąa]t\w*",     # sześciokąt, sześciokątny, szesciokatnego
+    r"pi[ęe][ćc]iok[ąa]t\w*",      # pięciokąt, pieciokatny
+    r"o[śs]miok[ąa]t\w*",          # ośmiokąt, osmiokatny
+    r"wielok[ąa]t\w*",
+    r"tr[óo]jk[ąa]t\w*",
+    r"trapez\w*",
+    r"romb\w*",
+    # „w kształcie litery L" — osobny wzorzec, choć „L-kształtny" łapie już
+    # `kszta[łl][tc]\w*`: model przepisuje nazwę klienta i słowo „kształt"
+    # bardzo często z niej wypada („Blat litery L 240x60").
+    r"liter\w*\s+L",
+    # „Blat w serek" (narożnik kuchenny) — realne zamówienie stolarskie i tak
+    # samo niepoliczalne jak reszta tej listy.
+    r"ser(?:ek|k\w*)",
 )
 _KSZTALT_W_NAZWIE = re.compile(
     r"(?<!\w)(?:%s)(?!\w)" % "|".join(_SLOWA_KSZTALTU), re.IGNORECASE)
 
+# Wspólny ogon obu wskazówek niżej — jedna definicja tego, CO model ma z takim
+# kształtem zrobić. Dwie kopie rozjechałyby się przy pierwszej poprawce reguły
+# KSZTAŁT, a to jest jedyne zdanie, które kieruje rozmowę tam, gdzie ma trafić.
+#
+# Brzmi tak samo dla `policz_wycene` i dla `wyslij` — i to jest prawdą w obu
+# miejscach: w żadnym z nich nic się nie policzyło ani nie wysłało.
+_OGON_WSKAZOWKI_KSZTALT = (
+    "Kalkulator liczy WYŁĄCZNIE prostokąty i kwadraty, więc ceny NIE policzyłem "
+    "i podsumowania NIE wysłałem — kwota obok takiej pozycji byłaby ceną "
+    "prostokąta o tych samych wymiarach. Postąp zgodnie z regułą KSZTAŁT: zbierz "
+    "brakujące dane i wołaj oddaj_czlowiekowi z powodem 'kształt inny niż "
+    "prostokąt: <opis klienta>'.")
+
 _WSKAZOWKA_KSZTALT = (
-    "Nazwa pozycji %r mówi o kształcie innym niż prostokąt. Kalkulator liczy "
-    "WYŁĄCZNIE prostokąty i kwadraty, więc podsumowanie NIE zostało wysłane — "
-    "cena obok takiej nazwy byłaby ceną prostokąta o tych samych wymiarach. "
-    "Postąp zgodnie z regułą KSZTAŁT: zbierz brakujące dane i wołaj "
-    "oddaj_czlowiekowi z powodem 'kształt inny niż prostokąt: <opis klienta>'. "
-    "Jeśli blat JEST prostokątny, popraw nazwę pozycji (zapisz_pozycje) tak, "
+    "Nazwa pozycji %r mówi o kształcie innym niż prostokąt. "
+    + _OGON_WSKAZOWKI_KSZTALT +
+    " Jeśli blat JEST prostokątny, popraw nazwę pozycji (zapisz_pozycje) tak, "
     "żeby nie nazywała kształtu, i spróbuj ponownie.")
+
+_WSKAZOWKA_KSZTALT_POLE = (
+    "Pozycja ma zapisany kształt %r, inny niż prostokąt. "
+    + _OGON_WSKAZOWKI_KSZTALT +
+    " Jeśli to pomyłka i blat JEST prostokątny, ustaw w zapisz_pozycje "
+    "ksztalt='prostokąt' i spróbuj ponownie.")
+
+
+# Deklaracja kształtu z pola `ksztalt` (U-N7). Prostokątem jest pozycja, która
+# pola nie ma wcale (domyślny, milczący przypadek — cały normalny ruch), albo
+# ma w nim SAMO słowo prostokąt/kwadrat w dowolnej odmianie.
+#
+# FAIL-CLOSED I TO ŚWIADOMIE: wszystko inne — także wpis, którego nie umiemy
+# odczytać („prostokąt z zaokrąglonym rogiem", „prostokat?") — jest traktowane
+# jak kształt nieprostokątny i blokuje wycenę. Odwrotna konwencja (nieznane =
+# prostokąt) znaczyłaby, że literówka modelu przywraca dokładnie tę cichą
+# wycenę sześciokąta jak prostokąta, przed którą ta bramka ma chronić. Koszt
+# pomyłki w tę stronę to jedna rozmowa oddana konsultantowi; koszt pomyłki w
+# drugą to zła cena pod podpisem klienta — te dwa błędy nie ważą tyle samo.
+# Docstring narzędzia mówi wprost, żeby wpisywać SAM kształt, nie opis blatu.
+_KSZTALT_PROSTOKATNY = re.compile(r"(?:prostok[ąa]t\w*|kwadrat\w*)", re.IGNORECASE)
 
 
 def _nazwa_z_ksztaltem(pozycje):
@@ -204,6 +273,61 @@ def _nazwa_z_ksztaltem(pozycje):
         nazwa = str(poz.get("produkt") or "")
         if _KSZTALT_W_NAZWIE.search(nazwa):
             return nazwa
+    return None
+
+
+def _zadeklarowany_inny_ksztalt(pozycje):
+    """Wartość pola `ksztalt` pierwszej pozycji, która NIE jest prostokątem —
+    albo None. Puste/brakujące pole to prostokąt (patrz `_KSZTALT_PROSTOKATNY`)."""
+    for poz in pozycje or []:
+        deklaracja = str(poz.get("ksztalt") or "").strip()
+        if deklaracja and not _KSZTALT_PROSTOKATNY.fullmatch(deklaracja):
+            return deklaracja
+    return None
+
+
+def blokada_ksztaltu(pozycje):
+    """Słownik odmowy dla modelu, gdy KTÓRAKOLWIEK pozycja nie jest prostokątem
+    — albo None, gdy wolno liczyć.
+
+    JEDNA bramka dla DWÓCH wejść, którymi kształt dociera do ceny: `policz_wycene`
+    (kwota do zacytowania w czacie) i `podsumowanie.wyslij` (kwota pod podpisem
+    I2). Wcześniej sprawdzenie stało wyłącznie w `wyslij`, więc bot mógł
+    legalnie WYPOWIEDZIEĆ cenę sześciokąta policzoną jak prostokąt — do
+    podsumowania po prostu nigdy nie dochodziło.
+
+    DWIE LINIE OBRONY, świadomie w tej kolejności:
+      1. pole `ksztalt` — DEKLARACJA modelu, jednoznaczna i niezależna od tego,
+         jak nazwał pozycję;
+      2. regex po nazwie produktu — łapie sytuację, w której model pola nie
+         ustawił, a nazwę wpisał szczerze („Blat sześciokątny 87x75").
+    Deklaracja idzie pierwsza, bo niesie opis kształtu podany przez klienta,
+    czyli dokładnie to, co ma trafić do powodu handoffu.
+
+    ZAKRES, KTÓRY JEST DECYZJĄ WŁAŚCICIELA, NIE MOJĄ — NIE LUZOWAĆ MIMOCHODEM:
+    bramka jest TWARDA, blokuje wszystko poza prostokątem i kwadratem. A CRM
+    liczy koło i owal z dopłatą (`/api/bot/options` wystawia botowi listę
+    kształtów z `round`/`circle`), więc firma robi to rutynowo, tylko nie
+    rękami bota. Poluzowanie tej bramki do koła/owalu to OSOBNA decyzja
+    właściciela i OSOBNE zadanie — wymaga przekazania kształtu do
+    `crm_calc.build_products` (dziś wpisuje `shape: "rectangular"` na sztywno),
+    inaczej „przepuszczone" koło zostanie policzone jak kwadrat, czyli powstanie
+    dokładnie ta awaria, którą ta bramka zamyka."""
+    deklaracja = _zadeklarowany_inny_ksztalt(pozycje)
+    if deklaracja:
+        # Ślad w logu jak przy trafieniach G3 — żeby dało się je policzyć na
+        # skrzynce testowej, zamiast zgadywać, czy bramka w ogóle strzela.
+        log("bramka ksztaltu: zadeklarowany ksztalt %r -> odmowa (conv %s)"
+            % (deklaracja, stan.conv_id()))
+        return {"ok": False, "error": "KSZTALT_NIEPROSTOKATNY",
+                "wskazowka": _WSKAZOWKA_KSZTALT_POLE % deklaracja}
+
+    nazwa = _nazwa_z_ksztaltem(pozycje)
+    if nazwa:
+        log("bramka ksztaltu: ksztalt w nazwie pozycji %r -> odmowa (conv %s)"
+            % (nazwa, stan.conv_id()))
+        return {"ok": False, "error": "KSZTALT_W_NAZWIE",
+                "wskazowka": _WSKAZOWKA_KSZTALT % nazwa}
     return None
 
 
@@ -353,16 +477,13 @@ def wyslij():
     if not pozycje:
         return {"ok": False, "error": "BRAK_POZYCJI"}
 
-    # U-N5: kształt przemycony w nazwie produktu. Sprawdzamy PRZED wołaniem
-    # kalkulatora — i tak nie ma czego z niego wysłać, a cena prostokąta dla
-    # blatu okrągłego nie ma po co powstawać. Patrz komentarz nad
-    # `_SLOWA_KSZTALTU`.
-    nazwa_z_ksztaltem = _nazwa_z_ksztaltem(pozycje)
-    if nazwa_z_ksztaltem:
-        log("podsumowanie: ksztalt w nazwie pozycji %r -> NIE wysylam (conv %s)"
-            % (nazwa_z_ksztaltem, stan.conv_id()))
-        return {"ok": False, "error": "KSZTALT_W_NAZWIE",
-                "wskazowka": _WSKAZOWKA_KSZTALT % nazwa_z_ksztaltem}
+    # U-N5/U-N7: kształt inny niż prostokąt — zadeklarowany polem `ksztalt`
+    # albo przemycony w nazwie produktu. Sprawdzamy PRZED wołaniem kalkulatora
+    # — i tak nie ma czego z niego wysłać, a cena prostokąta dla blatu
+    # sześciokątnego nie ma po co powstawać. Patrz `blokada_ksztaltu`.
+    blokada = blokada_ksztaltu(pozycje)
+    if blokada:
+        return blokada
 
     options = crm_calc.get_options()
     wynik = crm_calc.calculate(pozycje, options)

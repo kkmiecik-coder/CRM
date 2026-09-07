@@ -819,7 +819,8 @@ def _zastosuj_krawedzie(biezaca, edges):
 
 def zapisz_pozycje(id, produkt="", dlugosc_cm=0, szerokosc_cm=0, grubosc_cm=0,
                    ilosc=0, selected_variant="", finishing_option_id=None,
-                   wykonczenie="", edges=None, otwory=None, usun=False):
+                   wykonczenie="", edges=None, otwory=None, ksztalt="",
+                   usun=False):
     """Wstawia albo aktualizuje JEDNĄ pozycję pod stałym identyfikatorem.
     Puste pola nie kasują wcześniej ustalonych wartości — model woła to
     narzędzie raz na zmianę, a nie przepisuje całej listy.
@@ -833,6 +834,13 @@ def zapisz_pozycje(id, produkt="", dlugosc_cm=0, szerokosc_cm=0, grubosc_cm=0,
     patrz `_zastosuj_krawedzie` (edges) i sekcję niżej (otwory). `wykonczenie
     == "surowe"` dodatkowo czyści `finishing_id` — patrz komentarz przy tym
     warunku (W1, runda poprawek 1).
+
+    `ksztalt` (U-N7) idzie zwykłą ścieżką pól tekstowych: pusty NIE kasuje
+    wcześniejszej deklaracji. To jest tu WIĄŻĄCE, nie kosmetyczne — gdyby pole
+    miało domyślną wartość "prostokąt" zamiast pustej, KAŻDE kolejne wywołanie
+    (np. samo doprecyzowanie ilości) po cichu cofałoby wcześniejsze
+    „sześciokąt" i otwierało bramkę `podsumowanie.blokada_ksztaltu`. Domyślnym
+    kształtem jest prostokąt, ale wyraża go BRAK pola, nie jego nadpisywanie.
 
     X1: ciało (odczyt -> mutacja -> zapis) było wcześniej rozłożone na dwa
     osobne połączenia i przez to gubiło pozycje pod współbieżnością — dziś jest
@@ -853,7 +861,8 @@ def zapisz_pozycje(id, produkt="", dlugosc_cm=0, szerokosc_cm=0, grubosc_cm=0,
 
         return _uzupelnij_pozycje(
             biezaca, produkt, dlugosc_cm, szerokosc_cm, grubosc_cm, ilosc,
-            selected_variant, finishing_option_id, wykonczenie, edges, otwory)
+            selected_variant, finishing_option_id, wykonczenie, edges, otwory,
+            ksztalt)
 
     wynik, liczba_pozycji = _zmien_pozycje(_mutuj)
     # X1: model widzi, ile pozycji ma zapisanych PO swoim zapisie — sam wynik
@@ -885,7 +894,7 @@ def zapisz_pozycje(id, produkt="", dlugosc_cm=0, szerokosc_cm=0, grubosc_cm=0,
 
 def _uzupelnij_pozycje(biezaca, produkt, dlugosc_cm, szerokosc_cm, grubosc_cm,
                        ilosc, selected_variant, finishing_option_id, wykonczenie,
-                       edges, otwory):
+                       edges, otwory, ksztalt=""):
     """Nakłada pola z wywołania `zapisz_pozycje` na JEDNĄ pozycję — czysta
     mutacja w pamięci, bez ani jednego dotknięcia bazy.
 
@@ -897,7 +906,7 @@ def _uzupelnij_pozycje(biezaca, produkt, dlugosc_cm, szerokosc_cm, grubosc_cm,
         ("produkt", produkt), ("dlugosc", dlugosc_cm), ("szerokosc", szerokosc_cm),
         ("grubosc", grubosc_cm), ("ilosc", ilosc),
         ("selected_variant", selected_variant), ("finishing_id", finishing_option_id),
-        ("wykonczenie", wykonczenie),
+        ("wykonczenie", wykonczenie), ("ksztalt", ksztalt),
     ):
         if wartosc not in ("", 0, None):
             biezaca[pole] = wartosc

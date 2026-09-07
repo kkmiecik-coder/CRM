@@ -42,7 +42,21 @@ _POLA_CENOTWORCZE = ("id", "dlugosc", "szerokosc", "grubosc", "ilosc",
 # widzi je w podsumowaniu, więc wchodzą do PODPISU: zmiana nazwy produktu albo
 # listy otworów po potwierdzeniu ma wymagać nowego „tak", choć rejestr kwot
 # zostaje nietknięty (cena się nie zmieniła).
-_POLA_OPISOWE = ("produkt", "otwory")
+_POLA_OPISOWE = ("produkt", "otwory", "ksztalt")
+
+# `ksztalt` (U-N7) jest tu z powodu ODWROTNEGO niż reszta tej listy: klient go
+# w podsumowaniu NIE zobaczy, bo pozycja z kształtem innym niż prostokąt w ogóle
+# do podsumowania nie dojdzie (`podsumowanie.blokada_ksztaltu`). Pole wchodzi do
+# podpisu po to, żeby domknąć jedyną drogę, którą kształt mógłby ominąć bramkę:
+# klient potwierdza prostokąt -> model dopisuje ksztalt="sześciokąt" ->
+# `zapisz_wycene` (które kształtu nie sprawdza, sprawdza podpis) wysyła do CRM
+# wycenę sześciokąta w cenie prostokąta. Z polem w podpisie taka zmiana
+# unieważnia potwierdzenie i `sprawdz_bramke` odmawia.
+#
+# OPISOWE, nie CENOTWÓRCZE, i to jest zamierzone: `crm_calc.build_products`
+# kształtu nie czyta (wpisuje `shape: "rectangular"` na sztywno), więc zmiana
+# tego pola nie zmienia ŻADNEJ liczby zwróconej przez kalkulator — kasowanie
+# rejestru kwot G1 byłoby fałszywym alarmem na prawdziwych cenach.
 
 _POLA_ISTOTNE = _POLA_CENOTWORCZE + _POLA_OPISOWE
 

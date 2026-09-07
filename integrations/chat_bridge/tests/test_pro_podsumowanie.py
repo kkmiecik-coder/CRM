@@ -10,6 +10,8 @@ z rozstrzygnięciem właściciela zadania.
 import sys
 import types
 
+import pytest
+
 from bots_pro import podsumowanie, potwierdzenia, stan
 from core.db import db
 
@@ -856,3 +858,162 @@ class TestR6NazwaProduktuNiePrzemycaKsztaltu:
         monkeypatch.setattr(podsumowanie, "log", lambda tekst: linie.append(tekst))
         self._sprobuj_wyslac(monkeypatch, 94096, "Blat okrągły dębowy")
         assert any("ksztalt w nazwie" in linia for linia in linie), linie
+
+
+class TestUN7BramkaKsztaltuPoDeklaracjiIPoNazwie:
+    """Zadanie 3 (U-N7) — bramka kształtu przestaje stać na jednym regeksie.
+
+    DLACZEGO TO NIE WYSTARCZAŁO. Jedyną kontrolą kształtu było
+    `_KSZTALT_W_NAZWIE` czytające pole `produkt`, a lista słów nie znała ANI
+    JEDNEGO wielokąta. Rozmowa produkcyjna 4727 (blat sześciokątny 87x75
+    o boku 43 cm) nie została wyceniona jak prostokąt WYŁĄCZNIE dlatego, że
+    model nie zapisał żadnego pola i bezpiecznik braku postępu zabrał rozmowę
+    wcześniej — czyli osłoną było niedziałanie bota. Dwie z dwunastu zmierzonych
+    rozmów produkcyjnych (4727, 4819) to takie kształty: 17% próbki.
+
+    Druga rzecz: nazwę pisze model, a reguła KSZTAŁT każe mu kształtu w
+    podsumowaniu NIE nazywać — bramka po nazwie sprawdza więc pole, którego
+    poprawnie zachowujący się model NIE wypełni. Stąd `ksztalt`: jawna
+    deklaracja, niezależna od tego, jak nazwał pozycję."""
+
+    def _wyslij_z(self, monkeypatch, conv_id, **pola):
+        stan.ustaw_kontekst(conv_id)
+        pozycja = dict(_pozycja(), **pola)
+        monkeypatch.setattr(stan, "pozycje", lambda: [pozycja])
+        monkeypatch.setattr(podsumowanie.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(podsumowanie.crm_calc, "calculate", lambda p, o: {
+            "ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}})
+        _zaladuj_atrape_wysylki(monkeypatch)
+        wyslane = []
+        monkeypatch.setattr(podsumowanie, "cw_agent_reply",
+                            lambda cid, tekst, token=None: wyslane.append(tekst) or True)
+        return podsumowanie.wyslij(), wyslane
+
+    @pytest.mark.parametrize("nazwa", [
+        "Blat sześciokątny 87x75", "Blat szesciokatny 87x75", "Blat sześciokąt",
+        "Blat pięciokątny", "Blat pieciokatny",
+        "Blat ośmiokątny", "Blat osmiokatny",
+        "Blat wielokątny", "Blat wielokatny",
+        "Blat trójkątny", "Blat trojkatny",
+        "Blat trapezowy", "Blat w kształcie trapezu",
+        "Blat rombowy", "Blat romb",
+        "Blat w kształcie litery L", "Blat litery L", "Blat litera L",
+        "Blat w serek", "Blat serek",
+    ])
+    def test_nowe_slowa_ksztaltu_blokuja_podsumowanie(self, monkeypatch, nazwa):
+        # Odmiana ORAZ pisownia bez ogonków — kanały marketplace potrafią
+        # rozebrać polskie znaki (sanitize.py), a nazwę pozycji pisze model.
+        wynik, wyslane = self._wyslij_z(monkeypatch, 94200, produkt=nazwa)
+        assert wynik.get("error") == "KSZTALT_W_NAZWIE", nazwa
+        assert wyslane == [], nazwa
+
+    @pytest.mark.parametrize("nazwa", [
+        "Blat", "Blat kuchenny dębowy", "Parapet jesionowy", "Stopnie schodowe",
+        "Blat roboczy 180x60", "Blat pod zlew", "Blat barowy",
+    ])
+    def test_zwykle_nazwy_nadal_przechodza(self, monkeypatch, nazwa):
+        # Kontrola negatywna po rozszerzeniu listy: bramka ma zostać WĄSKA.
+        # Prostokątne blaty to cały normalny ruch i żaden nie może się o nią
+        # potknąć — inaczej „naprawa" oddaje konsultantowi zdrowe rozmowy.
+        wynik, wyslane = self._wyslij_z(monkeypatch, 94210, produkt=nazwa)
+        assert wynik["ok"] is True, nazwa
+        assert wyslane, nazwa
+
+    def test_zadeklarowany_ksztalt_blokuje_mimo_niewinnej_nazwy(self, monkeypatch):
+        # Sedno naprawy: model zachowuje się ZGODNIE z regułą KSZTAŁT (nie
+        # nazywa kształtu w podsumowaniu), więc regex nie ma czego złapać.
+        wynik, wyslane = self._wyslij_z(monkeypatch, 94220, produkt="Blat kuchenny",
+                                        ksztalt="sześciokąt")
+        assert wynik["ok"] is False
+        assert wynik["error"] == "KSZTALT_NIEPROSTOKATNY"
+        assert wyslane == []
+
+    def test_deklaracja_ksztaltu_nie_zapisuje_podpisu_potwierdzenia(self, monkeypatch):
+        # Kluczowe dla I2, dokładnie jak przy bramce po nazwie: podpis zapisany
+        # mimo odmowy pozwoliłby klientowi „potwierdzić" podsumowanie, którego
+        # nigdy nie zobaczył.
+        self._wyslij_z(monkeypatch, 94221, produkt="Blat kuchenny", ksztalt="trapez")
+        assert not stan.podsumowanie_wyslane()
+
+    def test_wskazowka_odsyla_do_reguly_KSZTALT_i_niesie_opis_klienta(self, monkeypatch):
+        wynik, _ = self._wyslij_z(monkeypatch, 94222, produkt="Blat kuchenny",
+                                  ksztalt="sześciokąt foremny")
+        assert "KSZTAŁT" in wynik["wskazowka"]
+        assert "oddaj_czlowiekowi" in wynik["wskazowka"]
+        assert "sześciokąt foremny" in wynik["wskazowka"]
+
+    @pytest.mark.parametrize("deklaracja", [
+        "prostokąt", "prostokat", "Prostokątny", "kwadrat", "kwadratowy", "",
+    ])
+    def test_prostokat_zadeklarowany_wprost_przechodzi(self, monkeypatch, deklaracja):
+        # Regresja: model, który to pole wypełnia ZAWSZE, nie może zablokować
+        # sobie każdej wyceny.
+        wynik, wyslane = self._wyslij_z(monkeypatch, 94230, produkt="Blat kuchenny",
+                                        ksztalt=deklaracja)
+        assert wynik["ok"] is True, deklaracja
+        assert wyslane, deklaracja
+
+    def test_wartosc_nieczytelna_blokuje_bo_bramka_jest_fail_closed(self, monkeypatch):
+        # Konwencja odwrotna („czego nie rozumiem, to prostokąt") znaczyłaby, że
+        # literówka modelu przywraca cichą wycenę sześciokąta jak prostokąta.
+        wynik, _ = self._wyslij_z(monkeypatch, 94231, produkt="Blat kuchenny",
+                                  ksztalt="prostokąt z zaokrąglonym rogiem")
+        assert wynik["error"] == "KSZTALT_NIEPROSTOKATNY"
+
+    def test_deklaracja_ma_pierwszenstwo_przed_nazwa(self, monkeypatch):
+        # Obie linie obrony trafiają naraz. Wygrywa deklaracja, bo niesie opis
+        # kształtu podany przez klienta — czyli to, co ma wejść do powodu
+        # handoffu („kształt inny niż prostokąt: <opis klienta>").
+        wynik, _ = self._wyslij_z(monkeypatch, 94232, produkt="Blat okrągły",
+                                  ksztalt="sześciokąt")
+        assert wynik["error"] == "KSZTALT_NIEPROSTOKATNY"
+
+    def test_ksztalt_w_INNYM_polu_nadal_nie_blokuje(self, monkeypatch):
+        # Bramka po deklaracji nie rozszerza zakresu bramki po nazwie:
+        # „okrągły otwór pod baterię" w prostokątnym blacie to poprawna pozycja.
+        wynik, wyslane = self._wyslij_z(
+            monkeypatch, 94233, produkt="Blat kuchenny",
+            otwory=["okrągły otwór pod baterię fi 35"])
+        assert wynik["ok"] is True
+        assert "okrągły otwór pod baterię" in wyslane[0]
+
+    def test_bramka_po_deklaracji_zostawia_slad_w_logu(self, monkeypatch):
+        # „Nie przechodzi po cichu" — trafienia mają dać się policzyć na
+        # skrzynce testowej, tak samo jak trafienia bramki po nazwie.
+        linie = []
+        monkeypatch.setattr(podsumowanie, "log", lambda tekst: linie.append(tekst))
+        self._wyslij_z(monkeypatch, 94234, produkt="Blat kuchenny", ksztalt="romb")
+        assert any("bramka ksztaltu" in linia for linia in linie), linie
+
+    def test_ksztalt_nie_przechodzi_do_kalkulatora(self, monkeypatch):
+        # Bramka stoi PRZED `calculate` — cena prostokąta dla sześciokąta nie
+        # ma po co powstawać, bo model mógłby ją zacytować (rejestr G1 uznałby
+        # ją za prawdziwą, bo PRZYSZŁA z kalkulatora).
+        stan.ustaw_kontekst(94235)
+        pozycja = dict(_pozycja(), produkt="Blat kuchenny", ksztalt="sześciokąt")
+        monkeypatch.setattr(stan, "pozycje", lambda: [pozycja])
+        monkeypatch.setattr(podsumowanie.crm_calc, "get_options", lambda: {})
+        wywolano = []
+        monkeypatch.setattr(podsumowanie.crm_calc, "calculate",
+                            lambda p, o: wywolano.append(1) or {"ok": True, "totals": {}})
+        podsumowanie.wyslij()
+        assert not wywolano
+
+    def test_notatka_dla_konsultanta_NIESIE_ksztalt(self):
+        # Drugi odbiorca `_linia` to prywatna notatka dla konsultanta
+        # (`notatki.tresc_dla_agenta`). Po handoffie na kształcie notatka
+        # opisywała sześciokąt 87x75 jako zwykły blat 87x75 — specyfikacja
+        # MYLĄCA, nie tylko niepełna (rozmowa 4727: konsultantka i tak musiała
+        # dopytać o 6 długości krawędzi).
+        linia = podsumowanie._linia(dict(_pozycja(), produkt="blat kuchenny",
+                                         ksztalt="sześciokąt o boku 43 cm"))
+        assert "kształt: sześciokąt o boku 43 cm" in linia
+
+    def test_prostokat_nie_dokleja_slowa_ksztalt_do_linii(self):
+        # Klient NIGDY nie zobaczy tej gałęzi (bramka odmawia wcześniej), ale
+        # „kształt: prostokąt" przy każdej normalnej pozycji byłoby szumem
+        # w podsumowaniu, które klient PODPISUJE.
+        for deklaracja in ("", "prostokąt", "kwadratowy"):
+            linia = podsumowanie._linia(dict(_pozycja(), ksztalt=deklaracja))
+            assert "kształt" not in linia, deklaracja
+

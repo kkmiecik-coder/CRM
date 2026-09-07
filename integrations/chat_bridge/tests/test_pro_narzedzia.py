@@ -1461,3 +1461,103 @@ class TestKwotyNieRejestrujaSieDlaPorzuconejKonfiguracji:
         _wolaj(n.policz_wycene)
 
         assert {"685.40", "843.04"} <= stan.znane_kwoty()
+
+
+class TestUN7BramkaKsztaltuWPoliczWycene:
+    """Zadanie 3 (U-N7): kształt inny niż prostokąt blokuje TAKŻE liczenie ceny,
+    nie tylko wysyłkę podsumowania.
+
+    Dotąd jedyna bramka kształtu stała w `podsumowanie.wyslij`. `policz_wycene`
+    liczyło sześciokąt jak prostokąt i ODDAWAŁO tę kwotę modelowi, a `stan.
+    zapamietaj_kwoty` wpisywało ją do rejestru G1 — czyli bot mógł ją
+    LEGALNIE wypowiedzieć klientowi w tej samej turze, nie dochodząc nigdy do
+    podsumowania. Cena była wtedy ceną prostokąta o tych samych wymiarach
+    (rozmowa 4727: sześciokąt 87x75 o boku 43 cm)."""
+
+    def _pozycja_sześciokątna(self, conv_id, **pola):
+        stan.ustaw_kontekst(conv_id)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat kuchenny", dlugosc_cm=87,
+               szerokosc_cm=75, grubosc_cm=1.9, ilosc=1,
+               selected_variant="dab-lity-ab", wykonczenie="surowe", **pola)
+
+    def test_zadeklarowany_ksztalt_blokuje_liczenie(self, monkeypatch):
+        self._pozycja_sześciokątna(96700, ksztalt="sześciokąt")
+        wywolano = []
+        monkeypatch.setattr(n.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(n.crm_calc, "calculate", lambda p, o: wywolano.append(1) or {
+            "ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}})
+        wynik = _wolaj(n.policz_wycene)
+        assert wynik["ok"] is False
+        assert wynik["error"] == "KSZTALT_NIEPROSTOKATNY"
+        assert not wywolano, "kalkulator NIE ma byc wolany dla kształtu"
+        # I1: skoro nic nie policzyliśmy, rejestr G1 ma zostać pusty — inaczej
+        # bot dostałby prawo zacytowania kwoty, której nie ma.
+        assert stan.znane_kwoty() == set()
+
+    def test_ksztalt_w_nazwie_tez_blokuje_liczenie(self, monkeypatch):
+        # Druga linia obrony: model pola nie ustawił, ale nazwę wpisał szczerze.
+        stan.ustaw_kontekst(96701)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="Blat sześciokątny 87x75",
+               dlugosc_cm=87, szerokosc_cm=75, grubosc_cm=1.9, ilosc=1,
+               selected_variant="dab-lity-ab", wykonczenie="surowe")
+        monkeypatch.setattr(n.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(n.crm_calc, "calculate", lambda p, o: {
+            "ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}})
+        wynik = _wolaj(n.policz_wycene)
+        assert wynik["error"] == "KSZTALT_W_NAZWIE"
+        assert stan.znane_kwoty() == set()
+
+    def test_wskazowka_kieruje_do_oddaj_czlowiekowi(self, monkeypatch):
+        self._pozycja_sześciokątna(96702, ksztalt="sześciokąt o boku 43 cm")
+        monkeypatch.setattr(n.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(n.crm_calc, "calculate", lambda p, o: {"ok": True})
+        wynik = _wolaj(n.policz_wycene)
+        assert "oddaj_czlowiekowi" in wynik["wskazowka"]
+        assert "KSZTAŁT" in wynik["wskazowka"]
+
+    def test_wskazowka_ksztaltu_nie_zawiera_ZADNEJ_kwoty(self, monkeypatch):
+        # Ten sam wymóg co dla WSKAZOWKA_PO_DOSTAWIE i WSKAZOWKA_WARIANT_
+        # NIEDOSTEPNY: wskazówka jedzie do modelu tą samą drogą co prawdziwe
+        # ceny, a rejestr G1 zna wyłącznie te drugie.
+        from bots_pro import guardraile
+        self._pozycja_sześciokątna(96703, ksztalt="sześciokąt")
+        monkeypatch.setattr(n.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(n.crm_calc, "calculate", lambda p, o: {"ok": True})
+        wynik = _wolaj(n.policz_wycene)
+        assert guardraile.sprawdz_ceny(wynik["wskazowka"], set()) == []
+
+    def test_prostokat_liczy_sie_jak_dotad(self, monkeypatch):
+        # Regresja: cały normalny ruch. Bramka nie ma prawa dotknąć pozycji bez
+        # pola `ksztalt` ani pozycji zadeklarowanej jako prostokąt.
+        for numer, pola in enumerate(({}, {"ksztalt": "prostokąt"},
+                                      {"ksztalt": "kwadrat"})):
+            self._pozycja_sześciokątna(96710 + numer, **pola)
+            monkeypatch.setattr(n.crm_calc, "get_options", lambda: {})
+            monkeypatch.setattr(n.crm_calc, "calculate", lambda p, o: {
+                "ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}})
+            wynik = _wolaj(n.policz_wycene)
+            assert wynik.get("ok") is True, pola
+            assert {"685.40", "843.04"} <= stan.znane_kwoty(), pola
+
+    def test_pusty_ksztalt_nie_kasuje_wczesniejszej_deklaracji(self, monkeypatch):
+        # Gdyby pole miało domyślną wartość „prostokąt" zamiast pustej, KAŻDE
+        # kolejne wywołanie (tu: samo doprecyzowanie ilości) po cichu cofałoby
+        # deklarację i otwierało bramkę.
+        self._pozycja_sześciokątna(96720, ksztalt="sześciokąt")
+        _wolaj(n.zapisz_pozycje, id="1", ilosc=2)
+        monkeypatch.setattr(n.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(n.crm_calc, "calculate", lambda p, o: {"ok": True})
+        assert _wolaj(n.policz_wycene)["error"] == "KSZTALT_NIEPROSTOKATNY"
+
+    def test_zmiana_ksztaltu_uniewaznia_potwierdzenie_klienta(self):
+        # Domknięcie drogi, która omijałaby bramkę: klient potwierdza prostokąt,
+        # model dopisuje ksztalt="sześciokąt" i woła `zapisz_wycene` — ono
+        # kształtu nie sprawdza, sprawdza PODPIS. Z `ksztalt` w polach podpisu
+        # (potwierdzenia._POLA_OPISOWE) taka zmiana unieważnia zgodę.
+        stan.ustaw_kontekst(96730)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat kuchenny", dlugosc_cm=87,
+               szerokosc_cm=75, grubosc_cm=1.9, ilosc=1,
+               selected_variant="dab-lity-ab", wykonczenie="surowe")
+        przed = potwierdzenia.podpis(stan.pozycje())
+        _wolaj(n.zapisz_pozycje, id="1", ksztalt="sześciokąt")
+        assert potwierdzenia.podpis(stan.pozycje()) != przed
