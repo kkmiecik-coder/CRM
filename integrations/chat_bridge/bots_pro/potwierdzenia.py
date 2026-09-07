@@ -200,6 +200,41 @@ def odcisk_cenotworczy(pozycje):
     return json.dumps(istotne, ensure_ascii=False, sort_keys=True)
 
 
+def kwota_nadal_opisuje(stare_pozycje, nowe_pozycje):
+    """Czy kwota policzona dla `stare_pozycje` nadal opisuje `nowe_pozycje`.
+
+    JEDNA definicja predykatu „czy ta kwota nadal obowiązuje", wołana ze
+    WSZYSTKICH trzech miejsc, które to pytanie zadają:
+      - `stan._zmien_pozycje` — czy zapis pozycji ma wyczyścić rejestr G1,
+      - `narzedzia.policz_wycene` — czy wolno zarejestrować kwotę, która
+        wróciła z kalkulatora PO tym, jak pozycje mogły się już zmienić,
+      - `podsumowanie.wyslij` — to samo pytanie dla drugiej funkcji wołającej
+        kalkulator.
+
+    Definicje BYŁY DWIE i się rozjechały, i to jest cały powód, dla którego ta
+    funkcja istnieje: `_zmien_pozycje` liczyło zejście z prostokąta, a
+    `policz_wycene` patrzyło WYŁĄCZNIE na odcisk cenotwórczy — a `ksztalt`
+    polem cenotwórczym świadomie nie jest. Deklaracja kształtu, która trafiła
+    do bazy w trakcie liczenia (okno = całe `crm_calc.calculate`, HTTP z
+    timeoutem 30 s, świadomie poza zamkiem), była więc dla tej kontroli
+    NIEWIDZIALNA: cena prostokąta wchodziła do rejestru G1 dla pozycji, która
+    w bazie miała już `ksztalt="sześciokąt"`, i guardrail pozwalał ją
+    wypowiedzieć klientowi jako prawdziwą (rozmowa 4727, sześciokąt 87x75).
+
+    DWA CZŁONY, bo to dwa różne pytania (patrz komentarz przy `ksztalt` wyżej):
+      1. odcisk cenotwórczy — „czy kalkulator policzyłby to samo";
+      2. zejście z prostokąta — „czy ta kwota nadal opisuje tę pozycję", mimo
+         że kalkulator policzyłby identycznie, bo kształtu nie czyta.
+
+    Człon drugi to różnica ZBIORÓW, nie pytanie „czy jest tu nieprostokąt":
+    reagujemy wyłącznie na pozycje, które WŁAŚNIE przestały być prostokątem.
+    Powtórzona deklaracja tego samego kształtu niczego nie unieważnia (N1),
+    a poprawka „jednak prostokąt" tym bardziej — tam kwota znów obowiązuje."""
+    return (odcisk_cenotworczy(stare_pozycje) == odcisk_cenotworczy(nowe_pozycje)
+            and not (ksztalty_nieprostokatne(nowe_pozycje)
+                     - ksztalty_nieprostokatne(stare_pozycje)))
+
+
 def podpis(pozycje, dostawa=None):
     """Stabilny odcisk tego, co klient potwierdza — pozycje ORAZ dostawa (U4)."""
     istotne = [

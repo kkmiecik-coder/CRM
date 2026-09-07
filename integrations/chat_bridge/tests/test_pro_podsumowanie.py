@@ -1096,3 +1096,165 @@ class TestZ4PokazanaKwota:
         for tekst in do_klienta:
             assert "Ostatnia kwota pokazana klientowi" not in tekst
             assert "przekazuje rozmowę konsultantowi" not in tekst
+
+
+class TestWyslijCzytaStanPodZamkiem:
+    """P1/P2/P3 (kontrola koncowa): `wyslij()` bralo migawke `stan.pozycje()`
+    POZA `zamek_stanu` i po powrocie z kalkulatora juz do bazy nie zagladalo.
+
+    `wyslij_podsumowanie` jest zwyklym `@function_tool`, wiec SDK odpala je
+    ROWNOLEGLE z `zapisz_pozycje` tego samego kroku modelu — a prompt („ZAPISUJ
+    NA BIEZACO" + klauzula kompletnosci) ustawia wyzwalacz podsumowania
+    dokladnie na krok, w ktorym leca ostatnie zapisy. Skutek biznesowy jest
+    IDENTYCZNY z awaria conv 4912, ktora zamkniete zapisy juz naprawily: klient
+    widzi jedna pozycje i jedna cene zamiast kompletu, i te cene potwierdza
+    (I2). Zmienia sie tylko przyczyna — z utraty zapisu na nieaktualny odczyt.
+
+    ZMIERZONE, wierna reprodukcja SDK (jeden krok modelu = `asyncio.gather` po
+    13 wywolaniach `zapisz_pozycje` i jednym `wyslij_podsumowanie`, kazde przez
+    `on_invoke_tool`; 20 przebiegow):
+      - PRZED naprawa: w `pro_dane` komplet 13/13 w 20/20, a u KLIENTA
+        1..13 pozycji — komplet tylko w 8/20, najczesciej 1 pozycja;
+      - PO naprawie: u klienta 13/13 w 20/20.
+
+    Testy nizej NIE licza na scheduler. Odtwarzaja ten sam przeplot
+    deterministycznie: watek glowny TRZYMA `zamek_stanu` i pod nim wykonuje
+    zapisy (RLock jest reentrantny), a watek podsumowania startuje wczesniej.
+    Kod sprzed naprawy czyta wtedy baze BEZ zamka, czyli sprzed zapisow;
+    kod po naprawie czeka na zamek i widzi komplet. Asercja dotyczy liczby
+    pozycji WIDZIANYCH PRZEZ KLIENTA (linie „•" w tresci, ktora poszla
+    `cw_agent_reply`), a nie liczby pozycji w bazie — w tym rzecz, ze baza
+    byla poprawna przez caly czas."""
+
+    NAZWY_4912 = ["blat-1", "parapet-2", "polka-3", "stopien-4", "listwa-5",
+                  "horizontal-divider", "panel-7", "front-8", "bok-9",
+                  "plecy-10", "wieniec-11", "cokol-12", "blenda-13"]
+
+    @staticmethod
+    def _watek_wyslij(conv_id, wynik):
+        """Watek robiacy z `wyslij()` to, co robi SDK z cialem `@function_tool`:
+        osobny watek, ktory jawnie ustawia `_conv_id` (gole watki kontekstu nie
+        dziedzicza, `asyncio.to_thread` go kopiuje — efekt jest ten sam)."""
+        import threading
+
+        def _cialo():
+            stan._conv_id.set(conv_id)
+            stan._persona.set("pro")
+            wynik.update(podsumowanie.wyslij() or {})
+
+        return threading.Thread(target=_cialo)
+
+    def _przygotuj_atrapy(self, monkeypatch, wyslane):
+        monkeypatch.setattr(podsumowanie.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(podsumowanie.crm_calc, "calculate", lambda p, o: {
+            "ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}})
+        _zaladuj_atrape_wysylki(monkeypatch)
+        monkeypatch.setattr(podsumowanie, "cw_agent_reply",
+                            lambda cid, tekst, **k: wyslane.append(tekst) or True)
+
+    def test_klient_dostaje_komplet_pozycji_zapisanych_w_tym_samym_kroku(self, monkeypatch):
+        import time
+
+        conv_id = 94200
+        wyslane, wynik = [], {}
+        stan.ustaw_kontekst(conv_id)
+        self._przygotuj_atrapy(monkeypatch, wyslane)
+
+        watek = self._watek_wyslij(conv_id, wynik)
+        with stan.zamek_stanu:
+            watek.start()
+            # Tyle, zeby watek podsumowania na pewno doszedl do odczytu stanu.
+            # Kod sprzed naprawy odczytuje TU (zamka nie bierze) i widzi baze
+            # sprzed zapisow; kod po naprawie stoi na zamku.
+            time.sleep(0.05)
+            for nazwa in self.NAZWY_4912:
+                stan.zapisz_pozycje(nazwa, produkt="blat", dlugosc_cm=101,
+                                    szerokosc_cm=42.5, grubosc_cm=4, ilosc=2,
+                                    selected_variant="buk-lity-ab",
+                                    wykonczenie="surowe")
+        watek.join(timeout=10)
+        stan.ustaw_kontekst(conv_id)
+
+        assert len(stan.pozycje()) == 13, "baza ma miec komplet — to nie jest test zapisu"
+        assert wynik.get("ok") is True, wynik
+        assert sum(tekst.count("•") for tekst in wyslane) == 13
+
+    def test_deklaracja_ksztaltu_w_trakcie_liczenia_wstrzymuje_wysylke(self, monkeypatch):
+        """P2: bramka ksztaltu badala migawke SPRZED `calculate`, a samo
+        `calculate` to HTTP z timeoutem 30 s poza zamkiem. Deklaracja
+        „a ma byc szesciokatny", ktora trafila do bazy w tym oknie, byla dla
+        bramki niewidzialna i klient dostawal pelne podsumowanie z cena
+        PROSTOKATA dla szesciokata (conv 4727) — pod podpisem I2."""
+        conv_id = 94201
+        wyslane = []
+        stan.ustaw_kontekst(conv_id)
+        stan.zapisz_pozycje("1", produkt="blat kuchenny", dlugosc_cm=87,
+                            szerokosc_cm=75, grubosc_cm=1.9, ilosc=1,
+                            selected_variant="dab-lity-ab", wykonczenie="surowe")
+        self._przygotuj_atrapy(monkeypatch, wyslane)
+
+        def _kalkulator_z_wyscigiem(pozycje, opcje):
+            # Rownolegly `zapisz_pozycje` z tego samego kroku modelu.
+            stan.zapisz_pozycje("1", ksztalt="sześciokąt o boku 43 cm")
+            return {"ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}}
+
+        monkeypatch.setattr(podsumowanie.crm_calc, "calculate", _kalkulator_z_wyscigiem)
+        wynik = podsumowanie.wyslij()
+
+        assert wynik["ok"] is False
+        assert wynik["error"] == "KSZTALT_NIEPROSTOKATNY"
+        assert wyslane == [], "klient NIE ma zobaczyc ceny prostokata dla szesciokata"
+        # I1: kwota prostokata nie ma prawa zostac „znana" guardrailowi G1 —
+        # inaczej bot moglby ja zacytowac w dowolnej kolejnej turze.
+        assert stan.znane_kwoty() == set()
+
+    def test_zmiana_wymiaru_w_trakcie_liczenia_nie_rejestruje_kwot(self, monkeypatch):
+        """P3: `wyslij()` wolalo `zapamietaj_kwoty` bez kontroli, ktora ma
+        `policz_wycene` — a to ta sama kwota z tego samego kalkulatora. Cena
+        policzona dla konfiguracji, z ktorej klient wlasnie zrezygnowal, nie ma
+        prawa wejsc do rejestru G1 jako znana (wzorzec z rozmow 4910 i 4799).
+
+        Samo podsumowanie idzie do klienta swiadomie: jest wewnetrznie SPOJNE
+        (pokazuje te pozycje, dla ktorych policzono cene), a I2 zostaje
+        fail-closed, bo podpis liczy sie z tej samej migawki."""
+        conv_id = 94202
+        wyslane = []
+        stan.ustaw_kontekst(conv_id)
+        stan.zapisz_pozycje("1", produkt="blat", dlugosc_cm=180, szerokosc_cm=60,
+                            grubosc_cm=4, ilosc=1, selected_variant="dab-lity-ab",
+                            wykonczenie="surowe")
+        self._przygotuj_atrapy(monkeypatch, wyslane)
+
+        def _kalkulator_z_wyscigiem(pozycje, opcje):
+            stan.zapisz_pozycje("1", dlugosc_cm=240)
+            return {"ok": True, "totals": {"total_netto": 1574.56, "total_brutto": 1936.71}}
+
+        monkeypatch.setattr(podsumowanie.crm_calc, "calculate", _kalkulator_z_wyscigiem)
+        wynik = podsumowanie.wyslij()
+
+        assert wynik["ok"] is True
+        assert stan.znane_kwoty() == set()
+
+    def test_zmiana_NIECENOTWORCZA_w_trakcie_liczenia_nie_blokuje_rejestracji(self, monkeypatch):
+        """Kontrola negatywna — bez niej powyzsza bramka moglaby byc dowolnie
+        ciasna. Dopisanie otworu nie zmienia ceny (`otwory` to pole OPISOWE,
+        `build_products` go nie czyta), wiec kwoty MAJA wejsc do rejestru:
+        inaczej typowa tura „dopisuje wyciecie na zlew, cena bez zmian"
+        konczylaby sie falszywym alarmem G1 na PRAWDZIWEJ kwocie."""
+        conv_id = 94203
+        wyslane = []
+        stan.ustaw_kontekst(conv_id)
+        stan.zapisz_pozycje("1", produkt="blat", dlugosc_cm=180, szerokosc_cm=60,
+                            grubosc_cm=4, ilosc=1, selected_variant="dab-lity-ab",
+                            wykonczenie="surowe")
+        self._przygotuj_atrapy(monkeypatch, wyslane)
+
+        def _kalkulator_z_otworem(pozycje, opcje):
+            stan.zapisz_pozycje("1", otwory=["otwór na zlew 50x40 cm"])
+            return {"ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}}
+
+        monkeypatch.setattr(podsumowanie.crm_calc, "calculate", _kalkulator_z_otworem)
+        wynik = podsumowanie.wyslij()
+
+        assert wynik["ok"] is True
+        assert {"685.40", "843.04"} <= stan.znane_kwoty()

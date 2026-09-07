@@ -705,7 +705,7 @@ def _zmien_pozycje(mutator):
     więc żadnej PRAWDZIWEJ kwoty do wypowiedzenia już nie ma.
 
     Zwraca parę `(wynik mutatora, liczba pozycji PO zapisie)`."""
-    from bots_pro.potwierdzenia import ksztalty_nieprostokatne, odcisk_cenotworczy
+    from bots_pro.potwierdzenia import kwota_nadal_opisuje
 
     biezacy_conv_id = _wymagany_conv_id()
     with zamek_stanu:
@@ -723,17 +723,14 @@ def _zmien_pozycje(mutator):
 
             wynik = mutator(dane)
 
-            # Różnica ZBIORÓW, nie „czy jest tu nieprostokąt": reagujemy tylko
-            # na pozycje, które WŁAŚNIE przestały być prostokątem. Powtórzony
-            # zapis tej samej deklaracji nic nie kasuje (N1), a poprawka
-            # „jednak prostokąt" tym bardziej — tam kwota znów obowiązuje.
-            zeszla_z_prostokata = bool(
-                ksztalty_nieprostokatne(dane.get("pozycje"))
-                - ksztalty_nieprostokatne(stare_pozycje))
+            # Predykat „czy kwota nadal opisuje tę pozycję" mieszka w
+            # `potwierdzenia`, bo zadają go TRZY miejsca (tu, `policz_wycene`
+            # i `podsumowanie.wyslij`) — dwie kopie tej reguły już raz się
+            # rozjechały i cena prostokąta wchodziła do rejestru G1 dla
+            # pozycji zadeklarowanej jako sześciokąt.
             uniewaznic_kwoty = (
                 wiersz is None
-                or odcisk_cenotworczy(stare_pozycje) != odcisk_cenotworczy(dane.get("pozycje"))
-                or zeszla_z_prostokata)
+                or not kwota_nadal_opisuje(stare_pozycje, dane.get("pozycje")))
             polaczenie.execute(
                 "INSERT INTO pro_dane(conv_id, dane_json) VALUES(?,?) "
                 "ON CONFLICT(conv_id) DO UPDATE SET dane_json=excluded.dane_json",

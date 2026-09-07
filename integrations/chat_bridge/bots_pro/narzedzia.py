@@ -233,7 +233,6 @@ def policz_wycene() -> dict:
     # policzyłby przypadkowy prefiks listy.
     with stan.zamek_stanu:
         pozycje = stan.pozycje()
-        odcisk_wejsciowy = potwierdzenia.odcisk_cenotworczy(pozycje)
 
     # U-N7: bramka kształtu. PRZED wołaniem kalkulatora — cena sześciokąta
     # policzona jak prostokąt nie ma po co powstawać, bo model może ją
@@ -261,9 +260,15 @@ def policz_wycene() -> dict:
         # do zacytowania (dokładnie awaria opisana jako W2 w docstringu
         # `bots_pro/stan.py`). Porównanie i zapis MUSZĄ być pod jednym zamkiem —
         # sprawdzenie bez niego nic nie gwarantuje, bo zapis pozycji zdążyłby
-        # wejść pomiędzy. Ten sam odcisk co przy czyszczeniu rejestru, więc obie
-        # reguły nie mogą się rozjechać.
-        if potwierdzenia.odcisk_cenotworczy(stan.pozycje()) == odcisk_wejsciowy:
+        # wejść pomiędzy.
+        #
+        # DOKŁADNIE ten sam predykat co przy czyszczeniu rejestru — jedna
+        # funkcja, nie dwie kopie reguły. Wcześniej stał tu goły `odcisk_
+        # cenotworczy`, który deklaracji kształtu NIE WIDZI (`ksztalt` nie jest
+        # polem cenotwórczym), więc `zapisz_pozycje(ksztalt="sześciokąt")`
+        # z tego samego kroku modelu przepuszczał cenę prostokąta do rejestru
+        # G1 — bramka kształtu zamykała tylko przebieg sekwencyjny.
+        if potwierdzenia.kwota_nadal_opisuje(pozycje, stan.pozycje()):
             stan.zapamietaj_kwoty(podsumowanie.kwoty_z_wyniku(pozycje, wynik))
         else:
             log("narzedzia: pozycje zmienily sie w trakcie liczenia -> kwot NIE "

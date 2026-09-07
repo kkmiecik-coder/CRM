@@ -1481,6 +1481,59 @@ class TestKwotyNieRejestrujaSieDlaPorzuconejKonfiguracji:
 
         assert {"685.40", "843.04"} <= stan.znane_kwoty()
 
+    def test_deklaracja_KSZTALTU_w_trakcie_liczenia_nie_rejestruje_kwot(self, monkeypatch):
+        """P2 (kontrola koncowa): kontrola po powrocie z kalkulatora patrzyla
+        WYLACZNIE na `odcisk_cenotworczy`, a `ksztalt` polem cenotworczym
+        swiadomie nie jest (`build_products` wpisuje `shape: "rectangular"` na
+        sztywno, wiec kalkulator policzylby to samo). Deklaracja ksztaltu byla
+        wiec dla tej kontroli NIEWIDZIALNA, a okno to caly czas trwania
+        `crm_calc.calculate` — HTTP z timeoutem 30 s, swiadomie poza zamkiem.
+
+        ZMIERZONE przed naprawa (conv 4727, blat 87x75x1,9 dab lity A/B; model
+        w jednym kroku wola `policz_wycene` i `zapisz_pozycje("1",
+        ksztalt="szesciokat o boku 43 cm")`): `stan.znane_kwoty()` =
+        {'685.40', '843.04'}, wiec `guardraile.sprawdz_ceny` przepuszczalo do
+        klienta cene PROSTOKATA dla szesciokata. Bramka ksztaltu zamykala to
+        tylko dla przebiegu sekwencyjnego. Po naprawie oba miejsca (tu i
+        `stan._zmien_pozycje`) pytaja TA SAMA funkcja
+        `potwierdzenia.kwota_nadal_opisuje`."""
+        stan.ustaw_kontekst(96522)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat kuchenny", dlugosc_cm=87,
+               szerokosc_cm=75, grubosc_cm=1.9, ilosc=1,
+               selected_variant="dab-lity-ab", wykonczenie="surowe")
+
+        def _kalkulator_z_wyscigiem(pozycje, opcje):
+            stan.zapisz_pozycje("1", ksztalt="sześciokąt o boku 43 cm")
+            return {"ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}}
+
+        monkeypatch.setattr(n.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(n.crm_calc, "calculate", _kalkulator_z_wyscigiem)
+        _wolaj(n.policz_wycene)
+
+        assert stan.znane_kwoty() == set()
+
+    def test_powtorzona_deklaracja_ksztaltu_nie_blokuje_rejestracji(self, monkeypatch):
+        """Kontrola negatywna do powyzszej: predykat reaguje na ROZNICE zbiorow
+        („pozycja wlasnie przestala byc prostokatem"), nie na sama obecnosc
+        nieprostokata. Tu jednak nie ma czego rejestrowac inaczej niz przez
+        bramke ksztaltu, wiec sprawdzamy druga strone: pozycja, ktora WRACA do
+        prostokata w trakcie liczenia, nie ma prawa unieważnic kwoty."""
+        stan.ustaw_kontekst(96523)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat", dlugosc_cm=180,
+               szerokosc_cm=60, grubosc_cm=4, ilosc=1,
+               selected_variant="dab-lity-ab", wykonczenie="surowe",
+               ksztalt="prostokąt")
+
+        def _kalkulator_z_poprawka(pozycje, opcje):
+            stan.zapisz_pozycje("1", ksztalt="prostokąt")   # powtorka, bez zmiany
+            return {"ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}}
+
+        monkeypatch.setattr(n.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(n.crm_calc, "calculate", _kalkulator_z_poprawka)
+        _wolaj(n.policz_wycene)
+
+        assert {"685.40", "843.04"} <= stan.znane_kwoty()
+
 
 class TestUN7BramkaKsztaltuWPoliczWycene:
     """Zadanie 3 (U-N7): kształt inny niż prostokąt blokuje TAKŻE liczenie ceny,

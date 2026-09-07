@@ -466,7 +466,20 @@ def wyslij():
     nie istnieje w tym zadaniu, a ścieżki wczesnego wyjścia (brak pozycji, nieudana
     wycena) mają działać już teraz, bez zależności od niego.
     """
-    pozycje = stan.pozycje()
+    # X1: migawka POD zamkiem, symetrycznie do `narzedzia.policz_wycene`.
+    # `wyslij_podsumowanie` jest zwykłym `@function_tool`, więc SDK odpala je
+    # RÓWNOLEGLE z `zapisz_pozycje` tego samego kroku modelu — a prompt każe
+    # zapisywać drobno i często i ustawia wyzwalacz podsumowania dokładnie na
+    # krok, w którym lecą ostatnie zapisy. Bez zamka ta jedna migawka łapała
+    # listę w połowie zapisu, a pracuje na niej WSZYSTKO niżej: treść dla
+    # klienta, `kwoty_z_wyniku`, `potwierdzenia.podpis` i `pokazana_kwota`.
+    # ZMIERZONE na kodzie sprzed naprawy (13 równoległych `zapisz_pozycje`
+    # + `wyslij_podsumowanie`, 20 przebiegów): w bazie komplet 13/13 za każdym
+    # razem, u KLIENTA zero pozycji w 20/20 (`BRAK_POZYCJI` — klient nie
+    # dostawał nic). Skutek biznesowy ten sam co przy gubieniu zapisów:
+    # klient potwierdza (I2) listę, która nie jest jego zamówieniem.
+    with stan.zamek_stanu:
+        pozycje = stan.pozycje()
     if not pozycje:
         return {"ok": False, "error": "BRAK_POZYCJI"}
 
@@ -559,8 +572,46 @@ def wyslij():
         tekst += ZDANIE_O_WARIANTACH
     tekst += "\n\nCzy wszystko się zgadza?"
 
-    stan.zapamietaj_kwoty(kwoty)
-    stan.zapamietaj_kwoty(kwoty_dostawy, zrodlo="dostawa")
+    # DRUGA kontrola, na ŚWIEŻYCH pozycjach. Okno między migawką wyżej a tym
+    # miejscem to całe `crm_calc.calculate` — HTTP z timeoutem 30 s, świadomie
+    # poza zamkiem — więc równoległy `zapisz_pozycje` z tego samego kroku
+    # modelu ma w nim mnóstwo czasu, żeby wylądować w bazie.
+    #
+    # DWIE RÓŻNE DECYZJE, bo to dwie różne sytuacje:
+    #
+    #  1. Kształt (bramka `blokada_ksztaltu` powtórzona po powrocie z
+    #     kalkulatora): NIE WYSYŁAMY. Cena prostokąta dla sześciokąta jest zła
+    #     ZAWSZE i nie ma wersji, w której klient miałby ją zobaczyć —
+    #     kalkulator kształtu w ogóle nie liczy (`build_products` wpisuje
+    #     `shape: "rectangular"` na sztywno). Bramka sprzed `calculate`
+    #     zamykała tylko przebieg sekwencyjny: deklaracja, która przyszła
+    #     w trakcie liczenia, mijała ją bokiem (rozmowa 4727).
+    #
+    #  2. Zmiana pola cenotwórczego (wymiar, wariant, wykończenie): kwoty NIE
+    #     wchodzą do rejestru G1 — ta sama reguła i ta sama funkcja, co
+    #     w `narzedzia.policz_wycene` i w `stan._zmien_pozycje`. Cena
+    #     policzona dla konfiguracji, z której klient właśnie zrezygnował, nie
+    #     ma prawa być dla guardraila „znana", bo wtedy bot mógłby ją zacytować
+    #     w dowolnej kolejnej turze jako obowiązującą. Samo podsumowanie idzie
+    #     jednak do klienta: jest wewnętrznie SPÓJNE (pokazuje dokładnie te
+    #     pozycje, dla których policzono cenę), a I2 zostaje fail-closed —
+    #     podpis jest liczony z tej samej migawki, więc po zmianie wymiaru
+    #     „tak" klienta i tak nie otworzy bramki `sprawdz_bramke`.
+    #
+    # Porównanie i zapis pod JEDNYM zamkiem — sprawdzenie bez niego nic nie
+    # gwarantuje, bo zapis pozycji zdążyłby wejść pomiędzy.
+    with stan.zamek_stanu:
+        swieze_pozycje = stan.pozycje()
+        blokada_po_liczeniu = blokada_ksztaltu(swieze_pozycje)
+        kwoty_wazne = potwierdzenia.kwota_nadal_opisuje(pozycje, swieze_pozycje)
+        if not blokada_po_liczeniu and kwoty_wazne:
+            stan.zapamietaj_kwoty(kwoty)
+            stan.zapamietaj_kwoty(kwoty_dostawy, zrodlo="dostawa")
+    if blokada_po_liczeniu:
+        return blokada_po_liczeniu
+    if not kwoty_wazne:
+        log("podsumowanie: pozycje zmienily sie w trakcie liczenia -> kwot NIE "
+            "rejestruje (conv %s)" % stan.conv_id())
 
     oczekiwany = potwierdzenia.podpis(pozycje, dostawa)
 
