@@ -106,13 +106,13 @@ ZDANIA_BEZ_PODSUMOWANIA = {
         "nie chcę podawać ceny sprzed zmian. Czy lista jest już kompletna?"),
     "brak_pozycji": (
         "Nie mam jeszcze zapisanej ani jednej pozycji, więc nie ma czego "
-        "podsumować. Napiszesz proszę, co dokładnie mam wycenić?"),
+        "podsumować. Proszę o informację, co dokładnie mam wycenić?"),
 }
 # Powód spoza słownika: nowa ścieżka odmowna w `podsumowanie.wyslij` doda tu
 # klucz, ale do tego czasu klient ma dostać cokolwiek zamiast ciszy.
 ZDANIE_BEZ_PODSUMOWANIA_DOMYSLNE = (
     "Nie udało mi się przygotować podsumowania na tych danych. "
-    "Możesz potwierdzić, co dokładnie mam wycenić?")
+    "Proszę o potwierdzenie, co dokładnie mam wycenić?")
 
 # Rola "system" (nie goły string / rola "user") - patrz akapit o W2 w docstringu modułu.
 _KOMUNIKAT_KOREKTY = [{
