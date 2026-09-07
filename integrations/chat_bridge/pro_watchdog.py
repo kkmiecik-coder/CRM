@@ -57,6 +57,7 @@ from bots_pro.notatki import kod_notatki_ok
 from config import (BOT_PRO_CW_AGENT_TOKEN, BOT_PRO_INBOXES, BOT_PRO_WATCHDOG_INTERVAL,
                     BOT_PRO_WATCHDOG_MINUTES)
 from core.chatwoot import cw, cw_bot_handoff, cw_note, cw_pending_conversations
+from core.events import log_event
 from core.log import log
 from quote_worker import _jest_pro_inbox
 
@@ -257,13 +258,40 @@ def watchdog_once(teraz):
         if cw_bot_handoff(conv_id, token=BOT_PRO_CW_AGENT_TOKEN):
             oddane += 1
             log("watchdog: rozmowa %s porzucona przez bota -> konsultant" % conv_id)
+            minuty = _minuty_ciszy(znaczniki.get(conv_id), teraz)
+            # T1 (telemetria lejka): watchdog jest TRZECIM wejściem handoffu,
+            # obok `tura._oddaj_konsultantowi` i narzędzia `oddaj_czlowiekowi`
+            # — a te dwa przechodzą przez `stan.handoff`, gdzie jako jedyne
+            # stało `log_event(..., "handoff", ...)`. Bez tej linii watchdog
+            # oddawał rozmowy NIEWIDZIALNIE dla lejka: w próbce 12 rozmów
+            # produkcyjnych oddał 4 z 9 (4664, 4704, 4952, 4995), więc
+            # `COUNT(DISTINCT conv_id) ... WHERE event='handoff'` liczyło 5
+            # zamiast 9, a rozmowy oddane przez ciszę wyglądały w raporcie
+            # jak rozmowy DOPROWADZONE DO KOŃCA. Właściciel wyciągnąłby
+            # z tego wniosek odwrotny do faktów.
+            #
+            # ŚWIADOMIE nie przepuszczamy watchdoga przez `stan.handoff`,
+            # mimo że to skróciłoby kod: `stan.handoff` czyta i zapala flagi
+            # turowe, a te żyją w słowniku MODUŁOWYM wspólnym dla procesu.
+            # Watchdog chodzi we WŁASNYM wątku, równolegle z workerem, więc
+            # dotknięcie tego słownika z jego wątku gasi bezpieczniki tury,
+            # która właśnie trwa (ten sam powód, dla którego istnieje
+            # `stan.ustaw_kontekst_odczytu`).
+            #
+            # DOKŁADNIE ten sam powód, co w notatce dla konsultanta (jedna
+            # funkcja, nie dwa teksty): niesie znacznik „(watchdog)", po którym
+            # w `quote_events` da się oddzielić oddanie automatyczne od decyzji
+            # bota i od bezpiecznika tury — to trzy różne zjawiska lejka —
+            # i przy okazji liczbę minut ciszy, czyli powód, dla którego
+            # rozmowa w ogóle została oddana.
+            log_event(conv_id, "handoff", {"powod": _powod_watchdoga(minuty)})
             # W2: kod HTTP notatki jest SPRAWDZANY (bledny albo wygasly
             # BOT_PRO_CW_AGENT_TOKEN daje 401, a wtedy handoff juz sie odbyl inna
             # sciezka i konsultant nie wie, DLACZEGO dostal rozmowe) — dzis w
             # `_notatka_watchdoga`, razem z reszta skladania notatki. Porazka
             # notatki NIE cofa handoffu, ktory sie udal: tylko log, bez zmiany
             # licznika.
-            _notatka_watchdoga(conv_id, _minuty_ciszy(znaczniki.get(conv_id), teraz))
+            _notatka_watchdoga(conv_id, minuty)
         else:
             # W4: log NIEUDANEGO handoffu byl wczesniej TYLKO w galezi sukcesu — czesc
             # inboksow moglaby po cichu nie dzialac bez sladu w logach.

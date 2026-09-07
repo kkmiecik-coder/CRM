@@ -659,6 +659,62 @@ class TestNotatkaWatchdoga:
         assert "33 min" in awaryjne[0][1]
 
 
+class TestTelemetriaHandoffuWatchdoga:
+    """P5 (kontrola koncowa): watchdog jest TRZECIM wejsciem handoffu — obok
+    `tura._oddaj_konsultantowi` i narzedzia `oddaj_czlowiekowi` — ale jako
+    jedyny nie przechodzi przez `stan.handoff`, gdzie stalo jedyne
+    `log_event(..., "handoff", ...)`. Oddawal wiec rozmowy NIEWIDZIALNIE dla
+    lejka: w probce 12 rozmow produkcyjnych oddal 4 z 9 (4664, 4704, 4952,
+    4995), wiec `SELECT COUNT(DISTINCT conv_id) FROM quote_events WHERE
+    event='handoff'` liczylby 5 zamiast 9. Rozmowa 4704 — najlepiej
+    poprowadzona w calej probce — wygladalaby w raporcie jak rozmowa
+    doprowadzona do konca BEZ handoffu, czyli jak sukces lejka.
+
+    Watchdog swiadomie NIE idzie przez `stan.handoff`: ta funkcja rusza flagi
+    turowe w slowniku modulowym wspolnym dla procesu, a watchdog chodzi we
+    wlasnym watku rownolegle z turami workera (patrz
+    `TestKontekstWatchdoga`)."""
+
+    def _kandydat(self, monkeypatch, handoff_udany=True):
+        monkeypatch.setattr(w, "cw_pending_conversations",
+                            lambda: [_rozmowa(4704, "outgoing", 33)])
+        monkeypatch.setattr(w, "_bot_naprawde_mowil_ostatni", lambda conv_id: True)
+        monkeypatch.setattr(w, "cw_bot_handoff",
+                            lambda conv_id, token=None: handoff_udany)
+        zdarzenia = []
+        monkeypatch.setattr(w, "log_event", lambda conv_id, event, meta=None: (
+            zdarzenia.append((conv_id, event, meta))))
+        return zdarzenia
+
+    def test_udany_handoff_watchdoga_trafia_do_telemetrii(self, monkeypatch):
+        zdarzenia = self._kandydat(monkeypatch)
+
+        assert w.watchdog_once(1_000_000) == 1
+
+        assert [(cid, ev) for cid, ev, _ in zdarzenia] == [(4704, "handoff")]
+
+    def test_powod_odroznia_watchdoga_od_zwyklego_handoffu(self, monkeypatch):
+        # Bez tego zdarzenia watchdoga zlewaja sie w raporcie z decyzja bota i
+        # z bezpiecznikami tury — a to trzy rozne zjawiska lejka. Powod jest
+        # DOKLADNIE ten sam tekst, ktory dostaje konsultant w notatce.
+        zdarzenia = self._kandydat(monkeypatch)
+
+        w.watchdog_once(1_000_000)
+
+        powod = zdarzenia[0][2]["powod"]
+        assert "watchdog" in powod
+        assert "33 min" in powod
+
+    def test_nieudany_handoff_NIE_trafia_do_telemetrii(self, monkeypatch):
+        # Rozmowa, ktorej Chatwoot nie przelaczyl, NIE zostala oddana — wpis w
+        # lejku bylby falszywym sukcesem po drugiej stronie. Ta sama zasada, co
+        # przy `summary_sent` w podsumowaniu.
+        zdarzenia = self._kandydat(monkeypatch, handoff_udany=False)
+
+        assert w.watchdog_once(1_000_000) == 0
+        assert zdarzenia == []
+
+
 class TestMinutyCiszy:
     def test_liczy_pelne_minuty(self):
         assert w._minuty_ciszy(1_000_000 - 25 * 60, 1_000_000) == 25

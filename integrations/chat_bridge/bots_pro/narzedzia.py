@@ -366,17 +366,18 @@ def policz_wysylke(kod_pocztowy: str) -> dict:
     #
     # Samo `shipping_quote` (HTTP) zostaje POZA zamkiem — jest kilka linii wyżej,
     # z tego samego powodu co w `policz_wycene`.
+    # T1: warunek `ok and carriers` jest PRZEPISANY ze starego silnika
+    # (bots/quotebot.py:_obsluz_wysylke) — `ok=True` z `carriers=0` NIE jest
+    # oszacowaniem wysyłki (patrz docstring tego narzędzia: to nie znaczy
+    # „gratis"), więc zdarzenie telemetrii tam nie leci i lejek nie liczy
+    # fałszywych sukcesów. Ten sam warunek wybiera gałąź zapisu niżej — jedno
+    # wyliczenie, nie dwa, żeby nie dało się ich rozjechać.
+    oszacowano_wysylke = bool(wynik.get("ok") and wynik.get("carriers"))
     with stan.zamek_stanu:
-        if wynik.get("ok") and wynik.get("carriers"):
+        if oszacowano_wysylke:
             stan.zapisz_dostawe(kod_pocztowy, kurier=wynik.get("carrier_name"),
                                 netto=wynik.get("shipping_netto"),
                                 brutto=wynik.get("shipping_brutto"))
-            # T1: warunek `ok and carriers` jest PRZEPISANY ze starego silnika
-            # (bots/quotebot.py:_obsluz_wysylke) — `ok=True` z `carriers=0` NIE jest
-            # oszacowaniem wysyłki (patrz docstring tego narzędzia: to nie znaczy
-            # „gratis"), więc zdarzenie tam nie leci i lejek nie liczy fałszywych
-            # sukcesów. Dlatego siedzi w TEJ gałęzi, a nie za `if wynik.get("ok")`.
-            log_event(stan.conv_id(), "shipping_quoted", {"carrier": wynik.get("carrier_name")})
         else:
             stan.zapisz_dostawe(kod_pocztowy)
 
@@ -384,6 +385,20 @@ def policz_wysylke(kod_pocztowy: str) -> dict:
             (wynik[pole] for pole in ("shipping_netto", "shipping_brutto")
              if isinstance(wynik.get(pole), (int, float))),
             zrodlo="dostawa")
+
+    # POZA sekcją krytyczną, i to jest wiążące, nie kosmetyka. `core.events.
+    # log_event` otwiera WŁASNE połączenie SQLite z `timeout=30`, robi INSERT
+    # i `commit()` — czyli fsync. Wewnątrz `with` ten fsync (a w najgorszym
+    # razie 30-sekundowe czekanie na zamek zapisu SQLite) trzymałby
+    # `zamek_stanu`, który jest zamkiem PROCESU, wspólnym dla WSZYSTKICH
+    # rozmów: przez ten czas żaden `zapisz_pozycje` w żadnej innej rozmowie by
+    # nie przeszedł. Ta linia trafiła pod zamek przez kolejność commitów
+    # (telemetria stanęła tu wcześniej, zamek opakował parę dookoła niej), a
+    # zasada jest ta sama, co dla `shipping_quote` kilkanaście linii wyżej:
+    # obce I/O zostaje POZA zamkiem. Pozostałe emisje `log_event` w tym module
+    # już tak stoją.
+    if oszacowano_wysylke:
+        log_event(stan.conv_id(), "shipping_quoted", {"carrier": wynik.get("carrier_name")})
 
     if not wynik.get("ok"):
         # U9: sam POWÓD niepowodzenia, nigdy surowy payload. Nieudane oszacowanie

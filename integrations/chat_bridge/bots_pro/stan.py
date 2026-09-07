@@ -154,9 +154,19 @@ zamek_stanu = threading.RLock()
 _flagi_tury = {}
 # Slownik zyje tyle, co proces, wiec bez limitu roslby o jeden maly wpis na
 # rozmowe az do restartu. Limit jest hojny (kilkadziesiat rozmow naraz mostek i
-# tak nie prowadzi) i przycinamy od NAJSTARSZEGO wpisu — slownik trzyma
-# kolejnosc wstawiania, a najstarsza rozmowa jest tez ta, ktorej tura na pewno
-# sie juz skonczyla.
+# tak nie prowadzi) i przycinamy wpis NAJDAWNIEJ UZYWANY, czyli te rozmowe,
+# ktora najdawniej zaczynala ture — a wiec te, ktorej tura na pewno sie juz
+# skonczyla.
+#
+# „Najdawniej uzywany" wymaga wspolpracy `_wyzeruj_flagi_tury`: dict trzyma
+# kolejnosc PIERWSZEGO wstawienia, wiec samo `_flagi_tury[conv_id] = {}` na
+# starcie kolejnej tury NIE odswiezalo pozycji w kolejce i najdawniej WIDZIANA
+# rozmowa (np. aktywna od startu procesu) wypadala jako pierwsza, w srodku
+# swojej wlasnej tury. `tura.py` czytalby wtedy `podsumowanie_wyslane()` jako
+# False, choc podsumowanie poszlo — czyli drugie, sparafrazowane podsumowanie
+# albo cisza, dokladnie ta klasa awarii, ktorej flagi mialy zapobiec. Dzis
+# nieosiagalne (jeden watek workera, tury sekwencyjne), ale drugi worker jest
+# w zasiegu. Stad `pop` przed przypisaniem w `_wyzeruj_flagi_tury`.
 _LIMIT_ROZMOW_Z_FLAGAMI = 64
 
 _SCHEMAT = """
@@ -287,6 +297,13 @@ def _wyzeruj_flagi_tury(conv_id):
     czyli raz na ture — to jest cala definicja „per tura": flaga zyje od startu
     tury do startu nastepnej, a nie przez cala rozmowe."""
     with zamek_stanu:
+        # `pop` PRZED przypisaniem, i to nie jest kosmetyka. Przypisanie do
+        # klucza, ktory juz istnieje, NIE przesuwa go na koniec — dict trzyma
+        # kolejnosc PIERWSZEGO wstawienia. Bez tego popu rozmowa aktywna od
+        # startu procesu byla pierwsza w kolejce do wyrzucenia przez limit
+        # nizej, mimo ze jej tura wlasnie sie zaczela; wyrzucany mial byc wpis
+        # najdawniej UZYWANY, a wyrzucany byl najdawniej WIDZIANY.
+        _flagi_tury.pop(conv_id, None)
         _flagi_tury[conv_id] = {}
         while len(_flagi_tury) > _LIMIT_ROZMOW_Z_FLAGAMI:
             _flagi_tury.pop(next(iter(_flagi_tury)))

@@ -1633,3 +1633,67 @@ class TestUN7BramkaKsztaltuWPoliczWycene:
         przed = potwierdzenia.podpis(stan.pozycje())
         _wolaj(n.zapisz_pozycje, id="1", ksztalt="sześciokąt")
         assert potwierdzenia.podpis(stan.pozycje()) != przed
+
+
+class TestTelemetriaWysylkiPozaZamkiem:
+    """P4 (kontrola koncowa): `log_event(..., "shipping_quoted", ...)` lezalo
+    WEWNATRZ `with stan.zamek_stanu:`. `core.events.log_event` otwiera wlasne
+    polaczenie SQLite z `timeout=30`, robi INSERT i `commit()` — czyli fsync,
+    a w najgorszym razie 30 s czekania na zamek zapisu SQLite. Przez ten czas
+    trzymalby `zamek_stanu`, ktory jest zamkiem PROCESU, wspolnym dla
+    WSZYSTKICH rozmow: zaden `zapisz_pozycje` w zadnej innej rozmowie by nie
+    przeszedl. Zasada „obce I/O poza zamkiem" stoi wprost szesc linii wyzej
+    (o `shipping_quote`) — ta linia trafila pod zamek przez kolejnosc
+    commitow, nie przez decyzje.
+
+    Sonda musi isc z DRUGIEGO watku: `zamek_stanu` to RLock, wiec z watku,
+    ktory go trzyma, zajety zamek wygladalby jak wolny."""
+
+    @staticmethod
+    def _zamek_wolny():
+        import threading
+
+        wynik = []
+
+        def _probuj():
+            zdobyty = stan.zamek_stanu.acquire(timeout=0.5)
+            wynik.append(zdobyty)
+            if zdobyty:
+                stan.zamek_stanu.release()
+
+        watek = threading.Thread(target=_probuj)
+        watek.start()
+        watek.join(timeout=5)
+        return bool(wynik and wynik[0])
+
+    def _wywolaj_wysylke(self, monkeypatch, conv_id, wynik_kuriera):
+        stan.ustaw_kontekst(conv_id)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat", dlugosc_cm=180,
+               szerokosc_cm=60, grubosc_cm=4, ilosc=1,
+               selected_variant="dab-lity-ab", wykonczenie="surowe")
+        pomiary = []
+        monkeypatch.setattr(n, "log_event", lambda cid, event, meta=None: (
+            pomiary.append((event, self._zamek_wolny()))))
+        monkeypatch.setattr(n.crm_calc, "shipping_quote",
+                            lambda pozycje, kod: wynik_kuriera)
+        _wolaj(n.policz_wysylke, kod_pocztowy="00-001")
+        return pomiary
+
+    def test_shipping_quoted_emitowane_poza_sekcja_krytyczna(self, monkeypatch):
+        pomiary = self._wywolaj_wysylke(monkeypatch, 96540, {
+            "ok": True, "carriers": 1, "carrier_name": "DPD",
+            "shipping_netto": 50.0, "shipping_brutto": 61.50})
+
+        assert pomiary == [("shipping_quoted", True)], (
+            "telemetria wysylki poszla przy ZAJETYM zamku stanu")
+
+    def test_brak_kuriera_nadal_nie_emituje_zdarzenia(self, monkeypatch):
+        # Regresja warunku, ktory przy wyjmowaniu linii spod zamka latwo
+        # zgubic: `ok=True` z `carriers=0` NIE jest oszacowaniem wysylki (to
+        # nie znaczy „gratis"), wiec lejek nie ma tu liczyc sukcesu.
+        pomiary = self._wywolaj_wysylke(monkeypatch, 96541,
+                                        {"ok": True, "carriers": 0})
+
+        assert pomiary == []
+        assert stan.dostawa()["kod_pocztowy"] == "00-001"
+        assert stan.dostawa().get("kurier") is None

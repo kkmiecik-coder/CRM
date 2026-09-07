@@ -1475,3 +1475,56 @@ class TestZ4UstawKontekstOdczytu:
         stan.oznacz_podsumowanie_wyslane()
         stan.ustaw_kontekst(93823)
         assert stan.podsumowanie_wyslane() is False
+
+
+class TestEksmisjaFlagTury:
+    """P6 (kontrola koncowa): `_flagi_tury` przycina sie od `next(iter(...))`,
+    czyli od wpisu wstawionego NAJDAWNIEJ. Ale `_flagi_tury[conv_id] = {}` dla
+    klucza, ktory JUZ ISTNIEJE, nie przesuwa go na koniec — dict trzyma
+    kolejnosc PIERWSZEGO wstawienia. Rozmowa aktywna od startu procesu byla
+    wiec pierwsza kandydatka do wyrzucenia, choc komentarz obok obiecywal
+    „najstarsza rozmowa jest tez ta, ktorej tura na pewno sie juz skonczyla".
+
+    Skutek, gdy pojawi sie drugi worker (komentarz przy `_flagi_tury` sam
+    wskazuje go jako w zasiegu): wpis rozmowy znika w SRODKU jej tury,
+    `tura.py` czyta `podsumowanie_wyslane()` jako False mimo wyslanego
+    podsumowania — i klient dostaje drugie, sparafrazowane przez model
+    podsumowanie albo cisze. Dokladnie ta klasa awarii, ktorej flagi mialy
+    zapobiec."""
+
+    @staticmethod
+    def _flaga_rozmowy(conv_id, nazwa):
+        """Odczyt flagi BEZ `ustaw_kontekst` — tamto zaczyna nowa ture i samo
+        by ja skasowalo, wiec test mierzylby swoj wlasny efekt uboczny."""
+        stan._conv_id.set(conv_id)
+        return stan._flaga_tury(nazwa)
+
+    def test_eksmisja_wyrzuca_najdawniej_uzywana_nie_najdawniej_widziana(self, monkeypatch):
+        monkeypatch.setattr(stan, "_LIMIT_ROZMOW_Z_FLAGAMI", 4)
+        stan._flagi_tury.clear()
+
+        # 80001 wchodzi jako PIERWSZA i jest najdawniej WIDZIANA...
+        for conv_id in (80001, 80002, 80003, 80004):
+            stan.ustaw_kontekst(conv_id)
+        # ...ale to ona zaczyna kolejna ture, wiec jest najdawniej uzywana
+        # rozmowa jest teraz 80002.
+        stan.ustaw_kontekst(80001)
+        stan.oznacz_podsumowanie_wyslane()
+
+        stan.ustaw_kontekst(80005)      # piata rozmowa przekracza limit
+
+        assert 80001 in stan._flagi_tury, "wyrzucona zostala rozmowa W SRODKU tury"
+        assert 80002 not in stan._flagi_tury
+        assert self._flaga_rozmowy(80001, "podsumowanie_wyslane") is True
+
+    def test_limit_nadal_obowiazuje(self):
+        """Kontrola negatywna: `pop` przed przypisaniem nie ma prawa wylaczyc
+        samego przycinania — slownik zyje tyle, co proces."""
+        import contextlib
+
+        stan._flagi_tury.clear()
+        with contextlib.ExitStack() as stos:
+            stos.callback(stan._flagi_tury.clear)
+            for conv_id in range(81000, 81000 + stan._LIMIT_ROZMOW_Z_FLAGAMI + 10):
+                stan.ustaw_kontekst(conv_id)
+            assert len(stan._flagi_tury) == stan._LIMIT_ROZMOW_Z_FLAGAMI
