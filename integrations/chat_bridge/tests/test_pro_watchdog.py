@@ -576,7 +576,13 @@ class TestNotatkaWatchdoga:
         Pelna wersja wola `_wyzeruj_flagi_tury`, a `stan._flagi_tury` to slownik
         MODULOWY, wspolny dla calego procesu. Watchdog i worker chodza rownolegle,
         wiec wyzerowanie flag rozmowy z cudzego watku w SRODKU jej tury gasi
-        bezpieczniki X2 (drugie podsumowanie, drugi handoff, cisza po pytaniu bota)."""
+        bezpieczniki X2 (drugie podsumowanie, drugi handoff, cisza po pytaniu bota).
+
+        Testujemy WYLACZNIE flage — asercji o `stan.conv_id()` tu nie ma
+        swiadomie: `watchdog_once` bieglby w tym samym watku co test, wiec
+        kazda taka asercja przechodzilaby zawsze i mowilaby o izolacji
+        miedzywatkowej dokladnie nic. Izolacje contextvarow mierzy
+        `test_kontekst_watchdoga_nie_przecieka_do_watku_workera` nizej."""
         stan.ustaw_kontekst(94_108)
         stan.oznacz_podsumowanie_wyslane()
         assert stan.podsumowanie_wyslane() is True
@@ -585,11 +591,55 @@ class TestNotatkaWatchdoga:
 
         w.watchdog_once(1_000_000)
 
-        # Kontekst watku testowego (= watku „workera") celowo nie jest tu
-        # przywracany — watchdog dziala w innym watku, wiec contextvar workera
-        # ma zostac nietkniety, a flaga tury nadal zapalona.
-        assert stan.conv_id() == 94_108
         assert stan.podsumowanie_wyslane() is True
+
+    def test_nie_zapala_flagi_notatki_tury_trwajacej_rownolegle(self, monkeypatch):
+        """Druga polowa tej samej ochrony: watchdog nie moze do `_flagi_tury`
+        ani PISAC, ani ich ZEROWAC.
+
+        Zawezenie kontekstu bronilo tylko przed zerowaniem. `wyslij_notatke`
+        po udanej wysylce wola `stan.oznacz_notatke_w_turze()`, czyli mutuje
+        ten sam slownik modulowy z watku spoza tury. Skutek w waskim oknie
+        wyscigu: watchdog przechodzi bramki dla rozmowy X, w tej samej chwili
+        klient pisze i worker startuje ture X (`ustaw_kontekst` czysci flagi),
+        watchdog zapala `notatka_w_turze` — a worker robiacy zaraz potem
+        handoff trafia na bramke N7 i PO CICHU rezygnuje z notatki TUROWEJ.
+        Konsultant dostaje notatke watchdoga zamiast notatki o zdarzeniu,
+        ktore rozmowe faktycznie oddalo. Stad `wyslij_notatke(...,
+        oznacz_ture=False)` dla wolajacych spoza tury."""
+        stan.ustaw_kontekst(94_110)
+        assert stan.notatka_w_turze() is False
+        _porzucona(monkeypatch, [_rozmowa(94_110, "outgoing", 25)])
+        wyslane = _zbieraj_notatki(monkeypatch)
+
+        w.watchdog_once(1_000_000)
+
+        assert len(wyslane) == 1, "notatka nie poszla — test nie mierzylby niczego"
+        # Kontrola zywotnosci flagi jest wyzej (asercja False przed przejsciem):
+        # gdyby watchdog ja zapalil, ta linia bylaby czerwona.
+        assert stan.notatka_w_turze() is False
+
+    def test_kontekst_watchdoga_nie_przecieka_do_watku_workera(self, monkeypatch):
+        """Watchdog i worker to DWA watki jednego procesu. `stan._conv_id` jest
+        contextvarem, wiec przestawienie go w watku watchdoga nie ma prawa
+        ruszyc watku workera — ale tylko dopoki kontekst rzeczywiscie mieszka
+        w contextvarze. Test jest tu po to, zeby przyszle przeniesienie tego
+        stanu do struktury wspoldzielonej nie przeszlo po cichu: skutkiem
+        byloby zlozenie notatki z pozycji CUDZEJ rozmowy."""
+        import threading
+
+        _rozmowa_z_pozycja(94_111, "blat watchdoga")
+        stan.ustaw_kontekst(94_200)           # kontekst „workera" — INNA rozmowa
+        _porzucona(monkeypatch, [_rozmowa(94_111, "outgoing", 25)])
+        wyslane = _zbieraj_notatki(monkeypatch)
+
+        watek = threading.Thread(target=w.watchdog_once, args=(1_000_000,))
+        watek.start()
+        watek.join()
+
+        assert len(wyslane) == 1
+        assert "blat watchdoga" in wyslane[0][1]
+        assert stan.conv_id() == 94_200
 
     def test_awaria_notatki_stanu_konczy_sie_notatka_awaryjna(self, monkeypatch):
         # Uboga notatka jest lepsza niz zero notatek przy rozmowie, ktora juz lezy

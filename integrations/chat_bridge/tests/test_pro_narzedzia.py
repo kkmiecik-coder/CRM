@@ -898,7 +898,7 @@ class TestNieudaneDopisanieDostawy:
 
     def test_nieudane_dopisanie_nie_zwraca_linku(self, monkeypatch):
         self._wycena_z_dostawa(monkeypatch, 96051, {"ok": False, "errors": [{"code": "X"}]})
-        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst: True)
+        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst, **k: True)
         monkeypatch.setattr(stan, "handoff", lambda powod: {"ok": True})
 
         wynik = _wolaj(n.zapisz_wycene, client_id=1)
@@ -911,7 +911,7 @@ class TestNieudaneDopisanieDostawy:
         self._wycena_z_dostawa(monkeypatch, 96052, {"ok": False, "errors": []})
         notatki_wyslane = []
         monkeypatch.setattr(notatki, "wyslij_notatke",
-                            lambda cid, tekst: notatki_wyslane.append(tekst) or True)
+                            lambda cid, tekst, **k: notatki_wyslane.append(tekst) or True)
         powody = []
         monkeypatch.setattr(stan, "handoff", lambda powod: powody.append(powod) or {"ok": True})
 
@@ -920,9 +920,28 @@ class TestNieudaneDopisanieDostawy:
         assert len(powody) == 1
         assert "dostaw" in powody[0].lower()
 
+    def test_notatka_r1_niesie_kwote_ktora_klient_potwierdzil(self, monkeypatch):
+        """Z4, sciezka R1. CALYM sensem tej notatki jest ostrzezenie „wycena
+        w CRM jest TANSZA niz to, co klient potwierdzil" — bez liczby, ktora
+        klient widzial (a widzial ja Z DOSTAWA), konsultant musi po nia wrocic
+        do watku. To najwyzsza stawka cenowa w calym silniku, wiec akurat ta
+        notatka nie moze byc ubozsza od pozostalych dwoch."""
+        self._wycena_z_dostawa(monkeypatch, 96058, {"ok": False, "errors": []})
+        stan.zapisz_stan(pokazana_kwota=1093.04)   # tyle klient widzial i potwierdzil
+        notatki_wyslane = []
+        monkeypatch.setattr(notatki, "wyslij_notatke",
+                            lambda cid, tekst, **k: notatki_wyslane.append(tekst) or True)
+        monkeypatch.setattr(stan, "handoff", lambda powod: {"ok": True})
+
+        _wolaj(n.zapisz_wycene, client_id=1)
+
+        assert len(notatki_wyslane) == 1
+        assert "Ostatnia kwota pokazana klientowi" in notatki_wyslane[0]
+        assert "1 093,04" in notatki_wyslane[0]
+
     def test_po_nieudanym_dopisaniu_link_do_checkoutu_odmawia(self, monkeypatch):
         self._wycena_z_dostawa(monkeypatch, 96053, {"ok": False, "errors": []})
-        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst: True)
+        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst, **k: True)
         monkeypatch.setattr(stan, "handoff", lambda powod: {"ok": True})
         _wolaj(n.zapisz_wycene, client_id=1)
 
@@ -949,7 +968,7 @@ class TestNieudaneDopisanieDostawy:
             "public_url": "https://crm.example/q/CCC"})   # BEZ edit_uuid
         monkeypatch.setattr(n.crm_calc, "update_quote",
                             lambda *a, **k: pytest.fail("nie ma DO CZEGO dopisac"))
-        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst: True)
+        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst, **k: True)
         monkeypatch.setattr(stan, "handoff", lambda powod: {"ok": True})
 
         wynik = _wolaj(n.zapisz_wycene, client_id=1)
@@ -997,7 +1016,7 @@ class TestNieudaneDopisanieDostawy:
         # samej rozmowy to dokladnie to, czego zabrania docstring narzedzia —
         # pilnuje tego STAN, nie dyscyplina promptu.
         self._wycena_z_dostawa(monkeypatch, 96057, {"ok": False, "errors": []})
-        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst: True)
+        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst, **k: True)
         monkeypatch.setattr(stan, "handoff", lambda powod: {"ok": True})
         assert _wolaj(n.zapisz_wycene, client_id=1)["error"] == "DOSTAWA_NIEDOPISANA"
 
@@ -1009,7 +1028,7 @@ class TestNieudaneDopisanieDostawy:
         # Konsultant (albo bot w kolejnej turze) poprawia wycene — udany PUT z
         # kurierem znaczy, ze wycena JEST juz kompletna, wiec blokada znika.
         self._wycena_z_dostawa(monkeypatch, 96056, {"ok": False, "errors": []})
-        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst: True)
+        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst, **k: True)
         monkeypatch.setattr(stan, "handoff", lambda powod: {"ok": True})
         _wolaj(n.zapisz_wycene, client_id=1)
         assert _wolaj(n.przygotuj_zamowienie)["ok"] is False
@@ -1044,7 +1063,7 @@ class TestAllegroKonczyNotatka:
 
     def test_na_allegro_model_nie_dostaje_linku(self, monkeypatch):
         _wycena_gotowa_do_zamowienia(monkeypatch, 96041)
-        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst: True)
+        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst, **k: True)
         monkeypatch.setattr(stan, "handoff", lambda powod: {"ok": True})
 
         wynik = _wolaj(n.przygotuj_zamowienie)
@@ -1058,7 +1077,7 @@ class TestAllegroKonczyNotatka:
         _wycena_gotowa_do_zamowienia(monkeypatch, 96042)
         notatki_wyslane = []
         monkeypatch.setattr(notatki, "wyslij_notatke",
-                            lambda cid, tekst: notatki_wyslane.append((cid, tekst)) or True)
+                            lambda cid, tekst, **k: notatki_wyslane.append((cid, tekst)) or True)
         monkeypatch.setattr(stan, "handoff", lambda powod: {"ok": True})
 
         _wolaj(n.przygotuj_zamowienie)
@@ -1074,7 +1093,7 @@ class TestAllegroKonczyNotatka:
 
     def test_na_allegro_rozmowa_idzie_do_czlowieka(self, monkeypatch):
         _wycena_gotowa_do_zamowienia(monkeypatch, 96043)
-        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst: True)
+        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst, **k: True)
         powody = []
         monkeypatch.setattr(stan, "handoff", lambda powod: powody.append(powod) or {"ok": True})
 
@@ -1104,7 +1123,7 @@ class TestAllegroKonczyNotatka:
         # Kontrola negatywna: OLX ma links=True, wiec sciezka linku zostaje bez zmian.
         _wycena_gotowa_do_zamowienia(monkeypatch, 96044, persona="olx")
         monkeypatch.setattr(notatki, "wyslij_notatke",
-                            lambda cid, tekst: pytest.fail("OLX nie konczy notatka"))
+                            lambda cid, tekst, **k: pytest.fail("OLX nie konczy notatka"))
         monkeypatch.setattr(stan, "handoff",
                             lambda powod: pytest.fail("OLX nie oddaje rozmowy tutaj"))
 
@@ -1116,7 +1135,7 @@ class TestAllegroKonczyNotatka:
         # I2 jest PIERWSZA: bez potwierdzenia nie ma ani linku, ani notatki.
         stan.ustaw_kontekst(96045, persona_tury="allegro")
         monkeypatch.setattr(notatki, "wyslij_notatke",
-                            lambda cid, tekst: pytest.fail("notatka bez potwierdzenia"))
+                            lambda cid, tekst, **k: pytest.fail("notatka bez potwierdzenia"))
         monkeypatch.setattr(stan, "handoff",
                             lambda powod: pytest.fail("handoff bez potwierdzenia"))
 
@@ -1131,7 +1150,7 @@ class TestAllegroKonczyNotatka:
                selected_variant="dab-lity-ab", wykonczenie="surowe")
         _potwierdz_biezace_pozycje(monkeypatch)
         monkeypatch.setattr(notatki, "wyslij_notatke",
-                            lambda cid, tekst: pytest.fail("notatka bez wyceny"))
+                            lambda cid, tekst, **k: pytest.fail("notatka bez wyceny"))
         monkeypatch.setattr(stan, "handoff",
                             lambda powod: pytest.fail("handoff bez wyceny"))
 

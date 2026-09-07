@@ -599,10 +599,17 @@ def wyslij():
     # leżałby ślad po podsumowaniu, którego klient nigdy nie zobaczył.
     # To, co widzi klient, to ostatnia linia z sumą: „Razem z dostawą", gdy
     # kurier jest policzony, w przeciwnym razie „Razem za produkty".
-    # Wartość jest POCHODNA liczb, które zwrócił kalkulator — nie nowym
-    # źródłem ceny (nie idzie do `zapamietaj_kwoty`, więc guardrail G1 jej nie
-    # zna i bot nadal nie może jej wypowiedzieć z tego tytułu). Wychodzi
-    # WYŁĄCZNIE do prywatnej notatki dla konsultanta.
+    # Wartość jest POCHODNA liczb, które zwrócił kalkulator, i nie jest nowym
+    # źródłem ceny: ten `zapisz_stan` NIE woła `zapamietaj_kwoty`, więc rejestr
+    # G1 nie rośnie ani o jedną pozycję. Uwaga dla czytelnika — to NIE znaczy,
+    # że guardrail tej liczby nie zna: kwota pokazana klientowi to albo
+    # `totals.total_brutto` (rejestrowane wyżej przez `kwoty_z_wyniku`), albo
+    # suma z dostawą (rejestrowana wyżej jako `kwoty_dostawy`). I słusznie —
+    # klient tę liczbę widzi w podsumowaniu, więc bot MUSI móc ją powtórzyć.
+    # Powierzchnia I1, której ta kolumna pilnuje, jest inna: treść notatki
+    # (`notatki.tresc_dla_agenta`) wychodzi WYŁĄCZNIE prywatnym `cw_note`
+    # i nigdy `cw_agent_reply` — pilnuje tego
+    # `test_linia_kwoty_nie_wychodzi_do_klienta`.
     kwota_pokazana = razem_z_dostawa if kwoty_dostawy else razem_produkty
     stan.zapisz_stan(
         oczekiwany_podpis=oczekiwany,

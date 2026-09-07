@@ -1059,11 +1059,40 @@ class TestZ4PokazanaKwota:
         podsumowanie.wyslij()
         assert stan.pokazana_kwota() is None
 
-    def test_kwota_nie_wchodzi_do_rejestru_g1(self, monkeypatch):
-        # I1: `pokazana_kwota` jest POCHODNA liczb, ktore kalkulator juz zwrocil,
-        # i nie jest nowym zrodlem ceny — rejestr G1 ma zostac dokladnie taki sam.
+    def test_linia_kwoty_nie_wychodzi_do_klienta(self, monkeypatch):
+        """I1, wlasciwa powierzchnia tej zmiany: linia „Ostatnia kwota pokazana
+        klientowi" jest tekstem dla KONSULTANTA i ma isc wylacznie prywatnym
+        `cw_note`.
+
+        Testu „kwota nie wchodzi do rejestru G1" tu NIE MA, i to swiadomie —
+        bylby falszywym zapewnieniem. Kwota pokazana klientowi to albo
+        `totals.total_brutto`, albo suma z dostawa, a obie rejestruje
+        `kwoty_z_wyniku`/`kwoty_dostawy` PRZED zapisem `pokazana_kwota`. G1 te
+        liczbe zna i ma znac: klient widzi ja w podsumowaniu, wiec bot musi moc
+        ja powtorzyc. Ryzykiem, ktore ta zmiana faktycznie tworzy, jest wyciek
+        TRESCI NOTATKI do klienta — i to jest tu mierzone: zbieramy WSZYSTKO,
+        co poszlo kanalem do klienta, i sprawdzamy, ze notatkowej linii tam nie
+        ma, mimo ze notatka powstala i poszla `cw_note`."""
+        from bots_pro import notatki
+
         self._przygotuj(monkeypatch, 94063)
+        do_klienta = []
+        do_notatek = []
+        monkeypatch.setattr(podsumowanie, "cw_agent_reply",
+                            lambda cid, tekst, **k: do_klienta.append(tekst) or True)
+        monkeypatch.setattr(notatki, "cw_note",
+                            lambda cid, tekst, token=None: do_notatek.append(tekst) or True)
+        monkeypatch.setattr("core.chatwoot.cw_bot_handoff", lambda cid, token=None: True)
+
         podsumowanie.wyslij()
-        przed = stan.znane_kwoty()
-        stan.zapisz_stan(pokazana_kwota=99999.99)
-        assert stan.znane_kwoty() == przed
+        stan.handoff("klient prosi o czlowieka")
+
+        # Obie kontrole zywotnosci: bez nich petla nizej przechodzilaby na
+        # pustej liscie, czyli test bylby zielony takze wtedy, gdy nic sie nie
+        # wyslalo (dokladnie ta wada, ktora mial poprzednik tego testu).
+        assert do_klienta, "do klienta nie poszlo nic — petla nizej nie mierzylaby niczego"
+        assert do_notatek, "notatka w ogole nie powstala — test nie mierzylby niczego"
+        assert any("Ostatnia kwota pokazana klientowi" in t for t in do_notatek)
+        for tekst in do_klienta:
+            assert "Ostatnia kwota pokazana klientowi" not in tekst
+            assert "przekazuje rozmowę konsultantowi" not in tekst

@@ -589,7 +589,13 @@ def zapisz_wycene(client_id: int, notatka: str = "") -> dict:
                     "kuriera do wyceny w CRM, link do niej NIE został wysłany",
                     pozycje=stan.pozycje(), dostawa=stan.dostawa(),
                     wycena=stan.zapisana_wycena(),
-                    potwierdzenie=stan.cytat_potwierdzenia()))
+                    potwierdzenie=stan.cytat_potwierdzenia(),
+                    # Z4: TU ta kwota wazy najwiecej z wszystkich trzech notatek.
+                    # Sensem tej notatki jest ostrzezenie „wycena w CRM jest
+                    # TANSZA niz to, co klient potwierdzil" — bez liczby, ktora
+                    # klient zobaczyl, konsultant musi po nia wrocic do watku,
+                    # czyli zrobic dokladnie to, co ta notatka ma wyeliminowac.
+                    pokazana_kwota=stan.pokazana_kwota()))
                 stan.handoff("wycena bez dopisanej dostawy — link wstrzymany")
                 return {"ok": False, "error": "DOSTAWA_NIEDOPISANA",
                         "quote_number": wynik.get("quote_number"),

@@ -200,7 +200,7 @@ class TestQuoteSaved:
                                               "edit_uuid": "uuid-2"})
         monkeypatch.setattr(narzedzia.crm_calc, "update_quote",
                             lambda *a, **kw: {"ok": False, "error": "BOOM"})
-        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst: True)
+        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst, **k: True)
         monkeypatch.setattr("core.chatwoot.cw_bot_handoff", lambda cid, token=None: True)
 
         wynik = _wolaj(narzedzia.zapisz_wycene, client_id=7)

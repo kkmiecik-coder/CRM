@@ -121,7 +121,7 @@ class TestHandoffZostawiaNotatke:
         stan.ustaw_kontekst(conv_id, persona_tury="pro")
         kolejnosc = []
         monkeypatch.setattr(notatki, "wyslij_notatke",
-                            lambda cid, tekst: kolejnosc.append(("notatka", cid, tekst)) or True)
+                            lambda cid, tekst, **k: kolejnosc.append(("notatka", cid, tekst)) or True)
         monkeypatch.setattr("core.chatwoot.cw_bot_handoff",
                             lambda cid, token=None: kolejnosc.append(("toggle", cid)) or True)
 
@@ -134,7 +134,7 @@ class TestHandoffZostawiaNotatke:
     def test_nieudana_notatka_nie_blokuje_handoffu(self, monkeypatch):
         conv_id = 96401002
         stan.ustaw_kontekst(conv_id, persona_tury="pro")
-        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst: False)
+        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst, **k: False)
         monkeypatch.setattr("core.chatwoot.cw_bot_handoff", lambda cid, token=None: True)
 
         assert stan.handoff("powod")["ok"] is True

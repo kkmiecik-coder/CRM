@@ -222,13 +222,16 @@ def init_pro():
             # N2: skąd wzięła się kwota w rejestrze G1 — 'produkt' albo
             # 'dostawa'. Bez tego nowe oszacowanie kuriera nie miało jak
             # unieważnić poprzedniego kosztu wysyłki (patrz `zapisz_dostawe`).
+            "ALTER TABLE pro_kwoty ADD COLUMN zrodlo TEXT DEFAULT 'produkt'",
             # Z4: kwota, ktora klient FAKTYCZNIE zobaczyl w podsumowaniu — do
             # notatki dla konsultanta. Nie da sie jej odtworzyc z `pro_kwoty`:
             # tam leza WSZYSTKIE kwoty zwrocone przez kalkulator (ceny
             # jednostkowe kazdej pozycji, sumy czastkowe), bez sladu, ktora z
-            # nich poszla do klienta jako cena calosci.
+            # nich poszla do klienta jako cena calosci. Kolumna jest zapisem
+            # HISTORYCZNYM i swiadomie NIE jest czyszczona przy zmianie pozycji
+            # (inaczej ginalby jedyny slad tego, co klient widzial) — nie
+            # kopiuj tu logiki uniewazniania z sasiedniego N2.
             "ALTER TABLE pro_stan ADD COLUMN pokazana_kwota REAL",
-            "ALTER TABLE pro_kwoty ADD COLUMN zrodlo TEXT DEFAULT 'produkt'",
         ):
             try:
                 polaczenie.execute(stmt)

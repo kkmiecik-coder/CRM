@@ -121,7 +121,7 @@ def kod_notatki_ok(odpowiedz):
     return 200 <= kod < 300
 
 
-def wyslij_notatke(conv_id, tekst):
+def wyslij_notatke(conv_id, tekst, oznacz_ture=True):
     """Wysyła notatkę. NIGDY nie rzuca — to ścieżka awaryjna, brak notatki nie
     może zablokować oddania rozmowy człowiekowi (ale MUSI być widoczny w logach,
     inaczej cichy brak notatki wygląda z zewnątrz jak jej obecność).
@@ -135,7 +135,17 @@ def wyslij_notatke(conv_id, tekst):
 
     Udana notatka jest odnotowywana w stanie TURY (N7), żeby `notatka_stanu`
     nie dołożyła zaraz po niej drugiej, prawie identycznej. Zapis stanu tury
-    nie może wywrócić wysyłki, która się już udała — stąd osobny `try`."""
+    nie może wywrócić wysyłki, która się już udała — stąd osobny `try`.
+
+    `oznacz_ture=False` dla wołających SPOZA tury bota (dziś: `pro_watchdog`,
+    przez `notatka_stanu(..., poza_tura=True)`). `stan._flagi_tury` to słownik
+    MODUŁOWY, wspólny dla całego procesu — nie contextvar (patrz `stan`,
+    naprawa X2) — więc zapalenie flagi z wątku watchdoga mutuje stan tury,
+    którą w tej samej chwili może prowadzić worker. Skutkiem jest cicha strata
+    notatki TUROWEJ: worker robi handoff, `notatka_stanu` trafia na bramkę N7
+    i rezygnuje, bo „notatka w tej turze już była" — tyle że była to notatka
+    watchdoga o innym zdarzeniu. Wołający spoza tury nie ma więc do
+    `_flagi_tury` żadnej drogi."""
     try:
         odpowiedz = cw_note(conv_id, tekst, token=BOT_PRO_CW_AGENT_TOKEN)
     except Exception as e:
@@ -145,11 +155,12 @@ def wyslij_notatke(conv_id, tekst):
         log("notatki: notatka dla agenta ODRZUCONA przez Chatwoota (conv %s, HTTP %s) — "
             "sprawdz BOT_PRO_CW_AGENT_TOKEN" % (conv_id, getattr(odpowiedz, "status_code", "?")))
         return False
-    try:
-        from bots_pro import stan
-        stan.oznacz_notatke_w_turze()
-    except Exception as e:   # pragma: no cover - obrona, nie sciezka
-        log("notatki: nie udalo sie oznaczyc notatki w turze (conv %s): %r" % (conv_id, e))
+    if oznacz_ture:
+        try:
+            from bots_pro import stan
+            stan.oznacz_notatke_w_turze()
+        except Exception as e:   # pragma: no cover - obrona, nie sciezka
+            log("notatki: nie udalo sie oznaczyc notatki w turze (conv %s): %r" % (conv_id, e))
     return True
 
 
@@ -207,4 +218,7 @@ def notatka_stanu(conv_id, powod, poza_tura=False):
         # Odczyt stanu padl — notatka z samym powodem jest wciaz lepsza niz brak.
         log("notatki: nie udalo sie zebrac stanu do notatki (conv %s): %r" % (conv_id, e))
         tekst = tresc_dla_agenta(powod)
-    return wyslij_notatke(conv_id, tekst)
+    # `oznacz_ture=not poza_tura`: patrz `wyslij_notatke`. Bramka N7 to nie
+    # jedyne miejsce, w ktorym `_flagi_tury` ma znaczenie — wolajacy spoza tury
+    # ma tego slownika w ogole nie dotykac, ani czytajac, ani pisząc.
+    return wyslij_notatke(conv_id, tekst, oznacz_ture=not poza_tura)

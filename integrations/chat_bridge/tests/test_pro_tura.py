@@ -1044,7 +1044,7 @@ class TestWyjsciaHandoffoweNieSaCiche:
         moze zostac w ciszy tylko dlatego, ze handoff poszedl z narzedzia,
         a nie z bezpiecznika tury."""
         conv_id = 96204006
-        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst: True)
+        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst, **k: True)
         monkeypatch.setattr("core.chatwoot.cw_bot_handoff", lambda cid, token=None: True)
 
         class _RunnerZHandoffemZNarzedzia:
@@ -1063,7 +1063,7 @@ class TestWyjsciaHandoffoweNieSaCiche:
         # Kontrola negatywna: model napisal wlasne pozegnanie — drugi, sklejony
         # w kodzie komunikat bylby zbedna powtorka.
         conv_id = 96204007
-        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst: True)
+        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst, **k: True)
         monkeypatch.setattr("core.chatwoot.cw_bot_handoff", lambda cid, token=None: True)
 
         class _RunnerZHandoffemIOdpowiedzia:
