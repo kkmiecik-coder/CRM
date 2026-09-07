@@ -11,7 +11,7 @@ import pytest
 
 import config as config_mod
 import core.chatwoot as chatwoot_mod
-from bots_pro import stan
+from bots_pro import guardraile, stan
 
 stan.init_pro()
 
@@ -96,7 +96,9 @@ class TestPozycje:
         stan.zapisz_pozycje("1", produkt="blat")
         stan.zapisz_pozycje("2", produkt="parapet")
         wynik = stan.zapisz_pozycje("1", usun=True)
-        assert wynik == {"ok": True, "usunieto": "1"}
+        # X1: `liczba_pozycji` doszlo razem z naprawa wyscigu — model widzi,
+        # ile pozycji ma PO swoim zapisie (tu: zostala jedna, "2").
+        assert wynik == {"ok": True, "usunieto": "1", "liczba_pozycji": 1}
         assert [p["id"] for p in stan.pozycje()] == ["2"]
 
 
@@ -1118,3 +1120,411 @@ class TestN6KontaktKlienta:
         stan.ustaw_kontekst(93305)
         assert stan.wczytaj_kontakt(93305) == {}
         assert stan.kontakt() == {}
+
+
+class TestRownolegleZapisyPozycji:
+    """X1: `zapisz_pozycje` bylo read-modify-write na DWOCH osobnych
+    polaczeniach — `_wczytaj` czytalo caly blob `pro_dane.dane_json`, funkcja
+    mutowala go w pamieci, a `_zapisz` nadpisywalo CALOSC na innym polaczeniu.
+    Agents SDK odpala wszystkie narzedzia JEDNEGO kroku modelu rownolegle
+    (asyncio.gather), przepuszczajac synchroniczne cialo `@function_tool` przez
+    `asyncio.to_thread` — czyli przez prawdziwe watki, ktorych GIL nie
+    synchronizuje na granicy I/O do SQLite. Prompt kaze wolac `zapisz_pozycje`
+    osobno dla kazdej pozycji, wiec lista 13 elementow to 13 rownoleglych
+    read-modify-write na jednym blobie: kazdy watek czyta ten sam stary stan i
+    zapisuje go ze SWOJA jedna pozycja.
+
+    ZMIERZONE na kodzie SPRZED naprawy (ten sam scenariusz, 10 przebiegow):
+    z 13 zapisanych pozycji zostawala DOKLADNIE 1, w 10/10 przebiegach — i taki
+    sam podpis ma produkcyjna rozmowa 4912, gdzie z 13 elementow klienta ocalal
+    szosty (`horizontal-divider`), a klient dostal do potwierdzenia 123,55 zl.
+    Bramka I2 zadzialala tam formalnie bez zarzutu i jednoczesnie przypiela
+    podpis klienta do 1/13 zamowienia — dlatego to jest test integralnosci
+    danych pod podpisem, a nie test wydajnosci.
+
+    Watki sa PRAWDZIWE (wzorzec z TestZapamietajKwotyWspolbieznie wyzej) i
+    kazdy jawnie ustawia `_conv_id` — contextvary NIE propaguja sie do golych
+    watkow, inaczej niz przy `asyncio.to_thread`, ktore kontekst KOPIUJE."""
+
+    NAZWY_4912 = ["blat-1", "parapet-2", "polka-3", "stopien-4", "listwa-5",
+                  "horizontal-divider", "panel-7", "front-8", "bok-9", "plecy-10",
+                  "wieniec-11", "cokol-12", "blenda-13"]
+
+    @staticmethod
+    def _rownolegle(conv_id, zadania):
+        """Odpala `zadania` (lista funkcji bezargumentowych) naraz, za bariera.
+        Zwraca liste bledow — pusta, gdy wszystkie przeszly."""
+        import threading
+
+        start = threading.Barrier(len(zadania))
+        bledy = []
+
+        def _wolaj(zadanie):
+            try:
+                start.wait(timeout=10)
+                stan._conv_id.set(conv_id)
+                zadanie()
+            except Exception as e:      # pragma: no cover — sciezka bledu
+                bledy.append(e)
+
+        watki = [threading.Thread(target=_wolaj, args=(z,)) for z in zadania]
+        for w in watki:
+            w.start()
+        for w in watki:
+            w.join()
+        stan.ustaw_kontekst(conv_id)    # kontekst watku glownego mogl zostac nadpisany
+        return bledy
+
+    def test_trzynascie_rownoleglych_zapisow_nie_gubi_zadnej_pozycji(self):
+        conv_id = 93180
+        stan.ustaw_kontekst(conv_id)
+
+        def _zadanie(nazwa):
+            return lambda: stan.zapisz_pozycje(
+                nazwa, produkt="blat", dlugosc_cm=101, szerokosc_cm=42.5,
+                grubosc_cm=4, ilosc=2, selected_variant="buk-lity-ab",
+                wykonczenie="surowe")
+
+        bledy = self._rownolegle(conv_id, [_zadanie(n) for n in self.NAZWY_4912])
+
+        assert bledy == []
+        assert len(stan.pozycje()) == 13
+        assert {p["id"] for p in stan.pozycje()} == set(self.NAZWY_4912)
+
+    def test_dwa_rownolegle_zapisy_nie_gubia_drugiej_pozycji(self):
+        # Sygnatura conv 4704 (parapet-1 / parapet-2). Tamta rozmowa miala
+        # komplet tylko dlatego, ze model rozlozyl oba zapisy na osobne kroki —
+        # przy dwoch rownoleglych zapisach kod sprzed naprawy gubil jeden.
+        conv_id = 93181
+        stan.ustaw_kontekst(conv_id)
+
+        bledy = self._rownolegle(conv_id, [
+            lambda: stan.zapisz_pozycje("parapet-1", produkt="parapet", dlugosc_cm=185),
+            lambda: stan.zapisz_pozycje("parapet-2", produkt="parapet", dlugosc_cm=120),
+        ])
+
+        assert bledy == []
+        assert {p["id"] for p in stan.pozycje()} == {"parapet-1", "parapet-2"}
+
+    def test_rownolegle_aktualizacje_tej_samej_pozycji_nie_gubia_pol(self):
+        """Druga twarz tego samego wyscigu: utrata AKTUALIZACJI, nie pozycji.
+        Dwa watki dopisuja rozne pola do TEJ SAMEJ pozycji — bez serializacji
+        drugi zapisuje blob odczytany PRZED pierwszym i kasuje jego pole, a
+        objawem jest pozycja, ktorej model „na pewno" ustawil wykonczenie, a
+        ktora idzie do kalkulatora bez niego."""
+        conv_id = 93182
+        stan.ustaw_kontekst(conv_id)
+        stan.zapisz_pozycje("blat", produkt="blat", dlugosc_cm=180)
+
+        bledy = self._rownolegle(conv_id, [
+            lambda: stan.zapisz_pozycje("blat", grubosc_cm=4),
+            lambda: stan.zapisz_pozycje("blat", wykonczenie="olejowane"),
+        ])
+
+        assert bledy == []
+        poz = stan.pozycje()[0]
+        assert poz["grubosc"] == 4
+        assert poz["wykonczenie"] == "olejowane"
+
+    def test_rownolegly_usun_nie_wskrzesza_ani_nie_gubi_pozycji(self):
+        # Oba objawy jedna asercja: przegrany zapis (znika C) i wskrzeszenie
+        # skasowanej pozycji (wraca A) sa tym samym bledem z dwoch stron.
+        conv_id = 93183
+        stan.ustaw_kontekst(conv_id)
+        stan.zapisz_pozycje("A", produkt="blat")
+        stan.zapisz_pozycje("B", produkt="parapet")
+
+        bledy = self._rownolegle(conv_id, [
+            lambda: stan.zapisz_pozycje("A", usun=True),
+            lambda: stan.zapisz_pozycje("C", produkt="polka"),
+        ])
+
+        assert bledy == []
+        assert sorted(p["id"] for p in stan.pozycje()) == ["B", "C"]
+
+    def test_zamek_nie_zmienia_zachowania_jednowatkowego(self):
+        """Dowod, ze naprawa zmienila PRZEPLOT, a nie semantyke: ta sama
+        sekwencja sekwencyjnie daje dokladnie to, co dawala przed X1."""
+        stan.ustaw_kontekst(93184)
+        stan.zapisz_pozycje("1", produkt="blat", dlugosc_cm=180, ilosc=1)
+        stan.zapisz_pozycje("2", produkt="parapet", dlugosc_cm=120)
+        stan.zapisz_pozycje("1", ilosc=3)
+        stan.zapisz_pozycje("2", usun=True)
+
+        assert stan.pozycje() == [{"id": "1", "produkt": "blat", "dlugosc": 180, "ilosc": 3}]
+
+    def test_wynik_niesie_liczbe_pozycji_po_zapisie(self):
+        stan.ustaw_kontekst(93185)
+        assert stan.zapisz_pozycje("1", produkt="blat")["liczba_pozycji"] == 1
+        assert stan.zapisz_pozycje("2", produkt="parapet")["liczba_pozycji"] == 2
+        assert stan.zapisz_pozycje("2", usun=True)["liczba_pozycji"] == 1
+
+
+class TestFlagiTuryWidoczneMiedzyWatkami:
+    """X2: cztery flagi turowe (`podsumowanie_wyslane`, `podsumowanie_nieudane`,
+    `handoff_w_turze`, `notatka_w_turze`) byly contextvarami, a ustawiaja je
+    NARZEDZIA — te SDK uruchamia przez `asyncio.to_thread`, czyli w KOPII
+    kontekstu. `.set()` z narzedzia nigdy nie wracalo do `tura.py`, wiec tura
+    zawsze widziala False i bezpieczniki U1/U11 oraz bramka W3 nie strzelaly
+    ANI RAZU. Ponizsze testy padaja na kodzie sprzed naprawy."""
+
+    @staticmethod
+    def _z_watku_narzedzia(ustaw):
+        """Odtwarza dokladnie to, co robi SDK z cialem `@function_tool`:
+        `asyncio.to_thread`, czyli inny watek z KOPIA kontekstu."""
+        import asyncio
+
+        async def _przebieg():
+            await asyncio.to_thread(ustaw)
+
+        asyncio.run(_przebieg())
+
+    def test_podsumowanie_wyslane_ustawione_z_narzedzia_widac_w_turze(self):
+        stan.ustaw_kontekst(93190)
+        assert stan.podsumowanie_wyslane() is False
+        self._z_watku_narzedzia(stan.oznacz_podsumowanie_wyslane)
+        assert stan.podsumowanie_wyslane() is True
+
+    def test_podsumowanie_nieudane_ustawione_z_narzedzia_widac_w_turze(self):
+        stan.ustaw_kontekst(93191)
+        self._z_watku_narzedzia(stan.oznacz_podsumowanie_nieudane)
+        assert stan.podsumowanie_nieudane() is True
+
+    def test_handoff_w_turze_ustawiony_z_narzedzia_widac_w_turze(self):
+        stan.ustaw_kontekst(93192)
+        self._z_watku_narzedzia(stan.oznacz_handoff_w_turze)
+        assert stan.handoff_w_turze() is True
+
+    def test_notatka_w_turze_ustawiona_z_narzedzia_widac_w_turze(self):
+        stan.ustaw_kontekst(93193)
+        self._z_watku_narzedzia(stan.oznacz_notatke_w_turze)
+        assert stan.notatka_w_turze() is True
+
+    def test_flagi_sa_PER_TURA_a_nie_per_rozmowa(self):
+        # Semantyka, ktorej naprawa NIE MA PRAWA zmienic: pytanie brzmi „czy
+        # klient dostal cos w TEJ turze", nie „czy kiedykolwiek w tej rozmowie".
+        stan.ustaw_kontekst(93194)
+        stan.oznacz_podsumowanie_wyslane()
+        stan.oznacz_handoff_w_turze()
+        assert stan.podsumowanie_wyslane() is True
+
+        stan.ustaw_kontekst(93194)      # NASTEPNA tura TEJ SAMEJ rozmowy
+        assert stan.podsumowanie_wyslane() is False
+        assert stan.handoff_w_turze() is False
+
+    def test_flagi_nie_przeciekaja_miedzy_rozmowami(self):
+        # Jeden watek workera obsluguje kolejne rozmowy po sobie, a od X2 flagi
+        # zyja w slowniku modulowym — brak kluczowania po conv_id zapalalby
+        # bezpiecznik CUDZEJ rozmowy.
+        stan.ustaw_kontekst(93195)
+        stan.oznacz_podsumowanie_wyslane()
+        stan.ustaw_kontekst(93196)
+        assert stan.podsumowanie_wyslane() is False
+
+    def test_slownik_flag_nie_rosnie_bez_konca(self):
+        # Slownik zyje tyle, co proces — bez przycinania roslby o wpis na kazda
+        # obsluzona rozmowe az do restartu mostka.
+        for i in range(stan._LIMIT_ROZMOW_Z_FLAGAMI + 25):
+            stan.ustaw_kontekst(940000 + i)
+            stan.oznacz_podsumowanie_wyslane()
+        assert len(stan._flagi_tury) <= stan._LIMIT_ROZMOW_Z_FLAGAMI
+        # Biezaca rozmowa NIGDY nie moze wypasc przy przycinaniu.
+        assert stan.podsumowanie_wyslane() is True
+
+
+class TestUN7PoleKsztaltu:
+    """Zadanie 3 (U-N7): pozycja może jawnie powiedzieć, że nie jest prostokątem.
+
+    Dotąd jedynym nośnikiem kształtu była NAZWA produktu — pole, którego
+    poprawnie zachowujący się model nie wypełni kształtem, bo reguła KSZTAŁT
+    zabrania nazywania go w podsumowaniu. Bramka (`podsumowanie.
+    blokada_ksztaltu`) czytała więc pole, które miało być puste."""
+
+    def test_ksztalt_zapisuje_sie_w_pozycji(self):
+        stan.ustaw_kontekst(93300)
+        stan.zapisz_pozycje("1", produkt="blat", ksztalt="sześciokąt")
+        assert stan.pozycje()[0]["ksztalt"] == "sześciokąt"
+
+    def test_pominiecie_ksztaltu_nie_kasuje_deklaracji(self):
+        # WIĄŻĄCE, nie kosmetyczne: gdyby pole miało domyślną wartość
+        # „prostokąt" zamiast pustej, samo doprecyzowanie ilości cofałoby
+        # deklarację kształtu i otwierało bramkę.
+        stan.ustaw_kontekst(93301)
+        stan.zapisz_pozycje("1", produkt="blat", ksztalt="trapez")
+        stan.zapisz_pozycje("1", ilosc=2)
+        assert stan.pozycje()[0]["ksztalt"] == "trapez"
+
+    def test_ksztalt_da_sie_poprawic_na_prostokat(self):
+        # Droga wyjścia z pomyłki, którą obiecuje wskazówka bramki.
+        stan.ustaw_kontekst(93302)
+        stan.zapisz_pozycje("1", produkt="blat", ksztalt="sześciokąt")
+        stan.zapisz_pozycje("1", ksztalt="prostokąt")
+        assert stan.pozycje()[0]["ksztalt"] == "prostokąt"
+
+    def test_zejscie_z_prostokata_czysci_rejestr_kwot(self):
+        # U-N7b: bramka kształtu zamyka POLICZENIE i PODSUMOWANIE, ale nie
+        # POWTÓRZENIE kwoty policzonej wcześniej dla prostokąta. Dopóki cena
+        # prostokąta siedziała w rejestrze, model mógł ją legalnie podać jako
+        # „orientacyjnie" — G1 jej nie zatrzymywał, bo przyszła z kalkulatora,
+        # a materiał sześciokąta 87x75 tej kwoty nie pokrywa (rozmowa 4727).
+        stan.ustaw_kontekst(93303)
+        stan.zapisz_pozycje("1", produkt="blat", dlugosc_cm=87, szerokosc_cm=75,
+                            grubosc_cm=4, ilosc=1, selected_variant="dab-lity-ab",
+                            wykonczenie="surowe")
+        stan.zapamietaj_kwoty([843.04])
+        stan.zapisz_pozycje("1", ksztalt="sześciokąt")
+        assert stan.znane_kwoty() == set()
+
+    def test_po_zejsciu_z_prostokata_G1_lapie_stara_kwote(self):
+        # Ten sam scenariusz od strony guardraila — czyli to, co naprawdę
+        # chroni klienta: zdanie z kotwicą cenową ma zostać zatrzymane.
+        stan.ustaw_kontekst(93304)
+        stan.zapisz_pozycje("1", produkt="blat", dlugosc_cm=87, szerokosc_cm=75,
+                            grubosc_cm=4, ilosc=1, selected_variant="dab-lity-ab",
+                            wykonczenie="surowe")
+        stan.zapamietaj_kwoty([843.04])
+        zdanie = "Sześciokąt musi wycenić konsultant, ale orientacyjnie wychodziło 843,04 zł."
+        assert guardraile.sprawdz_ceny(zdanie, stan.znane_kwoty()) == []
+        stan.zapisz_pozycje("1", ksztalt="sześciokąt")
+        assert guardraile.sprawdz_ceny(zdanie, stan.znane_kwoty()) != []
+
+    def test_powrot_do_prostokata_NIE_czysci_rejestru_kwot(self):
+        # Droga wyjścia z pomyłki nie może kosztować prawdziwej ceny: gdy
+        # pozycja znów jest prostokątem, kwota policzona dla prostokąta wciąż
+        # ją opisuje, a wyczyszczenie rejestru zrobiłoby z niej halucynację.
+        stan.ustaw_kontekst(93305)
+        stan.zapisz_pozycje("1", produkt="blat", dlugosc_cm=87, szerokosc_cm=75,
+                            grubosc_cm=4, ilosc=1, selected_variant="dab-lity-ab",
+                            wykonczenie="surowe", ksztalt="sześciokąt")
+        stan.zapamietaj_kwoty([843.04])
+        stan.zapisz_pozycje("1", ksztalt="prostokąt")
+        assert stan.znane_kwoty() == {"843.04"}
+
+    def test_powtorzona_ta_sama_deklaracja_ksztaltu_nie_czysci_rejestru(self):
+        # N1 obowiązuje dalej: zapis bez faktycznej zmiany treści niczego nie
+        # kasuje, także gdy powtarza deklarację kształtu.
+        stan.ustaw_kontekst(93306)
+        stan.zapisz_pozycje("1", produkt="blat", dlugosc_cm=87, szerokosc_cm=75,
+                            grubosc_cm=4, ilosc=1, selected_variant="dab-lity-ab",
+                            wykonczenie="surowe", ksztalt="sześciokąt")
+        stan.zapamietaj_kwoty([843.04])
+        stan.zapisz_pozycje("1", ksztalt="sześciokąt")
+        assert stan.znane_kwoty() == {"843.04"}
+
+    def test_pole_opisowe_nadal_NIE_czysci_rejestru_kwot(self):
+        # Regresja U6: `otwory` i `produkt` naprawdę nie zmieniają zużycia
+        # materiału, więc ich zmiana dalej zostawia rejestr w spokoju — U-N7b
+        # dokłada wyjątek WYŁĄCZNIE dla kształtu.
+        stan.ustaw_kontekst(93307)
+        stan.zapisz_pozycje("1", produkt="blat", dlugosc_cm=180, szerokosc_cm=60,
+                            grubosc_cm=4, ilosc=1, selected_variant="dab-lity-ab",
+                            wykonczenie="surowe")
+        stan.zapamietaj_kwoty([1936.71, 2382.15])
+        stan.zapisz_pozycje("1", produkt="blat dębowy", otwory=["fi 35 na zlew"])
+        assert stan.znane_kwoty() == {"1936.71", "2382.15"}
+
+
+class TestZ4PokazanaKwota:
+    def test_brak_wiersza_daje_none(self):
+        stan.ustaw_kontekst(93810)
+        assert stan.pokazana_kwota() is None
+
+    def test_zapisana_kwota_wraca(self):
+        stan.ustaw_kontekst(93811)
+        stan.zapisz_stan(pokazana_kwota=1093.04)
+        assert stan.pokazana_kwota() == 1093.04
+
+    def test_kwota_nie_przecieka_miedzy_rozmowami(self):
+        stan.ustaw_kontekst(93812)
+        stan.zapisz_stan(pokazana_kwota=500.0)
+        stan.ustaw_kontekst(93813)
+        assert stan.pokazana_kwota() is None
+
+
+class TestZ4UstawKontekstOdczytu:
+    """Zawezona wersja `ustaw_kontekst` dla watkow SPOZA tury (dzis: watchdog).
+
+    Ma ustawic conv_id (bez tego odczyty po cichu zwracaja pustke, a notatka
+    dla konsultanta klamie, ze bot nic nie zebral) i NIE MA prawa dotknac
+    slownika flag turowych, ktory jest wspolny dla calego procesu."""
+
+    def test_ustawia_conv_id_dla_odczytow(self):
+        stan.ustaw_kontekst(93820)
+        stan.zapisz_pozycje("1", produkt="blat", dlugosc_cm=180, szerokosc_cm=60,
+                            grubosc_cm=4, ilosc=1, selected_variant="dab-lity-ab")
+        stan.ustaw_kontekst(93821)
+        assert stan.pozycje() == []
+
+        stan.ustaw_kontekst_odczytu(93820)
+        assert len(stan.pozycje()) == 1
+
+    def test_nie_zeruje_flag_tury(self):
+        stan.ustaw_kontekst(93822)
+        stan.oznacz_podsumowanie_wyslane()
+        stan.oznacz_handoff_w_turze()
+
+        stan.ustaw_kontekst_odczytu(93822)
+
+        assert stan.podsumowanie_wyslane() is True
+        assert stan.handoff_w_turze() is True
+
+    def test_pelny_ustaw_kontekst_te_flagi_zeruje(self):
+        # Kontrola pozytywna: roznica miedzy obiema funkcjami jest REALNA, a nie
+        # przypadkiem tego, ze flagi i tak nie byly zapalone.
+        stan.ustaw_kontekst(93823)
+        stan.oznacz_podsumowanie_wyslane()
+        stan.ustaw_kontekst(93823)
+        assert stan.podsumowanie_wyslane() is False
+
+
+class TestEksmisjaFlagTury:
+    """P6 (kontrola koncowa): `_flagi_tury` przycina sie od `next(iter(...))`,
+    czyli od wpisu wstawionego NAJDAWNIEJ. Ale `_flagi_tury[conv_id] = {}` dla
+    klucza, ktory JUZ ISTNIEJE, nie przesuwa go na koniec — dict trzyma
+    kolejnosc PIERWSZEGO wstawienia. Rozmowa aktywna od startu procesu byla
+    wiec pierwsza kandydatka do wyrzucenia, choc komentarz obok obiecywal
+    „najstarsza rozmowa jest tez ta, ktorej tura na pewno sie juz skonczyla".
+
+    Skutek, gdy pojawi sie drugi worker (komentarz przy `_flagi_tury` sam
+    wskazuje go jako w zasiegu): wpis rozmowy znika w SRODKU jej tury,
+    `tura.py` czyta `podsumowanie_wyslane()` jako False mimo wyslanego
+    podsumowania — i klient dostaje drugie, sparafrazowane przez model
+    podsumowanie albo cisze. Dokladnie ta klasa awarii, ktorej flagi mialy
+    zapobiec."""
+
+    @staticmethod
+    def _flaga_rozmowy(conv_id, nazwa):
+        """Odczyt flagi BEZ `ustaw_kontekst` — tamto zaczyna nowa ture i samo
+        by ja skasowalo, wiec test mierzylby swoj wlasny efekt uboczny."""
+        stan._conv_id.set(conv_id)
+        return stan._flaga_tury(nazwa)
+
+    def test_eksmisja_wyrzuca_najdawniej_uzywana_nie_najdawniej_widziana(self, monkeypatch):
+        monkeypatch.setattr(stan, "_LIMIT_ROZMOW_Z_FLAGAMI", 4)
+        stan._flagi_tury.clear()
+
+        # 80001 wchodzi jako PIERWSZA i jest najdawniej WIDZIANA...
+        for conv_id in (80001, 80002, 80003, 80004):
+            stan.ustaw_kontekst(conv_id)
+        # ...ale to ona zaczyna kolejna ture, wiec jest najdawniej uzywana
+        # rozmowa jest teraz 80002.
+        stan.ustaw_kontekst(80001)
+        stan.oznacz_podsumowanie_wyslane()
+
+        stan.ustaw_kontekst(80005)      # piata rozmowa przekracza limit
+
+        assert 80001 in stan._flagi_tury, "wyrzucona zostala rozmowa W SRODKU tury"
+        assert 80002 not in stan._flagi_tury
+        assert self._flaga_rozmowy(80001, "podsumowanie_wyslane") is True
+
+    def test_limit_nadal_obowiazuje(self):
+        """Kontrola negatywna: `pop` przed przypisaniem nie ma prawa wylaczyc
+        samego przycinania — slownik zyje tyle, co proces."""
+        import contextlib
+
+        stan._flagi_tury.clear()
+        with contextlib.ExitStack() as stos:
+            stos.callback(stan._flagi_tury.clear)
+            for conv_id in range(81000, 81000 + stan._LIMIT_ROZMOW_Z_FLAGAMI + 10):
+                stan.ustaw_kontekst(conv_id)
+            assert len(stan._flagi_tury) == stan._LIMIT_ROZMOW_Z_FLAGAMI

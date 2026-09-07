@@ -12,6 +12,7 @@ from bots import crm_calc
 from bots_pro import potwierdzenia, stan
 from config import BOT_PRO_CW_AGENT_TOKEN
 from core.chatwoot import cw_agent_reply
+from core.events import log_event
 from core.log import log
 
 
@@ -118,6 +119,18 @@ def _linia(poz, options=None):
     opis = "%s %s" % (nazwa, material) if material else nazwa
     wymiary = "%sx%sx%s cm" % (poz.get("dlugosc"), poz.get("szerokosc"), poz.get("grubosc"))
     linia = "• %s, %s, %s szt." % (opis, wymiary, poz.get("ilosc"))
+    # U-N7: zadeklarowany kształt inny niż prostokąt. W podsumowaniu DLA KLIENTA
+    # ta gałąź jest nieosiągalna — `wyslij` odmawia wcześniej
+    # (`blokada_ksztaltu`), więc reguła „NIE nazywaj kształtu w podsumowaniu"
+    # zostaje nietknięta. Pisane jest to dla DRUGIEGO odbiorcy tej funkcji:
+    # prywatnej notatki dla konsultanta (`notatki.tresc_dla_agenta`), która
+    # składa się z tych samych linii. Bez tego notatka po handoffie na kształcie
+    # opisywała sześciokąt 87x75 jako zwykły blat 87x75 — czyli konsultant
+    # dostawał specyfikację MYLĄCĄ, a nie tylko niepełną (dokładnie ta sytuacja
+    # z rozmowy 4727: konsultantka musiała sama dopytać o 6 długości krawędzi).
+    ksztalt = str(poz.get("ksztalt") or "").strip()
+    if ksztalt and not _KSZTALT_PROSTOKATNY.fullmatch(ksztalt):
+        linia += ", kształt: %s" % ksztalt
     wykonczenie = _wykonczenie_opis(poz, options)
     if wykonczenie:
         linia += ", wykończenie: %s" % wykonczenie
@@ -183,18 +196,68 @@ _SLOWA_KSZTALTU = (
     r"[łl]uk\w*",                # łuk, łukiem, łukowy
     # „kształt" i „kształcie" — wymiana t:c w odmianie, stąd klasa [tc]
     r"kszta[łl][tc]\w*",
+    # --- U-N7 (zadanie 3): formy, których lista do dziś nie znała ------------
+    # Dwie z dwunastu zmierzonych rozmów produkcyjnych to kształty
+    # nieprostokątne (4727 — blat sześciokątny 87x75 o boku 43 cm, 4819 —
+    # sześciokąt foremny), czyli 17% próbki, a ANI JEDNO z poniższych słów nie
+    # było tu obecne. Sześciokąt z 4727 nie został wyceniony jak prostokąt
+    # WYŁĄCZNIE dlatego, że model nie zapisał żadnego pola i bezpiecznik braku
+    # postępu zabrał rozmowę wcześniej — osłona przypadkowa, która po naprawach
+    # bramki postępu znika.
+    #
+    # Każdy wzorzec w DWÓCH pisowniach (z ogonkami i bez), dokładnie z tego
+    # samego powodu co [ąa]/[łl] w wzorcach wyżej: kanały marketplace potrafią
+    # rozebrać polskie znaki (sanitize.py), a nazwę pozycji pisze model.
+    r"sze[śs][ćc]iok[ąa]t\w*",     # sześciokąt, sześciokątny, szesciokatnego
+    r"pi[ęe][ćc]iok[ąa]t\w*",      # pięciokąt, pieciokatny
+    r"o[śs]miok[ąa]t\w*",          # ośmiokąt, osmiokatny
+    r"wielok[ąa]t\w*",
+    r"tr[óo]jk[ąa]t\w*",
+    r"trapez\w*",
+    r"romb\w*",
+    # „w kształcie litery L" — osobny wzorzec, choć „L-kształtny" łapie już
+    # `kszta[łl][tc]\w*`: model przepisuje nazwę klienta i słowo „kształt"
+    # bardzo często z niej wypada („Blat litery L 240x60").
+    r"liter\w*\s+L",
+    # „Blat w serek" (narożnik kuchenny) — realne zamówienie stolarskie i tak
+    # samo niepoliczalne jak reszta tej listy.
+    r"ser(?:ek|k\w*)",
 )
 _KSZTALT_W_NAZWIE = re.compile(
     r"(?<!\w)(?:%s)(?!\w)" % "|".join(_SLOWA_KSZTALTU), re.IGNORECASE)
 
+# Wspólny ogon obu wskazówek niżej — jedna definicja tego, CO model ma z takim
+# kształtem zrobić. Dwie kopie rozjechałyby się przy pierwszej poprawce reguły
+# KSZTAŁT, a to jest jedyne zdanie, które kieruje rozmowę tam, gdzie ma trafić.
+#
+# Brzmi tak samo dla `policz_wycene` i dla `wyslij` — i to jest prawdą w obu
+# miejscach: w żadnym z nich nic się nie policzyło ani nie wysłało.
+_OGON_WSKAZOWKI_KSZTALT = (
+    "Kalkulator liczy WYŁĄCZNIE prostokąty i kwadraty, więc ceny NIE policzyłem "
+    "i podsumowania NIE wysłałem — kwota obok takiej pozycji byłaby ceną "
+    "prostokąta o tych samych wymiarach. Postąp zgodnie z regułą KSZTAŁT: zbierz "
+    "brakujące dane i wołaj oddaj_czlowiekowi z powodem 'kształt inny niż "
+    "prostokąt: <opis klienta>'.")
+
 _WSKAZOWKA_KSZTALT = (
-    "Nazwa pozycji %r mówi o kształcie innym niż prostokąt. Kalkulator liczy "
-    "WYŁĄCZNIE prostokąty i kwadraty, więc podsumowanie NIE zostało wysłane — "
-    "cena obok takiej nazwy byłaby ceną prostokąta o tych samych wymiarach. "
-    "Postąp zgodnie z regułą KSZTAŁT: zbierz brakujące dane i wołaj "
-    "oddaj_czlowiekowi z powodem 'kształt inny niż prostokąt: <opis klienta>'. "
-    "Jeśli blat JEST prostokątny, popraw nazwę pozycji (zapisz_pozycje) tak, "
+    "Nazwa pozycji %r mówi o kształcie innym niż prostokąt. "
+    + _OGON_WSKAZOWKI_KSZTALT +
+    " Jeśli blat JEST prostokątny, popraw nazwę pozycji (zapisz_pozycje) tak, "
     "żeby nie nazywała kształtu, i spróbuj ponownie.")
+
+_WSKAZOWKA_KSZTALT_POLE = (
+    "Pozycja ma zapisany kształt %r, inny niż prostokąt. "
+    + _OGON_WSKAZOWKI_KSZTALT +
+    " Jeśli to pomyłka i blat JEST prostokątny, ustaw w zapisz_pozycje "
+    "ksztalt='prostokąt' i spróbuj ponownie.")
+
+
+# Definicja „co jest prostokątem" (U-N7) mieszka w `potwierdzenia.py`, razem
+# z listą pól cenotwórczych i z uzasadnieniem konwencji fail-closed — służy
+# DWÓM mechanizmom: tej bramce i czyszczeniu rejestru kwot G1
+# (`stan._zmien_pozycje` przy zejściu pozycji z prostokąta). Jedno wyrażenie,
+# bo dwie kopie rozjechałyby się przy pierwszej poprawce.
+_KSZTALT_PROSTOKATNY = potwierdzenia.KSZTALT_PROSTOKATNY
 
 
 def _nazwa_z_ksztaltem(pozycje):
@@ -203,6 +266,61 @@ def _nazwa_z_ksztaltem(pozycje):
         nazwa = str(poz.get("produkt") or "")
         if _KSZTALT_W_NAZWIE.search(nazwa):
             return nazwa
+    return None
+
+
+def _zadeklarowany_inny_ksztalt(pozycje):
+    """Wartość pola `ksztalt` pierwszej pozycji, która NIE jest prostokątem —
+    albo None. Puste/brakujące pole to prostokąt (patrz `_KSZTALT_PROSTOKATNY`)."""
+    for poz in pozycje or []:
+        deklaracja = str(poz.get("ksztalt") or "").strip()
+        if deklaracja and not _KSZTALT_PROSTOKATNY.fullmatch(deklaracja):
+            return deklaracja
+    return None
+
+
+def blokada_ksztaltu(pozycje):
+    """Słownik odmowy dla modelu, gdy KTÓRAKOLWIEK pozycja nie jest prostokątem
+    — albo None, gdy wolno liczyć.
+
+    JEDNA bramka dla DWÓCH wejść, którymi kształt dociera do ceny: `policz_wycene`
+    (kwota do zacytowania w czacie) i `podsumowanie.wyslij` (kwota pod podpisem
+    I2). Wcześniej sprawdzenie stało wyłącznie w `wyslij`, więc bot mógł
+    legalnie WYPOWIEDZIEĆ cenę sześciokąta policzoną jak prostokąt — do
+    podsumowania po prostu nigdy nie dochodziło.
+
+    DWIE LINIE OBRONY, świadomie w tej kolejności:
+      1. pole `ksztalt` — DEKLARACJA modelu, jednoznaczna i niezależna od tego,
+         jak nazwał pozycję;
+      2. regex po nazwie produktu — łapie sytuację, w której model pola nie
+         ustawił, a nazwę wpisał szczerze („Blat sześciokątny 87x75").
+    Deklaracja idzie pierwsza, bo niesie opis kształtu podany przez klienta,
+    czyli dokładnie to, co ma trafić do powodu handoffu.
+
+    ZAKRES, KTÓRY JEST DECYZJĄ WŁAŚCICIELA, NIE MOJĄ — NIE LUZOWAĆ MIMOCHODEM:
+    bramka jest TWARDA, blokuje wszystko poza prostokątem i kwadratem. A CRM
+    liczy koło i owal z dopłatą (`/api/bot/options` wystawia botowi listę
+    kształtów z `round`/`circle`), więc firma robi to rutynowo, tylko nie
+    rękami bota. Poluzowanie tej bramki do koła/owalu to OSOBNA decyzja
+    właściciela i OSOBNE zadanie — wymaga przekazania kształtu do
+    `crm_calc.build_products` (dziś wpisuje `shape: "rectangular"` na sztywno),
+    inaczej „przepuszczone" koło zostanie policzone jak kwadrat, czyli powstanie
+    dokładnie ta awaria, którą ta bramka zamyka."""
+    deklaracja = _zadeklarowany_inny_ksztalt(pozycje)
+    if deklaracja:
+        # Ślad w logu jak przy trafieniach G3 — żeby dało się je policzyć na
+        # skrzynce testowej, zamiast zgadywać, czy bramka w ogóle strzela.
+        log("bramka ksztaltu: zadeklarowany ksztalt %r -> odmowa (conv %s)"
+            % (deklaracja, stan.conv_id()))
+        return {"ok": False, "error": "KSZTALT_NIEPROSTOKATNY",
+                "wskazowka": _WSKAZOWKA_KSZTALT_POLE % deklaracja}
+
+    nazwa = _nazwa_z_ksztaltem(pozycje)
+    if nazwa:
+        log("bramka ksztaltu: ksztalt w nazwie pozycji %r -> odmowa (conv %s)"
+            % (nazwa, stan.conv_id()))
+        return {"ok": False, "error": "KSZTALT_W_NAZWIE",
+                "wskazowka": _WSKAZOWKA_KSZTALT % nazwa}
     return None
 
 
@@ -348,20 +466,48 @@ def wyslij():
     nie istnieje w tym zadaniu, a ścieżki wczesnego wyjścia (brak pozycji, nieudana
     wycena) mają działać już teraz, bez zależności od niego.
     """
-    pozycje = stan.pozycje()
+    # X1: migawka POD zamkiem, symetrycznie do `narzedzia.policz_wycene`.
+    # `wyslij_podsumowanie` jest zwykłym `@function_tool`, więc SDK odpala je
+    # RÓWNOLEGLE z `zapisz_pozycje` tego samego kroku modelu — a prompt każe
+    # zapisywać drobno i często i ustawia wyzwalacz podsumowania dokładnie na
+    # krok, w którym lecą ostatnie zapisy. Bez zamka ta jedna migawka łapała
+    # listę w połowie zapisu, a pracuje na niej WSZYSTKO niżej: treść dla
+    # klienta, `kwoty_z_wyniku`, `potwierdzenia.podpis` i `pokazana_kwota`.
+    # ZMIERZONE na kodzie sprzed naprawy (13 równoległych `zapisz_pozycje`
+    # + `wyslij_podsumowanie`, 20 przebiegów): w bazie komplet 13/13 za każdym
+    # razem, u KLIENTA zero pozycji w 20/20 (`BRAK_POZYCJI` — klient nie
+    # dostawał nic). Skutek biznesowy ten sam co przy gubieniu zapisów:
+    # klient potwierdza (I2) listę, która nie jest jego zamówieniem.
+    #
+    # D1: dostawa idzie do TEJ SAMEJ migawki, pod tym samym zamkiem. Wcześniej
+    # czytaliśmy ją osobno, kilkanaście linii niżej i już po powrocie z
+    # kalkulatora — a jest CZĘŚCIĄ tej samej ceny (suma „Razem z dostawą",
+    # rejestr G1, podpis I2). Jedno źródło prawdy dla obu odczytów mieszka w
+    # `stan.migawka()`, żeby nie było dwóch odpowiedzi na pytanie „co trzeba
+    # objąć jednym zamkiem".
+    pozycje, dostawa = stan.migawka()
     if not pozycje:
-        return {"ok": False, "error": "BRAK_POZYCJI"}
+        # R3: ta gałąź KOŃCZYŁA TURĘ CISZĄ. Nie zapalała niczego, więc `tura.py`
+        # nie miała po czym poznać, że klient nic nie dostał — a prompt pozwala
+        # modelowi milczeć po wywołaniu `wyslij_podsumowanie`. Ścieżka dominuje
+        # w kolejności „podsumowanie pierwsze": narzędzie ustawia się PRZED
+        # `zapisz_pozycje` tego samego kroku modelu i widzi pustą listę.
+        # Sygnał (tak samo jak przy zmianie stanu niżej) NIE jest awarią kanału
+        # — model ma zapisać pozycje i zawołać jeszcze raz.
+        stan.oznacz_podsumowanie_bez_wysylki("brak_pozycji")
+        return {"ok": False, "error": "BRAK_POZYCJI",
+                "wskazowka": "W tej rozmowie nie ma jeszcze ani jednej zapisanej "
+                             "pozycji, więc podsumowania NIE wysłałem. Zapisz pozycje "
+                             "przez zapisz_pozycje i zawołaj wyslij_podsumowanie "
+                             "jeszcze raz."}
 
-    # U-N5: kształt przemycony w nazwie produktu. Sprawdzamy PRZED wołaniem
-    # kalkulatora — i tak nie ma czego z niego wysłać, a cena prostokąta dla
-    # blatu okrągłego nie ma po co powstawać. Patrz komentarz nad
-    # `_SLOWA_KSZTALTU`.
-    nazwa_z_ksztaltem = _nazwa_z_ksztaltem(pozycje)
-    if nazwa_z_ksztaltem:
-        log("podsumowanie: ksztalt w nazwie pozycji %r -> NIE wysylam (conv %s)"
-            % (nazwa_z_ksztaltem, stan.conv_id()))
-        return {"ok": False, "error": "KSZTALT_W_NAZWIE",
-                "wskazowka": _WSKAZOWKA_KSZTALT % nazwa_z_ksztaltem}
+    # U-N5/U-N7: kształt inny niż prostokąt — zadeklarowany polem `ksztalt`
+    # albo przemycony w nazwie produktu. Sprawdzamy PRZED wołaniem kalkulatora
+    # — i tak nie ma czego z niego wysłać, a cena prostokąta dla blatu
+    # sześciokątnego nie ma po co powstawać. Patrz `blokada_ksztaltu`.
+    blokada = blokada_ksztaltu(pozycje)
+    if blokada:
+        return blokada
 
     options = crm_calc.get_options()
     wynik = crm_calc.calculate(pozycje, options)
@@ -371,7 +517,6 @@ def wyslij():
 
     kwoty = kwoty_z_wyniku(pozycje, wynik)
     totals = wynik.get("totals") or {}
-    dostawa = stan.dostawa()
 
     tekst = "Podsumowanie do potwierdzenia:\n" + "\n".join(
         _linia(poz, options) for poz in pozycje)
@@ -402,6 +547,7 @@ def wyslij():
     # endpointów pola z sumą razem z wysyłką — wtedy użyć JEGO, nie tego dodawania.
     # Ostrzeżenie powtórzone w DEPLOY-quotebot.md.
     kwoty_dostawy = []
+    razem_z_dostawa = None
     if dostawa.get("kurier") and isinstance(dostawa_brutto, (int, float)):
         razem_z_dostawa = round(float(razem_produkty or 0) + float(dostawa_brutto), 2)
         # N2: suma „produkt + dostawa" to kwota DOSTAWY — traci ważność razem z
@@ -414,7 +560,7 @@ def wyslij():
     else:
         # Wysyłka jeszcze nieoszacowana albo gabaryt bez kuriera — NIE dopisujemy
         # ani zmyślonego "0 zł", ani nieaktualnego kosztu sprzed zmiany pozycji
-        # (stan.zapisz_dostawe/_zapisz dbają o to, żeby stary koszt tu nie dotrwał).
+        # (stan.zapisz_dostawe/_zmien_pozycje dbają o to, żeby stary koszt tu nie dotrwał).
         #
         # N3 (rerecenzja gałęzi): ale MILCZEĆ o dostawie też nie wolno. Odkąd
         # podsumowanie CZASEM pokazuje trzy linie z kurierem, brak takiej linii
@@ -443,8 +589,67 @@ def wyslij():
         tekst += ZDANIE_O_WARIANTACH
     tekst += "\n\nCzy wszystko się zgadza?"
 
-    stan.zapamietaj_kwoty(kwoty)
-    stan.zapamietaj_kwoty(kwoty_dostawy, zrodlo="dostawa")
+    # DRUGA kontrola, na ŚWIEŻYCH pozycjach. Okno między migawką wyżej a tym
+    # miejscem to całe `crm_calc.calculate` — HTTP z timeoutem 30 s, świadomie
+    # poza zamkiem — więc równoległy `zapisz_pozycje` z tego samego kroku
+    # modelu ma w nim mnóstwo czasu, żeby wylądować w bazie.
+    #
+    # DWIE RÓŻNE DECYZJE, bo to dwie różne sytuacje:
+    #
+    #  1. Kształt (bramka `blokada_ksztaltu` powtórzona po powrocie z
+    #     kalkulatora): NIE WYSYŁAMY. Cena prostokąta dla sześciokąta jest zła
+    #     ZAWSZE i nie ma wersji, w której klient miałby ją zobaczyć —
+    #     kalkulator kształtu w ogóle nie liczy (`build_products` wpisuje
+    #     `shape: "rectangular"` na sztywno). Bramka sprzed `calculate`
+    #     zamykała tylko przebieg sekwencyjny: deklaracja, która przyszła
+    #     w trakcie liczenia, mijała ją bokiem (rozmowa 4727).
+    #
+    #  2. Zmiana stanu, z którego liczyliśmy (pole cenotwórcze pozycji ALBO
+    #     dostawa): NIE WYSYŁAMY, i to jest zmiana wobec poprzedniej wersji
+    #     (P1b). Wcześniej treść szła do klienta z uzasadnieniem „jest
+    #     wewnętrznie spójna, a I2 i tak jest fail-closed". Spójna owszem, ale
+    #     NIEPRAWDZIWA jako opis zamówienia: podsumowanie zamówione w tym samym
+    #     kroku modelu co ostatnie `zapisz_pozycje` może uszeregować się PRZED
+    #     nimi, a wtedy klient dostaje PREFIKS listy podany jako komplet —
+    #     zmierzone na 13 pozycjach (kolejność losowa: klient widział 1-12
+    #     pozycji, komplet 0/20; podsumowanie pierwsze: 0 pozycji w 20/20).
+    #     Zamek nad migawką usunął odczyt ROZDARTY, tego nie usuwał.
+    #     Klient ma więc dostać podsumowanie zgodne z finalnym stanem ALBO nie
+    #     dostać nic i model liczy je jeszcze raz — nigdy prefiks jako komplet.
+    #     Kwoty do rejestru G1 przy takiej zmianie i tak nie wchodzą (ta sama
+    #     reguła i ta sama funkcja, co w `narzedzia.policz_wycene`,
+    #     `narzedzia.policz_wysylke` i `stan._zmien_pozycje`).
+    #
+    #     D1: `stan.dostawa()` po raz drugi — bo od migawki minęło całe
+    #     `calculate`, a równoległy `policz_wysylke` mógł w tym czasie zmienić
+    #     kuriera. Suma „Razem z dostawą" liczy się z migawki, więc bez tego
+    #     członu klient zobaczyłby (i podpisał) sumę z kosztem sprzed zmiany.
+    #
+    # Porównanie i zapis pod JEDNYM zamkiem — sprawdzenie bez niego nic nie
+    # gwarantuje, bo zapis pozycji zdążyłby wejść pomiędzy.
+    with stan.zamek_stanu:
+        swieze_pozycje = stan.pozycje()
+        blokada_po_liczeniu = blokada_ksztaltu(swieze_pozycje)
+        stan_nadal_ten_sam = potwierdzenia.kwota_nadal_opisuje(
+            pozycje, swieze_pozycje, dostawa, stan.dostawa())
+        if not blokada_po_liczeniu and stan_nadal_ten_sam:
+            stan.zapamietaj_kwoty(kwoty)
+            stan.zapamietaj_kwoty(kwoty_dostawy, zrodlo="dostawa")
+    if blokada_po_liczeniu:
+        return blokada_po_liczeniu
+    if not stan_nadal_ten_sam:
+        log("podsumowanie: stan zmienil sie w trakcie liczenia -> podsumowania "
+            "NIE wysylam i kwot NIE rejestruje (conv %s)" % stan.conv_id())
+        # Sygnał dla `tura.py` — NIE `oznacz_podsumowanie_nieudane`, bo to nie
+        # jest awaria kanału i nie ma prowadzić do handoffu (patrz docstring
+        # `stan.oznacz_podsumowanie_bez_wysylki`). Tura użyje go WYŁĄCZNIE do
+        # tego, żeby nie skończyć się ciszą; ponowne policzenie należy do
+        # modelu, który widzi tę wskazówkę w swojej sesji.
+        stan.oznacz_podsumowanie_bez_wysylki("zmiana_w_trakcie")
+        return {"ok": False, "error": "STAN_ZMIENIONY_W_TRAKCIE",
+                "wskazowka": "Dane zmieniły się w trakcie liczenia, więc podsumowanie "
+                             "opisywałoby stan sprzed tych zmian — NIE wysłałem go. "
+                             "Zawołaj wyslij_podsumowanie jeszcze raz."}
 
     oczekiwany = potwierdzenia.podpis(pozycje, dostawa)
 
@@ -477,7 +682,28 @@ def wyslij():
                                  "Napisz krótko, że za chwilę wrócisz z podsumowaniem, "
                                  "albo spróbuj wysłać je ponownie w kolejnej turze."}
 
-    stan.zapisz_stan(oczekiwany_podpis=oczekiwany)
+    # Z4: RAZEM z podpisem, jednym zapisem i w tym samym momencie — czyli
+    # dopiero PO udanej wysyłce (U1 wyżej). Osobny, wcześniejszy zapis byłby
+    # powtórzeniem dokładnie tego obejścia, przed którym broni U1: w bazie
+    # leżałby ślad po podsumowaniu, którego klient nigdy nie zobaczył.
+    # To, co widzi klient, to ostatnia linia z sumą: „Razem z dostawą", gdy
+    # kurier jest policzony, w przeciwnym razie „Razem za produkty".
+    # Wartość jest POCHODNA liczb, które zwrócił kalkulator, i nie jest nowym
+    # źródłem ceny: ten `zapisz_stan` NIE woła `zapamietaj_kwoty`, więc rejestr
+    # G1 nie rośnie ani o jedną pozycję. Uwaga dla czytelnika — to NIE znaczy,
+    # że guardrail tej liczby nie zna: kwota pokazana klientowi to albo
+    # `totals.total_brutto` (rejestrowane wyżej przez `kwoty_z_wyniku`), albo
+    # suma z dostawą (rejestrowana wyżej jako `kwoty_dostawy`). I słusznie —
+    # klient tę liczbę widzi w podsumowaniu, więc bot MUSI móc ją powtórzyć.
+    # Powierzchnia I1, której ta kolumna pilnuje, jest inna: treść notatki
+    # (`notatki.tresc_dla_agenta`) wychodzi WYŁĄCZNIE prywatnym `cw_note`
+    # i nigdy `cw_agent_reply` — pilnuje tego
+    # `test_linia_kwoty_nie_wychodzi_do_klienta`.
+    kwota_pokazana = razem_z_dostawa if kwoty_dostawy else razem_produkty
+    stan.zapisz_stan(
+        oczekiwany_podpis=oczekiwany,
+        pokazana_kwota=(float(kwota_pokazana)
+                        if isinstance(kwota_pokazana, (int, float)) else None))
 
     # Bramka (nie dyscyplina promptu — runda poprawek 1, W3): oznacz w stanie tury,
     # że podsumowanie już poszło. `tura.py` to sprawdza i NIE wyśle niczego więcej w
@@ -485,6 +711,17 @@ def wyslij():
     # sparafrazował podsumowanie własnymi słowami — dokładnie to, przed czym ma
     # chronić wysyłka WYŁĄCZNIE stąd, nie z final_output modelu).
     stan.oznacz_podsumowanie_wyslane()
+
+    # T1 (telemetria lejka): ta sama nazwa i to samo pole `positions` co w
+    # starym silniku (bots/quotebot.py, LS-08) — dane z obu silników mają
+    # wpadać do `quote_events` w JEDNEJ jednostce.
+    #
+    # PO pętli wysyłki, nie przed: nieudana część robi wcześniej `return`, więc
+    # zdarzenie z definicji opisuje podsumowanie, które klient FAKTYCZNIE
+    # zobaczył — tak samo jak `oczekiwany_podpis` zapisywany dwie linie wyżej
+    # (U1). Podsumowanie, które nie dotarło, ma zostać w telemetrii NIEobecne;
+    # jego ślad to `podsumowanie_nieudane` -> handoff w `tura.py`.
+    log_event(stan.conv_id(), "summary_sent", {"positions": len(pozycje)})
 
     return {"ok": True, "wyslano": True, "podpis": oczekiwany,
             "wskazowka": "Podsumowanie wysłane. Twoja odpowiedź w tej turze może być pusta. "

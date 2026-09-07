@@ -28,7 +28,7 @@ from openai.types.responses import (
 )
 
 import config as config_mod
-from bots_pro import agenci, notatki, stan, tura
+from bots_pro import agenci, notatki, podsumowanie, stan, tura
 from bots_pro.narzedzia import NARZEDZIA_WYCENY
 
 stan.init_pro()
@@ -1044,7 +1044,7 @@ class TestWyjsciaHandoffoweNieSaCiche:
         moze zostac w ciszy tylko dlatego, ze handoff poszedl z narzedzia,
         a nie z bezpiecznika tury."""
         conv_id = 96204006
-        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst: True)
+        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst, **k: True)
         monkeypatch.setattr("core.chatwoot.cw_bot_handoff", lambda cid, token=None: True)
 
         class _RunnerZHandoffemZNarzedzia:
@@ -1063,7 +1063,7 @@ class TestWyjsciaHandoffoweNieSaCiche:
         # Kontrola negatywna: model napisal wlasne pozegnanie — drugi, sklejony
         # w kodzie komunikat bylby zbedna powtorka.
         conv_id = 96204007
-        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst: True)
+        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst, **k: True)
         monkeypatch.setattr("core.chatwoot.cw_bot_handoff", lambda cid, token=None: True)
 
         class _RunnerZHandoffemIOdpowiedzia:
@@ -1353,3 +1353,180 @@ class TestN6KontaktNaStarcieTury:
         tura.uruchom(conv_id, "inbox1", "cokolwiek", persona="quote")
 
         assert wyslane == ["Dzien dobry."]
+
+
+class TestPodsumowanieBezWysylkiNieKonczySieCisza:
+    """R1/R2/R3: `podsumowanie.wyslij()` moze skonczyc sie BEZ tresci dla klienta
+    — bo stan zmienil sie w trakcie liczenia (STAN_ZMIENIONY_W_TRAKCIE), albo bo
+    nie ma jeszcze ani jednej pozycji (BRAK_POZYCJI). Prompt pozwala modelowi
+    milczec po wolaniu tego narzedzia, wiec tura musi sobie z tym poradzic.
+
+    POPRZEDNIA RUNDA ROBILA TO PONOWIENIEM w `tura.py` i to byla regresja:
+
+      R1. Ponowienie stalo PRZED galezia handoffu i nie pytalo o
+          `stan.handoff_w_turze()`. Gdy model w tej samej turze oddal rozmowe
+          czlowiekowi (`oddaj_czlowiekowi`, albo `przygotuj_zamowienie` na
+          Allegro), mostek DOPIERO POTEM wysylal klientowi podsumowanie z cena
+          i pytaniem „Czy wszystko sie zgadza?" — do rozmowy, ktora byla juz w
+          'open' i nalezala do konsultanta. Przy okazji komunikat o przekazaniu
+          NIE wychodzil, bo galaz U11 wymaga `not podsumowanie_wyslane()`.
+          ZMIERZONE (sonda, 20 przebiegow, --cpus=0.5 --memory=256m):
+          podsumowanie po handoffie 20/20, komunikat o przekazaniu 0/20.
+
+      R2. Ponowienie wysylalo POZA przebiegiem Runnera, wiec nic nie trafialo do
+          `SQLiteSession`: w bazie stal `oczekiwany_podpis`, klient mial
+          podsumowanie na ekranie, a w pamieci modelu ostatnia rzecza byl blad
+          ze wskazowka „zawolaj jeszcze raz" — w nastepnej turze model wolal i
+          klient dostawal DRUGIE, identyczne podsumowanie.
+
+    DZIS: tura NIE wysyla podsumowania. Ponowienie nalezy do modelu (widzi
+    wskazowke w swojej sesji), a tura pilnuje wylacznie tego, zeby klient nie
+    zostal w ciszy — jednym krotkim zdaniem, dobranym po powodzie."""
+
+    def _runner(self, powod, tekst="", handoff=False):
+        class _R:
+            @staticmethod
+            def run_sync(agent, tresc, session=None, max_turns=None):
+                stan.oznacz_podsumowanie_bez_wysylki(powod)
+                if handoff:
+                    stan.handoff("klient prosi o konsultanta")
+                return types.SimpleNamespace(final_output=tekst)
+        return _R()
+
+    def test_po_handoffie_z_tury_klient_nie_dostaje_podsumowania_tylko_komunikat(
+            self, monkeypatch):
+        """R1, scenariusz wymagany wprost: w JEDNEJ turze model wstrzymuje
+        podsumowanie i wola `oddaj_czlowiekowi`. Kombinacja udokumentowana na
+        produkcji (conv 4910, 18:21)."""
+        conv_id = 96150
+        monkeypatch.setattr(
+            podsumowanie, "wyslij",
+            lambda: pytest.fail("tura odezwala sie do klienta po oddaniu rozmowy"))
+        powody = []
+        monkeypatch.setattr(stan, "handoff", lambda powod: (
+            powody.append(powod), stan.oznacz_handoff_w_turze(), {"ok": True})[-1])
+        monkeypatch.setattr(tura, "Runner",
+                            self._runner("zmiana_w_trakcie", handoff=True))
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "poprosze wycene", persona="quote")
+
+        assert powody == ["klient prosi o konsultanta"]
+        # Klient ma dostac DOKLADNIE JEDNO zdanie: o przekazaniu rozmowy.
+        assert wyslane == [tura.KOMUNIKAT_HANDOFF]
+        assert all("Czy wszystko" not in t for t in wyslane)
+
+    def test_wstrzymanie_bez_handoffu_daje_klientowi_krotkie_zdanie(self, monkeypatch):
+        """Warunek, ktorego nie wolno zlamac: tura nie moze skonczyc sie cisza.
+        Ale to NIE jest awaria wymagajaca czlowieka — wstrzymanie jest
+        przejsciowe i odwracalne, wiec handoffu tu nie ma."""
+        conv_id = 96151
+        monkeypatch.setattr(podsumowanie, "wyslij",
+                            lambda: pytest.fail("tura ponowila podsumowanie"))
+        monkeypatch.setattr(stan, "handoff",
+                            lambda powod: pytest.fail("niepotrzebna eskalacja"))
+        monkeypatch.setattr(tura, "Runner", self._runner("zmiana_w_trakcie"))
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "poprosze wycene", persona="quote")
+
+        assert wyslane == [tura.ZDANIA_BEZ_PODSUMOWANIA["zmiana_w_trakcie"]]
+
+    def test_brak_pozycji_nie_konczy_tury_cisza(self, monkeypatch):
+        """R3: `wyslij()` oddawalo `BRAK_POZYCJI` i NIE zapalalo niczego, wiec
+        tura ani nie reagowala, ani nie robila handoffu — klient nie dostawal
+        nic. Sciezka dominuje w kolejnosci „podsumowanie pierwsze"."""
+        conv_id = 96152
+        # PRAWDZIWE `podsumowanie.wyslij()` na pustej liscie — nie atrapa flagi.
+        # Inaczej test mierzylby sam siebie: caly defekt polegal na tym, ze ta
+        # sciezka NICZEGO nie zapalala.
+        class _RunnerBezPozycji:
+            @staticmethod
+            def run_sync(agent, tresc, session=None, max_turns=None):
+                wynik = podsumowanie.wyslij()
+                assert wynik["error"] == "BRAK_POZYCJI", wynik
+                return types.SimpleNamespace(final_output="")
+
+        monkeypatch.setattr(stan, "handoff",
+                            lambda powod: pytest.fail("niepotrzebna eskalacja"))
+        monkeypatch.setattr(tura, "Runner", _RunnerBezPozycji())
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "poprosze wycene", persona="quote")
+
+        assert wyslane == [tura.ZDANIA_BEZ_PODSUMOWANIA["brak_pozycji"]]
+
+    def test_zdanie_zastepcze_nie_niesie_zadnej_kwoty(self):
+        """I1: te zdania sklada KOD, wiec omijaja guardrail G1 tak samo jak
+        KOMUNIKAT_HANDOFF. Zadne z nich nie ma prawa niesc liczby — rejestr
+        `pro_kwoty` o niej nie wie i klient dostalby cene bez pokrycia."""
+        wszystkie = (list(tura.ZDANIA_BEZ_PODSUMOWANIA.values())
+                     + [tura.ZDANIE_BEZ_PODSUMOWANIA_DOMYSLNE])
+        for zdanie in wszystkie:
+            assert not any(znak.isdigit() for znak in zdanie), zdanie
+
+    def test_wstrzymanie_z_odpowiedzia_modelu_nie_doklada_zdania(self, monkeypatch):
+        """Kontrola negatywna: model cos napisal, wiec klient dostal wiadomosc —
+        dokladanie drugiej byloby szumem."""
+        conv_id = 96153
+        monkeypatch.setattr(podsumowanie, "wyslij",
+                            lambda: pytest.fail("tura ponowila podsumowanie"))
+        monkeypatch.setattr(stan, "handoff",
+                            lambda powod: pytest.fail("nie powinno dojsc do handoffu"))
+        monkeypatch.setattr(
+            tura, "Runner",
+            self._runner("zmiana_w_trakcie", tekst="Chwileczke, przeliczam jeszcze raz."))
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "poprosze wycene", persona="quote")
+
+        assert wyslane == ["Chwileczke, przeliczam jeszcze raz."]
+
+    def test_po_udanym_podsumowaniu_tura_nic_nie_doklada(self, monkeypatch):
+        """Kontrola negatywna: model wolal `wyslij_podsumowanie` dwa razy —
+        pierwsze wstrzymane, drugie udane JESZCZE W PRZEBIEGU Runnera (tak to
+        dzis dziala najczesciej). Klient ma dostac jedno podsumowanie i nic
+        wiecej."""
+        conv_id = 96154
+
+        class _RunnerZPonowieniemWTrakcie:
+            @staticmethod
+            def run_sync(agent, tresc, session=None, max_turns=None):
+                stan.oznacz_podsumowanie_bez_wysylki("zmiana_w_trakcie")
+                stan.oznacz_podsumowanie_wyslane()
+                return types.SimpleNamespace(final_output="")
+
+        monkeypatch.setattr(podsumowanie, "wyslij",
+                            lambda: pytest.fail("tura ponowila wyslane podsumowanie"))
+        monkeypatch.setattr(tura, "Runner", _RunnerZPonowieniemWTrakcie())
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "poprosze wycene", persona="quote")
+
+        assert wyslane == []
+
+    def test_po_nieudanej_wysylce_nadal_handoff_a_nie_zdanie(self, monkeypatch):
+        """Kontrola negatywna dla U1: awaria KANALU to co innego niz
+        wstrzymanie. Chatwoot odrzucil czesc podsumowania — tu eskalacja do
+        czlowieka zostaje, bo klient ma na ekranie tresc z dziura."""
+        conv_id = 96155
+
+        class _RunnerZObiemaFlagami:
+            @staticmethod
+            def run_sync(agent, tresc, session=None, max_turns=None):
+                stan.oznacz_podsumowanie_bez_wysylki("zmiana_w_trakcie")
+                stan.oznacz_podsumowanie_nieudane()
+                return types.SimpleNamespace(final_output="")
+
+        monkeypatch.setattr(podsumowanie, "wyslij",
+                            lambda: pytest.fail("tura dosylala tresc po awarii kanalu"))
+        monkeypatch.setattr(tura, "Runner", _RunnerZObiemaFlagami())
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+        powody = []
+        monkeypatch.setattr(stan, "handoff",
+                            lambda powod: powody.append(powod) or {"ok": True})
+
+        tura.uruchom(conv_id, "inbox1", "poprosze wycene", persona="quote")
+
+        assert wyslane == [tura.KOMUNIKAT_HANDOFF]
+        assert powody == ["podsumowanie nie dotarlo do klienta"]

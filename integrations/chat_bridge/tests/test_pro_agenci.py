@@ -137,7 +137,31 @@ class TestAgentWyceny:
         #     przeniesiona z niebramkowanej sekcji PORÓWNANIE do bramkowanego
         #     bloku NIEZDECYDOWANY KLIENT, przy okazji dublowanie obu sekcji
         #     spadlo z 1508 do 1440 zn. Na Allegro prompt zmalal 8765 -> 8712 zn.
-        # Kolejne podniesienie ma byc rownie jawne: z lista tego, co doszlo, i po co.
+        # ZADANIE 3 (U-N7): prog BEZ ZMIAN (9950). Najgorszy przypadek 9558 ->
+        # 9892 zn, czyli zapas 392 -> 58. Co doszlo:
+        #   - ZAPISUJ NA BIEZACO (+330 zn) — akapit otwierajacy WYCENA. Bez
+        #     niego model odraczal PIERWSZY zapis do kompletu danych, a
+        #     `pro_dane.dane_json` jest w migawce postepu: rozmowa 4727 przez
+        #     trzy tury nie zapisala ani jednego pola i bezpiecznik zabral ja
+        #     klientowi w srodku zdania;
+        #   - KSZTALT kaze zapisac ksztalt w polu `ksztalt` (+46 zn) — to pole
+        #     jest teraz PIERWSZA linia obrony bramki `podsumowanie.
+        #     blokada_ksztaltu`, a bez zdania w prompcie model nigdy by go nie
+        #     ustawil (bramce zostalby sam regex po nazwie produktu);
+        #   - POTWIERDZENIE mowi „KAZDA zapisana pozycja" (+21 zn) —
+        #     `crm_calc.calculate` jest zero-jedynkowe, jedna niemapowalna
+        #     pozycja zwraca ok=False dla calosci;
+        #   - OFERTA jawnie USTEPUJE sekcji PORÓWNANIE (+84 zn) — dwie sekcje
+        #     kazaly przy niezdecydowanym kliencie zrobic cos odwrotnego.
+        # Za to budzet ZWOLNIL na scaleniu dublowania OFERTA/PORÓWNANIE
+        # (wspolny wyzwalacz „klient nie wie, co wybrac" i wspolna recepta
+        # „zaproponuj wariant przyjety do rachunku") — okolo -147 zn. Zadna
+        # regula nie zostala wycieta: „nie zakladaj technologii ani klasy
+        # samodzielnie", „wspominajac pozostale jako alternatywe" i „dopytaj
+        # o zastosowanie i wyglad" stoja dalej, tylko w JEDNYM miejscu.
+        # UWAGA dla nastepnego: zapas to juz TYLKO 58 znakow. Dopisanie
+        # czegokolwiek do WYCENA wymaga albo zwolnienia miejsca, albo JAWNEGO
+        # podniesienia progu — z lista tego, co doszlo, i po co, jak wyzej.
         agent = agenci.zbuduj_agenta_wyceny()
         assert len(agent.instructions) < 9950
 

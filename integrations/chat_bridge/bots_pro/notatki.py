@@ -46,7 +46,8 @@ def _linia_dostawy(dostawa):
     return "Dostawa: " + ", ".join(czesci)
 
 
-def tresc_dla_agenta(powod, pozycje=None, dostawa=None, wycena=None, potwierdzenie=None):
+def tresc_dla_agenta(powod, pozycje=None, dostawa=None, wycena=None, potwierdzenie=None,
+                     pokazana_kwota=None):
     """Treść notatki: powód + komplet tego, co bot zdążył ustalić.
 
     Pozycje opisujemy przez `podsumowanie._linia` BEZ katalogu wykończeń
@@ -54,7 +55,7 @@ def tresc_dla_agenta(powod, pozycje=None, dostawa=None, wycena=None, potwierdzen
     guardrail, błąd), gdzie dokładanie sieciowego `crm_calc.get_options()`
     zamieniłoby brak notatki w drugą awarię. Konsultant i tak widzi surowy typ
     wykończenia, a pełną ścieżkę katalogową ma pod linkiem do wyceny."""
-    from bots_pro.podsumowanie import _linia
+    from bots_pro.podsumowanie import _fmt_pln, _linia
 
     linie = ["%s przekazuje rozmowę konsultantowi." % _PREFIKS,
              "Powód: %s" % (powod or "nie podano")]
@@ -69,6 +70,30 @@ def tresc_dla_agenta(powod, pozycje=None, dostawa=None, wycena=None, potwierdzen
     opis_dostawy = _linia_dostawy(dostawa)
     if opis_dostawy:
         linie.append(opis_dostawy)
+
+    # Z4: kwota, ktora klient FAKTYCZNIE zobaczyl. Do tej poprawki notatka nie
+    # drukowala ceny w ogole — konsultant, ktory przejmowal rozmowe, musial
+    # odtworzyc ja z watku (zmierzone czasy reakcji: od 39 minut do 12 godzin).
+    #
+    # Etykieta mowi „ostatnia pokazana", a nie „cena" — bo to jest zapis
+    # historyczny, nie aktualna wycena: pozycje mogly sie po wyslaniu
+    # podsumowania zmienic, a ta kolumna swiadomie tego nie sledzi (patrz
+    # `stan.pokazana_kwota`). Konsultant ma wiedziec, JAKA liczbe klient
+    # zobaczyl, a nie ile ma mu policzyc.
+    #
+    # CZEGO TU CELOWO NIE MA: zdania „brakuje juz tylko jego »tak«". Jedyny
+    # sygnal, ktory dalby sie pod nie podlozyc, to kolumna `oczekiwany_podpis` —
+    # a ona ma DOKLADNIE JEDNEGO pisarza (`podsumowanie.wyslij`) i ZERO miejsc
+    # czyszczacych, wiec przezywa jawna odmowe klienta. W produkcyjnej rozmowie
+    # 4912 klient napisal „no nie pominales reszty elementow, jest ich ponad 10",
+    # a `oczekiwany_podpis` dalej stal ustawiony przy kwocie osmiokrotnie
+    # zanizonej (123,55 zl zamiast 993,97 zl) — notatka dalaby konsultantce
+    # falszywa pewnosc dokladnie tam, gdzie potrzebna byla czujnosc. Do czasu,
+    # az powstanie sygnal, ktory odmowa klienta KASUJE, notatka podaje same
+    # fakty (kwota + pozycje + ewentualny cytat potwierdzenia) i zostawia ocene
+    # czlowiekowi.
+    if isinstance(pokazana_kwota, (int, float)):
+        linie.append("Ostatnia kwota pokazana klientowi: %s brutto" % _fmt_pln(pokazana_kwota))
 
     wycena = wycena or {}
     if wycena.get("public_url") or wycena.get("edit_uuid"):
@@ -96,7 +121,7 @@ def kod_notatki_ok(odpowiedz):
     return 200 <= kod < 300
 
 
-def wyslij_notatke(conv_id, tekst):
+def wyslij_notatke(conv_id, tekst, oznacz_ture=True):
     """Wysyła notatkę. NIGDY nie rzuca — to ścieżka awaryjna, brak notatki nie
     może zablokować oddania rozmowy człowiekowi (ale MUSI być widoczny w logach,
     inaczej cichy brak notatki wygląda z zewnątrz jak jej obecność).
@@ -110,7 +135,17 @@ def wyslij_notatke(conv_id, tekst):
 
     Udana notatka jest odnotowywana w stanie TURY (N7), żeby `notatka_stanu`
     nie dołożyła zaraz po niej drugiej, prawie identycznej. Zapis stanu tury
-    nie może wywrócić wysyłki, która się już udała — stąd osobny `try`."""
+    nie może wywrócić wysyłki, która się już udała — stąd osobny `try`.
+
+    `oznacz_ture=False` dla wołających SPOZA tury bota (dziś: `pro_watchdog`,
+    przez `notatka_stanu(..., poza_tura=True)`). `stan._flagi_tury` to słownik
+    MODUŁOWY, wspólny dla całego procesu — nie contextvar (patrz `stan`,
+    naprawa X2) — więc zapalenie flagi z wątku watchdoga mutuje stan tury,
+    którą w tej samej chwili może prowadzić worker. Skutkiem jest cicha strata
+    notatki TUROWEJ: worker robi handoff, `notatka_stanu` trafia na bramkę N7
+    i rezygnuje, bo „notatka w tej turze już była" — tyle że była to notatka
+    watchdoga o innym zdarzeniu. Wołający spoza tury nie ma więc do
+    `_flagi_tury` żadnej drogi."""
     try:
         odpowiedz = cw_note(conv_id, tekst, token=BOT_PRO_CW_AGENT_TOKEN)
     except Exception as e:
@@ -120,15 +155,16 @@ def wyslij_notatke(conv_id, tekst):
         log("notatki: notatka dla agenta ODRZUCONA przez Chatwoota (conv %s, HTTP %s) — "
             "sprawdz BOT_PRO_CW_AGENT_TOKEN" % (conv_id, getattr(odpowiedz, "status_code", "?")))
         return False
-    try:
-        from bots_pro import stan
-        stan.oznacz_notatke_w_turze()
-    except Exception as e:   # pragma: no cover - obrona, nie sciezka
-        log("notatki: nie udalo sie oznaczyc notatki w turze (conv %s): %r" % (conv_id, e))
+    if oznacz_ture:
+        try:
+            from bots_pro import stan
+            stan.oznacz_notatke_w_turze()
+        except Exception as e:   # pragma: no cover - obrona, nie sciezka
+            log("notatki: nie udalo sie oznaczyc notatki w turze (conv %s): %r" % (conv_id, e))
     return True
 
 
-def zamowienie_do_agenta(wycena):
+def zamowienie_do_agenta(wycena, pozycje, dostawa, potwierdzenie, pokazana_kwota):
     """Allegro (U11, spec D8 wiersz 394): zamiast linku dla kupującego —
     notatka dla konsultanta z KOMPLETEM danych i oddanie mu rozmowy.
 
@@ -138,17 +174,27 @@ def zamowienie_do_agenta(wycena):
     Notatka jest prywatna, więc link może w niej zostać — człowiek dostaje
     dokładnie to, czego bot nie ma prawa wysłać.
 
+    R5: opis zamówienia przychodzi W ARGUMENTACH, jako MIGAWKA wzięta przez
+    wołającego (`narzedzia.przygotuj_zamowienie`) — ta sama, na której przeszła
+    bramka I2. Wcześniej ta funkcja sięgała po stan SAMA, czterema świeżymi
+    odczytami (`pozycje`, `dostawa`, cytat potwierdzenia, pokazana kwota), i to
+    JUŻ PO bramce, która liczyła podpis z jeszcze innego odczytu. Na Allegro ta
+    notatka ZASTĘPUJE link do wyceny, więc konsultant dostawał opis zamówienia
+    złożony z rozdartego stanu — i nie miał jak tego zauważyć. Argumenty są
+    WYMAGANE (bez wartości domyślnych) świadomie: domyślne `None` po cichu
+    przywracałoby notatkę bez pozycji, czyli gorszą wersję tego samego błędu.
+
     Zwraca True, gdy notatka poszła."""
     from bots_pro import stan
     tekst = tresc_dla_agenta(
         "Allegro — zamówienie do domknięcia przez konsultanta "
         "(regulamin marketplace'u zabrania wysłania linku kupującemu)",
-        pozycje=stan.pozycje(), dostawa=stan.dostawa(), wycena=wycena,
-        potwierdzenie=stan.cytat_potwierdzenia())
+        pozycje=pozycje, dostawa=dostawa, wycena=wycena,
+        potwierdzenie=potwierdzenie, pokazana_kwota=pokazana_kwota)
     return wyslij_notatke(stan.conv_id(), tekst)
 
 
-def notatka_stanu(conv_id, powod):
+def notatka_stanu(conv_id, powod, poza_tura=False):
     """Notatka złożona z BIEŻĄCEGO stanu rozmowy (`bots_pro.stan`) — jedno
     wywołanie dla wszystkich wyjść handoffowych, żeby żadne z nich nie musiało
     samo zbierać tych samych czterech kawałków.
@@ -157,18 +203,32 @@ def notatka_stanu(conv_id, powod):
     Wyjścia z własną, bogatszą notatką (Allegro w `przygotuj_zamowienie`,
     nieudane dopisanie dostawy w `zapisz_wycene`) wołają zaraz po niej
     `stan.handoff`, więc bez tego konsultant dostawał dwa wpisy o tym samym.
-    Pierwsza notatka wygrywa, bo to zawsze ta konkretniejsza."""
+    Pierwsza notatka wygrywa, bo to zawsze ta konkretniejsza.
+
+    `poza_tura=True` wyłącza tę bramkę — dla wołających, którzy NIE są w
+    turze bota (dziś: `pro_watchdog`, który oddaje rozmowę z powodu ciszy
+    klienta, a więc wtedy, gdy żadna tura nie trwa). Bramka N7 chroni przed
+    DWIEMA notatkami o tym samym zdarzeniu w JEDNEJ turze; dla watchdoga nie
+    ma „tej tury", a flagi w `stan._flagi_tury` zerują się dopiero na starcie
+    następnej tury danej rozmowy — po handoffie tura już nie nadejdzie
+    (`wolno_prowadzic_rozmowe` zamyka botowi drogę powrotu). Bez tego
+    parametru notatka watchdoga przepadałaby po cichu dokładnie w tych
+    rozmowach, w których ostatnia tura zdążyła coś do konsultanta napisać."""
     from bots_pro import stan
-    if stan.notatka_w_turze():
+    if not poza_tura and stan.notatka_w_turze():
         log("notatki: notatka w tej turze juz byla — pomijam notatke stanu "
             "(conv %s, powod=%r)" % (conv_id, powod))
         return True
     try:
         tekst = tresc_dla_agenta(
             powod, pozycje=stan.pozycje(), dostawa=stan.dostawa(),
-            wycena=stan.zapisana_wycena(), potwierdzenie=stan.cytat_potwierdzenia())
+            wycena=stan.zapisana_wycena(), potwierdzenie=stan.cytat_potwierdzenia(),
+            pokazana_kwota=stan.pokazana_kwota())
     except Exception as e:
         # Odczyt stanu padl — notatka z samym powodem jest wciaz lepsza niz brak.
         log("notatki: nie udalo sie zebrac stanu do notatki (conv %s): %r" % (conv_id, e))
         tekst = tresc_dla_agenta(powod)
-    return wyslij_notatke(conv_id, tekst)
+    # `oznacz_ture=not poza_tura`: patrz `wyslij_notatke`. Bramka N7 to nie
+    # jedyne miejsce, w ktorym `_flagi_tury` ma znaczenie — wolajacy spoza tury
+    # ma tego slownika w ogole nie dotykac, ani czytajac, ani pisząc.
+    return wyslij_notatke(conv_id, tekst, oznacz_ture=not poza_tura)

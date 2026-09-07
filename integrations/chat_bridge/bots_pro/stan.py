@@ -49,7 +49,7 @@ konfiguracji (klient zmienia materiał/wymiary między przeliczeniami; prompt
 WPROST zachęca do liczenia kilka razy w rozmowie) rósł bez ograniczeń i
 zawierał też ceny konfiguracji już porzuconych, które bot mógłby zacytować, a
 guardrail by je przepuścił (formalnie "znane"). `zapisz_pozycje` TERAZ czyści
-cały rejestr tej rozmowy przy KAŻDEJ FAKTYCZNEJ zmianie pozycji (patrz `_zapisz`
+cały rejestr tej rozmowy przy KAŻDEJ FAKTYCZNEJ zmianie pozycji (patrz `_zmien_pozycje`
 — porównanie starego/nowego `dane_json`, uszczelnione w rundzie poprawek 2, N1,
 po tym jak bezwarunkowe czyszczenie kasowało też no-opowe zapisy) — kolejne
 `policz_wycene`/`wyslij_podsumowanie` musi go zasilić od nowa, zanim bot znów
@@ -65,30 +65,14 @@ model dostaje wskazówkę zostawić `final_output` puste, ale to dyscyplina prom
 nie bramka — bramka jest tutaj)."""
 import contextvars
 import json
+import threading
 
 from core.db import db
+from core.events import log_event
 from core.log import log
 
 _conv_id = contextvars.ContextVar("conv_id", default=None)
 _persona = contextvars.ContextVar("persona", default=None)
-_podsumowanie_wyslane = contextvars.ContextVar("podsumowanie_wyslane", default=False)
-# U1 (recenzja koncowa): wysylka podsumowania do Chatwoota NIE POWIODLA sie w tej
-# turze. Osobny sygnal od `_podsumowanie_wyslane` — tamten mowi "nie wysylaj nic
-# wiecej", ten mowi "klient NIC nie dostal, a mial dostac". `tura.py` czyta go, zeby
-# tura, w ktorej model dodatkowo nic nie napisal, skonczyla sie handoffem, nie cisza.
-_podsumowanie_nieudane = contextvars.ContextVar("podsumowanie_nieudane", default=False)
-# U11/U7: w tej turze doszlo juz do handoffu — WYWOLANEGO Z NARZEDZIA, wewnatrz
-# Runner.run_sync (`oddaj_czlowiekowi`, albo `przygotuj_zamowienie` na Allegro).
-# `tura.py` czyta to, zeby tura, w ktorej model po handoffie NIC nie napisal,
-# nie skonczyla sie cisza. Per TURA (contextvar), nie per rozmowa — pytanie
-# brzmi "czy klient dostal cos w TEJ turze", nie "czy kiedykolwiek".
-_handoff_w_turze = contextvars.ContextVar("handoff_w_turze", default=False)
-# N7 (rerecenzja): w tej turze konsultant dostal juz prywatna notatke. Wyjscia,
-# ktore pisza WLASNA, bogatsza notatke (Allegro w `przygotuj_zamowienie`,
-# nieudane dopisanie dostawy w `zapisz_wycene`) wolaja zaraz po niej `handoff`,
-# a ten dokladal druga, prawie identyczna (`notatki.notatka_stanu`). Jedna
-# notatka na ture — wygrywa ta napisana PIERWSZA, bo to zawsze ta konkretniejsza.
-_notatka_w_turze = contextvars.ContextVar("notatka_w_turze", default=False)
 # N6 (runda napraw 2): tozsamosc klienta odczytana z Chatwoota na starcie tury —
 # {name, email, phone}. Per TURA, nie per rozmowa: dane na kontakcie moga sie
 # miedzy turami zmienic (konsultant je poprawi, klient dopisze telefon w profilu),
@@ -96,6 +80,94 @@ _notatka_w_turze = contextvars.ContextVar("notatka_w_turze", default=False)
 # zeruje ten var — inaczej kolejna rozmowa obsluzona w tym samym watku workera
 # zobaczylaby CUDZY adres e-mail, a bot ma go klientowi pokazac.
 _kontakt = contextvars.ContextVar("kontakt", default=None)
+
+# X1: sekcja krytyczna dla stanu, ktorego NIE DA SIE zapisac jednym, atomowym
+# zapytaniem — czyli dla blobu pozycji (`pro_dane.dane_json`) i dla pary
+# „zapisz oszacowanie dostawy + zarejestruj jego kwoty".
+#
+# DLACZEGO w ogole: to ten sam ksztalt bledu, ktory W1 (docstring modulu wyzej)
+# usunal dla REJESTRU KWOT, rozbijajac go na osobne wiersze `pro_kwoty` —
+# pozycje tej poprawki nie dostaly, bo one MAJA istotna kolejnosc (podsumowanie
+# drukuje je po kolei, `wynik_dla_modelu` robi zip z odpowiedzia kalkulatora),
+# wiec blob z gwarantowana kolejnoscia jest tu wlasciwa struktura, a nie wada.
+# Zamiast rozbijac dane, serializujemy sekwencje. `zapisz_pozycje` bylo
+# klasycznym read-modify-write na DWOCH osobnych polaczeniach (`_wczytaj` ->
+# mutacja w pamieci -> `_zapisz`), a Agents SDK woła wszystkie narzedzia
+# JEDNEGO kroku modelu rownolegle (asyncio.gather w agents/run_internal/
+# tool_execution.py), przepuszczajac synchroniczne cialo `@function_tool` przez
+# `asyncio.to_thread` — czyli przez PRAWDZIWE watki, ktorych GIL nie
+# synchronizuje na granicy I/O do SQLite. Prompt kaze wołać `zapisz_pozycje`
+# osobno dla kazdej pozycji, wiec lista 13 elementow to 13 rownoleglych
+# read-modify-write na jednym blobie. ZMIERZONE na tym kodzie przed naprawa:
+# z 13 rownoleglych zapisow roznych pozycji zostawala DOKLADNIE 1, w 10/10
+# przebiegow — dokladnie ten podpis ma produkcyjna rozmowa 4912 (z 13 elementow
+# ocalal szosty, `horizontal-divider`, a klient dostal do potwierdzenia 123,55 zl
+# zamiast ~1000 zl). Bramka I2 dziala wtedy formalnie bez zarzutu i jednoczesnie
+# przypina podpis klienta do 1/13 zamowienia.
+#
+# RLock, nie Lock: sekcja krytyczna obejmuje cale cialo razem z zapisem, a ten
+# importuje `bots_pro.potwierdzenia`; ponowne wejscie tego samego watku (dzis:
+# `policz_wysylke` -> `zapisz_dostawe`) ma dac poprawny przebieg, nie
+# zakleszczenie. Nazwa PUBLICZNA (bez podkreslnika), bo zamka uzywa takze
+# `narzedzia.py` — para „zapis stanu + rejestracja kwot" musi byc jedna sekcja
+# krytyczna po stronie WOLAJACEGO, tu nie da sie jej zamknac.
+#
+# RYZYKO RESZTKOWE, nazwane wprost: to jest zamek PROCESU. Wystarcza, bo mostek
+# to JEDEN proces — `bridge.py` startuje same watki i konczy na
+# `app.run(threaded=True)`, a Dockerfile ma `CMD ["python","bridge.py"]`; drugi
+# entrypoint (`bridge_quote_candidate.py`) pracuje na WLASNYM pliku bazy
+# (`BRIDGE_DB`). Uruchomienie tego kiedykolwiek pod gunicornem z WIECEJ NIZ
+# JEDNYM workerem — albo wskazanie obu entrypointom tego samego `BRIDGE_DB` —
+# CICHO cofnie te naprawe: zamek nie siega poza proces, a objawem beda znowu
+# gubione pozycje, bez zadnego bledu w logach.
+zamek_stanu = threading.RLock()
+
+# X2: cztery flagi „co juz zdarzylo sie w TEJ turze", czytane przez `tura.py`
+# PO `Runner.run_sync`, a ustawiane z wnetrza narzedzi.
+#
+# BYLY contextvarami i przez to BYLY MARTWE. Agents SDK uruchamia synchroniczne
+# cialo `@function_tool` przez `asyncio.to_thread`, a to odpala funkcje w KOPII
+# kontekstu — `.set()` z narzedzia nie wraca do wolajacego. Zmierzone: narzedzie
+# ustawia flage na True, po powrocie do `tura.py` widac False. Zawsze. Czyli
+# bezpieczniki U1 („podsumowanie nie doszlo i model nic nie napisal -> handoff
+# zamiast ciszy"), U11 („handoff z narzedzia, model nic nie napisal -> komunikat
+# zamiast ciszy") i bramka W3 (blokada DRUGIEGO, sparafrazowanego przez model
+# podsumowania) nie uruchamialy sie NIGDY. Nie wybuchlo dotad tylko dlatego, ze
+# model posluchal promptu i po podsumowaniu milczal — czyli bezpiecznik istnial
+# wylacznie na papierze, a cisza po pytaniu bota to jedna z awarii, ktore audyt
+# wskazal jako przyczyne porzucen.
+#
+# Slownik modulowy pod `zamek_stanu`, a NIE kolumny w `pro_stan`: semantyka ma
+# zostac „per TURA, nie per rozmowa" (patrz komentarze przy poszczegolnych
+# flagach nizej), a to znaczy zerowanie na starcie kazdej tury. Kolumny w bazie
+# daloby sie wyzerowac tak samo, ale kosztem zapisu do bazy przy KAZDEJ fladze i
+# — co wazniejsze — `ustaw_kontekst` musialoby zaczac PISAC do `pro_stan` dla
+# rozmowy, ktora bota moze w ogole nie dotyczyc (dzis nie dotyka bazy w ogole).
+# Pamiec procesu jest tu wlasciwym miejscem, bo to stan JEDNEJ tury tego samego
+# procesu, a nie decyzja biznesowa, ktora ma przezyc restart: po restarcie
+# mostka tura i tak zaczyna sie od nowa.
+#
+# Kluczowanie po conv_id, nie jedna globalna flaga: `to_thread` kopiuje kontekst,
+# wiec `conv_id()` w watku narzedzia jest ten sam co w turze — a rozmowy
+# obslugiwane rownolegle (dzis: jeden watek workera, ale watchdog i przyszly
+# drugi worker sa w zasiegu) nie moga sobie nawzajem zapalac bezpiecznikow.
+_flagi_tury = {}
+# Slownik zyje tyle, co proces, wiec bez limitu roslby o jeden maly wpis na
+# rozmowe az do restartu. Limit jest hojny (kilkadziesiat rozmow naraz mostek i
+# tak nie prowadzi) i przycinamy wpis NAJDAWNIEJ UZYWANY, czyli te rozmowe,
+# ktora najdawniej zaczynala ture — a wiec te, ktorej tura na pewno sie juz
+# skonczyla.
+#
+# „Najdawniej uzywany" wymaga wspolpracy `_wyzeruj_flagi_tury`: dict trzyma
+# kolejnosc PIERWSZEGO wstawienia, wiec samo `_flagi_tury[conv_id] = {}` na
+# starcie kolejnej tury NIE odswiezalo pozycji w kolejce i najdawniej WIDZIANA
+# rozmowa (np. aktywna od startu procesu) wypadala jako pierwsza, w srodku
+# swojej wlasnej tury. `tura.py` czytalby wtedy `podsumowanie_wyslane()` jako
+# False, choc podsumowanie poszlo — czyli drugie, sparafrazowane podsumowanie
+# albo cisza, dokladnie ta klasa awarii, ktorej flagi mialy zapobiec. Dzis
+# nieosiagalne (jeden watek workera, tury sekwencyjne), ale drugi worker jest
+# w zasiegu. Stad `pop` przed przypisaniem w `_wyzeruj_flagi_tury`.
+_LIMIT_ROZMOW_Z_FLAGAMI = 64
 
 _SCHEMAT = """
 CREATE TABLE IF NOT EXISTS pro_dane(
@@ -111,7 +183,8 @@ CREATE TABLE IF NOT EXISTS pro_stan(
   ostatni_liczony_mid TEXT,
   dostawa_kod TEXT, dostawa_kurier TEXT,
   dostawa_netto REAL, dostawa_brutto REAL,
-  quote_public_url TEXT, quote_dostawa_niedopisana INTEGER DEFAULT 0);
+  quote_public_url TEXT, quote_dostawa_niedopisana INTEGER DEFAULT 0,
+  pokazana_kwota REAL);
 CREATE TABLE IF NOT EXISTS pro_kwoty(
   conv_id INTEGER, kwota TEXT, zrodlo TEXT DEFAULT 'produkt',
   PRIMARY KEY(conv_id, kwota));
@@ -160,6 +233,15 @@ def init_pro():
             # 'dostawa'. Bez tego nowe oszacowanie kuriera nie miało jak
             # unieważnić poprzedniego kosztu wysyłki (patrz `zapisz_dostawe`).
             "ALTER TABLE pro_kwoty ADD COLUMN zrodlo TEXT DEFAULT 'produkt'",
+            # Z4: kwota, ktora klient FAKTYCZNIE zobaczyl w podsumowaniu — do
+            # notatki dla konsultanta. Nie da sie jej odtworzyc z `pro_kwoty`:
+            # tam leza WSZYSTKIE kwoty zwrocone przez kalkulator (ceny
+            # jednostkowe kazdej pozycji, sumy czastkowe), bez sladu, ktora z
+            # nich poszla do klienta jako cena calosci. Kolumna jest zapisem
+            # HISTORYCZNYM i swiadomie NIE jest czyszczona przy zmianie pozycji
+            # (inaczej ginalby jedyny slad tego, co klient widzial) — nie
+            # kopiuj tu logiki uniewazniania z sasiedniego N2.
+            "ALTER TABLE pro_stan ADD COLUMN pokazana_kwota REAL",
         ):
             try:
                 polaczenie.execute(stmt)
@@ -180,11 +262,81 @@ def ustaw_kontekst(conv_id, persona_tury="pro"):
     samej rozmowy — patrz docstring modułu i TestKwoty w test_pro_stan.py."""
     _conv_id.set(conv_id)
     _persona.set(persona_tury)
-    _podsumowanie_wyslane.set(False)
-    _podsumowanie_nieudane.set(False)
-    _handoff_w_turze.set(False)
-    _notatka_w_turze.set(False)
     _kontakt.set(None)
+    _wyzeruj_flagi_tury(conv_id)
+
+
+def ustaw_kontekst_odczytu(conv):
+    """Ustawia conv_id do ODCZYTÓW spoza tury — dziś: wątek `pro_watchdog`,
+    który po automatycznym oddaniu rozmowy musi złożyć notatkę z tego, co bot
+    w niej zebrał.
+
+    ZAWĘŻONA WERSJA `ustaw_kontekst`, i to jest cała jej racja bytu. Bez
+    ustawionego conv_id odczyty (`pozycje`, `dostawa`, `zapisana_wycena`,
+    `pokazana_kwota`) świadomie NIE wołają `_wymagany_conv_id` i po prostu nie
+    znajdą wiersza — notatka napisałaby „Zebrane pozycje: brak" na rozmowie,
+    która pozycje MA, czyli zamieniłaby widoczny brak w niewidoczne kłamstwo.
+    Ale pełne `ustaw_kontekst` w tym miejscu byłoby lekarstwem gorszym od
+    choroby: woła `_wyzeruj_flagi_tury`, a `_flagi_tury` to słownik MODUŁOWY,
+    wspólny dla wszystkich wątków procesu (patrz X2 w docstringu modułu).
+    Watchdog i worker chodzą równolegle, a rozmowa może w tej samej sekundzie
+    dostać wiadomość od klienta i wejść w turę — wyzerowanie jej flag z cudzego
+    wątku w środku tury gasi dokładnie te bezpieczniki, które X2 przywróciło do
+    życia (drugie podsumowanie, drugi handoff, cisza po pytaniu bota). Dlatego
+    tutaj ustawiamy WYŁĄCZNIE contextvary, które są prywatne dla wątku
+    wołającego, i nie dotykamy stanu współdzielonego.
+
+    Persony NIE ustawiamy: notatka dla konsultanta jej nie używa (to profil
+    wysyłki do KLIENTA), a watchdog do klienta nic nie pisze."""
+    _conv_id.set(conv)
+    _kontakt.set(None)
+
+
+def _wyzeruj_flagi_tury(conv_id):
+    """Kasuje flagi turowe TEJ rozmowy (X2). Wolane wylacznie z `ustaw_kontekst`,
+    czyli raz na ture — to jest cala definicja „per tura": flaga zyje od startu
+    tury do startu nastepnej, a nie przez cala rozmowe."""
+    with zamek_stanu:
+        # `pop` PRZED przypisaniem, i to nie jest kosmetyka. Przypisanie do
+        # klucza, ktory juz istnieje, NIE przesuwa go na koniec — dict trzyma
+        # kolejnosc PIERWSZEGO wstawienia. Bez tego popu rozmowa aktywna od
+        # startu procesu byla pierwsza w kolejce do wyrzucenia przez limit
+        # nizej, mimo ze jej tura wlasnie sie zaczela; wyrzucany mial byc wpis
+        # najdawniej UZYWANY, a wyrzucany byl najdawniej WIDZIANY.
+        _flagi_tury.pop(conv_id, None)
+        _flagi_tury[conv_id] = {}
+        while len(_flagi_tury) > _LIMIT_ROZMOW_Z_FLAGAMI:
+            _flagi_tury.pop(next(iter(_flagi_tury)))
+
+
+def _ustaw_flage_tury(nazwa, wartosc=True):
+    """Zapala flage turowa BIEZACEJ rozmowy.
+
+    Swiadomie NIE wola `_wymagany_conv_id()`: flagi to sygnal miedzy narzedziem
+    a `tura.py`, a nie zapis do bazy — brak conv_id nie moze tu uszkodzic cudzej
+    rozmowy (klucz `None` jest osobnym, wlasnym wpisem), a twardy fail
+    zamienialby drobiazg w przerwana ture. Odwrotnie niz przy zapisach, gdzie
+    cichy zapis pod NULL-em lezy w cudzym wierszu (patrz `_wymagany_conv_id`).
+
+    `wartosc` jest zwykle `True` (flaga = fakt zaszedl). Jedyny wyjatek —
+    `podsumowanie_bez_wysylki` — trzyma tu KROTKI KOD POWODU, bo `tura.py`
+    musi napisac klientowi co innego przy „lista sie zmienila" niz przy „nie
+    mam ani jednej pozycji". Osobne flagi na kazdy powod rozmnozylyby warunki
+    w turze; wartosc w tej samej fladze trzyma decyzje w jednym miejscu."""
+    with zamek_stanu:
+        _flagi_tury.setdefault(conv_id(), {})[nazwa] = wartosc
+
+
+def _flaga_tury(nazwa):
+    """Czy flaga jest zapalona w BIEZACEJ turze BIEZACEJ rozmowy."""
+    with zamek_stanu:
+        return bool((_flagi_tury.get(conv_id()) or {}).get(nazwa))
+
+
+def _wartosc_flagi_tury(nazwa):
+    """Wartosc flagi turowej (kod powodu) albo None, gdy flagi nie ma."""
+    with zamek_stanu:
+        return (_flagi_tury.get(conv_id()) or {}).get(nazwa)
 
 
 def conv_id():
@@ -245,13 +397,18 @@ def oznacz_podsumowanie_wyslane():
     samej turze — nawet jeśli model coś dopisał, a guardrail G1 (integralność
     ceny) by to przepuścił (bo dopiska nie musi mieć ceny, żeby był problemem —
     problemem jest DRUGIE podsumowanie własnymi słowami modelu tuż po pierwszym,
-    deterministycznym)."""
-    _podsumowanie_wyslane.set(True)
+    deterministycznym).
+
+    X2: flaga żyje w słowniku modułowym pod `zamek_stanu`, nie w contextvarze —
+    contextvar ustawiony TUTAJ nigdy nie wracał do `tura.py`, bo SDK uruchamia
+    ciało narzędzia przez `asyncio.to_thread`, czyli w KOPII kontekstu. Bramka
+    opisana w docstringu `tura.py` jako „tą bramką" nie strzelała ani razu."""
+    _ustaw_flage_tury("podsumowanie_wyslane")
 
 
 def podsumowanie_wyslane():
     """Czy w BIEŻĄCEJ turze już wysłano deterministyczne podsumowanie."""
-    return bool(_podsumowanie_wyslane.get())
+    return _flaga_tury("podsumowanie_wyslane")
 
 
 def oznacz_podsumowanie_nieudane():
@@ -261,13 +418,62 @@ def oznacz_podsumowanie_nieudane():
 
     Świadomie NIE ustawia `_podsumowanie_wyslane`: tamta flaga BLOKUJE dalszą
     wysyłkę w tej turze, a tu jest odwrotna potrzeba — klient nie dostał nic i
-    trzeba mu cokolwiek powiedzieć (albo oddać rozmowę konsultantowi)."""
-    _podsumowanie_nieudane.set(True)
+    trzeba mu cokolwiek powiedzieć (albo oddać rozmowę konsultantowi).
+
+    U1 (recenzja końcowa): wysyłka podsumowania do Chatwoota NIE POWIODŁA się w
+    tej turze. Osobny sygnał od `podsumowanie_wyslane` — tamten mówi „nie
+    wysyłaj nic więcej", ten mówi „klient NIC nie dostał, a miał dostać".
+    `tura.py` czyta go, żeby tura, w której model dodatkowo nic nie napisał,
+    skończyła się handoffem, nie ciszą."""
+    _ustaw_flage_tury("podsumowanie_nieudane")
 
 
 def podsumowanie_nieudane():
     """Czy w BIEŻĄCEJ turze próba wysłania podsumowania się NIE powiodła."""
-    return bool(_podsumowanie_nieudane.get())
+    return _flaga_tury("podsumowanie_nieudane")
+
+
+def oznacz_podsumowanie_bez_wysylki(powod):
+    """`wyslij_podsumowanie` skończyło się BEZ wysłania czegokolwiek klientowi,
+    a NIE była to awaria kanału. Dwa powody dziś (`powod` to ich krótki kod):
+
+      - `"zmiana_w_trakcie"` (P1b) — stan zmienił się w trakcie liczenia, więc
+        treść opisywałaby dane sprzed ostatnich zapisów tego samego kroku
+        modelu, a klient dostałby prefiks listy podany jako komplet;
+      - `"brak_pozycji"` (R3) — w rozmowie nie ma ani jednej zapisanej pozycji,
+        bo `wyslij_podsumowanie` uszeregowało się PRZED `zapisz_pozycje` tego
+        samego kroku modelu. Ta ścieżka do tej poprawki nie zapalała NICZEGO:
+        narzędzie oddawało `BRAK_POZYCJI`, model po wywołaniu podsumowania ma
+        prawo milczeć — i tura kończyła się ciszą.
+
+    TRZECI, osobny sygnał — nie da się go zastąpić żadnym z dwóch istniejących
+    i to jest cały powód, dla którego istnieje:
+      - `podsumowanie_wyslane` BLOKUJE dalszą wysyłkę w tej turze, a tu klient
+        nie dostał nic i coś dostać musi;
+      - `podsumowanie_nieudane` znaczy „Chatwoot odrzucił", czyli awarię
+        kanału, i `tura.py` odpowiada na nią HANDOFFEM. Tu awarii nie ma:
+        wystarczy policzyć jeszcze raz, gdy zapisy już wylądowały. Handoff
+        byłby niepotrzebną eskalacją na w pełni odwracalnym zdarzeniu.
+
+    `tura.py` czyta ten sygnał WYŁĄCZNIE po to, żeby tura nie skończyła się
+    ciszą — dosyła klientowi jedno krótkie zdanie dobrane po `powod`. NIE
+    ponawia podsumowania: wysyłka poza przebiegiem modelu rozjeżdżała bazę z
+    pamięcią modelu i potrafiła odezwać się do klienta po oddaniu rozmowy
+    człowiekowi (patrz komentarz w `tura.uruchom`)."""
+    _ustaw_flage_tury("podsumowanie_bez_wysylki", powod)
+
+
+def podsumowanie_bez_wysylki():
+    """Kod powodu, dla którego podsumowanie nie dotarło do klienta w TEJ turze
+    (patrz wyżej), albo None. Prawdziwościowo działa jak flaga."""
+    return _wartosc_flagi_tury("podsumowanie_bez_wysylki")
+
+
+def oznacz_handoff_w_turze():
+    """U11/U7: w tej turze doszło już do handoffu — WYWOŁANEGO Z NARZĘDZIA,
+    wewnątrz `Runner.run_sync` (`oddaj_czlowiekowi`, albo `przygotuj_zamowienie`
+    na Allegro). Wołane wyłącznie przez `handoff` niżej."""
+    _ustaw_flage_tury("handoff_w_turze")
 
 
 def handoff_w_turze():
@@ -279,20 +485,29 @@ def handoff_w_turze():
     kończy notatką i handoffem, a wskazówka dla modelu to tylko prośba).
 
     N7: czyta to także sam `handoff` — drugie oddanie rozmowy w tej samej
-    turze jest już bezczynne."""
-    return bool(_handoff_w_turze.get())
+    turze jest już bezczynne.
+
+    Per TURA, nie per rozmowa — pytanie brzmi „czy klient dostał coś w TEJ
+    turze", nie „czy kiedykolwiek"."""
+    return _flaga_tury("handoff_w_turze")
 
 
 def oznacz_notatke_w_turze():
     """Wołane przez `notatki.wyslij_notatke` po UDANYM wysłaniu notatki (N7).
     Notatka, która NIE doszła, świadomie się nie liczy — inaczej awaria
-    Chatwoota zostawiałaby konsultanta bez czegokolwiek."""
-    _notatka_w_turze.set(True)
+    Chatwoota zostawiałaby konsultanta bez czegokolwiek.
+
+    N7 (rerecenzja): wyjścia, które piszą WŁASNĄ, bogatszą notatkę (Allegro w
+    `przygotuj_zamowienie`, nieudane dopisanie dostawy w `zapisz_wycene`) wołają
+    zaraz po niej `handoff`, a ten dokładał drugą, prawie identyczną
+    (`notatki.notatka_stanu`). Jedna notatka na turę — wygrywa ta napisana
+    PIERWSZA, bo to zawsze ta konkretniejsza."""
+    _ustaw_flage_tury("notatka_w_turze")
 
 
 def notatka_w_turze():
     """Czy w BIEŻĄCEJ turze konsultant dostał już prywatną notatkę (N7)."""
-    return bool(_notatka_w_turze.get())
+    return _flaga_tury("notatka_w_turze")
 
 
 def _wymagany_conv_id():
@@ -302,7 +517,7 @@ def _wymagany_conv_id():
     tylko cicho ląduje w wierszu NASTĘPNEJ (przypadkowej, zwykle świeżo tworzonej
     — identyfikatory Chatwoota rosną monotonicznie) rozmowy. Ta funkcja zamienia
     ciche uszkodzenie cudzych danych na głośny, natychmiastowy błąd. Wołana
-    PRZEZ WSZYSTKIE funkcje piszące (`_zapisz`, `zapisz_stan`, `zarejestruj_ture`,
+    PRZEZ WSZYSTKIE funkcje piszące (`_zmien_pozycje`, `zapisz_stan`, `zarejestruj_ture`,
     `zarejestruj_brak_postepu`) — funkcje WYŁĄCZNIE czytające (`znane_kwoty`,
     `pozycje` przez `_wczytaj`, `migawka_postepu`) zostają bez zmian: brak
     conv_id przy odczycie po prostu nie znajdzie żadnego wiersza, co jest
@@ -331,7 +546,7 @@ def zapamietaj_kwoty(wartosci, zrodlo="produkt"):
     `zrodlo` (N2, rerecenzja gałęzi): 'produkt' albo 'dostawa'. Kwoty dostawy
     (koszt kuriera i suma „produkt + dostawa") tracą ważność przy KAŻDYM nowym
     oszacowaniu wysyłki — `zapisz_dostawe` kasuje wtedy właśnie je, tak jak
-    `_zapisz` kasuje cały rejestr przy zmianie pola cenotwórczego pozycji.
+    `_zmien_pozycje` kasuje cały rejestr przy zmianie pola cenotwórczego pozycji.
 
     Przy konflikcie (ta sama kwota już w rejestrze) 'produkt' WYPIERA 'dostawa',
     nigdy odwrotnie. To jest ochrona przed zbiegiem okoliczności „koszt kuriera
@@ -357,7 +572,7 @@ def zapamietaj_kwoty(wartosci, zrodlo="produkt"):
 def znane_kwoty():
     """Kwoty znane guardrailowi G1 dla BIEŻĄCEJ rozmowy (conv_id z kontekstu) —
     zbiór trwa przez całą rozmowę (dopóki jej pozycje się FAKTYCZNIE nie
-    zmienią — patrz `_zapisz`, W2/N1), nie tylko bieżącą turę (patrz docstring
+    zmienią — patrz `_zmien_pozycje`, W2/N1), nie tylko bieżącą turę (patrz docstring
     modułu)."""
     polaczenie = db()
     try:
@@ -481,16 +696,43 @@ def _wczytaj():
     return json.loads(wiersz["dane_json"]) if wiersz else {"pozycje": []}
 
 
-def _zapisz(dane):
-    """Jedyne miejsce piszące do `pro_dane` — obie ścieżki `zapisz_pozycje`
-    (zwykły zapis i `usun=True`) przechodzą przez tę funkcję. Dlatego to
-    właśnie TU, a nie w `zapisz_pozycje`, siedzi czyszczenie rejestru kwot (W2,
-    code review runda poprawek 1): gwarantuje, że KAŻDA zmiana pozycji czyści
+def _zmien_pozycje(mutator):
+    """Jedyne miejsce piszące do `pro_dane`. Bierze funkcję, która dostaje
+    ODCZYTANY słownik danych, mutuje go w pamięci i zwraca wynik dla wołającego
+    — a odczyt, mutacja i zapis dzieją się w JEDNEJ sekcji krytycznej, na
+    JEDNYM połączeniu.
+
+    X1 (naprawa wyścigu): wcześniej odczyt (`_wczytaj`) i zapis (`_zapisz`)
+    chodziły po DWÓCH osobnych połączeniach, z mutacją w pamięci pomiędzy —
+    klasyczny read-modify-write bez blokady. Wszystkie narzędzia jednego kroku
+    modelu lecą u SDK równolegle, w prawdziwych wątkach, a prompt każe wołać
+    `zapisz_pozycje` osobno dla każdej pozycji, więc 13-elementowa lista klienta
+    to 13 wątków czytających TEN SAM stary blob i nadpisujących się nawzajem.
+    Zmierzone przed naprawą: z 13 równoległych zapisów zostawała 1, w 10/10
+    przebiegach. Uzasadnienie zamka i ryzyko resztkowe — patrz `zamek_stanu`.
+
+    DLACZEGO NIE `BEGIN IMMEDIATE`, choć to podręcznikowy sposób na
+    read-modify-write w SQLite: bo w TYM module przesuwa moment wzięcia zamka
+    zapisu z pierwszego INSERT-a na sam początek sekcji, a wtedy równoległy
+    `zapamietaj_kwoty` ZAWSZE przegrywa wyścig i jego INSERT ląduje PO
+    `DELETE FROM pro_kwoty` niżej. Skutek: kwota policzona dla PORZUCONEJ już
+    konfiguracji zostaje w rejestrze G1 jako „znana" i guardrail ją przepuści —
+    czyli dokładnie ta awaria, przed którą chroni W2 (patrz docstring modułu).
+    Zmierzone na tym samym scenariuszu (realna zmiana pozycji równolegle z
+    rejestracją kwoty, 20 przebiegów): dziś nieaktualna kwota przeżywa 0/20,
+    z `BEGIN IMMEDIATE` 20/20 — DETERMINISTYCZNA regresja I1. Sam zamek procesu
+    daje ten sam komplet 13/13 pozycji (też zmierzone), a moment wzięcia zamka
+    ZAPISU zostawia dokładnie tam, gdzie był: na pierwszym INSERT-cie. Odczyt
+    leci w autocommit, jak dotąd — spójności czytanej migawki pilnuje zamek
+    procesu, nie izolacja transakcji, i tylko dlatego wolno tu tak zrobić.
+
+    Czyszczenie rejestru kwot siedzi TU, a nie w `zapisz_pozycje` (W2, code
+    review runda poprawek 1): gwarantuje, że KAŻDA zmiana pozycji czyści
     rejestr, niezależnie od tego, którą ścieżką `zapisz_pozycje` do niej
     doszło — i niezależnie od przyszłych wywołujących, gdyby jacyś powstali.
 
     N1 (code review, runda poprawek 2): czyszczenie było BEZWARUNKOWE — każde
-    wywołanie `_zapisz` (a więc każde `zapisz_pozycje`, TAKŻE bez faktycznej
+    wywołanie zapisu (a więc każde `zapisz_pozycje`, TAKŻE bez faktycznej
     zmiany treści, np. model powtarza identyczne dane albo dopisuje puste
     `otwory=[]` PO tym, jak już policzył cenę) kasowało rejestr, mimo że nic
     się nie zmieniło. Naprawa: PRZED zapisem odczytujemy STARY `dane_json` NA
@@ -512,42 +754,107 @@ def _zapisz(dane):
     się więc naruszeniem G1 na PRAWDZIWEJ kwocie: runda korekty, a przy drugim
     niepowodzeniu oddanie rozmowy człowiekowi — na końcu udanej wyceny.
     Definicja „pola cenotwórczego" jest JEDNA i mieszka w `potwierdzenia.py`
-    razem z listą pól podpisu."""
-    from bots_pro.potwierdzenia import odcisk_cenotworczy
+    razem z listą pól podpisu.
+
+    U-N7b (rerecenzja): rejestr kwot czyści TAKŻE zejście pozycji z prostokąta,
+    mimo że `ksztalt` nie jest polem cenotwórczym i odcisk się nie zmienia. To
+    dwa różne pytania: odcisk odpowiada „czy kalkulator policzyłby to samo"
+    (kształtu nie czyta, więc policzyłby), a rejestr G1 — „czy ta kwota nadal
+    opisuje tę pozycję". Bez tego warunku cena policzona dla prostokąta zostawała
+    w rejestrze po deklaracji „a ma być sześciokątny" i model mógł ją LEGALNIE
+    powtórzyć klientowi jako orientacyjną: G1 jej nie zatrzymywał, bo przyszła
+    z kalkulatora. Bramka kształtu zamyka policzenie i podsumowanie, ale nie
+    POWTÓRZENIE kwoty już zarejestrowanej — a materiał sześciokąta 87x75 tej
+    kwoty nie pokrywa (rozmowa 4727). Fałszywych alarmów to nie tworzy: po
+    takiej deklaracji model i tak nie ma jak przeliczyć, bo bramka odmawia,
+    więc żadnej PRAWDZIWEJ kwoty do wypowiedzenia już nie ma.
+
+    Zwraca parę `(wynik mutatora, liczba pozycji PO zapisie)`."""
+    from bots_pro.potwierdzenia import kwota_nadal_opisuje
 
     biezacy_conv_id = _wymagany_conv_id()
-    nowy_json = json.dumps(dane, ensure_ascii=False)
-    polaczenie = db()
-    try:
-        stary = polaczenie.execute(
-            "SELECT dane_json FROM pro_dane WHERE conv_id=?", (biezacy_conv_id,)).fetchone()
-        if stary is None:
-            cena_sie_zmienila = True
-        else:
-            stare_pozycje = (json.loads(stary["dane_json"]) or {}).get("pozycje")
-            cena_sie_zmienila = (odcisk_cenotworczy(stare_pozycje)
-                                 != odcisk_cenotworczy(dane.get("pozycje")))
-        polaczenie.execute(
-            "INSERT INTO pro_dane(conv_id, dane_json) VALUES(?,?) "
-            "ON CONFLICT(conv_id) DO UPDATE SET dane_json=excluded.dane_json",
-            (biezacy_conv_id, nowy_json))
-        if cena_sie_zmienila:
-            polaczenie.execute("DELETE FROM pro_kwoty WHERE conv_id=?", (biezacy_conv_id,))
-            # U4: koszt dostawy zależy od GABARYTU, więc zmiana pozycji unieważnia
-            # go tak samo jak cenę produktu. Kod pocztowy ZOSTAJE (klient go już
-            # podał, nie ma powodu pytać drugi raz) — znika tylko kurier i koszt,
-            # żeby podsumowanie nie pokazało ceny dostawy sprzed zmiany wymiarów.
+    with zamek_stanu:
+        polaczenie = db()
+        try:
+            wiersz = polaczenie.execute(
+                "SELECT dane_json FROM pro_dane WHERE conv_id=?",
+                (biezacy_conv_id,)).fetchone()
+            dane = (json.loads(wiersz["dane_json"]) or {}) if wiersz else {"pozycje": []}
+            # Kopia GŁĘBOKA przez JSON, nie `list(...)`: mutator sięga do wnętrza
+            # słowników pozycji (ustawia pola, czyści `finishing_id`), więc płytka
+            # kopia dałaby te same obiekty i porównanie odcisku niżej zawsze
+            # wychodziłoby „bez zmian" — rejestr kwot nigdy by się nie czyścił.
+            stare_pozycje = json.loads(json.dumps(dane.get("pozycje") or []))
+
+            wynik = mutator(dane)
+
+            # Predykat „czy kwota nadal opisuje tę pozycję" mieszka w
+            # `potwierdzenia`, bo zadają go TRZY miejsca (tu, `policz_wycene`
+            # i `podsumowanie.wyslij`) — dwie kopie tej reguły już raz się
+            # rozjechały i cena prostokąta wchodziła do rejestru G1 dla
+            # pozycji zadeklarowanej jako sześciokąt.
+            uniewaznic_kwoty = (
+                wiersz is None
+                or not kwota_nadal_opisuje(stare_pozycje, dane.get("pozycje")))
             polaczenie.execute(
-                "UPDATE pro_stan SET dostawa_kurier=NULL, dostawa_netto=NULL, "
-                "dostawa_brutto=NULL WHERE conv_id=?", (biezacy_conv_id,))
-        polaczenie.commit()
-    finally:
-        polaczenie.close()
+                "INSERT INTO pro_dane(conv_id, dane_json) VALUES(?,?) "
+                "ON CONFLICT(conv_id) DO UPDATE SET dane_json=excluded.dane_json",
+                (biezacy_conv_id, json.dumps(dane, ensure_ascii=False)))
+            if uniewaznic_kwoty:
+                polaczenie.execute(
+                    "DELETE FROM pro_kwoty WHERE conv_id=?", (biezacy_conv_id,))
+                # U4: koszt dostawy zależy od GABARYTU, więc zmiana pozycji unieważnia
+                # go tak samo jak cenę produktu. Kod pocztowy ZOSTAJE (klient go już
+                # podał, nie ma powodu pytać drugi raz) — znika tylko kurier i koszt,
+                # żeby podsumowanie nie pokazało ceny dostawy sprzed zmiany wymiarów.
+                # Przy zejściu z prostokąta gabaryt się nie zmienia, a mimo to
+                # kasujemy dostawę tą samą ścieżką: rejestr kwot idzie do zera
+                # CAŁY (kwoty ze źródła 'dostawa' to także suma „produkt +
+                # dostawa", więc niosą w sobie nieaktualną cenę produktu), a
+                # koszt wysyłki zostawiony w `pro_stan` bez pokrycia w rejestrze
+                # byłby dla G1 halucynacją przy następnym podsumowaniu.
+                polaczenie.execute(
+                    "UPDATE pro_stan SET dostawa_kurier=NULL, dostawa_netto=NULL, "
+                    "dostawa_brutto=NULL WHERE conv_id=?", (biezacy_conv_id,))
+            polaczenie.commit()
+        except Exception:
+            # Wyjątek z mutatora (np. `_rozloz_wariant` na uszkodzonym katalogu)
+            # nie może zostawić półzapisanego stanu ani otwartej transakcji na
+            # połączeniu, które za chwilę zamykamy — jawny rollback, a błąd leci
+            # dalej do wołającego, bo cichy zapis „części pozycji" byłby gorszy
+            # od przerwanej tury.
+            polaczenie.rollback()
+            raise
+        finally:
+            polaczenie.close()
+    return wynik, len(dane.get("pozycje") or [])
 
 
 def pozycje():
     """Pozycje wyceny zapisane w tej rozmowie."""
     return _wczytaj().get("pozycje", [])
+
+
+def migawka():
+    """Spójna para `(pozycje, dostawa)` — OBA odczyty pod jednym `zamek_stanu`.
+
+    K2: to są dwa osobne odczyty z dwóch różnych tabel (`pro_dane` i
+    `pro_stan`), a KAŻDE narzędzie kroku modelu leci równolegle, w prawdziwym
+    wątku. Wzięte osobno potrafią więc opisywać dwa różne momenty — a razem
+    składają się na jedną rzecz: to, co klient potwierdził i co idzie do CRM
+    (cena to produkt + ew. dostawa, wymóg właściciela). Podpis I2 liczy się
+    z obu, więc rozjazd między nimi jest rozjazdem W ŚRODKU podpisu.
+
+    Po co osobna funkcja, a nie `with zamek_stanu:` u każdego wołającego:
+    bo wołających jest kilku (`zapisz_wycene`, `popraw_wycene`,
+    `podsumowanie.wyslij`) i pytanie „którą parę odczytów trzeba objąć jednym
+    zamkiem" ma mieć JEDNĄ odpowiedź, tak samo jak predykat
+    `potwierdzenia.kwota_nadal_opisuje` ma jedną definicję.
+
+    Zamek jest tylko na czas dwóch odczytów SQLite — żadnego obcego I/O pod
+    nim nie ma i nie może być (patrz `zamek_stanu`)."""
+    with zamek_stanu:
+        return pozycje(), dostawa()
 
 
 def _zapomnij_kwoty_dostawy():
@@ -571,22 +878,29 @@ def zapisz_dostawe(kod_pocztowy, kurier=None, netto=None, brutto=None):
 
     Dostawa mieszka w `pro_stan`, nie w `pro_dane` (pozycje), świadomie: to stan
     PER ROZMOWA, a nie pole pozycji, i nie ma powodu, żeby jej zapis przechodził
-    przez logikę czyszczenia rejestru kwot z `_zapisz`.
+    przez logikę czyszczenia rejestru kwot z `_zmien_pozycje`.
 
     N2 (rerecenzja gałęzi): ma jednak swoją WŁASNĄ, węższą — zmiana kuriera albo
     kosztu unieważnia kwoty dostawy w rejestrze G1 (sam koszt i sumę „produkt +
     dostawa"). Bez tego stara cena wysyłki zostawała w rejestrze na zawsze i bot
     mógł ją legalnie zacytować klientowi po zmianie kodu pocztowego — asymetria
-    wobec ceny produktu, którą `_zapisz` chroni od U6/N1. Czyścimy WYŁĄCZNIE
-    przy faktycznej zmianie (ta sama zasada co tam): powtórzone identyczne
-    oszacowanie nie ma prawa kasować niczego."""
-    poprzednia = dostawa()
-    zapisz_stan(dostawa_kod=kod_pocztowy or None, dostawa_kurier=kurier or None,
-                dostawa_netto=netto, dostawa_brutto=brutto)
-    bylo = (poprzednia.get("kurier"), poprzednia.get("netto"), poprzednia.get("brutto"))
-    jest = (kurier or None, netto, brutto)
-    if bylo != jest:
-        _zapomnij_kwoty_dostawy()
+    wobec ceny produktu, którą `_zmien_pozycje` chroni od U6/N1. Czyścimy
+    WYŁĄCZNIE przy faktycznej zmianie (ta sama zasada co tam): powtórzone
+    identyczne oszacowanie nie ma prawa kasować niczego.
+
+    X1: sekwencja „odczytaj poprzednie -> zapisz nowe -> porównaj -> ewentualnie
+    skasuj kwoty" to ten sam read-modify-write co przy pozycjach, tylko rozłożony
+    na trzy połączenia. Dwa równoległe `policz_wysylke` (klient podaje dwa kody
+    pocztowe w jednej wiadomości) mogły przeplotem zostawić w `pro_stan` kwotę
+    jednego kuriera, a w rejestrze G1 kwoty drugiego. Zamek to zamyka."""
+    with zamek_stanu:
+        poprzednia = dostawa()
+        zapisz_stan(dostawa_kod=kod_pocztowy or None, dostawa_kurier=kurier or None,
+                    dostawa_netto=netto, dostawa_brutto=brutto)
+        bylo = (poprzednia.get("kurier"), poprzednia.get("netto"), poprzednia.get("brutto"))
+        jest = (kurier or None, netto, brutto)
+        if bylo != jest:
+            _zapomnij_kwoty_dostawy()
 
 
 def dostawa():
@@ -652,7 +966,8 @@ def _zastosuj_krawedzie(biezaca, edges):
 
 def zapisz_pozycje(id, produkt="", dlugosc_cm=0, szerokosc_cm=0, grubosc_cm=0,
                    ilosc=0, selected_variant="", finishing_option_id=None,
-                   wykonczenie="", edges=None, otwory=None, usun=False):
+                   wykonczenie="", edges=None, otwory=None, ksztalt="",
+                   usun=False):
     """Wstawia albo aktualizuje JEDNĄ pozycję pod stałym identyfikatorem.
     Puste pola nie kasują wcześniej ustalonych wartości — model woła to
     narzędzie raz na zmianę, a nie przepisuje całej listy.
@@ -665,25 +980,80 @@ def zapisz_pozycje(id, produkt="", dlugosc_cm=0, szerokosc_cm=0, grubosc_cm=0,
     `edges` i `otwory` mają WŁASNĄ semantykę zapisu, inną niż reszta pól —
     patrz `_zastosuj_krawedzie` (edges) i sekcję niżej (otwory). `wykonczenie
     == "surowe"` dodatkowo czyści `finishing_id` — patrz komentarz przy tym
-    warunku (W1, runda poprawek 1)."""
-    dane = _wczytaj()
-    pozycje = dane.setdefault("pozycje", [])
-    biezaca = next((p for p in pozycje if p.get("id") == id), None)
+    warunku (W1, runda poprawek 1).
 
-    if usun:
-        dane["pozycje"] = [p for p in pozycje if p.get("id") != id]
-        _zapisz(dane)
-        return {"ok": True, "usunieto": id}
+    `ksztalt` (U-N7) idzie zwykłą ścieżką pól tekstowych: pusty NIE kasuje
+    wcześniejszej deklaracji. To jest tu WIĄŻĄCE, nie kosmetyczne — gdyby pole
+    miało domyślną wartość "prostokąt" zamiast pustej, KAŻDE kolejne wywołanie
+    (np. samo doprecyzowanie ilości) po cichu cofałoby wcześniejsze
+    „sześciokąt" i otwierało bramkę `podsumowanie.blokada_ksztaltu`. Domyślnym
+    kształtem jest prostokąt, ale wyraża go BRAK pola, nie jego nadpisywanie.
 
-    if biezaca is None:
-        biezaca = {"id": id}
-        pozycje.append(biezaca)
+    X1: ciało (odczyt -> mutacja -> zapis) było wcześniej rozłożone na dwa
+    osobne połączenia i przez to gubiło pozycje pod współbieżnością — dziś jest
+    MUTATOREM przekazanym do `_zmien_pozycje`, które wykonuje je w jednej sekcji
+    krytycznej. Semantyka jednowątkowa jest bez najmniejszej zmiany: te same
+    gałęzie, w tej samej kolejności, na tym samym słowniku `dane`."""
+    def _mutuj(dane):
+        pozycje = dane.setdefault("pozycje", [])
+        biezaca = next((p for p in pozycje if p.get("id") == id), None)
 
+        if usun:
+            dane["pozycje"] = [p for p in pozycje if p.get("id") != id]
+            return {"ok": True, "usunieto": id}
+
+        if biezaca is None:
+            biezaca = {"id": id}
+            pozycje.append(biezaca)
+
+        return _uzupelnij_pozycje(
+            biezaca, produkt, dlugosc_cm, szerokosc_cm, grubosc_cm, ilosc,
+            selected_variant, finishing_option_id, wykonczenie, edges, otwory,
+            ksztalt)
+
+    wynik, liczba_pozycji = _zmien_pozycje(_mutuj)
+    # X1: model widzi, ile pozycji ma zapisanych PO swoim zapisie — sam wynik
+    # `{"ok": True, "pozycja": ...}` mówił wyłącznie o JEDNEJ pozycji, więc
+    # zwinięcie listy do jednej było dla modelu niewidoczne. To SYGNAŁ, nie
+    # bramka: przy kilku wywołaniach w jednym kroku każde zwraca licznik ze
+    # swojego momentu, a `asyncio.gather` oddaje wyniki w kolejności WYWOŁANIA,
+    # nie zakończenia — więc pełną listę widać dopiero w największej z liczb, a
+    # jedynym wiarygodnym miejscem na weryfikację kompletu zostaje świeży odczyt
+    # w podsumowaniu.
+    wynik["liczba_pozycji"] = liczba_pozycji
+    # T1: JEDYNY sposób, żeby na produkcji rozstrzygnąć spór o przyczynę
+    # zwinięcia listy 13 elementów do jednej pozycji — czy model zrobił JEDNO
+    # wywołanie z jedną pozycją, czy TRZYNAŚCIE wywołań, które nadpisały się
+    # nawzajem (lost update na `pro_dane`). Te dwie hipotezy dają identyczny
+    # stan końcowy i różnią się WYŁĄCZNIE liczbą wywołań tej funkcji oraz
+    # przebiegiem licznika po każdym z nich. Kasowanie logujemy tak samo, bo
+    # zmienia liczbę pozycji dokładnie tak jak zapis.
+    #
+    # Zwykły `log`, nie `log_event`: to diagnostyka wywołań narzędzia, nie
+    # zdarzenie lejka — do `quote_events` należą etapy sprzedaży, nie zapisy
+    # pól. Nie jest gated `BOT_PRO_TRACING` (dziś 0), bo wtedy pojawiłaby się
+    # dopiero po włączeniu tracingu na produkcji, a ma być widoczna OD RAZU
+    # i PRZED naprawą wyścigu — inaczej nie będzie z czym porównać stanu po niej.
+    log("stan: %s pozycji %r, pozycji po zapisie: %s (conv %s)"
+        % ("usuniecie" if usun else "zapis", id, liczba_pozycji, conv_id()))
+    return wynik
+
+
+def _uzupelnij_pozycje(biezaca, produkt, dlugosc_cm, szerokosc_cm, grubosc_cm,
+                       ilosc, selected_variant, finishing_option_id, wykonczenie,
+                       edges, otwory, ksztalt=""):
+    """Nakłada pola z wywołania `zapisz_pozycje` na JEDNĄ pozycję — czysta
+    mutacja w pamięci, bez ani jednego dotknięcia bazy.
+
+    Wydzielone z `zapisz_pozycje` przy X1 wyłącznie po to, żeby mutator
+    przekazywany do `_zmien_pozycje` nie urósł do trzech ekranów wewnątrz
+    sekcji krytycznej. Treść jest tą samą, co przed X1, co do znaku — pola idą
+    w tej samej kolejności i po tych samych warunkach."""
     for pole, wartosc in (
         ("produkt", produkt), ("dlugosc", dlugosc_cm), ("szerokosc", szerokosc_cm),
         ("grubosc", grubosc_cm), ("ilosc", ilosc),
         ("selected_variant", selected_variant), ("finishing_id", finishing_option_id),
-        ("wykonczenie", wykonczenie),
+        ("wykonczenie", wykonczenie), ("ksztalt", ksztalt),
     ):
         if wartosc not in ("", 0, None):
             biezaca[pole] = wartosc
@@ -729,7 +1099,6 @@ def zapisz_pozycje(id, produkt="", dlugosc_cm=0, szerokosc_cm=0, grubosc_cm=0,
     if otwory is not None:
         biezaca["otwory"] = list(otwory)
 
-    _zapisz(dane)
     return {"ok": True, "pozycja": biezaca}
 
 
@@ -790,9 +1159,28 @@ def handoff(powod):
         log("stan: rozmowa juz oddana w tej turze — pomijam powtorny handoff "
             "(conv %s, powod=%r)" % (biezacy, powod))
         return {"ok": True, "powod": powod, "pominiety": True}
+    # T1 (telemetria lejka): `handoff` emitujemy WYŁĄCZNIE TUTAJ, mimo że
+    # oddanie rozmowy ma dwa wejścia — `tura._oddaj_konsultantowi` (bezpieczniki
+    # tury: limit tur, brak postępu, guardraile) i sam model przez narzędzie
+    # `oddaj_czlowiekowi` / `przygotuj_zamowienie`. To miejsce jest jedynym, przez
+    # które przechodzą OBA, więc żadne wyjście handoffowe nie wypada z telemetrii.
+    #
+    # Podwójne liczenie rozwiązuje się bez nowej flagi turowej: `tura.
+    # _oddaj_konsultantowi` woła tę funkcję, a ona ma OD N7 bramkę
+    # `handoff_w_turze()` kilka linii wyżej — drugie oddanie tej samej rozmowy w
+    # tej samej turze kończy się `return` PRZED tym miejscem. Jedna tura = co
+    # najwyżej jedno zdarzenie `handoff`, i to bez dokładania stanu, który i tak
+    # przebudowuje osobne zadanie.
+    #
+    # PRZED notatką i przed przełączeniem statusu — dokładnie ta sama kolejność
+    # i to samo uzasadnienie co w starym silniku (`bots.quotebot._do_handoff`,
+    # LS-08): telemetria ma zostać nawet wtedy, gdy sama wysyłka do Chatwoota
+    # padnie. Dlatego logujemy fakt DECYZJI o oddaniu rozmowy, a nie jej
+    # powodzenie — powodzenie widać w `ok` zwracanym niżej i w logu `tura.py`.
+    log_event(biezacy, "handoff", {"powod": powod})
     notatki.notatka_stanu(biezacy, powod)
     udane = cw_bot_handoff(biezacy, token=BOT_PRO_CW_AGENT_TOKEN)
-    _handoff_w_turze.set(True)
+    oznacz_handoff_w_turze()
     return {"ok": bool(udane), "powod": powod}
 
 
@@ -816,6 +1204,56 @@ def zapamietaj_wycene(wynik):
     if kolumny:
         kolumny["quote_saved"] = 1
         zapisz_stan(**kolumny)
+
+
+# R4: rozmowy, dla ktorych `zapisz_wycene` WLASNIE wisi na `create_quote`.
+# Zbior w pamieci procesu, pod `zamek_stanu` — dokladnie ta sama konstrukcja i
+# to samo ryzyko resztkowe co przy samym zamku (patrz jego komentarz: drugi
+# proces albo drugi worker CICHO cofa te ochrone). Do bazy nie idzie, bo to stan
+# JEDNEJ trwajacej operacji, a nie decyzja biznesowa majaca przezyc restart:
+# po restarcie mostka zadne `create_quote` juz nie leci, wiec pusty zbior jest
+# poprawna odpowiedzia.
+_wyceny_w_toku = set()
+
+
+def rezerwuj_zapis_wyceny():
+    """Rezerwuje prawo do zalozenia wyceny w CRM dla biezacej rozmowy.
+    Zwraca False, gdy wycena juz istnieje ALBO wlasnie powstaje.
+
+    R4: bramka `WYCENA_JUZ_ZAPISANA` czytala sam `zapisana_wycena()` — czyli
+    stan bazy — i robila to PRZED wyjsciem na `crm_calc.create_quote` (HTTP,
+    timeout 30 s), a wynik zapisywala dopiero PO powrocie. Miedzy sprawdzeniem
+    a zapisem nie bylo NICZEGO, wiec dwa rownolegle wywolania z jednego kroku
+    modelu (SDK odpala narzedzia w watkach) przechodzily OBA. ZMIERZONE, 15
+    przebiegow pod limitami produkcji: dwie wyceny w CRM w 15/15, z czego jedna
+    OSIEROCONA — jest w CRM, `pro_stan` trzyma druga, klient dostaje link tylko
+    do jednej. Docstring narzedzia zabrania tego wprost, ale zakaz w docstringu
+    to dyscyplina promptu, a nie bramka.
+
+    Sprawdzenie bazy i zaznaczenie rezerwacji dzieja sie w JEDNEJ sekcji
+    krytycznej — inaczej przesunelibysmy okno, zamiast je zamknac.
+
+    Zwolnienie: patrz `zwolnij_zapis_wyceny`."""
+    with zamek_stanu:
+        biezacy = _wymagany_conv_id()
+        if zapisana_wycena().get("edit_uuid") or biezacy in _wyceny_w_toku:
+            return False
+        _wyceny_w_toku.add(biezacy)
+        return True
+
+
+def zwolnij_zapis_wyceny():
+    """Zdejmuje rezerwacje z `rezerwuj_zapis_wyceny`.
+
+    Wolane BEZWARUNKOWO po powrocie z CRM, takze po sukcesie — i to nie jest
+    przeoczenie. Gdy wycena powstala, `zapamietaj_wycene` zdazylo juz zapisac
+    `quote_edit_uuid`, wiec pojedynczosci pilnuje dalej bramka na BAZIE (ta
+    przezywa restart procesu, czego zbior w pamieci nie potrafi). Gdy nie
+    powstala — model ma prawo sprobowac jeszcze raz, a wieczna rezerwacja
+    zamknelaby mu te droge na zawsze. Przy okazji zbior nie rosnie o jeden wpis
+    na kazda rozmowe az do restartu."""
+    with zamek_stanu:
+        _wyceny_w_toku.discard(conv_id())
 
 
 def zapisana_wycena():
@@ -856,6 +1294,30 @@ def dostawa_niedopisana():
     finally:
         polaczenie.close()
     return bool(wiersz and wiersz["quote_dostawa_niedopisana"])
+
+
+def pokazana_kwota():
+    """Kwota, którą klient FAKTYCZNIE zobaczył w ostatnim podsumowaniu — albo
+    None, gdy żadne podsumowanie do niego nie doszło (Z4).
+
+    Zapisuje ją `podsumowanie.wyslij()` w TYM SAMYM `zapisz_stan`, co
+    `oczekiwany_podpis`, czyli DOPIERO po udanej wysyłce (U1) — kwota z
+    podsumowania, które utknęło na błędzie Chatwoota, nie ma prawa tu trafić.
+
+    NIE jest to „aktualna cena" i nie wolno jej tak używać: to zapis
+    historyczny, świadomie NIE czyszczony przy zmianie pozycji (inaczej
+    `_zmien_pozycje` kasowałoby jedyny ślad tego, co klient widział, a właśnie
+    po to ta kolumna istnieje). Wychodzi WYŁĄCZNIE do prywatnej notatki dla
+    konsultanta i nie wchodzi do rejestru G1 — guardrail nadal zna tylko to, co
+    policzył kalkulator."""
+    polaczenie = db()
+    try:
+        wiersz = polaczenie.execute(
+            "SELECT pokazana_kwota FROM pro_stan WHERE conv_id=?",
+            (conv_id(),)).fetchone()
+    finally:
+        polaczenie.close()
+    return wiersz["pokazana_kwota"] if wiersz else None
 
 
 def cytat_potwierdzenia():

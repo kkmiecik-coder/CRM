@@ -359,7 +359,8 @@ class TestZapiszPozycjeWywolanie:
         stan.ustaw_kontekst(96007)
         _wolaj(n.zapisz_pozycje, id="1", produkt="blat")
         wynik = _wolaj(n.zapisz_pozycje, id="1", usun=True)
-        assert wynik == {"ok": True, "usunieto": "1"}
+        # X1: patrz test_pro_stan.py — wynik niesie tez licznik pozycji po zapisie.
+        assert wynik == {"ok": True, "usunieto": "1", "liczba_pozycji": 0}
         assert stan.pozycje() == []
 
 
@@ -897,7 +898,7 @@ class TestNieudaneDopisanieDostawy:
 
     def test_nieudane_dopisanie_nie_zwraca_linku(self, monkeypatch):
         self._wycena_z_dostawa(monkeypatch, 96051, {"ok": False, "errors": [{"code": "X"}]})
-        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst: True)
+        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst, **k: True)
         monkeypatch.setattr(stan, "handoff", lambda powod: {"ok": True})
 
         wynik = _wolaj(n.zapisz_wycene, client_id=1)
@@ -910,7 +911,7 @@ class TestNieudaneDopisanieDostawy:
         self._wycena_z_dostawa(monkeypatch, 96052, {"ok": False, "errors": []})
         notatki_wyslane = []
         monkeypatch.setattr(notatki, "wyslij_notatke",
-                            lambda cid, tekst: notatki_wyslane.append(tekst) or True)
+                            lambda cid, tekst, **k: notatki_wyslane.append(tekst) or True)
         powody = []
         monkeypatch.setattr(stan, "handoff", lambda powod: powody.append(powod) or {"ok": True})
 
@@ -919,9 +920,28 @@ class TestNieudaneDopisanieDostawy:
         assert len(powody) == 1
         assert "dostaw" in powody[0].lower()
 
+    def test_notatka_r1_niesie_kwote_ktora_klient_potwierdzil(self, monkeypatch):
+        """Z4, sciezka R1. CALYM sensem tej notatki jest ostrzezenie „wycena
+        w CRM jest TANSZA niz to, co klient potwierdzil" — bez liczby, ktora
+        klient widzial (a widzial ja Z DOSTAWA), konsultant musi po nia wrocic
+        do watku. To najwyzsza stawka cenowa w calym silniku, wiec akurat ta
+        notatka nie moze byc ubozsza od pozostalych dwoch."""
+        self._wycena_z_dostawa(monkeypatch, 96058, {"ok": False, "errors": []})
+        stan.zapisz_stan(pokazana_kwota=1093.04)   # tyle klient widzial i potwierdzil
+        notatki_wyslane = []
+        monkeypatch.setattr(notatki, "wyslij_notatke",
+                            lambda cid, tekst, **k: notatki_wyslane.append(tekst) or True)
+        monkeypatch.setattr(stan, "handoff", lambda powod: {"ok": True})
+
+        _wolaj(n.zapisz_wycene, client_id=1)
+
+        assert len(notatki_wyslane) == 1
+        assert "Ostatnia kwota pokazana klientowi" in notatki_wyslane[0]
+        assert "1 093,04" in notatki_wyslane[0]
+
     def test_po_nieudanym_dopisaniu_link_do_checkoutu_odmawia(self, monkeypatch):
         self._wycena_z_dostawa(monkeypatch, 96053, {"ok": False, "errors": []})
-        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst: True)
+        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst, **k: True)
         monkeypatch.setattr(stan, "handoff", lambda powod: {"ok": True})
         _wolaj(n.zapisz_wycene, client_id=1)
 
@@ -948,7 +968,7 @@ class TestNieudaneDopisanieDostawy:
             "public_url": "https://crm.example/q/CCC"})   # BEZ edit_uuid
         monkeypatch.setattr(n.crm_calc, "update_quote",
                             lambda *a, **k: pytest.fail("nie ma DO CZEGO dopisac"))
-        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst: True)
+        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst, **k: True)
         monkeypatch.setattr(stan, "handoff", lambda powod: {"ok": True})
 
         wynik = _wolaj(n.zapisz_wycene, client_id=1)
@@ -996,7 +1016,7 @@ class TestNieudaneDopisanieDostawy:
         # samej rozmowy to dokladnie to, czego zabrania docstring narzedzia —
         # pilnuje tego STAN, nie dyscyplina promptu.
         self._wycena_z_dostawa(monkeypatch, 96057, {"ok": False, "errors": []})
-        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst: True)
+        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst, **k: True)
         monkeypatch.setattr(stan, "handoff", lambda powod: {"ok": True})
         assert _wolaj(n.zapisz_wycene, client_id=1)["error"] == "DOSTAWA_NIEDOPISANA"
 
@@ -1008,7 +1028,7 @@ class TestNieudaneDopisanieDostawy:
         # Konsultant (albo bot w kolejnej turze) poprawia wycene — udany PUT z
         # kurierem znaczy, ze wycena JEST juz kompletna, wiec blokada znika.
         self._wycena_z_dostawa(monkeypatch, 96056, {"ok": False, "errors": []})
-        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst: True)
+        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst, **k: True)
         monkeypatch.setattr(stan, "handoff", lambda powod: {"ok": True})
         _wolaj(n.zapisz_wycene, client_id=1)
         assert _wolaj(n.przygotuj_zamowienie)["ok"] is False
@@ -1043,7 +1063,7 @@ class TestAllegroKonczyNotatka:
 
     def test_na_allegro_model_nie_dostaje_linku(self, monkeypatch):
         _wycena_gotowa_do_zamowienia(monkeypatch, 96041)
-        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst: True)
+        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst, **k: True)
         monkeypatch.setattr(stan, "handoff", lambda powod: {"ok": True})
 
         wynik = _wolaj(n.przygotuj_zamowienie)
@@ -1057,7 +1077,7 @@ class TestAllegroKonczyNotatka:
         _wycena_gotowa_do_zamowienia(monkeypatch, 96042)
         notatki_wyslane = []
         monkeypatch.setattr(notatki, "wyslij_notatke",
-                            lambda cid, tekst: notatki_wyslane.append((cid, tekst)) or True)
+                            lambda cid, tekst, **k: notatki_wyslane.append((cid, tekst)) or True)
         monkeypatch.setattr(stan, "handoff", lambda powod: {"ok": True})
 
         _wolaj(n.przygotuj_zamowienie)
@@ -1073,7 +1093,7 @@ class TestAllegroKonczyNotatka:
 
     def test_na_allegro_rozmowa_idzie_do_czlowieka(self, monkeypatch):
         _wycena_gotowa_do_zamowienia(monkeypatch, 96043)
-        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst: True)
+        monkeypatch.setattr(notatki, "wyslij_notatke", lambda cid, tekst, **k: True)
         powody = []
         monkeypatch.setattr(stan, "handoff", lambda powod: powody.append(powod) or {"ok": True})
 
@@ -1103,7 +1123,7 @@ class TestAllegroKonczyNotatka:
         # Kontrola negatywna: OLX ma links=True, wiec sciezka linku zostaje bez zmian.
         _wycena_gotowa_do_zamowienia(monkeypatch, 96044, persona="olx")
         monkeypatch.setattr(notatki, "wyslij_notatke",
-                            lambda cid, tekst: pytest.fail("OLX nie konczy notatka"))
+                            lambda cid, tekst, **k: pytest.fail("OLX nie konczy notatka"))
         monkeypatch.setattr(stan, "handoff",
                             lambda powod: pytest.fail("OLX nie oddaje rozmowy tutaj"))
 
@@ -1115,7 +1135,7 @@ class TestAllegroKonczyNotatka:
         # I2 jest PIERWSZA: bez potwierdzenia nie ma ani linku, ani notatki.
         stan.ustaw_kontekst(96045, persona_tury="allegro")
         monkeypatch.setattr(notatki, "wyslij_notatke",
-                            lambda cid, tekst: pytest.fail("notatka bez potwierdzenia"))
+                            lambda cid, tekst, **k: pytest.fail("notatka bez potwierdzenia"))
         monkeypatch.setattr(stan, "handoff",
                             lambda powod: pytest.fail("handoff bez potwierdzenia"))
 
@@ -1130,7 +1150,7 @@ class TestAllegroKonczyNotatka:
                selected_variant="dab-lity-ab", wykonczenie="surowe")
         _potwierdz_biezace_pozycje(monkeypatch)
         monkeypatch.setattr(notatki, "wyslij_notatke",
-                            lambda cid, tekst: pytest.fail("notatka bez wyceny"))
+                            lambda cid, tekst, **k: pytest.fail("notatka bez wyceny"))
         monkeypatch.setattr(stan, "handoff",
                             lambda powod: pytest.fail("handoff bez wyceny"))
 
@@ -1402,3 +1422,691 @@ class TestP2NarzedzieWysylkiObrazu:
         wynik = _wolaj(n.wyslij_obraz, obraz="wymiary")
         assert wywolania == ["wymiary"]
         assert wynik["ok"] is True
+
+
+class TestKwotyNieRejestrujaSieDlaPorzuconejKonfiguracji:
+    """X1, osłona I1. Naprawa wyścigu serializuje zapisy pozycji, więc `DELETE
+    FROM pro_kwoty` (kasowanie rejestru przy zmianie pola cenotwórczego) i
+    `INSERT` świeżej kwoty z kalkulatora układają się w kolejkę zamiast na
+    siebie nachodzić. Gdyby o ważności kwoty decydowała wyłącznie KOLEJNOŚĆ tych
+    dwóch operacji, wystarczyłby jeden niefortunny przeplot, żeby w rejestrze G1
+    została cena policzona dla konfiguracji, z której klient właśnie
+    zrezygnował — a guardrail przepuściłby ją jako „znaną" (dokładnie awaria
+    opisana jako W2 w docstringu `bots_pro/stan.py`).
+
+    Dlatego `policz_wycene` porównuje odcisk cenotwórczy pozycji sprzed i po
+    wywołaniu kalkulatora i rejestruje kwoty TYLKO przy odcisku niezmienionym.
+    To czyni odporność na wyścig WŁASNOŚCIĄ KODU, a nie szczęścia w schedulerze:
+    test niżej nie ma ani jednego wątku i mimo to opisuje dokładnie ten przeplot
+    (zmiana pozycji „w trakcie" liczenia)."""
+
+    def test_zmiana_pozycji_w_trakcie_liczenia_nie_rejestruje_kwot(self, monkeypatch):
+        stan.ustaw_kontekst(96520)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat", dlugosc_cm=180,
+               szerokosc_cm=60, grubosc_cm=4, ilosc=1,
+               selected_variant="dab-lity-ab", wykonczenie="surowe")
+
+        def _kalkulator_z_wyscigiem(pozycje, opcje):
+            # Odpowiednik równoległego `zapisz_pozycje` z tego samego kroku
+            # modelu: klient zmienia grubość, kiedy kalkulator już liczy starą.
+            stan.zapisz_pozycje("1", grubosc_cm=6)
+            return {"ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}}
+
+        monkeypatch.setattr(n.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(n.crm_calc, "calculate", _kalkulator_z_wyscigiem)
+        _wolaj(n.policz_wycene)
+
+        # Kwota dotyczy grubości 4 cm, a zapisane jest 6 cm — do rejestru G1
+        # wejść nie może, bo bot mógłby ją zacytować jako obowiązującą.
+        assert stan.znane_kwoty() == set()
+
+    def test_zmiana_NIECENOTWORCZA_w_trakcie_liczenia_nie_kasuje_kwot(self, monkeypatch):
+        """Kontrola negatywna. Bramka stoi na tym SAMYM odcisku, którego używa
+        czyszczenie rejestru (U6) — dopisanie otworu nie zmienia ceny, więc nie
+        ma prawa ani skasować rejestru, ani zablokować rejestracji. Bez tej
+        symetrii typowa tura „dopisuję wycięcie na zlew, cena bez zmian"
+        kończyłaby się fałszywym alarmem G1 na PRAWDZIWEJ kwocie."""
+        stan.ustaw_kontekst(96521)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat", dlugosc_cm=180,
+               szerokosc_cm=60, grubosc_cm=4, ilosc=1,
+               selected_variant="dab-lity-ab", wykonczenie="surowe")
+
+        def _kalkulator_z_otworem(pozycje, opcje):
+            stan.zapisz_pozycje("1", otwory=["otwór na zlew 50x40 cm"])
+            return {"ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}}
+
+        monkeypatch.setattr(n.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(n.crm_calc, "calculate", _kalkulator_z_otworem)
+        _wolaj(n.policz_wycene)
+
+        assert {"685.40", "843.04"} <= stan.znane_kwoty()
+
+    def test_deklaracja_KSZTALTU_w_trakcie_liczenia_nie_rejestruje_kwot(self, monkeypatch):
+        """P2 (kontrola koncowa): kontrola po powrocie z kalkulatora patrzyla
+        WYLACZNIE na `odcisk_cenotworczy`, a `ksztalt` polem cenotworczym
+        swiadomie nie jest (`build_products` wpisuje `shape: "rectangular"` na
+        sztywno, wiec kalkulator policzylby to samo). Deklaracja ksztaltu byla
+        wiec dla tej kontroli NIEWIDZIALNA, a okno to caly czas trwania
+        `crm_calc.calculate` — HTTP z timeoutem 30 s, swiadomie poza zamkiem.
+
+        ZMIERZONE przed naprawa (conv 4727, blat 87x75x1,9 dab lity A/B; model
+        w jednym kroku wola `policz_wycene` i `zapisz_pozycje("1",
+        ksztalt="szesciokat o boku 43 cm")`): `stan.znane_kwoty()` =
+        {'685.40', '843.04'}, wiec `guardraile.sprawdz_ceny` przepuszczalo do
+        klienta cene PROSTOKATA dla szesciokata. Bramka ksztaltu zamykala to
+        tylko dla przebiegu sekwencyjnego. Po naprawie oba miejsca (tu i
+        `stan._zmien_pozycje`) pytaja TA SAMA funkcja
+        `potwierdzenia.kwota_nadal_opisuje`."""
+        stan.ustaw_kontekst(96522)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat kuchenny", dlugosc_cm=87,
+               szerokosc_cm=75, grubosc_cm=1.9, ilosc=1,
+               selected_variant="dab-lity-ab", wykonczenie="surowe")
+
+        def _kalkulator_z_wyscigiem(pozycje, opcje):
+            stan.zapisz_pozycje("1", ksztalt="sześciokąt o boku 43 cm")
+            return {"ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}}
+
+        monkeypatch.setattr(n.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(n.crm_calc, "calculate", _kalkulator_z_wyscigiem)
+        _wolaj(n.policz_wycene)
+
+        assert stan.znane_kwoty() == set()
+
+    def test_powtorzona_deklaracja_ksztaltu_nie_blokuje_rejestracji(self, monkeypatch):
+        """Kontrola negatywna do powyzszej: predykat reaguje na ROZNICE zbiorow
+        („pozycja wlasnie przestala byc prostokatem"), nie na sama obecnosc
+        nieprostokata. Tu jednak nie ma czego rejestrowac inaczej niz przez
+        bramke ksztaltu, wiec sprawdzamy druga strone: pozycja, ktora WRACA do
+        prostokata w trakcie liczenia, nie ma prawa unieważnic kwoty."""
+        stan.ustaw_kontekst(96523)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat", dlugosc_cm=180,
+               szerokosc_cm=60, grubosc_cm=4, ilosc=1,
+               selected_variant="dab-lity-ab", wykonczenie="surowe",
+               ksztalt="prostokąt")
+
+        def _kalkulator_z_poprawka(pozycje, opcje):
+            stan.zapisz_pozycje("1", ksztalt="prostokąt")   # powtorka, bez zmiany
+            return {"ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}}
+
+        monkeypatch.setattr(n.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(n.crm_calc, "calculate", _kalkulator_z_poprawka)
+        _wolaj(n.policz_wycene)
+
+        assert {"685.40", "843.04"} <= stan.znane_kwoty()
+
+
+class TestUN7BramkaKsztaltuWPoliczWycene:
+    """Zadanie 3 (U-N7): kształt inny niż prostokąt blokuje TAKŻE liczenie ceny,
+    nie tylko wysyłkę podsumowania.
+
+    Dotąd jedyna bramka kształtu stała w `podsumowanie.wyslij`. `policz_wycene`
+    liczyło sześciokąt jak prostokąt i ODDAWAŁO tę kwotę modelowi, a `stan.
+    zapamietaj_kwoty` wpisywało ją do rejestru G1 — czyli bot mógł ją
+    LEGALNIE wypowiedzieć klientowi w tej samej turze, nie dochodząc nigdy do
+    podsumowania. Cena była wtedy ceną prostokąta o tych samych wymiarach
+    (rozmowa 4727: sześciokąt 87x75 o boku 43 cm)."""
+
+    def _pozycja_sześciokątna(self, conv_id, **pola):
+        stan.ustaw_kontekst(conv_id)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat kuchenny", dlugosc_cm=87,
+               szerokosc_cm=75, grubosc_cm=1.9, ilosc=1,
+               selected_variant="dab-lity-ab", wykonczenie="surowe", **pola)
+
+    def test_zadeklarowany_ksztalt_blokuje_liczenie(self, monkeypatch):
+        self._pozycja_sześciokątna(96700, ksztalt="sześciokąt")
+        wywolano = []
+        monkeypatch.setattr(n.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(n.crm_calc, "calculate", lambda p, o: wywolano.append(1) or {
+            "ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}})
+        wynik = _wolaj(n.policz_wycene)
+        assert wynik["ok"] is False
+        assert wynik["error"] == "KSZTALT_NIEPROSTOKATNY"
+        assert not wywolano, "kalkulator NIE ma byc wolany dla kształtu"
+        # I1: skoro nic nie policzyliśmy, rejestr G1 ma zostać pusty — inaczej
+        # bot dostałby prawo zacytowania kwoty, której nie ma.
+        assert stan.znane_kwoty() == set()
+
+    def test_ksztalt_w_nazwie_tez_blokuje_liczenie(self, monkeypatch):
+        # Druga linia obrony: model pola nie ustawił, ale nazwę wpisał szczerze.
+        stan.ustaw_kontekst(96701)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="Blat sześciokątny 87x75",
+               dlugosc_cm=87, szerokosc_cm=75, grubosc_cm=1.9, ilosc=1,
+               selected_variant="dab-lity-ab", wykonczenie="surowe")
+        monkeypatch.setattr(n.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(n.crm_calc, "calculate", lambda p, o: {
+            "ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}})
+        wynik = _wolaj(n.policz_wycene)
+        assert wynik["error"] == "KSZTALT_W_NAZWIE"
+        assert stan.znane_kwoty() == set()
+
+    def test_wskazowka_kieruje_do_oddaj_czlowiekowi(self, monkeypatch):
+        self._pozycja_sześciokątna(96702, ksztalt="sześciokąt o boku 43 cm")
+        monkeypatch.setattr(n.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(n.crm_calc, "calculate", lambda p, o: {"ok": True})
+        wynik = _wolaj(n.policz_wycene)
+        assert "oddaj_czlowiekowi" in wynik["wskazowka"]
+        assert "KSZTAŁT" in wynik["wskazowka"]
+
+    def test_wskazowka_ksztaltu_nie_zawiera_ZADNEJ_kwoty(self, monkeypatch):
+        # Ten sam wymóg co dla WSKAZOWKA_PO_DOSTAWIE i WSKAZOWKA_WARIANT_
+        # NIEDOSTEPNY: wskazówka jedzie do modelu tą samą drogą co prawdziwe
+        # ceny, a rejestr G1 zna wyłącznie te drugie.
+        from bots_pro import guardraile
+        self._pozycja_sześciokątna(96703, ksztalt="sześciokąt")
+        monkeypatch.setattr(n.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(n.crm_calc, "calculate", lambda p, o: {"ok": True})
+        wynik = _wolaj(n.policz_wycene)
+        assert guardraile.sprawdz_ceny(wynik["wskazowka"], set()) == []
+
+    def test_prostokat_liczy_sie_jak_dotad(self, monkeypatch):
+        # Regresja: cały normalny ruch. Bramka nie ma prawa dotknąć pozycji bez
+        # pola `ksztalt` ani pozycji zadeklarowanej jako prostokąt.
+        for numer, pola in enumerate(({}, {"ksztalt": "prostokąt"},
+                                      {"ksztalt": "kwadrat"})):
+            self._pozycja_sześciokątna(96710 + numer, **pola)
+            monkeypatch.setattr(n.crm_calc, "get_options", lambda: {})
+            monkeypatch.setattr(n.crm_calc, "calculate", lambda p, o: {
+                "ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}})
+            wynik = _wolaj(n.policz_wycene)
+            assert wynik.get("ok") is True, pola
+            assert {"685.40", "843.04"} <= stan.znane_kwoty(), pola
+
+    def test_pusty_ksztalt_nie_kasuje_wczesniejszej_deklaracji(self, monkeypatch):
+        # Gdyby pole miało domyślną wartość „prostokąt" zamiast pustej, KAŻDE
+        # kolejne wywołanie (tu: samo doprecyzowanie ilości) po cichu cofałoby
+        # deklarację i otwierało bramkę.
+        self._pozycja_sześciokątna(96720, ksztalt="sześciokąt")
+        _wolaj(n.zapisz_pozycje, id="1", ilosc=2)
+        monkeypatch.setattr(n.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(n.crm_calc, "calculate", lambda p, o: {"ok": True})
+        assert _wolaj(n.policz_wycene)["error"] == "KSZTALT_NIEPROSTOKATNY"
+
+    def test_zmiana_ksztaltu_uniewaznia_potwierdzenie_klienta(self):
+        # Domknięcie drogi, która omijałaby bramkę: klient potwierdza prostokąt,
+        # model dopisuje ksztalt="sześciokąt" i woła `zapisz_wycene` — ono
+        # kształtu nie sprawdza, sprawdza PODPIS. Z `ksztalt` w polach podpisu
+        # (potwierdzenia._POLA_OPISOWE) taka zmiana unieważnia zgodę.
+        stan.ustaw_kontekst(96730)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat kuchenny", dlugosc_cm=87,
+               szerokosc_cm=75, grubosc_cm=1.9, ilosc=1,
+               selected_variant="dab-lity-ab", wykonczenie="surowe")
+        przed = potwierdzenia.podpis(stan.pozycje())
+        _wolaj(n.zapisz_pozycje, id="1", ksztalt="sześciokąt")
+        assert potwierdzenia.podpis(stan.pozycje()) != przed
+
+
+class TestTelemetriaWysylkiPozaZamkiem:
+    """P4 (kontrola koncowa): `log_event(..., "shipping_quoted", ...)` lezalo
+    WEWNATRZ `with stan.zamek_stanu:`. `core.events.log_event` otwiera wlasne
+    polaczenie SQLite z `timeout=30`, robi INSERT i `commit()` — czyli fsync,
+    a w najgorszym razie 30 s czekania na zamek zapisu SQLite. Przez ten czas
+    trzymalby `zamek_stanu`, ktory jest zamkiem PROCESU, wspolnym dla
+    WSZYSTKICH rozmow: zaden `zapisz_pozycje` w zadnej innej rozmowie by nie
+    przeszedl. Zasada „obce I/O poza zamkiem" stoi wprost szesc linii wyzej
+    (o `shipping_quote`) — ta linia trafila pod zamek przez kolejnosc
+    commitow, nie przez decyzje.
+
+    Sonda musi isc z DRUGIEGO watku: `zamek_stanu` to RLock, wiec z watku,
+    ktory go trzyma, zajety zamek wygladalby jak wolny."""
+
+    @staticmethod
+    def _zamek_wolny():
+        import threading
+
+        wynik = []
+
+        def _probuj():
+            zdobyty = stan.zamek_stanu.acquire(timeout=0.5)
+            wynik.append(zdobyty)
+            if zdobyty:
+                stan.zamek_stanu.release()
+
+        watek = threading.Thread(target=_probuj)
+        watek.start()
+        watek.join(timeout=5)
+        return bool(wynik and wynik[0])
+
+    def _wywolaj_wysylke(self, monkeypatch, conv_id, wynik_kuriera):
+        stan.ustaw_kontekst(conv_id)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat", dlugosc_cm=180,
+               szerokosc_cm=60, grubosc_cm=4, ilosc=1,
+               selected_variant="dab-lity-ab", wykonczenie="surowe")
+        pomiary = []
+        monkeypatch.setattr(n, "log_event", lambda cid, event, meta=None: (
+            pomiary.append((event, self._zamek_wolny()))))
+        monkeypatch.setattr(n.crm_calc, "shipping_quote",
+                            lambda pozycje, kod: wynik_kuriera)
+        _wolaj(n.policz_wysylke, kod_pocztowy="00-001")
+        return pomiary
+
+    def test_shipping_quoted_emitowane_poza_sekcja_krytyczna(self, monkeypatch):
+        pomiary = self._wywolaj_wysylke(monkeypatch, 96540, {
+            "ok": True, "carriers": 1, "carrier_name": "DPD",
+            "shipping_netto": 50.0, "shipping_brutto": 61.50})
+
+        assert pomiary == [("shipping_quoted", True)], (
+            "telemetria wysylki poszla przy ZAJETYM zamku stanu")
+
+    def test_brak_kuriera_nadal_nie_emituje_zdarzenia(self, monkeypatch):
+        # Regresja warunku, ktory przy wyjmowaniu linii spod zamka latwo
+        # zgubic: `ok=True` z `carriers=0` NIE jest oszacowaniem wysylki (to
+        # nie znaczy „gratis"), wiec lejek nie ma tu liczyc sukcesu.
+        pomiary = self._wywolaj_wysylke(monkeypatch, 96541,
+                                        {"ok": True, "carriers": 0})
+
+        assert pomiary == []
+        assert stan.dostawa()["kod_pocztowy"] == "00-001"
+        assert stan.dostawa().get("kurier") is None
+
+
+class TestWysylkaSprawdzaStanPoPowrocieZAPI:
+    """K1: `policz_wysylke` czytalo pozycje POZA zamkiem, wychodzilo na HTTP i po
+    powrocie zapisywalo dostawe oraz rejestrowalo kwoty — BEZ jakiejkolwiek
+    kontroli, czy pozycje w miedzyczasie sie nie zmienily. `policz_wycene` taka
+    kontrole ma, `podsumowanie.wyslij` ma, to narzedzie nie mialo zadnej.
+
+    Skutek lamie WLASNY kontrakt docstringa narzedzia („po KAZDEJ zmianie
+    pozycji policz wysylke ponownie — stare oszacowanie przestaje obowiazywac"):
+    rownolegly `zapisz_pozycje` kasuje dostawe i rejestr G1 (`_zmien_pozycje`),
+    a wiszace na HTTP `policz_wysylke` wpisuje je z powrotem JUZ PO tym
+    kasowaniu.
+
+    ZMIERZONE (sonda: klient pisze „05-081, i przedluz blat do 300 cm", model
+    wola w JEDNYM kroku `zapisz_pozycje(dlugosc_cm=300)` i `policz_wysylke`,
+    watki przez `contextvars.copy_context().run`, 15 przebiegow, limity
+    produkcji `--cpus=0.5 --memory=256m`):
+      - PRZED naprawa: nieaktualny koszt 19,92 zl (dla 180 cm) zostawal w
+        `pro_stan` przy blacie 300 cm w 15/15, a G1 przepuszczal zdanie
+        „wysylka kurierem inPost-Kurier to 19,92 zl brutto" tez w 15/15 —
+        zlamanie I1 kwota, ktora PRZYSZLA z kalkulatora, tylko dla innych
+        danych (prawdziwy koszt dla 300 cm: 229,36 zl);
+      - PO naprawie: 0/15 i 0/15.
+
+    Testy nizej NIE licza na scheduler — odtwarzaja to samo okno
+    deterministycznie, robiac rownolegly zapis WEWNATRZ atrapy
+    `shipping_quote`, czyli dokladnie tam, gdzie w produkcji stoi HTTP z
+    timeoutem 30 s (ten sam wzorzec co `_kalkulator_z_wyscigiem` w
+    test_pro_podsumowanie.py)."""
+
+    def _blat(self, conv_id, dlugosc=180):
+        stan.ustaw_kontekst(conv_id)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat", dlugosc_cm=dlugosc,
+               szerokosc_cm=60, grubosc_cm=4, ilosc=1,
+               selected_variant="dab-lity-ab", wykonczenie="surowe")
+
+    @staticmethod
+    def _kurier_z_wyscigiem(monkeypatch, zmiana):
+        def _shipping_quote(pozycje, kod):
+            zmiana()   # rownolegly `zapisz_pozycje` z tego samego kroku modelu
+            return {"ok": True, "carriers": 1, "carrier_name": "inPost-Kurier",
+                    "shipping_netto": 16.20, "shipping_brutto": 19.92}
+
+        monkeypatch.setattr(n.crm_calc, "shipping_quote", _shipping_quote)
+
+    def test_zmiana_wymiaru_w_trakcie_nie_zapisuje_nieaktualnej_dostawy(self, monkeypatch):
+        self._blat(96560)
+        self._kurier_z_wyscigiem(
+            monkeypatch, lambda: stan.zapisz_pozycje("1", dlugosc_cm=300))
+
+        wynik = _wolaj(n.policz_wysylke, kod_pocztowy="05-081")
+
+        assert wynik["error"] == "POZYCJE_ZMIENIONE_W_TRAKCIE", wynik
+        assert stan.dostawa().get("kurier") is None, (
+            "koszt policzony dla 180 cm zostal przy blacie 300 cm")
+        assert "19.92" not in stan.znane_kwoty(), (
+            "nieaktualna kwota weszla do rejestru G1 — bot moglby ja zacytowac")
+
+    def test_nieaktualny_koszt_nie_wychodzi_do_modelu(self, monkeypatch):
+        # Wynik odmowny NIE moze niesc kwoty: rejestr G1 jej nie zna (nic nie
+        # zapisalismy), wiec model, ktory by ja powtorzyl, zostalby oskarzony
+        # o halucynacje — ta sama zasada co przy nieudanym oszacowaniu (U9).
+        self._blat(96561)
+        self._kurier_z_wyscigiem(
+            monkeypatch, lambda: stan.zapisz_pozycje("1", dlugosc_cm=300))
+
+        wynik = _wolaj(n.policz_wysylke, kod_pocztowy="05-081")
+
+        assert not re.search(r"\d", json.dumps(wynik, ensure_ascii=False)), wynik
+
+    def test_zmiana_pola_NIEcenotworczego_zostawia_dostawe(self, monkeypatch):
+        # Kontrola negatywna: naprawa nie moze zamienic sie w falszywy alarm.
+        # `otwory` to pole jawnie NIEWYCENIANE (`build_products` go nie czyta),
+        # a gabaryt sie nie zmienia — oszacowanie NADAL opisuje te pozycje,
+        # wiec ma sie zapisac. Ten sam predykat i to samo uzasadnienie co przy
+        # czyszczeniu rejestru kwot (U6).
+        self._blat(96562)
+        self._kurier_z_wyscigiem(
+            monkeypatch,
+            lambda: stan.zapisz_pozycje("1", otwory=["wyciecie na zlew"]))
+
+        wynik = _wolaj(n.policz_wysylke, kod_pocztowy="05-081")
+
+        assert wynik["ok"] is True, wynik
+        assert stan.dostawa()["kurier"] == "inPost-Kurier"
+        assert {"16.20", "19.92"} <= stan.znane_kwoty()
+
+    def test_bez_wyscigu_dziala_jak_dotad(self, monkeypatch):
+        # Regresja calego normalnego ruchu — nikt nic w trakcie nie zmienia.
+        self._blat(96563)
+        self._kurier_z_wyscigiem(monkeypatch, lambda: None)
+
+        wynik = _wolaj(n.policz_wysylke, kod_pocztowy="05-081")
+
+        assert wynik["ok"] is True and wynik["shipping_brutto"] == 19.92
+        assert stan.dostawa()["kurier"] == "inPost-Kurier"
+
+    def test_telemetria_nie_liczy_wstrzymanego_oszacowania(self, monkeypatch):
+        # Lejek ma liczyc oszacowania, ktore NAPRAWDE obowiazuja — wpis
+        # `shipping_quoted` dla kosztu, ktorego nie zapisalismy, zawyzalby
+        # dokladnie ten etap, po ktory ta telemetria powstala (T1).
+        self._blat(96564)
+        self._kurier_z_wyscigiem(
+            monkeypatch, lambda: stan.zapisz_pozycje("1", dlugosc_cm=300))
+        zdarzenia = []
+        monkeypatch.setattr(n, "log_event",
+                            lambda cid, event, meta=None: zdarzenia.append(event))
+
+        _wolaj(n.policz_wysylke, kod_pocztowy="05-081")
+
+        assert zdarzenia == []
+
+
+class TestJednaMigawkaDoBramkiIDoCRM:
+    """K2: `zapisz_wycene` sprawdzalo bramke I2 na JEDNYM odczycie pozycji, a do
+    CRM wysylalo DRUGI — i przez `_dopisz_dostawe` TRZECI, juz PO powrocie z
+    `create_quote` (HTTP, timeout 30 s). Miedzy zadna z tych par nie bylo zamka.
+    `popraw_wycene` ma ten sam ksztalt, tylko gorsze skutki: NADPISUJE wycene,
+    do ktorej klient ma juz link.
+
+    Inwariant wlasciciela I2 brzmi „nic dalej bez potwierdzenia klienta
+    przypietego do PODPISU TRESCI". Sprawdzanie jednej tresci i wysylanie innej
+    lamie to zdanie, nawet gdy obie sa poprawne z osobna: w CRM — i stamtad pod
+    link klienta oraz do zamowienia w BaseLinkerze — szla konfiguracja, ktorej
+    klient NIGDY nie widzial i nie potwierdzil.
+
+    ZMIERZONE (sonda, watki przez `contextvars.copy_context().run`, narzedzia
+    przez `on_invoke_tool`, 15 przebiegow, limity produkcji
+    `--cpus=0.5 --memory=256m`), klient potwierdzil blat 180 cm:
+      - okno bramka -> odczyt w `zapisz_wycene`: do `create_quote` szlo 300 cm
+        w 10/15 przebiegow PRZED naprawa, 0/15 po niej — samo okno wystarcza,
+        bez zadnego zlosliwego przeplotu;
+      - okno `create_quote` -> `_dopisz_dostawe` (cale HTTP): niepotwierdzony
+        opis pozycji szedl do `update_quote` w 15/15 PRZED, 0/15 po;
+      - `popraw_wycene`: nadpisanie wyceny wartoscia 300 w 2/15 PRZED, 0/15 po.
+
+    Testy nizej odtwarzaja te okna DETERMINISTYCZNIE — rownolegly zapis dzieje
+    sie doslownie w tym miejscu, w ktorym w produkcji laduje przeplot: tuz po
+    bramce (opakowana PRAWDZIWA `sprawdz_bramke`, nie atrapa jej logiki) albo
+    w srodku atrapy `create_quote`, czyli tam, gdzie stoi HTTP."""
+
+    DLUGOSC_POTWIERDZONA = 180
+
+    def _potwierdzony_blat(self, monkeypatch, conv_id, dostawa=False):
+        stan.ustaw_kontekst(conv_id)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat", dlugosc_cm=180,
+               szerokosc_cm=60, grubosc_cm=4, ilosc=1,
+               selected_variant="dab-lity-ab", wykonczenie="surowe")
+        if dostawa:
+            stan.zapisz_dostawe("05-081", kurier="inPost-Kurier",
+                                netto=16.20, brutto=19.92)
+        _potwierdz_biezace_pozycje(monkeypatch)
+
+    @staticmethod
+    def _zapis_tuz_po_bramce(monkeypatch, zmiana):
+        """Rownolegly `zapisz_pozycje`, ktory laduje DOKLADNIE w oknie
+        bramka -> odczyt. Prawdziwa bramka jest wolana, nie podmieniana —
+        mierzymy okno, nie atrapujemy sprawdzenia."""
+        prawdziwa = potwierdzenia.sprawdz_bramke
+
+        def _bramka(*args, **kwargs):
+            wynik = prawdziwa(*args, **kwargs)
+            zmiana()
+            return wynik
+
+        monkeypatch.setattr(potwierdzenia, "sprawdz_bramke", _bramka)
+
+    def test_do_crm_idzie_konfiguracja_ktora_klient_potwierdzil(self, monkeypatch):
+        self._potwierdzony_blat(monkeypatch, 96580)
+        self._zapis_tuz_po_bramce(
+            monkeypatch, lambda: stan.zapisz_pozycje("1", dlugosc_cm=300))
+        wyslane = []
+        monkeypatch.setattr(n.crm_calc, "create_quote",
+                            lambda pozycje, *a, **k: wyslane.append(pozycje) or {
+                                "ok": True, "quote_number": "W/1", "edit_uuid": "u1",
+                                "public_url": "https://crm/x"})
+
+        _wolaj(n.zapisz_wycene, client_id=7)
+
+        assert [float(p["dlugosc"]) for p in wyslane[0]] == [self.DLUGOSC_POTWIERDZONA], (
+            "do CRM poszla konfiguracja, ktorej klient nigdy nie potwierdzil")
+
+    def test_dopisanie_dostawy_nie_nadpisuje_wyceny_swiezym_odczytem(self, monkeypatch):
+        # Trzeci odczyt, najszersze okno: cale `create_quote`. Zmiana OPISOWA
+        # (`produkt`) nie rusza odcisku cenotworczego, wiec `_zmien_pozycje` NIE
+        # kasuje dostawy i `_dopisz_dostawe` naprawde leci — wchodzi za to do
+        # PODPISU (`_POLA_OPISOWE`), czyli to nadal tresc niepotwierdzona.
+        self._potwierdzony_blat(monkeypatch, 96581, dostawa=True)
+
+        def _create_quote_z_wyscigiem(*a, **k):
+            stan.zapisz_pozycje("1", produkt="blat z otworem")
+            return {"ok": True, "quote_number": "W/1", "edit_uuid": "u1",
+                    "public_url": "https://crm/x"}
+
+        monkeypatch.setattr(n.crm_calc, "create_quote", _create_quote_z_wyscigiem)
+        wyslane = []
+        monkeypatch.setattr(n.crm_calc, "update_quote",
+                            lambda uuid, pozycje, *a, **k: wyslane.append(pozycje) or {
+                                "ok": True, "quote_number": "W/1"})
+
+        _wolaj(n.zapisz_wycene, client_id=7)
+
+        assert [p["produkt"] for p in wyslane[0]] == ["blat"], (
+            "dopisanie dostawy nadpisalo wycene trescia spoza potwierdzenia")
+
+    def test_popraw_wycene_nie_nadpisuje_niepotwierdzona_zmiana(self, monkeypatch):
+        # Wariant najgorszy: klient MA JUZ link. Nadpisanie wyceny wartoscia,
+        # ktorej nie potwierdzil, znaczy, ze po odswiezeniu strony widzi inna
+        # cene niz ta, na ktora sie zgodzil — i z niej zamawia.
+        self._potwierdzony_blat(monkeypatch, 96582)
+        self._zapis_tuz_po_bramce(
+            monkeypatch, lambda: stan.zapisz_pozycje("1", dlugosc_cm=300))
+        wyslane = []
+        monkeypatch.setattr(n.crm_calc, "update_quote",
+                            lambda uuid, pozycje, *a, **k: wyslane.append(pozycje) or {
+                                "ok": True, "quote_number": "W/1"})
+
+        _wolaj(n.popraw_wycene, edit_uuid="u1")
+
+        assert [float(p["dlugosc"]) for p in wyslane[0]] == [self.DLUGOSC_POTWIERDZONA]
+
+    def test_powtorzony_identyczny_zapis_nie_blokuje_wyceny(self, monkeypatch):
+        # Kontrola negatywna: naprawa nie moze zamienic sie w falszywy alarm.
+        # Model powtarzajacy TE SAME dane (zwykly ruch — prompt kaze zapisywac
+        # drobno i czesto) nie zmienia niczego, wiec wycena ma powstac.
+        self._potwierdzony_blat(monkeypatch, 96583)
+        self._zapis_tuz_po_bramce(
+            monkeypatch,
+            lambda: stan.zapisz_pozycje("1", produkt="blat", dlugosc_cm=180,
+                                        szerokosc_cm=60, grubosc_cm=4, ilosc=1,
+                                        selected_variant="dab-lity-ab",
+                                        wykonczenie="surowe"))
+        monkeypatch.setattr(n.crm_calc, "create_quote",
+                            lambda *a, **k: {"ok": True, "quote_number": "W/1",
+                                             "edit_uuid": "u1",
+                                             "public_url": "https://crm/x"})
+
+        wynik = _wolaj(n.zapisz_wycene, client_id=7)
+
+        assert wynik["ok"] is True, wynik
+        assert wynik["quote_number"] == "W/1"
+
+    def test_bramka_nadal_odmawia_gdy_zmiana_byla_PRZED_wywolaniem(self, monkeypatch):
+        # Regresja samej bramki I2: migawka bierze sie ze stanu, wiec zmiana
+        # sprzed wywolania ma ja unieważnić dokladnie jak dotad.
+        self._potwierdzony_blat(monkeypatch, 96584)
+        stan.zapisz_pozycje("1", dlugosc_cm=300)
+        wywolania = []
+        monkeypatch.setattr(n.crm_calc, "create_quote",
+                            lambda *a, **k: wywolania.append(1) or {"ok": True})
+
+        wynik = _wolaj(n.zapisz_wycene, client_id=7)
+
+        assert wynik["error"] == "POTWIERDZENIE_NIEAKTUALNE", wynik
+        assert wywolania == []
+
+
+class TestZapiszWyceneNieZakladaDwochWycen:
+    """R4: bramka WYCENA_JUZ_ZAPISANA czytala `stan.zapisana_wycena()` PRZED
+    wyjsciem na `crm_calc.create_quote` (HTTP, timeout 30 s), a wynik zapisywala
+    dopiero PO powrocie. Miedzy sprawdzeniem a zapisem nie bylo ani zamka, ani
+    zadnej innej kontroli — dwa rownolegle wywolania z JEDNEGO kroku modelu (SDK
+    odpala narzedzia w watkach) przechodzily wiec OBA.
+
+    Skutek: dwie wyceny w CRM dla jednej rozmowy — czego docstring narzedzia
+    zabrania wprost — z czego jedna OSIEROCONA (jest w CRM, `pro_stan` trzyma
+    druga, klient dostaje link tylko do jednej). Plus dwa `update_quote`
+    i podwojna telemetria `quote_saved`.
+
+    ZMIERZONE (sonda, dwa rownolegle `zapisz_wycene` przez `on_invoke_tool`,
+    watki przez `contextvars.copy_context().run`, 15 przebiegow, limity
+    produkcji `--cpus=0.5 --memory=256m`): dwie wyceny w CRM w 15/15 przebiegow
+    PRZED naprawa, 0/15 po niej (30 -> 15 wywolan `create_quote`).
+
+    Test nizej odtwarza to okno DETERMINISTYCZNIE, bez usypiania: drugie
+    wywolanie startuje dopiero wtedy, gdy pierwsze na pewno stoi w `create_quote`."""
+
+    def _potwierdzony_blat(self, monkeypatch, conv_id):
+        stan.ustaw_kontekst(conv_id)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat", dlugosc_cm=180,
+               szerokosc_cm=60, grubosc_cm=4, ilosc=1,
+               selected_variant="dab-lity-ab", wykonczenie="surowe")
+        _potwierdz_biezace_pozycje(monkeypatch)
+
+    def test_dwa_rownolegle_wywolania_daja_jedna_wycene(self, monkeypatch):
+        import contextvars
+        import threading
+
+        self._potwierdzony_blat(monkeypatch, 96590)
+        utworzone, wyniki = [], []
+        weszlo_w_http = threading.Event()
+        wolno_wrocic = threading.Event()
+
+        def _create_quote(*a, **k):
+            utworzone.append(1)
+            weszlo_w_http.set()
+            wolno_wrocic.wait(timeout=5)
+            return {"ok": True, "quote_number": "W/%s" % len(utworzone),
+                    "edit_uuid": "u%s" % len(utworzone),
+                    "public_url": "https://crm/x%s" % len(utworzone)}
+
+        monkeypatch.setattr(n.crm_calc, "create_quote", _create_quote)
+
+        def _pierwsze():
+            wyniki.append(_wolaj(n.zapisz_wycene, client_id=7))
+
+        watek = threading.Thread(target=contextvars.copy_context().run, args=(_pierwsze,))
+        watek.start()
+        assert weszlo_w_http.wait(timeout=5), "pierwsze wywolanie nie doszlo do CRM"
+        drugie = _wolaj(n.zapisz_wycene, client_id=7)   # w oknie HTTP pierwszego
+        wolno_wrocic.set()
+        watek.join(timeout=5)
+
+        assert len(utworzone) == 1, "w CRM powstaly DWIE wyceny dla jednej rozmowy"
+        assert drugie["error"] == "WYCENA_JUZ_ZAPISANA", drugie
+        assert wyniki[0]["ok"] is True, wyniki
+
+    def test_nieudany_zapis_zwalnia_rezerwacje(self, monkeypatch):
+        # Kontrola negatywna, bez ktorej naprawa bylaby gorsza od defektu:
+        # `create_quote` padlo, wiec w CRM NIC nie powstalo — model ma prawo
+        # sprobowac jeszcze raz. Rezerwacja trzymana w nieskonczonosc zamknelaby
+        # mu te droge na zawsze.
+        self._potwierdzony_blat(monkeypatch, 96591)
+        proby = []
+
+        def _create_quote(*a, **k):
+            proby.append(1)
+            if len(proby) == 1:
+                return {"ok": False, "errors": [{"code": "TIMEOUT"}]}
+            return {"ok": True, "quote_number": "W/1", "edit_uuid": "u1",
+                    "public_url": "https://crm/x"}
+
+        monkeypatch.setattr(n.crm_calc, "create_quote", _create_quote)
+
+        assert _wolaj(n.zapisz_wycene, client_id=7)["ok"] is False
+        assert _wolaj(n.zapisz_wycene, client_id=7)["ok"] is True
+        assert len(proby) == 2
+
+    def test_udany_zapis_zwalnia_rezerwacje_a_pilnuje_baza(self, monkeypatch):
+        # Kontrola negatywna druga: po sukcesie rezerwacja tez znika (inaczej
+        # zbior rosnie o wpis na kazda rozmowe do restartu), a pojedynczosci
+        # pilnuje dalej `quote_edit_uuid` w bazie — ta przezywa restart procesu.
+        self._potwierdzony_blat(monkeypatch, 96592)
+        monkeypatch.setattr(n.crm_calc, "create_quote", lambda *a, **k: {
+            "ok": True, "quote_number": "W/1", "edit_uuid": "u1",
+            "public_url": "https://crm/x"})
+
+        assert _wolaj(n.zapisz_wycene, client_id=7)["ok"] is True
+        assert stan.conv_id() not in stan._wyceny_w_toku
+        monkeypatch.setattr(n.crm_calc, "create_quote",
+                            lambda *a, **k: pytest.fail("druga wycena w CRM"))
+        assert _wolaj(n.zapisz_wycene, client_id=7)["error"] == "WYCENA_JUZ_ZAPISANA"
+
+
+class TestPrzygotujZamowienieOpisujeMigawke:
+    """R5: `przygotuj_zamowienie` wolalo `sprawdz_bramke()` BEZ argumentow, z
+    uzasadnieniem „to narzedzie nic nie wysyla i nic nie zapisuje". Na Allegro —
+    czyli na kanale, DLA KTOREGO powstala ta galaz — to nieprawda:
+    `notatki.zamowienie_do_agenta` robi `cw_note` (HTTP do Chatwoota), a
+    `stan.handoff` drugie HTTP i zapis stanu.
+
+    Gorzej: notatka skladala sie z CZTERECH swiezych odczytow stanu (pozycje,
+    dostawa, cytat potwierdzenia, pokazana kwota), branych JUZ PO bramce, a sama
+    bramka liczyla podpis z jeszcze innego odczytu. Na Allegro ta notatka
+    ZASTEPUJE link do wyceny, wiec konsultant dostawal opis zamowienia zlozony
+    z rozdartego stanu — i nie mial jak tego zauwazyc.
+
+    Naprawa jest ta sama co w `zapisz_wycene`/`popraw_wycene` (K2): jedna
+    migawka do bramki I2 i do tego, co idzie dalej."""
+
+    def _notatka_po_wyscigu(self, monkeypatch, conv_id, zmiana):
+        _wycena_gotowa_do_zamowienia(monkeypatch, conv_id)
+        prawdziwa = potwierdzenia.sprawdz_bramke
+
+        def _bramka(*args, **kwargs):
+            wynik = prawdziwa(*args, **kwargs)
+            zmiana()
+            return wynik
+
+        monkeypatch.setattr(potwierdzenia, "sprawdz_bramke", _bramka)
+        notatki_wyslane = []
+        monkeypatch.setattr(notatki, "wyslij_notatke",
+                            lambda cid, tekst, **k: notatki_wyslane.append(tekst) or True)
+        monkeypatch.setattr(stan, "handoff", lambda powod: {"ok": True})
+        _wolaj(n.przygotuj_zamowienie)
+        assert len(notatki_wyslane) == 1
+        return notatki_wyslane[0]
+
+    def test_notatka_opisuje_to_co_klient_potwierdzil(self, monkeypatch):
+        tekst = self._notatka_po_wyscigu(
+            monkeypatch, 96595, lambda: stan.zapisz_pozycje("1", dlugosc_cm=300))
+
+        assert "180.0x60.0x4.0 cm" in tekst, (
+            "konsultant dostal opis zamowienia sprzed potwierdzenia klienta")
+        assert "300" not in tekst
+
+    def test_notatka_niesie_dostawe_z_migawki(self, monkeypatch):
+        # Zmiana wymiaru KASUJE dostawe (`stan._zmien_pozycje`), wiec swiezy
+        # odczyt oddawal notatke BEZ kuriera — a klient potwierdzil cene z nim.
+        tekst = self._notatka_po_wyscigu(
+            monkeypatch, 96596, lambda: stan.zapisz_pozycje("1", dlugosc_cm=300))
+
+        assert "DPD" in tekst
+
+    def test_bez_wyscigu_notatka_bez_zmian(self, monkeypatch):
+        # Kontrola negatywna: nic sie nie dzieje rownolegle, wiec notatka ma
+        # wygladac dokladnie jak dotad — z linkiem, pozycjami i dostawa.
+        tekst = self._notatka_po_wyscigu(monkeypatch, 96597, lambda: None)
+
+        assert "https://crm.example/q/abc" in tekst
+        assert "180.0x60.0x4.0 cm" in tekst
+        assert "DPD" in tekst

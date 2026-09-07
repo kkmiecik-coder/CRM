@@ -21,6 +21,7 @@ import re
 import time
 
 from core.db import db
+from core.events import log_event
 
 # Pola CENOTWÓRCZE — KAŻDE z nich czyta `crm_calc.build_products`, więc jego
 # zmiana zmienia wynik kalkulatora. Pominięcie któregoś tutaj oznacza „zmiana
@@ -29,7 +30,7 @@ from core.db import db
 # klasa błędu #2016 (bramka przepuszcza mimo zmiany danych).
 #
 # JEDNA definicja dla DWÓCH mechanizmów (U6): podpisu potwierdzenia (niżej) i
-# czyszczenia rejestru kwot G1 (`bots_pro.stan._zapisz` woła `odcisk_cenotworczy`).
+# czyszczenia rejestru kwot G1 (`bots_pro.stan._zmien_pozycje` woła `odcisk_cenotworczy`).
 # Wcześniej rejestr czyścił się przy zmianie DOWOLNEGO pola `dane_json`, więc
 # dopisanie otworu — pola jawnie NIEWYCENIANEGO — kasowało prawdziwe ceny i
 # guardrail zgłaszał je jako halucynację.
@@ -41,7 +42,25 @@ _POLA_CENOTWORCZE = ("id", "dlugosc", "szerokosc", "grubosc", "ilosc",
 # widzi je w podsumowaniu, więc wchodzą do PODPISU: zmiana nazwy produktu albo
 # listy otworów po potwierdzeniu ma wymagać nowego „tak", choć rejestr kwot
 # zostaje nietknięty (cena się nie zmieniła).
-_POLA_OPISOWE = ("produkt", "otwory")
+_POLA_OPISOWE = ("produkt", "otwory", "ksztalt")
+
+# `ksztalt` (U-N7) jest tu z powodu ODWROTNEGO niż reszta tej listy: klient go
+# w podsumowaniu NIE zobaczy, bo pozycja z kształtem innym niż prostokąt w ogóle
+# do podsumowania nie dojdzie (`podsumowanie.blokada_ksztaltu`). Pole wchodzi do
+# podpisu po to, żeby domknąć jedyną drogę, którą kształt mógłby ominąć bramkę:
+# klient potwierdza prostokąt -> model dopisuje ksztalt="sześciokąt" ->
+# `zapisz_wycene` (które kształtu nie sprawdza, sprawdza podpis) wysyła do CRM
+# wycenę sześciokąta w cenie prostokąta. Z polem w podpisie taka zmiana
+# unieważnia potwierdzenie i `sprawdz_bramke` odmawia.
+#
+# `ksztalt` NIE jest polem CENOTWÓRCZYM, bo `odcisk_cenotworczy` odpowiada na
+# pytanie „czy kalkulator policzyłby to samo" (`narzedzia.policz_wycene` używa
+# go do wykrycia, że pozycje zmieniły się W TRAKCIE liczenia), a
+# `crm_calc.build_products` kształtu nie czyta — wpisuje `shape: "rectangular"`
+# na sztywno. Rejestr kwot G1 to jednak osobne pytanie: „czy ta kwota nadal
+# opisuje tę pozycję". Odpowiedź jest NIE w chwili, gdy pozycja przestaje być
+# prostokątem, więc zejście z prostokąta czyści rejestr — patrz
+# `ksztalty_nieprostokatne` niżej i `stan._zmien_pozycje`.
 
 _POLA_ISTOTNE = _POLA_CENOTWORCZE + _POLA_OPISOWE
 
@@ -52,6 +71,44 @@ _POLA_ISTOTNE = _POLA_CENOTWORCZE + _POLA_OPISOWE
 # to produkt + ew. dostawa, więc zmiana kodu pocztowego, kuriera albo kosztu
 # wysyłki musi wymusić nowe podsumowanie i nowe „tak" klienta.
 _POLA_DOSTAWY = ("kod_pocztowy", "kurier", "netto", "brutto")
+
+# Deklaracja kształtu z pola `ksztalt` (U-N7). Prostokątem jest pozycja, która
+# pola nie ma wcale (domyślny, milczący przypadek — cały normalny ruch), albo
+# ma w nim SAMO słowo prostokąt/kwadrat w dowolnej odmianie.
+#
+# FAIL-CLOSED I TO ŚWIADOMIE: wszystko inne — także wpis, którego nie umiemy
+# odczytać („prostokąt z zaokrąglonym rogiem", „prostokat?") — jest traktowane
+# jak kształt nieprostokątny i blokuje wycenę. Odwrotna konwencja (nieznane =
+# prostokąt) znaczyłaby, że literówka modelu przywraca dokładnie tę cichą
+# wycenę sześciokąta jak prostokąta, przed którą ta bramka ma chronić. Koszt
+# pomyłki w tę stronę to jedna rozmowa oddana konsultantowi; koszt pomyłki w
+# drugą to zła cena pod podpisem klienta — te dwa błędy nie ważą tyle samo.
+# Docstring narzędzia mówi wprost, żeby wpisywać SAM kształt, nie opis blatu.
+#
+# Definicja mieszka TU, a nie przy bramce w `podsumowanie.py`, bo służy DWÓM
+# mechanizmom naraz — dokładnie jak `_POLA_CENOTWORCZE` wyżej (U6): bramce
+# kształtu (`podsumowanie.blokada_ksztaltu`) i czyszczeniu rejestru kwot G1
+# (`stan._zmien_pozycje`). Dwie kopie tego wyrażenia rozjechałyby się przy
+# pierwszej poprawce i jeden z mechanizmów cicho przestałby działać.
+KSZTALT_PROSTOKATNY = re.compile(r"(?:prostok[ąa]t\w*|kwadrat\w*)", re.IGNORECASE)
+
+
+def ksztalty_nieprostokatne(pozycje):
+    """Zbiór identyfikatorów pozycji ZADEKLAROWANYCH jako coś innego niż
+    prostokąt. Puste/brakujące pole `ksztalt` to prostokąt.
+
+    Po co identyfikatory, a nie samo „czy jest tu nieprostokąt": wołający
+    (`stan._zmien_pozycje`) porównuje zbiór SPRZED zapisu ze zbiorem PO nim i
+    reaguje wyłącznie na pozycje, które właśnie PRZESTAŁY być prostokątem.
+    Dzięki temu powtórzony zapis tej samej deklaracji niczego nie kasuje, a
+    poprawka „jednak prostokąt" (droga wyjścia z pomyłki, którą obiecuje
+    wskazówka bramki) nie unieważnia kwot policzonych wcześniej."""
+    wynik = set()
+    for poz in pozycje or []:
+        deklaracja = str(poz.get("ksztalt") or "").strip()
+        if deklaracja and not KSZTALT_PROSTOKATNY.fullmatch(deklaracja):
+            wynik.add(str(poz.get("id") or ""))
+    return wynik
 
 # Cytat musi mieć sensowną długość — pojedynczy znak interpunkcyjny ("." wyrwane
 # z końca zdania klienta) nie jest potwierdzeniem.
@@ -132,7 +189,7 @@ _ODMOWY = re.compile(
 def odcisk_cenotworczy(pozycje):
     """Kanoniczny obraz pozycji OGRANICZONY do pól cenotwórczych (U6).
 
-    `bots_pro.stan._zapisz` porównuje ten odcisk sprzed i po zapisie, żeby
+    `bots_pro.stan._zmien_pozycje` porównuje ten odcisk sprzed i po zapisie, żeby
     zdecydować, czy wyczyścić rejestr kwot G1. Mieszka tutaj, a nie w `stan`,
     bo to ta sama definicja „co zmienia cenę", której używa podpis — dwie
     kopie tej listy rozjechałyby się przy pierwszym nowym polu."""
@@ -141,6 +198,67 @@ def odcisk_cenotworczy(pozycje):
         for p in sorted(pozycje or [], key=lambda x: str(x.get("id")))
     ]
     return json.dumps(istotne, ensure_ascii=False, sort_keys=True)
+
+
+def _odcisk_dostawy(dostawa):
+    """Kanoniczny obraz DOSTAWY ograniczony do pól, które klient widzi i które
+    wchodzą do podpisu (`_POLA_DOSTAWY`). Ta sama rola co `odcisk_cenotworczy`
+    dla pozycji i ta sama, JEDNA lista pól — dwie kopie rozjechałyby się przy
+    pierwszym nowym polu dostawy."""
+    return json.dumps({k: (dostawa or {}).get(k) for k in _POLA_DOSTAWY},
+                      ensure_ascii=False, sort_keys=True)
+
+
+def kwota_nadal_opisuje(stare_pozycje, nowe_pozycje,
+                        stara_dostawa=None, nowa_dostawa=None):
+    """Czy kwota policzona dla `stare_pozycje` (i ew. `stara_dostawa`) nadal
+    opisuje `nowe_pozycje` (i `nowa_dostawa`).
+
+    JEDNA definicja predykatu „czy ta kwota nadal obowiązuje", wołana ze
+    WSZYSTKICH miejsc, które to pytanie zadają:
+      - `stan._zmien_pozycje` — czy zapis pozycji ma wyczyścić rejestr G1,
+      - `narzedzia.policz_wycene` — czy wolno zarejestrować kwotę, która
+        wróciła z kalkulatora PO tym, jak pozycje mogły się już zmienić,
+      - `narzedzia.policz_wysylke` — to samo pytanie dla kosztu kuriera, który
+        wrócił z API PO tym, jak gabaryt mógł się już zmienić (K1),
+      - `podsumowanie.wyslij` — to samo pytanie dla drugiej funkcji wołającej
+        kalkulator, i JEDYNE miejsce, które pyta też o dostawę (D1).
+
+    Definicje BYŁY DWIE i się rozjechały, i to jest cały powód, dla którego ta
+    funkcja istnieje: `_zmien_pozycje` liczyło zejście z prostokąta, a
+    `policz_wycene` patrzyło WYŁĄCZNIE na odcisk cenotwórczy — a `ksztalt`
+    polem cenotwórczym świadomie nie jest. Deklaracja kształtu, która trafiła
+    do bazy w trakcie liczenia (okno = całe `crm_calc.calculate`, HTTP z
+    timeoutem 30 s, świadomie poza zamkiem), była więc dla tej kontroli
+    NIEWIDZIALNA: cena prostokąta wchodziła do rejestru G1 dla pozycji, która
+    w bazie miała już `ksztalt="sześciokąt"`, i guardrail pozwalał ją
+    wypowiedzieć klientowi jako prawdziwą (rozmowa 4727, sześciokąt 87x75).
+
+    DWA CZŁONY, bo to dwa różne pytania (patrz komentarz przy `ksztalt` wyżej):
+      1. odcisk cenotwórczy — „czy kalkulator policzyłby to samo";
+      2. zejście z prostokąta — „czy ta kwota nadal opisuje tę pozycję", mimo
+         że kalkulator policzyłby identycznie, bo kształtu nie czyta.
+
+    Człon drugi to różnica ZBIORÓW, nie pytanie „czy jest tu nieprostokąt":
+    reagujemy wyłącznie na pozycje, które WŁAŚNIE przestały być prostokątem.
+    Powtórzona deklaracja tego samego kształtu niczego nie unieważnia (N1),
+    a poprawka „jednak prostokąt" tym bardziej — tam kwota znów obowiązuje.
+
+    CZŁON TRZECI, dostawa (D1): argumenty OPCJONALNE, bo pytanie o dostawę ma
+    sens wyłącznie tam, gdzie liczona kwota dostawę OBEJMUJE — czyli w
+    `podsumowanie.wyslij`, które składa sumę „produkt + dostawa" i rejestruje
+    ją w G1. Pozostali wołający pytają o kwotę SAMEGO produktu (`policz_wycene`)
+    albo dopiero o dostawę stanowią (`policz_wysylke`, `_zmien_pozycje` ją
+    kasuje), więc nie mają czego porównywać i pominięcie argumentów jest tam
+    poprawną odpowiedzią „nie dotyczy" (dwa razy `{}` to zgodność).
+    Symetria była do dziś niedomknięta: `wyslij` czytało dostawę POZA zamkiem
+    i po powrocie z kalkulatora już do niej nie zaglądało, a kontrola
+    porównywała wyłącznie pozycje — więc suma z nieaktualnym kurierem szła do
+    klienta i do rejestru G1."""
+    return (odcisk_cenotworczy(stare_pozycje) == odcisk_cenotworczy(nowe_pozycje)
+            and not (ksztalty_nieprostokatne(nowe_pozycje)
+                     - ksztalty_nieprostokatne(stare_pozycje))
+            and _odcisk_dostawy(stara_dostawa) == _odcisk_dostawy(nowa_dostawa))
 
 
 def podpis(pozycje, dostawa=None):
@@ -314,17 +432,53 @@ def potwierdz(cytat_klienta):
 
     stan.zapisz_stan(potwierdzony_podpis=biezacy, potwierdzenie_cytat=cytat_klienta,
                      potwierdzenie_ts=time.time())
+    # T1 (telemetria lejka): `confirmed` — ta sama nazwa co w starym silniku.
+    # PO zapisie podpisu, nie przed: inwariant I2 mówi, że potwierdzenie jest
+    # przypięte do PODPISU TREŚCI, a nie do faktu wywołania narzędzia, więc
+    # zdarzenie ma opisywać potwierdzenie, które naprawdę wylądowało w
+    # `pro_stan`. Obie ścieżki odrzucenia wyżej robią `return` przed tym
+    # miejscem, więc na jedno udane `potwierdz` przypada dokładnie jedno
+    # zdarzenie. Zero zmian w samej bramce I2 — to wyłącznie obserwacja.
+    log_event(stan.conv_id(), "confirmed")
     return {"ok": True, "podpis": biezacy}
 
 
-def sprawdz_bramke():
-    """Czy wolno zapisać wycenę albo podać link do zamówienia."""
+def sprawdz_bramke(pozycje=None, dostawa=None):
+    """Czy wolno zapisać wycenę albo podać link do zamówienia.
+
+    K2: wołający, który zaraz WYŚLE dane dalej (do CRM, a stamtąd pod link
+    klienta i do zamówienia w BaseLinkerze), MUSI podać dokładnie tę migawkę,
+    którą wyśle — `stan.migawka()`. Bez tego bramka liczyła podpis z WŁASNEGO
+    odczytu, a `create_quote`/`update_quote` dostawały DRUGI, niezależny —
+    między nimi nie było zamka, więc równoległy `zapisz_pozycje` z tego samego
+    kroku modelu wchodził w środek. Inwariant I2 mówi „nic dalej bez
+    potwierdzenia przypiętego do PODPISU TREŚCI"; sprawdzanie jednej treści
+    i wysyłanie innej jest złamaniem tego zdania, nawet gdy obie są poprawne
+    z osobna. ZMIERZONE: klient potwierdził blat 180 cm, do CRM szło 300 cm
+    w 10/15 przebiegów przy samym oknie bramka->odczyt, bez żadnego
+    złośliwego przeplotu.
+
+    R5: migawkę podaje TAKŻE `przygotuj_zamowienie`. Poprzednia wersja tego
+    docstringa mówiła, że wolno mu jej nie podawać, „bo niczego do CRM nie
+    wysyła" — i to była nieprawda na Allegro, czyli na kanale, dla którego
+    powstała jego druga gałąź: tam narzędzie pisze notatkę do Chatwoota
+    (`cw_note`, HTTP) i oddaje rozmowę człowiekowi (`stan.handoff`, drugie HTTP
+    i zapis stanu). Notatka ZASTĘPUJE kupującemu link, więc opis zamówienia
+    musi być tą samą treścią, na której przeszła ta bramka.
+
+    Argumenty domyślne (`None`) znaczą „policz podpis z bieżącego stanu".
+    Dziś NIE MA takiego wołającego w kodzie produkcyjnym — zostają dla
+    czytelności testów i dlatego, że dla pytania „czy ostatnie potwierdzenie
+    nadal obowiązuje", zadanego bez zamiaru wysłania czegokolwiek, jest to
+    poprawna odpowiedź. Nowy wołający, który cokolwiek WYŚLE albo ZAPISZE,
+    ma podać migawkę."""
     zapisany, cytat = _stan_potwierdzenia()
     if not zapisany:
         return {"ok": False, "error": "BRAK_POTWIERDZENIA",
                 "wskazowka": "Najpierw wyślij podsumowanie i poczekaj, aż klient je potwierdzi."}
 
-    if zapisany != _biezacy_podpis():
+    biezacy = podpis(pozycje, dostawa) if pozycje is not None else _biezacy_podpis()
+    if zapisany != biezacy:
         return {"ok": False, "error": "POTWIERDZENIE_NIEAKTUALNE",
                 "wskazowka": "Dane zmieniły się po potwierdzeniu. Wyślij nowe podsumowanie "
                              "i poproś o ponowne potwierdzenie."}

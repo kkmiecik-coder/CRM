@@ -21,6 +21,7 @@ from agents import function_tool
 
 from bots import crm_calc
 from bots_pro.obrazy_do_klienta import OBRAZY_DLA_KLIENTA
+from core.events import log_event
 from core.log import log
 
 # Osiem kombinacji z VARIANT_CODES. B/B istnieje WYŁĄCZNIE dla dębu.
@@ -116,6 +117,7 @@ def zapisz_pozycje(
     finishing_option_id: int = 0,
     edges: Optional[List[Krawedz]] = None,
     otwory: Optional[List[str]] = None,
+    ksztalt: str = "",
     usun: bool = False,
 ) -> dict:
     """Zapisuje lub aktualizuje JEDNĄ pozycję wyceny pod stałym identyfikatorem.
@@ -160,13 +162,22 @@ def zapisz_pozycje(
     otwory: opcjonalna lista opisów wycięć/otworów (po jednym opisie na
     otwór, np. "otwór na zlew 50x40 cm"). NIE są automatycznie wyceniane —
     koszt doliczy konsultant. Podana lista (także pusta) zastępuje poprzednią;
-    pomiń pole, żeby jej nie zmieniać."""
+    pomiń pole, żeby jej nie zmieniać.
+
+    ksztalt: kształt blatu. Domyślnie prostokąt — pomiń to pole dla każdego
+    prostokąta i kwadratu, czyli w praktyce zawsze. Wypełnij je JEDNYM słowem
+    nazywającym kształt (np. "sześciokąt", "okrągły", "litera L", "trapez"),
+    gdy klient prosi o cokolwiek innego. Kalkulator liczy WYŁĄCZNIE prostokąty
+    i kwadraty, więc wypełnione pole zablokuje policz_wycene i
+    wyslij_podsumowanie — i o to chodzi: taka sprawa należy do konsultanta
+    (patrz reguła KSZTAŁT). Wpisuj SAM kształt, nie opis blatu: każda wartość,
+    której nie da się odczytać jako prostokąt/kwadrat, blokuje wycenę."""
     from bots_pro import stan
     return stan.zapisz_pozycje(
         id=id, produkt=produkt, dlugosc_cm=dlugosc_cm, szerokosc_cm=szerokosc_cm,
         grubosc_cm=grubosc_cm, ilosc=ilosc, selected_variant=selected_variant,
         wykonczenie=wykonczenie, finishing_option_id=finishing_option_id or None,
-        edges=edges, otwory=otwory, usun=usun,
+        edges=edges, otwory=otwory, ksztalt=ksztalt, usun=usun,
     )
 
 
@@ -216,10 +227,76 @@ def policz_wycene() -> dict:
     Cen INNYCH wariantów drewna to narzędzie nie zwraca i nie ma ich skąd
     wziąć — porównanie wariantów klient zobaczy w gotowej wycenie, gdzie stoją
     obok siebie razem z powodem niedostępności (patrz sekcja PORÓWNANIE)."""
-    from bots_pro import podsumowanie, stan
-    pozycje = stan.pozycje()
+    from bots_pro import podsumowanie, potwierdzenia, stan
+    # X1: migawka pozycji brana POD zamkiem — inaczej równoległy `zapisz_pozycje`
+    # z tego samego kroku modelu mógłby ją złapać w połowie i kalkulator
+    # policzyłby przypadkowy prefiks listy.
+    with stan.zamek_stanu:
+        pozycje = stan.pozycje()
+
+    # U-N7: bramka kształtu. PRZED wołaniem kalkulatora — cena sześciokąta
+    # policzona jak prostokąt nie ma po co powstawać, bo model może ją
+    # wypowiedzieć klientowi w tej samej turze (rejestr G1 uzna ją za
+    # prawdziwą, bo PRZYSZŁA z kalkulatora), nie dochodząc nigdy do
+    # podsumowania, gdzie do dziś stała jedyna kontrola kształtu.
+    # Definicja bramki mieszka w `podsumowanie` razem z listą słów kształtu —
+    # tu, zgodnie z zasadą warstw, jest wyłącznie jej wywołanie.
+    blokada = podsumowanie.blokada_ksztaltu(pozycje)
+    if blokada:
+        return blokada
+
+    # Samo wywołanie kalkulatora jest PO ZA zamkiem, świadomie: to HTTP z
+    # timeoutem 30 s, a zamek jest procesowy i wspólny dla wszystkich rozmów —
+    # trzymanie go przez czas obcego I/O zamieniłoby naprawę integralności w
+    # awarię przepustowości.
     wynik = crm_calc.calculate(pozycje, crm_calc.get_options())
-    stan.zapamietaj_kwoty(podsumowanie.kwoty_z_wyniku(pozycje, wynik))   # inwariant I1
+    with stan.zamek_stanu:
+        # Inwariant I1 — ale rejestrujemy TYLKO wtedy, gdy pozycje nie zmieniły
+        # się w trakcie liczenia. To jest ta sama reguła, którą `_zmien_pozycje`
+        # stosuje od drugiej strony (zmiana pola cenotwórczego kasuje rejestr),
+        # tylko zastosowana do kwoty, która przyszła PÓŹNO: cena policzona dla
+        # konfiguracji, z której klient właśnie zrezygnował, nie ma prawa wejść
+        # do rejestru jako „znana", bo wtedy guardrail przepuściłby ją modelowi
+        # do zacytowania (dokładnie awaria opisana jako W2 w docstringu
+        # `bots_pro/stan.py`). Porównanie i zapis MUSZĄ być pod jednym zamkiem —
+        # sprawdzenie bez niego nic nie gwarantuje, bo zapis pozycji zdążyłby
+        # wejść pomiędzy.
+        #
+        # DOKŁADNIE ten sam predykat co przy czyszczeniu rejestru — jedna
+        # funkcja, nie dwie kopie reguły. Wcześniej stał tu goły `odcisk_
+        # cenotworczy`, który deklaracji kształtu NIE WIDZI (`ksztalt` nie jest
+        # polem cenotwórczym), więc `zapisz_pozycje(ksztalt="sześciokąt")`
+        # z tego samego kroku modelu przepuszczał cenę prostokąta do rejestru
+        # G1 — bramka kształtu zamykała tylko przebieg sekwencyjny.
+        if potwierdzenia.kwota_nadal_opisuje(pozycje, stan.pozycje()):
+            stan.zapamietaj_kwoty(podsumowanie.kwoty_z_wyniku(pozycje, wynik))
+        else:
+            log("narzedzia: pozycje zmienily sie w trakcie liczenia -> kwot NIE "
+                "rejestruje (conv %s)" % stan.conv_id())
+
+    # T1 (telemetria lejka): DOKŁADNIE ta sama nazwa zdarzenia co w starym
+    # silniku (`bots/quotebot.py`, LS-08), żeby oba silniki dały się porównać
+    # zapytaniem do JEDNEJ tabeli `quote_events` — po to jest ten commit.
+    # Nie ma tu żadnego try/except: `core.events.log_event` ma własny i NIGDY
+    # nie rzuca (patrz jego docstring), a druga osłona tylko zaciemniałaby, że
+    # ta linia nie może wywrócić tury.
+    #
+    # UWAGA na różnicę semantyczną wobec starego silnika, istotną przy czytaniu
+    # danych: tam `priced` znaczyło „klient ZOBACZYŁ cenę" (log tuż po udanym
+    # `cw_agent_reply` z ceną), tu znaczy „kalkulator ODDAŁ cenę". Model wolno
+    # woła to narzędzie kilka razy w jednej rozmowie (mówi to wprost docstring
+    # wyżej), więc LICZBA zdarzeń `priced` NIE jest porównywalna między
+    # silnikami — porównywalna jest liczba ROZMÓW z co najmniej jednym `priced`
+    # (COUNT(DISTINCT conv_id)) i to na niej stoi baseline lejka.
+    #
+    # `pozycje` w meta (pole, którego stary silnik nie miał): rozstrzyga spór o
+    # zwinięcie listy 13 elementów do jednej — mówi, ILE pozycji faktycznie
+    # weszło do rachunku, a nie ile klient wymienił w wiadomości.
+    if wynik.get("ok"):
+        log_event(stan.conv_id(), "priced",
+                  {"kwota": (wynik.get("totals") or {}).get("total_brutto"),
+                   "pozycje": len(pozycje)})
+
     dla_modelu = podsumowanie.wynik_dla_modelu(pozycje, wynik)
     if _wariant_niedostepny(wynik) and isinstance(dla_modelu, dict):
         # Kopia, nie mutacja: `wynik_dla_modelu` przy braku sekcji `products`
@@ -262,8 +339,13 @@ def policz_wysylke(kod_pocztowy: str) -> dict:
     Koszt zależy od GABARYTU, więc po KAŻDEJ zmianie pozycji (zapisz_pozycje)
     policz wysyłkę ponownie — stare oszacowanie przestaje wtedy obowiązywać i
     znika z podsumowania."""
-    from bots_pro import stan
-    wynik = crm_calc.shipping_quote(stan.pozycje(), kod_pocztowy)
+    from bots_pro import potwierdzenia, stan
+    # K1: migawka pozycji POD zamkiem, dokładnie jak w `policz_wycene`. Bez
+    # niego równoległy `zapisz_pozycje` z tego samego kroku modelu mógłby złapać
+    # listę w połowie zapisu i kurier liczyłby gabaryt przypadkowego prefiksu.
+    with stan.zamek_stanu:
+        pozycje = stan.pozycje()
+    wynik = crm_calc.shipping_quote(pozycje, kod_pocztowy)
 
     # U4: zapamiętujemy oszacowanie TRWALE — bez tego dostawa nie ma jak wejść ani
     # do podpisu potwierdzenia, ani do podsumowania, ani do korekty wyceny w CRM,
@@ -274,17 +356,89 @@ def policz_wysylke(kod_pocztowy: str) -> dict:
     # KOLEJNOŚĆ jest istotna (N2): `zapisz_dostawe` kasuje z rejestru G1 kwoty
     # POPRZEDNIEGO oszacowania, więc nowe kwoty rejestrujemy PO nim — odwrotna
     # kolejność skasowałaby to, co właśnie zapisaliśmy.
-    if wynik.get("ok") and wynik.get("carriers"):
-        stan.zapisz_dostawe(kod_pocztowy, kurier=wynik.get("carrier_name"),
-                            netto=wynik.get("shipping_netto"),
-                            brutto=wynik.get("shipping_brutto"))
-    else:
-        stan.zapisz_dostawe(kod_pocztowy)
+    #
+    # X1: ta para MUSI być jedną sekcją krytyczną, i to jest wiążące, nie
+    # ozdobne. Kasowanie kwot poprzedniego oszacowania i rejestracja nowych to
+    # dwie operacje na tym samym rejestrze; dwa równoległe `policz_wysylke`
+    # (klient podaje dwa kody pocztowe naraz) mogą je przepleść tak, że w
+    # `pro_stan` zostaje kurier jednego, a w rejestrze G1 kwoty drugiego —
+    # albo, gorzej, że świeżo zarejestrowana kwota ginie pod cudzym DELETE.
+    # Objawem jest fałszywy alarm G1 na PRAWDZIWEJ kwocie kalkulatora, runda
+    # korekty i handoff „guardrail ceny — dwie próby" (tura.py). Zamka nie da
+    # się schować w `zapisz_dostawe`: sekcja krytyczna obejmuje PARĘ, a druga
+    # połowa pary mieszka tutaj. `zamek_stanu` jest RLock-iem, więc zagnieżdżony
+    # zamek wewnątrz `zapisz_dostawe` jest tu bezpieczny.
+    #
+    # Samo `shipping_quote` (HTTP) zostaje POZA zamkiem — jest kilka linii wyżej,
+    # z tego samego powodu co w `policz_wycene`.
+    # T1: warunek `ok and carriers` jest PRZEPISANY ze starego silnika
+    # (bots/quotebot.py:_obsluz_wysylke) — `ok=True` z `carriers=0` NIE jest
+    # oszacowaniem wysyłki (patrz docstring tego narzędzia: to nie znaczy
+    # „gratis"), więc zdarzenie telemetrii tam nie leci i lejek nie liczy
+    # fałszywych sukcesów. Ten sam warunek wybiera gałąź zapisu niżej — jedno
+    # wyliczenie, nie dwa, żeby nie dało się ich rozjechać.
+    oszacowano_wysylke = bool(wynik.get("ok") and wynik.get("carriers"))
+    with stan.zamek_stanu:
+        # K1: kontrola po powrocie z HTTP — TA SAMA reguła i TA SAMA funkcja, co
+        # w `policz_wycene` i `podsumowanie.wyslij`. Koszt kuriera zależy od
+        # GABARYTU (mówi to wprost docstring wyżej), więc oszacowanie policzone
+        # dla pozycji, które w trakcie liczenia się zmieniły, po prostu ich już
+        # nie opisuje — i nie ma prawa ani wylądować w `pro_stan`, ani wejść do
+        # rejestru kwot G1.
+        #
+        # Zmierzone na kodzie sprzed naprawy (klient pisze „05-081, i przedłuż
+        # blat do 300 cm", model woła w jednym kroku `zapisz_pozycje` i
+        # `policz_wysylke`, 15 przebiegów): koszt dla 180 cm zostawał w bazie
+        # dla blatu 300 cm w 15/15, a G1 przepuszczał zdanie „wysyłka kurierem
+        # inPost to 19,92 zł brutto" też w 15/15 — czyli złamanie I1 przez
+        # kwotę, która PRZYSZŁA z kalkulatora, tylko dla innych danych.
+        # `_zmien_pozycje` kasuje wtedy dostawę i rejestr, a to wywołanie
+        # wpisywało je z powrotem JUŻ PO tym kasowaniu.
+        #
+        # Zapis i sprawdzenie MUSZĄ być pod jednym zamkiem: sprawdzenie bez
+        # niego nic nie gwarantuje, bo zapis pozycji zdążyłby wejść pomiędzy.
+        pozycje_aktualne = potwierdzenia.kwota_nadal_opisuje(pozycje, stan.pozycje())
+        if pozycje_aktualne:
+            if oszacowano_wysylke:
+                stan.zapisz_dostawe(kod_pocztowy, kurier=wynik.get("carrier_name"),
+                                    netto=wynik.get("shipping_netto"),
+                                    brutto=wynik.get("shipping_brutto"))
+            else:
+                stan.zapisz_dostawe(kod_pocztowy)
 
-    stan.zapamietaj_kwoty(
-        (wynik[pole] for pole in ("shipping_netto", "shipping_brutto")
-         if isinstance(wynik.get(pole), (int, float))),
-        zrodlo="dostawa")
+            stan.zapamietaj_kwoty(
+                (wynik[pole] for pole in ("shipping_netto", "shipping_brutto")
+                 if isinstance(wynik.get(pole), (int, float))),
+                zrodlo="dostawa")
+
+    if not pozycje_aktualne:
+        # NIC nie zapisaliśmy, więc nie ma też czego zameldować modelowi jako
+        # kosztu — oddajemy sam powód i prośbę o powtórzenie. ZERO KWOT w tym
+        # wyniku, z tego samego powodu co w `WSKAZOWKA_PO_DOSTAWIE`: rejestr G1
+        # tego oszacowania nie zna, więc liczba stąd byłaby dla guardraila
+        # halucynacją. Telemetria `shipping_quoted` też tu nie leci — lejek ma
+        # liczyć oszacowania, które NAPRAWDĘ obowiązują.
+        log("narzedzia: pozycje zmienily sie w trakcie liczenia wysylki -> dostawy "
+            "NIE zapisuje (conv %s)" % stan.conv_id())
+        return {"ok": False, "error": "POZYCJE_ZMIENIONE_W_TRAKCIE",
+                "wskazowka": "Pozycje zmieniły się w trakcie liczenia wysyłki, więc to "
+                             "oszacowanie już ich nie opisuje i go nie zapisałem. "
+                             "Zawołaj policz_wysylke jeszcze raz z tym samym kodem "
+                             "pocztowym, gdy pozycje są już ustalone."}
+
+    # POZA sekcją krytyczną, i to jest wiążące, nie kosmetyka. `core.events.
+    # log_event` otwiera WŁASNE połączenie SQLite z `timeout=30`, robi INSERT
+    # i `commit()` — czyli fsync. Wewnątrz `with` ten fsync (a w najgorszym
+    # razie 30-sekundowe czekanie na zamek zapisu SQLite) trzymałby
+    # `zamek_stanu`, który jest zamkiem PROCESU, wspólnym dla WSZYSTKICH
+    # rozmów: przez ten czas żaden `zapisz_pozycje` w żadnej innej rozmowie by
+    # nie przeszedł. Ta linia trafiła pod zamek przez kolejność commitów
+    # (telemetria stanęła tu wcześniej, zamek opakował parę dookoła niej), a
+    # zasada jest ta sama, co dla `shipping_quote` kilkanaście linii wyżej:
+    # obce I/O zostaje POZA zamkiem. Pozostałe emisje `log_event` w tym module
+    # już tak stoją.
+    if oszacowano_wysylke:
+        log_event(stan.conv_id(), "shipping_quoted", {"carrier": wynik.get("carrier_name")})
 
     if not wynik.get("ok"):
         # U9: sam POWÓD niepowodzenia, nigdy surowy payload. Nieudane oszacowanie
@@ -407,8 +561,18 @@ def _bez_linku_gdy_kanal_zabrania(wynik):
     return okrojony
 
 
-def _dopisz_dostawe(stan, edit_uuid, notatka):
+def _dopisz_dostawe(pozycje, dostawa, edit_uuid, notatka):
     """Dopisuje kuriera i koszt wysyłki do ŚWIEŻO UTWORZONEJ wyceny (U3/U4).
+
+    K2: pozycje i dostawa przychodzą W ARGUMENCIE — jako MIGAWKA wzięta przez
+    wołającego pod zamkiem, ta sama, na której przeszła bramka I2 i która
+    poszła do `create_quote`. Wcześniej ta funkcja sięgała po stan SAMA, i to
+    JUŻ PO powrocie z `create_quote` (HTTP, timeout 30 s) — czyli był to
+    TRZECI niezależny odczyt w jednym narzędziu, z najszerszym z wszystkich
+    okien. Tym trzecim odczytem NADPISYWAŁA wycenę w CRM przez `update_quote`,
+    więc pod link, który klient dostaje, trafiała treść, której nigdy nie
+    potwierdził. ZMIERZONE: opis pozycji zmieniony równolegle wchodził do
+    `update_quote` w 15/15 przebiegów.
 
     `POST /api/bot/quotes` nie przyjmuje pól wysyłki — przyjmuje je wyłącznie
     `PUT /api/bot/quotes/<edit_uuid>` (patrz `_shipping_settings` w
@@ -424,12 +588,11 @@ def _dopisz_dostawe(stan, edit_uuid, notatka):
     dostawie wypuszczałby link do wyceny BEZ niej. Dziś nieosiągalne przez
     prawdziwy CRM (`POST /api/bot/quotes` zwraca `edit_uuid` zawsze przy
     ok=True), ale cała reszta R1 jest fail-closed i to jedno miejsce też ma być."""
-    dostawa = stan.dostawa()
     if not dostawa.get("kurier"):
         return None
     if not edit_uuid:
         return {"ok": False, "error": "BRAK_EDIT_UUID"}
-    return crm_calc.update_quote(edit_uuid, stan.pozycje(), crm_calc.get_options(),
+    return crm_calc.update_quote(edit_uuid, pozycje, crm_calc.get_options(),
                                  notes=notatka, courier_name=dostawa["kurier"],
                                  shipping_netto=dostawa.get("netto"),
                                  shipping_brutto=dostawa.get("brutto"))
@@ -449,25 +612,61 @@ def zapisz_wycene(client_id: int, notatka: str = "") -> dict:
 
     Identyfikator wyceny jest zapamiętywany na stałe w tej rozmowie, więc
     popraw_wycene i przygotuj_zamowienie możesz wołać BEZ podawania edit_uuid."""
-    from bots_pro import notatki, potwierdzenia, stan
-    bramka = potwierdzenia.sprawdz_bramke()
+    from bots_pro import potwierdzenia, stan
+    # K2: JEDNA migawka pod zamkiem — ta sama idzie do bramki I2 i do CRM.
+    # Wcześniej były tu TRZY niezależne odczyty stanu (bramka, `create_quote`,
+    # `_dopisz_dostawe`) bez zamka między nimi, więc klient mógł potwierdzić
+    # jedną konfigurację, a w CRM — i pod jego linkiem — lądowała inna.
+    # Uzasadnienie i pomiar: patrz `potwierdzenia.sprawdz_bramke`.
+    pozycje, dostawa = stan.migawka()
+    bramka = potwierdzenia.sprawdz_bramke(pozycje, dostawa)
     if not bramka["ok"]:
         return bramka
     # R1: ta funkcja potrafi teraz zwrocic ok=False MIMO ZAPISANEJ wyceny (nieudane
     # dopisanie dostawy, nizej) — a blad zacheca model do ponowienia. Ponowienie
     # utworzyloby DRUGA wycene dla tej samej rozmowy, dokladnie to, czego zabrania
     # docstring. Sprawdzamy wiec stan, nie ufamy dyscyplinie promptu.
-    if stan.zapisana_wycena().get("edit_uuid"):
+    #
+    # R4: sprawdzenie i REZERWACJA pod jednym zamkiem (`stan.rezerwuj_zapis_wyceny`),
+    # nie samo czytanie bazy. Poprzednia wersja pytala „czy wycena juz jest"
+    # PRZED wyjsciem na `create_quote` (HTTP, timeout 30 s), a odpowiedz
+    # zapisywala dopiero po powrocie — dwa rownolegle wywolania z jednego kroku
+    # modelu przechodzily wiec OBA (zmierzone: 15/15). Bramka, ktora dziala
+    # tylko na przebiegu sekwencyjnym, nie jest bramka.
+    if not stan.rezerwuj_zapis_wyceny():
         return {"ok": False, "error": "WYCENA_JUZ_ZAPISANA",
-                "wskazowka": "Ta rozmowa ma już zapisaną wycenę w CRM. Zmiany rób przez "
-                             "popraw_wycene, a link przez przygotuj_zamowienie — ponowny "
-                             "zapis zdublowałby wycenę."}
-    wynik = crm_calc.create_quote(stan.pozycje(), crm_calc.get_options(),
+                "wskazowka": "Ta rozmowa ma już wycenę w CRM (albo właśnie ją "
+                             "zapisuję). Zmiany rób przez popraw_wycene, a link przez "
+                             "przygotuj_zamowienie — ponowny zapis zdublowałby wycenę."}
+    try:
+        return _zapisz_wycene_pod_rezerwacja(pozycje, dostawa, client_id, notatka)
+    finally:
+        # BEZWARUNKOWO, takze po sukcesie — patrz `stan.zwolnij_zapis_wyceny`:
+        # od tej chwili pojedynczosci pilnuje `quote_edit_uuid` w bazie, a
+        # nieudany zapis ma zostawic modelowi droge do ponowienia.
+        stan.zwolnij_zapis_wyceny()
+
+
+def _zapisz_wycene_pod_rezerwacja(pozycje, dostawa, client_id, notatka):
+    """Cialo `zapisz_wycene` wykonywane JUZ Z REZERWACJA (R4) — wydzielone
+    wylacznie po to, zeby `finally` zwalniajacy rezerwacje obejmowal wszystkie
+    wyjscia, razem z tym w srodku galezi DOSTAWA_NIEDOPISANA."""
+    from bots_pro import notatki, stan
+    wynik = crm_calc.create_quote(pozycje, crm_calc.get_options(),
                                   client_id, notes=notatka)
     stan.zapamietaj_wycene(wynik)   # U3: bez tego fallback linku jest martwy
 
     if wynik.get("ok"):
-        z_dostawa = _dopisz_dostawe(stan, wynik.get("edit_uuid"), notatka)
+        # T1: zdarzenie znaczy „wycena JEST w CRM", więc leci TUTAJ, a nie przy
+        # `return` — niżej jest gałąź DOSTAWA_NIEDOPISANA, która oddaje
+        # `ok=False` MIMO zapisanej wyceny (patrz jej komentarz). Logowanie
+        # dopiero na wyjściu gubiłoby w telemetrii dokładnie te rozmowy, w
+        # których wycena powstała, ale coś poszło nie tak — czyli najciekawsze.
+        # Emisja jest z natury pojedyncza: rezerwacja + bramka
+        # WYCENA_JUZ_ZAPISANA w `zapisz_wycene` nie dopuszczają drugiego zapisu
+        # w tej samej rozmowie — także przy dwóch wywołaniach naraz (R4).
+        log_event(stan.conv_id(), "quote_saved", {"nr": wynik.get("quote_number")})
+        z_dostawa = _dopisz_dostawe(pozycje, dostawa, wynik.get("edit_uuid"), notatka)
         if z_dostawa is not None:
             if z_dostawa.get("ok"):
                 stan.zapamietaj_wycene(z_dostawa)
@@ -485,9 +684,18 @@ def zapisz_wycene(client_id: int, notatka: str = "") -> dict:
                 notatki.wyslij_notatke(stan.conv_id(), notatki.tresc_dla_agenta(
                     "wycena zapisana BEZ kosztu dostawy — nie udało się dopisać "
                     "kuriera do wyceny w CRM, link do niej NIE został wysłany",
-                    pozycje=stan.pozycje(), dostawa=stan.dostawa(),
+                    # K2: notatka opisuje MIGAWKĘ, która poszła do CRM, nie
+                    # świeży odczyt — konsultant ma zobaczyć to, co klient
+                    # potwierdził i co naprawdę wylądowało w wycenie.
+                    pozycje=pozycje, dostawa=dostawa,
                     wycena=stan.zapisana_wycena(),
-                    potwierdzenie=stan.cytat_potwierdzenia()))
+                    potwierdzenie=stan.cytat_potwierdzenia(),
+                    # Z4: TU ta kwota wazy najwiecej z wszystkich trzech notatek.
+                    # Sensem tej notatki jest ostrzezenie „wycena w CRM jest
+                    # TANSZA niz to, co klient potwierdzil" — bez liczby, ktora
+                    # klient zobaczyl, konsultant musi po nia wrocic do watku,
+                    # czyli zrobic dokladnie to, co ta notatka ma wyeliminowac.
+                    pokazana_kwota=stan.pokazana_kwota()))
                 stan.handoff("wycena bez dopisanej dostawy — link wstrzymany")
                 return {"ok": False, "error": "DOSTAWA_NIEDOPISANA",
                         "quote_number": wynik.get("quote_number"),
@@ -514,7 +722,13 @@ def popraw_wycene(edit_uuid: str = "", notatka: str = "") -> dict:
     rozmowie. Podawaj go tylko wtedy, gdy masz go pod ręką z wyniku
     zapisz_wycene."""
     from bots_pro import potwierdzenia, stan
-    bramka = potwierdzenia.sprawdz_bramke()
+    # K2: jak w `zapisz_wycene` — JEDNA migawka pod zamkiem do bramki I2 i do
+    # CRM. Tutaj waży jeszcze więcej, bo to narzędzie NADPISUJE wycenę, do
+    # której klient ma już link: rozjazd między sprawdzoną a wysłaną treścią
+    # znaczy, że klient odświeża stronę i widzi inną cenę niż ta, na którą się
+    # zgodził, po czym z niej zamawia.
+    pozycje, dostawa = stan.migawka()
+    bramka = potwierdzenia.sprawdz_bramke(pozycje, dostawa)
     if not bramka["ok"]:
         return bramka
     # U3: fallback na zapisany identyfikator — bez niego wypadnięcie edit_uuid
@@ -530,8 +744,7 @@ def popraw_wycene(edit_uuid: str = "", notatka: str = "") -> dict:
     # potwierdzał cenę Z dostawą, a pod linkiem widział wycenę BEZ niej.
     # `update_quote` dopisuje wysyłkę tylko gdy `courier_name` jest prawdziwe, więc
     # brak oszacowania (None) świadomie nie trafia do CRM jako "0 zł".
-    dostawa = stan.dostawa()
-    wynik = crm_calc.update_quote(edit_uuid, stan.pozycje(),
+    wynik = crm_calc.update_quote(edit_uuid, pozycje,
                                   crm_calc.get_options(), notes=notatka,
                                   courier_name=dostawa.get("kurier"),
                                   shipping_netto=dostawa.get("netto"),
@@ -562,7 +775,18 @@ def przygotuj_zamowienie(edit_uuid: str = "") -> dict:
 
     edit_uuid możesz POMINĄĆ — system zna wycenę zapisaną w tej rozmowie."""
     from bots_pro import notatki, potwierdzenia, stan, wysylka
-    bramka = potwierdzenia.sprawdz_bramke()
+    # R5: JEDNA migawka, tak samo jak w `zapisz_wycene` i `popraw_wycene`.
+    # Poprzednia wersja stawiała tu `sprawdz_bramke()` bez argumentów, z
+    # uzasadnieniem „to narzędzie nic nie wysyła i nic nie zapisuje". Na
+    # Allegro — czyli na kanale, DLA KTÓREGO powstała gałąź niżej — to
+    # nieprawda: `notatki.zamowienie_do_agenta` robi `cw_note` (HTTP do
+    # Chatwoota), a `stan.handoff` drugie HTTP i zapis stanu. Notatka składała
+    # się przy tym z CZTERECH świeżych odczytów stanu (pozycje, dostawa, cytat
+    # potwierdzenia, pokazana kwota), branych JUŻ PO bramce, a sama bramka
+    # liczyła podpis z jeszcze innego odczytu. Na Allegro ta notatka ZASTĘPUJE
+    # link, więc konsultant dostawał opis zamówienia złożony z rozdartego stanu.
+    pozycje, dostawa = stan.migawka()
+    bramka = potwierdzenia.sprawdz_bramke(pozycje, dostawa)
     if not bramka["ok"]:
         return bramka
     wynik = stan.link_do_checkoutu(edit_uuid)
@@ -573,7 +797,15 @@ def przygotuj_zamowienie(edit_uuid: str = "") -> dict:
     # NIE wraca do modelu — nie po to, żeby go potem wyciąć w wysyłce, tylko
     # żeby w ogóle nie było czego wycinać (osierocone „Link:" i obietnica
     # adresu, którego kupujący nigdy nie dostanie, to ta sama awaria).
-    notatki.zamowienie_do_agenta(wynik)
+    #
+    # R5: notatka opisuje TĘ SAMĄ migawkę, na której przeszła bramka I2, a cytat
+    # potwierdzenia bierze z jej wyniku (`bramka["cytat"]`) zamiast czytać go
+    # jeszcze raz. `pokazana_kwota` to zapis HISTORYCZNY (kolumna, którą pisze
+    # wyłącznie `podsumowanie.wyslij` po udanej wysyłce), więc jeden odczyt tutaj
+    # jest jej pełnym opisem — nie ma czego z czym rozjechać.
+    notatki.zamowienie_do_agenta(wynik, pozycje=pozycje, dostawa=dostawa,
+                                 potwierdzenie=bramka.get("cytat"),
+                                 pokazana_kwota=stan.pokazana_kwota())
     stan.handoff("Allegro — gotowa wycena do domkniecia przez konsultanta")
     return {"ok": True, "tryb": "notatka",
             "wskazowka": "Na tym kanale nie wolno wysyłać linków. Wycena i komplet "

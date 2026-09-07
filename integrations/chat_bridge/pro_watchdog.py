@@ -36,16 +36,28 @@ ciszy dostawałby ciszę zamiast bota. Naprawa: `znajdz_porzucone` filtruje po
 nie własna kopia tej samej logiki (dwie kopie łatwo się rozjeżdżają przy
 przyszłej zmianie `BOT_PRO_INBOXES`/person silnika Pro).
 
+Z4 (naprawa notatki handoffowej): oddanie rozmowy przez watchdoga zostawia
+DOKŁADNIE TĘ SAMĄ notatkę, co handoff z tury (`bots_pro.notatki.notatka_stanu`)
+— z zebranymi pozycjami, dostawą, linkiem do wyceny i ostatnią kwotą pokazaną
+klientowi. Wcześniej szło stąd jedno zaszyte zdanie bez żadnej treści, a tą
+ścieżką wychodzi znaczna część oddawanych rozmów; konsultantka odtwarzała więc
+specyfikację, czytając cały wątek od początku. Warunek konieczny tej naprawy
+siedzi w `_notatka_watchdoga`: bez ustawionego conv_id odczyty stanu po cichu
+zwracają pustkę, więc notatka pisałaby „Zebrane pozycje: brak" na rozmowie,
+która pozycje ma.
+
 Wątek (`watchdog()`) NIE startuje (wraca natychmiast, bez wejścia w pętlę),
 gdy `BOT_PRO_INBOXES` jest puste — kill-switch migracji (ten sam mechanizm co
 w reszcie mostka) ma obejmować TEŻ ten wątek, nie tylko trasy webhooków.
 """
 import time
 
+from bots_pro import notatki, stan
 from bots_pro.notatki import kod_notatki_ok
 from config import (BOT_PRO_CW_AGENT_TOKEN, BOT_PRO_INBOXES, BOT_PRO_WATCHDOG_INTERVAL,
                     BOT_PRO_WATCHDOG_MINUTES)
 from core.chatwoot import cw, cw_bot_handoff, cw_note, cw_pending_conversations
+from core.events import log_event
 from core.log import log
 from quote_worker import _jest_pro_inbox
 
@@ -145,10 +157,97 @@ def _bot_naprawde_mowil_ostatni(conv_id):
     return False
 
 
+def _minuty_ciszy(znacznik, teraz):
+    """Ile pełnych minut klient milczy — albo None, gdy nie wiadomo.
+
+    Liczymy z tego samego `last_msg_ts`, po którym `znajdz_porzucone` wybrało
+    kandydata, żeby liczba w notatce zgadzała się z decyzją, która ją
+    wywołała."""
+    if not znacznik:
+        return None
+    return max(0, int((teraz - znacznik) // 60))
+
+
+def _powod_watchdoga(minuty):
+    """Powód do notatki: mówi WPROST, na czym rozmowa stanęła i JAK DAWNO.
+
+    Sama liczba minut jest tu treścią, nie ozdobą: konsultant przejmujący
+    rozmowę widzi w Chatwoocie tylko godzinę notatki, a nie to, czy klient
+    zamilkł chwilę wcześniej, czy pół dnia temu — a od tego zależy, czy warto
+    jeszcze pisać.
+
+    Świadomie NIE rozróżniamy „cisza PO podsumowaniu z ceną" od „cisza po
+    zwykłym pytaniu bota", choć kolumna `oczekiwany_podpis` by na to pozwoliła.
+    Ta kolumna przeżywa JAWNĄ ODMOWĘ klienta (jeden pisarz, zero miejsc
+    czyszczących — patrz komentarz w `notatki.tresc_dla_agenta`), więc powód
+    zbudowany na niej sugerowałby „brakuje już tylko jego »tak«" także tam,
+    gdzie klient właśnie zgłosił, że zestawienie jest błędne."""
+    if minuty is None:
+        return ("brak odpowiedzi klienta ponad próg %s min od ostatniej wiadomości bota "
+                "— rozmowa oddana automatycznie (watchdog)" % BOT_PRO_WATCHDOG_MINUTES)
+    return ("brak odpowiedzi klienta od %s min (ostatni mówił bot) — rozmowa oddana "
+            "automatycznie (watchdog)" % minuty)
+
+
+def _notatka_watchdoga(conv_id, minuty):
+    """Notatka po automatycznym oddaniu rozmowy — TA SAMA treść, którą dostaje
+    konsultant przy handoffie z tury (`notatki.notatka_stanu`).
+
+    DLACZEGO to jest naprawa, a nie kosmetyka: watchdog wysyłał dotąd jedno
+    zaszyte zdanie, bez pozycji, bez kwoty i bez czasu ciszy — a jest to
+    ścieżka, którą wychodzi ok. 40% oddawanych rozmów. Konsultantka
+    odtwarzała więc specyfikację, czytając wątek od początku (zmierzone czasy
+    reakcji po przekazaniu: 39 min, 46 min, 1 h 27, 1 h 45, 3 h 56, 12 h).
+
+    `stan.ustaw_kontekst_odczytu` jest tu WARUNKIEM KONIECZNYM, nie
+    formalnością: odczyty stanu biorą conv_id z contextvara i NIE wołają
+    `_wymagany_conv_id` (świadomie — przy odczycie brak conv_id jest
+    nieszkodliwy, przy zapisie uszkadza cudzy wiersz). Bez tej linii
+    `stan.pozycje()` zwróciłoby po cichu pustą listę i notatka napisałaby
+    „Zebrane pozycje: brak" na rozmowie, która pozycje MA — czyli zamieniłaby
+    dzisiejszy widoczny brak w niewidoczne kłamstwo. Używamy wersji ZAWĘŻONEJ,
+    a nie pełnego `ustaw_kontekst`: powody przy `stan.ustaw_kontekst_odczytu`.
+
+    Porażka notatki NIE cofa handoffu, który się udał (ta sama zasada, co
+    przed tą zmianą) — zostaje log i notatka AWARYJNA, czyli dawne gołe
+    zdanie. Uboga notatka jest lepsza niż żadna przy rozmowie, która już leży
+    u człowieka."""
+    powod = _powod_watchdoga(minuty)
+    try:
+        stan.ustaw_kontekst_odczytu(conv_id)
+        # poza_tura=True: bramka N7 („jedna notatka na turę") liczy TURY bota, a
+        # watchdog działa właśnie wtedy, gdy żadna nie trwa; flagi turowe
+        # ostatniej tury tej rozmowy nadal wiszą w pamięci procesu i bez tego
+        # zjadłyby notatkę po cichu.
+        if notatki.notatka_stanu(conv_id, powod, poza_tura=True):
+            return True
+        log("watchdog: notatka stanu NIEUDANA (conv %s) -> notatka awaryjna" % conv_id)
+    except Exception as e:
+        log("watchdog: notatka stanu wywrocila sie (conv %s): %r -> notatka awaryjna"
+            % (conv_id, e))
+    try:
+        odpowiedz = cw_note(conv_id, "⏱️ Watchdog: %s" % powod, token=BOT_PRO_CW_AGENT_TOKEN)
+        if not kod_notatki_ok(odpowiedz):
+            log("watchdog: notatka ODRZUCONA przez Chatwoota (conv %s, HTTP %s) — "
+                "sprawdz BOT_PRO_CW_AGENT_TOKEN"
+                % (conv_id, getattr(odpowiedz, "status_code", "?")))
+            return False
+    except Exception as e:
+        log("watchdog: notatka NIEUDANA (conv %s): %r" % (conv_id, e))
+        return False
+    return True
+
+
 def watchdog_once(teraz):
     """Jedno przejście watchdoga. Zwraca liczbę rozmów oddanych konsultantowi."""
     oddane = 0
-    for conv_id in znajdz_porzucone(cw_pending_conversations(), teraz, BOT_PRO_WATCHDOG_MINUTES):
+    rozmowy = cw_pending_conversations()
+    # Znaczniki czasu z TEGO SAMEGO pobrania, po ktorym wybieramy kandydatow —
+    # `znajdz_porzucone` zwraca same identyfikatory (i ma taka zostac: jest
+    # czysta i tania do testowania), a notatka potrzebuje jeszcze czasu ciszy.
+    # Drugie zapytanie do API dawaloby inna chwile pomiaru niz decyzja.
+    znaczniki = {r.get("id"): r.get("last_msg_ts") for r in (rozmowy or [])}
+    for conv_id in znajdz_porzucone(rozmowy, teraz, BOT_PRO_WATCHDOG_MINUTES):
         if not _bot_naprawde_mowil_ostatni(conv_id):
             log("watchdog: rozmowa %s wyglada na porzucona, ale ostatnia publiczna "
                 "wiadomosc jest od czlowieka -> pomijam" % conv_id)
@@ -159,22 +258,40 @@ def watchdog_once(teraz):
         if cw_bot_handoff(conv_id, token=BOT_PRO_CW_AGENT_TOKEN):
             oddane += 1
             log("watchdog: rozmowa %s porzucona przez bota -> konsultant" % conv_id)
-            # W2: sprawdzamy KOD HTTP, nie tylko brak wyjatku. Goly `except: pass`
-            # przepuszczal KAZDY kod — bledny albo wygasly BOT_PRO_CW_AGENT_TOKEN
-            # (401) konczyl sie tym, ze rozmowa jest juz oddana (handoff idzie inna
-            # sciezka), a konsultant nie wie, DLACZEGO ja dostal. Zly token objawial
-            # sie w notatkach cisza zamiast bledu. Porazka notatki NIE cofa handoffu,
-            # ktory sie udal — dlatego tylko log, bez zmiany licznika.
-            try:
-                odpowiedz = cw_note(
-                    conv_id, "⏱️ Watchdog: bot nie doczekał się odpowiedzi klienta — "
-                    "rozmowa oddana automatycznie.", token=BOT_PRO_CW_AGENT_TOKEN)
-                if not kod_notatki_ok(odpowiedz):
-                    log("watchdog: notatka ODRZUCONA przez Chatwoota (conv %s, HTTP %s) — "
-                        "sprawdz BOT_PRO_CW_AGENT_TOKEN"
-                        % (conv_id, getattr(odpowiedz, "status_code", "?")))
-            except Exception as e:
-                log("watchdog: notatka NIEUDANA (conv %s): %r" % (conv_id, e))
+            minuty = _minuty_ciszy(znaczniki.get(conv_id), teraz)
+            # T1 (telemetria lejka): watchdog jest TRZECIM wejściem handoffu,
+            # obok `tura._oddaj_konsultantowi` i narzędzia `oddaj_czlowiekowi`
+            # — a te dwa przechodzą przez `stan.handoff`, gdzie jako jedyne
+            # stało `log_event(..., "handoff", ...)`. Bez tej linii watchdog
+            # oddawał rozmowy NIEWIDZIALNIE dla lejka: w próbce 12 rozmów
+            # produkcyjnych oddał 4 z 9 (4664, 4704, 4952, 4995), więc
+            # `COUNT(DISTINCT conv_id) ... WHERE event='handoff'` liczyło 5
+            # zamiast 9, a rozmowy oddane przez ciszę wyglądały w raporcie
+            # jak rozmowy DOPROWADZONE DO KOŃCA. Właściciel wyciągnąłby
+            # z tego wniosek odwrotny do faktów.
+            #
+            # ŚWIADOMIE nie przepuszczamy watchdoga przez `stan.handoff`,
+            # mimo że to skróciłoby kod: `stan.handoff` czyta i zapala flagi
+            # turowe, a te żyją w słowniku MODUŁOWYM wspólnym dla procesu.
+            # Watchdog chodzi we WŁASNYM wątku, równolegle z workerem, więc
+            # dotknięcie tego słownika z jego wątku gasi bezpieczniki tury,
+            # która właśnie trwa (ten sam powód, dla którego istnieje
+            # `stan.ustaw_kontekst_odczytu`).
+            #
+            # DOKŁADNIE ten sam powód, co w notatce dla konsultanta (jedna
+            # funkcja, nie dwa teksty): niesie znacznik „(watchdog)", po którym
+            # w `quote_events` da się oddzielić oddanie automatyczne od decyzji
+            # bota i od bezpiecznika tury — to trzy różne zjawiska lejka —
+            # i przy okazji liczbę minut ciszy, czyli powód, dla którego
+            # rozmowa w ogóle została oddana.
+            log_event(conv_id, "handoff", {"powod": _powod_watchdoga(minuty)})
+            # W2: kod HTTP notatki jest SPRAWDZANY (bledny albo wygasly
+            # BOT_PRO_CW_AGENT_TOKEN daje 401, a wtedy handoff juz sie odbyl inna
+            # sciezka i konsultant nie wie, DLACZEGO dostal rozmowe) — dzis w
+            # `_notatka_watchdoga`, razem z reszta skladania notatki. Porazka
+            # notatki NIE cofa handoffu, ktory sie udal: tylko log, bez zmiany
+            # licznika.
+            _notatka_watchdoga(conv_id, minuty)
         else:
             # W4: log NIEUDANEGO handoffu byl wczesniej TYLKO w galezi sukcesu — czesc
             # inboksow moglaby po cichu nie dzialac bez sladu w logach.
@@ -195,6 +312,15 @@ def watchdog():
     if BOT_PRO_WATCHDOG_MINUTES <= 0:
         log("watchdog: wylaczony (BOT_PRO_WATCHDOG_MINUTES<=0)")
         return
+    # DDL Debusia Pro RAZ, przed petla — ten sam wzorzec co w `quote_worker`.
+    # Watchdog czyta teraz `pro_dane`/`pro_stan` przy skladaniu notatki, a
+    # bridge.py startuje oba watki rownolegle: bez tego pierwsze przejscie
+    # mogloby trafic na jeszcze nieutworzone tabele i oddac rozmowe z uboga
+    # notatka awaryjna. Wywolanie jest idempotentne (CREATE/ALTER IF NOT EXISTS).
+    try:
+        stan.init_pro()
+    except Exception as e:
+        log("watchdog: init_pro nieudany: %r" % e)
     while True:
         try:
             watchdog_once(time.time())

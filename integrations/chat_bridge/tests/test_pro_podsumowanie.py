@@ -10,6 +10,8 @@ z rozstrzygnięciem właściciela zadania.
 import sys
 import types
 
+import pytest
+
 from bots_pro import podsumowanie, potwierdzenia, stan
 from core.db import db
 
@@ -53,7 +55,13 @@ def test_brak_pozycji_zwraca_blad_bez_liczenia_ceny(monkeypatch):
     monkeypatch.setattr(podsumowanie.crm_calc, "calculate",
                         lambda p, o: wywolano.append(1) or {"ok": True, "totals": {}})
     wynik = podsumowanie.wyslij()
-    assert wynik == {"ok": False, "error": "BRAK_POZYCJI"}
+    assert wynik["ok"] is False
+    assert wynik["error"] == "BRAK_POZYCJI"
+    # R3: ta sciezka konczyla ture CISZA — nie zapalala niczego, wiec `tura.py`
+    # nie miala po czym poznac, ze klient nic nie dostal. Wskazowka mowi modelowi,
+    # co ma zrobic; flaga mowi turze, ze ma sie nie skonczyc milczeniem.
+    assert "zapisz_pozycje" in wynik["wskazowka"]
+    assert stan.podsumowanie_bez_wysylki() == "brak_pozycji"
     assert not wywolano
 
 
@@ -856,3 +864,544 @@ class TestR6NazwaProduktuNiePrzemycaKsztaltu:
         monkeypatch.setattr(podsumowanie, "log", lambda tekst: linie.append(tekst))
         self._sprobuj_wyslac(monkeypatch, 94096, "Blat okrągły dębowy")
         assert any("ksztalt w nazwie" in linia for linia in linie), linie
+
+
+class TestUN7BramkaKsztaltuPoDeklaracjiIPoNazwie:
+    """Zadanie 3 (U-N7) — bramka kształtu przestaje stać na jednym regeksie.
+
+    DLACZEGO TO NIE WYSTARCZAŁO. Jedyną kontrolą kształtu było
+    `_KSZTALT_W_NAZWIE` czytające pole `produkt`, a lista słów nie znała ANI
+    JEDNEGO wielokąta. Rozmowa produkcyjna 4727 (blat sześciokątny 87x75
+    o boku 43 cm) nie została wyceniona jak prostokąt WYŁĄCZNIE dlatego, że
+    model nie zapisał żadnego pola i bezpiecznik braku postępu zabrał rozmowę
+    wcześniej — czyli osłoną było niedziałanie bota. Dwie z dwunastu zmierzonych
+    rozmów produkcyjnych (4727, 4819) to takie kształty: 17% próbki.
+
+    Druga rzecz: nazwę pisze model, a reguła KSZTAŁT każe mu kształtu w
+    podsumowaniu NIE nazywać — bramka po nazwie sprawdza więc pole, którego
+    poprawnie zachowujący się model NIE wypełni. Stąd `ksztalt`: jawna
+    deklaracja, niezależna od tego, jak nazwał pozycję."""
+
+    def _wyslij_z(self, monkeypatch, conv_id, **pola):
+        stan.ustaw_kontekst(conv_id)
+        pozycja = dict(_pozycja(), **pola)
+        monkeypatch.setattr(stan, "pozycje", lambda: [pozycja])
+        monkeypatch.setattr(podsumowanie.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(podsumowanie.crm_calc, "calculate", lambda p, o: {
+            "ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}})
+        _zaladuj_atrape_wysylki(monkeypatch)
+        wyslane = []
+        monkeypatch.setattr(podsumowanie, "cw_agent_reply",
+                            lambda cid, tekst, token=None: wyslane.append(tekst) or True)
+        return podsumowanie.wyslij(), wyslane
+
+    @pytest.mark.parametrize("nazwa", [
+        "Blat sześciokątny 87x75", "Blat szesciokatny 87x75", "Blat sześciokąt",
+        "Blat pięciokątny", "Blat pieciokatny",
+        "Blat ośmiokątny", "Blat osmiokatny",
+        "Blat wielokątny", "Blat wielokatny",
+        "Blat trójkątny", "Blat trojkatny",
+        "Blat trapezowy", "Blat w kształcie trapezu",
+        "Blat rombowy", "Blat romb",
+        "Blat w kształcie litery L", "Blat litery L", "Blat litera L",
+        "Blat w serek", "Blat serek",
+    ])
+    def test_nowe_slowa_ksztaltu_blokuja_podsumowanie(self, monkeypatch, nazwa):
+        # Odmiana ORAZ pisownia bez ogonków — kanały marketplace potrafią
+        # rozebrać polskie znaki (sanitize.py), a nazwę pozycji pisze model.
+        wynik, wyslane = self._wyslij_z(monkeypatch, 94200, produkt=nazwa)
+        assert wynik.get("error") == "KSZTALT_W_NAZWIE", nazwa
+        assert wyslane == [], nazwa
+
+    @pytest.mark.parametrize("nazwa", [
+        "Blat", "Blat kuchenny dębowy", "Parapet jesionowy", "Stopnie schodowe",
+        "Blat roboczy 180x60", "Blat pod zlew", "Blat barowy",
+    ])
+    def test_zwykle_nazwy_nadal_przechodza(self, monkeypatch, nazwa):
+        # Kontrola negatywna po rozszerzeniu listy: bramka ma zostać WĄSKA.
+        # Prostokątne blaty to cały normalny ruch i żaden nie może się o nią
+        # potknąć — inaczej „naprawa" oddaje konsultantowi zdrowe rozmowy.
+        wynik, wyslane = self._wyslij_z(monkeypatch, 94210, produkt=nazwa)
+        assert wynik["ok"] is True, nazwa
+        assert wyslane, nazwa
+
+    def test_zadeklarowany_ksztalt_blokuje_mimo_niewinnej_nazwy(self, monkeypatch):
+        # Sedno naprawy: model zachowuje się ZGODNIE z regułą KSZTAŁT (nie
+        # nazywa kształtu w podsumowaniu), więc regex nie ma czego złapać.
+        wynik, wyslane = self._wyslij_z(monkeypatch, 94220, produkt="Blat kuchenny",
+                                        ksztalt="sześciokąt")
+        assert wynik["ok"] is False
+        assert wynik["error"] == "KSZTALT_NIEPROSTOKATNY"
+        assert wyslane == []
+
+    def test_deklaracja_ksztaltu_nie_zapisuje_podpisu_potwierdzenia(self, monkeypatch):
+        # Kluczowe dla I2, dokładnie jak przy bramce po nazwie: podpis zapisany
+        # mimo odmowy pozwoliłby klientowi „potwierdzić" podsumowanie, którego
+        # nigdy nie zobaczył.
+        self._wyslij_z(monkeypatch, 94221, produkt="Blat kuchenny", ksztalt="trapez")
+        assert not stan.podsumowanie_wyslane()
+
+    def test_wskazowka_odsyla_do_reguly_KSZTALT_i_niesie_opis_klienta(self, monkeypatch):
+        wynik, _ = self._wyslij_z(monkeypatch, 94222, produkt="Blat kuchenny",
+                                  ksztalt="sześciokąt foremny")
+        assert "KSZTAŁT" in wynik["wskazowka"]
+        assert "oddaj_czlowiekowi" in wynik["wskazowka"]
+        assert "sześciokąt foremny" in wynik["wskazowka"]
+
+    @pytest.mark.parametrize("deklaracja", [
+        "prostokąt", "prostokat", "Prostokątny", "kwadrat", "kwadratowy", "",
+    ])
+    def test_prostokat_zadeklarowany_wprost_przechodzi(self, monkeypatch, deklaracja):
+        # Regresja: model, który to pole wypełnia ZAWSZE, nie może zablokować
+        # sobie każdej wyceny.
+        wynik, wyslane = self._wyslij_z(monkeypatch, 94230, produkt="Blat kuchenny",
+                                        ksztalt=deklaracja)
+        assert wynik["ok"] is True, deklaracja
+        assert wyslane, deklaracja
+
+    def test_wartosc_nieczytelna_blokuje_bo_bramka_jest_fail_closed(self, monkeypatch):
+        # Konwencja odwrotna („czego nie rozumiem, to prostokąt") znaczyłaby, że
+        # literówka modelu przywraca cichą wycenę sześciokąta jak prostokąta.
+        wynik, _ = self._wyslij_z(monkeypatch, 94231, produkt="Blat kuchenny",
+                                  ksztalt="prostokąt z zaokrąglonym rogiem")
+        assert wynik["error"] == "KSZTALT_NIEPROSTOKATNY"
+
+    def test_deklaracja_ma_pierwszenstwo_przed_nazwa(self, monkeypatch):
+        # Obie linie obrony trafiają naraz. Wygrywa deklaracja, bo niesie opis
+        # kształtu podany przez klienta — czyli to, co ma wejść do powodu
+        # handoffu („kształt inny niż prostokąt: <opis klienta>").
+        wynik, _ = self._wyslij_z(monkeypatch, 94232, produkt="Blat okrągły",
+                                  ksztalt="sześciokąt")
+        assert wynik["error"] == "KSZTALT_NIEPROSTOKATNY"
+
+    def test_ksztalt_w_INNYM_polu_nadal_nie_blokuje(self, monkeypatch):
+        # Bramka po deklaracji nie rozszerza zakresu bramki po nazwie:
+        # „okrągły otwór pod baterię" w prostokątnym blacie to poprawna pozycja.
+        wynik, wyslane = self._wyslij_z(
+            monkeypatch, 94233, produkt="Blat kuchenny",
+            otwory=["okrągły otwór pod baterię fi 35"])
+        assert wynik["ok"] is True
+        assert "okrągły otwór pod baterię" in wyslane[0]
+
+    def test_bramka_po_deklaracji_zostawia_slad_w_logu(self, monkeypatch):
+        # „Nie przechodzi po cichu" — trafienia mają dać się policzyć na
+        # skrzynce testowej, tak samo jak trafienia bramki po nazwie.
+        linie = []
+        monkeypatch.setattr(podsumowanie, "log", lambda tekst: linie.append(tekst))
+        self._wyslij_z(monkeypatch, 94234, produkt="Blat kuchenny", ksztalt="romb")
+        assert any("bramka ksztaltu" in linia for linia in linie), linie
+
+    def test_ksztalt_nie_przechodzi_do_kalkulatora(self, monkeypatch):
+        # Bramka stoi PRZED `calculate` — cena prostokąta dla sześciokąta nie
+        # ma po co powstawać, bo model mógłby ją zacytować (rejestr G1 uznałby
+        # ją za prawdziwą, bo PRZYSZŁA z kalkulatora).
+        stan.ustaw_kontekst(94235)
+        pozycja = dict(_pozycja(), produkt="Blat kuchenny", ksztalt="sześciokąt")
+        monkeypatch.setattr(stan, "pozycje", lambda: [pozycja])
+        monkeypatch.setattr(podsumowanie.crm_calc, "get_options", lambda: {})
+        wywolano = []
+        monkeypatch.setattr(podsumowanie.crm_calc, "calculate",
+                            lambda p, o: wywolano.append(1) or {"ok": True, "totals": {}})
+        podsumowanie.wyslij()
+        assert not wywolano
+
+    def test_notatka_dla_konsultanta_NIESIE_ksztalt(self):
+        # Drugi odbiorca `_linia` to prywatna notatka dla konsultanta
+        # (`notatki.tresc_dla_agenta`). Po handoffie na kształcie notatka
+        # opisywała sześciokąt 87x75 jako zwykły blat 87x75 — specyfikacja
+        # MYLĄCA, nie tylko niepełna (rozmowa 4727: konsultantka i tak musiała
+        # dopytać o 6 długości krawędzi).
+        linia = podsumowanie._linia(dict(_pozycja(), produkt="blat kuchenny",
+                                         ksztalt="sześciokąt o boku 43 cm"))
+        assert "kształt: sześciokąt o boku 43 cm" in linia
+
+    def test_prostokat_nie_dokleja_slowa_ksztalt_do_linii(self):
+        # Klient NIGDY nie zobaczy tej gałęzi (bramka odmawia wcześniej), ale
+        # „kształt: prostokąt" przy każdej normalnej pozycji byłoby szumem
+        # w podsumowaniu, które klient PODPISUJE.
+        for deklaracja in ("", "prostokąt", "kwadratowy"):
+            linia = podsumowanie._linia(dict(_pozycja(), ksztalt=deklaracja))
+            assert "kształt" not in linia, deklaracja
+
+
+
+class TestZ4PokazanaKwota:
+    """Z4: kwota, ktora klient FAKTYCZNIE zobaczyl, zapisywana do `pro_stan`
+    RAZEM z `oczekiwany_podpis` — do prywatnej notatki dla konsultanta.
+
+    Do tej poprawki notatka handoffowa nie drukowala ceny w ogole i nie dalo sie
+    jej odtworzyc: rejestr `pro_kwoty` zawiera WSZYSTKIE kwoty zwrocone przez
+    kalkulator (ceny jednostkowe, sumy czastkowe), bez sladu, ktora z nich poszla
+    do klienta jako cena calosci."""
+
+    def _przygotuj(self, monkeypatch, conv_id):
+        stan.ustaw_kontekst(conv_id)
+        poz = [_pozycja()]
+        monkeypatch.setattr(stan, "pozycje", lambda: poz)
+        monkeypatch.setattr(podsumowanie.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(podsumowanie.crm_calc, "calculate", lambda p, o: {
+            "ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}})
+        _zaladuj_atrape_wysylki(monkeypatch)
+        monkeypatch.setattr(podsumowanie, "cw_agent_reply", lambda *a, **k: True)
+
+    def test_bez_dostawy_zapisuje_sume_produktow(self, monkeypatch):
+        self._przygotuj(monkeypatch, 94060)
+        podsumowanie.wyslij()
+        assert stan.pokazana_kwota() == 843.04
+
+    def test_z_dostawa_zapisuje_sume_z_dostawa(self, monkeypatch):
+        # Klient widzi w podsumowaniu linie „Razem z dostawa" — to JA ma zobaczyc
+        # konsultant w notatce, nie sama cene produktu.
+        self._przygotuj(monkeypatch, 94061)
+        stan.zapisz_dostawe("00-001", kurier="DPD", netto=203.25, brutto=250.00)
+        podsumowanie.wyslij()
+        assert stan.pokazana_kwota() == 1093.04
+
+    def test_nieudana_wysylka_nie_zapisuje_kwoty(self, monkeypatch):
+        # Ta sama zasada co U1 dla `oczekiwany_podpis`: kwota z podsumowania,
+        # ktore utknelo na bledzie Chatwoota, NIE jest kwota pokazana klientowi.
+        self._przygotuj(monkeypatch, 94062)
+        monkeypatch.setattr(podsumowanie, "cw_agent_reply", lambda *a, **k: False)
+        podsumowanie.wyslij()
+        assert stan.pokazana_kwota() is None
+
+    def test_linia_kwoty_nie_wychodzi_do_klienta(self, monkeypatch):
+        """I1, wlasciwa powierzchnia tej zmiany: linia „Ostatnia kwota pokazana
+        klientowi" jest tekstem dla KONSULTANTA i ma isc wylacznie prywatnym
+        `cw_note`.
+
+        Testu „kwota nie wchodzi do rejestru G1" tu NIE MA, i to swiadomie —
+        bylby falszywym zapewnieniem. Kwota pokazana klientowi to albo
+        `totals.total_brutto`, albo suma z dostawa, a obie rejestruje
+        `kwoty_z_wyniku`/`kwoty_dostawy` PRZED zapisem `pokazana_kwota`. G1 te
+        liczbe zna i ma znac: klient widzi ja w podsumowaniu, wiec bot musi moc
+        ja powtorzyc. Ryzykiem, ktore ta zmiana faktycznie tworzy, jest wyciek
+        TRESCI NOTATKI do klienta — i to jest tu mierzone: zbieramy WSZYSTKO,
+        co poszlo kanalem do klienta, i sprawdzamy, ze notatkowej linii tam nie
+        ma, mimo ze notatka powstala i poszla `cw_note`."""
+        from bots_pro import notatki
+
+        self._przygotuj(monkeypatch, 94063)
+        do_klienta = []
+        do_notatek = []
+        monkeypatch.setattr(podsumowanie, "cw_agent_reply",
+                            lambda cid, tekst, **k: do_klienta.append(tekst) or True)
+        monkeypatch.setattr(notatki, "cw_note",
+                            lambda cid, tekst, token=None: do_notatek.append(tekst) or True)
+        monkeypatch.setattr("core.chatwoot.cw_bot_handoff", lambda cid, token=None: True)
+
+        podsumowanie.wyslij()
+        stan.handoff("klient prosi o czlowieka")
+
+        # Obie kontrole zywotnosci: bez nich petla nizej przechodzilaby na
+        # pustej liscie, czyli test bylby zielony takze wtedy, gdy nic sie nie
+        # wyslalo (dokladnie ta wada, ktora mial poprzednik tego testu).
+        assert do_klienta, "do klienta nie poszlo nic — petla nizej nie mierzylaby niczego"
+        assert do_notatek, "notatka w ogole nie powstala — test nie mierzylby niczego"
+        assert any("Ostatnia kwota pokazana klientowi" in t for t in do_notatek)
+        for tekst in do_klienta:
+            assert "Ostatnia kwota pokazana klientowi" not in tekst
+            assert "przekazuje rozmowę konsultantowi" not in tekst
+
+
+class TestWyslijCzytaStanPodZamkiem:
+    """P1/P2/P3 (kontrola koncowa): `wyslij()` bralo migawke `stan.pozycje()`
+    POZA `zamek_stanu` i po powrocie z kalkulatora juz do bazy nie zagladalo.
+
+    `wyslij_podsumowanie` jest zwyklym `@function_tool`, wiec SDK odpala je
+    ROWNOLEGLE z `zapisz_pozycje` tego samego kroku modelu — a prompt („ZAPISUJ
+    NA BIEZACO" + klauzula kompletnosci) ustawia wyzwalacz podsumowania
+    dokladnie na krok, w ktorym leca ostatnie zapisy. Skutek biznesowy jest
+    IDENTYCZNY z awaria conv 4912, ktora zamkniete zapisy juz naprawily: klient
+    widzi jedna pozycje i jedna cene zamiast kompletu, i te cene potwierdza
+    (I2). Zmienia sie tylko przyczyna — z utraty zapisu na nieaktualny odczyt.
+
+    ZMIERZONE, wierna reprodukcja SDK (jeden krok modelu = `asyncio.gather` po
+    13 wywolaniach `zapisz_pozycje` i jednym `wyslij_podsumowanie`, kazde przez
+    `on_invoke_tool`; 20 przebiegow):
+      - PRZED naprawa: w `pro_dane` komplet 13/13 w 20/20, a u KLIENTA
+        1..13 pozycji — komplet tylko w 8/20, najczesciej 1 pozycja;
+      - PO naprawie: u klienta 13/13 w 20/20.
+
+    Testy nizej NIE licza na scheduler. Odtwarzaja ten sam przeplot
+    deterministycznie: watek glowny TRZYMA `zamek_stanu` i pod nim wykonuje
+    zapisy (RLock jest reentrantny), a watek podsumowania startuje wczesniej.
+    Kod sprzed naprawy czyta wtedy baze BEZ zamka, czyli sprzed zapisow;
+    kod po naprawie czeka na zamek i widzi komplet. Asercja dotyczy liczby
+    pozycji WIDZIANYCH PRZEZ KLIENTA (linie „•" w tresci, ktora poszla
+    `cw_agent_reply`), a nie liczby pozycji w bazie — w tym rzecz, ze baza
+    byla poprawna przez caly czas."""
+
+    NAZWY_4912 = ["blat-1", "parapet-2", "polka-3", "stopien-4", "listwa-5",
+                  "horizontal-divider", "panel-7", "front-8", "bok-9",
+                  "plecy-10", "wieniec-11", "cokol-12", "blenda-13"]
+
+    @staticmethod
+    def _watek_wyslij(conv_id, wynik):
+        """Watek robiacy z `wyslij()` to, co robi SDK z cialem `@function_tool`:
+        osobny watek, ktory jawnie ustawia `_conv_id` (gole watki kontekstu nie
+        dziedzicza, `asyncio.to_thread` go kopiuje — efekt jest ten sam)."""
+        import threading
+
+        def _cialo():
+            stan._conv_id.set(conv_id)
+            stan._persona.set("pro")
+            wynik.update(podsumowanie.wyslij() or {})
+
+        return threading.Thread(target=_cialo)
+
+    def _przygotuj_atrapy(self, monkeypatch, wyslane):
+        monkeypatch.setattr(podsumowanie.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(podsumowanie.crm_calc, "calculate", lambda p, o: {
+            "ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}})
+        _zaladuj_atrape_wysylki(monkeypatch)
+        monkeypatch.setattr(podsumowanie, "cw_agent_reply",
+                            lambda cid, tekst, **k: wyslane.append(tekst) or True)
+
+    def test_klient_dostaje_komplet_pozycji_zapisanych_w_tym_samym_kroku(self, monkeypatch):
+        import time
+
+        conv_id = 94200
+        wyslane, wynik = [], {}
+        stan.ustaw_kontekst(conv_id)
+        self._przygotuj_atrapy(monkeypatch, wyslane)
+
+        watek = self._watek_wyslij(conv_id, wynik)
+        with stan.zamek_stanu:
+            watek.start()
+            # Tyle, zeby watek podsumowania na pewno doszedl do odczytu stanu.
+            # Kod sprzed naprawy odczytuje TU (zamka nie bierze) i widzi baze
+            # sprzed zapisow; kod po naprawie stoi na zamku.
+            time.sleep(0.05)
+            for nazwa in self.NAZWY_4912:
+                stan.zapisz_pozycje(nazwa, produkt="blat", dlugosc_cm=101,
+                                    szerokosc_cm=42.5, grubosc_cm=4, ilosc=2,
+                                    selected_variant="buk-lity-ab",
+                                    wykonczenie="surowe")
+        watek.join(timeout=10)
+        stan.ustaw_kontekst(conv_id)
+
+        assert len(stan.pozycje()) == 13, "baza ma miec komplet — to nie jest test zapisu"
+        assert wynik.get("ok") is True, wynik
+        assert sum(tekst.count("•") for tekst in wyslane) == 13
+
+    def test_deklaracja_ksztaltu_w_trakcie_liczenia_wstrzymuje_wysylke(self, monkeypatch):
+        """P2: bramka ksztaltu badala migawke SPRZED `calculate`, a samo
+        `calculate` to HTTP z timeoutem 30 s poza zamkiem. Deklaracja
+        „a ma byc szesciokatny", ktora trafila do bazy w tym oknie, byla dla
+        bramki niewidzialna i klient dostawal pelne podsumowanie z cena
+        PROSTOKATA dla szesciokata (conv 4727) — pod podpisem I2."""
+        conv_id = 94201
+        wyslane = []
+        stan.ustaw_kontekst(conv_id)
+        stan.zapisz_pozycje("1", produkt="blat kuchenny", dlugosc_cm=87,
+                            szerokosc_cm=75, grubosc_cm=1.9, ilosc=1,
+                            selected_variant="dab-lity-ab", wykonczenie="surowe")
+        self._przygotuj_atrapy(monkeypatch, wyslane)
+
+        def _kalkulator_z_wyscigiem(pozycje, opcje):
+            # Rownolegly `zapisz_pozycje` z tego samego kroku modelu.
+            stan.zapisz_pozycje("1", ksztalt="sześciokąt o boku 43 cm")
+            return {"ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}}
+
+        monkeypatch.setattr(podsumowanie.crm_calc, "calculate", _kalkulator_z_wyscigiem)
+        wynik = podsumowanie.wyslij()
+
+        assert wynik["ok"] is False
+        assert wynik["error"] == "KSZTALT_NIEPROSTOKATNY"
+        assert wyslane == [], "klient NIE ma zobaczyc ceny prostokata dla szesciokata"
+        # I1: kwota prostokata nie ma prawa zostac „znana" guardrailowi G1 —
+        # inaczej bot moglby ja zacytowac w dowolnej kolejnej turze.
+        assert stan.znane_kwoty() == set()
+
+    def test_zmiana_wymiaru_w_trakcie_liczenia_nie_rejestruje_kwot(self, monkeypatch):
+        """P3: `wyslij()` wolalo `zapamietaj_kwoty` bez kontroli, ktora ma
+        `policz_wycene` — a to ta sama kwota z tego samego kalkulatora. Cena
+        policzona dla konfiguracji, z ktorej klient wlasnie zrezygnowal, nie ma
+        prawa wejsc do rejestru G1 jako znana (wzorzec z rozmow 4910 i 4799).
+
+        P1b ZMIENILO druga polowe tego kontraktu: do tej rundy podsumowanie
+        szlo do klienta mimo zmiany, z uzasadnieniem „jest wewnetrznie spojne,
+        a I2 i tak jest fail-closed". Spojne owszem, ale NIEPRAWDZIWE jako opis
+        zamowienia — patrz `TestWyslijNieWysylaStanuSprzedZmiany` nizej."""
+        conv_id = 94202
+        wyslane = []
+        stan.ustaw_kontekst(conv_id)
+        stan.zapisz_pozycje("1", produkt="blat", dlugosc_cm=180, szerokosc_cm=60,
+                            grubosc_cm=4, ilosc=1, selected_variant="dab-lity-ab",
+                            wykonczenie="surowe")
+        self._przygotuj_atrapy(monkeypatch, wyslane)
+
+        def _kalkulator_z_wyscigiem(pozycje, opcje):
+            stan.zapisz_pozycje("1", dlugosc_cm=240)
+            return {"ok": True, "totals": {"total_netto": 1574.56, "total_brutto": 1936.71}}
+
+        monkeypatch.setattr(podsumowanie.crm_calc, "calculate", _kalkulator_z_wyscigiem)
+        wynik = podsumowanie.wyslij()
+
+        assert wynik["error"] == "STAN_ZMIENIONY_W_TRAKCIE", wynik
+        assert stan.znane_kwoty() == set()
+
+    def test_zmiana_NIECENOTWORCZA_w_trakcie_liczenia_nie_blokuje_rejestracji(self, monkeypatch):
+        """Kontrola negatywna — bez niej powyzsza bramka moglaby byc dowolnie
+        ciasna. Dopisanie otworu nie zmienia ceny (`otwory` to pole OPISOWE,
+        `build_products` go nie czyta), wiec kwoty MAJA wejsc do rejestru:
+        inaczej typowa tura „dopisuje wyciecie na zlew, cena bez zmian"
+        konczylaby sie falszywym alarmem G1 na PRAWDZIWEJ kwocie."""
+        conv_id = 94203
+        wyslane = []
+        stan.ustaw_kontekst(conv_id)
+        stan.zapisz_pozycje("1", produkt="blat", dlugosc_cm=180, szerokosc_cm=60,
+                            grubosc_cm=4, ilosc=1, selected_variant="dab-lity-ab",
+                            wykonczenie="surowe")
+        self._przygotuj_atrapy(monkeypatch, wyslane)
+
+        def _kalkulator_z_otworem(pozycje, opcje):
+            stan.zapisz_pozycje("1", otwory=["otwór na zlew 50x40 cm"])
+            return {"ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}}
+
+        monkeypatch.setattr(podsumowanie.crm_calc, "calculate", _kalkulator_z_otworem)
+        wynik = podsumowanie.wyslij()
+
+        assert wynik["ok"] is True
+        assert {"685.40", "843.04"} <= stan.znane_kwoty()
+
+
+class TestWyslijNieWysylaStanuSprzedZmiany:
+    """P1b: zamek nad migawka (`TestWyslijCzytaStanPodZamkiem`) usunal odczyt
+    ROZDARTY w polowie zapisu i to byla realna poprawa. Nie usunal tego, ze
+    podsumowanie zamowione w TYM SAMYM kroku modelu co ostatnie `zapisz_pozycje`
+    moze uszeregowac sie PRZED nimi — a wtedy klient dostaje PREFIKS listy
+    podany jako komplet. Test regresyjny tamtej naprawy tego nie lapal, bo sam
+    wymusza przeplot: mierzy „czy odczyt bierze zamek", nie „czy klient dostaje
+    komplet". Naglowek zmiany `36f7fb3`, widoczny dla polskich uzytkownikow w
+    widgecie „Nowosci", obiecuje to drugie.
+
+    DECYZJA: po zbudowaniu tresci, PRZED wyslaniem, pytamy jeszcze raz, czy stan
+    nadal jest ten sam. Jesli nie — NIE wysylamy niczego i prosimy model o
+    ponowne wywolanie. Klient dostaje wiec podsumowanie zgodne z finalnym stanem
+    albo nie dostaje nic (a `tura.py` ponawia po zakonczeniu tury modelu) —
+    nigdy prefiksu podanego jako komplet. Do tej rundy tresc szla do klienta
+    swiadomie, z uzasadnieniem „jest wewnetrznie spojna, a I2 i tak jest
+    fail-closed".
+
+    ZMIERZONE (sonda: 13 rownoleglych `zapisz_pozycje` + `wyslij_podsumowanie`
+    w jednym kroku modelu, watki przez `contextvars.copy_context().run`,
+    40 przebiegow na wariant, limity produkcji `--cpus=0.5 --memory=256m`;
+    w bazie komplet 13/13 we WSZYSTKICH przebiegach):
+      - podsumowanie OSTATNIE:  prefiks u klienta 14/40 -> 0/40
+      - kolejnosc LOSOWA:       prefiks u klienta 33/40 -> 0/40
+      - podsumowanie PIERWSZE:  prefiks u klienta  9/40 -> 0/40
+    I2 zatrzymywalo to juz wczesniej OD DRUGIEJ STRONY (`potwierdz` porownuje
+    z `oczekiwany_podpis`, wiec prefiksu nie dalo sie potwierdzic: 0 przypadkow
+    przed i po naprawie) — szkoda byla wiec mylaca wiadomosc i petla „poprosze
+    o potwierdzenie jeszcze raz", nie zle zamowienie. To i tak jest dokladnie
+    to, czego naglowek tamtej zmiany obiecywal nie robic.
+
+    D1 domkniete tu samo: dostawa wchodzi do TEJ SAMEJ migawki i do TEJ SAMEJ
+    kontroli, wiec suma „Razem z dostawa" nie moze juz opisywac kuriera sprzed
+    rownoleglego `policz_wysylke`."""
+
+    def _blat(self, conv_id):
+        stan.ustaw_kontekst(conv_id)
+        stan.zapisz_pozycje("1", produkt="blat", dlugosc_cm=180, szerokosc_cm=60,
+                            grubosc_cm=4, ilosc=1, selected_variant="dab-lity-ab",
+                            wykonczenie="surowe")
+
+    def _atrapy(self, monkeypatch, wyslane):
+        monkeypatch.setattr(podsumowanie.crm_calc, "get_options", lambda: {})
+        _zaladuj_atrape_wysylki(monkeypatch)
+        monkeypatch.setattr(podsumowanie, "cw_agent_reply",
+                            lambda cid, tekst, **k: wyslane.append(tekst) or True)
+
+    @staticmethod
+    def _kalkulator_z_wyscigiem(monkeypatch, zmiana):
+        def _calculate(pozycje, opcje):
+            zmiana()   # rownolegly zapis z tego samego kroku modelu
+            return {"ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}}
+
+        monkeypatch.setattr(podsumowanie.crm_calc, "calculate", _calculate)
+
+    def test_dopisana_pozycja_wstrzymuje_wysylke_zamiast_pokazac_prefiks(self, monkeypatch):
+        conv_id = 94210
+        wyslane = []
+        self._blat(conv_id)
+        self._atrapy(monkeypatch, wyslane)
+        self._kalkulator_z_wyscigiem(
+            monkeypatch,
+            lambda: stan.zapisz_pozycje("2", produkt="parapet", dlugosc_cm=120,
+                                        szerokosc_cm=30, grubosc_cm=4, ilosc=1,
+                                        selected_variant="dab-lity-ab",
+                                        wykonczenie="surowe"))
+
+        wynik = podsumowanie.wyslij()
+
+        assert wynik["error"] == "STAN_ZMIENIONY_W_TRAKCIE", wynik
+        assert wyslane == [], "klient dostal prefiks listy podany jako komplet"
+        assert stan.podsumowanie_bez_wysylki() == "zmiana_w_trakcie"
+        # NIE `podsumowanie_nieudane` — to nie awaria kanalu i `tura.py` nie ma
+        # z tego robic handoffu (patrz docstring flagi w stan.py).
+        assert stan.podsumowanie_nieudane() is False
+        assert stan.podsumowanie_wyslane() is False
+
+    def test_zmiana_dostawy_w_trakcie_liczenia_wstrzymuje_wysylke(self, monkeypatch):
+        """D1: `wyslij` czytalo `stan.dostawa()` POZA zamkiem i po powrocie z
+        kalkulatora juz do niej nie zagladalo, a kontrola porownywala WYLACZNIE
+        pozycje. Suma „Razem z dostawa" liczy sie wlasnie z tej dostawy i wchodzi
+        do rejestru G1 — brakowalo symetrii wobec pozycji."""
+        conv_id = 94211
+        wyslane = []
+        self._blat(conv_id)
+        stan.zapisz_dostawe("05-081", kurier="inPost-Kurier", netto=16.20, brutto=19.92)
+        self._atrapy(monkeypatch, wyslane)
+        self._kalkulator_z_wyscigiem(
+            monkeypatch,
+            lambda: stan.zapisz_dostawe("00-001", kurier="DPD",
+                                        netto=203.25, brutto=250.0))
+
+        wynik = podsumowanie.wyslij()
+
+        assert wynik["error"] == "STAN_ZMIENIONY_W_TRAKCIE", wynik
+        assert wyslane == [], "klient zobaczylby sume z kurierem sprzed zmiany"
+        # Suma „produkt + dostawa" policzona ze starej dostawy NIE ma prawa
+        # zostac „znana" guardrailowi G1.
+        assert stan.znane_kwoty() == set()
+
+    def test_bez_wyscigu_podsumowanie_idzie_normalnie(self, monkeypatch):
+        """Kontrola negatywna wymagana wprost: podsumowanie wolane PO wszystkich
+        zapisach ma wyjsc jak dotad (to nie jest regresja P1)."""
+        conv_id = 94212
+        wyslane = []
+        self._blat(conv_id)
+        stan.zapisz_pozycje("2", produkt="parapet", dlugosc_cm=120, szerokosc_cm=30,
+                            grubosc_cm=4, ilosc=1, selected_variant="dab-lity-ab",
+                            wykonczenie="surowe")
+        stan.zapisz_dostawe("05-081", kurier="inPost-Kurier", netto=16.20, brutto=19.92)
+        self._atrapy(monkeypatch, wyslane)
+        self._kalkulator_z_wyscigiem(monkeypatch, lambda: None)
+
+        wynik = podsumowanie.wyslij()
+
+        assert wynik["ok"] is True, wynik
+        assert sum(tekst.count("•") for tekst in wyslane) == 2
+        assert stan.podsumowanie_bez_wysylki() is None
+        assert any("Razem z dostawą" in tekst for tekst in wyslane)
+
+    def test_powtorzony_identyczny_zapis_dostawy_nie_wstrzymuje(self, monkeypatch):
+        """Kontrola negatywna: ta sama zasada co przy pozycjach (N1) — powtorzone,
+        IDENTYCZNE oszacowanie niczego nie uniewaznia, wiec podsumowanie ma
+        wyjsc."""
+        conv_id = 94213
+        wyslane = []
+        self._blat(conv_id)
+        stan.zapisz_dostawe("05-081", kurier="inPost-Kurier", netto=16.20, brutto=19.92)
+        self._atrapy(monkeypatch, wyslane)
+        self._kalkulator_z_wyscigiem(
+            monkeypatch,
+            lambda: stan.zapisz_dostawe("05-081", kurier="inPost-Kurier",
+                                        netto=16.20, brutto=19.92))
+
+        wynik = podsumowanie.wyslij()
+
+        assert wynik["ok"] is True, wynik
+        assert wyslane != []

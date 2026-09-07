@@ -114,3 +114,25 @@ def test_zmiana_dostawy_po_potwierdzeniu_blokuje_bramke(monkeypatch):
     wynik = potwierdzenia.sprawdz_bramke()
     assert wynik["ok"] is False
     assert wynik["error"] == "POTWIERDZENIE_NIEAKTUALNE"
+
+
+class TestZ4KolumnaPokazanaKwotaNieRuszaI2:
+    """I2: nowa kolumna `pro_stan.pokazana_kwota` (Z4) jest zapisem POCHODNYM
+    dla notatki konsultanta i NIE MA prawa wejsc do materialu podpisu.
+
+    Gdyby weszla, kazda zmiana tej kolumny uniewazniala by potwierdzenie klienta
+    — albo, co gorsza, dwie rozne konfiguracje moglyby dac ten sam podpis."""
+
+    def _pozycje(self):
+        return [{"id": "1", "produkt": "blat", "gatunek": "Dąb", "technologia": "Lity",
+                 "klasa": "A/B", "dlugosc": 180, "szerokosc": 60, "grubosc": 4,
+                 "ilosc": 1, "wykonczenie": "surowe"}]
+
+    def test_podpis_jest_identyczny_przed_i_po_zapisie_kwoty(self):
+        stan.ustaw_kontekst(95_700)
+        pozycje = self._pozycje()
+        przed = potwierdzenia.podpis(pozycje, stan.dostawa())
+
+        stan.zapisz_stan(pokazana_kwota=1093.04)
+
+        assert potwierdzenia.podpis(pozycje, stan.dostawa()) == przed
