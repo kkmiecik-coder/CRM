@@ -339,8 +339,13 @@ def policz_wysylke(kod_pocztowy: str) -> dict:
     Koszt zależy od GABARYTU, więc po KAŻDEJ zmianie pozycji (zapisz_pozycje)
     policz wysyłkę ponownie — stare oszacowanie przestaje wtedy obowiązywać i
     znika z podsumowania."""
-    from bots_pro import stan
-    wynik = crm_calc.shipping_quote(stan.pozycje(), kod_pocztowy)
+    from bots_pro import potwierdzenia, stan
+    # K1: migawka pozycji POD zamkiem, dokładnie jak w `policz_wycene`. Bez
+    # niego równoległy `zapisz_pozycje` z tego samego kroku modelu mógłby złapać
+    # listę w połowie zapisu i kurier liczyłby gabaryt przypadkowego prefiksu.
+    with stan.zamek_stanu:
+        pozycje = stan.pozycje()
+    wynik = crm_calc.shipping_quote(pozycje, kod_pocztowy)
 
     # U4: zapamiętujemy oszacowanie TRWALE — bez tego dostawa nie ma jak wejść ani
     # do podpisu potwierdzenia, ani do podsumowania, ani do korekty wyceny w CRM,
@@ -374,17 +379,52 @@ def policz_wysylke(kod_pocztowy: str) -> dict:
     # wyliczenie, nie dwa, żeby nie dało się ich rozjechać.
     oszacowano_wysylke = bool(wynik.get("ok") and wynik.get("carriers"))
     with stan.zamek_stanu:
-        if oszacowano_wysylke:
-            stan.zapisz_dostawe(kod_pocztowy, kurier=wynik.get("carrier_name"),
-                                netto=wynik.get("shipping_netto"),
-                                brutto=wynik.get("shipping_brutto"))
-        else:
-            stan.zapisz_dostawe(kod_pocztowy)
+        # K1: kontrola po powrocie z HTTP — TA SAMA reguła i TA SAMA funkcja, co
+        # w `policz_wycene` i `podsumowanie.wyslij`. Koszt kuriera zależy od
+        # GABARYTU (mówi to wprost docstring wyżej), więc oszacowanie policzone
+        # dla pozycji, które w trakcie liczenia się zmieniły, po prostu ich już
+        # nie opisuje — i nie ma prawa ani wylądować w `pro_stan`, ani wejść do
+        # rejestru kwot G1.
+        #
+        # Zmierzone na kodzie sprzed naprawy (klient pisze „05-081, i przedłuż
+        # blat do 300 cm", model woła w jednym kroku `zapisz_pozycje` i
+        # `policz_wysylke`, 15 przebiegów): koszt dla 180 cm zostawał w bazie
+        # dla blatu 300 cm w 15/15, a G1 przepuszczał zdanie „wysyłka kurierem
+        # inPost to 19,92 zł brutto" też w 15/15 — czyli złamanie I1 przez
+        # kwotę, która PRZYSZŁA z kalkulatora, tylko dla innych danych.
+        # `_zmien_pozycje` kasuje wtedy dostawę i rejestr, a to wywołanie
+        # wpisywało je z powrotem JUŻ PO tym kasowaniu.
+        #
+        # Zapis i sprawdzenie MUSZĄ być pod jednym zamkiem: sprawdzenie bez
+        # niego nic nie gwarantuje, bo zapis pozycji zdążyłby wejść pomiędzy.
+        pozycje_aktualne = potwierdzenia.kwota_nadal_opisuje(pozycje, stan.pozycje())
+        if pozycje_aktualne:
+            if oszacowano_wysylke:
+                stan.zapisz_dostawe(kod_pocztowy, kurier=wynik.get("carrier_name"),
+                                    netto=wynik.get("shipping_netto"),
+                                    brutto=wynik.get("shipping_brutto"))
+            else:
+                stan.zapisz_dostawe(kod_pocztowy)
 
-        stan.zapamietaj_kwoty(
-            (wynik[pole] for pole in ("shipping_netto", "shipping_brutto")
-             if isinstance(wynik.get(pole), (int, float))),
-            zrodlo="dostawa")
+            stan.zapamietaj_kwoty(
+                (wynik[pole] for pole in ("shipping_netto", "shipping_brutto")
+                 if isinstance(wynik.get(pole), (int, float))),
+                zrodlo="dostawa")
+
+    if not pozycje_aktualne:
+        # NIC nie zapisaliśmy, więc nie ma też czego zameldować modelowi jako
+        # kosztu — oddajemy sam powód i prośbę o powtórzenie. ZERO KWOT w tym
+        # wyniku, z tego samego powodu co w `WSKAZOWKA_PO_DOSTAWIE`: rejestr G1
+        # tego oszacowania nie zna, więc liczba stąd byłaby dla guardraila
+        # halucynacją. Telemetria `shipping_quoted` też tu nie leci — lejek ma
+        # liczyć oszacowania, które NAPRAWDĘ obowiązują.
+        log("narzedzia: pozycje zmienily sie w trakcie liczenia wysylki -> dostawy "
+            "NIE zapisuje (conv %s)" % stan.conv_id())
+        return {"ok": False, "error": "POZYCJE_ZMIENIONE_W_TRAKCIE",
+                "wskazowka": "Pozycje zmieniły się w trakcie liczenia wysyłki, więc to "
+                             "oszacowanie już ich nie opisuje i go nie zapisałem. "
+                             "Zawołaj policz_wysylke jeszcze raz z tym samym kodem "
+                             "pocztowym, gdy pozycje są już ustalone."}
 
     # POZA sekcją krytyczną, i to jest wiążące, nie kosmetyka. `core.events.
     # log_event` otwiera WŁASNE połączenie SQLite z `timeout=30`, robi INSERT

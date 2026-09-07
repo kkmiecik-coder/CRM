@@ -1697,3 +1697,115 @@ class TestTelemetriaWysylkiPozaZamkiem:
         assert pomiary == []
         assert stan.dostawa()["kod_pocztowy"] == "00-001"
         assert stan.dostawa().get("kurier") is None
+
+
+class TestWysylkaSprawdzaStanPoPowrocieZAPI:
+    """K1: `policz_wysylke` czytalo pozycje POZA zamkiem, wychodzilo na HTTP i po
+    powrocie zapisywalo dostawe oraz rejestrowalo kwoty — BEZ jakiejkolwiek
+    kontroli, czy pozycje w miedzyczasie sie nie zmienily. `policz_wycene` taka
+    kontrole ma, `podsumowanie.wyslij` ma, to narzedzie nie mialo zadnej.
+
+    Skutek lamie WLASNY kontrakt docstringa narzedzia („po KAZDEJ zmianie
+    pozycji policz wysylke ponownie — stare oszacowanie przestaje obowiazywac"):
+    rownolegly `zapisz_pozycje` kasuje dostawe i rejestr G1 (`_zmien_pozycje`),
+    a wiszace na HTTP `policz_wysylke` wpisuje je z powrotem JUZ PO tym
+    kasowaniu.
+
+    ZMIERZONE (sonda: klient pisze „05-081, i przedluz blat do 300 cm", model
+    wola w JEDNYM kroku `zapisz_pozycje(dlugosc_cm=300)` i `policz_wysylke`,
+    watki przez `contextvars.copy_context().run`, 15 przebiegow, limity
+    produkcji `--cpus=0.5 --memory=256m`):
+      - PRZED naprawa: nieaktualny koszt 19,92 zl (dla 180 cm) zostawal w
+        `pro_stan` przy blacie 300 cm w 15/15, a G1 przepuszczal zdanie
+        „wysylka kurierem inPost-Kurier to 19,92 zl brutto" tez w 15/15 —
+        zlamanie I1 kwota, ktora PRZYSZLA z kalkulatora, tylko dla innych
+        danych (prawdziwy koszt dla 300 cm: 229,36 zl);
+      - PO naprawie: 0/15 i 0/15.
+
+    Testy nizej NIE licza na scheduler — odtwarzaja to samo okno
+    deterministycznie, robiac rownolegly zapis WEWNATRZ atrapy
+    `shipping_quote`, czyli dokladnie tam, gdzie w produkcji stoi HTTP z
+    timeoutem 30 s (ten sam wzorzec co `_kalkulator_z_wyscigiem` w
+    test_pro_podsumowanie.py)."""
+
+    def _blat(self, conv_id, dlugosc=180):
+        stan.ustaw_kontekst(conv_id)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat", dlugosc_cm=dlugosc,
+               szerokosc_cm=60, grubosc_cm=4, ilosc=1,
+               selected_variant="dab-lity-ab", wykonczenie="surowe")
+
+    @staticmethod
+    def _kurier_z_wyscigiem(monkeypatch, zmiana):
+        def _shipping_quote(pozycje, kod):
+            zmiana()   # rownolegly `zapisz_pozycje` z tego samego kroku modelu
+            return {"ok": True, "carriers": 1, "carrier_name": "inPost-Kurier",
+                    "shipping_netto": 16.20, "shipping_brutto": 19.92}
+
+        monkeypatch.setattr(n.crm_calc, "shipping_quote", _shipping_quote)
+
+    def test_zmiana_wymiaru_w_trakcie_nie_zapisuje_nieaktualnej_dostawy(self, monkeypatch):
+        self._blat(96560)
+        self._kurier_z_wyscigiem(
+            monkeypatch, lambda: stan.zapisz_pozycje("1", dlugosc_cm=300))
+
+        wynik = _wolaj(n.policz_wysylke, kod_pocztowy="05-081")
+
+        assert wynik["error"] == "POZYCJE_ZMIENIONE_W_TRAKCIE", wynik
+        assert stan.dostawa().get("kurier") is None, (
+            "koszt policzony dla 180 cm zostal przy blacie 300 cm")
+        assert "19.92" not in stan.znane_kwoty(), (
+            "nieaktualna kwota weszla do rejestru G1 — bot moglby ja zacytowac")
+
+    def test_nieaktualny_koszt_nie_wychodzi_do_modelu(self, monkeypatch):
+        # Wynik odmowny NIE moze niesc kwoty: rejestr G1 jej nie zna (nic nie
+        # zapisalismy), wiec model, ktory by ja powtorzyl, zostalby oskarzony
+        # o halucynacje — ta sama zasada co przy nieudanym oszacowaniu (U9).
+        self._blat(96561)
+        self._kurier_z_wyscigiem(
+            monkeypatch, lambda: stan.zapisz_pozycje("1", dlugosc_cm=300))
+
+        wynik = _wolaj(n.policz_wysylke, kod_pocztowy="05-081")
+
+        assert not re.search(r"\d", json.dumps(wynik, ensure_ascii=False)), wynik
+
+    def test_zmiana_pola_NIEcenotworczego_zostawia_dostawe(self, monkeypatch):
+        # Kontrola negatywna: naprawa nie moze zamienic sie w falszywy alarm.
+        # `otwory` to pole jawnie NIEWYCENIANE (`build_products` go nie czyta),
+        # a gabaryt sie nie zmienia — oszacowanie NADAL opisuje te pozycje,
+        # wiec ma sie zapisac. Ten sam predykat i to samo uzasadnienie co przy
+        # czyszczeniu rejestru kwot (U6).
+        self._blat(96562)
+        self._kurier_z_wyscigiem(
+            monkeypatch,
+            lambda: stan.zapisz_pozycje("1", otwory=["wyciecie na zlew"]))
+
+        wynik = _wolaj(n.policz_wysylke, kod_pocztowy="05-081")
+
+        assert wynik["ok"] is True, wynik
+        assert stan.dostawa()["kurier"] == "inPost-Kurier"
+        assert {"16.20", "19.92"} <= stan.znane_kwoty()
+
+    def test_bez_wyscigu_dziala_jak_dotad(self, monkeypatch):
+        # Regresja calego normalnego ruchu — nikt nic w trakcie nie zmienia.
+        self._blat(96563)
+        self._kurier_z_wyscigiem(monkeypatch, lambda: None)
+
+        wynik = _wolaj(n.policz_wysylke, kod_pocztowy="05-081")
+
+        assert wynik["ok"] is True and wynik["shipping_brutto"] == 19.92
+        assert stan.dostawa()["kurier"] == "inPost-Kurier"
+
+    def test_telemetria_nie_liczy_wstrzymanego_oszacowania(self, monkeypatch):
+        # Lejek ma liczyc oszacowania, ktore NAPRAWDE obowiazuja — wpis
+        # `shipping_quoted` dla kosztu, ktorego nie zapisalismy, zawyzalby
+        # dokladnie ten etap, po ktory ta telemetria powstala (T1).
+        self._blat(96564)
+        self._kurier_z_wyscigiem(
+            monkeypatch, lambda: stan.zapisz_pozycje("1", dlugosc_cm=300))
+        zdarzenia = []
+        monkeypatch.setattr(n, "log_event",
+                            lambda cid, event, meta=None: zdarzenia.append(event))
+
+        _wolaj(n.policz_wysylke, kod_pocztowy="05-081")
+
+        assert zdarzenia == []
