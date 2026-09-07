@@ -164,7 +164,7 @@ def wyslij_notatke(conv_id, tekst, oznacz_ture=True):
     return True
 
 
-def zamowienie_do_agenta(wycena):
+def zamowienie_do_agenta(wycena, pozycje, dostawa, potwierdzenie, pokazana_kwota):
     """Allegro (U11, spec D8 wiersz 394): zamiast linku dla kupującego —
     notatka dla konsultanta z KOMPLETEM danych i oddanie mu rozmowy.
 
@@ -174,13 +174,23 @@ def zamowienie_do_agenta(wycena):
     Notatka jest prywatna, więc link może w niej zostać — człowiek dostaje
     dokładnie to, czego bot nie ma prawa wysłać.
 
+    R5: opis zamówienia przychodzi W ARGUMENTACH, jako MIGAWKA wzięta przez
+    wołającego (`narzedzia.przygotuj_zamowienie`) — ta sama, na której przeszła
+    bramka I2. Wcześniej ta funkcja sięgała po stan SAMA, czterema świeżymi
+    odczytami (`pozycje`, `dostawa`, cytat potwierdzenia, pokazana kwota), i to
+    JUŻ PO bramce, która liczyła podpis z jeszcze innego odczytu. Na Allegro ta
+    notatka ZASTĘPUJE link do wyceny, więc konsultant dostawał opis zamówienia
+    złożony z rozdartego stanu — i nie miał jak tego zauważyć. Argumenty są
+    WYMAGANE (bez wartości domyślnych) świadomie: domyślne `None` po cichu
+    przywracałoby notatkę bez pozycji, czyli gorszą wersję tego samego błędu.
+
     Zwraca True, gdy notatka poszła."""
     from bots_pro import stan
     tekst = tresc_dla_agenta(
         "Allegro — zamówienie do domknięcia przez konsultanta "
         "(regulamin marketplace'u zabrania wysłania linku kupującemu)",
-        pozycje=stan.pozycje(), dostawa=stan.dostawa(), wycena=wycena,
-        potwierdzenie=stan.cytat_potwierdzenia(), pokazana_kwota=stan.pokazana_kwota())
+        pozycje=pozycje, dostawa=dostawa, wycena=wycena,
+        potwierdzenie=potwierdzenie, pokazana_kwota=pokazana_kwota)
     return wyslij_notatke(stan.conv_id(), tekst)
 
 

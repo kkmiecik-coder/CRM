@@ -1953,3 +1953,160 @@ class TestJednaMigawkaDoBramkiIDoCRM:
 
         assert wynik["error"] == "POTWIERDZENIE_NIEAKTUALNE", wynik
         assert wywolania == []
+
+
+class TestZapiszWyceneNieZakladaDwochWycen:
+    """R4: bramka WYCENA_JUZ_ZAPISANA czytala `stan.zapisana_wycena()` PRZED
+    wyjsciem na `crm_calc.create_quote` (HTTP, timeout 30 s), a wynik zapisywala
+    dopiero PO powrocie. Miedzy sprawdzeniem a zapisem nie bylo ani zamka, ani
+    zadnej innej kontroli — dwa rownolegle wywolania z JEDNEGO kroku modelu (SDK
+    odpala narzedzia w watkach) przechodzily wiec OBA.
+
+    Skutek: dwie wyceny w CRM dla jednej rozmowy — czego docstring narzedzia
+    zabrania wprost — z czego jedna OSIEROCONA (jest w CRM, `pro_stan` trzyma
+    druga, klient dostaje link tylko do jednej). Plus dwa `update_quote`
+    i podwojna telemetria `quote_saved`.
+
+    ZMIERZONE (sonda, dwa rownolegle `zapisz_wycene` przez `on_invoke_tool`,
+    watki przez `contextvars.copy_context().run`, 15 przebiegow, limity
+    produkcji `--cpus=0.5 --memory=256m`): dwie wyceny w CRM w 15/15 przebiegow
+    PRZED naprawa, 0/15 po niej (30 -> 15 wywolan `create_quote`).
+
+    Test nizej odtwarza to okno DETERMINISTYCZNIE, bez usypiania: drugie
+    wywolanie startuje dopiero wtedy, gdy pierwsze na pewno stoi w `create_quote`."""
+
+    def _potwierdzony_blat(self, monkeypatch, conv_id):
+        stan.ustaw_kontekst(conv_id)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat", dlugosc_cm=180,
+               szerokosc_cm=60, grubosc_cm=4, ilosc=1,
+               selected_variant="dab-lity-ab", wykonczenie="surowe")
+        _potwierdz_biezace_pozycje(monkeypatch)
+
+    def test_dwa_rownolegle_wywolania_daja_jedna_wycene(self, monkeypatch):
+        import contextvars
+        import threading
+
+        self._potwierdzony_blat(monkeypatch, 96590)
+        utworzone, wyniki = [], []
+        weszlo_w_http = threading.Event()
+        wolno_wrocic = threading.Event()
+
+        def _create_quote(*a, **k):
+            utworzone.append(1)
+            weszlo_w_http.set()
+            wolno_wrocic.wait(timeout=5)
+            return {"ok": True, "quote_number": "W/%s" % len(utworzone),
+                    "edit_uuid": "u%s" % len(utworzone),
+                    "public_url": "https://crm/x%s" % len(utworzone)}
+
+        monkeypatch.setattr(n.crm_calc, "create_quote", _create_quote)
+
+        def _pierwsze():
+            wyniki.append(_wolaj(n.zapisz_wycene, client_id=7))
+
+        watek = threading.Thread(target=contextvars.copy_context().run, args=(_pierwsze,))
+        watek.start()
+        assert weszlo_w_http.wait(timeout=5), "pierwsze wywolanie nie doszlo do CRM"
+        drugie = _wolaj(n.zapisz_wycene, client_id=7)   # w oknie HTTP pierwszego
+        wolno_wrocic.set()
+        watek.join(timeout=5)
+
+        assert len(utworzone) == 1, "w CRM powstaly DWIE wyceny dla jednej rozmowy"
+        assert drugie["error"] == "WYCENA_JUZ_ZAPISANA", drugie
+        assert wyniki[0]["ok"] is True, wyniki
+
+    def test_nieudany_zapis_zwalnia_rezerwacje(self, monkeypatch):
+        # Kontrola negatywna, bez ktorej naprawa bylaby gorsza od defektu:
+        # `create_quote` padlo, wiec w CRM NIC nie powstalo — model ma prawo
+        # sprobowac jeszcze raz. Rezerwacja trzymana w nieskonczonosc zamknelaby
+        # mu te droge na zawsze.
+        self._potwierdzony_blat(monkeypatch, 96591)
+        proby = []
+
+        def _create_quote(*a, **k):
+            proby.append(1)
+            if len(proby) == 1:
+                return {"ok": False, "errors": [{"code": "TIMEOUT"}]}
+            return {"ok": True, "quote_number": "W/1", "edit_uuid": "u1",
+                    "public_url": "https://crm/x"}
+
+        monkeypatch.setattr(n.crm_calc, "create_quote", _create_quote)
+
+        assert _wolaj(n.zapisz_wycene, client_id=7)["ok"] is False
+        assert _wolaj(n.zapisz_wycene, client_id=7)["ok"] is True
+        assert len(proby) == 2
+
+    def test_udany_zapis_zwalnia_rezerwacje_a_pilnuje_baza(self, monkeypatch):
+        # Kontrola negatywna druga: po sukcesie rezerwacja tez znika (inaczej
+        # zbior rosnie o wpis na kazda rozmowe do restartu), a pojedynczosci
+        # pilnuje dalej `quote_edit_uuid` w bazie — ta przezywa restart procesu.
+        self._potwierdzony_blat(monkeypatch, 96592)
+        monkeypatch.setattr(n.crm_calc, "create_quote", lambda *a, **k: {
+            "ok": True, "quote_number": "W/1", "edit_uuid": "u1",
+            "public_url": "https://crm/x"})
+
+        assert _wolaj(n.zapisz_wycene, client_id=7)["ok"] is True
+        assert stan.conv_id() not in stan._wyceny_w_toku
+        monkeypatch.setattr(n.crm_calc, "create_quote",
+                            lambda *a, **k: pytest.fail("druga wycena w CRM"))
+        assert _wolaj(n.zapisz_wycene, client_id=7)["error"] == "WYCENA_JUZ_ZAPISANA"
+
+
+class TestPrzygotujZamowienieOpisujeMigawke:
+    """R5: `przygotuj_zamowienie` wolalo `sprawdz_bramke()` BEZ argumentow, z
+    uzasadnieniem „to narzedzie nic nie wysyla i nic nie zapisuje". Na Allegro —
+    czyli na kanale, DLA KTOREGO powstala ta galaz — to nieprawda:
+    `notatki.zamowienie_do_agenta` robi `cw_note` (HTTP do Chatwoota), a
+    `stan.handoff` drugie HTTP i zapis stanu.
+
+    Gorzej: notatka skladala sie z CZTERECH swiezych odczytow stanu (pozycje,
+    dostawa, cytat potwierdzenia, pokazana kwota), branych JUZ PO bramce, a sama
+    bramka liczyla podpis z jeszcze innego odczytu. Na Allegro ta notatka
+    ZASTEPUJE link do wyceny, wiec konsultant dostawal opis zamowienia zlozony
+    z rozdartego stanu — i nie mial jak tego zauwazyc.
+
+    Naprawa jest ta sama co w `zapisz_wycene`/`popraw_wycene` (K2): jedna
+    migawka do bramki I2 i do tego, co idzie dalej."""
+
+    def _notatka_po_wyscigu(self, monkeypatch, conv_id, zmiana):
+        _wycena_gotowa_do_zamowienia(monkeypatch, conv_id)
+        prawdziwa = potwierdzenia.sprawdz_bramke
+
+        def _bramka(*args, **kwargs):
+            wynik = prawdziwa(*args, **kwargs)
+            zmiana()
+            return wynik
+
+        monkeypatch.setattr(potwierdzenia, "sprawdz_bramke", _bramka)
+        notatki_wyslane = []
+        monkeypatch.setattr(notatki, "wyslij_notatke",
+                            lambda cid, tekst, **k: notatki_wyslane.append(tekst) or True)
+        monkeypatch.setattr(stan, "handoff", lambda powod: {"ok": True})
+        _wolaj(n.przygotuj_zamowienie)
+        assert len(notatki_wyslane) == 1
+        return notatki_wyslane[0]
+
+    def test_notatka_opisuje_to_co_klient_potwierdzil(self, monkeypatch):
+        tekst = self._notatka_po_wyscigu(
+            monkeypatch, 96595, lambda: stan.zapisz_pozycje("1", dlugosc_cm=300))
+
+        assert "180.0x60.0x4.0 cm" in tekst, (
+            "konsultant dostal opis zamowienia sprzed potwierdzenia klienta")
+        assert "300" not in tekst
+
+    def test_notatka_niesie_dostawe_z_migawki(self, monkeypatch):
+        # Zmiana wymiaru KASUJE dostawe (`stan._zmien_pozycje`), wiec swiezy
+        # odczyt oddawal notatke BEZ kuriera — a klient potwierdzil cene z nim.
+        tekst = self._notatka_po_wyscigu(
+            monkeypatch, 96596, lambda: stan.zapisz_pozycje("1", dlugosc_cm=300))
+
+        assert "DPD" in tekst
+
+    def test_bez_wyscigu_notatka_bez_zmian(self, monkeypatch):
+        # Kontrola negatywna: nic sie nie dzieje rownolegle, wiec notatka ma
+        # wygladac dokladnie jak dotad — z linkiem, pozycjami i dostawa.
+        tekst = self._notatka_po_wyscigu(monkeypatch, 96597, lambda: None)
+
+        assert "https://crm.example/q/abc" in tekst
+        assert "180.0x60.0x4.0 cm" in tekst
+        assert "DPD" in tekst

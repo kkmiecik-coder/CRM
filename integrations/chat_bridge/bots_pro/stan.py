@@ -1206,6 +1206,56 @@ def zapamietaj_wycene(wynik):
         zapisz_stan(**kolumny)
 
 
+# R4: rozmowy, dla ktorych `zapisz_wycene` WLASNIE wisi na `create_quote`.
+# Zbior w pamieci procesu, pod `zamek_stanu` — dokladnie ta sama konstrukcja i
+# to samo ryzyko resztkowe co przy samym zamku (patrz jego komentarz: drugi
+# proces albo drugi worker CICHO cofa te ochrone). Do bazy nie idzie, bo to stan
+# JEDNEJ trwajacej operacji, a nie decyzja biznesowa majaca przezyc restart:
+# po restarcie mostka zadne `create_quote` juz nie leci, wiec pusty zbior jest
+# poprawna odpowiedzia.
+_wyceny_w_toku = set()
+
+
+def rezerwuj_zapis_wyceny():
+    """Rezerwuje prawo do zalozenia wyceny w CRM dla biezacej rozmowy.
+    Zwraca False, gdy wycena juz istnieje ALBO wlasnie powstaje.
+
+    R4: bramka `WYCENA_JUZ_ZAPISANA` czytala sam `zapisana_wycena()` — czyli
+    stan bazy — i robila to PRZED wyjsciem na `crm_calc.create_quote` (HTTP,
+    timeout 30 s), a wynik zapisywala dopiero PO powrocie. Miedzy sprawdzeniem
+    a zapisem nie bylo NICZEGO, wiec dwa rownolegle wywolania z jednego kroku
+    modelu (SDK odpala narzedzia w watkach) przechodzily OBA. ZMIERZONE, 15
+    przebiegow pod limitami produkcji: dwie wyceny w CRM w 15/15, z czego jedna
+    OSIEROCONA — jest w CRM, `pro_stan` trzyma druga, klient dostaje link tylko
+    do jednej. Docstring narzedzia zabrania tego wprost, ale zakaz w docstringu
+    to dyscyplina promptu, a nie bramka.
+
+    Sprawdzenie bazy i zaznaczenie rezerwacji dzieja sie w JEDNEJ sekcji
+    krytycznej — inaczej przesunelibysmy okno, zamiast je zamknac.
+
+    Zwolnienie: patrz `zwolnij_zapis_wyceny`."""
+    with zamek_stanu:
+        biezacy = _wymagany_conv_id()
+        if zapisana_wycena().get("edit_uuid") or biezacy in _wyceny_w_toku:
+            return False
+        _wyceny_w_toku.add(biezacy)
+        return True
+
+
+def zwolnij_zapis_wyceny():
+    """Zdejmuje rezerwacje z `rezerwuj_zapis_wyceny`.
+
+    Wolane BEZWARUNKOWO po powrocie z CRM, takze po sukcesie — i to nie jest
+    przeoczenie. Gdy wycena powstala, `zapamietaj_wycene` zdazylo juz zapisac
+    `quote_edit_uuid`, wiec pojedynczosci pilnuje dalej bramka na BAZIE (ta
+    przezywa restart procesu, czego zbior w pamieci nie potrafi). Gdy nie
+    powstala — model ma prawo sprobowac jeszcze raz, a wieczna rezerwacja
+    zamknelaby mu te droge na zawsze. Przy okazji zbior nie rosnie o jeden wpis
+    na kazda rozmowe az do restartu."""
+    with zamek_stanu:
+        _wyceny_w_toku.discard(conv_id())
+
+
 def zapisana_wycena():
     """`{"edit_uuid": ..., "public_url": ...}` zapisanej wyceny; `{}` gdy jej nie ma."""
     polaczenie = db()

@@ -612,7 +612,7 @@ def zapisz_wycene(client_id: int, notatka: str = "") -> dict:
 
     Identyfikator wyceny jest zapamiętywany na stałe w tej rozmowie, więc
     popraw_wycene i przygotuj_zamowienie możesz wołać BEZ podawania edit_uuid."""
-    from bots_pro import notatki, potwierdzenia, stan
+    from bots_pro import potwierdzenia, stan
     # K2: JEDNA migawka pod zamkiem — ta sama idzie do bramki I2 i do CRM.
     # Wcześniej były tu TRZY niezależne odczyty stanu (bramka, `create_quote`,
     # `_dopisz_dostawe`) bez zamka między nimi, więc klient mógł potwierdzić
@@ -626,11 +626,32 @@ def zapisz_wycene(client_id: int, notatka: str = "") -> dict:
     # dopisanie dostawy, nizej) — a blad zacheca model do ponowienia. Ponowienie
     # utworzyloby DRUGA wycene dla tej samej rozmowy, dokladnie to, czego zabrania
     # docstring. Sprawdzamy wiec stan, nie ufamy dyscyplinie promptu.
-    if stan.zapisana_wycena().get("edit_uuid"):
+    #
+    # R4: sprawdzenie i REZERWACJA pod jednym zamkiem (`stan.rezerwuj_zapis_wyceny`),
+    # nie samo czytanie bazy. Poprzednia wersja pytala „czy wycena juz jest"
+    # PRZED wyjsciem na `create_quote` (HTTP, timeout 30 s), a odpowiedz
+    # zapisywala dopiero po powrocie — dwa rownolegle wywolania z jednego kroku
+    # modelu przechodzily wiec OBA (zmierzone: 15/15). Bramka, ktora dziala
+    # tylko na przebiegu sekwencyjnym, nie jest bramka.
+    if not stan.rezerwuj_zapis_wyceny():
         return {"ok": False, "error": "WYCENA_JUZ_ZAPISANA",
-                "wskazowka": "Ta rozmowa ma już zapisaną wycenę w CRM. Zmiany rób przez "
-                             "popraw_wycene, a link przez przygotuj_zamowienie — ponowny "
-                             "zapis zdublowałby wycenę."}
+                "wskazowka": "Ta rozmowa ma już wycenę w CRM (albo właśnie ją "
+                             "zapisuję). Zmiany rób przez popraw_wycene, a link przez "
+                             "przygotuj_zamowienie — ponowny zapis zdublowałby wycenę."}
+    try:
+        return _zapisz_wycene_pod_rezerwacja(pozycje, dostawa, client_id, notatka)
+    finally:
+        # BEZWARUNKOWO, takze po sukcesie — patrz `stan.zwolnij_zapis_wyceny`:
+        # od tej chwili pojedynczosci pilnuje `quote_edit_uuid` w bazie, a
+        # nieudany zapis ma zostawic modelowi droge do ponowienia.
+        stan.zwolnij_zapis_wyceny()
+
+
+def _zapisz_wycene_pod_rezerwacja(pozycje, dostawa, client_id, notatka):
+    """Cialo `zapisz_wycene` wykonywane JUZ Z REZERWACJA (R4) — wydzielone
+    wylacznie po to, zeby `finally` zwalniajacy rezerwacje obejmowal wszystkie
+    wyjscia, razem z tym w srodku galezi DOSTAWA_NIEDOPISANA."""
+    from bots_pro import notatki, stan
     wynik = crm_calc.create_quote(pozycje, crm_calc.get_options(),
                                   client_id, notes=notatka)
     stan.zapamietaj_wycene(wynik)   # U3: bez tego fallback linku jest martwy
@@ -641,8 +662,9 @@ def zapisz_wycene(client_id: int, notatka: str = "") -> dict:
         # `ok=False` MIMO zapisanej wyceny (patrz jej komentarz). Logowanie
         # dopiero na wyjściu gubiłoby w telemetrii dokładnie te rozmowy, w
         # których wycena powstała, ale coś poszło nie tak — czyli najciekawsze.
-        # Emisja jest z natury pojedyncza: bramka WYCENA_JUZ_ZAPISANA wyżej nie
-        # dopuszcza drugiego zapisu w tej samej rozmowie.
+        # Emisja jest z natury pojedyncza: rezerwacja + bramka
+        # WYCENA_JUZ_ZAPISANA w `zapisz_wycene` nie dopuszczają drugiego zapisu
+        # w tej samej rozmowie — także przy dwóch wywołaniach naraz (R4).
         log_event(stan.conv_id(), "quote_saved", {"nr": wynik.get("quote_number")})
         z_dostawa = _dopisz_dostawe(pozycje, dostawa, wynik.get("edit_uuid"), notatka)
         if z_dostawa is not None:
@@ -753,7 +775,18 @@ def przygotuj_zamowienie(edit_uuid: str = "") -> dict:
 
     edit_uuid możesz POMINĄĆ — system zna wycenę zapisaną w tej rozmowie."""
     from bots_pro import notatki, potwierdzenia, stan, wysylka
-    bramka = potwierdzenia.sprawdz_bramke()
+    # R5: JEDNA migawka, tak samo jak w `zapisz_wycene` i `popraw_wycene`.
+    # Poprzednia wersja stawiała tu `sprawdz_bramke()` bez argumentów, z
+    # uzasadnieniem „to narzędzie nic nie wysyła i nic nie zapisuje". Na
+    # Allegro — czyli na kanale, DLA KTÓREGO powstała gałąź niżej — to
+    # nieprawda: `notatki.zamowienie_do_agenta` robi `cw_note` (HTTP do
+    # Chatwoota), a `stan.handoff` drugie HTTP i zapis stanu. Notatka składała
+    # się przy tym z CZTERECH świeżych odczytów stanu (pozycje, dostawa, cytat
+    # potwierdzenia, pokazana kwota), branych JUŻ PO bramce, a sama bramka
+    # liczyła podpis z jeszcze innego odczytu. Na Allegro ta notatka ZASTĘPUJE
+    # link, więc konsultant dostawał opis zamówienia złożony z rozdartego stanu.
+    pozycje, dostawa = stan.migawka()
+    bramka = potwierdzenia.sprawdz_bramke(pozycje, dostawa)
     if not bramka["ok"]:
         return bramka
     wynik = stan.link_do_checkoutu(edit_uuid)
@@ -764,7 +797,15 @@ def przygotuj_zamowienie(edit_uuid: str = "") -> dict:
     # NIE wraca do modelu — nie po to, żeby go potem wyciąć w wysyłce, tylko
     # żeby w ogóle nie było czego wycinać (osierocone „Link:" i obietnica
     # adresu, którego kupujący nigdy nie dostanie, to ta sama awaria).
-    notatki.zamowienie_do_agenta(wynik)
+    #
+    # R5: notatka opisuje TĘ SAMĄ migawkę, na której przeszła bramka I2, a cytat
+    # potwierdzenia bierze z jej wyniku (`bramka["cytat"]`) zamiast czytać go
+    # jeszcze raz. `pokazana_kwota` to zapis HISTORYCZNY (kolumna, którą pisze
+    # wyłącznie `podsumowanie.wyslij` po udanej wysyłce), więc jeden odczyt tutaj
+    # jest jej pełnym opisem — nie ma czego z czym rozjechać.
+    notatki.zamowienie_do_agenta(wynik, pozycje=pozycje, dostawa=dostawa,
+                                 potwierdzenie=bramka.get("cytat"),
+                                 pokazana_kwota=stan.pokazana_kwota())
     stan.handoff("Allegro — gotowa wycena do domkniecia przez konsultanta")
     return {"ok": True, "tryb": "notatka",
             "wskazowka": "Na tym kanale nie wolno wysyłać linków. Wycena i komplet "

@@ -458,10 +458,20 @@ def sprawdz_bramke(pozycje=None, dostawa=None):
     w 10/15 przebiegów przy samym oknie bramka->odczyt, bez żadnego
     złośliwego przeplotu.
 
-    Argumenty domyślne (`None`) znaczą „policz podpis z bieżącego stanu" — tak
-    woła `przygotuj_zamowienie`, które niczego do CRM nie wysyła: pyta
-    wyłącznie o link do wyceny JUŻ tam zapisanej, więc nie ma migawki, którą
-    miałoby przypiąć."""
+    R5: migawkę podaje TAKŻE `przygotuj_zamowienie`. Poprzednia wersja tego
+    docstringa mówiła, że wolno mu jej nie podawać, „bo niczego do CRM nie
+    wysyła" — i to była nieprawda na Allegro, czyli na kanale, dla którego
+    powstała jego druga gałąź: tam narzędzie pisze notatkę do Chatwoota
+    (`cw_note`, HTTP) i oddaje rozmowę człowiekowi (`stan.handoff`, drugie HTTP
+    i zapis stanu). Notatka ZASTĘPUJE kupującemu link, więc opis zamówienia
+    musi być tą samą treścią, na której przeszła ta bramka.
+
+    Argumenty domyślne (`None`) znaczą „policz podpis z bieżącego stanu".
+    Dziś NIE MA takiego wołającego w kodzie produkcyjnym — zostają dla
+    czytelności testów i dlatego, że dla pytania „czy ostatnie potwierdzenie
+    nadal obowiązuje", zadanego bez zamiaru wysłania czegokolwiek, jest to
+    poprawna odpowiedź. Nowy wołający, który cokolwiek WYŚLE albo ZAPISZE,
+    ma podać migawkę."""
     zapisany, cytat = _stan_potwierdzenia()
     if not zapisany:
         return {"ok": False, "error": "BRAK_POTWIERDZENIA",
