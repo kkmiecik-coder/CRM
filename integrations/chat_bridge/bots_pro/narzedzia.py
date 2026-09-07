@@ -561,8 +561,18 @@ def _bez_linku_gdy_kanal_zabrania(wynik):
     return okrojony
 
 
-def _dopisz_dostawe(stan, edit_uuid, notatka):
+def _dopisz_dostawe(pozycje, dostawa, edit_uuid, notatka):
     """Dopisuje kuriera i koszt wysyłki do ŚWIEŻO UTWORZONEJ wyceny (U3/U4).
+
+    K2: pozycje i dostawa przychodzą W ARGUMENCIE — jako MIGAWKA wzięta przez
+    wołającego pod zamkiem, ta sama, na której przeszła bramka I2 i która
+    poszła do `create_quote`. Wcześniej ta funkcja sięgała po stan SAMA, i to
+    JUŻ PO powrocie z `create_quote` (HTTP, timeout 30 s) — czyli był to
+    TRZECI niezależny odczyt w jednym narzędziu, z najszerszym z wszystkich
+    okien. Tym trzecim odczytem NADPISYWAŁA wycenę w CRM przez `update_quote`,
+    więc pod link, który klient dostaje, trafiała treść, której nigdy nie
+    potwierdził. ZMIERZONE: opis pozycji zmieniony równolegle wchodził do
+    `update_quote` w 15/15 przebiegów.
 
     `POST /api/bot/quotes` nie przyjmuje pól wysyłki — przyjmuje je wyłącznie
     `PUT /api/bot/quotes/<edit_uuid>` (patrz `_shipping_settings` w
@@ -578,12 +588,11 @@ def _dopisz_dostawe(stan, edit_uuid, notatka):
     dostawie wypuszczałby link do wyceny BEZ niej. Dziś nieosiągalne przez
     prawdziwy CRM (`POST /api/bot/quotes` zwraca `edit_uuid` zawsze przy
     ok=True), ale cała reszta R1 jest fail-closed i to jedno miejsce też ma być."""
-    dostawa = stan.dostawa()
     if not dostawa.get("kurier"):
         return None
     if not edit_uuid:
         return {"ok": False, "error": "BRAK_EDIT_UUID"}
-    return crm_calc.update_quote(edit_uuid, stan.pozycje(), crm_calc.get_options(),
+    return crm_calc.update_quote(edit_uuid, pozycje, crm_calc.get_options(),
                                  notes=notatka, courier_name=dostawa["kurier"],
                                  shipping_netto=dostawa.get("netto"),
                                  shipping_brutto=dostawa.get("brutto"))
@@ -604,7 +613,13 @@ def zapisz_wycene(client_id: int, notatka: str = "") -> dict:
     Identyfikator wyceny jest zapamiętywany na stałe w tej rozmowie, więc
     popraw_wycene i przygotuj_zamowienie możesz wołać BEZ podawania edit_uuid."""
     from bots_pro import notatki, potwierdzenia, stan
-    bramka = potwierdzenia.sprawdz_bramke()
+    # K2: JEDNA migawka pod zamkiem — ta sama idzie do bramki I2 i do CRM.
+    # Wcześniej były tu TRZY niezależne odczyty stanu (bramka, `create_quote`,
+    # `_dopisz_dostawe`) bez zamka między nimi, więc klient mógł potwierdzić
+    # jedną konfigurację, a w CRM — i pod jego linkiem — lądowała inna.
+    # Uzasadnienie i pomiar: patrz `potwierdzenia.sprawdz_bramke`.
+    pozycje, dostawa = stan.migawka()
+    bramka = potwierdzenia.sprawdz_bramke(pozycje, dostawa)
     if not bramka["ok"]:
         return bramka
     # R1: ta funkcja potrafi teraz zwrocic ok=False MIMO ZAPISANEJ wyceny (nieudane
@@ -616,7 +631,7 @@ def zapisz_wycene(client_id: int, notatka: str = "") -> dict:
                 "wskazowka": "Ta rozmowa ma już zapisaną wycenę w CRM. Zmiany rób przez "
                              "popraw_wycene, a link przez przygotuj_zamowienie — ponowny "
                              "zapis zdublowałby wycenę."}
-    wynik = crm_calc.create_quote(stan.pozycje(), crm_calc.get_options(),
+    wynik = crm_calc.create_quote(pozycje, crm_calc.get_options(),
                                   client_id, notes=notatka)
     stan.zapamietaj_wycene(wynik)   # U3: bez tego fallback linku jest martwy
 
@@ -629,7 +644,7 @@ def zapisz_wycene(client_id: int, notatka: str = "") -> dict:
         # Emisja jest z natury pojedyncza: bramka WYCENA_JUZ_ZAPISANA wyżej nie
         # dopuszcza drugiego zapisu w tej samej rozmowie.
         log_event(stan.conv_id(), "quote_saved", {"nr": wynik.get("quote_number")})
-        z_dostawa = _dopisz_dostawe(stan, wynik.get("edit_uuid"), notatka)
+        z_dostawa = _dopisz_dostawe(pozycje, dostawa, wynik.get("edit_uuid"), notatka)
         if z_dostawa is not None:
             if z_dostawa.get("ok"):
                 stan.zapamietaj_wycene(z_dostawa)
@@ -647,7 +662,10 @@ def zapisz_wycene(client_id: int, notatka: str = "") -> dict:
                 notatki.wyslij_notatke(stan.conv_id(), notatki.tresc_dla_agenta(
                     "wycena zapisana BEZ kosztu dostawy — nie udało się dopisać "
                     "kuriera do wyceny w CRM, link do niej NIE został wysłany",
-                    pozycje=stan.pozycje(), dostawa=stan.dostawa(),
+                    # K2: notatka opisuje MIGAWKĘ, która poszła do CRM, nie
+                    # świeży odczyt — konsultant ma zobaczyć to, co klient
+                    # potwierdził i co naprawdę wylądowało w wycenie.
+                    pozycje=pozycje, dostawa=dostawa,
                     wycena=stan.zapisana_wycena(),
                     potwierdzenie=stan.cytat_potwierdzenia(),
                     # Z4: TU ta kwota wazy najwiecej z wszystkich trzech notatek.
@@ -682,7 +700,13 @@ def popraw_wycene(edit_uuid: str = "", notatka: str = "") -> dict:
     rozmowie. Podawaj go tylko wtedy, gdy masz go pod ręką z wyniku
     zapisz_wycene."""
     from bots_pro import potwierdzenia, stan
-    bramka = potwierdzenia.sprawdz_bramke()
+    # K2: jak w `zapisz_wycene` — JEDNA migawka pod zamkiem do bramki I2 i do
+    # CRM. Tutaj waży jeszcze więcej, bo to narzędzie NADPISUJE wycenę, do
+    # której klient ma już link: rozjazd między sprawdzoną a wysłaną treścią
+    # znaczy, że klient odświeża stronę i widzi inną cenę niż ta, na którą się
+    # zgodził, po czym z niej zamawia.
+    pozycje, dostawa = stan.migawka()
+    bramka = potwierdzenia.sprawdz_bramke(pozycje, dostawa)
     if not bramka["ok"]:
         return bramka
     # U3: fallback na zapisany identyfikator — bez niego wypadnięcie edit_uuid
@@ -698,8 +722,7 @@ def popraw_wycene(edit_uuid: str = "", notatka: str = "") -> dict:
     # potwierdzał cenę Z dostawą, a pod linkiem widział wycenę BEZ niej.
     # `update_quote` dopisuje wysyłkę tylko gdy `courier_name` jest prawdziwe, więc
     # brak oszacowania (None) świadomie nie trafia do CRM jako "0 zł".
-    dostawa = stan.dostawa()
-    wynik = crm_calc.update_quote(edit_uuid, stan.pozycje(),
+    wynik = crm_calc.update_quote(edit_uuid, pozycje,
                                   crm_calc.get_options(), notes=notatka,
                                   courier_name=dostawa.get("kurier"),
                                   shipping_netto=dostawa.get("netto"),

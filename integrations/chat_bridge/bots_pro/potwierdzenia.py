@@ -417,14 +417,32 @@ def potwierdz(cytat_klienta):
     return {"ok": True, "podpis": biezacy}
 
 
-def sprawdz_bramke():
-    """Czy wolno zapisać wycenę albo podać link do zamówienia."""
+def sprawdz_bramke(pozycje=None, dostawa=None):
+    """Czy wolno zapisać wycenę albo podać link do zamówienia.
+
+    K2: wołający, który zaraz WYŚLE dane dalej (do CRM, a stamtąd pod link
+    klienta i do zamówienia w BaseLinkerze), MUSI podać dokładnie tę migawkę,
+    którą wyśle — `stan.migawka()`. Bez tego bramka liczyła podpis z WŁASNEGO
+    odczytu, a `create_quote`/`update_quote` dostawały DRUGI, niezależny —
+    między nimi nie było zamka, więc równoległy `zapisz_pozycje` z tego samego
+    kroku modelu wchodził w środek. Inwariant I2 mówi „nic dalej bez
+    potwierdzenia przypiętego do PODPISU TREŚCI"; sprawdzanie jednej treści
+    i wysyłanie innej jest złamaniem tego zdania, nawet gdy obie są poprawne
+    z osobna. ZMIERZONE: klient potwierdził blat 180 cm, do CRM szło 300 cm
+    w 10/15 przebiegów przy samym oknie bramka->odczyt, bez żadnego
+    złośliwego przeplotu.
+
+    Argumenty domyślne (`None`) znaczą „policz podpis z bieżącego stanu" — tak
+    woła `przygotuj_zamowienie`, które niczego do CRM nie wysyła: pyta
+    wyłącznie o link do wyceny JUŻ tam zapisanej, więc nie ma migawki, którą
+    miałoby przypiąć."""
     zapisany, cytat = _stan_potwierdzenia()
     if not zapisany:
         return {"ok": False, "error": "BRAK_POTWIERDZENIA",
                 "wskazowka": "Najpierw wyślij podsumowanie i poczekaj, aż klient je potwierdzi."}
 
-    if zapisany != _biezacy_podpis():
+    biezacy = podpis(pozycje, dostawa) if pozycje is not None else _biezacy_podpis()
+    if zapisany != biezacy:
         return {"ok": False, "error": "POTWIERDZENIE_NIEAKTUALNE",
                 "wskazowka": "Dane zmieniły się po potwierdzeniu. Wyślij nowe podsumowanie "
                              "i poproś o ponowne potwierdzenie."}

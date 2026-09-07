@@ -1809,3 +1809,147 @@ class TestWysylkaSprawdzaStanPoPowrocieZAPI:
         _wolaj(n.policz_wysylke, kod_pocztowy="05-081")
 
         assert zdarzenia == []
+
+
+class TestJednaMigawkaDoBramkiIDoCRM:
+    """K2: `zapisz_wycene` sprawdzalo bramke I2 na JEDNYM odczycie pozycji, a do
+    CRM wysylalo DRUGI — i przez `_dopisz_dostawe` TRZECI, juz PO powrocie z
+    `create_quote` (HTTP, timeout 30 s). Miedzy zadna z tych par nie bylo zamka.
+    `popraw_wycene` ma ten sam ksztalt, tylko gorsze skutki: NADPISUJE wycene,
+    do ktorej klient ma juz link.
+
+    Inwariant wlasciciela I2 brzmi „nic dalej bez potwierdzenia klienta
+    przypietego do PODPISU TRESCI". Sprawdzanie jednej tresci i wysylanie innej
+    lamie to zdanie, nawet gdy obie sa poprawne z osobna: w CRM — i stamtad pod
+    link klienta oraz do zamowienia w BaseLinkerze — szla konfiguracja, ktorej
+    klient NIGDY nie widzial i nie potwierdzil.
+
+    ZMIERZONE (sonda, watki przez `contextvars.copy_context().run`, narzedzia
+    przez `on_invoke_tool`, 15 przebiegow, limity produkcji
+    `--cpus=0.5 --memory=256m`), klient potwierdzil blat 180 cm:
+      - okno bramka -> odczyt w `zapisz_wycene`: do `create_quote` szlo 300 cm
+        w 10/15 przebiegow PRZED naprawa, 0/15 po niej — samo okno wystarcza,
+        bez zadnego zlosliwego przeplotu;
+      - okno `create_quote` -> `_dopisz_dostawe` (cale HTTP): niepotwierdzony
+        opis pozycji szedl do `update_quote` w 15/15 PRZED, 0/15 po;
+      - `popraw_wycene`: nadpisanie wyceny wartoscia 300 w 2/15 PRZED, 0/15 po.
+
+    Testy nizej odtwarzaja te okna DETERMINISTYCZNIE — rownolegly zapis dzieje
+    sie doslownie w tym miejscu, w ktorym w produkcji laduje przeplot: tuz po
+    bramce (opakowana PRAWDZIWA `sprawdz_bramke`, nie atrapa jej logiki) albo
+    w srodku atrapy `create_quote`, czyli tam, gdzie stoi HTTP."""
+
+    DLUGOSC_POTWIERDZONA = 180
+
+    def _potwierdzony_blat(self, monkeypatch, conv_id, dostawa=False):
+        stan.ustaw_kontekst(conv_id)
+        _wolaj(n.zapisz_pozycje, id="1", produkt="blat", dlugosc_cm=180,
+               szerokosc_cm=60, grubosc_cm=4, ilosc=1,
+               selected_variant="dab-lity-ab", wykonczenie="surowe")
+        if dostawa:
+            stan.zapisz_dostawe("05-081", kurier="inPost-Kurier",
+                                netto=16.20, brutto=19.92)
+        _potwierdz_biezace_pozycje(monkeypatch)
+
+    @staticmethod
+    def _zapis_tuz_po_bramce(monkeypatch, zmiana):
+        """Rownolegly `zapisz_pozycje`, ktory laduje DOKLADNIE w oknie
+        bramka -> odczyt. Prawdziwa bramka jest wolana, nie podmieniana —
+        mierzymy okno, nie atrapujemy sprawdzenia."""
+        prawdziwa = potwierdzenia.sprawdz_bramke
+
+        def _bramka(*args, **kwargs):
+            wynik = prawdziwa(*args, **kwargs)
+            zmiana()
+            return wynik
+
+        monkeypatch.setattr(potwierdzenia, "sprawdz_bramke", _bramka)
+
+    def test_do_crm_idzie_konfiguracja_ktora_klient_potwierdzil(self, monkeypatch):
+        self._potwierdzony_blat(monkeypatch, 96580)
+        self._zapis_tuz_po_bramce(
+            monkeypatch, lambda: stan.zapisz_pozycje("1", dlugosc_cm=300))
+        wyslane = []
+        monkeypatch.setattr(n.crm_calc, "create_quote",
+                            lambda pozycje, *a, **k: wyslane.append(pozycje) or {
+                                "ok": True, "quote_number": "W/1", "edit_uuid": "u1",
+                                "public_url": "https://crm/x"})
+
+        _wolaj(n.zapisz_wycene, client_id=7)
+
+        assert [float(p["dlugosc"]) for p in wyslane[0]] == [self.DLUGOSC_POTWIERDZONA], (
+            "do CRM poszla konfiguracja, ktorej klient nigdy nie potwierdzil")
+
+    def test_dopisanie_dostawy_nie_nadpisuje_wyceny_swiezym_odczytem(self, monkeypatch):
+        # Trzeci odczyt, najszersze okno: cale `create_quote`. Zmiana OPISOWA
+        # (`produkt`) nie rusza odcisku cenotworczego, wiec `_zmien_pozycje` NIE
+        # kasuje dostawy i `_dopisz_dostawe` naprawde leci — wchodzi za to do
+        # PODPISU (`_POLA_OPISOWE`), czyli to nadal tresc niepotwierdzona.
+        self._potwierdzony_blat(monkeypatch, 96581, dostawa=True)
+
+        def _create_quote_z_wyscigiem(*a, **k):
+            stan.zapisz_pozycje("1", produkt="blat z otworem")
+            return {"ok": True, "quote_number": "W/1", "edit_uuid": "u1",
+                    "public_url": "https://crm/x"}
+
+        monkeypatch.setattr(n.crm_calc, "create_quote", _create_quote_z_wyscigiem)
+        wyslane = []
+        monkeypatch.setattr(n.crm_calc, "update_quote",
+                            lambda uuid, pozycje, *a, **k: wyslane.append(pozycje) or {
+                                "ok": True, "quote_number": "W/1"})
+
+        _wolaj(n.zapisz_wycene, client_id=7)
+
+        assert [p["produkt"] for p in wyslane[0]] == ["blat"], (
+            "dopisanie dostawy nadpisalo wycene trescia spoza potwierdzenia")
+
+    def test_popraw_wycene_nie_nadpisuje_niepotwierdzona_zmiana(self, monkeypatch):
+        # Wariant najgorszy: klient MA JUZ link. Nadpisanie wyceny wartoscia,
+        # ktorej nie potwierdzil, znaczy, ze po odswiezeniu strony widzi inna
+        # cene niz ta, na ktora sie zgodzil — i z niej zamawia.
+        self._potwierdzony_blat(monkeypatch, 96582)
+        self._zapis_tuz_po_bramce(
+            monkeypatch, lambda: stan.zapisz_pozycje("1", dlugosc_cm=300))
+        wyslane = []
+        monkeypatch.setattr(n.crm_calc, "update_quote",
+                            lambda uuid, pozycje, *a, **k: wyslane.append(pozycje) or {
+                                "ok": True, "quote_number": "W/1"})
+
+        _wolaj(n.popraw_wycene, edit_uuid="u1")
+
+        assert [float(p["dlugosc"]) for p in wyslane[0]] == [self.DLUGOSC_POTWIERDZONA]
+
+    def test_powtorzony_identyczny_zapis_nie_blokuje_wyceny(self, monkeypatch):
+        # Kontrola negatywna: naprawa nie moze zamienic sie w falszywy alarm.
+        # Model powtarzajacy TE SAME dane (zwykly ruch — prompt kaze zapisywac
+        # drobno i czesto) nie zmienia niczego, wiec wycena ma powstac.
+        self._potwierdzony_blat(monkeypatch, 96583)
+        self._zapis_tuz_po_bramce(
+            monkeypatch,
+            lambda: stan.zapisz_pozycje("1", produkt="blat", dlugosc_cm=180,
+                                        szerokosc_cm=60, grubosc_cm=4, ilosc=1,
+                                        selected_variant="dab-lity-ab",
+                                        wykonczenie="surowe"))
+        monkeypatch.setattr(n.crm_calc, "create_quote",
+                            lambda *a, **k: {"ok": True, "quote_number": "W/1",
+                                             "edit_uuid": "u1",
+                                             "public_url": "https://crm/x"})
+
+        wynik = _wolaj(n.zapisz_wycene, client_id=7)
+
+        assert wynik["ok"] is True, wynik
+        assert wynik["quote_number"] == "W/1"
+
+    def test_bramka_nadal_odmawia_gdy_zmiana_byla_PRZED_wywolaniem(self, monkeypatch):
+        # Regresja samej bramki I2: migawka bierze sie ze stanu, wiec zmiana
+        # sprzed wywolania ma ja unieważnić dokladnie jak dotad.
+        self._potwierdzony_blat(monkeypatch, 96584)
+        stan.zapisz_pozycje("1", dlugosc_cm=300)
+        wywolania = []
+        monkeypatch.setattr(n.crm_calc, "create_quote",
+                            lambda *a, **k: wywolania.append(1) or {"ok": True})
+
+        wynik = _wolaj(n.zapisz_wycene, client_id=7)
+
+        assert wynik["error"] == "POTWIERDZENIE_NIEAKTUALNE", wynik
+        assert wywolania == []

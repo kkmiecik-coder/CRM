@@ -172,7 +172,10 @@ class TestQuoteSaved:
         stan.ustaw_kontekst(conv_id)
         monkeypatch.setattr(stan, "pozycje", lambda: [_pozycja()])
         monkeypatch.setattr(narzedzia.crm_calc, "get_options", lambda: {})
-        monkeypatch.setattr(potwierdzenia, "sprawdz_bramke", lambda: {"ok": True})
+        # K2: bramka przyjmuje MIGAWKE (pozycje, dostawa) od wolajacego —
+        # atrapa musi to zniesc, bo mierzymy telemetrie, nie bramke.
+        monkeypatch.setattr(potwierdzenia, "sprawdz_bramke",
+                            lambda *a, **k: {"ok": True})
 
     def test_zapis_wyceny_emituje_quote_saved_raz_z_numerem(self, monkeypatch):
         conv_id = 97121

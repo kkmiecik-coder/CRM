@@ -787,6 +787,28 @@ def pozycje():
     return _wczytaj().get("pozycje", [])
 
 
+def migawka():
+    """Spójna para `(pozycje, dostawa)` — OBA odczyty pod jednym `zamek_stanu`.
+
+    K2: to są dwa osobne odczyty z dwóch różnych tabel (`pro_dane` i
+    `pro_stan`), a KAŻDE narzędzie kroku modelu leci równolegle, w prawdziwym
+    wątku. Wzięte osobno potrafią więc opisywać dwa różne momenty — a razem
+    składają się na jedną rzecz: to, co klient potwierdził i co idzie do CRM
+    (cena to produkt + ew. dostawa, wymóg właściciela). Podpis I2 liczy się
+    z obu, więc rozjazd między nimi jest rozjazdem W ŚRODKU podpisu.
+
+    Po co osobna funkcja, a nie `with zamek_stanu:` u każdego wołającego:
+    bo wołających jest kilku (`zapisz_wycene`, `popraw_wycene`,
+    `podsumowanie.wyslij`) i pytanie „którą parę odczytów trzeba objąć jednym
+    zamkiem" ma mieć JEDNĄ odpowiedź, tak samo jak predykat
+    `potwierdzenia.kwota_nadal_opisuje` ma jedną definicję.
+
+    Zamek jest tylko na czas dwóch odczytów SQLite — żadnego obcego I/O pod
+    nim nie ma i nie może być (patrz `zamek_stanu`)."""
+    with zamek_stanu:
+        return pozycje(), dostawa()
+
+
 def _zapomnij_kwoty_dostawy():
     """Kasuje z rejestru G1 kwoty pochodzące z oszacowania wysyłki (N2)."""
     polaczenie = db()
