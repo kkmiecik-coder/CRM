@@ -28,7 +28,7 @@ from openai.types.responses import (
 )
 
 import config as config_mod
-from bots_pro import agenci, notatki, stan, tura
+from bots_pro import agenci, notatki, podsumowanie, stan, tura
 from bots_pro.narzedzia import NARZEDZIA_WYCENY
 
 stan.init_pro()
@@ -1353,3 +1353,138 @@ class TestN6KontaktNaStarcieTury:
         tura.uruchom(conv_id, "inbox1", "cokolwiek", persona="quote")
 
         assert wyslane == ["Dzien dobry."]
+
+
+class TestWstrzymanePodsumowanieNieKonczySieCisza:
+    """P1b, druga polowa: `podsumowanie.wyslij()` moze teraz oddac
+    „STAN_ZMIENIONY_W_TRAKCIE" zamiast wyslac cokolwiek. To zmienia kontrakt
+    narzedzia z „wyslij co masz" na „wyslij albo powiedz, ze trzeba powtorzyc",
+    wiec tura musi sobie z tym poradzic — a prompt wprost pozwala modelowi
+    zostawic `final_output` puste po wolaniu `wyslij_podsumowanie`.
+
+    Trzy rzeczy, ktore MUSZA byc prawda i ktorych zaden istniejacy test nie
+    pilnowal:
+      1. tura ponawia podsumowanie PO zakonczeniu przebiegu Runnera — wtedy
+         zaden rownolegly zapis juz nie leci, wiec drugie liczenie widzi stan
+         FINALNY i klient dostaje komplet;
+      2. wstrzymanie NIE jest awaria kanalu, wiec bezpiecznik U1 (handoff przy
+         `podsumowanie_nieudane`) nie ma z tego robic eskalacji;
+      3. gdy mimo wszystko nic nie doszlo, a model nic nie napisal — handoff,
+         nie cisza (ta sama zasada co U1, tylko inny powod)."""
+
+    def test_tura_ponawia_wstrzymane_podsumowanie_po_przebiegu_modelu(self, monkeypatch):
+        conv_id = 96150
+        ponowienia = []
+
+        class _RunnerZWstrzymanymPodsumowaniem:
+            def run_sync(self, agent, tresc, session=None, max_turns=None):
+                stan.oznacz_podsumowanie_do_powtorzenia()
+                return types.SimpleNamespace(final_output="")
+
+        def _wyslij():
+            ponowienia.append(1)
+            stan.oznacz_podsumowanie_wyslane()
+            return {"ok": True, "wyslano": True}
+
+        monkeypatch.setattr(podsumowanie, "wyslij", _wyslij)
+        monkeypatch.setattr(tura, "Runner", _RunnerZWstrzymanymPodsumowaniem())
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+        monkeypatch.setattr(stan, "handoff",
+                            lambda powod: pytest.fail("handoff zamiast ponowienia"))
+
+        tura.uruchom(conv_id, "inbox1", "poprosze wycene", persona="quote")
+
+        assert ponowienia == [1], "tura nie ponowila wstrzymanego podsumowania"
+        # Tresc wysyla samo `wyslij()` (tu atrapa) — tura ma NIE dosylac nic
+        # wlasnego, dokladnie jak przy udanym podsumowaniu (bramka W3).
+        assert wyslane == []
+
+    def test_wstrzymanie_ktore_nie_dalo_sie_ponowic_konczy_sie_handoffem(self, monkeypatch):
+        conv_id = 96151
+
+        class _RunnerZWstrzymanymPodsumowaniem:
+            def run_sync(self, agent, tresc, session=None, max_turns=None):
+                stan.oznacz_podsumowanie_do_powtorzenia()
+                return types.SimpleNamespace(final_output="")
+
+        monkeypatch.setattr(podsumowanie, "wyslij",
+                            lambda: {"ok": False, "error": "STAN_ZMIENIONY_W_TRAKCIE"})
+        monkeypatch.setattr(tura, "Runner", _RunnerZWstrzymanymPodsumowaniem())
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+        powody = []
+        monkeypatch.setattr(stan, "handoff",
+                            lambda powod: powody.append(powod) or {"ok": True})
+
+        tura.uruchom(conv_id, "inbox1", "poprosze wycene", persona="quote")
+
+        assert wyslane == [tura.KOMUNIKAT_HANDOFF], "klient zostalby w ciszy"
+        assert len(powody) == 1
+
+    def test_wstrzymanie_z_odpowiedzia_modelu_nie_daje_handoffu(self, monkeypatch):
+        # Kontrola negatywna, jak przy U1: model cos napisal, wiec klient dostaje
+        # wiadomosc i eskalacja bylaby zbedna.
+        conv_id = 96152
+
+        class _RunnerZWstrzymanymPodsumowaniem:
+            def run_sync(self, agent, tresc, session=None, max_turns=None):
+                stan.oznacz_podsumowanie_do_powtorzenia()
+                return types.SimpleNamespace(
+                    final_output="Chwileczke, przeliczam jeszcze raz.")
+
+        monkeypatch.setattr(podsumowanie, "wyslij",
+                            lambda: {"ok": False, "error": "STAN_ZMIENIONY_W_TRAKCIE"})
+        monkeypatch.setattr(tura, "Runner", _RunnerZWstrzymanymPodsumowaniem())
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+        monkeypatch.setattr(stan, "handoff",
+                            lambda powod: pytest.fail("nie powinno dojsc do handoffu"))
+
+        tura.uruchom(conv_id, "inbox1", "poprosze wycene", persona="quote")
+
+        assert wyslane == ["Chwileczke, przeliczam jeszcze raz."]
+
+    def test_po_udanym_podsumowaniu_tura_nie_ponawia(self, monkeypatch):
+        # Kontrola negatywna: model wolal `wyslij_podsumowanie` dwa razy —
+        # pierwsze wstrzymane, drugie udane JESZCZE W PRZEBIEGU Runnera. Tura
+        # nie ma dokladac trzeciego, bo klient dostalby dwa podsumowania.
+        conv_id = 96153
+
+        class _RunnerZPonowieniemWTrakcie:
+            def run_sync(self, agent, tresc, session=None, max_turns=None):
+                stan.oznacz_podsumowanie_do_powtorzenia()
+                stan.oznacz_podsumowanie_wyslane()
+                return types.SimpleNamespace(final_output="")
+
+        monkeypatch.setattr(podsumowanie, "wyslij",
+                            lambda: pytest.fail("tura ponowila juz wyslane podsumowanie"))
+        monkeypatch.setattr(tura, "Runner", _RunnerZPonowieniemWTrakcie())
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+
+        tura.uruchom(conv_id, "inbox1", "poprosze wycene", persona="quote")
+
+        assert wyslane == []
+
+    def test_wstrzymanie_po_nieudanej_wysylce_nie_dosyla_drugiej_tresci(self, monkeypatch):
+        # Kontrola negatywna: pierwsza proba wstrzymana, druga poszla czesciowo
+        # i padla na Chatwoocie (U1). Dosylanie trzeciej dalo by klientowi
+        # podsumowanie z dziura, a zaraz po nim drugie w calosci — obsluguje to
+        # bezpiecznik U1 (handoff), nie ponowienie.
+        conv_id = 96154
+
+        class _RunnerZObiemaFlagami:
+            def run_sync(self, agent, tresc, session=None, max_turns=None):
+                stan.oznacz_podsumowanie_do_powtorzenia()
+                stan.oznacz_podsumowanie_nieudane()
+                return types.SimpleNamespace(final_output="")
+
+        monkeypatch.setattr(podsumowanie, "wyslij",
+                            lambda: pytest.fail("tura dosylala tresc po awarii kanalu"))
+        monkeypatch.setattr(tura, "Runner", _RunnerZObiemaFlagami())
+        wyslane = _wyslane_przechwytywacz(monkeypatch)
+        powody = []
+        monkeypatch.setattr(stan, "handoff",
+                            lambda powod: powody.append(powod) or {"ok": True})
+
+        tura.uruchom(conv_id, "inbox1", "poprosze wycene", persona="quote")
+
+        assert wyslane == [tura.KOMUNIKAT_HANDOFF]
+        assert powody == ["podsumowanie nie dotarlo do klienta"]

@@ -345,6 +345,27 @@ def uruchom(conv_id, inbox_id, tresc, zalaczniki=None, persona="pro", message_id
             if _oddaj_po_zobowiazaniu(odpowiedz, conv_id, persona):
                 return
 
+    # P1b: podsumowanie zostalo WSTRZYMANE, bo stan zmienial sie w trakcie
+    # liczenia (rownolegle `zapisz_pozycje` z tego samego kroku modelu). Model
+    # dostal wskazowke „zawolaj jeszcze raz" i zwykle to robi JESZCZE W TYM
+    # przebiegu Runnera — wtedy `podsumowanie_wyslane()` jest juz prawdziwe i
+    # ta galaz nie strzela. Gdy jednak nie zrobil tego, ponawiamy raz TUTAJ:
+    # Runner sie skonczyl, wiec zaden rownolegly zapis juz nie leci i drugie
+    # liczenie widzi stan FINALNY. To jest cala roznica miedzy „klient dostaje
+    # komplet" a „klient nie dostaje nic" — bez tej galezi tura, w ktorej model
+    # zostawil final_output puste (a prompt mu na to pozwala po wolaniu
+    # wyslij_podsumowanie), konczylaby sie handoffem zamiast podsumowaniem.
+    #
+    # `podsumowanie_nieudane()` w warunku, zeby NIE dosylac drugiej tresci po
+    # probie, ktora czesciowo poszla i padla na Chatwoocie (U1) — tam klient
+    # dostalby podsumowanie z dziura, a zaraz po nim drugie w calosci.
+    if (stan.podsumowanie_do_powtorzenia() and not stan.podsumowanie_wyslane()
+            and not stan.podsumowanie_nieudane()):
+        from bots_pro import podsumowanie
+        log("tura: podsumowanie wstrzymane (stan zmienil sie w trakcie) -> "
+            "ponawiam po zakonczeniu tury modelu (conv %s)" % conv_id)
+        podsumowanie.wyslij()
+
     # W3: podsumowanie.wyslij() (wolane jako narzedzie, w KTORYMKOLWIEK z powyzszych
     # wywolan Runnera) moglo juz samo wyslac deterministyczna tresc - wtedy NIC wiecej
     # w tej turze nie wysylamy, nawet gdy final_output jest niepusty i przeszedl G1.
@@ -369,6 +390,20 @@ def uruchom(conv_id, inbox_id, tresc, zalaczniki=None, persona="pro", message_id
         log("tura: podsumowanie nie dotarlo do klienta i model nic nie napisal "
             "-> handoff (conv %s)" % conv_id)
         _oddaj_konsultantowi("podsumowanie nie dotarlo do klienta", conv_id, persona)
+        return
+
+    # P1b: ta sama zasada co U1 wyzej, dla drugiego powodu, dla ktorego
+    # podsumowanie moze nie dotrzec. Domyka JEDYNA droge do ciszy, ktora
+    # otwiera wstrzymanie podsumowania: model nie ponowil, ponowienie wyzej tez
+    # nie doszlo (padlo na kolejnej zmianie stanu albo na Chatwoocie), a model
+    # nic nie napisal. Osobna galaz, nie warunek dopisany do U1, bo powod
+    # handoffu ma nazywac rzecz po imieniu w notatce dla konsultanta.
+    if (stan.podsumowanie_do_powtorzenia() and not stan.podsumowanie_wyslane()
+            and not odpowiedz):
+        log("tura: wstrzymane podsumowanie nie doszlo tez po ponowieniu i model "
+            "nic nie napisal -> handoff (conv %s)" % conv_id)
+        _oddaj_konsultantowi("podsumowanie wstrzymane — dane zmienialy sie w trakcie",
+                             conv_id, persona)
         return
 
     # U11: rozmowa zostala oddana konsultantowi Z WNETRZA tury (narzedzie

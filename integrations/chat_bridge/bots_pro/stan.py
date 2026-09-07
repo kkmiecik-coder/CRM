@@ -421,6 +421,29 @@ def podsumowanie_nieudane():
     return _flaga_tury("podsumowanie_nieudane")
 
 
+def oznacz_podsumowanie_do_powtorzenia():
+    """P1b: podsumowanie zostało WSTRZYMANE, bo stan zmienił się w trakcie
+    liczenia — treść opisywałaby dane sprzed ostatnich zapisów tego samego
+    kroku modelu, a klient dostałby prefiks listy podany jako komplet.
+
+    TRZECI, osobny sygnał — nie da się go zastąpić żadnym z dwóch istniejących
+    i to jest cały powód, dla którego istnieje:
+      - `podsumowanie_wyslane` BLOKUJE dalszą wysyłkę w tej turze, a tu klient
+        nie dostał nic i coś dostać musi;
+      - `podsumowanie_nieudane` znaczy „Chatwoot odrzucił", czyli awarię
+        kanału, i `tura.py` odpowiada na nią HANDOFFEM. Tu awarii nie ma:
+        wystarczy policzyć jeszcze raz, gdy zapisy już wylądowały. Handoff
+        byłby niepotrzebną eskalacją na w pełni odwracalnym zdarzeniu.
+    `tura.py` czyta ten sygnał, żeby po zakończeniu tury modelu (kiedy żaden
+    równoległy zapis już nie leci) ponowić podsumowanie raz, deterministycznie."""
+    _ustaw_flage_tury("podsumowanie_do_powtorzenia")
+
+
+def podsumowanie_do_powtorzenia():
+    """Czy w BIEŻĄCEJ turze podsumowanie wstrzymano z powodu zmiany stanu."""
+    return _flaga_tury("podsumowanie_do_powtorzenia")
+
+
 def oznacz_handoff_w_turze():
     """U11/U7: w tej turze doszło już do handoffu — WYWOŁANEGO Z NARZĘDZIA,
     wewnątrz `Runner.run_sync` (`oddaj_czlowiekowi`, albo `przygotuj_zamowienie`

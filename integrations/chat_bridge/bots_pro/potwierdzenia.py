@@ -200,16 +200,29 @@ def odcisk_cenotworczy(pozycje):
     return json.dumps(istotne, ensure_ascii=False, sort_keys=True)
 
 
-def kwota_nadal_opisuje(stare_pozycje, nowe_pozycje):
-    """Czy kwota policzona dla `stare_pozycje` nadal opisuje `nowe_pozycje`.
+def _odcisk_dostawy(dostawa):
+    """Kanoniczny obraz DOSTAWY ograniczony do pól, które klient widzi i które
+    wchodzą do podpisu (`_POLA_DOSTAWY`). Ta sama rola co `odcisk_cenotworczy`
+    dla pozycji i ta sama, JEDNA lista pól — dwie kopie rozjechałyby się przy
+    pierwszym nowym polu dostawy."""
+    return json.dumps({k: (dostawa or {}).get(k) for k in _POLA_DOSTAWY},
+                      ensure_ascii=False, sort_keys=True)
+
+
+def kwota_nadal_opisuje(stare_pozycje, nowe_pozycje,
+                        stara_dostawa=None, nowa_dostawa=None):
+    """Czy kwota policzona dla `stare_pozycje` (i ew. `stara_dostawa`) nadal
+    opisuje `nowe_pozycje` (i `nowa_dostawa`).
 
     JEDNA definicja predykatu „czy ta kwota nadal obowiązuje", wołana ze
-    WSZYSTKICH trzech miejsc, które to pytanie zadają:
+    WSZYSTKICH miejsc, które to pytanie zadają:
       - `stan._zmien_pozycje` — czy zapis pozycji ma wyczyścić rejestr G1,
       - `narzedzia.policz_wycene` — czy wolno zarejestrować kwotę, która
         wróciła z kalkulatora PO tym, jak pozycje mogły się już zmienić,
+      - `narzedzia.policz_wysylke` — to samo pytanie dla kosztu kuriera, który
+        wrócił z API PO tym, jak gabaryt mógł się już zmienić (K1),
       - `podsumowanie.wyslij` — to samo pytanie dla drugiej funkcji wołającej
-        kalkulator.
+        kalkulator, i JEDYNE miejsce, które pyta też o dostawę (D1).
 
     Definicje BYŁY DWIE i się rozjechały, i to jest cały powód, dla którego ta
     funkcja istnieje: `_zmien_pozycje` liczyło zejście z prostokąta, a
@@ -229,10 +242,23 @@ def kwota_nadal_opisuje(stare_pozycje, nowe_pozycje):
     Człon drugi to różnica ZBIORÓW, nie pytanie „czy jest tu nieprostokąt":
     reagujemy wyłącznie na pozycje, które WŁAŚNIE przestały być prostokątem.
     Powtórzona deklaracja tego samego kształtu niczego nie unieważnia (N1),
-    a poprawka „jednak prostokąt" tym bardziej — tam kwota znów obowiązuje."""
+    a poprawka „jednak prostokąt" tym bardziej — tam kwota znów obowiązuje.
+
+    CZŁON TRZECI, dostawa (D1): argumenty OPCJONALNE, bo pytanie o dostawę ma
+    sens wyłącznie tam, gdzie liczona kwota dostawę OBEJMUJE — czyli w
+    `podsumowanie.wyslij`, które składa sumę „produkt + dostawa" i rejestruje
+    ją w G1. Pozostali wołający pytają o kwotę SAMEGO produktu (`policz_wycene`)
+    albo dopiero o dostawę stanowią (`policz_wysylke`, `_zmien_pozycje` ją
+    kasuje), więc nie mają czego porównywać i pominięcie argumentów jest tam
+    poprawną odpowiedzią „nie dotyczy" (dwa razy `{}` to zgodność).
+    Symetria była do dziś niedomknięta: `wyslij` czytało dostawę POZA zamkiem
+    i po powrocie z kalkulatora już do niej nie zaglądało, a kontrola
+    porównywała wyłącznie pozycje — więc suma z nieaktualnym kurierem szła do
+    klienta i do rejestru G1."""
     return (odcisk_cenotworczy(stare_pozycje) == odcisk_cenotworczy(nowe_pozycje)
             and not (ksztalty_nieprostokatne(nowe_pozycje)
-                     - ksztalty_nieprostokatne(stare_pozycje)))
+                     - ksztalty_nieprostokatne(stare_pozycje))
+            and _odcisk_dostawy(stara_dostawa) == _odcisk_dostawy(nowa_dostawa))
 
 
 def podpis(pozycje, dostawa=None):

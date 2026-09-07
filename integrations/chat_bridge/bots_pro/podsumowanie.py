@@ -478,8 +478,14 @@ def wyslij():
     # razem, u KLIENTA zero pozycji w 20/20 (`BRAK_POZYCJI` — klient nie
     # dostawał nic). Skutek biznesowy ten sam co przy gubieniu zapisów:
     # klient potwierdza (I2) listę, która nie jest jego zamówieniem.
-    with stan.zamek_stanu:
-        pozycje = stan.pozycje()
+    #
+    # D1: dostawa idzie do TEJ SAMEJ migawki, pod tym samym zamkiem. Wcześniej
+    # czytaliśmy ją osobno, kilkanaście linii niżej i już po powrocie z
+    # kalkulatora — a jest CZĘŚCIĄ tej samej ceny (suma „Razem z dostawą",
+    # rejestr G1, podpis I2). Jedno źródło prawdy dla obu odczytów mieszka w
+    # `stan.migawka()`, żeby nie było dwóch odpowiedzi na pytanie „co trzeba
+    # objąć jednym zamkiem".
+    pozycje, dostawa = stan.migawka()
     if not pozycje:
         return {"ok": False, "error": "BRAK_POZYCJI"}
 
@@ -499,7 +505,6 @@ def wyslij():
 
     kwoty = kwoty_z_wyniku(pozycje, wynik)
     totals = wynik.get("totals") or {}
-    dostawa = stan.dostawa()
 
     tekst = "Podsumowanie do potwierdzenia:\n" + "\n".join(
         _linia(poz, options) for poz in pozycje)
@@ -587,31 +592,50 @@ def wyslij():
     #     zamykała tylko przebieg sekwencyjny: deklaracja, która przyszła
     #     w trakcie liczenia, mijała ją bokiem (rozmowa 4727).
     #
-    #  2. Zmiana pola cenotwórczego (wymiar, wariant, wykończenie): kwoty NIE
-    #     wchodzą do rejestru G1 — ta sama reguła i ta sama funkcja, co
-    #     w `narzedzia.policz_wycene` i w `stan._zmien_pozycje`. Cena
-    #     policzona dla konfiguracji, z której klient właśnie zrezygnował, nie
-    #     ma prawa być dla guardraila „znana", bo wtedy bot mógłby ją zacytować
-    #     w dowolnej kolejnej turze jako obowiązującą. Samo podsumowanie idzie
-    #     jednak do klienta: jest wewnętrznie SPÓJNE (pokazuje dokładnie te
-    #     pozycje, dla których policzono cenę), a I2 zostaje fail-closed —
-    #     podpis jest liczony z tej samej migawki, więc po zmianie wymiaru
-    #     „tak" klienta i tak nie otworzy bramki `sprawdz_bramke`.
+    #  2. Zmiana stanu, z którego liczyliśmy (pole cenotwórcze pozycji ALBO
+    #     dostawa): NIE WYSYŁAMY, i to jest zmiana wobec poprzedniej wersji
+    #     (P1b). Wcześniej treść szła do klienta z uzasadnieniem „jest
+    #     wewnętrznie spójna, a I2 i tak jest fail-closed". Spójna owszem, ale
+    #     NIEPRAWDZIWA jako opis zamówienia: podsumowanie zamówione w tym samym
+    #     kroku modelu co ostatnie `zapisz_pozycje` może uszeregować się PRZED
+    #     nimi, a wtedy klient dostaje PREFIKS listy podany jako komplet —
+    #     zmierzone na 13 pozycjach (kolejność losowa: klient widział 1-12
+    #     pozycji, komplet 0/20; podsumowanie pierwsze: 0 pozycji w 20/20).
+    #     Zamek nad migawką usunął odczyt ROZDARTY, tego nie usuwał.
+    #     Klient ma więc dostać podsumowanie zgodne z finalnym stanem ALBO nie
+    #     dostać nic i model liczy je jeszcze raz — nigdy prefiks jako komplet.
+    #     Kwoty do rejestru G1 przy takiej zmianie i tak nie wchodzą (ta sama
+    #     reguła i ta sama funkcja, co w `narzedzia.policz_wycene`,
+    #     `narzedzia.policz_wysylke` i `stan._zmien_pozycje`).
+    #
+    #     D1: `stan.dostawa()` po raz drugi — bo od migawki minęło całe
+    #     `calculate`, a równoległy `policz_wysylke` mógł w tym czasie zmienić
+    #     kuriera. Suma „Razem z dostawą" liczy się z migawki, więc bez tego
+    #     członu klient zobaczyłby (i podpisał) sumę z kosztem sprzed zmiany.
     #
     # Porównanie i zapis pod JEDNYM zamkiem — sprawdzenie bez niego nic nie
     # gwarantuje, bo zapis pozycji zdążyłby wejść pomiędzy.
     with stan.zamek_stanu:
         swieze_pozycje = stan.pozycje()
         blokada_po_liczeniu = blokada_ksztaltu(swieze_pozycje)
-        kwoty_wazne = potwierdzenia.kwota_nadal_opisuje(pozycje, swieze_pozycje)
-        if not blokada_po_liczeniu and kwoty_wazne:
+        stan_nadal_ten_sam = potwierdzenia.kwota_nadal_opisuje(
+            pozycje, swieze_pozycje, dostawa, stan.dostawa())
+        if not blokada_po_liczeniu and stan_nadal_ten_sam:
             stan.zapamietaj_kwoty(kwoty)
             stan.zapamietaj_kwoty(kwoty_dostawy, zrodlo="dostawa")
     if blokada_po_liczeniu:
         return blokada_po_liczeniu
-    if not kwoty_wazne:
-        log("podsumowanie: pozycje zmienily sie w trakcie liczenia -> kwot NIE "
-            "rejestruje (conv %s)" % stan.conv_id())
+    if not stan_nadal_ten_sam:
+        log("podsumowanie: stan zmienil sie w trakcie liczenia -> podsumowania "
+            "NIE wysylam i kwot NIE rejestruje (conv %s)" % stan.conv_id())
+        # Sygnał dla `tura.py` — NIE `oznacz_podsumowanie_nieudane`, bo to nie
+        # jest awaria kanału i nie ma prowadzić do handoffu (patrz docstring
+        # `stan.oznacz_podsumowanie_do_powtorzenia`).
+        stan.oznacz_podsumowanie_do_powtorzenia()
+        return {"ok": False, "error": "STAN_ZMIENIONY_W_TRAKCIE",
+                "wskazowka": "Dane zmieniły się w trakcie liczenia, więc podsumowanie "
+                             "opisywałoby stan sprzed tych zmian — NIE wysłałem go. "
+                             "Zawołaj wyslij_podsumowanie jeszcze raz."}
 
     oczekiwany = potwierdzenia.podpis(pozycje, dostawa)
 

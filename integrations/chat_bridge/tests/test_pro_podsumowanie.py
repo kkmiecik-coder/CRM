@@ -1214,9 +1214,10 @@ class TestWyslijCzytaStanPodZamkiem:
         policzona dla konfiguracji, z ktorej klient wlasnie zrezygnowal, nie ma
         prawa wejsc do rejestru G1 jako znana (wzorzec z rozmow 4910 i 4799).
 
-        Samo podsumowanie idzie do klienta swiadomie: jest wewnetrznie SPOJNE
-        (pokazuje te pozycje, dla ktorych policzono cene), a I2 zostaje
-        fail-closed, bo podpis liczy sie z tej samej migawki."""
+        P1b ZMIENILO druga polowe tego kontraktu: do tej rundy podsumowanie
+        szlo do klienta mimo zmiany, z uzasadnieniem „jest wewnetrznie spojne,
+        a I2 i tak jest fail-closed". Spojne owszem, ale NIEPRAWDZIWE jako opis
+        zamowienia — patrz `TestWyslijNieWysylaStanuSprzedZmiany` nizej."""
         conv_id = 94202
         wyslane = []
         stan.ustaw_kontekst(conv_id)
@@ -1232,7 +1233,7 @@ class TestWyslijCzytaStanPodZamkiem:
         monkeypatch.setattr(podsumowanie.crm_calc, "calculate", _kalkulator_z_wyscigiem)
         wynik = podsumowanie.wyslij()
 
-        assert wynik["ok"] is True
+        assert wynik["error"] == "STAN_ZMIENIONY_W_TRAKCIE", wynik
         assert stan.znane_kwoty() == set()
 
     def test_zmiana_NIECENOTWORCZA_w_trakcie_liczenia_nie_blokuje_rejestracji(self, monkeypatch):
@@ -1258,3 +1259,143 @@ class TestWyslijCzytaStanPodZamkiem:
 
         assert wynik["ok"] is True
         assert {"685.40", "843.04"} <= stan.znane_kwoty()
+
+
+class TestWyslijNieWysylaStanuSprzedZmiany:
+    """P1b: zamek nad migawka (`TestWyslijCzytaStanPodZamkiem`) usunal odczyt
+    ROZDARTY w polowie zapisu i to byla realna poprawa. Nie usunal tego, ze
+    podsumowanie zamowione w TYM SAMYM kroku modelu co ostatnie `zapisz_pozycje`
+    moze uszeregowac sie PRZED nimi — a wtedy klient dostaje PREFIKS listy
+    podany jako komplet. Test regresyjny tamtej naprawy tego nie lapal, bo sam
+    wymusza przeplot: mierzy „czy odczyt bierze zamek", nie „czy klient dostaje
+    komplet". Naglowek zmiany `36f7fb3`, widoczny dla polskich uzytkownikow w
+    widgecie „Nowosci", obiecuje to drugie.
+
+    DECYZJA: po zbudowaniu tresci, PRZED wyslaniem, pytamy jeszcze raz, czy stan
+    nadal jest ten sam. Jesli nie — NIE wysylamy niczego i prosimy model o
+    ponowne wywolanie. Klient dostaje wiec podsumowanie zgodne z finalnym stanem
+    albo nie dostaje nic (a `tura.py` ponawia po zakonczeniu tury modelu) —
+    nigdy prefiksu podanego jako komplet. Do tej rundy tresc szla do klienta
+    swiadomie, z uzasadnieniem „jest wewnetrznie spojna, a I2 i tak jest
+    fail-closed".
+
+    ZMIERZONE (sonda: 13 rownoleglych `zapisz_pozycje` + `wyslij_podsumowanie`
+    w jednym kroku modelu, watki przez `contextvars.copy_context().run`,
+    40 przebiegow na wariant, limity produkcji `--cpus=0.5 --memory=256m`;
+    w bazie komplet 13/13 we WSZYSTKICH przebiegach):
+      - podsumowanie OSTATNIE:  prefiks u klienta 14/40 -> 0/40
+      - kolejnosc LOSOWA:       prefiks u klienta 33/40 -> 0/40
+      - podsumowanie PIERWSZE:  prefiks u klienta  9/40 -> 0/40
+    I2 zatrzymywalo to juz wczesniej OD DRUGIEJ STRONY (`potwierdz` porownuje
+    z `oczekiwany_podpis`, wiec prefiksu nie dalo sie potwierdzic: 0 przypadkow
+    przed i po naprawie) — szkoda byla wiec mylaca wiadomosc i petla „poprosze
+    o potwierdzenie jeszcze raz", nie zle zamowienie. To i tak jest dokladnie
+    to, czego naglowek tamtej zmiany obiecywal nie robic.
+
+    D1 domkniete tu samo: dostawa wchodzi do TEJ SAMEJ migawki i do TEJ SAMEJ
+    kontroli, wiec suma „Razem z dostawa" nie moze juz opisywac kuriera sprzed
+    rownoleglego `policz_wysylke`."""
+
+    def _blat(self, conv_id):
+        stan.ustaw_kontekst(conv_id)
+        stan.zapisz_pozycje("1", produkt="blat", dlugosc_cm=180, szerokosc_cm=60,
+                            grubosc_cm=4, ilosc=1, selected_variant="dab-lity-ab",
+                            wykonczenie="surowe")
+
+    def _atrapy(self, monkeypatch, wyslane):
+        monkeypatch.setattr(podsumowanie.crm_calc, "get_options", lambda: {})
+        _zaladuj_atrape_wysylki(monkeypatch)
+        monkeypatch.setattr(podsumowanie, "cw_agent_reply",
+                            lambda cid, tekst, **k: wyslane.append(tekst) or True)
+
+    @staticmethod
+    def _kalkulator_z_wyscigiem(monkeypatch, zmiana):
+        def _calculate(pozycje, opcje):
+            zmiana()   # rownolegly zapis z tego samego kroku modelu
+            return {"ok": True, "totals": {"total_netto": 685.40, "total_brutto": 843.04}}
+
+        monkeypatch.setattr(podsumowanie.crm_calc, "calculate", _calculate)
+
+    def test_dopisana_pozycja_wstrzymuje_wysylke_zamiast_pokazac_prefiks(self, monkeypatch):
+        conv_id = 94210
+        wyslane = []
+        self._blat(conv_id)
+        self._atrapy(monkeypatch, wyslane)
+        self._kalkulator_z_wyscigiem(
+            monkeypatch,
+            lambda: stan.zapisz_pozycje("2", produkt="parapet", dlugosc_cm=120,
+                                        szerokosc_cm=30, grubosc_cm=4, ilosc=1,
+                                        selected_variant="dab-lity-ab",
+                                        wykonczenie="surowe"))
+
+        wynik = podsumowanie.wyslij()
+
+        assert wynik["error"] == "STAN_ZMIENIONY_W_TRAKCIE", wynik
+        assert wyslane == [], "klient dostal prefiks listy podany jako komplet"
+        assert stan.podsumowanie_do_powtorzenia() is True
+        # NIE `podsumowanie_nieudane` — to nie awaria kanalu i `tura.py` nie ma
+        # z tego robic handoffu (patrz docstring flagi w stan.py).
+        assert stan.podsumowanie_nieudane() is False
+        assert stan.podsumowanie_wyslane() is False
+
+    def test_zmiana_dostawy_w_trakcie_liczenia_wstrzymuje_wysylke(self, monkeypatch):
+        """D1: `wyslij` czytalo `stan.dostawa()` POZA zamkiem i po powrocie z
+        kalkulatora juz do niej nie zagladalo, a kontrola porownywala WYLACZNIE
+        pozycje. Suma „Razem z dostawa" liczy sie wlasnie z tej dostawy i wchodzi
+        do rejestru G1 — brakowalo symetrii wobec pozycji."""
+        conv_id = 94211
+        wyslane = []
+        self._blat(conv_id)
+        stan.zapisz_dostawe("05-081", kurier="inPost-Kurier", netto=16.20, brutto=19.92)
+        self._atrapy(monkeypatch, wyslane)
+        self._kalkulator_z_wyscigiem(
+            monkeypatch,
+            lambda: stan.zapisz_dostawe("00-001", kurier="DPD",
+                                        netto=203.25, brutto=250.0))
+
+        wynik = podsumowanie.wyslij()
+
+        assert wynik["error"] == "STAN_ZMIENIONY_W_TRAKCIE", wynik
+        assert wyslane == [], "klient zobaczylby sume z kurierem sprzed zmiany"
+        # Suma „produkt + dostawa" policzona ze starej dostawy NIE ma prawa
+        # zostac „znana" guardrailowi G1.
+        assert stan.znane_kwoty() == set()
+
+    def test_bez_wyscigu_podsumowanie_idzie_normalnie(self, monkeypatch):
+        """Kontrola negatywna wymagana wprost: podsumowanie wolane PO wszystkich
+        zapisach ma wyjsc jak dotad (to nie jest regresja P1)."""
+        conv_id = 94212
+        wyslane = []
+        self._blat(conv_id)
+        stan.zapisz_pozycje("2", produkt="parapet", dlugosc_cm=120, szerokosc_cm=30,
+                            grubosc_cm=4, ilosc=1, selected_variant="dab-lity-ab",
+                            wykonczenie="surowe")
+        stan.zapisz_dostawe("05-081", kurier="inPost-Kurier", netto=16.20, brutto=19.92)
+        self._atrapy(monkeypatch, wyslane)
+        self._kalkulator_z_wyscigiem(monkeypatch, lambda: None)
+
+        wynik = podsumowanie.wyslij()
+
+        assert wynik["ok"] is True, wynik
+        assert sum(tekst.count("•") for tekst in wyslane) == 2
+        assert stan.podsumowanie_do_powtorzenia() is False
+        assert any("Razem z dostawą" in tekst for tekst in wyslane)
+
+    def test_powtorzony_identyczny_zapis_dostawy_nie_wstrzymuje(self, monkeypatch):
+        """Kontrola negatywna: ta sama zasada co przy pozycjach (N1) — powtorzone,
+        IDENTYCZNE oszacowanie niczego nie uniewaznia, wiec podsumowanie ma
+        wyjsc."""
+        conv_id = 94213
+        wyslane = []
+        self._blat(conv_id)
+        stan.zapisz_dostawe("05-081", kurier="inPost-Kurier", netto=16.20, brutto=19.92)
+        self._atrapy(monkeypatch, wyslane)
+        self._kalkulator_z_wyscigiem(
+            monkeypatch,
+            lambda: stan.zapisz_dostawe("05-081", kurier="inPost-Kurier",
+                                        netto=16.20, brutto=19.92))
+
+        wynik = podsumowanie.wyslij()
+
+        assert wynik["ok"] is True, wynik
+        assert wyslane != []
