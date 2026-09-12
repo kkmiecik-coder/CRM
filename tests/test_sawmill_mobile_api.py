@@ -52,15 +52,25 @@ _TABLES = [m.__table__ for m in (
 )]
 
 SETTINGS = {
-    'min_circumference_cm': 30.0, 'max_circumference_cm': None,
+    'min_diameter_cm': 15.0, 'max_diameter_cm': 250.0,
     'min_length_cm': 30.0, 'max_length_cm': 20000.0,
     'decimal_places': 1, 'deviation_threshold_pct': 5.0,
 }
 
 POMIAR = {
-    'mid_circumference_cm': 125.6,
+    'mid_diameter_cm': 40.0,
     'length_cm': 410.0,
 }
+
+# Czas pomiaru liczony względem DNIA URUCHOMIENIA testów, nie zaszyty na sztywno.
+# Walidacja odrzuca pomiary starsze niż 30 dni (validation.MAX_AGE), więc data
+# kalendarzowa wpisana w teście psuła cały plik miesiąc po jego napisaniu — 422
+# „pomiar starszy niż 30 dni" na każdym zapisie, w teście, który z pomiarem
+# w czasie nie ma nic wspólnego.
+WCZORAJ = (date.today() - timedelta(days=1)).isoformat()
+CZAS_POMIARU = WCZORAJ + 'T09:31:12'
+CZAS_POMIARU_2 = WCZORAJ + 'T10:00:00'
+CZAS_POMIARU_3 = WCZORAJ + 'T10:05:00'
 
 
 @pytest.fixture()
@@ -198,6 +208,13 @@ def test_config_zwraca_limity_bez_progu(client, app):
     assert data['max_length_cm'] == 20000.0
     assert data['decimal_places'] == 1
     assert 'deviation_threshold_pct' not in data
+    # Kontrakt z apką Android: limity średnicy przychodzą pod tymi nazwami
+    # i OBA są liczbami — górny limit przestał być nullem wraz z przejściem
+    # z obwodu na średnicę, więc tablet ma go egzekwować lokalnie, zamiast
+    # wypuszczać pomiar, który serwer i tak odrzuci kodem 422.
+    assert data['min_diameter_cm'] == 15.0
+    assert data['max_diameter_cm'] == 250.0
+    assert 'mid_circumference_cm' not in data and 'min_circumference_cm' not in data
 
 
 # ── Zapis ───────────────────────────────────────────────────────────────────
@@ -205,22 +222,22 @@ def test_config_zwraca_limity_bez_progu(client, app):
 def test_dodanie_pomiaru(client, app):
     token = _urzadzenie(app)
     oid = _zlecenie(app)
-    body = dict(POMIAR, measured_at='2026-08-05T09:31:12')
+    body = dict(POMIAR, measured_at=CZAS_POMIARU)
     r = client.post('/api/mobile/sawmill/orders/{}/logs'.format(oid),
                     json=body, headers=_naglowki(token, 'op-1'))
     assert r.status_code == 201
     data = r.get_json()
-    assert data['log']['volume_m3'] == 0.514699
+    assert data['log']['volume_m3'] == 0.515221
     assert data['log']['sequence_no'] == 1
     assert data['order']['logs_count'] == 1
-    assert data['order']['measured_volume_m3'] == 0.514699
+    assert data['order']['measured_volume_m3'] == 0.515221
 
 
 def test_pierwszy_pomiar_przelacza_status(client, app):
     token = _urzadzenie(app)
     oid = _zlecenie(app)
     client.post('/api/mobile/sawmill/orders/{}/logs'.format(oid),
-                json=dict(POMIAR, measured_at='2026-08-05T09:31:12'),
+                json=dict(POMIAR, measured_at=CZAS_POMIARU),
                 headers=_naglowki(token, 'op-1'))
     with app.app_context():
         assert db.session.query(SawmillOrder).get(oid).status == STATUS_IN_PROGRESS
@@ -229,20 +246,20 @@ def test_pierwszy_pomiar_przelacza_status(client, app):
 def test_walidacja_zwraca_422_z_polem(client, app):
     token = _urzadzenie(app)
     oid = _zlecenie(app)
-    body = dict(POMIAR, mid_circumference_cm=5.0, measured_at='2026-08-05T09:31:12')
+    body = dict(POMIAR, mid_diameter_cm=5.0, measured_at=CZAS_POMIARU)
     r = client.post('/api/mobile/sawmill/orders/{}/logs'.format(oid),
                     json=body, headers=_naglowki(token, 'op-1'))
     assert r.status_code == 422
     data = r.get_json()
     assert data['error'] == 'validation_error'
-    assert data['field'] == 'mid_circumference_cm'
+    assert data['field'] == 'mid_diameter_cm'
 
 
 def test_zapis_do_zamknietego_zlecenia_daje_409(client, app):
     token = _urzadzenie(app)
     oid = _zlecenie(app, status=STATUS_COMPLETED)
     r = client.post('/api/mobile/sawmill/orders/{}/logs'.format(oid),
-                    json=dict(POMIAR, measured_at='2026-08-05T09:31:12'),
+                    json=dict(POMIAR, measured_at=CZAS_POMIARU),
                     headers=_naglowki(token, 'op-1'))
     assert r.status_code == 409
     assert r.get_json()['error'] == 'order_not_open'
@@ -255,7 +272,7 @@ def test_409_nie_jest_zapisywane_w_idempotencji(client, app):
     """
     token = _urzadzenie(app)
     oid = _zlecenie(app, status=STATUS_COMPLETED)
-    body = dict(POMIAR, measured_at='2026-08-05T09:31:12')
+    body = dict(POMIAR, measured_at=CZAS_POMIARU)
 
     r1 = client.post('/api/mobile/sawmill/orders/{}/logs'.format(oid),
                      json=body, headers=_naglowki(token, 'op-ratunek'))
@@ -277,7 +294,7 @@ def test_409_nie_jest_zapisywane_w_idempotencji(client, app):
 def test_idempotencja_nie_duplikuje(client, app):
     token = _urzadzenie(app)
     oid = _zlecenie(app)
-    body = dict(POMIAR, measured_at='2026-08-05T09:31:12')
+    body = dict(POMIAR, measured_at=CZAS_POMIARU)
     r1 = client.post('/api/mobile/sawmill/orders/{}/logs'.format(oid),
                      json=body, headers=_naglowki(token, 'op-dubel'))
     r2 = client.post('/api/mobile/sawmill/orders/{}/logs'.format(oid),
@@ -292,7 +309,7 @@ def test_edycja_i_usuniecie_pomiaru(client, app):
     token = _urzadzenie(app)
     oid = _zlecenie(app)
     r = client.post('/api/mobile/sawmill/orders/{}/logs'.format(oid),
-                    json=dict(POMIAR, measured_at='2026-08-05T09:31:12'),
+                    json=dict(POMIAR, measured_at=CZAS_POMIARU),
                     headers=_naglowki(token, 'op-1'))
     log_id = r.get_json()['log']['id']
 
@@ -312,7 +329,7 @@ def test_zakonczenie_zlecenia(client, app):
     token = _urzadzenie(app)
     oid = _zlecenie(app)
     client.post('/api/mobile/sawmill/orders/{}/logs'.format(oid),
-                json=dict(POMIAR, measured_at='2026-08-05T09:31:12'),
+                json=dict(POMIAR, measured_at=CZAS_POMIARU),
                 headers=_naglowki(token, 'op-1'))
     r = client.post('/api/mobile/sawmill/orders/{}/complete'.format(oid),
                     headers=_naglowki(token, 'op-2'))
@@ -334,7 +351,7 @@ def test_zakonczenie_bez_pomiarow_daje_409(client, app):
 def test_nieistniejace_zlecenie_daje_404(client, app):
     token = _urzadzenie(app)
     r = client.post('/api/mobile/sawmill/orders/9999/logs',
-                    json=dict(POMIAR, measured_at='2026-08-05T09:31:12'),
+                    json=dict(POMIAR, measured_at=CZAS_POMIARU),
                     headers=_naglowki(token, 'op-1'))
     assert r.status_code == 404
     assert r.get_json()['error'] == 'order_not_found'
@@ -407,7 +424,7 @@ def test_etag_zmienia_sie_po_dodaniu_pomiaru(client, app):
     etag_przed = r1.headers['ETag']
 
     client.post('/api/mobile/sawmill/orders/{}/logs'.format(oid),
-                json=dict(POMIAR, measured_at='2026-08-05T09:31:12'),
+                json=dict(POMIAR, measured_at=CZAS_POMIARU),
                 headers=_naglowki(token, 'op-1'))
 
     headers = _naglowki(token)
@@ -415,7 +432,7 @@ def test_etag_zmienia_sie_po_dodaniu_pomiaru(client, app):
     r2 = client.get('/api/mobile/sawmill/orders', headers=headers)
     assert r2.status_code == 200
     assert r2.headers['ETag'] != etag_przed
-    assert r2.get_json()['orders'][0]['measured_volume_m3'] == 0.514699
+    assert r2.get_json()['orders'][0]['measured_volume_m3'] == 0.515221
 
 
 def test_etag_zmienia_sie_po_edycji_pomiaru_bez_zmiany_liczby_klod(client, app):
@@ -429,7 +446,7 @@ def test_etag_zmienia_sie_po_edycji_pomiaru_bez_zmiany_liczby_klod(client, app):
     token = _urzadzenie(app)
     oid = _zlecenie(app)
     r = client.post('/api/mobile/sawmill/orders/{}/logs'.format(oid),
-                    json=dict(POMIAR, measured_at='2026-08-05T09:31:12'),
+                    json=dict(POMIAR, measured_at=CZAS_POMIARU),
                     headers=_naglowki(token, 'op-1'))
     log_id = r.get_json()['log']['id']
 
@@ -458,7 +475,7 @@ def test_etag_zmienia_sie_po_usunieciu_pomiaru(client, app):
     token = _urzadzenie(app)
     oid = _zlecenie(app)
     r = client.post('/api/mobile/sawmill/orders/{}/logs'.format(oid),
-                    json=dict(POMIAR, measured_at='2026-08-05T09:31:12'),
+                    json=dict(POMIAR, measured_at=CZAS_POMIARU),
                     headers=_naglowki(token, 'op-1'))
     log_id = r.get_json()['log']['id']
 
@@ -494,7 +511,7 @@ def test_odpowiedz_dodania_pomiaru_nie_zawiera_deklaracji(client, app):
     token = _urzadzenie(app)
     oid = _zlecenie(app)
     r = client.post('/api/mobile/sawmill/orders/{}/logs'.format(oid),
-                    json=dict(POMIAR, measured_at='2026-08-05T09:31:12'),
+                    json=dict(POMIAR, measured_at=CZAS_POMIARU),
                     headers=_naglowki(token, 'op-1'))
     surowo = r.get_data(as_text=True)
     for zakazane in ('declared_volume_m3', 'price_per_m3', 'declared_value',
@@ -551,7 +568,7 @@ def test_zadne_dane_nie_powstaja_przy_braku_naglowka(client, app):
     # zwróciłby 422 i nic by nie zapisał, więc test przechodziłby również
     # przy usuniętym sprawdzeniu nagłówka.
     client.post('/api/mobile/sawmill/orders/{}/logs'.format(oid),
-                json=dict(POMIAR, measured_at='2026-08-05T09:31:12'),
+                json=dict(POMIAR, measured_at=CZAS_POMIARU),
                 headers=_naglowki(token))
     with app.app_context():
         assert SawmillLog.query.count() == 0
@@ -562,7 +579,7 @@ def test_z_naglowkiem_dziala_jak_dotad(client, app):
     token = _urzadzenie(app)
     oid = _zlecenie(app)
     r = client.post('/api/mobile/sawmill/orders/{}/logs'.format(oid),
-                    json=dict(POMIAR, measured_at='2026-08-05T09:31:12'),
+                    json=dict(POMIAR, measured_at=CZAS_POMIARU),
                     headers=_naglowki(token, 'op-wymog-1'))
     assert r.status_code == 201
 
@@ -581,7 +598,7 @@ def test_pomiar_zapisuje_kto_zmierzyl(client, app):
     odp = client.post(f'/api/mobile/sawmill/orders/{order_id}/logs',
                       headers=_naglowki(token, operation_id='op-1',
                                         worker_ids=str(worker_id)),
-                      json=dict(POMIAR, measured_at='2026-08-11T10:00:00'))
+                      json=dict(POMIAR, measured_at=CZAS_POMIARU_2))
 
     assert odp.status_code == 201
     with app.app_context():
@@ -601,7 +618,7 @@ def test_pomiar_bez_profilu_przechodzi_bez_atrybucji(client, app):
 
     odp = client.post(f'/api/mobile/sawmill/orders/{order_id}/logs',
                       headers=_naglowki(token, operation_id='op-2'),
-                      json=dict(POMIAR, measured_at='2026-08-11T10:00:00'))
+                      json=dict(POMIAR, measured_at=CZAS_POMIARU_2))
 
     assert odp.status_code == 201
     with app.app_context():
@@ -615,7 +632,7 @@ def test_nieznany_pracownik_odrzucony(client, app):
     odp = client.post(f'/api/mobile/sawmill/orders/{order_id}/logs',
                       headers=_naglowki(token, operation_id='op-3',
                                         worker_ids='999'),
-                      json=dict(POMIAR, measured_at='2026-08-11T10:00:00'))
+                      json=dict(POMIAR, measured_at=CZAS_POMIARU_2))
 
     assert odp.status_code == 404
     assert odp.get_json()['error'] == 'worker_not_found'
@@ -634,7 +651,7 @@ def test_zamkniecie_zlecenia_zapisuje_kto_w_audycie(client, app):
     naglowki = _naglowki(token, operation_id='op-4', worker_ids=str(worker_id))
 
     client.post(f'/api/mobile/sawmill/orders/{order_id}/logs', headers=naglowki,
-                json=dict(POMIAR, measured_at='2026-08-11T10:00:00'))
+                json=dict(POMIAR, measured_at=CZAS_POMIARU_2))
     odp = client.post(f'/api/mobile/sawmill/orders/{order_id}/complete',
                       headers=_naglowki(token, operation_id='op-5',
                                         worker_ids=str(worker_id)))
@@ -653,15 +670,15 @@ def test_korekta_i_usuniecie_pomiaru_trafiaja_do_audytu_z_autorem(client, app):
     client.post(f'/api/mobile/sawmill/orders/{order_id}/logs',
                 headers=_naglowki(token, operation_id='op-6',
                                   worker_ids=str(worker_id)),
-                json=dict(POMIAR, measured_at='2026-08-11T10:00:00'))
+                json=dict(POMIAR, measured_at=CZAS_POMIARU_2))
     with app.app_context():
         log_id = SawmillLog.query.one().id
 
     client.patch(f'/api/mobile/sawmill/logs/{log_id}',
                  headers=_naglowki(token, operation_id='op-7',
                                    worker_ids=str(worker_id)),
-                 json=dict(POMIAR, mid_circumference_cm=130.0,
-                           measured_at='2026-08-11T10:05:00'))
+                 json=dict(POMIAR, mid_diameter_cm=130.0,
+                           measured_at=CZAS_POMIARU_3))
     client.delete(f'/api/mobile/sawmill/logs/{log_id}',
                   headers=_naglowki(token, operation_id='op-8',
                                     worker_ids=str(worker_id)))

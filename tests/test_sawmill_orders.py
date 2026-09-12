@@ -43,7 +43,7 @@ _TABLES = [m.__table__ for m in (
 )]
 
 POMIAR = {
-    'mid_circumference_cm': Decimal('125.6'),
+    'mid_diameter_cm': Decimal('40.0'),
     'length_cm': Decimal('410.0'),
 }
 CZAS = datetime(2026, 8, 5, 9, 31, 12)
@@ -98,7 +98,7 @@ def test_objetosc_jest_wyliczana_i_zapisywana(app):
         order = _zlecenie()
         log = add_log(order, POMIAR, CZAS, device_id='TRAK-1')
         db.session.commit()
-        assert log.volume_m3 == Decimal('0.514699')
+        assert log.volume_m3 == Decimal('0.515221')
 
 
 def test_numery_klod_rosna_i_nie_sa_reuzywane(app):
@@ -122,11 +122,11 @@ def test_sumy_pomijaja_usuniete(app):
         add_log(order, POMIAR, CZAS, device_id='T')
         drugi = add_log(order, POMIAR, CZAS, device_id='T')
         db.session.commit()
-        assert order_totals(order.id) == (2, Decimal('1.029398'))
+        assert order_totals(order.id) == (2, Decimal('1.030442'))
 
         delete_log(drugi, device_id='T')
         db.session.commit()
-        assert order_totals(order.id) == (1, Decimal('0.514699'))
+        assert order_totals(order.id) == (1, Decimal('0.515221'))
 
 
 def test_usuniecie_ostatniego_pomiaru_nie_cofa_statusu(app):

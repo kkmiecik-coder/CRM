@@ -284,7 +284,7 @@
     <thead>
         <tr>
             <th>#</th>
-            <th>Obwód w środku [cm]</th>
+            <th>Średnica w środku [cm]</th>
             <th>Długość [cm]</th>
             <th>Objętość [m³]</th>
         </tr>
@@ -293,7 +293,7 @@
         {% for log in logs %}
         <tr>
             <td class="seq">{{ log.sequence_no }}</td>
-            <td>{{ fmt(log.mid_circumference_cm, 1) }}</td>
+            <td>{{ fmt(log.mid_diameter_cm, 1) }}</td>
             <td>{{ fmt(log.length_cm, 1) }}</td>
             <td>{{ fmt(log.volume_m3, 6) }}</td>
         </tr>
@@ -321,8 +321,8 @@
             <span class="summary-value">{{ fmt(avg_volume_m3, 4) }}</span>
         </td>
         <td>
-            <span class="summary-label">Śr. obwód</span>
-            <span class="summary-value">{{ fmt(avg_circumference_cm, 1, ' cm') }}</span>
+            <span class="summary-label">Śr. średnica</span>
+            <span class="summary-value">{{ fmt(avg_diameter_cm, 1, ' cm') }}</span>
         </td>
         <td>
             <span class="summary-label">Śr. długość</span>

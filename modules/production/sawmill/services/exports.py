@@ -152,15 +152,15 @@ def build_protocol_context(order, delivery, logs, logs_count,
     (WeasyPrint nie ma dostępu do statycznych zasobów aplikacji, CSS jest
     inline w szablonie), idący jako załącznik do reklamacji u dostawcy.
 
-    Podsumowanie podaje średni OBWÓD, nie średnicę — obwód jest tym, co
-    pracownik faktycznie zmierzył, więc dostawca może go zweryfikować taśmą
-    na tej samej kłodzie. Średnica byłaby wielkością pochodną i sugerowałaby
+    Podsumowanie podaje średnią ŚREDNICĘ — dokładnie to, co pracownik
+    zmierzył, więc dostawca może zweryfikować odczyt na tej samej kłodzie.
+    Wielkości pochodne (np. obwód) na protokół nie trafiają: sugerowałyby
     pomiar, którego nikt nie wykonał.
     """
-    obwody = []
+    srednice = []
     dlugosci = []
     for log in logs:
-        obwody.append(Decimal(str(log.mid_circumference_cm)))
+        srednice.append(Decimal(str(log.mid_diameter_cm)))
         dlugosci.append(Decimal(str(log.length_cm)))
 
     return {
@@ -171,7 +171,7 @@ def build_protocol_context(order, delivery, logs, logs_count,
         'measured_volume_m3': measured_volume_m3,
         'differences': differences,
         'avg_volume_m3': (measured_volume_m3 / logs_count) if logs_count else None,
-        'avg_circumference_cm': (sum(obwody) / len(obwody)) if obwody else None,
+        'avg_diameter_cm': (sum(srednice) / len(srednice)) if srednice else None,
         'avg_length_cm': (sum(dlugosci) / len(dlugosci)) if dlugosci else None,
         'status_label': STATUS_LABELS.get(order.status, order.status),
         # Data wygenerowania na stopce protokołu — kto i kiedy wydrukował

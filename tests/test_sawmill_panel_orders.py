@@ -5,7 +5,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from modules.production.models import get_local_now
 from decimal import Decimal
@@ -20,9 +20,14 @@ from modules.production.sawmill.services.orders import add_log, write_audit
 from tests.sawmill_fixtures import BASE, app, client  # noqa: F401
 
 POMIAR_JSON = {
-    'mid_circumference_cm': 125.6, 'length_cm': 410.0,
+    'mid_diameter_cm': 40.0, 'length_cm': 410.0,
 }
 POMIAR_DEC = {k: Decimal(str(v)) for k, v in POMIAR_JSON.items()}
+
+# Czas pomiaru względem dnia uruchomienia — patrz komentarz przy CZAS_POMIARU
+# w tests/test_sawmill_mobile_api.py: data kalendarzowa zaszyta w teście
+# przeterminowuje się po 30 dniach na validation.MAX_AGE.
+CZAS_POMIARU = (date.today() - timedelta(days=1)).isoformat() + 'T09:31:12'
 
 
 def _zlecenie(app, deklaracja='80.000', cena='1200.00', pomiarow=0, status=None):
@@ -60,8 +65,8 @@ def test_lista_zlecen_ma_roznice(client, app):
     assert r.status_code == 200
     order = r.get_json()['orders'][0]
     assert order['logs_count'] == 2
-    assert order['measured_volume_m3'] == 1.029398
-    assert order['difference_m3'] == -78.971
+    assert order['measured_volume_m3'] == 1.030442
+    assert order['difference_m3'] == -78.97
     assert order['is_deviation'] is True
 
 
@@ -131,7 +136,7 @@ def test_filtry_dzialaja_w_kombinacji(client, app):
 def test_admin_dodaje_pomiar_recznie(client, app):
     oid = _zlecenie(app)
     r = client.post(BASE + '/orders/{}/logs'.format(oid),
-                    json=dict(POMIAR_JSON, measured_at='2026-08-05T09:31:12'))
+                    json=dict(POMIAR_JSON, measured_at=CZAS_POMIARU))
     assert r.status_code == 201
     with app.app_context():
         assert SawmillAudit.query.filter_by(action='log_create_manual').count() == 1
@@ -257,7 +262,7 @@ def test_dodanie_pomiaru_recznie_w_rozliczonym_zablokowane(client, app):
         db.session.commit()
 
     r = client.post(BASE + '/orders/{}/logs'.format(oid),
-                    json=dict(POMIAR_JSON, measured_at='2026-08-05T09:31:12'))
+                    json=dict(POMIAR_JSON, measured_at=CZAS_POMIARU))
     assert r.status_code == 409
 
 
@@ -395,8 +400,8 @@ def test_odczyt_ustawien(client):
 
 def test_zapis_ustawien_dziala_natychmiast(client):
     """Bez cache — zmiana limitu ma obowiązywać od razu, nie po godzinie."""
-    client.patch(BASE + '/settings', json={'max_circumference_cm': 150.0})
-    assert client.get(BASE + '/settings').get_json()['settings']['max_circumference_cm'] == 150.0
+    client.patch(BASE + '/settings', json={'max_diameter_cm': 150.0})
+    assert client.get(BASE + '/settings').get_json()['settings']['max_diameter_cm'] == 150.0
 
 
 def test_decimal_places_nie_da_sie_nadpisac(client):

@@ -24,11 +24,13 @@ CONFIG_KEY = 'sawmill_settings'
 DECIMAL_PLACES = 1
 
 DEFAULT_SETTINGS = {
-    # Obwód bez górnego limitu (None = „nie sprawdzaj") — decyzja biznesowa:
-    # nietypowo gruba kłoda ma przejść, dolna granica łapie pomyłkę rzędu
-    # wielkości (np. wpisaną średnicę zamiast obwodu).
-    'min_circumference_cm': 30.0,
-    'max_circumference_cm': None,
+    # Widełki średnicy łapią pomyłkę rzędu wielkości w obie strony: poniżej
+    # 15 cm kłoda i tak nie trafia na trakownię, a powyżej 250 cm to prawie
+    # na pewno wpisany obwód zamiast średnicy — najczęstszy błąd po zmianie
+    # metodyki pomiaru. Oba limity są edytowalne w panelu, więc nietypowy
+    # surowiec nie wymaga zmiany kodu.
+    'min_diameter_cm': 15.0,
+    'max_diameter_cm': 250.0,
     'min_length_cm': 30.0,
     'max_length_cm': 20000.0,
     'decimal_places': DECIMAL_PLACES,
@@ -37,7 +39,7 @@ DEFAULT_SETTINGS = {
 
 # Klucze, które użytkownik może zmienić w panelu. decimal_places celowo poza listą.
 EDITABLE_KEYS = (
-    'min_circumference_cm', 'max_circumference_cm',
+    'min_diameter_cm', 'max_diameter_cm',
     'min_length_cm', 'max_length_cm',
     'deviation_threshold_pct',
 )
@@ -45,7 +47,7 @@ EDITABLE_KEYS = (
 # deviation_threshold_pct zostaje po stronie panelu — tablet nie zna deklaracji,
 # więc próg odchylenia nic by mu nie powiedział.
 MOBILE_KEYS = (
-    'min_circumference_cm', 'max_circumference_cm',
+    'min_diameter_cm', 'max_diameter_cm',
     'min_length_cm', 'max_length_cm',
     'decimal_places',
 )
@@ -88,7 +90,7 @@ class SawmillSettingsError(Exception):
 
 # Pary (minimum, maksimum) pilnowane względem siebie.
 _LIMIT_PAIRS = (
-    ('min_circumference_cm', 'max_circumference_cm'),
+    ('min_diameter_cm', 'max_diameter_cm'),
     ('min_length_cm', 'max_length_cm'),
 )
 

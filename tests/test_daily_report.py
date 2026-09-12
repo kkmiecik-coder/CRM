@@ -467,7 +467,7 @@ def _kloda(zlecenie, volume=1.5, kiedy=None, usunieta=False):
     _licznik_klod[0] += 1
     log = SawmillLog(
         order_id=zlecenie.id, sequence_no=_licznik_klod[0],
-        mid_circumference_cm=120.0, length_cm=400.0,
+        mid_diameter_cm=120.0, length_cm=400.0,
         volume_m3=volume, is_deleted=usunieta,
         measured_at=kiedy or datetime.combine(PONIEDZIALEK, time(10, 0)))
     db.session.add(log)
@@ -560,7 +560,7 @@ def test_serwisy_trakowni_nie_nadpisuja_created_at(app, zegar):
 
         log = add_log(
             zlecenie,
-            {'mid_circumference_cm': 120.0, 'length_cm': 400.0},
+            {'mid_diameter_cm': 120.0, 'length_cm': 400.0},
             measured_at=datetime.combine(PONIEDZIALEK, time(10, 0)))
         wpis = write_audit(zlecenie.id, 'log_create', log_id=log.id)
         db.session.commit()

@@ -47,7 +47,7 @@ TABLES = [m.__table__ for m in (
 )]
 
 SETTINGS = {
-    'min_circumference_cm': 30.0, 'max_circumference_cm': None,
+    'min_diameter_cm': 15.0, 'max_diameter_cm': 250.0,
     'min_length_cm': 30.0, 'max_length_cm': 20000.0,
     'decimal_places': 1, 'deviation_threshold_pct': 5.0,
 }

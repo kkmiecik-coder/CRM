@@ -12,8 +12,8 @@ from decimal import Decimal, InvalidOperation
 
 from modules.production.models import get_local_now
 
-MEASUREMENT_FIELDS = ('mid_circumference_cm', 'length_cm')
-CIRCUMFERENCE_FIELDS = ('mid_circumference_cm',)
+MEASUREMENT_FIELDS = ('mid_diameter_cm', 'length_cm')
+DIAMETER_FIELDS = ('mid_diameter_cm',)
 
 # Zegar tabletu spieszący się o kilka minut nie może kosztować pomiaru.
 FUTURE_TOLERANCE = timedelta(minutes=5)
@@ -67,7 +67,7 @@ def _check_precision(value, field, decimal_places):
 
 def validate_measurements(payload, settings):
     """
-    Sprawdza dwa wymiary kłody (obwód w środku + długość). Zwraca słownik
+    Sprawdza dwa wymiary kłody (średnica w środku + długość). Zwraca słownik
     Decimal-i gotowy do zapisu.
     Rzuca SawmillValidationError przy pierwszym błędzie.
     """
@@ -80,10 +80,10 @@ def validate_measurements(payload, settings):
             raise SawmillValidationError(field, u'wartość musi być dodatnia')
         _check_precision(value, field, decimal_places)
 
-        if field in CIRCUMFERENCE_FIELDS:
+        if field in DIAMETER_FIELDS:
             _check_range(value, field,
-                         settings.get('min_circumference_cm'),
-                         settings.get('max_circumference_cm'))
+                         settings.get('min_diameter_cm'),
+                         settings.get('max_diameter_cm'))
         else:
             _check_range(value, field,
                          settings.get('min_length_cm'), settings.get('max_length_cm'))

@@ -19,47 +19,60 @@ from modules.production.sawmill.services.validation import (
 )
 
 OK_PAYLOAD = {
-    'mid_circumference_cm': '125.6',
+    'mid_diameter_cm': '40.0',
     'length_cm': '410.0',
 }
 
 
 def test_poprawny_pomiar_zwraca_decimale():
     out = validate_measurements(dict(OK_PAYLOAD), DEFAULT_SETTINGS)
-    assert out['mid_circumference_cm'] == Decimal('125.6')
+    assert out['mid_diameter_cm'] == Decimal('40.0')
     assert out['length_cm'] == Decimal('410.0')
     assert all(isinstance(v, Decimal) for v in out.values())
 
 
 def test_brak_pola():
     payload = dict(OK_PAYLOAD)
-    del payload['mid_circumference_cm']
+    del payload['mid_diameter_cm']
     with pytest.raises(SawmillValidationError) as exc:
         validate_measurements(payload, DEFAULT_SETTINGS)
-    assert exc.value.field == 'mid_circumference_cm'
+    assert exc.value.field == 'mid_diameter_cm'
 
 
-def test_obwod_ponizej_minimum():
-    payload = dict(OK_PAYLOAD, mid_circumference_cm='29.9')
+def test_srednica_ponizej_minimum():
+    payload = dict(OK_PAYLOAD, mid_diameter_cm='14.9')
     with pytest.raises(SawmillValidationError) as exc:
         validate_measurements(payload, DEFAULT_SETTINGS)
-    assert exc.value.field == 'mid_circumference_cm'
+    assert exc.value.field == 'mid_diameter_cm'
 
 
-def test_obwod_domyslnie_bez_gornego_limitu():
-    """Decyzja biznesowa: nietypowo gruba kłoda ma przejść bez interwencji."""
-    assert DEFAULT_SETTINGS['max_circumference_cm'] is None
-    out = validate_measurements(dict(OK_PAYLOAD, mid_circumference_cm='900.0'),
+def test_srednica_powyzej_domyslnego_maksimum():
+    """
+    Górny limit istnieje domyślnie (250 cm), w odróżnieniu od dawnego obwodu,
+    który był bez ograniczenia. Średnica powyżej 250 cm to prawie na pewno
+    wpisany obwód zamiast średnicy — najczęstszy błąd po zmianie metodyki,
+    zawyżający objętość kłody około 2,5-krotnie.
+    """
+    assert DEFAULT_SETTINGS['max_diameter_cm'] == 250.0
+    with pytest.raises(SawmillValidationError) as exc:
+        validate_measurements(dict(OK_PAYLOAD, mid_diameter_cm='250.1'),
+                              DEFAULT_SETTINGS)
+    assert exc.value.field == 'mid_diameter_cm'
+
+
+def test_srednica_w_gornej_granicy_przechodzi():
+    """Granica jest domknięta — 250,0 cm to wartość dozwolona, nie odrzucona."""
+    out = validate_measurements(dict(OK_PAYLOAD, mid_diameter_cm='250.0'),
                                 DEFAULT_SETTINGS)
-    assert out['mid_circumference_cm'] == Decimal('900.0')
+    assert out['mid_diameter_cm'] == Decimal('250.0')
 
 
-def test_obwod_powyzej_maksimum_gdy_limit_ustawiony():
-    settings = dict(DEFAULT_SETTINGS, max_circumference_cm=630.0)
-    payload = dict(OK_PAYLOAD, mid_circumference_cm='630.1')
+def test_srednica_powyzej_maksimum_zawezonego_w_panelu():
+    settings = dict(DEFAULT_SETTINGS, max_diameter_cm=90.0)
+    payload = dict(OK_PAYLOAD, mid_diameter_cm='90.1')
     with pytest.raises(SawmillValidationError) as exc:
         validate_measurements(payload, settings)
-    assert exc.value.field == 'mid_circumference_cm'
+    assert exc.value.field == 'mid_diameter_cm'
 
 
 def test_dlugosc_ponizej_minimum():
@@ -70,7 +83,7 @@ def test_dlugosc_ponizej_minimum():
 
 
 def test_za_duzo_miejsc_po_przecinku():
-    payload = dict(OK_PAYLOAD, mid_circumference_cm='125.65')
+    payload = dict(OK_PAYLOAD, mid_diameter_cm='40.05')
     with pytest.raises(SawmillValidationError) as exc:
         validate_measurements(payload, DEFAULT_SETTINGS)
     assert 'miejsc' in exc.value.detail.lower()
@@ -84,9 +97,9 @@ def test_limit_null_jest_pomijany():
 
 
 def test_limit_null_dla_minimum_tez_pomijany():
-    settings = dict(DEFAULT_SETTINGS, min_circumference_cm=None)
-    out = validate_measurements(dict(OK_PAYLOAD, mid_circumference_cm='0.5'), settings)
-    assert out['mid_circumference_cm'] == Decimal('0.5')
+    settings = dict(DEFAULT_SETTINGS, min_diameter_cm=None)
+    out = validate_measurements(dict(OK_PAYLOAD, mid_diameter_cm='0.5'), settings)
+    assert out['mid_diameter_cm'] == Decimal('0.5')
 
 
 def test_wartosc_nieliczbowa():
@@ -149,10 +162,10 @@ def test_nan_i_infinity_daja_422_a_nie_500():
     byłby ponawiany bez końca.
     """
     for wartosc in ('NaN', 'Infinity', '-Infinity'):
-        payload = dict(OK_PAYLOAD, mid_circumference_cm=wartosc)
+        payload = dict(OK_PAYLOAD, mid_diameter_cm=wartosc)
         with pytest.raises(SawmillValidationError) as exc:
             validate_measurements(payload, DEFAULT_SETTINGS)
-        assert exc.value.field == 'mid_circumference_cm', wartosc
+        assert exc.value.field == 'mid_diameter_cm', wartosc
 
 
 def test_measured_at_bez_now_uzywa_czasu_lokalnego_a_nie_utc_kontenera(monkeypatch):

@@ -1,20 +1,21 @@
 # -*- coding: utf-8 -*-
 """
-Objętość kłody — metoda Hubera: obwód mierzony w połowie długości, bryła
+Objętość kłody — metoda Hubera: przekrój mierzony w połowie długości, bryła
 traktowana jak walec o tym przekroju.
 
-    d = C / pi                                [cm]
     V = pi/4 * (d / 100)^2 * (length_cm / 100)   [m3]
 
-co po podstawieniu d upraszcza się do postaci liczonej niżej:
-
-    V = (C / 100)^2 / (4 * pi) * (length_cm / 100)
-
-Pracownik podaje WYŁĄCZNIE dwie liczby: długość i obwód w środku kłody —
+Pracownik podaje WYŁĄCZNIE dwie liczby: długość i średnicę na środku kłody —
 metodyka ustalona przez zarząd. Pojedynczy przekrój w połowie długości
-uśrednia zbieżność pnia, a obwód mierzony taśmą obejmuje cały obrys, więc
-nie wymaga korekty na owalność (w odróżnieniu od pomiaru średnicy suwmiarką,
-gdzie trzeba było brać dwa prostopadłe odczyty).
+uśrednia zbieżność pnia.
+
+Średnica to JEDEN odczyt, bez drugiego pomiaru w osi prostopadłej — owalność
+kłody nie jest korygowana. To świadoma decyzja: trzecie pole na tablecie
+spowalnia stanowisko bardziej, niż jest wart zysk na dokładności. Wcześniej
+mierzony był obwód taśmą (obejmuje cały obrys, więc owalność uśrednia sama);
+zmiana na średnicę to decyzja o metodzie pomiaru na hali, nie o wzorze —
+matematycznie d = C / pi i obie drogi dają tę samą objętość dla tej samej
+kłody.
 
 Bez potrąceń na korę i bez zaokrągleń wejścia — liczymy dokładnie to,
 co wpisał pracownik.
@@ -48,13 +49,13 @@ def _quantize(value):
     return value.quantize(_VOLUME_EXPONENT, rounding=ROUND_HALF_UP)
 
 
-def compute_log_volume_m3(mid_circumference_cm, length_cm):
+def compute_log_volume_m3(mid_diameter_cm, length_cm):
     """Objętość kłody w m3, kwantyzowana do 6 miejsc po przecinku."""
-    circumference = _to_decimal(mid_circumference_cm, 'mid_circumference_cm')
+    diameter = _to_decimal(mid_diameter_cm, 'mid_diameter_cm')
     length = _to_decimal(length_cm, 'length_cm')
 
-    # Jedno wyrażenie zamiast liczenia najpierw średnicy — pośrednie
-    # zaokrąglenie średnicy przenosiłoby się na objętość.
-    area_factor = (circumference / Decimal(100)) ** 2 / (Decimal(4) * PI)
+    # Jedno wyrażenie zamiast liczenia najpierw pola przekroju — pośrednie
+    # zaokrąglenie pola przenosiłoby się na objętość.
+    area_factor = PI * (diameter / Decimal(100)) ** 2 / Decimal(4)
     volume = area_factor * (length / Decimal(100))
     return _quantize(volume)

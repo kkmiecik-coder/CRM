@@ -188,9 +188,9 @@ class SawmillLog(db.Model):
     # urządzenia wysyłające naraz nadałyby te same numery.
     sequence_no = Column(Integer, nullable=False)
 
-    # Obwód w połowie długości kłody — jedyny pomiar przekroju, jaki wykonuje
-    # pracownik (metodyka Hubera, patrz services/volume.py).
-    mid_circumference_cm = Column(Numeric(6, 1), nullable=False)
+    # Średnica w połowie długości kłody — jedyny pomiar przekroju, jaki
+    # wykonuje pracownik (metodyka Hubera, patrz services/volume.py).
+    mid_diameter_cm = Column(Numeric(6, 1), nullable=False)
     length_cm = Column(Numeric(6, 1), nullable=False)
     volume_m3 = Column(Numeric(12, 6), nullable=False)
 
