@@ -608,6 +608,30 @@ def test_pomiar_zapisuje_kto_zmierzyl(client, app):
         assert klodа.device_id
 
 
+def test_audyt_pomiaru_zapisuje_kto_zmierzyl(client, app):
+    """
+    log_create ma nieść worker_id tak samo jak log_update i log_delete.
+
+    Atrybucja siedzi na kłodzie i stamtąd się jej nie zgubi, ale ślad audytowy
+    czytany osobno (tabela prod_sawmill_audit, bez joinów do kłód) musi
+    odpowiadać na pytanie „kto to zrobił" dla KAŻDEJ akcji na pomiarze —
+    inaczej korekta ma autora, a pierwotny pomiar nie, i historia jednej kłody
+    czyta się jak zapis bez początku.
+    """
+    token = _urzadzenie(app)
+    order_id = _zlecenie(app)
+    worker_id = _pracownik(app)
+
+    client.post(f'/api/mobile/sawmill/orders/{order_id}/logs',
+                headers=_naglowki(token, operation_id='op-audyt-1',
+                                  worker_ids=str(worker_id)),
+                json=dict(POMIAR, measured_at=CZAS_POMIARU_2))
+
+    with app.app_context():
+        wpis = SawmillAudit.query.filter_by(action='log_create').one()
+        assert wpis.worker_id == worker_id
+
+
 def test_pomiar_bez_profilu_przechodzi_bez_atrybucji(client, app):
     """
     Kill-switch wyłączony: brak nagłówka nie może zablokować pomiaru.

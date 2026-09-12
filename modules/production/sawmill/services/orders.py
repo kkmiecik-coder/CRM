@@ -239,9 +239,13 @@ def add_log(order, measurements, measured_at, device_id=None, user_id=None,
         order.status = STATUS_IN_PROGRESS
         order.started_at = measured_at
 
+    # worker_id tak samo jak przy log_update i log_delete: ślad audytowy
+    # czytany bez joinów do kłód ma odpowiadać „kto to zrobił" dla każdej
+    # akcji na pomiarze, nie tylko dla korekt. Przy wpisie z panelu
+    # (log_create_manual) zostaje None — tam autorem jest user_id.
     write_audit(order.id, 'log_create_manual' if manual else 'log_create',
                 log_id=log.id, after=_log_snapshot(log),
-                device_id=device_id, user_id=user_id)
+                device_id=device_id, user_id=user_id, worker_id=worker_id)
     return log
 
 
