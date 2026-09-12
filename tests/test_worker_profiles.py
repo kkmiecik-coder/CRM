@@ -385,6 +385,52 @@ def test_start_sesji_tworzy_wiersz_na_pracownika(client, app):
         assert urzadzenie.last_worker_session_at is not None
 
 
+def test_start_sesji_na_trakowni(client, app):
+    """
+    Regresja: tablet trakowni dostawal 404 unknown_station przy KAZDYM wyborze
+    profilu, wiec sesja nigdy sie nie otwierala i apka wracala na bramke —
+    z perspektywy pracownika „co chwila wylogowuje".
+
+    Zrodlem bylo mieszanie dwoch roznych list stanowisk. STATION_STATUS_MAP to
+    mapa stanowisk PIPELINE'U PRODUKTOW (kod -> status ProductionProduct) i
+    'sawmill' celowo w niej nie wystepuje, bo trakownia liczy sie z wlasnych
+    tabel. Lista stanowisk, ktore w ogole ISTNIEJA, to
+    ProductionDevice.VALID_STATION_CODES — i tam trakownia jest od poczatku.
+    Sesja pracownika jest pojeciem ogolnym: dotyczy kazdego stanowiska, nie
+    tylko tych, ktore przesuwaja produkt w pipelinie.
+    """
+    token = _token(app, station_code='sawmill', device_id='TRAK-1')
+    ids = _pracownicy(app, 1)
+
+    odp = client.post('/api/mobile/sessions/start', headers=_naglowki(token),
+                      json={'worker_ids': ids, 'session_group': 'trak-1'})
+
+    assert odp.status_code == 200, odp.get_json()
+    with app.app_context():
+        sesja = ProductionWorkerSession.query.one()
+        assert sesja.station_code == 'sawmill'
+        assert sesja.worker_id == ids[0]
+        assert sesja.is_open
+
+
+def test_akcje_produktowe_nadal_odrzucaja_trakownie(client, app):
+    """
+    Druga strona tej samej zmiany: rozluznienie walidacji dotyczy WYLACZNIE
+    sesji pracownika. Endpointy przesuwajace produkt (complete/quantity/reject)
+    musza dalej odrzucac 'sawmill' — trakownia nie ma statusow produktu, wiec
+    nie ma czego na niej domykac.
+    """
+    token = _token(app, station_code='sawmill', device_id='TRAK-2')
+    ids = _pracownicy(app, 1)
+    produkt_id = _produkt(app, status='czeka_na_sklejanie')
+
+    odp = client.post(f'/api/mobile/orders/{produkt_id}/complete',
+                      headers=_naglowki(token, worker_ids=str(ids[0])), json={})
+
+    assert odp.status_code == 404
+    assert odp.get_json()['error'] == 'unknown_station'
+
+
 def test_start_sesji_domyka_poprzednia_obsade_jako_replaced(client, app):
     token = _token(app)
     ids = _pracownicy(app, 2)

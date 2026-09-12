@@ -44,17 +44,33 @@ from modules.production.services.mobile_api_service import (
 )
 
 
-def _resolve_station_code(requested):
+def _resolve_station_code(requested, *, znane_kody=STATION_STATUS_MAP):
     """
     Rozstrzyga station_code dla operacji mutującej. Gdy klient nie poda
     `station_code` w body, używamy `g.device.station_code` (BC). Zwraca
     (station_code, error_response) — gdy error_response != None, wywołujący
     powinien zwrócić go natychmiast.
+
+    `znane_kody` rozdziela dwa pytania, które do 09.2026 były tu sklejone:
+
+      - „czy to stanowisko przesuwa produkt w pipelinie" — STATION_STATUS_MAP
+        (domyślnie), mapa kod -> status ProductionProduct. Tego pilnują
+        complete/quantity/reject: bez statusu nie ma czego domykać;
+      - „czy to stanowisko w ogóle istnieje" — ProductionDevice.VALID_STATION_CODES,
+        pełna lista kodów, jakie system wystawia urządzeniom.
+
+    Trakownia ('sawmill') jest w drugiej liście, a w pierwszej celowo nie —
+    liczy się z własnych tabel prod_sawmill_*, nie ze statusów produktu.
+    Dopóki obie role pełniła STATION_STATUS_MAP, start sesji pracownika na
+    tablecie trakowni kończył się 404 unknown_station przy KAŻDYM wyborze
+    profilu: sesja nigdy się nie otwierała, apka wracała na bramkę, a czas
+    pracy na trakowni nie był mierzony w ogóle. Sesja pracownika dotyczy
+    każdego stanowiska, nie tylko tych z pipeline'u produktów.
     """
     code = (requested or g.device.station_code or '').strip()
     if not code:
         return None, (jsonify({'error': 'missing_station_code'}), 400)
-    if code not in STATION_STATUS_MAP:
+    if code not in znane_kody:
         return None, (jsonify({'error': 'unknown_station'}), 404)
     if not device_can_access_station(g.device, code):
         return None, (jsonify({
@@ -972,7 +988,11 @@ def session_start():
         return jsonify({'error': 'invalid_worker_ids',
                         'detail': 'worker_ids musi zawierać liczby'}), 422
 
-    station_code, err = _resolve_station_code(data.get('station_code'))
+    # Sesja pracownika stoi na KAŻDYM stanowisku, także poza pipeline'em
+    # produktów — stąd pełna lista kodów zamiast mapy statusów produktu.
+    station_code, err = _resolve_station_code(
+        data.get('station_code'),
+        znane_kody=ProductionDevice.VALID_STATION_CODES)
     if err:
         return err
 
