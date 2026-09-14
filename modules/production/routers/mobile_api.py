@@ -81,16 +81,23 @@ def _resolve_station_code(requested, *, znane_kody=STATION_STATUS_MAP):
     return code, None
 
 # Kody, po których wpis MUSI zostać w kolejce offline zamiast zostać zapamiętany
-# przez @with_idempotency. Wszystkie trzy wychodzą z walidacji profilu
-# (_resolve_workers) i wszystkie są odwracalne bez udziału tabletu:
+# przez @with_idempotency. Wspólny mianownik: przyczyna jest odwracalna BEZ
+# udziału tabletu, więc ponowienie tego samego wpisu ma szansę się udać.
 #   400 worker_ids_required — admin wyłącza kill-switch,
 #   404 worker_not_found    — katalog się odświeża,
-#   409 worker_inactive     — admin przywraca pracownika.
+#   409 worker_inactive     — admin przywraca pracownika,
+#   403 station_mismatch    — rejestracja urządzenia rozjechała się ze
+#                             stanowiskiem (_resolve_station_code); wraca do
+#                             normy po przerejestrowaniu tabletu albo korekcie
+#                             prod_devices.station_code.
 # Bez tego dekorator zapisuje odpowiedź pod X-Operation-Id i przy ponowieniu
 # ODTWARZA ją bez wywołania handlera — wykonana robota przepada bezpowrotnie,
-# mimo że przyczyna błędu już nie istnieje. Trakownia używa tego mechanizmu
-# z dokładnie tego powodu (sawmill/routers/mobile_api.py:185).
-BLEDY_DO_PONOWIENIA = {400, 404, 409}
+# mimo że przyczyna błędu już nie istnieje. Przy 403 jest to szczególnie
+# zdradliwe: tablet dostaje odpowiedź ostateczną, usuwa akcję z kolejki
+# i melduje UDANĄ synchronizację, choć odbite sztuki nigdy nie trafiły do bazy.
+# Trakownia używa tego mechanizmu z dokładnie tego powodu
+# (sawmill/routers/mobile_api.py) i trzyma własną, bliźniaczą kopię listy.
+BLEDY_DO_PONOWIENIA = {400, 403, 404, 409}
 
 
 def _resolve_workers():

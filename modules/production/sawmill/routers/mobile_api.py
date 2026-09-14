@@ -47,10 +47,13 @@ logger = get_structured_logger('production.sawmill.mobile_api')
 STATION_CODE = 'sawmill'
 
 # Te same kody, po ktorych wpis MUSI zostac w kolejce offline, co w API
-# produkcyjnym: wszystkie wychodza z walidacji profilu i sa odwracalne bez
-# udzialu tabletu. 409 bylo tu juz wczesniej — trakownia uzywa go, gdy zlecenie
-# zostalo zamkniete, a tablet dosyla pomiary z kolejki.
-BLEDY_DO_PONOWIENIA = {400, 404, 409}
+# produkcyjnym: wszystkie sa odwracalne bez udzialu tabletu. 409 bylo tu juz
+# wczesniej — trakownia uzywa go, gdy zlecenie zostalo zamkniete, a tablet
+# dosyla pomiary z kolejki. 403 dorzucone razem z API produkcyjnym:
+# require_sawmill_device oddaje station_mismatch, gdy rejestracja urzadzenia
+# rozjedzie sie ze stanowiskiem, a zapamietany 403 kasowalby pomiar klody
+# bezpowrotnie.
+BLEDY_DO_PONOWIENIA = {400, 403, 404, 409}
 
 
 def _profil_z_naglowka():
