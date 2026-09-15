@@ -267,7 +267,7 @@ class ProductionProduct(db.Model):
 
     current_status = Column(Enum(
         'czeka_na_wyciecie', 'czeka_na_skladanie',
-        'czeka_na_sklejanie', 'czeka_na_formatowanie', 'czeka_na_wykanczanie',
+        'czeka_na_sklejanie', 'czeka_na_formatowanie', 'czeka_na_krawedzie',
         'czeka_na_lakiernie', 'czeka_na_logistyke', 'czeka_na_pakowanie',
         'spakowane', 'anulowane', 'wstrzymane', 'w_realizacji',
         name='production_status'
@@ -345,7 +345,11 @@ class ProductionProduct(db.Model):
             'czeka_na_skladanie': 'Czeka na składanie',
             'czeka_na_sklejanie': 'Czeka na sklejanie',
             'czeka_na_formatowanie': 'Czeka na formatowanie',
-            'czeka_na_wykanczanie': 'Czeka na wykańczanie',
+            'czeka_na_krawedzie': 'Czeka na krawędzie',
+            # Wartość zdjęta z enuma migracją podziału wykańczania, ale
+            # prod_product_events trzyma ten string jako ZWYKŁY TEKST
+            # w old_value/new_value — historia produktu musi umieć go nazwać.
+            'czeka_na_wykanczanie': 'Czeka na wykańczanie (archiwalne)',
             'czeka_na_lakiernie': 'Czeka na lakiernię',
             'czeka_na_logistyke': 'Czeka na logistykę',
             'czeka_na_pakowanie': 'Czeka na pakowanie',
