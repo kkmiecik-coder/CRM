@@ -172,8 +172,6 @@ let finalSummaryEls = {};
 let finishingSummaryEls = {};
 let edgesSummaryEls = {};
 
-const shippingPackingMultiplier = 1.3;
-
 // ------------------------------
 // FUNKCJE OBLICZENIOWE I FORMATUJĄCE
 // ------------------------------
@@ -548,7 +546,6 @@ window.CalculatorCore = {
     finalSummaryEls,
     finishingSummaryEls,
     edgesSummaryEls,
-    shippingPackingMultiplier,
     variantMapping,
     edgesList,
     DEFAULT_MULTIPLIER_ID,

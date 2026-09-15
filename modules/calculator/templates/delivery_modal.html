@@ -21,7 +21,7 @@
             <div class="delivery-modal-headers">
                 <div></div>
                 <div>Kurier</div>
-                <div id="deliveryHeaderAdjusted">Cena + 30%</div>
+                <div id="deliveryHeaderAdjusted">Cena końcowa</div>
                 <div>Cena oryginalna</div>
             </div>
 
@@ -120,12 +120,17 @@
                     <div class="delivery-modal-calculation-label">Kwota brutto:</div>
                     <div class="delivery-modal-calculation-value" id="calcBaseBrutto">0.00 PLN</div>
                 </div>
-                
+
                 <div class="delivery-modal-calculation-row">
-                    <div class="delivery-modal-calculation-label">Koszty pakowania (+30%):</div>
+                    <div class="delivery-modal-calculation-label" id="calcMarginLabel">Koszty pakowania:</div>
                     <div class="delivery-modal-calculation-value" id="calcMargin">0.00 PLN</div>
                 </div>
-                
+
+                <div class="delivery-modal-calculation-row delivery-modal-hidden" id="calcSurchargeRow">
+                    <div class="delivery-modal-calculation-label">Dopłata do wysyłki:</div>
+                    <div class="delivery-modal-calculation-value" id="calcSurcharge">0.00 PLN</div>
+                </div>
+
                 <div class="delivery-modal-calculation-row delivery-modal-calculation-final">
                     <div class="delivery-modal-calculation-label">Końcowa cena:</div>
                     <div class="delivery-modal-calculation-value" id="calcFinalPrice">0.00 PLN</div>

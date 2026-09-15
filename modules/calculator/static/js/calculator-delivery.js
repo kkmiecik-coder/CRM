@@ -79,13 +79,33 @@ function setShippingCache(paramsHash, quotes) {
     }
 }
 
-// Zmodyfikowana funkcja calculateDelivery
+/**
+ * Pyta backend o ceny końcowe wysyłki dla podanych cen surowych z GlobKuriera.
+ *
+ * Formuła (narzut % + dopłata progowa) żyje WYŁĄCZNIE w backendzie
+ * (shipping_pricing.py). Tutaj tylko pytamy o wynik — dzięki temu kalkulator
+ * i bot Dębuś nie mogą podać klientowi dwóch różnych cen tej samej paczki.
+ */
+async function fetchShippingMarkup(grossPrices) {
+    const response = await fetch('/calculator/api/shipping-markup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gross_prices: grossPrices })
+    });
+
+    if (!response.ok) {
+        throw new Error(`shipping-markup: HTTP ${response.status}`);
+    }
+
+    return response.json();
+}
+
 async function calculateDelivery() {
     const overlay = document.getElementById('loadingOverlay');
 
     if (overlay) {
         overlay.style.display = 'flex';
-        showRotatingMessages(overlay); // ✅ ZACHOWANE - rotujące komunikaty
+        showRotatingMessages(overlay);
     }
 
     const shippingParams = computeAggregatedData();
@@ -98,118 +118,95 @@ async function calculateDelivery() {
         return;
     }
 
-    // Sprawdź cache
     const paramsHash = getShippingParamsHash(shippingParams);
-    const cachedQuotes = getShippingCache(paramsHash);
-
-    if (cachedQuotes) {
-        // Zastosuj mnożnik pakowania (tak jak przy normalnej odpowiedzi)
-        const quotes = cachedQuotes.map(option => ({
-            carrierName: option.carrierName,
-            rawGrossPrice: option.grossPrice,
-            rawNetPrice: option.netPrice,
-            grossPrice: option.grossPrice * shippingPackingMultiplier,
-            netPrice: option.netPrice * shippingPackingMultiplier,
-            carrierLogoLink: option.carrierLogoLink || ""
-        }));
-
-        const packingInfo = {
-            multiplier: shippingPackingMultiplier,
-            message: `Do cen wysyłki została doliczona kwota ${Math.round((shippingPackingMultiplier - 1) * 100)}% na pakowanie.`
-        };
-
-        if (overlay) {
-            stopRotatingMessages();
-            overlay.style.display = 'none';
-        }
-        showDeliveryModal(quotes, packingInfo);
-        return;
-    }
 
     try {
-        const response = await fetch('/calculator/shipping_quote', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(shippingParams)
-        });
+        // Cache trzyma SUROWE odpowiedzi GlobKuriera (TTL 24 h). Narzut dolicza
+        // backend przy każdym otwarciu modala, więc zmiana ustawień w panelu
+        // działa natychmiast — także na przeglądarce z ciepłym cache'em.
+        let quotesList = getShippingCache(paramsHash);
 
-        if (response.ok) {
-            // ✅ ZACHOWANA cała sekcja sukcesu - bez zmian
-            const quotesData = await response.json();
-            const quotesList = Array.isArray(quotesData) ? quotesData : [quotesData];
-
-            // Zapisz do cache (surowe dane bez mnożnika)
-            setShippingCache(paramsHash, quotesList);
-
-            const quotes = quotesList.map(option => {
-                const rawGross = option.grossPrice;
-                const rawNet = option.netPrice;
-                return {
-                    carrierName: option.carrierName,
-                    rawGrossPrice: rawGross,
-                    rawNetPrice: rawNet,
-                    grossPrice: rawGross * shippingPackingMultiplier,
-                    netPrice: rawNet * shippingPackingMultiplier,
-                    carrierLogoLink: option.carrierLogoLink || ""
-                };
+        if (!quotesList) {
+            const response = await fetch('/calculator/shipping_quote', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(shippingParams)
             });
 
-            if (quotes.length === 0) {
-                showDeliveryErrorModal("Brak dostępnych metod dostawy.");
-            } else {
-                const packingInfo = {
-                    multiplier: shippingPackingMultiplier,
-                    message: `Do cen wysyłki została doliczona kwota ${Math.round((shippingPackingMultiplier - 1) * 100)}% na pakowanie.`
-                };
-                showDeliveryModal(quotes, packingInfo);
-            }
-        } else {
-            // ===== ✨ NOWA CZĘŚĆ: Lepsza obsługa błędów HTTP =====
-            let errorMessage = "Błąd podczas wyceny wysyłki.";
+            if (!response.ok) {
+                let errorMessage = "Błąd podczas wyceny wysyłki.";
 
-            try {
-                const errorData = await response.json();
+                try {
+                    const errorData = await response.json();
 
-                // Użyj komunikatu z backendu jeśli istnieje
-                if (errorData.error) {
-                    errorMessage = errorData.error;
-                } else {
-                    // Mapowanie kodów HTTP na przyjazne komunikaty
-                    switch (response.status) {
-                        case 502:
-                        case 503:
-                        case 504:
-                            errorMessage = "Serwis kurierski chwilowo niedostępny. Spróbuj ponownie za chwilę.";
-                            break;
-                        case 401:
-                            errorMessage = "Problem z autoryzacją serwisu kurierskiego. Skontaktuj się z administratorem.";
-                            break;
-                        case 400:
-                            errorMessage = "Nieprawidłowe dane wysyłki. Sprawdź wymiary i wagę paczki.";
-                            break;
-                        case 500:
-                            errorMessage = "Błąd serwera. Spróbuj ponownie lub skontaktuj się z administratorem.";
-                            break;
-                        default:
-                            errorMessage = `Błąd serwisu kurierskiego (kod: ${response.status}). Spróbuj ponownie.`;
+                    if (errorData.error) {
+                        errorMessage = errorData.error;
+                    } else {
+                        switch (response.status) {
+                            case 502:
+                            case 503:
+                            case 504:
+                                errorMessage = "Serwis kurierski chwilowo niedostępny. Spróbuj ponownie za chwilę.";
+                                break;
+                            case 401:
+                                errorMessage = "Problem z autoryzacją serwisu kurierskiego. Skontaktuj się z administratorem.";
+                                break;
+                            case 400:
+                                errorMessage = "Nieprawidłowe dane wysyłki. Sprawdź wymiary i wagę paczki.";
+                                break;
+                            case 500:
+                                errorMessage = "Błąd serwera. Spróbuj ponownie lub skontaktuj się z administratorem.";
+                                break;
+                            default:
+                                errorMessage = `Błąd serwisu kurierskiego (kod: ${response.status}). Spróbuj ponownie.`;
+                        }
+                    }
+                } catch (e) {
+                    console.error("Nie można sparsować odpowiedzi błędu:", e);
+
+                    if (response.status === 502 || response.status === 503 || response.status === 504) {
+                        errorMessage = "Serwis kurierski chwilowo niedostępny. Spróbuj ponownie za chwilę.";
                     }
                 }
-            } catch (e) {
-                // Jeśli nie można sparsować JSON, użyj komunikatu opartego na kodzie HTTP
-                console.error("Nie można sparsować odpowiedzi błędu:", e);
 
-                if (response.status === 502 || response.status === 503 || response.status === 504) {
-                    errorMessage = "Serwis kurierski chwilowo niedostępny. Spróbuj ponownie za chwilę.";
-                }
+                console.error("Błąd w żądaniu wyceny wysyłki:", response.status, errorMessage);
+                showDeliveryErrorModal(errorMessage);
+                return;
             }
 
-            console.error("Błąd w żądaniu wyceny wysyłki:", response.status, errorMessage);
-            showDeliveryErrorModal(errorMessage);
+            const quotesData = await response.json();
+            quotesList = Array.isArray(quotesData) ? quotesData : [quotesData];
+            setShippingCache(paramsHash, quotesList);
         }
+
+        if (quotesList.length === 0) {
+            showDeliveryErrorModal("Brak dostępnych metod dostawy.");
+            return;
+        }
+
+        const markup = await fetchShippingMarkup(quotesList.map(option => option.grossPrice));
+
+        const quotes = quotesList.map((option, index) => {
+            const wyliczenie = markup.items[index];
+            return {
+                carrierName: option.carrierName,
+                rawGrossPrice: wyliczenie.raw_brutto,
+                rawNetPrice: wyliczenie.raw_netto,
+                grossPrice: wyliczenie.final_brutto,
+                netPrice: wyliczenie.final_netto,
+                // Rozbicie na narzut i dopłatę niesiemy dalej, żeby panel
+                // „Kalkulacja końcowej ceny" pokazywał prawdziwy rozkład
+                // wybranej oferty, a nie same zera.
+                markupBrutto: wyliczenie.markup_brutto,
+                surchargeBrutto: wyliczenie.surcharge_brutto,
+                carrierLogoLink: option.carrierLogoLink || ""
+            };
+        });
+
+        showDeliveryModal(quotes, { info: markup.info, config: markup.config });
     } catch (error) {
         console.error("Wyjątek przy wycenie wysyłki:", error);
 
-        // ===== ✨ NOWA CZĘŚĆ: Rozróżnienie typów błędów JavaScript =====
         let errorMessage;
 
         if (error.name === 'TypeError' && error.message.includes('fetch')) {
@@ -222,7 +219,6 @@ async function calculateDelivery() {
 
         showDeliveryErrorModal(errorMessage);
     } finally {
-        // ✅ ZACHOWANE - zatrzymaj rotujące komunikaty i ukryj overlay
         stopRotatingMessages();
         if (overlay) {
             overlay.style.display = 'none';
@@ -343,8 +339,14 @@ class DeliveryModal {
         this.selectedOption = null;
         this.customCarrier = null;
         this.isCustomMode = false;
+        // VAT zostaje — służy przeliczaniu netto<->brutto w formularzu własnego
+        // kuriera. Narzut na pakowanie NIE jest już liczony w JS.
         this.VAT_RATE = 0.23;
-        this.MARGIN_RATE = 0.30;
+        // Ostatni rozkład ceny z /calculator/api/shipping-markup i konfiguracja,
+        // którą przysłał backend (potrzebna do etykiet).
+        this.markup = null;
+        this.markupConfig = null;
+        this.customMarkupTimer = null;
 
         this.init();
         this._resizeHandler = () => {
@@ -416,26 +418,53 @@ class DeliveryModal {
         const bruttoInput = document.getElementById('customCarrierBrutto');
         const nameInput = document.getElementById('customCarrierName');
 
-        // Auto-kalkulacja netto <-> brutto
+        // Auto-kalkulacja netto <-> brutto. To sam VAT, nie narzut na pakowanie
+        // — dlatego zostaje po stronie przeglądarki.
         nettoInput?.addEventListener('input', (e) => {
             const netto = parseFloat(e.target.value) || 0;
             const brutto = netto * (1 + this.VAT_RATE);
             bruttoInput.value = brutto.toFixed(2);
-            this.updateCalculator(brutto);
-            this.validateCustomForm();
+            this.scheduleCustomMarkup(brutto);
         });
 
         bruttoInput?.addEventListener('input', (e) => {
             const brutto = parseFloat(e.target.value) || 0;
             const netto = brutto / (1 + this.VAT_RATE);
             nettoInput.value = netto.toFixed(2);
-            this.updateCalculator(brutto);
-            this.validateCustomForm();
+            this.scheduleCustomMarkup(brutto);
         });
 
         nameInput?.addEventListener('input', () => {
             this.validateCustomForm();
         });
+    }
+
+    /**
+     * Pyta backend o rozkład ceny dla ręcznie wpisanej kwoty własnego kuriera.
+     * Debounce, żeby nie strzelać żądaniem na każdy znak.
+     */
+    scheduleCustomMarkup(bruttoAmount) {
+        clearTimeout(this.customMarkupTimer);
+
+        if (!(bruttoAmount > 0)) {
+            this.markup = null;
+            this.updateCalculator(null);
+            this.validateCustomForm();
+            return;
+        }
+
+        this.customMarkupTimer = setTimeout(async () => {
+            try {
+                const odpowiedz = await fetchShippingMarkup([bruttoAmount]);
+                this.markup = odpowiedz.items[0];
+                this.markupConfig = odpowiedz.config;
+            } catch (error) {
+                console.error('Nie udało się przeliczyć ceny własnego kuriera:', error);
+                this.markup = null;
+            }
+            this.updateCalculator(this.markup);
+            this.validateCustomForm();
+        }, 300);
     }
 
     /**
@@ -475,17 +504,18 @@ class DeliveryModal {
         this.itemsPerPage = count;
     }
 
-    show(quotes, packingInfo = null) {
+    show(quotes, markupInfo = null) {
         this.quotes = quotes || [];
         this.currentPage = 1;
         this.selectedOption = null;
         this.customCarrier = null;
+        this.markup = null;
 
-        // Sortuj opcje po cenie
+        // Sortowanie po cenie KOŃCOWEJ — grossPrice niesie już narzut i dopłatę.
         this.quotes.sort((a, b) => (a.grossPrice || 0) - (b.grossPrice || 0));
 
         this.showMainView();
-        this.updatePackingInfo(packingInfo);
+        this.updatePackingInfo(markupInfo);
         this.updateConfirmButton();
 
         // Pokaż modal z animacją
@@ -578,7 +608,8 @@ class DeliveryModal {
         if (nettoInput) nettoInput.value = '';
         if (bruttoInput) bruttoInput.value = '';
 
-        this.updateCalculator(0);
+        this.markup = null;
+        this.updateCalculator(null);
 
         this.selectedOption = null;
         this.customCarrier = null;
@@ -696,6 +727,15 @@ class DeliveryModal {
         };
 
         this.customCarrier = null;
+
+        // Panel „Kalkulacja końcowej ceny" pokazuje rozkład wybranej oferty.
+        this.markup = {
+            raw_brutto: quote.rawGrossPrice || 0,
+            markup_brutto: quote.markupBrutto || 0,
+            surcharge_brutto: quote.surchargeBrutto || 0,
+            final_brutto: quote.grossPrice || 0
+        };
+        this.updateCalculator(this.markup);
         this.updateConfirmButton();
     }
 
@@ -762,19 +802,47 @@ class DeliveryModal {
         this.goToPage(this.currentPage + 1);
     }
 
-    updateCalculator(bruttoAmount) {
+    /**
+     * Renderuje rozkład ceny w panelu „Kalkulacja końcowej ceny".
+     * Przyjmuje gotowy wynik z backendu albo null (wyzerowanie panelu).
+     */
+    updateCalculator(markup) {
         const baseBruttoEl = document.getElementById('calcBaseBrutto');
         const marginEl = document.getElementById('calcMargin');
+        const marginLabelEl = document.getElementById('calcMarginLabel');
+        const surchargeRowEl = document.getElementById('calcSurchargeRow');
+        const surchargeEl = document.getElementById('calcSurcharge');
         const finalPriceEl = document.getElementById('calcFinalPrice');
 
         if (!baseBruttoEl || !marginEl || !finalPriceEl) return;
 
-        const margin = bruttoAmount * this.MARGIN_RATE;
-        const finalPrice = bruttoAmount + margin;
+        const puste = { raw_brutto: 0, markup_brutto: 0, surcharge_brutto: 0, final_brutto: 0 };
+        const dane = markup || puste;
 
-        baseBruttoEl.textContent = `${bruttoAmount.toFixed(2)} PLN`;
-        marginEl.textContent = `${margin.toFixed(2)} PLN`;
-        finalPriceEl.textContent = `${finalPrice.toFixed(2)} PLN`;
+        baseBruttoEl.textContent = `${dane.raw_brutto.toFixed(2)} PLN`;
+        marginEl.textContent = `${dane.markup_brutto.toFixed(2)} PLN`;
+        finalPriceEl.textContent = `${dane.final_brutto.toFixed(2)} PLN`;
+
+        if (marginLabelEl) {
+            marginLabelEl.textContent = `Koszty pakowania (${this.formatPercent()}):`;
+        }
+
+        if (surchargeRowEl && surchargeEl) {
+            const maDoplate = dane.surcharge_brutto > 0;
+            surchargeEl.textContent = `${dane.surcharge_brutto.toFixed(2)} PLN`;
+            surchargeRowEl.classList.toggle('delivery-modal-hidden', !maDoplate);
+        }
+    }
+
+    /**
+     * Procent narzutu w formie do wyświetlenia, np. „+30%". Bez konfiguracji
+     * z backendu zwraca pusty nawias-zastępnik, nie zmyśla liczby.
+     */
+    formatPercent() {
+        const percent = this.markupConfig?.percent;
+        if (percent === undefined || percent === null) return 'narzut';
+        const tekst = percent.toFixed(2).replace(/\.?0+$/, '').replace('.', ',');
+        return `+${tekst}%`;
     }
 
     validateCustomForm() {
@@ -788,40 +856,38 @@ class DeliveryModal {
         const netto = parseFloat(nettoInput.value) || 0;
         const brutto = parseFloat(bruttoInput.value) || 0;
 
-        // Resetuj style błędów
         [nameInput, nettoInput, bruttoInput].forEach(input => {
             input.classList.remove('error');
         });
 
         let isValid = true;
 
-        // Walidacja nazwy
         if (!name) {
             nameInput.classList.add('error');
             isValid = false;
         }
 
-        // Walidacja kwot
         if (netto <= 0 || brutto <= 0) {
             if (netto <= 0) nettoInput.classList.add('error');
             if (brutto <= 0) bruttoInput.classList.add('error');
             isValid = false;
         }
 
-        if (isValid) {
-            // Oblicz końcową cenę z marżą
-            const finalPrice = brutto * (1 + this.MARGIN_RATE);
-
+        // Kwota końcowa pochodzi z backendu (this.markup). Dopóki jej nie ma,
+        // kuriera nie da się zatwierdzić — lepiej zablokowany przycisk niż
+        // zapisana wycena z ceną bez narzutu.
+        if (isValid && this.markup) {
             this.customCarrier = {
                 carrierName: name,
-                grossPrice: finalPrice,
-                netPrice: finalPrice / (1 + this.VAT_RATE),
-                rawGrossPrice: brutto,
-                rawNetPrice: netto,
+                grossPrice: this.markup.final_brutto,
+                netPrice: this.markup.final_netto,
+                rawGrossPrice: this.markup.raw_brutto,
+                rawNetPrice: this.markup.raw_netto,
                 type: 'custom'
             };
         } else {
             this.customCarrier = null;
+            isValid = false;
         }
 
         this.updateConfirmButton();
@@ -845,17 +911,21 @@ class DeliveryModal {
         }
     }
 
-    updatePackingInfo(packingInfo) {
+    /**
+     * Wyświetla opis narzutu przysłany przez backend. Nie składamy tu zdania
+     * z mnożnika — tekst przychodzi gotowy z describe_shipping_markup().
+     */
+    updatePackingInfo(markupInfo) {
         const packingInfoEl = document.getElementById('deliveryPackingInfo');
         const headerAdjustedEl = document.getElementById('deliveryHeaderAdjusted');
 
-        if (packingInfo && packingInfoEl) {
-            const percent = Math.round((packingInfo.multiplier - 1) * 100);
-            packingInfoEl.innerHTML = `ℹ️ ${packingInfo.message || `Do cen wysyłki została doliczona kwota ${percent}% na pakowanie.`}`;
+        if (markupInfo && markupInfo.info && packingInfoEl) {
+            this.markupConfig = markupInfo.config || null;
+            packingInfoEl.innerHTML = `ℹ️ ${markupInfo.info}`;
             packingInfoEl.classList.remove('delivery-modal-hidden');
 
             if (headerAdjustedEl) {
-                headerAdjustedEl.textContent = `Cena + ${percent}%`;
+                headerAdjustedEl.textContent = `Cena ${this.formatPercent()}`;
             }
         } else {
             packingInfoEl?.classList.add('delivery-modal-hidden');
@@ -919,7 +989,7 @@ class DeliveryModal {
 let deliveryModalInstance = null;
 
 // Funkcje kompatybilności z istniejącym kodem
-function showDeliveryModal(quotes, packingInfo = null) {
+function showDeliveryModal(quotes, markupInfo = null) {
     if (!deliveryModalInstance) {
         deliveryModalInstance = new DeliveryModal();
     }
@@ -931,10 +1001,12 @@ function showDeliveryModal(quotes, packingInfo = null) {
         netPrice: quote.netPrice || 0,
         rawGrossPrice: quote.rawGrossPrice || quote.grossPrice || 0,
         rawNetPrice: quote.rawNetPrice || quote.netPrice || 0,
+        markupBrutto: quote.markupBrutto || 0,
+        surchargeBrutto: quote.surchargeBrutto || 0,
         carrierLogoLink: quote.carrierLogoLink || '/static/images/default-carrier.png'
     }));
 
-    deliveryModalInstance.show(formattedQuotes, packingInfo);
+    deliveryModalInstance.show(formattedQuotes, markupInfo);
 }
 
 function showDeliveryErrorModal(errorMessage) {
