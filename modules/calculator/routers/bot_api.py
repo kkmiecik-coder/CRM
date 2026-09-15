@@ -52,7 +52,7 @@ def bot_options():
     from modules.calculator.services.pricing_service import (
         load_pricing_data, VARIANT_MAPPING, _pricing_limits,
         AUTO_MULTIPLIER_PROG_NETTO, AUTO_MULTIPLIER_PONIZEJ_PROGU,
-        AUTO_MULTIPLIER_OD_PROGU, AUTO_MULTIPLIER_CENA_PROGOWA,
+        AUTO_MULTIPLIER_OD_PROGU,
     )
     data = load_pricing_data()
 
@@ -105,9 +105,10 @@ def bot_options():
             'prog_netto': AUTO_MULTIPLIER_PROG_NETTO,
             'ponizej_progu': AUTO_MULTIPLIER_PONIZEJ_PROGU,
             'od_progu': AUTO_MULTIPLIER_OD_PROGU,
-            # Podłoga ceny powyżej progu — dzięki niej cena nigdy nie spada przy
-            # większym produkcie. Wystawiamy gotową, żeby sklep nie liczył jej sam.
-            'cena_progowa_netto': AUTO_MULTIPLIER_CENA_PROGOWA,
+            # UWAGA dla czytających starsze wersje: był tu jeszcze klucz
+            # `cena_progowa_netto` (podłoga 1500 zł, tzw. plateau). Zniknął razem
+            # z regułą 2026-09-15 — cennik zna tylko dwa pasma, a plateau liczyło
+            # drożej niż Base. Konsument tego klucza musi przestać go czytać.
             'liczony_na': 'cena bazowa sztuki (bez mnożnika i bez dopłat)',
         },
         'vat': 1.23,

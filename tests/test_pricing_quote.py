@@ -145,37 +145,53 @@ def _payload_prog(**kw):
 def test_prog_mnoznika_na_cenie_bazowej():
     assert auto_multiplier_for_base(999.99) == 1.5
     assert auto_multiplier_for_base(0.0) == 1.5
-    # powyzej ok. 1363.64 dziala juz mnoznik docelowy
+    # od progu w gore dziala mnoznik docelowy
     assert auto_multiplier_for_base(2000.0) == 1.1
     assert auto_multiplier_for_base(1500.0) == 1.1
 
 
-def test_plateau_nie_pozwala_cenie_spasc_na_progu():
-    """Gole przelaczenie 1.5 -> 1.1 dawalo uskok, w ktorym WIEKSZY produkt jest
-    TANSZY (zmierzone: blat 198 cm 1496,88 zl, blat 200 cm 1108,80 zl).
-    Powyzej progu cena ma wiec podloge rowna cenie progowej."""
-    assert abs(999.99 * auto_multiplier_for_base(999.99) - 1499.985) < 0.001
-    # tuz nad progiem cena NIE spada — trzyma sie 1500 zl
-    for baza in (1000.0, 1100.0, 1200.0, 1363.0):
-        assert abs(baza * auto_multiplier_for_base(baza) - 1500.0) < 0.01, baza
-    # od ok. 1363.64 w gore plateau sie konczy i rosnie wg 1.1
-    assert abs(1400.0 * auto_multiplier_for_base(1400.0) - 1540.0) < 0.001
+def test_mnoznik_ma_dokladnie_dwa_pasma():
+    """Cennik (xlsx Konrada -> Base) zna tylko dwa mnozniki: 1.5 i 1.1.
+    Zadnej wartosci posredniej byc nie moze — inaczej CRM liczy wg reguly,
+    ktorej w cenniku nie ma, i rozjezdza sie z katalogiem sklepu."""
+    for baza in (0.0, 1.0, 500.0, 999.99):
+        assert auto_multiplier_for_base(baza) == 1.5, baza
+    for baza in (1000.0, 1100.0, 1200.0, 1363.0, 1400.0, 3000.0):
+        assert auto_multiplier_for_base(baza) == 1.1, baza
 
 
-def test_cena_nigdy_nie_maleje_gdy_produkt_rosnie():
-    """Niezmiennik calej reguly: drozszy surowiec nie moze dac tanszego produktu."""
-    poprzednia = -1.0
+def test_cena_moze_spasc_na_progu_i_jest_to_ZAMIERZONE():
+    """DECYZJA BIZNESOWA 2026-09-15 (Konrad z prezesem): to, ze szerszy produkt
+    bywa tanszy po przekroczeniu progu 1000 zl, jest swiadomie zaakceptowane.
+
+    Wczesniejsze "plateau" splaszczalo ten uskok do 1500 zl i przez to liczylo
+    DROZEJ niz cennik — do 400 zl netto na sztuce tuz nad progiem. Zostalo
+    zdjete, bo Base jest zrodlem prawdy o cenach, a plateau wprowadzalo regule,
+    ktorej w cenniku nie ma.
+
+    Ten test celowo UTRWALA uskok. Kto kiedys zechce go znowu "naprawic",
+    ma tu zobaczyc, ze to byla decyzja, a nie przeoczenie."""
+    tuz_ponizej_progu = 999.99 * auto_multiplier_for_base(999.99)
+    na_progu = 1000.0 * auto_multiplier_for_base(1000.0)
+
+    assert tuz_ponizej_progu > na_progu, 'uskok zniknal — czy plateau wrocilo?'
+    assert abs(tuz_ponizej_progu - 1499.985) < 0.001
+    assert abs(na_progu - 1100.0) < 0.001
+
+
+def test_cena_to_zawsze_baza_razy_mnoznik_z_cennika():
+    """Niezmiennik, ktory ZASTEPUJE poprzedni ("cena nigdy nie maleje"):
+    CRM ma dawac dokladnie to, co arkusz Konrada, czyli baze razy jeden
+    z dwoch mnoznikow. Nic po drodze nie ma prawa tego modyfikowac."""
     baza = 1.0
     while baza <= 3000.0:
-        cena = baza * auto_multiplier_for_base(baza)
-        assert cena >= poprzednia - 1e-9, f'cena spadla przy bazie {baza}'
-        poprzednia = cena
+        oczekiwany = 1.5 if baza < 1000.0 else 1.1
+        assert abs(baza * auto_multiplier_for_base(baza) - baza * oczekiwany) < 1e-9, baza
         baza += 0.5
 
 
 def test_zapisany_mnoznik_odtwarza_cene_pozycji():
-    """QuoteItem.multiplier ma odtwarzac cene pozycji rowniez w strefie plateau,
-    gdzie mnoznik nie jest ani 1.5, ani 1.1 (np. 1.25 przy bazie 1200)."""
+    """QuoteItem.multiplier ma odtwarzac cene pozycji: baza x mnoznik = cena."""
     from modules.calculator.services.pricing_service import calculate_material_variants
     # buk 100000/m3 -> baza 1500 (poza plateau), dab 8000/m3 -> baza 120 (ponizej progu)
     dane = PricingData(price_entries=CENNIK_PROG)
@@ -188,12 +204,20 @@ def test_zapisany_mnoznik_odtwarza_cene_pozycji():
         assert abs(odtworzona - w['unit_netto']) < 0.01, w['variant_code']
 
 
-def test_mnoznik_w_plateau_jest_posrednim_nie_11():
-    """W plateau raportujemy mnoznik EFEKTYWNY — inaczej cena nie zgadzalaby sie
-    z baza x mnoznik i zapisany mnoznik klamalby."""
-    m = auto_multiplier_for_base(1200.0)
-    assert 1.1 < m < 1.5
-    assert abs(1200.0 * m - 1500.0) < 0.001
+def test_mnoznik_miesci_sie_w_kolumnie_bez_straty():
+    """QuoteItem.multiplier to Numeric(5,2), czyli DWA miejsca po przecinku.
+    Skoro mnoznik jest zawsze 1.5 albo 1.1, zapis jest bezstratny i odtworzona
+    cena zgadza sie co do grosza.
+
+    Plateau tego nie mialo: przy bazie 1200 dawalo 1.2501, baza zapisywala 1.25,
+    a odtworzone 1200 x 1.25 = 1500,12 zamiast 1500,00. Zdjecie plateau usuwa
+    ten cichy blad zaokraglenia przy okazji."""
+    from decimal import Decimal
+    baza = 1.0
+    while baza <= 3000.0:
+        m = auto_multiplier_for_base(baza)
+        assert Decimal(str(m)) == Decimal(str(m)).quantize(Decimal('0.01')), (baza, m)
+        baza += 0.5
 
 
 def test_tanszy_produkt_dostaje_15_drozszy_11():
