@@ -455,8 +455,14 @@ def test_zwezajacy_alter_enuma_stoi_przed_pierwszym_renamem_kolumny():
     renameem, ta sama porazka przerywa caly plik migracji, ZANIM SCHEMAT
     PRZESTANIE BYC CZYTELNY DLA STAREGO KODU — nie "zanim cokolwiek sie
     zmieni": enum current_status jest w tym momencie juz zwezony, a enum
-    prod_rework_log przebudowany. Obie te zmiany sa jednak zgodne wstecz,
-    bo zadnej kolumny nie ubylo."""
+    prod_rework_log przebudowany. Zadnej kolumny nie ubylo, wiec stary kod
+    ODPYTUJE ten schemat bez bledu — ale to NIE znaczy, ze modul dziala
+    normalnie: current_status ma juz wiersze na 'czeka_na_krawedzie', ktorej
+    stary Enum(...) w models.py nie zna, wiec kazdy ODCZYT takiego wiersza
+    wywraca sie LookupError-em (SQLAlchemy 1.4.54, Enum._object_value_for_elem
+    w result_processor). To awaria DANYCH, nie schematu — mniejsza niz
+    porazka PO renameie (tam kazde zapytanie o prod_products leci 1054), ale
+    nie zerowa."""
     polecenia = [_bez_bialych(p) for p in _polecenia()]
 
     indeks_zwezajacego = next(

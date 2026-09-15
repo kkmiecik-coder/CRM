@@ -198,7 +198,8 @@ UPDATE prod_config
 -- KONWENCJA DRUGA: nazwa stanowiska w SRODKU klucza — STATION_CUTTING_PRIORITY_SORT,
 -- STATION_ASSEMBLY_PRIORITY_SORT, STATION_PACKAGING_PRIORITY_SORT
 -- (config_api.py:514-515). Klucza dla wykanczania panel dzis NIE wytworzy —
--- biala lista allowed_config_keys zaczyna sie w config_api.py:503, a te trzy
+-- biala lista allowed_config_keys zaczyna sie w
+-- modules/production/routers/api/config_api.py:503, a te trzy
 -- klucze stoja w niej w liniach 514-515; wariantu FINISHING w niej nie ma. Obslugujemy mimo to obie konwencje, bo druga
 -- konwencja kluczy ISTNIEJE w kodzie (ten sam wzorzec dla innych stanowisk),
 -- a nie dlatego, ze panel mogl ten konkretny klucz kiedykolwiek zapisac.
@@ -269,21 +270,51 @@ ALTER TABLE prod_products MODIFY COLUMN current_status ENUM(
 --
 -- OD TEGO MIEJSCA schemat przestaje byc czytelny dla STAREGO kodu, a gunicorn
 -- chodzi jeszcze wlasnie na nim (deploy.sh: `flask migrate` w linii 50, restart
--- w linii 69). Wszystko, co dzialo sie wczesniej w tym pliku, stary kod jeszcze
--- znosil: zadnej kolumny nie ubylo, enumy tylko zmienily liste wartosci.
+-- w linii 69). Do tego miejsca zadnej kolumny nie ubylo — ale to dowodzi
+-- WYLACZNIE zgodnosci SCHEMATU, nie zgodnosci z danymi, ktore ten schemat juz
+-- przyjal. Sekcje 1-5 juz zapisaly 'czeka_na_krawedzie' do current_status
+-- (sekcja 1, linie 135-137), a Enum(...) w wdrozonym models.py tej wartosci
+-- nie zna. SQLAlchemy 1.4.54 rzuca LookupError w Enum._object_value_for_elem
+-- (sqltypes.py, result_processor) przy KAZDEJ probie ODCZYTU takiego wiersza —
+-- nie tylko przy zapisie na nim. To rozstrzyga swiat (A) nizej.
 -- To OSTATNIA sekcja pliku.
 --
--- OPERATORZE O 2 W NOCY — SA DWA SWIATY, ROZROZNIA JE JEDNO ZAPYTANIE:
+-- OPERATORZE O 2 W NOCY — SA DWA SWIATY. DWA ZAPYTANIA ROZSTRZYGAJA KTORY,
+-- BEZ ZGADYWANIA:
 --   SHOW COLUMNS FROM prod_products LIKE 'quantity_done_%';
+--   SELECT COUNT(*) FROM prod_products WHERE current_status = 'czeka_na_krawedzie';
+--
+--   Pierwsze zapytanie mowi, w ktorym SWIECIE jestes — czy rename z sekcji 6
+--   sie wykonal. Drugie mierzy w swiecie (A) ROZMIAR SZKODY: ile wierszy ma
+--   status, ktorego stary kod nie zna, czyli ile wierszy wywroci na ODCZYCIE
+--   kazde zapytanie ORM, w ktorego wyniku sie znajda (0 = migracja padla,
+--   zanim ktorykolwiek wiersz dostal nowa wartosc — modul dziala normalnie,
+--   mimo failed migracji, dopoki taki wiersz nie powstanie).
 --
 --   (A) Widac quantity_done_finishing — migracja padla PRZED renameem.
---       W schemacie jest juz zwezony enum current_status i przebudowany enum
---       prod_rework_log, ale obie te zmiany sa ZGODNE WSTECZ: kolumny stoja
---       tam, gdzie stary kod ich szuka, wiec aplikacja dziala normalnie.
---       Cala cena to pozycje, ktore stary kod probuje zapisac na statusie
---       zdjetym z enuma — blad 1265 na JEDNEJ akcji tabletu, nie awaria
---       modulu. Rollback NIE jest potrzebny: usun przyczyne padniecia
---       i pusc migracje jeszcze raz (jest idempotentna).
+--       Schemat jest juz zwezony (current_status i prod_rework_log), ale
+--       MODUL PRODUKCJI NIE DZIALA NORMALNIE. Przyczyna to DANE, nie schemat:
+--       kazde zapytanie ORM, ktorego WYNIK zawiera choc jeden wiersz ze
+--       statusem 'czeka_na_krawedzie', wywraca sie na ODCZYCIE (LookupError,
+--       patrz wyzej) — listy produktow, kolejki, panel admina, kazdy widok
+--       czytajacy prod_products. To NIE jest blad 1265 na jednej akcji
+--       tabletu: 1265 jest bledem ZAPISU nieznanej wartosci enuma, a tu zapis
+--       juz sie udal (sekcje 1-5 dzialaly PRZED renameem) — pada dopiero
+--       kolejny ODCZYT tego wiersza, i to na kazdym miejscu, ktore go czyta.
+--       'czeka_na_lakiernie' tego problemu nie ma i nigdy nie mial: ta
+--       wartosc jest w enumie origin/main od czasow, gdy Lakiernia byla
+--       zakladka wykanczania — stary kod ja zna i czyta bez bledu.
+--       Rozmiar, wedlug drugiego zapytania powyzej: garstka wierszy (w
+--       zrzucie z 2026-09-14 to 3 z 5 pozycji kolejki wykanczania — te z
+--       parsed_edge_processing=1; pozostale 2, bez krawedzi i z olejem albo
+--       lakierem, ida na 'czeka_na_lakiernie' i nie sa problemem). Mala skala,
+--       ale WYSTARCZY JEDEN taki wiersz w wyniku, zeby polozyc caly widok
+--       listy — to nie jest awaria punktowa.
+--       Rollback NIE jest potrzebny: usun przyczyne padniecia i pusc migracje
+--       jeszcze raz. Jest idempotentna, a nieudany przebieg zostal zapisany
+--       jako success=FALSE (migrations/migration_service.py:326-332);
+--       get_executed_migrations filtruje po success = TRUE (:129), wiec ten
+--       wpis nie blokuje kolejnego `flask migrate`.
 --
 --   (B) Widac quantity_done_edges — rename sie WYKONAL. Schemat jest nowy,
 --       a gunicorn dalej chodzi na starym kodzie, bo deploy.sh restartuje
@@ -335,9 +366,12 @@ SET @klauzule_renamu := CONCAT_WS(', ',
     IF(@kolumna_daty   > 0, 'RENAME COLUMN finishing_completed_at TO edges_completed_at',   NULL));
 
 -- Puste klauzule = nie ma czego przemianowac: 'SELECT 1', dokladnie jak
--- w dotychczasowej oslonie. COALESCE zabezpiecza przed wariantem, w ktorym
--- CONCAT_WS z samych NULL-i zwrocilby NULL zamiast pustego stringa — PREPARE
--- z NULL-a konczy sie bledem 1064 i przerwalby plik w polowie sekcji.
+-- w dotychczasowej oslonie. COALESCE zostaje jako obrona TEORETYCZNA, nie
+-- obserwowane zachowanie: CONCAT_WS(', ', NULL, NULL) w MySQL 8.4 zwraca
+-- pusty string, nie NULL (zweryfikowane), wiec ponizszy warunek i tak trafia
+-- w galaz '' = ''. Oslona zostaje mimo to — jest tania, a gdyby to
+-- zachowanie kiedys przestalo byc prawdziwe, PREPARE z NULL-em konczy sie
+-- bledem 1064 i przerwalby plik w polowie sekcji.
 SET @sql_renamu := IF(COALESCE(@klauzule_renamu, '') = '',
     'SELECT 1',
     CONCAT('ALTER TABLE prod_products ', @klauzule_renamu));

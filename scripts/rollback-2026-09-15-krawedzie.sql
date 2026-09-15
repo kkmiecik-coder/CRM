@@ -74,9 +74,12 @@ SET @klauzule_renamu := CONCAT_WS(', ',
     IF(@kolumna_daty   > 0, 'RENAME COLUMN edges_completed_at TO finishing_completed_at',   NULL));
 
 -- Puste klauzule = obie kolumny juz pod starymi nazwami (drugi przebieg
--- rollbacku): 'SELECT 1', dokladnie jak w dawnej oslonie. COALESCE chroni przed
--- NULL-em z CONCAT_WS, gdy oba warunki sa falszywe (PREPARE z NULL-em konczy
--- sie bledem 1064).
+-- rollbacku): 'SELECT 1', dokladnie jak w dawnej oslonie. COALESCE to obrona
+-- TEORETYCZNA, nie obserwowane zachowanie: CONCAT_WS(', ', NULL, NULL)
+-- w MySQL 8.4 zwraca pusty string, nie NULL (zweryfikowane), wiec oba warunki
+-- falszywe i tak dają '' = ''. Oslona zostaje mimo to — jest tania, a gdyby to
+-- zachowanie kiedys przestalo byc prawdziwe, PREPARE z NULL-em konczy sie
+-- bledem 1064.
 SET @sql_renamu := IF(COALESCE(@klauzule_renamu, '') = '',
     'SELECT 1',
     CONCAT('ALTER TABLE prod_products ', @klauzule_renamu));
