@@ -871,7 +871,7 @@ class DeliveryModal {
         finalPriceEl.textContent = `${dane.final_brutto.toFixed(2)} PLN`;
 
         if (marginLabelEl) {
-            marginLabelEl.textContent = `Koszty pakowania (+${this.formatPercent()}):`;
+            marginLabelEl.textContent = `Koszty pakowania (${this.formatPercent()}):`;
         }
 
         if (surchargeRowEl && surchargeEl) {
@@ -887,12 +887,14 @@ class DeliveryModal {
      * formatuje WYŁĄCZNIE backend (_procent w shipping_pricing.py) — dwie
      * niezależne implementacje (zaokrąglenie bankierskie w Pythonie kontra
      * toFixed w JS, zawsze od zera) przy remisie potrafiły dać różny tekst.
-     * Znak „+" dopisują wywołujący, w otaczającym tekście — patrz wywołania
-     * niżej. Bez konfiguracji z backendu zwraca pusty placeholder, nie
-     * zmyśla liczby.
+     * Zwraca gotowy fragment ze znakiem, np. „+30%". Znak dopisujemy TUTAJ,
+     * a nie w wywołaniach, żeby placeholder bez konfiguracji brzmiał „narzut",
+     * a nie „+narzut" — sam plus przed słowem wygląda jak usterka.
+     * Bez konfiguracji z backendu nie zmyślamy liczby.
      */
     formatPercent() {
-        return this.markupConfig?.percent_label ?? 'narzut';
+        const etykieta = this.markupConfig?.percent_label;
+        return etykieta ? `+${etykieta}` : 'narzut';
     }
 
     validateCustomForm() {
@@ -975,7 +977,7 @@ class DeliveryModal {
             packingInfoEl.classList.remove('delivery-modal-hidden');
 
             if (headerAdjustedEl) {
-                headerAdjustedEl.textContent = `Cena +${this.formatPercent()}`;
+                headerAdjustedEl.textContent = `Cena ${this.formatPercent()}`;
             }
         } else {
             packingInfoEl?.classList.add('delivery-modal-hidden');
