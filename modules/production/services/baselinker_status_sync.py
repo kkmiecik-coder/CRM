@@ -17,6 +17,8 @@ Trzy momenty zmiany statusu w BL:
 2. Po ukończeniu ostatniego stanowiska produkcyjnego zamówienia:
    schedule_after_station_complete() → "Produkcja zakończona" (138620)
    Warunek: wszystkie pozycje zamówienia mają current_status w POSTPROD_STATUSES.
+   Wyjść z produkcji jest trzy: formatowanie (surowy bez obróbki krawędzi),
+   Krawędzie (surowy z obróbką) i Lakiernia (olejowany / lakierowany).
 
 3. Po ukończeniu pakowania ostatniego produktu zamówienia:
    schedule_after_station_complete() → "Zamówienie spakowane" (138623)
@@ -50,9 +52,19 @@ PLANNED_ROUTE_STATUS_ID = 417343            # "Planowana trasa" (transport WoodP
 # Statusy lokalne CRM oznaczające "produkcja zakończona, czekamy na logistykę/pakowanie/po pakowaniu"
 POSTPROD_STATUSES = frozenset({'czeka_na_logistyke', 'czeka_na_pakowanie', 'spakowane'})
 
-# Stanowiska po których możemy hipotetycznie skończyć produkcję
-# (gluing - tylko gdy cut_to_size=False; reszta - normalny flow)
-PRODUCTION_STATIONS = frozenset({'gluing', 'formatting', 'finishing', 'painting'})
+# Stanowiska, po których zamówienie może skończyć produkcję.
+# 'gluing' wchodzi tu tylko przy cut_to_size=False (produkt omija formatowanie
+# i Krawędzie). Po rozdziale Wykańczania linia ma TRZY wyjścia do logistyki:
+# 'formatting' (surowy bez krawędzi), 'edges' (surowy z krawędziami)
+# i 'painting' (olejowany / lakierowany).
+#
+# Brak któregokolwiek z tych kodów w zbiorze to CICHA awaria: guard
+# w schedule_after_station_complete() robi zwykły return — bez wyjątku, bez logu,
+# bez retry — i zamówienie nigdy nie dostaje statusu "Produkcja zakończona".
+#
+# 'finishing' zostaje na okres przejściowy (zdjąć razem z aliasem — krok 20
+# kolejności wdrożenia).
+PRODUCTION_STATIONS = frozenset({'gluing', 'formatting', 'edges', 'finishing', 'painting'})
 
 # Backoff dla retry po błędzie API. Daemon Timer odpala kolejne próby.
 RETRY_DELAYS_S = (5, 15, 30, 60, 120, 300, 600)

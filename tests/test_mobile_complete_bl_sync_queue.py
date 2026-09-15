@@ -143,3 +143,142 @@ def test_zamkniecie_stanowiska_przez_mobile_api_zostawia_wpis_w_kolejce_sync_bl(
     with app.app_context():
         refreshed = ProductionProduct.query.get(product_id)
         assert refreshed.current_status == 'spakowane'
+
+
+class _LoggerSzpieg:
+    """Podmiana za structured logger modulu sync BL - zlicza, co zostalo zalogowane."""
+
+    def __init__(self):
+        self.ostrzezenia = []
+        self.bledy = []
+        self.informacje = []
+
+    def debug(self, message, **kwargs):
+        pass
+
+    def info(self, message, **kwargs):
+        self.informacje.append((message, kwargs))
+
+    def warning(self, message, **kwargs):
+        self.ostrzezenia.append((message, kwargs))
+
+    def error(self, message, **kwargs):
+        self.bledy.append((message, kwargs))
+
+
+def _zlecenie_gotowe_na_krawedziach(app):
+    """Zamowienie z jednym produktem surowym Z obrobka krawedzi, stojacym na Krawedziach.
+
+    Adres dostawy jest ustawiony CELOWO: ProductionOrder.is_personal_pickup
+    (models.py:172-183) zwraca True, gdy zamowienie nie ma ani adresu, ani
+    miasta, ani kodu pocztowego. Bez adresu complete_task() zamienilby
+    logistyke na pakowanie i test badalby inna sciezke niz opisana w tytule.
+    """
+    with app.app_context():
+        order = ProductionOrder(
+            baselinker_order_id=990002,
+            internal_order_number='26/00043',
+            delivery_method='Kurier DPD',
+            delivery_address='ul. Debowa 1',
+            delivery_city='Poznan',
+            delivery_postcode='61-001',
+        )
+        db.session.add(order)
+        db.session.flush()
+
+        product = ProductionProduct(
+            order_id=order.id,
+            short_product_id='26043_1',
+            product_sequence_in_order=1,
+            original_product_name='Blat debowy 200x60x4 z fazowaniem',
+            quantity=2,
+            parsed_finish_type='surowe',
+            parsed_edge_processing=True,
+            current_status='czeka_na_krawedzie',
+        )
+        db.session.add(product)
+        db.session.commit()
+        return product.id, order.baselinker_order_id
+
+
+def test_complete_na_krawedziach_zamyka_produkcje_w_baselinkerze(client, app, monkeypatch):
+    """
+    Produkt surowy Z obrobka krawedzi konczy produkcje na Krawedziach i stamtad
+    idzie do logistyki.
+
+    Test opisuje CICHA awarie: jesli 'edges' nie ma w PRODUCTION_STATIONS, guard
+    w schedule_after_station_complete (baselinker_status_sync.py:175) robi zwykly
+    return. Trzy asercje ponizej opisuja ten sam brak z trzech stron: zero wywolan
+    API, HTTP 200 (zero wyjatkow - tablet widzi sukces) i pusty logger (zero
+    ostrzezen, zero bledow). Zamowienie po prostu nigdy nie dostaje statusu
+    "Produkcja zakonczona" (138620) i nikt sie o tym nie dowiaduje.
+
+    Test idzie CALA sciezka: tablet -> complete -> kolejka -> flush ->
+    setOrderStatus, zeby zlapac regresje takze w mobile_api_service
+    (flush_pending_syncs wywoluje sie z dekoratora with_idempotency dopiero
+    po commicie, mobile_api_service.py:580-581).
+    """
+    token = _urzadzenie(app, station_code='edges')
+    product_id, baselinker_order_id = _zlecenie_gotowe_na_krawedziach(app)
+
+    wywolania = []
+    szpieg = _LoggerSzpieg()
+
+    def fake_set_status(bl_order_id, target_status_id):
+        wywolania.append((bl_order_id, target_status_id))
+        return True
+
+    monkeypatch.setattr(
+        'modules.production.services.baselinker_status_sync._call_set_order_status',
+        fake_set_status,
+    )
+    monkeypatch.setattr(
+        'modules.production.services.baselinker_status_sync.logger', szpieg)
+
+    response = client.post(
+        '/api/mobile/orders/{}/complete'.format(product_id),
+        headers={'Authorization': 'Bearer ' + token, 'X-App-Version': '1.0.0'},
+        json={},
+    )
+
+    # Brak wyjatku: przy cichej awarii tablet TEZ dostaje 200 - to nie jest dowod
+    # poprawnosci, tylko opis objawu.
+    assert response.status_code == 200
+    # Brak logu: guard nie loguje niczego, wiec ani ostrzezenie, ani blad nie
+    # zdradzilyby awarii w produkcyjnym logu.
+    assert szpieg.ostrzezenia == []
+    assert szpieg.bledy == []
+    # Brak wywolania API: jedyna obserwowalna roznica miedzy dzialaniem a awaria.
+    # 138620 wpisane wprost, a nie przez stala - to jest kontrakt z BL, nie detal kodu.
+    assert wywolania == [(baselinker_order_id, 138620)]
+
+    with app.app_context():
+        refreshed = ProductionProduct.query.get(product_id)
+        assert refreshed.current_status == 'czeka_na_logistyke'
+        assert refreshed.quantity_done_edges == 2
+        assert refreshed.edges_completed_at is not None
+
+
+def test_kod_spoza_zbioru_wychodzi_bez_sladu(app, monkeypatch):
+    """
+    Utrwalenie mechanizmu, ktory robi z brakujacego kodu CICHA awarie.
+
+    Guard dla stanowiska ze srodka linii wychodzi bez wyjatku, bez wpisu
+    w kolejce i bez jednej linijki logu. Ten test ma byc zielony zawsze - jest
+    po to, zeby nikt nie uznal milczenia guardu za dowod, ze wszystko dziala:
+    kazdy brakujacy kod w PRODUCTION_STATIONS wyglada dokladnie tak samo.
+    """
+    from flask import g
+
+    from modules.production.services import baselinker_status_sync as bl
+
+    szpieg = _LoggerSzpieg()
+    monkeypatch.setattr(bl, 'logger', szpieg)
+
+    with app.app_context():
+        bl.schedule_after_station_complete('26/00043', 'cutting')
+
+        assert getattr(g, 'pending_baselinker_syncs', []) == []
+
+    assert szpieg.ostrzezenia == []
+    assert szpieg.bledy == []
