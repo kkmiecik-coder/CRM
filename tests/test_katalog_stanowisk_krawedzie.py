@@ -71,3 +71,33 @@ def test_katalog_nie_importuje_flaska_ani_modeli():
         'i modeli, inaczej import resolve_station_code w models.py robi cykl'
         % winne
     )
+
+
+def test_kazde_stanowisko_ma_etykiete_i_status_kolejki():
+    """
+    Choroba opisana w docstringu katalogu (station_catalog.py:5-12) polegała
+    na pięciu rozjeżdżających się kopiach nazw. Ten test pilnuje, żeby trzy
+    mapy JEDNEGO źródła prawdy nie rozjechały się między sobą.
+    """
+    from modules.production.services.station_catalog import (
+        STATION_LABELS,
+        STATION_ORDER,
+        STATION_PENDING_STATUS,
+    )
+
+    # 'sawmill' celowo stoi poza STATION_ORDER (rejestr surowca, własne tabele
+    # prod_sawmill_*), ale MUSI mieć nazwę — pracownik ma tam sesje.
+    assert set(STATION_LABELS) == set(STATION_ORDER) | {'sawmill'}
+    assert set(STATION_PENDING_STATUS) == set(STATION_ORDER)
+
+    for kod in STATION_ORDER:
+        assert STATION_LABELS[kod], kod
+        assert STATION_PENDING_STATUS[kod].startswith('czeka_na_'), kod
+
+
+def test_statusy_kolejek_sa_unikalne():
+    """Dwa stanowiska pod jednym statusem = kolejka liczona podwójnie."""
+    from modules.production.services.station_catalog import STATION_PENDING_STATUS
+
+    wartosci = list(STATION_PENDING_STATUS.values())
+    assert len(wartosci) == len(set(wartosci)), wartosci
