@@ -227,3 +227,38 @@ def test_nieznany_status_nie_wywraca_kafla(app):
 
         assert alerty[0]['station_code'] == 'unknown'
         assert alerty[0]['station_label'] == 'W realizacji'
+
+
+def test_krawedzie_i_lakiernia_maja_wlasne_pigulki(app):
+    """
+    Kod stanowiska z _STATUS_RANK trafia wprost do atrybutu data-station
+    pigułki alertu, a ten dobiera kolor w production-panel.css. Po podziale
+    Wykańczania muszą to być dwa różne kody — inaczej zamówienie stojące
+    w lakierni pokazuje się planiście jako stojące na krawędziach.
+    """
+    with app.app_context():
+        _zamowienie(1020, [{'status': 'czeka_na_krawedzie'}])
+        _zamowienie(1021, [{'status': 'czeka_na_lakiernie'}])
+
+        alerty = {a['baselinker_order_id']: a for a in build_deadline_alerts()}
+
+        assert alerty[1020]['station_code'] == 'edges'
+        assert alerty[1020]['station_label'] == u'Krawędzie'
+        assert alerty[1021]['station_code'] == 'painting'
+        assert alerty[1021]['station_label'] == 'Lakiernia'
+
+
+def test_krawedzie_sa_waskim_gardlem_wobec_lakierni(app):
+    """
+    Ranga rośnie wraz z drogą produktu przez halę. Zamówienie, którego część
+    stoi jeszcze na krawędziach, a część jest już w lakierni, wyjedzie z hali
+    dopiero po krawędziach — i to je kafel ma pokazać.
+    """
+    with app.app_context():
+        _zamowienie(1022, [{'status': 'czeka_na_lakiernie'},
+                           {'status': 'czeka_na_krawedzie'}])
+
+        alerty = build_deadline_alerts()
+
+        assert alerty[0]['station_code'] == 'edges'
+        assert alerty[0]['other_stations_count'] == 1
