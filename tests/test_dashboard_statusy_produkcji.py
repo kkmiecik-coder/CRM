@@ -18,6 +18,7 @@ Ten plik nie zakłada tabeli prod_product_events, bo nie robi tego żaden inny
 plik w pakiecie — listener audytu milczy w całym przebiegu i tak ma zostać.
 """
 import os
+import re
 import sys
 from datetime import datetime
 
@@ -228,3 +229,86 @@ def test_segmenty_przegladu_produkcji_daja_sie_rozroznic_kolorem(app):
         assert martwe == [], (
             'PARY_HISTORYCZNE wymienia segmenty, ktorych juz nie ma: {}'
             .format(martwe))
+
+
+# ============================================================================
+# CZWARTA MAPA KOLOROW — SZABLON RAPORTU MIX
+# ============================================================================
+
+# Ta mapa zyje w JavaScripcie wewnatrz szablonu Jinja modulu produkcji
+# (components/reports/mix.html), a nie w Pythonie, wiec zaden straznik
+# katalogu stanowisk jej nie widzi. Test siedzi TUTAJ, a nie w testach
+# produkcji, bo tu leza prog rozroznialnosci i przelicznik CIE76 — dwie
+# kopie tych samych progow rozjechalyby sie przy pierwszej zmianie.
+
+SZABLON_MIX = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    'modules', 'production', 'templates', 'components', 'reports', 'mix.html')
+
+# Cztery pary siedza ponizej progu OD DAWNA, sprzed rozdzielenia Wykanczania.
+# Jak w PARY_HISTORYCZNE wyzej: TA LISTA NIE MA ROSNAC.
+PARY_HISTORYCZNE_MIX = {
+    frozenset(('czeka_na_wyciecie', 'czeka_na_pakowanie')),
+    frozenset(('czeka_na_skladanie', 'w_realizacji')),
+    frozenset(('czeka_na_formatowanie', 'wstrzymane')),
+    frozenset(('czeka_na_pakowanie', 'spakowane')),
+}
+
+
+def _mapa_kolorow_mix():
+    """Wyciaga colorMap z JS-a w szablonie raportu mix."""
+    with open(SZABLON_MIX, encoding='utf-8') as f:
+        tresc = f.read()
+    blok = tresc.split('const colorMap = {')[1].split('};')[0]
+    return dict(re.findall(r"'(\w+)':\s*'(#[0-9a-fA-F]{6})'", blok))
+
+
+def test_lakiernia_w_raporcie_mix_nie_jest_druga_czerwienia():
+    """
+    Podzial Wykanczania dolozyl do tej mapy 'czeka_na_lakiernie'. Pierwsza
+    wersja dala jej '#e11d48', czyli 18,8 od 'anulowane' — dwa czerwone
+    segmenty tego samego kola, jeden znaczacy „w produkcji", drugi
+    „anulowane". Na zrzucie produkcji oba byly niepuste (21 i 7 sztuk).
+
+    Straznik literalu chodzi wylacznie po modules/production w Pythonie,
+    a ta mapa to JavaScript w szablonie — zadna z pozostalych trzech map
+    kolorow nie zlapalaby tej kolizji za nia.
+    """
+    mapa = _mapa_kolorow_mix()
+
+    assert 'czeka_na_lakiernie' in mapa
+    assert 'czeka_na_krawedzie' in mapa
+
+    for nazwa, kolor in mapa.items():
+        if nazwa == 'czeka_na_lakiernie':
+            continue
+        odleglosc = _odleglosc(mapa['czeka_na_lakiernie'], kolor)
+        assert odleglosc >= PROG_ROZROZNIALNOSCI, (
+            'czeka_na_lakiernie {} i {} {} dzieli tylko {:.2f}'
+            .format(mapa['czeka_na_lakiernie'], nazwa, kolor, odleglosc))
+
+
+def test_mapa_mix_nie_doklada_nowych_kolizji():
+    """
+    Cztery pary ponizej progu sa zastane i wypisane imiennie. Kazda nowa
+    kolizja ma ten test zapalic, zamiast dopisac sie do listy wyjatkow.
+    """
+    mapa = _mapa_kolorow_mix()
+    nazwy = sorted(mapa)
+
+    kolizje = []
+    for i, na in enumerate(nazwy):
+        for nb in nazwy[i + 1:]:
+            if frozenset((na, nb)) in PARY_HISTORYCZNE_MIX:
+                continue
+            odleglosc = _odleglosc(mapa[na], mapa[nb])
+            if odleglosc < PROG_ROZROZNIALNOSCI:
+                kolizje.append('{}/{} {:.2f}'.format(na, nb, odleglosc))
+
+    assert kolizje == [], 'nowe kolizje kolorow w mix.html: {}'.format(kolizje)
+
+    martwe = sorted(''.join(sorted(p)) for p in PARY_HISTORYCZNE_MIX
+                    if not p <= set(nazwy))
+    assert martwe == [], (
+        'PARY_HISTORYCZNE_MIX wymienia statusy, ktorych juz nie ma: {}'
+        .format(martwe))

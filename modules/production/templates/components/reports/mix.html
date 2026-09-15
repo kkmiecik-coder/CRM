@@ -188,7 +188,13 @@ function _getStatusChartData() {
         'czeka_na_krawedzie': '#0891b2', 'czeka_na_pakowanie': '#16a34a',
         // Bez tych dwóch lakiernia i logistyka dostawały ten sam kolor
         // rezerwowy, więc w legendzie były nie do odróżnienia.
-        'czeka_na_lakiernie': '#e11d48', 'czeka_na_logistyke': '#0d9488',
+        //
+        // Lakiernia jest różowa, a nie czerwona: pierwsza wersja dawała jej
+        // '#e11d48', co od 'anulowane' (#dc2626) dzieli 18,8 w CIE76 — dwa
+        // czerwone segmenty tego samego koła, jeden znaczący „w produkcji",
+        // drugi „anulowane". '#ec4899' odsuwa ją na 55,9 i jest tym samym
+        // różem, który Lakiernia ma w pozostałych mapach kolorów.
+        'czeka_na_lakiernie': '#ec4899', 'czeka_na_logistyke': '#0d9488',
         'spakowane': '#22c55e', 'wstrzymane': '#f59e0b',
         'anulowane': '#dc2626', 'w_realizacji': '#3b82f6'
     };
