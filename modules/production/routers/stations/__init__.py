@@ -242,11 +242,22 @@ MONITOR_STATION_MAP = {
         'label': _nazwa_stanowiska('formatting'),
         'css_class': 'status-formatting',
     },
-    'finishing': {
-        'status': 'czeka_na_wykanczanie',
-        'quantity_col': 'quantity_done_finishing',
-        'label': _nazwa_stanowiska('finishing'),
-        'css_class': 'status-finishing',
+    # Kolumny licznika i znacznika czasu maja tu nazwe 'edges' po podziale
+    # Wykanczania; to STANOWISKO, nie krawedzie produktu (parsed_edges_groups).
+    'edges': {
+        'status': 'czeka_na_krawedzie',
+        'quantity_col': 'quantity_done_edges',
+        'label': _nazwa_stanowiska('edges'),
+        'css_class': 'status-edges',
+    },
+    # Lakiernia awansowala z zakladki tabletu na pelnoprawne stanowisko.
+    # Kolumny quantity_done_painting / painting_completed_at istnialy juz
+    # wczesniej (models.py:289, :297) — monitor nie wymaga zadnej migracji.
+    'painting': {
+        'status': 'czeka_na_lakiernie',
+        'quantity_col': 'quantity_done_painting',
+        'label': _nazwa_stanowiska('painting'),
+        'css_class': 'status-painting',
     },
     'packaging': {
         'status': 'czeka_na_pakowanie',
