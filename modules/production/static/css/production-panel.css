@@ -2262,9 +2262,15 @@ body {
   display: flex;
   flex-direction: column;
 }
+/* Dziewięć kafli: trakownia, pięć stanowisk pipeline'u, lakiernia, logistyka
+   i pakowanie. Trzy kolumny dzielą się bez reszty (3×3), więc żaden kafel nie
+   zostaje sam w ostatnim wierszu, a kolejność drogi produktu czyta się
+   wierszami. Karta stanowisk zajmuje 3fr z 3fr+2fr, czyli ~60% szerokości —
+   poniżej 1400 px kolumna schodzi pod ~300 px i cztery statystyki kafla
+   przestają się mieścić, stąd powrót do dwóch kolumn niżej. */
 .il-stations-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 8px;
   flex: 1;
 }
@@ -2407,8 +2413,12 @@ body {
 .il-station[data-station="gluing"] .il-station-bar-fill { background: var(--il-station-glu); }
 .il-station[data-station="formatting"] .il-station-header { background: var(--il-station-fmt); }
 .il-station[data-station="formatting"] .il-station-bar-fill { background: var(--il-station-fmt); }
-.il-station[data-station="finishing"] .il-station-header { background: var(--il-station-fin); }
-.il-station[data-station="finishing"] .il-station-bar-fill { background: var(--il-station-fin); }
+/* --il-station-fin / --il-station-cmp: nazwy historyczne, patrz komentarz
+   przy pigułkach alertów niżej w tym pliku. */
+.il-station[data-station="edges"] .il-station-header { background: var(--il-station-fin); }
+.il-station[data-station="edges"] .il-station-bar-fill { background: var(--il-station-fin); }
+.il-station[data-station="painting"] .il-station-header { background: var(--il-station-cmp); }
+.il-station[data-station="painting"] .il-station-bar-fill { background: var(--il-station-cmp); }
 .il-station[data-station="logistics"] .il-station-header { background: #6366f1; }
 .il-station[data-station="logistics"] .il-station-bar-fill { background: #6366f1; }
 .il-station[data-station="packaging"] .il-station-header { background: var(--il-station-pak); }
@@ -2416,7 +2426,7 @@ body {
 
 /* Kafelek trakowni na dashboardzie produkcji (dashboard-tab-content.html).
    Trakownia to surowiec (kłody od dostawców), nie ogniwo pipeline'u
-   produktów (cutting → assembly → gluing → formatting → finishing →
+   produktów (cutting → assembly → gluing → formatting → edges → painting →
    packaging) — kafelek stoi jako pierwszy w gridzie "Stanowiska
    produkcyjne" i ma być wizualnie odcięty od reszty: własny (drewniany)
    akcent zamiast kolejnego koloru z palety stanowisk, plus wyszarzony
@@ -2580,10 +2590,13 @@ body {
 .il-alert-station[data-station="assembly"]   { background: var(--il-station-asm); }
 .il-alert-station[data-station="gluing"]     { background: var(--il-station-glu); }
 .il-alert-station[data-station="formatting"] { background: var(--il-station-fmt); }
-.il-alert-station[data-station="finishing"]  { background: var(--il-station-fin); }
-/* Lakiernia nie ma kafelka w gridzie, więc bierze wolny kolor z palety
-   (--il-station-cmp został po wycofanym stanowisku kompletacji). */
-.il-alert-station[data-station="painting"]   { background: var(--il-station-cmp); }
+/* Nazwy zmiennych są HISTORYCZNE i zostają celowo: --il-station-fin to turkus
+   po dawnym Wykańczaniu (dziś Krawędzie), --il-station-cmp to indygo wolne po
+   wycofanym w 05.2026 stanowisku kompletacji (dziś Lakiernia). Lakiernia ma
+   od 09.2026 własny kafel w gridzie, więc ten kolor przestał być doraźny —
+   pigułka dzieli go z nagłówkiem kafla. */
+.il-alert-station[data-station="edges"]     { background: var(--il-station-fin); }
+.il-alert-station[data-station="painting"]  { background: var(--il-station-cmp); }
 .il-alert-station[data-station="logistics"]  { background: #6366f1; }
 .il-alert-station[data-station="packaging"]  { background: var(--il-station-pak); }
 /* Wstrzymane to nie etap produkcji, tylko blokada — czerwień jak przy alertach,
@@ -2684,6 +2697,12 @@ body {
 }
 
 /* ─── Industrial Light Responsive ─── */
+@media (max-width: 1400px) {
+  /* Dwie kolumny: dziewiąty kafel zostaje sam w ostatnim wierszu i jest to
+     akceptowane — przy tej szerokości wiersze i tak się łamią, a czytelność
+     czterech statystyk w kaflu jest ważniejsza niż równy dół siatki. */
+  .il-stations-grid { grid-template-columns: 1fr 1fr; }
+}
 @media (max-width: 900px) {
   .production-dashboard-grid { grid-template-columns: 1fr; }
   .il-right-stack { order: -1; }

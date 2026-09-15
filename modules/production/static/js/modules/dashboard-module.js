@@ -328,7 +328,10 @@ class DashboardModule {
                 // Trakownia celowo poza tą listą — ma własny zestaw metryk, patrz updateSawmillStation().
                 this.updateSawmillStation(initialData.stations.sawmill);
 
-                const stations = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging'];
+                // Kolejność jak w gridzie szablonu. Kafel spoza tej tablicy
+                // zamraża się na wartościach z pierwszego renderu — bez błędu
+                // w konsoli, więc rozjazd widać dopiero po liczbach.
+                const stations = ['cutting', 'assembly', 'gluing', 'formatting', 'edges', 'painting', 'packaging'];
                 stations.forEach(station => {
                     const stationData = initialData.stations[station];
                     if (stationData) {
