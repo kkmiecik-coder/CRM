@@ -885,6 +885,15 @@ input[type="radio"]:disabled + label {
     white-space: nowrap;
 }
 
+/* MUSI zostać. Sam atrybut `hidden` NIE wystarczy: reguła `display: inline-flex`
+   powyżej pochodzi z arkusza autora i bije `[hidden] { display: none }` z arkusza
+   przeglądarki. Bez tej reguły przy prostokącie (czyli zawsze, gdy dopłaty nie ma)
+   w nagłówku „Kalkulacja" wisiała pusta pomarańczowa pigułka — sama ramka, tło
+   i padding, bez tekstu. */
+.shape-surcharge-badge[hidden] {
+    display: none;
+}
+
 /* Wariant w karcie produktu (sekcja "Produkty") — mniejszy, bez ramki,
    żeby nie rozpychać ciasnego wiersza opisu. */
 .product-card .shape-surcharge-badge {
