@@ -639,6 +639,7 @@ DOZWOLONE_MARKERY = frozenset({
     'services/mobile_api_service.py',     # docstring device_can_access_station
     'services/reports_service.py',        # docstring _sprawdz_stanowisko, alias w agregacie
     'services/label_print_service.py',    # docstring print_labels_batch, alias przed drukiem
+    'services/worker_service.py',         # docstring _normalize_stations, alias przed zapisem profilu
     'routers/mobile_api.py',              # docstringi _resolve_station_code i get_order
     # LEGACY — zostaje na stałe: nazwa klasy CSS przy etykiecie statusu
     # kolejki Krawędzi; klasa .status-finishing / .badge-finishing żyje

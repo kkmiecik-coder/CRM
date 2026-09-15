@@ -304,12 +304,34 @@ def build_mobile_catalog(station_code=None, avatar_base_url=None, catalog_versio
 # ============================================================================
 
 def _normalize_stations(stations):
-    """Lista/CSV kodów stanowisk → CSV albo None (= wszystkie)."""
+    """
+    Lista/CSV kodów stanowisk → CSV kodów KANONICZNYCH albo None (= wszystkie).
+
+    Alias rozwijamy NA WEJŚCIU, tak samo jak w mobile_api i w monitorach
+    stanowisk — to jedyne miejsce w module produkcji, którym kod stanowiska
+    trafia do bazy z formularza panelu, więc bez tego kroku stary kod
+    wykańczalni 'finishing' (finishing-ZOSTAJE: okres przejściowy, znika
+    w kroku 20 wdrożenia) wracałby do allowed_stations już po migracji.
+
+    Realny scenariusz: kierownik ma zakładkę „Pracownicy" otwartą sprzed
+    wdrożenia, a jej checkbox „Wykańczanie" niesie jeszcze stary kod. Zapis
+    przechodził walidację (stary kod SIEDZI w VALID_STATION_CODES na okres
+    przejściowy tabletów), a pracownik po cichu tracił stanowisko:
+    can_work_at('edges') robiło się False, a kafelek w panelu pokazywał
+    surowy kod, bo STATION_LABELS zna już tylko 'edges'.
+
+    Duplikaty usuwamy z zachowaniem kolejności: po rozwinięciu aliasu stary
+    i nowy kod z jednego zapisu to ten sam wpis i w kolumnie ma zostać jeden.
+    """
     if not stations:
         return None
     if isinstance(stations, str):
         stations = stations.split(',')
-    kody = [str(s).strip() for s in stations if str(s).strip()]
+    kody = []
+    for surowy in stations:
+        kod = station_catalog.resolve_station_code(str(surowy))
+        if kod and kod not in kody:
+            kody.append(kod)
     nieznane = [k for k in kody if k not in ProductionDevice.VALID_STATION_CODES]
     if nieznane:
         raise WorkerError(422, 'invalid_station_code', f"Nieznane stanowiska: {nieznane}")

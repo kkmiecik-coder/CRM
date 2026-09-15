@@ -1697,6 +1697,54 @@ def test_pracownik_moze_miec_lakiernie_w_allowed_stations(app):
             .format(niezapisywalne))
 
 
+def test_zapis_ze_starej_zakladki_pracownikow_laduje_jako_krawedzie(app):
+    """
+    Kierownik hali ma zakladke „Pracownicy" otwarta od rana, sprzed wdrozenia
+    podzialu Wykanczania. W tamtym renderze checkbox „Wykanczanie" ma jeszcze
+    value='finishing'. Po wdrozeniu kierownik poprawia komus kolor kafelka
+    i zapisuje profil — przegladarka wysyla ten stary kod, bo strony nikt nie
+    przeladowal.
+
+    Bez rozwiniecia aliasu zapis PRZECHODZIL i cichcem odbieral pracownikowi
+    stanowisko: w bazie ladowalo 'finishing', can_work_at('edges') robilo sie
+    False, a kafelek w panelu pokazywal surowe 'finishing' zamiast
+    „Krawedzie", bo STATION_LABELS tego klucza juz nie ma. Zadnego bledu,
+    zadnego wpisu w logu — pracownik po prostu przestawal sie logowac na
+    swoim stanowisku. Migracja czysci kolumne raz; przed ponownym
+    zabrudzeniem broni wylacznie ta bramka.
+    """
+    with app.app_context():
+        worker = worker_service.create_worker(
+            'Jan', 'Stolarz', allowed_stations=['finishing', 'packaging'])
+
+        assert worker.allowed_stations == 'edges,packaging'
+        assert worker.can_work_at('edges') is True
+        assert worker.can_work_at('packaging') is True
+
+        # Etykieta kafelka w panelu — dowod, ze to juz nie surowy kod.
+        assert worker_service.station_label(
+            worker.allowed_stations_list[0]) == 'Krawędzie'
+
+        # Ta sama stara zakladka potrafi tez PATCH-owac istniejacy profil.
+        zmieniony = worker_service.update_worker(
+            worker.id, allowed_stations=['finishing'])
+        assert zmieniony.allowed_stations == 'edges'
+        assert zmieniony.can_work_at('edges') is True
+
+        # Stary kod nie moze zostac w kolumnie w ZADNEJ formie — takze
+        # obklejony spacjami, bo CSV z rekonstrukcji profilu tak wlasnie
+        # wyglada.
+        spacjami = worker_service.update_worker(
+            worker.id, allowed_stations=' finishing , gluing ')
+        assert spacjami.allowed_stations == 'edges,gluing'
+
+        # Alias i kod kanoniczny w jednym zapisie nie moga dac 'edges,edges'
+        # — to ten sam wpis, ma zostac jeden.
+        oba = worker_service.update_worker(
+            worker.id, allowed_stations=['finishing', 'edges', 'gluing'])
+        assert oba.allowed_stations == 'edges,gluing'
+
+
 # ============================================================================
 # ZAKŁADKA PANELU CRM
 # ============================================================================
