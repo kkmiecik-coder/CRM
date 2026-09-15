@@ -79,6 +79,29 @@
 -- SQL-em, wiec listener sie NIE odpali — w historii produktu ostatni wpis powie
 -- "-> Czeka na wykanczanie", a nastepny zacznie sie od "Czeka na krawedzie ->".
 
+-- WERYFIKACJA LOKALNA — SCHEMAT I DANE (MySQL 8.4, kontener db, kopia produkcji
+-- z 2026-09-14): SIEDEM przebiegow migracji, kazdy zakonczony '✓ Sukces', ani
+-- razu '✗ Blad'. Poza dwoma przebiegami wymaganymi przez plan sprawdzone tez:
+--   * PELNA PETLA migracja -> scripts/rollback-2026-09-15-krawedzie.sql ->
+--     migracja. Skrypt kontrolny "przed" po rollbacku daje wyjscie identyczne
+--     CO DO BAJTU ze stanem wyjsciowym (to samo md5), a skrypt "po" ponownej
+--     migracji — identyczne z pierwszym przebiegiem. Jedyna roznica miedzy
+--     wyjsciami "po" to executed_at w schema_migrations, ktore z definicji
+--     jest nowe. Rollback przeszedl TRZY razy, za kazdym razem bez ani jednego
+--     komunikatu bledu mimo obowiazkowej flagi --force;
+--   * OSLONA TROJSTANOWA SEKCJI 6 w OBU galeziach stanu polowicznego, recznie
+--     wytworzonego (zaden normalny przebieg tam nie wchodzi): raz cofnieta sama
+--     kolumna ilosci (quantity_done_edges -> quantity_done_finishing, data
+--     zostaje nowa), raz sama data (edges_completed_at -> finishing_completed_at,
+--     licznik zostaje nowy). Migracja w obu wypadkach dokonczyla rename i obie
+--     kolumny wyladowaly pod NOWYMI nazwami;
+--   * ta sama para stanow polowicznych dla ROLLBACKU — konczy sie sukcesem
+--     i obiema kolumnami pod STARYMI nazwami.
+-- Po migracji: 0 wierszy 'czeka_na_wykanczanie', 0 eventow 'finishing',
+-- bilans 2687 = 2553 na Krawedziach + 134 na Lakierni (zaden wiersz nie zginal),
+-- kolumny quantity_done_edges i edges_completed_at obecne, enum dorobki zwezony,
+-- tabela kopii 2 / 5 / 2687 / 133 — bez przyrostu przy powtorkach (INSERT IGNORE).
+
 -- == 0. Kopia na potrzeby rollbacku i audytu =================================
 -- Przepisanie na 'painting' jest STRATNE: po fakcie nie odroznimy wierszy
 -- ruszonych przez migracje od tych, ktore byly tam wczesniej. Tabela jest
