@@ -21,8 +21,22 @@
 -- KOLEJNOSC JEST OBOWIAZKOWA:
 --   sekcja 0 robi kopie ZANIM cokolwiek sie zmieni,
 --   sekcja 1 dodaje wartosc enuma ZANIM ktokolwiek ja zapisze,
---   sekcja 6 zdejmuje stara DOPIERO gdy nikt jej nie trzyma,
---   sekcje 1-4 operuja jeszcze STARA nazwa kolumny (rename jest w sekcji 5).
+--   sekcja 5 zdejmuje stara DOPIERO gdy nikt jej nie trzyma — i robi to PRZED
+--   renameem kolumn w sekcji 6. Zwezajacy ALTER wymusza ALGORITHM=COPY, jest
+--   jedynym dlugo trwajacym poleceniem po sekcji 1 i jedynym, ktore moze pasc
+--   z przyczyn niezwiazanych z trescia (1205/1206 — metadata lock na zywej
+--   tabeli). Padniecie PRZED renameem kosztuje kilka pozycji na nieznanym
+--   statusie przy dzialajacej aplikacji; padniecie PO renameie (dawna
+--   kolejnosc, przed recenzja 2026-09-15) zostawialoby przemianowany schemat
+--   pod starym kodem gunicorna — quantity_done_finishing juz by nie istnialo,
+--   wiec kazde zapytanie o prod_products lecialoby 1054, a caly modul
+--   produkcji byl martwy do recznego rollbacku,
+--   sekcje 1-4 nie dotykaja ani quantity_done_finishing, ani
+--   finishing_completed_at — zadne z ich polecen nie odwoluje sie do tych
+--   kolumn, wiec to NIE jest zaleznosc od tego, gdzie stoi rename (sekcja 6).
+--   Od STAREJ nazwy kolumny zalezy wylacznie zapytanie A2 w
+--   scripts/weryfikacja-2026-09-15-krawedzie-przed.sql:14 — i to jest jedyny
+--   powod, dla ktorego skrypty kontrolne sa dwa, a nie jeden.
 --
 -- Zmiany separatora polecen ten plik celowo nie uzywa — runner rozpoznaje
 -- wylacznie srednik, a test ksztaltu migracji szuka tamtego slowa w calej
@@ -32,7 +46,13 @@
 -- na 'edges'. Tablet 'finishing' obslugiwal przez STATION_GROUPS oba stanowiska,
 -- a sesja to przedzial CZASU, nie produkt — rozdzielic sie tego nie da.
 -- Statystyki czasu pracy sprzed rozdzialu zawyza Krawedzie kosztem Lakierni
--- (ryzyko R20).
+-- (ryzyko R20). Ten sam rodzaj przepisania (sekcja 3) dotyka tez
+-- prod_workers.allowed_stations: pracownik z jawnym 'finishing' na liscie
+-- dostaje po migracji wylacznie 'edges', po cichu tracac Lakiernie — to
+-- podzial jednego stanowiska na dwa przy jednym uprawnieniu. Dzis bez skutku
+-- (w zrzucie z 2026-09-14 wszystkie wiersze maja allowed_stations = NULL,
+-- a NULL/pusty CSV znaczy "wszystkie stanowiska", models.py:1332) i zgodne
+-- z jednokierunkowym kontraktem aliasu, ale ma zostac nazwane.
 --
 -- SWIADOMIE POZA ZAKRESEM: prod_security_events.station_type. To dziennik audytu
 -- dostepu po IP, w zrzucie z 2026-09-14 zero wierszy 'finishing', a zaden
@@ -74,7 +94,7 @@ SELECT 'prod_worker_sessions', id, station_code FROM prod_worker_sessions
  WHERE station_code = 'finishing';
 
 -- == 1. Enum statusu + kolejka ===============================================
--- Nowa wartosc WCHODZI, stara ZOSTAJE do sekcji 6. Wstawienie w srodek listy
+-- Nowa wartosc WCHODZI, stara ZOSTAJE do sekcji 5. Wstawienie w srodek listy
 -- wymusza ALGORITHM=COPY (przenumerowanie porzadkowych enuma) — przy tej
 -- wielkosci tabeli to milisekundy, a czytelnosc listy jest warta wiecej.
 ALTER TABLE prod_products MODIFY COLUMN current_status ENUM(
@@ -184,13 +204,56 @@ UPDATE prod_rework_log SET rejected_at_station = 'edges'
 ALTER TABLE prod_rework_log MODIFY COLUMN rejected_at_station
     ENUM('formatting','edges','painting') NOT NULL;
 
--- == 5. Nazwy kolumn =========================================================
+-- == 5. Sweep wyscigu + zdjecie starej wartosci enuma ========================
+-- Stary kod chodzi jeszcze w pamieci gunicorna w chwili migracji (deploy.sh:50
+-- migruje PRZED restartem w linii 69) i mogl dopisac status miedzy sekcja 1
+-- a tym miejscem. Sweep zamyka wiekszosc tego okna, ale go NIE domyka: miedzy
+-- wykonaniem tego UPDATE-u a wykonaniem ponizszego ALTER-u zostaje resztkowe
+-- okno (dwa osobne polecenia w tym samym polaczeniu), w ktorym stary kod wciaz
+-- moze dopisac 'czeka_na_wykanczanie'. Trafienie w nie konczy sie bledem 1265
+-- pod STRICT_TRANS_TABLES na TYM ALTERZE, nie gdzies indziej.
+--
+-- DLACZEGO TO JUZ NIE BOLI: ta sekcja stoi teraz PRZED renameem kolumn
+-- (sekcja 6). Trafienie w resztkowe okno przerywa PLIK migracji tutaj — kolumny
+-- sa jeszcze nieprzemianowane, aplikacja dalej dziala na starym kodzie
+-- i starym schemacie. Cena to kilka pozycji do zlapania przy nastepnym
+-- przebiegu migracji, dokladnie jak przy oknie sekcja 0 -> tu, nizej. Przed
+-- przestawieniem tej sekcji przed rename (recenzja 2026-09-15, patrz naglowek
+-- pliku) to samo trafienie padalo PO renameie: kolumny juz przemianowane,
+-- stary kod gunicorna leci 1054 na kazdym zapytaniu o prod_products, caly
+-- modul produkcji martwy do recznego rollbacku.
+--
+-- Wiersze zlapane DOPIERO tutaj nie maja swojego sladu w tabeli kopii — kopia
+-- powstala w sekcji 0. Rollback cofnie je swoim catch-allem ('czeka_na_krawedzie'
+-- -> 'czeka_na_wykanczanie'); te, ktore trafily na 'czeka_na_lakiernie',
+-- zostana tam. Okno wyscigu to ulamek sekundy miedzy sekcja 0 a ta linia,
+-- wiec cena jest znana i przyjeta.
+UPDATE prod_products SET current_status = 'czeka_na_lakiernie'
+ WHERE current_status = 'czeka_na_wykanczanie'
+   AND parsed_edge_processing = 0
+   AND parsed_finish_type IN ('olejowane','lakierowane');
+
+UPDATE prod_products SET current_status = 'czeka_na_krawedzie'
+ WHERE current_status = 'czeka_na_wykanczanie';
+
+ALTER TABLE prod_products MODIFY COLUMN current_status ENUM(
+    'czeka_na_wyciecie','czeka_na_skladanie','czeka_na_sklejanie',
+    'czeka_na_formatowanie','czeka_na_krawedzie','czeka_na_lakiernie',
+    'czeka_na_logistyke','czeka_na_pakowanie',
+    'spakowane','anulowane','wstrzymane','w_realizacji'
+) NOT NULL DEFAULT 'czeka_na_wyciecie';
+
+-- == 6. Nazwy kolumn =========================================================
 -- RENAME COLUMN (nie CHANGE) zachowuje typ, NOT NULL, DEFAULT i komentarz.
 -- Warunek na information_schema jak w 2026-08-21-prod-products-shape-rotation.
 --
 -- OD TEGO MIEJSCA schemat jest juz NOWY, a gunicorn chodzi jeszcze na STARYM
--- kodzie (deploy.sh: `flask migrate` w linii 50, restart w linii 69). Przerwanie
--- migracji ponizej tej linii zostawia produkcje uszkodzona — patrz ryzyko R7
+-- kodzie (deploy.sh: `flask migrate` w linii 50, restart w linii 69). To
+-- OSTATNIA sekcja pliku: zwezajacy ALTER enuma (dlugo trwajacy, jedyny
+-- z realna szansa na 1205/1206/1265 z przyczyn niezwiazanych z trescia) juz
+-- sie wykonal w sekcji 5, wiec to, co zostaje tutaj, to wylacznie rename
+-- kolumn — bez potrzeby przebudowy calej tabeli. Przerwanie migracji w tej
+-- sekcji nadal zostawia produkcje uszkodzona — patrz ryzyko R7
 -- i scripts/rollback-2026-09-15-krawedzie.sql.
 --
 -- UWAGA NAZEWNICZA: obok siebie staja teraz parsed_edges_groups (dane produktu,
@@ -229,29 +292,3 @@ PREPARE polecenie_data FROM @sql_data;
 EXECUTE polecenie_data;
 
 DEALLOCATE PREPARE polecenie_data;
-
--- == 6. Sweep wyscigu + zdjecie starej wartosci enuma ========================
--- Stary kod chodzi jeszcze w pamieci gunicorna w chwili migracji (deploy.sh:50
--- migruje PRZED restartem w linii 69) i mogl dopisac status miedzy sekcja 1
--- a tym miejscem. Bez sweepu ALTER polecialby bledem 1265 pod
--- STRICT_TRANS_TABLES i przerwal deploy tuz przed restartem (ryzyko R8c).
---
--- Wiersze zlapane DOPIERO tutaj nie maja swojego sladu w tabeli kopii — kopia
--- powstala w sekcji 0. Rollback cofnie je swoim catch-allem ('czeka_na_krawedzie'
--- -> 'czeka_na_wykanczanie'); te, ktore trafily na 'czeka_na_lakiernie',
--- zostana tam. Okno wyscigu to ulamek sekundy miedzy sekcja 0 a ta linia,
--- wiec cena jest znana i przyjeta.
-UPDATE prod_products SET current_status = 'czeka_na_lakiernie'
- WHERE current_status = 'czeka_na_wykanczanie'
-   AND parsed_edge_processing = 0
-   AND parsed_finish_type IN ('olejowane','lakierowane');
-
-UPDATE prod_products SET current_status = 'czeka_na_krawedzie'
- WHERE current_status = 'czeka_na_wykanczanie';
-
-ALTER TABLE prod_products MODIFY COLUMN current_status ENUM(
-    'czeka_na_wyciecie','czeka_na_skladanie','czeka_na_sklejanie',
-    'czeka_na_formatowanie','czeka_na_krawedzie','czeka_na_lakiernie',
-    'czeka_na_logistyke','czeka_na_pakowanie',
-    'spakowane','anulowane','wstrzymane','w_realizacji'
-) NOT NULL DEFAULT 'czeka_na_wyciecie';

@@ -126,10 +126,18 @@ def test_alter_dodajacy_czeka_na_krawedzie_stoi_przed_pierwszym_update():
 def test_kolejka_dzieli_sie_na_lakiernie_i_krawedzie():
     """Najpierw przypadek waski (bez krawedzi + olej/lakier), potem catch-all.
 
-    SPROSTOWANIE WOBEC BRIEFU (zadanie 2 zakladalo tu dwa UPDATE-y): sekcja 6
+    SPROSTOWANIE WOBEC BRIEFU (zadanie 2 zakladalo tu dwa UPDATE-y): sekcja 5
     powtarza te sama pare jako sweep wyscigu, wiec w gotowym pliku jest ich
-    cztery. Sprawdzamy pierwsza pare — tej z sekcji 6 pilnuje
-    test_sweep_wyscigu_powtarza_regule_przed_zwezeniem_enuma."""
+    cztery. Sprawdzamy pierwsza pare — tej z sekcji 5 pilnuje
+    test_sweep_wyscigu_powtarza_regule_przed_zwezeniem_enuma.
+
+    Sekcja sweepu byla pierwotnie sekcja 6 (po renameie kolumn). Recenzja
+    2026-09-15 przestawila ja PRZED rename (dzis sekcja 6) — zwezajacy ALTER
+    enuma jest jedynym dlugo trwajacym poleceniem po sekcji 1 i jedynym, ktore
+    moze pasc z przyczyn niezwiazanych z trescia (1205/1206). Jego porazka PRZED
+    renameem zostawia aplikacje dzialajaca na starym schemacie; PO renameie
+    (dawna kolejnosc) zostawialaby przemianowane kolumny pod starym kodem
+    gunicorna. Patrz test_zwezajacy_alter_enuma_stoi_przed_pierwszym_renamem_kolumny."""
     updaty = [_bez_bialych(p) for p in _polecenia()
               if _bez_bialych(p).upper().startswith("UPDATE PROD_PRODUCTS")]
     assert len(updaty) == 4, updaty
@@ -334,7 +342,7 @@ def test_kazdy_prepare_ma_swoje_deallocate():
 def test_kazdy_rename_uzywa_wlasnej_nazwy_polecenia():
     """WZMOCNIENIE ponad brief. Dwa PREPARE pod TA SAMA nazwa to nie blad
     skladni — drugie nadpisuje pierwsze, a DEALLOCATE nr 2 leci bledem 1243
-    i PRZERYWA plik na sekcji 5, czyli w polowie zmiany schematu. Liczenie
+    i PRZERYWA plik na sekcji 6, czyli w polowie zmiany schematu. Liczenie
     samych wystapien (test wyzej) tego nie lapie."""
     polecenia = [_bez_bialych(p) for p in _polecenia()]
     nazwy = [p.split()[1] for p in polecenia if p.upper().startswith("PREPARE ")]
@@ -373,6 +381,33 @@ def test_sweep_wyscigu_powtarza_regule_przed_zwezeniem_enuma():
     assert updaty[3] < indeks_zwezajacego
     assert "'czeka_na_lakiernie'" in polecenia[updaty[2]]
     assert "'czeka_na_krawedzie'" in polecenia[updaty[3]]
+
+
+def test_zwezajacy_alter_enuma_stoi_przed_pierwszym_renamem_kolumny():
+    """STRAZNIK NOWEJ KOLEJNOSCI (recenzja 2026-09-15: przestawienie sekcji 5 i 6).
+
+    Zwezajacy ALTER enuma current_status wymusza ALGORITHM=COPY (jedyne dlugo
+    trwajace polecenie po sekcji 1) i jest jedynym, ktore moze pasc z przyczyn
+    NIEZWIAZANYCH z trescia (1205/1206 — metadata lock na zywej tabeli). Gdyby
+    stal PO renameie kolumn (dawna kolejnosc), jego porazka zostawialaby
+    schemat juz przemianowany pod starym kodem gunicorna: quantity_done_finishing
+    juz by nie istnialo, wiec kazde zapytanie o prod_products lecialoby 1054,
+    a caly modul produkcji byl martwy do recznego rollbacku. Stojac PRZED
+    renameem, ta sama porazka przerywa caly plik migracji, zanim cokolwiek
+    w schemacie zmieni sie pod dzialajaca aplikacja."""
+    polecenia = [_bez_bialych(p) for p in _polecenia()]
+
+    indeks_zwezajacego = next(
+        i for i, p in enumerate(polecenia)
+        if p.upper().startswith("ALTER TABLE PROD_PRODUCTS MODIFY")
+        and "'CZEKA_NA_KRAWEDZIE'" in p.upper()
+        and "'CZEKA_NA_WYKANCZANIE'" not in p.upper()
+    )
+    indeks_pierwszego_renamu = next(
+        i for i, p in enumerate(polecenia)
+        if "RENAME COLUMN" in p.upper()
+    )
+    assert indeks_zwezajacego < indeks_pierwszego_renamu
 
 
 def test_ostatni_alter_nie_zawiera_czeka_na_wykanczanie():

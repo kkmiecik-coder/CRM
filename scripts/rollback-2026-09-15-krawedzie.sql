@@ -21,7 +21,7 @@
 --   * podzialu sesji pracownikow — migracja przepisala je hurtem, wiec
 --     odtworzenie oddaje dokladnie stan sprzed, ale informacja, ile czasu
 --     nalezalo do Lakierni, nigdy nie istniala;
---   * wierszy zlapanych dopiero przez sweep wyscigu w sekcji 6 migracji —
+--   * wierszy zlapanych dopiero przez sweep wyscigu w sekcji 5 migracji —
 --     nie ma ich w tabeli kopii; te na 'czeka_na_krawedzie' zlapie catch-all
 --     w kroku 3, te na 'czeka_na_lakiernie' zostana tam, gdzie sa;
 --   * wpisow w prod_product_events — migracja ich nie tworzyla i rollback
