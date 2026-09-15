@@ -505,22 +505,39 @@ class ProductionProduct(db.Model):
     def is_station_complete(self, station_code):
         return self.get_quantity_done(station_code) >= self.quantity
 
-    def should_skip_finishing(self):
-        if self.parsed_finish_type == 'surowe':
-            return not self.parsed_edge_processing
-        return False
+    def should_skip_edges(self):
+        """
+        Bez obróbki krawędzi nie ma czego robić na Krawędziach — niezależnie
+        od wykończenia.
+
+        ZMIANA ZAKRESU wobec dawnego should_skip_finishing(): tamta reguła
+        pomijała wyłącznie produkty surowe, więc olejowany bez krawędzi
+        zatrzymywał się na wykańczalni, nie mając tam czego robić.
+
+        Druga, ręcznie synchronizowana kopia tej reguły mieszka w
+        order_timeline_service._should_skip_edges — parytetu pilnuje
+        tests/test_krawedzie_parytet_reguly.py.
+        """
+        return not self.parsed_edge_processing
 
     def should_skip_to_logistics(self):
         return self.cut_to_size is False
 
     def complete_task(self, station_code):
+        # Stary tablet może przysłać 'finishing'; niżej porównujemy wyłącznie
+        # z kodami kanonicznymi, więc alias rozwijamy raz, na wejściu.
+        # Normalizacja i przemianowanie kluczy mapy MUSZĄ iść razem: sama
+        # zmiana klucza bez normalizacji (albo odwrotnie) przepuszcza wywołanie
+        # obok całego bloku tranzycji — licznik się zapisuje, a current_status
+        # zostaje bez zmian i zlecenie utyka na stanowisku.
+        station_code = resolve_station_code(station_code)
         now = get_local_now()
         next_status_map = {
             'cutting': 'czeka_na_sklejanie',
             'assembly': 'czeka_na_sklejanie',
             'gluing': 'czeka_na_formatowanie',
-            'formatting': 'czeka_na_wykanczanie',
-            'finishing': 'czeka_na_logistyke',
+            'formatting': 'czeka_na_krawedzie',
+            'edges': 'czeka_na_logistyke',
             'painting': 'czeka_na_logistyke',
             'packaging': 'spakowane'
         }
@@ -529,17 +546,24 @@ class ProductionProduct(db.Model):
 
             if station_code == 'gluing' and self.should_skip_to_logistics():
                 next_status = 'czeka_na_logistyke'
-                for skipped in ('formatting', 'finishing'):
+                for skipped in ('formatting', 'edges'):
                     self.set_quantity_done(skipped, self.quantity, source='auto_skip')
                     completed_attr = f'{skipped}_completed_at'
                     if getattr(self, completed_attr, None) is None:
                         setattr(self, completed_attr, now)
 
-            if station_code == 'formatting' and self.should_skip_finishing():
-                next_status = 'czeka_na_logistyke'
-                self.set_quantity_done('finishing', self.quantity, source='system')
+            # Trzecie wyjście z formatowania. KOLEJNOŚĆ JEST CAŁĄ LOGIKĄ: blok
+            # stoi PO bloku gluing (inny station_code, brak kolizji) i PRZED
+            # blokiem odbioru osobistego, bo to ono zamienia logistykę na
+            # pakowanie i musi widzieć ostateczną decyzję.
+            if station_code == 'formatting' and self.should_skip_edges():
+                self.set_quantity_done('edges', self.quantity, source='system')
+                if self.parsed_finish_type in ('olejowane', 'lakierowane'):
+                    next_status = 'czeka_na_lakiernie'
+                else:
+                    next_status = 'czeka_na_logistyke'
 
-            if station_code == 'finishing':
+            if station_code == 'edges':
                 if self.parsed_finish_type in ('olejowane', 'lakierowane'):
                     next_status = 'czeka_na_lakiernie'
 
