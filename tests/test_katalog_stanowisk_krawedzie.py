@@ -517,3 +517,44 @@ def test_kazde_stanowisko_ma_telemetrie():
     for kod in STATION_ORDER:
         assert pusta_flota[kod]['status_label'] == 'Niedostępne', kod
         assert pusta_flota[kod]['active'] is False, kod
+
+
+# ============================================================================
+# KOLORY KRZYWYCH WYKRESU — mapa rownolegla do katalogu
+# ============================================================================
+
+
+def test_kazde_stanowisko_ma_kolor_wykresu():
+    """
+    Wykres 'Wydajnosc dzienna' w trybie zbiorczym rysuje krzywa dla kazdego
+    kodu ze STATION_ORDER (dashboard_api.py:613, petla po kody_stanowisk).
+    Brak wpisu w mapie kolorow nie wywraca widgetu (uzycia ida przez .get
+    z KOLOR_REZERWOWY), tylko daje SZARA krzywa nie do odroznienia od
+    sasiedniej — wykres, ktory klamie po cichu.
+    """
+    import importlib
+
+    from modules.production.services.station_catalog import STATION_ORDER
+
+    dashboard_api = importlib.import_module(
+        'modules.production.routers.api.dashboard_api')
+
+    kolory = dashboard_api.STATION_CHART_COLORS
+
+    brakujace = sorted(set(STATION_ORDER) - set(kolory))
+    assert brakujace == [], 'Stanowiska bez wlasnego koloru krzywej: {}'.format(brakujace)
+
+    nadmiarowe = sorted(set(kolory) - set(STATION_ORDER))
+    assert nadmiarowe == [], 'Kolory dla kodow spoza katalogu: {}'.format(nadmiarowe)
+
+    for kod in STATION_ORDER:
+        assert set(kolory[kod]) == {'border', 'bg'}, kod
+        assert kolory[kod]['border'].startswith('#'), kod
+
+    # Dwie krzywe w tym samym kolorze to ten sam blad co brak wpisu,
+    # tylko trudniejszy do zauwazenia.
+    obramowania = [kolory[kod]['border'] for kod in STATION_ORDER]
+    assert len(set(obramowania)) == len(obramowania), obramowania
+
+    # Kolor rezerwowy jest wylacznie dla kodow SPOZA katalogu.
+    assert dashboard_api.KOLOR_REZERWOWY not in kolory.values()

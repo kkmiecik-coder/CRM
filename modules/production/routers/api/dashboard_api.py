@@ -53,6 +53,29 @@ _STATION_PENDING_STATUS = {
     kod: STATION_PENDING_STATUS[kod] for kod in _DASHBOARD_STATIONS
 }
 
+# Kolory krzywych wykresu „Wydajność dzienna". Stoją na poziomie modułu,
+# a nie w chart_data(), z jednego powodu: mapa równoległa do katalogu,
+# której nie da się zaimportować, nie da się też przetestować — a to
+# właśnie równoległe listy kodów rozjechały się w tym module pięć razy.
+#
+# Brak wpisu nie wywraca widgetu (użycia idą przez .get z KOLOR_REZERWOWY),
+# tylko rysuje szarą krzywą nie do odróżnienia od sąsiedniej.
+STATION_CHART_COLORS = {
+    'cutting': {'border': '#fd7e14', 'bg': 'rgba(253, 126, 20, 0.1)'},
+    'assembly': {'border': '#007bff', 'bg': 'rgba(0, 123, 255, 0.1)'},
+    'gluing': {'border': '#9c27b0', 'bg': 'rgba(156, 39, 176, 0.1)'},
+    'formatting': {'border': '#ff5722', 'bg': 'rgba(255, 87, 34, 0.1)'},
+    # Krawędzie dziedziczą kolor po dawnym Wykańczaniu — wykresy historyczne
+    # nie zmieniają przez to wyglądu.
+    'edges': {'border': '#00bcd4', 'bg': 'rgba(0, 188, 212, 0.1)'},
+    'painting': {'border': '#e91e63', 'bg': 'rgba(233, 30, 99, 0.1)'},
+    'packaging': {'border': '#28a745', 'bg': 'rgba(40, 167, 69, 0.1)'},
+}
+
+# Wyłącznie dla kodów SPOZA katalogu (np. dane historyczne). Kolor jest
+# prezentacją — nieznany kod ma dać szarą krzywą, a nie wywrócić widget.
+KOLOR_REZERWOWY = {'border': '#6c757d', 'bg': 'rgba(108, 117, 125, 0.1)'}
+
 
 def _safe_station_work(station_code, day_start, day_end):
     """Helper: pobiera agregat pracy stanowiska w przedziale, z fallbackiem na zera."""
@@ -420,17 +443,6 @@ def chart_data():
         # najdłuższą kolejkę hali.
         kody_stanowisk = list(STATION_ORDER)
 
-        station_colors = {
-            'cutting': {'border': '#fd7e14', 'bg': 'rgba(253, 126, 20, 0.1)'},
-            'assembly': {'border': '#007bff', 'bg': 'rgba(0, 123, 255, 0.1)'},
-            'gluing': {'border': '#9c27b0', 'bg': 'rgba(156, 39, 176, 0.1)'},
-            'formatting': {'border': '#ff5722', 'bg': 'rgba(255, 87, 34, 0.1)'},
-            'edges': {'border': '#00bcd4', 'bg': 'rgba(0, 188, 212, 0.1)'},
-            'painting': {'border': '#e91e63', 'bg': 'rgba(233, 30, 99, 0.1)'},
-            'packaging': {'border': '#28a745', 'bg': 'rgba(40, 167, 69, 0.1)'}
-        }
-        KOLOR_REZERWOWY = {'border': '#6c757d', 'bg': 'rgba(108, 117, 125, 0.1)'}
-
         # NOWE: Określ typ agregacji na podstawie okresu
         if period <= 31:
             aggregation_type = 'daily'
@@ -454,7 +466,7 @@ def chart_data():
             station_label = _etykieta(station_filter)
             # Kolor jest wyłącznie prezentacją — brak wpisu ma dać szarą
             # krzywą, a nie wywrócić cały widget.
-            station_color = station_colors.get(station_filter, KOLOR_REZERWOWY)
+            station_color = STATION_CHART_COLORS.get(station_filter, KOLOR_REZERWOWY)
 
             # Faktyczna praca per dzień — z prod_station_events (uwzględnia partial work)
             try:
@@ -624,8 +636,8 @@ def chart_data():
                 {
                     'label': station_label_catalog(kod),
                     'data': [],
-                    'borderColor': station_colors.get(kod, KOLOR_REZERWOWY)['border'],
-                    'backgroundColor': station_colors.get(kod, KOLOR_REZERWOWY)['bg'],
+                    'borderColor': STATION_CHART_COLORS.get(kod, KOLOR_REZERWOWY)['border'],
+                    'backgroundColor': STATION_CHART_COLORS.get(kod, KOLOR_REZERWOWY)['bg'],
                     'tension': 0.4,
                     'fill': True,
                     'stationCode': kod,
