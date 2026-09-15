@@ -272,28 +272,42 @@ SET @kolumna_ilosci := (
        AND TABLE_NAME = 'prod_products'
        AND COLUMN_NAME = 'quantity_done_finishing');
 
-SET @sql_ilosc := IF(@kolumna_ilosci > 0,
-    'ALTER TABLE prod_products RENAME COLUMN quantity_done_finishing TO quantity_done_edges',
-    'SELECT 1');
-
-PREPARE polecenie_ilosc FROM @sql_ilosc;
-
-EXECUTE polecenie_ilosc;
-
-DEALLOCATE PREPARE polecenie_ilosc;
-
+-- OBA liczniki stoja PRZED zbudowaniem klauzul. W dawnej wersji (dwa osobne
+-- bloki SET/PREPARE/EXECUTE/DEALLOCATE) ten liczyl kolumne juz PO wykonaniu
+-- pierwszego renamu; po scaleniu obu renameow w jedno polecenie taka kolejnosc
+-- bylaby cichym bledem — licznik patrzylby na schemat zmieniony przez ALTER,
+-- ktory jeszcze sie nie wykonal.
 SET @kolumna_daty := (
     SELECT COUNT(*) FROM information_schema.COLUMNS
      WHERE TABLE_SCHEMA = DATABASE()
        AND TABLE_NAME = 'prod_products'
        AND COLUMN_NAME = 'finishing_completed_at');
 
-SET @sql_data := IF(@kolumna_daty > 0,
-    'ALTER TABLE prod_products RENAME COLUMN finishing_completed_at TO edges_completed_at',
-    'SELECT 1');
+-- JEDEN ALTER NA OBA RENAMEY, CELOWO. DDL w MySQL 8 jest atomiczne, wiec ta
+-- para kolumn zmienia nazwe w calosci albo wcale. Dwa osobne ALTER-y (wersja
+-- przed recenzja 2026-09-15) dawaly okno miedzy nimi: zerwane polaczenie,
+-- restart mysqld albo ubity deploy.sh zostawialy quantity_done_finishing juz
+-- przemianowane, a finishing_completed_at jeszcze nie — stary kod gunicorna
+-- lecial wtedy 1054 na KAZDYM zapytaniu o prod_products.
+--
+-- OSLONA TROJSTANOWA: CONCAT_WS pomija NULL-e, wiec jedno polecenie obsluguje
+-- wszystkie cztery stany schematu — obie kolumny stare (pelny rename), tylko
+-- jedna przemianowana (dokonczenie po przerwanym przebiegu, w obie strony),
+-- obie nowe (drugi przebieg runnera, klauzule puste).
+SET @klauzule_renamu := CONCAT_WS(', ',
+    IF(@kolumna_ilosci > 0, 'RENAME COLUMN quantity_done_finishing TO quantity_done_edges', NULL),
+    IF(@kolumna_daty   > 0, 'RENAME COLUMN finishing_completed_at TO edges_completed_at',   NULL));
 
-PREPARE polecenie_data FROM @sql_data;
+-- Puste klauzule = nie ma czego przemianowac: 'SELECT 1', dokladnie jak
+-- w dotychczasowej oslonie. COALESCE zabezpiecza przed wariantem, w ktorym
+-- CONCAT_WS z samych NULL-i zwrocilby NULL zamiast pustego stringa — PREPARE
+-- z NULL-a konczy sie bledem 1064 i przerwalby plik w polowie sekcji.
+SET @sql_renamu := IF(COALESCE(@klauzule_renamu, '') = '',
+    'SELECT 1',
+    CONCAT('ALTER TABLE prod_products ', @klauzule_renamu));
 
-EXECUTE polecenie_data;
+PREPARE polecenie_renamu FROM @sql_renamu;
 
-DEALLOCATE PREPARE polecenie_data;
+EXECUTE polecenie_renamu;
+
+DEALLOCATE PREPARE polecenie_renamu;

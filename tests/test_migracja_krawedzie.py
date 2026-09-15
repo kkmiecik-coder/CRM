@@ -313,12 +313,18 @@ def test_enum_dorobki_zgadza_sie_z_modelem():
 
 
 def test_zmienia_nazwy_obu_kolumn_produktu():
-    """RENAME COLUMN (nie CHANGE) zachowuje typ, NOT NULL, DEFAULT i komentarz."""
+    """RENAME COLUMN (nie CHANGE) zachowuje typ, NOT NULL, DEFAULT i komentarz.
+
+    Po recenzji 2026-09-15 oba renamey sa KLAUZULAMI jednego ALTER-a, wiec
+    w tresci pliku stoja bez prefiksu — dokleja go CONCAT przy skladaniu
+    polecenia. Prefiks sprawdzamy osobno, zeby zmiana nazwy tabeli nie
+    przeszla niezauwazona."""
     tresc = _tresc()
-    assert ("ALTER TABLE prod_products RENAME COLUMN "
-            "quantity_done_finishing TO quantity_done_edges") in tresc
-    assert ("ALTER TABLE prod_products RENAME COLUMN "
-            "finishing_completed_at TO edges_completed_at") in tresc
+    assert ("RENAME COLUMN quantity_done_finishing "
+            "TO quantity_done_edges") in tresc
+    assert ("RENAME COLUMN finishing_completed_at "
+            "TO edges_completed_at") in tresc
+    assert "CONCAT('ALTER TABLE prod_products ', @klauzule_renamu)" in tresc
 
 
 def test_renamey_sa_osloniete_information_schema():
@@ -331,12 +337,17 @@ def test_renamey_sa_osloniete_information_schema():
 
 
 def test_kazdy_prepare_ma_swoje_deallocate():
-    """Zapomniane DEALLOCATE zostawia nazwe zajeta na calym polaczeniu."""
+    """Zapomniane DEALLOCATE zostawia nazwe zajeta na calym polaczeniu.
+
+    Po recenzji 2026-09-15 para jest JEDNA, nie dwie: oba renamey kolumn ida
+    jednym ALTER-em, wiec jedno PREPARE, jedno EXECUTE i jedno DEALLOCATE.
+    Liczba jest czescia asercji — drugie PREPARE w tym pliku znaczyloby, ze
+    ktos rozdzielil renamey z powrotem na dwa polecenia."""
     polecenia = [_bez_bialych(p).upper() for p in _polecenia()]
     przygotowania = [p for p in polecenia if p.startswith("PREPARE ")]
     wykonania = [p for p in polecenia if p.startswith("EXECUTE ")]
     zwolnienia = [p for p in polecenia if p.startswith("DEALLOCATE PREPARE ")]
-    assert len(przygotowania) == len(wykonania) == len(zwolnienia) == 2
+    assert len(przygotowania) == len(wykonania) == len(zwolnienia) == 1
 
 
 def test_kazdy_rename_uzywa_wlasnej_nazwy_polecenia():
@@ -350,6 +361,48 @@ def test_kazdy_rename_uzywa_wlasnej_nazwy_polecenia():
     for nazwa in nazwy:
         assert "EXECUTE {}".format(nazwa) in polecenia
         assert "DEALLOCATE PREPARE {}".format(nazwa) in polecenia
+
+
+def test_rename_dokancza_polowiczny_stan_kolumn():
+    """Przerwany POPRZEDNI przebieg zostawia jedna z dwoch kolumn juz
+    przemianowana, druga nietknieta. Taki stan powstaje, gdy migracje ubije
+    cos niezaleznego od jej tresci (zerwane polaczenie, restart mysqld, ubity
+    deploy.sh). Nastepny przebieg runnera musi wtedy dokonczyc sama brakujaca
+    kolumne: nie pasc na tej juz przemianowanej (1054 w ALTER-ze przerywa plik
+    i deploy) i nie pominac tej nietknietej (schemat zostaje rozjechany,
+    a wpis w schema_migrations moglby ta migracje wyciszyc na zawsze).
+
+    Test jest statyczny — patrzy na tresc pliku, bo SQLite nie zna ani
+    information_schema, ani PREPARE."""
+    polecenia = [_bez_bialych(p) for p in _polecenia()]
+
+    indeks_ilosci = next(i for i, p in enumerate(polecenia)
+                         if p.startswith("SET @kolumna_ilosci"))
+    indeks_daty = next(i for i, p in enumerate(polecenia)
+                       if p.startswith("SET @kolumna_daty"))
+    indeks_klauzul = next(i for i, p in enumerate(polecenia)
+                          if "CONCAT_WS" in p.upper())
+
+    # OBA liczniki musza stac PRZED zbudowaniem klauzul. Licznik policzony po
+    # wykonaniu renamu patrzylby na schemat, ktorego to polecenie wlasnie
+    # dotknelo — po scaleniu obu renameow w jeden ALTER byloby to cichym bledem.
+    assert indeks_ilosci < indeks_klauzul, (indeks_ilosci, indeks_klauzul)
+    assert indeks_daty < indeks_klauzul, (indeks_daty, indeks_klauzul)
+
+    # Kazda kolumna ma WLASNY warunek, na WLASNYM liczniku: cztery stany
+    # schematu (obie stare, kazda z dwoch osobno, obie nowe) sa obsluzone,
+    # bo CONCAT_WS pomija NULL-e.
+    klauzule = polecenia[indeks_klauzul]
+    assert ("IF(@kolumna_ilosci > 0, 'RENAME COLUMN quantity_done_finishing "
+            "TO quantity_done_edges', NULL)") in klauzule, klauzule
+    assert ("IF(@kolumna_daty > 0, 'RENAME COLUMN finishing_completed_at "
+            "TO edges_completed_at', NULL)") in klauzule, klauzule
+
+    # Puste klauzule (drugi przebieg, obie kolumny juz nowe) nie moga zlozyc
+    # sie w goly 'ALTER TABLE prod_products'.
+    skladanie = polecenia[indeks_klauzul + 1]
+    assert skladanie.startswith("SET @sql_renamu"), skladanie
+    assert "'SELECT 1'" in skladanie, skladanie
 
 
 def test_nazwy_kolumn_zgadzaja_sie_z_modelem():
@@ -435,11 +488,15 @@ def test_zwezajacy_alter_zgadza_sie_z_enumem_modelu():
     assert wartosci_migracji == set(ProductionProduct.current_status.type.enums)
 
 
-def test_dzieli_sie_na_33_polecenia():
+def test_dzieli_sie_na_30_polecen():
     """32 z planu migracji w specyfikacji + jedno na druga konwencje kluczy
-    prod_config (STATION_FINISHING_* z nazwa stanowiska w srodku)."""
+    prod_config (STATION_FINISHING_* z nazwa stanowiska w srodku) = 33,
+    minus trzy zdjete przez recenzje 2026-09-15: scalenie dwoch blokow
+    SET/PREPARE/EXECUTE/DEALLOCATE renamu kolumn w jeden atomiczny ALTER
+    zabiera jedno SET, jedno PREPARE, jedno EXECUTE i jedno DEALLOCATE,
+    a doklada jedno SET budujace klauzule."""
     polecenia = _polecenia()
-    assert len(polecenia) == 33, [_bez_bialych(p)[:45] for p in polecenia]
+    assert len(polecenia) == 30, [_bez_bialych(p)[:45] for p in polecenia]
 
 
 def test_kazdy_update_ma_warunek_na_stara_wartosc():
