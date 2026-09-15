@@ -11,7 +11,7 @@ static int station_index(const char* code) {
   if (strcmp(code, "asm") == 0) return ST_ASM;
   if (strcmp(code, "glu") == 0) return ST_GLU;
   if (strcmp(code, "fmt") == 0) return ST_FMT;
-  if (strcmp(code, "fin") == 0) return ST_FIN;
+  if (strcmp(code, "edg") == 0) return ST_EDG;
   if (strcmp(code, "pnt") == 0) return ST_PNT;
   if (strcmp(code, "pkg") == 0) return ST_PKG;
   return -1;

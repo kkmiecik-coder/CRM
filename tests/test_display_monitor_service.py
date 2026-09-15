@@ -22,7 +22,7 @@ def test_module_imports():
 def test_station_codes_canonical_order():
     from modules.production.services.display_monitor_service import STATION_CODES
     codes = [c for c, _, _ in STATION_CODES]
-    assert codes == ['cut', 'asm', 'glu', 'fmt', 'fin', 'pnt', 'pkg']
+    assert codes == ['cut', 'asm', 'glu', 'fmt', 'edg', 'pnt', 'pkg']
     assert len(STATION_CODES) == 7
 
 
