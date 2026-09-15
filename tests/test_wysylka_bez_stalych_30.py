@@ -203,6 +203,20 @@ def test_router_ustawien_ma_trase_wysylki():
     assert 'def calculator_shipping(' in zrodlo
 
 
+def test_pola_ustawien_wysylki_nie_pokazuja_zer_po_przecinku():
+    """load_shipping_config() zwraca floaty, więc wstawione wprost do value=""
+    dają administratorowi „30.0" i „0.0" zamiast „30" i „0".
+
+    Filtr musi być '%.10g', nie samo '%g': bez podanej precyzji %g przechodzi
+    dla większych progów na zapis wykładniczy („1e+06"), a takiej wartości
+    <input type="number"> nie przyjmie."""
+    zrodlo = _zrodlo(SZABLON_USTAWIEN)
+    for pole in ('percent', 'threshold_brutto', 'surcharge_brutto'):
+        oczekiwane = "'%.10g'|format(shipping_config." + pole + ")"
+        assert oczekiwane in zrodlo, \
+            'Pole {} przestalo byc formatowane — wroci "30.0" zamiast "30".'.format(pole)
+
+
 def test_formatpercent_nie_liczy_juz_procentu_sam():
     """Regresja (item 1 przeglądu): formatPercent liczył własną wersję tekstu
     (toFixed + zamiana kropki na przecinek) obok _procent() w
