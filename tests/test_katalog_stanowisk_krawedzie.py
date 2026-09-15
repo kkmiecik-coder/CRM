@@ -191,3 +191,69 @@ def test_alias_rozroznia_wielkosc_liter():
 
     assert resolve_station_code('  FINISHING  ') == 'FINISHING'
     assert resolve_station_code('  Finishing  ') == 'Finishing'
+
+
+def test_resolve_pustego_i_bialego_znaku_zwraca_pusty_string():
+    """
+    Kontrakt (ograniczenia-globalne.md): string wraca ZAWSZE przycięty.
+    Dla '' i '   ' wynikiem jest '' — wartość FAŁSZYWA, ale NIE None; wołający
+    odróżnia „brak kodu po wyczyszczeniu" od „brak kodu w ogóle" wyłącznie
+    po typie (`is None` kontra `== ''`).
+
+    Naiwna implementacja `STATION_CODE_ALIASES.get(code, code)` (bez .strip()
+    na wejściu) zwróciłaby dla '   ' wartość '   ' z białymi znakami z powrotem
+    — bo '   ' nie jest kluczem w mapie i wraca jako domyślne `code`, nie
+    `code.strip()`. Test by to złapał na `'   ' == ''`.
+    """
+    from modules.production.services.station_catalog import resolve_station_code
+
+    assert resolve_station_code('') == ''
+    assert resolve_station_code('   ') == ''
+    assert resolve_station_code('   ') is not None
+
+
+def test_resolve_jest_idempotentne():
+    """
+    Kontrakt (ograniczenia-globalne.md): funkcja jest idempotentna — warstwy
+    wołają ją kaskadowo (router -> serwis -> model), więc drugie wywołanie
+    NA WYNIKU pierwszego nie ma prawa niczego zmienić. Dziś ta własność
+    wynika dopiero ze złożenia osobnych asercji rozsianych po innych testach
+    (alias, przycinanie, wielkość liter) — tutaj dostaje jawną nazwę i własny
+    test, tak jak wymienia ją kontrakt wprost.
+
+    Złapałaby implementację, która sprawdza alias PRZED przycięciem białych
+    znaków, z przyciętym stringiem jako wartością domyślną, np.:
+    `STATION_CODE_ALIASES.get(code, code.strip())`. Dla '  finishing  ' taka
+    wersja za PIERWSZYM razem nie trafia kluczem ze spacjami w alias i zwraca
+    tylko przycięte 'finishing'; za DRUGIM razem (już na czystym 'finishing')
+    trafia w alias i zwraca 'edges' — dwa wywołania, dwa różne wyniki.
+    """
+    from modules.production.services.station_catalog import resolve_station_code
+
+    for wejscie in ('finishing', '  finishing  ', 'edges', ' painting',
+                    '', '   ', None, 7):
+        pierwszy_wynik = resolve_station_code(wejscie)
+        assert resolve_station_code(pierwszy_wynik) == pierwszy_wynik, wejscie
+
+
+def test_wartosci_aliasow_sa_kodami_kanonicznymi():
+    """
+    Strażnik nad mapą, w stylu testów Zadań 1-2 (test_kazde_stanowisko_ma_etykiete...,
+    test_statusy_kolejek_sa_unikalne): nic dziś nie sprawdza, że WARTOŚCI w
+    STATION_CODE_ALIASES są prawdziwymi kodami stanowisk. Kolejny dopisany
+    alias mógłby literówką wskazać 'paintng' albo polską nazwę zamiast kodu
+    ('lakiernia') i żaden test by nie pisnął — dopóki ten strażnik nie istnieje.
+
+    'edges' celowo NIE jest jeszcze w STATION_ORDER — przemianowanie katalogu
+    (Zadanie 6, patrz docstring modułu testowego pkt 4) to osobne zadanie
+    dalszej warstwy. Do czasu tej zmiany dopuszczamy 'edges' jawnie, żeby
+    strażnik nie blokował Zadania 4, zanim katalog nadąży.
+    """
+    from modules.production.services.station_catalog import (
+        STATION_CODE_ALIASES,
+        STATION_ORDER,
+    )
+
+    kody_kanoniczne = set(STATION_ORDER) | {'edges'}
+    for stary_kod, nowy_kod in STATION_CODE_ALIASES.items():
+        assert nowy_kod in kody_kanoniczne, (stary_kod, nowy_kod)
