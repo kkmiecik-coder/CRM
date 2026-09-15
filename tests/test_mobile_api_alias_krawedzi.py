@@ -635,11 +635,16 @@ def test_nowy_tablet_krawedzi_pobiera_kolejke_bez_aliasu(client, app):
 
 def test_szczegoly_zlecenia_dla_starego_tabletu_maja_licznik(client, app):
     """
-    JEDYNY endpoint mobilny bez walidacji kodu stanowiska — nie przechodzi
-    przez _resolve_station_code. Bez normalizacji kod 'finishing' wypada
-    z bramki członkostwa STATION_QUANTITY_FIELD (mobile_api_service.py:1024)
-    i odpowiedź niesie quantity_done: null. Bez błędu, bez logu — tablet
-    pokazuje 0 z N dla pozycji, na której coś już odbito.
+    Jeden z kilku endpointów mobilnych bez walidacji kodu stanowiska — nie
+    przechodzi przez _resolve_station_code (tak samo jak
+    mobile_print_label_single, mobile_print_labels_for_order, workers_catalog
+    i sessions_active w modules/production/routers/mobile_api.py — żaden z
+    nich nie sprawdza unknown_station ani station_mismatch, bo kod stanowiska
+    biorą z JWT urządzenia, nie z body/URL). Bez normalizacji kod 'finishing'
+    wypada tu z bramki członkostwa STATION_QUANTITY_FIELD
+    (mobile_api_service.py:1024) i odpowiedź niesie quantity_done: null.
+    Bez błędu, bez logu — tablet pokazuje 0 z N dla pozycji, na której coś
+    już odbito.
     """
     token = _token(app, station_code='finishing')
     produkt_id = _produkt(app, status='czeka_na_krawedzie', quantity=5)

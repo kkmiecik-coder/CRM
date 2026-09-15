@@ -341,11 +341,19 @@ def order_details(order_id):
     """
     GET /api/mobile/orders/<id> — szczegóły zlecenia.
 
-    Kod stanowiska normalizujemy tu osobno, bo to jedyny endpoint mobilny
-    bez walidacji kodu: nie przechodzi przez _resolve_station_code. Bez
-    rozwinięcia aliasu 'finishing' wypada z bramki członkostwa
-    STATION_QUANTITY_FIELD (mobile_api_service.py:1024) i odpowiedź niesie
-    quantity_done: null — cicho, bez błędu i bez logu.
+    Kod stanowiska normalizujemy tu osobno. To NIE jest jedyny endpoint
+    mobilny bez walidacji kodu — bramkę _resolve_station_code (alias +
+    unknown_station + station_mismatch) pomijają też: mobile_print_label_single
+    i mobile_print_labels_for_order (obie wołają resolve_station_code wprost
+    z g.device.station_code — patrz komentarze przy tych funkcjach niżej),
+    workers_catalog oraz sessions_active. Wspólny mianownik: kod stanowiska
+    pochodzi z JWT urządzenia, nie z body/URL żądania, więc nie ma tu czego
+    sprawdzać pod kątem station_mismatch — inaczej niż w complete/quantity/
+    reject/sessions_start, gdzie klient może przysłać dowolny kod.
+
+    Bez rozwinięcia aliasu 'finishing' TEN konkretny endpoint wypada z bramki
+    członkostwa STATION_QUANTITY_FIELD (mobile_api_service.py:1024)
+    i odpowiedź niesie quantity_done: null — cicho, bez błędu i bez logu.
     """
     item = ProductionItem.query.get(order_id)
     if not item:
