@@ -915,35 +915,57 @@ def calculator_extras_edges():
     )
 
 
+def _zbierz_ustawienia_kalkulatora(data):
+    """Waliduje CAŁE żądanie ustawień kalkulatora i zwraca (zapisy, błąd).
+
+    Zapisy to lista par (klucz, wartość) do wykonania dopiero PO sprawdzeniu
+    wszystkiego. Kolejność „waliduj, potem zapisuj" nie jest kosmetyczna:
+    CalculatorSetting.set_value() commituje wewnętrznie, więc zapis przed
+    walidacją reszty żądania zostawiał ustawienia zmienione w połowie —
+    dopłata za kształt lądowała w bazie, odrzucona wysyłka kończyła się
+    kodem 400, a invalidate_pricing_cache() nigdy się nie wykonywało.
+    """
+    from decimal import Decimal, InvalidOperation
+    # Walidacja wysyłki siedzi w shipping_pricing, żeby panel i wycena miały
+    # tę samą definicję poprawnej wartości.
+    from modules.calculator.services.shipping_pricing import validate_shipping_settings
+
+    zapisy = []
+
+    if 'round_shape_surcharge_netto' in data:
+        try:
+            value = Decimal(str(data['round_shape_surcharge_netto']))
+            if value < 0:
+                return None, 'Dopłata nie może być ujemna'
+        except (InvalidOperation, ValueError):
+            return None, 'Nieprawidłowa wartość dopłaty'
+        zapisy.append(('round_shape_surcharge_netto', str(value)))
+
+    czyste, blad = validate_shipping_settings(data)
+    if blad:
+        return None, blad
+    for klucz, wartosc in czyste.items():
+        zapisy.append((klucz, wartosc))
+
+    return zapisy, None
+
+
 @settings_bp.route('/api/calculator-settings', methods=['PUT'])
 @require_admin
 def api_update_calculator_settings():
     """API: Aktualizuje ustawienia kalkulatora"""
     from modules.calculator.models import CalculatorSetting
-    from decimal import Decimal, InvalidOperation
 
     try:
         data = request.get_json()
         if not data:
             return jsonify({'success': False, 'error': 'Brak danych'}), 400
 
-        if 'round_shape_surcharge_netto' in data:
-            try:
-                value = Decimal(str(data['round_shape_surcharge_netto']))
-                if value < 0:
-                    return jsonify({'success': False, 'error': 'Dopłata nie może być ujemna'}), 400
-                CalculatorSetting.set_value('round_shape_surcharge_netto', str(value))
-            except (InvalidOperation, ValueError):
-                return jsonify({'success': False, 'error': 'Nieprawidłowa wartość dopłaty'}), 400
-
-        # Ustawienia wysyłki. Walidacja siedzi w shipping_pricing, żeby panel
-        # i wycena miały tę samą definicję poprawnej wartości.
-        from modules.calculator.services.shipping_pricing import validate_shipping_settings
-
-        czyste, blad = validate_shipping_settings(data)
+        zapisy, blad = _zbierz_ustawienia_kalkulatora(data)
         if blad:
             return jsonify({'success': False, 'error': blad}), 400
-        for klucz, wartosc in czyste.items():
+
+        for klucz, wartosc in zapisy:
             CalculatorSetting.set_value(klucz, wartosc)
 
         # UWAGA: CalculatorSetting.set_value() commituje wewnętrznie (models.py),
