@@ -24,6 +24,7 @@ from modules.production.utils.cache import (
 from modules.production.services import label_print_service, worker_service
 from modules.production.services.label_print_service import StationNotAllowed
 from modules.production.services.worker_service import WorkerError
+from modules.production.services.station_catalog import resolve_station_code
 from modules.production.services.mobile_api_service import (
     STATION_STATUS_MAP,
     STATUS_TO_STATION,
@@ -51,6 +52,20 @@ def _resolve_station_code(requested, *, znane_kody=STATION_STATUS_MAP):
     (station_code, error_response) — gdy error_response != None, wywołujący
     powinien zwrócić go natychmiast.
 
+    GŁÓWNY PUNKT ALIASU okresu przejściowego. Stary APK zna jeszcze kod
+    'finishing'; rozwijamy go na kanoniczne 'edges' PRZED sprawdzeniem
+    `znane_kody` i PRZED kontrolą dostępu. Kolejność jest całą logiką:
+    po sprawdzeniu `znane_kody` byłoby za późno (kod zniknął z katalogu →
+    404 unknown_station), a po kontroli dostępu jeszcze gorzej (403
+    station_mismatch, jedyny status, po którym praca z kolejki offline
+    przepada bezpowrotnie). W dół idzie już WYŁĄCZNIE kod kanoniczny.
+
+    Ta bramka jest JEDYNĄ obroną prod_station_events i prod_worker_sessions
+    przed martwym kodem: obie kolumny to zwykłe stringi bez FK, a Enum
+    SQLAlchemy — nawet gdyby tam stał — nie zatrzymałby zapisu, bo nie
+    waliduje wartości po stronie Pythona (validate_strings domyślnie False).
+    Błąd wyszedłby dopiero przy ODCZYCIE, z zupełnie innego miejsca kodu.
+
     `znane_kody` rozdziela dwa pytania, które do 09.2026 były tu sklejone:
 
       - „czy to stanowisko przesuwa produkt w pipelinie" — STATION_STATUS_MAP
@@ -70,6 +85,7 @@ def _resolve_station_code(requested, *, znane_kody=STATION_STATUS_MAP):
     code = (requested or g.device.station_code or '').strip()
     if not code:
         return None, (jsonify({'error': 'missing_station_code'}), 400)
+    code = resolve_station_code(code)
     if code not in znane_kody:
         return None, (jsonify({'error': 'unknown_station'}), 404)
     if not device_can_access_station(g.device, code):
@@ -153,6 +169,14 @@ def register():
     device_id = (data.get('device_id') or '').strip()
     device_name = (data.get('device_name') or '').strip()
     station_code = (data.get('station_code') or '').strip()
+    # Stary APK przedstawia się kodem 'finishing'. Bez rozwinięcia aliasu
+    # tutaj każde odnowienie JWT odtwarzałoby w prod_devices wiersz, który
+    # migracja przed chwilą poprawiła — a po zdjęciu 'finishing'
+    # z VALID_STATION_CODES stary tablet dostałby 400 invalid_station_code
+    # i nie odnowiłby tokenu w ogóle. Wołanie stoi PRZED walidacją
+    # kompletności pól; pozwala na to kontrakt resolve_station_code
+    # opisany w nagłówku planu wdrożenia.
+    station_code = resolve_station_code(station_code)
 
     if not device_id or not station_code:
         return jsonify({

@@ -302,3 +302,262 @@ def test_tablet_krawedzi_z_niezmigrowanym_kodem_nie_ma_telemetrii():
     wynik = build_devices_telemetry([stary], now=teraz)
     assert 'finishing' not in wynik
     assert wynik['edges']['active'] is False
+
+
+# ============================================================================
+# BRAMKA _resolve_station_code — CZTERY ENDPOINTY MUTUJĄCE
+# ============================================================================
+#
+# Tylko te cztery mogą zapisać kod stanowiska do bazy:
+#   POST  /orders/<id>/complete   (mobile_api.py:339)
+#   PATCH /orders/<id>/quantity   (mobile_api.py:391)
+#   POST  /orders/<id>/reject     (mobile_api.py:441)
+#   POST  /sessions/start         (mobile_api.py:1000)
+
+def test_stary_tablet_domyka_krawedzie_przez_complete(client, app):
+    """
+    Bez aliasu kod 'finishing' wypada z STATION_STATUS_MAP (katalog zna już
+    tylko 'edges') i bramka oddaje 404 unknown_station — stary APK przestaje
+    domykać cokolwiek.
+    """
+    token = _token(app, station_code='finishing')
+    produkt_id = _produkt(app, status='czeka_na_krawedzie', quantity=4,
+                          finish_type='olejowane', obrobka_krawedzi=True)
+
+    odp = client.post('/api/mobile/orders/{}/complete'.format(produkt_id),
+                      headers=_naglowki(token, operation_id='op-complete-1'),
+                      json={})
+
+    assert odp.status_code == 200, odp.get_json()
+    assert odp.get_json()['status'] == 'czeka_na_lakiernie'
+
+    with app.app_context():
+        produkt = ProductionProduct.query.get(produkt_id)
+        assert produkt.quantity_done_edges == 4
+        assert produkt.edges_completed_at is not None
+        assert produkt.current_status == 'czeka_na_lakiernie'
+
+        kody = {e.station_code for e in ProductionStationEvent.query.all()}
+        assert kody == {'edges'}
+
+
+def test_body_z_kodem_finishing_tez_rozwija_sie_na_edges(client, app):
+    """Stary APK potrafi podać station_code jawnie w ciele żądania."""
+    token = _token(app, station_code='finishing')
+    produkt_id = _produkt(app, status='czeka_na_krawedzie', quantity=2,
+                          finish_type='surowe', obrobka_krawedzi=True)
+
+    odp = client.post('/api/mobile/orders/{}/complete'.format(produkt_id),
+                      headers=_naglowki(token, operation_id='op-complete-2'),
+                      json={'station_code': 'finishing'})
+
+    assert odp.status_code == 200, odp.get_json()
+    with app.app_context():
+        produkt = ProductionProduct.query.get(produkt_id)
+        assert produkt.quantity_done_edges == 2
+        assert produkt.current_status == 'czeka_na_logistyke'
+
+
+def test_stary_tablet_odbija_sztuki_przez_patch_quantity(client, app):
+    token = _token(app, station_code='finishing')
+    produkt_id = _produkt(app, status='czeka_na_krawedzie', quantity=4)
+
+    odp = client.patch('/api/mobile/orders/{}/quantity'.format(produkt_id),
+                       headers=_naglowki(token, operation_id='op-qty-1'),
+                       json={'quantity_done': 2})
+
+    assert odp.status_code == 200, odp.get_json()
+    assert odp.get_json()['quantity_done'] == 2
+
+    with app.app_context():
+        produkt = ProductionProduct.query.get(produkt_id)
+        assert produkt.quantity_done_edges == 2
+        # Wartość CZĘŚCIOWA kasuje znacznik domknięcia (models.py:448-449).
+        assert produkt.edges_completed_at is None
+
+        zdarzenia = ProductionStationEvent.query.all()
+        assert [e.station_code for e in zdarzenia] == ['edges']
+        assert zdarzenia[0].delta == 2
+
+
+def test_alias_nie_dziala_w_druga_strone():
+    """
+    Strażnik kontraktu z nagłówka planu, postawiony na ścieżce mobilnej:
+    nowy tablet z kodem kanonicznym ma działać wprost, a nie przez tablicę
+    tłumaczeń.
+    """
+    from modules.production.services.station_catalog import resolve_station_code
+    assert resolve_station_code('edges') == 'edges'
+    assert resolve_station_code('finishing') == 'edges'
+    assert resolve_station_code('painting') == 'painting'
+
+
+def test_stary_tablet_przechodzi_bramke_rejectu(client, app):
+    """
+    Reject jest MVP-owo tylko dla formatowania (rework_service.py:22), więc
+    tablet Krawędzi ma dostać 400 invalid_station. Istotne jest to, CZEGO
+    nie dostaje: 404 unknown_station znaczyłoby, że alias nie zadziałał
+    i kod poległ na bramce, a 403 station_mismatch — że poległ na kontroli
+    dostępu. Ten drugi jest w zbiorze BLEDY_DO_PONOWIENIA, ale i tak
+    zatrzymałby kolejkę offline tabletu.
+    """
+    token = _token(app, station_code='finishing')
+    produkt_id = _produkt(app, status='czeka_na_krawedzie', quantity=4)
+
+    odp = client.post('/api/mobile/orders/{}/reject'.format(produkt_id),
+                      headers=_naglowki(token, operation_id='op-rej-1'),
+                      json={'quantity': 1, 'reason_category': 'wymiary'})
+
+    assert odp.status_code == 400, odp.get_json()
+    assert odp.get_json()['error'] == 'invalid_station'
+    assert 'formatting' in odp.get_json()['detail']
+
+
+def test_stary_tablet_otwiera_sesje_na_krawedziach(client, app):
+    """
+    Trzecia bramka: znane_kody = ProductionDevice.VALID_STATION_CODES, gdzie
+    'finishing' na okres przejściowy ZOSTAJE. Bez rozwinięcia aliasu żądanie
+    przeszłoby walidację i zapisało martwy kod do prod_worker_sessions —
+    czyli dokładnie tam, gdzie liczy się czas pracy i „szybki wybór" profili.
+    """
+    token = _token(app, station_code='finishing')
+    with app.app_context():
+        pracownik = ProductionWorker(first_name='Ewa', last_name='Nowak',
+                                     is_active=True, sort_order=0)
+        db.session.add(pracownik)
+        db.session.commit()
+        pracownik_id = pracownik.id
+
+    odp = client.post('/api/mobile/sessions/start',
+                      headers=_naglowki(token, operation_id='op-ses-1'),
+                      json={'worker_ids': [pracownik_id],
+                            'session_group': 'grupa-1'})
+
+    assert odp.status_code == 200, odp.get_json()
+    with app.app_context():
+        sesja = ProductionWorkerSession.query.one()
+        assert sesja.station_code == 'edges'
+        assert sesja.worker_id == pracownik_id
+        assert sesja.is_open
+
+
+def test_zaden_endpoint_mutujacy_nie_zapisuje_kodu_finishing(client, app):
+    """
+    Zbiorcza asercja końcowa: po przejściu wszystkich czterech ścieżek
+    w bazie nie ma ANI JEDNEGO wiersza z martwym kodem stanowiska.
+    """
+    token = _token(app, station_code='finishing')
+    produkt_id = _produkt(app, status='czeka_na_krawedzie', quantity=4)
+    with app.app_context():
+        pracownik = ProductionWorker(first_name='Jan', last_name='Zielinski',
+                                     is_active=True, sort_order=0)
+        db.session.add(pracownik)
+        db.session.commit()
+        pracownik_id = pracownik.id
+
+    client.post('/api/mobile/sessions/start',
+                headers=_naglowki(token, operation_id='op-z-1'),
+                json={'worker_ids': [pracownik_id], 'session_group': 'g-z'})
+    client.patch('/api/mobile/orders/{}/quantity'.format(produkt_id),
+                 headers=_naglowki(token, operation_id='op-z-2'),
+                 json={'quantity_done': 1})
+    client.post('/api/mobile/orders/{}/reject'.format(produkt_id),
+                headers=_naglowki(token, operation_id='op-z-3'),
+                json={'quantity': 1, 'reason_category': 'wymiary'})
+    client.post('/api/mobile/orders/{}/complete'.format(produkt_id),
+                headers=_naglowki(token, operation_id='op-z-4'),
+                json={})
+
+    with app.app_context():
+        kody_zdarzen = {e.station_code
+                        for e in ProductionStationEvent.query.all()}
+        kody_sesji = {s.station_code
+                      for s in ProductionWorkerSession.query.all()}
+        assert 'finishing' not in kody_zdarzen
+        assert 'finishing' not in kody_sesji
+        assert kody_zdarzen == {'edges'}
+        assert kody_sesji == {'edges'}
+
+
+# ============================================================================
+# REJESTRACJA URZĄDZENIA
+# ============================================================================
+
+def test_rejestracja_starym_kodem_zapisuje_kod_kanoniczny(client, app):
+    """
+    Bez normalizacji stary APK zapisuje 'finishing' w prod_devices przy
+    każdym odnowieniu JWT i sam odtwarza wiersz, który migracja przed chwilą
+    poprawiła. Rejestracja jest jedynym miejscem, w którym urządzenie
+    przedstawia się kodem stanowiska.
+    """
+    odp = client.post('/api/mobile/register', json={
+        'device_id': 'TABLET-STARY',
+        'device_name': 'Tablet wykanczalni',
+        'station_code': 'finishing',
+    })
+
+    assert odp.status_code == 200, odp.get_json()
+    assert odp.get_json()['station_code'] == 'edges'
+
+    with app.app_context():
+        urzadzenie = ProductionDevice.query.filter_by(
+            device_id='TABLET-STARY').one()
+        assert urzadzenie.station_code == 'edges'
+
+
+def test_rejestracja_tabletu_lakierni(client, app):
+    """STRAŻNIK W1: do 09.2026 'painting' nie było w VALID_STATION_CODES."""
+    odp = client.post('/api/mobile/register', json={
+        'device_id': 'TABLET-LAKIERNIA',
+        'device_name': 'Tablet lakierni',
+        'station_code': 'painting',
+    })
+
+    assert odp.status_code == 200, odp.get_json()
+    assert odp.get_json()['station_code'] == 'painting'
+
+
+def test_nowy_tablet_lakierni_domyka_lakiernie(client, app):
+    """
+    STRAŻNIK trasy: Lakiernia jako PEŁNOPRAWNE stanowisko z własnym tabletem,
+    bez pośrednictwa grupy STATION_GROUPS. To jest docelowy stan po kroku 17
+    wdrożenia — dziś ścieżka jest nieosiągalna, bo takiego tabletu nie da się
+    zarejestrować.
+    """
+    rej = client.post('/api/mobile/register', json={
+        'device_id': 'TABLET-LAK-2',
+        'device_name': 'Tablet lakierni',
+        'station_code': 'painting',
+    })
+    assert rej.status_code == 200, rej.get_json()
+    token = rej.get_json()['token']
+
+    produkt_id = _produkt(app, status='czeka_na_lakiernie', quantity=2,
+                          finish_type='lakierowane', obrobka_krawedzi=False)
+
+    odp = client.post('/api/mobile/orders/{}/complete'.format(produkt_id),
+                      headers=_naglowki(token, operation_id='op-lak-1'),
+                      json={})
+
+    assert odp.status_code == 200, odp.get_json()
+    assert odp.get_json()['status'] == 'czeka_na_logistyke'
+
+    with app.app_context():
+        produkt = ProductionProduct.query.get(produkt_id)
+        assert produkt.quantity_done_painting == 2
+        assert produkt.painting_completed_at is not None
+
+        kody = {e.station_code for e in ProductionStationEvent.query.all()}
+        assert kody == {'painting'}
+
+
+def test_rejestracja_nieznanym_kodem_dalej_odrzucana(client, app):
+    """STRAŻNIK: alias rozwija JEDEN kod, nie otwiera bramki na dowolny."""
+    odp = client.post('/api/mobile/register', json={
+        'device_id': 'TABLET-X',
+        'device_name': 'Tablet',
+        'station_code': 'wykanczanie',
+    })
+
+    assert odp.status_code == 400
+    assert odp.get_json()['error'] == 'invalid_station_code'
