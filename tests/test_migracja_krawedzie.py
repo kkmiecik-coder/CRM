@@ -513,6 +513,39 @@ def test_rollback_korzysta_z_tabeli_kopii():
     assert "DROP TABLE" not in tresc.upper()
 
 
+def test_rollback_krok3_cofa_krawedzie_bezwarunkowo_a_lakiernie_tylko_pod_waska_regula():
+    """Scenariusz z hali (recenzja 2026-09-15): produkt, ktorego migracja
+    postawila na 'czeka_na_krawedzie', odbija sie REALNIE na stanowisku
+    Krawedzie i pod nowym kodem trafia na 'czeka_na_lakiernie'
+    (modules/production/models.py:566-568) — to nie efekt uboczny migracji,
+    tylko wykonana praca. Tabela kopii tych dwoch przypadkow (ten i produkt,
+    ktorego migracja wyslala na 'czeka_na_lakiernie' WPROST, sekcja 1 migracji)
+    nie odroznia: oba maja stara_wartosc = 'czeka_na_wykanczanie'. Bez waskiej
+    reguly krok 3 cofnalby OBA do kolejki wykanczania, mimo ze jeden z nich ma
+    juz quantity_done_edges rowne quantity i date zakonczenia ustawiona —
+    wracalby do kolejki z licznikiem mowiacym "zrobione"."""
+    polecenie = next(
+        _bez_bialych(p) for p in
+        MigrationService.split_statements(_tresc_rollbacku())
+        if "prod_migracja_krawedzie_kopia" in p
+        and _bez_bialych(p).upper().startswith("UPDATE PROD_PRODUCTS")
+    )
+    warunek = polecenie.split(" WHERE ", 1)[1]
+
+    # Bezwarunkowe cofniecie: kazda pozycja na 'czeka_na_krawedzie' wraca,
+    # bez dodatkowych ograniczen -- to catch-all dla galezi, ktora migracja
+    # zawsze wysylala na to samo miejsce.
+    assert warunek.startswith("p.current_status = 'czeka_na_krawedzie'")
+
+    # Waskie cofniecie: 'czeka_na_lakiernie' wraca WYLACZNIE pod ta sama regula,
+    # ktorej migracja uzyla do rozdzielenia kolejki (sekcja 1 pliku migracji) --
+    # inaczej nie da sie odroznic wiersza wyslanego tam WPROST od produktu po
+    # realnie wykonanej Krawedzi.
+    assert "OR (p.current_status = 'czeka_na_lakiernie'" in warunek
+    assert "p.parsed_edge_processing = 0" in warunek
+    assert "p.parsed_finish_type IN ('olejowane','lakierowane')" in warunek
+
+
 def test_rollback_zdejmuje_enum_dopiero_po_wszystkich_updatach():
     polecenia = [_bez_bialych(p) for p in
                  MigrationService.split_statements(_tresc_rollbacku())]

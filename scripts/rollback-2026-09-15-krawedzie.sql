@@ -82,11 +82,30 @@ DEALLOCATE PREPARE polecenie_data;
 -- zostalaby cofnieta do kolejki wykanczania — a tego rollback nie umie juz
 -- odkrecic. Wiersze kopii maja stara_wartosc zawsze rowna 'czeka_na_wykanczanie',
 -- wiec ograniczenie nie gubi nic, co migracja faktycznie ruszyla.
+--
+-- KTOREGO PRZYPADKU BRONI WASKA REGULA NIZEJ: produkt, ktorego migracja
+-- postawila na 'czeka_na_krawedzie', po REALNIE WYKONANYM stanowisku Krawedzie
+-- trafia pod nowym kodem na 'czeka_na_lakiernie' (models.py:566-568) — czyli
+-- prosto w druga galaz warunku ponizej. Sama tabela kopii tych dwoch
+-- przypadkow nie odroznia: kazdy wiersz ma stara_wartosc rowna
+-- 'czeka_na_wykanczanie', niezaleznie od tego, na ktora galaz migracja go
+-- wyslala. Odroznia je dopiero TA SAMA regula, ktorej migracja uzyla przy
+-- rozdzielaniu kolejki (sekcja 1 pliku migracji): 'czeka_na_lakiernie'
+-- osiagniete WPROST przez migracje ma parsed_edge_processing = 0 i olej/lakier
+-- — taki wiersz bezpiecznie cofamy razem z 'czeka_na_krawedzie'.
+-- 'czeka_na_lakiernie' osiagniete przez realne odbicie Krawedzi tej reguly nie
+-- spelnia (parsed_edge_processing = 1) — takiego NIE cofamy: stanowisko zostalo
+-- faktycznie wykonane, quantity_done_edges jest rowne quantity i data
+-- zakonczenia ustawiona, a cofniecie wrocilo by z licznikiem mowiacym
+-- "zrobione" do kolejki, w ktorej stanowisko dopiero czeka.
 UPDATE prod_products p
   JOIN prod_migracja_krawedzie_kopia k
     ON k.tabela = 'prod_products' AND k.rekord_id = p.id
    SET p.current_status = k.stara_wartosc
- WHERE p.current_status IN ('czeka_na_krawedzie','czeka_na_lakiernie');
+ WHERE p.current_status = 'czeka_na_krawedzie'
+    OR (p.current_status = 'czeka_na_lakiernie'
+        AND p.parsed_edge_processing = 0
+        AND p.parsed_finish_type IN ('olejowane','lakierowane'));
 
 UPDATE prod_products SET current_status = 'czeka_na_wykanczanie'
  WHERE current_status = 'czeka_na_krawedzie';
