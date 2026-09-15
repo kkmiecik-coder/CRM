@@ -17,6 +17,8 @@ Trzy momenty zmiany statusu w BL:
 2. Po ukończeniu ostatniego stanowiska produkcyjnego zamówienia:
    schedule_after_station_complete() → "Produkcja zakończona" (138620)
    Warunek: wszystkie pozycje zamówienia mają current_status w POSTPROD_STATUSES.
+   Wyjść z produkcji jest trzy: formatowanie (surowy bez obróbki krawędzi),
+   Krawędzie (surowy z obróbką) i Lakiernia (olejowany / lakierowany).
 
 3. Po ukończeniu pakowania ostatniego produktu zamówienia:
    schedule_after_station_complete() → "Zamówienie spakowane" (138623)
@@ -35,6 +37,7 @@ import threading
 from typing import List, Optional
 from flask import g, current_app
 from modules.logging import get_structured_logger
+from .station_catalog import resolve_station_code
 
 logger = get_structured_logger('production.baselinker_status_sync')
 
@@ -50,9 +53,19 @@ PLANNED_ROUTE_STATUS_ID = 417343            # "Planowana trasa" (transport WoodP
 # Statusy lokalne CRM oznaczające "produkcja zakończona, czekamy na logistykę/pakowanie/po pakowaniu"
 POSTPROD_STATUSES = frozenset({'czeka_na_logistyke', 'czeka_na_pakowanie', 'spakowane'})
 
-# Stanowiska po których możemy hipotetycznie skończyć produkcję
-# (gluing - tylko gdy cut_to_size=False; reszta - normalny flow)
-PRODUCTION_STATIONS = frozenset({'gluing', 'formatting', 'finishing', 'painting'})
+# Stanowiska, po których zamówienie może skończyć produkcję.
+# 'gluing' wchodzi tu tylko przy cut_to_size=False (produkt omija formatowanie
+# i Krawędzie). Po rozdziale Wykańczania linia ma TRZY wyjścia do logistyki:
+# 'formatting' (surowy bez krawędzi), 'edges' (surowy z krawędziami)
+# i 'painting' (olejowany / lakierowany).
+#
+# Brak któregokolwiek z tych kodów w zbiorze to CICHA awaria: guard
+# w schedule_after_station_complete() robi zwykły return — bez wyjątku, bez logu,
+# bez retry — i zamówienie nigdy nie dostaje statusu "Produkcja zakończona".
+#
+# 'finishing' zostaje na okres przejściowy (zdjąć razem z aliasem — krok 20
+# kolejności wdrożenia).
+PRODUCTION_STATIONS = frozenset({'gluing', 'formatting', 'edges', 'finishing', 'painting'})
 
 # Backoff dla retry po błędzie API. Daemon Timer odpala kolejne próby.
 RETRY_DELAYS_S = (5, 15, 30, 60, 120, 300, 600)
@@ -172,6 +185,15 @@ def schedule_after_station_complete(internal_order_number: str,
     """
     if not internal_order_number or not station_code:
         return
+
+    # Alias okresu przejściowego: tablet sprzed rozdziału Wykańczania melduje
+    # jeszcze 'finishing'. Rozwijamy go TU, na wejściu, żeby w kolejce stał
+    # wyłącznie kod kanoniczny. Bez tego deduplikacja po krotce (numer, kod)
+    # nie łączy wpisów z dwóch tabletów tej samej brygady i BaseLinker dostaje
+    # dwa setOrderStatus pod rząd. Normalizacja tutaj jest też warunkiem, żeby
+    # krok 20 wdrożenia mógł bezpiecznie zdjąć 'finishing' z PRODUCTION_STATIONS.
+    station_code = resolve_station_code(station_code)
+
     if station_code not in PRODUCTION_STATIONS and station_code != 'packaging':
         return  # inne stanowiska nie kończą zamówienia
 
