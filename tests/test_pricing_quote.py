@@ -128,7 +128,7 @@ CENNIK_PROG = [
      'width_min': 10, 'width_max': 120, 'price_per_m3': 8000.0},   # 0.015 m³ -> baza 120
     {'species': 'Buk', 'technology': 'Lity', 'wood_class': 'A/B',
      'thickness_min': 3, 'thickness_max': 4, 'length_min': 20, 'length_max': 450,
-     'width_min': 10, 'width_max': 120, 'price_per_m3': 80000.0},  # 0.015 m³ -> baza 1200
+     'width_min': 10, 'width_max': 120, 'price_per_m3': 100000.0},  # 0.015 m³ -> baza 1500
 ]
 DATA_PROG = PricingData(price_entries=CENNIK_PROG, multipliers={'Detal+': 1.3},
                         edge_prices={'round': {'per_mb': 15.0, 'per_corner': 5.0}})
@@ -144,9 +144,56 @@ def _payload_prog(**kw):
 
 def test_prog_mnoznika_na_cenie_bazowej():
     assert auto_multiplier_for_base(999.99) == 1.5
-    assert auto_multiplier_for_base(1000.0) == 1.1    # rowno 1000 -> "od progu"
-    assert auto_multiplier_for_base(1000.01) == 1.1
     assert auto_multiplier_for_base(0.0) == 1.5
+    # powyzej ok. 1363.64 dziala juz mnoznik docelowy
+    assert auto_multiplier_for_base(2000.0) == 1.1
+    assert auto_multiplier_for_base(1500.0) == 1.1
+
+
+def test_plateau_nie_pozwala_cenie_spasc_na_progu():
+    """Gole przelaczenie 1.5 -> 1.1 dawalo uskok, w ktorym WIEKSZY produkt jest
+    TANSZY (zmierzone: blat 198 cm 1496,88 zl, blat 200 cm 1108,80 zl).
+    Powyzej progu cena ma wiec podloge rowna cenie progowej."""
+    assert abs(999.99 * auto_multiplier_for_base(999.99) - 1499.985) < 0.001
+    # tuz nad progiem cena NIE spada — trzyma sie 1500 zl
+    for baza in (1000.0, 1100.0, 1200.0, 1363.0):
+        assert abs(baza * auto_multiplier_for_base(baza) - 1500.0) < 0.01, baza
+    # od ok. 1363.64 w gore plateau sie konczy i rosnie wg 1.1
+    assert abs(1400.0 * auto_multiplier_for_base(1400.0) - 1540.0) < 0.001
+
+
+def test_cena_nigdy_nie_maleje_gdy_produkt_rosnie():
+    """Niezmiennik calej reguly: drozszy surowiec nie moze dac tanszego produktu."""
+    poprzednia = -1.0
+    baza = 1.0
+    while baza <= 3000.0:
+        cena = baza * auto_multiplier_for_base(baza)
+        assert cena >= poprzednia - 1e-9, f'cena spadla przy bazie {baza}'
+        poprzednia = cena
+        baza += 0.5
+
+
+def test_zapisany_mnoznik_odtwarza_cene_pozycji():
+    """QuoteItem.multiplier ma odtwarzac cene pozycji rowniez w strefie plateau,
+    gdzie mnoznik nie jest ani 1.5, ani 1.1 (np. 1.25 przy bazie 1200)."""
+    from modules.calculator.services.pricing_service import calculate_material_variants
+    # buk 100000/m3 -> baza 1500 (poza plateau), dab 8000/m3 -> baza 120 (ponizej progu)
+    dane = PricingData(price_entries=CENNIK_PROG)
+    produkt = {'length': 100, 'width': 50, 'thickness': 3, 'quantity': 1,
+               'shape': 'rectangular', 'holes_count': 0}
+    for w in calculate_material_variants(produkt, 1.0, dane, auto_multiplier=True):
+        if not w.get('available'):
+            continue
+        odtworzona = w['base_unit_netto'] * w['multiplier']
+        assert abs(odtworzona - w['unit_netto']) < 0.01, w['variant_code']
+
+
+def test_mnoznik_w_plateau_jest_posrednim_nie_11():
+    """W plateau raportujemy mnoznik EFEKTYWNY — inaczej cena nie zgadzalaby sie
+    z baza x mnoznik i zapisany mnoznik klamalby."""
+    m = auto_multiplier_for_base(1200.0)
+    assert 1.1 < m < 1.5
+    assert abs(1200.0 * m - 1500.0) < 0.001
 
 
 def test_tanszy_produkt_dostaje_15_drozszy_11():
@@ -160,9 +207,9 @@ def test_tanszy_produkt_dostaje_15_drozszy_11():
     assert abs(tani['unit_netto'] - 180.0) < 0.001
 
     drogi = warianty['buk-lity-ab']      # baza 1200 zl -> od progu
-    assert drogi['base_unit_netto'] == 1200.0
+    assert drogi['base_unit_netto'] == 1500.0
     assert drogi['multiplier'] == 1.1
-    assert abs(drogi['unit_netto'] - 1320.0) < 0.001
+    assert abs(drogi['unit_netto'] - 1650.0) < 0.001
 
 
 def test_mnoznik_dobierany_per_wariant_a_nie_per_produkt():

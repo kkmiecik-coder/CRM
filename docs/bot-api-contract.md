@@ -28,22 +28,31 @@ Modułowi **nie wolno** przechowywać ani wyliczać samodzielnie:
 
 **Jak dobierany jest mnożnik (stan na 2026-09-15).** Domyślnie dobiera go CRM,
 osobno dla **każdego wariantu drewna**, na podstawie ceny bazowej sztuki
-(objętość × cena za m³, bez mnożnika i bez dopłat):
+(objętość × cena za m³, bez mnożnika i bez dopłat). Trzy zakresy:
 
 - baza **poniżej 1000 zł netto** → mnożnik **1.5**
-- baza **od 1000 zł netto** → mnożnik **1.1**
+- baza **od 1000 zł netto** do ok. 1363,64 zł → **cena stała 1500 zł netto**
+  (mnożnik efektywny schodzi płynnie z 1.5 do 1.1)
+- baza **powyżej ok. 1363,64 zł** → mnożnik **1.1**
 
 Próg liczy się na cenie bazowej, a nie końcowej, bo inaczej reguła zapętliłaby się
 (baza 900 → ×1.5 = 1350, czyli powyżej progu, więc ×1.1 → 990, czyli poniżej progu…).
+
+Środkowy zakres („plateau") istnieje po to, żeby cena **nigdy nie spadła przy
+większym produkcie**. Bez niego gołe przełączenie 1.5 → 1.1 dawało uskok: na
+produkcyjnym cenniku (dąb lity B/B, 90×4 cm) blat 198 cm kosztowałby 1496,88 zł
+netto, a 200 cm już tylko 1108,80 zł — większy blat tańszy o 388 zł, akurat na
+jednym z najpopularniejszych wymiarów. Z plateau przejście jest ciągłe:
+198 cm = 1496,88 → 199 cm = 1500,00 → 200 cm = 1500,00 → 240 cm = 1568,16.
 
 Skutki, o których musi wiedzieć sklep:
 
 1. **Ten sam produkt ma różne mnożniki w różnych wariantach.** Blat może wyjść
    ×1.5 w buku i ×1.1 w dębie litym. Nie zakładaj jednego mnożnika na wycenę.
-2. **Na progu jest uskok ceny.** Zmierzone na produkcyjnym cenniku (dąb lity B/B,
-   90×4 cm): blat 198 cm = 1496,88 zł netto, blat 200 cm = 1108,80 zł netto —
-   **większy blat jest tańszy o 388 zł**. Jeśli konfigurator pokazuje cenę na żywo
-   przy zmianie wymiaru, klient to zobaczy.
+2. **Mnożnik bywa wartością pośrednią.** W strefie plateau `variants[].multiplier`
+   to np. `1.2501`, a nie 1.5 ani 1.1. Nie waliduj go po stronie sklepu i nie
+   zaokrąglaj — jest tak dobrany, żeby `base_unit_netto × multiplier` dawało
+   dokładnie `unit_netto`.
 3. **Grupa cenowa (`client_type`) nie wpływa na cenę** w trybie domyślnym.
    Pole zostaje wymagane w walidacji i jest zapisywane na wycenie, ale mnożnika
    już nie ustala.
@@ -133,6 +142,7 @@ limity, opcje wykończeń, typy krawędzi, grupy cenowe.
     "prog_netto": 1000.0,
     "ponizej_progu": 1.5,
     "od_progu": 1.1,
+    "cena_progowa_netto": 1500.0,
     "liczony_na": "cena bazowa sztuki (bez mnożnika i bez dopłat)"
   },
   "shapes": ["rectangular", "round", "circle"],

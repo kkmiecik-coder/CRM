@@ -156,7 +156,7 @@ CENNIK_BOT = [
      'width_min': 10, 'width_max': 120, 'price_per_m3': 8000.0},    # baza 120
     {'species': 'Buk', 'technology': 'Lity', 'wood_class': 'A/B',
      'thickness_min': 3, 'thickness_max': 4, 'length_min': 20, 'length_max': 450,
-     'width_min': 10, 'width_max': 120, 'price_per_m3': 80000.0},   # baza 1200
+     'width_min': 10, 'width_max': 120, 'price_per_m3': 100000.0},  # baza 1500
 ]
 DANE_BOT = PricingData(price_entries=CENNIK_BOT, multipliers={'Detal+': 1.3})
 

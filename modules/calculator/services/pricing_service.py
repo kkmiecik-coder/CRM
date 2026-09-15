@@ -60,21 +60,38 @@ def custom_shape_surcharge_per_unit(shape, data):
 # (poniżej progu, więc znów ×1.5) → 1350 → ... Cena bazowa nie zależy od
 # mnożnika, więc rozstrzyga jednoznacznie. Decyzja użytkownika z 2026-09-15.
 #
-# Skutek uboczny, świadomie przyjęty: na progu jest uskok — sztuka o bazie
-# 999 zł kosztuje 1498,50 netto, a o bazie 1000 zł już tylko 1100,00.
+# PLATEAU NA PROGU — dlaczego sama para 1.5/1.1 nie wystarcza:
+# gołe przełączenie mnożnika dawało uskok, w którym WIĘKSZY produkt jest TAŃSZY.
+# Zmierzone na produkcyjnym cenniku (dąb lity B/B, 90×4 cm): blat 198 cm =
+# 1496,88 zł netto, blat 200 cm = 1108,80 zł — 2 cm dłuższy blat o 388 zł tańszy,
+# akurat na 200 cm, czyli jednym z najpopularniejszych wymiarów.
+#
+# Dlatego powyżej progu cena nie może zejść poniżej ceny progowej (1000 × 1.5 =
+# 1500 zł). Daje to trzy zakresy, ciągłe i nigdy nie malejące:
+#   baza < 1000            → ×1.5              (999,99 → 1499,98)
+#   baza 1000 … ~1363,64   → cena stała 1500   (mnożnik efektywny spada 1.5 → 1.1)
+#   baza od ~1363,64       → ×1.1              (mnożnik docelowy)
 AUTO_MULTIPLIER_PROG_NETTO = 1000.0
 AUTO_MULTIPLIER_PONIZEJ_PROGU = 1.5
 AUTO_MULTIPLIER_OD_PROGU = 1.1
+# Cena netto sztuki dokładnie na progu — podłoga dla zakresu powyżej progu.
+AUTO_MULTIPLIER_CENA_PROGOWA = AUTO_MULTIPLIER_PROG_NETTO * AUTO_MULTIPLIER_PONIZEJ_PROGU
 
 
 def auto_multiplier_for_base(base_netto):
     """Mnożnik dobrany do bazowej ceny SZTUKI (bez mnożnika i bez dopłat).
 
-    Równo 1000 zł liczymy jako "od progu" → 1.1; użytkownik określił regułę
-    jako "<1k" i ">1k", sama równość nie była objęta.
+    Równo 1000 zł liczymy jako "od progu"; użytkownik określił regułę jako
+    "<1k" i ">1k", sama równość nie była objęta.
+
+    W strefie plateau zwracamy mnożnik EFEKTYWNY (cena progowa / baza), a nie
+    1.1 — dzięki temu niezmiennik `cena = baza × mnożnik` trzyma się wszędzie,
+    więc zapisany QuoteItem.multiplier odtwarza cenę pozycji.
     """
     if base_netto < AUTO_MULTIPLIER_PROG_NETTO:
         return AUTO_MULTIPLIER_PONIZEJ_PROGU
+    if base_netto * AUTO_MULTIPLIER_OD_PROGU < AUTO_MULTIPLIER_CENA_PROGOWA:
+        return AUTO_MULTIPLIER_CENA_PROGOWA / base_netto
     return AUTO_MULTIPLIER_OD_PROGU
 
 

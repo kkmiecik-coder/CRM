@@ -11,7 +11,8 @@ import re
 
 from modules.calculator.services.pricing_service import (
     AUTO_MULTIPLIER_PROG_NETTO, AUTO_MULTIPLIER_PONIZEJ_PROGU,
-    AUTO_MULTIPLIER_OD_PROGU, auto_multiplier_for_base,
+    AUTO_MULTIPLIER_OD_PROGU, AUTO_MULTIPLIER_CENA_PROGOWA,
+    auto_multiplier_for_base,
 )
 
 SCIEZKA_DOKUMENTU = os.path.join(
@@ -37,6 +38,7 @@ def test_progi_w_dokumencie_zgodne_z_kodem():
     assert f'"prog_netto": {AUTO_MULTIPLIER_PROG_NETTO}' in wnetrze
     assert f'"ponizej_progu": {AUTO_MULTIPLIER_PONIZEJ_PROGU}' in wnetrze
     assert f'"od_progu": {AUTO_MULTIPLIER_OD_PROGU}' in wnetrze
+    assert f'"cena_progowa_netto": {AUTO_MULTIPLIER_CENA_PROGOWA}' in wnetrze
 
 
 def test_regula_slowna_zgodna_z_kodem():
@@ -44,18 +46,29 @@ def test_regula_slowna_zgodna_z_kodem():
     tresc = _dokument()
     prog = int(AUTO_MULTIPLIER_PROG_NETTO)
     assert f'poniżej {prog} zł netto** → mnożnik **{AUTO_MULTIPLIER_PONIZEJ_PROGU}' in tresc
-    assert f'od {prog} zł netto** → mnożnik **{AUTO_MULTIPLIER_OD_PROGU}' in tresc
+    assert f'cena stała {int(AUTO_MULTIPLIER_CENA_PROGOWA)} zł netto' in tresc
+    assert f'→ mnożnik **{AUTO_MULTIPLIER_OD_PROGU}' in tresc
     # regula opisana slownie musi odpowiadac temu, co faktycznie robi kod
     assert auto_multiplier_for_base(prog - 0.01) == AUTO_MULTIPLIER_PONIZEJ_PROGU
-    assert auto_multiplier_for_base(prog) == AUTO_MULTIPLIER_OD_PROGU
 
 
-def test_dokument_ostrzega_o_uskoku_na_progu():
-    """Uskok (wiekszy blat tanszy) to niespodzianka dla konfiguratora sklepu —
-    ostrzezenie ma zostac w dokumencie, nawet jesli ktos bedzie go skracal."""
-    tresc = _dokument().lower()
-    assert 'uskok' in tresc
-    assert 'tańszy' in tresc or 'tanszy' in tresc
+def test_dokument_opisuje_plateau():
+    """Plateau to niespodzianka dla konfiguratora (mnoznik bywa posredni, np. 1.2501),
+    wiec opis ma zostac w dokumencie nawet przy jego skracaniu."""
+    tresc = _dokument()
+    assert 'plateau' in tresc.lower()
+    assert 'nigdy nie spadła przy' in tresc
+
+
+def test_plateau_faktycznie_dziala_w_kodzie():
+    """Dokument obiecuje sklepowi, ze cena nie spada przy wiekszym produkcie.
+    Ta obietnica musi byc prawdziwa — inaczej kontrakt klamie."""
+    poprzednia, baza = -1.0, 1.0
+    while baza <= 3000.0:
+        cena = baza * auto_multiplier_for_base(baza)
+        assert cena >= poprzednia - 1e-9, f'cena spadla przy bazie {baza}'
+        poprzednia = cena
+        baza += 0.5
 
 
 def test_dokument_zabrania_duplikowania_mnoznika_w_sklepie():
