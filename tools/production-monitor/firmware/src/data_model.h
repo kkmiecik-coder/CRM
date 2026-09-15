@@ -7,14 +7,16 @@ constexpr size_t STATION_COUNT = 7;
 constexpr size_t MAX_SPECIES   = 4;   // configurable on CRM, but firmware caps at 4
 
 // Order MUST match STATION_CODES in display_monitor_service.py
+// Pozycja 4 byla dawniej Wykonczeniem (kod ekranu "fin"). Po podziale
+// stanowiska: Krawedzie, kod ekranu "edg". Liczba ekranow bez zmian (7).
 enum StationIdx : uint8_t {
   ST_CUT = 0, ST_ASM = 1, ST_GLU = 2, ST_FMT = 3,
-  ST_FIN = 4, ST_PNT = 5, ST_PKG = 6,
+  ST_EDG = 4, ST_PNT = 5, ST_PKG = 6,
 };
 
 constexpr const char* STATION_LABELS_PL[STATION_COUNT] = {
   "Ciecie", "Skladanie", "Sklejanie", "Formatka",
-  "Wykonczenie", "Lakiernia", "Pakowanie",
+  "Krawedzie", "Lakiernia", "Pakowanie",
 };
 
 // 3 ints per station × species cell: in_progress, done_today, queue

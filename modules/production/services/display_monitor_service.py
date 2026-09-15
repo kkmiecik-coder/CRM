@@ -3,8 +3,28 @@
 Returns a compact dict (JSON-serializable) describing current production
 state across 7 stations x N configured species.
 
-Shape is documented in docs/superpowers/plans/2026-06-08-production-monitor-display.md
-under "JSON Format Specification".
+KONTRAKT CRM <-> FIRMWARE (kolejnosc kanoniczna ekranow):
+
+    idx  kod   kolumny w prod_products                    status oczekiwania
+    ---  ----  -----------------------------------------  ----------------------
+     0   cut   quantity_done_cutting/cutting_completed_at      czeka_na_wyciecie
+     1   asm   quantity_done_assembly/assembly_completed_at    czeka_na_skladanie
+     2   glu   quantity_done_gluing/gluing_completed_at        czeka_na_sklejanie
+     3   fmt   quantity_done_formatting/formatting_completed_at czeka_na_formatowanie
+     4   edg   quantity_done_edges/edges_completed_at          czeka_na_krawedzie
+     5   pnt   quantity_done_painting/painting_completed_at    czeka_na_lakiernie
+     6   pkg   quantity_done_packaging/packaging_completed_at  czeka_na_pakowanie
+
+Ta kolejnosc MUSI byc identyczna z enumem StationIdx w
+tools/production-monitor/firmware/src/data_model.h oraz z lista strcmp()
+w json_parser.cpp. Nieznany kod ekranu NIE zglasza bledu — parser robi
+`continue`, a StationData jest zero-initowane, wiec rozjazd objawia sie
+ZERAMI na wyswietlaczu, nie awaria. Zgodnosci pilnuje
+tests/test_monitory_krawedzie.py::test_kontrakt_wyswietlacza_zyje_w_sledzonych_plikach.
+
+Opis zyje TUTAJ, a nie w osobnym dokumencie planu: katalog planow jest
+ignorowany przez git (repo jest publiczne), wiec na czystym klonie tamtego
+pliku po prostu nie ma.
 
 ONE SQL query — groups by species, uses conditional SUM(CASE WHEN) for all
 metrics. Earlier implementation issued ~90 sequential queries per call which
@@ -21,13 +41,20 @@ from extensions import db
 from modules.production.models import ProductionConfig
 
 # Canonical order - MUST match firmware's screen order.
+# Pozycja 4 to dawne 'fin' (Wykanczanie). Po podziale stanowiska kod ekranu
+# brzmi 'edg' (Krawedzie); 'pnt' (Lakiernia) bylo tu od poczatku, wiec liczba
+# ekranow nadal wynosi 7. Wyswietlacze TRZEBA przeflashowac: nieznany kod wpada
+# w `if (idx < 0) continue` (json_parser.cpp:57), a StationData jest
+# zero-initowane, wiec ekran pokaze ZERA zamiast zglosic blad.
+# Drugi element krotki jest WKLEJANY DOSLOWNIE do surowego SQL (:59-63, :68-70)
+# jako nazwa kolumny quantity_done_<suffix> / <suffix>_completed_at.
 # (code, db_suffix, waiting_status)
 STATION_CODES = [
     ('cut', 'cutting',    'czeka_na_wyciecie'),
     ('asm', 'assembly',   'czeka_na_skladanie'),
     ('glu', 'gluing',     'czeka_na_sklejanie'),
     ('fmt', 'formatting', 'czeka_na_formatowanie'),
-    ('fin', 'finishing',  'czeka_na_wykanczanie'),
+    ('edg', 'edges',      'czeka_na_krawedzie'),
     ('pnt', 'painting',   'czeka_na_lakiernie'),
     ('pkg', 'packaging',  'czeka_na_pakowanie'),
 ]
@@ -96,6 +123,12 @@ def _build_aggregation_sql():
     return "".join(parts)
 
 
+# Liczone RAZ, przy imporcie modulu — nazwy kolumn zamrazaja sie w tym stringu
+# na cale zycie procesu gunicorna. deploy.sh migruje baze PRZED restartem
+# (linia 50 vs 69), wiec miedzy migracja a restartem kazdy poll
+# /api/display/monitor wali 500. Normalnie kilka sekund; jesli restart
+# supervisora padnie (dzienny log jako root -> gunicorn bez prawa zapisu),
+# stan 500 jest TRWALY. To ryzyko R6 specyfikacji.
 _AGGREGATION_SQL = _build_aggregation_sql()
 
 

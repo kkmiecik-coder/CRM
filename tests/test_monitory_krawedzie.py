@@ -313,3 +313,88 @@ def test_arkusz_monitora_ogolnego_ma_kolory_krawedzi_i_lakierni():
     assert '.status-badge.status-edges' in css
     assert '.status-badge.status-painting' in css
     assert 'status-finishing' not in css
+
+
+def test_sql_agregacji_wyswietlacza_uzywa_kolumn_krawedzi():
+    """_AGGREGATION_SQL liczy sie RAZ przy imporcie modulu (:99) — nazwy kolumn
+    zamrazaja sie w stringu na cale zycie procesu gunicorna."""
+    from modules.production.services.display_monitor_service import _AGGREGATION_SQL
+    assert 'quantity_done_edges' in _AGGREGATION_SQL
+    assert 'edges_completed_at' in _AGGREGATION_SQL
+    assert 'quantity_done_finishing' not in _AGGREGATION_SQL
+    assert 'finishing_completed_at' not in _AGGREGATION_SQL
+
+
+def test_kod_ekranu_krawedzi_pilnuje_kolejnosci_kanonicznej():
+    """Pozycja 4 w STATION_CODES = ST_EDG w firmware. Przestawienie kolejnosci
+    przesuwa WSZYSTKIE ekrany wyswietlacza, bez zadnego bledu."""
+    from modules.production.services.display_monitor_service import STATION_CODES
+    assert STATION_CODES[4] == ('edg', 'edges', 'czeka_na_krawedzie')
+    assert STATION_CODES[5] == ('pnt', 'painting', 'czeka_na_lakiernie')
+
+
+def test_firmware_zna_kod_ekranu_krawedzi():
+    """Nieznany kod ekranu NIE daje bledu — json_parser.cpp:57 robi `continue`,
+    a StationData jest zero-initowane, wiec wyswietlacz pokazuje zera.
+    Awaria jest bezglosna, wiec pilnujemy zgodnosci greppem po zrodlach."""
+    naglowek = _plik('tools', 'production-monitor', 'firmware', 'src', 'data_model.h')
+    parser = _plik('tools', 'production-monitor', 'firmware', 'src', 'json_parser.cpp')
+    assert 'ST_EDG = 4' in naglowek
+    assert 'ST_FIN' not in naglowek
+    # Tablica ASCII — bez polskich znakow, wyswietlacz ich nie ma.
+    assert '"Krawedzie"' in naglowek
+    assert '"Wykonczenie"' not in naglowek
+    assert 'STATION_COUNT = 7' in naglowek
+    assert '"edg"' in parser
+    assert '"fin"' not in parser
+    assert 'ST_FIN' not in parser
+
+
+def test_firmware_i_serwis_maja_te_sama_kolejnosc_ekranow():
+    """Kazdy kod ekranu z Pythona musi dac sie znalezc w parserze firmware'u."""
+    from modules.production.services.display_monitor_service import STATION_CODES
+    parser = _plik('tools', 'production-monitor', 'firmware', 'src', 'json_parser.cpp')
+    for kod, _, _ in STATION_CODES:
+        assert '"' + kod + '"' in parser, kod
+
+
+def test_test_firmware_sprawdza_pozycje_krawedzi():
+    """Dzis pozycja 'fin' z SAMPLE_PAYLOAD nie ma ZADNEJ asercji — sprawdzane
+    sa tylko ST_CUT (:47-49) i ST_PKG (:50-52). Rename bylby niepokryty."""
+    kod = _plik('tools', 'production-monitor', 'firmware', 'test',
+                'test_json_parser', 'test_main.cpp')
+    assert '"c":"edg"' in kod
+    assert '"c":"fin"' not in kod
+    assert 'p.stations[ST_EDG].ip' in kod
+    assert 'p.stations[ST_EDG].d' in kod
+    assert 'p.stations[ST_EDG].q' in kod
+    assert 'p.stations[ST_PNT].ip' in kod
+
+
+def test_kontrakt_wyswietlacza_zyje_w_sledzonych_plikach():
+    """Jedyny wiazacy opis kontraktu CRM<->firmware ma byc w kodzie.
+
+    Dotad docstring odsylal do docs/superpowers/plans/... — a ten katalog
+    jest w .gitignore (:241), wiec na czystym klonie repo tego dokumentu
+    NIE MA. Kontrakt bez zrodla myli przy reflashu wyswietlaczy, a test
+    czytajacy taki plik wywalilby sie przez FileNotFoundError.
+
+    Druga polowa testu to straznik symetrii: kolejnosc kodow w parserze
+    firmware'u musi byc IDENTYCZNA z kolejnoscia STATION_CODES. Przesuniecie
+    o jedna pozycje przesuwa wszystkie ekrany i nie daje zadnego bledu.
+    """
+    import re
+    import modules.production.services.display_monitor_service as serwis
+
+    doc = serwis.__doc__
+    assert 'docs/superpowers' not in doc
+    assert 'czeka_na_krawedzie' in doc
+    assert 'czeka_na_wykanczanie' not in doc
+    for kod, _, _ in serwis.STATION_CODES:
+        assert kod in doc, kod
+
+    parser = _plik('tools', 'production-monitor', 'firmware', 'src', 'json_parser.cpp')
+    naglowek = _plik('tools', 'production-monitor', 'firmware', 'src', 'data_model.h')
+    kody_firmware = re.findall(r'strcmp\(code,\s*"([a-z]+)"\)', parser)
+    assert kody_firmware == [k for k, _, _ in serwis.STATION_CODES]
+    assert 'STATION_COUNT = %d' % len(serwis.STATION_CODES) in naglowek
