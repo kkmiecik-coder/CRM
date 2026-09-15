@@ -101,6 +101,23 @@
 -- bilans 2687 = 2553 na Krawedziach + 134 na Lakierni (zaden wiersz nie zginal),
 -- kolumny quantity_done_edges i edges_completed_at obecne, enum dorobki zwezony,
 -- tabela kopii 2 / 5 / 2687 / 133 — bez przyrostu przy powtorkach (INSERT IGNORE).
+--
+-- WERYFIKACJA LOKALNA — APLIKACJA: po restarcie kontenera pakiet `pytest tests/`
+-- zielony (1672) i `integrations/blog_seo` zielony (89). Monitor wyswietlacza
+-- odpowiada HTTP 200 z siedmioma stanowiskami ['cut','asm','glu','fmt','edg',
+-- 'pnt','pkg'] — 'edg' obecny, 'fin' nieobecny, a q=3 i q=21 zgadzaja sie
+-- z kolejka po migracji. To jedyny surowy SQL z nazwami kolumn w aplikacji,
+-- zamrozony w stringu przy imporcie modulu (display_monitor_service), wiec
+-- proces sprzed migracji walilby tu 500 — restart jest warunkiem, nie kosmetyka.
+-- Ryzyko R6 zdjete. UWAGA: endpoint to /production/api/display/monitor, nie
+-- /api/display/monitor — blueprint ma url_prefix='/production' (app.py:679).
+--
+-- CZEGO TA BRAMKA NIE SPRAWDZILA: ani migracja, ani rollback nie byly
+-- uruchamiane pod DZIALAJACYM kodem aplikacji. W szczegolnosci ostrzezenie
+-- z naglowka rollbacku, ze jego krok 7 padnie bledem 1265, gdy nowy kod nadal
+-- odtwarza wiersze, pozostaje NIEPRZETESTOWANE — kolejnosc "najpierw git revert
+-- i deploy, dopiero potem rollback SQL" obowiazuje na slowo tamtego naglowka.
+-- Okno wyscigu z sekcji 5 jest niewywolywalne na stojacej kopii bez ruchu.
 
 -- == 0. Kopia na potrzeby rollbacku i audytu =================================
 -- Przepisanie na 'painting' jest STRATNE: po fakcie nie odroznimy wierszy
