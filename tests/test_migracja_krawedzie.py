@@ -132,12 +132,13 @@ def test_kolejka_dzieli_sie_na_lakiernie_i_krawedzie():
     test_sweep_wyscigu_powtarza_regule_przed_zwezeniem_enuma.
 
     Sekcja sweepu byla pierwotnie sekcja 6 (po renameie kolumn). Recenzja
-    2026-09-15 przestawila ja PRZED rename (dzis sekcja 6) — zwezajacy ALTER
-    enuma jest jedynym dlugo trwajacym poleceniem po sekcji 1 i jedynym, ktore
-    moze pasc z przyczyn niezwiazanych z trescia (1205/1206). Jego porazka PRZED
-    renameem zostawia aplikacje dzialajaca na starym schemacie; PO renameie
-    (dawna kolejnosc) zostawialaby przemianowane kolumny pod starym kodem
-    gunicorna. Patrz test_zwezajacy_alter_enuma_stoi_przed_pierwszym_renamem_kolumny."""
+    2026-09-15 przestawila ja PRZED rename (dzis sekcja 5) — zwezajacy ALTER
+    enuma jest jednym z kilku polecen, ktore moga pasc z przyczyn
+    niezwiazanych z trescia (1205/1206), i jak one wszystkie stoi teraz przed
+    renameem. Jego porazka PRZED renameem zostawia aplikacje dzialajaca na
+    schemacie, ktory stary kod dalej czyta; PO renameie (dawna kolejnosc)
+    zostawialaby przemianowane kolumny pod starym kodem gunicorna.
+    Patrz test_zwezajacy_alter_enuma_stoi_przed_pierwszym_renamem_kolumny."""
     updaty = [_bez_bialych(p) for p in _polecenia()
               if _bez_bialych(p).upper().startswith("UPDATE PROD_PRODUCTS")]
     assert len(updaty) == 4, updaty
@@ -351,10 +352,11 @@ def test_kazdy_prepare_ma_swoje_deallocate():
 
 
 def test_kazdy_rename_uzywa_wlasnej_nazwy_polecenia():
-    """WZMOCNIENIE ponad brief. Dwa PREPARE pod TA SAMA nazwa to nie blad
-    skladni — drugie nadpisuje pierwsze, a DEALLOCATE nr 2 leci bledem 1243
-    i PRZERYWA plik na sekcji 6, czyli w polowie zmiany schematu. Liczenie
-    samych wystapien (test wyzej) tego nie lapie."""
+    """WZMOCNIENIE ponad brief. Po recenzji 2026-09-15 PREPARE jest w pliku
+    JEDEN, wiec ten test stoi na warcie na przyszlosc: dwa PREPARE pod TA SAMA
+    nazwa to nie blad skladni — drugie nadpisuje pierwsze, a DEALLOCATE nr 2
+    leci bledem 1243 i przerywa plik na sekcji 6. Liczenie samych wystapien
+    (test wyzej) tego nie lapie."""
     polecenia = [_bez_bialych(p) for p in _polecenia()]
     nazwy = [p.split()[1] for p in polecenia if p.upper().startswith("PREPARE ")]
     assert len(set(nazwy)) == len(nazwy), nazwy
@@ -439,15 +441,22 @@ def test_sweep_wyscigu_powtarza_regule_przed_zwezeniem_enuma():
 def test_zwezajacy_alter_enuma_stoi_przed_pierwszym_renamem_kolumny():
     """STRAZNIK NOWEJ KOLEJNOSCI (recenzja 2026-09-15: przestawienie sekcji 5 i 6).
 
-    Zwezajacy ALTER enuma current_status wymusza ALGORITHM=COPY (jedyne dlugo
-    trwajace polecenie po sekcji 1) i jest jedynym, ktore moze pasc z przyczyn
-    NIEZWIAZANYCH z trescia (1205/1206 — metadata lock na zywej tabeli). Gdyby
-    stal PO renameie kolumn (dawna kolejnosc), jego porazka zostawialaby
+    Zwezajacy ALTER enuma current_status wymusza ALGORITHM=COPY i moze pasc
+    z przyczyn NIEZWIAZANYCH z trescia (1205/1206 — metadata lock na zywej
+    tabeli). Nie jest w tym pliku jedyny — to samo dotyczy UPDATE-u
+    przepisujacego historie stanowiskowa, obu ALTER-ow enuma prod_rework_log
+    i samego RENAME COLUMN — ale jest ostatnim takim poleceniem przed sekcja
+    renameow i to jego pozycje da sie sprawdzic relacja indeksow.
+
+    Gdyby stal PO renameie kolumn (dawna kolejnosc), jego porazka zostawialaby
     schemat juz przemianowany pod starym kodem gunicorna: quantity_done_finishing
     juz by nie istnialo, wiec kazde zapytanie o prod_products lecialoby 1054,
     a caly modul produkcji byl martwy do recznego rollbacku. Stojac PRZED
-    renameem, ta sama porazka przerywa caly plik migracji, zanim cokolwiek
-    w schemacie zmieni sie pod dzialajaca aplikacja."""
+    renameem, ta sama porazka przerywa caly plik migracji, ZANIM SCHEMAT
+    PRZESTANIE BYC CZYTELNY DLA STAREGO KODU — nie "zanim cokolwiek sie
+    zmieni": enum current_status jest w tym momencie juz zwezony, a enum
+    prod_rework_log przebudowany. Obie te zmiany sa jednak zgodne wstecz,
+    bo zadnej kolumny nie ubylo."""
     polecenia = [_bez_bialych(p) for p in _polecenia()]
 
     indeks_zwezajacego = next(

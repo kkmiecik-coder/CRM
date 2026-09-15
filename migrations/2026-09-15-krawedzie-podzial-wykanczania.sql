@@ -22,21 +22,36 @@
 --   sekcja 0 robi kopie ZANIM cokolwiek sie zmieni,
 --   sekcja 1 dodaje wartosc enuma ZANIM ktokolwiek ja zapisze,
 --   sekcja 5 zdejmuje stara DOPIERO gdy nikt jej nie trzyma — i robi to PRZED
---   renameem kolumn w sekcji 6. Zwezajacy ALTER wymusza ALGORITHM=COPY, jest
---   jedynym dlugo trwajacym poleceniem po sekcji 1 i jedynym, ktore moze pasc
---   z przyczyn niezwiazanych z trescia (1205/1206 — metadata lock na zywej
---   tabeli). Padniecie PRZED renameem kosztuje kilka pozycji na nieznanym
---   statusie przy dzialajacej aplikacji; padniecie PO renameie (dawna
---   kolejnosc, przed recenzja 2026-09-15) zostawialoby przemianowany schemat
---   pod starym kodem gunicorna — quantity_done_finishing juz by nie istnialo,
---   wiec kazde zapytanie o prod_products lecialoby 1054, a caly modul
---   produkcji byl martwy do recznego rollbacku,
+--   renameem kolumn w sekcji 6.
+--
+--   UZASADNIENIE, BEZ SLOWA "JEDYNY". Polecen dlugo trwajacych albo bioracych
+--   ciezki lock jest w tym pliku kilka: UPDATE przepisujacy historie
+--   stanowiskowa (prod_station_events JOIN prod_products, 2687 wierszy
+--   w zrzucie z 2026-09-14), oba ALTER-y enuma prod_rework_log (MODIFY
+--   wymusza ALGORITHM=COPY), zwezajacy ALTER enuma current_status (to samo)
+--   oraz sam RENAME COLUMN — ten tabeli nie przepisuje, ale bierze wylaczny
+--   metadata lock i czeka na dlugie transakcje tak samo jak reszta. Kazde
+--   z nich moze pasc z przyczyn NIEZWIAZANYCH z trescia (1205/1206 —
+--   metadata lock na zywej tabeli); zwezajacy ALTER dodatkowo na 1265
+--   (resztkowe okno wyscigu, opisane przy sekcji 5).
+--
+--   Dlatego regula nie brzmi "po sekcji 1 jest jedno ryzykowne polecenie",
+--   tylko: WSZYSTKIE polecenia zdolne pasc z przyczyn niezwiazanych z trescia
+--   stoja PRZED renameem, a sam rename jest od recenzji 2026-09-15 atomiczny
+--   (jeden ALTER na obie kolumny). Padniecie gdziekolwiek przed renameem
+--   kosztuje kilka pozycji na nieznanym statusie przy dzialajacej aplikacji
+--   i schemacie, ktory stary kod dalej czyta; padniecie PO renameie (dawna
+--   kolejnosc sekcji 5 i 6, przed recenzja 2026-09-15) zostawialoby
+--   przemianowany schemat pod starym kodem gunicorna —
+--   quantity_done_finishing juz by nie istnialo, wiec kazde zapytanie
+--   o prod_products lecialoby 1054, a caly modul produkcji byl martwy
+--   do recznego rollbacku,
 --   sekcje 1-4 nie dotykaja ani quantity_done_finishing, ani
 --   finishing_completed_at — zadne z ich polecen nie odwoluje sie do tych
 --   kolumn, wiec to NIE jest zaleznosc od tego, gdzie stoi rename (sekcja 6).
 --   Od STAREJ nazwy kolumny zalezy wylacznie zapytanie A2 w
---   scripts/weryfikacja-2026-09-15-krawedzie-przed.sql:14 — i to jest jedyny
---   powod, dla ktorego skrypty kontrolne sa dwa, a nie jeden.
+--   scripts/weryfikacja-2026-09-15-krawedzie-przed.sql:19 i :22 — i to jest
+--   jedyny powod, dla ktorego skrypty kontrolne sa dwa, a nie jeden.
 --
 -- Zmiany separatora polecen ten plik celowo nie uzywa — runner rozpoznaje
 -- wylacznie srednik, a test ksztaltu migracji szuka tamtego slowa w calej
@@ -183,8 +198,8 @@ UPDATE prod_config
 -- KONWENCJA DRUGA: nazwa stanowiska w SRODKU klucza — STATION_CUTTING_PRIORITY_SORT,
 -- STATION_ASSEMBLY_PRIORITY_SORT, STATION_PACKAGING_PRIORITY_SORT
 -- (config_api.py:514-515). Klucza dla wykanczania panel dzis NIE wytworzy —
--- allowed_config_keys (config_api.py:513-515) zna wylacznie warianty
--- CUTTING/ASSEMBLY/PACKAGING. Obslugujemy mimo to obie konwencje, bo druga
+-- biala lista allowed_config_keys zaczyna sie w config_api.py:503, a te trzy
+-- klucze stoja w niej w liniach 514-515; wariantu FINISHING w niej nie ma. Obslugujemy mimo to obie konwencje, bo druga
 -- konwencja kluczy ISTNIEJE w kodzie (ten sam wzorzec dla innych stanowisk),
 -- a nie dlatego, ze panel mogl ten konkretny klucz kiedykolwiek zapisac.
 -- Polecenie zostaje defensywnie — nic nie kosztuje, a zabezpiecza przed
@@ -252,14 +267,35 @@ ALTER TABLE prod_products MODIFY COLUMN current_status ENUM(
 -- RENAME COLUMN (nie CHANGE) zachowuje typ, NOT NULL, DEFAULT i komentarz.
 -- Warunek na information_schema jak w 2026-08-21-prod-products-shape-rotation.
 --
--- OD TEGO MIEJSCA schemat jest juz NOWY, a gunicorn chodzi jeszcze na STARYM
--- kodzie (deploy.sh: `flask migrate` w linii 50, restart w linii 69). To
--- OSTATNIA sekcja pliku: zwezajacy ALTER enuma (dlugo trwajacy, jedyny
--- z realna szansa na 1205/1206/1265 z przyczyn niezwiazanych z trescia) juz
--- sie wykonal w sekcji 5, wiec to, co zostaje tutaj, to wylacznie rename
--- kolumn — bez potrzeby przebudowy calej tabeli. Przerwanie migracji w tej
--- sekcji nadal zostawia produkcje uszkodzona — patrz ryzyko R7
--- i scripts/rollback-2026-09-15-krawedzie.sql.
+-- OD TEGO MIEJSCA schemat przestaje byc czytelny dla STAREGO kodu, a gunicorn
+-- chodzi jeszcze wlasnie na nim (deploy.sh: `flask migrate` w linii 50, restart
+-- w linii 69). Wszystko, co dzialo sie wczesniej w tym pliku, stary kod jeszcze
+-- znosil: zadnej kolumny nie ubylo, enumy tylko zmienily liste wartosci.
+-- To OSTATNIA sekcja pliku.
+--
+-- OPERATORZE O 2 W NOCY — SA DWA SWIATY, ROZROZNIA JE JEDNO ZAPYTANIE:
+--   SHOW COLUMNS FROM prod_products LIKE 'quantity_done_%';
+--
+--   (A) Widac quantity_done_finishing — migracja padla PRZED renameem.
+--       W schemacie jest juz zwezony enum current_status i przebudowany enum
+--       prod_rework_log, ale obie te zmiany sa ZGODNE WSTECZ: kolumny stoja
+--       tam, gdzie stary kod ich szuka, wiec aplikacja dziala normalnie.
+--       Cala cena to pozycje, ktore stary kod probuje zapisac na statusie
+--       zdjetym z enuma — blad 1265 na JEDNEJ akcji tabletu, nie awaria
+--       modulu. Rollback NIE jest potrzebny: usun przyczyne padniecia
+--       i pusc migracje jeszcze raz (jest idempotentna).
+--
+--   (B) Widac quantity_done_edges — rename sie WYKONAL. Schemat jest nowy,
+--       a gunicorn dalej chodzi na starym kodzie, bo deploy.sh restartuje
+--       dopiero w linii 69 i przerwany deploy do tej linii nie dojdzie.
+--       Stary kod pyta o quantity_done_finishing, ktorego juz nie ma — 1054
+--       na kazdym zapytaniu o prod_products, caly modul produkcji martwy.
+--       POTRZEBNY ROLLBACK (ryzyko R7): scripts/rollback-2026-09-15-krawedzie.sql
+--       — albo dokonczenie deployu i restart, jesli reszta kodu jest juz
+--       pobrana.
+--
+-- Trzeciego swiata — jedna kolumna przemianowana, druga nie — juz nie ma:
+-- od recenzji 2026-09-15 oba renamey ida jednym, atomicznym ALTER-em.
 --
 -- UWAGA NAZEWNICZA: obok siebie staja teraz parsed_edges_groups (dane produktu,
 -- ksztalt krawedzi z wyceny) i quantity_done_edges (licznik STANOWISKA).
