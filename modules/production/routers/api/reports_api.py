@@ -15,7 +15,7 @@ from modules.production.models import ProductionConfiguration, ProductionOrder
 
 from ...services.station_catalog import (
     STATION_LABELS, STATION_ORDER, STATION_PENDING_STATUS,
-    station_choices, station_label,
+    resolve_station_code, station_choices, station_label,
 )
 
 # Jedno źródło nazw i kolejności — patrz services/station_catalog.py. Wcześniej
@@ -142,8 +142,17 @@ def _odpowiedz_wykresu(nazwa, buduj):
 
 
 def _waliduj_stanowisko(domyslne='all'):
-    """(kod, error_response) — 'all' albo kod z jedynej listy stanowisk."""
+    """
+    (kod, error_response) — 'all' albo kod z jedynej listy stanowisk.
+
+    Alias okresu przejściowego rozwijamy TUTAJ, przed sprawdzeniem
+    przynależności do VALID_STATIONS: zapisany przez kogoś link
+    ?station=finishing ma dalej działać i oddawać dane Krawędzi, a nie
+    czyste 400. Zwracany kod jest zawsze KANONICZNY, więc dalej w endpointach
+    i w agregatach nie da się już porównać martwego kodu z bazą.
+    """
     station = request.args.get('station', domyslne).strip().lower() or domyslne
+    station = resolve_station_code(station)
     if station != 'all' and station not in VALID_STATIONS:
         return None, (jsonify({
             'success': False,
@@ -415,7 +424,10 @@ def reports_station_worker_output():
     if err:
         return err
 
-    station = request.args.get('station', '').strip().lower()
+    # Alias okresu przejściowego rozwijamy PRZED bramką. Pusty string wychodzi
+    # z resolve_station_code pusty (kontrakt funkcji — patrz nagłówek planu),
+    # więc warunek „podaj JEDNO stanowisko" niżej działa dokładnie tak jak dotąd.
+    station = resolve_station_code(request.args.get('station', '').strip().lower())
     if station in ('', 'all'):
         return jsonify({
             'success': False,
@@ -462,7 +474,8 @@ def reports_worker_output():
     if err:
         return err
 
-    station = request.args.get('station', 'all').strip().lower() or 'all'
+    station = resolve_station_code(
+        request.args.get('station', 'all').strip().lower() or 'all')
     if station != 'all' and station not in VALID_STATIONS:
         return jsonify({
             'success': False,
@@ -590,7 +603,10 @@ def reports_station_output():
     """
     from ...models import ProductionStationEvent
 
-    station = request.args.get('station', '').strip().lower()
+    # Bez tego zapisany link ?station=finishing dostaje 400 z bramki niżej
+    # (VALID_STATIONS nie zna już martwego kodu) — a to jedyny widget Raportów,
+    # do którego użytkownicy realnie linkują z gotowym kodem stanowiska.
+    station = resolve_station_code(request.args.get('station', '').strip().lower())
     start_date_str = request.args.get('start_date', '').strip()
     end_date_str = request.args.get('end_date', '').strip()
     date_str = request.args.get('date', '').strip()  # wsteczna kompat

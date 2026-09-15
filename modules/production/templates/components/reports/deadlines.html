@@ -206,7 +206,10 @@ const DP_KOLORY = {
     assembly: '#7c3aed',
     gluing: '#0891b2',
     formatting: '#16a34a',
-    finishing: '#65a30d',
+    // Krawędzie dziedziczą kolor po dawnym wykańczaniu — ta seria stoi na
+    // wykresie w tym samym miejscu procesu, więc zmiana odcienia czytałaby się
+    // jak nowe stanowisko, a nie jak nowa nazwa starego.
+    edges: '#65a30d',
     painting: '#d97706',
     packaging: '#0f766e',
     czeka_na_logistyke: '#64748b',
