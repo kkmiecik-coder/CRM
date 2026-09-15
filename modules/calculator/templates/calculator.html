@@ -314,7 +314,12 @@
                             <!-- Kolumna 3: Kalkulacja -->
                             <section class="calculations-main">
                                 <div class="calculations">
-                                    <h2 class="title-with-underline-h2">Kalkulacja</h2>
+                                    <div class="calculations-header">
+                                        <h2 class="title-with-underline-h2">Kalkulacja</h2>
+                                        <!-- Informacja o dopłacie za kształt nietypowy — treść wstawia
+                                             calculator-api.js z odpowiedzi backendu (shape_surcharge) -->
+                                        <span class="shape-surcharge-badge" data-shape-surcharge-badge hidden></span>
+                                    </div>
                                     <!-- Lista wariantów (8 sztuk) z placeholderami brutto/netto -->
                                     <!-- Zaktualizowana sekcja wariantów w calculator.html -->
                                     <div class="variants">

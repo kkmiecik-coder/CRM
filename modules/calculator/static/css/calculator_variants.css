@@ -850,3 +850,46 @@ input[type="radio"]:disabled + label {
     opacity: 0.4;
     cursor: not-allowed;
 }
+
+/* === Dopłata za kształt nietypowy === */
+
+/* Nagłówek Kalkulacji — tytuł po lewej, informacja o dopłacie po prawej.
+   Ten sam układ co .edges-header. */
+.calculations-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    width: 100%;
+}
+
+.calculations-header .title-with-underline-h2 {
+    margin: 0;
+}
+
+/* Plakietka informacyjna — NIE jest ostrzeżeniem (cena jest poprawna),
+   więc pomarańcz marki zamiast czerwieni błędu. */
+.shape-surcharge-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border: 1px solid #ED6B24;
+    border-radius: 12px;
+    background: rgba(237, 107, 36, 0.08);
+    color: #ED6B24;
+    font-family: 'Poppins', sans-serif;
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.3;
+    white-space: nowrap;
+}
+
+/* Wariant w karcie produktu (sekcja "Produkty") — mniejszy, bez ramki,
+   żeby nie rozpychać ciasnego wiersza opisu. */
+.product-card .shape-surcharge-badge {
+    margin-left: 6px;
+    padding: 2px 6px;
+    border-radius: 8px;
+    font-size: 10px;
+}

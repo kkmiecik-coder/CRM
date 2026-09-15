@@ -26,6 +26,33 @@ def _round_price(value):
     return float(_to_decimal(value).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
 
 
+def _doplata_za_ksztalt_nietypowy(shape, quantity):
+    """Dopłata (netto, brutto) łącznie za ilość za kształt inny niż prostokąt i koło/owal.
+
+    Kwota jest już wliczona w cenę wariantu przez pricing_service — tutaj liczymy
+    ją drugi raz wyłącznie po to, żeby zapisać breakdown w quote_items_details
+    (analogicznie do dopłaty za koło). Stawkę czytamy z tego samego ustawienia,
+    z którego korzysta silnik wycen, więc obie liczby nie mogą się rozjechać.
+    """
+    from modules.calculator.models import CalculatorSetting
+    from modules.calculator.services.pricing_service import (
+        SHAPES_BEZ_DOPLATY_ZA_NIETYPOWOSC,
+    )
+
+    if shape in SHAPES_BEZ_DOPLATY_ZA_NIETYPOWOSC:
+        return 0, 0
+
+    stawka = _to_decimal(
+        CalculatorSetting.get_value('custom_shape_surcharge_netto', '0.00')
+    )
+    if stawka <= 0:
+        return 0, 0
+
+    netto = _round_price(stawka * Decimal(quantity))
+    brutto = _round_price(_to_decimal(netto) * Decimal('1.23'))
+    return netto, brutto
+
+
 def _coerce_cut_to_size(product_data):
     """
     Wyciąga pole 'cut_to_size' z payloadu produktu z domyślną wartością True.
@@ -123,6 +150,8 @@ def load_quote_for_edit(edit_uuid, current_user):
                 "cut_to_size": bool(detail.cut_to_size) if detail else True,
                 "round_surcharge_netto": float(detail.round_surcharge_netto) if detail and detail.round_surcharge_netto else 0,
                 "round_surcharge_brutto": float(detail.round_surcharge_brutto) if detail and detail.round_surcharge_brutto else 0,
+                "custom_shape_surcharge_netto": float(detail.custom_shape_surcharge_netto) if detail and detail.custom_shape_surcharge_netto else 0,
+                "custom_shape_surcharge_brutto": float(detail.custom_shape_surcharge_brutto) if detail and detail.custom_shape_surcharge_brutto else 0,
                 "selectedVariant": product_data["selected_variant"],
                 "finishing": {
                     "type": detail.finishing_type if detail else None,
@@ -311,6 +340,7 @@ def _update_or_create_product(quote, product_data):
         round_surcharge_brutto = _round_price(
             _to_decimal(round_surcharge_netto) * Decimal('1.23')
         )
+    custom_shape_netto, custom_shape_brutto = _doplata_za_ksztalt_nietypowy(shape, quantity)
 
     # Docięcie do wymiaru (default True)
     cut_to_size = _coerce_cut_to_size(product_data)
@@ -384,6 +414,8 @@ def _update_or_create_product(quote, product_data):
         detail.shape_svg = shape_svg
         detail.round_surcharge_netto = round_surcharge_netto
         detail.round_surcharge_brutto = round_surcharge_brutto
+        detail.custom_shape_surcharge_netto = custom_shape_netto
+        detail.custom_shape_surcharge_brutto = custom_shape_brutto
         detail.shape_rotation = shape_rotation
         detail.cut_to_size = cut_to_size
         detail.product_type = product_type
@@ -411,6 +443,8 @@ def _update_or_create_product(quote, product_data):
             shape_svg=shape_svg,
             round_surcharge_netto=round_surcharge_netto,
             round_surcharge_brutto=round_surcharge_brutto,
+            custom_shape_surcharge_netto=custom_shape_netto,
+            custom_shape_surcharge_brutto=custom_shape_brutto,
             shape_rotation=shape_rotation,
             cut_to_size=cut_to_size,
             product_type=product_type,
@@ -809,6 +843,9 @@ def create_quote(data, user_email):
                 round_surcharge_brutto = _round_price(
                     _to_decimal(round_surcharge_netto) * Decimal('1.23')
                 )
+            custom_shape_netto, custom_shape_brutto = _doplata_za_ksztalt_nietypowy(
+                product_shape, product_quantity
+            )
 
             # Docięcie do wymiaru (default True — klient dostaje produkt docięty)
             cut_to_size = _coerce_cut_to_size(product)
@@ -837,6 +874,8 @@ def create_quote(data, user_email):
                 shape_svg=product_shape_svg if product_shape_svg else None,
                 round_surcharge_netto=round_surcharge_netto,
                 round_surcharge_brutto=round_surcharge_brutto,
+                custom_shape_surcharge_netto=custom_shape_netto,
+                custom_shape_surcharge_brutto=custom_shape_brutto,
                 shape_rotation=shape_rotation,
                 cut_to_size=cut_to_size,
                 # Koncept sklepu (blat|schody|parapet) — CRM nie interpretuje, tylko przechowuje

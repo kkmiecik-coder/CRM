@@ -75,3 +75,43 @@ def test_quantity_niepoprawny_string_daje_invalid_type():
     err = next(e for e in r['errors'] if e['field'] == 'quantity')
     assert err['code'] == 'INVALID_TYPE'
     assert 'dwa' in err['message']
+
+
+# === Breakdown dopłaty za kształt nietypowy (dla UI kalkulatora i bota Dębusia) ===
+
+DATA_Z_DOPLATA = PricingData(
+    price_entries=CENNIK, multipliers={'Detal+': 1.3},
+    edge_prices={'round': {'per_mb': 15.0, 'per_corner': 5.0}},
+    custom_shape_surcharge_netto=120.0,
+)
+
+
+def test_breakdown_doplaty_za_ksztalt_nietypowy():
+    r = calculate_quote(_payload(shape='triangle_right'), DATA_Z_DOPLATA)
+    assert r['ok'] is True
+    doplata = r['products'][0]['shape_surcharge']
+    assert doplata['per_unit_netto'] == 120.0
+    assert doplata['total_netto'] == 240.0          # 120 × 2 szt.
+    assert doplata['total_brutto'] == 295.2
+    assert 'nietypowy kształt' in doplata['note']   # gotowe zdanie PL dla bota
+
+
+def test_doplata_za_ksztalt_wliczona_w_sume_wyceny():
+    # breakdown jest informacyjny — kwota MUSI już siedzieć w totalach
+    bez = calculate_quote(_payload(shape='triangle_right'), DATA)
+    z_doplata = calculate_quote(_payload(shape='triangle_right'), DATA_Z_DOPLATA)
+    roznica = z_doplata['totals']['order_netto'] - bez['totals']['order_netto']
+    assert abs(roznica - 240.0) < 0.001   # odejmowanie floatów, stąd tolerancja
+
+
+def test_brak_breakdownu_dla_ksztaltow_standardowych():
+    for shape in ('rectangular', 'round', 'circle'):
+        r = calculate_quote(_payload(shape=shape), DATA_Z_DOPLATA)
+        assert r['products'][0]['shape_surcharge'] is None, shape
+
+
+def test_breakdown_pusty_gdy_produkt_ma_bledy_walidacji():
+    # gałąź błędu też musi mieć klucz — front czyta go bezwarunkowo
+    r = calculate_quote(_payload(shape='polygon', length=700), DATA_Z_DOPLATA)
+    assert r['ok'] is False
+    assert r['products'][0]['shape_surcharge'] is None

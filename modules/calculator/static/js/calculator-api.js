@@ -204,7 +204,37 @@
         return false;
     }
 
+    /**
+     * Pokazuje/chowa informację o dopłacie za kształt nietypowy.
+     * Kwota jest już wliczona w ceny wariantów — plakietka tylko mówi, za co.
+     * Wynik trafia też do form.dataset, bo z niego korzysta karta produktu
+     * w sekcji "Produkty" (generateProductDescription w calculator-ui.js).
+     */
+    function applyShapeSurcharge(form, info) {
+        const badge = form.querySelector('[data-shape-surcharge-badge]');
+        if (!info || !info.total_netto) {
+            delete form.dataset.shapeSurchargeNetto;
+            delete form.dataset.shapeSurchargeUnitNetto;
+            if (badge) {
+                badge.hidden = true;
+                badge.textContent = '';
+            }
+            return;
+        }
+
+        form.dataset.shapeSurchargeNetto = info.total_netto;
+        form.dataset.shapeSurchargeUnitNetto = info.per_unit_netto;
+        if (badge) {
+            const fmt = window.CalculatorCore.formatPLN;
+            badge.textContent = `Kształt nietypowy: +${fmt(info.per_unit_netto)} netto/szt.`;
+            badge.title = `Doliczono ${fmt(info.total_netto)} netto łącznie `
+                + `(${fmt(info.total_brutto)} brutto) za nietypowy kształt produktu.`;
+            badge.hidden = false;
+        }
+    }
+
     function applyProductResult(form, productResult) {
+        applyShapeSurcharge(form, productResult.shape_surcharge);
         if (productResult.errors && productResult.errors.length) {
             const err = productResult.errors[0];
             const shape = form.dataset.productShape || 'rectangular';

@@ -35,6 +35,19 @@ _LEGACY_FINISHING_FALLBACK = {
 
 VAT = 1.23
 
+# Kształty NIE objęte dopłatą za nietypowość: prostokąt (podstawa) oraz
+# koło/owal, które ma własną dopłatę (round_shape_surcharge_netto).
+# Wszystko inne — trójkąty, trapezy, równoległobok, wielokąt — wymaga
+# ręcznego docinania po szablonie, stąd osobna dopłata.
+SHAPES_BEZ_DOPLATY_ZA_NIETYPOWOSC = ('rectangular', 'round', 'circle')
+
+
+def custom_shape_surcharge_per_unit(shape, data):
+    """Dopłata netto za sztukę za kształt nietypowy (0 dla prostokąta i koła/owalu)."""
+    if shape in SHAPES_BEZ_DOPLATY_ZA_NIETYPOWOSC:
+        return 0.0
+    return float(data.custom_shape_surcharge_netto or 0)
+
 # Odpowiednik variantMapping z calculator-core.js:155
 VARIANT_MAPPING = {
     'dab-lity-ab': {'species': 'Dąb', 'technology': 'Lity', 'wood_class': 'A/B'},
@@ -74,6 +87,7 @@ class PricingData:
     edge_prices: dict = field(default_factory=dict)
     cutout_price_netto: float = 0.0
     round_surcharge_netto: float = 0.0
+    custom_shape_surcharge_netto: float = 0.0
 
 
 def _finishing_maps_from_flat_list(flat_list):
@@ -161,6 +175,10 @@ def _build_pricing_data():
         }
 
     surcharge = float(CalculatorSetting.get_value('round_shape_surcharge_netto', '50.00'))
+    # Domyślnie 0 — dopóki admin nie ustawi kwoty, kształty nietypowe liczą się jak dotąd.
+    custom_shape_surcharge = float(
+        CalculatorSetting.get_value('custom_shape_surcharge_netto', '0.00')
+    )
 
     return PricingData(
         price_entries=price_entries,
@@ -170,6 +188,7 @@ def _build_pricing_data():
         edge_prices=edge_prices,
         cutout_price_netto=cutout_price,
         round_surcharge_netto=surcharge,
+        custom_shape_surcharge_netto=custom_shape_surcharge,
     )
 
 
@@ -361,6 +380,8 @@ def calculate_material_variants(product, multiplier, data):
         # Dopłaty PO mnożniku, per sztuka (JS 546-556)
         if shape in ('round', 'circle') and data.round_surcharge_netto:
             unit_netto += data.round_surcharge_netto
+        # Dopłata za kształt nietypowy — wyklucza się z dopłatą za koło (inne kształty)
+        unit_netto += custom_shape_surcharge_per_unit(shape, data)
         if holes_count > 0 and data.cutout_price_netto > 0:
             unit_netto += holes_count * data.cutout_price_netto
 
@@ -770,6 +791,29 @@ def validate_product(product, data):
     return errors
 
 
+def _shape_surcharge_info(product, data):
+    """Breakdown dopłaty za kształt nietypowy do pokazania w UI (None gdy dopłaty nie ma).
+
+    Brutto liczymy z netto razy VAT — jak w quote_service przy dopłacie za koło.
+    To wartość CZYSTO informacyjna; w cenie wariantu dopłata siedzi już
+    w unit_netto, którego brutto zaokrągla się raz, na całości.
+    """
+    per_unit = custom_shape_surcharge_per_unit(product.get('shape', 'rectangular'), data)
+    if per_unit <= 0:
+        return None
+    quantity = int(product.get('quantity', 1))
+    total_netto = round_grosze(per_unit * quantity)
+    return {
+        'per_unit_netto': round_grosze(per_unit),
+        'total_netto': total_netto,
+        'total_brutto': round_grosze(total_netto * VAT),
+        # Gotowe zdanie po polsku — bot (Dębuś) czyta ten breakdown przez /api/bot/calculate
+        # i ma powiedzieć klientowi, za co doliczono, a nie tylko podać wyższą cenę.
+        'note': (f'Doliczono {round_grosze(per_unit):.2f} zł netto za sztukę '
+                 f'za nietypowy kształt produktu.'),
+    }
+
+
 def calculate_quote(payload, data):
     """Główna funkcja: pełny breakdown wyceny albo lista błędów. Nic nie zapisuje."""
     errors = []
@@ -789,12 +833,16 @@ def calculate_quote(payload, data):
         if p_errors:
             errors.extend(p_errors)
             products_out.append({'index': idx, 'errors': p_errors,
-                                 'variants': [], 'finishing': None, 'edges': None})
+                                 'variants': [], 'finishing': None, 'edges': None,
+                                 'shape_surcharge': None})
             continue
 
         variants = calculate_material_variants(product, multiplier, data)
         finishing = calculate_finishing(product, data)
         edges = calculate_edges_pricing(product.get('edges'), product, data)
+        # Dopłata za kształt nietypowy jest już WLICZONA w ceny wariantów —
+        # wystawiamy ją osobno tylko po to, żeby front mógł ją pokazać użytkownikowi.
+        shape_surcharge = _shape_surcharge_info(product, data)
 
         selected_code = product.get('selected_variant')
         selected = next((v for v in variants
@@ -806,7 +854,8 @@ def calculate_quote(payload, data):
                      f'Dostępne warianty: {", ".join(available) or "żadne"}.', idx)
             errors.append(e)
             products_out.append({'index': idx, 'errors': [e], 'variants': variants,
-                                 'finishing': finishing, 'edges': edges})
+                                 'finishing': finishing, 'edges': edges,
+                                 'shape_surcharge': shape_surcharge})
             continue
 
         if selected:
@@ -818,7 +867,8 @@ def calculate_quote(payload, data):
         sums['edges_brutto'] += edges['brutto']
 
         products_out.append({'index': idx, 'errors': [], 'variants': variants,
-                             'finishing': finishing, 'edges': edges})
+                             'finishing': finishing, 'edges': edges,
+                             'shape_surcharge': shape_surcharge})
 
     shipping = payload.get('shipping') or {}
     ship_netto = float(shipping.get('netto') or 0)

@@ -89,6 +89,11 @@ def bot_options():
         'client_types': sorted(data.multipliers.keys()),
         'cutout_price_netto': data.cutout_price_netto,
         'round_surcharge_netto': data.round_surcharge_netto,
+        # Dopłata netto za sztukę za kształt inny niż prostokąt i koło/owal.
+        # Bot nie zamawia takich kształtów (patrz `shapes` niżej — nie ma jak przekazać
+        # geometrii), ale musi znać stawkę, żeby odpowiedzieć na pytanie
+        # "ile dopłacę za blat w kształcie trapezu".
+        'custom_shape_surcharge_netto': data.custom_shape_surcharge_netto,
         'shapes': ['rectangular', 'round', 'circle'],
         'vat': 1.23,
     })

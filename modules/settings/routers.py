@@ -639,7 +639,7 @@ def calculator_shipping():
 @require_admin
 def calculator_prices():
     """Zarządzanie cennikiem - tabela prices"""
-    from modules.calculator.models import Price
+    from modules.calculator.models import Price, CalculatorSetting
 
     user_email = session.get('user_email')
     current_user = User.query.filter_by(email=user_email).first()
@@ -658,6 +658,10 @@ def calculator_prices():
     technology_list = sorted(set(p.technology for p in all_prices))
     wood_class_list = sorted(set(p.wood_class for p in all_prices))
 
+    # Dopłata za kształt nietypowy — nie należy do tabeli prices, ale to tu admin
+    # szuka wszystkiego, co podnosi cenę produktu.
+    custom_shape_surcharge = CalculatorSetting.get_value('custom_shape_surcharge_netto', '0.00')
+
     return render_template(
         'settings_index.html',
         current_user=current_user,
@@ -665,6 +669,7 @@ def calculator_prices():
         species_list=species_list,
         technology_list=technology_list,
         wood_class_list=wood_class_list,
+        custom_shape_surcharge=custom_shape_surcharge,
         active_tab='calculator',
         calculator_subtab='prices'
     )
@@ -967,6 +972,15 @@ def api_update_calculator_settings():
 
         for klucz, wartosc in zapisy:
             CalculatorSetting.set_value(klucz, wartosc)
+
+        if 'custom_shape_surcharge_netto' in data:
+            try:
+                value = Decimal(str(data['custom_shape_surcharge_netto']))
+                if value < 0:
+                    return jsonify({'success': False, 'error': 'Dopłata nie może być ujemna'}), 400
+                CalculatorSetting.set_value('custom_shape_surcharge_netto', str(value))
+            except (InvalidOperation, ValueError):
+                return jsonify({'success': False, 'error': 'Nieprawidłowa wartość dopłaty'}), 400
 
         # UWAGA: CalculatorSetting.set_value() commituje wewnętrznie (models.py),
         # więc invalidacja poniżej jest już PO zapisie do bazy — nie przenosić jej wyżej.
