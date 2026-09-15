@@ -2525,12 +2525,39 @@ body {
    osobnych wierszy (grid-template-columns: 1fr), .il-right-stack zostaje
    sam w wierszu — wtedy "0 tresci" oznacza realne zero wysokosci (zmierzone:
    zapada sie do ~2px). Dlatego media query nizej wylacza contain na tym
-   breakpoincie, przywracajac zwykle, naturalne wymiarowanie z tresci. */
+   breakpoincie, przywracajac zwykle, naturalne wymiarowanie z tresci.
+
+   DRUGA STRONA tego samego mechanizmu — min-height NIE jest ozdobnikiem.
+   Skoro wiersz wymierza sama .stations-card, to wysokosc prawej kolumny
+   dyktuje LICZBA KOLUMN kafli po lewej. Przy 2 kolumnach kafle robia 5
+   wierszy i miejsca jest az nadto, ale gdy siatka zmiesci 3 kolumny (od ok.
+   2311px szerokosci okna, patrz wyliczenie przy .il-stations-grid), kafle
+   schodza do 3 wierszy i karta stanowisk kurczy sie do 553px. Caly deficyt
+   spada wtedy na .alerts-card — jedyne dziecko z flex: 1 (a wiec
+   flex-basis: 0), ktorego `overflow: hidden` z .dashboard-card zeruje
+   automatyczny minimalny rozmiar elementu flex. Zmierzone przed ta regula
+   przy oknie 2560x1440: karta alertow 122px przy liscie 210px w srodku,
+   czyli lista PRZYCIETA, bez widocznego paska przewijania, a licznik obok
+   naglowka dalej pokazuje 12.
+
+   `contain: size` ignoruje TRESC przy liczeniu rozmiaru, ale jawnie podana
+   wysokosc minimalna obowiazuje dalej — i wchodzi tez do wyliczenia wiersza
+   grida (zweryfikowane pomiarem: wiersz rosnie z 553px do min-height).
+   Wartosc jest suma zmierzonych minimow WSZYSTKICH dzieci, nie okiem:
+     114,59 (kafel "W produkcji teraz")
+   + 114,59 (.il-kpi-row "Zakonczone calkowicie dzis")
+   + 171,59 (karta "Status systemu")
+   + 279,59 (minimum karty alertow: ramka 2 + naglowek 41,59
+             + padding .dashboard-card-body 12+14 + min-height listy 210)
+   + 30     (3 przerwy po 10px)
+   = 710,36px, zaokraglone w gore do 720px (zapas na zawiniety wiersz).
+   Ponizej tej wysokosci nie schodzi juz zadne dziecko, wiec lista alertow
+   ma swoje 3 pozycje i dalej PRZEWIJA sie zamiast rozpychac wiersz. */
 .il-right-stack {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  min-height: 0;
+  min-height: 720px;
   contain: size;
 }
 
