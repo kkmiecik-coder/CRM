@@ -954,15 +954,19 @@ class ProductionDevice(db.Model):
     last_worker_session_at = Column(DateTime, nullable=True,
                                     comment='Kiedy ostatnio ktoś zaczął tu sesję pracownika')
 
+    # UWAGA NA KOLIZJĘ NAZWY: 'edges' to KOD STANOWISKA (dawne 'finishing').
+    # W tym samym module żyją parsed_edges_groups i edges_groups — to dane
+    # PRODUKTU (obróbka krawędzi), nie stanowisko. Żadnego sed po 'edges'.
     VALID_STATION_CODES = {
         'packaging', 'cutting', 'assembly', 'gluing', 'formatting',
-        'edges',     # dawne 'finishing' — obróbka krawędzi
-        'painting',  # Lakiernia: awans z zakładki tabletu na własne stanowisko
-        # OKRES PRZEJŚCIOWY: stare APK rejestruje się jeszcze starym kodem.
-        # Zdjąć razem ze STATION_CODE_ALIASES, gdy cała flota chodzi na nowym
-        # buildzie (krok 20 kolejności wdrożenia).
-        'finishing',
+        'edges',
+        'painting',
         'sawmill',   # trakownia — rejestr surowca, poza pipeline'em produktów
+        # Stary tablet wykańczalni jest w bazie zarejestrowany jako 'finishing'
+        # i dojeżdża na tej rejestracji do wydania APK. Zdjęcie tej wartości
+        # przed czasem daje 403 station_mismatch na każdej akcji z kolejki
+        # offline. Usunięcie: krok 20 wdrożenia.
+        'finishing',  # finishing-ZOSTAJE: okres przejściowy, stary tablet wykańczalni
     }
 
     @validates('station_code')

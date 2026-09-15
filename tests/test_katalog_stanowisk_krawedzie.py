@@ -11,14 +11,16 @@ importów. Po zmianie resolve_station_code będzie importowany także z models.p
 Ten plik nie zakłada tabeli prod_product_events, bo nie robi tego żaden inny
 plik w pakiecie — listener audytu milczy w całym przebiegu i tak ma zostać.
 
-Plik pilnuje czterech rzeczy:
+Plik pilnuje pięciu rzeczy:
 1. katalog nie importuje Flaska ani modeli,
 2. równoległe mapy katalogu nie rozjeżdżają się między sobą (docstring
    station_catalog.py:5-12 opisuje dokładnie tę chorobę),
 3. tłumacz kodów przejściowych (resolve_station_code) ma przewidywalne
    zachowanie brzegowe — wołają go wszystkie warstwy, także z danymi prosto
    z JSON-a tabletu,
-4. pakiet modules.production.routers wstaje po zmianie katalogu (Zadanie 6).
+4. pakiet modules.production.routers wstaje po zmianie katalogu (Zadanie 6),
+5. każde stanowisko katalogu da się obsadzić tabletem — zbiór kodów
+   przyjmowanych przez ProductionDevice nie zostaje w tyle za STATION_ORDER.
 """
 
 import ast
@@ -396,3 +398,93 @@ def test_dashboard_nie_ma_juz_literalu_starego_stanowiska():
 
     assert 'finishing' not in literaly
     assert 'czeka_na_wykanczanie' not in literaly
+# ============================================================================
+# REJESTRACJA TABLETÓW — zbiór kodów przyjmowanych przez ProductionDevice
+# ============================================================================
+
+SCIEZKA_MODELI = (
+    Path(__file__).resolve().parents[1]
+    / 'modules' / 'production' / 'models.py'
+)
+
+
+def _blok_kodow_urzadzen():
+    """
+    Tekst literału VALID_STATION_CODES razem z komentarzami w środku.
+
+    AST tu nie wystarczy: interesują nas właśnie KOMENTARZE, których drzewo
+    składniowe nie widzi, a to one niosą marker okresu przejściowego.
+    """
+    tekst = SCIEZKA_MODELI.read_text(encoding='utf-8')
+    poczatek = tekst.index('VALID_STATION_CODES = {')
+    koniec = tekst.index('}', poczatek)
+    return tekst[poczatek:koniec + 1]
+
+
+def _wpisy_kodow_urzadzen():
+    """
+    Wiersze zbioru rozbite na część z kodem i część z komentarzem.
+
+    Rozdział jest tu istotą rzeczy, nie ozdobą: w tym samym zbiorze stoi wiersz
+    `'edges',  # dawne 'finishing' ...` i całe zdania komentarza o starym
+    tablecie. Szukanie `'finishing'` w surowym wierszu trafiałoby w nie
+    wszystkie naraz, zamiast we wpis, o który chodzi.
+    """
+    for linia in _blok_kodow_urzadzen().splitlines():
+        kod, _, komentarz = linia.partition('#')
+        yield kod, komentarz
+
+
+def test_urzadzenia_moga_sie_rejestrowac_na_kazdym_stanowisku():
+    """
+    Różnica zbiorów, nie lista kodów: stanowisko z katalogu bez wpisu
+    w VALID_STATION_CODES to stanowisko, na którym nie da się postawić
+    tabletu (mobile_api.py:187) ani przypisać pracownika
+    (worker_service.py:313 — ta sama krotka, 422 przy zapisie profilu).
+    """
+    from modules.production.models import ProductionDevice
+    from modules.production.services.station_catalog import (
+        STATION_ORDER, resolve_station_code)
+
+    brakujace = sorted(set(STATION_ORDER) - set(ProductionDevice.VALID_STATION_CODES))
+    assert brakujace == [], (
+        'Stanowiska z katalogu, na których nie da się zarejestrować tabletu: {}'
+        .format(brakujace))
+
+    # Trakownia stoi poza STATION_ORDER (własne tabele prod_sawmill_*),
+    # ale tablet tam jest — regresja obok zmienianej krotki.
+    assert 'sawmill' in ProductionDevice.VALID_STATION_CODES
+
+    # OKRES PRZEJŚCIOWY: stary tablet wykańczalni ma dojechać do końca życia
+    # na swojej rejestracji, a alias ma go przekładać na kod z katalogu.
+    # Obie asercje znikają w kroku 20 wdrożenia razem z aliasem — i wtedy
+    # mają zapalić się CELOWO.
+    assert 'finishing' in ProductionDevice.VALID_STATION_CODES
+    assert resolve_station_code('finishing') in ProductionDevice.VALID_STATION_CODES
+
+
+def test_przejsciowy_kod_starego_tabletu_jest_oznaczony_w_zrodle():
+    """
+    Sam fakt, że 'finishing' siedzi w zbiorze, niczego nie mówi czytającemu:
+    wygląda identycznie jak przeoczenie przy rozdziale stanowiska. Tekst
+    źródłowy ma więc nieść marker, po którym widać, że ta wartość ZOSTAJE
+    świadomie i ma wyznaczony moment usunięcia (krok 20 wdrożenia).
+
+    Marker jest kotwicą dla późniejszego przeglądu resztek po 'finishing'
+    w module produkcji — bez niego każdy taki przegląd albo zgłasza ten wpis
+    jako regresję, albo musi go omijać z palca.
+
+    W kroku 20 wdrożenia wpis znika razem z markerem, więc ten test zapala
+    się wtedy CELOWO — tak samo jak asercje okresu przejściowego w teście
+    powyżej.
+    """
+    wpisy = [(kod, komentarz) for kod, komentarz in _wpisy_kodow_urzadzen()
+             if "'finishing'" in kod]
+
+    assert len(wpisy) == 1, (
+        'Kod przejściowy ma być w zbiorze dokładnie jednym wpisem, znaleziono: {}'
+        .format([kod for kod, _ in wpisy]))
+    assert 'finishing-ZOSTAJE' in wpisy[0][1], (
+        'Wpis okresu przejściowego bez markera — po takim wierszu nie widać, '
+        'czy to świadoma decyzja, czy resztka po rozdziale stanowiska: {!r}'
+        .format(wpisy[0][0] + '#' + wpisy[0][1]))
