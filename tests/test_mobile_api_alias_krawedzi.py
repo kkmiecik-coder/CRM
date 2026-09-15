@@ -833,3 +833,91 @@ def test_stan_sesji_normalizuje_kod_w_wierszu_sesji(client, app):
     assert len(dane['sessions']) == 1
     assert dane['sessions'][0]['station_code'] == 'edges'
     assert dane['sessions'][0]['worker_name'] == 'Piotr Wisniewski'
+
+
+# ============================================================================
+# KATALOG PRACOWNIKÓW
+# ============================================================================
+
+def test_szybki_wybor_profili_dziala_na_starym_tablecie(client, app):
+    """
+    recent_on_station liczy worker_service._workers_recent_on_station po
+    prod_worker_sessions.station_code. Migracja przepisała sesje na 'edges',
+    więc bez normalizacji kodu z JWT zapytanie leci po martwym 'finishing'
+    i sekcja „szybki wybór" na tablecie Krawędzi jest pusta — bez błędu.
+    """
+    token = _token(app, station_code='finishing')
+    with app.app_context():
+        pracownik = ProductionWorker(first_name='Adam', last_name='Kowalski',
+                                     is_active=True, sort_order=0)
+        db.session.add(pracownik)
+        db.session.flush()
+        wczoraj = get_local_now() - timedelta(days=1)
+        sesja = ProductionWorkerSession(
+            worker_id=pracownik.id,
+            station_code='edges',
+            device_id='TABLET-1',
+            started_at=wczoraj,
+            # last_activity_at jest NOT NULL i NIE MA defaultu w modelu
+            # (models.py:1324) — bez tego pola insert leci IntegrityError.
+            last_activity_at=wczoraj,
+            work_date=wczoraj.date(),
+            session_group='grupa-historyczna',
+        )
+        db.session.add(sesja)
+        db.session.commit()
+        pracownik_id = pracownik.id
+
+    odp = client.get('/api/mobile/workers', headers=_naglowki(token))
+
+    assert odp.status_code == 200, odp.get_json()
+    dane = odp.get_json()
+    profile = {w['id']: w for w in dane['workers']}
+    assert profile[pracownik_id]['recent_on_station'] is True
+
+
+def test_katalog_pracownikow_ma_ten_sam_etag_dla_obu_kodow(client, app):
+    """
+    station_code wchodzi do ETaga katalogu (mobile_api.py:860). Bez
+    normalizacji dwa tablety tego samego stanowiska mają dwa różne klucze
+    cache i oba pobierają pełny katalog przy każdym starcie.
+    """
+    stary = _token(app, station_code='finishing', device_id='TABLET-STARY')
+    nowy = _token(app, station_code='edges', device_id='TABLET-NOWY')
+
+    odp_stary = client.get('/api/mobile/workers', headers=_naglowki(stary))
+    odp_nowy = client.get('/api/mobile/workers', headers=_naglowki(nowy))
+
+    assert odp_stary.status_code == 200, odp_stary.get_json()
+    assert odp_nowy.status_code == 200, odp_nowy.get_json()
+    assert odp_stary.headers['ETag'] == odp_nowy.headers['ETag']
+    assert (odp_stary.get_json()['catalog_version']
+            == odp_stary.headers['ETag'])
+
+
+# ============================================================================
+# DOKUMENTACJA ŚCIEŻKI MOBILNEJ
+# ============================================================================
+
+def test_docstringi_sciezki_mobilnej_opisuja_nowa_trase():
+    """
+    Docstringi tych trzech funkcji są jedynym opisem routingu w warstwie
+    mobilnej. Zdanie „skip finishing dla surowych bez krawędzi" opisuje
+    regułę ZNIESIONĄ: should_skip_edges() pyta wyłącznie o obróbkę
+    krawędzi, niezależnie od wykończenia. Zostawiony napis myli przy
+    następnym audycie bardziej niż jego brak.
+    """
+    from modules.production.routers import mobile_api as router
+    from modules.production.services import mobile_api_service as serwis
+
+    teksty = {
+        '_resolve_workers': router._resolve_workers.__doc__,
+        'order_complete': router.order_complete.__doc__,
+        'mark_order_complete': serwis.mark_order_complete.__doc__,
+    }
+    for nazwa, tekst in sorted(teksty.items()):
+        assert tekst, 'brak docstringu: {}'.format(nazwa)
+        assert 'finishing' not in tekst, \
+            '{} dalej opisuje stanowisko kodem finishing'.format(nazwa)
+        assert 'wykańczal' not in tekst, \
+            '{} dalej mówi o wykańczalni'.format(nazwa)

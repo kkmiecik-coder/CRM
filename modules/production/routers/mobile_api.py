@@ -126,7 +126,7 @@ def _resolve_workers():
     bez atrybucji.
 
     Sesje odświeżamy po samym device_id, nie po station_code: tablet
-    wykańczalni zamyka też pozycje z lakierni (station_code='painting'),
+    Krawędzi zamyka też pozycje z Lakierni (station_code='painting'),
     a sesja jest założona na stanowisku z JWT.
     """
     try:
@@ -363,13 +363,14 @@ def order_complete(order_id):
     POST /api/mobile/orders/<id>/complete
 
     Body JSON (opcjonalny): { station_code: str } — gdy pominięte, używane
-    jest `device.station_code` (BC). Tablet w wykańczalni przekazuje
-    `station_code='painting'` żeby ukończyć pozycję z lakierni.
+    jest `device.station_code` (BC). Tablet Krawędzi przekazuje
+    `station_code='painting'` żeby ukończyć pozycję z Lakierni. Stary kod
+    ze starego APK rozwija _resolve_station_code, zanim cokolwiek go zobaczy.
 
-    Pełna tranzycja statusu (z regułami specjalnymi, np. lakiernia
-    dla olejowanych/lakierowanych, skip finishing dla surowych bez krawędzi)
-    jest delegowana do `ProductionItem.complete_task()` — tej samej metody
-    której używa web.
+    Pełna tranzycja statusu (z regułami specjalnymi: Lakiernia dla
+    olejowanych i lakierowanych, pominięcie Krawędzi dla produktów BEZ
+    obróbki krawędzi — niezależnie od wykończenia) jest delegowana do
+    `ProductionItem.complete_task()` — tej samej metody, której używa web.
 
     Idempotency: przy nagłówku X-Operation-Id powtórne wywołanie zwraca
     zapisany response (nie wykonuje akcji drugi raz).
@@ -906,7 +907,12 @@ def workers_catalog():
     inaczej kill-switch zmieniony z panelu obsługiwanego przez inny proces
     Passengera nie dojechałby na tablety.
     """
-    station_code = g.device.station_code
+    # Alias okresu przejściowego. Bez tego recent_on_station liczy się po
+    # martwym kodzie (prod_worker_sessions są już przepisane na 'edges')
+    # i sekcja „szybki wybór" profili na tablecie Krawędzi jest pusta —
+    # bez błędu i bez logu. Kod wchodzi też do ETaga (:860), więc oba
+    # tablety tego samego stanowiska dzielą klucz cache.
+    station_code = resolve_station_code(g.device.station_code)
 
     worker_service.odswiez_konfiguracje_jesli_nieaktualna()
 
