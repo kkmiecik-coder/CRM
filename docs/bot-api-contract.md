@@ -60,15 +60,21 @@ Skutki, o których musi wiedzieć sklep:
    mnożnik. Skutek dla modułu Presty: ustawienie „Grupa cenowa" w backoffice nie
    ma już żadnego wpływu na kwoty i może zniknąć razem z wysyłaniem pola.
 
-**`auto_multiplier: false` NIE jest pełnym cofnięciem cen — nie używaj go jako rollbacku.**
-Flagę respektuje **wyłącznie `/calculate`** (`bot_api.py:172`). `POST /quotes`
-(`bot_api.py:348`) i aktualizacja wyceny (`bot_api.py:424`) ustawiają
-`auto_multiplier = True` **na sztywno** i flagi z payloadu w ogóle nie czytają. Dla bota
-jest to poprawne — cena podana w czacie ma się zgadzać z zapisaną wyceną — ale oznacza,
-że klient korzystający z furtki pokazywałby w konfiguratorze cenę wg grupy cenowej,
-a **zapisywałby wycenę policzoną automatycznie**. Rozjazd wyszedłby dopiero w mailu
-z linkiem do wyceny. Pełne cofnięcie cen wymaga zmiany w CRM w **obu** miejscach,
-a nie samego pola w payloadzie sklepu.
+**`auto_multiplier: false` działa spójnie na wszystkich trzech endpointach.**
+Flagę czytają `/calculate`, `POST /quotes` oraz `PUT /quotes/<edit_uuid>`; brak pola
+= tryb automatyczny. Tryb użyty do podglądu i tryb użyty do zapisu są więc tym samym,
+a kwota z konfiguratora zgadza się z kwotą w zapisanej wycenie.
+
+Przy `auto_multiplier: false` grupa cenowa jest **wymagana na każdym z trzech
+endpointów** — to ona ustala wtedy mnożnik. W `PUT` wystarczy grupa zapisana już
+na wycenie; podana w payloadzie ją nadpisuje.
+
+> **Uwaga przy czytaniu starszych wersji tego dokumentu.** Do 2026-09-15 flagę
+> respektował **wyłącznie** `/calculate`; zapis i aktualizacja ustawiały tryb
+> automatyczny na sztywno i payloadu nie czytały. Kto skorzystałby wtedy z furtki,
+> pokazywałby w konfiguratorze cenę wg grupy cenowej, a **zapisywałby wycenę
+> policzoną automatycznie** — rozjazd wychodził dopiero w mailu z linkiem do wyceny.
+> Domknięte w CRM tego samego dnia; bot był nietknięty, bo flagi nie wysyła.
 
 **Sklep z tej furtki nie korzysta i nie będzie.** Od 2026-09-15 moduł `wp_quotewizard`
 nie wysyła `client_type` w ogóle i nie trzyma żadnego mnożnika, progu ani stawki;
@@ -229,8 +235,11 @@ Opcjonalne pole `auto_multiplier` (bool) na poziomie wyceny steruje trybem mnoż
 | wartość | zachowanie |
 |---|---|
 | brak pola (**domyślne**) | mnożnik dobierany automatycznie, per wariant (sekcja 0) |
-| `false` | mnożnik z grupy cenowej `client_type` — zachowanie sprzed 2026-09-15; **tylko w tym trybie `client_type` jest wymagany** |
+| `false` | mnożnik z grupy cenowej `client_type`; **tylko w tym trybie `client_type` jest wymagany** |
 | `true` | jawnie tryb automatyczny |
+
+To samo pole i te same znaczenia obowiązują w `POST /quotes` i `PUT /quotes/<edit_uuid>` —
+tryb podglądu i tryb zapisu muszą być ten sam, żeby kwoty się nie rozjechały.
 
 **Response 200 — sukces (realny przykład, skrócone warianty niedostępne):**
 ```json
@@ -388,9 +397,10 @@ ale utrwala i zwraca w `by-token`.
   ]
 }
 ```
-- Grupa cenowa jest **opcjonalna**: `/quotes` zapisuje zawsze w trybie automatycznym,
-  więc nie ustala tu ceny. Pominięta = wycena z pustą grupą (kolumna jest nullable,
-  panel wycen pokazuje wtedy „Nie określono").
+- Grupa cenowa jest **opcjonalna w trybie domyślnym** (automatycznym) — nie ustala
+  wtedy ceny. Pominięta = wycena z pustą grupą (kolumna jest nullable, panel wycen
+  pokazuje wtedy „Nie określono"). Przy `auto_multiplier: false` staje się
+  **wymagana**, bo to ona ustala mnożnik zapisu.
 - Gdy ją podajesz, akceptowane jest `client_type` **lub** `quote_client_type`
   (to samo znaczenie) — trafia na wycenę jako etykieta.
 - Przy `PUT /api/bot/quotes/<edit_uuid>` pominięcie grupy **nie kasuje** tej już

@@ -332,11 +332,14 @@ def bot_create_quote():
                         "najpierw wywołaj /clients/find-or-create."}
         ]}), 200
 
-    # /quotes zapisuje ZAWSZE w trybie automatycznym (auto_multiplier=True niżej),
-    # więc grupa cenowa nie ustala tu ceny i jest opcjonalna — zapisujemy ją tylko
-    # jako etykietę na wycenie (quote_client_type, kolumna nullable).
+    # Tryb mnożnika rozstrzygamy PRZED sprawdzeniem braków — jak w /calculate,
+    # bo to on decyduje, czy grupa cenowa jest w ogóle potrzebna. W trybie
+    # automatycznym grupa nie ustala ceny i trafia na wycenę tylko jako etykieta
+    # (quote_client_type, kolumna nullable).
+    payload.setdefault('auto_multiplier', True)
+
     missing = _quote_level_missing(payload, alt_field='quote_client_type',
-                                   auto_multiplier=True)
+                                   auto_multiplier=payload['auto_multiplier'])
     if missing:
         return jsonify({'ok': False, 'missing_fields': missing, 'errors': []}), 200
 
@@ -362,9 +365,11 @@ def bot_create_quote():
     quote_payload.setdefault('quote_note', payload.get('notes', ''))
     quote_payload.pop('notes', None)
     quote_payload.setdefault('quote_source', 'Asystent AI')
-    # Ten sam tryb mnożnika co w /calculate — inaczej cena podana klientowi
-    # w czacie rozjechałaby się z ceną w zapisanej wycenie.
-    quote_payload['auto_multiplier'] = True
+    # Tryb z payloadu, ten sam, którym policzył podgląd w /calculate. Hardkod
+    # True (do 2026-09-15) sprawiał, że przy auto_multiplier=false konfigurator
+    # pokazywał cenę wg grupy cenowej, a zapis liczył automatycznie — rozjazd
+    # wychodził dopiero w mailu z linkiem do wyceny, czyli u klienta.
+    quote_payload['auto_multiplier'] = payload['auto_multiplier']
 
     result, status = create_quote(quote_payload, bot_user.email)
     if status != 200:
@@ -418,6 +423,11 @@ def bot_update_quote(edit_uuid):
     from modules.calculator.services.quote_service import update_quote
 
     payload = request.get_json(silent=True) or {}
+    # Tryb mnożnika z payloadu, domyślnie automatyczny — spójnie z /calculate
+    # i /quotes. Aktualizacja przelicza ceny od zera, więc tryb musi być ten sam,
+    # którym policzono podgląd, inaczej zapis rozjedzie się z tym, co widział klient.
+    payload.setdefault('auto_multiplier', True)
+
     quote = Quote.query.filter_by(edit_uuid=edit_uuid).first()
     if not quote:
         return jsonify({'ok': False, 'errors': [
@@ -432,20 +442,31 @@ def bot_update_quote(edit_uuid):
              'message': 'Konto bota nie jest skonfigurowane (BOT_USER_ID).'}
         ]}), 200
 
+    # Grupa cenowa do przeliczenia: z payloadu, a gdy go nie ma — ta już zapisana
+    # na wycenie. Aktualizacja nie powtarza całego kontekstu wyceny, więc przy
+    # auto_multiplier=false PUT bez grupy nie ma z czego policzyć ceny, mimo że
+    # wycena grupę ma. Fallback załatwia też stare zachowanie „nie kasuj": gdy
+    # payload milczy, zapisujemy z powrotem tę samą wartość.
+    client_type = (payload.get('quote_client_type') or payload.get('client_type')
+                   or quote.quote_client_type)
+
+    # Walidacja idzie za trybem tak samo jak w /calculate i /quotes — brak grupy
+    # ma wrócić jako missing_fields, a nie jako błąd zapisu z głębi update_quote.
+    missing = _quote_level_missing({'client_type': client_type},
+                                   auto_multiplier=payload['auto_multiplier'])
+    if missing:
+        return jsonify({'ok': False, 'missing_fields': missing, 'errors': []}), 200
+
     # Format update_quote: settings.clientType + products z pełną listą wariantów.
     # Wysyłka (courier/koszt) — opcjonalnie, gdy bot dopisuje kuriera po oszacowaniu.
-    # Grupa cenowa jest opcjonalna, więc gdy jej nie podano, NIE wstawiamy klucza:
-    # update_quote przypisuje settings['clientType'] bezwarunkowo, czyli None
-    # skasowałoby grupę zapisaną wcześniej. Brak klucza = „nie zmieniaj".
+    # Brak klucza clientType = „nie zmieniaj" (update_quote przypisuje go
+    # bezwarunkowo, więc None skasowałoby grupę zapisaną wcześniej).
     settings = {'notes': payload.get('notes', '')}
-    client_type = payload.get('quote_client_type') or payload.get('client_type')
     if client_type:
         settings['clientType'] = client_type
     settings.update(_shipping_settings(payload))
-    # auto_multiplier jak w /calculate i przy tworzeniu — aktualizacja wyceny
-    # przelicza ceny od zera, więc bez tej flagi bot zapisałby ceny wg grupy cenowej.
     data = {'products': _products_with_all_variants(payload), 'settings': settings,
-            'auto_multiplier': True}
+            'auto_multiplier': payload['auto_multiplier']}
 
     result, status = update_quote(edit_uuid, data, bot_user)
     if status != 200 or not result.get('success'):
