@@ -224,6 +224,12 @@ def station_orders(station_code):
 
     Urządzenie musi być zarejestrowane pod TEGO stanowiska.
     """
+    # Alias okresu przejściowego rozwijamy PRZED wszystkim innym: dzięki temu
+    # /stations/finishing/orders i /stations/edges/orders oddają identyczne
+    # ciało i identyczny ETag (station_code wchodzi do klucza w :235), więc
+    # tablet przełączający adres nie pobiera pełnej listy od nowa.
+    station_code = resolve_station_code(station_code)
+
     if station_code not in STATION_STATUS_MAP:
         return jsonify({'error': 'unknown_station'}), 404
 
@@ -332,12 +338,21 @@ def orders_search():
 @mobile_api_bp.route('/orders/<int:order_id>', methods=['GET'])
 @require_device_token
 def order_details(order_id):
-    """GET /api/mobile/orders/<id> — szczegóły zlecenia."""
+    """
+    GET /api/mobile/orders/<id> — szczegóły zlecenia.
+
+    Kod stanowiska normalizujemy tu osobno, bo to jedyny endpoint mobilny
+    bez walidacji kodu: nie przechodzi przez _resolve_station_code. Bez
+    rozwinięcia aliasu 'finishing' wypada z bramki członkostwa
+    STATION_QUANTITY_FIELD (mobile_api_service.py:1024) i odpowiedź niesie
+    quantity_done: null — cicho, bez błędu i bez logu.
+    """
     item = ProductionItem.query.get(order_id)
     if not item:
         return jsonify({'error': 'order_not_found'}), 404
 
-    return jsonify(serialize_order(item, station_code=g.device.station_code)), 200
+    station_code = resolve_station_code(g.device.station_code)
+    return jsonify(serialize_order(item, station_code=station_code)), 200
 
 
 @mobile_api_bp.route('/orders/<int:order_id>/complete', methods=['POST'])
@@ -532,6 +547,11 @@ def station_summary(station_code):
 
     Metryki stanowiska: queue (count, m³, priorytety) + completed_today (count, m³).
     """
+    # Alias okresu przejściowego. Walidacja niżej stoi PRZED getattr znacznika
+    # czasu (:526), więc bez tej linii stary tablet dostaje jawne 404, a nie
+    # cichy stale cache — ale i tak przestaje widzieć swoje metryki.
+    station_code = resolve_station_code(station_code)
+
     if station_code not in STATION_STATUS_MAP:
         return jsonify({'error': 'unknown_station'}), 404
 
@@ -594,6 +614,10 @@ def station_orders_since(station_code):
     - all_ids: wszystkie zlecenia aktualnie w kolejce (klient wykrywa usunięte)
     - changed: pełne DTO dla zleceń z updated_at > ts
     """
+    # Alias okresu przejściowego — jak w /orders i /summary. Kod kanoniczny
+    # wraca w polu station_code odpowiedzi (element kontraktu Androida).
+    station_code = resolve_station_code(station_code)
+
     if station_code not in STATION_STATUS_MAP:
         return jsonify({'error': 'unknown_station'}), 404
 
@@ -703,7 +727,10 @@ def _profil_do_logu():
 @mobile_api_bp.route('/products/<short_product_id>/print-label', methods=['POST'])
 @require_device_token
 def mobile_print_label_single(short_product_id):
-    station_code = (g.device.station_code or '').strip()
+    # Ten endpoint OMIJA _resolve_station_code (czyta JWT wprost), więc alias
+    # okresu przejściowego rozwijamy tutaj osobno. Bez tego tablet
+    # z niezmigrowanym wierszem prod_devices dostaje 403 StationNotAllowed.
+    station_code = resolve_station_code((g.device.station_code or '').strip())
     worker_id = _profil_do_logu()
     try:
         result = label_print_service.print_labels_batch(
@@ -730,7 +757,9 @@ def mobile_print_label_single(short_product_id):
 @mobile_api_bp.route('/orders/<int:baselinker_order_id>/print-labels', methods=['POST'])
 @require_device_token
 def mobile_print_labels_for_order(baselinker_order_id):
-    station_code = (g.device.station_code or '').strip()
+    # Bliźniacza normalizacja do mobile_print_label_single — ten endpoint też
+    # omija _resolve_station_code i czyta kod stanowiska z JWT wprost.
+    station_code = resolve_station_code((g.device.station_code or '').strip())
     worker_id = _profil_do_logu()
     items = (ProductionItem.query
              .join(ProductionOrder)
@@ -1151,7 +1180,12 @@ def sessions_active():
 
     dane = _kontrakt_sesji(sesje)
     dane.update({
-        'station_code': g.device.station_code,
+        # Alias okresu przejściowego. Kontrakt przewodowy mówi, że pola
+        # station_code w odpowiedziach echują kod KANONICZNY. Bez tego tablet
+        # z niezmigrowanym wierszem prod_devices dostaje tu 'finishing',
+        # zapisuje go u siebie i odsyła w ciele operacji mutujących — stary
+        # kod krążyłby w kółko mimo poprawnej migracji bazy.
+        'station_code': resolve_station_code(g.device.station_code),
         'idle_timeout_minutes': worker_service.get_idle_timeout_minutes(),
         'sessions': [
             {
@@ -1160,7 +1194,9 @@ def sessions_active():
                 'worker_name': s.worker.full_name if s.worker else None,
                 'initials': s.worker.initials if s.worker else None,
                 'color_hex': s.worker.tile_color if s.worker else None,
-                'station_code': s.station_code,
+                # Wiersz sesji otwarty PRZED migracją niesie jeszcze stary kod;
+                # to pole rysuje na tablecie nagłówek stanowiska.
+                'station_code': resolve_station_code(s.station_code),
                 'started_at': s.started_at.isoformat() if s.started_at else None,
                 'last_activity_at': (s.last_activity_at.isoformat()
                                      if s.last_activity_at else None),

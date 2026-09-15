@@ -561,3 +561,275 @@ def test_rejestracja_nieznanym_kodem_dalej_odrzucana(client, app):
 
     assert odp.status_code == 400
     assert odp.get_json()['error'] == 'invalid_station_code'
+
+
+# ============================================================================
+# KOLEJKA STANOWISKA
+# ============================================================================
+
+def test_stary_adres_kolejki_oddaje_kolejke_krawedzi(client, app):
+    token = _token(app, station_code='finishing')
+    _produkt(app, status='czeka_na_krawedzie', quantity=3)
+
+    odp = client.get('/api/mobile/stations/finishing/orders',
+                     headers=_naglowki(token))
+
+    assert odp.status_code == 200, odp.get_json()
+    dane = odp.get_json()
+    assert dane['station_code'] == 'edges'
+    assert dane['count'] == 1
+    assert dane['orders'][0]['quantity_done'] == 0
+
+
+def test_stary_i_nowy_adres_kolejki_daja_ten_sam_etag(client, app):
+    """
+    station_code wchodzi do ETaga (mobile_api.py:235). Bez normalizacji
+    tablet przełączony ze starego adresu na nowy pobiera pełną listę
+    ponownie — a cały park robi to naraz, w chwili gdy gunicorn dopiero
+    wstaje po restarcie.
+    """
+    token = _token(app, station_code='finishing')
+    _produkt(app, status='czeka_na_krawedzie', quantity=3)
+
+    stary = client.get('/api/mobile/stations/finishing/orders',
+                       headers=_naglowki(token))
+    nowy = client.get('/api/mobile/stations/edges/orders',
+                      headers=_naglowki(token))
+
+    assert stary.status_code == 200, stary.get_json()
+    assert nowy.status_code == 200, nowy.get_json()
+    assert stary.headers['ETag'] == nowy.headers['ETag']
+    assert stary.get_json() == nowy.get_json()
+
+
+def test_stary_tablet_widzi_kolejke_lakierni(client, app):
+    """STRAŻNIK: STATION_GROUPS + normalizacja obu stron z zadania 2."""
+    token = _token(app, station_code='finishing')
+    _produkt(app, status='czeka_na_lakiernie', quantity=1,
+             finish_type='lakierowane', obrobka_krawedzi=False)
+
+    odp = client.get('/api/mobile/stations/painting/orders',
+                     headers=_naglowki(token))
+
+    assert odp.status_code == 200, odp.get_json()
+    assert odp.get_json()['station_code'] == 'painting'
+    assert odp.get_json()['count'] == 1
+
+
+def test_nowy_tablet_krawedzi_pobiera_kolejke_bez_aliasu(client, app):
+    """STRAŻNIK: docelowy tablet z kodem 'edges' działa bez tablicy tłumaczeń."""
+    token = _token(app, station_code='edges', device_id='TABLET-EDGES')
+    _produkt(app, status='czeka_na_krawedzie', quantity=3)
+
+    odp = client.get('/api/mobile/stations/edges/orders',
+                     headers=_naglowki(token))
+
+    assert odp.status_code == 200, odp.get_json()
+    assert odp.get_json()['station_code'] == 'edges'
+    assert odp.get_json()['count'] == 1
+
+
+# ============================================================================
+# SZCZEGÓŁY ZLECENIA
+# ============================================================================
+
+def test_szczegoly_zlecenia_dla_starego_tabletu_maja_licznik(client, app):
+    """
+    JEDYNY endpoint mobilny bez walidacji kodu stanowiska — nie przechodzi
+    przez _resolve_station_code. Bez normalizacji kod 'finishing' wypada
+    z bramki członkostwa STATION_QUANTITY_FIELD (mobile_api_service.py:1024)
+    i odpowiedź niesie quantity_done: null. Bez błędu, bez logu — tablet
+    pokazuje 0 z N dla pozycji, na której coś już odbito.
+    """
+    token = _token(app, station_code='finishing')
+    produkt_id = _produkt(app, status='czeka_na_krawedzie', quantity=5)
+
+    with app.app_context():
+        produkt = ProductionProduct.query.get(produkt_id)
+        produkt.quantity_done_edges = 2
+        db.session.commit()
+
+    odp = client.get('/api/mobile/orders/{}'.format(produkt_id),
+                     headers=_naglowki(token))
+
+    assert odp.status_code == 200, odp.get_json()
+    assert odp.get_json()['quantity_done'] == 2
+
+
+def test_szczegoly_zlecenia_dla_nowego_tabletu_krawedzi(client, app):
+    """STRAŻNIK: tablet z kanonicznym kodem działa bez aliasu."""
+    token = _token(app, station_code='edges', device_id='TABLET-EDGES')
+    produkt_id = _produkt(app, status='czeka_na_krawedzie', quantity=5)
+
+    with app.app_context():
+        produkt = ProductionProduct.query.get(produkt_id)
+        produkt.quantity_done_edges = 4
+        db.session.commit()
+
+    odp = client.get('/api/mobile/orders/{}'.format(produkt_id),
+                     headers=_naglowki(token))
+
+    assert odp.status_code == 200, odp.get_json()
+    assert odp.get_json()['quantity_done'] == 4
+
+
+# ============================================================================
+# SUMMARY I DELTA SYNC
+# ============================================================================
+
+def test_metryki_stanowiska_dzialaja_pod_starym_kodem(client, app):
+    token = _token(app, station_code='finishing')
+    _produkt(app, status='czeka_na_krawedzie', quantity=3)
+
+    odp = client.get('/api/mobile/stations/finishing/summary',
+                     headers=_naglowki(token))
+
+    assert odp.status_code == 200, odp.get_json()
+    dane = odp.get_json()
+    assert dane['station_code'] == 'edges'
+    assert dane['queue']['count'] == 1
+
+
+def test_metryki_lakierni_ze_starego_tabletu(client, app):
+    """STRAŻNIK: zakładka Lakierni na starym tablecie ma dalej działać."""
+    token = _token(app, station_code='finishing')
+    _produkt(app, status='czeka_na_lakiernie', quantity=2,
+             finish_type='olejowane', obrobka_krawedzi=False)
+
+    odp = client.get('/api/mobile/stations/painting/summary',
+                     headers=_naglowki(token))
+
+    assert odp.status_code == 200, odp.get_json()
+    assert odp.get_json()['station_code'] == 'painting'
+    assert odp.get_json()['queue']['count'] == 1
+
+
+def test_delta_sync_dziala_pod_starym_kodem(client, app):
+    token = _token(app, station_code='finishing')
+    produkt_id = _produkt(app, status='czeka_na_krawedzie', quantity=3)
+
+    odp = client.get(
+        '/api/mobile/stations/finishing/orders/since?ts=2020-01-01T00:00:00',
+        headers=_naglowki(token))
+
+    assert odp.status_code == 200, odp.get_json()
+    dane = odp.get_json()
+    assert dane['station_code'] == 'edges'
+    assert dane['all_ids'] == [produkt_id]
+    assert dane['changed'][0]['quantity_done'] == 0
+
+
+# ============================================================================
+# DRUK ETYKIET
+# ============================================================================
+
+def _podmien_druk(monkeypatch, przechwycone):
+    """Podmienia print_labels_batch i zapisuje kod stanowiska, z jakim wołano."""
+    def fake_batch(short_product_ids, station_code, actor):
+        przechwycone.append(station_code)
+        return {
+            'success': True,
+            'success_count': len(list(short_product_ids)),
+            'failed_count': 0,
+            'connection_error': False,
+            'message': 'OK',
+            'results': [],
+        }
+
+    monkeypatch.setattr(
+        'modules.production.services.label_print_service.print_labels_batch',
+        fake_batch,
+    )
+
+
+def test_druk_pojedynczej_etykiety_uzywa_kodu_kanonicznego(
+        client, app, monkeypatch):
+    """
+    Oba endpointy druku OMIJAJĄ _resolve_station_code — czytają
+    g.device.station_code wprost (mobile_api.py:682, :709). Bez własnej
+    normalizacji tablet z niezmigrowanym wierszem dostaje 403
+    StationNotAllowed po cichu, bo 'finishing' nie ma prawa wstępu na listę
+    LABEL_PRINTER_ALLOWED_STATIONS.
+    """
+    przechwycone = []
+    _podmien_druk(monkeypatch, przechwycone)
+    token = _token(app, station_code='finishing')
+
+    odp = client.post('/api/mobile/products/26042_1/print-label',
+                      headers=_naglowki(token), json={})
+
+    assert odp.status_code == 200, odp.get_json()
+    assert przechwycone == ['edges']
+
+
+def test_druk_etykiet_zamowienia_uzywa_kodu_kanonicznego(
+        client, app, monkeypatch):
+    przechwycone = []
+    _podmien_druk(monkeypatch, przechwycone)
+    token = _token(app, station_code='finishing')
+    _produkt(app, status='czeka_na_krawedzie', quantity=1)
+
+    odp = client.post('/api/mobile/orders/990001/print-labels',
+                      headers=_naglowki(token), json={})
+
+    assert odp.status_code == 200, odp.get_json()
+    assert przechwycone == ['edges']
+
+
+# ============================================================================
+# STAN SESJI — /sessions/active
+# ============================================================================
+
+def test_stan_sesji_echuje_kanoniczny_kod_urzadzenia(client, app):
+    """
+    Ostatnie miejsce oddające tabletowi surowy station_code. Apka zapamiętuje
+    tę wartość i odsyła ją w ciele operacji mutujących, więc bez normalizacji
+    stary kod krąży w kółko także po migracji prod_devices.
+    """
+    token = _token(app, station_code='finishing')
+
+    odp = client.get('/api/mobile/sessions/active', headers=_naglowki(token))
+
+    assert odp.status_code == 200, odp.get_json()
+    assert odp.get_json()['station_code'] == 'edges'
+    assert odp.get_json()['session_group'] is None
+    assert odp.get_json()['worker_ids'] == []
+
+
+def test_stan_sesji_normalizuje_kod_w_wierszu_sesji(client, app):
+    """
+    Wiersz prod_worker_sessions sprzed migracji może jeszcze nieść stary kod
+    (sesja otwarta w chwili deployu, wpis przywrócony z backupu). Na tablecie
+    to pole rysuje nagłówek stanowiska — surowe 'finishing' wygląda jak
+    przełączenie na nieistniejące stanowisko.
+    """
+    token = _token(app, station_code='finishing')
+    with app.app_context():
+        pracownik = ProductionWorker(first_name='Piotr', last_name='Wisniewski',
+                                     is_active=True, sort_order=0)
+        db.session.add(pracownik)
+        db.session.flush()
+        teraz = get_local_now()
+        sesja = ProductionWorkerSession(
+            worker_id=pracownik.id,
+            station_code='finishing',
+            device_id='TABLET-1',
+            started_at=teraz,
+            last_activity_at=teraz,
+            work_date=teraz.date(),
+            session_group='grupa-sprzed-migracji',
+        )
+        db.session.add(sesja)
+        db.session.commit()
+        pracownik_id = pracownik.id
+
+    odp = client.get('/api/mobile/sessions/active', headers=_naglowki(token))
+
+    assert odp.status_code == 200, odp.get_json()
+    dane = odp.get_json()
+    assert dane['station_code'] == 'edges'
+    assert dane['session_group'] == 'grupa-sprzed-migracji'
+    assert dane['worker_ids'] == [pracownik_id]
+    assert len(dane['sessions']) == 1
+    assert dane['sessions'][0]['station_code'] == 'edges'
+    assert dane['sessions'][0]['worker_name'] == 'Piotr Wisniewski'
