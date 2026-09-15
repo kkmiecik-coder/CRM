@@ -75,9 +75,24 @@ def _metoda(zrodlo, naglowek):
     return reszta[:koniec]
 
 
+def _blok_catch(blok_metody, dopasowanie_catch):
+    """Ciało `catch (error) { ... }` wewnątrz już wyodrębnionego bloku metody.
+
+    Ten `catch` siedzi trzy poziomy głębiej niż nagłówek metody (metoda ->
+    setTimeout(async () => {...}) -> try/catch), więc jego klamra domykająca
+    stoi na wcięciu 12 spacji — szukamy `\n            }\n`, analogicznie do
+    `_metoda()` powyżej, tylko na innym poziomie zagnieżdżenia.
+    """
+    reszta = blok_metody[dopasowanie_catch.end():]
+    koniec = reszta.index('\n            }\n')
+    return reszta[:koniec]
+
+
 def test_wlasny_kurier_ma_straznik_kolejnosci_odpowiedzi_serwera():
     """Regresja: spóźniona odpowiedź z serwera nadpisuje this.markup świeżym
-    wynikiem starszym.
+    wynikiem starszym — sprawdzane OSOBNO w gałęzi sukcesu (try) i błędu
+    (catch), bo to dwa niezależne strażniki i usunięcie dowolnego z nich ma
+    wywalić ten test.
 
     `clearTimeout` w `scheduleCustomMarkup` anuluje TIMER, który jeszcze nie
     wystartował — NIE anuluje zapytania do `/calculator/api/shipping-markup`,
@@ -87,12 +102,18 @@ def test_wlasny_kurier_ma_straznik_kolejnosci_odpowiedzi_serwera():
     numeru żądania nadpisałby `this.markup` starszym wynikiem — panel
     pokazałby cenę niepasującą do pola formularza, a `validateCustomForm()`
     zbudowałby z niej `customCarrier`, który trafia do zapisanej wyceny
-    klienta.
+    klienta. Ten sam mechanizm psuje sprawę i wtedy, gdy to spóźnione
+    zapytanie A skończy się BŁĘDEM: bez strażnika w gałęzi catch, jego
+    `this.markup = null` wyzeruje cenę ustawioną już przez poprawną,
+    nowszą odpowiedź B.
 
     Sama obecność identyfikatora `this.customMarkupSeq` gdziekolwiek w pliku
     niczego nie dowodzi — musi być przydzielany do lokalnej zmiennej PRZED
-    żądaniem i porównywany z powrotem z `this.customMarkupSeq` PO `await`,
-    inaczej strażnik nic nie strażuje.
+    żądaniem i porównywany z powrotem z `this.customMarkupSeq` PO `await`, W
+    OBU gałęziach try/catch z osobna. Szukanie samego wystąpienia „gdziekolwiek
+    po await" (jak w poprzedniej wersji tego testu) tego nie wychwytuje: guard
+    obecny tylko w try (albo tylko w catch) i tak trafia w ten wspólny zakres,
+    więc usunięcie jednego z nich zostawiało test zielonym.
     """
     zrodlo = _zrodlo(JS_DELIVERY)
 
@@ -111,10 +132,25 @@ def test_wlasny_kurier_ma_straznik_kolejnosci_odpowiedzi_serwera():
     assert dopasowanie_await, \
         'zmieniło się wywołanie fetchShippingMarkup w scheduleCustomMarkup'
 
-    po_await = blok[dopasowanie_await.end():]
-    assert re.search(re.escape(zmienna) + r'\s*!==\s*this\.customMarkupSeq', po_await), \
-        'po await brakuje porównania przydzielonego numeru z this.customMarkupSeq — ' \
-        'spóźniona odpowiedź nadpisze this.markup, mimo że nie jest już aktualna'
+    dopasowanie_catch = re.search(r'catch \(error\) \{', blok)
+    assert dopasowanie_catch, \
+        'zmieniła się struktura try/catch w scheduleCustomMarkup'
+    assert dopasowanie_await.end() < dopasowanie_catch.start(), \
+        'await fetchShippingMarkup powinien być w bloku try, przed catch'
+
+    wzorzec_straznika = re.escape(zmienna) + r'\s*!==\s*this\.customMarkupSeq'
+
+    blok_try = blok[dopasowanie_await.end():dopasowanie_catch.start()]
+    assert re.search(wzorzec_straznika, blok_try), \
+        'w gałęzi try (po await, przed catch) brakuje porównania przydzielonego ' \
+        'numeru z this.customMarkupSeq — spóźniona UDANA odpowiedź nadpisze ' \
+        'this.markup, mimo że nie jest już aktualna'
+
+    blok_catch = _blok_catch(blok, dopasowanie_catch)
+    assert re.search(wzorzec_straznika, blok_catch), \
+        'w gałęzi catch brakuje porównania przydzielonego numeru z ' \
+        'this.customMarkupSeq — spóźniony BŁĄD starszego żądania wyzeruje ' \
+        'this.markup, nadpisując poprawną cenę ustawioną już przez nowszą odpowiedź'
 
 
 def test_podzakladka_wysylki_jest_podpieta_w_ustawieniach():
