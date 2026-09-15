@@ -41,7 +41,7 @@ synonyms:
 - Powiązane wyceny i zamówienia
 
 ### Produkcja
-- 6 stanowisk: wycinanie → składanie → sklejanie → formatowanie → wykańczanie → pakowanie
+- 7 stanowisk: wycinanie → składanie → sklejanie → formatowanie → krawędzie → lakiernia → pakowanie
 - Zarządzanie zleceniami produkcyjnymi
 
 ### Raporty
