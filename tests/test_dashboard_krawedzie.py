@@ -222,7 +222,8 @@ def test_siatka_stanowisk_uklada_sie_sama_i_ma_staly_kafel():
     """
     Kafli jest dziewięć: trakownia, pięć stanowisk pipeline'u, lakiernia,
     logistyka i pakowanie. Siatka nie ma sztywno wpisanej liczby kolumn —
-    układa się sama przez `repeat(auto-fit, minmax(380px, 1fr))`, żeby na
+    układa się sama przez `repeat(auto-fit, minmax(min(380px, 100%), 1fr))`,
+    żeby na
     szerszych ekranach zawijała się w kolejną kolumnę bez ręcznego progu.
     380px w minmax to dolna granica szerokości kafla — wartość ZADANA przez
     właściciela na podstawie tego, jak kafel wygląda naprawdę (nie wyliczona
@@ -251,7 +252,7 @@ def test_siatka_stanowisk_uklada_sie_sama_i_ma_staly_kafel():
     css = _plik(PANEL_CSS)
 
     blok = css.split('.il-stations-grid {')[1].split('}')[0]
-    assert 'grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));' in blok
+    assert 'grid-template-columns: repeat(auto-fit, minmax(min(380px, 100%), 1fr));' in blok
     assert 'align-content: start;' in blok
 
     waski = css.split('@media (max-width: 900px)')[1][:800]

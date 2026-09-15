@@ -2286,20 +2286,18 @@ body {
    siatka pokaże 1 szeroką kolumnę kafli, nie 2 — to świadoma konsekwencja
    wybranej szerokości 380px, nie błąd wyliczenia.
 
-   ZNALEZISKO DO DECYZJI WŁAŚCICIELA (nie naprawione tutaj — nie było o to
-   proszone, a dotyka innego progu niż 380px): przy jednej kolumnie minmax
-   wymusza SZTYWNE minimum 380px nawet gdy dostępna szerokość jest mniejsza —
-   grid wtedy nie kurczy kolumny, tylko przelewa się poza kartę i zostaje
-   przycięty przez `.dashboard-card { overflow: hidden }` (zmierzone i
-   sfotografowane: przy szerokości karty ~340px, ostatnia statystyka i jej
-   wartość są ucięte w połowie). Dzieje się to dla okna w wąskim przedziale
-   ok. 901–1017px szerokości — czyli POWYŻEJ progu 900px niżej (więc siatka
-   NIE dostaje jeszcze awaryjnego `grid-template-columns: 1fr`), ale PONIŻEJ
-   szerokości, przy której choć jedna kolumna 380px ma dość miejsca. Przy
-   starym MIN=300px tej dziury nie było (300px mieściło się już od ok. 901px
-   w górę). Możliwa łata: podnieść próg tej jednej reguły (nie całego media
-   query) do ok. 1020px — celowo tego NIE zrobiłem, bo nie było o to proszone
-   i zmienia inny próg niż zadane 380px.
+   `min(380px, 100%)`, a nie samo `380px` — to NIE jest ozdobnik. Gołe minmax
+   wymusza sztywne minimum nawet wtedy, gdy dostępna szerokość jest mniejsza:
+   grid nie kurczy wtedy kolumny, tylko przelewa się poza kartę i zostaje
+   przycięty przez `.dashboard-card { overflow: hidden }` — po cichu, bez
+   paska przewijania. Zmierzone przy szerokości karty ~340px: ostatnia
+   statystyka ucięta w połowie. Dotyczyło okna w przedziale ok. 901–1017px,
+   czyli POWYŻEJ progu 900px niżej (siatka nie dostaje jeszcze awaryjnego
+   `1fr`), a PONIŻEJ szerokości, przy której jedna kolumna 380px ma dość
+   miejsca. `min(..., 100%)` pozwala kolumnie zejść poniżej 380px dokładnie
+   wtedy, gdy inaczej nie zmieściłaby się wcale — zamyka tę dziurę bez
+   dokładania kolejnego ręcznego progu, który trzeba by przeliczać przy każdej
+   zmianie proporcji karty. Próg 900px zostaje jako sieć bezpieczeństwa.
 
    align-content: start — ten grid ma flex: 1, więc rośnie do wysokości, jaką
    odda mu .dashboard-card-body (czyli wysokości karty "Stanowiska
@@ -2314,7 +2312,7 @@ body {
    tests/test_dashboard_krawedzie.py, który tego właśnie pilnuje. */
 .il-stations-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(380px, 100%), 1fr));
   gap: 8px;
   flex: 1;
   align-content: start;
