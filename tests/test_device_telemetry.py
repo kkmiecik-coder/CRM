@@ -4,7 +4,12 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from modules.production.services.mobile_api_service import validate_heartbeat_payload
+from modules.production.services.mobile_api_service import (
+    _STATION_CODES_WITH_TABLETS,
+    build_devices_telemetry,
+    validate_heartbeat_payload,
+)
+from modules.production.services.station_catalog import STATION_ORDER
 
 
 def test_validate_heartbeat_ok():
@@ -81,8 +86,6 @@ def test_validate_heartbeat_missing_app_version_name():
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
-from modules.production.services.mobile_api_service import build_devices_telemetry
-
 
 def _make_device(station_code, **kw):
     """Lekki stub ProductionDevice — tylko atrybuty których używa helper."""
@@ -102,18 +105,27 @@ def _make_device(station_code, **kw):
 
 
 def test_telemetry_empty_fleet():
-    """Brak urządzeń → wszystkie stanowiska Niedostępne."""
+    """
+    Brak urządzeń → wszystkie stanowiska Niedostępne.
+
+    Zbiór kluczy porównujemy z KATALOGIEM (plus trakownia, której w katalogu
+    nie ma, bo nie ma statusów produktu), a nie z listą kodów wpisaną z palca.
+    Poprzednia wersja tego testu wymieniała wszystkie kody imiennie: przy
+    rozdziale Wykańczania trzeba ją było poprawiać ręcznie, a kolejne
+    stanowisko dołożone do katalogu przeszłoby przez nią bez szemrania —
+    czyli dokładnie wtedy, kiedy miała się odezwać.
+    """
     result = build_devices_telemetry([], now=datetime(2026, 5, 21, 15, 0, 0))
-    assert set(result.keys()) == {
-        'cutting', 'assembly', 'gluing', 'formatting', 'edges', 'painting',
-        'packaging', 'sawmill',
-    }
+
+    assert set(result.keys()) == set(STATION_ORDER) | {'sawmill'}
+    assert set(result.keys()) == set(_STATION_CODES_WITH_TABLETS)
+
     for code, status in result.items():
-        assert status['active'] is False
-        assert status['status_label'] == 'Niedostępne'
-        assert status['last_heartbeat_at'] is None
-        assert status['battery_pct'] is None
-        assert status['apk_outdated'] is False
+        assert status['active'] is False, code
+        assert status['status_label'] == 'Niedostępne', code
+        assert status['last_heartbeat_at'] is None, code
+        assert status['battery_pct'] is None, code
+        assert status['apk_outdated'] is False, code
 
 
 def test_telemetry_active_device():

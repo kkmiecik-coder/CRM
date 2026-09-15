@@ -488,3 +488,32 @@ def test_przejsciowy_kod_starego_tabletu_jest_oznaczony_w_zrodle():
         'Wpis okresu przejściowego bez markera — po takim wierszu nie widać, '
         'czy to świadoma decyzja, czy resztka po rozdziale stanowiska: {!r}'
         .format(wpisy[0][0] + '#' + wpisy[0][1]))
+
+
+def test_kazde_stanowisko_ma_telemetrie():
+    """
+    build_devices_telemetry buduje slownik WYLACZNIE po
+    _STATION_CODES_WITH_TABLETS. Stanowisko spoza tej krotki nie dostaje
+    klucza, wiec kafel na dashboardzie zostaje 'Niedostepne' i wyszarzony
+    niezaleznie od tego, jak zywy jest tablet. Awaria bezglosna, nie do
+    odroznienia od padnietego sprzetu.
+    """
+    from modules.production.services.mobile_api_service import (
+        _STATION_CODES_WITH_TABLETS, build_devices_telemetry)
+    from modules.production.services.station_catalog import STATION_ORDER
+
+    brakujace = sorted(set(STATION_ORDER) - set(_STATION_CODES_WITH_TABLETS))
+    assert brakujace == [], (
+        'Stanowiska bez telemetrii — kafel zostanie "Niedostepne" na zawsze: {}'
+        .format(brakujace))
+
+    # Trakownia jest w krotce, choc nie ma jej w STATION_ORDER (tablet na
+    # niej stoi, ale statusow ProductionProduct nie ma). Regresja obok.
+    assert 'sawmill' in _STATION_CODES_WITH_TABLETS
+
+    # Dowod, ze krotka faktycznie steruje wyjsciem, a nie tylko lezy obok.
+    pusta_flota = build_devices_telemetry([])
+    assert set(pusta_flota) == set(_STATION_CODES_WITH_TABLETS)
+    for kod in STATION_ORDER:
+        assert pusta_flota[kod]['status_label'] == 'Niedostępne', kod
+        assert pusta_flota[kod]['active'] is False, kod
