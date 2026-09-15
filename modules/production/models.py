@@ -27,6 +27,14 @@ from extensions import db
 from modules.logging import get_structured_logger
 import pytz
 
+# Alias 'finishing' -> 'edges' na okres przejściowy (stare APK tabletów).
+# Kontrakt resolve_station_code opisuje nagłówek planu (P7).
+# station_catalog nie importuje niczego — ani Flaska, ani modeli — więc ten
+# import nie robi cyklu. Zweryfikowane empirycznie: modules/production/__init__.py
+# ładuje serwisy (linie 37-43) PRZED modelami (linia 52), a partial-init pakietu
+# services wystarcza, żeby doładować sam podmoduł station_catalog.
+from .services.station_catalog import resolve_station_code
+
 logger = get_structured_logger('production.models')
 
 def get_local_now():
@@ -285,7 +293,11 @@ class ProductionProduct(db.Model):
     quantity_done_assembly = Column(Integer, default=0, nullable=False)
     quantity_done_gluing = Column(Integer, default=0, nullable=False)
     quantity_done_formatting = Column(Integer, default=0, nullable=False)
-    quantity_done_finishing = Column(Integer, default=0, nullable=False)
+    # UWAGA: 'edges' to STANOWISKO (dawne 'finishing'), a NIE dane produktu.
+    # Kilkadziesiąt linii wyżej stoi parsed_edges_groups (:254) — to opis
+    # krawędzi produktu z wyceny. Te dwa znaczenia tokenu 'edges' żyją obok
+    # siebie i tak ma zostać.
+    quantity_done_edges = Column(Integer, default=0, nullable=False)
     quantity_done_painting = Column(Integer, default=0, nullable=False)
     quantity_done_packaging = Column(Integer, default=0, nullable=False)
 
@@ -293,7 +305,11 @@ class ProductionProduct(db.Model):
     assembly_completed_at = Column(DateTime, index=True)
     gluing_completed_at = Column(DateTime, index=True)
     formatting_completed_at = Column(DateTime, index=True)
-    finishing_completed_at = Column(DateTime, index=True)
+    # Znacznik domknięcia STANOWISKA Krawędzie (dawne finishing_completed_at).
+    # UWAGA: token 'edges' koliduje z parsed_edges_groups — danymi o krawędziach
+    # produktu z wyceny (patrz komentarz przy quantity_done_edges wyżej). Ten
+    # znacznik to czas zamknięcia stanowiska, nie dane produktu.
+    edges_completed_at = Column(DateTime, index=True)
     painting_completed_at = Column(DateTime, index=True)
     packaging_completed_at = Column(DateTime, index=True)
 
@@ -421,6 +437,9 @@ class ProductionProduct(db.Model):
         return is_valid, missing_fields
 
     def get_quantity_done(self, station_code):
+        # Stary tablet przysyła 'finishing'. Bez normalizacji getattr z defaultem
+        # zwróciłby CICHO 0 i odbite sztuki zniknęłyby z odpowiedzi API.
+        station_code = resolve_station_code(station_code)
         return getattr(self, f'quantity_done_{station_code}', 0)
 
     def set_quantity_done(self, station_code, value, *,
@@ -436,6 +455,11 @@ class ProductionProduct(db.Model):
         atrybucja wskazywała konkretną sesję. Brak mapy nie blokuje zapisu:
         akcja mogła powstać offline, a sesja zamknąć się nocnym cutoffem.
         """
+        # Normalizacja MUSI stać przed złożeniem nazwy atrybutu: inaczej setattr
+        # (:440) tworzy atrybut-widmo cicho, a odczyt licznika przez właściwą
+        # nazwę leci AttributeError. Gwarantuje też, że ProductionStationEvent
+        # (:457) dostanie ZAWSZE kod kanoniczny 'edges'.
+        station_code = resolve_station_code(station_code)
         attr_name = f'quantity_done_{station_code}'
         old_value = getattr(self, attr_name, 0) or 0
         # quantity_done może przekraczać quantity gdy oryginał stracił sztuki przez reject

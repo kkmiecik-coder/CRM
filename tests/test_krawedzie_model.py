@@ -158,3 +158,110 @@ def test_archiwalny_status_wykanczania_dalej_ma_nazwe():
     """
     produkt = ProductionProduct(current_status='czeka_na_wykanczanie')
     assert produkt.status_display_name == 'Czeka na wykańczanie (archiwalne)'
+
+
+# ============================================================================
+# KOLUMNY I NORMALIZACJA ALIASU
+# ============================================================================
+
+def test_produkt_ma_kolumny_krawedzi_a_nie_wykanczania():
+    kolumny = set(ProductionProduct.__table__.columns.keys())
+    assert 'quantity_done_edges' in kolumny
+    assert 'edges_completed_at' in kolumny
+    assert 'quantity_done_finishing' not in kolumny
+    assert 'finishing_completed_at' not in kolumny
+    # Kolizja nazw, o którą łatwo się potknąć: parsed_edges_groups to DANE
+    # PRODUKTU (opis krawędzi), a nie licznik stanowiska. Obie zostają.
+    assert 'parsed_edges_groups' in kolumny
+
+
+def test_kazde_stanowisko_z_katalogu_ma_kolumny_w_modelu():
+    """
+    Drugie sprzęgło katalog ↔ model (pierwsze jest przy enumie statusu).
+    Uogólnienie testu z test_display_monitor_service.py:29 na CAŁY katalog:
+    kod bez pary kolumn daje CICHE zero w monitorze i w raporcie, bo wszyscy
+    czytają te pola przez getattr z defaultem.
+    """
+    for kod in STATION_ORDER:
+        assert hasattr(ProductionProduct, 'quantity_done_%s' % kod), kod
+        assert hasattr(ProductionProduct, '%s_completed_at' % kod), kod
+
+
+def test_import_katalogu_w_modelu_nie_rozwala_serwisow():
+    """
+    modules/production/__init__.py:37-49 i services/__init__.py importują
+    serwisy w try/except ImportError. Cykl importów wywołany nowym importem
+    w models.py NIE rzuciłby wyjątku widocznego dla użytkownika — po cichu
+    ustawiłby BaselinkerSyncService na None.
+    """
+    from modules.production.services import (
+        BaselinkerSyncService, ProductionConfigService, IPSecurityService,
+        ProductNameParser, NewPriorityCalculator,
+    )
+    assert BaselinkerSyncService is not None
+    assert ProductionConfigService is not None
+    assert IPSecurityService is not None
+    assert ProductNameParser is not None
+    assert NewPriorityCalculator is not None
+
+
+def test_alias_finishing_czyta_licznik_krawedzi():
+    """Bez normalizacji getattr z defaultem zwróciłby CICHO 0."""
+    produkt = ProductionProduct(quantity=10)
+    produkt.quantity_done_edges = 4
+    assert produkt.get_quantity_done('finishing') == 4
+    assert produkt.get_quantity_done('edges') == 4
+    # Wzmocnienie: zła implementacja z zaszytym na sztywno
+    # `if station_code == 'finishing'` (zamiast wołania resolve_station_code)
+    # przepuściłaby powyższe dwie asercje, ale po cichu zwróciłaby 0 dla kodu
+    # z białymi znakami — dokładnie taki, jaki wysyłają starsze APK tabletów
+    # (resolve_station_code go przycina).
+    assert produkt.get_quantity_done('  finishing  ') == 4
+    # None nie jest stringiem — kontrakt resolve_station_code każe zwrócić go
+    # bez zmian i bez wyjątku. Zła implementacja wołająca `.strip()` wprost na
+    # station_code (parafraza kontraktu) wywaliłaby tu AttributeError zamiast
+    # spokojnie oddać wartość domyślną z getattr.
+    assert produkt.get_quantity_done(None) == 0
+
+
+def test_alias_finishing_zapisuje_licznik_krawedzi():
+    """
+    Bez normalizacji setattr tworzy atrybut-widmo (cicho), a odczyt
+    quantity_done_edges leci AttributeError.
+    """
+    produkt = ProductionProduct(quantity=10)
+    produkt.set_quantity_done('finishing', 10)
+    assert produkt.quantity_done_edges == 10
+    assert produkt.edges_completed_at is not None
+    assert not hasattr(produkt, 'quantity_done_finishing')
+    # Wzmocnienie: kod z białymi znakami musi też trafić do quantity_done_edges,
+    # nie do atrybutu-widma — łapie implementację z zaszytym na sztywno
+    # porównaniem stringów zamiast delegacji do resolve_station_code.
+    produkt2 = ProductionProduct(quantity=10)
+    produkt2.set_quantity_done('  finishing  ', 6)
+    assert produkt2.quantity_done_edges == 6
+
+
+def test_alias_nie_zostawia_eventu_z_martwym_kodem(app):
+    """prod_station_events.station_code to String(32) bez enuma i bez FK —
+    literówka zapisałaby się bez błędu i wypadła ze wszystkich raportów."""
+    with app.app_context():
+        produkt = _produkt(quantity=10)
+        produkt.set_quantity_done('finishing', 3, source='mobile')
+        db.session.commit()
+        kody = [e.station_code for e in ProductionStationEvent.query.all()]
+        assert kody == ['edges']
+
+
+def test_czesciowa_ilosc_kasuje_znacznik_domkniecia():
+    """
+    Dowód, że spóźniony PATCH /quantity z kolejki offline cofa stanowisko do
+    „nieukończone" (models.py:445-449, gałąź else przy value < quantity).
+    Zachowanie świadome, nie regresja — test jest tu, żeby zmiana nazw kolumn
+    go nie zgubiła.
+    """
+    produkt = ProductionProduct(quantity=10)
+    produkt.set_quantity_done('edges', 10)
+    assert produkt.edges_completed_at is not None
+    produkt.set_quantity_done('edges', 4)
+    assert produkt.edges_completed_at is None
