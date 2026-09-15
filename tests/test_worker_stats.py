@@ -115,7 +115,7 @@ def test_eventy_automatu_nie_licza_sie_nikomu(app):
                                   actor_worker_ids=[adam.id])
         produkt.set_quantity_done('formatting', 10, source='auto_skip',
                                   actor_worker_ids=[adam.id])
-        produkt.set_quantity_done('finishing', 10, source='system',
+        produkt.set_quantity_done('edges', 10, source='system',
                                   actor_worker_ids=[adam.id])
         db.session.commit()
 
