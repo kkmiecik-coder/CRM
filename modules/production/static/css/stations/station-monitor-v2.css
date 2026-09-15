@@ -18,7 +18,8 @@
     --status-assembly: #3b82f6;
     --status-gluing: #8b5cf6;
     --status-formatting: #ec4899;
-    --status-finishing: #06b6d4;
+    --status-edges: #06b6d4;
+    --status-painting: #e11d48;
     --status-packaging: #f97316;
     --status-completed: #22c55e;
 }
@@ -223,7 +224,8 @@ body {
 .order-card.status-assembly { border-left-color: var(--status-assembly); }
 .order-card.status-gluing { border-left-color: var(--status-gluing); }
 .order-card.status-formatting { border-left-color: var(--status-formatting); }
-.order-card.status-finishing { border-left-color: var(--status-finishing); }
+.order-card.status-edges { border-left-color: var(--status-edges); }
+.order-card.status-painting { border-left-color: var(--status-painting); }
 .order-card.status-packaging { border-left-color: var(--status-packaging); }
 .order-card.status-completed { border-left-color: var(--status-completed); }
 
@@ -276,7 +278,8 @@ body {
 .status-badge.status-assembly { background: rgba(59, 130, 246, 0.2); color: var(--status-assembly); }
 .status-badge.status-gluing { background: rgba(139, 92, 246, 0.2); color: var(--status-gluing); }
 .status-badge.status-formatting { background: rgba(236, 72, 153, 0.2); color: var(--status-formatting); }
-.status-badge.status-finishing { background: rgba(6, 182, 212, 0.2); color: var(--status-finishing); }
+.status-badge.status-edges { background: rgba(6, 182, 212, 0.2); color: var(--status-edges); }
+.status-badge.status-painting { background: rgba(225, 29, 72, 0.2); color: var(--status-painting); }
 .status-badge.status-packaging { background: rgba(249, 115, 22, 0.2); color: var(--status-packaging); }
 .status-badge.status-completed { background: rgba(34, 197, 94, 0.2); color: var(--status-completed); }
 

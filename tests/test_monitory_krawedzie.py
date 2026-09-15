@@ -263,3 +263,53 @@ def test_ajax_monitora_ogolnego_nazywa_lakiernie(app, client):
         assert zamowienie['status_label'] == 'Lakiernia'
         assert zamowienie['status_class'] == 'status-painting'
         assert zamowienie['completed_products'] == 6
+
+
+def test_ekran_wyboru_monitorow_ma_kafel_kazdego_stanowiska():
+    """Adresy kafli sa LITERALAMI, nie url_for — grep po url_for ich nie znajdzie."""
+    html = _plik('modules', 'production', 'templates', 'stations', 'monitors_select.html')
+    for kod in STATION_ORDER:
+        assert '/production/stations/monitors/' + kod + '"' in html, kod
+    assert '/production/stations/monitors/finishing"' not in html
+    assert 'Krawędzie' in html
+    assert 'Lakiernia' in html
+
+
+def test_siatka_wyboru_monitorow_miesci_siedem_kafli():
+    """3x2 = szesc miejsc. Przy siedmiu kaflach ostatni wypadal poza siatke."""
+    html = _plik('modules', 'production', 'templates', 'stations', 'monitors_select.html')
+    assert 'grid-template-columns:repeat(4,1fr)' in html
+    assert 'grid-template-rows:repeat(2,1fr)' in html
+    # Wariant pionowy (max-aspect-ratio:1/1): 2 kolumny x 4 wiersze.
+    assert 'grid-template-rows:repeat(4,1fr)' in html
+    assert 'grid-template-rows:repeat(3,1fr)' not in html
+    assert '.s.edg{--c:#1abc9c}' in html
+    assert '.s.lak{--c:#e11d48}' in html
+    assert '.s.fin{' not in html
+
+
+def test_arkusz_monitora_v2_ma_kolory_krawedzi_i_lakierni():
+    """Arkusz monitora POJEDYNCZEGO stanowiska (monitor_station.html:10)."""
+    css = _plik('modules', 'production', 'static', 'css', 'stations',
+                'station-monitor-v2.css')
+    assert '--status-edges:' in css
+    assert '--status-painting:' in css
+    assert '.order-card.status-edges' in css
+    assert '.order-card.status-painting' in css
+    assert '.status-badge.status-edges' in css
+    assert '.status-badge.status-painting' in css
+    assert 'status-finishing' not in css
+
+
+def test_arkusz_monitora_ogolnego_ma_kolory_krawedzi_i_lakierni():
+    """DRUGI, niezalezny arkusz — monitor.html:13. Bez niego kafel Lakierni
+    traci lewa krawedz koloru (border-left: 4px solid var(--border-color))."""
+    css = _plik('modules', 'production', 'static', 'css', 'stations',
+                'station-monitor.css')
+    assert '--status-edges:' in css
+    assert '--status-painting:' in css
+    assert '.order-card.status-edges' in css
+    assert '.order-card.status-painting' in css
+    assert '.status-badge.status-edges' in css
+    assert '.status-badge.status-painting' in css
+    assert 'status-finishing' not in css
