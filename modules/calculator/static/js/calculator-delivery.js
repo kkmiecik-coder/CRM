@@ -97,6 +97,14 @@ async function fetchShippingMarkup(grossPrices) {
         throw new Error(`shipping-markup: HTTP ${response.status}`);
     }
 
+    // Wygasła sesja potrafi odpowiedzieć 200 OK stroną logowania (HTML), nie
+    // JSON-em — response.ok jest wtedy `true`, więc bez tej kontroli błąd
+    // ujawniłby się dopiero jako SyntaxError z response.json().
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+        throw new Error('shipping-markup: odpowiedź nie jest w formacie JSON (wygasła sesja?)');
+    }
+
     return response.json();
 }
 
@@ -194,11 +202,6 @@ async function calculateDelivery() {
                 rawNetPrice: wyliczenie.raw_netto,
                 grossPrice: wyliczenie.final_brutto,
                 netPrice: wyliczenie.final_netto,
-                // Rozbicie na narzut i dopłatę niesiemy dalej, żeby panel
-                // „Kalkulacja końcowej ceny" pokazywał prawdziwy rozkład
-                // wybranej oferty, a nie same zera.
-                markupBrutto: wyliczenie.markup_brutto,
-                surchargeBrutto: wyliczenie.surcharge_brutto,
                 carrierLogoLink: option.carrierLogoLink || ""
             };
         });
@@ -467,14 +470,33 @@ class DeliveryModal {
                 if (numerZadania !== this.customMarkupSeq) return;
                 this.markup = odpowiedz.items[0];
                 this.markupConfig = odpowiedz.config;
+                this.hideCustomMarkupError();
             } catch (error) {
                 if (numerZadania !== this.customMarkupSeq) return;
                 console.error('Nie udało się przeliczyć ceny własnego kuriera:', error);
                 this.markup = null;
+                // Bez tego handlowiec widzi tylko wyzerowany panel i zablokowany
+                // przycisk "Uzupełnij dane" — bez żadnej wskazówki, co poszło nie tak.
+                this.showCustomMarkupError();
             }
             this.updateCalculator(this.markup);
             this.validateCustomForm();
         }, 300);
+    }
+
+    /**
+     * Widoczny komunikat błędu przeliczenia ceny własnego kuriera. Bez niego
+     * awaria endpointu /api/shipping-markup objawia się tylko zerami w
+     * kalkulatorze i wiecznie zablokowanym przyciskiem "Uzupełnij dane".
+     */
+    showCustomMarkupError() {
+        const el = document.getElementById('customCarrierMarkupError');
+        if (el) el.classList.remove('delivery-modal-hidden');
+    }
+
+    hideCustomMarkupError() {
+        const el = document.getElementById('customCarrierMarkupError');
+        if (el) el.classList.add('delivery-modal-hidden');
     }
 
     /**
@@ -520,6 +542,12 @@ class DeliveryModal {
         this.selectedOption = null;
         this.customCarrier = null;
         this.markup = null;
+        // Unieważnij ewentualne oczekujące żądanie sprzed otwarcia modala —
+        // strażnik w scheduleCustomMarkup broni tylko odpowiedzi już wysłanego
+        // żądania, nie samego resetu stanu, więc bez tego spóźniona odpowiedź
+        // nadal wyglądałaby na aktualną.
+        clearTimeout(this.customMarkupTimer);
+        ++this.customMarkupSeq;
 
         // Sortowanie po cenie KOŃCOWEJ — grossPrice niesie już narzut i dopłatę.
         this.quotes.sort((a, b) => (a.grossPrice || 0) - (b.grossPrice || 0));
@@ -619,6 +647,12 @@ class DeliveryModal {
         if (bruttoInput) bruttoInput.value = '';
 
         this.markup = null;
+        // Jak w show() — anuluj timer i podbij licznik, żeby żądanie
+        // wystrzelone tuż przed ponownym otwarciem formularza nie nadpisało
+        // świeżo wyczyszczonego stanu spóźnioną odpowiedzią.
+        clearTimeout(this.customMarkupTimer);
+        ++this.customMarkupSeq;
+        this.hideCustomMarkupError();
         this.updateCalculator(null);
 
         this.selectedOption = null;
@@ -738,14 +772,6 @@ class DeliveryModal {
 
         this.customCarrier = null;
 
-        // Panel „Kalkulacja końcowej ceny" pokazuje rozkład wybranej oferty.
-        this.markup = {
-            raw_brutto: quote.rawGrossPrice || 0,
-            markup_brutto: quote.markupBrutto || 0,
-            surcharge_brutto: quote.surchargeBrutto || 0,
-            final_brutto: quote.grossPrice || 0
-        };
-        this.updateCalculator(this.markup);
         this.updateConfirmButton();
     }
 
@@ -1011,8 +1037,6 @@ function showDeliveryModal(quotes, markupInfo = null) {
         netPrice: quote.netPrice || 0,
         rawGrossPrice: quote.rawGrossPrice || quote.grossPrice || 0,
         rawNetPrice: quote.rawNetPrice || quote.netPrice || 0,
-        markupBrutto: quote.markupBrutto || 0,
-        surchargeBrutto: quote.surchargeBrutto || 0,
         carrierLogoLink: quote.carrierLogoLink || '/static/images/default-carrier.png'
     }));
 

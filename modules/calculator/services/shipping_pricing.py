@@ -86,8 +86,12 @@ def sanitize_shipping_config(surowe):
 def load_shipping_config():
     """Konfiguracja z tabeli calculator_settings. Wymaga kontekstu aplikacji.
 
-    Tabela jest składnikiem odcisku cache'u cennika (pricing_service), więc
-    zmiana w panelu wchodzi w życie na wszystkich workerach w ≤15 s.
+    Funkcja czyta tabelę calculator_settings wprost przy KAŻDYM wywołaniu —
+    bez żadnego cache'u. To NIE to samo co load_pricing_data (pricing_service),
+    którego wynik jest składnikiem odcisku cache'u cennika odświeżanego co
+    ≤15 s. Dzięki brakowi cache'u tutaj zmiana w panelu Ustawień działa
+    natychmiast. Nie dokładaj tu cache'u w przekonaniu, że fingerprint
+    cennika już to pokrywa — nie pokrywa.
     """
     from modules.calculator.models import CalculatorSetting
 

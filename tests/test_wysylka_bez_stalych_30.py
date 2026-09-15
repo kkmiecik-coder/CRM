@@ -153,6 +153,28 @@ def test_wlasny_kurier_ma_straznik_kolejnosci_odpowiedzi_serwera():
         'this.markup, nadpisując poprawną cenę ustawioną już przez nowszą odpowiedź'
 
 
+def test_show_i_showcustomform_uniewazniaja_oczekujace_zadanie():
+    """Regresja (item 2 przeglądu): show() i showCustomForm() zerują
+    this.markup przy każdym resecie stanu modala, ale strażnik z
+    scheduleCustomMarkup broni tylko odpowiedzi już wysłanego żądania —
+    nie samego resetu. Scenariusz: użytkownik otwiera formularz własnego
+    kuriera, wpisuje kwotę (startuje żądanie), w ciągu 300 ms wraca do
+    listy albo otwiera formularz ponownie. Bez anulowania timera i
+    podbicia this.customMarkupSeq w OBU miejscach, spóźniona odpowiedź
+    wciąż przejdzie test `numerZadania !== this.customMarkupSeq` w
+    scheduleCustomMarkup i wpisze cudzy wynik do świeżo zresetowanego
+    stanu."""
+    zrodlo = _zrodlo(JS_DELIVERY)
+
+    for naglowek in ('show(quotes, markupInfo = null) {', 'showCustomForm() {'):
+        blok = _metoda(zrodlo, naglowek)
+        assert 'clearTimeout(this.customMarkupTimer)' in blok, \
+            '%s nie anuluje oczekującego timera scheduleCustomMarkup' % naglowek
+        assert '++this.customMarkupSeq' in blok, \
+            '%s nie podbija this.customMarkupSeq — spóźniona odpowiedź nadal ' \
+            'zostanie uznana za aktualną' % naglowek
+
+
 def test_podzakladka_wysylki_jest_podpieta_w_ustawieniach():
     """Literówka w url_for wywala CAŁĄ stronę Ustawień na 500, nie tylko tę
     podzakładkę — stąd osobny strażnik na parę szablon/router."""

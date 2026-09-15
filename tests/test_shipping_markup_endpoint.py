@@ -7,6 +7,7 @@ Bez pełnej aplikacji: register_routes montujemy na gołym Blueprintcie
 matematykę, te sprawdzają adres — literówka w ścieżce jest dla tamtych
 niewidoczna, a front trafia wtedy w 404.
 """
+import inspect
 import os
 import sys
 
@@ -33,3 +34,18 @@ def test_stara_trasa_wyceny_kuriera_dalej_istnieje():
     """Nowy endpoint jest dodatkiem, nie zamiennikiem — cache w localStorage
     dalej karmi się surowymi cenami z /shipping_quote."""
     assert '/calculator/shipping_quote' in _sciezki()
+
+
+def test_endpoint_narzutu_wymaga_wariantu_json():
+    """Bez as_json=True wygasła sesja dostaje przekierowanie 302 na /login
+    (HTML), nie 401 JSON. Przeglądarka idzie za przekierowaniem i widzi
+    200 OK ze stroną logowania — response.ok we fetchShippingMarkup wychodzi
+    `true`, a błąd ujawnia się dopiero jako SyntaxError z response.json().
+    Mechanizm opisany w docstringu require_module_access
+    (modules/users/decorators/permission_required.py)."""
+    zrodlo = inspect.getsource(register_routes)
+    poczatek = zrodlo.index('def shipping_markup():')
+    dekorator = zrodlo[:poczatek]
+    dekorator = dekorator[dekorator.rindex("@bp.route('/api/shipping-markup'"):]
+    assert 'as_json=True' in dekorator, \
+        'shipping_markup stracił as_json=True — wygasła sesja znów wróci jako HTML 200'

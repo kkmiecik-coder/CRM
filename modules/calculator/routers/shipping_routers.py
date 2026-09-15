@@ -33,7 +33,7 @@ def register_routes(bp):
         return jsonify(result), status_code
 
     @bp.route('/api/shipping-markup', methods=['POST'])
-    @require_module_access('calculator')
+    @require_module_access('calculator', as_json=True)
     def shipping_markup():
         """Przelicza surowe ceny brutto z GlobKuriera na ceny koncowe wg ustawien
         z panelu (narzut % + doplata progowa).
