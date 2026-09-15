@@ -65,7 +65,10 @@ POSTPROD_STATUSES = frozenset({'czeka_na_logistyke', 'czeka_na_pakowanie', 'spak
 #
 # 'finishing' zostaje na okres przejściowy (zdjąć razem z aliasem — krok 20
 # kolejności wdrożenia).
-PRODUCTION_STATIONS = frozenset({'gluing', 'formatting', 'edges', 'finishing', 'painting'})
+PRODUCTION_STATIONS = frozenset({
+    'gluing', 'formatting', 'edges', 'painting',
+    'finishing',  # finishing-ZOSTAJE: stary tablet, zdejmuje krok 20 wdrożenia
+})
 
 # Backoff dla retry po błędzie API. Daemon Timer odpala kolejne próby.
 RETRY_DELAYS_S = (5, 15, 30, 60, 120, 300, 600)

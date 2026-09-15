@@ -24,6 +24,7 @@ Plik pilnuje pięciu rzeczy:
 """
 
 import ast
+import re
 from pathlib import Path
 
 
@@ -605,3 +606,119 @@ def test_kazde_stanowisko_ma_range_w_alertach_terminow():
     # Kolejnosc rang ma odwzorowywac droge produktu przez hale.
     rangi = [ranking[STATION_PENDING_STATUS[kod]][0] for kod in STATION_ORDER]
     assert rangi == sorted(rangi), rangi
+
+
+# ============================================================================
+# STRAŻNIK DOKOŃCZENIA MIGRACJI
+# ============================================================================
+
+KORZEN = Path(__file__).resolve().parents[1]
+KATALOG_PRODUKCJI = KORZEN / 'modules' / 'production'
+
+# Komentarz-marker przy każdym wystąpieniu kodu 'finishing', które ZOSTAJE
+# w module produkcji świadomie. Marker zamiast listy fragmentów linii:
+# fragment rozjedzie się przy pierwszym przeformatowaniu pliku, marker nie.
+#
+# Sam marker nie wpada w WZORCE_UZYCIA (po słowie 'finishing' stoi w nim
+# minus, nie cudzysłów ani dwukropek), więc nie zapala sam siebie.
+MARKER = 'finishing-ZOSTAJE'
+
+# Pliki, w których oczekujemy przynajmniej jednego oznaczonego wystąpienia.
+# Wpis wskazujący na plik bez żadnego trafienia znaczy, że lista zgniła —
+# osobna asercja niżej to łapie.
+#
+# TA MAPA MA SIĘ KURCZYĆ. W kroku 20 wdrożenia (zdjęcie okresu przejściowego,
+# gdy cała flota chodzi na nowym buildzie) znikają cztery pierwsze wpisy.
+# Zostaje wyłącznie products-module.js: nazwy klas CSS przy etykietach
+# historycznych statusów, które 423 wiersze prod_product_events trzymają
+# jako zwykły tekst.
+DOZWOLONE_MARKERY = frozenset({
+    # OKRES PRZEJŚCIOWY — znikają w kroku 20 wdrożenia.
+    'services/station_catalog.py',        # STATION_CODE_ALIASES
+    'models.py',                          # ProductionDevice.VALID_STATION_CODES
+    'services/baselinker_status_sync.py', # PRODUCTION_STATIONS
+    'services/mobile_api_service.py',     # docstring device_can_access_station
+    # LEGACY — zostaje na stałe: nazwa klasy CSS przy etykiecie statusu
+    # kolejki Krawędzi; klasa .status-finishing / .badge-finishing żyje
+    # w arkuszach i w 423 wierszach historii prod_product_events.
+    'static/js/modules/products-module.js',
+})
+
+
+# Co uznajemy za UŻYCIE kodu stanowiska, a nie za prozę o nim.
+# Cudzysłów zaraz przy słowie odróżni literał kodu od nazwy klasy CSS
+# ('finishing-theme', 'badge-finishing') i od przymiotnika w komentarzu.
+WZORCE_UZYCIA = (
+    re.compile(r"""['"]finishing['"]"""),        # literał kodu stanowiska
+    re.compile(r"\bfinishing\s*:"),               # klucz obiektu JS bez cudzysłowów
+    re.compile(
+        r"\b(?:quantity_done_finishing"
+        r"|finishing_completed_at"
+        r"|finishing_started_at"
+        r"|finishing_duration_minutes"
+        r"|should_skip_finishing)\b"
+    ),
+)
+
+
+def _linia_to_komentarz(linia):
+    """
+    Linie BĘDĄCE W CAŁOŚCI komentarzem pomijamy — proza o starym kodzie
+    ('dawniej finishing', 'alias finishing -> edges') jest dokumentacją
+    zmiany, nie jej niedokończeniem. Docstringów NIE pomijamy: opis
+    zachowania endpointu ma mówić aktualnymi nazwami, a tam gdzie mówi
+    o okresie przejściowym — nosić marker.
+    """
+    s = linia.strip()
+    return s.startswith('#') or s.startswith('//') or s.startswith('*') or s.startswith('/*')
+
+
+def _pliki_modulu_produkcji():
+    """
+    Skanujemy WYŁĄCZNIE poddrzewo modules/production liczone od korzenia repo.
+    .claude/worktrees/ leży poza tym poddrzewem, więc rglob nigdy tam nie
+    wejdzie — wykluczenie niżej jest zabezpieczeniem na wypadek, gdyby ktoś
+    podniósł korzeń skanu do KORZEN. W tym katalogu siedzi OSIEROCONA kopia
+    całego repo (91 MB, ostatnia zmiana 10.07, `git worktree list` jej nie
+    zna, wskaźnik .git prowadzi do nieistniejącej ścieżki) — czytana przez
+    skaner nigdy by nie zzieleniała.
+    """
+    for sciezka in sorted(KATALOG_PRODUKCJI.rglob('*')):
+        if not sciezka.is_file() or sciezka.suffix not in ('.py', '.js'):
+            continue
+        czesci = sciezka.parts
+        if '.claude' in czesci or '__pycache__' in czesci or 'vendor' in czesci:
+            continue
+        yield sciezka
+
+
+def test_zaden_modul_produkcji_nie_zna_juz_kodu_finishing():
+    winne = []
+    oznaczone_w_pliku = {}
+
+    for sciezka in _pliki_modulu_produkcji():
+        klucz = sciezka.relative_to(KATALOG_PRODUKCJI).as_posix()
+        tekst = sciezka.read_text(encoding='utf-8', errors='replace')
+        for nr, linia in enumerate(tekst.splitlines(), start=1):
+            if _linia_to_komentarz(linia):
+                continue
+            if not any(wzorzec.search(linia) for wzorzec in WZORCE_UZYCIA):
+                continue
+            if MARKER in linia and klucz in DOZWOLONE_MARKERY:
+                oznaczone_w_pliku[klucz] = oznaczone_w_pliku.get(klucz, 0) + 1
+                continue
+            winne.append('{}:{}: {}'.format(klucz, nr, linia.strip()))
+
+    assert winne == [], (
+        'Kod stanowiska "finishing" został w modułach produkcji bez zgody.\n'
+        'Albo dokończ rename, albo — jeśli to wystąpienie ma zostać — dopisz\n'
+        'na końcu linii komentarz "{}: powód" i dodaj plik do DOZWOLONE_MARKERY:\n  '
+        .format(MARKER) + '\n  '.join(winne))
+
+    # Strażnik samej mapy: wpis, który nie ma już ani jednego oznaczonego
+    # wystąpienia, znaczy, że lista zgniła i przestała cokolwiek przepuszczać
+    # świadomie. Po kroku 20 wdrożenia ta asercja wymusi skrócenie mapy.
+    zgnile = sorted(set(DOZWOLONE_MARKERY) - set(oznaczone_w_pliku))
+    assert zgnile == [], (
+        'DOZWOLONE_MARKERY wymienia pliki bez żadnego oznaczonego wystąpienia '
+        '— usuń je z mapy: {}'.format(zgnile))

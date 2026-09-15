@@ -510,7 +510,7 @@ class ProductionProduct(db.Model):
         Bez obróbki krawędzi nie ma czego robić na Krawędziach — niezależnie
         od wykończenia.
 
-        ZMIANA ZAKRESU wobec dawnego should_skip_finishing(): tamta reguła
+        ZMIANA ZAKRESU wobec dawnej reguły pomijania wykańczalni: tamta reguła
         pomijała wyłącznie produkty surowe, więc olejowany bez krawędzi
         zatrzymywał się na wykańczalni, nie mając tam czego robić.
 

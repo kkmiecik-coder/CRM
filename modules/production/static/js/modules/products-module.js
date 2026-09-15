@@ -4641,7 +4641,7 @@ class ProductsModule {
                 icon: 'fa-star',
                 displayName: 'Krawędzie',
                 color: 'finishing-theme',
-                cssClass: 'finishing'
+                cssClass: 'finishing'  // finishing-ZOSTAJE: historyczna nazwa klasy CSS, nie kod stanowiska
             },
             'czeka_na_lakiernie': {
                 icon: 'fa-paint-roller',

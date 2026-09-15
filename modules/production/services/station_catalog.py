@@ -131,7 +131,7 @@ def is_production_station(station_code):
 # appki Android z kodami 'edges' i 'painting'. Precedens: alias
 # 'completion' → 'gluing' zdjęty w 05.2026.
 STATION_CODE_ALIASES = {
-    'finishing': 'edges',
+    'finishing': 'edges',  # finishing-ZOSTAJE: alias starego tabletu, zdejmuje krok 20
 }
 
 

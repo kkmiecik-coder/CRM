@@ -450,9 +450,9 @@ def print_labels_batch(short_product_ids, station_code, actor):
     Args:
         short_product_ids: iterable stringów
         station_code: 'formatting' / 'edges' / 'packaging' / ... (techniczne kody
-            z DB/JWT). MUSI być kodem KANONICZNYM — alias 'finishing' rozwija
-            router, a lista uprawnionych stanowisk jest normalizowana
-            w _load_config()
+            z DB/JWT). MUSI być kodem KANONICZNYM — alias starego kodu
+            wykańczalni rozwija router, a lista uprawnionych stanowisk jest
+            normalizowana w _load_config()
         actor: dict {'type': 'user'|'device', 'id': ...}
 
     Returns dict:

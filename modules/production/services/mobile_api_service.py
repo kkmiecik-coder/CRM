@@ -121,12 +121,14 @@ def device_can_access_station(device, station_code):
     Krawędzi obsługuje też Lakiernię).
 
     Normalizujemy OBIE strony. Po stronie żądania, bo stary APK przysyła
-    jeszcze 'finishing'. Po stronie urządzenia, bo w prod_devices może
+    jeszcze kod 'finishing' (finishing-ZOSTAJE: okres przejściowy, zdejmuje
+    go krok 20 wdrożenia). Po stronie urządzenia, bo w prod_devices może
     siedzieć wiersz z tym samym, niezmigrowanym kodem — urządzenie
     przywrócone z backupu albo pominięte przez migrację. Bez normalizacji
-    device='finishing' vs żądanie 'edges' kończy się 403 station_mismatch,
-    a to JEDYNY status, po którym odbite sztuki z kolejki offline przepadają
-    bezpowrotnie, mimo że tablet melduje udaną synchronizację.
+    stary kod po stronie urządzenia kontra żądanie 'edges' kończy się 403
+    station_mismatch, a to JEDYNY status, po którym odbite sztuki z kolejki
+    offline przepadają bezpowrotnie, mimo że tablet melduje udaną
+    synchronizację.
     """
     if not device or not station_code:
         return False

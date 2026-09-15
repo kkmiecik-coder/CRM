@@ -52,8 +52,9 @@ def _resolve_station_code(requested, *, znane_kody=STATION_STATUS_MAP):
     (station_code, error_response) — gdy error_response != None, wywołujący
     powinien zwrócić go natychmiast.
 
-    GŁÓWNY PUNKT ALIASU okresu przejściowego. Stary APK zna jeszcze kod
-    'finishing'; rozwijamy go na kanoniczne 'edges' PRZED sprawdzeniem
+    GŁÓWNY PUNKT ALIASU okresu przejściowego. Stary APK zna jeszcze stary
+    kod wykańczalni (literał trzyma STATION_CODE_ALIASES w katalogu
+    stanowisk); rozwijamy go na kanoniczne 'edges' PRZED sprawdzeniem
     `znane_kody` i PRZED kontrolą dostępu. Kolejność jest całą logiką:
     po sprawdzeniu `znane_kody` byłoby za późno (kod zniknął z katalogu →
     404 unknown_station), a po kontroli dostępu jeszcze gorzej (403
@@ -351,9 +352,10 @@ def order_details(order_id):
     sprawdzać pod kątem station_mismatch — inaczej niż w complete/quantity/
     reject/sessions_start, gdzie klient może przysłać dowolny kod.
 
-    Bez rozwinięcia aliasu 'finishing' TEN konkretny endpoint wypada z bramki
-    członkostwa STATION_QUANTITY_FIELD (mobile_api_service.py:1024)
-    i odpowiedź niesie quantity_done: null — cicho, bez błędu i bez logu.
+    Bez rozwinięcia aliasu starego kodu wykańczalni TEN konkretny endpoint
+    wypada z bramki członkostwa STATION_QUANTITY_FIELD
+    (mobile_api_service.py:1024) i odpowiedź niesie quantity_done: null —
+    cicho, bez błędu i bez logu.
     """
     item = ProductionItem.query.get(order_id)
     if not item:

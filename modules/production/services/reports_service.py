@@ -1085,10 +1085,10 @@ def _sprawdz_stanowisko(station):
     zwracało komplet zer z `empty_reason='brak_pracy'`, czyli odpowiedź
     „stanowisko nic nie zrobiło" na pytanie o stanowisko, którego nie ma.
 
-    Alias okresu przejściowego ('finishing' → 'edges') rozwijamy w pierwszej
-    linii, żeby dalej w agregacie nie dało się już porównać martwego kodu
-    z prod_station_events.station_code — tam po migracji nie ma ani jednego
-    wiersza 'finishing'.
+    Alias okresu przejściowego (stary kod wykańczalni → 'edges') rozwijamy
+    w pierwszej linii, żeby dalej w agregacie nie dało się już porównać
+    martwego kodu z prod_station_events.station_code — tam po migracji nie
+    ma ani jednego wiersza ze starym kodem.
     """
     station = resolve_station_code(station)
     if not station or station == 'all':
