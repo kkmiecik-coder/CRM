@@ -60,17 +60,37 @@ Skutki, o których musi wiedzieć sklep:
    mnożnik. Skutek dla modułu Presty: ustawienie „Grupa cenowa" w backoffice nie
    ma już żadnego wpływu na kwoty i może zniknąć razem z wysyłaniem pola.
 
-**Okres przejściowy.** Dopóki moduł Presty ma własny predefiniowany mnożnik, może
-wysyłać `auto_multiplier: false` i dostawać ceny wg grupy cenowej, czyli dokładnie
-jak przed 2026-09-15. Docelowo to pole **znika po stronie sklepu** — moduł oddaje
-liczenie CRM-owi i przestaje trzymać mnożnik.
+**`auto_multiplier: false` NIE jest pełnym cofnięciem cen — nie używaj go jako rollbacku.**
+Flagę respektuje **wyłącznie `/calculate`** (`bot_api.py:172`). `POST /quotes`
+(`bot_api.py:348`) i aktualizacja wyceny (`bot_api.py:424`) ustawiają
+`auto_multiplier = True` **na sztywno** i flagi z payloadu w ogóle nie czytają. Dla bota
+jest to poprawne — cena podana w czacie ma się zgadzać z zapisaną wyceną — ale oznacza,
+że klient korzystający z furtki pokazywałby w konfiguratorze cenę wg grupy cenowej,
+a **zapisywałby wycenę policzoną automatycznie**. Rozjazd wyszedłby dopiero w mailu
+z linkiem do wyceny. Pełne cofnięcie cen wymaga zmiany w CRM w **obu** miejscach,
+a nie samego pola w payloadzie sklepu.
+
+**Sklep z tej furtki nie korzysta i nie będzie.** Od 2026-09-15 moduł `wp_quotewizard`
+nie wysyła `client_type` w ogóle i nie trzyma żadnego mnożnika, progu ani stawki;
+pilnuje tego `modules/wp_quotewizard/tests/PricingSourceTest.php` po stronie sklepu.
+Domniemanym „predefiniowanym mnożnikiem" modułu była zaszyta grupa cenowa
+`WPQW_CLIENT_TYPE` — usunięta razem z polem w backoffice.
 
 **Wyceny zapisane w trybie automatycznym** mają `Quote.quote_multiplier = NULL`,
 bo jedna wartość dla całej wyceny nie istnieje; faktyczny mnożnik siedzi przy każdej
-pozycji. Ma to znaczenie przy „przelicz ponownie": wycena utworzona w trybie
-automatycznym musi być przeliczana w tym samym trybie, inaczej kwota się zmieni.
-**Do ustalenia w sesji sklepowej:** czy `by-token` ma zwracać użyty tryb, żeby
-round-trip był dokładny.
+pozycji.
+
+**Rozstrzygnięte 2026-09-15 (sesja sklepowa): `by-token` NIE zwraca użytego trybu.**
+Sklep nie ma ścieżki, która przeliczałaby wycenę **ważną** — do koszyka trafiają kwoty
+zapisane w CRM, bez wołania `/calculate`. Jedyne przeliczenie w sklepie to przycisk
+„przelicz ponownie", widoczny **wyłącznie przy wycenie wygasłej**, gdzie podanie ceny
+dzisiejszej jest celem, a nie usterką. Pole z trybem nie zmieniłoby więc żadnego
+zachowania i byłoby martwym polem w kontrakcie.
+
+Gdyby kiedyś powstała ścieżka przeliczania wyceny **ważnej**, decyzję trzeba podjąć od
+nowa — i wtedy sam tryb nie wystarczy: do odtworzenia kwoty potrzebny jest również
+`quote_client_type`, bo od 2026-09-15 wycena może nie mieć grupy cenowej w ogóle,
+a przy `auto_multiplier: false` bez niej nie da się policzyć ceny.
 
 ---
 
