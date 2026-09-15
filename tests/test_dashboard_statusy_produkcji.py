@@ -118,6 +118,113 @@ def test_krawedzie_lakiernia_i_logistyka_maja_wlasne_nazwy_i_kolory(app):
 
         assert {s['name']: s['color'] for s in dane['statuses']} == {
             'Czeka na krawędzie': '#06b6d4',
-            'Czeka na lakiernię': '#e11d48',
+            'Czeka na lakiernię': '#ec4899',
             'Czeka na logistykę': '#0d9488',
         }
+
+
+# ============================================================================
+# ROZROZNIALNOSC KOLOROW SEGMENTOW
+# ============================================================================
+
+# Prog odleglosci barw w przestrzeni CIE Lab (wzor CIE76). Dla orientacji:
+# ~2,3 to granica dostrzegalnosci dwoch probek obok siebie, a segmenty kola
+# leza obok siebie tylko czasem — stad prog znacznie wyzszy.
+#
+# 25 to najnizsza okragla wartosc, ktora LAPIE kolizje, dla ktorej ten test
+# powstal: 'czeka_na_lakiernie' #e11d48 i 'anulowane' #ef4444 dzielilo 13,90,
+# czyli dwa czerwone segmenty nie do odroznienia — a jeden znaczyl
+# „w produkcji", drugi „anulowane".
+PROG_ROZROZNIALNOSCI = 25.0
+
+# Dwie pary siedza ponizej progu OD DAWNA, sprzed rozdzielenia Wykanczania,
+# i nie sa przedmiotem tej naprawy: bursztyn/zolc kolejki pakowania obok
+# „W realizacji" (16,42) oraz dwa odcienie slate wycinania i skladania
+# (18,25). Sa wypisane imiennie, zeby test mowil prawde o stanie mapy
+# zamiast udawac, ze prog trzyma wszedzie.
+#
+# TA LISTA NIE MA ROSNAC. Nowy status dokladany do mapy ma trafic w wolne
+# miejsce na kole barw, a nie dopisac sie tutaj.
+PARY_HISTORYCZNE = {
+    frozenset(('Czeka na pakowanie', 'W realizacji')),
+    frozenset(('Czeka na wycięcie', 'Czeka na składanie')),
+}
+
+
+def _lab(hex_koloru):
+    """#RRGGBB -> (L*, a*, b*). sRGB D65, bez zadnej biblioteki zewnetrznej."""
+    h = hex_koloru.lstrip('#')
+    kanaly = [int(h[i:i + 2], 16) / 255.0 for i in (0, 2, 4)]
+    kanaly = [k / 12.92 if k <= 0.04045 else ((k + 0.055) / 1.055) ** 2.4
+              for k in kanaly]
+    r, g, b = kanaly
+    x = (r * 0.4124 + g * 0.3576 + b * 0.1805) / 0.95047
+    y = (r * 0.2126 + g * 0.7152 + b * 0.0722)
+    z = (r * 0.0193 + g * 0.1192 + b * 0.9505) / 1.08883
+
+    def f(t):
+        return t ** (1 / 3.0) if t > 0.008856 else (7.787 * t + 16 / 116.0)
+
+    fx, fy, fz = f(x), f(y), f(z)
+    return (116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz))
+
+
+def _odleglosc(a, b):
+    """Odleglosc euklidesowa w Lab (CIE76) miedzy dwoma kolorami #RRGGBB."""
+    return sum((x - y) ** 2 for x, y in zip(_lab(a), _lab(b))) ** 0.5
+
+
+def test_segmenty_przegladu_produkcji_daja_sie_rozroznic_kolorem(app):
+    """
+    Wykres kolowy „Przeglad produkcji" rysuje kazdy status wlasnym kolorem
+    i tylko kolor mowi, ktory segment jest ktory. Sama roznica hexow tego
+    NIE gwarantuje: do tej rundy lakiernia miala #e11d48, a anulowane
+    #ef4444 — dwa rozne literaly, jeden krok odcienia, a na zywych danych
+    oba segmenty niepuste (21 i 7 sztuk).
+
+    Test przechodzi po WSZYSTKICH wartosciach enuma statusu, a nie po liscie
+    wpisanej z palca, wiec kolejny status dolozony do produkcji zapali go sam.
+    Status bez wpisu w mapie dostaje kolor rezerwowy #94a3b8 — identyczny
+    z 'czeka_na_wyciecie' — wiec wpada juz w pierwsza asercje.
+
+    chart_service lezy poza modules/production, wiec nie obejmuje go straznik
+    literalu 'finishing' ani zaden inny test katalogu stanowisk.
+    """
+    import itertools
+
+    with app.app_context():
+        statusy = ProductionProduct.__table__.c.current_status.type.enums
+        for status in statusy:
+            _produkt(status)
+
+        dane = chart_service.get_production_overview()
+        kolory = {s['name']: s['color'] for s in dane['statuses']}
+        assert len(kolory) == len(statusy), kolory
+
+        powtorzone = sorted(
+            nazwa for nazwa, kolor in kolory.items()
+            if list(kolory.values()).count(kolor) > 1)
+        assert powtorzone == [], (
+            'Segmenty dzielace ten sam kolor (albo brak wpisu w mapie): {}'
+            .format(powtorzone))
+
+        zbyt_blisko = []
+        for (na, ka), (nb, kb) in itertools.combinations(kolory.items(), 2):
+            if frozenset((na, nb)) in PARY_HISTORYCZNE:
+                continue
+            odleglosc = _odleglosc(ka, kb)
+            if odleglosc < PROG_ROZROZNIALNOSCI:
+                zbyt_blisko.append('{} ({}) vs {} ({}): {:.2f}'
+                                   .format(na, ka, nb, kb, odleglosc))
+        assert zbyt_blisko == [], (
+            'Segmenty nie do odroznienia na wykresie (prog {}): {}'
+            .format(PROG_ROZROZNIALNOSCI, zbyt_blisko))
+
+        # Para historyczna, ktora znika z mapy, ma zniknac takze z listy
+        # wyjatkow — inaczej lista zgnije i przestanie cokolwiek znaczyc.
+        nazwy = set(kolory)
+        martwe = sorted(''.join(sorted(para)) for para in PARY_HISTORYCZNE
+                        if not para <= nazwy)
+        assert martwe == [], (
+            'PARY_HISTORYCZNE wymienia segmenty, ktorych juz nie ma: {}'
+            .format(martwe))

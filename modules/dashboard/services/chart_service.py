@@ -229,7 +229,19 @@ def get_production_overview():
         # Lakiernia i logistyka wpadały dotąd do fallbacku — po rozdzieleniu
         # wykańczania ten segment rośnie, bo część produktów idzie
         # z formatowania prosto do Lakierni.
-        'czeka_na_lakiernie': {'name': 'Czeka na lakiernię', 'color': '#e11d48'},
+        #
+        # Róż #ec4899, a nie karmazyn #e11d48, z którym ten segment wszedł na
+        # gałąź: od 'anulowane' #ef4444 dzielił go jeden krok odcienia
+        # (odległość CIE76 13,90 — najmniejsza w całej mapie), więc na kole
+        # były dwa nieodróżnialne czerwone segmenty, a jeden znaczy
+        # „w produkcji", drugi „anulowane". Nowa odległość do 'anulowane' to
+        # 47,6, a do najbliższego innego wpisu 64,5. Róż jest też kolorem
+        # Lakierni na wykresie stanowisk w module produkcji
+        # (STATION_CHART_COLORS 'painting' = #e91e63), więc stanowisko
+        # zachowuje tożsamość między widokami. Pilnuje tego
+        # tests/test_dashboard_statusy_produkcji.py — ten plik leży poza
+        # modules/production, więc żaden strażnik katalogu go nie obejmuje.
+        'czeka_na_lakiernie': {'name': 'Czeka na lakiernię', 'color': '#ec4899'},
         'czeka_na_logistyke': {'name': 'Czeka na logistykę', 'color': '#0d9488'},
         'czeka_na_pakowanie': {'name': 'Czeka na pakowanie', 'color': '#f59e0b'},
         'spakowane': {'name': 'Spakowane', 'color': '#10b981'},
