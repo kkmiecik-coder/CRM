@@ -15,6 +15,7 @@ from modules.calculator.services.shipping_pricing import (
     DEFAULT_CONFIG,
     SIDE_ABOVE,
     SIDE_BELOW,
+    _procent,
     apply_shipping_markup,
     build_markup_payload,
     describe_shipping_markup,
@@ -167,6 +168,35 @@ def test_build_markup_payload_zachowuje_kolejnosc_wejscia():
     assert payload["items"][0]["final_brutto"] == 104.0
     assert payload["config"]["percent"] == 30.0
     assert payload["info"].startswith("Do cen wysyłki")
+
+
+# ── percent_label: jedyne miejsce formatowania procentu (item 1 przeglądu) ──
+# formatPercent() w calculator-delivery.js formatował tę samą liczbę DRUGI
+# raz, po swojemu (toFixed, zaokrąglanie od zera) — przy remisie (np. 0.125)
+# rozjeżdżało się to z zaokrągleniem bankierskim Pythona. Backend ma być
+# teraz JEDYNYM miejscem, które zamienia procent na tekst.
+
+def test_build_markup_payload_dodaje_percent_label():
+    payload = build_markup_payload([80.0], _config())
+    assert payload["config"]["percent_label"] == _procent(30.0)
+    assert payload["config"]["percent_label"] == "30%"
+
+
+def test_build_markup_payload_percent_label_dla_procentu_ulamkowego():
+    payload = build_markup_payload([80.0], _config(percent=27.5))
+    assert payload["config"]["percent_label"] == _procent(27.5)
+    assert payload["config"]["percent_label"] == "27,5%"
+
+
+def test_build_markup_payload_nie_mutuje_przekazanej_konfiguracji():
+    """`config` to ten sam słownik, którego apply_shipping_markup używa do
+    arytmetyki dla każdej pozycji w tym samym wywołaniu — dopisanie
+    percent_label MUSI trafić do kopii, nie do oryginału, inaczej dokładamy
+    pole do cudzego słownika jako efekt uboczny."""
+    config = _config()
+    kopia_przed = dict(config)
+    build_markup_payload([80.0], config)
+    assert config == kopia_przed
 
 
 # ── Walidacja wejścia z panelu Ustawień ─────────────────────────────────────

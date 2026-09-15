@@ -88,6 +88,19 @@ def _blok_catch(blok_metody, dopasowanie_catch):
     return reszta[:koniec]
 
 
+def _funkcja_top(zrodlo, naglowek):
+    """Ciało funkcji zadeklarowanej na najwyższym poziomie pliku (wcięcie 0).
+
+    Jak `_blok()` z tests/test_checkout_js.py: klamra zamykająca stoi bez
+    wcięcia, więc szukamy `\n}\n` — inaczej niż `_metoda()` powyżej, która
+    szuka klamry wciętej o 4 spacje (metoda wewnątrz klasy).
+    """
+    poczatek = zrodlo.index(naglowek)
+    reszta = zrodlo[poczatek:]
+    koniec = reszta.index('\n}\n')
+    return reszta[:koniec]
+
+
 def test_wlasny_kurier_ma_straznik_kolejnosci_odpowiedzi_serwera():
     """Regresja: spóźniona odpowiedź z serwera nadpisuje this.markup świeżym
     wynikiem starszym — sprawdzane OSOBNO w gałęzi sukcesu (try) i błędu
@@ -188,3 +201,43 @@ def test_router_ustawien_ma_trase_wysylki():
     zrodlo = _zrodlo(ROUTERY_USTAWIEN)
     assert "@settings_bp.route('/calculator/shipping')" in zrodlo
     assert 'def calculator_shipping(' in zrodlo
+
+
+def test_formatpercent_nie_liczy_juz_procentu_sam():
+    """Regresja (item 1 przeglądu): formatPercent liczył własną wersję tekstu
+    (toFixed + zamiana kropki na przecinek) obok _procent() w
+    shipping_pricing.py — przy remisie zaokrąglenia potrafiły się rozjechać
+    (Python zaokrągla bankiersko, JS przez toFixed zawsze od zera). Jedynym
+    źródłem tekstu ma być teraz backend, przez config.percent_label."""
+    blok = _metoda(_zrodlo(JS_DELIVERY), 'formatPercent() {')
+    assert 'toFixed' not in blok, \
+        'formatPercent znów samodzielnie formatuje liczbę procentu'
+    assert 'percent_label' in blok, \
+        'formatPercent nie czyta percent_label z konfiguracji przysłanej przez backend'
+
+
+def test_calculatedelivery_filtruje_oferty_z_cieplego_cache():
+    """Regresja (item 2 przeglądu): cache wysyłki w localStorage trzyma
+    surowe odpowiedzi GlobKuriera do 24h (SHIPPING_CACHE_TTL). Serwer
+    odrzuca teraz ofertę bez liczbowej ceny u źródła (serializuj_oferty w
+    shipping_service.py), ale ten filtr działa tylko przy świeżym zapytaniu
+    do GlobKuriera — oferta zapisana w cache PRZED tą poprawką (albo cache
+    ustawiony inną ścieżką) wciąż może go ominąć, więc modal musi filtrować
+    też listę odczytaną z cache'u, nie tylko świeżo pobraną."""
+    blok = _funkcja_top(_zrodlo(JS_DELIVERY), 'async function calculateDelivery() {')
+
+    dopasowanie_filter = re.search(r'quotesList\s*=\s*quotesList\.filter\(', blok)
+    assert dopasowanie_filter, \
+        'calculateDelivery nie filtruje już listy ofert (cache lub świeży fetch) ' \
+        'z ofert bez liczbowej ceny przed wysłaniem ich do przeliczenia'
+
+    dopasowanie_pusta = re.search(r'quotesList\.length\s*===\s*0', blok)
+    assert dopasowanie_pusta, 'zmieniła się struktura sprawdzenia pustej listy ofert'
+    assert dopasowanie_filter.end() < dopasowanie_pusta.start(), \
+        'filtr musi zadziałać PRZED sprawdzeniem pustej listy — inaczej komunikat ' \
+        '"Brak dostępnych metod dostawy" nie pojawi się, gdy filtrowanie ją opróżniło'
+
+    dopasowanie_markup = re.search(r'fetchShippingMarkup\(quotesList', blok)
+    assert dopasowanie_markup, 'zmieniło się wywołanie fetchShippingMarkup w calculateDelivery'
+    assert dopasowanie_filter.end() < dopasowanie_markup.start(), \
+        'filtr musi zadziałać PRZED wysłaniem cen do przeliczenia'

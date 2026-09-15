@@ -187,6 +187,17 @@ async function calculateDelivery() {
             setShippingCache(paramsHash, quotesList);
         }
 
+        // Serwer odrzuca oferty bez liczbowej ceny u źródła (serializuj_oferty
+        // w shipping_service.py), ale ten filtr działa tylko przy świeżym
+        // zapytaniu do GlobKuriera. Cache w localStorage trzyma surowe
+        // odpowiedzi do 24h (SHIPPING_CACHE_TTL) — oferta zapisana w cache'u
+        // PRZED tą poprawką wciąż może go ominąć, więc filtrujemy też tutaj,
+        // niezależnie od filtra serwerowego. Nie usuwaj jako "duplikat" —
+        // to jedyna ochrona dla ciepłego cache'a sprzed zmiany.
+        quotesList = quotesList.filter(
+            option => typeof option.grossPrice === 'number' && isFinite(option.grossPrice)
+        );
+
         if (quotesList.length === 0) {
             showDeliveryErrorModal("Brak dostępnych metod dostawy.");
             return;
@@ -860,7 +871,7 @@ class DeliveryModal {
         finalPriceEl.textContent = `${dane.final_brutto.toFixed(2)} PLN`;
 
         if (marginLabelEl) {
-            marginLabelEl.textContent = `Koszty pakowania (${this.formatPercent()}):`;
+            marginLabelEl.textContent = `Koszty pakowania (+${this.formatPercent()}):`;
         }
 
         if (surchargeRowEl && surchargeEl) {
@@ -871,14 +882,17 @@ class DeliveryModal {
     }
 
     /**
-     * Procent narzutu w formie do wyświetlenia, np. „+30%". Bez konfiguracji
-     * z backendu zwraca pusty nawias-zastępnik, nie zmyśla liczby.
+     * Tekst procentu narzutu (np. „30%") w postaci przysłanej przez backend
+     * (config.percent_label z /calculator/api/shipping-markup). Liczbę
+     * formatuje WYŁĄCZNIE backend (_procent w shipping_pricing.py) — dwie
+     * niezależne implementacje (zaokrąglenie bankierskie w Pythonie kontra
+     * toFixed w JS, zawsze od zera) przy remisie potrafiły dać różny tekst.
+     * Znak „+" dopisują wywołujący, w otaczającym tekście — patrz wywołania
+     * niżej. Bez konfiguracji z backendu zwraca pusty placeholder, nie
+     * zmyśla liczby.
      */
     formatPercent() {
-        const percent = this.markupConfig?.percent;
-        if (percent === undefined || percent === null) return 'narzut';
-        const tekst = percent.toFixed(2).replace(/\.?0+$/, '').replace('.', ',');
-        return `+${tekst}%`;
+        return this.markupConfig?.percent_label ?? 'narzut';
     }
 
     validateCustomForm() {
@@ -961,7 +975,7 @@ class DeliveryModal {
             packingInfoEl.classList.remove('delivery-modal-hidden');
 
             if (headerAdjustedEl) {
-                headerAdjustedEl.textContent = `Cena ${this.formatPercent()}`;
+                headerAdjustedEl.textContent = `Cena +${this.formatPercent()}`;
             }
         } else {
             packingInfoEl?.classList.add('delivery-modal-hidden');

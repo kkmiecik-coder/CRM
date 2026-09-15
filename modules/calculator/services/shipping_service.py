@@ -82,6 +82,37 @@ def make_request_with_retry(request_func, request_name, *args, **kwargs):
     return None
 
 
+def serializuj_oferty(products):
+    """Surowa lista produktów z GlobKuriera -> lista ofert do dalszego przeliczenia.
+
+    Oferty bez liczbowej ceny (pusty string, None) są tu ODRZUCANE, a nie
+    przepuszczane z pustą/zerową ceną: dalej w łańcuchu _liczba() w
+    apply_shipping_markup zamienia taki brak na 0.00 zł, a oferta za 0 zł
+    wygrywa sortowanie jako „najtańsza" i daje się zapisać do wyceny klienta.
+    cheapest_with_packing (ścieżka bota) ma ten sam warunek osobno — tu
+    filtrujemy u źródła, żeby KAŻDY konsument (panel, bot) dostawał już
+    czystą listę.
+
+    bool w Pythonie jest podklasą int, więc samo isinstance(x, (int, float))
+    przepuściłoby też True/False — wykluczamy je jawnie.
+
+    Czysta funkcja (bez requests/current_app) — dzięki temu testowalna bez
+    mockowania wywołania HTTP do GlobKuriera.
+    """
+    oferty = []
+    for product in products or []:
+        cena = product.get("grossPrice")
+        if isinstance(cena, bool) or not isinstance(cena, (int, float)):
+            continue
+        oferty.append({
+            "carrierName": product.get("carrierName", "Nieznany"),
+            "grossPrice": cena,
+            "netPrice": round(cena / 1.23, 2),
+            "carrierLogoLink": product.get("carrierLogoLink", ""),
+        })
+    return oferty
+
+
 def get_shipping_quotes(shipping_params, glob_config):
     """
     Pobiera wyceny wysyłki z GlobKurier API.
@@ -210,17 +241,7 @@ def get_shipping_quotes(shipping_params, glob_config):
         if not all_products:
             return [], 200
 
-        result = [
-            {
-                "carrierName": product.get("carrierName", "Nieznany"),
-                "grossPrice": product.get("grossPrice", ""),
-                "netPrice": round(product.get("grossPrice", 0) / 1.23, 2)
-                if product.get("grossPrice")
-                else "",
-                "carrierLogoLink": product.get("carrierLogoLink", ""),
-            }
-            for product in all_products
-        ]
+        result = serializuj_oferty(all_products)
 
         current_app.logger.info(f">>> shipping: Zwrócono {len(result)} opcji wysyłki")
         return result, 200

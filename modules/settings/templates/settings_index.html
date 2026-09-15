@@ -843,7 +843,7 @@
                         <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 18px;">
                             <label style="font-size: 13px; color: #555; width: 180px;">Narzut na pakowanie:</label>
                             <input type="number" id="shippingMarkupPercent" step="0.01" min="0" max="500"
-                                   value="{{ shipping_config.percent }}"
+                                   value="{{ '%.10g'|format(shipping_config.percent) }}"
                                    style="width: 120px; padding: 8px 12px; border: 1px solid #d0d0d0; border-radius: 6px; font-size: 14px;">
                             <span style="font-size: 13px; color: #777;">%</span>
                         </div>
@@ -851,7 +851,7 @@
                         <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 18px;">
                             <label style="font-size: 13px; color: #555; width: 180px;">Próg:</label>
                             <input type="number" id="shippingThresholdBrutto" step="0.01" min="0"
-                                   value="{{ shipping_config.threshold_brutto }}"
+                                   value="{{ '%.10g'|format(shipping_config.threshold_brutto) }}"
                                    style="width: 120px; padding: 8px 12px; border: 1px solid #d0d0d0; border-radius: 6px; font-size: 14px;">
                             <span style="font-size: 13px; color: #777;">PLN brutto</span>
                             <span id="shippingThresholdNetto" style="font-size: 13px; color: #888;"></span>
@@ -860,7 +860,7 @@
                         <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 18px;">
                             <label style="font-size: 13px; color: #555; width: 180px;">Kwota dopłaty:</label>
                             <input type="number" id="shippingSurchargeBrutto" step="0.01" min="0"
-                                   value="{{ shipping_config.surcharge_brutto }}"
+                                   value="{{ '%.10g'|format(shipping_config.surcharge_brutto) }}"
                                    style="width: 120px; padding: 8px 12px; border: 1px solid #d0d0d0; border-radius: 6px; font-size: 14px;">
                             <span style="font-size: 13px; color: #777;">PLN brutto</span>
                             <span id="shippingSurchargeNetto" style="font-size: 13px; color: #888;"></span>

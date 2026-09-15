@@ -165,11 +165,21 @@ def build_markup_payload(gross_prices, config):
 
     Kolejność `items` odpowiada kolejności wejścia — front wiąże pozycje po
     indeksie z nazwą i logo przewoźnika, więc nie wolno tu sortować.
+
+    `config` w odpowiedzi niesie dodatkowo `percent_label` — gotowy tekst
+    procentu (patrz _procent). To JEDYNE miejsce, które go formatuje: front
+    (formatPercent w calculator-delivery.js) liczył kiedyś tę samą liczbę
+    drugi raz przez toFixed, a przy remisie (np. 0.125) rozjeżdżało się to z
+    zaokrągleniem bankierskim Pythona. Zwracamy KOPIĘ configu, a nie ten sam
+    słownik, który dostaliśmy — używa go też apply_shipping_markup wyżej, w
+    tej samej pętli, i nie może przyrastać o pole jako efekt uboczny.
     """
+    config_z_etykieta = dict(config)
+    config_z_etykieta['percent_label'] = _procent(config['percent'])
     return {
         'items': [apply_shipping_markup(cena, config) for cena in gross_prices],
         'info': describe_shipping_markup(config),
-        'config': config,
+        'config': config_z_etykieta,
     }
 
 

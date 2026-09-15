@@ -3,7 +3,7 @@
 # kuriera wg konfigurowalnej formuly (shipping_pricing).
 from modules.calculator.services.shipping_pricing import DEFAULT_CONFIG, SIDE_BELOW
 from modules.calculator.services.shipping_service import (
-    aggregate_package, cheapest_with_packing,
+    aggregate_package, cheapest_with_packing, serializuj_oferty,
 )
 
 
@@ -78,3 +78,51 @@ def test_cheapest_with_packing_pomija_oferty_bez_ceny_liczbowej():
 
 def test_cheapest_with_packing_pusto_daje_none():
     assert cheapest_with_packing([]) is None
+
+
+# ── serializuj_oferty: oferta bez liczbowej ceny nie wychodzi z serwisu ────
+# (item 2 przeglądu). cheapest_with_packing (bot) już się broni filtrem
+# isinstance — get_shipping_quotes (panel/kalkulator) budował wynik bez
+# takiej ochrony: oferta z grossPrice="" leciała do _liczba() w
+# apply_shipping_markup i wychodziła jako 0,00 zł — najtańsza i wybieralna.
+
+def test_serializuj_oferty_zachowuje_oferte_z_liczbowa_cena():
+    wynik = serializuj_oferty([
+        {"carrierName": "DPD", "grossPrice": 100.0, "carrierLogoLink": "dpd.png"},
+    ])
+    assert wynik == [{
+        "carrierName": "DPD",
+        "grossPrice": 100.0,
+        "netPrice": round(100.0 / 1.23, 2),
+        "carrierLogoLink": "dpd.png",
+    }]
+
+
+def test_serializuj_oferty_odrzuca_pusty_string_ceny():
+    wynik = serializuj_oferty([
+        {"carrierName": "Na zapytanie", "grossPrice": ""},
+        {"carrierName": "DPD", "grossPrice": 100.0},
+    ])
+    assert [oferta["carrierName"] for oferta in wynik] == ["DPD"]
+
+
+def test_serializuj_oferty_odrzuca_none_ceny():
+    wynik = serializuj_oferty([{"carrierName": "Brak", "grossPrice": None}])
+    assert wynik == []
+
+
+def test_serializuj_oferty_odrzuca_bool_ceny():
+    """bool to w Pythonie podklasa int — isinstance(True, (int, float)) samo
+    w sobie by go przepuściło, trzeba wykluczyć jawnie."""
+    wynik = serializuj_oferty([{"carrierName": "Dziwna", "grossPrice": True}])
+    assert wynik == []
+
+
+def test_serializuj_oferty_brakujace_pola_dostaja_wartosci_domyslne():
+    wynik = serializuj_oferty([{"grossPrice": 61.50}])
+    assert wynik == [{
+        "carrierName": "Nieznany",
+        "grossPrice": 61.50,
+        "netPrice": 50.0,
+        "carrierLogoLink": "",
+    }]
