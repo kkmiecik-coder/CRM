@@ -80,7 +80,13 @@ CREATE TABLE prod_products (
   unit_price_net DECIMAL(10,2) NULL,
   total_value_net DECIMAL(10,2) NULL,
   quantity INT NOT NULL DEFAULT 1,
-  current_status ENUM('czeka_na_wyciecie','czeka_na_skladanie','czeka_na_kompletacje','czeka_na_sklejanie','czeka_na_formatowanie','czeka_na_wykanczanie','czeka_na_lakiernie','czeka_na_logistyke','czeka_na_pakowanie','spakowane','anulowane','wstrzymane','w_realizacji') NOT NULL DEFAULT 'czeka_na_wyciecie',
+  -- 'czeka_na_krawedzie' zastapilo dawny status wykanczania przy podziale
+  -- stanowiska (2026-09-15) — starej wartosci nie wymieniamy tu nawet
+  -- w komentarzu, bo test parytetu szuka jej w calej tresci pliku.
+  -- Import historyczny z prod_items wymaga wiec najpierw uruchomienia
+  -- migracji 2026-09-15-krawedzie-podzial-wykanczania.sql na zrodle.
+  -- 'czeka_na_kompletacje' zostaje na potrzeby tego samego, historycznego importu.
+  current_status ENUM('czeka_na_wyciecie','czeka_na_skladanie','czeka_na_kompletacje','czeka_na_sklejanie','czeka_na_formatowanie','czeka_na_krawedzie','czeka_na_lakiernie','czeka_na_logistyke','czeka_na_pakowanie','spakowane','anulowane','wstrzymane','w_realizacji') NOT NULL DEFAULT 'czeka_na_wyciecie',
   deadline_date DATE NULL,
   days_until_deadline INT NULL,
   priority_rank INT NULL,
@@ -91,7 +97,9 @@ CREATE TABLE prod_products (
   quantity_done_completion INT NOT NULL DEFAULT 0,
   quantity_done_gluing INT NOT NULL DEFAULT 0,
   quantity_done_formatting INT NOT NULL DEFAULT 0,
-  quantity_done_finishing INT NOT NULL DEFAULT 0,
+  -- Licznik STANOWISKA Krawedzie. Nie mylic z parsed_edges_groups, ktore trzyma
+  -- dane produktu (ksztalt krawedzi z wyceny) — ten sam token, dwa znaczenia.
+  quantity_done_edges INT NOT NULL DEFAULT 0,
   quantity_done_painting INT NOT NULL DEFAULT 0,
   quantity_done_packaging INT NOT NULL DEFAULT 0,
   cutting_completed_at DATETIME NULL,
@@ -99,7 +107,7 @@ CREATE TABLE prod_products (
   completion_completed_at DATETIME NULL,
   gluing_completed_at DATETIME NULL,
   formatting_completed_at DATETIME NULL,
-  finishing_completed_at DATETIME NULL,
+  edges_completed_at DATETIME NULL,
   painting_completed_at DATETIME NULL,
   packaging_completed_at DATETIME NULL,
   label_printed_at DATETIME NULL,

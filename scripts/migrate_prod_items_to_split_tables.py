@@ -14,6 +14,11 @@ Skrypt zakłada że:
 Po migracji:
 - prod_items zostaje zrenamowane na prod_items_legacy_YYYYMMDD
 - Liczniki AUTO_INCREMENT prod_products ustawione na MAX(id)+1
+
+UWAGA (2026-09-15, podzial stanowiska Wykanczanie):
+    Kolumny DOCELOWE (prod_products) nazywaja sie juz quantity_done_edges
+    i edges_completed_at. Kolumny ZRODLOWE (prod_items, aliasy i.*) zostaja
+    przy starej nazwie — tamtej tabeli migracja nie dotyka.
 """
 
 import argparse
@@ -116,10 +121,10 @@ def run_migration(dry_run: bool) -> int:
               current_status, deadline_date, days_until_deadline,
               priority_rank, priority_manual_override, is_priority,
               quantity_done_cutting, quantity_done_assembly, quantity_done_completion,
-              quantity_done_gluing, quantity_done_formatting, quantity_done_finishing,
+              quantity_done_gluing, quantity_done_formatting, quantity_done_edges,
               quantity_done_painting, quantity_done_packaging,
               cutting_completed_at, assembly_completed_at, completion_completed_at,
-              gluing_completed_at, formatting_completed_at, finishing_completed_at,
+              gluing_completed_at, formatting_completed_at, edges_completed_at,
               painting_completed_at, packaging_completed_at,
               label_printed_at, label_print_count,
               production_notes, quality_issues, created_at, updated_at
