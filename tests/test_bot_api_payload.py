@@ -13,33 +13,51 @@ def test_komplet():
 
 
 # --- _quote_level_missing: client_type na poziomie całej wyceny (nie produktu) ---
+#
+# Wymagany DOKŁADNIE wtedy, gdy wpływa na cenę, czyli tylko przy auto_multiplier=False.
+# W trybie automatycznym (domyślnym) mnożnik dobiera kod per wariant i grupa cenowa
+# nie ma na cenę wpływu — żądanie jej od sklepu było proszeniem o wartość do kosza.
 
-def test_brak_client_type_bez_alt_field():
-    """/calculate — sam klucz 'client_type'."""
-    missing = _quote_level_missing({})
-    assert missing == [{'product_index': None, 'field': 'client_type',
-                        'hint': 'grupa cenowa (client_types z /options)'}]
+_BRAK_CLIENT_TYPE = {'product_index': None, 'field': 'client_type',
+                     'hint': 'grupa cenowa (client_types z /options)'}
+
+
+def test_brak_client_type_w_trybie_auto_nie_jest_brakiem():
+    """Tryb domyślny: cena nie zależy od grupy cenowej, więc nie ma o co dopytywać."""
+    assert _quote_level_missing({}, auto_multiplier=True) == []
+
+
+def test_brak_client_type_z_alt_field_w_trybie_auto_nie_jest_brakiem():
+    assert _quote_level_missing({}, alt_field='quote_client_type',
+                                auto_multiplier=True) == []
+
+
+def test_brak_client_type_przy_recznym_mnozniku():
+    """auto_multiplier=False — mnożnik bierze się z grupy cenowej, więc bez niej
+    nie ma z czego policzyć ceny. Tu wymóg zostaje."""
+    assert _quote_level_missing({}, auto_multiplier=False) == [_BRAK_CLIENT_TYPE]
 
 
 def test_client_type_obecny_bez_alt_field():
-    assert _quote_level_missing({'client_type': 'Bazowy'}) == []
+    assert _quote_level_missing({'client_type': 'Bazowy'}, auto_multiplier=False) == []
 
 
 def test_brak_client_type_z_alt_field():
     """/quotes — akceptuje 'client_type' LUB 'quote_client_type'; brak obu = brakujące."""
-    missing = _quote_level_missing({}, alt_field='quote_client_type')
-    assert missing == [{'product_index': None, 'field': 'client_type',
-                        'hint': 'grupa cenowa (client_types z /options)'}]
+    assert _quote_level_missing({}, alt_field='quote_client_type',
+                                auto_multiplier=False) == [_BRAK_CLIENT_TYPE]
 
 
 def test_quote_client_type_wystarcza_jako_alt_field():
     assert _quote_level_missing({'quote_client_type': 'Bazowy'},
-                                 alt_field='quote_client_type') == []
+                                 alt_field='quote_client_type',
+                                 auto_multiplier=False) == []
 
 
 def test_client_type_wystarcza_nawet_z_alt_field():
     assert _quote_level_missing({'client_type': 'Bazowy'},
-                                 alt_field='quote_client_type') == []
+                                 alt_field='quote_client_type',
+                                 auto_multiplier=False) == []
 
 
 # --- _products_with_all_variants: rozwija selected_variant na pelna liste wariantow ---

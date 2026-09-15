@@ -53,9 +53,12 @@ Skutki, o których musi wiedzieć sklep:
    to np. `1.2501`, a nie 1.5 ani 1.1. Nie waliduj go po stronie sklepu i nie
    zaokrąglaj — jest tak dobrany, żeby `base_unit_netto × multiplier` dawało
    dokładnie `unit_netto`.
-3. **Grupa cenowa (`client_type`) nie wpływa na cenę** w trybie domyślnym.
-   Pole zostaje wymagane w walidacji i jest zapisywane na wycenie, ale mnożnika
-   już nie ustala.
+3. **Grupa cenowa (`client_type`) nie wpływa na cenę** w trybie domyślnym —
+   i dlatego **nie jest już wymagana** (zmiana z 2026-09-15). Sklep może jej nie
+   wysyłać: `/calculate` policzy ceny, a `/quotes` zapisze wycenę z pustą grupą.
+   Wymagana staje się dopiero przy `auto_multiplier: false`, gdzie to ona ustala
+   mnożnik. Skutek dla modułu Presty: ustawienie „Grupa cenowa" w backoffice nie
+   ma już żadnego wpływu na kwoty i może zniknąć razem z wysyłaniem pola.
 
 **Okres przejściowy.** Dopóki moduł Presty ma własny predefiniowany mnożnik, może
 wysyłać `auto_multiplier: false` i dostawać ceny wg grupy cenowej, czyli dokładnie
@@ -173,7 +176,6 @@ tylko parametry.
 **Request:**
 ```json
 {
-  "client_type": "Detal+",
   "products": [
     {
       "index": 1,
@@ -197,8 +199,9 @@ tylko parametry.
 ```
 
 Pola **wymagane** per produkt: `length`, `width`, `thickness`, `quantity`, `selected_variant`.
-Na poziomie wyceny wymagane: `client_type` (walidacja `missing_fields` wymaga go nadal,
-nawet jeśli nie wpływa na cenę — patrz sekcja 0). Reszta pól opcjonalna (`finishing_type`
+Na poziomie wyceny wymagane: `products` (co najmniej jeden). `client_type` jest
+**opcjonalny** w trybie domyślnym — wymagany dopiero przy `auto_multiplier: false`,
+bo tylko tam ustala mnożnik (patrz sekcja 0). Reszta pól opcjonalna (`finishing_type`
 brak = „Surowe"; `edges` brak = brak krawędzi; `shape` brak = `rectangular`).
 
 Opcjonalne pole `auto_multiplier` (bool) na poziomie wyceny steruje trybem mnożnika:
@@ -206,7 +209,7 @@ Opcjonalne pole `auto_multiplier` (bool) na poziomie wyceny steruje trybem mnoż
 | wartość | zachowanie |
 |---|---|
 | brak pola (**domyślne**) | mnożnik dobierany automatycznie, per wariant (sekcja 0) |
-| `false` | mnożnik z grupy cenowej `client_type` — zachowanie sprzed 2026-09-15 |
+| `false` | mnożnik z grupy cenowej `client_type` — zachowanie sprzed 2026-09-15; **tylko w tym trybie `client_type` jest wymagany** |
 | `true` | jawnie tryb automatyczny |
 
 **Response 200 — sukces (realny przykład, skrócone warianty niedostępne):**
@@ -349,7 +352,6 @@ ale utrwala i zwraca w `by-token`.
 ```json
 {
   "client_id": 1,
-  "client_type": "Detal+",
   "notes": "zapytanie ze sklepu",
   "products": [
     {
@@ -366,7 +368,14 @@ ale utrwala i zwraca w `by-token`.
   ]
 }
 ```
-- Akceptowane jest `client_type` **lub** `quote_client_type` (to samo znaczenie).
+- Grupa cenowa jest **opcjonalna**: `/quotes` zapisuje zawsze w trybie automatycznym,
+  więc nie ustala tu ceny. Pominięta = wycena z pustą grupą (kolumna jest nullable,
+  panel wycen pokazuje wtedy „Nie określono").
+- Gdy ją podajesz, akceptowane jest `client_type` **lub** `quote_client_type`
+  (to samo znaczenie) — trafia na wycenę jako etykieta.
+- Przy `PUT /api/bot/quotes/<edit_uuid>` pominięcie grupy **nie kasuje** tej już
+  zapisanej (inaczej niż `product_type`, patrz sekcja 7) — nadpisuje ją tylko
+  wartość podana jawnie.
 - Ceny liczy backend od zera — ewentualne ceny w payloadzie są ignorowane.
 
 **Response 200 (realny przykład):**
@@ -487,7 +496,8 @@ Weź pozycję z `items[]` i zbuduj produkt do `/calculate` (dostosuj wymiary z f
 | `finishing_gloss_level`       | `finishing_gloss_level`                     |
 | `edges`                       | `edges` (`[{letter, type, r_value, angle_value}]`) |
 
-Na poziomie wyceny podaj `client_type` (z listy `client_types` z `/options`).
+Na poziomie wyceny nie trzeba podawać niczego poza `products` — grupa cenowa
+(`client_type`) jest opcjonalna, dopóki nie wysyłasz `auto_multiplier: false`.
 
 > **Granice zakresu (świadome):** `by-token` obsługuje produkty prostokątne z prostymi
 > krawędziami (typowe blaty/schody/parapety). Zaawansowany tryb krawędzi (`edges_mode`) oraz

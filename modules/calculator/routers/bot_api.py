@@ -126,17 +126,26 @@ def _missing_fields(product):
     return [f for f in _REQUIRED_PRODUCT_FIELDS if not product.get(f)]
 
 
-def _quote_level_missing(payload, alt_field=None):
+def _quote_level_missing(payload, alt_field=None, auto_multiplier=True):
     """Braki na poziomie całej wyceny (nie produktu) — na razie tylko client_type.
     W /calculate klucz to 'client_type', w /quotes bot może podać 'quote_client_type'
-    (alt_field) — akceptujemy oba, brak obu = pole do dopytania."""
+    (alt_field) — akceptujemy oba, brak obu = pole do dopytania.
+
+    Grupa cenowa jest wymagana DOKŁADNIE wtedy, gdy ustala cenę, czyli przy
+    auto_multiplier=False (calculate_material_variants, gałąź `else multiplier`).
+    W trybie automatycznym mnożnik dobiera kod osobno dla każdego wariantu, więc
+    żądanie grupy było proszeniem sklepu o wartość, która nic nie robi."""
     missing = []
-    has_client_type = bool(payload.get('client_type')) or (
-        alt_field is not None and bool(payload.get(alt_field))
-    )
-    if not has_client_type:
-        missing.append({'product_index': None, 'field': 'client_type',
-                        'hint': 'grupa cenowa (client_types z /options)'})
+    # Warunek celowo obejmuje SAM client_type, a nie całą funkcję: gdy dojdzie tu
+    # kolejne pole wyceny, ma być sprawdzane w obu trybach, dopóki ktoś świadomie
+    # nie uzna inaczej. Wczesny return z całej funkcji ukryłby je po cichu.
+    if not auto_multiplier:
+        has_client_type = bool(payload.get('client_type')) or (
+            alt_field is not None and bool(payload.get(alt_field))
+        )
+        if not has_client_type:
+            missing.append({'product_index': None, 'field': 'client_type',
+                            'hint': 'grupa cenowa (client_types z /options)'})
     return missing
 
 
@@ -147,19 +156,6 @@ def bot_calculate():
     from modules.calculator.services.pricing_service import load_pricing_data, calculate_quote
     payload = request.get_json(silent=True) or {}
 
-    # Najpierw brakujące pola — LLM dostaje listę, o co dopytać klienta
-    missing = []
-    for i, p in enumerate(payload.get('products', [])):
-        for f in _missing_fields(p):
-            missing.append({'product_index': p.get('index', i + 1), 'field': f,
-                            'hint': _FIELD_HINTS_PL[f]})
-    if not payload.get('products'):
-        missing.append({'product_index': None, 'field': 'products',
-                        'hint': 'co najmniej jeden produkt z wymiarami'})
-    missing.extend(_quote_level_missing(payload))
-    if missing:
-        return jsonify({'ok': False, 'missing_fields': missing, 'errors': []}), 200
-
     # Bot NIE wycenia wg grupy cenowej — mnożnik dobiera kod wg ceny bazowej
     # KAŻDEGO wariantu (1.5 poniżej progu, 1.1 od progu). Domyślnie włączone,
     # więc bot nie musi o tym wiedzieć ani niczego wysyłać.
@@ -169,7 +165,26 @@ def bot_calculate():
     # Sklep i bot chodzą na tym samym BOT_API_KEY, więc CRM ich nie odróżni.
     # Dlatego jawne auto_multiplier=false w payloadzie jest RESPEKTOWANE — to
     # jedyna furtka, żeby sklep mógł liczyć wg grupy cenowej bez zmian w CRM.
+    #
+    # Tryb rozstrzygamy PRZED sprawdzeniem braków, bo to on decyduje, czy grupa
+    # cenowa jest w ogóle potrzebna. Odwrotna kolejność = walidator nie wie,
+    # w jakim jest trybie, i żąda pola, które przy auto niczego nie zmienia.
     payload.setdefault('auto_multiplier', True)
+
+    # Najpierw brakujące pola — LLM dostaje listę, o co dopytać klienta
+    missing = []
+    for i, p in enumerate(payload.get('products', [])):
+        for f in _missing_fields(p):
+            missing.append({'product_index': p.get('index', i + 1), 'field': f,
+                            'hint': _FIELD_HINTS_PL[f]})
+    if not payload.get('products'):
+        missing.append({'product_index': None, 'field': 'products',
+                        'hint': 'co najmniej jeden produkt z wymiarami'})
+    missing.extend(_quote_level_missing(
+        payload, auto_multiplier=payload['auto_multiplier']))
+    if missing:
+        return jsonify({'ok': False, 'missing_fields': missing, 'errors': []}), 200
+
     result = calculate_quote(payload, load_pricing_data())
     result['missing_fields'] = []
     return jsonify(result), 200
@@ -317,7 +332,11 @@ def bot_create_quote():
                         "najpierw wywołaj /clients/find-or-create."}
         ]}), 200
 
-    missing = _quote_level_missing(payload, alt_field='quote_client_type')
+    # /quotes zapisuje ZAWSZE w trybie automatycznym (auto_multiplier=True niżej),
+    # więc grupa cenowa nie ustala tu ceny i jest opcjonalna — zapisujemy ją tylko
+    # jako etykietę na wycenie (quote_client_type, kolumna nullable).
+    missing = _quote_level_missing(payload, alt_field='quote_client_type',
+                                   auto_multiplier=True)
     if missing:
         return jsonify({'ok': False, 'missing_fields': missing, 'errors': []}), 200
 
@@ -415,8 +434,13 @@ def bot_update_quote(edit_uuid):
 
     # Format update_quote: settings.clientType + products z pełną listą wariantów.
     # Wysyłka (courier/koszt) — opcjonalnie, gdy bot dopisuje kuriera po oszacowaniu.
+    # Grupa cenowa jest opcjonalna, więc gdy jej nie podano, NIE wstawiamy klucza:
+    # update_quote przypisuje settings['clientType'] bezwarunkowo, czyli None
+    # skasowałoby grupę zapisaną wcześniej. Brak klucza = „nie zmieniaj".
+    settings = {'notes': payload.get('notes', '')}
     client_type = payload.get('quote_client_type') or payload.get('client_type')
-    settings = {'clientType': client_type, 'notes': payload.get('notes', '')}
+    if client_type:
+        settings['clientType'] = client_type
     settings.update(_shipping_settings(payload))
     # auto_multiplier jak w /calculate i przy tworzeniu — aktualizacja wyceny
     # przelicza ceny od zera, więc bez tej flagi bot zapisałby ceny wg grupy cenowej.
