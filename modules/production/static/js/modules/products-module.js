@@ -33,7 +33,10 @@ class ProductsModule {
         'czeka_na_skladanie': 'Składanie - lite',
         'czeka_na_sklejanie': 'Sklejanie',
         'czeka_na_formatowanie': 'Formatowanie',
-        'czeka_na_wykanczanie': 'Wykańczanie',
+        'czeka_na_krawedzie': 'Krawędzie',
+        // Klucz archiwalny: prod_product_events trzyma stary status jako TEKST
+        // (423 wiersze), a historia produktu renderuje się przez tę samą mapę.
+        'czeka_na_wykanczanie': 'Wykańczanie (archiwalne)',
         'czeka_na_lakiernie': 'Lakiernia',
         'czeka_na_logistyke': 'Logistyka',
         'czeka_na_pakowanie': 'Pakowanie',
@@ -53,8 +56,12 @@ class ProductsModule {
         'w_trakcie_sklejania': { icon: 'fa-compress-arrows-alt', displayName: 'Sklejanie', color: 'gluing-theme', badgeClass: 'badge-gluing' },
         'czeka_na_formatowanie': { icon: 'fa-ruler-combined', displayName: 'Formatowanie', color: 'formatting-theme', badgeClass: 'badge-formatting' },
         'w_trakcie_formatowania': { icon: 'fa-ruler-combined', displayName: 'Formatowanie', color: 'formatting-theme', badgeClass: 'badge-formatting' },
-        'czeka_na_wykanczanie': { icon: 'fa-star', displayName: 'Wykańczanie', color: 'finishing-theme', badgeClass: 'badge-finishing' },
-        'w_trakcie_wykanczania': { icon: 'fa-star', displayName: 'Wykańczanie', color: 'finishing-theme', badgeClass: 'badge-finishing' },
+        // Nazwy klas CSS ('finishing-theme', 'badge-finishing') są HISTORYCZNE
+        // i zostają — rename arkuszy jest osobnym zadaniem, a ta nazwa nie
+        // musi się już zgadzać z kodem stanowiska. Zmieniamy tylko KLUCZ statusu.
+        // Martwy status w trakcie wykańczania znika: models.py nie zna żadnego
+        // statusu z rodziny "w trakcie" dla tego stanowiska.
+        'czeka_na_krawedzie': { icon: 'fa-star', displayName: 'Krawędzie', color: 'finishing-theme', badgeClass: 'badge-finishing' },
         'czeka_na_lakiernie': { icon: 'fa-paint-roller', displayName: 'Lakiernia', color: 'painting-theme', badgeClass: 'badge-painting' },
         'czeka_na_logistyke': { icon: 'fa-truck', displayName: 'Logistyka', color: 'logistics-theme', badgeClass: 'badge-logistics' },
         'czeka_na_pakowanie': { icon: 'fa-box', displayName: 'Pakowanie', color: 'packaging-theme', badgeClass: 'badge-packaging' },
@@ -1748,7 +1755,7 @@ class ProductsModule {
             'czeka_na_skladanie': 'status-assembly',
             'czeka_na_sklejanie': 'status-gluing',
             'czeka_na_formatowanie': 'status-formatting',
-            'czeka_na_wykanczanie': 'status-finishing',
+            'czeka_na_krawedzie': 'status-finishing',
             'czeka_na_lakiernie': 'status-painting',
             'czeka_na_logistyke': 'status-logistics',
             'czeka_na_pakowanie': 'status-packaging',
@@ -1768,7 +1775,7 @@ class ProductsModule {
             'czeka_na_skladanie': 'badge-assembly',
             'czeka_na_sklejanie': 'badge-gluing',
             'czeka_na_formatowanie': 'badge-formatting',
-            'czeka_na_wykanczanie': 'badge-finishing',
+            'czeka_na_krawedzie': 'badge-finishing',
             'czeka_na_lakiernie': 'badge-painting',
             'czeka_na_logistyke': 'badge-logistics',
             'czeka_na_pakowanie': 'badge-packaging',
@@ -2742,7 +2749,7 @@ class ProductsModule {
             { value: 'czeka_na_skladanie', label: 'Składanie - lite' },
             { value: 'czeka_na_sklejanie', label: 'Sklejanie' },
             { value: 'czeka_na_formatowanie', label: 'Formatowanie' },
-            { value: 'czeka_na_wykanczanie', label: 'Wykańczanie' },
+            { value: 'czeka_na_krawedzie', label: 'Krawędzie' },
             { value: 'czeka_na_lakiernie', label: 'Lakiernia' },
             { value: 'czeka_na_logistyke', label: 'Logistyka' },
             { value: 'czeka_na_pakowanie', label: 'Pakowanie' },
@@ -3551,10 +3558,15 @@ class ProductsModule {
         let product = this.state.filteredProducts.find(p => p.id == productId) ||
                      this.state.products.find(p => p.id == productId);
 
+        // Lista z /products-tab-content niesie uboższy zestaw pól niż
+        // /products-filtered — nie ma w niej dat domknięcia stanowisk
+        // środkowych. Ich obecność jest więc sygnałem „to pełny rekord".
+        // NIE pytamy o *_started_at: ProductionProduct nie ma takich kolumn,
+        // więc te pola zawsze były puste (artefakt po starym modelu).
         const hasNewStationFields = product && (
-            product.hasOwnProperty('gluing_started_at') ||
-            product.hasOwnProperty('formatting_started_at') ||
-            product.hasOwnProperty('finishing_started_at')
+            product.hasOwnProperty('gluing_completed_at') ||
+            product.hasOwnProperty('formatting_completed_at') ||
+            product.hasOwnProperty('edges_completed_at')
         );
 
         // Brak pełnych danych w cache → pobierz pojedynczy produkt z dedykowanego endpointu.
@@ -3877,7 +3889,13 @@ class ProductsModule {
         const needsPainting = ['olej', 'lakier', 'bejc'].some(k => finishState.includes(k));
 
         // Wspólne stanowiska (od sklejania dalej)
-        const commonStations = ['gluing', 'formatting', 'finishing'];
+        const commonStations = ['gluing', 'formatting'];
+
+        // Krawędzie tylko wtedy, gdy jest co szlifować — to samo kryterium
+        // co ProductionProduct.should_skip_edges po stronie backendu.
+        if (product.parsed_edge_processing) {
+            commonStations.push('edges');
+        }
 
         if (needsPainting) {
             commonStations.push('painting');
@@ -3944,25 +3962,28 @@ class ProductsModule {
                 durationField: 'formatting_duration_minutes'
             },
             {
-                code: 'finishing',
-                name: 'Wykańczanie',
-                status: 'czeka_na_wykanczanie',
+                code: 'edges',
+                name: 'Krawędzie',
+                status: 'czeka_na_krawedzie',
                 icon: 'fas fa-star',
                 color: 'finishing-theme',
-                startField: 'finishing_started_at',
-                endField: 'finishing_completed_at',
-                durationField: 'finishing_duration_minutes'
+                // ProductionProduct nie ma kolumn *_started_at ani
+                // *_duration_minutes — pokazujemy tylko moment domknięcia.
+                startField: null,
+                endField: 'edges_completed_at',
+                durationField: null
             },
             {
                 code: 'painting',
                 name: 'Lakiernia',
                 status: 'czeka_na_lakiernie',
                 icon: 'fas fa-paint-roller',
-                color: 'finishing-theme',
+                // Lakiernia jest pełnoprawnym stanowiskiem, nie podkrokiem
+                // wykańczania — stąd własny kolor i brak znacznika podkroku.
+                color: 'painting-theme',
                 startField: null,
                 endField: 'painting_completed_at',
-                durationField: null,
-                isSubstep: true
+                durationField: null
             },
             {
                 code: 'logistics',
@@ -4045,7 +4066,8 @@ class ProductsModule {
             'assembly': 'assembly_completed_at',
             'gluing': 'gluing_completed_at',
             'formatting': 'formatting_completed_at',
-            'finishing': 'finishing_completed_at',
+            'edges': 'edges_completed_at',
+            'painting': 'painting_completed_at',
             'logistics': 'logistics_completed_at',
             'packaging': 'packaging_completed_at'
         };
@@ -4054,7 +4076,8 @@ class ProductsModule {
             'assembly': 'czeka_na_skladanie',
             'gluing': 'czeka_na_sklejanie',
             'formatting': 'czeka_na_formatowanie',
-            'finishing': 'czeka_na_wykanczanie',
+            'edges': 'czeka_na_krawedzie',
+            'painting': 'czeka_na_lakiernie',
             'logistics': 'czeka_na_logistyke',
             'packaging': 'czeka_na_pakowanie'
         };
@@ -4091,13 +4114,13 @@ class ProductsModule {
      * Określa stan timeline dla stacji
      */
     getTimelineState(station, product) {
-        const stationOrder = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'painting', 'logistics', 'packaging'];
+        const stationOrder = ['cutting', 'assembly', 'gluing', 'formatting', 'edges', 'painting', 'logistics', 'packaging'];
         const endFields = {
             'cutting': 'cutting_completed_at',
             'assembly': 'assembly_completed_at',
             'gluing': 'gluing_completed_at',
             'formatting': 'formatting_completed_at',
-            'finishing': 'finishing_completed_at',
+            'edges': 'edges_completed_at',
             'painting': 'painting_completed_at',
             'logistics': 'logistics_completed_at',
             'packaging': 'packaging_completed_at'
@@ -4107,7 +4130,7 @@ class ProductsModule {
             'assembly': 'czeka_na_skladanie',
             'gluing': 'czeka_na_sklejanie',
             'formatting': 'czeka_na_formatowanie',
-            'finishing': 'czeka_na_wykanczanie',
+            'edges': 'czeka_na_krawedzie',
             'painting': 'czeka_na_lakiernie',
             'logistics': 'czeka_na_logistyke',
             'packaging': 'czeka_na_pakowanie'
@@ -4390,7 +4413,10 @@ class ProductsModule {
             assembly: '--il-assembly',
             gluing: '--il-gluing',
             formatting: '--il-formatting',
-            finishing: '--il-finishing',
+            // Klucz to station_code Z BAZY. Nazwa zmiennej CSS jest
+            // HISTORYCZNA i została celowo — rename arkuszy idzie osobnym
+            // zadaniem, więc '--il-finishing' opisuje dziś Krawędzie.
+            edges: '--il-finishing',
             painting: '--il-painting',
             packaging: '--il-packaging',
         };
@@ -4611,15 +4637,9 @@ class ProductsModule {
                 color: 'formatting-theme',
                 cssClass: 'formatting'
             },
-            'czeka_na_wykanczanie': {
+            'czeka_na_krawedzie': {
                 icon: 'fa-star',
-                displayName: 'Wykańczanie',
-                color: 'finishing-theme',
-                cssClass: 'finishing'
-            },
-            'w_trakcie_wykanczania': {
-                icon: 'fa-star',
-                displayName: 'Wykańczanie',
+                displayName: 'Krawędzie',
                 color: 'finishing-theme',
                 cssClass: 'finishing'
             },
