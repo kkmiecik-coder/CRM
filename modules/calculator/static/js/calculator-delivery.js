@@ -347,6 +347,7 @@ class DeliveryModal {
         this.markup = null;
         this.markupConfig = null;
         this.customMarkupTimer = null;
+        this.customMarkupSeq = 0;
 
         this.init();
         this._resizeHandler = () => {
@@ -442,9 +443,16 @@ class DeliveryModal {
     /**
      * Pyta backend o rozkład ceny dla ręcznie wpisanej kwoty własnego kuriera.
      * Debounce, żeby nie strzelać żądaniem na każdy znak.
+     *
+     * Numer żądania jest konieczny obok debounce'u: clearTimeout anuluje timer,
+     * który jeszcze nie wystartował, ale NIE anuluje zapytania już wysłanego.
+     * Odpowiedzi potrafią wrócić w odwrotnej kolejności i bez tego strażnika
+     * starsza nadpisałaby nowszą — w this.markup zostałaby cena niepasująca do
+     * pola formularza i taka trafiłaby do wyceny klienta.
      */
     scheduleCustomMarkup(bruttoAmount) {
         clearTimeout(this.customMarkupTimer);
+        const numerZadania = ++this.customMarkupSeq;
 
         if (!(bruttoAmount > 0)) {
             this.markup = null;
@@ -456,9 +464,11 @@ class DeliveryModal {
         this.customMarkupTimer = setTimeout(async () => {
             try {
                 const odpowiedz = await fetchShippingMarkup([bruttoAmount]);
+                if (numerZadania !== this.customMarkupSeq) return;
                 this.markup = odpowiedz.items[0];
                 this.markupConfig = odpowiedz.config;
             } catch (error) {
+                if (numerZadania !== this.customMarkupSeq) return;
                 console.error('Nie udało się przeliczyć ceny własnego kuriera:', error);
                 this.markup = null;
             }

@@ -60,3 +60,58 @@ def test_delivery_nadal_zachowuje_cache_surowych_cen():
     """Cache MUSI trzymać ceny surowe — inaczej zmiana ustawień nie zadziała
     przez dobę na przeglądarce z ciepłym cache'em."""
     assert 'SHIPPING_CACHE_KEY' in _zrodlo(JS_DELIVERY)
+
+
+def _metoda(zrodlo, naglowek):
+    """Ciało metody klasy (wcięcie 4 spacje) o podanym nagłówku.
+
+    Analogicznie do `_blok()` z tests/test_checkout_js.py, tylko dla metody
+    wewnątrz klasy: tam funkcje top-level kończą się `\n}\n`, tu klamra
+    zamykająca stoi w wcięciu metody (4 spacje), więc szukamy `\n    }\n`.
+    """
+    poczatek = zrodlo.index(naglowek)
+    reszta = zrodlo[poczatek:]
+    koniec = reszta.index('\n    }\n')
+    return reszta[:koniec]
+
+
+def test_wlasny_kurier_ma_straznik_kolejnosci_odpowiedzi_serwera():
+    """Regresja: spóźniona odpowiedź z serwera nadpisuje this.markup świeżym
+    wynikiem starszym.
+
+    `clearTimeout` w `scheduleCustomMarkup` anuluje TIMER, który jeszcze nie
+    wystartował — NIE anuluje zapytania do `/calculator/api/shipping-markup`,
+    które już poleciało. Scenariusz: użytkownik robi pauzę >=300 ms (startuje
+    żądanie A dla kwoty X), wpisuje dalej i znów robi pauzę (startuje żądanie
+    B dla kwoty Y). Jeśli odpowiedź A wróci PO odpowiedzi B, callback bez
+    numeru żądania nadpisałby `this.markup` starszym wynikiem — panel
+    pokazałby cenę niepasującą do pola formularza, a `validateCustomForm()`
+    zbudowałby z niej `customCarrier`, który trafia do zapisanej wyceny
+    klienta.
+
+    Sama obecność identyfikatora `this.customMarkupSeq` gdziekolwiek w pliku
+    niczego nie dowodzi — musi być przydzielany do lokalnej zmiennej PRZED
+    żądaniem i porównywany z powrotem z `this.customMarkupSeq` PO `await`,
+    inaczej strażnik nic nie strażuje.
+    """
+    zrodlo = _zrodlo(JS_DELIVERY)
+
+    konstruktor = _metoda(zrodlo, 'constructor() {')
+    assert 'this.customMarkupSeq = 0;' in konstruktor, \
+        'DeliveryModal nie inicjuje licznika this.customMarkupSeq w konstruktorze'
+
+    blok = _metoda(zrodlo, 'scheduleCustomMarkup(bruttoAmount) {')
+
+    przydzial = re.search(r'(\w+)\s*=\s*\+\+this\.customMarkupSeq', blok)
+    assert przydzial, \
+        'scheduleCustomMarkup nie przydziela numeru żądania z this.customMarkupSeq'
+    zmienna = przydzial.group(1)
+
+    dopasowanie_await = re.search(r'await fetchShippingMarkup\(', blok)
+    assert dopasowanie_await, \
+        'zmieniło się wywołanie fetchShippingMarkup w scheduleCustomMarkup'
+
+    po_await = blok[dopasowanie_await.end():]
+    assert re.search(re.escape(zmienna) + r'\s*!==\s*this\.customMarkupSeq', po_await), \
+        'po await brakuje porównania przydzielonego numeru z this.customMarkupSeq — ' \
+        'spóźniona odpowiedź nadpisze this.markup, mimo że nie jest już aktualna'
