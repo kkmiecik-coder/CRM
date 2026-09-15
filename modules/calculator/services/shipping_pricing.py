@@ -208,3 +208,18 @@ def validate_shipping_settings(data):
         czyste[klucz] = strona
 
     return czyste, None
+
+
+def parse_markup_request(payload):
+    """Wyciąga listę cen brutto z ciała żądania /api/shipping-markup.
+
+    Zwraca (ceny, None) albo (None, komunikat_błędu). Ciało żądania bywa
+    czymkolwiek — brakiem JSON-a, gołą listą, liczbą — więc sprawdzamy typ,
+    zamiast zakładać słownik i wywracać się na AttributeError.
+    """
+    if not isinstance(payload, dict):
+        return None, 'Brak cen do przeliczenia.'
+    ceny = payload.get('gross_prices')
+    if not isinstance(ceny, list) or not ceny:
+        return None, 'Brak cen do przeliczenia.'
+    return ceny, None

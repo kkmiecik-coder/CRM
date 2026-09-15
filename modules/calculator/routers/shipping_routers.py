@@ -7,7 +7,7 @@ from flask import request, jsonify, current_app
 from modules.users.decorators import require_module_access
 from modules.calculator.services.shipping_service import get_shipping_quotes
 from modules.calculator.services.shipping_pricing import (
-    build_markup_payload, load_shipping_config,
+    build_markup_payload, load_shipping_config, parse_markup_request,
 )
 
 
@@ -42,12 +42,11 @@ def register_routes(bp):
         wysylki w localStorage trzyma ceny SUROWE (TTL 24 h). Dzieki temu zmiana
         ustawien dziala natychmiast, bez ponownego — wolnego — odpytywania kuriera.
         """
-        payload = request.get_json(silent=True) or {}
-        ceny = payload.get('gross_prices')
+        payload = request.get_json(silent=True)
+        ceny, blad = parse_markup_request(payload)
 
-        if not isinstance(ceny, list) or not ceny:
+        if blad is not None:
             current_app.logger.warning(">>> shipping_markup: brak cen do przeliczenia")
-            return jsonify({"success": False,
-                            "error": "Brak cen do przeliczenia."}), 400
+            return jsonify({"success": False, "error": blad}), 400
 
         return jsonify(build_markup_payload(ceny, load_shipping_config())), 200

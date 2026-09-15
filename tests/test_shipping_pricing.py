@@ -18,6 +18,7 @@ from modules.calculator.services.shipping_pricing import (
     apply_shipping_markup,
     build_markup_payload,
     describe_shipping_markup,
+    parse_markup_request,
     sanitize_shipping_config,
     validate_shipping_settings,
 )
@@ -216,3 +217,49 @@ def test_validate_odrzuca_tekst_w_progu():
     czyste, blad = validate_shipping_settings({"shipping_threshold_brutto": "sto"})
     assert czyste is None
     assert blad
+
+
+# ── Parsowanie żądania /api/shipping-markup ─────────────────────────────────
+# request.get_json(silent=True) potrafi zwrócić cokolwiek syntaktycznie
+# poprawnego jako JSON — nie tylko słownik albo None. Bez sprawdzenia typu
+# payload.get('gross_prices') wywala AttributeError na gołej liście, liczbie
+# czy stringu (silent=True łapie tylko błąd parsowania, nie zły typ).
+
+def test_parse_markup_request_przepuszcza_poprawny_payload():
+    ceny, blad = parse_markup_request({"gross_prices": [80.0, 61.50]})
+    assert blad is None
+    assert ceny == [80.0, 61.50]
+
+
+def test_parse_markup_request_odrzuca_payload_ktory_nie_jest_slownikiem():
+    """Ciało żądania to np. gola lista JSON — nie ma .get(), więc stary kod
+    wywalał tu AttributeError zamiast zwrócić 400."""
+    ceny, blad = parse_markup_request([1, 2, 3])
+    assert ceny is None
+    assert blad == "Brak cen do przeliczenia."
+
+
+def test_parse_markup_request_odrzuca_brak_jsona():
+    """request.get_json(silent=True) zwraca None przy pustym/niepoprawnym
+    body — to też nie jest słownikiem."""
+    ceny, blad = parse_markup_request(None)
+    assert ceny is None
+    assert blad == "Brak cen do przeliczenia."
+
+
+def test_parse_markup_request_odrzuca_brak_pola_gross_prices():
+    ceny, blad = parse_markup_request({})
+    assert ceny is None
+    assert blad == "Brak cen do przeliczenia."
+
+
+def test_parse_markup_request_odrzuca_gross_prices_ktore_nie_jest_lista():
+    ceny, blad = parse_markup_request({"gross_prices": "80.0"})
+    assert ceny is None
+    assert blad == "Brak cen do przeliczenia."
+
+
+def test_parse_markup_request_odrzuca_pusta_liste_cen():
+    ceny, blad = parse_markup_request({"gross_prices": []})
+    assert ceny is None
+    assert blad == "Brak cen do przeliczenia."
