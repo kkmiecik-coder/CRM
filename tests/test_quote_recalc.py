@@ -144,3 +144,82 @@ def test_inject_backend_prices_nadpisuje_zawyzone_ceny_frontu():
     assert variant['volume_m3'] == 0.15
     assert variant['price_per_m3'] == 8200.0
     assert variant['multiplier'] == 1.3
+
+
+# === Tryb auto_multiplier (wyceny bota Debusia) ===
+
+from modules.calculator.services.pricing_service import PricingData, calculate_quote
+
+CENNIK_BOT = [
+    {'species': 'Dąb', 'technology': 'Lity', 'wood_class': 'A/B',
+     'thickness_min': 3, 'thickness_max': 4, 'length_min': 20, 'length_max': 450,
+     'width_min': 10, 'width_max': 120, 'price_per_m3': 8000.0},    # baza 120
+    {'species': 'Buk', 'technology': 'Lity', 'wood_class': 'A/B',
+     'thickness_min': 3, 'thickness_max': 4, 'length_min': 20, 'length_max': 450,
+     'width_min': 10, 'width_max': 120, 'price_per_m3': 80000.0},   # baza 1200
+]
+DANE_BOT = PricingData(price_entries=CENNIK_BOT, multipliers={'Detal+': 1.3})
+
+
+def _produkt_bota(variant='dab-lity-ab'):
+    return {'index': 1, 'length': 100, 'width': 50, 'thickness': 3, 'quantity': 2,
+            'shape': 'rectangular', 'finishing_type': 'Surowe', 'edges': [],
+            'variants': [{'variant_code': variant, 'is_selected': True}]}
+
+
+def test_flaga_auto_multiplier_przechodzi_przez_mapowanie_zapisu():
+    # sciezka tworzenia wyceny przez bota: flaga na gornym poziomie payloadu
+    calc = _payload_to_calc_request({'quote_client_type': 'Detal+',
+                                     'auto_multiplier': True,
+                                     'products': [_produkt_bota()]})
+    assert calc['auto_multiplier'] is True
+
+
+def test_flaga_auto_multiplier_przechodzi_przy_aktualizacji_z_settings():
+    # sciezka aktualizacji (PUT /quotes/<edit_uuid>): ustawienia siedza w 'settings',
+    # ale flaga zostaje na gornym poziomie — mapowanie musi ja wziac mimo to
+    calc = _payload_to_calc_request({'settings': {'clientType': 'Detal+'},
+                                     'auto_multiplier': True,
+                                     'products': [_produkt_bota()]})
+    assert calc['auto_multiplier'] is True
+
+
+def test_brak_flagi_to_domyslnie_grupa_cenowa():
+    calc = _payload_to_calc_request({'quote_client_type': 'Detal+',
+                                     'products': [_produkt_bota()]})
+    assert calc['auto_multiplier'] is False
+
+
+def test_cena_z_czatu_rowna_sie_cenie_zapisanej_wyceny():
+    """Bot najpierw podaje cene w rozmowie (/calculate), potem zapisuje wycene.
+    Zapis przelicza wszystko od zera, wiec obie liczby MUSZA byc identyczne —
+    inaczej klient zobaczy w linku inna kwote niz uslyszal na czacie."""
+    produkt_czatu = {'index': 1, 'length': 100, 'width': 50, 'thickness': 3,
+                     'quantity': 2, 'shape': 'rectangular', 'holes_count': 0,
+                     'selected_variant': 'dab-lity-ab',
+                     'finishing_type': 'Surowe', 'edges': []}
+    z_czatu = calculate_quote({'client_type': 'Detal+', 'auto_multiplier': True,
+                               'products': [produkt_czatu]}, DANE_BOT)
+
+    z_zapisu = calculate_quote(
+        _payload_to_calc_request({'quote_client_type': 'Detal+', 'auto_multiplier': True,
+                                  'products': [_produkt_bota()]}),
+        DANE_BOT)
+
+    assert z_czatu['totals']['order_netto'] == z_zapisu['totals']['order_netto']
+    assert z_czatu['totals']['total_brutto'] == z_zapisu['totals']['total_brutto']
+    assert abs(z_czatu['totals']['order_netto'] - 360.0) < 0.001   # 120*1.5*2 szt.
+
+
+def test_wstrzykniecie_cen_zapisuje_mnoznik_per_wariant():
+    """QuoteItem.multiplier bierze sie z variant['multiplier'] — przy auto kazdy
+    wariant musi dostac SWOJ mnoznik, nie jeden wspolny dla wyceny."""
+    produkty = [{'index': 1, 'variants': [{'variant_code': 'dab-lity-ab'},
+                                          {'variant_code': 'buk-lity-ab'}]}]
+    calc = calculate_quote(
+        _payload_to_calc_request({'quote_client_type': 'Detal+', 'auto_multiplier': True,
+                                  'products': [_produkt_bota()]}),
+        DANE_BOT)
+    _inject_backend_prices(produkty, calc)
+    mnozniki = {v['variant_code']: v['multiplier'] for v in produkty[0]['variants']}
+    assert mnozniki == {'dab-lity-ab': 1.5, 'buk-lity-ab': 1.1}

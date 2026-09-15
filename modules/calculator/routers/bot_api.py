@@ -51,6 +51,8 @@ def bot_options():
     # nie chcemy duplikować logiki dla bota.
     from modules.calculator.services.pricing_service import (
         load_pricing_data, VARIANT_MAPPING, _pricing_limits,
+        AUTO_MULTIPLIER_PROG_NETTO, AUTO_MULTIPLIER_PONIZEJ_PROGU,
+        AUTO_MULTIPLIER_OD_PROGU,
     )
     data = load_pricing_data()
 
@@ -95,6 +97,16 @@ def bot_options():
         # "ile dopłacę za blat w kształcie trapezu".
         'custom_shape_surcharge_netto': data.custom_shape_surcharge_netto,
         'shapes': ['rectangular', 'round', 'circle'],
+        # Mnożnik marży dobiera KOD, nie bot i nie grupa cenowa. Próg rozstrzyga się
+        # na cenie bazowej sztuki (mnożnik 1.0) i OSOBNO dla każdego wariantu drewna,
+        # więc ten sam blat bywa ×1.5 w buku i ×1.1 w dębie litym.
+        # client_types niżej zostaje dla zgodności — na cenę wyceny bota nie wpływa.
+        'auto_multiplier': {
+            'prog_netto': AUTO_MULTIPLIER_PROG_NETTO,
+            'ponizej_progu': AUTO_MULTIPLIER_PONIZEJ_PROGU,
+            'od_progu': AUTO_MULTIPLIER_OD_PROGU,
+            'liczony_na': 'cena bazowa sztuki (bez mnożnika i bez dopłat)',
+        },
         'vat': 1.23,
     })
 
@@ -145,6 +157,16 @@ def bot_calculate():
     if missing:
         return jsonify({'ok': False, 'missing_fields': missing, 'errors': []}), 200
 
+    # Bot NIE wycenia wg grupy cenowej — mnożnik dobiera kod wg ceny bazowej
+    # KAŻDEGO wariantu (1.5 poniżej progu, 1.1 od progu). Domyślnie włączone,
+    # więc bot nie musi o tym wiedzieć ani niczego wysyłać.
+    #
+    # UWAGA: tego endpointu używa też SKLEP — re-kalkulacja wyceny na stronie
+    # /wycena/<token> podaje tu pozycje 1:1 (patrz _serialize_item_for_shop).
+    # Sklep i bot chodzą na tym samym BOT_API_KEY, więc CRM ich nie odróżni.
+    # Dlatego jawne auto_multiplier=false w payloadzie jest RESPEKTOWANE — to
+    # jedyna furtka, żeby sklep mógł liczyć wg grupy cenowej bez zmian w CRM.
+    payload.setdefault('auto_multiplier', True)
     result = calculate_quote(payload, load_pricing_data())
     result['missing_fields'] = []
     return jsonify(result), 200
@@ -318,6 +340,9 @@ def bot_create_quote():
     quote_payload.setdefault('quote_note', payload.get('notes', ''))
     quote_payload.pop('notes', None)
     quote_payload.setdefault('quote_source', 'Asystent AI')
+    # Ten sam tryb mnożnika co w /calculate — inaczej cena podana klientowi
+    # w czacie rozjechałaby się z ceną w zapisanej wycenie.
+    quote_payload['auto_multiplier'] = True
 
     result, status = create_quote(quote_payload, bot_user.email)
     if status != 200:
@@ -390,7 +415,10 @@ def bot_update_quote(edit_uuid):
     client_type = payload.get('quote_client_type') or payload.get('client_type')
     settings = {'clientType': client_type, 'notes': payload.get('notes', '')}
     settings.update(_shipping_settings(payload))
-    data = {'products': _products_with_all_variants(payload), 'settings': settings}
+    # auto_multiplier jak w /calculate i przy tworzeniu — aktualizacja wyceny
+    # przelicza ceny od zera, więc bez tej flagi bot zapisałby ceny wg grupy cenowej.
+    data = {'products': _products_with_all_variants(payload), 'settings': settings,
+            'auto_multiplier': True}
 
     result, status = update_quote(edit_uuid, data, bot_user)
     if status != 200 or not result.get('success'):

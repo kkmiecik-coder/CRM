@@ -631,6 +631,11 @@ def _payload_to_calc_request(data):
         # martwa galaz (is_partner_fixed) usunieta, multiplier_raw z payloadu
         # swiadomie ignorowany, zeby nie omijac walidacji client_type.
         'multiplier': None,
+        # Tryb bota (Debus): mnoznik dobiera kod wg ceny bazowej wariantu.
+        # Flaga MUSI dojechac az tutaj — inaczej cena podana przez bota w czacie
+        # (/api/bot/calculate) rozjechalaby sie z cena zapisanej wyceny, bo zapis
+        # przelicza wszystko od zera przez calculate_quote.
+        'auto_multiplier': bool(data.get('auto_multiplier')),
         'products': products,
         'shipping': {'netto': shipping_netto,
                      'brutto': shipping_brutto},
@@ -922,7 +927,10 @@ def create_quote(data, user_email):
             user_id=user_id,
             description=(
                 f"Utworzono wycenę {quote_number} dla grupy cenowej "
-                f"'{quote_client_type or 'brak grupy'}' (mnożnik: {quote_multiplier})"
+                f"'{quote_client_type or 'brak grupy'}' "
+                # Brak mnoznika wyceny = tryb auto (bot dobiera per wariant),
+                # a nie "nie wiadomo" — log ma to rozrozniac
+                f"(mnożnik: {quote_multiplier if quote_multiplier is not None else 'auto (per wariant)'})"
             ),
         )
         db.session.add(log)
