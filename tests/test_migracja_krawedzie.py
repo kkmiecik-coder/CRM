@@ -434,3 +434,187 @@ def test_zaden_alter_nie_kasuje_kolumny_ani_tabeli():
     assert "DROP TABLE" not in gora
     assert "DROP COLUMN" not in gora
     assert "TRUNCATE" not in gora
+
+
+KATALOG_SKRYPTOW = Path(__file__).resolve().parents[1] / "scripts"
+SCIEZKA_ROLLBACK = KATALOG_SKRYPTOW / "rollback-2026-09-15-krawedzie.sql"
+
+
+def _tresc_rollbacku():
+    return SCIEZKA_ROLLBACK.read_text(encoding="utf-8")
+
+
+def test_rollback_istnieje_i_lezy_poza_katalogiem_migracji():
+    """W migrations/ nazwa RRRR-MM-DD-*.sql zostalaby rozpoznana przez runner
+    i wykonana przy najblizszym deployu. Precedens: scripts/rollback_rework_columns.sql."""
+    assert SCIEZKA_ROLLBACK.exists()
+    assert not (KATALOG_MIGRACJI / SCIEZKA_ROLLBACK.name).exists()
+
+
+def test_runner_nie_rozpoznalby_nazwy_rollbacku():
+    """STRAZNIK: prefiks 'rollback-' lamie oba wzorce _match. Przechodzi juz teraz."""
+    service = MigrationService(db=None)
+    assert service._match(SCIEZKA_ROLLBACK.name) is None
+
+
+def test_rollback_cofa_obie_nazwy_kolumn_pod_oslona():
+    tresc = _tresc_rollbacku()
+    assert ("ALTER TABLE prod_products RENAME COLUMN "
+            "quantity_done_edges TO quantity_done_finishing") in tresc
+    assert ("ALTER TABLE prod_products RENAME COLUMN "
+            "edges_completed_at TO finishing_completed_at") in tresc
+    assert tresc.count("information_schema.COLUMNS") == 2
+    assert "COLUMN_NAME = 'quantity_done_edges'" in tresc
+    assert "COLUMN_NAME = 'edges_completed_at'" in tresc
+
+
+def test_rollback_korzysta_z_tabeli_kopii():
+    """Bez JOIN-a po kopii nie odroznimy eventow przeniesionych na 'painting'
+    od tych, ktore byly tam wczesniej."""
+    tresc = _tresc_rollbacku()
+    assert "prod_migracja_krawedzie_kopia" in tresc
+    assert "k.tabela = 'prod_products'" in tresc
+    assert "k.tabela = 'prod_station_events'" in tresc
+    assert "DROP TABLE" not in tresc.upper()
+
+
+def test_rollback_zdejmuje_enum_dopiero_po_wszystkich_updatach():
+    polecenia = [_bez_bialych(p) for p in
+                 MigrationService.split_statements(_tresc_rollbacku())]
+    indeks_zwezajacego = next(
+        i for i, p in enumerate(polecenia)
+        if p.upper().startswith("ALTER TABLE PROD_PRODUCTS MODIFY")
+        and "'czeka_na_krawedzie'" not in p
+    )
+    ostatni_update = max(
+        i for i, p in enumerate(polecenia)
+        if p.upper().startswith("UPDATE PROD_PRODUCTS")
+    )
+    assert ostatni_update < indeks_zwezajacego
+
+
+def test_rollback_kasuje_wpis_w_schema_migrations():
+    """Bez tego poprawiona migracja JUZ NIGDY sie nie wykona."""
+    tresc = _tresc_rollbacku()
+    assert ("DELETE FROM schema_migrations WHERE version = "
+            "'2026-09-15-krawedzie-podzial-wykanczania'") in tresc
+
+
+def test_rollback_obsluguje_obie_konwencje_kluczy_prod_config():
+    tresc = _tresc_rollbacku()
+    assert "RIGHT(config_key, 6) = '_EDGES'" in tresc
+    assert "LEFT(config_key, 14) = 'STATION_EDGES_'" in tresc
+
+
+def test_rollback_cofa_kazda_tabele_ruszona_przez_migracje():
+    """WZMOCNIENIE ponad brief. Testy powyzej sprawdzaja kolumny, kopie, enum
+    i rejestr — zadna nie zauwazylaby rollbacku, ktory zapomnial o tabletach
+    albo o sesjach. Tablet z kodem stanowiska, ktorego cofniety kod nie zna,
+    to hala bez dostepu do panelu."""
+    polecenia_rollbacku = " ".join(
+        _bez_bialych(p) for p in
+        MigrationService.split_statements(_tresc_rollbacku()))
+    for tabela in ("prod_devices", "prod_worker_sessions", "prod_print_queue",
+                   "prod_workers", "prod_rework_log", "prod_config",
+                   "prod_station_events", "prod_products"):
+        assert "UPDATE {}".format(tabela) in polecenia_rollbacku, tabela
+
+
+def test_rollback_nie_zostawia_kodu_krawedzi_w_zadnej_tabeli():
+    """WZMOCNIENIE ponad brief. Kazde cofniecie ma szukac NOWEJ wartosci
+    i zapisywac STARA — odwrotny kierunek (albo skopiowany z migracji warunek
+    na 'finishing') nie ruszylby ani jednego wiersza i nie zglosil bledu."""
+    for polecenie in MigrationService.split_statements(_tresc_rollbacku()):
+        jedna_linia = _bez_bialych(polecenie)
+        if not jedna_linia.upper().startswith("UPDATE"):
+            continue
+        if "prod_migracja_krawedzie_kopia" in jedna_linia:
+            continue  # odtworzenie z kopii, warunek jest na tabeli kopii
+        assert " WHERE " in jedna_linia.upper(), jedna_linia[:60]
+        warunek = jedna_linia.upper().split(" WHERE ", 1)[1]
+        assert "EDGES" in warunek or "KRAWEDZIE" in warunek, jedna_linia[:80]
+
+
+SCIEZKA_WERYFIKACJI_PRZED = KATALOG_SKRYPTOW / "weryfikacja-2026-09-15-krawedzie-przed.sql"
+SCIEZKA_WERYFIKACJI_PO = KATALOG_SKRYPTOW / "weryfikacja-2026-09-15-krawedzie-po.sql"
+
+
+def test_skrypty_weryfikacyjne_sa_wylacznie_do_odczytu():
+    """Oba pliki operator wkleja na PRODUKCJI. Maja nie miec zadnego zapisu."""
+    for sciezka in (SCIEZKA_WERYFIKACJI_PRZED, SCIEZKA_WERYFIKACJI_PO):
+        polecenia = MigrationService.split_statements(
+            sciezka.read_text(encoding="utf-8"))
+        assert polecenia, "{} nie ma ani jednego polecenia".format(sciezka.name)
+        for polecenie in polecenia:
+            gora = _bez_bialych(polecenie).upper()
+            assert gora.startswith("SELECT") or gora.startswith("SHOW"), (
+                sciezka.name, polecenie[:60])
+
+
+def test_weryfikacja_przed_sprawdza_wartosci_runtime():
+    """LABEL_PRINTER_ALLOWED_STATIONS, obie konwencje kluczy, allowed_stations —
+    grep po repo zadnej z tych wartosci nie znajdzie."""
+    tresc = SCIEZKA_WERYFIKACJI_PRZED.read_text(encoding="utf-8")
+    assert "LABEL_PRINTER_ALLOWED_STATIONS" in tresc
+    assert "RIGHT(config_key, 10) = '_FINISHING'" in tresc
+    assert "LEFT(config_key, 18) = 'STATION_FINISHING_'" in tresc
+    assert "allowed_stations" in tresc
+
+
+def test_weryfikacja_przed_pilnuje_warunkow_zwezenia_enumow():
+    """Trzy miejsca, w ktorych migracja moze pasc i przerwac deploy: niepasujaca
+    wartosc w prod_rework_log (1265), kolizja kluczy prod_config (1062)
+    i produkt wstrzymany z wykanczania (ryzyko R10)."""
+    tresc = SCIEZKA_WERYFIKACJI_PRZED.read_text(encoding="utf-8")
+    assert "rejected_at_station" in tresc
+    assert "RIGHT(config_key, 6) = '_EDGES'" in tresc
+    assert "'wstrzymane'" in tresc
+    assert "parsed_edge_processing" in tresc
+
+
+def test_weryfikacja_przed_nie_dotyka_nowych_kolumn():
+    """WZMOCNIENIE ponad brief — lustro testu dla skryptu 'po'. Skrypt 'przed'
+    operator wkleja na STARYM schemacie; odwolanie do kolumny, ktora powstanie
+    dopiero po migracji, konczy sie bledem 1054 i przerywa caly plik."""
+    tresc = SCIEZKA_WERYFIKACJI_PRZED.read_text(encoding="utf-8")
+    assert "quantity_done_edges" not in tresc
+    assert "edges_completed_at" not in tresc
+
+
+def test_weryfikacja_po_nie_dotyka_starych_kolumn():
+    """Gdyby dotykala, na nowym schemacie poleciala by bledem 1054 i przerwala
+    plik. To jest powod, dla ktorego sa dwa skrypty, a nie jeden."""
+    tresc = SCIEZKA_WERYFIKACJI_PO.read_text(encoding="utf-8")
+    assert "quantity_done_finishing" not in tresc
+    assert "finishing_completed_at" not in tresc
+
+
+def test_weryfikacja_po_sprawdza_bilans_eventow():
+    """Jedyna asercja lapiaca ZGUBIENIE wiersza: liczba wierszy w tabeli kopii
+    musi rownac sie sumie przeniesionych na 'edges' i na 'painting'."""
+    tresc = SCIEZKA_WERYFIKACJI_PO.read_text(encoding="utf-8")
+    assert "w_kopii" in tresc
+    assert "trafilo_na_krawedzie" in tresc
+    assert "trafilo_na_lakiernie" in tresc
+
+
+def test_bilans_eventow_liczy_sie_z_jednego_polecenia():
+    """WZMOCNIENIE ponad brief. Trzy liczby rozrzucone po trzech poleceniach
+    nadal daja sie porownac recznie, ale tylko jedno polecenie gwarantuje, ze
+    wszystkie trzy pochodza z tego samego momentu i z tej samej tabeli kopii.
+    Test wyzej przeszedlby rownie dobrze na trzech osobnych SELECT-ach."""
+    polecenia = MigrationService.split_statements(
+        SCIEZKA_WERYFIKACJI_PO.read_text(encoding="utf-8"))
+    bilans = [p for p in polecenia if "w_kopii" in p]
+    assert len(bilans) == 1, [p[:60] for p in bilans]
+    jedno = _bez_bialych(bilans[0])
+    assert "trafilo_na_krawedzie" in jedno
+    assert "trafilo_na_lakiernie" in jedno
+    assert jedno.count("prod_migracja_krawedzie_kopia") == 3, jedno
+
+
+def test_weryfikacja_po_sprawdza_schemat_i_rejestr():
+    tresc = SCIEZKA_WERYFIKACJI_PO.read_text(encoding="utf-8")
+    assert "SHOW COLUMNS FROM prod_products LIKE '%finishing%'" in tresc
+    assert "SHOW COLUMNS FROM prod_products LIKE '%edges%'" in tresc
+    assert "schema_migrations" in tresc
