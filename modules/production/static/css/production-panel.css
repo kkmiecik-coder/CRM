@@ -2262,17 +2262,29 @@ body {
   display: flex;
   flex-direction: column;
 }
+
 /* Dziewięć kafli: trakownia, pięć stanowisk pipeline'u, lakiernia, logistyka
-   i pakowanie. Trzy kolumny dzielą się bez reszty (3×3), więc żaden kafel nie
-   zostaje sam w ostatnim wierszu, a kolejność drogi produktu czyta się
-   wierszami. Karta stanowisk zajmuje 3fr z 3fr+2fr, czyli ~60% szerokości —
-   poniżej 1400 px kolumna schodzi pod ~300 px i cztery statystyki kafla
-   przestają się mieścić, stąd powrót do dwóch kolumn niżej. */
+   i pakowanie. Dwie kolumny (5 wierszy, dziewiąty kafel sam w ostatnim) —
+   świadomie, kosztem wyższej karty: przy dwóch kolumnach kafel jest szerszy
+   i mieszczą się w nim wszystkie cztery statystyki bez zawijania. Karta
+   stanowisk zajmuje 3fr z 3fr+2fr, czyli ~60% szerokości; przy trzech
+   kolumnach ten sam kafel był za wąski, żeby to pomieścić.
+
+   align-content: start — ten grid ma flex: 1, więc rośnie do wysokości, jaką
+   odda mu .dashboard-card-body (czyli wysokości karty "Stanowiska
+   produkcyjne" po wyrównaniu z prawą kolumną w .production-dashboard-grid).
+   Domyślne align-content rozciągnęłoby ten nadmiar na wiersze siatki, więc
+   każdy kafel byłby wyższy niż jego naturalna treść — i to tym mocniej, im
+   wyższa jest prawa kolumna (np. gdy lista alertów urośnie). Wysokość kafla
+   ma być stała niezależnie od liczby wierszy i od tego, co dzieje się po
+   prawej, więc pakujemy wiersze od góry i zostawiamy ewentualny nadmiar jako
+   puste miejsce pod ostatnim wierszem, a nie jako dodatkowe piksele kafla. */
 .il-stations-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 8px;
   flex: 1;
+  align-content: start;
 }
 .il-station {
   border: 1px solid var(--il-border-light);
@@ -2541,7 +2553,18 @@ body {
 }
 
 /* ─── Alerts ─── */
-.il-alert-list { display: flex; flex-direction: column; gap: 8px; }
+/* Karta "Alerty terminów" ma inline style="flex: 1" (dashboard-tab-content.html)
+   i rośnie w .il-right-stack do wysokości gridu stanowisk. Żeby lista faktycznie
+   wypełniła tę wysokość i przewijała się dopiero po jej wyczerpaniu (a nie po
+   sztywnych px), ciało karty musi być kontenerem flex (kolumna) z min-height: 0,
+   a sama lista — elementem flex w nim, też z min-height: 0 (bez tego flex nie
+   pozwala się skurczyć i overflow-y nigdy by się nie uruchomił). */
+.alerts-card .dashboard-card-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.il-alert-list { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; overflow-y: auto; }
 .il-alert-item {
   display: flex;
   align-items: flex-start;
@@ -2697,12 +2720,10 @@ body {
 }
 
 /* ─── Industrial Light Responsive ─── */
-@media (max-width: 1400px) {
-  /* Dwie kolumny: dziewiąty kafel zostaje sam w ostatnim wierszu i jest to
-     akceptowane — przy tej szerokości wiersze i tak się łamią, a czytelność
-     czterech statystyk w kaflu jest ważniejsza niż równy dół siatki. */
-  .il-stations-grid { grid-template-columns: 1fr 1fr; }
-}
+/* Uwaga: baza `.il-stations-grid` to już 2 kolumny (patrz wyżej), więc próg
+   1400px, który kiedyś schodził z 3 do 2 kolumn, nie ma już nic do zrobienia
+   i został usunięty. Zostaje tylko zejście do jednej kolumny na wąskich
+   ekranach, gdzie dashboard i tak przechodzi w układ jednokolumnowy. */
 @media (max-width: 900px) {
   .production-dashboard-grid { grid-template-columns: 1fr; }
   .il-right-stack { order: -1; }
