@@ -1713,3 +1713,89 @@ tr.row-changed td:first-child {
     font-weight: 600;
     color: var(--text-primary, #1a1a2e);
 }
+
+/* ============================================
+   DOPŁATY ZA KSZTAŁT (podzakładka kalkulatora)
+   ============================================ */
+
+/* Dwie dopłaty obok siebie — mają być widziane razem, bo się wykluczają.
+   Na wąskim ekranie schodzą pod siebie. */
+.shape-surcharges-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 16px;
+    margin-top: 20px;
+}
+
+.shape-surcharges-grid .settings-subsection {
+    padding: 20px;
+    background: #f8f9fa;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+}
+
+    .shape-surcharges-grid .settings-subsection h4 {
+        margin: 0 0 15px 0;
+        font-size: 15px;
+        color: #333;
+    }
+
+.surcharge-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+    .surcharge-row label {
+        font-size: 13px;
+        color: #555;
+        white-space: nowrap;
+    }
+
+.surcharge-input {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+    .surcharge-input input {
+        width: 120px;
+        padding: 8px 12px;
+        border: 1px solid #d0d0d0;
+        border-radius: 6px;
+        font-size: 14px;
+    }
+
+    .surcharge-input span {
+        font-size: 13px;
+        color: #777;
+    }
+
+.surcharge-hint {
+    margin: 10px 0 0 0;
+    font-size: 12px;
+    color: #888;
+    line-height: 1.5;
+}
+
+/* Jeden przycisk zapisuje OBIE kwoty — backend waliduje całe żądanie, zanim
+   cokolwiek zapisze, więc częściowy zapis jest niemożliwy. */
+.shape-surcharges-actions {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-top: 20px;
+    flex-wrap: wrap;
+}
+
+.shape-surcharges-actions .save-status {
+    font-size: 12px;
+    color: #28a745;
+    display: none;
+}
+
+.shape-surcharges-note {
+    font-size: 12px;
+    color: #888;
+}

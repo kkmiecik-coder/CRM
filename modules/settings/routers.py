@@ -639,7 +639,7 @@ def calculator_shipping():
 @require_admin
 def calculator_prices():
     """Zarządzanie cennikiem - tabela prices"""
-    from modules.calculator.models import Price, CalculatorSetting
+    from modules.calculator.models import Price
 
     user_email = session.get('user_email')
     current_user = User.query.filter_by(email=user_email).first()
@@ -658,10 +658,6 @@ def calculator_prices():
     technology_list = sorted(set(p.technology for p in all_prices))
     wood_class_list = sorted(set(p.wood_class for p in all_prices))
 
-    # Dopłata za kształt nietypowy — nie należy do tabeli prices, ale to tu admin
-    # szuka wszystkiego, co podnosi cenę produktu.
-    custom_shape_surcharge = CalculatorSetting.get_value('custom_shape_surcharge_netto', '0.00')
-
     return render_template(
         'settings_index.html',
         current_user=current_user,
@@ -669,7 +665,6 @@ def calculator_prices():
         species_list=species_list,
         technology_list=technology_list,
         wood_class_list=wood_class_list,
-        custom_shape_surcharge=custom_shape_surcharge,
         active_tab='calculator',
         calculator_subtab='prices'
     )
@@ -901,22 +896,45 @@ def calculator_extras_finishing():
 @require_admin
 def calculator_extras_edges():
     """Cennik obróbki krawędzi"""
-    from modules.calculator.models import EdgeOption, CalculatorSetting
+    from modules.calculator.models import EdgeOption
 
     user_email = session.get('user_email')
     current_user = User.query.filter_by(email=user_email).first()
 
     edge_options = EdgeOption.query.order_by(EdgeOption.id).all()
-    round_surcharge = CalculatorSetting.get_value('round_shape_surcharge_netto', '50.00')
 
     return render_template(
         'settings_index.html',
         current_user=current_user,
         edge_options=edge_options,
-        round_surcharge=round_surcharge,
         active_tab='calculator',
         calculator_subtab='extras',
         extras_subtab='edges'
+    )
+
+
+@settings_bp.route('/calculator/shape-surcharges')
+@require_admin
+def calculator_shape_surcharges():
+    """Dopłaty za kształt — koło/owal oraz kształt nietypowy w jednym miejscu.
+
+    Wcześniej te dwie bliźniacze dopłaty leżały w osobnych podzakładkach (koło
+    w Wykończeniach → Obróbka krawędzi, kształt nietypowy pod tabelą Cennika
+    drewna). Nikt nie widział ich obok siebie ani tego, że się WYKLUCZAJĄ —
+    produkt ma dokładnie jeden kształt, więc naliczy się najwyżej jedna z nich.
+    """
+    from modules.calculator.models import CalculatorSetting
+
+    user_email = session.get('user_email')
+    current_user = User.query.filter_by(email=user_email).first()
+
+    return render_template(
+        'settings_index.html',
+        current_user=current_user,
+        round_surcharge=CalculatorSetting.get_value('round_shape_surcharge_netto', '50.00'),
+        custom_shape_surcharge=CalculatorSetting.get_value('custom_shape_surcharge_netto', '0.00'),
+        active_tab='calculator',
+        calculator_subtab='shape_surcharges'
     )
 
 

@@ -619,53 +619,51 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('saveAllBtnEdgeOptions')?.addEventListener('click', bulkSaveEdgeOptions);
     document.getElementById('discardChangesEdgeOptions')?.addEventListener('click', () => discardChanges('edgeOptions'));
 
-    // Dopłaty za kształt (koło/owal oraz kształt nietypowy) — obie zapisywane
-    // tym samym endpointem ustawień kalkulatora, różnią się tylko kluczem.
-    function podepnijZapisDoplatyZaKsztalt(btnId, inputId, statusId, settingKey) {
-        document.getElementById(btnId)?.addEventListener('click', async () => {
-            const input = document.getElementById(inputId);
-            const statusEl = document.getElementById(statusId);
-            if (!input || !statusEl) return;
+    // Dopłaty za kształt — jeden przycisk zapisuje OBIE kwoty w jednym żądaniu.
+    // Backend (_zbierz_ustawienia_kalkulatora) waliduje całe żądanie, zanim
+    // cokolwiek zapisze, więc częściowy zapis jest niemożliwy: albo wchodzą obie,
+    // albo żadna i użytkownik dostaje komunikat.
+    document.getElementById('saveShapeSurchargesBtn')?.addEventListener('click', async () => {
+        const statusEl = document.getElementById('shapeSurchargesSaveStatus');
+        if (!statusEl) return;
 
-            const pokazStatus = (tekst, kolor) => {
-                statusEl.textContent = tekst;
-                statusEl.style.color = kolor;
-                statusEl.style.display = 'inline';
-                setTimeout(() => statusEl.style.display = 'none', 3000);
-            };
+        const pokazStatus = (tekst, kolor) => {
+            statusEl.textContent = tekst;
+            statusEl.style.color = kolor;
+            statusEl.style.display = 'inline';
+            setTimeout(() => statusEl.style.display = 'none', 3000);
+        };
 
-            const value = parseFloat(input.value);
-            if (isNaN(value) || value < 0) {
+        const pola = {
+            round_shape_surcharge_netto: document.getElementById('roundSurchargeNetto'),
+            custom_shape_surcharge_netto: document.getElementById('customShapeSurchargeNetto'),
+        };
+
+        const payload = {};
+        for (const [klucz, input] of Object.entries(pola)) {
+            if (!input) continue;
+            const wartosc = parseFloat(input.value);
+            if (isNaN(wartosc) || wartosc < 0) {
                 pokazStatus('Nieprawidłowa wartość!', '#dc3545');
+                input.focus();
                 return;
             }
+            payload[klucz] = wartosc;
+        }
 
-            try {
-                const resp = await fetch('/settings/api/calculator-settings', {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ [settingKey]: value })
-                });
-                const data = await resp.json();
-                if (data.success) {
-                    pokazStatus('Zapisano!', '#28a745');
-                } else {
-                    pokazStatus(data.error || 'Błąd zapisu', '#dc3545');
-                }
-            } catch (err) {
-                pokazStatus('Błąd połączenia', '#dc3545');
-            }
-        });
-    }
-
-    podepnijZapisDoplatyZaKsztalt(
-        'saveRoundSurchargeBtn', 'roundSurchargeNetto', 'roundSurchargeSaveStatus',
-        'round_shape_surcharge_netto'
-    );
-    podepnijZapisDoplatyZaKsztalt(
-        'saveCustomShapeSurchargeBtn', 'customShapeSurchargeNetto', 'customShapeSurchargeSaveStatus',
-        'custom_shape_surcharge_netto'
-    );
+        try {
+            const resp = await fetch('/settings/api/calculator-settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await resp.json();
+            pokazStatus(data.success ? 'Zapisano!' : (data.error || 'Błąd zapisu'),
+                        data.success ? '#28a745' : '#dc3545');
+        } catch (err) {
+            pokazStatus('Błąd połączenia', '#dc3545');
+        }
+    });
 
     // Wyliczanie wysyłki
     const shippingVatDivisor = 1.23;
