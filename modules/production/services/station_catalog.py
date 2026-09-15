@@ -144,4 +144,5 @@ def resolve_station_code(code):
     """
     if not isinstance(code, str):
         return code
-    return STATION_CODE_ALIASES.get(code.strip(), code.strip())
+    przyciety = code.strip()
+    return STATION_CODE_ALIASES.get(przyciety, przyciety)

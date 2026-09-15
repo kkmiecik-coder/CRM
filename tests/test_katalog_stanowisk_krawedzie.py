@@ -135,3 +135,59 @@ def test_nieznany_kod_wraca_bez_zmian():
     from modules.production.services.station_catalog import resolve_station_code
 
     assert resolve_station_code('trakownia_pietro_2') == 'trakownia_pietro_2'
+
+
+def test_alias_przycina_biale_znaki():
+    """
+    Kontrakt (ograniczenia-globalne.md): string wejściowy jest przycinany `.strip()`
+    PRZED mapowaniem przez alias i przed zwróceniem. Naiwny jednolinijkowiec
+    `STATION_CODE_ALIASES.get(code, code)` w ogóle nie przycina, więc dla kodu
+    z białymi znakami zwróciłby go z tymi znakami — nawet gdy po przycięciu
+    trafia dokładnie w alias.
+    """
+    from modules.production.services.station_catalog import resolve_station_code
+
+    assert resolve_station_code('  finishing  ') == 'edges'
+    assert resolve_station_code('\tcutting\n') == 'cutting'
+
+
+def test_alias_przepuszcza_wartosci_niestringowe_bez_wyjatku():
+    """
+    Kontrakt: wartość nie-stringowa (w tym `None`) wraca bez zmian i BEZ WYJĄTKU.
+
+    Sam `None` niczego nie odróżnia — jako klucz haszowalny nieobecny w słowniku
+    wraca identycznie z naiwnego `STATION_CODE_ALIASES.get(code, code)` i z
+    obowiązującego kontraktu. Dowodem kontraktu jest to, co dzieje się dalej:
+    naiwna wersja wywala się `TypeError` na liście i słowniku, bo `dict.get`
+    próbuje użyć ich jako klucza (nie da się ich zahaszować) — dokładnie ten
+    przypadek, dla którego istnieje bramka `isinstance` w resolve_station_code
+    (patrz docstring funkcji: products_api/order_details podają tu surowe dane
+    z JSON-a).
+    """
+    from modules.production.services.station_catalog import resolve_station_code
+
+    lista = ['finishing']
+    slownik = {'finishing': 'edges'}
+
+    assert resolve_station_code(None) is None
+    assert resolve_station_code(lista) is lista
+    assert resolve_station_code(slownik) is slownik
+
+
+def test_alias_rozroznia_wielkosc_liter():
+    """
+    Kontrakt: alias rozróżnia wielkość liter — mapowane jest wyłącznie dokładne
+    'finishing' (małymi literami, po przycięciu), nigdy jego warianty wielkości
+    liter.
+
+    Sama wielkość liter, bez białych znaków, niczego by nie odróżniła od
+    naiwnego jednolinijkowca — żadna z dwóch wersji nie zmienia wielkości liter,
+    więc obie zwróciłyby np. 'FINISHING' bez zmian. Test celowo łączy wielkość
+    liter z białymi znakami: to brak `.strip()` w wersji naiwnej ujawnia się
+    tutaj (wróci wartość z białymi znakami), podczas gdy kontrakt przycina biały
+    znak i NADAL nie mapuje wariantu innego niż dokładne 'finishing'.
+    """
+    from modules.production.services.station_catalog import resolve_station_code
+
+    assert resolve_station_code('  FINISHING  ') == 'FINISHING'
+    assert resolve_station_code('  Finishing  ') == 'Finishing'
