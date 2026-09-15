@@ -45,6 +45,11 @@ _STATUS_RANK = {
     'czeka_na_skladanie': (2, 'assembly'),
     'czeka_na_sklejanie': (3, 'gluing'),
     'czeka_na_formatowanie': (4, 'formatting'),
+    # Dawne 'czeka_na_wykanczanie'. Stara wartość znika z enuma
+    # prod_products.current_status w migracji
+    # 2026-09-15-krawedzie-podzial-wykanczania.sql, więc żaden żywy produkt
+    # jej już nie niesie — a martwy klucz zostawiony tu obok dokładałby
+    # pigułkę podpisaną surowym kodem 'finishing' obok pigułki „Krawędzie".
     'czeka_na_krawedzie': (5, 'edges'),
     'czeka_na_lakiernie': (6, 'painting'),
     'czeka_na_logistyke': (7, 'logistics'),

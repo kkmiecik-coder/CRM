@@ -558,3 +558,50 @@ def test_kazde_stanowisko_ma_kolor_wykresu():
 
     # Kolor rezerwowy jest wylacznie dla kodow SPOZA katalogu.
     assert dashboard_api.KOLOR_REZERWOWY not in kolory.values()
+
+
+# ============================================================================
+# ALERTY TERMINOW — mapa rang rownolegla do katalogu
+# ============================================================================
+
+
+def test_kazde_stanowisko_ma_range_w_alertach_terminow():
+    """
+    Kafel 'Alerty terminow' sortuje zamowienia po randze statusu
+    (_STATUS_RANK). Status kolejki spoza tej mapy dostaje _UNKNOWN_RANK
+    i kod 'unknown' (dashboard_alerts.py:72-73) — pozycja laduje na koncu
+    listy z nazwa, ktorej nikt na hali nie rozpozna.
+
+    Petle ida po KATALOGU, wiec osme stanowisko zapali ten test samo.
+    """
+    from modules.production.services import dashboard_alerts
+    from modules.production.services.station_catalog import (
+        STATION_ORDER, STATION_PENDING_STATUS)
+
+    ranking = dashboard_alerts._STATUS_RANK
+
+    bez_rangi = sorted(
+        status for status in STATION_PENDING_STATUS.values() if status not in ranking)
+    assert bez_rangi == [], (
+        'Statusy kolejek bez rangi w alertach terminow: {}'.format(bez_rangi))
+
+    # Ranga ma wskazywac na TEN kod stanowiska, nie na dowolny.
+    for kod, status in STATION_PENDING_STATUS.items():
+        _, kod_w_rankingu = ranking[status]
+        assert kod_w_rankingu == kod, (status, kod, kod_w_rankingu)
+
+    # Zaden martwy kod nie moze zostac w mapie po rename. _station_of
+    # (dashboard_alerts.py:76) oddaje taki kod wprost do station_short_label,
+    # a ta nieznany kod zwraca SUROWO — pigulka alertu podpisuje sie wtedy
+    # 'finishing' obok kafli 'Krawedzie' i nie lapie zadnej reguly
+    # .il-alert-station[data-station=...] w production-panel.css, wiec
+    # dodatkowo szarzeje. 'hold' i 'logistics' nie sa stanowiskami, maja
+    # wlasne etykiety w _EXTRA_LABELS.
+    martwe = sorted(
+        status for status, (_, kod) in ranking.items()
+        if kod not in STATION_ORDER and kod not in dashboard_alerts._EXTRA_LABELS)
+    assert martwe == [], 'Rangi dla kodow spoza katalogu: {}'.format(martwe)
+
+    # Kolejnosc rang ma odwzorowywac droge produktu przez hale.
+    rangi = [ranking[STATION_PENDING_STATUS[kod]][0] for kod in STATION_ORDER]
+    assert rangi == sorted(rangi), rangi
