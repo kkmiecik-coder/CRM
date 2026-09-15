@@ -32,14 +32,22 @@ from ...services.dashboard_alerts import build_deadline_alerts
 # dashboard miał własną kopię i przy pierwszej zmianie nazwy statusu kafelki
 # rozjechałyby się z resztą aplikacji po cichu.
 #
-# ZESTAW stanowisk jest tu WĘŻSZY niż w katalogu i to jest jawna decyzja, nie
-# przeoczenie: dashboard rysuje sześć kafelków i nie zna lakierni (nie ma jej
-# ani w _station_count_map niżej, ani w szablonie). Raport „Dni zapasu przed
-# stanowiskiem" pokazuje wszystkie siedem i to właśnie lakiernia ma dziś
-# najdłuższą kolejkę — dołożenie jej tutaj wymaga decyzji właściciela i zmiany
-# szablonu dashboardu, więc idzie osobnym zadaniem.
+# ZESTAW stanowisk był tu do rozdziału Wykańczania WĘŻSZY niż w katalogu:
+# sześć kafelków bez lakierni, mimo że raport „Dni zapasu przed stanowiskiem"
+# pokazywał siedem i to właśnie lakiernia miała najdłuższą kolejkę hali. Razem
+# z awansem Lakierni na pełnoprawne stanowisko ten wewnętrzny zestaw dogania
+# katalog — krotka niżej wylicza wszystkie siedem kodów. Same kafelki w
+# szablonie dashboardu dokłada dopiero Warstwa 5: do tego czasu szablon ma
+# na sztywno stary kod 'finishing', którego już nie ma w katalogu, więc
+# zakładka dashboardu zwraca 500.
+#
+# Zostaje krotką, a nie `= STATION_ORDER`, bo to ona nazywa zestaw KAFELKÓW:
+# gdyby dashboard kiedyś znowu miał pokazywać podzbiór, zawęża się go TUTAJ,
+# a liczniki kolejek, pętla heartbeatu i średni dystans do deadline'u idą za
+# nią same — żadne z tych miejsc nie ma już własnej listy kodów.
 _DASHBOARD_STATIONS = (
-    'cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging',
+    'cutting', 'assembly', 'gluing', 'formatting', 'edges', 'painting',
+    'packaging',
 )
 _STATION_PENDING_STATUS = {
     kod: STATION_PENDING_STATUS[kod] for kod in _DASHBOARD_STATIONS
@@ -417,7 +425,7 @@ def chart_data():
             'assembly': {'border': '#007bff', 'bg': 'rgba(0, 123, 255, 0.1)'},
             'gluing': {'border': '#9c27b0', 'bg': 'rgba(156, 39, 176, 0.1)'},
             'formatting': {'border': '#ff5722', 'bg': 'rgba(255, 87, 34, 0.1)'},
-            'finishing': {'border': '#00bcd4', 'bg': 'rgba(0, 188, 212, 0.1)'},
+            'edges': {'border': '#00bcd4', 'bg': 'rgba(0, 188, 212, 0.1)'},
             'painting': {'border': '#e91e63', 'bg': 'rgba(233, 30, 99, 0.1)'},
             'packaging': {'border': '#28a745', 'bg': 'rgba(40, 167, 69, 0.1)'}
         }
@@ -798,14 +806,6 @@ def dashboard_tab_content():
 
         dashboard_stats = {}
 
-        # Statystyki stacji
-        cutting_count = ProductionItem.query.filter(ProductionItem.current_status == 'czeka_na_wyciecie').count()
-        assembly_count = ProductionItem.query.filter(ProductionItem.current_status == 'czeka_na_skladanie').count()
-        gluing_count = ProductionItem.query.filter(ProductionItem.current_status == 'czeka_na_sklejanie').count()
-        formatting_count = ProductionItem.query.filter(ProductionItem.current_status == 'czeka_na_formatowanie').count()
-        finishing_count = ProductionItem.query.filter(ProductionItem.current_status == 'czeka_na_wykanczanie').count()
-        packaging_count = ProductionItem.query.filter(ProductionItem.current_status == 'czeka_na_pakowanie').count()
-
         today_start = datetime.combine(today, datetime.min.time())
         today_end = datetime.combine(today, datetime.max.time())
         tomorrow_start = today_start + timedelta(days=1)
@@ -816,13 +816,18 @@ def dashboard_tab_content():
             for code in _STATION_PENDING_STATUS.keys()
         }
 
+        # Statystyki stacji — kolejka KAŻDEGO kafelka z jednej mapy.
+        # Wcześniej stało tu sześć nazwanych zmiennych przepisanych ręcznie do
+        # słownika niżej. Zestaw kafelków rósł w _STATION_PENDING_STATUS,
+        # a ten słownik zostawał w tyle — i ponieważ budowany dalej
+        # dashboard_stats['stations'] indeksuje go dla każdego kodu z mapy,
+        # brakujący wpis oznaczał KeyError, czyli HTTP 500 dla CAŁEGO
+        # dashboardu, nie dla jednego kafelka.
         _station_count_map = {
-            'cutting': cutting_count,
-            'assembly': assembly_count,
-            'gluing': gluing_count,
-            'formatting': formatting_count,
-            'finishing': finishing_count,
-            'packaging': packaging_count,
+            kod: ProductionItem.query.filter(
+                ProductionItem.current_status == status
+            ).count()
+            for kod, status in _STATION_PENDING_STATUS.items()
         }
         dashboard_stats['stations'] = {
             code: {
@@ -857,8 +862,13 @@ def dashboard_tab_content():
         from modules.production.services.mobile_api_service import get_devices_telemetry
         heartbeat_statuses = get_devices_telemetry()
 
-        for st_code in ['sawmill', 'cutting', 'assembly', 'gluing',
-                        'formatting', 'finishing', 'packaging']:
+        # Lista idzie z mapy kafelków, nie z literału. Kod obecny w
+        # dashboard_stats['stations'], a nieobecny w tej pętli, zostawał bez
+        # 'tablet_status' i szablon rysował dla niego pustą pigułkę; kod
+        # odwrotnie — w pętli, a nie w mapie — wywracał KeyError na całym
+        # dashboardzie. 'sawmill' stoi z przodu, bo trakownia ma własne
+        # agregaty i do _STATION_PENDING_STATUS świadomie nie należy.
+        for st_code in ('sawmill',) + tuple(_STATION_PENDING_STATUS):
             dashboard_stats['stations'][st_code]['tablet_status'] = heartbeat_statuses.get(st_code, {'active': False, 'last_seen': None, 'status_label': 'Niedostępne'})
 
         # completed_today (count distinct items z dodatnim netto delta)
@@ -893,11 +903,14 @@ def dashboard_tab_content():
         avg_deadline_distance = 0.0
         try:
             active_products = ProductionItem.query.filter(
-                ProductionItem.current_status.in_([
-                    'czeka_na_wyciecie', 'czeka_na_skladanie',
-                    'czeka_na_sklejanie', 'czeka_na_formatowanie', 'czeka_na_wykanczanie',
-                    'czeka_na_pakowanie', 'w_realizacji'
-                ]),
+                # Statusy kolejek z tej samej mapy co kafelki. Literał
+                # zostawał po renamie z martwym 'czeka_na_wykanczanie' i cicho
+                # wypadały z tej średniej wszystkie sztuki stojące przed
+                # Krawędziami; przy okazji wchodzi tu lakiernia, której
+                # literał nigdy nie znał.
+                ProductionItem.current_status.in_(
+                    list(_STATION_PENDING_STATUS.values()) + ['w_realizacji']
+                ),
                 ProductionItem.deadline_date.isnot(None)
             ).all()
 

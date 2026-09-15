@@ -167,19 +167,17 @@ def test_kolejki_wykresu_1_zgadzaja_sie_z_dashboardem(app):
         assert raport['packaging'] == 3.5
 
 
-def test_wykres_1_pokazuje_lakiernie_ktorej_dashboard_nie_ma(app):
+def test_wykres_1_i_dashboard_licza_te_same_stanowiska(app):
     """
-    JEDYNA uzasadniona różnica między wykresem 1 a Dashboardem: raport liczy
-    siedem stanowisk, Dashboard rysuje sześć kafelków i nie zna lakierni.
+    Do rozdziału Wykańczania Dashboard znał SZEŚĆ stanowisk, a wykres 1
+    siedem — i tym siódmym była akurat lakiernia, czyli najdłuższy zapas hali
+    (6.58 dnia przy kolejce 0.487 m³). Różnica zniknęła razem z awansem
+    Lakierni na pełnoprawne stanowisko: oba ekrany czytają dziś ten sam
+    katalog, a dashboard_api._DASHBOARD_STATIONS wylicza pełne siedem kodów.
 
-    To decyzja, nie błąd — udokumentowana w dwóch miejscach naraz:
-    dashboard_api._DASHBOARD_STATIONS (komentarz „ZESTAW stanowisk jest tu
-    WĘŻSZY niż w katalogu") i station_catalog.STATION_PENDING_STATUS. Test
-    przypina ją do liczby: gdy ktoś dołoży siódmy kafelek, ten test zapali się
-    i przypomni, że wtedy trzeba porównać obie liczby, a nie tylko dorysować UI.
-
-    Na produkcji to nie jest drobiazg: lakiernia ma dziś najdłuższy zapas
-    (6.58 dnia przy kolejce 0.487 m³), a Dashboard w ogóle jej nie pokazuje.
+    Test przypina to do liczby — gdy ktoś znowu zawęzi zestaw kafelków,
+    zapali się tutaj, a nie dopiero w pytaniu właściciela „czemu te dwa
+    ekrany podają inną kolejkę tego samego stanowiska".
     """
     with app.app_context():
         _produkt(status='czeka_na_lakiernie', volume=0.5, quantity=4)
@@ -189,9 +187,11 @@ def test_wykres_1_pokazuje_lakiernie_ktorej_dashboard_nie_ma(app):
         raport = {s['station_code']: s['pending_m3'] for s in
                   reports_service.dni_zapasu_stanowisk(end_date=PONIEDZIALEK)['stations']}
 
-        assert 'painting' not in _STATION_PENDING_STATUS
+        assert 'painting' in _STATION_PENDING_STATUS
+        assert set(raport) == set(_STATION_PENDING_STATUS)
         assert raport['painting'] == 2.0
-        assert set(raport) - set(_STATION_PENDING_STATUS) == {'painting'}
+        assert raport['painting'] == pytest.approx(
+            _kolejka_dashboardu(_STATION_PENDING_STATUS['painting']), abs=0.0005)
 
 
 # ============================================================================

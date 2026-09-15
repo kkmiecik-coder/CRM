@@ -244,16 +244,155 @@ def test_wartosci_aliasow_sa_kodami_kanonicznymi():
     alias mógłby literówką wskazać 'paintng' albo polską nazwę zamiast kodu
     ('lakiernia') i żaden test by nie pisnął — dopóki ten strażnik nie istnieje.
 
-    'edges' celowo NIE jest jeszcze w STATION_ORDER — przemianowanie katalogu
-    (Zadanie 6, patrz docstring modułu testowego pkt 4) to osobne zadanie
-    dalszej warstwy. Do czasu tej zmiany dopuszczamy 'edges' jawnie, żeby
-    strażnik nie blokował Zadania 4, zanim katalog nadąży.
+    Po przemianowaniu katalogu (Zadanie 5/6) 'edges' jest już pełnoprawnym
+    stanowiskiem w STATION_ORDER, więc strażnik porównuje wprost z katalogiem
+    — bez żadnego tymczasowego dopuszczenia.
     """
     from modules.production.services.station_catalog import (
         STATION_CODE_ALIASES,
         STATION_ORDER,
     )
 
-    kody_kanoniczne = set(STATION_ORDER) | {'edges'}
+    kody_kanoniczne = set(STATION_ORDER)
     for stary_kod, nowy_kod in STATION_CODE_ALIASES.items():
         assert nowy_kod in kody_kanoniczne, (stary_kod, nowy_kod)
+
+
+def test_katalog_ma_krawedzie_zamiast_wykanczania():
+    """Rename musi wejść w trzy mapy naraz — połowiczny rozjeżdża moduł po cichu."""
+    from modules.production.services.station_catalog import (
+        STATION_LABELS,
+        STATION_ORDER,
+        STATION_PENDING_STATUS,
+        station_label,
+    )
+
+    assert 'edges' in STATION_ORDER
+    assert 'finishing' not in STATION_ORDER
+    # Pozycja w procesie bez zmian: między formatowaniem a lakiernią.
+    assert STATION_ORDER.index('edges') == STATION_ORDER.index('formatting') + 1
+    assert STATION_ORDER.index('painting') == STATION_ORDER.index('edges') + 1
+    assert len(STATION_ORDER) == 7
+
+    assert STATION_LABELS['edges'] == 'Krawędzie'
+    assert STATION_LABELS['painting'] == 'Lakiernia'
+    assert 'finishing' not in STATION_LABELS
+    assert station_label('edges') == 'Krawędzie'
+
+    assert STATION_PENDING_STATUS['edges'] == 'czeka_na_krawedzie'
+    assert STATION_PENDING_STATUS['painting'] == 'czeka_na_lakiernie'
+    assert 'finishing' not in STATION_PENDING_STATUS
+    assert 'czeka_na_wykanczanie' not in STATION_PENDING_STATUS.values()
+
+
+def test_alias_wskazuje_na_istniejace_stanowisko():
+    """Alias bez celu w katalogu przepuszczałby martwy kod dalej, do bazy."""
+    from modules.production.services.station_catalog import (
+        STATION_CODE_ALIASES,
+        STATION_LABELS,
+        STATION_ORDER,
+        resolve_station_code,
+    )
+
+    for stary, nowy in STATION_CODE_ALIASES.items():
+        assert nowy in STATION_ORDER, nowy
+        assert nowy in STATION_LABELS, nowy
+        assert stary not in STATION_ORDER, stary
+        assert resolve_station_code(stary) == nowy
+
+
+def test_is_production_station_po_rename():
+    """
+    'finishing' przestaje być stanowiskiem produkcyjnym — świadomie.
+    Alias ma być rozwijany ZANIM kod dojdzie do tej bramki.
+    """
+    from modules.production.services.station_catalog import (
+        is_production_station,
+        resolve_station_code,
+        station_choices,
+    )
+
+    assert is_production_station('edges') is True
+    assert is_production_station('painting') is True
+    assert is_production_station('finishing') is False
+    assert is_production_station(resolve_station_code('finishing')) is True
+
+    kody = [kod for kod, _ in station_choices()]
+    assert kody == ['cutting', 'assembly', 'gluing', 'formatting',
+                    'edges', 'painting', 'packaging']
+
+
+# Drugi plik pilnowany strukturalnie: to w nim siedzą kopie zestawu stanowisk,
+# które po renamie katalogu wywracają import całego pakietu routerów.
+SCIEZKA_DASHBOARDU = (
+    Path(__file__).resolve().parents[1]
+    / 'modules' / 'production' / 'routers' / 'api' / 'dashboard_api.py'
+)
+
+
+def _literaly_stringow(sciezka):
+    """Wszystkie literały napisowe pliku (komentarzy AST nie widzi)."""
+    drzewo = ast.parse(sciezka.read_text(encoding='utf-8'))
+    return {w.value for w in ast.walk(drzewo)
+            if isinstance(w, ast.Constant) and isinstance(w.value, str)}
+
+
+def test_pakiet_routerow_produkcji_wstaje_po_zmianie_katalogu():
+    """
+    CAŁA racja bytu tego testu: dashboard_api buduje swoją mapę statusów
+    indeksując katalog literałami kodów stanowisk, więc rename katalogu
+    wywala KeyError PRZY IMPORCIE modułu. routers/__init__.py:39-43 łapie
+    wyłącznie ImportError (KeyError nie jest jego podklasą), więc przewraca
+    się import całego pakietu modules.production.routers — a wtedy testy
+    API mobilnego i panelu nie dają się nawet ZEBRAĆ.
+
+    Sam brak wyjątku nie wystarcza: gdyby to był ImportError, pakiet wstałby
+    z api_bp = None i aplikacja po cichu straciłaby wszystkie endpointy.
+    Dlatego sprawdzamy też, że blueprinty naprawdę są.
+    """
+    import importlib
+
+    routers = importlib.import_module('modules.production.routers')
+
+    assert routers.api_bp is not None, (
+        'modules.production.routers wstało bez api_bp — import blueprintu API '
+        'padł i został połknięty przez except ImportError'
+    )
+    assert routers.station_bp is not None
+
+
+def test_dashboard_zna_kazde_stanowisko_katalogu():
+    """
+    Dashboard miał własny, WĘŻSZY zestaw stanowisk (sześć kafelków, bez
+    lakierni) używany do liczenia kolejek, heartbeatu i średniej do
+    deadline'u. Test pilnuje, żeby ten wewnętrzny zestaw pokrywał się z
+    katalogiem — kafelki w szablonie to osobna warstwa (dokłada je dopiero
+    Warstwa 5) i nie są tu sprawdzane.
+    """
+    import importlib
+
+    from modules.production.services.station_catalog import (
+        STATION_ORDER,
+        STATION_PENDING_STATUS,
+    )
+
+    dashboard_api = importlib.import_module(
+        'modules.production.routers.api.dashboard_api')
+
+    assert set(dashboard_api._DASHBOARD_STATIONS) == set(STATION_ORDER)
+    assert dashboard_api._STATION_PENDING_STATUS == dict(STATION_PENDING_STATUS)
+
+
+def test_dashboard_nie_ma_juz_literalu_starego_stanowiska():
+    """
+    W dashboard_api stały CZTERY kopie zestawu stanowisk (krotka kafelków,
+    ręczny słownik liczników, zaszyta lista pętli heartbeatu, lista statusów
+    do średniego deadline'u) plus klucz koloru krzywej. Każda z nich po
+    renamie albo wywalała KeyError, albo cicho gubiła stanowisko. Test
+    pilnuje, żeby po tym zadaniu nie został ani jeden literał starego kodu
+    ani starego statusu.
+    """
+    literaly = _literaly_stringow(SCIEZKA_DASHBOARDU)
+
+    assert 'finishing' not in literaly
+    assert 'czeka_na_wykanczanie' not in literaly

@@ -26,7 +26,10 @@ STATION_ORDER = (
     'assembly',
     'gluing',
     'formatting',
-    'finishing',
+    # UWAGA NA KOLIZJĘ NAZWY: 'edges' to STANOWISKO (obróbka krawędzi na hali).
+    # Nie mylić z parsed_edges_groups / edges_groups / edge_svg_generator —
+    # tam 'edges' opisuje DANE PRODUKTU i z tym stanowiskiem nie ma związku.
+    'edges',
     'painting',
     'packaging',
 )
@@ -36,7 +39,7 @@ STATION_LABELS = {
     'assembly': 'Składanie - lite',
     'gluing': 'Sklejanie',
     'formatting': 'Formatowanie',
-    'finishing': 'Wykańczanie',
+    'edges': 'Krawędzie',
     'painting': 'Lakiernia',
     'packaging': 'Pakowanie',
     # Poza pipeline'em produktów — rejestr surowca. Pracownik może mieć tu
@@ -61,7 +64,7 @@ STATION_PENDING_STATUS = {
     'assembly': 'czeka_na_skladanie',
     'gluing': 'czeka_na_sklejanie',
     'formatting': 'czeka_na_formatowanie',
-    'finishing': 'czeka_na_wykanczanie',
+    'edges': 'czeka_na_krawedzie',
     'painting': 'czeka_na_lakiernie',
     'packaging': 'czeka_na_pakowanie',
 }
