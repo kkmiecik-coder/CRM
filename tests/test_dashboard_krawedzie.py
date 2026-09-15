@@ -218,22 +218,34 @@ def test_panel_css_nie_zna_juz_kodu_stanowiska_finishing():
     assert '--il-station-cmp:' in css
 
 
-def test_siatka_miesci_dziewiec_kafli_bez_sieroty():
+def test_siatka_stanowisk_ma_dwie_kolumny_i_staly_kafel():
     """
-    Po dołożeniu Lakierni kafli jest dziewięć: trakownia, pięć stanowisk
-    pipeline'u, lakiernia, logistyka i pakowanie. Przy dwóch kolumnach jeden
-    z nich zostawał sam w piątym wierszu. Trzy kolumny dzielą się bez reszty
-    (3×3), a kolejność procesu czyta się wierszami.
+    Kafli jest dziewięć: trakownia, pięć stanowisk pipeline'u, lakiernia,
+    logistyka i pakowanie. Właściciel wybrał dwie kolumny — pięć wierszy,
+    dziewiąty kafel sam w ostatnim — świadomie, bo przy dwóch kolumnach kafel
+    jest szerszy i mieszczą się w nim wszystkie cztery statystyki bez
+    zawijania. Wcześniejsze 3×3 dzieliło się bez reszty, ale kosztem
+    czytelności kafla.
 
-    Poniżej 1400 px kolumna miałaby mniej niż ~300 px (karta stanowisk to
-    3fr z 3fr+2fr), czyli cztery statystyki kafla przestałyby się mieścić —
-    tam wracamy do dwóch kolumn i sierota jest akceptowana, bo przy tej
-    szerokości wiersze i tak się łamią.
+    `align-content: start` jest tu WARUNKIEM, nie kosmetyką, i to jego pilnuje
+    ten test. Siatka ma `flex: 1`, więc rośnie do wysokości, jaką odda jej
+    karta po wyrównaniu z prawą kolumną w `.production-dashboard-grid`.
+    Domyślne `align-content` rozdziela ten nadmiar na WIERSZE, więc kafel
+    robi się wyższy od własnej treści — i tym bardziej, im wyższa jest prawa
+    kolumna. Raz już się to wydarzyło: zdjęcie sztywnego `max-height` z listy
+    alertów powiększyło nadmiar i kafle urosły. Bez pakowania wierszy od góry
+    wysokość kafla zależy od tego, co dzieje się obok siatki.
+
+    Progu 1400 px (kiedyś zejście 3 → 2 kolumny) już nie ma — po zmianie bazy
+    na dwie kolumny nie miał czego robić. Zejście do jednej kolumny poniżej
+    900 px zostaje i jest tu sprawdzane, bo to ono ratuje kafel na wąskim
+    ekranie.
     """
     css = _plik(PANEL_CSS)
 
     blok = css.split('.il-stations-grid {')[1].split('}')[0]
-    assert 'grid-template-columns: repeat(3, 1fr);' in blok
+    assert 'grid-template-columns: repeat(2, 1fr);' in blok
+    assert 'align-content: start;' in blok
 
-    waski = css.split('@media (max-width: 1400px)')[1][:600]
-    assert '.il-stations-grid { grid-template-columns: 1fr 1fr; }' in waski
+    waski = css.split('@media (max-width: 900px)')[1][:600]
+    assert '.il-stations-grid { grid-template-columns: 1fr; }' in waski
