@@ -1647,6 +1647,56 @@ def test_pracownik_z_ograniczeniem_stanowisk(app):
         assert worker.can_work_at('packaging') is False
 
 
+def test_pracownik_moze_miec_lakiernie_w_allowed_stations(app):
+    """
+    Formularz profilu oferuje Lakiernie, odkad station_choices() czyta
+    z katalogu (include_sawmill=True -> pelne STATION_ORDER). Zapis tego
+    samego wyboru lecial jednak 422 invalid_station_code, bo
+    _normalize_stations waliduje wobec ProductionDevice.VALID_STATION_CODES,
+    a ta krotka Lakierni nie znala. Lista rozwijana i walidacja byly dwoma
+    roznymi zrodlami prawdy — ten test je wiaze.
+
+    STRAZNIK: 'painting' dopisano do VALID_STATION_CODES w 4fe379b
+    (rejestracja tabletow Krawedzi i Lakierni), wiec test jest zielony od
+    pierwszego uruchomienia. Pilnuje, zeby wpis nie wypadl przy sprzataniu
+    aliasu 'finishing' — bez niego nie da sie ani przypisac pracownika do
+    Lakierni, ani zarejestrowac jej tabletu (models.py validate_station_code
+    czyta te sama krotke).
+
+    Asercja koncowa jest PETLA PO KATALOGU, a nie lista kodow wpisanych
+    z palca — kazde kolejne stanowisko ma zapalic ten test samo.
+    """
+    with app.app_context():
+        # 1. Lakiernia JEST w liscie, ktora widzi uzytkownik panelu.
+        oferowane = [kod for kod, _ in worker_service.station_choices()]
+        assert 'painting' in oferowane
+
+        # 2. ... wiec zapis tego samego kodu musi przejsc.
+        worker = worker_service.create_worker(
+            'Ewa', 'Malarz', allowed_stations=['painting'])
+        assert worker.allowed_stations == 'painting'
+        assert worker.can_work_at('painting') is True
+        assert worker.can_work_at('gluing') is False
+
+        # 3. Edycja istniejacego profilu idzie ta sama sciezka
+        #    _normalize_stations — to na niej pracownik tracil dostep
+        #    po cichu przy pierwszym zapisie z panelu.
+        zmieniony = worker_service.update_worker(
+            worker.id, allowed_stations=['painting', 'packaging'])
+        assert zmieniony.allowed_stations == 'painting,packaging'
+
+        # 4. KAZDY kod, ktory formularz OFERUJE, musi dac sie zapisac.
+        niezapisywalne = []
+        for kod in oferowane:
+            try:
+                worker_service.update_worker(worker.id, allowed_stations=[kod])
+            except worker_service.WorkerError as blad:
+                niezapisywalne.append((kod, blad.error_code))
+        assert niezapisywalne == [], (
+            'Stanowiska oferowane w formularzu, ktorych nie da sie zapisac: {}'
+            .format(niezapisywalne))
+
+
 # ============================================================================
 # ZAKŁADKA PANELU CRM
 # ============================================================================
