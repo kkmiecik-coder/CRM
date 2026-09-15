@@ -617,6 +617,24 @@ def calculator_sources():
     )
 
 
+@settings_bp.route('/calculator/shipping')
+@require_admin
+def calculator_shipping():
+    """Wyliczanie wysyłki — narzut na pakowanie i dopłata progowa"""
+    from modules.calculator.services.shipping_pricing import load_shipping_config
+
+    user_email = session.get('user_email')
+    current_user = User.query.filter_by(email=user_email).first()
+
+    return render_template(
+        'settings_index.html',
+        current_user=current_user,
+        shipping_config=load_shipping_config(),
+        active_tab='calculator',
+        calculator_subtab='shipping'
+    )
+
+
 @settings_bp.route('/calculator/prices')
 @require_admin
 def calculator_prices():
@@ -917,6 +935,16 @@ def api_update_calculator_settings():
                 CalculatorSetting.set_value('round_shape_surcharge_netto', str(value))
             except (InvalidOperation, ValueError):
                 return jsonify({'success': False, 'error': 'Nieprawidłowa wartość dopłaty'}), 400
+
+        # Ustawienia wysyłki. Walidacja siedzi w shipping_pricing, żeby panel
+        # i wycena miały tę samą definicję poprawnej wartości.
+        from modules.calculator.services.shipping_pricing import validate_shipping_settings
+
+        czyste, blad = validate_shipping_settings(data)
+        if blad:
+            return jsonify({'success': False, 'error': blad}), 400
+        for klucz, wartosc in czyste.items():
+            CalculatorSetting.set_value(klucz, wartosc)
 
         # UWAGA: CalculatorSetting.set_value() commituje wewnętrznie (models.py),
         # więc invalidacja poniżej jest już PO zapisie do bazy — nie przenosić jej wyżej.

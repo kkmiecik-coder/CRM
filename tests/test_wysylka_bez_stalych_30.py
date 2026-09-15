@@ -115,3 +115,18 @@ def test_wlasny_kurier_ma_straznik_kolejnosci_odpowiedzi_serwera():
     assert re.search(re.escape(zmienna) + r'\s*!==\s*this\.customMarkupSeq', po_await), \
         'po await brakuje porównania przydzielonego numeru z this.customMarkupSeq — ' \
         'spóźniona odpowiedź nadpisze this.markup, mimo że nie jest już aktualna'
+
+
+def test_podzakladka_wysylki_jest_podpieta_w_ustawieniach():
+    """Literówka w url_for wywala CAŁĄ stronę Ustawień na 500, nie tylko tę
+    podzakładkę — stąd osobny strażnik na parę szablon/router."""
+    szablon = _zrodlo(SZABLON_USTAWIEN)
+    assert "url_for('settings.calculator_shipping')" in szablon
+    assert 'Wyliczanie wysyłki' in szablon
+    assert "calculator_subtab == 'shipping'" in szablon
+
+
+def test_router_ustawien_ma_trase_wysylki():
+    zrodlo = _zrodlo(ROUTERY_USTAWIEN)
+    assert "@settings_bp.route('/calculator/shipping')" in zrodlo
+    assert 'def calculator_shipping(' in zrodlo

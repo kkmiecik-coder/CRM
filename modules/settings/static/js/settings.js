@@ -658,6 +658,71 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
+    // Wyliczanie wysyłki
+    const shippingVatDivisor = 1.23;
+
+    function odswiezPodgladNetto() {
+        [['shippingThresholdBrutto', 'shippingThresholdNetto'],
+         ['shippingSurchargeBrutto', 'shippingSurchargeNetto']].forEach(([idPola, idPodgladu]) => {
+            const pole = document.getElementById(idPola);
+            const podglad = document.getElementById(idPodgladu);
+            if (!pole || !podglad) return;
+
+            const brutto = parseFloat(pole.value);
+            // Sam VAT, nie reguła biznesowa — dlatego liczone w przeglądarce.
+            podglad.textContent = isNaN(brutto) || brutto < 0
+                ? ''
+                : `≈ ${(brutto / shippingVatDivisor).toFixed(2)} zł netto`;
+        });
+    }
+
+    ['shippingThresholdBrutto', 'shippingSurchargeBrutto'].forEach(id => {
+        document.getElementById(id)?.addEventListener('input', odswiezPodgladNetto);
+    });
+    odswiezPodgladNetto();
+
+    document.getElementById('saveShippingSettingsBtn')?.addEventListener('click', async () => {
+        const statusEl = document.getElementById('shippingSaveStatus');
+        const percent = parseFloat(document.getElementById('shippingMarkupPercent')?.value);
+        const threshold = parseFloat(document.getElementById('shippingThresholdBrutto')?.value);
+        const surcharge = parseFloat(document.getElementById('shippingSurchargeBrutto')?.value);
+        const side = document.getElementById('shippingSurchargeSide')?.value;
+
+        function pokazStatus(tekst, kolor) {
+            if (!statusEl) return;
+            statusEl.textContent = tekst;
+            statusEl.style.color = kolor;
+            statusEl.style.display = 'inline';
+            setTimeout(() => statusEl.style.display = 'none', 3000);
+        }
+
+        if ([percent, threshold, surcharge].some(v => isNaN(v) || v < 0)) {
+            pokazStatus('Uzupełnij wszystkie pola liczbami nieujemnymi!', '#dc3545');
+            return;
+        }
+
+        try {
+            const resp = await fetch('/settings/api/calculator-settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    shipping_markup_percent: percent,
+                    shipping_threshold_brutto: threshold,
+                    shipping_surcharge_brutto: surcharge,
+                    shipping_surcharge_side: side
+                })
+            });
+            const data = await resp.json();
+            if (data.success) {
+                pokazStatus('Zapisano!', '#28a745');
+            } else {
+                pokazStatus(data.error || 'Błąd zapisu', '#dc3545');
+            }
+        } catch (err) {
+            pokazStatus('Błąd połączenia', '#dc3545');
+        }
+    });
+
     // Quote Sources
     document.getElementById('saveAllBtnQuoteSources')?.addEventListener('click', bulkSaveQuoteSources);
     document.getElementById('discardChangesQuoteSources')?.addEventListener('click', () => discardChanges('quoteSources'));
