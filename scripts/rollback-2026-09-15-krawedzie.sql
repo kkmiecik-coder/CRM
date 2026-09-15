@@ -40,22 +40,25 @@ ALTER TABLE prod_products MODIFY COLUMN current_status ENUM(
     'spakowane','anulowane','wstrzymane','w_realizacji'
 ) NOT NULL DEFAULT 'czeka_na_wyciecie';
 
--- -- 2. Nazwy kolumn wstecz ---------------------------------------------------
+-- -- 2. Nazwy kolumn wstecz, jednym atomicznym ALTER-em -----------------------
+-- Ten sam wzorzec co migracja (sekcja 6, recenzja 2026-09-15): jeden ALTER na
+-- oba renamey zamiast dwoch osobnych blokow SET/PREPARE/EXECUTE/DEALLOCATE.
+-- Dwa osobne ALTER-y dawaly okno miedzy nimi: zerwane polaczenie, restart
+-- mysqld albo cokolwiek innego przerywajace rollback w tym miejscu zostawialoby
+-- jedna kolumne juz cofnieta do starej nazwy, druga jeszcze pod nowa — kazde
+-- zapytanie o prod_products lecialoby wtedy 1054 i modul produkcji byl martwy.
+--
+-- W ROLLBACKU TA SAMA WADA JEST GROZNIEJSZA NIZ W MIGRACJI, NIE LAGODNIEJSZA:
+-- rollback odpala sie wtedy, gdy produkcja jest JUZ zepsuta (stad w ogole
+-- decyzja o rollbacku), a operator naprawia ja pod presja czasu. To, ze patrzy
+-- na wynik kazdego polecenia, nie powstrzymuje zerwanego polaczenia ani
+-- restartu mysqld w polowie skryptu. Skrypt, ktory w polowie zostawia balagan,
+-- jest w tym momencie najgorszym mozliwym narzedziem.
 SET @kolumna_ilosci := (
     SELECT COUNT(*) FROM information_schema.COLUMNS
      WHERE TABLE_SCHEMA = DATABASE()
        AND TABLE_NAME = 'prod_products'
        AND COLUMN_NAME = 'quantity_done_edges');
-
-SET @sql_ilosc := IF(@kolumna_ilosci > 0,
-    'ALTER TABLE prod_products RENAME COLUMN quantity_done_edges TO quantity_done_finishing',
-    'SELECT 1');
-
-PREPARE polecenie_ilosc FROM @sql_ilosc;
-
-EXECUTE polecenie_ilosc;
-
-DEALLOCATE PREPARE polecenie_ilosc;
 
 SET @kolumna_daty := (
     SELECT COUNT(*) FROM information_schema.COLUMNS
@@ -63,15 +66,26 @@ SET @kolumna_daty := (
        AND TABLE_NAME = 'prod_products'
        AND COLUMN_NAME = 'edges_completed_at');
 
-SET @sql_data := IF(@kolumna_daty > 0,
-    'ALTER TABLE prod_products RENAME COLUMN edges_completed_at TO finishing_completed_at',
-    'SELECT 1');
+-- OBA liczniki stoja PRZED zbudowaniem klauzul, tak samo jak w migracji:
+-- policzony PO wykonaniu renamu patrzylby na schemat, ktory to polecenie
+-- wlasnie zmienilo — po scaleniu obu renameow w jeden ALTER bylby to cichy blad.
+SET @klauzule_renamu := CONCAT_WS(', ',
+    IF(@kolumna_ilosci > 0, 'RENAME COLUMN quantity_done_edges TO quantity_done_finishing', NULL),
+    IF(@kolumna_daty   > 0, 'RENAME COLUMN edges_completed_at TO finishing_completed_at',   NULL));
 
-PREPARE polecenie_data FROM @sql_data;
+-- Puste klauzule = obie kolumny juz pod starymi nazwami (drugi przebieg
+-- rollbacku): 'SELECT 1', dokladnie jak w dawnej oslonie. COALESCE chroni przed
+-- NULL-em z CONCAT_WS, gdy oba warunki sa falszywe (PREPARE z NULL-em konczy
+-- sie bledem 1064).
+SET @sql_renamu := IF(COALESCE(@klauzule_renamu, '') = '',
+    'SELECT 1',
+    CONCAT('ALTER TABLE prod_products ', @klauzule_renamu));
 
-EXECUTE polecenie_data;
+PREPARE polecenie_renamu FROM @sql_renamu;
 
-DEALLOCATE PREPARE polecenie_data;
+EXECUTE polecenie_renamu;
+
+DEALLOCATE PREPARE polecenie_renamu;
 
 -- -- 3. Kolejka produktow -----------------------------------------------------
 -- Najpierw dokladnie, z kopii (odroznia 'czeka_na_lakiernie' przeniesione

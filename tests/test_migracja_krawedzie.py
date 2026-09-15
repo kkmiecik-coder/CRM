@@ -559,14 +559,76 @@ def test_runner_nie_rozpoznalby_nazwy_rollbacku():
 
 
 def test_rollback_cofa_obie_nazwy_kolumn_pod_oslona():
+    """Po scaleniu (ta sama recenzja co w migracji) oba renamey sa KLAUZULAMI
+    jednego ALTER-a, wiec w tresci pliku stoja bez prefiksu 'ALTER TABLE
+    prod_products' -- dokleja go CONCAT przy skladaniu polecenia. Prefiks
+    sprawdzamy osobno, zeby zmiana nazwy tabeli nie przeszla niezauwazona."""
     tresc = _tresc_rollbacku()
-    assert ("ALTER TABLE prod_products RENAME COLUMN "
-            "quantity_done_edges TO quantity_done_finishing") in tresc
-    assert ("ALTER TABLE prod_products RENAME COLUMN "
-            "edges_completed_at TO finishing_completed_at") in tresc
+    assert ("RENAME COLUMN quantity_done_edges "
+            "TO quantity_done_finishing") in tresc
+    assert ("RENAME COLUMN edges_completed_at "
+            "TO finishing_completed_at") in tresc
+    assert "CONCAT('ALTER TABLE prod_products ', @klauzule_renamu)" in tresc
     assert tresc.count("information_schema.COLUMNS") == 2
     assert "COLUMN_NAME = 'quantity_done_edges'" in tresc
     assert "COLUMN_NAME = 'edges_completed_at'" in tresc
+
+
+def test_rollback_kazdy_prepare_ma_swoje_deallocate():
+    """Po scaleniu para jest JEDNA: oba renamey ida jednym ALTER-em, wiec
+    jedno PREPARE, jedno EXECUTE i jedno DEALLOCATE. Zapomniane DEALLOCATE
+    zostawia nazwe zajeta na calym polaczeniu -- w rollbacku odpalanym pod
+    presja na zepsutej produkcji to szczegolnie kosztowne do zdiagnozowania."""
+    polecenia = [_bez_bialych(p).upper() for p in
+                 MigrationService.split_statements(_tresc_rollbacku())]
+    przygotowania = [p for p in polecenia if p.startswith("PREPARE ")]
+    wykonania = [p for p in polecenia if p.startswith("EXECUTE ")]
+    zwolnienia = [p for p in polecenia if p.startswith("DEALLOCATE PREPARE ")]
+    assert len(przygotowania) == len(wykonania) == len(zwolnienia) == 1
+
+
+def test_rollback_dokancza_polowiczny_stan_kolumn():
+    """Przerwany POPRZEDNI przebieg ROLLBACKU (nie migracji) zostawia jedna
+    z dwoch kolumn juz cofnieta do starej nazwy, druga jeszcze pod nowa.
+    Taki stan powstaje, gdy rollback ubije cos niezaleznego od jego tresci --
+    zerwane polaczenie, restart mysqld -- a w rollbacku dzieje sie to na
+    produkcji JUZ zepsutej i naprawianej pod presja. Nastepny przebieg musi
+    wtedy dokonczyc sama brakujaca kolumne: nie pasc na tej juz cofnietej
+    (1054 w ALTER-ze przerywa skrypt w polowie) i nie pominac tej nietknietej
+    (schemat zostaje rozjechany).
+
+    Test jest statyczny -- patrzy na tresc pliku, bo SQLite nie zna ani
+    information_schema, ani PREPARE."""
+    polecenia = [_bez_bialych(p) for p in
+                 MigrationService.split_statements(_tresc_rollbacku())]
+
+    indeks_ilosci = next(i for i, p in enumerate(polecenia)
+                         if p.startswith("SET @kolumna_ilosci"))
+    indeks_daty = next(i for i, p in enumerate(polecenia)
+                       if p.startswith("SET @kolumna_daty"))
+    indeks_klauzul = next(i for i, p in enumerate(polecenia)
+                          if "CONCAT_WS" in p.upper())
+
+    # OBA liczniki musza stac PRZED zbudowaniem klauzul. Licznik policzony po
+    # wykonaniu renamu patrzylby na schemat, ktorego to polecenie wlasnie
+    # dotknelo -- po scaleniu obu renameow w jeden ALTER byloby to cichym bledem.
+    assert indeks_ilosci < indeks_klauzul, (indeks_ilosci, indeks_klauzul)
+    assert indeks_daty < indeks_klauzul, (indeks_daty, indeks_klauzul)
+
+    # Kazda kolumna ma WLASNY warunek, na WLASNYM liczniku: cztery stany
+    # schematu (obie nowe, kazda z dwoch osobno cofnieta, obie stare) sa
+    # obsluzone, bo CONCAT_WS pomija NULL-e.
+    klauzule = polecenia[indeks_klauzul]
+    assert ("IF(@kolumna_ilosci > 0, 'RENAME COLUMN quantity_done_edges "
+            "TO quantity_done_finishing', NULL)") in klauzule, klauzule
+    assert ("IF(@kolumna_daty > 0, 'RENAME COLUMN edges_completed_at "
+            "TO finishing_completed_at', NULL)") in klauzule, klauzule
+
+    # Puste klauzule (drugi przebieg, obie kolumny juz stare) nie moga zlozyc
+    # sie w goly 'ALTER TABLE prod_products'.
+    skladanie = polecenia[indeks_klauzul + 1]
+    assert skladanie.startswith("SET @sql_renamu"), skladanie
+    assert "'SELECT 1'" in skladanie, skladanie
 
 
 def test_rollback_korzysta_z_tabeli_kopii():
