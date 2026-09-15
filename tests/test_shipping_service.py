@@ -76,6 +76,19 @@ def test_cheapest_with_packing_pomija_oferty_bez_ceny_liczbowej():
     assert res["carrier_name"] == "DPD"
 
 
+def test_cheapest_with_packing_odrzuca_bool_ceny():
+    """bool jest w Pythonie podklasą int, więc samo isinstance(x, (int, float))
+    przepuszcza True — i bot policzyłby taką ofertę jako 1 zł, czyli najtańszą.
+    serializuj_oferty odsiewa to u źródła, ale ta funkcja bierze listę
+    podaną przez wywołującego, więc musi bronić się sama tym samym warunkiem."""
+    res = cheapest_with_packing([
+        {"carrierName": "Zepsuty", "grossPrice": True},
+        {"carrierName": "DPD", "grossPrice": 100.0, "netPrice": 81.30},
+    ], config=dict(DEFAULT_CONFIG))
+    assert res["carrier_name"] == "DPD"
+    assert res["raw_brutto"] == 100.0
+
+
 def test_cheapest_with_packing_pusto_daje_none():
     assert cheapest_with_packing([]) is None
 

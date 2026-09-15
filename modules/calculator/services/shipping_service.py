@@ -82,6 +82,18 @@ def make_request_with_retry(request_func, request_name, *args, **kwargs):
     return None
 
 
+def _cena_liczbowa(wartosc):
+    """Czy cena z GlobKuriera nadaje się do liczenia.
+
+    Jedyna definicja „poprawnej ceny" w tym module — korzystają z niej i
+    serializuj_oferty (filtr u źródła), i cheapest_with_packing (ścieżka bota).
+    Dwie osobne kopie tego warunku już raz się rozjechały: filtr bota nie
+    wykluczał boola, więc True przechodziło i liczyło się jako 1 zł, czyli
+    oferta najtańsza. bool jest w Pythonie podklasą int, stąd jawne wykluczenie.
+    """
+    return not isinstance(wartosc, bool) and isinstance(wartosc, (int, float))
+
+
 def serializuj_oferty(products):
     """Surowa lista produktów z GlobKuriera -> lista ofert do dalszego przeliczenia.
 
@@ -89,12 +101,9 @@ def serializuj_oferty(products):
     przepuszczane z pustą/zerową ceną: dalej w łańcuchu _liczba() w
     apply_shipping_markup zamienia taki brak na 0.00 zł, a oferta za 0 zł
     wygrywa sortowanie jako „najtańsza" i daje się zapisać do wyceny klienta.
-    cheapest_with_packing (ścieżka bota) ma ten sam warunek osobno — tu
-    filtrujemy u źródła, żeby KAŻDY konsument (panel, bot) dostawał już
-    czystą listę.
-
-    bool w Pythonie jest podklasą int, więc samo isinstance(x, (int, float))
-    przepuściłoby też True/False — wykluczamy je jawnie.
+    Filtrujemy u źródła, żeby KAŻDY konsument (panel, bot) dostawał już czystą
+    listę; cheapest_with_packing broni się dodatkowo tym samym predykatem
+    (_cena_liczbowa), bo bierze listę podaną przez wywołującego.
 
     Czysta funkcja (bez requests/current_app) — dzięki temu testowalna bez
     mockowania wywołania HTTP do GlobKuriera.
@@ -102,7 +111,7 @@ def serializuj_oferty(products):
     oferty = []
     for product in products or []:
         cena = product.get("grossPrice")
-        if isinstance(cena, bool) or not isinstance(cena, (int, float)):
+        if not _cena_liczbowa(cena):
             continue
         oferty.append({
             "carrierName": product.get("carrierName", "Nieznany"),
@@ -307,7 +316,7 @@ def cheapest_with_packing(quotes, config=None):
         apply_shipping_markup, load_shipping_config,
     )
 
-    valid = [q for q in (quotes or []) if isinstance(q.get("grossPrice"), (int, float))]
+    valid = [q for q in (quotes or []) if _cena_liczbowa(q.get("grossPrice"))]
     if not valid:
         return None
 
