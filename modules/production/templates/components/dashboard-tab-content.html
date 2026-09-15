@@ -261,40 +261,84 @@
           </div>
         </div>
 
-        {# FINISHING #}
-        <div class="il-station {% if not dashboard_stats.stations.finishing.tablet_status.active|default(false) %}station-inactive{% endif %}" data-station="finishing">
+        {# EDGES — dawne uniwersalne stanowisko wykańczania. Kafel dotyczy
+           WYŁĄCZNIE obróbki krawędzi; lakierowanie ma od 09.2026 własny
+           kafel niżej. #}
+        <div class="il-station {% if not dashboard_stats.stations.edges.tablet_status.active|default(false) %}station-inactive{% endif %}" data-station="edges">
           <div class="il-station-header">
-            <span class="il-station-name">Wykańczanie</span>
+            <span class="il-station-name">Krawędzie</span>
             <div class="il-station-actions">
-              {{ station_telemetry(dashboard_stats.stations.finishing.tablet_status) }}
-              <span class="il-station-badge {% if dashboard_stats.stations.finishing.tablet_status.active|default(false) %}active{% else %}inactive{% endif %}" id="finishing-tablet-badge">
-                {{ dashboard_stats.stations.finishing.tablet_status.status_label|default('Niedostępne') }}
+              {{ station_telemetry(dashboard_stats.stations.edges.tablet_status) }}
+              <span class="il-station-badge {% if dashboard_stats.stations.edges.tablet_status.active|default(false) %}active{% else %}inactive{% endif %}" id="edges-tablet-badge">
+                {{ dashboard_stats.stations.edges.tablet_status.status_label|default('Niedostępne') }}
               </span>
-              <a href="{{ url_for('production.production_stations.monitor_station', station_code='finishing') }}" class="il-station-link" title="Podgląd monitora"><i class="fas fa-external-link-alt"></i></a>
+              <a href="{{ url_for('production.production_stations.monitor_station', station_code='edges') }}" class="il-station-link" title="Podgląd monitora"><i class="fas fa-external-link-alt"></i></a>
             </div>
           </div>
           <div class="il-station-body">
             <div class="il-station-stats">
               <div class="il-station-stat">
-                <div class="il-station-stat-value" id="finishing-pending">{{ dashboard_stats.stations.finishing.pending_count|default(0) }}</div>
+                <div class="il-station-stat-value" id="edges-pending">{{ dashboard_stats.stations.edges.pending_count|default(0) }}</div>
                 <div class="il-station-stat-label">Oczekuje</div>
               </div>
               <div class="il-station-stat">
-                <div class="il-station-stat-value" id="finishing-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.finishing.pending_m3|default(0.0)) }}</div>
+                <div class="il-station-stat-value" id="edges-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.edges.pending_m3|default(0.0)) }}</div>
                 <div class="il-station-stat-label">m³ ocz.</div>
               </div>
               <div class="il-station-stat">
-                <div class="il-station-stat-value" id="finishing-completed-today">{{ dashboard_stats.stations.finishing.completed_today|default(0) }}</div>
+                <div class="il-station-stat-value" id="edges-completed-today">{{ dashboard_stats.stations.edges.completed_today|default(0) }}</div>
                 <div class="il-station-stat-label">Ukończ.</div>
               </div>
               <div class="il-station-stat">
-                <div class="il-station-stat-value" id="finishing-today-m3">{{ "%.4f"|format(dashboard_stats.stations.finishing.today_m3|default(0.0)) }}</div>
+                <div class="il-station-stat-value" id="edges-today-m3">{{ "%.4f"|format(dashboard_stats.stations.edges.today_m3|default(0.0)) }}</div>
                 <div class="il-station-stat-label">m³ dziś</div>
               </div>
             </div>
             <div class="il-station-progress">
-              <div class="il-station-bar"><div class="il-station-bar-fill" id="finishing-bar-fill" style="width: 0%;"></div></div>
-              <span class="il-station-bar-pct" id="finishing-bar-pct">0%</span>
+              <div class="il-station-bar"><div class="il-station-bar-fill" id="edges-bar-fill" style="width: 0%;"></div></div>
+              <span class="il-station-bar-pct" id="edges-bar-pct">0%</span>
+            </div>
+          </div>
+        </div>
+
+        {# PAINTING — Lakiernia. Do 09.2026 była wyłącznie zakładką tabletu
+           wykańczania i nie miała kafla, mimo że raport „Dni zapasu" liczył ją
+           od dawna jako najdłuższą kolejkę hali. Stoi PO Krawędziach: produkt
+           z obróbką krawędzi trafia tu właśnie stamtąd, a bez krawędzi —
+           wprost z formatowania. #}
+        <div class="il-station {% if not dashboard_stats.stations.painting.tablet_status.active|default(false) %}station-inactive{% endif %}" data-station="painting">
+          <div class="il-station-header">
+            <span class="il-station-name">Lakiernia</span>
+            <div class="il-station-actions">
+              {{ station_telemetry(dashboard_stats.stations.painting.tablet_status) }}
+              <span class="il-station-badge {% if dashboard_stats.stations.painting.tablet_status.active|default(false) %}active{% else %}inactive{% endif %}" id="painting-tablet-badge">
+                {{ dashboard_stats.stations.painting.tablet_status.status_label|default('Niedostępne') }}
+              </span>
+              <a href="{{ url_for('production.production_stations.monitor_station', station_code='painting') }}" class="il-station-link" title="Podgląd monitora"><i class="fas fa-external-link-alt"></i></a>
+            </div>
+          </div>
+          <div class="il-station-body">
+            <div class="il-station-stats">
+              <div class="il-station-stat">
+                <div class="il-station-stat-value" id="painting-pending">{{ dashboard_stats.stations.painting.pending_count|default(0) }}</div>
+                <div class="il-station-stat-label">Oczekuje</div>
+              </div>
+              <div class="il-station-stat">
+                <div class="il-station-stat-value" id="painting-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.painting.pending_m3|default(0.0)) }}</div>
+                <div class="il-station-stat-label">m³ ocz.</div>
+              </div>
+              <div class="il-station-stat">
+                <div class="il-station-stat-value" id="painting-completed-today">{{ dashboard_stats.stations.painting.completed_today|default(0) }}</div>
+                <div class="il-station-stat-label">Ukończ.</div>
+              </div>
+              <div class="il-station-stat">
+                <div class="il-station-stat-value" id="painting-today-m3">{{ "%.4f"|format(dashboard_stats.stations.painting.today_m3|default(0.0)) }}</div>
+                <div class="il-station-stat-label">m³ dziś</div>
+              </div>
+            </div>
+            <div class="il-station-progress">
+              <div class="il-station-bar"><div class="il-station-bar-fill" id="painting-bar-fill" style="width: 0%;"></div></div>
+              <span class="il-station-bar-pct" id="painting-bar-pct">0%</span>
             </div>
           </div>
         </div>
