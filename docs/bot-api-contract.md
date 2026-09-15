@@ -9,6 +9,59 @@ konfiguratora wyceny, strony `/wycena/{token}` i funkcji „przelicz ponownie".
 
 ---
 
+## 0. Kto ustala cenę (kontrakt cenowy)
+
+**CRM jest jedynym źródłem prawdy o cenie. Moduł sklepu nie trzyma u siebie żadnego
+mnożnika, progu ani cennika.** Sklep wysyła parametry produktu i pokazuje kwoty,
+które wrócą z `/calculate`.
+
+Modułowi **nie wolno** przechowywać ani wyliczać samodzielnie:
+
+| Czego nie duplikować | Skąd to brać |
+|---|---|
+| mnożnik marży / grupa cenowa | `/calculate` → `variants[].multiplier` (już wliczony w ceny) |
+| próg 1000 zł i stawki 1.5 / 1.1 | `/options` → `auto_multiplier` (tylko do wyświetlenia) |
+| cena za m³, pasma wymiarów | `/calculate`; zakresy poglądowo w `/options` → `variants[]` |
+| dopłaty (koło, kształt nietypowy, wycięcia) | wliczone w `variants[].unit_netto` |
+| ceny wykończeń i krawędzi | `/calculate` → `finishing`, `edges` |
+| VAT, zaokrąglanie do groszy | `/calculate`; nie przeliczaj brutto samodzielnie |
+
+**Jak dobierany jest mnożnik (stan na 2026-09-15).** Domyślnie dobiera go CRM,
+osobno dla **każdego wariantu drewna**, na podstawie ceny bazowej sztuki
+(objętość × cena za m³, bez mnożnika i bez dopłat):
+
+- baza **poniżej 1000 zł netto** → mnożnik **1.5**
+- baza **od 1000 zł netto** → mnożnik **1.1**
+
+Próg liczy się na cenie bazowej, a nie końcowej, bo inaczej reguła zapętliłaby się
+(baza 900 → ×1.5 = 1350, czyli powyżej progu, więc ×1.1 → 990, czyli poniżej progu…).
+
+Skutki, o których musi wiedzieć sklep:
+
+1. **Ten sam produkt ma różne mnożniki w różnych wariantach.** Blat może wyjść
+   ×1.5 w buku i ×1.1 w dębie litym. Nie zakładaj jednego mnożnika na wycenę.
+2. **Na progu jest uskok ceny.** Zmierzone na produkcyjnym cenniku (dąb lity B/B,
+   90×4 cm): blat 198 cm = 1496,88 zł netto, blat 200 cm = 1108,80 zł netto —
+   **większy blat jest tańszy o 388 zł**. Jeśli konfigurator pokazuje cenę na żywo
+   przy zmianie wymiaru, klient to zobaczy.
+3. **Grupa cenowa (`client_type`) nie wpływa na cenę** w trybie domyślnym.
+   Pole zostaje wymagane w walidacji i jest zapisywane na wycenie, ale mnożnika
+   już nie ustala.
+
+**Okres przejściowy.** Dopóki moduł Presty ma własny predefiniowany mnożnik, może
+wysyłać `auto_multiplier: false` i dostawać ceny wg grupy cenowej, czyli dokładnie
+jak przed 2026-09-15. Docelowo to pole **znika po stronie sklepu** — moduł oddaje
+liczenie CRM-owi i przestaje trzymać mnożnik.
+
+**Wyceny zapisane w trybie automatycznym** mają `Quote.quote_multiplier = NULL`,
+bo jedna wartość dla całej wyceny nie istnieje; faktyczny mnożnik siedzi przy każdej
+pozycji. Ma to znaczenie przy „przelicz ponownie": wycena utworzona w trybie
+automatycznym musi być przeliczana w tym samym trybie, inaczej kwota się zmieni.
+**Do ustalenia w sesji sklepowej:** czy `by-token` ma zwracać użyty tryb, żeby
+round-trip był dokładny.
+
+---
+
 ## 1. Zasady wspólne
 
 - **Bazowy URL (produkcja):** `https://crm.woodpower.pl/api/bot`
@@ -75,6 +128,13 @@ limity, opcje wykończeń, typy krawędzi, grupy cenowe.
   "client_types": ["Detal+"],
   "cutout_price_netto": 0.0,
   "round_surcharge_netto": 50.0,
+  "custom_shape_surcharge_netto": 0.0,
+  "auto_multiplier": {
+    "prog_netto": 1000.0,
+    "ponizej_progu": 1.5,
+    "od_progu": 1.1,
+    "liczony_na": "cena bazowa sztuki (bez mnożnika i bez dopłat)"
+  },
   "shapes": ["rectangular", "round", "circle"],
   "vat": 1.23
 }
@@ -83,6 +143,13 @@ limity, opcje wykończeń, typy krawędzi, grupy cenowe.
 - `variant_code` — identyfikator wariantu drewna używany w `selected_variant` (patrz `/calculate`).
 - `finishing_options[].id` — to `finishing_option_id` w `/calculate`.
 - `client_types` — dozwolone wartości `client_type` (grupa cenowa).
+  **Nie wpływa na cenę w trybie domyślnym** — patrz sekcja 0 (mnożnik marży).
+- `round_surcharge_netto` — dopłata netto za sztukę za kształt `round`/`circle`.
+- `custom_shape_surcharge_netto` — dopłata netto za sztukę za kształt inny niż
+  prostokąt i koło/owal (trójkąty, trapezy, równoległoboki, wielokąty).
+  `0` = dopłata wyłączona. Obie dopłaty wykluczają się — produkt ma jeden kształt.
+- `auto_multiplier` — parametry automatycznego doboru mnożnika marży (sekcja 0).
+  Wartości mogą się zmienić bez zapowiedzi; **nie zapisuj ich u siebie na stałe**.
 - Lista `variants` zawiera tylko warianty, które mają wpis w cenniku (realnie: pełny zestaw
   gatunków/technologii dębu/jesionu/buku, tu skrócony przez dane przykładu).
 
@@ -120,8 +187,17 @@ tylko parametry.
 ```
 
 Pola **wymagane** per produkt: `length`, `width`, `thickness`, `quantity`, `selected_variant`.
-Na poziomie wyceny wymagane: `client_type`. Reszta pól opcjonalna (`finishing_type` brak =
-„Surowe"; `edges` brak = brak krawędzi; `shape` brak = `rectangular`).
+Na poziomie wyceny wymagane: `client_type` (walidacja `missing_fields` wymaga go nadal,
+nawet jeśli nie wpływa na cenę — patrz sekcja 0). Reszta pól opcjonalna (`finishing_type`
+brak = „Surowe"; `edges` brak = brak krawędzi; `shape` brak = `rectangular`).
+
+Opcjonalne pole `auto_multiplier` (bool) na poziomie wyceny steruje trybem mnożnika:
+
+| wartość | zachowanie |
+|---|---|
+| brak pola (**domyślne**) | mnożnik dobierany automatycznie, per wariant (sekcja 0) |
+| `false` | mnożnik z grupy cenowej `client_type` — zachowanie sprzed 2026-09-15 |
+| `true` | jawnie tryb automatyczny |
 
 **Response 200 — sukces (realny przykład, skrócone warianty niedostępne):**
 ```json
@@ -129,7 +205,8 @@ Na poziomie wyceny wymagane: `client_type`. Reszta pól opcjonalna (`finishing_t
   "ok": true,
   "errors": [],
   "missing_fields": [],
-  "multiplier": 1.3,
+  "multiplier": null,
+  "multiplier_mode": "auto",
   "products": [
     {
       "index": 1,
@@ -140,17 +217,20 @@ Na poziomie wyceny wymagane: `client_type`. Reszta pól opcjonalna (`finishing_t
           "available": true,
           "volume_m3": 0.0288,
           "price_per_m3": 8200.0,
-          "multiplier": 1.3,
-          "unit_netto": 307.008,
-          "unit_brutto": 377.62,
-          "total_netto": 614.02,
-          "total_brutto": 755.24
+          "base_unit_netto": 236.16,
+          "multiplier": 1.5,
+          "unit_netto": 354.24,
+          "unit_brutto": 435.72,
+          "total_netto": 708.48,
+          "total_brutto": 871.44
         },
         {"variant_code": "dab-lity-bb", "available": false},
         {"variant_code": "dab-micro-ab", "available": true, "volume_m3": 0.0288,
-         "price_per_m3": 7000.0, "multiplier": 1.3, "unit_netto": 262.08,
-         "unit_brutto": 322.36, "total_netto": 524.16, "total_brutto": 644.72}
+         "price_per_m3": 7000.0, "base_unit_netto": 201.6, "multiplier": 1.5,
+         "unit_netto": 302.4, "unit_brutto": 371.95, "total_netto": 604.8,
+         "total_brutto": 743.9}
       ],
+      "shape_surcharge": null,
       "finishing": {"netto": 0.0, "brutto": 0.0, "price_per_m2": 0.0, "surface_m2": 0.0},
       "edges": {
         "netto": 36.0, "brutto": 44.28,
@@ -162,11 +242,11 @@ Na poziomie wyceny wymagane: `client_type`. Reszta pól opcjonalna (`finishing_t
     }
   ],
   "totals": {
-    "order_netto": 614.02, "order_brutto": 755.24,
+    "order_netto": 708.48, "order_brutto": 871.44,
     "finishing_netto": 0.0, "finishing_brutto": 0.0,
     "edges_netto": 36.0, "edges_brutto": 44.28,
     "shipping_netto": 0.0, "shipping_brutto": 0.0,
-    "total_netto": 650.02, "total_brutto": 799.52
+    "total_netto": 744.48, "total_brutto": 915.72
   }
 }
 ```
@@ -176,6 +256,21 @@ Na poziomie wyceny wymagane: `client_type`. Reszta pól opcjonalna (`finishing_t
 - `unit_netto` bywa niezaokrąglone (parytet z frontendem); ceny do prezentacji bierz z
   `total_*` / `unit_brutto`.
 - `totals.total_*` = order + finishing + edges + shipping.
+- `base_unit_netto` — cena bazowa sztuki (mnożnik 1.0, bez dopłat). To na niej
+  rozstrzyga się próg automatycznego mnożnika; pole jest **informacyjne**, do
+  prezentacji nie używaj.
+- `multiplier` w wariancie — mnożnik **faktycznie użyty dla tego wariantu**.
+  W trybie automatycznym warianty jednego produktu mogą mieć różne mnożniki.
+- `multiplier` na górnym poziomie — `null` w trybie automatycznym (nie istnieje
+  jedna wartość dla całej wyceny). `multiplier_mode` mówi, który tryb zadziałał:
+  `"auto"` albo `"client_type"`.
+- `shape_surcharge` — rozbicie dopłaty za kształt nietypowy albo `null`, gdy jej nie ma.
+  Kwota jest **już wliczona** w ceny wariantów; to pole służy tylko do pokazania
+  klientowi, za co doliczono:
+  ```json
+  {"per_unit_netto": 120.0, "total_netto": 240.0, "total_brutto": 295.2,
+   "note": "Doliczono 120.00 zł netto za sztukę za nietypowy kształt produktu."}
+  ```
 
 **Response 200 — brakujące pola (LLM/konfigurator dopytuje klienta):**
 ```json
@@ -187,8 +282,10 @@ Na poziomie wyceny wymagane: `client_type`. Reszta pól opcjonalna (`finishing_t
 {
   "ok": false,
   "missing_fields": [],
-  "multiplier": 1.3,
-  "products": [{"index": 1, "errors": [ /* jak niżej */ ], "variants": [], "finishing": null, "edges": null}],
+  "multiplier": null,
+  "multiplier_mode": "auto",
+  "products": [{"index": 1, "errors": [ /* jak niżej */ ], "variants": [], "finishing": null,
+                "edges": null, "shape_surcharge": null}],
   "totals": null,
   "errors": [
     {"field": "length", "code": "MAX_EXCEEDED",
