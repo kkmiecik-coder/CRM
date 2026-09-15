@@ -570,7 +570,7 @@ def test_kazde_stanowisko_ma_range_w_alertach_terminow():
     """
     Kafel 'Alerty terminow' sortuje zamowienia po randze statusu
     (_STATUS_RANK). Status kolejki spoza tej mapy dostaje _UNKNOWN_RANK
-    i kod 'unknown' (dashboard_alerts.py:72-73) — pozycja laduje na koncu
+    i kod 'unknown' (dashboard_alerts.py:77-78) — pozycja laduje na koncu
     listy z nazwa, ktorej nikt na hali nie rozpozna.
 
     Petle ida po KATALOGU, wiec osme stanowisko zapali ten test samo.
@@ -628,16 +628,18 @@ MARKER = 'finishing-ZOSTAJE'
 # osobna asercja niżej to łapie.
 #
 # TA MAPA MA SIĘ KURCZYĆ. W kroku 20 wdrożenia (zdjęcie okresu przejściowego,
-# gdy cała flota chodzi na nowym buildzie) znikają cztery pierwsze wpisy.
-# Zostaje wyłącznie products-module.js: nazwy klas CSS przy etykietach
-# historycznych statusów, które 423 wiersze prod_product_events trzymają
-# jako zwykły tekst.
+# gdy cała flota chodzi na nowym buildzie) znikają wszystkie wpisy oprócz
+# products-module.js. Nazwy klas CSS przy etykietach historycznych statusów,
+# które 423 wiersze prod_product_events trzymają jako zwykły tekst, zostają.
 DOZWOLONE_MARKERY = frozenset({
     # OKRES PRZEJŚCIOWY — znikają w kroku 20 wdrożenia.
     'services/station_catalog.py',        # STATION_CODE_ALIASES
     'models.py',                          # ProductionDevice.VALID_STATION_CODES
     'services/baselinker_status_sync.py', # PRODUCTION_STATIONS
     'services/mobile_api_service.py',     # docstring device_can_access_station
+    'services/reports_service.py',        # docstring _sprawdz_stanowisko, alias w agregacie
+    'services/label_print_service.py',    # docstring print_labels_batch, alias przed drukiem
+    'routers/mobile_api.py',              # docstringi _resolve_station_code i get_order
     # LEGACY — zostaje na stałe: nazwa klasy CSS przy etykiecie statusu
     # kolejki Krawędzi; klasa .status-finishing / .badge-finishing żyje
     # w arkuszach i w 423 wierszach historii prod_product_events.
