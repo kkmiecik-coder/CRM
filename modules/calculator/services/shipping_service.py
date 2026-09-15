@@ -235,10 +235,6 @@ def get_shipping_quotes(shipping_params, glob_config):
         return {"success": False, "error": "Blad podczas pobierania wyceny wysylki"}, 500
 
 
-# Narzut na pakowanie — parytet z UI (calculator-core.js: shippingPackingMultiplier = 1.3).
-PACKING_MULTIPLIER = 1.3
-
-
 def aggregate_package(products):
     """Wymiary i waga paczki dla listy produktow — odwzorowuje computeAggregatedData
     (calculator-core.js): length=max(dl)+5, width=max(szer)+5, height=suma(grubosc x szt)+5,
@@ -274,19 +270,34 @@ def aggregate_package(products):
     }
 
 
-def cheapest_with_packing(quotes):
-    """Z listy wycen kurierskich (z get_shipping_quotes) wybiera NAJTANSZA po grossPrice i dokłada
-    narzut na pakowanie (x1.3). Zwraca dict z carrier_name i cenami albo None gdy brak liczbowych cen."""
+def cheapest_with_packing(quotes, config=None):
+    """Z listy wycen kurierskich (z get_shipping_quotes) wybiera NAJTANSZA PO
+    CENIE KONCOWEJ i dokłada narzut wg ustawień z panelu.
+
+    Wybór po cenie końcowej, a nie surowej: przy progu kolejności potrafią się
+    różnić, bo tańszy surowo kurier może złapać dopłatę, a droższy nie. Klient
+    płaci cenę końcową, więc to ona decyduje.
+
+    Parametr `config` służy testom (czysta funkcja bez bazy). Produkcja woła bez
+    niego i konfiguracja doczytuje się z calculator_settings.
+
+    Zwraca dict z carrier_name i cenami albo None gdy brak liczbowych cen."""
+    from modules.calculator.services.shipping_pricing import (
+        apply_shipping_markup, load_shipping_config,
+    )
+
     valid = [q for q in (quotes or []) if isinstance(q.get("grossPrice"), (int, float))]
     if not valid:
         return None
-    cheapest = min(valid, key=lambda q: q["grossPrice"])
-    gross = float(cheapest.get("grossPrice") or 0)
-    net = float(cheapest.get("netPrice") or 0)
+
+    config = config if config is not None else load_shipping_config()
+    wyliczone = [(q, apply_shipping_markup(q["grossPrice"], config)) for q in valid]
+    cheapest, markup = min(wyliczone, key=lambda para: para[1]["final_brutto"])
+
     return {
         "carrier_name": cheapest.get("carrierName") or "Kurier",
-        "shipping_brutto": round(gross * PACKING_MULTIPLIER, 2),
-        "shipping_netto": round(net * PACKING_MULTIPLIER, 2),
-        "raw_brutto": round(gross, 2),
-        "raw_netto": round(net, 2),
+        "shipping_brutto": markup["final_brutto"],
+        "shipping_netto": markup["final_netto"],
+        "raw_brutto": markup["raw_brutto"],
+        "raw_netto": markup["raw_netto"],
     }

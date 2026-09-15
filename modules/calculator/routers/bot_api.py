@@ -623,8 +623,9 @@ def bot_quote_by_token(public_token):
 @bot_api_bp.route('/shipping-quote', methods=['POST'])
 @require_bot_api_key
 def bot_shipping_quote():
-    """Szacuje koszt wysylki (najtanszy kurier +30%) dla podanych produktow i kodu pocztowego
-    odbiorcy. Wymiary/wage paczki liczy serwer (aggregate_package), przewoznikow pobiera GlobKurier.
+    """Szacuje koszt wysylki (najtanszy kurier wg ustawien narzutu z panelu)
+    dla podanych produktow i kodu pocztowego odbiorcy. Wymiary/wage paczki liczy
+    serwer (aggregate_package), przewoznikow pobiera GlobKurier.
     Kod nadawcy z GLOB_KURIER.sender_post_code (fallback 01-001)."""
     from modules.calculator.services.shipping_service import (
         aggregate_package, cheapest_with_packing, get_shipping_quotes,

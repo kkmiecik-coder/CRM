@@ -1,12 +1,10 @@
 # -*- coding: utf-8 -*-
-# Testy helperow wysylki: agregacja paczki (wymiary/waga) + wybor najtanszego kuriera +30%.
+# Testy helperow wysylki: agregacja paczki (wymiary/waga) + wybor najtanszego
+# kuriera wg konfigurowalnej formuly (shipping_pricing).
+from modules.calculator.services.shipping_pricing import DEFAULT_CONFIG, SIDE_BELOW
 from modules.calculator.services.shipping_service import (
-    aggregate_package, cheapest_with_packing, PACKING_MULTIPLIER,
+    aggregate_package, cheapest_with_packing,
 )
-
-
-def test_packing_multiplier_to_1_3():
-    assert PACKING_MULTIPLIER == 1.3
 
 
 def test_aggregate_package_pojedynczy_blat():
@@ -38,15 +36,44 @@ def test_aggregate_package_pomija_pozycje_bez_wymiarow():
     assert pkg["length"] == 105        # tylko druga pozycja (pierwsza ma length=0)
 
 
-def test_cheapest_with_packing_wybiera_najtansza_i_dolicza_30():
+def test_cheapest_with_packing_domyslnie_dolicza_30():
+    """Konfiguracja domyślna = dotychczasowe zachowanie, co do grosza."""
     res = cheapest_with_packing([
         {"carrierName": "DPD", "grossPrice": 100.0, "netPrice": 81.30},
         {"carrierName": "InPost", "grossPrice": 80.0, "netPrice": 65.04},
-    ])
+    ], config=dict(DEFAULT_CONFIG))
     assert res["carrier_name"] == "InPost"
     assert res["shipping_brutto"] == 104.0     # 80 * 1.3
-    assert res["shipping_netto"] == 84.55      # 65.04 * 1.3 = 84.552 -> 84.55
+    assert res["shipping_netto"] == 84.55      # 104.0 / 1.23
     assert res["raw_brutto"] == 80.0
+
+
+def test_cheapest_with_packing_wybiera_po_cenie_koncowej_nie_surowej():
+    """Przy progu tańszy surowo kurier może złapać dopłatę i wyjść drożej.
+    Klient płaci cenę końcową i to ona decyduje o wyborze.
+
+    A: 90 -> 117 -> poniżej progu 130 -> +20 = 137
+    B: 101 -> 131,30 -> od progu w górę -> bez dopłaty = 131,30
+    """
+    config = dict(DEFAULT_CONFIG)
+    config.update(threshold_brutto=130.0, surcharge_brutto=20.0, side=SIDE_BELOW)
+
+    res = cheapest_with_packing([
+        {"carrierName": "A", "grossPrice": 90.0, "netPrice": 73.17},
+        {"carrierName": "B", "grossPrice": 101.0, "netPrice": 82.11},
+    ], config=config)
+
+    assert res["carrier_name"] == "B"
+    assert res["shipping_brutto"] == 131.30
+    assert res["raw_brutto"] == 101.0
+
+
+def test_cheapest_with_packing_pomija_oferty_bez_ceny_liczbowej():
+    res = cheapest_with_packing([
+        {"carrierName": "Bez ceny", "grossPrice": "na zapytanie"},
+        {"carrierName": "DPD", "grossPrice": 100.0, "netPrice": 81.30},
+    ], config=dict(DEFAULT_CONFIG))
+    assert res["carrier_name"] == "DPD"
 
 
 def test_cheapest_with_packing_pusto_daje_none():
