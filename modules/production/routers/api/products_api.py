@@ -253,7 +253,7 @@ def _serialize_product(product, workers_by_product, product_counts_by_order):
         'quantity_done_assembly': get_attr(product, 'quantity_done_assembly', 0),
         'quantity_done_gluing': get_attr(product, 'quantity_done_gluing', 0),
         'quantity_done_formatting': get_attr(product, 'quantity_done_formatting', 0),
-        'quantity_done_finishing': get_attr(product, 'quantity_done_finishing', 0),
+        'quantity_done_edges': get_attr(product, 'quantity_done_edges', 0),
         'quantity_done_painting': get_attr(product, 'quantity_done_painting', 0),
         'quantity_done_packaging': get_attr(product, 'quantity_done_packaging', 0),
 
@@ -973,7 +973,7 @@ def admin_update_quantity_done():
             }), 400
 
         # Walidacja station
-        valid_stations = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging']
+        valid_stations = ['cutting', 'assembly', 'gluing', 'formatting', 'edges', 'painting', 'packaging']
         if station not in valid_stations:
             return jsonify({
                 'success': False,
@@ -1052,7 +1052,8 @@ def admin_update_quantity_done():
             'quantity_done_assembly': product.quantity_done_assembly or 0,
             'quantity_done_gluing': product.quantity_done_gluing or 0,
             'quantity_done_formatting': product.quantity_done_formatting or 0,
-            'quantity_done_finishing': product.quantity_done_finishing or 0,
+            'quantity_done_edges': product.quantity_done_edges or 0,
+            'quantity_done_painting': product.quantity_done_painting or 0,
             'quantity_done_packaging': product.quantity_done_packaging or 0
         }
 
@@ -1263,6 +1264,24 @@ def bulk_action():
         
         from ...models import ProductionItem
         
+        # Walidacja statusu PRZED pętlą po produktach. Dotąd surowy string
+        # z requestu szedł prosto do product.current_status, a commit stoi
+        # POZA pętlą try (niżej, przy `if action in [...]`). Enum SQLAlchemy
+        # nie sprawdza wartości przy zapisie po stronie Pythona, więc taki
+        # string dociera do bazy i na MySQL-u wywraca CAŁY batch błędem 1265
+        # (Data truncated). Po zwężeniu enuma (czeka_na_wykanczanie ->
+        # czeka_na_krawedzie) zapisany link albo nieodświeżony dropdown
+        # trafia w to bardzo łatwo.
+        if action == 'update_status':
+            nowy_status = parameters.get('new_status')
+            dozwolone_statusy = set(ProductionItem.current_status.type.enums)
+            if nowy_status not in dozwolone_statusy:
+                return jsonify({
+                    'success': False,
+                    'error': 'Nieprawidłowy status "{}". Dozwolone: {}'.format(
+                        nowy_status, sorted(dozwolone_statusy))
+                }), 400
+
         # Pobierz produkty
         products = ProductionItem.query.filter(ProductionItem.id.in_(product_ids)).all()
         
@@ -1524,7 +1543,8 @@ def _export_excel(products, timestamp):
         'czeka_na_skladanie': 'E3F2FD',
         'czeka_na_sklejanie': 'F3E5F5',
         'czeka_na_formatowanie': 'E8F5E9',
-        'czeka_na_wykanczanie': 'FFF8E1',
+        'czeka_na_krawedzie': 'FFF8E1',
+        'czeka_na_lakiernie': 'FCE4EC',
         'czeka_na_pakowanie': 'E0F7FA',
         'spakowane': 'C8E6C9',
         'anulowane': 'FFCDD2',
@@ -2249,7 +2269,7 @@ def _serialize_production_item(item, today=None):
     Serializuje pojedynczy ProductionItem do słownika używanego przez endpointy listy i szczegółów.
 
     Współdzielone między /products-filtered (wiele rekordów) i /products/<id>/details (jeden rekord)
-    żeby oba endpointy zwracały spójny kształt danych (w szczególności pola stacji gluing/formatting/finishing,
+    żeby oba endpointy zwracały spójny kształt danych (w szczególności pola stacji gluing/formatting/edges,
     które modal szczegółów sprawdza przez hasOwnProperty).
     """
     if today is None:
@@ -2285,6 +2305,10 @@ def _serialize_production_item(item, today=None):
         'parsed_technology': item.configuration.technology if item.configuration else None,
         'parsed_wood_class': item.configuration.wood_class if item.configuration else None,
         'parsed_finish_state': getattr(item, 'parsed_finish_state', None),
+        # Po podziale Wykańczania to JEDYNY przełącznik między Krawędziami
+        # a Lakiernią (ProductionProduct.should_skip_edges). Bez tego pola
+        # modal ZAWSZE policzy „brak krawędzi" i wytnie stanowisko z trasy.
+        'parsed_edge_processing': bool(getattr(item, 'parsed_edge_processing', False)),
         'cut_to_size': bool(getattr(item, 'cut_to_size', True)),
         'shape': getattr(item, 'shape', None),
         'parsed_width_cm': getattr(item, 'parsed_width_cm', None),
@@ -2309,9 +2333,10 @@ def _serialize_production_item(item, today=None):
         'formatting_started_at': getattr(item, 'formatting_started_at', None),
         'formatting_completed_at': getattr(item, 'formatting_completed_at', None),
         'formatting_duration_minutes': getattr(item, 'formatting_duration_minutes', None),
-        'finishing_started_at': getattr(item, 'finishing_started_at', None),
-        'finishing_completed_at': getattr(item, 'finishing_completed_at', None),
-        'finishing_duration_minutes': getattr(item, 'finishing_duration_minutes', None),
+        # Krawędzie i Lakiernia: ProductionProduct NIE MA kolumn *_started_at
+        # ani *_duration_minutes, więc serializujemy wyłącznie moment domknięcia.
+        'edges_completed_at': getattr(item, 'edges_completed_at', None),
+        'painting_completed_at': getattr(item, 'painting_completed_at', None),
         'packaging_started_at': getattr(item, 'packaging_started_at', None),
         'packaging_completed_at': getattr(item, 'packaging_completed_at', None),
         'packaging_duration_minutes': getattr(item, 'packaging_duration_minutes', None),
@@ -2323,7 +2348,8 @@ def _serialize_production_item(item, today=None):
         'quantity_done_assembly': getattr(item, 'quantity_done_assembly', 0),
         'quantity_done_gluing': getattr(item, 'quantity_done_gluing', 0),
         'quantity_done_formatting': getattr(item, 'quantity_done_formatting', 0),
-        'quantity_done_finishing': getattr(item, 'quantity_done_finishing', 0),
+        'quantity_done_edges': getattr(item, 'quantity_done_edges', 0),
+        'quantity_done_painting': getattr(item, 'quantity_done_painting', 0),
         'quantity_done_packaging': getattr(item, 'quantity_done_packaging', 0),
         'client_order_number': item.order.client_order_number if item.order else None,
         'quote_number': item.order.quote_number if item.order else None,
@@ -2339,7 +2365,8 @@ def _serialize_production_item(item, today=None):
     if product_data['created_at'] and hasattr(product_data['created_at'], 'isoformat'):
         product_data['created_at'] = product_data['created_at'].isoformat()
 
-    station_fields = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging']
+    station_fields = ['cutting', 'assembly', 'gluing', 'formatting', 'edges',
+                      'painting', 'packaging']
     for station in station_fields:
         started_field = f'{station}_started_at'
         completed_field = f'{station}_completed_at'

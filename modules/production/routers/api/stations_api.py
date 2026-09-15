@@ -29,15 +29,16 @@ def stations_tab_content():
         
         # Dane dla każdego stanowiska
         stations_data = {}
-        stations = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging']
-        
+        stations = ['cutting', 'assembly', 'gluing', 'formatting', 'edges', 'painting', 'packaging']
+
         for station in stations:
             status_map = {
                 'cutting': 'czeka_na_wyciecie',
                 'assembly': 'czeka_na_skladanie',
                 'gluing': 'czeka_na_sklejanie',
                 'formatting': 'czeka_na_formatowanie',
-                'finishing': 'czeka_na_wykanczanie',
+                'edges': 'czeka_na_krawedzie',
+                'painting': 'czeka_na_lakiernie',
                 'packaging': 'czeka_na_pakowanie'
             }
             
@@ -61,14 +62,16 @@ def stations_tab_content():
             today = date.today()
             today_start = datetime.combine(today, datetime.min.time())
 
-            # TYMCZASOWE: Pola gluing/formatting/finishing_completed_at nie istnieją jeszcze w modelu
-            # Zostaną dodane w Zadaniu 2 (Backend Integration)
+            # Kolumna daty domknięcia per stanowisko. Pobierana niżej przez
+            # getattr w try/except AttributeError, więc literówka w nazwie
+            # NIE wywali endpointu — pokaże ciche zero ukończonych.
             completed_field_map = {
                 'cutting': 'cutting_completed_at',
                 'assembly': 'assembly_completed_at',
                 'gluing': 'gluing_completed_at',
                 'formatting': 'formatting_completed_at',
-                'finishing': 'finishing_completed_at',
+                'edges': 'edges_completed_at',
+                'painting': 'painting_completed_at',
                 'packaging': 'packaging_completed_at'
             }
 
@@ -96,7 +99,8 @@ def stations_tab_content():
                     'assembly': 'Składanie - lite',
                     'gluing': 'Sklejanie',
                     'formatting': 'Formatowanie',
-                    'finishing': 'Wykańczanie',
+                    'edges': 'Krawędzie',
+                    'painting': 'Lakiernia',
                     'packaging': 'Pakowanie'
                 }[station],
                 'icon': {
@@ -104,7 +108,8 @@ def stations_tab_content():
                     'assembly': '🔧',
                     'gluing': '🧲',
                     'formatting': '📐',
-                    'finishing': '✨',
+                    'edges': '✨',
+                    'painting': '🎨',
                     'packaging': '📦'
                 }[station],
                 'pending_products': [
