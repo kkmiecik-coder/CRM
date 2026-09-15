@@ -931,7 +931,13 @@ class ProductionDevice(db.Model):
                                     comment='Kiedy ostatnio ktoś zaczął tu sesję pracownika')
 
     VALID_STATION_CODES = {
-        'packaging', 'cutting', 'assembly', 'gluing', 'formatting', 'finishing',
+        'packaging', 'cutting', 'assembly', 'gluing', 'formatting',
+        'edges',     # dawne 'finishing' — obróbka krawędzi
+        'painting',  # Lakiernia: awans z zakładki tabletu na własne stanowisko
+        # OKRES PRZEJŚCIOWY: stare APK rejestruje się jeszcze starym kodem.
+        # Zdjąć razem ze STATION_CODE_ALIASES, gdy cała flota chodzi na nowym
+        # buildzie (krok 20 kolejności wdrożenia).
+        'finishing',
         'sawmill',   # trakownia — rejestr surowca, poza pipeline'em produktów
     }
 

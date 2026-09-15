@@ -265,3 +265,51 @@ def test_czesciowa_ilosc_kasuje_znacznik_domkniecia():
     assert produkt.edges_completed_at is not None
     produkt.set_quantity_done('edges', 4)
     assert produkt.edges_completed_at is None
+
+
+# ============================================================================
+# KODY STANOWISK URZĄDZEŃ
+# ============================================================================
+
+def test_tablet_moze_sie_zarejestrowac_na_krawedziach_i_w_lakierni():
+    """
+    Bez 'painting' walidator odrzuca rejestrację tabletu Lakierni ORAZ blokuje
+    przypisanie pracownika (worker_service._normalize_stations waliduje tym
+    samym zbiorem — dziś station_choices() oferuje Lakiernię, a zapis leci 422).
+    """
+    assert 'edges' in ProductionDevice.VALID_STATION_CODES
+    assert 'painting' in ProductionDevice.VALID_STATION_CODES
+
+
+def test_stary_kod_finishing_zostaje_na_okres_przejsciowy():
+    """Stare APK rejestruje się jeszcze jako 'finishing'; bez tego wpisu
+    nie odnowi JWT i dostanie 400 invalid_station_code."""
+    assert 'finishing' in ProductionDevice.VALID_STATION_CODES
+
+
+def test_walidator_przyjmuje_oba_nowe_kody_i_alias(app):
+    with app.app_context():
+        for kod in ('edges', 'painting', 'finishing'):
+            db.session.add(ProductionDevice(device_id='tablet-%s' % kod,
+                                            station_code=kod))
+        db.session.commit()
+        assert ProductionDevice.query.count() == 3
+
+
+def test_walidator_dalej_odrzuca_kod_spoza_zbioru():
+    with pytest.raises(ValueError):
+        ProductionDevice(device_id='tablet-x', station_code='krawedzie')
+
+
+def test_zbior_kodow_urzadzen_ma_dokladnie_siedem_wpisow():
+    """
+    Wzmocnienie ponad brief: same asercje 'in' przeszłyby też na zbiorze-worku,
+    do którego ktoś przez pomyłkę dorzucił dodatkowe/martwe kody (np. zostawił
+    stary 'wykanczanie' obok nowego 'edges', albo dopisał coś z domeny
+    produktu). Zamykamy zbiór na dokładnej liczebności i treści, żeby zła
+    implementacja „dodaj i nic nie usuwaj na wszelki wypadek" też oblała.
+    """
+    assert ProductionDevice.VALID_STATION_CODES == {
+        'packaging', 'cutting', 'assembly', 'gluing', 'formatting',
+        'edges', 'painting', 'finishing', 'sawmill',
+    }
