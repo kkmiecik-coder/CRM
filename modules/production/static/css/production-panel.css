@@ -2286,6 +2286,14 @@ body {
    siatka pokaże 1 szeroką kolumnę kafli, nie 2 — to świadoma konsekwencja
    wybranej szerokości 380px, nie błąd wyliczenia.
 
+   PRÓG 1664px ZOSTAŁ ŚWIADOMIE PRZYJĘTY (recenzja 2026-09-15, decyzja
+   właściciela). Nie da się mieć jednocześnie dwóch kolumn i czytelnego kafla
+   na oknie 1440px: dwie kolumny wychodzą tam ~313px na kafel, czyli dokładnie
+   szerokość, przy której cztery statystyki przestają się mieścić — ta sama,
+   od której uciekał stary układ 3×3. Jedna szeroka kolumna (kafel ~625px)
+   jest czytelna, tylko wysoka. Zmiana tego wyboru to JEDNA liczba: 380px na
+   ~320px daje dwie kolumny od ~1440px, kosztem ciasnego kafla.
+
    `min(380px, 100%)`, a nie samo `380px` — to NIE jest ozdobnik. Gołe minmax
    wymusza sztywne minimum nawet wtedy, gdy dostępna szerokość jest mniejsza:
    grid nie kurczy wtedy kolumny, tylko przelewa się poza kartę i zostaje
