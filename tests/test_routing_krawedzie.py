@@ -464,3 +464,64 @@ def test_sciezka_lakierowany_z_krawedziami_formatowanie_krawedzie_lakiernia_logi
         db.session.commit()
         assert produkt.current_status == 'czeka_na_logistyke'
         assert produkt.painting_completed_at is not None
+
+
+# ============================================================================
+# GAŁĄŹ ELSE — WYKOŃCZENIE SPOZA TRÓJKI (decyzja świadomie udokumentowana testem)
+# ============================================================================
+#
+# Recenzja poprzedniej grupy zwróciła uwagę, że gałąź `else` w complete_task
+# (models.py:563-564) nie miała dotąd wprost testu: produkt, którego
+# parsed_finish_type NIE jest ani 'olejowane', ani 'lakierowane' (czyli też
+# 'surowe', ale i cokolwiek spoza znanej trójki, albo NULL), a bez obróbki
+# krawędzi, jedzie z formatowania PROSTO do logistyki — kod sprawdza wyłącznie
+# przynależność do ('olejowane', 'lakierowane'), więc każda inna wartość ląduje
+# w tej samej gałęzi co 'surowe'.
+#
+# Kontroler zweryfikował na kopii produkcji: takich produktów jest dziś ZERO —
+# parser emituje wyłącznie trzy wartości. Ryzyko jest więc czysto teoretyczne.
+# Mimo to reguła ma być udokumentowana świadomą decyzją, a nie przypadkowym
+# efektem ubocznym gdzie indziej: gdyby parser kiedyś zaczął emitować czwartą
+# wartość, TE testy są miejscem, w którym trzeba świadomie zdecydować, czy taki
+# produkt ma zatrzymać się na Lakierni, czy jechać dalej prosto do logistyki —
+# zamiast to odkryć jako zaskoczenie na hali.
+
+def test_wykonczenie_spoza_trojki_bez_krawedzi_jedzie_z_formatowania_do_logistyki(app):
+    """
+    Przypina dzisiejsze zachowanie gałęzi `else`: wykończenie spoza znanej
+    trójki (tu: 'bejcowane' — wartość, której parser dziś nie emituje, ale
+    kwietniowy projekt ją wymieniał) zachowuje się IDENTYCZNIE jak 'surowe' —
+    licznik Krawędzi zamyka się automatycznie (jak przy każdym pominięciu),
+    a Lakiernia pozostaje całkowicie nietknięta. Implementacja, która zamiast
+    tego wysłałaby taki produkt do Lakierni (np. przez odwrócenie warunku na
+    `not in`) albo zostawiłaby go w stanie pośrednim, oblałaby ten test.
+    """
+    with app.app_context():
+        produkt = _produkt(finish='bejcowane', edge=False, quantity=7)
+        produkt.complete_task('formatting')
+        db.session.commit()
+        assert produkt.current_status == 'czeka_na_logistyke'
+        assert produkt.quantity_done_edges == 7
+        assert produkt.quantity_done_painting == 0
+        assert produkt.painting_completed_at is None
+
+
+def test_wykonczenie_none_bez_krawedzi_trafia_do_tej_samej_galezi():
+    """
+    Wzmocnienie: NULL w parsed_finish_type ma trafić w tę samą gałąź `else`,
+    z tego samego powodu (nie pasuje ani do 'olejowane', ani do 'lakierowane').
+    Kolumna parsed_finish_type jest nullable=False, więc NULL nie da się
+    zapisać do bazy — stąd obiekt TRANSIENT (bez sesji, bez zamówienia), tak
+    jak w test_should_skip_edges_traktuje_brak_danych_jak_brak_krawedzi
+    powyżej. complete_task nie potrzebuje sesji ani zamówienia do podjęcia tej
+    konkretnej decyzji (self.id is None, więc set_quantity_done nie tworzy
+    eventu; self.order jest None, więc gałąź odbioru osobistego się nie
+    odpala) — zweryfikowane empirycznie, tak jak w
+    tests/test_krawedzie_parytet_reguly.py.
+    """
+    produkt = ProductionProduct(
+        quantity=3, current_status='czeka_na_formatowanie',
+        parsed_finish_type=None, parsed_edge_processing=False,
+        cut_to_size=True)
+    produkt.complete_task('formatting')
+    assert produkt.current_status == 'czeka_na_logistyke'

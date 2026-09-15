@@ -2,7 +2,8 @@
 
 Czyste funkcje (bez dostępu do bazy) — operują na obiektach produktopodobnych.
 Trasa produktu odzwierciedla przepływ z ProductionProduct.complete_task
-(modules/production/models.py).
+(modules/production/models.py). To DRUGA, ręcznie synchronizowana kopia tej
+reguły — zgodności obu pilnuje tests/test_krawedzie_parytet_reguly.py.
 """
 
 # Kropki linii czasu w kolejności. 'entry' łączy wycinanie i składanie.
@@ -10,7 +11,7 @@ TIMELINE_STATIONS = [
     {'key': 'entry',      'name': 'Wycinanie / Składanie'},
     {'key': 'gluing',     'name': 'Sklejanie'},
     {'key': 'formatting', 'name': 'Formatowanie'},
-    {'key': 'finishing',  'name': 'Wykańczanie'},
+    {'key': 'edges',      'name': 'Krawędzie'},
     {'key': 'painting',   'name': 'Lakiernia'},
     {'key': 'packaging',  'name': 'Pakowanie'},
 ]
@@ -23,7 +24,7 @@ STATION_AT_STATUSES = {
     'entry': {'czeka_na_wyciecie', 'czeka_na_skladanie'},
     'gluing': {'czeka_na_sklejanie'},
     'formatting': {'czeka_na_formatowanie'},
-    'finishing': {'czeka_na_wykanczanie'},
+    'edges': {'czeka_na_krawedzie'},
     'painting': {'czeka_na_lakiernie'},
     'packaging': {'czeka_na_pakowanie'},
 }
@@ -33,7 +34,7 @@ STATUS_ORDINAL = {
     'czeka_na_wyciecie': 0, 'czeka_na_skladanie': 0,
     'czeka_na_sklejanie': 1,
     'czeka_na_formatowanie': 2,
-    'czeka_na_wykanczanie': 3,
+    'czeka_na_krawedzie': 3,
     'czeka_na_lakiernie': 4,
     'czeka_na_logistyke': 4.5,
     'czeka_na_pakowanie': 5,
@@ -45,7 +46,7 @@ _STATUS_DISPLAY = {
     'czeka_na_skladanie': 'Czeka na składanie',
     'czeka_na_sklejanie': 'Czeka na sklejanie',
     'czeka_na_formatowanie': 'Czeka na formatowanie',
-    'czeka_na_wykanczanie': 'Czeka na wykańczanie',
+    'czeka_na_krawedzie': 'Czeka na krawędzie',
     'czeka_na_lakiernie': 'Czeka na lakiernię',
     'czeka_na_logistyke': 'Czeka na logistykę',
     'czeka_na_pakowanie': 'Czeka na pakowanie',
@@ -60,7 +61,14 @@ _STATUS_BADGE = {
     'czeka_na_skladanie': 'badge-assembly',
     'czeka_na_sklejanie': 'badge-gluing',
     'czeka_na_formatowanie': 'badge-formatting',
-    'czeka_na_wykanczanie': 'badge-finishing',
+    # Nazwa klasy CSS jest HISTORYCZNA i zostaje celowo nietknięta: stanowisko
+    # nazywa się dziś Krawędzie, ale selektor dalej brzmi 'badge-finishing'.
+    # Definicje żyją w modules/quotes/static/css/quotes.css:7316 oraz
+    # modules/production/static/css/products-tab.css:578-579 i 2238 (razem ze
+    # zmienną --il-finishing). Przemianowanie nie daje użytkownikowi nic,
+    # a rozsypuje trzy pliki JS (products-module.js, archive-module.js),
+    # więc świadomie go nie robimy.
+    'czeka_na_krawedzie': 'badge-finishing',
     'czeka_na_lakiernie': 'badge-painting',
     'czeka_na_logistyke': 'badge-logistics',
     'czeka_na_pakowanie': 'badge-packaging',
@@ -71,11 +79,13 @@ _STATUS_BADGE = {
 }
 
 
-# Sync z ProductionProduct.should_skip_finishing w modules/production/models.py
-def _should_skip_finishing(product):
-    if product.parsed_finish_type == 'surowe':
-        return not product.parsed_edge_processing
-    return False
+# Sync z ProductionProduct.should_skip_edges w modules/production/models.py.
+# Druga, RĘCZNIE synchronizowana kopia reguły — parytetu pilnuje
+# tests/test_krawedzie_parytet_reguly.py.
+def _should_skip_edges(product):
+    """Bez obróbki krawędzi nie ma czego robić na Krawędziach — niezależnie
+    od wykończenia."""
+    return not product.parsed_edge_processing
 
 
 def product_in_route(product, station_key):
@@ -84,8 +94,8 @@ def product_in_route(product, station_key):
         return True
     if station_key == 'formatting':
         return product.cut_to_size is True
-    if station_key == 'finishing':
-        return product.cut_to_size is True and not _should_skip_finishing(product)
+    if station_key == 'edges':
+        return product.cut_to_size is True and not _should_skip_edges(product)
     if station_key == 'painting':
         return (product.cut_to_size is True
                 and product.parsed_finish_type in ('olejowane', 'lakierowane'))
