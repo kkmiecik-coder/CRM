@@ -2264,11 +2264,42 @@ body {
 }
 
 /* Dziewięć kafli: trakownia, pięć stanowisk pipeline'u, lakiernia, logistyka
-   i pakowanie. Dwie kolumny (5 wierszy, dziewiąty kafel sam w ostatnim) —
-   świadomie, kosztem wyższej karty: przy dwóch kolumnach kafel jest szerszy
-   i mieszczą się w nim wszystkie cztery statystyki bez zawijania. Karta
-   stanowisk zajmuje 3fr z 3fr+2fr, czyli ~60% szerokości; przy trzech
-   kolumnach ten sam kafel był za wąski, żeby to pomieścić.
+   i pakowanie. Siatka układa się sama (auto-fit + minmax) zamiast sztywnej
+   liczby kolumn — na typowych szerokościach wychodzą 2 kolumny (kafel musi
+   pomieścić 4 statystyki bez zawijania), a 3. kolumna pojawia się dopiero,
+   gdy kafel naprawdę ma na nią miejsce; na szerokich ekranach zawinie się
+   sama, bez kolejnego ręcznego progu.
+
+   Dolna granica minmax = 380px — wartość ZADANA przez właściciela na
+   podstawie tego, jak kafel wygląda naprawdę (nie wyliczona z layoutu, nie
+   do renegocjacji tutaj). Stary komentarz w tym miejscu liczył próg z ~60%
+   szerokości okna dla W=1400px i wychodziło mu ~300px — ale to było
+   oszacowanie z ERY UKŁADU 3×3 (dawny @media max-width:1400px, próg
+   przejścia 3→2 kolumny), nie pomiar obecnego, szerszego kafla z auto-fit.
+   Z tej samej metody liczenia (dostępna szerokość = W - sidebar(260) -
+   padding .main-content(2x32); 1fr .production-dashboard-grid z gap 10px
+   na 3fr+2fr; karta stanowisk = 3fr; szerokość na .il-stations-grid = karta
+   - border(2x1) - padding .dashboard-card-body(2x14); kafel = (szerokość -
+   gap(8)) / liczba kolumn) wychodzi, że przy 380px 2 kolumny mieszczą się
+   dopiero od ok. 1664px szerokości okna, a 3. kolumna — od ok. 2311px.
+   Poniżej ~1664px (czyli też na typowym laptopie, patrz media query niżej)
+   siatka pokaże 1 szeroką kolumnę kafli, nie 2 — to świadoma konsekwencja
+   wybranej szerokości 380px, nie błąd wyliczenia.
+
+   ZNALEZISKO DO DECYZJI WŁAŚCICIELA (nie naprawione tutaj — nie było o to
+   proszone, a dotyka innego progu niż 380px): przy jednej kolumnie minmax
+   wymusza SZTYWNE minimum 380px nawet gdy dostępna szerokość jest mniejsza —
+   grid wtedy nie kurczy kolumny, tylko przelewa się poza kartę i zostaje
+   przycięty przez `.dashboard-card { overflow: hidden }` (zmierzone i
+   sfotografowane: przy szerokości karty ~340px, ostatnia statystyka i jej
+   wartość są ucięte w połowie). Dzieje się to dla okna w wąskim przedziale
+   ok. 901–1017px szerokości — czyli POWYŻEJ progu 900px niżej (więc siatka
+   NIE dostaje jeszcze awaryjnego `grid-template-columns: 1fr`), ale PONIŻEJ
+   szerokości, przy której choć jedna kolumna 380px ma dość miejsca. Przy
+   starym MIN=300px tej dziury nie było (300px mieściło się już od ok. 901px
+   w górę). Możliwa łata: podnieść próg tej jednej reguły (nie całego media
+   query) do ok. 1020px — celowo tego NIE zrobiłem, bo nie było o to proszone
+   i zmienia inny próg niż zadane 380px.
 
    align-content: start — ten grid ma flex: 1, więc rośnie do wysokości, jaką
    odda mu .dashboard-card-body (czyli wysokości karty "Stanowiska
@@ -2278,10 +2309,12 @@ body {
    wyższa jest prawa kolumna (np. gdy lista alertów urośnie). Wysokość kafla
    ma być stała niezależnie od liczby wierszy i od tego, co dzieje się po
    prawej, więc pakujemy wiersze od góry i zostawiamy ewentualny nadmiar jako
-   puste miejsce pod ostatnim wierszem, a nie jako dodatkowe piksele kafla. */
+   puste miejsce pod ostatnim wierszem, a nie jako dodatkowe piksele kafla.
+   Ważniejsze niż konkretna wartość minmax — patrz test w
+   tests/test_dashboard_krawedzie.py, który tego właśnie pilnuje. */
 .il-stations-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
   gap: 8px;
   flex: 1;
   align-content: start;
@@ -2361,13 +2394,16 @@ body {
 }
 .il-station-stats {
   display: flex;
-  gap: 3px;
+  gap: 4px;
   flex: 1;
 }
+/* Trochę więcej powietrza wokół liczb (feedback: kafle mogą być "ciut
+   wyższe" tu, nie przez rozciąganie całego kafla) — 8px 4px -> 10px 6px,
+   delikatnie, nie zmienia liczby kolumn ani progu zawijania w praktyce. */
 .il-station-stat {
   flex: 1;
   text-align: center;
-  padding: 8px 4px;
+  padding: 10px 6px;
   background: var(--il-bg-base);
   border-radius: 2px;
   display: flex;
@@ -2471,10 +2507,33 @@ body {
 .il-station.station-inactive .il-station-bar-fill { background: var(--il-status-inactive) !important; }
 
 /* ─── Right Stack ─── */
+/* .il-right-stack i .stations-card sa BEZPOSREDNIMI dziecmi
+   .production-dashboard-grid (jeden wiersz auto). Bez ponizszego, pelna
+   (nieograniczona) tresc listy alertow dyktuje wysokosc CALEGO wiersza —
+   i to wcale nie przez automatyczny minimalny rozmiar (sam min-height: 0
+   na .il-right-stack/.alerts-card TO SPRAWDZONE, NIE WYSTARCZA: auto-track
+   sizing liczy tzw. growth limit z max-content contribution elementu, a tego
+   nie rusza ani min-height, ani overflow: hidden na .il-right-stack — oba
+   sprawdzone empirycznie, bez zmiany). Jedyne co realnie dziala to
+   `contain: size` — element przestaje cokolwiek wnosic do wyliczania
+   wlasnego rozmiaru na podstawie tresci (dla silnika ma "0 tresci"), wiec
+   wiersz grida jest wymierzany WYLACZNIE przez .stations-card, a
+   .il-right-stack dostaje przez align-items: stretch dokladnie tyle, ile
+   zostalo — i dopiero wtedy wewnetrzny flex (flex:1 + min-height:0 na
+   .alerts-card/.il-alert-list, patrz sekcja Alerts) ma czym realnie
+   ograniczyc liste, wiec overflow-y: auto zaczyna dzialac.
+   UWAGA: `contain: size` dziala tylko dopoki .il-right-stack DZIELI wiersz
+   z .stations-card. Gdy ponizej 900px oba trafiaja do WLASNYCH,
+   osobnych wierszy (grid-template-columns: 1fr), .il-right-stack zostaje
+   sam w wierszu — wtedy "0 tresci" oznacza realne zero wysokosci (zmierzone:
+   zapada sie do ~2px). Dlatego media query nizej wylacza contain na tym
+   breakpoincie, przywracajac zwykle, naturalne wymiarowanie z tresci. */
 .il-right-stack {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-height: 0;
+  contain: size;
 }
 
 /* ─── KPI Cards ─── */
@@ -2554,17 +2613,30 @@ body {
 
 /* ─── Alerts ─── */
 /* Karta "Alerty terminów" ma inline style="flex: 1" (dashboard-tab-content.html)
-   i rośnie w .il-right-stack do wysokości gridu stanowisk. Żeby lista faktycznie
-   wypełniła tę wysokość i przewijała się dopiero po jej wyczerpaniu (a nie po
-   sztywnych px), ciało karty musi być kontenerem flex (kolumna) z min-height: 0,
-   a sama lista — elementem flex w nim, też z min-height: 0 (bez tego flex nie
-   pozwala się skurczyć i overflow-y nigdy by się nie uruchomił). */
+   i rośnie w .il-right-stack do wysokości gridu stanowisk (patrz sekcja Right
+   Stack — to .il-right-stack, nie ta karta, dostaje właściwe ograniczenie
+   przez contain: size). Żeby lista faktycznie wypełniła tę wysokość i
+   przewijała się dopiero po jej wyczerpaniu, ciało karty musi być kontenerem
+   flex (kolumna) z min-height: 0, a sama lista — elementem flex w nim, żeby
+   mogła się skurczyć poniżej naturalnej wysokości treści (stąd też jej
+   własny min-height poniżej, żeby nie skurczyła się bardziej niż powinna —
+   patrz wyliczenie przy .il-alert-list). */
 .alerts-card .dashboard-card-body {
   display: flex;
   flex-direction: column;
   min-height: 0;
 }
-.il-alert-list { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; overflow-y: auto; }
+/* min-height: 210px — zeby karta nie skurczyla sie do paska, gdy lewa
+   kolumna jest niska (albo po zejsciu do 1 kolumny ponizej 900px, gdzie
+   .il-right-stack traci "contain: size", patrz sekcja Right Stack). Policzone,
+   nie zgadniete: 1 pozycja .il-alert-item to zmierzone 62,4px (padding 8px
+   gora/dol + tresc + border-bottom 1px), gap listy to 8px, wiec odstep
+   miedzy pozycjami to 70,4px. 3 pozycje = 2 x 70,4 + 62,4 = 203,2px,
+   zaokraglone w gore do 210px (maly zapas na dluzszy wiersz z pigulka
+   stanowiska). 3 to swiadomy wybor: tyle najpilniejszych alertow (lista jest
+   sortowana po terminie) ma byc widoczne od razu, nawet gdy kafel dostaje
+   niewiele miejsca — reszta i tak jest o przewiniecie. */
+.il-alert-list { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 210px; overflow-y: auto; }
 .il-alert-item {
   display: flex;
   align-items: flex-start;
@@ -2720,13 +2792,25 @@ body {
 }
 
 /* ─── Industrial Light Responsive ─── */
-/* Uwaga: baza `.il-stations-grid` to już 2 kolumny (patrz wyżej), więc próg
-   1400px, który kiedyś schodził z 3 do 2 kolumn, nie ma już nic do zrobienia
-   i został usunięty. Zostaje tylko zejście do jednej kolumny na wąskich
-   ekranach, gdzie dashboard i tak przechodzi w układ jednokolumnowy. */
+/* Uwaga: baza `.il-stations-grid` to już auto-fit + minmax(380px, 1fr)
+   (patrz wyliczenie wyżej) — sama schodzi do 1 kolumny, gdy na 2 kafle po
+   380px + gap już nie starcza miejsca, co z tej samej metody liczenia
+   wychodzi przy W < ok. 1664px. To WIĘCEJ niż próg 900px poniżej — czyli
+   w oknie ok. 900-1664px (typowy laptop czy nawet niejeden desktop) siatka
+   i tak pokaże 1 szeroką kolumnę kafli, zanim jeszcze zadziała ten media
+   query. To świadoma konsekwencja szerokości 380px zadanej przez
+   właściciela (patrz wyliczenie wyżej), nie błąd. Linia niżej zostaje jako
+   sieć bezpieczeństwa na wypadek innych założeń (np. inny sidebar), nie
+   jako jedyny mechanizm zejścia do 1 kolumny. */
 @media (max-width: 900px) {
   .production-dashboard-grid { grid-template-columns: 1fr; }
-  .il-right-stack { order: -1; }
+  /* contain: size z bazowej reguly .il-right-stack zaklada, ze dzieli wiersz
+     z .stations-card. Tutaj oba trafiaja do OSOBNYCH wierszy (1 kolumna) —
+     .il-right-stack zostalby sam ze "zerowa" trescia i realnie zapadlby sie
+     do min-height: 0 (zmierzone). Wylaczamy contain, wraca zwykle
+     wymiarowanie z naturalnej tresci — dokladnie to, czego chcemy na waskim
+     ekranie (calosc i tak przewija sie stronowo). */
+  .il-right-stack { order: -1; contain: none; }
   .il-stations-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 600px) {

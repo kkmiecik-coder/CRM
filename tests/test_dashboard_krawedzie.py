@@ -218,34 +218,41 @@ def test_panel_css_nie_zna_juz_kodu_stanowiska_finishing():
     assert '--il-station-cmp:' in css
 
 
-def test_siatka_stanowisk_ma_dwie_kolumny_i_staly_kafel():
+def test_siatka_stanowisk_uklada_sie_sama_i_ma_staly_kafel():
     """
     Kafli jest dziewięć: trakownia, pięć stanowisk pipeline'u, lakiernia,
-    logistyka i pakowanie. Właściciel wybrał dwie kolumny — pięć wierszy,
-    dziewiąty kafel sam w ostatnim — świadomie, bo przy dwóch kolumnach kafel
-    jest szerszy i mieszczą się w nim wszystkie cztery statystyki bez
-    zawijania. Wcześniejsze 3×3 dzieliło się bez reszty, ale kosztem
-    czytelności kafla.
+    logistyka i pakowanie. Siatka nie ma sztywno wpisanej liczby kolumn —
+    układa się sama przez `repeat(auto-fit, minmax(380px, 1fr))`, żeby na
+    szerszych ekranach zawijała się w kolejną kolumnę bez ręcznego progu.
+    380px w minmax to dolna granica szerokości kafla — wartość ZADANA przez
+    właściciela na podstawie tego, jak kafel wygląda naprawdę (nie wyliczona
+    z layoutu; pełne wyjaśnienie i wyliczenie progów kolumn dla tej wartości
+    jest w komentarzu nad regułą w CSS). Test nie sprawdza, ile dokładnie
+    kolumn wychodzi na jakiej szerokości — pilnuje tylko, że mechanizm
+    auto-fit/minmax(380px) w ogóle tam jest, żeby nikt nie wrócił po cichu do
+    sztywnej liczby kolumn ani nie podmienił wartości bez świadomej decyzji.
 
-    `align-content: start` jest tu WARUNKIEM, nie kosmetyką, i to jego pilnuje
-    ten test. Siatka ma `flex: 1`, więc rośnie do wysokości, jaką odda jej
-    karta po wyrównaniu z prawą kolumną w `.production-dashboard-grid`.
-    Domyślne `align-content` rozdziela ten nadmiar na WIERSZE, więc kafel
-    robi się wyższy od własnej treści — i tym bardziej, im wyższa jest prawa
-    kolumna. Raz już się to wydarzyło: zdjęcie sztywnego `max-height` z listy
-    alertów powiększyło nadmiar i kafle urosły. Bez pakowania wierszy od góry
-    wysokość kafla zależy od tego, co dzieje się obok siatki.
+    `align-content: start` jest tu WARUNKIEM, nie kosmetyką, i to JEGO
+    pilnowanie jest ważniejsze niż kształt grid-template-columns — już raz
+    padło ofiarą "poprawki", więc ten test przypina je osobnym assertem.
+    Siatka ma `flex: 1`, więc rośnie do wysokości, jaką odda jej karta po
+    wyrównaniu z prawą kolumną w `.production-dashboard-grid`. Domyślne
+    `align-content` rozdziela ten nadmiar na WIERSZE, więc kafel robi się
+    wyższy od własnej treści — i tym bardziej, im wyższa jest prawa kolumna.
+    Raz już się to wydarzyło: zdjęcie sztywnego `max-height` z listy alertów
+    powiększyło nadmiar i kafle urosły. Bez pakowania wierszy od góry
+    wysokość kafla zależy od tego, co dzieje się obok siatki, a nie tylko od
+    własnej treści.
 
-    Progu 1400 px (kiedyś zejście 3 → 2 kolumny) już nie ma — po zmianie bazy
-    na dwie kolumny nie miał czego robić. Zejście do jednej kolumny poniżej
-    900 px zostaje i jest tu sprawdzane, bo to ono ratuje kafel na wąskim
-    ekranie.
+    Zejście do jednej kolumny poniżej 900 px zostaje jako sieć bezpieczeństwa
+    (auto-fit i tak by tam zeszło niżej, patrz wyliczenie w CSS) i jest tu
+    sprawdzane, żeby nikt go nie usunął w ramach "sprzątania" auto-fit.
     """
     css = _plik(PANEL_CSS)
 
     blok = css.split('.il-stations-grid {')[1].split('}')[0]
-    assert 'grid-template-columns: repeat(2, 1fr);' in blok
+    assert 'grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));' in blok
     assert 'align-content: start;' in blok
 
-    waski = css.split('@media (max-width: 900px)')[1][:600]
+    waski = css.split('@media (max-width: 900px)')[1][:800]
     assert '.il-stations-grid { grid-template-columns: 1fr; }' in waski
