@@ -114,3 +114,34 @@ def station_short_label(station_code):
 
 def is_production_station(station_code):
     return station_code in STATION_ORDER
+
+
+# ────────────────────────────────────────────────────────────────────────
+# OKRES PRZEJŚCIOWY — stary kod stanowiska
+# ────────────────────────────────────────────────────────────────────────
+# Stare tablety (APK sprzed rozdziału wykańczalni), stare adresy monitorów
+# i wiersze przywrócone z backupu nadal mówią 'finishing'. Aplikacja przyjmuje
+# ten kod NA WEJŚCIU i natychmiast zamienia na kanoniczny 'edges' — dalej,
+# w bazie i w eventach stanowiskowych, 'finishing' nie ma prawa się pojawić.
+#
+# DO USUNIĘCIA razem ze wszystkimi wywołaniami resolve_station_code po wydaniu
+# appki Android z kodami 'edges' i 'painting'. Precedens: alias
+# 'completion' → 'gluing' zdjęty w 05.2026.
+STATION_CODE_ALIASES = {
+    'finishing': 'edges',
+}
+
+
+def resolve_station_code(code):
+    """
+    Kod stanowiska z wejścia → kod kanoniczny katalogu.
+
+    Dla stringa: przycina białe znaki i mapuje przez STATION_CODE_ALIASES.
+    Dla wartości nie-stringowej (w tym None) zwraca ją bez zmian i bez
+    wyjątku — funkcję wołają miejsca podające surowe dane z JSON-a (np.
+    products_api, order_details), gdzie code.strip() na liście, słowniku
+    albo liczbie by się wywaliło.
+    """
+    if not isinstance(code, str):
+        return code
+    return STATION_CODE_ALIASES.get(code.strip(), code.strip())

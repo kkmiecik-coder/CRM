@@ -101,3 +101,37 @@ def test_statusy_kolejek_sa_unikalne():
 
     wartosci = list(STATION_PENDING_STATUS.values())
     assert len(wartosci) == len(set(wartosci)), wartosci
+
+
+def test_alias_zamienia_finishing_na_edges():
+    """Okres przejściowy: stary tablet i stary adres monitora mówią 'finishing'."""
+    from modules.production.services.station_catalog import resolve_station_code
+
+    assert resolve_station_code('finishing') == 'edges'
+
+
+def test_alias_nie_rusza_kodow_kanonicznych():
+    from modules.production.services.station_catalog import resolve_station_code
+
+    for kod in ('cutting', 'assembly', 'gluing', 'formatting',
+                'edges', 'painting', 'packaging', 'sawmill'):
+        assert resolve_station_code(kod) == kod
+
+
+def test_alias_nie_dziala_w_druga_strone():
+    """'edges' NIE jest aliasem 'finishing' — tłumaczenie ma jeden kierunek."""
+    from modules.production.services.station_catalog import (
+        STATION_CODE_ALIASES,
+        resolve_station_code,
+    )
+
+    assert resolve_station_code('edges') == 'edges'
+    assert 'edges' not in STATION_CODE_ALIASES
+    assert STATION_CODE_ALIASES['finishing'] == 'edges'
+
+
+def test_nieznany_kod_wraca_bez_zmian():
+    """Odsiewanie nieznanych kodów należy do bramek walidacji, nie do tłumacza."""
+    from modules.production.services.station_catalog import resolve_station_code
+
+    assert resolve_station_code('trakownia_pietro_2') == 'trakownia_pietro_2'
