@@ -107,3 +107,61 @@ def test_puste_zadanie_nie_daje_zapisow_ani_bledu():
     zapisy, blad = _zbierz_ustawienia_kalkulatora({})
     assert zapisy == []
     assert blad is None
+
+
+# ── Dopłata za kształt nietypowy ────────────────────────────────────────────
+#
+# Regresja z 2026-09-15: obsługa tej dopłaty stała OSOBNO, w samym endpoincie,
+# poza `_zbierz_ustawienia_kalkulatora`. Po refaktorze helpera zniknął stamtąd
+# lokalny import `Decimal, InvalidOperation`, więc osierocony blok wywalał się
+# w panelu komunikatem „name 'InvalidOperation' is not defined" i dopłaty NIE
+# dalo sie zapisac. Do tego zapisywal przed walidacja reszty zadania — dokladnie
+# ten blad, ktory helper mial wyeliminowac.
+
+def test_sama_doplata_za_ksztalt_nietypowy_daje_jeden_zapis():
+    zapisy, blad = _zbierz_ustawienia_kalkulatora({
+        "custom_shape_surcharge_netto": "50",
+    })
+    assert blad is None
+    assert zapisy == [("custom_shape_surcharge_netto", "50")]
+
+
+def test_obie_doplaty_za_ksztalt_naraz():
+    zapisy, blad = _zbierz_ustawienia_kalkulatora({
+        "round_shape_surcharge_netto": "50.00",
+        "custom_shape_surcharge_netto": "120.00",
+    })
+    assert blad is None
+    assert zapisy == [
+        ("round_shape_surcharge_netto", "50.00"),
+        ("custom_shape_surcharge_netto", "120.00"),
+    ]
+
+
+def test_ujemna_doplata_za_ksztalt_nietypowy_odrzucona():
+    zapisy, blad = _zbierz_ustawienia_kalkulatora({
+        "custom_shape_surcharge_netto": "-1",
+    })
+    assert zapisy is None
+    assert blad == 'Dopłata nie może być ujemna'
+
+
+def test_nieliczbowa_doplata_za_ksztalt_nietypowy_odrzucona():
+    """To tu wysypywal sie stary kod: przy niepoprawnej wartosci Python musial
+    wyliczyc klauzule `except (InvalidOperation, ValueError)`, a nazwa nie byla
+    zaimportowana w tamtym zakresie. Teraz konczy sie czytelnym komunikatem."""
+    zapisy, blad = _zbierz_ustawienia_kalkulatora({
+        "custom_shape_surcharge_netto": "abc",
+    })
+    assert zapisy is None
+    assert blad == 'Nieprawidłowa wartość dopłaty'
+
+
+def test_doplata_za_ksztalt_nietypowy_nie_zapisuje_sie_gdy_wysylka_bledna():
+    """Kluczowe: dopłata NIE moze trafic do bazy, gdy reszta zadania jest zla."""
+    zapisy, blad = _zbierz_ustawienia_kalkulatora({
+        "custom_shape_surcharge_netto": "50",
+        "shipping_markup_percent": "nie-liczba",
+    })
+    assert zapisy is None
+    assert blad is not None

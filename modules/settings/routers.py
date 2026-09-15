@@ -937,14 +937,19 @@ def _zbierz_ustawienia_kalkulatora(data):
 
     zapisy = []
 
-    if 'round_shape_surcharge_netto' in data:
+    # Obie dopłaty za kształt (koło/owal oraz kształt nietypowy) walidują się
+    # identycznie, więc jedna pętla zamiast dwóch bliźniaczych bloków.
+    # Kolejność kluczy wyznacza kolejność zapisów — testy na niej polegają.
+    for klucz_doplaty in ('round_shape_surcharge_netto', 'custom_shape_surcharge_netto'):
+        if klucz_doplaty not in data:
+            continue
         try:
-            value = Decimal(str(data['round_shape_surcharge_netto']))
+            value = Decimal(str(data[klucz_doplaty]))
             if value < 0:
                 return None, 'Dopłata nie może być ujemna'
         except (InvalidOperation, ValueError):
             return None, 'Nieprawidłowa wartość dopłaty'
-        zapisy.append(('round_shape_surcharge_netto', str(value)))
+        zapisy.append((klucz_doplaty, str(value)))
 
     czyste, blad = validate_shipping_settings(data)
     if blad:
@@ -972,15 +977,6 @@ def api_update_calculator_settings():
 
         for klucz, wartosc in zapisy:
             CalculatorSetting.set_value(klucz, wartosc)
-
-        if 'custom_shape_surcharge_netto' in data:
-            try:
-                value = Decimal(str(data['custom_shape_surcharge_netto']))
-                if value < 0:
-                    return jsonify({'success': False, 'error': 'Dopłata nie może być ujemna'}), 400
-                CalculatorSetting.set_value('custom_shape_surcharge_netto', str(value))
-            except (InvalidOperation, ValueError):
-                return jsonify({'success': False, 'error': 'Nieprawidłowa wartość dopłaty'}), 400
 
         # UWAGA: CalculatorSetting.set_value() commituje wewnętrznie (models.py),
         # więc invalidacja poniżej jest już PO zapisie do bazy — nie przenosić jej wyżej.
