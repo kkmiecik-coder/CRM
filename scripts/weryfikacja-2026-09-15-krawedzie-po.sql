@@ -84,3 +84,14 @@ SELECT version, success, error_message, executed_at
 -- B14. Tabela kopii — ile wierszy da sie jeszcze cofnac i rozdzielic w metrykach.
 -- NIE USUWAC wczesniej niz 2 tygodnie po wdrozeniu (ryzyko R16).
 SELECT tabela, COUNT(*) AS ile FROM prod_migracja_krawedzie_kopia GROUP BY tabela;
+
+-- B15. BILANS prod_products — symetria do B5. B5 dowodzi, ze zaden EVENT nie
+-- zginal; ponizej to samo dla pozycji KOLEJKI. Pokazuje, gdzie wyladowal kazdy
+-- produkt z tabeli kopii (current_status po migracji) i wylapuje zgubiona
+-- pozycje: wiersz z wyladowal_na = NULL to produkt z kopii bez odpowiednika
+-- w prod_products. Takiego wiersza NIE MA PRAWA byc w wyniku.
+SELECT p.current_status AS wyladowal_na, COUNT(*) AS ile
+  FROM prod_migracja_krawedzie_kopia k
+  LEFT JOIN prod_products p ON p.id = k.rekord_id
+ WHERE k.tabela = 'prod_products'
+ GROUP BY p.current_status;

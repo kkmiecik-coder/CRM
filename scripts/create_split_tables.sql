@@ -107,6 +107,8 @@ CREATE TABLE prod_products (
   completion_completed_at DATETIME NULL,
   gluing_completed_at DATETIME NULL,
   formatting_completed_at DATETIME NULL,
+  -- Data zakonczenia stanowiska Krawedzie. Ten sam token co parsed_edges_groups
+  -- (ksztalt krawedzi z wyceny) — dwa rozne znaczenia, zaden sed po 'edges' na slepo.
   edges_completed_at DATETIME NULL,
   painting_completed_at DATETIME NULL,
   packaging_completed_at DATETIME NULL,

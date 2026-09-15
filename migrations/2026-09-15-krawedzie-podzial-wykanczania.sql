@@ -182,8 +182,13 @@ UPDATE prod_config
 
 -- KONWENCJA DRUGA: nazwa stanowiska w SRODKU klucza — STATION_CUTTING_PRIORITY_SORT,
 -- STATION_ASSEMBLY_PRIORITY_SORT, STATION_PACKAGING_PRIORITY_SORT
--- (config_api.py:514-515). Wariantu dla wykanczania dzis nie ma, ale kazdy zapis
--- z panelu moze go wytworzyc, wiec migracja obejmuje oba wzory.
+-- (config_api.py:514-515). Klucza dla wykanczania panel dzis NIE wytworzy —
+-- allowed_config_keys (config_api.py:513-515) zna wylacznie warianty
+-- CUTTING/ASSEMBLY/PACKAGING. Obslugujemy mimo to obie konwencje, bo druga
+-- konwencja kluczy ISTNIEJE w kodzie (ten sam wzorzec dla innych stanowisk),
+-- a nie dlatego, ze panel mogl ten konkretny klucz kiedykolwiek zapisac.
+-- Polecenie zostaje defensywnie — nic nie kosztuje, a zabezpiecza przed
+-- przyszlym dopisaniem wariantu FINISHING do bialej listy.
 -- 'STATION_FINISHING_' ma 18 znakow, 'STATION_EDGES_' ma 14.
 UPDATE prod_config
    SET config_key = CONCAT('STATION_EDGES_', SUBSTRING(config_key, 19))
