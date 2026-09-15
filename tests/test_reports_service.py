@@ -35,6 +35,7 @@ from modules.production.models import (
     ProductionStationEventWorker, ProductionWorker, ProductionWorkerSession,
 )
 from modules.production.services import reports_service
+from modules.production.services.station_catalog import STATION_ORDER
 from modules.users.models import User
 from modules.calculator.models import Multiplier  # noqa: F401
 from modules.clients.models import Client  # noqa: F401
@@ -127,6 +128,12 @@ def _produkt(status='czeka_na_sklejanie', volume=0.5, quantity=10,
 
 
 def _event(produkt, station, delta, kiedy, source='mobile', worker=None):
+    # Strażnik fałszywej zieleni. Oba testy „pomija eventy automatu" seedują
+    # event tylko po to, żeby sprawdzić, że NIE widać go w wyniku — więc
+    # martwy kod stanowiska daje w nich zera po obu stronach i test zielenieje,
+    # nie sprawdzając już niczego. prod_station_events.station_code to
+    # String(32) bez enuma i bez FK, więc baza takiego kodu nie odrzuci.
+    assert station in STATION_ORDER, f'Martwy kod stanowiska w teście: {station}'
     ev = ProductionStationEvent(
         production_item_id=produkt.id, station_code=station, delta=delta,
         quantity_done_after=max(0, delta), created_at=kiedy, source=source)
@@ -479,7 +486,7 @@ def test_heatmapa_pomija_eventy_automatu(app):
     """
     with app.app_context():
         produkt = _produkt(status='spakowane', volume=1.0, quantity=100)
-        _event(produkt, 'finishing', 5, datetime.combine(PONIEDZIALEK, time(14, 0)),
+        _event(produkt, 'edges', 5, datetime.combine(PONIEDZIALEK, time(14, 0)),
                source='system')
 
         wynik = reports_service.heatmapa_godzinowa(PONIEDZIALEK, PONIEDZIALEK)
@@ -633,7 +640,7 @@ def test_pokrycie_pomija_eventy_automatu(app):
         kiedy = datetime.combine(PONIEDZIALEK, time(9, 0))
         _event(produkt, 'gluing', 4, kiedy, worker=adam)
         _event(produkt, 'formatting', 4, kiedy, source='auto_skip')
-        _event(produkt, 'finishing', 4, kiedy, source='system')
+        _event(produkt, 'edges', 4, kiedy, source='system')
 
         wynik = reports_service.pokrycie_atrybucji_dziennie(PONIEDZIALEK, PONIEDZIALEK)
 

@@ -56,7 +56,7 @@ from ..models import (
     ProductionWorkerSession, get_local_now,
 )
 from .station_catalog import (
-    STATION_ORDER, STATION_PENDING_STATUS, station_label,
+    STATION_ORDER, STATION_PENDING_STATUS, resolve_station_code, station_label,
 )
 from .station_events_service import ZRODLA_AUTOMATU
 from .worker_stats_service import (
@@ -1076,7 +1076,7 @@ TOLERANCJA_SUMY_SZTUK = 0.5
 def _sprawdz_stanowisko(station):
     """
     Bramka „JEDNO, ISTNIEJĄCE stanowisko" — po stronie serwisu, nie tylko
-    routera.
+    routera. Zwraca kod KANONICZNY.
 
     Router ma własną walidację i to dobrze, ale nie może być jedyną: serwis
     woła też eksport, testy i (docelowo) każdy inny konsument, a każdy z nich
@@ -1084,7 +1084,13 @@ def _sprawdz_stanowisko(station):
     w kodzie stanowiska. Zmierzone przed poprawką: `station='nie_ma_takiego'`
     zwracało komplet zer z `empty_reason='brak_pracy'`, czyli odpowiedź
     „stanowisko nic nie zrobiło" na pytanie o stanowisko, którego nie ma.
+
+    Alias okresu przejściowego ('finishing' → 'edges') rozwijamy w pierwszej
+    linii, żeby dalej w agregacie nie dało się już porównać martwego kodu
+    z prod_station_events.station_code — tam po migracji nie ma ani jednego
+    wiersza 'finishing'.
     """
+    station = resolve_station_code(station)
     if not station or station == 'all':
         raise ZakresError(
             'Ten wykres wymaga JEDNEGO stanowiska — m³ nie są porównywalne '
@@ -1093,6 +1099,7 @@ def _sprawdz_stanowisko(station):
         raise ZakresError(
             f'Nieznane stanowisko „{station}". Dozwolone: '
             f'{", ".join(sorted(STATION_ORDER))}.')
+    return station
 
 
 def _slupek_osoby(worker_id, nazwa, sztuki, metry, eventy):
@@ -1180,7 +1187,7 @@ def wklad_pracownikow_na_stanowisku(station, start_date, end_date):
     miejscu po przecinku ta sama brygada dawała 0.33 tutaj i 0.3 w podzakładce
     Ludzie.
     """
-    _sprawdz_stanowisko(station)
+    station = _sprawdz_stanowisko(station)
 
     poczatek, koniec = granice_zakresu(start_date, end_date)
     filtry = _filtry_eventow_pracy(poczatek, koniec, station)

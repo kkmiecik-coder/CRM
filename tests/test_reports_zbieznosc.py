@@ -117,6 +117,10 @@ def _produkt(status='czeka_na_sklejanie', volume=0.5, quantity=10, utworzono=Non
 
 
 def _event(produkt, station, delta, kiedy, source='mobile'):
+    # Strażnik fałszywej zieleni: pętla po STATION_ORDER porównuje dwie strony
+    # dla KAŻDEGO stanowiska, więc event z martwym kodem wypada z pętli i obie
+    # strony wychodzą zero — test przechodzi, nie sprawdzając już niczego.
+    assert station in STATION_ORDER, f'Martwy kod stanowiska w teście: {station}'
     db.session.add(ProductionStationEvent(
         production_item_id=produkt.id, station_code=station, delta=delta,
         quantity_done_after=max(0, delta), created_at=kiedy, source=source))
@@ -442,7 +446,7 @@ def test_wklad_osob_sumuje_sie_do_przerobu_stanowiska(app):
         _z_podpisem('gluing', -2, [borys], source='admin',   # cofnięcie na minus
                     godzina=datetime.combine(PONIEDZIALEK, time(16, 0)))
         _event(produkt, 'cutting', 400, kiedy, source='auto_skip')
-        _event(produkt, 'finishing', 400, kiedy, source='system')
+        _event(produkt, 'edges', 400, kiedy, source='system')
 
         for kod in STATION_ORDER:
             per_day = get_station_work_per_day(kod, PONIEDZIALEK, PONIEDZIALEK)
@@ -465,9 +469,11 @@ def test_wklad_osob_sumuje_sie_do_przerobu_stanowiska(app):
                 m3_widgetu, abs=0.0005), kod
 
         # Kontrola, że powyższe nie jest porównaniem zer: automat na wycinaniu
-        # i wykańczaniu ma zniknąć po OBU stronach, a nie zostać po żadnej.
+        # i na Krawędziach ma zniknąć po OBU stronach, a nie zostać po żadnej.
         assert reports_service.wklad_pracownikow_na_stanowisku(
             'cutting', PONIEDZIALEK, PONIEDZIALEK)['summary']['station_events'] == 0
+        assert reports_service.wklad_pracownikow_na_stanowisku(
+            'edges', PONIEDZIALEK, PONIEDZIALEK)['summary']['station_events'] == 0
         assert reports_service.wklad_pracownikow_na_stanowisku(
             'packaging', PONIEDZIALEK, PONIEDZIALEK)['summary']['station_m3'] == 5.0
 
