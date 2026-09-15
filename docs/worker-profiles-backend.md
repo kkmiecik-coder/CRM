@@ -1013,9 +1013,11 @@ i to jest właśnie test, który tę naprawę weryfikuje.
 
 `complete_task()` generuje sztuczne eventy dla stanowisk pominiętych:
 
-- `source = 'auto_skip'` (`models.py:491`) — produkt nieprzycinany na wymiar
-  (`should_skip_to_logistics()`) po sklejeniu przeskakuje formatowanie i wykańczanie
-- `source = 'system'` (`models.py:499`) — przeskok `formatting → finishing`
+- `source = 'auto_skip'` — produkt nieprzycinany na wymiar
+  (`should_skip_to_logistics()`) po sklejeniu przeskakuje formatowanie i Krawędzie
+- `source = 'system'` — przeskok `formatting → edges` dla produktu bez obróbki
+  krawędzi (`should_skip_edges()`); jeśli produkt jest przy tym olejowany albo
+  lakierowany, trafia z formatowania prosto do `painting`
 
 **Te eventy nie dostają atrybucji** — nikt ich fizycznie nie wykonał. Raport musi je
 filtrować (`AND e.source NOT IN ('auto_skip','system')`, §7.2), inaczej sklejacz dostanie

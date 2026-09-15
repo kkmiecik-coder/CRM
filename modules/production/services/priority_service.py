@@ -63,7 +63,11 @@ class NewPriorityCalculator:
             'czeka_na_skladanie',
             'czeka_na_sklejanie',
             'czeka_na_formatowanie',
-            'czeka_na_wykanczanie',
+            # Wykańczanie rozpadło się na dwa stanowiska. Bez OBU kluczy
+            # pozycje z tych kolejek wypadają z przeliczania priorytetów
+            # po cichu — algorytm ich po prostu nie widzi.
+            'czeka_na_krawedzie',
+            'czeka_na_lakiernie',
             'czeka_na_pakowanie',
             'w_realizacji'
         ]
@@ -636,22 +640,28 @@ def get_priority_statistics() -> Dict[str, Any]:
         from ..models import ProductionItem
         
         # Policz produkty w kolejce
+        # DRUGA kopia listy z NewPriorityCalculator.active_statuses — kto
+        # zmienia jedną, musi zmienić obie, inaczej kafelek statystyk mówi
+        # co innego niż algorytm, który właśnie przeliczył kolejkę.
         active_count = ProductionItem.query.filter(
             ProductionItem.current_status.in_([
                 'czeka_na_wyciecie', 'czeka_na_skladanie',
                 'czeka_na_sklejanie',
-                'czeka_na_formatowanie', 'czeka_na_wykanczanie',
+                'czeka_na_formatowanie', 'czeka_na_krawedzie',
+                'czeka_na_lakiernie',
                 'czeka_na_pakowanie', 'w_realizacji'
             ])
         ).count()
 
         # Policz manual overrides
+        # TRZECIA kopia tej samej listy.
         manual_overrides = ProductionItem.query.filter(
             ProductionItem.priority_manual_override == True,
             ProductionItem.current_status.in_([
                 'czeka_na_wyciecie', 'czeka_na_skladanie',
                 'czeka_na_sklejanie',
-                'czeka_na_formatowanie', 'czeka_na_wykanczanie',
+                'czeka_na_formatowanie', 'czeka_na_krawedzie',
+                'czeka_na_lakiernie',
                 'czeka_na_pakowanie', 'w_realizacji'
             ])
         ).count()

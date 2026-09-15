@@ -24,12 +24,14 @@ from extensions import db
 from ..models import ProductionItem, ProductionOrder, ProductionStationEvent
 
 # Eventy, których NIKT fizycznie nie wykonał: complete_task() generuje je dla
-# stanowisk pomijanych — produkt nieprzycinany na wymiar przeskakuje
-# formatowanie i wykańczanie, surowy bez obróbki krawędzi przeskakuje
-# wykańczanie. Do 2026-08 wchodziły do wszystkich metryk przerobu, więc
-# formatowanie i wykańczanie miały w raportach sztuki, których nie tknął żaden
-# człowiek. Filtr jest wspólny z worker_stats_service — trzy widgety na jednym
-# ekranie muszą mieć JEDNĄ definicję słowa "zrobione".
+# stanowisk pomijanych. Reguła ma po rozdzieleniu wykańczania TRZY gałęzie:
+# produkt nieprzycinany na wymiar przeskakuje formatowanie i Krawędzie;
+# produkt bez obróbki krawędzi przeskakuje same Krawędzie i — jeśli jest
+# olejowany albo lakierowany — idzie z formatowania prosto do Lakierni.
+# Do 2026-08 te sztuczne odbicia wchodziły do wszystkich metryk przerobu, więc
+# formatowanie i ówczesne wykańczanie miały w raportach sztuki, których nie
+# tknął żaden człowiek. Filtr jest wspólny z worker_stats_service — trzy
+# widgety na jednym ekranie muszą mieć JEDNĄ definicję słowa "zrobione".
 ZRODLA_AUTOMATU = ('auto_skip', 'system')
 
 
@@ -61,7 +63,7 @@ def get_station_work_in_range(station_code, range_start, range_end):
 
     Args:
         station_code: kod stanowiska ('cutting', 'assembly', 'gluing',
-                      'formatting', 'finishing', 'packaging')
+                      'formatting', 'edges', 'painting', 'packaging')
         range_start, range_end: naive datetime (czas lokalny)
 
     Returns:

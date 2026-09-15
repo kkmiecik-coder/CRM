@@ -7,9 +7,14 @@ from types import SimpleNamespace
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from modules.production.services import product_history_service as phs
+from modules.production.services.station_catalog import STATION_ORDER
 
 
 def _evt(station, delta, after, minute, device='dev-1', user=None, source='mobile'):
+    # Strażnik fałszywej zieleni: aggregate_station_events() jest ŚLEPA na kod
+    # stanowiska (grupuje po dowolnym stringu), więc martwy kod przeszedłby tu
+    # bez szemrania i test nadal świeciłby na zielono, nic nie sprawdzając.
+    assert station in STATION_ORDER, f'Martwy kod stanowiska w teście: {station}'
     return SimpleNamespace(
         station_code=station, delta=delta, quantity_done_after=after,
         created_at=datetime(2026, 7, 29, 8, minute, 0),
@@ -144,8 +149,8 @@ def test_grupa_niesie_source_ostatniego_zdarzenia():
     # Poprawka 6: source ostatniego zdarzenia grupy musi przetrwać agregację
     # analogicznie do last_device_id/last_user_id — inaczej ginie jedyny
     # sygnał, że produkt przeskoczył stanowisko automatycznie.
-    events = [_evt('finishing', 1, 1, 10, device=None, source='auto_skip'),
-              _evt('finishing', 1, 2, 40, device=None, source='auto_skip')]
+    events = [_evt('edges', 1, 1, 10, device=None, source='auto_skip'),
+              _evt('edges', 1, 2, 40, device=None, source='auto_skip')]
     g = phs.aggregate_station_events(events)[0]
     assert g['last_source'] == 'auto_skip'
 
@@ -153,8 +158,8 @@ def test_grupa_niesie_source_ostatniego_zdarzenia():
 def test_grupa_niesie_source_ostatniego_a_nie_pierwszego_zdarzenia():
     # dwa zdarzenia o różnym source w tej samej grupie — last_source ma
     # wskazywać źródło NAJPÓŹNIEJSZEGO (last_at), tak jak last_device_id.
-    events = [_evt('finishing', 1, 1, 10, device='dev-1', source='mobile'),
-              _evt('finishing', 1, 2, 40, device=None, source='auto_skip')]
+    events = [_evt('edges', 1, 1, 10, device='dev-1', source='mobile'),
+              _evt('edges', 1, 2, 40, device=None, source='auto_skip')]
     g = phs.aggregate_station_events(events)[0]
     assert g['last_source'] == 'auto_skip'
 
@@ -167,10 +172,12 @@ def test_cofniecie_niesie_source():
 
 def test_grupa_auto_skip_daje_etykiete_systemu_pominal_automatycznie():
     # Integracja poprawki 6: grupa złożona wyłącznie z odbić auto_skip (bez
-    # device/user) ma dostać w build_product_history etykietę czytelną dla
-    # człowieka — sedno incydentu, dla którego funkcja audytu powstała.
-    events = [_evt('finishing', 1, 1, 10, device=None, user=None, source='auto_skip'),
-              _evt('finishing', 1, 2, 40, device=None, user=None, source='auto_skip')]
+    # device/user) na KRAWĘDZIACH — czyli na stanowisku, które automat pomija
+    # dla produktu bez obróbki krawędzi — ma dostać w build_product_history
+    # etykietę czytelną dla człowieka. Sedno incydentu, dla którego funkcja
+    # audytu powstała.
+    events = [_evt('edges', 1, 1, 10, device=None, user=None, source='auto_skip'),
+              _evt('edges', 1, 2, 40, device=None, user=None, source='auto_skip')]
     station_entries = phs.aggregate_station_events(events)
     for entry in station_entries:
         device_id, user_id, source = (
@@ -178,4 +185,7 @@ def test_grupa_auto_skip_daje_etykiete_systemu_pominal_automatycznie():
         actor_type = 'device' if device_id else ('user' if user_id else 'system')
         entry['actor_label'] = phs.actor_label(
             actor_type, station_code=entry['station_code'], source=source)
+    # Kod stanowiska z grupy MUSI dać się rozwinąć na nazwę z katalogu —
+    # inaczej modal produktu pokazuje surowy, martwy kod obok etykiety aktora.
+    assert phs.STATION_NAMES[station_entries[0]['station_code']] == 'Krawędzie'
     assert station_entries[0]['actor_label'] == 'System (pominięto automatycznie)'
