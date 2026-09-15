@@ -301,7 +301,7 @@ def test_walidator_dalej_odrzuca_kod_spoza_zbioru():
         ProductionDevice(device_id='tablet-x', station_code='krawedzie')
 
 
-def test_zbior_kodow_urzadzen_ma_dokladnie_siedem_wpisow():
+def test_zbior_kodow_urzadzen_ma_dokladnie_dziewiec_wpisow():
     """
     Wzmocnienie ponad brief: same asercje 'in' przeszłyby też na zbiorze-worku,
     do którego ktoś przez pomyłkę dorzucił dodatkowe/martwe kody (np. zostawił
@@ -313,3 +313,47 @@ def test_zbior_kodow_urzadzen_ma_dokladnie_siedem_wpisow():
         'packaging', 'cutting', 'assembly', 'gluing', 'formatting',
         'edges', 'painting', 'finishing', 'sawmill',
     }
+
+
+# ============================================================================
+# ENUM STANOWISKA DORÓBKI
+# ============================================================================
+
+def test_enum_stanowiska_dorobki_zna_krawedzie():
+    """
+    Po wpięciu aliasu w routerze mobilnym do rejected_at_station trafi 'edges'
+    (mobile_api.py, jedyny writer tej kolumny). Wartość musi być w enumie,
+    inaczej MySQL odrzuci zapis błędem 1265 — SQLite tego nie złapie, patrz
+    docstring pliku.
+
+    Porównanie całą listą, a nie `'edges' in wartosci`: zbiór domyka się na
+    dokładnej treści i kolejności, więc implementacja „dodaj edges i zostaw
+    finishing na wszelki wypadek" też oblewa. Kolejność jest kontraktem
+    z ALTER-em migracji.
+    """
+    wartosci = list(ProductionReworkLog.__table__.c.rejected_at_station.type.enums)
+    assert wartosci == ['formatting', 'edges', 'painting']
+
+
+def test_zapis_dorobki_z_krawedzi_przechodzi(app):
+    """
+    Pełna pętla zapis → odczyt dla kodu 'edges'.
+
+    SPROSTOWANIE wobec briefu, ktory zapowiadal ten test jako zielony juz przed
+    implementacja: sam ZAPIS faktycznie przechodzi (Enum nie waliduje stringow
+    po stronie Pythona, SQLite nie zaklada CHECK-a), ale ODCZYT leci
+    LookupError z Enum._object_value_for_elem, gdy wartosci nie ma w enumie.
+    Test jest wiec czerwony przed krokiem implementacji — i mocniejszy, niz
+    zakladal brief: lapie nie tylko ksztalt enuma, ale i to, ze wiersz da sie
+    odczytac z powrotem.
+    """
+    with app.app_context():
+        oryginal = _produkt(finish='surowe', edge=True)
+        dorobka = _produkt(finish='surowe', edge=True, status='czeka_na_wyciecie')
+        wpis = ProductionReworkLog(
+            original_product_id=oryginal.id, rework_product_id=dorobka.id,
+            quantity=2, rejected_at_station='edges',
+            returned_to_station='cutting', reason_category='wymiary')
+        db.session.add(wpis)
+        db.session.commit()
+        assert ProductionReworkLog.query.one().rejected_at_station == 'edges'

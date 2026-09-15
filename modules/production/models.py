@@ -1197,7 +1197,7 @@ class ProductionReworkLog(db.Model):
                       comment='Liczba sztuk cofniętych w tym evencie')
 
     rejected_at_station = Column(
-        Enum('formatting', 'finishing', 'painting', name='rework_reject_station'),
+        Enum('formatting', 'edges', 'painting', name='rework_reject_station'),
         nullable=False, index=True,
         comment='Stanowisko, z którego cofnięto (MVP: zawsze formatting)'
     )
