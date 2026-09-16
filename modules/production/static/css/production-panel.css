@@ -2342,7 +2342,7 @@ body {
      Jedynym torem rozciągliwym jest Postęp — to on ma zjadać nadmiar,
      bo pasek im szerszy, tym dokładniej się go czyta. */
   --il-rail-kolumny:
-    54px 184px 86px 74px minmax(96px, 1fr) 74px 24px;
+    54px 190px 87px 66px minmax(84px, 1fr) 72px 25px;
 }
 .il-rail-head {
   display: grid;
@@ -2358,7 +2358,7 @@ body {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--il-text-muted);
-  padding: 0 4px 6px;
+  padding: 0 7px 6px;
   white-space: nowrap;
   font-family: 'JetBrains Mono', monospace;
 }
@@ -2386,7 +2386,7 @@ body {
   border-top: 1px solid var(--il-border-light);
   transition: background 0.12s ease;
 }
-.il-station > * { padding: 0 4px; min-width: 0; }
+.il-station > * { padding: 0 7px; min-width: 0; }
 .il-station:hover { background: #f7f9fb; }
 
 .il-rail-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
@@ -2407,21 +2407,6 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-family: 'JetBrains Mono', monospace;
-}
-/* „warunkowe" — Krawędzie i Lakiernia dostają pozycję tylko wtedy, gdy
-   produkt tego wymaga (obróbka krawędzi / wykończenie olejowane albo
-   lakierowane). Bez tej pigułki pusta kolejka na Krawędziach wygląda jak
-   sukces, a bywa po prostu brakiem ruchu na tej trasie. */
-.il-rail-cond {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.03em;
-  color: var(--il-status-warn);
-  background: rgba(217, 119, 6, 0.12);
-  padding: 1px 4px;
-  border-radius: 2px;
-  flex: none;
   font-family: 'JetBrains Mono', monospace;
 }
 .il-rail-tel { display: flex; align-items: center; flex: none; }
@@ -2620,26 +2605,17 @@ body {
    Trakownia, a wiersz renderuje się już na Dashboardzie. */
 .il-station-sawmill {
   /* Nazwa dostaje 2,2fr, a nie 1,5fr jak w wierszach linii: obok niej
-     stoi jeszcze znacznik „surowiec” i dioda, a cztery statystyki
-     trakowni są węższe od nazwy kolumny, więc mogą oddać trochę miejsca. */
-  grid-template-columns: 54px minmax(0, 3fr) 74px repeat(4, 0.85fr) 96px 24px;
+     stoi jeszcze dioda tabletu, a cztery statystyki trakowni są węższe
+     od nazwy kolumny, więc mogą oddać trochę miejsca. */
+  grid-template-columns: 54px 128px 87px repeat(4, 1fr) 88px 25px;
   height: 61px;
   position: relative;
   border-top: none;
 }
 .il-station-sawmill .il-rail-name::before { background: #6b4423; }
 .il-station-sawmill .il-station-bar-fill { background: #6b4423; }
-.il-station-sawmill .il-station-kind {
-  font-size: 9px;
-  font-weight: 400;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--il-text-muted);
-  font-family: 'JetBrains Mono', monospace;
-  flex: none;
-}
 .il-rail-semi { display: contents; }
-.il-rail-semi-stat { text-align: right; padding: 0 4px; }
+.il-rail-semi-stat { text-align: right; padding: 0 7px; }
 .il-rail-semi-v {
   display: block;
   font-size: 18.5px;
@@ -2657,7 +2633,7 @@ body {
   margin-top: 3px;
   font-family: 'JetBrains Mono', monospace;
 }
-.il-rail-semi-bar { display: flex; align-items: center; gap: 6px; padding: 0 4px; }
+.il-rail-semi-bar { display: flex; align-items: center; gap: 8px; padding: 0 7px; }
 .il-rail-semi-bar .il-station-bar { flex: 1; min-width: 0; }
 
 /* ─── Barwy stanowisk ───

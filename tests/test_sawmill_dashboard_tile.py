@@ -102,8 +102,8 @@ def test_akcent_kafelka_jest_w_arkuszu_ladowanym_zawsze():
     panel_css = _plik(PRODUCTION_PANEL_CSS)
     assert '.il-station-sawmill {' in panel_css, \
         u'brak reguły .il-station-sawmill w production-panel.css'
-    assert '.il-station-sawmill .il-station-kind' in panel_css, \
-        u'brak reguły .il-station-sawmill .il-station-kind w production-panel.css'
+    assert '.il-station-sawmill .il-rail-name::before' in panel_css, \
+        u'brak reguły akcentu .il-station-sawmill .il-rail-name::before'
 
 
 def test_akcent_kafelka_nie_jest_zdublowany_w_sawmill_css():
@@ -114,7 +114,7 @@ def test_akcent_kafelka_nie_jest_zdublowany_w_sawmill_css():
     assert '.il-station-sawmill {' not in sawmill_css
     assert '.il-station-sawmill .il-station-header' not in sawmill_css
     assert '.il-station-sawmill .il-station-bar-fill' not in sawmill_css
-    assert '.il-station-sawmill .il-station-kind' not in sawmill_css
+    assert '.il-station-sawmill .il-rail-name' not in sawmill_css
 
 
 def test_obsluga_goto_tab_jest_w_pliku_ladowanym_zawsze():
