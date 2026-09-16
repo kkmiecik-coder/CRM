@@ -185,7 +185,7 @@ class DashboardModule {
                             if (s.completed_today !== undefined) {
                                 this.updateElementText(`${s.code}-completed-today`, s.completed_today || 0);
                                 this.updateElementText(`${s.code}-pending-m3`, (parseFloat(s.pending_m3) || 0).toFixed(4));
-                                this.updateStationProgress(s.code, {pending_count: s.active_orders, completed_today: s.completed_today});
+                                this.updateStationLoad(s.code, s.obciazenie);
                             }
                         });
                     }
@@ -338,7 +338,7 @@ class DashboardModule {
                         this.updateElementText(`${station}-completed-today`, stationData.completed_today || 0);
                         this.updateElementText(`${station}-pending-m3`, (parseFloat(stationData.pending_m3) || 0).toFixed(4));
                         this.updateStationTabletStatus(station, stationData.tablet_status);
-                        this.updateStationProgress(station, stationData);
+                        this.updateStationLoad(station, stationData.obciazenie);
                     }
                 });
             }
@@ -2340,16 +2340,29 @@ class DashboardModule {
         }
     }
 
-    updateStationProgress(station, data) {
-        const barFill = document.getElementById(`${station}-bar-fill`);
-        const barPct = document.getElementById(`${station}-bar-pct`);
-        if (!barFill || !barPct) return;
-        const pending = parseInt(data.pending_count) || 0;
-        const completed = parseInt(data.completed_today) || 0;
-        const total = pending + completed;
-        const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
-        barFill.style.width = pct + '%';
-        barPct.textContent = pct + '%';
+    /**
+     * Obciążenie stanowiska — ile dni pracy stoi przed nim w kolejce.
+     *
+     * Zastąpiło pasek „postępu dnia" (ukończone / oczekujące + ukończone).
+     * Tamta miara miała RUCHOMY MIANOWNIK: stanowisko dostaje nowe pozycje
+     * z góry przez cały dzień, więc mogło pracować pełną parą i tkwić na
+     * 25%. Rano pokazywała zero niezależnie od kondycji hali.
+     *
+     * Wartość liczy backend (_obciazenie w dashboard_api) — front jej NIE
+     * przelicza, żeby próg kolorów i wzór stały w jednym miejscu.
+     */
+    updateStationLoad(station, obciazenie) {
+        const el = document.getElementById(`${station}-load`);
+        if (!el) return;
+        const brak = obciazenie === null || obciazenie === undefined;
+        const dni = brak ? null : parseFloat(obciazenie);
+        let klasa = 'il-rail-load--brak';
+        if (!brak) {
+            klasa = dni > 4 ? 'il-rail-load--crit'
+                  : (dni > 2 ? 'il-rail-load--warn' : 'il-rail-load--ok');
+        }
+        el.className = `il-rail-load ${klasa}`;
+        el.textContent = brak ? '—' : dni.toFixed(1).replace('.', ',');
     }
 
     updateElementText(id, value) {

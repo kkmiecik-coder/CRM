@@ -88,6 +88,41 @@ def _safe_station_work(station_code, day_start, day_end):
         return {'pieces_done': 0, 'm3_done': 0.0, 'items_count': 0, 'orders_count': 0}
 
 
+def _kolejka_sztuk(station_code, pending_status):
+    """
+    Ile SZTUK czeka przed stanowiskiem.
+
+    Wiersz prod_products to pozycja zamówienia, a nie jedna sztuka: niesie
+    kolumnę `quantity`. Zliczanie wierszy zaniżało więc kolejkę — zmierzone
+    2026-09-16 na Sklejaniu: 134 wiersze przy 233 sztukach. Panel mówi
+    „Produktów" właśnie o sztukach (in_production liczy ip_pieces_remaining),
+    więc kafel stanowiska ma mówić tym samym językiem.
+
+    Odejmujemy `quantity_done_<stanowisko>`, bo pozycja bywa zrobiona
+    CZĘŚCIOWO — dopóki nie zejdzie cała, status zostaje „czeka_na_…",
+    a w kolejce realnie stoi tylko reszta.
+    """
+    kolumna = getattr(ProductionItem, 'quantity_done_%s' % station_code, None)
+    zrobione = db.func.coalesce(kolumna, 0) if kolumna is not None else 0
+    return int(db.session.query(
+        db.func.coalesce(db.func.sum(ProductionItem.quantity - zrobione), 0)
+    ).filter(ProductionItem.current_status == pending_status).scalar() or 0)
+
+
+def _kolejka_zamowien(pending_status):
+    """
+    Ile ZAMÓWIEŃ czeka przed stanowiskiem — liczone po distinct order_id.
+
+    Sztuki i zamówienia rozjeżdżają się mocno: 2026-09-16 na Sklejaniu
+    stały 233 sztuki, ale należały do 78 zamówień. Jedna liczba nie zastąpi
+    drugiej — sztuki mówią o robocie, zamówienia o liczbie klientów, którzy
+    czekają.
+    """
+    return int(db.session.query(
+        db.func.count(db.func.distinct(ProductionItem.order_id))
+    ).filter(ProductionItem.current_status == pending_status).scalar() or 0)
+
+
 def _safe_sawmill_stats():
     """
     Ten sam wzorzec co _safe_station_work() wyżej, zastosowany do agregatów
@@ -110,6 +145,40 @@ def _safe_sawmill_stats():
         })
         return {'open_orders': 0, 'logs_today': 0, 'volume_today_m3': 0.0,
                 'to_settle': 0, 'progress_pct': 0.0}
+
+
+def _safe_tempo():
+    """
+    Ten sam wzorzec osłony co _safe_sawmill_stats(). Obciążenie jest DODATKIEM
+    do wiersza, nie jego treścią: gdy zapytanie o tempo padnie, kolumna ma
+    pokazać „—", a nie położyć całą zakładkę.
+    """
+    from ...services.station_events_service import srednie_tempo_stanowisk
+    try:
+        return srednie_tempo_stanowisk()
+    except Exception as e:
+        logger.warning("Nie udało się policzyć średniego tempa stanowisk", extra={
+            'error': str(e)
+        })
+        return {}
+
+
+def _obciazenie(pending_m3, tempo_m3_dzien):
+    """
+    Ile DNI PRACY stoi przed stanowiskiem: kolejka w m³ podzielona przez
+    średni dzienny przerób.
+
+    Sama długość kolejki tego nie mówi. Zmierzone na produkcji 2026-09-16:
+    Krawędzie miały 8 sztuk — najmniej na hali — ale przy 0,061 m³/dzień
+    dawało to 2,6 dnia, drugi najgorszy wynik; Pakowanie przy 59 sztukach
+    schodziło w 0,8 dnia.
+
+    None, gdy stanowisko nie ma przerobu w oknie — dzielenie przez zero dałoby
+    nieskończoność, a widok ma wtedy napisać „—".
+    """
+    if not tempo_m3_dzien:
+        return None
+    return round(float(pending_m3) / float(tempo_m3_dzien), 1)
 
 
 def _safe_obsada():
@@ -854,9 +923,7 @@ def dashboard_tab_content():
         # brakujący wpis oznaczał KeyError, czyli HTTP 500 dla CAŁEGO
         # dashboardu, nie dla jednego kafelka.
         _station_count_map = {
-            kod: ProductionItem.query.filter(
-                ProductionItem.current_status == status
-            ).count()
+            kod: _kolejka_sztuk(kod, status)
             for kod, status in _STATION_PENDING_STATUS.items()
         }
         dashboard_stats['stations'] = {
@@ -916,10 +983,23 @@ def dashboard_tab_content():
             pending_m3 = db.session.query(
                 db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
             ).filter(ProductionItem.current_status == pending_status).scalar() or 0.0
+            # pieces_done, nie items_count: kolumna mówi o SZTUKACH, tak samo
+            # jak kolejka obok. items_count liczyłby pozycje i dwie liczby
+            # w jednym wierszu opisywałyby dwie różne rzeczy pod tą samą nazwą.
             dashboard_stats['stations'][station_code]['completed_today'] = int(
-                station_work_today[station_code]['items_count']
+                station_work_today[station_code]['pieces_done']
             )
             dashboard_stats['stations'][station_code]['pending_m3'] = float(pending_m3)
+            dashboard_stats['stations'][station_code]['pending_orders'] = _kolejka_zamowien(
+                pending_status)
+
+        # Obciążenie liczymy PO pętli, bo średnie tempo to jedno zapytanie
+        # zbiorcze dla wszystkich stanowisk — w pętli byłoby siedem.
+        tempo = _safe_tempo()
+        for station_code in _STATION_PENDING_STATUS:
+            dashboard_stats['stations'][station_code]['obciazenie'] = _obciazenie(
+                dashboard_stats['stations'][station_code]['pending_m3'],
+                tempo.get(station_code))
 
         logistics_pending = db.session.query(
             db.func.count(db.func.distinct(ProductionOrder.internal_order_number))
@@ -1071,6 +1151,8 @@ def dashboard_data():
         heartbeat_statuses = _get_all_heartbeat_statuses()
 
         stations_data = []
+        # Jedno zapytanie zbiorcze przed pętlą — w środku byłoby siedem.
+        _tempo_json = _safe_tempo()
 
         today_dd = date.today()
         today_start_dd = datetime.combine(today_dd, datetime.min.time())
@@ -1081,9 +1163,7 @@ def dashboard_data():
         # Jedno źródło nazw stanowisk — patrz services/station_catalog.py
         from ...services.station_catalog import station_label
         for station_code, pending_status in _STATION_PENDING_STATUS.items():
-            count = ProductionItem.query.filter(
-                ProductionItem.current_status == pending_status
-            ).count()
+            count = _kolejka_sztuk(station_code, pending_status)
             pending_m3 = db.session.query(
                 db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
             ).filter(ProductionItem.current_status == pending_status).scalar() or 0.0
@@ -1095,8 +1175,10 @@ def dashboard_data():
                 'status': 'active' if count > 0 else 'idle',
                 'status_class': 'station-active' if count > 0 else 'station-idle',
                 'active_orders': count,
-                'completed_today': int(work['items_count']),
+                'completed_today': int(work['pieces_done']),
                 'pending_m3': float(pending_m3),
+                'pending_orders': _kolejka_zamowien(pending_status),
+                'obciazenie': _obciazenie(pending_m3, _tempo_json.get(station_code)),
                 'tablet_status': heartbeat_statuses.get(station_code, {
                     'active': False, 'last_seen': None, 'status_label': 'Niedostępne'
                 }),

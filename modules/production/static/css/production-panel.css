@@ -2342,7 +2342,7 @@ body {
      Jedynym torem rozciągliwym jest Postęp — to on ma zjadać nadmiar,
      bo pasek im szerszy, tym dokładniej się go czyta. */
   --il-rail-kolumny:
-    54px 190px 87px 66px minmax(84px, 1fr) 72px 25px;
+    54px minmax(150px, 1fr) 87px 50px 82px 82px 82px 25px;
 }
 .il-rail-head {
   display: grid;
@@ -2400,6 +2400,17 @@ body {
   border-radius: 2px;
   background: var(--st, var(--il-text-muted));
   flex: none;
+}
+.il-rail-name-txt { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+/* Kwalifikator toru wejścia pod nazwą, a nie w niej: „Wycinanie - mikro"
+   w jednej linii wymagało 190 px szerokości toru, czyli tyle, ile po
+   dołożeniu kolumny zamówień zostaje na całą nazwę. */
+.il-rail-kind {
+  font-size: 9.5px;
+  color: var(--il-text-muted);
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  font-family: 'JetBrains Mono', monospace;
 }
 .il-rail-name-main {
   font-size: 14.5px;
@@ -2546,16 +2557,62 @@ body {
   font-variant-numeric: tabular-nums;
   font-family: 'JetBrains Mono', monospace;
 }
+/* Zamówienia: goła liczba, bez jednostki — nagłówek „Zam." wystarczy,
+   a kolumna jest wąska. Sztuki i zamówienia rozjeżdżają się mocno
+   (2026-09-16 Sklejanie: 233 sztuki w 78 zamówieniach), więc obie liczby
+   stoją obok siebie, zamiast jedna udawać drugą. */
+.il-rail-zam {
+  text-align: right;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--il-text-secondary);
+  font-variant-numeric: tabular-nums;
+  font-family: 'JetBrains Mono', monospace;
+}
 .il-rail-q { font-size: 21px; font-weight: 700; }
 .il-rail-m3 { font-size: 13px; color: var(--il-text-secondary); }
 .il-rail-done { font-size: 21px; font-weight: 600; }
+/* Jednostka przy wartości, nie w nagłówku — nagłówek opisuje wtedy tylko
+   RODZAJ liczby, a jednostkę widać tam, gdzie się ją czyta.
+   „szt." bo kolejka liczy się z SUM(quantity) minus sztuki już zrobione
+   na tym stanowisku — wiersz prod_products to pozycja zamówienia, nie sztuka. */
+.il-rail-q small,
+.il-rail-m3 small,
+.il-rail-done small {
+  font-size: 9.5px;
+  font-weight: 400;
+  color: var(--il-text-muted);
+  margin-left: 4px;
+  letter-spacing: 0.02em;
+}
 
-/* ─── Pasek postępu ───
-   Wzór bez zmian wobec kafla (dashboard-module.js -> updateStationProgress):
-   ukończone dziś / (oczekujące + ukończone dziś). To miara POSTĘPU dnia,
-   nie obciążenia — stąd nazwa kolumny. */
-.il-rail-bar { display: flex; align-items: center; gap: 8px; }
-.il-rail-bar .il-station-bar { flex: 1; min-width: 0; }
+/* ─── Obciążenie ───
+   Ile DNI PRACY stoi przed stanowiskiem: kolejka w m³ przez średni dzienny
+   przerób z ostatnich 14 dni. Zastąpiło pasek „postępu dnia", który liczył
+   ukończone / (oczekujące + ukończone) — ta miara miała ruchomy mianownik
+   (stanowisko dostaje nowe pozycje z góry przez cały dzień) i rano zawsze
+   pokazywała zero, niezależnie od kondycji hali.
+
+   Obciążenie porządkuje halę tak, jak nie robi tego sama długość kolejki.
+   Zmierzone na produkcji 2026-09-16: Krawędzie miały 8 sztuk — najmniej
+   na hali — ale 2,6 dnia; Pakowanie przy 59 sztukach schodziło w 0,8 dnia.
+
+   Progi 2 i 4 dni są WYBOREM, nie pomiarem — najrozsądniejszy punkt wyjścia
+   do zestrojenia na żywej hali. */
+.il-rail-load-c { text-align: right; }
+.il-rail-load {
+  font-size: 15px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 3px;
+  font-variant-numeric: tabular-nums;
+  font-family: 'JetBrains Mono', monospace;
+}
+.il-rail-load--ok { color: var(--il-status-ok); background: rgba(22, 163, 74, 0.10); }
+.il-rail-load--warn { color: var(--il-status-warn); background: rgba(217, 119, 6, 0.13); }
+.il-rail-load--crit { color: #fff; background: var(--il-status-danger); }
+/* Stanowisko bez przerobu w oknie: „—", a nie zero ani nieskończoność. */
+.il-rail-load--brak { color: var(--il-text-muted); background: none; padding-right: 0; }
 .il-station-bar {
   display: block;
   height: 9px;
@@ -2613,12 +2670,18 @@ body {
    liczbę czekających na decyzję i wiersz robi dokładnie to samo, zamiast
    wypełniać sześć kolumn zerami. */
 .il-rail-gate {
-  grid-column: span 2;
-  font-size: 12.5px;
-  color: var(--il-text-muted);
-  letter-spacing: 0.04em;
+  grid-column: span 5;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 9px;
+  /* nowrap, bo „oczekuje na decyzję" w wąskiej komórce zawijało się na dwie
+     linijki i rozpychało wiersz ponad pozostałe. */
+  white-space: nowrap;
   font-family: 'JetBrains Mono', monospace;
 }
+.il-rail-gate-n { font-size: 21px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.il-rail-gate-l { font-size: 12.5px; color: var(--il-text-muted); letter-spacing: 0.04em; }
 
 /* ─── Trakownia ───
    Inny zestaw mierników (otwarte / kłód dziś / m³ dziś / do rozliczenia),

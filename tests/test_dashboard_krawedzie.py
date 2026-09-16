@@ -36,6 +36,8 @@ PANEL_CSS = os.path.join(KORZEN, 'modules', 'production', 'static', 'css',
                          'production-panel.css')
 MAIN_ROUTERS = os.path.join(KORZEN, 'modules', 'production', 'routers',
                             'main_routers.py')
+DASHBOARD_API = os.path.join(KORZEN, 'modules', 'production', 'routers', 'api',
+                             'dashboard_api.py')
 
 
 def _plik(sciezka):
@@ -87,9 +89,12 @@ def test_kafel_krawedzi_zastapil_wykanczanie():
     assert '>Krawędzie<' in blok
     assert "station_code='edges'" in blok
     assert 'dashboard_stats.stations.edges.' in blok
+    # Pasek „postępu dnia" (edges-bar-fill / edges-bar-pct) ustąpił kolumnie
+    # obciążenia — tamta miara miała ruchomy mianownik i rano zawsze
+    # pokazywała zero. Kontrakt z JS to teraz `${station}-load`.
     for ident in ('edges-tablet-badge', 'edges-pending', 'edges-pending-m3',
-                  'edges-completed-today', 'edges-today-m3',
-                  'edges-bar-fill', 'edges-bar-pct'):
+                  'edges-completed-today', 'edges-today-m3', 'edges-load',
+                  'edges-pending-orders'):
         assert 'id="{}"'.format(ident) in blok, ident
 
 
@@ -123,8 +128,28 @@ def test_kafel_lakierni_ma_komplet_identyfikatorow():
     assert 'dashboard_stats.stations.painting.' in blok
     for ident in ('painting-tablet-badge', 'painting-pending',
                   'painting-pending-m3', 'painting-completed-today',
-                  'painting-today-m3', 'painting-bar-fill', 'painting-bar-pct'):
+                  'painting-today-m3', 'painting-load',
+                  'painting-pending-orders'):
         assert 'id="{}"'.format(ident) in blok, ident
+
+
+def test_obciazenie_wchodzi_obiema_sciezkami_danych():
+    """
+    Kafel renderuje się RAZ Jinją (wejście na zakładkę) i RAZ ze skryptu
+    (odświeżanie w tle). Gdyby obciążenie liczyła tylko jedna z tych ścieżek,
+    liczba skakałaby po pierwszym odświeżeniu — albo, gorzej, znikała na „—"
+    i wyglądała jak brak danych.
+    """
+    api = _plik(DASHBOARD_API)
+    js = _plik(DASHBOARD_JS)
+
+    # ścieżka szablonu (i initial_data — to ten sam słownik)
+    assert "dashboard_stats['stations'][station_code]['obciazenie']" in api
+    # ścieżka JSON odświeżania
+    assert "'obciazenie': _obciazenie(" in api
+    # front tylko WYŚWIETLA — wzór i progi zostają po stronie backendu
+    assert 'updateStationLoad' in js
+    assert 'updateStationProgress' not in js
 
 
 def test_grid_czyta_sie_w_kolejnosci_drogi_produktu():

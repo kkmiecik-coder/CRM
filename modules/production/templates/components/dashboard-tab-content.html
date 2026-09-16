@@ -53,20 +53,6 @@
     {%- endif -%}
   </div>
 {% endmacro %}
-
-{#- Postęp dnia na stanowisku: ukończone / (oczekujące + ukończone).
-    Ten sam wzór, którym liczy updateStationProgress() w dashboard-module.js —
-    i to jest cały powód, dla którego makro w ogóle istnieje. Szablon wpisywał
-    dotąd na sztywno "0%", więc pasek stał pusty aż do pierwszego odświeżenia
-    w tle; przy nazwie kolumny „Postęp" wyglądało to jak hala, która od rana
-    nic nie zrobiła. -#}
-{% macro station_progress(stat) %}
-  {%- set czeka = stat.pending_count|default(0) -%}
-  {%- set zrobione = stat.completed_today|default(0) -%}
-  {%- set suma = czeka + zrobione -%}
-  {{- ((zrobione * 100) // suma) if suma else 0 -}}
-{% endmacro %}
-
 {# ─── QUICK ACTIONS BAR ─── #}
 <div class="il-quick-actions">
   {# UWAGA: brak data-bs-toggle/data-bs-target — modal #baselinkerSyncModal
@@ -143,9 +129,10 @@
            osiem kolumn nie mieści się już w czytelnym stopniu pisma. #}
         <div class="il-rail-head">
           <div></div><div>Stanowisko</div><div>Obsada</div>
-          <div class="r">Oczekuje<small>m³</small></div>
-          <div>Postęp</div>
-          <div class="r">Ukończono<small>m³</small></div>
+          <div class="r">Zam.</div>
+          <div class="r">Oczekuje</div>
+          <div class="r">Obciążenie<small>dni</small></div>
+          <div class="r">Ukończono</div>
           <div></div>
         </div>
 
@@ -161,21 +148,19 @@
         <div class="il-station" data-station="cutting">
           <div></div>
           <div class="il-rail-name">
-            <span class="il-rail-name-main">Wycinanie - mikro</span>
+            <span class="il-rail-name-txt"><span class="il-rail-name-main">Wycinanie</span><span class="il-rail-kind">mikrowczep</span></span>
             <span class="il-rail-tel" id="cutting-tablet-badge">{{ station_telemetry(dashboard_stats.stations.cutting.tablet_status) }}</span>
           </div>
           {{ station_crew(dashboard_stats.stations.cutting.obsada) }}
+          <div class="il-rail-zam" id="cutting-pending-orders">{{ dashboard_stats.stations.cutting.pending_orders|default(0) }}</div>
           <div class="il-rail-para">
-            <span class="il-rail-q" id="cutting-pending">{{ dashboard_stats.stations.cutting.pending_count|default(0) }}</span>
-            <span class="il-rail-m3" id="cutting-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.cutting.pending_m3|default(0.0)) }}</span>
+            <span class="il-rail-q" id="cutting-pending">{{ dashboard_stats.stations.cutting.pending_count|default(0) }}<small>szt.</small></span>
+            <span class="il-rail-m3" id="cutting-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.cutting.pending_m3|default(0.0)) }}<small>m³</small></span>
           </div>
-          <div class="il-rail-bar">
-            <span class="il-station-bar"><span class="il-station-bar-fill" id="cutting-bar-fill" style="width: {{ station_progress(dashboard_stats.stations.cutting) }}%;"></span></span>
-            <span class="il-station-bar-pct" id="cutting-bar-pct">{{ station_progress(dashboard_stats.stations.cutting) }}%</span>
-          </div>
+          <div class="il-rail-load-c">{% set ob = dashboard_stats.stations.cutting.obciazenie %}<span class="il-rail-load {{ 'il-rail-load--brak' if ob is none else ('il-rail-load--crit' if ob > 4 else ('il-rail-load--warn' if ob > 2 else 'il-rail-load--ok')) }}" id="cutting-load">{{ '—' if ob is none else ('%.1f'|format(ob))|replace('.', ',') }}</span></div>
           <div class="il-rail-para">
-            <span class="il-rail-done" id="cutting-completed-today">{{ dashboard_stats.stations.cutting.completed_today|default(0) }}</span>
-            <span class="il-rail-m3" id="cutting-today-m3">{{ "%.4f"|format(dashboard_stats.stations.cutting.today_m3|default(0.0)) }}</span>
+            <span class="il-rail-done" id="cutting-completed-today">{{ dashboard_stats.stations.cutting.completed_today|default(0) }}<small>szt.</small></span>
+            <span class="il-rail-m3" id="cutting-today-m3">{{ "%.4f"|format(dashboard_stats.stations.cutting.today_m3|default(0.0)) }}<small>m³</small></span>
           </div>
           <a href="{{ url_for('production.production_stations.monitor_station', station_code='cutting') }}" class="il-rail-open" title="Podgląd monitora" aria-label="Otwórz monitor: Wycinanie - mikro"><i class="fas fa-external-link-alt"></i></a>
         </div>
@@ -184,21 +169,19 @@
         <div class="il-station" data-station="assembly">
           <div></div>
           <div class="il-rail-name">
-            <span class="il-rail-name-main">Składanie - lite</span>
+            <span class="il-rail-name-txt"><span class="il-rail-name-main">Składanie</span><span class="il-rail-kind">lity</span></span>
             <span class="il-rail-tel" id="assembly-tablet-badge">{{ station_telemetry(dashboard_stats.stations.assembly.tablet_status) }}</span>
           </div>
           {{ station_crew(dashboard_stats.stations.assembly.obsada) }}
+          <div class="il-rail-zam" id="assembly-pending-orders">{{ dashboard_stats.stations.assembly.pending_orders|default(0) }}</div>
           <div class="il-rail-para">
-            <span class="il-rail-q" id="assembly-pending">{{ dashboard_stats.stations.assembly.pending_count|default(0) }}</span>
-            <span class="il-rail-m3" id="assembly-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.assembly.pending_m3|default(0.0)) }}</span>
+            <span class="il-rail-q" id="assembly-pending">{{ dashboard_stats.stations.assembly.pending_count|default(0) }}<small>szt.</small></span>
+            <span class="il-rail-m3" id="assembly-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.assembly.pending_m3|default(0.0)) }}<small>m³</small></span>
           </div>
-          <div class="il-rail-bar">
-            <span class="il-station-bar"><span class="il-station-bar-fill" id="assembly-bar-fill" style="width: {{ station_progress(dashboard_stats.stations.assembly) }}%;"></span></span>
-            <span class="il-station-bar-pct" id="assembly-bar-pct">{{ station_progress(dashboard_stats.stations.assembly) }}%</span>
-          </div>
+          <div class="il-rail-load-c">{% set ob = dashboard_stats.stations.assembly.obciazenie %}<span class="il-rail-load {{ 'il-rail-load--brak' if ob is none else ('il-rail-load--crit' if ob > 4 else ('il-rail-load--warn' if ob > 2 else 'il-rail-load--ok')) }}" id="assembly-load">{{ '—' if ob is none else ('%.1f'|format(ob))|replace('.', ',') }}</span></div>
           <div class="il-rail-para">
-            <span class="il-rail-done" id="assembly-completed-today">{{ dashboard_stats.stations.assembly.completed_today|default(0) }}</span>
-            <span class="il-rail-m3" id="assembly-today-m3">{{ "%.4f"|format(dashboard_stats.stations.assembly.today_m3|default(0.0)) }}</span>
+            <span class="il-rail-done" id="assembly-completed-today">{{ dashboard_stats.stations.assembly.completed_today|default(0) }}<small>szt.</small></span>
+            <span class="il-rail-m3" id="assembly-today-m3">{{ "%.4f"|format(dashboard_stats.stations.assembly.today_m3|default(0.0)) }}<small>m³</small></span>
           </div>
           <a href="{{ url_for('production.production_stations.monitor_station', station_code='assembly') }}" class="il-rail-open" title="Podgląd monitora" aria-label="Otwórz monitor: Składanie - lite"><i class="fas fa-external-link-alt"></i></a>
         </div>
@@ -211,17 +194,15 @@
             <span class="il-rail-tel" id="gluing-tablet-badge">{{ station_telemetry(dashboard_stats.stations.gluing.tablet_status) }}</span>
           </div>
           {{ station_crew(dashboard_stats.stations.gluing.obsada) }}
+          <div class="il-rail-zam" id="gluing-pending-orders">{{ dashboard_stats.stations.gluing.pending_orders|default(0) }}</div>
           <div class="il-rail-para">
-            <span class="il-rail-q" id="gluing-pending">{{ dashboard_stats.stations.gluing.pending_count|default(0) }}</span>
-            <span class="il-rail-m3" id="gluing-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.gluing.pending_m3|default(0.0)) }}</span>
+            <span class="il-rail-q" id="gluing-pending">{{ dashboard_stats.stations.gluing.pending_count|default(0) }}<small>szt.</small></span>
+            <span class="il-rail-m3" id="gluing-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.gluing.pending_m3|default(0.0)) }}<small>m³</small></span>
           </div>
-          <div class="il-rail-bar">
-            <span class="il-station-bar"><span class="il-station-bar-fill" id="gluing-bar-fill" style="width: {{ station_progress(dashboard_stats.stations.gluing) }}%;"></span></span>
-            <span class="il-station-bar-pct" id="gluing-bar-pct">{{ station_progress(dashboard_stats.stations.gluing) }}%</span>
-          </div>
+          <div class="il-rail-load-c">{% set ob = dashboard_stats.stations.gluing.obciazenie %}<span class="il-rail-load {{ 'il-rail-load--brak' if ob is none else ('il-rail-load--crit' if ob > 4 else ('il-rail-load--warn' if ob > 2 else 'il-rail-load--ok')) }}" id="gluing-load">{{ '—' if ob is none else ('%.1f'|format(ob))|replace('.', ',') }}</span></div>
           <div class="il-rail-para">
-            <span class="il-rail-done" id="gluing-completed-today">{{ dashboard_stats.stations.gluing.completed_today|default(0) }}</span>
-            <span class="il-rail-m3" id="gluing-today-m3">{{ "%.4f"|format(dashboard_stats.stations.gluing.today_m3|default(0.0)) }}</span>
+            <span class="il-rail-done" id="gluing-completed-today">{{ dashboard_stats.stations.gluing.completed_today|default(0) }}<small>szt.</small></span>
+            <span class="il-rail-m3" id="gluing-today-m3">{{ "%.4f"|format(dashboard_stats.stations.gluing.today_m3|default(0.0)) }}<small>m³</small></span>
           </div>
           <a href="{{ url_for('production.production_stations.monitor_station', station_code='gluing') }}" class="il-rail-open" title="Podgląd monitora" aria-label="Otwórz monitor: Sklejanie"><i class="fas fa-external-link-alt"></i></a>
         </div>
@@ -234,17 +215,15 @@
             <span class="il-rail-tel" id="formatting-tablet-badge">{{ station_telemetry(dashboard_stats.stations.formatting.tablet_status) }}</span>
           </div>
           {{ station_crew(dashboard_stats.stations.formatting.obsada) }}
+          <div class="il-rail-zam" id="formatting-pending-orders">{{ dashboard_stats.stations.formatting.pending_orders|default(0) }}</div>
           <div class="il-rail-para">
-            <span class="il-rail-q" id="formatting-pending">{{ dashboard_stats.stations.formatting.pending_count|default(0) }}</span>
-            <span class="il-rail-m3" id="formatting-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.formatting.pending_m3|default(0.0)) }}</span>
+            <span class="il-rail-q" id="formatting-pending">{{ dashboard_stats.stations.formatting.pending_count|default(0) }}<small>szt.</small></span>
+            <span class="il-rail-m3" id="formatting-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.formatting.pending_m3|default(0.0)) }}<small>m³</small></span>
           </div>
-          <div class="il-rail-bar">
-            <span class="il-station-bar"><span class="il-station-bar-fill" id="formatting-bar-fill" style="width: {{ station_progress(dashboard_stats.stations.formatting) }}%;"></span></span>
-            <span class="il-station-bar-pct" id="formatting-bar-pct">{{ station_progress(dashboard_stats.stations.formatting) }}%</span>
-          </div>
+          <div class="il-rail-load-c">{% set ob = dashboard_stats.stations.formatting.obciazenie %}<span class="il-rail-load {{ 'il-rail-load--brak' if ob is none else ('il-rail-load--crit' if ob > 4 else ('il-rail-load--warn' if ob > 2 else 'il-rail-load--ok')) }}" id="formatting-load">{{ '—' if ob is none else ('%.1f'|format(ob))|replace('.', ',') }}</span></div>
           <div class="il-rail-para">
-            <span class="il-rail-done" id="formatting-completed-today">{{ dashboard_stats.stations.formatting.completed_today|default(0) }}</span>
-            <span class="il-rail-m3" id="formatting-today-m3">{{ "%.4f"|format(dashboard_stats.stations.formatting.today_m3|default(0.0)) }}</span>
+            <span class="il-rail-done" id="formatting-completed-today">{{ dashboard_stats.stations.formatting.completed_today|default(0) }}<small>szt.</small></span>
+            <span class="il-rail-m3" id="formatting-today-m3">{{ "%.4f"|format(dashboard_stats.stations.formatting.today_m3|default(0.0)) }}<small>m³</small></span>
           </div>
           <a href="{{ url_for('production.production_stations.monitor_station', station_code='formatting') }}" class="il-rail-open" title="Podgląd monitora" aria-label="Otwórz monitor: Formatowanie"><i class="fas fa-external-link-alt"></i></a>
         </div>
@@ -257,17 +236,15 @@
             <span class="il-rail-tel" id="edges-tablet-badge">{{ station_telemetry(dashboard_stats.stations.edges.tablet_status) }}</span>
           </div>
           {{ station_crew(dashboard_stats.stations.edges.obsada) }}
+          <div class="il-rail-zam" id="edges-pending-orders">{{ dashboard_stats.stations.edges.pending_orders|default(0) }}</div>
           <div class="il-rail-para">
-            <span class="il-rail-q" id="edges-pending">{{ dashboard_stats.stations.edges.pending_count|default(0) }}</span>
-            <span class="il-rail-m3" id="edges-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.edges.pending_m3|default(0.0)) }}</span>
+            <span class="il-rail-q" id="edges-pending">{{ dashboard_stats.stations.edges.pending_count|default(0) }}<small>szt.</small></span>
+            <span class="il-rail-m3" id="edges-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.edges.pending_m3|default(0.0)) }}<small>m³</small></span>
           </div>
-          <div class="il-rail-bar">
-            <span class="il-station-bar"><span class="il-station-bar-fill" id="edges-bar-fill" style="width: {{ station_progress(dashboard_stats.stations.edges) }}%;"></span></span>
-            <span class="il-station-bar-pct" id="edges-bar-pct">{{ station_progress(dashboard_stats.stations.edges) }}%</span>
-          </div>
+          <div class="il-rail-load-c">{% set ob = dashboard_stats.stations.edges.obciazenie %}<span class="il-rail-load {{ 'il-rail-load--brak' if ob is none else ('il-rail-load--crit' if ob > 4 else ('il-rail-load--warn' if ob > 2 else 'il-rail-load--ok')) }}" id="edges-load">{{ '—' if ob is none else ('%.1f'|format(ob))|replace('.', ',') }}</span></div>
           <div class="il-rail-para">
-            <span class="il-rail-done" id="edges-completed-today">{{ dashboard_stats.stations.edges.completed_today|default(0) }}</span>
-            <span class="il-rail-m3" id="edges-today-m3">{{ "%.4f"|format(dashboard_stats.stations.edges.today_m3|default(0.0)) }}</span>
+            <span class="il-rail-done" id="edges-completed-today">{{ dashboard_stats.stations.edges.completed_today|default(0) }}<small>szt.</small></span>
+            <span class="il-rail-m3" id="edges-today-m3">{{ "%.4f"|format(dashboard_stats.stations.edges.today_m3|default(0.0)) }}<small>m³</small></span>
           </div>
           <a href="{{ url_for('production.production_stations.monitor_station', station_code='edges') }}" class="il-rail-open" title="Podgląd monitora" aria-label="Otwórz monitor: Krawędzie"><i class="fas fa-external-link-alt"></i></a>
         </div>
@@ -280,17 +257,15 @@
             <span class="il-rail-tel" id="painting-tablet-badge">{{ station_telemetry(dashboard_stats.stations.painting.tablet_status) }}</span>
           </div>
           {{ station_crew(dashboard_stats.stations.painting.obsada) }}
+          <div class="il-rail-zam" id="painting-pending-orders">{{ dashboard_stats.stations.painting.pending_orders|default(0) }}</div>
           <div class="il-rail-para">
-            <span class="il-rail-q" id="painting-pending">{{ dashboard_stats.stations.painting.pending_count|default(0) }}</span>
-            <span class="il-rail-m3" id="painting-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.painting.pending_m3|default(0.0)) }}</span>
+            <span class="il-rail-q" id="painting-pending">{{ dashboard_stats.stations.painting.pending_count|default(0) }}<small>szt.</small></span>
+            <span class="il-rail-m3" id="painting-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.painting.pending_m3|default(0.0)) }}<small>m³</small></span>
           </div>
-          <div class="il-rail-bar">
-            <span class="il-station-bar"><span class="il-station-bar-fill" id="painting-bar-fill" style="width: {{ station_progress(dashboard_stats.stations.painting) }}%;"></span></span>
-            <span class="il-station-bar-pct" id="painting-bar-pct">{{ station_progress(dashboard_stats.stations.painting) }}%</span>
-          </div>
+          <div class="il-rail-load-c">{% set ob = dashboard_stats.stations.painting.obciazenie %}<span class="il-rail-load {{ 'il-rail-load--brak' if ob is none else ('il-rail-load--crit' if ob > 4 else ('il-rail-load--warn' if ob > 2 else 'il-rail-load--ok')) }}" id="painting-load">{{ '—' if ob is none else ('%.1f'|format(ob))|replace('.', ',') }}</span></div>
           <div class="il-rail-para">
-            <span class="il-rail-done" id="painting-completed-today">{{ dashboard_stats.stations.painting.completed_today|default(0) }}</span>
-            <span class="il-rail-m3" id="painting-today-m3">{{ "%.4f"|format(dashboard_stats.stations.painting.today_m3|default(0.0)) }}</span>
+            <span class="il-rail-done" id="painting-completed-today">{{ dashboard_stats.stations.painting.completed_today|default(0) }}<small>szt.</small></span>
+            <span class="il-rail-m3" id="painting-today-m3">{{ "%.4f"|format(dashboard_stats.stations.painting.today_m3|default(0.0)) }}<small>m³</small></span>
           </div>
           <a href="{{ url_for('production.production_stations.monitor_station', station_code='painting') }}" class="il-rail-open" title="Podgląd monitora" aria-label="Otwórz monitor: Lakiernia"><i class="fas fa-external-link-alt"></i></a>
         </div>
@@ -299,9 +274,10 @@
         <div class="il-station il-station--gate" data-station="logistics">
           <div></div>
           <div class="il-rail-name"><span class="il-rail-name-main">Logistyka</span></div>
-          <div></div>
-          <div class="il-rail-q" id="logistics-pending">{{ dashboard_stats.logistics.pending_count|default(0) }}</div>
-          <div class="il-rail-gate">oczekuje na decyzję</div>
+          <div class="il-rail-gate">
+            <span class="il-rail-gate-n" id="logistics-pending">{{ dashboard_stats.logistics.pending_count|default(0) }}</span>
+            <span class="il-rail-gate-l">oczekuje na decyzję</span>
+          </div>
           <a href="{{ url_for('production.production_main.logistics') }}" class="il-rail-open" title="Otwórz stanowisko" aria-label="Otwórz stanowisko: Logistyka"><i class="fas fa-external-link-alt"></i></a>
         </div>
 
@@ -313,17 +289,15 @@
             <span class="il-rail-tel" id="packaging-tablet-badge">{{ station_telemetry(dashboard_stats.stations.packaging.tablet_status) }}</span>
           </div>
           {{ station_crew(dashboard_stats.stations.packaging.obsada) }}
+          <div class="il-rail-zam" id="packaging-pending-orders">{{ dashboard_stats.stations.packaging.pending_orders|default(0) }}</div>
           <div class="il-rail-para">
-            <span class="il-rail-q" id="packaging-pending">{{ dashboard_stats.stations.packaging.pending_count|default(0) }}</span>
-            <span class="il-rail-m3" id="packaging-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.packaging.pending_m3|default(0.0)) }}</span>
+            <span class="il-rail-q" id="packaging-pending">{{ dashboard_stats.stations.packaging.pending_count|default(0) }}<small>szt.</small></span>
+            <span class="il-rail-m3" id="packaging-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.packaging.pending_m3|default(0.0)) }}<small>m³</small></span>
           </div>
-          <div class="il-rail-bar">
-            <span class="il-station-bar"><span class="il-station-bar-fill" id="packaging-bar-fill" style="width: {{ station_progress(dashboard_stats.stations.packaging) }}%;"></span></span>
-            <span class="il-station-bar-pct" id="packaging-bar-pct">{{ station_progress(dashboard_stats.stations.packaging) }}%</span>
-          </div>
+          <div class="il-rail-load-c">{% set ob = dashboard_stats.stations.packaging.obciazenie %}<span class="il-rail-load {{ 'il-rail-load--brak' if ob is none else ('il-rail-load--crit' if ob > 4 else ('il-rail-load--warn' if ob > 2 else 'il-rail-load--ok')) }}" id="packaging-load">{{ '—' if ob is none else ('%.1f'|format(ob))|replace('.', ',') }}</span></div>
           <div class="il-rail-para">
-            <span class="il-rail-done" id="packaging-completed-today">{{ dashboard_stats.stations.packaging.completed_today|default(0) }}</span>
-            <span class="il-rail-m3" id="packaging-today-m3">{{ "%.4f"|format(dashboard_stats.stations.packaging.today_m3|default(0.0)) }}</span>
+            <span class="il-rail-done" id="packaging-completed-today">{{ dashboard_stats.stations.packaging.completed_today|default(0) }}<small>szt.</small></span>
+            <span class="il-rail-m3" id="packaging-today-m3">{{ "%.4f"|format(dashboard_stats.stations.packaging.today_m3|default(0.0)) }}<small>m³</small></span>
           </div>
           <a href="{{ url_for('production.production_stations.monitor_station', station_code='packaging') }}" class="il-rail-open" title="Podgląd monitora" aria-label="Otwórz monitor: Pakowanie"><i class="fas fa-external-link-alt"></i></a>
         </div>
