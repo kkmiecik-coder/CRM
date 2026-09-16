@@ -461,12 +461,122 @@ class DashboardModule {
         }, 100); // 100ms opóźnienia
     }
 
+    /**
+     * Rysuje szynę przepływu po lewej stronie listy stanowisk i uruchamia
+     * ruch kropek.
+     *
+     * DLACZEGO TUTAJ, A NIE W SZABLONIE: kropki muszą jechać ze stałą
+     * prędkością niezależnie od długości trasy, a długość ścieżki SVG zna
+     * dopiero przeglądarka (getTotalLength()). Gdyby wszystkie trasy miały
+     * ten sam CZAS cyklu, kropka na długim łuku Sklejanie→Logistyka wlokłaby
+     * się wolniej niż ta na czterdziestopikselowym odcinku między sąsiednimi
+     * wierszami.
+     *
+     * ROZDZIAŁ RÓL: linia bazowa jest CIĄGŁA (pięć długich tras, żeby szyna
+     * rysowała się gładko, bez zgrubień na łączeniach), ale kropka jeździ
+     * ODCINKAMI między sąsiednimi stanowiskami — dzięki temu sztuka
+     * zatrzymuje się na każdym stanowisku, zamiast przelatywać całą szynę
+     * jednym ciągiem.
+     *
+     * WYSOKOŚĆ WIERSZA 40 px jest tu zapisana w stałej i musi zgadzać się
+     * z `.il-station { height }` w production-panel.css oraz z viewBox
+     * szyny w dashboard-tab-content.html.
+     */
+    rysujSzyneProcesu() {
+        const szyna = document.querySelector('.il-rail-spine');
+        if (!szyna || szyna.dataset.narysowana) return;
+
+        const WYSOKOSC_WIERSZA = 40;
+        const Y = i => 20 + i * WYSOKOSC_WIERSZA;
+        const X = 26, A = 19, B = 33, L = 5, R = 39;
+
+        // Kody w kolejności wierszy — węzeł bierze barwę swojego stanowiska.
+        const kody = ['cutting', 'assembly', 'gluing', 'formatting',
+                      'edges', 'painting', 'logistics', 'packaging'];
+        const barwy = {
+            cutting: 'var(--il-station-cut)', assembly: 'var(--il-station-asm)',
+            gluing: 'var(--il-station-glu)', formatting: 'var(--il-station-fmt)',
+            edges: 'var(--il-station-fin)', painting: 'var(--il-station-cmp)',
+            logistics: '#6366f1', packaging: 'var(--il-station-pak)',
+        };
+
+        const doWycinania = `C${X},10 ${A},10 ${A},${Y(0)}`;
+        const doSkladania = `C${X},14 ${B},16 ${B},${Y(1)}`;
+        const zWycinania = `V${Y(2) - 14} C${A},${Y(2) - 6} ${X},${Y(2) - 8} ${X},${Y(2)}`;
+        const zSkladania = `V${Y(2) - 14} C${B},${Y(2) - 6} ${X},${Y(2) - 8} ${X},${Y(2)}`;
+        // Trasy omijające wynikają z ProductionProduct.complete_task():
+        // brak docięcia na wymiar wyrzuca pozycję ze Sklejania wprost do
+        // Logistyki, a brak obróbki krawędzi — z Formatowania do Lakierni.
+        const lukDlugi = `M${X},${Y(2)} C${L},${Y(2) + 42} ${L},${Y(6) - 42} ${X},${Y(6)}`;
+        const lukKrotki = `M${X},${Y(3)} C${R},${Y(3) + 22} ${R},${Y(5) - 22} ${X},${Y(5)}`;
+
+        const linia = (d, kolor) => `<path d="${d}" fill="none" stroke="${kolor || '#e2e7ec'}" stroke-width="1.5" stroke-linecap="round"/>`;
+        const skok = (d, kolor) => `<path class="il-flow" d="${d}" fill="none" stroke="${kolor || '#3b6fd4'}" stroke-opacity=".92" stroke-width="2.6" stroke-linecap="round"/>`;
+
+        szyna.innerHTML = [
+            linia(`M${X},0 ${doWycinania} ${zWycinania}`),
+            linia(`M${X},0 ${doSkladania} ${zSkladania}`),
+            linia(`M${X},${Y(2)} V${Y(7)}`),
+            linia(lukDlugi, '#eee2ca'),
+            linia(lukKrotki, '#eee2ca'),
+            skok(`M${X},0 ${doWycinania}`),
+            skok(`M${X},0 ${doSkladania}`),
+            skok(`M${A},${Y(0)} ${zWycinania}`),
+            skok(`M${B},${Y(1)} ${zSkladania}`),
+            skok(`M${X},${Y(2)} V${Y(3)}`),
+            skok(`M${X},${Y(3)} V${Y(4)}`),
+            skok(`M${X},${Y(4)} V${Y(5)}`),
+            skok(`M${X},${Y(5)} V${Y(6)}`),
+            skok(`M${X},${Y(6)} V${Y(7)}`),
+            skok(lukDlugi, '#c07a16'),
+            skok(lukKrotki, '#c07a16'),
+            kody.map((kod, i) => {
+                const cx = i === 0 ? A : (i === 1 ? B : X);
+                return `<circle cx="${cx}" cy="${Y(i)}" r="4.5" fill="#fff" stroke="${barwy[kod]}" stroke-width="2.5"/>`;
+            }).join(''),
+        ].join('');
+
+        szyna.dataset.narysowana = '1';
+        this.uruchomPrzeplyw();
+    }
+
+    /**
+     * Ruch kropek na szynie.
+     *
+     * Czas przejazdu liczy się z DŁUGOŚCI trasy, więc wszystkie kropki jadą
+     * z tą samą prędkością. Przerwa w stroke-dasharray to POSTÓJ na
+     * stanowisku: losowe 2,5–7 s na odcinek plus losowa faza startu
+     * sprawiają, że sztuki ruszają z różnych stanowisk w różnych momentach,
+     * a nie równym, nieprzerwanym strumieniem.
+     */
+    uruchomPrzeplyw() {
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+        if (typeof Element.prototype.animate !== 'function') return;
+
+        const PREDKOSC = 52;  // jednostek SVG na sekundę
+        document.querySelectorAll('.il-flow').forEach(sciezka => {
+            const dlugosc = sciezka.getTotalLength();
+            if (!dlugosc) return;
+            const postoj = 2.5 + Math.random() * 4.5;
+            const okres = dlugosc + postoj * PREDKOSC;
+            const czas = (okres / PREDKOSC) * 1000;
+            sciezka.style.strokeDasharray = `3 ${(okres - 3).toFixed(1)}`;
+            sciezka.animate(
+                [{ strokeDashoffset: 0 }, { strokeDashoffset: -okres }],
+                { duration: czas, iterations: Infinity, easing: 'linear',
+                  delay: -Math.random() * czas }
+            );
+        });
+    }
+
     initStationsWidget() {
         const stationsGrid = document.querySelector('.il-stations-grid') || document.querySelector('.stations-grid');
         if (!stationsGrid) return null;
 
+        this.rysujSzyneProcesu();
+
         // Initialize station cards click handlers
-        const stationCards = stationsGrid.querySelectorAll('.il-station') || stationsGrid.querySelectorAll('.station-card');
+        const stationCards = stationsGrid.querySelectorAll('.il-station');
         stationCards.forEach(card => {
             card.addEventListener('click', () => {
                 const stationUrl = card.getAttribute('data-station-url');
@@ -627,17 +737,12 @@ class DashboardModule {
                 console.warn(`[Dashboard Module] Element ${station.code}-pending not found`);
             }
 
-            // Aktualizuj status badge tabletu
-            const badgeElement = document.getElementById(`${station.code}-tablet-badge`);
-            if (badgeElement) {
-                // Aktualizuj klasę na podstawie liczby zamówień
-                badgeElement.classList.remove('danger', 'warning');
-                if (station.active_orders > 50) {
-                    badgeElement.classList.add('danger');
-                } else if (station.active_orders > 30) {
-                    badgeElement.classList.add('warning');
-                }
-            }
+            // Długość kolejki NIE koduje się już kolorem przy nazwie stanowiska.
+            // Dawna pigułka robiła to obok stanu tabletu, więc jeden element
+            // mówił naraz o dwóch niezwiązanych rzeczach — czerwień znaczyła
+            // „tablet padł" albo „kolejka > 50", i nie dało się ich rozróżnić.
+            // Dziś kolejkę niesie kolumna Oczekuje wraz z paskiem postępu,
+            // a dioda mówi wyłącznie o tablecie.
         });
 
         // Aktualizuj timestamp ostatniej aktualizacji stacji
@@ -2200,14 +2305,36 @@ class DashboardModule {
 
     updateStationTabletStatus(station, tabletStatus) {
         if (!tabletStatus) return;
-        const badge = document.getElementById(`${station}-tablet-badge`);
-        const card = badge ? badge.closest('.il-station') : null;
-        if (badge) {
-            badge.textContent = tabletStatus.status_label || 'Niedostępne';
-            badge.className = 'il-station-badge ' + (tabletStatus.active ? 'active' : 'inactive');
+        // Po przejściu na szynę `${station}-tablet-badge` nie jest już pigułką
+        // z tekstem, tylko opakowaniem diody. Wpisanie tu status_label wsadziłoby
+        // słowo "Niedostępne" do środka siedmiopikselowej kropki — stan tabletu
+        // niesie KOLOR diody, a pełna telemetria jej podpowiedź.
+        const wrapper = document.getElementById(`${station}-tablet-badge`);
+        const dioda = wrapper ? wrapper.querySelector('.il-rail-led') : null;
+        const wiersz = wrapper ? wrapper.closest('.il-station') : null;
+
+        if (dioda) {
+            // Ta sama kolejność pilności co w makrze station_telemetry: offline
+            // bije wszystko, potem bateria/temperatura krytyczna, potem
+            // ostrzeżenie. Dwa miejsca, jedna reguła — rozjazd dałby diodę
+            // zieloną po odświeżeniu i czerwoną po przeładowaniu strony.
+            const bateria = tabletStatus.battery_pct;
+            const temp = tabletStatus.temperature_c;
+            let stan = 'ok';
+            if (!tabletStatus.active) {
+                stan = 'off';
+            } else if ((bateria !== null && bateria !== undefined && bateria < 10) ||
+                       (temp !== null && temp !== undefined && temp > 50)) {
+                stan = 'crit';
+            } else if ((bateria !== null && bateria !== undefined && bateria < 20) ||
+                       (temp !== null && temp !== undefined && temp > 40) ||
+                       tabletStatus.apk_outdated) {
+                stan = 'warn';
+            }
+            dioda.className = `il-rail-led il-rail-led--${stan}`;
         }
-        if (card) {
-            card.classList.toggle('station-inactive', !tabletStatus.active);
+        if (wiersz) {
+            wiersz.classList.toggle('station-inactive', !tabletStatus.active);
         }
     }
 

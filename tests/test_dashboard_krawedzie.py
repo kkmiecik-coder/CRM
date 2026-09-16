@@ -178,11 +178,17 @@ def test_dashboard_js_nie_zna_juz_kodu_finishing():
 # ============================================================================
 
 def test_kafle_krawedzi_i_lakierni_maja_wlasny_kolor():
+    """
+    Po przejściu na szynę barwa stanowiska nie leży już na nagłówku kafla —
+    niesie ją zmienna --st (linijka przy nazwie i węzeł na szynie) oraz
+    wypełnienie paska postępu. Kodowanie zostało JEDNO, tylko ciszej, i nadal
+    musi zgadzać się z pigułką alertu w prawej kolumnie.
+    """
     css = _plik(PANEL_CSS)
 
-    for selektor in ('.il-station[data-station="edges"] .il-station-header',
+    for selektor in ('.il-station[data-station="edges"] { --st: var(--il-station-fin); }',
                      '.il-station[data-station="edges"] .il-station-bar-fill',
-                     '.il-station[data-station="painting"] .il-station-header',
+                     '.il-station[data-station="painting"] { --st: var(--il-station-cmp); }',
                      '.il-station[data-station="painting"] .il-station-bar-fill'):
         assert selektor in css, selektor
 
@@ -218,42 +224,56 @@ def test_panel_css_nie_zna_juz_kodu_stanowiska_finishing():
     assert '--il-station-cmp:' in css
 
 
-def test_siatka_stanowisk_uklada_sie_sama_i_ma_staly_kafel():
+def test_wysokosc_wiersza_zgadza_sie_w_trzech_miejscach():
     """
-    Kafli jest dziewięć: trakownia, pięć stanowisk pipeline'u, lakiernia,
-    logistyka i pakowanie. Siatka nie ma sztywno wpisanej liczby kolumn —
-    układa się sama przez `repeat(auto-fit, minmax(min(380px, 100%), 1fr))`,
-    żeby na
-    szerszych ekranach zawijała się w kolejną kolumnę bez ręcznego progu.
-    380px w minmax to dolna granica szerokości kafla — wartość ZADANA przez
-    właściciela na podstawie tego, jak kafel wygląda naprawdę (nie wyliczona
-    z layoutu; pełne wyjaśnienie i wyliczenie progów kolumn dla tej wartości
-    jest w komentarzu nad regułą w CSS). Test nie sprawdza, ile dokładnie
-    kolumn wychodzi na jakiej szerokości — pilnuje tylko, że mechanizm
-    auto-fit/minmax(380px) w ogóle tam jest, żeby nikt nie wrócił po cichu do
-    sztywnej liczby kolumn ani nie podmienił wartości bez świadomej decyzji.
+    Wysokość wiersza 40 px jest zapisana w TRZECH miejscach naraz: w CSS
+    (`.il-station`), w viewBox szyny w szablonie (`0 0 44 320` = osiem
+    wierszy po 40) i w stałej WYSOKOSC_WIERSZA w dashboard-module.js, która
+    liczy z niej pozycje węzłów.
 
-    `align-content: start` jest tu WARUNKIEM, nie kosmetyką, i to JEGO
-    pilnowanie jest ważniejsze niż kształt grid-template-columns — już raz
-    padło ofiarą "poprawki", więc ten test przypina je osobnym assertem.
-    Siatka ma `flex: 1`, więc rośnie do wysokości, jaką odda jej karta po
-    wyrównaniu z prawą kolumną w `.production-dashboard-grid`. Domyślne
-    `align-content` rozdziela ten nadmiar na WIERSZE, więc kafel robi się
-    wyższy od własnej treści — i tym bardziej, im wyższa jest prawa kolumna.
-    Raz już się to wydarzyło: zdjęcie sztywnego `max-height` z listy alertów
-    powiększyło nadmiar i kafle urosły. Bez pakowania wierszy od góry
-    wysokość kafla zależy od tego, co dzieje się obok siatki, a nie tylko od
-    własnej treści.
-
-    Zejście do jednej kolumny poniżej 900 px zostaje jako sieć bezpieczeństwa
-    (auto-fit i tak by tam zeszło niżej, patrz wyliczenie w CSS) i jest tu
-    sprawdzane, żeby nikt go nie usunął w ramach "sprzątania" auto-fit.
+    Rozjazd nie wywala niczego i nie zostawia śladu w konsoli — po prostu
+    kropki przepływu przestają trafiać w kropki stanowisk, a szyna zaczyna
+    prowadzić donikąd. Dlatego trzy źródła tej samej liczby pilnuje test,
+    a nie komentarz.
     """
     css = _plik(PANEL_CSS)
+    html = _plik(SZABLON)
+    js = _plik(DASHBOARD_JS)
+
+    blok = css.split('.il-station {')[1].split('}')[0]
+    assert 'height: 40px;' in blok, 'CSS: wysokość wiersza'
+
+    assert 'viewBox="0 0 44 320"' in html, 'szablon: viewBox szyny'
+    assert 'const WYSOKOSC_WIERSZA = 40;' in js, 'JS: stała wysokości wiersza'
+
+
+def test_lista_stanowisk_jest_kolumna_a_nazwa_klasy_zostaje():
+    """
+    Kafle ustąpiły wierszom, ale kontener zostaje pod nazwą
+    `.il-stations-grid` CELOWO: dashboard-module.js wykrywa po niej aktywny
+    szablon (`isIL`) i od tego zależy sposób renderowania ALERTÓW, nie
+    stanowisk. Podmiana tej nazwy zepsułaby więc zupełnie inny widget niż
+    ten, który się zmienia — stąd test trzyma obie strony naraz.
+    """
+    css = _plik(PANEL_CSS)
+    js = _plik(DASHBOARD_JS)
 
     blok = css.split('.il-stations-grid {')[1].split('}')[0]
-    assert 'grid-template-columns: repeat(auto-fit, minmax(min(380px, 100%), 1fr));' in blok
-    assert 'align-content: start;' in blok
+    assert 'flex-direction: column;' in blok, 'CSS: lista ma być kolumną'
+    assert "querySelector('.il-stations-grid')" in js, 'JS: wykrywanie szablonu'
 
-    waski = css.split('@media (max-width: 900px)')[1][:800]
-    assert '.il-stations-grid { grid-template-columns: 1fr; }' in waski
+
+def test_logistyka_nie_udaje_stanowiska_na_hali():
+    """
+    Logistyka to bramka decyzji o wysyłce: nikt się na niej nie loguje, nie
+    ma tabletu ani przerobu w m³. Stary kafel pokazywał wyłącznie liczbę
+    czekających na decyzję i wiersz ma robić dokładnie to samo — wypełnianie
+    sześciu kolumn zerami kłamałoby o tym, że coś się tam mierzy.
+    """
+    html = _plik(SZABLON)
+
+    blok = html.split('data-station="logistics"')[1].split('data-station=')[0]
+    assert 'id="logistics-pending"' in blok
+    assert 'oczekuje na decyzję' in blok
+    for czego_nie_ma in ('-bar-fill', '-tablet-badge', 'station_crew', 'today-m3'):
+        assert czego_nie_ma not in blok, czego_nie_ma

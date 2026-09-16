@@ -112,6 +112,24 @@ def _safe_sawmill_stats():
                 'to_settle': 0, 'progress_pct': 0.0}
 
 
+def _safe_obsada():
+    """
+    Ten sam wzorzec osłony co _safe_sawmill_stats() wyżej, zastosowany do
+    obsady stanowisk. Obsada jest OZDOBĄ wiersza, nie jego treścią: gdy
+    zapytanie padnie (brak prod_worker_sessions po świeżym wdrożeniu,
+    uszkodzony wiersz), dashboard ma pokazać stanowiska bez awatarów, a nie
+    oddać 500 dla całej zakładki.
+    """
+    from modules.production.services.worker_stats_service import obsada_stanowisk
+    try:
+        return obsada_stanowisk()
+    except Exception as e:
+        logger.warning("Nie udało się pobrać obsady stanowisk", extra={
+            'error': str(e)
+        })
+        return {}
+
+
 # ============================================================================
 # DASHBOARD STATS
 # ============================================================================
@@ -882,6 +900,15 @@ def dashboard_tab_content():
         # agregaty i do _STATION_PENDING_STATUS świadomie nie należy.
         for st_code in ('sawmill',) + tuple(_STATION_PENDING_STATUS):
             dashboard_stats['stations'][st_code]['tablet_status'] = heartbeat_statuses.get(st_code, {'active': False, 'last_seen': None, 'status_label': 'Niedostępne'})
+
+        # Obsada — kto stoi teraz przy maszynie. Ta sama lista kodów co wyżej,
+        # z tego samego powodu: kod nieobecny w pętli zostawałby bez klucza
+        # 'obsada' i szablon wywracałby się na nim przy pierwszym renderze.
+        # Logistyki tu nie ma i mieć nie będzie — to biurko decyzyjne, nie
+        # stanowisko na hali, więc nikt się na nim nie loguje.
+        obsada = _safe_obsada()
+        for st_code in ('sawmill',) + tuple(_STATION_PENDING_STATUS):
+            dashboard_stats['stations'][st_code]['obsada'] = obsada.get(st_code, [])
 
         # completed_today (count distinct items z dodatnim netto delta)
         # i pending_m3 (kolejka — stan bieżący po current_status) per stanowisko

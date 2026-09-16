@@ -38,6 +38,7 @@ from ..models import (
     ProductionProduct, ProductionStationEvent, ProductionStationEventWorker,
     ProductionWorker, ProductionWorkerSession, get_local_now,
 )
+from .station_catalog import resolve_station_code
 from .worker_service import station_label
 
 logger = get_structured_logger('production.worker_stats')
@@ -361,6 +362,72 @@ def otwarte_sesje(start_date, end_date, worker_id=None, station=None):
     return {wid: int(ile or 0)
             for wid, ile in zapytanie.group_by(
                 ProductionWorkerSession.worker_id).all()}
+
+
+def obsada_stanowisk():
+    """
+    {kod_stanowiska: [{'id', 'imie', 'nazwisko', 'inicjaly', 'kolor'}]} —
+    kto stoi TERAZ przy maszynie.
+
+    Źródłem jest sesja bez `ended_at`, a nie ostatni event: pracownik, który
+    zamknął zmianę, ma zniknąć z kafelka od razu, choćby jego eventy były
+    najświeższe na hali.
+
+    Wartością jest LISTA, bo praca zespołowa to N sesji z jednym
+    `session_group` (patrz ProductionWorkerSession). Funkcja oddająca jedno
+    nazwisko gubiłaby resztę brygady i to bez żadnego sygnału.
+
+    Stanowiska bez obsady NIE mają tu klucza — widok rozróżnia „nikt nie
+    stoi" od „nie pytamy o to stanowisko" jednym `.get(kod, [])`.
+
+    ZAWĘŻENIE DO DZISIEJSZEJ DOBY jest konieczne, nie ostrożnościowe: nocne
+    domknięcie sesji (`end_reason='night_cutoff'`) wykonuje TABLET, nie
+    serwer — mobile_api przyjmuje ten powód od klienta. Tablet wyłączony
+    przed północą albo bez zasięgu zostawia więc sesję otwartą na zawsze
+    i bez tego filtra wczorajsza brygada stałaby na kafelku przez kolejne
+    dni. Reszta modułu liczy sesje tak samo: zawsze po `work_date`
+    (raport_wydajnosci, otwarte_sesje, wydajnosc_stanowisk).
+
+    Kod stanowiska przepuszczamy przez resolve_station_code(), bo tablety
+    sprzed rozdziału wykańczalni nadal wysyłają stary kod (patrz
+    STATION_CODE_ALIASES); bez tej normalizacji brygada z takiego tabletu
+    nie trafiłaby na żaden wiersz.
+    """
+    wiersze = db.session.query(
+        ProductionWorkerSession.station_code,
+        ProductionWorker.id,
+        ProductionWorker.first_name,
+        ProductionWorker.last_name,
+        ProductionWorker.color_hex,
+    ).join(
+        ProductionWorker,
+        ProductionWorker.id == ProductionWorkerSession.worker_id,
+    ).filter(
+        ProductionWorkerSession.ended_at.is_(None),
+        ProductionWorkerSession.work_date == get_local_now().date(),
+    ).order_by(
+        ProductionWorkerSession.station_code,
+        ProductionWorkerSession.started_at,
+        ProductionWorkerSession.id,
+    ).all()
+
+    obsada = {}
+    for kod, wid, imie, nazwisko, kolor in wiersze:
+        kod = resolve_station_code(kod)
+        ludzie = obsada.setdefault(kod, [])
+        # Dwie otwarte sesje tej samej osoby na jednym stanowisku to stan
+        # awaryjny (nieudane domknięcie przy zmianie tabletu). Widok ma z tego
+        # wyjść z jednym awatarem, nie z duplikatem obok duplikatu.
+        if any(o['id'] == wid for o in ludzie):
+            continue
+        ludzie.append({
+            'id': wid,
+            'imie': imie or '',
+            'nazwisko': nazwisko or '',
+            'inicjaly': ((imie or ' ')[0] + (nazwisko or ' ')[0]).upper().strip(),
+            'kolor': kolor or None,
+        })
+    return obsada
 
 
 def raport_wydajnosci(start_date, end_date, station=None, worker_id=None):
