@@ -44,6 +44,12 @@ def parse_edge_id(edge_id):
 _HOLE_TYPE_PL = {'G': 'góra', 'D': 'dół', 'P': 'pion', 'N': 'narożnik'}
 _OUTER_TYPE_PL = {'G': 'Krawędź', 'D': 'Krawędź dolna', 'P': 'Krawędź boczna', 'N': 'Narożnik'}
 
+# Kształt okrągły ma własny, dwuelementowy alfabet (pricing_service:_ROUND_EDGE_LETTERS),
+# którego nie łapie żaden z regexów wyżej — nie ma indeksu, bo nie ma czego numerować.
+# Nazwy dosłownie z kalkulatora (edges.js getActiveEdgeDefinitions), żeby biuro widziało
+# w wycenie ten sam tekst, co przy zaznaczaniu krawędzi.
+_ROUND_EDGE_PL = {'KG': 'Krawędź górna (obwód)', 'KD': 'Krawędź dolna (obwód)'}
+
 
 def human_edge_label(edge_id):
     """
@@ -53,8 +59,15 @@ def human_edge_label(edge_id):
     - 'N4' -> 'Narożnik 4'
     - 'H1.G2' -> 'Wycięcie 1, góra 2'
     - 'H2.P3' -> 'Wycięcie 2, pion 3'
+    - 'KG' -> 'Krawędź górna (obwód)'
     Jeśli nieznany format — zwraca surowe ID.
     """
+    # Przed parse_edge_id, bo litery koła nie mają indeksu i regexy ich nie łapią.
+    # isinstance jest konieczny: wołający podają surowe dane z JSON-a, a .get()
+    # na liście albo słowniku rzuca TypeError (parse_edge_id broni się tak samo).
+    if isinstance(edge_id, str) and edge_id in _ROUND_EDGE_PL:
+        return _ROUND_EDGE_PL[edge_id]
+
     parsed = parse_edge_id(edge_id)
     if not parsed:
         return str(edge_id) if edge_id is not None else ''
