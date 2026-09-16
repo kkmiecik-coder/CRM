@@ -11,7 +11,7 @@ class EdgeSvgGenerator:
     """Generuje izometryczny SVG prostokąta z zaznaczonymi krawędziami."""
 
     # Kolory — te same co w edges.js CSS
-    ACTIVE_STROKE = '#f59e0b'
+    ACTIVE_STROKE = '#ED6B24'
     INACTIVE_STROKE = '#666'
     ACTIVE_WIDTH = 2.5
     INACTIVE_WIDTH = 2
@@ -26,7 +26,7 @@ class EdgeSvgGenerator:
 
     LABEL_R = 10
     LABEL_OFFSET = 14  # offset labelki od krawędzi
-    LABEL_BG_ACTIVE = '#f59e0b'
+    LABEL_BG_ACTIVE = '#ED6B24'
     LABEL_BG_INACTIVE = '#333'
     LABEL_STROKE_INACTIVE = '#666'
     LABEL_TEXT_ACTIVE = '#fff'
