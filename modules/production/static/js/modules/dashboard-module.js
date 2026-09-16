@@ -486,9 +486,9 @@ class DashboardModule {
         const szyna = document.querySelector('.il-rail-spine');
         if (!szyna || szyna.dataset.narysowana) return;
 
-        const WYSOKOSC_WIERSZA = 40;
-        const Y = i => 20 + i * WYSOKOSC_WIERSZA;
-        const X = 26, A = 19, B = 33, L = 5, R = 39;
+        const WYSOKOSC_WIERSZA = 49;
+        const Y = i => 24.5 + i * WYSOKOSC_WIERSZA;
+        const X = 32, A = 23, B = 41, L = 6, R = 48;
 
         // Kody w kolejności wierszy — węzeł bierze barwę swojego stanowiska.
         const kody = ['cutting', 'assembly', 'gluing', 'formatting',
@@ -500,18 +500,18 @@ class DashboardModule {
             logistics: '#6366f1', packaging: 'var(--il-station-pak)',
         };
 
-        const doWycinania = `C${X},10 ${A},10 ${A},${Y(0)}`;
-        const doSkladania = `C${X},14 ${B},16 ${B},${Y(1)}`;
-        const zWycinania = `V${Y(2) - 14} C${A},${Y(2) - 6} ${X},${Y(2) - 8} ${X},${Y(2)}`;
-        const zSkladania = `V${Y(2) - 14} C${B},${Y(2) - 6} ${X},${Y(2) - 8} ${X},${Y(2)}`;
+        const doWycinania = `C${X},12 ${A},12 ${A},${Y(0)}`;
+        const doSkladania = `C${X},17 ${B},20 ${B},${Y(1)}`;
+        const zWycinania = `V${Y(2) - 17} C${A},${Y(2) - 7} ${X},${Y(2) - 10} ${X},${Y(2)}`;
+        const zSkladania = `V${Y(2) - 17} C${B},${Y(2) - 7} ${X},${Y(2) - 10} ${X},${Y(2)}`;
         // Trasy omijające wynikają z ProductionProduct.complete_task():
         // brak docięcia na wymiar wyrzuca pozycję ze Sklejania wprost do
         // Logistyki, a brak obróbki krawędzi — z Formatowania do Lakierni.
-        const lukDlugi = `M${X},${Y(2)} C${L},${Y(2) + 42} ${L},${Y(6) - 42} ${X},${Y(6)}`;
-        const lukKrotki = `M${X},${Y(3)} C${R},${Y(3) + 22} ${R},${Y(5) - 22} ${X},${Y(5)}`;
+        const lukDlugi = `M${X},${Y(2)} C${L},${Y(2) + 51} ${L},${Y(6) - 51} ${X},${Y(6)}`;
+        const lukKrotki = `M${X},${Y(3)} C${R},${Y(3) + 27} ${R},${Y(5) - 27} ${X},${Y(5)}`;
 
         const linia = (d, kolor) => `<path d="${d}" fill="none" stroke="${kolor || '#e2e7ec'}" stroke-width="1.5" stroke-linecap="round"/>`;
-        const skok = (d, kolor) => `<path class="il-flow" d="${d}" fill="none" stroke="${kolor || '#3b6fd4'}" stroke-opacity=".92" stroke-width="2.6" stroke-linecap="round"/>`;
+        const skok = (d, kolor) => `<path class="il-flow" d="${d}" fill="none" stroke="${kolor || '#3b6fd4'}" stroke-opacity=".92" stroke-width="3.2" stroke-linecap="round"/>`;
 
         szyna.innerHTML = [
             linia(`M${X},0 ${doWycinania} ${zWycinania}`),
@@ -532,7 +532,7 @@ class DashboardModule {
             skok(lukKrotki, '#c07a16'),
             kody.map((kod, i) => {
                 const cx = i === 0 ? A : (i === 1 ? B : X);
-                return `<circle cx="${cx}" cy="${Y(i)}" r="4.5" fill="#fff" stroke="${barwy[kod]}" stroke-width="2.5"/>`;
+                return `<circle cx="${cx}" cy="${Y(i)}" r="5.5" fill="#fff" stroke="${barwy[kod]}" stroke-width="3"/>`;
             }).join(''),
         ].join('');
 

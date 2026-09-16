@@ -2301,7 +2301,7 @@ body {
   padding: 0 0 6px;
 }
 .il-cat-name {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   letter-spacing: 1.3px;
   text-transform: uppercase;
@@ -2310,7 +2310,7 @@ body {
 }
 .il-cat--semi .il-cat-name { color: #6b4423; }
 .il-cat-count {
-  font-size: 9.5px;
+  font-size: 11.5px;
   color: var(--il-text-muted);
   white-space: nowrap;
   margin-left: auto;
@@ -2336,7 +2336,7 @@ body {
    żadnego błędu, tylko przesunięte nagłówki. */
 .il-stations-grid {
   --il-rail-kolumny:
-    44px minmax(0, 1.5fr) 76px 54px 58px minmax(64px, 1fr) 62px 58px 20px;
+    54px minmax(0, 1.5fr) 74px 74px minmax(84px, 1fr) 74px 24px;
 }
 .il-rail-head {
   display: grid;
@@ -2344,7 +2344,10 @@ body {
   align-items: center;
 }
 .il-rail-head > * {
-  font-size: 8.5px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  font-size: 10.5px;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -2353,7 +2356,16 @@ body {
   white-space: nowrap;
   font-family: 'JetBrains Mono', monospace;
 }
-.il-rail-head .r { text-align: right; }
+.il-rail-head .r { align-items: flex-end; }
+/* Druga linijka podpisu opisuje drugą linijkę komórki pod nim — sztuki
+   u góry, metry pod spodem. */
+.il-rail-head small {
+  font-size: 9px;
+  font-weight: 400;
+  color: var(--il-text-muted);
+  letter-spacing: 0.04em;
+  margin-top: 1px;
+}
 
 .il-station {
   display: grid;
@@ -2364,27 +2376,27 @@ body {
      i po ośmiu wierszach kropka mija stanowisko o osiem pikseli. Dryf rośnie
      liniowo, więc na górze listy wygląda jak nic. */
   box-sizing: border-box;
-  height: 40px;
+  height: 49px;
   border-top: 1px solid var(--il-border-light);
   transition: background 0.12s ease;
 }
 .il-station > * { padding: 0 4px; min-width: 0; }
 .il-station:hover { background: #f7f9fb; }
 
-.il-rail-name { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.il-rail-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
 /* Barwa stanowiska: wąska linijka przy nazwie zamiast całego nagłówka na
    kolorze. Ten sam kolor niesie wypełnienie paska postępu i węzeł na
    szynie, więc kodowanie zostaje jedno, tylko ciszej. */
 .il-rail-name::before {
   content: '';
-  width: 3px;
-  height: 18px;
+  width: 4px;
+  height: 22px;
   border-radius: 2px;
   background: var(--st, var(--il-text-muted));
   flex: none;
 }
 .il-rail-name-main {
-  font-size: 12px;
+  font-size: 14.5px;
   font-weight: 700;
   white-space: nowrap;
   overflow: hidden;
@@ -2396,7 +2408,7 @@ body {
    lakierowane). Bez tej pigułki pusta kolejka na Krawędziach wygląda jak
    sukces, a bywa po prostu brakiem ruchu na tej trasie. */
 .il-rail-cond {
-  font-size: 8.5px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.03em;
   color: var(--il-status-warn);
@@ -2414,8 +2426,8 @@ body {
    telemetria — heartbeat, bateria, temperatura, APK, IP — siedzi
    w podpowiedzi. Nic nie zniknęło, przestało tylko zajmować dwie kolumny. */
 .il-rail-led {
-  width: 7px;
-  height: 7px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
   flex: none;
   cursor: help;
@@ -2433,13 +2445,13 @@ body {
 .il-rail-crew { display: flex; align-items: center; min-width: 0; }
 .il-crew-av {
   position: relative;
-  width: 20px;
-  height: 20px;
+  width: 25px;
+  height: 25px;
   border-radius: 50%;
   background: #eef1f5;
   border: 1px solid #d5dbe3;
   color: #4b5563;
-  font-size: 8.5px;
+  font-size: 10px;
   font-weight: 700;
   display: grid;
   place-items: center;
@@ -2447,7 +2459,7 @@ body {
   cursor: default;
   font-family: 'JetBrains Mono', monospace;
 }
-.il-crew-av + .il-crew-av { margin-left: -7px; box-shadow: 0 0 0 1.5px #fff; }
+.il-crew-av + .il-crew-av { margin-left: -9px; box-shadow: 0 0 0 2px #fff; }
 .il-crew-av:hover,
 .il-crew-av:focus-visible { z-index: 22; outline: none; filter: brightness(1.08); }
 /* Pełne nazwisko pod kursorem. Własny dymek, a nie natywny title: title
@@ -2461,10 +2473,10 @@ body {
   transform: translateX(-50%) translateY(2px);
   background: var(--il-text-primary);
   color: #fff;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 500;
   letter-spacing: 0.02em;
-  padding: 4px 8px;
+  padding: 5px 9px;
   border-radius: 3px;
   white-space: nowrap;
   opacity: 0;
@@ -2493,31 +2505,44 @@ body {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
 }
-.il-crew-none { font-size: 9.5px; color: #c2c8d0; font-family: 'JetBrains Mono', monospace; }
+.il-crew-none { font-size: 11px; color: #c2c8d0; font-family: 'JetBrains Mono', monospace; }
 
 /* ─── Liczby ─── */
+/* Para: liczba sztuk i objętość tej samej rzeczy stoją jedna pod drugą,
+   bo opisują JEDEN stan (kolejkę albo dzisiejszy przerób). Rozdzielone na
+   osobne kolumny zabierały szerokość, której przy większym stopniu pisma
+   zaczęło brakować nazwie stanowiska. */
+.il-rail-para {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+}
 .il-rail-q,
 .il-rail-m3,
 .il-rail-done {
   text-align: right;
+  line-height: 1;
   font-variant-numeric: tabular-nums;
   font-family: 'JetBrains Mono', monospace;
 }
-.il-rail-q { font-size: 17px; font-weight: 700; }
-.il-rail-m3 { font-size: 11px; color: var(--il-text-secondary); }
-.il-rail-done { font-size: 13px; font-weight: 600; }
+.il-rail-q { font-size: 21px; font-weight: 700; }
+.il-rail-m3 { font-size: 13px; color: var(--il-text-secondary); }
+.il-rail-done { font-size: 21px; font-weight: 600; }
 
 /* ─── Pasek postępu ───
    Wzór bez zmian wobec kafla (dashboard-module.js -> updateStationProgress):
    ukończone dziś / (oczekujące + ukończone dziś). To miara POSTĘPU dnia,
    nie obciążenia — stąd nazwa kolumny. */
-.il-rail-bar { display: flex; align-items: center; gap: 6px; }
+.il-rail-bar { display: flex; align-items: center; gap: 8px; }
 .il-rail-bar .il-station-bar { flex: 1; min-width: 0; }
 .il-station-bar {
   display: block;
-  height: 7px;
+  height: 9px;
   background: var(--il-bg-base);
-  border-radius: 1px;
+  border-radius: 2px;
   overflow: hidden;
 }
 .il-station-bar-fill {
@@ -2528,9 +2553,9 @@ body {
   transition: width 0.4s ease;
 }
 .il-station-bar-pct {
-  font-size: 9.5px;
+  font-size: 11.5px;
   color: var(--il-text-muted);
-  width: 25px;
+  width: 31px;
   text-align: right;
   font-variant-numeric: tabular-nums;
   font-family: 'JetBrains Mono', monospace;
@@ -2540,7 +2565,7 @@ body {
   text-align: center;
   color: var(--il-text-muted);
   text-decoration: none;
-  font-size: 10px;
+  font-size: 12.5px;
 }
 .il-rail-open:hover { color: var(--il-text-primary); }
 
@@ -2554,11 +2579,11 @@ body {
   position: absolute;
   left: 0;
   top: 0;
-  width: 44px;
-  height: 320px;
+  width: 54px;
+  height: 392px;
   pointer-events: none;
 }
-.il-rail-mark { position: absolute; left: 0; top: 0; width: 44px; height: 100%; }
+.il-rail-mark { position: absolute; left: 0; top: 0; width: 54px; height: 100%; }
 /* Odstęp między kropkami to POSTÓJ na stanowisku; wartość nadaje skrypt,
    bo zależy od długości trasy. Tu tylko wartość startowa, żeby przed
    uruchomieniem skryptu nie było widać pełnej, ciągłej linii. */
@@ -2570,8 +2595,8 @@ body {
    liczbę czekających na decyzję i wiersz robi dokładnie to samo, zamiast
    wypełniać sześć kolumn zerami. */
 .il-rail-gate {
-  grid-column: span 4;
-  font-size: 10px;
+  grid-column: span 2;
+  font-size: 12.5px;
   color: var(--il-text-muted);
   letter-spacing: 0.04em;
   font-family: 'JetBrains Mono', monospace;
@@ -2586,8 +2611,8 @@ body {
   /* Nazwa dostaje 2,2fr, a nie 1,5fr jak w wierszach linii: obok niej
      stoi jeszcze znacznik „surowiec” i dioda, a cztery statystyki
      trakowni są węższe od nazwy kolumny, więc mogą oddać trochę miejsca. */
-  grid-template-columns: 44px minmax(0, 2.2fr) 76px repeat(4, 0.9fr) 96px 20px;
-  height: 50px;
+  grid-template-columns: 54px minmax(0, 3fr) 74px repeat(4, 0.85fr) 96px 24px;
+  height: 61px;
   position: relative;
   border-top: none;
 }
@@ -2606,7 +2631,7 @@ body {
 .il-rail-semi-stat { text-align: right; padding: 0 4px; }
 .il-rail-semi-v {
   display: block;
-  font-size: 15px;
+  font-size: 18.5px;
   font-weight: 700;
   line-height: 1;
   font-variant-numeric: tabular-nums;
@@ -2614,7 +2639,7 @@ body {
 }
 .il-rail-semi-l {
   display: block;
-  font-size: 8.5px;
+  font-size: 10.5px;
   color: var(--il-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;

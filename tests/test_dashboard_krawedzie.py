@@ -226,9 +226,9 @@ def test_panel_css_nie_zna_juz_kodu_stanowiska_finishing():
 
 def test_wysokosc_wiersza_zgadza_sie_w_trzech_miejscach():
     """
-    Wysokość wiersza 40 px jest zapisana w TRZECH miejscach naraz: w CSS
-    (`.il-station`), w viewBox szyny w szablonie (`0 0 44 320` = osiem
-    wierszy po 40) i w stałej WYSOKOSC_WIERSZA w dashboard-module.js, która
+    Wysokość wiersza 49 px jest zapisana w TRZECH miejscach naraz: w CSS
+    (`.il-station`), w viewBox szyny w szablonie (`0 0 54 392` = osiem
+    wierszy po 49) i w stałej WYSOKOSC_WIERSZA w dashboard-module.js, która
     liczy z niej pozycje węzłów.
 
     Rozjazd nie wywala niczego i nie zostawia śladu w konsoli — po prostu
@@ -241,10 +241,10 @@ def test_wysokosc_wiersza_zgadza_sie_w_trzech_miejscach():
     js = _plik(DASHBOARD_JS)
 
     blok = css.split('.il-station {')[1].split('}')[0]
-    assert 'height: 40px;' in blok, 'CSS: wysokość wiersza'
+    assert 'height: 49px;' in blok, 'CSS: wysokość wiersza'
 
-    assert 'viewBox="0 0 44 320"' in html, 'szablon: viewBox szyny'
-    assert 'const WYSOKOSC_WIERSZA = 40;' in js, 'JS: stała wysokości wiersza'
+    assert 'viewBox="0 0 54 392"' in html, 'szablon: viewBox szyny'
+    assert 'const WYSOKOSC_WIERSZA = 49;' in js, 'JS: stała wysokości wiersza'
 
 
 def test_lista_stanowisk_jest_kolumna_a_nazwa_klasy_zostaje():
