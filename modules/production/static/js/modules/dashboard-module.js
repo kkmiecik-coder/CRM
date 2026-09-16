@@ -706,7 +706,9 @@ class DashboardModule {
         this.updateElementText('sawmill-m3-today', (parseFloat(dane.volume_today_m3) || 0).toFixed(3));
         this.updateElementText('sawmill-to-settle', dane.to_settle || 0);
 
-        const procent = parseFloat(dane.progress_pct) || 0;
+        // Liczba całkowita, tak samo jak w pozostałych wierszach szyny —
+        // inaczej po odświeżeniu w tle trakownia wracała do „0.0%".
+        const procent = Math.round(parseFloat(dane.progress_pct) || 0);
         const wypelnienie = document.getElementById('sawmill-bar-fill');
         if (wypelnienie) wypelnienie.style.width = `${procent}%`;
         this.updateElementText('sawmill-bar-pct', `${procent}%`);

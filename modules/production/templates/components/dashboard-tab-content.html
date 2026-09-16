@@ -33,9 +33,20 @@
   <div class="il-rail-crew">
     {%- if obsada -%}
       {%- for kto in obsada -%}
+        {#- Dymek to PRAWDZIWY element, a nie ::after z content: attr(). Pseudo-
+            element niesie jeden węzeł tekstu, więc nazwisko, podpisy i godziny
+            musiały mieć ten sam stopień i kolor — wszystko zlewało się w cztery
+            jednakowe linijki. Tu nazwisko jest nagłówkiem, podpis siedzi po
+            lewej wyszarzony, godzina po prawej na biało.
+
+            „Ostatnia akcja" waży najwięcej z tych trzech: last_activity_at
+            odświeża akcja produkcyjna, nie dotknięcie ekranu, więc duża liczba
+            minut znaczy, że przy maszynie naprawdę nic się nie dzieje. -#}
         <span class="il-crew-av" tabindex="0"
-              data-nm="{{ kto.imie }} {{ kto.nazwisko }}"
-              {% if kto.kolor %}style="background: {{ kto.kolor }}; color: #fff; border-color: {{ kto.kolor }};"{% endif %}>{{ kto.inicjaly }}</span>
+              {% if kto.kolor %}style="background: {{ kto.kolor }}; color: #fff; border-color: {{ kto.kolor }};"{% endif %}>{{ kto.inicjaly }}<span class="il-crew-tip"><span class="il-crew-tip-nm">{{ kto.imie }} {{ kto.nazwisko }}</span>
+          {%- if kto.pierwsze %}<span class="il-crew-tip-row"><i>Pierwsze logowanie</i><b>{{ kto.pierwsze }}</b></span>{% endif -%}
+          {%- if kto.ostatnia %}<span class="il-crew-tip-row"><i>Ostatnia akcja</i><b>{{ kto.ostatnia }}</b>{% if kto.temu is not none %}<em>{% if kto.temu < 1 %}przed chwilą{% else %}{{ kto.temu }} min temu{% endif %}</em>{% endif %}</span>{% endif -%}
+        </span></span>
       {%- endfor -%}
     {%- else -%}
       <span class="il-crew-none">brak obsady</span>

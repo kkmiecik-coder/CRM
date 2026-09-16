@@ -167,6 +167,66 @@ def test_wczorajsza_niedomknieta_sesja_nie_stoi_dzis_na_kafelku(app, monkeypatch
     assert 'gluing' not in obsada_stanowisk()
 
 
+def test_obsada_niesie_czasy_do_dymka(app, monkeypatch):
+    """
+    Dymek ma mówić coś więcej niż nazwisko: od kiedy ktoś jest dziś na hali
+    i kiedy ostatnio coś zrobił.
+
+    `last_activity_at` odświeża KAŻDA akcja produkcyjna, a nie dotknięcie
+    ekranu (komentarz przy ProductionWorkerSession), więc „ostatnia akcja"
+    to naprawdę ostatnia wykonana sztuka, a nie ostatni ruch palcem.
+    """
+    from modules.production.services import worker_stats_service as serwis
+
+    kto = _pracownik('Anna', 'Wilk')
+    s = _sesja(kto, 'gluing', godzina=10)
+    s.last_activity_at = datetime(2026, 9, 16, 11, 38)
+    db.session.flush()
+
+    monkeypatch.setattr(serwis, 'get_local_now',
+                        lambda: datetime(2026, 9, 16, 11, 53))
+
+    osoba = obsada_stanowisk()['gluing'][0]
+
+    assert osoba['pierwsze'] == '10:00'
+    assert osoba['ostatnia'] == '11:38'
+    assert osoba['temu'] == 15
+
+
+def test_pierwsze_logowanie_liczy_sie_z_calej_doby(app, monkeypatch):
+    """
+    Pracownik krąży w ciągu dnia między stanowiskami, a tablet zakłada nową
+    sesję przy każdej zmianie profilu (zmierzone na produkcji: 30 sesji na
+    7 osób jednej doby, 10 z nich krótszych niż dwie minuty). „Pierwsze
+    logowanie" ma więc opisywać POCZĄTEK DNIA, a nie start bieżącej sesji —
+    inaczej człowiek pracujący od 6:00 pokazywałby godzinę 11:10 tylko
+    dlatego, że przełożył profil na innym tablecie.
+    """
+    from modules.production.services import worker_stats_service as serwis
+
+    kto = _pracownik('Marek', 'Duda')
+    rano = _sesja(kto, 'cutting', godzina=6, grupa='r')
+    rano.ended_at = datetime(2026, 9, 16, 9, 0)
+    _sesja(kto, 'gluing', godzina=9, grupa='p')
+    db.session.flush()
+
+    monkeypatch.setattr(serwis, 'get_local_now',
+                        lambda: datetime(2026, 9, 16, 12, 0))
+
+    assert obsada_stanowisk()['gluing'][0]['pierwsze'] == '06:00'
+
+
+def test_obsada_nie_podaje_startu_biezacej_sesji(app):
+    """
+    Start bieżącej sesji świadomie NIE wychodzi z serwisu. Mierzy
+    przeskakiwanie profilu na tablecie, nie czas pracy, a wystawiony
+    w danych prosiłby się o wyświetlenie z powrotem.
+    """
+    _sesja(_pracownik('Anna', 'Wilk'), 'gluing')
+
+    assert 'od' not in obsada_stanowisk()['gluing'][0]
+
+
 def test_ten_sam_pracownik_liczy_sie_raz_na_stanowisku(app):
     """
     Dwie otwarte sesje tej samej osoby na jednym stanowisku to stan

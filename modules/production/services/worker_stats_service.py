@@ -366,8 +366,8 @@ def otwarte_sesje(start_date, end_date, worker_id=None, station=None):
 
 def obsada_stanowisk():
     """
-    {kod_stanowiska: [{'id', 'imie', 'nazwisko', 'inicjaly', 'kolor'}]} —
-    kto stoi TERAZ przy maszynie.
+    {kod_stanowiska: [{'id', 'imie', 'nazwisko', 'inicjaly', 'kolor',
+    'pierwsze', 'ostatnia', 'temu'}]} — kto stoi TERAZ przy maszynie.
 
     Źródłem jest sesja bez `ended_at`, a nie ostatni event: pracownik, który
     zamknął zmianę, ma zniknąć z kafelka od razu, choćby jego eventy były
@@ -393,26 +393,45 @@ def obsada_stanowisk():
     STATION_CODE_ALIASES); bez tej normalizacji brygada z takiego tabletu
     nie trafiłaby na żaden wiersz.
     """
+    teraz = get_local_now()
+    dzis = teraz.date()
+
+    # Pierwsze logowanie w tej dobie liczymy OSOBNYM zapytaniem, bo może
+    # wypaść na innym stanowisku niż to, na którym pracownik stoi teraz —
+    # interesuje nas początek jego dnia, a nie początek bieżącej sesji.
+    # Wierszy jest tyle, ilu ludzi na zmianie, więc to zapytanie na
+    # kilkanaście rekordów.
+    pierwsze_logowanie = dict(db.session.query(
+        ProductionWorkerSession.worker_id,
+        func.min(ProductionWorkerSession.started_at),
+    ).filter(
+        ProductionWorkerSession.work_date == dzis,
+    ).group_by(ProductionWorkerSession.worker_id).all())
+
     wiersze = db.session.query(
         ProductionWorkerSession.station_code,
         ProductionWorker.id,
         ProductionWorker.first_name,
         ProductionWorker.last_name,
         ProductionWorker.color_hex,
+        ProductionWorkerSession.last_activity_at,
     ).join(
         ProductionWorker,
         ProductionWorker.id == ProductionWorkerSession.worker_id,
     ).filter(
         ProductionWorkerSession.ended_at.is_(None),
-        ProductionWorkerSession.work_date == get_local_now().date(),
+        ProductionWorkerSession.work_date == dzis,
     ).order_by(
         ProductionWorkerSession.station_code,
         ProductionWorkerSession.started_at,
         ProductionWorkerSession.id,
     ).all()
 
+    def hhmm(chwila):
+        return chwila.strftime('%H:%M') if chwila else None
+
     obsada = {}
-    for kod, wid, imie, nazwisko, kolor in wiersze:
+    for kod, wid, imie, nazwisko, kolor, ostatnia in wiersze:
         kod = resolve_station_code(kod)
         ludzie = obsada.setdefault(kod, [])
         # Dwie otwarte sesje tej samej osoby na jednym stanowisku to stan
@@ -420,12 +439,26 @@ def obsada_stanowisk():
         # wyjść z jednym awatarem, nie z duplikatem obok duplikatu.
         if any(o['id'] == wid for o in ludzie):
             continue
+        # ŚWIADOMIE NIE PODAJEMY startu bieżącej sesji. Kusi, żeby pokazać
+        # „na stanowisku od", ale ta godzina mierzy przeskakiwanie profilu na
+        # tablecie, a nie czas pracy: zmierzone na produkcji 2026-09-16 —
+        # 30 sesji na 7 osób jednego dnia, z czego 10 krótszych niż dwie
+        # minuty (powody zamknięcia: manual 19, replaced 3, idle_timeout 1).
+        # Jeden pracownik potrafił mieć 13 sesji, krążąc między składaniem,
+        # wycinaniem, formatowaniem i krawędziami. „Na stanowisku od 11:10"
+        # przy człowieku pracującym tam od 8:59 to nie informacja, to szum.
         ludzie.append({
             'id': wid,
             'imie': imie or '',
             'nazwisko': nazwisko or '',
             'inicjaly': ((imie or ' ')[0] + (nazwisko or ' ')[0]).upper().strip(),
             'kolor': kolor or None,
+            'ostatnia': hhmm(ostatnia),
+            # max(0, ...) na wypadek rozjazdu zegara tabletu i serwera —
+            # „-3 min temu" w dymku wyglądałoby jak usterka widoku.
+            'temu': (max(0, int((teraz - ostatnia).total_seconds() // 60))
+                     if ostatnia else None),
+            'pierwsze': hhmm(pierwsze_logowanie.get(wid)),
         })
     return obsada
 

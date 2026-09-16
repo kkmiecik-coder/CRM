@@ -2450,52 +2450,74 @@ body {
   cursor: default;
   font-family: 'JetBrains Mono', monospace;
 }
-.il-crew-av + .il-crew-av { margin-left: -9px; box-shadow: 0 0 0 2px #fff; }
+.il-crew-av + .il-crew-av { margin-left: -6px; box-shadow: 0 0 0 2px #fff; }
 .il-crew-av:hover,
 .il-crew-av:focus-visible { z-index: 22; outline: none; filter: brightness(1.08); }
-/* Pełne nazwisko pod kursorem. Własny dymek, a nie natywny title: title
-   pojawia się dopiero po sekundzie, a przy nakładających się awatarach
-   sekunda to za długo, żeby zdążyć przeczytać, kto stoi na zmianie. */
-.il-crew-av::after {
-  content: attr(data-nm);
+/* ─── Dymek obsady ───
+   Osobny element, nie ::after z content: attr(): pseudo-element niesie
+   JEDEN węzeł tekstu, więc nazwisko i godziny musiały mieć ten sam stopień
+   i kolor, a cztery linijki zlewały się w blok. Tu nazwisko jest nagłówkiem
+   odciętym kreską, podpis siedzi po lewej wyszarzony, godzina po prawej.
+
+   Własny dymek, a nie natywny title: title pojawia się dopiero po sekundzie,
+   a przy nakładających się awatarach sekunda to za długo, żeby zdążyć
+   sprawdzić, kto stoi na zmianie. */
+.il-crew-tip {
   position: absolute;
-  bottom: calc(100% + 7px);
+  bottom: calc(100% + 10px);
   left: 50%;
-  transform: translateX(-50%) translateY(2px);
+  transform: translateX(-50%) translateY(3px);
   background: var(--il-text-primary);
   color: #fff;
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-  padding: 5px 9px;
-  border-radius: 3px;
-  white-space: nowrap;
+  border-radius: 5px;
+  padding: 8px 11px 9px;
+  display: grid;
+  gap: 4px;
+  /* width: max-content jest WARUNKIEM: dymek wisi absolutnie względem
+     25-pikselowego kółka, więc bez tego zwija się do jego szerokości
+     i łamie każdą linijkę z osobna. */
+  width: max-content;
+  max-width: 280px;
+  text-align: left;
+  font-family: 'JetBrains Mono', monospace;
+  box-shadow: 0 8px 20px -8px rgba(10, 14, 20, 0.55);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.13s ease, transform 0.13s ease;
   z-index: 30;
 }
-.il-crew-av::before {
+.il-crew-tip::after {
   content: '';
   position: absolute;
-  bottom: calc(100% + 2px);
+  top: 100%;
   left: 50%;
-  transform: translateX(-50%) translateY(2px);
-  border: 5px solid transparent;
+  transform: translateX(-50%);
+  border: 6px solid rgba(0, 0, 0, 0);
   border-top-color: var(--il-text-primary);
   border-bottom: none;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.13s ease, transform 0.13s ease;
-  z-index: 30;
 }
-.il-crew-av:hover::after,
-.il-crew-av:hover::before,
-.il-crew-av:focus-visible::after,
-.il-crew-av:focus-visible::before {
-  opacity: 1;
-  transform: translateX(-50%) translateY(0);
+.il-crew-tip-nm {
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.16);
 }
+.il-crew-tip-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+/* Podpis oddaje całą wolną szerokość godzinie obok — dzięki temu godziny
+   układają się w kolumnę i czyta się je z góry na dół, a nie szukając
+   w zdaniu. */
+.il-crew-tip-row i { font-style: normal; color: rgba(255, 255, 255, 0.5); flex: 1; }
+.il-crew-tip-row b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.il-crew-tip-row em { font-style: normal; font-size: 10px; color: rgba(255, 255, 255, 0.42); }
+.il-crew-av:hover .il-crew-tip,
+.il-crew-av:focus-visible .il-crew-tip { opacity: 1; transform: translateX(-50%) translateY(0); }
 .il-crew-none {
   font-size: 11px;
   color: #c2c8d0;

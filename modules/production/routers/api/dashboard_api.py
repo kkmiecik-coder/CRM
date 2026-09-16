@@ -883,7 +883,7 @@ def dashboard_tab_content():
             'logs_today': sawmill['logs_today'],
             'volume_today_m3': sawmill['volume_today_m3'],
             'to_settle': sawmill['to_settle'],
-            'progress_pct': sawmill['progress_pct'],
+            'progress_pct': round(float(sawmill['progress_pct'] or 0)),
             'tablet_status': {'active': False, 'last_seen': None,
                               'status_label': 'Niedostępne'},
         }
@@ -968,7 +968,7 @@ def dashboard_tab_content():
             'completed_orders': int(completed_orders_today),
             'completed_items': int(completed_items_today),
             'completed_products': int(completed_products_today),
-            'total_m3': float(total_m3_today),
+            'total_m3': round(float(total_m3_today), 2),
             'avg_deadline_distance': round(avg_deadline_distance, 1),
             'total_orders': ProductionItem.query.count()
         }
@@ -1379,7 +1379,7 @@ def dashboard_stats_data():
             'completed_orders': completed_orders_today,
             'completed_items': completed_today,
             'completed_products': completed_products_today,
-            'total_m3': total_volume_today,
+            'total_m3': round(float(total_volume_today or 0), 2),
             'pending_priority': pending_priority,
             'errors_24h': errors_24h,
             'total_volume_today_m3': total_volume_today,
