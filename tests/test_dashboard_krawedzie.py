@@ -152,6 +152,39 @@ def test_obciazenie_wchodzi_obiema_sciezkami_danych():
     assert 'updateStationProgress' not in js
 
 
+def test_jednostka_nie_siedzi_w_elemencie_pisanym_przez_js():
+    """
+    dashboard-module.js odświeża wartości przez `textContent`, a to KASUJE
+    dzieci elementu. Jednostka „m³" trzymana wewnątrz elementu z id znikała
+    więc po pierwszym odświeżeniu w tle — była widoczna tylko przez chwilę
+    po wczytaniu strony i wyglądało to na gubione dane.
+
+    Ukończono nie miało tego objawu wyłącznie dlatego, że główna ścieżka
+    odświeżania nie dotyka `-today-m3`. To przypadek, nie zabezpieczenie,
+    więc test pilnuje obu.
+    """
+    html = _plik(SZABLON)
+
+    for ident in ('cutting-pending-m3', 'cutting-today-m3',
+                  'painting-pending-m3', 'painting-today-m3'):
+        dopasowanie = re.search(r'id="%s">(.*?)</span>' % ident, html)
+        assert dopasowanie is not None, ident
+        assert '<small>' not in dopasowanie.group(1), (
+            'jednostka w %s zostanie skasowana przez updateElementText' % ident)
+
+
+def test_kolumna_zamowien_odswieza_sie_w_tle():
+    """
+    Kafel spoza ścieżki odświeżania ZAMRAŻA się na wartościach z pierwszego
+    renderu — bez błędu w konsoli i bez żadnego innego sygnału. Nowa kolumna
+    musi więc trafić do obu miejsc, które aktualizują wiersze.
+    """
+    js = _plik(DASHBOARD_JS)
+
+    assert js.count('-pending-orders`') == 2, (
+        'kolumna zamówień musi być odświeżana w obu ścieżkach')
+
+
 def test_grid_czyta_sie_w_kolejnosci_drogi_produktu():
     """
     Kolejność kafli to kolejność hali: trakownia (surowiec) na wejściu, potem

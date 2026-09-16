@@ -155,12 +155,12 @@
           <div class="il-rail-zam" id="cutting-pending-orders">{{ dashboard_stats.stations.cutting.pending_orders|default(0) }}</div>
           <div class="il-rail-para">
             <span class="il-rail-q" id="cutting-pending">{{ dashboard_stats.stations.cutting.pending_count|default(0) }}</span>
-            <span class="il-rail-m3" id="cutting-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.cutting.pending_m3|default(0.0)) }}<small>m³</small></span>
+            <span class="il-rail-m3"><span id="cutting-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.cutting.pending_m3|default(0.0)) }}</span><small>m³</small></span>
           </div>
           <div class="il-rail-load-c">{% set ob = dashboard_stats.stations.cutting.obciazenie %}<span class="il-rail-load {{ 'il-rail-load--brak' if ob is none else ('il-rail-load--crit' if ob > 4 else ('il-rail-load--warn' if ob > 2 else 'il-rail-load--ok')) }}" id="cutting-load">{{ '—' if ob is none else ('%.1f'|format(ob))|replace('.', ',') }}</span></div>
           <div class="il-rail-para">
             <span class="il-rail-done" id="cutting-completed-today">{{ dashboard_stats.stations.cutting.completed_today|default(0) }}</span>
-            <span class="il-rail-m3" id="cutting-today-m3">{{ "%.4f"|format(dashboard_stats.stations.cutting.today_m3|default(0.0)) }}<small>m³</small></span>
+            <span class="il-rail-m3"><span id="cutting-today-m3">{{ "%.4f"|format(dashboard_stats.stations.cutting.today_m3|default(0.0)) }}</span><small>m³</small></span>
           </div>
           <a href="{{ url_for('production.production_stations.monitor_station', station_code='cutting') }}" class="il-rail-open" title="Podgląd monitora" aria-label="Otwórz monitor: Wycinanie - mikro"><i class="fas fa-external-link-alt"></i></a>
         </div>
@@ -176,12 +176,12 @@
           <div class="il-rail-zam" id="assembly-pending-orders">{{ dashboard_stats.stations.assembly.pending_orders|default(0) }}</div>
           <div class="il-rail-para">
             <span class="il-rail-q" id="assembly-pending">{{ dashboard_stats.stations.assembly.pending_count|default(0) }}</span>
-            <span class="il-rail-m3" id="assembly-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.assembly.pending_m3|default(0.0)) }}<small>m³</small></span>
+            <span class="il-rail-m3"><span id="assembly-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.assembly.pending_m3|default(0.0)) }}</span><small>m³</small></span>
           </div>
           <div class="il-rail-load-c">{% set ob = dashboard_stats.stations.assembly.obciazenie %}<span class="il-rail-load {{ 'il-rail-load--brak' if ob is none else ('il-rail-load--crit' if ob > 4 else ('il-rail-load--warn' if ob > 2 else 'il-rail-load--ok')) }}" id="assembly-load">{{ '—' if ob is none else ('%.1f'|format(ob))|replace('.', ',') }}</span></div>
           <div class="il-rail-para">
             <span class="il-rail-done" id="assembly-completed-today">{{ dashboard_stats.stations.assembly.completed_today|default(0) }}</span>
-            <span class="il-rail-m3" id="assembly-today-m3">{{ "%.4f"|format(dashboard_stats.stations.assembly.today_m3|default(0.0)) }}<small>m³</small></span>
+            <span class="il-rail-m3"><span id="assembly-today-m3">{{ "%.4f"|format(dashboard_stats.stations.assembly.today_m3|default(0.0)) }}</span><small>m³</small></span>
           </div>
           <a href="{{ url_for('production.production_stations.monitor_station', station_code='assembly') }}" class="il-rail-open" title="Podgląd monitora" aria-label="Otwórz monitor: Składanie - lite"><i class="fas fa-external-link-alt"></i></a>
         </div>
@@ -197,12 +197,12 @@
           <div class="il-rail-zam" id="gluing-pending-orders">{{ dashboard_stats.stations.gluing.pending_orders|default(0) }}</div>
           <div class="il-rail-para">
             <span class="il-rail-q" id="gluing-pending">{{ dashboard_stats.stations.gluing.pending_count|default(0) }}</span>
-            <span class="il-rail-m3" id="gluing-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.gluing.pending_m3|default(0.0)) }}<small>m³</small></span>
+            <span class="il-rail-m3"><span id="gluing-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.gluing.pending_m3|default(0.0)) }}</span><small>m³</small></span>
           </div>
           <div class="il-rail-load-c">{% set ob = dashboard_stats.stations.gluing.obciazenie %}<span class="il-rail-load {{ 'il-rail-load--brak' if ob is none else ('il-rail-load--crit' if ob > 4 else ('il-rail-load--warn' if ob > 2 else 'il-rail-load--ok')) }}" id="gluing-load">{{ '—' if ob is none else ('%.1f'|format(ob))|replace('.', ',') }}</span></div>
           <div class="il-rail-para">
             <span class="il-rail-done" id="gluing-completed-today">{{ dashboard_stats.stations.gluing.completed_today|default(0) }}</span>
-            <span class="il-rail-m3" id="gluing-today-m3">{{ "%.4f"|format(dashboard_stats.stations.gluing.today_m3|default(0.0)) }}<small>m³</small></span>
+            <span class="il-rail-m3"><span id="gluing-today-m3">{{ "%.4f"|format(dashboard_stats.stations.gluing.today_m3|default(0.0)) }}</span><small>m³</small></span>
           </div>
           <a href="{{ url_for('production.production_stations.monitor_station', station_code='gluing') }}" class="il-rail-open" title="Podgląd monitora" aria-label="Otwórz monitor: Sklejanie"><i class="fas fa-external-link-alt"></i></a>
         </div>
@@ -218,12 +218,12 @@
           <div class="il-rail-zam" id="formatting-pending-orders">{{ dashboard_stats.stations.formatting.pending_orders|default(0) }}</div>
           <div class="il-rail-para">
             <span class="il-rail-q" id="formatting-pending">{{ dashboard_stats.stations.formatting.pending_count|default(0) }}</span>
-            <span class="il-rail-m3" id="formatting-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.formatting.pending_m3|default(0.0)) }}<small>m³</small></span>
+            <span class="il-rail-m3"><span id="formatting-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.formatting.pending_m3|default(0.0)) }}</span><small>m³</small></span>
           </div>
           <div class="il-rail-load-c">{% set ob = dashboard_stats.stations.formatting.obciazenie %}<span class="il-rail-load {{ 'il-rail-load--brak' if ob is none else ('il-rail-load--crit' if ob > 4 else ('il-rail-load--warn' if ob > 2 else 'il-rail-load--ok')) }}" id="formatting-load">{{ '—' if ob is none else ('%.1f'|format(ob))|replace('.', ',') }}</span></div>
           <div class="il-rail-para">
             <span class="il-rail-done" id="formatting-completed-today">{{ dashboard_stats.stations.formatting.completed_today|default(0) }}</span>
-            <span class="il-rail-m3" id="formatting-today-m3">{{ "%.4f"|format(dashboard_stats.stations.formatting.today_m3|default(0.0)) }}<small>m³</small></span>
+            <span class="il-rail-m3"><span id="formatting-today-m3">{{ "%.4f"|format(dashboard_stats.stations.formatting.today_m3|default(0.0)) }}</span><small>m³</small></span>
           </div>
           <a href="{{ url_for('production.production_stations.monitor_station', station_code='formatting') }}" class="il-rail-open" title="Podgląd monitora" aria-label="Otwórz monitor: Formatowanie"><i class="fas fa-external-link-alt"></i></a>
         </div>
@@ -239,12 +239,12 @@
           <div class="il-rail-zam" id="edges-pending-orders">{{ dashboard_stats.stations.edges.pending_orders|default(0) }}</div>
           <div class="il-rail-para">
             <span class="il-rail-q" id="edges-pending">{{ dashboard_stats.stations.edges.pending_count|default(0) }}</span>
-            <span class="il-rail-m3" id="edges-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.edges.pending_m3|default(0.0)) }}<small>m³</small></span>
+            <span class="il-rail-m3"><span id="edges-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.edges.pending_m3|default(0.0)) }}</span><small>m³</small></span>
           </div>
           <div class="il-rail-load-c">{% set ob = dashboard_stats.stations.edges.obciazenie %}<span class="il-rail-load {{ 'il-rail-load--brak' if ob is none else ('il-rail-load--crit' if ob > 4 else ('il-rail-load--warn' if ob > 2 else 'il-rail-load--ok')) }}" id="edges-load">{{ '—' if ob is none else ('%.1f'|format(ob))|replace('.', ',') }}</span></div>
           <div class="il-rail-para">
             <span class="il-rail-done" id="edges-completed-today">{{ dashboard_stats.stations.edges.completed_today|default(0) }}</span>
-            <span class="il-rail-m3" id="edges-today-m3">{{ "%.4f"|format(dashboard_stats.stations.edges.today_m3|default(0.0)) }}<small>m³</small></span>
+            <span class="il-rail-m3"><span id="edges-today-m3">{{ "%.4f"|format(dashboard_stats.stations.edges.today_m3|default(0.0)) }}</span><small>m³</small></span>
           </div>
           <a href="{{ url_for('production.production_stations.monitor_station', station_code='edges') }}" class="il-rail-open" title="Podgląd monitora" aria-label="Otwórz monitor: Krawędzie"><i class="fas fa-external-link-alt"></i></a>
         </div>
@@ -260,12 +260,12 @@
           <div class="il-rail-zam" id="painting-pending-orders">{{ dashboard_stats.stations.painting.pending_orders|default(0) }}</div>
           <div class="il-rail-para">
             <span class="il-rail-q" id="painting-pending">{{ dashboard_stats.stations.painting.pending_count|default(0) }}</span>
-            <span class="il-rail-m3" id="painting-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.painting.pending_m3|default(0.0)) }}<small>m³</small></span>
+            <span class="il-rail-m3"><span id="painting-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.painting.pending_m3|default(0.0)) }}</span><small>m³</small></span>
           </div>
           <div class="il-rail-load-c">{% set ob = dashboard_stats.stations.painting.obciazenie %}<span class="il-rail-load {{ 'il-rail-load--brak' if ob is none else ('il-rail-load--crit' if ob > 4 else ('il-rail-load--warn' if ob > 2 else 'il-rail-load--ok')) }}" id="painting-load">{{ '—' if ob is none else ('%.1f'|format(ob))|replace('.', ',') }}</span></div>
           <div class="il-rail-para">
             <span class="il-rail-done" id="painting-completed-today">{{ dashboard_stats.stations.painting.completed_today|default(0) }}</span>
-            <span class="il-rail-m3" id="painting-today-m3">{{ "%.4f"|format(dashboard_stats.stations.painting.today_m3|default(0.0)) }}<small>m³</small></span>
+            <span class="il-rail-m3"><span id="painting-today-m3">{{ "%.4f"|format(dashboard_stats.stations.painting.today_m3|default(0.0)) }}</span><small>m³</small></span>
           </div>
           <a href="{{ url_for('production.production_stations.monitor_station', station_code='painting') }}" class="il-rail-open" title="Podgląd monitora" aria-label="Otwórz monitor: Lakiernia"><i class="fas fa-external-link-alt"></i></a>
         </div>
@@ -292,12 +292,12 @@
           <div class="il-rail-zam" id="packaging-pending-orders">{{ dashboard_stats.stations.packaging.pending_orders|default(0) }}</div>
           <div class="il-rail-para">
             <span class="il-rail-q" id="packaging-pending">{{ dashboard_stats.stations.packaging.pending_count|default(0) }}</span>
-            <span class="il-rail-m3" id="packaging-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.packaging.pending_m3|default(0.0)) }}<small>m³</small></span>
+            <span class="il-rail-m3"><span id="packaging-pending-m3">{{ "%.4f"|format(dashboard_stats.stations.packaging.pending_m3|default(0.0)) }}</span><small>m³</small></span>
           </div>
           <div class="il-rail-load-c">{% set ob = dashboard_stats.stations.packaging.obciazenie %}<span class="il-rail-load {{ 'il-rail-load--brak' if ob is none else ('il-rail-load--crit' if ob > 4 else ('il-rail-load--warn' if ob > 2 else 'il-rail-load--ok')) }}" id="packaging-load">{{ '—' if ob is none else ('%.1f'|format(ob))|replace('.', ',') }}</span></div>
           <div class="il-rail-para">
             <span class="il-rail-done" id="packaging-completed-today">{{ dashboard_stats.stations.packaging.completed_today|default(0) }}</span>
-            <span class="il-rail-m3" id="packaging-today-m3">{{ "%.4f"|format(dashboard_stats.stations.packaging.today_m3|default(0.0)) }}<small>m³</small></span>
+            <span class="il-rail-m3"><span id="packaging-today-m3">{{ "%.4f"|format(dashboard_stats.stations.packaging.today_m3|default(0.0)) }}</span><small>m³</small></span>
           </div>
           <a href="{{ url_for('production.production_stations.monitor_station', station_code='packaging') }}" class="il-rail-open" title="Podgląd monitora" aria-label="Otwórz monitor: Pakowanie"><i class="fas fa-external-link-alt"></i></a>
         </div>

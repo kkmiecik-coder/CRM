@@ -185,6 +185,7 @@ class DashboardModule {
                             if (s.completed_today !== undefined) {
                                 this.updateElementText(`${s.code}-completed-today`, s.completed_today || 0);
                                 this.updateElementText(`${s.code}-pending-m3`, (parseFloat(s.pending_m3) || 0).toFixed(4));
+                                this.updateElementText(`${s.code}-pending-orders`, s.pending_orders || 0);
                                 this.updateStationLoad(s.code, s.obciazenie);
                             }
                         });
@@ -337,6 +338,7 @@ class DashboardModule {
                     if (stationData) {
                         this.updateElementText(`${station}-completed-today`, stationData.completed_today || 0);
                         this.updateElementText(`${station}-pending-m3`, (parseFloat(stationData.pending_m3) || 0).toFixed(4));
+                        this.updateElementText(`${station}-pending-orders`, stationData.pending_orders || 0);
                         this.updateStationTabletStatus(station, stationData.tablet_status);
                         this.updateStationLoad(station, stationData.obciazenie);
                     }
