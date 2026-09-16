@@ -2342,7 +2342,10 @@ body {
      Jedynym torem rozciągliwym jest Postęp — to on ma zjadać nadmiar,
      bo pasek im szerszy, tym dokładniej się go czyta. */
   --il-rail-kolumny:
-    54px minmax(150px, 1fr) 87px 50px 82px 82px 82px 25px;
+    /* Tory „Oczekuje” i „Ukończono” mierzy ich DRUGA linijka —
+       „0,9907 m³” jest szersze niż sama liczba sztuk nad nią. Przy 82 px
+       jednostka wychodziła poza komórkę i była ucinana bez śladu. */
+    54px minmax(145px, 1fr) 87px 50px 88px 82px 88px 25px;
 }
 .il-rail-head {
   display: grid;
@@ -2574,8 +2577,8 @@ body {
 .il-rail-done { font-size: 21px; font-weight: 600; }
 /* Jednostka przy wartości, nie w nagłówku — nagłówek opisuje wtedy tylko
    RODZAJ liczby, a jednostkę widać tam, gdzie się ją czyta.
-   „szt." bo kolejka liczy się z SUM(quantity) minus sztuki już zrobione
-   na tym stanowisku — wiersz prod_products to pozycja zamówienia, nie sztuka. */
+   Zostaje wyłącznie „m³": liczba sztuk stoi bezpośrednio pod nagłówkiem
+   „Oczekuje"/„Ukończono", więc jednostka przy niej tylko dublowała podpis. */
 .il-rail-q small,
 .il-rail-m3 small,
 .il-rail-done small {
