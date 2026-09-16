@@ -2335,8 +2335,14 @@ body {
    stać nad swoją liczbą; rozjazd dwóch osobnych list wartości nie dałby
    żadnego błędu, tylko przesunięte nagłówki. */
 .il-stations-grid {
+  /* Nazwa stanowiska ma tor STAŁY, nie ułamkowy: 184 px to dokładnie tyle,
+     ile potrzebuje najdłuższa treść („Wycinanie - mikro" z diodą oraz
+     „Krawędzie" z pigułką „warunkowe"). Jako 1,5fr rosła razem z kartą
+     i ciągnęła za sobą pustkę po krótkich nazwach w rodzaju „Sklejanie".
+     Jedynym torem rozciągliwym jest Postęp — to on ma zjadać nadmiar,
+     bo pasek im szerszy, tym dokładniej się go czyta. */
   --il-rail-kolumny:
-    54px minmax(0, 1.5fr) 74px 74px minmax(84px, 1fr) 74px 24px;
+    54px 184px 86px 74px minmax(96px, 1fr) 74px 24px;
 }
 .il-rail-head {
   display: grid;
@@ -2505,7 +2511,12 @@ body {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
 }
-.il-crew-none { font-size: 11px; color: #c2c8d0; font-family: 'JetBrains Mono', monospace; }
+.il-crew-none {
+  font-size: 11px;
+  color: #c2c8d0;
+  white-space: nowrap;
+  font-family: 'JetBrains Mono', monospace;
+}
 
 /* ─── Liczby ─── */
 /* Para: liczba sztuk i objętość tej samej rzeczy stoją jedna pod drugą,
