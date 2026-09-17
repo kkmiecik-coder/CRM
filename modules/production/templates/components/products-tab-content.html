@@ -83,6 +83,16 @@
       </div>
     </div>
 
+    <div class="il-multiselect" id="filter-order-source">
+      <div class="il-filter-dropdown" data-filter="order-source">
+        <i class="fas fa-shopping-cart"></i> Źródło <i class="fas fa-chevron-down il-chevron"></i>
+      </div>
+      <div class="il-multiselect-options" id="dropdown-order-source" style="display:none;">
+        <input type="text" class="il-multiselect-search" placeholder="Szukaj...">
+        <label class="il-multiselect-option"><input type="checkbox" value="__all__"> Zaznacz wszystkie</label>
+      </div>
+    </div>
+
     <button class="il-apply-filters" id="il-apply-filters" title="Zastosuj zmienione filtry">
       <i class="fas fa-filter"></i> Filtruj
     </button>
@@ -439,6 +449,10 @@
                                     <div class="field-group">
                                         <div class="field-label">Numer wyceny</div>
                                         <div class="field-value" data-field="quote_number">—</div>
+                                    </div>
+                                    <div class="field-group">
+                                        <div class="field-label">Źródło zamówienia</div>
+                                        <div class="field-value" data-field="order_source_display">—</div>
                                     </div>
                                 </div>
                             </div>

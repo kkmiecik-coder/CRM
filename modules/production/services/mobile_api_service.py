@@ -1047,6 +1047,14 @@ def serialize_order(item, station_code=None):
         'product_name': item.original_product_name,
         'client_name': item.order.client_name if item.order else None,
         'client_order_number': item.order.client_order_number if item.order else None,
+        # Źródło zamówienia (2026-09) — pakowanie rozróżnia kanał sprzedaży,
+        # bo kody rabatowe dokładane do paczki są inne dla Allegro i sklepu.
+        # `order_source_display` to gotowa etykieta; surowa para zostaje obok,
+        # gdyby aplikacja chciała sama grupować albo ikonować kanały.
+        'order_source': item.order.order_source if item.order else None,
+        'order_source_id': item.order.order_source_id if item.order else None,
+        'order_source_name': item.order.order_source_name if item.order else None,
+        'order_source_display': item.order.order_source_display if item.order else None,
         'delivery_type': delivery_type,
         'wood_species': item.configuration.species if item.configuration else None,
         'wood_class': item.configuration.wood_class if item.configuration else None,

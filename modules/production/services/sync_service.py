@@ -37,7 +37,18 @@ class BaselinkerSyncService:
         self._status_cache = None
         self._status_cache_time = None
         self._status_cache_ttl = 43200
-        
+        # Słownik źródeł zamówień (getOrderSources). Zmienia się wyłącznie, gdy
+        # ktoś doda źródło w panelu BaseLinkera, więc trzymamy go tyle samo co
+        # statusy — jeden przebieg synchronizacji to jedno wywołanie API.
+        self._order_sources_cache = None
+        self._order_sources_cache_time = None
+        self._order_sources_cache_ttl = 43200
+        # Pamięć nieudanego pobrania. Bez niej awaria BaseLinkera oznaczałaby
+        # jedno nieudane wywołanie API NA KAŻDE zamówienie w partii — przy
+        # stu zamówieniach sto timeoutów zamiast jednego.
+        self._order_sources_blad_time = None
+        self._order_sources_blad_ttl = 300
+
         self._load_config()
         
         logger.info("Inicjalizacja BaselinkerSyncService v2.0", extra={
@@ -158,6 +169,272 @@ class BaselinkerSyncService:
                 return self._status_cache
 
             return {}
+
+    def get_order_sources(self, force_refresh: bool = False) -> Dict[str, Dict[int, str]]:
+        """
+        Pobiera słownik źródeł zamówień z BaseLinkera (getOrderSources).
+
+        Zwraca strukturę taką, jaką daje API:
+            {'allegro': {8881: 'woodpower'}, 'personal': {0: 'Detal', ...}, ...}
+
+        Słownik jest potrzebny WYŁĄCZNIE do nazwy źródła: w samym zamówieniu
+        BaseLinker zwraca `order_source_info` = "-", więc nazwy nie da się
+        odczytać z getOrders.
+
+        Błąd API nie może wywrócić synchronizacji — zamówienie ma trafić do
+        produkcji nawet bez nazwy źródła (surowa para i tak zostaje zapisana),
+        więc w razie problemu zwracamy przestarzały cache albo pusty słownik.
+        """
+        now = datetime.now()
+
+        if not force_refresh and self._order_sources_cache is not None:
+            wiek = (now - self._order_sources_cache_time).total_seconds() if self._order_sources_cache_time else None
+            if wiek is not None and wiek < self._order_sources_cache_ttl:
+                return self._order_sources_cache
+
+        if not force_refresh and self._order_sources_blad_time is not None:
+            if (now - self._order_sources_blad_time).total_seconds() < self._order_sources_blad_ttl:
+                # Świeża awaria — nie dobijamy API przy każdym zamówieniu partii.
+                return self._order_sources_cache or {}
+
+        if not self.api_key:
+            logger.warning("Brak klucza API Baselinker - nie pobrano słownika źródeł zamówień")
+            return self._order_sources_cache or {}
+
+        try:
+            response_data = self._make_api_request({
+                'token': self.api_key,
+                'method': 'getOrderSources',
+                'parameters': json.dumps({})
+            })
+
+            if response_data.get('status') != 'SUCCESS':
+                raise SyncError(response_data.get('error_message', 'Nieznany błąd API'))
+
+            sources: Dict[str, Dict[int, str]] = {}
+            for kanal, pozycje in (response_data.get('sources') or {}).items():
+                if not isinstance(pozycje, dict):
+                    continue
+                znormalizowane = {}
+                for source_id, nazwa in pozycje.items():
+                    # API zwraca identyfikatory jako klucze tekstowe ("8881").
+                    id_int = self._safe_int(source_id)
+                    if id_int is not None:
+                        znormalizowane[id_int] = str(nazwa)
+                sources[str(kanal)] = znormalizowane
+
+            self._order_sources_cache = sources
+            self._order_sources_cache_time = now
+            self._order_sources_blad_time = None
+
+            logger.info("Pobrano słownik źródeł zamówień z Baselinker", extra={
+                'channels_count': len(sources),
+                'sources_count': sum(len(v) for v in sources.values()),
+            })
+
+            return sources
+
+        except Exception as e:
+            logger.error("Błąd pobierania słownika źródeł zamówień", extra={'error': str(e)})
+            self._order_sources_blad_time = now
+
+            if self._order_sources_cache is not None:
+                logger.warning("Użyto przestarzałego cache źródeł zamówień")
+                return self._order_sources_cache
+
+            return {}
+
+    def extract_order_source(self, order: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Wyciąga kanał sprzedaży z zamówienia BaseLinkera.
+
+        Nazwę bierze ze słownika getOrderSources po PARZE (kanał, id) — samo id
+        jest niejednoznaczne: 0 to „Detal" w kanale `personal` i „Zwrot do
+        zamówienia" w `order_return`.
+
+        Zwraca pusty dict, gdy zamówienie nie ma kanału — upsert zamówienia
+        pomija klucze o wartości None, więc pusty wynik niczego nie nadpisze.
+        """
+        kanal = (order.get('order_source') or '').strip()
+        if not kanal:
+            return {}
+
+        source_id = self._safe_int(order.get('order_source_id'))
+        nazwa = None
+
+        if source_id is not None:
+            nazwa = self.get_order_sources().get(kanal, {}).get(source_id)
+
+        if nazwa is None:
+            logger.debug("Brak nazwy źródła w słowniku BaseLinkera", extra={
+                'order_id': order.get('order_id'),
+                'order_source': kanal,
+                'order_source_id': source_id,
+            })
+
+        return {
+            'order_source': kanal[:50],
+            'order_source_id': source_id,
+            'order_source_name': nazwa[:100] if nazwa else None,
+        }
+
+    def backfill_order_sources(self, dry_run: bool = False, limit: Optional[int] = None,
+                               progress=None) -> Dict[str, Any]:
+        """
+        Uzupełnia źródło zamówienia w zamówieniach, które go jeszcze nie mają.
+
+        Zamówienia sprzed wdrożenia mają `order_source` puste — synchronizacja
+        wypełnia je tylko przy ZAKŁADANIU zamówienia, a te już w bazie są.
+        Tu dociągamy brakujące dane z BaseLinkera.
+
+        Strona po stronie po `id_from`, po 100 zamówień na wywołanie: przy
+        kilku tysiącach zamówień to kilkadziesiąt wywołań zamiast jednego na
+        zamówienie. Zamówienia, których BaseLinker już nie zna (usunięte),
+        zostają z pustym źródłem i lądują w `nieznalezione`.
+
+        Args:
+            dry_run: policz i pokaż, ale nie zapisuj
+            limit: weź pod uwagę najwyżej tyle zamówień (od najstarszych)
+            progress: opcjonalne callable(str) do raportowania postępu
+
+        Returns:
+            Dict ze statystykami przebiegu
+        """
+        if not self.api_key:
+            raise SyncError("Brak klucza API Baselinker")
+
+        from modules.production.models import ProductionOrder
+
+        def _powiedz(tekst: str):
+            if progress:
+                progress(tekst)
+
+        zapytanie = ProductionOrder.query.filter(
+            ProductionOrder.order_source.is_(None),
+            ProductionOrder.baselinker_order_id.isnot(None),
+        ).order_by(ProductionOrder.baselinker_order_id.asc())
+
+        if limit:
+            zapytanie = zapytanie.limit(limit)
+
+        zamowienia = zapytanie.all()
+        do_uzupelnienia = {o.baselinker_order_id: o for o in zamowienia}
+
+        statystyki = {
+            'do_uzupelnienia': len(do_uzupelnienia),
+            'uzupelnione': 0,
+            'bez_zrodla_w_bl': 0,
+            'poza_zasiegiem_bl': 0,
+            'strony': 0,
+        }
+
+        if not do_uzupelnienia:
+            _powiedz("Brak zamówień bez źródła — nie ma czego uzupełniać.")
+            return statystyki
+
+        _powiedz(f"Zamówień bez źródła: {len(do_uzupelnienia)}")
+
+        # Rozgrzewamy słownik nazw raz, przed pętlą po stronach.
+        self.get_order_sources()
+
+        pozostale = set(do_uzupelnienia.keys())
+        id_from = min(pozostale)
+        # Zabezpieczenie przed pętlą nieskończoną, gdyby API zaczęło zwracać
+        # w kółko tę samą stronę. 100 zamówień na stronę => z zapasem.
+        max_stron = max(20, len(do_uzupelnienia) // 50 + 20)
+
+        while pozostale and statystyki['strony'] < max_stron:
+            response_data = self._make_api_request({
+                'token': self.api_key,
+                'method': 'getOrders',
+                'parameters': json.dumps({
+                    'id_from': id_from,
+                    'get_unconfirmed_orders': True,
+                })
+            })
+
+            if response_data.get('status') != 'SUCCESS':
+                raise SyncError(response_data.get('error_message', 'Nieznany błąd API'))
+
+            strona = response_data.get('orders') or []
+            statystyki['strony'] += 1
+
+            if not strona:
+                break
+
+            najwyzsze_id = id_from
+            for bl_order in strona:
+                bl_id = self._safe_int(bl_order.get('order_id'))
+                if bl_id is None:
+                    continue
+                najwyzsze_id = max(najwyzsze_id, bl_id)
+
+                if bl_id not in pozostale:
+                    continue
+
+                pozostale.discard(bl_id)
+                dane = self.extract_order_source(bl_order)
+
+                if not dane:
+                    statystyki['bez_zrodla_w_bl'] += 1
+                    continue
+
+                order = do_uzupelnienia[bl_id]
+                order.order_source = dane['order_source']
+                order.order_source_id = dane['order_source_id']
+                order.order_source_name = dane['order_source_name']
+                statystyki['uzupelnione'] += 1
+
+            # BaseLinker zwraca zamówienia rosnąco po id ORAZ po cichu przycina
+            # `id_from` do swojego okna retencji — poproszony o id sprzed okna
+            # oddaje pierwszą stronę od najstarszego, jakie jeszcze zna. Czyli
+            # każde oczekiwane id NIŻSZE od najwyższego widzianego na stronie,
+            # którego na niej nie było, jest nieosiągalne: albo usunięte, albo
+            # starsze niż okno. Bez tego odsiewu pętla mieliłaby całą historię
+            # BaseLinkera, żeby na końcu stwierdzić to samo.
+            nieosiagalne = {bl_id for bl_id in pozostale if bl_id < najwyzsze_id}
+            if nieosiagalne:
+                pozostale -= nieosiagalne
+                statystyki['poza_zasiegiem_bl'] += len(nieosiagalne)
+
+            _powiedz(
+                f"  strona {statystyki['strony']}: {len(strona)} zamówień z BL, "
+                f"uzupełnione {statystyki['uzupelnione']}, zostało {len(pozostale)}"
+            )
+
+            # Strona krótsza niż pełna = koniec zamówień w BaseLinkerze.
+            if len(strona) < 100:
+                break
+
+            id_from = najwyzsze_id + 1
+
+        # Wyczerpany limit stron to co innego niż koniec historii BaseLinkera:
+        # tych zamówień NIE sprawdziliśmy, więc raportowanie ich jako „poza
+        # zasięgiem" byłoby kłamstwem — operator uznałby temat za zamknięty,
+        # a wystarczy uruchomić komendę ponownie.
+        if pozostale and statystyki['strony'] >= max_stron:
+            statystyki['niesprawdzone'] = len(pozostale)
+            _powiedz(
+                f"UWAGA: limit {max_stron} stron wyczerpany, {len(pozostale)} zamówień "
+                f"NIE zostało sprawdzonych — uruchom komendę ponownie."
+            )
+        else:
+            statystyki['poza_zasiegiem_bl'] += len(pozostale)
+
+        if dry_run:
+            db.session.rollback()
+            _powiedz(f"DRY-RUN: {statystyki['uzupelnione']} zamówień zostałoby uzupełnionych. Brak zapisu.")
+        else:
+            db.session.commit()
+            _powiedz(f"Zapisano źródło dla {statystyki['uzupelnione']} zamówień.")
+
+        if statystyki['poza_zasiegiem_bl']:
+            _powiedz(
+                f"UWAGA: {statystyki['poza_zasiegiem_bl']} zamówień poza zasięgiem getOrders "
+                f"(starsze niż okno BaseLinkera albo usunięte) — zostają bez źródła."
+            )
+
+        return statystyki
 
     def sync_paid_orders_only(self) -> Dict[str, Any]:
         sync_started_at = get_local_now()
@@ -1217,6 +1494,10 @@ class BaselinkerSyncService:
                 'product_id': product_id,
                 'order_notes_length': len(order_notes)
             })
+
+        # Źródło zamówienia (2026-09) — kanał sprzedaży pod kody rabatowe
+        # dokładane do paczki na stanowisku pakowania.
+        product_data.update(self.extract_order_source(order))
     
         if deadline_date:
             today = date.today()
@@ -1319,6 +1600,7 @@ class BaselinkerSyncService:
             'shipping_package_id', 'shipping_tracking_number', 'shipping_courier_name',
             'shipping_price', 'shipping_label_base64', 'shipping_created_at',
             'attachment_file_name', 'attachment_file_url', 'sync_source',
+            'order_source', 'order_source_id', 'order_source_name',
         }
         CONFIG_KEYS = {'parsed_wood_species', 'parsed_technology', 'parsed_wood_class'}
 

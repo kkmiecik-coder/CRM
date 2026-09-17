@@ -115,6 +115,27 @@ class ProductionConfiguration(db.Model):
         return cfg
 
 
+# Etykiety kanałów sprzedaży z BaseLinkera pokazywane człowiekowi.
+# Klucz = `order_source` z getOrders/getOrderSources.
+ORDER_SOURCE_CHANNEL_LABELS = {
+    'personal': 'Własne',
+    'shop': 'Sklep',
+    'allegro': 'Allegro',
+    'olx': 'OLX',
+    'inpsa': 'InPost',
+    'ebay': 'eBay',
+    'amazon': 'Amazon',
+    'order_return': 'Zwrot',
+}
+
+# Kanały, w których sensowna informacja siedzi w NAZWIE źródła, a nie w nazwie
+# kanału. `personal` to zamówienia zakładane u nas: Detal, Stały B2B, Dębuś VPS
+# — to rozróżnienie decyduje o tym, czy do paczki idzie kod rabatowy, więc
+# pokazujemy nazwę. Dla Allegro nazwa źródła to login konta („woodpower"),
+# który pakowaczowi nie mówi nic ponad samo „Allegro".
+ORDER_SOURCE_NAME_FIRST_CHANNELS = {'personal'}
+
+
 class ProductionOrder(db.Model):
     """
     Zamówienie produkcyjne — jeden wiersz per baselinker_order_id.
@@ -128,6 +149,16 @@ class ProductionOrder(db.Model):
     quote_number = Column(String(16), index=True)
     baselinker_status_id = Column(Integer, index=True)
     payment_date = Column(DateTime, index=True)
+
+    # ŹRÓDŁO ZAMÓWIENIA (2026-09) — kanał sprzedaży z BaseLinkera.
+    # Surowa para (order_source, order_source_id) jest jedynym pewnym kluczem:
+    # samo id bywa niejednoznaczne (0 = „Detal" w personal ORAZ „Zwrot do
+    # zamówienia" w order_return). `order_source_name` to migawka nazwy ze
+    # słownika getOrderSources — w samym zamówieniu BaseLinker zwraca
+    # `order_source_info` = "-", więc nazwy nie da się z niego odczytać.
+    order_source = Column(String(50), index=True)
+    order_source_id = Column(Integer)
+    order_source_name = Column(String(100))
 
     client_order_number = Column(String(200))
     order_notes = Column(Text)
@@ -212,6 +243,35 @@ class ProductionOrder(db.Model):
     @property
     def has_client_order_number(self):
         return bool(self.client_order_number and self.client_order_number.strip())
+
+    @property
+    def order_source_display(self):
+        """
+        Etykieta źródła zamówienia dla człowieka: „Allegro", „Sklep", „Detal".
+
+        JEDYNE miejsce, w którym surowa para z BaseLinkera zamienia się w tekst.
+        Czytają ją wszystkie serializery (panel web, API mobilne, eksport),
+        żeby mapowanie nie rozjechało się między warstwami.
+
+        Zwraca None, gdy zamówienie nie ma źródła — pozycje wprowadzone ręcznie
+        oraz stare, jeszcze nieuzupełnione backfillem.
+        """
+        if not self.order_source:
+            return None
+
+        nazwa = (self.order_source_name or '').strip()
+
+        if self.order_source in ORDER_SOURCE_NAME_FIRST_CHANNELS:
+            # Detal vs Stały B2B vs Dębuś VPS — to rozróżnienie jest tu istotne.
+            return nazwa or ORDER_SOURCE_CHANNEL_LABELS.get(self.order_source, self.order_source)
+
+        etykieta = ORDER_SOURCE_CHANNEL_LABELS.get(self.order_source)
+        if etykieta:
+            return etykieta
+
+        # Nieznany kanał (BaseLinker dołożył nowy) — lepiej pokazać nazwę ze
+        # słownika niż surowy klucz, a jak i jej nie ma, to chociaż klucz.
+        return nazwa or self.order_source
 
 
 class ProductionProduct(db.Model):

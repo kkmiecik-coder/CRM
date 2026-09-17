@@ -99,7 +99,8 @@ class ProductsModule {
                 technologies: [],
                 woodClasses: [],
                 thicknesses: [],
-                statuses: []
+                statuses: [],
+                orderSources: []
             },
 
             // Zaznaczone produkty
@@ -502,7 +503,8 @@ class ProductsModule {
             technologies: 'Technologia',
             woodClasses: 'Klasa',
             thicknesses: 'Grubość',
-            statuses: 'Status'
+            statuses: 'Status',
+            orderSources: 'Źródło'
         };
 
         Object.entries(multiSelectFilters).forEach(([filterKey, label]) => {
@@ -600,7 +602,8 @@ class ProductsModule {
             technologies: 'dropdown-technology', 
             woodClasses: 'dropdown-wood-class',
             thicknesses: 'dropdown-thickness',
-            statuses: 'dropdown-status'
+            statuses: 'dropdown-status',
+            orderSources: 'dropdown-order-source'
         };
 
         const dropdownId = dropdownMapping[filterType];
@@ -638,6 +641,7 @@ class ProductsModule {
         this.state.currentFilters.woodClasses = [];
         this.state.currentFilters.thicknesses = [];
         this.state.currentFilters.statuses = [];
+        this.state.currentFilters.orderSources = [];
 
         // Clear all custom multi-select checkboxes
         const allDropdowns = document.querySelectorAll('.multi-select-dropdown');
@@ -649,7 +653,7 @@ class ProductsModule {
         });
 
         // Update all displays
-        const displays = ['filter-wood-species', 'filter-technology', 'filter-wood-class', 'filter-thickness', 'filter-status'];
+        const displays = ['filter-wood-species', 'filter-technology', 'filter-wood-class', 'filter-thickness', 'filter-status', 'filter-order-source'];
         displays.forEach(displayId => {
             const placeholder = document.querySelector(`#${displayId} .multi-select-placeholder`);
             if (placeholder) {
@@ -1018,6 +1022,9 @@ class ProductsModule {
         // Status filter
         this.setupCustomMultiSelect('filter-status', 'dropdown-status', 'statuses');
 
+        // Źródło zamówienia (kanał sprzedaży z BaseLinkera)
+        this.setupCustomMultiSelect('filter-order-source', 'dropdown-order-source', 'orderSources');
+
         // Close dropdowns when clicking outside
         document.addEventListener('click', (e) => {
             if (!e.target.closest('.il-multiselect') && !e.target.closest('.multi-select-wrapper')) {
@@ -1188,6 +1195,10 @@ class ProductsModule {
             label: this.getStatusDisplayName(status)
         }));
         this.populateCustomDropdown('dropdown-status', 'statuses', statusOptions);
+
+        // Źródła zamówień — etykiety gotowe z backendu (order_source_display),
+        // więc nie ma tu czego tłumaczyć.
+        this.populateCustomDropdown('dropdown-order-source', 'orderSources', filtersData.order_sources || []);
     }
 
     populateCustomDropdown(dropdownId, filterType, options) {
@@ -1353,6 +1364,7 @@ class ProductsModule {
                     baselinkerOrderId: product.baselinker_order_id,
                     clientOrderNumber: product.client_order_number,
                     quoteNumber: product.quote_number,
+                    orderSource: product.order_source_display || null,
                     internalOrderNumber: product.internal_order_number,
                     products: [],
                     totalVolume: 0,
@@ -1375,6 +1387,7 @@ class ProductsModule {
             if (product.is_priority) order.isPriority = true;
             if (product.order_notes && !order.orderNotes) order.orderNotes = product.order_notes;
             if (product.quote_number && !order.quoteNumber) order.quoteNumber = product.quote_number;
+            if (product.order_source_display && !order.orderSource) order.orderSource = product.order_source_display;
             if (product.attachment_file_url) order.attachmentUrl = product.attachment_file_url;
 
             // Earliest deadline
@@ -1530,6 +1543,9 @@ class ProductsModule {
         // Client info
         header.querySelector('.il-order-client').textContent = order.clientName;
         const idsContainer = header.querySelector('.il-order-ids');
+        if (order.orderSource) {
+            idsContainer.innerHTML += `<span class="il-order-source-tag">${this.escapeHtml(order.orderSource)}</span>`;
+        }
         if (order.internalOrderNumber) {
             idsContainer.innerHTML += `<span class="il-order-id-tag">${order.internalOrderNumber}</span>`;
         }
@@ -2536,6 +2552,14 @@ class ProductsModule {
             );
         }
 
+        // Źródło zamówienia — porównanie po gotowej etykiecie, tej samej, którą
+        // backend wstawia do opcji filtra.
+        if (this.state.currentFilters.orderSources.length > 0) {
+            filtered = filtered.filter(p =>
+                p.order_source_display && this.state.currentFilters.orderSources.includes(p.order_source_display)
+            );
+        }
+
         return filtered;
     }
 
@@ -2554,6 +2578,7 @@ class ProductsModule {
         this.state.currentFilters.woodClasses = [];
         this.state.currentFilters.thicknesses = [];
         this.state.currentFilters.statuses = [];
+        this.state.currentFilters.orderSources = [];
 
         // Selekcja jest zachowywana — kontrakt spójny z applyAllFilters. Bulk actions i tak operują na przecięciu selekcji z widokiem.
         // Zastosuj filtry (applyAllFilters now renders + updates stats)
