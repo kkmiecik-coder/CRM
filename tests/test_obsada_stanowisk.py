@@ -13,7 +13,7 @@ by o tym nie krzyknęło.
 """
 import os
 import sys
-from datetime import date, datetime
+from datetime import datetime, time, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -23,7 +23,7 @@ from sqlalchemy.pool import StaticPool
 
 from extensions import db
 from modules.production.models import (
-    ProductionWorker, ProductionWorkerSession,
+    ProductionWorker, ProductionWorkerSession, get_local_now,
 )
 from modules.production.services.worker_stats_service import obsada_stanowisk
 from modules.users.models import User
@@ -53,6 +53,20 @@ def app():
         db.session.remove()
 
 
+# Doba testowa liczy się od DZISIAJ, nie od literału. obsada_stanowisk()
+# zawęża wynik do bieżącej doby po get_local_now(), więc sesje z zaszytą datą
+# przestawały być „dzisiejsze" nazajutrz po napisaniu testu — sześć z dziesięciu
+# testów w tym pliku zaczynało padać następnego dnia, bez żadnej zmiany w kodzie.
+# Testy, które pinują zegar monkeypatchem, muszą pinować go do TEJ SAMEJ doby,
+# inaczej wracamy do tego samego rozjazdu.
+_DZIS = get_local_now().date()
+
+
+def _o(godzina, minuta=0, dzien=None):
+    """Moment na dzisiejszej (albo wskazanej) dobie — zamiast literału daty."""
+    return datetime.combine(dzien or _DZIS, time(godzina, minuta))
+
+
 def _pracownik(imie, nazwisko, kolor=None):
     w = ProductionWorker(first_name=imie, last_name=nazwisko, color_hex=kolor)
     db.session.add(w)
@@ -61,15 +75,15 @@ def _pracownik(imie, nazwisko, kolor=None):
 
 
 def _sesja(pracownik, stanowisko, godzina=8, grupa='g1', zamknieta=False):
-    start = datetime(2026, 9, 16, godzina, 0)
+    start = _o(godzina)
     s = ProductionWorkerSession(
         worker_id=pracownik.id,
         station_code=stanowisko,
         session_group=grupa,
         started_at=start,
         last_activity_at=start,
-        ended_at=datetime(2026, 9, 16, 16, 0) if zamknieta else None,
-        work_date=date(2026, 9, 16),
+        ended_at=_o(16) if zamknieta else None,
+        work_date=_DZIS,
     )
     db.session.add(s)
     db.session.flush()
@@ -158,11 +172,11 @@ def test_wczorajsza_niedomknieta_sesja_nie_stoi_dzis_na_kafelku(app, monkeypatch
 
     wczoraj = _pracownik('Stefan', 'Zalega')
     s = _sesja(wczoraj, 'gluing')
-    s.work_date = date(2026, 9, 15)
+    s.work_date = _DZIS - timedelta(days=1)
     db.session.flush()
 
     monkeypatch.setattr(serwis, 'get_local_now',
-                        lambda: datetime(2026, 9, 16, 10, 0))
+                        lambda: _o(10))
 
     assert 'gluing' not in obsada_stanowisk()
 
@@ -180,11 +194,11 @@ def test_obsada_niesie_czasy_do_dymka(app, monkeypatch):
 
     kto = _pracownik('Anna', 'Wilk')
     s = _sesja(kto, 'gluing', godzina=10)
-    s.last_activity_at = datetime(2026, 9, 16, 11, 38)
+    s.last_activity_at = _o(11, 38)
     db.session.flush()
 
     monkeypatch.setattr(serwis, 'get_local_now',
-                        lambda: datetime(2026, 9, 16, 11, 53))
+                        lambda: _o(11, 53))
 
     osoba = obsada_stanowisk()['gluing'][0]
 
@@ -206,12 +220,12 @@ def test_pierwsze_logowanie_liczy_sie_z_calej_doby(app, monkeypatch):
 
     kto = _pracownik('Marek', 'Duda')
     rano = _sesja(kto, 'cutting', godzina=6, grupa='r')
-    rano.ended_at = datetime(2026, 9, 16, 9, 0)
+    rano.ended_at = _o(9)
     _sesja(kto, 'gluing', godzina=9, grupa='p')
     db.session.flush()
 
     monkeypatch.setattr(serwis, 'get_local_now',
-                        lambda: datetime(2026, 9, 16, 12, 0))
+                        lambda: _o(12))
 
     assert obsada_stanowisk()['gluing'][0]['pierwsze'] == '06:00'
 
