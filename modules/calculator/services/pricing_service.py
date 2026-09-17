@@ -35,6 +35,70 @@ _LEGACY_FINISHING_FALLBACK = {
 
 VAT = 1.23
 
+# Kształty NIE objęte dopłatą za nietypowość: prostokąt (podstawa) oraz
+# koło/owal, które ma własną dopłatę (round_shape_surcharge_netto).
+# Wszystko inne — trójkąty, trapezy, równoległobok, wielokąt — wymaga
+# ręcznego docinania po szablonie, stąd osobna dopłata.
+SHAPES_BEZ_DOPLATY_ZA_NIETYPOWOSC = ('rectangular', 'round', 'circle')
+
+
+def custom_shape_surcharge_per_unit(shape, data):
+    """Dopłata netto za sztukę za kształt nietypowy (0 dla prostokąta i koła/owalu)."""
+    if shape in SHAPES_BEZ_DOPLATY_ZA_NIETYPOWOSC:
+        return 0.0
+    return float(data.custom_shape_surcharge_netto or 0)
+
+
+# === Automatyczny dobór mnożnika (wyceny bota Dębusia) ===
+#
+# Tańszy produkt dostaje wyższą marżę, droższy niższą. Mnożnik dobiera KOD —
+# grupa cenowa (client_type) nie bierze tu udziału.
+#
+# UWAGA, dlaczego próg liczymy na cenie BAZOWEJ (mnożnik 1.0), a nie końcowej:
+# gdyby zależał od ceny PO mnożniku, reguła zapętliłaby się w nieskończoność.
+# Baza 900 zł → ×1.5 = 1350 (powyżej progu, więc należy się ×1.1) → 990
+# (poniżej progu, więc znów ×1.5) → 1350 → ... Cena bazowa nie zależy od
+# mnożnika, więc rozstrzyga jednoznacznie. Decyzja użytkownika z 2026-09-15.
+#
+# USKOK NA PROGU JEST ZAMIERZONY. Przełączenie mnożnika daje nieciągłość,
+# w której WIĘKSZY produkt bywa TAŃSZY. Na produkcyjnym cenniku (dąb lity B/B,
+# 90×4 cm): blat 198 cm = 1496,88 zł netto, blat 200 cm = 1108,80 zł.
+#
+# Decyzja biznesowa 2026-09-15 (Konrad z prezesem): to NIE jest wada. Ceny liczone
+# są w arkuszu xlsx, a BaseLinker jest źródłem prawdy o cenach — reguła dwóch
+# mnożników odwzorowuje ten arkusz 1:1. Wcześniejsza próba wygładzenia uskoku
+# ("plateau": stała cena 1500 zł w paśmie 1000–1363,64) została zdjęta tego samego
+# dnia, bo liczyła DROŻEJ niż cennik — do 400 zł netto na sztuce tuż nad progiem —
+# i wprowadzała regułę, której w arkuszu nie ma.
+#
+# Dwa zakresy:
+#   baza < 1000   → ×1.5   (999,99 → 1499,98)
+#   baza >= 1000  → ×1.1   (1000,00 → 1100,00)
+AUTO_MULTIPLIER_PROG_NETTO = 1000.0
+AUTO_MULTIPLIER_PONIZEJ_PROGU = 1.5
+AUTO_MULTIPLIER_OD_PROGU = 1.1
+
+
+def auto_multiplier_for_base(base_netto):
+    """Mnożnik dobrany do bazowej ceny SZTUKI (bez mnożnika i bez dopłat).
+
+    Dwa pasma, dokładnie jak w cenniku (arkusz xlsx → BaseLinker). Równo 1000 zł
+    liczymy jako "od progu"; użytkownik określił regułę jako "<1k" i ">1k",
+    sama równość nie była objęta.
+
+    UWAGA: tuż nad progiem cena POTRAFI SPAŚĆ (999,99 zł bazy → 1499,99 zł,
+    1000 zł bazy → 1100 zł), więc szerszy produkt bywa tańszy od węższego.
+    Jest to świadomie zaakceptowane (decyzja biznesowa 2026-09-15) — Base jest
+    źródłem prawdy o cenach. Wcześniejsze "plateau" spłaszczało ten uskok do
+    1500 zł i przez to liczyło DROŻEJ niż cennik, do 400 zł netto na sztuce.
+    Decyzja jest utrwalona testem: tests/test_pricing_quote.py
+    (test_cena_moze_spasc_na_progu_i_jest_to_ZAMIERZONE).
+    """
+    if base_netto < AUTO_MULTIPLIER_PROG_NETTO:
+        return AUTO_MULTIPLIER_PONIZEJ_PROGU
+    return AUTO_MULTIPLIER_OD_PROGU
+
+
 # Odpowiednik variantMapping z calculator-core.js:155
 VARIANT_MAPPING = {
     'dab-lity-ab': {'species': 'Dąb', 'technology': 'Lity', 'wood_class': 'A/B'},
@@ -74,6 +138,7 @@ class PricingData:
     edge_prices: dict = field(default_factory=dict)
     cutout_price_netto: float = 0.0
     round_surcharge_netto: float = 0.0
+    custom_shape_surcharge_netto: float = 0.0
 
 
 def _finishing_maps_from_flat_list(flat_list):
@@ -161,6 +226,10 @@ def _build_pricing_data():
         }
 
     surcharge = float(CalculatorSetting.get_value('round_shape_surcharge_netto', '50.00'))
+    # Domyślnie 0 — dopóki admin nie ustawi kwoty, kształty nietypowe liczą się jak dotąd.
+    custom_shape_surcharge = float(
+        CalculatorSetting.get_value('custom_shape_surcharge_netto', '0.00')
+    )
 
     return PricingData(
         price_entries=price_entries,
@@ -170,6 +239,7 @@ def _build_pricing_data():
         edge_prices=edge_prices,
         cutout_price_netto=cutout_price,
         round_surcharge_netto=surcharge,
+        custom_shape_surcharge_netto=custom_shape_surcharge,
     )
 
 
@@ -335,8 +405,14 @@ def find_price_entry(data, species, technology, wood_class, thickness, length, w
     return None
 
 
-def calculate_material_variants(product, multiplier, data):
-    """Odpowiednik pętli wariantów w JS updatePrices (calculator-core.js:527-591)."""
+def calculate_material_variants(product, multiplier, data, auto_multiplier=False):
+    """Odpowiednik pętli wariantów w JS updatePrices (calculator-core.js:527-591).
+
+    auto_multiplier=True (wyceny bota) ignoruje `multiplier` z grupy cenowej
+    i dobiera mnożnik OSOBNO DLA KAŻDEGO WARIANTU, wg jego własnej ceny bazowej.
+    Ten sam blat może więc wyjść ×1.5 w buku i ×1.1 w dębie litym — tak ma być,
+    próg dotyczy wartości konkretnego wariantu, nie produktu w ogóle.
+    """
     length = float(product['length'])
     width = float(product['width'])
     thickness = float(product['thickness'])
@@ -357,10 +433,18 @@ def calculate_material_variants(product, multiplier, data):
             results.append({'variant_code': code, 'available': False})
             continue
 
-        unit_netto = volume * match['price_per_m3'] * multiplier
+        # Cena bazowa sztuki = mnożnik 1.0. To na niej rozstrzyga się próg
+        # automatycznego mnożnika (patrz auto_multiplier_for_base).
+        base_unit_netto = volume * match['price_per_m3']
+        effective_multiplier = (auto_multiplier_for_base(base_unit_netto)
+                                if auto_multiplier else multiplier)
+
+        unit_netto = base_unit_netto * effective_multiplier
         # Dopłaty PO mnożniku, per sztuka (JS 546-556)
         if shape in ('round', 'circle') and data.round_surcharge_netto:
             unit_netto += data.round_surcharge_netto
+        # Dopłata za kształt nietypowy — wyklucza się z dopłatą za koło (inne kształty)
+        unit_netto += custom_shape_surcharge_per_unit(shape, data)
         if holes_count > 0 and data.cutout_price_netto > 0:
             unit_netto += holes_count * data.cutout_price_netto
 
@@ -370,7 +454,11 @@ def calculate_material_variants(product, multiplier, data):
             'available': True,
             'volume_m3': volume,
             'price_per_m3': match['price_per_m3'],
-            'multiplier': multiplier,
+            # Mnożnik FAKTYCZNIE użyty — przy auto_multiplier różny per wariant.
+            # To on ląduje w QuoteItem.multiplier przez _inject_backend_prices.
+            'multiplier': effective_multiplier,
+            # Cena bazowa sztuki (mnożnik 1.0) — widać, z czego wyszedł próg
+            'base_unit_netto': round_grosze(base_unit_netto),
             'unit_netto': unit_netto,                       # celowo niezaokrąglone (jak JS finalPrice)
             'unit_brutto': unit_brutto,
             'total_netto': round_grosze(unit_netto * quantity),
@@ -770,13 +858,42 @@ def validate_product(product, data):
     return errors
 
 
+def _shape_surcharge_info(product, data):
+    """Breakdown dopłaty za kształt nietypowy do pokazania w UI (None gdy dopłaty nie ma).
+
+    Brutto liczymy z netto razy VAT — jak w quote_service przy dopłacie za koło.
+    To wartość CZYSTO informacyjna; w cenie wariantu dopłata siedzi już
+    w unit_netto, którego brutto zaokrągla się raz, na całości.
+    """
+    per_unit = custom_shape_surcharge_per_unit(product.get('shape', 'rectangular'), data)
+    if per_unit <= 0:
+        return None
+    quantity = int(product.get('quantity', 1))
+    total_netto = round_grosze(per_unit * quantity)
+    return {
+        'per_unit_netto': round_grosze(per_unit),
+        'total_netto': total_netto,
+        'total_brutto': round_grosze(total_netto * VAT),
+        # Gotowe zdanie po polsku — bot (Dębuś) czyta ten breakdown przez /api/bot/calculate
+        # i ma powiedzieć klientowi, za co doliczono, a nie tylko podać wyższą cenę.
+        'note': (f'Doliczono {round_grosze(per_unit):.2f} zł netto za sztukę '
+                 f'za nietypowy kształt produktu.'),
+    }
+
+
 def calculate_quote(payload, data):
     """Główna funkcja: pełny breakdown wyceny albo lista błędów. Nic nie zapisuje."""
     errors = []
-    multiplier, m_err = resolve_multiplier(
-        payload.get('client_type'), payload.get('multiplier'), data)
-    if m_err:
-        return {'ok': False, 'errors': [m_err], 'products': [], 'totals': None}
+    # Tryb bota: mnożnik dobiera kod per wariant, grupa cenowa nie wpływa na cenę,
+    # więc jej nie rozstrzygamy ani nie walidujemy (client_type zostaje w payloadzie
+    # tylko po to, żeby zapisać go na wycenie).
+    auto_multiplier = bool(payload.get('auto_multiplier'))
+    multiplier = None
+    if not auto_multiplier:
+        multiplier, m_err = resolve_multiplier(
+            payload.get('client_type'), payload.get('multiplier'), data)
+        if m_err:
+            return {'ok': False, 'errors': [m_err], 'products': [], 'totals': None}
 
     products_out = []
     sums = {'order_netto': 0.0, 'order_brutto': 0.0,
@@ -789,12 +906,16 @@ def calculate_quote(payload, data):
         if p_errors:
             errors.extend(p_errors)
             products_out.append({'index': idx, 'errors': p_errors,
-                                 'variants': [], 'finishing': None, 'edges': None})
+                                 'variants': [], 'finishing': None, 'edges': None,
+                                 'shape_surcharge': None})
             continue
 
-        variants = calculate_material_variants(product, multiplier, data)
+        variants = calculate_material_variants(product, multiplier, data, auto_multiplier)
         finishing = calculate_finishing(product, data)
         edges = calculate_edges_pricing(product.get('edges'), product, data)
+        # Dopłata za kształt nietypowy jest już WLICZONA w ceny wariantów —
+        # wystawiamy ją osobno tylko po to, żeby front mógł ją pokazać użytkownikowi.
+        shape_surcharge = _shape_surcharge_info(product, data)
 
         selected_code = product.get('selected_variant')
         selected = next((v for v in variants
@@ -806,7 +927,8 @@ def calculate_quote(payload, data):
                      f'Dostępne warianty: {", ".join(available) or "żadne"}.', idx)
             errors.append(e)
             products_out.append({'index': idx, 'errors': [e], 'variants': variants,
-                                 'finishing': finishing, 'edges': edges})
+                                 'finishing': finishing, 'edges': edges,
+                                 'shape_surcharge': shape_surcharge})
             continue
 
         if selected:
@@ -818,7 +940,8 @@ def calculate_quote(payload, data):
         sums['edges_brutto'] += edges['brutto']
 
         products_out.append({'index': idx, 'errors': [], 'variants': variants,
-                             'finishing': finishing, 'edges': edges})
+                             'finishing': finishing, 'edges': edges,
+                             'shape_surcharge': shape_surcharge})
 
     shipping = payload.get('shipping') or {}
     ship_netto = float(shipping.get('netto') or 0)
@@ -834,5 +957,10 @@ def calculate_quote(payload, data):
                   'total_brutto': round_grosze(sums['order_brutto'] + sums['finishing_brutto']
                                                + sums['edges_brutto'] + ship_brutto)}
 
+    # multiplier=None w trybie auto jest ZAMIERZONE: przy mnożniku dobieranym
+    # per wariant nie istnieje jedna wartość dla całej wyceny. Prawda siedzi
+    # w QuoteItem.multiplier każdej pozycji; Quote.quote_multiplier zostaje NULL,
+    # a panel wycen pokazuje wtedy samą grupę cenową (quotes.js:960).
     return {'ok': not errors, 'errors': errors, 'products': products_out,
-            'totals': totals, 'multiplier': multiplier}
+            'totals': totals, 'multiplier': multiplier,
+            'multiplier_mode': 'auto' if auto_multiplier else 'client_type'}

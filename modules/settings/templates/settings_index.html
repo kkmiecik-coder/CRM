@@ -332,6 +332,14 @@
                        class="calculator-subtab {% if calculator_subtab == 'extras' %}active{% endif %}">
                         Wykończenia
                     </a>
+                    <a href="{{ url_for('settings.calculator_shape_surcharges') }}"
+                       class="calculator-subtab {% if calculator_subtab == 'shape_surcharges' %}active{% endif %}">
+                        Dopłaty za kształt
+                    </a>
+                    <a href="{{ url_for('settings.calculator_shipping') }}"
+                       class="calculator-subtab {% if calculator_subtab == 'shipping' %}active{% endif %}">
+                        Wyliczanie wysyłki
+                    </a>
                     <a href="{{ url_for('settings.calculator_sources') }}"
                        class="calculator-subtab {% if calculator_subtab == 'sources' %}active{% endif %}">
                         Źródła wycen
@@ -777,27 +785,6 @@
                     </div>
                     {% endif %}
 
-                    <!-- Dopłata za kształt okrągły -->
-                    <div class="settings-subsection" style="margin-top: 30px; padding: 20px; background: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0;">
-                        <h4 style="margin: 0 0 15px 0; font-size: 15px; color: #333;">Kształt okrągły/owalny</h4>
-                        <div style="display: flex; align-items: center; gap: 15px;">
-                            <label style="font-size: 13px; color: #555; white-space: nowrap;">Dopłata netto za sztukę:</label>
-                            <div style="display: flex; align-items: center; gap: 8px;">
-                                <input type="number" id="roundSurchargeNetto" step="0.01" min="0"
-                                       value="{{ round_surcharge }}"
-                                       style="width: 120px; padding: 8px 12px; border: 1px solid #d0d0d0; border-radius: 6px; font-size: 14px;">
-                                <span style="font-size: 13px; color: #777;">PLN netto</span>
-                            </div>
-                            <button type="button" id="saveRoundSurchargeBtn" class="btn-primary" style="padding: 8px 20px; font-size: 13px;">
-                                Zapisz
-                            </button>
-                            <span id="roundSurchargeSaveStatus" style="font-size: 12px; color: #28a745; display: none;">Zapisano!</span>
-                        </div>
-                        <p style="margin: 10px 0 0 0; font-size: 12px; color: #888;">
-                            Dopłata doliczana do ceny netto surowego produktu za każdą sztukę o kształcie okrągłym/owalnym.
-                        </p>
-                    </div>
-
                     <!-- Sticky Save Footer - Edge Options -->
                     <div class="settings-save-footer" id="saveFooterEdgeOptions">
                         <div class="save-footer-content">
@@ -816,6 +803,131 @@
                         </div>
                     </div>
                     {% endif %}
+                </div>
+                {% endif %}
+
+                <!-- Podzakładka: Dopłaty za kształt -->
+                {% if calculator_subtab == 'shape_surcharges' %}
+                <div class="settings-section">
+                    <div class="section-header">
+                        <h3>Dopłaty za kształt</h3>
+                        <p>
+                            Kwoty doliczane do ceny netto surowego produktu, za każdą sztukę.
+                            Naliczają się po mnożniku grupy cenowej. Produkt ma dokładnie jeden
+                            kształt, więc <strong>obie dopłaty wykluczają się</strong> — nigdy nie
+                            zsumują się na jednej pozycji.
+                        </p>
+                    </div>
+
+                    <div class="shape-surcharges-grid">
+                        <div class="settings-subsection">
+                            <h4>Koło i owal</h4>
+                            <div class="surcharge-row">
+                                <label for="roundSurchargeNetto">Dopłata netto za sztukę:</label>
+                                <div class="surcharge-input">
+                                    <input type="number" id="roundSurchargeNetto" step="0.01" min="0"
+                                           value="{{ round_surcharge }}">
+                                    <span>PLN netto</span>
+                                </div>
+                            </div>
+                            <p class="surcharge-hint">
+                                Dotyczy kształtów „Koło" oraz owalnych.
+                            </p>
+                        </div>
+
+                        <div class="settings-subsection">
+                            <h4>Kształt nietypowy</h4>
+                            <div class="surcharge-row">
+                                <label for="customShapeSurchargeNetto">Dopłata netto za sztukę:</label>
+                                <div class="surcharge-input">
+                                    <input type="number" id="customShapeSurchargeNetto" step="0.01" min="0"
+                                           value="{{ custom_shape_surcharge }}">
+                                    <span>PLN netto</span>
+                                </div>
+                            </div>
+                            <p class="surcharge-hint">
+                                Trójkąty, trapezy, równoległoboki i wielokąty niestandardowe —
+                                wszystko poza prostokątem i kołem/owalem.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="shape-surcharges-actions">
+                        <button type="button" id="saveShapeSurchargesBtn" class="btn-primary">
+                            Zapisz dopłaty
+                        </button>
+                        <span id="shapeSurchargesSaveStatus" class="save-status">Zapisano!</span>
+                        <span class="shape-surcharges-note">
+                            Wpisz 0, aby wyłączyć dopłatę. Zmiana działa od razu, bez wdrożenia.
+                        </span>
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- Podzakładka: Wyliczanie wysyłki -->
+                {% if calculator_subtab == 'shipping' %}
+                <div class="settings-section">
+                    <div class="section-header">
+                        <h3>Wyliczanie wysyłki</h3>
+                    </div>
+
+                    <div class="finishing-tree-info">
+                        <p>
+                            Do ceny z GlobKuriera doliczany jest najpierw narzut procentowy,
+                            a następnie — jeśli cena po narzucie znajdzie się po wybranej stronie
+                            progu — kwota dopłaty. Wszystkie kwoty wpisujesz brutto, tak jak podaje
+                            je GlobKurier; wartość netto wyliczana jest obok.
+                        </p>
+                    </div>
+
+                    <div class="settings-subsection" style="padding: 20px; background: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0;">
+                        <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 18px;">
+                            <label style="font-size: 13px; color: #555; width: 180px;">Narzut na pakowanie:</label>
+                            <input type="number" id="shippingMarkupPercent" step="0.01" min="0" max="500"
+                                   value="{{ '%.10g'|format(shipping_config.percent) }}"
+                                   style="width: 120px; padding: 8px 12px; border: 1px solid #d0d0d0; border-radius: 6px; font-size: 14px;">
+                            <span style="font-size: 13px; color: #777;">%</span>
+                        </div>
+
+                        <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 18px;">
+                            <label style="font-size: 13px; color: #555; width: 180px;">Próg:</label>
+                            <input type="number" id="shippingThresholdBrutto" step="0.01" min="0"
+                                   value="{{ '%.10g'|format(shipping_config.threshold_brutto) }}"
+                                   style="width: 120px; padding: 8px 12px; border: 1px solid #d0d0d0; border-radius: 6px; font-size: 14px;">
+                            <span style="font-size: 13px; color: #777;">PLN brutto</span>
+                            <span id="shippingThresholdNetto" style="font-size: 13px; color: #888;"></span>
+                        </div>
+
+                        <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 18px;">
+                            <label style="font-size: 13px; color: #555; width: 180px;">Kwota dopłaty:</label>
+                            <input type="number" id="shippingSurchargeBrutto" step="0.01" min="0"
+                                   value="{{ '%.10g'|format(shipping_config.surcharge_brutto) }}"
+                                   style="width: 120px; padding: 8px 12px; border: 1px solid #d0d0d0; border-radius: 6px; font-size: 14px;">
+                            <span style="font-size: 13px; color: #777;">PLN brutto</span>
+                            <span id="shippingSurchargeNetto" style="font-size: 13px; color: #888;"></span>
+                        </div>
+
+                        <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 20px;">
+                            <label style="font-size: 13px; color: #555; width: 180px;">Dopłatę doliczaj:</label>
+                            <select id="shippingSurchargeSide"
+                                    style="padding: 8px 12px; border: 1px solid #d0d0d0; border-radius: 6px; font-size: 14px;">
+                                <option value="below" {% if shipping_config.side == 'below' %}selected{% endif %}>poniżej progu</option>
+                                <option value="above" {% if shipping_config.side == 'above' %}selected{% endif %}>od progu w górę</option>
+                            </select>
+                        </div>
+
+                        <div style="display: flex; align-items: center; gap: 15px;">
+                            <button type="button" id="saveShippingSettingsBtn" class="btn-primary" style="padding: 8px 20px; font-size: 13px;">
+                                Zapisz
+                            </button>
+                            <span id="shippingSaveStatus" style="font-size: 12px; display: none;"></span>
+                        </div>
+
+                        <p style="margin: 15px 0 0 0; font-size: 12px; color: #888;">
+                            Kwota dopłaty równa 0 oznacza, że doliczany jest sam narzut procentowy.
+                            Cena dokładnie równa progowi traktowana jest jako „od progu w górę".
+                        </p>
+                    </div>
                 </div>
                 {% endif %}
 

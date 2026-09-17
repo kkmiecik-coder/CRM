@@ -185,6 +185,28 @@ def register_cli_commands(app):
             db.session.commit()
             click.echo(f"[backfill] Zaktualizowano {updated} wycen.")
 
+    @app.cli.command("backfill-order-sources")
+    @click.option("--dry-run", is_flag=True, help="Pokaż zmiany bez zapisu do bazy.")
+    @click.option("--limit", type=int, default=None,
+                  help="Weź pod uwagę najwyżej tyle zamówień (od najstarszych).")
+    @with_appcontext
+    def backfill_order_sources_command(dry_run, limit):
+        """Uzupełnia źródło zamówienia (kanał sprzedaży) w zamówieniach produkcyjnych.
+
+        Synchronizacja zapisuje źródło tylko przy ZAKŁADANIU zamówienia, więc
+        zamówienia sprzed wdrożenia mają puste `order_source`. Komenda dociąga
+        je z BaseLinkera stronami po 100 (getOrders + id_from).
+        """
+        from modules.production.services.sync_service import BaselinkerSyncService
+
+        service = BaselinkerSyncService()
+        stats = service.backfill_order_sources(
+            dry_run=dry_run,
+            limit=limit,
+            progress=lambda tekst: click.echo(f"[backfill-order-sources] {tekst}"),
+        )
+        click.echo(f"[backfill-order-sources] {json.dumps(stats, ensure_ascii=False)}")
+
     @app.cli.command("migrate")
     @with_appcontext
     def migrate_command():

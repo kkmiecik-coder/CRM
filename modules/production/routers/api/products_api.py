@@ -262,6 +262,12 @@ def _serialize_product(product, workers_by_product, product_counts_by_order):
         'quote_number': order.quote_number if order else None,
         'order_notes': order.order_notes if order else None,
 
+        # Źródło zamówienia (kanał sprzedaży z BaseLinkera)
+        'order_source': order.order_source if order else None,
+        'order_source_id': order.order_source_id if order else None,
+        'order_source_name': order.order_source_name if order else None,
+        'order_source_display': order.order_source_display if order else None,
+
         # Priorytet ręczny (gwiazdka)
         'is_priority': get_attr(product, 'is_priority', False),
 
@@ -794,7 +800,13 @@ def products_tab_content():
             'thicknesses': list({label for label in (
                 _format_thickness_option(p['parsed_thickness_cm']) for p in products_data
             ) if label}),
-            'statuses': list(set(p['current_status'] for p in products_data if p['current_status']))
+            'statuses': list(set(p['current_status'] for p in products_data if p['current_status'])),
+            # Źródło filtrujemy po gotowej etykiecie, a nie po surowym kanale:
+            # w `personal` istotne jest rozróżnienie Detal / Stały B2B / Dębuś VPS,
+            # które w samym kluczu kanału by zniknęło.
+            'order_sources': list({
+                p['order_source_display'] for p in products_data if p.get('order_source_display')
+            }),
         }
 
         # Sortuj opcje filtrów
@@ -803,6 +815,7 @@ def products_tab_content():
         filters_data['wood_classes'].sort()
         filters_data['thicknesses'].sort(key=lambda x: _parse_thickness_option(x) or 0)
         filters_data['statuses'].sort()
+        filters_data['order_sources'].sort()
         
         logger.info(f"Statystyki: {stats_data}")
         logger.info(f"Opcje filtrów: gatunki={len(filters_data['wood_species'])}, technologie={len(filters_data['technologies'])}")
@@ -1774,14 +1787,18 @@ def _export_excel(products, timestamp):
     # =========================================================================
     ws_products = wb.create_sheet("Lista produktów")
 
-    ws_products.merge_cells('A1:O1')
+    ws_products.merge_cells('A1:P1')
     ws_products['A1'] = f"SZCZEGÓŁOWA LISTA PRODUKTÓW - {len(products)} pozycji"
     ws_products['A1'].font = Font(bold=True, size=14, color="2E7D32")
     ws_products['A1'].alignment = Alignment(horizontal="center")
 
+    # „Źródło" na końcu, a nie przy „Kliencie": numery kolumn wyrównywanych do
+    # prawej są niżej wypisane wprost, więc wstawienie w środku przesunęłoby je
+    # wszystkie.
     headers = ['Lp.', 'ID Produktu', 'Zamówienie', 'Nr Baselinker', 'Nr klienta',
                'Nazwa produktu', 'Status', 'Priorytet', 'Ilość', 'Gatunek',
-               'Technologia', 'Klasa', 'Wymiary (cm)', 'Objętość (m³)', 'Klient']
+               'Technologia', 'Klasa', 'Wymiary (cm)', 'Objętość (m³)', 'Klient',
+               'Źródło']
 
     for col, header in enumerate(headers, 1):
         cell = ws_products.cell(row=3, column=col, value=header)
@@ -1810,7 +1827,8 @@ def _export_excel(products, timestamp):
             (product.configuration.wood_class if product.configuration else None) or '',
             f"{product.parsed_length_cm or 0}×{product.parsed_width_cm or 0}×{product.parsed_thickness_cm or 0}",
             float(product.volume_m3) if product.volume_m3 else 0,
-            (product.order.client_name if product.order else None) or ''
+            (product.order.client_name if product.order else None) or '',
+            (product.order.order_source_display if product.order else None) or ''
         ]
 
         for col, value in enumerate(data, 1):
@@ -1825,7 +1843,7 @@ def _export_excel(products, timestamp):
             else:
                 cell.alignment = cell_alignment
 
-    column_widths = [5, 14, 12, 14, 14, 40, 18, 10, 8, 12, 14, 8, 18, 12, 25]
+    column_widths = [5, 14, 12, 14, 14, 40, 18, 10, 8, 12, 14, 8, 18, 12, 25, 16]
     for col, width in enumerate(column_widths, 1):
         ws_products.column_dimensions[get_column_letter(col)].width = width
 
@@ -2358,6 +2376,12 @@ def _serialize_production_item(item, today=None):
         'sync_source': item.order.sync_source if item.order else None,
         'delivery_address': (item.order.delivery_address if item.order else None) or '',
         'order_notes': item.order.order_notes if item.order else None,
+
+        # Źródło zamówienia (kanał sprzedaży z BaseLinkera)
+        'order_source': item.order.order_source if item.order else None,
+        'order_source_id': item.order.order_source_id if item.order else None,
+        'order_source_name': item.order.order_source_name if item.order else None,
+        'order_source_display': item.order.order_source_display if item.order else None,
     }
 
     if product_data['order_date'] and hasattr(product_data['order_date'], 'isoformat'):

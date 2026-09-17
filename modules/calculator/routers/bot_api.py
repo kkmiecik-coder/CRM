@@ -51,6 +51,8 @@ def bot_options():
     # nie chcemy duplikować logiki dla bota.
     from modules.calculator.services.pricing_service import (
         load_pricing_data, VARIANT_MAPPING, _pricing_limits,
+        AUTO_MULTIPLIER_PROG_NETTO, AUTO_MULTIPLIER_PONIZEJ_PROGU,
+        AUTO_MULTIPLIER_OD_PROGU,
     )
     data = load_pricing_data()
 
@@ -89,7 +91,26 @@ def bot_options():
         'client_types': sorted(data.multipliers.keys()),
         'cutout_price_netto': data.cutout_price_netto,
         'round_surcharge_netto': data.round_surcharge_netto,
+        # Dopłata netto za sztukę za kształt inny niż prostokąt i koło/owal.
+        # Bot nie zamawia takich kształtów (patrz `shapes` niżej — nie ma jak przekazać
+        # geometrii), ale musi znać stawkę, żeby odpowiedzieć na pytanie
+        # "ile dopłacę za blat w kształcie trapezu".
+        'custom_shape_surcharge_netto': data.custom_shape_surcharge_netto,
         'shapes': ['rectangular', 'round', 'circle'],
+        # Mnożnik marży dobiera KOD, nie bot i nie grupa cenowa. Próg rozstrzyga się
+        # na cenie bazowej sztuki (mnożnik 1.0) i OSOBNO dla każdego wariantu drewna,
+        # więc ten sam blat bywa ×1.5 w buku i ×1.1 w dębie litym.
+        # client_types niżej zostaje dla zgodności — na cenę wyceny bota nie wpływa.
+        'auto_multiplier': {
+            'prog_netto': AUTO_MULTIPLIER_PROG_NETTO,
+            'ponizej_progu': AUTO_MULTIPLIER_PONIZEJ_PROGU,
+            'od_progu': AUTO_MULTIPLIER_OD_PROGU,
+            # UWAGA dla czytających starsze wersje: był tu jeszcze klucz
+            # `cena_progowa_netto` (podłoga 1500 zł, tzw. plateau). Zniknął razem
+            # z regułą 2026-09-15 — cennik zna tylko dwa pasma, a plateau liczyło
+            # drożej niż Base. Konsument tego klucza musi przestać go czytać.
+            'liczony_na': 'cena bazowa sztuki (bez mnożnika i bez dopłat)',
+        },
         'vat': 1.23,
     })
 
@@ -106,17 +127,26 @@ def _missing_fields(product):
     return [f for f in _REQUIRED_PRODUCT_FIELDS if not product.get(f)]
 
 
-def _quote_level_missing(payload, alt_field=None):
+def _quote_level_missing(payload, alt_field=None, auto_multiplier=True):
     """Braki na poziomie całej wyceny (nie produktu) — na razie tylko client_type.
     W /calculate klucz to 'client_type', w /quotes bot może podać 'quote_client_type'
-    (alt_field) — akceptujemy oba, brak obu = pole do dopytania."""
+    (alt_field) — akceptujemy oba, brak obu = pole do dopytania.
+
+    Grupa cenowa jest wymagana DOKŁADNIE wtedy, gdy ustala cenę, czyli przy
+    auto_multiplier=False (calculate_material_variants, gałąź `else multiplier`).
+    W trybie automatycznym mnożnik dobiera kod osobno dla każdego wariantu, więc
+    żądanie grupy było proszeniem sklepu o wartość, która nic nie robi."""
     missing = []
-    has_client_type = bool(payload.get('client_type')) or (
-        alt_field is not None and bool(payload.get(alt_field))
-    )
-    if not has_client_type:
-        missing.append({'product_index': None, 'field': 'client_type',
-                        'hint': 'grupa cenowa (client_types z /options)'})
+    # Warunek celowo obejmuje SAM client_type, a nie całą funkcję: gdy dojdzie tu
+    # kolejne pole wyceny, ma być sprawdzane w obu trybach, dopóki ktoś świadomie
+    # nie uzna inaczej. Wczesny return z całej funkcji ukryłby je po cichu.
+    if not auto_multiplier:
+        has_client_type = bool(payload.get('client_type')) or (
+            alt_field is not None and bool(payload.get(alt_field))
+        )
+        if not has_client_type:
+            missing.append({'product_index': None, 'field': 'client_type',
+                            'hint': 'grupa cenowa (client_types z /options)'})
     return missing
 
 
@@ -127,6 +157,21 @@ def bot_calculate():
     from modules.calculator.services.pricing_service import load_pricing_data, calculate_quote
     payload = request.get_json(silent=True) or {}
 
+    # Bot NIE wycenia wg grupy cenowej — mnożnik dobiera kod wg ceny bazowej
+    # KAŻDEGO wariantu (1.5 poniżej progu, 1.1 od progu). Domyślnie włączone,
+    # więc bot nie musi o tym wiedzieć ani niczego wysyłać.
+    #
+    # UWAGA: tego endpointu używa też SKLEP — re-kalkulacja wyceny na stronie
+    # /wycena/<token> podaje tu pozycje 1:1 (patrz _serialize_item_for_shop).
+    # Sklep i bot chodzą na tym samym BOT_API_KEY, więc CRM ich nie odróżni.
+    # Dlatego jawne auto_multiplier=false w payloadzie jest RESPEKTOWANE — to
+    # jedyna furtka, żeby sklep mógł liczyć wg grupy cenowej bez zmian w CRM.
+    #
+    # Tryb rozstrzygamy PRZED sprawdzeniem braków, bo to on decyduje, czy grupa
+    # cenowa jest w ogóle potrzebna. Odwrotna kolejność = walidator nie wie,
+    # w jakim jest trybie, i żąda pola, które przy auto niczego nie zmienia.
+    payload.setdefault('auto_multiplier', True)
+
     # Najpierw brakujące pola — LLM dostaje listę, o co dopytać klienta
     missing = []
     for i, p in enumerate(payload.get('products', [])):
@@ -136,7 +181,8 @@ def bot_calculate():
     if not payload.get('products'):
         missing.append({'product_index': None, 'field': 'products',
                         'hint': 'co najmniej jeden produkt z wymiarami'})
-    missing.extend(_quote_level_missing(payload))
+    missing.extend(_quote_level_missing(
+        payload, auto_multiplier=payload['auto_multiplier']))
     if missing:
         return jsonify({'ok': False, 'missing_fields': missing, 'errors': []}), 200
 
@@ -287,7 +333,14 @@ def bot_create_quote():
                         "najpierw wywołaj /clients/find-or-create."}
         ]}), 200
 
-    missing = _quote_level_missing(payload, alt_field='quote_client_type')
+    # Tryb mnożnika rozstrzygamy PRZED sprawdzeniem braków — jak w /calculate,
+    # bo to on decyduje, czy grupa cenowa jest w ogóle potrzebna. W trybie
+    # automatycznym grupa nie ustala ceny i trafia na wycenę tylko jako etykieta
+    # (quote_client_type, kolumna nullable).
+    payload.setdefault('auto_multiplier', True)
+
+    missing = _quote_level_missing(payload, alt_field='quote_client_type',
+                                   auto_multiplier=payload['auto_multiplier'])
     if missing:
         return jsonify({'ok': False, 'missing_fields': missing, 'errors': []}), 200
 
@@ -313,6 +366,11 @@ def bot_create_quote():
     quote_payload.setdefault('quote_note', payload.get('notes', ''))
     quote_payload.pop('notes', None)
     quote_payload.setdefault('quote_source', 'Asystent AI')
+    # Tryb z payloadu, ten sam, którym policzył podgląd w /calculate. Hardkod
+    # True (do 2026-09-15) sprawiał, że przy auto_multiplier=false konfigurator
+    # pokazywał cenę wg grupy cenowej, a zapis liczył automatycznie — rozjazd
+    # wychodził dopiero w mailu z linkiem do wyceny, czyli u klienta.
+    quote_payload['auto_multiplier'] = payload['auto_multiplier']
 
     result, status = create_quote(quote_payload, bot_user.email)
     if status != 200:
@@ -366,6 +424,11 @@ def bot_update_quote(edit_uuid):
     from modules.calculator.services.quote_service import update_quote
 
     payload = request.get_json(silent=True) or {}
+    # Tryb mnożnika z payloadu, domyślnie automatyczny — spójnie z /calculate
+    # i /quotes. Aktualizacja przelicza ceny od zera, więc tryb musi być ten sam,
+    # którym policzono podgląd, inaczej zapis rozjedzie się z tym, co widział klient.
+    payload.setdefault('auto_multiplier', True)
+
     quote = Quote.query.filter_by(edit_uuid=edit_uuid).first()
     if not quote:
         return jsonify({'ok': False, 'errors': [
@@ -380,12 +443,31 @@ def bot_update_quote(edit_uuid):
              'message': 'Konto bota nie jest skonfigurowane (BOT_USER_ID).'}
         ]}), 200
 
+    # Grupa cenowa do przeliczenia: z payloadu, a gdy go nie ma — ta już zapisana
+    # na wycenie. Aktualizacja nie powtarza całego kontekstu wyceny, więc przy
+    # auto_multiplier=false PUT bez grupy nie ma z czego policzyć ceny, mimo że
+    # wycena grupę ma. Fallback załatwia też stare zachowanie „nie kasuj": gdy
+    # payload milczy, zapisujemy z powrotem tę samą wartość.
+    client_type = (payload.get('quote_client_type') or payload.get('client_type')
+                   or quote.quote_client_type)
+
+    # Walidacja idzie za trybem tak samo jak w /calculate i /quotes — brak grupy
+    # ma wrócić jako missing_fields, a nie jako błąd zapisu z głębi update_quote.
+    missing = _quote_level_missing({'client_type': client_type},
+                                   auto_multiplier=payload['auto_multiplier'])
+    if missing:
+        return jsonify({'ok': False, 'missing_fields': missing, 'errors': []}), 200
+
     # Format update_quote: settings.clientType + products z pełną listą wariantów.
     # Wysyłka (courier/koszt) — opcjonalnie, gdy bot dopisuje kuriera po oszacowaniu.
-    client_type = payload.get('quote_client_type') or payload.get('client_type')
-    settings = {'clientType': client_type, 'notes': payload.get('notes', '')}
+    # Brak klucza clientType = „nie zmieniaj" (update_quote przypisuje go
+    # bezwarunkowo, więc None skasowałoby grupę zapisaną wcześniej).
+    settings = {'notes': payload.get('notes', '')}
+    if client_type:
+        settings['clientType'] = client_type
     settings.update(_shipping_settings(payload))
-    data = {'products': _products_with_all_variants(payload), 'settings': settings}
+    data = {'products': _products_with_all_variants(payload), 'settings': settings,
+            'auto_multiplier': payload['auto_multiplier']}
 
     result, status = update_quote(edit_uuid, data, bot_user)
     if status != 200 or not result.get('success'):
@@ -623,8 +705,9 @@ def bot_quote_by_token(public_token):
 @bot_api_bp.route('/shipping-quote', methods=['POST'])
 @require_bot_api_key
 def bot_shipping_quote():
-    """Szacuje koszt wysylki (najtanszy kurier +30%) dla podanych produktow i kodu pocztowego
-    odbiorcy. Wymiary/wage paczki liczy serwer (aggregate_package), przewoznikow pobiera GlobKurier.
+    """Szacuje koszt wysylki (najtanszy kurier wg ustawien narzutu z panelu)
+    dla podanych produktow i kodu pocztowego odbiorcy. Wymiary/wage paczki liczy
+    serwer (aggregate_package), przewoznikow pobiera GlobKurier.
     Kod nadawcy z GLOB_KURIER.sender_post_code (fallback 01-001)."""
     from modules.calculator.services.shipping_service import (
         aggregate_package, cheapest_with_packing, get_shipping_quotes,

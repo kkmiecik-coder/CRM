@@ -524,6 +524,24 @@
     font-family: var(--il-font);
 }
 
+/* Źródło zamówienia (kanał sprzedaży) — nie identyfikator, tylko kategoria,
+   więc odróżnia się od neutralnych tagów obok: obramowanie i wersaliki.
+   Świadomie BEZ koloru per kanał: kanałów przybywa w panelu BaseLinkera,
+   a stała paleta i tak rozjechałaby się przy pierwszym nowym źródle. */
+.il-order-source-tag {
+    background: var(--il-bg-base);
+    border: 1px solid var(--il-border);
+    padding: 0 6px;
+    border-radius: 2px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    color: var(--il-text-primary);
+    font-family: var(--il-font);
+    white-space: nowrap;
+}
+
 /* Data cells */
 .il-order-cell,
 .order-cell {

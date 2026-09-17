@@ -617,6 +617,24 @@ def calculator_sources():
     )
 
 
+@settings_bp.route('/calculator/shipping')
+@require_admin
+def calculator_shipping():
+    """Wyliczanie wysyłki — narzut na pakowanie i dopłata progowa"""
+    from modules.calculator.services.shipping_pricing import load_shipping_config
+
+    user_email = session.get('user_email')
+    current_user = User.query.filter_by(email=user_email).first()
+
+    return render_template(
+        'settings_index.html',
+        current_user=current_user,
+        shipping_config=load_shipping_config(),
+        active_tab='calculator',
+        calculator_subtab='shipping'
+    )
+
+
 @settings_bp.route('/calculator/prices')
 @require_admin
 def calculator_prices():
@@ -878,23 +896,86 @@ def calculator_extras_finishing():
 @require_admin
 def calculator_extras_edges():
     """Cennik obróbki krawędzi"""
-    from modules.calculator.models import EdgeOption, CalculatorSetting
+    from modules.calculator.models import EdgeOption
 
     user_email = session.get('user_email')
     current_user = User.query.filter_by(email=user_email).first()
 
     edge_options = EdgeOption.query.order_by(EdgeOption.id).all()
-    round_surcharge = CalculatorSetting.get_value('round_shape_surcharge_netto', '50.00')
 
     return render_template(
         'settings_index.html',
         current_user=current_user,
         edge_options=edge_options,
-        round_surcharge=round_surcharge,
         active_tab='calculator',
         calculator_subtab='extras',
         extras_subtab='edges'
     )
+
+
+@settings_bp.route('/calculator/shape-surcharges')
+@require_admin
+def calculator_shape_surcharges():
+    """Dopłaty za kształt — koło/owal oraz kształt nietypowy w jednym miejscu.
+
+    Wcześniej te dwie bliźniacze dopłaty leżały w osobnych podzakładkach (koło
+    w Wykończeniach → Obróbka krawędzi, kształt nietypowy pod tabelą Cennika
+    drewna). Nikt nie widział ich obok siebie ani tego, że się WYKLUCZAJĄ —
+    produkt ma dokładnie jeden kształt, więc naliczy się najwyżej jedna z nich.
+    """
+    from modules.calculator.models import CalculatorSetting
+
+    user_email = session.get('user_email')
+    current_user = User.query.filter_by(email=user_email).first()
+
+    return render_template(
+        'settings_index.html',
+        current_user=current_user,
+        round_surcharge=CalculatorSetting.get_value('round_shape_surcharge_netto', '50.00'),
+        custom_shape_surcharge=CalculatorSetting.get_value('custom_shape_surcharge_netto', '0.00'),
+        active_tab='calculator',
+        calculator_subtab='shape_surcharges'
+    )
+
+
+def _zbierz_ustawienia_kalkulatora(data):
+    """Waliduje CAŁE żądanie ustawień kalkulatora i zwraca (zapisy, błąd).
+
+    Zapisy to lista par (klucz, wartość) do wykonania dopiero PO sprawdzeniu
+    wszystkiego. Kolejność „waliduj, potem zapisuj" nie jest kosmetyczna:
+    CalculatorSetting.set_value() commituje wewnętrznie, więc zapis przed
+    walidacją reszty żądania zostawiał ustawienia zmienione w połowie —
+    dopłata za kształt lądowała w bazie, odrzucona wysyłka kończyła się
+    kodem 400, a invalidate_pricing_cache() nigdy się nie wykonywało.
+    """
+    from decimal import Decimal, InvalidOperation
+    # Walidacja wysyłki siedzi w shipping_pricing, żeby panel i wycena miały
+    # tę samą definicję poprawnej wartości.
+    from modules.calculator.services.shipping_pricing import validate_shipping_settings
+
+    zapisy = []
+
+    # Obie dopłaty za kształt (koło/owal oraz kształt nietypowy) walidują się
+    # identycznie, więc jedna pętla zamiast dwóch bliźniaczych bloków.
+    # Kolejność kluczy wyznacza kolejność zapisów — testy na niej polegają.
+    for klucz_doplaty in ('round_shape_surcharge_netto', 'custom_shape_surcharge_netto'):
+        if klucz_doplaty not in data:
+            continue
+        try:
+            value = Decimal(str(data[klucz_doplaty]))
+            if value < 0:
+                return None, 'Dopłata nie może być ujemna'
+        except (InvalidOperation, ValueError):
+            return None, 'Nieprawidłowa wartość dopłaty'
+        zapisy.append((klucz_doplaty, str(value)))
+
+    czyste, blad = validate_shipping_settings(data)
+    if blad:
+        return None, blad
+    for klucz, wartosc in czyste.items():
+        zapisy.append((klucz, wartosc))
+
+    return zapisy, None
 
 
 @settings_bp.route('/api/calculator-settings', methods=['PUT'])
@@ -902,21 +983,18 @@ def calculator_extras_edges():
 def api_update_calculator_settings():
     """API: Aktualizuje ustawienia kalkulatora"""
     from modules.calculator.models import CalculatorSetting
-    from decimal import Decimal, InvalidOperation
 
     try:
         data = request.get_json()
         if not data:
             return jsonify({'success': False, 'error': 'Brak danych'}), 400
 
-        if 'round_shape_surcharge_netto' in data:
-            try:
-                value = Decimal(str(data['round_shape_surcharge_netto']))
-                if value < 0:
-                    return jsonify({'success': False, 'error': 'Dopłata nie może być ujemna'}), 400
-                CalculatorSetting.set_value('round_shape_surcharge_netto', str(value))
-            except (InvalidOperation, ValueError):
-                return jsonify({'success': False, 'error': 'Nieprawidłowa wartość dopłaty'}), 400
+        zapisy, blad = _zbierz_ustawienia_kalkulatora(data)
+        if blad:
+            return jsonify({'success': False, 'error': blad}), 400
+
+        for klucz, wartosc in zapisy:
+            CalculatorSetting.set_value(klucz, wartosc)
 
         # UWAGA: CalculatorSetting.set_value() commituje wewnętrznie (models.py),
         # więc invalidacja poniżej jest już PO zapisie do bazy — nie przenosić jej wyżej.

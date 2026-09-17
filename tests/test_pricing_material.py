@@ -95,3 +95,47 @@ def test_material_poza_zakresem():
                'shape': 'rectangular', 'holes_count': 0}
     variants = calculate_material_variants(product, 1.0, _data())
     assert all(v['available'] is False for v in variants)
+
+
+# === Dopłata za kształt nietypowy ===
+
+def test_doplata_za_ksztalt_nietypowy_doliczana_po_mnozniku():
+    # trapez: dopłata za sztukę PO mnożniku, tak samo jak dopłata za koło
+    product = {'length': 100, 'width': 50, 'thickness': 3, 'quantity': 2,
+               'shape': 'trapezoid_symmetric', 'holes_count': 0}
+    data = _data(custom_shape_surcharge_netto=120.0)
+    v = next(x for x in calculate_material_variants(product, 2.0, data)
+             if x['variant_code'] == 'dab-lity-ab')
+    # 0.015*8200*2.0 = 246.0 + 120 = 366.0
+    assert abs(v['unit_netto'] - 366.0) < 0.001
+    assert v['total_netto'] == 732.0
+
+
+def test_ksztalty_standardowe_bez_doplaty_za_nietypowosc():
+    # prostokąt i koło/owal NIE dostają dopłaty za nietypowość — koło ma własną
+    data = _data(custom_shape_surcharge_netto=120.0)
+    for shape in ('rectangular', 'round', 'circle'):
+        product = {'length': 100, 'width': 50, 'thickness': 3, 'quantity': 1,
+                   'shape': shape, 'holes_count': 0}
+        v = next(x for x in calculate_material_variants(product, 1.0, data)
+                 if x['variant_code'] == 'dab-lity-ab')
+        assert abs(v['unit_netto'] - 123.0) < 0.001, shape   # 0.015*8200*1.0, bez dopłat
+
+
+def test_doplata_za_ksztalt_nietypowy_nie_laczy_sie_z_doplata_za_kolo():
+    # koło dostaje TYLKO dopłatę za koło, mimo ustawionej dopłaty za nietypowość
+    product = {'length': 100, 'width': 50, 'thickness': 3, 'quantity': 1,
+               'shape': 'circle', 'holes_count': 0}
+    data = _data(round_surcharge_netto=50.0, custom_shape_surcharge_netto=120.0)
+    v = next(x for x in calculate_material_variants(product, 1.0, data)
+             if x['variant_code'] == 'dab-lity-ab')
+    assert abs(v['unit_netto'] - 173.0) < 0.001   # 123.0 + 50, BEZ 120
+
+
+def test_doplata_za_ksztalt_nietypowy_wylaczona_gdy_zero():
+    # domyślnie stawka to 0 — kształt nietypowy nie podnosi ceny
+    product = {'length': 100, 'width': 50, 'thickness': 3, 'quantity': 1,
+               'shape': 'polygon', 'holes_count': 0}
+    v = next(x for x in calculate_material_variants(product, 1.0, _data())
+             if x['variant_code'] == 'dab-lity-ab')
+    assert abs(v['unit_netto'] - 123.0) < 0.001

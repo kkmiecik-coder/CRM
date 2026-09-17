@@ -619,18 +619,92 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('saveAllBtnEdgeOptions')?.addEventListener('click', bulkSaveEdgeOptions);
     document.getElementById('discardChangesEdgeOptions')?.addEventListener('click', () => discardChanges('edgeOptions'));
 
-    // Round Shape Surcharge
-    document.getElementById('saveRoundSurchargeBtn')?.addEventListener('click', async () => {
-        const input = document.getElementById('roundSurchargeNetto');
-        const statusEl = document.getElementById('roundSurchargeSaveStatus');
-        if (!input) return;
+    // Dopłaty za kształt — jeden przycisk zapisuje OBIE kwoty w jednym żądaniu.
+    // Backend (_zbierz_ustawienia_kalkulatora) waliduje całe żądanie, zanim
+    // cokolwiek zapisze, więc częściowy zapis jest niemożliwy: albo wchodzą obie,
+    // albo żadna i użytkownik dostaje komunikat.
+    document.getElementById('saveShapeSurchargesBtn')?.addEventListener('click', async () => {
+        const statusEl = document.getElementById('shapeSurchargesSaveStatus');
+        if (!statusEl) return;
 
-        const value = parseFloat(input.value);
-        if (isNaN(value) || value < 0) {
-            statusEl.textContent = 'Nieprawidłowa wartość!';
-            statusEl.style.color = '#dc3545';
+        const pokazStatus = (tekst, kolor) => {
+            statusEl.textContent = tekst;
+            statusEl.style.color = kolor;
             statusEl.style.display = 'inline';
             setTimeout(() => statusEl.style.display = 'none', 3000);
+        };
+
+        const pola = {
+            round_shape_surcharge_netto: document.getElementById('roundSurchargeNetto'),
+            custom_shape_surcharge_netto: document.getElementById('customShapeSurchargeNetto'),
+        };
+
+        const payload = {};
+        for (const [klucz, input] of Object.entries(pola)) {
+            if (!input) continue;
+            const wartosc = parseFloat(input.value);
+            if (isNaN(wartosc) || wartosc < 0) {
+                pokazStatus('Nieprawidłowa wartość!', '#dc3545');
+                input.focus();
+                return;
+            }
+            payload[klucz] = wartosc;
+        }
+
+        try {
+            const resp = await fetch('/settings/api/calculator-settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await resp.json();
+            pokazStatus(data.success ? 'Zapisano!' : (data.error || 'Błąd zapisu'),
+                        data.success ? '#28a745' : '#dc3545');
+        } catch (err) {
+            pokazStatus('Błąd połączenia', '#dc3545');
+        }
+    });
+
+    // Wyliczanie wysyłki
+    const shippingVatDivisor = 1.23;
+
+    function odswiezPodgladNetto() {
+        [['shippingThresholdBrutto', 'shippingThresholdNetto'],
+         ['shippingSurchargeBrutto', 'shippingSurchargeNetto']].forEach(([idPola, idPodgladu]) => {
+            const pole = document.getElementById(idPola);
+            const podglad = document.getElementById(idPodgladu);
+            if (!pole || !podglad) return;
+
+            const brutto = parseFloat(pole.value);
+            // Sam VAT, nie reguła biznesowa — dlatego liczone w przeglądarce.
+            podglad.textContent = isNaN(brutto) || brutto < 0
+                ? ''
+                : `≈ ${(brutto / shippingVatDivisor).toFixed(2)} zł netto`;
+        });
+    }
+
+    ['shippingThresholdBrutto', 'shippingSurchargeBrutto'].forEach(id => {
+        document.getElementById(id)?.addEventListener('input', odswiezPodgladNetto);
+    });
+    odswiezPodgladNetto();
+
+    document.getElementById('saveShippingSettingsBtn')?.addEventListener('click', async () => {
+        const statusEl = document.getElementById('shippingSaveStatus');
+        const percent = parseFloat(document.getElementById('shippingMarkupPercent')?.value);
+        const threshold = parseFloat(document.getElementById('shippingThresholdBrutto')?.value);
+        const surcharge = parseFloat(document.getElementById('shippingSurchargeBrutto')?.value);
+        const side = document.getElementById('shippingSurchargeSide')?.value;
+
+        function pokazStatus(tekst, kolor) {
+            if (!statusEl) return;
+            statusEl.textContent = tekst;
+            statusEl.style.color = kolor;
+            statusEl.style.display = 'inline';
+            setTimeout(() => statusEl.style.display = 'none', 3000);
+        }
+
+        if ([percent, threshold, surcharge].some(v => isNaN(v) || v < 0)) {
+            pokazStatus('Uzupełnij wszystkie pola liczbami nieujemnymi!', '#dc3545');
             return;
         }
 
@@ -638,23 +712,21 @@ document.addEventListener('DOMContentLoaded', function() {
             const resp = await fetch('/settings/api/calculator-settings', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ round_shape_surcharge_netto: value })
+                body: JSON.stringify({
+                    shipping_markup_percent: percent,
+                    shipping_threshold_brutto: threshold,
+                    shipping_surcharge_brutto: surcharge,
+                    shipping_surcharge_side: side
+                })
             });
             const data = await resp.json();
             if (data.success) {
-                statusEl.textContent = 'Zapisano!';
-                statusEl.style.color = '#28a745';
+                pokazStatus('Zapisano!', '#28a745');
             } else {
-                statusEl.textContent = data.error || 'Błąd zapisu';
-                statusEl.style.color = '#dc3545';
+                pokazStatus(data.error || 'Błąd zapisu', '#dc3545');
             }
-            statusEl.style.display = 'inline';
-            setTimeout(() => statusEl.style.display = 'none', 3000);
         } catch (err) {
-            statusEl.textContent = 'Błąd połączenia';
-            statusEl.style.color = '#dc3545';
-            statusEl.style.display = 'inline';
-            setTimeout(() => statusEl.style.display = 'none', 3000);
+            pokazStatus('Błąd połączenia', '#dc3545');
         }
     });
 

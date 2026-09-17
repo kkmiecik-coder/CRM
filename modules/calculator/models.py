@@ -876,6 +876,11 @@ class QuoteItemDetails(db.Model):
     shape = db.Column(db.String(50), default='rectangular')
     round_surcharge_netto = db.Column(db.Numeric(10, 2), default=0)
     round_surcharge_brutto = db.Column(db.Numeric(10, 2), default=0)
+    # Dopłata za kształt nietypowy (trójkąt/trapez/równoległobok/wielokąt) — wyklucza
+    # się z round_surcharge_*, bo produkt ma dokładnie jeden kształt. Trzymana osobno,
+    # żeby breakdown wyceny mówił prawdę o tym, ZA CO doliczono.
+    custom_shape_surcharge_netto = db.Column(db.Numeric(10, 2), default=0)
+    custom_shape_surcharge_brutto = db.Column(db.Numeric(10, 2), default=0)
 
     shape_data = db.Column(db.Text, nullable=True)  # JSON: params, vertices, real_area_cm2, bbox
     shape_svg = db.Column(db.Text, nullable=True)    # SVG string for display in quotes/PDF
@@ -920,6 +925,8 @@ class QuoteItemDetails(db.Model):
             'shape': self.shape or 'rectangular',
             'round_surcharge_netto': float(self.round_surcharge_netto) if self.round_surcharge_netto else 0.0,
             'round_surcharge_brutto': float(self.round_surcharge_brutto) if self.round_surcharge_brutto else 0.0,
+            'custom_shape_surcharge_netto': float(self.custom_shape_surcharge_netto) if self.custom_shape_surcharge_netto else 0.0,
+            'custom_shape_surcharge_brutto': float(self.custom_shape_surcharge_brutto) if self.custom_shape_surcharge_brutto else 0.0,
             'shape_data': self.shape_data,
             'shape_svg': self.shape_svg,
             'cut_to_size': bool(self.cut_to_size),

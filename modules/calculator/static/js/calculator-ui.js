@@ -1029,7 +1029,17 @@ function generateProductDescription(form, index) {
         }
     }
 
-    return { main: mainDescription, sub: subDescription };
+    // Dopłata za kształt nietypowy — kwotę za sztukę wstawia backend
+    // (calculator-api.js -> applyShapeSurcharge). Karta tylko ją pokazuje.
+    const shapeSurchargeUnit = parseFloat(form.dataset.shapeSurchargeUnitNetto) || 0;
+    const shapeSurchargeTotal = parseFloat(form.dataset.shapeSurchargeNetto) || 0;
+
+    return {
+        main: mainDescription,
+        sub: subDescription,
+        shapeSurchargeUnit: shapeSurchargeUnit,
+        shapeSurchargeTotal: shapeSurchargeTotal,
+    };
 }
 
 /**
@@ -1089,14 +1099,24 @@ function generateProductsSummary() {
                 ${removeButton}
             </div>`;
 
-        if (descriptionData.sub) {
+        // Plakietka dopłaty za kształt nietypowy (pusta gdy dopłaty nie ma).
+        // Kwoty formatujemy sami z liczb — nic z wejścia użytkownika do HTML nie trafia.
+        const surchargeBadgeHtml = descriptionData.shapeSurchargeUnit > 0 ? `
+            <span class="shape-surcharge-badge"
+                  title="Doliczono ${formatPLN(descriptionData.shapeSurchargeTotal)} netto łącznie za nietypowy kształt produktu.">
+                Kształt nietypowy: +${formatPLN(descriptionData.shapeSurchargeUnit)} netto/szt.
+            </span>` : '';
+
+        // Stopka musi się pojawić także wtedy, gdy nie ma jeszcze opisu dodatkowego,
+        // ale jest dopłata — inaczej informacja o niej przepadłaby.
+        if (descriptionData.sub || surchargeBadgeHtml) {
             productCard.innerHTML = `
                 <div class="product-card-header">
                     <div class="product-card-number">${index + 1}</div>
                     <div class="product-card-main-info">${descriptionData.main}</div>
                 </div>
                 <div class="product-card-footer">
-                    <div class="product-card-sub-info">${descriptionData.sub}</div>
+                    <div class="product-card-sub-info">${descriptionData.sub}${surchargeBadgeHtml}</div>
                     ${actionsHtml}
                 </div>
             `;

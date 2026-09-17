@@ -82,6 +82,46 @@ def make_request_with_retry(request_func, request_name, *args, **kwargs):
     return None
 
 
+def _cena_liczbowa(wartosc):
+    """Czy cena z GlobKuriera nadaje się do liczenia.
+
+    Jedyna definicja „poprawnej ceny" w tym module — korzystają z niej i
+    serializuj_oferty (filtr u źródła), i cheapest_with_packing (ścieżka bota).
+    Dwie osobne kopie tego warunku już raz się rozjechały: filtr bota nie
+    wykluczał boola, więc True przechodziło i liczyło się jako 1 zł, czyli
+    oferta najtańsza. bool jest w Pythonie podklasą int, stąd jawne wykluczenie.
+    """
+    return not isinstance(wartosc, bool) and isinstance(wartosc, (int, float))
+
+
+def serializuj_oferty(products):
+    """Surowa lista produktów z GlobKuriera -> lista ofert do dalszego przeliczenia.
+
+    Oferty bez liczbowej ceny (pusty string, None) są tu ODRZUCANE, a nie
+    przepuszczane z pustą/zerową ceną: dalej w łańcuchu _liczba() w
+    apply_shipping_markup zamienia taki brak na 0.00 zł, a oferta za 0 zł
+    wygrywa sortowanie jako „najtańsza" i daje się zapisać do wyceny klienta.
+    Filtrujemy u źródła, żeby KAŻDY konsument (panel, bot) dostawał już czystą
+    listę; cheapest_with_packing broni się dodatkowo tym samym predykatem
+    (_cena_liczbowa), bo bierze listę podaną przez wywołującego.
+
+    Czysta funkcja (bez requests/current_app) — dzięki temu testowalna bez
+    mockowania wywołania HTTP do GlobKuriera.
+    """
+    oferty = []
+    for product in products or []:
+        cena = product.get("grossPrice")
+        if not _cena_liczbowa(cena):
+            continue
+        oferty.append({
+            "carrierName": product.get("carrierName", "Nieznany"),
+            "grossPrice": cena,
+            "netPrice": round(cena / 1.23, 2),
+            "carrierLogoLink": product.get("carrierLogoLink", ""),
+        })
+    return oferty
+
+
 def get_shipping_quotes(shipping_params, glob_config):
     """
     Pobiera wyceny wysyłki z GlobKurier API.
@@ -210,17 +250,7 @@ def get_shipping_quotes(shipping_params, glob_config):
         if not all_products:
             return [], 200
 
-        result = [
-            {
-                "carrierName": product.get("carrierName", "Nieznany"),
-                "grossPrice": product.get("grossPrice", ""),
-                "netPrice": round(product.get("grossPrice", 0) / 1.23, 2)
-                if product.get("grossPrice")
-                else "",
-                "carrierLogoLink": product.get("carrierLogoLink", ""),
-            }
-            for product in all_products
-        ]
+        result = serializuj_oferty(all_products)
 
         current_app.logger.info(f">>> shipping: Zwrócono {len(result)} opcji wysyłki")
         return result, 200
@@ -233,10 +263,6 @@ def get_shipping_quotes(shipping_params, glob_config):
     except Exception as e:
         current_app.logger.error(f">>> shipping: Wyjątek podczas pobierania wyceny: {e}")
         return {"success": False, "error": "Blad podczas pobierania wyceny wysylki"}, 500
-
-
-# Narzut na pakowanie — parytet z UI (calculator-core.js: shippingPackingMultiplier = 1.3).
-PACKING_MULTIPLIER = 1.3
 
 
 def aggregate_package(products):
@@ -274,19 +300,34 @@ def aggregate_package(products):
     }
 
 
-def cheapest_with_packing(quotes):
-    """Z listy wycen kurierskich (z get_shipping_quotes) wybiera NAJTANSZA po grossPrice i dokłada
-    narzut na pakowanie (x1.3). Zwraca dict z carrier_name i cenami albo None gdy brak liczbowych cen."""
-    valid = [q for q in (quotes or []) if isinstance(q.get("grossPrice"), (int, float))]
+def cheapest_with_packing(quotes, config=None):
+    """Z listy wycen kurierskich (z get_shipping_quotes) wybiera NAJTANSZA PO
+    CENIE KONCOWEJ i dokłada narzut wg ustawień z panelu.
+
+    Wybór po cenie końcowej, a nie surowej: przy progu kolejności potrafią się
+    różnić, bo tańszy surowo kurier może złapać dopłatę, a droższy nie. Klient
+    płaci cenę końcową, więc to ona decyduje.
+
+    Parametr `config` służy testom (czysta funkcja bez bazy). Produkcja woła bez
+    niego i konfiguracja doczytuje się z calculator_settings.
+
+    Zwraca dict z carrier_name i cenami albo None gdy brak liczbowych cen."""
+    from modules.calculator.services.shipping_pricing import (
+        apply_shipping_markup, load_shipping_config,
+    )
+
+    valid = [q for q in (quotes or []) if _cena_liczbowa(q.get("grossPrice"))]
     if not valid:
         return None
-    cheapest = min(valid, key=lambda q: q["grossPrice"])
-    gross = float(cheapest.get("grossPrice") or 0)
-    net = float(cheapest.get("netPrice") or 0)
+
+    config = config if config is not None else load_shipping_config()
+    wyliczone = [(q, apply_shipping_markup(q["grossPrice"], config)) for q in valid]
+    cheapest, markup = min(wyliczone, key=lambda para: para[1]["final_brutto"])
+
     return {
         "carrier_name": cheapest.get("carrierName") or "Kurier",
-        "shipping_brutto": round(gross * PACKING_MULTIPLIER, 2),
-        "shipping_netto": round(net * PACKING_MULTIPLIER, 2),
-        "raw_brutto": round(gross, 2),
-        "raw_netto": round(net, 2),
+        "shipping_brutto": markup["final_brutto"],
+        "shipping_netto": markup["final_netto"],
+        "raw_brutto": markup["raw_brutto"],
+        "raw_netto": markup["raw_netto"],
     }
