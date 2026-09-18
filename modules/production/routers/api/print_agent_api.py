@@ -24,6 +24,9 @@ from extensions import db
 from modules.logging import get_structured_logger
 from modules.production.models import LabelPrintJob, ProductionConfig
 from modules.production.services import realtime_service
+from modules.production.services.label_print_service import (
+    rollback_label_count_for_jobs,
+)
 
 logger = get_structured_logger('production.print_agent')
 
@@ -106,13 +109,18 @@ def _expire_stale_pending(force=False):
     _last_expire_at = now
 
     cutoff = datetime.utcnow() - _AGENT_JOB_TTL
-    expired_count = (LabelPrintJob.query
-                     .filter(LabelPrintJob.status == 'pending',
-                             LabelPrintJob.requested_at < cutoff)
-                     .update({'status': 'expired',
-                              'error_message': f'TTL: pending starsze niż {_AGENT_JOB_TTL}'},
-                             synchronize_session=False))
+    # Wybieramy PRZED aktualizacją, bo licznik wydrukowanych etykiet trzeba
+    # cofnąć o te zadania — a po bulk UPDATE nie wiadomo już, które to były.
+    wygasajace = (LabelPrintJob.query
+                  .filter(LabelPrintJob.status == 'pending',
+                          LabelPrintJob.requested_at < cutoff)
+                  .all())
+    expired_count = len(wygasajace)
     if expired_count:
+        rollback_label_count_for_jobs(wygasajace)
+        for job in wygasajace:
+            job.status = 'expired'
+            job.error_message = f'TTL: pending starsze niż {_AGENT_JOB_TTL}'
         db.session.commit()
         logger.info("Expired stale print jobs", extra={'count': expired_count})
     return expired_count
@@ -169,6 +177,7 @@ def ack_jobs():
         return jsonify({'error': 'invalid_results', 'reason': 'expected list'}), 400
 
     updated = 0
+    nieudane = []
     for r in results:
         try:
             job_id = int(r.get('id'))
@@ -184,7 +193,14 @@ def ack_jobs():
             job.printed_at = datetime.utcnow()
         else:
             job.error_message = error
+            nieudane.append(job)
         updated += 1
+
+    # Etykieta, która nie wyszła, nie może zostawić pozycji oznaczonej jako
+    # wydrukowana — inaczej panel kafelków pokaże operatorowi „jest" dla czegoś,
+    # czego nie znajdzie na paczce.
+    if nieudane:
+        rollback_label_count_for_jobs(nieudane)
 
     if updated:
         db.session.commit()

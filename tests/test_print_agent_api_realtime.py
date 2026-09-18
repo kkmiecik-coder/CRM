@@ -94,6 +94,14 @@ class _FakeQuery:
     def filter(self, *args, **kwargs):
         return self
 
+    def all(self):
+        # Od 2026-09 sprzątanie WYBIERA wygasające zadania zamiast robić bulk
+        # UPDATE — musi znać product_id każdego z nich, żeby cofnąć licznik
+        # wydrukowanych etykiet. Pusta lista wystarcza: te testy pilnują
+        # throttle'u, czyli JAK CZĘSTO sprzątanie rusza, a nie co zmienia.
+        self._counter.append(1)
+        return []
+
     def update(self, *args, **kwargs):
         self._counter.append(1)
         return 0

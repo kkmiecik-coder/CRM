@@ -121,8 +121,14 @@ def _load_config():
 
 
 def _compute_unit_offsets(items_by_id):
-    """Dla każdego short_product_id w batchu zwraca (offset, total_units) w obrębie
-    zamówienia BaseLinker.
+    """Dla każdej pozycji w batchu zwraca (offset, total_units) w obrębie
+    zamówienia BaseLinker. Kluczem jest `ProductionItem.id`, NIE short_product_id.
+
+    Klucz musi być po id, bo doróbka dziedziczy short_product_id po oryginale
+    (rework_service) — przy kluczowaniu po nim drugi wiersz nadpisywał pierwszy
+    i pozycja dostawała offset sąsiada. Na produkcji 2026-09 dawało to wydruk
+    numerów spoza zakresu zamówienia: pozycja 223_4 (4 szt.) numerowała etykiety
+    9..12 w zamówieniu liczącym 11 sztuk, kolidując z trzema sąsiadami.
 
     offset = liczba sztuk wszystkich pozycji o niższym product_sequence_in_order
     total_units = suma sztuk WSZYSTKICH pozycji w zamówieniu (nie tylko z batcha).
@@ -131,7 +137,7 @@ def _compute_unit_offsets(items_by_id):
       A → offsets 0..4 → labels 1/8..5/8
       B → offsets 5..7 → labels 6/8..8/8
 
-    Zwraca: dict {short_product_id: (offset, total_units)}.
+    Zwraca: dict {ProductionItem.id: (offset, total_units)}.
     Pozycje bez baselinker_order_id dostają (0, copies(item)) — same dla siebie.
     """
     info = {}
@@ -163,16 +169,79 @@ def _compute_unit_offsets(items_by_id):
         cumulative = 0
         total = sum(_resolve_copies(s) for s in siblings)
         for s in siblings:
-            info[s.short_product_id] = (cumulative, total)
+            info[s.id] = (cumulative, total)
             cumulative += _resolve_copies(s)
 
     # Items bez baselinker_order_id — numeracja lokalna (sama dla siebie).
-    for sid, item in items_by_id.items():
-        if item is None or sid in info:
+    for item in items_by_id.values():
+        if item is None or item.id in info:
             continue
-        info[sid] = (0, _resolve_copies(item))
+        info[item.id] = (0, _resolve_copies(item))
 
     return info
+
+
+def _wybrane_jednostki(item, units_by_item, wszystkie):
+    """
+    Które sztuki pozycji drukujemy — lista LOKALNYCH numerów 1..quantity.
+
+    Brak wyboru = wszystkie, czyli zachowanie sprzed panelu kafelków. Numery
+    spoza zakresu odrzucamy tutaj, żeby błąd wywołującego nie zamienił się
+    w etykietę z numerem nienależącym do zamówienia.
+    """
+    if not units_by_item or item.id not in units_by_item:
+        return list(range(1, wszystkie + 1))
+    return [u for u in units_by_item[item.id] if 1 <= u <= wszystkie]
+
+
+def rollback_label_count_for_jobs(jobs):
+    """
+    Cofa licznik wydrukowanych etykiet o zadania, które NIE trafiły na papier.
+
+    Licznik rośnie przy wkładaniu do kolejki, nie po wydruku — i tak ma zostać:
+    aplikacja stanowiskowa ustawia go bezwzględnie („drukuj do ósmej"), więc
+    musi zobaczyć skutek natychmiast. Gdyby czekał na potwierdzenie agenta,
+    operator nacisnąłby drugi raz i to samo zakolejkowałoby się podwójnie.
+
+    Ceną jest zawyżony licznik po nieudanym zadaniu — a zawyżony znaczy
+    „etykieta jest", czyli brak, którego nikt nie szuka. Prostujemy więc
+    w drugą stronę: zaniżony licznik powoduje ponowny wydruk, co jest
+    widoczne i tanie. Kierunek błędu wybrany świadomie.
+
+    Zadania bez `product_id` (sprzed 2026-09-18) pomijamy — nie wiadomo, której
+    pozycji dotyczyły, bo short_product_id dzielą oryginał i doróbka.
+
+    Nie commituje; robi to wywołujący razem ze zmianą statusów.
+    """
+    ubytek = {}
+    for job in jobs:
+        if getattr(job, 'product_id', None) is None:
+            continue
+        ubytek[job.product_id] = ubytek.get(job.product_id, 0) + 1
+
+    if not ubytek:
+        return 0
+
+    pozycje = ProductionItem.query.filter(ProductionItem.id.in_(ubytek.keys())).all()
+    for item in pozycje:
+        item.label_print_count = max(0, (item.label_print_count or 0) - ubytek[item.id])
+    return len(pozycje)
+
+
+def compute_label_offsets(items):
+    """
+    Numeracja etykiet dla listy pozycji: {ProductionItem.id: (offset, total)}.
+
+    Publiczna nakładka na _compute_unit_offsets — serializer API mobilnego
+    potrzebuje tych samych liczb co druk, bo aplikacja rysuje kafelki sztuk
+    numerami GLOBALNYMI (zgodnymi z tym, co wychodzi na papier) i sama offsetu
+    nie policzy: nie widzi wszystkich pozycji zamówienia.
+
+    Jedno zapytanie na CAŁĄ listę, nie na pozycję — stąd lista na wejściu.
+    """
+    return _compute_unit_offsets({
+        item.id: item for item in items if item is not None
+    })
 
 
 def _resolve_copies(item):
@@ -441,7 +510,8 @@ def _open_printer_socket(cfg):
     return None
 
 
-def print_labels_batch(short_product_ids, station_code, actor):
+def print_labels_batch(short_product_ids, station_code, actor,
+                       units_by_item=None, aktualizuj_licznik=True):
     """
     Drukuje etykiety dla podanej listy short_product_id (single = lista 1-elementowa).
     Best-effort: jeden socket per request, kontynuuje przy błędach pojedynczych etykiet
@@ -455,6 +525,14 @@ def print_labels_batch(short_product_ids, station_code, actor):
             rozwija router, a lista uprawnionych stanowisk jest
             normalizowana w _load_config()
         actor: dict {'type': 'user'|'device', 'id': ...}
+        units_by_item: {ProductionItem.id: [numery sztuk]} — LOKALNE numery
+            1..quantity. Brak = wszystkie sztuki pozycji, czyli zachowanie
+            sprzed panelu kafelków. Numer globalny (ten na papierze) powstaje
+            dopiero tutaj, przez dodanie offsetu zamówienia.
+        aktualizuj_licznik: gdy False, serwis NIE rusza label_print_count —
+            licznikiem zarządza wtedy wywołujący. Druk wybranych sztuk ma
+            własne reguły (`upTo` USTAWIA, `reprint` nie rusza), których nie da
+            się wyrazić dotychczasowym „dodaj tyle, ile wydrukowano".
 
     Returns dict:
         success: bool — True jeśli WSZYSTKIE etykiety wydrukowane
@@ -494,7 +572,9 @@ def print_labels_batch(short_product_ids, station_code, actor):
 
     # Tryb agenta — zamiast TCP wstaw rekordy do prod_print_queue
     if cfg['use_agent']:
-        return _enqueue_labels(ids, items_by_id, station_code, actor, cfg)
+        return _enqueue_labels(ids, items_by_id, station_code, actor, cfg,
+                               units_by_item=units_by_item,
+                               aktualizuj_licznik=aktualizuj_licznik)
 
     sock = _open_printer_socket(cfg)
     if sock is None:
@@ -536,11 +616,13 @@ def print_labels_batch(short_product_ids, station_code, actor):
                 })
                 continue
 
-            copies = _resolve_copies(item)
-            offset, total_units = unit_offsets.get(sid, (0, copies))
+            wszystkie = _resolve_copies(item)
+            jednostki = _wybrane_jednostki(item, units_by_item, wszystkie)
+            copies = len(jednostki)
+            offset, total_units = unit_offsets.get(item.id, (0, wszystkie))
             copies_printed = 0
-            for i in range(copies):
-                label_index = offset + i + 1
+            for numer_lokalny in jednostki:
+                label_index = offset + numer_lokalny
                 zpl_bytes = generate_label_zpl(
                     item, cfg,
                     label_index=label_index,
@@ -560,7 +642,8 @@ def print_labels_batch(short_product_ids, station_code, actor):
 
             if copies_printed > 0:
                 item.label_printed_at = datetime.utcnow()
-                item.label_print_count = (item.label_print_count or 0) + copies_printed
+                if aktualizuj_licznik:
+                    item.label_print_count = (item.label_print_count or 0) + copies_printed
 
             if copies_printed == copies:
                 results.append({
@@ -619,7 +702,8 @@ def print_labels_batch(short_product_ids, station_code, actor):
     }
 
 
-def _enqueue_labels(ids, items_by_id, station_code, actor, cfg):
+def _enqueue_labels(ids, items_by_id, station_code, actor, cfg,
+                    units_by_item=None, aktualizuj_licznik=True):
     """
     Tryb LABEL_PRINTER_USE_AGENT=True: dla każdego znalezionego item generuje
     ZPL i wstawia rekord do prod_print_queue. Print-agent na hubie biura
@@ -644,11 +728,13 @@ def _enqueue_labels(ids, items_by_id, station_code, actor, cfg):
                 })
                 continue
             try:
-                copies = _resolve_copies(item)
-                offset, total_units = unit_offsets.get(sid, (0, copies))
+                wszystkie = _resolve_copies(item)
+                jednostki = _wybrane_jednostki(item, units_by_item, wszystkie)
+                copies = len(jednostki)
+                offset, total_units = unit_offsets.get(item.id, (0, wszystkie))
                 job_ids = []
-                for i in range(copies):
-                    label_index = offset + i + 1
+                for numer_lokalny in jednostki:
+                    label_index = offset + numer_lokalny
                     zpl = generate_label_zpl(
                         item, cfg,
                         label_index=label_index,
@@ -656,6 +742,7 @@ def _enqueue_labels(ids, items_by_id, station_code, actor, cfg):
                     )
                     job = LabelPrintJob(
                         short_product_id=sid,
+                        product_id=item.id,
                         baselinker_order_id=item.order.baselinker_order_id if item.order else None,
                         zpl_payload=zpl,
                         station_code=station_code,
@@ -668,7 +755,8 @@ def _enqueue_labels(ids, items_by_id, station_code, actor, cfg):
                     job_ids.append(job.id)
                 # Bumpujemy licznik i timestamp tak samo jak w trybie TCP
                 item.label_printed_at = datetime.utcnow()
-                item.label_print_count = (item.label_print_count or 0) + copies
+                if aktualizuj_licznik:
+                    item.label_print_count = (item.label_print_count or 0) + copies
                 results.append({
                     'short_product_id': sid, 'success': True,
                     'message': f'Dodano do kolejki drukowania ({copies} szt.)',

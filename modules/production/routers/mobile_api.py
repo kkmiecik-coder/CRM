@@ -22,7 +22,10 @@ from modules.production.utils.cache import (
     not_modified,
 )
 from modules.production.services import label_print_service, worker_service
-from modules.production.services.label_print_service import StationNotAllowed
+from modules.production.services.label_print_service import (
+    StationNotAllowed,
+    compute_label_offsets,
+)
 from modules.production.services.worker_service import WorkerError
 from modules.production.services.station_catalog import resolve_station_code
 from modules.production.services.mobile_api_service import (
@@ -116,6 +119,18 @@ def _resolve_station_code(requested, *, znane_kody=STATION_STATUS_MAP):
 # Trakownia używa tego mechanizmu z dokładnie tego powodu
 # (sawmill/routers/mobile_api.py) i trzyma własną, bliźniaczą kopię listy.
 BLEDY_DO_PONOWIENIA = {400, 403, 404, 409}
+
+# Wersja KSZTAŁTU odpowiedzi kolejki — część ETagu, nie numer API.
+#
+# ETag kolejki liczy się z max(updated_at) i liczby pozycji, czyli z DANYCH,
+# a nie z tego, jakie pola serializer wystawia. Bez tego znacznika dołożenie
+# pola przechodzi niezauważone: tablet z zapamiętanym ETagiem dostaje 304
+# i dalej serwuje sobie starą odpowiedź, dopóki w kolejce coś się nie zmieni.
+# Objaw jest wtedy mylący — aplikacja działa, backend działa, a pola nie ma.
+#
+# PODBIJ przy każdej zmianie zestawu pól w serialize_order().
+#   2 — 2026-09-18: label_print_count, label_offset, label_total (panel kafelków)
+KSZTALT_ODPOWIEDZI_KOLEJKI = 2
 
 
 def _resolve_workers():
@@ -264,7 +279,8 @@ def station_orders(station_code):
         func.count(ProductionItem.id),
     ).join(ProductionOrder, ProductionItem.order_id == ProductionOrder.id).filter(items_filter).first()
     etag_ts = int(max_updated.timestamp()) if max_updated else 0
-    etag = make_weak_etag('orders', station_code, etag_ts, total_count or 0)
+    etag = make_weak_etag('orders', station_code, etag_ts, total_count or 0,
+                          KSZTALT_ODPOWIEDZI_KOLEJKI)
     if if_none_match(etag):
         return not_modified(etag)
 
@@ -279,10 +295,19 @@ def station_orders(station_code):
         ProductionItem.id.asc(),
     ).all()
 
+    # Jedna mapa numeracji na całą listę — bez niej serializer liczyłby offset
+    # osobnym zapytaniem dla każdej pozycji, a ten endpoint jest odpytywany
+    # przez sześć tabletów niezależnie, poza cyklem także przy każdym powrocie
+    # aplikacji na pierwszy plan.
+    numeracja = compute_label_offsets(items)
+
     return cached_json({
         'station_code': station_code,
         'count': len(items),
-        'orders': [serialize_order(it, station_code=station_code) for it in items],
+        'orders': [
+            serialize_order(it, station_code=station_code, label_numbering=numeracja)
+            for it in items
+        ],
     }, etag)
 
 
@@ -323,9 +348,10 @@ def orders_search():
         })
         return jsonify({'error': 'search_failed', 'detail': str(e)}), 500
 
+    numeracja = compute_label_offsets(items)
     serialized = []
     for it in items:
-        dto = serialize_order(it)
+        dto = serialize_order(it, label_numbering=numeracja)
         dto['current_station'] = STATUS_TO_STATION.get(it.current_status)
         serialized.append(dto)
 
@@ -764,6 +790,124 @@ def mobile_print_label_single(short_product_id):
     if result['connection_error']:
         return jsonify({'success': False, 'message': result['message']}), 502
     return jsonify({'success': result['success'], 'message': result['message']}), 200
+
+
+@mobile_api_bp.route('/products/by-id/<int:product_id>/print-label', methods=['POST'])
+@require_device_token
+def mobile_print_label_by_id(product_id):
+    """
+    POST /api/mobile/v1/products/by-id/<product_id>/print-label
+
+    Druk WYBRANYCH sztuk pozycji — panel kafelków aplikacji stanowiskowej.
+    Body (wykluczające się wzajemnie, brak obu = wszystkie sztuki jak dotąd):
+
+        {"upTo": N,    "offsetSeen": O}   drukuj sztuki od pierwszej nieoznaczonej do N
+        {"reprint": K, "offsetSeen": O}   przedrukuj dokładnie sztukę K
+
+    Numery są GLOBALNE — takie, jakie wychodzą na papier i jakie operator widzi
+    na kafelku. Offset zamówienia odejmujemy tutaj.
+
+    ADRESOWANIE PO id, NIE short_product_id: ten drugi dzielą oryginał i doróbka
+    (rework_service), więc żądanie trafiałoby w losowy z dwóch wierszy — a przy
+    `upTo`, które USTAWIA licznik, operator widziałby brak reakcji i naciskał
+    dalej. Stary endpoint po short_product_id zostaje dla APK w terenie.
+    """
+    station_code = resolve_station_code((g.device.station_code or '').strip())
+    dane = request.get_json(silent=True) or {}
+    up_to = dane.get('upTo')
+    reprint = dane.get('reprint')
+
+    if up_to is not None and reprint is not None:
+        return jsonify({'success': False, 'error': 'upTo_i_reprint_wykluczaja_sie',
+                        'message': 'Podaj upTo albo reprint, nie oba.'}), 400
+
+    # Blokada wiersza: `upTo` to odczyt-modyfikacja-zapis licznika, a dwa tablety
+    # na jednym zamówieniu to realny przypadek. Wartość bezwzględna chroni przed
+    # wydrukowaniem nie tych sztuk, ale nie przed zgubionym zapisem.
+    item = (ProductionItem.query
+            .filter_by(id=product_id)
+            .with_for_update()
+            .first())
+    if item is None:
+        return jsonify({'success': False, 'error': 'product_not_found'}), 404
+
+    ilosc = item.quantity or 1
+    offset, total = compute_label_offsets([item]).get(item.id, (0, ilosc))
+
+    units_by_item = None
+    nowy_licznik = None
+
+    if up_to is not None or reprint is not None:
+        widziany = dane.get('offsetSeen')
+        # Rozbieżność offsetu znaczy, że skład zamówienia zmienił się między
+        # odczytem kolejki a naciśnięciem przycisku. Bez tego porównania druk
+        # poszedłby po cichu na inne sztuki, niż widział operator.
+        if widziany is None or int(widziany) != offset:
+            return jsonify({
+                'success': False, 'error': 'offset_mismatch',
+                'message': 'Skład zamówienia zmienił się — odśwież kolejkę.',
+                'label_offset': offset, 'label_total': total,
+            }), 409
+
+        wartosc = up_to if up_to is not None else reprint
+        try:
+            lokalny = int(wartosc) - offset
+        except (TypeError, ValueError):
+            return jsonify({'success': False, 'error': 'nieprawidlowy_numer'}), 400
+        if not (1 <= lokalny <= ilosc):
+            return jsonify({
+                'success': False, 'error': 'numer_poza_zakresem',
+                'message': f'Pozycja ma {ilosc} szt., numery {offset + 1}..{offset + ilosc}.',
+            }), 400
+
+        if up_to is not None:
+            juz = min(item.label_print_count or 0, ilosc)
+            units_by_item = {item.id: list(range(juz + 1, lokalny + 1))}
+            nowy_licznik = lokalny
+        else:
+            units_by_item = {item.id: [lokalny]}
+
+        if not units_by_item[item.id]:
+            # `upTo` poniżej licznika — bezpieczny no-op, nie sukces i nie błąd.
+            # Do przedrukowania służy `reprint`.
+            return jsonify({
+                'success': True, 'copies_printed': 0,
+                'message': 'Nic do wydrukowania — te sztuki są już oznaczone.',
+                'label_print_count': item.label_print_count or 0,
+            }), 200
+
+    try:
+        result = label_print_service.print_labels_batch(
+            [item.short_product_id], station_code,
+            {'type': 'device', 'id': g.device.device_id},
+            units_by_item=units_by_item,
+            aktualizuj_licznik=(units_by_item is None),
+        )
+    except StationNotAllowed as e:
+        return jsonify({'success': False, 'message': str(e)}), 403
+
+    # `upTo` USTAWIA licznik, `reprint` go nie rusza — żadnej z tych reguł nie
+    # da się wyrazić dotychczasowym „dodaj tyle, ile wydrukowano", więc licznik
+    # prowadzi tutaj wywołujący.
+    if nowy_licznik is not None and result['success']:
+        item.label_print_count = min(nowy_licznik, ilosc)
+    db.session.commit()
+
+    logger.info("Mobile API: wydruk wybranych sztuk", extra={
+        'product_id': product_id, 'short_product_id': item.short_product_id,
+        'station_code': station_code, 'device_id': g.device.device_id,
+        'upTo': up_to, 'reprint': reprint, 'sukces': result['success'],
+    })
+
+    if result['connection_error']:
+        return jsonify({'success': False, 'message': result['message']}), 502
+    return jsonify({
+        'success': result['success'],
+        'message': result['message'],
+        'label_print_count': item.label_print_count or 0,
+        'label_offset': offset,
+        'label_total': total,
+    }), 200
 
 
 @mobile_api_bp.route('/orders/<int:baselinker_order_id>/print-labels', methods=['POST'])

@@ -899,6 +899,11 @@ class LabelPrintJob(db.Model):
 
     id = Column(Integer, primary_key=True)
     short_product_id = Column(String(20), nullable=False, index=True)
+    # Klucz JEDNOZNACZNY. short_product_id wyżej dzielą oryginał i doróbka
+    # (rework_service), więc nie nadaje się do prostowania licznika wydruków
+    # po nieudanym zadaniu — trafiłoby w losowy z dwóch wierszy.
+    # Nullable: zadania sprzed 2026-09-18 go nie mają i nie podlegają cofaniu.
+    product_id = Column(Integer, nullable=True, index=True)
     baselinker_order_id = Column(Integer, nullable=True)
     zpl_payload = Column(Text, nullable=False)
     station_code = Column(String(50), nullable=False)

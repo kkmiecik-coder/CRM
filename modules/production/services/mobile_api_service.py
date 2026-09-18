@@ -31,6 +31,7 @@ from modules.production.models import (
     ProductionItem,
     get_local_now,
 )
+from modules.production.services.label_print_service import compute_label_offsets
 from modules.production.services.station_catalog import (
     STATION_PENDING_STATUS,
     resolve_station_code,
@@ -1003,10 +1004,15 @@ def _build_attachments(item):
     }]
 
 
-def serialize_order(item, station_code=None):
+def serialize_order(item, station_code=None, label_numbering=None):
     """
     ProductionItem → dict (OrderDto).
     Gdy podano station_code, dokłada quantity_done dla tego stanowiska.
+
+    `label_numbering` to gotowa mapa {item_id: (offset, total)} z
+    compute_label_offsets(). Listy MUSZĄ ją podawać — bez tego każda pozycja
+    płaci własnym zapytaniem o rodzeństwo z zamówienia. Pojedyncze pozycje mogą
+    ją pominąć; policzymy dla tej jednej.
     """
     def _num(value):
         return float(value) if value is not None else None
@@ -1063,6 +1069,15 @@ def serialize_order(item, station_code=None):
     # w panelu pakowania (templates/stations/packaging.html, usunięty w Etapie 0
     # profili pracowników; kod w historii gita, commit 0391556).
     # Odrębna od property ProductionItem.delivery_type (zwracającej tylko 2 wartości).
+    # Numeracja etykiet. Aplikacja rysuje kafelek sztuki numerem GLOBALNYM —
+    # tym samym, który wychodzi na papier — więc offsetu nie da się pominąć:
+    # tablet widzi pojedyncze pozycje, a numeracja biegnie przez całe zamówienie.
+    if label_numbering is None:
+        label_numbering = compute_label_offsets([item])
+    label_offset, label_total = label_numbering.get(
+        item.id, (0, item.quantity or 1)
+    )
+
     override_delivery = item.order.override_delivery_method if item.order else None
     is_personal = item.order.is_personal_pickup if item.order else False
     if override_delivery == 'transport_woodpower':
@@ -1082,6 +1097,16 @@ def serialize_order(item, station_code=None):
         'product_name': item.original_product_name,
         'client_name': item.order.client_name if item.order else None,
         'client_order_number': item.order.client_order_number if item.order else None,
+        # Druk etykiet (2026-09) — panel kafelków sztuk. `label_print_count`
+        # to ile etykiet tej pozycji już poszło; kafelki wyprowadza się z niego
+        # jako prefiks. `label_offset`/`label_total` niosą numerację globalną:
+        # kafelek i-ty pokazuje `label_offset + i`, a `label_total` idzie raz
+        # w nagłówku, nie przy każdym kafelku — inaczej kafelek „6/8" obok
+        # papierowej „6/9" wygląda na rozjazd, którym nie jest (mianownik
+        # rośnie, gdy BaseLinker dołoży pozycję; numer sztuki zostaje).
+        'label_print_count': item.label_print_count or 0,
+        'label_offset': label_offset,
+        'label_total': label_total,
         # Źródło zamówienia (2026-09) — pakowanie rozróżnia kanał sprzedaży,
         # bo kody rabatowe dokładane do paczki są inne dla Allegro i sklepu.
         # `order_source_display` to gotowa etykieta; surowa para zostaje obok,
@@ -1650,10 +1675,17 @@ def get_station_queue_delta(station_code, since_ts):
         ProductionItem.created_at.asc(),
     ).all()
 
+    # Policzone RAZ dla całej listy — wewnątrz listy składanej liczyłoby się
+    # dla każdej pozycji osobno, czyli dokładnie to, czego ta mapa unika.
+    numeracja = compute_label_offsets(changed_items)
+
     return {
         'station_code': station_code,
         'server_time': get_local_now().isoformat(),
         'since_ts': since_ts.isoformat(),
         'all_ids': all_ids,
-        'changed': [serialize_order(it, station_code=station_code) for it in changed_items],
+        'changed': [
+            serialize_order(it, station_code=station_code, label_numbering=numeracja)
+            for it in changed_items
+        ],
     }
