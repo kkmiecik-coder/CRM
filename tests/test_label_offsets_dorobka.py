@@ -129,3 +129,48 @@ def test_dorobka_nie_przesuwa_numeracji_pozniejszym_pozycjom(app):
         )
         assert przed[p['p5'].id][0] == offset_p5_po_dorobce
         assert przed[p['p5'].id][1] == 11
+
+
+def test_pozycja_anulowana_nie_zajmuje_slotu_w_numeracji(app):
+    """
+    Anulowana pozycja ma quantity = 0. Podłoga `max(1, n)` w liczeniu KOPII
+    istnieje po to, żeby pozycja bez znanej ilości dostała mimo wszystko
+    etykietę — ale przeniesiona do numeracji sprawiała, że anulowana zajmowała
+    slot: przesuwała wszystkich za sobą i podbijała mianownik.
+
+    Zamówienie 1400 na produkcji raportowało „5" przy trzech fizycznych
+    sztukach. Operator widziałby sumę, której nie ma w rękach.
+    """
+    with app.app_context():
+        order = ProductionOrder(baselinker_order_id=1400400,
+                                internal_order_number='1400',
+                                client_name='Jan Kowalski')
+        db.session.add(order)
+        db.session.flush()
+        cfg = ProductionConfiguration.find_or_create('dąb', 'lity', 'A/B')
+        db.session.flush()
+
+        def poz(seq, qty, short, status='czeka_na_pakowanie'):
+            p = ProductionProduct(
+                order_id=order.id, configuration_id=cfg.id,
+                short_product_id=short, product_sequence_in_order=seq,
+                original_product_name='Blat', current_status=status,
+                quantity=qty,
+            )
+            db.session.add(p)
+            db.session.flush()
+            return p
+
+        anulowana = poz(1, 0, '1400_1', status='anulowane')
+        pierwsza = poz(2, 1, '1400_2')
+        druga = poz(3, 1, '1400_3')
+        db.session.commit()
+
+        offsety = _compute_unit_offsets(
+            {x.id: x for x in (anulowana, pierwsza, druga)})
+
+        # Suma to dwie sztuki, nie trzy — anulowana nie liczy się do mianownika.
+        assert offsety[pierwsza.id] == (0, 2)
+        assert offsety[druga.id] == (1, 2)
+        # Anulowana nie przesuwa nikogo: stoi tam, gdzie następna pozycja.
+        assert offsety[anulowana.id][0] == 0

@@ -84,12 +84,18 @@ def atrapa_druku(monkeypatch):
     """Podstawia druk; zapamiętuje, o które sztuki poproszono."""
     wywolania = []
 
-    def _drukuj(ids, station_code, actor, units_by_item=None,
-                aktualizuj_licznik=True):
-        wywolania.append({
-            'ids': list(ids), 'units': units_by_item,
-            'aktualizuj_licznik': aktualizuj_licznik,
-        })
+    def _drukuj(ids, station_code, actor, units_by_item=None):
+        wywolania.append({'ids': list(ids), 'units': units_by_item})
+        # Atrapa odtwarza JEDYNY efekt uboczny, na którym zależy testom:
+        # dopisanie wydrukowanych sztuk do zbioru pozycji. Bez tego testy
+        # sprawdzałyby wyłącznie to, co endpoint przekazał dalej, a nie to,
+        # jaki stan z tego wynika.
+        if units_by_item:
+            from modules.production.services import label_print_service as serwis
+            for pid, sztuki in units_by_item.items():
+                poz = db.session.get(ProductionProduct, pid)
+                serwis._zapisz_sztuki(
+                    poz, serwis.wydrukowane_sztuki(poz) + list(sztuki))
         return {
             'success': True, 'success_count': 1, 'failed_count': 0,
             'connection_error': False, 'message': 'OK', 'results': [],
@@ -128,6 +134,7 @@ def _pozycja(app, ilosc=8, licznik=0, poprzednik_sztuk=0):
             short_product_id='555_2', product_sequence_in_order=2,
             original_product_name='Blat', current_status='czeka_na_pakowanie',
             quantity=ilosc, label_print_count=licznik,
+            label_printed_units=list(range(1, min(licznik, ilosc) + 1)),
         )
         db.session.add(poz)
         db.session.commit()
@@ -243,10 +250,80 @@ def test_bez_parametrow_zachowuje_sie_jak_stary_druk(app, client, atrapa_druku):
 
     assert odp.status_code == 200
     assert atrapa_druku[0]['units'] is None
-    assert atrapa_druku[0]['aktualizuj_licznik'] is True
 
 
 def test_nieznana_pozycja_konczy_sie_404(app, client, atrapa_druku):
     token = _token(app)
     odp = _post(client, token, 999999, {'upTo': 1, 'offsetSeen': 0})
     assert odp.status_code == 404
+
+
+def test_labels_drukuje_wskazane_sztuki_i_dopisuje_nieoznaczone(app, client, atrapa_druku):
+    """
+    Wolny wybór — podstawowa droga panelu kafelków. Sztuka niewydrukowana
+    wchodzi do zbioru, wydrukowana jest przedrukiem i zbioru nie zmienia.
+    Z tego wynika, że `reprint` nie potrzebuje osobnego pola.
+    """
+    pid = _pozycja(app, ilosc=8, licznik=2, poprzednik_sztuk=3)
+    token = _token(app)
+
+    # Globalne 4 i 5 to lokalne 1 i 2 — już wydrukowane. Globalne 8 to lokalna 5.
+    odp = _post(client, token, pid, {'labels': [4, 8], 'offsetSeen': 3})
+
+    assert odp.status_code == 200
+    assert atrapa_druku[0]['units'] == {pid: [1, 5]}
+    with app.app_context():
+        poz = db.session.get(ProductionProduct, pid)
+        # Zbiór rośnie wyłącznie o sztukę 5; jedynka już w nim była.
+        assert poz.label_printed_units == [1, 2, 5]
+    # Odpowiedź niesie numery GLOBALNE, tak jak widzi je operator.
+    assert odp.get_json()['label_printed'] == [4, 5, 8]
+
+
+def test_labels_z_pustą_lista_jest_odrzucane(app, client, atrapa_druku):
+    pid = _pozycja(app, ilosc=8, poprzednik_sztuk=3)
+    token = _token(app)
+
+    odp = _post(client, token, pid, {'labels': [], 'offsetSeen': 3})
+
+    assert odp.status_code == 400
+    assert atrapa_druku == []
+
+
+def test_nieudany_przedruk_nie_odznacza_sztuki(app, client):
+    """
+    Sztuka wydrukowana wcześniej leży na paczce. Gdyby nieudany PRZEDRUK
+    zdejmował ją ze zbioru, operator dostałby polecenie wydrukowania czegoś,
+    co już ma — i zobaczyłby to dopiero po miesiącu, jako zdublowaną etykietę.
+    """
+    from modules.production.services.label_print_service import (
+        rollback_label_count_for_jobs,
+    )
+    from types import SimpleNamespace
+
+    pid = _pozycja(app, ilosc=8, licznik=3, poprzednik_sztuk=3)
+    with app.app_context():
+        # Zadanie przedruku ma label_index pusty — tak oznacza je kolejkowanie.
+        rollback_label_count_for_jobs([
+            SimpleNamespace(product_id=pid, label_index=None),
+        ])
+        db.session.commit()
+        poz = db.session.get(ProductionProduct, pid)
+        assert poz.label_printed_units == [1, 2, 3]
+
+
+def test_odpowiedz_zawsze_niesie_copies_printed(app, client, atrapa_druku):
+    """
+    Pole ma być liczbą także przy sukcesie — gałąź no-op zwraca 0, więc jego
+    brak tutaj kazałby aplikacji odróżniać „zero kartek" od „nie wiadomo ile"
+    i zgadywać komunikat dla operatora.
+    """
+    pid = _pozycja(app, ilosc=8, licznik=2, poprzednik_sztuk=3)
+    token = _token(app)
+
+    odp = _post(client, token, pid, {'labels': [8, 9], 'offsetSeen': 3})
+
+    assert odp.status_code == 200
+    assert odp.get_json()['copies_printed'] == 2
+    # Licznik liczony z listy, nie z kolumny — spójnie z kolejką.
+    assert odp.get_json()['label_print_count'] == len(odp.get_json()['label_printed'])

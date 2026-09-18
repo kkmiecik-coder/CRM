@@ -816,10 +816,12 @@ def mobile_print_label_by_id(product_id):
     dane = request.get_json(silent=True) or {}
     up_to = dane.get('upTo')
     reprint = dane.get('reprint')
+    labels = dane.get('labels')
 
-    if up_to is not None and reprint is not None:
-        return jsonify({'success': False, 'error': 'upTo_i_reprint_wykluczaja_sie',
-                        'message': 'Podaj upTo albo reprint, nie oba.'}), 400
+    podane = [x for x in (up_to, reprint, labels) if x is not None]
+    if len(podane) > 1:
+        return jsonify({'success': False, 'error': 'parametry_wykluczaja_sie',
+                        'message': 'Podaj tylko jedno z: labels, upTo, reprint.'}), 400
 
     # Blokada wiersza: `upTo` to odczyt-modyfikacja-zapis licznika, a dwa tablety
     # na jednym zamówieniu to realny przypadek. Wartość bezwzględna chroni przed
@@ -835,9 +837,8 @@ def mobile_print_label_by_id(product_id):
     offset, total = compute_label_offsets([item]).get(item.id, (0, ilosc))
 
     units_by_item = None
-    nowy_licznik = None
 
-    if up_to is not None or reprint is not None:
+    if podane:
         widziany = dane.get('offsetSeen')
         # Rozbieżność offsetu znaczy, że skład zamówienia zmienił się między
         # odczytem kolejki a naciśnięciem przycisku. Bez tego porównania druk
@@ -849,31 +850,37 @@ def mobile_print_label_by_id(product_id):
                 'label_offset': offset, 'label_total': total,
             }), 409
 
-        wartosc = up_to if up_to is not None else reprint
+        juz_wydrukowane = label_print_service.wydrukowane_sztuki(item)
         try:
-            lokalny = int(wartosc) - offset
+            if labels is not None:
+                # Wolny wybór sztuk — podstawowa droga panelu kafelków.
+                wybrane = sorted({int(n) - offset for n in labels})
+            elif up_to is not None:
+                # Skrót „drukuj do N": od pierwszej nieoznaczonej do wskazanej.
+                gorna = int(up_to) - offset
+                wybrane = [n for n in range(1, gorna + 1) if n not in juz_wydrukowane]
+            else:
+                wybrane = [int(reprint) - offset]
         except (TypeError, ValueError):
             return jsonify({'success': False, 'error': 'nieprawidlowy_numer'}), 400
-        if not (1 <= lokalny <= ilosc):
+
+        poza = [n for n in wybrane if not (1 <= n <= ilosc)]
+        if poza or (labels is not None and not wybrane):
             return jsonify({
                 'success': False, 'error': 'numer_poza_zakresem',
                 'message': f'Pozycja ma {ilosc} szt., numery {offset + 1}..{offset + ilosc}.',
             }), 400
 
-        if up_to is not None:
-            juz = min(item.label_print_count or 0, ilosc)
-            units_by_item = {item.id: list(range(juz + 1, lokalny + 1))}
-            nowy_licznik = lokalny
-        else:
-            units_by_item = {item.id: [lokalny]}
+        units_by_item = {item.id: wybrane}
 
-        if not units_by_item[item.id]:
-            # `upTo` poniżej licznika — bezpieczny no-op, nie sukces i nie błąd.
-            # Do przedrukowania służy `reprint`.
+        if not wybrane:
+            # `upTo` poniżej stanu — bezpieczny no-op, nie sukces i nie błąd.
+            # Do przedrukowania służy wskazanie sztuki wprost przez `labels`.
             return jsonify({
                 'success': True, 'copies_printed': 0,
                 'message': 'Nic do wydrukowania — te sztuki są już oznaczone.',
                 'label_print_count': item.label_print_count or 0,
+                'label_printed': [n + offset for n in juz_wydrukowane],
             }), 200
 
     try:
@@ -881,30 +888,42 @@ def mobile_print_label_by_id(product_id):
             [item.short_product_id], station_code,
             {'type': 'device', 'id': g.device.device_id},
             units_by_item=units_by_item,
-            aktualizuj_licznik=(units_by_item is None),
         )
     except StationNotAllowed as e:
         return jsonify({'success': False, 'message': str(e)}), 403
 
-    # `upTo` USTAWIA licznik, `reprint` go nie rusza — żadnej z tych reguł nie
-    # da się wyrazić dotychczasowym „dodaj tyle, ile wydrukowano", więc licznik
-    # prowadzi tutaj wywołujący.
-    if nowy_licznik is not None and result['success']:
-        item.label_print_count = min(nowy_licznik, ilosc)
+    # Stan prowadzi serwis: dopisuje wydrukowane sztuki do zbioru pozycji.
+    # Przedruk sztuki już w zbiorze niczego nie zmienia, więc reguła
+    # „przedruk nie rusza stanu" nie wymaga tu osobnego kroku.
     db.session.commit()
 
     logger.info("Mobile API: wydruk wybranych sztuk", extra={
         'product_id': product_id, 'short_product_id': item.short_product_id,
         'station_code': station_code, 'device_id': g.device.device_id,
-        'upTo': up_to, 'reprint': reprint, 'sukces': result['success'],
+        'labels': labels, 'upTo': up_to, 'reprint': reprint,
+        'sukces': result['success'],
     })
 
     if result['connection_error']:
         return jsonify({'success': False, 'message': result['message']}), 502
+
+    # Liczba kartek, które poszły — z wyników serwisu, a gdy ich nie poda,
+    # z liczby sztuk, o które prosiliśmy. Pole ma być ZAWSZE liczbą, także
+    # przy `labels`: gałąź no-op wyżej zwraca 0, więc brak pola tutaj kazałby
+    # aplikacji odróżniać „zero kartek" od „nie wiadomo ile".
+    wydrukowano = sum(r.get('copies_printed') or 0 for r in result.get('results') or [])
+    if not result.get('results') and units_by_item:
+        wydrukowano = len(units_by_item[item.id])
+
+    wydrukowane = [n + offset for n in label_print_service.wydrukowane_sztuki(item)]
     return jsonify({
         'success': result['success'],
         'message': result['message'],
-        'label_print_count': item.label_print_count or 0,
+        'copies_printed': wydrukowano,
+        # Licznik z długości listy, nie z kolumny — tak samo jak w kolejce.
+        # Rekordy sprzed migracji stanu mają kolumnę zawyżoną przedrukami.
+        'label_print_count': len(wydrukowane),
+        'label_printed': wydrukowane,
         'label_offset': offset,
         'label_total': total,
     }), 200

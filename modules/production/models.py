@@ -375,6 +375,13 @@ class ProductionProduct(db.Model):
 
     label_printed_at = Column(DateTime)
     label_print_count = Column(Integer, default=0, nullable=False)
+    # KTÓRE sztuki wydrukowano — numery LOKALNE 1..quantity. Sam licznik wyżej
+    # wystarczał, dopóki druk szedł zawsze od pierwszej sztuki; panel kafelków
+    # pozwala dotknąć dowolnej, więc liczba przestaje opisywać stan.
+    # Numery są lokalne, bo globalny (ten na papierze) zależy od offsetu
+    # pozycji w zamówieniu, a offset rośnie, gdy BaseLinker dołoży pozycję —
+    # zapisany numer globalny przestałby wtedy wskazywać tę samą sztukę.
+    label_printed_units = Column(JSON, nullable=True)
 
     production_notes = Column(Text)
     quality_issues = Column(Text)
@@ -904,6 +911,10 @@ class LabelPrintJob(db.Model):
     # po nieudanym zadaniu — trafiłoby w losowy z dwóch wierszy.
     # Nullable: zadania sprzed 2026-09-18 go nie mają i nie podlegają cofaniu.
     product_id = Column(Integer, nullable=True, index=True)
+    # Numer LOKALNY sztuki, której dotyczy to zadanie. Wyłącznie do cofania:
+    # nieudany wydruk musi odznaczyć konkretną sztukę, a nie ogon prefiksu.
+    # Stanem jest prod_products.label_printed_units — ta tabela to dziennik.
+    label_index = Column(Integer, nullable=True)
     baselinker_order_id = Column(Integer, nullable=True)
     zpl_payload = Column(Text, nullable=False)
     station_code = Column(String(50), nullable=False)

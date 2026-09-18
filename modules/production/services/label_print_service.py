@@ -167,18 +167,44 @@ def _compute_unit_offsets(items_by_id):
             s.id or 0,
         ))
         cumulative = 0
-        total = sum(_resolve_copies(s) for s in siblings)
+        total = sum(_slotow_w_numeracji(s) for s in siblings)
         for s in siblings:
             info[s.id] = (cumulative, total)
-            cumulative += _resolve_copies(s)
+            cumulative += _slotow_w_numeracji(s)
 
     # Items bez baselinker_order_id — numeracja lokalna (sama dla siebie).
     for item in items_by_id.values():
         if item is None or item.id in info:
             continue
-        info[item.id] = (0, _resolve_copies(item))
+        info[item.id] = (0, _slotow_w_numeracji(item))
 
     return info
+
+
+def wydrukowane_sztuki(item):
+    """Zbiór wydrukowanych sztuk pozycji — numery LOKALNE, posortowane."""
+    surowe = item.label_printed_units
+    if not surowe:
+        return []
+    ilosc = _resolve_copies(item)
+    return sorted({int(n) for n in surowe if 1 <= int(n) <= ilosc})
+
+
+def _zapisz_sztuki(item, numery):
+    """
+    Podmienia zbiór wydrukowanych sztuk i dociąga do niego licznik.
+
+    PRZYPISANIE, nie mutacja w miejscu: SQLAlchemy nie śledzi zmian wewnątrz
+    kolumny JSON, więc `item.label_printed_units.append(...)` nie zapisałoby
+    się do bazy i wyszłoby dopiero na tablecie, jako etykieta bez śladu.
+
+    label_print_count zostaje jako pole wyprowadzalne — czytają je panel webowy
+    i wyniki serwisu druku, więc trzymamy je zgodne zamiast usuwać.
+    """
+    posortowane = sorted(set(numery))
+    item.label_printed_units = posortowane
+    item.label_print_count = len(posortowane)
+    return posortowane
 
 
 def _wybrane_jednostki(item, units_by_item, wszystkie):
@@ -189,6 +215,11 @@ def _wybrane_jednostki(item, units_by_item, wszystkie):
     spoza zakresu odrzucamy tutaj, żeby błąd wywołującego nie zamienił się
     w etykietę z numerem nienależącym do zamówienia.
     """
+    # Pozycja bez sztuk (anulowana, quantity = 0) nie zajmuje slotu w numeracji,
+    # więc jej etykieta nosiłaby numer należący do następnej pozycji. Nie ma
+    # zresztą czego oznaczać — nie ma sztuki.
+    if _slotow_w_numeracji(item) == 0:
+        return []
     if not units_by_item or item.id not in units_by_item:
         return list(range(1, wszystkie + 1))
     return [u for u in units_by_item[item.id] if 1 <= u <= wszystkie]
@@ -211,20 +242,36 @@ def rollback_label_count_for_jobs(jobs):
     Zadania bez `product_id` (sprzed 2026-09-18) pomijamy — nie wiadomo, której
     pozycji dotyczyły, bo short_product_id dzielą oryginał i doróbka.
 
+    `label_index` niesie sztukę do odznaczenia i jest ustawiany TYLKO dla zadań,
+    które faktycznie zmieniły stan. Nieudany PRZEDRUK ma go pustego i nie rusza
+    zbioru — sztuka była wydrukowana wcześniej i nadal jest, więc odznaczenie
+    jej kazałoby operatorowi wydrukować coś, co ma już na paczce.
+
+    Zadania sprzed migracji stanu (bez `product_id` albo bez `label_index`)
+    zostawiamy nietknięte: nie wiadomo, której sztuki dotyczyły, a zgadywanie
+    ogonem zbioru odznaczyłoby losową.
+
     Nie commituje; robi to wywołujący razem ze zmianą statusów.
     """
-    ubytek = {}
+    do_odznaczenia = {}
     for job in jobs:
         if getattr(job, 'product_id', None) is None:
             continue
-        ubytek[job.product_id] = ubytek.get(job.product_id, 0) + 1
+        indeks = getattr(job, 'label_index', None)
+        if indeks is None:
+            continue
+        do_odznaczenia.setdefault(job.product_id, set()).add(int(indeks))
 
-    if not ubytek:
+    if not do_odznaczenia:
         return 0
 
-    pozycje = ProductionItem.query.filter(ProductionItem.id.in_(ubytek.keys())).all()
+    pozycje = ProductionItem.query.filter(
+        ProductionItem.id.in_(do_odznaczenia.keys())).all()
     for item in pozycje:
-        item.label_print_count = max(0, (item.label_print_count or 0) - ubytek[item.id])
+        _zapisz_sztuki(item, [
+            n for n in wydrukowane_sztuki(item)
+            if n not in do_odznaczenia[item.id]
+        ])
     return len(pozycje)
 
 
@@ -244,11 +291,34 @@ def compute_label_offsets(items):
     })
 
 
+def _slotow_w_numeracji(item):
+    """
+    Ile numerów etykiet zajmuje pozycja w numeracji zamówienia — BEZ podłogi.
+
+    To inne pytanie niż „ile etykiet wydrukować" (_resolve_copies niżej) i musi
+    mieć inną odpowiedź. Podłoga 1 istnieje tam po to, żeby pozycja bez znanej
+    ilości mimo wszystko dostała etykietę. Przeniesiona tutaj powodowała, że
+    pozycja ANULOWANA (quantity = 0) zajmowała slot w numeracji: przesuwała
+    wszystkich za sobą i podbijała mianownik. Zamówienie 1400 raportowało
+    „5", mając fizycznie trzy sztuki — operator widziałby sumę, której nie ma
+    w rękach.
+
+    Ta sama klasa błędu co mapa offsetów kluczowana po short_product_id:
+    jedna funkcja odpowiadająca na dwa różne pytania.
+    """
+    try:
+        return max(0, int(getattr(item, 'quantity', 0) or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
 def _resolve_copies(item):
     """Liczba kopii etykiety = item.quantity (fallback 1).
 
     Drukujemy po jednej etykiecie na każdą sztukę pozycji, bo każda sztuka
     jest pakowana/oznaczana osobno. Dla quantity ≤ 0 lub None drukujemy 1.
+
+    NIE używać do numeracji — od tego jest _slotow_w_numeracji() wyżej.
     """
     try:
         n = int(getattr(item, 'quantity', 1) or 1)
@@ -511,7 +581,7 @@ def _open_printer_socket(cfg):
 
 
 def print_labels_batch(short_product_ids, station_code, actor,
-                       units_by_item=None, aktualizuj_licznik=True):
+                       units_by_item=None):
     """
     Drukuje etykiety dla podanej listy short_product_id (single = lista 1-elementowa).
     Best-effort: jeden socket per request, kontynuuje przy błędach pojedynczych etykiet
@@ -529,10 +599,9 @@ def print_labels_batch(short_product_ids, station_code, actor,
             1..quantity. Brak = wszystkie sztuki pozycji, czyli zachowanie
             sprzed panelu kafelków. Numer globalny (ten na papierze) powstaje
             dopiero tutaj, przez dodanie offsetu zamówienia.
-        aktualizuj_licznik: gdy False, serwis NIE rusza label_print_count —
-            licznikiem zarządza wtedy wywołujący. Druk wybranych sztuk ma
-            własne reguły (`upTo` USTAWIA, `reprint` nie rusza), których nie da
-            się wyrazić dotychczasowym „dodaj tyle, ile wydrukowano".
+            Wydrukowane sztuki trafiają do zbioru pozycji ZAWSZE — także przy
+            przedruku, gdzie dopisanie sztuki już obecnej niczego nie zmienia.
+            Dzięki temu „przedruk nie rusza stanu" nie wymaga osobnej reguły.
 
     Returns dict:
         success: bool — True jeśli WSZYSTKIE etykiety wydrukowane
@@ -573,8 +642,7 @@ def print_labels_batch(short_product_ids, station_code, actor,
     # Tryb agenta — zamiast TCP wstaw rekordy do prod_print_queue
     if cfg['use_agent']:
         return _enqueue_labels(ids, items_by_id, station_code, actor, cfg,
-                               units_by_item=units_by_item,
-                               aktualizuj_licznik=aktualizuj_licznik)
+                               units_by_item=units_by_item)
 
     sock = _open_printer_socket(cfg)
     if sock is None:
@@ -642,8 +710,10 @@ def print_labels_batch(short_product_ids, station_code, actor,
 
             if copies_printed > 0:
                 item.label_printed_at = datetime.utcnow()
-                if aktualizuj_licznik:
-                    item.label_print_count = (item.label_print_count or 0) + copies_printed
+                # Dopisujemy WYDRUKOWANE sztuki do zbioru. Ponowny druk sztuki
+                # już w zbiorze nie zmienia go — i właśnie z tego wynika, że
+                # przedruk nie rusza stanu, bez osobnej reguły.
+                _zapisz_sztuki(item, wydrukowane_sztuki(item) + jednostki[:copies_printed])
 
             if copies_printed == copies:
                 results.append({
@@ -703,7 +773,7 @@ def print_labels_batch(short_product_ids, station_code, actor,
 
 
 def _enqueue_labels(ids, items_by_id, station_code, actor, cfg,
-                    units_by_item=None, aktualizuj_licznik=True):
+                    units_by_item=None):
     """
     Tryb LABEL_PRINTER_USE_AGENT=True: dla każdego znalezionego item generuje
     ZPL i wstawia rekord do prod_print_queue. Print-agent na hubie biura
@@ -732,6 +802,10 @@ def _enqueue_labels(ids, items_by_id, station_code, actor, cfg,
                 jednostki = _wybrane_jednostki(item, units_by_item, wszystkie)
                 copies = len(jednostki)
                 offset, total_units = unit_offsets.get(item.id, (0, wszystkie))
+                # Sztuki już w zbiorze to PRZEDRUKI — ich nieudany wydruk nie
+                # może odznaczać niczego, bo etykieta wyszła wcześniej i leży
+                # na paczce. Rozpoznajemy je pustym label_index w zadaniu.
+                przed_drukiem = set(wydrukowane_sztuki(item))
                 job_ids = []
                 for numer_lokalny in jednostki:
                     label_index = offset + numer_lokalny
@@ -743,6 +817,12 @@ def _enqueue_labels(ids, items_by_id, station_code, actor, cfg,
                     job = LabelPrintJob(
                         short_product_id=sid,
                         product_id=item.id,
+                        # LOKALNY numer sztuki, nie globalny `label_index` wyżej:
+                        # cofanie odznacza pozycję w jej własnym zbiorze, a ten
+                        # jest niezależny od offsetu zamówienia. NULL przy
+                        # przedruku — patrz komentarz przy `przed_drukiem`.
+                        label_index=(None if numer_lokalny in przed_drukiem
+                                     else numer_lokalny),
                         baselinker_order_id=item.order.baselinker_order_id if item.order else None,
                         zpl_payload=zpl,
                         station_code=station_code,
@@ -753,10 +833,9 @@ def _enqueue_labels(ids, items_by_id, station_code, actor, cfg,
                     db.session.add(job)
                     db.session.flush()  # żeby dostać job.id
                     job_ids.append(job.id)
-                # Bumpujemy licznik i timestamp tak samo jak w trybie TCP
+                # Zbiór i timestamp tak samo jak w trybie TCP.
                 item.label_printed_at = datetime.utcnow()
-                if aktualizuj_licznik:
-                    item.label_print_count = (item.label_print_count or 0) + copies
+                _zapisz_sztuki(item, wydrukowane_sztuki(item) + jednostki)
                 results.append({
                     'short_product_id': sid, 'success': True,
                     'message': f'Dodano do kolejki drukowania ({copies} szt.)',

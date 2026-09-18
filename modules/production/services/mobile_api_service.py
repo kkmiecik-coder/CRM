@@ -31,7 +31,10 @@ from modules.production.models import (
     ProductionItem,
     get_local_now,
 )
-from modules.production.services.label_print_service import compute_label_offsets
+from modules.production.services.label_print_service import (
+    compute_label_offsets,
+    wydrukowane_sztuki,
+)
 from modules.production.services.station_catalog import (
     STATION_PENDING_STATUS,
     resolve_station_code,
@@ -1077,6 +1080,7 @@ def serialize_order(item, station_code=None, label_numbering=None):
     label_offset, label_total = label_numbering.get(
         item.id, (0, item.quantity or 1)
     )
+    label_printed = [n + label_offset for n in wydrukowane_sztuki(item)]
 
     override_delivery = item.order.override_delivery_method if item.order else None
     is_personal = item.order.is_personal_pickup if item.order else False
@@ -1104,7 +1108,16 @@ def serialize_order(item, station_code=None, label_numbering=None):
         # w nagłówku, nie przy każdym kafelku — inaczej kafelek „6/8" obok
         # papierowej „6/9" wygląda na rozjazd, którym nie jest (mianownik
         # rośnie, gdy BaseLinker dołoży pozycję; numer sztuki zostaje).
-        'label_print_count': item.label_print_count or 0,
+        # KTÓRE sztuki są wydrukowane, numerami globalnymi — kafelek zapala się
+        # z tej listy, a nie z prefiksu.
+        #
+        # Licznik liczymy Z TEJ LISTY, a nie z kolumny: rekordy sprzed migracji
+        # stanu mają licznik zawyżony przez przedruki (212 pozycji ma go
+        # większym od liczby sztuk), a zbiór jest przycięty do liczby sztuk.
+        # Wystawienie obu wprost dałoby na drucie dwie sprzeczne liczby o tej
+        # samej rzeczy. Kolumna dogania przy pierwszym wydruku pozycji.
+        'label_printed': label_printed,
+        'label_print_count': len(label_printed),
         'label_offset': label_offset,
         'label_total': label_total,
         # Źródło zamówienia (2026-09) — pakowanie rozróżnia kanał sprzedaży,
