@@ -2342,10 +2342,14 @@ body {
      Jedynym torem rozciągliwym jest Postęp — to on ma zjadać nadmiar,
      bo pasek im szerszy, tym dokładniej się go czyta. */
   --il-rail-kolumny:
-    /* Tory „Oczekuje” i „Ukończono” mierzy ich DRUGA linijka —
-       „0,9907 m³” jest szersze niż sama liczba sztuk nad nią. Przy 82 px
-       jednostka wychodziła poza komórkę i była ucinana bez śladu. */
-    54px minmax(145px, 1fr) 87px 50px 88px 82px 88px 25px;
+    /* Tory „Oczekuje” i „Ukończono” mierzy ich PIERWSZA linijka — od 2026-09-18
+       stoi tam m³, bo objętość planuje kolejkę lepiej niż liczba sztuk.
+       „1.4421" w stopniu 21 px zajmuje 76 px, plus 2 × 10 px paddingu daje 96.
+       Tor nazwy dostaje przy karcie ~649 px około 159 px, czyli 139 px treści —
+       o 3 px więcej, niż potrzebuje najdłuższa nazwa („Formatowanie", 136 px).
+       Zapas jest cienki i to jest świadome: szersze tory liczb albo większy
+       padding wchodzą w nazwę, a nazwa ucina się wielokropkiem po cichu. */
+    54px minmax(145px, 1fr) 87px 50px 92px 82px 92px 25px;
 }
 .il-rail-head {
   display: grid;
@@ -2389,7 +2393,14 @@ body {
   border-top: 1px solid var(--il-border-light);
   transition: background 0.12s ease;
 }
-.il-station > * { padding: 0 7px; min-width: 0; }
+/* Odstep miedzy kolumnami robi padding komorek, nie gap siatki —
+   siatka jest wspoldzielona z naglowkiem, wiec jedna wartosc trzyma
+   oba w pionie. 8 px zamiast 7: po zdjęciu jednostki „m³" liczby stoją bliżej
+   siebie i bez szerszej przerwy zlewały się w jeden ciąg.
+   Więcej się nie da — padding zjada KAŻDĄ kolumnę z obu stron, więc przy 10 px
+   ucinały się na przemian „Formatowanie" i „brak obsady", zależnie od tego,
+   której kolumnie oddało się odzyskane piksele. Karta ma stałe ~649 px. */
+.il-station > * { padding: 0 8px; min-width: 0; }
 .il-station:hover { background: #f7f9fb; }
 
 .il-rail-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
@@ -2572,22 +2583,20 @@ body {
   font-variant-numeric: tabular-nums;
   font-family: 'JetBrains Mono', monospace;
 }
-.il-rail-q { font-size: 21px; font-weight: 700; }
-.il-rail-m3 { font-size: 13px; color: var(--il-text-secondary); }
-.il-rail-done { font-size: 21px; font-weight: 600; }
-/* Jednostka przy wartości, nie w nagłówku — nagłówek opisuje wtedy tylko
-   RODZAJ liczby, a jednostkę widać tam, gdzie się ją czyta.
-   Zostaje wyłącznie „m³": liczba sztuk stoi bezpośrednio pod nagłówkiem
-   „Oczekuje"/„Ukończono", więc jednostka przy niej tylko dublowała podpis. */
-.il-rail-q small,
-.il-rail-m3 small,
-.il-rail-done small {
-  font-size: 9.5px;
-  font-weight: 400;
-  color: var(--il-text-muted);
-  margin-left: 4px;
-  letter-spacing: 0.02em;
-}
+/* M³ NA WIERZCHU, SZTUKI POD SPODEM (2026-09-18, decyzja właściciela).
+   Wcześniej odwrotnie. Kolejkę i przerób planuje się objętością — sztuka
+   bywa blatem na pół metra i listewką, więc ich liczba mówi mniej niż metry.
+   Waga 700 przy oczekujących i 600 przy ukończonych została tam, gdzie była:
+   na liczbie sztuk, żeby rozróżnienie obu kolumn nie zniknęło przy zamianie. */
+.il-rail-m3 { font-size: 21px; font-weight: 700; }
+.il-rail-q { font-size: 13px; font-weight: 700; color: var(--il-text-secondary); }
+.il-rail-done { font-size: 13px; font-weight: 600; color: var(--il-text-secondary); }
+/* ŻADNA liczba w szynie nie nosi jednostki (2026-09-18, decyzja właściciela).
+   Wcześniej miało ją tylko m³. Po przeniesieniu metrów na wierzch jednostka
+   przestała cokolwiek rozstrzygać: pod nagłówkiem „Oczekuje"/„Ukończono" stoją
+   dwie liczby, duża to zawsze metry, mała zawsze sztuki, a kto czyta tę kartę,
+   wie to po jednym spojrzeniu. Zysk jest w szerokości — zwolnione ~18 px na
+   kolumnę poszło na odstępy między kolumnami. */
 
 /* ─── Obciążenie ───
    Ile DNI PRACY stoi przed stanowiskiem: kolejka w m³ przez średni dzienny
@@ -2695,7 +2704,10 @@ body {
   /* Nazwa dostaje 2,2fr, a nie 1,5fr jak w wierszach linii: obok niej
      stoi jeszcze dioda tabletu, a cztery statystyki trakowni są węższe
      od nazwy kolumny, więc mogą oddać trochę miejsca. */
-  grid-template-columns: 54px 128px 87px repeat(4, 1fr) 88px 25px;
+  /* 130 px, nie 128: szerszy odstęp między kolumnami zabrał treści 2 px
+     z każdej strony, a „Trakownia" z paskiem koloru i diodą mieściła się
+     dotąd co do piksela. Nadmiar biorą cztery tory 1fr obok. */
+  grid-template-columns: 54px 130px 87px repeat(4, 1fr) 88px 25px;
   height: 61px;
   position: relative;
   border-top: none;
