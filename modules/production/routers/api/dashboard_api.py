@@ -32,18 +32,49 @@ from ...services.dashboard_alerts import build_deadline_alerts
 # dashboard miał własną kopię i przy pierwszej zmianie nazwy statusu kafelki
 # rozjechałyby się z resztą aplikacji po cichu.
 #
-# ZESTAW stanowisk jest tu WĘŻSZY niż w katalogu i to jest jawna decyzja, nie
-# przeoczenie: dashboard rysuje sześć kafelków i nie zna lakierni (nie ma jej
-# ani w _station_count_map niżej, ani w szablonie). Raport „Dni zapasu przed
-# stanowiskiem" pokazuje wszystkie siedem i to właśnie lakiernia ma dziś
-# najdłuższą kolejkę — dołożenie jej tutaj wymaga decyzji właściciela i zmiany
-# szablonu dashboardu, więc idzie osobnym zadaniem.
+# ZESTAW stanowisk był tu do rozdziału Wykańczania WĘŻSZY niż w katalogu:
+# sześć kafelków bez lakierni, mimo że raport „Dni zapasu przed stanowiskiem"
+# pokazywał siedem i to właśnie lakiernia miała najdłuższą kolejkę hali. Razem
+# z awansem Lakierni na pełnoprawne stanowisko ten wewnętrzny zestaw dogania
+# katalog — krotka niżej wylicza wszystkie siedem kodów. Same kafelki w
+# szablonie dashboardu dokłada dopiero Warstwa 5: do tego czasu szablon ma
+# na sztywno stary kod 'finishing', którego już nie ma w katalogu, więc
+# zakładka dashboardu zwraca 500.
+#
+# Zostaje krotką, a nie `= STATION_ORDER`, bo to ona nazywa zestaw KAFELKÓW:
+# gdyby dashboard kiedyś znowu miał pokazywać podzbiór, zawęża się go TUTAJ,
+# a liczniki kolejek, pętla heartbeatu i średni dystans do deadline'u idą za
+# nią same — żadne z tych miejsc nie ma już własnej listy kodów.
 _DASHBOARD_STATIONS = (
-    'cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging',
+    'cutting', 'assembly', 'gluing', 'formatting', 'edges', 'painting',
+    'packaging',
 )
 _STATION_PENDING_STATUS = {
     kod: STATION_PENDING_STATUS[kod] for kod in _DASHBOARD_STATIONS
 }
+
+# Kolory krzywych wykresu „Wydajność dzienna". Stoją na poziomie modułu,
+# a nie w chart_data(), z jednego powodu: mapa równoległa do katalogu,
+# której nie da się zaimportować, nie da się też przetestować — a to
+# właśnie równoległe listy kodów rozjechały się w tym module pięć razy.
+#
+# Brak wpisu nie wywraca widgetu (użycia idą przez .get z KOLOR_REZERWOWY),
+# tylko rysuje szarą krzywą nie do odróżnienia od sąsiedniej.
+STATION_CHART_COLORS = {
+    'cutting': {'border': '#fd7e14', 'bg': 'rgba(253, 126, 20, 0.1)'},
+    'assembly': {'border': '#007bff', 'bg': 'rgba(0, 123, 255, 0.1)'},
+    'gluing': {'border': '#9c27b0', 'bg': 'rgba(156, 39, 176, 0.1)'},
+    'formatting': {'border': '#ff5722', 'bg': 'rgba(255, 87, 34, 0.1)'},
+    # Krawędzie dziedziczą kolor po dawnym Wykańczaniu — wykresy historyczne
+    # nie zmieniają przez to wyglądu.
+    'edges': {'border': '#00bcd4', 'bg': 'rgba(0, 188, 212, 0.1)'},
+    'painting': {'border': '#e91e63', 'bg': 'rgba(233, 30, 99, 0.1)'},
+    'packaging': {'border': '#28a745', 'bg': 'rgba(40, 167, 69, 0.1)'},
+}
+
+# Wyłącznie dla kodów SPOZA katalogu (np. dane historyczne). Kolor jest
+# prezentacją — nieznany kod ma dać szarą krzywą, a nie wywrócić widget.
+KOLOR_REZERWOWY = {'border': '#6c757d', 'bg': 'rgba(108, 117, 125, 0.1)'}
 
 
 def _safe_station_work(station_code, day_start, day_end):
@@ -55,6 +86,41 @@ def _safe_station_work(station_code, day_start, day_end):
             'station': station_code, 'error': str(e)
         })
         return {'pieces_done': 0, 'm3_done': 0.0, 'items_count': 0, 'orders_count': 0}
+
+
+def _kolejka_sztuk(station_code, pending_status):
+    """
+    Ile SZTUK czeka przed stanowiskiem.
+
+    Wiersz prod_products to pozycja zamówienia, a nie jedna sztuka: niesie
+    kolumnę `quantity`. Zliczanie wierszy zaniżało więc kolejkę — zmierzone
+    2026-09-16 na Sklejaniu: 134 wiersze przy 233 sztukach. Panel mówi
+    „Produktów" właśnie o sztukach (in_production liczy ip_pieces_remaining),
+    więc kafel stanowiska ma mówić tym samym językiem.
+
+    Odejmujemy `quantity_done_<stanowisko>`, bo pozycja bywa zrobiona
+    CZĘŚCIOWO — dopóki nie zejdzie cała, status zostaje „czeka_na_…",
+    a w kolejce realnie stoi tylko reszta.
+    """
+    kolumna = getattr(ProductionItem, 'quantity_done_%s' % station_code, None)
+    zrobione = db.func.coalesce(kolumna, 0) if kolumna is not None else 0
+    return int(db.session.query(
+        db.func.coalesce(db.func.sum(ProductionItem.quantity - zrobione), 0)
+    ).filter(ProductionItem.current_status == pending_status).scalar() or 0)
+
+
+def _kolejka_zamowien(pending_status):
+    """
+    Ile ZAMÓWIEŃ czeka przed stanowiskiem — liczone po distinct order_id.
+
+    Sztuki i zamówienia rozjeżdżają się mocno: 2026-09-16 na Sklejaniu
+    stały 233 sztuki, ale należały do 78 zamówień. Jedna liczba nie zastąpi
+    drugiej — sztuki mówią o robocie, zamówienia o liczbie klientów, którzy
+    czekają.
+    """
+    return int(db.session.query(
+        db.func.count(db.func.distinct(ProductionItem.order_id))
+    ).filter(ProductionItem.current_status == pending_status).scalar() or 0)
 
 
 def _safe_sawmill_stats():
@@ -79,6 +145,58 @@ def _safe_sawmill_stats():
         })
         return {'open_orders': 0, 'logs_today': 0, 'volume_today_m3': 0.0,
                 'to_settle': 0, 'progress_pct': 0.0}
+
+
+def _safe_tempo():
+    """
+    Ten sam wzorzec osłony co _safe_sawmill_stats(). Obciążenie jest DODATKIEM
+    do wiersza, nie jego treścią: gdy zapytanie o tempo padnie, kolumna ma
+    pokazać „—", a nie położyć całą zakładkę.
+    """
+    from ...services.station_events_service import srednie_tempo_stanowisk
+    try:
+        return srednie_tempo_stanowisk()
+    except Exception as e:
+        logger.warning("Nie udało się policzyć średniego tempa stanowisk", extra={
+            'error': str(e)
+        })
+        return {}
+
+
+def _obciazenie(pending_m3, tempo_m3_dzien):
+    """
+    Ile DNI PRACY stoi przed stanowiskiem: kolejka w m³ podzielona przez
+    średni dzienny przerób.
+
+    Sama długość kolejki tego nie mówi. Zmierzone na produkcji 2026-09-16:
+    Krawędzie miały 8 sztuk — najmniej na hali — ale przy 0,061 m³/dzień
+    dawało to 2,6 dnia, drugi najgorszy wynik; Pakowanie przy 59 sztukach
+    schodziło w 0,8 dnia.
+
+    None, gdy stanowisko nie ma przerobu w oknie — dzielenie przez zero dałoby
+    nieskończoność, a widok ma wtedy napisać „—".
+    """
+    if not tempo_m3_dzien:
+        return None
+    return round(float(pending_m3) / float(tempo_m3_dzien), 1)
+
+
+def _safe_obsada():
+    """
+    Ten sam wzorzec osłony co _safe_sawmill_stats() wyżej, zastosowany do
+    obsady stanowisk. Obsada jest OZDOBĄ wiersza, nie jego treścią: gdy
+    zapytanie padnie (brak prod_worker_sessions po świeżym wdrożeniu,
+    uszkodzony wiersz), dashboard ma pokazać stanowiska bez awatarów, a nie
+    oddać 500 dla całej zakładki.
+    """
+    from modules.production.services.worker_stats_service import obsada_stanowisk
+    try:
+        return obsada_stanowisk()
+    except Exception as e:
+        logger.warning("Nie udało się pobrać obsady stanowisk", extra={
+            'error': str(e)
+        })
+        return {}
 
 
 # ============================================================================
@@ -412,17 +530,6 @@ def chart_data():
         # najdłuższą kolejkę hali.
         kody_stanowisk = list(STATION_ORDER)
 
-        station_colors = {
-            'cutting': {'border': '#fd7e14', 'bg': 'rgba(253, 126, 20, 0.1)'},
-            'assembly': {'border': '#007bff', 'bg': 'rgba(0, 123, 255, 0.1)'},
-            'gluing': {'border': '#9c27b0', 'bg': 'rgba(156, 39, 176, 0.1)'},
-            'formatting': {'border': '#ff5722', 'bg': 'rgba(255, 87, 34, 0.1)'},
-            'finishing': {'border': '#00bcd4', 'bg': 'rgba(0, 188, 212, 0.1)'},
-            'painting': {'border': '#e91e63', 'bg': 'rgba(233, 30, 99, 0.1)'},
-            'packaging': {'border': '#28a745', 'bg': 'rgba(40, 167, 69, 0.1)'}
-        }
-        KOLOR_REZERWOWY = {'border': '#6c757d', 'bg': 'rgba(108, 117, 125, 0.1)'}
-
         # NOWE: Określ typ agregacji na podstawie okresu
         if period <= 31:
             aggregation_type = 'daily'
@@ -446,7 +553,7 @@ def chart_data():
             station_label = _etykieta(station_filter)
             # Kolor jest wyłącznie prezentacją — brak wpisu ma dać szarą
             # krzywą, a nie wywrócić cały widget.
-            station_color = station_colors.get(station_filter, KOLOR_REZERWOWY)
+            station_color = STATION_CHART_COLORS.get(station_filter, KOLOR_REZERWOWY)
 
             # Faktyczna praca per dzień — z prod_station_events (uwzględnia partial work)
             try:
@@ -616,8 +723,8 @@ def chart_data():
                 {
                     'label': station_label_catalog(kod),
                     'data': [],
-                    'borderColor': station_colors.get(kod, KOLOR_REZERWOWY)['border'],
-                    'backgroundColor': station_colors.get(kod, KOLOR_REZERWOWY)['bg'],
+                    'borderColor': STATION_CHART_COLORS.get(kod, KOLOR_REZERWOWY)['border'],
+                    'backgroundColor': STATION_CHART_COLORS.get(kod, KOLOR_REZERWOWY)['bg'],
                     'tension': 0.4,
                     'fill': True,
                     'stationCode': kod,
@@ -798,14 +905,6 @@ def dashboard_tab_content():
 
         dashboard_stats = {}
 
-        # Statystyki stacji
-        cutting_count = ProductionItem.query.filter(ProductionItem.current_status == 'czeka_na_wyciecie').count()
-        assembly_count = ProductionItem.query.filter(ProductionItem.current_status == 'czeka_na_skladanie').count()
-        gluing_count = ProductionItem.query.filter(ProductionItem.current_status == 'czeka_na_sklejanie').count()
-        formatting_count = ProductionItem.query.filter(ProductionItem.current_status == 'czeka_na_formatowanie').count()
-        finishing_count = ProductionItem.query.filter(ProductionItem.current_status == 'czeka_na_wykanczanie').count()
-        packaging_count = ProductionItem.query.filter(ProductionItem.current_status == 'czeka_na_pakowanie').count()
-
         today_start = datetime.combine(today, datetime.min.time())
         today_end = datetime.combine(today, datetime.max.time())
         tomorrow_start = today_start + timedelta(days=1)
@@ -816,13 +915,16 @@ def dashboard_tab_content():
             for code in _STATION_PENDING_STATUS.keys()
         }
 
+        # Statystyki stacji — kolejka KAŻDEGO kafelka z jednej mapy.
+        # Wcześniej stało tu sześć nazwanych zmiennych przepisanych ręcznie do
+        # słownika niżej. Zestaw kafelków rósł w _STATION_PENDING_STATUS,
+        # a ten słownik zostawał w tyle — i ponieważ budowany dalej
+        # dashboard_stats['stations'] indeksuje go dla każdego kodu z mapy,
+        # brakujący wpis oznaczał KeyError, czyli HTTP 500 dla CAŁEGO
+        # dashboardu, nie dla jednego kafelka.
         _station_count_map = {
-            'cutting': cutting_count,
-            'assembly': assembly_count,
-            'gluing': gluing_count,
-            'formatting': formatting_count,
-            'finishing': finishing_count,
-            'packaging': packaging_count,
+            kod: _kolejka_sztuk(kod, status)
+            for kod, status in _STATION_PENDING_STATUS.items()
         }
         dashboard_stats['stations'] = {
             code: {
@@ -848,7 +950,7 @@ def dashboard_tab_content():
             'logs_today': sawmill['logs_today'],
             'volume_today_m3': sawmill['volume_today_m3'],
             'to_settle': sawmill['to_settle'],
-            'progress_pct': sawmill['progress_pct'],
+            'progress_pct': round(float(sawmill['progress_pct'] or 0)),
             'tablet_status': {'active': False, 'last_seen': None,
                               'status_label': 'Niedostępne'},
         }
@@ -857,9 +959,23 @@ def dashboard_tab_content():
         from modules.production.services.mobile_api_service import get_devices_telemetry
         heartbeat_statuses = get_devices_telemetry()
 
-        for st_code in ['sawmill', 'cutting', 'assembly', 'gluing',
-                        'formatting', 'finishing', 'packaging']:
+        # Lista idzie z mapy kafelków, nie z literału. Kod obecny w
+        # dashboard_stats['stations'], a nieobecny w tej pętli, zostawał bez
+        # 'tablet_status' i szablon rysował dla niego pustą pigułkę; kod
+        # odwrotnie — w pętli, a nie w mapie — wywracał KeyError na całym
+        # dashboardzie. 'sawmill' stoi z przodu, bo trakownia ma własne
+        # agregaty i do _STATION_PENDING_STATUS świadomie nie należy.
+        for st_code in ('sawmill',) + tuple(_STATION_PENDING_STATUS):
             dashboard_stats['stations'][st_code]['tablet_status'] = heartbeat_statuses.get(st_code, {'active': False, 'last_seen': None, 'status_label': 'Niedostępne'})
+
+        # Obsada — kto stoi teraz przy maszynie. Ta sama lista kodów co wyżej,
+        # z tego samego powodu: kod nieobecny w pętli zostawałby bez klucza
+        # 'obsada' i szablon wywracałby się na nim przy pierwszym renderze.
+        # Logistyki tu nie ma i mieć nie będzie — to biurko decyzyjne, nie
+        # stanowisko na hali, więc nikt się na nim nie loguje.
+        obsada = _safe_obsada()
+        for st_code in ('sawmill',) + tuple(_STATION_PENDING_STATUS):
+            dashboard_stats['stations'][st_code]['obsada'] = obsada.get(st_code, [])
 
         # completed_today (count distinct items z dodatnim netto delta)
         # i pending_m3 (kolejka — stan bieżący po current_status) per stanowisko
@@ -867,10 +983,23 @@ def dashboard_tab_content():
             pending_m3 = db.session.query(
                 db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
             ).filter(ProductionItem.current_status == pending_status).scalar() or 0.0
+            # pieces_done, nie items_count: kolumna mówi o SZTUKACH, tak samo
+            # jak kolejka obok. items_count liczyłby pozycje i dwie liczby
+            # w jednym wierszu opisywałyby dwie różne rzeczy pod tą samą nazwą.
             dashboard_stats['stations'][station_code]['completed_today'] = int(
-                station_work_today[station_code]['items_count']
+                station_work_today[station_code]['pieces_done']
             )
             dashboard_stats['stations'][station_code]['pending_m3'] = float(pending_m3)
+            dashboard_stats['stations'][station_code]['pending_orders'] = _kolejka_zamowien(
+                pending_status)
+
+        # Obciążenie liczymy PO pętli, bo średnie tempo to jedno zapytanie
+        # zbiorcze dla wszystkich stanowisk — w pętli byłoby siedem.
+        tempo = _safe_tempo()
+        for station_code in _STATION_PENDING_STATUS:
+            dashboard_stats['stations'][station_code]['obciazenie'] = _obciazenie(
+                dashboard_stats['stations'][station_code]['pending_m3'],
+                tempo.get(station_code))
 
         logistics_pending = db.session.query(
             db.func.count(db.func.distinct(ProductionOrder.internal_order_number))
@@ -893,11 +1022,14 @@ def dashboard_tab_content():
         avg_deadline_distance = 0.0
         try:
             active_products = ProductionItem.query.filter(
-                ProductionItem.current_status.in_([
-                    'czeka_na_wyciecie', 'czeka_na_skladanie',
-                    'czeka_na_sklejanie', 'czeka_na_formatowanie', 'czeka_na_wykanczanie',
-                    'czeka_na_pakowanie', 'w_realizacji'
-                ]),
+                # Statusy kolejek z tej samej mapy co kafelki. Literał
+                # zostawał po renamie z martwym 'czeka_na_wykanczanie' i cicho
+                # wypadały z tej średniej wszystkie sztuki stojące przed
+                # Krawędziami; przy okazji wchodzi tu lakiernia, której
+                # literał nigdy nie znał.
+                ProductionItem.current_status.in_(
+                    list(_STATION_PENDING_STATUS.values()) + ['w_realizacji']
+                ),
                 ProductionItem.deadline_date.isnot(None)
             ).all()
 
@@ -916,7 +1048,7 @@ def dashboard_tab_content():
             'completed_orders': int(completed_orders_today),
             'completed_items': int(completed_items_today),
             'completed_products': int(completed_products_today),
-            'total_m3': float(total_m3_today),
+            'total_m3': round(float(total_m3_today), 2),
             'avg_deadline_distance': round(avg_deadline_distance, 1),
             'total_orders': ProductionItem.query.count()
         }
@@ -1019,6 +1151,8 @@ def dashboard_data():
         heartbeat_statuses = _get_all_heartbeat_statuses()
 
         stations_data = []
+        # Jedno zapytanie zbiorcze przed pętlą — w środku byłoby siedem.
+        _tempo_json = _safe_tempo()
 
         today_dd = date.today()
         today_start_dd = datetime.combine(today_dd, datetime.min.time())
@@ -1029,9 +1163,7 @@ def dashboard_data():
         # Jedno źródło nazw stanowisk — patrz services/station_catalog.py
         from ...services.station_catalog import station_label
         for station_code, pending_status in _STATION_PENDING_STATUS.items():
-            count = ProductionItem.query.filter(
-                ProductionItem.current_status == pending_status
-            ).count()
+            count = _kolejka_sztuk(station_code, pending_status)
             pending_m3 = db.session.query(
                 db.func.coalesce(db.func.sum(ProductionItem.volume_m3 * ProductionItem.quantity), 0)
             ).filter(ProductionItem.current_status == pending_status).scalar() or 0.0
@@ -1043,8 +1175,10 @@ def dashboard_data():
                 'status': 'active' if count > 0 else 'idle',
                 'status_class': 'station-active' if count > 0 else 'station-idle',
                 'active_orders': count,
-                'completed_today': int(work['items_count']),
+                'completed_today': int(work['pieces_done']),
                 'pending_m3': float(pending_m3),
+                'pending_orders': _kolejka_zamowien(pending_status),
+                'obciazenie': _obciazenie(pending_m3, _tempo_json.get(station_code)),
                 'tablet_status': heartbeat_statuses.get(station_code, {
                     'active': False, 'last_seen': None, 'status_label': 'Niedostępne'
                 }),
@@ -1327,7 +1461,7 @@ def dashboard_stats_data():
             'completed_orders': completed_orders_today,
             'completed_items': completed_today,
             'completed_products': completed_products_today,
-            'total_m3': total_volume_today,
+            'total_m3': round(float(total_volume_today or 0), 2),
             'pending_priority': pending_priority,
             'errors_24h': errors_24h,
             'total_volume_today_m3': total_volume_today,

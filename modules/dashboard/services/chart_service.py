@@ -213,13 +213,36 @@ def get_production_overview():
     Returns:
         dict: Statystyki produkcji według statusów
     """
-    # Mapowanie statusów ENUM na nazwy wyświetlane i kolory
+    # Mapowanie statusów ENUM na nazwy wyświetlane i kolory.
+    #
+    # To JEDYNA mapa statusów produkcji całkowicie odcięta od
+    # production/services/station_catalog.py — moduł dashboardu świadomie nie
+    # importuje modułu produkcji. Kto zmienia nazwy stanowisk, MUSI ruszyć
+    # także tę listę: brakujący klucz nie wywala widgetu, tylko po cichu
+    # podstawia surowy enum jako nazwę i szary #94a3b8 jako kolor.
     STATUS_CONFIG = {
         'czeka_na_wyciecie': {'name': 'Czeka na wycięcie', 'color': '#94a3b8'},
         'czeka_na_skladanie': {'name': 'Czeka na składanie', 'color': '#64748b'},
         'czeka_na_sklejanie': {'name': 'Czeka na sklejanie', 'color': '#8b5cf6'},
         'czeka_na_formatowanie': {'name': 'Czeka na formatowanie', 'color': '#3b82f6'},
-        'czeka_na_wykanczanie': {'name': 'Czeka na wykańczanie', 'color': '#06b6d4'},
+        'czeka_na_krawedzie': {'name': 'Czeka na krawędzie', 'color': '#06b6d4'},
+        # Lakiernia i logistyka wpadały dotąd do fallbacku — po rozdzieleniu
+        # wykańczania ten segment rośnie, bo część produktów idzie
+        # z formatowania prosto do Lakierni.
+        #
+        # Róż #ec4899, a nie karmazyn #e11d48, z którym ten segment wszedł na
+        # gałąź: od 'anulowane' #ef4444 dzielił go jeden krok odcienia
+        # (odległość CIE76 13,90 — najmniejsza w całej mapie), więc na kole
+        # były dwa nieodróżnialne czerwone segmenty, a jeden znaczy
+        # „w produkcji", drugi „anulowane". Nowa odległość do 'anulowane' to
+        # 47,6, a do najbliższego innego wpisu 64,5. Róż jest też kolorem
+        # Lakierni na wykresie stanowisk w module produkcji
+        # (STATION_CHART_COLORS 'painting' = #e91e63), więc stanowisko
+        # zachowuje tożsamość między widokami. Pilnuje tego
+        # tests/test_dashboard_statusy_produkcji.py — ten plik leży poza
+        # modules/production, więc żaden strażnik katalogu go nie obejmuje.
+        'czeka_na_lakiernie': {'name': 'Czeka na lakiernię', 'color': '#ec4899'},
+        'czeka_na_logistyke': {'name': 'Czeka na logistykę', 'color': '#0d9488'},
         'czeka_na_pakowanie': {'name': 'Czeka na pakowanie', 'color': '#f59e0b'},
         'spakowane': {'name': 'Spakowane', 'color': '#10b981'},
         'anulowane': {'name': 'Anulowane', 'color': '#ef4444'},

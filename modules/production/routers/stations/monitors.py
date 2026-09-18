@@ -9,6 +9,7 @@ from extensions import db
 import traceback
 
 from . import station_bp, logger, get_station_config, MONITOR_STATION_MAP, _get_monitor_station_data
+from ...services.station_catalog import resolve_station_code
 
 
 # ============================================================================
@@ -51,11 +52,15 @@ def monitors_select():
 def monitor_station(station_code):
     """Monitor zlecen dla konkretnego stanowiska (widok TV)"""
     try:
+        # Okres przejsciowy: telewizory maja wbity stary adres /monitors/finishing.
+        # Zdjac razem z STATION_CODE_ALIASES (krok 20 kolejnosci wdrozenia).
+        station_code = resolve_station_code(station_code)
+
         if station_code not in MONITOR_STATION_MAP:
             return render_template(
                 'stations/access_denied.html',
                 error_message=f"Nieznane stanowisko: {station_code}",
-                error_details="Dostepne: cutting, assembly, gluing, formatting, finishing, packaging",
+                error_details="Dostepne: " + ", ".join(MONITOR_STATION_MAP),
                 back_url=url_for('production.production_stations.monitors_select')
             ), 404
 
@@ -95,6 +100,10 @@ def monitor_station(station_code):
 def ajax_monitor_station_data(station_code):
     """AJAX endpoint dla monitora stanowiska -- zwraca JSON z zamowieniami i stats"""
     try:
+        # Ten sam alias co w widoku HTML — inaczej monitor wszedlby po staremu,
+        # a pierwsze auto-odswiezenie dostaloby 404.
+        station_code = resolve_station_code(station_code)
+
         if station_code not in MONITOR_STATION_MAP:
             return jsonify({'success': False, 'error': f'Unknown station: {station_code}'}), 404
 
@@ -138,13 +147,17 @@ def production_monitor():
         from ...models import ProductionItem, ProductionOrder, ProductionProduct
         from sqlalchemy import func, case, and_
 
-        # Mapowanie statusu na stanowisko i kolumne quantity_done
+        # Mapowanie statusu na stanowisko i kolumne quantity_done.
+        # UWAGA: ajax_production_monitor ma WLASNA, NIEZALEZNA kopie tych trzech
+        # map (:289-317). Poprawienie tylko jednej daje "dobrze po wejsciu, zle
+        # po pierwszym auto-odswiezeniu" — zmieniaj obie naraz.
         status_to_station = {
             'czeka_na_wyciecie': ('cutting', 'quantity_done_cutting'),
             'czeka_na_skladanie': ('assembly', 'quantity_done_assembly'),
             'czeka_na_sklejanie': ('gluing', 'quantity_done_gluing'),
             'czeka_na_formatowanie': ('formatting', 'quantity_done_formatting'),
-            'czeka_na_wykanczanie': ('finishing', 'quantity_done_finishing'),
+            'czeka_na_krawedzie': ('edges', 'quantity_done_edges'),
+            'czeka_na_lakiernie': ('painting', 'quantity_done_painting'),
             'czeka_na_pakowanie': ('packaging', 'quantity_done_packaging'),
         }
 
@@ -153,7 +166,8 @@ def production_monitor():
             'czeka_na_skladanie': 'Składanie - lite',
             'czeka_na_sklejanie': 'Sklejanie',
             'czeka_na_formatowanie': 'Formatowanie',
-            'czeka_na_wykanczanie': 'Wykańczanie',
+            'czeka_na_krawedzie': 'Krawędzie',
+            'czeka_na_lakiernie': 'Lakiernia',
             'czeka_na_pakowanie': 'Pakowanie',
             'spakowane': 'Spakowane',
         }
@@ -163,7 +177,8 @@ def production_monitor():
             'czeka_na_skladanie': 'status-assembly',
             'czeka_na_sklejanie': 'status-gluing',
             'czeka_na_formatowanie': 'status-formatting',
-            'czeka_na_wykanczanie': 'status-finishing',
+            'czeka_na_krawedzie': 'status-edges',
+            'czeka_na_lakiernie': 'status-painting',
             'czeka_na_pakowanie': 'status-packaging',
             'spakowane': 'status-completed',
         }
@@ -286,13 +301,17 @@ def ajax_production_monitor():
     try:
         from ...models import ProductionItem, ProductionOrder, ProductionProduct
 
-        # Mapowanie statusu na kolumne quantity_done
+        # Mapowanie statusu na kolumne quantity_done.
+        # BLIZNIACZA kopia map z production_monitor (:141-169) — ta zasila
+        # auto-odswiezanie. Rozjazd miedzy nimi objawia sie tak, ze monitor
+        # jest poprawny po wejsciu i psuje sie po pierwszym odswiezeniu.
         status_to_station = {
             'czeka_na_wyciecie': ('cutting', 'quantity_done_cutting'),
             'czeka_na_skladanie': ('assembly', 'quantity_done_assembly'),
             'czeka_na_sklejanie': ('gluing', 'quantity_done_gluing'),
             'czeka_na_formatowanie': ('formatting', 'quantity_done_formatting'),
-            'czeka_na_wykanczanie': ('finishing', 'quantity_done_finishing'),
+            'czeka_na_krawedzie': ('edges', 'quantity_done_edges'),
+            'czeka_na_lakiernie': ('painting', 'quantity_done_painting'),
             'czeka_na_pakowanie': ('packaging', 'quantity_done_packaging'),
         }
 
@@ -301,7 +320,8 @@ def ajax_production_monitor():
             'czeka_na_skladanie': 'Składanie - lite',
             'czeka_na_sklejanie': 'Sklejanie',
             'czeka_na_formatowanie': 'Formatowanie',
-            'czeka_na_wykanczanie': 'Wykańczanie',
+            'czeka_na_krawedzie': 'Krawędzie',
+            'czeka_na_lakiernie': 'Lakiernia',
             'czeka_na_pakowanie': 'Pakowanie',
             'spakowane': 'Spakowane',
         }
@@ -311,7 +331,8 @@ def ajax_production_monitor():
             'czeka_na_skladanie': 'status-assembly',
             'czeka_na_sklejanie': 'status-gluing',
             'czeka_na_formatowanie': 'status-formatting',
-            'czeka_na_wykanczanie': 'status-finishing',
+            'czeka_na_krawedzie': 'status-edges',
+            'czeka_na_lakiernie': 'status-painting',
             'czeka_na_pakowanie': 'status-packaging',
             'spakowane': 'status-completed',
         }

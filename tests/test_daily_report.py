@@ -33,6 +33,7 @@ from modules.users.models import User
 from modules.calculator.models import Multiplier  # noqa: F401
 from modules.clients.models import Client  # noqa: F401
 import modules.quotes.models  # noqa: F401
+from modules.production.services.station_catalog import STATION_ORDER
 
 _TABLES = [m.__table__ for m in (
     User, ProductionDevice, ProductionConfig, ProductionOrder, ProductionProduct,
@@ -98,6 +99,13 @@ def _produkt(status='czeka_na_sklejanie', volume=0.5, quantity=10,
 
 
 def _event(produkt, station, delta, kiedy, source='mobile', worker=None):
+    # Strażnik fałszywej zieleni. prod_station_events.station_code to
+    # String(32) bez enuma i bez FK, więc martwy kod stanowiska zapisze się
+    # bez błędu, a agregat po nim nic nie znajdzie — test przechodzi,
+    # przestając cokolwiek sprawdzać. Dokładnie tak zachowałby się
+    # test_zdarzenia_automatu_nie_licza_sie_do_przerobu po rozdzieleniu
+    # wykańczania na Krawędzie i Lakiernię.
+    assert station in STATION_ORDER, f'Martwy kod stanowiska w teście: {station}'
     ev = ProductionStationEvent(
         production_item_id=produkt.id, station_code=station, delta=delta,
         quantity_done_after=max(0, delta), created_at=kiedy, source=source)
@@ -167,21 +175,22 @@ def test_przerob_per_stanowisko(app):
 
 def test_zdarzenia_automatu_nie_licza_sie_do_przerobu(app):
     """
-    complete_task() generuje eventy dla stanowisk POMIJANYCH (cut_to_size=False
-    przeskakuje formatowanie i wykańczanie). Bez filtra formatowanie dostaje
-    sztuki, których nikt nie tknął.
+    complete_task() generuje eventy dla stanowisk POMIJANYCH: produkt
+    nieprzycinany na wymiar przeskakuje formatowanie i Krawędzie, a produkt
+    bez obróbki krawędzi przeskakuje same Krawędzie. Bez filtra formatowanie
+    i Krawędzie dostają sztuki, których nikt nie tknął.
     """
     with app.app_context():
         p = _produkt()
         _event(p, 'formatting', 10, datetime.combine(PONIEDZIALEK, time(11, 0)),
                source='auto_skip')
-        _event(p, 'finishing', 10, datetime.combine(PONIEDZIALEK, time(11, 0)),
+        _event(p, 'edges', 10, datetime.combine(PONIEDZIALEK, time(11, 0)),
                source='system')
 
         dane = daily_report_service.zbierz_dane(PONIEDZIALEK)
 
         assert _stanowisko(dane, 'formatting')['sztuki'] == 0
-        assert _stanowisko(dane, 'finishing')['sztuki'] == 0
+        assert _stanowisko(dane, 'edges')['sztuki'] == 0
 
 
 def test_wszystkie_stanowiska_obecne_takze_bez_pracy(app):
@@ -194,7 +203,7 @@ def test_wszystkie_stanowiska_obecne_takze_bez_pracy(app):
 
         kody = [s['kod'] for s in dane['stanowiska']]
         assert kody == ['cutting', 'assembly', 'gluing', 'formatting',
-                        'finishing', 'painting', 'packaging']
+                        'edges', 'painting', 'packaging']
         assert all(s['sztuki'] == 0 for s in dane['stanowiska'])
 
 
@@ -1135,3 +1144,25 @@ def test_przypis_nie_rozpycha_kolumny():
         daily_report_export.build_daily_xlsx(_pusty_raport())))
 
     assert wb['Stanowiska'].column_dimensions['A'].width <= 42
+
+
+def test_lakiernia_ma_wlasny_wiersz_przerobu(app):
+    """
+    Lakiernia jest od teraz pełnoprawnym stanowiskiem, a nie zakładką Krawędzi.
+
+    Wiersz 'painting' powstawał dotąd wyłącznie dlatego, że jest w STATION_ORDER —
+    żaden test nie seedował na nim pracy, więc nikt by nie zauważył, gdyby agregat
+    przestał go liczyć. Ten test seeduje obie nowe kolejki naraz.
+    """
+    with app.app_context():
+        p = _produkt(volume=0.25, quantity=20, wartosc=2000.0)
+        _event(p, 'edges', 8, datetime.combine(PONIEDZIALEK, time(10, 0)))
+        _event(p, 'painting', 5, datetime.combine(PONIEDZIALEK, time(13, 0)))
+
+        dane = daily_report_service.zbierz_dane(PONIEDZIALEK)
+
+        assert _stanowisko(dane, 'edges')['sztuki'] == 8
+        lakiernia = _stanowisko(dane, 'painting')
+        assert lakiernia['sztuki'] == 5
+        assert lakiernia['m3'] == pytest.approx(1.25)              # 5 × 0.25
+        assert lakiernia['wartosc_netto'] == pytest.approx(500.0)  # 2000 × 5/20

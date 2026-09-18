@@ -26,7 +26,10 @@ STATION_ORDER = (
     'assembly',
     'gluing',
     'formatting',
-    'finishing',
+    # UWAGA NA KOLIZJĘ NAZWY: 'edges' to STANOWISKO (obróbka krawędzi na hali).
+    # Nie mylić z parsed_edges_groups / edges_groups / edge_svg_generator —
+    # tam 'edges' opisuje DANE PRODUKTU i z tym stanowiskiem nie ma związku.
+    'edges',
     'painting',
     'packaging',
 )
@@ -36,7 +39,7 @@ STATION_LABELS = {
     'assembly': 'Składanie - lite',
     'gluing': 'Sklejanie',
     'formatting': 'Formatowanie',
-    'finishing': 'Wykańczanie',
+    'edges': 'Krawędzie',
     'painting': 'Lakiernia',
     'packaging': 'Pakowanie',
     # Poza pipeline'em produktów — rejestr surowca. Pracownik może mieć tu
@@ -61,7 +64,7 @@ STATION_PENDING_STATUS = {
     'assembly': 'czeka_na_skladanie',
     'gluing': 'czeka_na_sklejanie',
     'formatting': 'czeka_na_formatowanie',
-    'finishing': 'czeka_na_wykanczanie',
+    'edges': 'czeka_na_krawedzie',
     'painting': 'czeka_na_lakiernie',
     'packaging': 'czeka_na_pakowanie',
 }
@@ -114,3 +117,35 @@ def station_short_label(station_code):
 
 def is_production_station(station_code):
     return station_code in STATION_ORDER
+
+
+# ────────────────────────────────────────────────────────────────────────
+# OKRES PRZEJŚCIOWY — stary kod stanowiska
+# ────────────────────────────────────────────────────────────────────────
+# Stare tablety (APK sprzed rozdziału wykańczalni), stare adresy monitorów
+# i wiersze przywrócone z backupu nadal mówią 'finishing'. Aplikacja przyjmuje
+# ten kod NA WEJŚCIU i natychmiast zamienia na kanoniczny 'edges' — dalej,
+# w bazie i w eventach stanowiskowych, 'finishing' nie ma prawa się pojawić.
+#
+# DO USUNIĘCIA razem ze wszystkimi wywołaniami resolve_station_code po wydaniu
+# appki Android z kodami 'edges' i 'painting'. Precedens: alias
+# 'completion' → 'gluing' zdjęty w 05.2026.
+STATION_CODE_ALIASES = {
+    'finishing': 'edges',  # finishing-ZOSTAJE: alias starego tabletu, zdejmuje krok 20
+}
+
+
+def resolve_station_code(code):
+    """
+    Kod stanowiska z wejścia → kod kanoniczny katalogu.
+
+    Dla stringa: przycina białe znaki i mapuje przez STATION_CODE_ALIASES.
+    Dla wartości nie-stringowej (w tym None) zwraca ją bez zmian i bez
+    wyjątku — funkcję wołają miejsca podające surowe dane z JSON-a (np.
+    products_api, order_details), gdzie code.strip() na liście, słowniku
+    albo liczbie by się wywaliło.
+    """
+    if not isinstance(code, str):
+        return code
+    przyciety = code.strip()
+    return STATION_CODE_ALIASES.get(przyciety, przyciety)

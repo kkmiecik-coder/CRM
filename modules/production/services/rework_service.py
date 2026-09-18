@@ -187,6 +187,12 @@ def reject_product_quantity(
         parsed_finish_color_type=original.parsed_finish_color_type,
         parsed_finish_color=original.parsed_finish_color,
         parsed_finish_gloss=original.parsed_finish_gloss,
+        # parsed_edge_processing + parsed_finish_type + cut_to_size to KOMPLET pól,
+        # z których complete_task() wylicza trasę po formatowaniu. Po rozdziale
+        # Wykańczania na Krawędzie i Lakiernię doróbka zdjęta z produktu
+        # olejowanego BEZ obróbki krawędzi ominie Krawędzie, choć oryginał
+        # przeszedł jeszcze przez wykańczalnię. To świadomy skutek nowej trasy,
+        # nie błąd kopiowania — nie „naprawiaj" go dopisując tu wyjątek.
         parsed_edge_processing=original.parsed_edge_processing,
         parsed_edge_type=original.parsed_edge_type,
         parsed_edge_radius=original.parsed_edge_radius,
@@ -194,6 +200,11 @@ def reject_product_quantity(
         parsed_edge_letters=original.parsed_edge_letters,
         parsed_edges_groups=original.parsed_edges_groups,
         edge_svg=original.edge_svg,
+        # `shape` nie decyduje o trasie, ale idzie do DTO tabletu
+        # (mobile_api_service.py:1071) obok kopiowanego shape_svg. Bez niego
+        # doróbka startowała z kolumnowym default 'rectangular' i pokazywała
+        # operatorowi inny kształt niż oryginał, z którego powstała.
+        shape=original.shape,
         shape_svg=original.shape_svg,
         shape_rotation=original.shape_rotation,
         quote_item_detail_id=original.quote_item_detail_id,

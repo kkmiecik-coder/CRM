@@ -16,20 +16,24 @@ i pozostałe metryki dashboardu. Filtry datowe operują na naive datetime
 w strefie Warszawy.
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import func, distinct
 
 from extensions import db
-from ..models import ProductionItem, ProductionOrder, ProductionStationEvent
+from ..models import (
+    ProductionItem, ProductionOrder, ProductionStationEvent, get_local_now,
+)
 
 # Eventy, których NIKT fizycznie nie wykonał: complete_task() generuje je dla
-# stanowisk pomijanych — produkt nieprzycinany na wymiar przeskakuje
-# formatowanie i wykańczanie, surowy bez obróbki krawędzi przeskakuje
-# wykańczanie. Do 2026-08 wchodziły do wszystkich metryk przerobu, więc
-# formatowanie i wykańczanie miały w raportach sztuki, których nie tknął żaden
-# człowiek. Filtr jest wspólny z worker_stats_service — trzy widgety na jednym
-# ekranie muszą mieć JEDNĄ definicję słowa "zrobione".
+# stanowisk pomijanych. Reguła ma po rozdzieleniu wykańczania TRZY gałęzie:
+# produkt nieprzycinany na wymiar przeskakuje formatowanie i Krawędzie;
+# produkt bez obróbki krawędzi przeskakuje same Krawędzie i — jeśli jest
+# olejowany albo lakierowany — idzie z formatowania prosto do Lakierni.
+# Do 2026-08 te sztuczne odbicia wchodziły do wszystkich metryk przerobu, więc
+# formatowanie i ówczesne wykańczanie miały w raportach sztuki, których nie
+# tknął żaden człowiek. Filtr jest wspólny z worker_stats_service — trzy
+# widgety na jednym ekranie muszą mieć JEDNĄ definicję słowa "zrobione".
 ZRODLA_AUTOMATU = ('auto_skip', 'system')
 
 
@@ -61,7 +65,7 @@ def get_station_work_in_range(station_code, range_start, range_end):
 
     Args:
         station_code: kod stanowiska ('cutting', 'assembly', 'gluing',
-                      'formatting', 'finishing', 'packaging')
+                      'formatting', 'edges', 'painting', 'packaging')
         range_start, range_end: naive datetime (czas lokalny)
 
     Returns:
@@ -107,6 +111,58 @@ def get_station_work_in_range(station_code, range_start, range_end):
         'items_count': int(counts.items or 0),
         'orders_count': int(counts.orders or 0),
     }
+
+
+def srednie_tempo_stanowisk(dni=14, dzis=None):
+    """
+    {kod_stanowiska: m3_na_dzien} — średni dzienny przerób każdego stanowiska
+    z ostatnich `dni` dni.
+
+    Służy do liczenia OBCIĄŻENIA: `m³ oczekujące / m3_na_dzien` mówi, ile dni
+    pracy stoi przed stanowiskiem. To jedyna z prostych miar, która porządkuje
+    halę sensownie — sama długość kolejki tego nie robi. Zmierzone na
+    produkcji 2026-09-16: Krawędzie miały 8 sztuk w kolejce (najmniej na
+    hali), ale przy 0,061 m³/dzień dawało to 2,6 dnia — drugi najgorszy wynik;
+    Pakowanie przy 59 sztukach schodziło w 0,8 dnia.
+
+    MIANOWNIKIEM SĄ DNI Z AKTYWNOŚCIĄ, nie dni kalendarzowe okna. Stanowisko
+    pracujące dwa dni w tygodniu dostałoby inaczej tempo zaniżone siedmiokrotnie
+    i wyglądałoby na zapchane tylko dlatego, że nie pracuje codziennie.
+
+    Filtr `source NOT IN ('auto_skip','system')` jest OBOWIĄZKOWY z tego samego
+    powodu co w get_station_work_in_range(): to odbicia stanowisk pominiętych,
+    których nikt fizycznie nie wykonał. Na produkcji stanowią 9% wszystkich
+    zdarzeń, więc wliczone zawyżałyby przerób i chowały wąskie gardło.
+
+    Stanowisko bez przerobu w oknie NIE MA tu klucza — dzielenie kolejki przez
+    zero dałoby nieskończoność, a widok ma w takim wypadku napisać „—".
+    """
+    dzis = dzis or get_local_now().date()
+    od = dzis - timedelta(days=dni)
+
+    wiersze = db.session.query(
+        ProductionStationEvent.station_code,
+        func.coalesce(
+            func.sum(ProductionItem.volume_m3 * ProductionStationEvent.delta), 0
+        ).label('m3'),
+        func.count(func.distinct(func.date(ProductionStationEvent.created_at))).label('dni'),
+    ).join(
+        ProductionItem, ProductionItem.id == ProductionStationEvent.production_item_id
+    ).filter(
+        func.date(ProductionStationEvent.created_at) >= od,
+        func.date(ProductionStationEvent.created_at) <= dzis,
+        ~ProductionStationEvent.source.in_(ZRODLA_AUTOMATU),
+    ).group_by(
+        ProductionStationEvent.station_code
+    ).all()
+
+    tempo = {}
+    for kod, m3, dni_pracy in wiersze:
+        m3 = float(m3 or 0)
+        dni_pracy = int(dni_pracy or 0)
+        if dni_pracy and m3 > 0:
+            tempo[kod] = m3 / dni_pracy
+    return tempo
 
 
 def get_station_work_per_day(station_code, start_date, end_date):

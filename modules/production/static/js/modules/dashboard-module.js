@@ -185,7 +185,8 @@ class DashboardModule {
                             if (s.completed_today !== undefined) {
                                 this.updateElementText(`${s.code}-completed-today`, s.completed_today || 0);
                                 this.updateElementText(`${s.code}-pending-m3`, (parseFloat(s.pending_m3) || 0).toFixed(4));
-                                this.updateStationProgress(s.code, {pending_count: s.active_orders, completed_today: s.completed_today});
+                                this.updateElementText(`${s.code}-pending-orders`, s.pending_orders || 0);
+                                this.updateStationLoad(s.code, s.obciazenie);
                             }
                         });
                     }
@@ -328,14 +329,18 @@ class DashboardModule {
                 // Trakownia celowo poza tą listą — ma własny zestaw metryk, patrz updateSawmillStation().
                 this.updateSawmillStation(initialData.stations.sawmill);
 
-                const stations = ['cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging'];
+                // Kolejność jak w gridzie szablonu. Kafel spoza tej tablicy
+                // zamraża się na wartościach z pierwszego renderu — bez błędu
+                // w konsoli, więc rozjazd widać dopiero po liczbach.
+                const stations = ['cutting', 'assembly', 'gluing', 'formatting', 'edges', 'painting', 'packaging'];
                 stations.forEach(station => {
                     const stationData = initialData.stations[station];
                     if (stationData) {
                         this.updateElementText(`${station}-completed-today`, stationData.completed_today || 0);
                         this.updateElementText(`${station}-pending-m3`, (parseFloat(stationData.pending_m3) || 0).toFixed(4));
+                        this.updateElementText(`${station}-pending-orders`, stationData.pending_orders || 0);
                         this.updateStationTabletStatus(station, stationData.tablet_status);
-                        this.updateStationProgress(station, stationData);
+                        this.updateStationLoad(station, stationData.obciazenie);
                     }
                 });
             }
@@ -458,12 +463,122 @@ class DashboardModule {
         }, 100); // 100ms opóźnienia
     }
 
+    /**
+     * Rysuje szynę przepływu po lewej stronie listy stanowisk i uruchamia
+     * ruch kropek.
+     *
+     * DLACZEGO TUTAJ, A NIE W SZABLONIE: kropki muszą jechać ze stałą
+     * prędkością niezależnie od długości trasy, a długość ścieżki SVG zna
+     * dopiero przeglądarka (getTotalLength()). Gdyby wszystkie trasy miały
+     * ten sam CZAS cyklu, kropka na długim łuku Sklejanie→Logistyka wlokłaby
+     * się wolniej niż ta na czterdziestopikselowym odcinku między sąsiednimi
+     * wierszami.
+     *
+     * ROZDZIAŁ RÓL: linia bazowa jest CIĄGŁA (pięć długich tras, żeby szyna
+     * rysowała się gładko, bez zgrubień na łączeniach), ale kropka jeździ
+     * ODCINKAMI między sąsiednimi stanowiskami — dzięki temu sztuka
+     * zatrzymuje się na każdym stanowisku, zamiast przelatywać całą szynę
+     * jednym ciągiem.
+     *
+     * WYSOKOŚĆ WIERSZA 40 px jest tu zapisana w stałej i musi zgadzać się
+     * z `.il-station { height }` w production-panel.css oraz z viewBox
+     * szyny w dashboard-tab-content.html.
+     */
+    rysujSzyneProcesu() {
+        const szyna = document.querySelector('.il-rail-spine');
+        if (!szyna || szyna.dataset.narysowana) return;
+
+        const WYSOKOSC_WIERSZA = 49;
+        const Y = i => 24.5 + i * WYSOKOSC_WIERSZA;
+        const X = 32, A = 23, B = 41, L = 6, R = 48;
+
+        // Kody w kolejności wierszy — węzeł bierze barwę swojego stanowiska.
+        const kody = ['cutting', 'assembly', 'gluing', 'formatting',
+                      'edges', 'painting', 'logistics', 'packaging'];
+        const barwy = {
+            cutting: 'var(--il-station-cut)', assembly: 'var(--il-station-asm)',
+            gluing: 'var(--il-station-glu)', formatting: 'var(--il-station-fmt)',
+            edges: 'var(--il-station-fin)', painting: 'var(--il-station-cmp)',
+            logistics: '#6366f1', packaging: 'var(--il-station-pak)',
+        };
+
+        const doWycinania = `C${X},12 ${A},12 ${A},${Y(0)}`;
+        const doSkladania = `C${X},17 ${B},20 ${B},${Y(1)}`;
+        const zWycinania = `V${Y(2) - 17} C${A},${Y(2) - 7} ${X},${Y(2) - 10} ${X},${Y(2)}`;
+        const zSkladania = `V${Y(2) - 17} C${B},${Y(2) - 7} ${X},${Y(2) - 10} ${X},${Y(2)}`;
+        // Trasy omijające wynikają z ProductionProduct.complete_task():
+        // brak docięcia na wymiar wyrzuca pozycję ze Sklejania wprost do
+        // Logistyki, a brak obróbki krawędzi — z Formatowania do Lakierni.
+        const lukDlugi = `M${X},${Y(2)} C${L},${Y(2) + 51} ${L},${Y(6) - 51} ${X},${Y(6)}`;
+        const lukKrotki = `M${X},${Y(3)} C${R},${Y(3) + 27} ${R},${Y(5) - 27} ${X},${Y(5)}`;
+
+        const linia = (d, kolor) => `<path d="${d}" fill="none" stroke="${kolor || '#e2e7ec'}" stroke-width="1.5" stroke-linecap="round"/>`;
+        const skok = (d, kolor) => `<path class="il-flow" d="${d}" fill="none" stroke="${kolor || '#3b6fd4'}" stroke-opacity=".92" stroke-width="3.2" stroke-linecap="round"/>`;
+
+        szyna.innerHTML = [
+            linia(`M${X},0 ${doWycinania} ${zWycinania}`),
+            linia(`M${X},0 ${doSkladania} ${zSkladania}`),
+            linia(`M${X},${Y(2)} V${Y(7)}`),
+            linia(lukDlugi, '#eee2ca'),
+            linia(lukKrotki, '#eee2ca'),
+            skok(`M${X},0 ${doWycinania}`),
+            skok(`M${X},0 ${doSkladania}`),
+            skok(`M${A},${Y(0)} ${zWycinania}`),
+            skok(`M${B},${Y(1)} ${zSkladania}`),
+            skok(`M${X},${Y(2)} V${Y(3)}`),
+            skok(`M${X},${Y(3)} V${Y(4)}`),
+            skok(`M${X},${Y(4)} V${Y(5)}`),
+            skok(`M${X},${Y(5)} V${Y(6)}`),
+            skok(`M${X},${Y(6)} V${Y(7)}`),
+            skok(lukDlugi, '#c07a16'),
+            skok(lukKrotki, '#c07a16'),
+            kody.map((kod, i) => {
+                const cx = i === 0 ? A : (i === 1 ? B : X);
+                return `<circle cx="${cx}" cy="${Y(i)}" r="5.5" fill="#fff" stroke="${barwy[kod]}" stroke-width="3"/>`;
+            }).join(''),
+        ].join('');
+
+        szyna.dataset.narysowana = '1';
+        this.uruchomPrzeplyw();
+    }
+
+    /**
+     * Ruch kropek na szynie.
+     *
+     * Czas przejazdu liczy się z DŁUGOŚCI trasy, więc wszystkie kropki jadą
+     * z tą samą prędkością. Przerwa w stroke-dasharray to POSTÓJ na
+     * stanowisku: losowe 2,5–7 s na odcinek plus losowa faza startu
+     * sprawiają, że sztuki ruszają z różnych stanowisk w różnych momentach,
+     * a nie równym, nieprzerwanym strumieniem.
+     */
+    uruchomPrzeplyw() {
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+        if (typeof Element.prototype.animate !== 'function') return;
+
+        const PREDKOSC = 52;  // jednostek SVG na sekundę
+        document.querySelectorAll('.il-flow').forEach(sciezka => {
+            const dlugosc = sciezka.getTotalLength();
+            if (!dlugosc) return;
+            const postoj = 2.5 + Math.random() * 4.5;
+            const okres = dlugosc + postoj * PREDKOSC;
+            const czas = (okres / PREDKOSC) * 1000;
+            sciezka.style.strokeDasharray = `3 ${(okres - 3).toFixed(1)}`;
+            sciezka.animate(
+                [{ strokeDashoffset: 0 }, { strokeDashoffset: -okres }],
+                { duration: czas, iterations: Infinity, easing: 'linear',
+                  delay: -Math.random() * czas }
+            );
+        });
+    }
+
     initStationsWidget() {
         const stationsGrid = document.querySelector('.il-stations-grid') || document.querySelector('.stations-grid');
         if (!stationsGrid) return null;
 
+        this.rysujSzyneProcesu();
+
         // Initialize station cards click handlers
-        const stationCards = stationsGrid.querySelectorAll('.il-station') || stationsGrid.querySelectorAll('.station-card');
+        const stationCards = stationsGrid.querySelectorAll('.il-station');
         stationCards.forEach(card => {
             card.addEventListener('click', () => {
                 const stationUrl = card.getAttribute('data-station-url');
@@ -593,7 +708,9 @@ class DashboardModule {
         this.updateElementText('sawmill-m3-today', (parseFloat(dane.volume_today_m3) || 0).toFixed(3));
         this.updateElementText('sawmill-to-settle', dane.to_settle || 0);
 
-        const procent = parseFloat(dane.progress_pct) || 0;
+        // Liczba całkowita, tak samo jak w pozostałych wierszach szyny —
+        // inaczej po odświeżeniu w tle trakownia wracała do „0.0%".
+        const procent = Math.round(parseFloat(dane.progress_pct) || 0);
         const wypelnienie = document.getElementById('sawmill-bar-fill');
         if (wypelnienie) wypelnienie.style.width = `${procent}%`;
         this.updateElementText('sawmill-bar-pct', `${procent}%`);
@@ -624,17 +741,12 @@ class DashboardModule {
                 console.warn(`[Dashboard Module] Element ${station.code}-pending not found`);
             }
 
-            // Aktualizuj status badge tabletu
-            const badgeElement = document.getElementById(`${station.code}-tablet-badge`);
-            if (badgeElement) {
-                // Aktualizuj klasę na podstawie liczby zamówień
-                badgeElement.classList.remove('danger', 'warning');
-                if (station.active_orders > 50) {
-                    badgeElement.classList.add('danger');
-                } else if (station.active_orders > 30) {
-                    badgeElement.classList.add('warning');
-                }
-            }
+            // Długość kolejki NIE koduje się już kolorem przy nazwie stanowiska.
+            // Dawna pigułka robiła to obok stanu tabletu, więc jeden element
+            // mówił naraz o dwóch niezwiązanych rzeczach — czerwień znaczyła
+            // „tablet padł" albo „kolejka > 50", i nie dało się ich rozróżnić.
+            // Dziś kolejkę niesie kolumna Oczekuje wraz z paskiem postępu,
+            // a dioda mówi wyłącznie o tablecie.
         });
 
         // Aktualizuj timestamp ostatniej aktualizacji stacji
@@ -2197,27 +2309,62 @@ class DashboardModule {
 
     updateStationTabletStatus(station, tabletStatus) {
         if (!tabletStatus) return;
-        const badge = document.getElementById(`${station}-tablet-badge`);
-        const card = badge ? badge.closest('.il-station') : null;
-        if (badge) {
-            badge.textContent = tabletStatus.status_label || 'Niedostępne';
-            badge.className = 'il-station-badge ' + (tabletStatus.active ? 'active' : 'inactive');
+        // Po przejściu na szynę `${station}-tablet-badge` nie jest już pigułką
+        // z tekstem, tylko opakowaniem diody. Wpisanie tu status_label wsadziłoby
+        // słowo "Niedostępne" do środka siedmiopikselowej kropki — stan tabletu
+        // niesie KOLOR diody, a pełna telemetria jej podpowiedź.
+        const wrapper = document.getElementById(`${station}-tablet-badge`);
+        const dioda = wrapper ? wrapper.querySelector('.il-rail-led') : null;
+        const wiersz = wrapper ? wrapper.closest('.il-station') : null;
+
+        if (dioda) {
+            // Ta sama kolejność pilności co w makrze station_telemetry: offline
+            // bije wszystko, potem bateria/temperatura krytyczna, potem
+            // ostrzeżenie. Dwa miejsca, jedna reguła — rozjazd dałby diodę
+            // zieloną po odświeżeniu i czerwoną po przeładowaniu strony.
+            const bateria = tabletStatus.battery_pct;
+            const temp = tabletStatus.temperature_c;
+            let stan = 'ok';
+            if (!tabletStatus.active) {
+                stan = 'off';
+            } else if ((bateria !== null && bateria !== undefined && bateria < 10) ||
+                       (temp !== null && temp !== undefined && temp > 50)) {
+                stan = 'crit';
+            } else if ((bateria !== null && bateria !== undefined && bateria < 20) ||
+                       (temp !== null && temp !== undefined && temp > 40) ||
+                       tabletStatus.apk_outdated) {
+                stan = 'warn';
+            }
+            dioda.className = `il-rail-led il-rail-led--${stan}`;
         }
-        if (card) {
-            card.classList.toggle('station-inactive', !tabletStatus.active);
+        if (wiersz) {
+            wiersz.classList.toggle('station-inactive', !tabletStatus.active);
         }
     }
 
-    updateStationProgress(station, data) {
-        const barFill = document.getElementById(`${station}-bar-fill`);
-        const barPct = document.getElementById(`${station}-bar-pct`);
-        if (!barFill || !barPct) return;
-        const pending = parseInt(data.pending_count) || 0;
-        const completed = parseInt(data.completed_today) || 0;
-        const total = pending + completed;
-        const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
-        barFill.style.width = pct + '%';
-        barPct.textContent = pct + '%';
+    /**
+     * Obciążenie stanowiska — ile dni pracy stoi przed nim w kolejce.
+     *
+     * Zastąpiło pasek „postępu dnia" (ukończone / oczekujące + ukończone).
+     * Tamta miara miała RUCHOMY MIANOWNIK: stanowisko dostaje nowe pozycje
+     * z góry przez cały dzień, więc mogło pracować pełną parą i tkwić na
+     * 25%. Rano pokazywała zero niezależnie od kondycji hali.
+     *
+     * Wartość liczy backend (_obciazenie w dashboard_api) — front jej NIE
+     * przelicza, żeby próg kolorów i wzór stały w jednym miejscu.
+     */
+    updateStationLoad(station, obciazenie) {
+        const el = document.getElementById(`${station}-load`);
+        if (!el) return;
+        const brak = obciazenie === null || obciazenie === undefined;
+        const dni = brak ? null : parseFloat(obciazenie);
+        let klasa = 'il-rail-load--brak';
+        if (!brak) {
+            klasa = dni > 4 ? 'il-rail-load--crit'
+                  : (dni > 2 ? 'il-rail-load--warn' : 'il-rail-load--ok');
+        }
+        el.className = `il-rail-load ${klasa}`;
+        el.textContent = brak ? '—' : dni.toFixed(1).replace('.', ',');
     }
 
     updateElementText(id, value) {

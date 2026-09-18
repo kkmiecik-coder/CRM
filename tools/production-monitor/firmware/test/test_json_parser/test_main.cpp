@@ -14,7 +14,7 @@ const char* SAMPLE_PAYLOAD = R"JSON({
     {"c":"asm","ip":3, "d":2,"q":5, "bs":[[2,1,3],[1,1,2],[0,0,0]]},
     {"c":"glu","ip":8, "d":5,"q":11,"bs":[[5,3,7],[2,1,2],[1,1,2]]},
     {"c":"fmt","ip":5, "d":7,"q":9, "bs":[[3,4,5],[1,2,2],[1,1,2]]},
-    {"c":"fin","ip":4, "d":3,"q":6, "bs":[[2,2,3],[1,1,2],[1,0,1]]},
+    {"c":"edg","ip":4, "d":3,"q":6, "bs":[[2,2,3],[1,1,2],[1,0,1]]},
     {"c":"pnt","ip":2, "d":1,"q":4, "bs":[[1,1,2],[1,0,1],[0,0,1]]},
     {"c":"pkg","ip":3, "d":5,"q":2, "bs":[[2,3,1],[1,1,1],[0,1,0]]}
   ]
@@ -47,6 +47,14 @@ void test_parses_station_in_canonical_order() {
   TEST_ASSERT_EQUAL_UINT16(12, p.stations[ST_CUT].ip);
   TEST_ASSERT_EQUAL_UINT16(8,  p.stations[ST_CUT].d);
   TEST_ASSERT_EQUAL_UINT16(15, p.stations[ST_CUT].q);
+  // Pozycja 4 (Krawedzie) — wczesniej nie miala zadnej asercji, wiec zmiana
+  // kodu ekranu przechodzila przez testy niezauwazona.
+  TEST_ASSERT_EQUAL_UINT16(4,  p.stations[ST_EDG].ip);
+  TEST_ASSERT_EQUAL_UINT16(3,  p.stations[ST_EDG].d);
+  TEST_ASSERT_EQUAL_UINT16(6,  p.stations[ST_EDG].q);
+  TEST_ASSERT_EQUAL_UINT16(2,  p.stations[ST_PNT].ip);
+  TEST_ASSERT_EQUAL_UINT16(1,  p.stations[ST_PNT].d);
+  TEST_ASSERT_EQUAL_UINT16(4,  p.stations[ST_PNT].q);
   TEST_ASSERT_EQUAL_UINT16(3,  p.stations[ST_PKG].ip);
   TEST_ASSERT_EQUAL_UINT16(5,  p.stations[ST_PKG].d);
   TEST_ASSERT_EQUAL_UINT16(2,  p.stations[ST_PKG].q);

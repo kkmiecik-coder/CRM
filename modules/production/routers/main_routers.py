@@ -24,6 +24,7 @@ from extensions import db
 from modules.users.decorators import require_module_access
 from sqlalchemy.orm import joinedload
 from ..services.dashboard_alerts import build_deadline_alerts
+from ..services.station_catalog import STATION_PENDING_STATUS
 
 # Utworzenie Blueprint dla głównych routów
 main_bp = Blueprint('production_main', __name__)
@@ -89,17 +90,12 @@ def dashboard():
 
         heartbeat_statuses = get_devices_telemetry()
 
-        # Mapowanie stanowisko → status czekania (kolejka)
-        station_pending_status = {
-            'cutting': 'czeka_na_wyciecie',
-            'assembly': 'czeka_na_skladanie',
-            'gluing': 'czeka_na_sklejanie',
-            'formatting': 'czeka_na_formatowanie',
-            'finishing': 'czeka_na_wykanczanie',
-            'packaging': 'czeka_na_pakowanie',
-        }
-
-        for station_code, pending_status in station_pending_status.items():
+        # Mapowanie stanowisko → status czekania (kolejka) — z katalogu.
+        # Stała tu czwarta, ręczna kopia tej mapy i nie znała ani Krawędzi,
+        # ani Lakierni: kontekst strony wychodził bez tych kluczy. Rozjazd nie
+        # zgłasza się sam — SQLAlchemy Enum nie waliduje wartości przy budowie
+        # zapytania, więc pytanie o wycofany status zwracało po prostu zero.
+        for station_code, pending_status in STATION_PENDING_STATUS.items():
             # Kolejka (current_status = czeka_na_*) — stan bieżący
             pending_count = ProductionItem.query.filter(
                 ProductionItem.current_status == pending_status

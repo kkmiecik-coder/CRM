@@ -17,6 +17,7 @@ from extensions import db
 from modules.logging import get_structured_logger
 from modules.production.models import LabelPrintJob, ProductionConfig, ProductionItem, ProductionOrder
 from modules.production.services import realtime_service
+from modules.production.services.station_catalog import resolve_station_code
 from sqlalchemy.orm import joinedload
 
 logger = get_structured_logger('production.label_print')
@@ -90,7 +91,17 @@ def _load_config():
     }
 
     allowed_raw = rows.get('LABEL_PRINTER_ALLOWED_STATIONS', ','.join(DEFAULT_CONFIG['allowed_stations']))
-    allowed = [s.strip() for s in str(allowed_raw).split(',') if s.strip()] or list(DEFAULT_CONFIG['allowed_stations'])
+    # Kody stanowisk w prod_config są wpisywane ręcznie z panelu, więc przeżywają
+    # zmianę nazwy stanowiska w kodzie. Stary 'finishing' zostawiony tutaj znaczy
+    # po rozdziale Wykańczania „tablet Krawędzi nie ma prawa drukować" — i to bez
+    # żadnego błędu, bo guard w print_labels_batch porównuje gołe stringi.
+    # Migracja przepisuje tę wartość, ale jej REPLACE operuje na CSV bez spacji
+    # (',finishing,'), więc wpis 'formatting, finishing' ją omija. Normalizujemy
+    # więc także przy odczycie — obie warstwy są potrzebne.
+    allowed = [
+        resolve_station_code(s.strip())
+        for s in str(allowed_raw).split(',') if s.strip()
+    ] or list(DEFAULT_CONFIG['allowed_stations'])
 
     ip_value = (rows.get('LABEL_PRINTER_IP') or DEFAULT_CONFIG['ip']).strip() or DEFAULT_CONFIG['ip']
 
@@ -438,7 +449,11 @@ def print_labels_batch(short_product_ids, station_code, actor):
 
     Args:
         short_product_ids: iterable stringów
-        station_code: 'formatting' / 'packaging' / ... (techniczne kody z DB/JWT)
+        station_code: 'formatting' / 'edges' / 'packaging' / ... (techniczne kody
+            z DB/JWT). MUSI być kodem KANONICZNYM — alias starego kodu
+            wykańczalni 'finishing' (finishing-ZOSTAJE: okres przejściowy)
+            rozwija router, a lista uprawnionych stanowisk jest
+            normalizowana w _load_config()
         actor: dict {'type': 'user'|'device', 'id': ...}
 
     Returns dict:

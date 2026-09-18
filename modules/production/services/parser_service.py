@@ -723,8 +723,14 @@ class ProductNameParser:
                     break
 
             text_after = name[search_start:].strip().upper()
+            # Przedrostek literowy w kodzie jest OPCJONALNY, bo paleta miesza dwa
+            # formaty: osiem kolorów ma "22-05", a BEŻ ma "BN-125/09". Bez niego
+            # kod zaczynał się od cyfry, więc dopasowanie w "BEŻ BN-125/09"
+            # musiałoby trafić w "25/09" — a tam zamiast spacji stoi "1" z "BN-125".
+            # Efekt: jedyny kolor z dziewięciu bez finish_color, czyli bez koloru
+            # na etykiecie i na tablecie lakierni.
             color_match = re.search(
-                r'([A-ZĘÓŁŚĄŻŹĆŃ]+(?:\s+[A-ZĘÓŁŚĄŻŹĆŃ]+)*?)\s+(\d{2}[\-/]\d{2,3})',
+                r'([A-ZĘÓŁŚĄŻŹĆŃ]+(?:\s+[A-ZĘÓŁŚĄŻŹĆŃ]+)*?)\s+((?:[A-Z]{2}-)?\d{2,3}[\-/]\d{2,3})',
                 text_after
             )
             if color_match:

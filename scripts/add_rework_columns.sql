@@ -30,7 +30,13 @@ CREATE TABLE prod_rework_log (
   original_product_id INT NOT NULL,
   rework_product_id INT NOT NULL,
   quantity INT NOT NULL,
-  rejected_at_station ENUM('formatting','finishing','painting') NOT NULL,
+  -- Kod dawnego stanowiska wykanczania ustapil miejsca 'edges' przy podziale
+  -- stanowiska (2026-09-15) — starej wartosci nie wymieniamy tu nawet
+  -- w komentarzu, bo test parytetu szuka jej w calej tresci pliku.
+  -- MVP cofa wylacznie z formatowania (rework_service.py:22
+  -- VALID_REJECT_STATIONS), ale mobile_api.py:450 zapisuje tu kod
+  -- z zadania, wiec po aliasie moze trafic 'edges'.
+  rejected_at_station ENUM('formatting','edges','painting') NOT NULL,
   returned_to_station ENUM('cutting','assembly') NOT NULL,
   reason_category ENUM('wymiary','jakosc_sklejenia','jakosc_produktu','inne') NOT NULL,
   created_at DATETIME NOT NULL,

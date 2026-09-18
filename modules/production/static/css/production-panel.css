@@ -2262,197 +2262,553 @@ body {
   display: flex;
   flex-direction: column;
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   KARTA STANOWISK — SZYNA PROCESU
+   ════════════════════════════════════════════════════════════════════
+   Dziewięć kafli ustąpiło dziewięciu wierszom. Powód nie jest estetyczny:
+   kafel musiał pomieścić cztery statystyki bez zawijania, przez co jego
+   dolna granica szerokości wynosiła 380 px — a przy typowym oknie 1440 px
+   karta stanowisk dostaje ~649 px (3fr z `3fr 2fr`), czyli JEDNĄ kolumnę
+   kafli. Dziewięć kafli jedno pod drugim robiło z tej karty najdłuższy
+   element całego dashboardu, a kafle zlewały się ze sobą, bo każdy miał
+   identyczny kształt.
+
+   Wiersz rozwiązuje oba problemy naraz: te same liczby stoją w kolumnach
+   (czyli porównują się same z siebie), a dziewięć wierszy po 40 px zajmuje
+   ok. 400 px zamiast ponad dwóch tysięcy.
+
+   UWAGA NA WYSOKOŚĆ WIERSZA: 40 px jest zapisane także w viewBox szyny
+   (`0 0 44 320` = osiem wierszy) w dashboard-tab-content.html i w stałej
+   WYSOKOSC_WIERSZA w dashboard-module.js. Zmiana w jednym miejscu bez
+   dwóch pozostałych rozjeżdża kropki przepływu z węzłami stanowisk.
+   ════════════════════════════════════════════════════════════════════ */
 .il-stations-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  flex: 1;
-}
-.il-station {
-  border: 1px solid var(--il-border-light);
-  border-radius: var(--il-radius);
-  overflow: hidden;
   display: flex;
   flex-direction: column;
-  transition: box-shadow 0.15s ease;
+  flex: 1;
 }
-.il-station:hover {
-  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-}
-.il-station-header {
-  padding: 7px 12px;
+
+/* ─── Nagłówek kategorii ───
+   Podział na Półprodukty i Produkty z oferty NIE jest kosmetyką: trakownia
+   liczy się z własnych tabel prod_sawmill_*, nie ma statusów
+   ProductionProduct i świadomie nie występuje w STATION_ORDER. Ma inne
+   mierniki niż osiem stanowisk linii, więc i inny kształt wiersza. */
+.il-cat {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  align-items: baseline;
+  gap: 10px;
+  padding: 0 0 6px;
 }
-.il-station-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.il-cat-name {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 1.3px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  font-family: 'JetBrains Mono', monospace;
+}
+.il-cat--semi .il-cat-name { color: #6b4423; }
+.il-cat-count {
+  font-size: 11.5px;
+  color: var(--il-text-muted);
+  white-space: nowrap;
   margin-left: auto;
+  font-family: 'JetBrains Mono', monospace;
 }
-.il-station-link {
-  display: flex;
+.il-cat-rule {
+  height: 1px;
+  background: linear-gradient(90deg, var(--il-border), rgba(200, 205, 213, 0));
+  margin-bottom: 8px;
+}
+/* Odstęp przed drugą kategorią robi wiersz trakowni, nie margines: sekcja
+   półproduktów ma dokładnie jeden wiersz i to on kończy blok. */
+.il-station-sawmill + .il-cat { margin-top: 15px; }
+
+/* ─── Wiersz stanowiska ───
+   Kolumny liczbowe idą PARAMI: Oczekuje/m³ ocz. opisują kolejkę,
+   Ukończono/m³ dziś dzisiejszy przerób. To ten sam zestaw czterech miar,
+   którym mówił kafel — zmieniło się tylko to, że teraz da się je czytać
+   w pionie, przez wszystkie stanowiska naraz. */
+/* Układ kolumn stoi w JEDNYM miejscu — w zmiennej na kontenerze. Nagłówek
+   i wiersze muszą mieć identyczne tory, bo inaczej podpis kolumny przestaje
+   stać nad swoją liczbą; rozjazd dwóch osobnych list wartości nie dałby
+   żadnego błędu, tylko przesunięte nagłówki. */
+.il-stations-grid {
+  /* Nazwa stanowiska ma tor STAŁY, nie ułamkowy: 184 px to dokładnie tyle,
+     ile potrzebuje najdłuższa treść („Wycinanie - mikro" z diodą oraz
+     „Krawędzie" z pigułką „warunkowe"). Jako 1,5fr rosła razem z kartą
+     i ciągnęła za sobą pustkę po krótkich nazwach w rodzaju „Sklejanie".
+     Jedynym torem rozciągliwym jest Postęp — to on ma zjadać nadmiar,
+     bo pasek im szerszy, tym dokładniej się go czyta. */
+  --il-rail-kolumny:
+    /* Tory „Oczekuje” i „Ukończono” mierzy ich DRUGA linijka —
+       „0,9907 m³” jest szersze niż sama liczba sztuk nad nią. Przy 82 px
+       jednostka wychodziła poza komórkę i była ucinana bez śladu. */
+    54px minmax(145px, 1fr) 87px 50px 88px 82px 88px 25px;
+}
+.il-rail-head {
+  display: grid;
+  grid-template-columns: var(--il-rail-kolumny);
   align-items: center;
-  justify-content: center;
-  width: 22px;
+}
+.il-rail-head > * {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--il-text-muted);
+  padding: 0 7px 6px;
+  white-space: nowrap;
+  font-family: 'JetBrains Mono', monospace;
+}
+.il-rail-head .r { align-items: flex-end; }
+/* Druga linijka podpisu opisuje drugą linijkę komórki pod nim — sztuki
+   u góry, metry pod spodem. */
+.il-rail-head small {
+  font-size: 9px;
+  font-weight: 400;
+  color: var(--il-text-muted);
+  letter-spacing: 0.04em;
+  margin-top: 1px;
+}
+
+.il-station {
+  display: grid;
+  grid-template-columns: var(--il-rail-kolumny);
+  align-items: center;
+  /* border-box, bo `height` MUSI być wysokością CAŁEGO wiersza razem
+     z kreską: bez tego wiersz ma 41 px, a szyna obok rysuje węzły co 40 px
+     i po ośmiu wierszach kropka mija stanowisko o osiem pikseli. Dryf rośnie
+     liniowo, więc na górze listy wygląda jak nic. */
+  box-sizing: border-box;
+  height: 49px;
+  border-top: 1px solid var(--il-border-light);
+  transition: background 0.12s ease;
+}
+.il-station > * { padding: 0 7px; min-width: 0; }
+.il-station:hover { background: #f7f9fb; }
+
+.il-rail-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+/* Barwa stanowiska: wąska linijka przy nazwie zamiast całego nagłówka na
+   kolorze. Ten sam kolor niesie wypełnienie paska postępu i węzeł na
+   szynie, więc kodowanie zostaje jedno, tylko ciszej. */
+.il-rail-name::before {
+  content: '';
+  width: 4px;
   height: 22px;
-  border-radius: var(--il-radius, 3px);
-  background: rgba(255, 255, 255, 0.2);
-  color: rgba(255, 255, 255, 0.8);
+  border-radius: 2px;
+  background: var(--st, var(--il-text-muted));
+  flex: none;
+}
+.il-rail-name-txt { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+/* Kwalifikator toru wejścia pod nazwą, a nie w niej: „Wycinanie - mikro"
+   w jednej linii wymagało 190 px szerokości toru, czyli tyle, ile po
+   dołożeniu kolumny zamówień zostaje na całą nazwę. */
+.il-rail-kind {
+  font-size: 9.5px;
+  color: var(--il-text-muted);
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  font-family: 'JetBrains Mono', monospace;
+}
+.il-rail-name-main {
+  font-size: 14.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: 'JetBrains Mono', monospace;
+}
+.il-rail-tel { display: flex; align-items: center; flex: none; }
+
+/* ─── Dioda tabletu ───
+   Jeden punkt zamiast dwóch ikon z liczbami. Kolor bierze NAJGORSZY ze
+   stanów (offline > bateria/temperatura krytyczna > ostrzeżenie), a pełna
+   telemetria — heartbeat, bateria, temperatura, APK, IP — siedzi
+   w podpowiedzi. Nic nie zniknęło, przestało tylko zajmować dwie kolumny. */
+.il-rail-led {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+  cursor: help;
+}
+.il-rail-led--ok { background: var(--il-status-ok); }
+.il-rail-led--warn { background: var(--il-status-warn); }
+.il-rail-led--crit { background: var(--il-status-danger); }
+.il-rail-led--off { background: none; border: 1px solid var(--il-text-muted); }
+
+/* ─── Obsada ───
+   Lista, nie pole: praca zespołowa to N sesji z jednym session_group.
+   Tło awatara bierzemy z ProductionWorker.color_hex, bo katalog
+   pracowników już opisuje je jako „tło kafelka z inicjałami" — drugie,
+   własne kodowanie kolorem byłoby tu zbędne. */
+.il-rail-crew { display: flex; align-items: center; min-width: 0; }
+.il-crew-av {
+  position: relative;
+  width: 25px;
+  height: 25px;
+  border-radius: 50%;
+  background: #eef1f5;
+  border: 1px solid #d5dbe3;
+  color: #4b5563;
   font-size: 10px;
-  text-decoration: none;
-  transition: all 0.15s ease;
-  flex-shrink: 0;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  flex: none;
+  cursor: default;
+  font-family: 'JetBrains Mono', monospace;
 }
-.il-station-link:hover {
-  background: rgba(255, 255, 255, 0.35);
+.il-crew-av + .il-crew-av { margin-left: -6px; box-shadow: 0 0 0 2px #fff; }
+.il-crew-av:hover,
+.il-crew-av:focus-visible { z-index: 22; outline: none; filter: brightness(1.08); }
+/* ─── Dymek obsady ───
+   Osobny element, nie ::after z content: attr(): pseudo-element niesie
+   JEDEN węzeł tekstu, więc nazwisko i godziny musiały mieć ten sam stopień
+   i kolor, a cztery linijki zlewały się w blok. Tu nazwisko jest nagłówkiem
+   odciętym kreską, podpis siedzi po lewej wyszarzony, godzina po prawej.
+
+   Własny dymek, a nie natywny title: title pojawia się dopiero po sekundzie,
+   a przy nakładających się awatarach sekunda to za długo, żeby zdążyć
+   sprawdzić, kto stoi na zmianie. */
+.il-crew-tip {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%) translateY(3px);
+  background: var(--il-text-primary);
   color: #fff;
+  border-radius: 5px;
+  padding: 8px 11px 9px;
+  display: grid;
+  gap: 4px;
+  /* width: max-content jest WARUNKIEM: dymek wisi absolutnie względem
+     25-pikselowego kółka, więc bez tego zwija się do jego szerokości
+     i łamie każdą linijkę z osobna. */
+  width: max-content;
+  max-width: 280px;
+  text-align: left;
+  font-family: 'JetBrains Mono', monospace;
+  box-shadow: 0 8px 20px -8px rgba(10, 14, 20, 0.55);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.13s ease, transform 0.13s ease;
+  z-index: 30;
 }
-.il-station-name {
+.il-crew-tip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid rgba(0, 0, 0, 0);
+  border-top-color: var(--il-text-primary);
+  border-bottom: none;
+}
+.il-crew-tip-nm {
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.16);
+}
+.il-crew-tip-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+/* Podpis oddaje całą wolną szerokość godzinie obok — dzięki temu godziny
+   układają się w kolumnę i czyta się je z góry na dół, a nie szukając
+   w zdaniu. */
+.il-crew-tip-row i { font-style: normal; color: rgba(255, 255, 255, 0.5); flex: 1; }
+.il-crew-tip-row b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.il-crew-tip-row em { font-style: normal; font-size: 10px; color: rgba(255, 255, 255, 0.42); }
+.il-crew-av:hover .il-crew-tip,
+.il-crew-av:focus-visible .il-crew-tip { opacity: 1; transform: translateX(-50%) translateY(0); }
+.il-crew-none {
+  font-size: 11px;
+  color: #c2c8d0;
+  white-space: nowrap;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* ─── Liczby ─── */
+/* Para: liczba sztuk i objętość tej samej rzeczy stoją jedna pod drugą,
+   bo opisują JEDEN stan (kolejkę albo dzisiejszy przerób). Rozdzielone na
+   osobne kolumny zabierały szerokość, której przy większym stopniu pisma
+   zaczęło brakować nazwie stanowiska. */
+.il-rail-para {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+}
+.il-rail-q,
+.il-rail-m3,
+.il-rail-done {
+  text-align: right;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  font-family: 'JetBrains Mono', monospace;
+}
+/* Zamówienia: goła liczba, bez jednostki — nagłówek „Zam." wystarczy,
+   a kolumna jest wąska. Sztuki i zamówienia rozjeżdżają się mocno
+   (2026-09-16 Sklejanie: 233 sztuki w 78 zamówieniach), więc obie liczby
+   stoją obok siebie, zamiast jedna udawać drugą. */
+.il-rail-zam {
+  text-align: right;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--il-text-secondary);
+  font-variant-numeric: tabular-nums;
+  font-family: 'JetBrains Mono', monospace;
+}
+.il-rail-q { font-size: 21px; font-weight: 700; }
+.il-rail-m3 { font-size: 13px; color: var(--il-text-secondary); }
+.il-rail-done { font-size: 21px; font-weight: 600; }
+/* Jednostka przy wartości, nie w nagłówku — nagłówek opisuje wtedy tylko
+   RODZAJ liczby, a jednostkę widać tam, gdzie się ją czyta.
+   Zostaje wyłącznie „m³": liczba sztuk stoi bezpośrednio pod nagłówkiem
+   „Oczekuje"/„Ukończono", więc jednostka przy niej tylko dublowała podpis. */
+.il-rail-q small,
+.il-rail-m3 small,
+.il-rail-done small {
+  font-size: 9.5px;
+  font-weight: 400;
+  color: var(--il-text-muted);
+  margin-left: 4px;
+  letter-spacing: 0.02em;
+}
+
+/* ─── Obciążenie ───
+   Ile DNI PRACY stoi przed stanowiskiem: kolejka w m³ przez średni dzienny
+   przerób z ostatnich 14 dni. Zastąpiło pasek „postępu dnia", który liczył
+   ukończone / (oczekujące + ukończone) — ta miara miała ruchomy mianownik
+   (stanowisko dostaje nowe pozycje z góry przez cały dzień) i rano zawsze
+   pokazywała zero, niezależnie od kondycji hali.
+
+   Obciążenie porządkuje halę tak, jak nie robi tego sama długość kolejki.
+   Zmierzone na produkcji 2026-09-16: Krawędzie miały 8 sztuk — najmniej
+   na hali — ale 2,6 dnia; Pakowanie przy 59 sztukach schodziło w 0,8 dnia.
+
+   Progi 2 i 4 dni są WYBOREM, nie pomiarem — najrozsądniejszy punkt wyjścia
+   do zestrojenia na żywej hali. */
+.il-rail-load-c { text-align: right; }
+.il-rail-load {
   font-size: 15px;
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 1.5px;
-  color: #fff;
+  padding: 3px 8px;
+  border-radius: 3px;
+  font-variant-numeric: tabular-nums;
   font-family: 'JetBrains Mono', monospace;
 }
-.il-station-badge {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  padding: 2px 7px;
-  border-radius: 2px;
-  font-family: 'JetBrains Mono', monospace;
-}
-.il-station-badge.active {
-  color: rgba(255,255,255,0.9);
-  background: rgba(255,255,255,0.2);
-}
-.il-station-badge.inactive {
-  color: rgba(255,255,255,0.7);
-  background: rgba(0,0,0,0.2);
-}
-.il-station-body {
-  padding: 10px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  flex: 1;
-}
-.il-station-stats {
-  display: flex;
-  gap: 3px;
-  flex: 1;
-}
-.il-station-stat {
-  flex: 1;
-  text-align: center;
-  padding: 8px 4px;
-  background: var(--il-bg-base);
-  border-radius: 2px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-}
-.il-station-stat-value {
-  font-size: 23px;
-  font-weight: 700;
-  color: var(--il-text-primary);
-  line-height: 1;
-  font-family: 'JetBrains Mono', monospace;
-}
-.il-station-stat-label {
-  font-size: 11px;
-  color: var(--il-text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-top: 4px;
-  line-height: 1.2;
-  font-family: 'JetBrains Mono', monospace;
-}
-.il-station-progress {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
+.il-rail-load--ok { color: var(--il-status-ok); background: rgba(22, 163, 74, 0.10); }
+.il-rail-load--warn { color: var(--il-status-warn); background: rgba(217, 119, 6, 0.13); }
+.il-rail-load--crit { color: #fff; background: var(--il-status-danger); }
+/* Stanowisko bez przerobu w oknie: „—", a nie zero ani nieskończoność. */
+.il-rail-load--brak { color: var(--il-text-muted); background: none; padding-right: 0; }
 .il-station-bar {
-  flex: 1;
-  height: 4px;
+  display: block;
+  height: 9px;
   background: var(--il-bg-base);
   border-radius: 2px;
   overflow: hidden;
 }
 .il-station-bar-fill {
+  display: block;
   height: 100%;
-  border-radius: 2px;
+  background: var(--st, var(--il-text-muted));
+  border-radius: 1px;
   transition: width 0.4s ease;
 }
 .il-station-bar-pct {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--il-text-secondary);
-  width: 28px;
+  font-size: 11.5px;
+  color: var(--il-text-muted);
+  width: 31px;
   text-align: right;
+  font-variant-numeric: tabular-nums;
   font-family: 'JetBrains Mono', monospace;
 }
 
-/* Station header colors */
-.il-station[data-station="cutting"] .il-station-header { background: var(--il-station-cut); }
+.il-rail-open {
+  text-align: center;
+  color: var(--il-text-muted);
+  text-decoration: none;
+  font-size: 12.5px;
+}
+.il-rail-open:hover { color: var(--il-text-primary); }
+
+/* ─── Szyna przepływu ───
+   Rysowana RAZ dla całej listy, nie po kawałku na wiersz: rozgałęzienie
+   dwóch wejść (mikrowczep / lity) i łuki tras omijających przecinają
+   granice wierszy, więc muszą żyć w jednym układzie współrzędnych.
+   Geometrię i ruch składa dashboard-module.js. */
+.il-rail-wrap { position: relative; }
+.il-rail-spine {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 54px;
+  height: 392px;
+  pointer-events: none;
+}
+.il-rail-mark { position: absolute; left: 0; top: 0; width: 54px; height: 100%; }
+/* Odstęp między kropkami to POSTÓJ na stanowisku; wartość nadaje skrypt,
+   bo zależy od długości trasy. Tu tylko wartość startowa, żeby przed
+   uruchomieniem skryptu nie było widać pełnej, ciągłej linii. */
+.il-flow { stroke-dasharray: 3 300; }
+
+/* ─── Logistyka: bramka decyzji, nie stanowisko na hali ───
+   Nie ma tabletu, obsady ani przerobu w m³ — nikt się na niej nie loguje,
+   bo decyzja o wysyłce zapada przy biurku. Kafel pokazywał wyłącznie
+   liczbę czekających na decyzję i wiersz robi dokładnie to samo, zamiast
+   wypełniać sześć kolumn zerami. */
+.il-rail-gate {
+  grid-column: span 5;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 9px;
+  /* nowrap, bo „oczekuje na decyzję" w wąskiej komórce zawijało się na dwie
+     linijki i rozpychało wiersz ponad pozostałe. */
+  white-space: nowrap;
+  font-family: 'JetBrains Mono', monospace;
+}
+.il-rail-gate-n { font-size: 21px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.il-rail-gate-l { font-size: 12.5px; color: var(--il-text-muted); letter-spacing: 0.04em; }
+
+/* ─── Trakownia ───
+   Inny zestaw mierników (otwarte / kłód dziś / m³ dziś / do rozliczenia),
+   więc inny podział kolumn. Reguły MUSZĄ być tutaj, a nie w sawmill.css:
+   tamten arkusz ładuje się leniwie dopiero po wejściu na zakładkę
+   Trakownia, a wiersz renderuje się już na Dashboardzie. */
+.il-station-sawmill {
+  /* Nazwa dostaje 2,2fr, a nie 1,5fr jak w wierszach linii: obok niej
+     stoi jeszcze dioda tabletu, a cztery statystyki trakowni są węższe
+     od nazwy kolumny, więc mogą oddać trochę miejsca. */
+  grid-template-columns: 54px 128px 87px repeat(4, 1fr) 88px 25px;
+  height: 61px;
+  position: relative;
+  border-top: none;
+}
+.il-station-sawmill .il-rail-name::before { background: #6b4423; }
+.il-station-sawmill .il-station-bar-fill { background: #6b4423; }
+.il-rail-semi { display: contents; }
+.il-rail-semi-stat { text-align: right; padding: 0 7px; }
+.il-rail-semi-v {
+  display: block;
+  font-size: 18.5px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  font-family: 'JetBrains Mono', monospace;
+}
+.il-rail-semi-l {
+  display: block;
+  font-size: 10.5px;
+  color: var(--il-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 3px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.il-rail-semi-bar { display: flex; align-items: center; gap: 8px; padding: 0 7px; }
+.il-rail-semi-bar .il-station-bar { flex: 1; min-width: 0; }
+
+/* ─── Barwy stanowisk ───
+   --il-station-fin (turkus po Wykańczaniu, dziś Krawędzie) i
+   --il-station-cmp (indygo po wycofanej w 05.2026 kompletacji, dziś
+   Lakiernia) zostają pod starymi nazwami świadomie: przemianowanie
+   rozlałoby migrację po całym arkuszu bez żadnej zmiany dla użytkownika. */
+.il-station[data-station="cutting"] { --st: var(--il-station-cut); }
 .il-station[data-station="cutting"] .il-station-bar-fill { background: var(--il-station-cut); }
-.il-station[data-station="assembly"] .il-station-header { background: var(--il-station-asm); }
+.il-station[data-station="assembly"] { --st: var(--il-station-asm); }
 .il-station[data-station="assembly"] .il-station-bar-fill { background: var(--il-station-asm); }
-.il-station[data-station="gluing"] .il-station-header { background: var(--il-station-glu); }
+.il-station[data-station="gluing"] { --st: var(--il-station-glu); }
 .il-station[data-station="gluing"] .il-station-bar-fill { background: var(--il-station-glu); }
-.il-station[data-station="formatting"] .il-station-header { background: var(--il-station-fmt); }
+.il-station[data-station="formatting"] { --st: var(--il-station-fmt); }
 .il-station[data-station="formatting"] .il-station-bar-fill { background: var(--il-station-fmt); }
-.il-station[data-station="finishing"] .il-station-header { background: var(--il-station-fin); }
-.il-station[data-station="finishing"] .il-station-bar-fill { background: var(--il-station-fin); }
-.il-station[data-station="logistics"] .il-station-header { background: #6366f1; }
-.il-station[data-station="logistics"] .il-station-bar-fill { background: #6366f1; }
-.il-station[data-station="packaging"] .il-station-header { background: var(--il-station-pak); }
+.il-station[data-station="edges"] { --st: var(--il-station-fin); }
+.il-station[data-station="edges"] .il-station-bar-fill { background: var(--il-station-fin); }
+.il-station[data-station="painting"] { --st: var(--il-station-cmp); }
+.il-station[data-station="painting"] .il-station-bar-fill { background: var(--il-station-cmp); }
+/* Logistyka nie ma paska postępu — bramka decyzji nie ma czego
+   kończyć — więc barwa niesie się tylko przez --st (linijka przy nazwie). */
+.il-station[data-station="logistics"] { --st: #6366f1; }
+.il-station[data-station="packaging"] { --st: var(--il-station-pak); }
 .il-station[data-station="packaging"] .il-station-bar-fill { background: var(--il-station-pak); }
 
-/* Kafelek trakowni na dashboardzie produkcji (dashboard-tab-content.html).
-   Trakownia to surowiec (kłody od dostawców), nie ogniwo pipeline'u
-   produktów (cutting → assembly → gluing → formatting → finishing →
-   packaging) — kafelek stoi jako pierwszy w gridzie "Stanowiska
-   produkcyjne" i ma być wizualnie odcięty od reszty: własny (drewniany)
-   akcent zamiast kolejnego koloru z palety stanowisk, plus wyszarzony
-   podpis "surowiec" obok nazwy.
-   Zamierzenie: te reguły MUSZĄ być tu (a nie w sawmill.css), bo
-   sawmill.css ładuje się leniwie dopiero po wejściu na zakładkę
-   Trakownia, a kafelek renderuje się już na Dashboardzie, który jest
-   prefetchowany od razu (patrz HOT_TABS w production-app-loader.js). */
-.il-station-sawmill {
-    border-left: 4px solid #6b4423;
-}
-
-.il-station-sawmill .il-station-header,
-.il-station-sawmill .il-station-bar-fill {
-    background: #6b4423;
-}
-
-.il-station-sawmill .il-station-kind {
-    margin-left: 6px;
-    font-size: 10px;
-    font-weight: 400;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: rgba(255, 255, 255, 0.6);
-    font-family: 'JetBrains Mono', monospace;
-}
-
-/* Inactive station */
-.il-station.station-inactive .il-station-header { background: var(--il-status-inactive) !important; }
+/* Stanowisko z martwym tabletem: wyszarzona linijka przy nazwie i pasek.
+   Sama dioda mówi o tym osobno, ale wiersz ma być czytelny także wtedy,
+   gdy ktoś skanuje kartę wzrokiem, a nie czyta diod po kolei. */
+.il-station.station-inactive .il-rail-name::before { background: var(--il-status-inactive) !important; }
 .il-station.station-inactive .il-station-bar-fill { background: var(--il-status-inactive) !important; }
 
 /* ─── Right Stack ─── */
+/* .il-right-stack i .stations-card sa BEZPOSREDNIMI dziecmi
+   .production-dashboard-grid (jeden wiersz auto). Bez ponizszego, pelna
+   (nieograniczona) tresc listy alertow dyktuje wysokosc CALEGO wiersza —
+   i to wcale nie przez automatyczny minimalny rozmiar (sam min-height: 0
+   na .il-right-stack/.alerts-card TO SPRAWDZONE, NIE WYSTARCZA: auto-track
+   sizing liczy tzw. growth limit z max-content contribution elementu, a tego
+   nie rusza ani min-height, ani overflow: hidden na .il-right-stack — oba
+   sprawdzone empirycznie, bez zmiany). Jedyne co realnie dziala to
+   `contain: size` — element przestaje cokolwiek wnosic do wyliczania
+   wlasnego rozmiaru na podstawie tresci (dla silnika ma "0 tresci"), wiec
+   wiersz grida jest wymierzany WYLACZNIE przez .stations-card, a
+   .il-right-stack dostaje przez align-items: stretch dokladnie tyle, ile
+   zostalo — i dopiero wtedy wewnetrzny flex (flex:1 + min-height:0 na
+   .alerts-card/.il-alert-list, patrz sekcja Alerts) ma czym realnie
+   ograniczyc liste, wiec overflow-y: auto zaczyna dzialac.
+   UWAGA: `contain: size` dziala tylko dopoki .il-right-stack DZIELI wiersz
+   z .stations-card. Gdy ponizej 900px oba trafiaja do WLASNYCH,
+   osobnych wierszy (grid-template-columns: 1fr), .il-right-stack zostaje
+   sam w wierszu — wtedy "0 tresci" oznacza realne zero wysokosci (zmierzone:
+   zapada sie do ~2px). Dlatego media query nizej wylacza contain na tym
+   breakpoincie, przywracajac zwykle, naturalne wymiarowanie z tresci.
+
+   DRUGA STRONA tego samego mechanizmu — min-height NIE jest ozdobnikiem,
+   a po przejsciu z kafli na szyne WAZY WIECEJ niz wczesniej. Skoro wiersz
+   wymierza sama .stations-card, to wysokosc prawej kolumny dyktuje lewa —
+   a lewa ma dzis wysokosc STALA (dziewiec wierszy plus naglowki kategorii,
+   ok. 470px) zamiast zaleznej od szerokosci okna. Deficyt, ktory wczesniej
+   pojawial sie dopiero przy trzech kolumnach kafli, jest wiec teraz
+   permanentny. Caly deficyt
+   spada wtedy na .alerts-card — jedyne dziecko z flex: 1 (a wiec
+   flex-basis: 0), ktorego `overflow: hidden` z .dashboard-card zeruje
+   automatyczny minimalny rozmiar elementu flex. Zmierzone przed ta regula
+   przy oknie 2560x1440: karta alertow 122px przy liscie 210px w srodku,
+   czyli lista PRZYCIETA, bez widocznego paska przewijania, a licznik obok
+   naglowka dalej pokazuje 12.
+
+   `contain: size` ignoruje TRESC przy liczeniu rozmiaru, ale jawnie podana
+   wysokosc minimalna obowiazuje dalej — i wchodzi tez do wyliczenia wiersza
+   grida (zweryfikowane pomiarem: wiersz rosnie z 553px do min-height).
+   Wartosc jest suma zmierzonych minimow WSZYSTKICH dzieci, nie okiem:
+     114,59 (kafel "W produkcji teraz")
+   + 114,59 (.il-kpi-row "Zakonczone calkowicie dzis")
+   + 171,59 (karta "Status systemu")
+   + 279,59 (minimum karty alertow: ramka 2 + naglowek 41,59
+             + padding .dashboard-card-body 12+14 + min-height listy 210)
+   + 30     (3 przerwy po 10px)
+   = 710,36px, zaokraglone w gore do 720px (zapas na zawiniety wiersz).
+   Ponizej tej wysokosci nie schodzi juz zadne dziecko, wiec lista alertow
+   ma swoje 3 pozycje i dalej PRZEWIJA sie zamiast rozpychac wiersz. */
 .il-right-stack {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-height: 720px;
+  contain: size;
 }
 
 /* ─── KPI Cards ─── */
@@ -2531,7 +2887,31 @@ body {
 }
 
 /* ─── Alerts ─── */
-.il-alert-list { display: flex; flex-direction: column; gap: 8px; }
+/* Karta "Alerty terminów" ma inline style="flex: 1" (dashboard-tab-content.html)
+   i rośnie w .il-right-stack do wysokości gridu stanowisk (patrz sekcja Right
+   Stack — to .il-right-stack, nie ta karta, dostaje właściwe ograniczenie
+   przez contain: size). Żeby lista faktycznie wypełniła tę wysokość i
+   przewijała się dopiero po jej wyczerpaniu, ciało karty musi być kontenerem
+   flex (kolumna) z min-height: 0, a sama lista — elementem flex w nim, żeby
+   mogła się skurczyć poniżej naturalnej wysokości treści (stąd też jej
+   własny min-height poniżej, żeby nie skurczyła się bardziej niż powinna —
+   patrz wyliczenie przy .il-alert-list). */
+.alerts-card .dashboard-card-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+/* min-height: 210px — zeby karta nie skurczyla sie do paska, gdy lewa
+   kolumna jest niska (albo po zejsciu do 1 kolumny ponizej 900px, gdzie
+   .il-right-stack traci "contain: size", patrz sekcja Right Stack). Policzone,
+   nie zgadniete: 1 pozycja .il-alert-item to zmierzone 62,4px (padding 8px
+   gora/dol + tresc + border-bottom 1px), gap listy to 8px, wiec odstep
+   miedzy pozycjami to 70,4px. 3 pozycje = 2 x 70,4 + 62,4 = 203,2px,
+   zaokraglone w gore do 210px (maly zapas na dluzszy wiersz z pigulka
+   stanowiska). 3 to swiadomy wybor: tyle najpilniejszych alertow (lista jest
+   sortowana po terminie) ma byc widoczne od razu, nawet gdy kafel dostaje
+   niewiele miejsca — reszta i tak jest o przewiniecie. */
+.il-alert-list { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 210px; overflow-y: auto; }
 .il-alert-item {
   display: flex;
   align-items: flex-start;
@@ -2580,10 +2960,13 @@ body {
 .il-alert-station[data-station="assembly"]   { background: var(--il-station-asm); }
 .il-alert-station[data-station="gluing"]     { background: var(--il-station-glu); }
 .il-alert-station[data-station="formatting"] { background: var(--il-station-fmt); }
-.il-alert-station[data-station="finishing"]  { background: var(--il-station-fin); }
-/* Lakiernia nie ma kafelka w gridzie, więc bierze wolny kolor z palety
-   (--il-station-cmp został po wycofanym stanowisku kompletacji). */
-.il-alert-station[data-station="painting"]   { background: var(--il-station-cmp); }
+/* Nazwy zmiennych są HISTORYCZNE i zostają celowo: --il-station-fin to turkus
+   po dawnym Wykańczaniu (dziś Krawędzie), --il-station-cmp to indygo wolne po
+   wycofanym w 05.2026 stanowisku kompletacji (dziś Lakiernia). Lakiernia ma
+   od 09.2026 własny kafel w gridzie, więc ten kolor przestał być doraźny —
+   pigułka dzieli go z nagłówkiem kafla. */
+.il-alert-station[data-station="edges"]     { background: var(--il-station-fin); }
+.il-alert-station[data-station="painting"]  { background: var(--il-station-cmp); }
 .il-alert-station[data-station="logistics"]  { background: #6366f1; }
 .il-alert-station[data-station="packaging"]  { background: var(--il-station-pak); }
 /* Wstrzymane to nie etap produkcji, tylko blokada — czerwień jak przy alertach,
@@ -2684,10 +3067,20 @@ body {
 }
 
 /* ─── Industrial Light Responsive ─── */
+/* Lista stanowisk nie zwija się już na wąskim ekranie do jednej kolumny —
+   po przejściu na szynę ZAWSZE jest jedną kolumną wierszy. Wiersz ma
+   natomiast sztywne kolumny liczbowe, więc poniżej ok. 560px karta
+   przewija się poziomo zamiast miażdżyć liczby; przewijanie jest tu
+   wyborem, a nie przeoczeniem. */
 @media (max-width: 900px) {
   .production-dashboard-grid { grid-template-columns: 1fr; }
-  .il-right-stack { order: -1; }
-  .il-stations-grid { grid-template-columns: 1fr; }
+  /* contain: size z bazowej reguly .il-right-stack zaklada, ze dzieli wiersz
+     z .stations-card. Tutaj oba trafiaja do OSOBNYCH wierszy (1 kolumna) —
+     .il-right-stack zostalby sam ze "zerowa" trescia i realnie zapadlby sie
+     do min-height: 0 (zmierzone). Wylaczamy contain, wraca zwykle
+     wymiarowanie z naturalnej tresci — dokladnie to, czego chcemy na waskim
+     ekranie (calosc i tak przewija sie stronowo). */
+  .il-right-stack { order: -1; contain: none; }
 }
 @media (max-width: 600px) {
   .il-dashboard-header { flex-direction: column; align-items: flex-start; gap: 8px; }
@@ -2884,54 +3277,4 @@ body {
     flex-direction: column;
     flex: 1;
     min-height: 0;
-}
-
-/* ============================================================
-   STATION TELEMETRY — ikony przy badge stanowiska (Task 7)
-   ============================================================ */
-.il-station-telemetry {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    margin-right: 8px;
-    font-size: 0.85rem;
-    cursor: help;
-}
-
-.il-station-telemetry--stale .tel-icon {
-    opacity: 0.7;
-}
-
-.tel-icon {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 3px 7px;
-    border-radius: 4px;
-    background: #ffffff;
-    border: 1px solid rgba(0, 0, 0, 0.12);
-}
-
-.tel-icon .tel-value {
-    font-variant-numeric: tabular-nums;
-}
-
-.tel-icon.tel-ok { color: #2ecc71; }
-.tel-icon.tel-warn { color: #f39c12; }
-.tel-icon.tel-crit { color: #e74c3c; }
-.tel-icon.tel-none { color: #7f8c8d; }
-
-.tel-icon.tel-desync { color: #e74c3c; }
-.tel-icon .tel-charge { margin-left: 2px; color: #f1c40f; }
-
-.tel-badge-desync {
-    display: inline-block;
-    margin-left: 4px;
-    padding: 1px 5px;
-    background: #e74c3c;
-    color: #fff;
-    border-radius: 3px;
-    font-size: 0.65rem;
-    font-weight: 700;
-    letter-spacing: 0.5px;
 }

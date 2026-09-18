@@ -31,7 +31,10 @@ from modules.production.models import (
     ProductionItem,
     get_local_now,
 )
-from modules.production.services.station_catalog import STATION_PENDING_STATUS
+from modules.production.services.station_catalog import (
+    STATION_PENDING_STATUS,
+    resolve_station_code,
+)
 
 logger = get_structured_logger('production.mobile_api')
 
@@ -59,25 +62,36 @@ def _rework_open_count(item):
 # mobilnego i cała odwrotna mapa niżej.
 STATION_STATUS_MAP = dict(STATION_PENDING_STATUS)
 
-# station_code → nazwa kolumny z licznikiem wykonanych sztuk
+# station_code → nazwa kolumny z licznikiem wykonanych sztuk.
+#
+# UWAGA NA SŁOWO 'edges': tutaj znaczy STANOWISKO Krawędzie (dawne
+# Wykańczanie). Dane krawędziowe PRODUKTU to parsed_edges_groups /
+# edge_svg_generator — inne pojęcie, ten sam token.
+#
+# Klucza 'finishing' tu NIE MA i mieć nie może: ta mapa jest bramką
+# członkostwa (mark_order_complete :1115, update_order_quantity :1151),
+# a nazwę kolumny model składa f-stringiem z kodu stanowiska. Wpis aliasu
+# niczego by nie przekierował — wpuściłby martwy kod do setattr. Alias
+# rozwija się wyżej, w routers/mobile_api.py:_resolve_station_code.
 STATION_QUANTITY_FIELD = {
     'packaging': 'quantity_done_packaging',
     'cutting': 'quantity_done_cutting',
     'assembly': 'quantity_done_assembly',
     'gluing': 'quantity_done_gluing',
     'formatting': 'quantity_done_formatting',
-    'finishing': 'quantity_done_finishing',
+    'edges': 'quantity_done_edges',
     'painting': 'quantity_done_painting',
 }
 
-# station_code → nazwa kolumny z timestampem ukończenia
+# station_code → nazwa kolumny z timestampem ukończenia.
+# Te same dwa zastrzeżenia co wyżej.
 STATION_COMPLETED_AT_FIELD = {
     'packaging': 'packaging_completed_at',
     'cutting': 'cutting_completed_at',
     'assembly': 'assembly_completed_at',
     'gluing': 'gluing_completed_at',
     'formatting': 'formatting_completed_at',
-    'finishing': 'finishing_completed_at',
+    'edges': 'edges_completed_at',
     'painting': 'painting_completed_at',
 }
 
@@ -86,23 +100,40 @@ STATION_COMPLETED_AT_FIELD = {
 STATUS_TO_STATION = {v: k for k, v in STATION_STATUS_MAP.items()}
 
 # Aliasy stanowisk — urządzenie zarejestrowane jako jedno z poniższych może
-# operować na pozostałych z tego samego zbioru. Tablet w wykańczalni rejestruje
-# się jako `finishing`, ale w UI ma TabBar z dwiema zakładkami (Produkcja /
-# Lakiernia) i fetchuje obie listy z tego samego JWT.
+# operować na pozostałych z tego samego zbioru.
+#
+# To jest opis stanu PRZEJŚCIOWEGO, nie docelowego: Lakiernia dostaje własny
+# tablet, a do tego czasu tablet Krawędzi (kod 'edges', dawniej 'finishing')
+# zamyka też pozycje lakierni. Zbiór wolno usunąć DOPIERO wtedy, gdy oba
+# stanowiska mają osobne, zarejestrowane urządzenia — complete_task() woła
+# wyłącznie mark_order_complete() (panele webowe stanowisk usunięte), więc
+# przedwczesne usunięcie odcina jedyną ścieżkę zamykania Lakierni i produkty
+# utykają w 'czeka_na_lakiernie' razem ze statusem zamówienia w BaseLinkerze.
 STATION_GROUPS = [
-    {'finishing', 'painting'},
+    {'edges', 'painting'},
 ]
 
 
 def device_can_access_station(device, station_code):
     """
     True gdy urządzenie może operować na danym stanowisku — bezpośrednio
-    (device.station_code == station_code) lub przez alias (np. tablet
-    zarejestrowany jako 'finishing' obsługuje też 'painting').
+    (device.station_code == station_code) lub przez alias grupy (tablet
+    Krawędzi obsługuje też Lakiernię).
+
+    Normalizujemy OBIE strony. Po stronie żądania, bo stary APK przysyła
+    jeszcze kod 'finishing' (finishing-ZOSTAJE: okres przejściowy, zdejmuje
+    go krok 20 wdrożenia). Po stronie urządzenia, bo w prod_devices może
+    siedzieć wiersz z tym samym, niezmigrowanym kodem — urządzenie
+    przywrócone z backupu albo pominięte przez migrację. Bez normalizacji
+    stary kod po stronie urządzenia kontra żądanie 'edges' kończy się 403
+    station_mismatch, a to JEDYNY status, po którym odbite sztuki z kolejki
+    offline przepadają bezpowrotnie, mimo że tablet melduje udaną
+    synchronizację.
     """
     if not device or not station_code:
         return False
-    device_station = device.station_code
+    device_station = resolve_station_code(device.station_code)
+    station_code = resolve_station_code(station_code)
     if device_station == station_code:
         return True
     for group in STATION_GROUPS:
@@ -220,9 +251,13 @@ def _version_too_old(actual, minimum):
 
 HEARTBEAT_ACTIVE_THRESHOLD_MINUTES = 20
 
+# Stanowiska, na których stoi tablet. Kod spoza tej krotki build_devices_telemetry
+# odfiltrowuje PO CICHU (:271) — brak wpisu daje kafel „Niedostępne" na zawsze,
+# co na dashboardzie wygląda jak awaria sprzętu, a jest brakiem literału.
+# 'painting' doszło razem z podziałem Wykańczania: Lakiernia ma własny tablet.
 _STATION_CODES_WITH_TABLETS = (
-    'cutting', 'assembly', 'gluing', 'formatting', 'finishing', 'packaging',
-    'sawmill',
+    'cutting', 'assembly', 'gluing', 'formatting', 'edges', 'painting',
+    'packaging', 'sawmill',
 )
 
 
@@ -1099,10 +1134,11 @@ def mark_order_complete(item, station_code, *, device_id=None,
 
     Deleguje do `ProductionItem.complete_task(station_code)` — tej samej
     metody modelu której używa web-handler `/production/api/complete-task`.
-    Pełna tranzycja statusu (cutting/assembly/gluing/formatting/finishing/
-    painting/packaging) plus reguły specjalne (skip finishing dla surowych
-    bez krawędzi, lakiernia dla olejowanych/lakierowanych, personal_pickup
-    omija logistykę) są obsłużone w modelu.
+    Pełna tranzycja statusu (cutting/assembly/gluing/formatting/edges/
+    painting/packaging) plus reguły specjalne (pominięcie Krawędzi dla
+    produktów bez obróbki krawędzi — niezależnie od wykończenia, Lakiernia
+    dla olejowanych i lakierowanych, personal_pickup omija logistykę)
+    są obsłużone w modelu.
 
     NAJPIERW domykamy sztuki przez set_quantity_done(), DOPIERO POTEM
     complete_task(). Powód (docs/worker-profiles-backend.md §8, pułapka nr 1):

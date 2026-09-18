@@ -38,6 +38,7 @@ from ..models import (
     ProductionProduct, ProductionStationEvent, ProductionStationEventWorker,
     ProductionWorker, ProductionWorkerSession, get_local_now,
 )
+from .station_catalog import resolve_station_code
 from .worker_service import station_label
 
 logger = get_structured_logger('production.worker_stats')
@@ -361,6 +362,105 @@ def otwarte_sesje(start_date, end_date, worker_id=None, station=None):
     return {wid: int(ile or 0)
             for wid, ile in zapytanie.group_by(
                 ProductionWorkerSession.worker_id).all()}
+
+
+def obsada_stanowisk():
+    """
+    {kod_stanowiska: [{'id', 'imie', 'nazwisko', 'inicjaly', 'kolor',
+    'pierwsze', 'ostatnia', 'temu'}]} — kto stoi TERAZ przy maszynie.
+
+    Źródłem jest sesja bez `ended_at`, a nie ostatni event: pracownik, który
+    zamknął zmianę, ma zniknąć z kafelka od razu, choćby jego eventy były
+    najświeższe na hali.
+
+    Wartością jest LISTA, bo praca zespołowa to N sesji z jednym
+    `session_group` (patrz ProductionWorkerSession). Funkcja oddająca jedno
+    nazwisko gubiłaby resztę brygady i to bez żadnego sygnału.
+
+    Stanowiska bez obsady NIE mają tu klucza — widok rozróżnia „nikt nie
+    stoi" od „nie pytamy o to stanowisko" jednym `.get(kod, [])`.
+
+    ZAWĘŻENIE DO DZISIEJSZEJ DOBY jest konieczne, nie ostrożnościowe: nocne
+    domknięcie sesji (`end_reason='night_cutoff'`) wykonuje TABLET, nie
+    serwer — mobile_api przyjmuje ten powód od klienta. Tablet wyłączony
+    przed północą albo bez zasięgu zostawia więc sesję otwartą na zawsze
+    i bez tego filtra wczorajsza brygada stałaby na kafelku przez kolejne
+    dni. Reszta modułu liczy sesje tak samo: zawsze po `work_date`
+    (raport_wydajnosci, otwarte_sesje, wydajnosc_stanowisk).
+
+    Kod stanowiska przepuszczamy przez resolve_station_code(), bo tablety
+    sprzed rozdziału wykańczalni nadal wysyłają stary kod (patrz
+    STATION_CODE_ALIASES); bez tej normalizacji brygada z takiego tabletu
+    nie trafiłaby na żaden wiersz.
+    """
+    teraz = get_local_now()
+    dzis = teraz.date()
+
+    # Pierwsze logowanie w tej dobie liczymy OSOBNYM zapytaniem, bo może
+    # wypaść na innym stanowisku niż to, na którym pracownik stoi teraz —
+    # interesuje nas początek jego dnia, a nie początek bieżącej sesji.
+    # Wierszy jest tyle, ilu ludzi na zmianie, więc to zapytanie na
+    # kilkanaście rekordów.
+    pierwsze_logowanie = dict(db.session.query(
+        ProductionWorkerSession.worker_id,
+        func.min(ProductionWorkerSession.started_at),
+    ).filter(
+        ProductionWorkerSession.work_date == dzis,
+    ).group_by(ProductionWorkerSession.worker_id).all())
+
+    wiersze = db.session.query(
+        ProductionWorkerSession.station_code,
+        ProductionWorker.id,
+        ProductionWorker.first_name,
+        ProductionWorker.last_name,
+        ProductionWorker.color_hex,
+        ProductionWorkerSession.last_activity_at,
+    ).join(
+        ProductionWorker,
+        ProductionWorker.id == ProductionWorkerSession.worker_id,
+    ).filter(
+        ProductionWorkerSession.ended_at.is_(None),
+        ProductionWorkerSession.work_date == dzis,
+    ).order_by(
+        ProductionWorkerSession.station_code,
+        ProductionWorkerSession.started_at,
+        ProductionWorkerSession.id,
+    ).all()
+
+    def hhmm(chwila):
+        return chwila.strftime('%H:%M') if chwila else None
+
+    obsada = {}
+    for kod, wid, imie, nazwisko, kolor, ostatnia in wiersze:
+        kod = resolve_station_code(kod)
+        ludzie = obsada.setdefault(kod, [])
+        # Dwie otwarte sesje tej samej osoby na jednym stanowisku to stan
+        # awaryjny (nieudane domknięcie przy zmianie tabletu). Widok ma z tego
+        # wyjść z jednym awatarem, nie z duplikatem obok duplikatu.
+        if any(o['id'] == wid for o in ludzie):
+            continue
+        # ŚWIADOMIE NIE PODAJEMY startu bieżącej sesji. Kusi, żeby pokazać
+        # „na stanowisku od", ale ta godzina mierzy przeskakiwanie profilu na
+        # tablecie, a nie czas pracy: zmierzone na produkcji 2026-09-16 —
+        # 30 sesji na 7 osób jednego dnia, z czego 10 krótszych niż dwie
+        # minuty (powody zamknięcia: manual 19, replaced 3, idle_timeout 1).
+        # Jeden pracownik potrafił mieć 13 sesji, krążąc między składaniem,
+        # wycinaniem, formatowaniem i krawędziami. „Na stanowisku od 11:10"
+        # przy człowieku pracującym tam od 8:59 to nie informacja, to szum.
+        ludzie.append({
+            'id': wid,
+            'imie': imie or '',
+            'nazwisko': nazwisko or '',
+            'inicjaly': ((imie or ' ')[0] + (nazwisko or ' ')[0]).upper().strip(),
+            'kolor': kolor or None,
+            'ostatnia': hhmm(ostatnia),
+            # max(0, ...) na wypadek rozjazdu zegara tabletu i serwera —
+            # „-3 min temu" w dymku wyglądałoby jak usterka widoku.
+            'temu': (max(0, int((teraz - ostatnia).total_seconds() // 60))
+                     if ostatnia else None),
+            'pierwsze': hhmm(pierwsze_logowanie.get(wid)),
+        })
+    return obsada
 
 
 def raport_wydajnosci(start_date, end_date, station=None, worker_id=None):

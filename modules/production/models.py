@@ -27,6 +27,14 @@ from extensions import db
 from modules.logging import get_structured_logger
 import pytz
 
+# Alias 'finishing' -> 'edges' na okres przejściowy (stare APK tabletów).
+# Kontrakt resolve_station_code opisuje nagłówek planu (P7).
+# station_catalog nie importuje niczego — ani Flaska, ani modeli — więc ten
+# import nie robi cyklu. Zweryfikowane empirycznie: modules/production/__init__.py
+# ładuje serwisy (linie 37-43) PRZED modelami (linia 52), a partial-init pakietu
+# services wystarcza, żeby doładować sam podmoduł station_catalog.
+from .services.station_catalog import resolve_station_code
+
 logger = get_structured_logger('production.models')
 
 def get_local_now():
@@ -327,7 +335,7 @@ class ProductionProduct(db.Model):
 
     current_status = Column(Enum(
         'czeka_na_wyciecie', 'czeka_na_skladanie',
-        'czeka_na_sklejanie', 'czeka_na_formatowanie', 'czeka_na_wykanczanie',
+        'czeka_na_sklejanie', 'czeka_na_formatowanie', 'czeka_na_krawedzie',
         'czeka_na_lakiernie', 'czeka_na_logistyke', 'czeka_na_pakowanie',
         'spakowane', 'anulowane', 'wstrzymane', 'w_realizacji',
         name='production_status'
@@ -345,7 +353,11 @@ class ProductionProduct(db.Model):
     quantity_done_assembly = Column(Integer, default=0, nullable=False)
     quantity_done_gluing = Column(Integer, default=0, nullable=False)
     quantity_done_formatting = Column(Integer, default=0, nullable=False)
-    quantity_done_finishing = Column(Integer, default=0, nullable=False)
+    # UWAGA: 'edges' to STANOWISKO (dawne 'finishing'), a NIE dane produktu.
+    # Kilkadziesiąt linii wyżej stoi parsed_edges_groups (:254) — to opis
+    # krawędzi produktu z wyceny. Te dwa znaczenia tokenu 'edges' żyją obok
+    # siebie i tak ma zostać.
+    quantity_done_edges = Column(Integer, default=0, nullable=False)
     quantity_done_painting = Column(Integer, default=0, nullable=False)
     quantity_done_packaging = Column(Integer, default=0, nullable=False)
 
@@ -353,7 +365,11 @@ class ProductionProduct(db.Model):
     assembly_completed_at = Column(DateTime, index=True)
     gluing_completed_at = Column(DateTime, index=True)
     formatting_completed_at = Column(DateTime, index=True)
-    finishing_completed_at = Column(DateTime, index=True)
+    # Znacznik domknięcia STANOWISKA Krawędzie (dawne finishing_completed_at).
+    # UWAGA: token 'edges' koliduje z parsed_edges_groups — danymi o krawędziach
+    # produktu z wyceny (patrz komentarz przy quantity_done_edges wyżej). Ten
+    # znacznik to czas zamknięcia stanowiska, nie dane produktu.
+    edges_completed_at = Column(DateTime, index=True)
     painting_completed_at = Column(DateTime, index=True)
     packaging_completed_at = Column(DateTime, index=True)
 
@@ -405,7 +421,11 @@ class ProductionProduct(db.Model):
             'czeka_na_skladanie': 'Czeka na składanie',
             'czeka_na_sklejanie': 'Czeka na sklejanie',
             'czeka_na_formatowanie': 'Czeka na formatowanie',
-            'czeka_na_wykanczanie': 'Czeka na wykańczanie',
+            'czeka_na_krawedzie': 'Czeka na krawędzie',
+            # Wartość zdjęta z enuma migracją podziału wykańczania, ale
+            # prod_product_events trzyma ten string jako ZWYKŁY TEKST
+            # w old_value/new_value — historia produktu musi umieć go nazwać.
+            'czeka_na_wykanczanie': 'Czeka na wykańczanie (archiwalne)',
             'czeka_na_lakiernie': 'Czeka na lakiernię',
             'czeka_na_logistyke': 'Czeka na logistykę',
             'czeka_na_pakowanie': 'Czeka na pakowanie',
@@ -477,6 +497,9 @@ class ProductionProduct(db.Model):
         return is_valid, missing_fields
 
     def get_quantity_done(self, station_code):
+        # Stary tablet przysyła 'finishing'. Bez normalizacji getattr z defaultem
+        # zwróciłby CICHO 0 i odbite sztuki zniknęłyby z odpowiedzi API.
+        station_code = resolve_station_code(station_code)
         return getattr(self, f'quantity_done_{station_code}', 0)
 
     def set_quantity_done(self, station_code, value, *,
@@ -492,6 +515,11 @@ class ProductionProduct(db.Model):
         atrybucja wskazywała konkretną sesję. Brak mapy nie blokuje zapisu:
         akcja mogła powstać offline, a sesja zamknąć się nocnym cutoffem.
         """
+        # Normalizacja MUSI stać przed złożeniem nazwy atrybutu: inaczej setattr
+        # (:440) tworzy atrybut-widmo cicho, a odczyt licznika przez właściwą
+        # nazwę leci AttributeError. Gwarantuje też, że ProductionStationEvent
+        # (:457) dostanie ZAWSZE kod kanoniczny 'edges'.
+        station_code = resolve_station_code(station_code)
         attr_name = f'quantity_done_{station_code}'
         old_value = getattr(self, attr_name, 0) or 0
         # quantity_done może przekraczać quantity gdy oryginał stracił sztuki przez reject
@@ -537,22 +565,39 @@ class ProductionProduct(db.Model):
     def is_station_complete(self, station_code):
         return self.get_quantity_done(station_code) >= self.quantity
 
-    def should_skip_finishing(self):
-        if self.parsed_finish_type == 'surowe':
-            return not self.parsed_edge_processing
-        return False
+    def should_skip_edges(self):
+        """
+        Bez obróbki krawędzi nie ma czego robić na Krawędziach — niezależnie
+        od wykończenia.
+
+        ZMIANA ZAKRESU wobec dawnej reguły pomijania wykańczalni: tamta reguła
+        pomijała wyłącznie produkty surowe, więc olejowany bez krawędzi
+        zatrzymywał się na wykańczalni, nie mając tam czego robić.
+
+        Druga, ręcznie synchronizowana kopia tej reguły mieszka w
+        order_timeline_service._should_skip_edges — parytetu pilnuje
+        tests/test_krawedzie_parytet_reguly.py.
+        """
+        return not self.parsed_edge_processing
 
     def should_skip_to_logistics(self):
         return self.cut_to_size is False
 
     def complete_task(self, station_code):
+        # Stary tablet może przysłać 'finishing'; niżej porównujemy wyłącznie
+        # z kodami kanonicznymi, więc alias rozwijamy raz, na wejściu.
+        # Normalizacja i przemianowanie kluczy mapy MUSZĄ iść razem: sama
+        # zmiana klucza bez normalizacji (albo odwrotnie) przepuszcza wywołanie
+        # obok całego bloku tranzycji — licznik się zapisuje, a current_status
+        # zostaje bez zmian i zlecenie utyka na stanowisku.
+        station_code = resolve_station_code(station_code)
         now = get_local_now()
         next_status_map = {
             'cutting': 'czeka_na_sklejanie',
             'assembly': 'czeka_na_sklejanie',
             'gluing': 'czeka_na_formatowanie',
-            'formatting': 'czeka_na_wykanczanie',
-            'finishing': 'czeka_na_logistyke',
+            'formatting': 'czeka_na_krawedzie',
+            'edges': 'czeka_na_logistyke',
             'painting': 'czeka_na_logistyke',
             'packaging': 'spakowane'
         }
@@ -561,17 +606,24 @@ class ProductionProduct(db.Model):
 
             if station_code == 'gluing' and self.should_skip_to_logistics():
                 next_status = 'czeka_na_logistyke'
-                for skipped in ('formatting', 'finishing'):
+                for skipped in ('formatting', 'edges'):
                     self.set_quantity_done(skipped, self.quantity, source='auto_skip')
                     completed_attr = f'{skipped}_completed_at'
                     if getattr(self, completed_attr, None) is None:
                         setattr(self, completed_attr, now)
 
-            if station_code == 'formatting' and self.should_skip_finishing():
-                next_status = 'czeka_na_logistyke'
-                self.set_quantity_done('finishing', self.quantity, source='system')
+            # Trzecie wyjście z formatowania. KOLEJNOŚĆ JEST CAŁĄ LOGIKĄ: blok
+            # stoi PO bloku gluing (inny station_code, brak kolizji) i PRZED
+            # blokiem odbioru osobistego, bo to ono zamienia logistykę na
+            # pakowanie i musi widzieć ostateczną decyzję.
+            if station_code == 'formatting' and self.should_skip_edges():
+                self.set_quantity_done('edges', self.quantity, source='system')
+                if self.parsed_finish_type in ('olejowane', 'lakierowane'):
+                    next_status = 'czeka_na_lakiernie'
+                else:
+                    next_status = 'czeka_na_logistyke'
 
-            if station_code == 'finishing':
+            if station_code == 'edges':
                 if self.parsed_finish_type in ('olejowane', 'lakierowane'):
                     next_status = 'czeka_na_lakiernie'
 
@@ -962,9 +1014,19 @@ class ProductionDevice(db.Model):
     last_worker_session_at = Column(DateTime, nullable=True,
                                     comment='Kiedy ostatnio ktoś zaczął tu sesję pracownika')
 
+    # UWAGA NA KOLIZJĘ NAZWY: 'edges' to KOD STANOWISKA (dawne 'finishing').
+    # W tym samym module żyją parsed_edges_groups i edges_groups — to dane
+    # PRODUKTU (obróbka krawędzi), nie stanowisko. Żadnego sed po 'edges'.
     VALID_STATION_CODES = {
-        'packaging', 'cutting', 'assembly', 'gluing', 'formatting', 'finishing',
+        'packaging', 'cutting', 'assembly', 'gluing', 'formatting',
+        'edges',
+        'painting',
         'sawmill',   # trakownia — rejestr surowca, poza pipeline'em produktów
+        # Stary tablet wykańczalni jest w bazie zarejestrowany jako 'finishing'
+        # i dojeżdża na tej rejestracji do wydania APK. Zdjęcie tej wartości
+        # przed czasem daje 403 station_mismatch na każdej akcji z kolejki
+        # offline. Usunięcie: krok 20 wdrożenia.
+        'finishing',  # finishing-ZOSTAJE: okres przejściowy, stary tablet wykańczalni
     }
 
     @validates('station_code')
@@ -1223,7 +1285,7 @@ class ProductionReworkLog(db.Model):
                       comment='Liczba sztuk cofniętych w tym evencie')
 
     rejected_at_station = Column(
-        Enum('formatting', 'finishing', 'painting', name='rework_reject_station'),
+        Enum('formatting', 'edges', 'painting', name='rework_reject_station'),
         nullable=False, index=True,
         comment='Stanowisko, z którego cofnięto (MVP: zawsze formatting)'
     )

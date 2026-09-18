@@ -3392,6 +3392,25 @@ class BaselinkerSyncService:
                     }]
             if detail.edges_svg:
                 product_data['edge_svg'] = detail.edges_svg
+        elif getattr(detail, 'edges_type', None) or getattr(detail, 'edges_config', None):
+            # Wycena NIGDY nie podnosi parsed_edge_processing — flaga pochodzi
+            # wyłącznie z parsera nazwy produktu. Po rozdziale Wykańczania na
+            # Krawędzie i Lakiernię ta jedna flaga decyduje o TRASIE fizycznej
+            # sztuki (should_skip_edges pyta tylko o nią): fałszywy negatyw
+            # wysyła produkt z formatowania prosto do Lakierni i obróbka krawędzi
+            # nigdy się nie wykonuje. Wcześniej taki rozjazd gubił tylko rysunek
+            # krawędzi, więc przechodził bez śladu.
+            # Świadomie tylko logujemy: podniesienie flagi tutaj zmieniałoby trasę
+            # na podstawie danych wyceny, a źródłem prawdy dla produkcji jest parser.
+            logger.warning(
+                "Wycena ma konfigurację krawędzi, a parsed_edge_processing jest "
+                "wyłączone — produkt ominie stanowisko Krawędzie",
+                extra={
+                    'detail_id': detail.id,
+                    'short_product_id': product_data.get('short_product_id'),
+                    'edges_type': getattr(detail, 'edges_type', None),
+                },
+            )
 
         return product_data
 

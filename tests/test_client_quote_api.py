@@ -201,6 +201,18 @@ class TestEtykietyKrawedzi:
         assert out[0]["label"] == "Góra przednia (długość)"
         assert out[1]["label"] == "Narożnik 4"
 
+    def test_litery_kola_dostaja_nazwe_a_nie_surowe_id(self):
+        # KG/KD nie maja indeksu, wiec nie lapie ich zaden regex parse_edge_id,
+        # a EDGE_DEFINITIONS (fallback nizej) zna wylacznie 12 liter prostokata.
+        # Bez wlasnej mapy wycena pokazywala biuru surowe "KD".
+        out = build_edges_config_with_labels([
+            {"letter": "KG", "is_round_perimeter": True},
+            {"letter": "KD", "is_round_perimeter": True},
+        ])
+
+        assert out[0]["label"] == "Krawędź górna (obwód)"
+        assert out[1]["label"] == "Krawędź dolna (obwód)"
+
     def test_wszystkie_wpisy_dostaja_label(self):
         out = build_edges_config_with_labels([
             {"letter": "G1"},
