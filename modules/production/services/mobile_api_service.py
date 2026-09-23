@@ -833,6 +833,11 @@ def _match_item_dimensions(item, query_mm_sorted):
     return True
 
 
+# Statusy pozycji, które skończyły drogę przez produkcję. Zamówienie złożone
+# wyłącznie z nich to archiwum — w wyszukiwarce idzie za aktywnymi.
+ARCHIVE_STATUSES = frozenset({'spakowane', 'anulowane'})
+
+
 def search_orders_global(query, limit=50):
     """
     Globalne wyszukiwanie zamówień (po wszystkich stanowiskach).
@@ -844,10 +849,15 @@ def search_orders_global(query, limit=50):
          mieści się w [min(q)-5, max(q)+5]; właściwy multiset-match
          robimy w Pythonie.
       3. Python: dopasuj wymiarowo (multiset, tolerancja ±5 mm).
-      4. Zbierz internal_order_number pasujących pozycji, posortuj po
-         priority_rank ASC NULLS LAST, internal_order_number.
+      4. Zbierz zamówienia pasujących pozycji i posortuj: najpierw aktywne
+         (priority_rank ASC NULLS LAST, internal_order_number), potem
+         archiwalne — spakowane/anulowane — od najświeżej spakowanego.
       5. Po przycięciu do `limit` zamówień dociągnij WSZYSTKIE pozycje
-         z tych zamówień.
+         z tych zamówień, w kolejności zamówień z kroku 4.
+
+    Archiwum jest w wynikach celowo (tablet otwiera je tylko do podglądu),
+    ale nie może zjadać `limit`, zanim trafią się aktywne — stąd podział
+    w kroku 4, a nie jeden wspólny klucz.
 
     Zwraca: (items_list, has_more, total_matching_orders).
     `items_list` — lista ProductionItem (z joinedload(order, configuration)).
@@ -923,24 +933,48 @@ def search_orders_global(query, limit=50):
     if not matching_order_ids:
         return [], False, 0
 
-    # Sortuj zamówienia po (priority_rank ASC NULLS LAST, internal_order_number).
-    # Priorytet zamówienia = MIN(priority_rank) jego pozycji.
+    # Kandydaci z SQL to tylko pozycje pasujące do pre-filtra — o tym, czy
+    # zamówienie jest jeszcze w produkcji, decydują WSZYSTKIE jego pozycje.
+    all_items = db.session.query(
+        ProductionItem.order_id,
+        ProductionItem.current_status,
+        ProductionItem.priority_rank,
+        ProductionItem.packaging_completed_at,
+    ).filter(ProductionItem.order_id.in_(matching_order_ids)).all()
+
+    # Priorytet zamówienia = MIN(priority_rank) jego AKTYWNYCH pozycji.
+    # Spakowane zachowują rangę z czasów produkcji (nikt jej nie zeruje), więc
+    # liczone razem z aktywnymi wypychały stare zamówienia na górę wyników.
     NULLS_LAST = 999999
     order_min_prio = {}
+    order_active = set()
+    order_packed_at = {}
+    for order_id, status, rank, packed_at in all_items:
+        if status in ARCHIVE_STATUSES:
+            if packed_at and (order_id not in order_packed_at
+                              or packed_at > order_packed_at[order_id]):
+                order_packed_at[order_id] = packed_at
+            continue
+        order_active.add(order_id)
+        rank = rank if rank is not None else NULLS_LAST
+        if order_id not in order_min_prio or rank < order_min_prio[order_id]:
+            order_min_prio[order_id] = rank
+
     order_internal_no = {}
     for item in candidates:
-        if item.order_id not in matching_order_ids:
-            continue
-        rank = item.priority_rank if item.priority_rank is not None else NULLS_LAST
-        if item.order_id not in order_min_prio or rank < order_min_prio[item.order_id]:
-            order_min_prio[item.order_id] = rank
         if item.order and item.order_id not in order_internal_no:
             order_internal_no[item.order_id] = item.order.internal_order_number or ''
 
-    sorted_order_ids = sorted(
-        matching_order_ids,
-        key=lambda oid: (order_min_prio.get(oid, NULLS_LAST), order_internal_no.get(oid, '')),
-    )
+    def _order_sort_key(oid):
+        internal_no = order_internal_no.get(oid, '')
+        if oid in order_active:
+            return (0, order_min_prio.get(oid, NULLS_LAST), 0, internal_no)
+        # Archiwum: najświeżej spakowane pierwsze; bez daty (historyczne
+        # pozycje sprzed jej zapisywania i całe anulowane) na końcu.
+        packed_at = order_packed_at.get(oid)
+        return (1, 0, -packed_at.timestamp() if packed_at else 0, internal_no)
+
+    sorted_order_ids = sorted(matching_order_ids, key=_order_sort_key)
     total_orders = len(sorted_order_ids)
     has_more = total_orders > limit
     selected_order_ids = sorted_order_ids[:limit]
@@ -955,11 +989,18 @@ def search_orders_global(query, limit=50):
         joinedload(ProductionItem.configuration),
     ).filter(
         ProductionItem.order_id.in_(selected_order_ids),
-    ).order_by(
-        func.coalesce(ProductionItem.priority_rank, NULLS_LAST).asc(),
-        ProductionItem.order_id.asc(),
-        ProductionItem.product_sequence_in_order.asc(),
     ).all()
+
+    # Kolejność zamówień z sortowania wyżej — aplikacja grupuje po numerze
+    # w kolejności pierwszego wystąpienia, więc globalne ORDER BY priority_rank
+    # wpuściłoby spakowaną pozycję z rangą 1 przed aktywne zamówienia.
+    order_position = {oid: i for i, oid in enumerate(selected_order_ids)}
+    items.sort(key=lambda it: (
+        order_position[it.order_id],
+        it.priority_rank if it.priority_rank is not None else NULLS_LAST,
+        it.product_sequence_in_order or 0,
+        it.id,
+    ))
 
     return items, has_more, total_orders
 

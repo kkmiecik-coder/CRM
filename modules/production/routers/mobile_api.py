@@ -324,6 +324,12 @@ def orders_search():
     z tolerancją ±5 mm). Zwraca wszystkie pozycje pasujących zamówień,
     każda z dodatkowym polem `current_station` (mapowanie current_status →
     kod stanowiska, lub null gdy pozycja poza produkcją).
+
+    Wyniki obejmują też archiwum (spakowane i anulowane) — tablet otwiera je
+    tylko do podglądu. Idą ZA aktywnymi zamówieniami, od najświeżej
+    spakowanego. Pozycja spakowana ma `packed_at` (ISO 8601) — czas
+    zamknięcia pakowania; null dla pozostałych i dla historycznych
+    spakowanych sprzed zapisywania tej daty.
     """
     q_raw = request.args.get('q', '')
     q = q_raw.strip()
@@ -353,6 +359,13 @@ def orders_search():
     for it in items:
         dto = serialize_order(it, label_numbering=numeracja)
         dto['current_station'] = STATUS_TO_STATION.get(it.current_status)
+        # Tylko w wyszukiwarce: listy stanowisk nigdy nie zawierają spakowanych,
+        # a nowe pole w serialize_order zmieniłoby im kształt odpowiedzi.
+        dto['packed_at'] = (
+            it.packaging_completed_at.isoformat()
+            if it.current_status == 'spakowane' and it.packaging_completed_at
+            else None
+        )
         serialized.append(dto)
 
     return jsonify({
