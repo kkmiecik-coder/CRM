@@ -226,8 +226,12 @@ Po migracji na Hostinger KVM4 (cutover 2026-06-24, szczegóły w `MIGRATION_PLAN
 - Ścieżka: `/home/woodpower-crm/htdocs/crm.woodpower.pl/`
 - Użytkownik systemowy: `woodpower-crm`
 - App server: **gunicorn** na `127.0.0.1:8090`, pod **supervisorem**
-  (program `crm_woodpower`), za nginx
-- venv w katalogu aplikacji: `venv/` (Python 3.12.3 — sprawdzone na serwerze 6.10.2026; lokalny obraz Dockera też 3.12)
+  (program `crm_woodpower`, `/etc/supervisor/conf.d/crm_woodpower.conf`), za nginx
+- gunicorn chodzi z `-w 4` (4 synchroniczne workery) i **bez `--timeout`** — obowiązuje
+  domyślne **30 s** na żądanie. Wszystko, co może trwać dłużej (przeliczenia, masowe
+  wywołania API, solvery), nie może iść w żądaniu HTTP: CLI z `/etc/cron.d` pod
+  `flock` albo proces w tle (`subprocess.Popen(start_new_session=True)`)
+- venv w katalogu aplikacji: `venv/` (Python 3.12.3 — sprawdzone na serwerze 6.10.2026; obraz Dockera: `python:3.12-slim`)
 
 `passenger_wsgi.py` leży jeszcze w repo, ale jest **martwy** — pozostałość
 po Passengerze na starym hostingu współdzielonym. Nie jest wejściem aplikacji.
