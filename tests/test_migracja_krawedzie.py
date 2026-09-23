@@ -304,8 +304,11 @@ def test_przepisanie_dorobki_stoi_miedzy_alterami():
 def test_enum_dorobki_zgadza_sie_z_modelem():
     from modules.production.models import ProductionReworkLog
 
-    wartosci = set(ProductionReworkLog.rejected_at_station.type.enums)
-    assert wartosci == {"formatting", "edges", "painting"}
+    # Stan enuma z dnia tej migracji. Model od 2026-09-23 ma więcej wartości
+    # (migracja dorobka-z-dalszych-stanowisk), ale musi zaczynać się tymi —
+    # nowe są dopisywane na końcu.
+    wartosci = ["formatting", "edges", "painting"]
+    assert list(ProductionReworkLog.rejected_at_station.type.enums)[:3] == wartosci
 
     zwezajacy = [_bez_bialych(p) for p in _polecenia()
                  if _bez_bialych(p).upper().startswith("ALTER TABLE PROD_REWORK_LOG")][1]

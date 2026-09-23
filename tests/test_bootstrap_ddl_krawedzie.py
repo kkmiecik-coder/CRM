@@ -61,7 +61,7 @@ SCIEZKA_REWORK = KATALOG_SKRYPTOW / "add_rework_columns.sql"
 
 def test_bootstrap_dorobki_zna_kod_krawedzi():
     tresc = _tresc(SCIEZKA_REWORK)
-    assert "ENUM('formatting','edges','painting')" in tresc
+    assert "ENUM('formatting','edges','painting','gluing','packaging')" in tresc
     assert "'finishing'" not in tresc
 
 
@@ -70,7 +70,7 @@ def test_bootstrap_dorobki_zgadza_sie_z_modelem():
 
     tresc = _tresc(SCIEZKA_REWORK)
     wartosci = ProductionReworkLog.rejected_at_station.type.enums
-    assert set(wartosci) == {"formatting", "edges", "painting"}
+    assert set(wartosci) == {"formatting", "edges", "painting", "gluing", "packaging"}
     assert "ENUM({})".format(
         ",".join("'{}'".format(w) for w in wartosci)) in tresc
 

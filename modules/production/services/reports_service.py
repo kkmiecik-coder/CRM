@@ -141,10 +141,11 @@ PROG_AGREGACJI_TYGODNIOWEJ_DNI = 120
 PROG_MALEJ_PROBKI = 10
 
 # ── Wykres 7: kiedy panel ustępuje miejsca wykresowi ────────────────────────
-# Dziś w całej bazie jest 6 zgłoszeń doróbek z 15 tygodni (9 tygodni pustych),
-# bo zgłaszać można TYLKO z formatowania (rework_service.VALID_REJECT_STATIONS).
-# Słupek „prawie zero doróbek" czyta się jako „jakość świetna", a znaczy „sześć
-# stanowisk nie ma jak zgłosić". Wykres włącza się sam, gdy dane go uniosą.
+# We wrześniu 2026 w bazie było 6 zgłoszeń doróbek z 15 tygodni (9 tygodni
+# pustych), bo do 2026-09-23 zgłaszać można było TYLKO z formatowania. Od tego
+# dnia zgłaszają też sklejanie, krawędzie, lakiernia i pakowanie, ale historia
+# zostaje rzadka — słupek „prawie zero doróbek" czytałby się jako „jakość
+# świetna". Wykres włącza się sam, gdy dane go uniosą.
 PROG_DOROBEK_WPISOW = 12
 PROG_DOROBEK_TYGODNI = 4
 
@@ -152,6 +153,8 @@ ETYKIETY_POWODOW_DOROBEK = {
     'wymiary': 'Wymiary',
     'jakosc_sklejenia': 'Jakość sklejenia',
     'jakosc_produktu': 'Jakość produktu',
+    'jakosc_krawedzi': 'Jakość krawędzi',
+    'jakosc_lakierowania': 'Jakość lakierowania',
     'inne': 'Inne',
 }
 

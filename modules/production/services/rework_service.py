@@ -1,5 +1,6 @@
 """
-Service: reject sztuk produktu z aktualnego stanowiska (MVP: formatting).
+Service: reject sztuk produktu z aktualnego stanowiska (formatowanie i wszystkie
+stanowiska za nim: sklejanie, krawędzie, lakiernia, pakowanie).
 Tworzy rekord doróbki w prod_products, decrementuje quantity oryginału,
 zapisuje wpis w prod_rework_log. Wszystko w jednej transakcji z SELECT ... FOR UPDATE.
 """
@@ -14,12 +15,20 @@ from modules.production.models import (
     ProductionReworkLog,
     get_local_now,
 )
+from modules.production.services.station_catalog import STATION_PENDING_STATUS
 
 logger = logging.getLogger(__name__)
 
 
-VALID_REASONS = {'wymiary', 'jakosc_sklejenia', 'jakosc_produktu', 'inne'}
-VALID_REJECT_STATIONS = {'formatting'}  # MVP
+VALID_REASONS = {
+    'wymiary', 'jakosc_sklejenia', 'jakosc_produktu', 'inne',
+    'jakosc_krawedzi', 'jakosc_lakierowania',
+}
+
+# Cięcie i składanie to początek trasy — doróbka i tak tam wraca, więc cofanie
+# z nich nie ma sensu. Każde stanowisko może zgłosić każdą przyczynę; listę
+# pokazywaną operatorowi filtruje aplikacja.
+VALID_REJECT_STATIONS = {'formatting', 'gluing', 'edges', 'painting', 'packaging'}
 
 
 class RejectError(Exception):
@@ -53,6 +62,33 @@ def _initial_status_for_return_station(station: str) -> str:
     return 'czeka_na_skladanie' if station == 'assembly' else 'czeka_na_wyciecie'
 
 
+def _check_product_on_station(product: ProductionProduct, station: str) -> None:
+    """
+    Sztukę cofa tylko stanowisko, na którym ona teraz czeka.
+
+    Formatowanie zachowuje stary kod błędu i stary status 'w_realizacji':
+    APK sprzed rozszerzenia parsują 'product_not_in_formatting', a pozostałe
+    stanowiska nigdy tego statusu nie miały, więc go nie dostają.
+    """
+    status = product.current_status
+    if station == 'formatting':
+        if status not in ('czeka_na_formatowanie', 'w_realizacji'):
+            raise RejectError(
+                'product_not_in_formatting',
+                f'produkt ma status {status}, oczekiwano czeka_na_formatowanie',
+                status=409,
+            )
+        return
+
+    expected = STATION_PENDING_STATUS[station]
+    if status != expected:
+        raise RejectError(
+            'product_not_on_station',
+            f'produkt ma status {status}, oczekiwano {expected}',
+            status=409,
+        )
+
+
 def reject_product_quantity(
     *,
     product_id: int,
@@ -76,7 +112,8 @@ def reject_product_quantity(
     (docs/worker-profiles-backend.md §4.4).
 
     Raises: RejectError z `code` w {'invalid_quantity', 'invalid_reason',
-            'invalid_station', 'product_not_found', 'product_not_in_formatting'}.
+            'invalid_station', 'product_not_found', 'product_not_in_formatting'
+            (tylko formatowanie), 'product_not_on_station' (pozostałe)}.
     """
     if quantity is None or quantity < 1:
         raise RejectError('invalid_quantity', 'quantity musi być >= 1')
@@ -90,7 +127,7 @@ def reject_product_quantity(
     if rejected_at_station not in VALID_REJECT_STATIONS:
         raise RejectError(
             'invalid_station',
-            f'MVP wspiera tylko: {sorted(VALID_REJECT_STATIONS)}'
+            f'cofać można tylko z: {sorted(VALID_REJECT_STATIONS)}'
         )
 
     # Pesymistyczna blokada wiersza oryginału
@@ -103,19 +140,16 @@ def reject_product_quantity(
     if original is None:
         raise RejectError('product_not_found', f'product {product_id} nie istnieje', status=404)
 
-    if original.current_status not in ('czeka_na_formatowanie', 'w_realizacji'):
-        raise RejectError(
-            'product_not_in_formatting',
-            f'produkt ma status {original.current_status}, oczekiwano czeka_na_formatowanie',
-            status=409,
-        )
+    _check_product_on_station(original, rejected_at_station)
 
-    qty_done_formatting = original.quantity_done_formatting or 0
-    available_to_reject = original.quantity - qty_done_formatting
+    # Cofnąć można tylko sztuki, których to stanowisko jeszcze nie oznaczyło
+    # jako zrobione — te zrobione fizycznie poszły już dalej.
+    qty_done_here = original.get_quantity_done(rejected_at_station) or 0
+    available_to_reject = original.quantity - qty_done_here
     if quantity > available_to_reject:
         raise RejectError(
             'invalid_quantity',
-            f'można cofnąć maksymalnie {available_to_reject} szt. (quantity={original.quantity}, sformatowane={qty_done_formatting})',
+            f'można cofnąć maksymalnie {available_to_reject} szt. (quantity={original.quantity}, zrobione na {rejected_at_station}={qty_done_here})',
         )
 
     now = get_local_now()
@@ -135,8 +169,21 @@ def reject_product_quantity(
     if original.quantity == 0:
         original.current_status = 'anulowane'
     # quantity_done_* na poprzednich stanowiskach NIE są ruszane (statystyki zachowane)
-    # quantity_done_formatting NIE jest ruszany
+    # quantity_done_<stanowisko cofające> też NIE — liczy sztuki, które poszły dalej
     original.updated_at = now
+
+    # Stan druku etykiet trzyma numery LOKALNE 1..quantity. Po zmniejszeniu
+    # ilości (realnie: cofnięcie z pakowania) numery spoza nowego zakresu
+    # wskazywałyby sztuki, których pozycja już nie ma — należą teraz do
+    # doróbki, która dostaje własny, pusty stan i wydrukuje je sama.
+    # Nie wiemy, KTÓRĄ fizycznie sztukę cofnięto, więc przycinamy ogon —
+    # tak samo interpretuje zbiór odczyt w wydrukowane_sztuki().
+    if original.label_printed_units:
+        from modules.production.services.label_print_service import (
+            _zapisz_sztuki,
+            wydrukowane_sztuki,
+        )
+        _zapisz_sztuki(original, wydrukowane_sztuki(original))
 
     # Powód odrzutu nie wynika ze zmiany pól, więc listener go nie zna —
     # dopisujemy zdarzenie jawnie, obok automatycznego status_change.
