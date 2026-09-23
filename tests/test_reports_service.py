@@ -705,7 +705,8 @@ def test_dorobki_nie_zapalaja_wykresu_ponizej_progu(app):
         assert wynik['formatted_pieces'] == 20
         assert wynik['rate_pct'] == 10.0
         assert wynik['threshold_met'] is False
-        assert [s['station_code'] for s in wynik['reporting_stations']] == ['formatting']
+        assert [s['station_code'] for s in wynik['reporting_stations']] == [
+            'gluing', 'formatting', 'edges', 'painting', 'packaging']
         assert wynik['stations_total'] == 7
 
 

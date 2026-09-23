@@ -1279,9 +1279,10 @@ class ProductionProductEvent(db.Model):
 
 class ProductionReworkLog(db.Model):
     """
-    Audit log doróbek — każdy reject z formatowania (przyszłościowo też innych stanowisk)
-    zapisuje wpis z powodem, kto, kiedy, dokąd wraca. closed_at ustawiany gdy doróbka
-    wraca do statusu czeka_na_formatowanie.
+    Audit log doróbek — każdy reject (formatowanie, sklejanie, krawędzie, lakiernia,
+    pakowanie) zapisuje wpis z powodem, kto, kiedy, dokąd wraca. closed_at ustawiany
+    gdy doróbka wraca do statusu czeka_na_formatowanie — zamyka to WPIS, nie trasę:
+    doróbka z lakierni czy pakowania jedzie dalej normalnie przez kolejne stanowiska.
     """
     __tablename__ = 'prod_rework_log'
 
@@ -1301,9 +1302,12 @@ class ProductionReworkLog(db.Model):
                       comment='Liczba sztuk cofniętych w tym evencie')
 
     rejected_at_station = Column(
-        Enum('formatting', 'edges', 'painting', name='rework_reject_station'),
+        # Nowe wartości dopisujemy NA KOŃCU — kolejność jest kontraktem
+        # z ALTER-em migracji 2026-09-23 (dopisanie na końcu nie przebudowuje tabeli).
+        Enum('formatting', 'edges', 'painting', 'gluing', 'packaging',
+             name='rework_reject_station'),
         nullable=False, index=True,
-        comment='Stanowisko, z którego cofnięto (MVP: zawsze formatting)'
+        comment='Stanowisko, z którego cofnięto'
     )
     returned_to_station = Column(
         Enum('cutting', 'assembly', name='rework_return_station'),
@@ -1312,6 +1316,7 @@ class ProductionReworkLog(db.Model):
 
     reason_category = Column(
         Enum('wymiary', 'jakosc_sklejenia', 'jakosc_produktu', 'inne',
+             'jakosc_krawedzi', 'jakosc_lakierowania',
              name='rework_reason'),
         nullable=False, index=True
     )

@@ -332,7 +332,7 @@ def test_enum_stanowiska_dorobki_zna_krawedzie():
     z ALTER-em migracji.
     """
     wartosci = list(ProductionReworkLog.__table__.c.rejected_at_station.type.enums)
-    assert wartosci == ['formatting', 'edges', 'painting']
+    assert wartosci == ['formatting', 'edges', 'painting', 'gluing', 'packaging']
 
 
 def test_zapis_dorobki_z_krawedzi_przechodzi(app):

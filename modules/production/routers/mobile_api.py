@@ -502,11 +502,17 @@ def order_reject(order_id):
 
     Body JSON: {
         quantity: int,
-        reason_category: 'wymiary' | 'jakosc_sklejenia' | 'jakosc_produktu' | 'inne',
-        station_code: 'formatting' (opcjonalne, domyślnie z g.device.station_code)
+        reason_category: 'wymiary' | 'jakosc_sklejenia' | 'jakosc_produktu' | 'inne'
+                         | 'jakosc_krawedzi' | 'jakosc_lakierowania',
+        station_code: 'formatting' | 'gluing' | 'edges' (+ stary alias Krawędzi)
+                      | 'painting' | 'packaging'
+                      (opcjonalne, domyślnie z g.device.station_code)
     }
 
     Response: { original: serialized, rework: serialized, rework_log_id: int }
+
+    409 gdy sztuka nie czeka na tym stanowisku: 'product_not_in_formatting'
+    dla formatowania (parsują go stare APK), 'product_not_on_station' dla reszty.
     """
     from modules.production.services.rework_service import (
         reject_product_quantity,

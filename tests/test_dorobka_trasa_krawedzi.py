@@ -160,25 +160,28 @@ def test_dorobka_z_krawedziami_staje_na_krawedziach(app):
         assert dorobka.edges_completed_at is None
 
 
-def test_reject_nie_przyjmuje_kodu_krawedzi(app):
+def test_reject_przyjmuje_tylko_kody_z_enuma(app):
     """
     Enum prod_rework_log.rejected_at_station ma jedynego writera:
-    mobile_api.py:452 przekazuje tam station_code z routera. Po wprowadzeniu
-    aliasu trafia tam kod kanoniczny, więc teoretycznie mogłoby to być 'edges'.
+    rework_service, zasilany kodem kanonicznym z routera mobilnego.
 
-    Enum SQLAlchemy NIE zatrzymałby takiej wartości przy zapisie (validate_strings
-    jest domyślnie False — LookupError pojawia się dopiero przy ODCZYCIE wartości
-    spoza enuma z bazy), więc jedyną realną barierą jest VALID_REJECT_STATIONS,
-    które zatrzymuje wszystko poza formatowaniem. ALTER enuma w migracji jest
-    więc defensywny, nie warunkowy; ten strażnik pilnuje, żeby nikt nie rozszerzył
-    zbioru bez świadomej decyzji.
+    Enum SQLAlchemy NIE zatrzymałby wartości spoza listy przy zapisie
+    (validate_strings jest domyślnie False — LookupError pojawia się dopiero
+    przy ODCZYCIE z bazy), a MySQL odrzuciłby ją błędem 1265, którego SQLite
+    nie odtworzy. Jedyną realną barierą jest więc VALID_REJECT_STATIONS i musi
+    być podzbiorem enuma. Rozszerzenie zbioru to świadoma decyzja (2026-09-23),
+    stąd porównanie całym zbiorem.
     """
-    assert VALID_REJECT_STATIONS == {'formatting'}
+    assert VALID_REJECT_STATIONS == {
+        'formatting', 'gluing', 'edges', 'painting', 'packaging'}
+    assert VALID_REJECT_STATIONS <= set(
+        ProductionReworkLog.rejected_at_station.type.enums)
 
     product_id = _oryginal(app)
 
     with app.app_context():
-        for kod in ('edges', 'finishing'):
+        # Alias rozwija router, nie serwis — surowe 'finishing' tu nie przejdzie.
+        for kod in ('cutting', 'assembly', 'finishing'):
             with pytest.raises(RejectError) as wyjatek:
                 reject_product_quantity(
                     product_id=product_id,

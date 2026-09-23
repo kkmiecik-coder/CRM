@@ -394,23 +394,24 @@ def test_alias_nie_dziala_w_druga_strone():
 
 def test_stary_tablet_przechodzi_bramke_rejectu(client, app):
     """
-    Reject jest MVP-owo tylko dla formatowania (rework_service.py:22), więc
-    tablet Krawędzi ma dostać 400 invalid_station. Istotne jest to, CZEGO
-    nie dostaje: 404 unknown_station znaczyłoby, że alias nie zadziałał
-    i kod poległ na bramce, a 403 station_mismatch — że poległ na kontroli
-    dostępu. Ten drugi jest w zbiorze BLEDY_DO_PONOWIENIA, ale i tak
-    zatrzymałby kolejkę offline tabletu.
+    Od 2026-09-23 Krawędzie cofają do doróbki, więc stary tablet z kodem
+    'finishing' ma dostać 200, a w audycie ma wylądować kod kanoniczny 'edges'.
+    404 unknown_station znaczyłoby, że alias nie zadziałał i kod poległ na
+    bramce, a 403 station_mismatch — że poległ na kontroli dostępu.
     """
     token = _token(app, station_code='finishing')
     produkt_id = _produkt(app, status='czeka_na_krawedzie', quantity=4)
 
     odp = client.post('/api/mobile/orders/{}/reject'.format(produkt_id),
                       headers=_naglowki(token, operation_id='op-rej-1'),
-                      json={'quantity': 1, 'reason_category': 'wymiary'})
+                      json={'quantity': 1, 'reason_category': 'jakosc_krawedzi'})
 
-    assert odp.status_code == 400, odp.get_json()
-    assert odp.get_json()['error'] == 'invalid_station'
-    assert 'formatting' in odp.get_json()['detail']
+    assert odp.status_code == 200, odp.get_json()
+    assert odp.get_json()['original']['quantity_ordered'] == 3
+    with app.app_context():
+        wpis = ProductionReworkLog.query.one()
+        assert wpis.rejected_at_station == 'edges'
+        assert wpis.reason_category == 'jakosc_krawedzi'
 
 
 def test_stary_tablet_otwiera_sesje_na_krawedziach(client, app):
