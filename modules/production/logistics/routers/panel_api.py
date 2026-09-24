@@ -70,6 +70,12 @@ def delivery_method():
     sposob = sposoby.normalizuj(dane.get('sposob'))
     if not isinstance(ids, list) or not ids or len(ids) > LIMIT_HURTU:
         return _blad(u'Podaj od 1 do {} zamówień.'.format(LIMIT_HURTU), 422)
+    # bool jest podklasą int w Pythonie — bez wyłączenia [True] przeszłoby jako id=1.
+    # Bez tej walidacji element inny niż int (np. dict, string) trafia surowy do
+    # ProductionOrder.id.in_(ids) i SQLAlchemy rzuca ProgrammingError z bazy (500,
+    # szum w Sentry) zamiast czystego 422 tego endpointu dla złych danych wejściowych.
+    if any(not isinstance(i, int) or isinstance(i, bool) for i in ids):
+        return _blad(u'Identyfikatory zamówień muszą być liczbami całkowitymi.', 422)
     if sposob is None:
         return _blad(u'Nieznany sposób dostawy.', 422)
 

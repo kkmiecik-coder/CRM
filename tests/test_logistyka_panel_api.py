@@ -118,6 +118,13 @@ def test_hurt_z_czesciowa_odmowa(client, app):
     {'order_ids': [], 'sposob': 'kurier_baselinker'},
     {'order_ids': [1], 'sposob': 'DPD'},
     {'order_ids': list(range(501)), 'sposob': 'kurier_baselinker'},
+    # F1 (fix round 1): elementy order_ids inne niż int trafiały surowe do
+    # Query.filter(ProductionOrder.id.in_(ids)) i SQLAlchemy rzucało
+    # ProgrammingError z bazy (500) zamiast czystego 422.
+    {'order_ids': [{'a': 1}], 'sposob': 'kurier_baselinker'},
+    {'order_ids': ['abc'], 'sposob': 'kurier_baselinker'},
+    {'order_ids': [None], 'sposob': 'kurier_baselinker'},
+    {'order_ids': [True], 'sposob': 'kurier_baselinker'},
 ])
 def test_walidacja_hurtu(client, body):
     assert client.post(BASE + '/orders/delivery-method', json=body).status_code == 422
