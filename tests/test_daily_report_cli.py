@@ -49,8 +49,9 @@ import modules.quotes.models  # noqa: F401
 # więc create_app() i tak się odpala normalnie. Sprawdzone w app.py: RUN_DB_
 # SETUP i RUN_MIGRATIONS są czytane WYŁĄCZNIE z app.config (zasilanego
 # w całości z config/core.json) — create_app() nie czyta dla nich żadnej
-# zmiennej środowiskowej (jedyne odczytywane tu env vary to FLASK_ENV i
-# FLASK_DEBUG, i te sterują tylko DEBUG). Nie da się więc tych efektów
+# zmiennej środowiskowej (poza FLASK_ENV i FLASK_DEBUG, które sterują tylko
+# DEBUG, create_app() czyta jeszcze FLASK_SECRET_KEY — klucz sesji dostarcza
+# tests/conftest.py). Nie da się więc tych efektów
 # ubocznych wyłączyć z zewnątrz samym env var-em — ochroną jest wyłącznie to,
 # że testy jadą w kontenerze `app`, gdzie kontener `db` już stoi. Instancja
 # WSGI z create_app() jest tu i tak nieużywana do testów: wszystko jedzie na

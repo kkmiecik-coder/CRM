@@ -558,16 +558,104 @@ def get_local_now():
     poland_tz = pytz.timezone('Europe/Warsaw')
     return datetime.now(poland_tz).replace(tzinfo=None)
 
+
+# ============================================================================
+# KLUCZ SESJI (SECRET_KEY)
+# ============================================================================
+# Tym kluczem Flask podpisuje ciasteczko sesji, Flask-Login ciasteczko
+# „remember me", a generate_reset_token() linki resetu hasła. Kto zna klucz,
+# może sam podpisać sesję dowolnego użytkownika — dlatego klucz NIE może leżeć
+# w kodzie (repo jest publiczne) i nie ma żadnej wartości domyślnej.
+#
+# Kolejność źródeł: zmienna środowiskowa FLASK_SECRET_KEY (wygrywa), a gdy jej
+# brak albo jest pusta — pole SECRET_KEY w config/core.json (plik poza gitem).
+
+SECRET_KEY_ENV = 'FLASK_SECRET_KEY'
+# 32 znaki to minimum: token_hex(32) daje 64 znaki (256 bitów).
+MIN_DLUGOSC_KLUCZA_SESJI = 32
+
+_JAK_WYGENEROWAC_KLUCZ = (
+    'Wygeneruj losowy klucz: python -c "import secrets; print(secrets.token_hex(32))" '
+    f'i wpisz go do config/core.json jako "SECRET_KEY" albo ustaw zmienną środowiskową '
+    f'{SECRET_KEY_ENV} (lokalnie w Dockerze: linia {SECRET_KEY_ENV}=... w pliku .env).'
+)
+
+
+class BrakKluczaSesjiError(RuntimeError):
+    """Klucz sesji nie jest skonfigurowany albo jest za słaby — aplikacja nie wystartuje."""
+
+
+def _wczytaj_core_json(app_root):
+    """Zwraca zawartość config/core.json jako słownik albo None, gdy pliku nie ma."""
+    config_path = os.path.join(app_root, "config", "core.json")
+    if not os.path.exists(config_path):
+        return None
+    with open(config_path, "r", encoding="utf-8") as config_file:
+        return json.load(config_file)
+
+
+def _klucz_sesji_z_core_json(app_root):
+    """Zwraca pole SECRET_KEY z config/core.json (None, gdy pliku albo pola brak)."""
+    config_data = _wczytaj_core_json(app_root)
+    if config_data is None:
+        return None
+    return config_data.get('SECRET_KEY')
+
+
+def wczytaj_klucz_sesji(app_root):
+    """Zwraca klucz sesji z konfiguracji albo rzuca BrakKluczaSesjiError.
+
+    Komunikaty błędów NIGDY nie zawierają wartości klucza — trafiają do logu
+    deployu, stderr gunicorna i potencjalnie do Sentry.
+    """
+    zrodlo = f'zmienna środowiskowa {SECRET_KEY_ENV}'
+    klucz = os.environ.get(SECRET_KEY_ENV, '').strip()
+
+    if not klucz:
+        zrodlo = 'pole SECRET_KEY w config/core.json'
+        klucz = _klucz_sesji_z_core_json(app_root)
+        if klucz is None:
+            klucz = ''
+        elif not isinstance(klucz, str):
+            raise BrakKluczaSesjiError(
+                f'Klucz sesji ({zrodlo}) musi być tekstem. {_JAK_WYGENEROWAC_KLUCZ}'
+            )
+        klucz = klucz.strip()
+
+    if not klucz:
+        raise BrakKluczaSesjiError(
+            f'Brak klucza sesji: nie ustawiono zmiennej środowiskowej {SECRET_KEY_ENV} '
+            f'ani pola SECRET_KEY w config/core.json. Aplikacja nie wystartuje bez '
+            f'klucza. {_JAK_WYGENEROWAC_KLUCZ}'
+        )
+
+    if len(klucz) < MIN_DLUGOSC_KLUCZA_SESJI:
+        raise BrakKluczaSesjiError(
+            f'Klucz sesji ({zrodlo}) jest za krótki — wymagane co najmniej '
+            f'{MIN_DLUGOSC_KLUCZA_SESJI} znaków. {_JAK_WYGENEROWAC_KLUCZ}'
+        )
+
+    return klucz
+
+
 def create_app():
+    _app_root = os.path.dirname(os.path.abspath(__file__))
+
+    # Klucz sesji sprawdzamy NA SAMYM POCZĄTKU, jeszcze przed Sentry, bazą
+    # i migracjami. Brak klucza przerywa start: gunicorn nie wstanie,
+    # a `flask migrate` w deploy.sh skończy się błędem PRZED restartem
+    # aplikacji — więc działająca wersja zostaje nietknięta. Kolejność przed
+    # init_sentry jest celowa: nieobsłużony wyjątek Sentry wysyła razem ze
+    # zmiennymi lokalnymi ramek, a w nich bywa cała konfiguracja z core.json.
+    secret_key = wczytaj_klucz_sesji(_app_root)
+
     # Sentry musi być zainicjalizowane PRZED utworzeniem instancji Flask,
     # aby integracje (Flask, SQLAlchemy, logging) podpięły się do app i loggerów.
     from sentry_config import init_sentry, get_frontend_config
-    _app_root = os.path.dirname(os.path.abspath(__file__))
     init_sentry(_app_root)
     _sentry_frontend_cfg = get_frontend_config(_app_root)
 
     app = Flask(__name__)
-    app.secret_key = "65d769148feb6bc476c6d2120d4abb40069cdfd919c37f99"
 
     # ============================================================================
     # KONFIGURACJA SESJI I FLASK-LOGIN
@@ -592,10 +680,8 @@ def create_app():
     ])
 
     # Ładowanie konfiguracji z pliku config/core.json
-    config_path = os.path.join(app.root_path, "config", "core.json")
-    if os.path.exists(config_path):
-        with open(config_path, "r") as config_file:
-            config_data = json.load(config_file)
+    config_data = _wczytaj_core_json(app.root_path)
+    if config_data is not None:
         app.config.update(config_data)
     else:
         config_data = {
@@ -606,6 +692,11 @@ def create_app():
         app.config.update(config_data)
         # Brak pliku konfiguracyjnego — krytyczne ostrzeżenie dla operatora
         print("Nie znaleziono app/config/core.json - użyto wartości domyślnych", file=sys.stderr)
+
+    # Klucz ustawiamy DOPIERO PO app.config.update(config_data): update wgrywa
+    # też pole SECRET_KEY z core.json i nadpisałoby klucz ze zmiennej
+    # środowiskowej, która ma pierwszeństwo.
+    app.secret_key = secret_key
 
     app.config.setdefault('RUN_DB_SETUP', False)
 

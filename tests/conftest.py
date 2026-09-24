@@ -22,9 +22,23 @@ wiąże OBIEKT funkcji w kilkunastu modułach — podmiana atrybutu models nie
 dosięgłaby żadnego z nich.
 """
 
+import os
+import secrets
 from datetime import datetime, time
 
 import pytest
+
+
+# KLUCZ SESJI DLA TESTÓW
+# ======================
+# create_app() bez klucza sesji rzuca BrakKluczaSesjiError, a app.py kończy się
+# `app = create_app()` — więc każdy test importujący moduł `app` potrzebuje
+# klucza już przy imporcie. Ustawiamy go tutaj, bo conftest ładuje się przed
+# zebraniem testów. Losowy przy każdym uruchomieniu: testy nie mogą zależeć od
+# konkretnej wartości. Pusty napis też traktujemy jak brak — docker-compose
+# przekazuje FLASK_SECRET_KEY="" z maszyny, która nie ma go w .env.
+if not os.environ.get('FLASK_SECRET_KEY', '').strip():
+    os.environ['FLASK_SECRET_KEY'] = secrets.token_hex(32)
 
 
 class _ZamrozonyDatetime(datetime):

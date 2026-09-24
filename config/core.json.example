@@ -1,5 +1,6 @@
 {
     "DEBUG": true,
+    "SECRET_KEY": "",
     "DATABASE_URI": "mysql+pymysql://UZYTKOWNIK:HASLO@127.0.0.1/NAZWA_BAZY",
     "RUN_DB_SETUP": false,
     "SQLALCHEMY_ENGINE_OPTIONS": {

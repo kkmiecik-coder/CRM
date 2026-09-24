@@ -6,6 +6,11 @@ services:
     environment:
       FLASK_APP: app.py
       FLASK_DEBUG: "1"
+      # Klucz sesji z pliku .env (poza gitem), NIGDY wpisany tutaj — repo jest
+      # publiczne. Bez niego aplikacja nie wstanie (czytelny błąd przy starcie).
+      # Jednorazowo na maszynę:
+      #   python -c "import secrets; print('FLASK_SECRET_KEY=' + secrets.token_hex(32))" >> .env
+      FLASK_SECRET_KEY: "${FLASK_SECRET_KEY:-}"
     volumes:
       - ./:/app:cached
     # Porty konfigurowalne przez .env (gitignored) — domyślne wartości zostawiają
