@@ -108,7 +108,9 @@ def zamowienie(sposob=None, statusy=('czeka_na_wyciecie',), delivery_method='Kur
 def produkt(order, status='czeka_na_wyciecie', sekwencja=None, quantity=2, **kolumny):
     sekwencja = sekwencja or (len(order.products) + 1)
     p = ProductionProduct(
-        order_id=order.id,
+        # `order=order` (nie `order_id=order.id`): back_populates trzyma
+        # `order.products` w pamięci w zgodzie z bazą od razu, bez odświeżania.
+        order=order,
         short_product_id='%d_%d' % (order.id, sekwencja),
         product_sequence_in_order=sekwencja,
         original_product_name='Blat dębowy 100x60x4',

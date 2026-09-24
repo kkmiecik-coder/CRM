@@ -25,11 +25,6 @@ class LogistykaBlad(Exception):
 
 
 def aktywne_produkty(order):
-    # order.products bywa już wczytane w pamięci, zanim gdzie indziej (doróbka,
-    # ponowna ocena po cronie) dojdzie nowa pozycja samym order_id — bez
-    # przypisania relacji ORM. Bez odświeżenia kolekcja zostaje z pamięci i
-    # świeżej pozycji nie widać, dopóki sesja się nie zcommituje.
-    db.session.expire(order, ['products'])
     return [p for p in order.products if p.current_status != 'anulowane']
 
 
@@ -140,6 +135,12 @@ def ustaw_sposob_dostawy(order, sposob, user_id=None, teraz=None):
 
     if (order.delivery_method or '').strip() != sposoby.TEKST_BASE[nowy]:
         order.bl_delivery_method_pending = True
+
+    if nowy != sposoby.KURIER:
+        # Zmiana na sposób inny niż kurier zamyka ewentualne przepakowanie:
+        # towar już wrócił do pakowania i po prostu się pakuje, baner
+        # „PRZEPAKUJ NA KURIERA” dla transportu/odbioru nie ma sensu.
+        order.repack_required = False
 
     podbij_pozycje(order, teraz)
     przelicz_zamkniecie(order, teraz)

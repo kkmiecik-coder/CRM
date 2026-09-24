@@ -86,6 +86,19 @@ def test_przepakowanie_na_kuriera(app):
         assert akcje == ['sposob_dostawy', 'przepakowanie']
 
 
+def test_zmiana_z_przepakowania_na_inny_niz_kurier_kasuje_flage(app):
+    """Ruling kontrolera: baner „PRZEPAKUJ NA KURIERA” nie ma sensu dla
+    transportu/odbioru — towar i tak wraca do zwykłego pakowania."""
+    with app.app_context():
+        order = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane',))
+        d.ustaw_sposob_dostawy(order, s.KURIER, teraz=T0)
+        assert order.repack_required is True
+        d.ustaw_sposob_dostawy(order, s.ODBIOR, teraz=T1)
+        assert order.repack_required is False
+        akcje = [l.action for l in LogisticsLog.query.order_by(LogisticsLog.id)]
+        assert akcje == ['sposob_dostawy', 'przepakowanie', 'sposob_dostawy']
+
+
 def test_spakowanie_po_przepakowaniu_kasuje_zalegly_status_138620(app):
     """Review Focus 3: stary 138620 nie może nadpisać świeżego 138623."""
     with app.app_context():
