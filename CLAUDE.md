@@ -31,6 +31,17 @@ Bez `.env` `docker-compose.yml` używa domyślnych **5000** i **3306**. Na macOS
 te domyślne są zajęte (5000 — odbiornik AirPlay, 3306 — MariaDB z XAMPP, która musi dalej
 działać dla bazy `thunder_orders` innego projektu), stąd 5002 i 3308.
 
+W tym samym `.env` leży **klucz sesji** `FLASK_SECRET_KEY` — bez niego aplikacja nie wstanie
+(czytelny błąd `BrakKluczaSesjiError` przy starcie). Jednorazowo na maszynę
+(macOS: `python3`; upewnij się, że `.env` kończy się znakiem nowej linii):
+```bash
+python -c "import secrets; print('FLASK_SECRET_KEY=' + secrets.token_hex(32))" >> .env
+docker compose up -d    # odtworzy kontener app już z kluczem
+```
+Każda maszyna ma własny, losowy klucz. Wartości nie wpisuj do `docker-compose.yml` ani
+nigdzie w repo — repo jest publiczne. Testy klucza nie potrzebują (`tests/conftest.py`
+losuje własny).
+
 App: http://localhost:5002, Flask dev server z auto-reloadem przy zmianie plików.
 MySQL 8.4: port 3308 na hoście (wolumen `db_data` — dane przeżywają restart kontenerów).
 
@@ -81,11 +92,25 @@ flask migrate-status  # co zostało wykonane
 
 ### Database Setup
 ```bash
-# CLI command to create schema and admin user
+# Tworzy schemat bazy (tabele z modeli) — konta admina NIE zakłada
 flask setup-db
 
 # Or set RUN_DB_SETUP: true in config/core.json for auto-setup on startup
 ```
+
+W kodzie nie ma żadnego konta z hasłem (dawne `create_admin()` usunięte). Nowych
+użytkowników zaprasza istniejący admin z `/users/manage`.
+
+### Klucz sesji (SECRET_KEY)
+
+Podpisuje ciasteczko sesji, „remember me" i linki resetu hasła. Źródła, w kolejności:
+zmienna środowiskowa `FLASK_SECRET_KEY` (wygrywa), a gdy jej brak — pole `SECRET_KEY`
+w `config/core.json`. **Nie ma wartości domyślnej w kodzie**: brak klucza albo klucz
+krótszy niż 32 znaki = `create_app()` rzuca `BrakKluczaSesjiError` i aplikacja nie
+startuje. Logika: `wczytaj_klucz_sesji()` w `app.py`, testy: `tests/test_klucz_sesji.py`.
+
+Zmiana klucza wylogowuje wszystkich i unieważnia wysłane linki resetu hasła.
+Tablety hali to nie dotyczy — API mobilne ma własny `API_MOBILE.jwt_secret`.
 
 ### Zadania cykliczne (cron)
 
@@ -156,6 +181,12 @@ Albo po prostu `./deploy.sh` — robi dokładnie to samo, z lockiem i logami.
 - Restart to kilka sekund niedostępności. Tablety hali to przetrwają —
   akcje lądują w kolejce offline apki i dosynchronizują się same
 - Hasła: produkcja używa `scrypt`, lokalnie `pbkdf2` (zgodność Werkzeug)
+- Klucz sesji na serwerze: pole `SECRET_KEY` w `config/core.json` (czytają je gunicorn,
+  `flask migrate` z `deploy.sh` i komendy `flask` z crona — zmienna środowiskowa
+  w supervisorze nie dotarłaby do ręcznie odpalonego `./deploy.sh`). Bez klucza
+  `flask migrate` kończy się błędem i deploy przerywa się **przed** restartem — stara
+  wersja działa dalej, ale kod na dysku jest już nowy, więc restart serwera przed
+  uzupełnieniem klucza skończy się 502
 - Dodając zależność, pamiętaj o `requirements.txt` — deploy instaluje z niego
 - API mobilne (`/api/mobile/*`) jest **niezależne** od paneli webowych
   produkcji; zmiany w `modules/production/routers/stations/` nie dotykają tabletów
