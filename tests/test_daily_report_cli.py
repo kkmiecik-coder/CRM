@@ -41,7 +41,7 @@ import modules.quotes.models  # noqa: F401
 # zaimportowanie modułu na poziomie modułu — czyli samo ZEBRANIE tego pliku
 # przez pytest, bez odpalenia jakiegokolwiek testu — budowałoby produkcyjną
 # instancję WSGI: łączyłoby się z bazą z config/core.json i (zależnie od
-# configu) odpalało RUN_DB_SETUP (db.create_all() + create_admin()) oraz
+# configu) odpalało RUN_DB_SETUP (db.create_all()) oraz
 # RUN_MIGRATIONS. Odroczenie importu do fixture'a rozwiązuje problem
 # ZBIERANIA — `pytest tests/ --collect-only` już tego nie dotyka.
 #

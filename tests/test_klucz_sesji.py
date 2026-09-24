@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-Klucz sesji pochodzi z konfiguracji, nie z kodu.
+Klucz sesji pochodzi z konfiguracji, nie z kodu — i nie ma w kodzie konta admina.
 
 Repo jest publiczne. Klucz wpisany w app.py pozwalał każdemu podpisać własne
-ciasteczko sesji (wejście jako dowolny użytkownik). Te testy pilnują, żeby
-problem nie wrócił i żeby brak klucza zatrzymywał start aplikacji zamiast po
-cichu używać czegoś zaszytego.
+ciasteczko sesji (wejście jako dowolny użytkownik), a funkcja zakładająca
+admina miała jawnie wpisane hasło. Te testy pilnują, żeby oba problemy nie
+wróciły i żeby brak klucza zatrzymywał start aplikacji zamiast po cichu
+używać czegoś zaszytego.
 
 Wartości kluczy w testach są losowe (secrets) — żaden test nie zależy od
 konkretnej wartości i żadna nie ląduje w repo.
@@ -245,6 +246,11 @@ def test_token_podpisany_innym_kluczem_jest_odrzucany(app_modul):
 def _zrodlo_app_py():
     with open(os.path.join(KORZEN, 'app.py'), encoding='utf-8') as f:
         return f.read()
+
+
+def test_brak_funkcji_zakladajacej_admina_z_haslem_w_kodzie(app_modul):
+    assert not hasattr(app_modul, 'create_admin')
+    assert 'create_admin' not in _zrodlo_app_py()
 
 
 def test_app_py_nie_ustawia_klucza_sesji_literalem():

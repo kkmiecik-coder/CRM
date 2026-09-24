@@ -95,32 +95,18 @@ def discover_module_metadata(app):
 
     return metadata
 
-def create_admin():
-    """Tworzy użytkownika admina, jeśli nie istnieje."""
-    admin_email = "admin@woodpower.pl"
-    admin_password = "Kmiecik99"  # Ustaw mocne hasło
-    admin_user = User.query.filter_by(email=admin_email).first()
-    if not admin_user:
-        hashed_pass = generate_password_hash(admin_password)
-        new_admin = User(
-            email=admin_email,
-            password=hashed_pass,
-            role="admin"
-        )
-        db.session.add(new_admin)
-        db.session.commit()
-
 def register_cli_commands(app):
     """Rejestruje komendy Flask CLI."""
 
     @app.cli.command("setup-db")
     @with_appcontext
     def setup_db_command():
-        """Tworzy schemat bazy danych i konto administratora."""
+        """Tworzy schemat bazy danych (tabele z modeli)."""
+        # Konta administratora ta komenda NIE zakłada — dawną funkcję, która
+        # robiła to z hasłem wpisanym jawnie w kodzie, usunięto. Nowych
+        # użytkowników dodaje zaproszeniem istniejący admin (/users/manage).
         click.echo("[setup-db] Tworzę schemat bazy danych…")
         db.create_all()
-        click.echo("[setup-db] Sprawdzam konto administratora…")
-        create_admin()
         click.echo("[setup-db] Gotowe.")
 
     @app.cli.command("backfill-ordered-acceptance")
@@ -756,7 +742,6 @@ def create_app():
     with app.app_context():
         if app.config.get('RUN_DB_SETUP'):
             db.create_all()
-            create_admin()
 
         # Automatyczne migracje bazy danych
         if app.config.get('RUN_MIGRATIONS', True):
