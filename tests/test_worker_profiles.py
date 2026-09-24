@@ -122,10 +122,11 @@ def _pracownicy(app, ilu=2, aktywni=True):
         return [w.id for w in dodani]
 
 
-def _produkt(app, status='czeka_na_sklejanie', quantity=10):
+def _produkt(app, status='czeka_na_sklejanie', quantity=10, override_delivery_method=None):
     with app.app_context():
         order = ProductionOrder(baselinker_order_id=990001,
-                                internal_order_number='26/00042')
+                                internal_order_number='26/00042',
+                                override_delivery_method=override_delivery_method)
         db.session.add(order)
         db.session.flush()
         produkt = ProductionProduct(
@@ -1521,7 +1522,8 @@ def test_complete_nadal_kolejkuje_sync_baselinkera(client, app, monkeypatch):
     """
     token = _token(app, station_code='packaging')
     ids = _pracownicy(app, 1)
-    produkt_id = _produkt(app, status='czeka_na_pakowanie')
+    produkt_id = _produkt(app, status='czeka_na_pakowanie',
+                          override_delivery_method='kurier_baselinker')
 
     zaplanowane = []
     monkeypatch.setattr(

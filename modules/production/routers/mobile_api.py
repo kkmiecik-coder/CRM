@@ -130,7 +130,8 @@ BLEDY_DO_PONOWIENIA = {400, 403, 404, 409}
 #
 # PODBIJ przy każdej zmianie zestawu pól w serialize_order().
 #   2 — 2026-09-18: label_print_count, label_offset, label_total (panel kafelków)
-KSZTALT_ODPOWIEDZI_KOLEJKI = 2
+#   3 — 2026-09-25: obiekt `transport` (logistyka równoległa)
+KSZTALT_ODPOWIEDZI_KOLEJKI = 3
 
 
 def _resolve_workers():
@@ -437,6 +438,18 @@ def order_complete(order_id):
     item = ProductionItem.query.get(order_id)
     if not item:
         return jsonify({'error': 'order_not_found'}), 404
+
+    # Logistyka równoległa: bez sposobu dostawy pakowacz pomija zamówienie.
+    # 409 jest w BLEDY_DO_PONOWIENIA — dekorator go NIE zapamiętuje, więc akcja
+    # z kolejki offline przejdzie z tym samym X-Operation-Id po decyzji logistyka.
+    if station_code == 'packaging' and item.order is not None:
+        from modules.production.logistics import sposoby
+        if sposoby.normalizuj(item.order.override_delivery_method) is None:
+            return jsonify({
+                'error': 'delivery_method_not_set',
+                'message': u'Logistyka nie ustawiła jeszcze sposobu dostawy dla zamówienia {}. '
+                           u'Pomiń je i weź kolejne.'.format(item.order.internal_order_number),
+            }), 409
 
     try:
         mark_order_complete(item, station_code, device_id=g.device.device_id,

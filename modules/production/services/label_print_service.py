@@ -344,29 +344,14 @@ def _resolve_client_label(item):
 
 
 def _format_delivery_label(item):
-    """Zwraca pełną treść sposobu dostawy.
+    """Linia „Dostawa:” — ten sam tekst co plakietka tabletu (logistics/sposoby.etykieta).
 
-    Kolejność warunków 1:1 z mobile_api_service / web-templatką:
-      - override transport_woodpower → 'Transport WoodPower'
-      - override kurier_baselinker  → nazwa kuriera z delivery_method (lub 'Kurier')
-      - is_personal_pickup           → 'Odbior osobisty'
-      - default                      → delivery_method z BL (np. 'InPost Paczkomaty 24/7')
-                                       lub 'Kurier' gdy brak danych
+    Etykieta wydrukowana przed decyzją logistyka ma „Nie ustawiono”; lista logistyki
+    pokazuje wtedy ikonę „etykiety sprzed zmiany”.
     """
+    from modules.production.logistics import sposoby
     order = item.order if item.order else None
-    override = ((order.override_delivery_method if order else None) or '').strip().lower()
-    delivery_method = ((order.delivery_method if order else None) or '').strip()
-
-    if override == 'transport_woodpower':
-        return _normalize_text('Transport WoodPower')
-    if override == 'kurier_baselinker':
-        return _normalize_text(delivery_method) if delivery_method else 'Kurier'
-    try:
-        if order and order.is_personal_pickup:
-            return _normalize_text('Odbior osobisty')
-    except Exception:
-        pass
-    return _normalize_text(delivery_method) if delivery_method else 'Kurier'
+    return _normalize_text(sposoby.etykieta(order.override_delivery_method if order else None))
 
 
 def _format_finish_label(item):

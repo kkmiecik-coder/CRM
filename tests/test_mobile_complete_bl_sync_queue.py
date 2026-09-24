@@ -93,6 +93,7 @@ def _zlecenie_gotowe_do_pakowania(app):
         order = ProductionOrder(
             baselinker_order_id=990001,
             internal_order_number='26/00042',
+            override_delivery_method='kurier_baselinker',
         )
         db.session.add(order)
         db.session.flush()

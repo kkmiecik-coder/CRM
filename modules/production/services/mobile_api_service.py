@@ -1109,10 +1109,6 @@ def serialize_order(item, station_code=None, label_numbering=None):
     if station_code and station_code in STATION_QUANTITY_FIELD:
         quantity_done = getattr(item, STATION_QUANTITY_FIELD[station_code], None)
 
-    # Kategoria dostawy — kolejność warunków przeniesiona z badge'a dostawy
-    # w panelu pakowania (templates/stations/packaging.html, usunięty w Etapie 0
-    # profili pracowników; kod w historii gita, commit 0391556).
-    # Odrębna od property ProductionItem.delivery_type (zwracającej tylko 2 wartości).
     # Numeracja etykiet. Aplikacja rysuje kafelek sztuki numerem GLOBALNYM —
     # tym samym, który wychodzi na papier — więc offsetu nie da się pominąć:
     # tablet widzi pojedyncze pozycje, a numeracja biegnie przez całe zamówienie.
@@ -1123,16 +1119,13 @@ def serialize_order(item, station_code=None, label_numbering=None):
     )
     label_printed = [n + label_offset for n in wydrukowane_sztuki(item)]
 
-    override_delivery = item.order.override_delivery_method if item.order else None
-    is_personal = item.order.is_personal_pickup if item.order else False
-    if override_delivery == 'transport_woodpower':
-        delivery_type = 'transport_woodpower'
-    elif override_delivery == 'kurier_baselinker':
-        delivery_type = 'courier_baselinker'
-    elif is_personal:
-        delivery_type = 'personal_pickup'
-    else:
-        delivery_type = 'courier'
+    # Sposób dostawy — jedno źródło: logistics/sposoby.py (logistyka równoległa).
+    # `delivery_type` zostaje dla starych APK (tylko stare wartości), a `transport`
+    # jest ZAWSZE obecny: jego brak oznacza dla appki stary backend.
+    from modules.production.logistics import sposoby
+    delivery_type = sposoby.legacy_delivery_type(
+        item.order.override_delivery_method if item.order else None)
+    transport = sposoby.transport_payload(item.order)
 
     return {
         'id': item.id,
@@ -1170,6 +1163,7 @@ def serialize_order(item, station_code=None, label_numbering=None):
         'order_source_name': item.order.order_source_name if item.order else None,
         'order_source_display': item.order.order_source_display if item.order else None,
         'delivery_type': delivery_type,
+        'transport': transport,
         'wood_species': item.configuration.species if item.configuration else None,
         'wood_class': item.configuration.wood_class if item.configuration else None,
         'technology': item.configuration.technology if item.configuration else None,
