@@ -24,32 +24,13 @@ import openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from typing import Dict, Optional, Tuple, List
 from modules.users.decorators import require_module_access
+# Autoryzacja endpointu CRON (api/cron/sync-statuses) — wspólny dekorator
+# z produkcją, bez wartości zapasowej sekretu.
+from cron_auth import cron_secret_required
 
 # Inicjalizacja loggera
 reports_logger = get_structured_logger('reports.routers')
 reports_logger.info("✅ reports_logger zainicjowany poprawnie w routers.py")
-
-def cron_secret_required(f):
-    """
-    Dekorator dla endpointów CRON wymagających sekretu
-    Używany dla: cron-sync-statuses
-    """
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        cron_secret = request.headers.get('X-Cron-Secret')
-        
-        # Pobierz secret z konfiguracji
-        expected_secret = current_app.config.get('PRODUCTION_CRON_SECRET', 'prod_sync_secret_key_2025')
-        
-        if not cron_secret or cron_secret != expected_secret:
-            reports_logger.warning("CRON: Nieprawidłowy secret", 
-                                 provided_secret_length=len(cron_secret) if cron_secret else 0,
-                                 client_ip=request.remote_addr,
-                                 endpoint=request.endpoint)
-            return jsonify({'success': False, 'error': 'Nieprawidłowy CRON secret'}), 403
-        
-        return f(*args, **kwargs)
-    return decorated_function
 
 def generate_product_key_router(order_id, product, product_index=None):
     """

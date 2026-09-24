@@ -1,0 +1,230 @@
+# -*- coding: utf-8 -*-
+"""
+Endpointy CRON: brak sekretu w konfiguracji ZAMYKA dostęp, nie otwiera go.
+
+Wcześniej oba dekoratory (produkcja i raporty) brały
+`config.get('PRODUCTION_CRON_SECRET', <wartość wpisana w kod>)`. Repo jest
+publiczne, więc przy braku pola w core.json każdy mógł wołać sync-cron,
+close-stale-sessions i sync-statuses. Teraz jest jeden dekorator
+(cron_auth.py) bez wartości zapasowej, z porównaniem stałoczasowym.
+
+Sekrety w testach są losowe — żaden test nie zależy od konkretnej wartości.
+"""
+
+import ast
+import json
+import os
+import secrets
+
+import pytest
+from flask import Flask, jsonify
+
+import cron_auth
+from cron_auth import (
+    CRON_SECRET_CONFIG_KEY,
+    CRON_SECRET_HEADER,
+    cron_secret_required,
+    sekret_crona_poprawny,
+    skonfigurowany_sekret_crona,
+)
+
+
+KORZEN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# Adresy endpointów CRON w prawdziwej aplikacji — wszystkie muszą iść przez
+# wspólny dekorator.
+ENDPOINTY_CRON = (
+    '/production/api/sync-cron',
+    '/production/api/workers/close-stale-sessions',
+    '/reports/api/cron/sync-statuses',
+)
+
+
+# ----------------------------------------------------------------------------
+# Funkcje pomocnicze
+# ----------------------------------------------------------------------------
+
+@pytest.mark.parametrize('konfiguracja', [
+    {},
+    {CRON_SECRET_CONFIG_KEY: None},
+    {CRON_SECRET_CONFIG_KEY: ''},
+    {CRON_SECRET_CONFIG_KEY: '   '},
+    {CRON_SECRET_CONFIG_KEY: 12345},
+])
+def test_brak_lub_bledny_sekret_w_konfiguracji_to_none(konfiguracja):
+    assert skonfigurowany_sekret_crona(konfiguracja) is None
+
+
+def test_skonfigurowany_sekret_jest_zwracany_bez_zmian():
+    sekret = secrets.token_hex(16)
+    assert skonfigurowany_sekret_crona({CRON_SECRET_CONFIG_KEY: sekret}) == sekret
+
+
+def test_porownanie_sekretu():
+    sekret = secrets.token_hex(16)
+    assert sekret_crona_poprawny(sekret, sekret) is True
+    assert sekret_crona_poprawny(sekret + 'x', sekret) is False
+    assert sekret_crona_poprawny(None, sekret) is False
+    assert sekret_crona_poprawny('', sekret) is False
+    assert sekret_crona_poprawny(sekret, None) is False     # brak konfiguracji = zamknięte
+
+
+def test_porownanie_znakow_spoza_ascii_nie_rzuca_wyjatku():
+    # hmac.compare_digest na napisach rzuca TypeError dla nie-ASCII; nagłówek
+    # przychodzi od kogokolwiek, więc to musi być zwykłe „nie".
+    assert sekret_crona_poprawny('sekret-é', secrets.token_hex(16)) is False
+    assert sekret_crona_poprawny('zażółć', 'zażółć') is True
+
+
+def test_przyklad_konfiguracji_nie_daje_dzialajacego_sekretu():
+    # Skopiowany bez zmian core.json.example ma zamykać endpointy CRON,
+    # a nie otwierać je wartością znaną z publicznego repo.
+    with open(os.path.join(KORZEN, 'config', 'core.json.example'), encoding='utf-8') as f:
+        przyklad = json.load(f)
+
+    assert CRON_SECRET_CONFIG_KEY in przyklad
+    assert skonfigurowany_sekret_crona(przyklad) is None
+
+
+# ----------------------------------------------------------------------------
+# Dekorator na minimalnej aplikacji
+# ----------------------------------------------------------------------------
+
+def _aplikacja(**konfiguracja):
+    app = Flask(__name__)
+    app.config.update(konfiguracja)
+
+    @app.route('/cron')
+    @cron_secret_required
+    def cron():
+        return jsonify({'success': True})
+
+    return app
+
+
+def test_brak_sekretu_w_konfiguracji_zamyka_endpoint():
+    klient = _aplikacja().test_client()
+
+    bez_naglowka = klient.get('/cron')
+    z_naglowkiem = klient.get('/cron', headers={CRON_SECRET_HEADER: secrets.token_hex(16)})
+
+    assert bez_naglowka.status_code == 500
+    assert z_naglowkiem.status_code == 500
+    assert z_naglowkiem.get_json()['success'] is False
+
+
+@pytest.mark.parametrize('wartosc', ['', '   '])
+def test_pusty_sekret_w_konfiguracji_zamyka_endpoint(wartosc):
+    klient = _aplikacja(**{CRON_SECRET_CONFIG_KEY: wartosc}).test_client()
+
+    assert klient.get('/cron', headers={CRON_SECRET_HEADER: wartosc}).status_code == 500
+    assert klient.get('/cron').status_code == 500
+
+
+def test_poprawny_sekret_przepuszcza():
+    sekret = secrets.token_hex(32)
+    klient = _aplikacja(**{CRON_SECRET_CONFIG_KEY: sekret}).test_client()
+
+    odpowiedz = klient.get('/cron', headers={CRON_SECRET_HEADER: sekret})
+
+    assert odpowiedz.status_code == 200
+    assert odpowiedz.get_json() == {'success': True}
+
+
+def test_zly_albo_brakujacy_sekret_daje_403():
+    sekret = secrets.token_hex(32)
+    klient = _aplikacja(**{CRON_SECRET_CONFIG_KEY: sekret}).test_client()
+
+    assert klient.get('/cron').status_code == 403
+    assert klient.get('/cron', headers={CRON_SECRET_HEADER: ''}).status_code == 403
+    assert klient.get('/cron', headers={CRON_SECRET_HEADER: sekret[:-1]}).status_code == 403
+    assert klient.get('/cron', headers={CRON_SECRET_HEADER: 'sekret-é'}).status_code == 403
+
+
+def test_odpowiedz_nie_zawiera_sekretu():
+    sekret = secrets.token_hex(32)
+    klient = _aplikacja(**{CRON_SECRET_CONFIG_KEY: sekret}).test_client()
+
+    odpowiedz = klient.get('/cron', headers={CRON_SECRET_HEADER: 'zly'})
+
+    assert sekret not in odpowiedz.get_data(as_text=True)
+
+
+# ----------------------------------------------------------------------------
+# Podpięcie w prawdziwej aplikacji
+# ----------------------------------------------------------------------------
+
+def _kod_dekoratora():
+    # Wewnętrzna funkcja dekoratora ma jeden obiekt kodu niezależnie od tego,
+    # co opakowuje — po nim rozpoznajemy widok przepuszczony przez cron_auth.
+    return cron_secret_required(lambda: None).__code__
+
+
+def test_endpointy_cron_w_aplikacji_ida_przez_wspolny_dekorator():
+    import app as modul
+    aplikacja = modul.app
+
+    widoki = {}
+    for regula in aplikacja.url_map.iter_rules():
+        if regula.rule in ENDPOINTY_CRON:
+            widoki[regula.rule] = aplikacja.view_functions[regula.endpoint]
+
+    assert set(widoki) == set(ENDPOINTY_CRON), 'nie znaleziono któregoś endpointu CRON'
+    for adres, widok in widoki.items():
+        assert widok.__code__ is _kod_dekoratora(), f'{adres} nie używa cron_auth.cron_secret_required'
+
+
+def test_moduly_uzywaja_tego_samego_dekoratora():
+    from modules.production.routers.api import common_api
+    from modules.reports import routers as reports_routers
+
+    assert common_api.cron_secret_required is cron_auth.cron_secret_required
+    assert reports_routers.cron_secret_required is cron_auth.cron_secret_required
+
+
+# ----------------------------------------------------------------------------
+# Nic zaszytego w kodzie
+# ----------------------------------------------------------------------------
+
+def _pliki_py(*katalogi):
+    for katalog in katalogi:
+        for sciezka_kat, podkatalogi, pliki in os.walk(os.path.join(KORZEN, katalog)):
+            podkatalogi[:] = [d for d in podkatalogi if d not in ('__pycache__', 'lib', 'node_modules')]
+            for plik in pliki:
+                if plik.endswith('.py'):
+                    yield os.path.join(sciezka_kat, plik)
+
+
+def test_nigdzie_nie_ma_wartosci_domyslnej_sekretu_crona():
+    """Żadne `.get('PRODUCTION_CRON_SECRET', <cokolwiek>)` w kodzie aplikacji."""
+    pliki = list(_pliki_py('modules', 'integrations', 'scripts'))
+    pliki += [os.path.join(KORZEN, nazwa) for nazwa in os.listdir(KORZEN) if nazwa.endswith('.py')]
+
+    naruszenia = []
+    for sciezka in pliki:
+        with open(sciezka, encoding='utf-8') as f:
+            try:
+                drzewo = ast.parse(f.read())
+            except SyntaxError:
+                continue
+        for wezel in ast.walk(drzewo):
+            if (isinstance(wezel, ast.Call)
+                    and isinstance(wezel.func, ast.Attribute)
+                    and wezel.func.attr in ('get', 'setdefault')
+                    and wezel.args
+                    and isinstance(wezel.args[0], ast.Constant)
+                    and wezel.args[0].value == CRON_SECRET_CONFIG_KEY
+                    and (len(wezel.args) > 1 or wezel.keywords)):
+                naruszenia.append(f'{os.path.relpath(sciezka, KORZEN)}:{wezel.lineno}')
+
+    assert naruszenia == [], f'Wartość domyślna sekretu crona: {naruszenia}'
+
+
+def test_jedyna_definicja_dekoratora_crona_jest_w_cron_auth():
+    definicje = []
+    for sciezka in _pliki_py('modules', 'integrations'):
+        with open(sciezka, encoding='utf-8') as f:
+            if 'def cron_secret_required' in f.read():
+                definicje.append(os.path.relpath(sciezka, KORZEN))
+
+    assert definicje == []

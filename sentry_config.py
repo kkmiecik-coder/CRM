@@ -24,7 +24,7 @@ _SENSITIVE_KEYS = {
     "password", "passwd", "new_password", "repeat_password", "password2",
     "reset_token", "session_token", "user_session_token", "secret_key",
     "api_key", "jwt_secret", "MAIL_PASSWORD", "PRODUCTION_CRON_SECRET",
-    "CEIDG_JWT_TOKEN",
+    "CEIDG_JWT_TOKEN", "x-cron-secret",
     "Authorization", "authorization", "cookie", "Cookie",
 }
 

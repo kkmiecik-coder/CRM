@@ -10,6 +10,10 @@ from functools import wraps
 from flask import request, jsonify
 from flask_login import login_required, current_user
 from modules.logging import get_structured_logger
+# Autoryzacja endpointów CRON (sync-cron, workers/close-stale-sessions) jest
+# wspólna z raportami: cron_auth.cron_secret_required. Nazwa zostaje dostępna
+# tutaj, bo sync_api i workers_api importują ją z common_api.
+from cron_auth import cron_secret_required  # noqa: F401
 
 logger = get_structured_logger('production.api')
 
@@ -36,30 +40,6 @@ def admin_required(f):
                 'client_ip': request.remote_addr
             })
             return jsonify({'success': False, 'error': 'Brak uprawnień administratora'}), 403
-
-        return f(*args, **kwargs)
-    return decorated_function
-
-def cron_secret_required(f):
-    """
-    Dekorator dla endpointów CRON wymagających sekretu
-    Używany dla: cron-sync
-    """
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        from flask import current_app
-        cron_secret = request.headers.get('X-Cron-Secret')
-
-        # Pobierz secret z konfiguracji
-        expected_secret = current_app.config.get('PRODUCTION_CRON_SECRET', 'prod_sync_secret_key_2025')
-
-        if not cron_secret or cron_secret != expected_secret:
-            logger.warning("CRON: Nieprawidłowy secret", extra={
-                'provided_secret_length': len(cron_secret) if cron_secret else 0,
-                'client_ip': request.remote_addr,
-                'endpoint': request.endpoint
-            })
-            return jsonify({'success': False, 'error': 'Nieprawidłowy CRON secret'}), 403
 
         return f(*args, **kwargs)
     return decorated_function

@@ -3,9 +3,10 @@
 #
 # W aplikacji NIE MA schedulera (scheduler_daemon.py usunięty w maju 2026
 # razem z APScheduler), więc jedyną drogą jest cron hostingu. W odróżnieniu
-# od pozostałych zadań cyklicznych ten NIE idzie przez HTTP: dekorator
-# cron_secret_required ma fallback do sekretu zapisanego wprost w repozytorium,
-# a raport i tak liczy się na tej samej maszynie, na której stoi cron.
+# od pozostałych zadań cyklicznych ten NIE idzie przez HTTP: raport i tak
+# liczy się na tej samej maszynie, na której stoi cron. (Dawny powód — fallback
+# sekretu zapisany wprost w repozytorium — zniknął: cron_auth.py bez sekretu
+# w config/core.json zamyka endpointy CRON.)
 #
 # flock: raport jest read-only, więc równoległy przebieg niczego nie zepsuje
 # w bazie — ale WYŚLE DRUGI MAIL. Istniejący /sync-cron nie ma tej ochrony
