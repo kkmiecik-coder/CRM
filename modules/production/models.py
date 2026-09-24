@@ -183,7 +183,24 @@ class ProductionOrder(db.Model):
     delivery_postcode = Column(String(20))
     delivery_country_code = Column(String(10))
 
+    # SPOSÓB DOSTAWY (logistyka równoległa, 2026-09). NULL = „Nie ustawiono”.
+    # Wartości i wszystko, co z nich wynika: modules/production/logistics/sposoby.py.
     override_delivery_method = Column(String(255))
+    delivery_method_set_at = Column(DateTime)
+    delivery_method_set_by = Column(Integer)
+    # „Wydane klientowi” — tylko odbiór osobisty.
+    handed_over_at = Column(DateTime)
+    handed_over_by = Column(Integer)
+    # Spakowane pod transport/odbiór, zmienione na kuriera — wraca do pakowania.
+    repack_required = Column(Boolean, nullable=False, default=False)
+    # Koniec cyklu logistycznego; NULL = zamówienie widoczne w zakładce Logistyka.
+    # Liczy go WYŁĄCZNIE logistics.services.delivery.przelicz_zamkniecie().
+    logistics_closed_at = Column(DateTime, index=True)
+    # Znaczniki „do wysłania do Base.” — przeżywają restart, dopycha je bl_sync.
+    bl_delivery_method_pending = Column(Boolean, nullable=False, default=False)
+    bl_status_pending_id = Column(Integer)
+    # Chwila, w której ostatni niezanulowany produkt wszedł do pakowania
+    # („Zeszło z produkcji” w Arkuszu). Nazwa historyczna — kolumnę czyta raport.
     logistics_completed_at = Column(DateTime, index=True)
 
     shipping_package_id = Column(Integer)
