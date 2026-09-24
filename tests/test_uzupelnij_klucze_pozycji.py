@@ -147,10 +147,31 @@ def test_brak_kandydata_bl_daje_bez_dopasowania(app):
         assert bez_dopasowania == [w]
 
 
-def test_dwie_identyczne_sygnatury_sa_niejednoznaczne(app):
-    """Rdzeń bezpieczeństwa: gdy sygnatura nie rozstrzyga jednoznacznie,
-    skrypt MA NIE ZGADYWAĆ, nawet jeśli liczba kandydatów po obu stronach
-    się zgadza."""
+def test_identyczne_linie_w_rownej_liczbie_paruja_sie_po_kolei(app):
+    """Zmiana zasady 24.09.2026: N identycznych linii w bazie i DOKŁADNIE N
+    w BaseLinkerze (np. trzy takie same stopnie schodów) parujemy po kolei.
+    Są nie do odróżnienia, więc każde przypisanie jest poprawne, a zostawienie
+    ich bez klucza zdublowałoby je przy pierwszej synchronizacji (na produkcji
+    26 takich pozycji w 11 zamówieniach)."""
+    with app.app_context():
+        z = zamowienie_db()
+        w1 = pozycja_db(z, nazwa='Blat A', ilosc=1, cena=Decimal('100.00'))
+        w2 = pozycja_db(z, nazwa='Blat A', ilosc=1, cena=Decimal('100.00'))
+        db.session.flush()
+
+        dopasowania, niejednoznaczne, bez_dopasowania = dopasuj_pozycje_zamowienia(
+            [w2, w1], [produkt_bl(992, 'Blat A', 1, '100.00'),
+                      produkt_bl(991, 'Blat A', 1, '100.00')])
+
+        # Po kolei po identyfikatorach — wynik powtarzalny.
+        assert dopasowania == [(w1, 991), (w2, 992)]
+        assert niejednoznaczne == []
+        assert bez_dopasowania == []
+
+
+def test_identyczne_linie_w_roznej_liczbie_zostaja_niejednoznaczne(app):
+    """Rdzeń bezpieczeństwa zostaje: gdy liczba linii i kandydatów się różni,
+    nie wiadomo, który wiersz jest nadmiarowy — skrypt NIE ZGADUJE."""
     with app.app_context():
         z = zamowienie_db()
         w1 = pozycja_db(z, nazwa='Blat A', ilosc=1, cena=Decimal('100.00'))
@@ -158,7 +179,8 @@ def test_dwie_identyczne_sygnatury_sa_niejednoznaczne(app):
 
         dopasowania, niejednoznaczne, bez_dopasowania = dopasuj_pozycje_zamowienia(
             [w1, w2], [produkt_bl(991, 'Blat A', 1, '100.00'),
-                      produkt_bl(992, 'Blat A', 1, '100.00')])
+                      produkt_bl(992, 'Blat A', 1, '100.00'),
+                      produkt_bl(993, 'Blat A', 1, '100.00')])
 
         assert dopasowania == []
         assert set(niejednoznaczne) == {w1, w2}
@@ -272,6 +294,9 @@ def test_tryb_zapisu_uzupelnia_wylacznie_jednoznaczne(app):
             {'order_product_id': 992, 'name': 'Blat B', 'quantity': 1, 'price_brutto': 61.5},
             {'order_product_id': 993, 'name': 'Blat X', 'quantity': 1, 'price_brutto': 12.3},
             {'order_product_id': 994, 'name': 'Blat X', 'quantity': 1, 'price_brutto': 12.3},
+            # Trzecia identyczna pozycja w BL przy dwóch w bazie — liczby się
+            # różnią, więc „Blat X" zostaje niejednoznaczny.
+            {'order_product_id': 995, 'name': 'Blat X', 'quantity': 1, 'price_brutto': 12.3},
         ]}})
 
         statystyki, niejednoznaczne = przetworz_wszystkie(
@@ -358,6 +383,7 @@ def test_niejednoznaczne_pozostaja_niejednoznaczne_przy_ponownym_przebiegu(app):
         pobierz = _pobierz_z_mapy({555: {'products': [
             {'order_product_id': 993, 'name': 'Blat X', 'quantity': 1, 'price_brutto': 12.3},
             {'order_product_id': 994, 'name': 'Blat X', 'quantity': 1, 'price_brutto': 12.3},
+            {'order_product_id': 995, 'name': 'Blat X', 'quantity': 1, 'price_brutto': 12.3},
         ]}})
 
         pierwszy, _ = przetworz_wszystkie(zbierz_kandydatow(), pobierz, zapisz=True)

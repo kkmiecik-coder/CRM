@@ -104,10 +104,19 @@ def dopasuj_pozycje_zamowienia(
 
     Zwraca (dopasowania, niejednoznaczne, bez_dopasowania):
       * dopasowania — pary (wiersz, bl_order_product_id), gotowe do zapisu;
-      * niejednoznaczne — wiersze, których sygnatura ma WIĘCEJ NIŻ JEDNEGO
-        kandydata po którejkolwiek stronie;
+      * niejednoznaczne — wiersze, których sygnatura ma RÓŻNĄ liczbę
+        wierszy i kandydatów (np. 3 wiersze w bazie, 2 pozycje w BL — nie
+        wiadomo, który wiersz jest nadmiarowy);
       * bez_dopasowania — wiersze, których sygnatura nie ma ŻADNEGO
         kandydata w przysyłce z BaseLinkera.
+
+    IDENTYCZNE LINIE (24.09.2026): gdy tę samą sygnaturę ma N wierszy w bazie
+    i DOKŁADNIE N pozycji w BaseLinkerze (np. trzy takie same stopnie schodów
+    w jednym zamówieniu), parujemy je po kolei. Wiersze są nie do odróżnienia
+    — nazwa, ilość i cena są te same, a wymiary, gatunek i klasa pochodzą
+    z nazwy — więc każde przypisanie jest równie poprawne, a pozostawienie
+    ich bez klucza zdublowałoby je przy pierwszej synchronizacji. Kolejność
+    po identyfikatorach, żeby wynik był powtarzalny.
     """
     grupy_db: Dict[tuple, List[SalesOrderItem]] = defaultdict(list)
     for wiersz in wiersze_bez_klucza:
@@ -129,8 +138,14 @@ def dopasuj_pozycje_zamowienia(
         kandydaci = grupy_bl.get(sygnatura, [])
         if not kandydaci:
             bez_dopasowania.extend(wiersze)
-        elif len(wiersze) == 1 and len(kandydaci) == 1:
-            dopasowania.append((wiersze[0], kandydaci[0]['bl_order_product_id']))
+        elif len(wiersze) == len(kandydaci):
+            # Jeden do jednego albo N identycznych linii po obu stronach —
+            # patrz „IDENTYCZNE LINIE" w docstringu.
+            wiersze_po_kolei = sorted(wiersze, key=lambda w: (w.id is None, w.id or 0))
+            kandydaci_po_kolei = sorted(kandydaci, key=lambda p: p['bl_order_product_id'])
+            dopasowania.extend(
+                (wiersz, pola['bl_order_product_id'])
+                for wiersz, pola in zip(wiersze_po_kolei, kandydaci_po_kolei))
         else:
             niejednoznaczne.extend(wiersze)
 
