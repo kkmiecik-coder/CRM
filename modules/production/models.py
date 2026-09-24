@@ -604,7 +604,8 @@ class ProductionProduct(db.Model):
         """
         return not self.parsed_edge_processing
 
-    def should_skip_to_logistics(self):
+    def should_skip_formatting(self):
+        """Bez docięcia na wymiar produkt omija formatowanie i Krawędzie — idzie prosto do pakowania."""
         return self.cut_to_size is False
 
     def complete_task(self, station_code):
@@ -621,45 +622,47 @@ class ProductionProduct(db.Model):
             'assembly': 'czeka_na_sklejanie',
             'gluing': 'czeka_na_formatowanie',
             'formatting': 'czeka_na_krawedzie',
-            'edges': 'czeka_na_logistyke',
-            'painting': 'czeka_na_logistyke',
+            'edges': 'czeka_na_pakowanie',
+            'painting': 'czeka_na_pakowanie',
             'packaging': 'spakowane'
         }
         if station_code in next_status_map:
             next_status = next_status_map[station_code]
 
-            if station_code == 'gluing' and self.should_skip_to_logistics():
-                next_status = 'czeka_na_logistyke'
+            if station_code == 'gluing' and self.should_skip_formatting():
+                next_status = 'czeka_na_pakowanie'
                 for skipped in ('formatting', 'edges'):
                     self.set_quantity_done(skipped, self.quantity, source='auto_skip')
                     completed_attr = f'{skipped}_completed_at'
                     if getattr(self, completed_attr, None) is None:
                         setattr(self, completed_attr, now)
 
-            # Trzecie wyjście z formatowania. KOLEJNOŚĆ JEST CAŁĄ LOGIKĄ: blok
-            # stoi PO bloku gluing (inny station_code, brak kolizji) i PRZED
-            # blokiem odbioru osobistego, bo to ono zamienia logistykę na
-            # pakowanie i musi widzieć ostateczną decyzję.
+            # Trzecie wyjście z formatowania: bez obróbki krawędzi → Lakiernia
+            # (olej/lakier) albo prosto do pakowania.
             if station_code == 'formatting' and self.should_skip_edges():
                 self.set_quantity_done('edges', self.quantity, source='system')
                 if self.parsed_finish_type in ('olejowane', 'lakierowane'):
                     next_status = 'czeka_na_lakiernie'
                 else:
-                    next_status = 'czeka_na_logistyke'
+                    next_status = 'czeka_na_pakowanie'
 
             if station_code == 'edges':
                 if self.parsed_finish_type in ('olejowane', 'lakierowane'):
                     next_status = 'czeka_na_lakiernie'
 
-            if next_status == 'czeka_na_logistyke' and (self.order and self.order.is_personal_pickup):
-                next_status = 'czeka_na_pakowanie'
-                if self.order:
-                    self.order.logistics_completed_at = now
-
             self.current_status = next_status
             completed_attr = f'{station_code}_completed_at'
             if getattr(self, completed_attr, None) is None:
                 setattr(self, completed_attr, now)
+
+            # Logistyka jest równoległa do produkcji (spec 2026-09-24): produkcja
+            # kończy się wejściem do pakowania, a sposób dostawy żyje na zamówieniu.
+            if self.order is not None:
+                from modules.production.logistics.services import delivery as _logistyka
+                if next_status == 'czeka_na_pakowanie':
+                    _logistyka.odnotuj_wejscie_do_pakowania(self.order, now)
+                elif next_status == 'spakowane':
+                    _logistyka.po_spakowaniu(self.order, now)
 
         self.updated_at = now
 

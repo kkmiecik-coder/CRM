@@ -122,9 +122,8 @@ def _produkt(app, status='czeka_na_krawedzie', quantity=2,
 
     Adres dostawy jest OBOWIĄZKOWY, nie ozdobny. ProductionOrder
     .is_personal_pickup (models.py:172-185) zwraca True, gdy zamówienie nie ma
-    ANI adresu, ANI miasta, ANI kodu pocztowego — a complete_task (models.py:518)
-    zamienia wtedy 'czeka_na_logistyke' na 'czeka_na_pakowanie'. Bez tych pól
-    test trasy sprawdzałby odbiór osobisty zamiast routingu stanowisk.
+    ANI adresu, ANI miasta, ANI kodu pocztowego. Bez tych pól test trasy
+    sprawdzałby odbiór osobisty zamiast routingu stanowisk.
     """
     with app.app_context():
         order = ProductionOrder(
@@ -355,7 +354,7 @@ def test_body_z_kodem_finishing_tez_rozwija_sie_na_edges(client, app):
     with app.app_context():
         produkt = ProductionProduct.query.get(produkt_id)
         assert produkt.quantity_done_edges == 2
-        assert produkt.current_status == 'czeka_na_logistyke'
+        assert produkt.current_status == 'czeka_na_pakowanie'
 
 
 def test_stary_tablet_odbija_sztuki_przez_patch_quantity(client, app):
@@ -541,7 +540,7 @@ def test_nowy_tablet_lakierni_domyka_lakiernie(client, app):
                       json={})
 
     assert odp.status_code == 200, odp.get_json()
-    assert odp.get_json()['status'] == 'czeka_na_logistyke'
+    assert odp.get_json()['status'] == 'czeka_na_pakowanie'
 
     with app.app_context():
         produkt = ProductionProduct.query.get(produkt_id)

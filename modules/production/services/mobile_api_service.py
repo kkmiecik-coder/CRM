@@ -1216,8 +1216,7 @@ def mark_order_complete(item, station_code, *, device_id=None,
     Pełna tranzycja statusu (cutting/assembly/gluing/formatting/edges/
     painting/packaging) plus reguły specjalne (pominięcie Krawędzi dla
     produktów bez obróbki krawędzi — niezależnie od wykończenia, Lakiernia
-    dla olejowanych i lakierowanych, personal_pickup omija logistykę)
-    są obsłużone w modelu.
+    dla olejowanych i lakierowanych) są obsłużone w modelu.
 
     NAJPIERW domykamy sztuki przez set_quantity_done(), DOPIERO POTEM
     complete_task(). Powód (docs/worker-profiles-backend.md §8, pułapka nr 1):

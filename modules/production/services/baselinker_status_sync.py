@@ -19,6 +19,7 @@ Trzy momenty zmiany statusu w BL:
    Warunek: wszystkie pozycje zamówienia mają current_status w POSTPROD_STATUSES.
    Wyjść z produkcji jest trzy: formatowanie (surowy bez obróbki krawędzi),
    Krawędzie (surowy z obróbką) i Lakiernia (olejowany / lakierowany).
+   Warunek: wszystkie pozycje w POSTPROD_STATUSES (pakowanie / spakowane).
 
 3. Po ukończeniu pakowania ostatniego produktu zamówienia:
    schedule_after_station_complete() → "Zamówienie spakowane" (138623)
@@ -50,8 +51,9 @@ PRODUCTION_RAW_STATUS_ID = 138619  # fallback dla "W produkcji - surowe"
 WAITING_PERSONAL_PICKUP_STATUS_ID = 149777  # "Czeka na odbiór osobisty"
 PLANNED_ROUTE_STATUS_ID = 417343            # "Planowana trasa" (transport WoodPower)
 
-# Statusy lokalne CRM oznaczające "produkcja zakończona, czekamy na logistykę/pakowanie/po pakowaniu"
-POSTPROD_STATUSES = frozenset({'czeka_na_logistyke', 'czeka_na_pakowanie', 'spakowane'})
+# Statusy lokalne CRM oznaczające „produkcja zakończona” (czeka na pakowanie / po pakowaniu).
+# Logistyka nie jest już etapem — żyje równolegle na zamówieniu.
+POSTPROD_STATUSES = frozenset({'czeka_na_pakowanie', 'spakowane'})
 
 # Stanowiska, po których zamówienie może skończyć produkcję.
 # 'gluing' wchodzi tu tylko przy cut_to_size=False (produkt omija formatowanie
@@ -234,30 +236,20 @@ def flush_pending_syncs() -> None:
 
 def _determine_packaging_target_status(order) -> int:
     """
-    Wybiera ID statusu BL po ukończeniu pakowania na podstawie typu dostawy zamówienia.
+    Status Base. po spakowaniu ostatniego produktu — WYŁĄCZNIE z decyzji logistyka
+    (override_delivery_method), mapa w logistics/sposoby.py. Heurystyka odbioru
+    osobistego z metody dostawy Base. nie decyduje już o niczym.
 
-    Reguła decyzyjna (kolejność istotna):
-    1. is_personal_pickup                              → 149777 (Czeka na odbiór osobisty)
-    2. override_delivery_method == 'transport_woodpower' → 417343 (Planowana trasa)
-    3. override_delivery_method == 'kurier_baselinker'   → 138623 (Zamówienie spakowane)
-    4. fallback (NULL/unknown)                           → 138623 + warn log
-
-    is_personal_pickup musi być pierwsze, bo dla odbioru osobistego logistyka
-    jest pomijana i override_delivery_method jest NULL.
+    Brak decyzji jest możliwy tylko przez ręczną zmianę statusu przez admina
+    (tablet bez sposobu dostawy dostaje 409) → 138623 z ostrzeżeniem.
     """
-    if order.is_personal_pickup:
-        return WAITING_PERSONAL_PICKUP_STATUS_ID
-
-    override = (order.override_delivery_method or '').strip()
-    if override == 'transport_woodpower':
-        return PLANNED_ROUTE_STATUS_ID
-    if override == 'kurier_baselinker':
-        return ORDER_PACKED_STATUS_ID
-
+    from modules.production.logistics import sposoby
+    sposob = sposoby.normalizuj(order.override_delivery_method)
+    if sposob is not None:
+        return sposoby.STATUS_PO_SPAKOWANIU[sposob]
     logger.warning("Pakowanie ukończone bez decyzji logistyki - fallback na 'spakowane'", extra={
         'internal_order_number': order.internal_order_number,
         'baselinker_order_id': order.baselinker_order_id,
-        'override_delivery_method': order.override_delivery_method,
     })
     return ORDER_PACKED_STATUS_ID
 

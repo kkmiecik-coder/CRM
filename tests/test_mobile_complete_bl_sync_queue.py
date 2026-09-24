@@ -254,7 +254,7 @@ def test_complete_na_krawedziach_zamyka_produkcje_w_baselinkerze(client, app, mo
 
     with app.app_context():
         refreshed = ProductionProduct.query.get(product_id)
-        assert refreshed.current_status == 'czeka_na_logistyke'
+        assert refreshed.current_status == 'czeka_na_pakowanie'
         assert refreshed.quantity_done_edges == 2
         assert refreshed.edges_completed_at is not None
 
