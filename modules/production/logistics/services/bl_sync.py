@@ -20,7 +20,7 @@ import time
 from datetime import datetime, timedelta
 
 from flask import current_app
-from sqlalchemy import or_
+from sqlalchemy import or_, text
 
 from extensions import db
 from modules.logging import get_structured_logger
@@ -31,7 +31,11 @@ from modules.production.models import ProductionOrder, get_local_now
 logger = get_structured_logger('production.logistics.bl_sync')
 
 ODSTEP_S = 1.5
-CZAS_DZIERZAWY_S = 90
+# Prawdziwy _make_api_request (sync_service.py) ponawia 3x z timeoutem 30 s i uśpieniem
+# 5/10 s między próbami — jedno wywołanie w najgorszym razie trwa ~105 s. Dzierżawa musi
+# przeżyć choć jedno takie wywołanie z zapasem (odnawiamy ją dopiero MIĘDZY zamówieniami,
+# nie w trakcie pojedynczego wywołania) — stąd > 2x najgorszy pojedynczy czas (R2/F2a).
+CZAS_DZIERZAWY_S = 300
 DOMYSLNA_PAUZA = timedelta(minutes=15)
 KLUCZ_DZIERZAWY = 'logistyka_bl_dzierzawa'
 KLUCZ_PAUZY = 'logistyka_bl_wstrzymane_do'
@@ -44,6 +48,16 @@ class LimitBase(Exception):
     def __init__(self, do_kiedy):
         super().__init__(str(do_kiedy))
         self.do_kiedy = do_kiedy
+
+
+class BladPolaczenia(Exception):
+    """
+    Nie wiemy, czy zapytanie dotarło do Base. (brak klucza API, timeout, wyjątek
+    transportu) — w odróżnieniu od `LimitBase` to NIE jest odpowiedź Base. o limicie,
+    więc nie zapisujemy pauzy. Mimo to przerywamy CAŁY przebieg dopychacza (nie tylko
+    to zamówienie): skoro sieć/konfiguracja nie działa teraz, kolejne zamówienia w tym
+    samym przebiegu i tak by padły tym samym błędem (R2/F2b).
+    """
 
 
 # ── Pauza po limicie ───────────────────────────────────────────────────────
@@ -67,20 +81,28 @@ def wstrzymaj_do(chwila):
 # ── Pojedyncze zapytanie i zamówienie ─────────────────────────────────────
 
 def _wywolaj(metoda, parametry):
-    """True przy SUCCESS, False przy błędzie; LimitBase przy limicie konta."""
+    """
+    True przy SUCCESS, False przy odpowiedzi Base. z błędem (np. zły order_id — to
+    zamówienie zostaje z niewysłanym znacznikiem, reszta przebiegu jedzie dalej).
+    LimitBase przy limicie konta (Base. odpowiedziało, ale odmówiło). BladPolaczenia,
+    gdy nie ma jak wysłać (brak klucza) albo nie wiadomo, co się stało (wyjątek sieci) —
+    to przerywa CAŁY przebieg dopychacza, patrz docstring `BladPolaczenia` (F2b).
+    """
     from modules.production.services.sync_service import get_sync_service
     serwis = get_sync_service()
     if serwis is None or not getattr(serwis, 'api_key', None):
         logger.error("Brak klucza API Base. - wysylka logistyki pominieta")
-        return False
+        raise BladPolaczenia('Brak klucza API Base.')
     try:
         odpowiedz = serwis._make_api_request({
             'token': serwis.api_key, 'method': metoda,
             'parameters': json.dumps(parametry)})
-    except Exception as e:  # SyncError po wyczerpaniu prób sieciowych
+    except Exception as e:  # SyncError po wyczerpaniu prób sieciowych (retry w sync_service)
         logger.error("Blad sieci przy wysylce logistyki do Base.", extra={
             'metoda': metoda, 'error': str(e)})
-        return False
+        # timeout NIE oznacza porazki po stronie Base. — moglo sie udac; zgadywanie dalej
+        # bez wiedzy o stanie po drugiej stronie jest gorsze niz przerwanie przebiegu
+        raise BladPolaczenia(str(e))
     if odpowiedz.get('status') == 'SUCCESS':
         return True
     komunikat = odpowiedz.get('error_message') or ''
@@ -96,36 +118,87 @@ def _wywolaj(metoda, parametry):
     return False
 
 
+def _wyczysc_metode(order, sposob_wyslany):
+    """
+    Czyści `bl_delivery_method_pending` TYLKO gdy `override_delivery_method` w bazie
+    wciąż jest tym samym sposobem, który właśnie wysłaliśmy do Base. (F3/R3). Jeśli
+    logistyk zmienił decyzję W TRAKCIE trwania zapytania HTTP (setOrderFields), znacznik
+    ma zostać — inaczej nowsza decyzja przepadłaby bez wysyłki. Warunkowy UPDATE (nie
+    zwykłe przypisanie w Pythonie), żeby sprawdzić bazę TAKĄ, jaka jest TERAZ, a nie
+    z chwili, gdy wczytaliśmy `order` na początku pętli dopychacza.
+    """
+    wynik = db.session.execute(
+        text('UPDATE prod_orders SET bl_delivery_method_pending = 0 '
+             'WHERE id = :id AND override_delivery_method = :sposob'),
+        {'id': order.id, 'sposob': sposob_wyslany})
+    if wynik.rowcount == 1:
+        order.bl_delivery_method_pending = False
+        return True
+    # ktoś nadpisał decyzję w trakcie wywołania — odświeżamy (wygaszamy) w pamięci, żeby
+    # kolejna próba w TYM SAMYM przebiegu dopychacza zobaczyła nową wartość, nie starą
+    db.session.expire(order, ['override_delivery_method', 'bl_delivery_method_pending'])
+    return False
+
+
+def _wyczysc_status(order, wyslany_status_id):
+    """Jak `_wyczysc_metode`, ale dla statusu Base. (np. stanowisko kierowcy może
+    ustawić nowy `bl_status_pending_id` w trakcie trwania naszego zapytania)."""
+    wynik = db.session.execute(
+        text('UPDATE prod_orders SET bl_status_pending_id = NULL '
+             'WHERE id = :id AND bl_status_pending_id = :wyslany'),
+        {'id': order.id, 'wyslany': wyslany_status_id})
+    if wynik.rowcount == 1:
+        order.bl_status_pending_id = None
+        return True
+    db.session.expire(order, ['bl_status_pending_id'])
+    return False
+
+
 def wyslij_zamowienie(order):
-    """Wysyła znaczniki jednego zamówienia. Zwraca liczbę zapytań. NIE commituje."""
+    """
+    Wysyła znaczniki jednego zamówienia. Zwraca liczbę zapytań. NIE commituje.
+
+    `order._bl_niepowodzenie` (atrybut przejściowy — NIE kolumna, nic go nie persystuje)
+    sygnalizuje dopychaczowi PRAWDZIWĄ porażkę wywołania Base. (dla `pominiete` — nie
+    mielimy zamówienia w kółko). Odróżniamy ją od sytuacji, gdy zapytanie się udało, ale
+    kod pominął czyszczenie znacznika, bo ktoś nadpisał decyzję w międzyczasie (F3) —
+    to NIE jest porażka, zamówienie ma zostać wybrane ponownie w tym samym przebiegu.
+    """
+    order._bl_niepowodzenie = False
     if not order.baselinker_order_id:
         order.bl_delivery_method_pending = False
         order.bl_status_pending_id = None
         return 0
     zapytania = 0
     if order.bl_delivery_method_pending:
-        tekst = sposoby.TEKST_BASE.get(sposoby.normalizuj(order.override_delivery_method))
+        # sposob_wyslany ZAPAMIĘTUJEMY sprzed wywołania — to on (nie ewentualna nowsza
+        # wartość) idzie do warunku czyszczącego znacznik po odpowiedzi Base.
+        sposob_wyslany = sposoby.normalizuj(order.override_delivery_method)
+        tekst = sposoby.TEKST_BASE.get(sposob_wyslany)
         if tekst is None or (order.delivery_method or '').strip() == tekst:
             order.bl_delivery_method_pending = False
         else:
             zapytania += 1
             if _wywolaj('setOrderFields', {'order_id': order.baselinker_order_id,
                                            'delivery_method': tekst}):
+                # tekst, który Base. FAKTYCZNIE dostało — zapisujemy zawsze, niezależnie
+                # od tego, czy w międzyczasie ktoś zmienił decyzję logistyka
                 order.delivery_method = tekst
-                order.bl_delivery_method_pending = False
+                _wyczysc_metode(order, sposob_wyslany)
+            else:
+                order._bl_niepowodzenie = True
     if order.bl_status_pending_id:
+        wyslany_status = order.bl_status_pending_id
         zapytania += 1
         if _wywolaj('setOrderStatus', {'order_id': order.baselinker_order_id,
-                                       'status_id': order.bl_status_pending_id}):
-            order.bl_status_pending_id = None
+                                       'status_id': wyslany_status}):
+            _wyczysc_status(order, wyslany_status)
+        else:
+            order._bl_niepowodzenie = True
     return zapytania
 
 
 # ── Dopychacz ─────────────────────────────────────────────────────────────
-
-def _czeka(order):
-    return bool(order.bl_delivery_method_pending or order.bl_status_pending_id)
-
 
 def dopychaj(limit_zapytan=None, limit_czasu_s=None, spij=time.sleep, zegar=time.monotonic):
     wynik = {'zamowienia': 0, 'zapytania': 0, 'wstrzymane': False, 'dzierzawa': False}
@@ -162,19 +235,43 @@ def dopychaj(limit_zapytan=None, limit_czasu_s=None, spij=time.sleep, zegar=time
                 wynik['wstrzymane'] = True
                 wynik['zapytania'] += 1
                 break
+            except BladPolaczenia as e:
+                # awaria sieci/konfiguracji — to NIE limit API (nie zapisujemy pauzy w
+                # prod_config), ale próbowanie kolejnych zamówień w tym przebiegu i tak
+                # by padło tym samym błędem, więc przerywamy cały przebieg od razu (F2b/c)
+                db.session.commit()  # to, co przeszło przed błędem, zostaje
+                logger.error("Blad polaczenia z Base. - przebieg dopychacza przerwany",
+                            extra={'error': str(e)})
+                wynik['zapytania'] += 1
+                break
             db.session.commit()
             wynik['zamowienia'] += 1
             wynik['zapytania'] += zapytania
-            if _czeka(order):
-                pominiete.append(order.id)  # nieudane — nie mielimy w kółko w tym przebiegu
+            if getattr(order, '_bl_niepowodzenie', False):
+                # PRAWDZIWA porażka Base. (nie nadpisana w międzyczasie decyzja, patrz
+                # F3) — nie mielimy tego zamówienia w kółko w tym samym przebiegu
+                pominiete.append(order.id)
             znacznik = dzierzawa.odnow(KLUCZ_DZIERZAWY, znacznik, CZAS_DZIERZAWY_S)
             if znacznik is None:
                 break
             if zapytania:
-                spij(ODSTEP_S)
+                # odstęp PROPORCJONALNY do liczby zapytań w TYM zamówieniu — metoda i
+                # status mogą iść jedno po drugim, więc dwa zapytania w jednym obiegu
+                # pętli też muszą zmieścić się w limicie ≤ 40/min (F1)
+                spij(ODSTEP_S * zapytania)
     finally:
         if znacznik:
-            dzierzawa.zwolnij(KLUCZ_DZIERZAWY, znacznik)
+            # sesja mogła trafić w stan błędu (nieobsłużony wyjątek nad tym try) —
+            # bez rollbacku samo zwolnienie dzierżawy by się wywróciło (PendingRollback)
+            # i przepadłaby na 300 s zamiast zostać zwolniona od razu (F2d)
+            try:
+                if not db.session.is_active:
+                    db.session.rollback()
+                dzierzawa.zwolnij(KLUCZ_DZIERZAWY, znacznik)
+            except Exception as e:
+                # nigdy nie maskujemy oryginalnego wyjątku (jeśli jakiś leci) — tylko log
+                logger.error("Nie udalo sie zwolnic dzierzawy wysylki do Base.",
+                            extra={'error': str(e)})
     return wynik
 
 
@@ -194,7 +291,10 @@ def uruchom_w_tle(app):
                 try:
                     dopychaj()
                 except Exception as e:
-                    logger.error("Dopychacz logistyki przerwany", extra={'error': str(e)})
+                    # exc_info=True - pelny traceback w logu; watek w tle nie ma innego
+                    # miejsca, w ktorym ktokolwiek zobaczylby ten wyjatek (F2d)
+                    logger.error("Dopychacz logistyki przerwany", extra={'error': str(e)},
+                                exc_info=True)
                 finally:
                     db.session.remove()
 

@@ -2,6 +2,7 @@
 from datetime import datetime, timedelta
 
 import pytest
+from sqlalchemy import text
 
 from extensions import db
 from modules.production.logistics import sposoby as s
@@ -119,6 +120,19 @@ def test_dopychacz_ma_odstep_i_zwalnia_dzierzawe(app, base):
         assert dzierzawa.przejmij(bl_sync.KLUCZ_DZIERZAWY, 90) is not None  # zwolniona
 
 
+def test_dopychacz_odstep_proporcjonalny_do_liczby_zapytan(app, base):
+    """F1 (review): jedno zamówienie z DWOMA znacznikami (metoda + status) robi dwa
+    zapytania z rzędu — odstęp też musi być podwójny, inaczej dwa zapytania w jednym
+    obiegu pętli omijają limit Base. (~40/min przy pojedynczym odstępie ODSTEP_S)."""
+    przerwy = []
+    with app.app_context():
+        zamowienie(sposob=s.TRANSPORT, delivery_method='Kurier DPD',
+                   bl_delivery_method_pending=True, bl_status_pending_id=417343)
+        wynik = bl_sync.dopychaj(spij=przerwy.append)
+        assert wynik['zapytania'] == 2
+        assert przerwy == [bl_sync.ODSTEP_S * 2]
+
+
 def test_limit_zapytan_przebiegu(app, base):
     with app.app_context():
         for _ in range(5):
@@ -167,3 +181,126 @@ def test_furtka_kierowcy_ustawia_znaczniki():
     assert order.bl_status_pending_id == 149763
     bl_sync.oznacz_dostarczone(order)
     assert order.bl_status_pending_id == 149778
+
+
+# ── F2 (review): błąd połączenia (nie odpowiedź Base.) przerywa cały przebieg ──────
+
+class FakeBaseSiecPada(FakeBase):
+    """`_make_api_request` rzuca wyjątkiem (np. timeout sieci) zamiast zwrócić
+    odpowiedź — symuluje wyczerpanie prób w prawdziwym `_make_api_request`."""
+
+    def _make_api_request(self, dane):
+        import json
+        self.wywolania.append((dane['method'], json.loads(dane['parameters'])))
+        raise RuntimeError('timeout')
+
+
+def test_awaria_sieci_przerywa_przebieg_bez_pauzy_i_zwalnia_dzierzawe(app, monkeypatch):
+    """F2 (review): błąd sieci/konfiguracji to NIE limit API Base. — nie zapisujemy
+    pauzy (`wstrzymane_do` zostaje None), ale dalsze zamówienia w tym przebiegu by
+    padły tym samym błędem, więc przerywamy od razu (drugie zamówienie nie jest
+    nawet próbowane) i mimo to zwalniamy dzierżawę (nie blokujemy jej na 300 s)."""
+    fake = FakeBaseSiecPada()
+    import modules.production.services.sync_service as ss
+    monkeypatch.setattr(ss, 'get_sync_service', lambda: fake)
+    with app.app_context():
+        a = zamowienie(sposob=s.KURIER, bl_delivery_method_pending=True)
+        b = zamowienie(sposob=s.ODBIOR, bl_delivery_method_pending=True)
+        wynik = bl_sync.dopychaj(spij=lambda _: None)
+        assert wynik['wstrzymane'] is False
+        assert bl_sync.wstrzymane_do() is None
+        assert len(fake.wywolania) == 1
+        db.session.expire_all()
+        assert ProductionOrder.query.get(a.id).bl_delivery_method_pending is True
+        assert ProductionOrder.query.get(b.id).bl_delivery_method_pending is True
+        assert dzierzawa.przejmij(bl_sync.KLUCZ_DZIERZAWY, 300) is not None  # zwolniona
+
+
+# ── F3 (review): decyzja nadpisana W TRAKCIE trwania zapytania do Base. ────────────
+
+class FakeBaseZBocznymZapisem(FakeBase):
+    """
+    Symuluje równoległego aktora (np. stanowisko kierowcy albo logistyka na drugiej
+    karcie), który w trakcie trwania NASZEGO zapytania HTTP do Base. zdąży zapisać
+    nową decyzję bezpośrednio w bazie (surowy SQL na tej samej sesji — w testach
+    współdzielimy połączenie SQLite, więc widzimy zapis od razu, tak jak dwa procesy
+    widziałyby się nawzajem po commicie na MySQL). Boczny zapis wykonuje się TYLKO
+    przy pierwszym wywołaniu, żeby druga próba w tym samym przebiegu mogła się udać.
+    """
+
+    def __init__(self, sql, parametry):
+        super().__init__()
+        self._sql = sql
+        self._parametry = parametry
+        self._wykonano = False
+
+    def _make_api_request(self, dane):
+        odpowiedz = super()._make_api_request(dane)
+        if not self._wykonano:
+            self._wykonano = True
+            db.session.execute(text(self._sql), self._parametry)
+        return odpowiedz
+
+
+def test_status_nadpisany_w_trakcie_wywolania_nie_jest_kasowany(app, monkeypatch):
+    """F3 (review): stanowisko kierowcy ustawia NOWY status (149779) W TRAKCIE, gdy
+    dopychacz wysyła STARY (149777) — dopychacz nie może skasować znacznika na None,
+    bo nowa decyzja przepadłaby bez wysyłki."""
+    with app.app_context():
+        order = zamowienie(sposob=s.KURIER, bl_status_pending_id=149777)
+        order_id = order.id
+        fake = FakeBaseZBocznymZapisem(
+            'UPDATE prod_orders SET bl_status_pending_id = 149779 WHERE id = :id',
+            {'id': order_id})
+        import modules.production.services.sync_service as ss
+        monkeypatch.setattr(ss, 'get_sync_service', lambda: fake)
+        bl_sync.wyslij_zamowienie(order)
+        db.session.commit()
+        db.session.expire_all()
+        assert ProductionOrder.query.get(order_id).bl_status_pending_id == 149779
+
+
+def test_metoda_nadpisana_w_trakcie_wywolania_zostaje_znacznik(app, monkeypatch):
+    """F3 (review): ktoś zmienia sposób dostawy (na odbiór osobisty) W TRAKCIE, gdy
+    dopychacz wysyła 'Kurier' — znacznik `bl_delivery_method_pending` MUSI zostać
+    (nowa decyzja czeka na wysyłkę), ale `delivery_method` ma tekst, który FAKTYCZNIE
+    poszedł do Base. w tym wywołaniu (nie nowy, nieznany jeszcze Base.)."""
+    with app.app_context():
+        order = zamowienie(sposob=s.KURIER, delivery_method='Kurier DPD',
+                           bl_delivery_method_pending=True)
+        order_id = order.id
+        fake = FakeBaseZBocznymZapisem(
+            "UPDATE prod_orders SET override_delivery_method = 'odbior_osobisty' "
+            "WHERE id = :id",
+            {'id': order_id})
+        import modules.production.services.sync_service as ss
+        monkeypatch.setattr(ss, 'get_sync_service', lambda: fake)
+        bl_sync.wyslij_zamowienie(order)
+        db.session.commit()
+        db.session.expire_all()
+        odswiezony = ProductionOrder.query.get(order_id)
+        assert odswiezony.bl_delivery_method_pending is True
+        assert odswiezony.delivery_method == 'Kurier'
+
+
+def test_dopychacz_wysyla_ponownie_nadpisana_decyzje_w_tym_samym_przebiegu(app, monkeypatch):
+    """F3 (review): zamówienie, któremu ktoś nadpisał decyzję W TRAKCIE wysyłki, NIE
+    trafia do „pominiętych" na resztę przebiegu (to nie jest porażka Base.) — dopychacz
+    próbuje je ponownie od razu, w tym samym przebiegu, z NOWĄ wartością."""
+    with app.app_context():
+        order = zamowienie(sposob=s.KURIER, bl_status_pending_id=149777)
+        order_id = order.id
+        fake = FakeBaseZBocznymZapisem(
+            'UPDATE prod_orders SET bl_status_pending_id = 149779 WHERE id = :id',
+            {'id': order_id})
+        import modules.production.services.sync_service as ss
+        monkeypatch.setattr(ss, 'get_sync_service', lambda: fake)
+        wynik = bl_sync.dopychaj(spij=lambda _: None)
+        # pierwsza próba: boczny zapis „wygrywa" (149779), znacznik NIE jest kasowany;
+        # druga próba w tym samym przebiegu wysyła już nową wartość i ją kasuje
+        assert len(fake.wywolania) == 2
+        assert fake.wywolania[0][1]['status_id'] == 149777
+        assert fake.wywolania[1][1]['status_id'] == 149779
+        assert wynik['zapytania'] == 2
+        db.session.expire_all()
+        assert ProductionOrder.query.get(order_id).bl_status_pending_id is None
