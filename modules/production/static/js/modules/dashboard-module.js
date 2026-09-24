@@ -508,8 +508,8 @@ class DashboardModule {
         const zSkladania = `V${Y(2) - 17} C${B},${Y(2) - 7} ${X},${Y(2) - 10} ${X},${Y(2)}`;
         // Trasy omijające wynikają z ProductionProduct.complete_task():
         // brak docięcia na wymiar wyrzuca pozycję ze Sklejania wprost do
-        // Logistyki, a brak obróbki krawędzi — z Formatowania do Lakierni.
-        const lukDlugi = `M${X},${Y(2)} C${L},${Y(2) + 51} ${L},${Y(6) - 51} ${X},${Y(6)}`;
+        // Pakowania, a brak obróbki krawędzi — z Formatowania do Lakierni.
+        const lukDlugi = `M${X},${Y(2)} C${L},${Y(2) + 51} ${L},${Y(7) - 51} ${X},${Y(7)}`;
         const lukKrotki = `M${X},${Y(3)} C${R},${Y(3) + 27} ${R},${Y(5) - 27} ${X},${Y(5)}`;
 
         const linia = (d, kolor) => `<path d="${d}" fill="none" stroke="${kolor || '#e2e7ec'}" stroke-width="1.5" stroke-linecap="round"/>`;

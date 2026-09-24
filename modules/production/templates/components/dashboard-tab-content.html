@@ -270,15 +270,15 @@
           <a href="{{ url_for('production.production_stations.monitor_station', station_code='painting') }}" class="il-rail-open" title="Podgląd monitora" aria-label="Otwórz monitor: Lakiernia"><i class="fas fa-external-link-alt"></i></a>
         </div>
 
-        {# LOGISTYKA — bramka decyzji o wysyłce, własny kształt wiersza #}
+        {# LOGISTYKA — równoległa do produkcji: licznik zamówień bez sposobu dostawy #}
         <div class="il-station il-station--gate" data-station="logistics">
           <div></div>
           <div class="il-rail-name"><span class="il-rail-name-main">Logistyka</span></div>
           <div class="il-rail-gate">
             <span class="il-rail-gate-n" id="logistics-pending">{{ dashboard_stats.logistics.pending_count|default(0) }}</span>
-            <span class="il-rail-gate-l">oczekuje na decyzję</span>
+            <span class="il-rail-gate-l">bez sposobu dostawy</span>
           </div>
-          <a href="{{ url_for('production.production_main.logistics') }}" class="il-rail-open" title="Otwórz stanowisko" aria-label="Otwórz stanowisko: Logistyka"><i class="fas fa-external-link-alt"></i></a>
+          <a href="{{ url_for('production.production_main.dashboard') }}?tab=logistics" class="il-rail-open" title="Otwórz zakładkę Logistyka" aria-label="Otwórz zakładkę Logistyka"><i class="fas fa-external-link-alt"></i></a>
         </div>
 
         {# PAKOWANIE #}

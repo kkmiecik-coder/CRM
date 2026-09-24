@@ -323,15 +323,15 @@ def test_lista_stanowisk_jest_kolumna_a_nazwa_klasy_zostaje():
 
 def test_logistyka_nie_udaje_stanowiska_na_hali():
     """
-    Logistyka to bramka decyzji o wysyłce: nikt się na niej nie loguje, nie
-    ma tabletu ani przerobu w m³. Stary kafel pokazywał wyłącznie liczbę
-    czekających na decyzję i wiersz ma robić dokładnie to samo — wypełnianie
-    sześciu kolumn zerami kłamałoby o tym, że coś się tam mierzy.
+    Logistyka to bramka licząca zamówienia bez sposobu dostawy: nikt się na
+    niej nie loguje, nie ma tabletu ani przerobu w m³. Stary kafel pokazywał
+    wyłącznie liczbę czekających i wiersz ma robić dokładnie to samo —
+    wypełnianie sześciu kolumn zerami kłamałoby o tym, że coś się tam mierzy.
     """
     html = _plik(SZABLON)
 
     blok = html.split('data-station="logistics"')[1].split('data-station=')[0]
     assert 'id="logistics-pending"' in blok
-    assert 'oczekuje na decyzję' in blok
+    assert 'bez sposobu dostawy' in blok
     for czego_nie_ma in ('-bar-fill', '-tablet-badge', 'station_crew', 'today-m3'):
         assert czego_nie_ma not in blok, czego_nie_ma

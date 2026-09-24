@@ -2776,7 +2776,6 @@ class ProductsModule {
             { value: 'czeka_na_formatowanie', label: 'Formatowanie' },
             { value: 'czeka_na_krawedzie', label: 'Krawędzie' },
             { value: 'czeka_na_lakiernie', label: 'Lakiernia' },
-            { value: 'czeka_na_logistyke', label: 'Logistyka' },
             { value: 'czeka_na_pakowanie', label: 'Pakowanie' },
             { value: 'spakowane', label: 'Spakowane' },
             { value: 'wstrzymane', label: 'Wstrzymane' },
@@ -3926,7 +3925,7 @@ class ProductsModule {
             commonStations.push('painting');
         }
 
-        commonStations.push('logistics', 'packaging');
+        commonStations.push('packaging');
 
         if (technology === 'mikrowczep') {
             return ['cutting', ...commonStations];
@@ -4011,16 +4010,6 @@ class ProductsModule {
                 durationField: null
             },
             {
-                code: 'logistics',
-                name: 'Logistyka',
-                status: 'czeka_na_logistyke',
-                icon: 'fas fa-truck',
-                color: 'logistics-theme',
-                startField: null,
-                endField: 'logistics_completed_at',
-                durationField: null
-            },
-            {
                 code: 'packaging',
                 name: 'Pakowanie',
                 status: 'czeka_na_pakowanie',
@@ -4093,7 +4082,6 @@ class ProductsModule {
             'formatting': 'formatting_completed_at',
             'edges': 'edges_completed_at',
             'painting': 'painting_completed_at',
-            'logistics': 'logistics_completed_at',
             'packaging': 'packaging_completed_at'
         };
         const statusMap = {
@@ -4103,7 +4091,6 @@ class ProductsModule {
             'formatting': 'czeka_na_formatowanie',
             'edges': 'czeka_na_krawedzie',
             'painting': 'czeka_na_lakiernie',
-            'logistics': 'czeka_na_logistyke',
             'packaging': 'czeka_na_pakowanie'
         };
 
@@ -4139,7 +4126,7 @@ class ProductsModule {
      * Określa stan timeline dla stacji
      */
     getTimelineState(station, product) {
-        const stationOrder = ['cutting', 'assembly', 'gluing', 'formatting', 'edges', 'painting', 'logistics', 'packaging'];
+        const stationOrder = ['cutting', 'assembly', 'gluing', 'formatting', 'edges', 'painting', 'packaging'];
         const endFields = {
             'cutting': 'cutting_completed_at',
             'assembly': 'assembly_completed_at',
@@ -4147,7 +4134,6 @@ class ProductsModule {
             'formatting': 'formatting_completed_at',
             'edges': 'edges_completed_at',
             'painting': 'painting_completed_at',
-            'logistics': 'logistics_completed_at',
             'packaging': 'packaging_completed_at'
         };
         const statusMap = {
@@ -4157,7 +4143,6 @@ class ProductsModule {
             'formatting': 'czeka_na_formatowanie',
             'edges': 'czeka_na_krawedzie',
             'painting': 'czeka_na_lakiernie',
-            'logistics': 'czeka_na_logistyke',
             'packaging': 'czeka_na_pakowanie'
         };
 

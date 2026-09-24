@@ -1287,7 +1287,9 @@ def bulk_action():
         # trafia w to bardzo łatwo.
         if action == 'update_status':
             nowy_status = parameters.get('new_status')
-            dozwolone_statusy = set(ProductionItem.current_status.type.enums)
+            # 'czeka_na_logistyke' zostaje w ENUM do sprzątania, ale nie jest już
+            # etapem pipeline'u — logistyka żyje równolegle na zamówieniu.
+            dozwolone_statusy = set(ProductionItem.current_status.type.enums) - {'czeka_na_logistyke'}
             if nowy_status not in dozwolone_statusy:
                 return jsonify({
                     'success': False,
@@ -1343,6 +1345,12 @@ def bulk_action():
                 results['errors'].append(f'Błąd produktu {product.id}: {str(e)}')
                 results['failed_count'] += 1
         
+        if action == 'update_status':
+            # Ręczna zmiana statusu może zamknąć albo otworzyć cykl logistyczny zamówienia.
+            from modules.production.logistics.services.delivery import przelicz_zamkniecie
+            for zamowienie in {p.order for p in products if p.order is not None}:
+                przelicz_zamkniecie(zamowienie)
+
         # Zapisz zmiany dla akcji modyfikujących
         if action in ['update_status', 'update_priority', 'delete']:
             db.session.commit()

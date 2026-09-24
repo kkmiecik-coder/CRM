@@ -200,8 +200,8 @@ def dashboard():
 @main_bp.route('/logistics')
 @login_required
 def logistics():
-    """Strona stanowiska Logistyka — decyzja o transporcie"""
-    return render_template('logistics/logistics.html')
+    """Stara strona logistyki — dziś zakładka panelu produkcji (zakładki z linków i zakładek przeglądarki)."""
+    return redirect(url_for('production.production_main.dashboard') + '?tab=logistics')
 
 
 @main_bp.route('/config')

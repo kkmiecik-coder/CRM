@@ -52,16 +52,12 @@ _STATUS_RANK = {
     # pigułkę podpisaną surowym kodem 'finishing' obok pigułki „Krawędzie".
     'czeka_na_krawedzie': (5, 'edges'),
     'czeka_na_lakiernie': (6, 'painting'),
-    'czeka_na_logistyke': (7, 'logistics'),
     'czeka_na_pakowanie': (8, 'packaging'),
 }
 
-# Etykiety dla pozycji spoza pipeline'u stanowisk. 'logistics' nie jest
-# stanowiskiem w station_catalog (nie ma tabletu na hali), ale jest etapem,
-# na którym pozycja realnie stoi — i ma swój kafelek na dashboardzie.
+# Etykiety dla pozycji spoza pipeline'u stanowisk.
 _EXTRA_LABELS = {
     'hold': 'Wstrzymane',
-    'logistics': 'Logistyka',
 }
 
 # Ranga dla statusów, których nie ma w mapie ('w_realizacji', 'anulowane',

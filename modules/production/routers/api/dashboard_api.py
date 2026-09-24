@@ -258,11 +258,6 @@ def dashboard_stats():
                     'waiting_count': count,
                     'avg_priority': round(avg_priority or 0, 1)
                 }
-            elif status == 'czeka_na_logistyke':
-                stations_stats['logistics'] = {
-                    'waiting_count': count,
-                    'avg_priority': round(avg_priority or 0, 1)
-                }
 
         # ============================================================================
         # DODATKOWE STATYSTYKI (nowe)
@@ -1001,10 +996,12 @@ def dashboard_tab_content():
                 dashboard_stats['stations'][station_code]['pending_m3'],
                 tempo.get(station_code))
 
-        logistics_pending = db.session.query(
-            db.func.count(db.func.distinct(ProductionOrder.internal_order_number))
-        ).join(ProductionItem, ProductionItem.order_id == ProductionOrder.id).filter(
-            ProductionItem.current_status == 'czeka_na_logistyke'
+        # Bramka Logistyki: otwarte zamówienia, którym logistyk nie ustawił jeszcze
+        # sposobu dostawy (logistyka jest równoległa — nie liczymy statusu produktu).
+        logistics_pending = db.session.query(db.func.count(ProductionOrder.id)).filter(
+            ProductionOrder.logistics_closed_at.is_(None),
+            ProductionOrder.override_delivery_method.is_(None),
+            ProductionOrder.products.any(ProductionItem.current_status != 'anulowane'),
         ).scalar() or 0
         dashboard_stats['logistics'] = {
             'pending_count': logistics_pending
