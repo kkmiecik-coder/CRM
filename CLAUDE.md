@@ -32,15 +32,25 @@ te domyślne są zajęte (5000 — odbiornik AirPlay, 3306 — MariaDB z XAMPP, 
 działać dla bazy `thunder_orders` innego projektu), stąd 5002 i 3308.
 
 W tym samym `.env` leży **klucz sesji** `FLASK_SECRET_KEY` — bez niego aplikacja nie wstanie
-(czytelny błąd `BrakKluczaSesjiError` przy starcie). Jednorazowo na maszynę
-(macOS: `python3`; upewnij się, że `.env` kończy się znakiem nowej linii):
+(czytelny błąd `BrakKluczaSesjiError` przy starcie). Jednorazowo na maszynę, z katalogu repo
+(macOS: `python3` zamiast `python`; jeśli `.env` ma już linię `FLASK_SECRET_KEY`, pomiń):
 ```bash
-python -c "import secrets; print('FLASK_SECRET_KEY=' + secrets.token_hex(32))" >> .env
+python -c "import secrets; open('.env','a',encoding='utf-8',newline='\n').write('\nFLASK_SECRET_KEY=' + secrets.token_hex(32) + '\n')"
 docker compose up -d    # odtworzy kontener app już z kluczem
 ```
+Komenda działa tak samo w PowerShellu, cmd, bashu i zsh i nie wyświetla klucza. **Nie używaj
+`... >> .env`**: Windows PowerShell 5.1 dopisuje wtedy linię w UTF-16LE, po czym każde
+polecenie `docker compose` (także `down`/`ps`) pada na `unexpected character "\x00"`,
+a przy `.env` bez końcowego znaku nowej linii klucz skleja się z poprzednią linią.
+
+Zrób to **przed** pobraniem kodu, który wymaga klucza (pull `main` / przełączenie gałęzi):
+dev server przeładowuje się przy zmianie plików i bez klucza kontener `app` od razu
+przestaje działać. Stary kod zmienną ignoruje, więc kolejność „najpierw klucz” jest bezpieczna.
+
 Każda maszyna ma własny, losowy klucz. Wartości nie wpisuj do `docker-compose.yml` ani
 nigdzie w repo — repo jest publiczne. Testy klucza nie potrzebują (`tests/conftest.py`
-losuje własny).
+losuje własny). `.env` to wyłącznie sprawa **lokalnego Dockera** — na serwerze klucz jest
+tylko w `config/core.json` (patrz „Ważne” w sekcji Deployment).
 
 App: http://localhost:5002, Flask dev server z auto-reloadem przy zmianie plików.
 MySQL 8.4: port 3308 na hoście (wolumen `db_data` — dane przeżywają restart kontenerów).
@@ -123,6 +133,14 @@ autoryzowany tokenem (nie `@login_required` — cron nie ma sesji). Przykład
 w kodzie: `/production/api/sync-cron`. Nowy wpis w crontabie trzeba dodać
 ręcznie przy wdrożeniu — to element zakresu zadania, nie coś, co samo wstanie.
 
+Autoryzacja: dekorator `cron_secret_required` z `cron_auth.py` (jeden dla wszystkich
+endpointów CRON), nagłówek `X-Cron-Secret` porównywany stałoczasowo z polem
+`PRODUCTION_CRON_SECRET` w `config/core.json`. **Wartości domyślnej w kodzie nie ma**:
+brak pola = endpointy CRON odpowiadają 500 (zamknięte), zły nagłówek = 403. Wpis
+crontaba nie trzyma sekretu: woła `scripts/cron_endpoint.sh METODA ŚCIEŻKA`, który
+czyta go z `core.json` i podaje curlowi przez stdin (albo własny skrypt według tego
+samego wzoru, jak `scripts/cron_close_worker_sessions.sh`).
+
 ## Deployment
 
 ### Automatyczny deploy (webhook GitHub)
@@ -134,16 +152,23 @@ podpis HMAC-SHA256 (`GITHUB_WEBHOOK_SECRET`) i sprawdza gałąź → odpala
 przeżył restart gunicorna.
 
 Kroki `deploy.sh`:
-1. Lock `/tmp/crm-deploy.lock` — blokada równoległych deployów
+1. Lock `/tmp/crm-deploy.lock` — blokada równoległych deployów;
+   `FLASK_SKIP_DOTENV=1`, żeby CLI Flaska nie czytał `.env` (gunicorn go nie czyta,
+   więc bramka z kroku 5 musi widzieć to samo środowisko co gunicorn)
 2. `git fetch` + `git reset --hard origin/main`
 3. `venv/bin/pip install -r requirements.txt` (best-effort)
 4. `flask sync-changelog` (best-effort)
-5. **`flask migrate` — PRZED restartem.** Niepowodzenie PRZERYWA deploy:
-   kod jest pobrany, ale proces chodzi dalej na starym, więc stary kod
-   i stary schemat zostają spójne
+5. **`flask migrate` — PRZED restartem.** Niepowodzenie PRZERYWA deploy
+   i cofa kod na dysku (`git reset --hard` do poprzedniego HEAD), więc dysk,
+   działający proces i schemat zostają spójne. Samo „nie restartujemy” nie
+   wystarcza: gunicorn importuje `app.py` przy każdym nowym workerze (timeout,
+   awaria, `max_requests`), więc nowy kod na dysku mógłby położyć serwer sam
 6. `sudo /usr/local/sbin/crm-fix-logs-perms.sh` — chown katalogu logów
    (bez tego gunicorn może nie wstać → nginx 502)
 7. `sudo /usr/bin/supervisorctl restart crm_woodpower`
+
+Uwaga: webhook uruchamia `deploy.sh` w wersji leżącej na dysku **przed** pobraniem
+kodu. Zmiana samego `deploy.sh` działa więc dopiero od następnego deployu.
 
 `.github/workflows/deploy.yml` istnieje, ale ma **`on: workflow_dispatch`** —
 tylko ręczne uruchomienie, jako fallback. Deploy po SSH był loteryjny przez
@@ -170,9 +195,10 @@ po Passengerze na starym hostingu współdzielonym. Nie jest wejściem aplikacji
 cd /home/woodpower-crm/htdocs/crm.woodpower.pl
 git fetch origin main && git reset --hard origin/main
 venv/bin/pip install -r requirements.txt
-venv/bin/flask migrate
-sudo /usr/bin/supervisorctl restart crm_woodpower
+FLASK_SKIP_DOTENV=1 venv/bin/flask migrate && sudo /usr/bin/supervisorctl restart crm_woodpower
 ```
+Gdy `flask migrate` padnie, NIE restartuj — wróć kodem do poprzedniego commita
+(`git reset --hard <poprzedni HEAD>`), jak robi to `deploy.sh`.
 
 Albo po prostu `./deploy.sh` — robi dokładnie to samo, z lockiem i logami.
 
@@ -181,12 +207,17 @@ Albo po prostu `./deploy.sh` — robi dokładnie to samo, z lockiem i logami.
 - Restart to kilka sekund niedostępności. Tablety hali to przetrwają —
   akcje lądują w kolejce offline apki i dosynchronizują się same
 - Hasła: produkcja używa `scrypt`, lokalnie `pbkdf2` (zgodność Werkzeug)
-- Klucz sesji na serwerze: pole `SECRET_KEY` w `config/core.json` (czytają je gunicorn,
-  `flask migrate` z `deploy.sh` i komendy `flask` z crona — zmienna środowiskowa
-  w supervisorze nie dotarłaby do ręcznie odpalonego `./deploy.sh`). Bez klucza
-  `flask migrate` kończy się błędem i deploy przerywa się **przed** restartem — stara
-  wersja działa dalej, ale kod na dysku jest już nowy, więc restart serwera przed
-  uzupełnieniem klucza skończy się 502
+- Klucz sesji na serwerze: **wyłącznie** pole `SECRET_KEY` w `config/core.json`
+  (czytają je gunicorn, `flask migrate` z `deploy.sh` i komendy `flask` z crona).
+  **Nie** w `.env` — gunicorn go nie czyta, a `deploy.sh` celowo wyłącza go dla CLI.
+  **Nie** w środowisku supervisora — nie dotarłoby do ręcznie odpalonego `./deploy.sh`,
+  a zmienna ma pierwszeństwo przed core.json, więc stara wartość tam zniweczyłaby
+  rotację. Bez klucza `flask migrate` kończy się błędem, deploy przerywa się
+  **przed** restartem i cofa kod na dysku do poprzedniej wersji
+- Pozostałe sekrety też tylko w `config/core.json`, bez wartości domyślnych w kodzie:
+  `PRODUCTION_CRON_SECRET` (endpointy CRON, patrz „Zadania cykliczne”),
+  `CEIDG_JWT_TOKEN` (wyszukiwanie firm w CEIDG; bez niego, gdy GUS i MF nie znajdą
+  firmy, `/clients/api/gus_lookup` zwraca 503 zamiast szukać w CEIDG)
 - Dodając zależność, pamiętaj o `requirements.txt` — deploy instaluje z niego
 - API mobilne (`/api/mobile/*`) jest **niezależne** od paneli webowych
   produkcji; zmiany w `modules/production/routers/stations/` nie dotykają tabletów
@@ -244,6 +275,7 @@ Configured in `config/core.json`:
 - Google Generative AI (AI assistant)
 - SMTP mail server
 - GlobKurier shipping API
+- CEIDG API (`CEIDG_JWT_TOKEN`, wyszukiwanie firm po NIP — fallback po GUS i MF)
 
 ## Key Patterns
 

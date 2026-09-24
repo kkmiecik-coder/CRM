@@ -8,8 +8,10 @@ services:
       FLASK_DEBUG: "1"
       # Klucz sesji z pliku .env (poza gitem), NIGDY wpisany tutaj — repo jest
       # publiczne. Bez niego aplikacja nie wstanie (czytelny błąd przy starcie).
-      # Jednorazowo na maszynę:
-      #   python -c "import secrets; print('FLASK_SECRET_KEY=' + secrets.token_hex(32))" >> .env
+      # Jednorazowo na maszynę, PRZED pobraniem kodu wymagającego klucza
+      # (macOS: python3). Bez `>> .env` — PowerShell 5.1 zapisałby UTF-16:
+      #   python -c "import secrets; open('.env','a',encoding='utf-8',newline='\n').write('\nFLASK_SECRET_KEY=' + secrets.token_hex(32) + '\n')"
+      #   docker compose up -d
       FLASK_SECRET_KEY: "${FLASK_SECRET_KEY:-}"
     volumes:
       - ./:/app:cached

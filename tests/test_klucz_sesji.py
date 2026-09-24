@@ -280,3 +280,68 @@ def test_docker_compose_nie_zawiera_wartosci_klucza():
         linie = [l.strip() for l in f if l.strip().startswith(f'{ZMIENNA}:')]
 
     assert linie == [f'{ZMIENNA}: "${{{ZMIENNA}:-}}"']
+
+
+# ----------------------------------------------------------------------------
+# Instrukcja dopisania klucza do lokalnego .env
+# ----------------------------------------------------------------------------
+
+_POCZATEK_KOMENDY = """python -c "import secrets; open('.env'"""
+
+
+def _komenda_z_claude_md():
+    """Kod Pythona z udokumentowanej komendy (tekst między cudzysłowami po -c)."""
+    with open(os.path.join(KORZEN, 'CLAUDE.md'), encoding='utf-8') as f:
+        linie = [l.strip() for l in f if l.strip().startswith(_POCZATEK_KOMENDY)]
+    assert len(linie) == 1, 'CLAUDE.md powinien mieć dokładnie jedną komendę dopisującą klucz'
+    linia = linie[0]
+    return linia[linia.index('"') + 1:linia.rindex('"')]
+
+
+def test_instrukcja_klucza_nie_przekierowuje_do_env():
+    # `... >> .env` w Windows PowerShell 5.1 dopisuje linię w UTF-16LE, po czym
+    # każde `docker compose` pada na "unexpected character \x00".
+    # Sprawdzamy same komendy (linie zaczynające się od python), bo ostrzeżenie
+    # w CLAUDE.md celowo cytuje zakazany wzorzec.
+    for nazwa in ('CLAUDE.md', 'docker-compose.yml'):
+        with open(os.path.join(KORZEN, nazwa), encoding='utf-8') as f:
+            tresc = f.read()
+        komendy = [l.strip().lstrip('#').strip() for l in tresc.splitlines()]
+        komendy = [k for k in komendy if k.startswith(('python ', 'python3 '))]
+        assert komendy, f'{nazwa}: brak komendy dopisującej klucz'
+        for komenda in komendy:
+            assert '>>' not in komenda, f'{nazwa}: {komenda}'
+        assert r"open('.env','a',encoding='utf-8',newline='\n')" in tresc, nazwa
+
+
+@pytest.mark.parametrize('poprzednia_tresc', [
+    b'CRM_APP_PORT=5002\nCRM_DB_PORT=3308',      # bez końcowego znaku nowej linii
+    b'CRM_APP_PORT=5002\r\nCRM_DB_PORT=3308\r\n',
+    b'',
+])
+def test_komenda_z_instrukcji_dopisuje_osobna_linie_utf8(tmp_path, poprzednia_tresc):
+    import subprocess
+    import sys
+
+    env_plik = tmp_path / '.env'
+    if poprzednia_tresc:
+        env_plik.write_bytes(poprzednia_tresc)
+
+    wynik = subprocess.run([sys.executable, '-c', _komenda_z_claude_md()], cwd=str(tmp_path),
+                           capture_output=True, text=True, timeout=30)
+
+    assert wynik.returncode == 0, wynik.stderr
+    # Komenda niczego nie wypisuje — klucz nie ląduje na ekranie ani w historii.
+    assert wynik.stdout == ''
+
+    tresc = env_plik.read_bytes()
+    assert b'\x00' not in tresc
+    assert tresc.startswith(poprzednia_tresc)
+    linie = tresc.decode('utf-8').splitlines()
+    klucze = [l for l in linie if l.startswith(f'{ZMIENNA}=')]
+    assert len(klucze) == 1
+    wartosc = klucze[0].split('=', 1)[1]
+    assert len(wartosc) == 64 and all(z in '0123456789abcdef' for z in wartosc)
+    # Poprzednie wpisy nietknięte (nie skleiły się z kluczem).
+    for stara in poprzednia_tresc.decode('utf-8').splitlines():
+        assert stara.strip() in [l.strip() for l in linie]
