@@ -141,6 +141,11 @@ crontaba nie trzyma sekretu: woła `scripts/cron_endpoint.sh METODA ŚCIEŻKA`, 
 czyta go z `core.json` i podaje curlowi przez stdin (albo własny skrypt według tego
 samego wzoru, jak `scripts/cron_close_worker_sessions.sh`).
 
+Brak pola to log **CRITICAL**, czyli zdarzenie w Sentry (Sentry robi zdarzenia tylko
+z CRITICAL i z wyjątków, a odpowiedź 500 wyjątkiem nie jest). Alarm idzie najwyżej raz
+na godzinę na endpoint i worker, pozostałe wywołania logują ERROR. Nowy endpoint CRON
+podpinaj pod ten sam dekorator, a nie pod własne sprawdzanie nagłówka.
+
 ## Deployment
 
 ### Automatyczny deploy (webhook GitHub)
@@ -169,6 +174,11 @@ Kroki `deploy.sh`:
 
 Uwaga: webhook uruchamia `deploy.sh` w wersji leżącej na dysku **przed** pobraniem
 kodu. Zmiana samego `deploy.sh` działa więc dopiero od następnego deployu.
+Jeśli bezpieczne wdrożenie zmiany zależy od nowej wersji `deploy.sh`, wdrażaj
+**dwuetapowo**: najpierw osobny push z samym `deploy.sh` na kodzie, który na pewno
+przechodzi migracje, a po `Deploy complete!` w `logs/deploy.log` push reszty.
+Drugi push wcześniej niż koniec pierwszego deployu trafi w lock
+(`Already deploying, skipping.`) i sam się nie wdroży.
 
 `.github/workflows/deploy.yml` istnieje, ale ma **`on: workflow_dispatch`** —
 tylko ręczne uruchomienie, jako fallback. Deploy po SSH był loteryjny przez
