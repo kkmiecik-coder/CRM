@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import event, text
 
 from extensions import db
 from modules.production.logistics import sposoby as s
@@ -80,6 +80,72 @@ def test_limit_base_wstrzymuje_i_zostawia_znaczniki(app, base):
         assert ProductionOrder.query.get(a.id).bl_delivery_method_pending is True
         assert ProductionOrder.query.get(b.id).bl_delivery_method_pending is True
         assert len(base.wywolania) == 1  # po limicie nie pytamy dalej
+
+
+def test_limit_na_statusie_nie_gubi_udanej_zmiany_metody(app, base):
+    """Fix round 2 (review): jeśli setOrderFields się uda, a zaraz potem setOrderStatus
+    trafi w limit Base. (LimitBase), udana zmiana metody MA zostać zastosowana - nie
+    zgubiona razem z wyjątkiem z drugiego zapytania. `finally` w wyslij_zamowienie
+    stosuje ją PRZED tym, jak dopychaj zacommituje przy obsłudze LimitBase."""
+    base.odpowiedzi = [
+        {'status': 'SUCCESS'},  # setOrderFields - udane
+        {'status': 'ERROR', 'error_message':
+         'Query limit exceeded, token blocked until 2099-01-01 15:40:05'},  # setOrderStatus
+    ]
+    with app.app_context():
+        order = zamowienie(sposob=s.TRANSPORT, delivery_method='Kurier DPD',
+                           bl_delivery_method_pending=True, bl_status_pending_id=417343)
+        order_id = order.id
+        wynik = bl_sync.dopychaj(spij=lambda _: None)
+        assert wynik['wstrzymane'] is True
+        db.session.expire_all()
+        odswiezony = ProductionOrder.query.get(order_id)
+        assert odswiezony.bl_delivery_method_pending is False  # zmiana metody zastosowana
+        assert odswiezony.bl_status_pending_id == 417343  # status nietkniety - limit
+        assert odswiezony.delivery_method == 'Transport WoodPower'
+
+
+def test_brak_zapisu_do_bazy_miedzy_dwoma_wywolaniami_base(app, monkeypatch):
+    """Fix round 2 (Important, re-review): między setOrderFields a setOrderStatus nie
+    wolno wykonać ŻADNEGO zapisu (UPDATE) do prod_orders - InnoDB blokowałby wiersz
+    przez czas DRUGIEGO wywołania (do ~105 s przy retry sync_service), a każda
+    transakcja webowa/tabletowa pisząca to samo zamówienie (ustaw_sposob_dostawy,
+    wydaj_klientowi, po_spakowaniu) czekałaby do innodb_lock_wait_timeout (50 s) >
+    timeout gunicorna (30 s) - WORKER TIMEOUT/502 i zgubiona zmiana użytkownika."""
+    zapisy_przed_statusem = []
+    podsluchane = []
+
+    class FakeBaseZPodsluchem(FakeBase):
+        def _make_api_request(self, dane):
+            if dane['method'] == 'setOrderStatus':
+                # migawka: ile zapisow do prod_orders padlo, ZANIM ruszylo to zapytanie
+                zapisy_przed_statusem.append(len(podsluchane))
+            return super()._make_api_request(dane)
+
+    def nasluch(conn, cursor, statement, parameters, context, executemany):
+        # startswith('UPDATE'), NIE substring 'UPDATE' in statement — inaczej falszywie
+        # dopasowuje SELECT z kolumna "updated_at" (UPDATE_AT zawiera UPDATE jako podciag)
+        gorna = statement.strip().upper()
+        if gorna.startswith('UPDATE') and 'PROD_ORDERS' in gorna:
+            podsluchane.append(statement)
+
+    fake = FakeBaseZPodsluchem()
+    import modules.production.services.sync_service as ss
+    monkeypatch.setattr(ss, 'get_sync_service', lambda: fake)
+    with app.app_context():
+        order = zamowienie(sposob=s.TRANSPORT, delivery_method='Kurier DPD',
+                           bl_delivery_method_pending=True, bl_status_pending_id=417343)
+        engine = db.engine
+        event.listen(engine, 'before_cursor_execute', nasluch)
+        try:
+            zapytania = bl_sync.wyslij_zamowienie(order)
+        finally:
+            event.remove(engine, 'before_cursor_execute', nasluch)
+        assert zapytania == 2
+        # w chwili wywolania setOrderStatus baza NIE widziala jeszcze zadnego UPDATE-u
+        # do prod_orders - oba UPDATE-y poszly DOPIERO po obu zapytaniach do Base.
+        assert zapisy_przed_statusem == [0]
+        assert len(podsluchane) == 2
 
 
 def test_pauza_blokuje_dopychacz(app, base):

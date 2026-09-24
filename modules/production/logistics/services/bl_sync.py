@@ -17,6 +17,7 @@ import json
 import re
 import threading
 import time
+import traceback
 from datetime import datetime, timedelta
 
 from flask import current_app
@@ -98,8 +99,11 @@ def _wywolaj(metoda, parametry):
             'token': serwis.api_key, 'method': metoda,
             'parameters': json.dumps(parametry)})
     except Exception as e:  # SyncError po wyczerpaniu prób sieciowych (retry w sync_service)
+        # StructuredLogger.error ignoruje exc_info (tylko doklejaloby tekst "exc_info=True"
+        # do wiadomosci, patrz modules/logging/structured_logger.py) — traceback wprost w
+        # extra, zeby faktycznie trafil do logu (fix round 2, Minor)
         logger.error("Blad sieci przy wysylce logistyki do Base.", extra={
-            'metoda': metoda, 'error': str(e)})
+            'metoda': metoda, 'error': str(e), 'traceback': traceback.format_exc()})
         # timeout NIE oznacza porazki po stronie Base. — moglo sie udac; zgadywanie dalej
         # bez wiedzy o stanie po drugiej stronie jest gorsze niz przerwanie przebiegu
         raise BladPolaczenia(str(e))
@@ -158,6 +162,21 @@ def wyslij_zamowienie(order):
     """
     Wysyła znaczniki jednego zamówienia. Zwraca liczbę zapytań. NIE commituje.
 
+    WAŻNE (fix round 2, Important z re-review): między DWOMA wywołaniami HTTP do Base.
+    (setOrderFields, setOrderStatus) nie wykonujemy ŻADNEGO zapisu do prod_orders.
+    InnoDB blokuje wyłącznie KAŻDY wiersz PRZEJRZANY przez UPDATE, niezależnie od
+    tego, czy WHERE finalnie dopasuje (`_wyczysc_metode`/`_wyczysc_status` i tak
+    trafiają w ten wiersz przez `id` w WHERE) — gdyby taki UPDATE poszedł zaraz po
+    setOrderFields, blokada trwałaby przez czas DRUGIEGO wywołania (realnie do ~105 s
+    przy retry w `sync_service`). Każda transakcja webowa/tabletowa pisząca to samo
+    zamówienie (`ustaw_sposob_dostawy`, `wydaj_klientowi`, `po_spakowaniu` przez
+    `complete_task`) czekałaby wtedy do `innodb_lock_wait_timeout` (50 s) > timeout
+    gunicorna (30 s) — WORKER TIMEOUT/502 i zgubiona zmiana użytkownika. Dlatego:
+    NAJPIERW oba wywołania HTTP (wyniki tylko w pamięci Pythona — `metoda_wynik`/
+    `status_wynik`, zero zapisu do bazy), i DOPIERO w `finally` — czyli też wtedy,
+    gdy setOrderStatus rzuci `LimitBase`/`BladPolaczenia` — stosujemy oba warunkowe
+    UPDATE-y na raz, tuż przed tym, jak wywołujący (`dopychaj`) zacommituje.
+
     `order._bl_niepowodzenie` (atrybut przejściowy — NIE kolumna, nic go nie persystuje)
     sygnalizuje dopychaczowi PRAWDZIWĄ porażkę wywołania Base. (dla `pominiete` — nie
     mielimy zamówienia w kółko). Odróżniamy ją od sytuacji, gdy zapytanie się udało, ale
@@ -170,32 +189,47 @@ def wyslij_zamowienie(order):
         order.bl_status_pending_id = None
         return 0
     zapytania = 0
-    if order.bl_delivery_method_pending:
-        # sposob_wyslany ZAPAMIĘTUJEMY sprzed wywołania — to on (nie ewentualna nowsza
-        # wartość) idzie do warunku czyszczącego znacznik po odpowiedzi Base.
-        sposob_wyslany = sposoby.normalizuj(order.override_delivery_method)
-        tekst = sposoby.TEKST_BASE.get(sposob_wyslany)
-        if tekst is None or (order.delivery_method or '').strip() == tekst:
-            order.bl_delivery_method_pending = False
-        else:
+    # Wyniki UDANYCH wywołań HTTP — same wartości w Pythonie, żadnego zapisu do bazy
+    # dopóki oba wywołania (albo próba drugiego) się nie zakończą (patrz docstring wyżej).
+    metoda_wynik = None  # (sposob_wyslany, tekst) gdy setOrderFields się udało, inaczej None
+    status_wynik = None  # wyslany_status_id gdy setOrderStatus się udało, inaczej None
+    try:
+        if order.bl_delivery_method_pending:
+            # sposob_wyslany ZAPAMIĘTUJEMY sprzed wywołania — to on (nie ewentualna nowsza
+            # wartość) idzie do warunku czyszczącego znacznik po odpowiedzi Base.
+            sposob_wyslany = sposoby.normalizuj(order.override_delivery_method)
+            tekst = sposoby.TEKST_BASE.get(sposob_wyslany)
+            if tekst is None or (order.delivery_method or '').strip() == tekst:
+                order.bl_delivery_method_pending = False
+            else:
+                zapytania += 1
+                if _wywolaj('setOrderFields', {'order_id': order.baselinker_order_id,
+                                               'delivery_method': tekst}):
+                    metoda_wynik = (sposob_wyslany, tekst)
+                else:
+                    order._bl_niepowodzenie = True
+        if order.bl_status_pending_id:
+            wyslany_status = order.bl_status_pending_id
             zapytania += 1
-            if _wywolaj('setOrderFields', {'order_id': order.baselinker_order_id,
-                                           'delivery_method': tekst}):
-                # tekst, który Base. FAKTYCZNIE dostało — zapisujemy zawsze, niezależnie
-                # od tego, czy w międzyczasie ktoś zmienił decyzję logistyka
-                order.delivery_method = tekst
-                _wyczysc_metode(order, sposob_wyslany)
+            if _wywolaj('setOrderStatus', {'order_id': order.baselinker_order_id,
+                                           'status_id': wyslany_status}):
+                status_wynik = wyslany_status
             else:
                 order._bl_niepowodzenie = True
-    if order.bl_status_pending_id:
-        wyslany_status = order.bl_status_pending_id
-        zapytania += 1
-        if _wywolaj('setOrderStatus', {'order_id': order.baselinker_order_id,
-                                       'status_id': wyslany_status}):
-            _wyczysc_status(order, wyslany_status)
-        else:
-            order._bl_niepowodzenie = True
-    return zapytania
+        return zapytania
+    finally:
+        # Zapisy do bazy DOPIERO TERAZ — po obu wywołaniach HTTP (albo po wyjątku
+        # z drugiego, patrz LimitBase/BladPolaczenia w setOrderStatus powyżej): udana
+        # zmiana metody ma zostać zastosowana, zanim wywołujący zacommituje, zamiast
+        # przepaść razem z wyjątkiem z drugiego zapytania.
+        if metoda_wynik is not None:
+            sposob_wyslany, tekst = metoda_wynik
+            # tekst, który Base. FAKTYCZNIE dostało — zapisujemy zawsze, niezależnie
+            # od tego, czy w międzyczasie ktoś zmienił decyzję logistyka
+            order.delivery_method = tekst
+            _wyczysc_metode(order, sposob_wyslany)
+        if status_wynik is not None:
+            _wyczysc_status(order, status_wynik)
 
 
 # ── Dopychacz ─────────────────────────────────────────────────────────────
@@ -241,7 +275,7 @@ def dopychaj(limit_zapytan=None, limit_czasu_s=None, spij=time.sleep, zegar=time
                 # by padło tym samym błędem, więc przerywamy cały przebieg od razu (F2b/c)
                 db.session.commit()  # to, co przeszło przed błędem, zostaje
                 logger.error("Blad polaczenia z Base. - przebieg dopychacza przerwany",
-                            extra={'error': str(e)})
+                            extra={'error': str(e), 'traceback': traceback.format_exc()})
                 wynik['zapytania'] += 1
                 break
             db.session.commit()
@@ -271,7 +305,7 @@ def dopychaj(limit_zapytan=None, limit_czasu_s=None, spij=time.sleep, zegar=time
             except Exception as e:
                 # nigdy nie maskujemy oryginalnego wyjątku (jeśli jakiś leci) — tylko log
                 logger.error("Nie udalo sie zwolnic dzierzawy wysylki do Base.",
-                            extra={'error': str(e)})
+                            extra={'error': str(e), 'traceback': traceback.format_exc()})
     return wynik
 
 
@@ -291,10 +325,11 @@ def uruchom_w_tle(app):
                 try:
                     dopychaj()
                 except Exception as e:
-                    # exc_info=True - pelny traceback w logu; watek w tle nie ma innego
-                    # miejsca, w ktorym ktokolwiek zobaczylby ten wyjatek (F2d)
-                    logger.error("Dopychacz logistyki przerwany", extra={'error': str(e)},
-                                exc_info=True)
+                    # StructuredLogger.error ignoruje exc_info (patrz komentarz w _wywolaj)
+                    # — traceback wprost w extra, zeby watek w tle zostawil slad. To
+                    # jedyne miejsce, w ktorym ktokolwiek zobaczylby ten wyjatek (fix round 2, Minor)
+                    logger.error("Dopychacz logistyki przerwany", extra={
+                        'error': str(e), 'traceback': traceback.format_exc()})
                 finally:
                     db.session.remove()
 
