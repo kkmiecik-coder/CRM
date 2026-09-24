@@ -6,6 +6,7 @@ Wersja: 2.0
 Data: 2025-01-22
 """
 
+import copy
 import json
 import math
 import requests
@@ -507,9 +508,17 @@ class BaselinkerSyncService:
                     'products_updated': processing_result.get('priority_products_updated', 0),
                     'manual_overrides_preserved': processing_result.get('manual_overrides_preserved', 0),
                     'duration_seconds': processing_result.get('priority_recalc_duration', 0)
-                }
+                },
+                # Cron nie ma operatora, który zajrzałby w szczegóły — jedyne,
+                # co po nim zostaje, to ta linia logu. Niepełny zapis do
+                # analityki MUSI być w niej widoczny.
+                'analityka_ostrzezenie': processing_result.get('analityka_ostrzezenie'),
             }
-            
+
+            if result['analityka_ostrzezenie']:
+                logger.warning("CRON: zapis do analizy sprzedazowej niepelny", extra={
+                    'ostrzezenie': result['analityka_ostrzezenie']})
+
             logger.info("CRON: Zakończono automatyczną synchronizację", extra=result)
             return result
             
@@ -563,6 +572,47 @@ class BaselinkerSyncService:
 
         error_details = []
         orders_for_status_change = []
+
+        # ZASILANIE ANALIZY SPRZEDAŻOWEJ (Plan C, decyzja użytkownika 22.09.2026:
+        # „Pobieranie na produkcji = zapis w produkcji + analityka").
+        #
+        # ZACZEP SAM STOI NA KOŃCU TEJ METODY, a tutaj robimy tylko ZDJĘCIE
+        # danych wejściowych. Powód jest dwojaki:
+        #
+        #   (1) Kilkanaście linii niżej pętla wykonuje
+        #       `order_data['products'] = production_products`, czyli MUTUJE
+        #       słownik wołającego i wyrzuca pozycje usługowe. Analiza
+        #       potrzebuje kompletu — usługa ma tam własny `group_type`
+        #       i wchodzi do wartości zamówienia, a wykluczana jest dopiero
+        #       z metrów sześciennych. Stąd `deepcopy` PRZED pętlą.
+        #   (2) Zaczep stoi na końcu także dlatego, że wtedy wszystko, co
+        #       analityka czyta o produkcji (`origin_z_produkcji`), jest już
+        #       zatwierdzone i widoczne z jej własnej transakcji.
+        #
+        # OSOBNA SESJA (22.09.2026, po kontroli adwersaryjnej). Sama kolejność
+        # NIE WYSTARCZA i zostało to udowodnione wykonaniem: pętla wyżej ma
+        # gałęzie, które ani nie commitują, ani nie rollbackują („Brak
+        # produktów do zapisania" i `except Exception as item_error`), a
+        # `_create_production_product_from_data` zdążyło już zrobić
+        # `db.session.add(ProductionOrder)` + `db.session.flush()`. Praca
+        # produkcji dociera więc tutaj ZFLUSHOWANA I NIEZACOMMITOWANA, a
+        # `db.session.rollback()` analityki ją KASOWAŁ (zmierzone: zostawało
+        # [50854536] zamiast [50854536, 50854537]). Dlatego od tej zmiany
+        # `ingest.zapisz_zamowienia` pracuje na WŁASNEJ sesji i nie dotyka
+        # `db.session` — patrz „WŁASNOŚĆ SESJI" w modules/reports/ingest.py.
+        analityka = {'nowe': 0, 'zaktualizowane': 0, 'pozycje': 0,
+                     'klienci_nowi': 0, 'pominiete': 0, 'bledy': [],
+                     'zrodlo': 'produkcja', 'ostrzezenie': None, 'blad': None}
+        try:
+            zamowienia_dla_analityki = copy.deepcopy(orders_data)
+        except Exception as blad_kopii:
+            # Kopia to jedyna rzecz, jaką analityka robi przed produkcją.
+            # Gdyby padła (nietypowy obiekt w payloadzie), produkcja i tak
+            # ma ruszyć — dlatego wyjątek kończy się tu, a nie w górze.
+            zamowienia_dla_analityki = None
+            analityka['blad'] = f'Nie udalo sie skopiowac danych: {blad_kopii}'
+            logger.error("Nie udalo sie przygotowac danych dla analityki", extra={
+                'error': str(blad_kopii), 'sync_type': sync_type})
 
         for order_data in orders_data:
             try:
@@ -893,6 +943,49 @@ class BaselinkerSyncService:
                 logger.error("Błąd przeliczania priorytetów", extra={'error': str(priority_error)})
                 priority_recalc_result = {'error': str(priority_error)}
 
+        # ===== ZAPIS DO ANALIZY SPRZEDAŻOWEJ =====================================
+        # Tutaj, a nie przed pętlą — uzasadnienie przy `zamowienia_dla_analityki`
+        # na początku metody. Analityka pracuje na WŁASNEJ sesji, więc ani jej
+        # commit, ani jej rollback nie sięga transakcji produkcji — także tej
+        # zflushowanej i niezacommitowanej, którą zostawiają gałęzie błędu pętli
+        # wyżej.
+        #
+        # OSŁONA JEST BEZWZGLĘDNA: awaria analityki ląduje w logu i w wyniku,
+        # nigdy w górę. ŻADNEGO `db.session.rollback()` w tym bloku — to on
+        # kasował dane produkcji (patrz komentarz przy `zamowienia_dla_analityki`).
+        # Własna sesja analityki zamyka się sama, w `finally` w `zapisz_zamowienia`.
+        if zamowienia_dla_analityki is not None:
+            try:
+                from modules.reports import ingest as analiza_ingest
+                analityka = dict(analiza_ingest.zapisz_zamowienia(
+                    zamowienia_dla_analityki, zrodlo='produkcja'))
+                analityka['blad'] = None
+            except Exception as blad_analityki:
+                analityka['blad'] = str(blad_analityki)
+                logger.error("Zapis do analizy sprzedazowej nie powiodl sie", extra={
+                    'error': str(blad_analityki),
+                    'orders_count': len(orders_data),
+                    'sync_type': sync_type,
+                })
+
+        # CICHE POMIJANIE — koniec z nim. Pominięte zamówienia i błędy
+        # analityki szły dotąd wyłącznie do listy `bledy`, której nie oglądał
+        # ani operator, ani log crona: `success` produkcji było `True`,
+        # `blad` `None` i wyglądało to na pełny sukces. Ostrzeżenie idzie więc
+        # do logu i do wyniku. `success` produkcji świadomie BEZ ZMIAN —
+        # analityka nie ma prawa oznaczać synchronizacji produkcji jako nieudanej.
+        ostrzezenie_analityki = analityka.get('ostrzezenie') or (
+            ('Zapis do analityki nie powiodl sie: %s' % analityka['blad'])
+            if analityka.get('blad') else None)
+        analityka['ostrzezenie'] = ostrzezenie_analityki
+        if ostrzezenie_analityki:
+            logger.warning("Zapis do analizy sprzedazowej niepelny", extra={
+                'sync_type': sync_type,
+                'ostrzezenie': ostrzezenie_analityki,
+                'pominiete': analityka.get('pominiete'),
+                'bledow': len(analityka.get('bledy') or []),
+            })
+
         final_result = {
             'success': processing_stats['errors_count'] == 0 or processing_stats['products_created'] > 0,
             'orders_processed': processing_stats['orders_processed'],
@@ -906,7 +999,12 @@ class BaselinkerSyncService:
             'priority_recalc_triggered': bool(priority_recalc_result),
             'priority_recalc_duration': priority_recalc_result.get('calculation_duration', '00:00:00'),
             'manual_overrides_preserved': priority_recalc_result.get('manual_overrides_preserved', 0),
-            'error_details': error_details
+            'error_details': error_details,
+            'analityka': analityka,
+            # Płaski klucz, żeby ostrzeżenie było widać w jednej linii logu,
+            # bez rozwijania zagnieżdżonego słownika. None = paczka przeszła
+            # w komplecie.
+            'analityka_ostrzezenie': ostrzezenie_analityki,
         }
 
         logger.info("Zakończono przetwarzanie zamówień", extra=final_result)
@@ -1658,6 +1756,10 @@ class BaselinkerSyncService:
         }
         error_details: List[Dict[str, Any]] = []
         log_entries: List[Dict[str, Any]] = []
+        # Niepełny zapis do analizy sprzedażowej. None = paczka przeszła
+        # w komplecie — to samo znaczenie i ten sam klucz, co na ścieżce crona
+        # (`sync_paid_orders_only`) i w wyniku `process_orders_with_priority_logic`.
+        ostrzezenie_analityki: Optional[str] = None
 
         try:
             recalculate_priorities = params.get('recalculate_priorities', True)
@@ -1896,16 +1998,27 @@ class BaselinkerSyncService:
                 stats['products_created'] = enhanced_result.get('products_created', 0)
                 stats['products_updated'] = enhanced_result.get('products_updated', 0)
                 stats['errors_count'] += enhanced_result.get('errors_count', 0)
-        
+
                 if enhanced_result.get('error_details'):
                     error_details.extend(enhanced_result['error_details'])
-        
+
                 add_log(
                     f'Enhanced processing: {stats["orders_processed"]} zamówień, '
                     f'{stats["products_created"]} produktów utworzonych.',
                     'info'
                 )
-        
+
+                # ZNALEZISKO WAŻNE (kontrola adwersaryjna 22.09.2026): z wyniku
+                # przetwarzania brano tu WYŁĄCZNIE liczniki, więc
+                # `analityka_ostrzezenie` ginęło. To jedyna z trzech ścieżek
+                # z operatorem przed ekranem — i akurat on jako jedyny nie
+                # dowiadywał się, że analityka pominęła zamówienia. Idzie
+                # do dziennika synchronizacji (widzi go operator w panelu)
+                # i do wyniku, pod tym samym kluczem, co na ścieżce crona.
+                ostrzezenie_analityki = enhanced_result.get('analityka_ostrzezenie')
+                if ostrzezenie_analityki:
+                    add_log(ostrzezenie_analityki, 'warning')
+
             elif qualified_orders and dry_run:
                 for order in qualified_orders:
                     quantity_total = sum(prod.get('quantity', 0) or 0 for prod in order.get('products', []))
@@ -1954,6 +2067,10 @@ class BaselinkerSyncService:
             response = {
                 'success': True,
                 'message': 'Enhanced synchronizacja Baselinker zakończona pomyślnie.',
+                # Płaski klucz na tym samym poziomie i pod tą samą nazwą,
+                # co w wyniku crona — ta sama etykieta ma wszędzie znaczyć
+                # to samo. None = analityka zapisała komplet.
+                'analityka_ostrzezenie': ostrzezenie_analityki,
                 'data': {
                     'sync_id': f"manual_{sync_log.id}" if sync_log else f"manual_{int(sync_started_at.timestamp())}",
                     'status': status_label,
@@ -1999,6 +2116,10 @@ class BaselinkerSyncService:
                 'success': False,
                 'error': str(sync_error),
                 'message': f'Błąd walidacji synchronizacji: {str(sync_error)}',
+                # Klucz jest w KAŻDEJ odpowiedzi tej metody, także w tej
+                # nieudanej — wołający nie ma się domyślać z kształtu wyniku,
+                # czy analityka coś pominęła.
+                'analityka_ostrzezenie': ostrzezenie_analityki,
                 'data': {
                     'sync_id': f"manual_{sync_log.id}" if sync_log else f"manual_{int(sync_started_at.timestamp())}",
                     'status': 'failed',
@@ -2023,6 +2144,7 @@ class BaselinkerSyncService:
                 'success': False,
                 'error': str(exc),
                 'message': f'Nieoczekiwany błąd synchronizacji: {str(exc)}',
+                'analityka_ostrzezenie': ostrzezenie_analityki,
                 'data': {
                     'sync_id': f"manual_{sync_log.id}" if sync_log else f"manual_{int(sync_started_at.timestamp())}",
                     'status': 'failed',

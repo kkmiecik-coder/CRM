@@ -1,0 +1,6 @@
+{# modules/reports/templates/analiza/_kafelek_jeden.html
+   Jeden kafelek, renderowany przez `/api/kafelek` TYM SAMYM makrem, którego
+   używa strona. Plik ma dokładnie dwie linie i taki ma zostać: gdyby zaczął
+   cokolwiek dokładać albo pomijać, fragment przestałby być identyczny
+   z kafelkiem ze strony, a to jest jedyna rzecz, której ten plik pilnuje. #}
+{% import 'analiza/_kafelki.html' as k with context %}{{ k.kafelek(inst) }}

@@ -13,7 +13,7 @@ from functools import wraps
 from flask_mail import Mail, Message
 from jinja2 import ChoiceLoader, FileSystemLoader
 from extensions import db, mail
-from sqlalchemy import desc
+from sqlalchemy import desc, inspect as sa_inspect
 from datetime import timedelta, datetime
 from modules.calculator import calculator_bp
 from modules.users.models import User, Invitation
@@ -94,6 +94,119 @@ def discover_module_metadata(app):
                 metadata[attr.name] = {'label': label, 'icon': icon}
 
     return metadata
+
+def _baza_jest_pusta():
+    """
+    Czy w bazie nie ma jeszcze ŻADNEJ tabeli aplikacji (świeża instalacja)?
+
+    `schema_migrations` NIE liczy się jako tabela aplikacji — runner migracji
+    zakłada ją sam, zanim wykona cokolwiek innego, więc baza, w której została
+    tylko ona (np. po przerwanym pierwszym starcie), wciąż jest pusta.
+
+    Inspector SQLAlchemy działa identycznie na MySQL-u i na SQLite, więc
+    detekcja nie jest przywiązana do `information_schema` — testy jadą na
+    SQLite in-memory i muszą przechodzić tą samą ścieżką.
+
+    Gdy silnika nie da się odpytać (brak `init_app`, baza nieosiągalna),
+    zwracamy False, czyli „baza niepusta". To wariant ostrożny: zostawia
+    kolejność „migracje pierwsze", która chroni dane istniejącej instalacji.
+    """
+    try:
+        tabele = set(sa_inspect(db.engine).get_table_names())
+    except Exception as e:
+        print(
+            f"[Migrations] Nie udało się sprawdzić, czy baza jest pusta ({e}) - "
+            f"zakładam bazę niepustą",
+            file=sys.stderr
+        )
+        return False
+
+    tabele.discard('schema_migrations')
+    # SQLite trzyma własne tabele służbowe (sqlite_sequence itd.). Inspector
+    # zwykle je odfiltrowuje, ale nie warto na tym polegać przy detekcji,
+    # której jedyny błąd kosztuje cały schemat świeżej instalacji.
+    tabele = {t for t in tabele if not t.startswith('sqlite_')}
+
+    return not tabele
+
+
+def _bootstrap_schema(app):
+    """
+    Bootstrap schematu bazy przy starcie aplikacji (wołane z create_app()
+    wewnątrz app.app_context()).
+
+    Kolejność zależy od stanu bazy — nie ma jednej dobrej dla obu przypadków:
+
+    1. Baza NIEPUSTA (istniejąca instalacja): migracje MUSZĄ pójść PRZED
+       create_all(). create_all() tworzy brakujące tabele z AKTUALNYCH modeli,
+       więc uruchomiony wcześniej podstawia migracji stan, którego migracja
+       nigdy nie powinna zobaczyć (np. RENAME TABLE trafia na już istniejącą,
+       pustą tabelę docelową zamiast na źródłową z danymi — tak jak przy
+       migracji clients->leads). Z tego samego powodu create_all() pomijamy
+       też, gdy migracje padły — inaczej dotworzyłby brakujące tabele w nowym
+       kształcie i zamaskował awarię tylko o krok później, zamiast zostawić
+       stary, spójny schemat.
+
+    2. Baza PUSTA (świeża instalacja, nowy deweloper): odwrotnie — najpierw
+       create_all(), potem migracje. Na pustej bazie migracje nie mają czego
+       zmieniać: większość z nich to ALTER/UPDATE/DROP na tabelach, których
+       jeszcze nie ma, więc padają hurtowo. Przy kolejności „migracje pierwsze"
+       ich niepowodzenie blokowało create_all() i instalacja kończyła się bazą
+       praktycznie bez tabel. Migracji NIE stemplujemy jako wykonane — lecą
+       zaraz po create_all(), bo część z nich wstawia dane startowe.
+
+    Zmierzone na czystej bazie MySQL: kolejność „migracje pierwsze" dawała
+    8 tabel i 40 nieudanych migracji, kolejność „create_all pierwszy" — 73
+    tabele i 4 nieudane migracje (005, 013, 014, 018; trzy z nich dotyczą
+    wycofanej tabeli prod_items, a 005 nie umie wstawić danych startowych
+    w tabelę utworzoną przez create_all — osobny, starszy problem).
+
+    Konta administratora bootstrap NIE zakłada: dawną funkcję, która robiła
+    to z hasłem wpisanym jawnie w kodzie, usunęła poprawka bezpieczeństwa
+    (24.09.2026) — patrz komentarz przy komendzie `setup-db`.
+    """
+    # Świeżą instalację rozpoznajemy tylko wtedy, gdy w ogóle wolno nam tworzyć
+    # schemat — przy RUN_DB_SETUP wyłączonym create_all() nie padnie tak czy
+    # inaczej, a odpytywanie silnika byłoby zbędne.
+    swieza_instalacja = bool(app.config.get('RUN_DB_SETUP')) and _baza_jest_pusta()
+
+    if swieza_instalacja:
+        db.create_all()
+
+    migracje_ok = True
+
+    # Automatyczne migracje bazy danych
+    if app.config.get('RUN_MIGRATIONS', True):
+        try:
+            from migrations import MigrationService
+            migration_service = MigrationService(db)
+            migration_service.run_pending_migrations()
+            # run_pending_migrations() łapie wyjątki PER MIGRACJĘ i nie
+            # podnosi ich dalej — jedyny sposób poznania niepowodzenia to
+            # sprawdzenie tej listy (ten sam wzorzec co komenda `flask migrate`).
+            if migration_service.failed:
+                migracje_ok = False
+        except Exception as e:
+            migracje_ok = False
+            # Błąd migracji jest krytyczny przy boocie aplikacji — zostawiamy stderr
+            print(f"[Migrations] Błąd podczas migracji: {e}", file=sys.stderr)
+
+    # Na świeżej instalacji create_all() już poszło (przed migracjami) — tu
+    # obsługujemy wyłącznie bazę niepustą.
+    if app.config.get('RUN_DB_SETUP') and not swieza_instalacja:
+        if migracje_ok:
+            db.create_all()
+        else:
+            print(
+                "[Migrations] Pominięto db.create_all() - migracje zgłosiły "
+                "niepowodzenie, tworzenie tabel z bieżących modeli "
+                "zamaskowałoby awarię",
+                file=sys.stderr
+            )
+
+    # Odkrywanie dostępnych modułów i ich metadanych
+    app.config['MODULE_METADATA'] = discover_module_metadata(app)
+
 
 def register_cli_commands(app):
     """Rejestruje komendy Flask CLI."""
@@ -745,21 +858,7 @@ def create_app():
         print("[LoginManager] Nie został zainicjalizowany", file=sys.stderr)
 
     with app.app_context():
-        if app.config.get('RUN_DB_SETUP'):
-            db.create_all()
-
-        # Automatyczne migracje bazy danych
-        if app.config.get('RUN_MIGRATIONS', True):
-            try:
-                from migrations import MigrationService
-                migration_service = MigrationService(db)
-                migration_service.run_pending_migrations()
-            except Exception as e:
-                # Błąd migracji jest krytyczny przy boocie aplikacji — zostawiamy stderr
-                print(f"[Migrations] Błąd podczas migracji: {e}", file=sys.stderr)
-
-        # Odkrywanie dostępnych modułów i ich metadanych
-        app.config['MODULE_METADATA'] = discover_module_metadata(app)
+        _bootstrap_schema(app)
 
     def register_blueprints_lazy(app):
         """Rejestracja blueprintów - importy tylko gdy potrzebne"""

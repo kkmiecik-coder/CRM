@@ -1,0 +1,456 @@
+/* modules/reports/static/css/arkusz.css
+   Arkusz wewnetrzny Analizy sprzedazowej.
+
+   Osobny plik od analiza.css: tamten ma 478 linii ukladu dashboardu
+   (karty, pierscienie, szkielet ladowania), z ktorych arkusz nie uzywa
+   ani jednej. Wspolne sa WYLACZNIE @font-face IBM Plex i paleta — dlatego
+   analiza.css jest ladowany pierwszy, a korzen arkusza ma obie klasy:
+   .analiza (zmienne) i .ark (uklad). */
+
+/* ===== PELNE OKNO ====================================================== */
+html, body.ark-body { height: 100%; margin: 0; }
+body.ark-body { background: var(--paper, #EFEDE9); overflow: hidden; }
+
+/* analiza.css nadaje .analiza { padding: 0 22px 28px } pod uklad dashboardu.
+   Arkusz jest pelnym oknem i musi to skasowac. */
+.analiza.ark {
+  padding: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* ===== MONOSPACE NA KAZDA CYFRE ========================================= */
+/* Makieta ma regule `.m` GLOBALNIE (Arkusz.dc.html:17), nie tylko w tabeli —
+   etykieta okna dat (#ark-okno-etykieta), licznik kolumn
+   (#ark-licznik-kolumn) i cztery liczby stopki tez maja klase "m", a leza
+   POZA .ark-tabela. Regula .ark-tabela .m nizej zostaje dla komorek siatki,
+   ale bez tej globalnej te sześć miejsc renderowaloby sie w IBM Plex Sans —
+   lamie to wiazaca zasade „IBM Plex Mono na kazda cyfre". */
+.ark .m {
+  font-family: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ===== NARZEDZIOWNIK =================================================== */
+.ark-narzedziownik {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 56px;
+  padding: 0 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--rule-strong);
+  transition: background-color .12s linear, border-color .12s linear;
+}
+.ark-rozpychacz { flex-grow: 1; }
+.ark-kreska { width: 1px; height: 26px; background: var(--rule); flex: none; }
+
+.ark-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  height: 34px; padding: 0 11px;
+  border: 1px solid var(--rule-strong); border-radius: 3px;
+  background: var(--surface); color: var(--ink-3);
+  font: 500 12.5px 'IBM Plex Sans', system-ui, sans-serif;
+  text-decoration: none; cursor: pointer; white-space: nowrap;
+}
+.ark-btn:hover:not(:disabled) { background: #FBFAF7; }
+.ark-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ark-btn:disabled { background: #F5F2ED; border-color: var(--rule-2); color: #B5ADA2; cursor: not-allowed; }
+.ark-btn--ikona { padding: 0 8px; }
+.ark-btn--glowny {
+  border: 0; background: var(--accent); color: #FFF; font-weight: 600; padding: 0 15px;
+  box-shadow: 0 1px 3px rgba(31, 41, 51, .22);
+}
+.ark-btn--glowny:disabled { background: var(--rule-2); color: #A9A197; box-shadow: none; }
+.ark-przygaszony { color: var(--muted-3); }
+
+/* flex: 0 1 190px + min-width: 0 — jedyny element narzedziownika, ktory
+   smie sie skurczyc. Bez tego dwa przyciski Zadania 15 („Eksport" 88px +
+   „⋯" 34px) przesuwaja intrinsic szerokosc paska z ~1038px na ~1184px,
+   a przy overflow: hidden na body (linia 12) prawy koniec paska
+   (Odrzuc/Zapisz) jest po prostu nieosiagalny na ekranach 1024-1152px. */
+.ark-szukajka { position: relative; display: flex; align-items: center; flex: 0 1 190px; min-width: 0; }
+.ark-szukajka svg { position: absolute; left: 10px; color: var(--muted-3); pointer-events: none; }
+.ark-szukajka input {
+  height: 34px; width: 100%; padding: 0 10px 0 31px;
+  border: 1px solid var(--rule-strong); border-radius: 3px;
+  background: var(--surface); color: var(--ink);
+  font: 400 12.5px 'IBM Plex Sans', system-ui, sans-serif;
+}
+.ark-tylko-dla-czytnika {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0);
+}
+.ark-stan { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--muted); }
+.ark-filtr-opis:not(:empty) { margin-left: 6px; color: var(--c-teal-dark); font-weight: 600; }
+
+/* ===== STAN NIEZAPISANY (Zadanie 9) ==================================== */
+/* BURSZTYN, nie czerwien. Niezapisane zmiany to normalny stan pracy,
+   nie awaria. Czerwien jest zarezerwowana dla bledow z BaseLinkera. */
+.ark-brudny .ark-narzedziownik {
+  background: var(--warn-bg);
+  border-bottom: 2px solid var(--warn-line);
+}
+.ark-brudny .ark-btn { background: #FFFCF6; border-color: #D9B778; color: #6B4A12; }
+.ark-brudny .ark-btn--glowny { background: var(--accent); color: #FFF; border: 0; }
+.ark-brudny .ark-szukajka input { background: #FFFCF6; border-color: #D9B778; }
+.ark-brudny .ark-stan { display: none; }
+/* Makieta ArkuszZmiany.dc.html chowa w tym stanie „Kolumny". Ta sama regula
+   obejmuje „Eksport" i „Wiecej": pobranie zamowien nadpisaloby wiersze pod
+   reka uzytkownika, a eksport dalby plik niezgodny z tym, co widac. */
+.ark-brudny .ark-chowany { display: none; }
+
+.ark-licznik {
+  display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px;
+  border: 1px solid #D9B778; border-radius: 3px; background: #FFFCF6;
+  font: 600 12.5px 'IBM Plex Sans', system-ui, sans-serif; color: #7A4E05;
+}
+/* `display: inline-flex` autora wygrywa z regula UA `[hidden] { display: none }`
+   (specyficznosc), wiec bez tego #ark-licznik-zmian z atrybutem `hidden`
+   (arkusz.html) i tak byl widoczny w stanie zapisanym — pusty bursztynowy
+   prostokat, ktorego makieta Arkusz.dc.html nie ma. Ten sam blad byl juz raz
+   znaleziony w tym projekcie, patrz analiza.css .an-chip[hidden]. */
+.ark-licznik[hidden] { display: none; }
+.ark-kontekst {
+  flex: none; padding: 7px 16px; font-size: 11.5px; color: #7A4E05;
+  background: #FFF8EA; border-bottom: 1px solid #E8D5A8;
+}
+
+/* ===== LEGENDA ========================================================= */
+.ark-legenda {
+  flex: none; display: flex; align-items: center; gap: 20px;
+  padding: 6px 16px; font-size: 11.5px; color: var(--ink-2);
+  background: #F7F5F1; border-bottom: 1px solid var(--rule);
+}
+.ark-legenda__tytul { font-weight: 600; color: var(--muted); }
+.ark-legenda__pozycja { display: flex; align-items: center; gap: 7px; }
+.ark-probka { width: 16px; height: 11px; border: 1px solid var(--rule-strong); flex: none; }
+.ark-probka--bl { background: var(--surface); }
+.ark-probka--crm { background: var(--surface); border-top: 3px solid var(--c-teal); }
+.ark-probka--calc { background: #F2EFEA; }
+.ark-probka--prod { background: #EFEBE4; }
+
+/* ===== SIATKA ========================================================== */
+.ark-siatka { flex-grow: 1; min-height: 0; overflow: auto; background: var(--surface); }
+.ark-siatka:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* table-layout: fixed jest konieczny, zeby szerokosci ponizej (th[data-typ],
+   th[data-kolumna]) cokolwiek znaczyly. W auto-layoucie (domyslnym) sa
+   tylko SUGESTIA — przegladarka i tak liczy szerokosc kolumny z tresci
+   najszerszej komorki, wiec ten sam zestaw kolumn ma inna szerokosc dla
+   kazdego okna dat, a przy doczytywaniu kolejnych 200 zamowien kolumny
+   dryga pod reka uzytkownika. W fixed-layoucie szerokosci bierze sie
+   z komorek PIERWSZEGO wiersza (czyli naglowka), wiec kolejny <colgroup>
+   nie jest potrzebny (przeglad Zadania 8, znalezisko [WAZNE]). */
+/* `width: max-content` jest tu tak samo konieczny jak `table-layout: fixed`
+   powyzej, mimo ze nie ma o nim ani slowa w komentarzu Zadania 8: bez
+   jawnej szerokosci tabela ma `width: auto`, a wtedy „fixed" nie daje
+   zadnej gwarancji — silnik i tak dolicza sie WLASNEJ szerokosci tabeli
+   z tresci komorek (m.in. `white-space: nowrap` na najdluzszym kliencie),
+   wiec kazda kolumna renderuje sie z INNA szerokoscia niz ta zadeklarowana
+   nizej (`th[data-typ]`/`th[data-kolumna]`) — zmierzone: „Data" 78px
+   zamiast 92px. `zamrozDrugaKolumne()` w arkusz.js liczy przesuniecie
+   drugiej zamrozonej kolumny z FAKTYCZNEJ szerokosci pierwszej w chwili
+   wywolania; gdy fonty IBM Plex doladuja sie asynchronicznie
+   (`font-display: swap` w analiza.css) PO tym wywolaniu, przegladarka
+   przelicza tabele na nowo (inna metryka czcionki = inna tresciowa
+   szerokosc przy `width: auto`), a JS tego przeliczenia nie widzi —
+   druga zamrozona kolumna zostaje na STAREJ, juz nieaktualnej pozycji
+   („nie trzyma pozycji"), dopoki cos innego (np. zmiana kolumn) nie
+   zawola zamrozenia ponownie. Jawna szerokosc odcina tabele od tresci
+   whole cloth: kazda kolumna dostaje DOKLADNIE szerokosc z CSS ponizej,
+   niezaleznie od tego, czy fonty juz sie zaladowaly (przeglad zadan 7+8,
+   [WAZNE] nr 4). Patrz tez awaryjne domrozenie po `document.fonts.ready`
+   w arkusz.js — pas i szelki na wypadek innego, nieprzewidzianego tu
+   zrodla przeplywu. */
+.ark-tabela { border-collapse: separate; border-spacing: 0; font-size: 11.5px; table-layout: fixed; width: max-content; }
+.ark-tabela th, .ark-tabela td {
+  height: 29px; padding: 0 7px; white-space: nowrap; text-align: left;
+  background: var(--surface);
+  border-right: 1px solid var(--rule-2); border-bottom: 1px solid var(--rule-2);
+}
+.ark-tabela thead th {
+  position: sticky; top: 0; z-index: 3;
+  height: 34px; background: #F5F2ED; color: var(--ink-2);
+  font: 600 10px 'IBM Plex Sans', system-ui, sans-serif;
+  letter-spacing: .03em; text-transform: uppercase;
+  border-bottom: 1.5px solid var(--rule-strong);
+}
+/* Zamrozone dwie pierwsze kolumny: „Data" i „Nr BaseLinker". Przy 55
+   kolumnach bez nich nie wiadomo, ktore zamowienie sie oglada. */
+.ark-tabela .zamrozona-1 { position: sticky; left: 0; z-index: 2; }
+.ark-tabela .zamrozona-2 { position: sticky; z-index: 2; }
+.ark-tabela thead .zamrozona-1,
+.ark-tabela thead .zamrozona-2 { z-index: 4; }
+.ark-tabela .zamrozona-2 { box-shadow: 1px 0 0 var(--rule-strong); }
+
+/* Cztery rodzaje kolumn — oznaczenia dokladnie z makiety. */
+.ark-tabela th.crm { position: sticky; top: 0; }
+.ark-tabela th.crm::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 0;
+  height: 3px; background: var(--c-teal);
+}
+/* Rejestr pol oddaje rodzaj kolumny jako 'bl' / 'crm' / 'wyliczana' /
+   'produkcja' (arkusz_service._RODZAJ_ZE_ZRODLA, zgodnie z fields.Zrodlo).
+   Makieta skraca dwa ostatnie do „.calc"/„.prod" w CSS, ale jesli Zadanie 8
+   przypisze klase komorki wprost z rodzaju (`td.className = kol.rodzaj`),
+   to najprostszy i najbardziej naturalny sposob renderu — CSS musi znac
+   OBIE nazwy, inaczej wyliczane i produkcyjne kolumny zgubia oznaczenie
+   po cichu, a legenda dalej bedzie wymieniac cztery rodzaje. */
+.ark-tabela .calc, .ark-tabela .wyliczana { background: #F2EFEA !important; color: var(--muted); font-style: italic; }
+.ark-tabela .prod, .ark-tabela .produkcja { background: #EFEBE4 !important; color: var(--muted); }
+.ark-tabela .ord { background: #FBFAF7 !important; vertical-align: top; padding-top: 7px; }
+
+.ark-tabela .num { text-align: right; }
+.ark-tabela .m {
+  font-family: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+.ark-tabela .pusta { color: #B5ADA2; }
+
+/* Szerokosci kolumn wg typu, z kilkoma wyjatkami po nazwie. Trzymane w CSS,
+   a nie liczone w JavaScripcie — przegladarka i tak musi je znac przed
+   pierwszym ukladem. */
+.ark-tabela th[data-typ="data"] { width: 92px; }
+.ark-tabela th[data-typ="znacznik"] { width: 120px; }
+.ark-tabela th[data-typ="liczba"] { width: 62px; }
+.ark-tabela th[data-typ="kwota"] { width: 94px; }
+.ark-tabela th[data-typ="objetosc"] { width: 94px; }
+.ark-tabela th[data-typ="logiczna"] { width: 62px; }
+.ark-tabela th[data-typ="wybor"] { width: 170px; }
+.ark-tabela th[data-typ="tekst"] { width: 140px; }
+.ark-tabela th[data-kolumna="customer_name"] { width: 170px; }
+.ark-tabela th[data-kolumna="delivery_address"] { width: 180px; }
+.ark-tabela th[data-kolumna="raw_product_name"] { width: 260px; }
+.ark-tabela th[data-kolumna="wood_class"] { width: 54px; }
+.ark-tabela th[data-kolumna="wood_species"] { width: 74px; }
+
+/* ===== WIRTUALIZACJA =================================================== */
+/* Jedno <tbody> na zamowienie (HTML na to pozwala) plus content-visibility.
+   Przegladarka pomija uklad i rysowanie dla zamowien poza ekranem, a rowspan
+   zostaje nietkniety. Wirtualizacja liczona w JavaScripcie musialaby sama
+   odtwarzac scalanie komorek przy kazdym przewinieciu — to jest ta sama
+   praca, tylko z wlasnymi bledami.
+   contain-intrinsic-size trzyma poprawna wysokosc paska przewijania: JS
+   ustawia ja per zamowienie jako liczba wierszy * 29 px. */
+.ark-tabela tbody.ark-zamowienie {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 29px;
+}
+
+/* ===== ZAMOWIENIE POZA SPRZEDAZA (partia E, punkt E5) ================== */
+/* Anulowane i nieoplacone zostaja na liscie (Arkusz zastepuje Excela), ale
+   nie wliczaja sie do stopki ani do pulpitu. SZAROSC, nie czerwien (to nie
+   jest blad) i nie bursztyn (to nie jest niezapisana zmiana).
+   Tlo przez background-color z !important: regula .ord i .calc wyzej
+   ustawiaja skrot background z !important i bez tego wygralyby. Komorki
+   w stanie edycji i wyniku zapisu sa WYLACZONE z tej reguly — bursztyn
+   niezapisanej zmiany, zielen zapisu i czerwien odrzucenia maja byc
+   widoczne takze na wyszarzonym zamowieniu. */
+.ark-tabela tbody.poza-sprzedaza td:not(.edytowana):not(.zapisana):not(.odrzucona) {
+  background-color: #F3F1ED !important;
+  color: var(--muted-3);
+}
+.ark-tabela tbody.poza-sprzedaza td.pusta { color: #C9C2B7; }
+.ark-tabela tr.ark-wiersz-statusu td {
+  height: 24px; padding: 0 7px;
+  font: 600 11px 'IBM Plex Sans', system-ui, sans-serif;
+  color: var(--muted-2) !important;
+  background-color: #ECE9E3 !important;
+  border-bottom: 1px solid var(--rule);
+}
+/* Napis trzyma sie lewej krawedzi okna siatki przy przewijaniu w poziomie —
+   sama komorka ma szerokosc calej tabeli (colSpan), wiec bez tego zdanie
+   uciekaloby w lewo razem z pierwszymi kolumnami. */
+.ark-wiersz-statusu__napis { position: sticky; left: 7px; }
+
+/* ===== STOPKA ========================================================== */
+.ark-stopka {
+  flex: none; display: flex; align-items: center; gap: 18px;
+  height: 34px; padding: 0 16px; font-size: 11.5px; color: var(--muted);
+  background: #F7F5F1; border-top: 1px solid var(--rule);
+}
+.ark-stopka b { color: var(--ink); }
+
+@media (prefers-reduced-motion: reduce) {
+  .ark-narzedziownik { transition: none; }
+}
+
+/* ===== MENU NARZEDZIOWNIKA ============================================ */
+.ark-narzedziownik { position: relative; }
+.ark-menu {
+  position: absolute; top: 46px; z-index: 20;
+  min-width: 220px; max-height: 60vh; overflow: auto;
+  padding: 4px; background: var(--surface);
+  border: 1px solid var(--rule-strong); border-radius: 3px;
+  box-shadow: 0 6px 20px rgba(12, 18, 26, .16);
+}
+.ark-menu__pozycja {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 7px 9px; border: 0; background: none; text-align: left;
+  font: 400 12.5px 'IBM Plex Sans', system-ui, sans-serif; color: var(--ink);
+  cursor: pointer;
+}
+.ark-menu__pozycja:hover { background: #F5F2ED; }
+/* WAZNE (przeglad fali 3, nr 5): `column-count: 2` na kontenerze z
+   `max-height: 60vh; overflow: auto` (.ark-menu wyzej) to NIE gwarancja
+   dwoch kolumn. Specyfikacja CSS Multi-column mowi, ze gdy tresc dwoch
+   kolumn nie miesci sie w danej wysokosci, przegladarka dostawia KOLEJNE
+   kolumny w kierunku poziomym zamiast uciac je scrollem — przy 55
+   checkboxach lista rozlewala sie wiec poza szerokosc menu (55 pozycji
+   nie miesci sie w dwoch kolumnach o wysokosci 60vh). CSS Grid nie ma tej
+   wlasciwosci: liczba kolumn jest STALA (2), a nadmiar tresci przewija sie
+   PIONOWO w .ark-menu, dokladnie jak wszedzie indziej w tym menu. */
+.ark-menu--kolumny {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 4px;
+  min-width: 420px;
+}
+
+/* Komorka edytowalna: subtelny kursor i widoczny fokus klawiatury. */
+.ark-tabela td.edytowalna { cursor: cell; }
+
+/* Komorka zablokowana MOWI, ze jest zablokowana — inaczej wyglada jak blad.
+   Delikatna ukosna kreska plus kursor; powod siedzi w title i aria-label. */
+.ark-tabela td.zablokowana {
+  cursor: not-allowed;
+  /* !important jest konieczny: regula ".ord" wyzej ustawia skrot
+     "background" ze znacznikiem !important, ktory bez jawnej wartosci
+     resetuje background-image do "none !important" na kazdej komorce
+     poziomu zamowienia. Deklaracja bez !important zawsze przegrywa
+     z deklaracja z !important bez wzgledu na specyficznosc selektora —
+     wiec bez wlasnego !important tutaj kreskowanie znikaloby wlasnie na
+     komorkach zamowienia (wiekszosc zablokowanych komorek widoku dla roli
+     "user"). Z !important po obu stronach decyduje specyficznosc, a selektor
+     tej reguly ma ja wyzsza niz ".ord" (dodatkowy selektor elementu td),
+     wiec ta regula wygrywa (przeglad Zadania 8, znalezisko [WAZNE]). */
+  background-image: repeating-linear-gradient(135deg,
+    transparent, transparent 5px,
+    rgba(138, 130, 120, .10) 5px, rgba(138, 130, 120, .10) 6px) !important;
+}
+/* Naglowek z podpowiedzia — kropkowane podkreslenie, jak w slowniku. */
+.ark-tabela th.ma-podpowiedz {
+  text-decoration: underline dotted var(--muted);
+  cursor: help;
+}
+.ark-tabela td.edytowalna:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: -2px;
+}
+
+/* ===== KOMORKA ZMIENIONA ============================================== */
+/* Bursztyn, nie czerwien — niezapisane zmiany to normalny stan pracy. */
+.ark-tabela td.edytowana {
+  background: #FEF4E2 !important;
+  box-shadow: inset 3px 0 0 var(--warn-line);
+  font-weight: 600; color: var(--ink); position: relative;
+}
+.ark-tabela td.edytowana::after {
+  content: ""; position: absolute; top: 0; right: 0;
+  border-width: 0 6px 6px 0; border-style: solid;
+  border-color: transparent var(--warn-line) transparent transparent;
+}
+.ark-tabela .was {
+  margin-right: 5px; font-size: 10.5px; font-weight: 400;
+  color: #A08050; text-decoration: line-through;
+}
+.ark-edytor {
+  width: 100%; height: 23px; padding: 0 4px; border: 1px solid var(--warn-line);
+  border-radius: 2px; background: #FFF;
+  font: 400 11.5px 'IBM Plex Sans', system-ui, sans-serif; color: var(--ink);
+}
+.ark-tabela td.num .ark-edytor { text-align: right; }
+
+/* Pasek kontekstowy w wariancie bledu — czerwien WYLACZNIE tutaj. */
+.ark-kontekst--blad {
+  background: var(--bad-bg); border-bottom: 1px solid #F0C4B8; color: var(--bad-ink);
+}
+
+/* ===== DIALOG POTWIERDZENIA =========================================== */
+.ark-przyciemnienie { position: fixed; inset: 0; background: rgba(24, 30, 38, .52); z-index: 40; }
+.ark-dialog {
+  position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 760px; max-width: calc(100vw - 32px); max-height: calc(100vh - 48px);
+  overflow: auto; z-index: 41;
+  background: var(--surface); border-radius: 4px;
+  box-shadow: 0 20px 60px rgba(12, 18, 26, .34);
+}
+.ark-dialog__glowa { display: flex; gap: 13px; padding: 22px 26px 16px; border-bottom: 1px solid var(--rule-2); }
+.ark-dialog__ikona {
+  flex: none; width: 36px; height: 36px; border-radius: 3px; background: #FDF0E7;
+  display: flex; align-items: center; justify-content: center;
+}
+.ark-dialog__glowa h2 { margin: 0; font: 700 19px 'IBM Plex Sans', system-ui, sans-serif; color: var(--ink); }
+.ark-dialog__glowa p { margin: 4px 0 0; font-size: 13px; line-height: 1.5; color: var(--ink-2); }
+.ark-dialog__cialo { padding: 16px 26px 0; }
+.ark-dialog__tabela { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.ark-dialog__tabela th {
+  text-align: left; padding: 0 8px 7px 0; color: var(--muted);
+  font: 600 10px 'IBM Plex Sans', system-ui, sans-serif;
+  letter-spacing: .06em; text-transform: uppercase;
+}
+.ark-dialog__tabela td { padding: 10px 8px 10px 0; border-top: 1px solid var(--rule-2); }
+.ark-znacznik-wrazliwe {
+  display: inline-block; margin-left: 6px; padding: 2px 6px; border-radius: 3px;
+  background: #FDECE8; color: #A5341F;
+  font: 700 9.5px 'IBM Plex Sans', system-ui, sans-serif;
+  letter-spacing: .05em; text-transform: uppercase;
+}
+.ark-dialog__ostrzezenie {
+  margin-top: 14px; padding: 11px 13px; border-radius: 3px;
+  background: #FDECE8; border: 1px solid #F0C4B8; border-left: 3px solid #C4472F;
+  font-size: 12.5px; line-height: 1.5; color: #7A2D1C;
+}
+.ark-dialog__crm {
+  margin: 18px 0 0; padding: 13px 15px; border-radius: 3px;
+  background: #F4FAFB; border: 1px solid #CFE6EB;
+}
+.ark-dialog__crm-tytul {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 9px;
+  font: 600 11px 'IBM Plex Sans', system-ui, sans-serif;
+  letter-spacing: .05em; text-transform: uppercase; color: #0D6274;
+}
+.ark-probka--crm-pasek { width: 14px; height: 4px; background: var(--c-teal); flex: none; }
+.ark-dialog__crm-wiersz { display: flex; gap: 10px; font-size: 12.5px; color: #25404A; padding: 3px 0; }
+/* WAZNE, przeglad Zadania 12: bez tego „bylo" i „bedzie" w pudelku
+   „Zostaje tylko w CRM" wygladaly identycznie (ten sam kolor, brak
+   przekreslenia) — dokladnie odwrotnosc regula .ark-tabela .was, ktora
+   dziala TYLKO w obrebie .ark-tabela, nie w dialogu. */
+.ark-dialog__crm-wiersz .was {
+  text-decoration: line-through;
+  color: #7F98A0;
+  font-size: 11px;
+}
+/* Stale szerokosci pierwszych dwoch kolumn (numer zamowienia, etykieta
+   pola) z makiety — bez nich kolejne wiersze w pudelku nie zgrywaja sie
+   w kolumny, gdy zmienia sie dlugosc numeru albo nazwy pola. */
+.ark-dialog__crm-wiersz span:nth-child(1) { width: 74px; flex: none; }
+.ark-dialog__crm-wiersz span:nth-child(2) { width: 120px; flex: none; }
+.ark-dialog__crm p { margin: 9px 0 0; font-size: 11.5px; line-height: 1.5; color: #4E7480; }
+.ark-dialog__stopka {
+  display: flex; align-items: center; gap: 12px;
+  margin-top: 20px; padding: 15px 26px;
+  background: #F7F5F1; border-top: 1px solid var(--rule-2);
+}
+.ark-dialog__stopka label { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); cursor: pointer; }
+
+/* ===== PORAZKA CZESCIOWA ============================================== */
+/* JEDYNY stan, w ktorym czerwien obejmuje caly pasek — bo to naprawde awaria. */
+.ark-porazka .ark-narzedziownik { background: #FBE3DD; border-bottom: 2px solid #C4472F; }
+.ark-porazka .ark-btn { background: #FFFAF9; border-color: #DDA294; color: #7A2416; }
+.ark-porazka .ark-btn--glowny { background: #C4472F; color: #FFF; border: 0; }
+.ark-porazka .ark-licznik { background: #FFFAF9; border-color: #DDA294; color: #8C2A1C; }
+
+.ark-tabela td.zapisana {
+  background: #EAF6EE !important; box-shadow: inset 3px 0 0 #3E8F61; font-weight: 600;
+}
+.ark-tabela td.odrzucona {
+  background: #FDECE8 !important; box-shadow: inset 3px 0 0 #C4472F;
+  font-weight: 700; color: var(--bad-ink);
+}
+.ark-tabela tr.ark-wiersz-bledu td {
+  height: 26px; padding-left: 12px; font-size: 11px; color: #8C2A1C;
+  background: #FEF5F3 !important; border-bottom: 1px solid #F0C4B8;
+}

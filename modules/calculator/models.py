@@ -511,7 +511,7 @@ class Quote(db.Model):
     quote_number = db.Column(db.String(50), unique=True, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
-    client_id = db.Column(db.Integer, db.ForeignKey('clients.id'))
+    client_id = db.Column(db.Integer, db.ForeignKey('leads.id'))
     status_id = db.Column(db.Integer, db.ForeignKey('quote_statuses.id'))
     base_linker_order_id = db.Column(db.String(100))
     source = db.Column(db.String(100))

@@ -20,6 +20,45 @@ ALGORYTM ENHANCED PRIORITY SYSTEM 2.0:
 6. Przypisywanie numeracji sekwencyjnej 1,2,3,4... z pomijaniem manual overrides
 7. Przypisywanie numeracji sekwencyjnej priority_rank
 
+WŁASNOŚĆ SESJI (przebudowa 22.09.2026 — znalezisko KRYTYCZNE)
+=============================================================
+`recalculate_all_priorities` pracuje na WŁASNEJ sesji bazodanowej, którą
+sama zakłada i sama zamyka, i NIGDY nie woła `commit()`, `rollback()` ani
+`begin_nested()` na `db.session`.
+
+Dwa poprzednie podejścia leczyły objaw. Punkt kontrolny (SAVEPOINT) bronił
+wołającego przed COFNIĘCIEM jego pracy, ale nie przed jej ZATWIERDZENIEM —
+a KROK 8 commitował WSPÓŁDZIELONĄ sesję. Kontrola adwersaryjna wykazała
+wykonaniem trzy skutki:
+  * ścieżka POWODZENIA zatwierdzała cudzą, świadomie niezacommitowaną pracę
+    (gałęzie pętli `SyncService`: „Brak produktów do zapisania",
+    `except Exception as item_error`, zostawiają zflushowany
+    `ProductionOrder` bez commita i bez rollbacku);
+  * między zwolnieniem punktu kontrolnego a zatwierdzeniem transakcji było
+    OKNO, w którym gałąź błędu nie miała już czego wycofać — metoda meldowała
+    porażkę, a jej praca i tak wjeżdżała do bazy pierwszym commitem
+    wołającego;
+  * prawdziwa awaria COMMIT-u (zerwane połączenie, zakleszczenie) zabierała
+    wołającemu transakcję RAZEM z jego pracą (`PendingRollbackError`).
+
+Dopóki ta funkcja commituje sesję, której NIE JEST WŁAŚCICIELEM, żadna
+dyscyplina punktów zapisu tego nie uratuje. Ten sam wniosek i ten sam
+wzorzec, co w `modules/reports/ingest.py` (sekcja „WŁASNOŚĆ SESJI") —
+tam zadziałał i jest precedensem dla tej zmiany.
+
+Konsekwencje praktyczne:
+  * `Model.query` rozwiązuje się przez rejestr `scoped_session`, czyli ZAWSZE
+    przez `db.session` — dlatego zapytania tego modułu idą przez
+    `self._sesja_robocza()`, a nie przez `ProductionItem.query`;
+  * pozycje przechodzą przez `_pozycje_w_mojej_sesji`, więc KROK 2 i KROK 7
+    zmieniają WYŁĄCZNIE obiekty naszej sesji. Bez tego wystarczy, żeby
+    wołający (albo podmiana w teście) podał pozycje wczytane gdzie indziej,
+    a zmiany priorytetów wylądowałyby w cudzej sesji — czyli dokładnie tam,
+    skąd je właśnie wyprowadzamy;
+  * własna sesja to jedno dodatkowe połączenie do MySQL-a (limit 40
+    na użytkownika) na czas jednego przeliczenia — zamykane jawnie
+    w `finally`, także przy wyjątku.
+
 Autor: Konrad Kmiecik
 Wersja: 2.0 (Enhanced Priority System - Payment Date + Weekly Grouping)
 Data: 2025-01-22
@@ -30,14 +69,28 @@ from datetime import datetime, date, timedelta
 from typing import Dict, Any, List, Optional, Tuple, Set
 from collections import defaultdict
 from modules.logging import get_structured_logger
-from sqlalchemy import func
-from sqlalchemy.orm import joinedload
+from sqlalchemy import func, inspect as sa_inspect
+from sqlalchemy.orm import joinedload, object_session
 
 logger = get_structured_logger('production.priority.v2')
 
 class PriorityError(Exception):
     """Wyjątek dla błędów kalkulacji priorytetów"""
     pass
+
+
+def nowa_sesja_priorytetow():
+    """Świeża, WŁASNA sesja przeliczania priorytetów. Wołający ją zamyka.
+
+    Fabryka Flask-SQLAlchemy (`db.create_session`) zamiast gołego
+    `sessionmaker(bind=db.engine)`: daje tę samą klasę sesji i to samo
+    rozwiązywanie bindów, co `db.session`, tylko poza rejestrem
+    `scoped_session`. Dzięki temu commit i rollback tej sesji dotyczą
+    WYŁĄCZNIE pracy priorytetów — patrz „WŁASNOŚĆ SESJI" w docstringu modułu.
+    """
+    from extensions import db
+
+    return db.create_session({})()
 
 class NewPriorityCalculator:
     """
@@ -56,7 +109,39 @@ class NewPriorityCalculator:
         Inicjalizacja nowego kalkulatora priorytetów
         """
         self._lock = threading.RLock()
-        
+
+        # Sesja bieżącego przeliczania. Żyje W WĄTKU (`threading.local`),
+        # nie na instancji — bo instancja jest SINGLETONEM procesu
+        # (`get_priority_calculator`), a gunicorn obsługuje żądania wątkami.
+        #
+        # ZNALEZISKO WAŻNE (trzecia kontrola adwersaryjna). Stało tu wcześniej
+        # zdanie, że sesja jest „ustawiana i zerowana WYŁĄCZNIE pod `self._lock`,
+        # więc dwa przeliczenia nie mogą sobie jej podmienić". Było nieprawdziwe
+        # na dwa niezależne sposoby:
+        #
+        #   * ODCZYTY nie brały blokady w ogóle.
+        #     `get_active_products_for_prioritization` i `get_reserved_ranks`
+        #     są publiczne i — zgodnie z własnym opisem — wolno je wołać
+        #     samodzielnie. Wątek B, wołając je na tym samym singletonie
+        #     w trakcie przeliczania w wątku A, dostawał PRYWATNĄ sesję wątku A
+        #     i puszczał po niej zapytanie. `Session` SQLAlchemy nie jest
+        #     bezpieczna wątkowo, a A zamyka ją w `finally` — B trafiał
+        #     w najlepszym razie na `ResourceClosedError`;
+        #   * `self._lock` to RLock, czyli blokada WZNAWIALNA. Ten sam wątek
+        #     wchodzi w nią drugi raz bez oporu, więc zagnieżdżone przeliczanie
+        #     podmieniało sesję zewnętrznemu i zamykało ją w swoim `finally`.
+        #
+        # Teraz niezmiennik trzyma KOD, nie obietnica: sesja jest widoczna
+        # wyłącznie we własnym wątku, a wejście w przeliczanie po raz drugi
+        # w TYM SAMYM wątku jest odrzucane (`PriorityError`, patrz
+        # `recalculate_all_priorities`). Poza przeliczaniem atrybutu nie ma
+        # i metody pomocnicze wracają do `db.session` (są wyłącznie czytające,
+        # patrz `_sesja_robocza`).
+        #
+        # Blokada zostaje, ale w swojej właściwej roli: szereguje przeliczenia
+        # między wątkami, żeby dwa naraz nie renumerowały tej samej kolejki.
+        self._watek = threading.local()
+
         # Konfiguracja algorytmu
         self.active_statuses = [
             'czeka_na_wyciecie',
@@ -81,100 +166,251 @@ class NewPriorityCalculator:
     def recalculate_all_priorities(self) -> Dict[str, Any]:
         """
         Główna metoda przeliczająca wszystkie priorytety
-        
+
         ALGORYTM:
         1. Pobiera WSZYSTKIE aktywne produkty z kolejki (niespakowane)
-        2. Grupuje po tygodniach względem payment_date  
+        2. Grupuje po tygodniach względem payment_date
         3. Oblicza statystyki częstotliwości w każdym tygodniu
         4. Ustala priorytety grup: "więcej = wyżej"
         5. Sortuje produkty wielopoziomowo
         6. Przypisuje numery 1,2,3,4... z pomijaniem manual overrides
         7. Aktualizuje bazę danych
-        
+
+        CAŁOŚĆ IDZIE PO WŁASNEJ SESJI, którą ta metoda zakłada i zamyka
+        w `finally` — patrz „WŁASNOŚĆ SESJI" w docstringu modułu.
+        `db.session` nie jest tu tykana ani razu, więc przeliczanie
+        priorytetów nie może ani zatwierdzić, ani cofnąć pracy wołającego.
+
         Returns:
             Dict[str, Any]: Szczegółowy raport z przeliczenia
         """
         start_time = datetime.now()
-        
+
         try:
             with self._lock:
                 logger.info("Rozpoczęcie przeliczania wszystkich priorytetów v2.0")
-                
-                # KROK 1: Pobieranie wszystkich aktywnych produktów
-                products = self.get_active_products_for_prioritization()
-                logger.info(f"Pobrano {len(products)} aktywnych produktów z kolejki")
-                
-                if not products:
-                    return {
+
+                # Wejście zagnieżdżone. `self._lock` jest WZNAWIALNA, więc
+                # nie zatrzyma wątku, który już ją trzyma — a każde drugie
+                # wejście podmieniłoby sesję przeliczaniu zewnętrznemu
+                # i zamknęło ją w swoim `finally`. Nie ma przypadku,
+                # w którym to jest pożądane: renumerujemy CAŁĄ kolejkę,
+                # więc przeliczanie w przeliczaniu i tak liczyłoby to samo.
+                if self._sesja_watku() is not None:
+                    raise PriorityError(
+                        'Przeliczanie priorytetów już trwa w tym wątku — '
+                        'zagnieżdżone wywołanie odrzucone')
+
+                sesja = nowa_sesja_priorytetow()
+                try:
+                    # Od tej chwili `_sesja_robocza()` oddaje NASZĄ sesję, więc
+                    # zapytania KROKU 1 i KROKU 7 nie odpalają autoflushu
+                    # sesji wołającego (nieudany flush na poziomie KORZENIA
+                    # jego transakcji zabrałby mu całą pracę).
+                    self._watek.sesja = sesja
+
+                    # KROK 1: Pobieranie wszystkich aktywnych produktów
+                    products = self._pozycje_w_mojej_sesji(
+                        self.get_active_products_for_prioritization(), sesja)
+                    logger.info(f"Pobrano {len(products)} aktywnych produktów z kolejki")
+
+                    if not products:
+                        # Niczego nie zmieniliśmy — nie ma czego zatwierdzać.
+                        return {
+                            'success': True,
+                            'products_processed': 0,
+                            'message': 'Brak produktów w kolejce do priorytetyzacji',
+                            'duration_seconds': 0
+                        }
+
+                    # KROK 2: Aktualizacja thickness_group dla wszystkich produktów
+                    thickness_updated = self.update_thickness_groups_batch(products)
+                    logger.debug(f"Zaktualizowano thickness_group dla {thickness_updated} produktów")
+
+                    # KROK 3: Grupowanie po tygodniach
+                    weekly_groups = self.group_products_by_weeks(products)
+                    logger.info(f"Pogrupowano produkty w {len(weekly_groups)} tygodni")
+
+                    # KROK 4-6: Przetwarzanie każdego tygodnia i sortowanie globalne
+                    all_sorted_products = []
+                    week_stats = {}
+
+                    for week_key, week_products in weekly_groups.items():
+                        # Statystyki częstotliwości dla tygodnia
+                        stats = self.calculate_week_statistics(week_products)
+                        week_stats[week_key] = stats
+
+                        # Priorytety grup dla tygodnia
+                        group_priorities = self.determine_group_priorities(stats)
+
+                        # Sortowanie produktów w tygodniu
+                        sorted_week_products = self.sort_products_by_rules(week_products, group_priorities)
+                        all_sorted_products.extend(sorted_week_products)
+
+                    logger.info(f"Posortowano wszystkie produkty globalnie: {len(all_sorted_products)}")
+
+                    # KROK 7: Przypisanie numeracji sekwencyjnej
+                    ranking_result = self.assign_sequential_ranks(all_sorted_products)
+
+                    # KROK 8: Zatwierdzenie WŁASNEJ transakcji.
+                    #
+                    # Jedno `commit()` na własnej sesji, bez punktów zapisu
+                    # i bez okien: cokolwiek tu padnie — flush odrzucony
+                    # przez bazę, zerwane połączenie, zakleszczenie — leci
+                    # do gałęzi błędu, która wycofuje NASZĄ sesję. Transakcja
+                    # wołającego jest poza tym wszystkim i zostaje nietknięta.
+                    sesja.commit()
+
+                    duration = (datetime.now() - start_time).total_seconds()
+
+                    result = {
                         'success': True,
-                        'products_processed': 0,
-                        'message': 'Brak produktów w kolejce do priorytetyzacji',
-                        'duration_seconds': 0
+                        'products_processed': len(products),
+                        'products_prioritized': ranking_result['products_updated'],
+                        'manual_overrides_preserved': ranking_result['manual_overrides_preserved'],
+                        'weekly_groups_processed': len(weekly_groups),
+                        'duration_seconds': round(duration, 2),
+                        'algorithm_version': '2.0',
+                        'week_statistics': week_stats,
+                        'ranking_details': ranking_result
                     }
-                
-                # KROK 2: Aktualizacja thickness_group dla wszystkich produktów
-                thickness_updated = self.update_thickness_groups_batch(products)
-                logger.debug(f"Zaktualizowano thickness_group dla {thickness_updated} produktów")
-                
-                # KROK 3: Grupowanie po tygodniach
-                weekly_groups = self.group_products_by_weeks(products)
-                logger.info(f"Pogrupowano produkty w {len(weekly_groups)} tygodni")
-                
-                # KROK 4-6: Przetwarzanie każdego tygodnia i sortowanie globalne
-                all_sorted_products = []
-                week_stats = {}
-                
-                for week_key, week_products in weekly_groups.items():
-                    # Statystyki częstotliwości dla tygodnia
-                    stats = self.calculate_week_statistics(week_products)
-                    week_stats[week_key] = stats
-                    
-                    # Priorytety grup dla tygodnia
-                    group_priorities = self.determine_group_priorities(stats)
-                    
-                    # Sortowanie produktów w tygodniu
-                    sorted_week_products = self.sort_products_by_rules(week_products, group_priorities)
-                    all_sorted_products.extend(sorted_week_products)
-                
-                logger.info(f"Posortowano wszystkie produkty globalnie: {len(all_sorted_products)}")
-                
-                # KROK 7: Przypisanie numeracji sekwencyjnej
-                ranking_result = self.assign_sequential_ranks(all_sorted_products)
-                
-                # KROK 8: Commit zmian w bazie danych
-                from extensions import db
-                db.session.commit()
-                
-                duration = (datetime.now() - start_time).total_seconds()
-                
-                result = {
-                    'success': True,
-                    'products_processed': len(products),
-                    'products_prioritized': ranking_result['products_updated'],
-                    'manual_overrides_preserved': ranking_result['manual_overrides_preserved'],
-                    'weekly_groups_processed': len(weekly_groups),
-                    'duration_seconds': round(duration, 2),
-                    'algorithm_version': '2.0',
-                    'week_statistics': week_stats,
-                    'ranking_details': ranking_result
-                }
-                
-                logger.info("Zakończono przeliczanie priorytetów", extra=result)
-                return result
-                
+
+                    logger.info("Zakończono przeliczanie priorytetów", extra=result)
+                    return result
+
+                except Exception:
+                    self._wycofaj_wlasna_prace(sesja)
+                    raise
+                finally:
+                    # Kolejność jest istotna: najpierw odcinamy sesję od metod
+                    # pomocniczych, dopiero potem ją zamykamy. Odwrotnie
+                    # `_sesja_robocza()` mogłaby wydać zamkniętą sesję.
+                    self._watek.sesja = None
+                    self._zamknij_sesje(sesja)
+
         except Exception as e:
             logger.error("Błąd przeliczania priorytetów", extra={
                 'error': str(e),
                 'duration_seconds': (datetime.now() - start_time).total_seconds()
             })
-            
+
             return {
                 'success': False,
                 'error': str(e),
                 'products_processed': 0,
                 'duration_seconds': (datetime.now() - start_time).total_seconds()
             }
-    
+
+    def _sesja_watku(self):
+        """Sesja przeliczania trwającego W TYM WĄTKU albo `None`.
+
+        Atrybut `sesja` istnieje na `threading.local()` tylko w tych wątkach,
+        które kiedykolwiek weszły w przeliczanie — stąd `getattr`
+        z domyślną wartością, a nie gołe sięgnięcie po atrybut.
+        """
+        return getattr(self._watek, 'sesja', None)
+
+    def _sesja_robocza(self):
+        """Sesja, po której mają iść zapytania tego kalkulatora.
+
+        W trakcie przeliczania jest to WŁASNA sesja TEGO WĄTKU. Poza nim
+        `None`, więc metody czytające (`get_active_products_for_prioritization`,
+        `get_reserved_ranks`) da się nadal wywołać samodzielnie — wracają
+        wtedy do `db.session`. Są WYŁĄCZNIE czytające, więc taki fallback
+        niczego cudzego nie zatwierdza ani nie cofa.
+
+        Sesja jest czytana z `threading.local()`, więc wątek, który woła te
+        metody samodzielnie, NIGDY nie dostanie prywatnej sesji przeliczania
+        trwającego obok — patrz komentarz przy `self._watek` w `__init__`.
+        """
+        sesja = self._sesja_watku()
+        if sesja is not None:
+            return sesja
+
+        from extensions import db
+        return db.session
+
+    @staticmethod
+    def _pozycje_w_mojej_sesji(pozycje: List, sesja) -> List:
+        """Zamienia pozycje na ich odpowiedniki z WŁASNEJ sesji.
+
+        KROK 2 (`update_thickness_groups_batch`) i KROK 7
+        (`assign_sequential_ranks`) zmieniają obiekty ORM-a. Gdyby trafiły
+        na obiekt wczytany przez `db.session`, zmiana priorytetów wylądowałaby
+        w sesji WOŁAJĄCEGO — czyli dokładnie tam, skąd tę pracę wyprowadzamy:
+        czekałaby na jego commit albo padłaby ofiarą jego rollbacku.
+
+        Tożsamość czytamy przez `sa_inspect(...).identity`, a nie przez
+        `pozycja.id`: dla obiektu wygaszonego po cudzym commicie samo sięgnięcie
+        po atrybut wywołałoby doczytanie, a z nim AUTOFLUSH cudzej sesji.
+
+        Pozycje bez tożsamości w bazie (jeszcze niezapisane) pomijamy —
+        nie ma czego przenieść, a przypisywanie im rangi i tak nie miałoby
+        gdzie wylądować.
+        """
+        from ..models import ProductionItem
+
+        moje = []
+        przeniesione = 0
+        pominiete = 0
+
+        for pozycja in pozycje:
+            if object_session(pozycja) is sesja:
+                moje.append(pozycja)
+                continue
+
+            klucz = sa_inspect(pozycja).identity
+            if klucz is None:
+                pominiete += 1
+                continue
+
+            wlasna = sesja.query(ProductionItem).get(klucz)
+            if wlasna is None:
+                pominiete += 1
+                continue
+
+            moje.append(wlasna)
+            przeniesione += 1
+
+        if przeniesione or pominiete:
+            logger.debug("Pozycje przeniesione do własnej sesji priorytetów", extra={
+                'przeniesione': przeniesione,
+                'pominiete': pominiete,
+                'razem': len(moje),
+            })
+
+        return moje
+
+    @staticmethod
+    def _wycofaj_wlasna_prace(sesja) -> None:
+        """Cofa WYŁĄCZNIE pracę przeliczania priorytetów.
+
+        Rollback idzie po WŁASNEJ sesji, więc jego zasięg kończy się
+        na naszych zmianach z definicji — nie trzeba już żadnych punktów
+        zapisu ani sprawdzania, czy jest do czego wracać. Praca wołającego
+        wisi w `db.session` i jest poza tą transakcją.
+        """
+        try:
+            sesja.rollback()
+        except Exception as blad_rollbacku:
+            logger.error("Nie udalo sie wycofac nieudanego przeliczania priorytetow",
+                         extra={'error': str(blad_rollbacku)})
+
+    @staticmethod
+    def _zamknij_sesje(sesja) -> None:
+        """Zamyka własną sesję. Niepowodzenie nie może przesłonić wyniku.
+
+        Bez tego jedno połączenie zostawałoby wiszące przy każdej awarii,
+        a hosting ma limit 40 połączeń na użytkownika (awaria 1040/1203
+        w historii projektu) — stąd ślad w logu, mimo że wynik przeliczania
+        to nie zmienia.
+        """
+        try:
+            sesja.close()
+        except Exception as blad_zamkniecia:
+            logger.error("Nie udalo sie zamknac sesji priorytetow",
+                         extra={'error': str(blad_zamkniecia)})
+
     def get_active_products_for_prioritization(self) -> List:
         """
         Pobiera WSZYSTKIE produkty aktywne w kolejce produkcyjnej
@@ -184,14 +420,32 @@ class NewPriorityCalculator:
         - BEZ ograniczenia czasowego - wszystkie aktywne niezależnie od daty
         - Wykluczone: produkty już spakowane przez ostatnie stanowisko
         
+        PUSTA LISTA ZNACZY „PUSTA KOLEJKA” I NIC INNEGO (znalezisko WAŻNE,
+        trzecia kontrola adwersaryjna). Metoda łapała tu KAŻDY wyjątek
+        i zwracała `[]`, więc `recalculate_all_priorities` widziało pustą
+        kolejkę i kończyło `success: True` z komunikatem „Brak produktów
+        w kolejce do priorytetyzacji". Operator dostawał zielony wynik, choć
+        baza nie odpowiedziała, a numeracja na hali została nieprzeliczona.
+        „Nie ma czego przeliczać" i „nie udało się odpytać" to dwa różne
+        zdania i muszą dać dwa różne wyniki — dlatego awaria leci dalej
+        jako `PriorityError`.
+
         Returns:
-            List[ProductionItem]: Lista aktywnych produktów
+            List[ProductionItem]: Lista aktywnych produktów (może być pusta)
+
+        Raises:
+            PriorityError: gdy zapytania NIE DA SIĘ wykonać
         """
         try:
             from ..models import ProductionItem, ProductionOrder
 
+            # `ProductionItem.query` szłoby przez rejestr `scoped_session`,
+            # czyli przez `db.session` — a tam autoflush zabrałby się
+            # za NIEZACOMMITOWANĄ pracę wołającego. Patrz „WŁASNOŚĆ SESJI".
+            sesja = self._sesja_robocza()
+
             # Query wszystkich produktów w statusach aktywnych
-            query = ProductionItem.query.join(ProductionOrder).options(
+            query = sesja.query(ProductionItem).join(ProductionOrder).options(
                 joinedload(ProductionItem.order),
                 joinedload(ProductionItem.configuration),
             ).filter(
@@ -216,7 +470,8 @@ class NewPriorityCalculator:
             logger.error("Błąd pobierania produktów dla priorytetyzacji", extra={
                 'error': str(e)
             })
-            return []
+            raise PriorityError(
+                'Nie udało się pobrać produktów do priorytetyzacji: %s' % e) from e
     
     def group_products_by_weeks(self, products: List) -> Dict[str, List]:
         """
@@ -521,13 +776,27 @@ class NewPriorityCalculator:
         Pobiera numery priorytetów zarezerwowane przez manual overrides
         
         Returns:
-            Set[int]: Zestaw zajętych numerów priorytetów
+            Set[int]: Zestaw zajętych numerów priorytetu (może być pusty)
+
+        PUSTY ZBIÓR ZNACZY „NIC NIE JEST ZAREZERWOWANE” I NIC INNEGO — ta sama
+        poprawka i to samo uzasadnienie, co w
+        `get_active_products_for_prioritization`, tylko skutek groźniejszy:
+        pusty zbiór po awarii kazałby `assign_sequential_ranks` rozdać numery
+        zajęte przez ręczne nadpisania operatora (`priority_manual_override`),
+        czyli zdublować pozycje w kolejce na hali — po cichu i z wynikiem
+        `success: True`.
+
+        Raises:
+            PriorityError: gdy zapytania NIE DA SIĘ wykonać
         """
         try:
             from ..models import ProductionItem
-            
+
+            # Własna sesja, nie `db.session` — patrz „WŁASNOŚĆ SESJI".
+            sesja = self._sesja_robocza()
+
             # Query produktów z manual override i przypisanym priority_rank
-            reserved_products = ProductionItem.query.filter(
+            reserved_products = sesja.query(ProductionItem).filter(
                 ProductionItem.priority_manual_override == True,
                 ProductionItem.priority_rank.isnot(None),
                 ProductionItem.current_status.in_(self.active_statuses)
@@ -540,7 +809,8 @@ class NewPriorityCalculator:
             
         except Exception as e:
             logger.error("Błąd pobierania zarezerwowanych rangów", extra={'error': str(e)})
-            return set()
+            raise PriorityError(
+                'Nie udało się pobrać zarezerwowanych numerów priorytetu: %s' % e) from e
     
     def update_thickness_groups_batch(self, products: List) -> int:
         """

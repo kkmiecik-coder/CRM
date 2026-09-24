@@ -7942,8 +7942,19 @@ body.fullscreen-mode {
         padding: 8px 12px;
         font-size: 12px;
     }
-    
+
     .voivodeships-btn-text {
         display: none; /* Na bardzo małych ekranach pokaż tylko ikonę */
     }
+}
+
+/* Pasek trybu tylko-do-odczytu (Plan C). Bursztyn, nie czerwien —
+   to nie jest awaria, tylko informacja o stanie zakladki. */
+.reports-tryb-odczytu {
+    padding: 8px 12px;
+    background: #FDEDCF;
+    border: 1px solid #D98A16;
+    border-radius: 3px;
+    font-size: 13px;
+    color: #6B4A12;
 }

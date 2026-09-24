@@ -20,73 +20,128 @@ from decimal import Decimal
 reports_logger = get_structured_logger('reports.routers')
 reports_logger.info("✅ reports_logger zainicjowany poprawnie w service.py")
 
+# ===== WIEDZA WSPÓLNA Z ZAPISEM PRZYROSTOWYM =====================
+# Te trzy rzeczy czyta też modules/reports/ingest.py. Stały na poziomie
+# instancji serwisu, którego konstruktor woła current_app.config — a mapper
+# ma działać bez kontekstu aplikacji. Wyciągnięte, nie skopiowane: duplikat
+# listy statusów albo listy słów usługowych oznaczałby, że dodanie nowego
+# statusu poprawia starą zakładkę i psuje analizę.
+
+STATUSY_BASELINKER: Dict[int, str] = {
+    155824: "Nowe - opłacone",
+    105112: "Nowe - nieopłacone",
+    138619: "W produkcji - surowe",
+    148830: "W produkcji - lakierowanie",
+    148831: "W produkcji - bejcowanie",
+    148832: "W produkcji - olejowanie",
+    332355: "W produkcji - suszenie usługowe",
+    138620: "Produkcja zakończona",
+    138623: "Zamówienie spakowane",
+    105113: "Paczka zgłoszona do wysyłki",
+    105114: "Wysłane - kurier",
+    138624: "Dostarczona - kurier",
+    149763: "Wysłane - transport WoodPower",
+    149777: "Czeka na odbiór osobisty",
+    149778: "Dostarczona - trans. WoodPower",
+    149779: "Odebrane",
+    316636: "Reklamacja",
+    138625: "Zamówienie anulowane",
+}
+
+# Statusy, z którymi zamówienie NIE JEST SPRZEDAŻĄ. Decyzja użytkownika
+# z 23.09.2026 (partia E, punkt E5): Analiza sprzedażowa ich nie liczy — ani
+# na pulpicie, ani w Eksploratorze, ani w kubełkach klientów. Arkusz pokazuje
+# je dalej, wyszarzone, i nie wlicza ich do stopki.
+#
+# ROZPOZNAJEMY PO IDENTYFIKATORZE, nie po nazwie: nazwę statusu można zmienić
+# w panelu BaseLinkera, identyfikator zostaje. Kolumna
+# `sales_orders.baselinker_status_id` jest wypełniona we wszystkich 3339
+# wierszach kopii produkcji z 23.09.2026 (zero pustych), więc zapasowe
+# rozpoznawanie po nazwie nie ma czego łapać. Pusty identyfikator znaczy
+# „status nieznany" i LICZY SIĘ do sprzedaży — nic nie mówi, że zamówienie
+# anulowano. Zapis z Arkusza trzyma identyfikator w zgodzie z nazwą
+# (`arkusz_zapis`), więc rozjazd nazwy z numerem nie ma skąd się wziąć.
+#
+# JEDNO MIEJSCE: warunek SQL buduje z tej stałej `filters.warunek_sprzedazy`,
+# a denormalizację klienta przelicza `ingest._przelicz_klienta` tym samym
+# warunkiem. Stary moduł raportów (routers.py, starsze fragmenty tego pliku)
+# ma te same dwa numery wpisane literalnie — to poprzednik, którego ta
+# partia nie przebudowuje.
+STATUSY_POZA_SPRZEDAZA = frozenset({
+    105112,   # „Nowe - nieopłacone" — wraca do sprzedaży samo po opłaceniu
+    138625,   # „Zamówienie anulowane"
+})
+
+# Podpis dla człowieka: co JEST wyłączone. Ten sam napis stoi w stopce
+# Arkusza, żeby nazwa zbioru nie rozjechała się ze stałą wyżej.
+OPIS_POZA_SPRZEDAZA = 'bez anulowanych i nieopłaconych'
+
+SLOWA_USLUGI = (
+    'usługa', 'usluga', 'usługi', 'uslugi',
+    'klejenie', 'klejenia', 'oklejanie',
+    'przycięcie', 'montaż',
+    'suszenie', 'suszenia', 'wysuszenie', 'wysuszenia',
+    'usługa suszenia', 'suszenie usługowe',
+)
+
+
+def czy_usluga(nazwa_produktu) -> bool:
+    """Czy pozycja jest usługą, nie towarem.
+
+    Rozstrzyga o `group_type`, a przez to o tym, czy pozycja wchodzi do metrów
+    sześciennych. Wrzesień 2025 pokazywał 167 m³ zamiast ~12, bo „Suszenie
+    usługowe 88m3" liczyło się jak towar.
+    """
+    if not nazwa_produktu:
+        return False
+    tekst = str(nazwa_produktu).lower()
+    return any(slowo in tekst for slowo in SLOWA_USLUGI)
+
+
+def kwota_netto(kwota, typ_ceny) -> float:
+    """Kwota netto z kwoty surowej z BaseLinkera i typu ceny zamówienia.
+
+    Typ ceny siedzi w custom_extra_fields[106169]. Brak oznaczenia znaczy
+    BRUTTO — tak działa stara synchronizacja i tak są policzone dane
+    historyczne, więc zmiana tej domyślności rozjechałaby szeregi czasowe.
+    """
+    if not kwota:
+        return 0.0
+    typ = (typ_ceny or '').strip().lower()
+    if typ == 'netto':
+        return float(kwota)
+    return float(kwota) / 1.23
+
+
 class BaselinkerReportsService:
     """
     Serwis do synchronizacji danych z Baselinker dla modułu Reports
     """
-    
+
     def __init__(self):
         self.api_key = current_app.config.get('API_BASELINKER', {}).get('api_key')
         self.endpoint = current_app.config.get('API_BASELINKER', {}).get('endpoint')
         self.logger = get_structured_logger('reports.service')
         self.parser = ProductNameParser()
-        
-        # Mapowanie statusów Baselinker
-        self.status_map = {
-            155824: "Nowe - opłacone",
-            105112: "Nowe - nieopłacone",
-            138619: "W produkcji - surowe",
-            148830: "W produkcji - lakierowanie",
-            148831: "W produkcji - bejcowanie", 
-            148832: "W produkcji - olejowanie",
-            332355: "W produkcji - suszenie usługowe",
-            138620: "Produkcja zakończona",
-            138623: "Zamówienie spakowane",
-            105113: "Paczka zgłoszona do wysyłki", 
-            105114: "Wysłane - kurier",
-            138624: "Dostarczona - kurier",
-            149763: "Wysłane - transport WoodPower",
-            149777: "Czeka na odbiór osobisty",
-            149778: "Dostarczona - trans. WoodPower",
-            149779: "Odebrane",
-            316636: "Reklamacja",
-            138625: "Zamówienie anulowane"
-        }
+
+        # Mapowanie statusów Baselinker — jedno źródło prawdy na poziomie modułu.
+        self.status_map = dict(STATUSY_BASELINKER)
 
         # NOWE właściwości dla obsługi objętości
         self.volume_fixes = {}  # {product_key: {'volume': X, 'wood_species': Y, ...}}
 
     def _is_service_product(self, product_name: str) -> bool:
         """
-        Rozpoznaje czy produkt to usługa na podstawie nazwy
-        ROZSZERZONE: dodano obsługę suszenia usługowego
-
-        Args:
-            product_name (str): Nazwa produktu z Baselinker
-    
-        Returns:
-            bool: True jeśli produkt to usługa, False w przeciwnym razie
+        Rozpoznaje czy produkt to usługa na podstawie nazwy.
+        Reguła siedzi w modułowej funkcji czy_usluga() — ta sama, której używa
+        zapis przyrostowy do sales_*. Tutaj zostaje wyłącznie logowanie.
         """
-        if not product_name:
-            return False
-
-        service_keywords = [
-            'usługa', 'usluga', 'usługi', 'uslugi', 
-            'klejenie', 'klejenia', 'oklejanie', 
-            'przycięcie', 'montaż',
-            # NOWE: suszenie usługowe
-            'suszenie', 'suszenia', 'wysuszenie', 'wysuszenia',
-            'usługa suszenia', 'suszenie usługowe'
-        ]
-        product_name_lower = product_name.lower()
-
-        is_service = any(keyword in product_name_lower for keyword in service_keywords)
-
+        is_service = czy_usluga(product_name)
         if is_service:
-            self.logger.debug("Rozpoznano usługę", 
-                             product_name=product_name,
-                             matched_keywords=[kw for kw in service_keywords if kw in product_name_lower])
-
+            self.logger.debug("Rozpoznano usługę",
+                              product_name=product_name,
+                              matched_keywords=[kw for kw in SLOWA_USLUGI
+                                                if kw in str(product_name).lower()])
         return is_service
 
     def set_volume_fixes(self, volume_fixes_dict):
@@ -2380,34 +2435,15 @@ class BaselinkerReportsService:
     
     def _calculate_paid_amount_net(self, payment_done, price_type_from_api):
         """
-        Oblicza paid_amount_net na podstawie typu ceny z custom_extra_fields
-    
-        Args:
-            payment_done (float): Kwota zapłacona z Baselinker (payment_done)
-            price_type_from_api (str): Typ ceny z extra_field_106169
-        
-        Returns:
-            float: Przeliczona kwota netto
+        Oblicza paid_amount_net na podstawie typu ceny z custom_extra_fields.
+        Reguła siedzi w modułowej funkcji kwota_netto() — ta sama, której używa
+        zapis przyrostowy do sales_*.
         """
-        if not payment_done:
-            return 0.0
-        
-        # Normalizuj wartość z API
-        price_type = (price_type_from_api or '').strip().lower()
-    
-        if price_type == 'netto':
-            # Dla zamówień netto: payment_done jest już kwotą netto, nie dziel przez 1.23
-            paid_amount_net = float(payment_done)
-            self.logger.debug("Obliczono paid_amount_net dla zamówienia NETTO",
-                             payment_done=payment_done,
-                             paid_amount_net=paid_amount_net)
-        else:
-            # Dla zamówień brutto lub pustych: payment_done to brutto, podziel przez 1.23
-            paid_amount_net = float(payment_done) / 1.23
-            self.logger.debug("Obliczono paid_amount_net dla zamówienia BRUTTO",
-                             payment_done=payment_done,
-                             paid_amount_net=paid_amount_net)
-    
+        paid_amount_net = kwota_netto(payment_done, price_type_from_api)
+        self.logger.debug("Obliczono paid_amount_net",
+                          payment_done=payment_done,
+                          price_type=price_type_from_api,
+                          paid_amount_net=paid_amount_net)
         return paid_amount_net
     
     def save_order_with_volume_analysis(self, order_data):

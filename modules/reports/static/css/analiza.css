@@ -1,0 +1,1552 @@
+/* modules/reports/static/css/analiza.css
+   Analiza sprzedazowa — dashboard i Eksplorator.
+
+   UWAGA: ten plik NIE jest rozszerzeniem reports.css. Tamten ma wlasny :root
+   z bootstrapowym --primary-color: #007bff i importuje Poppins regula CSS
+   wprost z Google Fonts. Nowa zakladka nie laduje go wcale.
+
+   Fonty sa LOKALNE. Safari ITP blokuje zewnetrzne CDN-y, a poza tym strona
+   z pelnym szkieletem ladowania nie moze czekac na cudzy serwer. */
+
+/* ===== FONTY (lokalne, katalog vendor/fonts) ============================ */
+@font-face { font-family: 'IBM Plex Sans'; font-style: normal; font-weight: 400;
+  font-display: swap; src: url('../vendor/fonts/IBMPlexSans-Regular.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Sans'; font-style: normal; font-weight: 500;
+  font-display: swap; src: url('../vendor/fonts/IBMPlexSans-Medium.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Sans'; font-style: normal; font-weight: 600;
+  font-display: swap; src: url('../vendor/fonts/IBMPlexSans-SemiBold.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Sans'; font-style: normal; font-weight: 700;
+  font-display: swap; src: url('../vendor/fonts/IBMPlexSans-Bold.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 400;
+  font-display: swap; src: url('../vendor/fonts/IBMPlexMono-Regular.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 500;
+  font-display: swap; src: url('../vendor/fonts/IBMPlexMono-Medium.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 600;
+  font-display: swap; src: url('../vendor/fonts/IBMPlexMono-SemiBold.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 700;
+  font-display: swap; src: url('../vendor/fonts/IBMPlexMono-Bold.woff2') format('woff2'); }
+
+/* ===== PALETA ============================================================ */
+/* Zwalidowana pod katem daltonizmu (Delta E >= 8 dla par sasiednich
+   w deuteranopii i tritanopii, kontrast >= 3:1 wobec tla). */
+.analiza {
+  --paper: #EFEDE9;       --surface: #FFFFFF;
+  --ink: #1C1A17;         --ink-2: #4A453E;      --ink-3: #3A352E;
+  --muted: #8A8278;       --muted-2: #6E6860;    --muted-3: #9C948A;
+  --rule: #DCD7CF;        --rule-2: #E7E2DA;     --rule-strong: #C2BAAF;
+  --accent: #ED6B24;      --accent-dark: #B84E13; --accent-soft: #F0A473;
+  --c-teal: #0F7D94;      --c-teal-dark: #0D5F72; --c-teal-bg: #F2F9FB;
+  --c-purple: #6B5B8A;    --neutral: #C9C2B7;    --neutral-2: #E3DDD4;
+  /* Kolor WYLACZNIE segmentu porownawczego (Zadanie 10) — celowo INNY niz
+     --c-teal. Kanal "Sklep" (KOLORY_KANALU.shop w analiza.js) jest na stale
+     #0F7D94 (Main.dc.html:213, makieta wiazaca), a --c-teal byl tym samym
+     hexem: na karcie kanalow, przy wlaczonym segmencie, pasek porownania
+     i pasek "Sklep" byly nie do odroznienia (przeglad, KRYTYCZNE 2).
+     Niebieski indygo nie koliduje z zadnym kolorem kanalu ani rangi
+     (teal/fiolet/pomarancz/szarobrazowy) uzywanym gdziekolwiek na tej karcie. */
+  --c-indygo: #4A5FA8;    --c-indygo-dark: #37447D; --c-indygo-jasny: #A9B8EA;
+  --ok: #2C6E4B;
+  --warn-bg: #FDEDCF;     --warn-line: #D98A16;
+  --bad: #B33A2B;         --bad-bg: #FAE9E5;     --bad-ink: #7A2416;
+  --szkielet: #E7E2DA;
+  --wys-wykres-trend: 152px;   /* MUSI byc identyczna w szkielecie i po danych */
+  --wys-pierscien: 104px;
+  --wys-mapa: 196px;          /* MUSI byc identyczna w szkielecie i po danych */
+}
+
+/* ===== UKLAD ============================================================= */
+.analiza {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
+  /* Dolny odstęp strony jako zmienna: przyklejony pasek edycji musi go znać,
+     żeby domknąć się do samej krawędzi okna (patrz .analiza--edycja .an-edycja). */
+  --odstep-dolny: 28px;
+  padding: 0 22px var(--odstep-dolny) 22px;
+  min-width: 0;
+}
+.analiza * { box-sizing: border-box; }
+
+.an-pasek { display: flex; align-items: center; gap: 9px; padding: 16px 0 0 0; flex-wrap: wrap; }
+.an-pasek__rozpychacz { flex-grow: 1; }
+
+.an-chip {
+  display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 11px;
+  background: var(--ink); color: #FFF; border: 0; border-radius: 14px;
+  font: 500 11.5px 'IBM Plex Sans', sans-serif;
+}
+.an-chip__kropka { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.an-chip--dodaj {
+  background: var(--surface); color: var(--muted-2);
+  border: 1px dashed #BDB4A8; cursor: pointer;
+}
+.an-chip--dodaj[disabled] { cursor: not-allowed; opacity: .75; }
+
+/* ===== WYKLUCZENIA POZYCJI (partia E, punkt E4) =========================
+   Lewa część paska (pigułki, „Dodaj porównanie", pola wykluczeń) zawija się
+   W SOBIE, a prawa (stan, zakres dat, Arkusz) zostaje w pierwszej linii przy
+   prawej krawędzi. Podstawa 320 px: dopiero gdy lewa część nie dostałaby
+   nawet tyle (telefon), prawa schodzi do kolejnej linii. `min-width: 0`
+   pozwala lewej zejść poniżej szerokości treści — inaczej trzy grupy pól
+   w jednej linii wypchnęłyby pasek poza okno.
+
+   Podstawa nie jest jednak mniejsza niż NAJSZERSZA grupa pól (porządki
+   końcowe, punkt 3d). Grupa „Wykończenie" ma ok. 350 px, więc przy lewej
+   części szerokiej na 320–350 px nie mieściła się nawet sama i „olejowany"
+   schodził pod jej podpis (ok. 930–950 i 1024–1040 px okna z rozwiniętym
+   paskiem bocznym). Teraz w takim miejscu do kolejnej linii schodzi prawa
+   część, a grupa zostaje w całości. Szerokość grupy zależy od fontu i od
+   wartości Z DANYCH, więc mierzy ją analiza.js (`ustawPodstaweWykluczen`);
+   bez pomiaru zostaje 320 px. Grupa łamie się w środku już tylko wtedy,
+   gdy nie mieści się w całym pasku (telefon). */
+.an-pasek__lewy {
+  flex: 1 1 max(320px, var(--an-najszersza-grupa, 0px)); min-width: 0;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 9px;
+}
+/* Gdy pola wykluczeń zeszły do drugiej linii lewej części, prawa część ma
+   stać przy PIERWSZEJ linii (pigułkach), a nie w połowie wysokości obu —
+   stąd wyrównanie do góry i wysokość linii „Stan na" równa wysokości
+   przycisków obok (28 px). */
+.an-pasek { align-items: flex-start; }
+.an-pasek > .an-stan-na { line-height: 28px; }
+/* Podpisane grupy rozdzielone włosową linią: GATUNEK … │ TECHNOLOGIA …
+   │ KLASA … │ WYKOŃCZENIE …. Grupa też się zawija, gdy nie mieści się
+   w całości.
+
+   LINIA PODZIAŁU NIE MOŻE ZACZYNAĆ LINII. Przy 1200 px trzecia grupa schodzi
+   do drugiej linii i zaczynała ją samotnym „│". Każda grupa ma linię po
+   lewej i margines -1 px, a pojemnik przycina to, co wystaje poza jego lewą
+   krawędź — więc linia grupy, która zaczyna linię (także pierwszej), znika,
+   a między grupami zostaje. Pojemnik jest przesunięty o 7 px w lewo, żeby
+   tekst pierwszej grupy stał tam, gdzie pigułki nad nim (7 = 9 px paddingu
+   grupy - 2 px). */
+.an-wykluczenia {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 2px 0; min-width: 0;
+  overflow: hidden; margin-left: -7px;
+}
+.an-wyk-grupa {
+  display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0 1px;
+  padding: 0 9px; margin-left: -1px; border-left: 1px solid var(--rule-strong); min-width: 0;
+}
+.an-wyk-grupa__nazwa { margin-right: 5px; white-space: nowrap; }
+/* Na czas pomiaru w analiza.js (ustawPodstaweWykluczen): grupa w pełnej
+   szerokości, bez ściśnięcia. Klasa żyje tylko w trakcie pomiaru. */
+.an-wyk-grupa--pomiar { flex: none; }
+/* Natywne pole wyboru w etykiecie. Cel dotyku co najmniej 24 px w pionie
+   (WCAG 2.5.8) — cała etykieta jest klikalna, nie tylko kwadracik. */
+.an-wyk-pole {
+  display: inline-flex; align-items: center; gap: 5px;
+  min-height: 24px; padding: 0 5px; border-radius: 3px;
+  font: 400 11.5px 'IBM Plex Sans', sans-serif; color: var(--ink-3);
+  cursor: pointer; white-space: nowrap;
+}
+.an-wyk-pole:hover { background: var(--surface); }
+.an-wyk-pole__pole {
+  width: 14px; height: 14px; margin: 0; flex: none;
+  accent-color: var(--accent); cursor: pointer;
+}
+.an-wyk-pole__pole:focus-visible { outline: 2px solid var(--c-teal); outline-offset: 2px; }
+/* Odznaczona wartość jest wyciszona — widać od razu, czego NIE ma w liczbach.
+   Kolor, nie przekreślenie: przekreślenie czyta się jak „usunięte". */
+.an-wyk-pole:has(.an-wyk-pole__pole:not(:checked)) { color: var(--muted); }
+/* Ostatnie zaznaczone pole grupy — zablokowane, z podpowiedzią w `title`. */
+.an-wyk-pole:has(.an-wyk-pole__pole:disabled),
+.an-wyk-pole__pole:disabled { cursor: not-allowed; }
+.an-wyk-podpowiedz[hidden] { display: none; }
+/* Pigułka bazowa przy aktywnych wykluczeniach („Bez: buk, B/B"). Akcent
+   marki: to ani błąd (czerwień), ani niezapisana zmiana (bursztyn). Biały
+   tekst na --accent-dark ma kontrast 5,1:1. Kropka biała, bo pomarańczowa
+   zlałaby się z tłem. */
+.an-chip--wykluczenia { background: var(--accent-dark); }
+.an-chip--wykluczenia .an-chip__kropka { background: #FFF; }
+
+.an-btn {
+  height: 28px; padding: 0 11px; background: var(--surface);
+  border: 1px solid var(--rule-strong); border-radius: 3px;
+  font: 400 11.5px 'IBM Plex Sans', sans-serif; color: var(--ink-3);
+  cursor: pointer; display: inline-flex; align-items: center; gap: 7px;
+  text-decoration: none;
+}
+.an-btn__klucz { color: var(--muted); }
+.an-btn--ciemny {
+  background: var(--ink); border-color: var(--ink); color: #FFF; font-weight: 600;
+  padding: 0 13px;
+}
+.an-stan-na { font: 400 11px 'IBM Plex Mono', monospace; color: var(--muted); }
+
+.an-tytul-rzad {
+  padding: 16px 0 14px 0; display: flex; align-items: baseline; gap: 6px 12px;
+  flex-wrap: wrap;
+}
+/* Zdanie przy tytule przy aktywnych wykluczeniach pozycji (partia E, E4).
+   Tekst w kolorze treści (akcent marki na 11,5 px ma za mały kontrast na tle
+   papieru, 4,3:1), a akcent niesie kreska po lewej — ta sama rola, co
+   pigułka „Bez: …" nad tytułem. */
+.an-tytul__wykluczenia {
+  margin: 0; padding-left: 8px; border-left: 2px solid var(--accent);
+  font: 500 11.5px 'IBM Plex Sans', sans-serif; line-height: 1.35; color: var(--ink-2);
+}
+.an-tytul__wykluczenia[hidden] { display: none; }
+.an-tytul {
+  margin: 0; font: 700 22px 'IBM Plex Sans', sans-serif; letter-spacing: -.02em;
+  line-height: 1; color: var(--ink);
+  display: inline-block; border-bottom: 2px solid var(--accent); padding-bottom: 6px;
+}
+
+/* ===== SIATKA KAFELKÓW =================================================== */
+/* Jedna siatka, nie trzy rzędy. Cztery jednostki szerokości; kafelek KPI
+   zajmuje dwie, reszta po jednej — dokładnie te proporcje, co dawne
+   `2fr 1fr 1fr` w rzędzie 1 i `repeat(4, 1fr)` w rzędach 2 i 3. PRZY CZTERECH
+   KOLUMNACH układ domyślny stoi więc tak, jak stał dawniej (±6/3 px).
+
+   Punkty łamania zostają te same (1500 i 900 px). Przy 1500 px kafelek
+   szeroki wraca do JEDNEJ kolumny z dwóch — tak jak dawniej, gdzie rząd 1
+   stawał się `1fr 1fr` i KPI zajmowało w nim połowę, a nie całość. Bez tej
+   linii KPI rozlałoby się na pełną szerokość.
+
+   PRZY DWÓCH KOLUMNACH dawnego rozmieszczenia NIE ma i nie udajemy, że jest:
+   kafelki płyną jednym strumieniem w kolejności układu, więc kafelek kanałów
+   nie stoi już sam w rzędzie z pustą połową obok — dzieli rząd z następnym.
+   To naturalny skutek jednej siatki, którą użytkownik sam przestawia. */
+.an-siatka {
+  display: grid; gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.an-kafelek--szeroki { grid-column: span 2; }
+
+/* Plakietka podglądu wymiaru — kafelek pokazuje chwilowo inny przekrój, niż
+   zapisany w układzie. Bursztyn, nie czerwień: to stan, nie błąd. Kształt
+   (tło --warn-bg, kreska po lewej) ten sam, co .an-info i uwaga lejka, bo to
+   ta sama rola — spokojna informacja o stanie — i druga konwencja bursztynu
+   na jednej stronie tylko by myliła. */
+.an-kafelek__plakietka {
+  margin: 10px 15px 0 15px; padding: 5px 8px 5px 10px;
+  background: var(--warn-bg); border-left: 2px solid var(--warn-line);
+  font: 400 10.5px 'IBM Plex Sans', sans-serif; line-height: 1.4; color: var(--ink-3);
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+/* Reguła autora z `display` wygrywa z `[hidden]` przeglądarki — bez tej
+   linii pusta plakietka stałaby na każdym kafelku (patrz .an-chip[hidden]). */
+.an-kafelek__plakietka[hidden] { display: none; }
+.an-kafelek__plakietka button {
+  flex: none; min-height: 24px; padding: 0 8px;
+  background: var(--surface); border: 1px solid var(--warn-line); border-radius: 3px;
+  font: 500 10.5px 'IBM Plex Sans', sans-serif; color: var(--accent-dark);
+  cursor: pointer;
+}
+.an-kafelek__plakietka button:hover { text-decoration: underline; }
+.an-kafelek__plakietka button:focus-visible { outline: 2px solid var(--accent-dark); outline-offset: 2px; }
+/* Kafelek czeka na fragment z serwera (podgląd wymiaru). Przygaszona treść
+   mówi, że liczby pod nową etykietą jeszcze są stare — bez animacji. */
+.an-kafelek[aria-busy="true"] .an-karta__cialo { opacity: .5; }
+
+@media (max-width: 1500px) {
+  .an-siatka { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .an-kafelek--szeroki { grid-column: span 1; }
+}
+@media (max-width: 900px) {
+  .an-siatka { grid-template-columns: 1fr; }
+  .an-kafelek--szeroki { grid-column: span 1; }
+}
+
+/* ===== KARTA ============================================================= */
+.an-karta {
+  background: var(--surface); border: 1px solid var(--rule); border-radius: 3px;
+  display: flex; flex-direction: column; min-width: 0; overflow: hidden;
+}
+.an-karta__glowa { padding: 13px 15px 0 15px; }
+.an-karta__tytul { font: 700 13.5px 'IBM Plex Sans', sans-serif; color: var(--ink); line-height: 1.3; }
+/* position: relative jako siatka bezpieczenstwa: .an-sel ma position: absolute
+   z inset: 0 i MUSI trafic na najblizszego pozycjonowanego przodka. Normalnie
+   jest nim .an-sel-opak (patrz nizej), ale gdyby ktos kiedys dodal <select
+   class="an-sel"> bez tego opakowania, inset: 0 rozwiazaloby sie wzgledem
+   okna (1440x900) i select przykrylby cala strone, przechwytujac wszystkie
+   kliknieca — dokladnie ten bug na kartach „Klienci wedlug" i „Naleznosci
+   wedlug" (23.09.2026). */
+.an-karta__wymiar { position: relative; margin-top: 3px; font: 400 11.5px 'IBM Plex Sans', sans-serif; color: var(--muted-2); }
+.an-karta__cialo { padding: 11px 15px 0 15px; flex-grow: 1; min-width: 0; }
+.an-karta__stopka {
+  margin-top: 11px; border-top: 1px solid var(--rule-2); padding: 8px 15px;
+  display: flex; justify-content: flex-end;
+}
+.an-karta__stopka a {
+  font: 500 11.5px 'IBM Plex Sans', sans-serif; color: var(--accent-dark);
+  text-decoration: none; display: inline-flex; align-items: center; gap: 5px;
+}
+.an-karta__stopka a:hover { text-decoration: underline; }
+
+/* Selektor wymiaru. Natywny <select> dobiera szerokosc do NAJSZERSZEJ opcji
+   na liscie (tak dziala kazda przegladarka), nie do etykiety aktualnie
+   wybranej — podkreslenie liczone wprost z <select> mialoby wiec zawsze te
+   sama szerokosc na kazdej karcie, niezaleznie od tego, co widac. Dlatego
+   podkreslenie i strzalka siedza na opakowaniu .an-sel-opak, dopasowanym do
+   widocznej etykiety .an-sel-etykieta (zwykly span w normalnym przeplywie),
+   a <select> lezy nad nim jako przezroczysta warstwa na cala powierzchnie —
+   nadal dziala z klawiatury i z czytnikiem ekranu bez ani jednej linii
+   JavaScriptu. */
+.an-sel-opak {
+  position: relative; display: inline-flex; align-items: center;
+  max-width: 100%; cursor: pointer;
+  border-bottom: 1px solid #9BC3CD; padding: 0 14px 1px 0;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%230F5F72' stroke-width='2.6' stroke-linecap='square'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 1px center;
+}
+.an-sel-etykieta {
+  font: 400 11.5px 'IBM Plex Sans', sans-serif; color: var(--c-teal-dark);
+  white-space: nowrap; pointer-events: none;
+}
+.an-sel {
+  position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1;
+  opacity: 0; background: transparent; border: 0; margin: 0; padding: 0;
+  cursor: pointer; appearance: none; -webkit-appearance: none; -moz-appearance: none;
+}
+.an-sel-opak:focus-within { outline: 2px solid var(--c-teal); outline-offset: 2px; }
+
+/* ===== PRZEŁĄCZNIK MIARY „zł / szt. / zł + szt." (24.09.2026) ============
+   Cytat użytkownika: „w prawym górnym rogu przełącznik pomiędzy zł, szt.
+   a porównaniem". Jeden na KAFELEK (nie globalny), renderuje go serwer
+   (_kafelki.html, makro `przelacznik`), analiza.js tylko przestawia tryb.
+
+   NAGŁÓWEK Z PRZEŁĄCZNIKIEM: tytuł i przełącznik dzielą PIERWSZY wiersz
+   (przełącznik w prawym rogu), selektor „według" ma cały drugi wiersz — tak
+   jak dotąd, pod tytułem. Przełącznik ma 24 px wysokości (cel dotyku, WCAG
+   2.5.8), a wiersz tytułu 17,55 px (13,5 px x 1,3), więc wchodzi ujemnymi
+   marginesami w odstęp nad nagłówkiem (13 px) i w margines selektora (3 px):
+   nagłówek ma DOKŁADNIE tę samą wysokość co bez przełącznika i żaden rząd
+   siatki nie rośnie. Szerokości są policzone na najwęższą kartę z czterech
+   kolumn (okno 1501 px z rozwiniętym paskiem bocznym: 263 px treści):
+   „Sprzedaż netto według:" 150 px + odstęp 8 px + przełącznik trzech opcji
+   ok. 102 px. Gdyby jednak zabrakło miejsca (inny krój zastępczy), tytuł
+   w kolumnie `minmax(0, 1fr)` zawinie się na dwie linie — nigdy nie wejdzie
+   pod przełącznik. */
+.an-karta__glowa--przelacznik {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 8px; align-items: start;
+}
+.an-karta__glowa--przelacznik > .an-karta__tytul { grid-column: 1; grid-row: 1; }
+.an-karta__glowa--przelacznik > .an-przelacznik { grid-column: 2; grid-row: 1; margin: -4px 0 -2.5px 0; }
+.an-karta__glowa--przelacznik > .an-karta__wymiar { grid-column: 1 / -1; grid-row: 2; }
+/* KPI: nagłówkiem są wskaźniki, więc przełącznik stoi w prawym rogu NAD
+   WYKRESEM, który przełącza. Ujemny margines górny wchodzi w dolny odstęp
+   wskaźników (12 px), żeby kafelek urósł tylko o sam przełącznik. */
+.an-kpi__przelacznik { display: flex; justify-content: flex-end; margin: -6px 0 6px 0; }
+
+/* Segmentowana kontrolka w typografii makiety: IBM Plex Sans (opcje nie mają
+   cyfr), promień 3 px, włosowe linie jak przy .an-btn. Każda opcja ma 24 px
+   w pionie i co najmniej 24 px w poziomie. Sąsiednie ramki nachodzą na siebie
+   o piksel, więc między opcjami jest jedna linia, nie dwie. */
+.an-przelacznik { display: inline-flex; align-items: stretch; flex: none; }
+.an-przelacznik__opcja {
+  min-width: 24px; min-height: 24px; height: 24px; margin: 0; padding: 0 5px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font: 500 11px 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif; line-height: 1;
+  white-space: nowrap; color: var(--muted-2); background: var(--surface);
+  border: 1px solid var(--rule-strong); border-radius: 0; cursor: pointer;
+}
+.an-przelacznik__opcja + .an-przelacznik__opcja { margin-left: -1px; }
+.an-przelacznik__opcja:first-child { border-radius: 3px 0 0 3px; }
+.an-przelacznik__opcja:last-child { border-radius: 0 3px 3px 0; }
+.an-przelacznik__opcja:hover { color: var(--ink-2); background: #F7F5F1; }
+/* Aktywna opcja: AKCENT MARKI — ten sam, co zaznaczona pozycja w oknie
+   „Dodaj statystykę" (ramka akcentu, kremowe tło). Nie czerwień (błędy), nie
+   bursztyn (niezapisane zmiany): tryb to zwykły stan widoku. Tekst
+   --accent-dark na kremie ma kontrast 5,1:1. Waga kroju ta sama, co
+   nieaktywnych — pogrubienie zmieniałoby szerokość opcji przy przełączeniu.
+   Ramka akcentu leży NAD sąsiednimi (z-index), bo ramki nachodzą na siebie. */
+.an-przelacznik__opcja[aria-checked="true"] {
+  position: relative; z-index: 1;
+  color: var(--accent-dark); background: #FDF2EA; border-color: var(--accent);
+}
+.an-przelacznik__opcja:focus-visible {
+  position: relative; z-index: 2;
+  outline: 2px solid var(--c-teal); outline-offset: 1px;
+}
+/* W trybie edycji nagłówek należy do narzędzi kafelka, a tryb widoku wraca
+   do domyślnego (analiza.js, przywrocTrybyDomyslne) — przełącznika nie ma. */
+.analiza--edycja .an-przelacznik { display: none; }
+.analiza--edycja .an-kpi__przelacznik { display: none; }
+
+/* WARIANTY TRYBU MIARY. Napisy zależne od trybu (tytuł „Sprzedaż netto",
+   nagłówek kolumny, podpis osi, pole „Sprzedaż" w KPI) serwer renderuje
+   w wariantach z listą trybów w `data-widok-miary`; widać ten, którego tryb
+   niesie kafelek w `data-tryb-miary`. Nazwy trybów to stałe serwera
+   (analiza_service.TRYB_ZL / TRYB_SZT / TRYB_OBA). Kafelek bez przełącznika
+   nie ma ani atrybutu, ani wariantów (pilnuje test). */
+.an-kafelek[data-tryb-miary="zl"] [data-widok-miary]:not([data-widok-miary~="zl"]),
+.an-kafelek[data-tryb-miary="szt"] [data-widok-miary]:not([data-widok-miary~="szt"]),
+.an-kafelek[data-tryb-miary="zl_szt"] [data-widok-miary]:not([data-widok-miary~="zl_szt"]) { display: none; }
+/* Dopisek sztuk pod kwota netto w KPI — tylko w trybie „zl + szt.". */
+.an-kpi__dopisek-szt {
+  display: block; font: 500 10.5px/1.3 'IBM Plex Mono', monospace; color: var(--ink-2, #5C554D);
+  margin-top: 2px; white-space: nowrap;
+}
+.an-kafelek:not([data-tryb-miary="zl_szt"]) .an-kpi__dopisek-szt { display: none; }
+
+/* ===== KPI =============================================================== */
+/* PIĘĆ PÓL W RZĘDZIE, JAK W MAKIECIE (partia E, punkt E7). Naprawa be4f507
+   przełączała KPI na układ 3+2 przy każdej szerokości ≤1600 px, żeby
+   „4 527 414" przy zakresie „całość" zmieściło się w polu — i pierwszy rząd
+   rósł o 53 px także przy bieżącym miesiącu, gdzie liczby są krótkie.
+
+   Decyzja: pięć pól w rzędzie, krój liczby PŁYNNY, zależny od szerokości
+   KARTY (zapytanie o kontener; jej szerokość zależy od okna I od paska
+   bocznego), od 18 do 22 px. Układ z mniejszą liczbą pól wchodzi WYŁĄCZNIE
+   wtedy, gdy „99 999 999" (dziesięć znaków Mono) w 18 px nie mieści się
+   w najwęższym polu — ta sama reguła, co kolumny liczb na reszcie pulpitu.
+
+   Rachunek (IBM Plex Mono: znak 0,6 em, odstęp liter -0,035 em, więc
+   dziesięć znaków = 5,65 em; w 18 px to 101,7 px): tekst najwęższego pola =
+   (treść karty - 2 x 15 px głowy) / kolumny - odstęp najwęższego pola
+   (padding z obu stron i 1 px linii podziału: 19 px; przy dwóch polach
+   lewe: 10 px). Progi to NAJMNIEJSZE szerokości treści karty (kontener nie
+   liczy swojej ramki), przy których 101,7 px się mieści:
+     5 pól: (634 - 30) / 5 - 19 = 101,8     3 pola: (393 - 30) / 3 - 19 = 102
+     2 pola: (254 - 30) / 2 - 10 = 102      1 pole: poniżej 254 px.
+   PADDING POLA 9 px, nie 10 jak w makiecie: treść karty KPI przy 1600 px
+   okna i rozwiniętym pasku bocznym ma 643 px, a przy 10 px próg pięciu pól
+   wypadał na 644 — pięć pól nie mieściłoby się o piksel i pierwszy rząd
+   dalej rósłby o 53 px. Zmierzone (pasek boczny rozwinięty, 240 px): 1600 px
+   okna -> 643 px treści (pięć pól, krój 18,3 px), 1440 -> 563, 1280 -> 475,
+   1200 -> 435 (trzy + dwa, krój 22 / 22 / 20,6 px); przy zwiniętym pasku
+   bocznym 1440 px daje pięć pól.
+
+   PODPISY mogą się łamać na dwie linie (makieta pozwala) — przy 18 px pole ma
+   ~102 px, a „Sprzedaż netto zł" ok. 110 px. Żeby liczba w tym jednym polu
+   nie stała niżej niż w pozostałych, pola dzielą WIERSZE siatki karty
+   (subgrid): wiersz podpisów ma wysokość najwyższego podpisu. */
+.an-kafelek[data-typ="kpi"] { container: an-kpi / inline-size; }
+.an-kpi {
+  --kpi-kolumny: 5; --kpi-odstep: 19px;
+  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); padding-bottom: 12px;
+}
+.an-kpi__pole {
+  padding: 0 9px; border-right: 1px solid var(--rule-2);
+  display: grid; grid-row: span 4; grid-template-rows: subgrid; row-gap: 0;
+  align-content: start;
+}
+.an-kpi__pole:first-child { padding-left: 0; }
+.an-kpi__pole:last-child { padding-right: 0; border-right: 0; }
+.an-kpi .an-liczba {
+  font-size: clamp(18px, calc(((100cqi - 30px) / var(--kpi-kolumny) - var(--kpi-odstep)) / 5.65), 22px);
+}
+@container an-kpi (393px <= width < 634px) {
+  .an-kpi { --kpi-kolumny: 3; --kpi-odstep: 19px; grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 14px; }
+  .an-kpi__pole:nth-child(3n) { padding-right: 0; border-right: 0; }
+  .an-kpi__pole:nth-child(3n + 1) { padding-left: 0; }
+}
+@container an-kpi (254px <= width < 393px) {
+  .an-kpi { --kpi-kolumny: 2; --kpi-odstep: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 14px; }
+  .an-kpi__pole:nth-child(2n) { padding-right: 0; border-right: 0; }
+  .an-kpi__pole:nth-child(2n + 1) { padding-left: 0; }
+}
+@container an-kpi (width < 254px) {
+  .an-kpi { --kpi-kolumny: 1; --kpi-odstep: 0px; grid-template-columns: minmax(0, 1fr); row-gap: 14px; }
+  .an-kpi__pole { padding: 0; border-right: 0; }
+}
+.an-etykieta {
+  font: 700 9.5px 'IBM Plex Sans', sans-serif; letter-spacing: .13em;
+  text-transform: uppercase; color: var(--muted);
+}
+/* Jednostka DOPISANA DO ETYKIETY (kafelek KPI, podpis podsekcji).
+
+   MALYMI LITERAMI, mimo ze etykieta jest wersalikami. Dwa powody. Pierwszy
+   jest typograficzny: „zl", „m3" i „szt." to skroty jednostek i pisze sie je
+   mala litera — „OBJETOSC M3" wyglada jak krzyk. Drugi jest praktyczny:
+   wersaliki sa szersze i „SR. ZAMOWIENIE ZL" nie miescilo sie w kafelku KPI
+   (111 px), wiec etykieta lamala sie na dwie linie i liczba w tym jednym
+   kafelku stala 13 px nizej niz w pozostalych czterech. */
+.an-etykieta__jednostka {
+  color: var(--muted-3); font-weight: 600;
+  text-transform: none; letter-spacing: .02em;
+}
+
+/* Naglowek kolumny liczb na karcie ze slupkami: po lewej co pokazuje kolumna,
+   po prawej w czym. Wzorzec z tabeli karty „Objetosc i cena" (naglowki
+   m3 / zl/m3), rozciagniety na karty, ktore tabeli nie maja.
+
+   Klasa CELOWO nie nazywa sie .an-wiersz: rysujWiersze() z analiza.js kasuje
+   wszystkie bezposrednie dzieci ciala karty z ta klasa i naglowek znikalby
+   przy pierwszym wypelnieniu danymi. */
+.an-naglowek-kolumn {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 9px; margin-bottom: 9px;
+}
+/* Podpis zabiera cale wolne miejsce, wiec jednostki stoja ciasno przy prawej
+   krawedzi, kazda nad swoja kolumna. Przy DWOCH jednostkach (lejek: „szt."
+   i „%") samo `space-between` stawialo pierwsza z nich w polowie wolnego
+   miejsca, a nie nad kolumna sztuk. */
+.an-naglowek-kolumn > :first-child { margin-right: auto; }
+/* Szerokosc dostaje z szablonu — ta sama, ktora JS nadaje kolumnie wartosci,
+   zeby jednostka stala NAD liczbami, a nie obok nich. Mniejszy odstep
+   miedzyliterowy niz reszta etykiet: przy .13em ostatnia litera odpycha
+   jednostke od prawej krawedzi i podpis rozjezdza sie z kolumna. */
+.an-naglowek-kolumn__jednostka {
+  flex: none; text-align: right; color: var(--muted-3);
+  /* Mala litera i waski odstep — patrz komentarz przy .an-etykieta__jednostka. */
+  text-transform: none; letter-spacing: .02em;
+}
+/* Warianty podpisu trybu miary (przełącznik „zł / szt. / zł + szt.") — każdy
+   zabiera wolne miejsce tak jak pierwszy, bo pierwszy bywa wtedy schowany. */
+.an-naglowek-kolumn__podpis { margin-right: auto; }
+/* Podpis nagłówka w JEDNEJ linii (weryfikacja 24.09.2026): w trybie „zł + szt."
+   dwie kolumny liczb zabierają miejsce i dłuższy podpis („Wewnątrz kanału
+   ręcznego") zawijał się, a wysokość nagłówka skakała przy każdym przełączeniu.
+   Za długi podpis dostaje wielokropek; pełna nazwa jest w atrybucie `title`. */
+.an-naglowek-kolumn > .an-etykieta:not(.an-naglowek-kolumn__jednostka) {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Tryb „zł + szt.": DWIE kolumny liczb, więc dwie jednostki, każda dokładnie
+   nad swoją kolumną. Szerokości = dolne granice kolumn liczb pod spodem
+   (.an-wiersz__wartosc--para i kolumna zwykła) w kroju IBM Plex Mono 11 px,
+   gdzie znak ma 0,6 em: 7 znaków na sztuki („999 999"), 10 na złotówki
+   („99 999 999"). Odstęp między nimi to odstęp flex nagłówka (9 px) — ten
+   sam, co między kolumnami w wierszu. */
+.an-naglowek-kolumn__jednostka--para { width: calc(7 * .6 * 11px); }
+.an-naglowek-kolumn__jednostka--druga { width: calc(10 * .6 * 11px); }
+
+.an-liczba {
+  font: 700 22px 'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums;
+  letter-spacing: -.035em; margin-top: 6px; line-height: 1;
+}
+/* Jednostka DOKLEJONA DO LICZBY (koszt kuriera, nadplaty). Liczba jest
+   monospace'em, jednostka jest tekstem — wiec krój przelaczamy jawnie,
+   zgodnie z zasada „IBM Plex Mono na cyfry, IBM Plex Sans na tekst".
+   Spacja przed jednostka jest NIEROZDZIELAJACA (wstawia ja JavaScript),
+   wiec „41 248" i „zl" nie rozjada sie na dwie linie. */
+.an-jednostka {
+  font-family: 'IBM Plex Sans', sans-serif; font-weight: 400; font-size: 11px;
+  letter-spacing: 0; color: var(--muted);
+}
+.an-liczba--akcent { color: var(--accent-dark); }
+.an-liczba--mala { font-size: 17px; letter-spacing: -.03em; margin-top: 4px; }
+.an-zmiana {
+  font: 700 11px 'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums; margin-top: 5px;
+}
+.an-zmiana--wzrost { color: var(--ok); }
+.an-zmiana--spadek { color: var(--bad); }
+.an-zmiana--brak { color: var(--muted-3); }
+
+/* ===== WIERSZ ZE SLUPKIEM ================================================ */
+/* KOLEJNOSC USTEPOWANIA, gdy w wierszu brakuje miejsca: najpierw slupek (tor
+   rosnie tylko w wolne miejsce i schodzi do zera), potem nazwa (wielokropek,
+   pelna nazwa zostaje w `title`). Liczba NIE ustepuje nigdy — ucieta kwota to
+   klamstwo, a ucieta nazwa ma podpowiedz. */
+.an-wiersz { display: flex; align-items: center; gap: 9px; margin-bottom: 7px; }
+.an-wiersz:last-child { margin-bottom: 0; }
+/* Szerokosc nazwy nadaje analiza.js (opcje.szerokoscNazwy) — to jest punkt
+   wyjscia, a nie sztywny wymiar: `flex-shrink` + `min-width: 0` pozwalaja
+   nazwie zejsc ponizej niego, zanim wiersz wypchnalby liczbe poza karte. */
+.an-wiersz__nazwa {
+  font-size: 11.5px; color: var(--ink-3); flex: 0 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.an-wiersz__tor { flex-grow: 1; height: 16px; background: #F2EFEA; position: relative; min-width: 0; }
+.an-wiersz__tor--niski { height: 13px; }
+.an-wiersz__wypelnienie { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); }
+.an-wiersz__wartosc {
+  font: 500 11px 'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums;
+  color: var(--ink); flex: none; text-align: right; white-space: nowrap;
+}
+/* KOLUMNA LICZB: co najmniej dziesiec znakow Mono, czyli „99 999 999", i nigdy
+   wezsza niz jej wlasna tresc.
+
+   Do 23.09.2026 kolumna miala sztywna szerokosc z analiza.js (34 px na kartach
+   dostawy i wojewodztw, 48 u opiekuna, 52 u kanalu). Przy zakresie „calosc"
+   kwoty milionowe („1 592 080", 59 px) wystawaly z niej: na karcie dostawy
+   ucinala je krawedz karty, a rozwiniety ogon „Pozostale" dostawal poziomy
+   pasek przewijania (ogledziny 23.09.2026).
+
+   `10ch` w kroju Mono to dokladnie dziesiec cyfr albo spacji — kazdy znak ma
+   te sama szerokosc, wiec kolumna miesci „99 999 999" niezaleznie od danych.
+   Stala dolna granica (zamiast samego dopasowania do tresci) trzyma kolumne
+   JEDNAKOWA we wszystkich wierszach karty: tor slupka ma wtedy w kazdym
+   wierszu te sama szerokosc i slupki pozostaja porownywalne. Dopiero liczba
+   dluzsza niz dziesiec znakow poszerza swoj wiersz (`flex-basis: content`
+   ignoruje szerokosc z JS) — wtedy lepiej rozjechany tor niz ucieta kwota.
+
+   Kolumna udzialu (--slaba) ma gorna granice z natury („100,0") i zostaje
+   przy szerokosci z JS; `min-width: max-content` pilnuje tylko, zeby nigdy
+   jej nie ucinac. */
+.an-wiersz__wartosc:not(.an-wiersz__wartosc--slaba) { flex-basis: content; min-width: 10ch; }
+/* Druga liczba w wierszu (udzial stopnia lejka w stopniu pierwszym). Ta sama
+   wielkosc co slupek, tylko wyrazona wzglednie — wiec ustepuje wizualnie
+   liczbie bezwzgledniej zamiast z nia konkurowac. Wyciszenie robimy KOLOREM,
+   nie czerwienia: spadek konwersji nie jest bledem. */
+.an-wiersz__wartosc--slaba { color: var(--muted-2); font-weight: 400; min-width: max-content; }
+/* Tryb „zł + szt." przełącznika: PIERWSZA z dwóch kolumn liczb — sztuki.
+   Sztuki są krótsze niż kwoty (miesiąc to kilka tysięcy, cała historia
+   kilkadziesiąt), więc dolna granica to siedem znaków Mono, „999 999", a nie
+   dziesięć: dwie kolumny po dziesięć zjadłyby na karcie szerokiej na ćwiartkę
+   rzędu cały tor słupka. Dłuższa liczba poszerza wiersz jak w kolumnie
+   zwykłej (`flex-basis: content` z reguły wyżej). Tryb „szt." ma jedną
+   kolumnę i zostaje przy dziesięciu znakach — przełączenie nie przesuwa
+   toru. Reguła MUSI stać po regule kolumny zwykłej (ta sama szczegółowość). */
+.an-wiersz__wartosc.an-wiersz__wartosc--para { min-width: 7ch; }
+
+.an-podsekcja { margin-top: 13px; padding-top: 11px; border-top: 1px solid var(--rule-2); }
+/* Modyfikator klasowy zamiast inline style="border-top:0;padding-top:0":
+   inline zawsze wygrywa w kaskadzie i zablokowalby padding klasy
+   .an-ostrzezenie, ktora Zadanie 7 dokada na tym samym elemencie
+   (data-pole="naleznosci.ostrzezenie"). Klasa ustepuje normalnej kaskadzie. */
+.an-podsekcja--bez-linii { border-top: 0; padding-top: 0; }
+.an-para { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+/* Trzy liczby w jednym rzedzie (statystyki wycen na karcie lejka). minmax(0,…)
+   jest konieczne: bez niego kolumna nie zejdzie ponizej szerokosci swojej
+   tresci i trzecia liczba wypchnelaby karte poza rzad siatki. */
+.an-trojka { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+
+/* ===== TABELA W KARCIE =================================================== */
+.an-tabela { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.an-tabela th { text-align: right; padding: 0 0 6px 0; }
+.an-tabela th:first-child { text-align: left; }
+.an-tabela td { padding: 6px 0; border-top: 1px solid var(--rule-2); text-align: right; }
+.an-tabela td:first-child { text-align: left; }
+.an-mono { font-family: 'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums; }
+
+/* Tabela podzialu lejka: jedna waska kolumna nazw i trzy kolumny liczb.
+   table-layout: fixed jest tu OBOWIAZKOWE — bez niego dluga nazwa w kolumnie
+   opiekuna (partner z imieniem i dwuczlonowym nazwiskiem) rozpycha tabele
+   i wypycha liczby poza karte, ktora ma jedna czwarta szerokosci rzedu. */
+.an-tabela--waska { table-layout: fixed; }
+.an-tabela--waska th, .an-tabela--waska td { padding: 5px 0; font-size: 11px; }
+/* 74 px = „99 999 999" (dziesiec znakow Mono po 6,6 px przy 11 px) plus 8 px
+   odstepu od liczby w kolumnie obok — liczby sa wyrownane do prawej, wiec bez
+   tego zapasu dwie osmiocyfrowe zlewalyby sie w jeden ciag. Do 23.09.2026
+   bylo 64 px, czyli za malo na osiem cyfr. Wezsza robi sie kolumna nazw
+   (wielokropek + pelna nazwa w `title`), nie kolumna liczb. */
+.an-tabela--waska th:not(:first-child),
+.an-tabela--waska td:not(:first-child) { width: 74px; }
+/* Waski odstep miedzyliterowy i zakaz lamania w naglowku: „WYCEN szt." przy
+   domyslnych .13em nie miesci sie w kolumnie liczb i lamie sie na dwie linie,
+   przez co naglowek tabeli jest o rzad wyzszy od reszty. */
+.an-tabela--waska th { letter-spacing: .04em; white-space: nowrap; }
+.an-tabela--waska th:last-child, .an-tabela--waska td:last-child { width: 38px; }
+.an-tabela--waska td:first-child {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 6px;
+}
+
+/* ===== WYKRESY =========================================================== */
+/* Kadr wykresu ma DOCELOWA wysokosc juz w szkielecie. Canvas lezy w nim
+   absolutnie, wiec Chart.js rysuje sie do gotowego ukladu i nic nie skacze. */
+.an-wykres-kadr { position: relative; width: 100%; }
+.an-wykres-kadr > canvas { position: absolute; inset: 0; width: 100% !important; height: 100% !important; }
+.an-wykres--trend { height: var(--wys-wykres-trend); }
+.an-wykres--pierscien { width: var(--wys-pierscien); height: var(--wys-pierscien); flex: none; }
+
+/* Nakladka na dziure pierscienia. pointer-events:none, zeby nie zjadala
+   najechania mysza — podpowiedzi Chart.js maja dzialac pod spodem. */
+.an-pierscien-srodek {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; pointer-events: none; gap: 1px;
+}
+.an-pierscien-srodek > span {
+  font: 700 16px 'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums;
+  letter-spacing: -.03em; color: var(--ink); line-height: 1;
+}
+.an-pierscien-srodek > small { font-size: 8px; color: var(--muted); line-height: 1; }
+.analiza.an-gotowe .sk-wykres--kolo { display: none; }
+
+/* Szkielet w kadrze: slupki dla trendu, kolo dla pierscienia. Znika razem
+   z reszta szkieletu po .an-gotowe. */
+.sk-wykres {
+  position: absolute; inset: 0; display: flex; align-items: flex-end; gap: 11px;
+  padding-bottom: 14px;
+}
+.sk-wykres > .sk { flex: 1; }
+.sk-wykres--kolo { padding-bottom: 0; }
+.sk-wykres--kolo > .sk { border-radius: 50%; }
+.analiza.an-gotowe .sk-wykres { display: none; }
+.an-legenda {
+  display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 7px;
+  font-size: 10.5px; color: var(--muted-2);
+}
+/* Podpis jednostki osi pionowej wykresu trendu — dosuniety do prawej, zeby
+   nie mieszal sie z probkami lat. */
+.an-legenda__jednostka { margin-left: auto; color: var(--muted-3); }
+.an-legenda span { display: flex; align-items: center; gap: 5px; }
+/* Wpis segmentu w legendzie trybu „zł + szt." chowa analiza.js atrybutem
+   `hidden`, a reguła wyżej ustawia `display` i wygrywałaby z [hidden]. */
+.an-legenda span[hidden] { display: none; }
+.an-probka { width: 9px; height: 9px; flex: none; display: inline-block; }
+/* Próbka KRZYWEJ (tryb „zł + szt."): kreska, nie kwadrat — legenda odwzorowuje
+   znak serii. Kolor wpisuje analiza.js w `color` (ten sam, którym rysuje
+   krzywą), a tło bierze go przez currentColor — także w wersji przerywanej
+   (krzywa segmentu porównawczego). */
+.an-probka--linia { width: 14px; height: 2px; background: currentColor; }
+.an-probka--przerywana {
+  background: repeating-linear-gradient(90deg, currentColor 0 4px, transparent 4px 7px);
+}
+
+/* Cialo karty wykonczen: pierscien obok legendy, w WIERSZU. Uklad stoi tu,
+   nie w atrybucie `style` szablonu (tam przebijalby arkusz). `safe center`:
+   po rozwinieciu ogona legenda bywa wyzsza od ciala, ktore sie wtedy przewija
+   (patrz ROZWINIETY OGON nizej) — zwykle `center` wysunelby ja rowno w gore
+   i w dol, a gornej czesci nie dalo sie przewinac. `safe` wyrownuje wtedy
+   do gory; dopoki tresc sie miesci, to zwykle srodkowanie. Przegladarka bez
+   `safe` bierze linie wyzej. */
+.an-karta__cialo--pierscien {
+  display: flex; gap: 14px;
+  align-items: center;
+  align-items: safe center;
+}
+
+/* LEGENDA PIERSCIENIA WYKONCZEN — wiersze sklada analiza.js
+   (rysujLegendeWykonczenia) ze stylem inline: probka, nazwa z flex-grow,
+   kwota i ewentualnie kwota segmentu. Ta sama zasada co w wierszu ze slupkiem:
+   ustepuje nazwa, nie kwota. Bez tych regul nazwa bez miejsca na zlamanie
+   („Zachodniopomorskie", 109 px) nie schodzila ponizej swojej szerokosci
+   i wypychala kwote poza legende — przy 1600 px w rozwinietym ogonie „217 184"
+   bylo widac w 19 z 46 px, a ogon dostawal poziomy pasek (ogledziny
+   23.09.2026). Nazwa dalej lamie sie na dwie linie, jak dotad; wielokropek
+   dostaje dopiero slowo dluzsze niz cala dostepna szerokosc.
+
+   Z SEGMENTEM porownawczym w wierszu stoja DWIE kwoty. Przy 1600 px (legenda
+   ma tam 166 px) dwie kwoty milionowe zostawialy nazwie 11 px, a dwie
+   osmiocyfrowe nie miescily sie wcale. Wiersz sie wiec zawija: gdy nazwa
+   dostalaby mniej niz 48 px (`flex-basis`), kwota segmentu schodzi do drugiej
+   linii, dosunieta do prawej, pod kwote bazowa. Bez segmentu wiersz ma jedna
+   kwote i nie zawija sie nigdy — nazwa i tak rosnie (`flex-grow` z JS) na cala
+   wolna szerokosc, wiec uklad jest ten sam co dotad. */
+.an-karta__cialo--pierscien [data-lista] > div:not(.an-ogon),
+.an-karta__cialo--pierscien .an-ogon > div { flex-wrap: wrap; justify-content: flex-end; }
+.an-karta__cialo--pierscien [data-lista] > div:not(.an-ogon) > :not(.an-probka):not(.an-mono),
+.an-karta__cialo--pierscien .an-ogon > div > :not(.an-probka):not(.an-mono) {
+  flex-basis: 48px; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+}
+.an-karta__cialo--pierscien [data-lista] .an-mono { flex: none; white-space: nowrap; }
+
+/* KOŁO KLIENTÓW (partia E, punkt E2) — ten sam pierścień, co na karcie
+   wykończeń (ta sama wysokość --wys-pierscien, ta sama nakładka środka),
+   ale POD NIM legenda-tabela, nie obok: karta ma jedną kolumnę siatki
+   (~317 px przy 1600) i „pod nim" to słowa prezesa. */
+.an-kolo-klientow { margin: 0 auto 10px auto; }
+/* Legenda-tabela: kolumna nazw ustępuje (wielokropek + pełna nazwa
+   w `title`), kolumny liczb nie. 74 px = „99 999 999" w Mono 11 px plus
+   odstęp, ten sam rachunek co w tabelach wąskich; udział „100,0" mieści się
+   w 44 px. table-layout: fixed, żeby długa nazwa nie rozpychała tabeli. */
+.an-legenda-kola { table-layout: fixed; font-size: 11px; }
+.an-legenda-kola th, .an-legenda-kola td { padding: 4px 0; }
+/* `position: relative` = blok zawierający podpisu .an-ukryte niżej. Bez niego
+   był nim <body>: podpis uciekał spod przewijania #analiza i wydłużał
+   przewijanie całego dokumentu — przy 1366x768 kółko myszy nad paskiem
+   bocznym przesuwało stronę o 248 px (weryfikacja partii E, W1). Po
+   rozwinięciu ogona `.an-kadr-listy--rozwiniety thead th` przykleja nagłówek
+   (sticky, wyższa specyficzność) — sticky też jest blokiem zawierającym. */
+.an-legenda-kola th { position: relative; letter-spacing: .04em; white-space: nowrap; }
+.an-legenda-kola th:nth-child(2), .an-legenda-kola td:nth-child(2) { width: 44px; }
+.an-legenda-kola th:last-child, .an-legenda-kola td:last-child { width: 74px; }
+.an-legenda-kola td:not(:first-child) { font-weight: 600; }
+.an-legenda-kola td:first-child {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 6px;
+  color: var(--ink-3); font-size: 11.5px;
+}
+.an-legenda-kola td:first-child .an-probka { margin-right: 6px; vertical-align: -1px; }
+/* Podpis kolumny nazw — dla czytnika ekranu, oko ma go w selektorze wyżej.
+   WYMAGA pozycjonowanego przodka w kafelku (tu: th legendy, reguła wyżej) —
+   pilnuje tego test_podpis_dla_czytnika_ma_pozycjonowanego_przodka_w_kafelku. */
+.an-ukryte {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+}
+
+/* ===== WNIOSKI I OSTRZEZENIA ============================================= */
+.an-wniosek { border-left: 2px solid var(--rule-strong); padding-left: 10px; margin-bottom: 13px; }
+.an-wniosek:last-child { margin-bottom: 0; }
+.an-wniosek--accent { border-left-color: var(--accent); }
+.an-wniosek--teal { border-left-color: var(--c-teal); }
+.an-wniosek--neutral { border-left-color: var(--rule-strong); }
+.an-wniosek p { margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--ink-3); }
+.an-wniosek small {
+  font: 400 9.5px 'IBM Plex Mono', monospace; color: var(--muted-3);
+}
+
+/* Czerwien WYLACZNIE dla bledow i dla ostrzezenia o wiarygodnosci salda. */
+.an-ostrzezenie {
+  margin-top: 12px; padding: 8px 10px;
+  background: var(--bad-bg); border-left: 2px solid var(--bad);
+}
+.an-ostrzezenie p { margin: 0; font-size: 10.5px; line-height: 1.45; color: var(--bad-ink); }
+
+/* Bursztyn dla spokojnej informacji, NIE dla alarmu — ten sam ksztalt co
+   .an-ostrzezenie (padding, kreska po lewej), ale bez czerwieni: nadplata to
+   inna kategoria danych, nie blad. Czerwien zostaje WYLACZNIE dla bledow
+   i ostrzezenia o wiarygodnosci salda, patrz komentarz wyzej. */
+.an-info {
+  margin-top: 10px; padding: 8px 10px;
+  background: var(--warn-bg); border-left: 2px solid var(--warn-line);
+}
+.an-info p { margin: 0; font-size: 10.5px; line-height: 1.45; color: var(--ink-3); }
+
+.an-blad {
+  margin: 14px 0; padding: 11px 13px;
+  background: var(--bad-bg); border-left: 2px solid var(--bad); color: var(--bad-ink);
+  font-size: 12px;
+}
+
+/* ===== MENU ZAKRESU DAT ================================================== */
+.an-zakres-kadr { position: relative; }
+/* Kotwica popovera filtra (Zadanie 10 opakuje nia chip "Dodaj porownanie +"
+   w .an-pasek — bez position:relative popover wyladowalby wzgledem
+   najblizszego przodka z pozycjonowaniem, czyli przy lewej krawedzi .analiza,
+   a nie pod chipem). */
+.an-filtr-kadr { position: relative; }
+.an-zakres-menu {
+  position: absolute; right: 0; top: 32px; z-index: 30; min-width: 250px;
+  background: var(--surface); border: 1px solid var(--rule-strong); border-radius: 3px;
+  padding: 6px; box-shadow: 0 6px 18px rgba(28, 26, 23, .12);
+}
+.an-zakres-preset {
+  display: block; width: 100%; text-align: left; border: 0; background: transparent;
+  padding: 6px 8px; font: 400 11.5px 'IBM Plex Sans', sans-serif; color: var(--ink-3);
+  cursor: pointer; border-radius: 2px;
+}
+.an-zakres-preset:hover, .an-zakres-preset:focus-visible { background: #F7F5F1; }
+.an-zakres-wlasny {
+  display: grid; grid-template-columns: auto 1fr; gap: 6px 8px; align-items: center;
+  margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--rule-2);
+  font: 400 11px 'IBM Plex Sans', sans-serif; color: var(--muted);
+}
+.an-zakres-wlasny input {
+  font: 400 11.5px 'IBM Plex Mono', monospace; padding: 3px 6px;
+  border: 1px solid var(--rule-strong); border-radius: 3px;
+}
+.an-zakres-wlasny .an-btn { grid-column: 1 / -1; justify-content: center; }
+
+/* ===== POPOVER FILTRA =================================================== */
+/* Ta sama dyscyplina co menu zakresu dat: zero animacji, promien 3 px,
+   wlosowe linie. Popover jest pozycjonowany wzgledem rodzica kotwicy,
+   wiec kazda kotwica musi siedziec w elemencie z position: relative. */
+.an-filtr-popover {
+  position: absolute; left: 0; top: 34px; z-index: 40; width: 286px;
+  background: var(--surface); border: 1px solid var(--rule-strong); border-radius: 3px;
+  padding: 8px; box-shadow: 0 6px 18px rgba(28, 26, 23, .12);
+  display: flex; flex-direction: column; gap: 8px;
+}
+.an-filtr-wymiar {
+  width: 100%; height: 28px; padding: 0 7px;
+  border: 1px solid var(--rule-strong); border-radius: 3px; background: var(--surface);
+  font: 500 11.5px 'IBM Plex Sans', sans-serif; color: var(--ink);
+}
+.an-filtr-lista {
+  /* min-height rowna max-height: popover ma stala wysokosc od razu przy
+     otwarciu ("Wczytywanie...") i nie rosnie po odpowiedzi z API — inaczej
+     caly footer z przyciskami skakalby w dol przy kazdej zmianie wymiaru. */
+  min-height: 208px; max-height: 208px; overflow-y: auto;
+  border-top: 1px solid var(--rule-2); border-bottom: 1px solid var(--rule-2);
+  padding: 4px 0;
+}
+.an-filtr-wartosc {
+  display: flex; align-items: center; gap: 7px; padding: 4px 6px;
+  font: 400 11.5px 'IBM Plex Sans', sans-serif; color: var(--ink-3); cursor: pointer;
+}
+.an-filtr-wartosc:hover { background: #F7F5F1; }
+.an-filtr-nazwa { flex-grow: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.an-filtr-licznik { font-size: 10.5px; color: var(--muted); flex: none; }
+.an-filtr-info { padding: 6px; font-size: 11px; color: var(--muted); line-height: 1.4; }
+.an-filtr-podglad { font-size: 11px; color: var(--muted-2); line-height: 1.4; min-height: 15px; }
+.an-filtr-stopka { display: flex; gap: 6px; }
+.an-filtr-stopka .an-btn { flex: 1; justify-content: center; }
+
+/* ===== SZKIELET ========================================================== */
+.sk { background: var(--szkielet); border-radius: 2px; position: relative; overflow: hidden; }
+.sk::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .72), transparent);
+  animation: an-polysk 1.5s ease-in-out infinite;
+}
+.sk.d2::after { animation-delay: .12s; }
+.sk.d3::after { animation-delay: .24s; }
+.sk.d4::after { animation-delay: .36s; }
+@keyframes an-polysk {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* Po wypelnieniu danymi JS zdejmuje aria-busy i dokłada .an-gotowe. */
+.analiza.an-gotowe .sk { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sk::after { animation: none; background: rgba(255, 255, 255, .3); }
+}
+
+/* ===== SEGMENT PORÓWNAWCZY ============================================== */
+.an-segmenty { display: inline-flex; align-items: center; gap: 7px; }
+.an-kotwica-filtra { position: relative; display: inline-flex; }
+/* .an-chip ustawia display: inline-flex regula AUTORA, ktora ma taka sama
+   specyficznosc jak regula UA `[hidden] { display: none }` — bez tego resetu
+   .an-chip WYGRYWA (jest pozniej w kaskadzie) i `przycisk.hidden = true`
+   (Zadanie 10, chowanie „Dodaj porownanie" po dodaniu segmentu) nie chowa
+   nic. Znalezisko z przegladu. */
+.an-chip[hidden] { display: none; }
+.an-chip--porownanie { background: var(--c-indygo-dark); }
+.an-chip--porownanie .an-chip__kropka { background: var(--c-indygo); }
+.an-chip__zamknij {
+  border: 0; background: transparent; color: inherit; cursor: pointer;
+  padding: 0 0 0 2px; line-height: 1; font-size: 13px;
+}
+/* Drugi slupek w wierszu karty: nizszy pasek pod paskiem bazowym. */
+.an-wiersz__tor--pary { height: 20px; }
+.an-wiersz__wypelnienie--porownanie {
+  position: absolute; left: 0; bottom: 0; top: auto; height: 8px;
+  background: var(--c-indygo);
+}
+.an-wiersz__wypelnienie--baza { top: 0; bottom: auto; height: 8px; }
+/* Druga liczba w kafelku KPI. */
+.an-liczba--porownanie {
+  font: 600 13px 'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums;
+  color: var(--c-indygo-dark); margin-top: 3px;
+}
+.an-bez-segmentu {
+  margin: 10px 0 0 0; font-size: 10.5px; line-height: 1.4; color: var(--muted-3);
+}
+/* Cichy przypis pod trescia karty. Ten sam ciezar wizualny co adnotacja
+   o segmencie, ale bez jej znaczenia — i bez atrybutu data-bez-segmentu,
+   wiec analiza.js nigdy go nie schowa razem z tamtymi. */
+.an-przypis {
+  margin: 8px 0 0 0; font-size: 10.5px; line-height: 1.4; color: var(--muted-3);
+}
+/* Druga wartosc w tabeli miksu (m3 segmentu) i w legendzie wykonczenia
+   (kwota segmentu) — karty, ktore nie rysuja sie przez rysujWiersze i wiec
+   nie dostaja pasków --porownanie, ale segment tez je liczy. */
+.an-wartosc--porownanie { color: var(--c-indygo-dark); margin-left: 6px; }
+
+/* ===== MAPA WOJEWODZTW (karta „Sprzedaz netto wedlug: Wojewodztwo") ======
+   Kartogram zamiast listy slupkow. Ksztalty przychodza ze wspolnego
+   fragmentu analiza/_mapa_polski.html — tego samego, ktory rysuje modal
+   starej zakladki. Tamta ma wlasne style w reports.css (.voivodeship,
+   .level-N), ktorego ta strona NIE laduje, wiec nie ma jak sie pogryzc. */
+.an-mapa { border-top: 0; padding-top: 4px; margin-top: 6px; }
+/* Mapa ma STALA wysokosc, tak samo jak pudelko wykresu trendu
+   (--wys-wykres-trend) i z tego samego powodu: karta stoi w siatce, a rzad
+   siatki rowna sie do najwyzszej karty w rzedzie. Z `height: auto` mapa
+   dorastala do szerokosci karty — przy dwoch kolumnach (1440 px) brala
+   602 px wysokosci i ciagnela za soba sasiadke z tego samego rzedu
+   (zmierzone: karta „Klienci" 294 px -> 830 px). Przy stalej wysokosci
+   rysunek skaluje sie do srodka (preserveAspectRatio domyslne) i siatka
+   zostaje spojna na kazdym progu. */
+.an-mapa__rysunek {
+  display: block; width: 100%; height: var(--wys-mapa); overflow: visible;
+}
+
+/* Skala sekwencyjna: JEDEN odcien, od najjasniejszego do akcentu marki
+   i jego ciemniejszej odmiany. Nie tecza — teczowy kartogram sugeruje
+   kategorie tam, gdzie jest ilosc. Czerwieni nie ma w ogóle: na tej
+   zakladce jest zarezerwowana dla bledow.
+
+   PRZESTAWIONE 22.09 po audycie daltonicznym (ΔE w OKLab pod symulacja
+   protan/deutan, skill dataviz, scripts/validate_palette.js): oryginalne
+   szesc stopni (#FDF3EC/#FBDDC8/#F7BE99/#F19C68 + akcent/akcent-dark)
+   mialo sasiednie pary ponizej progu — najgorsza (stopien 0↔1) ΔE 5,7,
+   czyli ponizej nawet podlogi 6,0, nie mowiac o celu 8,0. Osoba
+   z deuteranopia nie odroznialaby najjasniejszych stopni od siebie.
+
+   Stopnie 4 i 5 sa ZABLOKOWANE — koncza sie dokladnie na akcencie marki
+   i jego ciemniejszej odmianie (pilnuje tego
+   tests/test_analiza_mapa.py::test_skala_nie_uzywa_czerwieni). To zostawia
+   na rozstawienie tylko stopnie 0-3, miedzy bielą papieru a `--accent`,
+   za malo miejsca, zeby CZTERY osobne kolory zmiescily sie z ΔE >= 8 przy
+   jednym odcieniu i bez zbliżania sie do czerwieni bledow (hue ~30°) na
+   ciemnym koncu. Stopnie 2 i 3 DZIELA wiec ten sam kolor — mniej stopni
+   o wyraznej separacji jest czytelniejsze niz wiecej, ktore sie zlewaja.
+   Ostateczna skala (5 rozroznialnych kolorow na 6 stopni):
+     0: #FFECE4   1: #FFC1A3   2 i 3: #FE9666   4: akcent   5: akcent-dark
+   Najgorsza sasiednia para (1↔2/3) ΔE 9,3 (deutan) — nad celem 8,0.
+   Weryfikacja: node scripts/validate_palette.js
+   "#FFECE4,#FFC1A3,#FE9666,#ED6B24,#B84E13" --mode light (pelny wydruk
+   w raporcie domkniecia karty). */
+.an-mapa__rysunek path {
+  stroke: var(--surface); stroke-width: 1.4; stroke-linejoin: round;
+  /* Kolor szkieletu, zanim przyjda dane — mapa JEST szkieletem tej karty. */
+  fill: var(--szkielet);
+  transition: fill .12s ease-out;
+  cursor: default;
+}
+.an-mapa__rysunek path[data-poziom="brak"] {
+  /* Wojewodztwo bez ani jednego zamowienia. Chlodna szarosc plus przerywana
+     krawedz — musi dac sie odroznic od stopnia 0, czyli od wojewodztwa,
+     ktore zamowienia MA, tylko za zero zlotych. Rozroznienie NIE opiera sie
+     tylko na kolorze (oba stopnie sa bardzo jasne i blisko szarosci) —
+     przerywana krawedz to swiadoma druga warstwa kodowania (tekstura),
+     ktora skill dataviz uznaje za legalne obejscie takiej pary. */
+  fill: #E9E6E0; stroke: #FDFCFA; stroke-dasharray: 2.5 2;
+}
+.an-mapa__rysunek path[data-poziom="0"] { fill: #FFECE4; }
+.an-mapa__rysunek path[data-poziom="1"] { fill: #FFC1A3; }
+.an-mapa__rysunek path[data-poziom="2"] { fill: #FE9666; }
+.an-mapa__rysunek path[data-poziom="3"] { fill: #FE9666; }
+.an-mapa__rysunek path[data-poziom="4"] { fill: var(--accent); }
+.an-mapa__rysunek path[data-poziom="5"] { fill: var(--accent-dark); }
+.an-mapa__rysunek path:hover { stroke: var(--ink); stroke-width: 1.6; }
+/* Fokus z klawiatury musi byc widoczny — obszary sa fokusowalne wlasnie po
+   to, zeby dymek nie byl dostepny wylacznie dla myszy. */
+.an-mapa__rysunek path:focus { outline: none; stroke: var(--ink); stroke-width: 2.4; }
+.an-mapa__rysunek path:focus-visible { stroke: var(--c-teal-dark); stroke-width: 2.4; }
+
+/* Karta jest SZEROKA wtedy, gdy siatka schodzi do dwoch kolumn albo jednej —
+   te same progi, co .an-siatka wyzej. Mapa ma wtedy stala wysokosc, wiec sama
+   zajmuje najwyzej ~250 px szerokosci, a reszta karty (534 px przy 1440 px
+   okna) zostawala pusta. Legenda i tabela „poza mapa" ida w tej sytuacji
+   OBOK mapy, a nie pod nia — karta robi sie nizsza i nie ciagnie w gore
+   calego rzedu siatki. Powyzej progu karta ma cwiartke rzedu, mapa wypelnia
+   ja w poziomie i uklad zostaje pionowy. */
+@media (max-width: 1500px) {
+  .an-mapa {
+    display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+    gap: 2px 18px; align-items: start;
+  }
+  .an-mapa__rysunek { grid-row: span 2; width: auto; --wys-mapa: 236px; }
+  .an-mapa__legenda { margin-top: 2px; }
+}
+
+.an-mapa__legenda {
+  display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+  margin-top: 8px;
+}
+.an-mapa__legenda .an-etykieta { margin: 0 2px; }
+.an-mapa__probka {
+  display: inline-block; width: 13px; height: 9px; border: 1px solid var(--rule);
+}
+.an-mapa__probka--p1 { background: #FFC1A3; }
+.an-mapa__probka--p2 { background: #FE9666; }
+.an-mapa__probka--p3 { background: #FE9666; }
+.an-mapa__probka--p4 { background: var(--accent); }
+.an-mapa__probka--p5 { background: var(--accent-dark); }
+.an-mapa__probka--brak { background: #E9E6E0; border-style: dashed; }
+
+/* Tabela „poza mapa". .an-tabela--waska jest skrojona pod CZTERY kolumny
+   podzialu lejka (74 px + 38 px na ostatnia), a ta ma trzy i szersze
+   naglowki — „ZAMOWIENIA szt." wychodzilo poza karte i bylo ucinane
+   (ogledziny 23.09.2026). Naglowki moga sie tu zlamac na dwie linie,
+   bo kolumna liczb jest wezsza niz jej podpis. */
+.an-mapa .an-tabela--waska th { white-space: normal; }
+.an-mapa .an-tabela--waska th:not(:first-child),
+.an-mapa .an-tabela--waska td:not(:first-child) { width: 74px; }
+/* Ostatnia kolumna szersza od swojej zawartosci: to naglowek „ZAMOWIENIA"
+   (wersaliki, 100 px) dyktuje szerokosc, a nie liczby pod nim. */
+.an-mapa .an-tabela--waska th:last-child,
+.an-mapa .an-tabela--waska td:last-child { width: 104px; }
+/* Obok mapy (siatka ponizej 1500 px) tabela dostaje to, co zostaje po
+   rysunku (~249 px) i odstepie (18 px). Przy 1200 px okna zostawalo 146 px na
+   kolumny 74 + 104 px: kolumna nazw spadala do zera, a liczby zamowien
+   wychodzily 16 px poza karte i ucinala je jej krawedz (ogledziny
+   23.09.2026). Gdy obok mapy nie ma miejsca na trzy kolumny, tabela schodzi
+   POD mape, na cala szerokosc karty. Zapytanie o kontener, nie o okno:
+   szerokosc karty zalezy tez od sidebara, a nie tylko od szerokosci okna.
+   520 px = rysunek 249 + odstep 18 + kolumny 74 + 104 + ~75 px na nazwe.
+   Tylko w siatce (media 1500 px) — powyzej progu karta ma uklad pionowy
+   i tabela i tak stoi pod mapa; tam nic sie nie zmienia. */
+.an-mapa { container: an-mapa / inline-size; }
+@media (max-width: 1500px) {
+  @container an-mapa (max-width: 520px) {
+    .an-mapa .an-tabela--waska { grid-column: 1 / -1; margin-top: 10px; }
+  }
+}
+
+/* DYMEK. position: fixed, bo .an-karta ma overflow: hidden i dymek w srodku
+   karty bylby przyciety do jej ramki.
+
+   pointer-events: none jest OBOWIAZKOWE. Ta zakladka byla juz raz calkowicie
+   nieklikalna przez przezroczysty <select> rozlany na cale okno; warstwa
+   pozycjonowana fixed, ktora lapie kliknięcia, to ta sama pulapka. Schowany
+   dymek ma display: none, wiec document.elementFromPoint nigdy go nie zwraca
+   — regula [hidden] jest tu JAWNA, bo .an-mapa__dymek ustawia display. */
+.an-mapa__dymek {
+  position: fixed; left: 0; top: 0; z-index: 60; pointer-events: none;
+  display: block; min-width: 168px; max-width: 250px;
+  background: var(--ink); color: #FFF; border-radius: 3px;
+  padding: 9px 11px 10px 11px;
+  box-shadow: 0 6px 20px rgba(28, 26, 23, .24);
+  font: 400 11.5px 'IBM Plex Sans', sans-serif;
+}
+.an-mapa__dymek[hidden] { display: none; }
+.an-mapa__dymek-tytul {
+  font: 600 12.5px 'IBM Plex Sans', sans-serif; margin-bottom: 7px;
+  padding-bottom: 6px; border-bottom: 1px solid rgba(255, 255, 255, .18);
+}
+/* Dwie kolumny: podpis miary po lewej, liczba po prawej. <dl> zamiast tabeli,
+   bo to pary nazwa-wartosc, a nie zestawienie do porownywania wierszy. */
+.an-mapa__dymek-lista {
+  margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px;
+  align-items: baseline;
+}
+.an-mapa__dymek-lista .an-etykieta { color: rgba(255, 255, 255, .62); margin: 0; }
+/* Wszystkie CYFRY w IBM Plex Mono, jednostka (tekst) zostaje w Plex Sans —
+   ta sama zasada co w kafelkach KPI i w kolumnach kart. */
+.an-mapa__dymek-liczba {
+  margin: 0; text-align: right;
+  font: 600 12px 'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums;
+}
+.an-mapa__dymek-liczba .an-jednostka { color: rgba(255, 255, 255, .62); }
+/* Jasniejszy odcien indygo (nie --c-indygo-dark) — kontrast na CIEMNYM tle
+   dymka, ten sam zabieg co poprzednio z jasnym teal (#7FD0E0). */
+.an-mapa__dymek-liczba .an-wartosc--porownanie { color: var(--c-indygo-jasny); }
+.an-mapa__dymek-segment {
+  margin: 8px 0 0 0; padding-top: 6px; color: var(--c-indygo-jasny);
+  border-top: 1px solid rgba(255, 255, 255, .18);
+}
+
+/* WSPÓLNY DYMEK WYKRESÓW (partia E, punkt E3). Ten sam wygląd, co dymek mapy
+   wyżej — ciemny i w 100% KRYJĄCY, bo dymek na jasnej karcie z kolorowymi
+   słupkami pod spodem był nieczytelny. Element leży w <body>, poza #analiza,
+   więc zmienne palety z .analiza go nie dosięgają — kolory mają tu wartości
+   zapasowe z tej samej palety.
+
+   pointer-events: none jest OBOWIĄZKOWE (patrz dymek mapy), a schowany ma
+   display: none, więc document.elementFromPoint nigdy go nie zwraca. */
+.an-dymek {
+  position: fixed; left: 0; top: 0; z-index: 10050; pointer-events: none;
+  display: block; min-width: 140px; max-width: 260px;
+  background: var(--ink, #1C1A17); color: #FFF; border-radius: 3px;
+  padding: 8px 11px 9px 11px;
+  box-shadow: 0 6px 20px rgba(28, 26, 23, .24);
+  font: 400 11.5px 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
+}
+.an-dymek[hidden] { display: none; }
+.an-dymek__tytul {
+  font: 600 12.5px 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
+  margin-bottom: 6px; padding-bottom: 5px; overflow-wrap: anywhere;
+  border-bottom: 1px solid rgba(255, 255, 255, .18);
+}
+.an-dymek__lista {
+  margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px;
+  align-items: baseline;
+}
+.an-dymek__lista dt {
+  margin: 0; font: 700 9.5px 'IBM Plex Sans', sans-serif; letter-spacing: .13em;
+  text-transform: uppercase; color: rgba(255, 255, 255, .62);
+}
+/* Cyfry w IBM Plex Mono, jednostka (tekst) w Plex Sans — jak wszędzie. */
+.an-dymek__lista dd {
+  margin: 0; text-align: right; white-space: nowrap;
+  font: 600 12px 'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums;
+}
+.an-dymek__lista dd .an-jednostka { color: rgba(255, 255, 255, .62); }
+
+/* ===== EKSPLORATOR ======================================================= */
+.eks-body { margin: 0; }
+.eks { display: flex; flex-direction: column; min-height: 100vh; padding: 0; }
+.eks-pasek {
+  flex: none; background: var(--surface); border-bottom: 1px solid var(--rule-strong);
+  padding: 0 22px; height: 52px; display: flex; align-items: center; gap: 11px;
+}
+.eks-sciezka { font-size: 11.5px; color: var(--muted); display: flex; align-items: center; gap: 7px; }
+.eks-sciezka strong { color: var(--ink); font-weight: 600; }
+.eks-parametry {
+  flex: none; background: #F7F5F1; border-bottom: 1px solid var(--rule);
+  padding: 10px 22px; display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+}
+.eks-ctl {
+  height: 30px; padding: 0 10px; background: var(--surface);
+  border: 1px solid var(--rule-strong); border-radius: 3px;
+  font: 400 11.5px 'IBM Plex Sans', sans-serif; color: var(--ink-3);
+  display: inline-flex; align-items: center; gap: 7px;
+}
+.eks-ctl--wlaczony { border-color: var(--c-teal); background: var(--c-teal-bg); }
+.eks-ctl__klucz { color: var(--muted); }
+.eks-ctl__pole {
+  border: 0; background: transparent; font: 600 11.5px 'IBM Plex Sans', sans-serif;
+  color: var(--ink); cursor: pointer;
+}
+.eks-ctl__daty { display: inline-flex; align-items: center; gap: 6px; }
+.eks-ctl__daty input {
+  font: 400 11px 'IBM Plex Mono', monospace; border: 1px solid var(--rule); border-radius: 2px;
+  padding: 2px 4px;
+}
+.eks-ctl__daty .an-btn { height: 22px; padding: 0 8px; }
+.eks-rozdzielacz { width: 1px; height: 22px; background: var(--rule); margin: 0 3px; }
+/* Kotwica popovera filtra — musi mieć position: relative, bo popover
+   pozycjonuje sie wzgledem rodzica. */
+.eks-kotwica-filtra { position: relative; }
+.eks-ctl__zamknij {
+  border: 0; background: transparent; color: var(--muted); cursor: pointer;
+  padding: 0 0 0 4px; font-size: 14px; line-height: 1;
+}
+.eks-ctl__zamknij:hover { color: var(--bad); }
+.eks-podpowiedz { font-size: 11px; color: var(--muted); }
+
+.eks-tresc { flex-grow: 1; min-height: 0; padding: 16px 22px 28px 22px;
+             display: flex; flex-direction: column; gap: 14px; }
+/* .an-karta ustawia overflow: hidden (obcina tresc karty do jej ramki).
+   Przy szerokim przestawieniu (np. delivery_state - 16 wojewodztw + wymiar +
+   Trend + Zmiana = 19 kolumn) .eks-tabela z white-space: nowrap nie zejdzie
+   ponizej min-content, wiec bez wlasnego przewijania prawe kolumny znikalyby
+   po cichu, bez paska przewijania. overflow-x tutaj ma taka sama
+   specyficznosc jak w .an-karta, ale jest zadeklarowany PONIZEJ w kaskadzie,
+   wiec nadpisuje wylacznie os X — os Y zostaje ukryta jak wczesniej. */
+.eks-panel { padding: 15px 18px; overflow-x: auto; }
+.eks-panel__glowa { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 11px; }
+.eks-panel__tytul { margin: 0; font: 700 16px 'IBM Plex Sans', sans-serif; letter-spacing: -.01em; }
+.eks-panel__podtytul { margin: 3px 0 0 0; font-size: 11.5px; color: var(--muted); }
+.eks-liczniki { font-size: 11px; color: var(--muted); }
+.eks-znacznik {
+  display: inline-flex; align-items: center; gap: 7px; font-size: 11px;
+  color: var(--c-teal-dark); background: var(--c-teal-bg);
+  border: 1px solid #9BC3CD; border-radius: 3px; padding: 4px 9px;
+}
+
+.eks-tabela { width: 100%; border-collapse: collapse; font-size: 12px; }
+.eks-tabela th { padding: 0 10px 8px 10px; text-align: right; white-space: nowrap; }
+.eks-tabela th:first-child { text-align: left; }
+.eks-tabela td { padding: 9px 10px; border-top: 1px solid var(--rule-2); text-align: right; white-space: nowrap; }
+.eks-tabela td:first-child { text-align: left; }
+.eks-tabela tbody tr:hover td { background: #FBFAF7; }
+.eks-tabela tfoot td { border-top: 1.5px solid var(--ink); font-weight: 700; background: #FBFAF7; }
+.eks-tabela .eks-kolumna-biezaca { background: var(--c-teal-bg); font-weight: 700; }
+.eks-sortuj {
+  border: 0; background: transparent; cursor: pointer; padding: 0;
+  font: 700 9.5px 'IBM Plex Sans', sans-serif; letter-spacing: .09em;
+  text-transform: uppercase; color: var(--muted);
+}
+.eks-sortuj[aria-sort] { color: var(--ink); }
+/* Jednostka w naglowku kolumny Eksploratora — przygaszona, zeby oko
+   oddzielilo nazwe miary od jednostki („SR. ZAMOWIENIE" + „ZL"). */
+.eks-jednostka { color: var(--muted-3); text-transform: none; letter-spacing: .02em; }
+.eks-sortuj[aria-sort] .eks-jednostka { color: var(--muted); }
+.eks-probka { display: inline-block; width: 9px; height: 9px; margin-right: 8px; }
+.eks-mini { display: inline-block; width: 78px; height: 8px; background: #F2EFEA;
+            vertical-align: -1px; margin-right: 9px; position: relative; }
+.eks-mini > i { position: absolute; left: 0; top: 0; bottom: 0; display: block; }
+.eks-pusty { color: var(--muted-3); }
+
+/* ===== ROZWIJANY WIERSZ „POZOSTALE (N)" ================================== */
+/* Wiersz zbiorczy nie jest podsumowaniem do przeczytania i zapomnienia —
+   kryje konkretne wartosci, ktore uzytkownik chce zobaczyc („Jak piszesz opcje
+   »Pozostale« to zrobmy ja klikalna, ktora rozwinie reszte danych",
+   23.09.2026). Ogon PRZYCHODZI JUZ POLICZONY z serwera w tym samym zadaniu;
+   klikniecie wylacznie go pokazuje i nic nie liczy.
+
+   Kontrolka jest prawdziwym <button>, a nie divem z obsluga klawiatury:
+   Enter i spacja dzialaja wtedy natywnie, fokus widac, a czytnik ekranu
+   dostaje `aria-expanded` bez ani jednej linii dodatkowego kodu. */
+.an-rozwin {
+  /* Wyglada jak reszta nazw w kolumnie — to nadal wiersz tabeli, nie przycisk
+     akcji. Jedyne, co go wyroznia, to kursor, podkreslenie po najechaniu
+     i strzalka dorysowana przez ::after. */
+  appearance: none; background: none; border: 0; padding: 0; margin: 0;
+  font: inherit; color: inherit; text-align: left; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 4px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Przycisk dziedziczy kroj po wierszu, ale klasy komponentow stoja w tym
+   pliku WYZEJ i przy rownej szczegolowosci przegralyby z `font: inherit`
+   — wiersz „Pozostale (N)" mial przez to wieksza czcionke niz wiersze nad nim
+   (ogledziny 23.09.2026). Stad jawne przywrocenie kroju tam, gdzie przycisk
+   nosi obie klasy naraz. W tabelach problemu nie ma: tam przycisk dziedziczy
+   wprost po <td>, ktore ma juz wlasciwy rozmiar. */
+.an-wiersz__nazwa.an-rozwin { font-size: 11.5px; color: var(--ink-3); }
+
+.an-rozwin::after {
+  content: '▸'; font-size: 9px; color: var(--muted); line-height: 1;
+  transform: translateY(-.5px);
+}
+.an-rozwin[aria-expanded="true"]::after { content: '▾'; }
+.an-rozwin:hover { text-decoration: underline; }
+.an-rozwin:focus-visible { outline: 2px solid var(--accent-dark); outline-offset: 2px; }
+
+/* Caly wiersz jest celem klikniecia, nie sam napis — 11-pikselowa etykieta
+   to za maly cel. Przycisk w srodku zostaje po to, zeby dzialala klawiatura. */
+.an-rozwijalny { cursor: pointer; }
+.an-rozwijalny:hover { background: var(--rule-2); }
+.an-rozwijalny:hover .an-rozwin { text-decoration: underline; }
+
+/* ROZWINIETY OGON — „Pozostale (N)" na karcie ze slupkami, w rozbiciu kanalu,
+   w legendzie wykonczen (.an-ogon) i w tabelach miksu i podzialu lejka
+   (wiersze <tr> z klasa .an-ogon-wiersz, kadr z klasa --rozwiniety).
+
+   DWA WARUNKI NARAZ (zgloszenie uzytkownika 23.09.2026):
+   1. Wysokosc rzedu siatki przed i po rozwinieciu ma byc IDENTYCZNA —
+      inaczej kilkanascie wierszy podnosi caly rzad, a karty obok stoja puste.
+   2. Wolne miejsce karty (rzad wyznacza sasiedni, wyzszy kafelek) ma sie
+      wypelnic, a przewijac ma sie dopiero nadmiar.
+
+   PRZEWIJA SIE CALE CIALO KARTY, gorne wiersze razem z ogonem. Do weryfikacji
+   poprawek (znalezisko 3) przewijal sie sam ogon w regionie o dolnej granicy
+   132/168 px — gdy karta nie miala wolnego miejsca, ta granica podnosila rzad
+   (opiekun przy 1440 px: 276 → 415 px, karta kanalu obok pusta).
+
+   Teraz cialo rozwinietej karty ma `flex-basis: 0`, a `min-height` = wysokosc
+   ciala ZWINIETEGO (zmienna --wys-zwinieta). Do wysokosci karty liczonej dla
+   rzedu wchodzi wiec dokladnie to, co przed rozwinieciem; wolne miejsce cialo
+   bierze przez `flex-grow` (z reguly .an-karta__cialo), a nadmiar przewija.
+   Tresc ciala uklada sie jak w karcie zwinietej — zwykly przeplyw, zadnych
+   kolumn flex ani przestawionych marginesow — wiec krotki ogon nie odpycha
+   niczego: puste miejsce zostaje na dole ciala, jak przed rozwinieciem.
+
+   Wysokosc ciala zwinietego zna tylko silnik renderujacy, wiec mierzy ja
+   analiza.js (zmierzZwinieteCialo): RAZ, przed pokazaniem ogona, w trybie
+   pomiaru ponizej — to wymiar ukladu, nie liczba danych. Zapas w `var()` na
+   wypadek braku zmiennej: tresc (min-content), czyli rzad rosnie jak dawniej,
+   ale nic nie znika.
+
+   TYLKO W SIATCE WIELOKOLUMNOWEJ (powyzej 900 px, prog z .an-siatka). W jednej
+   kolumnie rzad to sama karta: nie ma sasiadow, ktorzy staliby pusci, a
+   przewijane pudelko w karcie na telefonie lapaloby przewijanie strony. Tam
+   karta po prostu rosnie o ogon, a przewija sie strona. */
+.an-ogon { margin-bottom: 7px; }
+.an-ogon > .an-wiersz:last-child { margin-bottom: 0; }
+@media (min-width: 901px) {
+  .an-kafelek:not(.an-kafelek--pomiar) .an-karta__cialo:has(.an-ogon:not([hidden]), .an-kadr-listy--rozwiniety) {
+    flex-basis: 0;
+    min-height: var(--wys-zwinieta, min-content);
+    overflow-x: hidden; overflow-y: auto;
+  }
+}
+/* Naglowek tabeli zostaje na wierzchu przewijanego ciala, zeby kolumny nie
+   stracily podpisu po przewinieciu. `top` UJEMNY o gorny odstep ciala
+   (.an-karta__cialo: padding 11px): przegladarka przykleja element do krawedzi
+   TRESCI przewijanego pudelka, wiec przy `top: 0` naglowek stawal 11 px nizej,
+   a w tym pasku nad nim przesuwal sie poprzedni wiersz tabeli. */
+.an-kadr-listy--rozwiniety thead th {
+  position: sticky; top: -11px; background: var(--surface); z-index: 1;
+}
+/* TRYB POMIARU (na ulamek klatki, bez malowania): karta o wysokosci wlasnej
+   tresci, a nie rzedu, ogony schowane, regula rozwiniecia wylaczona (patrz
+   `:not(.an-kafelek--pomiar)` wyzej). Wysokosc ciala = cialo zwiniete. */
+.an-kafelek--pomiar { align-self: start; }
+.an-kafelek--pomiar .an-ogon,
+.an-kafelek--pomiar .an-ogon-wiersz { display: none; }
+
+/* ===== TRYB EDYCJI UKŁADU ================================================ */
+.an-edycja { margin-top: 18px; display: flex; align-items: center; }
+/* W trybie edycji pasek PRZYKLEJA SIĘ do dołu okna. Pulpit ma trzy rzędy kart;
+   przestawiając kafelek u góry, użytkownik nie widziałby ani bursztynu
+   niezapisanych zmian, ani „Zapisz układ". Tło papieru pod paskiem, żeby
+   przewijane kafelki nie prześwitywały między nim a krawędzią okna. */
+.analiza--edycja .an-edycja {
+  position: sticky; z-index: 20;
+  padding: 10px 0 12px 0; background: var(--paper);
+  /* UJEMNY o dolny odstęp strony. Przyklejony element szanuje padding
+     przewijanego kontenera (#analiza ma 28 px od dołu), więc przy `bottom: 0`
+     pasek wisiał 28 px nad krawędzią okna, a kafelki przewijały się pod nim
+     w tej szczelinie (przegląd gałęzi, drobne 9). Na samym dole strony pasek
+     stoi i tak w swoim miejscu w przepływie — za siatką, nic nie zasłaniając. */
+  bottom: calc(-1 * var(--odstep-dolny));
+}
+/* Przyklejony pasek nie moze zaslaniac tego, na czym stoi fokus: Tab po
+   narzedziach kafelkow i scrollIntoView zostawiaja pod elementem miejsce na
+   pasek (WCAG 2.4.11, fokus niezasloniety). */
+.analiza--edycja { scroll-padding-bottom: 76px; }
+.an-edycja__pasek,
+.an-edycja__potwierdzenie {
+  flex-grow: 1; display: flex; align-items: center; gap: 8px;
+  background: var(--surface); border: 1px solid var(--rule);
+  border-radius: 3px; padding: 9px 12px;
+}
+/* Reguła autora z `display` wygrywa z `[hidden]` przeglądarki (ta sama
+   pułapka, co .an-chip[hidden]) — bez tych linii schowany pasek i schowany
+   „Edytuj widok" stałyby na ekranie. */
+.an-edycja__pasek[hidden],
+.an-edycja__potwierdzenie[hidden],
+.analiza .an-btn[hidden] { display: none; }
+.an-edycja__licznik { font: 500 11.5px 'IBM Plex Sans', sans-serif; color: var(--ink-2); }
+/* Błąd akcji paska (zapis, odrzucenie, przywrócenie, dodanie kafelka) —
+   osobny wiersz NAD licznikiem i przyciskami, na całą szerokość paska.
+   Czerwień, bo to błąd (zasada: czerwień wyłącznie dla błędów). */
+.an-edycja__pasek { flex-wrap: wrap; }
+.an-edycja__blad {
+  flex-basis: 100%; margin: 0 0 2px 0; padding: 7px 10px;
+  background: var(--bad-bg); border-left: 2px solid var(--bad); color: var(--bad-ink);
+  font: 500 11.5px 'IBM Plex Sans', sans-serif; line-height: 1.45;
+}
+.an-edycja__blad[hidden] { display: none; }
+/* BURSZTYN na niezapisane zmiany — dokładnie ta konwencja, co narzędziownik
+   arkusza (makieta ArkuszZmiany.dc.html, arkusz.css .ark-brudny): tło
+   --warn-bg, kreska --warn-line, przyciski na kremowym tle z bursztynową
+   ramką. Druga konwencja na to samo w jednej aplikacji byłaby gorsza niż
+   brak. Niezapisane zmiany to stan pracy, nie awaria. */
+.an-edycja__pasek--zmiany { background: var(--warn-bg); border-color: var(--warn-line); }
+.an-edycja__pasek--zmiany .an-edycja__licznik { font-weight: 600; color: #7A4E05; }
+.an-edycja__pasek--zmiany .an-btn:not(.an-btn--ciemny),
+.an-edycja__potwierdzenie .an-btn:not(.an-btn--ciemny) {
+  background: #FFFCF6; border-color: #D9B778; color: #6B4A12;
+}
+.an-edycja__potwierdzenie { background: var(--warn-bg); border-color: var(--warn-line); }
+#an-edycja-pytanie { font: 600 11.5px 'IBM Plex Sans', sans-serif; color: #7A4E05; }
+.an-edycja .an-btn:disabled { opacity: .55; cursor: progress; }
+
+/* Pasek narzędzi kafelka — W PRZEPŁYWIE karty, nad nagłówkiem. Nakładka
+   w rogu karty zakrywałaby koniec dłuższych tytułów i piąty wskaźnik KPI.
+   Wszystkie kafelki rosną o ten sam pasek, więc rzędy siatki zostają równe. */
+.an-kafelek__narzedzia {
+  display: flex; align-items: center; justify-content: flex-end; gap: 2px;
+  padding: 0 3px 0 11px;
+  background: #F7F5F1; border-bottom: 1px solid var(--rule-2);
+  cursor: grab;
+}
+.an-kafelek__narzedzia[hidden] { display: none; }
+/* Uchwyt przeciągania: sześć kropek, sama grafika (::before), bo w pasku
+   stoją wyłącznie przyciski. Przeciąganie jest wygodą dla myszy — drogą
+   podstawową są strzałki obok. */
+.an-kafelek__narzedzia::before {
+  content: ''; flex: none; margin-right: auto; width: 9px; height: 15px;
+  background-image: radial-gradient(circle, var(--muted-3) 1.1px, transparent 1.6px);
+  background-size: 4.5px 5px;
+}
+/* 44x44 px: WCAG 2.5.5. Reguła 48 px z feedback_station_design dotyczy ekranów
+   stanowiskowych w hali — pulpit nimi nie jest, ale na tablecie bywa otwierany
+   i przyciski są tu JEDYNĄ drogą przenoszenia bez myszy. */
+.an-kafelek__ruch, .an-kafelek__usun {
+  min-width: 44px; min-height: 44px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: 0; border-radius: 3px; cursor: pointer;
+  font: 500 15px 'IBM Plex Sans', sans-serif; color: var(--ink-2);
+}
+.an-kafelek__ruch:hover, .an-kafelek__usun:hover { background: var(--surface); }
+.an-kafelek__ruch:focus-visible, .an-kafelek__usun:focus-visible {
+  outline: 2px solid var(--c-teal); outline-offset: -2px;
+}
+/* Pierwszy kafelek nie ma dokąd iść „wcześniej", ostatni „później". aria-
+   disabled zamiast disabled: przycisk z `disabled` gubi fokus, a to jest
+   dokładnie ten przycisk, który naciska się kilka razy pod rząd. */
+.an-kafelek__ruch[aria-disabled="true"] { color: var(--rule-strong); cursor: default; background: transparent; }
+.an-kafelek__usun { color: var(--accent-dark); font-size: 18px; }
+
+/* W trybie edycji kafelek dostaje przerywaną ramkę — sygnał, że jest teraz
+   przedmiotem, a nie treścią. Zero animacji: konwencja projektu. */
+.analiza--edycja .an-kafelek { outline: 1px dashed var(--rule-strong); outline-offset: -1px; }
+.analiza--edycja .an-kafelek[data-przeciagany] { opacity: .45; }
+.analiza--edycja .an-kafelek[data-cel-upuszczenia] {
+  outline: 2px solid var(--accent); outline-offset: -2px;
+}
+
+/* Podpowiedź pod selektorem „według" w trybie edycji: ten sam selektor
+   ustawia tam TRWAŁY wymiar, a poza trybem jest tylko podglądem. */
+.an-kafelek__podpowiedz {
+  display: block; margin-top: 4px;
+  font: 400 10.5px 'IBM Plex Sans', sans-serif; line-height: 1.4; color: var(--muted);
+}
+.an-kafelek__podpowiedz[hidden] { display: none; }
+
+/* ===== KAFELEK DODAWANIA ================================================= */
+/* „Szary kwadrat z dużym + i napisem dodaj statystykę" — cytat użytkownika.
+   Rozciąga się do wysokości rzędu siatki, więc stoi jak kolejny kafelek. */
+.an-kafelek--dodaj {
+  min-height: 150px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 6px;
+  background: #F7F5F1; border: 1px dashed var(--rule-strong);
+  border-radius: 3px; cursor: pointer; color: var(--muted-2);
+  font-family: 'IBM Plex Sans', sans-serif;
+}
+.an-kafelek--dodaj[hidden] { display: none; }
+.an-kafelek--dodaj:hover { border-color: var(--accent); color: var(--ink-2); background: var(--surface); }
+.an-kafelek--dodaj:focus-visible { outline: 2px solid var(--c-teal); outline-offset: 2px; }
+.an-kafelek--dodaj__plus { font: 300 34px 'IBM Plex Sans', sans-serif; line-height: 1; }
+.an-kafelek--dodaj__napis { font: 500 12px 'IBM Plex Sans', sans-serif; }
+
+/* Kafelek w trakcie wczytywania z serwera. Widoczny ułamek sekundy, ale MUSI
+   zajmować miejsce w siatce — inaczej reszta kafelków podskakuje w chwili
+   wstawienia i użytkownik traci z oczu to, co czytał. */
+.an-kafelek--wczytywanie {
+  min-height: 150px; display: flex; flex-direction: column; gap: 10px;
+  align-items: center; justify-content: center; padding: 15px; text-align: center;
+}
+/* Dane dodawanego kafelka nie przyszły (awaria /api/analytics albo
+   /api/kafelek) — błąd, więc czerwień, i przycisk ponowienia obok. */
+.an-kafelek__blad { margin: 0; font: 500 11.5px 'IBM Plex Sans', sans-serif;
+  line-height: 1.45; color: var(--bad-ink); }
+
+/* ===== MODAL „DODAJ STATYSTYKĘ" ========================================== */
+/* z-index 10100: ponad sidebarem CRM (style.css, .sidebar z-index 1000)
+   ORAZ ponad górnym paskiem mobilnym (.mobile-topbar z-index 10000).
+   Przy 70 przyciemnienie kończyło się na krawędzi sidebara, a przy 1100 na
+   390 px pasek z hamburgerem stał NAD przyciemnieniem i był klikalny
+   (przegląd gałęzi, drobne 5) — w obu wypadkach przy oknie, które mówi
+   czytnikowi, że jest modalne.
+
+   Anatomia i typografia z makiety Potwierdzenie.dc.html: przyciemnienie,
+   okno bez zaokrągleń ponad 3 px, nagłówek ze znakiem, tytułem i jednym
+   zdaniem, stopka na jaśniejszym tle z dwoma wyjściami. */
+.an-modal { position: fixed; inset: 0; z-index: 10100; display: flex;
+  align-items: center; justify-content: center; }
+/* Reguła autora z `display` wygrywa z `[hidden]` przeglądarki — bez tej linii
+   schowany modal przykrywałby CAŁE okno przyciemnieniem i łykał wszystkie
+   kliknięcia (ta sama klasa błędu, co rozlany `.an-sel` z 23.09.2026). */
+.an-modal[hidden] { display: none; }
+.an-modal__zaslona { position: absolute; inset: 0; background: rgba(24, 30, 38, .52); }
+.an-modal__okno {
+  position: relative; width: min(560px, calc(100vw - 32px)); max-height: 86vh;
+  display: flex; flex-direction: column; overflow: hidden;
+  background: var(--surface); border-radius: 3px;
+  box-shadow: 0 20px 60px rgba(12, 18, 26, .34);
+}
+.an-modal__glowa { display: flex; align-items: flex-start; gap: 13px;
+  padding: 20px 14px 15px 24px; border-bottom: 1px solid var(--rule-2); }
+.an-modal__znak { flex: none; width: 36px; height: 36px; border-radius: 3px;
+  background: #FDF0E7; display: flex; align-items: center; justify-content: center; }
+.an-modal__naglowek { flex-grow: 1; min-width: 0; }
+.an-modal__tytul { margin: 0; font: 700 19px 'IBM Plex Sans', sans-serif;
+  letter-spacing: -.01em; color: var(--ink); }
+.an-modal__opis-okna { margin: 4px 0 0 0; font: 400 13px 'IBM Plex Sans', sans-serif;
+  line-height: 1.5; color: var(--ink-2); }
+.an-modal__zamknij { flex: none; min-width: 44px; min-height: 44px; margin-top: -8px;
+  border: 0; border-radius: 3px; background: transparent; cursor: pointer;
+  font-size: 20px; color: var(--muted-2); }
+.an-modal__zamknij:hover { background: #F7F5F1; }
+.an-modal__zamknij:focus-visible { outline: 2px solid var(--c-teal); outline-offset: -2px; }
+.an-modal__cialo { padding: 14px 24px 16px 24px; overflow-y: auto; min-height: 0; }
+/* Wybór wymiaru stoi POD przewijaną listą, nie w niej: lista jedenastu
+   statystyk z opisami jest wyższa niż okno, a selektor na jej końcu byłby po
+   wybraniu statystyki poza zasięgiem wzroku. */
+.an-modal__dol { flex: none; padding: 0 24px; }
+.an-modal__dol .an-modal__uwaga { margin: 0 0 14px 0; }
+.an-modal__lista { display: flex; flex-direction: column; gap: 2px; }
+.an-modal__pozycja {
+  display: block; width: 100%; text-align: left; cursor: pointer;
+  background: transparent; border: 1px solid transparent; border-radius: 3px;
+  padding: 8px 10px; font-family: 'IBM Plex Sans', sans-serif;
+}
+.an-modal__pozycja:hover { background: #F7F5F1; }
+.an-modal__pozycja:focus-visible { outline: 2px solid var(--c-teal); outline-offset: -2px; }
+.an-modal__pozycja[aria-pressed="true"] { border-color: var(--accent); background: #FDF2EA; }
+.an-modal__pozycja[disabled] { opacity: .5; cursor: not-allowed; background: transparent; }
+.an-modal__nazwa { display: block; font: 600 12.5px 'IBM Plex Sans', sans-serif; color: var(--ink); }
+.an-modal__opis { display: block; margin-top: 2px;
+  font: 400 11.5px 'IBM Plex Sans', sans-serif; line-height: 1.45; color: var(--muted-2); }
+.an-modal__zajete { display: block; margin-top: 3px;
+  font: 600 10.5px 'IBM Plex Sans', sans-serif; color: var(--muted); }
+.an-modal__wymiar { padding: 12px 0 14px 0; border-top: 1px solid var(--rule-2);
+  display: flex; flex-direction: column; gap: 6px; }
+.an-modal__wymiar[hidden] { display: none; }
+/* ZWYKŁY, WIDOCZNY select — nie `.an-sel`. Patrz komentarz w szablonie. */
+.an-modal__pole {
+  font: 400 12.5px 'IBM Plex Sans', sans-serif; color: var(--ink);
+  background: var(--surface); border: 1px solid var(--rule-strong);
+  border-radius: 3px; padding: 7px 9px; min-height: 38px;
+}
+.an-modal__pole:focus-visible { outline: 2px solid var(--c-teal); outline-offset: 1px; }
+/* Bursztyn, nie czerwień: „limit kafelków wyczerpany" i „ta statystyka jest
+   już na pulpicie we wszystkich wymiarach" to granica, nie błąd. */
+.an-modal__uwaga { margin: 12px 0 0 0; padding: 8px 10px;
+  background: var(--warn-bg); border-left: 2px solid var(--warn-line);
+  font: 400 11.5px 'IBM Plex Sans', sans-serif; line-height: 1.45; color: var(--ink-3); }
+.an-modal__uwaga:first-child { margin: 0 0 12px 0; }
+.an-modal__uwaga[hidden] { display: none; }
+.an-modal__stopka { display: flex; justify-content: flex-end; gap: 10px;
+  padding: 14px 24px; background: #F7F5F1; border-top: 1px solid var(--rule-2); }
+.an-modal__przycisk { height: 38px; padding: 0 16px; font-size: 13px; font-weight: 500; }
+.an-modal__przycisk--glowny {
+  border: 0; background: var(--accent); color: #FFF; font-weight: 600; padding: 0 18px;
+  box-shadow: 0 1px 3px rgba(31, 41, 51, .2);
+}
+.an-modal__przycisk--glowny:disabled {
+  background: var(--rule-2); color: #A9A197; box-shadow: none; cursor: not-allowed;
+}
+
+/* ===== STAN PUSTY I POMINIĘTE KAFELKI ==================================== */
+/* Pusty pulpit to decyzja użytkownika, nie awaria — biała karta w tej samej
+   typografii co reszta, bez czerwieni i bez bursztynu. */
+.an-stan-pusty {
+  margin: 0 0 12px 0; padding: 30px 18px; text-align: center;
+  background: var(--surface); border: 1px solid var(--rule); border-radius: 3px;
+}
+.an-stan-pusty__tytul { font: 700 15px 'IBM Plex Sans', sans-serif; color: var(--ink); }
+.an-stan-pusty__tekst {
+  margin: 8px auto 14px auto; max-width: 440px;
+  font: 400 12px 'IBM Plex Sans', sans-serif; line-height: 1.5; color: var(--muted-2);
+}
+/* Pasek pominiętych kafelków — kształt .an-info (bursztyn, kreska po lewej),
+   bo to ta sama rola: granica wiarygodności, nie błąd. */
+.an-info--uklad {
+  margin: 0 0 12px 0;
+  font: 400 11.5px 'IBM Plex Sans', sans-serif; line-height: 1.45; color: var(--ink-3);
+}

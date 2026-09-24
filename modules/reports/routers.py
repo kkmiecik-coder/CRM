@@ -32,6 +32,54 @@ from cron_auth import cron_secret_required
 reports_logger = get_structured_logger('reports.routers')
 reports_logger.info("✅ reports_logger zainicjowany poprawnie w routers.py")
 
+# Endpointy starej zakładki, które ZMIENIAJĄ DANE. Od Planu C stary widok
+# jest tylko do odczytu (decyzja użytkownika 22.09.2026: „osobny przycisk,
+# który otworzy tą tabelę w nowej karcie, bez możliwości edycji").
+#
+# Reguła jest prosta i dlatego łatwa do pilnowania: ŻADEN POST starej
+# zakładki nie przechodzi. Odczyt (/api/data, oba eksporty, dropdown-values,
+# map-statistics) działa bez zmian.
+#
+# /api/cron/sync-statuses NIE JEST na liście: to nie jest widok, tylko cron
+# hostingu odświeżający statusy istniejących wierszy, autoryzowany tokenem.
+ENDPOINTY_ZABLOKOWANE = (
+    '/api/sync',
+    '/api/add-manual-row',
+    '/api/update-manual-row',
+    '/api/delete-manual-row',
+    '/api/sync-statuses',
+    '/api/sync-statuses-stream',
+    '/api/fetch-orders-stream',
+    '/api/fetch-orders-for-selection',
+    '/api/save-selected-orders-with-dimensions',
+    '/api/save-selected-orders',
+    '/api/save-orders-with-volumes',
+)
+
+_KOMUNIKAT_TYLKO_ODCZYT = (
+    'Ta tabela jest już tylko do odczytu. Zmiany i pobieranie zamówień '
+    'robi się w zakładce „Arkusz sprzedaży".'
+)
+
+
+def tylko_odczyt_starej_zakladki(func):
+    """Odrzuca żądanie zmieniające dane w starej zakładce.
+
+    409 Conflict, nie 403: użytkownik MA uprawnienia, tylko ten widok już
+    ich nie przyjmuje. 403 sugerowałby problem z kontem i wysłałby człowieka
+    do administratora po nic.
+
+    Blokada jest po stronie serwera celowo. Ukrycie przycisków w szablonie
+    to kosmetyka — „faktycznie nie da się edytować" znaczy, że żądanie
+    wysłane z konsoli przeglądarki też ma odbić się od ściany.
+    """
+    @wraps(func)
+    def opakowanie(*args, **kwargs):
+        return jsonify({'error': 'tylko_odczyt',
+                        'komunikat': _KOMUNIKAT_TYLKO_ODCZYT}), 409
+    return opakowanie
+
+
 def generate_product_key_router(order_id, product, product_index=None):
     """
     ✅ POPRAWIONA FUNKCJA: Identyczna logika jak w frontendzie volume_manager.js
@@ -266,7 +314,7 @@ def reports_home():
         return redirect(url_for('index'))
 
 @reports_bp.route('/api/data')
-@require_module_access('reports')
+@require_module_access('reports', as_json=True)
 def api_get_data():
     """
     API endpoint do pobierania danych tabeli z filtrami
@@ -384,7 +432,8 @@ def api_get_data():
 
 
 @reports_bp.route('/api/sync', methods=['POST'])
-@require_module_access('reports')
+@require_module_access('reports', as_json=True)
+@tylko_odczyt_starej_zakladki
 def api_sync_with_baselinker():
     """
     API endpoint do synchronizacji z Baselinker
@@ -451,7 +500,8 @@ def api_sync_with_baselinker():
         }), 500
 
 @reports_bp.route('/api/add-manual-row', methods=['POST'])
-@require_module_access('reports')
+@require_module_access('reports', as_json=True)
+@tylko_odczyt_starej_zakladki
 def api_add_manual_row():
     """
     ZAKTUALIZOWANY: API endpoint do dodawania ręcznego wiersza z obsługą produktów
@@ -631,7 +681,8 @@ def api_add_manual_row():
         }), 500
 
 @reports_bp.route('/api/update-manual-row', methods=['POST'])
-@require_module_access('reports')
+@require_module_access('reports', as_json=True)
+@tylko_odczyt_starej_zakladki
 def api_update_manual_row():
     """
     ZAKTUALIZOWANY: API endpoint do edycji rekordów z obsługą wielu produktów
@@ -829,7 +880,7 @@ def _update_product_fields(record, product_data):
                 setattr(record, field, str(value) if value else None)
 
 @reports_bp.route('/api/export-excel')
-@require_module_access('reports')
+@require_module_access('reports', as_json=True)
 def api_export_excel():
     """
     API endpoint do eksportu danych do Excel z zaawansowanym formatowaniem
@@ -1609,7 +1660,7 @@ def api_export_excel():
         }), 500
 
 @reports_bp.route('/api/dropdown-values/<field_name>')
-@require_module_access('reports')
+@require_module_access('reports', as_json=True)
 def api_get_dropdown_values(field_name):
     """
     API endpoint do pobierania unikalnych wartości dla dropdown'ów
@@ -1740,7 +1791,8 @@ def _sync_selected_orders(service: BaselinkerReportsService, order_ids: List[int
 
 # Synchronizacja statusów
 @reports_bp.route('/api/sync-statuses', methods=['POST'])
-@require_module_access('reports')
+@require_module_access('reports', as_json=True)
+@tylko_odczyt_starej_zakladki
 def api_sync_statuses():
     """
     API endpoint do synchronizacji statusów zamówień z Baselinker
@@ -1913,7 +1965,8 @@ def api_sync_statuses():
         }), 500
 
 @reports_bp.route('/api/sync-statuses-stream', methods=['POST'])
-@require_module_access('reports')
+@require_module_access('reports', as_json=True)
+@tylko_odczyt_starej_zakladki
 def api_sync_statuses_stream():
     """
     SSE endpoint: synchronizuje zamówienia z Baselinker z real-time progress.
@@ -2047,7 +2100,8 @@ def api_sync_statuses_stream():
 
 
 @reports_bp.route('/api/delete-manual-row', methods=['POST'])
-@require_module_access('reports')
+@require_module_access('reports', as_json=True)
+@tylko_odczyt_starej_zakladki
 def api_delete_manual_row():
     """
     API endpoint do usuwania rekordów z bazy danych
@@ -2146,7 +2200,8 @@ def api_delete_manual_row():
         }), 500
     
 @reports_bp.route('/api/fetch-orders-stream', methods=['POST'])
-@require_module_access('reports')
+@require_module_access('reports', as_json=True)
+@tylko_odczyt_starej_zakladki
 def api_fetch_orders_stream():
     """
     SSE endpoint: streamuje postęp pobierania zamówień z Baselinker.
@@ -2275,7 +2330,8 @@ def api_fetch_orders_stream():
 
 
 @reports_bp.route('/api/fetch-orders-for-selection', methods=['POST'])
-@require_module_access('reports')
+@require_module_access('reports', as_json=True)
+@tylko_odczyt_starej_zakladki
 def api_fetch_orders_for_selection():
     """
     POPRAWIONY ENDPOINT: Fetches orders from Baselinker for selected date range
@@ -2616,7 +2672,8 @@ def _sync_selected_orders_with_volumes(service, order_ids):
         }
 
 @reports_bp.route('/api/save-selected-orders-with-dimensions', methods=['POST'])
-@require_module_access('reports')
+@require_module_access('reports', as_json=True)
+@tylko_odczyt_starej_zakladki
 def api_save_selected_orders_with_dimensions():
     """
     NOWY ENDPOINT: Zapisuje wybrane zamówienia z opcjonalnym uzupełnieniem wymiarów
@@ -2777,7 +2834,8 @@ def check_product_dimensions(product_name):
     return False
 
 @reports_bp.route('/api/save-selected-orders', methods=['POST'])
-@require_module_access('reports')
+@require_module_access('reports', as_json=True)
+@tylko_odczyt_starej_zakladki
 def api_save_selected_orders():
     """
     NOWY ENDPOINT: Zapisuje wybrane zamówienia do bazy danych
@@ -2899,7 +2957,7 @@ def api_save_selected_orders():
         }), 500
 
 @reports_bp.route('/api/export-routimo', methods=['GET'])
-@require_module_access('reports')
+@require_module_access('reports', as_json=True)
 def export_routimo():
     """
     Eksport danych do formatu Routimo EXCEL
@@ -3795,7 +3853,8 @@ def should_show_volume_modal_for_orders(orders_data: list) -> Tuple[bool, list]:
     return should_show_modal, products_needing_volume
 
 @reports_bp.route('/api/save-orders-with-volumes', methods=['POST'])
-@require_module_access('reports')
+@require_module_access('reports', as_json=True)
+@tylko_odczyt_starej_zakladki
 def api_save_orders_with_volumes():
     """
     NOWY ENDPOINT: Zapisuje zamówienia z uzupełnionymi objętościami i atrybutami
@@ -4111,7 +4170,7 @@ def _sync_selected_orders_with_volume_analysis(service, order_ids, orders_data):
 
 
 @reports_bp.route('/api/map-statistics', methods=['GET'])
-@require_module_access('reports')
+@require_module_access('reports', as_json=True)
 def api_map_statistics():
     """
     API endpoint dla danych mapy województw

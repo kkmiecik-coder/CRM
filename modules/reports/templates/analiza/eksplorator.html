@@ -1,0 +1,187 @@
+{# modules/reports/templates/analiza/eksplorator.html
+   Jedno wyjscie ze wszystkich kart dashboardu, parametryzowane adresem.
+   Bez sidebara — pelna szerokosc idzie na tabele. Tak jest w makiecie. #}
+
+{% macro sk_komorka(szer) %}<span class="sk" style="display:block;height:11px;width:{{ szer }}"></span>{% endmacro %}
+
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Eksplorator — Analiza sprzedażowa - Wood Power CRM</title>
+  <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('reports.static', filename='css/analiza.css') }}">
+</head>
+<body class="eks-body">
+<div class="analiza eks" id="eksplorator"
+     aria-busy="true" aria-live="polite"
+     data-url-eksplorator="{{ url_for('reports.api_eksplorator') }}"
+     data-url-wartosci="{{ url_for('reports.api_wartosci_wymiaru') }}"
+     data-wymiary-filtra='{{ wymiary_filtra|tojson }}'>
+
+  <!-- PASEK GORNY -->
+  <div class="eks-pasek">
+    <a class="an-btn" href="{{ url_for('reports.analiza') }}">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" aria-hidden="true"><path d="M19 12H5"></path><path d="M12 19l-7-7 7-7"></path></svg>
+      Analiza
+    </a>
+    <nav class="eks-sciezka" aria-label="Ścieżka">
+      <span>Analiza sprzedażowa</span>
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#BDB4A8" stroke-width="2.4" stroke-linecap="square" aria-hidden="true"><path d="M9 18l6-6-6-6"></path></svg>
+      <strong>Eksplorator</strong>
+    </nav>
+    <div class="an-pasek__rozpychacz"></div>
+    <span class="an-stan-na" data-pole="okres.stan_na">Stan na —:—</span>
+    <button type="button" class="an-btn" id="eks-eksport">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#8A8278" stroke-width="2" stroke-linecap="square" aria-hidden="true"><path d="M12 3v14M6 11l6 6 6-6M4 21h16"></path></svg>
+      Eksport widoku
+    </button>
+    <a class="an-btn an-btn--ciemny" href="{{ url_for('reports.arkusz') }}">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ED6B24" stroke-width="2" stroke-linecap="square" aria-hidden="true"><rect x="3" y="3" width="18" height="18"></rect><path d="M3 9h18M3 15h18M9 3v18M15 3v18"></path></svg>
+      Arkusz
+    </a>
+  </div>
+
+  <!-- PASEK PARAMETROW -->
+  <div class="eks-parametry">
+    <span class="an-etykieta">Parametry</span>
+
+    <label class="eks-ctl"><span class="eks-ctl__klucz">Wymiar</span>
+      <select id="eks-wymiar" class="eks-ctl__pole">
+        {% for w in wymiary_dostepne %}
+        <option value="{{ w.nazwa }}"{% if w.nazwa == wymiar %} selected{% endif %}>{{ w.etykieta }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label class="eks-ctl eks-ctl--wlaczony"><span class="eks-ctl__klucz">Przestawienie</span>
+      <select id="eks-przestawienie-wybor" class="eks-ctl__pole">
+        <option value="miesiac"{% if kolumny == 'miesiac' %} selected{% endif %}>Miesiąc</option>
+        {% for w in wymiary_dostepne %}
+        <option value="{{ w.nazwa }}"{% if w.nazwa == kolumny %} selected{% endif %}>{{ w.etykieta }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label class="eks-ctl"><span class="eks-ctl__klucz">Miara w przestawieniu</span>
+      <select id="eks-miara" class="eks-ctl__pole">
+        {# Jednostka w tresci opcji, bo <option> nie da sie ostylowac od srodka.
+           Wybrana miara wypelnia WSZYSTKIE komorki przestawienia, wiec to
+           tutaj czytelnik dowiaduje sie, w czym sa te liczby. #}
+        {% for m in miary_przestawienia %}
+        <option value="{{ m.nazwa }}"{% if m.nazwa == miara %} selected{% endif %}>{{ m.etykieta }} {{ m.jednostka }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <span class="eks-rozdzielacz"></span>
+
+    <label class="eks-ctl"><span class="eks-ctl__klucz">Okres</span>
+      <span class="eks-ctl__daty">
+        <input type="date" id="eks-od" value="{{ od.isoformat() }}" aria-label="Początek okresu">
+        <input type="date" id="eks-do" value="{{ do.isoformat() }}" aria-label="Koniec okresu">
+        <button type="button" class="an-btn" id="eks-zakres">Zastosuj</button>
+      </span>
+    </label>
+
+    {# Kontrolka filtra. Zachowanie zaprojektowane w Zadaniu 9 — ten sam
+       popover, ktorego uzywa chip „Dodaj porownanie" na dashboardzie.
+       Kotwica ma stale id, zeby JS mogl przelaczac eks-ctl--wlaczony po kazdym
+       fetchu (zmiana filtra/wymiaru/przestawienia leci przez fetch, nie przez
+       pelne przeladowanie strony). Krzyzyk jest renderowany ZAWSZE (z
+       `hidden`, gdy filtra nie ma) i chowany/pokazywany atrybutem — element
+       dodany do DOM dopiero PO ustawieniu filtra nie mialby juz podpietego
+       nasluchu z podepnijFiltr(), ktora wiaze sie raz, na starcie. #}
+    <span class="eks-ctl eks-kotwica-filtra{% if filtr_tekst %} eks-ctl--wlaczony{% endif %}"
+          id="eks-kotwica-filtra">
+      <span class="eks-ctl__klucz">Filtr</span>
+      <button type="button" class="eks-ctl__pole" id="eks-filtr"
+              data-filtr="{{ filtr_tekst }}">{{ filtr_opis }}</button>
+      <button type="button" class="eks-ctl__zamknij" id="eks-filtr-wyczysc"
+              aria-label="Wyczyść filtr"{% if not filtr_tekst %} hidden{% endif %}>×</button>
+    </span>
+
+    <div class="an-pasek__rozpychacz"></div>
+    <span class="eks-podpowiedz">Adres tego widoku da się zapisać w zakładkach</span>
+  </div>
+
+  <div class="eks-tresc">
+    <div class="an-blad" id="eks-blad" hidden role="alert"></div>
+
+    <!-- PANEL 1: MIARY -->
+    <section class="an-karta eks-panel" id="eks-miary">
+      <div class="eks-panel__glowa">
+        <div>
+          <h1 class="eks-panel__tytul" data-pole="miary.tytul">{{ etykieta_wymiaru }} — wszystkie miary</h1>
+          <p class="eks-panel__podtytul">Każdy wymiar dostaje ten sam komplet kolumn. Sortowanie po dowolnej z nich.</p>
+        </div>
+        <span class="an-mono eks-liczniki" data-pole="liczniki">—</span>
+      </div>
+      <table class="eks-tabela">
+        <thead>
+          <tr>
+            <th scope="col" style="width:290px" data-pole="miary.naglowek">{{ etykieta_wymiaru }}</th>
+            {# Jednostka w NAGLOWKU kolumny, nie przy kazdej liczbie — tak samo
+               jak na kartach dashboardu. Osobny, przygaszony element, zeby
+               naglowek czytalo sie jako „Sr. zamowienie" plus „zl". #}
+            {% for m in miary_panelu %}
+            <th scope="col"><button type="button" class="eks-sortuj" data-sortuj="{{ m.nazwa }}">{{ m.etykieta }}<span class="eks-jednostka">&#160;{{ m.jednostka }}</span></button></th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody id="eks-miary-cialo">
+          {% for i in range(4) %}
+          <tr><td colspan="{{ miary_panelu|length + 1 }}">{{ sk_komorka('100%') }}</td></tr>
+          {% endfor %}
+        </tbody>
+        <tfoot id="eks-miary-stopka"></tfoot>
+      </table>
+    </section>
+
+    <!-- PANEL 2: PRZESTAWIENIE -->
+    <section class="an-karta eks-panel" id="eks-przestawienie">
+      <div class="eks-panel__glowa">
+        <div>
+          {# Miara z jednostka W TYTULE panelu: komorki przestawienia to jedna
+             miara powtorzona w kilkunastu kolumnach miesiecy, wiec podpis
+             nalezy sie raz, a nie przy kazdej liczbie. #}
+          <h2 class="eks-panel__tytul" data-pole="przestawienie.tytul">{{ etykieta_wymiaru }} × {{ etykieta_kolumn }} · {{ etykieta_miary }}</h2>
+          <p class="eks-panel__podtytul">To samo, co ludzie robią w Excelu tabelą przestawną — tylko zawsze na aktualnych danych.</p>
+        </div>
+        <span class="eks-znacznik">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" aria-hidden="true"><rect x="3" y="3" width="18" height="18"></rect><path d="M3 9h18M9 3v18"></path></svg>
+          Przestawienie włączone
+        </span>
+      </div>
+      <table class="eks-tabela">
+        <thead id="eks-przestawienie-glowa">
+          <tr>
+            <th scope="col" style="width:210px">{{ etykieta_wymiaru }}</th>
+            {# Iskierka i „Zmiana" mowia o UPLYWIE CZASU — przy drugim wymiarze
+               na osi kolumn porownywalyby jednego opiekuna z drugim i podawaly
+               to jako trend. Ten sam warunek ma eksplorator.js (`p.trend`);
+               tutaj chodzi o to, zeby szkielet nie mignal kolumnami, ktorych
+               po wypelnieniu nie bedzie. #}
+            {% if os_czasowa %}
+            <th scope="col">Trend</th>
+            <th scope="col">Zmiana</th>
+            {% endif %}
+          </tr>
+        </thead>
+        <tbody id="eks-przestawienie-cialo">
+          {% for i in range(3) %}
+          <tr><td colspan="3">{{ sk_komorka('100%') }}</td></tr>
+          {% endfor %}
+        </tbody>
+        <tfoot id="eks-przestawienie-stopka"></tfoot>
+      </table>
+    </section>
+  </div>
+</div>
+{# filtr.js PRZED eksplorator.js — drugi wola window.FiltrWymiaru. #}
+<script src="{{ url_for('reports.static', filename='js/filtr.js') }}"></script>
+<script src="{{ url_for('reports.static', filename='js/eksplorator.js') }}"></script>
+</body>
+</html>

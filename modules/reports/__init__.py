@@ -17,6 +17,7 @@ reports_bp = Blueprint(
 
 # Import routingu po utworzeniu Blueprint (unikamy circular imports)
 from . import routers
+from . import routers_analiza   # trasy nowej zakładki „Analiza sprzedażowa"
 
 # Eksportujemy Blueprint dla łatwego importu w głównej aplikacji
 __all__ = ['reports_bp']

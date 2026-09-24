@@ -814,27 +814,9 @@ class ReportsManager {
             }
         }
 
-        // ===== PRZYCISK EDYCJI - POZOSTAJE BEZ ZMIAN =====
-
-        buttons.push(`
-        <button class="action-btn action-btn-edit" data-action="edit" data-record-id="${order.id}" 
-                title="${order.is_manual ? 'Edytuj ręczny rekord' : 'Edytuj rekord z Baselinker'}">
-            <i class="fas fa-edit"></i>
-            Edytuj
-        </button>
-    `);
-
-        // ===== PRZYCISK USUWANIA - TYLKO DLA RĘCZNYCH =====
-
-        if (order.is_manual) {
-            buttons.push(`
-            <button class="action-btn action-btn-delete" data-action="delete" data-record-id="${order.id}" 
-                    title="Usuń ręczny rekord">
-                <i class="fas fa-trash"></i>
-                Usuń
-            </button>
-        `);
-        }
+        // Przyciski „Edytuj" i „Usuń" zdjęte w Planie C: ta zakładka jest
+        // tylko do odczytu, a serwer i tak odrzuca oba żądania kodem 409.
+        // Edycja żyje w arkuszu (/reports/arkusz).
 
         return `
         <div class="action-buttons">
@@ -1020,62 +1002,9 @@ class ReportsManager {
         return modal;
     }
 
-    /**
-     * Wykonanie usuwania rekordu
-     */
-    async executeDelete(recordId, relatedRecords = []) {
-        console.log('[ReportsManager] Executing delete for record:', recordId);
-
-        try {
-            // Pokaż loading
-            this.setDeleteLoadingState(true);
-
-            // Wyślij zapytanie do API
-            const response = await fetch('/reports/api/delete-manual-row', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    record_id: recordId,
-                    delete_all_products: relatedRecords.length > 1
-                })
-            });
-
-            console.log('[ReportsManager] Delete response status:', response.status);
-
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-
-            const result = await response.json();
-            console.log('[ReportsManager] Delete response data:', result);
-
-            if (result.success) {
-                console.log('[ReportsManager] Delete successful');
-
-                // Odśwież dane
-                this.refreshData();
-
-                // Pokaż komunikat sukcesu
-                const deletedCount = result.deleted_count || 1;
-                const successMessage = deletedCount > 1 ?
-                    `Usunięto zamówienie z ${deletedCount} produktami` :
-                    'Rekord został usunięty';
-
-                this.showMessage(successMessage, 'success');
-
-            } else {
-                throw new Error(result.error || 'Błąd usuwania rekordu');
-            }
-
-        } catch (error) {
-            console.error('[ReportsManager] Delete error:', error);
-            this.showError('Błąd usuwania: ' + error.message);
-        } finally {
-            this.setDeleteLoadingState(false);
-        }
-    }
+    // Funkcja wołająca /reports/api/delete-manual-row zdjęta w Planie C:
+    // endpoint odrzuca teraz każde żądanie kodem 409 (tryb tylko do odczytu),
+    // a przycisk wywołujący tę ścieżkę już nie istnieje (patrz handleTableClick).
 
     /**
      * Ustawienie stanu loading dla operacji usuwania
@@ -1858,38 +1787,9 @@ class ReportsManager {
     handleTableClick(e) {
         const target = e.target;
 
-        // Przycisk edycji
-        if (target.matches('.action-btn-edit') || target.closest('.action-btn-edit')) {
-            const button = target.matches('.action-btn-edit') ? target : target.closest('.action-btn-edit');
-            const recordId = button.getAttribute('data-record-id');
-
-            console.log('[ReportsManager] Edit button clicked, raw recordId:', recordId, 'type:', typeof recordId);
-
-            if (recordId) {
-                // POPRAWKA: Konwertuj string na number przed przekazaniem
-                const numericRecordId = parseInt(recordId, 10);
-                console.log('[ReportsManager] Converted to numeric:', numericRecordId);
-
-                if (!isNaN(numericRecordId)) {
-                    this.handleEditManualRow(numericRecordId);
-                } else {
-                    console.error('[ReportsManager] Invalid recordId:', recordId);
-                    this.showError('Nieprawidłowy ID rekordu');
-                }
-            }
-            return;
-        }
-
-        // Przycisk usuwania ręcznego wiersza
-        if (target.matches('.action-btn-delete') || target.closest('.action-btn-delete')) {
-            const button = target.matches('.action-btn-delete') ? target : target.closest('.action-btn-delete');
-            const recordId = parseInt(button.getAttribute('data-record-id'), 10);
-
-            if (recordId && !isNaN(recordId)) {
-                this.handleDeleteManualRow(recordId);
-            }
-            return;
-        }
+        // Przyciski „Edytuj" i „Usuń" zdjęte w Planie C: ta zakładka jest
+        // tylko do odczytu, a serwer i tak odrzuca oba żądania kodem 409.
+        // Edycja żyje w arkuszu (/reports/arkusz).
 
         // Links do Baselinker i wycen - pozostają bez zmian
         if (target.matches('a[href*="baselinker.com"]')) {
@@ -3333,3 +3233,21 @@ function testBaselinkerValidation() {
 
     return { passed, failed, total: testCases.length };
 }
+
+// Wejscie z dashboardu Analizy sprzedazowej: /reports/?mapa=1 otwiera od razu
+// modal mapy wojewodztw. Bez tego wyjscie „Otworz mape wojewodztw" ladowaloby
+// na zwyklej tabeli i tekst przycisku bylby nieprawda.
+//
+// NASLUCH NA 'load', NIE NA 'DOMContentLoaded'. Ten plik idzie <script src>
+// w reports.html w linii 1339, a inline'owy blok, ktory wola
+// reportsManager.init() (i dopiero on tworzy window.voivodeshipsManager),
+// dopiero w 1348. Nasluchy DOMContentLoaded odpalaja sie w kolejnosci
+// rejestracji, wiec ten z reports.js bylby PIERWSZY — menedzera jeszcze by
+// nie bylo, openVoivodeshipsModal() wpadloby w galaz `else` i tylko wypisalo
+// blad w konsoli. 'load' odpala sie po obu naslachach DOMContentLoaded.
+window.addEventListener('load', function () {
+    var parametry = new URLSearchParams(window.location.search);
+    if (parametry.get('mapa') === '1' && typeof openVoivodeshipsModal === 'function') {
+        openVoivodeshipsModal();
+    }
+});

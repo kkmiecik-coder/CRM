@@ -69,6 +69,28 @@ if ! venv/bin/flask migrate 2>&1; then
     exit 1
 fi
 
+# Denormalizacja klientow Analizy sprzedazowej (sales_clients: orders_count,
+# lifetime_net, first/last_order_at) PRZED restartem. Zapis zamowienia przelicza
+# tylko klienta tego zamowienia, wiec liczniki sprzed zmiany reguly (np. od
+# partii E zamowienia anulowane i nieoplacone nie sa sprzedaza) zostalyby
+# stare na zawsze, a karta „Klienci wedlug" liczylaby je w kubelkach i konwersji.
+# Skrypt jest idempotentny: przelicza od nowa z bazy, drugi przebieg nic nie
+# zmienia. Po migracjach, bo liczy z tabel sales_*.
+#
+# BEST-EFFORT, jak pip install i sync-changelog wyzej: blad zostawia
+# ostrzezenie w logu deployu i NIE przerywa wdrozenia. Analityka nie moze
+# blokowac wdrozen reszty CRM (tablety hali, produkcja). Stare liczniki
+# oznaczaja najwyzej nieaktualne kubelki na karcie „Klienci wedlug" do
+# nastepnego udanego przebiegu (kolejny deploy albo reczne uruchomienie).
+# `timeout`: zawieszony skrypt (np. czekajacy na blokade w bazie) tez nie moze
+# trzymac locka deployu bez konca — po 300 s (zwykle trwa ~3 s) konczymy go
+# i idziemy dalej z tym samym ostrzezeniem. `-k 10`: proces, ktory zignoruje
+# SIGTERM, dostaje SIGKILL 10 s pozniej — bez tego samo `timeout 300` czekaloby
+# na niego bez konca (weryfikacja E8, Z4: zaslepka z `trap '' TERM` trzymala
+# deploy do wlasnego konca).
+echo "$LOG_PREFIX Recounting sales clients..."
+timeout -k 10 300 venv/bin/python scripts/przelicz_klientow_sprzedazy.py --apply 2>&1 || echo "$LOG_PREFIX [recount-warn] przeliczenie klientow sprzedazy nieudane - deploy idzie dalej; uruchom recznie: venv/bin/python scripts/przelicz_klientow_sprzedazy.py --apply"
+
 echo "$LOG_PREFIX Restarting application..."
 # Zwolnij lock PRZED restartem (dodatkowe zabezpieczenie, gdyby proces jednak nie dożył trap-a).
 rm -f "$LOCK_FILE"

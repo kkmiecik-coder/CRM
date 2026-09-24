@@ -1,8 +1,14 @@
 # modules/clients/models.py
+from datetime import datetime
+
 from extensions import db
 
 class Client(db.Model):
-    __tablename__ = 'clients'
+    # Rejestr WYCENIANYCH, nie kupujących. Zasilany z procesu wyceny —
+    # kupujący ze sklepu i Allegro nigdy tu nie trafiali (tylko 23,2%
+    # e-maili z raportu sprzedażowego ma tu odpowiednik). Klienci
+    # sprzedażowi mieszkają w sales_clients.
+    __tablename__ = 'leads'
     id = db.Column(db.Integer, primary_key=True)
     # UWAGA: pole trzyma "Nazwę klienta" (wolny tekst / nazwa firmy), nie krótki numer
     # — dlatego musi być szerokie jak pozostałe pola nazw (255), inaczej MySQL rzuca 1406.
@@ -34,6 +40,11 @@ class Client(db.Model):
 
     # Domyślne źródło zamówień Baselinker (baselinker_id)
     order_source_id = db.Column(db.Integer, nullable=True)
+
+    # Data założenia leada. Tabela nie miała jej wcale, więc nie dało się
+    # policzyć, kiedy lead się pojawił ani jaka jest konwersja w czasie.
+    # nullable, bo dla istniejących wierszy NULL jest uczciwszy niż zmyślona data.
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=True)
 
     # Notatka o kliencie
     notes = db.Column(db.Text, nullable=True)

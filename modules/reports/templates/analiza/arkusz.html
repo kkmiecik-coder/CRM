@@ -1,0 +1,219 @@
+{# modules/reports/templates/analiza/arkusz.html
+   Arkusz wewnetrzny Analizy sprzedazowej. Pelne okno, bez sidebara —
+   przy 55 kolumnach kazde 56 px to jedna kolumna wiecej (spec 6.4).
+
+   Szkielet renderuje sie po stronie serwera, dane dociaga arkusz.js jednym
+   zadaniem do /reports/api/arkusz/dane. Szablon NIE LICZY NICZEGO: kolumny,
+   etykiety i okno przychodza z arkusz_service.py gotowe. #}
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Arkusz sprzedaży — Analiza sprzedażowa - Wood Power CRM</title>
+  <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+  {# analiza.css wnosi @font-face IBM Plex z lokalnego vendora i palete.
+     reports.css NIE jest ladowany — ma wlasny :root z bootstrapowym
+     --primary-color: #007bff i importuje Poppinsa regula CSS z CDN. #}
+  <link rel="stylesheet" href="{{ url_for('reports.static', filename='css/analiza.css') }}">
+  <link rel="stylesheet" href="{{ url_for('reports.static', filename='css/arkusz.css') }}">
+</head>
+<body class="ark-body">
+
+<div class="analiza ark" id="arkusz"
+     aria-busy="true" aria-live="polite"
+     data-url-dane="{{ url_for('reports.api_arkusz_dane') }}"
+     data-url-zapis="{{ url_for('reports.api_arkusz_zapisz') }}"
+     data-url-pobierz="{{ url_for('reports.api_arkusz_pobierz') }}"
+     data-url-eksport="{{ url_for('reports.api_arkusz_eksport') }}"
+     data-url-wartosci="{{ url_for('reports.api_wartosci_wymiaru') }}"
+     data-url-analiza="{{ url_for('reports.analiza') }}"
+     data-url-stara-tabela="{{ url_for('reports.reports_home') }}"
+     data-moze-wysylac="{{ 'true' if moze_wysylac else 'false' }}"
+     data-kolumny-wszystkie='{{ kolumny_wszystkie }}'
+     data-kolumny-wybrane="{{ kolumny_wybrane|join(',') }}"
+     data-wymiary-filtra='{{ wymiary_filtra }}'
+     data-okno='{{ okno|tojson }}'>
+
+  <!-- NARZĘDZIOWNIK -->
+  <div class="ark-narzedziownik" id="ark-narzedziownik">
+    <a class="ark-btn" href="{{ url_for('reports.analiza') }}">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"></path><path d="M12 19l-7-7 7-7"></path></svg>
+      Analiza
+    </a>
+    <span class="ark-kreska" aria-hidden="true"></span>
+
+    <button type="button" class="ark-btn" id="ark-okno" aria-haspopup="menu" aria-expanded="false">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M16 2v4M8 2v4M3 10h18"></path></svg>
+      <span class="m" id="ark-okno-etykieta">{{ etykieta_okna }}</span>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+    </button>
+
+    <div class="ark-szukajka">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+      <label class="ark-tylko-dla-czytnika" for="ark-szukaj">Szukaj w arkuszu</label>
+      <input id="ark-szukaj" type="search" placeholder="Szukaj klienta, numeru…" maxlength="100">
+    </div>
+
+    {# WAZNE (przeglad fali 3, nr 4): #ark-filtry otwiera POPOVER filtr.js
+       (an-filtr-popover), ktory pozycjonuje sie "position: absolute; left:0;
+       top: 34px" WZGLEDEM NAJBLIZSZEGO POZYCJONOWANEGO PRZODKA (analiza.css:385
+       — "kazda kotwica musi siedziec w elemencie z position: relative"). Bez
+       wlasnego opakowania popover dziedziczyl pozycjonowanie po
+       .ark-narzedziownik (position: relative na CALYM pasku, arkusz.css:256)
+       i wyskakiwal spod lewej krawedzi paska (przycisk "Analiza"), nie spod
+       przycisku "Filtry". Dokladnie ta sama klasa bledu, ktora zablokowala
+       cala zakladke wczesniej (brakujacy pozycjonowany przodek). Dwie inne
+       kotwice tego samego komponentu (dashboard: .an-kotwica-filtra,
+       Eksplorator: .eks-kotwica-filtra) juz maja taki wrapper — reuzywamy
+       klasy z analiza.css (zaladowanego na tej stronie), zeby nie dublowac
+       tej samej reguly trzeci raz. #}
+    <span class="an-kotwica-filtra">
+      <button type="button" class="ark-btn" id="ark-filtry" aria-haspopup="dialog" aria-expanded="false">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18l-7 8v6l-4 2v-8z"></path></svg>
+        Filtry<span class="ark-filtr-opis" id="ark-filtr-opis"></span>
+      </button>
+    </span>
+
+    <button type="button" class="ark-btn ark-chowany" id="ark-kolumny" aria-haspopup="dialog" aria-expanded="false">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M9 3v18M15 3v18"></path></svg>
+      Kolumny <span class="m ark-przygaszony" id="ark-licznik-kolumn">{{ licznik_kolumn }}</span>
+    </button>
+
+    {# Jedna pozycja to nie menu — po wypadnieciu eksportu Routimo (decyzja
+       uzytkownika 22.09.2026) „Eksport" sciaga plik od razu. #}
+    <button type="button" class="ark-btn ark-chowany" id="ark-eksport"
+            title="Eksport widoku arkusza do pliku CSV">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v14M6 11l6 6 6-6M4 21h16"></path></svg>
+      Eksport
+    </button>
+
+    <button type="button" class="ark-btn ark-btn--ikona ark-chowany" id="ark-wiecej"
+            aria-haspopup="menu" aria-expanded="false" aria-label="Więcej akcji" title="Więcej akcji">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.7"></circle><circle cx="12" cy="12" r="1.7"></circle><circle cx="19" cy="12" r="1.7"></circle></svg>
+    </button>
+
+    <div class="ark-rozpychacz"></div>
+
+    <span class="ark-stan" id="ark-stan">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#5E9E7A" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"></path></svg>
+      Wszystko zapisane
+    </span>
+    <span class="ark-licznik" id="ark-licznik-zmian" hidden></span>
+
+    <button type="button" class="ark-btn" id="ark-odrzuc" disabled>Odrzuć zmiany</button>
+    <button type="button" class="ark-btn ark-btn--glowny" id="ark-zapisz" disabled>Zapisz</button>
+  </div>
+
+  <!-- PASEK KONTEKSTOWY (stan niezapisany, Zadanie 9) -->
+  <div class="ark-kontekst" id="ark-kontekst" hidden></div>
+
+  <!-- LEGENDA RODZAJÓW KOLUMN -->
+  <div class="ark-legenda" id="ark-legenda">
+    <span class="ark-legenda__tytul">Rodzaje kolumn</span>
+    <span class="ark-legenda__pozycja"><span class="ark-probka ark-probka--bl"></span>z BaseLinkera — zapis wraca do BL</span>
+    <span class="ark-legenda__pozycja"><span class="ark-probka ark-probka--crm"></span>tylko CRM — tego pola nie ma w BaseLinkerze</span>
+    <span class="ark-legenda__pozycja"><span class="ark-probka ark-probka--calc"></span>wyliczana</span>
+    <span class="ark-legenda__pozycja"><span class="ark-probka ark-probka--prod"></span>z modułu produkcji</span>
+  </div>
+
+  <!-- SIATKA -->
+  {# id="ark-cialo" siedzi na <table>, NIE na <tbody>: kazde zamowienie
+     dostaje wlasny <tbody class="ark-zamowienie"> (Zadanie 8, wstawTbody),
+     a HTML dopuszcza wiele <tbody> w jednej tabeli. Gdyby id zostal na
+     jednym statycznym <tbody>, kolejne bloki dopinalyby sie WEWNATRZ
+     niego — przegladarka owija takie zagniezdzone row-groups w anonimowa
+     tabele i naglowek z danymi dostaja dwie NIEZALEZNE siatki kolumn
+     (przegląd Zadania 8, znalezisko [KRYTYCZNE]). #}
+  <div class="ark-siatka" id="ark-siatka" tabindex="0">
+    <table class="ark-tabela g" id="ark-cialo">
+      <thead id="ark-glowa"><tr></tr></thead>
+    </table>
+  </div>
+
+  <!-- STOPKA -->
+  {# Sumy licza sie w arkusz_service.dane_arkusza() po CALYM oknie dat
+     (warunki_bazowe + warunki_pozycji(filtr)), a nie po stronie, ktora
+     akurat widac — DOMYSLNY_LIMIT=200 zamowien na strone. Bez jawnego
+     zastrzezenia uzytkownik przewijajacy pierwsza strone wzialby te liczby
+     za sume widocznych wierszy. Niezmiennik nr 8 ze „Strategii testow". #}
+  <div class="ark-stopka">
+    <span><b class="m" id="ark-stopka-pozycje">—</b> pozycji
+          w <b class="m" id="ark-stopka-zamowienia">—</b> zamówieniach</span>
+    {# Jednostka z rejestru (POLA['order_amount_net'/'total_m3'].jednostka),
+       nie wpisana na sztywno — wstrzykuje ja context processor blueprintu
+       w arkusz_service.py (przeglad zadan 7+8, [WAZNE] nr 1). #}
+    <span>Suma netto <b class="m" id="ark-stopka-netto">—</b> {{ jednostka_netto }}</span>
+    <span>Objętość <b class="m" id="ark-stopka-objetosc">—</b> {{ jednostka_objetosc }}</span>
+    {# Zakres sum mówi się WPROST (partia E, punkt E5): siatka pokazuje
+       zamówienia anulowane i nieopłacone wyszarzone, a stopka ich nie
+       sumuje — tak samo jak pulpit. Napis z service.OPIS_POZA_SPRZEDAZA
+       przez context processor w arkusz_service.py. #}
+    <span class="ark-przygaszony" id="ark-stopka-zakres">(całe okno dat, nie tylko ta strona; {{ opis_poza_sprzedaza }})</span>
+    <div class="ark-rozpychacz"></div>
+    <span class="ark-przygaszony" id="ark-stopka-podpowiedz">Przewijanie wirtualne — w pamięci tylko widoczne wiersze</span>
+  </div>
+
+  <!-- DIALOG POTWIERDZENIA WYSYŁKI -->
+  <div class="ark-przyciemnienie" id="ark-przyciemnienie" hidden></div>
+  <div class="ark-dialog" id="ark-dialog" role="dialog" aria-modal="true"
+       aria-labelledby="ark-dialog-tytul" hidden>
+    <div class="ark-dialog__glowa">
+      <span class="ark-dialog__ikona" aria-hidden="true">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#C4551A" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13"></path><path d="M13 6l6 6-6 6"></path></svg>
+      </span>
+      <div>
+        <h2 id="ark-dialog-tytul">Te zmiany zostaną wysłane do BaseLinkera</h2>
+        <p>BaseLinker jest podpięty do Allegro, etykiet kurierskich i faktur.
+           Zmiana zapisze się w CRM dopiero po potwierdzeniu z API.</p>
+      </div>
+    </div>
+
+    <div class="ark-dialog__cialo">
+      <table class="ark-dialog__tabela">
+        <thead>
+          <tr>
+            <th scope="col">Zamówienie</th>
+            <th scope="col">Pole</th>
+            <th scope="col">Było</th>
+            <th scope="col">Będzie</th>
+            <th scope="col">Metoda API</th>
+          </tr>
+        </thead>
+        <tbody id="ark-dialog-lista"></tbody>
+      </table>
+
+      <div class="ark-dialog__ostrzezenie" id="ark-dialog-ostrzezenie" hidden></div>
+
+      <div class="ark-dialog__crm" id="ark-dialog-crm" hidden>
+        <div class="ark-dialog__crm-tytul">
+          <span class="ark-probka--crm-pasek" aria-hidden="true"></span>
+          Zostaje tylko w CRM — bez wysyłki
+        </div>
+        <div id="ark-dialog-crm-lista"></div>
+        <p>Tych pól nie ma w BaseLinkerze — rozbicia wpłat na rachunki ani
+           segmentacji klienta API nie przyjmuje. Zapisują się wyłącznie w CRM
+           i synchronizacja ich nie nadpisze.</p>
+      </div>
+    </div>
+
+    <div class="ark-dialog__stopka">
+      <label for="ark-dialog-niepytaj">
+        <input id="ark-dialog-niepytaj" type="checkbox">
+        Nie pytaj ponownie w tej sesji
+      </label>
+      <div class="ark-rozpychacz"></div>
+      <button type="button" class="ark-btn" id="ark-dialog-anuluj">Anuluj</button>
+      <button type="button" class="ark-btn ark-btn--glowny" id="ark-dialog-wyslij"></button>
+    </div>
+  </div>
+
+</div>
+
+{# filtr.js to TEN SAM komponent, ktorego uzywa chip „Dodaj porownanie"
+   na dashboardzie i kontrolka „Filtr" w Eksploratorze. Jeden format filtra,
+   jedna implementacja popovera, trzy zastosowania. #}
+<script src="{{ url_for('reports.static', filename='js/filtr.js') }}"></script>
+<script src="{{ url_for('reports.static', filename='js/arkusz.js') }}"></script>
+</body>
+</html>

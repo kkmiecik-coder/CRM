@@ -117,3 +117,73 @@ def test_statystyki_licza_reczne_nadpisania_na_nowych_stanowiskach(app):
 
         assert 'error' not in stat, stat
         assert stat['manual_overrides_count'] == 1
+
+
+# ===== nieudane przeliczanie nie zostawia brudnej sesji =================
+#
+# ZNALEZISKO (kontrola adwersaryjna 22.09.2026): `recalculate_all_priorities`
+# na sciezce bledu NIE robilo rollbacku, a KROK 2
+# (`update_thickness_groups_batch`) zdazyl juz pozmieniac obiekty ORM-a.
+# Awaria zostawiala wiec `db.session` BRUDNA: z polowa przeliczonych
+# priorytetow wiszaca w sesji, gotowa do zatwierdzenia przez pierwszy lepszy
+# commit kogos innego.
+#
+# Skutek uboczny byl gorszy od samego brudu: dopoki analityka sprzedazowa
+# pisala po WSPOLDZIELONEJ sesji, jej straznik odrzucal wtedy CALA paczke
+# i liczyl ja jako pominieta. „Pobieranie na produkcji zasila analityke"
+# przestawalo dzialac bez zadnego widocznego bledu.
+
+def _produkt_z_gruboscia():
+    """Pozycja w kolejce z `parsed_thickness_cm`, ale BEZ `thickness_group`.
+
+    Taki uklad sprawia, ze `update_thickness_groups_batch` naprawde cos
+    zmieni (None -> '2.6-3.5') i sesja zrobi sie brudna.
+    """
+    _licznik_zamowien[0] += 1
+    numer = _licznik_zamowien[0]
+    order = ProductionOrder(baselinker_order_id=numer,
+                            internal_order_number='26/%05d' % numer,
+                            client_name='Klient Testowy')
+    db.session.add(order)
+    db.session.flush()
+    produkt = ProductionProduct(
+        order_id=order.id, short_product_id='26%03d_1' % numer,
+        product_sequence_in_order=1, original_product_name='Blat',
+        quantity=1, volume_m3=0.5, current_status='czeka_na_wyciecie',
+        parsed_thickness_cm=3.0, thickness_group=None,
+        created_at=datetime(2026, 8, 10, 9, 0))
+    db.session.add(produkt)
+    db.session.commit()
+    return produkt
+
+
+def test_nieudane_przeliczanie_priorytetow_czysci_sesje(app, monkeypatch):
+    with app.app_context():
+        produkt = _produkt_z_gruboscia()
+        id_produktu = produkt.id
+
+        kalkulator = priority_service.NewPriorityCalculator()
+        # `get_active_products_for_prioritization` sortuje przez `func.isnull`,
+        # ktorego SQLite nie zna — podstawiamy sama liste pozycji, zeby reszta
+        # metody (w tym KROK 2 brudzacy sesje) wykonala sie NAPRAWDE.
+        monkeypatch.setattr(kalkulator, 'get_active_products_for_prioritization',
+                            lambda: [produkt])
+
+        def wybuch(produkty):
+            raise RuntimeError('sztuczna awaria przeliczania')
+
+        monkeypatch.setattr(kalkulator, 'group_products_by_weeks', wybuch)
+
+        wynik = kalkulator.recalculate_all_priorities()
+
+        assert wynik['success'] is False
+        assert 'sztuczna awaria' in wynik['error']
+        # Sedno: sesja jest czysta, a niedokonczona zmiana nie czeka
+        # na cudzy commit.
+        assert list(db.session.dirty) == []
+        assert list(db.session.new) == []
+
+    with app.app_context():
+        db.session.remove()
+        zapisany = db.session.query(ProductionProduct).get(id_produktu)
+        assert zapisany.thickness_group is None

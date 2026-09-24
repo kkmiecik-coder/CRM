@@ -168,9 +168,17 @@ Kroki `deploy.sh`:
    działający proces i schemat zostają spójne. Samo „nie restartujemy” nie
    wystarcza: gunicorn importuje `app.py` przy każdym nowym workerze (timeout,
    awaria, `max_requests`), więc nowy kod na dysku mógłby położyć serwer sam
-6. `sudo /usr/local/sbin/crm-fix-logs-perms.sh` — chown katalogu logów
+6. `venv/bin/python scripts/przelicz_klientow_sprzedazy.py --apply` (best-effort)
+   — przeliczenie denormalizacji klientów Analizy sprzedażowej
+   (`sales_clients`: liczniki zamówień, `lifetime_net`, daty). Po migracjach,
+   przed restartem, z `timeout -k 10 300` (proces głuchy na SIGTERM dostaje
+   SIGKILL 10 s później). Błąd albo przekroczony czas zostawia
+   w logu `[recount-warn]` i **nie przerywa**
+   deployu — analityka nie blokuje wdrożeń reszty CRM (tablety hali, produkcja);
+   liczniki poprawi następny udany przebieg
+7. `sudo /usr/local/sbin/crm-fix-logs-perms.sh` — chown katalogu logów
    (bez tego gunicorn może nie wstać → nginx 502)
-7. `sudo /usr/bin/supervisorctl restart crm_woodpower`
+8. `sudo /usr/bin/supervisorctl restart crm_woodpower`
 
 Uwaga: webhook uruchamia `deploy.sh` w wersji leżącej na dysku **przed** pobraniem
 kodu. Zmiana samego `deploy.sh` działa więc dopiero od następnego deployu.
@@ -182,7 +190,9 @@ Drugi push wcześniej niż koniec pierwszego deployu trafi w lock
 
 `.github/workflows/deploy.yml` istnieje, ale ma **`on: workflow_dispatch`** —
 tylko ręczne uruchomienie, jako fallback. Deploy po SSH był loteryjny przez
-ochronę SSH Hostingera, stąd przejście na webhook (2026-06-24).
+ochronę SSH Hostingera, stąd przejście na webhook (2026-06-24). Fallback robi
+kroki 2–6 i 8 jak `deploy.sh` (migracje przed restartem, przeliczenie klientów
+best-effort z tym samym `timeout -k 10 300`), bez locka i bez chown logów.
 
 ### Serwer produkcyjny
 
@@ -205,7 +215,10 @@ po Passengerze na starym hostingu współdzielonym. Nie jest wejściem aplikacji
 cd /home/woodpower-crm/htdocs/crm.woodpower.pl
 git fetch origin main && git reset --hard origin/main
 venv/bin/pip install -r requirements.txt
-FLASK_SKIP_DOTENV=1 venv/bin/flask migrate && sudo /usr/bin/supervisorctl restart crm_woodpower
+FLASK_SKIP_DOTENV=1 venv/bin/flask migrate \
+  && { FLASK_SKIP_DOTENV=1 venv/bin/python scripts/przelicz_klientow_sprzedazy.py --apply || true; } \
+  && sudo /usr/local/sbin/crm-fix-logs-perms.sh \
+  && sudo /usr/bin/supervisorctl restart crm_woodpower
 ```
 Gdy `flask migrate` padnie, NIE restartuj — wróć kodem do poprzedniego commita
 (`git reset --hard <poprzedni HEAD>`), jak robi to `deploy.sh`.

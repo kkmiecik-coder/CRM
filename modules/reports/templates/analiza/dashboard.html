@@ -1,0 +1,382 @@
+{# modules/reports/templates/analiza/dashboard.html
+   Dashboard Analizy sprzedazowej.
+
+   Ten szablon renderuje pasek, tytul i SIATKE KAFELKOW Z UKLADU UZYTKOWNIKA
+   (Plan D). Same kafelki mieszkaja w analiza/_kafelki.html (jedno makro na
+   typ), a petla po ukladzie w analiza/_siatka.html — ta sama, ktorej uzywa
+   endpoint /api/siatka, zeby nie powstaly dwie petle po jednym ukladzie.
+
+   JavaScript (analiza.js) wypelnia wylacznie elementy z atrybutem data-pole
+   i zdejmuje bloki .sk. Naglowki, etykiety KPI, teksty stopek i selektory
+   wymiaru sa prawdziwe juz w szkielecie — spec 6.2 wymaga, zeby kontrolki
+   dzialaly zanim przyjda dane.
+
+   Adresy do Eksploratora ida przez url_for na trase reports.eksplorator
+   (w _kafelki.html). Test test_wyjscia_z_kart_ida_przez_url_for_a_nie_doslownym_adresem
+   pilnuje, ze zadna doslowna nie wrocila. #}
+
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Analiza sprzedażowa - Wood Power CRM</title>
+  <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+  {# Poppins dla SIDEBARA — dokladnie ten sam link, ktorego uzywa
+     modules/reports/templates/reports.html i dwanascie innych szablonow.
+     Poppinsa nie vendorujemy: to krój chromu, degraduje sie do systemowego,
+     a sidebar ma wygladac tak samo jak na kazdej innej zakladce.
+     Kroje TRESCI (IBM Plex Sans i Mono) sa lokalne, w analiza.css. #}
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  {# style.css pierwszy (konwencja spec 6.6). reports.css NIE jest ladowany. #}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('reports.static', filename='css/analiza.css') }}">
+</head>
+<body>
+<div class="app-container">
+  {% include 'sidebar/sidebar.html' %}
+
+  <main class="main-content analiza" id="analiza"
+        aria-busy="true" aria-live="polite"
+        data-od="{{ od.isoformat() }}" data-do="{{ do.isoformat() }}"
+        data-url-analytics="{{ url_for('reports.api_analytics') }}"
+        data-url-wartosci="{{ url_for('reports.api_wartosci_wymiaru') }}"
+        data-wymiary-filtra='{{ wymiary_filtra|tojson }}'
+        data-porownanie="{{ porownanie }}"
+        {# Wykluczenia pozycji (partia E, punkt E4) — parametr adresu po
+           walidacji serwera, tak samo jak okres i segment. Zły parametr z
+           nieaktualnej zakładki serwer już odrzucił, więc tu go nie ma. #}
+        data-wyklucz="{{ wyklucz }}"
+        {# Uklad pulpitu (Plan D). Adresy przez url_for, zeby zmiana prefiksu
+           blueprintu nie zepsula zapisu po cichu; katalog typow jedzie gotowy
+           z serwera — przegladarka nie ma wlasnej listy statystyk. #}
+        data-url-uklad="{{ url_for('reports.api_uklad_zapisz') }}"
+        data-url-uklad-domyslny="{{ url_for('reports.api_uklad_domyslny') }}"
+        data-url-kafelek="{{ url_for('reports.api_kafelek') }}"
+        data-url-siatka="{{ url_for('reports.api_siatka') }}"
+        data-katalog='{{ katalog_json }}'
+        {# Wymiary do modalu „Dodaj statystykę", PER TYP i z etykietami — ta sama
+           lista, z której serwer składa selektor „według" na kafelku (karty
+           kubełkowe mają własną, węższą, z pseudo-wymiarem spoza rejestru).
+           Przeglądarka nie ma własnej listy wymiarów ani etykiet. #}
+        data-wymiary='{{ wymiary_kafelka|tojson }}'
+        {# Układ ZAPISANY — punkt odniesienia licznika zmian trybu edycji.
+           Wypisuje go serwer, a JS aktualizuje wyłącznie odpowiedzią udanego
+           zapisu albo przywrócenia. Do przeglądu gałęzi (W1) był czytany
+           z ekranu przy wejściu w edycję, więc kafelek dodany z pustego
+           pulpitu liczył się jako „zapisany" i przepadał po odświeżeniu. #}
+        data-uklad-zapisany='{{ uklad_zapisany_json }}'
+        data-maks-kafelkow="{{ maks_kafelkow }}"
+        data-pominietych="{{ pominietych }}">
+
+    <!-- PASEK SEGMENTOW, ZAKRESU I AKCJI -->
+    {# LEWA CZĘŚĆ PASKA zawija się W SOBIE: pigułki segmentów, „Dodaj
+       porównanie" i pola wykluczeń. Prawa (stan, zakres dat, Arkusz) zostaje
+       w pierwszej linii przy prawej krawędzi — gdyby pola wykluczeń były
+       zwykłymi dziećmi paska, przy braku miejsca zakres dat spadałby pod
+       nie, na lewą stronę drugiej linii. #}
+    <div class="an-pasek">
+     <div class="an-pasek__lewy">
+      <span class="an-segmenty" id="an-segmenty" data-porownanie="{{ porownanie }}">
+        {# Przy aktywnych wykluczeniach pigułka bazowa mówi „Bez: buk, B/B"
+           — „Wszystkie zamówienia" byłoby wtedy nieprawdą. Akcent marki,
+           nie czerwień ani bursztyn: to ani błąd, ani niezapisana zmiana. #}
+        <span class="an-chip{% if wykluczenia.opis %} an-chip--wykluczenia{% endif %}"><span class="an-chip__kropka"></span>{{ nazwa_segmentu_bazy }}</span>
+      </span>
+      <span class="an-kotwica-filtra">
+        <button type="button" class="an-chip an-chip--dodaj" id="an-dodaj-porownanie">
+          Dodaj porównanie
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="square" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+        </button>
+      </span>
+
+      {# POLA WYKLUCZEŃ (partia E, punkty E4 i E8). Cytat prezesa: „na górze
+         dać checkboxy do wykluczania produktów … rozbicie na gatunek,
+         technologię i klasę"; wykończenie dopisał użytkownik 23.09. Grupy
+         to filters.POLA_WYKLUCZEN (jedno źródło), wartości przychodzą Z DANYCH
+         (analiza_service.wartosci_wykluczen) — także rzadka klasa A/A, której
+         w cytacie nie ma, a która bez pola liczyłaby się po cichu zawsze.
+
+         Natywne <input type="checkbox"> w <label>: klawiatura i czytnik
+         ekranu za darmo. Stan każdego pola (zaznaczone, zablokowane) liczy
+         serwer; analiza.js tylko skleja z `data-czlon` parametr adresu.
+         Ostatnie zaznaczone pole grupy jest zablokowane — odznaczone dałoby
+         pulpit z samymi zerami — i mówi dlaczego. #}
+      <div class="an-wykluczenia" id="an-wykluczenia" role="group"
+           aria-label="Wykluczanie pozycji z liczb pulpitu">
+        {% for grupa in pola_wykluczen %}
+        <div class="an-wyk-grupa" role="group" aria-labelledby="an-wyk-{{ grupa.nazwa }}"
+             data-pole-wykluczen="{{ grupa.nazwa }}">
+          <span class="an-etykieta an-wyk-grupa__nazwa" id="an-wyk-{{ grupa.nazwa }}">{{ grupa.etykieta }}</span>
+          {% for w in grupa.wartosci %}
+          <label class="an-wyk-pole"{% if w.zablokowane %} title="{{ komunikat_ostatniej_wartosci }}"{% endif %}>
+            <input type="checkbox" class="an-wyk-pole__pole" value="{{ w.wartosc }}"
+                   data-czlon="{{ w.czlon }}"{% if w.zaznaczone %} checked{% endif %}{% if w.zablokowane %} disabled aria-describedby="an-wyk-podpowiedz"{% endif %}>
+            <span>{{ w.etykieta }}</span>
+          </label>
+          {% endfor %}
+        </div>
+        {% endfor %}
+        {# Treść podpowiedzi zablokowanego pola dla czytnika ekranu
+           (aria-describedby). Wzrokowo mówi to `title` etykiety. #}
+        <span class="an-wyk-podpowiedz" id="an-wyk-podpowiedz" hidden>{{ komunikat_ostatniej_wartosci }}</span>
+      </div>
+     </div>
+
+      <span class="an-stan-na" data-pole="okres.stan_na">Stan na —:—</span>
+
+      <div class="an-zakres-kadr">
+        <button type="button" class="an-btn" id="an-zakres"
+                aria-haspopup="true" aria-expanded="false" aria-controls="an-zakres-menu">
+          <span class="an-btn__klucz" data-pole="okres.nazwa">{{ okres_klucz }}</span>
+          <span class="an-mono" data-pole="okres.opis">{{ okres_opis }}</span>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#8A8278" stroke-width="2.4" stroke-linecap="square" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+        </button>
+
+        <div class="an-zakres-menu" id="an-zakres-menu" hidden>
+          {% for preset, etykieta in [('biezacy-miesiac', 'bieżący miesiąc'),
+                                      ('poprzedni-miesiac', 'poprzedni miesiąc'),
+                                      ('biezacy-kwartal', 'bieżący kwartał'),
+                                      ('biezacy-rok', 'bieżący rok'),
+                                      ('calosc', 'całość')] %}
+          <button type="button" class="an-zakres-preset" data-preset="{{ preset }}">{{ etykieta }}</button>
+          {% endfor %}
+          <div class="an-zakres-wlasny">
+            <label for="an-zakres-od">od</label>
+            <input type="date" id="an-zakres-od" value="{{ od.isoformat() }}">
+            <label for="an-zakres-do">do</label>
+            <input type="date" id="an-zakres-do" value="{{ do.isoformat() }}">
+            <button type="button" class="an-btn" id="an-zakres-zastosuj">Zastosuj</button>
+          </div>
+        </div>
+      </div>
+
+      {# Przycisk "Pobierz zamowienia" USUNIETY (przeglad, WAZNE 5). Linkowal
+         do reports.reports_home — starej tabeli, ktora commit 8d5f1e2
+         przelaczyl w tryb tylko do odczytu (tylko_odczyt_starej_zakladki
+         w routers.py: kazdy POST odbija sie 409-ka, „import juz tam nie
+         dziala"). Prawdziwe pobieranie zamowien z BaseLinkera ZYJE w
+         Arkuszu (menu „..." -> „Pobierz zamowienia z BaseLinkera...",
+         POST /api/arkusz/pobierz w arkusz.js), a nie jako osobne wyjscie —
+         przekierowanie tego przycisku do /reports/arkusz byloby wiec
+         doslownym duplikatem przycisku "Arkusz" tuz obok, pod inna etykieta,
+         ktora nadal obiecywalaby akcje o jedno klikniecie dalej, niz
+         faktycznie jest. Pelne odtworzenie przycisku jako dzialajacej akcji
+         (potwierdzenie + POST + obsluga bledow, jak w arkusz.js) to osobne
+         zadanie funkcjonalne, nie naprawa znaleziska z przegladu — stad
+         wybor „zniknij", ktory znalezisko dopuszczalo wprost. #}
+
+      <a class="an-btn an-btn--ciemny" href="{{ url_for('reports.arkusz') }}">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ED6B24" stroke-width="2" stroke-linecap="square" aria-hidden="true"><rect x="3" y="3" width="18" height="18"></rect><path d="M3 9h18M3 15h18M9 3v18M15 3v18"></path></svg>
+        Arkusz
+      </a>
+    </div>
+
+    {# SAMA klasa .an-tytul — bez page-title/title-with-underline z konwencji
+       repo (spec 6.6). Powod jest konkretny: .title-with-underline dokłada
+       przez ::after osobny pasek 70x4 px 8 px pod tekstem (static/css/style.css),
+       a .an-tytul niesie juz wlasne border-bottom na szerokosc tekstu — obie
+       naraz dawaly DWA podkreslenia pod jednym tytulem. Makieta
+       (Main.dc.html:93) ma jedno, wlasnie to z border-bottom.
+       .page-title na tej stronie i tak nic nie wnosi: definiuja ja
+       dashboard.css i ai-chat.css, a ten szablon laduje wylacznie
+       style.css + analiza.css. #}
+    <div class="an-tytul-rzad">
+      <h1 class="an-tytul">Analiza sprzedażowa</h1>
+      {# Krótka informacja przy tytule, gdy wykluczenia są aktywne. Etykieta
+         „Sprzedaż netto" z odznaczonym bukiem znaczy co innego niż bez
+         wykluczeń — ta sama etykieta ma znaczyć wszędzie to samo, więc
+         różnicę trzeba powiedzieć wprost. Tekst składa serwer. #}
+      <p class="an-tytul__wykluczenia" id="an-wykluczenia-zdanie"{% if not wykluczenia.zdanie %} hidden{% endif %}>{{ wykluczenia.zdanie }}</p>
+    </div>
+
+    <div class="an-blad" id="an-blad" hidden role="alert"></div>
+
+    {# POMINIĘTE KAFELKI. Zapisany układ może zawierać typ karty, którego już
+       nie ma, albo pole, które straciło `wymiar=True` w rejestrze. Odczyt takie
+       pozycje POMIJA, ale ich NIE KASUJE z bazy — pole może wrócić, a zniszczenie
+       cudzego układu przy przejściowej zmianie rejestru byłoby gorsze niż jego
+       przycięcie (patrz `uklad.uklad_z_bazy`).
+
+       Bursztyn, nie czerwień: to granica wiarygodności układu, nie awaria.
+       Ciche przycięcie byłoby dla użytkownika nieodróżnialne od zgubienia
+       układu. Zdanie jest ułożone tak, żeby liczba nie wymagała odmiany
+       („1 kafelków" / „2 kafelków" brzmiałoby źle przy każdej liczbie). #}
+    <p class="an-info an-info--uklad" id="an-pominiete"{% if not pominietych %} hidden{% endif %}>
+      Pominięte zapisane kafelki: <b class="an-mono" id="an-pominiete-liczba">{{ pominietych }}</b>
+      — nie pasują już do dostępnych statystyk. Zapisanie układu usunie je na stałe.
+    </p>
+
+    {# STAN PUSTY. Widoczny wtedy i tylko wtedy, gdy na pulpicie nie ma żadnego
+       kafelka — zapisany układ jest pustą listą, co jest czymś INNYM niż brak
+       wiersza w bazie (ten daje układ domyślny). Bez tego rozróżnienia nie
+       dałoby się usunąć ostatniego kafelka: pulpit sam by się odtwarzał.
+
+       Stoi NAD siatką: najpierw zdanie, co się stało, potem jedyny kafelek
+       w siatce — „+ Dodaj statystykę" — który przy pustym pulpicie widać
+       zawsze. Drugie wyjście to „Przywróć domyślny" tutaj. Nie `role="alert"`
+       i nie czerwień: pusty pulpit to decyzja użytkownika, nie awaria.
+
+       W TRYBIE EDYCJI przycisk „Przywróć domyślny" z tego bloku jest SCHOWANY
+       (analiza.js, odswiezStanPusty). Pusty pulpit w edycji to zwykle układ
+       z usuniętymi, ale NIEZAPISANYMI kafelkami — przycisk bez pytania
+       skasowałby zapisany układ (przegląd gałęzi, W2). Pasek edycji ma własny
+       „Przywróć domyślny", z potwierdzeniem. #}
+    <div class="an-stan-pusty" id="an-stan-pusty"{% if uklad %} hidden{% endif %}>
+      <div class="an-stan-pusty__tytul">Pulpit jest pusty</div>
+      {# Dwa warianty zdania (partia E, punkt E7): w trybie edycji przycisk
+         „Przywróć domyślny" tego bloku jest schowany, więc zdanie odsyła do
+         przycisku na pasku edycji. Przełącza je analiza.js (odswiezStanPusty). #}
+      <p class="an-stan-pusty__tekst">
+        <span data-stan-pusty-podglad>Nie masz na pulpicie żadnej statystyki. Dodaj ją kafelkiem „+" poniżej
+        albo przywróć układ domyślny.</span>
+        <span data-stan-pusty-edycja hidden>Nie masz na pulpicie żadnej statystyki. Dodaj ją kafelkiem „+" poniżej
+        albo przywróć układ domyślny przyciskiem „Przywróć domyślny" na pasku edycji na dole strony.</span>
+      </p>
+      <button type="button" class="an-btn" id="an-stan-pusty-domyslny">Przywróć domyślny</button>
+    </div>
+
+    {# Strona włącza siatkę Z kafelkiem „+ Dodaj statystykę", `/api/siatka` —
+       bez niego (patrz nagłówek _siatka.html). #}
+    {% with z_kafelkiem_dodawania = true %}
+    {% include 'analiza/_siatka.html' %}
+    {% endwith %}
+
+    {# PASEK EDYCJI — na samym dole strony, zgodnie z rozstrzygnięciem 5.
+       Trzy stany w jednym miejscu: podgląd (sam przycisk „Edytuj widok"),
+       edycja (pasek z trzema wyjściami) i potwierdzenie porzucenia zmian.
+       Potwierdzenie jest WIERSZEM W PASKU, nie `window.confirm` — ta strona
+       ma już dwa rodzaje okien (popover filtra, dymek mapy) i trzeci,
+       narzucony przez przeglądarkę, byłby obcy.
+
+       W trybie edycji pasek PRZYKLEJA SIĘ do dołu okna (analiza.css): pulpit
+       ma trzy rzędy kart i przestawiając kafelek u góry, użytkownik nie
+       widziałby ani bursztynu niezapisanych zmian, ani „Zapisz układ". #}
+    <div class="an-edycja" id="an-edycja" data-tryb="podglad">
+      <button type="button" class="an-btn an-btn--ciemny" id="an-edytuj">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ED6B24"
+             stroke-width="2" stroke-linecap="square" aria-hidden="true"><path d="M4 20h16M6 16l10-10 3 3L9 19H6z"></path></svg>
+        Edytuj widok
+      </button>
+
+      <div class="an-edycja__pasek" id="an-edycja-pasek" hidden>
+        {# BŁĄD AKCJI PASKA — zapisu, przywrócenia, odrzucenia zmian, dodania
+           kafelka. Stoi TUTAJ, a nie w #an-blad pod tytułem strony: pasek jest
+           przyklejony do dołu okna i tam patrzy użytkownik, a komunikat pod
+           tytułem wisiał półtora tysiąca pikseli nad oknem (przegląd gałęzi,
+           W3). Czerwień, bo to błąd; paczka zmian zostaje i można ponowić. #}
+        <p class="an-edycja__blad" id="an-edycja-blad" role="alert" hidden></p>
+        <span class="an-edycja__licznik" id="an-edycja-licznik" role="status">Bez zmian</span>
+        <div class="an-pasek__rozpychacz"></div>
+        <button type="button" class="an-btn" id="an-uklad-domyslny">Przywróć domyślny</button>
+        <button type="button" class="an-btn" id="an-uklad-anuluj">Anuluj</button>
+        <button type="button" class="an-btn an-btn--ciemny" id="an-uklad-zapisz">Zapisz układ</button>
+      </div>
+
+      <div class="an-edycja__potwierdzenie" id="an-edycja-potwierdzenie" hidden>
+        <span id="an-edycja-pytanie">Odrzucić niezapisane zmiany w układzie?</span>
+        <div class="an-pasek__rozpychacz"></div>
+        <button type="button" class="an-btn" id="an-edycja-odrzuc">Odrzuć</button>
+        <button type="button" class="an-btn an-btn--ciemny" id="an-edycja-wroc">Wróć</button>
+      </div>
+    </div>
+
+    {# DYMEK MAPY. Lezy TUTAJ, poza karta, z dwoch powodow.
+
+       Po pierwsze .an-karta ma overflow: hidden, wiec dymek w srodku karty
+       bylby przyciety do jej ramki — a przy wojewodztwach z krawedzi mapy
+       musi wyjsc poza nia.
+
+       Po drugie ma pointer-events: none (patrz analiza.css). Ta zakladka byla
+       juz raz CALKOWICIE nieklikalna przez przezroczysty <select> rozlany na
+       cale okno; element pozycjonowany fixed, ktory lapie kliknięcia, to
+       dokladnie ta sama pulapka. Schowany ma display: none, wiec
+       document.elementFromPoint nigdy go nie zwraca. #}
+    {# MODAL „Dodaj statystykę". Anatomia z makiety Potwierdzenie.dc.html:
+       nagłówek (znak, tytuł, jedno zdanie), treść, dwa wyjścia w stopce na
+       jaśniejszym tle; te same promienie i ta sama typografia.
+
+       Lista statystyk powstaje w JavaScripcie Z ATRYBUTU `data-katalog`, który
+       wypisał serwer — przeglądarka nie ma własnej listy typów ani własnych
+       nazw. Ta sama zasada, co przy jednostkach miar i etykietach wartości.
+
+       Selektor wymiaru ma klasę `.an-modal__pole`, NIE `.an-sel`. `.an-sel`
+       jest przezroczysty i ma inset:0; poza kartą, bez opakowania
+       `.an-sel-opak`, rozlałby się na całe okno i połknął wszystkie
+       kliknięcia — dokładnie to zabiło tę zakładkę 23.09.2026. #}
+    <div class="an-modal" id="an-modal-dodaj" role="dialog" aria-modal="true"
+         aria-labelledby="an-modal-tytul" aria-describedby="an-modal-opis" hidden>
+      <div class="an-modal__zaslona" data-zamknij-modal></div>
+      <div class="an-modal__okno">
+        <div class="an-modal__glowa">
+          <span class="an-modal__znak" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#C4551A" stroke-width="2.2" stroke-linecap="square"><path d="M12 5v14M5 12h14"></path></svg>
+          </span>
+          <div class="an-modal__naglowek">
+            <h2 class="an-modal__tytul" id="an-modal-tytul">Dodaj statystykę</h2>
+            <p class="an-modal__opis-okna" id="an-modal-opis">Kafelek stanie na końcu pulpitu i od razu pokaże dane. Na stałe zapisze się razem z układem.</p>
+          </div>
+          <button type="button" class="an-modal__zamknij" aria-label="Zamknij"
+                  data-zamknij-modal>×</button>
+        </div>
+        <div class="an-modal__cialo">
+          <p class="an-modal__uwaga" id="an-modal-limit" hidden></p>
+          {# Zwykła grupa przycisków z `aria-pressed`, nie `radiogroup`: wzorzec
+             radiogroup obiecuje czytnikowi obsługę strzałek i jeden przystanek
+             Taba na całą grupę, a lista ma być prostą kolumną przycisków,
+             po której chodzi się Tabem (przegląd gałęzi, drobne 6). #}
+          <div class="an-modal__lista" id="an-modal-lista" role="group"
+               aria-label="Statystyka"></div>
+        </div>
+        {# Wybór wymiaru POD przewijaną listą, nie w niej — inaczej po wybraniu
+           statystyki selektor byłby poza zasięgiem wzroku. #}
+        <div class="an-modal__dol">
+          <div class="an-modal__wymiar" id="an-modal-wymiar" hidden>
+            <label class="an-etykieta" for="an-modal-wybor-wymiaru">Według</label>
+            <select class="an-modal__pole" id="an-modal-wybor-wymiaru"></select>
+          </div>
+          <p class="an-modal__uwaga" id="an-modal-uwaga" hidden></p>
+        </div>
+        <div class="an-modal__stopka">
+          <button type="button" class="an-btn an-modal__przycisk" data-zamknij-modal>Anuluj</button>
+          <button type="button" class="an-btn an-modal__przycisk an-modal__przycisk--glowny"
+                  id="an-modal-dodaj-potwierdz" disabled>Dodaj</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="an-mapa__dymek" id="an-mapa-dymek" role="tooltip" hidden aria-hidden="true">
+      <div class="an-mapa__dymek-tytul" data-dymek="nazwa"></div>
+      <dl class="an-mapa__dymek-lista" data-dymek="miary"></dl>
+      {# Podpis drugiej liczby w wierszu. Bez niego „736 212 / 120 500" nie
+         mowi, skad wzięła sie ta druga — to nazwa wlaczonego segmentu. #}
+      <p class="an-mapa__dymek-segment an-etykieta" data-dymek="segment" hidden></p>
+    </div>
+  </main>
+</div>
+
+{# WSPÓLNY DYMEK WYKRESÓW (partia E, punkt E3). Cytat prezesa: „tooltipy muszą
+   mieć pełne tło … jeśli wychodzą poza canvas wykresu są ucinane". Dymek
+   Chart.js rysuje się NA KANWIE, więc ucina go jej krawędź, a jego tło jest
+   półprzezroczyste. Ten jest elementem HTML: JEDEN na stronę, w <body> (nie
+   w karcie — .an-karta ma overflow: hidden), pozycjonowany w układzie okna
+   i dociskany do jego krawędzi (analiza.js, ustawPozycjeWOknie).
+
+   pointer-events: none i display: none w stanie schowanym — ta zakładka była
+   już raz nieklikalna przez element rozlany nad treścią. Treść wchodzi
+   wyłącznie przez textContent (zero innerHTML w analiza.js). #}
+<div class="an-dymek" id="an-dymek" role="tooltip" hidden aria-hidden="true">
+  <div class="an-dymek__tytul" data-dymek-tytul></div>
+  <dl class="an-dymek__lista" data-dymek-lista></dl>
+</div>
+
+<script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
+{# Chart.js z LOKALNEGO vendora modulu produkcji (4.4.7). Nigdy z CDN —
+   Safari ITP blokuje jsdelivr i cdnjs. Spec 6.6: nie dokladamy drugiej biblioteki. #}
+<script src="{{ url_for('production.static', filename='vendor/chart.umd.min.js') }}"></script>
+<script src="{{ url_for('reports.static', filename='js/filtr.js') }}"></script>
+<script src="{{ url_for('reports.static', filename='js/analiza.js') }}"></script>
+</body>
+</html>

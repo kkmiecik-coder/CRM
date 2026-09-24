@@ -46,6 +46,18 @@ jobs:
               echo "=== Skipping changelog sync (no new commits) ==="
             fi
 
+            # Migracje PRZED restartem, jak w deploy.sh. `set -e` wyżej: nieudana
+            # migracja przerywa deploy przed restartem, więc proces zostaje na
+            # starym kodzie i starym schemacie.
+            echo "=== Running migrations ==="
+            venv/bin/flask migrate
+
+            # Przeliczenie klientów Analizy sprzedażowej — po migracjach, bo liczy
+            # z tabel sales_*. BEST-EFFORT, jak w deploy.sh: błąd albo przekroczony
+            # czas zostawia ostrzeżenie i NIE przerywa deployu (`|| echo` omija set -e).
+            echo "=== Recounting sales clients ==="
+            timeout -k 10 300 venv/bin/python scripts/przelicz_klientow_sprzedazy.py --apply 2>&1 || echo "[recount-warn] przeliczenie klientow sprzedazy nieudane - deploy idzie dalej; uruchom recznie: venv/bin/python scripts/przelicz_klientow_sprzedazy.py --apply"
+
             # Restart aplikacji (gunicorn pod supervisorem; sudoers bez hasła)
             echo "=== Restarting application ==="
             sudo /usr/bin/supervisorctl restart crm_woodpower

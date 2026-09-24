@@ -1,0 +1,1008 @@
+{# modules/reports/templates/analiza/_kafelki.html
+   Makra kafelków pulpitu. Jedno makro na typ kafelka, plus dyspozytor.
+
+   DLACZEGO OSOBNY PLIK. Do 23.09.2026 jedenaście kart było wypisanych ręcznie
+   w dashboard.html, w trzech rzędach. Odkąd lista i kolejność kafelków idą
+   z układu użytkownika, karta musi dać się wyrenderować z pętli — a pętla
+   potrzebuje makra. Przy okazji dashboard.html schudł o 450 linii.
+
+   TREŚĆ KART JEST PRZENIESIONA CO DO ZNAKU. Zmieniło się wyłącznie to, skąd
+   biorą się klucz kafelka i jego wymiar. Każda inna różnica to regresja
+   wizualna, której nie złapie żaden test — makieta jest w
+   docs/superpowers/mockups/analiza-sprzedazowa/Main.dc.html.
+
+   KONTEKST. Plik importuje się `with context`, bo makra wołają `url_for`
+   i czytają zmienne szablonu: `wymiary_kafelka`, `naglowki_kolumn`,
+   `jednostki`, `szerokosci`, `nazwy_typow`, `od`, `do`. Te same zmienne podaje trasa strony
+   i oba endpointy fragmentów (routers_analiza._kontekst_kafelkow) — dzięki
+   temu kafelek z fragmentu jest co do znaku tym samym kafelkiem, co na stronie.
+
+   Szablon renderuje PEŁNY układ ze szkieletem w miejscu wartości.
+   JavaScript (analiza.js) wypełnia wyłącznie elementy z atrybutem data-pole
+   i zdejmuje bloki .sk. Nagłówki, etykiety KPI, teksty stopek i selektory
+   wymiaru są prawdziwe już tutaj — spec 6.2 wymaga, żeby kontrolki działały,
+   zanim przyjdą dane. #}
+
+{# TYTUŁY KART — jedno źródło dla widocznego tytułu karty i dla NAZWY
+   DOSTĘPNEJ jej narzędzi („Usuń kafelek »Sprzedaż netto według: Opiekun«").
+   Dwie kopie tego samego napisu rozjechałyby się przy pierwszej zmianie,
+   a czytnik ekranu podawałby wtedy inną nazwę niż ta, którą widać.
+   KPI nie ma widocznego tytułu — jego nazwą jest nazwa z katalogu (ta sama,
+   co w oknie „Dodaj statystykę"), patrz `nazwa_kafelka`. #}
+{% set TYTULY = {
+  'wnioski': 'Statystyki',
+  'kanal': 'Sprzedaż netto według:',
+  'opiekun': 'Sprzedaż netto według:',
+  'mix': 'Objętość i cena według:',
+  'klienci': 'Klienci według:',
+  'wojewodztwo': 'Sprzedaż netto według:',
+  'naleznosci': 'Należności według:',
+  'lejek': 'Lejek wycena → zamówienie',
+  'wykonczenie': 'Sprzedaż netto według:',
+  'dostawa': 'Dostawa według:',
+} %}
+
+{# TYTUŁ W TRYBIE SZTUK (przełącznik „zł / szt. / zł + szt.", 24.09.2026).
+   „Sprzedaż netto według:" nad kolumną sztuk kłamałoby — netto to złotówki,
+   a ta sama etykieta ma na pulpicie znaczyć wszędzie to samo. Karty, których
+   tytuł nie nazywa miary („Klienci według:", „Dostawa według:"), wariantu nie
+   potrzebują. Nazwa dostępna kafelka (narzędzia trybu edycji) zostaje przy
+   tytule złotówkowym: tryb edycji zawsze pokazuje tryb domyślny. #}
+{% set TYTULY_SZTUK = {
+  'kanal': 'Sprzedaż według:',
+  'opiekun': 'Sprzedaż według:',
+  'wojewodztwo': 'Sprzedaż według:',
+  'wykonczenie': 'Sprzedaż według:',
+} %}
+
+{# Nazwa kafelka dla czytnika ekranu: tytuł karty plus etykieta wymiaru,
+   dokładnie tak, jak czyta się kartę okiem. Bez niej jedenaście kafelków
+   miało po trzy przyciski o identycznych nazwach („Usuń kafelek"), a użytkownik
+   czytnika nie wiedział, co usuwa (przegląd gałęzi, W4). Po zmianie wymiaru
+   kafelek przychodzi z serwera od nowa, więc nazwa idzie za wymiarem sama. #}
+{% macro nazwa_kafelka(inst) -%}
+{%- set tytul = TYTULY.get(inst.typ) or nazwy_typow[inst.typ] -%}
+{%- if inst.wymiar -%}
+{%- set wpis = (wymiary_kafelka[inst.typ] | selectattr('nazwa', 'equalto', inst.wymiar) | first) -%}
+{{ tytul }} {{ wpis.etykieta if wpis else inst.wymiar }}
+{%- else -%}
+{{ tytul }}
+{%- endif -%}
+{%- endmacro %}
+
+{% macro sk(wys, szer='100%', op='', styl='') %}<span class="sk {{ op }}" style="display:block;height:{{ wys }}px;width:{{ szer }}{% if styl %};{{ styl }}{% endif %}"></span>{% endmacro %}
+
+{% macro sk_wiersz(szer_nazwy, wys_toru=16, op='') %}
+<div class="an-wiersz">
+  <span class="sk {{ op }}" style="display:block;height:11px;width:{{ szer_nazwy }}px;flex:none"></span>
+  <span class="sk d2" style="display:block;height:{{ wys_toru }}px;flex-grow:1"></span>
+  <span class="sk d3" style="display:block;height:11px;width:46px;flex:none"></span>
+</div>
+{% endmacro %}
+
+{# Jednostka kolumny liczb — podpisana RAZ na karte, w naglowku nad kolumna,
+   a nie doklejana do czternastu liczb pod rzad. Wzorzec jest ten sam, co
+   w tabeli karty „Objetosc i cena" (naglowki m3 / zl/m3), ktora dziala.
+
+   Podpis i jednostke wypisuje SERWER (analiza_service.KOLUMNY_KART) — z samego
+   tytulu karty nie da sie ich odczytac: „Klienci wedlug: liczba zamowien" ma
+   w kolumnie kwote w zlotych, ktora czyta sie jak liczbe klientow.
+
+   UWAGA na niezmiennik: `miara` w KOLUMNY_KART musi byc ta sama wielkoscia,
+   po ktorej analiza.js skaluje slupek (zawsze netto). Karty wojewodztwo
+   i dostawa mialy tu kiedys 'objetosc' — tytul i slupek mowily „netto",
+   a liczba w kolumnie byla objetoscia w m3. Naprawione 22.09.2026.
+
+   Szerokosc kolumny liczb ustala analiza.css (dolna granica 10ch, czyli
+   „99 999 999"); analiza.js od partii E (punkt E7) nie nadaje jej zadnej
+   szerokosci. Jednostka stoi nad liczbami, bo i ona, i liczby sa dosuniete
+   do prawej krawedzi karty — szerokosc ostatniej komorki naglowka tylko
+   rezerwuje jej miejsce.
+
+   UWAGA: klasa NIE moze sie nazywac .an-wiersz — rysujWiersze() kasuje
+   wszystkie dzieci ciala karty z ta klasa przy kazdym odswiezeniu.
+
+   `klucz` jest tu kluczem TYPU karty, nie instancji: podpis kolumny jest
+   cecha typu (analiza_service.KOLUMNY_KART), a analiza.js szuka uchwytu
+   `data-naglowek` wewnatrz swojego kafelka, wiec dwa kafelki klientow nie
+   wchodza sobie w droge. #}
+{# `dynamiczny` = podpis kolumny zmienia sie razem z wymiarem karty, wiec
+   analiza.js przepisuje go z payloadu przy kazdym odswiezeniu. Dotyczy kart
+   kubelkowych: „Klienci wedlug: liczba zamowien" ma w kolumnie WARTOSC
+   zamowien (zlotowki), a „Klienci wedlug: Opiekun" — LICZBE KLIENTOW (sztuki).
+   Jeden staly podpis musialby jednemu z tych dwoch stanow klamac.
+
+   UWAGA: atrybut stoi PRZED class, a nie za nim. Test liczacy naglowki szuka
+   doslownie `an-naglowek-kolumn">`, wiec class musi zostac ostatnim atrybutem. #}
+{# `przelacznik` = kafelek ma przełącznik „zł / szt. / zł + szt." (24.09.2026).
+   Nagłówek dostaje wtedy WARIANTY dla każdego trybu, a CSS pokazuje ten,
+   w którym kafelek właśnie jest (atrybut `data-tryb-miary` kafelka, reguły
+   „WARIANTY TRYBU MIARY" w analiza.css):
+     zł        — „Netto … zł", jak dotąd (ten sam znacznik, co bez przełącznika);
+     szt.      — „Sztuki … szt." (kolumna liczb pokazuje sztuki);
+     zł + szt. — dwie kolumny liczb, więc DWIE jednostki, każda nad swoją
+                 kolumną: najpierw sztuki (długość słupka), potem złotówki.
+   `staly_podpis` — podpis nie jest nazwą miary („Wewnątrz kanału ręcznego")
+   i zostaje w każdym trybie; zmienia się tylko jednostka.
+   Nazwy miar z rejestru (`etykiety_miar`), jednostki z rejestru (`jednostki`)
+   — nic tu nie jest wpisane drugi raz. #}
+{% macro naglowek_kolumny(klucz, szer_wartosci=52, dynamiczny=false, przelacznik=false, staly_podpis=false) %}
+{% set n = naglowki_kolumn[klucz] %}
+{% set styl_szerokosci %}{% if szer_wartosci %} style="width:{{ szer_wartosci }}px"{% endif %}{% endset %}
+<div {% if dynamiczny %}data-naglowek="{{ klucz }}" {% endif %}class="an-naglowek-kolumn">
+  <span class="an-etykieta" data-naglowek-podpis{% if przelacznik and not staly_podpis %} data-widok-miary="zl"{% endif %} title="{{ n.podpis }}">{{ n.podpis }}</span>
+  {% if przelacznik and not staly_podpis %}
+  <span class="an-etykieta an-naglowek-kolumn__podpis" data-widok-miary="szt" title="{{ etykiety_miar['sztuki'] }}">{{ etykiety_miar['sztuki'] }}</span>
+  <span class="an-etykieta an-naglowek-kolumn__podpis" data-widok-miary="zl_szt" title="{{ etykiety_miar['sztuki'] }} · {{ n.podpis }}">{{ etykiety_miar['sztuki'] }} · {{ n.podpis }}</span>
+  {% endif %}
+  {# Pusta szerokosc = kolumna liczb nie ma stalej szerokosci (legenda
+     wykonczenia): jednostka po prostu lezy przy prawej krawedzi. #}
+  <span class="an-etykieta an-naglowek-kolumn__jednostka" data-naglowek-jednostka
+        {%- if przelacznik %} data-widok-miary="zl"{% endif %}{{ styl_szerokosci }}>{{ n.jednostka }}</span>
+  {% if przelacznik %}
+  <span class="an-etykieta an-naglowek-kolumn__jednostka" data-widok-miary="szt"{{ styl_szerokosci }}>{{ jednostki['sztuki'] }}</span>
+  {# Szerokości obu jednostek trybu „zł + szt." ustala analiza.css — te same,
+     co kolumn liczb pod nimi, inaczej „szt." nie stałoby nad sztukami. #}
+  <span class="an-etykieta an-naglowek-kolumn__jednostka an-naglowek-kolumn__jednostka--para" data-widok-miary="zl_szt">{{ jednostki['sztuki'] }}</span>
+  <span class="an-etykieta an-naglowek-kolumn__jednostka an-naglowek-kolumn__jednostka--druga" data-widok-miary="zl_szt">{{ n.jednostka }}</span>
+  {% endif %}
+</div>
+{% endmacro %}
+
+{# PRZEŁĄCZNIK MIARY „zł / szt. / zł + szt." (24.09.2026). Cytat użytkownika:
+   „w prawym górnym rogu przełącznik pomiędzy zł, szt. a porównaniem".
+   Trzecia opcja nazywa się „zł + szt." — „porównanie" znaczy na pulpicie
+   segment porównawczy („Dodaj porównanie").
+
+   Renderuje SERWER, z tej samej funkcji, z której powstaje `przelaczniki`
+   payloadu (analiza_service.opcje_przelacznika) — opcje, ich napisy
+   (składane z jednostek rejestru) i tryb domyślny mają jedno źródło. Kafelek
+   bez przełącznika (Statystyki, Objętość i cena, Należności, Lejek) nie ma go
+   WCALE — nie wyłączony, po prostu nie ma czego przełączać.
+
+   GRUPA RADIOWA, a nie przyciski z `aria-pressed` jak lista statystyk w oknie
+   „Dodaj statystykę". Tamta lista nie ma obsługi strzałek, więc wzorzec radia
+   obiecywałby czytnikowi coś, czego nie ma. Tu strzałki działają (analiza.js,
+   podepnijPrzelaczniki), a jeden przystanek Taba na kafelek zamiast trzech to
+   przy dziesięciu kafelkach dwadzieścia przystanków mniej.
+
+   Stan przełącznika to stan WIDOKU: nie idzie do adresu ani do układu. Kafelek
+   przyniesiony z serwera (podgląd wymiaru, odświeżenie) zaczyna od trybu
+   domyślnego. Bez `id` — kafelek tego typu bywa na pulpicie kilka razy. #}
+{# Nazwa grupy przełącznika NIE zależy od trybu (atrybut stoi w szablonie),
+   więc bierze tytuł neutralny: „Sprzedaż według:" zamiast „Sprzedaż netto
+   według:" — inaczej czytnik ekranu mówiłby „netto" także w trybie sztuk
+   (weryfikacja 24.09.2026). #}
+{% macro nazwa_przelacznika(inst) -%}
+{%- set tytul = TYTULY_SZTUK.get(inst.typ) or TYTULY.get(inst.typ) or nazwy_typow[inst.typ] -%}
+{%- if inst.wymiar -%}
+{%- set wpis = (wymiary_kafelka[inst.typ] | selectattr('nazwa', 'equalto', inst.wymiar) | first) -%}
+{{ tytul }} {{ wpis.etykieta if wpis else inst.wymiar }}
+{%- else -%}
+{{ tytul }}
+{%- endif -%}
+{%- endmacro %}
+
+{% macro przelacznik(inst) %}
+{% set p = opcje_przelacznika(inst.typ, inst.wymiar) %}
+{% if p %}
+<div class="an-przelacznik" role="radiogroup" data-przelacznik data-domyslny="{{ p.domyslny }}"
+     aria-label="Miara kafelka »{{ nazwa_przelacznika(inst) }}«">
+  {%- for o in p.opcje %}
+  <button type="button" class="an-przelacznik__opcja" role="radio" data-opcja-miary="{{ o.tryb }}"
+          aria-checked="{{ 'true' if o.tryb == p.domyslny else 'false' }}"
+          tabindex="{{ '0' if o.tryb == p.domyslny else '-1' }}">{{ o.etykieta }}</button>
+  {%- endfor %}
+</div>
+{% endif %}
+{% endmacro %}
+
+{# Czy kafelek ma przełącznik — JEDNA decyzja dla przełącznika, wariantów
+   tytułu i nagłówków. Warianty bez przełącznika byłyby groźne: kafelek bez
+   atrybutu `data-tryb-miary` nie ma reguły, która je chowa, więc stałyby
+   wszystkie naraz. Zwraca napis (makro Jinja nie zwraca wartości logicznej),
+   a pusty napis jest fałszem. #}
+{% macro ma_przelacznik(inst) -%}
+{%- if opcje_przelacznika(inst.typ, inst.wymiar) %}tak{% endif -%}
+{%- endmacro %}
+
+{# Tytuł karty z przełącznikiem: wariant złotówkowy (pierwszy — z niego składa
+   się nazwa dostępna kafelka) i, gdy tytuł nazywa netto, wariant dla sztuk. #}
+{% macro tytul(inst) %}
+{% if TYTULY_SZTUK.get(inst.typ) and ma_przelacznik(inst) %}
+    <div class="an-karta__tytul" data-widok-miary="zl">{{ TYTULY[inst.typ] }}</div>
+    <div class="an-karta__tytul" data-widok-miary="szt zl_szt">{{ TYTULY_SZTUK[inst.typ] }}</div>
+{% else %}
+    <div class="an-karta__tytul">{{ TYTULY[inst.typ] }}</div>
+{% endif %}
+{% endmacro %}
+
+{% macro selektor(inst) %}
+{# Natywny <select> dobiera szerokosc do NAJSZERSZEJ opcji na liscie, nie do
+   biezaco wybranej etykiety — dlatego podkreslenie i strzalka siedza na
+   opakowaniu .an-sel-opak, a <select> lezy nad calym opakowaniem jako
+   przezroczysta warstwa.
+
+   OPAKOWANIE .an-sel-opak JEST OBOWIAZKOWE. `.an-sel` ma position:absolute
+   z inset:0; bez pozycjonowanego rodzica rozlewa sie na cale okno (1440x900)
+   i polyka wszystkie kliknieca — zakladka byla przez to CALKOWICIE martwa
+   23.09.2026, przy zielonym pakiecie testow.
+
+   `data-selektor` niesie KLUCZ INSTANCJI, nie typ karty: przy trzech kafelkach
+   kanalow sam typ nie mowi, ktory z nich wlasnie zmieniono.
+
+   Lista opcji jest lista TYPU (`wymiary_kafelka[typ]`), nie calym rejestrem:
+   karty kubelkowe („Klienci wedlug", „Naleznosci wedlug") maja wlasna,
+   wezsza liste z pseudo-wymiarem domyslnym, ktorego w rejestrze nie ma
+   (analiza_service.KARTY_KUBELKOWE). Lista przychodzi GOTOWA z serwera —
+   szablon jej nie sklada. #}
+{% set lista = wymiary_kafelka[inst.typ] %}
+{% set biezaca = (lista | selectattr('nazwa', 'equalto', inst.wymiar) | first) %}
+{# `autocomplete="off"`: Firefox po F5 PRZYWRACA wartosc <select> z poprzedniej
+   wizyty. Po podgladzie wymiaru i odswiezeniu selektor stalby wiec na
+   przekroju podgladanym, a kafelek pokazywalby zapisany — etykieta mowilaby
+   jedno, liczby drugie. analiza.js dodatkowo zrownuje selektor z
+   `data-wymiar` przy starcie (zrownajSelektory), bo nie kazda przegladarka
+   honoruje ten atrybut na <select>. #}
+<span class="an-sel-opak">
+  <span class="an-sel-etykieta" aria-hidden="true">{{ biezaca.etykieta if biezaca else inst.wymiar }}</span>
+  <select class="an-sel" data-selektor="{{ inst.klucz }}" aria-label="Wymiar kafelka »{{ nazwa_kafelka(inst) }}«" autocomplete="off">
+    {% for w in lista %}
+    <option value="{{ w.nazwa }}"{% if w.nazwa == inst.wymiar %} selected{% endif %}>{{ w.etykieta }}</option>
+    {% endfor %}
+  </select>
+</span>
+{# TEN SAM SELEKTOR, DWA ZNACZENIA — i dlatego jest to napisane na ekranie,
+   a nie zostawione domysłowi. Poza trybem edycji zmiana „według" to PODGLĄD
+   („Chwilowe zerknięcie, po odświeżeniu wraca" — rozstrzygnięcie użytkownika).
+   W trybie edycji ten sam selektor ustawia TRWAŁY wymiar kafelka i dołącza
+   do paczki niezapisanych zmian.
+
+   Odrzucona alternatywa: osobny przycisk ✎ w narzędziach kafelka, otwierający
+   modal. To trzecia kontrolka robiąca to, co już robi kontrolka obok, i jedno
+   kliknięcie więcej. Druga odrzucona: „usuń i dodaj z powrotem" — poprawienie
+   jednego wymiaru kosztowałoby utratę miejsca kafelka w siatce.
+
+   Zwykłe zdanie, nie `.an-etykieta`: etykiety na tej stronie są wersalikami,
+   a całe zdanie wersalikami czyta się jak krzyk. #}
+<span class="an-kafelek__podpowiedz" data-podpowiedz-edycji hidden>Wymiar zapisze się razem z układem</span>
+{% endmacro %}
+
+{# Adres stopki jest wyrenderowany SERWEROWO, ale zmiana okresu leci przez
+   fetch + pushState, bez przeladowania strony — wiec bez przepisania href
+   kazde wyjscie po pierwszej interakcji prowadzilo do Eksploratora
+   z NIEAKTUALNYM okresem („ustawiam biezacy rok, klikam »Wyswietl raport
+   kanalow«, dostaje wrzesien"). Atrybuty data-wyjscie-* mowia analiza.js,
+   z czego zlozyc ten adres na nowo; stopka bez nich (mapa wojewodztw)
+   zostaje nietknieta.
+
+   `wymiar` to wymiar, ktory wyjscie niesie do Eksploratora. Do 23.09.2026
+   karty przelaczalne podawaly tu zamiast niego klucz karty
+   (`data-wyjscie-karta`), a JavaScript dociagal wymiar z mapy wymiarow w
+   adresie. Od kiedy ten sam typ moze stac na pulpicie kilka razy, klucz
+   karty nie mowi, KTORY kafelek — wiec kazde wyjscie niesie wprost wymiar
+   swojego kafelka. #}
+{% macro stopka(tekst, adres, miara='', wymiar='') %}
+<div class="an-karta__stopka">
+  <a href="{{ adres }}"
+     {%- if miara %} data-wyjscie-miara="{{ miara }}"{% endif %}
+     {%- if wymiar %} data-wyjscie-wymiar="{{ wymiar }}"{% endif %}>{{ tekst }}
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="square" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
+  </a>
+</div>
+{% endmacro %}
+
+
+{# PLAKIETKA PODGLĄDU. Gniazdo renderuje serwer, treść wstawia JavaScript
+   (analiza.js, odswiezPlakietke) — tylko wtedy, gdy selektor „według"
+   pokazuje chwilowo INNY przekrój niż zapisany w układzie.
+
+   Stoi POD nagłówkiem karty, nie nad nim: anatomia karty z makiety
+   (Main.dc.html) jest wiążąca i karta zaczyna się nagłówkiem — plakietka
+   nad tytułem przesuwała tytuł w dół i odrywała go od selektora, którego
+   dotyczy. Makro, a nie wpis w dyspozytorze, bo dyspozytor nie ma jak
+   wstawić niczego MIĘDZY nagłówek a ciało karty. #}
+{% macro plakietka(inst) %}
+  <p class="an-kafelek__plakietka" data-plakietka hidden></p>
+{% endmacro %}
+
+
+{# ======================= KAFELKI ======================= #}
+{# Trzy kafelki BEZ wymiaru (KPI, Statystyki, Lejek) prowadza do Eksploratora
+   w przekroju kanalu sprzedazy. Do 23.09.2026 braly wymiar karty kanalow,
+   ale od Planu D tej karty moze byc kilka albo wcale — wiec przekroj jest
+   staly: ten sam, ktory karta kanalow ma domyslnie. Podaje go trasa
+   (`wymiar_kanalu_domyslny` = uklad.KATALOG['kanal'].domyslny_wymiar,
+   routers_analiza._kontekst_kafelkow), zeby zmiana domyslnego wymiaru
+   w katalogu nie zostawila tu szesciu starych napisow. #}
+
+{% macro kafelek_kpi(inst) %}
+  <div class="an-karta__glowa an-kpi">
+    {# Etykieta kafelka niesie jednostke — inaczej „369 226" i „423" wygladaja
+       tak samo, a jedno jest w zlotowkach, drugie w sztukach. Jednostka
+       idzie z rejestru miar (analiza_service.JEDNOSTKI_MIAR), nie z tej
+       listy, zeby kafelek i kolumna Eksploratora mowily to samo. #}
+    {# POLE „SPRZEDAŻ" idzie za przełącznikiem kafelka (24.09.2026): pokazuje
+       PIERWSZĄ miarę trybu — tę, którą niosą słupki wykresu pod spodem.
+       „zł" — netto, jak dotąd; „szt." i „zł + szt." — sztuki produktów bez
+       usług (w trybie „zł + szt." złotówki są krzywą na prawej osi). To ta
+       sama reguła, co na listach słupków: długość słupka i pierwsza kolumna
+       liczb = pierwsza miara trybu. Pozostałe cztery wskaźniki nie mają
+       odpowiednika w sztukach i zostają bez zmian.
+
+       Oba warianty stoją w DOM-ie, a CSS pokazuje jeden (reguły „WARIANTY
+       TRYBU MIARY" w analiza.css). Pole dzieli wiersze siatki KPI (subgrid,
+       cztery wiersze) — schowany wariant nie zajmuje wiersza, więc widoczny
+       ma zawsze swoje cztery. #}
+    {% for pole, etykieta in [('netto', 'Sprzedaż netto'), ('objetosc', 'Objętość'),
+                              ('zamowienia', 'Zamówienia'), ('srednie_zamowienie', 'Śr. zamówienie'),
+                              ('cena_za_m3', 'Cena')] %}
+    {% set warianty = [(pole, etykieta, 'zl zl_szt'), ('sztuki', 'Sprzedaż', 'szt')] if pole == 'netto' else [(pole, etykieta, '')] %}
+    <div class="an-kpi__pole">
+      {% for miara, podpis, widok in warianty %}
+      {% set atr_widoku %}{% if widok %} data-widok-miary="{{ widok }}"{% endif %}{% endset %}
+      <div class="an-etykieta"{{ atr_widoku }}>{{ podpis }}<span class="an-etykieta__jednostka">&#160;{{ jednostki[miara] }}</span></div>
+      <div class="an-liczba{% if miara == 'cena_za_m3' %} an-liczba--akcent{% endif %}"
+           data-pole="{{ inst.klucz }}.{{ miara }}"{{ atr_widoku }}>{{ sk(22, '84%') }}</div>
+      <div class="an-zmiana" data-pole="{{ inst.klucz }}.zmiana.{{ miara }}"{{ atr_widoku }}>{{ sk(10, '44%', 'd2') }}</div>
+      <div class="an-liczba--porownanie" data-pole="{{ inst.klucz }}.{{ miara }}.porownanie"{{ atr_widoku }} hidden></div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+  <div class="an-karta__cialo" data-cialo="{{ inst.klucz }}" style="padding-top:0">
+    {# Przełącznik KPI stoi nad wykresem, w prawym rogu — nie w nagłówku
+       karty, bo nagłówkiem KPI jest pięć wskaźników, a jego prawy górny róg
+       zajmuje piąty („Cena"). Nakładka na wykres zasłaniałaby słupek
+       bieżącego miesiąca, który stoi właśnie przy prawej krawędzi. #}
+    <div class="an-kpi__przelacznik">{{ przelacznik(inst) }}</div>
+    <div class="an-wykres-kadr an-wykres--trend">
+      <div class="sk-wykres" aria-hidden="true">
+        {% for h in [60, 78, 54, 84, 58, 44, 62, 74, 68] %}
+        <span class="sk {{ ['', 'd2', 'd3', 'd4'][loop.index0 % 4] }}" style="height:{{ h }}%"></span>
+        {% endfor %}
+      </div>
+      <canvas id="an-wykres-{{ inst.klucz|replace(':','-') }}" aria-label="Sprzedaż netto miesięcznie" role="img"></canvas>
+    </div>
+    <div class="an-legenda">
+      <span data-widok-miary="zl szt"><i class="an-probka" style="background:#C9C2B7"></i><span data-pole="trend.rok_biezacy">—</span></span>
+      <span data-widok-miary="zl szt"><i class="an-probka" data-legenda-probka="poprzedni" style="background:#E3DDD4"></i><span data-pole="trend.rok_poprzedni">—</span></span>
+      {# Tryb „zł + szt.": słupki to sztuki (lewa oś), krzywa to netto (prawa
+         oś). Legenda nazywa OBIE serie; nazwy i kolory próbek wpisuje
+         analiza.js (rysujLegendeTrendu) — te same, którymi rysuje wykres.
+         Próbka krzywej jest kreską, nie kwadratem: legenda odwzorowuje znak. #}
+      <span data-widok-miary="zl_szt"><i class="an-probka" data-legenda-probka="slupki"></i><span data-legenda="slupki">—</span></span>
+      <span data-widok-miary="zl_szt"><i class="an-probka an-probka--linia" data-legenda-probka="krzywa"></i><span data-legenda="krzywa">—</span></span>
+      <span data-widok-miary="zl_szt" data-legenda-segment hidden><i class="an-probka" data-legenda-probka="segment"></i><i class="an-probka an-probka--linia an-probka--przerywana" data-legenda-probka="segment-krzywa"></i><span data-legenda="segment">—</span></span>
+      {# Os pionowa wykresu ma podzialke „440k" — bez tego podpisu nie
+         wiadomo, czego jest to 440 tysiecy. W trybie „zł + szt." podpisy
+         osi (z jednostką, w kolorze serii) stoją na samym wykresie. #}
+      <span class="an-legenda__jednostka" data-widok-miary="zl">oś pionowa: tys.&#160;{{ jednostki['netto'] }}</span>
+      <span class="an-legenda__jednostka" data-widok-miary="szt">oś pionowa: {{ jednostki['sztuki'] }}</span>
+    </div>
+  </div>
+  {{ stopka('Wyświetl raport sprzedaży w czasie',
+            url_for('reports.eksplorator', wymiar=wymiar_kanalu_domyslny,
+                    przestawienie='miesiac', miara='netto',
+                    od=od.isoformat(), do=do.isoformat(), filtr=filtr_wyjsc),
+            miara='netto', wymiar=wymiar_kanalu_domyslny) }}
+{% endmacro %}
+
+{% macro kafelek_wnioski(inst) %}
+  <div class="an-karta__glowa">
+    <div class="an-karta__tytul">{{ TYTULY['wnioski'] }}</div>
+  </div>
+  <div class="an-karta__cialo" data-cialo="{{ inst.klucz }}">
+    {% for op in ['', 'd2', 'd3'] %}
+    <div class="an-wniosek">
+      {{ sk(10, '94%', op) }}{{ sk(10, '70%', 'd2', 'margin-top:6px') }}{{ sk(8, '42%', 'd3', 'margin-top:7px') }}
+    </div>
+    {% endfor %}
+    <p class="an-bez-segmentu" data-bez-segmentu="{{ inst.klucz }}" hidden>
+      Uwaga: segment nie dotyczy tej karty — wnioski opisują cały okres.
+    </p>
+  </div>
+  {{ stopka('Wyświetl wszystkie statystyki',
+            url_for('reports.eksplorator', wymiar=wymiar_kanalu_domyslny,
+                    przestawienie='miesiac', miara='netto',
+                    od=od.isoformat(), do=do.isoformat(), filtr=filtr_wyjsc),
+            miara='netto', wymiar=wymiar_kanalu_domyslny) }}
+{% endmacro %}
+
+{% macro kafelek_kanal(inst) %}
+  <div class="an-karta__glowa an-karta__glowa--przelacznik">
+{{ tytul(inst) }}
+    {{ przelacznik(inst) }}
+    <div class="an-karta__wymiar">{{ selektor(inst) }}</div>
+  </div>
+  {{ plakietka(inst) }}
+  <div class="an-karta__cialo" data-cialo="{{ inst.klucz }}">
+    {{ naglowek_kolumny('kanal', przelacznik=ma_przelacznik(inst)) }}
+    {% for i in range(4) %}{{ sk_wiersz(62) }}{% endfor %}
+    <div class="an-podsekcja">
+      {# Podsekcja ma juz wlasna etykiete, wiec jednostka dosiada do niej
+         zamiast zajmowac drugi wiersz — makro sklada oba napisy w jeden
+         rzad, po lewej podpis, po prawej jednostka nad kolumna liczb. #}
+      {{ naglowek_kolumny('kanal_rozbicie', przelacznik=ma_przelacznik(inst), staly_podpis=true) }}
+      {# Rozbicie kanalu recznego NIE zalezy od wymiaru kafelka (payload niesie
+         je raz, pod `kanal_rozbicie`) — stad wlasny uchwyt, a nie drugie
+         `data-cialo`: to ostatnie identyfikuje kafelek. #}
+      <div data-rozbicie>
+        {% for i in range(3) %}{{ sk_wiersz(62, 12) }}{% endfor %}
+      </div>
+    </div>
+  </div>
+  {{ stopka('Wyświetl raport kanałów',
+            url_for('reports.eksplorator', wymiar=inst.wymiar,
+                    przestawienie='miesiac', miara='netto',
+                    od=od.isoformat(), do=do.isoformat(), filtr=filtr_wyjsc),
+            miara='netto', wymiar=inst.wymiar) }}
+{% endmacro %}
+
+{% macro kafelek_opiekun(inst) %}
+  <div class="an-karta__glowa an-karta__glowa--przelacznik">
+{{ tytul(inst) }}
+    {{ przelacznik(inst) }}
+    <div class="an-karta__wymiar">{{ selektor(inst) }}</div>
+  </div>
+  {{ plakietka(inst) }}
+  <div class="an-karta__cialo" data-cialo="{{ inst.klucz }}">
+    {{ naglowek_kolumny('opiekun', 48, przelacznik=ma_przelacznik(inst)) }}
+    {% for i in range(5) %}{{ sk_wiersz(82) }}{% endfor %}
+    <div class="an-podsekcja" style="display:flex;justify-content:space-between;font-size:11px;color:#6E6860">
+      <span>Najwyższe śr. zamówienie</span>
+      <span class="an-mono" data-pole="{{ inst.klucz }}.najlepszy">—</span>
+    </div>
+  </div>
+  {{ stopka('Wyświetl raport handlowców',
+            url_for('reports.eksplorator', wymiar=inst.wymiar,
+                    przestawienie='miesiac', miara='netto',
+                    od=od.isoformat(), do=do.isoformat(), filtr=filtr_wyjsc),
+            miara='netto', wymiar=inst.wymiar) }}
+{% endmacro %}
+
+{% macro kafelek_mix(inst) %}
+  <div class="an-karta__glowa">
+    <div class="an-karta__tytul">{{ TYTULY['mix'] }}</div>
+    <div class="an-karta__wymiar">{{ selektor(inst) }}</div>
+  </div>
+  {{ plakietka(inst) }}
+  <div class="an-karta__cialo" data-cialo="{{ inst.klucz }}">
+    {# Kadr przewijania dla ROZWINIETEGO ogona („Pozostale (N)"). Bez
+       niego rozwiniecie kilkunastu konfiguracji urosloby karte o kilkaset
+       pikseli i podnioslo caly rzad siatki. Klase --rozwiniety dokłada
+       analiza.js dopiero na czas rozwiniecia, wiec karta zwinieta
+       wyglada dokladnie tak jak przedtem. #}
+    <div class="an-kadr-listy" data-kadr="mix">
+    <table class="an-tabela">
+      {# Jednostki z tego samego rejestru co reszta strony — ta karta
+         miala je od poczatku i jest wzorcem dla pozostalych, ale
+         wpisane na sztywno rozjechalyby sie z Eksploratorem przy
+         pierwszej zmianie zapisu. #}
+      <thead><tr>
+        <th scope="col" class="an-etykieta">Konfiguracja</th>
+        <th scope="col" class="an-etykieta">{{ jednostki['objetosc'] }}</th>
+        <th scope="col" class="an-etykieta">{{ jednostki['cena_za_m3'] }}</th>
+      </tr></thead>
+      <tbody data-lista="{{ inst.klucz }}">
+        {% for i in range(6) %}
+        <tr><td colspan="3">{{ sk(15, '100%', ['', 'd2', 'd3', 'd4'][i % 4]) }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+  {{ stopka('Wyświetl miks produktowy',
+            url_for('reports.eksplorator', wymiar=inst.wymiar,
+                    przestawienie='miesiac', miara='objetosc',
+                    od=od.isoformat(), do=do.isoformat(), filtr=filtr_wyjsc),
+            miara='objetosc', wymiar=inst.wymiar) }}
+{% endmacro %}
+
+{% macro kafelek_klienci(inst) %}
+  <div class="an-karta__glowa an-karta__glowa--przelacznik">
+{{ tytul(inst) }}
+    {# Koło: „zł" albo „szt." — kawałek nie pokaże dwóch miar naraz. Na
+       kubełkach sztuki liczą się z całej historii sprzedaży klientów, tą
+       samą definicją co ich netto (etap SERWER, K4). #}
+    {{ przelacznik(inst) }}
+    {# Selektor byl do 23.09.2026 JEDNOOPCYJNY i `disabled` — wygladal
+       dokladnie jak siedem dzialajacych selektorow obok i nie dawal sie
+       otworzyc (zgloszenie uzytkownika). Kubelkowanie po liczbie
+       zamowien faktycznie nie jest polem rejestru, ale to nie znaczy,
+       ze karta nie ma innych sensownych wymiarow: pochodzenie klienta,
+       opiekun, kanal i wojewodztwo opisuja KLIENTA i wchodza z rejestru
+       (analiza_service.WYMIARY_KLIENTOW). Domyslna zostaje „Liczba
+       zamowien". #}
+    <div class="an-karta__wymiar">
+      {{ selektor(inst) }}
+    </div>
+  </div>
+  {{ plakietka(inst) }}
+  <div class="an-karta__cialo" data-cialo="{{ inst.klucz }}">
+    {# KOŁO (partia E, punkt E2). Cytat prezesa: „kafel »Klienci wg.« ma mieć
+       wykres kołowy, pod nim informacje % oraz kwotowe". Kawałek = NETTO:
+       kubełki niosą wartość zamówień klientów z całej historii, każdy inny
+       wymiar — netto okresu (uzasadnienie w analiza_service.KARTY_KUBELKOWE).
+
+       TEN SAM komponent pierścienia, co karta wykończeń (analiza.js,
+       rysujPierscien): kadr o stałej wysokości już w szkielecie, kanwa
+       z `id` niosącym klucz INSTANCJI (dwie karty „Klienci" z różnymi
+       wymiarami nie dzielą `id`) i nakładka ze środkiem — udział
+       największego kawałka i jego etykieta, policzone na serwerze. Drugi
+       komponent koła znaczyłby dwie konwencje w jednej aplikacji. #}
+    <div class="an-wykres-kadr an-wykres--pierscien an-kolo-klientow">
+      <div class="sk-wykres sk-wykres--kolo" aria-hidden="true"><span class="sk" style="height:100%"></span></div>
+      {# Nazwa dostępna koła nazywa miarę kawałka, więc w trybie „szt." ma swój
+         wariant (analiza.js, rysujKoloKlientow) — „wartość zamówień" nad
+         kołem sztuk kłamałaby czytnikowi ekranu. #}
+      <canvas id="an-wykres-{{ inst.klucz|replace(':','-') }}" aria-label="Udział w wartości zamówień"
+              {%- if ma_przelacznik(inst) %} data-etykieta-sztuki="Udział w sztukach produktów"{% endif %} role="img"></canvas>
+      <div class="an-pierscien-srodek">
+        <span class="an-mono" data-pole="{{ inst.klucz }}.udzial">—</span>
+        <small data-pole="{{ inst.klucz }}.nazwa">—</small>
+      </div>
+    </div>
+    {# LEGENDA-TABELA POD KOŁEM (nie obok — „pod nim"): kolor, etykieta,
+       udział %, kwota. Nagłówki z jednostkami Z REJESTRU (jednostka udziału
+       i „Netto" z KOLUMNY_KART), cyfry w Mono. Kadr przewijania dla
+       rozwiniętego „Pozostałe (N)" — ten sam, co w tabeli miksu. #}
+    <div class="an-kadr-listy" data-kadr="klienci">
+    <table class="an-tabela an-legenda-kola">
+      <thead><tr>
+        <th scope="col" class="an-etykieta"><span class="an-ukryte">Wartość wymiaru</span></th>
+        <th scope="col" class="an-etykieta">{{ jednostki['udzial'] }}</th>
+        {# Kolumna kwoty idzie za przełącznikiem koła: „Netto zł" albo
+           „Sztuki szt." (udział % obok liczy serwer dla obu miar). #}
+        <th scope="col" class="an-etykieta">
+          {%- if ma_przelacznik(inst) -%}
+          <span data-widok-miary="zl">{{ naglowki_kolumn['klienci'].podpis }}<span class="an-etykieta__jednostka">&#160;{{ naglowki_kolumn['klienci'].jednostka }}</span></span>
+          {%- else -%}
+          {{ naglowki_kolumn['klienci'].podpis }}<span class="an-etykieta__jednostka">&#160;{{ naglowki_kolumn['klienci'].jednostka }}</span>
+          {%- endif -%}
+          {%- if ma_przelacznik(inst) -%}
+          <span data-widok-miary="szt">{{ etykiety_miar['sztuki'] }}<span class="an-etykieta__jednostka">&#160;{{ jednostki['sztuki'] }}</span></span>
+          {%- endif -%}
+        </th>
+      </tr></thead>
+      <tbody data-lista="{{ inst.klucz }}">
+        {% for i in range(4) %}
+        <tr><td colspan="3">{{ sk(13, '100%', ['', 'd2', 'd3', 'd4'][i % 4]) }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    <div class="an-podsekcja an-para">
+      <div>
+        <div class="an-etykieta">Lead → klient</div>
+        <div class="an-liczba an-liczba--mala" data-pole="{{ inst.klucz }}.konwersja">{{ sk(17, '58px') }}</div>
+      </div>
+      <div>
+        <div class="an-etykieta">Nowi w okresie<span class="an-etykieta__jednostka">&#160;{{ jednostki['klienci'] }}</span></div>
+        <div class="an-liczba an-liczba--mala" data-pole="{{ inst.klucz }}.nowi">{{ sk(17, '42px', 'd2') }}</div>
+      </div>
+    </div>
+    {# ZAWSZE widoczna, nie tylko przy segmencie: te liczby nie sa liczone
+       za wybrany okres (klienci_wg_liczby_zamowien() nie dostaje dat),
+       a wiekszosc uzytkownikow nigdy nie wlaczy segmentu porownawczego
+       i odczyta karte jako dane okresu. #}
+    {# Tresc przepisuje analiza.js z payloadu (`uwaga` karty): kubelki
+       licza sie z calej historii, ale przekroj po wymiarze z rejestru
+       juz za wybrany okres, wiec jedno zdanie dla obu stanow musialoby
+       jednemu z nich klamac. Tu stoi wariant DOMYSLNY, zeby adnotacja
+       byla prawdziwa takze przed przyjsciem danych. W trybie „szt."
+       przelacznika analiza.js wpisuje tu `uwaga_sztuk` — zdanie
+       „kawalki kola to netto" pod kolem sztuk klamaloby (weryfikacja
+       24.09.2026); zdanie o kubelkach miary nie nazywa, wiec ten wariant
+       domyslny jest prawdziwy w obu trybach. #}
+    <p class="an-bez-segmentu" data-bez-segmentu="{{ inst.klucz }}" data-zawsze
+       data-pole="{{ inst.klucz }}.uwaga">
+      Uwaga: kubełki i konwersja liczą się z całej historii klientów —
+      nie za wybrany okres ani segment.
+    </p>
+  </div>
+  {# Wyjście idzie za wymiarem karty, jak na innych kartach (partia E8,
+     punkt 4g); przy kubełkach — za pierwszym wymiarem karty z katalogu. #}
+  {% set wymiar_wyjscia = wymiar_wyjscia_kubelkowej('klienci', inst.wymiar) %}
+  {{ stopka('Wyświetl raport klientów',
+            url_for('reports.eksplorator', wymiar=wymiar_wyjscia,
+                    przestawienie='miesiac', miara='netto',
+                    od=od.isoformat(), do=do.isoformat(), filtr=filtr_wyjsc),
+            miara='netto', wymiar=wymiar_wyjscia) }}
+{% endmacro %}
+
+{% macro kafelek_wojewodztwo(inst) %}
+  <div class="an-karta__glowa an-karta__glowa--przelacznik">
+{{ tytul(inst) }}
+    {{ przelacznik(inst) }}
+    <div class="an-karta__wymiar">{{ selektor(inst) }}</div>
+  </div>
+  {{ plakietka(inst) }}
+  <div class="an-karta__cialo" data-cialo="{{ inst.klucz }}">
+    {# Naglowek kolumny ZOSTAJE, choc kolumny liczb juz nie ma: podpisuje
+       teraz MIARE, ktora niesie kolor kartogramu. Ta sama miara co
+       w KOLUMNY_KART['wojewodztwo'], wiec podpis nie ma jak rozjechac
+       sie z tym, co maluje mapa. Przy innym wymiarze karty (selektor
+       wyzej) mapa znika, a naglowek podpisuje z powrotem slupki. #}
+    {{ naglowek_kolumny('wojewodztwo', 34, przelacznik=ma_przelacznik(inst)) }}
+
+    {# KARTOGRAM. Szesnascie sciezek przychodzi ze WSPOLNEGO fragmentu —
+       te same ksztalty, ktore rysuje modal starej zakladki. Wrapper
+       <svg> nalezy do tej strony: bez podpisow w srodku wojewodztw
+       (etykiety=false), za to z fokusowalnymi obszarami (interaktywna),
+       bo dymek tylko na :hover wyklucza klawiature i tablet.
+
+       Blok jest .an-podsekcja, wiec rysujWiersze() wstawia ewentualne
+       slupki NAD nim i nigdy go nie kasuje (kasuje tylko .an-wiersz).
+
+       Skeleton to sama mapa w kolorze szkieletu — blizniak ukladu co do
+       piksela (spec 6.2), zamiast siedmiu pasków, ktore po przyjsciu
+       danych i tak znikaja.
+
+       PREFIKS IDENTYFIKATOROW. Sciezki niosa `id` wojewodztw, a kafelek
+       wojewodztw moze stac na pulpicie kilka razy (kazdy z innym wymiarem,
+       kazdy z mapa w szkielecie) — bez prefiksu dwa kafelki dawalyby
+       szesnascie zdublowanych identyfikatorow. Prefiksem jest klucz
+       instancji, unikalny w ukladzie. analiza.js szuka obszaru po
+       `data-obszar`, nie po `id`, wiec prefiks go nie dotyczy; modal
+       starej zakladki wlacza fragment BEZ prefiksu i jego
+       document.getElementById(id) dziala jak dawniej. #}
+    <div class="an-podsekcja an-mapa" data-mapa="{{ inst.klucz }}">
+      <svg class="an-mapa__rysunek" viewBox="112 27 576 546"
+           role="group" aria-label="Mapa sprzedaży według województw">
+        {% with etykiety = false, interaktywna = true, prefiks = inst.klucz|replace(':','-') ~ '-' %}
+          {% include 'analiza/_mapa_polski.html' %}
+        {% endwith %}
+      </svg>
+
+      {# Skala sekwencyjna, jeden odcien. „Bez danych" stoi OSOBNO, a nie
+         na koncu gradientu: wojewodztwo bez ani jednego zamowienia to co
+         innego niz wojewodztwo z zamowieniami na zero zlotych. #}
+      <div class="an-mapa__legenda">
+        <span class="an-etykieta">mniej</span>
+        {% for poziom in range(1, 6) %}
+        <span class="an-mapa__probka an-mapa__probka--p{{ poziom }}"></span>
+        {% endfor %}
+        <span class="an-etykieta">więcej</span>
+        <span class="an-mapa__probka an-mapa__probka--brak"></span>
+        <span class="an-etykieta">bez danych</span>
+      </div>
+
+      {# Zamowienia, ktore na mape nie trafily. Na calej bazie to 296
+         zamowien z pustym wojewodztwem (691 103 zl) i jedno z ucieta
+         nazwa „Dol" — razem wiecej netto niz Podkarpackie. Przemilczane
+         znaczylyby, ze suma mapy nie zgadza sie z KPI bez wyjasnienia. #}
+      <table class="an-tabela an-tabela--waska" data-poza-mapa="{{ inst.klucz }}" hidden>
+        <thead><tr>
+          <th scope="col" class="an-etykieta">Poza mapą</th>
+          {# Pierwsza kolumna liczb to miara, którą maluje mapa — w trybie
+             „szt." sztuki. Zamówienia obok zostają w każdym trybie. #}
+          <th scope="col" class="an-etykieta">
+            {%- if ma_przelacznik(inst) -%}
+            <span data-widok-miary="zl">{{ naglowki_kolumn['wojewodztwo'].podpis }}<span class="an-etykieta__jednostka">&#160;{{ naglowki_kolumn['wojewodztwo'].jednostka }}</span></span>
+            {#- -#}
+            <span data-widok-miary="szt">{{ etykiety_miar['sztuki'] }}<span class="an-etykieta__jednostka">&#160;{{ jednostki['sztuki'] }}</span></span>
+            {%- else -%}
+            {{ naglowki_kolumn['wojewodztwo'].podpis }}<span class="an-etykieta__jednostka">&#160;{{ naglowki_kolumn['wojewodztwo'].jednostka }}</span>
+            {%- endif -%}
+          </th>
+          <th scope="col" class="an-etykieta">Zamówienia<span class="an-etykieta__jednostka">&#160;{{ jednostki['zamowienia'] }}</span></th>
+        </tr></thead>
+        <tbody data-lista="{{ inst.klucz }}-poza-mapa"></tbody>
+      </table>
+    </div>
+  </div>
+  {# Link zostaje TO SAMO (modal starej zakladki pokazuje co innego niz
+     ta mapa — metry szescienne „w produkcji + wyprodukowane" wprost
+     z prod_orders — wiec nie jest jej duplikatem), ale TEKST musial sie
+     zmienic. „Otwórz mapę województw" mial sens, kiedy ta karta byla
+     lista slupkow, a jedyna mapa wojewodztw na tej stronie byla wlasnie
+     w tym modalu. Od kartogramu (22.09) karta SAMA jest mapa —
+     ten sam podpis pod nia brzmial, jakby otwieral te sama mape drugi
+     raz. Wyjscie prowadzi do INNEJ mapy (produkcji), wiec ma sie tak
+     nazywac. #}
+  {{ stopka('Otwórz mapę produkcji', url_for('reports.reports_home') ~ '?mapa=1') }}
+{% endmacro %}
+
+{% macro kafelek_naleznosci(inst) %}
+  <div class="an-karta__glowa">
+    <div class="an-karta__tytul">{{ TYTULY['naleznosci'] }}</div>
+    {# Jak na karcie klientow wyzej: selektor byl `disabled`, bo kubelki
+       wieku nie sa polem rejestru. Saldo da sie jednak sensownie
+       pokazac takze w przekroju opiekuna, kanalu, statusu i formy
+       platnosci — wszystkie z rejestru, wszystkie na poziomie
+       ZAMOWIENIA, bo saldo tam zyje (analiza_service.WYMIARY_NALEZNOSCI).
+       Miara zostaje ta sama w kazdym trybie, wiec podpis kolumny jest
+       staly; zmienia sie ZASIEG i mowi o tym adnotacja pod karta. #}
+    <div class="an-karta__wymiar">
+      {{ selektor(inst) }}
+    </div>
+  </div>
+  {{ plakietka(inst) }}
+  <div class="an-karta__cialo" data-cialo="{{ inst.klucz }}">
+    {{ naglowek_kolumny('naleznosci', dynamiczny=true) }}
+    {% for i in range(5) %}{{ sk_wiersz(50, 13) }}{% endfor %}
+    {# Klasa an-podsekcja jest tu OBOWIAZKOWA, nie kosmetyczna: rysujWiersze
+       wstawia wiersze PRZED pierwsza podsekcja. Bez niej ostrzezenie
+       wyladowaloby nad kubelkami wieku, odwrotnie niz w makiecie
+       (Main.dc.html:284-291). #}
+    <div class="an-podsekcja an-podsekcja--bez-linii"
+         data-pole="{{ inst.klucz }}.ostrzezenie">{{ sk(34, '100%', 'd3') }}</div>
+    {# Nadplaty NIE sa kubelkiem wieku (inna kategoria — patrz
+       aggregates.nadplaty) i ZAWSZE mowia, ze kubelki wyzej licza
+       wylacznie salda dodatnie — stad wlasna podsekcja, sasiadujaca
+       z ostrzezeniem o starych zamowieniach, a nie szosty wiersz paska. #}
+    <div class="an-podsekcja an-podsekcja--bez-linii"
+         data-pole="{{ inst.klucz }}.nadplaty">{{ sk(34, '100%', 'd3') }}</div>
+    {# ZAWSZE widoczna — z tego samego powodu co na karcie klientow:
+       naleznosci_wg_wieku(na_dzien) liczy sie na DZIS, nie za okres. #}
+    {# Jak na karcie klientow: tresc przepisuje analiza.js z payloadu
+       (`uwaga` karty), bo kubelki wieku licza sie na dzis, a przekroj
+       po wymiarze — za wybrany okres. #}
+    <p class="an-bez-segmentu" data-bez-segmentu="{{ inst.klucz }}" data-zawsze
+       data-pole="{{ inst.klucz }}.uwaga">
+      Uwaga: należności liczą się na dziś — nie za wybrany okres ani segment.
+    </p>
+  </div>
+  {# Tekst zmieniony wzgledem makiety (Main.dc.html:328: „Wyswietl
+     naleznosci") — DRUGI wyjatek od testu, co do slowa jak przy
+     „Otworz mape produkcji" wyzej. Powod: Eksplorator NIE MA miary
+     „saldo" (MIARY_PANELU/MIARY_PRZESTAWIENIA w analiza_service.py
+     konczy sie na netto/objetosc/zamowienia/klienci) i nie umie
+     pokazac naleznosci w zadnej formie — miara=netto w tym wyjsciu
+     to netto pogrupowane wedlug STATUSU zamowienia, zupelnie inna
+     liczba niz kubelki wieku salda na tej karcie. Klikniecie „Wyswietl
+     naleznosci" pokazywaloby wiec netto pod etykieta, ktora obiecuje
+     zlotowki naleznosci (przeglad, WAZNE 4). Uczciwy tekst mowi, CO
+     naprawde pokaze wyjscie — dopoki Eksplorator nie dostanie miary
+     saldo (poza tym pasmem), nie da sie tego zrobic inaczej. #}
+  {{ stopka('Wyświetl zamówienia wg statusu',
+            url_for('reports.eksplorator', wymiar='current_status',
+                    przestawienie='miesiac', miara='netto',
+                    od=od.isoformat(), do=do.isoformat(), filtr=filtr_wyjsc),
+            miara='netto', wymiar='current_status') }}
+{% endmacro %}
+
+{% macro kafelek_lejek(inst) %}
+  <div class="an-karta__glowa">
+    <div class="an-karta__tytul">{{ TYTULY['lejek'] }}</div>
+    {# Selektor PODZIALU, nie wymiaru karty: piec stopni lejka pokazuje
+       sie zawsze, a wybor przelacza dodatkowa tabelke „w przekroju".
+
+       Opcje poza domyslna dokłada analiza.js z payloadu
+       (dane.lejek.wymiary) — ich lista powstaje na SERWERZE, z rejestru
+       pol (analiza_service.wymiary_lejka), a nie z napisow wpisanych
+       tutaj. Skladanie ich w szablonie wymagaloby przekazania listy
+       przez trase; payload i tak leci przy kazdym odswiezeniu, a wybor
+       podzialu NIE zmienia zadnego zapytania — serwer liczy wszystkie
+       warianty naraz, wiec przelaczenie jest natychmiastowe.
+
+       Opakowanie .an-sel-opak jest OBOWIAZKOWE: .an-sel ma
+       position:absolute z inset:0 i bez pozycjonowanego rodzica
+       przykrywa cala strone (patrz analiza.css i test struktury). #}
+    <div class="an-karta__wymiar">
+      <span class="an-sel-opak">
+        <span class="an-sel-etykieta" aria-hidden="true">Brak podziału</span>
+        <select class="an-sel" data-selektor-lejka aria-label="Podział lejka">
+          <option>Brak podziału</option>
+        </select>
+      </span>
+    </div>
+  </div>
+  <div class="an-karta__cialo" data-cialo="{{ inst.klucz }}">
+    {# Dwie kolumny liczb: stopien w sztukach i jego udzial w stopniu
+       pierwszym. Slupek niesie ten udzial, wiec liczba i slupek mowia
+       o tej samej wielkosci. Obie jednostki podpisane RAZ, w naglowku,
+       i obie z rejestru — patrz makro naglowek_kolumny wyzej. #}
+    <div class="an-naglowek-kolumn">
+      <span class="an-etykieta">{{ naglowki_kolumn['lejek'].podpis }}</span>
+      <span class="an-etykieta an-naglowek-kolumn__jednostka" style="width:40px">{{ naglowki_kolumn['lejek'].jednostka }}</span>
+      <span class="an-etykieta an-naglowek-kolumn__jednostka" style="width:36px">{{ jednostki['udzial'] }}</span>
+    </div>
+    {% for i in range(5) %}{{ sk_wiersz(96, 13) }}{% endfor %}
+    <div class="an-podsekcja an-trojka">
+      <div>
+        <div class="an-etykieta">Śr. wycena<span class="an-etykieta__jednostka">&#160;{{ jednostki['wartosc_wyceny'] }}</span></div>
+        <div class="an-liczba an-liczba--mala" data-pole="{{ inst.klucz }}.srednia_wycena">{{ sk(15, '100%', 'd2') }}</div>
+      </div>
+      <div>
+        <div class="an-etykieta">Śr. zamówiona<span class="an-etykieta__jednostka">&#160;{{ jednostki['wartosc_wyceny'] }}</span></div>
+        <div class="an-liczba an-liczba--mala" data-pole="{{ inst.klucz }}.srednia_zamowiona">{{ sk(15, '100%', 'd3') }}</div>
+      </div>
+      <div>
+        {# Mediana czasu wycena -> zamowienie. Srednia klamalaby: jedno
+           zamowienie zlozone pol roku po wycenie przesuwa ja o tygodnie. #}
+        <div class="an-etykieta">Mediana<span class="an-etykieta__jednostka">&#160;{{ jednostki['czas_do_zamowienia'] }}</span></div>
+        <div class="an-liczba an-liczba--mala" data-pole="{{ inst.klucz }}.mediana_dni">{{ sk(15, '100%', 'd4') }}</div>
+      </div>
+    </div>
+    {# Tabela podzialu. Pusta i schowana, dopoki uzytkownik nie wybierze
+       wymiaru — domyslnie karta pokazuje sam lejek i nie rosnie. #}
+    <div class="an-podsekcja" data-podzial="{{ inst.klucz }}" hidden>
+      {# Kadr przewijania rozwinietego ogona — patrz komentarz przy
+         tabeli karty „Objetosc i cena". #}
+      <div class="an-kadr-listy" data-kadr="lejek-podzial">
+      <table class="an-tabela an-tabela--waska">
+        <thead><tr>
+          <th scope="col" class="an-etykieta" data-naglowek-podzialu>Podział</th>
+          <th scope="col" class="an-etykieta">Wycen<span class="an-etykieta__jednostka">&#160;{{ naglowki_kolumn['lejek'].jednostka }}</span></th>
+          <th scope="col" class="an-etykieta">Zam.<span class="an-etykieta__jednostka">&#160;{{ naglowki_kolumn['lejek'].jednostka }}</span></th>
+          <th scope="col" class="an-etykieta">{{ jednostki['udzial'] }}</th>
+        </tr></thead>
+        <tbody data-lista="lejek-podzial"></tbody>
+      </table>
+      </div>
+      {# Zdanie, bez ktorego etykiety kusza do zestawienia z kartami
+         obok: tamte grupuja po kolumnach ZAMOWIENIA, ta po kolumnach
+         WYCENY, a to inne zbiory wartosci (patrz analytics.ETYKIETY_LEJKA).
+         Klasa .an-przypis, NIE .an-bez-segmentu — tamta ma wlasne
+         znaczenie i analiza.js ja chowa. #}
+      <p class="an-przypis">Podział idzie po atrybutach wyceny, nie zamówienia.</p>
+    </div>
+    {# Bursztyn, nie czerwien: to nie jest blad, tylko granica
+       wiarygodnosci danych (ta sama zasada co przy nadplatach). #}
+    <div class="an-info"><p data-pole="{{ inst.klucz }}.uwaga">{{ sk(24, '100%', 'd3') }}</p></div>
+    <p class="an-bez-segmentu" data-bez-segmentu="{{ inst.klucz }}" hidden>
+      Uwaga: segment nie dotyczy tej karty — lejek liczy się z wycen, nie z zamówień.
+    </p>
+    {# Wykluczenia pozycji (partia E, punkty E4 i E8) tej karty NIE dotyczą:
+       wycena nie jest pozycją sprzedaży i nie ma pól wykluczeń w tym sensie,
+       w jakim ma je pozycja zamówienia. Pól nie wymieniamy z nazwy — stoją
+       nad pulpitem, a lista wpisana tu z pamięci rozjechałaby się
+       z filters.POLA_WYKLUCZEN (E8 dopisało czwartą grupę). Zdanie pokazuje
+       analiza.js tylko przy włączonych wykluczeniach — bez nich byłoby
+       szumem. #}
+    <p class="an-bez-segmentu" data-bez-wykluczen="{{ inst.klucz }}" hidden>
+      Uwaga: wykluczenia z pól u góry pulpitu nie dotyczą tej karty — lejek liczy się z wycen, nie z pozycji zamówień.
+    </p>
+  </div>
+  {{ stopka('Wyświetl lejek',
+            url_for('reports.eksplorator', wymiar=wymiar_kanalu_domyslny,
+                    przestawienie='miesiac', miara='zamowienia',
+                    od=od.isoformat(), do=do.isoformat(), filtr=filtr_wyjsc),
+            miara='zamowienia', wymiar=wymiar_kanalu_domyslny) }}
+{% endmacro %}
+
+{% macro kafelek_wykonczenie(inst) %}
+  <div class="an-karta__glowa an-karta__glowa--przelacznik">
+{{ tytul(inst) }}
+    {{ przelacznik(inst) }}
+    <div class="an-karta__wymiar">{{ selektor(inst) }}</div>
+  </div>
+  {{ plakietka(inst) }}
+  {# `an-karta__cialo--pierscien`: to jedyne ciało karty ułożone w WIERSZ
+     (pierścień obok legendy). Układ (flex, `safe center`) stoi w analiza.css,
+     a nie w atrybucie `style`: po rozwinięciu ogona legenda bywa wyższa od
+     przewijanego ciała, a zwykłe `center` z atrybutu wysunęłoby jej górę
+     poza obszar, który da się przewinąć. #}
+  <div class="an-karta__cialo an-karta__cialo--pierscien" data-cialo="{{ inst.klucz }}">
+    <div class="an-wykres-kadr an-wykres--pierscien">
+      <div class="sk-wykres sk-wykres--kolo" aria-hidden="true"><span class="sk" style="height:100%"></span></div>
+      {# Kanwa nalezy do KAFELKA, nie do strony: `id` niesie klucz instancji.
+         Do 23.09.2026 byl staly, wiec dwa kafelki wykonczenia dalyby dwa
+         elementy o tym samym `id`. #}
+      <canvas id="an-wykres-{{ inst.klucz|replace(':','-') }}" aria-label="Udział wykończeń" role="img"></canvas>
+      {# Dominujaca liczba karty (88,8% surowego w makiecie) siedzi
+         W SRODKU pierscienia. Chart.js sam niczego w dziurze nie napisze,
+         a plugin afterDraw byloby drugim mechanizmem rysowania do
+         utrzymania — nakladka HTML jest tansza i dziala z czytnikiem
+         ekranu (liczba jest w DOM-ie, nie na kanwie). #}
+      <div class="an-pierscien-srodek">
+        <span class="an-mono" data-pole="{{ inst.klucz }}.udzial">—</span>
+        <small data-pole="{{ inst.klucz }}.nazwa">—</small>
+      </div>
+    </div>
+    <div style="flex-grow:1;min-width:0">
+      {# Naglowek MUSI stac poza [data-lista], bo rysujLegendeWykonczenia()
+         czysci ten pojemnik do zera przy kazdym odswiezeniu. #}
+      {{ naglowek_kolumny('wykonczenie', '', przelacznik=ma_przelacznik(inst)) }}
+      <div data-lista="{{ inst.klucz }}">
+        {{ sk(11, '92%', '', 'margin-bottom:11px') }}{{ sk(11, '84%', 'd2', 'margin-bottom:11px') }}{{ sk(11, '76%', 'd3') }}
+      </div>
+      {# Porównanie z surowym ma sens tylko na wymiarze wykończenia — na innym
+         (np. Status z wartością „W produkcji - surowe") serwer go nie liczy,
+         więc podsekcji nie ma (patrz WYMIAR_WYKONCZENIA w analiza_service). #}
+      {% if inst.wymiar == wymiar_wykonczenia %}
+      <div class="an-podsekcja">
+        <div class="an-etykieta">Cena za m³ z wykończeniem</div>
+        <div class="an-mono" style="font-size:11.5px;color:#3A352E;margin-top:5px" data-pole="{{ inst.klucz }}.roznica">—</div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {{ stopka('Wyświetl wykończenia',
+            url_for('reports.eksplorator', wymiar=inst.wymiar,
+                    przestawienie='miesiac', miara='netto',
+                    od=od.isoformat(), do=do.isoformat(), filtr=filtr_wyjsc),
+            miara='netto', wymiar=inst.wymiar) }}
+{% endmacro %}
+
+{% macro kafelek_dostawa(inst) %}
+  <div class="an-karta__glowa an-karta__glowa--przelacznik">
+{{ tytul(inst) }}
+    {{ przelacznik(inst) }}
+    <div class="an-karta__wymiar">{{ selektor(inst) }}</div>
+  </div>
+  {{ plakietka(inst) }}
+  <div class="an-karta__cialo" data-cialo="{{ inst.klucz }}">
+    {# Jak na karcie wojewodztw: slupek to netto, liczba to objetosc. #}
+    {{ naglowek_kolumny('dostawa', 34, przelacznik=ma_przelacznik(inst)) }}
+    {% for i in range(3) %}{{ sk_wiersz(90, 13) }}{% endfor %}
+    <div class="an-podsekcja">
+      <div class="an-etykieta" style="margin-bottom:8px">Koszt kuriera pobrany od klienta</div>
+      <div class="an-liczba" style="font-size:19px" data-pole="{{ inst.klucz }}.koszt_kuriera">{{ sk(19, '106px') }}</div>
+      <p style="margin:8px 0 0 0;font-size:10.5px;line-height:1.45;color:#8A8278">
+        Rzeczywistego kosztu nadania CRM nie zapisuje — marży na transporcie nie da się dziś policzyć.
+      </p>
+    </div>
+  </div>
+  {{ stopka('Wyświetl raport dostaw',
+            url_for('reports.eksplorator', wymiar=inst.wymiar,
+                    przestawienie='miesiac', miara='netto',
+                    od=od.isoformat(), do=do.isoformat(), filtr=filtr_wyjsc),
+            miara='netto', wymiar=inst.wymiar) }}
+{% endmacro %}
+
+
+{# Dyspozytor. Jinja nie ma słownika makr, więc łańcuch `if` jest tu najprostszą
+   rzeczą, która działa i daje się przeczytać. Gałąź `else` nie istnieje celowo:
+   trasa wpuszcza wyłącznie typy z katalogu (`uklad.parsuj_uklad`), a cicha
+   gałąź „nieznany typ" zamieniłaby błąd w niewidzialną dziurę w siatce. #}
+{% macro kafelek(inst) %}
+<section class="an-karta an-kafelek{% if szerokosci[inst.typ] == 2 %} an-kafelek--szeroki{% endif %}"
+         data-kafelek
+         data-klucz="{{ inst.klucz }}"
+         data-typ="{{ inst.typ }}"
+         {%- if inst.wymiar %} data-wymiar="{{ inst.wymiar }}"
+         data-wymiar-zapisany="{{ inst.wymiar }}"{% endif %}
+         {%- set opcje_miary = opcje_przelacznika(inst.typ, inst.wymiar) %}
+         {%- if opcje_miary %} data-tryb-miary="{{ opcje_miary.domyslny }}"{% endif %}>
+  {#- Serwer wypisuje `data-wymiar-zapisany` — to on wie, co jest w układzie,
+      i tylko dzięki temu „Wróć" po dwóch podglądach z rzędu wraca do UKŁADU,
+      a nie do poprzedniego podglądu. Gniazdo plakietki podglądu stoi pod
+      nagłówkiem karty (makro `plakietka` wyżej).
+
+      `data-tryb-miary` — bieżący tryb przełącznika „zł / szt. / zł + szt."
+      (tylko kafelek, który go ma). Serwer wypisuje tryb DOMYŚLNY, więc
+      kafelek przyniesiony z serwera (strona, podgląd wymiaru, „Anuluj")
+      zaczyna od niego; analiza.js zmienia atrybut przy przełączeniu, a CSS
+      pokazuje po nim warianty napisów. #}
+  {# NARZĘDZIA TRYBU EDYCJI. Renderuje je SERWER, a nie JavaScript — dzięki
+     temu da się je sprawdzić testem struktury źródła, a tryb edycji nie musi
+     budować DOM-u, tylko zdejmuje `hidden`.
+
+     To są zwykłe <button>, więc Tab + Enter działa bez ani jednej linii
+     kodu obsługi klawiszy. To jest droga PODSTAWOWA: natywne przeciąganie
+     HTML5 nie działa dotykiem, a pulpit bywa otwierany na tablecie.
+
+     Strzałki mówią „wcześniej/później", nie „w lewo/w prawo": siatka się
+     zawija, więc na końcu rzędu „w lewo" byłoby nieprawdą. Widoczny jest znak
+     ←/→, a aria-label mówi, co się naprawdę dzieje.
+
+     Pasek stoi W PRZEPŁYWIE karty (nad nagłówkiem), a nie nakładką w jej
+     rogu: trzy pola dotyku po 44 px zakrywałyby koniec tytułu „Lejek wycena →
+     zamówienie" i piąty wskaźnik KPI. Wszystkie kafelki rosną o ten sam pasek,
+     więc rzędy siatki zostają wyrównane. #}
+  {% set nazwa = nazwa_kafelka(inst) %}
+  <div class="an-kafelek__narzedzia" hidden>
+    <button type="button" class="an-kafelek__ruch" data-ruch="wczesniej"
+            aria-label="Przenieś wcześniej kafelek »{{ nazwa }}«" title="Przenieś wcześniej">←</button>
+    <button type="button" class="an-kafelek__ruch" data-ruch="pozniej"
+            aria-label="Przenieś później kafelek »{{ nazwa }}«" title="Przenieś później">→</button>
+    <button type="button" class="an-kafelek__usun"
+            aria-label="Usuń kafelek »{{ nazwa }}«" title="Usuń kafelek">×</button>
+  </div>
+  {% if inst.typ == 'kpi' %}{{ kafelek_kpi(inst) }}
+  {% elif inst.typ == 'wnioski' %}{{ kafelek_wnioski(inst) }}
+  {% elif inst.typ == 'kanal' %}{{ kafelek_kanal(inst) }}
+  {% elif inst.typ == 'opiekun' %}{{ kafelek_opiekun(inst) }}
+  {% elif inst.typ == 'mix' %}{{ kafelek_mix(inst) }}
+  {% elif inst.typ == 'klienci' %}{{ kafelek_klienci(inst) }}
+  {% elif inst.typ == 'wojewodztwo' %}{{ kafelek_wojewodztwo(inst) }}
+  {% elif inst.typ == 'naleznosci' %}{{ kafelek_naleznosci(inst) }}
+  {% elif inst.typ == 'lejek' %}{{ kafelek_lejek(inst) }}
+  {% elif inst.typ == 'wykonczenie' %}{{ kafelek_wykonczenie(inst) }}
+  {% elif inst.typ == 'dostawa' %}{{ kafelek_dostawa(inst) }}
+  {% endif %}
+</section>
+{% endmacro %}

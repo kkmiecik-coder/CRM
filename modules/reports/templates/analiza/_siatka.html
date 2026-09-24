@@ -1,0 +1,54 @@
+{# modules/reports/templates/analiza/_siatka.html
+   Siatka kafelków — WSPÓLNA dla strony i dla endpointu `/api/siatka`
+   („Anuluj" i „Przywróć domyślny" bez przeładowania strony).
+
+   Osobny plik, a nie pętla wpisana w dashboard.html, z jednego powodu: dwie
+   pętle po tym samym układzie rozjechałyby się przy pierwszej zmianie — a ta
+   po stronie endpointu byłaby widoczna dopiero po anulowaniu edycji, czyli
+   w najgorszym możliwym momencie.
+
+   Własny import makr jest konieczny: `include` nie dziedziczy importów
+   z pliku, który go włącza.
+
+   KAFELEK „+ Dodaj statystykę" stoi na końcu siatki TYLKO na stronie: strona
+   włącza ten plik z `z_kafelkiem_dodawania = true`, a `/api/siatka` bez tej
+   flagi (domyślnie fałsz). Po podmianie siatki odpowiedzią `/api/siatka`
+   („Anuluj", „Przywróć domyślny") przeglądarka PRZENOSI istniejący węzeł „+"
+   na koniec nowej siatki — jeden węzeł, zero znaczników budowanych
+   w JavaScripcie, i nigdy dwa kafelki „+" naraz. #}
+{% import 'analiza/_kafelki.html' as k with context %}
+    {# SIATKA KAFELKÓW. Jedna, nie trzy rzędy — inaczej kafelek nie ma jak
+       przejść z rzędu do rzędu, a o to w tej funkcji chodzi.
+
+       PRZY CZTERECH KOLUMNACH (okno szersze niż 1500 px) układ domyślny
+       odtwarza dawne rozmieszczenie: rząd 1 był `2fr 1fr 1fr`, a rzędy 2 i 3
+       `repeat(4, 1fr)` — czyli ta sama siatka czterech jednostek, w której KPI
+       zajmuje dwie, a reszta po jednej. Różnica to kilka pikseli: w jednej
+       siatce KPI dostaje dodatkowo szerokość jednej przerwy między kolumnami
+       (12 px / 2), a każdy wąski kafelek pierwszego rzędu traci po 3 px.
+
+       PRZY DWÓCH KOLUMNACH (≤ 1500 px) dawnego rozmieszczenia NIE ma: kafelki
+       płyną jednym strumieniem w kolejności układu, więc np. kafelek kanałów
+       nie stoi już sam w rzędzie z pustą połową obok, tylko dzieli rząd
+       z następnym. To naturalny skutek jednej siatki, którą użytkownik sam
+       przestawia — trzech sztywnych rzędów nie da się pogodzić z przenoszeniem
+       kafelków między nimi. #}
+<div class="an-siatka" id="an-siatka">
+  {% for inst in uklad %}{{ k.kafelek(inst) }}{% endfor %}
+  {%- if z_kafelkiem_dodawania %}
+  {# KAFELEK DODAWANIA. „Jak mamy kafle to na końcu robimy taki szary kwadrat
+     z dużym + i napisem dodaj statystykę" — cytat użytkownika.
+     Widoczny WYŁĄCZNIE w trybie edycji, z jednym wyjątkiem: przy pustym
+     układzie widać go zawsze, bo inaczej pusty pulpit byłby białą stroną
+     bez żadnego wyjścia poza przyciskiem na samym dole.
+
+     Bez klasy `.an-kafelek`: to nie jest kafelek układu (nie ma
+     `data-kafelek`, nie jedzie do zapisu), a style kafelka — przerywana
+     ramka trybu edycji, przygaszenie w trakcie wczytywania — by go dotyczyły. #}
+  <button type="button" class="an-kafelek--dodaj" id="an-dodaj-kafelek"
+          aria-haspopup="dialog"{% if uklad %} hidden{% endif %}>
+    <span class="an-kafelek--dodaj__plus" aria-hidden="true">+</span>
+    <span class="an-kafelek--dodaj__napis">Dodaj statystykę</span>
+  </button>
+  {%- endif %}
+</div>
