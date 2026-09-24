@@ -13,6 +13,7 @@ Sekrety w testach są losowe — żaden test nie zależy od konkretnej wartości
 
 import ast
 import json
+import logging
 import os
 import secrets
 
@@ -148,6 +149,125 @@ def test_odpowiedz_nie_zawiera_sekretu():
     odpowiedz = klient.get('/cron', headers={CRON_SECRET_HEADER: 'zly'})
 
     assert sekret not in odpowiedz.get_data(as_text=True)
+
+
+# ----------------------------------------------------------------------------
+# Brak sekretu = alarm w Sentry, a nie tylko wpis w pliku logu
+# ----------------------------------------------------------------------------
+# Odpowiedź 500 to nie wyjątek, więc integracja Flaska w Sentry jej nie widzi,
+# a cron z `curl --silent` bez -f kończy się kodem 0. Jedyny sygnał to log,
+# który musi mieć poziom, od którego Sentry robi zdarzenie. Inaczej
+# synchronizacja BaseLinkera, statusy raportów i domykanie sesji stoją po
+# cichu całymi dniami.
+
+NAZWA_LOGGERA = 'app.cron_auth'
+
+
+@pytest.fixture(autouse=True)
+def czyste_alarmy():
+    # Pamięć „kiedy ostatnio alarmowano” jest na poziomie modułu, więc każdy
+    # test zaczyna od zera, niezależnie od kolejności.
+    cron_auth._ostatni_alarm.clear()
+    yield
+    cron_auth._ostatni_alarm.clear()
+
+
+def _poziomy_logu(caplog):
+    return [r.levelno for r in caplog.records if r.name == NAZWA_LOGGERA]
+
+
+def test_brak_sekretu_loguje_critical(caplog):
+    klient = _aplikacja().test_client()
+
+    with caplog.at_level(logging.DEBUG, logger=NAZWA_LOGGERA):
+        odpowiedz = klient.get('/cron', headers={CRON_SECRET_HEADER: secrets.token_hex(16)})
+
+    assert odpowiedz.status_code == 500
+    assert _poziomy_logu(caplog) == [logging.CRITICAL]
+
+
+def test_alarm_o_braku_sekretu_przechodzi_przez_prog_sentry(tmp_path, monkeypatch, caplog):
+    """Kontrakt z sentry_config.init_sentry: poziom alarmu >= event_level integracji logowania."""
+    sentry_sdk = pytest.importorskip('sentry_sdk')
+    integracja_logowania = pytest.importorskip('sentry_sdk.integrations.logging')
+    import sentry_config
+
+    przechwycone = {}
+
+    class NagrywajacaIntegracjaLogowania:
+        # Wartości domyślne jak w sentry-sdk: gdyby sentry_config przestał
+        # podawać event_level, próg spadłby do ERROR i test by to pokazał.
+        def __init__(self, level=logging.INFO, event_level=logging.ERROR):
+            przechwycone['event_level'] = event_level
+
+    # Prawdziwe Sentry nie startuje: init i integracja logowania są podmienione.
+    monkeypatch.setattr(integracja_logowania, 'LoggingIntegration', NagrywajacaIntegracjaLogowania)
+    monkeypatch.setattr(sentry_sdk, 'init', lambda **kwargs: przechwycone.setdefault('init', kwargs))
+
+    (tmp_path / 'config').mkdir()
+    (tmp_path / 'config' / 'core.json').write_text(
+        json.dumps({'SENTRY': {'enabled': True, 'dsn': 'https://klucz@sentry.invalid/1'}}),
+        encoding='utf-8')
+    assert sentry_config.init_sentry(str(tmp_path)) is True
+    prog_sentry = przechwycone['event_level']
+
+    klient = _aplikacja().test_client()
+    with caplog.at_level(logging.DEBUG, logger=NAZWA_LOGGERA):
+        klient.get('/cron')
+
+    poziomy = _poziomy_logu(caplog)
+    assert poziomy, 'brak sekretu nie zostawił żadnego wpisu w logu'
+    assert max(poziomy) >= prog_sentry, (
+        f'alarm ma poziom {logging.getLevelName(max(poziomy))}, a Sentry robi zdarzenie '
+        f'dopiero od {logging.getLevelName(prog_sentry)}, więc nikt się nie dowie')
+
+
+def test_alarm_ponawiany_najwyzej_raz_na_odstep(caplog, monkeypatch):
+    # Cron woła endpoint co kilka minut, a przy braku sekretu może go wołać
+    # każdy z internetu. Bez ograniczenia każde wywołanie byłoby zdarzeniem
+    # w Sentry i zjadałoby limit, zasłaniając inne błędy.
+    zegar = [1000.0]
+    monkeypatch.setattr(cron_auth, '_teraz', lambda: zegar[0])
+    klient = _aplikacja().test_client()
+
+    with caplog.at_level(logging.DEBUG, logger=NAZWA_LOGGERA):
+        kody = [klient.get('/cron').status_code, klient.get('/cron').status_code]
+        zegar[0] += cron_auth.ODSTEP_ALARMU_S - 1
+        kody.append(klient.get('/cron').status_code)
+        zegar[0] += 2
+        kody.append(klient.get('/cron').status_code)
+
+    # Każde wywołanie dalej zamknięte, zmienia się tylko poziom wpisu.
+    assert kody == [500, 500, 500, 500]
+    assert _poziomy_logu(caplog) == [logging.CRITICAL, logging.ERROR, logging.ERROR, logging.CRITICAL]
+
+
+def test_alarm_osobno_dla_kazdego_endpointu(caplog):
+    app = _aplikacja()
+
+    @app.route('/cron-drugi')
+    @cron_secret_required
+    def cron_drugi():
+        return jsonify({'success': True})
+
+    klient = app.test_client()
+    with caplog.at_level(logging.DEBUG, logger=NAZWA_LOGGERA):
+        klient.get('/cron')
+        klient.get('/cron-drugi')
+
+    assert _poziomy_logu(caplog) == [logging.CRITICAL, logging.CRITICAL]
+
+
+def test_skonfigurowany_sekret_nie_daje_alarmu(caplog):
+    sekret = secrets.token_hex(32)
+    klient = _aplikacja(**{CRON_SECRET_CONFIG_KEY: sekret}).test_client()
+
+    with caplog.at_level(logging.DEBUG, logger=NAZWA_LOGGERA):
+        klient.get('/cron', headers={CRON_SECRET_HEADER: sekret})
+        klient.get('/cron', headers={CRON_SECRET_HEADER: 'zly'})
+
+    # Zły nagłówek to sprawa klienta (403, WARNING), a nie awaria konfiguracji.
+    assert logging.CRITICAL not in _poziomy_logu(caplog)
 
 
 # ----------------------------------------------------------------------------
