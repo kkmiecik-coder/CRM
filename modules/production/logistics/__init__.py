@@ -15,3 +15,5 @@ logistics_panel_bp = Blueprint(
 
 # Model musi być w metadata, zanim ktokolwiek zrobi create_all.
 from modules.production.logistics import models  # noqa: E402,F401
+
+from modules.production.logistics.routers import cron_api  # noqa: E402,F401
