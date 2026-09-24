@@ -386,7 +386,40 @@ GUS_BIR_SOAP_NS = "http://www.w3.org/2003/05/soap-envelope"
 GUS_BIR_WSA_NS = "http://www.w3.org/2005/08/addressing"
 
 CEIDG_BASE_URL = "https://dane.biznes.gov.pl/api/ceidg/v2/firmy"
-CEIDG_JWT_TOKEN = "eyJraWQiOiJjZWlkZyIsImFsZyI6IkhTNTEyIn0.eyJnaXZlbl9uYW1lIjoiS29ucmFkIiwicGVzZWwiOiI5OTA0MTUwNzgxOCIsImlhdCI6MTc2Nzc5NTMxMiwiZmFtaWx5X25hbWUiOiJLbWllY2lrIiwiY2xpZW50X2lkIjoiVVNFUi05OTA0MTUwNzgxOC1LT05SQUQtS01JRUNJSyJ9.EL9sUGdXmwLsaaNhXRyHrRZ4hYIuPSwfSx5B7izK16k_IQUdiuZbokUYYbo3tkR_vs1EkouSGxtNh7Lk8Yfygg"
+# Token API CEIDG (JWT) jest WYŁĄCZNIE w config/core.json, pole CEIDG_JWT_TOKEN.
+# Repo jest publiczne, a payload JWT to zwykłe base64: token wpisany w kod
+# ujawnia dane osobowe właściciela (imię, nazwisko, PESEL) i pozwala każdemu
+# odpytywać API na jego tożsamość. Wartości zapasowej celowo nie ma — patrz
+# _ceidg_token().
+CEIDG_TOKEN_CONFIG_KEY = "CEIDG_JWT_TOKEN"
+
+
+class BrakTokenuCeidgError(RuntimeError):
+    """Brak tokenu API CEIDG w konfiguracji — wyszukiwanie w CEIDG jest niemożliwe."""
+
+
+def _ceidg_token():
+    """
+    Zwraca token API CEIDG z konfiguracji aplikacji (config/core.json).
+
+    Brak, pusta wartość albo wartość niebędąca tekstem to TWARDY błąd
+    (BrakTokenuCeidgError), a nie ciche „nie znaleziono firmy": przy cichym
+    None endpoint odpowiadał 404 „NIP może być nieaktywny", więc nikt by się
+    nie dowiedział, że CEIDG w ogóle nie jest odpytywany.
+
+    Start aplikacji celowo NIE zależy od tego tokenu: nowy token wydaje CEIDG,
+    poza naszą kontrolą, a GUS i Biała Lista MF działają bez niego.
+    Komunikat błędu nie zawiera żadnej wartości tokenu.
+    """
+    token = current_app.config.get(CEIDG_TOKEN_CONFIG_KEY)
+    if not isinstance(token, str) or not token.strip():
+        raise BrakTokenuCeidgError(
+            f"Brak tokenu API CEIDG: pole {CEIDG_TOKEN_CONFIG_KEY} w config/core.json "
+            "jest puste albo go nie ma. Wyszukiwanie firm w CEIDG jest wyłączone "
+            "do czasu wpisania tokenu."
+        )
+    return token.strip()
+
 
 def transform_ceidg_to_gus_format(ceidg_data):
     """
@@ -455,16 +488,18 @@ def query_ceidg_api(nip):
 
     Returns:
         dict: Dane firmy w formacie GUS lub None
+
+    Raises:
+        BrakTokenuCeidgError: brak tokenu w konfiguracji. Rzucany PRZED
+            blokiem try poniżej, żeby nie zgubił go ogólny `except Exception`.
     """
-    if not CEIDG_JWT_TOKEN:
-        logger.warning("[CEIDG Lookup] Brak tokenu JWT dla CEIDG API")
-        return None
+    token = _ceidg_token()
 
     try:
         url = f"{CEIDG_BASE_URL}?nip={nip}"
         headers = {
             "Accept": "application/json",
-            "Authorization": f"Bearer {CEIDG_JWT_TOKEN}"
+            "Authorization": f"Bearer {token}"
         }
 
         logger.info(f"[CEIDG Lookup] Wysyłanie zapytania do CEIDG: {url}")
@@ -1054,7 +1089,16 @@ def gus_lookup():
 
     # Priorytet 3: CEIDG
     logger.warning(f"[GUS Lookup] Brak danych w MF dla NIP {nip}, próba CEIDG")
-    ceidg_data = query_ceidg_api(nip)
+    try:
+        ceidg_data = query_ceidg_api(nip)
+    except BrakTokenuCeidgError as e:
+        # Nie udajemy „nie znaleziono": to błąd konfiguracji serwera, nie NIP-u.
+        logger.error(f"[GUS Lookup] {e}")
+        return jsonify({
+            "error": "Nie znaleziono firmy w GUS ani na Białej Liście MF, a wyszukiwanie "
+                     "w CEIDG jest wyłączone (brak konfiguracji). Wpisz dane ręcznie "
+                     "i zgłoś to administratorowi."
+        }), 503
     if ceidg_data and ceidg_data.get("name"):
         logger.info(f"[GUS Lookup] Dane pobrane z CEIDG dla NIP {nip}")
         return jsonify(ceidg_data)

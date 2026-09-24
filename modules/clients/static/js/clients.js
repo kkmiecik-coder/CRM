@@ -819,7 +819,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 nipError.style.display = "block";
                             }
                         } else {
-                            nipError.textContent = "Nie znaleziono danych dla podanego NIP";
+                            nipError.textContent = (data && data.error) || "Nie znaleziono danych dla podanego NIP";
                         }
                     })
                     .catch(err => {
@@ -1073,7 +1073,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             nipError.style.display = "block";
                         }
                     } else {
-                        nipError.textContent = "Nie znaleziono danych dla podanego NIP";
+                        nipError.textContent = (data && data.error) || "Nie znaleziono danych dla podanego NIP";
                     }
                 })
                 .catch(err => {
