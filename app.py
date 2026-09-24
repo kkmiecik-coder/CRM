@@ -560,10 +560,15 @@ SECRET_KEY_ENV = 'FLASK_SECRET_KEY'
 # 32 znaki to minimum: token_hex(32) daje 64 znaki (256 bitów).
 MIN_DLUGOSC_KLUCZA_SESJI = 32
 
+# Serwer: WYŁĄCZNIE core.json. Plik .env czyta tylko CLI Flaska (python-dotenv),
+# gunicorn nie — klucz w .env na serwerze przepuściłby `flask migrate`, a po
+# restarcie gunicorn i tak by nie wstał. deploy.sh wyłącza .env dla CLI
+# (FLASK_SKIP_DOTENV=1), a komunikat kieruje na serwerze tylko do core.json.
 _JAK_WYGENEROWAC_KLUCZ = (
-    'Wygeneruj losowy klucz: python -c "import secrets; print(secrets.token_hex(32))" '
-    f'i wpisz go do config/core.json jako "SECRET_KEY" albo ustaw zmienną środowiskową '
-    f'{SECRET_KEY_ENV} (lokalnie w Dockerze: linia {SECRET_KEY_ENV}=... w pliku .env).'
+    'Na serwerze wpisz losowy klucz do config/core.json jako "SECRET_KEY" '
+    '(NIE do pliku .env: gunicorn go nie czyta). Lokalnie w Dockerze: linia '
+    f'{SECRET_KEY_ENV}=... w pliku .env (komenda w CLAUDE.md). Sam klucz: '
+    'python -c "import secrets; print(secrets.token_hex(32))".'
 )
 
 

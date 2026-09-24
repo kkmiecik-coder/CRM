@@ -20,6 +20,13 @@ touch "$LOCK_FILE"
 echo "$LOG_PREFIX Starting deploy..."
 cd "$APP_DIR" || exit 1
 export FLASK_APP=app.py
+# CLI Flaska (z python-dotenv w requirements) sam wczytuje .env z katalogu
+# roboczego i katalogów nadrzędnych — gunicorn tego NIE robi. Bez tej linii
+# klucz sesji (albo cokolwiek) wpisany do .env na serwerze przepuściłby
+# `flask migrate` przez bramkę niżej, a gunicorn po restarcie i tak by nie
+# wstał (502). CLI ma widzieć dokładnie to samo środowisko co gunicorn;
+# konfiguracja serwera jest WYŁĄCZNIE w config/core.json.
+export FLASK_SKIP_DOTENV=1
 
 OLD_HEAD=$(git rev-parse HEAD)
 
@@ -43,13 +50,22 @@ fi
 # (RUN_MIGRATIONS), ale tam błąd ląduje w stderr gunicorna i nikt go nie widzi
 # — tutaj jest w logu deployu, obok reszty kroków.
 #
-# Niepowodzenie PRZERYWA deploy przed restartem: kod jest już pobrany, ale
-# proces nadal chodzi na starym, więc stary kod + stary schemat zostaje
-# spójny. Restart z nowym kodem na niezmigrowanej bazie byłby gorszy.
+# Niepowodzenie PRZERYWA deploy przed restartem, a kod na dysku wraca do
+# OLD_HEAD, czyli wersji, na której chodzi proces. Samo „nie restartujemy" nie
+# wystarcza: gunicorn bez --preload importuje app.py od nowa przy KAŻDYM nowym
+# workerze (timeout żądania, awaria workera, max_requests). Z nowym kodem na
+# dysku taki worker mógłby nie wstać (np. BrakKluczaSesjiError), gunicorn
+# zatrzymałby cały serwer i nginx dałby 502 bez niczyjego restartu.
+# Restart z nowym kodem na niezmigrowanej bazie byłby jeszcze gorszy.
 echo "$LOG_PREFIX Running database migrations..."
 if ! venv/bin/flask migrate 2>&1; then
     echo "$LOG_PREFIX [MIGRATION FAILED] Przerywam deploy PRZED restartem."
-    echo "$LOG_PREFIX Aplikacja dziala nadal na starym kodzie. Napraw migracje i wypchnij ponownie."
+    if git reset --hard "$OLD_HEAD" 2>&1; then
+        echo "$LOG_PREFIX Kod na dysku cofniety do $OLD_HEAD (wersja, na ktorej dziala aplikacja)."
+    else
+        echo "$LOG_PREFIX [ROLLBACK FAILED] Nie udalo sie cofnac kodu do $OLD_HEAD. NIE restartuj aplikacji recznie, zanim tego nie naprawisz."
+    fi
+    echo "$LOG_PREFIX Aplikacja dziala nadal na starym kodzie. Napraw migracje (albo konfiguracje) i wypchnij ponownie."
     exit 1
 fi
 
