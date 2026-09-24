@@ -242,24 +242,81 @@ def przetworz_wszystkie(
     return statystyki, niejednoznaczne_szczegoly
 
 
-def _pobierz_zamowienie_z_baselinkera(bl_order_id: int) -> Optional[Dict]:
+# Tempo zapytań do BaseLinkera. Limit konta to 100 zapytań na minutę NA CAŁE
+# KONTO — liczy się też normalny ruch CRM (synchronizacje, statusy). Pierwsze
+# uruchomienie na produkcji (24.09.2026) bez odstępu wysłało ok. 2300 zapytań
+# w 4 minuty i BaseLinker zablokował API całego konta na kilkanaście minut.
+# 1 s = 60 zapytań na minutę, z zapasem na resztę ruchu.
+ODSTEP_ZAPYTAN_S = 1.0
+
+# Fragmenty komunikatu BaseLinkera o przekroczonym limicie albo blokadzie.
+# Po takim komunikacie NIE pytamy dalej — każde kolejne zapytanie tylko
+# przedłużałoby blokadę całego konta.
+_ZNAKI_BLOKADY = ('limit', 'block', 'zablok', 'too many')
+
+
+def _to_blokada(odpowiedz: Dict) -> bool:
+    tekst = ' '.join(str(odpowiedz.get(k) or '') for k in ('error_code', 'error_message')).lower()
+    return any(znak in tekst for znak in _ZNAKI_BLOKADY)
+
+
+def pobieracz_z_limitem(zapytanie, odstep_s: float = ODSTEP_ZAPYTAN_S, spij=None):
+    """Funkcja `bl_order_id -> zamówienie albo None` z tempem i bezpiecznikiem.
+
+    - między zapytaniami czeka `odstep_s` sekund;
+    - po pierwszej odpowiedzi o limicie/blokadzie przestaje wołać API i dla
+      każdego kolejnego zamówienia zwraca None (zamówienie trafia do „bez
+      odpowiedzi z BaseLinkera" i zostaje na następny przebieg). To, co już
+      dopasowano, zapisuje się normalnie.
+
+    `zapytanie(bl_order_id) -> dict` to surowa odpowiedź API; w testach atrapa.
+    Licznik zablokowanych jest w atrybucie `.pominiete_po_blokadzie`.
+    """
+    import time
+    spij = spij or time.sleep
+    stan = {'pierwsze': True, 'blokada': False}
+
+    def pobierz(bl_order_id: int) -> Optional[Dict]:
+        if stan['blokada']:
+            pobierz.pominiete_po_blokadzie += 1
+            return None
+        if not stan['pierwsze']:
+            spij(odstep_s)
+        stan['pierwsze'] = False
+        odpowiedz = zapytanie(bl_order_id) or {}
+        if odpowiedz.get('status') != 'SUCCESS':
+            if _to_blokada(odpowiedz):
+                stan['blokada'] = True
+                pobierz.blokada = True
+                print("\n!!! BaseLinker zgłosił limit albo blokadę API — przerywam "
+                      "zapytania. Dopasowania zebrane do tej chwili zapiszą się; "
+                      "resztę uruchom ponownie po odblokowaniu.")
+            return None
+        zamowienia = odpowiedz.get('orders') or []
+        return zamowienia[0] if zamowienia else None
+
+    pobierz.pominiete_po_blokadzie = 0
+    pobierz.blokada = False
+    return pobierz
+
+
+def _zapytanie_baselinkera():
     """Jedyne miejsce, które NAPRAWDĘ rozmawia z BaseLinkerem — tylko odczyt
     (`getOrders` z parametrem `order_id`, ten sam wzorzec co
     `modules/baselinker/service.py:948`). Testy jej nie wołają: dostają
     własny `pobierz_zamowienie_bl` przez wstrzyknięcie, patrz
-    tests/test_uzupelnij_klucze_pozycji.py.
+    tests/test_uzupelnij_klucze_pozycji.py. Serwis tworzony RAZ na przebieg.
     """
     from modules.baselinker.service import BaselinkerService
 
     serwis = BaselinkerService()
-    odpowiedz = serwis._make_request('getOrders', {
-        'order_id': bl_order_id,
-        'include_custom_extra_fields': True,
-    })
-    if odpowiedz.get('status') != 'SUCCESS':
-        return None
-    zamowienia = odpowiedz.get('orders') or []
-    return zamowienia[0] if zamowienia else None
+
+    def zapytanie(bl_order_id: int) -> Dict:
+        return serwis._make_request('getOrders', {
+            'order_id': bl_order_id,
+            'include_custom_extra_fields': True,
+        })
+    return zapytanie
 
 
 def zbuduj_parser() -> argparse.ArgumentParser:
@@ -272,6 +329,10 @@ def zbuduj_parser() -> argparse.ArgumentParser:
     parser.add_argument('--dni', type=int, default=OKNO_DNI,
                         help='Szerokość okna wstecz w dniach (domyślnie {}, '
                              'jak reszta Analizy sprzedażowej)'.format(OKNO_DNI))
+    parser.add_argument('--odstep', type=float, default=ODSTEP_ZAPYTAN_S,
+                        help='Sekundy między zapytaniami do BaseLinkera '
+                             '(domyślnie {}; limit konta to 100/min na CAŁE '
+                             'konto)'.format(ODSTEP_ZAPYTAN_S))
     return parser
 
 
@@ -282,10 +343,16 @@ def main() -> int:
     app = create_app()
     with app.app_context():
         zamowienia = zbierz_kandydatow(args.dni)
-        print(f"Zamówień-kandydatów w oknie {args.dni} dni: {len(zamowienia)}")
+        print(f"Zamówień-kandydatów w oknie {args.dni} dni: {len(zamowienia)} "
+              f"(odstęp {args.odstep} s, ok. {len(zamowienia) * args.odstep / 60:.0f} min)")
 
+        pobierz = pobieracz_z_limitem(_zapytanie_baselinkera(), args.odstep)
         statystyki, niejednoznaczne = przetworz_wszystkie(
-            zamowienia, _pobierz_zamowienie_z_baselinkera, zapisz=args.zapisz)
+            zamowienia, pobierz, zapisz=args.zapisz)
+        if pobierz.blokada:
+            print(f"Zamówień pominiętych po blokadzie API: "
+                  f"{pobierz.pominiete_po_blokadzie} — uruchom skrypt ponownie "
+                  f"po odblokowaniu.")
 
         print("\n=== RAPORT ===")
         print(f"Zamówień sprawdzonych: {statystyki['zamowien_sprawdzonych']}")

@@ -379,3 +379,52 @@ def test_flaga_zapisz_wlacza_tryb_zapisu():
     from uzupelnij_klucze_pozycji import zbuduj_parser
     args = zbuduj_parser().parse_args(['--zapisz'])
     assert args.zapisz is True
+
+
+# --- tempo zapytań i bezpiecznik blokady (24.09.2026) -----------------------
+# Pierwszy przebieg na produkcji bez odstępu przekroczył limit 100 zapytań/min
+# i BaseLinker zablokował API CAŁEGO konta. Te testy pilnują, że skrypt czeka
+# między zapytaniami i po komunikacie o limicie przestaje pytać.
+
+def test_pobieracz_czeka_miedzy_zapytaniami():
+    from scripts.uzupelnij_klucze_pozycji import pobieracz_z_limitem
+    drzemki = []
+    pobierz = pobieracz_z_limitem(
+        lambda bl_id: {'status': 'SUCCESS', 'orders': [{'order_id': bl_id}]},
+        odstep_s=1.0, spij=drzemki.append)
+    assert [pobierz(i)['order_id'] for i in (1, 2, 3)] == [1, 2, 3]
+    assert drzemki == [1.0, 1.0]   # przed 2. i 3., nie przed pierwszym
+
+
+def test_pobieracz_po_blokadzie_przestaje_pytac():
+    from scripts.uzupelnij_klucze_pozycji import pobieracz_z_limitem
+    wywolania = []
+
+    def zapytanie(bl_id):
+        wywolania.append(bl_id)
+        if bl_id == 2:
+            return {'status': 'ERROR', 'error_code': 'ERROR_API_LIMIT',
+                    'error_message': 'Query limit exceeded'}
+        return {'status': 'SUCCESS', 'orders': [{'order_id': bl_id}]}
+
+    pobierz = pobieracz_z_limitem(zapytanie, odstep_s=0, spij=lambda s: None)
+    wyniki = [pobierz(i) for i in (1, 2, 3, 4)]
+    assert wyniki[0] == {'order_id': 1}
+    assert wyniki[1:] == [None, None, None]
+    assert wywolania == [1, 2]          # 3 i 4 NIE poszły do API
+    assert pobierz.blokada is True
+    assert pobierz.pominiete_po_blokadzie == 2
+
+
+def test_pobieracz_zwykly_blad_nie_zatrzymuje_przebiegu():
+    from scripts.uzupelnij_klucze_pozycji import pobieracz_z_limitem
+    wywolania = []
+
+    def zapytanie(bl_id):
+        wywolania.append(bl_id)
+        return ({'status': 'ERROR', 'error_code': 'ERROR_ORDER_NOT_FOUND'}
+                if bl_id == 1 else {'status': 'SUCCESS', 'orders': []})
+
+    pobierz = pobieracz_z_limitem(zapytanie, odstep_s=0, spij=lambda s: None)
+    assert [pobierz(i) for i in (1, 2)] == [None, None]
+    assert wywolania == [1, 2] and pobierz.blokada is False
