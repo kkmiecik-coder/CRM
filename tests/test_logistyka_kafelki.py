@@ -77,6 +77,14 @@ def test_js_mapy_sklada_adres_kafelkow_z_klucza_i_nie_niesie_prawdziwego_klucza(
     assert 'cb1_' not in js
 
 
+def test_core_json_example_ma_puste_pole_klucza_carto():
+    """M8: kto zakłada core.json z przykładu, widzi pole — puste (repo publiczne)."""
+    import json
+    with open(os.path.join(KATALOG, 'config', 'core.json.example'), encoding='utf-8') as f:
+        przyklad = json.load(f)
+    assert przyklad['CARTO_BASEMAPS_KEY'] == ''
+
+
 def test_js_mapy_ma_trzy_podklady_i_zaden_prawdziwy_klucz():
     js = open(JS_MAPY, encoding='utf-8').read()
     # Voyager (domyślny), Positron i OpenStreetMap — identyfikatory stylów wpisane w PODKLADY.
