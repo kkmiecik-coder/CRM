@@ -1335,6 +1335,37 @@ html.lg-przeciaganie-uchwytu * {
     isolation: isolate;
 }
 
+/* „Przejdź do listy zamówień” — ukryty, przy fokusie ciemny pasek nad mapą. */
+.logistics-tab .lg-do-listy {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    z-index: 1150;
+    transform: translateX(-50%);
+    padding: 6px 12px;
+    background: var(--il-text-primary, #1a1a2e);
+    border-radius: var(--il-radius, 3px);
+    box-shadow: 0 6px 18px rgba(26, 26, 46, 0.28);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+    text-decoration: none;
+}
+
+.logistics-tab .lg-do-listy:not(:focus) {
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+}
+
+.logistics-tab .lg-do-listy:focus-visible {
+    outline: 2px solid #fbbf24;
+    outline-offset: 2px;
+}
+
 .logistics-tab .lg-mapa {
     position: absolute;
     inset: 0;
@@ -1456,6 +1487,14 @@ html.lg-przeciaganie-uchwytu * {
     font: 700 9px/13px var(--lg-mono);
     text-align: center;
     pointer-events: none;
+}
+
+/* W legendzie: ten sam znak w linii tekstu. */
+.logistics-tab .lg-pin-znak--legenda {
+    position: static;
+    display: inline-block;
+    flex: none;
+    box-shadow: none;
 }
 
 /* Kontener znacznika Leafleta — bez domyślnego białego kwadratu divIcon. */
@@ -1648,13 +1687,14 @@ html.lg-przeciaganie-uchwytu * {
 }
 
 /* ─── Kontrolka wyboru podkładu (Voyager / Positron / OpenStreetMap) ───
-   Ilustrowane przyciski: kafelek podglądu (56×56) + nazwa stylu pod spodem.
-   Bez leaflet-bar (tam styl liczony pod pojedyncze ikony w kolumnie) —
-   własna karta z tymi samymi tokenami ramki/cienia. */
+   Same miniaturki (32 px), bez podpisów — nazwa w title i aria-label. Mała
+   karta w lewym dolnym rogu: w mapie 300 px szerokiej nie wchodzi na atrybucję,
+   w niskiej (mapa nad listą) zajmuje ~45 px wysokości. Aktywny podkład = ciemna
+   obwódka (jak aktywne filtry panelu); niebieski obrys zostaje dla fokusu. */
 .logistics-tab .lg-mapa-podklady {
     display: flex;
-    gap: 4px;
-    padding: 4px;
+    gap: 3px;
+    padding: 3px;
     background: var(--il-bg-card, #fff);
     border: 1px solid var(--il-border, #c8cdd5);
     border-radius: var(--il-radius, 3px);
@@ -1662,57 +1702,114 @@ html.lg-przeciaganie-uchwytu * {
 }
 
 .logistics-tab .lg-mapa-podklad {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 3px;
-    width: 62px;
-    padding: 3px 3px 4px;
-    background: transparent;
-    border: 1px solid transparent;
+    display: block;
+    flex: none;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    background: var(--il-bg-base, #eef0f4);
+    border: 2px solid transparent;
     border-radius: var(--il-radius, 3px);
-    color: var(--il-text-secondary, #7a8291);
-    font-family: inherit;
-    font-size: 10px;
-    line-height: 1.2;
     cursor: pointer;
-    transition: background-color .12s ease, border-color .12s ease, color .12s ease;
+    transition: border-color .12s ease;
 }
 
 .logistics-tab .lg-mapa-podklad:hover {
-    background: var(--lg-hover);
-    color: var(--il-text-primary, #1a1a2e);
+    border-color: var(--il-border, #c8cdd5);
 }
 
-.logistics-tab .lg-mapa-podklad.is-aktywny {
-    border-color: var(--il-status-info, #2563eb);
-    color: var(--il-text-primary, #1a1a2e);
-    font-weight: 600;
+.logistics-tab .lg-mapa-podklad.is-aktywny,
+.logistics-tab .lg-mapa-podklad.is-aktywny:hover {
+    border-color: var(--il-text-primary, #1a1a2e);
+    cursor: default;
 }
 
+/* Kafelek 256 px pokazany w 56 px i przycięty do środka — widać styl ulic,
+   nie tylko plamę koloru. */
 .logistics-tab .lg-mapa-podklad-podglad {
     display: block;
-    width: 56px;
-    height: 56px;
+    width: 32px;
+    height: 32px;
     overflow: hidden;
-    border-radius: 2px;
-    border: 1px solid var(--il-border-light, #e2e5ea);
-    background: var(--il-bg-base, #eef0f4);
+    border-radius: 1px;
 }
 
 .logistics-tab .lg-mapa-podklad-podglad img {
     display: block;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
+    width: 56px;
+    height: 56px;
+    max-width: none;
+    margin: -12px 0 0 -12px;
 }
 
-.logistics-tab .lg-mapa-podklad.is-aktywny .lg-mapa-podklad-podglad {
-    box-shadow: 0 0 0 2px var(--il-status-info, #2563eb);
+@media (prefers-reduced-motion: reduce) {
+    .logistics-tab .lg-mapa-podklad { transition: none; }
 }
 
-.logistics-tab .lg-mapa-podklad-nazwa {
+/* ─── „Grupuj pinezki” (prawy górny róg mapy) ───
+   Natywny checkbox z role="switch" narysowany jako mały przełącznik —
+   włączony = ciemny, jak aktywne filtry panelu. */
+.logistics-tab .lg-mapa-grupuj {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 4px 9px 5px 7px;
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    box-shadow: inset 0 -2px 0 var(--il-inset-shadow, #d4d9e1);
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 18px;
+    color: var(--il-text-primary, #1a1a2e);
     white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+}
+
+.logistics-tab .lg-mapa-grupuj input {
+    appearance: none;
+    -webkit-appearance: none;
+    position: relative;
+    flex: none;
+    width: 26px;
+    height: 14px;
+    margin: 0;
+    border-radius: 7px;
+    background: var(--il-border, #c8cdd5);
+    cursor: pointer;
+    transition: background-color .12s ease;
+}
+
+.logistics-tab .lg-mapa-grupuj input::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 1px rgba(26, 26, 46, 0.3);
+    transition: transform .12s ease;
+}
+
+.logistics-tab .lg-mapa-grupuj input:checked {
+    background: var(--il-text-primary, #1a1a2e);
+}
+
+.logistics-tab .lg-mapa-grupuj input:checked::after {
+    transform: translateX(12px);
+}
+
+.logistics-tab .lg-mapa-grupuj input:focus-visible {
+    outline: 2px solid var(--il-status-info, #2563eb);
+    outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .logistics-tab .lg-mapa-grupuj input,
+    .logistics-tab .lg-mapa-grupuj input::after { transition: none; }
 }
 
 .logistics-tab .leaflet-control-attribution {
@@ -1994,15 +2091,20 @@ html.lg-przeciaganie-uchwytu * {
     outline-color: #fbbf24;
 }
 
-/* ─── Stan mapy: ładowanie, brak pinezek, błąd wczytania ─── */
+/* ─── Stan mapy: ładowanie, brak pinezek, błąd wczytania ───
+   „Brak pinezek” stoi u góry, wyśrodkowany w pasie między kontrolkami
+   (lewa kolumna: zoom i dopasowanie, 54 px) i pod „Grupuj pinezki” (prawy
+   górny róg) — nie zasłania ani kontrolek, ani przełącznika podkładu na dole.
+   Ładowanie i błąd wczytania (mapy jeszcze nie ma) — na środku. */
 .logistics-tab .lg-mapa-stan {
     position: absolute;
-    left: 50%;
-    bottom: 26px;
+    top: 48px;
+    left: 54px;
+    right: 10px;
     z-index: 1050;
-    transform: translateX(-50%);
-    width: max-content;
-    max-width: calc(100% - 32px);
+    width: fit-content;
+    max-width: calc(100% - 64px);
+    margin: 0 auto;
     padding: 7px 12px;
     background: var(--il-bg-card, #fff);
     border: 1px solid var(--il-border, #c8cdd5);
@@ -2014,20 +2116,26 @@ html.lg-przeciaganie-uchwytu * {
     text-align: center;
 }
 
+/* W trybie „Ustaw na mapie” i po akcji pasek u góry mówi, co robić — stan
+   „brak pinezek” powtarzałby to samo pod spodem. */
+.logistics-tab .lg-mapa-pasek:not([hidden]) ~ .lg-mapa-stan:not(.is-ladowanie):not(.is-blad) {
+    display: none;
+}
+
 .logistics-tab .lg-mapa-stan[hidden] {
     display: none;
 }
 
-.logistics-tab .lg-mapa-stan.is-ladowanie {
+.logistics-tab .lg-mapa-stan.is-ladowanie,
+.logistics-tab .lg-mapa-stan.is-blad {
     top: 50%;
-    bottom: auto;
-    transform: translate(-50%, -50%);
+    left: 16px;
+    right: 16px;
+    max-width: calc(100% - 32px);
+    transform: translateY(-50%);
 }
 
 .logistics-tab .lg-mapa-stan.is-blad {
-    top: 50%;
-    bottom: auto;
-    transform: translate(-50%, -50%);
     border-left: 3px solid var(--il-status-danger, #dc2626);
     color: var(--il-text-primary, #1a1a2e);
 }
@@ -2041,4 +2149,9 @@ html.lg-przeciaganie-uchwytu * {
     .logistics-tab .leaflet-bar a,
     .logistics-tab .leaflet-bar a:hover { width: 36px; height: 36px; line-height: 36px; }
     .logistics-tab .lg-mapa-pasek { left: 60px; }
+    .logistics-tab .lg-mapa-grupuj { min-height: 36px; }
+    .logistics-tab .lg-mapa-stan { top: 56px; left: 60px; max-width: calc(100% - 70px); }
+    .logistics-tab .lg-mapa-podklad { width: 40px; height: 40px; }
+    .logistics-tab .lg-mapa-podklad-podglad { width: 36px; height: 36px; }
+    .logistics-tab .lg-mapa-podklad-podglad img { margin: -10px 0 0 -10px; }
 }

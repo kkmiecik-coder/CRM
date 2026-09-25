@@ -14,7 +14,7 @@
      blokuje CDN). #}
 <link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet/leaflet.css') }}?v=1.9.4">
 <link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet-markercluster/MarkerCluster.css') }}?v=1.5.3">
-<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20260925c">
+<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20260925d">
 
 <div id="logistics-root" class="logistics-tab"
      data-api="{{ url_for('logistics_panel.orders') }}"
@@ -132,11 +132,14 @@
           </div>
         </div>
         <div class="lg-mapa-ramka">
+          {# Klawiatura: mapa stoi przed listą, a każda pinezka to przystanek Tab —
+             odnośnik (widoczny przy fokusie) przeskakuje od razu do tabeli. #}
+          <a class="lg-do-listy" href="#logistics-lista" data-lg-akcja="do-listy">Przejdź do listy zamówień</a>
           <div id="logistics-map" class="lg-mapa" aria-label="Mapa zamówień"
                data-carto-key="{{ carto_basemaps_key }}"
                data-skrypt-leaflet="{{ url_for('production.static', filename='vendor/leaflet/leaflet.js') }}?v=1.9.4"
                data-skrypt-klastry="{{ url_for('production.static', filename='vendor/leaflet-markercluster/leaflet.markercluster.js') }}?v=1.5.3"
-               data-skrypt-mapy="{{ url_for('logistics_panel.static', filename='js/logistics-map.js') }}?v=20260925e"></div>
+               data-skrypt-mapy="{{ url_for('logistics_panel.static', filename='js/logistics-map.js') }}?v=20260925f"></div>
           {# Pasek trybu (korekta, ustawianie punktu) i wyniku akcji na mapie. #}
           <div class="lg-mapa-pasek" data-lg-mapa="pasek" role="status" aria-live="polite" hidden></div>
           <div class="lg-mapa-stan is-ladowanie" data-lg-mapa="stan" role="status">Ładowanie mapy…</div>
@@ -147,6 +150,7 @@
           <span><span class="lg-pin lg-pin--transport_woodpower" aria-hidden="true"></span>Transport własny</span>
           <span><span class="lg-pin lg-pin--odbior_osobisty" aria-hidden="true"></span>Odbiór osobisty</span>
           <span><span class="lg-pin lg-pin--brak lg-pin--przyblizona" aria-hidden="true"></span>przybliżona (miejscowość)</span>
+          <span title="Adres w Base. zmienił się po ręcznym ustawieniu punktu — sprawdź, czy punkt jest aktualny"><span class="lg-pin-znak lg-pin-znak--legenda" aria-hidden="true">!</span>adres zmieniony</span>
           <span><span class="lg-magazyn lg-magazyn--legenda" aria-hidden="true"><i class="fas fa-industry"></i></span>magazyn</span>
         </div>
       </section>
@@ -164,7 +168,7 @@
         {# ─── TABELA ZAMÓWIEŃ ───
              .lg-tabela-ramka jest kontenerem zapytań @container — na węższej
              zakładce miasto i metoda z Base. składają się pod nazwę klienta. #}
-        <div class="lg-tabela-ramka">
+        <div class="lg-tabela-ramka" id="logistics-lista" tabindex="-1" aria-label="Lista zamówień">
           <table class="lg-tabela">
             <thead>
               <tr>
@@ -277,4 +281,4 @@
         });
 })();
 </script>
-<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20260925c"></script>
+<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20260925d"></script>

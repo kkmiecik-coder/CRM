@@ -20,6 +20,9 @@
  *   window.LogisticsMap.anuluj(), .zajeta(), .mapa(), .root, .zniszcz()
  * Gotowość ogłasza zdarzenie `logistics:mapa-gotowa` na document (detail.root).
  *
+ * Na mapie: przełącznik podkładu (miniaturki, lewy dolny róg) i „Grupuj pinezki”
+ * (prawy górny róg; wyłączony = zwykła L.FeatureGroup zamiast klastrów).
+ *
  * Tu żyje też PASTYLKA między listą a mapą (układ obok siebie): proporcja
  * kolumn z przeciągania / strzałek, zapamiętana w localStorage tej przeglądarki.
  *
@@ -102,6 +105,7 @@
     ];
     const PODKLAD_DOMYSLNY = 'voyager';
     const KLUCZ_PODKLADU_LS = 'logistyka.mapa.podklad';
+    const KLUCZ_GRUPOWANIA_LS = 'logistyka.mapa.grupuj';   // '0' = pinezki osobno
 
     // Kafelek podglądu w przycisku podkładu — okolice magazynu (Bachórz), z=9.
     const PODGLAD_LAT = 49.84;
@@ -143,7 +147,11 @@
     // ── Stan ────────────────────────────────────────────────────────────────
 
     let mapa = null;                 // L.Map — powstaje, gdy kontener ma wymiary
-    let klastry = null;              // L.MarkerClusterGroup z pinezkami zamówień
+    // Pinezki zamówień: L.MarkerClusterGroup („Grupuj pinezki” włączone, domyślnie)
+    // albo zwykła L.FeatureGroup — przełącznik na mapie, wybór w localStorage.
+    let pinezki = null;
+    let grupowanie = true;
+    let przelacznikGrupowania = null; // <input role="switch"> w kontrolce na mapie
     let warstwaEdycji = null;        // tymczasowa pinezka korekty / ustawiania
     let warstwaKafelkow = null;      // L.TileLayer aktywnego podkładu (Voyager/Positron/OSM)
     let kontrolkaAtrybucji = null;   // L.Control.Attribution — treść zależy od podkładu
@@ -587,7 +595,11 @@
         });
     }
 
-    /** Kontrolka Leafleta: rząd ilustrowanych przycisków (podgląd stylu + nazwa). */
+    /**
+     * Kontrolka Leafleta: rząd samych miniaturek (podgląd stylu), bez podpisów —
+     * nazwa w title i aria-label. Kompaktowa, żeby w wąskiej (300 px) i niskiej
+     * mapie nie zasłaniała pinezek ani atrybucji.
+     */
     function dodajKontrolkePodkladow() {
         const Kontrolka = L.Control.extend({
             options: { position: 'bottomleft' },
@@ -600,6 +612,7 @@
                     b.type = 'button';
                     b.setAttribute('data-podklad', podklad.id);
                     b.title = 'Podkład mapy: ' + podklad.nazwa;
+                    b.setAttribute('aria-label', 'Podkład mapy: ' + podklad.nazwa);
                     const podglad = L.DomUtil.create('span', 'lg-mapa-podklad-podglad', b);
                     podglad.setAttribute('aria-hidden', 'true');
                     const img = L.DomUtil.create('img', '', podglad);
@@ -620,8 +633,6 @@
                     img.height = 56;
                     img.loading = 'lazy';
                     img.decoding = 'async';
-                    const etykieta = L.DomUtil.create('span', 'lg-mapa-podklad-nazwa', b);
-                    etykieta.textContent = podklad.nazwa;
                     L.DomEvent.on(b, 'click', (e) => {
                         L.DomEvent.preventDefault(e);
                         przelaczPodklad(podklad.id);
@@ -632,6 +643,93 @@
                 kontrolkaPodkladowEl = div;
                 zaznaczAktywnyPodklad();
                 return div;
+            },
+        });
+        new Kontrolka().addTo(mapa);
+    }
+
+    // ── Grupowanie pinezek (klastry albo każda pinezka osobno) ──────────────
+
+    // Domyślnie włączone; localStorage bywa niedostępny — wtedy też włączone.
+    function czytajGrupowanie() {
+        try {
+            return window.localStorage.getItem(KLUCZ_GRUPOWANIA_LS) !== '0';
+        } catch (e) {
+            return true;
+        }
+    }
+
+    function zapiszGrupowanie(wlaczone) {
+        try { window.localStorage.setItem(KLUCZ_GRUPOWANIA_LS, wlaczone ? '1' : '0'); } catch (e) { /* wybór nie przeżyje przeładowania */ }
+    }
+
+    function nowaWarstwaPinezek() {
+        if (!grupowanie) return L.featureGroup();
+        return L.markerClusterGroup({
+            showCoverageOnHover: false,
+            maxClusterRadius: 44,
+            spiderfyOnMaxZoom: true,
+            animate: !bezRuchu,
+            iconCreateFunction: ikonaKlastra,
+        });
+    }
+
+    // L.FeatureGroup nie ma addLayers/removeLayers (hurtowych metod klastrów).
+    function dodajPinezki(lista) {
+        if (!lista.length) return;
+        if (pinezki.addLayers) pinezki.addLayers(lista);
+        else lista.forEach((m) => pinezki.addLayer(m));
+    }
+
+    function usunPinezki(lista) {
+        if (!lista.length) return;
+        if (pinezki.removeLayers) pinezki.removeLayers(lista);
+        else lista.forEach((m) => pinezki.removeLayer(m));
+    }
+
+    /**
+     * Przenosi te same obiekty pinezek do warstwy drugiego rodzaju — bez
+     * odtwarzania mapy i bez zmiany widoku. Pinezka w trakcie korekty (poza
+     * warstwą) zostaje poza nią; otwarty dymek otwiera się ponownie.
+     */
+    function ustawGrupowanie(wlaczone) {
+        if (!mapa || zniszczona || wlaczone === grupowanie) return;
+        const m = wybrany !== null ? znaczniki.get(wybrany) : null;
+        const otwarty = m && m.isPopupOpen() ? wybrany : null;
+        const pominiety = tryb && tryb.rodzaj === 'korekta' ? tryb.oryginal : null;
+        anulujWskazanie();
+        const stara = pinezki;
+        mapa.removeLayer(stara);
+        stara.clearLayers();
+        grupowanie = wlaczone;
+        pinezki = nowaWarstwaPinezek();
+        mapa.addLayer(pinezki);
+        const wszystkie = [];
+        znaczniki.forEach((z) => { if (z !== pominiety) wszystkie.push(z); });
+        dodajPinezki(wszystkie);
+        zapiszGrupowanie(wlaczone);
+        if (przelacznikGrupowania) przelacznikGrupowania.checked = wlaczone;
+        if (otwarty !== null) otworzDymek(otwarty, 'lista');
+    }
+
+    /** Kontrolka Leafleta w prawym górnym rogu: przełącznik „Grupuj pinezki”. */
+    function dodajPrzelacznikGrupowania() {
+        const Kontrolka = L.Control.extend({
+            options: { position: 'topright' },
+            onAdd: function () {
+                const pole = L.DomUtil.create('label', 'lg-mapa-grupuj');
+                pole.title = 'Łącz pobliskie pinezki w koła z liczbą zamówień';
+                const input = L.DomUtil.create('input', '', pole);
+                input.type = 'checkbox';
+                input.setAttribute('role', 'switch');
+                input.checked = grupowanie;
+                const tekst = L.DomUtil.create('span', '', pole);
+                tekst.textContent = 'Grupuj pinezki';
+                L.DomEvent.on(input, 'change', () => ustawGrupowanie(input.checked));
+                L.DomEvent.disableClickPropagation(pole);
+                L.DomEvent.disableScrollPropagation(pole);
+                przelacznikGrupowania = input;
+                return pole;
             },
         });
         new Kontrolka().addTo(mapa);
@@ -660,19 +758,15 @@
         warstwaKafelkow = nowaWarstwaKafelkow(aktywnyPodklad).addTo(mapa);
         mapa.fitBounds(POLSKA, { padding: [8, 8] });
 
-        klastry = L.markerClusterGroup({
-            showCoverageOnHover: false,
-            maxClusterRadius: 44,
-            spiderfyOnMaxZoom: true,
-            animate: !bezRuchu,
-            iconCreateFunction: ikonaKlastra,
-        });
-        mapa.addLayer(klastry);
+        grupowanie = czytajGrupowanie();
+        pinezki = nowaWarstwaPinezek();
+        mapa.addLayer(pinezki);
         warstwaEdycji = L.layerGroup().addTo(mapa);
 
         dodajMagazyn();
         dodajKontrolkeDopasowania();
         dodajKontrolkePodkladow();
+        dodajPrzelacznikGrupowania();
         mapa.on('click', klikMapy);
 
         ukryjStanMapy();
@@ -810,7 +904,8 @@
         if (!el || !z) return;
         el.setAttribute('aria-label', 'Zamówienie ' + z.numer + (z.klient ? ', ' + z.klient : '') +
             ', ' + ETYKIETY[kluczSposobu(z.sposob)] +
-            (z.geo && z.geo.quality === 'przyblizona' ? ', lokalizacja przybliżona' : ''));
+            (z.geo && z.geo.quality === 'przyblizona' ? ', lokalizacja przybliżona' : '') +
+            (z.geo && z.geo.adres_zmieniony ? ', adres zmieniony po ręcznym ustawieniu punktu' : ''));
     }
 
     function aktualizujZnacznik(m, z) {
@@ -821,18 +916,20 @@
         m.lgKlucz = klucz;
         m.options.lgSposob = kluczSposobu(z.sposob);
         if (przesuniety) {
-            // markercluster nie śledzi setLatLng — zdejmujemy i dodajemy na nowo.
+            // markercluster nie śledzi setLatLng — zdejmujemy i dodajemy na nowo
+            // (pinezka w trakcie korekty jest poza warstwą i tam zostaje).
             const otwarty = m.isPopupOpen();
-            klastry.removeLayer(m);
+            const wWarstwie = pinezki.hasLayer(m);
+            if (wWarstwie) pinezki.removeLayer(m);
             m.setLatLng([z.geo.lat, z.geo.lng]);
             m.setIcon(ikonaZamowienia(z, { wybrana: wybrany === z.id }));
-            klastry.addLayer(m);
+            if (wWarstwie) pinezki.addLayer(m);
             opiszZnacznik(m, z.id);
             if (otwarty) otworzDymek(z.id, 'mapa');
         } else {
             m.setIcon(ikonaZamowienia(z, { wybrana: wybrany === z.id }));
             opiszZnacznik(m, z.id);
-            klastry.refreshClusters(m);
+            if (pinezki.refreshClusters) pinezki.refreshClusters(m);
             if (m.isPopupOpen()) m.getPopup().update();
         }
     }
@@ -864,8 +961,8 @@
                 znaczniki.delete(id);
             }
         });
-        if (doUsuniecia.length) klastry.removeLayers(doUsuniecia);
-        if (nowe.length) klastry.addLayers(nowe);
+        usunPinezki(doUsuniecia);
+        dodajPinezki(nowe);
         // Otwarty dymek usuniętej pinezki zamyka się sam (popupclose → wybór null).
         odswiezStanMapy();
     }
@@ -907,7 +1004,12 @@
             m.openPopup();
             zrodloOtwarcia = 'mapa';
         };
-        klastry.zoomToShowLayer(m, otworz);
+        // Bez grupowania pinezka jest na mapie — highlight() już ją przybliżył.
+        if (!pinezki.zoomToShowLayer) {
+            otworz();
+            return true;
+        }
+        pinezki.zoomToShowLayer(m, otworz);
         if (aktualna) {
             // markercluster czeka na moveend, przy którym pinezka (albo jej klaster)
             // jest widoczna. Gdy jego przybliżenie wypadło w trakcie innej animacji,
@@ -979,8 +1081,8 @@
         anulujWskazanie();
         mapa.closePopup();
         const start = m.getLatLng();
-        // Oryginał znika z klastrów na czas korekty; przeciągamy osobną pinezkę.
-        klastry.removeLayer(m);
+        // Oryginał znika z warstwy pinezek na czas korekty; przeciągamy osobną pinezkę.
+        pinezki.removeLayer(m);
         const tymczasowa = L.marker(start, {
             icon: ikonaZamowienia(z, { edycja: true }),
             draggable: true,
@@ -1096,7 +1198,7 @@
         tryb = null;
         if (warstwaEdycji) warstwaEdycji.clearLayers();
         if (t.rodzaj === 'korekta' && t.oryginal && znaczniki.get(t.id) === t.oryginal) {
-            klastry.addLayer(t.oryginal);
+            pinezki.addLayer(t.oryginal);
         }
         kontener.classList.remove('is-korekta', 'is-celowanie');
         ukryjPasek();
@@ -1440,6 +1542,9 @@
         warstwaKafelkow = null;
         kontrolkaAtrybucji = null;
         kontrolkaPodkladowEl = null;
+        przelacznikGrupowania = null;
+        pinezki = null;
+        podgladyPodkladow.clear();
         znaczniki.clear();
         zamowienia.clear();
         sluchaczeWyboru.length = 0;

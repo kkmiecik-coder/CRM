@@ -107,3 +107,59 @@ def test_fokus_przezywa_przerysowanie_takze_na_przycisku_mapy():
     assert "const KLASY_FOKUSU = ['lg-sposob', 'lg-na-mapie', 'lg-zaznacz'];" in js
     assert 'przywrocFokus(fokus, tbody)' in _funkcja(js, 'renderujTabele')
     assert 'przywrocFokus(fokus, tbody)' in _funkcja(js, 'odswiezWiersz')
+
+
+def _css():
+    return _plik(LOG, 'static', 'css', 'logistics.css')
+
+
+def _szablon():
+    return _plik(LOG, 'templates', 'logistics', 'tab_content.html')
+
+
+def _regula_css(css, selektor):
+    start = css.index(selektor + ' {')
+    return css[start:css.index('}', start)]
+
+
+def test_przelacznik_podkladow_bez_podpisow_z_nazwa_w_etykiecie():
+    """UF6: same miniaturki; nazwa w title i aria-label, aktywny z obwódką."""
+    js, css = _mapa_js(), _css()
+    kontrolka = _funkcja(js, 'dodajKontrolkePodkladow')
+    assert 'lg-mapa-podklad-nazwa' not in js and 'lg-mapa-podklad-nazwa' not in css
+    assert "b.setAttribute('aria-label', 'Podkład mapy: ' + podklad.nazwa);" in kontrolka
+    assert 'border-color' in _regula_css(css, '.logistics-tab .lg-mapa-podklad.is-aktywny,\n.logistics-tab .lg-mapa-podklad.is-aktywny:hover')
+
+
+def test_stan_pustej_mapy_u_gory_a_nie_na_przelaczniku_podkladow():
+    """UF1/m4: komunikat „brak pinezek” u góry, pod kontrolkami, nie na dole mapy."""
+    regula = _regula_css(_css(), '.logistics-tab .lg-mapa-stan')
+    assert 'top: 48px' in regula and 'bottom' not in regula
+
+
+def test_grupowanie_pinezek_przelacznikiem_na_mapie():
+    """UF4: klastry albo zwykła warstwa, wybór w localStorage, dymki bez zoomToShowLayer."""
+    js = _mapa_js()
+    assert "'logistyka.mapa.grupuj'" in js
+    assert 'L.featureGroup()' in _funkcja(js, 'nowaWarstwaPinezek')
+    przelacznik = _funkcja(js, 'dodajPrzelacznikGrupowania')
+    assert "input.setAttribute('role', 'switch')" in przelacznik and 'Grupuj pinezki' in przelacznik
+    assert 'if (!pinezki.zoomToShowLayer) {' in _funkcja(js, 'otworzDymek')
+    assert 'klastry.' not in js
+
+
+def test_legenda_i_opis_pinezki_objasniaja_zmieniony_adres():
+    """m5: pomarańczowy „!” w legendzie mapy i w aria-label pinezki."""
+    html = _szablon()
+    legenda = html[html.index('class="lg-mapa-legenda"'):]
+    assert 'lg-pin-znak--legenda' in legenda[:legenda.index('</div>')]
+    assert 'adres zmieniony po ręcznym ustawieniu punktu' in _funkcja(_mapa_js(), 'opiszZnacznik')
+
+
+def test_odnosnik_do_listy_przed_mapa():
+    """m6: klawiatura przeskakuje pinezki odnośnikiem widocznym przy fokusie."""
+    html = _szablon()
+    assert html.index('Przejdź do listy zamówień') < html.index('id="logistics-map"')
+    assert 'id="logistics-lista" tabindex="-1"' in html
+    assert "case 'do-listy':" in _lista_js()
+    assert ':not(:focus)' in _css()

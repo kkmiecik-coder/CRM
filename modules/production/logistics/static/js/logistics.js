@@ -1256,6 +1256,13 @@
             case 'ustaw-na-mapie':
                 if (tr) ustawNaMapie(Number(tr.getAttribute('data-id')));
                 break;
+            case 'do-listy': {
+                // Bez zmiany adresu (#) — fokus na tabeli, następny Tab to pierwszy wiersz.
+                e.preventDefault();
+                const lista = root.querySelector('#logistics-lista');
+                if (lista) lista.focus();
+                break;
+            }
             default:
                 break;
         }
