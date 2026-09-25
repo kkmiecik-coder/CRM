@@ -5,6 +5,7 @@ from sqlalchemy.orm import selectinload
 
 from extensions import db
 from modules.production.logistics import sposoby
+from modules.production.logistics.services import geocoding
 from modules.production.logistics.services.delivery import aktywne_produkty, wszystkie_spakowane
 from modules.production.models import ProductionOrder, ProductionProduct
 
@@ -57,7 +58,14 @@ def _etap(aktywne):
             'nazwa': najwczesniejszy.status_display_name}
 
 
-def serializuj(order):
+def _geo(punkt):
+    if punkt is None or punkt.lat is None:
+        return None
+    return {'lat': float(punkt.lat), 'lng': float(punkt.lng), 'quality': punkt.quality,
+            'source': punkt.source, 'adres_zmieniony': bool(punkt.address_changed_after_manual)}
+
+
+def serializuj(order, geo=None):
     aktywne = aktywne_produkty(order)
     sposob = sposoby.normalizuj(order.override_delivery_method)
     terminy = [p.deadline_date for p in aktywne if p.deadline_date]
@@ -84,6 +92,7 @@ def serializuj(order):
         'etykiety_sprzed_zmiany': bool(ustawiono) and any(
             p.label_printed_at is not None and p.label_printed_at < ustawiono for p in aktywne),
         'przepakowanie': bool(order.repack_required),
+        'geo': _geo(geo),
     }
 
 
@@ -115,7 +124,9 @@ def pobierz(sposob=None, etap=None, q=None, zamkniete=False):
         zapytanie = zapytanie.filter(ProductionOrder.override_delivery_method == sposob)
     if zamkniete:
         zapytanie = zapytanie.order_by(ProductionOrder.id.desc()).limit(LIMIT_ZAMKNIETYCH)
-    wiersze = [serializuj(o) for o in zapytanie.all()]
+    zamowienia = zapytanie.all()
+    punkty = geocoding.geo_zamowien([o.id for o in zamowienia])
+    wiersze = [serializuj(o, punkty.get(o.id)) for o in zamowienia]
     if etap:
         wiersze = [w for w in wiersze if w['etap']['status'] == etap]
     return sorted(wiersze, key=_klucz)

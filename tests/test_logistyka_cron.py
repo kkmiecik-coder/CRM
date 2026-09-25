@@ -5,7 +5,7 @@ import pytest
 
 from extensions import db
 from modules.production.logistics import sposoby as s
-from modules.production.logistics.services import bl_sync
+from modules.production.logistics.services import bl_sync, geocoding
 from modules.production.models import ProductionOrder
 from tests.logistyka_fixtures import BASE, SEKRET_CRONA, app, client, produkt, zamowienie  # noqa: F401
 
@@ -14,8 +14,12 @@ NAGLOWEK = {'X-Cron-Secret': SEKRET_CRONA}
 
 @pytest.fixture()
 def watki(monkeypatch):
+    """Etap 2: cron uruchamia też geokoder w tle — bez mocka odpalałby PRAWDZIWY
+    wątek na tym samym połączeniu SQLite (StaticPool) co żądanie testowe i gubił
+    się z nim o transakcję (wyścig, nie coś do naprawienia w kodzie produkcyjnym)."""
     uruchomione = []
     monkeypatch.setattr(bl_sync, 'uruchom_w_tle', lambda app_: uruchomione.append(1) or True)
+    monkeypatch.setattr(geocoding, 'uruchom_w_tle', lambda app_: uruchomione.append(1) or True)
     return uruchomione
 
 
@@ -27,8 +31,10 @@ def test_cron_bez_sekretu_to_403(client, watki):
 def test_cron_uruchamia_dopychacz_i_odpowiada_od_razu(client, watki):
     r = client.post(BASE + '/cron', headers=NAGLOWEK)
     assert r.status_code == 200
-    assert r.get_json()['dopychacz_uruchomiony'] is True
-    assert watki == [1]
+    dane = r.get_json()
+    assert dane['dopychacz_uruchomiony'] is True
+    assert dane['geokoder_uruchomiony'] is True
+    assert watki == [1, 1]  # dopychacz Base. i geokoder — oba uruchomione
 
 
 def test_cron_zwraca_pauze(client, app, watki):

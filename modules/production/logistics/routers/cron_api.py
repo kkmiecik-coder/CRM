@@ -5,8 +5,7 @@ Cron logistyki — co godzinę z crontaba serwera:
 
 Endpoint NIE wykonuje długiej pracy: sync worker gunicorna ma 30 s na żądanie.
 Przenosi osierocone `czeka_na_logistyke` do pakowania, przelicza cykl zamówień
-(szybkie, w bazie) i uruchamia dopychacz Base. w tle.
-Etap 2 dołoży tu uruchomienie geokodowania w tle.
+(szybkie, w bazie) i uruchamia w tle dopychacz Base. oraz geokoder adresów.
 """
 import traceback
 
@@ -16,7 +15,7 @@ from cron_auth import cron_secret_required
 from extensions import db
 from modules.logging import get_structured_logger
 from modules.production.logistics import logistics_panel_bp
-from modules.production.logistics.services import bl_sync, delivery
+from modules.production.logistics.services import bl_sync, delivery, geocoding
 
 logger = get_structured_logger('production.logistics.cron')
 
@@ -25,7 +24,7 @@ logger = get_structured_logger('production.logistics.cron')
 @cron_secret_required
 def cron():
     """
-    Przelicza cykl logistyki zamówień i uruchamia dopychacz Base. w tle.
+    Przelicza cykl logistyki zamówień i uruchamia w tle dopychacz Base. oraz geokoder adresów.
     """
     try:
         # Najpierw produkty zapisane przez stary kod w oknie wdrożenia (patrz
@@ -38,12 +37,14 @@ def cron():
         przeliczone = delivery.przelicz_otwarte()
         db.session.commit()
         uruchomiony = bl_sync.uruchom_w_tle(current_app._get_current_object())
+        geokoder = geocoding.uruchom_w_tle(current_app._get_current_object())
         wstrzymane = bl_sync.wstrzymane_do()
         return jsonify({
             'success': True,
             'przeniesione_z_logistyki': przeniesione,
             'przeliczone': przeliczone,
             'dopychacz_uruchomiony': bool(uruchomiony),
+            'geokoder_uruchomiony': bool(geokoder),
             'base_wstrzymane_do': wstrzymane.isoformat() if wstrzymane else None,
         })
     except Exception as e:

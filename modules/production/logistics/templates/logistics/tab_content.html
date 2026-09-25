@@ -11,7 +11,10 @@
      krawędzi (ten sam znak co przy liczniku) i ciepłe tło, reszta spokojna. #}
 <link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20260925">
 
-<div id="logistics-root" class="logistics-tab" data-api="{{ url_for('logistics_panel.orders') }}">
+<div id="logistics-root" class="logistics-tab"
+     data-api="{{ url_for('logistics_panel.orders') }}"
+     data-magazyn-lat="{{ magazyn.lat }}" data-magazyn-lng="{{ magazyn.lng }}"
+     data-magazyn-nazwa="{{ magazyn.nazwa }}">
 
   {# ─── NAGŁÓWEK: podzakładki + odświeżanie ───
        W etapie 1 jest tylko „Dashboard”. Trasy i Flota dochodzą w etapie 3 —

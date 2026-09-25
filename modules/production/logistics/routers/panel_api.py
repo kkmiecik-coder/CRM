@@ -7,15 +7,16 @@ uzasadnienie kolejności i leniwego odwołania do dekoratora).
 """
 from functools import wraps
 
-from flask import jsonify, render_template, request
+from flask import current_app, jsonify, render_template, request
 from flask_login import current_user, login_required
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 import modules.users.decorators as user_decorators
 from extensions import db
 from modules.logging import get_structured_logger
 from modules.production.logistics import logistics_panel_bp, sposoby
-from modules.production.logistics.services import bl_sync, delivery, lista
+from modules.production.logistics.services import bl_sync, delivery, geocoding, lista
 from modules.production.models import ProductionOrder
 
 logger = get_structured_logger('production.logistics.panel_api')
@@ -42,7 +43,7 @@ def _blad(komunikat, status):
 @logistics_panel_bp.route('/tab-content', methods=['GET'])
 @guard
 def tab_content():
-    return render_template('logistics/tab_content.html')
+    return render_template('logistics/tab_content.html', magazyn=geocoding.MAGAZYN)
 
 
 @logistics_panel_bp.route('/orders', methods=['GET'])
@@ -60,6 +61,8 @@ def orders():
                                 q=q, zamkniete=zamkniete),
         'liczniki': lista.liczniki(),
         'base_wstrzymane_do': wstrzymane.isoformat() if wstrzymane else None,
+        'bez_lokalizacji': geocoding.bez_lokalizacji(),
+        'geokoder_dziala': geocoding.geokoder_dziala(),
     })
 
 
@@ -105,8 +108,10 @@ def delivery_method():
     bl_sync.po_zmianie(zmienione)
     odswiezone = (ProductionOrder.query.options(selectinload(ProductionOrder.products))
                   .filter(ProductionOrder.id.in_(ids)).all())
+    punkty = geocoding.geo_zamowien(ids)
     return jsonify({'success': True, 'zmienione': zmienione, 'przepakowanie': przepakowanie,
-                    'bledy': bledy, 'orders': [lista.serializuj(o) for o in odswiezone]})
+                    'bledy': bledy,
+                    'orders': [lista.serializuj(o, punkty.get(o.id)) for o in odswiezone]})
 
 
 @logistics_panel_bp.route('/orders/<int:order_id>/handed-over', methods=['POST'])
@@ -122,4 +127,60 @@ def handed_over(order_id):
         return _blad(e.komunikat, e.status)
     db.session.commit()
     bl_sync.po_zmianie([order.id])
-    return jsonify({'success': True, 'order': lista.serializuj(ProductionOrder.query.get(order_id))})
+    order = ProductionOrder.query.get(order_id)
+    punkty = geocoding.geo_zamowien([order_id])
+    return jsonify({'success': True, 'order': lista.serializuj(order, punkty.get(order_id))})
+
+
+def _zamowienie_albo_404(order_id):
+    return ProductionOrder.query.get(order_id)
+
+
+@logistics_panel_bp.route('/geocode', methods=['POST'])
+@guard
+def geocode():
+    """„Zlokalizuj teraz” — tylko uruchamia wątek w tle (timeout gunicorna 30 s)."""
+    uruchomiono = geocoding.uruchom_w_tle(current_app._get_current_object())
+    return jsonify({'success': True, 'uruchomiono': bool(uruchomiono)}), 202
+
+
+@logistics_panel_bp.route('/orders/<int:order_id>/geo', methods=['PUT'])
+@guard
+def order_geo(order_id):
+    order = _zamowienie_albo_404(order_id)
+    if order is None:
+        return _blad(u'Nie ma takiego zamówienia.', 404)
+    dane = request.get_json(silent=True) or {}
+    if not isinstance(dane, dict):
+        # Tablica albo skalar w ciele JSON — bez tego .get() rzuca AttributeError (500).
+        return _blad(u'Nieprawidłowe dane żądania.', 422)
+    try:
+        punkt = geocoding.ustaw_recznie(order, dane.get('lat'), dane.get('lng'))
+    except delivery.LogistykaBlad as e:
+        db.session.rollback()
+        return _blad(e.komunikat, e.status)
+    try:
+        db.session.commit()
+    except IntegrityError:
+        # Geokoder w tle mógł w międzyczasie wstawić ten sam wiersz (INSERT z SELECT
+        # ... FOR UPDATE) — commit tego żądania trafia w duplicate key. Ponawiamy raz:
+        # ustaw_recznie() na świeżo odczytanym wierszu robi UPDATE, nie INSERT.
+        db.session.rollback()
+        try:
+            punkt = geocoding.ustaw_recznie(order, dane.get('lat'), dane.get('lng'))
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+            return _blad(u'Nie udało się zapisać lokalizacji, spróbuj ponownie.', 409)
+    return jsonify({'success': True, 'order': lista.serializuj(order, punkt)})
+
+
+@logistics_panel_bp.route('/orders/<int:order_id>/geo/reset', methods=['POST'])
+@guard
+def order_geo_reset(order_id):
+    order = _zamowienie_albo_404(order_id)
+    if order is None:
+        return _blad(u'Nie ma takiego zamówienia.', 404)
+    geocoding.resetuj(order)
+    db.session.commit()
+    return jsonify({'success': True, 'order': lista.serializuj(order, None)})
