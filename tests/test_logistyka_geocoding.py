@@ -149,6 +149,24 @@ def test_awaria_gugik_nie_zapisuje_przyblizenia():
         g.geokoduj_adres('Floriańska 10', 'Kraków', None, 'PL', http, _bez_spania)
 
 
+# --- R7 (kontroler): BladUslugi.pelna_awaria - tylko PEŁNA awaria (żadna usługa w tym
+# wywołaniu nie odpowiedziała) ma się liczyć do serii przerywającej przebieg `lokalizuj`
+# (patrz tests/test_logistyka_geo_runner.py) ---
+
+def test_blad_uslugi_pelna_awaria_gdy_wszystko_pada():
+    http = FakeHttp(awaria={'gugik', 'nominatim'})
+    with pytest.raises(g.BladUslugi) as wyjatek:
+        g.geokoduj_adres('Floriańska 10', 'Kraków', None, 'PL', http, _bez_spania)
+    assert wyjatek.value.pelna_awaria is True
+
+
+def test_blad_uslugi_nie_pelna_gdy_gugik_pada_a_nominatim_odpowiada():
+    http = FakeHttp(awaria={'gugik'}, nominatim=[[{'lat': '50.1', 'lon': '19.9', 'place_rank': 26}]])
+    with pytest.raises(g.BladUslugi) as wyjatek:
+        g.geokoduj_adres('Floriańska 10', 'Kraków', None, 'PL', http, _bez_spania)
+    assert wyjatek.value.pelna_awaria is False
+
+
 def test_awaria_gugik_ale_nominatim_dokladny():
     http = FakeHttp(awaria={'gugik'}, nominatim=[[{'lat': '50.1', 'lon': '19.9', 'place_rank': 30}]])
     wynik = g.geokoduj_adres('Floriańska 10', 'Kraków', None, 'PL', http, _bez_spania)

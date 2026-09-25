@@ -52,7 +52,23 @@ NIE_ZNALEZIONO = Wynik(None, None, None, 'nie_znaleziono')
 
 
 class BladUslugi(Exception):
-    """Usługa nie odpowiedziała — to nie jest „nie znaleziono”, nie zużywa próby."""
+    """
+    Usługa nie odpowiedziała — to nie jest „nie znaleziono”, nie zużywa próby.
+
+    `pelna_awaria` (R7, kontroler): True, gdy w TYM wywołaniu `geokoduj_adres` ŻADNE
+    zapytanie HTTP nie dostało odpowiedzi (realna awaria usług) — tylko taki przypadek
+    ma się liczyć do serii przerywającej przebieg `lokalizuj` (patrz tam). False dla
+    awarii CZĘŚCIOWEJ (np. GUGiK trwale pada dla jednego adresu, ale Nominatim
+    odpowiedział — tylko przybliżeniem, które R3 każe odrzucić) — taki błąd nadal
+    liczy się do `wynik['bledy']`, ale nie wydłuża ani nie zeruje serii: garstka
+    trwale wadliwych starych zamówień (niższe id → przetwarzane pierwsze) inaczej
+    zagłodziłaby wszystkie nowsze w tym samym przebiegu. Domyślnie True — bezpieczny
+    (pesymistyczny) wariant dla wywołań spoza `geokoduj_adres` bez podania flagi.
+    """
+
+    def __init__(self, komunikat, pelna_awaria=True):
+        super().__init__(komunikat)
+        self.pelna_awaria = pelna_awaria
 
 
 def _naglowki():
@@ -120,6 +136,11 @@ def geokoduj_adres(adres, miasto, kod, kraj, http_get=requests.get, spij=time.sl
     miasto = (miasto or '').strip()
     kod = (kod or '').strip() or None
     awaria = False
+    # R7 (kontroler): czy JAKAKOLWIEK usługa w tym wywołaniu w ogóle odpowiedziała —
+    # odróżnia PEŁNĄ awarię (nic nie odpowiedziało, prawdziwy outage) od awarii
+    # CZĘŚCIOWEJ (np. trwale wadliwy jeden adres w GUGiK, usługi ogólnie działają).
+    # Patrz `BladUslugi.pelna_awaria`.
+    byla_odpowiedz = False
 
     # 1. GUGiK — dokładny punkt adresowy (tylko Polska).
     if kraj == 'PL':
@@ -132,6 +153,7 @@ def geokoduj_adres(adres, miasto, kod, kraj, http_get=requests.get, spij=time.sl
                 awaria = True
                 logger.warning("GUGiK nie odpowiedzial", extra={'error': str(e)})
                 continue
+            byla_odpowiedz = True
             if trafienie:
                 return Wynik(float(trafienie['y']), float(trafienie['x']), 'gugik', 'dokladna')
 
@@ -147,6 +169,8 @@ def geokoduj_adres(adres, miasto, kod, kraj, http_get=requests.get, spij=time.sl
         except Exception as e:
             awaria, punkt = True, None
             logger.warning("Nominatim nie odpowiedzial", extra={'error': str(e)})
+        else:
+            byla_odpowiedz = True
         if punkt:
             if punkt[2]:
                 return Wynik(punkt[0], punkt[1], 'nominatim', 'dokladna')
@@ -160,7 +184,7 @@ def geokoduj_adres(adres, miasto, kod, kraj, http_get=requests.get, spij=time.sl
     # przypiąć dokładnie. Kończymy od razu (mniej zapytań do Nominatim) — zamówienie
     # wróci do geokodowania w kolejnym przebiegu, bez zużywania próby.
     if awaria:
-        raise BladUslugi(u'Usługa geokodowania nie odpowiedziała')
+        raise BladUslugi(u'Usługa geokodowania nie odpowiedziała', pelna_awaria=not byla_odpowiedz)
 
     # 3. Przybliżenie do miejscowości.
     if kraj == 'PL' and miasto:
@@ -173,6 +197,8 @@ def geokoduj_adres(adres, miasto, kod, kraj, http_get=requests.get, spij=time.sl
         except Exception as e:
             awaria = True
             logger.warning("GUGiK (miejscowosc) nie odpowiedzial", extra={'error': str(e)})
+        else:
+            byla_odpowiedz = True
 
         # R3 (poprawka po przeglądzie, runda 1): krok 3 ma DWIE usługi z rzędu —
         # awaria pierwszej (GUGiK-miejscowość) nie może zostać zamaskowana sukcesem
@@ -180,7 +206,7 @@ def geokoduj_adres(adres, miasto, kod, kraj, http_get=requests.get, spij=time.sl
         # przybliżenie z Nominatim, mimo że w tym wywołaniu już coś padło. Kończymy
         # od razu — jedno zapytanie do Nominatim mniej.
         if awaria:
-            raise BladUslugi(u'Usługa geokodowania nie odpowiedziała')
+            raise BladUslugi(u'Usługa geokodowania nie odpowiedziała', pelna_awaria=not byla_odpowiedz)
     if miasto or kod:
         spij(ODSTEP_NOMINATIM_S)
         try:
@@ -189,11 +215,13 @@ def geokoduj_adres(adres, miasto, kod, kraj, http_get=requests.get, spij=time.sl
         except Exception as e:
             awaria, punkt = True, None
             logger.warning("Nominatim (miejscowosc) nie odpowiedzial", extra={'error': str(e)})
+        else:
+            byla_odpowiedz = True
         if punkt:
             return Wynik(punkt[0], punkt[1], 'nominatim', 'przyblizona')
 
     if awaria:
-        raise BladUslugi(u'Usługa geokodowania nie odpowiedziała')
+        raise BladUslugi(u'Usługa geokodowania nie odpowiedziała', pelna_awaria=not byla_odpowiedz)
     return NIE_ZNALEZIONO
 
 
@@ -202,9 +230,11 @@ def geokoduj_adres(adres, miasto, kod, kraj, http_get=requests.get, spij=time.sl
 KLUCZ_DZIERZAWY = 'logistyka_geo_dzierzawa'
 CZAS_DZIERZAWY_S = 300  # jak bl_sync.CZAS_DZIERZAWY_S (przegląd etapu 1)
 MAKS_PROB = 3
-# R2 (kontroler): 3 awarie usług z rzędu w jednym przebiegu = usługi nie działają;
-# zamówienia idą w kolejności id, więc bez tego limitu jedno zawieszone na starcie
-# zamówienie głodziłoby WSZYSTKIE kolejne do końca przebiegu (same timeouty).
+# R2 (kontroler): 3 PEŁNE awarie usług z rzędu w jednym przebiegu = usługi nie
+# działają; zamówienia idą w kolejności id, więc bez tego limitu jedno zawieszone
+# na starcie zamówienie głodziłoby WSZYSTKIE kolejne do końca przebiegu (same
+# timeouty). R7 (kontroler): liczą się TYLKO pełne awarie (BladUslugi.pelna_awaria) —
+# awaria częściowa nie wydłuża serii, patrz tam.
 MAKS_BLEDOW_Z_RZEDU = 3
 
 
@@ -354,22 +384,36 @@ def lokalizuj(limit=None, http_get=requests.get, spij=time.sleep):
         for order in do_zlokalizowania(limit):
             try:
                 punkt = zlokalizuj_zamowienie(order, http_get=http_get, spij=spij)
-            except BladUslugi:
+            except BladUslugi as e:
                 db.session.rollback()
                 wynik['bledy'] += 1
-                bledy_z_rzedu += 1
+                # R7: tylko PEŁNA awaria (żadna usługa w tym wywołaniu nie odpowiedziała)
+                # liczy się do serii przerywającej przebieg. Awaria częściowa (np. trwale
+                # wadliwy jeden adres w GUGiK, Nominatim działa) nadal trafia do 'bledy',
+                # ale ani nie wydłuża, ani nie zeruje serii — patrz BladUslugi.pelna_awaria.
+                if e.pelna_awaria:
+                    bledy_z_rzedu += 1
             else:
                 try:
                     db.session.commit()
-                except IntegrityError:
+                except IntegrityError as e:
                     # R6c: punkt ręczny na to samo zamówienie wszedł RÓWNOLEGLE
                     # (INSERT w innym procesie) między naszym odczytem z blokadą
-                    # a tym commitem — nie licz jako błąd, po prostu pomiń.
+                    # a tym commitem — nie licz jako błąd, po prostu pomiń. Log,
+                    # żeby błąd systematyczny (nie tylko ten rzadki wyścig) zostawił ślad.
                     db.session.rollback()
+                    logger.warning("Zapis geokodowania odrzucony (IntegrityError) - pominieto "
+                                   "zamowienie", extra={'order_id': order.id, 'error': str(e)})
                 else:
-                    bledy_z_rzedu = 0
-                    wynik['zamowienia'] += 1
-                    wynik[_KLUCZE_WYNIKU[punkt.quality]] += 1
+                    # R6(c): zlokalizuj_zamowienie mogła oddać ISTNIEJĄCY punkt ręczny
+                    # bez żadnego zapisu (na wejściu albo po świeżym odczycie z blokadą —
+                    # ona sama NIGDY nie zapisuje source='reczna'). To nie jest
+                    # geokodowanie: nie liczymy go do wyników i zostawiamy serię błędów
+                    # bez zmian (ani nie rośnie, ani się nie zeruje).
+                    if punkt.source != 'reczna':
+                        bledy_z_rzedu = 0
+                        wynik['zamowienia'] += 1
+                        wynik[_KLUCZE_WYNIKU[punkt.quality]] += 1
             # R2: dzierżawę odnawiamy PO KAŻDYM zamówieniu (sukces i błąd) — jedno
             # zamówienie w czasie awarii może zająć ~45 s samych timeoutów prób
             # (3 × GUGiK + Nominatim), a dzierżawa ma 300 s (odnawiana MIĘDZY
@@ -380,6 +424,8 @@ def lokalizuj(limit=None, http_get=requests.get, spij=time.sleep):
             if bledy_z_rzedu >= MAKS_BLEDOW_Z_RZEDU:
                 # Usługi nie odpowiadają — kolejne zamówienia w tym przebiegu i tak
                 # by tylko paliły czas na timeoutach. Kolejny cron spróbuje od nowa.
+                logger.warning("Seria pelnych awarii uslug geokodowania - przebieg przerwany",
+                               extra={'bledy_z_rzedu': bledy_z_rzedu})
                 break
     finally:
         if znacznik:

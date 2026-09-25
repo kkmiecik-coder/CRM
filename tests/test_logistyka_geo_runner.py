@@ -227,3 +227,106 @@ def test_reczny_punkt_ustawiony_w_trakcie_nie_jest_nadpisany(app):
         assert (geo.source, float(geo.lat), float(geo.lng)) == ('reczna', 50.05, 19.95)
         odczyt = OrderGeo.query.get(order.id)
         assert (odczyt.source, float(odczyt.lat), float(odczyt.lng)) == ('reczna', 50.05, 19.95)
+
+
+def test_lokalizuj_nie_liczy_pominietego_punktu_recznego(app):
+    """R6(c), poprawka rundy 1: `zlokalizuj_zamowienie` może oddać ISTNIEJĄCY punkt
+    reczny bez zapisu (tu: ustawiony przez logistyka W TRAKCIE geokodowania tego
+    zamówienia) - `lokalizuj` nie ma prawa policzyć tego jako geokodowanie ani ruszyć
+    serią błędów, mimo że commit się udaje (nic nie było brudne do zapisania)."""
+    with app.app_context():
+        order = zamowienie(miasto='Kraków')
+        order.delivery_address = 'Floriańska 10'
+        db.session.commit()
+
+        prawdziwy = FakeHttp(gugik={'Kraków, Floriańska 10': FLORIANSKA})
+        stan = {'pierwsze': True}
+
+        def http_get(url, params=None, timeout=None, headers=None):
+            if stan['pierwsze']:
+                stan['pierwsze'] = False
+                g.ustaw_recznie(order, 50.05, 19.95)
+                db.session.commit()
+            return prawdziwy(url, params=params, timeout=timeout, headers=headers)
+
+        wynik = g.lokalizuj(http_get=http_get, spij=_bez_spania)
+        assert wynik['zamowienia'] == 0
+        assert wynik['dokladne'] == 0
+        assert wynik['bledy'] == 0
+        geo = OrderGeo.query.get(order.id)
+        assert (geo.source, float(geo.lat), float(geo.lng)) == ('reczna', 50.05, 19.95)
+
+
+# ── R7 (kontroler): tylko PEŁNA awaria liczy się do serii przerywającej przebieg ──
+
+def test_awaria_czesciowa_nie_przerywa_serii(app):
+    """Awaria częściowa (GUGiK trwale pada, Nominatim zawsze odpowiada - tu tylko
+    przybliżeniem, które R3 każe odrzucić) liczy się do wynik['bledy'], ale NIE
+    wydłuża serii przerywającej `lokalizuj` - inaczej garstka trwale wadliwych
+    starych zamówień (niższe id -> przetwarzane pierwsze) zagłodziłaby wszystkie
+    nowsze, mimo że usługi jako całość działają."""
+    with app.app_context():
+        for _ in range(4):
+            zamowienie(miasto='Kraków')
+        db.session.commit()
+
+        class FakeHttpCzesciowaAwaria(object):
+            """GUGiK zawsze pada, Nominatim zawsze odpowiada, ale tylko przybliżeniem."""
+
+            def __init__(self):
+                self.wywolania = []
+
+            def __call__(self, url, params=None, timeout=None, headers=None):
+                self.wywolania.append((url, dict(params or {}), dict(headers or {})))
+                if url == g.GUGIK_URL:
+                    raise requests.ConnectionError('awaria testowa GUGiK')
+                return Odp([{'lat': '50.1', 'lon': '19.9', 'place_rank': 26}])
+
+        http = FakeHttpCzesciowaAwaria()
+        wynik = g.lokalizuj(http_get=http, spij=_bez_spania)
+        # Wszystkie 4 zamowienia przetworzone - zadne nie zablokowalo reszty przebiegu.
+        assert wynik['bledy'] == 4
+        assert wynik['zamowienia'] == 0
+
+
+def test_sukces_resetuje_serie_bledow_z_rzedu(app):
+    """Pełna awaria, pełna awaria, SUKCES, pełna awaria, pełna awaria - sukces w
+    środku zeruje licznik, więc przebieg NIE przerywa się mimo 4 błędów łącznie
+    (bez zerowania: 2 błędy + 1 kolejny po sukcesie = 3 z rzędu -> przerwanie
+    przed piątym zamówieniem)."""
+    with app.app_context():
+        adresy_krakow = ['Floriańska 10', 'Floriańska 11', 'Floriańska 13', 'Floriańska 14']
+        orders = []
+        for adr in adresy_krakow[:2]:
+            order = zamowienie(miasto='Kraków')
+            order.delivery_address = adr
+            orders.append(order)
+        order_ok = zamowienie(miasto='Bachórz')
+        order_ok.delivery_address = 'Bachórz 14N'
+        orders.append(order_ok)
+        for adr in adresy_krakow[2:]:
+            order = zamowienie(miasto='Kraków')
+            order.delivery_address = adr
+            orders.append(order)
+        db.session.commit()
+
+        class FakeHttpSeria(object):
+            """Pelna awaria dla kazdego adresu poza Bachórz 14N (GUGiK i Nominatim padaja)."""
+
+            def __init__(self):
+                self.wywolania = []
+
+            def __call__(self, url, params=None, timeout=None, headers=None):
+                self.wywolania.append((url, dict(params or {}), dict(headers or {})))
+                if url == g.GUGIK_URL and params.get('address') == 'Bachórz 14N':
+                    return Odp(BACHORZ)
+                raise requests.ConnectionError('awaria testowa')
+
+        http = FakeHttpSeria()
+        wynik = g.lokalizuj(http_get=http, spij=_bez_spania)
+        assert wynik['bledy'] == 4
+        assert wynik['zamowienia'] == 1
+        # Wszystkie 5 zamowien przetworzone (bez przerwania) - kazdy z 5 roznych
+        # adresow zostal odpytany w GUGiK-u.
+        zapytane_adresy = {p['address'] for u, p, h in http.wywolania if u == g.GUGIK_URL}
+        assert len(zapytane_adresy) == 5
