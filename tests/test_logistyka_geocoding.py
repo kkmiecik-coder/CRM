@@ -34,10 +34,18 @@ class Odp(object):
 
 
 class FakeHttp(object):
-    """Odpowiada według (usługa, klucz) — klucz: adres dla GUGiK, krotka parametrów dla Nominatim."""
+    """Odpowiada według (usługa, klucz) — klucz: adres dla GUGiK, krotka parametrów dla Nominatim.
 
-    def __init__(self, gugik=None, nominatim=None, awaria=()):
+    `awaria_gugik_zapytania` (rozszerzenie do R3, runda 1 poprawek): zbiór
+    dokładnych treści zapytań GUGiK, które mają zawieść — pozwala wysadzić
+    JEDNO konkretne zapytanie (np. tylko krok 3 „miejscowość”), zostawiając
+    inne zapytania GUGiK (np. krok 1 „adres”) działające normalnie. Domyślnie
+    pusty zbiór — nie zmienia zachowania testów z briefu.
+    """
+
+    def __init__(self, gugik=None, nominatim=None, awaria=(), awaria_gugik_zapytania=()):
         self.gugik, self.nominatim, self.awaria = gugik or {}, nominatim or [], set(awaria)
+        self.awaria_gugik_zapytania = set(awaria_gugik_zapytania)
         self.wywolania = []
 
     def __call__(self, url, params=None, timeout=None, headers=None):
@@ -46,6 +54,8 @@ class FakeHttp(object):
         if usluga in self.awaria:
             raise requests.ConnectionError('awaria testowa')
         if usluga == 'gugik':
+            if params['address'] in self.awaria_gugik_zapytania:
+                raise requests.ConnectionError('awaria testowa (GUGiK, zapytanie)')
             return Odp(self.gugik.get(params['address'], PUSTO))
         return Odp(self.nominatim.pop(0) if self.nominatim else [])
 
@@ -147,5 +157,16 @@ def test_awaria_gugik_ale_nominatim_dokladny():
 
 def test_awaria_nominatim_nie_daje_przyblizenia_miejscowosci():
     http = FakeHttp(gugik={'Dynów': MIASTO}, awaria={'nominatim'})
+    with pytest.raises(g.BladUslugi):
+        g.geokoduj_adres('Nieistniejąca 1', 'Dynów', None, 'PL', http, _bez_spania)
+
+
+def test_awaria_gugik_miejscowosci_nie_maskuje_sukcesu_nominatim():
+    """R3 (poprawka rundy 1): krok 3 ma dwie usługi z rzędu (GUGiK, potem Nominatim
+    dla miejscowości). Awaria pierwszej nie może zostać zamaskowana sukcesem drugiej —
+    GUGiK dla adresu PUSTO, Nominatim dla adresu [], GUGiK dla miejscowości pada,
+    Nominatim dla miejscowości i tak zwróciłby punkt, gdybyśmy go zapytali."""
+    http = FakeHttp(nominatim=[[], [{'lat': '49.8', 'lon': '22.2', 'place_rank': 16}]],
+                     awaria_gugik_zapytania={'Dynów'})
     with pytest.raises(g.BladUslugi):
         g.geokoduj_adres('Nieistniejąca 1', 'Dynów', None, 'PL', http, _bez_spania)

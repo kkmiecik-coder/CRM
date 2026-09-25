@@ -173,6 +173,14 @@ def geokoduj_adres(adres, miasto, kod, kraj, http_get=requests.get, spij=time.sl
         except Exception as e:
             awaria = True
             logger.warning("GUGiK (miejscowosc) nie odpowiedzial", extra={'error': str(e)})
+
+        # R3 (poprawka po przeglądzie, runda 1): krok 3 ma DWIE usługi z rzędu —
+        # awaria pierwszej (GUGiK-miejscowość) nie może zostać zamaskowana sukcesem
+        # drugiej (Nominatim-miejscowość). Bez tej kontroli kod niżej i tak zwróciłby
+        # przybliżenie z Nominatim, mimo że w tym wywołaniu już coś padło. Kończymy
+        # od razu — jedno zapytanie do Nominatim mniej.
+        if awaria:
+            raise BladUslugi(u'Usługa geokodowania nie odpowiedziała')
     if miasto or kod:
         spij(ODSTEP_NOMINATIM_S)
         try:
