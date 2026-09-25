@@ -156,9 +156,11 @@ błędu (`logistyka_bl_wstrzymane_do`).
 Od etapu 2 ten sam cron uruchamia w tle **geokoder** adresów (`logistics/services/geocoding.py`: GUGiK UUG →
 Nominatim → przybliżenie; dzierżawa `logistyka_geo_dzierzawa`, Nominatim ≤ 1 zapytanie/s). Do usług idzie
 wyłącznie adres. Ręczny punkt (przeciągnięta pinezka) nigdy nie jest nadpisywany automatem. Przebieg przerywa
-się wcześniej tylko po 3 pełnych awariach usług z rzędu (GUGiK i Nominatim jednocześnie nie odpowiadają); błąd
-usługi nigdy nie zużywa próby adresu, a po awarii nie zapisuje się przybliżony punkt (zamówienie czeka na
-kolejny przebieg).
+się wcześniej tylko po 3 pełnych awariach z rzędu — pełna awaria to geokodowanie zamówienia, w którym żadne
+zapytanie do usług nie dostało odpowiedzi (`BladUslugi.pelna_awaria`; adres zagraniczny pyta tylko Nominatim).
+Awaria częściowa (jedna usługa odpowiedziała) i nieoczekiwany błąd pojedynczego zamówienia liczą się do błędów
+przebiegu, ale go nie przerywają. Błąd usługi nigdy nie zużywa próby adresu, a po awarii nie zapisuje się
+przybliżony punkt (zamówienie czeka na kolejny przebieg).
 
 ## Deployment
 
@@ -257,7 +259,10 @@ Albo po prostu `./deploy.sh` — robi dokładnie to samo, z lockiem i logami.
   firmy, `/clients/api/gus_lookup` zwraca 503 zamiast szukać w CEIDG),
   `CARTO_BASEMAPS_KEY` (kafelki mapy logistyki; bez niego mapa ma znak wodny CARTO;
   klucz jest widoczny w przeglądarce, więc w panelu CARTO ogranicz go do domeny
-  crm.woodpower.pl; limit darmowy 1 mln kafelków/mies.)
+  crm.woodpower.pl; limit darmowy 1 mln kafelków/mies.). Po dopisaniu klucza do
+  core.json **od razu** `supervisorctl restart crm_woodpower` — zapis i restart razem
+  (incydent 24.09 z `SECRET_KEY`: bez restartu gunicorn podmienia workery stopniowo
+  i część działa na starej konfiguracji, część na nowej)
 - Dodając zależność, pamiętaj o `requirements.txt` — deploy instaluje z niego
 - API mobilne (`/api/mobile/*`) jest **niezależne** od paneli webowych
   produkcji; zmiany w `modules/production/routers/stations/` nie dotykają tabletów
@@ -325,6 +330,11 @@ Configured in `config/core.json`:
 - SMTP mail server
 - GlobKurier shipping API
 - CEIDG API (`CEIDG_JWT_TOKEN`, wyszukiwanie firm po NIP — fallback po GUS i MF)
+- CARTO Basemaps (`CARTO_BASEMAPS_KEY`, kafelki mapy logistyki)
+
+Bez konfiguracji w core.json (geokoder logistyki, `logistics/services/geocoding.py`, tylko z wątku w tle):
+- GUGiK UUG (`services.gugik.gov.pl/uug/`, oficjalne punkty adresowe PRG, tylko Polska; odstęp 0,2 s)
+- Nominatim (OpenStreetMap; najwyżej 1 zapytanie/s, własny `User-Agent`)
 
 ## Key Patterns
 
