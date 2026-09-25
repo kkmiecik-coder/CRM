@@ -13,7 +13,7 @@
  *
  * Plik NIE zależy od logistics.js. Kontrakt (etap 3 dołoży warstwę tras):
  *   window.LogisticsMap.render(zamowienia, {dopasuj})  pinezki zamówień z `geo`
- *   window.LogisticsMap.highlight(id)                  przybliżenie + dymek
+ *   window.LogisticsMap.highlight(id, {przewin})       przybliżenie + dymek (przewin: strona do mapy)
  *   window.LogisticsMap.onSelect(cb)                   cb(id | null, {zrodlo: 'mapa'|'lista'})
  *   window.LogisticsMap.onZmiana(cb)                   cb(zamowienie, rodzaj) po zapisie punktu
  *   window.LogisticsMap.ustawNaMapie(zamowienie | id)  tryb „następny klik = punkt”
@@ -93,7 +93,9 @@
             atrybucja: ATRYBUCJA_CARTO,
         },
         {
-            id: 'osm', nazwa: 'OpenStreetMap', klucz: false, subdomains: '', maxZoom: 19,
+            // Adres OSM nie używa {s} — subdomeny tylko po to, żeby opcje warstwy nigdy
+            // nie były pustą listą (pusta lista + {s} w adresie = wyjątek Leafleta).
+            id: 'osm', nazwa: 'OpenStreetMap', klucz: false, subdomains: 'abc', maxZoom: 19,
             url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
             atrybucja: ATRYBUCJA_OSM,
         },
@@ -106,9 +108,11 @@
     const PODGLAD_LNG = 22.25;
     const PODGLAD_Z = 9;
 
-    const ZOOM_WSKAZANIA = 12;      // klik w wiersz: co najmniej takie przybliżenie
+    const ZOOM_WSKAZANIA = 12;      // klik w wiersz: co najmniej takie przybliżenie…
+    const ZOOM_WSKAZANIA_MAKS = 15; // …i najwyżej takie (po rozsunięciu klastra mapa stoi na 19)
     const ZOOM_KOREKTY = 15;        // „Popraw lokalizację”: widać ulice i numery
     const ZOOM_DOPASOWANIA = 12;    // dopasowanie do pinezek nie wchodzi głębiej
+    const CZAS_PROBY_DYMKU_MS = 1500; // przybliżenie + rozsunięcie klastra trwa ~0,5 s
     const PASEK_OK_MS = 5000;
 
     // Pastylka — te same liczby co w logistics.css (rowek 16 px, minima kolumn).
@@ -145,6 +149,14 @@
     let kontrolkaAtrybucji = null;   // L.Control.Attribution — treść zależy od podkładu
     let kontrolkaPodkladowEl = null; // <div> kontrolki wyboru podkładu (przyciski z podglądem)
     let aktywnyPodklad = null;       // element z PODKLADY
+    // CARTO odrzuciło klucz (np. klucz ograniczony do innej domeny): do końca tej
+    // instancji mapy kafelki i podglądy CARTO idą bez klucza — znak wodny zamiast pustki.
+    let kluczOdrzucony = false;
+    const podgladyPodkladow = new Map(); // id podkładu → <img> podglądu w kontrolce
+    // Numer ostatniego żądania otwarcia dymku (klik w wiersz, zapis punktu). Spóźnione
+    // wywołania zwrotne (moveend, zoomToShowLayer) starszych żądań nic nie otwierają.
+    let nrWskazania = 0;
+    let oczekujaceWskazanie = null;  // nasłuch moveend ostatniego highlight()
     const znaczniki = new Map();     // id → L.Marker (tylko zamówienia z geo)
     const zamowienia = new Map();    // id → zamówienie z ostatniego render()
     let ostatnie = [];               // ostatnia lista z render() (także przed inicjalizacją)
@@ -472,10 +484,47 @@
         try { window.localStorage.setItem(KLUCZ_PODKLADU_LS, id); } catch (e) { /* wybór nie przeżyje przeładowania */ }
     }
 
+    const zKluczem = (podklad) => !!(podklad.klucz && KLUCZ_KAFELKOW && !kluczOdrzucony);
+
     // Szablon adresu kafelków Leafleta ({s}/{z}/{x}/{y}{r}) — klucz CARTO tylko
-    // dla podkładów CARTO i tylko, gdy KLUCZ_KAFELKOW jest niepusty.
-    function szablonKafelkow(podklad) {
-        return podklad.url + (podklad.klucz && KLUCZ_KAFELKOW ? '?key=' + encodeURIComponent(KLUCZ_KAFELKOW) : '');
+    // dla podkładów CARTO, gdy KLUCZ_KAFELKOW jest niepusty i CARTO go nie odrzuciło.
+    function szablonKafelkow(podklad, bezKlucza) {
+        return podklad.url + (zKluczem(podklad) && !bezKlucza ? '?key=' + encodeURIComponent(KLUCZ_KAFELKOW) : '');
+    }
+
+    /**
+     * Warstwa kafelków podkładu z JEGO opcjami (subdomeny, zoom). Kafelki CARTO
+     * z kluczem pilnują odrzucenia klucza: błąd kafelka, zanim którykolwiek
+     * załadował się z kluczem = klucz nie działa (403 dla obcej domeny,
+     * cofnięty klucz) → raz na instancję mapy przechodzimy na adresy bez klucza.
+     * Pojedynczy błąd sieci po udanych kafelkach niczego nie przełącza.
+     */
+    function nowaWarstwaKafelkow(podklad) {
+        const warstwa = L.tileLayer(szablonKafelkow(podklad), {
+            subdomains: podklad.subdomains,
+            maxZoom: podklad.maxZoom,
+        });
+        if (zKluczem(podklad)) {
+            let udane = 0;
+            warstwa.on('tileload', () => { udane += 1; });
+            warstwa.on('tileerror', () => {
+                if (udane || kluczOdrzucony || warstwa !== warstwaKafelkow) return;
+                kluczOdrzucony = true;
+                console.warn('[LogisticsMap] CARTO odrzuciło klucz kafelków (np. klucz ograniczony do innej domeny). ' +
+                    'Mapa pokazuje kafelki CARTO bez klucza, ze znakiem wodnym.');
+                // Po bieżącym zdarzeniu — redraw w środku obsługi błędu kafelka
+                // mieszałby Leafletowi stan kafelków tej samej warstwy.
+                setTimeout(() => {
+                    if (zniszczona || !mapa || warstwa !== warstwaKafelkow) return;
+                    warstwa.setUrl(szablonKafelkow(aktywnyPodklad));   // ten sam podkład, te same subdomeny
+                    podgladyPodkladow.forEach((img, id) => {
+                        const p = PODKLADY.find((x) => x.id === id);
+                        if (p && p.klucz) img.src = adresPodgladu(p, true);
+                    });
+                }, 0);
+            });
+        }
+        return warstwa;
     }
 
     // z/x/y kafelka slippy map dla współrzędnych — do podglądu w przycisku.
@@ -489,20 +538,37 @@
     }
 
     // Konkretny adres kafelka (bez placeholderów) w okolicy magazynu — podgląd stylu w przycisku.
-    function adresPodgladu(podklad) {
+    function adresPodgladu(podklad, bezKlucza) {
         const wsp = wspolrzedneKafelka(PODGLAD_LAT, PODGLAD_LNG, PODGLAD_Z);
-        return szablonKafelkow(podklad)
+        return szablonKafelkow(podklad, bezKlucza)
             .replace('{s}', (podklad.subdomains || 'a').charAt(0) || 'a')
             .replace('{z}', PODGLAD_Z).replace('{x}', wsp.x).replace('{y}', wsp.y)
             .replace('{r}', '');
     }
 
-    /** Podmienia aktywny podkład bez przebudowy mapy — pinezki, klastry i tryby nietknięte. */
+    /**
+     * Podmienia aktywny podkład bez przebudowy mapy — pinezki, klastry, widok
+     * i tryby nietknięte. Cała nowa warstwa, nie setUrl: setUrl zostawiał opcje
+     * poprzedniego podkładu (po OSM puste subdomeny → adres CARTO z {s} rzucał
+     * wyjątek i mapa zostawała bez kafelków). Kafelki leżą w tilePane, pinezki
+     * i klastry w markerPane — zostają nad nimi. Wybór zapisujemy dopiero po
+     * udanym przełączeniu.
+     */
     function przelaczPodklad(id) {
         if (!mapa || zniszczona) return;
         const podklad = PODKLADY.find((p) => p.id === id);
         if (!podklad || podklad === aktywnyPodklad) return;
-        warstwaKafelkow.setUrl(szablonKafelkow(podklad));
+        const stara = warstwaKafelkow;
+        const nowa = nowaWarstwaKafelkow(podklad);
+        try {
+            nowa.addTo(mapa);
+        } catch (e) {
+            try { mapa.removeLayer(nowa); } catch (err) { /* nie zdążyła się dodać */ }
+            console.error('[LogisticsMap] Nie przełączono podkładu:', e);
+            return;
+        }
+        warstwaKafelkow = nowa;
+        if (stara) mapa.removeLayer(stara);
         if (kontrolkaAtrybucji) {
             kontrolkaAtrybucji.removeAttribution(aktywnyPodklad.atrybucja);
             kontrolkaAtrybucji.addAttribution(podklad.atrybucja);
@@ -537,7 +603,18 @@
                     const podglad = L.DomUtil.create('span', 'lg-mapa-podklad-podglad', b);
                     podglad.setAttribute('aria-hidden', 'true');
                     const img = L.DomUtil.create('img', '', podglad);
+                    // Podgląd CARTO z kluczem, którego CARTO nie przyjmuje: raz ten sam
+                    // kafelek bez klucza (znak wodny zamiast zepsutego obrazka), bez pętli.
+                    if (zKluczem(podklad)) {
+                        const naBlad = () => {
+                            img.removeEventListener('error', naBlad);
+                            const bez = adresPodgladu(podklad, true);
+                            if (img.src !== bez) img.src = bez;
+                        };
+                        img.addEventListener('error', naBlad);
+                    }
                     img.src = adresPodgladu(podklad);
+                    podgladyPodkladow.set(podklad.id, img);
                     img.alt = '';
                     img.width = 56;
                     img.height = 56;
@@ -580,10 +657,7 @@
         aktywnyPodklad = PODKLADY.find((p) => p.id === czytajPodklad()) || PODKLADY[0];
         kontrolkaAtrybucji = L.control.attribution({ prefix: false }).addTo(mapa);
         kontrolkaAtrybucji.addAttribution(aktywnyPodklad.atrybucja);
-        warstwaKafelkow = L.tileLayer(szablonKafelkow(aktywnyPodklad), {
-            subdomains: aktywnyPodklad.subdomains || '',
-            maxZoom: aktywnyPodklad.maxZoom,
-        }).addTo(mapa);
+        warstwaKafelkow = nowaWarstwaKafelkow(aktywnyPodklad).addTo(mapa);
         mapa.fitBounds(POLSKA, { padding: [8, 8] });
 
         klastry = L.markerClusterGroup({
@@ -705,6 +779,8 @@
             opacity: 1,
         });
         m.on('popupopen', (e) => {
+            // Otwarty dymek (także kliknięty na mapie) kończy wcześniejsze wskazania z listy.
+            anulujWskazanie();
             m.closeTooltip();
             podepnijDymek(e.popup);
             const zrodlo = zrodloOtwarcia;
@@ -812,15 +888,37 @@
         });
     }
 
-    function otworzDymek(id, zrodlo) {
+    /**
+     * nr: numer żądania z highlight() (bez niego — nowe żądanie). zoomToShowLayer
+     * potrafi wywołać funkcję zwrotną dużo później (po animacji, po rozsunięciu
+     * klastra) — otwiera dymek tylko wtedy, gdy w międzyczasie nie przyszło
+     * nowsze żądanie (szybkie kliknięcia dwóch wierszy).
+     */
+    function otworzDymek(id, zrodlo, nr, proba) {
         const m = znaczniki.get(id);
         if (!mapa || !m) return false;
-        klastry.zoomToShowLayer(m, () => {
-            if (zniszczona || !znaczniki.has(id)) return;
+        const moje = nr === undefined ? ++nrWskazania : nr;
+        const nrProby = proba || 1;
+        let aktualna = true;   // ta próba wciąż może otworzyć dymek
+        const otworz = () => {
+            if (!aktualna || zniszczona || moje !== nrWskazania || znaczniki.get(id) !== m) return;
+            aktualna = false;
             zrodloOtwarcia = zrodlo || 'mapa';
             m.openPopup();
             zrodloOtwarcia = 'mapa';
-        });
+        };
+        klastry.zoomToShowLayer(m, otworz);
+        if (aktualna) {
+            // markercluster czeka na moveend, przy którym pinezka (albo jej klaster)
+            // jest widoczna. Gdy jego przybliżenie wypadło w trakcie innej animacji,
+            // Leaflet je pominął i czekanie się nie kończy — wtedy raz ponawiamy,
+            // a spóźnione wywołanie porzuconej próby już niczego nie otworzy.
+            setTimeout(() => {
+                if (!aktualna) return;
+                aktualna = false;
+                if (nrProby < 2 && !zniszczona && moje === nrWskazania) otworzDymek(id, zrodlo, moje, nrProby + 1);
+            }, CZAS_PROBY_DYMKU_MS);
+        }
         return true;
     }
 
@@ -844,13 +942,17 @@
 
     // ── Zapis punktu ────────────────────────────────────────────────────────
 
-    /** Odpowiedź API → stan mapy + słuchacze (lista podmienia wiersz). */
+    /**
+     * Odpowiedź API → stan mapy + słuchacze (lista podmienia wiersz, licznik
+     * „Bez lokalizacji” się zmniejsza). W trakcie trybu (logistyk zaczął już
+     * następne zamówienie) pinezek nie ruszamy — zakonczTryb() narysuje ostatnią listę.
+     */
     function przyjmijZamowienie(order, rodzaj) {
         if (!order) return;
         const i = ostatnie.findIndex((z) => z.id === order.id);
         if (i !== -1) ostatnie[i] = order;
         zamowienia.set(order.id, order);
-        narysuj(ostatnie.length ? ostatnie : [order]);
+        if (!tryb) narysuj(ostatnie.length ? ostatnie : [order]);
         sluchaczeZmian.forEach((cb) => {
             try { cb(order, rodzaj); } catch (e) { console.error('[LogisticsMap] onZmiana:', e); }
         });
@@ -874,6 +976,7 @@
         const m = znaczniki.get(id);
         if (!mapa || !z || !m || !maGeo(z)) return;
         zakonczTryb();
+        anulujWskazanie();
         mapa.closePopup();
         const start = m.getLatLng();
         // Oryginał znika z klastrów na czas korekty; przeciągamy osobną pinezkę.
@@ -909,7 +1012,13 @@
         pasekTrybu();
         try {
             const dane = await zapiszPunkt(biezacy.id, biezacy.nowy);
-            if (zniszczona || tryb !== biezacy) return;
+            if (zniszczona) return;
+            if (tryb !== biezacy) {
+                // W trakcie zapisu logistyk przeszedł do następnego zamówienia —
+                // punkt i tak jest zapisany: lista i licznik dostają go od razu.
+                przyjmijZamowienie(dane.order, 'poprawiono');
+                return;
+            }
             zakonczTryb();
             przyjmijZamowienie(dane.order, 'poprawiono');
             pokazPasek('ok', 'Zapisano nowe miejsce dostawy zamówienia ' + biezacy.z.numer + '.');
@@ -929,6 +1038,7 @@
         const z = (arg && typeof arg === 'object') ? arg : zamowienia.get(Number(arg));
         if (!mapa || !z || zniszczona) return false;
         zakonczTryb();
+        anulujWskazanie();
         mapa.closePopup();
         tryb = { rodzaj: 'ustaw', id: z.id, z: z, znacznik: null, nowy: null, zapisywanie: false, blad: null };
         kontener.classList.add('is-celowanie');
@@ -951,7 +1061,14 @@
         pasekTrybu();
         try {
             const dane = await zapiszPunkt(biezacy.id, latlng);
-            if (zniszczona || tryb !== biezacy) return;
+            if (zniszczona) return;
+            if (tryb !== biezacy) {
+                // Szybka praca na kolejce: „Ustaw na mapie” następnego zamówienia
+                // w trakcie zapisu. Zapis się udał — wiersz i licznik od razu,
+                // pinezka po zakończeniu nowego trybu.
+                przyjmijZamowienie(dane.order, 'ustawiono');
+                return;
+            }
             zakonczTryb();
             przyjmijZamowienie(dane.order, 'ustawiono');
             pokazPasek('ok', 'Ustawiono miejsce dostawy zamówienia ' + biezacy.z.numer + '.');
@@ -1196,23 +1313,70 @@
         }
     }
 
-    function highlight(id) {
+    /** Nasłuch moveend poprzedniego highlight() — nowe wskazanie go zdejmuje. */
+    function porzucWskazanie() {
+        clearTimeout(timerWskazania);
+        if (oczekujaceWskazanie && mapa) mapa.off('moveend', oczekujaceWskazanie);
+        oczekujaceWskazanie = null;
+    }
+
+    /** Unieważnia oczekujące otwarcie dymku (otwarty inny dymek, początek trybu). */
+    function anulujWskazanie() {
+        porzucWskazanie();
+        nrWskazania += 1;
+    }
+
+    /**
+     * Pokazuje zamówienie na mapie i otwiera jego dymek. opcje.przewin — tylko
+     * jawne „pokaż na mapie” (przycisk pinezki w wierszu): w układzie mapa-nad-
+     * listą przewija stronę do mapy. Zwykły klik w wiersz strony nie przewija.
+     */
+    function highlight(id, opcje) {
         const m = znaczniki.get(id);
         if (!mapa || !m || tryb) return false;
-        pokazMapeNaEkranie();
-        clearTimeout(timerWskazania);
+        if (opcje && opcje.przewin) pokazMapeNaEkranie();
+        porzucWskazanie();
+        const nr = ++nrWskazania;
+        const cel = m.getLatLng();
+        // Po rozsunięciu klastra mapa stoi na maksymalnym zoomie — nie trzymamy się go.
+        const zoom = Math.min(Math.max(mapa.getZoom(), ZOOM_WSKAZANIA), ZOOM_WSKAZANIA_MAKS);
+        // Nasłuch moveend podpinamy PO setView: setView przerywa animację poprzedniego
+        // wskazania, a Leaflet kończy ją zdarzeniem moveend jeszcze w środku setView —
+        // wcześniej podpięty nasłuch otwierałby dymek w pół drogi, a dalsza animacja
+        // zostawiała mapę na zoomie, na którym pinezka siedzi w klastrze (bez dymku).
+        mapa.setView(cel, zoom, { animate: !bezRuchu });
+        if (zniszczona || nr !== nrWskazania) return true;
+        const naMiejscu = () => mapa.getZoom() === zoom &&
+            mapa.latLngToContainerPoint(cel).distanceTo(mapa.getSize().divideBy(2)) < 1;
+        let zostaloProb = 3;
         let zrobione = false;
         const otworz = () => {
-            if (zrobione || zniszczona) return;
+            if (zniszczona || zrobione || nr !== nrWskazania) return;
+            if (!naMiejscu() && zostaloProb > 0) {
+                // Leaflet pomija setView w trakcie animacji zoomu (np. po poprzednim
+                // wskazaniu kliknięty chwilę wcześniej wiersz) — ponawiamy na miejscu.
+                zostaloProb -= 1;
+                mapa.setView(cel, zoom, { animate: !bezRuchu });
+                if (zrobione || nr !== nrWskazania) return;   // bez animacji moveend już otworzył
+                if (!naMiejscu()) {
+                    clearTimeout(timerWskazania);
+                    timerWskazania = setTimeout(otworz, 700);
+                    return;
+                }
+            }
             zrobione = true;
-            clearTimeout(timerWskazania);
-            mapa.off('moveend', otworz);
-            otworzDymek(id, 'lista');
+            porzucWskazanie();
+            otworzDymek(id, 'lista', nr);
         };
+        // Bez animacji (albo gdy widok się nie zmienił) mapa już stoi na miejscu.
+        if (naMiejscu()) {
+            otworz();
+            return true;
+        }
+        oczekujaceWskazanie = otworz;
         mapa.on('moveend', otworz);
-        // Bez animacji (albo gdy widok się nie zmienia) moveend może nie przyjść.
+        // Zapas, gdyby moveend nie przyszedł (przerwana animacja, ukryta karta).
         timerWskazania = setTimeout(otworz, 700);
-        mapa.setView(m.getLatLng(), Math.max(mapa.getZoom(), ZOOM_WSKAZANIA), { animate: !bezRuchu });
         return true;
     }
 

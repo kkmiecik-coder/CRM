@@ -613,11 +613,7 @@
         const ids = new Set(widoczne.map((w) => w.id));
         stan.zaznaczone.forEach((id) => { if (!ids.has(id)) stan.zaznaczone.delete(id); });
 
-        // Fokus klawiatury (select albo checkbox wiersza) przeżywa przerysowanie.
-        const a = document.activeElement;
-        const fokus = a && tbody.contains(a) && a.closest('tr[data-id]')
-            ? { id: a.closest('tr[data-id]').getAttribute('data-id'), klasa: a.classList.contains('lg-sposob') ? 'lg-sposob' : 'lg-zaznacz' }
-            : null;
+        const fokus = fokusWiersza(tbody);
 
         tbody.innerHTML = widoczne.length ? widoczne.map(wierszHtml).join('') : pustyStan();
         tabela.classList.toggle('is-bez-geo', stan.filtr.bezGeo);
@@ -625,11 +621,24 @@
         renderujIle();
         renderujZaznaczenie();
         przekazDoMapy();
+        przywrocFokus(fokus, tbody);
+    }
 
-        if (fokus) {
-            const cel = tbody.querySelector('tr[data-id="' + fokus.id + '"] .' + fokus.klasa);
-            if (cel && !cel.disabled) cel.focus({ preventScroll: true });
-        }
+    // Fokus klawiatury w wierszu (select sposobu, pinezka / „Ustaw na mapie”,
+    // checkbox) przeżywa przerysowanie — ten sam rodzaj pola w tym samym wierszu.
+    const KLASY_FOKUSU = ['lg-sposob', 'lg-na-mapie', 'lg-zaznacz'];
+
+    function fokusWiersza(kontener) {
+        const a = document.activeElement;
+        const tr = a && kontener.contains(a) ? a.closest('tr[data-id]') : null;
+        const klasa = tr ? KLASY_FOKUSU.find((k) => a.classList.contains(k)) : null;
+        return klasa ? { id: tr.getAttribute('data-id'), klasa: klasa } : null;
+    }
+
+    function przywrocFokus(fokus, kontener) {
+        if (!fokus) return;
+        const cel = kontener.querySelector('tr[data-id="' + fokus.id + '"] .' + fokus.klasa);
+        if (cel && !cel.disabled) cel.focus({ preventScroll: true });
     }
 
     // Podmiana wierszy odpowiedzią API — BEZ przeładowania listy. Wiersz, który
@@ -667,17 +676,13 @@
         const w = znajdz(id);
         const tr = tbody.querySelector('tr[data-id="' + id + '"]');
         if (!w || !tr) return;
-        const fokusNaSelect = document.activeElement && tr.contains(document.activeElement) &&
-            document.activeElement.classList.contains('lg-sposob');
+        const fokus = fokusWiersza(tr);
         const tmp = document.createElement('tbody');
         tmp.innerHTML = wierszHtml(w);
         const nowyTr = tmp.firstElementChild;
         tr.replaceWith(nowyTr);
         if (blysk) nowyTr.classList.add('is-zmieniony');
-        if (fokusNaSelect) {
-            const s = nowyTr.querySelector('.lg-sposob');
-            if (s && !s.disabled) s.focus();
-        }
+        przywrocFokus(fokus, tbody);
     }
 
     // ── Zaznaczanie ─────────────────────────────────────────────────────────
@@ -1092,7 +1097,9 @@
             if (jawnie) pokazKomunikat('info', 'Mapa jeszcze się wczytuje.', { klucz: 'mapa' });
             return;
         }
-        if (!m.highlight(id) && jawnie && m.zajeta()) {
+        // Stronę do mapy (układ mapa-nad-listą) przewija tylko jawny przycisk pinezki,
+        // nie zwykły klik w wiersz — logistyk nie traci miejsca na liście.
+        if (!m.highlight(id, { przewin: jawnie }) && jawnie && m.zajeta()) {
             pokazKomunikat('info', 'Najpierw zakończ ustawianie punktu na mapie (Esc anuluje).', { klucz: 'mapa' });
         }
     }

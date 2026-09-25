@@ -29,3 +29,81 @@ def test_js_mapy_obsluguje_korekte_i_lokalizowanie():
                   'markerClusterGroup', 'window.LogisticsMap', 'bez_lokalizacji'):
         assert fraza in js, fraza
     assert 'unpkg.com' not in js and 'BaseLinker' not in js
+
+
+# ─── Fala poprawek po finalnym przeglądzie (frontend) ───────────────────────
+# Zachowanie w przeglądarce (przełączanie podkładu, wyścigi dymków, zapis w trakcie
+# nowego trybu) sprawdza harness w przeglądarce — tu pilnujemy tego, co widać w kodzie.
+
+def _mapa_js():
+    return _plik(LOG, 'static', 'js', 'logistics-map.js')
+
+
+def _lista_js():
+    return _plik(LOG, 'static', 'js', 'logistics.js')
+
+
+def _funkcja(js, nazwa):
+    """Treść funkcji z IIFE (wcięcie 4 spacje) — od nagłówka do zamykającej klamry."""
+    start = js.index('function ' + nazwa + '(')
+    return js[start:js.index('\n    }\n', start)]
+
+
+def test_podklad_przelacza_cala_warstwe_a_nie_setUrl():
+    """C1: setUrl zostawiał subdomeny OSM ('') i adres CARTO z {s} rzucał wyjątek."""
+    js = _mapa_js()
+    assert "subdomains: ''" not in js
+    przelacz = _funkcja(js, 'przelaczPodklad')
+    assert 'nowaWarstwaKafelkow(podklad)' in przelacz
+    assert 'removeLayer(stara)' in przelacz
+    assert 'setUrl' not in przelacz
+    # Zapis wyboru dopiero po udanym dodaniu nowej warstwy.
+    assert przelacz.index('nowa.addTo(mapa)') < przelacz.index('zapiszPodklad(id)')
+
+
+def test_odrzucony_klucz_carto_przechodzi_raz_na_kafelki_bez_klucza():
+    """UF2: 403 na kafelku z kluczem → ta sama warstwa bez klucza + ostrzeżenie; podglądy też."""
+    js = _mapa_js()
+    warstwa = _funkcja(js, 'nowaWarstwaKafelkow')
+    assert "'tileerror'" in warstwa and "'tileload'" in warstwa
+    assert 'kluczOdrzucony = true' in warstwa and 'console.warn' in warstwa
+    assert 'adresPodgladu(p, true)' in warstwa
+    kontrolka = _funkcja(js, 'dodajKontrolkePodkladow')
+    assert "addEventListener('error'" in kontrolka and "removeEventListener('error'" in kontrolka
+
+
+def test_zwykly_klik_w_wiersz_nie_przewija_strony_do_mapy():
+    """I3: przewija tylko jawny przycisk pinezki (i „Ustaw na mapie”)."""
+    assert 'm.highlight(id, { przewin: jawnie })' in _lista_js()
+    highlight = _funkcja(_mapa_js(), 'highlight')
+    assert 'if (opcje && opcje.przewin) pokazMapeNaEkranie();' in highlight
+    assert highlight.count('pokazMapeNaEkranie') == 1
+
+
+def test_wskazanie_ma_numer_zadania_i_zoom_z_gornym_limitem():
+    """I2 + m1: spóźnione wywołania starszych wskazań nic nie otwierają; zoom nie klei się na 19."""
+    js = _mapa_js()
+    dymek = _funkcja(js, 'otworzDymek')
+    assert 'moje !== nrWskazania' in dymek
+    highlight = _funkcja(js, 'highlight')
+    assert 'porzucWskazanie()' in highlight and 'nr !== nrWskazania' in highlight
+    assert 'ZOOM_WSKAZANIA_MAKS' in highlight
+    assert 'Math.max(mapa.getZoom(), ZOOM_WSKAZANIA), { animate' not in highlight
+
+
+def test_zapis_punktu_w_trakcie_nowego_trybu_trafia_na_liste():
+    """I1: wynik zapisu nie ginie, gdy logistyk zaczął już następne „Ustaw na mapie”."""
+    js = _mapa_js()
+    for nazwa, rodzaj in (('ustawPunkt', "'ustawiono'"), ('zapiszKorekte', "'poprawiono'")):
+        tresc = _funkcja(js, nazwa)
+        galaz = tresc[tresc.index('if (tryb !== biezacy) {'):]
+        assert galaz.index('przyjmijZamowienie(dane.order, ' + rodzaj + ')') < galaz.index('return;'), nazwa
+    assert 'if (!tryb) narysuj(' in _funkcja(js, 'przyjmijZamowienie')
+
+
+def test_fokus_przezywa_przerysowanie_takze_na_przycisku_mapy():
+    """m2: fokus na pinezce / „Ustaw na mapie” nie przeskakuje na checkbox."""
+    js = _lista_js()
+    assert "const KLASY_FOKUSU = ['lg-sposob', 'lg-na-mapie', 'lg-zaznacz'];" in js
+    assert 'przywrocFokus(fokus, tbody)' in _funkcja(js, 'renderujTabele')
+    assert 'przywrocFokus(fokus, tbody)' in _funkcja(js, 'odswiezWiersz')
