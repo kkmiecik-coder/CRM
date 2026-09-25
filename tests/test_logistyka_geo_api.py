@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
+import json
+
 import pytest
 
 from extensions import db
 from modules.production.logistics.models import OrderGeo
-from modules.production.logistics.services import bl_sync, geocoding
+from modules.production.logistics.services import bl_sync, dzierzawa, geocoding
 from tests.logistyka_fixtures import BASE, SEKRET_CRONA, app, client, zamowienie  # noqa: F401
 
 
@@ -29,6 +31,22 @@ def test_lista_niesie_wspolrzedne_i_licznik(client, app):
                          'source': 'gugik', 'adres_zmieniony': False}
     assert dane['bez_lokalizacji'] == 1
     assert dane['geokoder_dziala'] is False
+    assert dane['geokoder_postep'] is None
+
+
+def test_lista_niesie_postep_geokodera(client, app):
+    """UF3: przycisk „Zlokalizuj teraz” pokazuje postęp trwającego przebiegu."""
+    with app.app_context():
+        zamowienie()
+        dzierzawa.zapisz(geocoding.KLUCZ_POSTEPU, json.dumps(
+            {'wszystkie': 5, 'zrobione': 2, 'od': '2026-09-25T10:00:00'}))
+    # wpis bez żywej dzierżawy (osierocony po padniętym procesie) — brak postępu
+    assert client.get(BASE + '/orders').get_json()['geokoder_postep'] is None
+    with app.app_context():
+        assert dzierzawa.przejmij(geocoding.KLUCZ_DZIERZAWY, geocoding.CZAS_DZIERZAWY_S)
+    dane = client.get(BASE + '/orders').get_json()
+    assert dane['geokoder_dziala'] is True
+    assert dane['geokoder_postep'] == {'zrobione': 2, 'wszystkie': 5}
 
 
 def test_zlokalizuj_teraz_uruchamia_watek(client, bez_watkow):
@@ -56,12 +74,26 @@ def test_reczna_korekta_cialo_inne_niz_obiekt_to_422(client, app, body):
     assert client.put(BASE + '/orders/%d/geo' % oid, json=body).status_code == 422
 
 
+def test_reczna_korekta_bool_to_nie_wspolrzedne(client, app):
+    """M1: bool to podklasa int — true/false przeszłyby jako 1.0/0.0."""
+    with app.app_context():
+        oid = zamowienie().id
+    r = client.put(BASE + '/orders/%d/geo' % oid, json={'lat': True, 'lng': False})
+    assert r.status_code == 422
+    with app.app_context():
+        assert OrderGeo.query.get(oid) is None
+
+
 def test_reczna_korekta_wyscig_z_geokoderem_w_tle(client, app, monkeypatch):
     """Decyzja 2: geokoder w tle mógł w międzyczasie wstawić ten sam wiersz
     (INSERT z SELECT ... FOR UPDATE) — commit żądania webowego dostaje
-    IntegrityError. Ponawiamy raz (ustaw_recznie znowu, tym razem UPDATE)."""
+    IntegrityError. Ponawiamy raz (ustaw_recznie znowu, tym razem UPDATE).
+
+    M9: fałszywy commit zasiewa wiersz geokodera (jak zrobiłby równoległy proces),
+    więc ponowienie naprawdę idzie ścieżką UPDATE istniejącego wiersza."""
     with app.app_context():
-        oid = zamowienie().id
+        order = zamowienie()
+        oid, skrot = order.id, geocoding.skrot_adresu(order)
 
     from sqlalchemy.exc import IntegrityError
     oryginalny_commit = db.session.commit
@@ -70,6 +102,11 @@ def test_reczna_korekta_wyscig_z_geokoderem_w_tle(client, app, monkeypatch):
     def raz_awaryjny_commit():
         stan['wywolania'] += 1
         if stan['wywolania'] == 1:
+            # Geokoder w tle zdążył zapisać swój punkt: nasz INSERT dostałby duplicate key.
+            db.session.rollback()
+            db.session.add(OrderGeo(order_id=oid, lat=49.0, lng=21.0, source='gugik',
+                                    quality='dokladna', address_hash=skrot))
+            oryginalny_commit()
             raise IntegrityError('insert', {}, Exception('duplicate key'))
         return oryginalny_commit()
 
@@ -78,6 +115,11 @@ def test_reczna_korekta_wyscig_z_geokoderem_w_tle(client, app, monkeypatch):
     r = client.put(BASE + '/orders/%d/geo' % oid, json={'lat': 50.1, 'lng': 20.2})
     assert r.status_code == 200
     assert r.get_json()['order']['geo']['source'] == 'reczna'
+    with app.app_context():
+        db.session.expire_all()
+        punkty = OrderGeo.query.filter_by(order_id=oid).all()
+        assert len(punkty) == 1
+        assert (punkty[0].source, float(punkty[0].lat), float(punkty[0].lng)) == ('reczna', 50.1, 20.2)
 
 
 def test_reczna_korekta_wyscig_druga_probka_tez_pada(client, app, monkeypatch):

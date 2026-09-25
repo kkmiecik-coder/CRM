@@ -197,6 +197,10 @@ TRASY_PANELU = [
     ('get', '/orders'),
     ('post', '/orders/delivery-method'),
     ('post', '/orders/1/handed-over'),
+    # Etap 2 (M7): geokoder i korekta pinezki pod tą samą kontrolą dostępu.
+    ('post', '/geocode'),
+    ('put', '/orders/1/geo'),
+    ('post', '/orders/1/geo/reset'),
 ]
 
 

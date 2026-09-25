@@ -9,7 +9,8 @@ w ISO; przejmuje ją warunkowy UPDATE (atomowy w MySQL), odnawia porównanie
 z poprzednią wartością. Proces, który padł, oddaje ją sam po `czas_s`.
 
 Klucze: 'logistyka_bl_dzierzawa' (wysyłka do Base., etap 1),
-'logistyka_geo_dzierzawa' (geokodowanie, etap 2).
+'logistyka_geo_dzierzawa' (geokodowanie, etap 2). Obok nich zwykła wartość
+pomocnicza przez `zapisz()`: 'logistyka_geo_postep' (postęp geokodera, JSON).
 
 `updated_at = updated_at` w każdym UPDATE: kolumna prod_config.updated_at ma
 w MySQL ON UPDATE CURRENT_TIMESTAMP (migracja 2026-08-11-07). Przejęcie,
@@ -83,4 +84,19 @@ def zwolnij(klucz, znacznik):
         text('UPDATE prod_config SET config_value = :zero, updated_at = updated_at '
              'WHERE config_key = :klucz AND config_value = :znacznik'),
         {'zero': ZERO, 'klucz': klucz, 'znacznik': znacznik})
+    db.session.commit()
+
+
+def zapisz(klucz, wartosc):
+    """
+    Bezwarunkowy zapis wartości pomocniczej pracy w tle (np. postęp geokodera,
+    'logistyka_geo_postep' — zapisywany po każdym zamówieniu). Surowy UPDATE
+    z `updated_at = updated_at` z tego samego powodu co dzierżawa (ETag tabletów,
+    patrz docstring modułu). Wiersz tworzy leniwie `wiersz()`.
+    """
+    wiersz(klucz)
+    db.session.execute(
+        text('UPDATE prod_config SET config_value = :w, updated_at = updated_at '
+             'WHERE config_key = :k'),
+        {'w': wartosc, 'k': klucz})
     db.session.commit()

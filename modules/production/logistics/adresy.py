@@ -17,6 +17,49 @@ def usun_kod_pocztowy(tekst):
     return re.sub(r'\s+', ' ', bez).strip(' ,')
 
 
+# R10 (kontroler): oznaczenie lokalu / klatki / piętra NA KOŃCU adresu, tuż po numerze
+# domu (ewentualnie z literą: „12 B m. 3”), oddzielone spacją albo przecinkiem.
+# Dłuższe warianty przed krótszymi („mieszkanie” przed „mieszk”, „lokal” przed „lok”).
+# Wymóg „po numerze domu” chroni nazwy ulic: w „Parkowa 3” czy „Kolejowa 7” nic nie pasuje,
+# a jednoliterowe „m”/„p” liczą się tylko jako osobne słowo przed numerem lokalu.
+_OZNACZENIE_LOKALU = re.compile(
+    r'(\d(?:\s?[A-Za-z])?)[\s,]+'
+    r'(?:mieszkanie|mieszk|lokal|lok|klatka|kl|piętro|pietro|apt|m|p)\.?\s*'
+    r'[A-Za-z]?\d+[A-Za-z]?\s*$',  # „lok. U2” — lokal usługowy
+    re.IGNORECASE)
+# „12 B” → „12B” (na końcu albo przed „/”) — GUGiK zna numer „12B”, nie „12” z ulicą „B”.
+_LITERA_ODDZIELONA = re.compile(r'(\d)\s+([A-Za-z])(?=\s*(?:/|$))')
+_MIASTO_NA_KONCU = re.compile(r'^(.*\S)\s*,\s*([^,]+)$')
+
+
+def _norm(tekst):
+    return ' '.join((tekst or '').lower().split())
+
+
+def adres_do_geokodowania(adres, miasto):
+    """
+    Adres przygotowany WYŁĄCZNIE dla geokodera (R10), przed extract_house_and_apartment_number:
+    bez kodu pocztowego, bez końcowego „, <miasto zamówienia>” i bez oznaczeń lokalu na końcu.
+
+    Zmierzone 25.09.2026: „Kraków, Floriańska 10 lok 5” → GUGiK oddawał Floriańską 5
+    (accuracy 0.74), czyli zły budynek jako punkt „dokladna”. Eksport Routimo dalej używa
+    extract_house_and_apartment_number / clean_street_name bez tej funkcji (1:1).
+    """
+    tekst = usun_kod_pocztowy(adres)
+    miasto = _norm(miasto)
+    dopasowanie = _MIASTO_NA_KONCU.match(tekst)
+    if miasto and dopasowanie and _norm(dopasowanie.group(2)) == miasto:
+        tekst = dopasowanie.group(1)
+    # Kilka oznaczeń z rzędu („5 kl. 2 m. 7”) — zdejmujemy od końca, aż nic nie pasuje.
+    while True:
+        krotszy = _OZNACZENIE_LOKALU.sub(r'\1', tekst)
+        if krotszy == tekst:
+            break
+        tekst = krotszy
+    tekst = _LITERA_ODDZIELONA.sub(r'\1\2', tekst)
+    return re.sub(r'\s+', ' ', tekst).strip(' ,')
+
+
 def extract_house_and_apartment_number(address):
     """
     Wyciąga numer domu i mieszkania z adresu oraz zwraca oczyszczoną ulicę

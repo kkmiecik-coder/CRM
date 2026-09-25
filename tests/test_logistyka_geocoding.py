@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """Odpowiedzi usług to kopie zapytań wykonanych 24.09.2026 (patrz „Zmierzone” w planie)."""
+import logging
+
 import pytest
 import requests
 
@@ -7,9 +9,9 @@ from modules.production.logistics.services import geocoding as g
 
 FLORIANSKA = {'type': 'address', 'returned objects': 2, 'results': {
     '1': {'city': 'Kraków', 'street': 'Floriańska', 'number': '10', 'code': '31-021',
-          'accuracy': '1', 'x': '19.9396202491515', 'y': '50.0627258466159'},
+          'teryt': '126101', 'accuracy': '1', 'x': '19.9396202491515', 'y': '50.0627258466159'},
     '2': {'city': 'Kraków', 'street': 'Ariańska', 'number': '10', 'code': '31-505',
-          'accuracy': '0.666667', 'x': '19.9542258649548', 'y': '50.0665202'}}}
+          'teryt': '126101', 'accuracy': '0.666667', 'x': '19.9542258649548', 'y': '50.0665202'}}}
 BACHORZ = {'type': 'address', 'returned objects': 1, 'results': {
     '1': {'city': 'Bachórz', 'street': None, 'number': '14N', 'code': '36-065',
           'accuracy': '1', 'x': '22.2540527461363', 'y': '49.8404376841563'}}}
@@ -19,6 +21,24 @@ REJTANA = {'type': 'address', 'returned objects': 1, 'results': {
 PUSTO = {'type': 'address', 'returned objects': 0, 'results': None}
 MIASTO = {'type': 'city', 'returned objects': 1, 'results': {
     '1': {'city': 'Dynów', 'accuracy': '1', 'x': '22.23386', 'y': '49.81479'}}}
+# Zmierzone 25.09.2026 (przegląd końcowy): „Wola 12” → 5 trafień w różnych województwach,
+# każde accuracy 1, różne teryt. Współrzędne zaokrąglone (w teście liczy się wybór).
+WOLA_12 = {'type': 'address', 'returned objects': 5, 'results': {
+    '1': {'city': 'Wola', 'street': None, 'number': '12', 'code': '83-130', 'teryt': '220405',
+          'accuracy': '1', 'x': '18.61', 'y': '53.93'},
+    '2': {'city': 'Wola', 'street': None, 'number': '12', 'code': '87-620', 'teryt': '040611',
+          'accuracy': '1', 'x': '18.92', 'y': '52.91'},
+    '3': {'city': 'Wola', 'street': None, 'number': '12', 'code': '11-606', 'teryt': '280701',
+          'accuracy': '1', 'x': '22.01', 'y': '54.12'},
+    '4': {'city': 'Wola', 'street': None, 'number': '12', 'code': '09-150', 'teryt': '142008',
+          'accuracy': '1', 'x': '20.44', 'y': '52.63'},
+    '5': {'city': 'Wola', 'street': None, 'number': '12', 'code': '13-124', 'teryt': '281503',
+          'accuracy': '1', 'x': '20.31', 'y': '53.22'}}}
+# „Nowa Wieś” (type city) → wiele miejscowości o tej samej nazwie.
+NOWA_WIES = {'type': 'city', 'returned objects': 3, 'results': {
+    '1': {'city': 'Nowa Wieś', 'teryt': '0201011', 'accuracy': '1', 'x': '16.11', 'y': '51.21'},
+    '2': {'city': 'Nowa Wieś', 'teryt': '1206052', 'accuracy': '1', 'x': '20.21', 'y': '50.12'},
+    '3': {'city': 'Nowa Wieś', 'teryt': '1816042', 'accuracy': '1', 'x': '22.41', 'y': '50.02'}}}
 
 
 class Odp(object):
@@ -188,3 +208,198 @@ def test_awaria_gugik_miejscowosci_nie_maskuje_sukcesu_nominatim():
                      awaria_gugik_zapytania={'Dynów'})
     with pytest.raises(g.BladUslugi):
         g.geokoduj_adres('Nieistniejąca 1', 'Dynów', None, 'PL', http, _bez_spania)
+
+
+# ── R9 (kontroler): wybór trafienia GUGiK przy niezgodnym albo brakującym kodzie ──
+
+def test_wola_12_z_obcym_kodem_to_brak_trafienia():
+    assert g.wybierz_trafienie(WOLA_12, '12', '36-100') is None
+
+
+def test_wola_12_bez_kodu_wiele_miejscowosci_to_brak_trafienia():
+    assert g.wybierz_trafienie(WOLA_12, '12', None) is None
+
+
+def test_wola_12_ze_zgodnym_kodem_to_ta_jedna():
+    assert g.wybierz_trafienie(WOLA_12, '12', '83-130')['code'] == '83-130'
+
+
+def test_niezgodny_kod_i_niska_dokladnosc_to_brak_trafienia():
+    """Samo „Ariańska 10” (31-505, accuracy 0.667) dla kodu klienta 31-021 — inna ulica."""
+    tylko_arianska = {'type': 'address', 'results': {'2': FLORIANSKA['results']['2']}}
+    assert g.wybierz_trafienie(tylko_arianska, '10', '31-021') is None
+
+
+def test_niezgodny_kod_ten_sam_prefiks_wymaga_wysokiej_dokladnosci():
+    assert g.wybierz_trafienie(REJTANA, '16c', '35-001') is None  # prefiks 35, accuracy 0.68
+    assert g.wybierz_trafienie(BACHORZ, '14N', '36-068')['number'] == '14N'  # prefiks 36, acc 1
+
+
+def test_niezgodny_prefiks_kodu_to_brak_trafienia():
+    assert g.wybierz_trafienie(BACHORZ, '14N', '30-001') is None
+
+
+def test_zgodny_kod_wybiera_najlepsza_dokladnosc():
+    dwa = {'type': 'address', 'results': {
+        '1': dict(FLORIANSKA['results']['1'], street='Florianska', accuracy='0.7'),
+        '2': FLORIANSKA['results']['1']}}
+    assert g.wybierz_trafienie(dwa, '10', '31-021')['street'] == 'Floriańska'
+
+
+def test_wieloznaczny_adres_idzie_do_nominatim_z_kodem():
+    http = FakeHttp(gugik={'Wola 12': WOLA_12},
+                    nominatim=[[{'lat': '49.9', 'lon': '21.9', 'place_rank': 30}]])
+    wynik = g.geokoduj_adres('Wola 12', 'Wola', '36-100', 'PL', http, _bez_spania)
+    assert wynik == g.Wynik(49.9, 21.9, 'nominatim', 'dokladna')
+    url, params, _ = http.wywolania[-1]
+    assert url == g.NOMINATIM_URL
+    assert (params['city'], params['postalcode']) == ('Wola', '36-100')
+
+
+def test_bez_miasta_i_bez_kodu_gugik_pominiety():
+    """R9(d): zapytanie ogólnopolskie „Floriańska 10” jest niejednoznaczne."""
+    http = FakeHttp(nominatim=[[{'lat': '50.1', 'lon': '19.9', 'place_rank': 30}]])
+    g.geokoduj_adres('Floriańska 10', '', None, 'PL', http, _bez_spania)
+    assert http.wywolania and all(u == g.NOMINATIM_URL for u, _, _ in http.wywolania)
+
+
+def test_bez_miasta_z_kodem_gugik_wybiera_po_kodzie():
+    http = FakeHttp(gugik={'Floriańska 10': FLORIANSKA})
+    wynik = g.geokoduj_adres('Floriańska 10', '', '31-021', 'PL', http, _bez_spania)
+    assert (wynik.source, wynik.quality, wynik.lat) == ('gugik', 'dokladna', 50.0627258466159)
+
+
+def test_miasto_wieloznaczne_przyblizenie_z_nominatim():
+    """R9(e): „Nowa Wieś” w GUGiK to wiele miejscowości → przybliżenie z Nominatim (miasto + kod)."""
+    http = FakeHttp(gugik={'Nowa Wieś': NOWA_WIES},
+                    nominatim=[[], [{'lat': '50.1', 'lon': '20.2', 'place_rank': 16}]])
+    wynik = g.geokoduj_adres('Nieistniejąca 1', 'Nowa Wieś', '32-100', 'PL', http, _bez_spania)
+    assert wynik == g.Wynik(50.1, 20.2, 'nominatim', 'przyblizona')
+    url, params, _ = http.wywolania[-1]
+    assert url == g.NOMINATIM_URL
+    assert (params['city'], params['postalcode']) == ('Nowa Wieś', '32-100')
+
+
+# ── I1: nieparsowalne współrzędne to brak wyniku, nie wyjątek ──
+
+@pytest.mark.parametrize('zmiana', [{'y': ''}, {'y': None}, {'x': 'abc'}, {'y': '500'},
+                                    {'x': 'nan'}])
+def test_trafienie_bez_poprawnych_wspolrzednych_jest_pomijane(zmiana):
+    odp = {'type': 'address', 'results': {'1': dict(FLORIANSKA['results']['1'], **zmiana)}}
+    assert g.wybierz_trafienie(odp, '10', '31-021') is None
+
+
+def test_trafienie_bez_x_jest_pomijane():
+    bez_x = {k: v for k, v in FLORIANSKA['results']['1'].items() if k != 'x'}
+    assert g.wybierz_trafienie({'type': 'address', 'results': {'1': bez_x}}, '10', '31-021') is None
+
+
+def test_zle_trafienie_obok_dobrego():
+    odp = {'type': 'address', 'results': {
+        '1': dict(FLORIANSKA['results']['1'], y=''),
+        '2': dict(FLORIANSKA['results']['1'], accuracy='0.95')}}
+    assert g.wybierz_trafienie(odp, '10', '31-021')['accuracy'] == '0.95'
+
+
+@pytest.mark.parametrize('odpowiedz', [None, [], 'x', {'type': 'address', 'results': ['x', 5]},
+                                       {'type': 'address', 'results': 'x'}])
+def test_dziwna_odpowiedz_gugik_to_brak_trafienia(odpowiedz):
+    assert g.wybierz_trafienie(odpowiedz, '10', '31-021') is None
+
+
+def test_zle_trafienie_nie_przerywa_geokodowania():
+    zle = {'type': 'address', 'results': {'1': dict(FLORIANSKA['results']['1'], y='')}}
+    http = FakeHttp(gugik={'Kraków, Floriańska 10': zle},
+                    nominatim=[[{'lat': '50.06', 'lon': '19.94', 'place_rank': 30}]])
+    wynik = g.geokoduj_adres('Floriańska 10', 'Kraków', '31-021', 'PL', http, _bez_spania)
+    assert wynik == g.Wynik(50.06, 19.94, 'nominatim', 'dokladna')
+
+
+@pytest.mark.parametrize('odpowiedz', [
+    [{'lat': 'abc', 'lon': '19.9', 'place_rank': 30}],
+    [{'place_rank': 30}],
+    [{'lat': None, 'lon': None}],
+    [{'lat': '95', 'lon': '19.9', 'place_rank': 30}],
+    {'error': 'Bad request'},
+    ['x'],
+])
+def test_nieparsowalna_odpowiedz_nominatim_to_brak_wyniku(odpowiedz):
+    """To ODPOWIEDŹ usługi (nie awaria): nie ma BladUslugi, próba się zużywa."""
+    http = FakeHttp(nominatim=[odpowiedz, []])
+    assert g.geokoduj_adres('Nowa 5', 'Xyz', None, 'PL', http, _bez_spania).quality == 'nie_znaleziono'
+
+
+def test_nieczytelna_ranga_nominatim_to_przyblizenie():
+    http = FakeHttp(nominatim=[[{'lat': '50.1', 'lon': '19.9', 'place_rank': 'abc'}]])
+    wynik = g.geokoduj_adres('Nowa 5', 'Kraków', None, 'PL', http, _bez_spania)
+    assert wynik == g.Wynik(50.1, 19.9, 'nominatim', 'przyblizona')
+
+
+def test_miejscowosc_gugik_ze_zlymi_wspolrzednymi_to_brak_wyniku():
+    zle = {'type': 'city', 'results': {'1': dict(MIASTO['results']['1'], x='')}}
+    http = FakeHttp(gugik={'Dynów': zle},
+                    nominatim=[[], [{'lat': '49.8', 'lon': '22.2', 'place_rank': 16}]])
+    wynik = g.geokoduj_adres('Nieistniejąca 1', 'Dynów', None, 'PL', http, _bez_spania)
+    assert wynik == g.Wynik(49.8, 22.2, 'nominatim', 'przyblizona')
+
+
+# ── R10: oznaczenie lokalu nie trafia do usług jako numer domu ──
+
+def test_oznaczenie_lokalu_nie_jest_numerem_domu():
+    assert g.zapytania_gugik('Floriańska 10 lok. 5', 'Kraków') == (['Kraków, Floriańska 10'], '10')
+    assert g.zapytania_gugik('Floriańska 10/5, 31-021 Kraków', 'Kraków') == (
+        ['Kraków, Floriańska 10'], '10')
+    http = FakeHttp(gugik={'Kraków, Floriańska 10': FLORIANSKA})
+    wynik = g.geokoduj_adres('Floriańska 10 lok 5', 'Kraków', '31-021', 'PL', http, _bez_spania)
+    assert wynik == g.Wynik(50.0627258466159, 19.9396202491515, 'gugik', 'dokladna')
+
+
+def test_nominatim_dostaje_adres_bez_oznaczenia_lokalu():
+    http = FakeHttp(nominatim=[[{'lat': '50.1', 'lon': '19.9', 'place_rank': 30}]])
+    g.geokoduj_adres('Nowa 5, lokal 3', 'Kraków', '30-001', 'PL', http, _bez_spania)
+    assert http.wywolania[-1][1]['street'] == 'Nowa 5'
+
+
+# ── M2: kraj ze spacjami ──
+
+@pytest.mark.parametrize('kraj', [' pl', 'PL ', 'pl', '', None, '  '])
+def test_kraj_ze_spacjami_to_polska(kraj):
+    http = FakeHttp(gugik={'Kraków, Floriańska 10': FLORIANSKA})
+    wynik = g.geokoduj_adres('Floriańska 10', 'Kraków', '31-021', kraj, http, _bez_spania)
+    assert (wynik.source, wynik.quality) == ('gugik', 'dokladna')
+
+
+def test_countrycodes_bez_spacji():
+    http = FakeHttp(nominatim=[[{'lat': '52.5', 'lon': '13.4', 'place_rank': 30}]])
+    g.geokoduj_adres('Unter den Linden 1', 'Berlin', '10117', ' de ', http, _bez_spania)
+    assert all(u == g.NOMINATIM_URL for u, _, _ in http.wywolania)
+    assert http.wywolania[0][1]['countrycodes'] == 'de'
+
+
+# ── M3: prywatność logów — tekst wyjątku requests niesie URL z adresem klienta ──
+
+NAZWA_LOGGERA = 'app.production.logistics.geocoding'
+
+
+class FakeHttpAwariaZUrl(object):
+    """Awaria jak w prawdziwym requests: komunikat wyjątku zawiera pełny URL z adresem."""
+
+    def __call__(self, url, params=None, timeout=None, headers=None):
+        pelny = requests.Request('GET', url, params=params).prepare().url
+        if url == g.GUGIK_URL:
+            raise requests.ConnectionError('Max retries exceeded with url: %s' % pelny)
+        odp = requests.Response()
+        odp.status_code, odp.url = 503, pelny
+        raise requests.HTTPError('503 Server Error: Service Unavailable for url: %s' % pelny,
+                                 response=odp)
+
+
+def test_log_awarii_bez_adresu_klienta(caplog):
+    with caplog.at_level(logging.DEBUG, logger=NAZWA_LOGGERA):
+        with pytest.raises(g.BladUslugi):
+            g.geokoduj_adres('Floriańska 10', 'Kraków', '31-021', 'PL', FakeHttpAwariaZUrl(),
+                             _bez_spania)
+    tekst = '\n'.join(r.getMessage() for r in caplog.records if r.name == NAZWA_LOGGERA)
+    assert tekst
+    assert 'Floria' not in tekst and 'Krak' not in tekst and '31-021' not in tekst
+    assert 'ConnectionError' in tekst and 'HTTPError' in tekst and '503' in tekst

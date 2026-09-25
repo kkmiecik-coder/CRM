@@ -19,3 +19,8 @@ CREATE TABLE IF NOT EXISTS prod_order_geo (
 INSERT IGNORE INTO prod_config (config_key, config_value, config_description, config_type, created_at, updated_at)
 VALUES ('logistyka_geo_dzierzawa', '1970-01-01T00:00:00',
         'Logistyka: dzierzawa geokodera (waznosc ISO)', 'string', NOW(), NOW());
+
+-- Postęp trwającego przebiegu geokodera dla przycisku „Zlokalizuj teraz” ('' = nic nie biegnie).
+INSERT IGNORE INTO prod_config (config_key, config_value, config_description, config_type, created_at, updated_at)
+VALUES ('logistyka_geo_postep', '',
+        'Logistyka: postęp geokodera (JSON)', 'string', NOW(), NOW());

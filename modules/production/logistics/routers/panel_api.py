@@ -92,6 +92,8 @@ def orders():
         'base_wstrzymane_do': wstrzymane.isoformat() if wstrzymane else None,
         'bez_lokalizacji': geocoding.bez_lokalizacji(),
         'geokoder_dziala': geocoding.geokoder_dziala(),
+        # UF3: null albo {"zrobione": k, "wszystkie": N} — postęp „Zlokalizuj teraz”.
+        'geokoder_postep': geocoding.postep(),
     })
 
 

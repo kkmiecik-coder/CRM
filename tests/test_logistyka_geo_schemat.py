@@ -25,3 +25,10 @@ def test_migracja_geo():
     assert 'CREATE TABLE IF NOT EXISTS prod_order_geo' in sql
     assert 'logistyka_geo_dzierzawa' in sql
     assert 'DELIMITER' not in sql
+
+
+def test_migracja_zaklada_wiersz_postepu_geokodera():
+    """UF3: wiersz postępu z migracji (dzierzawa.wiersz() i tak tworzy go leniwie)."""
+    sql = open(MIGRACJA, encoding='utf-8').read()
+    assert "INSERT IGNORE INTO prod_config" in sql
+    assert "'logistyka_geo_postep', ''" in sql
