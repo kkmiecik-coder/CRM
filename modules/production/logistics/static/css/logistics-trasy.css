@@ -373,9 +373,14 @@
     color: var(--il-text-secondary, #7a8291);
 }
 
-/* ─── Mapa Dashboardu: legenda tras (widok „Trasy”) ─── */
+/* ─── Mapa Dashboardu: legenda tras (widok „Trasy”) ───
+   (oględziny Task 8, runda 2, N8) Najwyżej ~3 rzędy tras, dalej legenda się przewija —
+   przy kilkunastu aktywnych trasach mapa w wąskiej kolumnie zachowuje wysokość. */
 .logistics-tab .lg-mapa-legenda--trasy {
     gap: 2px 4px;
+    max-height: 104px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
     padding: 5px 8px 7px;
 }
 
@@ -531,6 +536,36 @@
 .logistics-tab :is(.lg-widok--trasy, .lg-widok--flota, .lg-dialog--trasy, .lg-dialog--pojazd) .lg-przycisk[aria-disabled="true"] {
     opacity: 0.55;
     cursor: progress;
+}
+
+/* ─── Komunikaty Tras i Floty: nakładka (oględziny Task 8, runda 2, N3) ───
+   Na końcu panelu, przyklejone do dolnej krawędzi widoku (sticky, wysokość 0 — nie zajmują
+   miejsca), rosną w górę nad treścią; najnowszy najniżej. Pojawienie się i zniknięcie
+   komunikatu nie przesuwa przycisków edytora ani Floty (wcześniej skrzynka u góry panelu
+   spychała wszystko o ~45 px i po 6 s wracała — kliknięcia trafiały obok). Tekst dalej
+   ogłasza aria-live i role status/alert. Dashboard (etap 2) bez zmian. */
+.logistics-tab .lg-komunikaty--nakladka {
+    position: sticky;
+    bottom: 14px;
+    z-index: 40;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: flex-start;
+    gap: 6px;
+    height: 0;
+    /* Stały zapas pod treścią na komunikat (do dwóch linii): przy krótkim panelu (Flota)
+       komunikat stoi pod ostatnim wierszem, a nie na nim. */
+    margin: 66px 0 0;
+    pointer-events: none;
+}
+
+.logistics-tab .lg-komunikaty--nakladka > .lg-komunikat {
+    flex: none;
+    box-sizing: border-box;
+    width: min(560px, 100%);
+    box-shadow: 0 8px 24px rgba(26, 26, 46, 0.2);
+    pointer-events: auto;
 }
 
 /* ============================================================================
@@ -1287,7 +1322,7 @@
     cursor: pointer;
 }
 
-.logistics-tab .lg-ikona-przycisk:hover:not(:disabled) {
+.logistics-tab .lg-ikona-przycisk:hover:not(:disabled):not([aria-disabled="true"]) {
     background: var(--il-bg-base, #eef0f4);
     border-color: var(--il-border, #c8cdd5);
     color: var(--il-text-primary, #1a1a2e);
@@ -1298,12 +1333,24 @@
     cursor: default;
 }
 
+/* (oględziny Task 8, runda 2, N4) Zmiana tej trasy w drodze: ↑/↓, „Usuń z trasy”
+   i przeciąganie wyglądają na nieaktywne jak przyciski nagłówka (fokus zostaje). */
+.logistics-tab .lg-ikona-przycisk[aria-disabled="true"] {
+    opacity: 0.3;
+    cursor: progress;
+}
+
+.logistics-tab .lg-linia.is-czeka .lg-przystanek[draggable="true"],
+.logistics-tab .lg-linia.is-czeka .lg-przystanek-uchwyt {
+    cursor: progress;
+}
+
 .logistics-tab .lg-przystanek-usun {
     padding: 3px 8px 4px;
     font-size: 12px;
 }
 
-.logistics-tab .lg-przystanek-usun:hover {
+.logistics-tab .lg-przystanek-usun:hover:not([aria-disabled="true"]) {
     color: #b91c1c;
     border-color: var(--lg-niebezpieczny);
 }

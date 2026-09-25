@@ -394,10 +394,16 @@
     }
 
     let numerBledu = 0;   // rośnie z każdym pokazanym błędem edytora (wczytajDostepnosc)
+    // Rodzaj bieżącego błędu edytora (runda 2, przegląd pkt 3): 'pole' (walidacja pola —
+    // znika dopiero przy zmianie pola), 'serwer' (odmowa zmiany), 'konflikt' (odmowa
+    // w sprawie pojazdu albo kierowcy — bladZasobu) i 'dostepnosc' (nie wczytano dostępności)
+    // — te dwa ostatnie znikają też, gdy dostępność dla bieżących pól wczyta się bez problemu.
+    let rodzajBledu = null;
 
-    function pokazBlad(tekst) {
+    function pokazBlad(tekst, rodzaj) {
         if (!bladEl) return;
         if (tekst) numerBledu += 1;
+        rodzajBledu = tekst ? (rodzaj || 'serwer') : null;
         bladEl.textContent = tekst || '';
         bladEl.hidden = !tekst;
         if (!tekst) zdejmijOznaczenia(form);
@@ -462,6 +468,10 @@
             esc(NAZWY_STATUSOW[status] || status) + '</span>';
     }
 
+    // (oględziny Task 8, runda 2) „Trasa Trasa A…” w etykietach, gdy nazwa sama zaczyna się
+    // od słowa „trasa” — wtedy bez dopisanego „Trasa”.
+    const nazwaWOpisie = (nazwa) => (/^\s*trasa(\s|$)/i.test(String(nazwa || '')) ? String(nazwa) : 'Trasa ' + nazwa);
+
     function pozycjaListyHtml(t) {
         const p = t.podsumowanie || {};
         const otwarta = !!(stan.otwarta && stan.otwarta.id === t.id && !stan.nowa);
@@ -472,7 +482,7 @@
         const klasy = ['lg-trasa-pozycja', 'lg-trasa-pozycja--' + String(t.status || ''), kolor(t.id)];
         if (otwarta) klasy.push('is-otwarta');
         // Etykieta wprost — treść to kilka pól obok siebie, czytnik skleiłby je bez przerw.
-        const opis = 'Trasa ' + t.nazwa + ', ' + zakresDat(t.date_from, t.date_to) +
+        const opis = nazwaWOpisie(t.nazwa) + ', ' + zakresDat(t.date_from, t.date_to) +
             ', ' + (pojazd ? 'pojazd ' + pojazd : 'bez pojazdu') + ', ' + (kierowca ? 'kierowca ' + kierowca : 'bez kierowcy') +
             ', ' + ilePrzystankow(ile) + ', ' + kg(p.waga_kg) + (przekroczona ? ', przekroczona ładowność pojazdu' : '');
         return '<li><button type="button" class="' + klasy.join(' ') + '" data-lg-trasa-id="' + esc(t.id) + '"' +
@@ -497,7 +507,23 @@
 
     const poDacie = (a, b) => (a.date_from < b.date_from ? -1 : (a.date_from > b.date_from ? 1 : a.id - b.id));
 
+    /**
+     * (oględziny Task 8, runda 2, N1) Lista rysuje się od nowa (innerHTML) — fokus na pozycji
+     * trasy przechodzi na tę samą trasę w nowej liście (także gdy trasa zmieniła sekcję, np.
+     * robocza → zatwierdzona), zamiast spaść na <body>.
+     */
     function renderujListe() {
+        const a = document.activeElement;
+        const pozycjaZFokusem = a && a.closest && panel.contains(a) ? a.closest('[data-lg-trasa-id]') : null;
+        const fokusNaTrasie = pozycjaZFokusem ? pozycjaZFokusem.getAttribute('data-lg-trasa-id') : null;
+        rysujListe();
+        if (fokusNaTrasie !== null) {
+            const nowa = panel.querySelector('[data-lg-trasa-id="' + fokusNaTrasie + '"]');
+            if (nowa && nowa !== document.activeElement && nowa.offsetParent !== null) nowa.focus({ preventScroll: true });
+        }
+    }
+
+    function rysujListe() {
         const wgStatusu = (status) => stan.trasy.filter((t) => t.status === status).sort(poDacie);
         // Wykonane: najnowsze na górze (archiwum), robocze i zatwierdzone — najbliższe na górze.
         const wykonane = (stan.filtrWykonanych ? stan.filtrWykonanych.trasy : wgStatusu('wykonana'))
@@ -778,13 +804,25 @@
         if (kontrolerTrasy) kontrolerTrasy.abort();
         const kontroler = new AbortController();
         kontrolerTrasy = kontroler;
-        if (edytor) edytor.classList.add('is-laduje');
+        // (runda 2, przegląd pkt 2) Użytkownik już opuścił bieżącą trasę — nowa sesja od razu,
+        // nie dopiero po odpowiedzi: błąd spóźnionej zmiany poprzedniej trasy trafia wtedy do
+        // komunikatu z jej nazwą, a nie do pola błędu, które zaraz wyczyści resetEdytora().
+        stan.sesja += 1;
+        if (edytor) {
+            edytor.classList.add('is-laduje');
+            edytor.setAttribute('aria-busy', 'true');
+        }
+        // (runda 2, N6) W trakcie wczytywania formularz poprzedniej trasy jest nieaktywny
+        // (inert) — tekst wpisany w nim zaraz zniknąłby pod formularzem nowej trasy.
+        if (trescEl) trescEl.inert = true;
         if (!stan.otwarta && !stan.nowa && pustyEl) {
             pustyEl.querySelector('.lg-stan-tytul').textContent = 'Wczytywanie trasy…';
         }
         try {
             const dane = await zapytanie('/routes/' + id, { signal: kontroler.signal });
             if (zniszczona || kontroler !== kontrolerTrasy) return;
+            // Przed fokusem: element w poddrzewie inert nie przyjmuje fokusu.
+            if (trescEl) trescEl.inert = false;
             resetEdytora();
             stan.nowa = false;
             stan.otwarta = null;
@@ -800,17 +838,31 @@
                 komunikat('blad', 'Nie wczytano trasy. ' + e.message, { klucz: 'trasa' });
             }
         } finally {
-            if (kontroler === kontrolerTrasy) {
-                kontrolerTrasy = null;
-                if (edytor) edytor.classList.remove('is-laduje');
-                if (pustyEl) pustyEl.querySelector('.lg-stan-tytul').textContent = 'Wybierz trasę z listy albo utwórz nową.';
-            }
+            if (kontroler === kontrolerTrasy) koniecWczytywania();
         }
+    }
+
+    // Koniec wczytywania trasy (udane, nieudane albo przerwane „Nową trasą” / zamknięciem).
+    function koniecWczytywania() {
+        kontrolerTrasy = null;
+        if (edytor) {
+            edytor.classList.remove('is-laduje');
+            edytor.removeAttribute('aria-busy');
+        }
+        if (trescEl) trescEl.inert = false;
+        if (pustyEl) pustyEl.querySelector('.lg-stan-tytul').textContent = 'Wybierz trasę z listy albo utwórz nową.';
+    }
+
+    // Przerwanie wczytywania innej trasy — od razu, żeby fokus mógł wejść do formularza.
+    function przerwijWczytywanie() {
+        if (!kontrolerTrasy) return;
+        kontrolerTrasy.abort();
+        koniecWczytywania();
     }
 
     async function nowaTrasa() {
         if (zniszczona || !(await pozwolOpuscic())) return;
-        if (kontrolerTrasy) kontrolerTrasy.abort();
+        przerwijWczytywanie();
         resetEdytora();
         stan.otwarta = null;
         stan.nowa = true;
@@ -821,6 +873,7 @@
 
     async function zamknijEdytor() {
         if (zniszczona || !(await pozwolOpuscic())) return;
+        przerwijWczytywanie();
         const byla = stan.otwarta;
         resetEdytora();
         stan.otwarta = null;
@@ -861,7 +914,9 @@
      * edytora. Inaczej poprawiamy tylko pozycję listy i mapę tras — spóźniona odpowiedź
      * trasy A nie przejmuje edytora z trasą B i nie nadpisuje jej formularza. Gdy w
      * międzyczasie otwarto ponownie TĘ SAMĄ trasę: świeże przystanki, podsumowanie i status,
-     * a pola formularza zostają takie, jak je widać (chyba że zmienił się status).
+     * a pola formularza zostają takie, jak je widać (chyba że zmienił się status). (runda 2,
+     * przegląd pkt 6) Pola nieruszane od ponownego otwarcia dostają wartości z odpowiedzi —
+     * odczyt przy otwarciu mógł jeszcze nie mieć zapisu, który właśnie wrócił.
      */
     function przyjmijOdpowiedz(ctx, route, opcje) {
         const o = opcje || {};
@@ -871,7 +926,7 @@
             return;
         }
         if (!stan.nowa && stan.otwarta && stan.otwarta.id === route.id) {
-            przyjmijTrase(route, { zmiana: o.zmiana });
+            przyjmijTrase(route, { zmiana: o.zmiana, formularz: !!stan.migawka && migawkaFormularza() === stan.migawka });
             return;
         }
         aktualizujNaLiscie(route);
@@ -896,7 +951,9 @@
         ustawKolor(edytor, t ? kolor(t.id) : '');
         statusEl.innerHTML = t ? statusHtml(t.status) : '';
         tytulEl.textContent = t ? t.nazwa : 'Nowa trasa';
-        if (o.formularz) wypelnijFormularz();
+        // (runda 2, przegląd pkt 5) Trasa tylko do odczytu zawsze pokazuje wartości z serwera
+        // — także opis pojazdu w selekcie (nazwa, „wyłączony z floty”) po odświeżeniu trasy.
+        if (o.formularz || !edytowalnaForma()) wypelnijFormularz();
         polaEl.disabled = !edytowalnaForma();
         renderujAkcje();
         renderujPodsumowanie();
@@ -1032,12 +1089,13 @@
             stan.dostepnosc = { pojazdy: odp.pojazdy || [], kierowcy: odp.kierowcy || [] };
             renderujSelecty();
             // (oględziny M1) Dostępność dla bieżących pól przyszła — czerwony błąd sprzed
-            // poprawki (np. „Pojazd jest zajęty…”, złe daty) już nie dotyczy tego, co widać.
-            // Błąd, który pojawił się W TRAKCIE tego zapytania (inna akcja), zostaje.
-            if (numerBledu === bladPrzed) pokazBlad('');
+            // poprawki (np. „Pojazd jest zajęty…”) już nie dotyczy tego, co widać. Błąd, który
+            // pojawił się W TRAKCIE tego zapytania (inna akcja), zostaje; walidacja pola
+            // („Podaj nazwę trasy.”) też — ona znika dopiero przy zmianie pola (runda 2, pkt 3).
+            if (numerBledu === bladPrzed && (rodzajBledu === 'konflikt' || rodzajBledu === 'dostepnosc')) pokazBlad('');
         } catch (e) {
             if (przerwane(e) || zniszczona || kontroler !== kontrolerDostepnosci) return;
-            pokazBlad('Nie wczytano dostępności pojazdów i kierowców. ' + e.message);
+            pokazBlad('Nie wczytano dostępności pojazdów i kierowców. ' + e.message, 'dostepnosc');
         } finally {
             if (kontroler === kontrolerDostepnosci) kontrolerDostepnosci = null;
         }
@@ -1101,6 +1159,7 @@
             if (tytul) b.title = tytul; else b.removeAttribute('title');
         });
         if (dodajZaznaczoneBtn) renderujPrzyciskDodawania();
+        odswiezPrzyciskiPrzystankow();
     }
 
     /** Migawka z chwili kliknięcia: trasa, sesja edytora, dane formularza, fokus (oględziny A1). */
@@ -1145,10 +1204,12 @@
             if (zniszczona || przerwane(e)) return null;
             const konflikt = e.status === 409 || e.status === 404;
             if (naEkranie(ctx)) {
-                pokazBlad(e.message);
+                pokazBlad(e.message, bladZasobu(e) ? 'konflikt' : 'serwer');
                 odswiez = konflikt && !ctx.nowa;
             } else {
-                komunikat('blad', ctx.nazwa + ': ' + e.message, { klucz: 'trasa' });
+                // (runda 2, przegląd pkt 1) Klucz tej trasy, nie wspólny 'trasa': następny
+                // komunikat innej trasy („Zapisano trasę „B”.”) nie może zdjąć tego błędu.
+                komunikat('blad', ctx.nazwa + ': ' + e.message, { klucz: kluczBleduTrasy(ctx.klucz) });
                 if (konflikt) wczytajListe();
             }
             return null;
@@ -1186,8 +1247,16 @@
         if (cel && cel.isConnected && cel.offsetParent !== null) cel.focus({ preventScroll: true });
     }
 
+    // Klucz komunikatu z błędem zmiany trasy spoza ekranu — osobny dla każdej trasy.
+    const kluczBleduTrasy = (klucz) => 'trasa-blad-' + (klucz === null || klucz === undefined ? 'nowa' : klucz);
+
+    // Odmowa dotycząca pojazdu albo kierowcy (services/routes.py, _sprawdz_zasoby: zajęty
+    // w tych dniach, wyłączony z floty, nieaktywny) — tylko taki błąd kasuje udana dostępność.
+    const bladZasobu = (e) => !!e && (e.status === 409 || e.status === 422) &&
+        /zajęty|wyłączony z floty|aktywnego kierowcy/i.test(String(e.message || ''));
+
     function fokusNaBledneZPola(blad) {
-        pokazBlad(blad.tekst);
+        pokazBlad(blad.tekst, 'pole');
         const p = pole(blad.pole);
         oznaczPole(p, 'lg-edytor-blad');
         if (p && !p.disabled) p.focus();
@@ -1479,8 +1548,8 @@
                         ' aria-label="' + esc('Przesuń wyżej: ' + opis) + '" title="Wyżej"><i class="fas fa-arrow-up" aria-hidden="true"></i></button>' +
                     '<button type="button" class="lg-ikona-przycisk" data-lg-przystanek="dol"' + (nr === ile ? ' disabled' : '') +
                         ' aria-label="' + esc('Przesuń niżej: ' + opis) + '" title="Niżej"><i class="fas fa-arrow-down" aria-hidden="true"></i></button>' +
-                    // Bez disabled na czas innej zmiany — mutacja() i tak przepuszcza jedną naraz,
-                    // a lista przystanków nie przerysowuje się po jej końcu.
+                    // Bez disabled na czas innej zmiany (fokus zostaje) — czekanie pokazuje
+                    // aria-disabled z odswiezPrzyciskiPrzystankow(), a mutacja() i tak czeka.
                     '<button type="button" class="lg-przycisk lg-przycisk--cichy lg-przystanek-usun" data-lg-przystanek="usun"' +
                         ' aria-label="' + esc('Usuń z trasy zamówienie ' + z.numer) + '" title="Usuń z trasy">' +
                         '<i class="fas fa-xmark" aria-hidden="true"></i><span>Usuń z trasy</span></button>' +
@@ -1501,7 +1570,9 @@
     }
 
     // Fokus wraca na ten sam przycisk przesuniętego przystanku (u góry ↑ jest nieaktywna — wtedy ↓);
-    // po usunięciu — na sąsiedni przystanek.
+    // po usunięciu — na sąsiedni przystanek. (runda 2, N2) Gdy przycisków już nie ma (trasa
+    // przeszła w tylko do odczytu, np. odmowa kolejności, bo ktoś ją zatwierdził) — na tytuł
+    // edytora, jak po innych zmianach statusu, a nie na <body>.
     function przywrocFokusPrzystanku(f) {
         if (!f) return;
         let li = przystankiEl.querySelector('.lg-przystanek[data-order-id="' + f.id + '"]');
@@ -1509,18 +1580,33 @@
             const wiersze = przystankiEl.querySelectorAll('.lg-przystanek[data-order-id]');
             li = wiersze[Math.min(f.indeks, wiersze.length - 1)] || null;
         }
-        if (!li) {
-            if (kandydaciQ && kandydaciSekcja && !kandydaciSekcja.hidden) kandydaciQ.focus({ preventScroll: true });
-            return;
-        }
         const kolejnosc = f.akcja === 'gora' ? ['gora', 'dol', 'usun'] : (f.akcja === 'dol' ? ['dol', 'gora', 'usun'] : ['usun', 'gora', 'dol']);
-        for (let i = 0; i < kolejnosc.length; i += 1) {
+        for (let i = 0; li && i < kolejnosc.length; i += 1) {
             const b = li.querySelector('[data-lg-przystanek="' + kolejnosc[i] + '"]');
             if (b && !b.disabled) {
                 b.focus({ preventScroll: true });
                 return;
             }
         }
+        // Według stanu trasy, nie widoczności „Do dodania” — tę renderujKandydatow() chowa
+        // dopiero po przystankach (trasa właśnie przeszła w tylko do odczytu).
+        if (kandydaciQ && edytowalnaTrasa()) {
+            kandydaciQ.focus({ preventScroll: true });
+        } else if (tytulEl && tytulEl.offsetParent !== null) {
+            tytulEl.focus({ preventScroll: true });
+        }
+    }
+
+    // (runda 2, N4) Przyciski przystanków (↑/↓, „Usuń z trasy”) i przeciąganie w trakcie zmiany
+    // tej trasy wyglądają na nieaktywne jak przyciski nagłówka (aria-disabled — fokus zostaje,
+    // a klik i tak czeka: przesun() i „Usuń z trasy” mówią czytnikowi, na co czekają).
+    function odswiezPrzyciskiPrzystankow() {
+        if (!przystankiEl) return;
+        const czeka = akcjaTrwa();
+        if (liniaEl) liniaEl.classList.toggle('is-czeka', czeka);
+        przystankiEl.querySelectorAll('[data-lg-przystanek]').forEach((b) => {
+            if (czeka) b.setAttribute('aria-disabled', 'true'); else b.removeAttribute('aria-disabled');
+        });
     }
 
     function renderujStanPrzystankow() {
@@ -1553,6 +1639,7 @@
             : '<li class="lg-przystanek lg-przystanek--pusto">' + (edyt
                 ? 'Brak przystanków. Dodaj zamówienia z listy „Do dodania” niżej albo na Dashboardzie („Dodaj do trasy…”).'
                 : 'Trasa nie ma przystanków.') + '</li>';
+        odswiezPrzyciskiPrzystankow();
         przywrocFokusPrzystanku(fokus);
         renderujStanPrzystankow();
     }
@@ -1639,13 +1726,13 @@
                 if (zniszczona || przerwane(e)) return false;
                 if (!stan.otwarta || stan.nowa || stan.otwarta.id !== t.id) {
                     komunikat('blad', 'Trasa „' + t.nazwa + '”: nie zapisano kolejności przystanków. ' + e.message,
-                        { klucz: 'trasa' });
+                        { klucz: kluczBleduTrasy(String(t.id)) });
                     return false;
                 }
                 // Do czasu odświeżenia — ostatnia kolejność potwierdzona przez serwer.
                 stan.kolejnosc = null;
                 renderujPrzystanki();
-                pokazBlad('Nie zapisano kolejności przystanków. ' + e.message);
+                pokazBlad('Nie zapisano kolejności przystanków. ' + e.message, 'serwer');
                 return e.status === 409 || e.status === 404 || e.status === 422;
             }
         }
@@ -2184,9 +2271,10 @@
             return;
         }
         ustawSzerokoscDymkow();
-        const powrot = mapkaUkryta;
         mapkaUkryta = false;
-        mapka.invalidateSize(powrot ? { pan: true, animate: false } : { pan: false });
+        // (runda 2, N9) Zawsze ze środkiem na miejscu — przesunięta ręcznie mapka nie ucieka
+        // w róg przy zmianie rozmiaru; nieruszana i tak dopasowuje się do trasy.
+        mapka.invalidateSize({ pan: true, animate: false });
         if (!mapkaRuszona && (stan.otwarta || stan.nowa)) dopasujMapke(false);
     }
 
@@ -2647,7 +2735,7 @@
                 ustawZapisWykonania(false);
                 bladWykonania(e.message);
             } else {
-                komunikat('blad', 'Trasa „' + w.nazwa + '”: ' + e.message, { klucz: 'trasa' });
+                komunikat('blad', 'Trasa „' + w.nazwa + '”: ' + e.message, { klucz: kluczBleduTrasy(klucz) });
             }
             // Odmowa 409/404: trasa na serwerze jest inna niż nasza kopia (m4) — edytor od nowa.
             odswiez = e.status === 409 || e.status === 404;
@@ -2726,7 +2814,9 @@
     function naKlikPanelu(e) {
         const pozycja = e.target.closest('[data-lg-trasa-id]');
         if (pozycja && panel.contains(pozycja)) {
-            otworz(Number(pozycja.getAttribute('data-lg-trasa-id')));
+            // (runda 2, N1) Jak przy otwarciu z mapy: fokus na tytuł edytora — wąsko lista
+            // znika z ekranu, a szeroko klawiatura trafia od razu do otwartej trasy.
+            otworz(Number(pozycja.getAttribute('data-lg-trasa-id')), { fokus: true });
             return;
         }
         const przystanek = e.target.closest('[data-lg-przystanek]');
@@ -2925,8 +3015,10 @@
     }
 
     // (oględziny M2) logistics-fleet.js: pojazd dodany, zmieniony, wyłączony albo włączony.
+    // Przy schowanych Trasach (zmiany robi się we Flocie) dostępność pobierze pokazano()
+    // przy powrocie — bez drugiego, zbędnego zapytania (runda 2, drobiazgi).
     function naZmianeFloty(e) {
-        if (!e.detail || e.detail.root !== root || zniszczona) return;
+        if (!e.detail || e.detail.root !== root || zniszczona || panel.hidden) return;
         if (edytowalnaForma()) wczytajDostepnosc();
     }
 

@@ -16,7 +16,7 @@
 <link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet-markercluster/MarkerCluster.css') }}?v=1.5.3">
 <link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20260925i">
 {# Etap 3: trasy, flota, widok tras na mapie — osobny arkusz (logistics.css zostaje nietknięty). #}
-<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics-trasy.css') }}?v=20260925b">
+<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics-trasy.css') }}?v=20260926a">
 
 <div id="logistics-root" class="logistics-tab"
      data-api="{{ url_for('logistics_panel.orders') }}"
@@ -181,8 +181,8 @@
                data-carto-key="{{ carto_basemaps_key }}"
                data-skrypt-leaflet="{{ url_for('production.static', filename='vendor/leaflet/leaflet.js') }}?v=1.9.4"
                data-skrypt-klastry="{{ url_for('production.static', filename='vendor/leaflet-markercluster/leaflet.markercluster.js') }}?v=1.5.3"
-               data-skrypt-mapy="{{ url_for('logistics_panel.static', filename='js/logistics-map.js') }}?v=20260925i"
-               data-skrypt-trasy="{{ url_for('logistics_panel.static', filename='js/logistics-routes.js') }}?v=20260925b"></div>
+               data-skrypt-mapy="{{ url_for('logistics_panel.static', filename='js/logistics-map.js') }}?v=20260926a"
+               data-skrypt-trasy="{{ url_for('logistics_panel.static', filename='js/logistics-routes.js') }}?v=20260926a"></div>
           {# Pasek trybu (korekta, ustawianie punktu) i wyniku akcji na mapie. #}
           <div class="lg-mapa-pasek" data-lg-mapa="pasek" role="status" aria-live="polite" hidden></div>
           <div class="lg-mapa-stan is-ladowanie" data-lg-mapa="stan" role="status">Ładowanie mapy…</div>
@@ -292,7 +292,6 @@
        z id trasy) ten sam na liście, w edytorze, na mapce i na mapie Dashboardu. #}
   <div class="lg-widok lg-widok--trasy" id="lg-widok-routes" role="tabpanel" aria-labelledby="lg-zakladka-routes"
        data-logistics-view="routes" hidden>
-    <div class="lg-komunikaty" data-lg-komunikaty="routes" aria-live="polite"></div>
     <div class="lg-trasy" data-lg-trasy="uklad">
 
       {# ─── LISTA TRAS ─── Robocze i Zatwierdzone rozwinięte, Wykonane zwinięte
@@ -419,13 +418,15 @@
         </div>
       </section>
     </div>
+    {# Komunikaty Tras NA KOŃCU panelu: nakładka przy dolnej krawędzi widoku (CSS, sticky),
+       więc pojawienie się i zniknięcie komunikatu nie przesuwa przycisków (oględziny, N3). #}
+    <div class="lg-komunikaty lg-komunikaty--nakladka" data-lg-komunikaty="routes" aria-live="polite"></div>
   </div>
 
   {# ═══ PODZAKŁADKA FLOTA ═══ (etap 3) — logistics-fleet.js. Pojazdów nie kasujemy:
        wyłączony zostaje na starych trasach, nie da się go wybrać do nowych. #}
   <div class="lg-widok lg-widok--flota" id="lg-widok-fleet" role="tabpanel" aria-labelledby="lg-zakladka-fleet"
        data-logistics-view="fleet" hidden>
-    <div class="lg-komunikaty" data-lg-komunikaty="fleet" aria-live="polite"></div>
     <div class="lg-flota">
       <section class="lg-flota-pojazdy" aria-labelledby="lg-flota-tytul">
         <div class="lg-sekcja-naglowek">
@@ -463,6 +464,7 @@
         <ul class="lg-kierowcy" data-lg-flota="kierowcy"></ul>
       </section>
     </div>
+    <div class="lg-komunikaty lg-komunikaty--nakladka" data-lg-komunikaty="fleet" aria-live="polite"></div>
   </div>
 
   {# ─── POPRAWKA ADRESU ─── (dwuklik w adres na liście albo Enter na fokusie).
@@ -633,5 +635,5 @@
         });
 })();
 </script>
-<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20260925k"></script>
+<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20260926a"></script>
 <script src="{{ url_for('logistics_panel.static', filename='js/logistics-fleet.js') }}?v=20260925b"></script>

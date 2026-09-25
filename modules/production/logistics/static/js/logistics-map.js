@@ -202,6 +202,9 @@
     let mapaUkryta = false;
     let widokRuszony = false;
     let dopasowanieWToku = false;    // movestart dopasowania to nie ruch użytkownika
+    // Proporcja listy i mapy zmieniona z klawiatury albo dwuklikiem pastylki — do najbliższej
+    // klatki zmiana rozmiaru mapy idzie ścieżką pastylki (lewy górny róg, jak w etapie 2).
+    let pastylkaZmienia = false;
 
     // ── Stan widoku „Trasy” (etap 3) ──
     // Kolory tras: paleta w logistics-trasy.css (--lg-trasa-0…11 i klasy lg-trasa-kolor-N).
@@ -1188,6 +1191,13 @@
      * błąd (np. 409 — przystanek zatwierdzonej trasy) idzie do słuchaczy onBlad (logistics.js
      * robi z niego komunikat listy), zamiast zginąć po cichu.
      */
+    // Początek zdania z numerem zamówienia tylko wtedy, gdy tekst serwera go nie zawiera
+    // (zwykle „Zamówienie 1659 jest…” — numer dwa razy czytałby się źle, runda 2).
+    function bladPunktu(poczatek, numer, e) {
+        const tekst = String((e && e.message) || '');
+        return (tekst.indexOf(String(numer)) === -1 ? poczatek + ' zamówienia ' + numer : poczatek) + '. ' + tekst;
+    }
+
     function zglosBlad(tekst) {
         if (!sluchaczeBledow.length) {
             console.warn('[LogisticsMap]', tekst);
@@ -1266,7 +1276,7 @@
         } catch (e) {
             if (zniszczona) return;
             if (tryb !== biezacy) {
-                zglosBlad('Nie zapisano nowego miejsca dostawy zamówienia ' + biezacy.z.numer + '. ' + e.message);
+                zglosBlad(bladPunktu('Nie zapisano nowego miejsca dostawy', biezacy.z.numer, e));
                 return;
             }
             biezacy.zapisywanie = false;
@@ -1322,7 +1332,7 @@
         } catch (e) {
             if (zniszczona) return;
             if (tryb !== biezacy) {
-                zglosBlad('Nie ustawiono miejsca dostawy zamówienia ' + biezacy.z.numer + '. ' + e.message);
+                zglosBlad(bladPunktu('Nie ustawiono miejsca dostawy', biezacy.z.numer, e));
                 return;
             }
             warstwaEdycji.removeLayer(biezacy.znacznik);
@@ -1475,6 +1485,7 @@
         if (klatkaPastylki) return;
         klatkaPastylki = window.requestAnimationFrame(() => {
             klatkaPastylki = 0;
+            pastylkaZmienia = false;
             if (mapa && maWymiary()) mapa.invalidateSize({ pan: false });
             opiszPastylke();
         });
@@ -1513,6 +1524,7 @@
             window.cancelAnimationFrame(klatkaPastylki);
             klatkaPastylki = 0;
         }
+        pastylkaZmienia = false;
         if (mapa && maWymiary()) mapa.invalidateSize({ pan: false });
         opiszPastylke();
         if (koniec.udzial !== undefined) zapiszUdzial(koniec.udzial);
@@ -1530,12 +1542,14 @@
         else return;
         e.preventDefault();
         const udzial = udzialDlaMapy(mapaPx);
+        pastylkaZmienia = true;
         ustawUdzial(udzial);
         zapiszUdzial(udzial);
         odswiezPoPastylce();
     }
 
     function przywrocDomyslnyPodzial() {
+        pastylkaZmienia = true;
         zapiszUdzial(null);
         ustawUdzial(null);
         odswiezPoPastylce();
@@ -2006,8 +2020,14 @@
             ustawSzerokoscDymkow();
             if (!widokRuszony && !tryb) dopasujBiezacy(false);
             opiszPastylke();
+        } else if (pastylkaZmienia) {
+            // Proporcja listy i mapy z klawiatury / dwukliku — jak przy przeciąganiu (etap 2).
+            odswiezPoPastylce();
         } else {
-            mapa.invalidateSize({ pan: false });
+            // (runda 2, N9) Widoczna zmiana rozmiaru (okno, panel boczny, układ obok siebie →
+            // mapa nad listą): środek zostaje na miejscu, jak w etapie 2 (nasłuch okna Leafleta,
+            // teraz wyłączony). Lewy górny róg zostaje tylko przy zmianie proporcji pastylką.
+            mapa.invalidateSize({ pan: true, animate: false });
             ustawSzerokoscDymkow();
             opiszPastylke();
         }

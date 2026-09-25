@@ -691,7 +691,9 @@
     function plakietkaTrasy(w) {
         if (w.trasa) {
             const status = STATUSY_TRAS[w.trasa.status] || String(w.trasa.status || '');
-            const opis = 'Trasa ' + w.trasa.nazwa + ', ' + status + '. Otwórz trasę.';
+            // Nazwa zaczynająca się od „Trasa” — bez drugiego „Trasa” w opisie (runda 2).
+            const nazwa = String(w.trasa.nazwa || '');
+            const opis = (/^\s*trasa(\s|$)/i.test(nazwa) ? nazwa : 'Trasa ' + nazwa) + ', ' + status + '. Otwórz trasę.';
             const kolor = kolorTrasy(w.trasa.id);
             return '<button type="button" class="lg-plakietka-trasy lg-plakietka-trasy--' + esc(w.trasa.status) +
                 (kolor ? ' lg-plakietka-trasy--kolor ' + kolor : '') + '"' +
@@ -1597,8 +1599,9 @@
             await zapytanie('/geocode', { metoda: 'POST', dane: {} });
             if (zniszczona) return;
             if (!ciche) {
+                // (oględziny Task 8, runda 2, N5) Jak komunikat końcowy — tylko na Dashboardzie.
                 pokazKomunikat('info', 'Lokalizowanie w tle. Postęp widać na przycisku nad mapą.',
-                    { klucz: 'geo' });
+                    { klucz: 'geo', widok: 'dashboard' });
             }
             // Postęp z GET /geocode zaraz po starcie wątku; lista odświeży się z zegara.
             stan.ostatnieOdswiezenie = Date.now();
@@ -1608,7 +1611,7 @@
             stan.geokoderDziala = false;
             stan.ochronaGeoDo = 0;
             renderujGeo();
-            pokazKomunikat('blad', 'Nie uruchomiono lokalizowania. ' + e.message, { klucz: 'geo' });
+            pokazKomunikat('blad', 'Nie uruchomiono lokalizowania. ' + e.message, { klucz: 'geo', widok: 'dashboard' });
         }
     }
 
@@ -1833,6 +1836,9 @@
             if (adresDla === id) {
                 ustawZapisAdresu(false);
                 bladAdresu('Nie zapisano adresu. ' + e.message);
+                // (oględziny Task 8, runda 2, N7) „Zapisz” był na czas zapisu nieaktywny i fokus
+                // spadł na <body> — wraca do okna, na ten sam przycisk (Esc i „Anuluj” obok).
+                el('adres-zapisz').focus();
             } else {
                 pokazKomunikat('blad', 'Nie zapisano adresu zamówienia ' + numer + '. ' + e.message,
                     { klucz: 'adres' });

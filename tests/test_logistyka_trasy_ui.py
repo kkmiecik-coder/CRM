@@ -173,6 +173,68 @@ def test_plik_tras_nie_wczytal_sie_to_blad_a_nie_czekanie():
     assert "hasAttribute('data-lg-trasy-blad')" in _funkcja(_plik('static', 'js', 'logistics.js'), 'dodajDoTrasy')
 
 
+# ─── Runda 2 poprawek (oględziny N1–N9, przegląd kodu 1–6) ───
+
+def test_fokus_listy_tras_i_wczytywanie_trasy():
+    """N1, N6: przerysowana lista oddaje fokus tej samej trasie; otwarcie z listy → tytuł;
+    w trakcie wczytywania formularz poprzedniej trasy jest inert, a sesja rośnie od razu."""
+    trasy = _plik('static', 'js', 'logistics-routes.js')
+    lista = _funkcja(trasy, 'renderujListe')
+    assert "a.closest('[data-lg-trasa-id]')" in lista and 'nowa.focus(' in lista
+    assert "{ fokus: true }" in _funkcja(trasy, 'naKlikPanelu')
+    otworz = _funkcja(trasy, 'otworz')
+    assert 'trescEl.inert = true' in otworz
+    assert otworz.index('stan.sesja += 1') < otworz.index("zapytanie('/routes/' + id")
+    assert 'trescEl.inert = false' in _funkcja(trasy, 'koniecWczytywania')
+
+
+def test_komunikaty_tras_i_floty_nie_przesuwaja_ukladu():
+    """N3: kontenery komunikatów Tras i Floty na końcu paneli, jako nakładka sticky."""
+    html = _plik('templates', 'logistics', 'tab_content.html')
+    for widok, nastepny in (('routes', '{# ═══ PODZAKŁADKA FLOTA'), ('fleet', '{# ─── POPRAWKA ADRESU')):
+        znacznik = 'class="lg-komunikaty lg-komunikaty--nakladka" data-lg-komunikaty="%s"' % widok
+        assert html.count(znacznik) == 1, widok
+        panel = html[html.index('data-logistics-view="%s"' % widok):html.index(nastepny)]
+        assert panel.rstrip().endswith('</div>') and panel.index(znacznik) > panel.index('</section>'), widok
+    regula = _plik('static', 'css', 'logistics-trasy.css')
+    regula = regula[regula.index('.logistics-tab .lg-komunikaty--nakladka {'):]
+    regula = regula[:regula.index('}')]
+    assert 'position: sticky' in regula and 'height: 0' in regula
+
+
+def test_przyciski_przystankow_czekaja_i_odmowy_z_kluczem_trasy():
+    """N4, przegląd pkt 1 i 3: aria-disabled przystanków w trakcie zmiany, klucz błędu per trasa,
+    dostępność nie kasuje walidacji pola."""
+    trasy = _plik('static', 'js', 'logistics-routes.js')
+    assert 'odswiezPrzyciskiPrzystankow();' in _funkcja(trasy, 'odswiezAkcje')
+    assert "klucz: kluczBleduTrasy(ctx.klucz)" in _funkcja(trasy, 'mutacja')
+    assert "rodzajBledu === 'konflikt' || rodzajBledu === 'dostepnosc'" in _funkcja(trasy, 'wczytajDostepnosc')
+    assert "pokazBlad(blad.tekst, 'pole')" in _funkcja(trasy, 'fokusNaBledneZPola')
+    css = _plik('static', 'css', 'logistics-trasy.css')
+    assert '.lg-ikona-przycisk[aria-disabled="true"]' in css
+
+
+def test_mapy_trzymaja_srodek_i_legenda_ma_limit():
+    """N9 + N8: widoczna zmiana rozmiaru trzyma środek (poza pastylką), legenda tras przewijana."""
+    mapa = _plik('static', 'js', 'logistics-map.js')
+    zmiana = _funkcja(mapa, 'poZmianieRozmiaru')
+    assert zmiana.count('invalidateSize({ pan: true, animate: false })') == 2
+    assert 'pastylkaZmienia' in zmiana and 'invalidateSize({ pan: false })' not in zmiana
+    assert 'invalidateSize({ pan: true, animate: false })' in _funkcja(_plik('static', 'js', 'logistics-routes.js'), 'naRozmiarMapki')
+    css = _plik('static', 'css', 'logistics-trasy.css')
+    legenda = css[css.index('.logistics-tab .lg-mapa-legenda--trasy {'):]
+    legenda = legenda[:legenda.index('}')]
+    assert 'max-height' in legenda and 'overflow-y: auto' in legenda
+
+
+def test_komunikaty_geokodera_i_okno_adresu():
+    """N5 + N7: komunikaty geokodera tylko na Dashboardzie; po odmowie zapisu adresu fokus w oknie."""
+    lista = _plik('static', 'js', 'logistics.js')
+    teraz = _funkcja(lista, 'zlokalizujTeraz')
+    assert teraz.count("widok: 'dashboard'") == 2
+    assert "el('adres-zapisz').focus();" in _funkcja(lista, 'zapiszAdres')
+
+
 def test_nowe_pliki_sprzataja_po_sobie():
     trasy = _plik('static', 'js', 'logistics-routes.js')
     flota = _plik('static', 'js', 'logistics-fleet.js')
