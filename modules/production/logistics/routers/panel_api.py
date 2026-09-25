@@ -22,6 +22,34 @@ from modules.production.models import ProductionOrder
 logger = get_structured_logger('production.logistics.panel_api')
 LIMIT_HURTU = 500
 
+CARTO_BASEMAPS_KEY_CONFIG = 'CARTO_BASEMAPS_KEY'
+
+# Ostrzeżenie o braku klucza CARTO najwyżej raz na proces (moduł-poziom
+# flaga) — tab-content renderuje się przy każdym wejściu w zakładkę Logistyka,
+# a mapa działa dalej bez klucza (kafelki ze znakiem wodnym „API KEY
+# REQUIRED"), więc to nie jest alarm CRITICAL jak brak PRODUCTION_CRON_SECRET
+# (cron_auth.py) — mapa nie przestaje działać, tylko brzydziej wygląda.
+_carto_key_ostrzezono = False
+
+
+def _klucz_carto_basemaps():
+    """Klucz CARTO Basemaps z config/core.json — bez wartości domyślnej w kodzie.
+
+    Repo jest publiczne, więc klucz nigdy nie trafia do kodu ani do testów —
+    wyłącznie do config/core.json (jak PRODUCTION_CRON_SECRET, CEIDG_JWT_TOKEN).
+    Pusty/brak pola nie blokuje mapy — logistics-map.js dokłada ?key= do
+    adresu kafelków tylko, gdy klucz jest niepusty.
+    """
+    global _carto_key_ostrzezono
+    klucz = current_app.config.get(CARTO_BASEMAPS_KEY_CONFIG)
+    if not isinstance(klucz, str) or not klucz.strip():
+        if not _carto_key_ostrzezono:
+            _carto_key_ostrzezono = True
+            logger.warning("Brak CARTO_BASEMAPS_KEY w config/core.json - kafelki mapy "
+                           "logistyki beda ze znakiem wodnym CARTO 'API KEY REQUIRED'")
+        return ''
+    return klucz.strip()
+
 
 def guard(f):
     @wraps(f)
@@ -43,7 +71,8 @@ def _blad(komunikat, status):
 @logistics_panel_bp.route('/tab-content', methods=['GET'])
 @guard
 def tab_content():
-    return render_template('logistics/tab_content.html', magazyn=geocoding.MAGAZYN)
+    return render_template('logistics/tab_content.html', magazyn=geocoding.MAGAZYN,
+                           carto_basemaps_key=_klucz_carto_basemaps())
 
 
 @logistics_panel_bp.route('/orders', methods=['GET'])

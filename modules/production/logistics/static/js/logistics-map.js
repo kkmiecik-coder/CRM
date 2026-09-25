@@ -65,7 +65,17 @@
     // ── Stałe ───────────────────────────────────────────────────────────────
 
     const POLSKA = [[49.0, 14.1], [54.9, 24.2]];
-    const KAFELKI = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+    // Styl w JEDNEJ stałej — właściciel może go jeszcze zmienić (np. na 'voyager').
+    const STYL_KAFELKOW = 'light_all';
+    // CARTO od 2026 wymaga klucza API dla kafelków rastrowych (bez niego znak
+    // wodny „API KEY REQUIRED"). Klucz wstawia serwer jako data-atrybut na tym
+    // samym elemencie (panel_api.py: tab_content() czyta config/core.json,
+    // pole CARTO_BASEMAPS_KEY) — tu tylko dokładamy go do adresu kafelków.
+    // Klucz i tak jest widoczny w przeglądarce (adresy kafelków) — ochronę
+    // daje ograniczenie domen w panelu CARTO, nie tajność tego atrybutu.
+    const KLUCZ_KAFELKOW = kontener.getAttribute('data-carto-key') || '';
+    const KAFELKI = 'https://{s}.basemaps.cartocdn.com/rastertiles/' + STYL_KAFELKOW + '/{z}/{x}/{y}{r}.png' +
+        (KLUCZ_KAFELKOW ? '?key=' + encodeURIComponent(KLUCZ_KAFELKOW) : '');
     const ATRYBUCJA = '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>' +
         ' © <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>';
     const ZOOM_WSKAZANIA = 12;      // klik w wiersz: co najmniej takie przybliżenie

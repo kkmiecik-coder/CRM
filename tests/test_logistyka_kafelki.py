@@ -1,0 +1,68 @@
+# -*- coding: utf-8 -*-
+"""
+Klucz CARTO Basemaps dla kafelków mapy logistyki (zadanie 9, poza planem etapu 2).
+
+CARTO od 2026 wymaga klucza API dla kafelków rastrowych — bez niego kafelek
+niesie znak wodny „API KEY REQUIRED". Klucz leży wyłącznie w config/core.json
+(pole CARTO_BASEMAPS_KEY, jak PRODUCTION_CRON_SECRET czy CEIDG_JWT_TOKEN) —
+repo jest publiczne, więc klucz nie trafia do kodu ani do tego pliku.
+
+tab_content() czyta klucz z current_app.config i wstawia go do data-atrybutu
+#logistics-map (autoescape Jinja, bez |safe). Bez klucza mapa dalej działa
+(kafelki bez ?key=, ze znakiem wodnym CARTO), a serwer ostrzega w logu
+najwyżej raz na proces (moduł-poziom flaga w panel_api.py) — stąd test (c)
+zeruje ją monkeypatchem, żeby nie zależeć od kolejności innych testów, które
+też renderują tę zakładkę bez klucza.
+"""
+import os
+
+import modules.production.logistics.routers.panel_api as panel_api
+from tests.logistyka_fixtures import BASE, app, client  # noqa: F401
+
+KATALOG = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+JS_MAPY = os.path.join(KATALOG, 'modules', 'production', 'logistics', 'static', 'js', 'logistics-map.js')
+
+
+def test_klucz_carto_z_konfiguracji_trafia_do_atrybutu_szablonu(app, client):  # noqa: F811
+    app.config['CARTO_BASEMAPS_KEY'] = 'klucz-testowy-carto'
+    r = client.get(BASE + '/tab-content')
+    assert r.status_code == 200
+    html = r.get_data(as_text=True)
+    assert 'data-carto-key="klucz-testowy-carto"' in html
+
+
+def test_brak_klucza_carto_daje_pusty_atrybut_i_200(app, client, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(panel_api, '_carto_key_ostrzezono', False)
+    assert 'CARTO_BASEMAPS_KEY' not in app.config
+    r = client.get(BASE + '/tab-content')
+    assert r.status_code == 200
+    html = r.get_data(as_text=True)
+    assert 'data-carto-key=""' in html
+
+
+def test_ostrzezenie_o_braku_klucza_loguje_sie_raz_nie_dwa_razy(app, client, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(panel_api, '_carto_key_ostrzezono', False)
+    wywolania = []
+    monkeypatch.setattr(panel_api.logger, 'warning',
+                        lambda *a, **k: wywolania.append((a, k)))
+
+    assert client.get(BASE + '/tab-content').status_code == 200
+    assert client.get(BASE + '/tab-content').status_code == 200
+
+    assert len(wywolania) == 1
+
+
+def test_pusty_string_traktowany_jak_brak_klucza(app, client, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(panel_api, '_carto_key_ostrzezono', False)
+    app.config['CARTO_BASEMAPS_KEY'] = '   '
+    r = client.get(BASE + '/tab-content')
+    html = r.get_data(as_text=True)
+    assert 'data-carto-key=""' in html
+
+
+def test_js_mapy_sklada_adres_kafelkow_z_klucza_i_nie_niesie_prawdziwego_klucza():
+    js = open(JS_MAPY, encoding='utf-8').read()
+    assert 'rastertiles' in js
+    assert 'key=' in js
+    # cb_/cb1_ itp. — wzorzec prawdziwych kluczy CARTO; w repo publicznym nie może się pojawić.
+    assert 'cb1_' not in js

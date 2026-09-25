@@ -254,7 +254,10 @@ Albo po prostu `./deploy.sh` — robi dokładnie to samo, z lockiem i logami.
 - Pozostałe sekrety też tylko w `config/core.json`, bez wartości domyślnych w kodzie:
   `PRODUCTION_CRON_SECRET` (endpointy CRON, patrz „Zadania cykliczne”),
   `CEIDG_JWT_TOKEN` (wyszukiwanie firm w CEIDG; bez niego, gdy GUS i MF nie znajdą
-  firmy, `/clients/api/gus_lookup` zwraca 503 zamiast szukać w CEIDG)
+  firmy, `/clients/api/gus_lookup` zwraca 503 zamiast szukać w CEIDG),
+  `CARTO_BASEMAPS_KEY` (kafelki mapy logistyki; bez niego mapa ma znak wodny CARTO;
+  klucz jest widoczny w przeglądarce, więc w panelu CARTO ogranicz go do domeny
+  crm.woodpower.pl; limit darmowy 1 mln kafelków/mies.)
 - Dodając zależność, pamiętaj o `requirements.txt` — deploy instaluje z niego
 - API mobilne (`/api/mobile/*`) jest **niezależne** od paneli webowych
   produkcji; zmiany w `modules/production/routers/stations/` nie dotykają tabletów
