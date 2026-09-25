@@ -15,6 +15,8 @@
 <link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet/leaflet.css') }}?v=1.9.4">
 <link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet-markercluster/MarkerCluster.css') }}?v=1.5.3">
 <link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20260925i">
+{# Etap 3: trasy, flota, widok tras na mapie — osobny arkusz (logistics.css zostaje nietknięty). #}
+<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics-trasy.css') }}?v=20260925a">
 
 <div id="logistics-root" class="logistics-tab"
      data-api="{{ url_for('logistics_panel.orders') }}"
@@ -23,11 +25,17 @@
      data-logo-base="{{ url_for('logistics_panel.static', filename='img/base-logo.png') }}?v=20260925a">
 
   {# ─── NAGŁÓWEK: podzakładki + odświeżanie ───
-       W etapie 1 jest tylko „Dashboard”. Trasy i Flota dochodzą w etapie 3 —
-       celowo bez martwych przycisków. #}
+       Dashboard | Trasy | Flota (etap 3) — przełącza logistics.js (pokazWidok), bez
+       przeładowania; ostatnia zapamiętana w localStorage. „Stan na” i „Odśwież”
+       dotyczą listy zamówień, więc widać je tylko na Dashboardzie. #}
   <div class="lg-naglowek">
     <div class="lg-podzakladki" role="tablist" aria-label="Widoki logistyki">
-      <button type="button" class="lg-podzakladka is-aktywna" role="tab" aria-selected="true">Dashboard</button>
+      <button type="button" class="lg-podzakladka is-aktywna" role="tab" id="lg-zakladka-dashboard"
+              aria-selected="true" aria-controls="lg-widok-dashboard" data-lg-widok="dashboard">Dashboard</button>
+      <button type="button" class="lg-podzakladka" role="tab" id="lg-zakladka-routes" tabindex="-1"
+              aria-selected="false" aria-controls="lg-widok-routes" data-lg-widok="routes">Trasy</button>
+      <button type="button" class="lg-podzakladka" role="tab" id="lg-zakladka-fleet" tabindex="-1"
+              aria-selected="false" aria-controls="lg-widok-fleet" data-lg-widok="fleet">Flota</button>
     </div>
     <div class="lg-naglowek-akcje">
       <span class="lg-odswiezono" data-lg="odswiezono"></span>
@@ -36,6 +44,10 @@
       </button>
     </div>
   </div>
+
+  {# ═══ PODZAKŁADKA DASHBOARD ═══ — cała dotychczasowa treść zakładki (etapy 1–2). #}
+  <div class="lg-widok" id="lg-widok-dashboard" role="tabpanel" aria-labelledby="lg-zakladka-dashboard"
+       data-logistics-view="dashboard">
 
   {# ─── LICZNIKI = FILTR SPOSOBU DOSTAWY ───
        Liczą wszystkie OTWARTE zamówienia (niezależnie od wyszukiwarki).
@@ -109,11 +121,20 @@
               <option value="">Wszystkie</option>
             </select>
           </label>
+          {# Etap 3: ten sam filtr sposobu co liczniki (sposob=bez_trasy) — klik w licznik
+               go zdejmuje, drugi klik tutaj też. Tu, a nie przy licznikach: pasek liczników
+               przy 1280 px z panelem bocznym jest już pełny. #}
+          <button type="button" class="lg-filtr-trasy" data-lg-sposob="bez_trasy" aria-pressed="false"
+                  title="Zamówienia z transportem własnym, które nie są jeszcze na żadnej trasie">
+            <i class="fas fa-route" aria-hidden="true"></i><span>Transport bez trasy</span>
+          </button>
           <span class="lg-ile" data-lg="ile" aria-live="polite"></span>
         </div>
 
-        {# Komunikaty po akcjach (zmiany, błędy, przepakowanie, lokalizowanie). #}
-        <div class="lg-komunikaty" data-lg="komunikaty" aria-live="polite"></div>
+        {# Komunikaty po akcjach (zmiany, błędy, przepakowanie, lokalizowanie). Trasy
+             i Flota mają własne miejsca (data-lg-komunikaty) — pokazKomunikat wybiera
+             to z bieżącej podzakładki. #}
+        <div class="lg-komunikaty" data-lg="komunikaty" data-lg-komunikaty="dashboard" aria-live="polite"></div>
       </div>
 
       {# ─── MAPA ───
@@ -123,9 +144,14 @@
            żeby delegacja listy ich nie łapała. #}
       <section class="lg-mapa-panel" aria-label="Mapa zamówień">
         <div class="lg-mapa-naglowek">
-          {# Etap 3: tu staje przełącznik widoków „Zamówienia | Trasy”. #}
+          {# Przełącznik widoków mapy (etap 3). Klik obsługuje logistics-routes.js (pobiera
+               trasy z GET /routes/map), stan przycisków ustawia logistics-map.js (ustawWidok).
+               „Trasy” czeka nieaktywne, aż logistics-routes.js się wczyta. #}
           <div class="lg-mapa-widoki" data-lg-mapa="widoki">
-            <span class="lg-mapa-tytul">Mapa</span>
+            <div class="lg-mapa-przelacznik" role="group" aria-label="Co pokazuje mapa">
+              <button type="button" class="is-aktywny" data-lg-mapa-widok="zamowienia" aria-pressed="true">Zamówienia</button>
+              <button type="button" data-lg-mapa-widok="trasy" aria-pressed="false" disabled>Trasy</button>
+            </div>
           </div>
           <div class="lg-mapa-akcje">
             <button type="button" class="lg-bez-geo" data-lg-akcja="bez-lokalizacji" data-lg="bez-lokalizacji-przycisk"
@@ -155,12 +181,13 @@
                data-carto-key="{{ carto_basemaps_key }}"
                data-skrypt-leaflet="{{ url_for('production.static', filename='vendor/leaflet/leaflet.js') }}?v=1.9.4"
                data-skrypt-klastry="{{ url_for('production.static', filename='vendor/leaflet-markercluster/leaflet.markercluster.js') }}?v=1.5.3"
-               data-skrypt-mapy="{{ url_for('logistics_panel.static', filename='js/logistics-map.js') }}?v=20260925g"></div>
+               data-skrypt-mapy="{{ url_for('logistics_panel.static', filename='js/logistics-map.js') }}?v=20260925h"
+               data-skrypt-trasy="{{ url_for('logistics_panel.static', filename='js/logistics-routes.js') }}?v=20260925a"></div>
           {# Pasek trybu (korekta, ustawianie punktu) i wyniku akcji na mapie. #}
           <div class="lg-mapa-pasek" data-lg-mapa="pasek" role="status" aria-live="polite" hidden></div>
           <div class="lg-mapa-stan is-ladowanie" data-lg-mapa="stan" role="status">Ładowanie mapy…</div>
         </div>
-        <div class="lg-mapa-legenda" aria-label="Legenda mapy">
+        <div class="lg-mapa-legenda" data-lg-mapa="legenda" aria-label="Legenda mapy">
           <span><span class="lg-pin lg-pin--brak" aria-hidden="true"></span>Nie ustawiono</span>
           <span><span class="lg-pin lg-pin--kurier_baselinker" aria-hidden="true"></span>Kurier</span>
           <span><span class="lg-pin lg-pin--transport_woodpower" aria-hidden="true"></span>Transport własny</span>
@@ -169,6 +196,10 @@
           <span title="Adres w Base. zmienił się po ręcznym ustawieniu punktu — sprawdź, czy punkt jest aktualny"><span class="lg-pin-znak lg-pin-znak--legenda" aria-hidden="true">!</span>adres zmieniony</span>
           <span><span class="lg-magazyn lg-magazyn--legenda" aria-hidden="true"><i class="fas fa-industry"></i></span>magazyn</span>
         </div>
+        {# Widok „Trasy”: legenda = lista aktywnych tras (kolor, nazwa, daty, status);
+             klik otwiera trasę w edytorze. Wypełnia logistics-map.js (renderTrasy). #}
+        <div class="lg-mapa-legenda lg-mapa-legenda--trasy" data-lg-mapa="legenda-trasy"
+             role="group" aria-label="Trasy na mapie" hidden></div>
       </section>
 
       {# ─── PASTYLKA ─── proporcja listy i mapy (tylko obok siebie). Obsługa
@@ -239,6 +270,10 @@
               <i class="fas fa-warehouse" aria-hidden="true"></i>Odbiór osobisty
             </button>
           </div>
+          {# Etap 3: okno wyboru trasy roboczej albo nowej (logistics-routes.js). #}
+          <button type="button" class="lg-hurt-przycisk" data-lg-akcja="hurt-trasa">
+            <i class="fas fa-route" aria-hidden="true"></i>Dodaj do trasy…
+          </button>
           <button type="button" class="lg-hurt-przycisk lg-hurt-przycisk--podpowiedzi" data-lg-akcja="hurt-podpowiedzi">
             <img class="lg-logo-base" src="{{ url_for('logistics_panel.static', filename='img/base-logo.png') }}?v=20260925a" alt="" width="16" height="16">Przyjmij podpowiedzi z Base.
           </button>
@@ -246,6 +281,187 @@
         </div>
       </div>
 
+    </div>
+  </div>
+
+  </div>{# /PODZAKŁADKA DASHBOARD #}
+
+  {# ═══ PODZAKŁADKA TRASY ═══ (etap 3) — logistics-routes.js.
+       Szeroko: lista tras po lewej, edytor po prawej. Wąsko (@container): albo lista,
+       albo edytor z przyciskiem „Wszystkie trasy”. Kolor trasy (klasa lg-trasa-kolor-N
+       z id trasy) ten sam na liście, w edytorze, na mapce i na mapie Dashboardu. #}
+  <div class="lg-widok lg-widok--trasy" id="lg-widok-routes" role="tabpanel" aria-labelledby="lg-zakladka-routes"
+       data-logistics-view="routes" hidden>
+    <div class="lg-komunikaty" data-lg-komunikaty="routes" aria-live="polite"></div>
+    <div class="lg-trasy" data-lg-trasy="uklad">
+
+      {# ─── LISTA TRAS ─── Robocze i Zatwierdzone rozwinięte, Wykonane zwinięte
+           (domyślnie ostatnie 30 dni, filtr dat pyta serwer o starsze). #}
+      <section class="lg-trasy-lista" aria-label="Lista tras">
+        <div class="lg-trasy-lista-naglowek">
+          <button type="button" class="lg-przycisk lg-przycisk--glowny" data-lg-trasy-akcja="nowa">
+            <i class="fas fa-plus" aria-hidden="true"></i>Nowa trasa
+          </button>
+          <button type="button" class="lg-przycisk lg-przycisk--ikona" data-lg-trasy-akcja="odswiez-liste"
+                  title="Pobierz listę tras od nowa" aria-label="Odśwież listę tras">
+            <i class="fas fa-rotate-right" aria-hidden="true"></i>
+          </button>
+        </div>
+        <p class="lg-trasy-stan" data-lg-trasy="stan" role="status">Ładowanie tras…</p>
+        <section class="lg-trasy-sekcja" aria-labelledby="lg-trasy-robocze">
+          <h3 class="lg-trasy-sekcja-tytul" id="lg-trasy-robocze">Robocze <span class="lg-trasy-sekcja-ile" data-lg-trasy="robocze-ile"></span></h3>
+          <ul class="lg-trasy-pozycje" data-lg-trasy="robocze"></ul>
+        </section>
+        <section class="lg-trasy-sekcja" aria-labelledby="lg-trasy-zatwierdzone">
+          <h3 class="lg-trasy-sekcja-tytul" id="lg-trasy-zatwierdzone">Zatwierdzone <span class="lg-trasy-sekcja-ile" data-lg-trasy="zatwierdzone-ile"></span></h3>
+          <ul class="lg-trasy-pozycje" data-lg-trasy="zatwierdzone"></ul>
+        </section>
+        <details class="lg-trasy-sekcja lg-trasy-wykonane" data-lg-trasy="wykonane">
+          <summary class="lg-trasy-sekcja-tytul">Wykonane <span class="lg-trasy-sekcja-ile" data-lg-trasy="wykonane-ile"></span></summary>
+          <form class="lg-trasy-filtr" data-lg-trasy="wykonane-filtr" novalidate>
+            <label class="lg-pole lg-pole--data"><span>Od</span><input type="date" name="od"></label>
+            <label class="lg-pole lg-pole--data"><span>Do</span><input type="date" name="do"></label>
+            <button type="submit" class="lg-przycisk">Pokaż</button>
+            <button type="button" class="lg-przycisk lg-przycisk--cichy" data-lg-trasy-akcja="wykonane-reset">Ostatnie 30 dni</button>
+          </form>
+          <p class="lg-trasy-filtr-opis" data-lg-trasy="wykonane-opis">Ostatnie 30 dni.</p>
+          <ul class="lg-trasy-pozycje" data-lg-trasy="wykonane-lista"></ul>
+        </details>
+      </section>
+
+      {# ─── EDYTOR TRASY ─── szkielet; wartości, przystanki i przyciski wypełnia JS. #}
+      <section class="lg-edytor" data-lg-trasy="edytor" aria-labelledby="lg-edytor-tytul">
+        <div class="lg-edytor-pusty" data-lg-trasy="pusty">
+          <span class="lg-stan-tytul">Wybierz trasę z listy albo utwórz nową.</span>
+          <span class="lg-stan-opis">Zamówienia na trasę dodasz tu albo na Dashboardzie: zaznacz je i wybierz „Dodaj do trasy…”.</span>
+        </div>
+        <div class="lg-edytor-tresc" data-lg-trasy="tresc" hidden>
+          <header class="lg-edytor-naglowek">
+            <button type="button" class="lg-edytor-wstecz" data-lg-trasy-akcja="zamknij">
+              <i class="fas fa-chevron-left" aria-hidden="true"></i>Wszystkie trasy
+            </button>
+            <div class="lg-edytor-tytul-rzad">
+              <span data-lg-trasy="status"></span>
+              <h2 class="lg-edytor-tytul" id="lg-edytor-tytul" tabindex="-1" data-lg-trasy="tytul">Nowa trasa</h2>
+              <button type="button" class="lg-edytor-zamknij" data-lg-trasy-akcja="zamknij"
+                      title="Zamknij trasę" aria-label="Zamknij trasę"><i class="fas fa-xmark" aria-hidden="true"></i></button>
+            </div>
+            <div class="lg-edytor-akcje" data-lg-trasy="akcje"></div>
+            <p class="lg-dialog-blad lg-edytor-blad" data-lg-trasy="blad" role="alert" hidden></p>
+          </header>
+
+          <form class="lg-edytor-form" data-lg-trasy="form" novalidate autocomplete="off">
+            <fieldset class="lg-edytor-pola" data-lg-trasy="pola">
+              <legend class="visually-hidden">Dane trasy</legend>
+              <label class="lg-pole lg-pole--nazwa"><span>Nazwa trasy</span>
+                <input type="text" name="name" maxlength="120" required spellcheck="false" placeholder="np. Kraków + Tarnów"></label>
+              <label class="lg-pole lg-pole--data"><span>Od</span><input type="date" name="date_from" required></label>
+              <label class="lg-pole lg-pole--data"><span>Do</span><input type="date" name="date_to" required></label>
+              {# Zajęte w tych dniach: widoczne, wyszarzone, z dopiskiem „(zajęty — trasa)”. #}
+              <label class="lg-pole lg-pole--zasob"><span>Pojazd</span>
+                <select name="vehicle_id" class="form-select form-select-sm" data-lg-trasy="pojazd"></select>
+                <span class="lg-pole-uwaga" data-lg-trasy="uwaga-pojazd" hidden></span></label>
+              <label class="lg-pole lg-pole--zasob"><span>Kierowca</span>
+                <select name="driver_worker_id" class="form-select form-select-sm" data-lg-trasy="kierowca"></select>
+                <span class="lg-pole-uwaga" data-lg-trasy="uwaga-kierowca" hidden></span></label>
+              <label class="lg-pole lg-pole--notatka"><span>Notatka</span>
+                <textarea name="notes" maxlength="2000" rows="2" placeholder="Widoczna tylko w CRM"></textarea></label>
+            </fieldset>
+          </form>
+
+          <div class="lg-podsumowanie" data-lg-trasy="podsumowanie" aria-live="polite"></div>
+
+          <div class="lg-edytor-uklad">
+            {# Przystanki jako schemat linii: magazyn → numerowane przystanki → magazyn,
+                 w kolorze trasy. Kolejność: przeciąganie albo ↑/↓ (klawiatura). #}
+            <section class="lg-przystanki" data-lg-trasy="przystanki-sekcja" aria-labelledby="lg-przystanki-tytul">
+              <div class="lg-sekcja-naglowek">
+                <h3 class="lg-sekcja-tytul" id="lg-przystanki-tytul">Przystanki</h3>
+                <span class="lg-sekcja-opis" data-lg-trasy="przystanki-stan" aria-live="polite"></span>
+              </div>
+              <div class="lg-linia" data-lg-trasy="linia">
+                <div class="lg-linia-magazyn">
+                  <span class="lg-magazyn lg-magazyn--linia" aria-hidden="true"><i class="fas fa-industry"></i></span>
+                  <span>Wyjazd z magazynu</span>
+                </div>
+                <ol class="lg-linia-przystanki" data-lg-trasy="przystanki" aria-label="Przystanki w kolejności"></ol>
+                <div class="lg-linia-magazyn">
+                  <span class="lg-magazyn lg-magazyn--linia" aria-hidden="true"><i class="fas fa-industry"></i></span>
+                  <span>Powrót do magazynu</span>
+                </div>
+              </div>
+              <p class="visually-hidden" data-lg-trasy="ogloszenie" aria-live="assertive"></p>
+            </section>
+            <div class="lg-edytor-mapka">
+              <div class="lg-mapka" data-lg-trasy="mapka" role="region" aria-label="Mapa trasy"></div>
+              <div class="lg-mapka-stan" data-lg-trasy="mapka-stan" role="status" hidden></div>
+            </div>
+          </div>
+
+          {# ─── DO DODANIA ─── transport własny bez trasy (GET /orders?sposob=bez_trasy),
+               ta sama fraza co wyszukiwarka listy. Tylko dla trasy roboczej. #}
+          <section class="lg-kandydaci" data-lg-trasy="kandydaci-sekcja" aria-labelledby="lg-kandydaci-tytul" hidden>
+            <div class="lg-sekcja-naglowek">
+              <h3 class="lg-sekcja-tytul" id="lg-kandydaci-tytul">Do dodania</h3>
+              <span class="lg-sekcja-opis" data-lg-trasy="kandydaci-ile">transport własny bez trasy</span>
+              <label class="lg-szukaj lg-szukaj--kandydaci">
+                <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
+                <input type="search" data-lg-trasy="kandydaci-q" autocomplete="off" spellcheck="false"
+                       placeholder="Szukaj: numer, klient, adres, kod"
+                       aria-label="Szukaj zamówień do dodania po numerze, kliencie, ulicy, kodzie pocztowym albo miejscowości">
+              </label>
+              <button type="button" class="lg-przycisk" data-lg-trasy-akcja="dodaj-zaznaczone" disabled>
+                <i class="fas fa-plus" aria-hidden="true"></i><span data-lg-trasy="dodaj-zaznaczone-tekst">Dodaj zaznaczone</span>
+              </button>
+            </div>
+            <ul class="lg-kandydaci-lista" data-lg-trasy="kandydaci" aria-label="Zamówienia do dodania"></ul>
+          </section>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  {# ═══ PODZAKŁADKA FLOTA ═══ (etap 3) — logistics-fleet.js. Pojazdów nie kasujemy:
+       wyłączony zostaje na starych trasach, nie da się go wybrać do nowych. #}
+  <div class="lg-widok lg-widok--flota" id="lg-widok-fleet" role="tabpanel" aria-labelledby="lg-zakladka-fleet"
+       data-logistics-view="fleet" hidden>
+    <div class="lg-komunikaty" data-lg-komunikaty="fleet" aria-live="polite"></div>
+    <div class="lg-flota">
+      <section class="lg-flota-pojazdy" aria-labelledby="lg-flota-tytul">
+        <div class="lg-sekcja-naglowek">
+          <h2 class="lg-sekcja-tytul" id="lg-flota-tytul">Pojazdy</h2>
+          <span class="lg-sekcja-opis" data-lg-flota="ile"></span>
+          <button type="button" class="lg-przycisk lg-przycisk--glowny" data-lg-flota-akcja="dodaj">
+            <i class="fas fa-plus" aria-hidden="true"></i>Dodaj pojazd
+          </button>
+        </div>
+        <div class="lg-flota-ramka">
+          <table class="lg-tabela lg-tabela--flota">
+            <thead>
+              <tr>
+                <th scope="col">Nazwa</th>
+                <th scope="col">Rejestracja</th>
+                <th scope="col" class="lg-k-liczba">Ładowność</th>
+                <th scope="col">Status</th>
+                <th scope="col" class="lg-k-akcje"><span class="visually-hidden">Akcje</span></th>
+              </tr>
+            </thead>
+            <tbody data-lg-flota="wiersze">
+              <tr class="lg-wiersz-stanu">
+                <td colspan="5"><div class="lg-stan"><span class="lg-stan-tytul">Ładowanie floty…</span></div></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section class="lg-flota-kierowcy" aria-labelledby="lg-kierowcy-tytul">
+        <div class="lg-sekcja-naglowek">
+          <h2 class="lg-sekcja-tytul" id="lg-kierowcy-tytul">Kierowcy</h2>
+          <span class="lg-sekcja-opis" data-lg-flota="kierowcy-ile"></span>
+        </div>
+        <p class="lg-flota-opis">Kierowcą trasy może być każdy aktywny pracownik produkcji.</p>
+        <ul class="lg-kierowcy" data-lg-flota="kierowcy"></ul>
+      </section>
     </div>
   </div>
 
@@ -277,14 +493,88 @@
       </div>
     </form>
   </dialog>
+
+  {# ─── ETAP 3: okna tras i floty ─── poza panelami podzakładek: „Dodaj do trasy…”
+       otwiera się z Dashboardu, gdy panel Tras jest schowany (okno w schowanym
+       rodzicu nie byłoby widać). Ten sam wzór co okno adresu: Esc i klik w tło
+       zamykają, fokus wraca tam, skąd okno otwarto. #}
+
+  {# „Dodaj do trasy…” — trasa robocza albo nowa (nazwa + daty); logistics-routes.js. #}
+  <dialog class="lg-dialog lg-dialog--trasy" data-lg="trasa-dodaj-dialog" aria-labelledby="lg-trasa-dodaj-tytul">
+    <form class="lg-dialog-form" data-lg-trasy="dodaj-form" novalidate autocomplete="off">
+      <h2 class="lg-dialog-tytul" id="lg-trasa-dodaj-tytul">Dodaj do trasy <span class="lg-dialog-numer" data-lg-trasy="dodaj-ile"></span></h2>
+      <p class="lg-dialog-opis" data-lg-trasy="dodaj-opis"></p>
+      <fieldset class="lg-wybor-trasy" data-lg-trasy="dodaj-wybor">
+        <legend class="visually-hidden">Trasa, na którą trafią zamówienia</legend>
+        <div class="lg-wybor-trasy-lista" data-lg-trasy="dodaj-trasy"><p class="lg-dialog-opis">Wczytywanie tras roboczych…</p></div>
+        <label class="lg-wybor-trasy-opcja lg-wybor-trasy-opcja--nowa">
+          <input type="radio" name="trasa" value="nowa">
+          <span class="lg-wybor-trasy-plus" aria-hidden="true"><i class="fas fa-plus"></i></span>
+          <span class="lg-wybor-trasy-nazwa">Nowa trasa</span>
+        </label>
+      </fieldset>
+      <div class="lg-nowa-trasa" data-lg-trasy="dodaj-nowa" hidden>
+        <label class="lg-pole"><span>Nazwa trasy</span>
+          <input type="text" name="name" maxlength="120" spellcheck="false" placeholder="np. Kraków + Tarnów"></label>
+        <div class="lg-pole-rzad lg-pole-rzad--daty">
+          <label class="lg-pole lg-pole--data"><span>Od</span><input type="date" name="date_from"></label>
+          <label class="lg-pole lg-pole--data"><span>Do</span><input type="date" name="date_to"></label>
+        </div>
+      </div>
+      <p class="lg-dialog-blad" data-lg-trasy="dodaj-blad" role="alert" hidden></p>
+      <div class="lg-dialog-akcje">
+        <button type="button" class="lg-przycisk" data-lg-trasy-akcja="dodaj-anuluj">Anuluj</button>
+        <button type="submit" class="lg-przycisk lg-przycisk--glowny" data-lg-trasy="dodaj-zapisz">Dodaj do trasy</button>
+      </div>
+    </form>
+  </dialog>
+
+  {# „Odhacz jako wykonaną” — wszystkie przystanki zaznaczone jako dostarczone; odznaczone
+       wracają do puli bez trasy. Wysyłamy zawsze jawną listę delivered_order_ids. #}
+  <dialog class="lg-dialog lg-dialog--trasy" data-lg="trasa-wykonaj-dialog" aria-labelledby="lg-trasa-wykonaj-tytul">
+    <form class="lg-dialog-form" data-lg-trasy="wykonaj-form" novalidate>
+      <h2 class="lg-dialog-tytul" id="lg-trasa-wykonaj-tytul">Odhacz jako wykonaną <span class="lg-dialog-numer" data-lg-trasy="wykonaj-nazwa"></span></h2>
+      <p class="lg-dialog-opis">Zaznaczone zamówienia oznaczymy jako dostarczone. Odznaczone zdejmiemy z trasy i wrócą do puli bez trasy.</p>
+      <ul class="lg-wykonaj-lista" data-lg-trasy="wykonaj-lista" aria-label="Przystanki trasy"></ul>
+      <p class="lg-wykonaj-ile" data-lg-trasy="wykonaj-ile" aria-live="polite"></p>
+      <p class="lg-dialog-blad" data-lg-trasy="wykonaj-blad" role="alert" hidden></p>
+      <div class="lg-dialog-akcje">
+        <button type="button" class="lg-przycisk" data-lg-trasy-akcja="wykonaj-anuluj">Anuluj</button>
+        <button type="submit" class="lg-przycisk lg-przycisk--glowny" data-lg-trasy="wykonaj-zapisz">Odhacz jako wykonaną</button>
+      </div>
+    </form>
+  </dialog>
+
+  {# Pojazd floty — dodanie i edycja; logistics-fleet.js. #}
+  <dialog class="lg-dialog" data-lg="pojazd-dialog" aria-labelledby="lg-pojazd-tytul">
+    <form class="lg-dialog-form" data-lg-flota="form" novalidate autocomplete="off">
+      <h2 class="lg-dialog-tytul" id="lg-pojazd-tytul" data-lg-flota="tytul">Nowy pojazd</h2>
+      <label class="lg-pole"><span>Nazwa</span>
+        <input type="text" name="name" maxlength="100" required spellcheck="false" placeholder="np. Iveco Daily"></label>
+      <div class="lg-pole-rzad lg-pole-rzad--rowne">
+        <label class="lg-pole lg-pole--rejestracja"><span>Numer rejestracyjny</span>
+          <input type="text" name="registration" maxlength="20" spellcheck="false" placeholder="np. RZ 12345"></label>
+        <label class="lg-pole"><span>Ładowność (kg)</span>
+          <input type="number" name="capacity_kg" min="1" max="100000" step="1" inputmode="numeric" placeholder="np. 1500"></label>
+      </div>
+      <p class="lg-dialog-opis lg-dialog-opis--pod">Bez ładowności trasa nie ostrzeże o przekroczonej wadze.</p>
+      <p class="lg-dialog-blad" data-lg-flota="blad" role="alert" hidden></p>
+      <div class="lg-dialog-akcje">
+        <button type="button" class="lg-przycisk" data-lg-flota-akcja="anuluj">Anuluj</button>
+        <button type="submit" class="lg-przycisk lg-przycisk--glowny" data-lg-flota="zapisz">Zapisz</button>
+      </div>
+    </form>
+  </dialog>
 </div>
 
-{# Ładowanie mapy PO KOLEI: Leaflet → klastry → logistics-map.js.
+{# Ładowanie mapy PO KOLEI: Leaflet → klastry → logistics-map.js → logistics-routes.js.
    production-app-loader odtwarza tagi <script> przez createElement, a tak
    wstawione skrypty z src są asynchroniczne — kolejność kilku <script src>
    nie byłaby gwarantowana. Leaflet i klastry ładujemy raz na stronę (ponowne
    wstawienie fragmentu przez forceRefresh ich nie dubluje), logistics-map.js
-   za każdym razem: sprząta po poprzedniej instancji i rysuje mapę w nowym DOM. #}
+   i logistics-routes.js za każdym razem: sprzątają po poprzedniej instancji.
+   Trasy (etap 3) potrzebują Leafleta do mapki edytora, ale wczytują się także po
+   błędzie mapy — lista tras, edytor i „Dodaj do trasy…” działają bez niej. #}
 <script>
 (function () {
     'use strict';
@@ -324,7 +614,16 @@
             stan.textContent = 'Nie udało się wczytać mapy. Lista działa bez niej; odśwież stronę, żeby spróbować ponownie.';
             stan.classList.add('is-blad');
             stan.hidden = false;
+        })
+        .then(function () { return laduj(d.skryptTrasy, true); })
+        .catch(function () {
+            var stan = document.querySelector('#logistics-root [data-lg-trasy="stan"]');
+            if (!stan || !stan.isConnected) return;
+            stan.textContent = 'Nie udało się wczytać tras. Odśwież stronę, żeby spróbować ponownie.';
+            stan.classList.add('is-blad');
+            stan.hidden = false;
         });
 })();
 </script>
-<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20260925i"></script>
+<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20260925j"></script>
+<script src="{{ url_for('logistics_panel.static', filename='js/logistics-fleet.js') }}?v=20260925a"></script>

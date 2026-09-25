@@ -11,13 +11,19 @@
  * sprzątamy po poprzedniej instancji — mapa Leaflet, obserwator rozmiaru,
  * nasłuchy na document i przycisku zakładki, zegary.
  *
- * Plik NIE zależy od logistics.js. Kontrakt (etap 3 dołoży warstwę tras):
+ * Plik NIE zależy od logistics.js. Kontrakt:
  *   window.LogisticsMap.render(zamowienia, {dopasuj})  pinezki zamówień z `geo`
  *   window.LogisticsMap.highlight(id, {przewin})       przybliżenie + dymek (przewin: strona do mapy)
  *   window.LogisticsMap.onSelect(cb)                   cb(id | null, {zrodlo: 'mapa'|'lista'})
  *   window.LogisticsMap.onZmiana(cb)                   cb(zamowienie, rodzaj) po zapisie punktu
  *   window.LogisticsMap.ustawNaMapie(zamowienie | id)  tryb „następny klik = punkt”
  *   window.LogisticsMap.anuluj(), .zajeta(), .mapa(), .root, .zniszcz()
+ * Etap 3 (widok tras, dane i przełącznik obsługuje logistics-routes.js):
+ *   window.LogisticsMap.ustawWidok('zamowienia'|'trasy') zdejmuje/zakłada warstwę pinezek i tras
+ *   window.LogisticsMap.renderTrasy(trasy, {blad})       aktywne trasy z GET /routes/map
+ *   window.LogisticsMap.onWyborTrasy(cb)                 cb(route_id) — klik w trasę albo w legendę
+ *   window.LogisticsMap.nowaWarstwaPodkladu()            L.TileLayer bieżącego podkładu (mapka edytora)
+ *   window.LogisticsMap.kolorTrasy(id), .widok()         klasa koloru trasy, bieżący widok
  * Gotowość ogłasza zdarzenie `logistics:mapa-gotowa` na document (detail.root).
  *
  * Na mapie: przełącznik podkładu (miniaturki, lewy dolny róg) i „Grupuj pinezki”
@@ -182,6 +188,26 @@
     const sluchaczeWyboru = [];
     const sluchaczeZmian = [];
     const przyciskZakladki = document.getElementById('logistics-tab');
+
+    // ── Stan widoku „Trasy” (etap 3) ──
+    // Kolory tras: paleta w logistics-trasy.css (--lg-trasa-0…7 i klasy lg-trasa-kolor-N).
+    // Kolor wynika z id trasy, nie z miejsca na liście — zniknięcie innej trasy go nie zmienia.
+    const LICZBA_KOLOROW_TRAS = 8;
+    let widok = 'zamowienia';        // 'zamowienia' | 'trasy' — który zestaw warstw leży na mapie
+    let warstwaTras = null;          // L.LayerGroup: przebiegi i przystanki aktywnych tras
+    let trasyDane = null;            // ostatnia lista z renderTrasy() (null = jeszcze nie przyszła)
+    let bladTras = null;             // tekst błędu pobrania tras (renderTrasy(…, {blad}))
+    let dopasowanoTrasy = false;     // pierwsze trasy na mapie dopasowują widok, kolejne już nie
+    let dopasujPoPowrocie = false;   // render({dopasuj}) w widoku tras — dopasujemy po powrocie
+    let przyciskDopasowania = null;  // <a> kontrolki „pokaż wszystko” (tytuł zależy od widoku)
+    const grupyTras = new Map();     // id trasy → L.FeatureGroup (linie i przystanki tej trasy)
+    let wyroznionaTrasa = null;      // id trasy wyróżnionej najechaniem (mapa albo legenda)
+    const sluchaczeWyboruTrasy = [];
+    // Warstwy kafelków z kluczem CARTO spoza tej mapy (mapka edytora trasy): po odrzuceniu
+    // klucza przechodzą na adresy bez klucza razem z mapą Dashboardu.
+    const warstwyZewnetrzne = new Set();
+    const legendaZamowien = root.querySelector('[data-lg-mapa="legenda"]');
+    const legendaTras = root.querySelector('[data-lg-mapa="legenda-trasy"]');
 
     // ── Pomocnicze ──────────────────────────────────────────────────────────
 
@@ -469,6 +495,10 @@
 
     function odswiezStanMapy() {
         if (!mapa) return;
+        if (widok === 'trasy') {
+            stanMapyTras();
+            return;
+        }
         const zGeo = ostatnie.filter(maGeo).length;
         if (ostatnie.length && !zGeo) {
             pokazStanMapy(ostatnie.length === 1
@@ -509,8 +539,12 @@
      * załadował się z kluczem = klucz nie działa (403 dla obcej domeny,
      * cofnięty klucz) → raz na instancję mapy przechodzimy na adresy bez klucza.
      * Pojedynczy błąd sieci po udanych kafelkach niczego nie przełącza.
+     *
+     * zewnetrzna (etap 3): warstwa dla innej mapy (mapka edytora trasy, patrz
+     * nowaWarstwaPodkladu) — pilnuje odrzucenia klucza sama, a po nim wszystkie
+     * warstwy z kluczem (tej mapy i zewnętrzne) przechodzą na adresy bez klucza naraz.
      */
-    function nowaWarstwaKafelkow(podklad) {
+    function nowaWarstwaKafelkow(podklad, zewnetrzna) {
         const warstwa = L.tileLayer(szablonKafelkow(podklad), {
             subdomains: podklad.subdomains,
             maxZoom: podklad.maxZoom,
@@ -519,21 +553,29 @@
             let udane = 0;
             warstwa.on('tileload', () => { udane += 1; });
             warstwa.on('tileerror', () => {
-                if (udane || kluczOdrzucony || warstwa !== warstwaKafelkow) return;
+                if (udane || kluczOdrzucony || (!zewnetrzna && warstwa !== warstwaKafelkow)) return;
                 kluczOdrzucony = true;
                 console.warn('[LogisticsMap] CARTO odrzuciło klucz kafelków (np. klucz ograniczony do innej domeny). ' +
                     'Mapa pokazuje kafelki CARTO bez klucza, ze znakiem wodnym.');
                 // Po bieżącym zdarzeniu — redraw w środku obsługi błędu kafelka
                 // mieszałby Leafletowi stan kafelków tej samej warstwy.
                 setTimeout(() => {
-                    if (zniszczona || !mapa || warstwa !== warstwaKafelkow) return;
-                    warstwa.setUrl(szablonKafelkow(aktywnyPodklad));   // ten sam podkład, te same subdomeny
+                    if (zniszczona) return;
+                    // Aktywny podkład tej mapy (ten sam podkład, te same subdomeny) i mapki tras.
+                    if (mapa && warstwaKafelkow && aktywnyPodklad) warstwaKafelkow.setUrl(szablonKafelkow(aktywnyPodklad));
+                    warstwyZewnetrzne.forEach((w) => w.warstwa.setUrl(szablonKafelkow(w.podklad)));
                     podgladyPodkladow.forEach((img, id) => {
                         const p = PODKLADY.find((x) => x.id === id);
                         if (p && p.klucz) img.src = adresPodgladu(p, true);
                     });
                 }, 0);
             });
+            if (zewnetrzna) {
+                const wpis = { warstwa: warstwa, podklad: podklad };
+                warstwyZewnetrzne.add(wpis);
+                // Zniszczenie mapki (mapka.remove()) zdejmuje warstwę — koniec pilnowania.
+                warstwa.on('remove', () => warstwyZewnetrzne.delete(wpis));
+            }
         }
         return warstwa;
     }
@@ -706,7 +748,8 @@
         stara.clearLayers();
         grupowanie = wlaczone;
         pinezki = nowaWarstwaPinezek();
-        mapa.addLayer(pinezki);
+        // Widok tras: nowa warstwa czeka poza mapą (grupowanie dotyczy tylko zamówień).
+        if (widok === 'zamowienia') mapa.addLayer(pinezki);
         const wszystkie = [];
         znaczniki.forEach((z) => { if (z !== pominiety) wszystkie.push(z); });
         dodajPinezki(wszystkie);
@@ -763,7 +806,9 @@
 
         grupowanie = czytajGrupowanie();
         pinezki = nowaWarstwaPinezek();
-        mapa.addLayer(pinezki);
+        // Etap 3: na mapie leży warstwa bieżącego widoku — pinezki albo trasy.
+        warstwaTras = L.layerGroup();
+        mapa.addLayer(widok === 'trasy' ? warstwaTras : pinezki);
         warstwaEdycji = L.layerGroup().addTo(mapa);
 
         dodajMagazyn();
@@ -774,11 +819,20 @@
 
         ukryjStanMapy();
         narysuj(ostatnie);
-        if (czekaNaDopasowanie || (!dopasowanoPierwszy && znaczniki.size)) {
+        narysujTrasy();
+        const dopasujPinezki = czekaNaDopasowanie || (!dopasowanoPierwszy && znaczniki.size);
+        if (widok === 'trasy') {
+            if (dopasujPinezki) dopasujPoPowrocie = true;
+            if (trasyDane && trasyDane.length) {
+                dopasujTrasy();
+                dopasowanoTrasy = true;
+            }
+        } else if (dopasujPinezki) {
             dopasuj();
             dopasowanoPierwszy = true;
         }
         czekaNaDopasowanie = false;
+        odswiezStanMapy();
     }
 
     function dodajMagazyn() {
@@ -810,13 +864,15 @@
                 const a = L.DomUtil.create('a', '', div);
                 a.href = '#';
                 a.setAttribute('role', 'button');
-                a.title = 'Pokaż wszystkie pinezki';
-                a.setAttribute('aria-label', 'Pokaż wszystkie pinezki');
                 a.innerHTML = '<i class="fas fa-expand" aria-hidden="true"></i>';
+                przyciskDopasowania = a;
+                opiszPrzyciskDopasowania();
                 L.DomEvent.disableClickPropagation(div);
                 L.DomEvent.on(a, 'click', (e) => {
                     L.DomEvent.preventDefault(e);
-                    dopasuj();
+                    // Etap 3: w widoku tras „pokaż wszystko” obejmuje trasy, nie ukryte pinezki.
+                    if (widok === 'trasy') dopasujTrasy();
+                    else dopasuj();
                 });
                 return div;
             },
@@ -1142,6 +1198,8 @@
     function ustawNaMapie(arg) {
         const z = (arg && typeof arg === 'object') ? arg : zamowienia.get(Number(arg));
         if (!mapa || !z || zniszczona) return false;
+        // Etap 3: punkt stawia się na pinezkach — z widoku tras wracamy do zamówień.
+        if (widok !== 'zamowienia' && !ustawWidok('zamowienia')) return false;
         zakonczTryb();
         anulujWskazanie();
         mapa.closePopup();
@@ -1396,6 +1454,327 @@
         odswiezPoPastylce();
     }
 
+    // ── Widok „Trasy” (etap 3) ──────────────────────────────────────────────
+    // Pinezki zamówień i trasy to dwie warstwy tej samej mapy: ustawWidok zdejmuje
+    // jedną i zakłada drugą, bez przebudowy mapy (podkład, magazyn, pastylka,
+    // „Grupuj pinezki” i położenie mapy zostają). Dane tras pobiera
+    // logistics-routes.js (GET /routes/map) i podaje przez renderTrasy().
+
+    const NAZWY_STATUSOW_TRAS = { robocza: 'Robocza', zatwierdzona: 'Zatwierdzona', wykonana: 'Wykonana' };
+
+    function kolorTrasy(id) {
+        const n = Math.abs(Math.floor(Number(id) || 0));
+        return 'lg-trasa-kolor-' + (n % LICZBA_KOLOROW_TRAS);
+    }
+
+    // 'YYYY-MM-DD' ×2 → '25.09' albo '25.09–26.09' (jak na liście tras).
+    function zakresDat(od, doDnia) {
+        const a = dataKrotka(od);
+        const b = dataKrotka(doDnia);
+        return !b || a === b ? a : a + '–' + b;
+    }
+
+    // isFinite(null) === true — brak współrzędnych trzeba odsiać wprost.
+    const maPunkt = (p) => !!p && p.lat !== null && p.lng !== null && p.lat !== undefined &&
+        p.lng !== undefined && isFinite(p.lat) && isFinite(p.lng);
+
+    /** GeoJSON przebiegu (LineString / MultiLineString, [lng, lat]) → linie [lat, lng] dla L.polyline. */
+    function liniePrzebiegu(geo) {
+        if (!geo || !Array.isArray(geo.coordinates)) return [];
+        const naPunkty = (wsp) => (Array.isArray(wsp) ? wsp : [])
+            .filter((p) => Array.isArray(p) && p[0] !== null && p[1] !== null && isFinite(p[0]) && isFinite(p[1]))
+            .map((p) => [Number(p[1]), Number(p[0])]);
+        let linie = [];
+        if (geo.type === 'LineString') linie = [naPunkty(geo.coordinates)];
+        else if (geo.type === 'MultiLineString') linie = geo.coordinates.map(naPunkty);
+        return linie.filter((l) => l.length > 1);
+    }
+
+    /** Przystanek: biała „stacja” z obwódką w kolorze trasy i numerem — ta sama co w edytorze trasy. */
+    function ikonaPrzystanku(numer, klasaKoloru) {
+        const tekst = String(numer);
+        return L.divIcon({
+            className: 'lg-znacznik-przystanku',
+            html: '<span class="lg-stacja lg-stacja--mapa ' + klasaKoloru + (tekst.length > 2 ? ' lg-stacja--dlugi' : '') + '">' +
+                esc(tekst) + '</span>',
+            iconSize: [24, 24],
+            iconAnchor: [12, 12],
+            tooltipAnchor: [0, -13],
+        });
+    }
+
+    function opisTrasy(t) {
+        return t.nazwa + ' (' + zakresDat(t.date_from, t.date_to) + ', ' +
+            (NAZWY_STATUSOW_TRAS[t.status] || t.status || '').toLowerCase() + ')';
+    }
+
+    /** Warstwa tras od nowa z trasyDane — linie w kolorze trasy na białej podkładce, numerowane przystanki. */
+    function narysujTrasy() {
+        grupyTras.clear();
+        if (!mapa || !warstwaTras) return;
+        warstwaTras.clearLayers();
+        (trasyDane || []).forEach((t) => {
+            const klasa = kolorTrasy(t.id);
+            const grupa = L.featureGroup();
+            liniePrzebiegu(t.przebieg).forEach((punkty) => {
+                // Biała podkładka pod linią — trasa czytelna na każdym podkładzie i nad inną trasą.
+                L.polyline(punkty, {
+                    className: 'lg-trasa-obrys', color: '#fff', weight: 8, opacity: 0.9,
+                    interactive: false, lineCap: 'round', lineJoin: 'round',
+                }).addTo(grupa);
+                // Kolor linii daje CSS (klasa koloru trasy); `color` to tylko zapas bez arkusza.
+                L.polyline(punkty, {
+                    className: 'lg-trasa-linia ' + klasa + (t.przyblizony ? ' is-przyblizona' : ''),
+                    color: '#1a1a2e', weight: 4, opacity: 1, lineCap: 'round', lineJoin: 'round',
+                    // Przebieg przybliżony (linie proste) — przerywana, jak przybliżona pinezka.
+                    dashArray: t.przyblizony ? '8 8' : null,
+                }).bindTooltip(esc(opisTrasy(t)) + '<span class="lg-podpowiedz-mapy-uwaga">' +
+                    (t.przyblizony ? 'Przebieg przybliżony. ' : '') + 'Kliknij, żeby otworzyć trasę.</span>', {
+                    className: 'lg-podpowiedz-mapy', sticky: true, opacity: 1,
+                }).addTo(grupa);
+            });
+            (t.przystanki || []).forEach((p) => {
+                if (!maPunkt(p)) return;
+                L.marker([p.lat, p.lng], {
+                    icon: ikonaPrzystanku(p.pozycja, klasa),
+                    // Klawiatura wybiera trasy z legendy pod mapą — bez setek przystanków Tab.
+                    keyboard: false,
+                    zIndexOffset: 500,
+                    riseOnHover: true,
+                }).bindTooltip('<b>' + esc(p.pozycja) + '. ' + esc(p.numer) + '</b>' + (p.klient ? ' ' + esc(p.klient) : '') +
+                    '<span class="lg-podpowiedz-mapy-uwaga">' + esc(t.nazwa) + '</span>', {
+                    className: 'lg-podpowiedz-mapy', direction: 'top', opacity: 1,
+                }).addTo(grupa);
+            });
+            // Klik w linię albo przystanek = trasa w edytorze; najechanie wyróżnia trasę.
+            grupa.on('click', (e) => {
+                if (e.originalEvent) L.DomEvent.stopPropagation(e);
+                wybierzTrase(t.id);
+            });
+            grupa.on('mouseover', () => wyroznijTrase(t.id));
+            grupa.on('mouseout', () => wyroznijTrase(null));
+            warstwaTras.addLayer(grupa);
+            grupyTras.set(t.id, grupa);
+        });
+    }
+
+    /** Pozostałe trasy przygasają (CSS), wyróżniona idzie na wierzch; też pozycja w legendzie. */
+    function wyroznijTrase(id) {
+        const nowa = id === undefined ? null : id;
+        if (nowa === wyroznionaTrasa) return;
+        wyroznionaTrasa = nowa;
+        kontener.classList.toggle('lg-trasy-wyroznienie', nowa !== null);
+        grupyTras.forEach((grupa, idTrasy) => {
+            grupa.eachLayer((w) => {
+                const element = w.getElement ? w.getElement() : null;
+                if (element) element.classList.toggle('is-wyrozniona', idTrasy === nowa);
+            });
+            if (idTrasy === nowa && mapa && mapa.hasLayer(grupa)) grupa.bringToFront();
+        });
+        if (legendaTras) {
+            legendaTras.querySelectorAll('[data-lg-mapa-trasa]').forEach((b) => {
+                b.classList.toggle('is-wyrozniona', Number(b.getAttribute('data-lg-mapa-trasa')) === nowa);
+            });
+        }
+    }
+
+    function dopasujTrasy() {
+        if (!mapa) return;
+        const punkty = [];
+        (trasyDane || []).forEach((t) => {
+            (t.przystanki || []).forEach((p) => { if (maPunkt(p)) punkty.push(L.latLng(p.lat, p.lng)); });
+            liniePrzebiegu(t.przebieg).forEach((linia) => linia.forEach((p) => punkty.push(L.latLng(p[0], p[1]))));
+        });
+        if (!punkty.length) {
+            mapa.fitBounds(POLSKA, { padding: [8, 8], animate: !bezRuchu });
+            return;
+        }
+        if (isFinite(magazyn.lat) && isFinite(magazyn.lng)) punkty.push(L.latLng(magazyn.lat, magazyn.lng));
+        mapa.fitBounds(L.latLngBounds(punkty), { padding: [36, 36], maxZoom: ZOOM_DOPASOWANIA, animate: !bezRuchu });
+    }
+
+    /** Legenda pod mapą w widoku tras: każda trasa to przycisk (klawiatura) — klik otwiera ją w edytorze. */
+    function renderujLegendeTras() {
+        if (!legendaTras) return;
+        const pusto = (tekst) => '<span class="lg-legenda-tras-pusto">' + esc(tekst) + '</span>';
+        if (bladTras && !trasyDane) {
+            legendaTras.innerHTML = pusto('Nie wczytano tras.');
+            return;
+        }
+        if (!trasyDane) {
+            legendaTras.innerHTML = pusto('Wczytywanie tras…');
+            return;
+        }
+        if (!trasyDane.length) {
+            legendaTras.innerHTML = pusto('Brak aktywnych tras (roboczych ani zatwierdzonych).');
+            return;
+        }
+        legendaTras.innerHTML = trasyDane.map((t) => {
+            const status = String(t.status || '');
+            return '<button type="button" class="lg-legenda-trasa ' + kolorTrasy(t.id) + '" data-lg-mapa-trasa="' + esc(t.id) + '"' +
+                ' title="' + esc('Otwórz trasę ' + opisTrasy(t)) + '" aria-label="' + esc('Otwórz trasę ' + opisTrasy(t)) + '">' +
+                '<span class="lg-legenda-trasa-linia' + (t.przyblizony ? ' is-przyblizona' : '') + '" aria-hidden="true"></span>' +
+                '<span class="lg-legenda-trasa-nazwa">' + esc(t.nazwa) + '</span>' +
+                '<span class="lg-legenda-trasa-daty">' + esc(zakresDat(t.date_from, t.date_to)) + '</span>' +
+                '<span class="lg-status lg-status--male lg-status--' + esc(status) + '">' +
+                    esc(NAZWY_STATUSOW_TRAS[status] || status) + '</span>' +
+                '</button>';
+        }).join('');
+    }
+
+    /** Nakładka stanu w widoku tras (ładowanie, błąd, brak tras, brak punktów). */
+    function stanMapyTras() {
+        if (bladTras) {
+            pokazStanMapy('Nie udało się wczytać tras. ' + bladTras, 'is-blad');
+            return;
+        }
+        if (!trasyDane) {
+            pokazStanMapy('Wczytywanie tras…', 'is-ladowanie');
+            return;
+        }
+        if (!trasyDane.length) {
+            pokazStanMapy('Brak aktywnych tras. Nową trasę utworzysz w zakładce „Trasy”.');
+            return;
+        }
+        if (!trasyDane.some((t) => (t.przystanki || []).some(maPunkt))) {
+            pokazStanMapy(trasyDane.some((t) => (t.przystanki || []).length)
+                ? 'Przystanki aktywnych tras nie mają jeszcze punktów na mapie.'
+                : 'Aktywne trasy nie mają jeszcze przystanków.');
+            return;
+        }
+        ukryjStanMapy();
+    }
+
+    function opiszPrzyciskDopasowania() {
+        if (!przyciskDopasowania) return;
+        const tekst = widok === 'trasy' ? 'Pokaż wszystkie trasy' : 'Pokaż wszystkie pinezki';
+        przyciskDopasowania.title = tekst;
+        przyciskDopasowania.setAttribute('aria-label', tekst);
+    }
+
+    /** Stan przełącznika „Zamówienia | Trasy” w nagłówku mapy, legendy i opisów mapy. */
+    function zaznaczWidok() {
+        root.querySelectorAll('[data-lg-mapa-widok]').forEach((b) => {
+            const aktywny = b.getAttribute('data-lg-mapa-widok') === widok;
+            b.setAttribute('aria-pressed', aktywny ? 'true' : 'false');
+            b.classList.toggle('is-aktywny', aktywny);
+        });
+        const opis = widok === 'trasy' ? 'Mapa tras' : 'Mapa zamówień';
+        kontener.setAttribute('aria-label', opis);
+        if (panel) panel.setAttribute('aria-label', opis);
+        kontener.classList.toggle('is-widok-tras', widok === 'trasy');
+        if (legendaZamowien) legendaZamowien.hidden = widok === 'trasy';
+        if (legendaTras) legendaTras.hidden = widok !== 'trasy';
+        opiszPrzyciskDopasowania();
+    }
+
+    /**
+     * 'zamowienia' | 'trasy'. Zwraca false, gdy nie da się przełączyć (zapis punktu
+     * w toku — pinezka musi zostać do odpowiedzi serwera). Tryb korekty / ustawiania
+     * punktu bez zapisu po prostu się kończy.
+     */
+    function ustawWidok(nowy) {
+        if (zniszczona || (nowy !== 'zamowienia' && nowy !== 'trasy')) return false;
+        if (nowy === widok) {
+            zaznaczWidok();
+            return true;
+        }
+        if (tryb && tryb.zapisywanie) return false;
+        zakonczTryb();
+        anulujWskazanie();
+        wyroznijTrase(null);
+        widok = nowy;
+        if (mapa) {
+            mapa.closePopup();
+            if (widok === 'trasy') {
+                mapa.removeLayer(pinezki);
+                mapa.addLayer(warstwaTras);
+                if (!dopasowanoTrasy && trasyDane && trasyDane.length) {
+                    dopasujTrasy();
+                    dopasowanoTrasy = true;
+                }
+            } else {
+                mapa.removeLayer(warstwaTras);
+                mapa.addLayer(pinezki);
+                if (dopasujPoPowrocie) {
+                    dopasuj();
+                    dopasowanoPierwszy = true;
+                }
+                dopasujPoPowrocie = false;
+            }
+        }
+        zaznaczWidok();
+        odswiezStanMapy();
+        return true;
+    }
+
+    /**
+     * trasy: lista z GET /routes/map ([{id, nazwa, status, date_from, date_to, przebieg,
+     * przyblizony, przystanki: [{pozycja, order_id, numer, klient, lat, lng}]}]).
+     * opcje.blad: tekst błędu pobrania — poprzednie trasy (jeśli były) zostają na mapie.
+     * Pierwsze trasy dopasowują widok; kolejne (po każdej zmianie trasy) już nie ruszają mapy.
+     */
+    function renderTrasy(trasy, opcje) {
+        if (zniszczona) return;
+        const o = opcje || {};
+        if (o.blad) {
+            bladTras = String(o.blad);
+        } else {
+            bladTras = null;
+            trasyDane = Array.isArray(trasy) ? trasy.slice() : [];
+        }
+        wyroznijTrase(null);
+        narysujTrasy();
+        renderujLegendeTras();
+        if (mapa && widok === 'trasy' && !dopasowanoTrasy && trasyDane && trasyDane.length) {
+            dopasujTrasy();
+            dopasowanoTrasy = true;
+        }
+        odswiezStanMapy();
+    }
+
+    function onWyborTrasy(cb) {
+        if (typeof cb === 'function') sluchaczeWyboruTrasy.push(cb);
+        return () => {
+            const i = sluchaczeWyboruTrasy.indexOf(cb);
+            if (i !== -1) sluchaczeWyboruTrasy.splice(i, 1);
+        };
+    }
+
+    function wybierzTrase(id) {
+        if (zniszczona || !isFinite(id)) return;
+        sluchaczeWyboruTrasy.slice().forEach((cb) => {
+            try { cb(id); } catch (e) { console.error('[LogisticsMap] onWyborTrasy:', e); }
+        });
+    }
+
+    /**
+     * Nowa L.TileLayer bieżącego podkładu dla innej mapy (mapka edytora trasy): ten sam
+     * klucz CARTO i ta sama obsługa odrzuconego klucza co tutaj. Działa też, zanim ta
+     * mapa powstała (Dashboard schowany) — wtedy podkład z wyboru zapamiętanego w przeglądarce.
+     */
+    function nowaWarstwaPodkladu() {
+        if (zniszczona) return null;
+        const podklad = aktywnyPodklad || PODKLADY.find((p) => p.id === czytajPodklad()) || PODKLADY[0];
+        const warstwa = nowaWarstwaKafelkow(podklad, true);
+        // Atrybucja w opcjach warstwy — domyślna kontrolka mapki zbierze ją sama
+        // (ta mapa ma kontrolkę ręczną, więc tu warstwy jej nie niosą).
+        warstwa.options.attribution = podklad.atrybucja;
+        return warstwa;
+    }
+
+    function klikLegendyTras(e) {
+        const b = e.target.closest('[data-lg-mapa-trasa]');
+        if (b) wybierzTrase(Number(b.getAttribute('data-lg-mapa-trasa')));
+    }
+
+    function najazdLegendyTras(e) {
+        const b = e.target.closest('[data-lg-mapa-trasa]');
+        wyroznijTrase(b ? Number(b.getAttribute('data-lg-mapa-trasa')) : null);
+    }
+
+    const zdejmijWyroznienie = () => wyroznijTrase(null);
+
     // ── Interfejs publiczny ─────────────────────────────────────────────────
 
     function render(lista, opcje) {
@@ -1413,8 +1792,13 @@
         if (tryb) return;
         narysuj(ostatnie);
         if (dopasujTeraz || (!dopasowanoPierwszy && znaczniki.size)) {
-            dopasuj();
-            dopasowanoPierwszy = true;
+            // Widok tras: pinezek nie widać — widok dopasujemy po powrocie do zamówień.
+            if (widok === 'trasy') {
+                dopasujPoPowrocie = true;
+            } else {
+                dopasuj();
+                dopasowanoPierwszy = true;
+            }
         }
     }
 
@@ -1439,6 +1823,8 @@
     function highlight(id, opcje) {
         const m = znaczniki.get(id);
         if (!mapa || !m || tryb) return false;
+        // Etap 3: w widoku tras pinezek nie widać — jawne „pokaż na mapie” wraca do zamówień.
+        if (widok !== 'zamowienia' && !(opcje && opcje.przewin && ustawWidok('zamowienia'))) return false;
         if (opcje && opcje.przewin) pokazMapeNaEkranie();
         porzucWskazanie();
         const nr = ++nrWskazania;
@@ -1534,6 +1920,13 @@
             uchwyt.removeEventListener('dblclick', przywrocDomyslnyPodzial);
         }
         if (pastylka) pastylka.removeEventListener('keydown', naPastylkeKlawisz);
+        if (legendaTras) {
+            legendaTras.removeEventListener('click', klikLegendyTras);
+            legendaTras.removeEventListener('mouseover', najazdLegendyTras);
+            legendaTras.removeEventListener('focusin', najazdLegendyTras);
+            legendaTras.removeEventListener('mouseleave', zdejmijWyroznienie);
+            legendaTras.removeEventListener('focusout', zdejmijWyroznienie);
+        }
         // Klasa na <html> nie może przeżyć instancji (kursor i zaznaczanie całej strony).
         document.documentElement.classList.remove('lg-przeciaganie-uchwytu');
         if (mapa) {
@@ -1546,12 +1939,18 @@
         kontrolkaAtrybucji = null;
         kontrolkaPodkladowEl = null;
         przelacznikGrupowania = null;
+        przyciskDopasowania = null;
         pinezki = null;
+        warstwaTras = null;
+        trasyDane = null;
+        grupyTras.clear();
+        warstwyZewnetrzne.clear();
         podgladyPodkladow.clear();
         znaczniki.clear();
         zamowienia.clear();
         sluchaczeWyboru.length = 0;
         sluchaczeZmian.length = 0;
+        sluchaczeWyboruTrasy.length = 0;
         if (window.LogisticsMap === api) delete window.LogisticsMap;
     }
 
@@ -1565,6 +1964,13 @@
         anuluj: anulujTryb,
         zajeta: () => !!tryb,
         mapa: () => mapa,
+        // Etap 3 — widok tras (logistics-routes.js).
+        ustawWidok: ustawWidok,
+        widok: () => widok,
+        renderTrasy: renderTrasy,
+        onWyborTrasy: onWyborTrasy,
+        nowaWarstwaPodkladu: nowaWarstwaPodkladu,
+        kolorTrasy: kolorTrasy,
         zniszcz: zniszcz,
     };
 
@@ -1585,6 +1991,15 @@
         // w docelowym rozmiarze.
         ustawUdzial(czytajUdzial());
     }
+    if (legendaTras) {
+        legendaTras.addEventListener('click', klikLegendyTras);
+        legendaTras.addEventListener('mouseover', najazdLegendyTras);
+        legendaTras.addEventListener('focusin', najazdLegendyTras);
+        legendaTras.addEventListener('mouseleave', zdejmijWyroznienie);
+        legendaTras.addEventListener('focusout', zdejmijWyroznienie);
+    }
+    zaznaczWidok();
+    renderujLegendeTras();
     document.addEventListener('keydown', naKlawisz);
     if (przyciskZakladki) przyciskZakladki.addEventListener('shown.bs.tab', poZmianieRozmiaru);
     if (window.ResizeObserver) {

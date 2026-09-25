@@ -37,6 +37,13 @@
  * nie kosztuje zapytania.
  *
  * Każdy tekst z API przechodzi przez esc() przed wstawieniem do HTML.
+ *
+ * Etap 3 (trasy i flota — kod w logistics-routes.js i logistics-fleet.js) dokłada
+ * tu tylko punkty zaczepienia: podzakładki Dashboard | Trasy | Flota (pokazWidok),
+ * plakietkę trasy pod selectem sposobu, filtr „Transport bez trasy” (sposob=bez_trasy),
+ * akcję hurtową „Dodaj do trasy…” i komunikat po zdjęciu zamówień z trasy
+ * (usunieto_z_trasy). Nowe pliki rozmawiają z tym wyłącznie przez
+ * window.LogisticsTab = {root, odswiez, komunikat, pokazWidok, zniszcz}.
  */
 (function () {
     'use strict';
@@ -92,6 +99,11 @@
     const ZWLOKA_SELECTA_MS = 350;
     const LIMIT_HURTU = 500;        // jak LIMIT_HURTU w panel_api.py
 
+    // Etap 3: podzakładki (data-lg-widok na przyciskach, data-logistics-view na panelach).
+    const WIDOKI = ['dashboard', 'routes', 'fleet'];
+    const KLUCZ_WIDOKU_LS = 'logistyka.widok';
+    const STATUSY_TRAS = { robocza: 'robocza', zatwierdzona: 'zatwierdzona', wykonana: 'wykonana' };
+
     // ── Stan ────────────────────────────────────────────────────────────────
 
     const stan = {
@@ -122,6 +134,7 @@
         // Sortowanie z nagłówka tabeli: {kolumna, kierunek: 1 | -1} albo null —
         // wtedy kolejność z API („Nie ustawiono” na górze, potem termin).
         sort: null,
+        widok: 'dashboard',         // bieżąca podzakładka (etap 3)
     };
 
     const oczekujaceSelecty = new Map();   // id → timeout zwłoki selecta
@@ -608,6 +621,10 @@
                 opis = 'Szukamy w otwartych zamówieniach. Zamówienia wydane i wysłane są zamknięte.';
                 przycisk = przyciskStanu('szukaj-zamkniete', 'Szukaj także w zamkniętych', 'fa-magnifying-glass');
             }
+        } else if (f.sposob === 'bez_trasy') {
+            // Etap 3: filtr „Transport bez trasy”.
+            tytul = 'Każde otwarte zamówienie z transportem własnym jest już na trasie.';
+            przycisk = przyciskStanu('pokaz-wszystkie', 'Pokaż wszystkie otwarte');
         } else if (f.sposob === 'brak') {
             tytul = 'Każde otwarte zamówienie ma ustawiony sposób dostawy.';
             opis = 'Nowe zamówienia z Base. pojawią się tutaj same.';
@@ -635,6 +652,29 @@
         return '<select class="form-select form-select-sm lg-sposob' + (wybrany ? '' : ' lg-sposob--brak') + '"' +
             ' aria-label="Sposób dostawy zamówienia ' + esc(w.numer) + '"' +
             (zablokowany ? ' disabled title="' + esc(powod) + '"' : '') + '>' + opcje + '</select>';
+    }
+
+    /**
+     * Etap 3: plakietka trasy pod selectem sposobu (bez nowej kolumny — układ przy
+     * 1280 px czeka na decyzję). Zamówienie na trasie: nazwa i status, klik otwiera
+     * trasę w zakładce „Trasy”. Transport własny bez trasy: „bez trasy”, klik = okno
+     * „Dodaj do trasy…” dla tego jednego zamówienia.
+     */
+    function plakietkaTrasy(w) {
+        if (w.trasa) {
+            const status = STATUSY_TRAS[w.trasa.status] || String(w.trasa.status || '');
+            const opis = 'Trasa ' + w.trasa.nazwa + ', ' + status + '. Otwórz trasę.';
+            return '<button type="button" class="lg-plakietka-trasy lg-plakietka-trasy--' + esc(w.trasa.status) + '"' +
+                ' data-lg-akcja="pokaz-trase" data-trasa-id="' + esc(w.trasa.id) + '"' +
+                ' title="' + esc(opis) + '" aria-label="' + esc(opis) + '">' +
+                '<i class="fas fa-route" aria-hidden="true"></i>' +
+                '<span class="lg-plakietka-trasy-nazwa">' + esc(w.trasa.nazwa) + '</span>' +
+                '<span class="lg-plakietka-trasy-status">· ' + esc(status) + '</span></button>';
+        }
+        if (w.sposob !== 'transport_woodpower' || w.zamkniete || w.wydane) return '';
+        return '<button type="button" class="lg-plakietka-trasy lg-plakietka-trasy--brak" data-lg-akcja="dodaj-do-trasy"' +
+            ' title="Zamówienie bez trasy. Kliknij, żeby dodać je do trasy."' +
+            ' aria-label="' + esc('Zamówienie ' + w.numer + ' bez trasy. Dodaj do trasy') + '">bez trasy</button>';
     }
 
     function ikona(klasaFa, klasa, opis) {
@@ -833,7 +873,7 @@
                 (podpowiedz ? '<span class="lg-w-klient-metoda">' + podpowiedz + '</span>' : '') + '</td>' +
             '<td class="lg-k-adres">' + adresHtml(w) + '</td>' +
             '<td class="lg-k-metoda">' + metoda + podpowiedz + '</td>' +
-            '<td class="lg-k-sposob">' + selectSposobu(w, !!powod, powod) + '</td>' +
+            '<td class="lg-k-sposob">' + selectSposobu(w, !!powod, powod) + plakietkaTrasy(w) + '</td>' +
             '<td class="lg-k-etap"><span class="lg-etap" data-etap="' + esc(etap.status) + '">' +
                 (etap.status === 'spakowane'
                     ? '<i class="fas fa-check lg-etap-znak" aria-hidden="true"></i>'
@@ -887,7 +927,7 @@
     // Fokus klawiatury w wierszu (select sposobu, pinezka / „Ustaw na mapie”,
     // checkbox) przeżywa przerysowanie — ten sam rodzaj pola w tym samym wierszu.
     // Adres jest w wierszu dwa razy (pod klientem i w kolumnie) — stąd także kolumna.
-    const KLASY_FOKUSU = ['lg-sposob', 'lg-na-mapie', 'lg-zaznacz', 'lg-rozwin', 'lg-adres'];
+    const KLASY_FOKUSU = ['lg-sposob', 'lg-na-mapie', 'lg-zaznacz', 'lg-rozwin', 'lg-adres', 'lg-plakietka-trasy'];
 
     function fokusWiersza(kontener) {
         const a = document.activeElement;
@@ -1011,7 +1051,11 @@
     /**
      * typ: ok | uwaga | blad | info. Treść i pozycje listy idą przez textContent
      * (bez HTML). ok/info znikają same po 6 s, uwaga i błąd czekają na zamknięcie.
-     * lista: [{numer, tekst}], ponow: przycisk „Spróbuj ponownie” (odświeża listę).
+     * lista: [{numer, tekst}], ponow: przycisk „Spróbuj ponownie” (odświeża listę),
+     * ikona (etap 3): klasa Font Awesome zamiast domyślnej dla typu.
+     * Komunikat trafia do podzakładki, na której jest logistyk (etap 3: Trasy i Flota
+     * mają własne miejsce na komunikaty — w schowanym Dashboardzie nikt by ich nie zobaczył).
+     * Publicznie: window.LogisticsTab.komunikat (logistics-routes.js, logistics-fleet.js).
      */
     function pokazKomunikat(typ, tresc, opcje) {
         const o = opcje || {};
@@ -1022,7 +1066,7 @@
         if (o.klucz) box.setAttribute('data-klucz', o.klucz);
 
         const ik = document.createElement('i');
-        ik.className = 'fas ' + (IKONY_KOMUNIKATU[typ] || IKONY_KOMUNIKATU.info);
+        ik.className = 'fas ' + (o.ikona || IKONY_KOMUNIKATU[typ] || IKONY_KOMUNIKATU.info);
         ik.setAttribute('aria-hidden', 'true');
         box.appendChild(ik);
 
@@ -1064,7 +1108,7 @@
         x.textContent = '×';
         box.appendChild(x);
 
-        el('komunikaty').appendChild(box);
+        (root.querySelector('[data-lg-komunikaty="' + stan.widok + '"]') || el('komunikaty')).appendChild(box);
         if (typ === 'ok' || typ === 'info') {
             setTimeout(() => { if (box.isConnected) box.remove(); }, 6000);
         }
@@ -1127,10 +1171,33 @@
                 lista: wynik.bledy.map((b) => ({ numer: numer(b.order_id), tekst: b.komunikat })),
             });
         }
+        if (wynik.usunieto_z_trasy.length) pokazUsunieteZTras(wynik.usunieto_z_trasy, numer);
+    }
+
+    /**
+     * Etap 3: zmiana sposobu zamówienia z trasy roboczej sama zdejmuje je z trasy
+     * (usunieto_z_trasy: [{order_id, trasa: nazwa}]) — logistyk ma to zobaczyć, a trasy
+     * (lista, edytor, mapa tras) odświeżyć się same (zdarzenie dla logistics-routes.js).
+     */
+    function pokazUsunieteZTras(usuniete, numer) {
+        const wgTras = new Map();
+        usuniete.forEach((u) => {
+            const nazwa = String(u.trasa || '');
+            if (!wgTras.has(nazwa)) wgTras.set(nazwa, []);
+            wgTras.get(nazwa).push(numer(u.order_id));
+        });
+        wgTras.forEach((numery, nazwa) => {
+            let tresc;
+            if (numery.length === 1) tresc = 'Zamówienie ' + numery[0] + ' usunięto z trasy „' + nazwa + '”.';
+            else if (numery.length <= 6) tresc = 'Zamówienia ' + numery.join(', ') + ' usunięto z trasy „' + nazwa + '”.';
+            else tresc = 'Z trasy „' + nazwa + '” usunięto ' + ileZamowien(numery.length) + '.';
+            pokazKomunikat('uwaga', tresc, { ikona: 'fa-route' });
+        });
+        document.dispatchEvent(new CustomEvent('logistics:trasy-zmienione', { detail: { root: root } }));
     }
 
     function nowyWynik() {
-        return { zmienione: [], przepakowanie: [], bledy: [], orders: [] };
+        return { zmienione: [], przepakowanie: [], bledy: [], orders: [], usunieto_z_trasy: [] };
     }
 
     function dolacz(wynik, dane) {
@@ -1138,6 +1205,7 @@
         wynik.przepakowanie = wynik.przepakowanie.concat(dane.przepakowanie || []);
         wynik.bledy = wynik.bledy.concat(dane.bledy || []);
         wynik.orders = wynik.orders.concat(dane.orders || []);
+        wynik.usunieto_z_trasy = wynik.usunieto_z_trasy.concat(dane.usunieto_z_trasy || []);
     }
 
     // Select w wierszu: od razu (po krótkiej zwłoce, patrz ZWLOKA_SELECTA_MS)
@@ -1232,6 +1300,96 @@
             grupy.get(w.podpowiedz).push(w.id);
         });
         hurtowo(grupy, 'Przyjęto podpowiedzi z Base.');
+    }
+
+    // ── Trasy (etap 3): „Dodaj do trasy…” i podzakładki ─────────────────────
+
+    /**
+     * Okno „Dodaj do trasy…” żyje w logistics-routes.js (window.LogisticsRoutes) —
+     * tu tylko przekazujemy wiersze i podmieniamy je odpowiedzią (plakietka trasy od razu).
+     * Obietnica daje null, gdy logistyk zamknął okno bez dodawania.
+     */
+    function dodajDoTrasy(wiersze, powrot, poDodaniu) {
+        const trasy = window.LogisticsRoutes;
+        if (!trasy || trasy.root !== root || typeof trasy.dodajDoTrasy !== 'function') {
+            pokazKomunikat('info', 'Trasy jeszcze się wczytują. Spróbuj za chwilę.', { klucz: 'trasa' });
+            return;
+        }
+        trasy.dodajDoTrasy(wiersze, { powrot: powrot }).then((wynik) => {
+            if (zniszczona || !wynik) return;
+            if (wynik.orders && wynik.orders.length) podmienWiersze(wynik.orders, wynik.dodane);
+            if (poDodaniu) poDodaniu(wynik);
+        }).catch((e) => console.error('[Logistyka] Dodaj do trasy:', e));
+    }
+
+    function hurtTrasa(przycisk) {
+        const wybrane = Array.from(stan.zaznaczone).map(znajdz).filter(Boolean);
+        if (!wybrane.length) return;
+        dodajDoTrasy(wybrane, przycisk, (wynik) => {
+            if (wynik.dodane && wynik.dodane.length) odznaczWszystko();
+        });
+    }
+
+    /**
+     * Podzakładka Dashboard | Trasy | Flota bez przeładowania. opcje.route_id — trasa do
+     * otwarcia w edytorze (logistics-routes.js czyta ją z panelu tras, także gdy wczyta
+     * się dopiero po tym wywołaniu). Powrót na Dashboard odświeża listę zamówień (trasy
+     * mogły ją zmienić), a mapę przerysowuje jej własny ResizeObserver.
+     */
+    function pokazWidok(widok, opcje) {
+        if (zniszczona || !WIDOKI.includes(widok)) return false;
+        const o = opcje || {};
+        const poprzedni = stan.widok;
+        const aktywny = document.activeElement;
+        const panelPoprzedni = root.querySelector('[data-logistics-view="' + poprzedni + '"]');
+        const fokusZnika = poprzedni !== widok && !!(aktywny && panelPoprzedni && panelPoprzedni.contains(aktywny));
+        stan.widok = widok;
+        let zakladka = null;
+        root.querySelectorAll('[data-lg-widok]').forEach((b) => {
+            const ta = b.getAttribute('data-lg-widok') === widok;
+            b.classList.toggle('is-aktywna', ta);
+            b.setAttribute('aria-selected', ta ? 'true' : 'false');
+            b.tabIndex = ta ? 0 : -1;
+            if (ta) zakladka = b;
+        });
+        root.querySelectorAll('[data-logistics-view]').forEach((p) => {
+            p.hidden = p.getAttribute('data-logistics-view') !== widok;
+        });
+        // „Stan na” i „Odśwież” dotyczą listy zamówień — poza Dashboardem niewidoczne
+        // (miejsce zostaje, nagłówek nie skacze).
+        const akcje = root.querySelector('.lg-naglowek-akcje');
+        if (akcje) akcje.classList.toggle('is-ukryte', widok !== 'dashboard');
+        if (!o.bezZapisu) {
+            try { window.localStorage.setItem(KLUCZ_WIDOKU_LS, widok); } catch (e) { /* wybór nie przeżyje przeładowania */ }
+        }
+        if (o.route_id !== undefined && o.route_id !== null) {
+            const panelTras = root.querySelector('[data-logistics-view="routes"]');
+            if (panelTras) panelTras.setAttribute('data-lg-otworz-trase', String(o.route_id));
+        }
+        // Fokus w chowanym panelu (np. klik w plakietkę trasy) przechodzi na zakładkę.
+        if (fokusZnika && zakladka) zakladka.focus({ preventScroll: true });
+        if (widok === 'dashboard' && poprzedni !== 'dashboard') {
+            dopasujWysokosc();
+            if (!stan.pierwszeLadowanie) wczytaj('uzytkownik');
+        }
+        document.dispatchEvent(new CustomEvent('logistics:widok', { detail: { root: root, widok: widok, opcje: o } }));
+        return true;
+    }
+
+    // Strzałki / Home / End na pasku podzakładek (wzorzec ARIA „tabs”, aktywacja od razu).
+    function klawiszZakladek(e) {
+        const zakladki = Array.from(root.querySelectorAll('[data-lg-widok]'));
+        const i = zakladki.indexOf(e.target.closest ? e.target.closest('[data-lg-widok]') : null);
+        if (i === -1) return;
+        let j = null;
+        if (e.key === 'ArrowRight') j = (i + 1) % zakladki.length;
+        else if (e.key === 'ArrowLeft') j = (i - 1 + zakladki.length) % zakladki.length;
+        else if (e.key === 'Home') j = 0;
+        else if (e.key === 'End') j = zakladki.length - 1;
+        if (j === null) return;
+        e.preventDefault();
+        pokazWidok(zakladki[j].getAttribute('data-lg-widok'));
+        zakladki[j].focus();
     }
 
     // ── Wydane klientowi ────────────────────────────────────────────────────
@@ -1658,7 +1816,9 @@
         // document.hidden nie przeszkadza — liczymy z układu, nie z klatek.
         if (zniszczona || !root.isConnected || !root.getClientRects().length) return;
         const siatka = root.querySelector('.lg-uklad-siatka');
-        if (!siatka) return;
+        // Etap 3: schowany panel Dashboardu (inna podzakładka) nie ma wymiarów — liczymy
+        // dopiero po powrocie (pokazWidok).
+        if (!siatka || !siatka.getClientRects().length) return;
         const rodzic = przewijanyRodzic(root);
         const widok = rodzic ? rodzic.clientHeight : window.innerHeight;
         // Pozycja w treści przewijanego rodzica — niezależnie od bieżącego przewinięcia.
@@ -1727,6 +1887,11 @@
     // ── Zdarzenia (delegacja na korzeniu zakładki) ──────────────────────────
 
     root.addEventListener('click', (e) => {
+        const zakladka = e.target.closest('[data-lg-widok]');
+        if (zakladka) {
+            pokazWidok(zakladka.getAttribute('data-lg-widok'));
+            return;
+        }
         const sortuj = e.target.closest('[data-lg-sort]');
         if (sortuj && tabela.contains(sortuj)) {
             ustawSortowanie(sortuj.getAttribute('data-lg-sort'));
@@ -1762,6 +1927,17 @@
                 break;
             case 'hurt-podpowiedzi':
                 hurtPodpowiedzi();
+                break;
+            case 'hurt-trasa':
+                hurtTrasa(przycisk);
+                break;
+            case 'dodaj-do-trasy': {
+                const w = tr ? znajdz(Number(tr.getAttribute('data-id'))) : null;
+                if (w) dodajDoTrasy([w], przycisk);
+                break;
+            }
+            case 'pokaz-trase':
+                pokazWidok('routes', { route_id: Number(przycisk.getAttribute('data-trasa-id')) });
                 break;
             case 'odznacz':
                 odznaczWszystko();
@@ -1890,8 +2066,8 @@
             oczekujaceSelecty.size > 0 || !!kontrolerListy ||
             // Korekta / ustawianie punktu na mapie — odświeżenie nie może jej przerwać.
             !!(mapa() && mapa().zajeta()) ||
-            // Otwarte okno poprawki adresu.
-            !!(dialogAdresu && dialogAdresu.open) ||
+            // Otwarte okno poprawki adresu (etap 3: też „Dodaj do trasy…” i inne okna zakładki).
+            !!(dialogAdresu && dialogAdresu.open) || !!root.querySelector('dialog[open]') ||
             // Rozwinięta lista selecta zniknęłaby spod ręki razem z przerysowaną
             // tabelą. Otwarcia natywnego selecta nie da się odczytać, więc
             // czekamy na chwilę ciszy po ostatnim kliknięciu/klawiszu.
@@ -1900,6 +2076,8 @@
 
     function tik() {
         if (zniszczona || stan.pierwszeLadowanie) return;
+        // Etap 3: na Trasach i Flocie lista stoi — odświeży się przy powrocie na Dashboard.
+        if (stan.widok !== 'dashboard') return;
         if (!zakladkaWidoczna() || uzytkownikPracuje()) return;
         const okres = stan.geokoderDziala ? ODSWIEZANIE_GEO_MS : ODSWIEZANIE_MS;
         if (Date.now() - stan.ostatnieOdswiezenie >= okres) wczytaj('auto');
@@ -1932,9 +2110,24 @@
     // ── Start ───────────────────────────────────────────────────────────────
 
     window.LogisticsTab = {
+        root: root,
         odswiez: () => wczytaj('uzytkownik'),
+        // Etap 3 — dla logistics-routes.js i logistics-fleet.js.
+        komunikat: (typ, tresc, opcje) => pokazKomunikat(typ, tresc, opcje),
+        pokazWidok: pokazWidok,
         zniszcz: zniszcz,
     };
+
+    // Ostatnia podzakładka w tej przeglądarce (etap 3). Lista wczytuje się i tak —
+    // powrót na Dashboard jest wtedy od razu gotowy.
+    const pasekZakladek = root.querySelector('.lg-podzakladki');
+    if (pasekZakladek) pasekZakladek.addEventListener('keydown', klawiszZakladek);
+    let zapamietanyWidok = 'dashboard';
+    try {
+        const v = window.localStorage.getItem(KLUCZ_WIDOKU_LS);
+        if (WIDOKI.includes(v)) zapamietanyWidok = v;
+    } catch (e) { /* bez localStorage — Dashboard */ }
+    pokazWidok(zapamietanyWidok, { bezZapisu: true });
 
     function naPokazanieZakladki(e) {
         if (e.target && e.target.id === 'logistics-tab') dopasujWysokosc();
