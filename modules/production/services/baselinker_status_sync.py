@@ -16,14 +16,16 @@ Trzy momenty zmiany statusu w BL:
 
 2. Po ukończeniu ostatniego stanowiska produkcyjnego zamówienia:
    schedule_after_station_complete() → "Produkcja zakończona" (138620)
-   Warunek: wszystkie pozycje zamówienia mają current_status w POSTPROD_STATUSES.
    Wyjść z produkcji jest trzy: formatowanie (surowy bez obróbki krawędzi),
    Krawędzie (surowy z obróbką) i Lakiernia (olejowany / lakierowany).
-   Warunek: wszystkie pozycje w POSTPROD_STATUSES (pakowanie / spakowane).
+   Warunek: wszystkie AKTYWNE (nieanulowane) pozycje w POSTPROD_STATUSES
+   (pakowanie / spakowane), co najmniej jedna aktywna.
 
 3. Po ukończeniu pakowania ostatniego produktu zamówienia:
-   schedule_after_station_complete() → "Zamówienie spakowane" (138623)
-   Warunek: wszystkie pozycje mają current_status == 'spakowane'.
+   schedule_after_station_complete() → status po spakowaniu według sposobu dostawy
+   (logistics/sposoby.py: kurier 138623, transport 417343, odbiór 149777).
+   Warunek: wszystkie aktywne pozycje mają current_status == 'spakowane'
+   i odbiór nie został jeszcze wydany klientowi (149779 jest ostateczny).
 
 Web ścieżka (complete_order_bulk) commituje sama → wywołuje flush_pending_syncs()
 od razu po commit. Mobile ścieżka (with_idempotency) commituje w decoratorze →
@@ -31,7 +33,11 @@ decorator po commit wywołuje flush_pending_syncs(). W obu przypadkach handler
 woła schedule_after_station_complete() przed return.
 
 Retry przy błędzie API: threading.Timer z backoff 5/15/30/60/120/300/600s
-(suma ~18 min). Daemon thread - nie blokuje shutdown procesu.
+(suma ~18 min). Daemon thread - nie blokuje shutdown procesu. Każde ponowienie
+czyta zamówienie od nowa i pomija wysyłkę, gdy cel przestał być aktualny
+(_powod_pominiecia_ponowienia) — w tym czasie logistyka mogła zmienić sposób
+dostawy albo wydać zamówienie, a jej dopychacz (logistics/services/bl_sync.py)
+wysłał już nowszy status.
 """
 
 import threading
@@ -47,9 +53,8 @@ PRODUCTION_COMPLETED_STATUS_ID = 138620
 ORDER_PACKED_STATUS_ID = 138623
 PRODUCTION_RAW_STATUS_ID = 138619  # fallback dla "W produkcji - surowe"
 
-# Statusy po pakowaniu - zależne od metody dostawy (patrz _determine_packaging_target_status)
-WAITING_PERSONAL_PICKUP_STATUS_ID = 149777  # "Czeka na odbiór osobisty"
-PLANNED_ROUTE_STATUS_ID = 417343            # "Planowana trasa" (transport WoodPower)
+# Status po pakowaniu zależy od sposobu dostawy — mapa STATUS_PO_SPAKOWANIU
+# w logistics/sposoby.py (patrz _determine_packaging_target_status).
 
 # Statusy lokalne CRM oznaczające „produkcja zakończona” (czeka na pakowanie / po pakowaniu).
 # Logistyka nie jest już etapem — żyje równolegle na zamówieniu.
@@ -254,37 +259,69 @@ def _determine_packaging_target_status(order) -> int:
     return ORDER_PACKED_STATUS_ID
 
 
-def _process_pending(app, internal_order_number: str, station_code: str) -> None:
-    """Określa target_status i odpala próbę setOrderStatus."""
+def _produkty_zamowienia(internal_order_number: str) -> List:
+    """
+    Agregator stanu zamówienia liczy WSZYSTKIE prod_products zamówienia,
+    włącznie z doróbkami (original_product_id IS NOT NULL). BL status
+    "wyprodukowane" / "spakowane" zostaje wysłany dopiero gdy oryginał
+    + wszystkie doróbki są gotowe (brak filtra po original_product_id IS NULL).
+    """
     from ..models import ProductionItem, ProductionOrder
     from sqlalchemy.orm import joinedload
 
-    # Agregator stanu zamówienia liczy WSZYSTKIE prod_products zamówienia,
-    # włącznie z doróbkami (original_product_id IS NOT NULL). BL status
-    # "wyprodukowane" / "spakowane" zostaje wysłany dopiero gdy oryginał
-    # + wszystkie doróbki są gotowe (brak filtra po original_product_id IS NULL).
-    products = (
+    return (
         ProductionItem.query
         .options(joinedload(ProductionItem.order))
         .join(ProductionOrder)
         .filter(ProductionOrder.internal_order_number == internal_order_number)
         .all()
     )
+
+
+def _cel_po_stanowisku(products: List, station_code: str) -> Optional[int]:
+    """
+    Status Base. po stanowisku albo None, gdy warunek stanowiska nie jest spełniony.
+    Jedna logika dla pierwszej próby (_process_pending) i ponowień (_retry_attempt).
+
+    Pozycje anulowane nie blokują — tak samo jak delivery.wszystkie_spakowane
+    w logistyce (wcześniej jedna anulowana pozycja sprawiała, że zamówienie nigdy
+    nie dostawało statusu po stanowisku). Zamówienie musi mieć choć jedną aktywną.
+    """
+    aktywne = [p for p in products if p.current_status != 'anulowane']
+    if not aktywne:
+        return None
+    if station_code == 'packaging':
+        if not all(p.current_status == 'spakowane' for p in aktywne):
+            return None
+        return _determine_packaging_target_status(aktywne[0].order)
+    if station_code in PRODUCTION_STATIONS:
+        if not all(p.current_status in POSTPROD_STATUSES for p in aktywne):
+            return None
+        return PRODUCTION_COMPLETED_STATUS_ID
+    return None
+
+
+def _process_pending(app, internal_order_number: str, station_code: str) -> None:
+    """Określa target_status i odpala próbę setOrderStatus."""
+    products = _produkty_zamowienia(internal_order_number)
     if not products:
         return
 
-    if station_code == 'packaging':
-        if not all(p.current_status == 'spakowane' for p in products):
-            return
-        target = _determine_packaging_target_status(products[0].order)
-    elif station_code in PRODUCTION_STATIONS:
-        if not all(p.current_status in POSTPROD_STATUSES for p in products):
-            return
-        target = PRODUCTION_COMPLETED_STATUS_ID
-    else:
+    order = products[0].order
+    if station_code == 'packaging' and order is not None and order.handed_over_at is not None:
+        # Odbiór już wydany klientowi: 149779 („Odebrane”) jest ostateczny, a status
+        # po spakowaniu (np. po doróbce spakowanej po wydaniu) cofnąłby Base.
+        logger.info("Zamówienie wydane klientowi - pomijam status po spakowaniu", extra={
+            'internal_order_number': internal_order_number,
+            'baselinker_order_id': order.baselinker_order_id,
+        })
         return
 
-    baselinker_order_id = products[0].order.baselinker_order_id if products[0].order else None
+    target = _cel_po_stanowisku(products, station_code)
+    if target is None:
+        return
+
+    baselinker_order_id = order.baselinker_order_id if order else None
     if not baselinker_order_id:
         logger.warning("Brak baselinker_order_id - pomijam BL sync", extra={
             'internal_order_number': internal_order_number,
@@ -305,7 +342,7 @@ def _process_pending(app, internal_order_number: str, station_code: str) -> None
     # Niepowodzenie → schedule retry
     _schedule_retry(app, baselinker_order_id, target,
                     internal_order_number=internal_order_number,
-                    attempt=0)
+                    attempt=0, station_code=station_code)
 
 
 # ============================================================================
@@ -333,8 +370,11 @@ def _call_set_order_status(baselinker_order_id: int, target_status_id: int) -> b
 
 
 def _schedule_retry(app, baselinker_order_id: int, target_status_id: int,
-                    *, internal_order_number: str, attempt: int) -> None:
-    """Planuje kolejną próbę przez threading.Timer (daemon)."""
+                    *, internal_order_number: str, attempt: int, station_code: str) -> None:
+    """
+    Planuje kolejną próbę przez threading.Timer (daemon). `station_code` jedzie
+    razem z celem, żeby ponowienie mogło przeliczyć cel tą samą logiką.
+    """
     if attempt >= len(RETRY_DELAYS_S):
         logger.error("Wyczerpano retry dla BL setOrderStatus", extra={
             'internal_order_number': internal_order_number,
@@ -362,17 +402,66 @@ def _schedule_retry(app, baselinker_order_id: int, target_status_id: int,
             'target_status_id': target_status_id,
             'internal_order_number': internal_order_number,
             'attempt': attempt + 1,
+            'station_code': station_code,
         },
     )
     timer.daemon = True
     timer.start()
 
 
+def _powod_pominiecia_ponowienia(internal_order_number: str, station_code: str,
+                                 zaplanowany_cel: int) -> Optional[str]:
+    """
+    Ponowienie wysyła cel policzony nawet ~19 min wcześniej. W tym czasie logistyk
+    mógł zmienić sposób dostawy albo wydać zamówienie, a dopychacz logistyki wysłać
+    już NOWSZY status — stary cel nadpisałby go w Base. Dlatego przed każdym
+    ponowieniem czytamy zamówienie od nowa (świeża sesja wątku timera) i przeliczamy
+    cel tą samą logiką co pierwsza próba.
+
+    Zwraca powód pominięcia (do logu) albo None, gdy ponowienie jest nadal aktualne.
+    """
+    products = _produkty_zamowienia(internal_order_number)
+    order = products[0].order if products else None
+    if order is None:
+        return 'zamówienie nie istnieje'
+    if order.bl_status_pending_id is not None:
+        # Na zamówieniu czeka znacznik statusu logistyki — status Base. należy
+        # teraz do dopychacza (bl_sync), timer się nie wtrąca.
+        return 'status należy do dopychacza logistyki (bl_status_pending_id={})'.format(
+            order.bl_status_pending_id)
+    if order.handed_over_at is not None:
+        return 'zamówienie wydane klientowi'
+    aktywne = [p for p in products if p.current_status != 'anulowane']
+    if (zaplanowany_cel == PRODUCTION_COMPLETED_STATUS_ID and aktywne
+            and all(p.current_status == 'spakowane' for p in aktywne)):
+        # Pakowacz zdążył spakować całe zamówienie (i poszedł status po spakowaniu) —
+        # „Produkcja zakończona” cofnęłaby Base. o etap.
+        return 'zamówienie już spakowane'
+    cel = _cel_po_stanowisku(products, station_code)
+    if cel is None:
+        return 'warunek stanowiska przestał być spełniony'
+    if cel != zaplanowany_cel:
+        return 'cel zmienił się na {}'.format(cel)
+    return None
+
+
 def _retry_attempt(*, app, baselinker_order_id: int, target_status_id: int,
-                   internal_order_number: str, attempt: int) -> None:
+                   internal_order_number: str, attempt: int, station_code: str) -> None:
     """Wykonuje retry w app_context. Przy kolejnym błędzie planuje następny retry."""
     try:
         with app.app_context():
+            powod = _powod_pominiecia_ponowienia(
+                internal_order_number, station_code, target_status_id)
+            if powod is not None:
+                logger.info("BL setOrderStatus retry pominięty - cel nieaktualny", extra={
+                    'internal_order_number': internal_order_number,
+                    'baselinker_order_id': baselinker_order_id,
+                    'target_status_id': target_status_id,
+                    'station_code': station_code,
+                    'attempt': attempt,
+                    'powod': powod,
+                })
+                return
             success = _call_set_order_status(baselinker_order_id, target_status_id)
             if success:
                 logger.info("BL setOrderStatus retry OK", extra={
@@ -391,4 +480,4 @@ def _retry_attempt(*, app, baselinker_order_id: int, target_status_id: int,
 
     _schedule_retry(app, baselinker_order_id, target_status_id,
                     internal_order_number=internal_order_number,
-                    attempt=attempt)
+                    attempt=attempt, station_code=station_code)
