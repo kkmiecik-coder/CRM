@@ -370,3 +370,77 @@ def test_dopychacz_wysyla_ponownie_nadpisana_decyzje_w_tym_samym_przebiegu(app, 
         assert wynik['zapytania'] == 2
         db.session.expire_all()
         assert ProductionOrder.query.get(order_id).bl_status_pending_id is None
+
+
+# ── I3b (przegląd gałęzi): świeży znacznik statusu tuż przed setOrderStatus ────────
+
+class FakeBaseInnyProcesCommituje(FakeBase):
+    """
+    W trakcie setOrderFields INNY proces (tablet pakowania, logistyk) zmienia znacznik
+    statusu i COMMITUJE. Zapis idzie osobnym połączeniem (`engine.begin()`), a nie
+    przez sesję dopychacza — sesja nic o nim nie wie, więc `order.bl_status_pending_id`
+    w pamięci zostaje stary, tak jak w drugim procesie gunicorna na MySQL.
+    """
+
+    def __init__(self, sql, parametry):
+        super().__init__()
+        self._sql = sql
+        self._parametry = parametry
+
+    def _make_api_request(self, dane):
+        odpowiedz = super()._make_api_request(dane)
+        if dane['method'] == 'setOrderFields':
+            with db.engine.begin() as polaczenie:
+                polaczenie.execute(text(self._sql), self._parametry)
+        return odpowiedz
+
+
+def test_status_wyczyszczony_w_trakcie_setorderfields_nie_jest_wysylany(app, monkeypatch):
+    """Sonda P5: przepakowanie na kuriera (znacznik 138620) — pakowacz kończy
+    przepakowanie W TRAKCIE setOrderFields (po_spakowaniu czyści 138620, ścieżka
+    pakowania wysyła 138623). Znacznik odczytany przed pierwszym wywołaniem HTTP
+    wysłałby 138620 PO 138623 i cofnął Base. do „Produkcja zakończona”."""
+    with app.app_context():
+        order = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane',),
+                           delivery_method='Transport WoodPower')
+        from modules.production.logistics.services import delivery
+        delivery.ustaw_sposob_dostawy(order, s.KURIER)
+        db.session.commit()
+        assert order.bl_status_pending_id == s.STATUS_PRODUKCJA_ZAKONCZONA
+        assert order.bl_delivery_method_pending is True
+        order_id, blid = order.id, order.baselinker_order_id
+        fake = FakeBaseInnyProcesCommituje(
+            'UPDATE prod_orders SET bl_status_pending_id = NULL, repack_required = 0 '
+            'WHERE id = :id', {'id': order_id})
+        import modules.production.services.sync_service as ss
+        monkeypatch.setattr(ss, 'get_sync_service', lambda: fake)
+
+        assert bl_sync.wyslij_zamowienie(order) == 1
+        db.session.commit()
+        assert fake.wywolania == [
+            ('setOrderFields', {'order_id': blid, 'delivery_method': 'Kurier'})]
+        db.session.expire_all()
+        odswiezony = ProductionOrder.query.get(order_id)
+        assert odswiezony.bl_status_pending_id is None
+        assert odswiezony.bl_delivery_method_pending is False
+
+
+def test_wysylany_jest_swiezy_status_z_bazy(app, monkeypatch):
+    """I3b: znacznik zmieniony w trakcie setOrderFields (149777 → 149779, „Wydane
+    klientowi”) — idzie wartość z bazy z chwili tuż przed setOrderStatus, a warunkowe
+    czyszczenie porównuje z FAKTYCZNIE wysłaną wartością."""
+    with app.app_context():
+        order = zamowienie(sposob=s.ODBIOR, statusy=('spakowane',), delivery_method='Kurier DPD',
+                           bl_delivery_method_pending=True, bl_status_pending_id=149777)
+        order_id, blid = order.id, order.baselinker_order_id
+        fake = FakeBaseInnyProcesCommituje(
+            'UPDATE prod_orders SET bl_status_pending_id = 149779 WHERE id = :id',
+            {'id': order_id})
+        import modules.production.services.sync_service as ss
+        monkeypatch.setattr(ss, 'get_sync_service', lambda: fake)
+
+        assert bl_sync.wyslij_zamowienie(order) == 2
+        db.session.commit()
+        assert fake.wywolania[1] == ('setOrderStatus', {'order_id': blid, 'status_id': 149779})
+        db.session.expire_all()
+        assert ProductionOrder.query.get(order_id).bl_status_pending_id is None

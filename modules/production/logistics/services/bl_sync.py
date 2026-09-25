@@ -158,6 +158,31 @@ def _wyczysc_status(order, wyslany_status_id):
     return False
 
 
+def _swiezy_status(order_id):
+    """
+    Wartość `bl_status_pending_id` z bazy TERAZ — tuż przed setOrderStatus.
+
+    Znacznik wczytany na początku pętli dopychacza mógł się zmienić w trakcie
+    setOrderFields (do ~105 s): pakowacz skończył przepakowanie i `po_spakowaniu`
+    skasował 138620, logistyk kliknął „Wydane klientowi” (149779). Wysłanie wartości
+    z pamięci cofnęłoby Base. do nieaktualnego statusu.
+
+    Zwykły SELECT kolumny na OSOBNYM, krótkim połączeniu z puli, nie przez sesję:
+      - w MySQL (REPEATABLE READ) SELECT w transakcji sesji czytałby migawkę z jej
+        pierwszego odczytu — czyli z chwili wczytania zamówienia, tę samą starą
+        wartość, którą mamy w pamięci; nowe połączenie = nowa migawka po commitach
+        innych procesów,
+      - bez blokady (nie FOR UPDATE / FOR SHARE), a połączenie zamykamy od razu,
+        więc nic nie trzyma wiersza w czasie drugiego wywołania HTTP,
+      - bez flush zmian zamówienia (połączenie z silnika, nie sesja ORM) — między
+        dwoma wywołaniami Base. nadal nie ma żadnego zapisu do prod_orders.
+    """
+    with db.engine.connect() as polaczenie:
+        return polaczenie.execute(
+            text('SELECT bl_status_pending_id FROM prod_orders WHERE id = :id'),
+            {'id': order_id}).scalar()
+
+
 def wyslij_zamowienie(order):
     """
     Wysyła znaczniki jednego zamówienia. Zwraca liczbę zapytań. NIE commituje.
@@ -176,6 +201,9 @@ def wyslij_zamowienie(order):
     `status_wynik`, zero zapisu do bazy), i DOPIERO w `finally` — czyli też wtedy,
     gdy setOrderStatus rzuci `LimitBase`/`BladPolaczenia` — stosujemy oba warunkowe
     UPDATE-y na raz, tuż przed tym, jak wywołujący (`dopychaj`) zacommituje.
+
+    Status do wysłania czytamy z bazy tuż przed setOrderStatus (`_swiezy_status`),
+    nie z pamięci — mógł się zmienić w trakcie setOrderFields.
 
     `order._bl_niepowodzenie` (atrybut przejściowy — NIE kolumna, nic go nie persystuje)
     sygnalizuje dopychaczowi PRAWDZIWĄ porażkę wywołania Base. (dla `pominiete` — nie
@@ -209,13 +237,17 @@ def wyslij_zamowienie(order):
                 else:
                     order._bl_niepowodzenie = True
         if order.bl_status_pending_id:
-            wyslany_status = order.bl_status_pending_id
-            zapytania += 1
-            if _wywolaj('setOrderStatus', {'order_id': order.baselinker_order_id,
-                                           'status_id': wyslany_status}):
-                status_wynik = wyslany_status
-            else:
-                order._bl_niepowodzenie = True
+            # Świeża wartość z bazy, nie z pamięci (patrz _swiezy_status). None = ktoś
+            # w międzyczasie uznał status za załatwiony → nic nie wysyłamy.
+            wyslany_status = _swiezy_status(order.id)
+            if wyslany_status:
+                zapytania += 1
+                if _wywolaj('setOrderStatus', {'order_id': order.baselinker_order_id,
+                                               'status_id': wyslany_status}):
+                    # warunkowe czyszczenie porównuje z FAKTYCZNIE wysłaną wartością
+                    status_wynik = wyslany_status
+                else:
+                    order._bl_niepowodzenie = True
         return zapytania
     finally:
         # Zapisy do bazy DOPIERO TERAZ — po obu wywołaniach HTTP (albo po wyjątku

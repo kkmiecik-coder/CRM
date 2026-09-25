@@ -112,6 +112,67 @@ def test_spakowanie_po_przepakowaniu_kasuje_zalegly_status_138620(app):
         assert order.logistics_closed_at == T1  # kurier spakowany = koniec cyklu
 
 
+def test_zalegly_138620_kasowany_po_spakowaniu_takze_bez_flagi_przepakowania(app):
+    """I3a (sonda P2): kurier (przepakowanie, znacznik 138620) → z powrotem transport
+    (flaga przepakowania skasowana) → spakowanie. 138620 zostawał i dopychacz wysłałby
+    go PO statusie po spakowaniu (417343), cofając Base. do „Produkcja zakończona”."""
+    with app.app_context():
+        order = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane', 'spakowane'))
+        d.ustaw_sposob_dostawy(order, s.KURIER, teraz=T0)
+        db.session.commit()
+        assert order.repack_required is True
+        assert order.bl_status_pending_id == s.STATUS_PRODUKCJA_ZAKONCZONA
+        d.ustaw_sposob_dostawy(order, s.TRANSPORT, teraz=T1)
+        db.session.commit()
+        # Towar znów czeka na pakowanie, więc 138620 jest wciąż właściwym statusem.
+        assert order.repack_required is False
+        assert order.bl_status_pending_id == s.STATUS_PRODUKCJA_ZAKONCZONA
+        for p in order.products:
+            p.complete_task('packaging')
+        db.session.commit()
+        assert d.wszystkie_spakowane(order)
+        assert order.bl_status_pending_id is None
+
+
+def test_zmiana_sposobu_bez_nowego_statusu_kasuje_nieaktualny_status_po_spakowaniu(app):
+    """I3c: kurier spakowany → odbiór (znacznik 149777, dopychacz jeszcze nie wysłał) →
+    Base. dokłada pozycję → transport. Zmiana nie ustawia nowego statusu (nie wszystko
+    spakowane), a 149777 „Czeka na odbiór” dla zamówienia w produkcji jest nieaktualne."""
+    with app.app_context():
+        order = zamowienie(sposob=s.KURIER, statusy=('spakowane',))
+        d.ustaw_sposob_dostawy(order, s.ODBIOR, teraz=T0)
+        assert order.bl_status_pending_id == s.STATUS_CZEKA_NA_ODBIOR
+        produkt(order, status='czeka_na_wyciecie')
+        db.session.commit()
+        d.ustaw_sposob_dostawy(order, s.TRANSPORT, teraz=T1)
+        db.session.commit()
+        assert order.bl_status_pending_id is None
+
+
+def test_przepakowanie_bez_138620_kasuje_nieaktualny_status_po_spakowaniu(app):
+    """I3c, wariant przepakowania: transport spakowany (417343 czeka) + nowa pozycja
+    w produkcji → kurier. Przepakowanie nie ustawia 138620 (nie wszystko po produkcji),
+    więc zostałby 417343 „Planowana trasa” dla zamówienia kurierskiego."""
+    with app.app_context():
+        order = zamowienie(sposob=s.ODBIOR, statusy=('spakowane',))
+        d.ustaw_sposob_dostawy(order, s.TRANSPORT, teraz=T0)
+        assert order.bl_status_pending_id == s.STATUS_PLANOWANA_TRASA
+        produkt(order, status='czeka_na_wyciecie')
+        db.session.commit()
+        assert d.ustaw_sposob_dostawy(order, s.KURIER, teraz=T1)['przepakowanie'] is True
+        db.session.commit()
+        assert order.bl_status_pending_id is None
+
+
+def test_zmiana_sposobu_nie_rusza_znacznika_spoza_statusow_po_spakowaniu(app):
+    """I3c dotyczy tylko statusów po spakowaniu — np. znacznik furtki kierowcy zostaje."""
+    with app.app_context():
+        order = zamowienie(sposob=s.KURIER, statusy=('czeka_na_pakowanie',),
+                           bl_status_pending_id=s.STATUS_WYSLANE_TRANSPORT)
+        d.ustaw_sposob_dostawy(order, s.TRANSPORT, teraz=T0)
+        assert order.bl_status_pending_id == s.STATUS_WYSLANE_TRANSPORT
+
+
 def test_kurier_na_transport_po_spakowaniu_bez_przepakowania(app):
     with app.app_context():
         order = zamowienie(sposob=s.KURIER, statusy=('spakowane',))

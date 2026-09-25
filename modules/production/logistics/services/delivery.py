@@ -85,13 +85,16 @@ def odnotuj_wejscie_do_pakowania(order, teraz):
 
 def po_spakowaniu(order, teraz):
     """Wołane z complete_task('packaging'). Kończy przepakowanie i przelicza cykl."""
-    if order.repack_required and wszystkie_spakowane(order):
-        order.repack_required = False
-        # Zaległe 138620 z przepakowania nie może nadpisać 138623, które właśnie
-        # wysyła ścieżka pakowania (baselinker_status_sync).
+    if wszystkie_spakowane(order):
+        # Zaległe 138620 z przepakowania nie może nadpisać statusu po spakowaniu,
+        # który właśnie wysyła ścieżka pakowania (baselinker_status_sync).
+        # NIEZALEŻNIE od flagi przepakowania: kurier (przepakowanie, 138620) →
+        # z powrotem transport kasuje flagę, a znacznik 138620 zostaje.
         if order.bl_status_pending_id == sposoby.STATUS_PRODUKCJA_ZAKONCZONA:
             order.bl_status_pending_id = None
-        podbij_pozycje(order, teraz)
+        if order.repack_required:
+            order.repack_required = False
+            podbij_pozycje(order, teraz)
     przelicz_zamkniecie(order, teraz)
 
 
@@ -119,6 +122,7 @@ def ustaw_sposob_dostawy(order, sposob, user_id=None, teraz=None):
     przepakowanie = (nowy == sposoby.KURIER
                      and stary in (sposoby.TRANSPORT, sposoby.ODBIOR)
                      and bool(spakowane))
+    nowy_status = False
     if przepakowanie:
         order.repack_required = True
         for p in spakowane:
@@ -129,9 +133,20 @@ def ustaw_sposob_dostawy(order, sposob, user_id=None, teraz=None):
             p.current_status = 'czeka_na_pakowanie'
         if all(p.current_status in STATUSY_PO_PRODUKCJI for p in aktywne_produkty(order)):
             order.bl_status_pending_id = sposoby.STATUS_PRODUKCJA_ZAKONCZONA
+            nowy_status = True
         zapisz_log(order, 'przepakowanie', stary, nowy, user_id=user_id, teraz=teraz)
     elif wszystkie_spakowane(order):
         order.bl_status_pending_id = sposoby.STATUS_PO_SPAKOWANIU[nowy]
+        nowy_status = True
+
+    if (not nowy_status
+            and order.bl_status_pending_id in sposoby.STATUS_PO_SPAKOWANIU.values()
+            and not wszystkie_spakowane(order)):
+        # Niewysłany jeszcze status po spakowaniu poprzedniego sposobu (np. 149777
+        # „Czeka na odbiór”), a zamówienie nie jest już w całości spakowane (Base.
+        # dołożył pozycję, przepakowanie) — dopychacz wysłałby nieaktualny status.
+        # Właściwy status po spakowaniu wyśle ścieżka pakowania, gdy wszystko się spakuje.
+        order.bl_status_pending_id = None
 
     if (order.delivery_method or '').strip() != sposoby.TEKST_BASE[nowy]:
         order.bl_delivery_method_pending = True
