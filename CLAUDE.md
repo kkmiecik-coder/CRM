@@ -146,6 +146,13 @@ z CRITICAL i z wyjątków, a odpowiedź 500 wyjątkiem nie jest). Alarm idzie na
 na godzinę na endpoint i worker, pozostałe wywołania logują ERROR. Nowy endpoint CRON
 podpinaj pod ten sam dekorator, a nie pod własne sprawdzanie nagłówka.
 
+Cron logistyki (od etapu 1 logistyki równoległej): `scripts/cron_endpoint.sh POST /production/api/logistics/cron`
+co godzinę. Przelicza cykl logistyczny zamówień i **uruchamia w tle** dopychacz, który wysyła do Base. zaległe
+zmiany sposobu dostawy i statusów (odstęp 1,5 s, jeden wątek na serwer — dzierżawa `logistyka_bl_dzierzawa`
+w `prod_config`). Endpoint odpowiada od razu: sync worker gunicorna ma 30 s na żądanie, więc długiej pracy
+w żądaniu nie robimy. Limit API Base. (100/min na konto) wstrzymuje wysyłki logistyki do chwili z komunikatu
+błędu (`logistyka_bl_wstrzymane_do`).
+
 ## Deployment
 
 ### Automatyczny deploy (webhook GitHub)
@@ -244,6 +251,11 @@ Albo po prostu `./deploy.sh` — robi dokładnie to samo, z lockiem i logami.
 - Dodając zależność, pamiętaj o `requirements.txt` — deploy instaluje z niego
 - API mobilne (`/api/mobile/*`) jest **niezależne** od paneli webowych
   produkcji; zmiany w `modules/production/routers/stations/` nie dotykają tabletów
+- **Logistyka równoległa:** status `czeka_na_logistyke` nie jest już etapem — produkcja kończy się wejściem do
+  pakowania, a sposób dostawy (`prod_orders.override_delivery_method`, NULL = „Nie ustawiono”) ustawia logistyk
+  w zakładce „Logistyka”. Pakowanie bez niego: API mobilne zwraca 409 `delivery_method_not_set`. Mapowania:
+  `modules/production/logistics/sposoby.py`. Appkę tabletową z obsługą obiektu `transport` wydajemy PRZED
+  backendem (stara appka pokazuje nieustawione jako „KURIER”).
 
 ## Architecture
 
