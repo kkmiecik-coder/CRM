@@ -44,6 +44,21 @@
  * akcję hurtową „Dodaj do trasy…” i komunikat po zdjęciu zamówień z trasy
  * (usunieto_z_trasy). Nowe pliki rozmawiają z tym wyłącznie przez
  * window.LogisticsTab = {root, odswiez, komunikat, pokazWidok, zniszcz}.
+ *
+ * Kontrakt etapu 3 (zdarzenia na document, detail.root = #logistics-root):
+ *   `logistics:widok` {root, widok, opcje} — wysyła pokazWidok() po każdym przełączeniu
+ *       podzakładki (widok: 'dashboard' | 'routes' | 'fleet'; opcje jak w wywołaniu, np.
+ *       {route_id}). Słuchają logistics-routes.js (Trasy: świeża lista, dostępność) i
+ *       logistics-fleet.js (Flota: świeże dane).
+ *   atrybut `data-lg-otworz-trase` — pokazWidok('routes', {route_id}) stawia go na panelu
+ *       tras ([data-logistics-view="routes"]); logistics-routes.js otwiera tę trasę i zdejmuje
+ *       atrybut (działa także wtedy, gdy plik tras wczyta się dopiero po tym wywołaniu).
+ *   `logistics:trasy-zmienione` {root} — wysyłamy, gdy zmiana sposobu dostawy zdjęła
+ *       zamówienia z trasy (usunieto_z_trasy); lista tras, otwarta trasa i mapa tras od nowa.
+ *   atrybut `data-lg-trasy-blad` na #logistics-root — loader w tab_content.html stawia go,
+ *       gdy logistics-routes.js się nie wczytał: „Dodaj do trasy…” mówi wtedy o błędzie.
+ *   window.LogisticsMap.onBlad(cb) — odmowa zapisu punktu na mapie spoza bieżącego trybu
+ *       (A2) trafia tu jako komunikat Dashboardu.
  */
 (function () {
     'use strict';
@@ -103,6 +118,9 @@
     const WIDOKI = ['dashboard', 'routes', 'fleet'];
     const KLUCZ_WIDOKU_LS = 'logistyka.widok';
     const STATUSY_TRAS = { robocza: 'robocza', zatwierdzona: 'zatwierdzona', wykonana: 'wykonana' };
+    // Status trasy na plakietce jako znak — te same ikony co w edytorze trasy (ołówek = szkic,
+    // kłódka = zatwierdzona, ptaszek = wykonana); całą szerokość plakietki dostaje nazwa.
+    const IKONY_TRAS = { robocza: 'fa-pen', zatwierdzona: 'fa-lock', wykonana: 'fa-check' };
 
     // ── Stan ────────────────────────────────────────────────────────────────
 
@@ -654,22 +672,33 @@
             (zablokowany ? ' disabled title="' + esc(powod) + '"' : '') + '>' + opcje + '</select>';
     }
 
+    // Klasa koloru trasy z mapy (jedno źródło wzoru, logistics-map.js); bez mapy — bez koloru.
+    function kolorTrasy(id) {
+        const m = mapa();
+        return m && typeof m.kolorTrasy === 'function' ? m.kolorTrasy(id) : '';
+    }
+
     /**
      * Etap 3: plakietka trasy pod selectem sposobu (bez nowej kolumny — układ przy
-     * 1280 px czeka na decyzję). Zamówienie na trasie: nazwa i status, klik otwiera
-     * trasę w zakładce „Trasy”. Transport własny bez trasy: „bez trasy”, klik = okno
-     * „Dodaj do trasy…” dla tego jednego zamówienia.
+     * 1280 px czeka na decyzję). Zamówienie na trasie: klik otwiera trasę w zakładce
+     * „Trasy”. Transport własny bez trasy: „bez trasy”, klik = okno „Dodaj do trasy…”
+     * dla tego jednego zamówienia.
+     * (oględziny Task 8, I1) Całą szerokość plakietki dostaje NAZWA trasy; status to znak
+     * (ołówek / kłódka / ptaszek, jak w edytorze), a pasek z lewej ma kolor trasy z mapy —
+     * kilka zatwierdzonych tras naraz da się rozróżnić bez najeżdżania. Pełny opis ze
+     * statusem: title i aria-label.
      */
     function plakietkaTrasy(w) {
         if (w.trasa) {
             const status = STATUSY_TRAS[w.trasa.status] || String(w.trasa.status || '');
             const opis = 'Trasa ' + w.trasa.nazwa + ', ' + status + '. Otwórz trasę.';
-            return '<button type="button" class="lg-plakietka-trasy lg-plakietka-trasy--' + esc(w.trasa.status) + '"' +
+            const kolor = kolorTrasy(w.trasa.id);
+            return '<button type="button" class="lg-plakietka-trasy lg-plakietka-trasy--' + esc(w.trasa.status) +
+                (kolor ? ' lg-plakietka-trasy--kolor ' + kolor : '') + '"' +
                 ' data-lg-akcja="pokaz-trase" data-trasa-id="' + esc(w.trasa.id) + '"' +
                 ' title="' + esc(opis) + '" aria-label="' + esc(opis) + '">' +
-                '<i class="fas fa-route" aria-hidden="true"></i>' +
-                '<span class="lg-plakietka-trasy-nazwa">' + esc(w.trasa.nazwa) + '</span>' +
-                '<span class="lg-plakietka-trasy-status">· ' + esc(status) + '</span></button>';
+                '<i class="fas ' + (IKONY_TRAS[w.trasa.status] || 'fa-route') + ' lg-plakietka-trasy-status" aria-hidden="true"></i>' +
+                '<span class="lg-plakietka-trasy-nazwa">' + esc(w.trasa.nazwa) + '</span></button>';
         }
         if (w.sposob !== 'transport_woodpower' || w.zamkniete || w.wydane) return '';
         return '<button type="button" class="lg-plakietka-trasy lg-plakietka-trasy--brak" data-lg-akcja="dodaj-do-trasy"' +
@@ -1055,6 +1084,8 @@
      * ikona (etap 3): klasa Font Awesome zamiast domyślnej dla typu.
      * Komunikat trafia do podzakładki, na której jest logistyk (etap 3: Trasy i Flota
      * mają własne miejsce na komunikaty — w schowanym Dashboardzie nikt by ich nie zobaczył).
+     * widok (oględziny Task 8, M16): stała podzakładka komunikatu — np. wynik lokalizowania
+     * w tle dotyczy mapy i listy Dashboardu, więc nie pojawia się we Flocie.
      * Publicznie: window.LogisticsTab.komunikat (logistics-routes.js, logistics-fleet.js).
      */
     function pokazKomunikat(typ, tresc, opcje) {
@@ -1108,7 +1139,8 @@
         x.textContent = '×';
         box.appendChild(x);
 
-        (root.querySelector('[data-lg-komunikaty="' + stan.widok + '"]') || el('komunikaty')).appendChild(box);
+        const widok = WIDOKI.includes(o.widok) ? o.widok : stan.widok;
+        (root.querySelector('[data-lg-komunikaty="' + widok + '"]') || el('komunikaty')).appendChild(box);
         if (typ === 'ok' || typ === 'info') {
             setTimeout(() => { if (box.isConnected) box.remove(); }, 6000);
         }
@@ -1144,6 +1176,13 @@
         }
     }
 
+    // (oględziny Task 8, M14) Tekst serwera zwykle sam zaczyna się od numeru („Zamówienie
+    // 1512 jest na zatwierdzonej trasie…”) — wtedy numer przed nim byłby drugi raz.
+    function pozycjaOdmowy(numer, tekst) {
+        const t = String(tekst || '');
+        return { numer: numer && t.indexOf(String(numer)) === -1 ? numer : '', tekst: t };
+    }
+
     /** Wynik jednej lub kilku odpowiedzi → wiersze + komunikaty. */
     function podsumujZmiany(wynik, pojedynczo, opisAkcji) {
         podmienWiersze(wynik.orders, wynik.zmienione);
@@ -1168,7 +1207,7 @@
             const n = wynik.bledy.length;
             // Dopełniacz po przeczeniu: „nie zmieniono 1 zamówienia / 2 zamówień”.
             pokazKomunikat('blad', 'Nie zmieniono ' + n + ' ' + odmiana(n, ['zamówienia', 'zamówień', 'zamówień']) + ':', {
-                lista: wynik.bledy.map((b) => ({ numer: numer(b.order_id), tekst: b.komunikat })),
+                lista: wynik.bledy.map((b) => pozycjaOdmowy(numer(b.order_id), b.komunikat)),
             });
         }
         if (wynik.usunieto_z_trasy.length) pokazUsunieteZTras(wynik.usunieto_z_trasy, numer);
@@ -1312,7 +1351,14 @@
     function dodajDoTrasy(wiersze, powrot, poDodaniu) {
         const trasy = window.LogisticsRoutes;
         if (!trasy || trasy.root !== root || typeof trasy.dodajDoTrasy !== 'function') {
-            pokazKomunikat('info', 'Trasy jeszcze się wczytują. Spróbuj za chwilę.', { klucz: 'trasa' });
+            // (oględziny Task 8, m6) Plik tras się nie wczytał (loader stawia data-lg-trasy-blad)
+            // — mówimy prawdę, zamiast w nieskończoność „jeszcze się wczytują”.
+            if (root.hasAttribute('data-lg-trasy-blad')) {
+                pokazKomunikat('blad', 'Nie udało się wczytać tras. Odśwież stronę, żeby spróbować ponownie.',
+                    { klucz: 'trasa' });
+            } else {
+                pokazKomunikat('info', 'Trasy jeszcze się wczytują. Spróbuj za chwilę.', { klucz: 'trasa' });
+            }
             return;
         }
         trasy.dodajDoTrasy(wiersze, { powrot: powrot }).then((wynik) => {
@@ -1322,11 +1368,27 @@
         }).catch((e) => console.error('[Logistyka] Dodaj do trasy:', e));
     }
 
+    /**
+     * (oględziny Task 8, I3) Po udanym hurtowym „Dodaj do trasy…” pasek hurtu znika razem
+     * z przyciskiem, z którego otwarto okno — fokus idzie na plakietkę trasy pierwszego
+     * dodanego wiersza (widać od razu, na jakiej trasie jest), a gdy tego wiersza nie ma na
+     * liście — na wyszukiwarkę listy.
+     */
+    function fokusPoDodaniuDoTrasy(dodane) {
+        const ids = new Set((dodane || []).map(Number));
+        const tr = Array.from(tbody.querySelectorAll('tr[data-id]'))
+            .find((w) => ids.has(Number(w.getAttribute('data-id'))));
+        const cel = (tr && tr.querySelector('.lg-plakietka-trasy')) || el('q');
+        if (cel && cel.offsetParent !== null) cel.focus();
+    }
+
     function hurtTrasa(przycisk) {
         const wybrane = Array.from(stan.zaznaczone).map(znajdz).filter(Boolean);
         if (!wybrane.length) return;
         dodajDoTrasy(wybrane, przycisk, (wynik) => {
-            if (wynik.dodane && wynik.dodane.length) odznaczWszystko();
+            if (!wynik.dodane || !wynik.dodane.length) return;
+            odznaczWszystko();
+            fokusPoDodaniuDoTrasy(wynik.dodane);
         });
     }
 
@@ -1421,8 +1483,9 @@
         }
         const dziala = !!dane.geokoder_dziala || Date.now() < stan.ochronaGeoDo;
         if (stan.geokoderDziala && !dziala) {
+            // (oględziny Task 8, M16) Wynik dotyczy mapy i listy — tylko na Dashboardzie.
             pokazKomunikat('ok', 'Lokalizowanie zakończone. Bez lokalizacji: ' +
-                (stan.bezLokalizacji === null ? '–' : stan.bezLokalizacji) + '.', { klucz: 'geo' });
+                (stan.bezLokalizacji === null ? '–' : stan.bezLokalizacji) + '.', { klucz: 'geo', widok: 'dashboard' });
         }
         stan.geokoderDziala = dziala;
         stan.geokoderPostep = dziala ? postepGeokodera(dane.geokoder_postep) : null;
@@ -1564,7 +1627,17 @@
         mapaPolaczona = m;
         m.onSelect(naWyborNaMapie);
         m.onZmiana(naZmianePunktu);
+        if (typeof m.onBlad === 'function') m.onBlad(naBladMapy);
         przekazDoMapy();
+        // Kolory tras na plakietkach pochodzą z mapy — wiersze na trasach dostają je teraz.
+        if (!stan.pierwszeLadowanie && stan.wiersze.some((w) => w.trasa)) renderujTabele();
+    }
+
+    // (oględziny Task 8, A2) Odmowa zapisu punktu, gdy logistyk pracuje już nad następnym
+    // zamówieniem (pasek mapy należy do niego) — komunikat na Dashboardzie, gdzie jest mapa.
+    function naBladMapy(tekst) {
+        if (zniszczona || !tekst) return;
+        pokazKomunikat('blad', tekst, { widok: 'dashboard' });
     }
 
     function naGotowaMape(e) {

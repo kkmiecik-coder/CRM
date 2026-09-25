@@ -32,6 +32,22 @@
  *
  * Publicznie: window.LogisticsRoutes = {root, otworz(route_id), dodajDoTrasy(zamowienia, opcje), zniszcz()}.
  * Każdy tekst z API przechodzi przez esc() albo textContent.
+ *
+ * Kontrakt ze zdarzeniami (wszystkie na document, detail.root = #logistics-root):
+ *   `logistics:widok` {root, widok, opcje} (logistics.js, pokazWidok) — podzakładka na ekranie;
+ *       widok 'routes' = pokazano(): świeża lista tras, dostępność pojazdów, trasa do otwarcia.
+ *   atrybut `data-lg-otworz-trase` na panelu [data-logistics-view="routes"] — id trasy do
+ *       otwarcia; stawia go pokazWidok('routes', {route_id}) (klik w plakietkę trasy na liście,
+ *       w trasę na mapie), także ZANIM ten plik się wczyta. Zdejmujemy go przy otwieraniu.
+ *   `logistics:trasy-zmienione` {root} (logistics.js) — zmiana sposobu dostawy zdjęła
+ *       zamówienia z tras: lista, otwarta trasa i mapa tras pobierają się od nowa.
+ *   `logistics:flota-zmieniona` {root} (logistics-fleet.js) — dostępność pojazdów od nowa.
+ *   `logistics:podklad` {root, podklad} (logistics-map.js) — mapka edytora zmienia podkład
+ *       razem z mapą Dashboardu.
+ *   `logistics:mapa-gotowa` {root} (logistics-map.js) — łączymy się z mapą Dashboardu.
+ *
+ * Zmiany trasy (mutacja): jedna naraz NA TRASĘ, odpowiedź trafia do edytora tylko wtedy,
+ * gdy użytkownik jest wciąż przy tej samej trasie (sesja edytora) — patrz przyjmijOdpowiedz.
  */
 (function () {
     'use strict';
@@ -60,6 +76,13 @@
     // wagę trasy zawsze liczy serwer (podsumowanie).
     const WAGA_KG_NA_M3 = 800;
     const TRANSPORT = 'transport_woodpower';
+    // Zakres roku w polach dat (jak min/max w szablonie) — Chrome przepuszcza w polu daty
+    // rok 5–6-cyfrowy (np. 92026), a serwer taki odrzuca (oględziny M5).
+    const ROK_OD = 2000;
+    const ROK_DO = 2099;
+    // (oględziny M10) Zapas od krawędzi mapki przy dopasowaniu: z lewej kolumna +/−
+    // i „Pokaż całą trasę”, u dołu atrybucja — żaden przystanek nie ląduje pod kontrolką.
+    const MARGINES_MAPKI = { paddingTopLeft: [54, 30], paddingBottomRight: [30, 30] };
 
     const NAZWY_STATUSOW = { robocza: 'Robocza', zatwierdzona: 'Zatwierdzona', wykonana: 'Wykonana' };
     const IKONY_STATUSOW = { robocza: 'fa-pen', zatwierdzona: 'fa-lock', wykonana: 'fa-check' };
@@ -167,7 +190,12 @@
         wybranyPojazd: '',        // wybór w selectach — przeżywa odświeżenie dostępności
         wybranyKierowca: '',
         migawka: '',              // pola formularza po wczytaniu / zapisie („niezapisane zmiany”)
-        akcjaTrwa: false,         // zapis, zmiana statusu, dodawanie… — przyciski czekają
+        // (oględziny A1) Trasy ze zmianą w drodze: klucz trasy (kluczTrasy) → przyciski TEJ
+        // trasy czekają; inną trasę można w tym czasie otworzyć i zmieniać.
+        wToku: new Set(),
+        // Numer sesji edytora — rośnie przy każdym przejściu do innej trasy, nowej trasy albo
+        // zamknięciu edytora (resetEdytora). Odpowiedź mutacji z innej sesji nie przejmuje edytora.
+        sesja: 0,
         kandydaci: [],
         kandydaciWczytani: false,
         kandydaciBlad: null,
@@ -195,12 +223,23 @@
     let chwytZPrzycisku = false;     // wciśnięcie zaczęło się na przycisku — to nie przeciąganie
     let dodawanie = null;            // otwarte okno „Dodaj do trasy…”
     let wykonywanie = null;          // otwarte okno „Odhacz jako wykonaną”
+    // (oględziny m3) Trasy zmienione u nas (odpowiedź mutacji albo odczyt trasy): id →
+    // {wersja, trasa (skrót listy) | null = usunięta}. Lista pobrana PRZED taką zmianą nie
+    // nadpisuje jej starszym wierszem serwera (scalZLokalnymi).
+    let licznikZmian = 0;
+    const lokalneZmiany = new Map();
 
     // Mapka edytora — osobna instancja Leafleta.
     let mapka = null;
     let warstwaMapki = null;
+    let kafelkiMapki = null;          // L.TileLayer podkładu mapki (podmieniany za mapą Dashboardu)
     let mapkaDopasowana = false;
     let mapkaCzekaNaDopasowanie = false;
+    // (oględziny I2) Schowana mapka (rozmiar 0) po powrocie dopasowuje się do trasy od nowa —
+    // chyba że użytkownik sam ją przesunął albo przybliżył od ostatniego dopasowania.
+    let mapkaUkryta = false;
+    let mapkaRuszona = false;
+    let dopasowanieMapkiWToku = false;   // movestart dopasowania to nie ruch użytkownika
     let obserwatorMapki = null;
     const znacznikiMapki = new Map();   // id zamówienia → L.Marker przystanku
 
@@ -263,6 +302,44 @@
         return Math.round((Date.UTC(dzis.getFullYear(), dzis.getMonth(), dzis.getDate()) - Date.UTC(r, m - 1, d)) / 86400000);
     }
 
+    // Wartość pola daty 'RRRR-MM-DD': rok czterocyfrowy, prawdziwy dzień (bez 31.02).
+    function poprawnaData(v) {
+        const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(v || ''));
+        if (!m) return false;
+        const r = Number(m[1]);
+        const d = new Date(Date.UTC(r, Number(m[2]) - 1, Number(m[3])));
+        return d.getUTCFullYear() === r && d.getUTCMonth() === Number(m[2]) - 1 && d.getUTCDate() === Number(m[3]);
+    }
+
+    const rokWZakresie = (v) => {
+        const r = Number(String(v).slice(0, 4));
+        return r >= ROK_OD && r <= ROK_DO;
+    };
+
+    /**
+     * (oględziny M5) Błąd pola daty w formacie interfejsu (dd.mm.rrrr), zanim cokolwiek pójdzie
+     * do serwera. pole — <input type="date"> (niepełna data z klawiatury: validity.badInput,
+     * wartość pusta), etykieta — „od” / „do”, wymagane — puste pole to błąd.
+     */
+    function bladDaty(pole, etykieta, wymagane) {
+        const v = pole ? pole.value : '';
+        if (pole && pole.validity && pole.validity.badInput) {
+            return 'Podaj pełną datę „' + etykieta + '” w formacie dd.mm.rrrr.';
+        }
+        if (!v) return wymagane ? 'Podaj datę „' + etykieta + '”.' : null;
+        if (!poprawnaData(v)) return 'Podaj datę „' + etykieta + '” w formacie dd.mm.rrrr.';
+        if (!rokWZakresie(v)) return 'Sprawdź rok w dacie „' + etykieta + '” (dd.mm.rrrr, lata ' + ROK_OD + '–' + ROK_DO + ').';
+        return null;
+    }
+
+    // (oględziny M14) Tekst serwera zwykle sam zaczyna się od numeru zamówienia
+    // („Zamówienie 1512 jest…”) — wtedy numer przed nim byłby drugi raz.
+    function pozycjaOdmowy(numer, tekst) {
+        const t = String(tekst || '');
+        // Odstęp między numerem a tekstem daje CSS (margines <b> w liście komunikatu).
+        return { numer: numer && t.indexOf(String(numer)) === -1 ? numer : '', tekst: t };
+    }
+
     const rowne = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
     const samZestaw = (a, b) => a.length === b.length && a.every((x) => b.indexOf(x) !== -1);
 
@@ -298,10 +375,32 @@
         }
     }
 
+    // (oględziny M15) Pole z błędem: aria-invalid i aria-describedby na tekst błędu — czytnik
+    // ekranu wiąże komunikat z polem. Zdejmujemy przy poprawce pola i przy zniknięciu błędu.
+    function oznaczPole(p, idBledu) {
+        if (!p) return;
+        p.setAttribute('aria-invalid', 'true');
+        if (idBledu) p.setAttribute('aria-describedby', idBledu);
+    }
+
+    function zdejmijOznaczenie(p) {
+        if (!p || !p.hasAttribute || !p.hasAttribute('aria-invalid')) return;
+        p.removeAttribute('aria-invalid');
+        p.removeAttribute('aria-describedby');
+    }
+
+    function zdejmijOznaczenia(formularz) {
+        if (formularz) formularz.querySelectorAll('[aria-invalid]').forEach(zdejmijOznaczenie);
+    }
+
+    let numerBledu = 0;   // rośnie z każdym pokazanym błędem edytora (wczytajDostepnosc)
+
     function pokazBlad(tekst) {
         if (!bladEl) return;
+        if (tekst) numerBledu += 1;
         bladEl.textContent = tekst || '';
         bladEl.hidden = !tekst;
+        if (!tekst) zdejmijOznaczenia(form);
     }
 
     function oglos(tekst) {
@@ -441,16 +540,33 @@
         }
     }
 
+    /**
+     * (oględziny m3) Lista z serwera + zmiany tras przyjęte u nas PO wysłaniu zapytania
+     * (start = licznikZmian z chwili wysłania). Wolna lista, wysłana przed mutacją, nie cofa
+     * wiersza, który odpowiedź mutacji już poprawiła, i nie wskrzesza usuniętej trasy.
+     * pasuje(trasa) — czy skrót trasy należy do tej listy (np. tylko wykonane).
+     */
+    function scalZLokalnymi(trasy, start, pasuje) {
+        let wynik = trasy;
+        lokalneZmiany.forEach((z, id) => {
+            if (z.wersja <= start) return;
+            wynik = wynik.filter((t) => t.id !== id);
+            if (z.trasa && (!pasuje || pasuje(z.trasa))) wynik.push(z.trasa);
+        });
+        return wynik;
+    }
+
     async function wczytajListe() {
         if (zniszczona) return;
         if (kontrolerListy) kontrolerListy.abort();
         const kontroler = new AbortController();
         kontrolerListy = kontroler;
+        const start = licznikZmian;
         if (odswiezListeBtn) odswiezListeBtn.classList.add('is-kreci');
         try {
             const dane = await zapytanie('/routes', { signal: kontroler.signal });
             if (zniszczona || kontroler !== kontrolerListy) return;
-            stan.trasy = Array.isArray(dane.routes) ? dane.routes : [];
+            stan.trasy = scalZLokalnymi(Array.isArray(dane.routes) ? dane.routes : [], start);
             stan.listaWczytana = true;
             stan.listaBlad = null;
         } catch (e) {
@@ -483,6 +599,7 @@
         }
         const kontroler = new AbortController();
         kontrolerWykonanych = kontroler;
+        const start = licznikZmian;
         const p = new URLSearchParams({ status: 'wykonana' });
         if (od) p.set('od', od);
         if (doDnia) p.set('do', doDnia);
@@ -490,7 +607,11 @@
         try {
             const dane = await zapytanie('/routes?' + p.toString(), { signal: kontroler.signal });
             if (zniszczona || kontroler !== kontrolerWykonanych) return;
-            stan.filtrWykonanych = { od: od, do: doDnia, trasy: Array.isArray(dane.routes) ? dane.routes : [] };
+            stan.filtrWykonanych = {
+                od: od,
+                do: doDnia,
+                trasy: scalZLokalnymi(Array.isArray(dane.routes) ? dane.routes : [], start, (t) => t.status === 'wykonana'),
+            };
             if (opisWykonanychEl) {
                 // Bez „od” serwer i tak tnie do ostatnich 30 dni (domyślne okno wykonanych).
                 opisWykonanychEl.textContent = od
@@ -517,6 +638,8 @@
     /** Odpowiedź mutacji (route) poprawia pozycję listy od razu, bez pobierania całej listy. */
     function aktualizujNaLiscie(route) {
         const s = skrotTrasy(route);
+        licznikZmian += 1;
+        lokalneZmiany.set(s.id, { wersja: licznikZmian, trasa: s });
         const i = stan.trasy.findIndex((t) => t.id === s.id);
         if (i === -1) stan.trasy.push(s); else stan.trasy[i] = s;
         if (stan.filtrWykonanych) {
@@ -532,6 +655,8 @@
     }
 
     function usunZListy(id) {
+        licznikZmian += 1;
+        lokalneZmiany.set(id, { wersja: licznikZmian, trasa: null });
         stan.trasy = stan.trasy.filter((t) => t.id !== id);
         if (stan.filtrWykonanych) stan.filtrWykonanych.trasy = stan.filtrWykonanych.trasy.filter((t) => t.id !== id);
         renderujListe();
@@ -560,16 +685,39 @@
     const migawkaFormularza = () => JSON.stringify(daneFormularza());
     const zmieniony = () => edytowalnaForma() && !!stan.migawka && migawkaFormularza() !== stan.migawka;
 
-    /** Te same zasady co serwer (services/routes.py, _dane_trasy) — błąd od razu, bez zapytania. */
-    function bladFormularza(dane) {
+    /**
+     * Te same zasady co serwer (services/routes.py, _dane_trasy) — błąd od razu, bez zapytania.
+     * formularz (edytor albo okno „Dodaj do trasy…”) — jego pola dat sprawdzamy wprost
+     * (niepełna data z klawiatury, rok spoza zakresu), zanim cokolwiek pójdzie do serwera.
+     */
+    function bladFormularza(dane, formularz) {
         if (!dane.name) return { tekst: 'Podaj nazwę trasy.', pole: 'name' };
         if (dane.name.length > 120) return { tekst: 'Nazwa trasy może mieć najwyżej 120 znaków.', pole: 'name' };
-        if (!dane.date_from) return { tekst: 'Podaj datę „od”.', pole: 'date_from' };
+        const polaDat = formularz ? formularz.elements : null;
+        const od = polaDat ? polaDat.namedItem('date_from') : null;
+        const doDnia = polaDat ? polaDat.namedItem('date_to') : null;
+        let blad = od ? bladDaty(od, 'od', true) : (dane.date_from ? null : 'Podaj datę „od”.');
+        if (blad) return { tekst: blad, pole: 'date_from' };
+        blad = doDnia ? bladDaty(doDnia, 'do', false) : null;
+        if (blad) return { tekst: blad, pole: 'date_to' };
+        if (!poprawnaData(dane.date_from) || !poprawnaData(dane.date_to)) {
+            return { tekst: 'Podaj datę „od” w formacie dd.mm.rrrr.', pole: 'date_from' };
+        }
         if (dane.date_to < dane.date_from) return { tekst: 'Data „do” jest wcześniejsza niż „od”.', pole: 'date_to' };
         return null;
     }
 
+    // Kontrola formularza edytora w chwili kliknięcia (przed mutacją): błąd przy polu, fokus na nim.
+    function formularzPoprawny() {
+        const blad = bladFormularza(daneFormularza(), form);
+        if (!blad) return true;
+        fokusNaBledneZPola(blad);
+        return false;
+    }
+
     function resetEdytora() {
+        // Nowa sesja edytora: spóźnione odpowiedzi mutacji poprzedniej już go nie przejmą.
+        stan.sesja += 1;
         clearTimeout(timerDostepnosci);
         clearTimeout(timerSzukania);
         if (kontrolerDostepnosci) kontrolerDostepnosci.abort();
@@ -587,9 +735,25 @@
         stan.dodawani.clear();
         if (kandydaciQ) kandydaciQ.value = '';
         mapkaDopasowana = false;
+        mapkaRuszona = false;
         if (akcjeEl) akcjeEl.removeAttribute('data-klucz');
         pokazBlad('');
     }
+
+    // Klucz trasy dla stan.wToku: 'nowa' (formularz nowej trasy), id trasy albo null.
+    function kluczTrasy() {
+        if (stan.nowa) return 'nowa';
+        return stan.otwarta ? String(stan.otwarta.id) : null;
+    }
+
+    /** Czy trasa w edytorze ma zmianę w drodze (jej przyciski czekają). */
+    function akcjaTrwa() {
+        const k = kluczTrasy();
+        return k !== null && stan.wToku.has(k);
+    }
+
+    // Użytkownik jest wciąż w tej samej sesji edytora co w chwili kliknięcia (ctx z mutacji).
+    const naEkranie = (ctx) => !zniszczona && !!ctx && ctx.sesja === stan.sesja;
 
     /** Czy wolno zostawić bieżącą trasę (niezapisane zmiany, kolejność w drodze). */
     async function pozwolOpuscic() {
@@ -669,12 +833,16 @@
         if (cel) cel.focus({ preventScroll: true });
     }
 
-    /** Odpowiedź API z trasą → stan, lista i edytor (formularz tylko, gdy opcje.formularz). */
+    /**
+     * Odpowiedź API z trasą → stan, lista i edytor (formularz tylko, gdy opcje.formularz,
+     * inna trasa albo inny status — pola trasy tylko do odczytu pokazują wartości z serwera).
+     */
     function przyjmijTrase(route, opcje) {
         const o = opcje || {};
         if (!route || zniszczona) return;
         const poprzednia = stan.otwarta;
         const inna = !poprzednia || poprzednia.id !== route.id;
+        const innyStatus = !inna && poprzednia.status !== route.status;
         const idsPrzed = poprzednia && !inna ? (poprzednia.przystanki || []).map((p) => p.zamowienie.id) : [];
         stan.otwarta = route;
         stan.nowa = false;
@@ -683,7 +851,30 @@
             stan.kolejnosc = null;
         }
         aktualizujNaLiscie(route);
-        renderujEdytor({ formularz: !!o.formularz || inna, dopasujMapke: inna || !samZestaw(idsPrzed, idsPo) });
+        renderujEdytor({ formularz: !!o.formularz || inna || innyStatus, dopasujMapke: inna || !samZestaw(idsPrzed, idsPo) });
+        if (o.zmiana) odswiezMapeTrasPoZmianie();
+    }
+
+    /**
+     * (oględziny A1) Odpowiedź mutacji → edytor TYLKO w tej samej sesji edytora (ctx.sesja):
+     * użytkownik nie przeszedł w międzyczasie do innej trasy, do nowej trasy ani nie zamknął
+     * edytora. Inaczej poprawiamy tylko pozycję listy i mapę tras — spóźniona odpowiedź
+     * trasy A nie przejmuje edytora z trasą B i nie nadpisuje jej formularza. Gdy w
+     * międzyczasie otwarto ponownie TĘ SAMĄ trasę: świeże przystanki, podsumowanie i status,
+     * a pola formularza zostają takie, jak je widać (chyba że zmienił się status).
+     */
+    function przyjmijOdpowiedz(ctx, route, opcje) {
+        const o = opcje || {};
+        if (!route || zniszczona) return;
+        if (naEkranie(ctx)) {
+            przyjmijTrase(route, o);
+            return;
+        }
+        if (!stan.nowa && stan.otwarta && stan.otwarta.id === route.id) {
+            przyjmijTrase(route, { zmiana: o.zmiana });
+            return;
+        }
+        aktualizujNaLiscie(route);
         if (o.zmiana) odswiezMapeTrasPoZmianie();
     }
 
@@ -823,19 +1014,27 @@
         clearTimeout(timerDostepnosci);
         if (zniszczona || !edytowalnaForma()) return;
         const dane = daneFormularza();
-        if (!dane.date_from || dane.date_to < dane.date_from) return;
+        // (oględziny M1) Niepełna albo błędna data (np. rok 92026 w trakcie wpisywania z
+        // klawiatury) nie idzie do serwera — zostaje dostępność dla ostatnich dobrych dat.
+        if (!poprawnaData(dane.date_from) || !poprawnaData(dane.date_to) ||
+            !rokWZakresie(dane.date_from) || !rokWZakresie(dane.date_to) || dane.date_to < dane.date_from) return;
         if (kontrolerDostepnosci) kontrolerDostepnosci.abort();
         const kontroler = new AbortController();
         kontrolerDostepnosci = kontroler;
         const p = new URLSearchParams({ date_from: dane.date_from, date_to: dane.date_to });
         if (!stan.nowa && stan.otwarta) p.set('route_id', String(stan.otwarta.id));
         const dla = stan.nowa ? 'nowa' : stan.otwarta.id;
+        const bladPrzed = numerBledu;
         try {
             const odp = await zapytanie('/availability?' + p.toString(), { signal: kontroler.signal });
             if (zniszczona || kontroler !== kontrolerDostepnosci) return;
             if ((stan.nowa ? 'nowa' : (stan.otwarta && stan.otwarta.id)) !== dla) return;
             stan.dostepnosc = { pojazdy: odp.pojazdy || [], kierowcy: odp.kierowcy || [] };
             renderujSelecty();
+            // (oględziny M1) Dostępność dla bieżących pól przyszła — czerwony błąd sprzed
+            // poprawki (np. „Pojazd jest zajęty…”, złe daty) już nie dotyczy tego, co widać.
+            // Błąd, który pojawił się W TRAKCIE tego zapytania (inna akcja), zostaje.
+            if (numerBledu === bladPrzed) pokazBlad('');
         } catch (e) {
             if (przerwane(e) || zniszczona || kontroler !== kontrolerDostepnosci) return;
             pokazBlad('Nie wczytano dostępności pojazdów i kierowców. ' + e.message);
@@ -861,19 +1060,25 @@
         odswiezAkcje();
     }
 
-    /** Stan przycisków: „Zapisz” tylko przy zmianach (i wtedy główny), bez przystanków nie ma czego zatwierdzać. */
+    /**
+     * Stan przycisków: „Zapisz” tylko przy zmianach (i wtedy główny), bez przystanków nie ma
+     * czego zatwierdzać. Zmiana tej trasy w drodze: aria-disabled, nie disabled — przycisk
+     * z fokusem zostaje pod klawiaturą (oględziny I3), a klik i tak przechodzi przez mutacja().
+     */
     function odswiezAkcje() {
         if (!akcjeEl) return;
         const zmiany = zmieniony();
         const ile = liczbaPrzystankow();
+        const czeka = akcjaTrwa();
         akcjeEl.querySelectorAll('[data-lg-trasy-akcja]').forEach((b) => {
             const akcja = b.getAttribute('data-lg-trasy-akcja');
-            let wylaczony = stan.akcjaTrwa;
+            let wylaczony = false;
             let tytul = '';
             if (akcja === 'zapisz') {
-                wylaczony = wylaczony || !zmiany;
+                // W trakcie zapisu „Zapisz” czeka (aria-disabled) zamiast gasnąć pod fokusem.
+                wylaczony = !zmiany && !czeka;
                 b.classList.toggle('lg-przycisk--glowny', zmiany);
-                if (!zmiany) tytul = 'Brak zmian do zapisania.';
+                if (!zmiany && !czeka) tytul = 'Brak zmian do zapisania.';
             } else if (akcja === 'zatwierdz') {
                 b.classList.toggle('lg-przycisk--glowny', !zmiany);
                 if (!ile) {
@@ -887,116 +1092,235 @@
                 tytul = 'Trasa nie ma przystanków.';
             }
             b.disabled = wylaczony;
+            if (czeka && !wylaczony) {
+                b.setAttribute('aria-disabled', 'true');
+                tytul = 'Poczekaj, aż zapisze się poprzednia zmiana tej trasy.';
+            } else {
+                b.removeAttribute('aria-disabled');
+            }
             if (tytul) b.title = tytul; else b.removeAttribute('title');
         });
         if (dodajZaznaczoneBtn) renderujPrzyciskDodawania();
     }
 
+    /** Migawka z chwili kliknięcia: trasa, sesja edytora, dane formularza, fokus (oględziny A1). */
+    function migawkaMutacji() {
+        const nowa = stan.nowa;
+        const trasa = nowa ? null : stan.otwarta;
+        return {
+            klucz: kluczTrasy(),
+            sesja: stan.sesja,
+            nowa: nowa,
+            trasa: trasa,
+            id: trasa ? trasa.id : null,
+            nazwa: nowa ? 'Nowa trasa' : 'Trasa „' + (trasa ? trasa.nazwa : '') + '”',
+            dane: daneFormularza(),
+            zmiany: zmieniony(),
+            fokus: document.activeElement,
+        };
+    }
+
     /**
-     * Wspólny szkielet zmian trasy: jedna naraz (przyciski czekają), najpierw zapis
-     * kolejności w drodze, błąd z serwera (409/422) — przy formularzu edytora.
+     * Wspólny szkielet zmian trasy (oględziny A1): jedna naraz NA TRASĘ — przyciski tej
+     * trasy czekają, a inne trasy można w tym czasie otwierać i zmieniać (serwer i tak
+     * szereguje zapisy blokadą tras). Najpierw zapis kolejności w drodze. fn(ctx) pracuje
+     * na migawce z chwili kliknięcia (ctx.trasa, ctx.dane), nie na stan.otwarta — ta mogła
+     * się zmienić, zanim przyszła odpowiedź. Błąd serwera (409/422): przy formularzu, gdy
+     * użytkownik jest wciąż przy tej trasie, inaczej komunikatem z nazwą trasy. Po 409/404
+     * trasa na serwerze jest inna niż nasza kopia — pobieramy ją od nowa (oględziny m4).
      */
     async function mutacja(fn) {
-        if (stan.akcjaTrwa || zniszczona) return null;
-        stan.akcjaTrwa = true;
+        if (zniszczona || akcjaTrwa()) return null;
+        const ctx = migawkaMutacji();
+        if (ctx.klucz === null) return null;
+        stan.wToku.add(ctx.klucz);
         odswiezAkcje();
         renderujKandydatow();
         pokazBlad('');
+        let odswiez = false;
         try {
             await dokonczKolejnosc();
-            return await fn();
+            return await fn(ctx);
         } catch (e) {
-            if (!zniszczona && !przerwane(e)) pokazBlad(e.message);
+            if (zniszczona || przerwane(e)) return null;
+            const konflikt = e.status === 409 || e.status === 404;
+            if (naEkranie(ctx)) {
+                pokazBlad(e.message);
+                odswiez = konflikt && !ctx.nowa;
+            } else {
+                komunikat('blad', ctx.nazwa + ': ' + e.message, { klucz: 'trasa' });
+                if (konflikt) wczytajListe();
+            }
             return null;
         } finally {
-            stan.akcjaTrwa = false;
+            stan.wToku.delete(ctx.klucz);
             if (!zniszczona) {
                 odswiezAkcje();
                 renderujKandydatow();
+                if (naEkranie(ctx)) oddajFokus(ctx);
+                if (odswiez) odswiezOtwarta();
             }
         }
+    }
+
+    // Fokus „zgubiony”: na <body>, na elemencie usuniętym z DOM, albo w tej zakładce na
+    // elemencie schowanym lub nieaktywnym (przeglądarka i tak zaraz przeniesie go na <body> —
+    // reguła „focus fixup”). Fokus poza zakładką (np. menu boczne) i w otwartym oknie — nie.
+    function fokusZgubiony() {
+        const a = document.activeElement;
+        if (!a || a === document.body || a === document.documentElement || !a.isConnected) return true;
+        if (!root.contains(a) || (a.closest && a.closest('dialog[open]'))) return false;
+        return a.disabled === true || a.offsetParent === null;
+    }
+
+    /**
+     * (oględziny I3) Po zmianie trasy fokus nie spada na <body>: kliknięty przycisk zniknął
+     * (inny status = inne przyciski) albo zgasł („Zapisz” po zapisie). Wraca na niego, gdy
+     * znów działa, a inaczej na tytuł edytora (ten sam, na który trafia otwarcie trasy z mapy).
+     * Fokus, który użytkownik sam przeniósł w trakcie (np. do notatki), zostaje.
+     */
+    function oddajFokus(ctx) {
+        if (!fokusZgubiony()) return;
+        const b = ctx.fokus;
+        const cel = b && b !== document.body && b.isConnected && !b.disabled && b.offsetParent !== null ? b : tytulEl;
+        if (cel && cel.isConnected && cel.offsetParent !== null) cel.focus({ preventScroll: true });
     }
 
     function fokusNaBledneZPola(blad) {
         pokazBlad(blad.tekst);
         const p = pole(blad.pole);
+        oznaczPole(p, 'lg-edytor-blad');
         if (p && !p.disabled) p.focus();
     }
 
-    async function zapisz(ciche) {
-        const t = stan.otwarta;
-        if (!edytowalnaTrasa()) return false;
-        const dane = daneFormularza();
+    async function zapisz(ctx, ciche) {
+        const t = ctx.trasa;
+        if (!t || ctx.nowa || t.status !== 'robocza') return false;
+        const dane = ctx.dane;
         const blad = bladFormularza(dane);
         if (blad) {
-            fokusNaBledneZPola(blad);
+            if (naEkranie(ctx)) fokusNaBledneZPola(blad);
             return false;
         }
-        const odp = await zapytanie('/routes/' + t.id, { metoda: 'PUT', dane: dane });
+        // (oględziny A1) Zmiany w drodze to nie „niezapisane zmiany” — przejście do innej trasy
+        // w trakcie zapisu nie pyta o ich porzucenie. Odmowa serwera przywraca poprzedni stan
+        // („Zapisz” znów aktywny przy tych samych polach).
+        const wyslane = JSON.stringify(dane);
+        const migawkaPrzed = stan.migawka;
+        if (naEkranie(ctx)) stan.migawka = wyslane;
+        let odp;
+        try {
+            odp = await zapytanie('/routes/' + t.id, { metoda: 'PUT', dane: dane });
+        } catch (e) {
+            if (naEkranie(ctx) && stan.migawka === wyslane) stan.migawka = migawkaPrzed;
+            throw e;
+        }
         if (zniszczona) return false;
-        przyjmijTrase(odp.route, { formularz: true, zmiana: true });
+        // Pola zmienione W TRAKCIE zapisu zostają — formularz z serwera tylko bez takich zmian.
+        const formularz = !naEkranie(ctx) || migawkaFormularza() === wyslane;
+        przyjmijOdpowiedz(ctx, odp.route, { formularz: formularz, zmiana: true });
         if (!ciche) komunikat('ok', 'Zapisano trasę „' + odp.route.nazwa + '”.', { klucz: 'trasa' });
         return true;
     }
 
-    async function utworz() {
-        if (!stan.nowa) return;
-        const dane = daneFormularza();
+    async function utworz(ctx) {
+        if (!ctx.nowa) return;
+        const dane = ctx.dane;
         const blad = bladFormularza(dane);
         if (blad) {
-            fokusNaBledneZPola(blad);
+            if (naEkranie(ctx)) fokusNaBledneZPola(blad);
             return;
         }
-        const odp = await zapytanie('/routes', { metoda: 'POST', dane: dane });
+        // Jak w zapisz(): dane w drodze to nie „niezapisane zmiany” (× w trakcie nie pyta).
+        const wyslane = JSON.stringify(dane);
+        const migawkaPrzed = stan.migawka;
+        if (naEkranie(ctx)) stan.migawka = wyslane;
+        let odp;
+        try {
+            odp = await zapytanie('/routes', { metoda: 'POST', dane: dane });
+        } catch (e) {
+            if (naEkranie(ctx) && stan.migawka === wyslane) stan.migawka = migawkaPrzed;
+            throw e;
+        }
         if (zniszczona) return;
+        const komunikatOk = 'Utworzono trasę „' + odp.route.nazwa + '”. Dodaj do niej zamówienia z listy „Do dodania”.';
+        if (!naEkranie(ctx) || !stan.nowa) {
+            // (A1) Formularz nowej trasy porzucony w trakcie (inna trasa, zamknięty edytor albo
+            // świeży formularz „Nowa trasa”) — trasa jest na liście, edytor zostaje przy swoim.
+            aktualizujNaLiscie(odp.route);
+            odswiezMapeTrasPoZmianie();
+            komunikat('ok', komunikatOk, { klucz: 'trasa' });
+            return;
+        }
         resetEdytora();
         stan.nowa = false;
         przyjmijTrase(odp.route, { formularz: true, zmiana: true });
         wczytajKandydatow();
-        komunikat('ok', 'Utworzono trasę „' + odp.route.nazwa + '”. Dodaj do niej zamówienia z listy „Do dodania”.',
-            { klucz: 'trasa' });
+        komunikat('ok', komunikatOk, { klucz: 'trasa' });
         if (kandydaciQ && !kandydaciSekcja.hidden) kandydaciQ.focus({ preventScroll: true });
     }
 
-    async function zatwierdz() {
-        if (zmieniony() && !(await zapisz(true))) return;
-        const t = stan.otwarta;
+    // Zmiana statusu zakończona w tej samej sesji: fokus na tytuł, bo kliknięty przycisk
+    // zniknął (inny status = inne przyciski). Fokus przeniesiony przez użytkownika gdzie
+    // indziej (np. do notatki) zostaje.
+    function fokusNaTytul(ctx) {
+        if (!naEkranie(ctx) || !tytulEl || tytulEl.offsetParent === null) return;
+        const a = document.activeElement;
+        if (fokusZgubiony() || a === ctx.fokus || !!(akcjeEl && akcjeEl.contains(a))) tytulEl.focus({ preventScroll: true });
+    }
+
+    async function zatwierdz(ctx) {
+        if (ctx.zmiany && !(await zapisz(ctx, true))) return;
+        const t = ctx.trasa;
+        if (!t) return;
         const odp = await zapytanie('/routes/' + t.id + '/approve', { metoda: 'POST', dane: {} });
         if (zniszczona) return;
-        przyjmijTrase(odp.route, { formularz: true, zmiana: true });
+        przyjmijOdpowiedz(ctx, odp.route, { formularz: true, zmiana: true });
         komunikat('ok', 'Trasa „' + odp.route.nazwa + '” zatwierdzona. Możesz ją wyeksportować do Routimo.',
             { klucz: 'trasa' });
+        fokusNaTytul(ctx);
     }
 
-    async function cofnij() {
-        const t = stan.otwarta;
+    async function cofnij(ctx) {
+        const t = ctx.trasa;
+        if (!t) return;
         const odp = await zapytanie('/routes/' + t.id + '/revert', { metoda: 'POST', dane: {} });
         if (zniszczona) return;
-        przyjmijTrase(odp.route, { formularz: true, zmiana: true });
+        przyjmijOdpowiedz(ctx, odp.route, { formularz: true, zmiana: true });
         wczytajKandydatow();
         komunikat('info', 'Trasa „' + odp.route.nazwa + '” znów jest robocza.', { klucz: 'trasa' });
+        fokusNaTytul(ctx);
     }
 
-    async function przywroc() {
-        const t = stan.otwarta;
+    async function przywroc(ctx) {
+        const t = ctx.trasa;
+        if (!t) return;
         const odp = await zapytanie('/routes/' + t.id + '/restore', { metoda: 'POST', dane: {} });
         if (zniszczona) return;
-        przyjmijTrase(odp.route, { formularz: true, zmiana: true });
+        przyjmijOdpowiedz(ctx, odp.route, { formularz: true, zmiana: true });
         komunikat('info', 'Trasa „' + odp.route.nazwa + '” przywrócona do zatwierdzonych.', { klucz: 'trasa' });
+        fokusNaTytul(ctx);
     }
 
-    async function usunTrase() {
-        const t = stan.otwarta;
+    async function usunTrase(ctx) {
+        const t = ctx.trasa;
+        if (!t) return;
         await zapytanie('/routes/' + t.id, { metoda: 'DELETE' });
         if (zniszczona) return;
-        resetEdytora();
-        stan.otwarta = null;
         usunZListy(t.id);
-        renderujEdytor();
         odswiezMapeTrasPoZmianie();
         komunikat('ok', 'Usunięto trasę „' + t.nazwa + '”.', { klucz: 'trasa' });
+        // (A1) Edytor zamykamy tylko wtedy, gdy wciąż pokazuje TĘ trasę — inna otwarta w
+        // międzyczasie zostaje, a fokus nie przeskakuje spod ręki.
+        if (stan.nowa || !stan.otwarta || stan.otwarta.id !== t.id) return;
+        const a = document.activeElement;
+        const fokusWEdytorze = !a || a === document.body || (edytor && edytor.contains(a));
+        resetEdytora();
+        stan.otwarta = null;
+        renderujEdytor();
+        renderujListe();
         const cel = root.querySelector('[data-lg-trasy-akcja="nowa"]');
-        if (cel) cel.focus({ preventScroll: true });
+        if (cel && fokusWEdytorze) cel.focus({ preventScroll: true });
     }
 
     function nazwaZNaglowka(naglowek) {
@@ -1014,8 +1338,9 @@
      * serwera (np. 409, gdy ktoś w międzyczasie cofnął zatwierdzenie) pokazać przy formularzu,
      * a nie pobierać jako „plik” z tekstem błędu.
      */
-    async function eksportujRoutimo() {
-        const t = stan.otwarta;
+    async function eksportujRoutimo(ctx) {
+        const t = ctx.trasa;
+        if (!t) return;
         let odp;
         try {
             odp = await fetch(API + '/routes/' + t.id + '/routimo', {
@@ -1117,14 +1442,26 @@
 
     const m3Tekst = (z) => (Number(z.m3) > 0 ? liczbaM3.format(Number(z.m3)) + ' m³' : '—');
 
+    /**
+     * (oględziny m7) Dwa różne znaczenia, dwa różne wyglądy stacji — na liście przystanków,
+     * na mapce i w oknie „Odhacz”: punkt PRZYBLIŻONY (miejscowość) = przerywana obwódka
+     * w kolorze trasy, jak przerywana pinezka; BRAK punktu = szara kropkowana tarcza.
+     */
+    function klasaGeoStacji(z) {
+        if (!maGeo(z)) return 'lg-stacja--bez-geo';
+        return z.geo.quality === 'przyblizona' ? 'lg-stacja--przyblizona' : '';
+    }
+
     function przystanekHtml(z, nr, ile, edyt) {
         const bezGeo = !maGeo(z);
         const opis = 'przystanek ' + nr + ', zamówienie ' + z.numer;
         const klasyStacji = ['lg-stacja'];
-        if (bezGeo) klasyStacji.push('lg-stacja--bez-geo');
+        const geo = klasaGeoStacji(z);
+        if (geo) klasyStacji.push(geo);
         if (String(nr).length > 2) klasyStacji.push('lg-stacja--dlugi');
         return '<li class="lg-przystanek" data-order-id="' + esc(z.id) + '"' + (edyt ? ' draggable="true"' : '') + '>' +
-            '<span class="' + klasyStacji.join(' ') + '" aria-hidden="true">' + nr + '</span>' +
+            '<span class="' + klasyStacji.join(' ') + '" aria-hidden="true"' +
+                (geo === 'lg-stacja--przyblizona' ? ' title="Punkt przybliżony (miejscowość)"' : '') + '>' + nr + '</span>' +
             (edyt ? '<span class="lg-przystanek-uchwyt" aria-hidden="true" title="Przeciągnij, żeby zmienić kolejność">' +
                 '<i class="fas fa-grip-vertical"></i></span>' : '') +
             '<div class="lg-przystanek-tresc">' +
@@ -1230,6 +1567,12 @@
     /** Nowa lokalna kolejność od razu (lista, numery, mapka); zapis do serwera po krótkiej zwłoce. */
     function przesun(orderId, doIndeksu) {
         if (!edytowalnaTrasa()) return;
+        // (oględziny m2) Jak przy przeciąganiu: w trakcie innej zmiany tej trasy (dodawanie,
+        // usuwanie, zapis) kolejność czeka — lokalna zmiana rozjechałaby się z odpowiedzią.
+        if (akcjaTrwa()) {
+            oglos('Poczekaj, aż zapisze się poprzednia zmiana trasy.');
+            return;
+        }
         const ids = kolejnoscWidoczna().slice();
         const z = ids.indexOf(orderId);
         if (z === -1) return;
@@ -1258,38 +1601,55 @@
 
     function uruchomZapisKolejnosci() {
         if (!kolejnoscObietnica) {
-            kolejnoscObietnica = petlaKolejnosci().finally(() => {
+            kolejnoscObietnica = petlaKolejnosci().catch((e) => {
+                console.error('[LogisticsRoutes] Zapis kolejności:', e);
+                return false;
+            }).then((odmowa) => {
                 kolejnoscObietnica = null;
-                if (!zniszczona) {
-                    renderujStanPrzystankow();
-                    renderujPodsumowanie();
-                    odswiezMapke();
-                }
+                if (zniszczona) return;
+                renderujStanPrzystankow();
+                renderujPodsumowanie();
+                odswiezMapke();
+                // (oględziny m4) Odmowa (409 — np. ktoś w międzyczasie zatwierdził trasę) znaczy,
+                // że trasa na serwerze jest inna niż nasza kopia: pobieramy ją od nowa.
+                if (odmowa) odswiezOtwarta();
             });
         }
         return kolejnoscObietnica;
     }
 
-    /** Wysyła NAJNOWSZĄ lokalną kolejność, dopóki różni się od tej na serwerze (przesunięcia w trakcie zapisu). */
+    /**
+     * Wysyła NAJNOWSZĄ lokalną kolejność, dopóki różni się od tej na serwerze (przesunięcia
+     * w trakcie zapisu). Daje true, gdy serwer odmówił (wtedy trasa idzie do odświeżenia).
+     */
     async function petlaKolejnosci() {
         while (!zniszczona && stan.kolejnosc && edytowalnaTrasa()) {
             const t = stan.otwarta;
             const ids = stan.kolejnosc.slice();
             try {
                 const odp = await zapytanie('/routes/' + t.id + '/stops/order', { metoda: 'PUT', dane: { order_ids: ids } });
-                if (zniszczona || !stan.otwarta || stan.otwarta.id !== t.id) return;
+                if (zniszczona) return false;
+                if (!stan.otwarta || stan.nowa || stan.otwarta.id !== t.id) {
+                    aktualizujNaLiscie(odp.route);   // edytor już przy innej trasie — tylko lista
+                    return false;
+                }
                 if (stan.kolejnosc && rowne(stan.kolejnosc, ids)) stan.kolejnosc = null;
                 przyjmijTrase(odp.route, { zmiana: true });
             } catch (e) {
-                if (zniszczona || przerwane(e)) return;
-                if (stan.otwarta && stan.otwarta.id === t.id) {
-                    stan.kolejnosc = null;
-                    renderujEdytor();
+                if (zniszczona || przerwane(e)) return false;
+                if (!stan.otwarta || stan.nowa || stan.otwarta.id !== t.id) {
+                    komunikat('blad', 'Trasa „' + t.nazwa + '”: nie zapisano kolejności przystanków. ' + e.message,
+                        { klucz: 'trasa' });
+                    return false;
                 }
+                // Do czasu odświeżenia — ostatnia kolejność potwierdzona przez serwer.
+                stan.kolejnosc = null;
+                renderujPrzystanki();
                 pokazBlad('Nie zapisano kolejności przystanków. ' + e.message);
-                return;
+                return e.status === 409 || e.status === 404 || e.status === 422;
             }
         }
+        return false;
     }
 
     /** Przed każdą inną zmianą trasy: oczekująca kolejność leci od razu i czekamy na nią. */
@@ -1301,14 +1661,17 @@
         if (stan.kolejnosc || kolejnoscObietnica) await uruchomZapisKolejnosci();
     }
 
-    async function usunPrzystanek(orderId) {
-        const t = stan.otwarta;
-        const z = przystankiWidoczne().find((x) => x.id === orderId);
+    async function usunPrzystanek(ctx, orderId) {
+        const t = ctx.trasa;
+        if (!t || t.status !== 'robocza') return;
+        const p = (t.przystanki || []).find((x) => x.zamowienie.id === orderId);
+        const numer = p ? p.zamowienie.numer : '';
         const odp = await zapytanie('/routes/' + t.id + '/stops/' + encodeURIComponent(orderId), { metoda: 'DELETE' });
         if (zniszczona) return;
-        przyjmijTrase(odp.route, { zmiana: true });
-        komunikat('ok', 'Zamówienie ' + (z ? z.numer : '') + ' usunięto z trasy „' + odp.route.nazwa + '”. Wróciło do „Do dodania”.',
+        przyjmijOdpowiedz(ctx, odp.route, { zmiana: true });
+        komunikat('ok', 'Zamówienie ' + numer + ' usunięto z trasy „' + odp.route.nazwa + '”. Wróciło do „Do dodania”.',
             { klucz: 'trasa' });
+        // Zamówienie wróciło do puli — „Do dodania” odświeża się dla trasy, która jest teraz w edytorze.
         wczytajKandydatow();
     }
 
@@ -1345,7 +1708,7 @@
 
     function naDragStart(e) {
         const li = e.target && e.target.closest ? e.target.closest('.lg-przystanek[draggable="true"]') : null;
-        if (!li || chwytZPrzycisku || !edytowalnaTrasa() || stan.akcjaTrwa) {
+        if (!li || chwytZPrzycisku || !edytowalnaTrasa() || akcjaTrwa()) {
             e.preventDefault();
             return;
         }
@@ -1406,7 +1769,7 @@
         const dodawany = stan.dodawani.has(z.id);
         // aria-disabled, nie disabled: przycisk z fokusem nie może zniknąć spod klawiatury
         // na czas zapisu (klik i tak przechodzi przez mutacja(), jedna zmiana naraz).
-        const wylaczony = dodawany || stan.akcjaTrwa;
+        const wylaczony = dodawany || akcjaTrwa();
         return '<li class="lg-kandydat' + (zaznaczony ? ' is-zaznaczony' : '') + (dodawany ? ' is-dodawany' : '') + '"' +
             ' data-order-id="' + esc(z.id) + '">' +
             '<label class="lg-zaznacz-pole"><input type="checkbox" class="lg-kandydat-zaznacz"' + (zaznaczony ? ' checked' : '') +
@@ -1426,7 +1789,10 @@
     function renderujPrzyciskDodawania() {
         const n = stan.zaznaczeniKandydaci.size;
         if (dodajZaznaczoneTekst) dodajZaznaczoneTekst.textContent = n ? 'Dodaj zaznaczone (' + n + ')' : 'Dodaj zaznaczone';
-        dodajZaznaczoneBtn.disabled = !n || stan.akcjaTrwa;
+        dodajZaznaczoneBtn.disabled = !n;
+        // Zmiana tej trasy w drodze: czeka, ale zostaje pod fokusem (jak przyciski edytora).
+        if (n && akcjaTrwa()) dodajZaznaczoneBtn.setAttribute('aria-disabled', 'true');
+        else dodajZaznaczoneBtn.removeAttribute('aria-disabled');
     }
 
     function renderujKandydatow() {
@@ -1467,8 +1833,11 @@
             else if (kandydaciQ) kandydaciQ.focus({ preventScroll: true });
         }
         if (kandydaciIleEl) {
+            // (oględziny M4) „1 pasujące zamówienie”, „2 pasujące zamówienia”, „5 pasujących zamówień”.
             kandydaciIleEl.textContent = stan.kandydaciWczytani && !stan.kandydaciBlad
-                ? ileZamowien(n) + (stan.kandydaciQ ? ' pasujących' : '') + ' z transportem własnym bez trasy'
+                ? (stan.kandydaciQ
+                    ? n + ' ' + odmiana(n, ['pasujące zamówienie', 'pasujące zamówienia', 'pasujących zamówień'])
+                    : ileZamowien(n)) + ' z transportem własnym bez trasy'
                 : 'transport własny bez trasy';
         }
         if (dodajZaznaczoneBtn) renderujPrzyciskDodawania();
@@ -1499,9 +1868,11 @@
         if (!zniszczona) renderujKandydatow();
     }
 
-    async function dodajKandydatow(ids) {
-        const t = stan.otwarta;
-        if (!edytowalnaTrasa() || !ids.length) return;
+    async function dodajKandydatow(ctx, ids) {
+        const t = ctx.trasa;
+        if (!t || t.status !== 'robocza' || !ids.length) return;
+        // Numery do komunikatu odmowy — lista „Do dodania” mogła się w międzyczasie zmienić.
+        const znane = stan.kandydaci.slice();
         ids.forEach((id) => stan.dodawani.add(id));
         renderujKandydatow();
         try {
@@ -1509,21 +1880,23 @@
             if (zniszczona) return;
             const dodane = Array.isArray(odp.dodane) ? odp.dodane : [];
             const bledy = Array.isArray(odp.bledy) ? odp.bledy : [];
+            // Dodane zamówienia są już na trasie — znikają z „Do dodania” także innej otwartej trasy.
             stan.kandydaci = stan.kandydaci.filter((k) => dodane.indexOf(k.id) === -1);
             dodane.forEach((id) => stan.zaznaczeniKandydaci.delete(id));
-            przyjmijTrase(odp.route, { zmiana: true });
+            przyjmijOdpowiedz(ctx, odp.route, { zmiana: true });
             if (dodane.length) {
                 komunikat('ok', 'Dodano do trasy „' + odp.route.nazwa + '”: ' + ileZamowien(dodane.length) + '.',
                     { klucz: 'trasa', ikona: 'fa-route' });
             }
-            if (bledy.length) pokazBledyDodawania(bledy, odp.route.nazwa, stan.kandydaci);
+            if (bledy.length) pokazBledyDodawania(bledy, odp.route.nazwa, znane);
         } finally {
             ids.forEach((id) => stan.dodawani.delete(id));
             if (!zniszczona) {
                 renderujKandydatow();
                 // „Dodaj zaznaczone” gaśnie po dodaniu — fokus nie może zostać na <body>.
-                if (kandydaciQ && (!document.activeElement || document.activeElement === document.body) &&
-                    !kandydaciSekcja.hidden) kandydaciQ.focus({ preventScroll: true });
+                if (naEkranie(ctx) && kandydaciQ && fokusZgubiony() && !kandydaciSekcja.hidden) {
+                    kandydaciQ.focus({ preventScroll: true });
+                }
             }
         }
     }
@@ -1535,7 +1908,7 @@
         };
         komunikat('blad', 'Nie dodano do trasy „' + nazwaTrasy + '” ' + bledy.length + ' ' +
             odmiana(bledy.length, ['zamówienia', 'zamówień', 'zamówień']) + ':', {
-            lista: bledy.map((b) => ({ numer: numer(b.order_id), tekst: ' ' + (b.komunikat || '') })),
+            lista: bledy.map((b) => pozycjaOdmowy(numer(b.order_id), b.komunikat)),
         });
     }
 
@@ -1570,6 +1943,36 @@
         });
     }
 
+    // (oględziny M9) Najszerszy dymek = pół mapki bez marginesu: dymek z kierunkiem 'auto'
+    // (w stronę środka mapki) zawsze mieści się w jej granicach.
+    function ustawSzerokoscDymkow() {
+        if (!mapkaEl || !mapkaEl.clientWidth) return;
+        mapkaEl.style.setProperty('--lg-dymek-maks', Math.max(140, Math.round(mapkaEl.clientWidth / 2 - 28)) + 'px');
+    }
+
+    /** „Pokaż całą trasę” pod +/−, w tej samej oprawie co „Pokaż wszystkie trasy” na mapie Dashboardu. */
+    function dodajKontrolkeCalejTrasy() {
+        const Kontrolka = L.Control.extend({
+            options: { position: 'topleft' },
+            onAdd: function () {
+                const div = L.DomUtil.create('div', 'leaflet-bar lg-mapa-kontrolka');
+                const a = L.DomUtil.create('a', '', div);
+                a.href = '#';
+                a.setAttribute('role', 'button');
+                a.title = 'Pokaż całą trasę';
+                a.setAttribute('aria-label', 'Pokaż całą trasę');
+                a.innerHTML = '<i class="fas fa-expand" aria-hidden="true"></i>';
+                L.DomEvent.disableClickPropagation(div);
+                L.DomEvent.on(a, 'click', (e) => {
+                    L.DomEvent.preventDefault(e);
+                    dopasujMapke();
+                });
+                return div;
+            },
+        });
+        new Kontrolka().addTo(mapka);
+    }
+
     function zapewnijMapke() {
         if (mapka) return true;
         if (zniszczona || !mapkaEl) return false;
@@ -1584,28 +1987,59 @@
             maxZoom: 19,
             // Kółko myszy przybliża dopiero po kliknięciu w mapkę — przewijanie edytora nie łapie się na niej.
             scrollWheelZoom: false,
+            // (oględziny I2) Rozmiar pilnuje ResizeObserver (naRozmiarMapki). Nasłuch okna
+            // Leafleta przesuwał SCHOWANĄ mapkę (rozmiar 0) i po powrocie trasa była poza kadrem.
+            trackResize: false,
+            // (oględziny M13) Własna kontrolka zoomu — z polskimi podpisami.
+            zoomControl: false,
             zoomAnimation: !bezRuchu,
             fadeAnimation: !bezRuchu,
             markerZoomAnimation: !bezRuchu,
         });
+        L.control.zoom({ zoomInTitle: 'Przybliż', zoomOutTitle: 'Oddal' }).addTo(mapka);
+        dodajKontrolkeCalejTrasy();
         mapka.attributionControl.setPrefix(false);
-        warstwaPodkladuMapki().addTo(mapka);
+        kafelkiMapki = warstwaPodkladuMapki().addTo(mapka);
         warstwaMapki = L.featureGroup().addTo(mapka);
+        mapkaUkryta = false;
+        mapkaRuszona = false;
+        // Ruch mapki, który nie jest naszym dopasowaniem = użytkownik przesunął/przybliżył.
+        mapka.on('movestart', () => { if (!dopasowanieMapkiWToku) mapkaRuszona = true; });
+        mapka.on('dragstart', () => { mapkaRuszona = true; });
+        mapka.on('moveend', () => { dopasowanieMapkiWToku = false; });
+        dopasowanieMapkiWToku = true;
         mapka.fitBounds(POLSKA, { padding: [8, 8] });
+        dopasowanieMapkiWToku = false;
         mapka.on('click', () => { if (mapka) mapka.scrollWheelZoom.enable(); });
         mapka.on('mouseout', () => { if (mapka) mapka.scrollWheelZoom.disable(); });
+        ustawSzerokoscDymkow();
         return true;
     }
 
-    function ikonaStacji(numer, klasaKoloru, bezTla) {
+    /** (oględziny M6) Podkład Dashboardu zmieniony przy otwartym edytorze — mapka za nim. */
+    function naZmianePodkladu(e) {
+        if (!e.detail || e.detail.root !== root || zniszczona || !mapka) return;
+        const nowa = warstwaPodkladuMapki();
+        try {
+            nowa.addTo(mapka);
+        } catch (err) {
+            try { mapka.removeLayer(nowa); } catch (err2) { /* nie zdążyła się dodać */ }
+            return;
+        }
+        if (kafelkiMapki) mapka.removeLayer(kafelkiMapki);
+        kafelkiMapki = nowa;
+    }
+
+    function ikonaStacji(numer, klasaKoloru, klasaGeo) {
         const tekst = String(numer);
         return L.divIcon({
             className: 'lg-znacznik-przystanku',
             html: '<span class="lg-stacja lg-stacja--mapa ' + klasaKoloru + (tekst.length > 2 ? ' lg-stacja--dlugi' : '') +
-                (bezTla ? ' lg-stacja--bez-geo' : '') + '">' + esc(tekst) + '</span>',
+                (klasaGeo ? ' ' + klasaGeo : '') + '">' + esc(tekst) + '</span>',
             iconSize: [24, 24],
             iconAnchor: [12, 12],
-            tooltipAnchor: [0, -13],
+            // Dymek z kierunkiem 'auto' (lewo/prawo, w stronę środka mapki) — od krawędzi stacji.
+            tooltipAnchor: [12, 0],
         });
     }
 
@@ -1650,13 +2084,17 @@
         const kolejne = przystankiWidoczne();
         kolejne.forEach((z, i) => {
             if (!maGeo(z)) return;
+            const przyblizony = z.geo.quality === 'przyblizona';
             const znacznik = L.marker([z.geo.lat, z.geo.lng], {
-                icon: ikonaStacji(i + 1, klasa, z.geo.quality === 'przyblizona'),
+                icon: ikonaStacji(i + 1, klasa, klasaGeoStacji(z)),
                 keyboard: false,          // klawiatura ma listę przystanków obok
                 zIndexOffset: 500,
                 riseOnHover: true,
-            }).bindTooltip('<b>' + (i + 1) + '. ' + esc(z.numer) + '</b>' + (z.klient ? ' ' + esc(z.klient) : ''), {
-                className: 'lg-podpowiedz-mapy', direction: 'top', opacity: 1,
+            }).bindTooltip('<b>' + (i + 1) + '. ' + esc(z.numer) + '</b>' + (z.klient ? ' ' + esc(z.klient) : '') +
+                (przyblizony ? '<span class="lg-podpowiedz-mapy-uwaga">Punkt przybliżony (miejscowość)</span>' : ''), {
+                // (oględziny M9) Kierunek wybiera Leaflet (w stronę środka), tekst się zawija —
+                // dymek przystanku przy krawędzi mapki nie wychodzi poza nią.
+                className: 'lg-podpowiedz-mapy lg-podpowiedz-mapy--zawijana', direction: 'auto', opacity: 1,
             });
             znacznik.on('click', () => wskazPrzystanek(z.id));
             znacznik.addTo(warstwaMapki);
@@ -1669,19 +2107,32 @@
         }
     }
 
-    function dopasujMapke() {
+    /**
+     * Cała trasa w kadrze: przystanki, przebieg i magazyn, z zapasem na kontrolki (M10).
+     * animuj === false — bez animacji (powrót z ukrycia, zmiana rozmiaru). Dopasowanie zeruje
+     * „mapka ruszona” — od teraz liczy się ruch użytkownika od tego dopasowania.
+     */
+    function dopasujMapke(animuj) {
         if (!mapka) return;
+        if (mapkaEl.clientWidth && mapkaEl.clientHeight) mapka.invalidateSize({ pan: false });
         const punkty = [];
         przystankiWidoczne().forEach((z) => { if (maGeo(z)) punkty.push(L.latLng(z.geo.lat, z.geo.lng)); });
         const t = stan.otwarta;
         if (t && !stan.nowa) liniePrzebiegu(t.przebieg).forEach((l) => l.forEach((p) => punkty.push(L.latLng(p[0], p[1]))));
         if (isFinite(magazyn.lat) && isFinite(magazyn.lng)) punkty.push(L.latLng(magazyn.lat, magazyn.lng));
+        mapkaRuszona = false;
+        dopasowanieMapkiWToku = true;
         if (punkty.length < 2) {
             if (punkty.length === 1) mapka.setView(punkty[0], 9, { animate: false });
             else mapka.fitBounds(POLSKA, { padding: [8, 8], animate: false });
+            dopasowanieMapkiWToku = false;
             return;
         }
-        mapka.fitBounds(L.latLngBounds(punkty), { padding: [28, 28], maxZoom: ZOOM_DOPASOWANIA, animate: !bezRuchu });
+        const anim = animuj !== false && !bezRuchu;
+        mapka.fitBounds(L.latLngBounds(punkty), Object.assign({ maxZoom: ZOOM_DOPASOWANIA, animate: anim }, MARGINES_MAPKI));
+        // Bez animacji mapka już stoi (moveend przyszedł w środku fitBounds); z animacją flaga
+        // zejdzie na moveend — ruch w trakcie animacji to nie ruch użytkownika.
+        if (!anim) dopasowanieMapkiWToku = false;
     }
 
     function odswiezMapke(opcje) {
@@ -1707,16 +2158,36 @@
         }
         mapka = null;
         warstwaMapki = null;
+        kafelkiMapki = null;
         mapkaDopasowana = false;
+        mapkaUkryta = false;
+        mapkaRuszona = false;
+        dopasowanieMapkiWToku = false;
     }
 
+    /**
+     * ResizeObserver mapki. (oględziny I2) Schowana (podzakładka, inna zakładka panelu) ma
+     * rozmiar 0 — tylko to odnotowujemy. Po powrocie (0 → > 0) okno mogło mieć już inną
+     * szerokość: invalidateSize trzyma środek, a mapka nieruszana przez użytkownika od
+     * ostatniego dopasowania dopasowuje się do trasy od nowa. Tak samo przy zwykłej zmianie
+     * rozmiaru (np. mapka przechodzi pod przystanki) — przesuniętej ręcznie nie ruszamy.
+     */
     function naRozmiarMapki() {
         if (zniszczona || !mapkaEl) return;
+        const widoczna = !!(mapkaEl.isConnected && mapkaEl.clientWidth && mapkaEl.clientHeight);
         if (!mapka) {
-            if (stan.otwarta || stan.nowa) odswiezMapke({ dopasuj: true });
-        } else if (mapkaEl.clientWidth && mapkaEl.clientHeight) {
-            mapka.invalidateSize({ pan: false });
+            if (widoczna && (stan.otwarta || stan.nowa)) odswiezMapke({ dopasuj: true });
+            return;
         }
+        if (!widoczna) {
+            mapkaUkryta = true;
+            return;
+        }
+        ustawSzerokoscDymkow();
+        const powrot = mapkaUkryta;
+        mapkaUkryta = false;
+        mapka.invalidateSize(powrot ? { pan: true, animate: false } : { pan: false });
+        if (!mapkaRuszona && (stan.otwarta || stan.nowa)) dopasujMapke(false);
     }
 
     // ── Mapa Dashboardu: widok „Trasy” ──────────────────────────────────────
@@ -1931,6 +2402,7 @@
     function bladDodawania(tekst) {
         dodajBladEl.textContent = tekst || '';
         dodajBladEl.hidden = !tekst;
+        if (!tekst) zdejmijOznaczenia(formDodaj);
     }
 
     function ustawZapisDodawania(trwa) {
@@ -1959,10 +2431,11 @@
                 date_from: formDodaj.elements.namedItem('date_from').value,
                 date_to: formDodaj.elements.namedItem('date_to').value || formDodaj.elements.namedItem('date_from').value,
             };
-            const blad = bladFormularza(dane);
+            const blad = bladFormularza(dane, formDodaj);
             if (blad) {
                 bladDodawania(blad.tekst);
                 const p = formDodaj.elements.namedItem(blad.pole);
+                oznaczPole(p, 'lg-trasa-dodaj-blad');
                 if (p) p.focus();
                 return;
             }
@@ -1996,7 +2469,7 @@
                 orders: (odp.route.przystanki || []).map((p) => p.zamowienie).filter((z) => dodane.indexOf(z.id) !== -1),
             };
             if (stan.listaWczytana || nowa) aktualizujNaLiscie(odp.route);
-            if (stan.otwarta && stan.otwarta.id === odp.route.id && !stan.akcjaTrwa && !stan.kolejnosc) {
+            if (stan.otwarta && !stan.nowa && stan.otwarta.id === odp.route.id && !akcjaTrwa() && !stan.kolejnosc) {
                 przyjmijTrase(odp.route);
                 wczytajKandydatow();
             }
@@ -2060,7 +2533,8 @@
     async function otworzWykonanie(powrot) {
         const t = stan.otwarta;
         if (!t || stan.nowa || (t.status !== 'robocza' && t.status !== 'zatwierdzona') || !dialogWykonaj) return;
-        if (wykonanieOtwierane || wykonywanie || dialogWykonaj.open) return;
+        if (wykonanieOtwierane || wykonywanie || dialogWykonaj.open || akcjaTrwa()) return;
+        if (zmieniony() && !formularzPoprawny()) return;
         wykonanieOtwierane = true;
         try {
             await przygotujWykonanie(powrot);
@@ -2070,25 +2544,30 @@
     }
 
     async function przygotujWykonanie(powrot) {
+        const sesja = stan.sesja;
         // Niezapisane zmiany roboczej — najpierw zapis (po odhaczeniu trasa jest tylko do odczytu).
         if (zmieniony()) {
-            const ok = await mutacja(() => zapisz(true));
+            const ok = await mutacja((ctx) => zapisz(ctx, true));
             if (!ok) return;
         } else {
             await dokonczKolejnosc();
         }
+        // (oględziny A1) W trakcie zapisu użytkownik przeszedł do innej trasy albo zamknął
+        // edytor — okno „Odhacz” nie otwiera się dla trasy, której nie wybierał.
+        if (zniszczona || stan.sesja !== sesja) return;
         const trasa = stan.otwarta;
-        if (!trasa || zniszczona || (trasa.status !== 'robocza' && trasa.status !== 'zatwierdzona')) return;
-        wykonywanie = { id: trasa.id, powrot: powrot || null, zapis: false };
+        if (!trasa || stan.nowa || (trasa.status !== 'robocza' && trasa.status !== 'zatwierdzona')) return;
+        wykonywanie = { id: trasa.id, nazwa: trasa.nazwa, sesja: sesja, powrot: powrot || null, zapis: false };
         wykonajNazwaEl.textContent = trasa.nazwa;
         ustawKolor(wykonajListaEl, kolor(trasa.id));
         wykonajListaEl.innerHTML = (trasa.przystanki || []).map((p, i) => {
             const z = p.zamowienie;
             const miejscowosc = [z.kod, z.miasto].filter(Boolean).join(' ');
             const adres = [miejscowosc, z.adres].filter(Boolean).join(', ');
+            const geo = klasaGeoStacji(z);
             return '<li><label class="lg-wykonaj-pozycja">' +
                 '<input type="checkbox" value="' + esc(z.id) + '" checked>' +
-                '<span class="lg-stacja' + (maGeo(z) ? '' : ' lg-stacja--bez-geo') + '" aria-hidden="true">' + (i + 1) + '</span>' +
+                '<span class="lg-stacja' + (geo ? ' ' + geo : '') + '" aria-hidden="true">' + (i + 1) + '</span>' +
                 '<span class="lg-wykonaj-tresc"><span class="lg-numer">' + esc(z.numer) + '</span>' +
                     '<span class="lg-wykonaj-klient">' + (z.klient ? esc(z.klient) : 'brak nazwy') + '</span>' +
                     (adres ? '<span class="lg-wykonaj-adres" title="' + esc(adres) + '">' + esc(adres) + '</span>' : '') +
@@ -2113,50 +2592,71 @@
         wykonajListaEl.querySelectorAll('input').forEach((c) => { c.disabled = trwa; });
     }
 
-    function zamknijWykonanie() {
+    // bezFokusu — po udanym odhaczeniu fokus ustawia zatwierdzWykonanie (przyciski będą inne).
+    function zamknijWykonanie(bezFokusu) {
         const w = wykonywanie;
         wykonywanie = null;
         if (dialogWykonaj && dialogWykonaj.open) dialogWykonaj.close();
+        if (bezFokusu) return;
         const cel = w && w.powrot && w.powrot.isConnected ? w.powrot : tytulEl;
         if (cel) cel.focus({ preventScroll: true });
     }
 
+    /**
+     * (oględziny A1) Odhaczamy trasę z okna (w.id), nie tę, która akurat jest w edytorze —
+     * gdy edytor zmienił się pod oknem, wynik i tak trafia na listę, a komunikat mówi, która
+     * trasa została wykonana. (I3) Po odhaczeniu fokus na tytuł edytora.
+     */
     async function zatwierdzWykonanie() {
         const w = wykonywanie;
-        if (!w || w.zapis || !stan.otwarta || stan.otwarta.id !== w.id) return;
+        if (!w || w.zapis || zniszczona) return;
+        const klucz = String(w.id);
+        if (stan.wToku.has(klucz)) return;
         // Zawsze jawna lista (także pusta) — bez klucza serwer uznałby za dostarczone wszystkie
         // bieżące przystanki, także dodany przed chwilą przez kogoś innego.
         const dostarczone = Array.from(wykonajListaEl.querySelectorAll('input[type="checkbox"]'))
             .filter((c) => c.checked).map((c) => Number(c.value));
         ustawZapisWykonania(true);
         bladWykonania('');
-        stan.akcjaTrwa = true;
+        stan.wToku.add(klucz);
         odswiezAkcje();
+        let odswiez = false;
         try {
             const odp = await zapytanie('/routes/' + w.id + '/complete', {
                 metoda: 'POST', dane: { delivered_order_ids: dostarczone },
             });
             if (zniszczona) return;
-            stan.akcjaTrwa = false;
-            zamknijWykonanie();
-            przyjmijTrase(odp.route, { formularz: true, zmiana: true });
+            stan.wToku.delete(klucz);
+            zamknijWykonanie(true);
+            const naMiejscu = naEkranie(w);
+            przyjmijOdpowiedz(w, odp.route, { formularz: true, zmiana: true });
             const wynik = odp.wynik || {};
             const d = (wynik.dostarczone || []).length;
             const n = (wynik.niedostarczone || []).length;
             komunikat('ok', 'Trasa „' + odp.route.nazwa + '” wykonana: dostarczono ' + ileZamowien(d) +
                 (n ? ', ' + ileZamowien(n) + ' ' + odmiana(n, ['wraca', 'wracają', 'wraca']) + ' do puli bez trasy' : '') + '.',
                 { klucz: 'trasa' });
+            if (naMiejscu && tytulEl && tytulEl.offsetParent !== null) {
+                tytulEl.focus({ preventScroll: true });
+            } else if (w.powrot && w.powrot.isConnected && w.powrot.offsetParent !== null && !w.powrot.disabled) {
+                w.powrot.focus({ preventScroll: true });
+            }
         } catch (e) {
             if (zniszczona) return;
             if (wykonywanie === w) {
                 ustawZapisWykonania(false);
                 bladWykonania(e.message);
             } else {
-                pokazBlad(e.message);
+                komunikat('blad', 'Trasa „' + w.nazwa + '”: ' + e.message, { klucz: 'trasa' });
             }
+            // Odmowa 409/404: trasa na serwerze jest inna niż nasza kopia (m4) — edytor od nowa.
+            odswiez = e.status === 409 || e.status === 404;
         } finally {
-            stan.akcjaTrwa = false;
-            if (!zniszczona) odswiezAkcje();
+            stan.wToku.delete(klucz);
+            if (!zniszczona) {
+                odswiezAkcje();
+                if (odswiez && stan.otwarta && !stan.nowa && stan.otwarta.id === w.id) odswiezOtwarta();
+            }
         }
     }
 
@@ -2170,20 +2670,20 @@
                 break;
             case 'odswiez-liste':
                 wczytajListe();
-                if (stan.otwarta && !stan.akcjaTrwa && !stan.kolejnosc) odswiezOtwarta();
+                if (stan.otwarta && !akcjaTrwa() && !stan.kolejnosc) odswiezOtwarta();
                 break;
             case 'zamknij':
             case 'anuluj-nowa':
                 zamknijEdytor();
                 break;
             case 'utworz':
-                mutacja(utworz);
+                if (formularzPoprawny()) mutacja(utworz);
                 break;
             case 'zapisz':
-                mutacja(() => zapisz(false));
+                if (formularzPoprawny()) mutacja((ctx) => zapisz(ctx, false));
                 break;
             case 'zatwierdz':
-                mutacja(zatwierdz);
+                if (!zmieniony() || formularzPoprawny()) mutacja(zatwierdz);
                 break;
             case 'cofnij':
                 if (t && window.confirm('Cofnąć zatwierdzenie trasy „' + t.nazwa + '”?\n' +
@@ -2212,7 +2712,7 @@
                 otworzWykonanie(przycisk);
                 break;
             case 'dodaj-zaznaczone':
-                mutacja(() => dodajKandydatow(Array.from(stan.zaznaczeniKandydaci)));
+                mutacja((ctx) => dodajKandydatow(ctx, Array.from(stan.zaznaczeniKandydaci)));
                 break;
             case 'wykonane-reset':
                 if (filtrWykonanychEl) filtrWykonanychEl.reset();
@@ -2238,21 +2738,32 @@
             const indeks = kolejnoscWidoczna().indexOf(id);
             if (akcja === 'gora') przesun(id, indeks - 1);
             else if (akcja === 'dol') przesun(id, indeks + 1);
-            else if (akcja === 'usun') mutacja(() => usunPrzystanek(id));
+            else if (akcja === 'usun' && akcjaTrwa()) oglos('Poczekaj, aż zapisze się poprzednia zmiana trasy.');
+            else if (akcja === 'usun') mutacja((ctx) => usunPrzystanek(ctx, id));
             return;
         }
         const kandydat = e.target.closest('[data-lg-kandydat="dodaj"]');
         if (kandydat && !kandydat.disabled && kandydat.getAttribute('aria-disabled') !== 'true') {
             const li = kandydat.closest('.lg-kandydat[data-order-id]');
-            if (li) mutacja(() => dodajKandydatow([Number(li.getAttribute('data-order-id'))]));
+            if (li) mutacja((ctx) => dodajKandydatow(ctx, [Number(li.getAttribute('data-order-id'))]));
             return;
         }
         const przycisk = e.target.closest('[data-lg-trasy-akcja]');
-        if (przycisk && !przycisk.disabled) akcjaEdytora(przycisk.getAttribute('data-lg-trasy-akcja'), przycisk);
+        // aria-disabled = zmiana tej trasy w drodze: bez pytań (confirm) i bez drugiej zmiany.
+        if (przycisk && !przycisk.disabled && przycisk.getAttribute('aria-disabled') !== 'true') {
+            akcjaEdytora(przycisk.getAttribute('data-lg-trasy-akcja'), przycisk);
+        }
+    }
+
+    // (oględziny M1) Zmiana pola formularza: stary czerwony błąd dotyczył poprzednich wartości.
+    function poZmianiePola(t) {
+        if (!form || !form.contains(t) || bladEl.hidden) return;
+        pokazBlad('');
     }
 
     function naZmianePanelu(e) {
         const t = e.target;
+        poZmianiePola(t);
         if (t === selectPojazdu) {
             stan.wybranyPojazd = t.value;
             renderujSelecty();
@@ -2260,8 +2771,10 @@
             stan.wybranyKierowca = t.value;
             renderujSelecty();
         } else if (t === pole('date_from') || t === pole('date_to')) {
-            // Data „od” po „do” — przesuwamy „do” (trasa co najmniej jednodniowa).
-            if (t === pole('date_from') && pole('date_to').value && pole('date_to').value < t.value) {
+            // Data „od” po „do” — przesuwamy „do” (trasa co najmniej jednodniowa). Tylko
+            // poprawną datą: rok 92026 z niedokończonego wpisywania nie może trafić do „do”.
+            if (t === pole('date_from') && poprawnaData(t.value) && rokWZakresie(t.value) &&
+                pole('date_to').value && pole('date_to').value < t.value) {
                 pole('date_to').value = t.value;
             }
             planujDostepnosc();
@@ -2279,6 +2792,7 @@
     function naWpisywaniePanelu(e) {
         const t = e.target;
         if (form && form.contains(t)) {
+            poZmianiePola(t);
             odswiezAkcje();
         } else if (t === kandydaciQ) {
             clearTimeout(timerSzukania);
@@ -2296,8 +2810,12 @@
         if (e.key === 'Enter' && form && form.contains(t) && t.tagName === 'INPUT') {
             // Enter w polu formularza = główna akcja: utworzenie albo zapis.
             e.preventDefault();
-            if (stan.nowa) mutacja(utworz);
-            else if (zmieniony()) mutacja(() => zapisz(false));
+            if (akcjaTrwa()) return;
+            if (stan.nowa) {
+                if (formularzPoprawny()) mutacja(utworz);
+            } else if (zmieniony() && formularzPoprawny()) {
+                mutacja((ctx) => zapisz(ctx, false));
+            }
         } else if (e.key === 'Enter' && t === kandydaciQ) {
             // Enter — szukamy od razu, bez czekania na zwłokę wpisywania.
             e.preventDefault();
@@ -2319,8 +2837,20 @@
     function naWyslaniePanelu(e) {
         if (e.target === filtrWykonanychEl) {
             e.preventDefault();
-            wczytajWykonane(filtrWykonanychEl.elements.namedItem('od').value,
-                filtrWykonanychEl.elements.namedItem('do').value);
+            const od = filtrWykonanychEl.elements.namedItem('od');
+            const doDnia = filtrWykonanychEl.elements.namedItem('do');
+            zdejmijOznaczenia(filtrWykonanychEl);
+            // (oględziny M5) Błędna data nie idzie do serwera — komunikat w formacie pola.
+            const bladOd = bladDaty(od, 'od', false);
+            const bladDo = bladOd ? null : bladDaty(doDnia, 'do', false);
+            if (bladOd || bladDo) {
+                const zle = bladOd ? od : doDnia;
+                if (opisWykonanychEl) opisWykonanychEl.textContent = bladOd || bladDo;
+                oznaczPole(zle, 'lg-trasy-wykonane-opis');
+                zle.focus();
+                return;
+            }
+            wczytajWykonane(od.value, doDnia.value);
         } else if (e.target === form) {
             e.preventDefault();
         }
@@ -2340,9 +2870,14 @@
     async function odswiezOtwarta() {
         const t = stan.otwarta;
         if (!t || stan.nowa || zniszczona) return;
+        const start = licznikZmian;
         try {
             const dane = await zapytanie('/routes/' + t.id);
-            if (zniszczona || !stan.otwarta || stan.otwarta.id !== t.id || stan.akcjaTrwa || stan.kolejnosc) return;
+            if (zniszczona || !stan.otwarta || stan.nowa || stan.otwarta.id !== t.id || akcjaTrwa() || stan.kolejnosc) return;
+            // (oględziny m3) Trasa zmieniła się u nas po wysłaniu tego odczytu (odpowiedź
+            // mutacji jest świeższa) — starszy odczyt jej nie cofa.
+            const lokalna = lokalneZmiany.get(t.id);
+            if (lokalna && lokalna.wersja > start) return;
             przyjmijTrase(dane.route);
             if (edytowalnaTrasa()) wczytajKandydatow();
         } catch (e) {
@@ -2357,7 +2892,11 @@
         }
     }
 
-    /** Podzakładka „Trasy” na ekranie: świeża lista i ewentualna trasa do otwarcia (pokazWidok). */
+    /**
+     * Podzakładka „Trasy” na ekranie: świeża lista, ewentualna trasa do otwarcia (pokazWidok)
+     * i (oględziny M2) świeża dostępność pojazdów i kierowców — we Flocie mogła się zmienić
+     * ładowność, nazwa albo włączenie pojazdu.
+     */
     function pokazano() {
         if (zniszczona) return;
         wczytajListe();
@@ -2365,9 +2904,10 @@
         if (doOtwarcia) {
             panel.removeAttribute('data-lg-otworz-trase');
             otworz(Number(doOtwarcia), { fokus: true });
-        } else if (stan.otwarta && !stan.akcjaTrwa && !stan.kolejnosc) {
-            odswiezOtwarta();
+            return;
         }
+        if (stan.otwarta && !akcjaTrwa() && !stan.kolejnosc) odswiezOtwarta();
+        if (edytowalnaForma()) wczytajDostepnosc();
     }
 
     function naZmianeWidoku(e) {
@@ -2380,8 +2920,22 @@
     function naZmianeTras(e) {
         if (!e.detail || e.detail.root !== root || zniszczona) return;
         if (stan.listaWczytana) wczytajListe();
-        if (stan.otwarta && !stan.akcjaTrwa && !stan.kolejnosc) odswiezOtwarta();
+        if (stan.otwarta && !akcjaTrwa() && !stan.kolejnosc) odswiezOtwarta();
         odswiezMapeTrasPoZmianie();
+    }
+
+    // (oględziny M2) logistics-fleet.js: pojazd dodany, zmieniony, wyłączony albo włączony.
+    function naZmianeFloty(e) {
+        if (!e.detail || e.detail.root !== root || zniszczona) return;
+        if (edytowalnaForma()) wczytajDostepnosc();
+    }
+
+    // (oględziny M12) Przeładowanie albo zamknięcie karty z niezapisanymi zmianami trasy
+    // (albo kolejnością, która jeszcze nie poszła do serwera) — przeglądarka pyta.
+    function przedZamknieciem(e) {
+        if (zniszczona || !(zmieniony() || stan.kolejnosc)) return;
+        e.preventDefault();
+        e.returnValue = '';
     }
 
     function naGotowaMape(e) {
@@ -2457,12 +3011,17 @@
                 }
             } else if (e.target === formDodaj.elements.namedItem('date_from')) {
                 const doDnia = formDodaj.elements.namedItem('date_to');
-                if (doDnia.value && doDnia.value < e.target.value) doDnia.value = e.target.value;
+                const od = e.target.value;
+                if (poprawnaData(od) && rokWZakresie(od) && doDnia.value && doDnia.value < od) doDnia.value = od;
             }
         }, naSluch);
         formDodaj.addEventListener('click', (e) => {
             const b = e.target.closest('[data-lg-trasy-akcja="dodaj-anuluj"]');
             if (b && !b.disabled) zamknijOknoDodawania();
+        }, naSluch);
+        // Poprawka pola z błędem: błąd i oznaczenie pola znikają (oględziny M1, M15).
+        formDodaj.addEventListener('input', (e) => {
+            if (e.target && e.target.getAttribute && e.target.getAttribute('aria-invalid') === 'true') bladDodawania('');
         }, naSluch);
         // Esc: zamykamy sami (z oddaniem fokusu); w trakcie zapisu wcale — wynik musi trafić do listy.
         dialogDodaj.addEventListener('cancel', (e) => {
@@ -2498,7 +3057,13 @@
 
     document.addEventListener('logistics:widok', naZmianeWidoku, naSluch);
     document.addEventListener('logistics:trasy-zmienione', naZmianeTras, naSluch);
+    document.addEventListener('logistics:flota-zmieniona', naZmianeFloty, naSluch);
+    document.addEventListener('logistics:podklad', naZmianePodkladu, naSluch);
     document.addEventListener('logistics:mapa-gotowa', naGotowaMape, naSluch);
+    window.addEventListener('beforeunload', przedZamknieciem, naSluch);
+    if (filtrWykonanychEl) {
+        filtrWykonanychEl.addEventListener('input', (e) => zdejmijOznaczenie(e.target), naSluch);
+    }
 
     if (mapkaEl && typeof ResizeObserver === 'function') {
         obserwatorMapki = new ResizeObserver(naRozmiarMapki);

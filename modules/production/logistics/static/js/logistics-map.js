@@ -24,7 +24,10 @@
  *   window.LogisticsMap.onWyborTrasy(cb)                 cb(route_id) — klik w trasę albo w legendę
  *   window.LogisticsMap.nowaWarstwaPodkladu()            L.TileLayer bieżącego podkładu (mapka edytora)
  *   window.LogisticsMap.kolorTrasy(id), .widok()         klasa koloru trasy, bieżący widok
- * Gotowość ogłasza zdarzenie `logistics:mapa-gotowa` na document (detail.root).
+ *   window.LogisticsMap.onBlad(cb)                       cb(tekst) — odmowa zapisu punktu, gdy pasek
+ *                                                        trybu należy już do następnego zamówienia
+ * Gotowość ogłasza zdarzenie `logistics:mapa-gotowa` na document (detail.root), zmianę
+ * podkładu — `logistics:podklad` (detail {root, podklad}; mapka edytora trasy idzie za nią).
  *
  * Na mapie: przełącznik podkładu (miniaturki, lewy dolny róg) i „Grupuj pinezki”
  * (prawy górny róg; wyłączony = zwykła L.FeatureGroup zamiast klastrów).
@@ -122,6 +125,10 @@
     const ZOOM_WSKAZANIA_MAKS = 15; // …i najwyżej takie (po rozsunięciu klastra mapa stoi na 19)
     const ZOOM_KOREKTY = 15;        // „Popraw lokalizację”: widać ulice i numery
     const ZOOM_DOPASOWANIA = 12;    // dopasowanie do pinezek nie wchodzi głębiej
+    // (oględziny Task 8, M10) Zapas od krawędzi przy dopasowaniu: z lewej kolumna +/−
+    // i „pokaż wszystko”, u góry „Grupuj pinezki”, u dołu miniaturki podkładu i atrybucja —
+    // żadna pinezka ani przystanek trasy nie ląduje pod kontrolką.
+    const MARGINES_DOPASOWANIA = { paddingTopLeft: [56, 44], paddingBottomRight: [36, 64] };
     const CZAS_PROBY_DYMKU_MS = 1500; // przybliżenie + rozsunięcie klastra trwa ~0,5 s
     const PASEK_OK_MS = 5000;
 
@@ -187,12 +194,22 @@
     let klatkaPastylki = 0;          // requestAnimationFrame odświeżenia mapy przy przeciąganiu
     const sluchaczeWyboru = [];
     const sluchaczeZmian = [];
+    const sluchaczeBledow = [];      // onBlad (etap 3): odmowy zapisu punktu spoza bieżącego trybu
     const przyciskZakladki = document.getElementById('logistics-tab');
+    // (oględziny Task 8, I2) Mapa schowana (podzakładka, inna zakładka panelu) ma rozmiar 0.
+    // Po powrocie dopasowuje się do treści widoku od nowa — chyba że użytkownik ją przesunął
+    // albo przybliżył od ostatniego dopasowania (widokRuszony).
+    let mapaUkryta = false;
+    let widokRuszony = false;
+    let dopasowanieWToku = false;    // movestart dopasowania to nie ruch użytkownika
 
     // ── Stan widoku „Trasy” (etap 3) ──
-    // Kolory tras: paleta w logistics-trasy.css (--lg-trasa-0…7 i klasy lg-trasa-kolor-N).
+    // Kolory tras: paleta w logistics-trasy.css (--lg-trasa-0…11 i klasy lg-trasa-kolor-N).
     // Kolor wynika z id trasy, nie z miejsca na liście — zniknięcie innej trasy go nie zmienia.
-    const LICZBA_KOLOROW_TRAS = 8;
+    // (oględziny Task 8, M7/m5) 12 barw: 6 rodzin odcieni × jasna/ciemna, ułożonych tak, że
+    // trasy o bliskich id (6 kolejnych) mają wyraźnie różne kolory — i żaden nie przypomina
+    // pinezek sposobu dostawy (szary, niebieski, zielony, fioletowy).
+    const LICZBA_KOLOROW_TRAS = 12;
     let widok = 'zamowienia';        // 'zamowienia' | 'trasy' — który zestaw warstw leży na mapie
     let warstwaTras = null;          // L.LayerGroup: przebiegi i przystanki aktywnych tras
     let trasyDane = null;            // ostatnia lista z renderTrasy() (null = jeszcze nie przyszła)
@@ -629,6 +646,8 @@
         aktywnyPodklad = podklad;
         zapiszPodklad(id);
         zaznaczAktywnyPodklad();
+        // (oględziny Task 8, M6) Mapka otwartego edytora trasy przechodzi na ten sam podkład.
+        document.dispatchEvent(new CustomEvent('logistics:podklad', { detail: { root: root, podklad: id } }));
     }
 
     function zaznaczAktywnyPodklad() {
@@ -787,22 +806,43 @@
         return kontener.isConnected && kontener.clientWidth > 0 && kontener.clientHeight > 0;
     }
 
+    // (oględziny Task 8, M9) Najszerszy dymek trasy / przystanku = pół mapy bez marginesu:
+    // dymek z kierunkiem 'auto' (w stronę środka mapy) zawsze mieści się w jej granicach.
+    function ustawSzerokoscDymkow() {
+        if (!kontener.clientWidth) return;
+        kontener.style.setProperty('--lg-dymek-maks', Math.max(140, Math.round(kontener.clientWidth / 2 - 28)) + 'px');
+    }
+
     function zainicjuj() {
         if (mapa || zniszczona || !maWymiary()) return;
 
         mapa = L.map(kontener, {
             attributionControl: false,
+            // (oględziny Task 8, M13) Własna kontrolka zoomu — z polskimi podpisami (niżej).
+            zoomControl: false,
+            // (oględziny Task 8, I2) Rozmiar pilnuje ResizeObserver (poZmianieRozmiaru). Nasłuch
+            // okna Leafleta przesuwał SCHOWANĄ mapę (rozmiar 0) przy każdej zmianie szerokości
+            // okna i po powrocie na Dashboard pinezki i trasy były poza kadrem.
+            trackResize: false,
             minZoom: 5,
             maxZoom: 19,
             zoomAnimation: !bezRuchu,
             fadeAnimation: !bezRuchu,
             markerZoomAnimation: !bezRuchu,
         });
+        // Pierwsza w lewym górnym rogu — nad „pokaż wszystko”, jak domyślna kontrolka.
+        L.control.zoom({ zoomInTitle: 'Przybliż', zoomOutTitle: 'Oddal' }).addTo(mapa);
+        // Ruch mapy, który nie jest naszym dopasowaniem = użytkownik przesunął / przybliżył
+        // (także wskazanie zamówienia z listy albo korekta punktu — też „oglądam co innego”).
+        mapa.on('movestart', () => { if (!dopasowanieWToku) widokRuszony = true; });
+        mapa.on('dragstart', () => { widokRuszony = true; });
+        mapa.on('moveend', () => { dopasowanieWToku = false; });
         aktywnyPodklad = PODKLADY.find((p) => p.id === czytajPodklad()) || PODKLADY[0];
         kontrolkaAtrybucji = L.control.attribution({ prefix: false }).addTo(mapa);
         kontrolkaAtrybucji.addAttribution(aktywnyPodklad.atrybucja);
         warstwaKafelkow = nowaWarstwaKafelkow(aktywnyPodklad).addTo(mapa);
-        mapa.fitBounds(POLSKA, { padding: [8, 8] });
+        dopasujGranice(POLSKA, { padding: [8, 8] });
+        ustawSzerokoscDymkow();
 
         grupowanie = czytajGrupowanie();
         pinezki = nowaWarstwaPinezek();
@@ -871,8 +911,7 @@
                 L.DomEvent.on(a, 'click', (e) => {
                     L.DomEvent.preventDefault(e);
                     // Etap 3: w widoku tras „pokaż wszystko” obejmuje trasy, nie ukryte pinezki.
-                    if (widok === 'trasy') dopasujTrasy();
-                    else dopasuj();
+                    dopasujBiezacy();
                 });
                 return div;
             },
@@ -880,16 +919,40 @@
         new Kontrolka().addTo(mapa);
     }
 
-    function dopasuj() {
+    /**
+     * Każde dopasowanie widoku przechodzi tędy: świeży rozmiar kontenera (klik „pokaż
+     * wszystko” zaraz po powrocie z ukrycia liczył ze starego), a „widok ruszony” zeruje się —
+     * od teraz liczy się ruch użytkownika od TEGO dopasowania (oględziny Task 8, I2).
+     */
+    function dopasujGranice(granice, opcje) {
+        if (!mapa) return;
+        if (maWymiary()) mapa.invalidateSize({ pan: false });
+        widokRuszony = false;
+        dopasowanieWToku = true;
+        mapa.fitBounds(granice, opcje);
+        // Bez animacji mapa już stoi (moveend przyszedł w środku fitBounds); z animacją flaga
+        // zejdzie na moveend — ruch w trakcie animacji to nie ruch użytkownika.
+        if (!opcje || opcje.animate === false || bezRuchu) dopasowanieWToku = false;
+    }
+
+    // Treść bieżącego widoku: trasy w widoku „Trasy”, pinezki w widoku „Zamówienia”.
+    function dopasujBiezacy(animuj) {
+        if (widok === 'trasy') dopasujTrasy(animuj);
+        else dopasuj(animuj);
+    }
+
+    // animuj === false — bez animacji (powrót z ukrycia).
+    function dopasuj(animuj) {
         if (!mapa) return;
         const punkty = [];
         znaczniki.forEach((m) => punkty.push(m.getLatLng()));
+        const anim = animuj !== false && !bezRuchu;
         if (!punkty.length) {
-            mapa.fitBounds(POLSKA, { padding: [8, 8], animate: !bezRuchu });
+            dopasujGranice(POLSKA, { padding: [8, 8], animate: anim });
             return;
         }
         if (isFinite(magazyn.lat) && isFinite(magazyn.lng)) punkty.push(L.latLng(magazyn.lat, magazyn.lng));
-        mapa.fitBounds(L.latLngBounds(punkty), { padding: [36, 36], maxZoom: ZOOM_DOPASOWANIA, animate: !bezRuchu });
+        dopasujGranice(L.latLngBounds(punkty), Object.assign({ maxZoom: ZOOM_DOPASOWANIA, animate: anim }, MARGINES_DOPASOWANIA));
     }
 
     // Tablet w układzie jedna-pod-drugą: mapa może być poza ekranem.
@@ -1119,6 +1182,22 @@
         });
     }
 
+    /**
+     * (oględziny Task 8, A2) Odmowa zapisu punktu, gdy logistyk pracuje już nad NASTĘPNYM
+     * zamówieniem (szybka praca na kolejce): pasek trybu należy do nowego zamówienia, więc
+     * błąd (np. 409 — przystanek zatwierdzonej trasy) idzie do słuchaczy onBlad (logistics.js
+     * robi z niego komunikat listy), zamiast zginąć po cichu.
+     */
+    function zglosBlad(tekst) {
+        if (!sluchaczeBledow.length) {
+            console.warn('[LogisticsMap]', tekst);
+            return;
+        }
+        sluchaczeBledow.forEach((cb) => {
+            try { cb(tekst); } catch (e) { console.error('[LogisticsMap] onBlad:', e); }
+        });
+    }
+
     function zapiszPunkt(id, latlng) {
         const punkt = L.latLng(latlng).wrap();
         return wyslij('/orders/' + encodeURIComponent(id) + '/geo', {
@@ -1185,7 +1264,11 @@
             pokazPasek('ok', 'Zapisano nowe miejsce dostawy zamówienia ' + biezacy.z.numer + '.');
             otworzDymek(dane.order.id, 'mapa');
         } catch (e) {
-            if (zniszczona || tryb !== biezacy) return;
+            if (zniszczona) return;
+            if (tryb !== biezacy) {
+                zglosBlad('Nie zapisano nowego miejsca dostawy zamówienia ' + biezacy.z.numer + '. ' + e.message);
+                return;
+            }
             biezacy.zapisywanie = false;
             biezacy.blad = e.message;
             biezacy.znacznik.dragging.enable();
@@ -1237,7 +1320,11 @@
             pokazPasek('ok', 'Ustawiono miejsce dostawy zamówienia ' + biezacy.z.numer + '.');
             otworzDymek(dane.order.id, 'mapa');
         } catch (e) {
-            if (zniszczona || tryb !== biezacy) return;
+            if (zniszczona) return;
+            if (tryb !== biezacy) {
+                zglosBlad('Nie ustawiono miejsca dostawy zamówienia ' + biezacy.z.numer + '. ' + e.message);
+                return;
+            }
             warstwaEdycji.removeLayer(biezacy.znacznik);
             biezacy.znacznik = null;
             biezacy.zapisywanie = false;
@@ -1499,7 +1586,8 @@
                 esc(tekst) + '</span>',
             iconSize: [24, 24],
             iconAnchor: [12, 12],
-            tooltipAnchor: [0, -13],
+            // Dymek z kierunkiem 'auto' (lewo/prawo, w stronę środka mapy) — od krawędzi stacji.
+            tooltipAnchor: [12, 0],
         });
     }
 
@@ -1530,7 +1618,9 @@
                     dashArray: t.przyblizony ? '8 8' : null,
                 }).bindTooltip(esc(opisTrasy(t)) + '<span class="lg-podpowiedz-mapy-uwaga">' +
                     (t.przyblizony ? 'Przebieg przybliżony. ' : '') + 'Kliknij, żeby otworzyć trasę.</span>', {
-                    className: 'lg-podpowiedz-mapy', sticky: true, opacity: 1,
+                    // (oględziny Task 8, M9) Kierunek 'auto' (w stronę środka mapy) i zawijany tekst
+                    // — w wąskiej kolumnie mapy (1440 px z panelem) dymek nie wychodzi poza mapę.
+                    className: 'lg-podpowiedz-mapy lg-podpowiedz-mapy--zawijana', sticky: true, direction: 'auto', opacity: 1,
                 }).addTo(grupa);
             });
             (t.przystanki || []).forEach((p) => {
@@ -1543,7 +1633,7 @@
                     riseOnHover: true,
                 }).bindTooltip('<b>' + esc(p.pozycja) + '. ' + esc(p.numer) + '</b>' + (p.klient ? ' ' + esc(p.klient) : '') +
                     '<span class="lg-podpowiedz-mapy-uwaga">' + esc(t.nazwa) + '</span>', {
-                    className: 'lg-podpowiedz-mapy', direction: 'top', opacity: 1,
+                    className: 'lg-podpowiedz-mapy lg-podpowiedz-mapy--zawijana', direction: 'auto', opacity: 1,
                 }).addTo(grupa);
             });
             // Klik w linię albo przystanek = trasa w edytorze; najechanie wyróżnia trasę.
@@ -1578,19 +1668,20 @@
         }
     }
 
-    function dopasujTrasy() {
+    function dopasujTrasy(animuj) {
         if (!mapa) return;
         const punkty = [];
         (trasyDane || []).forEach((t) => {
             (t.przystanki || []).forEach((p) => { if (maPunkt(p)) punkty.push(L.latLng(p.lat, p.lng)); });
             liniePrzebiegu(t.przebieg).forEach((linia) => linia.forEach((p) => punkty.push(L.latLng(p[0], p[1]))));
         });
+        const anim = animuj !== false && !bezRuchu;
         if (!punkty.length) {
-            mapa.fitBounds(POLSKA, { padding: [8, 8], animate: !bezRuchu });
+            dopasujGranice(POLSKA, { padding: [8, 8], animate: anim });
             return;
         }
         if (isFinite(magazyn.lat) && isFinite(magazyn.lng)) punkty.push(L.latLng(magazyn.lat, magazyn.lng));
-        mapa.fitBounds(L.latLngBounds(punkty), { padding: [36, 36], maxZoom: ZOOM_DOPASOWANIA, animate: !bezRuchu });
+        dopasujGranice(L.latLngBounds(punkty), Object.assign({ maxZoom: ZOOM_DOPASOWANIA, animate: anim }, MARGINES_DOPASOWANIA));
     }
 
     /** Legenda pod mapą w widoku tras: każda trasa to przycisk (klawiatura) — klik otwiera ją w edytorze. */
@@ -1887,16 +1978,37 @@
         };
     }
 
+    function onBlad(cb) {
+        if (typeof cb === 'function') sluchaczeBledow.push(cb);
+        return () => {
+            const i = sluchaczeBledow.indexOf(cb);
+            if (i !== -1) sluchaczeBledow.splice(i, 1);
+        };
+    }
+
     // Widoczność: zakładka Bootstrap (shown.bs.tab) i każda zmiana rozmiaru
     // kontenera (zwinięcie panelu bocznego, zmiana układu, ukrycie zakładki).
+    // (oględziny Task 8, I2) Schowana mapa (podzakładka Trasy/Flota, inna zakładka panelu)
+    // ma rozmiar 0 — tylko to odnotowujemy. Po powrocie (0 → > 0) okno mogło mieć już inną
+    // szerokość: invalidateSize trzyma środek mapy, a mapa nieruszana przez użytkownika od
+    // ostatniego dopasowania dopasowuje się od nowa do treści widoku (trasy albo pinezki).
     function poZmianieRozmiaru() {
         if (zniszczona) return;
         if (!mapa) {
             zainicjuj();
+        } else if (!maWymiary()) {
+            mapaUkryta = true;
         } else if (przeciaganie) {
             odswiezPoPastylce();   // w trakcie przeciągania pilnuje tego klatka
-        } else if (maWymiary()) {
+        } else if (mapaUkryta) {
+            mapaUkryta = false;
+            mapa.invalidateSize({ pan: true, animate: false });
+            ustawSzerokoscDymkow();
+            if (!widokRuszony && !tryb) dopasujBiezacy(false);
+            opiszPastylke();
+        } else {
             mapa.invalidateSize({ pan: false });
+            ustawSzerokoscDymkow();
             opiszPastylke();
         }
     }
@@ -1950,6 +2062,7 @@
         zamowienia.clear();
         sluchaczeWyboru.length = 0;
         sluchaczeZmian.length = 0;
+        sluchaczeBledow.length = 0;
         sluchaczeWyboruTrasy.length = 0;
         if (window.LogisticsMap === api) delete window.LogisticsMap;
     }
@@ -1960,6 +2073,7 @@
         highlight: highlight,
         onSelect: onSelect,
         onZmiana: onZmiana,
+        onBlad: onBlad,
         ustawNaMapie: ustawNaMapie,
         anuluj: anulujTryb,
         zajeta: () => !!tryb,

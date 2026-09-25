@@ -96,6 +96,83 @@ def test_wykonanie_trasy_zawsze_wysyla_liste_dostarczonych():
     assert 'delivered_order_ids:' in js
 
 
+def _funkcja(js, nazwa):
+    """Treść funkcji z IIFE (wcięcie 4 spacje) — od nagłówka do zamykającej klamry."""
+    start = js.index('function ' + nazwa + '(')
+    return js[start:js.index('\n    }\n', start)]
+
+
+# ─── Poprawki po przeglądzie i oględzinach Task 8 (runda 1) ───
+
+def test_odpowiedz_mutacji_nie_przejmuje_edytora_innej_trasy():
+    """A1: spóźniona odpowiedź trasy A nie wraca do edytora, w którym jest już trasa B."""
+    trasy = _plik('static', 'js', 'logistics-routes.js')
+    assert 'akcjaTrwa:' not in trasy and 'stan.akcjaTrwa' not in trasy   # zajętość per trasa (stan.wToku)
+    assert 'stan.sesja += 1' in _funkcja(trasy, 'resetEdytora')
+    for nazwa in ('zapisz', 'zatwierdz', 'cofnij', 'przywroc', 'usunPrzystanek', 'dodajKandydatow'):
+        tresc = _funkcja(trasy, nazwa)
+        assert 'przyjmijOdpowiedz(ctx, odp.route' in tresc and 'przyjmijTrase(' not in tresc, nazwa
+    assert 'przyjmijOdpowiedz(w, odp.route' in _funkcja(trasy, 'zatwierdzWykonanie')
+    assert 'stan.otwarta.id !== w.id' not in _funkcja(trasy, 'zatwierdzWykonanie')
+    assert 'stan.sesja !== sesja' in _funkcja(trasy, 'przygotujWykonanie')
+
+
+def test_odmowa_zapisu_punktu_spoza_trybu_trafia_do_komunikatu():
+    """A2: 409 z PUT /orders/<id>/geo, gdy pasek należy już do następnego zamówienia."""
+    mapa = _plik('static', 'js', 'logistics-map.js')
+    for nazwa in ('zapiszKorekte', 'ustawPunkt'):
+        tresc = _funkcja(mapa, nazwa)
+        catch = tresc[tresc.index('} catch (e) {'):]
+        galaz = catch[catch.index('if (tryb !== biezacy) {'):]
+        assert galaz.index('zglosBlad(') < galaz.index('return;'), nazwa
+    assert 'onBlad: onBlad' in mapa
+    assert 'm.onBlad(naBladMapy)' in _plik('static', 'js', 'logistics.js')
+
+
+def test_css_etapu_3_nie_zmienia_wygladu_etapu_2():
+    """m1: ogólne reguły (nieaktywny przycisk, [hidden], pola dotykowe) tylko w nowych kontenerach."""
+    css = _plik('static', 'css', 'logistics-trasy.css')
+    assert '.logistics-tab [hidden]' not in css
+    assert '\n.logistics-tab .lg-przycisk:disabled' not in css
+    assert '\n.logistics-tab .lg-przycisk--glowny:disabled' not in css
+    assert '    .logistics-tab .lg-pole input { min-height' not in css
+    html = _plik('templates', 'logistics', 'tab_content.html')
+    assert 'class="lg-dialog lg-dialog--pojazd"' in html
+
+
+def test_paleta_tras_ma_12_barw():
+    """m5 + M7: 12 wyraźnie różnych barw, kolor z id trasy."""
+    css = _plik('static', 'css', 'logistics-trasy.css')
+    for n in range(12):
+        assert '--lg-trasa-%d:' % n in css and '.lg-trasa-kolor-%d {' % n in css, n
+    assert '--lg-trasa-12:' not in css
+    assert 'const LICZBA_KOLOROW_TRAS = 12;' in _plik('static', 'js', 'logistics-map.js')
+
+
+def test_mapy_po_polsku_i_bez_nasluchu_okna_leafleta():
+    """M13 + I2: polskie podpisy zoomu; rozmiar map pilnuje ResizeObserver, nie trackResize."""
+    for plik in ('logistics-map.js', 'logistics-routes.js'):
+        js = _plik('static', 'js', plik)
+        assert "zoomInTitle: 'Przybliż', zoomOutTitle: 'Oddal'" in js, plik
+        assert 'trackResize: false' in js and 'zoomControl: false' in js, plik
+    assert 'Pokaż całą trasę' in _plik('static', 'js', 'logistics-routes.js')
+
+
+def test_daty_i_bledy_pol_w_szablonie():
+    """M5 + M15: zakres lat w polach dat, błędy powiązane z polami (aria-describedby)."""
+    html = _plik('templates', 'logistics', 'tab_content.html')
+    assert html.count('type="date"') == html.count('min="2000-01-01" max="2099-12-31"') == 6
+    for id_ in ('lg-edytor-blad', 'lg-trasa-dodaj-blad', 'lg-pojazd-blad', 'lg-trasy-wykonane-opis'):
+        assert 'id="%s"' % id_ in html, id_
+    assert "'lg-pojazd-blad'" in _plik('static', 'js', 'logistics-fleet.js')
+
+
+def test_plik_tras_nie_wczytal_sie_to_blad_a_nie_czekanie():
+    """m6: loader stawia data-lg-trasy-blad, „Dodaj do trasy…” mówi o błędzie."""
+    assert "setAttribute('data-lg-trasy-blad', '1')" in _plik('templates', 'logistics', 'tab_content.html')
+    assert "hasAttribute('data-lg-trasy-blad')" in _funkcja(_plik('static', 'js', 'logistics.js'), 'dodajDoTrasy')
+
+
 def test_nowe_pliki_sprzataja_po_sobie():
     trasy = _plik('static', 'js', 'logistics-routes.js')
     flota = _plik('static', 'js', 'logistics-fleet.js')

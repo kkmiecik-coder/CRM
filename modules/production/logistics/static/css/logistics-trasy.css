@@ -5,12 +5,22 @@
    lg-przycisk, okna lg-dialog), nie nowy projekt. Wszystko pod .logistics-tab.
 
    Jedyny nowy akcent: KOLOR TRASY. Każda trasa dostaje barwę z palety
-   (--lg-trasa-0…7, klasa lg-trasa-kolor-N, N = id trasy % 8 — logistics-map.js,
+   (--lg-trasa-0…11, klasa lg-trasa-kolor-N, N = id trasy % 12 — logistics-map.js,
    kolorTrasy) i ta barwa idzie za nią wszędzie: linia na mapie Dashboardu,
-   legenda, lista tras, pasek edytora, mapka i SCHEMAT LINII przystanków
-   (magazyn → numerowane „stacje” → magazyn, jak plan linii). Paleta omija
-   kolory sposobów dostawy (szary, niebieski, zielony, fioletowy), żeby trasy
-   nie myliły się z pinezkami. Reszta zostaje spokojna i szara.
+   legenda, lista tras, plakietka na liście zamówień, pasek edytora, mapka
+   i SCHEMAT LINII przystanków (magazyn → numerowane „stacje” → magazyn, jak
+   plan linii). Paleta omija kolory sposobów dostawy (szary, niebieski, zielony,
+   fioletowy), żeby trasy nie myliły się z pinezkami. Reszta zostaje spokojna i szara.
+
+   Paleta (oględziny Task 8, M7): 6 rodzin odcieni × jasna/ciemna. Kolejność tak
+   dobrana (sprawdzona miarą CIEDE2000), że dowolne 6 kolejnych id trasy dostaje
+   wyraźnie różne barwy (najbliższa para w takim oknie ΔE ≈ 22, sąsiednie id ≥ 44),
+   a ta sama rodzina wraca dopiero 6 id dalej. Od pinezek i atramentu panelu każda
+   barwa odstaje o ΔE ≥ 17.
+
+   Poza nowymi podzakładkami i oknami (etap 3) reguły tu nie ruszają wyglądu
+   etapu 2 — ogólne reguły (przycisk nieaktywny, [hidden], pola dotykowe) są
+   zawężone do .lg-widok--trasy, .lg-widok--flota, .lg-dialog--trasy i .lg-dialog--pojazd.
 
    Status trasy mówi wagą, nie kolorem: robocza = przerywana obwódka (szkic,
    jak przerywana pinezka „przybliżona”), zatwierdzona = ciemna z kłódką (jak
@@ -19,14 +29,18 @@
    ============================================================================ */
 
 .logistics-tab {
-    --lg-trasa-0: #e8590c;   /* pomarańczowy */
-    --lg-trasa-1: #0c8599;   /* morski */
-    --lg-trasa-2: #d6336c;   /* malinowy */
-    --lg-trasa-3: #f59f00;   /* bursztynowy */
-    --lg-trasa-4: #0b4f5c;   /* ciemny morski */
-    --lg-trasa-5: #8f8a00;   /* oliwkowy */
-    --lg-trasa-6: #9c1c3c;   /* bordowy */
-    --lg-trasa-7: #8d5b2d;   /* brązowy */
+    --lg-trasa-0: #ee7c2f;   /* pomarańczowy */
+    --lg-trasa-1: #e640c9;   /* fuksjowy */
+    --lg-trasa-2: #2a9bd6;   /* błękitny */
+    --lg-trasa-3: #99461c;   /* rdzawy */
+    --lg-trasa-4: #8a9f00;   /* limonkowy */
+    --lg-trasa-5: #23407a;   /* granatowy */
+    --lg-trasa-6: #6f6112;   /* oliwkowy */
+    --lg-trasa-7: #8c1150;   /* wiśniowy */
+    --lg-trasa-8: #14a79f;   /* turkusowy */
+    --lg-trasa-9: #e8364f;   /* koralowy */
+    --lg-trasa-10: #c49a0a;  /* złoty */
+    --lg-trasa-11: #0b5c63;  /* ciemnomorski */
     /* Bez klasy koloru (nowa, niezapisana trasa) — atrament panelu. */
     --lg-trasa: var(--il-text-primary, #1a1a2e);
     --lg-niebezpieczny: var(--il-status-danger, #dc2626);
@@ -40,10 +54,21 @@
 .logistics-tab .lg-trasa-kolor-5 { --lg-trasa: var(--lg-trasa-5); }
 .logistics-tab .lg-trasa-kolor-6 { --lg-trasa: var(--lg-trasa-6); }
 .logistics-tab .lg-trasa-kolor-7 { --lg-trasa: var(--lg-trasa-7); }
+.logistics-tab .lg-trasa-kolor-8 { --lg-trasa: var(--lg-trasa-8); }
+.logistics-tab .lg-trasa-kolor-9 { --lg-trasa: var(--lg-trasa-9); }
+.logistics-tab .lg-trasa-kolor-10 { --lg-trasa: var(--lg-trasa-10); }
+.logistics-tab .lg-trasa-kolor-11 { --lg-trasa: var(--lg-trasa-11); }
 
-/* Atrybut hidden chowa zawsze — także elementy, którym klasa daje display: flex/grid
-   (bez tego np. legenda mapy z display: flex zostałaby widoczna mimo hidden). */
-.logistics-tab [hidden] {
+/* Atrybut hidden chowa zawsze — także elementy, którym klasa daje display: flex/grid.
+   (oględziny Task 8, m1) Tylko w elementach etapu 3: podzakładki (także sam panel
+   Dashboardu), ich okna i legenda mapy (przełącznik „Zamówienia | Trasy” chowa jedną
+   z dwóch legend z display: flex). Reszta etapu 2 ma własne reguły [hidden]. */
+.logistics-tab .lg-widok[hidden],
+.logistics-tab .lg-mapa-legenda[hidden],
+.logistics-tab .lg-widok--trasy [hidden],
+.logistics-tab .lg-widok--flota [hidden],
+.logistics-tab .lg-dialog--trasy [hidden],
+.logistics-tab .lg-dialog--pojazd [hidden] {
     display: none !important;
 }
 
@@ -109,7 +134,9 @@
 
 /* ─── Dashboard: plakietka trasy pod selectem sposobu ───
    width: 0 + min-width: 100% — jak linie adresu: długa nazwa trasy nie poszerza
-   kolumny „Sposób dostawy” (szerokość daje select), tylko ucina się wielokropkiem. */
+   kolumny „Sposób dostawy” (szerokość daje select), tylko ucina się wielokropkiem.
+   (oględziny Task 8, I1) Status to sam znak (ołówek / kłódka / ptaszek, jak w edytorze),
+   więc prawie cała szerokość idzie na nazwę; pasek z lewej ma kolor trasy (jak na mapie). */
 .logistics-tab .lg-plakietka-trasy {
     display: flex;
     align-items: center;
@@ -150,18 +177,26 @@
     color: var(--il-text-primary, #1a1a2e);
 }
 
-.logistics-tab .lg-plakietka-trasy-status {
+.logistics-tab .lg-plakietka-trasy > .lg-plakietka-trasy-status {
     flex: none;
-    white-space: nowrap;
+    width: 10px;
+    font-size: 9.5px;
+    text-align: center;
+    color: var(--il-text-secondary, #7a8291);
 }
 
-.logistics-tab .lg-plakietka-trasy--zatwierdzona .lg-plakietka-trasy-status {
-    font-weight: 600;
+.logistics-tab .lg-plakietka-trasy--zatwierdzona > .lg-plakietka-trasy-status {
     color: var(--il-text-primary, #1a1a2e);
 }
 
-.logistics-tab .lg-plakietka-trasy--wykonana .lg-plakietka-trasy-status {
+.logistics-tab .lg-plakietka-trasy--wykonana > .lg-plakietka-trasy-status {
     color: #15803d;
+}
+
+.logistics-tab .lg-plakietka-trasy--kolor,
+.logistics-tab .lg-plakietka-trasy--kolor:hover {
+    padding-left: 5px;
+    border-left: 3px solid var(--lg-trasa);
 }
 
 /* „bez trasy” — przerywana obwódka (jak „bez punktu”), krótka, więc bez triku szerokości. */
@@ -220,6 +255,47 @@
 
 .logistics-tab .lg-mapa-przelacznik button:focus-visible {
     outline-offset: -3px;
+}
+
+/* (oględziny Task 8, M8) Wąska kolumna mapy (1440 px z panelem bocznym, ~300 px):
+   przełącznik widoków i „Bez lokalizacji” w pierwszym wierszu, „Zlokalizuj teraz”
+   w drugim — dwa wiersze zamiast trzech. Nic nie znika, a kolejność na ekranie zostaje
+   kolejnością w DOM (i Tab): akcje stają się zwykłymi elementami nagłówka, a „Bez
+   lokalizacji” zajmuje resztę pierwszego wiersza (podstawa = 100% minus zwarty
+   przełącznik), więc „Zlokalizuj teraz” zawsze przechodzi do drugiego; w razie potrzeby
+   dopisek „· w widoku N” łamie się w przycisku. */
+@container lg-mapa-naglowek (max-width: 439px) {
+    .logistics-tab .lg-mapa-akcje { display: contents; }
+    .logistics-tab .lg-mapa-przelacznik button { padding-left: 7px; padding-right: 7px; }
+    .logistics-tab .lg-bez-geo {
+        flex: 1 1 calc(100% - 150px);
+        flex-wrap: wrap;
+        row-gap: 0;
+        min-width: 0;
+        padding-left: 7px;
+        padding-right: 8px;
+        white-space: normal;
+    }
+    .logistics-tab .lg-bez-geo > span { white-space: nowrap; }
+    .logistics-tab .lg-zlokalizuj { margin-left: auto; }
+}
+
+/* (oględziny Task 8, M9) Dymki tras i przystanków: tekst się zawija, szerokość najwyżej
+   pół mapy (--lg-dymek-maks ustawia JS przy każdej zmianie rozmiaru) — z kierunkiem
+   'auto' (w stronę środka) mieszczą się w mapie także w wąskiej kolumnie. */
+.logistics-tab .lg-podpowiedz-mapy--zawijana {
+    width: max-content;
+    max-width: min(260px, var(--lg-dymek-maks, 260px));
+    white-space: normal;
+    overflow-wrap: break-word;
+}
+
+.logistics-tab .lg-podpowiedz-mapy.leaflet-tooltip-left::before {
+    border-left-color: var(--il-text-primary, #1a1a2e);
+}
+
+.logistics-tab .lg-podpowiedz-mapy.leaflet-tooltip-right::before {
+    border-right-color: var(--il-text-primary, #1a1a2e);
 }
 
 /* ─── Mapa Dashboardu: warstwa tras ───
@@ -282,8 +358,18 @@
     letter-spacing: -0.4px;
 }
 
-.logistics-tab .lg-stacja--bez-geo {
+/* (oględziny Task 8, m7) Dwa znaczenia, dwa wyglądy — na liście przystanków, na mapce
+   i w oknie „Odhacz”. Punkt PRZYBLIŻONY (miejscowość): przerywana obwódka w kolorze
+   trasy, jak przerywana pinezka. BRAK punktu na mapie: szara tarcza z kropkowaną
+   obwódką — przystanek jest na trasie, ale na mapie go nie ma. */
+.logistics-tab .lg-stacja--przyblizona {
     border-style: dashed;
+}
+
+.logistics-tab .lg-stacja--bez-geo {
+    background: var(--il-bg-base, #eef0f4);
+    border-style: dotted;
+    border-color: var(--il-text-muted, #9ba3b0);
     color: var(--il-text-secondary, #7a8291);
 }
 
@@ -429,17 +515,20 @@
     background: rgba(220, 38, 38, 0.04);
 }
 
-.logistics-tab .lg-przycisk--glowny:disabled {
+/* Przycisk nieaktywny w nowych podzakładkach i oknach: „nie teraz” (not-allowed), główny
+   wyraźniej przygaszony. (oględziny Task 8, m1) Tylko tam — w etapie 2 nieaktywny
+   przycisk znaczy „trwa praca” (cursor: progress, logistics.css) i tak zostaje. */
+.logistics-tab :is(.lg-widok--trasy, .lg-widok--flota, .lg-dialog--trasy, .lg-dialog--pojazd) .lg-przycisk--glowny:disabled {
     opacity: 0.45;
     cursor: not-allowed;
 }
 
-.logistics-tab .lg-przycisk:disabled:not(.is-kreci) {
+.logistics-tab :is(.lg-widok--trasy, .lg-widok--flota, .lg-dialog--trasy, .lg-dialog--pojazd) .lg-przycisk:disabled:not(.is-kreci) {
     cursor: not-allowed;
 }
 
-/* Zapis w toku: przycisk przygaszony, ale zostaje w kolejności Tab (fokus nie ucieka). */
-.logistics-tab .lg-przycisk[aria-disabled="true"] {
+/* Zmiana w toku: przycisk przygaszony, ale zostaje w kolejności Tab (fokus nie ucieka). */
+.logistics-tab :is(.lg-widok--trasy, .lg-widok--flota, .lg-dialog--trasy, .lg-dialog--pojazd) .lg-przycisk[aria-disabled="true"] {
     opacity: 0.55;
     cursor: progress;
 }
@@ -848,8 +937,8 @@
 .logistics-tab .lg-edytor-pola .lg-pole--zasob { grid-column: span 2; }
 .logistics-tab .lg-edytor-pola .lg-pole--notatka { grid-column: 1 / -1; }
 
-.logistics-tab .lg-pole select,
-.logistics-tab .lg-pole textarea {
+.logistics-tab .lg-widok--trasy .lg-pole select,
+.logistics-tab .lg-widok--trasy .lg-pole textarea {
     font-size: 13.5px;
     font-weight: 400;
     color: var(--il-text-primary, #1a1a2e);
@@ -857,11 +946,11 @@
     border-radius: var(--il-radius, 3px);
 }
 
-.logistics-tab .lg-pole select {
+.logistics-tab .lg-widok--trasy .lg-pole select {
     height: 34px;
 }
 
-.logistics-tab .lg-pole textarea {
+.logistics-tab .lg-widok--trasy .lg-pole textarea {
     min-height: 54px;
     padding: 6px 9px;
     background: var(--il-bg-card, #fff);
@@ -869,17 +958,25 @@
     line-height: 1.4;
 }
 
-.logistics-tab .lg-pole select:focus,
-.logistics-tab .lg-pole textarea:focus {
+.logistics-tab .lg-widok--trasy .lg-pole select:focus,
+.logistics-tab .lg-widok--trasy .lg-pole textarea:focus {
     outline: none;
     border-color: var(--il-status-info, #2563eb);
     box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.18);
 }
 
-.logistics-tab .lg-pole input[type="date"] {
+.logistics-tab :is(.lg-widok--trasy, .lg-dialog--trasy) .lg-pole input[type="date"] {
     font-family: var(--lg-mono);
     font-size: 13px;
     font-variant-numeric: tabular-nums;
+}
+
+/* (oględziny Task 8, M15) Pole z błędem walidacji (aria-invalid) — czerwona obwódka,
+   także z fokusem (fokus wraca na błędne pole). */
+.logistics-tab :is(.lg-widok--trasy, .lg-dialog--trasy, .lg-dialog--pojazd) [aria-invalid="true"],
+.logistics-tab :is(.lg-widok--trasy, .lg-dialog--trasy, .lg-dialog--pojazd) [aria-invalid="true"]:focus {
+    border-color: var(--lg-niebezpieczny);
+    box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.18);
 }
 
 /* Trasa zatwierdzona i wykonana: pola zablokowane, ale czytelne (nie wyblakłe). */
@@ -1474,7 +1571,7 @@
     width: min(560px, calc(100vw - 32px));
 }
 
-.logistics-tab .lg-dialog-opis:empty {
+.logistics-tab :is(.lg-dialog--trasy, .lg-dialog--pojazd) .lg-dialog-opis:empty {
     display: none;
 }
 
@@ -1692,8 +1789,10 @@
     display: block;
 }
 
+/* Niedostarczony przystanek przygasa (obwódka zostaje: przerywana = punkt przybliżony,
+   kropkowana = bez punktu — jak na liście przystanków). */
 .logistics-tab .lg-wykonaj-pozycja.is-niedostarczone .lg-stacja {
-    border-style: dashed;
+    opacity: 0.45;
 }
 
 .logistics-tab .lg-wykonaj-ile {
@@ -1759,9 +1858,11 @@
     white-space: nowrap;
 }
 
+/* break-word, nie anywhere: w tabeli „anywhere” zmniejsza najwęższą szerokość kolumny
+   i nazwa łamała się w pół słowa („Ford Transi / t”, oględziny Task 8, I4). */
 .logistics-tab .lg-pojazd-nazwa {
     font-weight: 600;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
 }
 
 /* Numer rejestracyjny jak tablica: kanciasta ramka, krój mono. */
@@ -1872,7 +1973,10 @@
     color: var(--il-text-muted, #9ba3b0);
 }
 
-@container lg-flota-widok (max-width: 759px) {
+/* (oględziny Task 8, I4) Kierowcy pod tabelą, gdy obok niej się nie mieszczą: tabela
+   pojazdów potrzebuje ~520 px (z „Edytuj” i „Wyłącz”), kolumna kierowców 280 px, więc
+   poniżej ~880 px widoku (np. 768 px okna ze zwiniętym panelem bocznym) — jedna kolumna. */
+@container lg-flota-widok (max-width: 879px) {
     .logistics-tab .lg-flota {
         grid-template-columns: minmax(0, 1fr);
     }
@@ -1896,8 +2000,9 @@
     .logistics-tab .lg-kandydat .lg-zaznacz-pole input,
     .logistics-tab .lg-wykonaj-pozycja input,
     .logistics-tab .lg-wybor-trasy-opcja input { width: 20px; height: 20px; }
-    .logistics-tab .lg-pole select,
-    .logistics-tab .lg-pole input { min-height: 38px; }
+    /* (oględziny Task 8, m1) Tylko pola etapu 3 — okno adresu (etap 2) zostaje jak było. */
+    .logistics-tab :is(.lg-widok--trasy, .lg-widok--flota, .lg-dialog--trasy, .lg-dialog--pojazd) .lg-pole select,
+    .logistics-tab :is(.lg-widok--trasy, .lg-widok--flota, .lg-dialog--trasy, .lg-dialog--pojazd) .lg-pole input { min-height: 38px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

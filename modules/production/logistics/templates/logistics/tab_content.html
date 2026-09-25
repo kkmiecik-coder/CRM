@@ -16,7 +16,7 @@
 <link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet-markercluster/MarkerCluster.css') }}?v=1.5.3">
 <link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20260925i">
 {# Etap 3: trasy, flota, widok tras na mapie — osobny arkusz (logistics.css zostaje nietknięty). #}
-<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics-trasy.css') }}?v=20260925a">
+<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics-trasy.css') }}?v=20260925b">
 
 <div id="logistics-root" class="logistics-tab"
      data-api="{{ url_for('logistics_panel.orders') }}"
@@ -181,8 +181,8 @@
                data-carto-key="{{ carto_basemaps_key }}"
                data-skrypt-leaflet="{{ url_for('production.static', filename='vendor/leaflet/leaflet.js') }}?v=1.9.4"
                data-skrypt-klastry="{{ url_for('production.static', filename='vendor/leaflet-markercluster/leaflet.markercluster.js') }}?v=1.5.3"
-               data-skrypt-mapy="{{ url_for('logistics_panel.static', filename='js/logistics-map.js') }}?v=20260925h"
-               data-skrypt-trasy="{{ url_for('logistics_panel.static', filename='js/logistics-routes.js') }}?v=20260925a"></div>
+               data-skrypt-mapy="{{ url_for('logistics_panel.static', filename='js/logistics-map.js') }}?v=20260925i"
+               data-skrypt-trasy="{{ url_for('logistics_panel.static', filename='js/logistics-routes.js') }}?v=20260925b"></div>
           {# Pasek trybu (korekta, ustawianie punktu) i wyniku akcji na mapie. #}
           <div class="lg-mapa-pasek" data-lg-mapa="pasek" role="status" aria-live="polite" hidden></div>
           <div class="lg-mapa-stan is-ladowanie" data-lg-mapa="stan" role="status">Ładowanie mapy…</div>
@@ -319,12 +319,12 @@
         <details class="lg-trasy-sekcja lg-trasy-wykonane" data-lg-trasy="wykonane">
           <summary class="lg-trasy-sekcja-tytul">Wykonane <span class="lg-trasy-sekcja-ile" data-lg-trasy="wykonane-ile"></span></summary>
           <form class="lg-trasy-filtr" data-lg-trasy="wykonane-filtr" novalidate>
-            <label class="lg-pole lg-pole--data"><span>Od</span><input type="date" name="od"></label>
-            <label class="lg-pole lg-pole--data"><span>Do</span><input type="date" name="do"></label>
+            <label class="lg-pole lg-pole--data"><span>Od</span><input type="date" name="od" min="2000-01-01" max="2099-12-31"></label>
+            <label class="lg-pole lg-pole--data"><span>Do</span><input type="date" name="do" min="2000-01-01" max="2099-12-31"></label>
             <button type="submit" class="lg-przycisk">Pokaż</button>
             <button type="button" class="lg-przycisk lg-przycisk--cichy" data-lg-trasy-akcja="wykonane-reset">Ostatnie 30 dni</button>
           </form>
-          <p class="lg-trasy-filtr-opis" data-lg-trasy="wykonane-opis">Ostatnie 30 dni.</p>
+          <p class="lg-trasy-filtr-opis" id="lg-trasy-wykonane-opis" data-lg-trasy="wykonane-opis" aria-live="polite">Ostatnie 30 dni.</p>
           <ul class="lg-trasy-pozycje" data-lg-trasy="wykonane-lista"></ul>
         </details>
       </section>
@@ -347,7 +347,7 @@
                       title="Zamknij trasę" aria-label="Zamknij trasę"><i class="fas fa-xmark" aria-hidden="true"></i></button>
             </div>
             <div class="lg-edytor-akcje" data-lg-trasy="akcje"></div>
-            <p class="lg-dialog-blad lg-edytor-blad" data-lg-trasy="blad" role="alert" hidden></p>
+            <p class="lg-dialog-blad lg-edytor-blad" id="lg-edytor-blad" data-lg-trasy="blad" role="alert" hidden></p>
           </header>
 
           <form class="lg-edytor-form" data-lg-trasy="form" novalidate autocomplete="off">
@@ -355,8 +355,8 @@
               <legend class="visually-hidden">Dane trasy</legend>
               <label class="lg-pole lg-pole--nazwa"><span>Nazwa trasy</span>
                 <input type="text" name="name" maxlength="120" required spellcheck="false" placeholder="np. Kraków + Tarnów"></label>
-              <label class="lg-pole lg-pole--data"><span>Od</span><input type="date" name="date_from" required></label>
-              <label class="lg-pole lg-pole--data"><span>Do</span><input type="date" name="date_to" required></label>
+              <label class="lg-pole lg-pole--data"><span>Od</span><input type="date" name="date_from" min="2000-01-01" max="2099-12-31" required></label>
+              <label class="lg-pole lg-pole--data"><span>Do</span><input type="date" name="date_to" min="2000-01-01" max="2099-12-31" required></label>
               {# Zajęte w tych dniach: widoczne, wyszarzone, z dopiskiem „(zajęty — trasa)”. #}
               <label class="lg-pole lg-pole--zasob"><span>Pojazd</span>
                 <select name="vehicle_id" class="form-select form-select-sm" data-lg-trasy="pojazd"></select>
@@ -517,11 +517,11 @@
         <label class="lg-pole"><span>Nazwa trasy</span>
           <input type="text" name="name" maxlength="120" spellcheck="false" placeholder="np. Kraków + Tarnów"></label>
         <div class="lg-pole-rzad lg-pole-rzad--daty">
-          <label class="lg-pole lg-pole--data"><span>Od</span><input type="date" name="date_from"></label>
-          <label class="lg-pole lg-pole--data"><span>Do</span><input type="date" name="date_to"></label>
+          <label class="lg-pole lg-pole--data"><span>Od</span><input type="date" name="date_from" min="2000-01-01" max="2099-12-31"></label>
+          <label class="lg-pole lg-pole--data"><span>Do</span><input type="date" name="date_to" min="2000-01-01" max="2099-12-31"></label>
         </div>
       </div>
-      <p class="lg-dialog-blad" data-lg-trasy="dodaj-blad" role="alert" hidden></p>
+      <p class="lg-dialog-blad" id="lg-trasa-dodaj-blad" data-lg-trasy="dodaj-blad" role="alert" hidden></p>
       <div class="lg-dialog-akcje">
         <button type="button" class="lg-przycisk" data-lg-trasy-akcja="dodaj-anuluj">Anuluj</button>
         <button type="submit" class="lg-przycisk lg-przycisk--glowny" data-lg-trasy="dodaj-zapisz">Dodaj do trasy</button>
@@ -546,7 +546,7 @@
   </dialog>
 
   {# Pojazd floty — dodanie i edycja; logistics-fleet.js. #}
-  <dialog class="lg-dialog" data-lg="pojazd-dialog" aria-labelledby="lg-pojazd-tytul">
+  <dialog class="lg-dialog lg-dialog--pojazd" data-lg="pojazd-dialog" aria-labelledby="lg-pojazd-tytul">
     <form class="lg-dialog-form" data-lg-flota="form" novalidate autocomplete="off">
       <h2 class="lg-dialog-tytul" id="lg-pojazd-tytul" data-lg-flota="tytul">Nowy pojazd</h2>
       <label class="lg-pole"><span>Nazwa</span>
@@ -558,7 +558,7 @@
           <input type="number" name="capacity_kg" min="1" max="100000" step="1" inputmode="numeric" placeholder="np. 1500"></label>
       </div>
       <p class="lg-dialog-opis lg-dialog-opis--pod">Bez ładowności trasa nie ostrzeże o przekroczonej wadze.</p>
-      <p class="lg-dialog-blad" data-lg-flota="blad" role="alert" hidden></p>
+      <p class="lg-dialog-blad" id="lg-pojazd-blad" data-lg-flota="blad" role="alert" hidden></p>
       <div class="lg-dialog-akcje">
         <button type="button" class="lg-przycisk" data-lg-flota-akcja="anuluj">Anuluj</button>
         <button type="submit" class="lg-przycisk lg-przycisk--glowny" data-lg-flota="zapisz">Zapisz</button>
@@ -616,7 +616,15 @@
             stan.hidden = false;
         })
         .then(function () { return laduj(d.skryptTrasy, true); })
+        .then(function () {
+            // Plik się wczytał, ale nie wystartował (błąd w trakcie wykonania) — to też błąd.
+            var r = document.getElementById('logistics-root');
+            if (r && (!window.LogisticsRoutes || window.LogisticsRoutes.root !== r)) throw new Error('Trasy nie wystartowały');
+        })
         .catch(function () {
+            // „Dodaj do trasy…” (logistics.js) mówi wtedy o błędzie zamiast „jeszcze się wczytują”.
+            var r = document.getElementById('logistics-root');
+            if (r) r.setAttribute('data-lg-trasy-blad', '1');
             var stan = document.querySelector('#logistics-root [data-lg-trasy="stan"]');
             if (!stan || !stan.isConnected) return;
             stan.textContent = 'Nie udało się wczytać tras. Odśwież stronę, żeby spróbować ponownie.';
@@ -625,5 +633,5 @@
         });
 })();
 </script>
-<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20260925j"></script>
-<script src="{{ url_for('logistics_panel.static', filename='js/logistics-fleet.js') }}?v=20260925a"></script>
+<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20260925k"></script>
+<script src="{{ url_for('logistics_panel.static', filename='js/logistics-fleet.js') }}?v=20260925b"></script>

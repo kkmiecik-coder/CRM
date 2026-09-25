@@ -17,6 +17,11 @@
  *
  * Komunikaty przez window.LogisticsTab.komunikat; publicznie window.LogisticsFleet = {root, zniszcz}.
  * Każdy tekst z API przechodzi przez esc() albo textContent.
+ *
+ * Zdarzenia (document, detail.root = #logistics-root): słuchamy `logistics:widok`
+ * (logistics.js — Flota na ekranie = świeże dane), wysyłamy `logistics:flota-zmieniona`
+ * po każdym zapisie pojazdu (dodanie, zmiana, wyłączenie, włączenie) — edytor trasy
+ * (logistics-routes.js) pobiera wtedy dostępność pojazdów od nowa.
  */
 (function () {
     'use strict';
@@ -256,6 +261,9 @@
         const i = stan.pojazdy.findIndex((p) => p.id === pojazd.id);
         if (i === -1) stan.pojazdy.push(pojazd); else stan.pojazdy[i] = pojazd;
         renderuj();
+        // (oględziny Task 8, M2) Otwarta trasa ma od razu aktualne pojazdy (nazwa, ładowność,
+        // wyłączony / włączony) w wyborze pojazdu.
+        document.dispatchEvent(new CustomEvent('logistics:flota-zmieniona', { detail: { root: root } }));
     }
 
     async function ustawAktywnosc(id, aktywny) {
@@ -288,10 +296,27 @@
 
     // ── Okno pojazdu (dodanie i edycja) ─────────────────────────────────────
 
+    // (oględziny Task 8, M15) Pole z błędem: aria-invalid i aria-describedby na tekst błędu,
+    // żeby czytnik ekranu powiązał komunikat z polem. Znika przy poprawce pola i z błędem.
+    function oznaczPole(pole) {
+        if (!pole) return;
+        pole.setAttribute('aria-invalid', 'true');
+        pole.setAttribute('aria-describedby', 'lg-pojazd-blad');
+    }
+
+    function zdejmijOznaczenia() {
+        if (!form) return;
+        form.querySelectorAll('[aria-invalid]').forEach((p) => {
+            p.removeAttribute('aria-invalid');
+            p.removeAttribute('aria-describedby');
+        });
+    }
+
     function pokazBlad(tekst) {
         if (!bladEl) return;
         bladEl.textContent = tekst || '';
         bladEl.hidden = !tekst;
+        if (!tekst) zdejmijOznaczenia();
     }
 
     function ustawZapis(trwa) {
@@ -363,8 +388,10 @@
         if (!e || e.zapis) return;
         const wynik = daneFormularza();
         if (wynik.blad) {
+            zdejmijOznaczenia();
             pokazBlad(wynik.blad);
             const pole = form.elements.namedItem(wynik.pole);
+            oznaczPole(pole);
             if (pole) pole.focus();
             return;
         }
@@ -429,6 +456,10 @@
         form.addEventListener('click', (e) => {
             const b = e.target.closest('[data-lg-flota-akcja="anuluj"]');
             if (b && !b.disabled) zamknijDialog();
+        }, naSluch);
+        // Poprawka pola z błędem: błąd walidacji i oznaczenie pola znikają.
+        form.addEventListener('input', (e) => {
+            if (e.target && e.target.getAttribute && e.target.getAttribute('aria-invalid') === 'true') pokazBlad('');
         }, naSluch);
         // Esc i klik w tło zamykają (w trakcie zapisu — nie: odpowiedź musi trafić do listy).
         dialog.addEventListener('cancel', (e) => {
