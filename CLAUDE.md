@@ -261,6 +261,8 @@ Albo po prostu `./deploy.sh` — robi dokładnie to samo, z lockiem i logami.
   `PRODUCTION_CRON_SECRET` (endpointy CRON, patrz „Zadania cykliczne”),
   `CEIDG_JWT_TOKEN` (wyszukiwanie firm w CEIDG; bez niego, gdy GUS i MF nie znajdą
   firmy, `/clients/api/gus_lookup` zwraca 503 zamiast szukać w CEIDG),
+  `OPENROUTESERVICE_API_KEY` (przebieg tras logistyki po drogach, km i czas; bez niego trasy rysują się liniami
+  prostymi z dopiskiem „przebieg przybliżony” — nic się nie psuje),
   `CARTO_BASEMAPS_KEY` (kafelki mapy logistyki; bez niego mapa ma znak wodny CARTO;
   klucz jest widoczny w przeglądarce, więc w panelu CARTO ogranicz go do domeny
   crm.woodpower.pl; limit darmowy 1 mln kafelków/mies.). Po dopisaniu klucza do
@@ -335,6 +337,7 @@ Configured in `config/core.json`:
 - GlobKurier shipping API
 - CEIDG API (`CEIDG_JWT_TOKEN`, wyszukiwanie firm po NIP — fallback po GUS i MF)
 - CARTO Basemaps (`CARTO_BASEMAPS_KEY`, kafelki mapy logistyki)
+- OpenRouteService (przebieg tras transportu własnego, klucz OPENROUTESERVICE_API_KEY)
 
 Bez konfiguracji w core.json (geokoder logistyki, `logistics/services/geocoding.py`, tylko z wątku w tle):
 - GUGiK UUG (`services.gugik.gov.pl/uug/`, oficjalne punkty adresowe PRG, tylko Polska; odstęp 0,2 s)
