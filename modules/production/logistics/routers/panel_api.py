@@ -16,7 +16,7 @@ import modules.users.decorators as user_decorators
 from extensions import db
 from modules.logging import get_structured_logger
 from modules.production.logistics import logistics_panel_bp, sposoby
-from modules.production.logistics.services import bl_sync, delivery, geocoding, lista
+from modules.production.logistics.services import bl_sync, delivery, geocoding, lista, routes
 from modules.production.models import ProductionOrder
 
 logger = get_structured_logger('production.logistics.panel_api')
@@ -119,7 +119,7 @@ def delivery_method():
     if sposob is None:
         return _blad(u'Nieznany sposób dostawy.', 422)
 
-    zmienione, przepakowanie, bledy = [], [], []
+    zmienione, przepakowanie, bledy, usunieto = [], [], [], []
     # selectinload: pozycje wszystkich zamówień jednym zapytaniem, nie zamówienie
     # po zamówieniu (hurt do LIMIT_HURTU zamówień, a pozycji potrzebuje każda zmiana).
     for order in (ProductionOrder.query.options(selectinload(ProductionOrder.products))
@@ -133,6 +133,8 @@ def delivery_method():
             zmienione.append(order.id)
         if wynik['przepakowanie']:
             przepakowanie.append(order.id)
+        if wynik.get('usunieto_z_trasy'):
+            usunieto.append({'order_id': order.id, 'trasa': wynik['usunieto_z_trasy']})
     db.session.commit()
     logger.info("Logistyka: zmiana sposobu dostawy", extra={
         'user_id': _user_id(), 'sposob': sposob, 'zmienione': len(zmienione),
@@ -142,9 +144,11 @@ def delivery_method():
     odswiezone = (ProductionOrder.query.options(selectinload(ProductionOrder.products))
                   .filter(ProductionOrder.id.in_(ids)).all())
     punkty = geocoding.geo_zamowien(ids)
+    trasy = routes.trasy_zamowien(ids)
     return jsonify({'success': True, 'zmienione': zmienione, 'przepakowanie': przepakowanie,
-                    'bledy': bledy,
-                    'orders': [lista.serializuj(o, punkty.get(o.id)) for o in odswiezone]})
+                    'bledy': bledy, 'usunieto_z_trasy': usunieto,
+                    'orders': [lista.serializuj(o, punkty.get(o.id), trasy.get(o.id))
+                              for o in odswiezone]})
 
 
 @logistics_panel_bp.route('/orders/<int:order_id>/handed-over', methods=['POST'])
@@ -162,7 +166,9 @@ def handed_over(order_id):
     bl_sync.po_zmianie([order.id])
     order = ProductionOrder.query.get(order_id)
     punkty = geocoding.geo_zamowien([order_id])
-    return jsonify({'success': True, 'order': lista.serializuj(order, punkty.get(order_id))})
+    trasy = routes.trasy_zamowien([order_id])
+    return jsonify({'success': True,
+                    'order': lista.serializuj(order, punkty.get(order_id), trasy.get(order_id))})
 
 
 def _zamowienie_albo_404(order_id):
@@ -197,8 +203,9 @@ def order_address(order_id):
         geocoding.uruchom_w_tle(current_app._get_current_object())
     order = ProductionOrder.query.options(selectinload(ProductionOrder.products)).get(order_id)
     punkty = geocoding.geo_zamowien([order_id])
+    trasy = routes.trasy_zamowien([order_id])
     return jsonify({'success': True, 'zmieniono': zmieniono,
-                    'order': lista.serializuj(order, punkty.get(order_id))})
+                    'order': lista.serializuj(order, punkty.get(order_id), trasy.get(order_id))})
 
 
 @logistics_panel_bp.route('/geocode', methods=['GET'])
@@ -252,7 +259,8 @@ def order_geo(order_id):
         except IntegrityError:
             db.session.rollback()
             return _blad(u'Nie udało się zapisać lokalizacji, spróbuj ponownie.', 409)
-    return jsonify({'success': True, 'order': lista.serializuj(order, punkt)})
+    trasy = routes.trasy_zamowien([order_id])
+    return jsonify({'success': True, 'order': lista.serializuj(order, punkt, trasy.get(order_id))})
 
 
 @logistics_panel_bp.route('/orders/<int:order_id>/geo/reset', methods=['POST'])
@@ -263,4 +271,5 @@ def order_geo_reset(order_id):
         return _blad(u'Nie ma takiego zamówienia.', 404)
     geocoding.resetuj(order)
     db.session.commit()
-    return jsonify({'success': True, 'order': lista.serializuj(order, None)})
+    trasy = routes.trasy_zamowien([order_id])
+    return jsonify({'success': True, 'order': lista.serializuj(order, None, trasy.get(order_id))})

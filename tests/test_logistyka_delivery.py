@@ -18,7 +18,7 @@ def test_ustawienie_sposobu_zapisuje_kto_kiedy_log_i_znacznik_base(app):
         order = zamowienie(delivery_method='DPD')
         wynik = d.ustaw_sposob_dostawy(order, s.KURIER, user_id=7, teraz=T0)
         db.session.commit()
-        assert wynik == {'zmieniono': True, 'przepakowanie': False}
+        assert wynik == {'zmieniono': True, 'przepakowanie': False, 'usunieto_z_trasy': None}
         assert order.override_delivery_method == s.KURIER
         assert order.delivery_method_set_at == T0 and order.delivery_method_set_by == 7
         assert order.bl_delivery_method_pending is True

@@ -350,8 +350,11 @@ def _format_delivery_label(item):
     pokazuje wtedy ikonę „etykiety sprzed zmiany”.
     """
     from modules.production.logistics import sposoby
+    from modules.production.logistics.services.routes import trasa_dla_tabletu
     order = item.order if item.order else None
-    return _normalize_text(sposoby.etykieta(order.override_delivery_method if order else None))
+    sposob = order.override_delivery_method if order else None
+    trasa = trasa_dla_tabletu(order.id) if order is not None else None
+    return _normalize_text(sposoby.etykieta(sposob, nazwa_trasy=trasa.name if trasa else None))
 
 
 def _format_finish_label(item):

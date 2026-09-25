@@ -144,15 +144,8 @@ def test_zatwierdzona_jest_zablokowana(app):
         assert t.status == 'robocza'
 
 
-@pytest.mark.xfail(reason='Task 4', strict=True)
 def test_niedostarczony_wraca_do_puli(app):
-    """
-    Review Focus 3.
-
-    xfail do Task 4: `delivery.zamkniecie_wyliczone` dziś zwraca False dla transportu
-    własnego (reguła „transport zamyka wykonana trasa” to zadanie Task 4) — wszystko
-    poza `a.logistics_closed_at is not None` już przechodzi. Zdjąć znacznik w Task 4.
-    """
+    """Review Focus 3."""
     with app.app_context():
         t = _trasa()
         a = _transport(statusy=('spakowane',))
@@ -176,6 +169,7 @@ def test_przywrocenie_otwiera_zamowienia(app):
         routes.dodaj_przystanki(t, [a.id])
         routes.wykonaj(t)
         db.session.commit()
+        assert a.logistics_closed_at is not None
         routes.przywroc(t)
         db.session.commit()
         assert t.status == 'zatwierdzona' and a.logistics_closed_at is None

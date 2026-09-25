@@ -7,7 +7,8 @@ from sqlalchemy.orm import selectinload
 
 from extensions import db
 from modules.production.logistics import sposoby
-from modules.production.logistics.services import geocoding
+from modules.production.logistics.models import RouteStop
+from modules.production.logistics.services import geocoding, routes
 from modules.production.logistics.services.delivery import aktywne_produkty, wszystkie_spakowane
 from modules.production.models import ProductionOrder, ProductionProduct
 from modules.production.services.station_catalog import STATION_LABELS, STATION_PENDING_STATUS
@@ -135,7 +136,7 @@ def _pozycja(p):
     }
 
 
-def serializuj(order, geo=None):
+def serializuj(order, geo=None, trasa=None):
     aktywne = aktywne_produkty(order)
     sposob = sposoby.normalizuj(order.override_delivery_method)
     terminy = [p.deadline_date for p in aktywne if p.deadline_date]
@@ -167,6 +168,8 @@ def serializuj(order, geo=None):
         'pozycje': [_pozycja(p) for p in sorted(
             order.products, key=lambda p: (p.product_sequence_in_order or 0, p.id or 0))],
         'geo': _geo(geo),
+        'trasa': {'id': trasa.id, 'nazwa': trasa.name, 'status': trasa.status}
+                 if trasa is not None else None,
     }
 
 
@@ -181,7 +184,11 @@ def pobierz(sposob=None, etap=None, q=None, zamkniete=False):
     sposob) muszą trafić do zapytania PRZED order_by/limit. W SQLAlchemy < 2.0
     Query.filter() wołane PO limit() rzuca InvalidRequestError — pierwotna wersja
     (limit dla zamkniętych, potem filter dla sposob) wywalałaby się na
-    GET /orders?zamkniete=1&q=...&sposob=... kodem 500.
+    GET /orders?zamkniete=1&q=...&sposob=... kodem 500. Z tego samego powodu
+    `sposob=bez_trasy` (etap 3: transport własny bez przystanku na żadnej trasie)
+    jest filtrem SQL w tym samym bloku, nie post-filtrem Pythonowym po wczytaniu —
+    inaczej `zamkniete=1&q=...&sposob=bez_trasy` obcięłoby wynik do LIMIT_ZAMKNIETYCH
+    PRZED odsianiem zamówień na trasie, gubiąc trafienia spoza limitu.
     """
     # Konfiguracje pozycji (gatunek, technologia, klasa) jednym zapytaniem na listę —
     # bez tego każda pozycja dociągałaby swoją osobno (setki zapytań co odświeżenie).
@@ -193,13 +200,21 @@ def pobierz(sposob=None, etap=None, q=None, zamkniete=False):
         zapytanie = zapytanie.filter(ProductionOrder.logistics_closed_at.is_(None))
     if sposob == 'brak':
         zapytanie = zapytanie.filter(warunek_bez_sposobu())
+    elif sposob == 'bez_trasy':
+        # Transport własny bez przystanku na ŻADNEJ trasie (dowolnego statusu) —
+        # w SQL, nie jako post-filtr, patrz uwaga w docstringu.
+        zapytanie = zapytanie.filter(
+            ProductionOrder.override_delivery_method == sposoby.TRANSPORT,
+            ~ProductionOrder.id.in_(db.session.query(RouteStop.order_id)))
     elif sposoby.normalizuj(sposob):
         zapytanie = zapytanie.filter(ProductionOrder.override_delivery_method == sposob)
     if zamkniete:
         zapytanie = zapytanie.order_by(ProductionOrder.id.desc()).limit(LIMIT_ZAMKNIETYCH)
     zamowienia = zapytanie.all()
-    punkty = geocoding.geo_zamowien([o.id for o in zamowienia])
-    wiersze = [serializuj(o, punkty.get(o.id)) for o in zamowienia]
+    ids = [o.id for o in zamowienia]
+    punkty = geocoding.geo_zamowien(ids)
+    trasy = routes.trasy_zamowien(ids)
+    wiersze = [serializuj(o, punkty.get(o.id), trasy.get(o.id)) for o in zamowienia]
     if etap:
         wiersze = [w for w in wiersze if w['etap']['status'] == etap]
     return sorted(wiersze, key=_klucz)

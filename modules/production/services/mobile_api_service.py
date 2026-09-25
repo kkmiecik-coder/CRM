@@ -1125,7 +1125,13 @@ def serialize_order(item, station_code=None, label_numbering=None):
     from modules.production.logistics import sposoby
     delivery_type = sposoby.legacy_delivery_type(
         item.order.override_delivery_method if item.order else None)
-    transport = sposoby.transport_payload(item.order)
+    # Trasa aktywna (etap 3): tylko dla transportu własnego, jedno zapytanie na
+    # żądanie HTTP — trasa_dla_tabletu cache'uje w g (routes.py).
+    trasa = None
+    if item.order is not None and sposoby.normalizuj(item.order.override_delivery_method) == sposoby.TRANSPORT:
+        from modules.production.logistics.services.routes import trasa_dla_tabletu
+        trasa = trasa_dla_tabletu(item.order.id)
+    transport = sposoby.transport_payload(item.order, trasa)
 
     return {
         'id': item.id,

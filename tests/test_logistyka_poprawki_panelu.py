@@ -73,7 +73,7 @@ def test_cofniecie_przed_pakowaniem_kasuje_niewyslana_metode(app):
         order = zamowienie(sposob=s.TRANSPORT, statusy=('czeka_na_pakowanie',),
                            bl_delivery_method_pending=True)
         wynik = delivery.ustaw_sposob_dostawy(order, s.BRAK)
-        assert wynik == {'zmieniono': True, 'przepakowanie': False}
+        assert wynik == {'zmieniono': True, 'przepakowanie': False, 'usunieto_z_trasy': None}
         assert order.override_delivery_method is None and order.bl_delivery_method_pending is False
 
 
@@ -473,8 +473,9 @@ def test_pozycje_bez_zapytania_na_kazda_pozycje(app):
         finally:
             event.remove(db.engine, 'before_cursor_execute', sluchacz)
         assert len(wiersze) == 6 and all(w['pozycje'][0]['gatunek'] == 'Dąb' for w in wiersze)
-        # Stała liczba, niezależna od liczby pozycji: zamówienia, pozycje, konfiguracje, punkty mapy.
-        assert len(zapytania) <= 4
+        # Stała liczba, niezależna od liczby pozycji: zamówienia, pozycje, konfiguracje, punkty
+        # mapy, trasy (etap 3: routes.trasy_zamowien — jedno zapytanie JOIN na całą listę).
+        assert len(zapytania) <= 5
 
 
 def test_wiersz_rozwija_sie_po_kliknieciu_w_tlo():

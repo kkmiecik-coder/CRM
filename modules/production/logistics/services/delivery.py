@@ -61,7 +61,10 @@ def zamkniecie_wyliczone(order):
         return all(p.current_status == 'spakowane' for p in aktywne)
     if sposob == sposoby.ODBIOR:
         return order.handed_over_at is not None
-    return False
+    # Transport własny: koniec cyklu = przystanek na trasie wykonanej (etap 3).
+    from modules.production.logistics.services import routes
+    przystanek = routes.przystanek_zamowienia(order.id)
+    return przystanek is not None and przystanek.route.status == 'wykonana'
 
 
 def przelicz_zamkniecie(order, teraz=None):
@@ -100,6 +103,36 @@ def po_spakowaniu(order, teraz):
     przelicz_zamkniecie(order, teraz)
 
 
+def _przystanek_do_zmiany(order, zdejmuje, opis):
+    """
+    (etap 3) Przystanek zamówienia i blokady zmian na trasach. Trasa wykonana —
+    zamówienie dostarczone, żadnych zmian. Zatwierdzona — zmiana, która zdejmuje
+    zamówienie z trasy albo zmienia adres (`zdejmuje=True`), wymaga cofnięcia
+    zatwierdzenia (eksport do Routimo mógł już pójść). Zwraca przystanek albo None.
+    """
+    from modules.production.logistics.services import routes
+    przystanek = routes.przystanek_zamowienia(order.id)
+    if przystanek is None:
+        return None
+    trasa = przystanek.route
+    if trasa.status == 'wykonana':
+        raise LogistykaBlad(u'Zamówienie {} zostało dostarczone trasą „{}”.'.format(
+            order.internal_order_number, trasa.name))
+    if trasa.status == 'zatwierdzona' and zdejmuje:
+        raise LogistykaBlad(u'Zamówienie {} jest na zatwierdzonej trasie „{}” — najpierw cofnij '
+                            u'jej zatwierdzenie, potem {}.'.format(order.internal_order_number,
+                                                                   trasa.name, opis))
+    return przystanek
+
+
+def _zdejmij_z_trasy(przystanek, order, user_id):
+    from modules.production.logistics.services import routes
+    nazwa = przystanek.route.name
+    routes.usun_przystanek(przystanek.route, order.id, user_id=user_id,
+                           note=u'zmiana sposobu dostawy')
+    return nazwa
+
+
 def ustaw_sposob_dostawy(order, sposob, user_id=None, teraz=None):
     """
     `sposob` = jeden z sposoby.SPOSOBY albo sposoby.BRAK („Nie ustawiono”) — cofnięcie
@@ -118,7 +151,10 @@ def ustaw_sposob_dostawy(order, sposob, user_id=None, teraz=None):
 
     stary = sposoby.normalizuj(order.override_delivery_method)
     if stary == nowy:
-        return {'zmieniono': False, 'przepakowanie': False}
+        return {'zmieniono': False, 'przepakowanie': False, 'usunieto_z_trasy': None}
+
+    zdejmuje = nowy != sposoby.TRANSPORT   # kurier, odbiór i cofnięcie (nowy=None) zdejmują z trasy
+    przystanek = _przystanek_do_zmiany(order, zdejmuje, u'zmień sposób dostawy')
 
     teraz = teraz or get_local_now()
     if cofniecie:
@@ -131,7 +167,10 @@ def ustaw_sposob_dostawy(order, sposob, user_id=None, teraz=None):
             raise LogistykaBlad(
                 u'Zamówienie {} jest już spakowane — nie da się cofnąć do „Nie ustawiono”. '
                 u'Wybierz od razu właściwy sposób dostawy.'.format(order.internal_order_number))
-        return _cofnij_sposob(order, stary, user_id, teraz)
+        usunieto = _zdejmij_z_trasy(przystanek, order, user_id) if przystanek is not None else None
+        wynik = _cofnij_sposob(order, stary, user_id, teraz)
+        wynik['usunieto_z_trasy'] = usunieto
+        return wynik
     order.override_delivery_method = nowy
     order.delivery_method_set_at = teraz
     order.delivery_method_set_by = user_id
@@ -176,9 +215,13 @@ def ustaw_sposob_dostawy(order, sposob, user_id=None, teraz=None):
         # „PRZEPAKUJ NA KURIERA” dla transportu/odbioru nie ma sensu.
         order.repack_required = False
 
+    usunieto_z_trasy = None
+    if przystanek is not None and zdejmuje:
+        usunieto_z_trasy = _zdejmij_z_trasy(przystanek, order, user_id)
+
     podbij_pozycje(order, teraz)
     przelicz_zamkniecie(order, teraz)
-    return {'zmieniono': True, 'przepakowanie': przepakowanie}
+    return {'zmieniono': True, 'przepakowanie': przepakowanie, 'usunieto_z_trasy': usunieto_z_trasy}
 
 
 def _cofnij_sposob(order, stary, user_id, teraz):
@@ -259,6 +302,10 @@ def zmien_adres(order, adres, kod, miasto, user_id=None, teraz=None):
                                             order.delivery_city))
     if stary == (adres, kod, miasto):
         return False
+    # Etap 3: na trasie zatwierdzonej adres zmieniamy dopiero po cofnięciu zatwierdzenia.
+    # PO porównaniu bez zmian (R5) — zapis okna bez zmian ma zostać no-opem (False),
+    # nie 409, nawet gdy zamówienie leży na zatwierdzonej trasie.
+    _przystanek_do_zmiany(order, True, u'popraw adres')
     teraz = teraz or get_local_now()
     order.delivery_address, order.delivery_postcode, order.delivery_city = adres, kod or None, miasto
     order.bl_address_pending = True
