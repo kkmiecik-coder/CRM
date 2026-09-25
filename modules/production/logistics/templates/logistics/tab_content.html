@@ -1,6 +1,7 @@
 {# Zakładka Logistyka — doczytywana AJAX-em przez production-app-loader.js
    (loadLogisticsTab). Szablon niesie tylko szkielet: liczniki, filtry i tabelę
-   wypełnia logistics.js z /production/api/logistics/orders.
+   wypełnia logistics.js z /production/api/logistics/orders, mapę rysuje
+   logistics-map.js (etap 2).
 
    Zasady tego fragmentu:
    - ŻADNEGO data-bs-toggle="tab", data-goto-tab ani klasy .tab-pane —
@@ -8,8 +9,12 @@
      updateTabUI) i wziąłby podzakładkę za zakładkę główną.
    - W tekstach „Base.”, nigdy nazwa integracji ani skrót.
    - Wiersze „Nie ustawiono” to kolejka pracy logistyka: taśma na lewej
-     krawędzi (ten sam znak co przy liczniku) i ciepłe tło, reszta spokojna. #}
-<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20260925">
+     krawędzi (ten sam znak co przy liczniku) i ciepłe tło, reszta spokojna.
+   - Leaflet i klastry wyłącznie z modules/production/static/vendor/ (Safari ITP
+     blokuje CDN). #}
+<link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet/leaflet.css') }}?v=1.9.4">
+<link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet-markercluster/MarkerCluster.css') }}?v=1.5.3">
+<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20260925b">
 
 <div id="logistics-root" class="logistics-tab"
      data-api="{{ url_for('logistics_panel.orders') }}"
@@ -33,7 +38,8 @@
 
   {# ─── LICZNIKI = FILTR SPOSOBU DOSTAWY ───
        Liczą wszystkie OTWARTE zamówienia (niezależnie od wyszukiwarki).
-       Kliknięcie aktywnego licznika zdejmuje filtr. #}
+       Kliknięcie aktywnego licznika zdejmuje filtr. Ikony mają kolor pinezek
+       na mapie — licznik jest też legendą kolorów. #}
   <div class="lg-liczniki" role="group" aria-label="Filtr sposobu dostawy">
     <button type="button" class="lg-licznik lg-licznik--brak" data-lg-sposob="brak" aria-pressed="false">
       <span class="lg-licznik-etykieta">Nie ustawiono</span>
@@ -66,91 +72,208 @@
     <span data-lg="baner-tekst"></span>
   </div>
 
-  {# ─── WYSZUKIWARKA I FILTR ETAPU ─── #}
-  <div class="lg-narzedzia">
-    <label class="lg-szukaj">
-      <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
-      <input type="search" data-lg="q" autocomplete="off" spellcheck="false"
-             placeholder="Szukaj: numer, klient, miasto" aria-label="Szukaj zamówienia po numerze, kliencie albo mieście">
-    </label>
-    <label class="lg-przelacznik" data-lg="zamkniete-pole"
-           title="Wpisz frazę, żeby szukać także w zamkniętych zamówieniach">
-      <input type="checkbox" data-lg="zamkniete" disabled>
-      <span>także zamknięte</span>
-    </label>
-    <span class="lg-podpowiedz-pola" data-lg="zamkniete-podpowiedz">wymaga frazy</span>
-    <label class="lg-etap-filtr">
-      <span>Etap</span>
-      <select class="form-select form-select-sm" data-lg="etap" aria-label="Filtr etapu produkcji">
-        <option value="">Wszystkie etapy</option>
-      </select>
-    </label>
-    <span class="lg-ile" data-lg="ile" aria-live="polite"></span>
-  </div>
+  {# ─── UKŁAD: LISTA + MAPA ───
+       .lg-uklad jest kontenerem zapytań @container: szeroka zakładka (≥ 1000 px)
+       = lista po lewej, mapa przyklejona po prawej; węziej mapa nad listą,
+       pod wyszukiwarką. Kolejność w DOM (sterowanie, mapa, lista) = kolejność
+       w układzie wąskim. #}
+  <div class="lg-uklad">
+    <div class="lg-uklad-siatka">
 
-  {# Komunikaty po akcjach (zmiany, błędy, przepakowanie). #}
-  <div class="lg-komunikaty" data-lg="komunikaty" aria-live="polite"></div>
+      {# ─── WYSZUKIWARKA I FILTR ETAPU ─── (działają też na mapie) #}
+      <div class="lg-sterowanie">
+        <div class="lg-narzedzia">
+          <label class="lg-szukaj">
+            <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
+            <input type="search" data-lg="q" autocomplete="off" spellcheck="false"
+                   placeholder="Szukaj: numer, klient, miasto" aria-label="Szukaj zamówienia po numerze, kliencie albo mieście">
+          </label>
+          <label class="lg-przelacznik" data-lg="zamkniete-pole"
+                 title="Wpisz frazę, żeby szukać także w zamkniętych zamówieniach">
+            <input type="checkbox" data-lg="zamkniete" disabled>
+            <span>także zamknięte</span>
+          </label>
+          <span class="lg-podpowiedz-pola" data-lg="zamkniete-podpowiedz">wymaga frazy</span>
+          <label class="lg-etap-filtr">
+            <span>Etap</span>
+            <select class="form-select form-select-sm" data-lg="etap" aria-label="Filtr etapu produkcji">
+              <option value="">Wszystkie etapy</option>
+            </select>
+          </label>
+          <span class="lg-ile" data-lg="ile" aria-live="polite"></span>
+        </div>
 
-  {# ─── TABELA ZAMÓWIEŃ ───
-       .lg-tabela-ramka jest kontenerem zapytań @container — na węższej
-       zakładce miasto i metoda z Base. składają się pod nazwę klienta. #}
-  <div class="lg-tabela-ramka">
-    <table class="lg-tabela">
-      <thead>
-        <tr>
-          <th scope="col" class="lg-k-zaznacz">
-            <label class="lg-zaznacz-pole">
-              <input type="checkbox" data-lg="zaznacz-wszystkie" aria-label="Zaznacz wszystkie widoczne zamówienia">
-            </label>
-          </th>
-          <th scope="col" class="lg-k-numer">Zamówienie</th>
-          <th scope="col" class="lg-k-klient">Klient</th>
-          <th scope="col" class="lg-k-miasto">Miasto</th>
-          <th scope="col" class="lg-k-metoda">Metoda z Base.</th>
-          <th scope="col" class="lg-k-sposob">Sposób dostawy</th>
-          <th scope="col" class="lg-k-etap">Etap produkcji</th>
-          <th scope="col" class="lg-k-termin">Termin</th>
-          <th scope="col" class="lg-k-m3">m³</th>
-          <th scope="col" class="lg-k-stan">Stan</th>
-        </tr>
-      </thead>
-      <tbody data-lg="wiersze">
-        <tr class="lg-wiersz-stanu">
-          <td colspan="10"><div class="lg-stan"><span class="lg-stan-tytul">Ładowanie zamówień…</span></div></td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
+        {# Komunikaty po akcjach (zmiany, błędy, przepakowanie, lokalizowanie). #}
+        <div class="lg-komunikaty" data-lg="komunikaty" aria-live="polite"></div>
+      </div>
 
-  {# Legenda ikon tabeli — na tablecie nie ma dymków po najechaniu (title). #}
-  <div class="lg-legenda">
-    <span><i class="fas fa-box-open lg-ikona--przepakowanie" aria-hidden="true"></i>czeka na przepakowanie na kuriera</span>
-    <span><i class="fas fa-tags lg-ikona--etykiety" aria-hidden="true"></i>etykiety wydrukowane przed zmianą sposobu</span>
-    <span><i class="fas fa-cloud-arrow-up lg-ikona--base" aria-hidden="true"></i>Base.: czeka na wysłanie</span>
-    <span><i class="fas fa-lightbulb lg-ikona--podpowiedz" aria-hidden="true"></i>podpowiedź sposobu z metody w Base.</span>
-    <span class="lg-legenda-skrot">Shift + klik zaznacza zakres</span>
-  </div>
+      {# ─── MAPA ───
+           Pinezki rysuje logistics-map.js (window.LogisticsMap). Przyciski
+           w nagłówku obsługuje logistics.js — to filtr listy i odświeżanie listy.
+           Akcje w dymkach i pasku mapy mają data-lg-mapa-akcja (nie data-lg-akcja),
+           żeby delegacja listy ich nie łapała. #}
+      <section class="lg-mapa-panel" aria-label="Mapa zamówień">
+        <div class="lg-mapa-naglowek">
+          {# Etap 3: tu staje przełącznik widoków „Zamówienia | Trasy”. #}
+          <div class="lg-mapa-widoki" data-lg-mapa="widoki">
+            <span class="lg-mapa-tytul">Mapa</span>
+          </div>
+          <div class="lg-mapa-akcje">
+            <button type="button" class="lg-bez-geo" data-lg-akcja="bez-lokalizacji" data-lg="bez-lokalizacji-przycisk"
+                    aria-pressed="false" title="Pokaż na liście zamówienia bez punktu na mapie">
+              <span class="lg-pin lg-pin--pusta" aria-hidden="true"></span>
+              <span>Bez lokalizacji:</span>
+              <span class="lg-bez-geo-liczba" data-lg="bez-lokalizacji">–</span>
+            </button>
+            <button type="button" class="lg-przycisk" data-lg-akcja="zlokalizuj" data-lg="zlokalizuj"
+                    title="Znajdź na mapie adresy zamówień, które jeszcze nie mają punktu">
+              <i class="fas fa-location-crosshairs" aria-hidden="true"></i><span data-lg="zlokalizuj-tekst">Zlokalizuj teraz</span>
+            </button>
+          </div>
+        </div>
+        <div class="lg-mapa-ramka">
+          <div id="logistics-map" class="lg-mapa" aria-label="Mapa zamówień"
+               data-skrypt-leaflet="{{ url_for('production.static', filename='vendor/leaflet/leaflet.js') }}?v=1.9.4"
+               data-skrypt-klastry="{{ url_for('production.static', filename='vendor/leaflet-markercluster/leaflet.markercluster.js') }}?v=1.5.3"
+               data-skrypt-mapy="{{ url_for('logistics_panel.static', filename='js/logistics-map.js') }}?v=20260925b"></div>
+          {# Pasek trybu (korekta, ustawianie punktu) i wyniku akcji na mapie. #}
+          <div class="lg-mapa-pasek" data-lg-mapa="pasek" role="status" aria-live="polite" hidden></div>
+          <div class="lg-mapa-stan is-ladowanie" data-lg-mapa="stan" role="status">Ładowanie mapy…</div>
+        </div>
+        <div class="lg-mapa-legenda" aria-label="Legenda mapy">
+          <span><span class="lg-pin lg-pin--brak" aria-hidden="true"></span>Nie ustawiono</span>
+          <span><span class="lg-pin lg-pin--kurier_baselinker" aria-hidden="true"></span>Kurier</span>
+          <span><span class="lg-pin lg-pin--transport_woodpower" aria-hidden="true"></span>Transport własny</span>
+          <span><span class="lg-pin lg-pin--odbior_osobisty" aria-hidden="true"></span>Odbiór osobisty</span>
+          <span><span class="lg-pin lg-pin--brak lg-pin--przyblizona" aria-hidden="true"></span>przybliżona (miejscowość)</span>
+          <span><span class="lg-magazyn lg-magazyn--legenda" aria-hidden="true"><i class="fas fa-industry"></i></span>magazyn</span>
+        </div>
+      </section>
 
-  {# ─── PASEK AKCJI HURTOWYCH ─── (widoczny, gdy coś jest zaznaczone) #}
-  <div class="lg-hurt" data-lg="hurt" hidden>
-    <span class="lg-hurt-ile">Zaznaczono: <strong data-lg="hurt-ile">0</strong></span>
-    <div class="lg-hurt-grupa" role="group" aria-label="Ustaw sposób dostawy zaznaczonym">
-      <span class="lg-hurt-etykieta">Ustaw sposób dostawy:</span>
-      <button type="button" class="lg-hurt-przycisk" data-lg-akcja="hurt-sposob" data-sposob="kurier_baselinker">
-        <i class="fas fa-truck-fast" aria-hidden="true"></i>Kurier
-      </button>
-      <button type="button" class="lg-hurt-przycisk" data-lg-akcja="hurt-sposob" data-sposob="transport_woodpower">
-        <i class="fas fa-truck" aria-hidden="true"></i>Transport własny
-      </button>
-      <button type="button" class="lg-hurt-przycisk" data-lg-akcja="hurt-sposob" data-sposob="odbior_osobisty">
-        <i class="fas fa-warehouse" aria-hidden="true"></i>Odbiór osobisty
-      </button>
+      {# ─── PASTYLKA ─── proporcja listy i mapy (tylko obok siebie). Obsługa
+           w logistics-map.js: przeciąganie, strzałki, dwuklik = domyślny podział. #}
+      <div class="lg-uchwyt" data-lg-mapa="uchwyt">
+        <div class="lg-uchwyt-pastylka" data-lg-mapa="pastylka" role="separator" tabindex="0"
+             aria-orientation="vertical" aria-label="Zmień szerokość listy i mapy"
+             aria-controls="logistics-map" aria-valuemin="0" aria-valuemax="100" aria-valuenow="70"
+             title="Przeciągnij, żeby zmienić szerokość listy i mapy. Dwuklik przywraca domyślny podział."></div>
+      </div>
+
+      <div class="lg-lista">
+        {# ─── TABELA ZAMÓWIEŃ ───
+             .lg-tabela-ramka jest kontenerem zapytań @container — na węższej
+             zakładce miasto i metoda z Base. składają się pod nazwę klienta. #}
+        <div class="lg-tabela-ramka">
+          <table class="lg-tabela">
+            <thead>
+              <tr>
+                <th scope="col" class="lg-k-zaznacz">
+                  <label class="lg-zaznacz-pole">
+                    <input type="checkbox" data-lg="zaznacz-wszystkie" aria-label="Zaznacz wszystkie widoczne zamówienia">
+                  </label>
+                </th>
+                <th scope="col" class="lg-k-numer">Zamówienie</th>
+                <th scope="col" class="lg-k-klient">Klient</th>
+                <th scope="col" class="lg-k-miasto">Miasto</th>
+                <th scope="col" class="lg-k-metoda">Metoda z Base.</th>
+                <th scope="col" class="lg-k-sposob">Sposób dostawy</th>
+                <th scope="col" class="lg-k-etap">Etap produkcji</th>
+                <th scope="col" class="lg-k-termin">Termin</th>
+                <th scope="col" class="lg-k-m3">m³</th>
+                <th scope="col" class="lg-k-stan">Stan</th>
+              </tr>
+            </thead>
+            <tbody data-lg="wiersze">
+              <tr class="lg-wiersz-stanu">
+                <td colspan="10"><div class="lg-stan"><span class="lg-stan-tytul">Ładowanie zamówień…</span></div></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {# Legenda ikon tabeli — na tablecie nie ma dymków po najechaniu (title). #}
+        <div class="lg-legenda">
+          <span><i class="fas fa-box-open lg-ikona--przepakowanie" aria-hidden="true"></i>czeka na przepakowanie na kuriera</span>
+          <span><i class="fas fa-tags lg-ikona--etykiety" aria-hidden="true"></i>etykiety wydrukowane przed zmianą sposobu</span>
+          <span><i class="fas fa-cloud-arrow-up lg-ikona--base" aria-hidden="true"></i>Base.: czeka na wysłanie</span>
+          <span><i class="fas fa-lightbulb lg-ikona--podpowiedz" aria-hidden="true"></i>podpowiedź sposobu z metody w Base.</span>
+          <span><i class="fas fa-map-location-dot lg-ikona--adres" aria-hidden="true"></i>adres zmieniony po ręcznym ustawieniu punktu</span>
+          <span class="lg-legenda-skrot">Klik w wiersz pokazuje zamówienie na mapie, Shift + klik zaznacza zakres</span>
+        </div>
+
+        {# ─── PASEK AKCJI HURTOWYCH ─── (widoczny, gdy coś jest zaznaczone;
+             w kolumnie listy, żeby przyklejony do dołu nie zasłaniał mapy) #}
+        <div class="lg-hurt" data-lg="hurt" hidden>
+          <span class="lg-hurt-ile">Zaznaczono: <strong data-lg="hurt-ile">0</strong></span>
+          <div class="lg-hurt-grupa" role="group" aria-label="Ustaw sposób dostawy zaznaczonym">
+            <span class="lg-hurt-etykieta">Ustaw sposób dostawy:</span>
+            <button type="button" class="lg-hurt-przycisk" data-lg-akcja="hurt-sposob" data-sposob="kurier_baselinker">
+              <i class="fas fa-truck-fast" aria-hidden="true"></i>Kurier
+            </button>
+            <button type="button" class="lg-hurt-przycisk" data-lg-akcja="hurt-sposob" data-sposob="transport_woodpower">
+              <i class="fas fa-truck" aria-hidden="true"></i>Transport własny
+            </button>
+            <button type="button" class="lg-hurt-przycisk" data-lg-akcja="hurt-sposob" data-sposob="odbior_osobisty">
+              <i class="fas fa-warehouse" aria-hidden="true"></i>Odbiór osobisty
+            </button>
+          </div>
+          <button type="button" class="lg-hurt-przycisk lg-hurt-przycisk--podpowiedzi" data-lg-akcja="hurt-podpowiedzi">
+            <i class="fas fa-lightbulb" aria-hidden="true"></i>Przyjmij podpowiedzi z Base.
+          </button>
+          <button type="button" class="lg-hurt-odznacz" data-lg-akcja="odznacz">Odznacz</button>
+        </div>
+      </div>
+
     </div>
-    <button type="button" class="lg-hurt-przycisk lg-hurt-przycisk--podpowiedzi" data-lg-akcja="hurt-podpowiedzi">
-      <i class="fas fa-lightbulb" aria-hidden="true"></i>Przyjmij podpowiedzi z Base.
-    </button>
-    <button type="button" class="lg-hurt-odznacz" data-lg-akcja="odznacz">Odznacz</button>
   </div>
 </div>
 
-<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20260925"></script>
+{# Ładowanie mapy PO KOLEI: Leaflet → klastry → logistics-map.js.
+   production-app-loader odtwarza tagi <script> przez createElement, a tak
+   wstawione skrypty z src są asynchroniczne — kolejność kilku <script src>
+   nie byłaby gwarantowana. Leaflet i klastry ładujemy raz na stronę (ponowne
+   wstawienie fragmentu przez forceRefresh ich nie dubluje), logistics-map.js
+   za każdym razem: sprząta po poprzedniej instancji i rysuje mapę w nowym DOM. #}
+<script>
+(function () {
+    'use strict';
+    var kontener = document.getElementById('logistics-map');
+    if (!kontener) return;
+    var d = kontener.dataset;
+    var rejestr = window.__logistykaSkryptyMapy || (window.__logistykaSkryptyMapy = {});
+
+    function laduj(url, zawsze) {
+        if (!zawsze && rejestr[url]) return rejestr[url];
+        var obietnica = new Promise(function (gotowe, blad) {
+            var s = document.createElement('script');
+            s.src = url;
+            s.onload = function () {
+                if (zawsze) s.remove();
+                gotowe();
+            };
+            s.onerror = function () {
+                delete rejestr[url];
+                s.remove();
+                blad(new Error('Nie wczytano ' + url));
+            };
+            document.head.appendChild(s);
+        });
+        if (!zawsze) rejestr[url] = obietnica;
+        return obietnica;
+    }
+
+    (window.L ? Promise.resolve() : laduj(d.skryptLeaflet))
+        .then(function () {
+            return (window.L && window.L.markerClusterGroup) ? null : laduj(d.skryptKlastry);
+        })
+        .then(function () { return laduj(d.skryptMapy, true); })
+        .catch(function () {
+            var stan = document.querySelector('#logistics-root [data-lg-mapa="stan"]');
+            if (!stan || !stan.isConnected) return;
+            stan.textContent = 'Nie udało się wczytać mapy. Lista działa bez niej; odśwież stronę, żeby spróbować ponownie.';
+            stan.classList.add('is-blad');
+            stan.hidden = false;
+        });
+})();
+</script>
+<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20260925b"></script>

@@ -15,7 +15,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
-from flask import Flask
+from flask import Blueprint, Flask
 from sqlalchemy.pool import StaticPool
 
 from extensions import db
@@ -33,6 +33,8 @@ from modules.quotes.models import QuoteStatus  # noqa: F401
 
 BASE = '/production/api/logistics'
 SEKRET_CRONA = 'sekret-testowy-logistyki'
+STATYKA_PRODUKCJI = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                 'modules', 'production', 'static')
 
 TABLES = [m.__table__ for m in (
     User, ProductionDevice, ProductionConfig, ProcessedMobileOperation,
@@ -70,6 +72,12 @@ def app(monkeypatch):
     from modules.production.routers.mobile_api import mobile_api_bp
     app.register_blueprint(logistics_panel_bp, url_prefix=BASE)
     app.register_blueprint(mobile_api_bp, url_prefix='/api/mobile')
+    # Szablon zakładki bierze Leaflet przez url_for('production.static') — stawiamy
+    # sam folder statyczny modułu produkcji pod tym samym adresem co w aplikacji,
+    # bez rejestrowania całego modułu produkcji.
+    app.register_blueprint(Blueprint(
+        'production', __name__, static_folder=STATYKA_PRODUKCJI,
+        static_url_path='/production/static', url_prefix='/production'))
     db.init_app(app)
 
     with app.app_context():

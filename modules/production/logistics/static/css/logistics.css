@@ -10,6 +10,12 @@
    magazynu. Oznacza wyłącznie „Nie ustawiono”, czyli kolejkę pracy logistyka
    (licznik i wiersze). Cała reszta zostaje spokojna i szara; kolor
    czerwony tylko dla terminu po czasie i przepakowania.
+
+   Mapa (etap 2): jeden znak „gdzie” — PINEZKA (.lg-pin). Ta sama kropla
+   w wierszu listy (przycisk „pokaż na mapie”), w legendzie i na mapie; kolor
+   = sposób dostawy (--lg-sposob-*), przerywana obwódka = lokalizacja
+   przybliżona. Ikony liczników mają te same kolory. Tryby pracy na mapie
+   (korekta, ustawianie) to ciemny pasek — jak pasek akcji hurtowych.
    ============================================================================ */
 
 .logistics-tab {
@@ -26,6 +32,12 @@
     --lg-zaznaczony: rgba(37, 99, 235, 0.07);
     --lg-hover: #f6f7f9;
     --lg-mono: 'JetBrains Mono', 'Courier New', monospace;
+    /* Sposoby dostawy — pinezki na mapie, pinezka w wierszu, ikony liczników.
+       Sufiks = klucz sposobu z API (klastry składają nazwę zmiennej z klucza). */
+    --lg-sposob-brak: var(--il-text-secondary, #7a8291);
+    --lg-sposob-kurier_baselinker: var(--il-status-info, #2563eb);
+    --lg-sposob-transport_woodpower: var(--il-status-ok, #16a34a);
+    --lg-sposob-odbior_osobisty: var(--il-station-glu, #9333ea);
 
     padding: 2px 0 12px;
     color: var(--il-text-primary, #1a1a2e);
@@ -157,6 +169,10 @@
     align-self: center;
     color: var(--il-text-muted, #9ba3b0);
 }
+
+.logistics-tab .lg-licznik[data-lg-sposob="kurier_baselinker"] i { color: var(--lg-sposob-kurier_baselinker); }
+.logistics-tab .lg-licznik[data-lg-sposob="transport_woodpower"] i { color: var(--lg-sposob-transport_woodpower); }
+.logistics-tab .lg-licznik[data-lg-sposob="odbior_osobisty"] i { color: var(--lg-sposob-odbior_osobisty); }
 
 .logistics-tab .lg-licznik-etykieta {
     font-size: 13px;
@@ -517,6 +533,12 @@
     font-weight: 600;
 }
 
+.logistics-tab .lg-numer-komorka {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
 .logistics-tab .lg-drugi {
     display: block;
     font-size: 11.5px;
@@ -690,6 +712,7 @@
 .logistics-tab .lg-ikona--etykiety { color: var(--il-status-warn, #d97706); }
 .logistics-tab .lg-ikona--base { color: var(--il-text-secondary, #7a8291); }
 .logistics-tab .lg-ikona--podpowiedz { color: var(--lg-kolejka-tekst); }
+.logistics-tab .lg-ikona--adres { color: var(--il-status-warn, #d97706); }
 
 /* Napis łamie się na dwie linie — kolumna „Stan” ma zostać wąska. */
 .logistics-tab .lg-przycisk--wydaj {
@@ -787,6 +810,27 @@
 
 @keyframes lg-blysk {
     from { background-color: rgba(22, 163, 74, 0.2); }
+}
+
+/* Wiersz wskazany na mapie (otwarty dymek pinezki): ciemna ramka wokół
+   wiersza. Bez paska z lewej — taśma kolejki ma zostać widoczna. */
+.logistics-tab .lg-wiersz.is-wskazany td {
+    box-shadow: inset 0 1.5px 0 var(--il-text-primary, #1a1a2e), inset 0 -1.5px 0 var(--il-text-primary, #1a1a2e);
+}
+
+.logistics-tab .lg-wiersz.is-wskazany td:first-child {
+    box-shadow: inset 1.5px 0 0 var(--il-text-primary, #1a1a2e),
+        inset 0 1.5px 0 var(--il-text-primary, #1a1a2e), inset 0 -1.5px 0 var(--il-text-primary, #1a1a2e);
+}
+
+.logistics-tab .lg-wiersz.is-wskazany td:last-child {
+    box-shadow: inset -1.5px 0 0 var(--il-text-primary, #1a1a2e),
+        inset 0 1.5px 0 var(--il-text-primary, #1a1a2e), inset 0 -1.5px 0 var(--il-text-primary, #1a1a2e);
+}
+
+/* Wiersz reaguje na klik (pokazuje zamówienie na mapie). */
+.logistics-tab .lg-wiersz {
+    cursor: pointer;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -978,6 +1022,15 @@
     .logistics-tab .lg-k-stan { white-space: normal; }
 }
 
+/* Lista obok mapy na zakładce ~1000–1100 px (np. 1440 px z rozwiniętym panelem
+   bocznym): tabela ma ~700 px — ciaśniejsze odstępy zamiast ucinania „Stanu”. */
+@container lg-tabela (max-width: 760px) {
+    .logistics-tab .lg-tabela th,
+    .logistics-tab .lg-tabela td { padding-left: 5px; padding-right: 5px; }
+    .logistics-tab .lg-k-etap { min-width: 92px; }
+    .logistics-tab .lg-w-klient-metoda.lg-drugi { max-width: 150px; }
+}
+
 /* Tablet i węziej: przewijanie tabeli w bok jako ostatnia deska ratunku
    (przyklejony nagłówek wtedy odpada — ramka staje się przewijakiem). */
 @media (max-width: 900px) {
@@ -991,4 +1044,933 @@
     .logistics-tab .lg-zaznacz-pole { min-height: 40px; }
     .logistics-tab .lg-zaznacz-pole input { width: 20px; height: 20px; }
     .logistics-tab .lg-sposob { height: 36px; }
+}
+
+/* ============================================================================
+   ETAP 2 — MAPA
+   ============================================================================ */
+
+/* ─── Układ: sterowanie, mapa, lista ───
+   Węziej niż 1000 px zakładki: jedna kolumna (wyszukiwarka, mapa, lista).
+   Szerzej: lista po lewej, mapa przyklejona po prawej przez całą wysokość
+   listy. Próg liczony od szerokości ZAKŁADKI, nie okna (panel boczny zabiera
+   80–260 px): 1440 px z rozwiniętym panelem to ~1046 px zakładki = obok siebie,
+   1280 px z rozwiniętym = ~890 px = mapa nad listą. Poniżej progu tabela obok
+   mapy zjechałaby pod ~680 px.
+
+   Obok siebie między listą a mapą stoi PASTYLKA (.lg-uchwyt) — przeciąganie
+   zmienia proporcję kolumn. logistics-map.js ustawia wtedy na siatce
+   --lg-mapa-kolumna (clamp z udziałem mapy zapisanym w localStorage);
+   bez niej domyślny podział niżej. Szerokość rowka (16 px) i minima kolumn
+   (mapa 300 px, lista 640 px) są też w JS — zmieniaj razem. */
+.logistics-tab .lg-uklad {
+    container-type: inline-size;
+    container-name: lg-uklad;
+}
+
+.logistics-tab .lg-uklad-siatka {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "sterowanie" "mapa" "lista";
+    column-gap: 14px;
+}
+
+.logistics-tab .lg-sterowanie { grid-area: sterowanie; min-width: 0; }
+
+/* Lista jest kontenerem zapytań: czy tabela mieści się bez przewijania w bok,
+   zależy od szerokości KOLUMNY listy (zmienia ją też pastylka), nie zakładki. */
+.logistics-tab .lg-lista {
+    grid-area: lista;
+    min-width: 0;
+    container-type: inline-size;
+    container-name: lg-lista;
+}
+
+/* Pastylka tylko w układzie obok siebie (reguła niżej, w @container). */
+.logistics-tab .lg-uchwyt {
+    display: none;
+}
+
+.logistics-tab .lg-mapa-panel {
+    grid-area: mapa;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    height: clamp(320px, 46vh, 440px);
+    margin-bottom: 12px;
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    box-shadow: inset 0 -2px 0 var(--il-inset-shadow, #d4d9e1);
+    overflow: hidden;
+}
+
+@container lg-uklad (min-width: 1000px) {
+    /* Domyślny podział: mapa 31% (300–600 px), ale lista nie węższa niż 720 px,
+       dopóki mapa ma swoje 300 px — przy 1440 px z rozwiniętym panelem tabela
+       mieści się wtedy bez przewijania w bok. */
+    .logistics-tab .lg-uklad-siatka {
+        --lg-mapa-wys: max(440px, calc(100vh - 200px));
+        grid-template-columns:
+            minmax(0, 1fr)
+            16px
+            var(--lg-mapa-kolumna, min(clamp(300px, 31%, 600px), max(300px, calc(100% - 736px))));
+        grid-template-rows: auto 1fr;
+        grid-template-areas: "sterowanie uchwyt mapa" "lista uchwyt mapa";
+        column-gap: 0;
+    }
+
+    /* align-self: start — rozciągnięty element siatki nie miałby jak się przykleić.
+       Wysokość: przy wejściu na zakładkę dół mapy wypada tuż nad dołem okna. */
+    .logistics-tab .lg-mapa-panel {
+        position: sticky;
+        top: 10px;
+        align-self: start;
+        height: var(--lg-mapa-wys);
+        margin-bottom: 0;
+    }
+
+    /* Rowek między kolumnami na całą wysokość listy; pastylka przyklejona na
+       wysokości środka mapy (tej samej przy wejściu i po przewinięciu). */
+    .logistics-tab .lg-uchwyt {
+        grid-area: uchwyt;
+        position: relative;
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+        padding-top: calc(var(--lg-mapa-wys) / 2 - 20px);
+        cursor: col-resize;
+        touch-action: none;
+    }
+}
+
+/* Tabela potrzebuje ~706 px. W węższej kolumnie listy (mapa nad listą na
+   1024 px z panelem bocznym, tablet, albo lista zwężona pastylką) przewija
+   się w bok we własnej ramce zamiast całej strony — przyklejony nagłówek
+   tabeli wtedy odpada, jak na tablecie. */
+@container lg-lista (max-width: 719px) {
+    .logistics-tab .lg-tabela-ramka { overflow-x: auto; }
+}
+
+/* ─── Pastylka: proporcja listy i mapy ───
+   W spoczynku cicha (jak przycisk panelu), wyraźna przy najechaniu, fokusie
+   i przeciąganiu; wtedy też widać linię podziału. */
+.logistics-tab .lg-uchwyt::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: 1px;
+    transform: translateX(-50%);
+    background: transparent;
+    transition: background-color 0.12s;
+}
+
+.logistics-tab .lg-uchwyt:hover::before,
+.logistics-tab .lg-uchwyt.is-przeciagany::before,
+.logistics-tab .lg-uchwyt:focus-within::before {
+    background: var(--il-border, #c8cdd5);
+}
+
+.logistics-tab .lg-uchwyt-pastylka {
+    position: sticky;
+    top: calc(10px + var(--lg-mapa-wys) / 2 - 20px);
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 10px;
+    height: 40px;
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: 5px;
+    box-shadow: inset 0 -2px 0 var(--il-inset-shadow, #d4d9e1);
+    cursor: col-resize;
+    transition: background-color 0.12s, border-color 0.12s;
+}
+
+/* Trzy rowki chwytu. */
+.logistics-tab .lg-uchwyt-pastylka::before {
+    content: '';
+    width: 4px;
+    height: 11px;
+    background: repeating-linear-gradient(to bottom,
+        var(--il-text-muted, #9ba3b0) 0 1.5px, transparent 1.5px 4.5px);
+}
+
+.logistics-tab .lg-uchwyt:hover .lg-uchwyt-pastylka,
+.logistics-tab .lg-uchwyt-pastylka:focus-visible {
+    border-color: var(--il-text-secondary, #7a8291);
+}
+
+.logistics-tab .lg-uchwyt:hover .lg-uchwyt-pastylka::before,
+.logistics-tab .lg-uchwyt-pastylka:focus-visible::before {
+    background: repeating-linear-gradient(to bottom,
+        var(--il-text-primary, #1a1a2e) 0 1.5px, transparent 1.5px 4.5px);
+}
+
+.logistics-tab .lg-uchwyt.is-przeciagany .lg-uchwyt-pastylka {
+    background: var(--il-text-primary, #1a1a2e);
+    border-color: var(--il-text-primary, #1a1a2e);
+    box-shadow: none;
+}
+
+.logistics-tab .lg-uchwyt.is-przeciagany .lg-uchwyt-pastylka::before {
+    background: repeating-linear-gradient(to bottom, #fff 0 1.5px, transparent 1.5px 4.5px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .logistics-tab .lg-uchwyt::before,
+    .logistics-tab .lg-uchwyt-pastylka { transition: none; }
+}
+
+/* W trakcie przeciągania: kursor podziału nad całą stroną i bez zaznaczania
+   tekstu. Klasę na <html> zdejmuje logistics-map.js (też przy sprzątaniu). */
+html.lg-przeciaganie-uchwytu,
+html.lg-przeciaganie-uchwytu * {
+    cursor: col-resize !important;
+    user-select: none !important;
+}
+
+/* ─── Nagłówek mapy ─── */
+.logistics-tab .lg-mapa-naglowek {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px 10px;
+    padding: 6px 8px 6px 12px;
+    background: var(--il-bg-base, #eef0f4);
+    border-bottom: 1px solid var(--il-border, #c8cdd5);
+}
+
+/* Miejsce na przełącznik „Zamówienia | Trasy” (etap 3). */
+.logistics-tab .lg-mapa-widoki {
+    display: flex;
+    align-items: center;
+    min-height: 28px;
+}
+
+.logistics-tab .lg-mapa-tytul {
+    font-family: var(--lg-mono);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--il-text-primary, #1a1a2e);
+}
+
+.logistics-tab .lg-mapa-akcje {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+}
+
+/* „Bez lokalizacji: N” — licznik-filtr, w tej samej rodzinie co liczniki
+   sposobu dostawy (aktywny = ciemny). */
+.logistics-tab .lg-bez-geo {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    box-shadow: inset 0 -2px 0 var(--il-inset-shadow, #d4d9e1);
+    padding: 3px 10px 4px 9px;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--il-text-secondary, #7a8291);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.logistics-tab .lg-bez-geo:hover:not(:disabled) {
+    border-color: var(--il-text-secondary, #7a8291);
+}
+
+.logistics-tab .lg-bez-geo:disabled {
+    cursor: default;
+    opacity: 0.7;
+}
+
+.logistics-tab .lg-bez-geo-liczba {
+    font-family: var(--lg-mono);
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: var(--il-text-muted, #9ba3b0);
+}
+
+.logistics-tab .lg-bez-geo.is-niepusty .lg-bez-geo-liczba {
+    color: var(--il-text-primary, #1a1a2e);
+}
+
+.logistics-tab .lg-bez-geo.is-aktywny,
+.logistics-tab .lg-bez-geo.is-aktywny:hover {
+    background: var(--il-text-primary, #1a1a2e);
+    border-color: var(--il-text-primary, #1a1a2e);
+    box-shadow: none;
+    color: #fff;
+}
+
+.logistics-tab .lg-bez-geo.is-aktywny .lg-bez-geo-liczba {
+    color: #fff;
+}
+
+.logistics-tab .lg-bez-geo.is-aktywny .lg-pin--pusta {
+    border-color: rgba(255, 255, 255, 0.8);
+}
+
+/* ─── Ramka mapy ───
+   isolation: warstwy Leafleta mają z-index 400–1000; bez własnego kontekstu
+   nakładania przykryłyby pasek akcji hurtowych i nagłówek tabeli. */
+.logistics-tab .lg-mapa-ramka {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    isolation: isolate;
+}
+
+.logistics-tab .lg-mapa {
+    position: absolute;
+    inset: 0;
+    background: var(--il-bg-base, #eef0f4);
+}
+
+.logistics-tab .lg-mapa.is-celowanie,
+.logistics-tab .lg-mapa.is-korekta {
+    cursor: crosshair;
+}
+
+/* ─── Legenda pod mapą ─── */
+.logistics-tab .lg-mapa-legenda {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 3px 14px;
+    padding: 6px 12px 8px;
+    border-top: 1px solid var(--il-border-light, #e2e5ea);
+    font-size: 11.5px;
+    color: var(--il-text-secondary, #7a8291);
+}
+
+.logistics-tab .lg-mapa-legenda > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+/* ─── PINEZKA ───
+   Kropla = kwadrat z trzema zaokrąglonymi rogami obrócony o -45°: ostry róg
+   wskazuje w dół. Kolor z --pin (sposób dostawy). */
+.logistics-tab .lg-pin {
+    --pin: var(--lg-sposob-brak);
+    position: relative;
+    display: inline-block;
+    flex: none;
+    box-sizing: border-box;
+    width: 12px;
+    height: 12px;
+    background: var(--pin);
+    border: 2px solid #fff;
+    border-radius: 50% 50% 50% 0;
+    transform: rotate(-45deg);
+    box-shadow: 0 1px 2px rgba(26, 26, 46, 0.5);
+}
+
+.logistics-tab .lg-pin::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 36%;
+    height: 36%;
+    border-radius: 50%;
+    background: #fff;
+    transform: translate(-50%, -50%);
+}
+
+.logistics-tab .lg-pin--brak { --pin: var(--lg-sposob-brak); }
+.logistics-tab .lg-pin--kurier_baselinker { --pin: var(--lg-sposob-kurier_baselinker); }
+.logistics-tab .lg-pin--transport_woodpower { --pin: var(--lg-sposob-transport_woodpower); }
+.logistics-tab .lg-pin--odbior_osobisty { --pin: var(--lg-sposob-odbior_osobisty); }
+
+/* Przybliżona (miejscowość): pusta w środku, przerywana obwódka w kolorze sposobu. */
+.logistics-tab .lg-pin--przyblizona {
+    background: #fff;
+    border-style: dashed;
+    border-color: var(--pin);
+}
+
+.logistics-tab .lg-pin--przyblizona::after {
+    background: var(--pin);
+}
+
+/* Brak punktu (licznik „Bez lokalizacji”). */
+.logistics-tab .lg-pin--pusta {
+    background: transparent;
+    border: 1.5px dashed var(--il-text-muted, #9ba3b0);
+    box-shadow: none;
+}
+
+.logistics-tab .lg-pin--pusta::after {
+    display: none;
+}
+
+/* Na mapie: 20 px, czubek w (12, 30) kontenera 24×30 (iconAnchor w JS). */
+.logistics-tab .lg-pin--mapa {
+    position: absolute;
+    left: 2px;
+    top: 6px;
+    width: 20px;
+    height: 20px;
+    border-width: 2.5px;
+    box-shadow: 0 2px 4px rgba(26, 26, 46, 0.45);
+}
+
+.logistics-tab .lg-pin--mapa.is-wybrana {
+    box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--il-text-primary, #1a1a2e), 0 3px 8px rgba(26, 26, 46, 0.4);
+}
+
+.logistics-tab .lg-pin--mapa.is-edytowana {
+    box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--il-status-info, #2563eb), 0 8px 14px rgba(26, 26, 46, 0.35);
+    cursor: move;
+}
+
+/* „Adres zmieniony” — znak na pinezce (i ikona w kolumnie „Stan” listy). */
+.logistics-tab .lg-pin-znak {
+    position: absolute;
+    right: -3px;
+    top: -1px;
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    background: var(--il-status-warn, #d97706);
+    box-shadow: 0 0 0 1.5px #fff;
+    color: #fff;
+    font: 700 9px/13px var(--lg-mono);
+    text-align: center;
+    pointer-events: none;
+}
+
+/* Kontener znacznika Leafleta — bez domyślnego białego kwadratu divIcon. */
+.logistics-tab .lg-znacznik,
+.logistics-tab .lg-znacznik-klaster,
+.logistics-tab .lg-znacznik-magazyn {
+    background: none;
+    border: none;
+}
+
+/* ─── Pinezka w wierszu listy = przycisk „pokaż na mapie” ─── */
+.logistics-tab .lg-na-mapie {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 24px;
+    height: 26px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: var(--il-radius, 3px);
+    background: transparent;
+    cursor: pointer;
+}
+
+/* Kropla obrócona o -45° ma środek ciężkości nad środkiem pudełka. */
+.logistics-tab .lg-na-mapie .lg-pin {
+    margin-top: -3px;
+}
+
+.logistics-tab .lg-na-mapie:hover {
+    background: var(--il-bg-base, #eef0f4);
+    border-color: var(--il-border, #c8cdd5);
+}
+
+.logistics-tab .lg-wiersz.is-wskazany .lg-na-mapie {
+    background: var(--il-bg-card, #fff);
+    border-color: var(--il-text-primary, #1a1a2e);
+}
+
+.logistics-tab .lg-na-mapie--ustaw {
+    color: var(--il-text-muted, #9ba3b0);
+    font-size: 12.5px;
+}
+
+.logistics-tab .lg-na-mapie--ustaw:hover {
+    color: var(--il-text-primary, #1a1a2e);
+}
+
+.logistics-tab .lg-na-mapie-tekst {
+    display: none;
+}
+
+/* Filtr „Bez lokalizacji”: celownik dostaje napis — to teraz główna akcja wiersza. */
+.logistics-tab .lg-tabela.is-bez-geo .lg-na-mapie--ustaw {
+    width: auto;
+    padding: 0 8px 1px 7px;
+    background: var(--il-bg-card, #fff);
+    border-color: var(--il-border, #c8cdd5);
+    box-shadow: inset 0 -2px 0 var(--il-inset-shadow, #d4d9e1);
+    color: var(--il-text-primary, #1a1a2e);
+    white-space: nowrap;
+}
+
+.logistics-tab .lg-tabela.is-bez-geo .lg-na-mapie-tekst {
+    display: inline;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+/* Numer nad przyciskiem — obok siebie poszerzałyby kolumnę o ~110 px. */
+.logistics-tab .lg-tabela.is-bez-geo .lg-numer-komorka {
+    flex-direction: column-reverse;
+    align-items: flex-start;
+    gap: 3px;
+}
+
+/* ─── Klastry: neutralne koło z liczbą, pierścień = proporcje sposobów ─── */
+.logistics-tab .lg-klaster {
+    width: 100%;
+    height: 100%;
+    padding: 3px;
+    border-radius: 50%;
+    background: var(--lg-klaster-pierscien, var(--il-text-secondary, #7a8291));
+    box-shadow: 0 1px 4px rgba(26, 26, 46, 0.4);
+}
+
+.logistics-tab .lg-klaster span {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background: var(--il-bg-card, #fff);
+    box-shadow: inset 0 -2px 0 var(--il-inset-shadow, #d4d9e1);
+    font-family: var(--lg-mono);
+    font-size: 12.5px;
+    font-weight: 700;
+    color: var(--il-text-primary, #1a1a2e);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ─── Magazyn: ciemny kwadrat z fabryką, poza klastrami ─── */
+.logistics-tab .lg-magazyn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border: 2px solid #fff;
+    border-radius: var(--il-radius, 3px);
+    background: var(--il-text-primary, #1a1a2e);
+    box-shadow: 0 2px 6px rgba(26, 26, 46, 0.45);
+    color: #fff;
+    font-size: 13px;
+}
+
+/* Na mapie: kwadrat 24 px na cienkim maszcie 12 px — dół masztu wskazuje punkt
+   magazynu (iconSize 24×36, iconAnchor 12,36 w logistics-map.js). Maszt ma 2 px,
+   żeby przecinając liczbę klastra z okolicy nie zasłaniał cyfr. */
+.logistics-tab .lg-magazyn--mapa {
+    position: relative;
+    width: 24px;
+    height: 24px;
+    font-size: 11px;
+}
+
+.logistics-tab .lg-magazyn--mapa::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 100%;
+    margin-top: 2px;
+    transform: translateX(-50%);
+    width: 2px;
+    height: 12px;
+    background: var(--il-text-primary, #1a1a2e);
+}
+
+.logistics-tab .lg-magazyn--legenda {
+    width: 16px;
+    height: 16px;
+    border-width: 1px;
+    box-shadow: none;
+    font-size: 8px;
+}
+
+/* ─── Leaflet w oprawie panelu ─── */
+.logistics-tab .leaflet-container {
+    font-family: inherit;
+    font-size: 13px;
+    background: var(--il-bg-base, #eef0f4);
+}
+
+.logistics-tab .leaflet-container a {
+    color: var(--il-text-primary, #1a1a2e);
+}
+
+.logistics-tab .leaflet-bar {
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    box-shadow: inset 0 -2px 0 var(--il-inset-shadow, #d4d9e1);
+    overflow: hidden;
+}
+
+.logistics-tab .leaflet-bar a,
+.logistics-tab .leaflet-bar a:hover {
+    width: 30px;
+    height: 30px;
+    line-height: 30px;
+    background: var(--il-bg-card, #fff);
+    border-bottom-color: var(--il-border-light, #e2e5ea);
+    color: var(--il-text-primary, #1a1a2e);
+    font-size: 16px;
+}
+
+.logistics-tab .leaflet-bar a:hover {
+    background: var(--lg-hover);
+}
+
+.logistics-tab .leaflet-bar a:first-child,
+.logistics-tab .leaflet-bar a:last-child {
+    border-radius: 0;
+}
+
+.logistics-tab .lg-mapa-kontrolka a {
+    font-size: 13px;
+}
+
+.logistics-tab .leaflet-control-attribution {
+    font-size: 10.5px;
+    color: var(--il-text-secondary, #7a8291);
+    background: rgba(255, 255, 255, 0.85);
+}
+
+.logistics-tab .leaflet-control-attribution a {
+    color: var(--il-text-secondary, #7a8291);
+}
+
+/* Podpowiedź po najechaniu: ciemna, jak pasek trybu. */
+.logistics-tab .lg-podpowiedz-mapy {
+    padding: 4px 8px;
+    background: var(--il-text-primary, #1a1a2e);
+    border: none;
+    border-radius: var(--il-radius, 3px);
+    box-shadow: 0 3px 10px rgba(26, 26, 46, 0.3);
+    color: #fff;
+    font-size: 12px;
+    line-height: 1.35;
+    white-space: nowrap;
+}
+
+.logistics-tab .lg-podpowiedz-mapy b {
+    font-family: var(--lg-mono);
+    font-weight: 600;
+    margin-right: 2px;
+}
+
+.logistics-tab .lg-podpowiedz-mapy.leaflet-tooltip-top::before {
+    border-top-color: var(--il-text-primary, #1a1a2e);
+}
+
+.logistics-tab .lg-podpowiedz-mapy-uwaga {
+    display: block;
+    color: rgba(255, 255, 255, 0.75);
+    font-size: 11.5px;
+}
+
+/* ─── Dymek pinezki ─── */
+.logistics-tab .lg-dymek .leaflet-popup-content-wrapper {
+    padding: 0;
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    box-shadow: 0 8px 22px rgba(26, 26, 46, 0.2);
+    color: var(--il-text-primary, #1a1a2e);
+}
+
+.logistics-tab .lg-dymek .leaflet-popup-content {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.logistics-tab .lg-dymek .leaflet-popup-tip {
+    box-shadow: 1px 1px 0 var(--il-border, #c8cdd5);
+}
+
+.logistics-tab .lg-dymek a.leaflet-popup-close-button {
+    top: 6px;
+    right: 4px;
+    width: 26px;
+    height: 26px;
+    font-size: 18px;
+    line-height: 24px;
+    color: var(--il-text-muted, #9ba3b0);
+}
+
+.logistics-tab .lg-dymek a.leaflet-popup-close-button:hover {
+    color: var(--il-text-primary, #1a1a2e);
+}
+
+.logistics-tab .lg-dymek-tresc {
+    padding: 10px 12px 0;
+}
+
+.logistics-tab .lg-dymek-gora {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-right: 20px;
+}
+
+.logistics-tab .lg-dymek-numer {
+    font-family: var(--lg-mono);
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.logistics-tab .lg-dymek-sposob {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--il-text-secondary, #7a8291);
+    white-space: nowrap;
+}
+
+.logistics-tab .lg-dymek-sposob .lg-pin {
+    margin-top: -2px;
+}
+
+.logistics-tab .lg-dymek-klient {
+    margin-top: 4px;
+    font-weight: 600;
+    line-height: 1.3;
+}
+
+.logistics-tab .lg-dymek-adres {
+    margin-top: 1px;
+    font-size: 12px;
+    color: var(--il-text-secondary, #7a8291);
+}
+
+.logistics-tab .lg-dymek-dane {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 12px;
+    margin: 8px 0 0;
+    padding-top: 7px;
+    border-top: 1px solid var(--il-border-light, #e2e5ea);
+}
+
+.logistics-tab .lg-dymek-dane dt {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--il-text-muted, #9ba3b0);
+}
+
+.logistics-tab .lg-dymek-dane dd {
+    margin: 1px 0 0;
+}
+
+.logistics-tab .lg-dymek-po {
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.logistics-tab .lg-dymek-uwaga {
+    display: flex;
+    align-items: flex-start;
+    gap: 7px;
+    margin: 7px 0 0;
+    font-size: 12px;
+    line-height: 1.35;
+    color: var(--il-text-secondary, #7a8291);
+}
+
+.logistics-tab .lg-dymek-uwaga > i,
+.logistics-tab .lg-dymek-uwaga > .lg-pin {
+    flex: none;
+    margin-top: 2px;
+}
+
+.logistics-tab .lg-dymek-uwaga--adres {
+    color: #9a4a05;
+}
+
+.logistics-tab .lg-dymek-uwaga--adres > i {
+    color: var(--il-status-warn, #d97706);
+}
+
+.logistics-tab .lg-dymek-akcje {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 10px -12px 0;
+    padding: 8px 12px 10px;
+    background: var(--il-bg-base, #eef0f4);
+    border-top: 1px solid var(--il-border-light, #e2e5ea);
+}
+
+.logistics-tab .lg-dymek-akcje .lg-przycisk {
+    padding: 3px 9px 4px;
+    font-size: 12px;
+}
+
+.logistics-tab .lg-dymek-akcje .lg-przycisk i {
+    font-size: 11px;
+}
+
+.logistics-tab .lg-przycisk--cichy {
+    background: transparent;
+    box-shadow: none;
+    color: var(--il-text-secondary, #7a8291);
+}
+
+/* ─── Pasek trybu i wyniku akcji (nad mapą) ─── */
+.logistics-tab .lg-mapa-pasek {
+    position: absolute;
+    top: 10px;
+    left: 54px;
+    right: 10px;
+    z-index: 1100;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
+    padding: 7px 8px 7px 12px;
+    background: var(--il-text-primary, #1a1a2e);
+    color: #fff;
+    border-radius: var(--il-radius, 3px);
+    box-shadow: 0 6px 18px rgba(26, 26, 46, 0.28);
+    font-size: 13px;
+    line-height: 1.35;
+}
+
+.logistics-tab .lg-mapa-pasek[hidden] {
+    display: none;
+}
+
+.logistics-tab .lg-mapa-pasek > i {
+    flex: none;
+    color: #fbbf24;
+}
+
+.logistics-tab .lg-mapa-pasek--ok > i { color: #4ade80; }
+.logistics-tab .lg-mapa-pasek--blad > i { color: #f87171; }
+.logistics-tab .lg-mapa-pasek--info > i { color: rgba(255, 255, 255, 0.75); }
+
+.logistics-tab .lg-mapa-pasek-tekst {
+    flex: 1 1 200px;
+    min-width: 0;
+}
+
+.logistics-tab .lg-mapa-pasek-podpis {
+    display: block;
+    margin-top: 2px;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.72);
+}
+
+.logistics-tab .lg-mapa-pasek-przyciski {
+    display: inline-flex;
+    gap: 6px;
+    margin-left: auto;
+}
+
+.logistics-tab .lg-mapa-pasek-przycisk {
+    min-height: 30px;
+    padding: 3px 12px;
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    border-radius: var(--il-radius, 3px);
+    color: #fff;
+    font-size: 12.5px;
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.logistics-tab .lg-mapa-pasek-przycisk:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.7);
+}
+
+.logistics-tab .lg-mapa-pasek-przycisk.is-glowny {
+    background: #fff;
+    border-color: #fff;
+    color: var(--il-text-primary, #1a1a2e);
+    font-weight: 600;
+}
+
+.logistics-tab .lg-mapa-pasek-przycisk.is-glowny:hover {
+    background: var(--il-bg-base, #eef0f4);
+}
+
+.logistics-tab .lg-mapa-pasek-przycisk:disabled {
+    opacity: 0.5;
+    cursor: progress;
+}
+
+.logistics-tab .lg-mapa-pasek :focus-visible {
+    outline-color: #fbbf24;
+}
+
+/* ─── Stan mapy: ładowanie, brak pinezek, błąd wczytania ─── */
+.logistics-tab .lg-mapa-stan {
+    position: absolute;
+    left: 50%;
+    bottom: 26px;
+    z-index: 1050;
+    transform: translateX(-50%);
+    width: max-content;
+    max-width: calc(100% - 32px);
+    padding: 7px 12px;
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    box-shadow: inset 0 -2px 0 var(--il-inset-shadow, #d4d9e1);
+    font-size: 12.5px;
+    line-height: 1.4;
+    color: var(--il-text-secondary, #7a8291);
+    text-align: center;
+}
+
+.logistics-tab .lg-mapa-stan[hidden] {
+    display: none;
+}
+
+.logistics-tab .lg-mapa-stan.is-ladowanie {
+    top: 50%;
+    bottom: auto;
+    transform: translate(-50%, -50%);
+}
+
+.logistics-tab .lg-mapa-stan.is-blad {
+    top: 50%;
+    bottom: auto;
+    transform: translate(-50%, -50%);
+    border-left: 3px solid var(--il-status-danger, #dc2626);
+    color: var(--il-text-primary, #1a1a2e);
+}
+
+/* Tablet i węziej: nagłówek mapy w dwóch liniach bez ścisku, większe pola. */
+@media (max-width: 900px) {
+    .logistics-tab .lg-bez-geo,
+    .logistics-tab .lg-mapa-naglowek .lg-przycisk { min-height: 36px; }
+    .logistics-tab .lg-na-mapie { width: 32px; height: 34px; }
+    .logistics-tab .lg-mapa-pasek-przycisk { min-height: 36px; }
+    .logistics-tab .leaflet-bar a,
+    .logistics-tab .leaflet-bar a:hover { width: 36px; height: 36px; line-height: 36px; }
+    .logistics-tab .lg-mapa-pasek { left: 60px; }
 }

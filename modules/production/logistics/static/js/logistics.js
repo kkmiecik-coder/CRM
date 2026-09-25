@@ -12,10 +12,21 @@
  * zegar odświeżania, oczekujące żądania i nasłuch na document. Nasłuchy na
  * samym #logistics-root giną razem ze starym węzłem, więc nic się nie dubluje.
  *
- * API (Task 8, modules/production/logistics/routers/panel_api.py):
+ * API (modules/production/logistics/routers/panel_api.py):
  *   GET  {API}/orders?sposob=&q=&zamkniete=1   lista + liczniki + pauza Base.
+ *                                              + bez_lokalizacji, geokoder_dziala
  *   POST {API}/orders/delivery-method          {order_ids, sposob}
  *   POST {API}/orders/<id>/handed-over         „Wydane klientowi”
+ *   POST {API}/geocode                         „Zlokalizuj teraz” (wątek w tle, 202)
+ *
+ * Mapa (etap 2) to osobny plik logistics-map.js, ładowany po Leaflecie —
+ * może pojawić się PO tym pliku. Łączymy się z nią, gdy ogłosi gotowość
+ * (zdarzenie `logistics:mapa-gotowa`) albo od razu, jeśli już jest:
+ * po każdym renderze listy przekazujemy jej wiersze widoczne w tabeli
+ * (window.LogisticsMap.render), klik w wiersz woła highlight(), a klik
+ * w pinezkę wraca przez onSelect() i podświetla wiersz. Licznik „Bez
+ * lokalizacji” i „Zlokalizuj teraz” w nagłówku mapy obsługuje ten plik —
+ * to filtr listy i odświeżanie listy.
  *
  * Filtr etapu działa PO STRONIE PRZEGLĄDARKI (parametru `etap` nie wysyłamy):
  * lista wyboru ma pokazywać etapy obecne na liście, a po zawężeniu na
@@ -59,7 +70,11 @@
     ];
 
     const ODSWIEZANIE_MS = 60000;   // lista odświeża się co 60 s…
+    const ODSWIEZANIE_GEO_MS = 10000; // …a co 10 s, póki geokoder pracuje w tle
     const ZEGAR_MS = 5000;          // …sprawdzane co 5 s (powrót na zakładkę po przerwie)
+    // Po „Zlokalizuj teraz” wątek dopiero bierze dzierżawę — przez tyle czasu
+    // przycisk zostaje „w toku”, nawet gdy pierwsza odpowiedź powie, że stoi.
+    const OCHRONA_GEO_MS = 15000;
     const DEBOUNCE_SZUKAJ_MS = 300;
     // Strzałki na zamkniętym <select> w Windows od razu zmieniają wartość
     // i odpalają `change`. Krótka zwłoka wysyła tylko wartość, na której
@@ -73,7 +88,8 @@
         wiersze: [],                // ostatnia lista z API (przed filtrem etapu)
         liczniki: null,
         wstrzymaneDo: null,
-        filtr: { sposob: '', etap: '', q: '', zamkniete: false },
+        // bezGeo: filtr „Bez lokalizacji” (po stronie przeglądarki, jak etap).
+        filtr: { sposob: '', etap: '', q: '', zamkniete: false, bezGeo: false },
         zaznaczone: new Set(),
         ostatniKlik: null,          // id do zaznaczania zakresu z Shiftem
         wysylane: new Set(),        // id wierszy, dla których leci POST
@@ -84,6 +100,12 @@
         ostatnieOdswiezenie: 0,
         pierwszeLadowanie: true,
         blad: null,
+        bezLokalizacji: null,       // licznik z API (otwarte zamówienia bez punktu)
+        geokoderDziala: false,
+        ochronaGeoDo: 0,            // patrz OCHRONA_GEO_MS
+        naLiscie: [],               // id wierszy w tabeli — to samo widzi mapa
+        wskazany: null,             // id wiersza podświetlonego z mapy
+        dopasujMape: false,         // po zmianie filtra mapa dopasowuje widok
     };
 
     const oczekujaceSelecty = new Map();   // id → timeout zwłoki selecta
@@ -92,6 +114,7 @@
     let zegar = null;
     let timerSzukania = null;
     let zniszczona = false;
+    let mapaPolaczona = null;       // instancja window.LogisticsMap, z którą rozmawiamy
     // Chwila ostatniego kliknięcia/klawisza w zakładce — odświeżanie z zegara
     // czeka, aż logistyk przestanie działać (np. ma rozwiniętą listę selecta).
     let ostatniaAktywnosc = 0;
@@ -230,6 +253,7 @@
             stan.wiersze = Array.isArray(dane.orders) ? dane.orders : [];
             stan.liczniki = dane.liczniki || null;
             stan.wstrzymaneDo = dane.base_wstrzymane_do || null;
+            przyjmijStanGeo(dane);
             stan.blad = null;
             stan.pierwszeLadowanie = false;
             stan.ostatnieOdswiezenie = Date.now();
@@ -248,8 +272,10 @@
                 // Lista nie pasuje już do filtrów — nic z niej nie może zostać
                 // do zaznaczenia ani akcji hurtowej.
                 stan.wiersze = [];
+                stan.naLiscie = [];
                 stan.blad = e.message;
                 pokazStan('blad');
+                przekazDoMapy();
             }
             stan.pierwszeLadowanie = false;
         } finally {
@@ -261,9 +287,14 @@
         }
     }
 
-    function widoczneWiersze() {
+    function poEtapie() {
         if (!stan.filtr.etap) return stan.wiersze;
         return stan.wiersze.filter((w) => w.etap && w.etap.status === stan.filtr.etap);
+    }
+
+    function widoczneWiersze() {
+        const wiersze = poEtapie();
+        return stan.filtr.bezGeo ? wiersze.filter((w) => !w.geo) : wiersze;
     }
 
     // ── Render: nagłówek, liczniki, baner, etapy ────────────────────────────
@@ -272,6 +303,7 @@
         renderujLiczniki();
         renderujBaner();
         renderujEtapy();
+        renderujGeo();
         renderujTabele();
         renderujOdswiezono();
     }
@@ -349,7 +381,7 @@
         const widoczne = widoczneWiersze().length;
         const wszystkie = stan.wiersze.length;
         // „7 z 24 zamówień” — po „z” dopełniacz: 1 zamówienia, reszta zamówień.
-        el('ile').textContent = stan.filtr.etap
+        el('ile').textContent = (stan.filtr.etap || stan.filtr.bezGeo)
             ? widoczne + ' z ' + wszystkie + ' ' + (wszystkie === 1 ? 'zamówienia' : 'zamówień')
             : ileZamowien(widoczne);
     }
@@ -398,7 +430,10 @@
     function pustyStan() {
         const f = stan.filtr;
         let tytul, opis = '', przycisk = '';
-        if (f.etap && stan.wiersze.length) {
+        if (f.bezGeo && poEtapie().length) {
+            tytul = 'Każde zamówienie na liście ma już punkt na mapie.';
+            przycisk = przyciskStanu('bez-lokalizacji', 'Pokaż wszystkie z listy');
+        } else if (f.etap && stan.wiersze.length) {
             const opcja = el('etap').selectedOptions[0];
             tytul = 'Na liście nie ma zamówień na etapie „' + ((opcja && opcja.dataset.nazwa) || f.etap) + '”.';
             przycisk = przyciskStanu('wszystkie-etapy', 'Pokaż wszystkie etapy');
@@ -457,6 +492,28 @@
             esc(dataKrotka(iso)) + '</time>';
     }
 
+    /**
+     * Pinezka przy numerze: ten sam znak i kolor co na mapie (kolor = sposób
+     * dostawy, przerywana obwódka = lokalizacja przybliżona) — klik pokazuje
+     * zamówienie na mapie. Bez punktu: celownik „Ustaw na mapie” (z napisem,
+     * gdy włączony filtr „Bez lokalizacji”).
+     */
+    function przyciskMapy(w) {
+        const sposob = SPOSOBY.includes(w.sposob) ? w.sposob : 'brak';
+        if (w.geo) {
+            const przyblizona = w.geo.quality === 'przyblizona';
+            const opis = 'Pokaż zamówienie ' + w.numer + ' na mapie' + (przyblizona ? ' (lokalizacja przybliżona)' : '');
+            return '<button type="button" class="lg-na-mapie" data-lg-akcja="pokaz-na-mapie"' +
+                ' title="' + esc(opis) + '" aria-label="' + esc(opis) + '">' +
+                '<span class="lg-pin lg-pin--' + sposob + (przyblizona ? ' lg-pin--przyblizona' : '') + '" aria-hidden="true"></span>' +
+                '</button>';
+        }
+        return '<button type="button" class="lg-na-mapie lg-na-mapie--ustaw" data-lg-akcja="ustaw-na-mapie"' +
+            ' title="Ustaw na mapie" aria-label="' + esc('Ustaw na mapie miejsce dostawy zamówienia ' + w.numer) + '">' +
+            '<i class="fas fa-location-crosshairs" aria-hidden="true"></i>' +
+            '<span class="lg-na-mapie-tekst">Ustaw na mapie</span></button>';
+    }
+
     function wierszHtml(w) {
         const etap = w.etap || { status: '', nazwa: '' };
         const anulowane = etap.status === 'anulowane';
@@ -466,6 +523,7 @@
         const klasy = ['lg-wiersz'];
         if (!w.sposob) klasy.push('lg-wiersz--brak');
         if (zaznaczony) klasy.push('is-zaznaczony');
+        if (stan.wskazany === w.id) klasy.push('is-wskazany');
         if (w.zamkniete) klasy.push('is-zamkniete');
         if (anulowane) klasy.push('is-anulowane');
         if (wysylany) klasy.push('is-wysylanie');
@@ -495,6 +553,10 @@
         if (w.przepakowanie) ikony.push(ikona('fa-box-open', 'lg-ikona--przepakowanie', 'Czeka na przepakowanie na kuriera'));
         if (w.etykiety_sprzed_zmiany) ikony.push(ikona('fa-tags', 'lg-ikona--etykiety', 'Etykiety wydrukowane przed zmianą sposobu dostawy'));
         if (w.base_czeka) ikony.push(ikona('fa-cloud-arrow-up', 'lg-ikona--base', 'Base.: czeka na wysłanie'));
+        if (w.geo && w.geo.adres_zmieniony) {
+            ikony.push(ikona('fa-map-location-dot', 'lg-ikona--adres',
+                'Adres zmieniony po ręcznym ustawieniu punktu. Sprawdź punkt na mapie.'));
+        }
 
         let akcja = '';
         if (w.wydane) {
@@ -517,9 +579,10 @@
                 (zaznaczony ? ' checked' : '') + '></label></td>' +
             // Numer zamówienia w Base. tylko w podpowiedzi: druga linia poszerzała
             // kolumnę o ~25 px, a na 1280 px z panelem bocznym liczy się każdy piksel.
-            '<td class="lg-k-numer"><span class="lg-numer"' +
+            '<td class="lg-k-numer"><div class="lg-numer-komorka">' + przyciskMapy(w) +
+                '<span class="lg-numer"' +
                 (w.baselinker_order_id ? ' title="Numer w Base.: ' + esc(w.baselinker_order_id) + '"' : '') + '>' +
-                esc(w.numer) + '</span></td>' +
+                esc(w.numer) + '</span></div></td>' +
             '<td class="lg-k-klient"><span class="lg-klient"' + (w.klient ? ' title="' + esc(w.klient) + '"' : '') + '>' +
                 (w.klient ? esc(w.klient) : '<span class="lg-brak-danych">brak nazwy</span>') + '</span>' +
                 (miasto ? '<span class="lg-drugi lg-w-klient-miasto">' + esc(miasto) + '</span>' : '') +
@@ -557,8 +620,11 @@
             : null;
 
         tbody.innerHTML = widoczne.length ? widoczne.map(wierszHtml).join('') : pustyStan();
+        tabela.classList.toggle('is-bez-geo', stan.filtr.bezGeo);
+        stan.naLiscie = widoczne.map((w) => w.id);
         renderujIle();
         renderujZaznaczenie();
+        przekazDoMapy();
 
         if (fokus) {
             const cel = tbody.querySelector('tr[data-id="' + fokus.id + '"] .' + fokus.klasa);
@@ -584,6 +650,8 @@
         renderujLiczniki();
         renderujEtapy();
         renderujIle();
+        renderujGeo();
+        przekazDoMapy();
     }
 
     // Liczniki liczą otwarte zamówienia wg sposobu. Zamiast dociągać całą listę
@@ -912,11 +980,180 @@
         }
     }
 
+    // ── Lokalizacja: licznik „Bez lokalizacji”, „Zlokalizuj teraz” ─────────
+
+    function przyjmijStanGeo(dane) {
+        if (dane.bez_lokalizacji !== undefined && dane.bez_lokalizacji !== null) {
+            stan.bezLokalizacji = Number(dane.bez_lokalizacji) || 0;
+        }
+        const dziala = !!dane.geokoder_dziala || Date.now() < stan.ochronaGeoDo;
+        if (stan.geokoderDziala && !dziala) {
+            pokazKomunikat('ok', 'Lokalizowanie zakończone. Bez lokalizacji: ' +
+                (stan.bezLokalizacji === null ? '–' : stan.bezLokalizacji) + '.', { klucz: 'geo' });
+        }
+        stan.geokoderDziala = dziala;
+    }
+
+    function renderujGeo() {
+        const licznik = el('bez-lokalizacji-przycisk');
+        const n = stan.bezLokalizacji;
+        el('bez-lokalizacji').textContent = n === null ? '–' : String(n);
+        licznik.classList.toggle('is-aktywny', stan.filtr.bezGeo);
+        licznik.classList.toggle('is-niepusty', !!n);
+        licznik.setAttribute('aria-pressed', stan.filtr.bezGeo ? 'true' : 'false');
+        // Przy zerze nie ma czego pokazać — chyba że filtr jest włączony (trzeba go zdjąć).
+        licznik.disabled = !n && !stan.filtr.bezGeo;
+        licznik.title = stan.filtr.bezGeo
+            ? 'Pokaż wszystkie zamówienia z listy'
+            : 'Pokaż na liście zamówienia bez punktu na mapie';
+
+        // Krótki napis w toku — w wąskiej kolumnie mapy (od 300 px) licznik
+        // i przycisk mają się zmieścić w jednej linii; pełne zdanie niesie
+        // komunikat i podpowiedź przycisku.
+        const przycisk = el('zlokalizuj');
+        przycisk.disabled = stan.geokoderDziala;
+        przycisk.classList.toggle('is-kreci', stan.geokoderDziala);
+        przycisk.title = stan.geokoderDziala
+            ? 'Lokalizowanie w tle… Lista odświeża się co 10 s.'
+            : 'Znajdź na mapie adresy zamówień, które jeszcze nie mają punktu';
+        el('zlokalizuj-tekst').textContent = stan.geokoderDziala ? 'Lokalizowanie…' : 'Zlokalizuj teraz';
+    }
+
+    function przelaczBezGeo() {
+        stan.filtr.bezGeo = !stan.filtr.bezGeo;
+        renderujGeo();
+        renderujTabele();
+    }
+
+    async function zlokalizujTeraz(ciche) {
+        if (stan.geokoderDziala || zniszczona) return;
+        stan.geokoderDziala = true;
+        stan.ochronaGeoDo = Date.now() + OCHRONA_GEO_MS;
+        renderujGeo();
+        try {
+            await zapytanie('/geocode', { metoda: 'POST', dane: {} });
+            if (zniszczona) return;
+            if (!ciche) {
+                pokazKomunikat('info', 'Lokalizowanie w tle… Lista odświeża się co 10 s, a licznik „Bez lokalizacji” pokazuje postęp.',
+                    { klucz: 'geo' });
+            }
+            // Pierwsze odświeżenie za ODSWIEZANIE_GEO_MS (zegar liczy od teraz).
+            stan.ostatnieOdswiezenie = Date.now();
+        } catch (e) {
+            if (zniszczona) return;
+            stan.geokoderDziala = false;
+            stan.ochronaGeoDo = 0;
+            renderujGeo();
+            pokazKomunikat('blad', 'Nie uruchomiono lokalizowania. ' + e.message, { klucz: 'geo' });
+        }
+    }
+
+    // ── Mapa (window.LogisticsMap z logistics-map.js) ───────────────────────
+
+    // Tylko mapa tego fragmentu — po forceRefresh stara instancja może jeszcze
+    // wisieć w window, zanim wykona się nowy logistics-map.js.
+    function mapa() {
+        const m = window.LogisticsMap;
+        return m && m.root === root ? m : null;
+    }
+
+    function polaczZMapa() {
+        const m = mapa();
+        if (!m || m === mapaPolaczona || zniszczona) return;
+        mapaPolaczona = m;
+        m.onSelect(naWyborNaMapie);
+        m.onZmiana(naZmianePunktu);
+        przekazDoMapy();
+    }
+
+    function naGotowaMape(e) {
+        if (e.detail && e.detail.root === root) polaczZMapa();
+    }
+
+    /** Mapa pokazuje dokładnie wiersze z tabeli (filtry, etap, wyszukiwarka). */
+    function przekazDoMapy() {
+        const m = mapa();
+        if (!m || m !== mapaPolaczona) return;
+        const ids = new Set(stan.naLiscie);
+        const dopasuj = stan.dopasujMape;
+        stan.dopasujMape = false;
+        try {
+            m.render(stan.wiersze.filter((w) => ids.has(w.id)), { dopasuj: dopasuj });
+        } catch (e) {
+            console.error('[Logistyka] Mapa nie przyjęła listy:', e);
+        }
+    }
+
+    function pokazNaMapie(id, jawnie) {
+        const w = znajdz(id);
+        const m = mapa();
+        if (!w || !w.geo) return;
+        if (!m) {
+            if (jawnie) pokazKomunikat('info', 'Mapa jeszcze się wczytuje.', { klucz: 'mapa' });
+            return;
+        }
+        if (!m.highlight(id) && jawnie && m.zajeta()) {
+            pokazKomunikat('info', 'Najpierw zakończ ustawianie punktu na mapie (Esc anuluje).', { klucz: 'mapa' });
+        }
+    }
+
+    function ustawNaMapie(id) {
+        const w = znajdz(id);
+        const m = mapa();
+        if (!w) return;
+        if (!m || !m.ustawNaMapie(w)) {
+            pokazKomunikat('blad', 'Mapa nie jest gotowa. Odśwież zakładkę i spróbuj ponownie.', { klucz: 'mapa' });
+        }
+    }
+
+    // Klik w wiersz (poza polami, przyciskami i zaznaczaniem tekstu) = pokaż na mapie.
+    function klikWiersza(e) {
+        const tr = e.target.closest('tr[data-id]');
+        if (!tr || !tbody.contains(tr)) return;
+        if (e.target.closest('input, select, label, button, a, textarea')) return;
+        const zaznaczenie = window.getSelection ? String(window.getSelection()) : '';
+        if (zaznaczenie) return;
+        pokazNaMapie(Number(tr.getAttribute('data-id')), false);
+    }
+
+    function naWyborNaMapie(id, info) {
+        if (zniszczona) return;
+        stan.wskazany = id === undefined ? null : id;
+        tbody.querySelectorAll('tr.is-wskazany').forEach((tr) => tr.classList.remove('is-wskazany'));
+        if (stan.wskazany === null) return;
+        const tr = tbody.querySelector('tr[data-id="' + stan.wskazany + '"]');
+        if (!tr) return;
+        tr.classList.add('is-wskazany');
+        // Klik w pinezkę przewija listę do wiersza; klik w wiersz — nie.
+        if (info && info.zrodlo === 'mapa') {
+            const r = tr.getBoundingClientRect();
+            const wys = window.innerHeight || document.documentElement.clientHeight;
+            if (r.top < 60 || r.bottom > wys - 60) {
+                const bezRuchu = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+                tr.scrollIntoView({ block: 'center', behavior: bezRuchu ? 'auto' : 'smooth' });
+            }
+        }
+    }
+
+    /** Punkt zapisany na mapie (ustawiony, poprawiony, przywrócony automat). */
+    function naZmianePunktu(order, rodzaj) {
+        if (zniszczona || !order) return;
+        const stary = znajdz(order.id);
+        if (stan.bezLokalizacji !== null && !order.zamkniete && stary) {
+            if (!stary.geo && order.geo) stan.bezLokalizacji = Math.max(0, stan.bezLokalizacji - 1);
+            if (stary.geo && !order.geo) stan.bezLokalizacji += 1;
+        }
+        podmienWiersze([order]);
+        // Przywrócony automat: od razu uruchamiamy lokalizowanie w tle.
+        if (rodzaj === 'przywrocono') zlokalizujTeraz(true);
+    }
+
     // ── Filtry ──────────────────────────────────────────────────────────────
 
     function ustawSposobFiltra(sposob) {
         // Drugie kliknięcie aktywnego licznika zdejmuje filtr.
         stan.filtr.sposob = stan.filtr.sposob === sposob ? '' : sposob;
+        stan.dopasujMape = true;
         // Zmiana filtra kończy zaznaczenie od razu (także pasek hurtu), zanim
         // przyjdzie nowa lista — akcja nie może trafić w wiersze z poprzedniego widoku.
         odznaczWszystko();
@@ -930,6 +1167,7 @@
         const wykonaj = () => {
             if (q === stan.filtr.q) return;
             stan.filtr.q = q;
+            stan.dopasujMape = true;
             if (!q) stan.filtr.zamkniete = false;
             renderujPrzelacznikZamknietych();
             odznaczWszystko();
@@ -953,7 +1191,11 @@
             return;
         }
         const przycisk = e.target.closest('[data-lg-akcja]');
-        if (!przycisk || przycisk.disabled) return;
+        if (!przycisk) {
+            klikWiersza(e);
+            return;
+        }
+        if (przycisk.disabled) return;
         const akcja = przycisk.getAttribute('data-lg-akcja');
         const tr = przycisk.closest('tr[data-id]');
         switch (akcja) {
@@ -976,21 +1218,36 @@
                 break;
             case 'pokaz-wszystkie':
                 stan.filtr.sposob = '';
+                stan.dopasujMape = true;
                 renderujLiczniki();
                 wczytaj('uzytkownik');
                 break;
             case 'szukaj-zamkniete':
                 el('zamkniete').checked = true;
                 stan.filtr.zamkniete = true;
+                stan.dopasujMape = true;
                 wczytaj('uzytkownik');
                 break;
             case 'wszystkie-etapy':
                 stan.filtr.etap = '';
+                stan.dopasujMape = true;
                 renderujEtapy();
                 renderujTabele();
                 break;
             case 'zamknij-komunikat':
                 przycisk.closest('.lg-komunikat').remove();
+                break;
+            case 'bez-lokalizacji':
+                przelaczBezGeo();
+                break;
+            case 'zlokalizuj':
+                zlokalizujTeraz(false);
+                break;
+            case 'pokaz-na-mapie':
+                if (tr) pokazNaMapie(Number(tr.getAttribute('data-id')), true);
+                break;
+            case 'ustaw-na-mapie':
+                if (tr) ustawNaMapie(Number(tr.getAttribute('data-id')));
                 break;
             default:
                 break;
@@ -1008,10 +1265,12 @@
             renderujZaznaczenie();
         } else if (t === el('zamkniete')) {
             stan.filtr.zamkniete = t.checked && !!stan.filtr.q;
+            stan.dopasujMape = true;
             odznaczWszystko();
             wczytaj('uzytkownik');
         } else if (t === el('etap')) {
             stan.filtr.etap = t.value;
+            stan.dopasujMape = true;
             t.classList.toggle('is-aktywny', !!t.value);
             renderujTabele();
         }
@@ -1043,6 +1302,8 @@
     function uzytkownikPracuje() {
         return stan.zaznaczone.size > 0 || stan.hurtTrwa || stan.wysylane.size > 0 ||
             oczekujaceSelecty.size > 0 || !!kontrolerListy ||
+            // Korekta / ustawianie punktu na mapie — odświeżenie nie może jej przerwać.
+            !!(mapa() && mapa().zajeta()) ||
             // Rozwinięta lista selecta zniknęłaby spod ręki razem z przerysowaną
             // tabelą. Otwarcia natywnego selecta nie da się odczytać, więc
             // czekamy na chwilę ciszy po ostatnim kliknięciu/klawiszu.
@@ -1052,7 +1313,8 @@
     function tik() {
         if (zniszczona || stan.pierwszeLadowanie) return;
         if (!zakladkaWidoczna() || uzytkownikPracuje()) return;
-        if (Date.now() - stan.ostatnieOdswiezenie >= ODSWIEZANIE_MS) wczytaj('auto');
+        const okres = stan.geokoderDziala ? ODSWIEZANIE_GEO_MS : ODSWIEZANIE_MS;
+        if (Date.now() - stan.ostatnieOdswiezenie >= okres) wczytaj('auto');
     }
 
     function przyWidocznosci() {
@@ -1067,6 +1329,7 @@
         oczekujaceSelecty.clear();
         if (kontrolerListy) kontrolerListy.abort();
         document.removeEventListener('visibilitychange', przyWidocznosci);
+        document.removeEventListener('logistics:mapa-gotowa', naGotowaMape);
         if (window.LogisticsTab && window.LogisticsTab.zniszcz === zniszcz) delete window.LogisticsTab;
     }
 
@@ -1078,6 +1341,8 @@
     };
 
     document.addEventListener('visibilitychange', przyWidocznosci);
+    document.addEventListener('logistics:mapa-gotowa', naGotowaMape);
+    polaczZMapa();
     zegar = setInterval(tik, ZEGAR_MS);
     renderujPrzelacznikZamknietych();
     wczytaj('uzytkownik');
