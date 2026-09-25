@@ -65,3 +65,71 @@ def test_cron_blad_zwraca_500_bez_uruchamiania_dopychacza(client, monkeypatch, w
     assert 'boom' in j['error']
     # dopychacz nie powinien być uruchomiony
     assert watki == []
+
+
+# ── I2 (przegląd gałęzi): produkty zapisane przez stary kod w oknie wdrożenia ──────
+# deploy.sh robi migrate → przeliczenie klientów (do 300 s) → restart; przez ten czas
+# stary kod wciąż zapisuje `czeka_na_logistyke`. Po restarcie taki produkt nie ma
+# kolejki na tablecie ani filtra na liście — cron przenosi go do pakowania.
+
+class LoggerSzpieg(object):
+    def __init__(self):
+        self.ostrzezenia = []
+
+    def debug(self, message, **kwargs):
+        pass
+
+    info = error = debug
+
+    def warning(self, message, **kwargs):
+        self.ostrzezenia.append((message, kwargs))
+
+
+def test_cron_przenosi_osierocone_z_logistyki_do_pakowania(client, app, watki, monkeypatch):
+    from modules.production.logistics.routers import cron_api
+    szpieg = LoggerSzpieg()
+    monkeypatch.setattr(cron_api, 'logger', szpieg)
+    with app.app_context():
+        order = zamowienie(sposob=s.KURIER, statusy=('czeka_na_pakowanie', 'czeka_na_logistyke'))
+        for p in order.products:
+            p.updated_at = datetime(2026, 1, 1)
+        db.session.commit()
+        order_id = order.id
+        osierocony_id = order.products[1].id
+        assert order.products[1].current_status == 'czeka_na_logistyke'
+        assert order.logistics_completed_at is None
+    r = client.post(BASE + '/cron', headers=NAGLOWEK)
+    assert r.status_code == 200
+    assert r.get_json()['przeniesione_z_logistyki'] == 1
+    assert len(szpieg.ostrzezenia) == 1
+    with app.app_context():
+        order = ProductionOrder.query.get(order_id)
+        assert [p.current_status for p in order.products] == ['czeka_na_pakowanie'] * 2
+        assert order.logistics_completed_at is not None  # ostatni produkt wszedł do pakowania
+        # przeniesiona pozycja ma świeży updated_at — ETag kolejki pakowania na tablecie
+        podbite = {p.id for p in order.products if p.updated_at > datetime(2026, 1, 1)}
+        assert podbite == {osierocony_id}
+    # idempotentnie: drugi przebieg nic nie przenosi i nie ostrzega
+    assert client.post(BASE + '/cron', headers=NAGLOWEK).get_json()['przeniesione_z_logistyki'] == 0
+    assert len(szpieg.ostrzezenia) == 1
+
+
+def test_przeniesienie_nie_ustawia_zeszlo_z_produkcji_przedwczesnie(app):
+    from modules.production.logistics.services import delivery
+    with app.app_context():
+        order = zamowienie(statusy=('czeka_na_logistyke', 'czeka_na_lakiernie'))
+        assert delivery.przenies_osierocone_z_logistyki() == 1
+        db.session.commit()
+        assert order.products[0].current_status == 'czeka_na_pakowanie'
+        assert order.logistics_completed_at is None
+
+
+def test_przeniesienie_przelicza_zamkniecie(app):
+    """Zamówienie zamknięte (np. kurier) z produktem w `czeka_na_logistyke` otwiera się."""
+    from modules.production.logistics.services import delivery
+    with app.app_context():
+        order = zamowienie(sposob=s.KURIER, statusy=('spakowane', 'czeka_na_logistyke'),
+                           logistics_closed_at=datetime(2026, 9, 20))
+        assert delivery.przenies_osierocone_z_logistyki() == 1
+        db.session.commit()
+        assert order.logistics_closed_at is None

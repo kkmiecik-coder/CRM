@@ -15,7 +15,12 @@ LIMIT_ZAMKNIETYCH = 50
 
 
 def _ranga(status):
-    return KOLEJNOSC_ETAPOW.index(status) if status in KOLEJNOSC_ETAPOW else len(KOLEJNOSC_ETAPOW)
+    """
+    Status spoza KOLEJNOSC_ETAPOW (np. `czeka_na_logistyke` zapisany przez stary kod
+    w oknie wdrożenia) dostaje rangę -1, czyli wychodzi jako NAJWCZEŚNIEJSZY etap —
+    anomalia ma być widoczna, a nie chować się za „Spakowane”.
+    """
+    return KOLEJNOSC_ETAPOW.index(status) if status in KOLEJNOSC_ETAPOW else -1
 
 
 def _etap(aktywne):

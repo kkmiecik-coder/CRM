@@ -179,6 +179,32 @@ def wydaj_klientowi(order, user_id=None, teraz=None):
     przelicz_zamkniecie(order, teraz)
 
 
+def przenies_osierocone_z_logistyki(teraz=None):
+    """
+    Produkty w `czeka_na_logistyke` → `czeka_na_pakowanie`. Zwraca liczbę przeniesionych.
+
+    Migracja etapu 1 przenosi je raz, ale deploy.sh robi migrate → przeliczenie klientów
+    (do 300 s) → restart, a przez ten czas STARY kod wciąż zapisuje `czeka_na_logistyke`.
+    Po restarcie taki produkt nie ma kolejki na tablecie ani filtra na liście — wisi
+    niewidoczny. Cron zamiata go tą samą drogą, jaką idzie dziś wyjście z produkcji
+    (complete_task). Idempotentne: gdy nic nie zostało, zwraca 0.
+    """
+    from modules.production.models import ProductionProduct
+    teraz = teraz or get_local_now()
+    produkty = (ProductionProduct.query
+                .filter(ProductionProduct.current_status == 'czeka_na_logistyke').all())
+    zamowienia = {}
+    for p in produkty:
+        p.current_status = 'czeka_na_pakowanie'
+        p.updated_at = teraz  # ETag kolejki pakowania na tablecie
+        if p.order is not None:
+            zamowienia[p.order.id] = p.order
+    for order in zamowienia.values():
+        odnotuj_wejscie_do_pakowania(order, teraz)
+        przelicz_zamkniecie(order, teraz)
+    return len(produkty)
+
+
 def przelicz_otwarte(teraz=None):
     """
     Siatka bezpieczeństwa dla crona: przelicza zamówienia otwarte oraz zamknięte,

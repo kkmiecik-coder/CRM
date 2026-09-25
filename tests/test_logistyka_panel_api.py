@@ -144,3 +144,17 @@ def test_zakladka_renderuje_sie(client):
     r = client.get(BASE + '/tab-content')
     assert r.status_code == 200
     assert b'id="logistics-root"' in r.data
+
+
+# ── Poprawki po przeglądzie całej gałęzi ────────────────────────────────────
+
+def test_nieznany_status_pozycji_to_najwczesniejszy_etap(client, app):
+    """I2b: produkt zapisany przez stary kod jako `czeka_na_logistyke` (okno wdrożenia)
+    ma być widoczny jako anomalia — najwcześniejszy etap, nie „Spakowane”."""
+    from modules.production.logistics.services import lista
+    assert lista._ranga('czeka_na_logistyke') == -1
+    assert lista._ranga('nieznany') < lista._ranga('wstrzymane')
+    with app.app_context():
+        zamowienie(statusy=('spakowane', 'czeka_na_logistyke'))
+    wiersz = client.get(BASE + '/orders').get_json()['orders'][0]
+    assert wiersz['etap']['status'] == 'czeka_na_logistyke'

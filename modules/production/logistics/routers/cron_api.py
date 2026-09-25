@@ -4,7 +4,8 @@ Cron logistyki — co godzinę z crontaba serwera:
     scripts/cron_endpoint.sh POST /production/api/logistics/cron
 
 Endpoint NIE wykonuje długiej pracy: sync worker gunicorna ma 30 s na żądanie.
-Przelicza cykl zamówień (szybkie, w bazie) i uruchamia dopychacz Base. w tle.
+Przenosi osierocone `czeka_na_logistyke` do pakowania, przelicza cykl zamówień
+(szybkie, w bazie) i uruchamia dopychacz Base. w tle.
 Etap 2 dołoży tu uruchomienie geokodowania w tle.
 """
 import traceback
@@ -27,12 +28,20 @@ def cron():
     Przelicza cykl logistyki zamówień i uruchamia dopychacz Base. w tle.
     """
     try:
+        # Najpierw produkty zapisane przez stary kod w oknie wdrożenia (patrz
+        # delivery.przenies_osierocone_z_logistyki) — przelicz_otwarte widzi je już
+        # w pakowaniu.
+        przeniesione = delivery.przenies_osierocone_z_logistyki()
+        if przeniesione:
+            logger.warning('CRON: produkty w czeka_na_logistyke przeniesione do pakowania', extra={
+                'przeniesione': przeniesione})
         przeliczone = delivery.przelicz_otwarte()
         db.session.commit()
         uruchomiony = bl_sync.uruchom_w_tle(current_app._get_current_object())
         wstrzymane = bl_sync.wstrzymane_do()
         return jsonify({
             'success': True,
+            'przeniesione_z_logistyki': przeniesione,
             'przeliczone': przeliczone,
             'dopychacz_uruchomiony': bool(uruchomiony),
             'base_wstrzymane_do': wstrzymane.isoformat() if wstrzymane else None,

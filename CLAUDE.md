@@ -255,7 +255,11 @@ Albo po prostu `./deploy.sh` — robi dokładnie to samo, z lockiem i logami.
   pakowania, a sposób dostawy (`prod_orders.override_delivery_method`, NULL = „Nie ustawiono”) ustawia logistyk
   w zakładce „Logistyka”. Pakowanie bez niego: API mobilne zwraca 409 `delivery_method_not_set`. Mapowania:
   `modules/production/logistics/sposoby.py`. Appkę tabletową z obsługą obiektu `transport` wydajemy PRZED
-  backendem (stara appka pokazuje nieustawione jako „KURIER”).
+  backendem (stara appka pokazuje nieustawione jako „KURIER”). **Po wdrożeniu etapu 1 uruchom raz ręcznie**
+  `scripts/cron_endpoint.sh POST /production/api/logistics/cron` — między migracją a restartem (przeliczenie
+  klientów trwa do 300 s) stary kod wciąż zapisuje `czeka_na_logistyke`; cron przenosi takie produkty do
+  pakowania (`przeniesione_z_logistyki` w odpowiedzi), inaczej do pierwszego godzinnego przebiegu nie widzi
+  ich żaden tablet ani filtr.
 
 ## Architecture
 
