@@ -311,7 +311,10 @@
         const sposob = kluczSposobu(z.sposob);
         const etap = z.etap || { status: '', nazwa: '' };
         const geo = z.geo || {};
-        const adres = adresTekst(z);
+        // Adres jak w kolumnie „Adres” listy: kod + miejscowość, pod spodem ulica z numerami.
+        const miejscowosc = [z.kod, z.miasto].filter(Boolean).join(' ');
+        const adres = (miejscowosc ? '<span class="lg-dymek-miejscowosc">' + esc(miejscowosc) + '</span>' : '') +
+            (z.adres ? '<span class="lg-dymek-ulica">' + esc(z.adres) + '</span>' : '');
 
         const uwagi = [];
         if (geo.adres_zmieniony) {
@@ -343,7 +346,7 @@
                     esc(ETYKIETY[sposob]) + '</span>' +
             '</div>' +
             '<div class="lg-dymek-klient">' + (z.klient ? esc(z.klient) : '<span class="lg-brak-danych">brak nazwy</span>') + '</div>' +
-            (adres ? '<div class="lg-dymek-adres">' + esc(adres) + '</div>' : '') +
+            (adres ? '<div class="lg-dymek-adres">' + adres + '</div>' : '') +
             '<dl class="lg-dymek-dane">' +
                 '<div><dt>Etap</dt><dd><span class="lg-etap" data-etap="' + esc(etap.status) + '">' +
                     (etap.status === 'spakowane'

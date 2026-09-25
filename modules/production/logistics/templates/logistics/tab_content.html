@@ -14,12 +14,13 @@
      blokuje CDN). #}
 <link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet/leaflet.css') }}?v=1.9.4">
 <link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet-markercluster/MarkerCluster.css') }}?v=1.5.3">
-<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20260925d">
+<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20260925e">
 
 <div id="logistics-root" class="logistics-tab"
      data-api="{{ url_for('logistics_panel.orders') }}"
      data-magazyn-lat="{{ magazyn.lat }}" data-magazyn-lng="{{ magazyn.lng }}"
-     data-magazyn-nazwa="{{ magazyn.nazwa }}">
+     data-magazyn-nazwa="{{ magazyn.nazwa }}"
+     data-logo-base="{{ url_for('logistics_panel.static', filename='img/base-logo.png') }}?v=20260925a">
 
   {# ─── NAGŁÓWEK: podzakładki + odświeżanie ───
        W etapie 1 jest tylko „Dashboard”. Trasy i Flota dochodzą w etapie 3 —
@@ -124,10 +125,17 @@
               <span class="lg-pin lg-pin--pusta" aria-hidden="true"></span>
               <span>Bez lokalizacji:</span>
               <span class="lg-bez-geo-liczba" data-lg="bez-lokalizacji">–</span>
+              {# Licznik jest globalny (wszystkie otwarte); gdy filtry zawężają listę,
+                 obok stoi, ile z nich jest w bieżącym widoku. #}
+              <span class="lg-bez-geo-widok" data-lg="bez-lokalizacji-widok" hidden></span>
             </button>
-            <button type="button" class="lg-przycisk" data-lg-akcja="zlokalizuj" data-lg="zlokalizuj"
+            {# W toku: nieaktywny, „Lokalizowanie… 37 / 120” i pasek wypełnienia
+                 w tle (geokoder_postep z GET /orders). #}
+            <button type="button" class="lg-przycisk lg-zlokalizuj" data-lg-akcja="zlokalizuj" data-lg="zlokalizuj"
                     title="Znajdź na mapie adresy zamówień, które jeszcze nie mają punktu">
-              <i class="fas fa-location-crosshairs" aria-hidden="true"></i><span data-lg="zlokalizuj-tekst">Zlokalizuj teraz</span>
+              <span class="lg-zlokalizuj-postep" data-lg="zlokalizuj-postep" aria-hidden="true"></span>
+              <i class="fas fa-location-crosshairs" aria-hidden="true"></i><span class="lg-zlokalizuj-tekst" data-lg="zlokalizuj-tekst">Zlokalizuj teraz</span>
+              <span class="lg-zlokalizuj-liczby" data-lg="zlokalizuj-liczby" hidden></span>
             </button>
           </div>
         </div>
@@ -139,7 +147,7 @@
                data-carto-key="{{ carto_basemaps_key }}"
                data-skrypt-leaflet="{{ url_for('production.static', filename='vendor/leaflet/leaflet.js') }}?v=1.9.4"
                data-skrypt-klastry="{{ url_for('production.static', filename='vendor/leaflet-markercluster/leaflet.markercluster.js') }}?v=1.5.3"
-               data-skrypt-mapy="{{ url_for('logistics_panel.static', filename='js/logistics-map.js') }}?v=20260925f"></div>
+               data-skrypt-mapy="{{ url_for('logistics_panel.static', filename='js/logistics-map.js') }}?v=20260925g"></div>
           {# Pasek trybu (korekta, ustawianie punktu) i wyniku akcji na mapie. #}
           <div class="lg-mapa-pasek" data-lg-mapa="pasek" role="status" aria-live="polite" hidden></div>
           <div class="lg-mapa-stan is-ladowanie" data-lg-mapa="stan" role="status">Ładowanie mapy…</div>
@@ -167,7 +175,7 @@
       <div class="lg-lista">
         {# ─── TABELA ZAMÓWIEŃ ───
              .lg-tabela-ramka jest kontenerem zapytań @container — na węższej
-             zakładce miasto i metoda z Base. składają się pod nazwę klienta. #}
+             zakładce adres i metoda z Base. składają się pod nazwę klienta. #}
         <div class="lg-tabela-ramka" id="logistics-lista" tabindex="-1" aria-label="Lista zamówień">
           <table class="lg-tabela">
             <thead>
@@ -179,7 +187,7 @@
                 </th>
                 <th scope="col" class="lg-k-numer">Zamówienie</th>
                 <th scope="col" class="lg-k-klient">Klient</th>
-                <th scope="col" class="lg-k-miasto">Miasto</th>
+                <th scope="col" class="lg-k-adres">Adres</th>
                 <th scope="col" class="lg-k-metoda">Metoda z Base.</th>
                 <th scope="col" class="lg-k-sposob">Sposób dostawy</th>
                 <th scope="col" class="lg-k-etap">Etap produkcji</th>
@@ -201,7 +209,7 @@
           <span><i class="fas fa-box-open lg-ikona--przepakowanie" aria-hidden="true"></i>czeka na przepakowanie na kuriera</span>
           <span><i class="fas fa-tags lg-ikona--etykiety" aria-hidden="true"></i>etykiety wydrukowane przed zmianą sposobu</span>
           <span><i class="fas fa-cloud-arrow-up lg-ikona--base" aria-hidden="true"></i>Base.: czeka na wysłanie</span>
-          <span><i class="fas fa-lightbulb lg-ikona--podpowiedz" aria-hidden="true"></i>podpowiedź sposobu z metody w Base.</span>
+          <span><img class="lg-logo-base" src="{{ url_for('logistics_panel.static', filename='img/base-logo.png') }}?v=20260925a" alt="" width="16" height="16">podpowiedź sposobu z metody w Base.</span>
           <span><i class="fas fa-map-location-dot lg-ikona--adres" aria-hidden="true"></i>adres zmieniony po ręcznym ustawieniu punktu</span>
           <span class="lg-legenda-skrot">Klik w wiersz pokazuje zamówienie na mapie, Shift + klik zaznacza zakres</span>
         </div>
@@ -223,7 +231,7 @@
             </button>
           </div>
           <button type="button" class="lg-hurt-przycisk lg-hurt-przycisk--podpowiedzi" data-lg-akcja="hurt-podpowiedzi">
-            <i class="fas fa-lightbulb" aria-hidden="true"></i>Przyjmij podpowiedzi z Base.
+            <img class="lg-logo-base" src="{{ url_for('logistics_panel.static', filename='img/base-logo.png') }}?v=20260925a" alt="" width="16" height="16">Przyjmij podpowiedzi z Base.
           </button>
           <button type="button" class="lg-hurt-odznacz" data-lg-akcja="odznacz">Odznacz</button>
         </div>
@@ -281,4 +289,4 @@
         });
 })();
 </script>
-<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20260925d"></script>
+<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20260925e"></script>

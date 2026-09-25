@@ -14,7 +14,8 @@
  *
  * API (modules/production/logistics/routers/panel_api.py):
  *   GET  {API}/orders?sposob=&q=&zamkniete=1   lista + liczniki + pauza Base.
- *                                              + bez_lokalizacji, geokoder_dziala
+ *                                              + bez_lokalizacji, geokoder_dziala,
+ *                                              geokoder_postep ({zrobione, wszystkie} | null)
  *   POST {API}/orders/delivery-method          {order_ids, sposob}
  *   POST {API}/orders/<id>/handed-over         „Wydane klientowi”
  *   POST {API}/geocode                         „Zlokalizuj teraz” (wątek w tle, 202)
@@ -49,6 +50,8 @@
     // data-api = url_for('logistics_panel.orders') → baza bez końcowego /orders.
     const API = (root.getAttribute('data-api') || '/production/api/logistics/orders')
         .replace(/\/orders\/?$/, '');
+    // Logo Base. (16 px) przy podpowiedzi sposobu — adres z url_for w szablonie.
+    const LOGO_BASE = root.getAttribute('data-logo-base') || '';
 
     // ── Słowniki ────────────────────────────────────────────────────────────
 
@@ -102,6 +105,7 @@
         blad: null,
         bezLokalizacji: null,       // licznik z API (otwarte zamówienia bez punktu)
         geokoderDziala: false,
+        geokoderPostep: null,       // {zrobione, wszystkie} z API albo null (wątek dopiero startuje)
         ochronaGeoDo: 0,            // patrz OCHRONA_GEO_MS
         naLiscie: [],               // id wierszy w tabeli — to samo widzi mapa
         wskazany: null,             // id wiersza podświetlonego z mapy
@@ -297,6 +301,11 @@
         return stan.filtr.bezGeo ? wiersze.filter((w) => !w.geo) : wiersze;
     }
 
+    // Filtry inne niż „Bez lokalizacji” zawężają listę — licznik „Bez lokalizacji”
+    // (globalny, z API) mówi wtedy więcej, niż widać; stąd „· w widoku k”.
+    const zawezonyWidok = () => !!(stan.filtr.sposob || stan.filtr.etap || stan.filtr.q);
+    const bezGeoWWidoku = () => poEtapie().filter((w) => !w.geo).length;
+
     // ── Render: nagłówek, liczniki, baner, etapy ────────────────────────────
 
     function renderujWszystko() {
@@ -430,7 +439,14 @@
     function pustyStan() {
         const f = stan.filtr;
         let tytul, opis = '', przycisk = '';
-        if (f.bezGeo && poEtapie().length) {
+        const bezPunktu = stan.bezLokalizacji || 0;
+        if (f.bezGeo && poEtapie().length && zawezonyWidok() && bezPunktu > 0) {
+            // Licznik jest globalny — pusty widok nie może twierdzić, że wszystko ma punkt.
+            tytul = 'W tym widoku wszystkie zamówienia mają punkt na mapie.';
+            opis = 'Bez lokalizacji ' + odmiana(bezPunktu, ['jest', 'są', 'jest']) + ' ' + ileZamowien(bezPunktu) +
+                '. Zdejmij filtry, żeby je zobaczyć.';
+            przycisk = przyciskStanu('zdejmij-filtry', 'Zdejmij filtry');
+        } else if (f.bezGeo && poEtapie().length) {
             tytul = 'Każde zamówienie na liście ma już punkt na mapie.';
             przycisk = przyciskStanu('bez-lokalizacji', 'Pokaż wszystkie z listy');
         } else if (f.etap && stan.wiersze.length) {
@@ -514,6 +530,24 @@
             '<span class="lg-na-mapie-tekst">Ustaw na mapie</span></button>';
     }
 
+    /**
+     * Adres w dwóch liniach (kolumna „Adres”, a węziej pod nazwą klienta):
+     * kod pocztowy + miejscowość, pod spodem ulica z numerami tak, jak przyszła
+     * z Base. Obie linie przycinane wielokropkiem, pełna treść w title.
+     */
+    function adresHtml(w) {
+        const miejscowosc = [w.kod, w.miasto].filter(Boolean).join(' ');
+        const gora = miejscowosc
+            ? '<span class="lg-adres-linia lg-adres-miejscowosc" title="' + esc(miejscowosc) + '">' +
+                (w.kod ? '<span class="lg-adres-kod">' + esc(w.kod) + '</span>' + (w.miasto ? ' ' : '') : '') +
+                esc(w.miasto || '') + '</span>'
+            : '<span class="lg-adres-linia lg-adres-miejscowosc lg-brak-danych">brak</span>';
+        const dol = w.adres
+            ? '<span class="lg-adres-linia lg-adres-ulica" title="' + esc(w.adres) + '">' + esc(w.adres) + '</span>'
+            : '';
+        return gora + dol;
+    }
+
     function wierszHtml(w) {
         const etap = w.etap || { status: '', nazwa: '' };
         const anulowane = etap.status === 'anulowane';
@@ -534,19 +568,19 @@
         else if (anulowane) powod = 'Zamówienie anulowane.';
         else if (stan.wysylane.has(w.id)) powod = 'Zapisywanie…';
 
-        const miasto = [w.kod, w.miasto].filter(Boolean).join(' ');
         const metoda = w.metoda_z_base
             ? '<span class="lg-metoda" title="' + esc(w.metoda_z_base) + '">' + esc(w.metoda_z_base) + '</span>'
             : '<span class="lg-metoda lg-brak-danych">brak w Base.</span>';
         let podpowiedz = '';
         if (w.podpowiedz && w.podpowiedz !== w.sposob) {
-            // Żarówka zamiast słowa „Podpowiedź:” — słowo zabierało ~60 px i ucinało
-            // „Transport własny”. Ta sama ikona stoi na „Przyjmij podpowiedzi z Base.”.
+            // Logo Base. zamiast słowa „Podpowiedź:” — słowo zabierało ~60 px i ucinało
+            // „Transport własny”. To samo logo stoi na „Przyjmij podpowiedzi z Base.”
+            // i w legendzie; obrazek dekoracyjny (alt=""), znaczenie niesie tekst i title.
             const nazwa = ETYKIETY[w.podpowiedz] || w.podpowiedz;
             podpowiedz = '<span class="lg-podpowiedz' + (w.sposob ? '' : ' lg-podpowiedz--kolejka') + '"' +
                 ' title="Podpowiedź z Base.: ' + esc(nazwa) + '">' +
-                '<i class="fas fa-lightbulb" aria-hidden="true"></i>' +
-                '<span class="visually-hidden">Podpowiedź: </span>' + esc(nazwa) + '</span>';
+                (LOGO_BASE ? '<img class="lg-logo-base" src="' + esc(LOGO_BASE) + '" alt="" width="16" height="16">' : '') +
+                '<span class="visually-hidden">Podpowiedź z Base.: </span>' + esc(nazwa) + '</span>';
         }
 
         const ikony = [];
@@ -585,12 +619,11 @@
                 esc(w.numer) + '</span></div></td>' +
             '<td class="lg-k-klient"><span class="lg-klient"' + (w.klient ? ' title="' + esc(w.klient) + '"' : '') + '>' +
                 (w.klient ? esc(w.klient) : '<span class="lg-brak-danych">brak nazwy</span>') + '</span>' +
-                (miasto ? '<span class="lg-drugi lg-w-klient-miasto">' + esc(miasto) + '</span>' : '') +
+                (w.kod || w.miasto || w.adres ? '<span class="lg-w-klient-adres">' + adresHtml(w) + '</span>' : '') +
                 '<span class="lg-drugi lg-w-klient-metoda" title="' + esc(w.metoda_z_base || '') + '">Base.: ' +
                     esc(w.metoda_z_base || 'brak') + '</span>' +
                 (podpowiedz ? '<span class="lg-w-klient-metoda">' + podpowiedz + '</span>' : '') + '</td>' +
-            '<td class="lg-k-miasto">' + (w.miasto ? esc(w.miasto) : '<span class="lg-brak-danych">brak</span>') +
-                (w.kod ? '<span class="lg-drugi lg-drugi--mono">' + esc(w.kod) + '</span>' : '') + '</td>' +
+            '<td class="lg-k-adres">' + adresHtml(w) + '</td>' +
             '<td class="lg-k-metoda">' + metoda + podpowiedz + '</td>' +
             '<td class="lg-k-sposob">' + selectSposobu(w, !!powod, powod) + '</td>' +
             '<td class="lg-k-etap"><span class="lg-etap" data-etap="' + esc(etap.status) + '">' +
@@ -997,6 +1030,18 @@
                 (stan.bezLokalizacji === null ? '–' : stan.bezLokalizacji) + '.', { klucz: 'geo' });
         }
         stan.geokoderDziala = dziala;
+        stan.geokoderPostep = dziala ? postepGeokodera(dane.geokoder_postep) : null;
+    }
+
+    // geokoder_postep: null albo {zrobione, wszystkie}; `wszystkie` rośnie, gdy
+    // przebieg dokłada zamówienia dodane w trakcie. Bez sensownych liczb → null
+    // (przycisk mówi wtedy samo „Lokalizowanie…”).
+    function postepGeokodera(p) {
+        if (!p || typeof p !== 'object') return null;
+        const wszystkie = Number(p.wszystkie);
+        const zrobione = Number(p.zrobione);
+        if (!Number.isFinite(wszystkie) || !Number.isFinite(zrobione) || wszystkie <= 0) return null;
+        return { zrobione: Math.min(Math.max(0, Math.floor(zrobione)), wszystkie), wszystkie: Math.floor(wszystkie) };
     }
 
     function renderujGeo() {
@@ -1011,17 +1056,34 @@
         licznik.title = stan.filtr.bezGeo
             ? 'Pokaż wszystkie zamówienia z listy'
             : 'Pokaż na liście zamówienia bez punktu na mapie';
+        // Globalny licznik + ile z nich jest w zawężonym widoku (sposób, etap, fraza).
+        const widok = el('bez-lokalizacji-widok');
+        const zawezony = n !== null && zawezonyWidok();
+        widok.textContent = zawezony ? '· w widoku ' + bezGeoWWidoku() : '';
+        widok.hidden = !zawezony;
 
-        // Krótki napis w toku — w wąskiej kolumnie mapy (od 300 px) licznik
-        // i przycisk mają się zmieścić w jednej linii; pełne zdanie niesie
-        // komunikat i podpowiedź przycisku.
+        // W toku: przycisk nieaktywny, „Lokalizowanie… 37 / 120” i pasek wypełnienia
+        // w tle (proporcja zrobione / wszystkie). Zanim wątek poda postęp — bez liczb.
         const przycisk = el('zlokalizuj');
+        const p = stan.geokoderDziala ? stan.geokoderPostep : null;
         przycisk.disabled = stan.geokoderDziala;
-        przycisk.classList.toggle('is-kreci', stan.geokoderDziala);
+        przycisk.classList.toggle('is-w-toku', stan.geokoderDziala);
+        przycisk.classList.toggle('ma-postep', !!p);
         przycisk.title = stan.geokoderDziala
-            ? 'Lokalizowanie w tle… Lista odświeża się co 10 s.'
+            ? 'Lokalizowanie w tle' + (p ? ': ' + p.zrobione + ' z ' + p.wszystkie : '…') + '. Lista odświeża się co 10 s.'
             : 'Znajdź na mapie adresy zamówień, które jeszcze nie mają punktu';
         el('zlokalizuj-tekst').textContent = stan.geokoderDziala ? 'Lokalizowanie…' : 'Zlokalizuj teraz';
+        const liczby = el('zlokalizuj-liczby');
+        liczby.textContent = p ? p.zrobione + ' / ' + p.wszystkie : '';
+        liczby.hidden = !p;
+        el('zlokalizuj-postep').style.width = p ? (100 * p.zrobione / p.wszystkie).toFixed(1) + '%' : '0%';
+        if (stan.geokoderDziala) {
+            przycisk.setAttribute('aria-label', p
+                ? 'Lokalizowanie adresów w tle: ' + p.zrobione + ' z ' + p.wszystkie
+                : 'Lokalizowanie adresów w tle');
+        } else {
+            przycisk.removeAttribute('aria-label');
+        }
     }
 
     function przelaczBezGeo() {
@@ -1033,13 +1095,14 @@
     async function zlokalizujTeraz(ciche) {
         if (stan.geokoderDziala || zniszczona) return;
         stan.geokoderDziala = true;
+        stan.geokoderPostep = null;
         stan.ochronaGeoDo = Date.now() + OCHRONA_GEO_MS;
         renderujGeo();
         try {
             await zapytanie('/geocode', { metoda: 'POST', dane: {} });
             if (zniszczona) return;
             if (!ciche) {
-                pokazKomunikat('info', 'Lokalizowanie w tle… Lista odświeża się co 10 s, a licznik „Bez lokalizacji” pokazuje postęp.',
+                pokazKomunikat('info', 'Lokalizowanie w tle. Postęp widać na przycisku nad mapą, lista odświeża się co 10 s.',
                     { klucz: 'geo' });
             }
             // Pierwsze odświeżenie za ODSWIEZANIE_GEO_MS (zegar liczy od teraz).
@@ -1168,6 +1231,21 @@
         wczytaj('uzytkownik');
     }
 
+    /** Pusty stan „Bez lokalizacji” w zawężonym widoku: zostaje sam filtr „Bez lokalizacji”. */
+    function zdejmijFiltry() {
+        clearTimeout(timerSzukania);
+        stan.filtr.sposob = '';
+        stan.filtr.etap = '';
+        stan.filtr.q = '';
+        stan.filtr.zamkniete = false;
+        el('q').value = '';
+        stan.dopasujMape = true;
+        renderujPrzelacznikZamknietych();
+        odznaczWszystko();
+        renderujLiczniki();
+        wczytaj('uzytkownik');
+    }
+
     function zmianaFrazy(natychmiast) {
         clearTimeout(timerSzukania);
         const q = el('q').value.trim();
@@ -1239,7 +1317,11 @@
                 stan.filtr.etap = '';
                 stan.dopasujMape = true;
                 renderujEtapy();
+                renderujGeo();
                 renderujTabele();
+                break;
+            case 'zdejmij-filtry':
+                zdejmijFiltry();
                 break;
             case 'zamknij-komunikat':
                 przycisk.closest('.lg-komunikat').remove();
@@ -1286,6 +1368,7 @@
             stan.filtr.etap = t.value;
             stan.dopasujMape = true;
             t.classList.toggle('is-aktywny', !!t.value);
+            renderujGeo();   // „· w widoku k” liczy się po etapie
             renderujTabele();
         }
     });

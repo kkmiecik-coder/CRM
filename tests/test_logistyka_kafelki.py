@@ -92,3 +92,13 @@ def test_js_mapy_ma_trzy_podklady_i_zaden_prawdziwy_klucz():
     assert 'light_all' in js
     assert 'tile.openstreetmap.org' in js
     assert 'cb1_' not in js
+
+
+def test_logo_base_podane_przez_url_for_i_serwowane(app, client):  # noqa: F811
+    """UF5: adres logo z url_for w data-logo-base, statyka modułu oddaje PNG."""
+    import re
+    html = client.get(BASE + '/tab-content').get_data(as_text=True)
+    m = re.search(r'data-logo-base="([^"?]+)\?v=\w+"', html)
+    assert m and m.group(1).endswith('/img/base-logo.png')
+    r = client.get(m.group(1))
+    assert r.status_code == 200 and r.mimetype == 'image/png'

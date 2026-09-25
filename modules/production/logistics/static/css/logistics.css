@@ -501,7 +501,7 @@
    i podpowiedź są przycinane wielokropkiem (pełny tekst w title). */
 .logistics-tab .lg-k-zaznacz { width: 34px; padding-left: 6px !important; padding-right: 0 !important; }
 .logistics-tab .lg-k-numer { width: 1%; white-space: nowrap; }
-.logistics-tab .lg-k-miasto { display: none; }
+.logistics-tab .lg-k-adres { display: none; }
 .logistics-tab .lg-k-metoda { width: 1%; }
 .logistics-tab .lg-k-sposob { width: 1%; }
 .logistics-tab .lg-k-etap { width: 1%; min-width: 118px; }
@@ -546,17 +546,69 @@
     color: var(--il-text-secondary, #7a8291);
 }
 
-.logistics-tab .lg-drugi--mono {
+/* Adres w dwóch liniach: kod + miejscowość, pod spodem ulica z numerami.
+   width: 0 + min-width: 100% — linia nie wchodzi do minimalnej szerokości
+   komórki (długi adres nie rozpycha tabeli), tylko wypełnia to, co kolumna
+   dostała, i ucina się wielokropkiem (pełna treść w title). */
+.logistics-tab .lg-adres-linia {
+    display: block;
+    width: 0;
+    min-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 1.35;
+}
+
+.logistics-tab .lg-adres-miejscowosc {
+    font-size: 13px;
+}
+
+.logistics-tab .lg-adres-ulica {
+    font-size: 11.5px;
+    color: var(--il-text-secondary, #7a8291);
+}
+
+.logistics-tab .lg-adres-kod {
     font-family: var(--lg-mono);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Pod nazwą klienta (kolumna „Adres” schowana) obie linie są drugorzędne. */
+.logistics-tab .lg-w-klient-adres {
+    display: block;
+}
+
+.logistics-tab .lg-w-klient-adres .lg-adres-miejscowosc {
+    font-size: 11.5px;
+    color: var(--il-text-secondary, #7a8291);
+}
+
+.logistics-tab .lg-w-klient-adres .lg-adres-kod {
     font-size: 11px;
 }
 
-/* Najwyżej dwie linie — długie nazwy firm (pełna w title) nie rozpychają wiersza. */
+/* Logo Base. (16 px) przy podpowiedzi sposobu, w legendzie i na „Przyjmij
+   podpowiedzi z Base.” — dekoracja (alt=""), znaczenie niesie tekst. */
+.logistics-tab .lg-logo-base {
+    display: inline-block;
+    flex: none;
+    width: 16px;
+    height: 16px;
+    vertical-align: -3px;
+}
+
+/* Najwyżej dwie linie — długie nazwy firm (pełna w title) nie rozpychają wiersza.
+   overflow-wrap: anywhere — jedno długie słowo („Przedsiębiorstwo”) nie wyznacza
+   minimalnej szerokości kolumny; bez tego tabela na 1280 px z panelem bocznym
+   (mapa nad listą) wychodziła ~20 px poza ramkę. */
 .logistics-tab .lg-klient {
     display: -webkit-box;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
     overflow: hidden;
+    overflow-wrap: anywhere;
     font-weight: 500;
     line-height: 1.3;
 }
@@ -585,9 +637,8 @@
     white-space: nowrap;
 }
 
-.logistics-tab .lg-podpowiedz i {
+.logistics-tab .lg-podpowiedz .lg-logo-base {
     margin-right: 5px;
-    font-size: 10.5px;
 }
 
 .logistics-tab .lg-podpowiedz--kolejka {
@@ -711,7 +762,6 @@
 .logistics-tab .lg-ikona--przepakowanie { color: var(--il-status-danger, #dc2626); }
 .logistics-tab .lg-ikona--etykiety { color: var(--il-status-warn, #d97706); }
 .logistics-tab .lg-ikona--base { color: var(--il-text-secondary, #7a8291); }
-.logistics-tab .lg-ikona--podpowiedz { color: var(--lg-kolejka-tekst); }
 .logistics-tab .lg-ikona--adres { color: var(--il-status-warn, #d97706); }
 
 /* Napis łamie się na dwie linie — kolumna „Stan” ma zostać wąska. */
@@ -886,7 +936,8 @@
     color: var(--il-text-secondary, #7a8291);
 }
 
-.logistics-tab .lg-legenda i {
+.logistics-tab .lg-legenda i,
+.logistics-tab .lg-legenda .lg-logo-base {
     margin-right: 6px;
 }
 
@@ -999,19 +1050,25 @@
 }
 
 /* ─── Układ kolumn zależny od szerokości zakładki ───
-   Szeroko (≥ 1180 px treści): miasto we własnej kolumnie.
-   Węziej: miasto pod nazwą klienta. Najwęziej (tablet): także metoda
+   Szeroko (≥ 1100 px treści): adres we własnej kolumnie.
+   Węziej: adres pod nazwą klienta. Najwęziej (tablet): także metoda
    z Base. składa się pod klienta, a etap może się łamać. */
-@container lg-tabela (min-width: 1180px) {
-    .logistics-tab .lg-k-miasto { display: table-cell; width: 11%; }
-    .logistics-tab .lg-w-klient-miasto { display: none; }
+/* Próg i szerokość zmierzone w harnessie: pozostałe kolumny zajmują ~750 px
+   (z ikonami w „Stanie” do ~790), więc przy 1100 px klient ma jeszcze ~130–170 px
+   na dwie linie nazwy. Węziej adres wraca pod nazwę klienta. */
+@container lg-tabela (min-width: 1100px) {
+    .logistics-tab .lg-k-adres { display: table-cell; width: 180px; }
+    .logistics-tab .lg-w-klient-adres { display: none; }
 }
 
 @container lg-tabela (max-width: 860px) {
     .logistics-tab .lg-k-metoda { display: none; }
     .logistics-tab .lg-w-klient-metoda { display: block; }
+    /* Jak linie adresu: metoda nie wyznacza minimalnej szerokości kolumny klienta
+       (max-width 200 px trzymało ją na ≥ 214 px i tabela wychodziła poza ramkę). */
     .logistics-tab .lg-w-klient-metoda.lg-drugi {
-        max-width: 200px;
+        width: 0;
+        min-width: 100%;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -1028,7 +1085,6 @@
     .logistics-tab .lg-tabela th,
     .logistics-tab .lg-tabela td { padding-left: 5px; padding-right: 5px; }
     .logistics-tab .lg-k-etap { min-width: 92px; }
-    .logistics-tab .lg-w-klient-metoda.lg-drugi { max-width: 150px; }
 }
 
 /* Tablet i węziej: przewijanie tabeli w bok jako ostatnia deska ratunku
@@ -1235,6 +1291,9 @@ html.lg-przeciaganie-uchwytu * {
 
 /* ─── Nagłówek mapy ─── */
 .logistics-tab .lg-mapa-naglowek {
+    /* Kontener zapytań: w wąskiej mapie „Zlokalizuj teraz” w toku skraca się do liczb. */
+    container-type: inline-size;
+    container-name: lg-mapa-naglowek;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -1305,6 +1364,20 @@ html.lg-przeciaganie-uchwytu * {
     color: var(--il-text-muted, #9ba3b0);
 }
 
+.logistics-tab .lg-bez-geo-widok {
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--il-text-secondary, #7a8291);
+}
+
+.logistics-tab .lg-bez-geo-widok[hidden] {
+    display: none;
+}
+
+.logistics-tab .lg-bez-geo.is-aktywny .lg-bez-geo-widok {
+    color: rgba(255, 255, 255, 0.75);
+}
+
 .logistics-tab .lg-bez-geo.is-niepusty .lg-bez-geo-liczba {
     color: var(--il-text-primary, #1a1a2e);
 }
@@ -1323,6 +1396,64 @@ html.lg-przeciaganie-uchwytu * {
 
 .logistics-tab .lg-bez-geo.is-aktywny .lg-pin--pusta {
     border-color: rgba(255, 255, 255, 0.8);
+}
+
+/* „Zlokalizuj teraz” w toku: nieaktywny, ale czytelny (bez przygaszenia
+   .lg-przycisk:disabled), liczby w kroju mono i pasek wypełnienia w tle —
+   jasny błękit z ciemniejszą linią u dołu, w miejscu wklęsłego cienia przycisku.
+   Jedyny ruch: płynna zmiana szerokości przy kolejnym odświeżeniu listy. */
+.logistics-tab .lg-zlokalizuj {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+}
+
+.logistics-tab .lg-zlokalizuj-postep {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: -1;
+    width: 0;
+    background: rgba(37, 99, 235, 0.12);
+    box-shadow: inset 0 -2px 0 var(--il-status-info, #2563eb);
+    transition: width .6s ease;
+}
+
+.logistics-tab .lg-zlokalizuj:not(.is-w-toku) .lg-zlokalizuj-postep {
+    display: none;
+}
+
+.logistics-tab .lg-zlokalizuj.is-w-toku:disabled {
+    opacity: 1;
+    cursor: progress;
+    color: var(--il-text-primary, #1a1a2e);
+}
+
+.logistics-tab .lg-zlokalizuj.is-w-toku i {
+    color: var(--il-status-info, #2563eb);
+}
+
+.logistics-tab .lg-zlokalizuj-liczby {
+    font-family: var(--lg-mono);
+    font-size: 12px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.logistics-tab .lg-zlokalizuj-liczby[hidden] {
+    display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .logistics-tab .lg-zlokalizuj-postep { transition: none; }
+}
+
+/* Wąska mapa (od 300 px): w toku sama ikona, liczby i pasek — „Lokalizowanie… 37 / 120”
+   łamałoby nagłówek na trzeci wiersz i mapa skakałaby w dół na czas przebiegu.
+   Pełne zdanie niosą aria-label i title przycisku. */
+@container lg-mapa-naglowek (max-width: 380px) {
+    .logistics-tab .lg-zlokalizuj.ma-postep .lg-zlokalizuj-tekst { display: none; }
 }
 
 /* ─── Ramka mapy ───
@@ -1923,7 +2054,20 @@ html.lg-przeciaganie-uchwytu * {
 }
 
 .logistics-tab .lg-dymek-adres {
-    margin-top: 1px;
+    margin-top: 2px;
+    line-height: 1.35;
+}
+
+.logistics-tab .lg-dymek-miejscowosc,
+.logistics-tab .lg-dymek-ulica {
+    display: block;
+}
+
+.logistics-tab .lg-dymek-miejscowosc {
+    font-size: 12.5px;
+}
+
+.logistics-tab .lg-dymek-ulica {
     font-size: 12px;
     color: var(--il-text-secondary, #7a8291);
 }

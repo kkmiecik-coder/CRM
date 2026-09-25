@@ -163,3 +163,58 @@ def test_odnosnik_do_listy_przed_mapa():
     assert 'id="logistics-lista" tabindex="-1"' in html
     assert "case 'do-listy':" in _lista_js()
     assert ':not(:focus)' in _css()
+
+
+def test_postep_geokodera_na_przycisku_zlokalizuj():
+    """UF3: w toku przycisk nieaktywny, „Lokalizowanie… 37 / 120”, pasek w tle, aria-label z postępem."""
+    js, html, css = _lista_js(), _szablon(), _css()
+    assert 'data-lg="zlokalizuj-postep"' in html and 'data-lg="zlokalizuj-liczby"' in html
+    assert 'postepGeokodera(dane.geokoder_postep)' in js
+    geo = _funkcja(js, 'renderujGeo')
+    assert "p.zrobione + ' / ' + p.wszystkie" in geo
+    assert "'Lokalizowanie adresów w tle: ' + p.zrobione + ' z ' + p.wszystkie" in geo
+    assert "el('zlokalizuj-postep').style.width" in geo
+    assert 'is-kreci' not in geo   # bez kręcącej się ikony — jedyny ruch to szerokość paska
+    assert 'transition: width' in _regula_css(css, '.logistics-tab .lg-zlokalizuj-postep')
+    postep = _funkcja(js, 'postepGeokodera')
+    assert 'wszystkie <= 0' in postep and 'return null' in postep
+
+
+def test_licznik_bez_lokalizacji_pokazuje_ile_w_zawezonym_widoku():
+    """m3 / R12: licznik globalny + „· w widoku k”; pusty stan nie przeczy licznikowi."""
+    js = _lista_js()
+    assert "'· w widoku ' + bezGeoWWidoku()" in _funkcja(js, 'renderujGeo')
+    pusty = _funkcja(js, 'pustyStan')
+    assert 'W tym widoku wszystkie zamówienia mają punkt na mapie.' in pusty
+    assert "przyciskStanu('zdejmij-filtry', 'Zdejmij filtry')" in pusty
+    assert "case 'zdejmij-filtry':" in js
+
+
+def test_logo_base_zamiast_zarowki():
+    """UF5: PNG 32×32 w repo, 16 px w trzech miejscach, alt="" (dekoracja)."""
+    import struct
+    png = open(os.path.join(LOG, 'static', 'img', 'base-logo.png'), 'rb').read()
+    assert png[:8] == b'\x89PNG\r\n\x1a\n'
+    assert struct.unpack('>II', png[16:24]) == (32, 32)
+    html, js, css = _szablon(), _lista_js(), _css()
+    for tekst in (html, js, css):
+        assert 'fa-lightbulb' not in tekst and 'lg-ikona--podpowiedz' not in tekst
+    assert html.count("filename='img/base-logo.png'") == 3   # data-logo-base, legenda, hurt
+    assert html.count('class="lg-logo-base"') == 2 and html.count('alt="" width="16" height="16"') == 2
+    assert '<img class="lg-logo-base" src="\' + esc(LOGO_BASE) + \'" alt="" width="16" height="16">' in js
+
+
+def test_kolumna_adres_w_dwoch_liniach():
+    """UF7: „Miasto” → „Adres”: kod + miejscowość, pod spodem ulica; to samo w dymku."""
+    html, js, css = _szablon(), _lista_js(), _css()
+    assert '<th scope="col" class="lg-k-adres">Adres</th>' in html
+    for tekst in (html, js, css):
+        assert 'lg-k-miasto' not in tekst and 'lg-w-klient-miasto' not in tekst
+    adres = _funkcja(js, 'adresHtml')
+    assert "[w.kod, w.miasto].filter(Boolean).join(' ')" in adres
+    assert 'title="\' + esc(w.adres) + \'"' in adres and 'lg-adres-ulica' in adres
+    assert 'lg-brak-danych">brak</span>' in adres
+    linia = _regula_css(css, '.logistics-tab .lg-adres-linia')
+    assert 'text-overflow: ellipsis' in linia and 'min-width: 100%' in linia
+    dymek = _funkcja(_mapa_js(), 'dymekHtml')
+    assert 'lg-dymek-miejscowosc' in dymek and 'lg-dymek-ulica' in dymek and 'esc(z.adres)' in dymek
