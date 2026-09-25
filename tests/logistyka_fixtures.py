@@ -24,7 +24,7 @@ from modules.production.models import (
     ProductionDevice, ProductionOrder, ProductionProduct, ProductionReworkLog,
     ProductionStationEvent, ProductionWorker,
 )
-from modules.production.logistics.models import LogisticsLog
+from modules.production.logistics.models import LogisticsLog, OrderGeo
 from modules.users.models import User
 from modules.calculator.models import Multiplier  # noqa: F401
 from modules.clients.models import Client  # noqa: F401
@@ -37,7 +37,7 @@ SEKRET_CRONA = 'sekret-testowy-logistyki'
 TABLES = [m.__table__ for m in (
     User, ProductionDevice, ProductionConfig, ProcessedMobileOperation,
     ProductionOrder, ProductionProduct, ProductionConfiguration,
-    ProductionReworkLog, ProductionStationEvent, ProductionWorker, LogisticsLog,
+    ProductionReworkLog, ProductionStationEvent, ProductionWorker, LogisticsLog, OrderGeo,
 )]
 
 # LONGTEXT nie istnieje w SQLite — ten sam zabieg co w tests/test_routing_krawedzie.py.
