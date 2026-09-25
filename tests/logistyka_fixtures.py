@@ -24,7 +24,7 @@ from modules.production.models import (
     ProductionDevice, ProductionOrder, ProductionProduct, ProductionReworkLog,
     ProductionStationEvent, ProductionWorker,
 )
-from modules.production.logistics.models import LogisticsLog, OrderGeo
+from modules.production.logistics.models import LogisticsLog, OrderGeo, Route, RouteStop, Vehicle
 from modules.users.models import User
 from modules.calculator.models import Multiplier  # noqa: F401
 from modules.clients.models import Client  # noqa: F401
@@ -40,6 +40,7 @@ TABLES = [m.__table__ for m in (
     User, ProductionDevice, ProductionConfig, ProcessedMobileOperation,
     ProductionOrder, ProductionProduct, ProductionConfiguration,
     ProductionReworkLog, ProductionStationEvent, ProductionWorker, LogisticsLog, OrderGeo,
+    Vehicle, Route, RouteStop,
 )]
 
 # LONGTEXT nie istnieje w SQLite — ten sam zabieg co w tests/test_routing_krawedzie.py.
@@ -131,3 +132,22 @@ def produkt(order, status='czeka_na_wyciecie', sekwencja=None, quantity=2, **kol
     if status == 'spakowane':
         p.quantity_done_packaging = quantity
     return p
+
+
+def pojazd(name=None, capacity_kg=None, is_active=True, registration=None):
+    """Pojazd floty."""
+    numer = next(_licznik)
+    v = Vehicle(name=name or 'Pojazd %d' % numer, registration=registration or 'KR %05d' % numer,
+                capacity_kg=capacity_kg, is_active=is_active)
+    db.session.add(v)
+    db.session.commit()
+    return v
+
+
+def kierowca(imie='Jan', nazwisko=None, aktywny=True):
+    """Kierowca (pracownik produkcji)."""
+    k = ProductionWorker(first_name=imie, last_name=nazwisko or 'Kierowca %d' % next(_licznik),
+                         is_active=aktywny)
+    db.session.add(k)
+    db.session.commit()
+    return k
