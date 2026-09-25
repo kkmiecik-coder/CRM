@@ -65,19 +65,47 @@
     // ── Stałe ───────────────────────────────────────────────────────────────
 
     const POLSKA = [[49.0, 14.1], [54.9, 24.2]];
-    // Styl w JEDNEJ stałej — właściciel może go jeszcze zmienić (np. na 'voyager').
-    const STYL_KAFELKOW = 'light_all';
+
     // CARTO od 2026 wymaga klucza API dla kafelków rastrowych (bez niego znak
     // wodny „API KEY REQUIRED"). Klucz wstawia serwer jako data-atrybut na tym
     // samym elemencie (panel_api.py: tab_content() czyta config/core.json,
-    // pole CARTO_BASEMAPS_KEY) — tu tylko dokładamy go do adresu kafelków.
+    // pole CARTO_BASEMAPS_KEY) — tu tylko dokładamy go do adresu kafelków CARTO.
     // Klucz i tak jest widoczny w przeglądarce (adresy kafelków) — ochronę
     // daje ograniczenie domen w panelu CARTO, nie tajność tego atrybutu.
     const KLUCZ_KAFELKOW = kontener.getAttribute('data-carto-key') || '';
-    const KAFELKI = 'https://{s}.basemaps.cartocdn.com/rastertiles/' + STYL_KAFELKOW + '/{z}/{x}/{y}{r}.png' +
-        (KLUCZ_KAFELKOW ? '?key=' + encodeURIComponent(KLUCZ_KAFELKOW) : '');
-    const ATRYBUCJA = '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>' +
+
+    const ATRYBUCJA_OSM = '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>';
+    const ATRYBUCJA_CARTO = ATRYBUCJA_OSM +
         ' © <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>';
+
+    // Podkłady mapy — użytkownik przełącza je kontrolką na mapie (dodajKontrolkePodkladow).
+    // Voyager domyślny; wybór zapamiętany per przeglądarka (KLUCZ_PODKLADU_LS).
+    // `klucz: true` = kafelek CARTO (dokładamy ?key=, gdy KLUCZ_KAFELKOW niepusty).
+    const PODKLADY = [
+        {
+            id: 'voyager', nazwa: 'Voyager', klucz: true, subdomains: 'abcd', maxZoom: 19,
+            url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+            atrybucja: ATRYBUCJA_CARTO,
+        },
+        {
+            id: 'positron', nazwa: 'Positron', klucz: true, subdomains: 'abcd', maxZoom: 19,
+            url: 'https://{s}.basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}{r}.png',
+            atrybucja: ATRYBUCJA_CARTO,
+        },
+        {
+            id: 'osm', nazwa: 'OpenStreetMap', klucz: false, subdomains: '', maxZoom: 19,
+            url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+            atrybucja: ATRYBUCJA_OSM,
+        },
+    ];
+    const PODKLAD_DOMYSLNY = 'voyager';
+    const KLUCZ_PODKLADU_LS = 'logistyka.mapa.podklad';
+
+    // Kafelek podglądu w przycisku podkładu — okolice magazynu (Bachórz), z=9.
+    const PODGLAD_LAT = 49.84;
+    const PODGLAD_LNG = 22.25;
+    const PODGLAD_Z = 9;
+
     const ZOOM_WSKAZANIA = 12;      // klik w wiersz: co najmniej takie przybliżenie
     const ZOOM_KOREKTY = 15;        // „Popraw lokalizację”: widać ulice i numery
     const ZOOM_DOPASOWANIA = 12;    // dopasowanie do pinezek nie wchodzi głębiej
@@ -113,6 +141,10 @@
     let mapa = null;                 // L.Map — powstaje, gdy kontener ma wymiary
     let klastry = null;              // L.MarkerClusterGroup z pinezkami zamówień
     let warstwaEdycji = null;        // tymczasowa pinezka korekty / ustawiania
+    let warstwaKafelkow = null;      // L.TileLayer aktywnego podkładu (Voyager/Positron/OSM)
+    let kontrolkaAtrybucji = null;   // L.Control.Attribution — treść zależy od podkładu
+    let kontrolkaPodkladowEl = null; // <div> kontrolki wyboru podkładu (przyciski z podglądem)
+    let aktywnyPodklad = null;       // element z PODKLADY
     const znaczniki = new Map();     // id → L.Marker (tylko zamówienia z geo)
     const zamowienia = new Map();    // id → zamówienie z ostatniego render()
     let ostatnie = [];               // ostatnia lista z render() (także przed inicjalizacją)
@@ -424,6 +456,110 @@
         }
     }
 
+    // ── Podkład mapy (Voyager / Positron / OpenStreetMap) ───────────────────
+
+    // localStorage bywa niedostępny (tryb prywatny) — wtedy Voyager, bez błędów.
+    function czytajPodklad() {
+        try {
+            const v = window.localStorage.getItem(KLUCZ_PODKLADU_LS);
+            return PODKLADY.some((p) => p.id === v) ? v : PODKLAD_DOMYSLNY;
+        } catch (e) {
+            return PODKLAD_DOMYSLNY;
+        }
+    }
+
+    function zapiszPodklad(id) {
+        try { window.localStorage.setItem(KLUCZ_PODKLADU_LS, id); } catch (e) { /* wybór nie przeżyje przeładowania */ }
+    }
+
+    // Szablon adresu kafelków Leafleta ({s}/{z}/{x}/{y}{r}) — klucz CARTO tylko
+    // dla podkładów CARTO i tylko, gdy KLUCZ_KAFELKOW jest niepusty.
+    function szablonKafelkow(podklad) {
+        return podklad.url + (podklad.klucz && KLUCZ_KAFELKOW ? '?key=' + encodeURIComponent(KLUCZ_KAFELKOW) : '');
+    }
+
+    // z/x/y kafelka slippy map dla współrzędnych — do podglądu w przycisku.
+    function wspolrzedneKafelka(lat, lng, z) {
+        const n = Math.pow(2, z);
+        const latRad = lat * Math.PI / 180;
+        return {
+            x: Math.floor((lng + 180) / 360 * n),
+            y: Math.floor((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n),
+        };
+    }
+
+    // Konkretny adres kafelka (bez placeholderów) w okolicy magazynu — podgląd stylu w przycisku.
+    function adresPodgladu(podklad) {
+        const wsp = wspolrzedneKafelka(PODGLAD_LAT, PODGLAD_LNG, PODGLAD_Z);
+        return szablonKafelkow(podklad)
+            .replace('{s}', (podklad.subdomains || 'a').charAt(0) || 'a')
+            .replace('{z}', PODGLAD_Z).replace('{x}', wsp.x).replace('{y}', wsp.y)
+            .replace('{r}', '');
+    }
+
+    /** Podmienia aktywny podkład bez przebudowy mapy — pinezki, klastry i tryby nietknięte. */
+    function przelaczPodklad(id) {
+        if (!mapa || zniszczona) return;
+        const podklad = PODKLADY.find((p) => p.id === id);
+        if (!podklad || podklad === aktywnyPodklad) return;
+        warstwaKafelkow.setUrl(szablonKafelkow(podklad));
+        if (kontrolkaAtrybucji) {
+            kontrolkaAtrybucji.removeAttribution(aktywnyPodklad.atrybucja);
+            kontrolkaAtrybucji.addAttribution(podklad.atrybucja);
+        }
+        aktywnyPodklad = podklad;
+        zapiszPodklad(id);
+        zaznaczAktywnyPodklad();
+    }
+
+    function zaznaczAktywnyPodklad() {
+        if (!kontrolkaPodkladowEl) return;
+        kontrolkaPodkladowEl.querySelectorAll('[data-podklad]').forEach((b) => {
+            const aktywny = b.getAttribute('data-podklad') === aktywnyPodklad.id;
+            b.setAttribute('aria-pressed', aktywny ? 'true' : 'false');
+            b.classList.toggle('is-aktywny', aktywny);
+        });
+    }
+
+    /** Kontrolka Leafleta: rząd ilustrowanych przycisków (podgląd stylu + nazwa). */
+    function dodajKontrolkePodkladow() {
+        const Kontrolka = L.Control.extend({
+            options: { position: 'bottomleft' },
+            onAdd: function () {
+                const div = L.DomUtil.create('div', 'lg-mapa-podklady');
+                div.setAttribute('role', 'group');
+                div.setAttribute('aria-label', 'Podkład mapy');
+                PODKLADY.forEach((podklad) => {
+                    const b = L.DomUtil.create('button', 'lg-mapa-podklad', div);
+                    b.type = 'button';
+                    b.setAttribute('data-podklad', podklad.id);
+                    b.title = 'Podkład mapy: ' + podklad.nazwa;
+                    const podglad = L.DomUtil.create('span', 'lg-mapa-podklad-podglad', b);
+                    podglad.setAttribute('aria-hidden', 'true');
+                    const img = L.DomUtil.create('img', '', podglad);
+                    img.src = adresPodgladu(podklad);
+                    img.alt = '';
+                    img.width = 56;
+                    img.height = 56;
+                    img.loading = 'lazy';
+                    img.decoding = 'async';
+                    const etykieta = L.DomUtil.create('span', 'lg-mapa-podklad-nazwa', b);
+                    etykieta.textContent = podklad.nazwa;
+                    L.DomEvent.on(b, 'click', (e) => {
+                        L.DomEvent.preventDefault(e);
+                        przelaczPodklad(podklad.id);
+                    });
+                });
+                L.DomEvent.disableClickPropagation(div);
+                L.DomEvent.disableScrollPropagation(div);
+                kontrolkaPodkladowEl = div;
+                zaznaczAktywnyPodklad();
+                return div;
+            },
+        });
+        new Kontrolka().addTo(mapa);
+    }
+
     // ── Inicjalizacja (dopiero gdy kontener jest widoczny) ─────────────────
 
     function maWymiary() {
@@ -441,8 +577,13 @@
             fadeAnimation: !bezRuchu,
             markerZoomAnimation: !bezRuchu,
         });
-        L.control.attribution({ prefix: false }).addAttribution(ATRYBUCJA).addTo(mapa);
-        L.tileLayer(KAFELKI, { subdomains: 'abcd', maxZoom: 19 }).addTo(mapa);
+        aktywnyPodklad = PODKLADY.find((p) => p.id === czytajPodklad()) || PODKLADY[0];
+        kontrolkaAtrybucji = L.control.attribution({ prefix: false }).addTo(mapa);
+        kontrolkaAtrybucji.addAttribution(aktywnyPodklad.atrybucja);
+        warstwaKafelkow = L.tileLayer(szablonKafelkow(aktywnyPodklad), {
+            subdomains: aktywnyPodklad.subdomains || '',
+            maxZoom: aktywnyPodklad.maxZoom,
+        }).addTo(mapa);
         mapa.fitBounds(POLSKA, { padding: [8, 8] });
 
         klastry = L.markerClusterGroup({
@@ -457,6 +598,7 @@
 
         dodajMagazyn();
         dodajKontrolkeDopasowania();
+        dodajKontrolkePodkladow();
         mapa.on('click', klikMapy);
 
         ukryjStanMapy();
@@ -1128,7 +1270,12 @@
         if (mapa) {
             try { mapa.remove(); } catch (e) { /* kontener mógł już zniknąć z DOM */ }
         }
+        // mapa.remove() usuwa DOM kontrolki podkładów (i jej przyciski) razem z resztą
+        // warstw — tu tylko zwalniamy referencje z tego zamknięcia.
         mapa = null;
+        warstwaKafelkow = null;
+        kontrolkaAtrybucji = null;
+        kontrolkaPodkladowEl = null;
         znaczniki.clear();
         zamowienia.clear();
         sluchaczeWyboru.length = 0;

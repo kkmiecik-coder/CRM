@@ -1647,6 +1647,74 @@ html.lg-przeciaganie-uchwytu * {
     font-size: 13px;
 }
 
+/* ─── Kontrolka wyboru podkładu (Voyager / Positron / OpenStreetMap) ───
+   Ilustrowane przyciski: kafelek podglądu (56×56) + nazwa stylu pod spodem.
+   Bez leaflet-bar (tam styl liczony pod pojedyncze ikony w kolumnie) —
+   własna karta z tymi samymi tokenami ramki/cienia. */
+.logistics-tab .lg-mapa-podklady {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    box-shadow: inset 0 -2px 0 var(--il-inset-shadow, #d4d9e1);
+}
+
+.logistics-tab .lg-mapa-podklad {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    width: 62px;
+    padding: 3px 3px 4px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--il-radius, 3px);
+    color: var(--il-text-secondary, #7a8291);
+    font-family: inherit;
+    font-size: 10px;
+    line-height: 1.2;
+    cursor: pointer;
+    transition: background-color .12s ease, border-color .12s ease, color .12s ease;
+}
+
+.logistics-tab .lg-mapa-podklad:hover {
+    background: var(--lg-hover);
+    color: var(--il-text-primary, #1a1a2e);
+}
+
+.logistics-tab .lg-mapa-podklad.is-aktywny {
+    border-color: var(--il-status-info, #2563eb);
+    color: var(--il-text-primary, #1a1a2e);
+    font-weight: 600;
+}
+
+.logistics-tab .lg-mapa-podklad-podglad {
+    display: block;
+    width: 56px;
+    height: 56px;
+    overflow: hidden;
+    border-radius: 2px;
+    border: 1px solid var(--il-border-light, #e2e5ea);
+    background: var(--il-bg-base, #eef0f4);
+}
+
+.logistics-tab .lg-mapa-podklad-podglad img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.logistics-tab .lg-mapa-podklad.is-aktywny .lg-mapa-podklad-podglad {
+    box-shadow: 0 0 0 2px var(--il-status-info, #2563eb);
+}
+
+.logistics-tab .lg-mapa-podklad-nazwa {
+    white-space: nowrap;
+}
+
 .logistics-tab .leaflet-control-attribution {
     font-size: 10.5px;
     color: var(--il-text-secondary, #7a8291);

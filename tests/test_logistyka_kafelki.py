@@ -13,6 +13,15 @@ tab_content() czyta klucz z current_app.config i wstawia go do data-atrybutu
 najwyżej raz na proces (moduł-poziom flaga w panel_api.py) — stąd test (c)
 zeruje ją monkeypatchem, żeby nie zależeć od kolejności innych testów, które
 też renderują tę zakładkę bez klucza.
+
+Dopisek (poza pierwotnym briefem, na życzenie właściciela): przełącznik
+podkładu mapy w logistics-map.js (PODKLADY) — Voyager (domyślny), Positron
+i OpenStreetMap. Klucz CARTO dokłada się tylko do dwóch pierwszych (`klucz:
+true`); OSM nie wymaga klucza. Testy tu są statyczne (treść pliku JS) —
+zachowanie samego przełącznika (localStorage, setUrl bez przebudowy mapy,
+podgląd w przycisku) wymagałoby przeglądarki, więc pilnujemy tylko, że
+wszystkie trzy style są zaszyte w kodzie i że żaden fragment nie wygląda jak
+prawdziwy klucz CARTO.
 """
 import os
 
@@ -65,4 +74,13 @@ def test_js_mapy_sklada_adres_kafelkow_z_klucza_i_nie_niesie_prawdziwego_klucza(
     assert 'rastertiles' in js
     assert 'key=' in js
     # cb_/cb1_ itp. — wzorzec prawdziwych kluczy CARTO; w repo publicznym nie może się pojawić.
+    assert 'cb1_' not in js
+
+
+def test_js_mapy_ma_trzy_podklady_i_zaden_prawdziwy_klucz():
+    js = open(JS_MAPY, encoding='utf-8').read()
+    # Voyager (domyślny), Positron i OpenStreetMap — identyfikatory stylów wpisane w PODKLADY.
+    assert 'voyager' in js
+    assert 'light_all' in js
+    assert 'tile.openstreetmap.org' in js
     assert 'cb1_' not in js
