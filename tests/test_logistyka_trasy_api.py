@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 
 from extensions import db
 from modules.production.logistics import sposoby as s
-from modules.production.logistics.models import Route
+from modules.production.logistics.models import OrderGeo, Route
 from modules.production.logistics.services import routes
 from modules.production.models import get_local_now
 from tests.logistyka_fixtures import BASE, app, client, kierowca, pojazd, zamowienie  # noqa: F401
@@ -233,6 +233,33 @@ def test_wykonana_trasa_nie_przelicza_przebiegu(client, app):
     with app.app_context():
         trasa = Route.query.get(rid)
         assert trasa.geometry_hash == 'nieaktualny' and float(trasa.distance_km) == 123
+
+
+def test_complete_przelicza_przebieg_bez_niedostarczonych(client, app):
+    """M3 (oględziny Task 8): odhaczenie z niedostarczonym zdejmuje przystanek, więc
+    odpowiedź /complete niesie przebieg JUŻ bez niego (jedno przeliczenie) — linia
+    wykonanej trasy nie zakręca w punkcie, w którym nie ma stacji. Samo późniejsze
+    oglądanie wykonanej trasy nadal niczego nie przelicza (test wyżej)."""
+    with app.app_context():
+        a = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane',))
+        b = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane',))
+        for order, (lat, lng) in ((a, (50.06, 19.94)), (b, (50.01, 20.98))):
+            db.session.add(OrderGeo(order_id=order.id, lat=lat, lng=lng, source='gugik',
+                                    quality='dokladna', address_hash='x' * 40))
+        db.session.commit()
+        a, b = a.id, b.id
+    rid = _nowa(client).get_json()['route']['id']
+    przed = client.post(BASE + '/routes/%d/stops' % rid, json={'order_ids': [a, b]}).get_json()['route']
+    assert len(przed['przebieg']['coordinates']) == 4          # magazyn, a, b, magazyn
+    assert client.post(BASE + '/routes/%d/approve' % rid).status_code == 200
+    po = client.post(BASE + '/routes/%d/complete' % rid, json={'delivered_order_ids': [a]}).get_json()
+    assert po['wynik'] == {'dostarczone': [a], 'niedostarczone': [b]}
+    assert po['route']['status'] == 'wykonana'
+    assert len(po['route']['przebieg']['coordinates']) == 3   # magazyn, a, magazyn
+    assert po['route']['podsumowanie']['km'] != przed['podsumowanie']['km']
+    # Odczyt tej wykonanej trasy zwraca już ten sam, przeliczony przebieg.
+    odczyt = client.get(BASE + '/routes/%d' % rid).get_json()['route']
+    assert odczyt['przebieg'] == po['route']['przebieg']
 
 
 def test_lista_tras_bez_lawiny_zapytan(client, app):

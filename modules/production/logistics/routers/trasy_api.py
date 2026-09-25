@@ -139,12 +139,15 @@ def _wczytaj_trasy(zapytanie):
     return trasy, zamowienia_wg_trasy, punkty
 
 
-def _szczegoly(route):
+def _szczegoly(route, przelicz_wykonana=False):
     zamowienia = _zamowienia_z_produktami(route)
     punkty = geocoding.geo_zamowien([o.id for o in zamowienia])
     # (M4, spec 8.2) Trasa WYKONANA jest tylko do odczytu — samo jej obejrzenie
     # nie może przeliczać (i nadpisywać) przebiegu/dystansu/czasu w cache.
-    if route.status != 'wykonana' and routing.przelicz(route, punkty):
+    # Wyjątek (oględziny Task 8, M3): odpowiedź POST /complete — odhaczenie właśnie
+    # zdjęło niedostarczone przystanki, więc przebieg liczymy raz, dla przystanków,
+    # które naprawdę pojechały. Potem trasa znów tylko do odczytu.
+    if (route.status != 'wykonana' or przelicz_wykonana) and routing.przelicz(route, punkty):
         db.session.commit()
     dane = routes.serializuj_trase(route, zamowienia, punkty)
     dane['przystanki'] = [{'pozycja': i, 'zamowienie': lista.serializuj(o, punkty.get(o.id), route)}
@@ -157,7 +160,7 @@ def _trasa_albo_none(route_id):
     return Route.query.get(route_id)
 
 
-def _akcja(route_id, funkcja):
+def _akcja(route_id, funkcja, przelicz_wykonana=False):
     """
     Wspólny szkielet endpointów zmieniających trasę: 404, gdy jej nie ma; `funkcja`
     (zwykle lambda wołająca services/routes.py) razem z commitem w jednym
@@ -167,6 +170,8 @@ def _akcja(route_id, funkcja):
     niesie świeże `route` (przez `_szczegoly`) — `dodaj_przystanki` dokłada `dodane`/
     `bledy` na najwyższy poziom (rozpoznane po kluczu `dodane`), inne funkcje pod
     kluczem `wynik` (np. `complete` → `dostarczone`/`niedostarczone`).
+    `przelicz_wykonana` — tylko /complete: jedno przeliczenie przebiegu mimo statusu
+    `wykonana` (patrz `_szczegoly`).
     """
     trasa = _trasa_albo_none(route_id)
     if trasa is None:
@@ -178,7 +183,7 @@ def _akcja(route_id, funkcja):
         return _odmowa(e)
     except IntegrityError:
         return _konflikt(KOMUNIKAT_KONFLIKT_PRZYSTANKU)
-    odpowiedz = {'success': True, 'route': _szczegoly(trasa)}
+    odpowiedz = {'success': True, 'route': _szczegoly(trasa, przelicz_wykonana)}
     if isinstance(wynik, dict):
         odpowiedz.update(wynik if 'dodane' in wynik else {'wynik': wynik})
     return jsonify(odpowiedz)
@@ -438,7 +443,7 @@ def route_revert(route_id):
 @guard
 def route_complete(route_id):
     return _akcja(route_id, lambda t: routes.wykonaj(
-        t, _cialo().get('delivered_order_ids'), user_id=_user_id()))
+        t, _cialo().get('delivered_order_ids'), user_id=_user_id()), przelicz_wykonana=True)
 
 
 @logistics_panel_bp.route('/routes/<int:route_id>/restore', methods=['POST'])
