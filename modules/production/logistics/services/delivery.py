@@ -115,8 +115,22 @@ def _przystanek_do_zmiany(order, zdejmuje, opis):
     zmianę na trasie, którą ktoś inny właśnie zatwierdził albo wykonał w międzyczasie.
     Blokada spada tu PRZED pierwszym zapisem `zmien_adres`/`ustaw_sposob_dostawy`
     (obaj wołają to jako pierwszą rzecz po odczytach) — patrz routes.zablokuj_trasy().
+
+    (fix-2, N1) Blokada globalna (bez `route` — nie znamy go, dopóki nie znajdziemy
+    przystanku) MUSI być PIERWSZĄ rzeczą tutaj, PRZED odczytem przystanku poniżej.
+    Każdy piszący trasę bierze blokady w kolejności: wiersz blokady → trasa i jej
+    przystanki (`zablokuj_trasy`). Gdyby ta funkcja najpierw czytała przystanek
+    (biorąc współdzieloną blokadę na jego wierszu, albo na luce UNIQUE, gdy
+    zamówienia nie ma jeszcze na trasie) i dopiero potem sięgała po wiersz blokady,
+    kolejność byłaby odwrotna — a dwie odwrotne kolejności blokad na dwóch
+    transakcjach to podręcznikowy zakleszczenie (MySQL 1213): ta funkcja czeka na
+    wiersz blokady trzymany przez piszącego trasę, a piszący trasę czeka na wiersz
+    przystanku/lukę trzymaną przez tę funkcję. Dotyczy adresu (`zmien_adres`),
+    zmiany sposobu dostawy (`ustaw_sposob_dostawy`) i pinezki mapy
+    (`sprawdz_trase_przed_zmiana` z `geocoding.ustaw_recznie`/`resetuj`).
     """
     from modules.production.logistics.services import routes
+    routes.zablokuj_trasy()
     przystanek = routes.przystanek_zamowienia(order.id, aktualny=True)
     if przystanek is None:
         return None

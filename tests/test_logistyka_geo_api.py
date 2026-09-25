@@ -54,6 +54,34 @@ def test_zlokalizuj_teraz_uruchamia_watek(client, bez_watkow):
     assert r.status_code == 202 and bez_watkow == ['geo']
 
 
+def test_pinezka_bierze_blokade_tras_przed_odczytem_przystanku(client, app, monkeypatch):
+    """fix-2, N1: PUT /orders/<id>/geo (ustaw_recznie -> sprawdz_trase_przed_zmiana
+    -> _przystanek_do_zmiany) bierze globalną blokadę tras PRZED odczytem
+    przystanku — sam powód i kolejność co PUT /orders/<id>/address (patrz
+    test_logistyka_poprawki_panelu.py); ta sama ścieżka domyka Task 4 (pinezka
+    mapy)."""
+    from modules.production.logistics.services import routes
+    kolejnosc = []
+    oryg_blokuj = routes.zablokuj_trasy
+    oryg_przystanek = routes.przystanek_zamowienia
+
+    def podglad_blokuj(route=None):
+        kolejnosc.append('blokada')
+        return oryg_blokuj(route)
+
+    def podglad_przystanek(order_id, aktualny=False):
+        kolejnosc.append('przystanek')
+        return oryg_przystanek(order_id, aktualny=aktualny)
+
+    monkeypatch.setattr(routes, 'zablokuj_trasy', podglad_blokuj)
+    monkeypatch.setattr(routes, 'przystanek_zamowienia', podglad_przystanek)
+    with app.app_context():
+        oid = zamowienie().id
+    r = client.put(BASE + '/orders/%d/geo' % oid, json={'lat': 50.1, 'lng': 20.2})
+    assert r.status_code == 200
+    assert kolejnosc == ['blokada', 'przystanek']
+
+
 def test_reczna_korekta_i_reset(client, app):
     with app.app_context():
         oid = zamowienie().id

@@ -126,6 +126,37 @@ def test_etap_to_nazwa_stanowiska(app, status, nazwa):
 
 # ── Poprawka adresu ──────────────────────────────────────────────────────
 
+def test_zmiana_adresu_bierze_blokade_tras_przed_odczytem_przystanku(client, app, bez_watkow,
+                                                                     monkeypatch):
+    """fix-2, N1: PUT /orders/<id>/address (zmien_adres -> _przystanek_do_zmiany)
+    bierze globalną blokadę tras PRZED odczytem przystanku — każdy piszący trasę
+    bierze blokady w kolejności blokada -> trasa+przystanki; odwrotna kolejność tu
+    (najpierw przystanek, potem blokada) groziłaby zakleszczeniem 1213 (MySQL) z
+    zapisującym trasę, który czeka na wiersz przystanku trzymany przez to żądanie,
+    podczas gdy to żądanie czeka na wiersz blokady trzymany przez tamten zapis."""
+    from modules.production.logistics.services import routes
+    kolejnosc = []
+    oryg_blokuj = routes.zablokuj_trasy
+    oryg_przystanek = routes.przystanek_zamowienia
+
+    def podglad_blokuj(route=None):
+        kolejnosc.append('blokada')
+        return oryg_blokuj(route)
+
+    def podglad_przystanek(order_id, aktualny=False):
+        kolejnosc.append('przystanek')
+        return oryg_przystanek(order_id, aktualny=aktualny)
+
+    monkeypatch.setattr(routes, 'zablokuj_trasy', podglad_blokuj)
+    monkeypatch.setattr(routes, 'przystanek_zamowienia', podglad_przystanek)
+    with app.app_context():
+        oid = zamowienie(miasto='Kraków').id
+    r = client.put(BASE + '/orders/%d/address' % oid,
+                   json={'adres': 'Nowa 1', 'kod': '30-001', 'miasto': 'Kraków'})
+    assert r.status_code == 200
+    assert kolejnosc == ['blokada', 'przystanek']
+
+
 def test_zmiana_adresu_przez_api(client, app, bez_watkow):
     with app.app_context():
         oid = zamowienie(miasto='Kraków').id

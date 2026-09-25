@@ -107,7 +107,15 @@ def test_hurtowe_ustawienie_bierze_blokade_tras_przed_petla(client, app, bez_bas
     """fix-1, Ruling A7: POST /orders/delivery-method bierze globalną blokadę tras
     PRZED pętlą po zamówieniach (kolejność „trasa najpierw" — inaczej pętla mogłaby
     trzymać blokady wierszy pozycji i czekać na blokadę trasy, podczas gdy
-    zatwierdzenie trasy czekałoby na te same pozycje — zakleszczenie)."""
+    zatwierdzenie trasy czekałoby na te same pozycje — zakleszczenie).
+
+    (fix-2, N1): odkąd `ustaw_sposob_dostawy` → `_przystanek_do_zmiany` TEŻ bierze
+    blokadę jako pierwszą rzecz — dla KAŻDEGO zamówienia, nawet bez trasy — na 2
+    zamówienia wychodzą 3 wywołania: 1 z tej funkcji (przed pętlą) + po 1 na
+    zamówienie. Wszystkie z `route=None` (żadne z dwóch zamówień nie ma trasy),
+    więc kolejność „ta funkcja najpierw" nie da się tu odróżnić po samej wartości
+    argumentu — ale to i tak jest re-entrantnie bezpieczne (patrz docstring
+    zablokuj_trasy), a liczba wywołań przypina, że nic nie ubyło ani nie przybyło."""
     wywolania = []
     oryginal = routes.zablokuj_trasy
 
@@ -121,7 +129,7 @@ def test_hurtowe_ustawienie_bierze_blokade_tras_przed_petla(client, app, bez_bas
     r = client.post(BASE + '/orders/delivery-method',
                     json={'order_ids': ids, 'sposob': s.TRANSPORT})
     assert r.status_code == 200
-    assert wywolania == [None]
+    assert wywolania == [None, None, None]
 
 
 def test_hurt_z_czesciowa_odmowa(client, app):

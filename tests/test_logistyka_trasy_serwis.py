@@ -316,12 +316,42 @@ def test_kazda_zmiana_trasy_podbija_pozycje(app, status, operacja):
     {'name': 'A', 'vehicle_id': 1e400},
     {'name': 'A', 'vehicle_id': 'abc'},
     {'name': 'A', 'date_from': 5},
+    # fix-2, Minor 3 residual: str.isdigit() łapie cyfry Unicode („²”, „①”), na
+    # których goły int() rzuca ValueError (500); brak limitu długości daje ten sam
+    # ValueError dla >4300 cyfr (CPython 3.11+). O4: float ZAWSZE 422, także 0.0.
+    {'name': 'A', 'vehicle_id': '²'},
+    {'name': 'A', 'vehicle_id': '①'},
+    {'name': 'A', 'vehicle_id': '9' * 5000},
+    {'name': 'A', 'vehicle_id': 0.0},
 ])
 def test_zle_typy_w_danych_trasy(app, zle):
     with app.app_context():
         dane = dict({'date_from': '2026-10-01'}, **zle)
         with pytest.raises(LogistykaBlad) as e:
             routes.utworz(dane)
+        assert e.value.status == 422
+
+
+def test_vehicle_id_zero_string_to_brak_pojazdu(app):
+    """fix-2, O4: '00' (i '0', 0) po sparsowaniu oznaczają „brak pojazdu" (None),
+    nigdy vehicle_id=0 — literalne 0 złamałoby FK do prod_vehicles przy flushu."""
+    with app.app_context():
+        t = routes.utworz({'name': 'A', 'date_from': '2026-10-01', 'vehicle_id': '00'})
+        db.session.commit()
+        assert t.vehicle_id is None
+
+
+def test_notatka_limit_2000_znakow(app):
+    """fix-2 (dodatek z przeglądu Task 6): prod_routes.notes to TEXT w MySQL
+    (limit 65 535 B) — bez limitu w serwisie zbyt długa notatka rzuciłaby dopiero
+    przy commicie MySQL 1406 (500); SQLite testów tego nie widzi, więc granicę
+    sprawdzamy tu wprost, po stronie Pythona."""
+    with app.app_context():
+        t = routes.utworz({'name': 'A', 'date_from': '2026-10-01', 'notes': 'x' * 2000})
+        db.session.commit()
+        assert t.notes == 'x' * 2000
+        with pytest.raises(LogistykaBlad) as e:
+            routes.utworz({'name': 'B', 'date_from': '2026-10-01', 'notes': 'x' * 2001})
         assert e.value.status == 422
 
 
@@ -420,3 +450,51 @@ def test_zablokuj_trasy_bez_wiersza_blokady_dziala_z_ostrzezeniem(app, monkeypat
         db.session.commit()
         assert t.status == 'robocza'
         assert routes._blokada_ostrzezono is True
+
+
+# --- fix-2, O1: po zablokuj_trasy(route) jedynym źródłem prawdy o przystankach ---
+# jest ŚWIEŻA route.stops (załadowana pod blokadą) — żadnego expire()+zwykłego
+# zapytania później w tej samej funkcji/transakcji. Realny wyścig dwóch sesji
+# MySQL potwierdził fałszywe 404 (wykonaj na przystanku dodanym równolegle) i
+# StaleDataError (podwójne usunięcie); testy niżej sprawdzają kontrakt na SQLite
+# (identity mapa vs. surowy SQL) — samej migawki MVCC z dwóch transakcji SQLite
+# (jedno połączenie) nie odtworzy, tak samo jak testy blokady w fix-1.
+
+def test_usun_przystanek_gdy_wiersz_zniknal_za_plecami_orm_daje_404(app):
+    """Wiersz przystanku usunięty surowym SQL-em (symulacja: druga sesja go
+    skasowała) — usun_przystanek musi się oprzeć na ŚWIEŻEJ route.stops i zgłosić
+    czyste 404, nie StaleDataError (500) na DELETE nieistniejącego wiersza."""
+    with app.app_context():
+        t = _trasa()
+        a = _transport()
+        routes.dodaj_przystanki(t, [a.id])
+        db.session.commit()
+        db.session.execute(text("DELETE FROM prod_route_stops WHERE order_id = :oid"),
+                           {'oid': a.id})
+        # BEZ commit: identity mapa (t.stops w pamięci) jeszcze "widzi" przystanek.
+        with pytest.raises(LogistykaBlad) as e:
+            routes.usun_przystanek(t, a.id)
+        assert e.value.status == 404
+
+
+def test_przenumeruj_uzywa_swiezych_pozycji_po_zablokuj_trasy(app):
+    """Pozycje zmienione surowym SQL-em "za plecami" ORM-a (symulacja drugiej,
+    już zacommitowanej transakcji, której zmian identity mapa jeszcze nie
+    widziała) muszą być widoczne po zablokuj_trasy — usuwając jeden przystanek,
+    _przenumeruj musi renumerować z ŚWIEŻEGO porządku [c, a] (z bazy), nie ze
+    starego porządku wczytanego przed surowym UPDATE-em."""
+    with app.app_context():
+        t = _trasa()
+        a, b, c = _transport(), _transport(), _transport()
+        routes.dodaj_przystanki(t, [a.id, b.id, c.id])
+        db.session.commit()
+        assert [s.order_id for s in t.stops] == [a.id, b.id, c.id]
+        db.session.execute(text("UPDATE prod_route_stops SET position = 10 WHERE order_id = :oid"),
+                           {'oid': c.id})
+        db.session.execute(text("UPDATE prod_route_stops SET position = 20 WHERE order_id = :oid"),
+                           {'oid': a.id})
+        db.session.execute(text("UPDATE prod_route_stops SET position = 30 WHERE order_id = :oid"),
+                           {'oid': b.id})
+        routes.usun_przystanek(t, b.id)
+        db.session.commit()
+        assert [(s.order_id, s.position) for s in t.stops] == [(c.id, 1), (a.id, 2)]

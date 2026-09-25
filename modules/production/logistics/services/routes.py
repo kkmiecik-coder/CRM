@@ -7,6 +7,7 @@ Statusy: robocza (pełna edycja) → zatwierdzona (zablokowana, eksport Routimo)
 Każda zmiana widoczna na tablecie podbija updated_at pozycji zamówień
 (ETag kolejek tabletów — spec 6.5).
 """
+import re
 from datetime import date
 
 from sqlalchemy.orm import joinedload
@@ -29,8 +30,19 @@ logger = get_structured_logger('production.logistics.routes')
 AKTYWNE = STATUSY_TRASY_AKTYWNE
 WAGA_KG_NA_M3 = 800
 MAKS_NAZWA = 120
+# (fix-2, przegląd Task 6) prod_routes.notes to TEXT w MySQL (limit 65 535 B) —
+# bez tego limitu notatka dłuższa od tego (nie licząc wielobajtowych znaków —
+# jeszcze mniej) rzuciłaby MySQL 1406 dopiero przy commicie (500; SQLite testów
+# tego nie zobaczy, bo nie ma takiego ograniczenia). 2000 znaków to zapas daleko
+# poniżej limitu, czytelny 422 zamiast niejasnego błędu bazy.
+MAKS_NOTATKA = 2000
 # Klucz wiersza prod_config, który serializuje zapisy tras — patrz zablokuj_trasy().
 KLUCZ_BLOKADY = 'logistyka_trasy_blokada'
+# (fix-2, Minor 3 residual) Cyfry ASCII, 1-9 znaków — `str.isdigit()` przepuszcza
+# też np. „²”/„①” (Unicode), na których goły `int()` rzuca ValueError; górny limit
+# długości chroni przed >4300-cyfrowym tekstem, na którym `int()` też rzuca
+# ValueError (limit CPython 3.11+) zamiast czytelnego 422.
+_ID_RE = re.compile(r'[0-9]{1,9}')
 # Ostrzeżenie o brakującym wierszu blokady najwyżej raz na proces (jak
 # panel_api._carto_key_ostrzezono) — nie chcemy zalewać logu przy każdym zapisie.
 _blokada_ostrzezono = False
@@ -49,20 +61,25 @@ def _data(wartosc, pole):
 
 def _id(wartosc, pole):
     """
-    (fix-1, Ruling C) Przyjmuje WYŁĄCZNIE `int` (nie `bool` — `bool` jest podklasą
-    `int` w Pythonie, `True` inaczej stałby się id=1) albo tekst złożony z samych
-    cyfr; nigdy nie woła gołego `int()` na nieznanym typie, więc `float('inf')`
-    (JSON `1e400`) nie ma szans rzucić `OverflowError` — po prostu 422.
+    (fix-1, Ruling C + fix-2, Minor 3 residual/O4) Przyjmuje WYŁĄCZNIE `int` (nie
+    `bool` — `bool` jest podklasą `int` w Pythonie, `True` inaczej stałby się id=1)
+    albo tekst dopasowany do `_ID_RE` (cyfry ASCII, 1-9 znaków); nigdy nie woła
+    gołego `int()`/`float()` na nieznanym typie. Floaty ZAWSZE 422 — także `0.0`,
+    które dawniej (przez `in (None, '', 0, '0')`) po cichu stawało się `None`.
+    Po sparsowaniu wartość 0 (int `0`, `'0'`, `'00'`, ...) oznacza „brak" → `None`,
+    tak samo jak `None`/`''` — nigdy `vehicle_id=0` (złamałoby FK przy flushu).
     """
-    if isinstance(wartosc, bool):
-        raise LogistykaBlad(u'Pole „{}”: nieprawidłowa wartość.'.format(pole), status=422)
-    if wartosc in (None, '', 0, '0'):
+    if wartosc is None or wartosc == '':
         return None
+    if isinstance(wartosc, (bool, float)):
+        raise LogistykaBlad(u'Pole „{}”: nieprawidłowa wartość.'.format(pole), status=422)
     if isinstance(wartosc, int):
-        return wartosc
-    if isinstance(wartosc, str) and wartosc.strip().isdigit():
-        return int(wartosc.strip())
-    raise LogistykaBlad(u'Pole „{}”: nieprawidłowa wartość.'.format(pole), status=422)
+        liczba = wartosc
+    elif isinstance(wartosc, str) and _ID_RE.fullmatch(wartosc.strip()):
+        liczba = int(wartosc.strip())
+    else:
+        raise LogistykaBlad(u'Pole „{}”: nieprawidłowa wartość.'.format(pole), status=422)
+    return None if liczba == 0 else liczba
 
 
 def zablokuj_trasy(route=None):
@@ -190,12 +207,17 @@ def dostepnosc(date_from, date_to, pomin_route_id=None):
 
 def _sprawdz_zasoby(od, do, vehicle_id, driver_id, pomin_route_id=None):
     if vehicle_id:
-        # (fix-1, Ruling A4) To jest odczyt BIEŻĄCY is_active, NIE serializacja —
-        # serializację zapewnia wspólna blokada wzięta przez zablokuj_trasy() na
-        # starcie funkcji wołającej. Bez FOR UPDATE zwykły SELECT czytałby
-        # is_active z migawki transakcji sprzed tamtej blokady (REPEATABLE READ),
-        # więc mógłby przepuścić pojazd wyłączony z floty w międzyczasie.
-        pojazd = Vehicle.query.with_for_update().filter_by(id=vehicle_id).first()
+        # (fix-1, Ruling A4 + fix-2, N3) To jest odczyt BIEŻĄCY is_active, NIE
+        # serializacja — serializację zapewnia wspólna blokada wzięta przez
+        # zablokuj_trasy() na starcie funkcji wołającej. Bez FOR UPDATE zwykły
+        # SELECT czytałby is_active z migawki transakcji sprzed tamtej blokady
+        # (REPEATABLE READ), więc mógłby przepuścić pojazd wyłączony z floty w
+        # międzyczasie. `populate_existing()` jest tu równie konieczne jak
+        # `with_for_update()`: bez niego, gdy `Vehicle` o tym id jest już w
+        # identity mapie (np. wczytany wcześniej w tym samym żądaniu), SQLAlchemy
+        # oddałby STARĄ kopię z pamięci zamiast nadpisać ją świeżym `is_active`.
+        pojazd = (Vehicle.query.filter_by(id=vehicle_id)
+                 .with_for_update().populate_existing().first())
         if pojazd is None:
             raise LogistykaBlad(u'Nie ma takiego pojazdu.', status=422)
         if not pojazd.is_active:
@@ -232,6 +254,9 @@ def _dane_trasy(dane):
     if notatka_surowa is not None and not isinstance(notatka_surowa, str):
         raise LogistykaBlad(u'Pole „notatka”: podaj tekst.', status=422)
     notatka = (notatka_surowa or '').strip() or None
+    if notatka is not None and len(notatka) > MAKS_NOTATKA:
+        raise LogistykaBlad(u'Notatka może mieć najwyżej {} znaków.'.format(MAKS_NOTATKA),
+                            status=422)
     return (nazwa, od, do, _id(dane.get('vehicle_id'), u'pojazd'),
             _id(dane.get('driver_worker_id'), u'kierowca'), notatka)
 
@@ -306,10 +331,20 @@ def trasa_dla_tabletu(order_id):
 # ── Przystanki ────────────────────────────────────────────────────────────
 
 def _przenumeruj(route):
-    db.session.flush()
-    db.session.expire(route, ['stops'])
+    """
+    (fix-2, O1) Renumeruje ze ŚWIEŻEJ `route.stops` w pamięci (załadowanej przez
+    `zablokuj_trasy` pod blokadą) — ŻADNEGO `expire()` + zwykłego zapytania.
+    Zwykły SELECT czytałby migawkę transakcji sprzed zdjęcia blokady, więc trasa
+    usuwana tuż po zmianie kolejności zacommitowanej przez poprzedniego piszącego
+    renumerowałaby ze starego porządku (cicho cofając tamtą zmianę), a przy
+    dwóch usunięciach z rzędu mogłaby trafić UPDATE-em w wiersz, którego już nie
+    ma (StaleDataError, potwierdzone realnym wyścigiem dwóch sesji MySQL).
+    Wołający (`usun_przystanek`) musi wcześniej zdjąć usuwany przystanek z
+    `route.stops` — ta funkcja renumeruje to, co w kolekcji zostało.
+    """
     for pozycja, przystanek in enumerate(route.stops, start=1):
         przystanek.position = pozycja
+    db.session.flush()
 
 
 def dodaj_przystanki(route, order_ids, user_id=None):
@@ -353,13 +388,17 @@ def dodaj_przystanki(route, order_ids, user_id=None):
                           u'Zamówienie {} jest już na trasie „{}”.'.format(numer, zajete[order_id])})
             continue
         pozycja += 1
-        db.session.add(RouteStop(route_id=route.id, order_id=order_id, position=pozycja))
+        # (fix-2, O1) Dopisujemy do route.stops W PAMIĘCI (cascade='save-update'
+        # dopisze go do sesji sam) zamiast db.session.add() + expire() po pętli —
+        # route.stops zostaje jedynym, spójnym źródłem prawdy, świeżym od
+        # zablokuj_trasy() na starcie tej funkcji; żadnego zwykłego zapytania,
+        # które czytałoby migawkę sprzed zdjęcia blokady.
+        route.stops.append(RouteStop(route_id=route.id, order_id=order_id, position=pozycja))
         db.session.flush()
         delivery.zapisz_log(order, 'trasa_dodane', None, route.name[:64], user_id=user_id,
                             route_id=route.id, teraz=teraz)
         delivery.podbij_pozycje(order, teraz)
         dodane.append(order_id)
-    db.session.expire(route, ['stops'])
     return {'dodane': dodane, 'bledy': bledy}
 
 
@@ -369,11 +408,19 @@ def usun_przystanek(route, order_id, user_id=None, note=None, wymagaj_roboczej=T
     route = zablokuj_trasy(route)
     if wymagaj_roboczej:
         _wymagaj_statusu(route, 'robocza')
-    przystanek = RouteStop.query.filter_by(route_id=route.id, order_id=order_id).first()
+    # (fix-2, O1) Przystanek szukany w ŚWIEŻEJ route.stops (z zablokuj_trasy
+    # powyżej), NIE nowym zapytaniem — zwykły SELECT czytałby migawkę transakcji
+    # sprzed zdjęcia blokady: mógłby zgubić przystanek dodany przez poprzedniego
+    # piszącego (fałszywe 404 — potwierdzone realnym wyścigiem dwóch sesji MySQL:
+    # wykonaj rzucał 404 na przystanku dodanym równolegle) albo trafić na już
+    # usunięty (StaleDataError przy DELETE nieistniejącego wiersza).
+    przystanek = next((s for s in route.stops if s.order_id == order_id), None)
     if przystanek is None:
         raise LogistykaBlad(u'Tego zamówienia nie ma na trasie „{}”.'.format(route.name), status=404)
     order = ProductionOrder.query.get(order_id)
-    db.session.delete(przystanek)
+    # Zdejmujemy z route.stops W PAMIĘCI (cascade='delete-orphan' skasuje wiersz) —
+    # _przenumeruj renumeruje z tej samej, już poprawnej kolekcji.
+    route.stops.remove(przystanek)
     _przenumeruj(route)
     teraz = get_local_now()
     delivery.zapisz_log(order, 'trasa_usuniete', route.name[:64], None, user_id=user_id,
@@ -391,8 +438,10 @@ def zmien_kolejnosc(route, order_ids):
         raise LogistykaBlad(u'Kolejność musi zawierać dokładnie przystanki tej trasy.', status=422)
     for pozycja, order_id in enumerate(nowe, start=1):
         obecne[order_id].position = pozycja
+    # (fix-2, O1) Porządek w PAMIĘCI (sort route.stops), bez expire() + zwykłego
+    # zapytania — ten sam powód co _przenumeruj/dodaj_przystanki w tym pliku.
+    route.stops.sort(key=lambda s: s.position)
     db.session.flush()
-    db.session.expire(route, ['stops'])
 
 
 # ── Statusy ───────────────────────────────────────────────────────────────

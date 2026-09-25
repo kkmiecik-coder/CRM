@@ -27,6 +27,11 @@ def test_zapis_pojazdu_normalizuje_dane(app):
     # fix-1, Ruling C: typy spoza JSON-owych oczekiwań (bool/float/int) -> 422, nie 500.
     {'name': 5}, {'name': 'A', 'registration': 7},
     {'name': 'A', 'capacity_kg': True}, {'name': 'A', 'capacity_kg': 1e400},
+    # fix-2, Minor 3 residual: str.isdigit() łapie cyfry Unicode („²”, „①”), na
+    # których goły int() rzuca ValueError (500) — i nie ma limitu długości, na
+    # czym int() też rzuca ValueError (>4300 cyfr, CPython 3.11+).
+    {'name': 'A', 'capacity_kg': '²'}, {'name': 'A', 'capacity_kg': '①'},
+    {'name': 'A', 'capacity_kg': '9' * 5000},
 ])
 def test_walidacja_pojazdu(app, dane):
     with app.app_context():

@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """Flota pojazdów i lista kierowców (pracownicy produkcji) — spec 8.1."""
+import re
+
 from sqlalchemy.orm import selectinload
 
 from extensions import db
@@ -9,6 +11,10 @@ from modules.production.logistics.services.delivery import LogistykaBlad
 from modules.production.models import ProductionOrder, ProductionWorker, get_local_now
 
 MAKS_LADOWNOSC_KG = 100000
+# (fix-2, Minor 3 residual) Jak routes._ID_RE: cyfry ASCII, 1-9 znaków —
+# `str.isdigit()` przepuszcza też np. „²”/„①”, na których goły `int()` rzuca
+# ValueError (500) zamiast czytelnego 422.
+_ID_RE = re.compile(r'[0-9]{1,9}')
 
 
 def serializuj_pojazd(v):
@@ -47,7 +53,7 @@ def zapisz_pojazd(dane, pojazd=None):
         ladownosc = None
     elif isinstance(ladownosc, int):
         pass
-    elif isinstance(ladownosc, str) and ladownosc.strip().isdigit():
+    elif isinstance(ladownosc, str) and _ID_RE.fullmatch(ladownosc.strip()):
         ladownosc = int(ladownosc.strip())
     else:
         # Nigdy gołego int()/float() na nieznanym typie — 1e400 (JSON) parsuje się
