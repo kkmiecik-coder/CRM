@@ -166,13 +166,13 @@ def test_odnosnik_do_listy_przed_mapa():
 
 
 def test_postep_geokodera_na_przycisku_zlokalizuj():
-    """UF3: w toku przycisk nieaktywny, „Lokalizowanie… 37 / 120”, pasek w tle, aria-label z postępem."""
+    """UF3: w toku przycisk nieaktywny, postęp w procentach (życzenie właściciela 25.09), pasek w tle, aria-label z postępem."""
     js, html, css = _lista_js(), _szablon(), _css()
     assert 'data-lg="zlokalizuj-postep"' in html and 'data-lg="zlokalizuj-liczby"' in html
     assert 'postepGeokodera(dane.geokoder_postep)' in js
     geo = _funkcja(js, 'renderujGeo')
-    assert "p.zrobione + ' / ' + p.wszystkie" in geo
-    assert "'Lokalizowanie adresów w tle: ' + p.zrobione + ' z ' + p.wszystkie" in geo
+    assert "Math.floor(100 * p.zrobione / p.wszystkie) + '%'" in geo
+    assert "'Lokalizowanie adresów w tle: '" in geo and "p.zrobione + ' z ' + p.wszystkie" in geo
     assert "el('zlokalizuj-postep').style.width" in geo
     assert 'is-kreci' not in geo   # bez kręcącej się ikony — jedyny ruch to szerokość paska
     assert 'transition: width' in _regula_css(css, '.logistics-tab .lg-zlokalizuj-postep')
@@ -207,10 +207,11 @@ def test_logo_base_zamiast_zarowki():
 def test_kolumna_adres_w_dwoch_liniach():
     """UF7: „Miasto” → „Adres”: kod + miejscowość, pod spodem ulica; to samo w dymku."""
     html, js, css = _szablon(), _lista_js(), _css()
-    assert '<th scope="col" class="lg-k-adres">Adres</th>' in html
+    naglowek = html[html.index('class="lg-k-adres"'):]
+    assert naglowek[:naglowek.index('</th>')].endswith('>Adres')
     for tekst in (html, js, css):
         assert 'lg-k-miasto' not in tekst and 'lg-w-klient-miasto' not in tekst
-    adres = _funkcja(js, 'adresHtml')
+    adres = _funkcja(js, 'liniiAdresu')
     assert "[w.kod, w.miasto].filter(Boolean).join(' ')" in adres
     assert 'title="\' + esc(w.adres) + \'"' in adres and 'lg-adres-ulica' in adres
     assert 'lg-brak-danych">brak</span>' in adres

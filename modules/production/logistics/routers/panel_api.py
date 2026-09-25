@@ -105,7 +105,9 @@ def delivery_method():
         # Tablica albo skalar w ciele JSON — bez tego .get() rzuca AttributeError (500).
         return _blad(u'Nieprawidłowe dane żądania.', 422)
     ids = dane.get('order_ids')
-    sposob = sposoby.normalizuj(dane.get('sposob'))
+    # 'brak' = „Nie ustawiono” — cofnięcie pomyłki (delivery.ustaw_sposob_dostawy).
+    sposob = (sposoby.BRAK if dane.get('sposob') == sposoby.BRAK
+              else sposoby.normalizuj(dane.get('sposob')))
     if not isinstance(ids, list) or not ids or len(ids) > LIMIT_HURTU:
         return _blad(u'Podaj od 1 do {} zamówień.'.format(LIMIT_HURTU), 422)
     # bool jest podklasą int w Pythonie — bez wyłączenia [True] przeszłoby jako id=1.
@@ -165,6 +167,53 @@ def handed_over(order_id):
 
 def _zamowienie_albo_404(order_id):
     return ProductionOrder.query.get(order_id)
+
+
+@logistics_panel_bp.route('/orders/<int:order_id>/address', methods=['PUT'])
+@guard
+def order_address(order_id):
+    """
+    Poprawka adresu dostawy (dwuklik w adres na liście). Do Base. idzie w tle
+    (znacznik bl_address_pending → dopychacz), punkt na mapie liczy od nowa
+    geokoder — oba tylko uruchamiamy, żadnej długiej pracy w żądaniu.
+    """
+    order = _zamowienie_albo_404(order_id)
+    if order is None:
+        return _blad(u'Nie ma takiego zamówienia.', 404)
+    dane = request.get_json(silent=True) or {}
+    if not isinstance(dane, dict):
+        return _blad(u'Nieprawidłowe dane żądania.', 422)
+    try:
+        zmieniono = delivery.zmien_adres(order, dane.get('adres'), dane.get('kod'),
+                                         dane.get('miasto'), user_id=_user_id())
+    except delivery.LogistykaBlad as e:
+        db.session.rollback()
+        return _blad(e.komunikat, e.status)
+    db.session.commit()
+    if zmieniono:
+        logger.info("Logistyka: zmiana adresu dostawy", extra={
+            'user_id': _user_id(), 'order_id': order_id})
+        bl_sync.po_zmianie([order_id])
+        geocoding.uruchom_w_tle(current_app._get_current_object())
+    order = ProductionOrder.query.options(selectinload(ProductionOrder.products)).get(order_id)
+    punkty = geocoding.geo_zamowien([order_id])
+    return jsonify({'success': True, 'zmieniono': zmieniono,
+                    'order': lista.serializuj(order, punkty.get(order_id))})
+
+
+@logistics_panel_bp.route('/geocode', methods=['GET'])
+@guard
+def geocode_status():
+    """
+    Lekki stan geokodera dla przycisku „Zlokalizuj teraz” — odpytywany co ~1,5 s,
+    póki przebieg trwa (pełna lista co 10 s byłaby za ciężka i za rzadka).
+    """
+    return jsonify({
+        'success': True,
+        'geokoder_dziala': geocoding.geokoder_dziala(),
+        'geokoder_postep': geocoding.postep(),
+        'bez_lokalizacji': geocoding.bez_lokalizacji(),
+    })
 
 
 @logistics_panel_bp.route('/geocode', methods=['POST'])

@@ -1712,8 +1712,13 @@ class BaselinkerSyncService:
             order = ProductionOrder(baselinker_order_id=bl_id)
             db.session.add(order)
 
+        # Adres poprawiony w zakładce Logistyka, a jeszcze niewysłany do Base.
+        # (bl_address_pending): Base. ma stary — nie cofamy poprawki logistyka.
+        adres_czeka = bool(getattr(order, 'bl_address_pending', False))
         for key in ORDER_LEVEL_KEYS:
             if key in product_data and product_data[key] is not None:
+                if adres_czeka and key in ('delivery_address', 'delivery_postcode', 'delivery_city'):
+                    continue
                 # NIE nadpisuj istniejących danych orderu pustym stringiem
                 value = product_data[key]
                 if isinstance(value, str) and not value.strip():

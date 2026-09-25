@@ -6,7 +6,7 @@ from extensions import db
 from modules.production.models import get_local_now
 
 AKCJE_LOGU = ('sposob_dostawy', 'wydane', 'przepakowanie',
-              'trasa_dodane', 'trasa_usuniete', 'trasa_status')
+              'trasa_dodane', 'trasa_usuniete', 'trasa_status', 'adres')
 
 
 class LogisticsLog(db.Model):

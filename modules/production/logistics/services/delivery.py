@@ -99,8 +99,14 @@ def po_spakowaniu(order, teraz):
 
 
 def ustaw_sposob_dostawy(order, sposob, user_id=None, teraz=None):
-    nowy = sposoby.normalizuj(sposob)
-    if nowy is None:
+    """
+    `sposob` = jeden z sposoby.SPOSOBY albo sposoby.BRAK („Nie ustawiono”) — cofnięcie
+    pomyłki logistyka. Samo None / pusty tekst NIE cofa (to raczej zgubione pole
+    formularza niż decyzja), tylko daje 422 jak nieznana wartość.
+    """
+    cofniecie = sposob == sposoby.BRAK
+    nowy = None if cofniecie else sposoby.normalizuj(sposob)
+    if nowy is None and not cofniecie:
         raise LogistykaBlad(u'Nieznany sposób dostawy: {}'.format(sposob), status=422)
     if order.handed_over_at is not None:
         raise LogistykaBlad(u'Zamówienie {} zostało już wydane klientowi.'.format(
@@ -113,6 +119,8 @@ def ustaw_sposob_dostawy(order, sposob, user_id=None, teraz=None):
         return {'zmieniono': False, 'przepakowanie': False}
 
     teraz = teraz or get_local_now()
+    if cofniecie:
+        return _cofnij_sposob(order, stary, user_id, teraz)
     order.override_delivery_method = nowy
     order.delivery_method_set_at = teraz
     order.delivery_method_set_by = user_id
@@ -160,6 +168,70 @@ def ustaw_sposob_dostawy(order, sposob, user_id=None, teraz=None):
     podbij_pozycje(order, teraz)
     przelicz_zamkniecie(order, teraz)
     return {'zmieniono': True, 'przepakowanie': przepakowanie}
+
+
+def _cofnij_sposob(order, stary, user_id, teraz):
+    """
+    Powrót do „Nie ustawiono” — logistyk wybrał sposób nie temu zamówieniu.
+
+    Base.: niewysłaną jeszcze metodę i status po spakowaniu kasujemy (decyzja,
+    której dotyczyły, już nie obowiązuje). Metody, która do Base. już poszła, nie
+    „odwołujemy” — Base. nie ma pustej metody dostawy; logistyk ustawi właściwy
+    sposób i ten nadpisze ją przy następnej wysyłce. Tablet: pozycje, które nie są
+    jeszcze spakowane, znów blokują pakowanie (409 delivery_method_not_set), a
+    zamówienie wraca na listę otwartych (przelicz_zamkniecie).
+    """
+    order.override_delivery_method = None
+    order.delivery_method_set_at = teraz
+    order.delivery_method_set_by = user_id
+    order.bl_delivery_method_pending = False
+    if order.bl_status_pending_id in sposoby.STATUS_PO_SPAKOWANIU.values():
+        order.bl_status_pending_id = None
+    # Przepakowanie na kuriera bez kuriera nie ma sensu (jak przy zmianie na transport).
+    order.repack_required = False
+    zapisz_log(order, 'sposob_dostawy', stary, None, user_id=user_id, teraz=teraz)
+    podbij_pozycje(order, teraz)
+    przelicz_zamkniecie(order, teraz)
+    return {'zmieniono': True, 'przepakowanie': False}
+
+
+# Limity pól adresu w Base. (setOrderFields): dłuższej wartości Base. nie przyjmie.
+LIMIT_ADRESU, LIMIT_KODU, LIMIT_MIASTA = 156, 20, 100
+
+
+def zmien_adres(order, adres, kod, miasto, user_id=None, teraz=None):
+    """
+    Poprawka adresu dostawy z zakładki Logistyka. Zapisuje w CRM i stawia znacznik
+    `bl_address_pending` — do Base. wysyła go dopychacz w tle (bl_sync), nigdy
+    żądanie HTTP. Zwraca True, gdy adres się zmienił. NIE commituje.
+
+    Geokoder sam zauważy nowy adres (inny skrót `address_hash`): punkt automatu
+    policzy od nowa, a przy punkcie ręcznym tylko zapali „adres zmieniony”.
+    """
+    def czysty(wartosc):
+        return ' '.join(str(wartosc).split()) if isinstance(wartosc, str) else None
+
+    adres, kod, miasto = czysty(adres), czysty(kod), czysty(miasto)
+    if adres is None or kod is None or miasto is None:
+        raise LogistykaBlad(u'Podaj adres, kod pocztowy i miejscowość jako tekst.', status=422)
+    if not adres or not miasto:
+        raise LogistykaBlad(u'Adres (ulica i numer) i miejscowość są wymagane.', status=422)
+    if len(adres) > LIMIT_ADRESU or len(kod) > LIMIT_KODU or len(miasto) > LIMIT_MIASTA:
+        raise LogistykaBlad(u'Za długi adres: ulica do {} znaków, kod do {}, miejscowość do {}.'.format(
+            LIMIT_ADRESU, LIMIT_KODU, LIMIT_MIASTA), status=422)
+
+    stary = (order.delivery_address or '', order.delivery_postcode or '', order.delivery_city or '')
+    if stary == (adres, kod, miasto):
+        return False
+    teraz = teraz or get_local_now()
+    order.delivery_address, order.delivery_postcode, order.delivery_city = adres, kod or None, miasto
+    order.bl_address_pending = True
+    zapisz_log(order, 'adres', u'{} {}'.format(stary[1], stary[2]).strip()[:64] or None,
+               u'{} {}'.format(kod, miasto).strip()[:64], user_id=user_id,
+               note=(u'Było: ' + u', '.join(x for x in stary if x))[:255], teraz=teraz)
+    # Tablet pokazuje miasto i kod pozycji — ETag kolejek liczy się z updated_at pozycji.
+    podbij_pozycje(order, teraz)
+    return True
 
 
 def wydaj_klientowi(order, user_id=None, teraz=None):

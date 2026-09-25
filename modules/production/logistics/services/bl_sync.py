@@ -144,6 +144,31 @@ def _wyczysc_metode(order, sposob_wyslany):
     return False
 
 
+def _adres_do_base(order):
+    """Adres w kształcie, w jakim idzie do Base. — i w jakim porównujemy go po odpowiedzi."""
+    return (order.delivery_address or '', order.delivery_postcode or '', order.delivery_city or '')
+
+
+def _wyczysc_adres(order, wyslany):
+    """
+    Jak `_wyczysc_metode`: znacznik `bl_address_pending` gasimy TYLKO, gdy w bazie
+    wciąż jest ten adres, który właśnie poszedł do Base. Logistyk mógł go poprawić
+    jeszcze raz w trakcie zapytania — wtedy znacznik zostaje i poleci nowy adres.
+    """
+    adres, kod, miasto = wyslany
+    wynik = db.session.execute(
+        text("UPDATE prod_orders SET bl_address_pending = 0 "
+             "WHERE id = :id AND COALESCE(delivery_address, '') = :adres "
+             "AND COALESCE(delivery_postcode, '') = :kod AND COALESCE(delivery_city, '') = :miasto"),
+        {'id': order.id, 'adres': adres, 'kod': kod, 'miasto': miasto})
+    if wynik.rowcount == 1:
+        order.bl_address_pending = False
+        return True
+    db.session.expire(order, ['delivery_address', 'delivery_postcode', 'delivery_city',
+                              'bl_address_pending'])
+    return False
+
+
 def _wyczysc_status(order, wyslany_status_id):
     """Jak `_wyczysc_metode`, ale dla statusu Base. (np. stanowisko kierowcy może
     ustawić nowy `bl_status_pending_id` w trakcie trwania naszego zapytania)."""
@@ -186,8 +211,9 @@ def _swiezy_status(order_id):
 def wyslij_zamowienie(order):
     """
     Wysyła znaczniki jednego zamówienia. Zwraca liczbę zapytań. NIE commituje.
+    Do trzech wywołań: metoda dostawy, poprawiony adres (oba setOrderFields) i status.
 
-    WAŻNE (fix round 2, Important z re-review): między DWOMA wywołaniami HTTP do Base.
+    WAŻNE (fix round 2, Important z re-review): między wywołaniami HTTP do Base.
     (setOrderFields, setOrderStatus) nie wykonujemy ŻADNEGO zapisu do prod_orders.
     InnoDB blokuje wyłącznie KAŻDY wiersz PRZEJRZANY przez UPDATE, niezależnie od
     tego, czy WHERE finalnie dopasuje (`_wyczysc_metode`/`_wyczysc_status` i tak
@@ -215,12 +241,14 @@ def wyslij_zamowienie(order):
     if not order.baselinker_order_id:
         order.bl_delivery_method_pending = False
         order.bl_status_pending_id = None
+        order.bl_address_pending = False
         return 0
     zapytania = 0
     # Wyniki UDANYCH wywołań HTTP — same wartości w Pythonie, żadnego zapisu do bazy
     # dopóki oba wywołania (albo próba drugiego) się nie zakończą (patrz docstring wyżej).
     metoda_wynik = None  # (sposob_wyslany, tekst) gdy setOrderFields się udało, inaczej None
     status_wynik = None  # wyslany_status_id gdy setOrderStatus się udało, inaczej None
+    adres_wynik = None   # (adres, kod, miasto) wysłane do Base., gdy setOrderFields się udało
     try:
         if order.bl_delivery_method_pending:
             # sposob_wyslany ZAPAMIĘTUJEMY sprzed wywołania — to on (nie ewentualna nowsza
@@ -236,6 +264,18 @@ def wyslij_zamowienie(order):
                     metoda_wynik = (sposob_wyslany, tekst)
                 else:
                     order._bl_niepowodzenie = True
+        if order.bl_address_pending:
+            # Poprawka adresu z zakładki Logistyka. Wysyłamy wartości ZAPAMIĘTANE sprzed
+            # wywołania — to one idą do warunku czyszczącego znacznik (_wyczysc_adres).
+            wyslany_adres = _adres_do_base(order)
+            zapytania += 1
+            if _wywolaj('setOrderFields', {'order_id': order.baselinker_order_id,
+                                           'delivery_address': wyslany_adres[0],
+                                           'delivery_postcode': wyslany_adres[1],
+                                           'delivery_city': wyslany_adres[2]}):
+                adres_wynik = wyslany_adres
+            else:
+                order._bl_niepowodzenie = True
         if order.bl_status_pending_id:
             # Świeża wartość z bazy, nie z pamięci (patrz _swiezy_status). None = ktoś
             # w międzyczasie uznał status za załatwiony → nic nie wysyłamy.
@@ -260,6 +300,8 @@ def wyslij_zamowienie(order):
             # od tego, czy w międzyczasie ktoś zmienił decyzję logistyka
             order.delivery_method = tekst
             _wyczysc_metode(order, sposob_wyslany)
+        if adres_wynik is not None:
+            _wyczysc_adres(order, adres_wynik)
         if status_wynik is not None:
             _wyczysc_status(order, status_wynik)
 
@@ -307,6 +349,7 @@ def dopychaj(limit_zapytan=None, limit_czasu_s=None, spij=time.sleep, zegar=time
                 break
             zapytanie = ProductionOrder.query.filter(or_(
                 ProductionOrder.bl_delivery_method_pending.is_(True),
+                ProductionOrder.bl_address_pending.is_(True),
                 ProductionOrder.bl_status_pending_id.isnot(None)))
             if pominiete:
                 zapytanie = zapytanie.filter(~ProductionOrder.id.in_(pominiete))

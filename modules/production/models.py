@@ -199,6 +199,9 @@ class ProductionOrder(db.Model):
     # Znaczniki „do wysłania do Base.” — przeżywają restart, dopycha je bl_sync.
     bl_delivery_method_pending = Column(Boolean, nullable=False, default=False)
     bl_status_pending_id = Column(Integer)
+    # Adres dostawy poprawiony w zakładce Logistyka, jeszcze niewysłany do Base.
+    # Dopóki stoi, synchronizacja z Base. nie nadpisuje adresu (sync_service).
+    bl_address_pending = Column(Boolean, nullable=False, default=False)
     # Chwila, w której ostatni niezanulowany produkt wszedł do pakowania
     # („Zeszło z produkcji” w Arkuszu). Nazwa historyczna — kolumnę czyta raport.
     logistics_completed_at = Column(DateTime, index=True)

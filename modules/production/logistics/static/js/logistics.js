@@ -19,6 +19,8 @@
  *   POST {API}/orders/delivery-method          {order_ids, sposob}
  *   POST {API}/orders/<id>/handed-over         „Wydane klientowi”
  *   POST {API}/geocode                         „Zlokalizuj teraz” (wątek w tle, 202)
+ *   GET  {API}/geocode                         lekki stan geokodera (postęp przycisku)
+ *   PUT  {API}/orders/<id>/address             poprawka adresu (dwuklik w adres)
  *
  * Mapa (etap 2) to osobny plik logistics-map.js, ładowany po Leaflecie —
  * może pojawić się PO tym pliku. Łączymy się z nią, gdy ogłosi gotowość
@@ -74,10 +76,13 @@
 
     const ODSWIEZANIE_MS = 60000;   // lista odświeża się co 60 s…
     const ODSWIEZANIE_GEO_MS = 10000; // …a co 10 s, póki geokoder pracuje w tle
+    // Sam postęp geokodera (GET /geocode, lekkie) — co 1,5 s: krótki przebieg
+    // kończył się między odświeżeniami listy i przycisk nie pokazywał postępu.
+    const STAN_GEO_MS = 1500;
     const ZEGAR_MS = 5000;          // …sprawdzane co 5 s (powrót na zakładkę po przerwie)
     // Po „Zlokalizuj teraz” wątek dopiero bierze dzierżawę — przez tyle czasu
     // przycisk zostaje „w toku”, nawet gdy pierwsza odpowiedź powie, że stoi.
-    const OCHRONA_GEO_MS = 15000;
+    const OCHRONA_GEO_MS = 5000;
     const DEBOUNCE_SZUKAJ_MS = 300;
     // Strzałki na zamkniętym <select> w Windows od razu zmieniają wartość
     // i odpalają `change`. Krótka zwłoka wysyła tylko wartość, na której
@@ -91,8 +96,9 @@
         wiersze: [],                // ostatnia lista z API (przed filtrem etapu)
         liczniki: null,
         wstrzymaneDo: null,
-        // bezGeo: filtr „Bez lokalizacji” (po stronie przeglądarki, jak etap).
-        filtr: { sposob: '', etap: '', q: '', zamkniete: false, bezGeo: false },
+        // geo: filtr dokładności lokalizacji (po stronie przeglądarki, jak etap):
+        // '' | 'dokladna' | 'przyblizona' | 'reczna' | 'brak' („Bez lokalizacji”).
+        filtr: { sposob: '', etap: '', q: '', zamkniete: false, geo: '' },
         zaznaczone: new Set(),
         ostatniKlik: null,          // id do zaznaczania zakresu z Shiftem
         wysylane: new Set(),        // id wierszy, dla których leci POST
@@ -117,6 +123,7 @@
     let numerZapytania = 0;
     let zegar = null;
     let timerSzukania = null;
+    let timerStanuGeo = null;       // odpytywanie GET /geocode w trakcie przebiegu
     let zniszczona = false;
     let mapaPolaczona = null;       // instancja window.LogisticsMap, z którą rozmawiamy
     // Chwila ostatniego kliknięcia/klawisza w zakładce — odświeżanie z zegara
@@ -296,9 +303,21 @@
         return stan.wiersze.filter((w) => w.etap && w.etap.status === stan.filtr.etap);
     }
 
+    // Rodzaj lokalizacji wiersza — ten sam podział w filtrze i w jego licznikach.
+    function rodzajLokalizacji(w) {
+        if (!w.geo) return 'brak';
+        if (w.geo.source === 'reczna') return 'reczna';
+        return w.geo.quality === 'przyblizona' ? 'przyblizona' : 'dokladna';
+    }
+
+    const RODZAJE_LOKALIZACJI = [
+        ['dokladna', 'Dokładna'], ['przyblizona', 'Przybliżona'],
+        ['reczna', 'Ustawiona ręcznie'], ['brak', 'Bez lokalizacji'],
+    ];
+
     function widoczneWiersze() {
         const wiersze = poEtapie();
-        return stan.filtr.bezGeo ? wiersze.filter((w) => !w.geo) : wiersze;
+        return stan.filtr.geo ? wiersze.filter((w) => rodzajLokalizacji(w) === stan.filtr.geo) : wiersze;
     }
 
     // Filtry inne niż „Bez lokalizacji” zawężają listę — licznik „Bez lokalizacji”
@@ -312,6 +331,7 @@
         renderujLiczniki();
         renderujBaner();
         renderujEtapy();
+        renderujFiltrGeo();
         renderujGeo();
         renderujTabele();
         renderujOdswiezono();
@@ -347,7 +367,10 @@
     function renderujBaner() {
         const baner = el('baner');
         if (!stan.wstrzymaneDo) {
-            baner.hidden = true;
+            if (!baner.hidden) {
+                baner.hidden = true;
+                dopasujWysokosc();
+            }
             return;
         }
         const iso = stan.wstrzymaneDo;
@@ -355,6 +378,7 @@
         el('baner-tekst').textContent = 'Wysyłka do Base. wstrzymana do ' + kiedy +
             ' (limit API). Zmiany zostaną wysłane automatycznie.';
         baner.hidden = false;
+        dopasujWysokosc();
     }
 
     function renderujEtapy() {
@@ -386,11 +410,26 @@
         select.classList.toggle('is-aktywny', !!stan.filtr.etap);
     }
 
+    // Filtr dokładności lokalizacji: liczby przy opcjach liczą listę z API
+    // (jak filtr etapu), wybrana opcja zostaje, nawet gdy jej liczba spadnie do zera.
+    function renderujFiltrGeo() {
+        const select = el('geo');
+        const ile = { dokladna: 0, przyblizona: 0, reczna: 0, brak: 0 };
+        stan.wiersze.forEach((w) => { ile[rodzajLokalizacji(w)] += 1; });
+        let html = '<option value="">Wszystkie</option>';
+        RODZAJE_LOKALIZACJI.forEach(([klucz, nazwa]) => {
+            html += '<option value="' + klucz + '"' + (klucz === stan.filtr.geo ? ' selected' : '') + '>' +
+                nazwa + ' (' + ile[klucz] + ')</option>';
+        });
+        select.innerHTML = html;
+        select.classList.toggle('is-aktywny', !!stan.filtr.geo);
+    }
+
     function renderujIle() {
         const widoczne = widoczneWiersze().length;
         const wszystkie = stan.wiersze.length;
         // „7 z 24 zamówień” — po „z” dopełniacz: 1 zamówienia, reszta zamówień.
-        el('ile').textContent = (stan.filtr.etap || stan.filtr.bezGeo)
+        el('ile').textContent = (stan.filtr.etap || stan.filtr.geo)
             ? widoczne + ' z ' + wszystkie + ' ' + (wszystkie === 1 ? 'zamówienia' : 'zamówień')
             : ileZamowien(widoczne);
     }
@@ -440,15 +479,19 @@
         const f = stan.filtr;
         let tytul, opis = '', przycisk = '';
         const bezPunktu = stan.bezLokalizacji || 0;
-        if (f.bezGeo && poEtapie().length && zawezonyWidok() && bezPunktu > 0) {
+        if (f.geo === 'brak' && poEtapie().length && zawezonyWidok() && bezPunktu > 0) {
             // Licznik jest globalny — pusty widok nie może twierdzić, że wszystko ma punkt.
             tytul = 'W tym widoku wszystkie zamówienia mają punkt na mapie.';
             opis = 'Bez lokalizacji ' + odmiana(bezPunktu, ['jest', 'są', 'jest']) + ' ' + ileZamowien(bezPunktu) +
                 '. Zdejmij filtry, żeby je zobaczyć.';
             przycisk = przyciskStanu('zdejmij-filtry', 'Zdejmij filtry');
-        } else if (f.bezGeo && poEtapie().length) {
+        } else if (f.geo === 'brak' && poEtapie().length) {
             tytul = 'Każde zamówienie na liście ma już punkt na mapie.';
             przycisk = przyciskStanu('bez-lokalizacji', 'Pokaż wszystkie z listy');
+        } else if (f.geo && poEtapie().length) {
+            const nazwa = (RODZAJE_LOKALIZACJI.find((r) => r[0] === f.geo) || [f.geo, f.geo])[1];
+            tytul = 'Na liście nie ma zamówień z lokalizacją „' + nazwa.toLowerCase() + '”.';
+            przycisk = przyciskStanu('wszystkie-lokalizacje', 'Pokaż wszystkie lokalizacje');
         } else if (f.etap && stan.wiersze.length) {
             const opcja = el('etap').selectedOptions[0];
             tytul = 'Na liście nie ma zamówień na etapie „' + ((opcja && opcja.dataset.nazwa) || f.etap) + '”.';
@@ -475,10 +518,11 @@
     }
 
     function selectSposobu(w, zablokowany, powod) {
-        const wybrany = stan.docelowe.get(w.id) || w.sposob;
-        let opcje = '';
-        // „Nie ustawiono” tylko do wyświetlenia: nie da się go wybrać ani do niego wrócić.
-        if (!wybrany) opcje += '<option value="" selected disabled>' + NIE_USTAWIONO + '</option>';
+        const cel = stan.docelowe.get(w.id);
+        const wybrany = cel === 'brak' ? null : (cel || w.sposob);
+        // „Nie ustawiono” zawsze na liście: logistyk, który ustawił sposób nie temu
+        // zamówieniu, cofa wybór (API: sposob = 'brak').
+        let opcje = '<option value="brak"' + (wybrany ? '' : ' selected') + '>' + NIE_USTAWIONO + '</option>';
         SPOSOBY.forEach((s) => {
             opcje += '<option value="' + s + '"' + (wybrany === s ? ' selected' : '') + '>' + ETYKIETY[s] + '</option>';
         });
@@ -536,6 +580,13 @@
      * z Base. Obie linie przycinane wielokropkiem, pełna treść w title.
      */
     function adresHtml(w) {
+        // Dwuklik (albo Enter na fokusie) otwiera poprawkę adresu — patrz otworzAdres().
+        const opis = 'Popraw adres dostawy zamówienia ' + w.numer;
+        return '<span class="lg-adres" data-lg-adres tabindex="0" role="button" aria-label="' + esc(opis) + '">' +
+            liniiAdresu(w) + '</span>';
+    }
+
+    function liniiAdresu(w) {
         const miejscowosc = [w.kod, w.miasto].filter(Boolean).join(' ');
         const gora = miejscowosc
             ? '<span class="lg-adres-linia lg-adres-miejscowosc" title="' + esc(miejscowosc) + '">' +
@@ -649,7 +700,7 @@
         const fokus = fokusWiersza(tbody);
 
         tbody.innerHTML = widoczne.length ? widoczne.map(wierszHtml).join('') : pustyStan();
-        tabela.classList.toggle('is-bez-geo', stan.filtr.bezGeo);
+        tabela.classList.toggle('is-bez-geo', stan.filtr.geo === 'brak');
         stan.naLiscie = widoczne.map((w) => w.id);
         renderujIle();
         renderujZaznaczenie();
@@ -691,6 +742,7 @@
         });
         renderujLiczniki();
         renderujEtapy();
+        renderujFiltrGeo();
         renderujIle();
         renderujGeo();
         przekazDoMapy();
@@ -914,7 +966,7 @@
         oczekujaceSelecty.delete(id);
         stan.docelowe.delete(id);
         const wartosc = select.value;
-        if (!wartosc || wartosc === (w.sposob || '')) {
+        if (!wartosc || wartosc === (w.sposob || 'brak')) {
             tr.classList.remove('is-wysylanie');
             return;
         }
@@ -1031,6 +1083,29 @@
         }
         stan.geokoderDziala = dziala;
         stan.geokoderPostep = dziala ? postepGeokodera(dane.geokoder_postep) : null;
+        if (dziala && !timerStanuGeo) planujStanGeo(STAN_GEO_MS);
+    }
+
+    function planujStanGeo(ms) {
+        clearTimeout(timerStanuGeo);
+        timerStanuGeo = zniszczona ? null : setTimeout(sprawdzStanGeo, ms);
+    }
+
+    // Lekkie GET /geocode co STAN_GEO_MS, póki przebieg trwa: odświeża tylko
+    // przycisk i licznik. Na koniec lista odświeża się przy najbliższej ciszy
+    // (zegar), żeby dociągnąć nowe pinezki bez przerywania pracy logistyka.
+    async function sprawdzStanGeo() {
+        timerStanuGeo = null;
+        if (zniszczona || !stan.geokoderDziala) return;
+        try {
+            const dane = await zapytanie('/geocode');
+            if (zniszczona) return;
+            przyjmijStanGeo(dane);
+            renderujGeo();
+            if (!stan.geokoderDziala) stan.ostatnieOdswiezenie = 0;
+        } catch (e) {
+            if (!zniszczona && stan.geokoderDziala) planujStanGeo(STAN_GEO_MS * 3);
+        }
     }
 
     // geokoder_postep: null albo {zrobione, wszystkie}; `wszystkie` rośnie, gdy
@@ -1048,12 +1123,13 @@
         const licznik = el('bez-lokalizacji-przycisk');
         const n = stan.bezLokalizacji;
         el('bez-lokalizacji').textContent = n === null ? '–' : String(n);
-        licznik.classList.toggle('is-aktywny', stan.filtr.bezGeo);
+        const bezGeo = stan.filtr.geo === 'brak';
+        licznik.classList.toggle('is-aktywny', bezGeo);
         licznik.classList.toggle('is-niepusty', !!n);
-        licznik.setAttribute('aria-pressed', stan.filtr.bezGeo ? 'true' : 'false');
+        licznik.setAttribute('aria-pressed', bezGeo ? 'true' : 'false');
         // Przy zerze nie ma czego pokazać — chyba że filtr jest włączony (trzeba go zdjąć).
-        licznik.disabled = !n && !stan.filtr.bezGeo;
-        licznik.title = stan.filtr.bezGeo
+        licznik.disabled = !n && !bezGeo;
+        licznik.title = bezGeo
             ? 'Pokaż wszystkie zamówienia z listy'
             : 'Pokaż na liście zamówienia bez punktu na mapie';
         // Globalny licznik + ile z nich jest w zawężonym widoku (sposób, etap, fraza).
@@ -1070,26 +1146,34 @@
         przycisk.classList.toggle('is-w-toku', stan.geokoderDziala);
         przycisk.classList.toggle('ma-postep', !!p);
         przycisk.title = stan.geokoderDziala
-            ? 'Lokalizowanie w tle' + (p ? ': ' + p.zrobione + ' z ' + p.wszystkie : '…') + '. Lista odświeża się co 10 s.'
+            ? 'Lokalizowanie w tle' + (p ? ': ' + p.zrobione + ' z ' + p.wszystkie : '…')
             : 'Znajdź na mapie adresy zamówień, które jeszcze nie mają punktu';
         el('zlokalizuj-tekst').textContent = stan.geokoderDziala ? 'Lokalizowanie…' : 'Zlokalizuj teraz';
         const liczby = el('zlokalizuj-liczby');
-        liczby.textContent = p ? p.zrobione + ' / ' + p.wszystkie : '';
+        liczby.textContent = p ? Math.floor(100 * p.zrobione / p.wszystkie) + '%' : '';
         liczby.hidden = !p;
         el('zlokalizuj-postep').style.width = p ? (100 * p.zrobione / p.wszystkie).toFixed(1) + '%' : '0%';
         if (stan.geokoderDziala) {
             przycisk.setAttribute('aria-label', p
-                ? 'Lokalizowanie adresów w tle: ' + p.zrobione + ' z ' + p.wszystkie
+                ? 'Lokalizowanie adresów w tle: ' + Math.floor(100 * p.zrobione / p.wszystkie) +
+                    '% (' + p.zrobione + ' z ' + p.wszystkie + ')'
                 : 'Lokalizowanie adresów w tle');
         } else {
             przycisk.removeAttribute('aria-label');
         }
     }
 
-    function przelaczBezGeo() {
-        stan.filtr.bezGeo = !stan.filtr.bezGeo;
+    function ustawFiltrGeo(wartosc) {
+        stan.filtr.geo = wartosc;
+        stan.dopasujMape = true;
+        renderujFiltrGeo();
         renderujGeo();
         renderujTabele();
+    }
+
+    // Licznik „Bez lokalizacji” przełącza filtr lokalizacji na „Bez lokalizacji” i z powrotem.
+    function przelaczBezGeo() {
+        ustawFiltrGeo(stan.filtr.geo === 'brak' ? '' : 'brak');
     }
 
     async function zlokalizujTeraz(ciche) {
@@ -1102,11 +1186,12 @@
             await zapytanie('/geocode', { metoda: 'POST', dane: {} });
             if (zniszczona) return;
             if (!ciche) {
-                pokazKomunikat('info', 'Lokalizowanie w tle. Postęp widać na przycisku nad mapą, lista odświeża się co 10 s.',
+                pokazKomunikat('info', 'Lokalizowanie w tle. Postęp widać na przycisku nad mapą.',
                     { klucz: 'geo' });
             }
-            // Pierwsze odświeżenie za ODSWIEZANIE_GEO_MS (zegar liczy od teraz).
+            // Postęp z GET /geocode zaraz po starcie wątku; lista odświeży się z zegara.
             stan.ostatnieOdswiezenie = Date.now();
+            planujStanGeo(700);
         } catch (e) {
             if (zniszczona) return;
             stan.geokoderDziala = false;
@@ -1196,9 +1281,13 @@
         tr.classList.add('is-wskazany');
         // Klik w pinezkę przewija listę do wiersza; klik w wiersz — nie.
         if (info && info.zrodlo === 'mapa') {
+            // Obok mapy przewija się ramka tabeli, w układzie piętrowym — strona.
             const r = tr.getBoundingClientRect();
-            const wys = window.innerHeight || document.documentElement.clientHeight;
-            if (r.top < 60 || r.bottom > wys - 60) {
+            const ramka = tr.closest('.lg-tabela-ramka');
+            const rr = ramka && ramka.scrollHeight > ramka.clientHeight ? ramka.getBoundingClientRect() : null;
+            const gora = rr ? rr.top + 40 : 60;
+            const dol = rr ? rr.bottom - 10 : (window.innerHeight || document.documentElement.clientHeight) - 60;
+            if (r.top < gora || r.bottom > dol) {
                 const bezRuchu = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
                 tr.scrollIntoView({ block: 'center', behavior: bezRuchu ? 'auto' : 'smooth' });
             }
@@ -1216,6 +1305,171 @@
         podmienWiersze([order]);
         // Przywrócony automat: od razu uruchamiamy lokalizowanie w tle.
         if (rodzaj === 'przywrocono') zlokalizujTeraz(true);
+    }
+
+    // ── Poprawka adresu (dwuklik w adres) ───────────────────────────────────
+
+    const dialogAdresu = el('adres-dialog');
+    const formAdresu = el('adres-form');
+    let adresDla = null;            // id zamówienia w otwartym oknie
+    let adresZapis = false;
+    let adresPowrot = null;         // element, na który wraca fokus po zamknięciu
+
+    function otworzAdres(id, zrodlo) {
+        const w = znajdz(id);
+        if (!w || !dialogAdresu || dialogAdresu.open) return;
+        adresDla = id;
+        adresPowrot = zrodlo || null;
+        el('adres-numer').textContent = w.numer || '';
+        formAdresu.elements.adres.value = w.adres || '';
+        formAdresu.elements.kod.value = w.kod || '';
+        formAdresu.elements.miasto.value = w.miasto || '';
+        bladAdresu('');
+        ustawZapisAdresu(false);
+        dialogAdresu.showModal();
+        formAdresu.elements.adres.focus();
+        formAdresu.elements.adres.select();
+    }
+
+    function bladAdresu(tekst) {
+        const p = el('adres-blad');
+        p.textContent = tekst;
+        p.hidden = !tekst;
+    }
+
+    function ustawZapisAdresu(trwa) {
+        adresZapis = trwa;
+        el('adres-zapisz').disabled = trwa;
+        el('adres-zapisz').textContent = trwa ? 'Zapisywanie…' : 'Zapisz';
+        Array.from(formAdresu.elements).forEach((pole) => {
+            if (pole.tagName === 'INPUT') pole.readOnly = trwa;
+        });
+    }
+
+    // Zamyka okno i od razu oddaje fokus adresowi zamówienia (także przerysowanemu po
+    // zapisie — wtedy szuka go po id w tej samej kolumnie: „Adres” albo pod klientem).
+    // Nie w zdarzeniu `close`: przychodzi asynchronicznie, a fokus ma wrócić zawsze.
+    function zamknijAdres() {
+        if (!dialogAdresu || !dialogAdresu.open) return;
+        const id = adresDla;
+        let cel = adresPowrot;
+        adresDla = null;
+        adresPowrot = null;
+        dialogAdresu.close();
+        if (cel && !cel.isConnected && id !== null) {
+            const podKlientem = !!cel.closest('.lg-w-klient-adres');
+            cel = tbody.querySelector('tr[data-id="' + id + '"] ' +
+                (podKlientem ? '.lg-w-klient-adres' : '.lg-k-adres') + ' [data-lg-adres]');
+        }
+        if (cel && cel.isConnected) cel.focus({ preventScroll: true });
+    }
+
+    async function zapiszAdres() {
+        if (adresZapis || adresDla === null) return;
+        const id = adresDla;
+        const w = znajdz(id);
+        const dane = {
+            adres: formAdresu.elements.adres.value.trim(),
+            kod: formAdresu.elements.kod.value.trim(),
+            miasto: formAdresu.elements.miasto.value.trim(),
+        };
+        if (!dane.adres || !dane.miasto) {
+            bladAdresu('Podaj ulicę z numerem i miejscowość.');
+            (dane.adres ? formAdresu.elements.miasto : formAdresu.elements.adres).focus();
+            return;
+        }
+        ustawZapisAdresu(true);
+        bladAdresu('');
+        try {
+            const odp = await zapytanie('/orders/' + id + '/address', { metoda: 'PUT', dane: dane });
+            if (zniszczona) return;
+            ustawZapisAdresu(false);
+            // Najpierw nowy wiersz, potem zamknięcie — fokus wraca już na przerysowany adres.
+            if (odp.order) podmienWiersze([odp.order], odp.zmieniono ? [id] : []);
+            zamknijAdres();
+            const numer = w ? w.numer : '#' + id;
+            if (odp.zmieniono) {
+                pokazKomunikat('ok', 'Adres zamówienia ' + numer + ' zapisany. Wyślemy go do Base., ' +
+                    'a punkt na mapie ustalimy od nowa.', { klucz: 'adres' });
+                // Geokoder ruszył w tle — przycisk „Zlokalizuj teraz” pokaże postęp.
+                stan.geokoderDziala = true;
+                stan.ochronaGeoDo = Date.now() + OCHRONA_GEO_MS;
+                renderujGeo();
+                planujStanGeo(700);
+            } else {
+                pokazKomunikat('info', 'Adres zamówienia ' + numer + ' bez zmian.', { klucz: 'adres' });
+            }
+        } catch (e) {
+            if (zniszczona) return;
+            ustawZapisAdresu(false);
+            bladAdresu('Nie zapisano adresu. ' + e.message);
+        }
+    }
+
+    if (formAdresu) {
+        formAdresu.addEventListener('submit', (e) => {
+            e.preventDefault();
+            zapiszAdres();
+        });
+        dialogAdresu.addEventListener('cancel', (e) => {
+            // Esc: zamykamy sami (z oddaniem fokusu); w trakcie zapisu wcale — odpowiedź
+            // i tak musi trafić do listy.
+            e.preventDefault();
+            if (!adresZapis) zamknijAdres();
+        });
+        // Klik w tło okna (poza formularzem) zamyka je, jak Esc.
+        dialogAdresu.addEventListener('click', (e) => {
+            if (e.target === dialogAdresu && !adresZapis) zamknijAdres();
+        });
+    }
+
+    root.addEventListener('dblclick', (e) => {
+        const adres = e.target.closest('[data-lg-adres]');
+        const tr = adres && adres.closest('tr[data-id]');
+        if (!tr || !tbody.contains(tr)) return;
+        e.preventDefault();
+        if (window.getSelection) window.getSelection().removeAllRanges();  // dwuklik zaznacza słowo
+        otworzAdres(Number(tr.getAttribute('data-id')), adres);
+    });
+
+    // ── Wysokość układu obok siebie ─────────────────────────────────────────
+    // Lista i mapa mają wspólną wysokość: do dołu okna (min. 440 px). Tabela
+    // przewija się w swojej ramce — bez tego strona rosła z każdym zamówieniem.
+
+    function przewijanyRodzic(start) {
+        for (let e = start.parentElement; e; e = e.parentElement) {
+            const o = getComputedStyle(e).overflowY;
+            if ((o === 'auto' || o === 'scroll') && e.clientHeight > 0) return e;
+        }
+        return null;
+    }
+
+    function dopasujWysokosc() {
+        // Tylko czy zakładka jest wyrenderowana (schowana .tab-pane nie ma wymiarów);
+        // document.hidden nie przeszkadza — liczymy z układu, nie z klatek.
+        if (zniszczona || !root.isConnected || !root.getClientRects().length) return;
+        const siatka = root.querySelector('.lg-uklad-siatka');
+        if (!siatka) return;
+        const rodzic = przewijanyRodzic(root);
+        const widok = rodzic ? rodzic.clientHeight : window.innerHeight;
+        // Pozycja w treści przewijanego rodzica — niezależnie od bieżącego przewinięcia.
+        const poczatek = rodzic ? rodzic.getBoundingClientRect().top - rodzic.scrollTop : -window.scrollY;
+        const gora = siatka.getBoundingClientRect().top - poczatek;
+        // Odstępy POD siatką (padding zakładki, panelu, .main-content) mierzymy po
+        // kolei w górę drzewa, zamiast zgadywać stałą: każdy przodek dokłada tyle,
+        // o ile jego dół wystaje poniżej dołu dziecka.
+        let ponizej = 0;
+        let dziecko = siatka;
+        for (let e = siatka.parentElement; e && e !== rodzic; e = e.parentElement) {
+            ponizej += Math.max(0, e.getBoundingClientRect().bottom - dziecko.getBoundingClientRect().bottom);
+            dziecko = e;
+        }
+        ponizej += parseFloat(getComputedStyle(rodzic || document.body).paddingBottom) || 0;
+        const wys = Math.max(440, Math.floor(widok - gora - ponizej));
+        siatka.style.setProperty('--lg-uklad-wys', wys + 'px');
+        // Układ piętrowy (mapa nad listą): tabela też przewija się w ramce, najwyżej
+        // na wysokość okna — CSS bierze stąd --lg-widok-wys.
+        siatka.style.setProperty('--lg-widok-wys', Math.floor(widok) + 'px');
     }
 
     // ── Filtry ──────────────────────────────────────────────────────────────
@@ -1329,6 +1583,12 @@
             case 'bez-lokalizacji':
                 przelaczBezGeo();
                 break;
+            case 'wszystkie-lokalizacje':
+                ustawFiltrGeo('');
+                break;
+            case 'adres-anuluj':
+                zamknijAdres();
+                break;
             case 'zlokalizuj':
                 zlokalizujTeraz(false);
                 break;
@@ -1370,7 +1630,19 @@
             t.classList.toggle('is-aktywny', !!t.value);
             renderujGeo();   // „· w widoku k” liczy się po etapie
             renderujTabele();
+        } else if (t === el('geo')) {
+            ustawFiltrGeo(t.value);
         }
+    });
+
+    // Enter / spacja na adresie (fokus z klawiatury) = dwuklik myszą.
+    root.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        const adres = e.target.closest && e.target.closest('[data-lg-adres]');
+        const tr = adres && adres.closest('tr[data-id]');
+        if (!tr || !tbody.contains(tr)) return;
+        e.preventDefault();
+        otworzAdres(Number(tr.getAttribute('data-id')), adres);
     });
 
     const odnotujAktywnosc = () => { ostatniaAktywnosc = Date.now(); };
@@ -1401,6 +1673,8 @@
             oczekujaceSelecty.size > 0 || !!kontrolerListy ||
             // Korekta / ustawianie punktu na mapie — odświeżenie nie może jej przerwać.
             !!(mapa() && mapa().zajeta()) ||
+            // Otwarte okno poprawki adresu.
+            !!(dialogAdresu && dialogAdresu.open) ||
             // Rozwinięta lista selecta zniknęłaby spod ręki razem z przerysowaną
             // tabelą. Otwarcia natywnego selecta nie da się odczytać, więc
             // czekamy na chwilę ciszy po ostatnim kliknięciu/klawiszu.
@@ -1415,13 +1689,20 @@
     }
 
     function przyWidocznosci() {
-        if (!document.hidden) tik();
+        if (!document.hidden) {
+            dopasujWysokosc();
+            tik();
+        }
     }
 
     function zniszcz() {
         zniszczona = true;
         clearInterval(zegar);
         clearTimeout(timerSzukania);
+        clearTimeout(timerStanuGeo);
+        window.removeEventListener('resize', dopasujWysokosc);
+        document.removeEventListener('shown.bs.tab', naPokazanieZakladki);
+        zamknijAdres();
         oczekujaceSelecty.forEach((t) => clearTimeout(t));
         oczekujaceSelecty.clear();
         if (kontrolerListy) kontrolerListy.abort();
@@ -1437,8 +1718,15 @@
         zniszcz: zniszcz,
     };
 
+    function naPokazanieZakladki(e) {
+        if (e.target && e.target.id === 'logistics-tab') dopasujWysokosc();
+    }
+
     document.addEventListener('visibilitychange', przyWidocznosci);
     document.addEventListener('logistics:mapa-gotowa', naGotowaMape);
+    window.addEventListener('resize', dopasujWysokosc);
+    document.addEventListener('shown.bs.tab', naPokazanieZakladki);
+    dopasujWysokosc();
     polaczZMapa();
     zegar = setInterval(tik, ZEGAR_MS);
     renderujPrzelacznikZamknietych();

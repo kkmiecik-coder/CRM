@@ -14,7 +14,7 @@
      blokuje CDN). #}
 <link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet/leaflet.css') }}?v=1.9.4">
 <link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet-markercluster/MarkerCluster.css') }}?v=1.5.3">
-<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20260925e">
+<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20260925f">
 
 <div id="logistics-root" class="logistics-tab"
      data-api="{{ url_for('logistics_panel.orders') }}"
@@ -99,6 +99,14 @@
             <span>Etap</span>
             <select class="form-select form-select-sm" data-lg="etap" aria-label="Filtr etapu produkcji">
               <option value="">Wszystkie etapy</option>
+            </select>
+          </label>
+          {# Filtr dokładności lokalizacji (po stronie przeglądarki, jak etap). Licznik
+               „Bez lokalizacji” nad mapą przełącza go na „Bez lokalizacji”. #}
+          <label class="lg-etap-filtr lg-geo-filtr">
+            <span>Lokalizacja</span>
+            <select class="form-select form-select-sm" data-lg="geo" aria-label="Filtr dokładności lokalizacji">
+              <option value="">Wszystkie</option>
             </select>
           </label>
           <span class="lg-ile" data-lg="ile" aria-live="polite"></span>
@@ -187,7 +195,7 @@
                 </th>
                 <th scope="col" class="lg-k-numer">Zamówienie</th>
                 <th scope="col" class="lg-k-klient">Klient</th>
-                <th scope="col" class="lg-k-adres">Adres</th>
+                <th scope="col" class="lg-k-adres" title="Dwuklik w adres otwiera jego poprawkę">Adres</th>
                 <th scope="col" class="lg-k-metoda">Metoda z Base.</th>
                 <th scope="col" class="lg-k-sposob">Sposób dostawy</th>
                 <th scope="col" class="lg-k-etap">Etap produkcji</th>
@@ -211,7 +219,7 @@
           <span><i class="fas fa-cloud-arrow-up lg-ikona--base" aria-hidden="true"></i>Base.: czeka na wysłanie</span>
           <span><img class="lg-logo-base" src="{{ url_for('logistics_panel.static', filename='img/base-logo.png') }}?v=20260925a" alt="" width="16" height="16">podpowiedź sposobu z metody w Base.</span>
           <span><i class="fas fa-map-location-dot lg-ikona--adres" aria-hidden="true"></i>adres zmieniony po ręcznym ustawieniu punktu</span>
-          <span class="lg-legenda-skrot">Klik w wiersz pokazuje zamówienie na mapie, Shift + klik zaznacza zakres</span>
+          <span class="lg-legenda-skrot">Klik w wiersz pokazuje zamówienie na mapie, Shift + klik zaznacza zakres, dwuklik w adres go poprawia</span>
         </div>
 
         {# ─── PASEK AKCJI HURTOWYCH ─── (widoczny, gdy coś jest zaznaczone;
@@ -239,6 +247,35 @@
 
     </div>
   </div>
+
+  {# ─── POPRAWKA ADRESU ─── (dwuklik w adres na liście albo Enter na fokusie).
+       Natywny <dialog>: Esc i klik w tło zamykają, fokus wraca do adresu.
+       Zapis idzie do CRM od razu, do Base. — w tle (bl_address_pending). #}
+  <dialog class="lg-dialog" data-lg="adres-dialog" aria-labelledby="lg-adres-tytul">
+    <form class="lg-dialog-form" data-lg="adres-form" novalidate>
+      <h2 class="lg-dialog-tytul" id="lg-adres-tytul">Adres dostawy <span class="lg-dialog-numer" data-lg="adres-numer"></span></h2>
+      <p class="lg-dialog-opis">Zapisany adres wyślemy do Base., a punkt na mapie ustalimy od nowa.</p>
+      <label class="lg-pole">
+        <span>Ulica i numer</span>
+        <input type="text" name="adres" maxlength="156" autocomplete="off" spellcheck="false" required>
+      </label>
+      <div class="lg-pole-rzad">
+        <label class="lg-pole lg-pole--kod">
+          <span>Kod pocztowy</span>
+          <input type="text" name="kod" maxlength="20" autocomplete="off" spellcheck="false">
+        </label>
+        <label class="lg-pole">
+          <span>Miejscowość</span>
+          <input type="text" name="miasto" maxlength="100" autocomplete="off" required>
+        </label>
+      </div>
+      <p class="lg-dialog-blad" data-lg="adres-blad" role="alert" hidden></p>
+      <div class="lg-dialog-akcje">
+        <button type="button" class="lg-przycisk" data-lg-akcja="adres-anuluj">Anuluj</button>
+        <button type="submit" class="lg-przycisk lg-przycisk--glowny" data-lg="adres-zapisz">Zapisz</button>
+      </div>
+    </form>
+  </dialog>
 </div>
 
 {# Ładowanie mapy PO KOLEI: Leaflet → klastry → logistics-map.js.
@@ -289,4 +326,4 @@
         });
 })();
 </script>
-<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20260925e"></script>
+<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20260925f"></script>

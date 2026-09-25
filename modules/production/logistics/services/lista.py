@@ -8,12 +8,18 @@ from modules.production.logistics import sposoby
 from modules.production.logistics.services import geocoding
 from modules.production.logistics.services.delivery import aktywne_produkty, wszystkie_spakowane
 from modules.production.models import ProductionOrder, ProductionProduct
+from modules.production.services.station_catalog import STATION_LABELS, STATION_PENDING_STATUS
 
 # Najwcześniejszy etap zamówienia = etap jego najbardziej zaległej pozycji.
 KOLEJNOSC_ETAPOW = ('wstrzymane', 'czeka_na_wyciecie', 'czeka_na_skladanie',
                     'czeka_na_sklejanie', 'czeka_na_formatowanie', 'czeka_na_krawedzie',
                     'czeka_na_lakiernie', 'czeka_na_pakowanie', 'spakowane')
 LIMIT_ZAMKNIETYCH = 50
+
+# Etap w kolumnie listy = STANOWISKO, na którym pozycja czeka („Lakiernia”, nie
+# „Czeka na lakiernię”) — nazwy z jednego źródła (station_catalog), tymi samymi
+# mówią monitory na hali. Statusy spoza kolejek (spakowane, wstrzymane) — jak w bazie.
+NAZWA_STANOWISKA = {status: STATION_LABELS[kod] for kod, status in STATION_PENDING_STATUS.items()}
 
 
 def _ranga(status):
@@ -54,8 +60,9 @@ def _etap(aktywne):
     if not aktywne:
         return {'status': 'anulowane', 'nazwa': 'Anulowane'}
     najwczesniejszy = min(aktywne, key=lambda p: _ranga(p.current_status))
-    return {'status': najwczesniejszy.current_status,
-            'nazwa': najwczesniejszy.status_display_name}
+    status = najwczesniejszy.current_status
+    return {'status': status,
+            'nazwa': NAZWA_STANOWISKA.get(status) or najwczesniejszy.status_display_name}
 
 
 def _geo(punkt):
@@ -88,7 +95,8 @@ def serializuj(order, geo=None):
         'spakowane': wszystkie_spakowane(order),
         'wydane': order.handed_over_at.isoformat() if order.handed_over_at else None,
         'zamkniete': order.logistics_closed_at is not None,
-        'base_czeka': bool(order.bl_delivery_method_pending or order.bl_status_pending_id),
+        'base_czeka': bool(order.bl_delivery_method_pending or order.bl_status_pending_id
+                           or order.bl_address_pending),
         'etykiety_sprzed_zmiany': bool(ustawiono) and any(
             p.label_printed_at is not None and p.label_printed_at < ustawiono for p in aktywne),
         'przepakowanie': bool(order.repack_required),

@@ -13,6 +13,8 @@ KURIER = 'kurier_baselinker'
 TRANSPORT = 'transport_woodpower'
 ODBIOR = 'odbior_osobisty'
 SPOSOBY = (KURIER, TRANSPORT, ODBIOR)
+# Wartość z panelu „Nie ustawiono” — cofnięcie wyboru (w bazie NULL, nie ten tekst).
+BRAK = 'brak'
 
 # Obiekt `transport.mode` w API mobilnym (kontrakt uzgodniony z appką).
 MODE = {KURIER: 'kurier', TRANSPORT: 'wlasny', ODBIOR: 'odbior'}
