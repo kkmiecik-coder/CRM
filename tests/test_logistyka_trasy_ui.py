@@ -183,9 +183,32 @@ def test_fokus_listy_tras_i_wczytywanie_trasy():
     assert "a.closest('[data-lg-trasa-id]')" in lista and 'nowa.focus(' in lista
     assert "{ fokus: true }" in _funkcja(trasy, 'naKlikPanelu')
     otworz = _funkcja(trasy, 'otworz')
-    assert 'trescEl.inert = true' in otworz
+    assert 'ustawWczytywanie(true)' in otworz
     assert otworz.index('stan.sesja += 1') < otworz.index("zapytanie('/routes/' + id")
-    assert 'trescEl.inert = false' in _funkcja(trasy, 'koniecWczytywania')
+    assert 'ustawWczytywanie(false)' in _funkcja(trasy, 'koniecWczytywania')
+
+
+def test_runda_3_wczytywanie_i_nakladka():
+    """Runda 3: inert tylko formularz, akcje, przystanki i „Do dodania” (× i „Wszystkie trasy”
+    czynne); sesja wraca po nieudanym wczytaniu; po 404 fokus na sąsiedniej pozycji listy;
+    komunikaty nakładki nieprzezroczyste, pusty kontener nie traci zapasu."""
+    trasy = _plik('static', 'js', 'logistics-routes.js')
+    wczytywanie = _funkcja(trasy, 'ustawWczytywanie')
+    assert '[form, akcjeEl, podsumowanieEl, ukladEdytoraEl, kandydaciSekcja]' in wczytywanie
+    assert 'trescEl' not in wczytywanie
+    otworz = _funkcja(trasy, 'otworz')
+    assert 'if (stan.sesja === sesjaProby) stan.sesja = sesjaWidocznej;' in otworz
+    assert otworz.index('sasiadNaLiscie(id)') < otworz.index('usunZListy(id)') < otworz.index('fokusNaSasiada(sasiad)')
+    assert 'if (zmieniony() && !zmianyPorzucone)' in _funkcja(trasy, 'pozwolOpuscic')
+    css = _plik('static', 'css', 'logistics-trasy.css')
+    assert '.logistics-tab .lg-komunikaty.lg-komunikaty--nakladka:empty {\n    display: flex;' in css
+    nakladka = css[css.index('.logistics-tab .lg-komunikaty--nakladka > .lg-komunikat {'):]
+    assert 'background-color: var(--il-bg-card, #fff);' in nakladka[:nakladka.index('}')]
+    for odmiana in ('uwaga', 'blad'):
+        assert '.logistics-tab .lg-komunikaty--nakladka > .lg-komunikat--%s {\n    background-image: linear-gradient(' % odmiana in css
+    ladowanie = css[css.index('.logistics-tab .lg-edytor.is-laduje'):]
+    ladowanie = ladowanie[:ladowanie.index('}')]
+    assert 'pointer-events' not in ladowanie and 'lg-edytor-wstecz' not in ladowanie and 'lg-edytor-zamknij' not in ladowanie
 
 
 def test_komunikaty_tras_i_floty_nie_przesuwaja_ukladu():

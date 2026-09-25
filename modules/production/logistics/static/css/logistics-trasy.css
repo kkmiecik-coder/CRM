@@ -560,12 +560,31 @@
     pointer-events: none;
 }
 
+/* (runda 3, pkt 2) Pusty kontener też zostaje (z zapasem 66 px): reguła etapu 2
+   `.lg-komunikaty:empty { display: none }` zdejmowała zapas, gdy znikał ostatni komunikat —
+   przy dole przewiniętej strony panel skakał wtedy o 66 px. Dashboard bez zmian. */
+.logistics-tab .lg-komunikaty.lg-komunikaty--nakladka:empty {
+    display: flex;
+}
+
 .logistics-tab .lg-komunikaty--nakladka > .lg-komunikat {
     flex: none;
     box-sizing: border-box;
     width: min(560px, 100%);
+    /* (runda 3, pkt 1) Nieprzezroczysta podstawa: odmiany etapu 2 (uwaga, błąd) mają tło
+       z 4–5 % koloru, które nad treścią przepuszczało tekst spod spodu. Odcień zostaje —
+       jako gradient na białym tle (niżej). */
+    background-color: var(--il-bg-card, #fff);
     box-shadow: 0 8px 24px rgba(26, 26, 46, 0.2);
     pointer-events: auto;
+}
+
+.logistics-tab .lg-komunikaty--nakladka > .lg-komunikat--uwaga {
+    background-image: linear-gradient(rgba(217, 119, 6, 0.05), rgba(217, 119, 6, 0.05));
+}
+
+.logistics-tab .lg-komunikaty--nakladka > .lg-komunikat--blad {
+    background-image: linear-gradient(rgba(220, 38, 38, 0.04), rgba(220, 38, 38, 0.04));
 }
 
 /* ============================================================================
@@ -847,10 +866,12 @@
     box-shadow: inset 0 -2px 0 var(--il-inset-shadow, #d4d9e1);
 }
 
-/* Wczytywanie innej trasy: bieżąca przygasa, dopóki nie przyjdzie następna. */
-.logistics-tab .lg-edytor.is-laduje .lg-edytor-tresc {
+/* Wczytywanie innej trasy: bieżąca przygasa (i jest inert — logistics-routes.js,
+   ustawWczytywanie), dopóki nie przyjdzie następna. (runda 3, pkt 4) „‹ Wszystkie trasy”
+   i × zostają czynne i w pełnym kolorze — przerywają wczytywanie. */
+.logistics-tab .lg-edytor.is-laduje :is(.lg-edytor-form, .lg-podsumowanie, .lg-edytor-uklad,
+    .lg-kandydaci, .lg-edytor-akcje, .lg-edytor-tytul, .lg-edytor-tytul-rzad > [data-lg-trasy="status"]) {
     opacity: 0.55;
-    pointer-events: none;
     transition: opacity 0.15s;
 }
 

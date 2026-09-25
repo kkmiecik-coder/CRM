@@ -133,6 +133,7 @@
     const edytor = el('edytor');
     const pustyEl = el('pusty');
     const trescEl = el('tresc');
+    const ukladEdytoraEl = trescEl ? trescEl.querySelector('.lg-edytor-uklad') : null;
     const statusEl = el('status');
     const tytulEl = el('tytul');
     const akcjeEl = el('akcje');
@@ -781,14 +782,69 @@
     // Użytkownik jest wciąż w tej samej sesji edytora co w chwili kliknięcia (ctx z mutacji).
     const naEkranie = (ctx) => !zniszczona && !!ctx && ctx.sesja === stan.sesja;
 
+    // W trakcie wczytywania innej trasy: użytkownik już zgodził się porzucić zmiany bieżącej
+    // (pozwolOpuscic przy kliknięciu) — × w tym czasie nie pyta o to samo drugi raz.
+    let zmianyPorzucone = false;
+    // Sesja edytora trasy, która wciąż jest na ekranie w trakcie wczytywania innej (runda 3,
+    // pkt 3) — wraca, gdy wczytanie się nie uda i edytor zostaje przy poprzedniej trasie.
+    let sesjaWidocznej = 0;
+
     /** Czy wolno zostawić bieżącą trasę (niezapisane zmiany, kolejność w drodze). */
     async function pozwolOpuscic() {
-        if (zmieniony()) {
+        if (zmieniony() && !zmianyPorzucone) {
             const nazwa = stan.nowa ? 'Nowa trasa' : 'Trasa „' + stan.otwarta.nazwa + '”';
             if (!window.confirm(nazwa + ' ma niezapisane zmiany. Porzucić je?')) return false;
         }
         await dokonczKolejnosc();
         return !zniszczona;
+    }
+
+    /**
+     * (runda 2, N6 + runda 3, pkt 4) W trakcie wczytywania formularz poprzedniej trasy,
+     * jej akcje, przystanki i „Do dodania” są inert — tekst wpisany w nich zaraz zniknąłby
+     * pod nową trasą. „‹ Wszystkie trasy” i × zostają czynne: przerywają wczytywanie.
+     */
+    function ustawWczytywanie(trwa) {
+        if (edytor) {
+            edytor.classList.toggle('is-laduje', trwa);
+            if (trwa) edytor.setAttribute('aria-busy', 'true'); else edytor.removeAttribute('aria-busy');
+        }
+        [form, akcjeEl, podsumowanieEl, ukladEdytoraEl, kandydaciSekcja].forEach((czesc) => {
+            if (czesc) czesc.inert = trwa;
+        });
+    }
+
+    // (runda 3, pkt 5) Sąsiad pozycji trasy na liście (następna, a gdy to ostatnia —
+    // poprzednia) i nagłówek jej sekcji — fokus po zniknięciu trasy (404 przy otwieraniu).
+    function sasiadNaLiscie(id) {
+        const b = panel.querySelector('[data-lg-trasa-id="' + id + '"]');
+        const li = b ? b.closest('li') : null;
+        if (!li) return null;
+        const pozycjaW = (el_) => (el_ ? el_.querySelector('[data-lg-trasa-id]') : null);
+        const obok = pozycjaW(li.nextElementSibling) || pozycjaW(li.previousElementSibling);
+        const sekcja = li.closest('.lg-trasy-sekcja');
+        return {
+            id: obok ? obok.getAttribute('data-lg-trasa-id') : null,
+            tytul: sekcja ? sekcja.querySelector('.lg-trasy-sekcja-tytul') : null,
+        };
+    }
+
+    function fokusNaSasiada(sasiad) {
+        if (!fokusZgubiony()) return;
+        const b = sasiad && sasiad.id !== null ? panel.querySelector('[data-lg-trasa-id="' + sasiad.id + '"]') : null;
+        if (b && b.offsetParent !== null) {
+            b.focus({ preventScroll: true });
+            return;
+        }
+        // Nagłówek sekcji listy (Robocze / Zatwierdzone — h3; Wykonane — <summary>).
+        const tytul = sasiad && sasiad.tytul && sasiad.tytul.offsetParent !== null ? sasiad.tytul : null;
+        if (tytul) {
+            if (tytul.tagName !== 'SUMMARY' && !tytul.hasAttribute('tabindex')) tytul.setAttribute('tabindex', '-1');
+            tytul.focus({ preventScroll: true });
+            return;
+        }
+        const nowa = root.querySelector('[data-lg-trasy-akcja="nowa"]');
+        if (nowa) nowa.focus({ preventScroll: true });
     }
 
     async function otworz(routeId, opcje) {
@@ -801,20 +857,19 @@
             return;
         }
         if (!(await pozwolOpuscic())) return;
+        // Sesja trasy na ekranie — zapamiętana tylko przy pierwszym z kolejnych kliknięć
+        // (kolejne przerywają poprzednie wczytywanie, a na ekranie wciąż jest ta sama trasa).
+        if (!kontrolerTrasy) sesjaWidocznej = stan.sesja;
         if (kontrolerTrasy) kontrolerTrasy.abort();
         const kontroler = new AbortController();
         kontrolerTrasy = kontroler;
+        zmianyPorzucone = true;
         // (runda 2, przegląd pkt 2) Użytkownik już opuścił bieżącą trasę — nowa sesja od razu,
         // nie dopiero po odpowiedzi: błąd spóźnionej zmiany poprzedniej trasy trafia wtedy do
         // komunikatu z jej nazwą, a nie do pola błędu, które zaraz wyczyści resetEdytora().
         stan.sesja += 1;
-        if (edytor) {
-            edytor.classList.add('is-laduje');
-            edytor.setAttribute('aria-busy', 'true');
-        }
-        // (runda 2, N6) W trakcie wczytywania formularz poprzedniej trasy jest nieaktywny
-        // (inert) — tekst wpisany w nim zaraz zniknąłby pod formularzem nowej trasy.
-        if (trescEl) trescEl.inert = true;
+        const sesjaProby = stan.sesja;
+        ustawWczytywanie(true);
         if (!stan.otwarta && !stan.nowa && pustyEl) {
             pustyEl.querySelector('.lg-stan-tytul').textContent = 'Wczytywanie trasy…';
         }
@@ -822,7 +877,7 @@
             const dane = await zapytanie('/routes/' + id, { signal: kontroler.signal });
             if (zniszczona || kontroler !== kontrolerTrasy) return;
             // Przed fokusem: element w poddrzewie inert nie przyjmuje fokusu.
-            if (trescEl) trescEl.inert = false;
+            ustawWczytywanie(false);
             resetEdytora();
             stan.nowa = false;
             stan.otwarta = null;
@@ -831,9 +886,15 @@
             if (o.fokus && tytulEl) tytulEl.focus();
         } catch (e) {
             if (przerwane(e) || zniszczona || kontroler !== kontrolerTrasy) return;
+            // (runda 3, pkt 3) Edytor zostaje przy poprzedniej trasie — jej sesja wraca, żeby
+            // odpowiedź jej zapisu w drodze (także odmowa) trafiła znów do edytora, a nie do
+            // komunikatu, przy „Zapisz” wyglądającym jak po udanym zapisie.
+            if (stan.sesja === sesjaProby) stan.sesja = sesjaWidocznej;
             if (e.status === 404) {
+                const sasiad = sasiadNaLiscie(id);
                 usunZListy(id);
                 komunikat('blad', 'Tej trasy już nie ma. Ktoś mógł ją usunąć.', { klucz: 'trasa' });
+                fokusNaSasiada(sasiad);
             } else {
                 komunikat('blad', 'Nie wczytano trasy. ' + e.message, { klucz: 'trasa' });
             }
@@ -845,11 +906,8 @@
     // Koniec wczytywania trasy (udane, nieudane albo przerwane „Nową trasą” / zamknięciem).
     function koniecWczytywania() {
         kontrolerTrasy = null;
-        if (edytor) {
-            edytor.classList.remove('is-laduje');
-            edytor.removeAttribute('aria-busy');
-        }
-        if (trescEl) trescEl.inert = false;
+        zmianyPorzucone = false;
+        ustawWczytywanie(false);
         if (pustyEl) pustyEl.querySelector('.lg-stan-tytul').textContent = 'Wybierz trasę z listy albo utwórz nową.';
     }
 
@@ -1281,7 +1339,9 @@
         try {
             odp = await zapytanie('/routes/' + t.id, { metoda: 'PUT', dane: dane });
         } catch (e) {
-            if (naEkranie(ctx) && stan.migawka === wyslane) stan.migawka = migawkaPrzed;
+            // Po trasie, nie po sesji (runda 3, pkt 3): odmowa w trakcie wczytywania innej trasy
+            // też przywraca „niezapisane zmiany”, gdy ta trasa wciąż jest w edytorze.
+            if (stan.migawka === wyslane && !stan.nowa && stan.otwarta && stan.otwarta.id === t.id) stan.migawka = migawkaPrzed;
             throw e;
         }
         if (zniszczona) return false;
@@ -1308,7 +1368,7 @@
         try {
             odp = await zapytanie('/routes', { metoda: 'POST', dane: dane });
         } catch (e) {
-            if (naEkranie(ctx) && stan.migawka === wyslane) stan.migawka = migawkaPrzed;
+            if (stan.migawka === wyslane && stan.nowa) stan.migawka = migawkaPrzed;
             throw e;
         }
         if (zniszczona) return;
