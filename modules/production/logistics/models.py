@@ -47,6 +47,8 @@ class OrderGeo(db.Model):
 
 
 STATUSY_TRASY = ('robocza', 'zatwierdzona', 'wykonana')
+# Trasy, które widzi tablet i które blokują pojazd/kierowcę (jeszcze nie wykonane).
+STATUSY_TRASY_AKTYWNE = ('robocza', 'zatwierdzona')
 
 
 class Vehicle(db.Model):
