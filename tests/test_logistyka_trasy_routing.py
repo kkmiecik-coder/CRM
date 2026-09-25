@@ -102,3 +102,32 @@ def test_pusta_trasa_czysci_przebieg(app):
         trasa.geometry_json, trasa.distance_km = json.dumps({'type': 'LineString'}), 10
         routing.przelicz(trasa, {}, http_post=FakePost())
         assert trasa.geometry_json is None and trasa.distance_km is None
+
+
+def test_brak_klucza_loguje_warning_tylko_raz(app, monkeypatch, caplog):
+    """Review Focus 5: brak klucza emituje WARNING najwyzej raz na proces."""
+    app.config.pop('OPENROUTESERVICE_API_KEY', None)
+    # Resetuj flage modulu do stanu poczatkowego
+    monkeypatch.setattr(routing, '_klucz_ors_ostrzezono', False)
+    with app.app_context():
+        trasa1, punkty1 = _trasa_z_punktem(app)
+        trasa2, punkty2 = _trasa_z_punktem(app)
+        with caplog.at_level('WARNING'):
+            routing.przelicz(trasa1, punkty1, http_post=FakePost())
+            routing.przelicz(trasa2, punkty2, http_post=FakePost())
+        warnings = [r for r in caplog.records if 'OPENROUTESERVICE_API_KEY' in r.message]
+        assert len(warnings) == 1
+        assert 'Brak OPENROUTESERVICE_API_KEY w config/core.json' in warnings[0].message
+
+
+def test_z_kluczem_nie_loguje_warning_o_braku_klucza(app, monkeypatch, caplog):
+    """Z kluczem present, brak warningow o braku klucza."""
+    app.config['OPENROUTESERVICE_API_KEY'] = 'klucz'
+    monkeypatch.setattr(routing, '_klucz_ors_ostrzezono', False)
+    with app.app_context():
+        trasa, punkty = _trasa_z_punktem(app)
+        http = FakePost(Odp(ORS_ODP))
+        with caplog.at_level('WARNING'):
+            routing.przelicz(trasa, punkty, http_post=http)
+        warnings = [r for r in caplog.records if 'OPENROUTESERVICE_API_KEY' in r.message]
+        assert len(warnings) == 0

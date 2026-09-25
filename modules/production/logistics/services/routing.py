@@ -24,6 +24,11 @@ ORS_URL = 'https://api.openrouteservice.org/v2/directions/driving-car/geojson'
 TIMEOUT_S = 8
 MAKS_PRZYSTANKOW = 48  # ORS: do 50 punktów, dwa zajmuje magazyn
 
+# Ostrzezenie o braku klucza ORS najwyzej raz na proces (modul-poziom
+# flaga) — brak klucza degraduje trasy do linii prostych, ale mapa dalej
+# pracuje, wiec to WARNING (nie CRITICAL).
+_klucz_ors_ostrzezono = False
+
 
 def klucz_ors():
     klucz = current_app.config.get('OPENROUTESERVICE_API_KEY')
@@ -57,6 +62,7 @@ def _linie_proste(route, punkty):
 
 
 def przelicz(route, punkty_zamowien, http_post=requests.post, wymus=False):
+    global _klucz_ors_ostrzezono
     punkty, braki, liczba = _punkty(route, punkty_zamowien)
     skrot = skrot_przebiegu(punkty) + ('-braki' if braki else '')
     skrot = hashlib.sha1(skrot.encode('utf-8')).hexdigest()
@@ -68,6 +74,10 @@ def przelicz(route, punkty_zamowien, http_post=requests.post, wymus=False):
         route.geometry_approx = braki
         return True
     klucz = klucz_ors()
+    if not klucz and not _klucz_ors_ostrzezono:
+        _klucz_ors_ostrzezono = True
+        logger.warning("Brak OPENROUTESERVICE_API_KEY w config/core.json - przebiegi tras "
+                       "liczone liniami prostymi")
     if klucz and not braki and liczba <= MAKS_PRZYSTANKOW:
         try:
             odp = http_post(ORS_URL, json={'coordinates': [[p[1], p[0]] for p in punkty]},
