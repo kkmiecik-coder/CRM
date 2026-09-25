@@ -291,3 +291,66 @@ def test_naglowki_tabeli_sortuja():
     assert "kierunek: -stan.sort.kierunek" in js           # drugi klik odwraca
     assert "'logistyka.lista.sortowanie'" in js              # zapamiętane w przeglądarce
     assert 'return posortuj(' in js                          # lista, zaznaczanie zakresu i mapa — jedna kolejność
+
+
+# ── Rozwijane pozycje zamówienia ─────────────────────────────────────────
+
+def test_lista_niesie_pozycje_zamowienia(app):
+    from modules.production.models import ProductionConfiguration
+    from tests.logistyka_fixtures import produkt
+    with app.app_context():
+        order = zamowienie(statusy=('czeka_na_lakiernie', 'anulowane'))
+        konf = ProductionConfiguration(species='Dąb', technology='Lity', wood_class='A/B')
+        db.session.add(konf)
+        db.session.flush()
+        order.products[0].configuration_id = konf.id
+        order.products[0].parsed_thickness_cm = 4
+        order.products[1].cut_to_size = False
+        db.session.commit()
+        pozycje = lista.pobierz()[0]['pozycje']
+        assert [p['id'] for p in pozycje] == ['%d_1' % order.id, '%d_2' % order.id]
+        pierwsza, druga = pozycje
+        assert (pierwsza['gatunek'], pierwsza['technologia'], pierwsza['klasa'], pierwsza['grubosc_cm']) == \
+            ('Dąb', 'Lity', 'A/B', '4')
+        assert pierwsza['etap'] == {'status': 'czeka_na_lakiernie', 'nazwa': 'Lakiernia'}
+        assert (pierwsza['ilosc'], pierwsza['m3']) == (2, 0.048)
+        assert druga['anulowana'] is True and druga['bez_dociecia'] is True
+        assert pierwsza['anulowana'] is False and pierwsza['dorobka'] is False
+
+
+def test_pozycje_bez_zapytania_na_kazda_pozycje(app):
+    """Konfiguracje pozycji jednym zapytaniem na listę, nie osobno dla każdej pozycji."""
+    from sqlalchemy import event
+    from modules.production.models import ProductionConfiguration
+    with app.app_context():
+        konf = ProductionConfiguration(species='Dąb', technology='Lity', wood_class='A/B')
+        db.session.add(konf)
+        db.session.flush()
+        for _ in range(6):
+            order = zamowienie(statusy=('czeka_na_wyciecie', 'czeka_na_pakowanie'))
+            for p in order.products:
+                p.configuration_id = konf.id
+        db.session.commit()
+        db.session.expire_all()
+        zapytania = []
+        sluchacz = lambda *a, **k: zapytania.append(1)  # noqa: E731
+        event.listen(db.engine, 'before_cursor_execute', sluchacz)
+        try:
+            wiersze = lista.pobierz()
+        finally:
+            event.remove(db.engine, 'before_cursor_execute', sluchacz)
+        assert len(wiersze) == 6 and all(w['pozycje'][0]['gatunek'] == 'Dąb' for w in wiersze)
+        # Stała liczba, niezależna od liczby pozycji: zamówienia, pozycje, konfiguracje, punkty mapy.
+        assert len(zapytania) <= 4
+
+
+def test_wiersz_rozwija_sie_po_kliknieciu_w_tlo():
+    js = _plik('static', 'js', 'logistics.js')
+    assert 'data-lg-akcja="rozwin"' in js and '▶' in js
+    klik = js[js.index('function klikWiersza'):]
+    klik = klik[:klik.index('\n    }\n')]
+    assert '[data-lg-adres]' in klik and 'przelaczRozwiniecie(' in klik
+    assert 'pozycjeHtml(w)' in js
+    css = _plik('static', 'css', 'logistics.css')
+    blok = css[css.index('.logistics-tab .lg-pozycje {'):]
+    assert 'width: 0' in blok[:blok.index('}')]   # pozycje nie rozpychają tabeli

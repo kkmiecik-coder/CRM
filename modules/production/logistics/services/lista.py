@@ -72,6 +72,37 @@ def _geo(punkt):
             'source': punkt.source, 'adres_zmieniony': bool(punkt.address_changed_after_manual)}
 
 
+def _liczba(wartosc):
+    """Decimal z bazy → '4' albo '4.5' (bez zbędnych zer), None → None."""
+    if wartosc is None:
+        return None
+    return format(float(wartosc), 'g')
+
+
+def _pozycja(p):
+    """
+    Pozycja zamówienia do rozwijanego wiersza listy — to samo, co pokazuje lista
+    produktów (nazwa, ID, gatunek / technologia / klasa / grubość, ilość, m³),
+    plus etap jako stanowisko (jak kolumna „Etap produkcji”).
+    """
+    konfiguracja = p.configuration
+    return {
+        'id': p.short_product_id,
+        'nazwa': p.original_product_name,
+        'gatunek': konfiguracja.species if konfiguracja else None,
+        'technologia': konfiguracja.technology if konfiguracja else None,
+        'klasa': konfiguracja.wood_class if konfiguracja else None,
+        'grubosc_cm': _liczba(p.parsed_thickness_cm),
+        'bez_dociecia': p.cut_to_size is False,
+        'dorobka': p.original_product_id is not None,
+        'ilosc': p.quantity or 1,
+        'm3': round(float(p.volume_m3 or 0) * (p.quantity or 1), 4),
+        'etap': {'status': p.current_status,
+                 'nazwa': NAZWA_STANOWISKA.get(p.current_status) or p.status_display_name},
+        'anulowana': p.current_status == 'anulowane',
+    }
+
+
 def serializuj(order, geo=None):
     aktywne = aktywne_produkty(order)
     sposob = sposoby.normalizuj(order.override_delivery_method)
@@ -100,6 +131,9 @@ def serializuj(order, geo=None):
         'etykiety_sprzed_zmiany': bool(ustawiono) and any(
             p.label_printed_at is not None and p.label_printed_at < ustawiono for p in aktywne),
         'przepakowanie': bool(order.repack_required),
+        # Rozwijany wiersz listy: wszystkie pozycje (anulowane też — wyszarzone).
+        'pozycje': [_pozycja(p) for p in sorted(
+            order.products, key=lambda p: (p.product_sequence_in_order or 0, p.id or 0))],
         'geo': _geo(geo),
     }
 
@@ -117,7 +151,10 @@ def pobierz(sposob=None, etap=None, q=None, zamkniete=False):
     (limit dla zamkniętych, potem filter dla sposob) wywalałaby się na
     GET /orders?zamkniete=1&q=...&sposob=... kodem 500.
     """
-    zapytanie = ProductionOrder.query.options(selectinload(ProductionOrder.products))
+    # Konfiguracje pozycji (gatunek, technologia, klasa) jednym zapytaniem na listę —
+    # bez tego każda pozycja dociągałaby swoją osobno (setki zapytań co odświeżenie).
+    zapytanie = ProductionOrder.query.options(
+        selectinload(ProductionOrder.products).selectinload(ProductionProduct.configuration))
     if q:
         wzor = _wzor_like(q.strip())
         zapytanie = zapytanie.filter(or_(

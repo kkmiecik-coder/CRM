@@ -104,7 +104,10 @@ def test_zapis_punktu_w_trakcie_nowego_trybu_trafia_na_liste():
 def test_fokus_przezywa_przerysowanie_takze_na_przycisku_mapy():
     """m2: fokus na pinezce / „Ustaw na mapie” nie przeskakuje na checkbox."""
     js = _lista_js()
-    assert "const KLASY_FOKUSU = ['lg-sposob', 'lg-na-mapie', 'lg-zaznacz'];" in js
+    klasy = js[js.index('const KLASY_FOKUSU = ['):]
+    klasy = klasy[:klasy.index('];')]
+    for klasa in ('lg-sposob', 'lg-na-mapie', 'lg-zaznacz', 'lg-rozwin'):
+        assert "'%s'" % klasa in klasy, klasa
     assert 'przywrocFokus(fokus, tbody)' in _funkcja(js, 'renderujTabele')
     assert 'przywrocFokus(fokus, tbody)' in _funkcja(js, 'odswiezWiersz')
 

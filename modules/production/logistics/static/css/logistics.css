@@ -513,7 +513,7 @@
    panelem bocznym daje zakładce ~910 px. Kolumny z treścią o znanej długości
    mają width: 1% (tyle, ile treść), klient bierze resztę; metoda z Base.
    i podpowiedź są przycinane wielokropkiem (pełny tekst w title). */
-.logistics-tab .lg-k-zaznacz { width: 34px; padding-left: 6px !important; padding-right: 0 !important; }
+.logistics-tab .lg-k-zaznacz { width: 52px; padding-left: 6px !important; padding-right: 0 !important; }
 .logistics-tab .lg-k-numer { width: 1%; white-space: nowrap; }
 .logistics-tab .lg-k-adres { display: none; }
 .logistics-tab .lg-k-metoda { width: 1%; }
@@ -918,7 +918,7 @@
         inset 0 1.5px 0 var(--il-text-primary, #1a1a2e), inset 0 -1.5px 0 var(--il-text-primary, #1a1a2e);
 }
 
-/* Wiersz reaguje na klik (pokazuje zamówienie na mapie). */
+/* Wiersz reaguje na klik (rozwija pozycje zamówienia). */
 .logistics-tab .lg-wiersz {
     cursor: pointer;
 }
@@ -2542,4 +2542,170 @@ html.lg-przeciaganie-uchwytu * {
 
 .logistics-tab th[aria-sort="descending"] .lg-sort-znak::before {
     content: '\f0dd';
+}
+
+
+/* ─── Rozwijane pozycje zamówienia ───
+   Trójkąt jak na liście produktów (▶, obrót o 90° po rozwinięciu). Wiersz
+   pozycji na chłodnym tle panelu, wcięty pod trójkąt; każda pozycja to jedna
+   linia: nazwa + ID, znaczniki specyfikacji, ilość, m³, stanowisko. */
+.logistics-tab .lg-zaznacz-komorka {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.logistics-tab .lg-rozwin {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 20px;
+    height: 24px;
+    margin: 0;
+    padding: 0;
+    font-size: 10px;
+    line-height: 1;
+    color: var(--il-text-muted, #9ba3b0);
+    background: none;
+    border: 0;
+    border-radius: 2px;
+    cursor: pointer;
+}
+
+.logistics-tab .lg-rozwin span {
+    display: inline-block;
+    transition: transform 0.15s;
+}
+
+.logistics-tab .lg-wiersz:hover .lg-rozwin,
+.logistics-tab .lg-rozwin:hover {
+    color: var(--il-text-primary, #1a1a2e);
+}
+
+.logistics-tab .lg-wiersz.is-rozwiniety .lg-rozwin {
+    color: var(--il-text-primary, #1a1a2e);
+}
+
+.logistics-tab .lg-wiersz.is-rozwiniety .lg-rozwin span {
+    transform: rotate(90deg);
+}
+
+.logistics-tab .lg-wiersz.is-rozwiniety td {
+    border-bottom-color: transparent;
+}
+
+.logistics-tab .lg-tabela .lg-pozycje-wiersz > td {
+    padding: 0;
+    background-color: #f8f9fb;
+    border-bottom: 1px solid var(--il-border, #c8cdd5);
+}
+
+/* width: 0 + min-width: 100% — jak linie adresu: pozycje (długie nazwy w jednej
+   linii) nie wchodzą do szerokości tabeli, tylko wypełniają to, co wiersz dostał.
+   Bez tego komórka z colspan rozpychała tabelę w bok. */
+.logistics-tab .lg-pozycje {
+    box-sizing: border-box;
+    width: 0;
+    min-width: 100%;
+    padding: 2px 12px 4px 58px;
+}
+
+.logistics-tab .lg-pozycja {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto 52px 78px 128px;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 0;
+    font-size: 12.5px;
+    border-bottom: 1px solid var(--il-border-light, #e2e5ea);
+}
+
+.logistics-tab .lg-pozycja:last-child {
+    border-bottom: 0;
+}
+
+.logistics-tab .lg-pozycja.is-anulowana {
+    opacity: 0.45;
+}
+
+.logistics-tab .lg-pozycja--pusto {
+    display: block;
+    color: var(--il-text-secondary, #7a8291);
+}
+
+.logistics-tab .lg-pozycja-nazwa {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.logistics-tab .lg-pozycja-tekst {
+    overflow: hidden;
+    font-weight: 600;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.logistics-tab .lg-pozycja-id {
+    font: 11px/1.3 var(--lg-mono);
+    color: var(--il-text-secondary, #7a8291);
+}
+
+.logistics-tab .lg-pozycja-znaczniki {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 4px;
+}
+
+.logistics-tab .lg-pozycja-znacznik {
+    padding: 1px 6px;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--il-text-secondary, #7a8291);
+    white-space: nowrap;
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border-light, #e2e5ea);
+    border-radius: 2px;
+}
+
+.logistics-tab .lg-pozycja-znacznik--uwaga {
+    color: var(--lg-kolejka-tekst);
+    border-color: rgba(217, 119, 6, 0.35);
+}
+
+.logistics-tab .lg-pozycja-ilosc,
+.logistics-tab .lg-pozycja-m3 {
+    font-family: var(--lg-mono);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.logistics-tab .lg-pozycja-ilosc {
+    font-weight: 700;
+}
+
+.logistics-tab .lg-pozycja-m3 {
+    color: var(--il-text-secondary, #7a8291);
+}
+
+/* Wąska lista: znaczniki pod nazwą, liczby i stanowisko w drugiej linii. */
+@container lg-lista (max-width: 719px) {
+    .logistics-tab .lg-pozycje {
+        padding-left: 12px;
+    }
+
+    .logistics-tab .lg-pozycja {
+        grid-template-columns: minmax(0, 1fr) auto auto;
+        grid-template-areas: "nazwa nazwa nazwa" "znaczniki znaczniki znaczniki" "ilosc m3 etap";
+        row-gap: 4px;
+    }
+
+    .logistics-tab .lg-pozycja-nazwa { grid-area: nazwa; }
+    .logistics-tab .lg-pozycja-znaczniki { grid-area: znaczniki; justify-content: flex-start; }
+    .logistics-tab .lg-pozycja-ilosc { grid-area: ilosc; text-align: left; }
+    .logistics-tab .lg-pozycja-m3 { grid-area: m3; }
+    .logistics-tab .lg-pozycja-etap { grid-area: etap; }
 }

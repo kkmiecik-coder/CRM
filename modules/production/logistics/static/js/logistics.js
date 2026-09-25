@@ -100,6 +100,7 @@
         // '' | 'dokladna' | 'przyblizona' | 'reczna' | 'brak' („Bez lokalizacji”).
         filtr: { sposob: '', etap: '', q: '', zamkniete: false, geo: '' },
         zaznaczone: new Set(),
+        rozwiniete: new Set(),      // id zamówień z rozwiniętymi pozycjami (przeżywa odświeżenie)
         ostatniKlik: null,          // id do zaznaczania zakresu z Shiftem
         wysylane: new Set(),        // id wierszy, dla których leci POST
         // id → sposób, który właśnie zapisujemy: przerysowany w trakcie wiersz
@@ -693,6 +694,39 @@
         return gora + dol;
     }
 
+    /**
+     * Rozwinięty wiersz: pozycje zamówienia jak na liście produktów — nazwa i ID,
+     * gatunek / technologia / klasa / grubość, ilość, m³ i stanowisko, na którym
+     * pozycja czeka (ta sama kropka i nazwa co w kolumnie „Etap produkcji”).
+     * Anulowane zostają na liście, wyszarzone.
+     */
+    function pozycjeHtml(w) {
+        const pozycje = Array.isArray(w.pozycje) ? w.pozycje : [];
+        const tresc = pozycje.length ? pozycje.map((p) => {
+            const znaczniki = [p.gatunek, p.technologia, p.klasa, p.grubosc_cm ? p.grubosc_cm + ' cm' : null]
+                .filter(Boolean).map((t) => '<span class="lg-pozycja-znacznik">' + esc(t) + '</span>');
+            if (p.bez_dociecia) znaczniki.push('<span class="lg-pozycja-znacznik lg-pozycja-znacznik--uwaga">bez docięcia</span>');
+            if (p.dorobka) znaczniki.push('<span class="lg-pozycja-znacznik lg-pozycja-znacznik--uwaga">doróbka</span>');
+            const etap = p.etap || { status: '', nazwa: '' };
+            const m3 = Number(p.m3) > 0 ? liczbaM3.format(Number(p.m3)) + ' m³' : '—';
+            return '<div class="lg-pozycja' + (p.anulowana ? ' is-anulowana' : '') + '">' +
+                '<div class="lg-pozycja-nazwa"><span class="lg-pozycja-tekst" title="' + esc(p.nazwa) + '">' +
+                    esc(p.nazwa || '—') + '</span><span class="lg-pozycja-id">' + esc(p.id) + '</span></div>' +
+                '<div class="lg-pozycja-znaczniki">' + znaczniki.join('') + '</div>' +
+                '<span class="lg-pozycja-ilosc">' + esc(p.ilosc) + ' szt.</span>' +
+                '<span class="lg-pozycja-m3">' + m3 + '</span>' +
+                '<span class="lg-etap lg-pozycja-etap" data-etap="' + esc(etap.status) + '">' +
+                    (etap.status === 'spakowane'
+                        ? '<i class="fas fa-check lg-etap-znak" aria-hidden="true"></i>'
+                        : '<span class="lg-etap-znak" aria-hidden="true"></span>') +
+                    '<span class="lg-etap-nazwa">' + esc(etap.nazwa || etap.status) + '</span></span>' +
+                '</div>';
+        }).join('') : '<div class="lg-pozycja lg-pozycja--pusto">Zamówienie nie ma pozycji.</div>';
+        return '<tr class="lg-pozycje-wiersz" data-pozycje-dla="' + esc(w.id) + '">' +
+            '<td colspan="10"><div class="lg-pozycje" id="lg-pozycje-' + esc(w.id) + '" role="region"' +
+            ' aria-label="' + esc('Pozycje zamówienia ' + w.numer) + '">' + tresc + '</div></td></tr>';
+    }
+
     function wierszHtml(w) {
         const etap = w.etap || { status: '', nazwa: '' };
         const anulowane = etap.status === 'anulowane';
@@ -706,6 +740,8 @@
         if (w.zamkniete) klasy.push('is-zamkniete');
         if (anulowane) klasy.push('is-anulowane');
         if (wysylany) klasy.push('is-wysylanie');
+        const rozwiniety = stan.rozwiniete.has(w.id);
+        if (rozwiniety) klasy.push('is-rozwiniety');
 
         // Blokady selecta — te same warunki, na których backend odmówiłby zmiany.
         let powod = '';
@@ -753,9 +789,14 @@
         const m3 = Number(w.m3) > 0 ? liczbaM3.format(Number(w.m3)) : '—';
 
         return '<tr class="' + klasy.join(' ') + '" data-id="' + esc(w.id) + '">' +
-            '<td class="lg-k-zaznacz"><label class="lg-zaznacz-pole">' +
+            '<td class="lg-k-zaznacz"><div class="lg-zaznacz-komorka"><label class="lg-zaznacz-pole">' +
                 '<input type="checkbox" class="lg-zaznacz" aria-label="Zaznacz zamówienie ' + esc(w.numer) + '"' +
-                (zaznaczony ? ' checked' : '') + '></label></td>' +
+                (zaznaczony ? ' checked' : '') + '></label>' +
+                // Trójkąt jak na liście produktów; rozwija też klik w tło wiersza.
+                '<button type="button" class="lg-rozwin" data-lg-akcja="rozwin" aria-expanded="' + rozwiniety + '"' +
+                ' aria-controls="lg-pozycje-' + esc(w.id) + '"' +
+                ' aria-label="' + esc((rozwiniety ? 'Zwiń' : 'Pokaż') + ' pozycje zamówienia ' + w.numer) + '">' +
+                '<span aria-hidden="true">▶</span></button></div></td>' +
             // Numer zamówienia w Base. tylko w podpowiedzi: druga linia poszerzała
             // kolumnę o ~25 px, a na 1280 px z panelem bocznym liczy się każdy piksel.
             '<td class="lg-k-numer"><div class="lg-numer-komorka">' + przyciskMapy(w) +
@@ -781,7 +822,26 @@
             '<td class="lg-k-stan"><div class="lg-stan-komorka">' +
                 (ikony.length ? '<span class="lg-ikony">' + ikony.join('') + '</span>' : '') + akcja +
             '</div></td>' +
-            '</tr>';
+            '</tr>' + (rozwiniety ? pozycjeHtml(w) : '');
+    }
+
+    // Rozwinięcie wiersza: klik w tło wiersza albo w trójkąt. Bez przerysowania
+    // całej tabeli — dokładamy albo zdejmujemy tylko wiersz pozycji.
+    function przelaczRozwiniecie(id) {
+        const w = znajdz(id);
+        const tr = tbody.querySelector('tr[data-id="' + id + '"]');
+        if (!w || !tr) return;
+        const rozwin = !stan.rozwiniete.has(id);
+        if (rozwin) stan.rozwiniete.add(id); else stan.rozwiniete.delete(id);
+        const stary = tr.nextElementSibling;
+        if (stary && stary.hasAttribute('data-pozycje-dla')) stary.remove();
+        if (rozwin) tr.insertAdjacentHTML('afterend', pozycjeHtml(w));
+        tr.classList.toggle('is-rozwiniety', rozwin);
+        const przycisk = tr.querySelector('.lg-rozwin');
+        if (przycisk) {
+            przycisk.setAttribute('aria-expanded', String(rozwin));
+            przycisk.setAttribute('aria-label', (rozwin ? 'Zwiń' : 'Pokaż') + ' pozycje zamówienia ' + w.numer);
+        }
     }
 
     function renderujTabele() {
@@ -804,7 +864,7 @@
 
     // Fokus klawiatury w wierszu (select sposobu, pinezka / „Ustaw na mapie”,
     // checkbox) przeżywa przerysowanie — ten sam rodzaj pola w tym samym wierszu.
-    const KLASY_FOKUSU = ['lg-sposob', 'lg-na-mapie', 'lg-zaznacz'];
+    const KLASY_FOKUSU = ['lg-sposob', 'lg-na-mapie', 'lg-zaznacz', 'lg-rozwin'];
 
     function fokusWiersza(kontener) {
         const a = document.activeElement;
@@ -859,7 +919,11 @@
         const tmp = document.createElement('tbody');
         tmp.innerHTML = wierszHtml(w);
         const nowyTr = tmp.firstElementChild;
+        const pozycje = tr.nextElementSibling;
+        if (pozycje && pozycje.hasAttribute('data-pozycje-dla')) pozycje.remove();
+        const nowePozycje = nowyTr.nextElementSibling;
         tr.replaceWith(nowyTr);
+        if (nowePozycje) nowyTr.after(nowePozycje);
         if (blysk) nowyTr.classList.add('is-zmieniony');
         przywrocFokus(fokus, tbody);
     }
@@ -1356,13 +1420,16 @@
     }
 
     // Klik w wiersz (poza polami, przyciskami i zaznaczaniem tekstu) = pokaż na mapie.
+    // Klik w tło wiersza rozwija pozycje zamówienia (jak na liście produktów).
+    // Pola, przyciski i adres (dwuklik = poprawka) mają swoje działanie; na mapę
+    // prowadzi pinezka przy numerze. Zaznaczony tekst = kopiowanie, nie klik.
     function klikWiersza(e) {
         const tr = e.target.closest('tr[data-id]');
         if (!tr || !tbody.contains(tr)) return;
-        if (e.target.closest('input, select, label, button, a, textarea')) return;
+        if (e.target.closest('input, select, label, button, a, textarea, [data-lg-adres]')) return;
         const zaznaczenie = window.getSelection ? String(window.getSelection()) : '';
         if (zaznaczenie) return;
-        pokazNaMapie(Number(tr.getAttribute('data-id')), false);
+        przelaczRozwiniecie(Number(tr.getAttribute('data-id')));
     }
 
     function naWyborNaMapie(id, info) {
@@ -1693,6 +1760,9 @@
                 break;
             case 'pokaz-na-mapie':
                 if (tr) pokazNaMapie(Number(tr.getAttribute('data-id')), true);
+                break;
+            case 'rozwin':
+                if (tr) przelaczRozwiniecie(Number(tr.getAttribute('data-id')));
                 break;
             case 'ustaw-na-mapie':
                 if (tr) ustawNaMapie(Number(tr.getAttribute('data-id')));

@@ -14,7 +14,7 @@
      blokuje CDN). #}
 <link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet/leaflet.css') }}?v=1.9.4">
 <link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet-markercluster/MarkerCluster.css') }}?v=1.5.3">
-<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20260925g">
+<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20260925h">
 
 <div id="logistics-root" class="logistics-tab"
      data-api="{{ url_for('logistics_panel.orders') }}"
@@ -220,7 +220,7 @@
           <span><i class="fas fa-cloud-arrow-up lg-ikona--base" aria-hidden="true"></i>Base.: czeka na wysłanie</span>
           <span><img class="lg-logo-base" src="{{ url_for('logistics_panel.static', filename='img/base-logo.png') }}?v=20260925a" alt="" width="16" height="16">podpowiedź sposobu z metody w Base.</span>
           <span><i class="fas fa-map-location-dot lg-ikona--adres" aria-hidden="true"></i>adres zmieniony po ręcznym ustawieniu punktu</span>
-          <span class="lg-legenda-skrot">Klik w wiersz pokazuje zamówienie na mapie, Shift + klik zaznacza zakres, dwuklik w adres go poprawia</span>
+          <span class="lg-legenda-skrot">Klik w wiersz rozwija pozycje, pinezka przy numerze pokazuje zamówienie na mapie, Shift + klik zaznacza zakres, dwuklik w adres go poprawia</span>
         </div>
 
         {# ─── PASEK AKCJI HURTOWYCH ─── (widoczny, gdy coś jest zaznaczone;
@@ -327,4 +327,4 @@
         });
 })();
 </script>
-<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20260925g"></script>
+<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20260925h"></script>
