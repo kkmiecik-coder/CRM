@@ -275,7 +275,11 @@ def order_geo_reset(order_id):
     order = _zamowienie_albo_404(order_id)
     if order is None:
         return _blad(u'Nie ma takiego zamówienia.', 404)
-    geocoding.resetuj(order)
+    try:
+        geocoding.resetuj(order)
+    except delivery.LogistykaBlad as e:
+        db.session.rollback()
+        return _blad(e.komunikat, e.status)
     db.session.commit()
     trasy = routes.trasy_zamowien([order_id])
     return jsonify({'success': True, 'order': lista.serializuj(order, None, trasy.get(order_id))})

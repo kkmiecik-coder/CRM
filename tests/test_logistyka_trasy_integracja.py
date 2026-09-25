@@ -5,6 +5,7 @@ import pytest
 
 from extensions import db
 from modules.production.logistics import sposoby as s
+from modules.production.logistics.models import OrderGeo
 from modules.production.logistics.services import delivery, routes
 from modules.production.logistics.services.delivery import LogistykaBlad
 from modules.production.services.label_print_service import _format_delivery_label
@@ -65,16 +66,25 @@ def test_tablet_widzi_trase_i_etykieta_tez(app):
 
 
 def test_tablet_traci_trase_po_zdjeciu(app):
-    """Review Focus 3."""
+    """Review Focus 3.
+
+    (fix-1) Sprzed rundy poprawek `assert updated_at >= przed` nie mógł nigdy paść:
+    `przed` to znacznik, który `dodaj_przystanki` sam przed chwilą zapisał — gdyby
+    `usun_przystanek` przestał podbijać `updated_at`, wartość zostałaby taka sama
+    i `>=` nadal by przeszło. Wzorzec z Task 3: cofamy znacznik na stałą przeszłą
+    datę, potem wymagamy ścisłego „nowszy niż”.
+    """
     with app.app_context():
         trasa, order = _na_trasie('robocza', statusy=('czeka_na_pakowanie',))
-        przed = order.products[0].updated_at
+        for p in order.products:
+            p.updated_at = datetime(2026, 1, 1)
+        db.session.commit()
         routes.usun_przystanek(trasa, order.id)
         db.session.commit()
         with app.test_request_context():
             dane = serialize_order(order.products[0], station_code='packaging')
         assert dane['transport']['trip_name'] is None
-        assert order.products[0].updated_at >= przed
+        assert all(p.updated_at > datetime(2026, 1, 1) for p in order.products)
 
 
 def test_lista_pokazuje_trase_i_filtr_bez_trasy(client, app):
@@ -142,3 +152,43 @@ def test_niezmieniony_sposob_ma_pelny_slownik(app):
         order = zamowienie(sposob=s.KURIER)
         assert delivery.ustaw_sposob_dostawy(order, s.KURIER) == {
             'zmieniono': False, 'przepakowanie': False, 'usunieto_z_trasy': None}
+
+
+# ── Fix-1: pinezka mapy blokowana jak adres na trasie zatwierdzonej/wykonanej ────
+
+def test_pin_na_zatwierdzonej_trasie_to_409(client, app):
+    """Ręczna korekta i reset pinezki: ten sam gate co adres (delivery._przystanek_do_zmiany
+    przez publiczne delivery.sprawdz_trase_przed_zmiana) — eksport do Routimo (spec 8.4)
+    mógł już pójść z bieżącym punktem."""
+    with app.app_context():
+        _trasa, order = _na_trasie('zatwierdzona', statusy=('czeka_na_wyciecie',))
+        db.session.add(OrderGeo(order_id=order.id, lat=50.0, lng=20.0, source='reczna',
+                                quality='dokladna', address_hash='x' * 40))
+        db.session.commit()
+        oid = order.id
+    r = client.put(BASE + '/orders/%d/geo' % oid, json={'lat': 51.0, 'lng': 21.0})
+    assert r.status_code == 409 and 'cofnij' in r.get_json()['error']
+    r2 = client.post(BASE + '/orders/%d/geo/reset' % oid)
+    assert r2.status_code == 409 and 'cofnij' in r2.get_json()['error']
+    with app.app_context():
+        punkt = OrderGeo.query.get(oid)
+        assert punkt is not None
+        assert (float(punkt.lat), float(punkt.lng)) == (50.0, 20.0)
+
+
+def test_pin_na_wykonanej_trasie_to_409(client, app):
+    with app.app_context():
+        _trasa, order = _na_trasie('wykonana', statusy=('spakowane',))
+        oid = order.id
+    assert client.put(BASE + '/orders/%d/geo' % oid,
+                      json={'lat': 51.0, 'lng': 21.0}).status_code == 409
+    assert client.post(BASE + '/orders/%d/geo/reset' % oid).status_code == 409
+
+
+def test_pin_na_roboczej_trasie_dziala(client, app):
+    with app.app_context():
+        _trasa, order = _na_trasie('robocza', statusy=('czeka_na_wyciecie',))
+        oid = order.id
+    assert client.put(BASE + '/orders/%d/geo' % oid,
+                      json={'lat': 51.0, 'lng': 21.0}).status_code == 200
+    assert client.post(BASE + '/orders/%d/geo/reset' % oid).status_code == 200

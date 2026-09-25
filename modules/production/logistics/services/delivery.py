@@ -131,6 +131,21 @@ def _przystanek_do_zmiany(order, zdejmuje, opis):
     return przystanek
 
 
+def sprawdz_trase_przed_zmiana(order, opis):
+    """
+    (fix-1) Wejście publiczne do `_przystanek_do_zmiany` dla wołających spoza tego
+    modułu — ręczna korekta i reset pinezki mapy (`geocoding.ustaw_recznie`/
+    `resetuj`) to też „zmiana”, którą trasa zatwierdzona blokuje: eksport do
+    Routimo (spec 8.4) mógł już pójść z bieżącym punktem (spec 10). `_przystanek_do_zmiany`
+    zostaje prywatny (wołany też z `ustaw_sposob_dostawy`/`zmien_adres` w TYM
+    module) — to jedyny publiczny, udokumentowany sposób odwołania się doń z
+    zewnątrz, zamiast każdy wołający sięgał po nazwę z podkreśleniem. Nic nie
+    zwraca — sam wyjątek (409, ten sam wzorzec komunikatu co adres) jest efektem,
+    o który chodzi wołającemu.
+    """
+    _przystanek_do_zmiany(order, True, opis)
+
+
 def _zdejmij_z_trasy(przystanek, order, user_id):
     from modules.production.logistics.services import routes
     nazwa = przystanek.route.name

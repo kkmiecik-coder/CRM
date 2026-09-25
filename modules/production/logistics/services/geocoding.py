@@ -774,6 +774,12 @@ def ustaw_recznie(order, lat, lng):
         raise LogistykaBlad(u'Nieprawidłowe współrzędne.', status=422)
     if not (-90 <= lat <= 90 and -180 <= lng <= 180):
         raise LogistykaBlad(u'Współrzędne poza zakresem.', status=422)
+    # (fix-1) Trasa zatwierdzona/wykonana blokuje też ręczną korektę pinezki — ten sam
+    # gate co adres (delivery.zmien_adres), format/zakres najpierw (422), potem stan
+    # trasy (409), zanim cokolwiek w sesji się zmieni. Import leniwy, jak wszystkie
+    # wywołania między delivery.py i routes.py w tym pakiecie — ten sam wzorzec.
+    from modules.production.logistics.services import delivery
+    delivery.sprawdz_trase_przed_zmiana(order, u'popraw pinezkę')
     punkt = OrderGeo.query.get(order.id)
     if punkt is None:
         punkt = OrderGeo(order_id=order.id)
@@ -788,6 +794,10 @@ def ustaw_recznie(order, lat, lng):
 
 def resetuj(order):
     """Usuwa punkt (też ręczny) — zamówienie wraca do automatu przy najbliższym przebiegu."""
+    # (fix-1) Ten sam gate co ustaw_recznie/adres — reset pinezki na trasie zatwierdzonej
+    # albo wykonanej też wymaga cofnięcia zatwierdzenia. Przed jakąkolwiek zmianą w sesji.
+    from modules.production.logistics.services import delivery
+    delivery.sprawdz_trase_przed_zmiana(order, u'popraw pinezkę')
     OrderGeo.query.filter_by(order_id=order.id).delete(synchronize_session=False)
 
 
