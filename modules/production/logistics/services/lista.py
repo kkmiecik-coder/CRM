@@ -111,12 +111,19 @@ def _pozycja(p):
     plus etap jako stanowisko (jak kolumna „Etap produkcji”).
     """
     konfiguracja = p.configuration
+
+    def cecha(nazwa):
+        # find_or_create zapisuje „unknown” dla usług i nieparsowalnych nazw — lista
+        # produktów go nie pokazuje, więc i tu nie (przegląd D18).
+        wartosc = getattr(konfiguracja, nazwa, None) if konfiguracja else None
+        return None if wartosc in (None, '', 'unknown') else wartosc
+
     return {
         'id': p.short_product_id,
         'nazwa': p.original_product_name,
-        'gatunek': konfiguracja.species if konfiguracja else None,
-        'technologia': konfiguracja.technology if konfiguracja else None,
-        'klasa': konfiguracja.wood_class if konfiguracja else None,
+        'gatunek': cecha('species'),
+        'technologia': cecha('technology'),
+        'klasa': cecha('wood_class'),
         'grubosc_cm': _liczba(p.parsed_thickness_cm),
         'bez_dociecia': p.cut_to_size is False,
         'dorobka': p.original_product_id is not None,

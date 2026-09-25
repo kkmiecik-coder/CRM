@@ -417,9 +417,13 @@
     min-width: 0;
 }
 
+/* Lista błędów po akcji hurtowej bywa długa (do kilkuset zamówień) — przewija się
+   w komunikacie, zamiast wypychać tabelę (przegląd W3). */
 .logistics-tab .lg-komunikat-lista {
+    max-height: 132px;
     margin: 4px 0 0;
     padding-left: 18px;
+    overflow-y: auto;
     font-size: 12.5px;
 }
 
@@ -464,7 +468,6 @@
        zamówieniem. Obok mapy wysokość ustala siatka (reguła w @container niżej). */
     max-height: max(400px, calc(var(--lg-widok-wys, 100vh) - 150px));
     overflow: auto;
-    overscroll-behavior: contain;
     background: var(--il-bg-card, #fff);
     border: 1px solid var(--il-border, #c8cdd5);
     border-radius: var(--il-radius, 3px);
@@ -591,6 +594,10 @@
 
 /* Adres jest „przyciskiem” poprawki (dwuklik albo Enter na fokusie). W spoczynku
    zwykły tekst; przy najechaniu i fokusie ołówek w rogu mówi, że da się go zmienić. */
+.logistics-tab .lg-adres-statyczny {
+    display: block;
+}
+
 .logistics-tab .lg-adres {
     position: relative;
     display: block;
@@ -1216,7 +1223,9 @@
             minmax(0, 1fr)
             16px
             var(--lg-mapa-kolumna, min(clamp(300px, 31%, 600px), max(300px, calc(100% - 736px))));
-        grid-template-rows: auto minmax(0, 1fr);
+        /* Lista nie schodzi poniżej 200 px, nawet gdy nad nią wisi kilka komunikatów
+           (przegląd W3) — wtedy siatka raczej wystaje, niż tabela znika. */
+        grid-template-rows: auto minmax(200px, 1fr);
         grid-template-areas: "sterowanie uchwyt mapa" "lista uchwyt mapa";
         column-gap: 0;
     }
@@ -1239,6 +1248,15 @@
         flex: 1 1 auto;
         min-height: 0;
         max-height: none;
+        /* Obok mapy tabela ma własną, stałą wysokość — kółko myszy nie przewija strony.
+           W układzie piętrowym bez tego: kursor nad tabelą nie blokuje zejścia do
+           legendy i paska hurtu (przegląd D14). */
+        overscroll-behavior: contain;
+    }
+
+    .logistics-tab .lg-komunikaty {
+        max-height: 176px;
+        overflow-y: auto;
     }
 
     .logistics-tab .lg-legenda,

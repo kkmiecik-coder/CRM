@@ -36,7 +36,9 @@ ODSTEP_S = 1.5
 # 5/10 s między próbami — jedno wywołanie w najgorszym razie trwa ~105 s. Dzierżawa musi
 # przeżyć choć jedno takie wywołanie z zapasem (odnawiamy ją dopiero MIĘDZY zamówieniami,
 # nie w trakcie pojedynczego wywołania) — stąd > 2x najgorszy pojedynczy czas (R2/F2a).
-CZAS_DZIERZAWY_S = 300
+# Od poprawki adresu zamówienie może mieć TRZY wywołania (metoda, adres, status), czyli
+# do ~315 s — dzierżawa musi przeżyć całe zamówienie, więc 4 × 105 s.
+CZAS_DZIERZAWY_S = 420
 DOMYSLNA_PAUZA = timedelta(minutes=15)
 KLUCZ_DZIERZAWY = 'logistyka_bl_dzierzawa'
 KLUCZ_PAUZY = 'logistyka_bl_wstrzymane_do'
@@ -156,10 +158,15 @@ def _wyczysc_adres(order, wyslany):
     jeszcze raz w trakcie zapytania — wtedy znacznik zostaje i poleci nowy adres.
     """
     adres, kod, miasto = wyslany
+    # Przegląd D2: kolumny mają kolację utf8mb4_unicode_ci, w której „Krakow” = „Kraków”
+    # — poprawka samych znaków w trakcie zapytania zgasiłaby znacznik, a w Base. zostałby
+    # adres bez polskich liter. Na MySQL porównujemy binarnie (SQLite w testach i tak tak).
+    bin_ = ' COLLATE utf8mb4_bin' if db.engine.dialect.name == 'mysql' else ''
     wynik = db.session.execute(
         text("UPDATE prod_orders SET bl_address_pending = 0 "
-             "WHERE id = :id AND COALESCE(delivery_address, '') = :adres "
-             "AND COALESCE(delivery_postcode, '') = :kod AND COALESCE(delivery_city, '') = :miasto"),
+             "WHERE id = :id AND COALESCE(delivery_address, ''){b} = :adres "
+             "AND COALESCE(delivery_postcode, ''){b} = :kod "
+             "AND COALESCE(delivery_city, ''){b} = :miasto".format(b=bin_)),
         {'id': order.id, 'adres': adres, 'kod': kod, 'miasto': miasto})
     if wynik.rowcount == 1:
         order.bl_address_pending = False

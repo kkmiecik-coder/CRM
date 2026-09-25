@@ -50,18 +50,31 @@ def test_cofniecie_sposobu_przez_api(client, app):
         assert (log.action, log.old_value, log.new_value) == ('sposob_dostawy', s.KURIER, None)
 
 
-def test_cofniecie_otwiera_zamkniete_i_kasuje_status_po_spakowaniu(app):
+@pytest.mark.parametrize('sposob', [s.TRANSPORT, s.ODBIOR, s.KURIER])
+def test_cofniecie_spakowanego_to_blad(app, sposob):
+    """Przegląd K1: „transport (spakowane) → Nie ustawiono → kurier” omijało przepakowanie."""
     with app.app_context():
-        order = zamowienie(sposob=s.KURIER, statusy=('spakowane',),
-                           bl_status_pending_id=s.STATUS_SPAKOWANE)
-        delivery.przelicz_zamkniecie(order)
-        db.session.commit()
-        assert order.logistics_closed_at is not None
+        order = zamowienie(sposob=sposob, statusy=('spakowane', 'czeka_na_pakowanie'))
+        with pytest.raises(delivery.LogistykaBlad) as blad:
+            delivery.ustaw_sposob_dostawy(order, s.BRAK)
+        assert blad.value.status == 409
+        assert order.override_delivery_method == sposob
+
+
+def test_spakowane_pod_transport_prosto_na_kuriera_to_przepakowanie(app):
+    with app.app_context():
+        order = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane',))
+        assert delivery.ustaw_sposob_dostawy(order, s.KURIER)['przepakowanie'] is True
+        assert order.repack_required is True
+
+
+def test_cofniecie_przed_pakowaniem_kasuje_niewyslana_metode(app):
+    with app.app_context():
+        order = zamowienie(sposob=s.TRANSPORT, statusy=('czeka_na_pakowanie',),
+                           bl_delivery_method_pending=True)
         wynik = delivery.ustaw_sposob_dostawy(order, s.BRAK)
-        db.session.commit()
         assert wynik == {'zmieniono': True, 'przepakowanie': False}
-        assert order.logistics_closed_at is None
-        assert order.bl_status_pending_id is None
+        assert order.override_delivery_method is None and order.bl_delivery_method_pending is False
 
 
 def test_cofniecie_konczy_przepakowanie(app):
@@ -128,6 +141,7 @@ def test_zmiana_adresu_przez_api(client, app, bez_watkow):
         assert order.bl_address_pending is True
         log = LogisticsLog.query.filter_by(order_id=oid, action='adres').one()
         assert log.new_value == '31-021 Kraków' and log.note.startswith('Było: ul. Testowa')
+        assert log.note.endswith('jest: ul. Floriańska 10/5, 31-021, Kraków')
 
 
 def test_ten_sam_adres_nie_uruchamia_niczego(client, app, bez_watkow):
@@ -145,6 +159,8 @@ def test_ten_sam_adres_nie_uruchamia_niczego(client, app, bez_watkow):
     {'adres': 'Nowa 1', 'kod': 31021, 'miasto': 'Kraków'},
     {'adres': 'x' * 157, 'kod': '', 'miasto': 'Kraków'},
     {'adres': 'Nowa 1', 'kod': '1' * 21, 'miasto': 'Kraków'},
+    {'adres': 'Nowa 1', 'kod': 'abc', 'miasto': 'Kraków'},
+    {'adres': 'Nowa 1', 'kod': '310-21', 'miasto': 'Kraków'},
     [1, 2],
 ])
 def test_zly_adres_to_422(client, app, cialo):
@@ -158,6 +174,55 @@ def test_zly_adres_to_422(client, app, cialo):
 def test_adres_nieznanego_zamowienia_to_404(client):
     r = client.put(BASE + '/orders/999999/address', json={'adres': 'A 1', 'kod': '', 'miasto': 'B'})
     assert r.status_code == 404
+
+
+def _przesylka(order):
+    order.shipping_tracking_number = '000123'
+
+
+@pytest.mark.parametrize('ustaw', [
+    lambda o: setattr(o, 'handed_over_at', __import__('datetime').datetime(2026, 9, 1)),
+    lambda o: setattr(o, 'logistics_closed_at', __import__('datetime').datetime(2026, 9, 1)),
+    lambda o: [setattr(p, 'current_status', 'anulowane') for p in o.products],
+    _przesylka,
+])
+def test_adres_tylko_dla_zamowien_w_drodze(client, app, bez_watkow, ustaw):
+    """Przegląd W1: wydane, zamknięte, anulowane i z przesyłką — adresu nie poprawiamy."""
+    with app.app_context():
+        order = zamowienie()
+        ustaw(order)
+        db.session.commit()
+        oid, stary = order.id, order.delivery_address
+    r = client.put(BASE + '/orders/%d/address' % oid,
+                   json={'adres': 'Nowa 1', 'kod': '31-021', 'miasto': 'Kraków'})
+    assert r.status_code == 409 and bez_watkow == []
+    with app.app_context():
+        order = ProductionOrder.query.get(oid)
+        assert order.delivery_address == stary and order.bl_address_pending is False
+
+
+def test_kod_bez_kreski_dostaje_kreske(app):
+    with app.app_context():
+        order = zamowienie()
+        delivery.zmien_adres(order, 'Nowa 1', '31021', 'Kraków')
+        assert order.delivery_postcode == '31-021'
+
+
+def test_kod_zagraniczny_bez_polskiego_formatu(app):
+    with app.app_context():
+        order = zamowienie(delivery_country_code='DE')
+        delivery.zmien_adres(order, 'Unter den Linden 1', '10117', 'Berlin')
+        assert order.delivery_postcode == '10117'
+
+
+def test_adres_z_base_z_podwojna_spacja_zapisany_bez_zmian(app):
+    """Przegląd D4: zapis okna bez zmian to nie poprawka (Base. bywa z podwójną spacją)."""
+    with app.app_context():
+        order = zamowienie()
+        order.delivery_address = 'Długa  5 '
+        db.session.commit()
+        assert delivery.zmien_adres(order, 'Długa 5', '30-001', 'Kraków') is False
+        assert order.bl_address_pending is False
 
 
 def test_pusty_kod_zapisuje_null(app):
@@ -192,6 +257,33 @@ def test_adres_poprawiony_w_trakcie_wysylki_zostaje_do_wyslania(app, base):
         bl_sync.wyslij_zamowienie(order)
         db.session.commit()
         assert ProductionOrder.query.get(oid).bl_address_pending is True
+
+
+def test_metoda_adres_i_status_naraz(app, base):
+    """Przegląd: trzy wywołania w kolejności metoda → adres → status, wszystkie znaczniki zgaszone."""
+    with app.app_context():
+        order = zamowienie(sposob=s.TRANSPORT, delivery_method='Kurier', bl_delivery_method_pending=True,
+                           bl_address_pending=True, bl_status_pending_id=417343)
+        assert bl_sync.wyslij_zamowienie(order) == 3
+        assert [(m, sorted(p)) for m, p in base.wywolania] == [
+            ('setOrderFields', ['delivery_method', 'order_id']),
+            ('setOrderFields', ['delivery_address', 'delivery_city', 'delivery_postcode', 'order_id']),
+            ('setOrderStatus', ['order_id', 'status_id'])]
+        db.session.commit()
+        order = ProductionOrder.query.get(order.id)
+        assert (order.bl_delivery_method_pending, order.bl_address_pending,
+                order.bl_status_pending_id) == (False, False, None)
+
+
+def test_adres_odrzucony_przez_base_czeka_a_metoda_przechodzi(app, base):
+    base.odpowiedzi = [{'status': 'SUCCESS'}, {'status': 'ERROR', 'error_message': 'Zle pole'}]
+    with app.app_context():
+        order = zamowienie(sposob=s.TRANSPORT, delivery_method='Kurier', bl_delivery_method_pending=True,
+                           bl_address_pending=True)
+        bl_sync.wyslij_zamowienie(order)
+        db.session.commit()
+        order = ProductionOrder.query.get(order.id)
+        assert order.bl_delivery_method_pending is False and order.bl_address_pending is True
 
 
 def test_dopychacz_wybiera_zamowienie_z_samym_adresem(app, base):
@@ -236,6 +328,20 @@ def test_synchronizacja_nadpisuje_adres_gdy_nic_nie_czeka(app):
 
 
 # ── Stan geokodera dla przycisku ─────────────────────────────────────────
+
+def test_pozycja_bez_unknown_z_konfiguracji(app):
+    """Przegląd D18: „unknown” z find_or_create to brak danych, nie znacznik."""
+    from modules.production.models import ProductionConfiguration
+    with app.app_context():
+        order = zamowienie()
+        konfiguracja = ProductionConfiguration(species='unknown', technology='lity', wood_class='unknown')
+        db.session.add(konfiguracja)
+        db.session.flush()
+        order.products[0].configuration = konfiguracja
+        db.session.commit()
+        pozycja = lista.serializuj(order)['pozycje'][0]
+        assert (pozycja['gatunek'], pozycja['technologia'], pozycja['klasa']) == (None, 'lity', None)
+
 
 def test_lekki_stan_geokodera(client, app):
     with app.app_context():
@@ -313,7 +419,9 @@ def test_naglowki_tabeli_sortuja():
         assert 'data-lg-sort="%s"' % kolumna in html, kolumna
         assert 'data-lg-sort-kolumna="%s" aria-sort="none"' % kolumna in html, kolumna
     js = _plik('static', 'js', 'logistics.js')
-    assert "kierunek: -stan.sort.kierunek" in js           # drugi klik odwraca
+    ustaw = js[js.index('function ustawSortowanie'):js.index('function renderujSortowanie')]
+    assert "kierunek: ta ? -1 : 1" in ustaw                   # drugi klik odwraca
+    assert "stan.sort = null" in ustaw and 'removeItem' in ustaw  # trzeci wraca do domyślnej
     assert "'logistyka.lista.sortowanie'" in js              # zapamiętane w przeglądarce
     assert 'return posortuj(' in js                          # lista, zaznaczanie zakresu i mapa — jedna kolejność
 

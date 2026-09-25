@@ -217,7 +217,7 @@ def test_kolumna_adres_w_dwoch_liniach():
     adres = _funkcja(js, 'liniiAdresu')
     assert "[w.kod, w.miasto].filter(Boolean).join(' ')" in adres
     assert 'title="\' + esc(w.adres) + \'"' in adres and 'lg-adres-ulica' in adres
-    assert 'lg-brak-danych">brak</span>' in adres
+    assert 'lg-brak-danych">\' + esc(brak) + \'</span>' in adres
     linia = _regula_css(css, '.logistics-tab .lg-adres-linia')
     assert 'text-overflow: ellipsis' in linia and 'min-width: 100%' in linia
     dymek = _funkcja(_mapa_js(), 'dymekHtml')

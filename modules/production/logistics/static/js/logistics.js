@@ -75,7 +75,9 @@
     ];
 
     const ODSWIEZANIE_MS = 60000;   // lista odświeża się co 60 s…
-    const ODSWIEZANIE_GEO_MS = 10000; // …a co 10 s, póki geokoder pracuje w tle
+    // …a co 30 s, póki geokoder pracuje w tle (nowe pinezki; postęp idzie osobno,
+    // lekkim GET /geocode). Pełna lista z pozycjami to setki KB — przegląd D17.
+    const ODSWIEZANIE_GEO_MS = 30000;
     // Sam postęp geokodera (GET /geocode, lekkie) — co 1,5 s: krótki przebieg
     // kończył się między odświeżeniami listy i przycisk nie pokazywał postępu.
     const STAN_GEO_MS = 1500;
@@ -339,10 +341,11 @@
         klient: { wartosc: (w) => pustyTekst(w.klient), porownaj: porownajTekst },
         // Adres: miejscowość, potem kod i ulica — grupuje zamówienia z jednej miejscowości.
         adres: {
-            wartosc: (w) => (w.miasto || w.kod || w.adres) ? [w.miasto || '', w.kod || '', w.adres || ''] : null,
-            // Bez miejscowości (sam kod albo ulica) — za wierszami z miejscowością.
-            porownaj: (a, b) => ((!a[0]) - (!b[0])) || porownajTekst(a[0], b[0]) ||
-                porownajTekst(a[1], b[1]) || porownajTekst(a[2], b[2]),
+            // Bez miejscowości (sam kod albo ulica) liczy się jak pusty — na końcu
+            // w OBU kierunkach (przegląd D9: człon w komparatorze odwracał się z nim).
+            wartosc: (w) => (w.miasto ? [w.miasto, w.kod || '', w.adres || ''] : null),
+            porownaj: (a, b) => porownajTekst(a[0], b[0]) || porownajTekst(a[1], b[1]) ||
+                porownajTekst(a[2], b[2]),
         },
         metoda: { wartosc: (w) => pustyTekst(w.metoda_z_base), porownaj: porownajTekst },
         // Sposób: kolejność liczników nad listą (Nie ustawiono, Kurier, Transport, Odbiór).
@@ -385,13 +388,19 @@
         return null;
     }
 
+    // Klik: rosnąco → malejąco → kolejność domyślna z API (przegląd D10: bez trzeciego
+    // kroku kolejka pracy „Nie ustawiono na górze” znikała w tej przeglądarce na stałe).
     function ustawSortowanie(kolumna) {
         if (!KOLUMNY_SORTOWANIA[kolumna]) return;
-        stan.sort = (stan.sort && stan.sort.kolumna === kolumna)
-            ? { kolumna: kolumna, kierunek: -stan.sort.kierunek }
-            : { kolumna: kolumna, kierunek: 1 };
+        const ta = stan.sort && stan.sort.kolumna === kolumna;
+        if (ta && stan.sort.kierunek === -1) {
+            stan.sort = null;
+        } else {
+            stan.sort = { kolumna: kolumna, kierunek: ta ? -1 : 1 };
+        }
         try {
-            window.localStorage.setItem(KLUCZ_SORTOWANIA_LS, JSON.stringify(stan.sort));
+            if (stan.sort) window.localStorage.setItem(KLUCZ_SORTOWANIA_LS, JSON.stringify(stan.sort));
+            else window.localStorage.removeItem(KLUCZ_SORTOWANIA_LS);
         } catch (e) { /* wybór nie przeżyje przeładowania */ }
         renderujSortowanie();
         renderujTabele();
@@ -408,9 +417,11 @@
             const przycisk = th.querySelector('.lg-sort');
             if (przycisk) {
                 const nazwa = przycisk.getAttribute('data-nazwa') || kolumna;
-                przycisk.title = aktywna
-                    ? 'Sortowanie: ' + nazwa + (rosnaco ? ' rosnąco' : ' malejąco') + '. Kliknij, żeby odwrócić.'
-                    : 'Sortuj według: ' + nazwa;
+                przycisk.title = !aktywna
+                    ? 'Sortuj według: ' + nazwa
+                    : (rosnaco
+                        ? 'Sortowanie: ' + nazwa + ' rosnąco. Kliknij, żeby odwrócić.'
+                        : 'Sortowanie: ' + nazwa + ' malejąco. Kliknij, żeby wrócić do kolejności domyślnej.');
             }
         });
     }
@@ -674,20 +685,28 @@
      * kod pocztowy + miejscowość, pod spodem ulica z numerami tak, jak przyszła
      * z Base. Obie linie przycinane wielokropkiem, pełna treść w title.
      */
+    // Adres poprawiamy tylko w zamówieniu, które jeszcze jedzie (backend też odmawia).
+    const adresDoPoprawki = (w) => !w.wydane && !w.zamkniete && !(w.etap && w.etap.status === 'anulowane');
+
     function adresHtml(w) {
+        if (!adresDoPoprawki(w)) {
+            return '<span class="lg-adres-statyczny">' + liniiAdresu(w, 'brak') + '</span>';
+        }
         // Dwuklik (albo Enter na fokusie) otwiera poprawkę adresu — patrz otworzAdres().
-        const opis = 'Popraw adres dostawy zamówienia ' + w.numer;
+        // Etykieta niesie sam adres: czytnik ekranu czyta ją ZAMIAST treści przycisku.
+        const tekst = [[w.kod, w.miasto].filter(Boolean).join(' '), w.adres].filter(Boolean).join(', ');
+        const opis = (tekst ? 'Adres: ' + tekst : 'Brak adresu') + '. Dwuklik albo Enter: popraw adres.';
         return '<span class="lg-adres" data-lg-adres tabindex="0" role="button" aria-label="' + esc(opis) + '">' +
-            liniiAdresu(w) + '</span>';
+            liniiAdresu(w, 'brak, dodaj adres') + '</span>';
     }
 
-    function liniiAdresu(w) {
+    function liniiAdresu(w, brak) {
         const miejscowosc = [w.kod, w.miasto].filter(Boolean).join(' ');
         const gora = miejscowosc
             ? '<span class="lg-adres-linia lg-adres-miejscowosc" title="' + esc(miejscowosc) + '">' +
                 (w.kod ? '<span class="lg-adres-kod">' + esc(w.kod) + '</span>' + (w.miasto ? ' ' : '') : '') +
                 esc(w.miasto || '') + '</span>'
-            : '<span class="lg-adres-linia lg-adres-miejscowosc lg-brak-danych">brak</span>';
+            : '<span class="lg-adres-linia lg-adres-miejscowosc lg-brak-danych">' + esc(brak) + '</span>';
         const dol = w.adres
             ? '<span class="lg-adres-linia lg-adres-ulica" title="' + esc(w.adres) + '">' + esc(w.adres) + '</span>'
             : '';
@@ -703,7 +722,8 @@
     function pozycjeHtml(w) {
         const pozycje = Array.isArray(w.pozycje) ? w.pozycje : [];
         const tresc = pozycje.length ? pozycje.map((p) => {
-            const znaczniki = [p.gatunek, p.technologia, p.klasa, p.grubosc_cm ? p.grubosc_cm + ' cm' : null]
+            const grubosc = p.grubosc_cm ? String(p.grubosc_cm).replace('.', ',') + ' cm' : null;
+            const znaczniki = [p.gatunek, p.technologia, p.klasa, grubosc]
                 .filter(Boolean).map((t) => '<span class="lg-pozycja-znacznik">' + esc(t) + '</span>');
             if (p.bez_dociecia) znaczniki.push('<span class="lg-pozycja-znacznik lg-pozycja-znacznik--uwaga">bez docięcia</span>');
             if (p.dorobka) znaczniki.push('<span class="lg-pozycja-znacznik lg-pozycja-znacznik--uwaga">doróbka</span>');
@@ -805,7 +825,9 @@
                 esc(w.numer) + '</span></div></td>' +
             '<td class="lg-k-klient"><span class="lg-klient"' + (w.klient ? ' title="' + esc(w.klient) + '"' : '') + '>' +
                 (w.klient ? esc(w.klient) : '<span class="lg-brak-danych">brak nazwy</span>') + '</span>' +
-                (w.kod || w.miasto || w.adres ? '<span class="lg-w-klient-adres">' + adresHtml(w) + '</span>' : '') +
+                // Zawsze, także bez adresu: poniżej 1100 px to jedyne miejsce, z którego
+                // da się go dodać (kolumna „Adres” jest schowana) — przegląd W2.
+                '<span class="lg-w-klient-adres">' + adresHtml(w) + '</span>' +
                 '<span class="lg-drugi lg-w-klient-metoda" title="' + esc(w.metoda_z_base || '') + '">Base.: ' +
                     esc(w.metoda_z_base || 'brak') + '</span>' +
                 (podpowiedz ? '<span class="lg-w-klient-metoda">' + podpowiedz + '</span>' : '') + '</td>' +
@@ -864,18 +886,23 @@
 
     // Fokus klawiatury w wierszu (select sposobu, pinezka / „Ustaw na mapie”,
     // checkbox) przeżywa przerysowanie — ten sam rodzaj pola w tym samym wierszu.
-    const KLASY_FOKUSU = ['lg-sposob', 'lg-na-mapie', 'lg-zaznacz', 'lg-rozwin'];
+    // Adres jest w wierszu dwa razy (pod klientem i w kolumnie) — stąd także kolumna.
+    const KLASY_FOKUSU = ['lg-sposob', 'lg-na-mapie', 'lg-zaznacz', 'lg-rozwin', 'lg-adres'];
 
     function fokusWiersza(kontener) {
         const a = document.activeElement;
         const tr = a && kontener.contains(a) ? a.closest('tr[data-id]') : null;
         const klasa = tr ? KLASY_FOKUSU.find((k) => a.classList.contains(k)) : null;
-        return klasa ? { id: tr.getAttribute('data-id'), klasa: klasa } : null;
+        if (!klasa) return null;
+        const td = a.closest('td');
+        const kolumna = td ? Array.from(td.classList).find((k) => k.indexOf('lg-k-') === 0) : null;
+        return { id: tr.getAttribute('data-id'), klasa: klasa, kolumna: kolumna || null };
     }
 
     function przywrocFokus(fokus, kontener) {
         if (!fokus) return;
-        const cel = kontener.querySelector('tr[data-id="' + fokus.id + '"] .' + fokus.klasa);
+        const cel = kontener.querySelector('tr[data-id="' + fokus.id + '"] ' +
+            (fokus.kolumna ? 'td.' + fokus.kolumna + ' ' : '') + '.' + fokus.klasa);
         if (cel && !cel.disabled) cel.focus({ preventScroll: true });
     }
 
@@ -1255,6 +1282,11 @@
     async function sprawdzStanGeo() {
         timerStanuGeo = null;
         if (zniszczona || !stan.geokoderDziala) return;
+        if (!zakladkaWidoczna()) {
+            // Schowana zakładka nie potrzebuje postępu co 1,5 s (przegląd D16).
+            planujStanGeo(STAN_GEO_MS * 5);
+            return;
+        }
         try {
             const dane = await zapytanie('/geocode');
             if (zniszczona) return;
@@ -1502,6 +1534,8 @@
         adresZapis = trwa;
         el('adres-zapisz').disabled = trwa;
         el('adres-zapisz').textContent = trwa ? 'Zapisywanie…' : 'Zapisz';
+        // „Anuluj” w trakcie zapisu zgubiłby odpowiedź, także błąd (przegląd D12).
+        el('adres-anuluj').disabled = trwa;
         Array.from(formAdresu.elements).forEach((pole) => {
             if (pole.tagName === 'INPUT') pole.readOnly = trwa;
         });
@@ -1541,14 +1575,17 @@
         }
         ustawZapisAdresu(true);
         bladAdresu('');
+        const numer = w ? w.numer : '#' + id;
         try {
             const odp = await zapytanie('/orders/' + id + '/address', { metoda: 'PUT', dane: dane });
             if (zniszczona) return;
-            ustawZapisAdresu(false);
+            // Okno mogło zniknąć bez nas (Chrome: drugi Esc zamyka mimo preventDefault)
+            // albo pokazuje już inne zamówienie — wtedy nie ruszamy go, wynik w komunikacie.
+            const nadal = adresDla === id;
+            if (nadal) ustawZapisAdresu(false);
             // Najpierw nowy wiersz, potem zamknięcie — fokus wraca już na przerysowany adres.
             if (odp.order) podmienWiersze([odp.order], odp.zmieniono ? [id] : []);
-            zamknijAdres();
-            const numer = w ? w.numer : '#' + id;
+            if (nadal) zamknijAdres();
             if (odp.zmieniono) {
                 pokazKomunikat('ok', 'Adres zamówienia ' + numer + ' zapisany. Wyślemy go do Base., ' +
                     'a punkt na mapie ustalimy od nowa.', { klucz: 'adres' });
@@ -1562,8 +1599,13 @@
             }
         } catch (e) {
             if (zniszczona) return;
-            ustawZapisAdresu(false);
-            bladAdresu('Nie zapisano adresu. ' + e.message);
+            if (adresDla === id) {
+                ustawZapisAdresu(false);
+                bladAdresu('Nie zapisano adresu. ' + e.message);
+            } else {
+                pokazKomunikat('blad', 'Nie zapisano adresu zamówienia ' + numer + '. ' + e.message,
+                    { klucz: 'adres' });
+            }
         }
     }
 
@@ -1571,6 +1613,12 @@
         formAdresu.addEventListener('submit', (e) => {
             e.preventDefault();
             zapiszAdres();
+        });
+        // Zamknięcie inną drogą niż zamknijAdres() (np. wymuszone przez przeglądarkę)
+        // też kończy „okno dla zamówienia X” — patrz `nadal` w zapiszAdres().
+        dialogAdresu.addEventListener('close', () => {
+            adresDla = null;
+            adresPowrot = null;
         });
         dialogAdresu.addEventListener('cancel', (e) => {
             // Esc: zamykamy sami (z oddaniem fokusu); w trakcie zapisu wcale — odpowiedź
@@ -1753,7 +1801,7 @@
                 ustawFiltrGeo('');
                 break;
             case 'adres-anuluj':
-                zamknijAdres();
+                if (!adresZapis) zamknijAdres();
                 break;
             case 'zlokalizuj':
                 zlokalizujTeraz(false);
@@ -1871,6 +1919,7 @@
         clearTimeout(timerStanuGeo);
         window.removeEventListener('resize', dopasujWysokosc);
         document.removeEventListener('shown.bs.tab', naPokazanieZakladki);
+        if (obserwatorWysokosci) obserwatorWysokosci.disconnect();
         zamknijAdres();
         oczekujaceSelecty.forEach((t) => clearTimeout(t));
         oczekujaceSelecty.clear();
@@ -1891,10 +1940,26 @@
         if (e.target && e.target.id === 'logistics-tab') dopasujWysokosc();
     }
 
+    // Przegląd D13: `shown.bs.tab` w tym panelu w praktyce nie przychodzi (loader
+    // zakładek sam przełącza .active), a zmiana okna na innej zakładce zostawiała starą
+    // wysokość. Obserwujemy szerokość korzenia: schowany = 0, pokazany albo szerszy/
+    // węższy (też zwinięty panel boczny) = przeliczenie. Samą zmianę wysokości (w tym
+    // naszą, z --lg-uklad-wys) pomijamy — bez pętli.
+    let szerokoscKorzenia = null;
+    const obserwatorWysokosci = typeof ResizeObserver === 'function'
+        ? new ResizeObserver((wpisy) => {
+            const szerokosc = Math.round(wpisy[wpisy.length - 1].contentRect.width);
+            if (szerokosc === szerokoscKorzenia) return;
+            szerokoscKorzenia = szerokosc;
+            if (szerokosc > 0) dopasujWysokosc();
+        })
+        : null;
+
     document.addEventListener('visibilitychange', przyWidocznosci);
     document.addEventListener('logistics:mapa-gotowa', naGotowaMape);
     window.addEventListener('resize', dopasujWysokosc);
     document.addEventListener('shown.bs.tab', naPokazanieZakladki);
+    if (obserwatorWysokosci) obserwatorWysokosci.observe(root);
     dopasujWysokosc();
     stan.sort = wczytajSortowanie();
     renderujSortowanie();

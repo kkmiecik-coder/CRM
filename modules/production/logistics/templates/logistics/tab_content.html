@@ -14,7 +14,7 @@
      blokuje CDN). #}
 <link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet/leaflet.css') }}?v=1.9.4">
 <link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet-markercluster/MarkerCluster.css') }}?v=1.5.3">
-<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20260925h">
+<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20260925i">
 
 <div id="logistics-root" class="logistics-tab"
      data-api="{{ url_for('logistics_panel.orders') }}"
@@ -272,7 +272,7 @@
       </div>
       <p class="lg-dialog-blad" data-lg="adres-blad" role="alert" hidden></p>
       <div class="lg-dialog-akcje">
-        <button type="button" class="lg-przycisk" data-lg-akcja="adres-anuluj">Anuluj</button>
+        <button type="button" class="lg-przycisk" data-lg="adres-anuluj" data-lg-akcja="adres-anuluj">Anuluj</button>
         <button type="submit" class="lg-przycisk lg-przycisk--glowny" data-lg="adres-zapisz">Zapisz</button>
       </div>
     </form>
@@ -327,4 +327,4 @@
         });
 })();
 </script>
-<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20260925h"></script>
+<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20260925i"></script>
