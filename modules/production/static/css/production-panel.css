@@ -3242,6 +3242,23 @@ body {
     font-size: 12px;
 }
 
+/* Od 2026-09 pasek ma 8 zakładek (doszła Logistyka) i przy pełnych odstępach
+   potrzebuje ~1048 px. Na laptopach 1280 i 1366 px z rozwiniętym panelem
+   bocznym zostaje mu ~944 i ~1030 px, więc Konfiguracja spadała do drugiej
+   linii. Węższe odstępy (18 → 12 px) i mniejszy margines ikony (8 → 4 px)
+   dają ~920 px — wszystko w jednej linii. Powyżej 1440 px miejsca jest dość,
+   pasek zostaje bez zmian. .me-2 z Bootstrapa ma !important, stąd !important. */
+@media (max-width: 1440px) {
+    .production-tabs-bar .nav-link {
+        padding-left: 12px;
+        padding-right: 12px;
+    }
+
+    .production-tabs-bar .nav-link .me-2 {
+        margin-right: 4px !important;
+    }
+}
+
 .tab-refresh-btn {
     background: none;
     border: 1px solid #e2e8f0;
