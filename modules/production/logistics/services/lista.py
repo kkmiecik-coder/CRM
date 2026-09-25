@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 """Lista zamówień zakładki Logistyka (spec, sekcja 6.7)."""
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import selectinload
 
+from extensions import db
 from modules.production.logistics import sposoby
 from modules.production.logistics.services.delivery import aktywne_produkty, wszystkie_spakowane
-from modules.production.models import ProductionOrder
+from modules.production.models import ProductionOrder, ProductionProduct
 
 # Najwcześniejszy etap zamówienia = etap jego najbardziej zaległej pozycji.
 KOLEJNOSC_ETAPOW = ('wstrzymane', 'czeka_na_wyciecie', 'czeka_na_skladanie',
@@ -21,6 +22,31 @@ def _ranga(status):
     anomalia ma być widoczna, a nie chować się za „Spakowane”.
     """
     return KOLEJNOSC_ETAPOW.index(status) if status in KOLEJNOSC_ETAPOW else -1
+
+
+def warunek_bez_sposobu():
+    """
+    „Nie ustawiono” w SQL — ta sama definicja co sposoby.normalizuj() w Pythonie
+    (licznik zakładki, 409 tabletu): NULL albo wartość spoza SPOSOBY (np. pusty tekst).
+    Używają jej filtr `sposob=brak` i bramka dashboardu produkcji.
+    """
+    kolumna = ProductionOrder.override_delivery_method
+    return or_(kolumna.is_(None), kolumna.notin_(sposoby.SPOSOBY))
+
+
+def liczba_bez_sposobu():
+    """Bramka dashboardu produkcji: otwarte zamówienia z aktywną pozycją i bez sposobu."""
+    return db.session.query(func.count(ProductionOrder.id)).filter(
+        ProductionOrder.logistics_closed_at.is_(None),
+        warunek_bez_sposobu(),
+        ProductionOrder.products.any(ProductionProduct.current_status != 'anulowane'),
+    ).scalar() or 0
+
+
+def _wzor_like(fraza):
+    """`%`, `_` i sam znak ucieczki `\\` dosłownie (ESCAPE '\\'), nie jako wieloznaczniki."""
+    bezpieczna = fraza.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+    return u'%{}%'.format(bezpieczna)
 
 
 def _etap(aktywne):
@@ -76,15 +102,15 @@ def pobierz(sposob=None, etap=None, q=None, zamkniete=False):
     """
     zapytanie = ProductionOrder.query.options(selectinload(ProductionOrder.products))
     if q:
-        wzor = u'%{}%'.format(q.strip())
+        wzor = _wzor_like(q.strip())
         zapytanie = zapytanie.filter(or_(
-            ProductionOrder.internal_order_number.ilike(wzor),
-            ProductionOrder.client_name.ilike(wzor),
-            ProductionOrder.delivery_city.ilike(wzor)))
+            ProductionOrder.internal_order_number.ilike(wzor, escape='\\'),
+            ProductionOrder.client_name.ilike(wzor, escape='\\'),
+            ProductionOrder.delivery_city.ilike(wzor, escape='\\')))
     if not zamkniete:
         zapytanie = zapytanie.filter(ProductionOrder.logistics_closed_at.is_(None))
     if sposob == 'brak':
-        zapytanie = zapytanie.filter(ProductionOrder.override_delivery_method.is_(None))
+        zapytanie = zapytanie.filter(warunek_bez_sposobu())
     elif sposoby.normalizuj(sposob):
         zapytanie = zapytanie.filter(ProductionOrder.override_delivery_method == sposob)
     if zamkniete:

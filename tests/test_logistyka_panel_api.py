@@ -148,6 +148,134 @@ def test_zakladka_renderuje_sie(client):
 
 # ── Poprawki po przeglądzie całej gałęzi ────────────────────────────────────
 
+@pytest.mark.parametrize('body', [[1, 2], 'kurier_baselinker', 5])
+def test_cialo_json_inne_niz_obiekt_to_422(client, body):
+    """M1 (sonda P1): tablica/skalar w ciele → AttributeError na .get() → 500."""
+    assert client.post(BASE + '/orders/delivery-method', json=body).status_code == 422
+
+
+@pytest.mark.parametrize('wartosc', ['', 'DPD'])
+def test_wartosc_spoza_sposobow_to_nie_ustawiono_wszedzie(client, app, wartosc):
+    """M2 (sonda P3): wartość spoza SPOSOBY (pusty tekst, stary śmieć) licznik zakładki
+    i 409 tabletu traktują jak „Nie ustawiono” (normalizuj), a filtr `brak` i bramka
+    dashboardu liczyły tylko IS NULL — cztery definicje się rozjeżdżały."""
+    from modules.production.logistics.services import lista
+    with app.app_context():
+        numer = zamowienie(sposob=wartosc, statusy=('czeka_na_pakowanie',)).internal_order_number
+    dane = client.get(BASE + '/orders').get_json()
+    assert dane['liczniki']['brak'] == 1
+    assert [o['numer'] for o in client.get(BASE + '/orders?sposob=brak').get_json()['orders']] \
+        == [numer]
+    with app.app_context():
+        assert lista.liczba_bez_sposobu() == 1
+
+
+def test_bramka_dashboardu_liczy_przez_liste_logistyki():
+    """M2: bramka „Bez sposobu dostawy: N” ma tę samą definicję co filtr `brak`."""
+    import os
+    sciezka = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           'modules', 'production', 'routers', 'api', 'dashboard_api.py')
+    kod = open(sciezka, encoding='utf-8').read()
+    assert 'liczba_bez_sposobu()' in kod
+    assert 'override_delivery_method.is_(None)' not in kod
+
+
+def test_bramka_pomija_zamkniete_i_anulowane(app):
+    from modules.production.logistics.services import lista
+    with app.app_context():
+        zamowienie(statusy=('czeka_na_pakowanie',))                     # liczy się
+        zamowienie(statusy=('anulowane',))                              # same anulowane
+        zamowienie(statusy=('spakowane',), logistics_closed_at=datetime(2026, 9, 1))
+        zamowienie(sposob=s.KURIER, statusy=('czeka_na_pakowanie',))    # ma sposób
+        assert lista.liczba_bez_sposobu() == 1
+
+
+# M4 (spec 13): prawdziwa kontrola dostępu — bez LOGIN_DISABLED i bez podmiany
+# require_module_access. Endpointy API odpowiadają JSON-em, nie przekierowaniem HTML.
+TRASY_PANELU = [
+    ('get', '/tab-content'),
+    ('get', '/orders'),
+    ('post', '/orders/delivery-method'),
+    ('post', '/orders/1/handed-over'),
+]
+
+
+@pytest.fixture()
+def prawdziwy_dostep(app, monkeypatch):
+    import modules.users.decorators as decorators
+    from modules.users.decorators import permission_required
+    monkeypatch.setattr(decorators, 'require_module_access',
+                        permission_required.require_module_access)
+    app.config['LOGIN_DISABLED'] = False
+    app.secret_key = 'klucz-sesji-testow-logistyki-' + 'x' * 16
+    return app
+
+
+@pytest.mark.parametrize('metoda, sciezka', TRASY_PANELU)
+def test_bez_sesji_401_json(prawdziwy_dostep, metoda, sciezka):
+    r = getattr(prawdziwy_dostep.test_client(), metoda)(BASE + sciezka)
+    assert r.status_code == 401
+    assert r.get_json() == {'error': 'unauthorized'}
+
+
+@pytest.mark.parametrize('metoda, sciezka', TRASY_PANELU)
+def test_bez_uprawnien_do_produkcji_403_json(prawdziwy_dostep, monkeypatch, metoda, sciezka):
+    from modules.users.models import User
+    from modules.users.services.permission_service import PermissionService
+    with prawdziwy_dostep.app_context():
+        db.session.add(User(email='logistyk@woodpower.pl', password='x', active=True))
+        db.session.commit()
+    monkeypatch.setattr(PermissionService, 'user_has_module_access',
+                        staticmethod(lambda uid, module_key: False))
+    klient = prawdziwy_dostep.test_client()
+    with klient.session_transaction() as sesja:
+        sesja['user_email'] = 'logistyk@woodpower.pl'
+    r = getattr(klient, metoda)(BASE + sciezka)
+    assert r.status_code == 403
+    assert r.get_json() == {'error': 'module_access_denied'}
+
+
+def test_hurt_laduje_pozycje_jednym_zapytaniem(client, app):
+    """M5: pozycje zamówień ładowane selectinload-em, nie zamówienie po zamówieniu
+    (dwa razy: przy zmianie i przy serializacji odpowiedzi)."""
+    from sqlalchemy import event
+    with app.app_context():
+        ids = [zamowienie(statusy=('czeka_na_pakowanie', 'czeka_na_wyciecie')).id
+               for _ in range(4)]
+        engine = db.engine
+    zapytania = []
+
+    def nasluch(conn, cursor, statement, parameters, context, executemany):
+        gorna = ' '.join(statement.upper().split())
+        if gorna.startswith('SELECT') and 'FROM PROD_PRODUCTS' in gorna:
+            zapytania.append(gorna)
+
+    event.listen(engine, 'before_cursor_execute', nasluch)
+    try:
+        r = client.post(BASE + '/orders/delivery-method',
+                        json={'order_ids': ids, 'sposob': s.TRANSPORT})
+    finally:
+        event.remove(engine, 'before_cursor_execute', nasluch)
+    assert r.status_code == 200 and sorted(r.get_json()['zmienione']) == sorted(ids)
+    assert len(zapytania) == 2, zapytania
+
+
+@pytest.mark.parametrize('fraza, oczekiwane', [
+    ('y_S', ['Nowy_Sącz']),   # `_` dosłownie, nie „dowolny znak”
+    ('_', ['Nowy_Sącz']),
+    ('%', ['Kraków%']),        # `%` dosłownie, nie „wszystko”
+    ('\\', ['Tarnów\\Mościce']),  # sam znak ucieczki też escapowany
+])
+def test_wyszukiwarka_traktuje_znaki_like_doslownie(client, app, fraza, oczekiwane):
+    """T8: `%`, `_` i `\\` we frazie są escapowane (ESCAPE '\\')."""
+    from urllib.parse import quote
+    with app.app_context():
+        for miasto in ('Nowy_Sącz', 'NowyXSącz', 'Kraków%', 'Tarnów\\Mościce'):
+            zamowienie(miasto=miasto)
+    wynik = client.get(BASE + '/orders?q=' + quote(fraza)).get_json()['orders']
+    assert sorted(o['miasto'] for o in wynik) == oczekiwane
+
+
 def test_nieznany_status_pozycji_to_najwczesniejszy_etap(client, app):
     """I2b: produkt zapisany przez stary kod jako `czeka_na_logistyke` (okno wdrożenia)
     ma być widoczny jako anomalia — najwcześniejszy etap, nie „Spakowane”."""

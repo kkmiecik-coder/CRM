@@ -266,6 +266,27 @@ def wyslij_zamowienie(order):
 
 # ── Dopychacz ─────────────────────────────────────────────────────────────
 
+def _ostrzez_o_zawieszonej_dzierzawie(teraz=None):
+    """
+    Dopychacz nie dostał dzierżawy. Zwykle trzyma ją inny worker — to normalna praca,
+    bez logu. Ważność dalej niż 2 × CZAS_DZIERZAWY_S od teraz nie powstaje jednak przy
+    zwykłej pracy (przejmij/odnow ustawiają teraz + CZAS_DZIERZAWY_S): to cofnięty
+    zegar serwera albo ręczna edycja prod_config. Taka dzierżawa wstrzymuje WSZYSTKIE
+    wysyłki logistyki do Base. aż do zapisanej chwili, więc ostrzegamy.
+    """
+    teraz = teraz or get_local_now()
+    wartosc = dzierzawa.wiersz(KLUCZ_DZIERZAWY).config_value
+    try:
+        waznosc = datetime.fromisoformat(wartosc)
+    except (TypeError, ValueError):
+        return
+    if waznosc > teraz + timedelta(seconds=2 * CZAS_DZIERZAWY_S):
+        logger.warning("Dzierzawa wysylki do Base. zawieszona w przyszlosci - "
+                       "wysylki logistyki stoja do jej wygasniecia", extra={
+                           'klucz': KLUCZ_DZIERZAWY, 'waznosc_do': wartosc,
+                           'teraz': teraz.replace(microsecond=0).isoformat()})
+
+
 def dopychaj(limit_zapytan=None, limit_czasu_s=None, spij=time.sleep, zegar=time.monotonic):
     wynik = {'zamowienia': 0, 'zapytania': 0, 'wstrzymane': False, 'dzierzawa': False}
     if wstrzymane_do() is not None:
@@ -273,6 +294,7 @@ def dopychaj(limit_zapytan=None, limit_czasu_s=None, spij=time.sleep, zegar=time
         return wynik
     znacznik = dzierzawa.przejmij(KLUCZ_DZIERZAWY, CZAS_DZIERZAWY_S)
     if znacznik is None:
+        _ostrzez_o_zawieszonej_dzierzawie()
         return wynik
     wynik['dzierzawa'] = True
     start = zegar()

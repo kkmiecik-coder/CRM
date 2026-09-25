@@ -10,6 +10,16 @@ z poprzednią wartością. Proces, który padł, oddaje ją sam po `czas_s`.
 
 Klucze: 'logistyka_bl_dzierzawa' (wysyłka do Base., etap 1),
 'logistyka_geo_dzierzawa' (geokodowanie, etap 2).
+
+`updated_at = updated_at` w każdym UPDATE: kolumna prod_config.updated_at ma
+w MySQL ON UPDATE CURRENT_TIMESTAMP (migracja 2026-08-11-07). Przejęcie,
+odnowienie i zwolnienie dzierżawy (co ~1,5 s w czasie pracy dopychacza)
+podbijałyby ją, a MAX(prod_config.updated_at) wchodzi do ETagu podsumowania
+stanowiska tabletu (mobile_api) i unieważnia cache konfiguracji
+(worker_service) — tablety dostawałyby pełne odpowiedzi zamiast 304, a cache
+konfiguracji byłby czyszczony w kółko. Jawne przypisanie bieżącej wartości
+wyłącza auto-aktualizację w MySQL; w SQLite (testy) jest nieszkodliwe. Surowe
+UPDATE-y nie wyzwalają też ORM-owego onupdate modelu ProductionConfig.
 """
 from datetime import timedelta
 
@@ -47,7 +57,7 @@ def przejmij(klucz, czas_s, teraz=None):
     wiersz(klucz)
     nowa = _iso(teraz + timedelta(seconds=czas_s))
     wynik = db.session.execute(
-        text('UPDATE prod_config SET config_value = :nowa '
+        text('UPDATE prod_config SET config_value = :nowa, updated_at = updated_at '
              'WHERE config_key = :klucz AND config_value < :teraz'),
         {'nowa': nowa, 'klucz': klucz, 'teraz': _iso(teraz)})
     db.session.commit()
@@ -61,7 +71,7 @@ def odnow(klucz, znacznik, czas_s, teraz=None):
     if nowa == znacznik:
         return znacznik
     wynik = db.session.execute(
-        text('UPDATE prod_config SET config_value = :nowa '
+        text('UPDATE prod_config SET config_value = :nowa, updated_at = updated_at '
              'WHERE config_key = :klucz AND config_value = :stara'),
         {'nowa': nowa, 'klucz': klucz, 'stara': znacznik})
     db.session.commit()
@@ -70,7 +80,7 @@ def odnow(klucz, znacznik, czas_s, teraz=None):
 
 def zwolnij(klucz, znacznik):
     db.session.execute(
-        text('UPDATE prod_config SET config_value = :zero '
+        text('UPDATE prod_config SET config_value = :zero, updated_at = updated_at '
              'WHERE config_key = :klucz AND config_value = :znacznik'),
         {'zero': ZERO, 'klucz': klucz, 'znacznik': znacznik})
     db.session.commit()

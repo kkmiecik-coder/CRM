@@ -444,3 +444,82 @@ def test_wysylany_jest_swiezy_status_z_bazy(app, monkeypatch):
         assert fake.wywolania[1] == ('setOrderStatus', {'order_id': blid, 'status_id': 149779})
         db.session.expire_all()
         assert ProductionOrder.query.get(order_id).bl_status_pending_id is None
+
+
+# ── M3 (przegląd gałęzi): dzierżawa nie podbija prod_config.updated_at ───────────
+
+def test_dzierzawa_nie_podbija_updated_at_prod_config(app):
+    """prod_config.updated_at ma w MySQL ON UPDATE CURRENT_TIMESTAMP (migracja
+    2026-08-11-07). Przejęcie/odnowienie/zwolnienie dzierżawy (co ~1,5 s) podbijałoby
+    go, a MAX(updated_at) prod_config wchodzi do ETagu podsumowania tabletu i unieważnia
+    cache konfiguracji. Jawne `updated_at = updated_at` wyłącza auto-aktualizację.
+    SQLite nie ma ON UPDATE — sprawdzamy więc treść wysyłanych UPDATE-ów."""
+    zapisy = []
+
+    def nasluch(conn, cursor, statement, parameters, context, executemany):
+        gorna = ' '.join(statement.upper().split())
+        if gorna.startswith('UPDATE PROD_CONFIG'):
+            zapisy.append(gorna)
+
+    with app.app_context():
+        teraz = datetime(2026, 9, 25, 12, 0, 0)
+        klucz = bl_sync.KLUCZ_DZIERZAWY
+        dzierzawa.wiersz(klucz)  # INSERT wiersza poza podsłuchem
+        engine = db.engine
+        event.listen(engine, 'before_cursor_execute', nasluch)
+        try:
+            znacznik = dzierzawa.przejmij(klucz, 90, teraz)
+            znacznik = dzierzawa.odnow(klucz, znacznik, 90, teraz + timedelta(seconds=30))
+            dzierzawa.zwolnij(klucz, znacznik)
+        finally:
+            event.remove(engine, 'before_cursor_execute', nasluch)
+    assert len(zapisy) == 3
+    assert all('UPDATED_AT = UPDATED_AT' in z for z in zapisy), zapisy
+
+
+# ── M8 (przegląd gałęzi): dzierżawa „zawieszona” w przyszłości ───────────────────
+
+class LoggerSzpieg(object):
+    def __init__(self):
+        self.ostrzezenia = []
+
+    def debug(self, message, **kwargs):
+        pass
+
+    info = error = debug
+
+    def warning(self, message, **kwargs):
+        self.ostrzezenia.append((message, kwargs))
+
+
+def _ustaw_dzierzawe(wartosc):
+    rekord = dzierzawa.wiersz(bl_sync.KLUCZ_DZIERZAWY)
+    rekord.config_value = wartosc
+    db.session.commit()
+
+
+def test_zawieszona_dzierzawa_daje_ostrzezenie(app, base, monkeypatch):
+    """Ważność dalej niż 2 × CZAS_DZIERZAWY_S od teraz nie powstaje przy zwykłej pracy
+    (cofnięty zegar, ręczna edycja) i blokuje wysyłki do Base. — ostrzegamy."""
+    szpieg = LoggerSzpieg()
+    monkeypatch.setattr(bl_sync, 'logger', szpieg)
+    with app.app_context():
+        zamowienie(sposob=s.KURIER, bl_delivery_method_pending=True)
+        _ustaw_dzierzawe('2099-01-01T00:00:00')
+        wynik = bl_sync.dopychaj(spij=lambda _: None)
+    assert wynik['dzierzawa'] is False and base.wywolania == []
+    assert len(szpieg.ostrzezenia) == 1
+
+
+def test_dzierzawa_innego_procesu_bez_ostrzezenia(app, base, monkeypatch):
+    """Zwykły przypadek: dzierżawę trzyma inny worker (ważność ≈ teraz + CZAS_DZIERZAWY_S)."""
+    from modules.production.models import get_local_now
+    szpieg = LoggerSzpieg()
+    monkeypatch.setattr(bl_sync, 'logger', szpieg)
+    with app.app_context():
+        zamowienie(sposob=s.KURIER, bl_delivery_method_pending=True)
+        cudza = get_local_now() + timedelta(seconds=bl_sync.CZAS_DZIERZAWY_S)
+        _ustaw_dzierzawe(cudza.replace(microsecond=0).isoformat())
+        wynik = bl_sync.dopychaj(spij=lambda _: None)
+    assert wynik['dzierzawa'] is False and base.wywolania == []
+    assert szpieg.ostrzezenia == []

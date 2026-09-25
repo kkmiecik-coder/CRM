@@ -9,6 +9,7 @@ from functools import wraps
 
 from flask import jsonify, render_template, request
 from flask_login import current_user, login_required
+from sqlalchemy.orm import selectinload
 
 import modules.users.decorators as user_decorators
 from extensions import db
@@ -66,6 +67,9 @@ def orders():
 @guard
 def delivery_method():
     dane = request.get_json(silent=True) or {}
+    if not isinstance(dane, dict):
+        # Tablica albo skalar w ciele JSON — bez tego .get() rzuca AttributeError (500).
+        return _blad(u'Nieprawidłowe dane żądania.', 422)
     ids = dane.get('order_ids')
     sposob = sposoby.normalizuj(dane.get('sposob'))
     if not isinstance(ids, list) or not ids or len(ids) > LIMIT_HURTU:
@@ -80,7 +84,10 @@ def delivery_method():
         return _blad(u'Nieznany sposób dostawy.', 422)
 
     zmienione, przepakowanie, bledy = [], [], []
-    for order in ProductionOrder.query.filter(ProductionOrder.id.in_(ids)).all():
+    # selectinload: pozycje wszystkich zamówień jednym zapytaniem, nie zamówienie
+    # po zamówieniu (hurt do LIMIT_HURTU zamówień, a pozycji potrzebuje każda zmiana).
+    for order in (ProductionOrder.query.options(selectinload(ProductionOrder.products))
+                  .filter(ProductionOrder.id.in_(ids)).all()):
         try:
             wynik = delivery.ustaw_sposob_dostawy(order, sposob, user_id=_user_id())
         except delivery.LogistykaBlad as e:
@@ -96,7 +103,8 @@ def delivery_method():
         'bledy': len(bledy)})
 
     bl_sync.po_zmianie(zmienione)
-    odswiezone = ProductionOrder.query.filter(ProductionOrder.id.in_(ids)).all()
+    odswiezone = (ProductionOrder.query.options(selectinload(ProductionOrder.products))
+                  .filter(ProductionOrder.id.in_(ids)).all())
     return jsonify({'success': True, 'zmienione': zmienione, 'przepakowanie': przepakowanie,
                     'bledy': bledy, 'orders': [lista.serializuj(o) for o in odswiezone]})
 

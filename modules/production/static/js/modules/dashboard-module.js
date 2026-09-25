@@ -470,7 +470,7 @@ class DashboardModule {
      * DLACZEGO TUTAJ, A NIE W SZABLONIE: kropki muszą jechać ze stałą
      * prędkością niezależnie od długości trasy, a długość ścieżki SVG zna
      * dopiero przeglądarka (getTotalLength()). Gdyby wszystkie trasy miały
-     * ten sam CZAS cyklu, kropka na długim łuku Sklejanie→Logistyka wlokłaby
+     * ten sam CZAS cyklu, kropka na długim łuku Sklejanie→Pakowanie wlokłaby
      * się wolniej niż ta na czterdziestopikselowym odcinku między sąsiednimi
      * wierszami.
      *

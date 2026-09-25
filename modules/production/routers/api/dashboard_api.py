@@ -13,7 +13,6 @@ from sqlalchemy import func, and_
 from sqlalchemy.orm import joinedload
 
 from . import api_bp, logger, ProductionItem, ProductionError, ProductionSyncLog, get_local_now
-from modules.production.models import ProductionOrder
 from ...services.station_events_service import (
     get_station_work_in_range,
     get_station_work_per_day,
@@ -998,11 +997,9 @@ def dashboard_tab_content():
 
         # Bramka Logistyki: otwarte zamówienia, którym logistyk nie ustawił jeszcze
         # sposobu dostawy (logistyka jest równoległa — nie liczymy statusu produktu).
-        logistics_pending = db.session.query(db.func.count(ProductionOrder.id)).filter(
-            ProductionOrder.logistics_closed_at.is_(None),
-            ProductionOrder.override_delivery_method.is_(None),
-            ProductionOrder.products.any(ProductionItem.current_status != 'anulowane'),
-        ).scalar() or 0
+        # Definicja „Nie ustawiono” wspólna z filtrem `brak` zakładki Logistyka.
+        from modules.production.logistics.services import lista as lista_logistyki
+        logistics_pending = lista_logistyki.liczba_bez_sposobu()
         dashboard_stats['logistics'] = {
             'pending_count': logistics_pending
         }
