@@ -6,44 +6,55 @@ Eksport do Routimo (`GET /routes/<id>/routimo`) NIE jest tu — dochodzi w Task 
 (R2, kontroler): dodanie go teraz jako 501 tylko po to, by go zastąpić w kolejnym
 zadaniu, jest zbędnym krokiem pośrednim.
 """
-from datetime import date
+from datetime import date, timedelta
 
 from flask import jsonify, request
+from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import selectinload
 
 from extensions import db
 from modules.production.logistics import logistics_panel_bp
 from modules.production.logistics.models import Route, STATUSY_TRASY, Vehicle
-from modules.production.logistics.routers.panel_api import _blad, _user_id, guard
+from modules.production.logistics.routers.panel_api import LIMIT_HURTU, _blad, _user_id, guard
 from modules.production.logistics.services import fleet, geocoding, lista, routes, routing
 from modules.production.logistics.services.delivery import LogistykaBlad
+from modules.production.models import ProductionOrder, ProductionProduct, get_local_now
 
 KOLEJNOSC_STATUSOW = {'robocza': 0, 'zatwierdzona': 1, 'wykonana': 2}
-# Jak panel_api.LIMIT_HURTU (etap 2) — ta sama wartość, osobna stała: routery nie
-# dzielą między sobą stanu ani stałych.
-LIMIT_HURTU = 500
-KOMUNIKAT_KONFLIKT = (u'Zamówienie trafiło w międzyczasie na inną trasę — '
-                     u'odśwież listę i spróbuj ponownie.')
+# (I1, ruling okna domyślnego) Bez jawnego `od` GET /routes ciągnąłby WSZYSTKIE
+# trasy w historii firmy — trasy WYKONANE (zamknięty, archiwalny stan) starsze
+# niż tyle dni znikają z domyślnego widoku; robocza/zatwierdzona NIGDY nie są
+# tym oknem przycinane (to bieżąca praca logistyki).
+DNI_WYKONANYCH_DOMYSLNIE = 30
+KOMUNIKAT_KONFLIKT_PRZYSTANKU = (u'Zamówienie trafiło w międzyczasie na inną trasę — '
+                                 u'odśwież listę i spróbuj ponownie.')
+KOMUNIKAT_KONFLIKT_TRASY = u'Dane trasy zmieniły się w międzyczasie — odśwież i spróbuj ponownie.'
 
 
 # ── Pomocnicze ───────────────────────────────────────────────────────────
 
 def _cialo():
     """
-    Ciało JSON żądania jako `dict`. Brak ciała (albo `null`) liczy się jak pusty
-    obiekt — ten sam wzorzec co `request.get_json(silent=True) or {}` w
-    panel_api.py. Cokolwiek innego niż obiekt (lista, tekst, liczba) odrzucamy
-    TU, jedną wspólną funkcją — bez niej każdy z wielu endpointów tego routera,
-    które czytają ciało, powtarzałby ten sam warunek osobno (R9), a `.get()`
-    gołej listy/liczby niżej rzuciłby AttributeError (500) zamiast czytelnej
-    odmowy.
+    Ciało JSON żądania jako `dict`. Brak ciała → `{}`; ciało NIEPUSTE, które nie
+    sparsuje się do obiektu JSON (zły JSON, zły Content-Type, JSON nie-obiektowy:
+    lista/tekst/liczba/`null`) → 422.
+
+    (M1, poprawka po przeglądzie) `request.get_json(silent=True)` zwraca `None`
+    RÓWNIEŻ dla ciała, które jest śmieciem (zły JSON albo zły Content-Type) —
+    nie tylko dla braku ciała. Samo sprawdzenie `dane is None` nie odróżnia tych
+    dwóch przypadków, więc `POST /complete` z zepsutym ciałem trafiał w gałąź
+    „brak delivered_order_ids = wszystkie dostarczone" zamiast czytelnej odmowy:
+    cichy, masowy zapis zamiast błędu wejścia. `request.get_data()` (surowe bajty,
+    cachowane — Flask i tak już je przeczytał w `get_json`) rozstrzyga: niepuste
+    ciało, które nie sparsowało się do `dict`, zawsze 422.
     """
     dane = request.get_json(silent=True)
-    if dane is None:
+    if isinstance(dane, dict):
+        return dane
+    if not request.get_data(cache=True):
         return {}
-    if not isinstance(dane, dict):
-        raise LogistykaBlad(u'Nieprawidłowe dane żądania.', status=422)
-    return dane
+    raise LogistykaBlad(u'Nieprawidłowe dane żądania.', status=422)
 
 
 def _stopy_z_ciala(dane):
@@ -58,19 +69,81 @@ def _odmowa(e):
     return _blad(e.komunikat, e.status)
 
 
-def _konflikt():
-    # (R9) UNIQUE na prod_route_stops.order_id jako ostatnia linia obrony, gdy
-    # dwie osoby jednocześnie dodają to samo zamówienie do dwóch różnych tras —
-    # blokada globalna (routes.zablokuj_trasy) serializuje zapisy JEDNEGO procesu,
-    # ale gunicorn ma kilka procesów roboczych, każdy z własną blokadą MySQL.
+def _konflikt(komunikat):
+    """
+    (M6, poprawka po przeglądzie — poprzedni komentarz był błędny) Blokada
+    globalna (`routes.zablokuj_trasy`) to PRAWDZIWA blokada MySQL — wiersz
+    zablokowany `FOR UPDATE` w `prod_config` — więc serializuje WSZYSTKICH
+    piszących trasy, także równoległe procesy robocze gunicorna, nie tylko jeden
+    proces. Mimo to łapiemy `IntegrityError` jako ostatnią linię obrony, gdy:
+    (a) brakuje wiersza blokady (`zablokuj_trasy` działa wtedy fail-open — patrz
+    jej docstring), (b) piszący nie przechodzi przez tę blokadę. W `_akcja`:
+    UNIQUE na `prod_route_stops.order_id`, gdy dwie osoby dodają to samo
+    zamówienie do dwóch tras naraz. W `route_create`: jedyny realny wyścig to FK
+    na pojeździe/kierowcy — stąd inny, ogólny tekst zamiast tego o przystanku.
+    """
     db.session.rollback()
-    return _blad(KOMUNIKAT_KONFLIKT, 409)
+    return _blad(komunikat, 409)
+
+
+def _zamowienia_z_produktami(route):
+    """
+    (M2, poprawka po przeglądzie) Zamówienia trasy z pozycjami i konfiguracjami
+    jednym zapytaniem każde — ten sam eager loading co `lista.pobierz`.
+    `routes.zamowienia_trasy` (bez `selectinload`) tu nie wystarcza:
+    `podsumowanie`/`lista.serializuj` czytają `order.products` i
+    `produkt.configuration` — bez tego każde zamówienie (i każda jego pozycja)
+    to osobne, leniwe zapytanie w szczegółach JEDNEJ trasy.
+    """
+    ids = [s.order_id for s in route.stops]
+    if not ids:
+        return []
+    po_id = {o.id: o for o in ProductionOrder.query.options(
+        selectinload(ProductionOrder.products).selectinload(ProductionProduct.configuration)
+    ).filter(ProductionOrder.id.in_(ids)).all()}
+    return [po_id[i] for i in ids if i in po_id]
+
+
+def _wczytaj_trasy(zapytanie):
+    """
+    (I1, poprawka po przeglądzie) Zbiorcze wczytanie tras do listy/mapy bez
+    lawiny zapytań: trasy razem z przystankami/pojazdem/kierowcą (`selectinload`,
+    po jednym zapytaniu na każdą relację — nie R tras × S przystanków), zamówienia
+    WSZYSTKICH tras jednym zapytaniem z tym samym eager loadingiem co
+    `lista.pobierz` (pozycje + konfiguracje), punkty geo jednym zapytaniem. Bez
+    tego każda trasa osobno odpytywałaby swoje przystanki/zamówienia/pozycje/geo —
+    R × (3 + S) zapytań na jedno żądanie, na synchronicznych workerach gunicorna,
+    od których zależą też tablety hali.
+
+    Zwraca `(trasy, zamowienia_wg_trasy, punkty)`; `zamowienia_wg_trasy[route.id]`
+    to lista zamówień W KOLEJNOŚCI przystanków tej trasy (przystanek bez
+    dopasowanego zamówienia — np. skasowanego w międzyczasie — jest pomijany,
+    tak jak w `routes.zamowienia_trasy`).
+    """
+    trasy = (zapytanie
+            .options(selectinload(Route.stops), selectinload(Route.vehicle),
+                     selectinload(Route.driver))
+            .all())
+    wszystkie_ids = list({s.order_id for trasa in trasy for s in trasa.stops})
+    zamowienia_po_id = {}
+    if wszystkie_ids:
+        zamowienia_po_id = {o.id: o for o in ProductionOrder.query.options(
+            selectinload(ProductionOrder.products).selectinload(ProductionProduct.configuration)
+        ).filter(ProductionOrder.id.in_(wszystkie_ids)).all()}
+    punkty = geocoding.geo_zamowien(wszystkie_ids)
+    zamowienia_wg_trasy = {
+        trasa.id: [zamowienia_po_id[s.order_id] for s in trasa.stops if s.order_id in zamowienia_po_id]
+        for trasa in trasy
+    }
+    return trasy, zamowienia_wg_trasy, punkty
 
 
 def _szczegoly(route):
-    zamowienia = routes.zamowienia_trasy(route)
+    zamowienia = _zamowienia_z_produktami(route)
     punkty = geocoding.geo_zamowien([o.id for o in zamowienia])
-    if routing.przelicz(route, punkty):
+    # (M4, spec 8.2) Trasa WYKONANA jest tylko do odczytu — samo jej obejrzenie
+    # nie może przeliczać (i nadpisywać) przebiegu/dystansu/czasu w cache.
+    if route.status != 'wykonana' and routing.przelicz(route, punkty):
         db.session.commit()
     dane = routes.serializuj_trase(route, zamowienia, punkty)
     dane['przystanki'] = [{'pozycja': i, 'zamowienie': lista.serializuj(o, punkty.get(o.id), route)}
@@ -103,7 +176,7 @@ def _akcja(route_id, funkcja):
     except LogistykaBlad as e:
         return _odmowa(e)
     except IntegrityError:
-        return _konflikt()
+        return _konflikt(KOMUNIKAT_KONFLIKT_PRZYSTANKU)
     odpowiedz = {'success': True, 'route': _szczegoly(trasa)}
     if isinstance(wynik, dict):
         odpowiedz.update(wynik if 'dodane' in wynik else {'wynik': wynik})
@@ -180,7 +253,15 @@ def availability():
         return _blad(u'Podaj daty RRRR-MM-DD.', 422)
     if do < od:
         return _blad(u'Data „do” jest wcześniejsza niż „od”.', 422)
-    route_id = request.args.get('route_id', type=int)
+    route_id_surowy = request.args.get('route_id')
+    route_id = None
+    if route_id_surowy:
+        # (M8) `type=int` Werkzeuga po cichu zwraca `None` na złej wartości —
+        # `route_id=abc` wyglądałby jak „nie podano", zamiast odmowy.
+        try:
+            route_id = int(route_id_surowy)
+        except ValueError:
+            return _blad(u'Nieprawidłowy identyfikator trasy.', 422)
     return jsonify(dict(routes.dostepnosc(od, do, route_id), success=True))
 
 
@@ -199,18 +280,23 @@ def routes_list():
         # (R9) Zawsze porównujemy z sparsowanym `date`, nigdy z surowym tekstem
         # żądania — DATE w MySQL 8 na nieprawidłowym literale rzuca 1525 (500),
         # SQLite testów by tego nie złapało.
-        if request.args.get('od'):
-            zapytanie = zapytanie.filter(Route.date_to >= date.fromisoformat(request.args['od']))
-        if request.args.get('do'):
-            zapytanie = zapytanie.filter(Route.date_from <= date.fromisoformat(request.args['do']))
+        od = date.fromisoformat(request.args['od']) if request.args.get('od') else None
+        do = date.fromisoformat(request.args['do']) if request.args.get('do') else None
     except ValueError:
         return _blad(u'Podaj daty RRRR-MM-DD.', 422)
-    trasy = sorted(zapytanie.all(), key=lambda r: (KOLEJNOSC_STATUSOW[r.status], r.date_from, r.id))
-    wynik = []
-    for trasa in trasy:
-        zamowienia = routes.zamowienia_trasy(trasa)
-        wynik.append(routes.serializuj_trase(
-            trasa, zamowienia, geocoding.geo_zamowien([o.id for o in zamowienia])))
+    if od is not None:
+        zapytanie = zapytanie.filter(Route.date_to >= od)
+    else:
+        # (I1, ruling okna domyślnego) Brak `od` → trasy WYKONANE starsze niż
+        # DNI_WYKONANYCH_DOMYSLNIE dni znikają z listy; robocza/zatwierdzona
+        # przechodzą zawsze (pierwszy człon OR-a).
+        granica = get_local_now().date() - timedelta(days=DNI_WYKONANYCH_DOMYSLNIE)
+        zapytanie = zapytanie.filter(or_(Route.status != 'wykonana', Route.date_to >= granica))
+    if do is not None:
+        zapytanie = zapytanie.filter(Route.date_from <= do)
+    trasy, zamowienia_wg_trasy, punkty = _wczytaj_trasy(zapytanie)
+    trasy = sorted(trasy, key=lambda r: (KOLEJNOSC_STATUSOW[r.status], r.date_from, r.id))
+    wynik = [routes.serializuj_trase(trasa, zamowienia_wg_trasy[trasa.id], punkty) for trasa in trasy]
     return jsonify({'success': True, 'routes': wynik})
 
 
@@ -223,7 +309,7 @@ def route_create():
     except LogistykaBlad as e:
         return _odmowa(e)
     except IntegrityError:
-        return _konflikt()
+        return _konflikt(KOMUNIKAT_KONFLIKT_TRASY)
     return jsonify({'success': True, 'route': _szczegoly(trasa)}), 201
 
 
@@ -240,12 +326,14 @@ def routes_map():
     Reszta tras w tym żądaniu wraca z przebiegiem z cache (przeliczy je kolejne
     żądanie) — UI i tak odświeża mapę po każdej zmianie trasy.
     """
+    # (M8) Sortowanie po (date_from, id) — nie samym date_from — żeby kolejność
+    # (a więc i kolory tras w UI) była stabilna między żądaniami przy remisie dnia.
+    zapytanie = Route.query.filter(Route.status.in_(routes.AKTYWNE)).order_by(Route.date_from, Route.id)
+    trasy, zamowienia_wg_trasy, punkty = _wczytaj_trasy(zapytanie)   # (I1) ten sam eager loading co lista
     wynik = []
     przeliczono = False
-    aktywne = Route.query.filter(Route.status.in_(routes.AKTYWNE)).order_by(Route.date_from).all()
-    for trasa in aktywne:
-        zamowienia = routes.zamowienia_trasy(trasa)
-        punkty = geocoding.geo_zamowien([o.id for o in zamowienia])
+    for trasa in trasy:
+        zamowienia = zamowienia_wg_trasy[trasa.id]
         if not przeliczono and routing.przelicz(trasa, punkty):
             przeliczono = True
             db.session.commit()
