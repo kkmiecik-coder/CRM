@@ -247,11 +247,15 @@ def _gugik(zapytanie, http_get):
     return odp.json() or {}
 
 
-def _odleglosc_km(a, b):
+def odleglosc_km(a, b):
     """Przybliżenie równoprostokątne — na skalę kraju wystarcza do progu kilku km."""
     x = math.radians(b[1] - a[1]) * math.cos(math.radians((a[0] + b[0]) / 2))
     y = math.radians(b[0] - a[0])
     return 6371 * math.hypot(x, y)
+
+
+# Alias dla wstecznej kompatybilności — używany przez testy etapu 2
+_odleglosc_km = odleglosc_km
 
 
 def _nominatim(parametry, http_get):
@@ -275,7 +279,7 @@ def _nominatim(parametry, http_get):
         return None
     if bez_kodu:
         inne = [_wspolrzedne(d.get('lat'), d.get('lon')) for d in dane[1:] if isinstance(d, dict)]
-        if any(p is not None and _odleglosc_km(punkt, p) > PROG_NIEJEDNOZNACZNOSCI_KM
+        if any(p is not None and odleglosc_km(punkt, p) > PROG_NIEJEDNOZNACZNOSCI_KM
                for p in inne):
             return None
     try:
