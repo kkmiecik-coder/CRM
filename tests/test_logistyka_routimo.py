@@ -37,3 +37,94 @@ def test_stary_eksport_routimo_bez_zmian():
     assert ark.row_dimensions[1].height == 43.0
     assert ark[1][0].font.bold and ark[2][32].alignment.wrap_text
     assert ark.parent.sheetnames == ['Sheet1', 'Sheet2']
+
+
+from datetime import date
+
+from extensions import db
+from modules.production.logistics import sposoby as s
+from modules.production.logistics.models import OrderGeo
+from modules.production.logistics.services import routes, routimo
+from tests.logistyka_fixtures import BASE, app, client, pojazd, zamowienie  # noqa: F401,E402
+
+
+def test_wspolny_generator_to_te_same_naglowki():
+    assert len(routimo.NAGLOWKI) == 37
+    ark = _arkusz(routimo.zbuduj_excel([['x'] * 37]))
+    assert [c.value for c in ark[1]] == routimo.NAGLOWKI
+
+
+def _zatwierdzona(app):
+    v = pojazd(name='Iveco KR 1')
+    trasa = routes.utworz({'name': 'Kraków + Tarnów', 'date_from': '2026-10-01', 'vehicle_id': v.id})
+    a = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane',))
+    a.delivery_address, a.delivery_postcode, a.client_phone = 'Floriańska 10/5', '31-021', '600'
+    b = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane',))
+    db.session.add(OrderGeo(order_id=a.id, lat=50.062726, lng=19.93962, source='gugik',
+                            quality='dokladna', address_hash='x' * 40))
+    routes.dodaj_przystanki(trasa, [b.id, a.id])
+    routes.zatwierdz(trasa)
+    db.session.commit()
+    return trasa, a, b
+
+
+def test_wiersze_trasy_w_kolejnosci_przystankow(app):
+    with app.app_context():
+        trasa, a, b = _zatwierdzona(app)
+        wiersze = routimo.wiersze_trasy(trasa)
+        assert [w[2] for w in wiersze] == [b.baselinker_order_id, a.baselinker_order_id]
+        w = wiersze[1]
+        assert (w[5], w[6], w[7], w[8]) == ('Floriańska', '10', '5', '31-021')
+        assert w[20] == '2026-10-01' and w[22] == 'Iveco KR 1'
+        assert (w[30], w[31]) == (50.062726, 19.93962)
+        # PostcodeToStateMapper.get_state_from_postcode zwraca formę z wielkiej litery
+        # (STATE_NORMALIZATION['małopolskie'] == 'Małopolskie') — nie 'małopolskie' jak w brief.
+        assert w[11] == 'Małopolskie'
+        assert wiersze[0][30] == ''       # bez współrzędnych — puste
+
+
+def test_eksport_tylko_dla_zatwierdzonej(client, app):
+    with app.app_context():
+        trasa, _a, _b = _zatwierdzona(app)
+        rid = trasa.id
+        robocza = routes.utworz({'name': 'R', 'date_from': '2026-11-01'})
+        db.session.commit()
+        rid_roboczej = robocza.id
+    r = client.get(BASE + '/routes/%d/routimo' % rid)
+    assert r.status_code == 200
+    assert r.headers['Content-Type'].startswith(
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    assert 'routimo_' in r.headers['Content-Disposition']
+    assert client.get(BASE + '/routes/%d/routimo' % rid_roboczej).status_code == 409
+
+
+def test_eksport_dla_wykonanej_trasy(client, app):
+    """R11 (kontroler): eksport dostępny też dla trasy WYKONANEJ, nie tylko zatwierdzonej —
+    przewoźnik może pobrać plik ponownie już po zamknięciu trasy."""
+    with app.app_context():
+        trasa, _a, _b = _zatwierdzona(app)
+        routes.wykonaj(trasa)
+        db.session.commit()
+        rid = trasa.id
+    r = client.get(BASE + '/routes/%d/routimo' % rid)
+    assert r.status_code == 200
+
+
+def test_eksport_404_dla_nieistniejacej_trasy(client):
+    assert client.get(BASE + '/routes/999999/routimo').status_code == 404
+
+
+def test_nazwa_pliku_transliteruje_polskie_znaki():
+    """R10 (kontroler): polskie znaki zamienione na ASCII PRZED slugowaniem nazwy pliku."""
+    trasa = NS(name='Kraków + Tarnów', date_from=date(2026, 10, 1))
+    assert routimo.nazwa_pliku(trasa) == 'routimo_krakow-tarnow_2026-10-01.xlsx'
+
+
+def test_nazwa_pliku_lodz():
+    trasa = NS(name='Łódź', date_from=date(2026, 10, 1))
+    assert routimo.nazwa_pliku(trasa) == 'routimo_lodz_2026-10-01.xlsx'
+
+
+def test_nazwa_pliku_same_symbole_spada_na_trasa():
+    trasa = NS(name='###???', date_from=date(2026, 10, 1))
+    assert routimo.nazwa_pliku(trasa) == 'routimo_trasa_2026-10-01.xlsx'

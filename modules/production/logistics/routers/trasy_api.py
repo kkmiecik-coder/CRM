@@ -2,13 +2,14 @@
 """
 API tras, floty i dostępności — /production/api/logistics/* (etap 3).
 
-Eksport do Routimo (`GET /routes/<id>/routimo`) NIE jest tu — dochodzi w Task 7
-(R2, kontroler): dodanie go teraz jako 501 tylko po to, by go zastąpić w kolejnym
-zadaniu, jest zbędnym krokiem pośrednim.
+Eksport do Routimo: `GET /routes/<id>/routimo` (Task 7) — formatowanie w
+modules/production/logistics/services/routimo.py, wspólne z eksportem
+zakładki Raporty (modules/reports/routers.generate_routimo_excel).
 """
+import io
 from datetime import date, timedelta
 
-from flask import jsonify, request
+from flask import jsonify, request, send_file
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
@@ -17,7 +18,7 @@ from extensions import db
 from modules.production.logistics import logistics_panel_bp
 from modules.production.logistics.models import Route, STATUSY_TRASY, Vehicle
 from modules.production.logistics.routers.panel_api import LIMIT_HURTU, _blad, _user_id, guard
-from modules.production.logistics.services import fleet, geocoding, lista, routes, routing
+from modules.production.logistics.services import fleet, geocoding, lista, routes, routimo, routing
 from modules.production.logistics.services.delivery import LogistykaBlad
 from modules.production.models import ProductionOrder, ProductionProduct, get_local_now
 
@@ -359,6 +360,27 @@ def route_get(route_id):
     if trasa is None:
         return _blad(u'Nie ma takiej trasy.', 404)
     return jsonify({'success': True, 'route': _szczegoly(trasa)})
+
+
+@logistics_panel_bp.route('/routes/<int:route_id>/routimo', methods=['GET'])
+@guard
+def route_routimo(route_id):
+    """
+    Eksport trasy do Routimo (spec 8.4, Task 7) — tylko do odczytu: żadnej
+    blokady trasy (routes.zablokuj_trasy) i żadnego wołania ORS, w przeciwieństwie
+    do _szczegoly/routing.przelicz. Dostępny dla trasy zatwierdzonej ORAZ wykonanej
+    (R11, kontroler) — przewoźnik może pobrać plik ponownie już po zamknięciu trasy;
+    robocza (jeszcze się zmienia) zwraca 409, jak reszta operacji na trasie.
+    """
+    trasa = _trasa_albo_none(route_id)
+    if trasa is None:
+        return _blad(u'Nie ma takiej trasy.', 404)
+    if trasa.status not in ('zatwierdzona', 'wykonana'):
+        return _blad(u'Eksport do Routimo jest dostępny po zatwierdzeniu trasy.', 409)
+    tresc = routimo.zbuduj_excel(routimo.wiersze_trasy(trasa))
+    return send_file(io.BytesIO(tresc), as_attachment=True,
+                     download_name=routimo.nazwa_pliku(trasa),
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 
 @logistics_panel_bp.route('/routes/<int:route_id>', methods=['PUT'])
