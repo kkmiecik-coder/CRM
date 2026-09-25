@@ -87,7 +87,7 @@ class ProductionApp {
         const tabParam = params.get('tab');
         if (tabParam) {
             const tabName = tabParam.endsWith('-tab') ? tabParam : `${tabParam}-tab`;
-            const validTabs = ['dashboard-tab', 'products-tab', 'archive-tab',
+            const validTabs = ['dashboard-tab', 'products-tab', 'archive-tab', 'logistics-tab',
                                'sawmill-tab', 'reports-tab', 'workers-tab', 'config-tab'];
             if (validTabs.includes(tabName)) {
                 return tabName;
@@ -276,6 +276,7 @@ class ProductionApp {
             case 'dashboard-tab': await this.loadDashboardTab(); break;
             case 'products-tab': await this.loadProductsTab(); break;
             case 'archive-tab': await this.loadArchiveTab(); break;
+            case 'logistics-tab': await this.loadLogisticsTab(); break;
             case 'sawmill-tab': await this.loadSawmillTab(); break;
             case 'reports-tab': await this.loadReportsTab(); break;
             case 'workers-tab': await this.loadWorkersTab(); break;
@@ -361,6 +362,36 @@ class ProductionApp {
         } catch (error) {
             console.error('[ProductionApp] Archive loading failed:', error);
             this.showTabError('archive-tab', error.message);
+            throw error;
+        }
+    }
+
+    /**
+     * Zakładka Logistyka — jak Trakownia: własny blueprint zwraca gotowy HTML
+     * (logistics_panel_bp), więc fetch() zamiast wspólnego ApiClient.
+     */
+    async loadLogisticsTab() {
+        try {
+            const response = await fetch('/production/api/logistics/tab-content', {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            });
+            if (!response.ok) {
+                if (response.status === 403) {
+                    throw new Error('Brak dostępu do modułu produkcji');
+                }
+                throw new Error(`HTTP ${response.status}`);
+            }
+            const container = document.getElementById('logistics-tab-content');
+            if (container) {
+                container.innerHTML = await response.text();
+                // <script src> z końca szablonu odtwarzamy ręcznie (innerHTML go nie
+                // wykonuje). Ponowne wykonanie przy forceRefresh() sprząta po
+                // poprzedniej instancji samo — patrz początek logistics.js.
+                this.executeInlineScripts(container);
+            }
+        } catch (error) {
+            console.error('[ProductionApp] Logistics loading failed:', error);
+            this.showTabError('logistics-tab', error.message);
             throw error;
         }
     }
@@ -707,10 +738,13 @@ class ProductionApp {
 
     handleKeyboardShortcuts(event) {
         // Tab navigation shortcuts (Ctrl+1, Ctrl+2, etc.)
-        if (event.ctrlKey && event.key >= '1' && event.key <= '6') {
+        // Kolejność = kolejność przycisków w pasku zakładek (bez Pracowników).
+        // Logistyka weszła przed Trakownię, więc zakres rośnie do Ctrl+7 —
+        // inaczej Konfiguracja wypadłaby poza skróty.
+        if (event.ctrlKey && event.key >= '1' && event.key <= '7') {
             event.preventDefault();
             const tabIndex = parseInt(event.key) - 1;
-            const tabs = ['dashboard-tab', 'products-tab', 'archive-tab',
+            const tabs = ['dashboard-tab', 'products-tab', 'archive-tab', 'logistics-tab',
                           'sawmill-tab', 'reports-tab', 'config-tab'];
 
             if (tabs[tabIndex]) {

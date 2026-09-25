@@ -1,3 +1,153 @@
-{# Zakładka Logistyka — wygląd i JS powstają w Task 10 (skill frontend-design). #}
+{# Zakładka Logistyka — doczytywana AJAX-em przez production-app-loader.js
+   (loadLogisticsTab). Szablon niesie tylko szkielet: liczniki, filtry i tabelę
+   wypełnia logistics.js z /production/api/logistics/orders.
+
+   Zasady tego fragmentu:
+   - ŻADNEGO data-bs-toggle="tab", data-goto-tab ani klasy .tab-pane —
+     production-app-loader nasłuchuje na nie globalnie (handleTabClick,
+     updateTabUI) i wziąłby podzakładkę za zakładkę główną.
+   - W tekstach „Base.”, nigdy nazwa integracji ani skrót.
+   - Wiersze „Nie ustawiono” to kolejka pracy logistyka: taśma na lewej
+     krawędzi (ten sam znak co przy liczniku) i ciepłe tło, reszta spokojna. #}
+<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20260925">
+
 <div id="logistics-root" class="logistics-tab" data-api="{{ url_for('logistics_panel.orders') }}">
+
+  {# ─── NAGŁÓWEK: podzakładki + odświeżanie ───
+       W etapie 1 jest tylko „Dashboard”. Trasy i Flota dochodzą w etapie 3 —
+       celowo bez martwych przycisków. #}
+  <div class="lg-naglowek">
+    <div class="lg-podzakladki" role="tablist" aria-label="Widoki logistyki">
+      <button type="button" class="lg-podzakladka is-aktywna" role="tab" aria-selected="true">Dashboard</button>
+    </div>
+    <div class="lg-naglowek-akcje">
+      <span class="lg-odswiezono" data-lg="odswiezono"></span>
+      <button type="button" class="lg-przycisk" data-lg-akcja="odswiez" title="Pobierz listę od nowa">
+        <i class="fas fa-rotate-right" aria-hidden="true"></i><span>Odśwież</span>
+      </button>
+    </div>
+  </div>
+
+  {# ─── LICZNIKI = FILTR SPOSOBU DOSTAWY ───
+       Liczą wszystkie OTWARTE zamówienia (niezależnie od wyszukiwarki).
+       Kliknięcie aktywnego licznika zdejmuje filtr. #}
+  <div class="lg-liczniki" role="group" aria-label="Filtr sposobu dostawy">
+    <button type="button" class="lg-licznik lg-licznik--brak" data-lg-sposob="brak" aria-pressed="false">
+      <span class="lg-licznik-etykieta">Nie ustawiono</span>
+      <span class="lg-licznik-liczba" data-licznik="brak">–</span>
+    </button>
+    <button type="button" class="lg-licznik" data-lg-sposob="kurier_baselinker" aria-pressed="false">
+      <i class="fas fa-truck-fast" aria-hidden="true"></i>
+      <span class="lg-licznik-etykieta">Kurier</span>
+      <span class="lg-licznik-liczba" data-licznik="kurier_baselinker">–</span>
+    </button>
+    <button type="button" class="lg-licznik" data-lg-sposob="transport_woodpower" aria-pressed="false">
+      <i class="fas fa-truck" aria-hidden="true"></i>
+      <span class="lg-licznik-etykieta">Transport własny</span>
+      <span class="lg-licznik-liczba" data-licznik="transport_woodpower">–</span>
+    </button>
+    <button type="button" class="lg-licznik" data-lg-sposob="odbior_osobisty" aria-pressed="false">
+      <i class="fas fa-warehouse" aria-hidden="true"></i>
+      <span class="lg-licznik-etykieta">Odbiór osobisty</span>
+      <span class="lg-licznik-liczba" data-licznik="odbior_osobisty">–</span>
+    </button>
+    <button type="button" class="lg-licznik lg-licznik--wszystkie is-aktywny" data-lg-sposob="" aria-pressed="true">
+      <span class="lg-licznik-etykieta">Wszystkie otwarte</span>
+      <span class="lg-licznik-liczba" data-licznik="wszystkie">–</span>
+    </button>
+  </div>
+
+  {# Baner pauzy po limicie API Base. — pokazywany, gdy base_wstrzymane_do ≠ null. #}
+  <div class="lg-baner" data-lg="baner" role="status" hidden>
+    <i class="fas fa-circle-pause" aria-hidden="true"></i>
+    <span data-lg="baner-tekst"></span>
+  </div>
+
+  {# ─── WYSZUKIWARKA I FILTR ETAPU ─── #}
+  <div class="lg-narzedzia">
+    <label class="lg-szukaj">
+      <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
+      <input type="search" data-lg="q" autocomplete="off" spellcheck="false"
+             placeholder="Szukaj: numer, klient, miasto" aria-label="Szukaj zamówienia po numerze, kliencie albo mieście">
+    </label>
+    <label class="lg-przelacznik" data-lg="zamkniete-pole"
+           title="Wpisz frazę, żeby szukać także w zamkniętych zamówieniach">
+      <input type="checkbox" data-lg="zamkniete" disabled>
+      <span>także zamknięte</span>
+    </label>
+    <span class="lg-podpowiedz-pola" data-lg="zamkniete-podpowiedz">wymaga frazy</span>
+    <label class="lg-etap-filtr">
+      <span>Etap</span>
+      <select class="form-select form-select-sm" data-lg="etap" aria-label="Filtr etapu produkcji">
+        <option value="">Wszystkie etapy</option>
+      </select>
+    </label>
+    <span class="lg-ile" data-lg="ile" aria-live="polite"></span>
+  </div>
+
+  {# Komunikaty po akcjach (zmiany, błędy, przepakowanie). #}
+  <div class="lg-komunikaty" data-lg="komunikaty" aria-live="polite"></div>
+
+  {# ─── TABELA ZAMÓWIEŃ ───
+       .lg-tabela-ramka jest kontenerem zapytań @container — na węższej
+       zakładce miasto i metoda z Base. składają się pod nazwę klienta. #}
+  <div class="lg-tabela-ramka">
+    <table class="lg-tabela">
+      <thead>
+        <tr>
+          <th scope="col" class="lg-k-zaznacz">
+            <label class="lg-zaznacz-pole">
+              <input type="checkbox" data-lg="zaznacz-wszystkie" aria-label="Zaznacz wszystkie widoczne zamówienia">
+            </label>
+          </th>
+          <th scope="col" class="lg-k-numer">Zamówienie</th>
+          <th scope="col" class="lg-k-klient">Klient</th>
+          <th scope="col" class="lg-k-miasto">Miasto</th>
+          <th scope="col" class="lg-k-metoda">Metoda z Base.</th>
+          <th scope="col" class="lg-k-sposob">Sposób dostawy</th>
+          <th scope="col" class="lg-k-etap">Etap produkcji</th>
+          <th scope="col" class="lg-k-termin">Termin</th>
+          <th scope="col" class="lg-k-m3">m³</th>
+          <th scope="col" class="lg-k-stan">Stan</th>
+        </tr>
+      </thead>
+      <tbody data-lg="wiersze">
+        <tr class="lg-wiersz-stanu">
+          <td colspan="10"><div class="lg-stan"><span class="lg-stan-tytul">Ładowanie zamówień…</span></div></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  {# Legenda ikon tabeli — na tablecie nie ma dymków po najechaniu (title). #}
+  <div class="lg-legenda">
+    <span><i class="fas fa-box-open lg-ikona--przepakowanie" aria-hidden="true"></i>czeka na przepakowanie na kuriera</span>
+    <span><i class="fas fa-tags lg-ikona--etykiety" aria-hidden="true"></i>etykiety wydrukowane przed zmianą sposobu</span>
+    <span><i class="fas fa-cloud-arrow-up lg-ikona--base" aria-hidden="true"></i>Base.: czeka na wysłanie</span>
+    <span><i class="fas fa-lightbulb lg-ikona--podpowiedz" aria-hidden="true"></i>podpowiedź sposobu z metody w Base.</span>
+    <span class="lg-legenda-skrot">Shift + klik zaznacza zakres</span>
+  </div>
+
+  {# ─── PASEK AKCJI HURTOWYCH ─── (widoczny, gdy coś jest zaznaczone) #}
+  <div class="lg-hurt" data-lg="hurt" hidden>
+    <span class="lg-hurt-ile">Zaznaczono: <strong data-lg="hurt-ile">0</strong></span>
+    <div class="lg-hurt-grupa" role="group" aria-label="Ustaw sposób dostawy zaznaczonym">
+      <span class="lg-hurt-etykieta">Ustaw sposób dostawy:</span>
+      <button type="button" class="lg-hurt-przycisk" data-lg-akcja="hurt-sposob" data-sposob="kurier_baselinker">
+        <i class="fas fa-truck-fast" aria-hidden="true"></i>Kurier
+      </button>
+      <button type="button" class="lg-hurt-przycisk" data-lg-akcja="hurt-sposob" data-sposob="transport_woodpower">
+        <i class="fas fa-truck" aria-hidden="true"></i>Transport własny
+      </button>
+      <button type="button" class="lg-hurt-przycisk" data-lg-akcja="hurt-sposob" data-sposob="odbior_osobisty">
+        <i class="fas fa-warehouse" aria-hidden="true"></i>Odbiór osobisty
+      </button>
+    </div>
+    <button type="button" class="lg-hurt-przycisk lg-hurt-przycisk--podpowiedzi" data-lg-akcja="hurt-podpowiedzi">
+      <i class="fas fa-lightbulb" aria-hidden="true"></i>Przyjmij podpowiedzi z Base.
+    </button>
+    <button type="button" class="lg-hurt-odznacz" data-lg-akcja="odznacz">Odznacz</button>
+  </div>
 </div>
+
+<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20260925"></script>

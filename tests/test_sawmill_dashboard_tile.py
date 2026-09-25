@@ -79,8 +79,15 @@ def test_loader_zna_zakladke_i_szeroki_zakres_skrotow():
     with open(LOADER, encoding='utf-8') as f:
         js = f.read()
     assert js.count("'sawmill-tab'") >= 3
-    assert "event.key <= '6'" in js
-    assert "event.key <= '5'" not in js
+    # Zakres Ctrl+1..N musi objąć CAŁĄ listę skrótów, inaczej ostatnia zakładka
+    # (Konfiguracja) wypada poza skróty. Liczone z listy, nie wpisane na sztywno:
+    # zakładka Logistyka (2026-09) wydłużyła listę z 6 do 7 pozycji.
+    gorna = re.search(r"event\.key <= '(\d)'", js)
+    lista = re.search(r"const tabs = \[([^\]]*)\];", js)
+    assert gorna and lista
+    zakladki = re.findall(r"'([\w-]+-tab)'", lista.group(1))
+    assert 'sawmill-tab' in zakladki
+    assert int(gorna.group(1)) == len(zakladki)
 
 
 # ── Testy naprawy po recenzji Zadania 12 ────────────────────────────────────

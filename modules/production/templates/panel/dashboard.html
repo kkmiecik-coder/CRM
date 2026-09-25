@@ -61,6 +61,15 @@
                         <i class="fas fa-archive me-2"></i>Archiwum
                     </button>
                     <button class="nav-link"
+                            id="logistics-tab"
+                            data-bs-toggle="tab"
+                            data-bs-target="#logistics-tab-content"
+                            type="button" role="tab"
+                            aria-controls="logistics-tab-content"
+                            aria-selected="false">
+                        <i class="fas fa-truck me-2"></i>Logistyka
+                    </button>
+                    <button class="nav-link"
                             id="sawmill-tab"
                             data-bs-toggle="tab"
                             data-bs-target="#sawmill-tab-content"
@@ -218,6 +227,9 @@
                         </div>
                     </div>
 
+                    <!-- Logistics Tab (Logistyka) -->
+                    <div class="tab-pane fade" id="logistics-tab-content" role="tabpanel" aria-labelledby="logistics-tab"></div>
+
                     <!-- Sawmill Tab (Trakownia) -->
                     <div class="tab-pane fade" id="sawmill-tab-content" role="tabpanel" aria-labelledby="sawmill-tab"></div>
 
@@ -337,7 +349,7 @@
     <script src="{{ url_for('production.static', filename='js/modules/archive-module.js') }}?v=20260427b"></script>
     <script src="{{ url_for('production.static', filename='js/modules/config-module.js') }}?v=20260410"></script>
     <!-- Główny kontroler aplikacji -->
-    <script src="{{ url_for('production.static', filename='js/production-app-loader.js') }}?v=20260811b"></script>
+    <script src="{{ url_for('production.static', filename='js/production-app-loader.js') }}?v=20260925"></script>
     <!-- Obsługa modala synchronizacji z Baselinkerem -->
     <script src="{{ url_for('production.static', filename='js/modules/dashboard_bl_sync_modal.js') }}"></script>
     <!-- Obsługa załączników produktów -->
