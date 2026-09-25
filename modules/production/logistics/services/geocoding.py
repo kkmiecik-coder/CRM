@@ -18,6 +18,7 @@ w tle, postęp dla przycisku „Zlokalizuj teraz” i ręczna korekta punktu z p
 """
 import hashlib
 import json
+import math
 import re
 import threading
 import time
@@ -55,6 +56,13 @@ MIN_DOKLADNOSC_GUGIK = 0.6
 MIN_DOKLADNOSC_BEZ_KODU = 0.9
 # place_rank Nominatim: 30 = budynek, 28–29 = adres/obiekt, 26–27 = ulica, niżej obszar.
 MIN_RANGA_DOKLADNA = 28
+# Adres bez kodu pocztowego: Nominatim dostaje kilka wyników i jeśli leżą dalej od siebie
+# niż ten próg, to adres jest niejednoznaczny — nie bierzemy żadnego. Zmierzone 25.09.2026:
+# „Józefów” bez kodu → Nominatim oddał Józefów w lubelskim, a klient mieszka pod Otwockiem.
+LIMIT_NOMINATIM_BEZ_KODU = 5
+PROG_NIEJEDNOZNACZNOSCI_KM = 5
+# Przedrostki pomijane przy porównaniu nazwy ulicy z nazwą z PRG (_ta_sama_ulica).
+_PRZEDROSTKI_ULICY = frozenset(('ul', 'al', 'aleja', 'aleje', 'os', 'osiedle', 'pl', 'plac'))
 
 Wynik = namedtuple('Wynik', 'lat lng source quality')
 NIE_ZNALEZIONO = Wynik(None, None, None, 'nie_znaleziono')
@@ -176,13 +184,35 @@ def _jednoznaczne(trafienia):
     return max(trafienia, key=_dokladnosc)
 
 
-def wybierz_trafienie(odpowiedz, numer, kod):
+def _slowa_ulicy(tekst):
+    return [s for s in re.findall(r'\w+', (tekst or '').lower()) if s not in _PRZEDROSTKI_ULICY]
+
+
+def _ta_sama_ulica(trafienie, ulica, miasto):
+    """
+    Ta sama miejscowość i ta sama ulica zapisana pełniej albo krócej: słowa krótszej
+    nazwy kończą dłuższą („Jana Onufrego Zagłoby” ↔ „Zagłoby” z PRG). GUGiK liczy
+    `accuracy` z podobieństwa tekstu, więc pełna nazwa ulicy zaniża ją poniżej progu
+    (zmierzone 25.09.2026: 0.59 dla właściwego punktu w Józefowie).
+    """
+    miasto = _norm(miasto)
+    if not miasto or _norm(str(trafienie.get('city') or '')) != miasto:
+        return False
+    z_prg, z_zamowienia = _slowa_ulicy(trafienie.get('street')), _slowa_ulicy(ulica)
+    if not z_prg or not z_zamowienia:
+        return False
+    krotsza, dluzsza = sorted((z_prg, z_zamowienia), key=len)
+    return dluzsza[-len(krotsza):] == krotsza
+
+
+def wybierz_trafienie(odpowiedz, numer, kod, ulica=None, miasto=None):
     """
     Punkt adresowy GUGiK z tym samym numerem domu — R9 (kontroler, wiążące):
     (a) są trafienia z identycznym kodem → najlepsza dokładność spośród nich;
     (b) kod podany, żadne trafienie go nie ma → tylko ten sam 2-cyfrowy prefiks kodu
         i dokładność >= MIN_DOKLADNOSC_BEZ_KODU;
-    (c) kod niepodany → dokładność >= MIN_DOKLADNOSC_GUGIK.
+    (c) kod niepodany → dokładność >= MIN_DOKLADNOSC_GUGIK albo ta sama miejscowość
+        i ulica (`_ta_sama_ulica`, gdy podano `ulica` i `miasto` zamówienia).
     W (b) i (c) trafienia w więcej niż jednej miejscowości = brak wyniku (None) —
     wtedy Nominatim z kodem. Kody porównujemy po cyfrach („31021” == „31-021”).
     """
@@ -200,7 +230,8 @@ def wybierz_trafienie(odpowiedz, numer, kod):
                      if _cyfry_kodu(t.get('code'))[:2] == kod[:2]
                      and _dokladnosc(t) >= MIN_DOKLADNOSC_BEZ_KODU]
     else:
-        kandydaci = [t for t in pasujace if _dokladnosc(t) >= MIN_DOKLADNOSC_GUGIK]
+        kandydaci = [t for t in pasujace if _dokladnosc(t) >= MIN_DOKLADNOSC_GUGIK
+                     or _ta_sama_ulica(t, ulica, miasto)]
     return _jednoznaczne(kandydaci)
 
 
@@ -216,10 +247,21 @@ def _gugik(zapytanie, http_get):
     return odp.json() or {}
 
 
+def _odleglosc_km(a, b):
+    """Przybliżenie równoprostokątne — na skalę kraju wystarcza do progu kilku km."""
+    x = math.radians(b[1] - a[1]) * math.cos(math.radians((a[0] + b[0]) / 2))
+    y = math.radians(b[0] - a[0])
+    return 6371 * math.hypot(x, y)
+
+
 def _nominatim(parametry, http_get):
-    """(lat, lng, dokładny) albo None."""
+    """
+    (lat, lng, dokładny) albo None. Bez kodu pocztowego pytamy o kilka wyników:
+    rozrzucone dalej niż PROG_NIEJEDNOZNACZNOSCI_KM = adres niejednoznaczny = None.
+    """
     params = {k: v for k, v in parametry.items() if v}
-    params.update({'format': 'jsonv2', 'limit': 1})
+    bez_kodu = not params.get('postalcode')
+    params.update({'format': 'jsonv2', 'limit': LIMIT_NOMINATIM_BEZ_KODU if bez_kodu else 1})
     odp = http_get(NOMINATIM_URL, params=params, timeout=TIMEOUT_S, headers=_naglowki())
     odp.raise_for_status()
     dane = odp.json()
@@ -231,6 +273,11 @@ def _nominatim(parametry, http_get):
     punkt = _wspolrzedne(dane[0].get('lat'), dane[0].get('lon'))
     if punkt is None:
         return None
+    if bez_kodu:
+        inne = [_wspolrzedne(d.get('lat'), d.get('lon')) for d in dane[1:] if isinstance(d, dict)]
+        if any(p is not None and _odleglosc_km(punkt, p) > PROG_NIEJEDNOZNACZNOSCI_KM
+               for p in inne):
+            return None
     try:
         ranga = int(dane[0].get('place_rank') or 0)
     except (TypeError, ValueError):
@@ -250,11 +297,13 @@ def geokoduj_adres(adres, miasto, kod, kraj, http_get=requests.get, spij=time.sl
     # CZĘŚCIOWEJ (np. trwale wadliwy jeden adres w GUGiK, usługi ogólnie działają).
     # Patrz `BladUslugi.pelna_awaria`.
     byla_odpowiedz = False
+    numer, _mieszkanie, ulica = extract_house_and_apartment_number(
+        adres_do_geokodowania(adres, miasto))
 
     # 1. GUGiK — dokładny punkt adresowy (tylko Polska). R9(d): bez miasta i bez kodu
     # zapytanie jest ogólnopolskie, a więc niejednoznaczne — wtedy od razu Nominatim.
     if kraj == 'PL' and (miasto or kod):
-        kandydaci, numer = zapytania_gugik(adres, miasto)
+        kandydaci, numer_gugik = zapytania_gugik(adres, miasto)
         for zapytanie in kandydaci:
             spij(ODSTEP_GUGIK_S)
             try:
@@ -264,15 +313,13 @@ def geokoduj_adres(adres, miasto, kod, kraj, http_get=requests.get, spij=time.sl
                 _ostrzez_o_awarii("GUGiK nie odpowiedzial", e, order_id)
                 continue
             byla_odpowiedz = True
-            trafienie = wybierz_trafienie(odpowiedz, numer, kod)
+            trafienie = wybierz_trafienie(odpowiedz, numer_gugik, kod, ulica=ulica, miasto=miasto)
             if trafienie:
                 lat, lng = _wspolrzedne_trafienia(trafienie)
                 return Wynik(lat, lng, 'gugik', 'dokladna')
 
     # 2. Nominatim — adres strukturalny. Wynik dokładny wracamy zawsze (nawet po
     # awarii GUGiK-a wyżej) — to wciąż najlepszy możliwy do zdobycia w tym wywołaniu.
-    numer, _mieszkanie, ulica = extract_house_and_apartment_number(
-        adres_do_geokodowania(adres, miasto))
     ulica_z_numerem = (u'{} {}'.format(ulica, numer) if numer else (ulica or '')).strip()
     if ulica_z_numerem:
         spij(ODSTEP_NOMINATIM_S)
@@ -314,6 +361,11 @@ def geokoduj_adres(adres, miasto, kod, kraj, http_get=requests.get, spij=time.sl
             if miejscowosc:
                 lat, lng = _wspolrzedne_trafienia(miejscowosc)
                 return Wynik(lat, lng, 'gugik', 'przyblizona')
+            if not kod and _trafienia(odpowiedz, 'city'):
+                # Kilka miejscowości o tej nazwie, a kodu brak — Nominatim wskazałby
+                # którąkolwiek z nich. Zły punkt „przybliżony” myli bardziej niż brak
+                # punktu: logistyk ustawi go ręcznie („Bez lokalizacji”).
+                return NIE_ZNALEZIONO
 
         # R3 (poprawka po przeglądzie, runda 1): krok 3 ma DWIE usługi z rzędu —
         # awaria pierwszej (GUGiK-miejscowość) nie może zostać zamaskowana sukcesem
@@ -354,6 +406,10 @@ MAKS_PROB = 3
 # TYLKO pełne awarie (BladUslugi.pelna_awaria) — awaria częściowa i nieoczekiwany
 # wyjątek jednego zamówienia serii nie wydłużają.
 MAKS_BLEDOW_Z_RZEDU = 3
+# Ile razy przebieg dobiera zamówienia dodane albo zmienione w jego trakcie (patrz
+# `lokalizuj`). Zwykle wystarcza jedno–dwa dobrania; limit tylko na wypadek adresu,
+# który zmienia się w kółko, żeby przebieg nie trzymał dzierżawy bez końca.
+MAKS_DOBRAN = 10
 
 
 def skrot_adresu(order):
@@ -556,18 +612,21 @@ def lokalizuj(limit=None, http_get=requests.get, spij=time.sleep):
     try:
         oznacz_zmienione_reczne()
         db.session.commit()
-        # Identyfikatory od razu, póki obiekty są świeże: po commicie każdego zamówienia
-        # reszta listy jest wygaszona, a odczyt `order.id` usuniętego zamówienia rzuciłby.
-        kolejka = [(o.id, o) for o in do_zlokalizowania(limit)]
-        przerobione = set()
+        # Identyfikatory i skróty adresów od razu, póki obiekty są świeże: po commicie
+        # każdego zamówienia reszta listy jest wygaszona, a odczyt `order.id` usuniętego
+        # zamówienia rzuciłby.
+        kolejka = [(o.id, o, skrot_adresu(o)) for o in do_zlokalizowania(limit)]
+        # order_id → skrót adresu, z którym zamówienie weszło do tego przebiegu
+        przerobione = {}
         postep = {'wszystkie': len(kolejka), 'zrobione': 0,
                   'od': get_local_now().replace(microsecond=0).isoformat()}
         _zapisz_postep(postep)
-        dolozono = False
+        dobrania = przetworzono = 0
         while kolejka:
             przerwano = False
-            for order_id, order in kolejka:
-                przerobione.add(order_id)
+            for order_id, order, skrot in kolejka:
+                przerobione[order_id] = skrot
+                przetworzono += 1
                 zmiana = _przetworz_zamowienie(order_id, order, wynik, http_get, spij)
                 if zmiana == 'awaria':
                     bledy_z_rzedu += 1
@@ -593,16 +652,22 @@ def lokalizuj(limit=None, http_get=requests.get, spij=time.sleep):
                                    extra={'bledy_z_rzedu': bledy_z_rzedu})
                     przerwano = True
                     break
-            if przerwano or dolozono:
+            if przerwano or dobrania >= MAKS_DOBRAN:
                 break
-            # R11: przebieg trwa minuty — zamówienie dodane albo zresetowane w tym
-            # czasie nie czeka godziny do następnego crona. JEDNO dołożenie, bez już
-            # przerobionych (także tych z błędem — w tym przebiegu nie wracają).
-            dolozono = True
-            pozostalo = limit - len(przerobione) if limit else None
+            # R11: przebieg trwa minuty — zamówienie dodane, zresetowane albo z adresem
+            # poprawionym w tym czasie (dwuklik w adres na liście) nie czeka godziny do
+            # następnego crona. Dobieramy tak długo, aż nic nie przybędzie. Przerobione
+            # w tym przebiegu wracają TYLKO ze zmienionym od tamtej pory adresem — to
+            # samo zamówienie z błędem usługi czy „nie znaleziono” czeka na kolejny.
+            dobrania += 1
+            pozostalo = limit - przetworzono if limit else None
             if pozostalo is not None and pozostalo <= 0:
                 break
-            kolejka = [(o.id, o) for o in do_zlokalizowania() if o.id not in przerobione]
+            kolejka = []
+            for o in do_zlokalizowania():
+                skrot = skrot_adresu(o)
+                if przerobione.get(o.id) != skrot:
+                    kolejka.append((o.id, o, skrot))
             if pozostalo is not None:
                 kolejka = kolejka[:pozostalo]
             if kolejka:

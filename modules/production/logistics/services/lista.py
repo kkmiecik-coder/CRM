@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """Lista zamówień zakładki Logistyka (spec, sekcja 6.7)."""
+import re
+
 from sqlalchemy import func, or_
 from sqlalchemy.orm import selectinload
 
@@ -54,6 +56,29 @@ def _wzor_like(fraza):
     """`%`, `_` i sam znak ucieczki `\\` dosłownie (ESCAPE '\\'), nie jako wieloznaczniki."""
     bezpieczna = fraza.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
     return u'%{}%'.format(bezpieczna)
+
+
+# Pola wyszukiwarki: numer, klient, ulica z numerem, kod pocztowy, miejscowość.
+_POLA_FRAZY = (ProductionOrder.internal_order_number, ProductionOrder.client_name,
+               ProductionOrder.delivery_address, ProductionOrder.delivery_postcode,
+               ProductionOrder.delivery_city)
+MAKS_SLOW_FRAZY = 6
+
+
+def _warunki_frazy(fraza):
+    """
+    Każde słowo frazy musi pasować do któregoś pola (niekoniecznie tego samego):
+    „Kowalski Rzeszów”, „Zagłoby 10 Józefów”. Pięć cyfr to też kod z kreską
+    („35310” znajduje „35-310”).
+    """
+    warunki = []
+    for slowo in fraza.split()[:MAKS_SLOW_FRAZY]:
+        wzory = [_wzor_like(slowo)]
+        if re.fullmatch(r'\d{5}', slowo):
+            wzory.append(_wzor_like(slowo[:2] + '-' + slowo[2:]))
+        warunki.append(or_(*[pole.ilike(wzor, escape='\\')
+                             for pole in _POLA_FRAZY for wzor in wzory]))
+    return warunki
 
 
 def _etap(aktywne):
@@ -156,11 +181,7 @@ def pobierz(sposob=None, etap=None, q=None, zamkniete=False):
     zapytanie = ProductionOrder.query.options(
         selectinload(ProductionOrder.products).selectinload(ProductionProduct.configuration))
     if q:
-        wzor = _wzor_like(q.strip())
-        zapytanie = zapytanie.filter(or_(
-            ProductionOrder.internal_order_number.ilike(wzor, escape='\\'),
-            ProductionOrder.client_name.ilike(wzor, escape='\\'),
-            ProductionOrder.delivery_city.ilike(wzor, escape='\\')))
+        zapytanie = zapytanie.filter(*_warunki_frazy(q))
     if not zamkniete:
         zapytanie = zapytanie.filter(ProductionOrder.logistics_closed_at.is_(None))
     if sposob == 'brak':

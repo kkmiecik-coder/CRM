@@ -485,8 +485,8 @@ def test_kolejka_najpierw_nowe_i_zmienione_potem_ponowienia(app):
 
 
 def test_zamowienie_dodane_w_trakcie_przebiegu_nie_czeka_godziny(app, monkeypatch):
-    """Po przerobieniu listy jedno ponowne do_zlokalizowania() (bez już przerobionych);
-    zamówienie dodane w trakcie TEGO dołożenia czeka już na kolejny przebieg."""
+    """Po przerobieniu listy przebieg dobiera nowe zamówienia tak długo, aż nic nie
+    przybędzie — także te dodane w trakcie samego dobierania."""
     with app.app_context():
         _bachorz()
         zapisy = _nagrywaj_postep(monkeypatch)
@@ -502,11 +502,58 @@ def test_zamowienie_dodane_w_trakcie_przebiegu_nie_czeka_godziny(app, monkeypatc
             return prawdziwy(url, params=params, timeout=timeout, headers=headers)
 
         wynik = g.lokalizuj(http_get=http_get, spij=_bez_spania)
-        assert wynik['zamowienia'] == 2
+        assert wynik['zamowienia'] == 3
         assert OrderGeo.query.get(stan['drugie']).quality == 'dokladna'
-        assert OrderGeo.query.get(stan['trzecie']) is None
-        assert _pary(zapisy) == [(1, 0), (1, 1), (2, 1), (2, 2)]
+        assert OrderGeo.query.get(stan['trzecie']).quality == 'dokladna'
+        assert _pary(zapisy) == [(1, 0), (1, 1), (2, 1), (2, 2), (3, 2), (3, 3)]
         assert zapisy[-1] == ''
+
+
+def test_adres_poprawiony_w_trakcie_przebiegu_lokalizuje_sie_w_nim(app):
+    """Zamówienie przerobione na początku przebiegu, a potem poprawione (dwuklik w adres)
+    wraca w tym samym przebiegu — geokoder był już zajęty, więc nikt inny go nie ruszy."""
+    with app.app_context():
+        pierwsze = _bachorz()
+        drugie = _bachorz()
+        pierwsze_id, drugie_id = pierwsze.id, drugie.id
+        prawdziwy = FakeHttp(gugik={'Bachórz 14N': BACHORZ, 'Kraków, Floriańska 10': FLORIANSKA})
+        stan = {'poprawione': False}
+
+        def http_get(url, params=None, timeout=None, headers=None):
+            if not stan['poprawione'] and len(prawdziwy.wywolania) == 1:
+                # w trakcie drugiego zamówienia logistyk poprawia adres pierwszego
+                stan['poprawione'] = True
+                zmienione = db.session.get(type(pierwsze), pierwsze_id)
+                zmienione.delivery_address, zmienione.delivery_city = 'Floriańska 10', 'Kraków'
+                zmienione.delivery_postcode = '31-021'
+                db.session.commit()
+            return prawdziwy(url, params=params, timeout=timeout, headers=headers)
+
+        wynik = g.lokalizuj(http_get=http_get, spij=_bez_spania)
+        assert stan['poprawione'] and wynik['zamowienia'] == 3
+        geo = OrderGeo.query.get(pierwsze_id)
+        assert (float(geo.lat), geo.quality) == (pytest.approx(50.062726), 'dokladna')
+        assert geo.address_hash == g.skrot_adresu(db.session.get(type(pierwsze), pierwsze_id))
+        assert OrderGeo.query.get(drugie_id).quality == 'dokladna'
+
+
+def test_dobieranie_ma_limit(app, monkeypatch):
+    """Adres zmieniany w kółko nie trzyma dzierżawy bez końca."""
+    monkeypatch.setattr(g, 'MAKS_DOBRAN', 2)
+    with app.app_context():
+        order = _bachorz()
+        order_id = order.id
+        prawdziwy = FakeHttp(gugik={'Bachórz 14N': BACHORZ})
+
+        def http_get(url, params=None, timeout=None, headers=None):
+            zmieniane = db.session.get(type(order), order_id)
+            zmieniane.delivery_address = 'Bachórz %d' % (len(prawdziwy.wywolania) + 100)
+            db.session.commit()
+            return prawdziwy(url, params=params, timeout=timeout, headers=headers)
+
+        wynik = g.lokalizuj(http_get=http_get, spij=_bez_spania)
+        # pierwsza lista + 2 dobrania po jednym zamówieniu
+        assert wynik['zamowienia'] == 3
 
 
 def test_dolozenie_pomija_zamowienia_z_bledem_w_tym_przebiegu(app):

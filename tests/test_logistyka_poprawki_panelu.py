@@ -245,6 +245,31 @@ def test_lekki_stan_geokodera(client, app):
                     'bez_lokalizacji': 1}
 
 
+# ── Wyszukiwarka: ulica i kod pocztowy (uwaga właściciela 25.09.2026) ─────
+
+def _szukaj(client, fraza):
+    from urllib.parse import quote
+    return sorted(o['klient'] for o in
+                  client.get(BASE + '/orders?q=' + quote(fraza)).get_json()['orders'])
+
+
+def test_wyszukiwarka_po_ulicy_kodzie_i_kilku_slowach(client, app):
+    with app.app_context():
+        for klient, adres, kod, miasto in (('Anna', 'Jana Onufrego Zagłoby 10', '05-410', 'Józefów'),
+                                           ('Bartek', 'Rejtana 16c', '35-310', 'Rzeszów'),
+                                           ('Celina', 'Leśna 3', '23-400', 'Józefów')):
+            order = zamowienie(miasto=miasto)
+            order.client_name, order.delivery_address, order.delivery_postcode = klient, adres, kod
+        db.session.commit()
+    assert _szukaj(client, 'Zagłoby') == ['Anna']
+    assert _szukaj(client, '35-310') == ['Bartek']
+    assert _szukaj(client, '35310') == ['Bartek']      # kod bez kreski
+    assert _szukaj(client, 'Józefów') == ['Anna', 'Celina']
+    assert _szukaj(client, 'Leśna Józefów') == ['Celina']  # słowa w różnych polach
+    assert _szukaj(client, '  Zagłoby   10 ') == ['Anna']
+    assert _szukaj(client, 'Zagłoby Rzeszów') == []
+
+
 # ── Interfejs (statycznie) ───────────────────────────────────────────────
 
 import os  # noqa: E402

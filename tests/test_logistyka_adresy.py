@@ -80,6 +80,10 @@ def test_adres_do_geokodowania_daje_numer_budynku(adres, miasto, numer, ulica):
     ('Mickiewicza 12 b/4', 'Kraków', 'Mickiewicza 12b/4'),
     ('', 'Kraków', ''),
     (None, 'Kraków', ''),
+    # Dopiski w nawiasie (zmierzone 25.09.2026 na zamówieniach z listy logistyki).
+    ('Handlowa 2a (fizjosfera)', 'Białystok', 'Handlowa 2a'),
+    ('Józefowska 19 (dom z czerwonej cegły)', 'Opole Lubelskie', 'Józefowska 19'),
+    ('(biuro) Floriańska 10', 'Kraków', 'Floriańska 10'),
 ])
 def test_adres_do_geokodowania(adres, miasto, oczekiwane):
     assert adresy.adres_do_geokodowania(adres, miasto) == oczekiwane

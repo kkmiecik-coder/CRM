@@ -148,8 +148,11 @@ podpinaj pod ten sam dekorator, a nie pod własne sprawdzanie nagłówka.
 
 Cron logistyki (od etapu 1 logistyki równoległej): `scripts/cron_endpoint.sh POST /production/api/logistics/cron`
 co godzinę. Przelicza cykl logistyczny zamówień i **uruchamia w tle** dopychacz, który wysyła do Base. zaległe
-zmiany sposobu dostawy i statusów (odstęp 1,5 s, jeden wątek na serwer — dzierżawa `logistyka_bl_dzierzawa`
-w `prod_config`). Endpoint odpowiada od razu: sync worker gunicorna ma 30 s na żądanie, więc długiej pracy
+zmiany sposobu dostawy, statusów i adresów (odstęp 1,5 s, jeden wątek na serwer — dzierżawa `logistyka_bl_dzierzawa`
+w `prod_config`). Adres poprawiony w zakładce (dwuklik w adres) czeka na wysyłkę z flagą
+`prod_orders.bl_address_pending` (`setOrderFields`: `delivery_address`, `delivery_postcode`, `delivery_city`).
+Do czasu wysyłki synchronizacja z Base. nie nadpisuje adresu. Flaga znika dopiero po udanej wysyłce i tylko
+wtedy, gdy adres w CRM nie zmienił się w międzyczasie. Endpoint odpowiada od razu: sync worker gunicorna ma 30 s na żądanie, więc długiej pracy
 w żądaniu nie robimy. Limit API Base. (100/min na konto) wstrzymuje wysyłki logistyki do chwili z komunikatu
 błędu (`logistyka_bl_wstrzymane_do`).
 
@@ -160,7 +163,8 @@ się wcześniej tylko po 3 pełnych awariach z rzędu — pełna awaria to geoko
 zapytanie do usług nie dostało odpowiedzi (`BladUslugi.pelna_awaria`; adres zagraniczny pyta tylko Nominatim).
 Awaria częściowa (jedna usługa odpowiedziała) i nieoczekiwany błąd pojedynczego zamówienia liczą się do błędów
 przebiegu, ale go nie przerywają. Błąd usługi nigdy nie zużywa próby adresu, a po awarii nie zapisuje się
-przybliżony punkt (zamówienie czeka na kolejny przebieg).
+przybliżony punkt (zamówienie czeka na kolejny przebieg). Poprawka adresu w zakładce uruchamia geokoder od razu,
+a trwający przebieg dobiera przed końcem zamówienia dodane albo zmienione w jego trakcie.
 
 ## Deployment
 

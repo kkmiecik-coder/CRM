@@ -30,6 +30,9 @@ _OZNACZENIE_LOKALU = re.compile(
 # „12 B” → „12B” (na końcu albo przed „/”) — GUGiK zna numer „12B”, nie „12” z ulicą „B”.
 _LITERA_ODDZIELONA = re.compile(r'(\d)\s+([A-Za-z])(?=\s*(?:/|$))')
 _MIASTO_NA_KONCU = re.compile(r'^(.*\S)\s*,\s*([^,]+)$')
+# Dopiski w nawiasie: „Handlowa 2a (fizjosfera)”, „Józefowska 19 (dom z czerwonej cegły)”.
+# Nazwy ulic nie mają nawiasów, a dopisek za numerem psuje rozbiór na ulicę i numer.
+_DOPISEK_W_NAWIASIE = re.compile(r'\([^()]*\)')
 
 
 def _norm(tekst):
@@ -39,13 +42,14 @@ def _norm(tekst):
 def adres_do_geokodowania(adres, miasto):
     """
     Adres przygotowany WYŁĄCZNIE dla geokodera (R10), przed extract_house_and_apartment_number:
-    bez kodu pocztowego, bez końcowego „, <miasto zamówienia>” i bez oznaczeń lokalu na końcu.
+    bez kodu pocztowego, bez dopisków w nawiasie, bez końcowego „, <miasto zamówienia>”
+    i bez oznaczeń lokalu na końcu.
 
     Zmierzone 25.09.2026: „Kraków, Floriańska 10 lok 5” → GUGiK oddawał Floriańską 5
     (accuracy 0.74), czyli zły budynek jako punkt „dokladna”. Eksport Routimo dalej używa
     extract_house_and_apartment_number / clean_street_name bez tej funkcji (1:1).
     """
-    tekst = usun_kod_pocztowy(adres)
+    tekst = re.sub(r'\s+', ' ', _DOPISEK_W_NAWIASIE.sub(' ', usun_kod_pocztowy(adres))).strip(' ,')
     miasto = _norm(miasto)
     dopasowanie = _MIASTO_NA_KONCU.match(tekst)
     if miasto and dopasowanie and _norm(dopasowanie.group(2)) == miasto:

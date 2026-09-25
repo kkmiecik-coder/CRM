@@ -34,6 +34,15 @@ WOLA_12 = {'type': 'address', 'returned objects': 5, 'results': {
           'accuracy': '1', 'x': '20.44', 'y': '52.63'},
     '5': {'city': 'Wola', 'street': None, 'number': '12', 'code': '13-124', 'teryt': '281503',
           'accuracy': '1', 'x': '20.31', 'y': '53.22'}}}
+# Zmierzone 25.09.2026: „Józefów, Jana Onufrego Zagłoby 10” (zamówienie bez kodu) → jedno
+# trafienie, właściwy punkt, ale accuracy 0.59 — PRG zna ulicę jako „Zagłoby”.
+# Współrzędne zaokrąglone (w teście liczy się wybór).
+JOZEFOW_ZAGLOBY = {'type': 'address', 'returned objects': 1, 'results': {
+    '1': {'city': 'Józefów', 'teryt': '141701', 'street': 'Zagłoby', 'number': '10',
+          'code': '05-410', 'accuracy': '0.59375', 'x': '21.23', 'y': '52.13'}}}
+JOZEFOWY = {'type': 'city', 'returned objects': 2, 'results': {
+    '1': {'city': 'Józefów', 'teryt': '1417011', 'accuracy': '1', 'x': '21.23', 'y': '52.13'},
+    '2': {'city': 'Józefów', 'teryt': '0601034', 'accuracy': '1', 'x': '23.05', 'y': '50.48'}}}
 # „Nowa Wieś” (type city) → wiele miejscowości o tej samej nazwie.
 NOWA_WIES = {'type': 'city', 'returned objects': 3, 'results': {
     '1': {'city': 'Nowa Wieś', 'teryt': '0201011', 'accuracy': '1', 'x': '16.11', 'y': '51.21'},
@@ -403,3 +412,71 @@ def test_log_awarii_bez_adresu_klienta(caplog):
     assert tekst
     assert 'Floria' not in tekst and 'Krak' not in tekst and '31-021' not in tekst
     assert 'ConnectionError' in tekst and 'HTTPError' in tekst and '503' in tekst
+
+
+# ── Adres bez kodu pocztowego (uwaga właściciela 25.09.2026) ──
+
+def test_bez_kodu_pelna_nazwa_ulicy_trafia_w_punkt_prg():
+    http = FakeHttp(gugik={'Józefów, Jana Onufrego Zagłoby 10': JOZEFOW_ZAGLOBY})
+    wynik = g.geokoduj_adres('Jana Onufrego Zagłoby 10', 'Józefów', None, 'PL', http, _bez_spania)
+    assert wynik == g.Wynik(52.13, 21.23, 'gugik', 'dokladna')
+    assert all(u == g.GUGIK_URL for u, _, _ in http.wywolania)
+
+
+def test_ta_sama_ulica_wymaga_tej_samej_miejscowosci_i_nazwy():
+    trafienie = JOZEFOW_ZAGLOBY['results']['1']
+    assert g.wybierz_trafienie(JOZEFOW_ZAGLOBY, '10', None) is None  # bez ulicy: sam próg 0.6
+    assert g.wybierz_trafienie(JOZEFOW_ZAGLOBY, '10', None,
+                               ulica='Jana Onufrego Zagłoby', miasto='Józefów') is trafienie
+    assert g.wybierz_trafienie(JOZEFOW_ZAGLOBY, '10', None,
+                               ulica='ul. Zagłoby', miasto='józefów') is trafienie
+    assert g.wybierz_trafienie(JOZEFOW_ZAGLOBY, '10', None,
+                               ulica='Jana Onufrego Zagłoby', miasto='Otwock') is None
+    assert g.wybierz_trafienie(JOZEFOW_ZAGLOBY, '10', None,
+                               ulica='Zagłoby Jana', miasto='Józefów') is None
+    assert g.wybierz_trafienie(JOZEFOW_ZAGLOBY, '12', None,
+                               ulica='Zagłoby', miasto='Józefów') is None  # inny numer
+
+
+def test_ta_sama_ulica_nie_luzuje_kodu_niezgodnego():
+    """Kod podany i inny niż w PRG: dalej R9(b) (prefiks + accuracy 0.9), nazwa ulicy nie pomaga."""
+    assert g.wybierz_trafienie(JOZEFOW_ZAGLOBY, '10', '05-420',
+                               ulica='Zagłoby', miasto='Józefów') is None
+
+
+def test_bez_kodu_rozrzucone_wyniki_nominatim_to_brak_punktu():
+    """Dwa Józefowy 300 km od siebie — żaden punkt nie jest „dokładny”, a przybliżenia
+    do miejscowości też nie zgadujemy (GUGiK: kilka miejscowości o tej nazwie)."""
+    http = FakeHttp(gugik={'Józefów': JOZEFOWY}, nominatim=[[
+        {'lat': '50.48', 'lon': '23.05', 'place_rank': 30},
+        {'lat': '52.13', 'lon': '21.23', 'place_rank': 30}]])
+    wynik = g.geokoduj_adres('Nieznana 10', 'Józefów', None, 'PL', http, _bez_spania)
+    assert wynik.quality == 'nie_znaleziono'
+    nominatim = [p for u, p, _ in http.wywolania if u == g.NOMINATIM_URL]
+    assert len(nominatim) == 1 and nominatim[0]['limit'] == g.LIMIT_NOMINATIM_BEZ_KODU
+
+
+def test_bez_kodu_bliskie_wyniki_nominatim_to_punkt():
+    http = FakeHttp(nominatim=[[{'lat': '50.10', 'lon': '19.90', 'place_rank': 30},
+                                {'lat': '50.11', 'lon': '19.91', 'place_rank': 26}]])
+    wynik = g.geokoduj_adres('Nowa 5', 'Kraków', None, 'PL', http, _bez_spania)
+    assert wynik == g.Wynik(50.10, 19.90, 'nominatim', 'dokladna')
+
+
+def test_z_kodem_nominatim_pyta_o_jeden_wynik():
+    http = FakeHttp(nominatim=[[{'lat': '50.1', 'lon': '19.9', 'place_rank': 30}]])
+    g.geokoduj_adres('Nowa 5', 'Kraków', '30-001', 'PL', http, _bez_spania)
+    assert http.wywolania[-1][1]['limit'] == 1
+
+
+def test_bez_kodu_miejscowosc_wieloznaczna_to_nie_znaleziono():
+    """„Nowa Wieś” bez kodu: Nominatim wskazałby którąkolwiek — nie pytamy go o miejscowość."""
+    http = FakeHttp(gugik={'Nowa Wieś': NOWA_WIES}, nominatim=[[]])
+    wynik = g.geokoduj_adres('Nieistniejąca 1', 'Nowa Wieś', None, 'PL', http, _bez_spania)
+    assert wynik.quality == 'nie_znaleziono'
+    assert len([u for u, _, _ in http.wywolania if u == g.NOMINATIM_URL]) == 1
+
+
+def test_odleglosc_km():
+    assert g._odleglosc_km((50.0, 20.0), (50.0, 20.0)) == 0
+    assert g._odleglosc_km((52.13, 21.23), (50.48, 23.05)) == pytest.approx(221, abs=5)
