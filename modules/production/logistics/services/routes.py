@@ -9,12 +9,19 @@ Każda zmiana widoczna na tablecie podbija updated_at pozycji zamówień
 """
 from datetime import date
 
+from sqlalchemy.orm import joinedload
+
 from extensions import db
+from modules.logging import get_structured_logger
 from modules.production.logistics import sposoby
 from modules.production.logistics.models import Route, RouteStop, STATUSY_TRASY_AKTYWNE, Vehicle
 from modules.production.logistics.services import delivery, fleet
 from modules.production.logistics.services.delivery import LogistykaBlad
-from modules.production.models import ProductionOrder, ProductionWorker, get_local_now
+from modules.production.models import (
+    ProductionConfig, ProductionOrder, ProductionWorker, get_local_now,
+)
+
+logger = get_structured_logger('production.logistics.routes')
 
 # Ta sama wartość, co stała modelu (Task 1) — trasy, które widzi tablet i które
 # blokują pojazd/kierowcę. Import zamiast drugiej literalnej krotki: jedno miejsce
@@ -22,6 +29,11 @@ from modules.production.models import ProductionOrder, ProductionWorker, get_loc
 AKTYWNE = STATUSY_TRASY_AKTYWNE
 WAGA_KG_NA_M3 = 800
 MAKS_NAZWA = 120
+# Klucz wiersza prod_config, który serializuje zapisy tras — patrz zablokuj_trasy().
+KLUCZ_BLOKADY = 'logistyka_trasy_blokada'
+# Ostrzeżenie o brakującym wierszu blokady najwyżej raz na proces (jak
+# panel_api._carto_key_ostrzezono) — nie chcemy zalewać logu przy każdym zapisie.
+_blokada_ostrzezono = False
 
 
 # ── Pomocnicze ─────────────────────────────────────────────────────────────
@@ -36,12 +48,70 @@ def _data(wartosc, pole):
 
 
 def _id(wartosc, pole):
+    """
+    (fix-1, Ruling C) Przyjmuje WYŁĄCZNIE `int` (nie `bool` — `bool` jest podklasą
+    `int` w Pythonie, `True` inaczej stałby się id=1) albo tekst złożony z samych
+    cyfr; nigdy nie woła gołego `int()` na nieznanym typie, więc `float('inf')`
+    (JSON `1e400`) nie ma szans rzucić `OverflowError` — po prostu 422.
+    """
+    if isinstance(wartosc, bool):
+        raise LogistykaBlad(u'Pole „{}”: nieprawidłowa wartość.'.format(pole), status=422)
     if wartosc in (None, '', 0, '0'):
         return None
-    try:
-        return int(wartosc)
-    except (TypeError, ValueError):
-        raise LogistykaBlad(u'Pole „{}”: nieprawidłowa wartość.'.format(pole), status=422)
+    if isinstance(wartosc, int):
+        return wartosc
+    if isinstance(wartosc, str) and wartosc.strip().isdigit():
+        return int(wartosc.strip())
+    raise LogistykaBlad(u'Pole „{}”: nieprawidłowa wartość.'.format(pole), status=422)
+
+
+def zablokuj_trasy(route=None):
+    """
+    (fix-1, Ruling A) Blokada globalna „jeden piszący trasy naraz" + — gdy podano
+    `route` — jej ODCZYT BIEŻĄCY razem z przystankami. Zwraca świeżą trasę (albo
+    None, gdy wołane bez argumentu).
+
+    DLACZEGO: nic w repo nie ustawia poziomu izolacji, więc MySQL 8.4 pracuje na
+    REPEATABLE READ. Migawka zwykłego SELECT-a pochodzi z PIERWSZEGO zwykłego
+    odczytu CAŁEJ transakcji — nie z chwili wzięcia blokady. Wołający prawie zawsze
+    coś już przeczytał, zanim tu dotarł (Flask-Login ładuje usera; `edytuj`/
+    `przywroc` dostają już wczytaną trasę), więc samo wzięcie blokady NIE
+    wystarcza — potrzeba odczytu BIEŻĄCEGO: `FOR UPDATE`/`FOR SHARE` w InnoDB
+    czyta ostatni ZACOMMITOWANY wiersz (nie migawkę), a `populate_existing()`
+    wymusza nadpisanie atrybutów obiektu już siedzącego w identity mapie —
+    bez tego SQLAlchemy oddałby starą kopię z pamięci mimo świeżego SELECT-a.
+
+    Jeden WSPÓLNY wiersz blokady (zamiast osobnych blokad per pojazd/kierowca)
+    serializuje WSZYSTKIE zapisy tras jedną kolejką. WoodPower ma 1–2 osoby w
+    logistyce, więc to nic nie kosztuje, a jest odporne na zakleszczenie: blokady
+    per zasób wzięte przez dwie trasy w RÓŻNEJ kolejności (np. trasa A bierze
+    pojazd V1 potem czeka na V2, trasa B odwrotnie) mogłyby się zakleszczyć —
+    jeden wspólny zamek pierwszy eliminuje ten scenariusz.
+
+    ZASADA: każda funkcja zmieniająca trasę woła to PIERWSZA, przed jakimkolwiek
+    zapisem. Wywołania zagnieżdżone w tej samej transakcji (np. `wykonaj` →
+    `usun_przystanek`) są bezpieczne — blokada jest już trzymana (MySQL pozwala
+    tej samej transakcji wielokrotnie zablokować ten sam wiersz), a autoflush
+    przed kolejnym SELECT-em i tak wypycha wcześniejsze zmiany tej transakcji.
+
+    Brak wiersza blokady (świeża baza przed migracją — SQLite testów go nie ma)
+    NIE blokuje zapisu: ostrzeżenie raz na proces, migracja go zakłada (fail-open).
+    """
+    global _blokada_ostrzezono
+    wiersz = (ProductionConfig.query.filter_by(config_key=KLUCZ_BLOKADY)
+              .with_for_update().first())
+    if wiersz is None and not _blokada_ostrzezono:
+        _blokada_ostrzezono = True
+        logger.warning(u"Brak wiersza blokady tras '{}' w prod_config - zapisy tras "
+                       u"NIE sa serializowane (migracja go zaklada)".format(KLUCZ_BLOKADY))
+    if route is None:
+        return None
+    swieza = (Route.query.options(joinedload(Route.stops))
+             .filter(Route.id == route.id)
+             .with_for_update().populate_existing().one_or_none())
+    if swieza is None:
+        raise LogistykaBlad(u'Nie ma takiej trasy.', status=404)
+    return swieza
 
 
 def _lista_id(wartosc):
@@ -88,11 +158,17 @@ def _log_statusu(route, stary, nowy, user_id, teraz):
 
 # ── Zajętość zasobów ──────────────────────────────────────────────────────
 
-def zajetosc(date_from, date_to, pomin_route_id=None):
+def zajetosc(date_from, date_to, pomin_route_id=None, aktualny=False):
     zapytanie = Route.query.filter(Route.status.in_(AKTYWNE),
                                    Route.date_from <= date_to, Route.date_to >= date_from)
     if pomin_route_id:
         zapytanie = zapytanie.filter(Route.id != pomin_route_id)
+    if aktualny:
+        # (fix-1, Ruling A4) Odczyt bieżący (FOR SHARE) — zwykły SELECT czytałby
+        # z migawki REPEATABLE READ sprzed wzięcia blokady globalnej
+        # (zablokuj_trasy, wywołana wcześniej przez wołającego _sprawdz_zasoby),
+        # więc mógłby nie zobaczyć trasy, którą inny piszący właśnie zacommitował.
+        zapytanie = zapytanie.with_for_update(read=True).populate_existing()
     pojazdy, kierowcy = {}, {}
     for trasa in zapytanie.order_by(Route.date_from).all():
         if trasa.vehicle_id:
@@ -103,7 +179,7 @@ def zajetosc(date_from, date_to, pomin_route_id=None):
 
 
 def dostepnosc(date_from, date_to, pomin_route_id=None):
-    z = zajetosc(date_from, date_to, pomin_route_id)
+    z = zajetosc(date_from, date_to, pomin_route_id)   # podgląd UI — zwykły odczyt wystarczy
     return {
         'pojazdy': [dict(p, zajety=p['id'] in z['pojazdy'], trasa=z['pojazdy'].get(p['id']))
                     for p in fleet.lista_pojazdow(tylko_aktywne=True)],
@@ -114,8 +190,11 @@ def dostepnosc(date_from, date_to, pomin_route_id=None):
 
 def _sprawdz_zasoby(od, do, vehicle_id, driver_id, pomin_route_id=None):
     if vehicle_id:
-        # FOR UPDATE na wierszu pojazdu serializuje dwa równoległe zapisy tras (MySQL);
-        # SQLite go ignoruje, testy jadą sekwencyjnie.
+        # (fix-1, Ruling A4) To jest odczyt BIEŻĄCY is_active, NIE serializacja —
+        # serializację zapewnia wspólna blokada wzięta przez zablokuj_trasy() na
+        # starcie funkcji wołającej. Bez FOR UPDATE zwykły SELECT czytałby
+        # is_active z migawki transakcji sprzed tamtej blokady (REPEATABLE READ),
+        # więc mógłby przepuścić pojazd wyłączony z floty w międzyczasie.
         pojazd = Vehicle.query.with_for_update().filter_by(id=vehicle_id).first()
         if pojazd is None:
             raise LogistykaBlad(u'Nie ma takiego pojazdu.', status=422)
@@ -125,7 +204,9 @@ def _sprawdz_zasoby(od, do, vehicle_id, driver_id, pomin_route_id=None):
         kierowca = ProductionWorker.query.get(driver_id)
         if kierowca is None or not kierowca.is_active:
             raise LogistykaBlad(u'Nie ma takiego aktywnego kierowcy.', status=422)
-    z = zajetosc(od, do, pomin_route_id)
+    # Sprawdzenie konfliktu MUSI być odczytem bieżącym (Ruling A4) — inaczej
+    # trasa, którą inny piszący właśnie zacommitował, byłaby niewidoczna.
+    z = zajetosc(od, do, pomin_route_id, aktualny=True)
     if vehicle_id and vehicle_id in z['pojazdy']:
         raise LogistykaBlad(u'Pojazd jest zajęty na trasie „{}” w tych dniach.'.format(
             z['pojazdy'][vehicle_id]))
@@ -135,14 +216,22 @@ def _sprawdz_zasoby(od, do, vehicle_id, driver_id, pomin_route_id=None):
 
 
 def _dane_trasy(dane):
-    nazwa = (dane.get('name') or '').strip()
+    # (fix-1, Ruling C) `name`/`notes` spoza `str` (np. {"name": 5} z JSON API etapu 6)
+    # rzucałyby AttributeError na .strip() gołego inta — 500 zamiast czytelnej odmowy.
+    nazwa_surowa = dane.get('name')
+    if not isinstance(nazwa_surowa, str):
+        raise LogistykaBlad(u'Podaj nazwę trasy (do {} znaków).'.format(MAKS_NAZWA), status=422)
+    nazwa = nazwa_surowa.strip()
     if not nazwa or len(nazwa) > MAKS_NAZWA:
         raise LogistykaBlad(u'Podaj nazwę trasy (do {} znaków).'.format(MAKS_NAZWA), status=422)
     od = _data(dane.get('date_from'), u'data od')
     do = _data(dane.get('date_to') or dane.get('date_from'), u'data do')
     if do < od:
         raise LogistykaBlad(u'Data „do” jest wcześniejsza niż „od”.', status=422)
-    notatka = (dane.get('notes') or '').strip() or None
+    notatka_surowa = dane.get('notes')
+    if notatka_surowa is not None and not isinstance(notatka_surowa, str):
+        raise LogistykaBlad(u'Pole „notatka”: podaj tekst.', status=422)
+    notatka = (notatka_surowa or '').strip() or None
     return (nazwa, od, do, _id(dane.get('vehicle_id'), u'pojazd'),
             _id(dane.get('driver_worker_id'), u'kierowca'), notatka)
 
@@ -150,6 +239,7 @@ def _dane_trasy(dane):
 # ── Tworzenie i edycja ────────────────────────────────────────────────────
 
 def utworz(dane, user_id=None):
+    zablokuj_trasy()   # (fix-1, Ruling A3) blokada PIERWSZA, przed jakimkolwiek odczytem/zapisem
     nazwa, od, do, pojazd_id, kierowca_id, notatka = _dane_trasy(dane)
     _sprawdz_zasoby(od, do, pojazd_id, kierowca_id)
     teraz = get_local_now()
@@ -162,6 +252,7 @@ def utworz(dane, user_id=None):
 
 
 def edytuj(route, dane, user_id=None):
+    route = zablokuj_trasy(route)   # (fix-1, Ruling A3) przed _wymagaj_statusu — świeży stan
     _wymagaj_statusu(route, 'robocza')
     nazwa, od, do, pojazd_id, kierowca_id, notatka = _dane_trasy(dane)
     _sprawdz_zasoby(od, do, pojazd_id, kierowca_id, pomin_route_id=route.id)
@@ -175,8 +266,13 @@ def edytuj(route, dane, user_id=None):
 
 # ── Odczyty dla innych modułów ────────────────────────────────────────────
 
-def przystanek_zamowienia(order_id):
-    return RouteStop.query.filter_by(order_id=order_id).first()
+def przystanek_zamowienia(order_id, aktualny=False):
+    zapytanie = RouteStop.query.filter_by(order_id=order_id)
+    if aktualny:
+        # (fix-1, Ruling A6) Woła np. delivery._przystanek_do_zmiany PRZED
+        # odczytem statusu trasy — patrz zablokuj_trasy() po co.
+        zapytanie = zapytanie.with_for_update(read=True).populate_existing()
+    return zapytanie.first()
 
 
 def trasy_zamowien(order_ids):
@@ -217,12 +313,21 @@ def _przenumeruj(route):
 
 
 def dodaj_przystanki(route, order_ids, user_id=None):
+    route = zablokuj_trasy(route)   # (fix-1, Ruling A3) przed _wymagaj_statusu — świeży stan
     _wymagaj_statusu(route, 'robocza')
     order_ids = _lista_id(order_ids)
     teraz = get_local_now()
     unikalne = list(dict.fromkeys(order_ids))
     zamowienia = {o.id: o for o in
                   ProductionOrder.query.filter(ProductionOrder.id.in_(unikalne)).all()}
+    # (fix-1, Ruling A5) JEDNO bieżące zapytanie o wszystkie żądane id zamiast
+    # przystanek_zamowienia() w pętli per zamówienie — ten sam powód co reszta
+    # blokad w tym pliku: zwykły SELECT czytałby z migawki sprzed zablokuj_trasy()
+    # powyżej i mógłby nie zobaczyć przystanku, który inny piszący dopiero co dodał.
+    zajete = dict(db.session.query(RouteStop.order_id, Route.name)
+                  .join(Route, RouteStop.route_id == Route.id)
+                  .filter(RouteStop.order_id.in_(unikalne))
+                  .with_for_update(read=True).all())
     pozycja = max([s.position for s in route.stops] or [0])
     dodane, bledy = [], []
     for order_id in unikalne:
@@ -231,6 +336,10 @@ def dodaj_przystanki(route, order_ids, user_id=None):
             bledy.append({'order_id': order_id, 'komunikat': u'Nie ma takiego zamówienia.'})
             continue
         numer = order.internal_order_number
+        # Znana resztka ryzyka (fix-1, Ruling A8 — świadomie NIE domykana): zmiana
+        # sposobu dostawy na kuriera i dodanie tego samego zamówienia do trasy w tej
+        # samej milisekundzie nadal mogą oba przejść — zamknięcie tego wymagałoby
+        # blokady na prod_orders, co zakleszczałoby się z synchronizacją Base.
         if sposoby.normalizuj(order.override_delivery_method) != sposoby.TRANSPORT:
             bledy.append({'order_id': order_id, 'komunikat':
                           u'Zamówienie {} nie ma ustawionego transportu własnego.'.format(numer)})
@@ -239,10 +348,9 @@ def dodaj_przystanki(route, order_ids, user_id=None):
             bledy.append({'order_id': order_id, 'komunikat':
                           u'Zamówienie {} jest zamknięte w logistyce.'.format(numer)})
             continue
-        inny = przystanek_zamowienia(order_id)
-        if inny is not None:
+        if order_id in zajete:
             bledy.append({'order_id': order_id, 'komunikat':
-                          u'Zamówienie {} jest już na trasie „{}”.'.format(numer, inny.route.name)})
+                          u'Zamówienie {} jest już na trasie „{}”.'.format(numer, zajete[order_id])})
             continue
         pozycja += 1
         db.session.add(RouteStop(route_id=route.id, order_id=order_id, position=pozycja))
@@ -256,6 +364,9 @@ def dodaj_przystanki(route, order_ids, user_id=None):
 
 
 def usun_przystanek(route, order_id, user_id=None, note=None, wymagaj_roboczej=True):
+    # (fix-1, Ruling A3) Wołania zagnieżdżone (wykonaj/usun w pętli) są bezpieczne —
+    # patrz docstring zablokuj_trasy().
+    route = zablokuj_trasy(route)
     if wymagaj_roboczej:
         _wymagaj_statusu(route, 'robocza')
     przystanek = RouteStop.query.filter_by(route_id=route.id, order_id=order_id).first()
@@ -272,6 +383,7 @@ def usun_przystanek(route, order_id, user_id=None, note=None, wymagaj_roboczej=T
 
 
 def zmien_kolejnosc(route, order_ids):
+    route = zablokuj_trasy(route)   # (fix-1, Ruling A3) przed _wymagaj_statusu — świeży stan
     _wymagaj_statusu(route, 'robocza')
     nowe = _lista_id(order_ids)
     obecne = {s.order_id: s for s in route.stops}
@@ -286,6 +398,7 @@ def zmien_kolejnosc(route, order_ids):
 # ── Statusy ───────────────────────────────────────────────────────────────
 
 def zatwierdz(route, user_id=None):
+    route = zablokuj_trasy(route)   # (fix-1, Ruling A3) przed _wymagaj_statusu — świeży stan
     _wymagaj_statusu(route, 'robocza')
     if not route.stops:
         raise LogistykaBlad(u'Trasa bez przystanków nie może być zatwierdzona.', status=422)
@@ -296,6 +409,7 @@ def zatwierdz(route, user_id=None):
 
 
 def cofnij_do_roboczej(route, user_id=None):
+    route = zablokuj_trasy(route)   # (fix-1, Ruling A3) przed _wymagaj_statusu — świeży stan
     _wymagaj_statusu(route, 'zatwierdzona')
     teraz = get_local_now()
     route.status, route.approved_at, route.approved_by = 'robocza', None, None
@@ -304,6 +418,7 @@ def cofnij_do_roboczej(route, user_id=None):
 
 
 def wykonaj(route, dostarczone_ids=None, user_id=None):
+    route = zablokuj_trasy(route)   # (fix-1, Ruling A3) przed _wymagaj_statusu — świeży stan
     _wymagaj_statusu(route, *AKTYWNE)
     na_trasie = [s.order_id for s in route.stops]
     if not na_trasie:
@@ -329,6 +444,7 @@ def wykonaj(route, dostarczone_ids=None, user_id=None):
 
 
 def przywroc(route, user_id=None):
+    route = zablokuj_trasy(route)   # (fix-1, Ruling A3) przed _wymagaj_statusu — świeży stan
     _wymagaj_statusu(route, 'wykonana')
     _sprawdz_zasoby(route.date_from, route.date_to, route.vehicle_id, route.driver_worker_id,
                     pomin_route_id=route.id)
@@ -343,6 +459,7 @@ def przywroc(route, user_id=None):
 
 
 def usun(route, user_id=None):
+    route = zablokuj_trasy(route)   # (fix-1, Ruling A3) przed _wymagaj_statusu — świeży stan
     _wymagaj_statusu(route, 'robocza')
     for order_id in [s.order_id for s in route.stops]:
         usun_przystanek(route, order_id, user_id=user_id, note=u'usunięcie trasy')

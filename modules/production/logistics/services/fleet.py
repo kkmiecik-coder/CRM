@@ -24,22 +24,37 @@ def lista_pojazdow(tylko_aktywne=False):
 
 
 def zapisz_pojazd(dane, pojazd=None):
-    nazwa = (dane.get('name') or '').strip()
+    # (fix-1, Ruling C) `name`/`registration` spoza `str` (np. {"name": 5} z JSON API
+    # etapu 6) rzucałyby AttributeError na .strip()/.upper() gołego inta — 500
+    # zamiast czytelnej odmowy.
+    nazwa_surowa = dane.get('name')
+    if not isinstance(nazwa_surowa, str):
+        raise LogistykaBlad(u'Podaj nazwę pojazdu (do 100 znaków).', status=422)
+    nazwa = nazwa_surowa.strip()
     if not nazwa or len(nazwa) > 100:
         raise LogistykaBlad(u'Podaj nazwę pojazdu (do 100 znaków).', status=422)
-    rejestracja = ' '.join((dane.get('registration') or '').upper().split()) or None
+    rejestracja_surowa = dane.get('registration')
+    if rejestracja_surowa is not None and not isinstance(rejestracja_surowa, str):
+        raise LogistykaBlad(u'Numer rejestracyjny podaj jako tekst.', status=422)
+    rejestracja = ' '.join((rejestracja_surowa or '').upper().split()) or None
     if rejestracja and len(rejestracja) > 20:
         raise LogistykaBlad(u'Numer rejestracyjny może mieć najwyżej 20 znaków.', status=422)
     ladownosc = dane.get('capacity_kg')
+    # bool jest podklasą int w Pythonie — bez wyłączenia `True` przeszłoby jako 1 kg.
+    if isinstance(ladownosc, bool):
+        raise LogistykaBlad(u'Ładowność podaj w pełnych kilogramach.', status=422)
     if ladownosc in (None, ''):
         ladownosc = None
+    elif isinstance(ladownosc, int):
+        pass
+    elif isinstance(ladownosc, str) and ladownosc.strip().isdigit():
+        ladownosc = int(ladownosc.strip())
     else:
-        try:
-            ladownosc = int(ladownosc)
-        except (TypeError, ValueError):
-            raise LogistykaBlad(u'Ładowność podaj w pełnych kilogramach.', status=422)
-        if not 0 < ladownosc <= MAKS_LADOWNOSC_KG:
-            raise LogistykaBlad(u'Ładowność musi być dodatnia.', status=422)
+        # Nigdy gołego int()/float() na nieznanym typie — 1e400 (JSON) parsuje się
+        # jako inf, a int(inf) rzuca OverflowError zamiast czytelnego 422.
+        raise LogistykaBlad(u'Ładowność podaj w pełnych kilogramach.', status=422)
+    if ladownosc is not None and not 0 < ladownosc <= MAKS_LADOWNOSC_KG:
+        raise LogistykaBlad(u'Ładowność musi być dodatnia.', status=422)
 
     # Zmiana nazwy ISTNIEJĄCEGO pojazdu (nie nowego) — trzeba podbić pozycje na trasach,
     # zanim nadpiszemy pojazd.name poniżej (inaczej nie mamy już starej wartości).

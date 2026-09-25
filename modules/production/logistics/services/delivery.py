@@ -109,12 +109,18 @@ def _przystanek_do_zmiany(order, zdejmuje, opis):
     zamówienie dostarczone, żadnych zmian. Zatwierdzona — zmiana, która zdejmuje
     zamówienie z trasy albo zmienia adres (`zdejmuje=True`), wymaga cofnięcia
     zatwierdzenia (eksport do Routimo mógł już pójść). Zwraca przystanek albo None.
+
+    (fix-1, Ruling A6) Odczyt BIEŻĄCY przystanku i blokada globalna PRZED odczytem
+    statusu trasy — zwykły SELECT czytałby migawkę sprzed blokady i mógłby przepuścić
+    zmianę na trasie, którą ktoś inny właśnie zatwierdził albo wykonał w międzyczasie.
+    Blokada spada tu PRZED pierwszym zapisem `zmien_adres`/`ustaw_sposob_dostawy`
+    (obaj wołają to jako pierwszą rzecz po odczytach) — patrz routes.zablokuj_trasy().
     """
     from modules.production.logistics.services import routes
-    przystanek = routes.przystanek_zamowienia(order.id)
+    przystanek = routes.przystanek_zamowienia(order.id, aktualny=True)
     if przystanek is None:
         return None
-    trasa = przystanek.route
+    trasa = routes.zablokuj_trasy(przystanek.route)
     if trasa.status == 'wykonana':
         raise LogistykaBlad(u'Zamówienie {} zostało dostarczone trasą „{}”.'.format(
             order.internal_order_number, trasa.name))

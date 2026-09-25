@@ -47,3 +47,5 @@ def test_migracja_tras():
     for tabela in ('prod_vehicles', 'prod_routes', 'prod_route_stops'):
         assert 'CREATE TABLE IF NOT EXISTS {}'.format(tabela) in sql
     assert 'LONGTEXT' in sql and 'DELIMITER' not in sql
+    # fix-1, Ruling A1: wiersz blokady zapisów tras w prod_config.
+    assert 'INSERT IGNORE INTO prod_config' in sql and "'logistyka_trasy_blokada'" in sql

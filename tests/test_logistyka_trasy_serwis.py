@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 from datetime import date, datetime
+from types import SimpleNamespace
 
 import pytest
+from sqlalchemy import text
 
 from extensions import db
 from modules.production.logistics import sposoby as s
@@ -151,6 +153,9 @@ def test_niedostarczony_wraca_do_puli(app):
         a = _transport(statusy=('spakowane',))
         b = _transport(statusy=('spakowane',))
         routes.dodaj_przystanki(t, [a.id, b.id])
+        for p in b.products:
+            p.updated_at = datetime(2026, 1, 1)
+        db.session.commit()
         wynik = routes.wykonaj(t, dostarczone_ids=[a.id])
         db.session.commit()
         assert wynik == {'dostarczone': [a.id], 'niedostarczone': [b.id]}
@@ -158,6 +163,8 @@ def test_niedostarczony_wraca_do_puli(app):
         assert a.logistics_closed_at is not None
         assert b.logistics_closed_at is None
         assert RouteStop.query.filter_by(order_id=b.id).first() is None
+        # fix-1, Ruling B: b wraca do puli — tablet musi to zobaczyć (ETag z updated_at).
+        assert all(p.updated_at > datetime(2026, 1, 1) for p in b.products)
         notatka = LogisticsLog.query.filter_by(order_id=b.id, action='trasa_usuniete').one().note
         assert notatka == 'niedostarczone'
 
@@ -261,3 +268,155 @@ def test_zle_id_w_wykonaj_float(app):
             routes.wykonaj(t, dostarczone_ids=[1.5])
         assert e.value.status == 422
         assert t.status == 'robocza'
+
+
+# --- fix-1, Ruling B: każda zmiana widoczna na tablecie musi podbić updated_at ---
+# pozycji zamówień (ETag kolejki liczy się z MAX(updated_at) — bez podbicia tablet
+# dostaje 304 i nie widzi zmiany). `zmien_kolejnosc` celowo pominięta: pozycja
+# przystanku nie jest niczym, co tablet pokazuje.
+
+def _trasa_ze_statusem(status):
+    t = _trasa()
+    o = _transport(statusy=('spakowane',))
+    routes.dodaj_przystanki(t, [o.id])
+    if status in ('zatwierdzona', 'wykonana'):
+        routes.zatwierdz(t)
+    if status == 'wykonana':
+        routes.wykonaj(t)
+    db.session.commit()
+    return t, o
+
+
+@pytest.mark.parametrize('status, operacja', [
+    ('robocza', lambda t: routes.edytuj(t, {'name': 'Nowa', 'date_from': '2026-10-01'})),
+    ('robocza', lambda t: routes.zatwierdz(t)),
+    ('zatwierdzona', lambda t: routes.cofnij_do_roboczej(t)),
+    ('zatwierdzona', lambda t: routes.wykonaj(t)),
+    ('wykonana', lambda t: routes.przywroc(t)),
+    ('robocza', lambda t: routes.usun(t)),
+], ids=['edytuj', 'zatwierdz', 'cofnij_do_roboczej', 'wykonaj', 'przywroc', 'usun'])
+def test_kazda_zmiana_trasy_podbija_pozycje(app, status, operacja):
+    with app.app_context():
+        t, o = _trasa_ze_statusem(status)
+        for p in o.products:
+            p.updated_at = datetime(2026, 1, 1)
+        db.session.commit()
+        operacja(t)
+        db.session.commit()
+        assert all(p.updated_at > datetime(2026, 1, 1) for p in o.products)
+
+
+# --- fix-1, Ruling C: dane spoza spodziewanych typów (np. z JSON API etapu 6) ---
+# muszą dać 422, nie AttributeError/OverflowError (500).
+
+@pytest.mark.parametrize('zle', [
+    {'name': 5},
+    {'name': 'A', 'notes': ['x']},
+    {'name': 'A', 'vehicle_id': True},
+    {'name': 'A', 'vehicle_id': 1e400},
+    {'name': 'A', 'vehicle_id': 'abc'},
+    {'name': 'A', 'date_from': 5},
+])
+def test_zle_typy_w_danych_trasy(app, zle):
+    with app.app_context():
+        dane = dict({'date_from': '2026-10-01'}, **zle)
+        with pytest.raises(LogistykaBlad) as e:
+            routes.utworz(dane)
+        assert e.value.status == 422
+
+
+# --- fix-1, Ruling A: blokada globalna „jeden piszący trasy naraz" ---
+
+def _szpieg_blokady(monkeypatch):
+    """Podmienia routes.zablokuj_trasy na szpiega, który woła oryginał (działanie
+    bez zmian) i zapisuje id trasy każdego wywołania (None dla utworz())."""
+    wywolania = []
+    oryginal = routes.zablokuj_trasy
+
+    def podglad(route=None):
+        wywolania.append(route.id if route is not None else None)
+        return oryginal(route)
+
+    monkeypatch.setattr(routes, 'zablokuj_trasy', podglad)
+    return wywolania
+
+
+def test_zablokuj_trasy_na_starcie_kazdej_funkcji_zmieniajacej(app, monkeypatch):
+    """Ruling A3/A9: zablokuj_trasy() jest pierwszą rzeczą, którą robi każda funkcja
+    zmieniająca trasę — sprawdzone na całym cyklu życia trasy."""
+    with app.app_context():
+        wywolania = _szpieg_blokady(monkeypatch)
+
+        t = routes.utworz({'name': 'A', 'date_from': '2026-10-01'})
+        db.session.commit()
+        assert wywolania == [None]
+
+        routes.edytuj(t, {'name': 'B', 'date_from': '2026-10-01'})
+        assert wywolania[-1] == t.id
+
+        o1, o2 = _transport(), _transport()
+        routes.dodaj_przystanki(t, [o1.id, o2.id])
+        assert wywolania[-1] == t.id
+
+        routes.zmien_kolejnosc(t, [o2.id, o1.id])
+        assert wywolania[-1] == t.id
+
+        routes.usun_przystanek(t, o2.id)
+        assert wywolania[-1] == t.id
+
+        routes.zatwierdz(t)
+        assert wywolania[-1] == t.id
+
+        routes.cofnij_do_roboczej(t)
+        assert wywolania[-1] == t.id
+
+        routes.zatwierdz(t)
+        przed = len(wywolania)
+        routes.wykonaj(t)
+        assert t.id in wywolania[przed:]
+
+        routes.przywroc(t)
+        assert wywolania[-1] == t.id
+
+        routes.cofnij_do_roboczej(t)
+        assert wywolania[-1] == t.id
+
+        routes.usun(t)
+        assert t.id in wywolania[-2:]   # własne wywołanie + re-entrantne z usun_przystanek
+
+
+def test_zablokuj_trasy_widzi_swiezy_status_mimo_identity_mapy(app):
+    """Ruling A9 (dowód na populate_existing): zwykły odczyt obiektu już w identity
+    mapie NIE odświeża jego atrybutów po surowym UPDATE „za plecami" ORM-a — tylko
+    with_for_update().populate_existing() to robi. Bez tego dodaj_przystanki
+    działałby na przeterminowanym route.status."""
+    with app.app_context():
+        t = _trasa()
+        o = _transport()
+        db.session.execute(text("UPDATE prod_routes SET status='zatwierdzona' WHERE id=:i"),
+                           {'i': t.id})
+        assert t.status == 'robocza'   # identity mapa jeszcze nie wie o zmianie
+        with pytest.raises(LogistykaBlad) as e:
+            routes.dodaj_przystanki(t, [o.id])
+        assert e.value.status == 409
+
+
+def test_zablokuj_trasy_nieistniejaca_trasa_404(app):
+    """Trasa usunięta przez kogoś innego w międzyczasie (np. usun() w innej sesji)."""
+    with app.app_context():
+        with pytest.raises(LogistykaBlad) as e:
+            routes.zablokuj_trasy(SimpleNamespace(id=999999))
+        assert e.value.status == 404
+
+
+def test_zablokuj_trasy_bez_wiersza_blokady_dziala_z_ostrzezeniem(app, monkeypatch):
+    """Świeża baza bez wiersza 'logistyka_trasy_blokada' (migracja go zakłada, ale
+    fixture testowy tworzy tylko schemat, nie dane — dokładnie ten scenariusz na
+    KAŻDYM teście tego pliku) nie wywraca zapisu — fail-open z ostrzeżeniem raz na
+    proces, nie wyjątkiem."""
+    with app.app_context():
+        monkeypatch.setattr(routes, '_blokada_ostrzezono', False)
+        t = routes.utworz({'name': 'A', 'date_from': '2026-10-01'})
+        db.session.commit()
+        assert t.status == 'robocza'
+        assert routes._blokada_ostrzezono is True

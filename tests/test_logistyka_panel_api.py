@@ -5,7 +5,7 @@ import pytest
 
 from extensions import db
 from modules.production.logistics import sposoby as s
-from modules.production.logistics.services import bl_sync
+from modules.production.logistics.services import bl_sync, routes
 from modules.production.models import ProductionOrder
 from tests.logistyka_fixtures import BASE, app, client, zamowienie  # noqa: F401
 
@@ -101,6 +101,27 @@ def test_hurtowe_ustawienie_sposobu(client, app, bez_base):
     with app.app_context():
         assert all(ProductionOrder.query.get(i).override_delivery_method == s.TRANSPORT
                    for i in ids)
+
+
+def test_hurtowe_ustawienie_bierze_blokade_tras_przed_petla(client, app, bez_base, monkeypatch):
+    """fix-1, Ruling A7: POST /orders/delivery-method bierze globalną blokadę tras
+    PRZED pętlą po zamówieniach (kolejność „trasa najpierw" — inaczej pętla mogłaby
+    trzymać blokady wierszy pozycji i czekać na blokadę trasy, podczas gdy
+    zatwierdzenie trasy czekałoby na te same pozycje — zakleszczenie)."""
+    wywolania = []
+    oryginal = routes.zablokuj_trasy
+
+    def podglad(route=None):
+        wywolania.append(route.id if route is not None else None)
+        return oryginal(route)
+
+    monkeypatch.setattr(routes, 'zablokuj_trasy', podglad)
+    with app.app_context():
+        ids = [zamowienie().id, zamowienie().id]
+    r = client.post(BASE + '/orders/delivery-method',
+                    json={'order_ids': ids, 'sposob': s.TRANSPORT})
+    assert r.status_code == 200
+    assert wywolania == [None]
 
 
 def test_hurt_z_czesciowa_odmowa(client, app):

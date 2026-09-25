@@ -24,6 +24,9 @@ def test_zapis_pojazdu_normalizuje_dane(app):
 @pytest.mark.parametrize('dane', [
     {'name': ''}, {'name': 'x' * 101}, {'name': 'A', 'capacity_kg': '-5'},
     {'name': 'A', 'capacity_kg': 'dużo'}, {'name': 'A', 'registration': 'x' * 21},
+    # fix-1, Ruling C: typy spoza JSON-owych oczekiwań (bool/float/int) -> 422, nie 500.
+    {'name': 5}, {'name': 'A', 'registration': 7},
+    {'name': 'A', 'capacity_kg': True}, {'name': 'A', 'capacity_kg': 1e400},
 ])
 def test_walidacja_pojazdu(app, dane):
     with app.app_context():

@@ -119,6 +119,12 @@ def delivery_method():
     if sposob is None:
         return _blad(u'Nieznany sposób dostawy.', 422)
 
+    # Blokada globalna tras PRZED pierwszym zapisem (fix-1, Ruling A7) — kolejność
+    # „trasa najpierw": bez tego pętla niżej mogłaby trzymać blokady wierszy pozycji
+    # zamówienia O1 i czekać na blokadę trasy, podczas gdy zatwierdzenie trasy
+    # (trzymające jej blokadę) czekałoby na podbicie tych samych pozycji — zakleszczenie.
+    routes.zablokuj_trasy()
+
     zmienione, przepakowanie, bledy, usunieto = [], [], [], []
     # selectinload: pozycje wszystkich zamówień jednym zapytaniem, nie zamówienie
     # po zamówieniu (hurt do LIMIT_HURTU zamówień, a pozycji potrzebuje każda zmiana).

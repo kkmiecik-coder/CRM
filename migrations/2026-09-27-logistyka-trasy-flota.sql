@@ -56,3 +56,8 @@ CREATE TABLE IF NOT EXISTS prod_route_stops (
     CONSTRAINT fk_prod_route_stops_order FOREIGN KEY (order_id)
         REFERENCES prod_orders (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Blokada „jeden piszący trasy naraz" (fix-1, Ruling A) — patrz routes.zablokuj_trasy().
+INSERT IGNORE INTO prod_config (config_key, config_value, config_description, config_type, created_at, updated_at)
+VALUES ('logistyka_trasy_blokada', '',
+        'Logistyka: blokada zapisow tras (jeden piszacy naraz)', 'string', NOW(), NOW());
