@@ -14,7 +14,7 @@
      blokuje CDN). #}
 <link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet/leaflet.css') }}?v=1.9.4">
 <link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet-markercluster/MarkerCluster.css') }}?v=1.5.3">
-<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20260925f">
+<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20260925g">
 
 <div id="logistics-root" class="logistics-tab"
      data-api="{{ url_for('logistics_panel.orders') }}"
@@ -193,14 +193,15 @@
                     <input type="checkbox" data-lg="zaznacz-wszystkie" aria-label="Zaznacz wszystkie widoczne zamówienia">
                   </label>
                 </th>
-                <th scope="col" class="lg-k-numer">Zamówienie</th>
-                <th scope="col" class="lg-k-klient">Klient</th>
-                <th scope="col" class="lg-k-adres" title="Dwuklik w adres otwiera jego poprawkę">Adres</th>
-                <th scope="col" class="lg-k-metoda">Metoda z Base.</th>
-                <th scope="col" class="lg-k-sposob">Sposób dostawy</th>
-                <th scope="col" class="lg-k-etap">Etap produkcji</th>
-                <th scope="col" class="lg-k-termin">Termin</th>
-                <th scope="col" class="lg-k-m3">m³</th>
+                {# Sortowanie: klik w nagłówek (drugi odwraca) — logistics.js, ustawSortowanie(). #}
+                <th scope="col" class="lg-k-numer" data-lg-sort-kolumna="numer" aria-sort="none"><button type="button" class="lg-sort" data-lg-sort="numer" data-nazwa="Zamówienie">Zamówienie<span class="lg-sort-znak" aria-hidden="true"></span></button></th>
+                <th scope="col" class="lg-k-klient" data-lg-sort-kolumna="klient" aria-sort="none"><button type="button" class="lg-sort" data-lg-sort="klient" data-nazwa="Klient">Klient<span class="lg-sort-znak" aria-hidden="true"></span></button></th>
+                <th scope="col" class="lg-k-adres" data-lg-sort-kolumna="adres" aria-sort="none"><button type="button" class="lg-sort" data-lg-sort="adres" data-nazwa="Adres">Adres<span class="lg-sort-znak" aria-hidden="true"></span></button></th>
+                <th scope="col" class="lg-k-metoda" data-lg-sort-kolumna="metoda" aria-sort="none"><button type="button" class="lg-sort" data-lg-sort="metoda" data-nazwa="Metoda z Base.">Metoda z Base.<span class="lg-sort-znak" aria-hidden="true"></span></button></th>
+                <th scope="col" class="lg-k-sposob" data-lg-sort-kolumna="sposob" aria-sort="none"><button type="button" class="lg-sort" data-lg-sort="sposob" data-nazwa="Sposób dostawy">Sposób dostawy<span class="lg-sort-znak" aria-hidden="true"></span></button></th>
+                <th scope="col" class="lg-k-etap" data-lg-sort-kolumna="etap" aria-sort="none"><button type="button" class="lg-sort" data-lg-sort="etap" data-nazwa="Etap produkcji">Etap produkcji<span class="lg-sort-znak" aria-hidden="true"></span></button></th>
+                <th scope="col" class="lg-k-termin" data-lg-sort-kolumna="termin" aria-sort="none"><button type="button" class="lg-sort" data-lg-sort="termin" data-nazwa="Termin">Termin<span class="lg-sort-znak" aria-hidden="true"></span></button></th>
+                <th scope="col" class="lg-k-m3" data-lg-sort-kolumna="m3" aria-sort="none"><button type="button" class="lg-sort" data-lg-sort="m3" data-nazwa="m³">m³<span class="lg-sort-znak" aria-hidden="true"></span></button></th>
                 <th scope="col" class="lg-k-stan">Stan</th>
               </tr>
             </thead>
@@ -326,4 +327,4 @@
         });
 })();
 </script>
-<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20260925f"></script>
+<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20260925g"></script>

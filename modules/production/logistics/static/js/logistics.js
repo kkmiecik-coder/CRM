@@ -116,6 +116,9 @@
         naLiscie: [],               // id wierszy w tabeli — to samo widzi mapa
         wskazany: null,             // id wiersza podświetlonego z mapy
         dopasujMape: false,         // po zmianie filtra mapa dopasowuje widok
+        // Sortowanie z nagłówka tabeli: {kolumna, kierunek: 1 | -1} albo null —
+        // wtedy kolejność z API („Nie ustawiono” na górze, potem termin).
+        sort: null,
     };
 
     const oczekujaceSelecty = new Map();   // id → timeout zwłoki selecta
@@ -317,7 +320,98 @@
 
     function widoczneWiersze() {
         const wiersze = poEtapie();
-        return stan.filtr.geo ? wiersze.filter((w) => rodzajLokalizacji(w) === stan.filtr.geo) : wiersze;
+        return posortuj(stan.filtr.geo ? wiersze.filter((w) => rodzajLokalizacji(w) === stan.filtr.geo) : wiersze);
+    }
+
+    // ── Sortowanie (klik w nagłówek; drugi klik w ten sam odwraca) ─────────
+    // Po stronie przeglądarki, na liście z API — jak filtry etapu i lokalizacji.
+    // Puste wartości zawsze na końcu (w obu kierunkach), remis rozstrzyga numer.
+    // Wybór zostaje w localStorage tej przeglądarki (jak proporcje i podkład mapy).
+
+    const KLUCZ_SORTOWANIA_LS = 'logistyka.lista.sortowanie';
+    const porownajTekst = new Intl.Collator('pl', { sensitivity: 'base', numeric: true }).compare;
+    const porownajLiczby = (a, b) => a - b;
+    const pustyTekst = (t) => (t === null || t === undefined || String(t).trim() === '' ? null : String(t));
+
+    const KOLUMNY_SORTOWANIA = {
+        numer: { wartosc: (w) => pustyTekst(w.numer), porownaj: porownajTekst },
+        klient: { wartosc: (w) => pustyTekst(w.klient), porownaj: porownajTekst },
+        // Adres: miejscowość, potem kod i ulica — grupuje zamówienia z jednej miejscowości.
+        adres: {
+            wartosc: (w) => (w.miasto || w.kod || w.adres) ? [w.miasto || '', w.kod || '', w.adres || ''] : null,
+            // Bez miejscowości (sam kod albo ulica) — za wierszami z miejscowością.
+            porownaj: (a, b) => ((!a[0]) - (!b[0])) || porownajTekst(a[0], b[0]) ||
+                porownajTekst(a[1], b[1]) || porownajTekst(a[2], b[2]),
+        },
+        metoda: { wartosc: (w) => pustyTekst(w.metoda_z_base), porownaj: porownajTekst },
+        // Sposób: kolejność liczników nad listą (Nie ustawiono, Kurier, Transport, Odbiór).
+        sposob: { wartosc: (w) => ['brak'].concat(SPOSOBY).indexOf(kluczSposobu(w)), porownaj: porownajLiczby },
+        // Etap: kolejność linii produkcyjnej, nie alfabet.
+        etap: {
+            wartosc: (w) => {
+                const i = KOLEJNOSC_ETAPOW.indexOf(w.etap && w.etap.status);
+                return i === -1 ? KOLEJNOSC_ETAPOW.length : i;
+            },
+            porownaj: porownajLiczby,
+        },
+        termin: { wartosc: (w) => pustyTekst(w.termin), porownaj: (a, b) => (a < b ? -1 : (a > b ? 1 : 0)) },
+        m3: { wartosc: (w) => (Number(w.m3) > 0 ? Number(w.m3) : null), porownaj: porownajLiczby },
+    };
+
+    function posortuj(wiersze) {
+        const s = stan.sort;
+        const def = s && KOLUMNY_SORTOWANIA[s.kolumna];
+        if (!def) return wiersze;
+        return wiersze.map((w, i) => ({ w: w, i: i, v: def.wartosc(w) }))
+            .sort((a, b) => {
+                const pa = a.v === null;
+                const pb = b.v === null;
+                if (pa !== pb) return pa ? 1 : -1;
+                const r = (pa ? 0 : def.porownaj(a.v, b.v) * s.kierunek) ||
+                    porownajTekst(String(a.w.numer || ''), String(b.w.numer || ''));
+                return r || a.i - b.i;
+            })
+            .map((x) => x.w);
+    }
+
+    function wczytajSortowanie() {
+        try {
+            const s = JSON.parse(window.localStorage.getItem(KLUCZ_SORTOWANIA_LS) || 'null');
+            if (s && KOLUMNY_SORTOWANIA[s.kolumna] && (s.kierunek === 1 || s.kierunek === -1)) {
+                return { kolumna: s.kolumna, kierunek: s.kierunek };
+            }
+        } catch (e) { /* brak localStorage albo śmieci w nim — kolejność z API */ }
+        return null;
+    }
+
+    function ustawSortowanie(kolumna) {
+        if (!KOLUMNY_SORTOWANIA[kolumna]) return;
+        stan.sort = (stan.sort && stan.sort.kolumna === kolumna)
+            ? { kolumna: kolumna, kierunek: -stan.sort.kierunek }
+            : { kolumna: kolumna, kierunek: 1 };
+        try {
+            window.localStorage.setItem(KLUCZ_SORTOWANIA_LS, JSON.stringify(stan.sort));
+        } catch (e) { /* wybór nie przeżyje przeładowania */ }
+        renderujSortowanie();
+        renderujTabele();
+    }
+
+    // aria-sort na <th> (czytnik ekranu) i znak kierunku przy aktywnej kolumnie.
+    function renderujSortowanie() {
+        root.querySelectorAll('.lg-tabela th[data-lg-sort-kolumna]').forEach((th) => {
+            const kolumna = th.getAttribute('data-lg-sort-kolumna');
+            const aktywna = !!(stan.sort && stan.sort.kolumna === kolumna);
+            const rosnaco = aktywna && stan.sort.kierunek === 1;
+            th.setAttribute('aria-sort', aktywna ? (rosnaco ? 'ascending' : 'descending') : 'none');
+            th.classList.toggle('is-sortowana', aktywna);
+            const przycisk = th.querySelector('.lg-sort');
+            if (przycisk) {
+                const nazwa = przycisk.getAttribute('data-nazwa') || kolumna;
+                przycisk.title = aktywna
+                    ? 'Sortowanie: ' + nazwa + (rosnaco ? ' rosnąco' : ' malejąco') + '. Kliknij, żeby odwrócić.'
+                    : 'Sortuj według: ' + nazwa;
+            }
+        });
     }
 
     // Filtry inne niż „Bez lokalizacji” zawężają listę — licznik „Bez lokalizacji”
@@ -1518,6 +1612,11 @@
     // ── Zdarzenia (delegacja na korzeniu zakładki) ──────────────────────────
 
     root.addEventListener('click', (e) => {
+        const sortuj = e.target.closest('[data-lg-sort]');
+        if (sortuj && tabela.contains(sortuj)) {
+            ustawSortowanie(sortuj.getAttribute('data-lg-sort'));
+            return;
+        }
         const box = e.target.closest('.lg-zaznacz');
         if (box && tbody.contains(box)) {
             // `click`, nie `change` — tylko tu jest shiftKey do zaznaczania zakresu.
@@ -1727,6 +1826,8 @@
     window.addEventListener('resize', dopasujWysokosc);
     document.addEventListener('shown.bs.tab', naPokazanieZakladki);
     dopasujWysokosc();
+    stan.sort = wczytajSortowanie();
+    renderujSortowanie();
     polaczZMapa();
     zegar = setInterval(tik, ZEGAR_MS);
     renderujPrzelacznikZamknietych();

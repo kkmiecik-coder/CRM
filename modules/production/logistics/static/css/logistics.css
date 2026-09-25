@@ -2486,3 +2486,60 @@ html.lg-przeciaganie-uchwytu * {
     background: #2b2b44;
     border-color: #2b2b44;
 }
+
+
+/* ─── Sortowanie z nagłówka ───
+   Nagłówek to przycisk w kolorze nagłówka (nie wygląda jak przycisk). Aktywna
+   kolumna: ciemniejszy tekst i strzałka kierunku; nieaktywne pokazują blady
+   znak sortowania dopiero przy najechaniu i fokusie — tabela zostaje spokojna. */
+.logistics-tab .lg-sort {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin: 0;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    text-align: inherit;
+    white-space: nowrap;
+    background: none;
+    border: 0;
+    cursor: pointer;
+}
+
+.logistics-tab .lg-sort:hover,
+.logistics-tab th.is-sortowana .lg-sort {
+    color: var(--il-text-primary, #1a1a2e);
+}
+
+.logistics-tab .lg-sort-znak {
+    display: inline-block;
+    width: 8px;
+    font: 900 10px/1 'Font Awesome 6 Free';
+    color: var(--il-text-muted, #9ba3b0);
+    opacity: 0;
+    transition: opacity 0.12s;
+}
+
+.logistics-tab .lg-sort-znak::before {
+    content: '\f0dc';
+}
+
+.logistics-tab .lg-sort:hover .lg-sort-znak,
+.logistics-tab .lg-sort:focus-visible .lg-sort-znak {
+    opacity: 1;
+}
+
+.logistics-tab th[aria-sort="ascending"] .lg-sort-znak,
+.logistics-tab th[aria-sort="descending"] .lg-sort-znak {
+    color: var(--il-text-primary, #1a1a2e);
+    opacity: 1;
+}
+
+.logistics-tab th[aria-sort="ascending"] .lg-sort-znak::before {
+    content: '\f0de';
+}
+
+.logistics-tab th[aria-sort="descending"] .lg-sort-znak::before {
+    content: '\f0dd';
+}

@@ -279,3 +279,15 @@ def test_ramka_tabeli_trzyma_ukryte_teksty():
     blok = css[css.index('.logistics-tab .lg-tabela-ramka {'):]
     blok = blok[:blok.index('}')]
     assert 'position: relative' in blok and 'overflow: auto' in blok
+
+
+def test_naglowki_tabeli_sortuja():
+    """Klik w nagłówek sortuje, drugi klik odwraca; aria-sort dla czytnika ekranu."""
+    html = _plik('templates', 'logistics', 'tab_content.html')
+    for kolumna in ('numer', 'klient', 'adres', 'metoda', 'sposob', 'etap', 'termin', 'm3'):
+        assert 'data-lg-sort="%s"' % kolumna in html, kolumna
+        assert 'data-lg-sort-kolumna="%s" aria-sort="none"' % kolumna in html, kolumna
+    js = _plik('static', 'js', 'logistics.js')
+    assert "kierunek: -stan.sort.kierunek" in js           # drugi klik odwraca
+    assert "'logistyka.lista.sortowanie'" in js              # zapamiętane w przeglądarce
+    assert 'return posortuj(' in js                          # lista, zaznaczanie zakresu i mapa — jedna kolejność

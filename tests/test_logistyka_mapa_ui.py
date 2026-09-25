@@ -208,7 +208,7 @@ def test_kolumna_adres_w_dwoch_liniach():
     """UF7: „Miasto” → „Adres”: kod + miejscowość, pod spodem ulica; to samo w dymku."""
     html, js, css = _szablon(), _lista_js(), _css()
     naglowek = html[html.index('class="lg-k-adres"'):]
-    assert naglowek[:naglowek.index('</th>')].endswith('>Adres')
+    assert 'data-nazwa="Adres">Adres<' in naglowek[:naglowek.index('</th>')]
     for tekst in (html, js, css):
         assert 'lg-k-miasto' not in tekst and 'lg-w-klient-miasto' not in tekst
     adres = _funkcja(js, 'liniiAdresu')
