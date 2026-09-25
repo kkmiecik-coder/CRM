@@ -153,6 +153,13 @@ w `prod_config`). Endpoint odpowiada od razu: sync worker gunicorna ma 30 s na �
 w żądaniu nie robimy. Limit API Base. (100/min na konto) wstrzymuje wysyłki logistyki do chwili z komunikatu
 błędu (`logistyka_bl_wstrzymane_do`).
 
+Od etapu 2 ten sam cron uruchamia w tle **geokoder** adresów (`logistics/services/geocoding.py`: GUGiK UUG →
+Nominatim → przybliżenie; dzierżawa `logistyka_geo_dzierzawa`, Nominatim ≤ 1 zapytanie/s). Do usług idzie
+wyłącznie adres. Ręczny punkt (przeciągnięta pinezka) nigdy nie jest nadpisywany automatem. Przebieg przerywa
+się wcześniej tylko po 3 pełnych awariach usług z rzędu (GUGiK i Nominatim jednocześnie nie odpowiadają); błąd
+usługi nigdy nie zużywa próby adresu, a po awarii nie zapisuje się przybliżony punkt (zamówienie czeka na
+kolejny przebieg).
+
 ## Deployment
 
 ### Automatyczny deploy (webhook GitHub)
