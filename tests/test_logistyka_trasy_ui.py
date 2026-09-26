@@ -159,9 +159,15 @@ def test_mapy_po_polsku_i_bez_nasluchu_okna_leafleta():
 
 
 def test_daty_i_bledy_pol_w_szablonie():
-    """M5 + M15: zakres lat w polach dat, błędy powiązane z polami (aria-describedby)."""
+    """M5 + M15: zakres lat w polach dat, błędy powiązane z polami (aria-describedby).
+    (Fala poprawek, M8) min/max dat trasy (edytor, „Dodaj do trasy…”) liczy JS przy otwarciu
+    formularza — stały zakres lat w szablonie został tylko w filtrze „Wykonane”."""
     html = _plik('templates', 'logistics', 'tab_content.html')
-    assert html.count('type="date"') == html.count('min="2000-01-01" max="2099-12-31"') == 6
+    assert html.count('type="date"') == 6
+    filtr = html[html.index('data-lg-trasy="wykonane-filtr"'):]
+    filtr = filtr[:filtr.index('</form>')]
+    assert filtr.count('min="2000-01-01" max="2099-12-31"') == 2
+    assert html.count('min="2000-01-01" max="2099-12-31"') == 2
     for id_ in ('lg-edytor-blad', 'lg-trasa-dodaj-blad', 'lg-pojazd-blad', 'lg-trasy-wykonane-opis'):
         assert 'id="%s"' % id_ in html, id_
     assert "'lg-pojazd-blad'" in _plik('static', 'js', 'logistics-fleet.js')
@@ -256,6 +262,102 @@ def test_komunikaty_geokodera_i_okno_adresu():
     teraz = _funkcja(lista, 'zlokalizujTeraz')
     assert teraz.count("widok: 'dashboard'") == 2
     assert "el('adres-zapisz').focus();" in _funkcja(lista, 'zapiszAdres')
+
+
+# ─── Fala poprawek po przeglądzie końcowym ───
+
+def test_okno_odhaczenia_ze_swiezej_trasy():
+    """Important: okno pobiera trasę przy otwarciu (odhaczenie czeka na listę), po odmowie
+    409/422 albo niepewnej odpowiedzi pobiera ją od nowa z zachowaniem wyborów i mówi, co
+    doszło i zniknęło; zamówienia z `niespakowane` odznaczone, tekst odmowy zostaje w oknie."""
+    trasy = _plik('static', 'js', 'logistics-routes.js')
+    przygotuj = _funkcja(trasy, 'przygotujWykonanie')
+    assert 'await wczytajDoWykonania(w);' in przygotuj and 'Wczytywanie przystanków…' in przygotuj
+    assert '(trasa.przystanki || []).map' not in przygotuj        # lista nie z kopii w edytorze
+    wczytaj = _funkcja(trasy, 'wczytajDoWykonania')
+    assert "zapytanie('/routes/' + w.id" in wczytaj and 'opisZmianPrzystankow(poprzednia, trasa)' in wczytaj
+    assert 'w.wybory.set(Number(id), false)' in wczytaj and 'o.tekst' in wczytaj
+    zatwierdz = _funkcja(trasy, 'zatwierdzWykonanie')
+    assert 'e.dane.niespakowane' in zatwierdz and 'wczytajDoWykonania(w, {' in zatwierdz
+    assert "c.checked && c.getAttribute('data-lg-mozna') === '1'" in zatwierdz
+    przyciski = _funkcja(trasy, 'odswiezPrzyciskiWykonania')
+    assert 'trwa || wczytuje || !aktywna' in przyciski and "c.getAttribute('data-lg-mozna') !== '1'" in przyciski
+    assert 'wybory.set(Number(c.value), c.checked)' in trasy
+
+
+def test_stan_pakowania_i_anulowane_przystanki():
+    """I1/I5 (UI): stan pakowania w oknie, niespakowane i anulowane nieaktywne z wyjaśnieniem,
+    numer z `pozycja` („—” dla anulowanego), plakietka „Anulowane” i szara stacja w edytorze
+    i na mapach, liczba anulowanych w podsumowaniu, liczba pominiętych po eksporcie."""
+    trasy = _plik('static', 'js', 'logistics-routes.js')
+    for tekst in ("'niespakowane — '", 'wróci do puli bez trasy; spakuj na tablecie, żeby oznaczyć jako dostarczone',
+                  "anulowane: 'zdejmiemy z trasy'", 'lg-plakietka-anulowane', 'lg-stacja--anulowana',
+                  "X-Routimo-Pominiete", "' Pominięto '"):
+        assert tekst in trasy, tekst
+    assert "p.pozycja === null || p.pozycja === undefined ? '—'" in _funkcja(trasy, 'pozycjaWykonaniaHtml')
+    assert "(mozna ? ' data-lg-mozna=\"1\"' : ' disabled')" in _funkcja(trasy, 'pozycjaWykonaniaHtml')
+    assert 'Number(p.anulowane)' in _funkcja(trasy, 'renderujPodsumowanie')
+    assert 'anulowane(z) ? null : (numer += 1)' in _funkcja(trasy, 'renderujPrzystanki')
+    assert 'ikonaPrzystanku(p.pozycja, klasa, anulowany)' in _funkcja(_plik('static', 'js', 'logistics-map.js'),
+                                                                     'narysujTrasy')
+    css = _plik('static', 'css', 'logistics-trasy.css')
+    for klasa in ('.lg-stacja--anulowana {', '.lg-przystanek--anulowany', '.lg-plakietka-anulowane {',
+                  '.lg-wykonaj-pozycja--niespakowane {', '.lg-wykonaj-pozycja--anulowane', '.lg-przystanek-etap {'):
+        assert klasa in css, klasa
+    assert 'Dostarczone mogą być tylko zamówienia spakowane w całości.' in _plik('templates', 'logistics',
+                                                                                'tab_content.html')
+
+
+def test_granice_dat_trasy_w_formularzach():
+    """M8 (UI): granice jak na serwerze (dziś − 1 rok … dziś + 2 lata, „do” najwyżej 31 dni po
+    „od”), min/max pól liczone przy otwarciu formularza; filtr „Wykonane” bez tych granic."""
+    trasy = _plik('static', 'js', 'logistics-routes.js')
+    for stala in ('const LATA_WSTECZ = 1;', 'const LATA_NAPRZOD = 2;', 'const MAKS_ROZPIETOSC_DNI = 31;'):
+        assert stala in trasy, stala
+    assert 'ustawGraniceDat(form)' in _funkcja(trasy, 'wypelnijFormularz')
+    assert 'ustawGraniceDat(formDodaj)' in _funkcja(trasy, 'otworzOknoDodawania')
+    blad = _funkcja(trasy, 'bladFormularza')
+    assert 'graniceDat()' in blad and 'roznicaDni(dane.date_from, dane.date_to) > MAKS_ROZPIETOSC_DNI' in blad
+    assert "bladDaty(od, 'od', false)" in _funkcja(trasy, 'naWyslaniePanelu')     # filtr: bez granic trasy
+    assert 'doDnia.max = ' in _funkcja(trasy, 'ustawGraniceDat')
+
+
+def test_drobiazgi_przegladu_koncowego_interfejsu():
+    """Minory 1–6 i 8 z przeglądu końcowego interfejsu, podpowiedź I3 i resztka Task 8."""
+    trasy = _plik('static', 'js', 'logistics-routes.js')
+    flota = _plik('static', 'js', 'logistics-fleet.js')
+    # 1: klik w trasę na ekranie przerywa wczytywanie innej i przywraca jej sesję.
+    otworz = _funkcja(trasy, 'otworz')
+    wczesny = otworz[:otworz.index('if (!(await pozwolOpuscic())) return;')]
+    assert 'przerwijWczytywanie();' in wczesny and 'stan.sesja = sesjaWidocznej;' in wczesny
+    # 2: brak odpowiedzi / 5xx = dane od nowa, ostrzeżenie przed duplikatem.
+    assert 'niepewnaOdpowiedz(e)' in _funkcja(trasy, 'mutacja') and 'Trasa mogła już powstać' in trasy
+    assert 'niepewnaOdpowiedz(e)' in _funkcja(trasy, 'zapiszDodawanie')
+    zapisz_pojazd = _funkcja(flota, 'zapisz')
+    assert 'niepewnaOdpowiedz(err)' in zapisz_pojazd and 'wczytaj();' in zapisz_pojazd
+    # 3: okno zamknięte w trakcie zapisu — zapis kończy się w tle i mówi o wyniku.
+    assert "dialogDodaj.addEventListener('close', poZamknieciuOknaDodawania" in trasy
+    assert 'dodawaniaWTle.add(d);' in _funkcja(trasy, 'poZamknieciuOknaDodawania')
+    assert 'zakonczDodawanieWTle(d)' in _funkcja(trasy, 'zapiszDodawanie')
+    assert "komunikat('blad', 'Nie zapisano pojazdu" in zapisz_pojazd
+    # 4: Routimo — tylko prawdziwy arkusz.
+    assert "typ.indexOf('spreadsheetml') === -1" in _funkcja(trasy, 'eksportujRoutimo')
+    # 5: ładowność z wartością nieczytelną dla przeglądarki.
+    assert 'poleLadownosci.validity.badInput' in _funkcja(flota, 'daneFormularza')
+    # 6: podsumowanie bez aria-live.
+    html = _plik('templates', 'logistics', 'tab_content.html')
+    znacznik = html[html.index('<div class="lg-podsumowanie"'):]
+    assert 'aria-live' not in znacznik[:znacznik.index('>')]
+    # 8: odmowy dodawania z kluczem, filtr „Wykonane” przy odhaczonej trasie.
+    assert "klucz: 'trasa-bledy-dodawania'" in _funkcja(trasy, 'pokazBledyDodawania')
+    assert 'pasujeDoFiltraWykonanych(s, stan.filtrWykonanych)' in _funkcja(trasy, 'aktualizujNaLiscie')
+    # I3: niezmieniony wyłączony pojazd/kierowca zostaje na trasie.
+    assert 'Wybierz inny, żeby zapisać trasę.' not in trasy
+    assert trasy.count('Zostaje na tej trasie; po zmianie nie wybierzesz go ponownie.') == 2
+    # Resztka Task 8: błąd edytora przygasa razem z trasą, która ustępuje miejsca następnej.
+    css = _plik('static', 'css', 'logistics-trasy.css')
+    ladowanie = css[css.index('.logistics-tab .lg-edytor.is-laduje'):]
+    assert '.lg-edytor-blad' in ladowanie[:ladowanie.index('}')]
 
 
 def test_nowe_pliki_sprzataja_po_sobie():

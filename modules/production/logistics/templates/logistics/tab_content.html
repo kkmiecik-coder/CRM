@@ -16,7 +16,7 @@
 <link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet-markercluster/MarkerCluster.css') }}?v=1.5.3">
 <link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20260925i">
 {# Etap 3: trasy, flota, widok tras na mapie — osobny arkusz (logistics.css zostaje nietknięty). #}
-<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics-trasy.css') }}?v=20260926b">
+<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics-trasy.css') }}?v=20260926c">
 
 <div id="logistics-root" class="logistics-tab"
      data-api="{{ url_for('logistics_panel.orders') }}"
@@ -181,8 +181,8 @@
                data-carto-key="{{ carto_basemaps_key }}"
                data-skrypt-leaflet="{{ url_for('production.static', filename='vendor/leaflet/leaflet.js') }}?v=1.9.4"
                data-skrypt-klastry="{{ url_for('production.static', filename='vendor/leaflet-markercluster/leaflet.markercluster.js') }}?v=1.5.3"
-               data-skrypt-mapy="{{ url_for('logistics_panel.static', filename='js/logistics-map.js') }}?v=20260926a"
-               data-skrypt-trasy="{{ url_for('logistics_panel.static', filename='js/logistics-routes.js') }}?v=20260926b"></div>
+               data-skrypt-mapy="{{ url_for('logistics_panel.static', filename='js/logistics-map.js') }}?v=20260926b"
+               data-skrypt-trasy="{{ url_for('logistics_panel.static', filename='js/logistics-routes.js') }}?v=20260926c"></div>
           {# Pasek trybu (korekta, ustawianie punktu) i wyniku akcji na mapie. #}
           <div class="lg-mapa-pasek" data-lg-mapa="pasek" role="status" aria-live="polite" hidden></div>
           <div class="lg-mapa-stan is-ladowanie" data-lg-mapa="stan" role="status">Ładowanie mapy…</div>
@@ -354,8 +354,10 @@
               <legend class="visually-hidden">Dane trasy</legend>
               <label class="lg-pole lg-pole--nazwa"><span>Nazwa trasy</span>
                 <input type="text" name="name" maxlength="120" required spellcheck="false" placeholder="np. Kraków + Tarnów"></label>
-              <label class="lg-pole lg-pole--data"><span>Od</span><input type="date" name="date_from" min="2000-01-01" max="2099-12-31" required></label>
-              <label class="lg-pole lg-pole--data"><span>Do</span><input type="date" name="date_to" min="2000-01-01" max="2099-12-31" required></label>
+              {# min/max dat ustawia logistics-routes.js przy otwarciu formularza: dziś − 1 rok … dziś + 2 lata,
+                 „do” najwyżej 31 dni po „od” — te same granice co serwer (services/routes.py, granice_dat). #}
+              <label class="lg-pole lg-pole--data"><span>Od</span><input type="date" name="date_from" required></label>
+              <label class="lg-pole lg-pole--data"><span>Do</span><input type="date" name="date_to" required></label>
               {# Zajęte w tych dniach: widoczne, wyszarzone, z dopiskiem „(zajęty — trasa)”. #}
               <label class="lg-pole lg-pole--zasob"><span>Pojazd</span>
                 <select name="vehicle_id" class="form-select form-select-sm" data-lg-trasy="pojazd"></select>
@@ -368,7 +370,9 @@
             </fieldset>
           </form>
 
-          <div class="lg-podsumowanie" data-lg-trasy="podsumowanie" aria-live="polite"></div>
+          {# Bez aria-live: podsumowanie przerysowuje się przy każdym ↑/↓ (przegląd końcowy, minor 6) —
+             zmianę kolejności ogłasza już data-lg-trasy="ogloszenie". #}
+          <div class="lg-podsumowanie" data-lg-trasy="podsumowanie"></div>
 
           <div class="lg-edytor-uklad">
             {# Przystanki jako schemat linii: magazyn → numerowane przystanki → magazyn,
@@ -519,8 +523,9 @@
         <label class="lg-pole"><span>Nazwa trasy</span>
           <input type="text" name="name" maxlength="120" spellcheck="false" placeholder="np. Kraków + Tarnów"></label>
         <div class="lg-pole-rzad lg-pole-rzad--daty">
-          <label class="lg-pole lg-pole--data"><span>Od</span><input type="date" name="date_from" min="2000-01-01" max="2099-12-31"></label>
-          <label class="lg-pole lg-pole--data"><span>Do</span><input type="date" name="date_to" min="2000-01-01" max="2099-12-31"></label>
+          {# min/max jak w edytorze trasy — logistics-routes.js przy każdym otwarciu okna. #}
+          <label class="lg-pole lg-pole--data"><span>Od</span><input type="date" name="date_from"></label>
+          <label class="lg-pole lg-pole--data"><span>Do</span><input type="date" name="date_to"></label>
         </div>
       </div>
       <p class="lg-dialog-blad" id="lg-trasa-dodaj-blad" data-lg-trasy="dodaj-blad" role="alert" hidden></p>
@@ -531,12 +536,13 @@
     </form>
   </dialog>
 
-  {# „Odhacz jako wykonaną” — wszystkie przystanki zaznaczone jako dostarczone; odznaczone
-       wracają do puli bez trasy. Wysyłamy zawsze jawną listę delivered_order_ids. #}
+  {# „Odhacz jako wykonaną” — lista przystanków ze świeżego GET /routes/<id> (logistics-routes.js,
+       wczytajDoWykonania). Spakowane zaznaczone jako dostarczone; niespakowanych i anulowanych
+       zaznaczyć się nie da (serwer odmawia 409). Wysyłamy zawsze jawną listę delivered_order_ids. #}
   <dialog class="lg-dialog lg-dialog--trasy" data-lg="trasa-wykonaj-dialog" aria-labelledby="lg-trasa-wykonaj-tytul">
     <form class="lg-dialog-form" data-lg-trasy="wykonaj-form" novalidate>
       <h2 class="lg-dialog-tytul" id="lg-trasa-wykonaj-tytul">Odhacz jako wykonaną <span class="lg-dialog-numer" data-lg-trasy="wykonaj-nazwa"></span></h2>
-      <p class="lg-dialog-opis">Zaznaczone zamówienia oznaczymy jako dostarczone. Odznaczone zdejmiemy z trasy i wrócą do puli bez trasy.</p>
+      <p class="lg-dialog-opis">Zaznaczone zamówienia oznaczymy jako dostarczone, odznaczone zdejmiemy z trasy i wrócą do puli bez trasy. Dostarczone mogą być tylko zamówienia spakowane w całości.</p>
       <ul class="lg-wykonaj-lista" data-lg-trasy="wykonaj-lista" aria-label="Przystanki trasy"></ul>
       <p class="lg-wykonaj-ile" data-lg-trasy="wykonaj-ile" aria-live="polite"></p>
       <p class="lg-dialog-blad" data-lg-trasy="wykonaj-blad" role="alert" hidden></p>
@@ -636,4 +642,4 @@
 })();
 </script>
 <script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20260926a"></script>
-<script src="{{ url_for('logistics_panel.static', filename='js/logistics-fleet.js') }}?v=20260925b"></script>
+<script src="{{ url_for('logistics_panel.static', filename='js/logistics-fleet.js') }}?v=20260926a"></script>

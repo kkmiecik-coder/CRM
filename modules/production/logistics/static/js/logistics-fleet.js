@@ -100,6 +100,11 @@
         }
     }
 
+    // (przegląd końcowy, minor 2) Brak odpowiedzi (0) albo błąd serwera (≥ 500): zapis mógł
+    // przejść, a odpowiedź nie dotarła — lista od nowa, zamiast drugiego „Dodaj pojazd”
+    // (pojazdu nie da się potem usunąć, najwyżej wyłączyć).
+    const niepewnaOdpowiedz = (e) => !!e && e.name !== 'AbortError' && (e.status === 0 || e.status >= 500);
+
     function komunikatBledu(status, dane) {
         if (status === 401) return 'Sesja wygasła. Zaloguj się ponownie.';
         if (status === 403) return 'Brak dostępu do modułu produkcji.';
@@ -285,7 +290,10 @@
                 { klucz: 'flota' });
         } catch (e) {
             if (zniszczona) return;
-            komunikat('blad', 'Nie zmieniono pojazdu „' + pojazd.name + '”. ' + e.message, { klucz: 'flota' });
+            const niepewna = niepewnaOdpowiedz(e);
+            komunikat('blad', 'Nie zmieniono pojazdu „' + pojazd.name + '”. ' + e.message +
+                (niepewna ? ' Zmiana mogła się zapisać — odświeżamy listę pojazdów.' : ''), { klucz: 'flota' });
+            if (niepewna) wczytaj();
         } finally {
             if (!zniszczona) {
                 stan.zapisywane.delete(id);
@@ -369,14 +377,21 @@
     function daneFormularza() {
         const nazwa = form.elements.namedItem('name').value.trim();
         const rejestracja = form.elements.namedItem('registration').value.trim();
-        const ladownosc = form.elements.namedItem('capacity_kg').value.trim();
+        const poleLadownosci = form.elements.namedItem('capacity_kg');
+        const ladownosc = poleLadownosci.value.trim();
+        const bladLadownosci = {
+            blad: 'Ładowność podaj w pełnych kilogramach (od 1 do ' + liczbaCala.format(MAKS_LADOWNOSC_KG) + ').',
+            pole: 'capacity_kg',
+        };
         if (!nazwa || nazwa.length > 100) return { blad: 'Podaj nazwę pojazdu (do 100 znaków).', pole: 'name' };
         if (rejestracja.length > 20) return { blad: 'Numer rejestracyjny może mieć najwyżej 20 znaków.', pole: 'registration' };
+        // (przegląd końcowy, minor 5) Pole liczbowe z czymś, czego przeglądarka nie umie odczytać
+        // (np. „12e”), ma value === '' — bez tego zapis wyczyściłby ładowność i zgłosił sukces.
+        if (poleLadownosci.validity && poleLadownosci.validity.badInput) return bladLadownosci;
         let kg = null;
         if (ladownosc) {
             if (!/^[0-9]{1,6}$/.test(ladownosc) || Number(ladownosc) <= 0 || Number(ladownosc) > MAKS_LADOWNOSC_KG) {
-                return { blad: 'Ładowność podaj w pełnych kilogramach (od 1 do ' + liczbaCala.format(MAKS_LADOWNOSC_KG) + ').',
-                    pole: 'capacity_kg' };
+                return bladLadownosci;
             }
             kg = Number(ladownosc);
         }
@@ -403,12 +418,24 @@
                 : await zapytanie('/vehicles', { metoda: 'POST', dane: wynik.dane });
             if (zniszczona) return;
             przyjmijPojazd(odp.vehicle);
-            zamknijDialog(odp.vehicle.id);
+            // Okno zamknięte w trakcie zapisu (minor 3) — fokusu nie zabieramy spod ręki.
+            if (edytowany === e) zamknijDialog(odp.vehicle.id);
             komunikat('ok', (e.id ? 'Zapisano pojazd „' : 'Dodano pojazd „') + odp.vehicle.name + '”.', { klucz: 'flota' });
         } catch (err) {
-            if (zniszczona || edytowany !== e) return;
+            if (zniszczona) return;
+            const niepewna = niepewnaOdpowiedz(err);
+            const tekst = err.message + (niepewna ? (e.id
+                ? ' Zmiana mogła się zapisać — odświeżamy listę pojazdów.'
+                : ' Pojazd mógł już zostać dodany — sprawdź listę, zanim dodasz go ponownie.') : '');
+            if (niepewna) wczytaj();
+            if (edytowany !== e) {
+                // (przegląd końcowy, minor 3) Okno zamknięte w trakcie zapisu (drugi Esc w Chrome
+                // zamyka je mimo blokady) — odmowa nie może przepaść bez słowa.
+                komunikat('blad', 'Nie zapisano pojazdu „' + wynik.dane.name + '”. ' + tekst, { klucz: 'flota' });
+                return;
+            }
             ustawZapis(false);
-            pokazBlad(err.message);
+            pokazBlad(tekst);
         }
     }
 

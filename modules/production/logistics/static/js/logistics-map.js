@@ -1591,13 +1591,17 @@
         return linie.filter((l) => l.length > 1);
     }
 
-    /** Przystanek: biała „stacja” z obwódką w kolorze trasy i numerem — ta sama co w edytorze trasy. */
-    function ikonaPrzystanku(numer, klasaKoloru) {
-        const tekst = String(numer);
+    /**
+     * Przystanek: biała „stacja” z obwódką w kolorze trasy i numerem — ta sama co w edytorze trasy.
+     * (I5) Anulowany (zamówienie bez aktywnych pozycji, API: `anulowane`, `pozycja` = null) —
+     * szara stacja z „—”: Routimo go pomija, więc numer mają tylko aktywne przystanki.
+     */
+    function ikonaPrzystanku(numer, klasaKoloru, anulowany) {
+        const tekst = anulowany ? '—' : String(numer);
         return L.divIcon({
             className: 'lg-znacznik-przystanku',
-            html: '<span class="lg-stacja lg-stacja--mapa ' + klasaKoloru + (tekst.length > 2 ? ' lg-stacja--dlugi' : '') + '">' +
-                esc(tekst) + '</span>',
+            html: '<span class="lg-stacja lg-stacja--mapa ' + klasaKoloru + (tekst.length > 2 ? ' lg-stacja--dlugi' : '') +
+                (anulowany ? ' lg-stacja--anulowana' : '') + '">' + esc(tekst) + '</span>',
             iconSize: [24, 24],
             iconAnchor: [12, 12],
             // Dymek z kierunkiem 'auto' (lewo/prawo, w stronę środka mapy) — od krawędzi stacji.
@@ -1639,14 +1643,17 @@
             });
             (t.przystanki || []).forEach((p) => {
                 if (!maPunkt(p)) return;
+                const anulowany = !!p.anulowane;
                 L.marker([p.lat, p.lng], {
-                    icon: ikonaPrzystanku(p.pozycja, klasa),
+                    icon: ikonaPrzystanku(p.pozycja, klasa, anulowany),
                     // Klawiatura wybiera trasy z legendy pod mapą — bez setek przystanków Tab.
                     keyboard: false,
-                    zIndexOffset: 500,
+                    zIndexOffset: anulowany ? 400 : 500,
                     riseOnHover: true,
-                }).bindTooltip('<b>' + esc(p.pozycja) + '. ' + esc(p.numer) + '</b>' + (p.klient ? ' ' + esc(p.klient) : '') +
-                    '<span class="lg-podpowiedz-mapy-uwaga">' + esc(t.nazwa) + '</span>', {
+                }).bindTooltip('<b>' + (anulowany ? '— ' : esc(p.pozycja) + '. ') + esc(p.numer) + '</b>' +
+                    (p.klient ? ' ' + esc(p.klient) : '') +
+                    '<span class="lg-podpowiedz-mapy-uwaga">' + esc(t.nazwa) + '</span>' +
+                    (anulowany ? '<span class="lg-podpowiedz-mapy-uwaga">Anulowane — nie trafi do Routimo</span>' : ''), {
                     className: 'lg-podpowiedz-mapy lg-podpowiedz-mapy--zawijana', direction: 'auto', opacity: 1,
                 }).addTo(grupa);
             });
@@ -1815,7 +1822,8 @@
 
     /**
      * trasy: lista z GET /routes/map ([{id, nazwa, status, date_from, date_to, przebieg,
-     * przyblizony, przystanki: [{pozycja, order_id, numer, klient, lat, lng}]}]).
+     * przyblizony, przystanki: [{pozycja, anulowane, order_id, numer, klient, lat, lng}]}]);
+     * pozycja — numer wśród aktywnych przystanków, null dla anulowanego (I5).
      * opcje.blad: tekst błędu pobrania — poprzednie trasy (jeśli były) zostają na mapie.
      * Pierwsze trasy dopasowują widok; kolejne (po każdej zmianie trasy) już nie ruszają mapy.
      */

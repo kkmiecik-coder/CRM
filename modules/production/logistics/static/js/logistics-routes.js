@@ -18,13 +18,19 @@
  *   POST   {API}/routes                              nowa trasa → {route}
  *   GET    {API}/routes/map                          aktywne trasy z przebiegiem (mapa Dashboardu)
  *   GET    {API}/routes/<id>                         szczegóły → {route: {…, przystanki, przebieg}}
+ *          przystanek = {pozycja, anulowane, zamowienie}: pozycja — numer wśród AKTYWNYCH
+ *          przystanków (kolejność Routimo), null dla anulowanego; podsumowanie.przystanki —
+ *          tylko aktywne, podsumowanie.anulowane — anulowane w całości
  *   PUT    {API}/routes/<id>                         zapis formularza (robocza)
  *   DELETE {API}/routes/<id>                         usunięcie (robocza)
  *   POST   {API}/routes/<id>/stops                   {order_ids} → {route, dodane, bledy}
  *   DELETE {API}/routes/<id>/stops/<order_id>        zdjęcie przystanku
  *   PUT    {API}/routes/<id>/stops/order             {order_ids} — nowa kolejność
  *   POST   {API}/routes/<id>/approve | /revert | /complete | /restore
- *   GET    {API}/routes/<id>/routimo                 plik .xlsx (zatwierdzona, wykonana)
+ *          /complete {delivered_order_ids} (wymagane); 409 z `niespakowane` [id], gdy jako
+ *          dostarczone oznaczono zamówienie, które nie jest w całości spakowane
+ *   GET    {API}/routes/<id>/routimo                 plik .xlsx (zatwierdzona, wykonana);
+ *          nagłówek X-Routimo-Pominiete = ile anulowanych przystanków pominięto
  *   GET    {API}/availability?date_from=&date_to=&route_id=   pojazdy i kierowcy, zajęci z nazwą trasy
  *   GET    {API}/orders?sposob=bez_trasy&q=          „Do dodania”
  * Odmowa to zawsze {success: false, error: „…”} (404/409/422) — tekst serwera
@@ -70,16 +76,24 @@
     const POLSKA = [[49.0, 14.1], [54.9, 24.2]];
     const ZOOM_DOPASOWANIA = 12;
     const ZWLOKA_KOLEJNOSCI_MS = 450;   // ↑↑↑ z klawiatury = jeden zapis, nie trzy
+    const DNI_WYKONANYCH = 30;          // domyślne okno wykonanych, jak DNI_WYKONANYCH_DOMYSLNIE w API
     const ZWLOKA_DOSTEPNOSCI_MS = 250;
     const DEBOUNCE_SZUKAJ_MS = 300;
     // Jak WAGA_KG_NA_M3 w services/routes.py — tylko podgląd w oknie „Dodaj do trasy…”;
     // wagę trasy zawsze liczy serwer (podsumowanie).
     const WAGA_KG_NA_M3 = 800;
     const TRANSPORT = 'transport_woodpower';
-    // Zakres roku w polach dat (jak min/max w szablonie) — Chrome przepuszcza w polu daty
-    // rok 5–6-cyfrowy (np. 92026), a serwer taki odrzuca (oględziny M5).
-    const ROK_OD = 2000;
-    const ROK_DO = 2099;
+    // Zakres roku w filtrze „Wykonane” (jak min/max w szablonie) — Chrome przepuszcza w polu
+    // daty rok 5–6-cyfrowy (np. 92026), a serwer taki odrzuca (oględziny M5). Filtr przeszukuje
+    // historię, więc granic dat trasy (niżej) celowo nie ma.
+    const ROK_FILTRA_OD = 2000;
+    const ROK_FILTRA_DO = 2099;
+    // (M8) Granice dat trasy — jak services/routes.py (granice_dat): dziś − 1 rok … dziś + 2 lata,
+    // „do” najwyżej 31 dni po „od”. Formularz trasy i okno „Dodaj do trasy…” liczą je przy
+    // otwarciu (min/max pól), serwer i tak sprawdza to samo.
+    const LATA_WSTECZ = 1;
+    const LATA_NAPRZOD = 2;
+    const MAKS_ROZPIETOSC_DNI = 31;
     // (oględziny M10) Zapas od krawędzi mapki przy dopasowaniu: z lewej kolumna +/−
     // i „Pokaż całą trasę”, u dołu atrybucja — żaden przystanek nie ląduje pod kontrolką.
     const MARGINES_MAPKI = { paddingTopLeft: [54, 30], paddingBottomRight: [30, 30] };
@@ -223,6 +237,7 @@
     let przeciagany = null;          // id zamówienia przeciąganego przystanku
     let chwytZPrzycisku = false;     // wciśnięcie zaczęło się na przycisku — to nie przeciąganie
     let dodawanie = null;            // otwarte okno „Dodaj do trasy…”
+    const dodawaniaWTle = new Set(); // zapisy okna zamkniętego w trakcie (minor 3) — kończą się w tle
     let wykonywanie = null;          // otwarte okno „Odhacz jako wykonaną”
     // (oględziny m3) Trasy zmienione u nas (odpowiedź mutacji albo odczyt trasy): id →
     // {wersja, trasa (skrót listy) | null = usunięta}. Lista pobrana PRZED taką zmianą nie
@@ -277,10 +292,44 @@
         return Math.floor(m / 60) + ':' + String(m % 60).padStart(2, '0');
     }
 
+    const dwa = (n) => String(n).padStart(2, '0');
+
     function dzisIso() {
         const d = new Date();
-        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' +
-            String(d.getDate()).padStart(2, '0');
+        return d.getFullYear() + '-' + dwa(d.getMonth() + 1) + '-' + dwa(d.getDate());
+    }
+
+    // 'RRRR-MM-DD' ± dni, kalendarzowo (w UTC — bez skoków przy zmianie czasu).
+    function plusDni(iso, dni) {
+        const [r, m, d] = String(iso).split('-').map(Number);
+        const x = new Date(Date.UTC(r, m - 1, d + dni));
+        return x.getUTCFullYear() + '-' + dwa(x.getUTCMonth() + 1) + '-' + dwa(x.getUTCDate());
+    }
+
+    // Ten sam dzień `lata` lat dalej (ujemne — wcześniej); 29.02 w roku zwykłym → 28.02, jak serwer.
+    function oLata(iso, lata) {
+        const [r, m, d] = String(iso).split('-').map(Number);
+        const rok = r + lata;
+        const ostatniDzien = new Date(Date.UTC(rok, m, 0)).getUTCDate();
+        return rok + '-' + dwa(m) + '-' + dwa(Math.min(d, ostatniDzien));
+    }
+
+    function roznicaDni(od, doDnia) {
+        const [r1, m1, d1] = String(od).split('-').map(Number);
+        const [r2, m2, d2] = String(doDnia).split('-').map(Number);
+        return Math.round((Date.UTC(r2, m2 - 1, d2) - Date.UTC(r1, m1 - 1, d1)) / 86400000);
+    }
+
+    // 'RRRR-MM-DD' → 'dd.mm.rrrr' — tak samo jak w komunikatach serwera.
+    function dataPelna(iso) {
+        const [r, m, d] = String(iso).split('-');
+        return d + '.' + m + '.' + r;
+    }
+
+    /** (M8) Granice dat trasy na dziś: {min, max} jako 'RRRR-MM-DD' (patrz LATA_WSTECZ). */
+    function graniceDat() {
+        const dzis = dzisIso();
+        return { min: oLata(dzis, -LATA_WSTECZ), max: oLata(dzis, LATA_NAPRZOD) };
     }
 
     // 'YYYY-MM-DD' → '25.09' (rok dopisany, gdy inny niż bieżący) — jak na liście zamówień.
@@ -312,25 +361,71 @@
         return d.getUTCFullYear() === r && d.getUTCMonth() === Number(m[2]) - 1 && d.getUTCDate() === Number(m[3]);
     }
 
+    // Tylko filtr „Wykonane” — daty trasy mają ciaśniejsze granice (graniceDat).
     const rokWZakresie = (v) => {
         const r = Number(String(v).slice(0, 4));
-        return r >= ROK_OD && r <= ROK_DO;
+        return r >= ROK_FILTRA_OD && r <= ROK_FILTRA_DO;
     };
 
+    const wGranicach = (v, g) => poprawnaData(v) && v >= g.min && v <= g.max;
+
     /**
-     * (oględziny M5) Błąd pola daty w formacie interfejsu (dd.mm.rrrr), zanim cokolwiek pójdzie
-     * do serwera. pole — <input type="date"> (niepełna data z klawiatury: validity.badInput,
-     * wartość pusta), etykieta — „od” / „do”, wymagane — puste pole to błąd.
+     * Błąd wartości daty 'RRRR-MM-DD' w formacie interfejsu (dd.mm.rrrr). granice — {min, max}
+     * (formularz trasy, M8: ten sam tekst co serwer) albo null (filtr „Wykonane”: tylko rok
+     * w rozsądnym zakresie), wymagane — pusta wartość to błąd.
      */
-    function bladDaty(pole, etykieta, wymagane) {
-        const v = pole ? pole.value : '';
+    function bladWartosciDaty(v, etykieta, wymagane, granice) {
+        if (!v) return wymagane ? 'Podaj datę „' + etykieta + '”.' : null;
+        if (!poprawnaData(v)) return 'Podaj datę „' + etykieta + '” w formacie dd.mm.rrrr.';
+        if (granice) {
+            if (!wGranicach(v, granice)) {
+                return 'Data „' + etykieta + '” musi być między ' + dataPelna(granice.min) + ' a ' +
+                    dataPelna(granice.max) + '.';
+            }
+        } else if (!rokWZakresie(v)) {
+            return 'Sprawdź rok w dacie „' + etykieta + '” (dd.mm.rrrr, lata ' + ROK_FILTRA_OD + '–' + ROK_FILTRA_DO + ').';
+        }
+        return null;
+    }
+
+    /**
+     * (oględziny M5) Błąd pola daty, zanim cokolwiek pójdzie do serwera. pole — <input type="date">
+     * (niepełna data z klawiatury: validity.badInput, wartość pusta), etykieta — „od” / „do”.
+     */
+    function bladDaty(pole, etykieta, wymagane, granice) {
         if (pole && pole.validity && pole.validity.badInput) {
             return 'Podaj pełną datę „' + etykieta + '” w formacie dd.mm.rrrr.';
         }
-        if (!v) return wymagane ? 'Podaj datę „' + etykieta + '”.' : null;
-        if (!poprawnaData(v)) return 'Podaj datę „' + etykieta + '” w formacie dd.mm.rrrr.';
-        if (!rokWZakresie(v)) return 'Sprawdź rok w dacie „' + etykieta + '” (dd.mm.rrrr, lata ' + ROK_OD + '–' + ROK_DO + ').';
-        return null;
+        return bladWartosciDaty(pole ? pole.value : '', etykieta, wymagane, granice);
+    }
+
+    /**
+     * (M8) min/max pól dat formularza trasy (edytor, okno „Dodaj do trasy…”): „od” w granicach
+     * dat trasy, „do” od „od” najwyżej do „od” + 31 dni. Wołane przy otwarciu formularza i po
+     * zmianie „od” — granice liczone od dzisiejszej daty w chwili otwarcia.
+     */
+    function ustawGraniceDat(formularz) {
+        const od = formularz ? formularz.elements.namedItem('date_from') : null;
+        const doDnia = formularz ? formularz.elements.namedItem('date_to') : null;
+        if (!od || !doDnia) return;
+        const g = graniceDat();
+        od.min = g.min;
+        od.max = g.max;
+        const start = wGranicach(od.value, g) ? od.value : null;
+        const koniec = start ? plusDni(start, MAKS_ROZPIETOSC_DNI) : g.max;
+        doDnia.min = start || g.min;
+        doDnia.max = koniec < g.max ? koniec : g.max;
+    }
+
+    // Trasa tylko do odczytu: bez min/max — jej daty mogą już być poza dzisiejszymi granicami.
+    function zdejmijGraniceDat(formularz) {
+        ['date_from', 'date_to'].forEach((nazwa) => {
+            const p = formularz ? formularz.elements.namedItem(nazwa) : null;
+            if (p) {
+                p.removeAttribute('min');
+                p.removeAttribute('max');
+            }
+        });
     }
 
     // (oględziny M14) Tekst serwera zwykle sam zaczyna się od numeru zamówienia
@@ -347,6 +442,46 @@
     // isFinite(null) === true — brak współrzędnych trzeba odsiać wprost.
     const maGeo = (z) => !!(z && z.geo && z.geo.lat !== null && z.geo.lng !== null &&
         isFinite(z.geo.lat) && isFinite(z.geo.lng));
+
+    // (I5) Przystanek anulowany = zamówienie bez aktywnych pozycji. Szczegóły trasy niosą
+    // `anulowane` przy przystanku; w danych zamówienia to etap „anulowane” — ta sama definicja,
+    // z niej korzystamy tam, gdzie jest samo zamówienie (schemat przystanków, mapka).
+    const anulowane = (z) => !!(z && z.etap && z.etap.status === 'anulowane');
+
+    // (I1) Stan pakowania przystanku: 'spakowane' | 'niespakowane' | 'anulowane'.
+    const stanPakowania = (z) => (anulowane(z) ? 'anulowane' : (z && z.spakowane ? 'spakowane' : 'niespakowane'));
+
+    /**
+     * Znacznik etapu w kropce koloru stanowiska — ten sam co w kolumnie „Etap” listy zamówień
+     * (logistics.css, .lg-etap[data-etap]); spakowane z ptaszkiem. tekst — napis obok kropki.
+     */
+    function znacznikEtapuHtml(status, tekst, klasa) {
+        const znak = status === 'spakowane'
+            ? '<i class="fas fa-check lg-etap-znak" aria-hidden="true"></i>'
+            : '<span class="lg-etap-znak" aria-hidden="true"></span>';
+        return '<span class="lg-etap' + (klasa ? ' ' + klasa : '') + '" data-etap="' + esc(status) + '">' + znak +
+            '<span class="lg-etap-nazwa">' + esc(tekst) + '</span></span>';
+    }
+
+    // Wiersz przystanku w edytorze: etap zamówienia, które NIE jest jeszcze spakowane (stanowisko,
+    // na którym czeka) — wyjątek widać od razu, a spakowane (gotowe) wiersze zostają spokojne
+    // i nazwa klienta ma całą szerokość. Pełny stan każdego przystanku pokazuje okno „Odhacz”.
+    function etapPrzystankuHtml(z) {
+        if (stanPakowania(z) !== 'niespakowane') return '';
+        const etap = (z && z.etap) || { status: '', nazwa: '' };
+        return znacznikEtapuHtml(etap.status, etap.nazwa || etap.status || '', 'lg-przystanek-etap');
+    }
+
+    // Okno „Odhacz”: stan pakowania słowami rulingu I1 — „spakowane”, „niespakowane — <etap>”, „anulowane”.
+    function stanWykonaniaHtml(z, stanP) {
+        if (stanP === 'spakowane') return znacznikEtapuHtml('spakowane', 'spakowane');
+        if (stanP === 'anulowane') return znacznikEtapuHtml('anulowane', 'anulowane');
+        const etap = (z && z.etap) || { status: '', nazwa: '' };
+        return znacznikEtapuHtml(etap.status, 'niespakowane — ' + (etap.nazwa || etap.status || ''));
+    }
+
+    // (I5) „1 anulowane zamówienie”, „2 anulowane zamówienia”, „5 anulowanych zamówień”.
+    const ileAnulowanych = (n) => n + ' ' + odmiana(n, ['anulowane zamówienie', 'anulowane zamówienia', 'anulowanych zamówień']);
 
     function ustawKolor(element, klasa) {
         if (!element) return;
@@ -419,12 +554,22 @@
 
     // ── Komunikacja z API ───────────────────────────────────────────────────
 
+    // dane — ciało odmowy (np. `niespakowane` z POST /complete), gdy serwer je przysłał.
     class BladApi extends Error {
-        constructor(komunikat, status) {
+        constructor(komunikat, status, dane) {
             super(komunikat);
             this.status = status;
+            this.dane = dane || null;
         }
     }
+
+    /**
+     * (przegląd końcowy, minor 2) Brak odpowiedzi (0) albo błąd serwera (≥ 500) to NIE czysta
+     * odmowa: serwer mógł zmianę zapisać, a odpowiedź nie dotarła (Wi-Fi) albo padła po
+     * commicie (serializacja). Wtedy dane trzeba pobrać od nowa, a po „utwórz” powiedzieć, że
+     * trasa mogła już powstać — inaczej drugie kliknięcie tworzy duplikat.
+     */
+    const niepewnaOdpowiedz = (e) => !!e && !przerwane(e) && (e.status === 0 || e.status >= 500);
 
     function komunikatBledu(status, dane) {
         // 401/403 z bramki dostępu niosą kody ('unauthorized'), nie zdania.
@@ -454,12 +599,14 @@
         let dane = null;
         try { dane = await odp.json(); } catch (e) { dane = null; }
         if (!odp.ok || !dane || dane.success === false) {
-            throw new BladApi(komunikatBledu(odp.status, dane), odp.status);
+            throw new BladApi(komunikatBledu(odp.status, dane), odp.status, dane);
         }
         return dane;
     }
 
-    const przerwane = (e) => !!(e && e.name === 'AbortError');
+    function przerwane(e) {
+        return !!(e && e.name === 'AbortError');
+    }
 
     // ── Lista tras ──────────────────────────────────────────────────────────
 
@@ -634,11 +781,10 @@
         try {
             const dane = await zapytanie('/routes?' + p.toString(), { signal: kontroler.signal });
             if (zniszczona || kontroler !== kontrolerWykonanych) return;
-            stan.filtrWykonanych = {
-                od: od,
-                do: doDnia,
-                trasy: scalZLokalnymi(Array.isArray(dane.routes) ? dane.routes : [], start, (t) => t.status === 'wykonana'),
-            };
+            const filtr = { od: od, do: doDnia };
+            filtr.trasy = scalZLokalnymi(Array.isArray(dane.routes) ? dane.routes : [], start,
+                (t) => t.status === 'wykonana' && pasujeDoFiltraWykonanych(t, filtr));
+            stan.filtrWykonanych = filtr;
             if (opisWykonanychEl) {
                 // Bez „od” serwer i tak tnie do ostatnich 30 dni (domyślne okno wykonanych).
                 opisWykonanychEl.textContent = od
@@ -652,6 +798,19 @@
         } finally {
             if (kontroler === kontrolerWykonanych) kontrolerWykonanych = null;
         }
+    }
+
+    /**
+     * (przegląd końcowy, minor 8) Czy wykonana trasa należy do listy filtra „Wykonane” — ten sam
+     * warunek co serwer (GET /routes?status=wykonana&od=&do=): „od” → date_to ≥ od, „do” →
+     * date_from ≤ do, a bez „od” serwer tnie do ostatnich DNI_WYKONANYCH dni. Trasa odhaczona
+     * przy włączonym filtrze trafia na tę listę tylko wtedy, gdy mieści się w jego datach.
+     */
+    function pasujeDoFiltraWykonanych(t, filtr) {
+        if (!filtr) return true;
+        const odDnia = filtr.od || plusDni(dzisIso(), -DNI_WYKONANYCH);
+        if (t.date_to < odDnia) return false;
+        return !(filtr.do && t.date_from > filtr.do);
     }
 
     function skrotTrasy(r) {
@@ -672,7 +831,7 @@
         if (stan.filtrWykonanych) {
             const lista = stan.filtrWykonanych.trasy;
             const j = lista.findIndex((t) => t.id === s.id);
-            if (s.status === 'wykonana') {
+            if (s.status === 'wykonana' && pasujeDoFiltraWykonanych(s, stan.filtrWykonanych)) {
                 if (j === -1) lista.push(s); else lista[j] = s;
             } else if (j !== -1) {
                 lista.splice(j, 1);
@@ -715,7 +874,8 @@
     /**
      * Te same zasady co serwer (services/routes.py, _dane_trasy) — błąd od razu, bez zapytania.
      * formularz (edytor albo okno „Dodaj do trasy…”) — jego pola dat sprawdzamy wprost
-     * (niepełna data z klawiatury, rok spoza zakresu), zanim cokolwiek pójdzie do serwera.
+     * (niepełna data z klawiatury), zanim cokolwiek pójdzie do serwera. (M8) Granice dat trasy
+     * i „do” najwyżej 31 dni po „od” — z tymi samymi tekstami co odmowa serwera.
      */
     function bladFormularza(dane, formularz) {
         if (!dane.name) return { tekst: 'Podaj nazwę trasy.', pole: 'name' };
@@ -723,14 +883,22 @@
         const polaDat = formularz ? formularz.elements : null;
         const od = polaDat ? polaDat.namedItem('date_from') : null;
         const doDnia = polaDat ? polaDat.namedItem('date_to') : null;
-        let blad = od ? bladDaty(od, 'od', true) : (dane.date_from ? null : 'Podaj datę „od”.');
+        const g = graniceDat();
+        let blad = od ? bladDaty(od, 'od', true, g) : bladWartosciDaty(dane.date_from, 'od', true, g);
         if (blad) return { tekst: blad, pole: 'date_from' };
-        blad = doDnia ? bladDaty(doDnia, 'do', false) : null;
+        blad = doDnia ? bladDaty(doDnia, 'do', false, g) : bladWartosciDaty(dane.date_to, 'do', false, g);
         if (blad) return { tekst: blad, pole: 'date_to' };
         if (!poprawnaData(dane.date_from) || !poprawnaData(dane.date_to)) {
             return { tekst: 'Podaj datę „od” w formacie dd.mm.rrrr.', pole: 'date_from' };
         }
         if (dane.date_to < dane.date_from) return { tekst: 'Data „do” jest wcześniejsza niż „od”.', pole: 'date_to' };
+        if (roznicaDni(dane.date_from, dane.date_to) > MAKS_ROZPIETOSC_DNI) {
+            return {
+                tekst: 'Data „do” może być najwyżej ' + MAKS_ROZPIETOSC_DNI + ' dni po dacie „od” (najpóźniej ' +
+                    dataPelna(plusDni(dane.date_from, MAKS_ROZPIETOSC_DNI)) + ').',
+                pole: 'date_to',
+            };
+        }
         return null;
     }
 
@@ -852,6 +1020,13 @@
         const id = Number(routeId);
         if (zniszczona || !isFinite(id) || id <= 0) return;
         if (stan.otwarta && stan.otwarta.id === id && !stan.nowa) {
+            // (przegląd końcowy, minor 1) Klik w trasę, która JUŻ jest na ekranie, w trakcie
+            // wczytywania innej przerywa tamto wczytywanie — inaczej spóźniona trasa zastąpiłaby
+            // tę, przy której użytkownik właśnie został. Sesja wraca do trasy na ekranie.
+            if (kontrolerTrasy) {
+                przerwijWczytywanie();
+                stan.sesja = sesjaWidocznej;
+            }
             renderujListe();
             if (o.fokus && tytulEl) tytulEl.focus();
             return;
@@ -1038,6 +1213,8 @@
             stan.wybranyPojazd = t.pojazd ? String(t.pojazd.id) : '';
             stan.wybranyKierowca = t.kierowca ? String(t.kierowca.id) : '';
         }
+        // (M8) Granice dat trasy od dzisiejszej daty — przy każdym wypełnieniu formularza.
+        if (edytowalnaForma()) ustawGraniceDat(form); else zdejmijGraniceDat(form);
         renderujSelecty();
         stan.migawka = migawkaFormularza();
         if (edytowalnaForma()) wczytajDostepnosc();
@@ -1064,7 +1241,8 @@
     /**
      * Selecty z GET /availability: zajęci w tych dniach widoczni, wyszarzeni, z dopiskiem
      * „(zajęty — nazwa trasy)”. Pojazd trasy wyłączony z floty (dostępność zna tylko
-     * aktywne) i kierowca, który przestał być aktywny — widoczni, nie do wybrania, z uwagą.
+     * aktywne) i kierowca, który przestał być aktywny — zostają wybrani (I3: serwer przyjmuje
+     * niezmieniony wyłączony pojazd i kierowcę), ale po zmianie nie da się do nich wrócić.
      */
     function renderujSelecty() {
         if (!selectPojazdu || !selectKierowcy) return;
@@ -1085,7 +1263,7 @@
             if (wP && !pojazd) {
                 const znany = t && t.pojazd && String(t.pojazd.id) === wP ? t.pojazd : null;
                 pojazdy += opcjaHtml(wP, (znany ? znany.name : 'Pojazd nr ' + wP) + ' (wyłączony z floty)', true, true);
-                uwagaP = 'Pojazd jest wyłączony z floty. Wybierz inny, żeby zapisać trasę.';
+                uwagaP = 'Pojazd jest wyłączony z floty. Zostaje na tej trasie; po zmianie nie wybierzesz go ponownie.';
             } else if (pojazd && pojazd.zajety) {
                 uwagaP = 'Pojazd jest zajęty w tych dniach na trasie „' + (pojazd.trasa || 'inna trasa') +
                     '”. Wybierz inny albo zmień daty.';
@@ -1098,7 +1276,7 @@
             if (wK && !kierowca) {
                 const znany = t && t.kierowca && String(t.kierowca.id) === wK ? t.kierowca : null;
                 kierowcy += opcjaHtml(wK, (znany ? znany.nazwa : 'Kierowca nr ' + wK) + ' (nieaktywny)', true, true);
-                uwagaK = 'Kierowca nie jest już aktywnym pracownikiem. Wybierz innego, żeby zapisać trasę.';
+                uwagaK = 'Kierowca nie jest już aktywnym pracownikiem. Zostaje na tej trasie; po zmianie nie wybierzesz go ponownie.';
             } else if (kierowca && kierowca.zajety) {
                 uwagaK = 'Kierowca jest zajęty w tych dniach na trasie „' + (kierowca.trasa || 'inna trasa') +
                     '”. Wybierz innego albo zmień daty.';
@@ -1131,8 +1309,10 @@
         const dane = daneFormularza();
         // (oględziny M1) Niepełna albo błędna data (np. rok 92026 w trakcie wpisywania z
         // klawiatury) nie idzie do serwera — zostaje dostępność dla ostatnich dobrych dat.
-        if (!poprawnaData(dane.date_from) || !poprawnaData(dane.date_to) ||
-            !rokWZakresie(dane.date_from) || !rokWZakresie(dane.date_to) || dane.date_to < dane.date_from) return;
+        // (M8) Tak samo daty poza granicami trasy — zapisu i tak by nie było.
+        const g = graniceDat();
+        if (!wGranicach(dane.date_from, g) || !wGranicach(dane.date_to, g) || dane.date_to < dane.date_from ||
+            roznicaDni(dane.date_from, dane.date_to) > MAKS_ROZPIETOSC_DNI) return;
         if (kontrolerDostepnosci) kontrolerDostepnosci.abort();
         const kontroler = new AbortController();
         kontrolerDostepnosci = kontroler;
@@ -1245,9 +1425,13 @@
      * się zmienić, zanim przyszła odpowiedź. Błąd serwera (409/422): przy formularzu, gdy
      * użytkownik jest wciąż przy tej trasie, inaczej komunikatem z nazwą trasy. Po 409/404
      * trasa na serwerze jest inna niż nasza kopia — pobieramy ją od nowa (oględziny m4).
+     * (przegląd końcowy, minor 2) Brak odpowiedzi albo błąd serwera (niepewnaOdpowiedz) — zmiana
+     * mogła się zapisać: lista i trasa od nowa, a przy tworzeniu ostrzeżenie przed duplikatem.
+     * opcje.odczyt — operacja niczego nie zmienia (eksport do Routimo): bez tego ostrzeżenia.
      */
-    async function mutacja(fn) {
+    async function mutacja(fn, opcje) {
         if (zniszczona || akcjaTrwa()) return null;
+        const odczyt = !!(opcje && opcje.odczyt);
         const ctx = migawkaMutacji();
         if (ctx.klucz === null) return null;
         stan.wToku.add(ctx.klucz);
@@ -1260,15 +1444,23 @@
             return await fn(ctx);
         } catch (e) {
             if (zniszczona || przerwane(e)) return null;
-            const konflikt = e.status === 409 || e.status === 404;
+            const niepewna = !odczyt && niepewnaOdpowiedz(e);
+            const konflikt = e.status === 409 || e.status === 404 || niepewna;
+            let tekst = e.message;
+            if (niepewna) {
+                tekst += ctx.nowa
+                    ? ' Trasa mogła już powstać — sprawdź listę tras, zanim utworzysz ją ponownie.'
+                    : ' Zmiana mogła się zapisać — trasę pobieramy od nowa.';
+                wczytajListe();
+            }
             if (naEkranie(ctx)) {
-                pokazBlad(e.message, bladZasobu(e) ? 'konflikt' : 'serwer');
+                pokazBlad(tekst, bladZasobu(e) ? 'konflikt' : 'serwer');
                 odswiez = konflikt && !ctx.nowa;
             } else {
                 // (runda 2, przegląd pkt 1) Klucz tej trasy, nie wspólny 'trasa': następny
                 // komunikat innej trasy („Zapisano trasę „B”.”) nie może zdjąć tego błędu.
-                komunikat('blad', ctx.nazwa + ': ' + e.message, { klucz: kluczBleduTrasy(ctx.klucz) });
-                if (konflikt) wczytajListe();
+                komunikat('blad', ctx.nazwa + ': ' + tekst, { klucz: kluczBleduTrasy(ctx.klucz) });
+                if (konflikt && !niepewna) wczytajListe();
             }
             return null;
         } finally {
@@ -1482,7 +1674,12 @@
         if (!odp.ok || typ.indexOf('application/json') !== -1) {
             let dane = null;
             try { dane = await odp.json(); } catch (e) { dane = null; }
-            throw new BladApi(komunikatBledu(odp.status, dane), odp.status);
+            throw new BladApi(komunikatBledu(odp.status, dane), odp.status, dane);
+        }
+        // (przegląd końcowy, minor 4) Tylko prawdziwy arkusz — strona HTML (np. logowania albo
+        // błędu serwera pośredniego) z kodem 200 nie może się zapisać jako „plik dla Routimo”.
+        if (typ.indexOf('spreadsheetml') === -1) {
+            throw new BladApi('Serwer nie przysłał pliku Excel dla Routimo (HTTP ' + odp.status + '). Spróbuj ponownie.', odp.status);
         }
         const plik = await odp.blob();
         const nazwa = nazwaZNaglowka(odp.headers.get('Content-Disposition')) || 'routimo_trasa_' + t.id + '.xlsx';
@@ -1495,7 +1692,12 @@
         a.click();
         a.remove();
         setTimeout(() => URL.revokeObjectURL(adres), 60000);
-        komunikat('ok', 'Pobrano plik dla Routimo: ' + nazwa + '.', { klucz: 'trasa' });
+        // (I5) Przystanki zamówień anulowanych serwer pomija — mówimy, ile ich było.
+        const pominiete = parseInt(odp.headers.get('X-Routimo-Pominiete') || '0', 10) || 0;
+        komunikat(pominiete > 0 ? 'info' : 'ok', 'Pobrano plik dla Routimo: ' + nazwa + '.' + (pominiete > 0
+            ? ' Pominięto ' + pominiete + ' ' + odmiana(pominiete, ['anulowany przystanek', 'anulowane przystanki',
+                'anulowanych przystanków']) + '.'
+            : ''), { klucz: 'trasa' });
     }
 
     // ── Podsumowanie ────────────────────────────────────────────────────────
@@ -1529,6 +1731,16 @@
         if (przekroczona) {
             uwagi.push('<li class="is-blad"><i class="fas fa-triangle-exclamation" aria-hidden="true"></i>' +
                 'Przekroczona ładowność pojazdu (' + esc(kg(waga)) + ' &gt; ' + esc(kg(ladownosc)) + ')</li>');
+        }
+        // (I5) Przystanki zamówień anulowanych w całości: nie liczą się do przystanków ani wagi,
+        // Routimo ich nie dostanie — logistyk zdejmuje je z trasy.
+        const anul = Number(p.anulowane) || 0;
+        if (anul) {
+            const rada = t.status === 'robocza' ? '; usuń je z trasy'
+                : (t.status === 'zatwierdzona' ? '; cofnij zatwierdzenie i usuń je z trasy' : '');
+            uwagi.push('<li class="is-uwaga"><i class="fas fa-ban" aria-hidden="true"></i>' +
+                esc(ileAnulowanych(anul) + ' — nie ' + odmiana(anul, ['trafi', 'trafią', 'trafią']) + ' do Routimo' + rada) +
+                '</li>');
         }
         const bezGeo = Number(p.bez_lokalizacji) || 0;
         if (bezGeo) {
@@ -1581,32 +1793,43 @@
         return z.geo.quality === 'przyblizona' ? 'lg-stacja--przyblizona' : '';
     }
 
-    function przystanekHtml(z, nr, ile, edyt) {
+    /**
+     * Wiersz przystanku. indeks — miejsce na liście (od 0; ↑/↓), numer — numer stacji wśród
+     * AKTYWNYCH przystanków (jak `pozycja` z API — kolejność w Routimo); null = anulowany (I5):
+     * stacja „—”, plakietka „Anulowane”, wiersz przygaszony. Pozostałe mają etap zamówienia
+     * (ptaszek = spakowane) — widać, co jeszcze nie jest gotowe do odhaczenia.
+     */
+    function przystanekHtml(z, indeks, ile, numer, edyt) {
+        const anul = numer === null;
         const bezGeo = !maGeo(z);
-        const opis = 'przystanek ' + nr + ', zamówienie ' + z.numer;
+        const opis = (anul ? 'przystanek anulowany' : 'przystanek ' + numer) + ', zamówienie ' + z.numer;
         const klasyStacji = ['lg-stacja'];
-        const geo = klasaGeoStacji(z);
+        const geo = anul ? 'lg-stacja--anulowana' : klasaGeoStacji(z);
         if (geo) klasyStacji.push(geo);
-        if (String(nr).length > 2) klasyStacji.push('lg-stacja--dlugi');
-        return '<li class="lg-przystanek" data-order-id="' + esc(z.id) + '"' + (edyt ? ' draggable="true"' : '') + '>' +
+        if (!anul && String(numer).length > 2) klasyStacji.push('lg-stacja--dlugi');
+        return '<li class="lg-przystanek' + (anul ? ' lg-przystanek--anulowany' : '') + '" data-order-id="' + esc(z.id) + '"' +
+            (edyt ? ' draggable="true"' : '') + '>' +
             '<span class="' + klasyStacji.join(' ') + '" aria-hidden="true"' +
-                (geo === 'lg-stacja--przyblizona' ? ' title="Punkt przybliżony (miejscowość)"' : '') + '>' + nr + '</span>' +
+                (geo === 'lg-stacja--przyblizona' ? ' title="Punkt przybliżony (miejscowość)"' : '') + '>' + (anul ? '—' : numer) + '</span>' +
             (edyt ? '<span class="lg-przystanek-uchwyt" aria-hidden="true" title="Przeciągnij, żeby zmienić kolejność">' +
                 '<i class="fas fa-grip-vertical"></i></span>' : '') +
             '<div class="lg-przystanek-tresc">' +
                 '<div class="lg-przystanek-gora"><span class="lg-numer">' + esc(z.numer) + '</span>' +
                     '<span class="lg-przystanek-klient"' + (z.klient ? ' title="' + esc(z.klient) + '"' : '') + '>' +
-                    (z.klient ? esc(z.klient) : '<span class="lg-brak-danych">brak nazwy</span>') + '</span></div>' +
+                    (z.klient ? esc(z.klient) : '<span class="lg-brak-danych">brak nazwy</span>') + '</span>' +
+                    (anul ? '<span class="lg-plakietka-anulowane" title="Zamówienie anulowane w całości — nie trafi do Routimo.">Anulowane</span>'
+                        : etapPrzystankuHtml(z)) +
+                '</div>' +
                 '<div class="lg-przystanek-adres">' + adresHtml(z) + '</div>' +
             '</div>' +
             '<div class="lg-przystanek-meta">' +
-                (bezGeo ? '<span class="lg-pin lg-pin--pusta" role="img" aria-label="Brak punktu na mapie"' +
+                (bezGeo && !anul ? '<span class="lg-pin lg-pin--pusta" role="img" aria-label="Brak punktu na mapie"' +
                     ' title="Brak punktu na mapie. Ustawisz go na mapie Dashboardu."></span>' : '') +
                 '<span class="lg-przystanek-m3">' + m3Tekst(z) + '</span>' +
                 (edyt ? '<div class="lg-przystanek-akcje">' +
-                    '<button type="button" class="lg-ikona-przycisk" data-lg-przystanek="gora"' + (nr === 1 ? ' disabled' : '') +
+                    '<button type="button" class="lg-ikona-przycisk" data-lg-przystanek="gora"' + (indeks === 0 ? ' disabled' : '') +
                         ' aria-label="' + esc('Przesuń wyżej: ' + opis) + '" title="Wyżej"><i class="fas fa-arrow-up" aria-hidden="true"></i></button>' +
-                    '<button type="button" class="lg-ikona-przycisk" data-lg-przystanek="dol"' + (nr === ile ? ' disabled' : '') +
+                    '<button type="button" class="lg-ikona-przycisk" data-lg-przystanek="dol"' + (indeks === ile - 1 ? ' disabled' : '') +
                         ' aria-label="' + esc('Przesuń niżej: ' + opis) + '" title="Niżej"><i class="fas fa-arrow-down" aria-hidden="true"></i></button>' +
                     // Bez disabled na czas innej zmiany (fokus zostaje) — czekanie pokazuje
                     // aria-disabled z odswiezPrzyciskiPrzystankow(), a mutacja() i tak czeka.
@@ -1671,10 +1894,12 @@
 
     function renderujStanPrzystankow() {
         if (!przystankiStanEl) return;
-        const ile = liczbaPrzystankow();
+        const kolejne = przystankiWidoczne();
+        const anul = kolejne.filter(anulowane).length;
         przystankiStanEl.textContent = stan.kolejnosc || kolejnoscObietnica
             ? 'Zapisywanie kolejności…'
-            : (stan.otwarta && !stan.nowa ? ilePrzystankow(ile) : '');
+            : (stan.otwarta && !stan.nowa
+                ? ilePrzystankow(kolejne.length - anul) + (anul ? ' + ' + ileAnulowanych(anul) : '') : '');
     }
 
     function renderujPrzystanki() {
@@ -1694,8 +1919,11 @@
         liniaEl.classList.toggle('is-tylko-odczyt', !edyt);
         const kolejne = przystankiWidoczne();
         const fokus = fokusPrzystanku();
+        // (I5) Numer wśród aktywnych, liczony z widocznej kolejności — ta sama reguła co `pozycja`
+        // z API (routes.numeracja_przystankow), a przy przesuwaniu nowe numery widać od razu.
+        let numer = 0;
         przystankiEl.innerHTML = kolejne.length
-            ? kolejne.map((z, i) => przystanekHtml(z, i + 1, kolejne.length, edyt)).join('')
+            ? kolejne.map((z, i) => przystanekHtml(z, i, kolejne.length, anulowane(z) ? null : (numer += 1), edyt)).join('')
             : '<li class="lg-przystanek lg-przystanek--pusto">' + (edyt
                 ? 'Brak przystanków. Dodaj zamówienia z listy „Do dodania” niżej albo na Dashboardzie („Dodaj do trasy…”).'
                 : 'Trasa nie ma przystanków.') + '</li>';
@@ -1793,7 +2021,8 @@
                 stan.kolejnosc = null;
                 renderujPrzystanki();
                 pokazBlad('Nie zapisano kolejności przystanków. ' + e.message, 'serwer');
-                return e.status === 409 || e.status === 404 || e.status === 422;
+                // (minor 2) Po niepewnej odpowiedzi kolejność mogła się zapisać — też od nowa.
+                return e.status === 409 || e.status === 404 || e.status === 422 || niepewnaOdpowiedz(e);
             }
         }
         return false;
@@ -2053,9 +2282,12 @@
             const z = (znane || []).find((x) => x.id === id);
             return z ? z.numer : '#' + id;
         };
+        // (przegląd końcowy, minor 8) Z kluczem — kolejna odmowa zastępuje poprzednią, zamiast
+        // układać trwałe okienka błędów jedno na drugim w nakładce Tras.
         komunikat('blad', 'Nie dodano do trasy „' + nazwaTrasy + '” ' + bledy.length + ' ' +
             odmiana(bledy.length, ['zamówienia', 'zamówień', 'zamówień']) + ':', {
             lista: bledy.map((b) => pozycjaOdmowy(numer(b.order_id), b.komunikat)),
+            klucz: 'trasa-bledy-dodawania',
         });
     }
 
@@ -2229,16 +2461,21 @@
             }).addTo(warstwaMapki);
         });
         const kolejne = przystankiWidoczne();
-        kolejne.forEach((z, i) => {
+        let numer = 0;   // (I5) numer wśród aktywnych, jak na liście przystanków
+        kolejne.forEach((z) => {
+            const anul = anulowane(z);
+            if (!anul) numer += 1;
             if (!maGeo(z)) return;
             const przyblizony = z.geo.quality === 'przyblizona';
+            const uwaga = anul ? 'Anulowane — nie trafi do Routimo'
+                : (przyblizony ? 'Punkt przybliżony (miejscowość)' : '');
             const znacznik = L.marker([z.geo.lat, z.geo.lng], {
-                icon: ikonaStacji(i + 1, klasa, klasaGeoStacji(z)),
+                icon: ikonaStacji(anul ? '—' : numer, klasa, anul ? 'lg-stacja--anulowana' : klasaGeoStacji(z)),
                 keyboard: false,          // klawiatura ma listę przystanków obok
-                zIndexOffset: 500,
+                zIndexOffset: anul ? 400 : 500,
                 riseOnHover: true,
-            }).bindTooltip('<b>' + (i + 1) + '. ' + esc(z.numer) + '</b>' + (z.klient ? ' ' + esc(z.klient) : '') +
-                (przyblizony ? '<span class="lg-podpowiedz-mapy-uwaga">Punkt przybliżony (miejscowość)</span>' : ''), {
+            }).bindTooltip('<b>' + (anul ? '— ' : numer + '. ') + esc(z.numer) + '</b>' + (z.klient ? ' ' + esc(z.klient) : '') +
+                (uwaga ? '<span class="lg-podpowiedz-mapy-uwaga">' + esc(uwaga) + '</span>' : ''), {
                 // (oględziny M9) Kierunek wybiera Leaflet (w stronę środka), tekst się zawija —
                 // dymek przystanku przy krawędzi mapki nie wychodzi poza nią.
                 className: 'lg-podpowiedz-mapy lg-podpowiedz-mapy--zawijana', direction: 'auto', opacity: 1,
@@ -2465,6 +2702,7 @@
         formDodaj.elements.namedItem('name').value = '';
         formDodaj.elements.namedItem('date_from').value = dzisIso();
         formDodaj.elements.namedItem('date_to').value = dzisIso();
+        ustawGraniceDat(formDodaj);   // (M8) granice od dzisiejszej daty, przy każdym otwarciu
         dodajNowaEl.hidden = true;
         bladDodawania('');
         ustawZapisDodawania(false);
@@ -2482,7 +2720,10 @@
             const dane = await zapytanie('/routes?status=robocza');
             if (zniszczona || dodawanie !== d) return;
             d.trasy = (Array.isArray(dane.routes) ? dane.routes : []).slice().sort(poDacie);
-            renderujTrasyDoWyboru(d.trasy.length === 1 ? d.trasy[0].id : null);
+            // Ponowne wczytanie (po niepewnej odpowiedzi) zostawia wybraną trasę, jeśli jest na liście.
+            const przed = formDodaj.querySelector('.lg-wybor-trasy-lista input[name="trasa"]:checked');
+            const wybrana = przed && d.trasy.some((t) => String(t.id) === przed.value) ? Number(przed.value) : null;
+            renderujTrasyDoWyboru(wybrana !== null ? wybrana : (d.trasy.length === 1 ? d.trasy[0].id : null));
             const zaznaczony = formDodaj.querySelector('input[name="trasa"]:checked');
             const a = document.activeElement;
             if (!d.trasy.length && !zaznaczony) {
@@ -2562,6 +2803,13 @@
         formDodaj.querySelectorAll('input').forEach((pole_) => { pole_.disabled = trwa; });
     }
 
+    /**
+     * Zapis okna „Dodaj do trasy…”: (nowa trasa →) POST /stops. (przegląd końcowy, minor 3) Okno
+     * zamknięte w trakcie zapisu (drugi Esc w Chrome zamyka je mimo blokady) nie gubi wyniku:
+     * zapis kończy się w tle (dodawaniaWTle), lista, edytor i mapa dostają odpowiedź, a wynik
+     * albo odmowa trafia do komunikatu. (minor 2) Brak odpowiedzi albo błąd serwera: trasa lub
+     * przystanki mogły już się zapisać — dane od nowa i ostrzeżenie przed powtórką.
+     */
     async function zapiszDodawanie() {
         const d = dodawanie;
         if (!d || d.zapis) return;
@@ -2570,6 +2818,8 @@
             bladDodawania('Wybierz trasę albo „Nowa trasa”.');
             return;
         }
+        // Wynik do okna tylko wtedy, gdy wciąż jest otwarte dla TEGO zapisu.
+        const wOknie = () => !zniszczona && dodawanie === d;
         const ids = d.zamowienia.map((z) => z.id);
         let trasaId = null;
         let nowa = null;
@@ -2591,14 +2841,24 @@
             bladDodawania('');
             try {
                 const odp = await zapytanie('/routes', { metoda: 'POST', dane: dane });
-                if (zniszczona || dodawanie !== d) return;
+                if (zniszczona) return;
                 nowa = odp.route;
                 trasaId = nowa.id;
                 if (stan.listaWczytana) aktualizujNaLiscie(nowa);
             } catch (e) {
-                if (zniszczona || dodawanie !== d) return;
-                ustawZapisDodawania(false);
-                bladDodawania(e.message);
+                if (zniszczona) return;
+                const niepewna = niepewnaOdpowiedz(e);
+                const tekst = e.message + (niepewna
+                    ? ' Trasa mogła już powstać — sprawdź trasy robocze, zanim utworzysz ją ponownie.' : '');
+                if (niepewna) wczytajListe();
+                if (wOknie()) {
+                    ustawZapisDodawania(false);
+                    bladDodawania(tekst);
+                    if (niepewna) wczytajTrasyRobocze();
+                } else {
+                    komunikat('blad', 'Nie utworzono trasy „' + dane.name + '”. ' + tekst, { klucz: 'trasa-dodaj-blad' });
+                    zakonczDodawanieWTle(d);
+                }
                 return;
             }
         } else {
@@ -2608,7 +2868,7 @@
         }
         try {
             const odp = await zapytanie('/routes/' + trasaId + '/stops', { metoda: 'POST', dane: { order_ids: ids } });
-            if (zniszczona || dodawanie !== d) return;
+            if (zniszczona) return;
             const dodane = Array.isArray(odp.dodane) ? odp.dodane : [];
             const bledy = Array.isArray(odp.bledy) ? odp.bledy : [];
             d.wynik = {
@@ -2622,26 +2882,43 @@
                 wczytajKandydatow();
             }
             odswiezMapeTrasPoZmianie();
-            zamknijOknoDodawania();
+            if (wOknie()) zamknijOknoDodawania(); else zakonczDodawanieWTle(d);
             if (dodane.length) {
                 komunikat('ok', 'Dodano do trasy „' + odp.route.nazwa + '”: ' + ileZamowien(dodane.length) + '.',
                     { klucz: 'trasa-dodane', ikona: 'fa-route' });
             }
             if (bledy.length) pokazBledyDodawania(bledy, odp.route.nazwa, d.zamowienia);
         } catch (e) {
-            if (zniszczona || dodawanie !== d) return;
+            if (zniszczona) return;
+            const niepewna = niepewnaOdpowiedz(e);
+            const dopisek = niepewna ? ' Zamówienia mogły już trafić na trasę — sprawdź ją, zanim dodasz je ponownie.' : '';
+            if (niepewna) {
+                wczytajListe();
+                if (stan.otwarta && !stan.nowa && stan.otwarta.id === trasaId && !akcjaTrwa() && !stan.kolejnosc) odswiezOtwarta();
+                odswiezMapeTrasPoZmianie();
+            }
+            const poczatek = nowa ? 'Utworzono trasę „' + nowa.nazwa + '”, ale nie dodano do niej zamówień. ' : '';
+            if (!wOknie()) {
+                komunikat('blad', (poczatek || 'Nie dodano zamówień do trasy. ') + e.message + dopisek,
+                    { klucz: 'trasa-dodaj-blad' });
+                zakonczDodawanieWTle(d);
+                return;
+            }
             if (nowa) {
                 // Trasa już jest — ponowienie ma dodać do niej, a nie tworzyć drugiej.
                 d.trasy = (d.trasy || []).concat([nowa]);
                 renderujTrasyDoWyboru(nowa.id);
-                ustawZapisDodawania(false);
-                bladDodawania('Utworzono trasę „' + nowa.nazwa + '”, ale nie dodano do niej zamówień. ' + e.message +
-                    ' Spróbuj ponownie.');
-            } else {
-                ustawZapisDodawania(false);
-                bladDodawania(e.message);
             }
+            ustawZapisDodawania(false);
+            bladDodawania(poczatek + e.message + (dopisek || (nowa ? ' Spróbuj ponownie.' : '')));
+            if (niepewna && !nowa) wczytajTrasyRobocze();
         }
+    }
+
+    // Zapis dokończony w tle (okno zamknięte w trakcie) — obietnica dodajDoTrasy się rozstrzyga.
+    function zakonczDodawanieWTle(d) {
+        dodawaniaWTle.delete(d);
+        d.gotowe(d.wynik || null);
     }
 
     /** Zamyka okno, oddaje fokus i dopiero wtedy odpowiada logistics.js (fokus przeżyje przerysowanie wiersza). */
@@ -2654,26 +2931,308 @@
         d.gotowe(d.wynik || null);
     }
 
+    /**
+     * (minor 3) Okno zamknięte inną drogą niż nasze (np. drugi Esc przeglądarki). W trakcie
+     * zapisu nie porzucamy go: zapis kończy się w tle (zapiszDodawanie) i zgłasza wynik
+     * komunikatem, a okno jest znów wolne dla kolejnego „Dodaj do trasy…”.
+     */
+    function poZamknieciuOknaDodawania() {
+        const d = dodawanie;
+        if (!d) return;
+        if (!d.zapis) {
+            zamknijOknoDodawania();
+            return;
+        }
+        dodawanie = null;
+        dodawaniaWTle.add(d);
+        ustawZapisDodawania(false);
+        if (d.powrot && d.powrot.isConnected) d.powrot.focus({ preventScroll: true });
+    }
+
     // ── Okno „Odhacz jako wykonaną” ─────────────────────────────────────────
+    //
+    // (przegląd końcowy, Important) Lista przystanków w oknie pochodzi ZAWSZE ze świeżego
+    // GET /routes/<id>, pobranego przy otwarciu („Wczytywanie przystanków…”, odhaczenie czeka),
+    // a nie z kopii w edytorze: przystanek zdjęty w międzyczasie przez kogoś innego wracał
+    // zaznaczony (422 bez wyjaśnienia), a dodany w ogóle się nie pojawiał i szedł do puli.
+    // Odmowa 409/422 albo niepewna odpowiedź pobiera trasę od nowa i przebudowuje listę:
+    // wybory przy przystankach, które zostały, przeżywają, a okno mówi, co doszło i co zniknęło.
+    // (I1) Każdy przystanek pokazuje stan pakowania. Dostarczone mogą być tylko spakowane
+    // w całości (serwer odmawia 409 z `niespakowane`) — pole niespakowanego jest nieaktywne,
+    // anulowanego też (takie zamówienie schodzi z trasy i do żadnej puli nie wraca).
 
     function bladWykonania(tekst) {
         wykonajBladEl.textContent = tekst || '';
         wykonajBladEl.hidden = !tekst;
     }
 
+    // Wyjaśnienie pod stanem przystanku, którego nie da się oznaczyć jako dostarczony (ruling I1).
+    const UWAGA_WYKONANIA = {
+        niespakowane: 'wróci do puli bez trasy; spakuj na tablecie, żeby oznaczyć jako dostarczone',
+        anulowane: 'zdejmiemy z trasy',
+    };
+
+    function stanPrzystankuWykonania(p) {
+        const z = p.zamowienie || {};
+        if (p.anulowane || anulowane(z)) return 'anulowane';
+        return z.spakowane ? 'spakowane' : 'niespakowane';
+    }
+
+    function pozycjaWykonaniaHtml(w, p) {
+        const z = p.zamowienie;
+        const stanP = stanPrzystankuWykonania(p);
+        const mozna = stanP === 'spakowane';
+        // Domyślnie dostarczone są tylko spakowane; wybór użytkownika przeżywa przebudowę listy.
+        const zaznaczone = mozna && (w.wybory.has(z.id) ? w.wybory.get(z.id) : true);
+        const numer = p.pozycja === null || p.pozycja === undefined ? '—' : p.pozycja;
+        const miejscowosc = [z.kod, z.miasto].filter(Boolean).join(' ');
+        const adres = [miejscowosc, z.adres].filter(Boolean).join(', ');
+        const geo = stanP === 'anulowane' ? 'lg-stacja--anulowana' : klasaGeoStacji(z);
+        const nowy = w.nowe.has(z.id);
+        const uwaga = UWAGA_WYKONANIA[stanP];
+        return '<li><label class="lg-wykonaj-pozycja lg-wykonaj-pozycja--' + stanP + (nowy ? ' is-nowy' : '') + '">' +
+            '<input type="checkbox" value="' + esc(z.id) + '"' + (zaznaczone ? ' checked' : '') +
+                (mozna ? ' data-lg-mozna="1"' : ' disabled') + '>' +
+            '<span class="lg-stacja' + (geo ? ' ' + geo : '') + '" aria-hidden="true">' + esc(numer) + '</span>' +
+            '<span class="lg-wykonaj-tresc"><span class="lg-numer">' + esc(z.numer) + '</span>' +
+                '<span class="lg-wykonaj-klient">' + (z.klient ? esc(z.klient) : 'brak nazwy') + '</span>' +
+                (nowy ? '<span class="lg-wykonaj-nowy">nowy na trasie</span>' : '') +
+                (adres ? '<span class="lg-wykonaj-adres" title="' + esc(adres) + '">' + esc(adres) + '</span>' : '') +
+                '<span class="lg-wykonaj-stan">' + stanWykonaniaHtml(z, stanP) +
+                    (uwaga ? '<span class="lg-wykonaj-uwaga">' + esc(uwaga) + '</span>' : '') + '</span>' +
+            '</span>' +
+            '<span class="lg-wykonaj-powrot">wróci do puli bez trasy</span>' +
+            '</label></li>';
+    }
+
+    function pokazStanListyWykonania(tekst, blad) {
+        wykonajListaEl.innerHTML = '<li class="lg-wykonaj-stan-listy' + (blad ? ' is-blad' : '') + '">' + esc(tekst) + '</li>';
+        wykonajIleEl.textContent = '';
+        wykonajIleEl.classList.remove('is-uwaga');
+    }
+
+    function renderujListeWykonania(w) {
+        const przystanki = (w.trasa && w.trasa.przystanki) || [];
+        if (!przystanki.length) {
+            pokazStanListyWykonania('Trasa nie ma już przystanków.');
+            return;
+        }
+        wykonajListaEl.innerHTML = przystanki.map((p) => pozycjaWykonaniaHtml(w, p)).join('');
+        odswiezLicznikWykonania();
+    }
+
+    /** Liczniki pod listą: dostarczone, wracające do puli (w tym niespakowane) i anulowane. */
     function odswiezLicznikWykonania() {
         const pola = Array.from(wykonajListaEl.querySelectorAll('input[type="checkbox"]'));
-        const zaznaczone = pola.filter((c) => c.checked).length;
+        if (!pola.length) return;
+        let dostarczone = 0;
+        let wracaja = 0;
+        let niespakowane = 0;
+        let anul = 0;
         pola.forEach((c) => {
             const pozycja = c.closest('.lg-wykonaj-pozycja');
-            if (pozycja) pozycja.classList.toggle('is-niedostarczone', !c.checked);
+            const klasy = pozycja ? pozycja.classList : null;
+            const stanP = klasy && klasy.contains('lg-wykonaj-pozycja--anulowane') ? 'anulowane'
+                : (klasy && klasy.contains('lg-wykonaj-pozycja--niespakowane') ? 'niespakowane' : 'spakowane');
+            if (c.checked) {
+                dostarczone += 1;
+            } else if (stanP === 'anulowane') {
+                anul += 1;
+            } else {
+                wracaja += 1;
+                if (stanP === 'niespakowane') niespakowane += 1;
+            }
+            // Odznaczony SPAKOWANY: ciepłe tło i „wróci do puli”; niespakowany ma własny opis.
+            if (pozycja) pozycja.classList.toggle('is-niedostarczone', !c.checked && stanP === 'spakowane');
         });
-        const wracaja = pola.length - zaznaczone;
-        wykonajIleEl.classList.toggle('is-uwaga', !zaznaczone);
-        wykonajIleEl.textContent = !zaznaczone
-            ? 'Nic nie zaznaczono: trasa będzie wykonana bez przystanków, a wszystkie zamówienia wrócą do puli bez trasy.'
-            : 'Dostarczone: ' + zaznaczone + ' z ' + pola.length + '.' +
-                (wracaja ? ' ' + ileZamowien(wracaja) + ' ' + odmiana(wracaja, ['wróci', 'wrócą', 'wróci']) + ' do puli bez trasy.' : '');
+        const czesci = [dostarczone
+            ? 'Dostarczone: ' + dostarczone + ' z ' + pola.length + '.'
+            : 'Nic nie zaznaczono: trasa będzie wykonana bez przystanków.'];
+        if (wracaja) {
+            czesci.push(ileZamowien(wracaja) + ' ' + odmiana(wracaja, ['wróci', 'wrócą', 'wróci']) + ' do puli bez trasy' +
+                (niespakowane ? ' (w tym ' + niespakowane + ' ' + odmiana(niespakowane, ['niespakowane', 'niespakowane',
+                    'niespakowanych']) + ')' : '') + '.');
+        }
+        if (anul) czesci.push(ileAnulowanych(anul) + ' zdejmiemy z trasy.');
+        wykonajIleEl.classList.toggle('is-uwaga', !dostarczone);
+        wykonajIleEl.textContent = czesci.join(' ');
+    }
+
+    /**
+     * Przyciski i pola okna: odhaczenie czeka na świeżą listę i na zapis; trasy, która nie jest
+     * już robocza ani zatwierdzona (albo nie ma przystanków), odhaczyć się nie da. Pola
+     * niespakowanych i anulowanych zostają nieaktywne także po nieudanym zapisie.
+     */
+    function odswiezPrzyciskiWykonania() {
+        const w = wykonywanie;
+        const trwa = !!(w && w.zapis);
+        const wczytuje = !!(w && w.wczytywanie);
+        const t = w ? w.trasa : null;
+        const aktywna = !!(t && (t.status === 'robocza' || t.status === 'zatwierdzona') && (t.przystanki || []).length);
+        wykonajZapiszBtn.disabled = trwa || wczytuje || !aktywna;
+        wykonajZapiszBtn.textContent = trwa ? 'Zapisywanie…' : 'Odhacz jako wykonaną';
+        const anuluj = formWykonaj.querySelector('[data-lg-trasy-akcja="wykonaj-anuluj"]');
+        if (anuluj) anuluj.disabled = trwa;
+        wykonajListaEl.querySelectorAll('input[type="checkbox"]').forEach((c) => {
+            c.disabled = trwa || wczytuje || !aktywna || c.getAttribute('data-lg-mozna') !== '1';
+        });
+        if (wczytuje) wykonajListaEl.setAttribute('aria-busy', 'true'); else wykonajListaEl.removeAttribute('aria-busy');
+    }
+
+    function ustawZapisWykonania(trwa) {
+        if (wykonywanie) wykonywanie.zapis = trwa;
+        odswiezPrzyciskiWykonania();
+    }
+
+    // „Nowe na trasie: 26/00014. Zdjęte z trasy: 26/00012.” — różnica list przed i po odświeżeniu.
+    function opisZmianPrzystankow(przed, po) {
+        const idsPrzed = new Set((przed.przystanki || []).map((p) => p.zamowienie.id));
+        const idsPo = new Set((po.przystanki || []).map((p) => p.zamowienie.id));
+        const nowe = (po.przystanki || []).filter((p) => !idsPrzed.has(p.zamowienie.id)).map((p) => p.zamowienie.numer);
+        const zdjete = (przed.przystanki || []).filter((p) => !idsPo.has(p.zamowienie.id)).map((p) => p.zamowienie.numer);
+        const czesci = [];
+        if (nowe.length) czesci.push('Nowe na trasie: ' + nowe.join(', ') + '.');
+        if (zdjete.length) czesci.push('Zdjęte z trasy: ' + zdjete.join(', ') + '.');
+        return czesci.length ? 'Lista przystanków jest już aktualna. ' + czesci.join(' ') : '';
+    }
+
+    /**
+     * Świeży odczyt trasy z okna poprawia też edytor pod oknem — gdy pokazuje tę trasę i nie ma
+     * w drodze jej zmiany ani kolejności; starszy odczyt nie cofa świeższej odpowiedzi mutacji
+     * (ta sama reguła co odswiezOtwarta).
+     */
+    function przyjmijOdczytTrasy(route, start) {
+        if (zniszczona || !route || !stan.otwarta || stan.nowa || stan.otwarta.id !== route.id ||
+            akcjaTrwa() || stan.kolejnosc) return;
+        const lokalna = lokalneZmiany.get(route.id);
+        if (lokalna && lokalna.wersja > start) return;
+        przyjmijTrase(route);
+        if (edytowalnaTrasa()) wczytajKandydatow();
+    }
+
+    // Trasa z okna zniknęła (404 — ktoś ją usunął): okno się zamyka, edytor i lista bez niej.
+    function trasaZniknelaZOkna(w) {
+        zamknijWykonanie(true);
+        const wEdytorze = !!(stan.otwarta && !stan.nowa && stan.otwarta.id === w.id);
+        if (wEdytorze) {
+            resetEdytora();
+            stan.otwarta = null;
+            renderujEdytor();
+        }
+        usunZListy(w.id);
+        odswiezMapeTrasPoZmianie();
+        komunikat('blad', 'Trasy „' + w.nazwa + '” już nie ma. Ktoś mógł ją usunąć.', { klucz: 'trasa' });
+        const cel = wEdytorze ? root.querySelector('[data-lg-trasy-akcja="nowa"]') : (w.powrot && w.powrot.isConnected ? w.powrot : null);
+        if (cel && cel.offsetParent !== null) cel.focus({ preventScroll: true });
+    }
+
+    // Po odhaczeniu (także takim, którego odpowiedź nie dotarła) — komunikat i fokus; trasę do
+    // edytora i listy wołający przyjmuje wcześniej (przyjmijOdpowiedz). naMiejscu — sprzed tego.
+    function poOdhaczeniu(w, route, wynik, naMiejscu) {
+        if (wynik) {
+            const d = (wynik.dostarczone || []).length;
+            // Anulowane (według listy w oknie) do żadnej puli nie wracają — po prostu schodzą z trasy.
+            const anulowaneWOknie = new Set(((w.trasa && w.trasa.przystanki) || [])
+                .filter((p) => stanPrzystankuWykonania(p) === 'anulowane').map((p) => p.zamowienie.id));
+            const niedostarczone = wynik.niedostarczone || [];
+            const a = niedostarczone.filter((id) => anulowaneWOknie.has(id)).length;
+            const n = niedostarczone.length - a;
+            komunikat('ok', 'Trasa „' + route.nazwa + '” wykonana: dostarczono ' + ileZamowien(d) +
+                (n ? ', ' + ileZamowien(n) + ' ' + odmiana(n, ['wraca', 'wracają', 'wraca']) + ' do puli bez trasy' : '') +
+                (a ? ', ' + ileAnulowanych(a) + ' ' + odmiana(a, ['zdjęte', 'zdjęte', 'zdjętych']) + ' z trasy' : '') + '.',
+                { klucz: 'trasa' });
+        } else {
+            komunikat('ok', 'Trasa „' + route.nazwa + '” jest wykonana — odpowiedź serwera nie dotarła, ale odhaczenie się zapisało.',
+                { klucz: 'trasa' });
+        }
+        if (naMiejscu && tytulEl && tytulEl.offsetParent !== null) {
+            tytulEl.focus({ preventScroll: true });
+        } else if (w.powrot && w.powrot.isConnected && w.powrot.offsetParent !== null && !w.powrot.disabled) {
+            w.powrot.focus({ preventScroll: true });
+        }
+    }
+
+    // Fokus po wczytaniu listy: z początkowego „Anuluj” (albo zgubionego) na pierwszy przystanek
+    // do odhaczenia; fokusu przeniesionego przez użytkownika w trakcie wczytywania nie zabieramy.
+    function fokusWOknieWykonania(poczatkowy) {
+        const a = document.activeElement;
+        const anuluj = formWykonaj.querySelector('[data-lg-trasy-akcja="wykonaj-anuluj"]');
+        const zgubiony = !a || a === document.body || !a.isConnected || !dialogWykonaj.contains(a) || a.disabled;
+        if (!zgubiony && !(poczatkowy && a === anuluj)) return;
+        const cel = wykonajListaEl.querySelector('input[type="checkbox"]:not(:disabled)') ||
+            (!wykonajZapiszBtn.disabled ? wykonajZapiszBtn : anuluj);
+        if (cel) cel.focus();
+    }
+
+    /**
+     * Świeża trasa do okna (GET /routes/<id>) i lista z niej. opcje (po odmowie odhaczenia):
+     * tekst — odmowa do pokazania w oknie, niespakowane — id z 409 (odznaczamy je), niepewna —
+     * odpowiedź nie dotarła: trasa już wykonana znaczy, że odhaczenie się zapisało.
+     */
+    async function wczytajDoWykonania(w, opcje) {
+        const o = opcje || {};
+        if (w.kontroler) w.kontroler.abort();
+        const kontroler = new AbortController();
+        w.kontroler = kontroler;
+        w.wczytywanie = true;
+        if (!w.trasa) pokazStanListyWykonania('Wczytywanie przystanków…');
+        odswiezPrzyciskiWykonania();
+        const start = licznikZmian;
+        let dane = null;
+        let blad = null;
+        try {
+            dane = await zapytanie('/routes/' + w.id, { signal: kontroler.signal });
+        } catch (e) {
+            blad = e;
+        }
+        if (zniszczona || w.kontroler !== kontroler || (blad && przerwane(blad))) return;
+        w.kontroler = null;
+        w.wczytywanie = false;
+        if (wykonywanie !== w) return;   // okno zamknięte w międzyczasie
+        if (blad) {
+            if (blad.status === 404) {
+                trasaZniknelaZOkna(w);
+                return;
+            }
+            if (!w.trasa) pokazStanListyWykonania('Nie wczytano przystanków trasy.', true);
+            bladWykonania((o.tekst ? o.tekst + ' ' : '') + 'Nie wczytano aktualnej listy przystanków: ' + blad.message +
+                ' Zamknij okno i otwórz je ponownie.');
+            odswiezPrzyciskiWykonania();
+            return;
+        }
+        const trasa = dane.route;
+        if (o.niepewna && trasa.status === 'wykonana') {
+            zamknijWykonanie(true);
+            const naMiejscu = naEkranie(w);
+            przyjmijOdpowiedz(w, trasa, { formularz: true, zmiana: true });
+            poOdhaczeniu(w, trasa, null, naMiejscu);
+            return;
+        }
+        przyjmijOdczytTrasy(trasa, start);
+        const poprzednia = w.trasa;
+        w.trasa = trasa;
+        if (poprzednia) {
+            const przed = new Set((poprzednia.przystanki || []).map((p) => p.zamowienie.id));
+            w.nowe = new Set((trasa.przystanki || []).map((p) => p.zamowienie.id).filter((id) => !przed.has(id)));
+        }
+        (o.niespakowane || []).forEach((id) => w.wybory.set(Number(id), false));
+        renderujListeWykonania(w);
+        odswiezPrzyciskiWykonania();
+        const teksty = [];
+        if (o.tekst) teksty.push(o.tekst);
+        if (o.niepewna) teksty.push('Trasa nie jest odhaczona — spróbuj ponownie.');
+        if (poprzednia) {
+            const zmiany = opisZmianPrzystankow(poprzednia, trasa);
+            if (zmiany) teksty.push(zmiany);
+        }
+        if (trasa.status !== 'robocza' && trasa.status !== 'zatwierdzona') {
+            teksty.push('Trasa „' + trasa.nazwa + '” jest już ' + String(NAZWY_STATUSOW[trasa.status] || trasa.status).toLowerCase() +
+                ' — nie ma czego odhaczać.');
+        } else if (!(trasa.przystanki || []).length) {
+            teksty.push('Trasa nie ma już przystanków — nie ma czego odhaczać.');
+        }
+        bladWykonania(teksty.join(' '));
+        fokusWOknieWykonania(!poprzednia);
     }
 
     let wykonanieOtwierane = false;   // dwuklik „Odhacz” nie otwiera okna dwa razy (showModal rzuca)
@@ -2705,45 +3264,26 @@
         if (zniszczona || stan.sesja !== sesja) return;
         const trasa = stan.otwarta;
         if (!trasa || stan.nowa || (trasa.status !== 'robocza' && trasa.status !== 'zatwierdzona')) return;
-        wykonywanie = { id: trasa.id, nazwa: trasa.nazwa, sesja: sesja, powrot: powrot || null, zapis: false };
+        const w = {
+            id: trasa.id, nazwa: trasa.nazwa, sesja: sesja, powrot: powrot || null, zapis: false,
+            wczytywanie: false, trasa: null, wybory: new Map(), nowe: new Set(), kontroler: null,
+        };
+        wykonywanie = w;
         wykonajNazwaEl.textContent = trasa.nazwa;
         ustawKolor(wykonajListaEl, kolor(trasa.id));
-        wykonajListaEl.innerHTML = (trasa.przystanki || []).map((p, i) => {
-            const z = p.zamowienie;
-            const miejscowosc = [z.kod, z.miasto].filter(Boolean).join(' ');
-            const adres = [miejscowosc, z.adres].filter(Boolean).join(', ');
-            const geo = klasaGeoStacji(z);
-            return '<li><label class="lg-wykonaj-pozycja">' +
-                '<input type="checkbox" value="' + esc(z.id) + '" checked>' +
-                '<span class="lg-stacja' + (geo ? ' ' + geo : '') + '" aria-hidden="true">' + (i + 1) + '</span>' +
-                '<span class="lg-wykonaj-tresc"><span class="lg-numer">' + esc(z.numer) + '</span>' +
-                    '<span class="lg-wykonaj-klient">' + (z.klient ? esc(z.klient) : 'brak nazwy') + '</span>' +
-                    (adres ? '<span class="lg-wykonaj-adres" title="' + esc(adres) + '">' + esc(adres) + '</span>' : '') +
-                '</span>' +
-                '<span class="lg-wykonaj-powrot">wróci do puli bez trasy</span>' +
-                '</label></li>';
-        }).join('');
         bladWykonania('');
-        ustawZapisWykonania(false);
-        odswiezLicznikWykonania();
+        pokazStanListyWykonania('Wczytywanie przystanków…');
         dialogWykonaj.showModal();
-        const pierwsze = wykonajListaEl.querySelector('input');
-        if (pierwsze) pierwsze.focus(); else if (wykonajZapiszBtn) wykonajZapiszBtn.focus();
-    }
-
-    function ustawZapisWykonania(trwa) {
-        if (wykonywanie) wykonywanie.zapis = trwa;
-        wykonajZapiszBtn.disabled = trwa;
-        wykonajZapiszBtn.textContent = trwa ? 'Zapisywanie…' : 'Odhacz jako wykonaną';
         const anuluj = formWykonaj.querySelector('[data-lg-trasy-akcja="wykonaj-anuluj"]');
-        if (anuluj) anuluj.disabled = trwa;
-        wykonajListaEl.querySelectorAll('input').forEach((c) => { c.disabled = trwa; });
+        if (anuluj) anuluj.focus();
+        await wczytajDoWykonania(w);
     }
 
-    // bezFokusu — po udanym odhaczeniu fokus ustawia zatwierdzWykonanie (przyciski będą inne).
+    // bezFokusu — po udanym odhaczeniu fokus ustawia poOdhaczeniu (przyciski będą inne).
     function zamknijWykonanie(bezFokusu) {
         const w = wykonywanie;
         wykonywanie = null;
+        if (w && w.kontroler) w.kontroler.abort();
         if (dialogWykonaj && dialogWykonaj.open) dialogWykonaj.close();
         if (bezFokusu) return;
         const cel = w && w.powrot && w.powrot.isConnected ? w.powrot : tytulEl;
@@ -2753,17 +3293,19 @@
     /**
      * (oględziny A1) Odhaczamy trasę z okna (w.id), nie tę, która akurat jest w edytorze —
      * gdy edytor zmienił się pod oknem, wynik i tak trafia na listę, a komunikat mówi, która
-     * trasa została wykonana. (I3) Po odhaczeniu fokus na tytuł edytora.
+     * trasa została wykonana. (I3) Po odhaczeniu fokus na tytuł edytora. Odmowa 409/422 albo
+     * niepewna odpowiedź przy otwartym oknie: lista od nowa (wczytajDoWykonania), tekst odmowy
+     * zostaje w oknie, zamówienia z `niespakowane` odznaczone.
      */
     async function zatwierdzWykonanie() {
         const w = wykonywanie;
-        if (!w || w.zapis || zniszczona) return;
+        if (!w || w.zapis || w.wczytywanie || !w.trasa || zniszczona) return;
         const klucz = String(w.id);
         if (stan.wToku.has(klucz)) return;
-        // Zawsze jawna lista (także pusta) — bez klucza serwer uznałby za dostarczone wszystkie
-        // bieżące przystanki, także dodany przed chwilą przez kogoś innego.
+        // Zawsze jawna lista (także pusta) — bez niej serwer odmawia (M6). Tylko pola, które da
+        // się zaznaczyć: niespakowane i anulowane nigdy nie idą jako dostarczone.
         const dostarczone = Array.from(wykonajListaEl.querySelectorAll('input[type="checkbox"]'))
-            .filter((c) => c.checked).map((c) => Number(c.value));
+            .filter((c) => c.checked && c.getAttribute('data-lg-mozna') === '1').map((c) => Number(c.value));
         ustawZapisWykonania(true);
         bladWykonania('');
         stan.wToku.add(klucz);
@@ -2778,27 +3320,30 @@
             zamknijWykonanie(true);
             const naMiejscu = naEkranie(w);
             przyjmijOdpowiedz(w, odp.route, { formularz: true, zmiana: true });
-            const wynik = odp.wynik || {};
-            const d = (wynik.dostarczone || []).length;
-            const n = (wynik.niedostarczone || []).length;
-            komunikat('ok', 'Trasa „' + odp.route.nazwa + '” wykonana: dostarczono ' + ileZamowien(d) +
-                (n ? ', ' + ileZamowien(n) + ' ' + odmiana(n, ['wraca', 'wracają', 'wraca']) + ' do puli bez trasy' : '') + '.',
-                { klucz: 'trasa' });
-            if (naMiejscu && tytulEl && tytulEl.offsetParent !== null) {
-                tytulEl.focus({ preventScroll: true });
-            } else if (w.powrot && w.powrot.isConnected && w.powrot.offsetParent !== null && !w.powrot.disabled) {
-                w.powrot.focus({ preventScroll: true });
-            }
+            poOdhaczeniu(w, odp.route, odp.wynik || {}, naMiejscu);
         } catch (e) {
             if (zniszczona) return;
+            const niepewna = niepewnaOdpowiedz(e);
+            const odNowa = e.status === 409 || e.status === 422 || niepewna;
             if (wykonywanie === w) {
                 ustawZapisWykonania(false);
-                bladWykonania(e.message);
+                if (e.status === 404) {
+                    trasaZniknelaZOkna(w);
+                } else if (odNowa) {
+                    const niespakowane = e.dane && Array.isArray(e.dane.niespakowane) ? e.dane.niespakowane : [];
+                    if (niepewna) wczytajListe();
+                    wczytajDoWykonania(w, { tekst: e.message, niespakowane: niespakowane, niepewna: niepewna });
+                } else {
+                    bladWykonania(e.message);
+                }
             } else {
-                komunikat('blad', 'Trasa „' + w.nazwa + '”: ' + e.message, { klucz: kluczBleduTrasy(klucz) });
+                // Okno zamknięte w trakcie zapisu — odmowa trafia do komunikatu, edytor od nowa.
+                komunikat('blad', 'Trasa „' + w.nazwa + '”: ' + e.message +
+                    (niepewna ? ' Odhaczenie mogło się zapisać — trasę pobieramy od nowa.' : ''),
+                    { klucz: kluczBleduTrasy(klucz) });
+                if (niepewna) wczytajListe();
+                odswiez = odNowa || e.status === 404;
             }
-            // Odmowa 409/404: trasa na serwerze jest inna niż nasza kopia (m4) — edytor od nowa.
-            odswiez = e.status === 409 || e.status === 404;
         } finally {
             stan.wToku.delete(klucz);
             if (!zniszczona) {
@@ -2854,7 +3399,7 @@
                 break;
             }
             case 'routimo':
-                mutacja(eksportujRoutimo);
+                mutacja(eksportujRoutimo, { odczyt: true });
                 break;
             case 'wykonaj':
                 otworzWykonanie(przycisk);
@@ -2923,10 +3468,12 @@
         } else if (t === pole('date_from') || t === pole('date_to')) {
             // Data „od” po „do” — przesuwamy „do” (trasa co najmniej jednodniowa). Tylko
             // poprawną datą: rok 92026 z niedokończonego wpisywania nie może trafić do „do”.
-            if (t === pole('date_from') && poprawnaData(t.value) && rokWZakresie(t.value) &&
+            if (t === pole('date_from') && wGranicach(t.value, graniceDat()) &&
                 pole('date_to').value && pole('date_to').value < t.value) {
                 pole('date_to').value = t.value;
             }
+            // (M8) min/max „do” idą za „od” (najwyżej 31 dni po nim).
+            if (t === pole('date_from') && edytowalnaForma()) ustawGraniceDat(form);
             planujDostepnosc();
             odswiezAkcje();
         } else if (t.classList && t.classList.contains('lg-kandydat-zaznacz')) {
@@ -3112,7 +3659,10 @@
             dodawanie = null;
             d.gotowe(null);
         }
+        dodawaniaWTle.forEach((d) => d.gotowe(null));
+        dodawaniaWTle.clear();
         if (dialogDodaj && dialogDodaj.open) dialogDodaj.close();
+        if (wykonywanie && wykonywanie.kontroler) wykonywanie.kontroler.abort();
         wykonywanie = null;
         if (dialogWykonaj && dialogWykonaj.open) dialogWykonaj.close();
         if (window.LogisticsRoutes === api) delete window.LogisticsRoutes;
@@ -3164,7 +3714,8 @@
             } else if (e.target === formDodaj.elements.namedItem('date_from')) {
                 const doDnia = formDodaj.elements.namedItem('date_to');
                 const od = e.target.value;
-                if (poprawnaData(od) && rokWZakresie(od) && doDnia.value && doDnia.value < od) doDnia.value = od;
+                if (wGranicach(od, graniceDat()) && doDnia.value && doDnia.value < od) doDnia.value = od;
+                ustawGraniceDat(formDodaj);   // (M8) min/max „do” za „od”
             }
         }, naSluch);
         formDodaj.addEventListener('click', (e) => {
@@ -3183,8 +3734,9 @@
         dialogDodaj.addEventListener('click', (e) => {
             if (e.target === dialogDodaj && !(dodawanie && dodawanie.zapis)) zamknijOknoDodawania();
         }, naSluch);
-        // Zamknięte inną drogą (np. przez przeglądarkę) — obietnica i tak musi się rozstrzygnąć.
-        dialogDodaj.addEventListener('close', () => { if (dodawanie) zamknijOknoDodawania(); }, naSluch);
+        // Zamknięte inną drogą (np. przez przeglądarkę) — obietnica i tak musi się rozstrzygnąć,
+        // a zapis w toku kończy się w tle (poZamknieciuOknaDodawania).
+        dialogDodaj.addEventListener('close', poZamknieciuOknaDodawania, naSluch);
     }
 
     if (dialogWykonaj && formWykonaj) {
@@ -3192,7 +3744,12 @@
             e.preventDefault();
             zatwierdzWykonanie();
         }, naSluch);
-        formWykonaj.addEventListener('change', odswiezLicznikWykonania, naSluch);
+        formWykonaj.addEventListener('change', (e) => {
+            // Wybór użytkownika zapamiętany — przeżyje przebudowę listy po odmowie serwera.
+            const c = e.target;
+            if (wykonywanie && c && c.type === 'checkbox') wykonywanie.wybory.set(Number(c.value), c.checked);
+            odswiezLicznikWykonania();
+        }, naSluch);
         formWykonaj.addEventListener('click', (e) => {
             const b = e.target.closest('[data-lg-trasy-akcja="wykonaj-anuluj"]');
             if (b && !b.disabled) zamknijWykonanie();
@@ -3204,7 +3761,13 @@
         dialogWykonaj.addEventListener('click', (e) => {
             if (e.target === dialogWykonaj && !(wykonywanie && wykonywanie.zapis)) zamknijWykonanie();
         }, naSluch);
-        dialogWykonaj.addEventListener('close', () => { wykonywanie = null; }, naSluch);
+        // Zamknięte inną drogą: wczytywanie listy przerwane; zapis w toku kończy się sam
+        // (zatwierdzWykonanie zgłasza wynik komunikatem, gdy okna już nie ma).
+        dialogWykonaj.addEventListener('close', () => {
+            const w = wykonywanie;
+            wykonywanie = null;
+            if (w && w.kontroler) w.kontroler.abort();
+        }, naSluch);
     }
 
     document.addEventListener('logistics:widok', naZmianeWidoku, naSluch);

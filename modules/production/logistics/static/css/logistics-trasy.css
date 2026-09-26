@@ -373,6 +373,21 @@
     color: var(--il-text-secondary, #7a8291);
 }
 
+/* (I5) Przystanek ANULOWANY (zamówienie bez aktywnych pozycji): szara tarcza z pełną obwódką
+   i „—” zamiast numeru — Routimo go pomija, więc numerują się tylko aktywne. Ten sam wygląd
+   na schemacie przystanków, na mapce edytora, na mapie Dashboardu i w oknie „Odhacz”. */
+.logistics-tab .lg-stacja--anulowana {
+    background: var(--il-bg-base, #eef0f4);
+    border-style: solid;
+    border-color: var(--il-status-inactive, #9ba3b0);
+    color: var(--il-text-muted, #9ba3b0);
+}
+
+.logistics-tab .lg-stacja--mapa.lg-stacja--anulowana {
+    box-shadow: none;
+    opacity: 0.8;
+}
+
 /* ─── Mapa Dashboardu: legenda tras (widok „Trasy”) ───
    (oględziny Task 8, runda 2, N8) Najwyżej ~3 rzędy tras, dalej legenda się przewija —
    przy kilkunastu aktywnych trasach mapa w wąskiej kolumnie zachowuje wysokość. */
@@ -868,9 +883,11 @@
 
 /* Wczytywanie innej trasy: bieżąca przygasa (i jest inert — logistics-routes.js,
    ustawWczytywanie), dopóki nie przyjdzie następna. (runda 3, pkt 4) „‹ Wszystkie trasy”
-   i × zostają czynne i w pełnym kolorze — przerywają wczytywanie. */
+   i × zostają czynne i w pełnym kolorze — przerywają wczytywanie. (resztka Task 8) Błąd
+   poprzedniej trasy przygasa razem z nią — nie wygląda na błąd trasy, która się wczytuje. */
 .logistics-tab .lg-edytor.is-laduje :is(.lg-edytor-form, .lg-podsumowanie, .lg-edytor-uklad,
-    .lg-kandydaci, .lg-edytor-akcje, .lg-edytor-tytul, .lg-edytor-tytul-rzad > [data-lg-trasy="status"]) {
+    .lg-kandydaci, .lg-edytor-akcje, .lg-edytor-tytul, .lg-edytor-tytul-rzad > [data-lg-trasy="status"],
+    .lg-edytor-blad) {
     opacity: 0.55;
     transition: opacity 0.15s;
 }
@@ -1283,6 +1300,46 @@
     white-space: nowrap;
     font-weight: 600;
     color: var(--il-text-primary, #1a1a2e);
+}
+
+/* (I1) Przystanek jeszcze NIESPAKOWANY: etap (stanowisko, na którym czeka) przy prawej krawędzi
+   pierwszej linii — kropka w kolorze stanowiska jak w kolumnie „Etap” listy. Spakowane wiersze
+   bez znacznika. Przy ciasnym miejscu ustępuje nazwie klienta (kurczy się 4× szybciej, nazwa
+   etapu z „…”), ale kropka zostaje zawsze. */
+.logistics-tab .lg-przystanek-gora .lg-przystanek-etap {
+    flex: 0 4 auto;
+    min-width: 14px;
+    overflow: hidden;
+    margin-left: auto;
+    font-size: 11.5px;
+    color: var(--il-text-secondary, #7a8291);
+    white-space: nowrap;
+}
+
+.logistics-tab .lg-przystanek-etap .lg-etap-nazwa {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* (I5) Przystanek zamówienia anulowanego w całości: przygaszony, z plakietką „Anulowane”.
+   Plakietka i „Usuń z trasy” zostają w pełnym kolorze — to one mówią, co z nim zrobić. */
+.logistics-tab .lg-przystanek--anulowany :is(.lg-numer, .lg-przystanek-klient, .lg-przystanek-adres, .lg-przystanek-m3) {
+    opacity: 0.55;
+}
+
+.logistics-tab .lg-plakietka-anulowane {
+    flex: none;
+    margin-left: auto;
+    padding: 0 7px 1px;
+    background: var(--il-bg-base, #eef0f4);
+    border: 1px solid var(--il-status-inactive, #9ba3b0);
+    border-radius: 10px;
+    font-size: 10.5px;
+    font-weight: 600;
+    line-height: 1.5;
+    color: var(--il-text-secondary, #7a8291);
+    white-space: nowrap;
 }
 
 .logistics-tab .lg-przystanek-adres {
@@ -1872,6 +1929,84 @@
 .logistics-tab .lg-wykonaj-ile.is-uwaga {
     color: var(--lg-kolejka-tekst);
     font-weight: 600;
+}
+
+/* (I1) Stan pakowania przystanku: znacznik etapu (jak kolumna „Etap” listy), a gdy przystanku
+   nie da się oznaczyć jako dostarczony — wyjaśnienie obok (pole wyboru nieaktywne). */
+.logistics-tab .lg-wykonaj-stan {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 1px 8px;
+    margin-top: 2px;
+}
+
+.logistics-tab .lg-wykonaj-stan .lg-etap {
+    font-size: 12px;
+}
+
+.logistics-tab .lg-wykonaj-uwaga {
+    font-size: 11.5px;
+    color: var(--il-text-secondary, #7a8291);
+}
+
+.logistics-tab .lg-wykonaj-pozycja--niespakowane,
+.logistics-tab .lg-wykonaj-pozycja--anulowane {
+    cursor: default;
+}
+
+.logistics-tab .lg-wykonaj-pozycja input:disabled {
+    cursor: not-allowed;
+}
+
+/* Niespakowany wraca do puli bez trasy — to samo ciepłe tło kolejki co odznaczony przystanek. */
+.logistics-tab .lg-wykonaj-pozycja--niespakowane {
+    background: var(--lg-kolejka-tlo);
+}
+
+.logistics-tab .lg-wykonaj-pozycja--niespakowane .lg-wykonaj-uwaga {
+    font-weight: 600;
+    color: var(--lg-kolejka-tekst);
+}
+
+/* Anulowany schodzi z trasy i do żadnej puli nie wraca — przygaszony, bez tła kolejki. */
+.logistics-tab .lg-wykonaj-pozycja--anulowane :is(.lg-numer, .lg-wykonaj-klient, .lg-wykonaj-adres) {
+    opacity: 0.55;
+}
+
+/* Przystanek, który doszedł do trasy od otwarcia okna (lista odświeżona po odmowie). */
+.logistics-tab .lg-wykonaj-pozycja.is-nowy {
+    box-shadow: inset 3px 0 0 var(--lg-trasa);
+}
+
+.logistics-tab .lg-wykonaj-nowy {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 0 6px;
+    border: 1px solid var(--lg-trasa);
+    border-radius: 10px;
+    font-size: 10.5px;
+    font-weight: 600;
+    line-height: 1.5;
+    vertical-align: 1px;
+    white-space: nowrap;
+}
+
+/* Lista w oknie w trakcie wczytywania / bez przystanków / po błędzie wczytania. */
+.logistics-tab .lg-wykonaj-stan-listy {
+    padding: 14px 12px;
+    font-size: 12.5px;
+    color: var(--il-text-secondary, #7a8291);
+    text-align: center;
+}
+
+.logistics-tab .lg-wykonaj-stan-listy.is-blad {
+    color: #991b1b;
+}
+
+/* Odświeżanie listy po odmowie: stara lista przygasa, dopóki nie przyjdzie świeża. */
+.logistics-tab .lg-wykonaj-lista[aria-busy="true"] > li:not(.lg-wykonaj-stan-listy) {
+    opacity: 0.6;
 }
 
 /* ============================================================================
