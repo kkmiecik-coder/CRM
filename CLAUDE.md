@@ -281,6 +281,14 @@ Albo po prostu `./deploy.sh` — robi dokładnie to samo, z lockiem i logami.
   klientów trwa do 300 s) stary kod wciąż zapisuje `czeka_na_logistyke`; cron przenosi takie produkty do
   pakowania (`przeniesione_z_logistyki` w odpowiedzi), inaczej do pierwszego godzinnego przebiegu nie widzi
   ich żaden tablet ani filtr.
+- **Trasy logistyki — jeden piszący naraz:** każda funkcja, która zmienia trasy albo przystanki (także zmiana
+  sposobu dostawy, adresu i pinezki zamówienia z trasy oraz nazwy pojazdu), woła **najpierw**
+  `routes.zablokuj_trasy()` (`logistics/services/routes.py`): `FOR UPDATE` na wierszu `prod_config`
+  `logistyka_trasy_blokada`, który zakłada migracja `2026-09-27-logistyka-trasy-flota.sql`. Dopiero potem
+  czyta i zapisuje; nowy zapis tras też musi zaczynać od tej blokady, inaczej kolejność blokad się rozjedzie
+  (MySQL 1213). Baza, która wykonała starszą wersję pliku migracji, nie ma tego wiersza (runner pamięta
+  migracje po nazwie pliku): na MySQL kod zakłada go sam (`INSERT IGNORE`, WARNING w logu), a na innych bazach
+  zapisy tras nie są wtedy serializowane.
 
 ## Architecture
 
@@ -337,7 +345,7 @@ Configured in `config/core.json`:
 - GlobKurier shipping API
 - CEIDG API (`CEIDG_JWT_TOKEN`, wyszukiwanie firm po NIP — fallback po GUS i MF)
 - CARTO Basemaps (`CARTO_BASEMAPS_KEY`, kafelki mapy logistyki)
-- OpenRouteService (przebieg tras transportu własnego, klucz OPENROUTESERVICE_API_KEY)
+- OpenRouteService (`OPENROUTESERVICE_API_KEY`, przebieg tras transportu własnego)
 
 Bez konfiguracji w core.json (geokoder logistyki, `logistics/services/geocoding.py`, tylko z wątku w tle):
 - GUGiK UUG (`services.gugik.gov.pl/uug/`, oficjalne punkty adresowe PRG, tylko Polska; odstęp 0,2 s)
