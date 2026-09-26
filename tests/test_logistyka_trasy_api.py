@@ -8,7 +8,6 @@ from extensions import db
 from modules.production.logistics import sposoby as s
 from modules.production.logistics.models import OrderGeo, Route
 from modules.production.logistics.services import routes
-from modules.production.models import get_local_now
 from tests.logistyka_fixtures import BASE, app, client, kierowca, pojazd, zamowienie  # noqa: F401
 
 
@@ -223,7 +222,7 @@ def test_wykonana_trasa_nie_przelicza_przebiegu(client, app):
     rid = _nowa(client).get_json()['route']['id']
     client.post(BASE + '/routes/%d/stops' % rid, json={'order_ids': [a]})
     client.post(BASE + '/routes/%d/approve' % rid)
-    client.post(BASE + '/routes/%d/complete' % rid)
+    client.post(BASE + '/routes/%d/complete' % rid, json={'delivered_order_ids': [a]})
     with app.app_context():
         trasa = Route.query.get(rid)
         trasa.geometry_hash = 'nieaktualny'
@@ -313,9 +312,10 @@ def test_szczegoly_trasy_bez_lawiny_zapytan(client, app):
 def test_lista_tras_domyslne_okno_wykonanych(client, app):
     """I1 (ruling okna domyślnego): bez `od` trasy WYKONANE starsze niż 30 dni
     znikają z listy, świeże i robocze/zatwierdzone (nawet bardzo stare) zostają;
-    `od` jawnie podane wyłącza okno."""
+    `od` jawnie podane wyłącza okno. „Dziś” = routes.dzis() (zamrożone w fixture),
+    najstarsza trasa w granicach dat tras (M8: najwyżej rok wstecz)."""
     with app.app_context():
-        dzis = get_local_now().date()
+        dzis = routes.dzis()
         a = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane',)).id
         b = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane',)).id
 
@@ -323,18 +323,18 @@ def test_lista_tras_domyslne_okno_wykonanych(client, app):
                                'date_from': (dzis - timedelta(days=60)).isoformat()})
         routes.dodaj_przystanki(stara, [a])
         routes.zatwierdz(stara)
-        routes.wykonaj(stara)
+        routes.wykonaj(stara, [a])
         db.session.commit()
 
         swieza = routes.utworz({'name': 'Świeża wykonana',
                                 'date_from': (dzis - timedelta(days=5)).isoformat()})
         routes.dodaj_przystanki(swieza, [b])
         routes.zatwierdz(swieza)
-        routes.wykonaj(swieza)
+        routes.wykonaj(swieza, [b])
         db.session.commit()
 
         stara_robocza = routes.utworz({'name': 'Stara robocza',
-                                       'date_from': (dzis - timedelta(days=400)).isoformat()})
+                                       'date_from': (dzis - timedelta(days=300)).isoformat()})
         db.session.commit()
         sid, swid, srid = stara.id, swieza.id, stara_robocza.id
 
@@ -404,7 +404,7 @@ def test_lista_tras_sortowanie_i_filtr_dat(client, app):
     r_wyk = _nowa(client, name='Wykonana', date_from='2026-09-01').get_json()['route']['id']
     client.post(BASE + '/routes/%d/stops' % r_wyk, json={'order_ids': [a]})
     client.post(BASE + '/routes/%d/approve' % r_wyk)
-    client.post(BASE + '/routes/%d/complete' % r_wyk)
+    client.post(BASE + '/routes/%d/complete' % r_wyk, json={'delivered_order_ids': [a]})
 
     r_zatw = _nowa(client, name='Zatwierdzona', date_from='2026-10-05').get_json()['route']['id']
     client.post(BASE + '/routes/%d/stops' % r_zatw, json={'order_ids': [b]})
@@ -442,6 +442,148 @@ def test_404_nieznany_pojazd(client):
     """M7: 404 dla PUT/active na nieistniejącym pojeździe."""
     assert client.put(BASE + '/vehicles/999999', json={'name': 'X'}).status_code == 404
     assert client.post(BASE + '/vehicles/999999/active', json={'active': True}).status_code == 404
+
+
+# ═══ Fala poprawek po przeglądzie końcowym ═══════════════════════════════════
+
+def _zapytania_zadania(wywolanie):
+    """Liczba zapytań SQL jednego żądania (wywolanie() → odpowiedź)."""
+    from sqlalchemy import event
+    engine = db.engine
+    zapytania = []
+    sluchacz = lambda *a, **k: zapytania.append(1)  # noqa: E731
+    event.listen(engine, 'before_cursor_execute', sluchacz)
+    try:
+        odpowiedz = wywolanie()
+    finally:
+        event.remove(engine, 'before_cursor_execute', sluchacz)
+    return odpowiedz, len(zapytania)
+
+
+def test_complete_odmawia_niespakowanych_z_lista(client, app):
+    """I1: 409 z listą `niespakowane` (id) obok tekstu z numerami; trasa bez zmian."""
+    with app.app_context():
+        a = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane',))
+        b = zamowienie(sposob=s.TRANSPORT, statusy=('czeka_na_pakowanie',))
+        a, b, numer_b = a.id, b.id, b.internal_order_number
+    rid = _nowa(client).get_json()['route']['id']
+    client.post(BASE + '/routes/%d/stops' % rid, json={'order_ids': [a, b]})
+    r = client.post(BASE + '/routes/%d/complete' % rid, json={'delivered_order_ids': [a, b]})
+    assert r.status_code == 409
+    dane = r.get_json()
+    assert dane['success'] is False and dane['niespakowane'] == [b] and numer_b in dane['error']
+    with app.app_context():
+        trasa = Route.query.get(rid)
+        assert trasa.status == 'robocza' and {x.order_id for x in trasa.stops} == {a, b}
+
+
+@pytest.mark.parametrize('cialo', [{}, {'delivered_order_ids': None}])
+def test_complete_wymaga_listy_dostarczonych(client, app, cialo):
+    """M6: brak listy albo null to 422 — nie „wszystko dostarczone”."""
+    with app.app_context():
+        a = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane',)).id
+    rid = _nowa(client).get_json()['route']['id']
+    client.post(BASE + '/routes/%d/stops' % rid, json={'order_ids': [a]})
+    r = client.post(BASE + '/routes/%d/complete' % rid, json=cialo)
+    assert r.status_code == 422
+    with app.app_context():
+        assert Route.query.get(rid).status == 'robocza'
+
+
+def test_complete_pusta_lista_to_nic_nie_dostarczono(client, app):
+    with app.app_context():
+        a = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane',)).id
+    rid = _nowa(client).get_json()['route']['id']
+    client.post(BASE + '/routes/%d/stops' % rid, json={'order_ids': [a]})
+    r = client.post(BASE + '/routes/%d/complete' % rid, json={'delivered_order_ids': []})
+    assert r.status_code == 200 and r.get_json()['wynik'] == {'dostarczone': [], 'niedostarczone': [a]}
+
+
+def test_daty_trasy_w_granicach_i_filtr_wykonanych_bez_granic(client):
+    """M8: zapis trasy poza granicami dat → 422; wyszukiwanie wykonanych (GET /routes?od&do)
+    — bez granic. M11: parametry dat tylko RRRR-MM-DD."""
+    assert _nowa(client, date_from='2030-01-01').status_code == 422
+    assert _nowa(client, date_from='2026-10-01', date_to='2026-12-31').status_code == 422
+    assert client.get(BASE + '/routes?status=wykonana&od=2000-01-01&do=2099-12-31').status_code == 200
+    for zle in ('od=20261001', 'do=2026-W40-1', 'od=2026-10-1'):
+        assert client.get(BASE + '/routes?' + zle).status_code == 422, zle
+    assert client.get(BASE + '/availability?date_from=20261001').status_code == 422
+    assert client.get(BASE + '/availability?date_from=2026-10-01&date_to=2026-W40-1').status_code == 422
+
+
+def test_szczegoly_i_mapa_numeruja_aktywne_przystanki(client, app):
+    """I5: przystanek niesie `anulowane`, a `pozycja` to numer wśród aktywnych (kolejność
+    Routimo), None dla anulowanego; podsumowanie liczy anulowane osobno."""
+    with app.app_context():
+        a, b, c = (zamowienie(sposob=s.TRANSPORT, statusy=('spakowane',)) for _ in range(3))
+        a, b, c = a.id, b.id, c.id
+    rid = _nowa(client).get_json()['route']['id']
+    client.post(BASE + '/routes/%d/stops' % rid, json={'order_ids': [a, b, c]})
+    with app.app_context():
+        from modules.production.models import ProductionProduct
+        for p in ProductionProduct.query.filter_by(order_id=b).all():
+            p.current_status = 'anulowane'
+        db.session.commit()
+    trasa = client.get(BASE + '/routes/%d' % rid).get_json()['route']
+    assert [(p['zamowienie']['id'], p['pozycja'], p['anulowane']) for p in trasa['przystanki']] == [
+        (a, 1, False), (b, None, True), (c, 2, False)]
+    assert (trasa['podsumowanie']['przystanki'], trasa['podsumowanie']['anulowane']) == (2, 1)
+    mapa = client.get(BASE + '/routes/map').get_json()['routes'][0]
+    assert [(p['order_id'], p['pozycja'], p['anulowane']) for p in mapa['przystanki']] == [
+        (a, 1, False), (b, None, True), (c, 2, False)]
+
+
+def _trasa_z_przystankami(client, app, n):
+    with app.app_context():
+        ids = []
+        for _ in range(n):
+            order = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane', 'czeka_na_pakowanie'))
+            db.session.add(OrderGeo(order_id=order.id, lat=50.0, lng=20.0, source='gugik',
+                                    quality='dokladna', address_hash='x' * 40))
+            ids.append(order.id)
+        db.session.commit()
+        nowy = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane',)).id
+    rid = _nowa(client, name='Trasa %d' % n).get_json()['route']['id']
+    client.post(BASE + '/routes/%d/stops' % rid, json={'order_ids': ids})
+    return rid, nowy
+
+
+def test_akcja_po_commicie_bez_lawiny_zapytan(client, app):
+    """M7: odpowiedź akcji z przeliczonym przebiegiem (commit w _szczegoly) wczytuje trasę od
+    nowa zbiorczo — liczba zapytań NIE rośnie z liczbą przystanków (dawniej 40 przystanków
+    = ~140 zapytań na dodanie jednego)."""
+    wyniki = []
+    for n in (2, 12):
+        rid, nowy = _trasa_z_przystankami(client, app, n)
+        r, ile = _zapytania_zadania(
+            lambda: client.post(BASE + '/routes/%d/stops' % rid, json={'order_ids': [nowy]}))
+        assert r.status_code == 200 and len(r.get_json()['route']['przystanki']) == n + 1
+        wyniki.append(ile)
+    assert wyniki[0] == wyniki[1], wyniki
+    assert wyniki[1] <= 35, wyniki
+
+
+def test_mapa_po_przeliczeniu_bez_lawiny_zapytan(client, app):
+    """M7: /routes/map po commicie przeliczenia wczytuje wszystkie trasy od nowa zbiorczo —
+    liczba zapytań nie zależy od liczby tras i przystanków (dawniej ~700 na mapę)."""
+    wyniki = []
+    for n in (2, 6):
+        with app.app_context():
+            # Trasy poprzedniego przebiegu znikają z mapy (mapa = tylko aktywne).
+            for trasa in Route.query.all():
+                trasa.status = 'wykonana'
+            db.session.commit()
+        for _ in range(3):
+            _trasa_z_przystankami(client, app, n)
+        with app.app_context():
+            for trasa in Route.query.filter(Route.status != 'wykonana').all():
+                trasa.geometry_hash = 'nieaktualny'
+            db.session.commit()
+        r, ile = _zapytania_zadania(lambda: client.get(BASE + '/routes/map'))
+        assert r.status_code == 200 and len(r.get_json()['routes']) == 3
+        wyniki.append(ile)
+    assert wyniki[0] == wyniki[1], wyniki
+    assert wyniki[1] <= 20, wyniki
 
 
 def test_404_akcje_na_nieznanej_trasie(client):

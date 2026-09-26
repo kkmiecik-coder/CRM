@@ -22,7 +22,7 @@ def _na_trasie(status='robocza', statusy=('spakowane',)):
     if status in ('zatwierdzona', 'wykonana'):
         routes.zatwierdz(trasa)
     if status == 'wykonana':
-        routes.wykonaj(trasa)
+        routes.wykonaj(trasa, [order.id])
     db.session.commit()
     return trasa, order
 
@@ -63,6 +63,26 @@ def test_tablet_widzi_trase_i_etykieta_tez(app):
                                      'repack_required': False}
         assert _format_delivery_label(order.products[0]) == 'Krakow + Tarnow' or \
             _format_delivery_label(order.products[0]).startswith('Krak')
+
+
+def test_etykieta_nazwa_trasy_bez_komend_zpl_w_jednej_linii(app):
+    """M4 (fala poprawek): nazwa trasy trafia do pola ZPL ^FD…^FS — bez ^ i ~ (zaczynają
+    komendy drukarki), bez nowych linii, typograficzne znaki na ASCII, ucięta do szerokości
+    pola z „...” (dłuższy tekst ZPL nadpisuje na tej samej linii)."""
+    from modules.production.services.label_print_service import MAKS_ZNAKOW_DOSTAWY
+    with app.app_context():
+        trasa, order = _na_trasie('robocza', statusy=('czeka_na_pakowanie',))
+        trasa.name = u'Kraków^XA~JR „Tarnów”\n\t – Nowy Sącz'
+        db.session.commit()
+        with app.test_request_context():
+            napis = _format_delivery_label(order.products[0])
+        assert napis == 'Krakow XA JR "Tarnow" - Now...'
+        assert len(napis) <= MAKS_ZNAKOW_DOSTAWY
+        assert not any(znak in napis for znak in '^~\n\t')
+        trasa.name = 'Krótka'
+        db.session.commit()
+        with app.test_request_context():
+            assert _format_delivery_label(order.products[0]) == 'Krotka'
 
 
 def test_tablet_traci_trase_po_zdjeciu(app):

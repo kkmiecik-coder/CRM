@@ -7,23 +7,29 @@ sposobu dostawy, przepakowanie i log szły w jednej transakcji.
 """
 import re
 
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import selectinload
 
 from extensions import db
 from modules.production.logistics import sposoby
-from modules.production.logistics.models import LogisticsLog
+from modules.production.logistics.models import LogisticsLog, Route, RouteStop, STATUSY_TRASY_AKTYWNE
 from modules.production.models import get_local_now
 
 STATUSY_PO_PRODUKCJI = ('czeka_na_pakowanie', 'spakowane')
 
 
 class LogistykaBlad(Exception):
-    """Odmowa z komunikatem dla człowieka. status = kod HTTP (409 stan, 422 dane)."""
+    """
+    Odmowa z komunikatem dla człowieka. status = kod HTTP (409 stan, 422 dane).
+    `dane` — dodatkowe pola odpowiedzi JSON obok `error` (np. `niespakowane` z odhaczenia
+    trasy, routes.wykonaj), żeby interfejs nie musiał wyczytywać ich z tekstu komunikatu.
+    """
 
-    def __init__(self, komunikat, status=409):
+    def __init__(self, komunikat, status=409, dane=None):
         super().__init__(komunikat)
         self.komunikat = komunikat
         self.status = status
+        self.dane = dane or {}
 
 
 def aktywne_produkty(order):
@@ -49,8 +55,18 @@ def podbij_pozycje(order, teraz):
         p.updated_at = teraz
 
 
-def zamkniecie_wyliczone(order):
-    """Tabela z sekcji 6.2 specu. Transport własny zamyka dopiero trasa wykonana (etap 3)."""
+def zamkniecie_wyliczone(order, trasa=None):
+    """
+    Tabela z sekcji 6.2 specu. Transport własny zamyka dopiero trasa wykonana (etap 3).
+
+    `trasa` — (resztka O1) świeża trasa, na której leży (albo leżał) przystanek zamówienia,
+    podana przez routes.wykonaj/przywroc: odczytana pod blokadą tras, z przystankami już po
+    zmianie w tej transakcji. Wtedy decyduje ona, a nie routes.przystanek_zamowienia —
+    zwykły odczyt z migawki transakcji sprzed blokady mógłby nie zobaczyć przystanku dodanego
+    tuż przed nią (zamówienie zostałoby otwarte do crona). Bez `trasa` (cron, products_api,
+    zmiana sposobu) — zwykły odczyt jak dotąd: ci wołający nie trzymają blokady tras, więc
+    odczyt blokujący odwróciłby kolejność blokad (wiersz blokady zawsze pierwszy).
+    """
     aktywne = aktywne_produkty(order)
     if not aktywne:
         return True
@@ -62,14 +78,19 @@ def zamkniecie_wyliczone(order):
     if sposob == sposoby.ODBIOR:
         return order.handed_over_at is not None
     # Transport własny: koniec cyklu = przystanek na trasie wykonanej (etap 3).
+    if trasa is not None:
+        # Zamówienie jest na co najwyżej jednej trasie (UNIQUE order_id) — nie ma go na tej,
+        # to nie ma go na żadnej.
+        return trasa.status == 'wykonana' and any(s.order_id == order.id for s in trasa.stops)
     from modules.production.logistics.services import routes
     przystanek = routes.przystanek_zamowienia(order.id)
     return przystanek is not None and przystanek.route.status == 'wykonana'
 
 
-def przelicz_zamkniecie(order, teraz=None):
-    """Ustawia albo czyści logistics_closed_at. Zwraca True, gdy stan się zmienił."""
-    zamkniete = zamkniecie_wyliczone(order)
+def przelicz_zamkniecie(order, teraz=None, trasa=None):
+    """Ustawia albo czyści logistics_closed_at. Zwraca True, gdy stan się zmienił.
+    `trasa` — patrz zamkniecie_wyliczone (tylko routes.wykonaj/przywroc)."""
+    zamkniete = zamkniecie_wyliczone(order, trasa=trasa)
     if zamkniete and order.logistics_closed_at is None:
         order.logistics_closed_at = teraz or get_local_now()
         return True
@@ -400,15 +421,25 @@ def przenies_osierocone_z_logistyki(teraz=None):
 def przelicz_otwarte(teraz=None):
     """
     Siatka bezpieczeństwa dla crona: przelicza zamówienia otwarte oraz zamknięte,
-    które znów mają aktywne produkty (Base. dołożył pozycję, doróbka).
+    które znów mają aktywne produkty (Base. dołożył pozycję, doróbka) albo (M10) mają
+    transport własny i przystanek na trasie AKTYWNEJ (roboczej/zatwierdzonej) — takie
+    zamówienie jeszcze nie pojechało, więc zamknięte być nie może (np. trasa przywrócona
+    albo zamówienie dodane do trasy tuż przed odhaczeniem innej), a samo nie wróci:
+    spakowane w całości nie łapie się na warunek „znów aktywne pozycje”.
     """
     from modules.production.models import ProductionOrder, ProductionProduct
     teraz = teraz or get_local_now()
     otwarte = (ProductionOrder.query.options(selectinload(ProductionOrder.products))
                .filter(ProductionOrder.logistics_closed_at.is_(None)).all())
+    na_aktywnych_trasach = (db.session.query(RouteStop.order_id)
+                            .join(Route, Route.id == RouteStop.route_id)
+                            .filter(Route.status.in_(STATUSY_TRASY_AKTYWNE)))
     do_otwarcia = (ProductionOrder.query.options(selectinload(ProductionOrder.products))
                    .filter(ProductionOrder.logistics_closed_at.isnot(None))
-                   .filter(ProductionOrder.products.any(
-                       ProductionProduct.current_status.notin_(('spakowane', 'anulowane'))))
+                   .filter(or_(
+                       ProductionOrder.products.any(
+                           ProductionProduct.current_status.notin_(('spakowane', 'anulowane'))),
+                       and_(ProductionOrder.override_delivery_method == sposoby.TRANSPORT,
+                            ProductionOrder.id.in_(na_aktywnych_trasach))))
                    .all())
     return sum(1 for order in otwarte + do_otwarcia if przelicz_zamkniecie(order, teraz))

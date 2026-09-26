@@ -103,7 +103,7 @@ def test_eksport_dla_wykonanej_trasy(client, app):
     przewoźnik może pobrać plik ponownie już po zamknięciu trasy."""
     with app.app_context():
         trasa, _a, _b = _zatwierdzona(app)
-        routes.wykonaj(trasa)
+        routes.wykonaj(trasa, [_a.id, _b.id])
         db.session.commit()
         rid = trasa.id
     r = client.get(BASE + '/routes/%d/routimo' % rid)
@@ -112,6 +112,52 @@ def test_eksport_dla_wykonanej_trasy(client, app):
 
 def test_eksport_404_dla_nieistniejacej_trasy(client):
     assert client.get(BASE + '/routes/999999/routimo').status_code == 404
+
+
+# ═══ Fala poprawek: I4 (jakość współrzędnych), I5 (anulowane przystanki) ═══
+
+def test_wspolrzedne_tylko_dla_dokladnego_punktu(app):
+    """I4: Routimo przedkłada współrzędne nad adres — punkt przybliżony (środek miejscowości)
+    i ręczny punkt sprzed zmiany adresu dają puste komórki (Routimo geokoduje adres sam)."""
+    with app.app_context():
+        trasa, a, b = _zatwierdzona(app)
+        c = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane',))
+        routes.cofnij_do_roboczej(trasa)
+        routes.dodaj_przystanki(trasa, [c.id])
+        routes.zatwierdz(trasa)
+        db.session.add(OrderGeo(order_id=b.id, lat=50.0, lng=20.0, source='gugik',
+                                quality='przyblizona', address_hash='x' * 40))
+        db.session.add(OrderGeo(order_id=c.id, lat=51.0, lng=21.0, source='reczna', quality='dokladna',
+                                address_hash='x' * 40, address_changed_after_manual=True))
+        db.session.commit()
+        wiersze = {w[2]: w for w in routimo.wiersze_trasy(trasa)}
+        assert (wiersze[a.baselinker_order_id][30], wiersze[a.baselinker_order_id][31]) == (50.062726, 19.93962)
+        assert (wiersze[b.baselinker_order_id][30], wiersze[b.baselinker_order_id][31]) == ('', '')
+        assert (wiersze[c.baselinker_order_id][30], wiersze[c.baselinker_order_id][31]) == ('', '')
+
+
+def test_eksport_pomija_anulowane_i_mowi_ile(client, app):
+    """I5: przystanek zamówienia anulowanego w całości nie trafia do pliku (kierowca dostałby
+    pusty przystanek); liczba pominiętych w nagłówku X-Routimo-Pominiete."""
+    with app.app_context():
+        trasa, a, b = _zatwierdzona(app)
+        for p in b.products:
+            p.current_status = 'anulowane'
+        db.session.commit()
+        wiersze, pominiete = routimo.przygotuj_eksport(trasa)
+        assert [w[2] for w in wiersze] == [a.baselinker_order_id] and pominiete == 1
+        rid = trasa.id
+    r = client.get(BASE + '/routes/%d/routimo' % rid)
+    assert r.status_code == 200 and r.headers['X-Routimo-Pominiete'] == '1'
+    ark = _arkusz(r.data)
+    assert ark.max_row == 2      # nagłówek + jedno zamówienie
+
+
+def test_eksport_bez_anulowanych_ma_naglowek_zero(client, app):
+    with app.app_context():
+        trasa, _a, _b = _zatwierdzona(app)
+        rid = trasa.id
+    assert client.get(BASE + '/routes/%d/routimo' % rid).headers['X-Routimo-Pominiete'] == '0'
 
 
 def test_nazwa_pliku_transliteruje_polskie_znaki():

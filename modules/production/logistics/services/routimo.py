@@ -107,18 +107,42 @@ def _zamowienia_trasy_z_produktami(route):
     return [po_id[i] for i in ids if i in po_id]
 
 
-def wiersze_trasy(route):
+def wspolrzedne_dla_routimo(punkt):
+    """
+    (I4) (szerokość, długość) albo ('', '') — współrzędne tylko punktu DOKŁADNEGO, przy
+    którym adres nie zmienił się po ręcznym ustawieniu pinezki. Routimo przedkłada
+    współrzędne nad adres: punkt przybliżony (środek miejscowości) albo ręczny punkt
+    sprzed zmiany adresu wysłałby kierowcę w złe miejsce. Puste komórki — Routimo sam
+    geokoduje adres z wiersza.
+    """
+    if (punkt is None or punkt.lat is None or punkt.lng is None
+            or punkt.quality != 'dokladna' or punkt.address_changed_after_manual):
+        return '', ''
+    return float(punkt.lat), float(punkt.lng)
+
+
+def przygotuj_eksport(route):
+    """
+    (wiersze, pominiete) — wiersze Routimo w kolejności przystanków oraz liczba pominiętych
+    przystanków. (I5) Pomijamy zamówienia anulowane w całości (bez aktywnych pozycji):
+    kierowca dostałby pusty przystanek z zerem sztuk. API podaje liczbę pominiętych
+    w nagłówku X-Routimo-Pominiete, a interfejs mówi o nich po pobraniu pliku.
+    """
     from modules.reports.utils import PostcodeToStateMapper
     zamowienia = _zamowienia_trasy_z_produktami(route)
     punkty = geocoding.geo_zamowien([o.id for o in zamowienia])
     pojazd = route.vehicle.name if route.vehicle is not None else ''
     wiersze = []
+    pominiete = 0
     for order in zamowienia:
         aktywne = delivery.aktywne_produkty(order)
+        if not aktywne:
+            pominiete += 1
+            continue
         dom, mieszkanie, ulica = extract_house_and_apartment_number(order.delivery_address or '')
         m3 = sum(float(p.volume_m3 or 0) * (p.quantity or 1) for p in aktywne)
         wartosc = sum(float(p.total_value_net or 0) for p in aktywne)
-        punkt = punkty.get(order.id)
+        szerokosc, dlugosc = wspolrzedne_dla_routimo(punkty.get(order.id))
         kraj = (order.delivery_country_code or 'PL').upper()
         wiersze.append([
             order.client_name or '', order.client_name or '', order.baselinker_order_id,
@@ -130,13 +154,17 @@ def wiersze_trasy(route):
             route.date_from.isoformat(), '', pojazd, '',
             sum(int(p.quantity or 0) for p in aktywne), round(m3, 3),
             round(m3 * routes.WAGA_KG_NA_M3, 2), round(wartosc, 2), '', 'PLN',
-            float(punkt.lat) if punkt is not None and punkt.lat is not None else '',
-            float(punkt.lng) if punkt is not None and punkt.lng is not None else '',
+            szerokosc, dlugosc,
             _produkty(order),
             u'{}, {}'.format(order.baselinker_order_id or '', order.internal_order_number or '').strip(', '),
             '', '', '',
         ])
-    return wiersze
+    return wiersze, pominiete
+
+
+def wiersze_trasy(route):
+    """Same wiersze Routimo (bez anulowanych przystanków) — patrz przygotuj_eksport."""
+    return przygotuj_eksport(route)[0]
 
 
 def _bez_polskich_znakow(tekst):

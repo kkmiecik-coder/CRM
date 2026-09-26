@@ -11,6 +11,7 @@ i z tych samych powodów co tests/sawmill_fixtures.py.
 import itertools
 import os
 import sys
+from datetime import date
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -33,6 +34,10 @@ from modules.quotes.models import QuoteStatus  # noqa: F401
 
 BASE = '/production/api/logistics'
 SEKRET_CRONA = 'sekret-testowy-logistyki'
+# (M8) „Dziś” tras logistyki (routes.dzis) zamrożone na dzień powstania testów: daty
+# wpisane w testach (np. '2026-10-01') muszą mieścić się w granicach dat tras
+# (dziś − 1 rok … dziś + 2 lata) także za rok — inaczej testy zaczęłyby padać same.
+DZIS_TESTOW = date(2026, 9, 26)
 STATYKA_PRODUKCJI = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                  'modules', 'production', 'static')
 
@@ -54,6 +59,8 @@ def app(monkeypatch):
     import modules.users.decorators as decorators
     monkeypatch.setattr(decorators, 'require_module_access',
                         lambda *a, **k: (lambda f: f))
+    from modules.production.logistics.services import routes as uslugi_tras
+    monkeypatch.setattr(uslugi_tras, 'dzis', lambda: DZIS_TESTOW)
 
     app = Flask(__name__)
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite://'

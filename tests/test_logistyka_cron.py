@@ -59,6 +59,31 @@ def test_cron_otwiera_zamowienie_z_nowa_aktywna_pozycja(client, app, watki):
         assert ProductionOrder.query.get(order_id).logistics_closed_at is None
 
 
+def test_cron_otwiera_zamkniete_na_aktywnej_trasie(client, app, watki):
+    """M10 (fala poprawek): zamówienie z transportem własnym, w całości spakowane, zamknięte,
+    a z przystankiem na trasie AKTYWNEJ — jeszcze nie pojechało, więc cron je otwiera. To samo
+    zamówienie na trasie WYKONANEJ zostaje zamknięte."""
+    from modules.production.logistics.models import Route, RouteStop
+    with app.app_context():
+        otwierane = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane',),
+                               logistics_closed_at=datetime(2026, 9, 20))
+        dostarczone = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane',),
+                                 logistics_closed_at=datetime(2026, 9, 20))
+        for order, status in ((otwierane, 'zatwierdzona'), (dostarczone, 'wykonana')):
+            trasa = Route(name='T ' + status, date_from=datetime(2026, 10, 1).date(),
+                          date_to=datetime(2026, 10, 1).date(), status=status)
+            db.session.add(trasa)
+            db.session.flush()
+            db.session.add(RouteStop(route_id=trasa.id, order_id=order.id, position=1))
+        db.session.commit()
+        otwierane_id, dostarczone_id = otwierane.id, dostarczone.id
+    r = client.post(BASE + '/cron', headers=NAGLOWEK)
+    assert r.get_json()['przeliczone'] == 1
+    with app.app_context():
+        assert ProductionOrder.query.get(otwierane_id).logistics_closed_at is None
+        assert ProductionOrder.query.get(dostarczone_id).logistics_closed_at is not None
+
+
 def test_cron_blad_zwraca_500_bez_uruchamiania_dopychacza(client, monkeypatch, watki):
     """Błąd w przeliczaniu nie uruchamia dopychacza i zwraca 500 ze strukturą JSON."""
     from modules.production.logistics.services import delivery

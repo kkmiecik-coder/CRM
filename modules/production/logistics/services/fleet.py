@@ -65,6 +65,15 @@ def zapisz_pojazd(dane, pojazd=None):
     # Zmiana nazwy ISTNIEJĄCEGO pojazdu (nie nowego) — trzeba podbić pozycje na trasach,
     # zanim nadpiszemy pojazd.name poniżej (inaczej nie mamy już starej wartości).
     zmiana_nazwy = pojazd is not None and pojazd.name != nazwa
+    if zmiana_nazwy:
+        # (M2) Podbicie zmienia pozycje zamówień z tras — to zapis „trasowy”, więc blokada
+        # tras PIERWSZA (zasada routes.zablokuj_trasy), przed zapisem wiersza pojazdu:
+        # piszący trasę bierze blokadę, a potem czyta ten pojazd FOR UPDATE
+        # (routes._sprawdz_zasoby); my w odwrotnej kolejności (pojazd, potem blokada)
+        # zakleszczylibyśmy się z nim. Pod blokadą podbicie nie przeplata się też
+        # z odhaczaniem trasy (te same pozycje w innej kolejności — MySQL 1213).
+        from modules.production.logistics.services import routes
+        routes.zablokuj_trasy()
     if pojazd is None:
         pojazd = Vehicle(is_active=True)
         db.session.add(pojazd)
@@ -82,16 +91,24 @@ def _podbij_zamowienia_pojazdu(pojazd):
     Tablet pokazuje `transport.vehicle_name` dla zamówień na aktywnej trasie, a ETag
     jego kolejki liczy się z MAX(updated_at) pozycji — zmiana nazwy pojazdu musi więc
     podbić pozycje wszystkich zamówień na trasach ROBOCZYCH/ZATWIERDZONYCH tego pojazdu
-    (spec 6.5). Trasy WYKONANE tabletu już nie interesują. Jedno zapytanie z JOIN-em
-    RouteStop → Route, bez zapytania o trasę per zamówienie.
+    (spec 6.5). Trasy WYKONANE tabletu już nie interesują.
+
+    (M2) Wołane pod blokadą tras (zapisz_pojazd). Przystanki odczytem BIEŻĄCYM (FOR SHARE):
+    zwykły SELECT czytałby migawkę sprzed czekania na blokadę i pominąłby zamówienie dodane
+    w tym czasie do trasy z tym pojazdem — tablet zostałby ze starą nazwą (ETag bez zmian).
+    Blokujemy tylko przystanki i trasy; zamówienia z pozycjami wczytuje osobne, zwykłe zapytanie.
     """
     teraz = get_local_now()
+    ids = [order_id for (order_id,) in
+           db.session.query(RouteStop.order_id)
+           .join(Route, Route.id == RouteStop.route_id)
+           .filter(Route.vehicle_id == pojazd.id, Route.status.in_(STATUSY_TRASY_AKTYWNE))
+           .with_for_update(read=True).all()]
+    if not ids:
+        return
     zamowienia = (ProductionOrder.query
                   .options(selectinload(ProductionOrder.products))
-                  .join(RouteStop, RouteStop.order_id == ProductionOrder.id)
-                  .join(Route, Route.id == RouteStop.route_id)
-                  .filter(Route.vehicle_id == pojazd.id,
-                          Route.status.in_(STATUSY_TRASY_AKTYWNE))
+                  .filter(ProductionOrder.id.in_(ids))
                   .all())
     for order in zamowienia:
         delivery.podbij_pozycje(order, teraz)

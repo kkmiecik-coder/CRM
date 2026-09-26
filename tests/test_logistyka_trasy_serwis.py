@@ -174,7 +174,7 @@ def test_przywrocenie_otwiera_zamowienia(app):
         t = _trasa()
         a = _transport(statusy=('spakowane',))
         routes.dodaj_przystanki(t, [a.id])
-        routes.wykonaj(t)
+        routes.wykonaj(t, [a.id])
         db.session.commit()
         assert a.logistics_closed_at is not None
         routes.przywroc(t)
@@ -282,7 +282,7 @@ def _trasa_ze_statusem(status):
     if status in ('zatwierdzona', 'wykonana'):
         routes.zatwierdz(t)
     if status == 'wykonana':
-        routes.wykonaj(t)
+        routes.wykonaj(t, [o.id])
     db.session.commit()
     return t, o
 
@@ -291,7 +291,7 @@ def _trasa_ze_statusem(status):
     ('robocza', lambda t: routes.edytuj(t, {'name': 'Nowa', 'date_from': '2026-10-01'})),
     ('robocza', lambda t: routes.zatwierdz(t)),
     ('zatwierdzona', lambda t: routes.cofnij_do_roboczej(t)),
-    ('zatwierdzona', lambda t: routes.wykonaj(t)),
+    ('zatwierdzona', lambda t: routes.wykonaj(t, [s.order_id for s in t.stops])),
     ('wykonana', lambda t: routes.przywroc(t)),
     ('robocza', lambda t: routes.usun(t)),
 ], ids=['edytuj', 'zatwierdz', 'cofnij_do_roboczej', 'wykonaj', 'przywroc', 'usun'])
@@ -384,7 +384,7 @@ def test_zablokuj_trasy_na_starcie_kazdej_funkcji_zmieniajacej(app, monkeypatch)
         routes.edytuj(t, {'name': 'B', 'date_from': '2026-10-01'})
         assert wywolania[-1] == t.id
 
-        o1, o2 = _transport(), _transport()
+        o1, o2 = _transport(statusy=('spakowane',)), _transport(statusy=('spakowane',))
         routes.dodaj_przystanki(t, [o1.id, o2.id])
         assert wywolania[-1] == t.id
 
@@ -402,7 +402,7 @@ def test_zablokuj_trasy_na_starcie_kazdej_funkcji_zmieniajacej(app, monkeypatch)
 
         routes.zatwierdz(t)
         przed = len(wywolania)
-        routes.wykonaj(t)
+        routes.wykonaj(t, [o1.id])
         assert t.id in wywolania[przed:]
 
         routes.przywroc(t)
@@ -498,3 +498,277 @@ def test_przenumeruj_uzywa_swiezych_pozycji_po_zablokuj_trasy(app):
         routes.usun_przystanek(t, b.id)
         db.session.commit()
         assert [(s.order_id, s.position) for s in t.stops] == [(c.id, 1), (a.id, 2)]
+
+
+# ═══ Fala poprawek po przeglądzie końcowym ═══════════════════════════════════
+
+# --- I1: odhaczenie nie oznacza jako dostarczonego zamówienia, które nie jest spakowane ---
+
+def test_odhaczenie_odmawia_niespakowanych_dostarczonych(app):
+    """I1: dostarczone zamyka zamówienie na zawsze — niespakowane oznaczone jako dostarczone
+    zniknęłoby z logistyki bez śladu. 409 z listą numerów i `niespakowane` (id), bez zmian."""
+    with app.app_context():
+        t = _trasa()
+        a = _transport(statusy=('spakowane',))
+        b = _transport(statusy=('spakowane', 'czeka_na_lakiernie'))
+        routes.dodaj_przystanki(t, [a.id, b.id])
+        routes.zatwierdz(t)
+        db.session.commit()
+        with pytest.raises(LogistykaBlad) as e:
+            routes.wykonaj(t, [a.id, b.id])
+        assert e.value.status == 409
+        assert e.value.dane == {'niespakowane': [b.id]}
+        assert b.internal_order_number in e.value.komunikat
+        assert a.internal_order_number not in e.value.komunikat
+        db.session.rollback()
+        assert t.status == 'zatwierdzona' and {x.order_id for x in t.stops} == {a.id, b.id}
+        # Niespakowane odznaczone — wraca do puli, spakowane dostarczone.
+        assert routes.wykonaj(t, [a.id]) == {'dostarczone': [a.id], 'niedostarczone': [b.id]}
+        db.session.commit()
+        assert a.logistics_closed_at is not None and b.logistics_closed_at is None
+
+
+def test_odhaczenie_wiele_niespakowanych_w_jednym_komunikacie(app):
+    with app.app_context():
+        t = _trasa()
+        a, b = _transport(), _transport()
+        routes.dodaj_przystanki(t, [a.id, b.id])
+        db.session.commit()
+        with pytest.raises(LogistykaBlad) as e:
+            routes.wykonaj(t, [a.id, b.id])
+        assert e.value.dane == {'niespakowane': [a.id, b.id]}
+        assert e.value.komunikat.startswith(u'Zamówienia {}, {} nie są'.format(
+            a.internal_order_number, b.internal_order_number))
+
+
+def test_odhaczenie_pomija_anulowane_w_regule_spakowania(app):
+    """I1: zamówienie bez aktywnych pozycji (wszystkie anulowane) nie blokuje odhaczenia."""
+    with app.app_context():
+        t = _trasa()
+        a = _transport(statusy=('spakowane',))
+        c = _transport(statusy=('czeka_na_wyciecie',))
+        routes.dodaj_przystanki(t, [a.id, c.id])
+        for p in c.products:
+            p.current_status = 'anulowane'
+        db.session.commit()
+        assert routes.wykonaj(t, [a.id, c.id]) == {'dostarczone': [a.id, c.id], 'niedostarczone': []}
+
+
+def test_odhaczenie_wymaga_listy_dostarczonych(app):
+    """M6: brak listy (None) to 422, a nie „wszystko dostarczone”."""
+    with app.app_context():
+        t = _trasa()
+        a = _transport(statusy=('spakowane',))
+        routes.dodaj_przystanki(t, [a.id])
+        db.session.commit()
+        with pytest.raises(LogistykaBlad) as e:
+            routes.wykonaj(t, None)
+        assert e.value.status == 422 and 'delivered_order_ids' in e.value.komunikat
+        assert t.status == 'robocza'
+
+
+def test_odhaczenie_zamyka_wedlug_swiezej_trasy(app, monkeypatch):
+    """Resztka O1: wykonaj/przywroc decydują o zamknięciu ze świeżej trasy spod blokady, nie
+    z routes.przystanek_zamowienia (zwykły odczyt z migawki transakcji)."""
+    with app.app_context():
+        t = _trasa()
+        a = _transport(statusy=('spakowane',))
+        routes.dodaj_przystanki(t, [a.id])
+        db.session.commit()
+
+        def _nie_wolno(*args, **kwargs):
+            raise AssertionError('zamknięcie liczone ze zwykłego odczytu przystanku')
+
+        monkeypatch.setattr(routes, 'przystanek_zamowienia', _nie_wolno)
+        routes.wykonaj(t, [a.id])
+        db.session.commit()
+        assert a.logistics_closed_at is not None
+        routes.przywroc(t)
+        db.session.commit()
+        assert a.logistics_closed_at is None
+
+
+# --- I3: niezmieniony wyłączony pojazd/kierowca nie blokuje edycji ani przywrócenia ---
+
+def _wykonana_z(pojazd_id=None, kierowca_id=None):
+    t = _trasa(vehicle_id=pojazd_id, driver_worker_id=kierowca_id)
+    a = _transport(statusy=('spakowane',))
+    routes.dodaj_przystanki(t, [a.id])
+    routes.zatwierdz(t)
+    routes.wykonaj(t, [a.id])
+    db.session.commit()
+    return t
+
+
+def test_wylaczony_pojazd_i_kierowca_zostaja_przy_edycji(app):
+    """I3 (spec 8.1): wyłączony pojazd zostaje widoczny na starych trasach — zmiana nazwy
+    trasy z tym samym pojazdem i kierowcą nie wymaga ich wymiany."""
+    with app.app_context():
+        v, k = pojazd(), kierowca()
+        t = _trasa(vehicle_id=v.id, driver_worker_id=k.id)
+        v.is_active, k.is_active = False, False
+        db.session.commit()
+        routes.edytuj(t, {'name': 'Nowa nazwa', 'date_from': '2026-10-01',
+                          'vehicle_id': v.id, 'driver_worker_id': k.id})
+        db.session.commit()
+        assert (t.name, t.vehicle_id, t.driver_worker_id) == ('Nowa nazwa', v.id, k.id)
+
+
+def test_przywrocenie_z_wylaczonym_pojazdem_i_kierowca(app):
+    with app.app_context():
+        v, k = pojazd(), kierowca()
+        t = _wykonana_z(v.id, k.id)
+        v.is_active, k.is_active = False, False
+        db.session.commit()
+        routes.przywroc(t)
+        db.session.commit()
+        assert t.status == 'zatwierdzona'
+
+
+@pytest.mark.parametrize('zasob', ['pojazd', 'kierowca'])
+def test_nowe_przypisanie_wylaczonego_odrzucone(app, zasob):
+    """I3: zakaz wyłączonego zostaje dla NOWEGO przypisania (zmiana zasobu, nowa trasa)."""
+    with app.app_context():
+        stary_v, stary_k = pojazd(), kierowca()
+        t = _trasa(vehicle_id=stary_v.id, driver_worker_id=stary_k.id)
+        nowy = pojazd(is_active=False) if zasob == 'pojazd' else kierowca(aktywny=False)
+        pole = 'vehicle_id' if zasob == 'pojazd' else 'driver_worker_id'
+        dane = {'name': 'A', 'date_from': '2026-10-01', 'vehicle_id': stary_v.id,
+                'driver_worker_id': stary_k.id, pole: nowy.id}
+        with pytest.raises(LogistykaBlad) as e:
+            routes.edytuj(t, dane)
+        assert e.value.status == 422
+        db.session.rollback()
+        with pytest.raises(LogistykaBlad) as e:
+            routes.utworz({'name': 'B', 'date_from': '2026-10-05', pole: nowy.id})
+        assert e.value.status == 422
+
+
+def test_przywrocenie_nadal_sprawdza_zajetosc(app):
+    """I3: pominięte jest tylko sprawdzenie aktywności — zajęty pojazd dalej daje 409."""
+    with app.app_context():
+        v = pojazd()
+        t = _wykonana_z(v.id)
+        druga = _trasa(name='Druga', vehicle_id=v.id)
+        with pytest.raises(LogistykaBlad) as e:
+            routes.przywroc(t)
+        assert e.value.status == 409 and druga.name in e.value.komunikat
+
+
+# --- M8: granice dat trasy ---
+
+def test_granice_dat_trasy(app):
+    """M8: od dziś − 1 rok do dziś + 2 lata (włącznie), „do” najwyżej 31 dni po „od”."""
+    with app.app_context():
+        assert routes.granice_dat() == (date(2025, 9, 26), date(2028, 9, 26))
+        assert routes.utworz({'name': 'Najwcześniej', 'date_from': '2025-09-26'})
+        assert routes.utworz({'name': 'Najpóźniej', 'date_from': '2028-09-26'})
+        assert routes.utworz({'name': '31 dni', 'date_from': '2026-10-01', 'date_to': '2026-11-01'})
+        for dane in ({'date_from': '2025-09-25'}, {'date_from': '2028-09-27'},
+                     {'date_from': '0001-01-01'}, {'date_from': '2026-10-01', 'date_to': '9999-12-31'},
+                     {'date_from': '2062-10-01'}):
+            with pytest.raises(LogistykaBlad) as e:
+                routes.utworz(dict(dane, name='Zła'))
+            assert e.value.status == 422 and '26.09.2025' in e.value.komunikat, dane
+        with pytest.raises(LogistykaBlad) as e:
+            routes.utworz({'name': '32 dni', 'date_from': '2026-10-01', 'date_to': '2026-11-02'})
+        assert e.value.status == 422
+        assert e.value.komunikat == u'Data „do” może być najwyżej 31 dni po dacie „od” (najpóźniej 01.11.2026).'
+
+
+def test_granice_dat_przy_edycji(app):
+    with app.app_context():
+        t = _trasa()
+        with pytest.raises(LogistykaBlad) as e:
+            routes.edytuj(t, {'name': 'A', 'date_from': '2029-01-01'})
+        assert e.value.status == 422
+
+
+def test_rok_przestepny_w_granicach_dat(app, monkeypatch):
+    """29.02 minus rok → 28.02 (bez ValueError z date.replace)."""
+    with app.app_context():
+        monkeypatch.setattr(routes, 'dzis', lambda: date(2028, 2, 29))
+        assert routes.granice_dat() == (date(2027, 2, 28), date(2030, 2, 28))
+
+
+# --- M11: tylko RRRR-MM-DD, jednakowo na Pythonie 3.9 i 3.12 ---
+
+@pytest.mark.parametrize('zla', [20261001, '20261001', '2026-W40-1', '2026-10-1', u'２０２６-10-01',
+                                 '2026-10-01T00:00', ' 2026-10-01', '2026-02-30'])
+def test_data_trasy_tylko_rrrr_mm_dd(app, zla):
+    with app.app_context():
+        with pytest.raises(LogistykaBlad) as e:
+            routes.utworz({'name': 'A', 'date_from': zla})
+        assert e.value.status == 422
+
+
+# --- M1: dodanie do trasy widzi sposób dostawy zmieniony w międzyczasie ---
+
+def test_dodanie_czyta_swiezy_sposob_dostawy(app):
+    """M1: sposób zmieniony „za plecami” ORM-a (symulacja: druga transakcja zacommitowała
+    kuriera, gdy ta czekała na blokadę) — dodaj_przystanki widzi bieżący stan
+    (populate_existing), a nie kopię z identity mapy."""
+    with app.app_context():
+        t = _trasa()
+        o = _transport()
+        assert o.override_delivery_method == s.TRANSPORT      # obiekt wczytany do identity mapy
+        db.session.execute(text("UPDATE prod_orders SET override_delivery_method = :k WHERE id = :i"),
+                           {'k': s.KURIER, 'i': o.id})
+        wynik = routes.dodaj_przystanki(t, [o.id])
+        assert wynik['dodane'] == [] and 'transportu własnego' in wynik['bledy'][0]['komunikat']
+
+
+# --- I5: zamówienia anulowane w całości ---
+
+def test_dodanie_odrzuca_anulowane(app):
+    with app.app_context():
+        t = _trasa()
+        o = _transport(statusy=('anulowane', 'anulowane'))
+        wynik = routes.dodaj_przystanki(t, [o.id])
+        assert wynik['dodane'] == []
+        assert wynik['bledy'] == [{'order_id': o.id, 'komunikat':
+                                   u'Zamówienie {} jest anulowane.'.format(o.internal_order_number)}]
+
+
+def test_podsumowanie_i_numeracja_bez_anulowanych(app):
+    """I5: przystanki = tylko aktywne, anulowane osobno; numer przystanku liczony wśród
+    aktywnych (kolejność Routimo), anulowany bez numeru."""
+    with app.app_context():
+        t = _trasa()
+        a, b, c = (_transport(statusy=('spakowane',)) for _ in range(3))
+        routes.dodaj_przystanki(t, [a.id, b.id, c.id])
+        for p in b.products:
+            p.current_status = 'anulowane'
+        db.session.commit()
+        zamowienia = routes.zamowienia_trasy(t)
+        sumy = routes.podsumowanie(t, zamowienia, {})
+        assert (sumy['przystanki'], sumy['anulowane'], sumy['bez_lokalizacji']) == (2, 1, 2)
+        assert sumy['m3'] == pytest.approx(2 * 0.048)
+        assert [(o.id, nr, anul) for o, nr, anul in routes.numeracja_przystankow(zamowienia)] == [
+            (a.id, 1, False), (b.id, None, True), (c.id, 2, False)]
+
+
+# --- M3: brakujący wiersz blokady na MySQL zakłada się sam ---
+
+def test_samonaprawa_wiersza_blokady(app, monkeypatch):
+    """M3: baza po pierwszej wersji migracji (bez wiersza) — zablokuj_trasy zakłada wiersz
+    (INSERT IGNORE w tej transakcji) i bierze na nim blokadę; kolejne wywołanie go nie dubluje.
+    Na SQLite testów samonaprawę włączamy ręcznie (normalnie tylko MySQL)."""
+    from modules.production.models import ProductionConfig
+    with app.app_context():
+        assert ProductionConfig.query.filter_by(config_key=routes.KLUCZ_BLOKADY).count() == 0
+        monkeypatch.setattr(routes, '_samonaprawa_blokady', lambda: True)
+        routes.zablokuj_trasy()
+        routes.zablokuj_trasy()
+        db.session.commit()
+        wiersze = ProductionConfig.query.filter_by(config_key=routes.KLUCZ_BLOKADY).all()
+        assert len(wiersze) == 1 and wiersze[0].config_type == 'string'
+
+
+def test_bez_samonaprawy_poza_mysql(app):
+    """Inne bazy niż MySQL (SQLite testów) — dalej fail-open z ostrzeżeniem, bez zakładania wiersza."""
+    from modules.production.models import ProductionConfig
+    with app.app_context():
+        assert routes._samonaprawa_blokady() is False
+        routes.zablokuj_trasy()
+        assert ProductionConfig.query.filter_by(config_key=routes.KLUCZ_BLOKADY).count() == 0

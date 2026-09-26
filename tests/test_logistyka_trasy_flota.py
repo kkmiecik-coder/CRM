@@ -104,6 +104,53 @@ def test_niezmieniona_nazwa_nie_podbija_pozycji(app):
             assert p.updated_at == datetime(2026, 1, 1)
 
 
+def test_zmiana_nazwy_bierze_blokade_tras_przed_zapisem_pojazdu(app, monkeypatch):
+    """M2 (fala poprawek): podbicie pozycji zmienia dane tras — blokada tras PIERWSZA, przed
+    zapisem wiersza pojazdu (piszący trasę bierze blokadę, a potem ten pojazd FOR UPDATE;
+    odwrotna kolejność zakleszczyłaby się z nim) i przed odczytem przystanków."""
+    from sqlalchemy import event
+    from modules.production.logistics.services import routes
+    with app.app_context():
+        v = pojazd(name='Iveco 1')
+        o = zamowienie(sposob=s.TRANSPORT)
+        _trasa_z_przystankiem(v.id, o.id, status='zatwierdzona')
+        db.session.commit()
+        zdarzenia = []
+        oryginal = routes.zablokuj_trasy
+
+        def szpieg(route=None):
+            zdarzenia.append('BLOKADA')
+            return oryginal(route)
+
+        def zapis(conn, cursor, sql, *args, **kwargs):
+            zdarzenia.append(sql.split()[0].upper() + ' ' + ('prod_vehicles' if 'prod_vehicles' in sql
+                             else 'prod_route_stops' if 'prod_route_stops' in sql else ''))
+
+        monkeypatch.setattr(routes, 'zablokuj_trasy', szpieg)
+        event.listen(db.engine, 'before_cursor_execute', zapis)
+        try:
+            fleet.zapisz_pojazd({'name': 'Iveco 2', 'registration': v.registration}, pojazd=v)
+        finally:
+            event.remove(db.engine, 'before_cursor_execute', zapis)
+        db.session.commit()
+        assert 'BLOKADA' in zdarzenia
+        blokada = zdarzenia.index('BLOKADA')
+        assert blokada < zdarzenia.index('UPDATE prod_vehicles')
+        assert blokada < zdarzenia.index('SELECT prod_route_stops')
+        assert all(p.updated_at is not None for p in o.products)
+
+
+def test_bez_zmiany_nazwy_bez_blokady_tras(app, monkeypatch):
+    """Nowy pojazd i zapis bez zmiany nazwy nie dotykają tras — blokady nie biorą."""
+    from modules.production.logistics.services import routes
+    with app.app_context():
+        wywolania = []
+        monkeypatch.setattr(routes, 'zablokuj_trasy', lambda route=None: wywolania.append(1))
+        v = fleet.zapisz_pojazd({'name': 'Nowy'})
+        fleet.zapisz_pojazd({'name': 'Nowy', 'capacity_kg': 900}, pojazd=v)
+        assert wywolania == []
+
+
 def test_trasa_wykonana_nie_podbija_pozycji(app):
     with app.app_context():
         v = pojazd(name='Iveco 1')

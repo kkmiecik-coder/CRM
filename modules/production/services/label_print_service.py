@@ -343,18 +343,44 @@ def _resolve_client_label(item):
     return 'Brak danych'
 
 
+# (M4) Linia „Dostawa: …” to jedno pole ^FB (1 linia, szerokość separator_width = 372 punkty)
+# fontem 18: ok. 9 punktów na znak (proporcja z nazwy produktu: 80 znaków w 2 liniach
+# po 451 punktów fontem 22) → ~40 znaków na całą linię, z czego 9 zajmuje „Dostawa: ”.
+# Dłuższy tekst ZPL nadpisuje na tej samej linii (nieczytelna plama), więc ucinamy.
+MAKS_ZNAKOW_DOSTAWY = 30
+# ^ i ~ rozpoczynają komendy ZPL — w danych pola ^FD…^FS zamieniłyby resztę nazwy trasy
+# w polecenia drukarki. Typograficzne cudzysłowy, myślniki i wielokropek drukarka pokazuje
+# jak polskie znaki (bez glifów), więc zamieniamy je na ASCII.
+_ZPL_POLE = str.maketrans({
+    '^': ' ', '~': ' ',
+    '„': '"', '”': '"', '“': '"', '«': '"', '»': '"', '‘': "'", '’': "'",
+    '–': '-', '—': '-', '…': '...',
+})
+
+
+def _tekst_pola_zpl(tekst, maks):
+    """Tekst do danych pola ZPL: bez komend (^, ~), w jednej linii, najwyżej `maks` znaków."""
+    czysty = ' '.join(_normalize_text(tekst).translate(_ZPL_POLE).split())
+    if len(czysty) > maks:
+        czysty = czysty[:maks - 3].rstrip() + '...'
+    return czysty
+
+
 def _format_delivery_label(item):
     """Linia „Dostawa:” — ten sam tekst co plakietka tabletu (logistics/sposoby.etykieta).
 
     Etykieta wydrukowana przed decyzją logistyka ma „Nie ustawiono”; lista logistyki
-    pokazuje wtedy ikonę „etykiety sprzed zmiany”.
+    pokazuje wtedy ikonę „etykiety sprzed zmiany”. Nazwę trasy wpisuje człowiek, więc
+    (M4) przechodzi przez _tekst_pola_zpl — stałe napisy („Kurier” itd.) są krótsze
+    od limitu i czyszczenie ich nie zmienia.
     """
     from modules.production.logistics import sposoby
     from modules.production.logistics.services.routes import trasa_dla_tabletu
     order = item.order if item.order else None
     sposob = order.override_delivery_method if order else None
     trasa = trasa_dla_tabletu(order.id) if order is not None else None
-    return _normalize_text(sposoby.etykieta(sposob, nazwa_trasy=trasa.name if trasa else None))
+    return _tekst_pola_zpl(sposoby.etykieta(sposob, nazwa_trasy=trasa.name if trasa else None),
+                           MAKS_ZNAKOW_DOSTAWY)
 
 
 def _format_finish_label(item):

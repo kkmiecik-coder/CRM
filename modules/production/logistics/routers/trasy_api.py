@@ -7,7 +7,7 @@ modules/production/logistics/services/routimo.py, wspólne z eksportem
 zakładki Raporty (modules/reports/routers.generate_routimo_excel).
 """
 import io
-from datetime import date, timedelta
+from datetime import timedelta
 
 from flask import jsonify, request, send_file
 from sqlalchemy import or_
@@ -20,7 +20,7 @@ from modules.production.logistics.models import Route, STATUSY_TRASY, Vehicle
 from modules.production.logistics.routers.panel_api import LIMIT_HURTU, _blad, _user_id, guard
 from modules.production.logistics.services import fleet, geocoding, lista, routes, routimo, routing
 from modules.production.logistics.services.delivery import LogistykaBlad
-from modules.production.models import ProductionOrder, ProductionProduct, get_local_now
+from modules.production.models import ProductionOrder, ProductionProduct
 
 KOLEJNOSC_STATUSOW = {'robocza': 0, 'zatwierdzona': 1, 'wykonana': 2}
 # (I1, ruling okna domyślnego) Bez jawnego `od` GET /routes ciągnąłby WSZYSTKIE
@@ -66,8 +66,24 @@ def _stopy_z_ciala(dane):
 
 
 def _odmowa(e):
+    """Odmowa serwisu → {success: false, error, …e.dane} (np. `niespakowane` z /complete)."""
     db.session.rollback()
-    return _blad(e.komunikat, e.status)
+    odpowiedz = dict(e.dane or {})
+    odpowiedz.update(success=False, error=e.komunikat)
+    return jsonify(odpowiedz), e.status
+
+
+def _data_z_parametru(nazwa, domyslna=None):
+    """
+    (M11) Parametr zapytania z datą: tylko RRRR-MM-DD (routes.parsuj_date), pusty → `domyslna`.
+    Zły format → ValueError (wołający odpowiada 422). Nigdy nie porównujemy z surowym tekstem
+    żądania — DATE w MySQL 8 na nieprawidłowym literale rzuca 1525 (500), SQLite by tego nie
+    złapało (R9).
+    """
+    tekst = request.args.get(nazwa)
+    if not tekst:
+        return domyslna
+    return routes.parsuj_date(tekst)
 
 
 def _konflikt(komunikat):
@@ -87,7 +103,7 @@ def _konflikt(komunikat):
     return _blad(komunikat, 409)
 
 
-def _zamowienia_z_produktami(route):
+def _zamowienia_z_produktami(route, swieze=False):
     """
     (M2, poprawka po przeglądzie) Zamówienia trasy z pozycjami i konfiguracjami
     jednym zapytaniem każde — ten sam eager loading co `lista.pobierz`.
@@ -95,17 +111,45 @@ def _zamowienia_z_produktami(route):
     `podsumowanie`/`lista.serializuj` czytają `order.products` i
     `produkt.configuration` — bez tego każde zamówienie (i każda jego pozycja)
     to osobne, leniwe zapytanie w szczegółach JEDNEJ trasy.
+    `swieze` — po commicie (M7): populate_existing, żeby ładowanie zbiorcze wypełniło
+    od nowa obiekty wygaszone commitem, zamiast zostawić je leniwym odczytom.
     """
     ids = [s.order_id for s in route.stops]
     if not ids:
         return []
-    po_id = {o.id: o for o in ProductionOrder.query.options(
+    zapytanie = ProductionOrder.query.options(
         selectinload(ProductionOrder.products).selectinload(ProductionProduct.configuration)
-    ).filter(ProductionOrder.id.in_(ids)).all()}
+    ).filter(ProductionOrder.id.in_(ids))
+    if swieze:
+        zapytanie = zapytanie.populate_existing()
+    po_id = {o.id: o for o in zapytanie.all()}
     return [po_id[i] for i in ids if i in po_id]
 
 
-def _wczytaj_trasy(zapytanie):
+def _trasa_ze_szczegolami(route_id, swieze=False):
+    """Trasa z przystankami, pojazdem i kierowcą — po jednym zapytaniu na relację."""
+    zapytanie = (Route.query
+                 .options(selectinload(Route.stops), selectinload(Route.vehicle),
+                          selectinload(Route.driver))
+                 .filter(Route.id == route_id))
+    if swieze:
+        zapytanie = zapytanie.populate_existing()
+    return zapytanie.one_or_none()
+
+
+def _przystanki_mapy(zamowienia, punkty):
+    """Przystanki trasy dla GET /routes/map — (I5) z numerem wśród aktywnych i flagą anulowanych."""
+    def wspolrzedna(order_id, pole):
+        punkt = punkty.get(order_id)
+        wartosc = getattr(punkt, pole) if punkt is not None else None
+        return float(wartosc) if wartosc is not None else None
+    return [{'pozycja': numer, 'anulowane': anulowane, 'order_id': o.id,
+             'numer': o.internal_order_number, 'klient': o.client_name,
+             'lat': wspolrzedna(o.id, 'lat'), 'lng': wspolrzedna(o.id, 'lng')}
+            for o, numer, anulowane in routes.numeracja_przystankow(zamowienia)]
+
+
+def _wczytaj_trasy(zapytanie, swieze=False):
     """
     (I1, poprawka po przeglądzie) Zbiorcze wczytanie tras do listy/mapy bez
     lawiny zapytań: trasy razem z przystankami/pojazdem/kierowcą (`selectinload`,
@@ -119,18 +163,23 @@ def _wczytaj_trasy(zapytanie):
     Zwraca `(trasy, zamowienia_wg_trasy, punkty)`; `zamowienia_wg_trasy[route.id]`
     to lista zamówień W KOLEJNOŚCI przystanków tej trasy (przystanek bez
     dopasowanego zamówienia — np. skasowanego w międzyczasie — jest pomijany,
-    tak jak w `routes.zamowienia_trasy`).
+    tak jak w `routes.zamowienia_trasy`). `swieze` — ponowne wczytanie po commicie (M7),
+    patrz `_zamowienia_z_produktami`.
     """
-    trasy = (zapytanie
-            .options(selectinload(Route.stops), selectinload(Route.vehicle),
-                     selectinload(Route.driver))
-            .all())
+    zapytanie = zapytanie.options(selectinload(Route.stops), selectinload(Route.vehicle),
+                                  selectinload(Route.driver))
+    if swieze:
+        zapytanie = zapytanie.populate_existing()
+    trasy = zapytanie.all()
     wszystkie_ids = list({s.order_id for trasa in trasy for s in trasa.stops})
     zamowienia_po_id = {}
     if wszystkie_ids:
-        zamowienia_po_id = {o.id: o for o in ProductionOrder.query.options(
+        zamowienia = ProductionOrder.query.options(
             selectinload(ProductionOrder.products).selectinload(ProductionProduct.configuration)
-        ).filter(ProductionOrder.id.in_(wszystkie_ids)).all()}
+        ).filter(ProductionOrder.id.in_(wszystkie_ids))
+        if swieze:
+            zamowienia = zamowienia.populate_existing()
+        zamowienia_po_id = {o.id: o for o in zamowienia.all()}
     punkty = geocoding.geo_zamowien(wszystkie_ids)
     zamowienia_wg_trasy = {
         trasa.id: [zamowienia_po_id[s.order_id] for s in trasa.stops if s.order_id in zamowienia_po_id]
@@ -140,6 +189,11 @@ def _wczytaj_trasy(zapytanie):
 
 
 def _szczegoly(route, przelicz_wykonana=False):
+    """
+    Szczegóły trasy dla edytora: podsumowanie, przystanki (I5: `pozycja` = numer wśród
+    aktywnych przystanków, None dla anulowanego; `anulowane`), przebieg.
+    """
+    route_id = route.id
     zamowienia = _zamowienia_z_produktami(route)
     punkty = geocoding.geo_zamowien([o.id for o in zamowienia])
     # (M4, spec 8.2) Trasa WYKONANA jest tylko do odczytu — samo jej obejrzenie
@@ -149,9 +203,18 @@ def _szczegoly(route, przelicz_wykonana=False):
     # które naprawdę pojechały. Potem trasa znów tylko do odczytu.
     if (route.status != 'wykonana' or przelicz_wykonana) and routing.przelicz(route, punkty):
         db.session.commit()
+        # (M7) Commit wygasił wszystko w sesji (expire_on_commit) — serializacja dociągałaby
+        # trasę, przystanki, pojazd, kierowcę, zamówienia, pozycje i punkty wiersz po wierszu
+        # (dodanie 1 przystanku do trasy z 40 = ~140 zapytań). Te same zapytania zbiorcze od nowa.
+        swieza = _trasa_ze_szczegolami(route_id, swieze=True)
+        if swieza is not None:
+            route = swieza
+            zamowienia = _zamowienia_z_produktami(route, swieze=True)
+            punkty = geocoding.geo_zamowien([o.id for o in zamowienia])
     dane = routes.serializuj_trase(route, zamowienia, punkty)
-    dane['przystanki'] = [{'pozycja': i, 'zamowienie': lista.serializuj(o, punkty.get(o.id), route)}
-                          for i, o in enumerate(zamowienia, start=1)]
+    dane['przystanki'] = [{'pozycja': numer, 'anulowane': anulowane,
+                           'zamowienie': lista.serializuj(o, punkty.get(o.id), route)}
+                          for o, numer, anulowane in routes.numeracja_przystankow(zamowienia)]
     dane['przebieg'] = routing.przebieg(route)
     return dane
 
@@ -253,8 +316,8 @@ def drivers():
 @guard
 def availability():
     try:
-        od = date.fromisoformat(request.args.get('date_from', ''))
-        do = date.fromisoformat(request.args.get('date_to') or request.args.get('date_from', ''))
+        od = routes.parsuj_date(request.args.get('date_from', ''))
+        do = routes.parsuj_date(request.args.get('date_to') or request.args.get('date_from', ''))
     except ValueError:
         return _blad(u'Podaj daty RRRR-MM-DD.', 422)
     if do < od:
@@ -283,11 +346,10 @@ def routes_list():
             return _blad(u'Nieznany status trasy.', 422)
         zapytanie = zapytanie.filter(Route.status == status)
     try:
-        # (R9) Zawsze porównujemy z sparsowanym `date`, nigdy z surowym tekstem
-        # żądania — DATE w MySQL 8 na nieprawidłowym literale rzuca 1525 (500),
-        # SQLite testów by tego nie złapało.
-        od = date.fromisoformat(request.args['od']) if request.args.get('od') else None
-        do = date.fromisoformat(request.args['do']) if request.args.get('do') else None
+        # (M8) Filtr wyszukiwania wykonanych celowo BEZ granic dat tras (routes.granice_dat)
+        # — to przeszukiwanie historii; sprawdzamy tylko format (M11).
+        od = _data_z_parametru('od')
+        do = _data_z_parametru('do')
     except ValueError:
         return _blad(u'Podaj daty RRRR-MM-DD.', 422)
     if od is not None:
@@ -295,8 +357,9 @@ def routes_list():
     else:
         # (I1, ruling okna domyślnego) Brak `od` → trasy WYKONANE starsze niż
         # DNI_WYKONANYCH_DOMYSLNIE dni znikają z listy; robocza/zatwierdzona
-        # przechodzą zawsze (pierwszy człon OR-a).
-        granica = get_local_now().date() - timedelta(days=DNI_WYKONANYCH_DOMYSLNIE)
+        # przechodzą zawsze (pierwszy człon OR-a). „Dziś” z routes.dzis() — to samo,
+        # które wyznacza granice dat tras.
+        granica = routes.dzis() - timedelta(days=DNI_WYKONANYCH_DOMYSLNIE)
         zapytanie = zapytanie.filter(or_(Route.status != 'wykonana', Route.date_to >= granica))
     if do is not None:
         zapytanie = zapytanie.filter(Route.date_from <= do)
@@ -336,32 +399,27 @@ def routes_map():
     # (a więc i kolory tras w UI) była stabilna między żądaniami przy remisie dnia.
     zapytanie = Route.query.filter(Route.status.in_(routes.AKTYWNE)).order_by(Route.date_from, Route.id)
     trasy, zamowienia_wg_trasy, punkty = _wczytaj_trasy(zapytanie)   # (I1) ten sam eager loading co lista
-    wynik = []
-    przeliczono = False
     for trasa in trasy:
-        zamowienia = zamowienia_wg_trasy[trasa.id]
-        if not przeliczono and routing.przelicz(trasa, punkty):
-            przeliczono = True
+        if routing.przelicz(trasa, punkty):
             db.session.commit()
-        wynik.append({
-            'id': trasa.id, 'nazwa': trasa.name, 'status': trasa.status,
-            'date_from': trasa.date_from.isoformat(), 'date_to': trasa.date_to.isoformat(),
-            'przebieg': routing.przebieg(trasa), 'przyblizony': bool(trasa.geometry_approx),
-            'przystanki': [{'pozycja': i, 'order_id': o.id, 'numer': o.internal_order_number,
-                            'klient': o.client_name,
-                            'lat': float(punkty[o.id].lat)
-                                  if punkty.get(o.id) and punkty[o.id].lat is not None else None,
-                            'lng': float(punkty[o.id].lng)
-                                  if punkty.get(o.id) and punkty[o.id].lng is not None else None}
-                           for i, o in enumerate(zamowienia, start=1)],
-        })
+            # (M7) Commit wygasił wszystkie trasy, zamówienia i punkty — bez ponownego
+            # wczytania serializacja reszty tras szłaby wiersz po wierszu (setki zapytań).
+            # R8: po pierwszym przeliczeniu kończymy — reszta przeliczy się w kolejnych żądaniach.
+            trasy, zamowienia_wg_trasy, punkty = _wczytaj_trasy(zapytanie, swieze=True)
+            break
+    wynik = [{
+        'id': trasa.id, 'nazwa': trasa.name, 'status': trasa.status,
+        'date_from': trasa.date_from.isoformat(), 'date_to': trasa.date_to.isoformat(),
+        'przebieg': routing.przebieg(trasa), 'przyblizony': bool(trasa.geometry_approx),
+        'przystanki': _przystanki_mapy(zamowienia_wg_trasy[trasa.id], punkty),
+    } for trasa in trasy]
     return jsonify({'success': True, 'routes': wynik})
 
 
 @logistics_panel_bp.route('/routes/<int:route_id>', methods=['GET'])
 @guard
 def route_get(route_id):
-    trasa = _trasa_albo_none(route_id)
+    trasa = _trasa_ze_szczegolami(route_id)
     if trasa is None:
         return _blad(u'Nie ma takiej trasy.', 404)
     return jsonify({'success': True, 'route': _szczegoly(trasa)})
@@ -376,16 +434,20 @@ def route_routimo(route_id):
     do _szczegoly/routing.przelicz. Dostępny dla trasy zatwierdzonej ORAZ wykonanej
     (R11, kontroler) — przewoźnik może pobrać plik ponownie już po zamknięciu trasy;
     robocza (jeszcze się zmienia) zwraca 409, jak reszta operacji na trasie.
+    (I5) Przystanki anulowanych zamówień pomijamy; ich liczba idzie w nagłówku
+    X-Routimo-Pominiete (zawsze, także 0) — interfejs dopisuje ją do komunikatu po pobraniu.
     """
     trasa = _trasa_albo_none(route_id)
     if trasa is None:
         return _blad(u'Nie ma takiej trasy.', 404)
     if trasa.status not in ('zatwierdzona', 'wykonana'):
         return _blad(u'Eksport do Routimo jest dostępny po zatwierdzeniu trasy.', 409)
-    tresc = routimo.zbuduj_excel(routimo.wiersze_trasy(trasa))
-    return send_file(io.BytesIO(tresc), as_attachment=True,
-                     download_name=routimo.nazwa_pliku(trasa),
-                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    wiersze, pominiete = routimo.przygotuj_eksport(trasa)
+    odpowiedz = send_file(io.BytesIO(routimo.zbuduj_excel(wiersze)), as_attachment=True,
+                          download_name=routimo.nazwa_pliku(trasa),
+                          mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    odpowiedz.headers['X-Routimo-Pominiete'] = str(pominiete)
+    return odpowiedz
 
 
 @logistics_panel_bp.route('/routes/<int:route_id>', methods=['PUT'])
@@ -442,6 +504,9 @@ def route_revert(route_id):
 @logistics_panel_bp.route('/routes/<int:route_id>/complete', methods=['POST'])
 @guard
 def route_complete(route_id):
+    # (M6) `delivered_order_ids` wymagane (lista, także pusta) — brak albo null to 422
+    # z routes.wykonaj, nie „wszystko dostarczone”. (I1) 409 z `niespakowane` przechodzi
+    # przez _akcja → _odmowa razem z pozostałymi polami odmowy.
     return _akcja(route_id, lambda t: routes.wykonaj(
         t, _cialo().get('delivered_order_ids'), user_id=_user_id()), przelicz_wykonana=True)
 
