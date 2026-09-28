@@ -44,7 +44,7 @@ from datetime import date
 from extensions import db
 from modules.production.logistics import sposoby as s
 from modules.production.logistics.models import OrderGeo
-from modules.production.logistics.services import routes, routimo
+from modules.production.logistics.services import geocoding, routes, routimo
 from tests.logistyka_fixtures import BASE, app, client, pojazd, zamowienie  # noqa: F401,E402
 
 
@@ -61,7 +61,7 @@ def _zatwierdzona(app):
     a.delivery_address, a.delivery_postcode, a.client_phone = 'Floriańska 10/5', '31-021', '600'
     b = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane',))
     db.session.add(OrderGeo(order_id=a.id, lat=50.062726, lng=19.93962, source='gugik',
-                            quality='dokladna', address_hash='x' * 40))
+                            quality='dokladna', address_hash=geocoding.skrot_adresu(a)))
     routes.dodaj_przystanki(trasa, [b.id, a.id])
     routes.zatwierdz(trasa)
     db.session.commit()
