@@ -1,6 +1,7 @@
 # Logistyka równoległa — etap 3 (trasy i flota): stan gałęzi i kontynuacja
 
-Data: 2026-09-26, aktualizacja 2026-09-28 (**kontynuujemy na Windows**, nie na Macu). Źródło: sesja na Windows
+Data: 2026-09-26, aktualizacje 2026-09-28 (**kontynuujemy na Windows**, nie na Macu; po południu runda poprawek 4.1 —
+sekcje 0, 4 i 5). Źródło: sesja na Windows
 (tryb subagent-driven, plan `docs/superpowers/plans/2026-09-24-logistyka-etap-3-trasy-flota.md`, spec
 `docs/superpowers/specs/2026-09-24-logistyka-rownolegla-trasy-design.md`). Plany etapów 1–3 i spec są w repo na gałęzi
 (mimo `.gitignore`, na prośbę Konrada — repo jest publiczne, więc nie dopisuj tu sekretów ani uwag bezpieczeństwa).
@@ -9,17 +10,24 @@ z raportami przeglądów) zniknął razem z usuniętym worktree; raporty oględz
 
 ## 0. Stan na 28.09.2026 (Windows)
 
-- Gałąź `claude/logistyka-etap-3-trasy` na origin i lokalnie = ten commit (wcześniej `c22bf0ef`); `main` = `origin/main` =
+- Gałąź `claude/logistyka-etap-3-trasy` na origin i lokalnie = ten commit. **Runda 4.1 (28.09 po południu)** dodała
+  kod: `5463bc99`, `30c7ef9a`, `fe61e674`, `380a8f8c` (sekcja 4.1) i mini-plan
+  `docs/superpowers/plans/2026-09-28-logistyka-etap-3-poprawki-4-1.md`; stan przed rundą: `3eafac50`. `main` = `origin/main` =
   `a5a0f1f9` — od startu gałęzi **nic nowego w `main`**, więc merge `main` do gałęzi nie jest potrzebny.
+- Testy po rundzie 4.1: **`4704 passed, 3 skipped`**.
 - Worktree: `C:\Users\Grafik\Documents\woodpower-crm\.claude\worktrees\logistyka-etap-3-trasy` (odtworzony 28.09 na
   istniejącej gałęzi; worktree etapu 2 usunięty — gałąź `claude/logistyka-etap-2-mapa` została na origin). Główny checkout
   stoi na `main` i obsługuje kontener 5002 — **nie przełączaj w nim gałęzi**.
 - Podglądy (Docker, obraz `logistyka3-app`, sieć `woodpower-crm_default`; w konfiguracji pusty klucz Base. i integracje,
-  bez klucza ORS i CARTO → przebiegi liniami prostymi, podkład OSM). **Oba mają kod gałęzi po fali końcowej**
-  (`241ff75d`; późniejsze commity zmieniają tylko dokumenty — sprawdzone 28.09 porównaniem plików):
+  bez klucza ORS i CARTO → przebiegi liniami prostymi, podkład OSM). **Oba mają kod gałęzi po rundzie 4.1**
+  (`380a8f8c`, odświeżone 28.09 — porównanie 1083 plików, `/login` 200, „Brak nowych migracji”):
   - **127.0.0.1:5003** — kontener `logistyka3-podglad`, baza `logistyka3_podglad` (kopia lokalnej bazy z 25.09 + dane
     testowe z oględzin: trasy 18–20 „Trasa A/B/C (oględziny)”, 22–23 „R2 Trasa X/Y”, 33 „F1 (oględziny)” (wykonana),
-    pojazdy Iveco Daily, Ford Transit, R2 Bus; **trasa 17 „trasa 1” jest Konrada — nie ruszać**).
+    z rundy 4.1: 34 „4.1 oględziny A” (robocza, 10 przystanków), 35 „4.1 oględziny B” (wykonana, pusta),
+    36 „4.1 oględziny C” (robocza: 1301, 1379, 1473); 13 zamówień przestawionych w oględzinach 4.1 na transport własny
+    (1301, 1307, 1342, 1350, 1358, 1360, 1366, 1369, 1372, 1374, 1376, 1379, 1381), z nich 1381 i 1372 anulowane
+    w całości skryptem i zamknięte; pojazdy Iveco Daily, Ford Transit, R2 Bus; **trasa 17 „trasa 1” jest Konrada — nie
+    ruszać**).
   - **127.0.0.1:5004** — kontener `logistyka3-prod`, baza `logistyka3_prod` = **zrzut produkcji z 25.09 21:07** po
     migracjach etapów 1–3 (4/4 OK). Kod odświeżony 28.09 (wcześniej stał na `433b2c6b`, sprzed poprawek interfejsu).
     Flota pusta, tras brak, współrzędnych brak (stan „jak po wdrożeniu dziś”). Własne ciasteczka
@@ -36,6 +44,12 @@ z raportami przeglądów) zniknął razem z usuniętym worktree; raporty oględz
   `kod\_proba_blokady.py`), `SMOKE-API.md` (315 złych żądań), `OGLEDZINY.md`, `OGLEDZINY-2.md`, `OGLEDZINY-3.md`,
   `OGLEDZINY-4.md` (4 tury oględzin UI). Skrypty pomocnicze w kodzie podglądu 5003: `_sesja.py` (ciasteczko sesji admina
   dla wbudowanej przeglądarki), `_routimo_check.py` (eksport Routimo po stronie serwera).
+- Raporty rundy 4.1 (scratchpad sesji `cea01798-…`, `…\cea01798-4898-4fcf-9c72-c6856d824d42\scratchpad\raporty-4-1\`):
+  `progress.md` (ledger: przebieg, rozstrzygnięcia, odłożone drobiazgi), `final-review.md` (przegląd adwersaryjny
+  rundy), `ogledziny-4-1.md` (oględziny A–G), `fix-wave-rereview.md` (przegląd fali poprawek). **Pułapka oględzin:**
+  wbudowana przeglądarka z kartą w tle / schowanym panelem nie ma klatek animacji — `requestAnimationFrame` i zdarzenie
+  `close` okien `<dialog>` nie przychodzą (Chromium wysyła `close` w następnej klatce). Scenariusze zależne od `close`
+  sprawdzaj pomiarem zdarzeń, nie samym efektem.
 - Zrzut produkcji (dane klientów) nadal w `…\320e7d76-d002-459d-83b4-3b0a3df0403a\scratchpad\prod\crm_dump_2026-09-25.sql.gz`.
 - Klucz `CARTO_BASEMAPS_KEY` jest w `config/core.json` na VPS od 25.09 (z restartem). Kod produkcji jeszcze go nie czyta.
 
@@ -44,9 +58,10 @@ z raportami przeglądów) zniknął razem z usuniętym worktree; raporty oględz
 - Piętrowe: `claude/logistyka-etap-1-dostawy-22cf12` → `claude/logistyka-etap-2-mapa` → **`claude/logistyka-etap-3-trasy`**
   (zawiera etapy 1 i 2; 65+ commitów ponad `main`). **Nic nie jest w `main` ani wdrożone.** Merge do `main` = deploy
   (webhook) — wyłącznie na polecenie Konrada.
-- Etap 3: 9 zadań planu + 3 rundy poprawek interfejsu + fala poprawek po dwóch przeglądach końcowych (backend, UI).
-- Testy: `4695 passed, 3 skipped` (pełny pakiet w Dockerze, SQLite, Python 3.12; kod zgodny z Pythonem 3.9 produkcji —
-  sprawdzone kompilacją na python:3.9-slim).
+- Etap 3: 9 zadań planu + 3 rundy poprawek interfejsu + fala poprawek po dwóch przeglądach końcowych (backend, UI)
+  + runda 4.1 (28.09: 2 zadania, przegląd adwersaryjny rundy, fala poprawek, oględziny).
+- Testy: `4704 passed, 3 skipped` (pełny pakiet w Dockerze, SQLite, Python 3.12; kod zgodny z Pythonem 3.9 produkcji —
+  sprawdzone kompilacją na python:3.9-slim przed rundą 4.1; runda 4.1 nie dodała składni spoza 3.9).
 - Weryfikacja poza testami (na Windows):
   - migracje etapów 1–3 na MySQL 8.4: na kopii lokalnej bazy i na **świeżej kopii produkcji z 25.09 21:07** (4/4, idempotentne, 2× ręcznie);
   - blokada zapisów tras na dwóch prawdziwych sesjach MySQL (wyścigi S1–S5b: podwójne zajęcie pojazdu, zakleszczenia, stary status, odhaczenie vs dodanie, adres vs zapis trasy) — PASS po poprawkach;
@@ -95,7 +110,8 @@ Zalecenie (tak było na Windows):
 ## 3. Testy i podgląd
 
 - Z katalogu worktree: `docker compose -p logistyka3 run --rm --no-deps app pytest tests/ -q -p no:cacheprovider`
-  (oczekiwane 4695 passed, 3 skipped; obraz `logistyka3-app` już zbudowany); `integrations/blog_seo` osobno.
+  (oczekiwane 4704 passed, 3 skipped; obraz `logistyka3-app` już zbudowany); `integrations/blog_seo` osobno.
+  Składnia JS: `node --check <plik>` na hoście (node jest w PATH Windows, w obrazie go nie ma).
   `docker compose exec` z worktree testuje GŁÓWNY checkout, nie gałąź. Nie twórz `config/core.json` w worktree
   (zmienia wyniki testów). W Git Bash polecenia dockera ze ścieżkami `/app` lub `C:/…` poprzedzaj `MSYS_NO_PATHCONV=1`.
 - Na Windows podglądy 5003/5004 już stoją (sekcja 0); po każdej zmianie kodu odśwież ich kod. Sesja dla wbudowanej przeglądarki:
@@ -109,13 +125,24 @@ Zalecenie (tak było na Windows):
 
 ## 4. Co zostało otwarte
 
-### 4.1. Do poprawy na starcie (znalezione w ostatnich oględzinach, odłożone zgodnie z procesem)
-- **W pełni anulowane zamówienie zdjęte przy odhaczeniu trasy jako „niedostarczone” wraca do puli „Transport bez trasy”**
-  zamiast się zamknąć: `usun_przystanek` w ścieżce niedostarczonych z `routes.wykonaj()` nie woła
-  `delivery.przelicz_zamkniecie`. Osiągalne, gdy anulowanie ominęło przeliczenie (SQL, wyścig); cron `przelicz_otwarte`
-  zamyka je w ≤ 1 h. Poprawka: `przelicz_zamkniecie` dla zdjętych zamówień (w `wykonaj`/`usun_przystanek`) + test.
-- Hurtowe „Dodaj do trasy…”, które kończy się po zamknięciu okna (dwa Esc w trakcie zapisu), czyści bieżące zaznaczenie i
-  przenosi fokus (`logistics-routes.js` ok. `:2919` + `logistics.js` ok. `:1390–1394`) — Minor.
+### 4.1. Do poprawy na starcie — ZROBIONE 28.09 (runda 4.1)
+- ✅ **Anulowane w całości zamówienie zdjęte z trasy zamyka się** (`5463bc99`): `routes.usun_przystanek` po zdjęciu woła
+  `delivery.przelicz_zamkniecie(order, teraz, trasa=route)` — dotyczy wszystkich czterech dróg zdjęcia (odhaczenie jako
+  niedostarczone, ręczne zdjęcie w edytorze, usunięcie trasy roboczej, zmiana sposobu dostawy). Efekt uboczny, też
+  poprawny: zamówienie transportu własnego z aktywnymi pozycjami, zamknięte „nieświeżo” na trasie aktywnej, po zdjęciu
+  się otwiera. Testy serwisu i API (`380a8f8c` przypina też ten efekt uboczny).
+- ✅ **Teksty o anulowanych po zdjęciu z trasy** (`fe61e674`, wynik przeglądu adwersaryjnego rundy): ręczne zdjęcie
+  anulowanego przystanku mówi „Jest anulowane, więc nie wraca do „Do dodania””, a potwierdzenie usunięcia trasy liczy do
+  „wróci/wrócą do puli” tylko aktywne i osobno „N anulowane zamówienie/-a/anulowanych zamówień zamknie/zamkną się
+  w logistyce” (dawny drobiazg z 4.3).
+- ✅ **Hurtowe „Dodaj do trasy…” dokończone w tle nie rusza bieżącego zaznaczenia ani fokusu** (`30c7ef9a` +
+  `fe61e674`): wynik zapisu dokończonego po zamknięciu okna niesie `wTle: true`; wtedy z zaznaczenia schodzą tylko dodane
+  zamówienia, a fokus przenosimy tylko wtedy, gdy był w pasku hurtu, który po odznaczeniu zniknął. Ścieżka z otwartym
+  oknem bez zmian (I3). **Przyczyna, przez którą pierwsza wersja nie działała w oględzinach:** Chromium wysyła
+  zdarzenie `close` okna `<dialog>` dopiero w następnej klatce animacji (karta w tle / schowany panel — wcale), a drugi
+  Esc w trakcie zapisu daje `cancel` z `cancelable === false` i zamyka okno. Tryb „w tle” włącza się teraz od razu przy
+  takim `cancel`, a koniec zapisu sprawdza `dialogDodaj.open` — bez polegania na `close`. Sprawdzone pomiarem zdarzeń we
+  wbudowanej przeglądarce (scenariusze A, B, B2, C — PASS).
 
 ### 4.2. Decyzje dla Konrada
 1. **Doróbka / nowa pozycja w zamówieniu dostarczonym trasą**: zamówienie zostaje zamknięte (tak samo jak odbiór osobisty
@@ -132,8 +159,19 @@ Zalecenie (tak było na Windows):
   punkt automatyczny po zmianie adresu w Base. eksportowany do czasu przeliczenia przez geokoder; `przywroc` trasy wykonanej
   prosto z roboczej zostawia `approved_at = NULL`; stopka jednego commita (`4b4c6e79`) z inną nazwą modelu.
 - UI: `logistics-routes.js` ma ok. 3800 linii i zduplikowane pomocniki (`esc`, `odmiana`, `zapytanie`) — refaktor po
-  testach Konrada; komunikat „na pozycji N z M” liczy anulowane; potwierdzenie usunięcia trasy liczy anulowane jako
-  „wróci do puli”; log odhaczenia zapisuje anulowane jako „niedostarczone”; testy UI to testy tekstu źródła (brak runnera JS).
+  testach Konrada; komunikat „na pozycji N z M” liczy anulowane; log odhaczenia zapisuje anulowane jako „niedostarczone”;
+  testy UI to testy tekstu źródła (brak runnera JS). (Potwierdzenie usunięcia trasy liczące anulowane — naprawione
+  w rundzie 4.1.)
+- Z rundy 4.1 (odłożone świadomie, szczegóły w `raporty-4-1\progress.md`):
+  - komunikat po odhaczeniu (`logistics-routes.js` ok. `:3170–3180`) rozpoznaje anulowane po liście z okna — zamówienie
+    anulowane już PO wczytaniu okna zostanie opisane jako „wraca do puli” (rzadkie; poprawka wymaga zmiany kształtu
+    odpowiedzi `/complete`);
+  - pozostałe okna zakładki (poprawka adresu w `logistics.js`, „Odhacz jako wykonaną”, pojazd we Flocie) sprzątają stan
+    w zdarzeniu `close`, które w karcie w tle przychodzi dopiero po powrocie — bez widocznego skutku dla użytkownika,
+    ale „Odhacz” w `close` przerywa (abort) zapytanie w toku, jeśli okno zamknięto drugim Esc w trakcie zapisu;
+  - zmiana sposobu dostawy zamówienia z trasy przelicza zamknięcie dwa razy (idempotentnie; końcowe przeliczenie
+    maskuje pierwsze, więc test tej ścieżki nie wykryłby regresji); test UI dzieli ciało `hurtTrasa` po wcięciu (kruche
+    przy przeformatowaniu, ale błąd dałby czerwony test, nie fałszywie zielony).
 
 ## 5. Rozstrzygnięcia podjęte w trakcie (w kolejności; koszt, jeśli błędne)
 
@@ -177,8 +215,30 @@ Zalecenie (tak było na Windows):
 36. Fala końcowa także: odczyt bieżący zamówień po blokadzie, zmiana nazwy pojazdu pod blokadą, samonaprawa wiersza blokady, nazwa trasy w ZPL bez `^`/`~` (30 znaków), `delivered_order_ids` wymagane, zapytania zbiorcze po commicie, granice dat (dziś−1 rok … dziś+2 lata, ≤ 31 dni), cron otwiera zamknięte z przystankiem na aktywnej trasie, format dat RRRR-MM-DD (3.9 = 3.12) — koszt: kilkadziesiąt linii i testów.
 37. W oknie odhaczenia niespakowane i anulowane pola nieaktywne — koszt: nie da się „na siłę” oznaczyć niespakowanego.
 38. Kształt API dla anulowanych (`anulowane`, `pozycja` wśród aktywnych, `podsumowanie.anulowane`, `X-Routimo-Pominiete`, `niespakowane` w 409) — koszt: brak.
-39. Odłożone: hurtowe dodanie po zamknięciu okna (4.1) — koszt: rzadka irytacja.
+39. Odłożone: hurtowe dodanie po zamknięciu okna (4.1) — koszt: rzadka irytacja. **Zrobione 28.09 (43, 45).**
 40. Odłożone: anulowane zdjęte przy odhaczeniu wraca do puli do czasu crona (4.1) — koszt: do godziny zbędny wiersz.
+    **Zrobione 28.09 (42).**
+
+Runda 4.1 (28.09.2026):
+
+41. Mini-plan rundy (`2026-09-28-logistyka-etap-3-poprawki-4-1.md`, 2 zadania) zamiast planu od zera — źródłem zadań
+    była sekcja 4.1 — koszt: brak.
+42. Poprawka „anulowane zdjęte z trasy” w `routes.usun_przystanek` (wszyscy czterej wołający), nie tylko w pętli
+    `wykonaj` — spec 6.2 każe przeliczać zamknięcie po każdej zmianie, a ręczne zdjęcie i usunięcie trasy miały ten sam
+    błąd; `trasa=route` (świeża trasa spod blokady, bez dodatkowego odczytu przystanku) — koszt: jedno zbędne,
+    idempotentne przeliczenie przy zmianie sposobu dostawy.
+43. Zapis „Dodaj do trasy…” dokończony w tle: z zaznaczenia schodzą tylko dodane, fokus tylko gdy ginąłby z paskiem
+    hurtu; ścieżka z otwartym oknem bez zmian (I3) — koszt: w tle nieudane zostają zaznaczone (logistyk odznacza sam).
+44. Przegląd końcowy tej rundy = adwersaryjny przegląd zakresu rundy (`3eafac50..`) + oględziny 4.1; adwersaryjny
+    przegląd CAŁEJ gałęzi i pełne oględziny — na koniec następnej rundy (uwagi Konrada), żeby nie robić ich dwa razy —
+    koszt: pełny przegląd gałęzi przesunięty o jedną rundę, i tak przed jakimkolwiek merge.
+45. Tryb „w tle” okna „Dodaj do trasy…” nie polega na zdarzeniu `close` (Chromium: następna klatka animacji; karta
+    w tle — wcale): przełącza `cancel` bez możliwości anulowania w trakcie zapisu, koniec zapisu sprawdza
+    `dialogDodaj.open` i sprząta stan, spóźnione `close` przy ponownie otwartym oknie jest ignorowane — koszt:
+    kilkanaście linii JS.
+46. Teksty o anulowanych po zdjęciu z trasy (komunikat ręcznego zdjęcia, potwierdzenie usunięcia trasy) naprawione
+    w tej rundzie, bo po 42 mówiłyby nieprawdę; komunikat po odhaczeniu (anulowane rozpoznawane po liście z okna) —
+    odłożony (4.3) — koszt: rzadki mylący komunikat.
 
 ## 6. Lista wdrożenia (nic bez decyzji Konrada)
 1. Etap 1 (jest w tej gałęzi): **najpierw appka 1.7.0 (vc38) na wszystkich tabletach**, dopiero potem backend; wpis crontaba
@@ -218,13 +278,12 @@ Zalecenie (tak było na Windows):
 > `docs/superpowers/specs/2026-09-24-logistyka-rownolegla-trasy-design.md`.
 >
 > Sprawdź środowisko: `git fetch origin` (czy gałąź i `main` nie odjechały od stanu z sekcji 0), testy z katalogu worktree
-> `docker compose -p logistyka3 run --rm --no-deps app pytest tests/ -q -p no:cacheprovider` (oczekiwane 4695 passed,
+> `docker compose -p logistyka3 run --rm --no-deps app pytest tests/ -q -p no:cacheprovider` (oczekiwane 4704 passed,
 > 3 skipped), podglądy 127.0.0.1:5003 (dane testowe) i 127.0.0.1:5004 (kopia produkcji z 25.09) odpowiadają. Nie uruchamiaj
 > kodu gałęzi na roboczej bazie `woodpower_crm_local` (migracje nieodwracalne — sekcja 2).
 >
-> Potem popraw punkt 4.1 (anulowane zamówienie wracające do puli po odhaczeniu trasy + hurtowe „Dodaj do trasy…”
-> kończące się po zamknięciu okna). Moje uwagi z testów i **nowe rzeczy spoza planu** wypiszę w kolejnej wiadomości —
-> z nich zrobimy plan następnej rundy. Tryb subagent-driven (superpowers): przegląd po każdym zadaniu, na koniec
+> Punkt 4.1 jest zrobiony (28.09, sekcja 4.1). Moje uwagi z testów i **nowe rzeczy spoza planu** wypiszę w kolejnej
+> wiadomości — z nich zrobimy plan następnej rundy; po niej adwersaryjny przegląd całej gałęzi (sekcja 5, pkt 44). Tryb subagent-driven (superpowers): przegląd po każdym zadaniu, na koniec
 > adwersaryjny przegląd całej gałęzi i oględziny UI na kopii danych. Subagenci tylko we wbudowanej przeglądarce
 > (`mcp__Claude_Browser__*`) — nigdy mój Chrome ani `chrome.exe`, nigdy produkcja, bez pobierania plików. Po zmianach kodu
 > odświeżaj kod podglądów (sekcja 0). Commity Conventional Commits po polsku (scope `production`), dokument przekazania
