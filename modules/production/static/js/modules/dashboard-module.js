@@ -195,6 +195,9 @@ class DashboardModule {
                 if (data.data.in_production) {
                     this.updateInProductionWidget(data.data.in_production);
                 }
+                // Runda 2 logistyki (D6): pasek „Logistyka: N bez sposobu dostawy” pod pipeline'em
+                // odświeża się razem z dashboardem (np. po synchronizacji z Base.), nie tylko przy renderze.
+                this.updateLogisticsPending(data.data.logistics_pending);
             }
         });
 
@@ -2307,6 +2310,21 @@ class DashboardModule {
         this.updateElementText('in-production-items', data.items || 0);
         this.updateElementText('in-production-products', data.products || 0);
         this.updateElementText('in-production-m3', data.m3 || 0);
+    }
+
+    /**
+     * Pasek logistyki pod pipeline'em (runda 2 logistyki, D6): liczba otwartych zamówień bez
+     * sposobu dostawy i stan spokoju przy zerze — ten sam element i ta sama klasa
+     * il-logistyka--spokoj co w szablonie (dashboard-tab-content.html). Brak liczby (serwer jej
+     * nie policzył, _safe_logistyka_bez_sposobu) zostawia ostatnią, zamiast pokazać zero.
+     */
+    updateLogisticsPending(liczba) {
+        if (typeof liczba !== 'number' || !Number.isFinite(liczba)) return;
+        const el = document.getElementById('logistics-pending');
+        if (!el) return;
+        el.textContent = String(liczba);
+        const pasek = el.closest('.il-logistyka');
+        if (pasek) pasek.classList.toggle('il-logistyka--spokoj', liczba === 0);
     }
 
     updateStationTabletStatus(station, tabletStatus) {

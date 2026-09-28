@@ -737,6 +737,16 @@ class ProductionApp {
     }
 
     handleKeyboardShortcuts(event) {
+        // Otwarte okno modalne (<dialog> przez showModal(), np. poprawka adresu w Logistyce) robi
+        // resztę strony nieaktywną (inert). Skrót przełączyłby zakładkę i schował okno razem z nią:
+        // okna nie widać, ale dalej jest modalne, więc strona przestaje reagować na kliknięcia
+        // (także pasek zakładek i menu boczne). Przy otwartym oknie skróty zakładek nie działają.
+        if (document.querySelector('dialog:modal')) return;
+        // W polu edycyjnym (adres, wyszukiwarka, select) klawisze należą do pola — skrót nie
+        // przełącza zakładki spod ręki.
+        const cel = event.target;
+        if (cel && typeof cel.closest === 'function' &&
+            cel.closest('input, textarea, select, [contenteditable]')) return;
         // Tab navigation shortcuts (Ctrl+1, Ctrl+2, etc.)
         // Kolejność = kolejność przycisków w pasku zakładek (bez Pracowników).
         // Logistyka weszła przed Trakownię, więc zakres rośnie do Ctrl+7 —

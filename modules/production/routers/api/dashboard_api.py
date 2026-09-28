@@ -198,6 +198,24 @@ def _safe_obsada():
         return {}
 
 
+def _safe_logistyka_bez_sposobu():
+    """
+    Pasek „Logistyka: N bez sposobu dostawy” pod pipeline'em przy CYKLICZNYM odświeżaniu
+    dashboardu (runda 2 logistyki, D6) — ta sama funkcja co przy renderze zakładki
+    (lista_logistyki.liczba_bez_sposobu). Ten sam wzorzec osłony co _safe_sawmill_stats():
+    pasek jest dodatkiem do odświeżenia, więc błąd licznika daje None (front zostawia ostatnią
+    liczbę), a nie 500 dla kafelków wszystkich stanowisk.
+    """
+    from modules.production.logistics.services import lista as lista_logistyki
+    try:
+        return lista_logistyki.liczba_bez_sposobu()
+    except Exception as e:
+        logger.warning("Nie udało się policzyć zamówień bez sposobu dostawy", extra={
+            'error': str(e)
+        })
+        return None
+
+
 # ============================================================================
 # DASHBOARD STATS
 # ============================================================================
@@ -1259,6 +1277,8 @@ def dashboard_data():
             'alerts': alerts_data,
             'in_production': in_production_stats,
             'errors_count': errors_24h,
+            # Pasek logistyki pod pipeline'em odświeża się razem z dashboardem (runda 2, D6).
+            'logistics_pending': _safe_logistyka_bez_sposobu(),
             'timestamp': get_local_now().isoformat()
         }
 
