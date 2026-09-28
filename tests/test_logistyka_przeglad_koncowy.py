@@ -14,7 +14,7 @@ from extensions import db
 from modules.production.logistics import sposoby as s
 from modules.production.logistics.models import LogisticsLog, OrderGeo
 from modules.production.logistics.services import (
-    bl_sync, delivery, geocoding, routes, routing,
+    bl_sync, delivery, geocoding, routes, routimo, routing,
 )
 from modules.production.models import ProductionOrder
 from tests.logistyka_fixtures import BASE, app, client, zamowienie  # noqa: F401
@@ -307,3 +307,76 @@ def test_m11_trasa_usunieta_po_zapisie_przebiegu_to_404(client, app, monkeypatch
 
     monkeypatch.setattr(routing, 'przelicz', przelicz)
     _sprawdz_404(client.get(BASE + '/routes/%d' % rid))
+
+
+# ── M9 i M10: eksport trasy do Routimo ──────────────────────────────────────
+
+KOL_KRAJ = routimo.NAGLOWKI.index('Kraj')
+KOL_REGION = routimo.NAGLOWKI.index('Region')
+KOL_SZEROKOSC = routimo.NAGLOWKI.index('Szerokość geograficzna')
+KOL_DLUGOSC = routimo.NAGLOWKI.index('Długość geograficzna')
+
+
+def _zatwierdzona_trasa(*zamowienia):
+    trasa = routes.utworz({'name': 'Eksport', 'date_from': '2026-10-01'})
+    wynik = routes.dodaj_przystanki(trasa, [o.id for o in zamowienia])
+    assert wynik['bledy'] == []
+    routes.zatwierdz(trasa)
+    db.session.commit()
+    return trasa
+
+
+def _do_trasy(kod, **kolumny):
+    order = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane',), **kolumny)
+    order.delivery_postcode = kod
+    db.session.commit()
+    return order
+
+
+def test_m9_region_i_kraj_w_routimo(app):
+    """M9: Region z polskiej mapy kodów tylko dla Polski (także „ pl” i pustego kraju);
+    niemiecki 35394 dawał „Podkarpackie”. Kraj z Base. bez odstępów."""
+    with app.app_context():
+        pl = _do_trasy('35-064', delivery_country_code='PL')
+        pl_odstep = _do_trasy('35-064', delivery_country_code=' pl')
+        bez_kraju = _do_trasy('35-064', delivery_country_code=None)
+        de = _do_trasy('35394', delivery_country_code='DE')
+        de_odstep = _do_trasy('35394', delivery_country_code=' de ')
+        trasa = _zatwierdzona_trasa(pl, pl_odstep, bez_kraju, de, de_odstep)
+        wiersze = {w[2]: w for w in routimo.wiersze_trasy(trasa)}
+        region_pl = wiersze[pl.baselinker_order_id][KOL_REGION]
+        assert region_pl   # 35-064 (Rzeszów) — region z mapy kodów
+        for order in (pl, pl_odstep, bez_kraju):
+            wiersz = wiersze[order.baselinker_order_id]
+            assert (wiersz[KOL_KRAJ], wiersz[KOL_REGION]) == ('Polska', region_pl)
+        for order in (de, de_odstep):
+            wiersz = wiersze[order.baselinker_order_id]
+            assert (wiersz[KOL_KRAJ], wiersz[KOL_REGION]) == ('DE', '')
+
+
+def _wspolrzedne(wiersz):
+    return wiersz[KOL_SZEROKOSC], wiersz[KOL_DLUGOSC]
+
+
+def test_m10_wspolrzedne_tylko_dla_biezacego_adresu(app):
+    """M10: adres zmieniony w Base. wraca synchronizacją, a punkt geokodera ma stary skrót
+    do najbliższego udanego przebiegu — stare współrzędne wysłałyby kierowcę pod stary
+    adres. Przy niezgodnym skrócie komórki puste (Routimo geokoduje adres z wiersza)."""
+    with app.app_context():
+        zgodny = _do_trasy('31-021')
+        stary_auto = _do_trasy('31-021')
+        stary_reczny = _do_trasy('31-021')
+        db.session.add(OrderGeo(order_id=zgodny.id, lat=50.061, lng=19.937, source='gugik',
+                                quality='dokladna', address_hash=geocoding.skrot_adresu(zgodny)))
+        for order, zrodlo in ((stary_auto, 'gugik'), (stary_reczny, 'reczna')):
+            skrot_sprzed_zmiany = geocoding.skrot_adresu(order)
+            order.delivery_address = 'ul. Przeniesiona 7'   # nowy adres z synchronizacji Base.
+            db.session.add(OrderGeo(order_id=order.id, lat=50.07, lng=19.95, source=zrodlo,
+                                    quality='dokladna', address_hash=skrot_sprzed_zmiany,
+                                    address_changed_after_manual=False))
+        db.session.commit()
+        trasa = _zatwierdzona_trasa(zgodny, stary_auto, stary_reczny)
+        wiersze = {w[2]: w for w in routimo.wiersze_trasy(trasa)}
+        assert _wspolrzedne(wiersze[zgodny.baselinker_order_id]) == (50.061, 19.937)
+        assert _wspolrzedne(wiersze[stary_auto.baselinker_order_id]) == ('', '')
+        assert _wspolrzedne(wiersze[stary_reczny.baselinker_order_id]) == ('', '')

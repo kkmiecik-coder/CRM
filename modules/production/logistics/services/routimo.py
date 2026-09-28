@@ -107,16 +107,21 @@ def _zamowienia_trasy_z_produktami(route):
     return [po_id[i] for i in ids if i in po_id]
 
 
-def wspolrzedne_dla_routimo(punkt):
+def wspolrzedne_dla_routimo(punkt, order):
     """
     (I4) (szerokość, długość) albo ('', '') — współrzędne tylko punktu DOKŁADNEGO, przy
     którym adres nie zmienił się po ręcznym ustawieniu pinezki. Routimo przedkłada
     współrzędne nad adres: punkt przybliżony (środek miejscowości) albo ręczny punkt
     sprzed zmiany adresu wysłałby kierowcę w złe miejsce. Puste komórki — Routimo sam
     geokoduje adres z wiersza.
+
+    (M10) Także gdy skrót adresu punktu nie zgadza się z bieżącym adresem zamówienia:
+    adres zmieniony w Base. wraca synchronizacją, a punkt ma stary skrót do najbliższego
+    udanego przebiegu geokodera (cron co godzinę, przy awarii usług dłużej).
     """
     if (punkt is None or punkt.lat is None or punkt.lng is None
-            or punkt.quality != 'dokladna' or punkt.address_changed_after_manual):
+            or punkt.quality != 'dokladna' or punkt.address_changed_after_manual
+            or punkt.address_hash != geocoding.skrot_adresu(order)):
         return '', ''
     return float(punkt.lat), float(punkt.lng)
 
@@ -142,14 +147,19 @@ def przygotuj_eksport(route):
         dom, mieszkanie, ulica = extract_house_and_apartment_number(order.delivery_address or '')
         m3 = sum(float(p.volume_m3 or 0) * (p.quantity or 1) for p in aktywne)
         wartosc = sum(float(p.total_value_net or 0) for p in aktywne)
-        szerokosc, dlugosc = wspolrzedne_dla_routimo(punkty.get(order.id))
-        kraj = (order.delivery_country_code or 'PL').upper()
+        szerokosc, dlugosc = wspolrzedne_dla_routimo(punkty.get(order.id), order)
+        # (M9) Kraj z Base. bywa z odstępem („ pl”) — jak w geokoderze strip + upper, pusty =
+        # Polska. Region z polskiej mapy kodów tylko dla Polski: niemiecki 35394 dawał
+        # „Podkarpackie”.
+        kraj = (order.delivery_country_code or '').strip().upper() or 'PL'
+        region = (PostcodeToStateMapper.get_state_from_postcode(order.delivery_postcode or '') or ''
+                  if kraj == 'PL' else '')
         wiersze.append([
             order.client_name or '', order.client_name or '', order.baselinker_order_id,
             order.internal_order_number or '', '', ulica, dom, mieszkanie,
             order.delivery_postcode or '', order.delivery_city or '',
             'Polska' if kraj == 'PL' else kraj,
-            PostcodeToStateMapper.get_state_from_postcode(order.delivery_postcode or '') or '',
+            region,
             order.client_phone or '', '', order.client_email or '', '', '', '', '', '',
             route.date_from.isoformat(), '', pojazd, '',
             sum(int(p.quantity or 0) for p in aktywne), round(m3, 3),
