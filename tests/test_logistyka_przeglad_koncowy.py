@@ -209,6 +209,29 @@ def test_m3_hurt_odmowa_przesylki_w_bledach_reszta_zmieniona(client, app):
         assert ProductionOrder.query.get(ok).override_delivery_method == s.ODBIOR
 
 
+def test_m3_pierwsze_ustawienie_sposobu_przy_przesylce_i_niespakowanym_przechodzi(app):
+    """rereview „New Breakage": stare zamówienie z polami przesyłki (dawna stacja
+    wysyłki, sprzed 11.08) wróciło do produkcji bez sposobu dostawy (stary=None) —
+    M3 nie może blokować PIERWSZEGO ustawienia, bo utknęłoby na zawsze (tablet żąda
+    sposobu, panel odmawia go ustawić)."""
+    with app.app_context():
+        order = zamowienie(sposob=None, statusy=('czeka_na_pakowanie',), shipping_package_id=555)
+        wynik = delivery.ustaw_sposob_dostawy(order, s.KURIER)
+        assert wynik == {'zmieniono': True, 'przepakowanie': False, 'usunieto_z_trasy': None}
+        assert order.override_delivery_method == s.KURIER
+
+
+def test_m3_pierwsze_ustawienie_sposobu_przy_przesylce_i_spakowanym_to_dalej_409(app):
+    """Towar w całości spakowany przy polach przesyłki — przesyłka mogła już pojechać,
+    M3 odmawia jak dotąd."""
+    with app.app_context():
+        order = zamowienie(sposob=None, statusy=('spakowane',), shipping_package_id=555)
+        with pytest.raises(delivery.LogistykaBlad) as blad:
+            delivery.ustaw_sposob_dostawy(order, s.KURIER)
+        assert blad.value.status == 409 and KOMUNIKAT_PRZESYLKI in blad.value.komunikat
+        assert order.override_delivery_method is None
+
+
 # ── M6: ogromna liczba we współrzędnych pinezki ─────────────────────────────
 
 @pytest.mark.parametrize('cialo', [{'lat': 10 ** 400, 'lng': 20},

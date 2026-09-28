@@ -213,7 +213,14 @@ def ustaw_sposob_dostawy(order, sposob, user_id=None, teraz=None):
     # (M3) Przesyłka już utworzona (kurier mógł ją odebrać) — zmiana sposobu wysłałaby do
     # Base. status nowego sposobu (np. 149777 „Czeka na odbiór”) zamiast statusu wysyłki.
     # Jak adres (zmien_adres). Po porównaniu bez zmian: ten sam sposób zostaje no-opem.
-    if order.shipping_package_id or order.shipping_tracking_number:
+    # (rereview, „New Breakage”) Odmowa tylko, gdy jest co odwoływać: stary sposób już
+    # ustawiony (Base. dostał metodę dostawy do zmiany) albo towar w całości spakowany
+    # (przesyłka mogła już pojechać). PIERWSZE ustawienie (stary=None) przy niespakowanym
+    # towarze przechodzi — inaczej stare zamówienie z polami przesyłki po dawnej stacji
+    # wysyłki (sprzed 11.08), które wróciło do produkcji bez sposobu dostawy, utykałoby na
+    # zawsze: tablet żąda sposobu (409 delivery_method_not_set), a panel odmawiałby go ustawić.
+    if (order.shipping_package_id or order.shipping_tracking_number) and (
+            stary is not None or wszystkie_spakowane(order)):
         raise LogistykaBlad(u'Zamówienie {} ma już utworzoną przesyłkę — sposób dostawy zmień '
                             u'u kuriera i w Base.'.format(order.internal_order_number))
 
