@@ -61,7 +61,9 @@ z raportami przeglądów) zniknął razem z usuniętym worktree; raporty oględz
   wbudowana przeglądarka z kartą w tle / schowanym panelem nie ma klatek animacji — `requestAnimationFrame` i zdarzenie
   `close` okien `<dialog>` nie przychodzą (Chromium wysyła `close` w następnej klatce). Scenariusze zależne od `close`
   sprawdzaj pomiarem zdarzeń, nie samym efektem.
-- Raporty rundy 2 (`…\cea01798-4898-4fcf-9c72-c6856d824d42\scratchpad\raporty-r2\`): `progress.md` (ledger: przebieg,
+- Raporty rundy 2 leżą w worktree, w katalogu ignorowanym przez git:
+  `.superpowers\sdd\2026-09-28-logistyka-runda-2-uwagi\` (**zniknie razem z worktree** — przed usunięciem worktree
+  przenieś go ręcznie, jeśli raporty mają zostać; w sekcji 4.3 skrót `raporty-r2\` oznacza ten katalog): `progress.md` (ledger: przebieg,
   rozstrzygnięcia, odłożone drobiazgi), `final-review-backend.md` i `final-review-frontend.md` (adwersaryjne przeglądy
   CAŁEJ gałęzi, `main...80c8fd9d`), `fix-backend-rereview.md`, `fix-frontend-rereview.md`, `ogledziny-r2.md` (7/7 PASS),
   przeglądy zadań `task-*-review.md`. Skrypty kontrolera w kodzie podglądu (`…\podglad-prod\kod`, poza gitem, więc
@@ -422,7 +424,8 @@ Runda 2 (28.09.2026, uwagi Konrada po testach):
   `…\cea01798-…\scratchpad\prod\crm_dump_2026-09-28.sql.gz` i `…_1135.sql.gz` oraz kopie
   `…\cea01798-…\scratchpad\kopie\woodpower_crm_local_przed_2026-09-28.sql.gz` i `logistyka3_prod_przed_2026-09-28.sql.gz`
   — usuń ręcznie; razem z nimi całe katalogi scratchpadów sesji
-  `320e7d76-…` (kody podglądów, archiwa `kod.tar`, raporty) i `cea01798-…` (raporty rund 4.1 i 2, logi testów).
+  `320e7d76-…` (kody podglądów, archiwa `kod.tar`, raporty) i `cea01798-…` (raporty rundy 4.1, logi testów).
+  Raporty rundy 2 są w worktree (`.superpowers\sdd\2026-09-28-logistyka-runda-2-uwagi\`) i znikną z nim.
 - `C:\Users\Grafik\Downloads\routimo_krakow_2026-09-29.xlsx` (2 B, plik testowy) — nadal leży, usuń ręcznie.
 - Kopia konfiguracji na serwerze przed wpisaniem klucza CARTO: `config/core.json.bak-20260925-carto` (600).
 
