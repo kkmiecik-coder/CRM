@@ -42,7 +42,7 @@ def test_opcje_z_mapy_raportow():
 def test_prefiksy_zgodne_z_mapa_raportow():
     """Jedno źródło prawdy: każdy prefiks 00–99 ma to samo województwo co Region w Routimo
     (`wojewodztwa.prefiksy()` to zakresy dwucyfrowe bez wyjątków trzycyfrowych — sufiks '-700'
-    dobrany tak, żeby żaden z 20 wyjątków w POSTCODE_OVERRIDES go nie przechwycił; wyjątki
+    dobrany tak, żeby żaden z 21 wyjątków w POSTCODE_OVERRIDES go nie przechwycił; wyjątki
     trzycyfrowe ma osobny test niżej i tests/test_reports_mapa_kodow.py)."""
     for n in range(100):
         kod = '%02d-700' % n
@@ -176,7 +176,7 @@ def test_rownowaznosc_sql_i_pythona_dla_wyjatkow_trzycyfrowych(app):
 
     Pelne 1000 zamowien (jeden na kazdy p3 '000'..'999') w tej fixture jest za wolne (osobny
     commit na zamowienie w app.zamowienie() + w _z() — ponad 20 s w kontenerze), wiec zgodnie z
-    briefem uzywamy co trzeciego p3 PLUS wszystkich 20 wyjatkow z POSTCODE_OVERRIDES i ich
+    briefem uzywamy co trzeciego p3 PLUS wszystkich 21 wyjatkow z POSTCODE_OVERRIDES i ich
     sasiadow (p3-1, p3+1 — pilnuje granic miedzy wyjatkiem a domyslnym zakresem), plus kilku
     kodow dwucyfrowych i pustych/smieciowych."""
     with app.app_context():

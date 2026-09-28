@@ -64,6 +64,7 @@ def test_dotychczasowe_luki_i_przestawienia(kod, oczekiwane):
     ('89-600', 'Pomorskie'),               # Chojnice, Czersk
     ('96-300', 'Mazowieckie'),             # Zyrardow, Mszczonow
     ('96-500', 'Mazowieckie'),             # Sochaczew
+    ('38-300', 'Małopolskie'),             # Gorlice, Biecz, Bobowa
 ])
 def test_wyjatki_trzycyfrowe(kod, oczekiwane):
     assert PostcodeToStateMapper.get_state_from_postcode(kod) == oczekiwane
@@ -78,6 +79,7 @@ def test_wyjatki_trzycyfrowe(kod, oczekiwane):
     ('76-100', 'Zachodniopomorskie'),
     ('96-100', 'Łódzkie'),
     ('82-200', 'Pomorskie'),
+    ('38-400', 'Podkarpackie'),            # Krosno
 ])
 def test_sasiedzi_wyjatkow_zostaja_przy_domyslnym_prefiksie(kod, oczekiwane):
     assert PostcodeToStateMapper.get_state_from_postcode(kod) == oczekiwane

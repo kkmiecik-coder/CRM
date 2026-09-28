@@ -96,6 +96,7 @@ class PostcodeToStateMapper:
         '271': 'mazowieckie',          # Iłża
         '273': 'mazowieckie',          # Lipsko
         '343': 'śląskie',              # Żywiec
+        '383': 'małopolskie',          # Gorlice, Biecz, Bobowa
         '474': 'śląskie',              # Racibórz
         '672': 'dolnośląskie',         # Głogów
         '762': 'pomorskie',            # Słupsk, Ustka
