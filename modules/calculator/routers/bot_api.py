@@ -99,7 +99,7 @@ def bot_options():
         'shapes': ['rectangular', 'round', 'circle'],
         # Mnożnik marży dobiera KOD, nie bot i nie grupa cenowa. Próg rozstrzyga się
         # na cenie bazowej sztuki (mnożnik 1.0) i OSOBNO dla każdego wariantu drewna,
-        # więc ten sam blat bywa ×1.5 w buku i ×1.1 w dębie litym.
+        # więc ten sam blat bywa ×1.3 w buku i ×1.1 w dębie litym.
         # client_types niżej zostaje dla zgodności — na cenę wyceny bota nie wpływa.
         'auto_multiplier': {
             'prog_netto': AUTO_MULTIPLIER_PROG_NETTO,
@@ -158,7 +158,7 @@ def bot_calculate():
     payload = request.get_json(silent=True) or {}
 
     # Bot NIE wycenia wg grupy cenowej — mnożnik dobiera kod wg ceny bazowej
-    # KAŻDEGO wariantu (1.5 poniżej progu, 1.1 od progu). Domyślnie włączone,
+    # KAŻDEGO wariantu (1.3 poniżej progu, 1.1 od progu). Domyślnie włączone,
     # więc bot nie musi o tym wiedzieć ani niczego wysyłać.
     #
     # UWAGA: tego endpointu używa też SKLEP — re-kalkulacja wyceny na stronie

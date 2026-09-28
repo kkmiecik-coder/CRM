@@ -158,7 +158,9 @@ CENNIK_BOT = [
      'thickness_min': 3, 'thickness_max': 4, 'length_min': 20, 'length_max': 450,
      'width_min': 10, 'width_max': 120, 'price_per_m3': 100000.0},  # baza 1500
 ]
-DANE_BOT = PricingData(price_entries=CENNIK_BOT, multipliers={'Detal+': 1.3})
+# Grupa cenowa rozna od obu mnoznikow auto (1.3 / 1.1) — inaczej zgubiona flaga
+# auto przy zapisie dalaby te sama kwote i testy by tego nie zlapaly.
+DANE_BOT = PricingData(price_entries=CENNIK_BOT, multipliers={'Detal+': 1.4})
 
 
 def _produkt_bota(variant='dab-lity-ab'):
@@ -208,7 +210,7 @@ def test_cena_z_czatu_rowna_sie_cenie_zapisanej_wyceny():
 
     assert z_czatu['totals']['order_netto'] == z_zapisu['totals']['order_netto']
     assert z_czatu['totals']['total_brutto'] == z_zapisu['totals']['total_brutto']
-    assert abs(z_czatu['totals']['order_netto'] - 360.0) < 0.001   # 120*1.5*2 szt.
+    assert abs(z_czatu['totals']['order_netto'] - 312.0) < 0.001   # 120*1.3*2 szt.
 
 
 def test_wstrzykniecie_cen_zapisuje_mnoznik_per_wariant():
@@ -222,4 +224,4 @@ def test_wstrzykniecie_cen_zapisuje_mnoznik_per_wariant():
         DANE_BOT)
     _inject_backend_prices(produkty, calc)
     mnozniki = {v['variant_code']: v['multiplier'] for v in produkty[0]['variants']}
-    assert mnozniki == {'dab-lity-ab': 1.5, 'buk-lity-ab': 1.1}
+    assert mnozniki == {'dab-lity-ab': 1.3, 'buk-lity-ab': 1.1}

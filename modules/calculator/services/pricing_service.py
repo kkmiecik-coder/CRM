@@ -56,13 +56,13 @@ def custom_shape_surcharge_per_unit(shape, data):
 #
 # UWAGA, dlaczego próg liczymy na cenie BAZOWEJ (mnożnik 1.0), a nie końcowej:
 # gdyby zależał od ceny PO mnożniku, reguła zapętliłaby się w nieskończoność.
-# Baza 900 zł → ×1.5 = 1350 (powyżej progu, więc należy się ×1.1) → 990
-# (poniżej progu, więc znów ×1.5) → 1350 → ... Cena bazowa nie zależy od
+# Baza 900 zł → ×1.3 = 1170 (powyżej progu, więc należy się ×1.1) → 990
+# (poniżej progu, więc znów ×1.3) → 1170 → ... Cena bazowa nie zależy od
 # mnożnika, więc rozstrzyga jednoznacznie. Decyzja użytkownika z 2026-09-15.
 #
 # USKOK NA PROGU JEST ZAMIERZONY. Przełączenie mnożnika daje nieciągłość,
 # w której WIĘKSZY produkt bywa TAŃSZY. Na produkcyjnym cenniku (dąb lity B/B,
-# 90×4 cm): blat 198 cm = 1496,88 zł netto, blat 200 cm = 1108,80 zł.
+# 90×4 cm): blat 198 cm = 1297,30 zł netto, blat 200 cm = 1108,80 zł.
 #
 # Decyzja biznesowa 2026-09-15 (Konrad z prezesem): to NIE jest wada. Ceny liczone
 # są w arkuszu xlsx, a BaseLinker jest źródłem prawdy o cenach — reguła dwóch
@@ -72,10 +72,16 @@ def custom_shape_surcharge_per_unit(shape, data):
 # i wprowadzała regułę, której w arkuszu nie ma.
 #
 # Dwa zakresy:
-#   baza < 1000   → ×1.5   (999,99 → 1499,98)
+#   baza < 1000   → ×1.3   (999,99 → 1299,99)
 #   baza >= 1000  → ×1.1   (1000,00 → 1100,00)
+#
+# 2026-09-28: poniżej progu 1.3 zamiast 1.5. W cenniku 1.5 obowiązywało tylko
+# przez chwilę i wróciło do 1.3, a to miejsce zostało przy 1.5 — sklep i Dębuś
+# liczyli tańsze produkty drożej niż katalog Base. Porównanie z katalogiem:
+# przy 1.3 zgadza się co do grosza 4469 z 4679 surowych produktów poniżej progu
+# (reszta to parapety dębowe lite 4 cm — inna stawka za m³, nie mnożnik).
 AUTO_MULTIPLIER_PROG_NETTO = 1000.0
-AUTO_MULTIPLIER_PONIZEJ_PROGU = 1.5
+AUTO_MULTIPLIER_PONIZEJ_PROGU = 1.3
 AUTO_MULTIPLIER_OD_PROGU = 1.1
 
 
@@ -86,7 +92,7 @@ def auto_multiplier_for_base(base_netto):
     liczymy jako "od progu"; użytkownik określił regułę jako "<1k" i ">1k",
     sama równość nie była objęta.
 
-    UWAGA: tuż nad progiem cena POTRAFI SPAŚĆ (999,99 zł bazy → 1499,99 zł,
+    UWAGA: tuż nad progiem cena POTRAFI SPAŚĆ (999,99 zł bazy → 1299,99 zł,
     1000 zł bazy → 1100 zł), więc szerszy produkt bywa tańszy od węższego.
     Jest to świadomie zaakceptowane (decyzja biznesowa 2026-09-15) — Base jest
     źródłem prawdy o cenach. Wcześniejsze "plateau" spłaszczało ten uskok do
@@ -410,7 +416,7 @@ def calculate_material_variants(product, multiplier, data, auto_multiplier=False
 
     auto_multiplier=True (wyceny bota) ignoruje `multiplier` z grupy cenowej
     i dobiera mnożnik OSOBNO DLA KAŻDEGO WARIANTU, wg jego własnej ceny bazowej.
-    Ten sam blat może więc wyjść ×1.5 w buku i ×1.1 w dębie litym — tak ma być,
+    Ten sam blat może więc wyjść ×1.3 w buku i ×1.1 w dębie litym — tak ma być,
     próg dotyczy wartości konkretnego wariantu, nie produktu w ogóle.
     """
     length = float(product['length'])

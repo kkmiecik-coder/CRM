@@ -40,8 +40,8 @@ BOT_USER_ID = 1
 
 # 1,00 x 0,50 x 0,03 m = 0,015 m3 x 8200 zl = 123 zl bazy netto (ponizej progu 1000).
 CENA_ZA_M3 = 8200
-MNOZNIK_GRUPY = 1.3           # "Detal+"
-AUTO_UNIT_NETTO = 123.0 * 1.5     # tryb automatyczny: ponizej progu
+MNOZNIK_GRUPY = 1.4           # "Detal+" — rozny od auto, inaczej tryby sie nie odroznia
+AUTO_UNIT_NETTO = 123.0 * 1.3     # tryb automatyczny: ponizej progu
 GRUPA_UNIT_NETTO = 123.0 * MNOZNIK_GRUPY
 
 
@@ -154,7 +154,7 @@ def test_quotes_bez_flagi_dalej_liczy_automatycznie(app, client):
     assert body['ok'] is True, body
     with app.app_context():
         pozycja = _zapisana_pozycja(body['quote_id'])
-        assert abs(float(pozycja.multiplier) - 1.5) < 0.01
+        assert abs(float(pozycja.multiplier) - 1.3) < 0.01
         assert abs(float(pozycja.price_netto) - AUTO_UNIT_NETTO) < 0.01
         # Tryb auto: jedna wartosc dla calej wyceny nie istnieje (kontrakt, sekcja 0)
         assert Quote.query.get(body['quote_id']).quote_multiplier is None
@@ -218,4 +218,4 @@ def test_put_bez_flagi_dalej_liczy_automatycznie(app, client):
     body = resp.get_json()
     assert body['ok'] is True, body
     with app.app_context():
-        assert abs(float(_zapisana_pozycja(body['quote_id']).multiplier) - 1.5) < 0.01
+        assert abs(float(_zapisana_pozycja(body['quote_id']).multiplier) - 1.3) < 0.01

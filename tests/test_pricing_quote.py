@@ -130,7 +130,9 @@ CENNIK_PROG = [
      'thickness_min': 3, 'thickness_max': 4, 'length_min': 20, 'length_max': 450,
      'width_min': 10, 'width_max': 120, 'price_per_m3': 100000.0},  # 0.015 m³ -> baza 1500
 ]
-DATA_PROG = PricingData(price_entries=CENNIK_PROG, multipliers={'Detal+': 1.3},
+# Grupa cenowa celowo rozna od obu mnoznikow auto (1.3 / 1.1) — inaczej testy
+# trybu nie odroznia, ktory mnoznik zadzialal. 1.4 = Detal+ z produkcji.
+DATA_PROG = PricingData(price_entries=CENNIK_PROG, multipliers={'Detal+': 1.4},
                         edge_prices={'round': {'per_mb': 15.0, 'per_corner': 5.0}})
 
 
@@ -143,19 +145,19 @@ def _payload_prog(**kw):
 
 
 def test_prog_mnoznika_na_cenie_bazowej():
-    assert auto_multiplier_for_base(999.99) == 1.5
-    assert auto_multiplier_for_base(0.0) == 1.5
+    assert auto_multiplier_for_base(999.99) == 1.3
+    assert auto_multiplier_for_base(0.0) == 1.3
     # od progu w gore dziala mnoznik docelowy
     assert auto_multiplier_for_base(2000.0) == 1.1
     assert auto_multiplier_for_base(1500.0) == 1.1
 
 
 def test_mnoznik_ma_dokladnie_dwa_pasma():
-    """Cennik (xlsx Konrada -> Base) zna tylko dwa mnozniki: 1.5 i 1.1.
+    """Cennik (xlsx Konrada -> Base) zna tylko dwa mnozniki: 1.3 i 1.1.
     Zadnej wartosci posredniej byc nie moze — inaczej CRM liczy wg reguly,
     ktorej w cenniku nie ma, i rozjezdza sie z katalogiem sklepu."""
     for baza in (0.0, 1.0, 500.0, 999.99):
-        assert auto_multiplier_for_base(baza) == 1.5, baza
+        assert auto_multiplier_for_base(baza) == 1.3, baza
     for baza in (1000.0, 1100.0, 1200.0, 1363.0, 1400.0, 3000.0):
         assert auto_multiplier_for_base(baza) == 1.1, baza
 
@@ -175,7 +177,7 @@ def test_cena_moze_spasc_na_progu_i_jest_to_ZAMIERZONE():
     na_progu = 1000.0 * auto_multiplier_for_base(1000.0)
 
     assert tuz_ponizej_progu > na_progu, 'uskok zniknal — czy plateau wrocilo?'
-    assert abs(tuz_ponizej_progu - 1499.985) < 0.001
+    assert abs(tuz_ponizej_progu - 1299.987) < 0.001
     assert abs(na_progu - 1100.0) < 0.001
 
 
@@ -185,7 +187,7 @@ def test_cena_to_zawsze_baza_razy_mnoznik_z_cennika():
     z dwoch mnoznikow. Nic po drodze nie ma prawa tego modyfikowac."""
     baza = 1.0
     while baza <= 3000.0:
-        oczekiwany = 1.5 if baza < 1000.0 else 1.1
+        oczekiwany = 1.3 if baza < 1000.0 else 1.1
         assert abs(baza * auto_multiplier_for_base(baza) - baza * oczekiwany) < 1e-9, baza
         baza += 0.5
 
@@ -206,7 +208,7 @@ def test_zapisany_mnoznik_odtwarza_cene_pozycji():
 
 def test_mnoznik_miesci_sie_w_kolumnie_bez_straty():
     """QuoteItem.multiplier to Numeric(5,2), czyli DWA miejsca po przecinku.
-    Skoro mnoznik jest zawsze 1.5 albo 1.1, zapis jest bezstratny i odtworzona
+    Skoro mnoznik jest zawsze 1.3 albo 1.1, zapis jest bezstratny i odtworzona
     cena zgadza sie co do grosza.
 
     Plateau tego nie mialo: przy bazie 1200 dawalo 1.2501, baza zapisywala 1.25,
@@ -220,15 +222,15 @@ def test_mnoznik_miesci_sie_w_kolumnie_bez_straty():
         baza += 0.5
 
 
-def test_tanszy_produkt_dostaje_15_drozszy_11():
+def test_tanszy_produkt_dostaje_13_drozszy_11():
     r = calculate_quote(_payload_prog(), DATA_PROG)
     assert r['ok'] is True
     warianty = {v['variant_code']: v for v in r['products'][0]['variants'] if v.get('available')}
 
     tani = warianty['dab-lity-ab']       # baza 120 zl -> ponizej progu
     assert tani['base_unit_netto'] == 120.0
-    assert tani['multiplier'] == 1.5
-    assert abs(tani['unit_netto'] - 180.0) < 0.001
+    assert tani['multiplier'] == 1.3
+    assert abs(tani['unit_netto'] - 156.0) < 0.001
 
     drogi = warianty['buk-lity-ab']      # baza 1200 zl -> od progu
     assert drogi['base_unit_netto'] == 1500.0
@@ -240,13 +242,13 @@ def test_mnoznik_dobierany_per_wariant_a_nie_per_produkt():
     # ten sam produkt, dwa warianty, DWA rozne mnozniki w jednej odpowiedzi
     r = calculate_quote(_payload_prog(), DATA_PROG)
     uzyte = {v['multiplier'] for v in r['products'][0]['variants'] if v.get('available')}
-    assert uzyte == {1.5, 1.1}
+    assert uzyte == {1.3, 1.1}
 
 
 def test_grupa_cenowa_nie_wplywa_na_cene_bota():
-    # Detal+ (1.3) vs Hurt (1.1) — w trybie auto cena MUSI byc identyczna
+    # Detal+ (1.4) vs Hurt (1.1) — w trybie auto cena MUSI byc identyczna
     dane = PricingData(price_entries=CENNIK_PROG,
-                       multipliers={'Detal+': 1.3, 'Hurt': 1.1},
+                       multipliers={'Detal+': 1.4, 'Hurt': 1.1},
                        edge_prices={'round': {'per_mb': 15.0, 'per_corner': 5.0}})
     a = calculate_quote(_payload_prog(), dane)
     p = _payload_prog()
@@ -269,20 +271,20 @@ def test_bez_flagi_dziala_po_staremu_grupa_cenowa():
     p['auto_multiplier'] = False
     r = calculate_quote(p, DATA_PROG)
     tani = next(v for v in r['products'][0]['variants'] if v['variant_code'] == 'dab-lity-ab')
-    assert tani['multiplier'] == 1.3                  # Detal+, nie 1.5
+    assert tani['multiplier'] == 1.4                  # Detal+, nie 1.3 z trybu auto
     assert r['multiplier_mode'] == 'client_type'
 
 
 def test_doplaty_doliczane_po_dobranym_mnozniku():
     # dopłata za kształt nietypowy NIE wchodzi do bazy, od ktorej liczy sie prog
-    dane = PricingData(price_entries=CENNIK_PROG, multipliers={'Detal+': 1.3},
+    dane = PricingData(price_entries=CENNIK_PROG, multipliers={'Detal+': 1.4},
                        edge_prices={'round': {'per_mb': 15.0, 'per_corner': 5.0}},
                        custom_shape_surcharge_netto=120.0)
     r = calculate_quote(_payload_prog(shape='polygon'), dane)
     tani = next(v for v in r['products'][0]['variants'] if v['variant_code'] == 'dab-lity-ab')
     assert tani['base_unit_netto'] == 120.0           # baza bez doplaty
-    assert tani['multiplier'] == 1.5
-    assert abs(tani['unit_netto'] - 300.0) < 0.001    # 120*1.5 + 120
+    assert tani['multiplier'] == 1.3
+    assert abs(tani['unit_netto'] - 276.0) < 0.001    # 120*1.3 + 120
 
 
 def test_jawne_wylaczenie_trybu_auto_wraca_do_grupy_cenowej():
@@ -292,5 +294,5 @@ def test_jawne_wylaczenie_trybu_auto_wraca_do_grupy_cenowej():
     p['auto_multiplier'] = False
     r = calculate_quote(p, DATA_PROG)
     tani = next(v for v in r['products'][0]['variants'] if v['variant_code'] == 'dab-lity-ab')
-    assert tani['multiplier'] == 1.3
+    assert tani['multiplier'] == 1.4
     assert r['multiplier_mode'] == 'client_type'

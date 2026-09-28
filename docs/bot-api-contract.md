@@ -20,24 +20,31 @@ Modułowi **nie wolno** przechowywać ani wyliczać samodzielnie:
 | Czego nie duplikować | Skąd to brać |
 |---|---|
 | mnożnik marży / grupa cenowa | `/calculate` → `variants[].multiplier` (już wliczony w ceny) |
-| próg 1000 zł i stawki 1.5 / 1.1 | `/options` → `auto_multiplier` (tylko do wyświetlenia) |
+| próg 1000 zł i stawki 1.3 / 1.1 | `/options` → `auto_multiplier` (tylko do wyświetlenia) |
 | cena za m³, pasma wymiarów | `/calculate`; zakresy poglądowo w `/options` → `variants[]` |
 | dopłaty (koło, kształt nietypowy, wycięcia) | wliczone w `variants[].unit_netto` |
 | ceny wykończeń i krawędzi | `/calculate` → `finishing`, `edges` |
 | VAT, zaokrąglanie do groszy | `/calculate`; nie przeliczaj brutto samodzielnie |
 
-**Jak dobierany jest mnożnik (stan na 2026-09-15).** Domyślnie dobiera go CRM,
+**Jak dobierany jest mnożnik (stan na 2026-09-28).** Domyślnie dobiera go CRM,
 osobno dla **każdego wariantu drewna**, na podstawie ceny bazowej sztuki
 (objętość × cena za m³, bez mnożnika i bez dopłat). Dwa zakresy:
 
-- baza **poniżej 1000 zł netto** → mnożnik **1.5**
+- baza **poniżej 1000 zł netto** → mnożnik **1.3**
 - baza **od 1000 zł netto** w górę → mnożnik **1.1**
 
 Próg liczy się na cenie bazowej, a nie końcowej, bo inaczej reguła zapętliłaby się
-(baza 900 → ×1.5 = 1350, czyli powyżej progu, więc ×1.1 → 990, czyli poniżej progu…).
+(baza 900 → ×1.3 = 1170, czyli powyżej progu, więc ×1.1 → 990, czyli poniżej progu…).
+
+> **Zmiana 2026-09-28.** Do tego dnia baza poniżej progu dostawała mnożnik **1.5**
+> i ceny sklepu rozjeżdżały się z katalogiem Base (tam 1.3). Wyceny
+> zapisane wcześniej zachowują swoje kwoty, dopóki nikt ich nie przeliczy; nowa
+> stawka działa przy każdym przeliczeniu — w konfiguratorze, przy zapisie, przy
+> aktualizacji (`PUT /quotes/<edit_uuid>` liczy od zera wszystkie pozycje)
+> i w „przelicz ponownie".
 
 **Na progu cena spada i szerszy produkt może być tańszy od węższego.** Na
-produkcyjnym cenniku (dąb lity B/B, 90×4 cm) blat 198 cm kosztuje 1496,88 zł netto,
+produkcyjnym cenniku (dąb lity B/B, 90×4 cm) blat 198 cm kosztuje 1297,30 zł netto,
 a 200 cm — 1108,80 zł. To **zamierzone i uzgodnione biznesowo** (2026-09-15):
 ceny produktów liczone są w arkuszu i to BaseLinker jest źródłem prawdy o cenach,
 a reguła dwóch mnożników odwzorowuje ten arkusz 1:1. Nie zgłaszajcie tego jako
@@ -53,8 +60,8 @@ błędu CRM.
 Skutki, o których musi wiedzieć sklep:
 
 1. **Ten sam produkt ma różne mnożniki w różnych wariantach.** Blat może wyjść
-   ×1.5 w buku i ×1.1 w dębie litym. Nie zakładaj jednego mnożnika na wycenę.
-2. **Mnożnik to zawsze dokładnie 1.5 albo 1.1** — żadnych wartości pośrednich.
+   ×1.3 w buku i ×1.1 w dębie litym. Nie zakładaj jednego mnożnika na wycenę.
+2. **Mnożnik to zawsze dokładnie 1.3 albo 1.1** — żadnych wartości pośrednich.
    Zawsze zachodzi `base_unit_netto × multiplier = unit_netto`, więc nie licz
    kwot samodzielnie i nie zaokrąglaj mnożnika.
 3. **Grupa cenowa (`client_type`) nie wpływa na cenę** w trybie domyślnym —
@@ -173,7 +180,7 @@ limity, opcje wykończeń, typy krawędzi, grupy cenowe.
   "custom_shape_surcharge_netto": 0.0,
   "auto_multiplier": {
     "prog_netto": 1000.0,
-    "ponizej_progu": 1.5,
+    "ponizej_progu": 1.3,
     "od_progu": 1.1,
     "liczony_na": "cena bazowa sztuki (bez mnożnika i bez dopłat)"
   },
@@ -263,17 +270,17 @@ tryb podglądu i tryb zapisu muszą być ten sam, żeby kwoty się nie rozjecha�
           "volume_m3": 0.0288,
           "price_per_m3": 8200.0,
           "base_unit_netto": 236.16,
-          "multiplier": 1.5,
-          "unit_netto": 354.24,
-          "unit_brutto": 435.72,
-          "total_netto": 708.48,
-          "total_brutto": 871.44
+          "multiplier": 1.3,
+          "unit_netto": 307.008,
+          "unit_brutto": 377.62,
+          "total_netto": 614.02,
+          "total_brutto": 755.24
         },
         {"variant_code": "dab-lity-bb", "available": false},
         {"variant_code": "dab-micro-ab", "available": true, "volume_m3": 0.0288,
-         "price_per_m3": 7000.0, "base_unit_netto": 201.6, "multiplier": 1.5,
-         "unit_netto": 302.4, "unit_brutto": 371.95, "total_netto": 604.8,
-         "total_brutto": 743.9}
+         "price_per_m3": 7000.0, "base_unit_netto": 201.6, "multiplier": 1.3,
+         "unit_netto": 262.08, "unit_brutto": 322.36, "total_netto": 524.16,
+         "total_brutto": 644.72}
       ],
       "shape_surcharge": null,
       "finishing": {"netto": 0.0, "brutto": 0.0, "price_per_m2": 0.0, "surface_m2": 0.0},
@@ -287,11 +294,11 @@ tryb podglądu i tryb zapisu muszą być ten sam, żeby kwoty się nie rozjecha�
     }
   ],
   "totals": {
-    "order_netto": 708.48, "order_brutto": 871.44,
+    "order_netto": 614.02, "order_brutto": 755.24,
     "finishing_netto": 0.0, "finishing_brutto": 0.0,
     "edges_netto": 36.0, "edges_brutto": 44.28,
     "shipping_netto": 0.0, "shipping_brutto": 0.0,
-    "total_netto": 744.48, "total_brutto": 915.72
+    "total_netto": 650.02, "total_brutto": 799.52
   }
 }
 ```

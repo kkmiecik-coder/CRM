@@ -51,8 +51,8 @@ _TABLES = None  # ustawiane w fixture (create_all dla całej metadata bywa za sz
 # który mnożnik zadziałał. 1,00 x 0,50 x 0,03 m = 0,015 m3 x 8200 zł = 123 zł bazy.
 CENA_ZA_M3 = 8200
 BAZA_NETTO = 123.0                      # 0.015 m3 * 8200
-AUTO_UNIT_NETTO = BAZA_NETTO * 1.5      # poniżej progu 1000 zł -> mnożnik automatyczny 1.5
-GRUPA_UNIT_NETTO = BAZA_NETTO * 1.3     # mnożnik grupy cenowej "Detal+"
+AUTO_UNIT_NETTO = BAZA_NETTO * 1.3      # poniżej progu 1000 zł -> mnożnik automatyczny 1.3
+GRUPA_UNIT_NETTO = BAZA_NETTO * 1.4     # mnożnik grupy cenowej "Detal+"
 
 
 @pytest.fixture()
@@ -75,7 +75,7 @@ def app():
                              thickness_min=2, thickness_max=6,
                              length_min=20, length_max=450,
                              width_min=10, width_max=200, price_per_m3=CENA_ZA_M3))
-        db.session.add(Multiplier(client_type='Detal+', multiplier=1.3))
+        db.session.add(Multiplier(client_type='Detal+', multiplier=1.4))
         db.session.add(User(id=BOT_USER_ID, email='bot@woodpower.pl', password='x', role='user'))
         db.session.add(Client(id=1, client_number='chat-1', client_name='Klient Sklep'))
         db.session.commit()
@@ -131,7 +131,7 @@ def test_calculate_bez_client_type_w_trybie_auto_zwraca_ceny(client):
     assert body['multiplier_mode'] == 'auto'
 
     wariant = _wybrany_wariant(body)
-    assert wariant['multiplier'] == 1.5
+    assert wariant['multiplier'] == 1.3
     assert abs(wariant['unit_netto'] - AUTO_UNIT_NETTO) < 0.01
     assert body['totals']['total_netto'] > 0
 
@@ -162,7 +162,7 @@ def test_calculate_z_client_type_przy_recznym_mnozniku_liczy_wg_grupy(client):
     assert body['ok'] is True, body
     assert body['multiplier_mode'] == 'client_type'
     wariant = _wybrany_wariant(body)
-    assert wariant['multiplier'] == 1.3
+    assert wariant['multiplier'] == 1.4
     assert abs(wariant['unit_netto'] - GRUPA_UNIT_NETTO) < 0.01
 
 
