@@ -22,9 +22,13 @@ z raportami przeglądów) zniknął razem z usuniętym worktree; raporty oględz
   - **localhost:5002** — `main`, czyli to, co jest na produkcji, na bazie `woodpower_crm_local` odświeżonej z produkcji
     28.09 (liczniki identyczne z produkcją). **Logistyki tam nie ma** — i nie uruchamiamy tam kodu gałęzi (sekcja 2).
   - **127.0.0.1:5003** — **jedyny podgląd logistyki**: kod gałęzi (po rundzie 4.1, `380a8f8c`), kontener
-    `logistyka3-prod` (obraz `logistyka3-app`, sieć `woodpower-crm_default`), baza `logistyka3_prod` = zrzut produkcji
-    z 25.09 21:07 po migracjach etapów 1–3 — te same zamówienia co produkcja 28.09 (1733, ostatnie z 25.09 16:02) — plus
-    testy Konrada z 28.09 (o 08:38 hurtowo ustawione sposoby dostawy 209 zamówień). Logowanie hasłem produkcyjnym przez
+    `logistyka3-prod` (obraz `logistyka3-app`, sieć `woodpower-crm_default`), baza `logistyka3_prod` = **zrzut produkcji
+    z 28.09 11:33** (z dzisiejszą pracą stanowisk: 313 zdarzeń, 151 zdarzeń produktów, 32 sesje pracowników), migracje
+    etapów 1–3 wykonane przy starcie (4/4 OK — kolejny test „wdrożenia dziś”; 202 zamówienia otwarte w Logistyce).
+    To migawka: nowszą aktywność daje ponowne odświeżenie (zrzut strumieniem → import przez `source` → restart
+    kontenera, ok. 5 min). Poprzednia zawartość (kopia z 25.09 + testy Konrada z 28.09 rano: 209 sposobów dostawy
+    ustawionych hurtowo o 08:38) jest w kopii `…\cea01798-…\scratchpad\kopie\logistyka3_prod_przed_2026-09-28.sql.gz`.
+    Logowanie hasłem produkcyjnym przez
     `127.0.0.1`, nie `localhost`; ciasteczka `session_lg3prod`/`remember_lg3prod`. W konfiguracji pusty klucz Base.
     i integracje, bez klucza ORS i CARTO → przebiegi liniami prostymi, podkład OSM. Do 28.09 przedpołudnia ten sam
     podgląd był na porcie 5004 — **5004 już nie istnieje**.
@@ -254,9 +258,11 @@ Ujednolicenie (28.09, prośba Konrada „jedna gałąź, jedno miejsce do sprawd
 
 47. Gałąź zostaje pod nazwą `claude/logistyka-etap-3-trasy` (zawiera wszystkie etapy), bez zmiany nazwy — dokumenty,
     pamięć i worktree już się do niej odwołują — koszt: nazwa sugeruje sam etap 3.
-48. Jedynym podglądem logistyki jest kopia produkcji (dawny 5004) przeniesiona na 5003 z tym samym kluczem sesji —
-    ma te same zamówienia co produkcja 28.09 i testy Konrada z rana; dawny podgląd z danymi testowymi wyłączony, jego baza
-    zostaje do decyzji (trasa 17) — koszt: trasy testowe oględzin nie są już widoczne w przeglądarce.
+48. Jedynym podglądem logistyki jest kopia produkcji (dawny 5004) przeniesiona na 5003 z tym samym kluczem sesji;
+    dawny podgląd z danymi testowymi wyłączony, jego baza zostaje do decyzji (trasa 17) — koszt: trasy testowe oględzin
+    nie są już widoczne w przeglądarce. Korekta tego samego dnia: kopia z 25.09 nie miała aktywności z 26–28.09 (zgadzała
+    się tylko liczba zamówień — mój błąd w opisie), więc baza podglądu dostała świeży zrzut z 28.09 11:33; poranne testy
+    Konrada są w kopii zapasowej — koszt: poranne zmiany testowe trzeba by odtworzyć z kopii.
 49. 5002 zostaje `main` (reguła „nie przełączaj gałęzi w głównym checkoucie”); podgląd logistyki na 5002 wymagałby
     wykonania migracji gałęzi na bazie roboczej `woodpower_crm_local` — koszt: dwa adresy (5002 = produkcja, 5003 =
     logistyka) zamiast jednego.
@@ -279,9 +285,10 @@ Ujednolicenie (28.09, prośba Konrada „jedna gałąź, jedno miejsce do sprawd
 - Podgląd: `docker rm -f logistyka3-prod`; bazy w kontenerze `woodpower-crm-db-1`: `DROP DATABASE logistyka3_prod;`.
   Baza dawnego podglądu testowego `logistyka3_podglad` (bez kontenera od 28.09; trasa 17 „trasa 1” Konrada i trasy
   testowe) — `DROP DATABASE logistyka3_podglad;`, gdy Konrad potwierdzi, że trasa 17 nie jest potrzebna.
-- Zrzuty produkcji (dane klientów) w scratchpadach sesji: `…\320e7d76-…\scratchpad\prod\crm_dump_2026-09-25.sql.gz`
-  i `…\cea01798-…\scratchpad\prod\crm_dump_2026-09-28.sql.gz` oraz kopia `…\cea01798-…\scratchpad\kopie\
-  woodpower_crm_local_przed_2026-09-28.sql.gz` — usuń ręcznie; razem z nimi całe katalogi scratchpadów sesji
+- Zrzuty produkcji (dane klientów) w scratchpadach sesji: `…\320e7d76-…\scratchpad\prod\crm_dump_2026-09-25.sql.gz`,
+  `…\cea01798-…\scratchpad\prod\crm_dump_2026-09-28.sql.gz` i `…_1135.sql.gz` oraz kopie
+  `…\cea01798-…\scratchpad\kopie\woodpower_crm_local_przed_2026-09-28.sql.gz` i `logistyka3_prod_przed_2026-09-28.sql.gz`
+  — usuń ręcznie; razem z nimi całe katalogi scratchpadów sesji
   `320e7d76-…` (kody podglądów, archiwa `kod.tar`, raporty) i `cea01798-…` (raporty rundy 4.1).
 - `C:\Users\Grafik\Downloads\routimo_krakow_2026-09-29.xlsx` (2 B, plik testowy) — nadal leży, usuń ręcznie.
 - Kopia konfiguracji na serwerze przed wpisaniem klucza CARTO: `config/core.json.bak-20260925-carto` (600).
