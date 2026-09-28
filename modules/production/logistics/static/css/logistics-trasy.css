@@ -133,6 +133,130 @@
     color: #fff;
 }
 
+/* ─── Dashboard: filtr województw (runda 2, spec 2.5) ───
+   Przycisk z rodziny „Transport bez trasy” (aktywny = ciemny), panel jako warstwa pod
+   przyciskiem — nad tabelą i nad mapą (Leaflet trzyma kontrolki na z-index 1000).
+   Szerokość panelu 360 px (nie 340): przy 2 kolumnach najdłuższe nazwy („Warmińsko-Mazurskie”,
+   „Kujawsko-Pomorskie”) łamałyby się na dwa wiersze ciaśniej, niż to wygląda dobrze. */
+.logistics-tab .lg-woj {
+    position: relative;
+    display: inline-flex;
+}
+
+.logistics-tab .lg-woj-przycisk {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 32px;
+    padding: 0 10px 1px;
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    box-shadow: inset 0 -2px 0 var(--il-inset-shadow, #d4d9e1);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--il-text-secondary, #7a8291);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.logistics-tab .lg-woj-przycisk:hover,
+.logistics-tab .lg-woj-przycisk[aria-expanded="true"] {
+    border-color: var(--il-text-secondary, #7a8291);
+    color: var(--il-text-primary, #1a1a2e);
+}
+
+.logistics-tab .lg-woj-przycisk.is-aktywny,
+.logistics-tab .lg-woj-przycisk.is-aktywny:hover {
+    background: var(--il-text-primary, #1a1a2e);
+    border-color: var(--il-text-primary, #1a1a2e);
+    box-shadow: none;
+    color: #fff;
+}
+
+.logistics-tab .lg-woj-strzalka {
+    font-size: 10px;
+    transition: transform 0.15s;
+}
+
+.logistics-tab .lg-woj-przycisk[aria-expanded="true"] .lg-woj-strzalka {
+    transform: rotate(180deg);
+}
+
+.logistics-tab .lg-woj-panel {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    z-index: 1010;
+    width: 360px;
+    max-width: calc(100vw - 32px);
+    padding: 10px 12px 8px;
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    box-shadow: 0 8px 24px rgba(26, 26, 46, 0.14);
+}
+
+.logistics-tab .lg-woj-panel[hidden] {
+    display: none;
+}
+
+.logistics-tab .lg-woj-pola {
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+.logistics-tab .lg-woj-podpowiedz {
+    float: none;
+    width: auto;
+    margin: 0 0 6px;
+    padding: 0;
+    font-size: 11.5px;
+    color: var(--il-text-muted, #9ba3b0);
+}
+
+.logistics-tab .lg-woj-lista {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 12px;
+}
+
+.logistics-tab .lg-woj-lista--inne {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid var(--il-border-light, #e2e5ea);
+}
+
+.logistics-tab .lg-woj-opcja {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 28px;
+    margin: 0;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.logistics-tab .lg-woj-opcja:hover {
+    color: var(--il-text-primary, #1a1a2e);
+}
+
+.logistics-tab .lg-woj-opcja input {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    flex-shrink: 0;
+    accent-color: var(--il-text-primary, #1a1a2e);
+}
+
+.logistics-tab .lg-woj-stopka {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 8px;
+}
+
 /* ─── Dashboard: plakietka trasy pod selectem sposobu ───
    width: 0 + min-width: 100% — jak linie adresu: długa nazwa trasy nie poszerza
    kolumny „Sposób dostawy” (szerokość daje select), tylko ucina się wielokropkiem.
@@ -2281,6 +2405,13 @@
 @media (max-width: 900px) {
     .logistics-tab .lg-podzakladka { padding-top: 11px; padding-bottom: 11px; }
     .logistics-tab .lg-filtr-trasy { height: 36px; }
+    /* Pasek narzędzi listy zawija się tu na kilka wierszy (flex-wrap) — przycisk województw
+       może wylądować bliżej prawej krawędzi, więc panel wyrównujemy do prawej, żeby nie
+       wystawał poza układ (spec 2.5, dopracowanie wyglądu). */
+    .logistics-tab .lg-woj-panel { right: 0; left: auto; }
+    .logistics-tab .lg-woj-przycisk { height: 36px; }
+    .logistics-tab .lg-woj-opcja { min-height: 36px; }
+    .logistics-tab .lg-woj-opcja input { width: 20px; height: 20px; }
     .logistics-tab .lg-plakietka-trasy { min-height: 28px; }
     .logistics-tab .lg-mapa-przelacznik button { min-height: 36px; }
     .logistics-tab .lg-legenda-trasa { min-height: 34px; }

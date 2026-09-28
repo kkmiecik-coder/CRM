@@ -72,7 +72,10 @@ def _blad(komunikat, status):
 @guard
 def tab_content():
     return render_template('logistics/tab_content.html', magazyn=geocoding.MAGAZYN,
-                           carto_basemaps_key=_klucz_carto_basemaps())
+                           carto_basemaps_key=_klucz_carto_basemaps(),
+                           # Runda 2 (spec 2.5): opcje filtra województw z jednego źródła.
+                           opcje_wojewodztw=wojewodztwa.wojewodztwa(),
+                           opcje_pozostale=wojewodztwa.POZOSTALE)
 
 
 @logistics_panel_bp.route('/orders', methods=['GET'])

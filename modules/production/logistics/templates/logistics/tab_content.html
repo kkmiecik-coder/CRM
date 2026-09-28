@@ -16,7 +16,7 @@
 <link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet-markercluster/MarkerCluster.css') }}?v=1.5.3">
 <link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20260925i">
 {# Etap 3: trasy, flota, widok tras na mapie — osobny arkusz (logistics.css zostaje nietknięty). #}
-<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics-trasy.css') }}?v=20260928a">
+<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics-trasy.css') }}?v=20260928b">
 
 <div id="logistics-root" class="logistics-tab"
      data-api="{{ url_for('logistics_panel.orders') }}"
@@ -128,6 +128,36 @@
                   title="Zamówienia z transportem własnym, które nie są jeszcze na żadnej trasie">
             <i class="fas fa-route" aria-hidden="true"></i><span>Transport bez trasy</span>
           </button>
+          {# Runda 2 (spec 2.5): województwa z KODU POCZTOWEGO (te same zakresy co Region w eksporcie
+               Routimo — modules/production/logistics/wojewodztwa.py). Kilka naraz, filtr serwera
+               (?woj=…), bez zapamiętywania. Panel: logistics-wojewodztwa.js; filtr listy: logistics.js
+               (zdarzenie logistics:wojewodztwa). #}
+          <div class="lg-woj" data-lg-woj="kontener">
+            <button type="button" class="lg-woj-przycisk" data-lg-woj="przycisk"
+                    aria-expanded="false" aria-controls="lg-woj-panel"
+                    title="Filtr województw (wg kodu pocztowego)">
+              <i class="fas fa-map-location-dot" aria-hidden="true"></i><span data-lg-woj="etykieta">Województwa</span>
+              <i class="fas fa-chevron-down lg-woj-strzalka" aria-hidden="true"></i>
+            </button>
+            <div class="lg-woj-panel" id="lg-woj-panel" data-lg-woj="panel" hidden>
+              <fieldset class="lg-woj-pola">
+                <legend class="lg-woj-podpowiedz">wg kodu pocztowego, w przybliżeniu</legend>
+                <div class="lg-woj-lista">
+                  {% for identyfikator, nazwa in opcje_wojewodztw %}
+                  <label class="lg-woj-opcja"><input type="checkbox" data-lg-woj-pole value="{{ identyfikator }}"><span>{{ nazwa }}</span></label>
+                  {% endfor %}
+                </div>
+                <div class="lg-woj-lista lg-woj-lista--inne">
+                  {% for identyfikator, nazwa in opcje_pozostale %}
+                  <label class="lg-woj-opcja"><input type="checkbox" data-lg-woj-pole value="{{ identyfikator }}"><span>{{ nazwa }}</span></label>
+                  {% endfor %}
+                </div>
+              </fieldset>
+              <div class="lg-woj-stopka">
+                <button type="button" class="lg-przycisk lg-przycisk--cichy" data-lg-woj="wyczysc">Wyczyść</button>
+              </div>
+            </div>
+          </div>
           <span class="lg-ile" data-lg="ile" aria-live="polite"></span>
         </div>
 
@@ -665,5 +695,6 @@
         });
 })();
 </script>
-<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20260928a"></script>
+<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20260928b"></script>
 <script src="{{ url_for('logistics_panel.static', filename='js/logistics-fleet.js') }}?v=20260928a"></script>
+<script src="{{ url_for('logistics_panel.static', filename='js/logistics-wojewodztwa.js') }}?v=20260928a"></script>

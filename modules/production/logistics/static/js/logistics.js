@@ -13,8 +13,9 @@
  * samym #logistics-root giną razem ze starym węzłem, więc nic się nie dubluje.
  *
  * API (modules/production/logistics/routers/panel_api.py):
- *   GET  {API}/orders?sposob=&q=&zamkniete=1   lista + liczniki + pauza Base.
- *                                              + bez_lokalizacji, geokoder_dziala,
+ *   GET  {API}/orders?sposob=&q=&zamkniete=1&woj=…   lista + liczniki + pauza Base.
+ *                                              (woj: parametr wielokrotny) + bez_lokalizacji,
+ *                                              geokoder_dziala,
  *                                              geokoder_postep ({zrobione, wszystkie} | null)
  *   POST {API}/orders/delivery-method          {order_ids, sposob}
  *   POST {API}/orders/<id>/handed-over         „Wydane klientowi”
@@ -59,6 +60,12 @@
  *       gdy logistics-routes.js się nie wczytał: „Dodaj do trasy…” mówi wtedy o błędzie.
  *   window.LogisticsMap.onBlad(cb) — odmowa zapisu punktu na mapie spoza bieżącego trybu
  *       (A2) trafia tu jako komunikat Dashboardu.
+ *
+ * Runda 2:
+ *   `logistics:wojewodztwa` {root, wybrane} (logistics-wojewodztwa.js) — filtr `woj` listy
+ *       (serwer); przy pustym stanie „Wyczyść województwa”, przy „Zdejmij filtry” pola odznaczamy
+ *       przez window.LogisticsWojewodztwa.wyczysc({cicho: true}).
+ *   Zmiana filtra zamówień przełącza mapę z „Trasy” na „Zamówienia” (mapaNaZamowienia).
  */
 (function () {
     'use strict';
@@ -130,7 +137,8 @@
         wstrzymaneDo: null,
         // geo: filtr dokładności lokalizacji (po stronie przeglądarki, jak etap):
         // '' | 'dokladna' | 'przyblizona' | 'reczna' | 'brak' („Bez lokalizacji”).
-        filtr: { sposob: '', etap: '', q: '', zamkniete: false, geo: '' },
+        // Runda 2: woj — filtr województw (parametr serwera wielokrotny), z logistics-wojewodztwa.js.
+        filtr: { sposob: '', etap: '', q: '', zamkniete: false, geo: '', woj: [] },
         zaznaczone: new Set(),
         rozwiniete: new Set(),      // id zamówień z rozwiniętymi pozycjami (przeżywa odświeżenie)
         ostatniKlik: null,          // id do zaznaczania zakresu z Shiftem
@@ -287,6 +295,8 @@
         if (stan.filtr.q) params.set('q', stan.filtr.q);
         // Bez frazy API odpowiada 422 — przełącznik i tak jest wtedy wyłączony.
         if (stan.filtr.q && stan.filtr.zamkniete) params.set('zamkniete', '1');
+        // Runda 2: województwa (parametr wielokrotny), jak sposób — filtr serwera.
+        stan.filtr.woj.forEach((w) => params.append('woj', w));
 
         const przycisk = root.querySelector('[data-lg-akcja="odswiez"]');
         if (tryb !== 'auto') {
@@ -459,7 +469,7 @@
 
     // Filtry inne niż „Bez lokalizacji” zawężają listę — licznik „Bez lokalizacji”
     // (globalny, z API) mówi wtedy więcej, niż widać; stąd „· w widoku k”.
-    const zawezonyWidok = () => !!(stan.filtr.sposob || stan.filtr.etap || stan.filtr.q);
+    const zawezonyWidok = () => !!(stan.filtr.sposob || stan.filtr.etap || stan.filtr.q || stan.filtr.woj.length);
     const bezGeoWWidoku = () => poEtapie().filter((w) => !w.geo).length;
 
     // ── Render: nagłówek, liczniki, baner, etapy ────────────────────────────
@@ -633,6 +643,11 @@
             const opcja = el('etap').selectedOptions[0];
             tytul = 'Na liście nie ma zamówień na etapie „' + ((opcja && opcja.dataset.nazwa) || f.etap) + '”.';
             przycisk = przyciskStanu('wszystkie-etapy', 'Pokaż wszystkie etapy');
+        } else if (f.woj.length) {
+            // Runda 2: filtr województw (serwer) — bez tej gałęzi pusty widok twierdziłby, że nie ma
+            // otwartych zamówień albo że każde ma już sposób dostawy.
+            tytul = 'Brak zamówień w wybranych województwach' + (f.sposob || f.q ? ' przy tych filtrach.' : '.');
+            przycisk = przyciskStanu('wyczysc-wojewodztwa', 'Wyczyść województwa');
         } else if (f.q) {
             tytul = 'Nic nie pasuje do „' + f.q + '”' + (f.zamkniete ? ', także wśród zamkniętych.' : '.');
             if (!f.zamkniete) {
@@ -1592,6 +1607,7 @@
     function ustawFiltrGeo(wartosc) {
         stan.filtr.geo = wartosc;
         stan.dopasujMape = true;
+        mapaNaZamowienia();
         renderujFiltrGeo();
         renderujGeo();
         renderujTabele();
@@ -1635,6 +1651,38 @@
     function mapa() {
         const m = window.LogisticsMap;
         return m && m.root === root ? m : null;
+    }
+
+    /**
+     * Runda 2 (spec 2.4): zmiana filtra zamówień — liczniki sposobu, „Transport bez trasy”, etap,
+     * lokalizacja, województwa, także ich zdjęcie — pokazuje na mapie zamówienia: w widoku „Trasy”
+     * filtr nie miałby widocznego skutku. Wyszukiwarka (i „także zamknięte”) tego nie robi, a do
+     * „Trasy” nic nie wraca samo. ustawWidok może odmówić (zapis punktu w toku) — mapa zostaje,
+     * filtr i tak działa na liście.
+     */
+    function mapaNaZamowienia() {
+        const m = mapa();
+        if (m && typeof m.widok === 'function' && m.widok() === 'trasy' && typeof m.ustawWidok === 'function') {
+            m.ustawWidok('zamowienia');
+        }
+    }
+
+    // Runda 2 (spec 2.5): filtr województw z logistics-wojewodztwa.js — zdarzenie, bo pliki
+    // wykonują się w dowolnej kolejności. Filtr serwera (woj), jak sposób dostawy.
+    function naWojewodztwa(e) {
+        const d = e.detail || {};
+        if (zniszczona || d.root !== root) return;
+        stan.filtr.woj = Array.isArray(d.wybrane) ? d.wybrane.slice() : [];
+        stan.dopasujMape = true;
+        odznaczWszystko();
+        mapaNaZamowienia();
+        wczytaj('uzytkownik');
+    }
+
+    // Odznacza pola panelu województw; filtr listy ustawia wołający (`cicho` — bez zdarzenia).
+    function wyczyscWojewodztwa(opcje) {
+        const w = window.LogisticsWojewodztwa;
+        if (w && w.root === root && typeof w.wyczysc === 'function') w.wyczysc(opcje);
     }
 
     function polaczZMapa() {
@@ -1939,6 +1987,7 @@
         // Drugie kliknięcie aktywnego licznika zdejmuje filtr.
         stan.filtr.sposob = stan.filtr.sposob === sposob ? '' : sposob;
         stan.dopasujMape = true;
+        mapaNaZamowienia();
         // Zmiana filtra kończy zaznaczenie od razu (także pasek hurtu), zanim
         // przyjdzie nowa lista — akcja nie może trafić w wiersze z poprzedniego widoku.
         odznaczWszystko();
@@ -1953,8 +2002,11 @@
         stan.filtr.etap = '';
         stan.filtr.q = '';
         stan.filtr.zamkniete = false;
+        stan.filtr.woj = [];
+        wyczyscWojewodztwa({ cicho: true });
         el('q').value = '';
         stan.dopasujMape = true;
+        mapaNaZamowienia();
         renderujPrzelacznikZamknietych();
         odznaczWszystko();
         renderujLiczniki();
@@ -2040,6 +2092,7 @@
             case 'pokaz-wszystkie':
                 stan.filtr.sposob = '';
                 stan.dopasujMape = true;
+                mapaNaZamowienia();
                 renderujLiczniki();
                 wczytaj('uzytkownik');
                 break;
@@ -2052,9 +2105,18 @@
             case 'wszystkie-etapy':
                 stan.filtr.etap = '';
                 stan.dopasujMape = true;
+                mapaNaZamowienia();
                 renderujEtapy();
                 renderujGeo();
                 renderujTabele();
+                break;
+            case 'wyczysc-wojewodztwa':
+                // Pusty stan przy filtrze województw — zdejmujemy tylko ten filtr.
+                stan.filtr.woj = [];
+                wyczyscWojewodztwa({ cicho: true });
+                stan.dopasujMape = true;
+                mapaNaZamowienia();
+                wczytaj('uzytkownik');
                 break;
             case 'zdejmij-filtry':
                 zdejmijFiltry();
@@ -2112,6 +2174,7 @@
         } else if (t === el('etap')) {
             stan.filtr.etap = t.value;
             stan.dopasujMape = true;
+            mapaNaZamowienia();
             t.classList.toggle('is-aktywny', !!t.value);
             renderujGeo();   // „· w widoku k” liczy się po etapie
             renderujTabele();
@@ -2196,6 +2259,7 @@
         if (kontrolerListy) kontrolerListy.abort();
         document.removeEventListener('visibilitychange', przyWidocznosci);
         document.removeEventListener('logistics:mapa-gotowa', naGotowaMape);
+        document.removeEventListener('logistics:wojewodztwa', naWojewodztwa);
         if (window.LogisticsTab && window.LogisticsTab.zniszcz === zniszcz) delete window.LogisticsTab;
     }
 
@@ -2242,6 +2306,7 @@
 
     document.addEventListener('visibilitychange', przyWidocznosci);
     document.addEventListener('logistics:mapa-gotowa', naGotowaMape);
+    document.addEventListener('logistics:wojewodztwa', naWojewodztwa);
     window.addEventListener('resize', dopasujWysokosc);
     document.addEventListener('shown.bs.tab', naPokazanieZakladki);
     if (obserwatorWysokosci) obserwatorWysokosci.observe(root);
