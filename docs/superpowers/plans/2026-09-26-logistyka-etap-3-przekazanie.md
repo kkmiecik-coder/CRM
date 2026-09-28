@@ -1,7 +1,7 @@
 # Logistyka równoległa — etap 3 (trasy i flota): stan gałęzi i kontynuacja
 
-Data: 2026-09-26, aktualizacje 2026-09-28 (**kontynuujemy na Windows**, nie na Macu; po południu runda poprawek 4.1 —
-sekcje 0, 4 i 5). Źródło: sesja na Windows
+Data: 2026-09-26, aktualizacje 2026-09-28 (**kontynuujemy na Windows**, nie na Macu; runda poprawek 4.1 — sekcje 0,
+4 i 5; potem na prośbę Konrada **jedna gałąź i jeden podgląd** — sekcje 0, 1 i 7). Źródło: sesja na Windows
 (tryb subagent-driven, plan `docs/superpowers/plans/2026-09-24-logistyka-etap-3-trasy-flota.md`, spec
 `docs/superpowers/specs/2026-09-24-logistyka-rownolegla-trasy-design.md`). Plany etapów 1–3 i spec są w repo na gałęzi
 (mimo `.gitignore`, na prośbę Konrada — repo jest publiczne, więc nie dopisuj tu sekretów ani uwag bezpieczeństwa).
@@ -15,49 +15,58 @@ z raportami przeglądów) zniknął razem z usuniętym worktree; raporty oględz
   `docs/superpowers/plans/2026-09-28-logistyka-etap-3-poprawki-4-1.md`; stan przed rundą: `3eafac50`. `main` = `origin/main` =
   `a5a0f1f9` — od startu gałęzi **nic nowego w `main`**, więc merge `main` do gałęzi nie jest potrzebny.
 - Testy po rundzie 4.1: **`4704 passed, 3 skipped`**.
-- Worktree: `C:\Users\Grafik\Documents\woodpower-crm\.claude\worktrees\logistyka-etap-3-trasy` (odtworzony 28.09 na
-  istniejącej gałęzi; worktree etapu 2 usunięty — gałąź `claude/logistyka-etap-2-mapa` została na origin). Główny checkout
-  stoi na `main` i obsługuje kontener 5002 — **nie przełączaj w nim gałęzi**.
-- Podglądy (Docker, obraz `logistyka3-app`, sieć `woodpower-crm_default`; w konfiguracji pusty klucz Base. i integracje,
-  bez klucza ORS i CARTO → przebiegi liniami prostymi, podkład OSM). **Oba mają kod gałęzi po rundzie 4.1**
-  (`380a8f8c`, odświeżone 28.09 — porównanie 1083 plików, `/login` 200, „Brak nowych migracji”):
-  - **127.0.0.1:5003** — kontener `logistyka3-podglad`, baza `logistyka3_podglad` (kopia lokalnej bazy z 25.09 + dane
-    testowe z oględzin: trasy 18–20 „Trasa A/B/C (oględziny)”, 22–23 „R2 Trasa X/Y”, 33 „F1 (oględziny)” (wykonana),
-    z rundy 4.1: 34 „4.1 oględziny A” (robocza, 10 przystanków), 35 „4.1 oględziny B” (wykonana, pusta),
-    36 „4.1 oględziny C” (robocza: 1301, 1379, 1473); 13 zamówień przestawionych w oględzinach 4.1 na transport własny
-    (1301, 1307, 1342, 1350, 1358, 1360, 1366, 1369, 1372, 1374, 1376, 1379, 1381), z nich 1381 i 1372 anulowane
-    w całości skryptem i zamknięte; pojazdy Iveco Daily, Ford Transit, R2 Bus; **trasa 17 „trasa 1” jest Konrada — nie
-    ruszać**).
-  - **127.0.0.1:5004** — kontener `logistyka3-prod`, baza `logistyka3_prod` = **zrzut produkcji z 25.09 21:07** po
-    migracjach etapów 1–3 (4/4 OK). Kod odświeżony 28.09 (wcześniej stał na `433b2c6b`, sprzed poprawek interfejsu).
-    Flota pusta, tras brak, współrzędnych brak (stan „jak po wdrożeniu dziś”). Własne ciasteczka
-    `session_lg3prod`/`remember_lg3prod`; logowanie hasłem produkcyjnym.
-  - Odświeżenie kodu podglądu (strażnik sandboxa nie przepuszcza potoku `git archive | tar`, więc dwa kroki):
-    `git archive --output=<katalog podglądu>/kod.tar HEAD`, `tar -xf <katalog podglądu>/kod.tar -C <katalog podglądu>/kod`
-    (`config/core.json` i skrypty `_*.py` nie są w gicie, więc zostają), potem `docker restart <kontener>` i sprawdzenie
-    `/login` = 200 oraz `[Migrations]` w `docker logs`. Katalogi podglądów: 5003 →
-    `C:\Users\Grafik\AppData\Local\Temp\claude\C--Users-Grafik-Documents-woodpower-crm\320e7d76-d002-459d-83b4-3b0a3df0403a\scratchpad\podglad`,
-    5004 → `…\320e7d76-d002-459d-83b4-3b0a3df0403a\scratchpad\podglad-prod` (kod w podkatalogu `kod`, montowany jako `/app`).
-    To katalog tymczasowy Windows — jeśli zniknie, podglądy trzeba postawić od nowa (sekcja 3).
+- Worktree: `C:\Users\Grafik\Documents\woodpower-crm\.claude\worktrees\logistyka-etap-3-trasy` (jedyny worktree
+  logistyki; worktree etapów 1 i 2 usunięte). Główny checkout stoi na `main` i obsługuje kontener 5002 — **nie
+  przełączaj w nim gałęzi**.
+- **Gdzie co sprawdzać (ujednolicone 28.09 na prośbę Konrada):**
+  - **localhost:5002** — `main`, czyli to, co jest na produkcji, na bazie `woodpower_crm_local` odświeżonej z produkcji
+    28.09 (liczniki identyczne z produkcją). **Logistyki tam nie ma** — i nie uruchamiamy tam kodu gałęzi (sekcja 2).
+  - **127.0.0.1:5003** — **jedyny podgląd logistyki**: kod gałęzi (po rundzie 4.1, `380a8f8c`), kontener
+    `logistyka3-prod` (obraz `logistyka3-app`, sieć `woodpower-crm_default`), baza `logistyka3_prod` = zrzut produkcji
+    z 25.09 21:07 po migracjach etapów 1–3 — te same zamówienia co produkcja 28.09 (1733, ostatnie z 25.09 16:02) — plus
+    testy Konrada z 28.09 (o 08:38 hurtowo ustawione sposoby dostawy 209 zamówień). Logowanie hasłem produkcyjnym przez
+    `127.0.0.1`, nie `localhost`; ciasteczka `session_lg3prod`/`remember_lg3prod`. W konfiguracji pusty klucz Base.
+    i integracje, bez klucza ORS i CARTO → przebiegi liniami prostymi, podkład OSM. Do 28.09 przedpołudnia ten sam
+    podgląd był na porcie 5004 — **5004 już nie istnieje**.
+  - Dawny podgląd z danymi testowymi (kontener `logistyka3-podglad` na 5003) **usunięty 28.09**; jego baza
+    `logistyka3_podglad` zostaje nieużywana do decyzji Konrada (trasa 17 „trasa 1” Konrada, trasy testowe oględzin
+    18–36) — sekcja 7.
+  - Odświeżenie kodu podglądu (strażnik sandboxa nie przepuszcza potoku `git archive | tar`, więc dwa kroki; w Git Bash
+    ścieżki do `tar` w formie `/c/…`, bo `C:` tar bierze za zdalny host):
+    `git archive --output=<katalog>/kod.tar HEAD`, `tar -xf /c/…/kod.tar -C /c/…/kod` (`config/core.json` nie jest
+    w gicie, więc zostaje), potem `docker restart logistyka3-prod` i sprawdzenie `/login` = 200 oraz `[Migrations]`
+    w `docker logs`. Katalog podglądu: `C:\Users\Grafik\AppData\Local\Temp\claude\C--Users-Grafik-Documents-woodpower-crm\320e7d76-d002-459d-83b4-3b0a3df0403a\scratchpad\podglad-prod`
+    (kod w `kod`, montowany jako `/app`; `env.list` z kluczem sesji). Kontener odtworzysz tak:
+    `MSYS_NO_PATHCONV=1 docker run -d --name logistyka3-prod --network woodpower-crm_default -p 127.0.0.1:5003:5000
+    --env-file <katalog>/env.list -v "<katalog>/kod:/app" -w /app logistyka3-app flask run --host=0.0.0.0 --port=5000`.
+    To katalog tymczasowy Windows — jeśli zniknie, podgląd trzeba postawić od nowa (sekcja 3).
 - Raporty z weryfikacji (scratchpad poprzedniej sesji, `…\320e7d76-d002-459d-83b4-3b0a3df0403a\scratchpad\podglad\`):
   `RAPORT.md` (przygotowanie podglądu), `RAPORT-BLOKADA.md` (testy blokady na dwóch sesjach MySQL + skrypt
   `kod\_proba_blokady.py`), `SMOKE-API.md` (315 złych żądań), `OGLEDZINY.md`, `OGLEDZINY-2.md`, `OGLEDZINY-3.md`,
-  `OGLEDZINY-4.md` (4 tury oględzin UI). Skrypty pomocnicze w kodzie podglądu 5003: `_sesja.py` (ciasteczko sesji admina
-  dla wbudowanej przeglądarki), `_routimo_check.py` (eksport Routimo po stronie serwera).
+  `OGLEDZINY-4.md` (4 tury oględzin UI). Skrypty pomocnicze leżą w kodzie DAWNEGO podglądu (`…\podglad\kod`):
+  `_sesja.py` (ciasteczko sesji admina dla wbudowanej przeglądarki — na obecnym podglądzie trzeba go skopiować do
+  `…\podglad-prod\kod` i szukać ciasteczka `session_lg3prod=` zamiast `session=`), `_routimo_check.py` (eksport Routimo
+  po stronie serwera).
 - Raporty rundy 4.1 (scratchpad sesji `cea01798-…`, `…\cea01798-4898-4fcf-9c72-c6856d824d42\scratchpad\raporty-4-1\`):
   `progress.md` (ledger: przebieg, rozstrzygnięcia, odłożone drobiazgi), `final-review.md` (przegląd adwersaryjny
   rundy), `ogledziny-4-1.md` (oględziny A–G), `fix-wave-rereview.md` (przegląd fali poprawek). **Pułapka oględzin:**
   wbudowana przeglądarka z kartą w tle / schowanym panelem nie ma klatek animacji — `requestAnimationFrame` i zdarzenie
   `close` okien `<dialog>` nie przychodzą (Chromium wysyła `close` w następnej klatce). Scenariusze zależne od `close`
   sprawdzaj pomiarem zdarzeń, nie samym efektem.
-- Zrzut produkcji (dane klientów) nadal w `…\320e7d76-d002-459d-83b4-3b0a3df0403a\scratchpad\prod\crm_dump_2026-09-25.sql.gz`.
+- Zrzuty produkcji (dane klientów): `…\320e7d76-d002-459d-83b4-3b0a3df0403a\scratchpad\prod\crm_dump_2026-09-25.sql.gz`
+  i `…\cea01798-4898-4fcf-9c72-c6856d824d42\scratchpad\prod\crm_dump_2026-09-28.sql.gz` (z tego drugiego odświeżono
+  28.09 bazę 5002); kopia `woodpower_crm_local` sprzed odświeżenia:
+  `…\cea01798-4898-4fcf-9c72-c6856d824d42\scratchpad\kopie\woodpower_crm_local_przed_2026-09-28.sql.gz`.
 - Klucz `CARTO_BASEMAPS_KEY` jest w `config/core.json` na VPS od 25.09 (z restartem). Kod produkcji jeszcze go nie czyta.
 
 ## 1. Gałęzie i stan
 
-- Piętrowe: `claude/logistyka-etap-1-dostawy-22cf12` → `claude/logistyka-etap-2-mapa` → **`claude/logistyka-etap-3-trasy`**
-  (zawiera etapy 1 i 2; 65+ commitów ponad `main`). **Nic nie jest w `main` ani wdrożone.** Merge do `main` = deploy
-  (webhook) — wyłącznie na polecenie Konrada.
+- **Jedna gałąź logistyki: `claude/logistyka-etap-3-trasy`** (etapy 1, 2 i 3; 70+ commitów ponad `main`). Dawne gałęzie
+  etapów (`claude/logistyka-etap-1-dostawy-22cf12` = `facbda24`, `claude/logistyka-etap-2-mapa` = `1c9fa686`) były
+  w całości zawarte w tej gałęzi (sprawdzone `merge-base --is-ancestor`) i zostały usunięte 28.09 lokalnie i na origin
+  na prośbę Konrada — w razie potrzeby da się je odtworzyć z tych SHA. Wszystkie dalsze prace logistyki idą na tę
+  jedną gałąź. **Nic nie jest w `main` ani wdrożone.** Merge do `main` = deploy (webhook) — wyłącznie na polecenie
+  Konrada.
 - Etap 3: 9 zadań planu + 3 rundy poprawek interfejsu + fala poprawek po dwóch przeglądach końcowych (backend, UI)
   + runda 4.1 (28.09: 2 zadania, przegląd adwersaryjny rundy, fala poprawek, oględziny).
 - Testy: `4704 passed, 3 skipped` (pełny pakiet w Dockerze, SQLite, Python 3.12; kod zgodny z Pythonem 3.9 produkcji —
@@ -114,8 +123,9 @@ Zalecenie (tak było na Windows):
   Składnia JS: `node --check <plik>` na hoście (node jest w PATH Windows, w obrazie go nie ma).
   `docker compose exec` z worktree testuje GŁÓWNY checkout, nie gałąź. Nie twórz `config/core.json` w worktree
   (zmienia wyniki testów). W Git Bash polecenia dockera ze ścieżkami `/app` lub `C:/…` poprzedzaj `MSYS_NO_PATHCONV=1`.
-- Na Windows podglądy 5003/5004 już stoją (sekcja 0); po każdej zmianie kodu odśwież ich kod. Sesja dla wbudowanej przeglądarki:
-  skrypt `_sesja.py` w kodzie podglądu (`create_app()` + `login_user` admina w `test_request_context` + `save_session`)
+- Na Windows stoi jeden podgląd logistyki, 127.0.0.1:5003 (sekcja 0); po każdej zmianie kodu odśwież jego kod. Sesja dla
+  wbudowanej przeglądarki: skrypt `_sesja.py` (sekcja 0 — na obecnym podglądzie ciasteczko `session_lg3prod`; użytkownik
+  id=1 to konto z kopii produkcji, więc tylko lokalnie) (`create_app()` + `login_user` admina w `test_request_context` + `save_session`)
   → wartość ciasteczka wstrzyknięta przez `document.cookie` (bez `user_session_token` aplikacja nie wymaga wiersza
   `user_sessions`). Eksport Routimo sprawdzaj po stronie serwera (`_routimo_check.py`), nie klikając pobierania.
 - Podgląd gałęzi: osobny kontener z kodem z `git archive` + kopia bazy + kopia `core.json` bez integracji, na innym porcie;
@@ -240,6 +250,17 @@ Runda 4.1 (28.09.2026):
     w tej rundzie, bo po 42 mówiłyby nieprawdę; komunikat po odhaczeniu (anulowane rozpoznawane po liście z okna) —
     odłożony (4.3) — koszt: rzadki mylący komunikat.
 
+Ujednolicenie (28.09, prośba Konrada „jedna gałąź, jedno miejsce do sprawdzania”):
+
+47. Gałąź zostaje pod nazwą `claude/logistyka-etap-3-trasy` (zawiera wszystkie etapy), bez zmiany nazwy — dokumenty,
+    pamięć i worktree już się do niej odwołują — koszt: nazwa sugeruje sam etap 3.
+48. Jedynym podglądem logistyki jest kopia produkcji (dawny 5004) przeniesiona na 5003 z tym samym kluczem sesji —
+    ma te same zamówienia co produkcja 28.09 i testy Konrada z rana; dawny podgląd z danymi testowymi wyłączony, jego baza
+    zostaje do decyzji (trasa 17) — koszt: trasy testowe oględzin nie są już widoczne w przeglądarce.
+49. 5002 zostaje `main` (reguła „nie przełączaj gałęzi w głównym checkoucie”); podgląd logistyki na 5002 wymagałby
+    wykonania migracji gałęzi na bazie roboczej `woodpower_crm_local` — koszt: dwa adresy (5002 = produkcja, 5003 =
+    logistyka) zamiast jednego.
+
 ## 6. Lista wdrożenia (nic bez decyzji Konrada)
 1. Etap 1 (jest w tej gałęzi): **najpierw appka 1.7.0 (vc38) na wszystkich tabletach**, dopiero potem backend; wpis crontaba
    logistyki co godzinę (`scripts/cron_endpoint.sh POST /production/api/logistics/cron`) i jedno ręczne uruchomienie.
@@ -255,10 +276,13 @@ Runda 4.1 (28.09.2026):
    z długą nazwą trasy.
 
 ## 7. Sprzątanie na Windows (dopiero po zakończeniu prac — na czas kontynuacji podglądy i bazy zostają)
-- Podglądy: `docker rm -f logistyka3-podglad logistyka3-prod`; bazy w kontenerze `woodpower-crm-db-1`:
-  `DROP DATABASE logistyka3_podglad; DROP DATABASE logistyka3_prod;`.
-- Zrzut produkcji (dane klientów) w scratchpadzie sesji: `…\scratchpad\prod\crm_dump_2026-09-25.sql.gz` — usuń ręcznie;
-  razem z nim cały katalog scratchpadu sesji `320e7d76-…` (kody podglądów, archiwa `kod.tar`, raporty).
+- Podgląd: `docker rm -f logistyka3-prod`; bazy w kontenerze `woodpower-crm-db-1`: `DROP DATABASE logistyka3_prod;`.
+  Baza dawnego podglądu testowego `logistyka3_podglad` (bez kontenera od 28.09; trasa 17 „trasa 1” Konrada i trasy
+  testowe) — `DROP DATABASE logistyka3_podglad;`, gdy Konrad potwierdzi, że trasa 17 nie jest potrzebna.
+- Zrzuty produkcji (dane klientów) w scratchpadach sesji: `…\320e7d76-…\scratchpad\prod\crm_dump_2026-09-25.sql.gz`
+  i `…\cea01798-…\scratchpad\prod\crm_dump_2026-09-28.sql.gz` oraz kopia `…\cea01798-…\scratchpad\kopie\
+  woodpower_crm_local_przed_2026-09-28.sql.gz` — usuń ręcznie; razem z nimi całe katalogi scratchpadów sesji
+  `320e7d76-…` (kody podglądów, archiwa `kod.tar`, raporty) i `cea01798-…` (raporty rundy 4.1).
 - `C:\Users\Grafik\Downloads\routimo_krakow_2026-09-29.xlsx` (2 B, plik testowy) — nadal leży, usuń ręcznie.
 - Kopia konfiguracji na serwerze przed wpisaniem klucza CARTO: `config/core.json.bak-20260925-carto` (600).
 
@@ -279,7 +303,7 @@ Runda 4.1 (28.09.2026):
 >
 > Sprawdź środowisko: `git fetch origin` (czy gałąź i `main` nie odjechały od stanu z sekcji 0), testy z katalogu worktree
 > `docker compose -p logistyka3 run --rm --no-deps app pytest tests/ -q -p no:cacheprovider` (oczekiwane 4704 passed,
-> 3 skipped), podglądy 127.0.0.1:5003 (dane testowe) i 127.0.0.1:5004 (kopia produkcji z 25.09) odpowiadają. Nie uruchamiaj
+> 3 skipped), podgląd logistyki 127.0.0.1:5003 (kopia produkcji, jedyny — sekcja 0) i localhost:5002 (`main`) odpowiadają. Nie uruchamiaj
 > kodu gałęzi na roboczej bazie `woodpower_crm_local` (migracje nieodwracalne — sekcja 2).
 >
 > Punkt 4.1 jest zrobiony (28.09, sekcja 4.1). Moje uwagi z testów i **nowe rzeczy spoza planu** wypiszę w kolejnej
