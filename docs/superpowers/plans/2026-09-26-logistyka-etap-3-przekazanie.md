@@ -1,7 +1,8 @@
 # Logistyka równoległa — etap 3 (trasy i flota): stan gałęzi i kontynuacja
 
 Data: 2026-09-26, aktualizacje 2026-09-28 (**kontynuujemy na Windows**, nie na Macu; runda poprawek 4.1 — sekcje 0,
-4 i 5; potem na prośbę Konrada **jedna gałąź i jeden podgląd** — sekcje 0, 1 i 7). Źródło: sesja na Windows
+4 i 5; potem na prośbę Konrada **jedna gałąź i jeden podgląd** — sekcje 0, 1 i 7; wieczorem **runda 2 (uwagi Konrada
+po testach) z adwersaryjnym przeglądem całej gałęzi** — sekcje 0–8). Źródło: sesja na Windows
 (tryb subagent-driven, plan `docs/superpowers/plans/2026-09-24-logistyka-etap-3-trasy-flota.md`, spec
 `docs/superpowers/specs/2026-09-24-logistyka-rownolegla-trasy-design.md`). Plany etapów 1–3 i spec są w repo na gałęzi
 (mimo `.gitignore`, na prośbę Konrada — repo jest publiczne, więc nie dopisuj tu sekretów ani uwag bezpieczeństwa).
@@ -10,21 +11,25 @@ z raportami przeglądów) zniknął razem z usuniętym worktree; raporty oględz
 
 ## 0. Stan na 28.09.2026 (Windows)
 
-- Gałąź `claude/logistyka-etap-3-trasy` na origin i lokalnie = ten commit. **Runda 4.1 (28.09 po południu)** dodała
-  kod: `5463bc99`, `30c7ef9a`, `fe61e674`, `380a8f8c` (sekcja 4.1) i mini-plan
-  `docs/superpowers/plans/2026-09-28-logistyka-etap-3-poprawki-4-1.md`; stan przed rundą: `3eafac50`. `main` = `origin/main` =
-  `a5a0f1f9` — od startu gałęzi **nic nowego w `main`**, więc merge `main` do gałęzi nie jest potrzebny.
-- Testy po rundzie 4.1: **`4704 passed, 3 skipped`**.
+- Gałąź `claude/logistyka-etap-3-trasy` na origin i lokalnie = ten commit. **Runda 2 (28.09 wieczorem, uwagi Konrada
+  po testach)**: spec `docs/superpowers/specs/2026-09-28-logistyka-runda-2-uwagi-design.md`, plan
+  `docs/superpowers/plans/2026-09-28-logistyka-runda-2-uwagi.md`, kod `6a6a49f6` … `edc9c306` (sekcja 4.0). Wcześniej
+  runda 4.1 (`5463bc99`, `30c7ef9a`, `fe61e674`, `380a8f8c`, mini-plan `…/2026-09-28-logistyka-etap-3-poprawki-4-1.md`).
+- **`main` odjechał o jeden commit:** `c2b312f0` (28.09 15:02, poprawka mnożnika marży w kalkulatorze — inna sesja).
+  Pliki rozłączne z gałęzią (sprawdzone), więc merge będzie czysty; nie mergowałem `main` do gałęzi.
+- Testy po rundzie 2: **`4888 passed, 3 skipped`** (było 4704).
 - Worktree: `C:\Users\Grafik\Documents\woodpower-crm\.claude\worktrees\logistyka-etap-3-trasy` (jedyny worktree
   logistyki; worktree etapów 1 i 2 usunięte). Główny checkout stoi na `main` i obsługuje kontener 5002 — **nie
   przełączaj w nim gałęzi**.
 - **Gdzie co sprawdzać (ujednolicone 28.09 na prośbę Konrada):**
   - **localhost:5002** — `main`, czyli to, co jest na produkcji, na bazie `woodpower_crm_local` odświeżonej z produkcji
     28.09 (liczniki identyczne z produkcją). **Logistyki tam nie ma** — i nie uruchamiamy tam kodu gałęzi (sekcja 2).
-  - **127.0.0.1:5003** — **jedyny podgląd logistyki**: kod gałęzi (po rundzie 4.1, `380a8f8c`), kontener
+  - **127.0.0.1:5003** — **jedyny podgląd logistyki**: kod gałęzi (po rundzie 2, `edc9c306`), kontener
     `logistyka3-prod` (obraz `logistyka3-app`, sieć `woodpower-crm_default`), baza `logistyka3_prod` = **zrzut produkcji
     z 28.09 11:33** (z dzisiejszą pracą stanowisk: 313 zdarzeń, 151 zdarzeń produktów, 32 sesje pracowników), migracje
-    etapów 1–3 wykonane przy starcie (4/4 OK — kolejny test „wdrożenia dziś”; 202 zamówienia otwarte w Logistyce).
+    etapów 1–3 wykonane przy starcie (4/4 OK — kolejny test „wdrożenia dziś”; 202 zamówienia otwarte w Logistyce),
+    migracja kierowców z rundy 2 też (1/1, drugi przebieg ręcznie OK). Kierowców we Flocie: 0 (Konrad dodaje sam);
+    jedyna trasa to „Testowa ttrasa” Konrada.
     To migawka: nowszą aktywność daje ponowne odświeżenie (zrzut strumieniem → import przez `source` → restart
     kontenera, ok. 5 min). Poprzednia zawartość (kopia z 25.09 + testy Konrada z 28.09 rano: 209 sposobów dostawy
     ustawionych hurtowo o 08:38) jest w kopii `…\cea01798-…\scratchpad\kopie\logistyka3_prod_przed_2026-09-28.sql.gz`.
@@ -32,9 +37,8 @@ z raportami przeglądów) zniknął razem z usuniętym worktree; raporty oględz
     `127.0.0.1`, nie `localhost`; ciasteczka `session_lg3prod`/`remember_lg3prod`. W konfiguracji pusty klucz Base.
     i integracje, bez klucza ORS i CARTO → przebiegi liniami prostymi, podkład OSM. Do 28.09 przedpołudnia ten sam
     podgląd był na porcie 5004 — **5004 już nie istnieje**.
-  - Dawny podgląd z danymi testowymi (kontener `logistyka3-podglad` na 5003) **usunięty 28.09**; jego baza
-    `logistyka3_podglad` zostaje nieużywana do decyzji Konrada (trasa 17 „trasa 1” Konrada, trasy testowe oględzin
-    18–36) — sekcja 7.
+  - Dawny podgląd z danymi testowymi (kontener `logistyka3-podglad` na 5003) **usunięty 28.09**, jego baza
+    `logistyka3_podglad` skasowana tego samego dnia (decyzja Konrada).
   - Odświeżenie kodu podglądu (strażnik sandboxa nie przepuszcza potoku `git archive | tar`, więc dwa kroki; w Git Bash
     ścieżki do `tar` w formie `/c/…`, bo `C:` tar bierze za zdalny host):
     `git archive --output=<katalog>/kod.tar HEAD`, `tar -xf /c/…/kod.tar -C /c/…/kod` (`config/core.json` nie jest
@@ -57,6 +61,15 @@ z raportami przeglądów) zniknął razem z usuniętym worktree; raporty oględz
   wbudowana przeglądarka z kartą w tle / schowanym panelem nie ma klatek animacji — `requestAnimationFrame` i zdarzenie
   `close` okien `<dialog>` nie przychodzą (Chromium wysyła `close` w następnej klatce). Scenariusze zależne od `close`
   sprawdzaj pomiarem zdarzeń, nie samym efektem.
+- Raporty rundy 2 (`…\cea01798-4898-4fcf-9c72-c6856d824d42\scratchpad\raporty-r2\`): `progress.md` (ledger: przebieg,
+  rozstrzygnięcia, odłożone drobiazgi), `final-review-backend.md` i `final-review-frontend.md` (adwersaryjne przeglądy
+  CAŁEJ gałęzi, `main...80c8fd9d`), `fix-backend-rereview.md`, `fix-frontend-rereview.md`, `ogledziny-r2.md` (7/7 PASS),
+  przeglądy zadań `task-*-review.md`. Skrypty kontrolera w kodzie podglądu (`…\podglad-prod\kod`, poza gitem, więc
+  przeżywają odświeżenie kodu): `_sesja.py` (ciasteczko `session_lg3prod`), `_r2_woj.py` (filtr województw na MySQL:
+  suma opcji = całość, zgodność z mapą), `_r2_mapa_miara.py` (zgodność mapy kodów z województwami z Base.). Uruchamiasz
+  `MSYS_NO_PATHCONV=1 docker exec -w /app logistyka3-prod python <skrypt>`. **Pułapka oględzin:** natywne
+  `window.confirm()` (np. kosz kierowcy) wbudowana przeglądarka odrzuca od razu — w próbach podmień `confirm` na czas
+  kliknięcia; `ApiClient` dashboardu produkcji trzyma odpowiedzi 30 s w pamięci.
 - Zrzuty produkcji (dane klientów): `…\320e7d76-d002-459d-83b4-3b0a3df0403a\scratchpad\prod\crm_dump_2026-09-25.sql.gz`
   i `…\cea01798-4898-4fcf-9c72-c6856d824d42\scratchpad\prod\crm_dump_2026-09-28.sql.gz` (z tego drugiego odświeżono
   28.09 bazę 5002); kopia `woodpower_crm_local` sprzed odświeżenia:
@@ -65,28 +78,35 @@ z raportami przeglądów) zniknął razem z usuniętym worktree; raporty oględz
 
 ## 1. Gałęzie i stan
 
-- **Jedna gałąź logistyki: `claude/logistyka-etap-3-trasy`** (etapy 1, 2 i 3; 70+ commitów ponad `main`). Dawne gałęzie
+- **Jedna gałąź logistyki: `claude/logistyka-etap-3-trasy`** (etapy 1, 2 i 3 z rundami poprawek; 90+ commitów ponad `main`). Dawne gałęzie
   etapów (`claude/logistyka-etap-1-dostawy-22cf12` = `facbda24`, `claude/logistyka-etap-2-mapa` = `1c9fa686`) były
   w całości zawarte w tej gałęzi (sprawdzone `merge-base --is-ancestor`) i zostały usunięte 28.09 lokalnie i na origin
   na prośbę Konrada — w razie potrzeby da się je odtworzyć z tych SHA. Wszystkie dalsze prace logistyki idą na tę
   jedną gałąź. **Nic nie jest w `main` ani wdrożone.** Merge do `main` = deploy (webhook) — wyłącznie na polecenie
   Konrada.
 - Etap 3: 9 zadań planu + 3 rundy poprawek interfejsu + fala poprawek po dwóch przeglądach końcowych (backend, UI)
-  + runda 4.1 (28.09: 2 zadania, przegląd adwersaryjny rundy, fala poprawek, oględziny).
-- Testy: `4704 passed, 3 skipped` (pełny pakiet w Dockerze, SQLite, Python 3.12; kod zgodny z Pythonem 3.9 produkcji —
-  sprawdzone kompilacją na python:3.9-slim przed rundą 4.1; runda 4.1 nie dodała składni spoza 3.9).
+  + runda 4.1 (28.09: 2 zadania, przegląd adwersaryjny rundy, fala poprawek, oględziny) + **runda 2** (28.09: 7 zadań
+  z uwag Konrada, przegląd każdego zadania, oględziny, adwersaryjny przegląd całej gałęzi backend + UI, dwie fale
+  poprawek z ponownym przeglądem, sprawdzenie w przeglądarce).
+- Testy: `4888 passed, 3 skipped` (pełny pakiet w Dockerze, SQLite, Python 3.12; kod zgodny z Pythonem 3.9 produkcji —
+  sprawdzone kompilacją na python:3.9-slim przed rundą 4.1; rundy 4.1 i 2 nie dodały składni spoza 3.9 — przegląd
+  całej gałęzi sprawdzał to wprost).
 - Weryfikacja poza testami (na Windows):
   - migracje etapów 1–3 na MySQL 8.4: na kopii lokalnej bazy i na **świeżej kopii produkcji z 25.09 21:07** (4/4, idempotentne, 2× ręcznie);
   - blokada zapisów tras na dwóch prawdziwych sesjach MySQL (wyścigi S1–S5b: podwójne zajęcie pojazdu, zakleszczenia, stary status, odhaczenie vs dodanie, adres vs zapis trasy) — PASS po poprawkach;
   - 315 „złych” żądań do całego API logistyki na MySQL — 0 × 5xx, integralność danych OK;
-  - 4 tury oględzin interfejsu we wbudowanej przeglądarce na kopii danych (1440/1280/1024/768) — ostatnia: PASS poza punktem 4.1 niżej.
+  - 4 tury oględzin interfejsu we wbudowanej przeglądarce na kopii danych (1440/1280/1024/768) — ostatnia: PASS poza punktem 4.1 niżej;
+  - runda 2 na kopii produkcji z 28.09: migracja kierowców na MySQL (2 przebiegi), filtr województw na MySQL (202
+    otwarte = suma 18 opcji, żadne w dwóch, żadne w żadnej, 202/202 zgodne z mapą), oględziny 7/7 PASS, na końcu
+    w przeglądarce: licznik logistyki w odświeżaniu dashboardu, skróty Ctrl+1…7 przy otwartym oknie, komunikat
+    po dodaniu kierowcy.
 
 ## 2. Zmiany w bazie przy uruchamianiu kodu gałęzi na innej bazie (przeczytaj, zanim to zrobisz)
 
 Dotyczy każdej bazy, która jeszcze nie widziała kodu etapów 1–3 — na Windows: robocza `woodpower_crm_local` (5002),
-na Macu: jego lokalna baza. Kopie `logistyka3_podglad` i `logistyka3_prod` mają już te migracje.
+na Macu: jego lokalna baza. Kopia `logistyka3_prod` (podgląd 5003) ma już wszystkie pięć.
 Migracje wykonują się **same przy starcie aplikacji** (`RUN_MIGRATIONS`, domyślnie włączone) i przy `flask migrate`.
-Uruchomienie kodu tej gałęzi na takiej bazie wykona **nieodwracalnie** cztery migracje (runner zapisuje je w `schema_migrations`):
+Uruchomienie kodu tej gałęzi na takiej bazie wykona **nieodwracalnie** pięć migracji (runner zapisuje je w `schema_migrations`):
 
 1. `2026-09-25-logistyka-sposob-dostawy.sql` (etap 1):
    - nowe kolumny `prod_orders`: `delivery_method_set_at`, `delivery_method_set_by`, `handed_over_at`, `handed_over_by`,
@@ -99,6 +119,12 @@ Uruchomienie kodu tej gałęzi na takiej bazie wykona **nieodwracalnie** cztery 
 3. `2026-09-26-logistyka-zmiana-adresu.sql` (etap 2): kolumna `prod_orders.bl_address_pending`, akcja `adres` w ENUM logu.
 4. `2026-09-27-logistyka-trasy-flota.sql` (etap 3): tabele `prod_vehicles`, `prod_routes`, `prod_route_stops` + wiersz
    `prod_config` **`logistyka_trasy_blokada`** (blokada „jeden piszący trasy naraz”).
+5. `2026-09-28-logistyka-kierowcy.sql` (runda 2): kolumna `prod_workers.is_driver TINYINT(1) NOT NULL DEFAULT 0`
+   (dodawana warunkowo przez `information_schema`, idempotentnie). Nikt nie jest kierowcą, dopóki logistyk go nie doda.
+
+Poza migracjami runda 2 zmienia **mapę kodów pocztowych na województwa** (`modules/reports/utils.py`,
+`PostcodeToStateMapper`), której używają też raporty i Analiza sprzedażowa do uzupełniania brakującego województwa.
+Po wdrożeniu nowe wiersze dostaną województwo z poprawionej mapy; **historycznych nic nie przelicza** (sekcja 4.2).
 
 Zalecenie (tak było na Windows):
 - **Pracuj na kopii bazy**, nie na roboczej `woodpower_crm_local`, jeśli potrzebujesz jej dla `main`: np.
@@ -123,7 +149,7 @@ Zalecenie (tak było na Windows):
 ## 3. Testy i podgląd
 
 - Z katalogu worktree: `docker compose -p logistyka3 run --rm --no-deps app pytest tests/ -q -p no:cacheprovider`
-  (oczekiwane 4704 passed, 3 skipped; obraz `logistyka3-app` już zbudowany); `integrations/blog_seo` osobno.
+  (oczekiwane 4888 passed, 3 skipped; obraz `logistyka3-app` już zbudowany); `integrations/blog_seo` osobno.
   Składnia JS: `node --check <plik>` na hoście (node jest w PATH Windows, w obrazie go nie ma).
   `docker compose exec` z worktree testuje GŁÓWNY checkout, nie gałąź. Nie twórz `config/core.json` w worktree
   (zmienia wyniki testów). W Git Bash polecenia dockera ze ścieżkami `/app` lub `C:/…` poprzedzaj `MSYS_NO_PATHCONV=1`.
@@ -138,6 +164,44 @@ Zalecenie (tak było na Windows):
 - Subagenci z przeglądarką: tylko wbudowana, odizolowana przeglądarka; **nigdy Chrome Konrada** (jego sesje, produkcja).
 
 ## 4. Co zostało otwarte
+
+### 4.0. Runda 2 (uwagi Konrada po testach) — ZROBIONE 28.09
+Uwagi Konrada (spec rundy 2):
+- ✅ **Dashboard produkcji**: logistyka zeszła z szyny pipeline'u (szyna znowu ma 7 stanowisk). Pod pipeline'em jest pasek
+  „Logistyka: N bez sposobu dostawy” z przyciskiem „Otwórz Logistykę”, a przy zerze pasek się wycisza. Liczba odświeża się
+  razem z dashboardem (`6a6a49f6`, `8bbcee0e`).
+- ✅ **Filtr województw** (kilka naraz): 16 województw, „Zagranica” i „Bez województwa”, liczone z kodu pocztowego tą samą
+  mapą co raporty (warunek SQL odpowiada mapie w Pythonie 1:1). Filtry listy przełączają mapę na „Zamówienia”
+  (`281e8edc`, `ccf97368`).
+- ✅ **Kierowcy**: pracownik produkcji dostaje znacznik kierowcy. We Flocie jest panel „Kierowcy”: okno „Dodaj kierowcę”
+  pokazuje aktywnych pracowników, którzy nie są kierowcami, a czerwony kosz zdejmuje znacznik. Usunięcie nie rusza
+  pracownika ani tras, na których już jest. W edytorze trasy do wyboru są tylko kierowcy. Dotychczasowy nie-kierowca zostaje
+  na trasie z opisem „(nie jest już kierowcą)”, a nowy albo zmieniony kierowca musi mieć znacznik (409)
+  (`e661d75f`, `53562d19`).
+- ✅ **Dymek pinezki**: sposób dostawy wybierasz prosto z mapy, z tymi samymi zasadami i blokadami co w wierszu. Gdy trwa
+  zapis tego zamówienia, dymek jest zablokowany i mówi dlaczego. Pole wyboru wiersza ma odstęp, a mapka trasy przybliża
+  kółkiem (`80c8fd9d`, `5511e405`).
+- ✅ **Mapa kodów pocztowych** (zatwierdzone „tak, robimy”): dopisane brakujące prefiksy 24, 69, 88 i 89; 27 →
+  świętokrzyskie, 77 → pomorskie; poprawione zakresy lubelskiego, lubuskiego, kujawsko-pomorskiego, mazowieckiego
+  i zachodniopomorskiego; 21 wyjątków trzycyfrowych (np. 38-3xx Gorlice → małopolskie, 96-3xx/96-5xx → mazowieckie,
+  47-4xx → śląskie) (`8c23e4c3`, `e563f134`, `feecab48`). Pomiar na kopii: wierszy, w których Base. podał inne
+  województwo niż stara mapa, jest 547; nowa mapa zgadza się w 175 z nich. Reszta to głównie powtarzający się klienci
+  z błędnym województwem w Base. (np. 96-1xx: 173 razy „Wielkopolskie”).
+
+Po adwersaryjnym przeglądzie całej gałęzi (backend i UI, `main...80c8fd9d`):
+- ✅ **I1**: zapisy zamówień w Logistyce (sposób dostawy, „Wydane klientowi”, adres) kończą transakcję z `before_request`
+  (`commit`), biorą blokadę tras i dopiero wtedy czytają. Wcześniej MySQL (REPEATABLE READ) pokazywał im migawkę sprzed
+  blokady. „Wydane klientowi” też bierze teraz blokadę, a reguła w `CLAUDE.md` jest poprawiona (`6b1913d1`).
+- ✅ **M3**: zmiana sposobu dostawy zamówienia z utworzoną przesyłką daje 409 (jak adres), gdy sposób był już ustawiony
+  albo towar jest w całości spakowany. Pierwsze ustawienie dla niespakowanego przechodzi (`64293979`, `edc9c306`).
+- ✅ Drobne backendu: ogromna liczba we współrzędnych pinezki → 422, kod pocztowy tylko z cyfr ASCII, GET trasy usuniętej
+  w tym samym czasie → 404 zamiast 500 (`64293979`). W Routimo „Region” jest tylko dla Polski, a punkt automatyczny sprzed
+  zmiany adresu idzie bez współrzędnych, żeby Routimo sam geokodował adres (`fe25c2d1`, `f64284c4`).
+- ✅ UI: skróty Ctrl+1…7 nie przełączają zakładki przy otwartym oknie ani w polu edycyjnym (wcześniej okno znikało
+  z widoku i blokowało stronę). Województwa zaznaczone przed wczytaniem listy teraz filtrują. Fokus klawiatury wraca do
+  selecta po zapisie. Poprawiona odmiana w podpowiedzi klastra i `?v=` dla `products-module.js`. Okno „Dodaj kierowcę”
+  odróżnia błąd wczytania od pustej listy, a błąd `/drivers` nie ukrywa już pojazdów. Kursor dymka pokazuje `progress`
+  tylko w trakcie zapisu. Komunikat „Dodano kierowcę” jest w treści okna, a nie pod jego warstwą (`8bbcee0e`, `5511e405`).
 
 ### 4.1. Do poprawy na starcie — ZROBIONE 28.09 (runda 4.1)
 - ✅ **Anulowane w całości zamówienie zdjęte z trasy zamyka się** (`5463bc99`): `routes.usun_przystanek` po zdjęciu woła
@@ -166,6 +230,24 @@ Zalecenie (tak było na Windows):
    w oknie pole nieaktywne z wyjaśnieniem) — potwierdź.
 3. Uwagi bezpieczeństwa znalezione przy przeglądach (poza zakresem etapu) Konrad dostał w czacie; są też w pamięci
    Claude na tym komputerze — celowo nie ma ich w publicznym repo.
+4. **Dzień wdrożenia: zamówienia spakowane pod transport własny (M2, przed wdrożeniem).** Migracja etapu 1 zamyka
+   wszystko, co jest w całości spakowane (świadomie, spec 6.2). Na zrzucie z 28.09 to 233 zamówienia spakowane od 14.09,
+   wszystkie bez sposobu dostawy, więc CRM nie wie, które z nich czekają na własny transport. Zamkniętego nie da się dodać
+   do trasy, dopóki logistyk nie wyszuka go („także zamknięte”) i nie ustawi „Transport własny” (to je otwiera i wysyła
+   do Base. status 417343). Opcje: (a) krok na liście wdrożenia: logistyk wyszukuje zamówienia, które jadą własnym
+   transportem; (b) migracja zostawia otwarte zamówienia spakowane w ostatnich N dniach. **Rekomenduję (a).** Przy (b)
+   logistyk ustawiałby hurtem „Kurier” także zamówieniom już wysłanym, a to wysyła do Base. status po spakowaniu, czyli
+   cofa te zamówienia w Base.
+5. **Województwa historyczne w raportach i Analizie sprzedażowej.** Nowa mapa kodów działa od wdrożenia, a wiersze
+   uzupełnione starą mapą zostają (np. 26-0xx Kielce jako mazowieckie). Jednorazowe przeliczenie jest możliwe, ale baza
+   nie zapisuje, czy województwo przyszło z Base., czy z mapy. Przeliczać można by tylko wiersze zgodne ze starą mapą,
+   a części z nich Base. podał wprost (na kopii 244 takie wiersze). Osobna decyzja.
+6. **„Otwórz Logistykę” na pasku dashboardu (D13).** Link przeładowuje stronę i otwiera ostatnio używaną podzakładkę
+   Logistyki (np. Flotę). Spec kazał zostawić go bez zmian. Czy ma przełączać zakładkę bez przeładowania i od razu
+   pokazywać listę z „Nie ustawiono”?
+7. **Dwie definicje „bez sposobu” (D14).** Pasek dashboardu nie liczy zamówień w całości anulowanych, a licznik „Nie
+   ustawiono” w Logistyce liczy wszystkie otwarte. Przez najwyżej godzinę (do crona, który zamyka anulowane) liczby mogą się
+   różnić. Proponuję w obu miejscach liczyć bez anulowanych.
 
 ### 4.3. Świadomie odłożone drobiazgi (mogą czekać)
 - Backend: ikona „etykiety sprzed zmiany” nie widzi zmian trasy po wydruku (brak znacznika czasu przypisania);
@@ -186,6 +268,32 @@ Zalecenie (tak było na Windows):
   - zmiana sposobu dostawy zamówienia z trasy przelicza zamknięcie dwa razy (idempotentnie; końcowe przeliczenie
     maskuje pierwsze, więc test tej ścieżki nie wykryłby regresji); test UI dzieli ciało `hurtTrasa` po wcięciu (kruche
     przy przeformatowaniu, ale błąd dałby czerwony test, nie fałszywie zielony).
+- Z rundy 2, przegląd całej gałęzi (odłożone świadomie, szczegóły w `raporty-r2\final-review-*.md` i `progress.md`):
+  - **M1** zakleszczenie MySQL (1213) między tabletem a zapisem trasy albo sposobu: tablet kończy ostatnią pozycję
+    zamówienia dokładnie wtedy, gdy logistyk dodaje je do trasy. Jedna strona dostaje błąd: tablet ponawia z kolejki,
+    panel pokazuje błąd i logistyk powtarza. Danych to nie psuje. Tania naprawa: jedno ponowienie po 1213. Do tej klasy
+    należy też pakowanie na tablecie, które nie bierze blokady tras;
+  - **M4** cron może zamknąć zamówienie na nieświeżych danych (wyścig z równoczesną zmianą sposobu), a takiego potem nic
+    nie otworzy. Rzadkie; naprawa: szerszy warunek `do_otwarcia`;
+  - **M5** dopychacz do Base.: zmiana tuż przy końcu przebiegu czeka do crona (do godziny), a zamówienie, którego wysyłka
+    trwale kończy się błędem, zatrzymuje kolejkę następnych;
+  - **M8** filtr etapu przy „także zamknięte” działa po limicie 50 wyników, więc może zgubić trafienia;
+  - **M12** „Zeszło z produkcji” (Arkusz) nie ustawi się dla zamówień przeniesionych samą migracją (1 zamówienie na
+    zrzucie z 28.09). Naprawa w migracji jest możliwa, dopóki nie wykonała się na produkcji;
+  - **M13** dodanie albo usunięcie kierowcy powoduje jedno pełne pobranie katalogu pracowników przez każdy tablet (ETag).
+    Nieszkodliwe;
+  - M11 poprawione tylko w GET szczegółów trasy. Akcje tras przy równoległym usunięciu trasy nadal mogą dać 500 (rzadkie);
+  - reguła o blokadzie tras w `CLAUDE.md` jest ostrzejsza, niż robią to pinezka i „wykonaj/przywróć” (skutki łagodne) —
+    do wyrównania przy refaktorze;
+  - ochrona M3 i adresu opiera się na polach przesyłki z dawnej stacji wysyłki (sprzed 11.08). Przesyłek tworzonych dziś
+    w Base. CRM nie widzi;
+  - UI: **W2** panel „Województwa” przy ≤ 900 px mógłby wystawać w lewo, ale oględziny tego nie potwierdziły (1440/1024/768
+    OK); **D10** komunikaty Dashboardu Logistyki (np. „Lokalizowanie zakończone”) przesuwają tabelę, więc można trafić
+    w select sąsiedniego wiersza; **D12** liczniki nie przesuwają się, gdy zmienione zamówienie wypadło już z listy
+    (wyrównuje się przy odświeżeniu, do 60 s); **D15** loader nie wykrywa każdej awarii skryptu i zostaje „Ładowanie…”;
+  - drobiazgi zadań rundy: dodatkowe testy kierowców (gotowy test w `task-1-review.md`), nazwa parametru
+    `fleet._pracownicy(kierowca)`, kolory paska dashboardu jako literały zamiast `--il-*`, martwy selektor
+    `.il-alert-station[data-station="logistics"]`, style błędu kierowców w `logistics.css` zamiast `logistics-trasy.css`.
 
 ## 5. Rozstrzygnięcia podjęte w trakcie (w kolejności; koszt, jeśli błędne)
 
@@ -267,6 +375,29 @@ Ujednolicenie (28.09, prośba Konrada „jedna gałąź, jedno miejsce do sprawd
     wykonania migracji gałęzi na bazie roboczej `woodpower_crm_local` — koszt: dwa adresy (5002 = produkcja, 5003 =
     logistyka) zamiast jednego.
 
+Runda 2 (28.09.2026, uwagi Konrada po testach):
+
+50. Zadania z plików rozłącznych szły równolegle (zadania 1, 2, 3 i 6 naraz, 4 po 2 i 3, 5 po 4), zgodnie ze zgodą
+    Konrada. Implementer uruchamiał testy swojego zadania, a pełny pakiet kontroler po każdej fali — koszt: błąd na styku
+    zadań wychodzi później.
+51. Mapę kodów poprawiłem według geografii kodów, a dane sprzedażowe posłużyły tylko do weryfikacji. Mają szum
+    powtarzających się klientów z błędnym województwem i wiersze dorobione starą mapą. Wyjątek 38-3xx (Gorlice) dopisany
+    po pomiarze — koszt: pojedyncze miejscowości na granicach prefiksów mają przybliżone przypisanie.
+52. Przegląd całej gałęzi poszedł równolegle z przeglądem zadania 5 i oględzinami, a ich ustalenia trafiły do jednej fali
+    poprawek (osobno backend, osobno UI) — koszt: ustalenia zadania 5 poprawione razem z końcowymi.
+53. I1: zapis zamówienia w Logistyce zaczyna się od `commit`, potem blokada tras, potem odczyt (migawka powstaje pod
+    blokadą). Jeden pomocnik w `panel_api.py`, test pilnuje kolejności — koszt: jeden dodatkowy commit na żądanie.
+54. M3 zawężone: odmowa przy przesyłce tylko wtedy, gdy sposób był już ustawiony albo towar jest w całości spakowany.
+    Pierwsze ustawienie dla niespakowanego przechodzi, bo stare zamówienie z polami dawnej przesyłki utknęłoby na zawsze
+    (tablet żąda sposobu, panel odmawia) — koszt: pierwsze ustawienie przy dawnej przesyłce nie jest blokowane (status po
+    spakowaniu i tak nie pójdzie, dopóki towar nie jest spakowany).
+55. Do Routimo nie idą współrzędne punktu automatycznego, którego skrót adresu różni się od bieżącego adresu zamówienia —
+    koszt: Routimo geokoduje kilka adresów samo.
+56. Globalny komunikat przy otwartym oknie: gdy okno samo pokazuje potwierdzenie w treści (kierowcy), komunikatu globalnego
+    nie ma. Inne okna (dodawanie do trasy, pojazd) zamykają się przed komunikatem, więc nic tam nie ginie — koszt: brak.
+57. Odłożone do 4.3: M1, M4, M5, M8, M12, M13 (backend) oraz W2, D10, D12, D15 (UI). D13, D14 i M2 trafiły do decyzji
+    Konrada (4.2) — koszt: znane rzadkie przypadki zostają do następnej rundy.
+
 ## 6. Lista wdrożenia (nic bez decyzji Konrada)
 1. Etap 1 (jest w tej gałęzi): **najpierw appka 1.7.0 (vc38) na wszystkich tabletach**, dopiero potem backend; wpis crontaba
    logistyki co godzinę (`scripts/cron_endpoint.sh POST /production/api/logistics/cron`) i jedno ręczne uruchomienie.
@@ -274,22 +405,24 @@ Ujednolicenie (28.09, prośba Konrada „jedna gałąź, jedno miejsce do sprawd
 3. Etap 3: konto OpenRouteService (darmowe, 2000 tras/dobę), `OPENROUTESERVICE_API_KEY` w `core.json` na serwerze i
    **od razu** `crm-fix-logs-perms.sh && supervisorctl restart crm_woodpower`; próba ORS na żywo (także adres wiejski,
    sprawdzenie `radiuses`); po migracji `SELECT config_key FROM prod_config WHERE config_key='logistyka_trasy_blokada'`.
-4. Wdrożenie = merge `claude/logistyka-etap-3-trasy` do `main` (zawiera 1+2); gałąź nie zmienia `deploy.sh`, skryptów ani
-   `requirements.txt`, więc bez wdrożenia dwuetapowego.
-5. Zaraz po wdrożeniu: logistyk ustawia sposoby dostawy (hurtem, z podpowiedzią Base.) — **75 zamówień** z pozycjami na
-   pakowaniu czeka na decyzję; dodaje pojazdy we Flocie; próba eksportu Routimo w Routimo; na tablecie pakowania nazwa
-   trasy na plakietce; akcja Base. „Odebrane → drukuj KP” przy statusie ustawionym przez API; jeden testowy wydruk etykiety
-   z długą nazwą trasy.
+4. Wdrożenie = merge `claude/logistyka-etap-3-trasy` do `main` (zawiera 1+2 i rundy 4.1 i 2); gałąź nie zmienia
+   `deploy.sh`, skryptów ani `requirements.txt`, więc bez wdrożenia dwuetapowego. `main` ma od 28.09 commit `c2b312f0`
+   (kalkulator), z plikami rozłącznymi z gałęzią, więc merge przejdzie bez konfliktów. Przed merge: decyzja M2 (4.2.4).
+5. Zaraz po wdrożeniu: logistyk ustawia sposoby dostawy (hurtem, z podpowiedzią Base.; na kopii z 25.09 **75 zamówień**
+   miało pozycje na pakowaniu czekające na decyzję); **dodaje kierowców we Flocie** (bez tego wybór kierowcy trasy jest
+   pusty, a okno podpowiada „Dodaj kierowców we Flocie”) i pojazdy; przy wariancie (a) z 4.2.4 wyszukuje zamknięte
+   spakowane zamówienia pod transport własny i ustawia im „Transport własny”; próba eksportu Routimo w Routimo; na tablecie
+   pakowania nazwa trasy na plakietce; akcja Base. „Odebrane → drukuj KP” przy statusie ustawionym przez API; jeden testowy
+   wydruk etykiety z długą nazwą trasy.
 
 ## 7. Sprzątanie na Windows (dopiero po zakończeniu prac — na czas kontynuacji podglądy i bazy zostają)
-- Podgląd: `docker rm -f logistyka3-prod`; bazy w kontenerze `woodpower-crm-db-1`: `DROP DATABASE logistyka3_prod;`.
-  Baza dawnego podglądu testowego `logistyka3_podglad` (bez kontenera od 28.09; trasa 17 „trasa 1” Konrada i trasy
-  testowe) — `DROP DATABASE logistyka3_podglad;`, gdy Konrad potwierdzi, że trasa 17 nie jest potrzebna.
+- Podgląd: `docker rm -f logistyka3-prod`; baza w kontenerze `woodpower-crm-db-1`: `DROP DATABASE logistyka3_prod;`.
+  (`logistyka3_podglad` skasowana 28.09.)
 - Zrzuty produkcji (dane klientów) w scratchpadach sesji: `…\320e7d76-…\scratchpad\prod\crm_dump_2026-09-25.sql.gz`,
   `…\cea01798-…\scratchpad\prod\crm_dump_2026-09-28.sql.gz` i `…_1135.sql.gz` oraz kopie
   `…\cea01798-…\scratchpad\kopie\woodpower_crm_local_przed_2026-09-28.sql.gz` i `logistyka3_prod_przed_2026-09-28.sql.gz`
   — usuń ręcznie; razem z nimi całe katalogi scratchpadów sesji
-  `320e7d76-…` (kody podglądów, archiwa `kod.tar`, raporty) i `cea01798-…` (raporty rundy 4.1).
+  `320e7d76-…` (kody podglądów, archiwa `kod.tar`, raporty) i `cea01798-…` (raporty rund 4.1 i 2, logi testów).
 - `C:\Users\Grafik\Downloads\routimo_krakow_2026-09-29.xlsx` (2 B, plik testowy) — nadal leży, usuń ręcznie.
 - Kopia konfiguracji na serwerze przed wpisaniem klucza CARTO: `config/core.json.bak-20260925-carto` (600).
 
@@ -304,17 +437,20 @@ Ujednolicenie (28.09, prośba Konrada „jedna gałąź, jedno miejsce do sprawd
 > w głównym checkoucie (na nim stoi `main` i kontener 5002).
 >
 > Najpierw przeczytaj w worktree `docs/superpowers/plans/2026-09-26-logistyka-etap-3-przekazanie.md` — to jedyne źródło
-> prawdy o etapie 3 (sekcja 0: stan na 28.09, podglądy i raporty; 2: zmiany w bazie; 4: co otwarte; 5: rozstrzygnięcia;
-> 6: lista wdrożenia), potem plan `docs/superpowers/plans/2026-09-24-logistyka-etap-3-trasy-flota.md` i spec
-> `docs/superpowers/specs/2026-09-24-logistyka-rownolegla-trasy-design.md`.
+> prawdy o etapie 3 (sekcja 0: stan na 28.09, podglądy i raporty; 2: zmiany w bazie; 4: co zrobione i co otwarte;
+> 5: rozstrzygnięcia; 6: lista wdrożenia), potem spec i plan ostatniej rundy
+> (`docs/superpowers/specs/2026-09-28-logistyka-runda-2-uwagi-design.md`,
+> `docs/superpowers/plans/2026-09-28-logistyka-runda-2-uwagi.md`), a w razie potrzeby plan i spec etapu 3
+> (`…/plans/2026-09-24-logistyka-etap-3-trasy-flota.md`, `…/specs/2026-09-24-logistyka-rownolegla-trasy-design.md`).
 >
 > Sprawdź środowisko: `git fetch origin` (czy gałąź i `main` nie odjechały od stanu z sekcji 0), testy z katalogu worktree
-> `docker compose -p logistyka3 run --rm --no-deps app pytest tests/ -q -p no:cacheprovider` (oczekiwane 4704 passed,
+> `docker compose -p logistyka3 run --rm --no-deps app pytest tests/ -q -p no:cacheprovider` (oczekiwane 4888 passed,
 > 3 skipped), podgląd logistyki 127.0.0.1:5003 (kopia produkcji, jedyny — sekcja 0) i localhost:5002 (`main`) odpowiadają. Nie uruchamiaj
 > kodu gałęzi na roboczej bazie `woodpower_crm_local` (migracje nieodwracalne — sekcja 2).
 >
-> Punkt 4.1 jest zrobiony (28.09, sekcja 4.1). Moje uwagi z testów i **nowe rzeczy spoza planu** wypiszę w kolejnej
-> wiadomości — z nich zrobimy plan następnej rundy; po niej adwersaryjny przegląd całej gałęzi (sekcja 5, pkt 44). Tryb subagent-driven (superpowers): przegląd po każdym zadaniu, na koniec
+> Runda 2 jest zrobiona i przeszła adwersaryjny przegląd całej gałęzi (28.09, sekcja 4.0). Czekają moje decyzje
+> z sekcji 4.2 (zwłaszcza M2 przed wdrożeniem). Kolejne uwagi z testów wypiszę w następnej wiadomości — z nich zrobimy
+> plan kolejnej rundy. Tryb subagent-driven (superpowers): przegląd po każdym zadaniu, na koniec
 > adwersaryjny przegląd całej gałęzi i oględziny UI na kopii danych. Subagenci tylko we wbudowanej przeglądarce
 > (`mcp__Claude_Browser__*`) — nigdy mój Chrome ani `chrome.exe`, nigdy produkcja, bez pobierania plików. Po zmianach kodu
 > odświeżaj kod podglądów (sekcja 0). Commity Conventional Commits po polsku (scope `production`), dokument przekazania
