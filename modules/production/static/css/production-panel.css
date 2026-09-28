@@ -2667,7 +2667,7 @@ body {
   left: 0;
   top: 0;
   width: 54px;
-  height: 392px;
+  height: 343px;
   pointer-events: none;
 }
 .il-rail-mark { position: absolute; left: 0; top: 0; width: 54px; height: 100%; }
@@ -2676,24 +2676,31 @@ body {
    uruchomieniem skryptu nie było widać pełnej, ciągłej linii. */
 .il-flow { stroke-dasharray: 3 300; }
 
-/* ─── Logistyka: bramka decyzji, nie stanowisko na hali ───
-   Nie ma tabletu, obsady ani przerobu w m³ — nikt się na niej nie loguje,
-   bo decyzja o wysyłce zapada przy biurku. Kafel pokazywał wyłącznie
-   liczbę czekających na decyzję i wiersz robi dokładnie to samo, zamiast
-   wypełniać sześć kolumn zerami. */
-.il-rail-gate {
-  grid-column: span 5;
-  display: flex;
-  align-items: baseline;
-  justify-content: center;
-  gap: 9px;
-  /* nowrap, bo „oczekuje na decyzję" w wąskiej komórce zawijało się na dwie
-     linijki i rozpychało wiersz ponad pozostałe. */
-  white-space: nowrap;
-  font-family: 'JetBrains Mono', monospace;
+/* ─── Logistyka: pasek pod pipeline'em (runda 2 logistyki, spec 2.1) ───
+   Logistyka jest RÓWNOLEGŁA do produkcji — nie stanowisko na szynie. Pod listą stanowisk, w tej
+   samej karcie: liczba otwartych zamówień bez sposobu dostawy i przejście do zakładki. Zero =
+   pasek zostaje, wyciszony. Oba teksty są w DOM (#logistics-pending istnieje zawsze), stan
+   przełącza klasa --spokoj. */
+.il-logistyka {
+  display: flex; align-items: center; gap: 10px; margin-top: 10px; padding: 8px 10px 8px 12px;
+  background: #fffaf2; border: 1px solid #f1dcc0; border-left: 3px solid var(--il-status-warn);
+  border-radius: var(--il-radius);
 }
-.il-rail-gate-n { font-size: 21px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.il-rail-gate-l { font-size: 12.5px; color: var(--il-text-muted); letter-spacing: 0.04em; }
+.il-logistyka-ikona { flex: none; font-size: 14px; color: var(--il-status-warn); }
+.il-logistyka-tekst { flex: 1; min-width: 0; margin: 0; font-size: 13px; color: var(--il-text-primary); }
+.il-logistyka-nazwa { font-weight: 600; margin-right: 4px; }
+.il-logistyka-n { font-family: 'JetBrains Mono', monospace; font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.il-logistyka-spokoj-tekst { color: var(--il-text-secondary); }
+.il-logistyka-otworz {
+  flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
+  background: var(--il-bg-card); border: 1px solid var(--il-border); border-radius: var(--il-radius);
+  font-size: 12.5px; font-weight: 600; color: var(--il-text-primary); text-decoration: none; white-space: nowrap;
+}
+.il-logistyka-otworz:hover { border-color: var(--il-text-secondary); color: var(--il-text-primary); }
+.il-logistyka--spokoj { background: var(--il-bg-card); border-color: var(--il-border-light); border-left-color: var(--il-border); }
+.il-logistyka--spokoj .il-logistyka-ikona { color: var(--il-text-muted); }
+.il-logistyka--spokoj .il-logistyka-liczba,
+.il-logistyka:not(.il-logistyka--spokoj) .il-logistyka-spokoj-tekst { display: none; }
 
 /* ─── Trakownia ───
    Inny zestaw mierników (otwarte / kłód dziś / m³ dziś / do rozliczenia),
@@ -2753,9 +2760,6 @@ body {
 .il-station[data-station="edges"] .il-station-bar-fill { background: var(--il-station-fin); }
 .il-station[data-station="painting"] { --st: var(--il-station-cmp); }
 .il-station[data-station="painting"] .il-station-bar-fill { background: var(--il-station-cmp); }
-/* Logistyka nie ma paska postępu — bramka decyzji nie ma czego
-   kończyć — więc barwa niesie się tylko przez --st (linijka przy nazwie). */
-.il-station[data-station="logistics"] { --st: #6366f1; }
 .il-station[data-station="packaging"] { --st: var(--il-station-pak); }
 .il-station[data-station="packaging"] .il-station-bar-fill { background: var(--il-station-pak); }
 

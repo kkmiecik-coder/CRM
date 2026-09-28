@@ -188,7 +188,8 @@ def test_kolumna_zamowien_odswieza_sie_w_tle():
 def test_grid_czyta_sie_w_kolejnosci_drogi_produktu():
     """
     Kolejność kafli to kolejność hali: trakownia (surowiec) na wejściu, potem
-    pipeline produktów, na końcu logistyka i pakowanie. Lakiernia stoi PO
+    pipeline produktów, na końcu pakowanie; logistyki na szynie nie ma (runda 2
+    logistyki) — jest równoległa, pasek pod listą stanowisk. Lakiernia stoi PO
     Krawędziach, bo produkt z obróbką krawędzi idzie do niej właśnie stamtąd.
 
     Pigułka alertu niżej w szablonie ma data-station składane Jinją, więc
@@ -198,8 +199,7 @@ def test_grid_czyta_sie_w_kolejnosci_drogi_produktu():
     kolejnosc = re.findall(r'data-station="(\w+)"', html)
 
     assert kolejnosc == ['sawmill', 'cutting', 'assembly', 'gluing',
-                         'formatting', 'edges', 'painting', 'logistics',
-                         'packaging']
+                         'formatting', 'edges', 'painting', 'packaging']
 
 
 # ============================================================================
@@ -285,9 +285,10 @@ def test_panel_css_nie_zna_juz_kodu_stanowiska_finishing():
 def test_wysokosc_wiersza_zgadza_sie_w_trzech_miejscach():
     """
     Wysokość wiersza 49 px jest zapisana w TRZECH miejscach naraz: w CSS
-    (`.il-station`), w viewBox szyny w szablonie (`0 0 54 392` = osiem
-    wierszy po 49) i w stałej WYSOKOSC_WIERSZA w dashboard-module.js, która
-    liczy z niej pozycje węzłów.
+    (`.il-station`), w viewBox szyny w szablonie (`0 0 54 343` = siedem
+    wierszy po 49 (od rundy 2 logistyki bez wiersza logistyki; tyle samo
+    `.il-rail-spine` w CSS)) i w stałej WYSOKOSC_WIERSZA w dashboard-module.js,
+    która liczy z niej pozycje węzłów.
 
     Rozjazd nie wywala niczego i nie zostawia śladu w konsoli — po prostu
     kropki przepływu przestają trafiać w kropki stanowisk, a szyna zaczyna
@@ -301,7 +302,8 @@ def test_wysokosc_wiersza_zgadza_sie_w_trzech_miejscach():
     blok = css.split('.il-station {')[1].split('}')[0]
     assert 'height: 49px;' in blok, 'CSS: wysokość wiersza'
 
-    assert 'viewBox="0 0 54 392"' in html, 'szablon: viewBox szyny'
+    assert 'viewBox="0 0 54 343"' in html, 'szablon: viewBox szyny'
+    assert 'height: 343px;' in css.split('.il-rail-spine {')[1].split('}')[0], 'CSS: wysokość szyny'
     assert 'const WYSOKOSC_WIERSZA = 49;' in js, 'JS: stała wysokości wiersza'
 
 
@@ -323,14 +325,14 @@ def test_lista_stanowisk_jest_kolumna_a_nazwa_klasy_zostaje():
 
 def test_logistyka_nie_udaje_stanowiska_na_hali():
     """
-    Logistyka to bramka licząca zamówienia bez sposobu dostawy: nikt się na
-    niej nie loguje, nie ma tabletu ani przerobu w m³. Stary kafel pokazywał
-    wyłącznie liczbę czekających i wiersz ma robić dokładnie to samo —
-    wypełnianie sześciu kolumn zerami kłamałoby o tym, że coś się tam mierzy.
+    Logistyka liczy zamówienia bez sposobu dostawy: nikt się na niej nie loguje, nie ma tabletu
+    ani przerobu w m³. Od rundy 2 logistyki nie stoi nawet na szynie — pasek pod listą stanowisk
+    mówi wyłącznie, ile czeka na decyzję, i prowadzi do zakładki.
     """
     html = _plik(SZABLON)
 
-    blok = html.split('data-station="logistics"')[1].split('data-station=')[0]
+    assert 'data-station="logistics"' not in html and 'il-station--gate' not in html
+    blok = html.split('data-lg-pasek="logistyka"')[1].split('</div>')[0]
     assert 'id="logistics-pending"' in blok
     assert 'bez sposobu dostawy' in blok
     for czego_nie_ma in ('-bar-fill', '-tablet-badge', 'station_crew', 'today-m3'):

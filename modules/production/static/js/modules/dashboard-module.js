@@ -492,15 +492,18 @@ class DashboardModule {
         const Y = i => 24.5 + i * WYSOKOSC_WIERSZA;
         const X = 32, A = 23, B = 41, L = 6, R = 48;
 
-        // Kody w kolejności wierszy — węzeł bierze barwę swojego stanowiska.
+        // Kody w kolejności wierszy — węzeł bierze barwę swojego stanowiska. Logistyki tu nie ma
+        // (runda 2 logistyki): jest równoległa do produkcji, jej licznik to pasek pod listą.
         const kody = ['cutting', 'assembly', 'gluing', 'formatting',
-                      'edges', 'painting', 'logistics', 'packaging'];
+                      'edges', 'painting', 'packaging'];
         const barwy = {
             cutting: 'var(--il-station-cut)', assembly: 'var(--il-station-asm)',
             gluing: 'var(--il-station-glu)', formatting: 'var(--il-station-fmt)',
             edges: 'var(--il-station-fin)', painting: 'var(--il-station-cmp)',
-            logistics: '#6366f1', packaging: 'var(--il-station-pak)',
+            packaging: 'var(--il-station-pak)',
         };
+        // Pakowanie to ostatni wiersz — na nim kończą się linia bazowa i łuk obejścia.
+        const PAK = kody.length - 1;
 
         const doWycinania = `C${X},12 ${A},12 ${A},${Y(0)}`;
         const doSkladania = `C${X},17 ${B},20 ${B},${Y(1)}`;
@@ -509,7 +512,7 @@ class DashboardModule {
         // Trasy omijające wynikają z ProductionProduct.complete_task():
         // brak docięcia na wymiar wyrzuca pozycję ze Sklejania wprost do
         // Pakowania, a brak obróbki krawędzi — z Formatowania do Lakierni.
-        const lukDlugi = `M${X},${Y(2)} C${L},${Y(2) + 51} ${L},${Y(7) - 51} ${X},${Y(7)}`;
+        const lukDlugi = `M${X},${Y(2)} C${L},${Y(2) + 51} ${L},${Y(PAK) - 51} ${X},${Y(PAK)}`;
         const lukKrotki = `M${X},${Y(3)} C${R},${Y(3) + 27} ${R},${Y(5) - 27} ${X},${Y(5)}`;
 
         const linia = (d, kolor) => `<path d="${d}" fill="none" stroke="${kolor || '#e2e7ec'}" stroke-width="1.5" stroke-linecap="round"/>`;
@@ -518,7 +521,7 @@ class DashboardModule {
         szyna.innerHTML = [
             linia(`M${X},0 ${doWycinania} ${zWycinania}`),
             linia(`M${X},0 ${doSkladania} ${zSkladania}`),
-            linia(`M${X},${Y(2)} V${Y(7)}`),
+            linia(`M${X},${Y(2)} V${Y(PAK)}`),
             linia(lukDlugi, '#eee2ca'),
             linia(lukKrotki, '#eee2ca'),
             skok(`M${X},0 ${doWycinania}`),
@@ -528,8 +531,7 @@ class DashboardModule {
             skok(`M${X},${Y(2)} V${Y(3)}`),
             skok(`M${X},${Y(3)} V${Y(4)}`),
             skok(`M${X},${Y(4)} V${Y(5)}`),
-            skok(`M${X},${Y(5)} V${Y(6)}`),
-            skok(`M${X},${Y(6)} V${Y(7)}`),
+            skok(`M${X},${Y(5)} V${Y(PAK)}`),
             skok(lukDlugi, '#c07a16'),
             skok(lukKrotki, '#c07a16'),
             kody.map((kod, i) => {

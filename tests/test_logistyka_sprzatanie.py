@@ -24,9 +24,9 @@ def test_lista_hurtowa_nie_oferuje_logistyki():
     assert "commonStations.push('logistics'" not in js
 
 
-def test_bramka_dashboardu_liczy_brak_sposobu():
+def test_pasek_logistyki_dashboardu_liczy_brak_sposobu():
     html = _plik('modules', 'production', 'templates', 'components', 'dashboard-tab-content.html')
-    blok = html.split('data-station="logistics"')[1].split('data-station=')[0]
+    blok = html.split('data-lg-pasek="logistyka"')[1].split('</div>')[0]
     assert 'id="logistics-pending"' in blok
     assert 'bez sposobu dostawy' in blok
     assert '?tab=logistics' in blok
