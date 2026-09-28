@@ -19,57 +19,94 @@ class PostcodeToStateMapper:
     Polska ma 16 województw i każde ma przypisane zakresy kodów pocztowych
     """
     
-    # Mapowanie przedziałów kodów pocztowych na województwa
+    # Mapowanie przedziałów kodów pocztowych (dwie pierwsze cyfry) na województwa.
+    # Zakresy dobrane wg geografii okręgów pocztowych tak, żeby KAŻDY prefiks 00–99 należał
+    # do dokładnie jednego województwa (bez luk, bez nakładania — pilnuje tego
+    # tests/test_reports_mapa_kodow.py::test_zakresy_dwucyfrowe_pokrywaja_00_99_rozlacznie).
+    # Prefiks dwucyfrowy to okręg pocztowy, który miejscami przecina granice województw —
+    # te miejscowości są wyjątkami trzycyfrowymi w POSTCODE_OVERRIDES niżej. To jedna mapa dla
+    # filtra województw Logistyki (modules/production/logistics/wojewodztwa.py), kolumny
+    # „Region” w eksporcie Routimo i uzupełniania województwa w Analizie sprzedażowej.
     POSTCODE_RANGES = {
         # Dolnośląskie: 50-xxx do 59-xxx
         'dolnośląskie': [(50, 59)],
-        
-        # Kujawsko-Pomorskie: 85-xxx do 87-xxx
-        'kujawsko-pomorskie': [(85, 87)],
-        
-        # Lubelskie: 20-xxx do 23-xxx
-        'lubelskie': [(20, 23)],
-        
-        # Lubuskie: 65-xxx do 68-xxx
-        'lubuskie': [(65, 68)],
-        
+
+        # Kujawsko-Pomorskie: 85-xxx do 89-xxx (88 Inowrocław/Mogilno/Żnin, 89 Nakło/Szubin/
+        # Sępólno/Tuchola — dawna luka)
+        'kujawsko-pomorskie': [(85, 89)],
+
+        # Lubelskie: 20-xxx do 24-xxx (24 Puławy, Kraśnik — dawna luka)
+        'lubelskie': [(20, 24)],
+
+        # Lubuskie: 65-xxx do 69-xxx (69 Słubice, Sulęcin — dawna luka)
+        'lubuskie': [(65, 69)],
+
         # Łódzkie: 90-xxx do 99-xxx
         'łódzkie': [(90, 99)],
-        
+
         # Małopolskie: 30-xxx do 34-xxx
         'małopolskie': [(30, 34)],
-        
-        # Mazowieckie: 00-xxx do 09-xxx + niektóre inne zakresy
-        'mazowieckie': [(0, 9), (26, 27)],
-        
+
+        # Mazowieckie: 00-xxx do 09-xxx + 26-xxx (Radom)
+        'mazowieckie': [(0, 9), (26, 26)],
+
         # Opolskie: 45-xxx do 49-xxx
         'opolskie': [(45, 49)],
-        
+
         # Podkarpackie: 35-xxx do 39-xxx
         'podkarpackie': [(35, 39)],
-        
+
         # Podlaskie: 15-xxx do 19-xxx
         'podlaskie': [(15, 19)],
-        
-        # Pomorskie: 80-xxx do 84-xxx
-        'pomorskie': [(80, 84)],
-        
+
+        # Pomorskie: 77-xxx (Bytów, Miastko, Człuchów) + 80-xxx do 84-xxx
+        'pomorskie': [(77, 77), (80, 84)],
+
         # Śląskie: 40-xxx do 44-xxx
         'śląskie': [(40, 44)],
-        
-        # Świętokrzyskie: 25-xxx, 28-xxx do 29-xxx
-        'świętokrzyskie': [(25, 25), (28, 29)],
-        
+
+        # Świętokrzyskie: 25-xxx, 27-xxx do 29-xxx (27 Starachowice/Ostrowiec/Opatów/
+        # Sandomierz — dawniej mazowieckie)
+        'świętokrzyskie': [(25, 25), (27, 29)],
+
         # Warmińsko-Mazurskie: 10-xxx do 14-xxx
         'warmińsko-mazurskie': [(10, 14)],
-        
+
         # Wielkopolskie: 60-xxx do 64-xxx
         'wielkopolskie': [(60, 64)],
-        
-        # Zachodniopomorskie: 70-xxx do 79-xxx
-        'zachodniopomorskie': [(70, 79)]
+
+        # Zachodniopomorskie: 70-xxx do 76-xxx + 78-xxx do 79-xxx (77 wydzielone do pomorskiego)
+        'zachodniopomorskie': [(70, 76), (78, 79)]
     }
-    
+
+    # Wyjątki trzycyfrowe: miejscowości, których gmina/powiat leży w innym województwie niż
+    # reszta dwucyfrowego okręgu pocztowego z POSTCODE_RANGES (np. Ryki i Dęblin mają prefiks
+    # 08, jak Mazowieckie, ale administracyjnie to Lubelskie). Sprawdzane PRZED zakresem
+    # dwucyfrowym w get_state_from_postcode, gdy kod ma co najmniej 3 cyfry. Nadal przybliżenie
+    # dla pojedynczych miejscowości — nie każdy zakątek gminy musi się zgadzać.
+    POSTCODE_OVERRIDES = {
+        '085': 'lubelskie',            # Ryki, Dęblin
+        '193': 'warmińsko-mazurskie',  # Ełk
+        '194': 'warmińsko-mazurskie',  # Olecko
+        '195': 'warmińsko-mazurskie',  # Gołdap
+        '260': 'świętokrzyskie',       # okolice Kielc
+        '261': 'świętokrzyskie',       # Skarżysko-Kamienna, Suchedniów
+        '262': 'świętokrzyskie',       # Końskie, Stąporków
+        '263': 'łódzkie',              # Opoczno, Drzewica
+        '271': 'mazowieckie',          # Iłża
+        '273': 'mazowieckie',          # Lipsko
+        '343': 'śląskie',              # Żywiec
+        '474': 'śląskie',              # Racibórz
+        '672': 'dolnośląskie',         # Głogów
+        '762': 'pomorskie',            # Słupsk, Ustka
+        '774': 'wielkopolskie',        # Złotów
+        '823': 'warmińsko-mazurskie',  # Elbląg
+        '893': 'wielkopolskie',        # Wyrzysk
+        '896': 'pomorskie',            # Chojnice, Czersk
+        '963': 'mazowieckie',          # Żyrardów, Mszczonów
+        '965': 'mazowieckie',          # Sochaczew
+    }
+
     # Mapowanie nazw województw do form kanonicznych
     STATE_NORMALIZATION = {
         'dolnoslaskie': 'Dolnośląskie',
@@ -133,25 +170,32 @@ class PostcodeToStateMapper:
         """
         if not postcode:
             return None
-        
+
         # Wyczyść kod pocztowy - zostaw tylko cyfry
         clean_postcode = re.sub(r'[^0-9]', '', postcode.strip())
-        
+
+        # Wyjątek trzycyfrowy ma pierwszeństwo przed zakresem dwucyfrowym (np. 085 Ryki/Dęblin
+        # to lubelskie, mimo że reszta prefiksu 08 to mazowieckie)
+        if len(clean_postcode) >= 3:
+            state = cls.POSTCODE_OVERRIDES.get(clean_postcode[:3])
+            if state:
+                return cls.STATE_NORMALIZATION.get(state, state.capitalize())
+
         if len(clean_postcode) < 2:
             return None
-        
+
         # Pobierz pierwsze dwie cyfry jako integer
         try:
             prefix = int(clean_postcode[:2])
         except ValueError:
             return None
-        
+
         # Znajdź województwo dla tego prefiksu
         for state, ranges in cls.POSTCODE_RANGES.items():
             for start, end in ranges:
                 if start <= prefix <= end:
                     return cls.STATE_NORMALIZATION.get(state, state.capitalize())
-        
+
         return None
     
     @classmethod
