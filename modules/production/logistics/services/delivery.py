@@ -64,10 +64,10 @@ def zamkniecie_wyliczone(order, trasa=None):
     usun_przystanek: odczytana pod blokadą tras, z przystankami już po zmianie w tej
     transakcji. Wtedy decyduje ona, a nie routes.przystanek_zamowienia — zwykły odczyt z
     migawki transakcji sprzed blokady mógłby nie zobaczyć przystanku dodanego tuż przed nią
-    (zamówienie zostałoby otwarte do crona) albo wciąż widzieć przystanek, który ta sama
-    transakcja właśnie zdjęła. Bez `trasa` (cron, products_api, zmiana sposobu) — zwykły
-    odczyt jak dotąd: ci wołający nie trzymają blokady tras, więc odczyt blokujący odwróciłby
-    kolejność blokad (wiersz blokady zawsze pierwszy).
+    (zamówienie zostałoby otwarte do crona); `trasa` daje ten sam stan bez nowego zwykłego
+    odczytu przystanków (reguła: po blokadzie tylko świeża `route.stops`). Bez `trasa` (cron,
+    products_api, zmiana sposobu) — zwykły odczyt jak dotąd: ci wołający nie trzymają blokady
+    tras, więc odczyt blokujący odwróciłby kolejność blokad (wiersz blokady zawsze pierwszy).
     """
     aktywne = aktywne_produkty(order)
     if not aktywne:

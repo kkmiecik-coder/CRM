@@ -211,6 +211,23 @@ def test_usuniecie_trasy_zamyka_anulowany_a_aktywny_zostaje_otwarty(app):
         assert aktywny.logistics_closed_at is None
 
 
+def test_zdjecie_z_trasy_otwiera_transport_zamkniety_nieswiezo(app):
+    """F5 (fala poprawek 4.1): efekt uboczny 5463bc99 — zamówienie transportu własnego z
+    AKTYWNYMI pozycjami, zamknięte „nieświeżo” (np. cron policzył je z migawki sprzed
+    przywroc), na trasie roboczej: zdjęcie z trasy je od razu otwiera, bez czekania na crona
+    przelicz_otwarte (≤ 1 h)."""
+    with app.app_context():
+        t = _trasa()
+        a = _transport(statusy=('spakowane',))
+        routes.dodaj_przystanki(t, [a.id])
+        db.session.commit()
+        a.logistics_closed_at = datetime(2026, 1, 1)   # wprost na modelu — stan „nieświeży”
+        db.session.commit()
+        routes.usun_przystanek(t, a.id)
+        db.session.commit()
+        assert a.logistics_closed_at is None
+
+
 def test_podsumowanie_i_ladownosc(app):
     with app.app_context():
         v = pojazd(capacity_kg=100)

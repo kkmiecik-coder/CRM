@@ -563,7 +563,7 @@ def usun_przystanek(route, order_id, user_id=None, note=None, wymagaj_roboczej=T
     # przelicz_otwarte (≤ 1 h) zamiast zamknąć się od razu. `trasa=route` — ta sama świeża
     # trasa spod zablokuj_trasy() powyżej, z route.stops już PO usunięciu tego przystanku w
     # tej transakcji (UNIQUE order_id: nie ma go na tej trasie, to nie ma go na żadnej) —
-    # zwykły odczyt (routes.przystanek_zamowienia) czytałby migawkę sprzed blokady.
+    # bez nowego zwykłego odczytu przystanków (reguła: po blokadzie tylko świeża route.stops).
     delivery.przelicz_zamkniecie(order, teraz, trasa=route)
     return order
 
