@@ -282,13 +282,18 @@ Albo po prostu `./deploy.sh` — robi dokładnie to samo, z lockiem i logami.
   pakowania (`przeniesione_z_logistyki` w odpowiedzi), inaczej do pierwszego godzinnego przebiegu nie widzi
   ich żaden tablet ani filtr.
 - **Trasy logistyki — jeden piszący naraz:** każda funkcja, która zmienia trasy albo przystanki (także zmiana
-  sposobu dostawy, adresu i pinezki zamówienia z trasy oraz nazwy pojazdu), woła **najpierw**
-  `routes.zablokuj_trasy()` (`logistics/services/routes.py`): `FOR UPDATE` na wierszu `prod_config`
-  `logistyka_trasy_blokada`, który zakłada migracja `2026-09-27-logistyka-trasy-flota.sql`. Dopiero potem
-  czyta i zapisuje; nowy zapis tras też musi zaczynać od tej blokady, inaczej kolejność blokad się rozjedzie
-  (MySQL 1213). Baza, która wykonała starszą wersję pliku migracji, nie ma tego wiersza (runner pamięta
-  migracje po nazwie pliku): na MySQL kod zakłada go sam (`INSERT IGNORE`, WARNING w logu), a na innych bazach
-  zapisy tras nie są wtedy serializowane.
+  sposobu dostawy, adresu i pinezki zamówienia z trasy oraz nazwy pojazdu; pod tą samą blokadą idzie też
+  „Wydane klientowi”), bierze **najpierw** blokadę `routes.zablokuj_trasy()` (`logistics/services/routes.py`):
+  `FOR UPDATE` na wierszu `prod_config` `logistyka_trasy_blokada`, który zakłada migracja
+  `2026-09-27-logistyka-trasy-flota.sql`. Nowy zapis tras też musi zaczynać od tej blokady, inaczej kolejność
+  blokad się rozjedzie (MySQL 1213). Stan, na którym zapis decyduje, czyta po blokadzie **odczytem bieżącym**
+  (`with_for_update()` albo `with_for_update(read=True)` + `populate_existing()`, jak `routes.dodaj_przystanki`)
+  albo zaczyna transakcję od nowa: `db.session.commit()` tuż przed blokadą, bez żadnego odczytu pomiędzy (także
+  atrybutów ORM), jak `_zapis_pod_blokada()` w `logistics/routers/panel_api.py`. Zwykły SELECT w tej samej
+  transakcji widzi migawkę sprzed blokady: MySQL pracuje na REPEATABLE READ, a migawka powstaje przy pierwszym
+  zwykłym odczycie transakcji (już w `before_request`), nie przy wzięciu blokady. Baza, która wykonała starszą
+  wersję pliku migracji, nie ma wiersza blokady (runner pamięta migracje po nazwie pliku): na MySQL kod zakłada
+  go sam (`INSERT IGNORE`, WARNING w logu), a na innych bazach zapisy tras nie są wtedy serializowane.
 
 ## Architecture
 

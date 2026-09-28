@@ -154,7 +154,10 @@ def test_zmiana_adresu_bierze_blokade_tras_przed_odczytem_przystanku(client, app
     r = client.put(BASE + '/orders/%d/address' % oid,
                    json={'adres': 'Nowa 1', 'kod': '30-001', 'miasto': 'Kraków'})
     assert r.status_code == 200
-    assert kolejnosc == ['blokada', 'przystanek']
+    # (I1) Pierwsza blokada z routera (panel_api._zapis_pod_blokada — przed odczytem
+    # zamówienia), druga z _przystanek_do_zmiany; ponowne wzięcie w tej samej transakcji
+    # jest bezpieczne (docstring zablokuj_trasy).
+    assert kolejnosc == ['blokada', 'blokada', 'przystanek']
 
 
 def test_zmiana_adresu_przez_api(client, app, bez_watkow):

@@ -68,6 +68,26 @@ def _blad(komunikat, status):
     return jsonify({'success': False, 'error': komunikat}), status
 
 
+def _zapis_pod_blokada():
+    """
+    (I1) Początek zapisu zamówień z panelu (sposób dostawy, „Wydane klientowi”, adres):
+    commit, potem blokada tras. Wołać PO walidacji ciała żądania, a PRZED pierwszym
+    odczytem zamówień i pozycji.
+
+    DLACZEGO: MySQL pracuje na REPEATABLE READ, a migawka transakcji powstaje przy
+    pierwszym zwykłym odczycie — tu już w before_request (np. enforce_session_validity),
+    czyli przed blokadą. FOR UPDATE na wierszu blokady tej migawki nie odświeża, więc
+    zwykły SELECT zamówień po blokadzie widziałby stan sprzed commitu piszącego, na
+    którego blokadę żądanie czekało (np. przepakowanie z hurtu) i decydował na nim.
+    Commit kończy tamtą transakcję, blokada jest pierwszym poleceniem nowej, a pierwszy
+    zwykły odczyt po niej tworzy migawkę już POD blokadą. Między tymi dwoma krokami
+    żadnych odczytów — także atrybutów ORM, które commit właśnie wygasił (ich
+    dociągnięcie to zwykły SELECT, czyli migawka znów sprzed blokady).
+    """
+    db.session.commit()
+    routes.zablokuj_trasy()
+
+
 @logistics_panel_bp.route('/tab-content', methods=['GET'])
 @guard
 def tab_content():
@@ -131,7 +151,8 @@ def delivery_method():
     # „trasa najpierw": bez tego pętla niżej mogłaby trzymać blokady wierszy pozycji
     # zamówienia O1 i czekać na blokadę trasy, podczas gdy zatwierdzenie trasy
     # (trzymające jej blokadę) czekałoby na podbicie tych samych pozycji — zakleszczenie.
-    routes.zablokuj_trasy()
+    # (I1) Także przed odczytem zamówień — patrz _zapis_pod_blokada.
+    _zapis_pod_blokada()
 
     zmienione, przepakowanie, bledy, usunieto = [], [], [], []
     # selectinload: pozycje wszystkich zamówień jednym zapytaniem, nie zamówienie
@@ -168,6 +189,9 @@ def delivery_method():
 @logistics_panel_bp.route('/orders/<int:order_id>/handed-over', methods=['POST'])
 @guard
 def handed_over(order_id):
+    # (I1) Pod blokadą tras i na stanie spod niej — bez tego wydanie mogło zapaść na
+    # stanie sprzed równoległej zmiany sposobu (np. na kuriera z przepakowaniem).
+    _zapis_pod_blokada()
     order = ProductionOrder.query.get(order_id)
     if order is None:
         return _blad(u'Nie ma takiego zamówienia.', 404)
@@ -197,12 +221,15 @@ def order_address(order_id):
     (znacznik bl_address_pending → dopychacz), punkt na mapie liczy od nowa
     geokoder — oba tylko uruchamiamy, żadnej długiej pracy w żądaniu.
     """
-    order = _zamowienie_albo_404(order_id)
-    if order is None:
-        return _blad(u'Nie ma takiego zamówienia.', 404)
     dane = request.get_json(silent=True) or {}
     if not isinstance(dane, dict):
         return _blad(u'Nieprawidłowe dane żądania.', 422)
+    # (I1) zmien_adres czyta pola zamówienia przed _przystanek_do_zmiany — zamówienie
+    # wczytujemy dopiero pod blokadą tras (patrz _zapis_pod_blokada).
+    _zapis_pod_blokada()
+    order = _zamowienie_albo_404(order_id)
+    if order is None:
+        return _blad(u'Nie ma takiego zamówienia.', 404)
     try:
         zmieniono = delivery.zmien_adres(order, dane.get('adres'), dane.get('kod'),
                                          dane.get('miasto'), user_id=_user_id())
