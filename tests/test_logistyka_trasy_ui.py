@@ -337,7 +337,8 @@ def test_drobiazgi_przegladu_koncowego_interfejsu():
     assert 'niepewnaOdpowiedz(err)' in zapisz_pojazd and 'wczytaj();' in zapisz_pojazd
     # 3: okno zamknięte w trakcie zapisu — zapis kończy się w tle i mówi o wyniku.
     assert "dialogDodaj.addEventListener('close', poZamknieciuOknaDodawania" in trasy
-    assert 'dodawaniaWTle.add(d);' in _funkcja(trasy, 'poZamknieciuOknaDodawania')
+    # (fala poprawek 4.1, F6) część „w tle” wydzielona do dodawanieDoTla — patrz test niżej.
+    assert 'dodawaniaWTle.add(d);' in _funkcja(trasy, 'dodawanieDoTla')
     assert 'zakonczDodawanieWTle(d)' in _funkcja(trasy, 'zapiszDodawanie')
     assert "komunikat('blad', 'Nie zapisano pojazdu" in zapisz_pojazd
     # 4: Routimo — tylko prawdziwy arkusz.
@@ -418,7 +419,84 @@ def test_hurtowe_dodanie_dokonczone_w_tle_nie_rusza_zaznaczenia_ani_fokusu():
 
 
 def test_hurtowe_dodanie_w_tle_wersje_skryptow_podbite():
-    """Task 2 (runda 4.1): zmiana logistics.js i logistics-routes.js — nowy ?v=."""
+    """Task 2 (runda 4.1) + F4 (fala poprawek 4.1): zmiana logistics.js i logistics-routes.js
+    musi podbić ?v=. Przypięcie dokładnej wartości nie wykryłoby zapomnianego podbicia przy
+    następnej zmianie (a przy każdym poprawnym podbiciu wymagałoby edycji testu) — pilnujemy
+    tylko, że wersja różni się od tej sprzed rundy 4.1."""
     html = _plik('templates', 'logistics', 'tab_content.html')
-    assert "filename='js/logistics.js') }}?v=20260928a" in html
-    assert "filename='js/logistics-routes.js') }}?v=20260928a" in html
+    m_logistics = re.search(r"filename='js/logistics\.js'\) \}\}\?v=(\w+)", html)
+    m_trasy = re.search(r"filename='js/logistics-routes\.js'\) \}\}\?v=(\w+)", html)
+    assert m_logistics and m_logistics.group(1) != '20260926a'
+    assert m_trasy and m_trasy.group(1) != '20260926c'
+
+
+# ─── Fala poprawek 4.1, runda 2 (przegląd końcowy + oględziny) ───
+
+def test_komunikat_zdjecia_przystanku_rozroznia_anulowane():
+    """F1: ręczne zdjęcie anulowanego przystanku nie może twierdzić, że zamówienie wróciło do
+    „Do dodania” — od 5463bc99 serwer takie zamówienie zamyka, więc do puli nie trafia."""
+    trasy = _plik('static', 'js', 'logistics-routes.js')
+    usun = _funkcja(trasy, 'usunPrzystanek')
+    assert 'p.anulowane' in usun
+    assert usun.index('p.anulowane') < usun.index("metoda: 'DELETE'")   # flaga z p sprzed DELETE
+    assert ' Jest anulowane, więc nie wraca do „Do dodania”.' in usun
+    assert ' Wróciło do „Do dodania”.' in usun
+    przed_wywolaniem = usun[:usun.index('wczytajKandydatow();')]
+    ostatni_komentarz = przed_wywolaniem[przed_wywolaniem.rindex('//'):]
+    assert 'Zamówienie wróciło do puli' not in ostatni_komentarz   # nie twierdzi, że KAŻDE wraca
+
+
+def test_potwierdzenie_usuniecia_trasy_liczy_aktywne_i_anulowane_osobno():
+    """F2 (był drobiazgiem 4.3 przekazania): potwierdzenie usunięcia trasy liczyło WSZYSTKIE
+    przystanki jako „wróci do puli” — anulowane od 5463bc99 się zamykają, a nie wracają."""
+    trasy = _plik('static', 'js', 'logistics-routes.js')
+    akcja = _funkcja(trasy, 'akcjaEdytora')
+    usun_case = akcja[akcja.index("case 'usun':"):akcja.index("case 'routimo':")]
+    assert 'liczbaPrzystankow()' not in usun_case
+    assert '!p.anulowane' in usun_case
+    assert "odmiana(anul, ['zamknie się', 'zamkną się', 'zamknie się'])" in usun_case
+    assert 'w logistyce' in usun_case
+    # :1367 (stan przycisków) zostaje bez zmian — dalej liczy WSZYSTKIE przystanki.
+    assert 'liczbaPrzystankow()' in _funkcja(trasy, 'odswiezAkcje')
+
+
+def test_dodanie_w_tle_nie_zalezy_od_zdarzenia_close():
+    """F6 (oględziny: poprawka 30c7ef9a nie działała, gdy `close` się spóźnia — Chromium wysyła
+    `close` okna <dialog> dopiero w następnej klatce animacji, a karta w tle/schowany panel jej
+    nie dostają). Przejście w tryb „w tle” nie może czekać na `close`: nasłuch `cancel` łapie
+    drugi Esc (cancel niekasowalny) i przechodzi w tło od razu; `wOknie` w zapiszDodawanie
+    sprawdza też `dialogDodaj.open`; poZamknieciuOknaDodawania ignoruje spóźnione close, gdy
+    okno otwarto już ponownie; zakonczDodawanieWTle sprząta dodawanie, nawet gdy okno zamknęło
+    się bez żadnego zdarzenia."""
+    trasy = _plik('static', 'js', 'logistics-routes.js')
+
+    # Nasłuch cancel: drugi Esc (cancelable === false) w trakcie zapisu przechodzi w tło
+    # bez preventDefault (i tak nic by nie dał — przeglądarka zamyka okno mimo blokady).
+    # Pozostałe przypadki bez zmian: preventDefault + zamknięcie, gdy zapis nie trwa.
+    poczatek = trasy.index("dialogDodaj.addEventListener('cancel'")
+    koniec = trasy.index("dialogDodaj.addEventListener('click'", poczatek)
+    cancel = trasy[poczatek:koniec]
+    assert 'dodawanie && dodawanie.zapis && !e.cancelable' in cancel
+    assert cancel.index('!e.cancelable') < cancel.index('e.preventDefault();')
+    assert 'dodawanieDoTla(dodawanie, true);' in cancel
+    assert "if (!(dodawanie && dodawanie.zapis)) zamknijOknoDodawania();" in cancel
+
+    # dodawanieDoTla: wydzielona z poZamknieciuOknaDodawania część „w tle”, strażnik dodawanie === d.
+    tla = _funkcja(trasy, 'dodawanieDoTla')
+    assert 'if (dodawanie !== d) return;' in tla
+    assert 'dodawanie = null;' in tla and 'dodawaniaWTle.add(d);' in tla and 'ustawZapisDodawania(false);' in tla
+    assert 'oddajFokus && d.powrot && d.powrot.isConnected' in tla
+
+    # poZamknieciuOknaDodawania: ignoruje spóźnione close, gdy okno już otwarto ponownie.
+    po_zamknieciu = _funkcja(trasy, 'poZamknieciuOknaDodawania')
+    assert po_zamknieciu.index('if (dialogDodaj.open) return;') < po_zamknieciu.index('const d = dodawanie;')
+    assert 'dodawanieDoTla(d, true);' in po_zamknieciu
+
+    # zapiszDodawanie: wOknie sprawdza też dialogDodaj.open (nie tylko który zapis jest bieżący).
+    zapisz = _funkcja(trasy, 'zapiszDodawanie')
+    assert 'dodawanie === d && dialogDodaj.open' in zapisz
+
+    # zakonczDodawanieWTle: sprząta dodawanie, gdy okno zamknęło się bez żadnego zdarzenia.
+    zakoncz = _funkcja(trasy, 'zakonczDodawanieWTle')
+    assert zakoncz.index('dodawanie === d') < zakoncz.index('dodawaniaWTle.delete(d);')
+    assert 'dodawanie = null;' in zakoncz and 'ustawZapisDodawania(false);' in zakoncz

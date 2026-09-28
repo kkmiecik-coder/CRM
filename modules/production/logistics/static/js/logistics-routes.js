@@ -2042,12 +2042,17 @@
         if (!t || t.status !== 'robocza') return;
         const p = (t.przystanki || []).find((x) => x.zamowienie.id === orderId);
         const numer = p ? p.zamowienie.numer : '';
+        // (F1, fala poprawek 4.1) Anulowane w całości serwer teraz zamyka zamiast zwracać do
+        // puli (5463bc99) — flaga z p, znalezionego TU, przed DELETE (po nim przystanku już nie ma).
+        const anul = !!(p && p.anulowane);
         const odp = await zapytanie('/routes/' + t.id + '/stops/' + encodeURIComponent(orderId), { metoda: 'DELETE' });
         if (zniszczona) return;
         przyjmijOdpowiedz(ctx, odp.route, { zmiana: true });
-        komunikat('ok', 'Zamówienie ' + numer + ' usunięto z trasy „' + odp.route.nazwa + '”. Wróciło do „Do dodania”.',
+        komunikat('ok', 'Zamówienie ' + numer + ' usunięto z trasy „' + odp.route.nazwa + '”.' +
+            (anul ? ' Jest anulowane, więc nie wraca do „Do dodania”.' : ' Wróciło do „Do dodania”.'),
             { klucz: 'trasa' });
-        // Zamówienie wróciło do puli — „Do dodania” odświeża się dla trasy, która jest teraz w edytorze.
+        // „Do dodania” odświeża się dla trasy, która jest teraz w edytorze — aktywne zamówienie
+        // wraca do puli; anulowane właśnie się zamknęło (przelicz_zamkniecie w usun_przystanek).
         wczytajKandydatow();
     }
 
@@ -2807,9 +2812,13 @@
     /**
      * Zapis okna „Dodaj do trasy…”: (nowa trasa →) POST /stops. (przegląd końcowy, minor 3) Okno
      * zamknięte w trakcie zapisu (drugi Esc w Chrome zamyka je mimo blokady) nie gubi wyniku:
-     * zapis kończy się w tle (dodawaniaWTle), lista, edytor i mapa dostają odpowiedź, a wynik
-     * albo odmowa trafia do komunikatu. (minor 2) Brak odpowiedzi albo błąd serwera: trasa lub
-     * przystanki mogły już się zapisać — dane od nowa i ostrzeżenie przed powtórką.
+     * zapis kończy się w tle (dodawanieDoTla/dodawaniaWTle), lista, edytor i mapa dostają
+     * odpowiedź, a wynik albo odmowa trafia do komunikatu. (F6, fala poprawek 4.1) `wOknie`
+     * sprawdza też `dialogDodaj.open`, nie tylko który zapis jest bieżący — nie polegamy na
+     * zdarzeniu `close`: Chromium wysyła je dopiero w następnej klatce animacji, której karta w
+     * tle (albo schowany panel) nie dostanie, więc okno mogło się już zamknąć bez żadnego
+     * zdarzenia. (minor 2) Brak odpowiedzi albo błąd serwera: trasa lub przystanki mogły już się
+     * zapisać — dane od nowa i ostrzeżenie przed powtórką.
      */
     async function zapiszDodawanie() {
         const d = dodawanie;
@@ -2820,7 +2829,7 @@
             return;
         }
         // Wynik do okna tylko wtedy, gdy wciąż jest otwarte dla TEGO zapisu.
-        const wOknie = () => !zniszczona && dodawanie === d;
+        const wOknie = () => !zniszczona && dodawanie === d && dialogDodaj.open;
         const ids = d.zamowienia.map((z) => z.id);
         let trasaId = null;
         let nowa = null;
@@ -2918,6 +2927,13 @@
 
     // Zapis dokończony w tle (okno zamknięte w trakcie) — obietnica dodajDoTrasy się rozstrzyga.
     function zakonczDodawanieWTle(d) {
+        // (F6, fala poprawek 4.1) Okno mogło zamknąć się bez żadnego zdarzenia (ani cancel, ani
+        // close — patrz wOknie w zapiszDodawanie wyżej) — sprzątamy też tu; bez fokusu, zapis
+        // kończy się, gdy logistyk może już robić coś innego.
+        if (dodawanie === d) {
+            dodawanie = null;
+            ustawZapisDodawania(false);
+        }
         dodawaniaWTle.delete(d);
         // (4.1) logistics.js dostaje kopię wyniku ze znacznikiem — zaznaczenie i fokus mogły się
         // zmienić, zanim zapis się skończył (hurtTrasa reaguje inaczej niż przy otwartym oknie).
@@ -2935,21 +2951,36 @@
     }
 
     /**
-     * (minor 3) Okno zamknięte inną drogą niż nasze (np. drugi Esc przeglądarki). W trakcie
-     * zapisu nie porzucamy go: zapis kończy się w tle (zapiszDodawanie) i zgłasza wynik
-     * komunikatem, a okno jest znów wolne dla kolejnego „Dodaj do trasy…”.
+     * (F6, fala poprawek 4.1) Przejście zapisu w toku w tryb „w tle” — wydzielone z
+     * poZamknieciuOknaDodawania, bo teraz woła je też nasłuch `cancel` (drugi Esc zamyka okno,
+     * zanim doczeka się własnego `close`). Tylko gdy `dodawanie` wciąż wskazuje na `d`: w
+     * międzyczasie mogło się otworzyć kolejne okno i tamtego nie wolno ruszać.
+     */
+    function dodawanieDoTla(d, oddajFokus) {
+        if (dodawanie !== d) return;
+        dodawanie = null;
+        dodawaniaWTle.add(d);
+        ustawZapisDodawania(false);
+        if (oddajFokus && d.powrot && d.powrot.isConnected) d.powrot.focus({ preventScroll: true });
+    }
+
+    /**
+     * (minor 3) Okno zamknięte inną drogą niż nasze (np. drugi Esc przeglądarki, jeśli mimo
+     * nasłuchu `cancel` niżej jednak dojdzie do `close`). W trakcie zapisu nie porzucamy go:
+     * kończy się w tle (dodawanieDoTla). (F6) Chromium wysyła `close` <dialog> dopiero w
+     * następnej klatce animacji — karta w tle albo schowany panel jej nie dostają, więc `close`
+     * może przyjść spóźniony, już PO ponownym otwarciu okna dla innego zapisu: wtedy nic nie
+     * robimy, żeby nie zamknąć cudzego okna.
      */
     function poZamknieciuOknaDodawania() {
+        if (dialogDodaj.open) return;
         const d = dodawanie;
         if (!d) return;
         if (!d.zapis) {
             zamknijOknoDodawania();
             return;
         }
-        dodawanie = null;
-        dodawaniaWTle.add(d);
-        ustawZapisDodawania(false);
-        if (d.powrot && d.powrot.isConnected) d.powrot.focus({ preventScroll: true });
+        dodawanieDoTla(d, true);
     }
 
     // ── Okno „Odhacz jako wykonaną” ─────────────────────────────────────────
@@ -3394,9 +3425,20 @@
                 }
                 break;
             case 'usun': {
-                const ile = liczbaPrzystankow();
-                if (t && window.confirm('Usunąć trasę „' + t.nazwa + '”?' +
-                    (ile ? '\n' + ileZamowien(ile) + ' ' + odmiana(ile, ['wróci', 'wrócą', 'wróci']) + ' do puli bez trasy.' : ''))) {
+                // (F2, fala poprawek 4.1) Pomocnik liczbaPrzystankow liczy WSZYSTKIE przystanki
+                // (tak ma zostać — stan przycisków niżej dalej z niego korzysta) — tu osobno:
+                // tylko aktywne wracają do puli, anulowane serwer zamyka (5463bc99).
+                const przystanki = stan.otwarta && !stan.nowa ? (stan.otwarta.przystanki || []) : [];
+                const aktywne = przystanki.filter((p) => !p.anulowane).length;
+                const anul = przystanki.length - aktywne;
+                let opis = '';
+                if (aktywne) {
+                    opis += '\n' + ileZamowien(aktywne) + ' ' + odmiana(aktywne, ['wróci', 'wrócą', 'wróci']) + ' do puli bez trasy.';
+                }
+                if (anul) {
+                    opis += '\n' + ileAnulowanych(anul) + ' ' + odmiana(anul, ['zamknie się', 'zamkną się', 'zamknie się']) + ' w logistyce.';
+                }
+                if (t && window.confirm('Usunąć trasę „' + t.nazwa + '”?' + opis)) {
                     mutacja(usunTrase);
                 }
                 break;
@@ -3729,8 +3771,17 @@
         formDodaj.addEventListener('input', (e) => {
             if (e.target && e.target.getAttribute && e.target.getAttribute('aria-invalid') === 'true') bladDodawania('');
         }, naSluch);
-        // Esc: zamykamy sami (z oddaniem fokusu); w trakcie zapisu wcale — wynik musi trafić do listy.
+        // Esc: zamykamy sami (z oddaniem fokusu); w trakcie zapisu — nie, chyba że przeglądarka
+        // i tak zamknie okno (niżej: drugi Esc, cancel niekasowalny) — wtedy od razu w tle.
         dialogDodaj.addEventListener('cancel', (e) => {
+            // (F6, fala poprawek 4.1) Drugi Esc w trakcie zapisu: przeglądarka i tak zamknie
+            // okno (cancel niekasowalny, e.cancelable === false) — close() Chromium wysyła
+            // dopiero w następnej klatce animacji, której karta w tle (albo schowany panel) nie
+            // dostanie, więc od razu przechodzimy w tryb „w tle”, nie czekając na close.
+            if (dodawanie && dodawanie.zapis && !e.cancelable) {
+                dodawanieDoTla(dodawanie, true);
+                return;
+            }
             e.preventDefault();
             if (!(dodawanie && dodawanie.zapis)) zamknijOknoDodawania();
         }, naSluch);
