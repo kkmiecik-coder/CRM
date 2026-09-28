@@ -68,6 +68,7 @@
 .logistics-tab .lg-widok--trasy [hidden],
 .logistics-tab .lg-widok--flota [hidden],
 .logistics-tab .lg-dialog--trasy [hidden],
+.logistics-tab .lg-dialog--kierowca [hidden],
 .logistics-tab .lg-dialog--pojazd [hidden] {
     display: none !important;
 }
@@ -538,17 +539,17 @@
 /* Przycisk nieaktywny w nowych podzakładkach i oknach: „nie teraz” (not-allowed), główny
    wyraźniej przygaszony. (oględziny Task 8, m1) Tylko tam — w etapie 2 nieaktywny
    przycisk znaczy „trwa praca” (cursor: progress, logistics.css) i tak zostaje. */
-.logistics-tab :is(.lg-widok--trasy, .lg-widok--flota, .lg-dialog--trasy, .lg-dialog--pojazd) .lg-przycisk--glowny:disabled {
+.logistics-tab :is(.lg-widok--trasy, .lg-widok--flota, .lg-dialog--trasy, .lg-dialog--kierowca, .lg-dialog--pojazd) .lg-przycisk--glowny:disabled {
     opacity: 0.45;
     cursor: not-allowed;
 }
 
-.logistics-tab :is(.lg-widok--trasy, .lg-widok--flota, .lg-dialog--trasy, .lg-dialog--pojazd) .lg-przycisk:disabled:not(.is-kreci) {
+.logistics-tab :is(.lg-widok--trasy, .lg-widok--flota, .lg-dialog--trasy, .lg-dialog--kierowca, .lg-dialog--pojazd) .lg-przycisk:disabled:not(.is-kreci) {
     cursor: not-allowed;
 }
 
 /* Zmiana w toku: przycisk przygaszony, ale zostaje w kolejności Tab (fokus nie ucieka). */
-.logistics-tab :is(.lg-widok--trasy, .lg-widok--flota, .lg-dialog--trasy, .lg-dialog--pojazd) .lg-przycisk[aria-disabled="true"] {
+.logistics-tab :is(.lg-widok--trasy, .lg-widok--flota, .lg-dialog--trasy, .lg-dialog--kierowca, .lg-dialog--pojazd) .lg-przycisk[aria-disabled="true"] {
     opacity: 0.55;
     cursor: progress;
 }
@@ -2176,6 +2177,97 @@
     color: var(--il-text-muted, #9ba3b0);
 }
 
+/* ─── Kierowcy (runda 2, spec 2.6): „Dodaj kierowcę” w nagłówku, kosz w wierszu ─── */
+.logistics-tab .lg-flota-kierowcy .lg-sekcja-naglowek .lg-przycisk--glowny {
+    margin-left: auto;
+    min-height: 32px;
+}
+
+.logistics-tab .lg-kierowcy li.lg-kierowca {
+    padding-right: 4px;
+}
+
+.logistics-tab .lg-kierowca-nazwa {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-wrap: break-word;
+}
+
+.logistics-tab .lg-kierowca-trasy {
+    flex: none;
+    padding: 0 6px;
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: 999px;
+    font-size: 11px;
+    color: var(--il-text-secondary, #7a8291);
+    white-space: nowrap;
+}
+
+/* Kosz czerwony od razu (spec 2.6), jak „Usuń trasę” (lg-przycisk--niebezpieczny). */
+.logistics-tab .lg-kierowca-usun {
+    color: #b91c1c;
+}
+
+.logistics-tab .lg-kierowca-usun:hover:not([aria-disabled="true"]) {
+    border-color: var(--lg-niebezpieczny);
+    background: rgba(220, 38, 38, 0.06);
+    color: #b91c1c;
+}
+
+.logistics-tab .lg-kierowca.is-zapisywany {
+    opacity: 0.6;
+}
+
+/* Okno „Dodaj kierowcę”: wyszukiwarka i przewijana lista kandydatów. */
+.logistics-tab .lg-dialog--kierowca .lg-szukaj--kierowcy {
+    display: block;
+    margin: 0;
+}
+
+.logistics-tab .lg-kandydaci-kierowcy {
+    max-height: min(360px, 50vh);
+    overflow-y: auto;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+}
+
+.logistics-tab .lg-kandydaci-kierowcy:empty,
+.logistics-tab .lg-kandydaci-kierowcy-stan:empty {
+    display: none;
+}
+
+.logistics-tab .lg-kandydat-kierowcy {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 6px 5px 10px;
+    font-size: 13px;
+    border-bottom: 1px solid var(--il-border-light, #e2e5ea);
+}
+
+.logistics-tab .lg-kandydat-kierowcy:last-child {
+    border-bottom: 0;
+}
+
+.logistics-tab .lg-kandydat-kierowcy-nazwa {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.logistics-tab .lg-kandydat-kierowcy .lg-przycisk {
+    padding: 3px 9px 4px;
+    font-size: 12px;
+}
+
+.logistics-tab .lg-kandydaci-kierowcy-stan {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--il-text-secondary, #7a8291);
+}
+
 /* (oględziny Task 8, I4) Kierowcy pod tabelą, gdy obok niej się nie mieszczą: tabela
    pojazdów potrzebuje ~520 px (z „Edytuj” i „Wyłącz”), kolumna kierowców 280 px, więc
    poniżej ~880 px widoku (np. 768 px okna ze zwiniętym panelem bocznym) — jedna kolumna. */
@@ -2200,6 +2292,9 @@
     .logistics-tab .lg-przystanek-usun { min-height: 36px; }
     .logistics-tab .lg-kandydat .lg-przycisk,
     .logistics-tab .lg-flota-akcje .lg-przycisk { min-height: 34px; }
+    .logistics-tab .lg-flota-kierowcy .lg-sekcja-naglowek .lg-przycisk { min-height: 38px; }
+    .logistics-tab .lg-kierowca-usun { width: 36px; height: 36px; }
+    .logistics-tab .lg-kandydat-kierowcy .lg-przycisk { min-height: 34px; }
     .logistics-tab .lg-kandydat .lg-zaznacz-pole input,
     .logistics-tab .lg-wykonaj-pozycja input,
     .logistics-tab .lg-wybor-trasy-opcja input { width: 20px; height: 20px; }

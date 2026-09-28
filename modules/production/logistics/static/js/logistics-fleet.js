@@ -12,7 +12,10 @@
  *   POST {API}/vehicles                 {name, registration, capacity_kg} → {vehicle}
  *   PUT  {API}/vehicles/<id>            jw. — zmiana
  *   POST {API}/vehicles/<id>/active     {active: true | false}
- *   GET  {API}/drivers                  aktywni pracownicy produkcji (kierowcy tras)
+ *   GET    {API}/drivers                kierowcy (aktywni ze znacznikiem) z nazwami tras roboczych/zatwierdzonych
+ *   GET    {API}/drivers/candidates     aktywni pracownicy bez znacznika — okno „Dodaj kierowcę”
+ *   POST   {API}/drivers                {worker_id} → {driver, drivers}
+ *   DELETE {API}/drivers/<id>           zdjęcie znacznika → {driver, drivers} (na swoich trasach zostaje)
  * Odmowa to {success: false, error: „…”} (404/409/422) — w oknie pojazdu albo w komunikacie.
  *
  * Komunikaty przez window.LogisticsTab.komunikat; publicznie window.LogisticsFleet = {root, zniszcz}.
@@ -21,7 +24,7 @@
  * Zdarzenia (document, detail.root = #logistics-root): słuchamy `logistics:widok`
  * (logistics.js — Flota na ekranie = świeże dane), wysyłamy `logistics:flota-zmieniona`
  * po każdym zapisie pojazdu (dodanie, zmiana, wyłączenie, włączenie) — edytor trasy
- * (logistics-routes.js) pobiera wtedy dostępność pojazdów od nowa.
+ * (logistics-routes.js) pobiera wtedy dostępność pojazdów od nowa, oraz po każdej zmianie kierowców (runda 2).
  */
 (function () {
     'use strict';
@@ -51,16 +54,30 @@
     const bladEl = el('blad');
     const zapiszBtn = el('zapisz');
 
+    // Runda 2 (spec 2.6): okno „Dodaj kierowcę” (poza panelem Floty, jak okno pojazdu).
+    const dialogKierowcy = root.querySelector('[data-lg="kierowca-dialog"]');
+    const formKierowcy = el('kierowca-form');
+    const kandydaciQ = el('kandydaci-q');
+    const kandydaciEl = el('kandydaci');
+    const kandydaciStanEl = el('kandydaci-stan');
+    const bladKierowcyEl = el('kierowca-blad');
+
     const stan = {
         pojazdy: [],
         kierowcy: [],
         wczytano: false,
         blad: null,
         zapisywane: new Set(),   // id pojazdów, dla których leci „Wyłącz/Włącz”
+        kandydaci: null,               // okno „Dodaj kierowcę”: GET /drivers/candidates (null = w drodze)
+        dodaniKierowcy: new Set(),     // id pracowników, dla których leci POST /drivers
+        usuwaniKierowcy: new Set(),    // id kierowców, dla których leci DELETE /drivers/<id>
+        ostatnioDodany: '',            // nazwa ostatnio dodanego — potwierdzenie w oknie
     };
     let edytowany = null;        // otwarte okno: {id | null, powrot, zapis}
     let kontroler = null;
     let zniszczona = false;
+    let kontrolerKandydatow = null;
+    let powrotKierowcy = null;
     const sluchacze = new AbortController();   // jeden sygnał odpina wszystkie nasłuchy
     const naSluch = { signal: sluchacze.signal };
 
@@ -226,13 +243,7 @@
                     (wylaczone ? ', ' + wylaczone + ' ' + odmiana(wylaczone, ['wyłączony', 'wyłączone', 'wyłączonych']) : '')
                 : '';
         }
-        if (kierowcyEl) {
-            kierowcyEl.innerHTML = !stan.wczytano ? ''
-                : (stan.kierowcy.length
-                    ? stan.kierowcy.map((k) => '<li><i class="fas fa-user" aria-hidden="true"></i>' + esc(k.nazwa) + '</li>').join('')
-                    : '<li class="lg-kierowcy-pusto">Brak aktywnych pracowników produkcji.</li>');
-        }
-        if (kierowcyIleEl) kierowcyIleEl.textContent = stan.wczytano ? String(stan.kierowcy.length) : '';
+        renderujKierowcow();
         przywrocFokus(fokus);
     }
 
@@ -439,6 +450,207 @@
         }
     }
 
+    // ── Kierowcy (runda 2, spec 2.6) ────────────────────────────────────────
+
+    // „Łukasz” znajduje się po „lukasz” — wyszukiwarka bez ogonków i wielkości liter.
+    function bezOgonkow(tekst) {
+        return String(tekst || '').toLocaleLowerCase('pl').replace(/ł/g, 'l')
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    }
+
+    const listaTras = (trasy) => trasy.map((t) => '„' + t + '”').join(', ');
+
+    function kierowcaHtml(k) {
+        const usuwany = stan.usuwaniKierowcy.has(k.id);
+        const trasy = Array.isArray(k.trasy) ? k.trasy : [];
+        return '<li class="lg-kierowca' + (usuwany ? ' is-zapisywany' : '') + '" data-kierowca-id="' + esc(k.id) + '">' +
+            '<i class="fas fa-user" aria-hidden="true"></i>' +
+            '<span class="lg-kierowca-nazwa">' + esc(k.nazwa) + '</span>' +
+            (trasy.length ? '<span class="lg-kierowca-trasy" title="' + esc('Na trasach: ' + trasy.join(', ')) + '">' +
+                trasy.length + ' ' + odmiana(trasy.length, ['trasa', 'trasy', 'tras']) + '</span>' : '') +
+            '<button type="button" class="lg-ikona-przycisk lg-kierowca-usun" data-lg-flota-akcja="usun-kierowce"' +
+                (usuwany ? ' aria-disabled="true"' : '') +
+                ' aria-label="' + esc('Usuń ' + k.nazwa + ' z kierowców') + '" title="Usuń z kierowców">' +
+                '<i class="fas fa-trash-can" aria-hidden="true"></i></button>' +
+            '</li>';
+    }
+
+    function renderujKierowcow() {
+        if (!kierowcyEl) return;
+        // Fokus na koszu przeżywa przerysowanie; po usunięciu — następny kosz albo „Dodaj kierowcę”.
+        const a = document.activeElement;
+        const li = a && kierowcyEl.contains(a) ? a.closest('[data-kierowca-id]') : null;
+        const indeks = li ? Array.from(kierowcyEl.children).indexOf(li) : -1;
+        kierowcyEl.innerHTML = !stan.wczytano ? ''
+            : (stan.kierowcy.length ? stan.kierowcy.map(kierowcaHtml).join('')
+                : '<li class="lg-kierowcy-pusto">Dodaj kierowców spośród pracowników.</li>');
+        if (kierowcyIleEl) kierowcyIleEl.textContent = stan.wczytano ? String(stan.kierowcy.length) : '';
+        if (!li) return;
+        const cel = kierowcyEl.querySelector('[data-kierowca-id="' + li.getAttribute('data-kierowca-id') + '"] .lg-kierowca-usun') ||
+            (kierowcyEl.children[Math.min(indeks, kierowcyEl.children.length - 1)] || { querySelector: () => null })
+                .querySelector('.lg-kierowca-usun') ||
+            panel.querySelector('[data-lg-flota-akcja="dodaj-kierowce"]');
+        if (cel) cel.focus({ preventScroll: true });
+    }
+
+    function przyjmijKierowcow(lista) {
+        if (Array.isArray(lista)) stan.kierowcy = lista;
+        renderujKierowcow();
+        // Otwarta trasa ma od razu aktualny wybór kierowcy (logistics-routes.js, dostępność).
+        document.dispatchEvent(new CustomEvent('logistics:flota-zmieniona', { detail: { root: root } }));
+    }
+
+    function potwierdzenieUsuniecia(k) {
+        const trasy = Array.isArray(k.trasy) ? k.trasy : [];
+        return 'Usunąć „' + k.nazwa + '” z kierowców?\n' + (trasy.length
+            ? 'Na ' + (trasy.length === 1 ? 'trasie ' : 'trasach ') + listaTras(trasy) +
+                ' dalej będzie kierowcą — tam nic się nie zmieni. Do nowych tras nie będzie do wyboru.'
+            : 'Pracownik zostaje w systemie, tylko nie będzie do wyboru w trasach.');
+    }
+
+    async function usunKierowce(id) {
+        const k = stan.kierowcy.find((x) => x.id === id);
+        if (!k || stan.usuwaniKierowcy.has(id)) return;
+        if (!window.confirm(potwierdzenieUsuniecia(k))) return;
+        stan.usuwaniKierowcy.add(id);
+        renderujKierowcow();
+        try {
+            const odp = await zapytanie('/drivers/' + encodeURIComponent(id), { metoda: 'DELETE' });
+            if (zniszczona) return;
+            const zostaje = odp.driver && Array.isArray(odp.driver.trasy) ? odp.driver.trasy : [];
+            stan.usuwaniKierowcy.delete(id);
+            przyjmijKierowcow(odp.drivers);
+            komunikat('info', '„' + k.nazwa + '” nie jest już kierowcą.' + (zostaje.length
+                ? ' Zostaje na ' + (zostaje.length === 1 ? 'trasie ' : 'trasach ') + listaTras(zostaje) + '.' : ''),
+                { klucz: 'kierowcy' });
+        } catch (e) {
+            if (zniszczona) return;
+            const niepewna = niepewnaOdpowiedz(e);
+            komunikat('blad', 'Nie usunięto „' + k.nazwa + '” z kierowców. ' + e.message +
+                (niepewna ? ' Zmiana mogła się zapisać — odświeżamy listę kierowców.' : ''), { klucz: 'kierowcy' });
+            if (niepewna) wczytaj();
+        } finally {
+            if (!zniszczona && stan.usuwaniKierowcy.delete(id)) renderujKierowcow();
+        }
+    }
+
+    function pokazBladKierowcy(tekst) {
+        if (!bladKierowcyEl) return;
+        bladKierowcyEl.textContent = tekst || '';
+        bladKierowcyEl.hidden = !tekst;
+    }
+
+    function kandydatHtml(k) {
+        const dodawany = stan.dodaniKierowcy.has(k.id);
+        return '<li class="lg-kandydat-kierowcy" data-pracownik-id="' + esc(k.id) + '">' +
+            '<span class="lg-kandydat-kierowcy-nazwa">' + esc(k.nazwa) + '</span>' +
+            '<button type="button" class="lg-przycisk" data-lg-flota-akcja="wybierz-kierowce"' +
+                (dodawany ? ' aria-disabled="true"' : '') + ' aria-label="' + esc('Dodaj ' + k.nazwa + ' do kierowców') + '">' +
+                '<i class="fas fa-plus" aria-hidden="true"></i>' + (dodawany ? 'Dodawanie…' : 'Dodaj') + '</button>' +
+            '</li>';
+    }
+
+    function renderujKandydatow() {
+        if (!kandydaciEl) return;
+        const a = document.activeElement;
+        const fokusLi = a && kandydaciEl.contains(a) ? a.closest('[data-pracownik-id]') : null;
+        const indeks = fokusLi ? Array.from(kandydaciEl.children).indexOf(fokusLi) : -1;
+        const fraza = kandydaciQ ? kandydaciQ.value.trim() : '';
+        const q = bezOgonkow(fraza);
+        const teksty = [];
+        let html = '';
+        if (stan.ostatnioDodany) teksty.push('Dodano „' + stan.ostatnioDodany + '” do kierowców.');
+        if (stan.kandydaci === null) {
+            teksty.push('Wczytywanie pracowników…');
+        } else {
+            const pasujacy = stan.kandydaci.filter((k) => !q || bezOgonkow(k.nazwa).includes(q));
+            html = pasujacy.map(kandydatHtml).join('');
+            if (!stan.kandydaci.length) teksty.push('Wszyscy aktywni pracownicy są już kierowcami.');
+            else if (!pasujacy.length) teksty.push('Nikt nie pasuje do „' + fraza + '”.');
+        }
+        kandydaciEl.innerHTML = html;
+        if (kandydaciStanEl) kandydaciStanEl.textContent = teksty.join(' ');
+        if (!fokusLi) return;
+        const id = fokusLi.getAttribute('data-pracownik-id');
+        const przyciski = Array.from(kandydaciEl.querySelectorAll('button'));
+        const cel = kandydaciEl.querySelector('[data-pracownik-id="' + id + '"] button') ||
+            przyciski[Math.min(indeks, przyciski.length - 1)] || kandydaciQ;
+        if (cel) cel.focus({ preventScroll: true });
+    }
+
+    async function wczytajKandydatow() {
+        if (kontrolerKandydatow) kontrolerKandydatow.abort();
+        const moj = new AbortController();
+        kontrolerKandydatow = moj;
+        stan.kandydaci = null;
+        renderujKandydatow();
+        try {
+            const odp = await zapytanie('/drivers/candidates', { signal: moj.signal });
+            if (zniszczona || moj !== kontrolerKandydatow) return;
+            stan.kandydaci = Array.isArray(odp.candidates) ? odp.candidates : [];
+        } catch (e) {
+            if ((e && e.name === 'AbortError') || zniszczona || moj !== kontrolerKandydatow) return;
+            stan.kandydaci = [];
+            pokazBladKierowcy('Nie wczytano pracowników. ' + e.message);
+        } finally {
+            if (moj === kontrolerKandydatow) kontrolerKandydatow = null;
+        }
+        renderujKandydatow();
+    }
+
+    function otworzKierowcow(powrot) {
+        if (!dialogKierowcy || dialogKierowcy.open) return;
+        powrotKierowcy = powrot || null;
+        stan.ostatnioDodany = '';
+        pokazBladKierowcy('');
+        if (kandydaciQ) kandydaciQ.value = '';
+        dialogKierowcy.showModal();
+        if (kandydaciQ) kandydaciQ.focus();
+        wczytajKandydatow();
+    }
+
+    // Zamknięcie zawsze możliwe: każdy „Dodaj” to osobny zapis, który kończy się sam (lista
+    // kierowców za oknem i tak dostanie wynik), więc nie polegamy na zdarzeniu `close`.
+    function zamknijKierowcow() {
+        if (kontrolerKandydatow) kontrolerKandydatow.abort();
+        if (dialogKierowcy && dialogKierowcy.open) dialogKierowcy.close();
+        const cel = powrotKierowcy && powrotKierowcy.isConnected ? powrotKierowcy
+            : panel.querySelector('[data-lg-flota-akcja="dodaj-kierowce"]');
+        powrotKierowcy = null;
+        if (cel) cel.focus({ preventScroll: true });
+    }
+
+    async function dodajKierowce(id) {
+        const k = (stan.kandydaci || []).find((x) => x.id === id);
+        if (!k || stan.dodaniKierowcy.has(id)) return;
+        stan.dodaniKierowcy.add(id);
+        pokazBladKierowcy('');
+        renderujKandydatow();
+        try {
+            const odp = await zapytanie('/drivers', { metoda: 'POST', dane: { worker_id: id } });
+            if (zniszczona) return;
+            stan.kandydaci = (stan.kandydaci || []).filter((x) => x.id !== id);
+            stan.ostatnioDodany = k.nazwa;
+            przyjmijKierowcow(odp.drivers);
+            komunikat('ok', 'Dodano kierowcę „' + k.nazwa + '”.', { klucz: 'kierowcy' });
+        } catch (e) {
+            if (zniszczona) return;
+            const tekst = 'Nie dodano „' + k.nazwa + '”. ' + e.message;
+            if (dialogKierowcy && dialogKierowcy.open) pokazBladKierowcy(tekst);
+            else komunikat('blad', tekst, { klucz: 'kierowcy' });
+            // 404/409 (pracownik zniknął albo przestał być aktywny) albo niepewna odpowiedź — od nowa.
+            if (e.status === 404 || e.status === 409 || niepewnaOdpowiedz(e)) {
+                wczytaj();
+                if (dialogKierowcy && dialogKierowcy.open) wczytajKandydatow();
+            }
+        } finally {
+            if (!zniszczona) {
+                stan.dodaniKierowcy.delete(id);
+                renderujKandydatow();
+            }
+        }
+    }
+
     // ── Zdarzenia ───────────────────────────────────────────────────────────
 
     function naKlik(e) {
@@ -453,6 +665,11 @@
         else if (akcja === 'wylacz' && pojazd) ustawAktywnosc(id, false);
         else if (akcja === 'wlacz' && pojazd) ustawAktywnosc(id, true);
         else if (akcja === 'ponow') wczytaj();
+        else if (akcja === 'dodaj-kierowce') otworzKierowcow(przycisk);
+        else if (akcja === 'usun-kierowce') {
+            const li = przycisk.closest('[data-kierowca-id]');
+            if (li) usunKierowce(Number(li.getAttribute('data-kierowca-id')));
+        }
     }
 
     function naZmianeWidoku(e) {
@@ -466,6 +683,8 @@
         if (kontroler) kontroler.abort();
         edytowany = null;
         if (dialog && dialog.open) dialog.close();
+        if (kontrolerKandydatow) kontrolerKandydatow.abort();
+        if (dialogKierowcy && dialogKierowcy.open) dialogKierowcy.close();
         if (window.LogisticsFleet === api) delete window.LogisticsFleet;
     }
 
@@ -497,6 +716,29 @@
             if (e.target === dialog && !(edytowany && edytowany.zapis)) zamknijDialog();
         }, naSluch);
         dialog.addEventListener('close', () => { edytowany = null; }, naSluch);
+    }
+    if (dialogKierowcy) {
+        dialogKierowcy.addEventListener('click', (e) => {
+            if (e.target === dialogKierowcy) {
+                zamknijKierowcow();
+                return;
+            }
+            const b = e.target.closest('[data-lg-flota-akcja]');
+            if (!b || b.disabled || b.getAttribute('aria-disabled') === 'true') return;
+            const akcja = b.getAttribute('data-lg-flota-akcja');
+            if (akcja === 'kierowca-zamknij') {
+                zamknijKierowcow();
+            } else if (akcja === 'wybierz-kierowce') {
+                const li = b.closest('[data-pracownik-id]');
+                if (li) dodajKierowce(Number(li.getAttribute('data-pracownik-id')));
+            }
+        }, naSluch);
+        dialogKierowcy.addEventListener('cancel', (e) => {
+            e.preventDefault();
+            zamknijKierowcow();
+        }, naSluch);
+        if (formKierowcy) formKierowcy.addEventListener('submit', (e) => e.preventDefault(), naSluch);
+        if (kandydaciQ) kandydaciQ.addEventListener('input', renderujKandydatow, naSluch);
     }
     document.addEventListener('logistics:widok', naZmianeWidoku, naSluch);
 

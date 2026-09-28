@@ -354,7 +354,7 @@ def test_drobiazgi_przegladu_koncowego_interfejsu():
     assert 'pasujeDoFiltraWykonanych(s, stan.filtrWykonanych)' in _funkcja(trasy, 'aktualizujNaLiscie')
     # I3: niezmieniony wyłączony pojazd/kierowca zostaje na trasie.
     assert 'Wybierz inny, żeby zapisać trasę.' not in trasy
-    assert trasy.count('Zostaje na tej trasie; po zmianie nie wybierzesz go ponownie.') == 2
+    assert trasy.count('Zostaje na tej trasie; po zmianie nie wybierzesz go ponownie.') == 3  # + runda 2: kierowca bez znacznika (spec 2.6)
     # Resztka Task 8: błąd edytora przygasa razem z trasą, która ustępuje miejsca następnej.
     css = _plik('static', 'css', 'logistics-trasy.css')
     ladowanie = css[css.index('.logistics-tab .lg-edytor.is-laduje'):]

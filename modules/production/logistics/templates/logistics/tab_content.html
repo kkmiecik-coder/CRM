@@ -16,7 +16,7 @@
 <link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet-markercluster/MarkerCluster.css') }}?v=1.5.3">
 <link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20260925i">
 {# Etap 3: trasy, flota, widok tras na mapie — osobny arkusz (logistics.css zostaje nietknięty). #}
-<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics-trasy.css') }}?v=20260926c">
+<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics-trasy.css') }}?v=20260928a">
 
 <div id="logistics-root" class="logistics-tab"
      data-api="{{ url_for('logistics_panel.orders') }}"
@@ -182,7 +182,7 @@
                data-skrypt-leaflet="{{ url_for('production.static', filename='vendor/leaflet/leaflet.js') }}?v=1.9.4"
                data-skrypt-klastry="{{ url_for('production.static', filename='vendor/leaflet-markercluster/leaflet.markercluster.js') }}?v=1.5.3"
                data-skrypt-mapy="{{ url_for('logistics_panel.static', filename='js/logistics-map.js') }}?v=20260926b"
-               data-skrypt-trasy="{{ url_for('logistics_panel.static', filename='js/logistics-routes.js') }}?v=20260928b"></div>
+               data-skrypt-trasy="{{ url_for('logistics_panel.static', filename='js/logistics-routes.js') }}?v=20260928c"></div>
           {# Pasek trybu (korekta, ustawianie punktu) i wyniku akcji na mapie. #}
           <div class="lg-mapa-pasek" data-lg-mapa="pasek" role="status" aria-live="polite" hidden></div>
           <div class="lg-mapa-stan is-ladowanie" data-lg-mapa="stan" role="status">Ładowanie mapy…</div>
@@ -463,8 +463,11 @@
         <div class="lg-sekcja-naglowek">
           <h2 class="lg-sekcja-tytul" id="lg-kierowcy-tytul">Kierowcy</h2>
           <span class="lg-sekcja-opis" data-lg-flota="kierowcy-ile"></span>
+          <button type="button" class="lg-przycisk lg-przycisk--glowny" data-lg-flota-akcja="dodaj-kierowce">
+            <i class="fas fa-user-plus" aria-hidden="true"></i>Dodaj kierowcę
+          </button>
         </div>
-        <p class="lg-flota-opis">Kierowcą trasy może być każdy aktywny pracownik produkcji.</p>
+        <p class="lg-flota-opis">Tylko te osoby wybierzesz na kierowcę trasy. Usunięcie z listy nie usuwa pracownika.</p>
         <ul class="lg-kierowcy" data-lg-flota="kierowcy"></ul>
       </section>
     </div>
@@ -573,6 +576,27 @@
       </div>
     </form>
   </dialog>
+
+  {# Runda 2 (spec 2.6): kierowca trasy spośród aktywnych pracowników bez znacznika;
+     logistics-fleet.js. Każdy „Dodaj” zapisuje od razu, okno zostaje otwarte (na start
+     logistyk dodaje kilku kierowców naraz). #}
+  <dialog class="lg-dialog lg-dialog--kierowca" data-lg="kierowca-dialog" aria-labelledby="lg-kierowca-tytul">
+    <form class="lg-dialog-form" data-lg-flota="kierowca-form" novalidate autocomplete="off">
+      <h2 class="lg-dialog-tytul" id="lg-kierowca-tytul">Dodaj kierowcę</h2>
+      <p class="lg-dialog-opis">Aktywni pracownicy produkcji, którzy nie są jeszcze kierowcami.</p>
+      <label class="lg-szukaj lg-szukaj--kierowcy">
+        <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
+        <input type="search" data-lg-flota="kandydaci-q" spellcheck="false" placeholder="Szukaj pracownika"
+               aria-label="Szukaj pracownika po imieniu albo nazwisku">
+      </label>
+      <p class="lg-kandydaci-kierowcy-stan" data-lg-flota="kandydaci-stan" role="status"></p>
+      <ul class="lg-kandydaci-kierowcy" data-lg-flota="kandydaci" aria-label="Pracownicy do dodania"></ul>
+      <p class="lg-dialog-blad" id="lg-kierowca-blad" data-lg-flota="kierowca-blad" role="alert" hidden></p>
+      <div class="lg-dialog-akcje">
+        <button type="button" class="lg-przycisk" data-lg-flota-akcja="kierowca-zamknij">Zamknij</button>
+      </div>
+    </form>
+  </dialog>
 </div>
 
 {# Ładowanie mapy PO KOLEI: Leaflet → klastry → logistics-map.js → logistics-routes.js.
@@ -642,4 +666,4 @@
 })();
 </script>
 <script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20260928a"></script>
-<script src="{{ url_for('logistics_panel.static', filename='js/logistics-fleet.js') }}?v=20260926a"></script>
+<script src="{{ url_for('logistics_panel.static', filename='js/logistics-fleet.js') }}?v=20260928a"></script>

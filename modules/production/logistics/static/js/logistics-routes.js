@@ -31,7 +31,8 @@
  *          dostarczone oznaczono zamówienie, które nie jest w całości spakowane
  *   GET    {API}/routes/<id>/routimo                 plik .xlsx (zatwierdzona, wykonana);
  *          nagłówek X-Routimo-Pominiete = ile anulowanych przystanków pominięto
- *   GET    {API}/availability?date_from=&date_to=&route_id=   pojazdy i kierowcy, zajęci z nazwą trasy
+ *   GET    {API}/availability?date_from=&date_to=&route_id=   pojazdy i kierowcy, zajęci z nazwą trasy;
+ *          kierowca tej trasy bez znacznika: nie_kierowca (runda 2)
  *   GET    {API}/orders?sposob=bez_trasy&q=          „Do dodania”
  * Odmowa to zawsze {success: false, error: „…”} (404/409/422) — tekst serwera
  * pokazujemy przy formularzu edytora albo w oknie.
@@ -1269,14 +1270,19 @@
                     '”. Wybierz inny albo zmień daty.';
             }
             (d.kierowcy || []).forEach((k) => {
-                kierowcy += opcjaHtml(k.id, k.nazwa + (k.zajety ? ' (zajęty — ' + (k.trasa || 'inna trasa') + ')' : ''),
-                    !!k.zajety, String(k.id) === wK);
+                // (runda 2, spec 2.6) Kierowca tej trasy, któremu we Flocie zdjęto znacznik: zostaje
+                // wybrany (serwer przyjmuje niezmienionego), ale po zmianie nie wrócisz do niego.
+                const dopisek = k.nie_kierowca ? ' (nie jest już kierowcą)'
+                    : (k.zajety ? ' (zajęty — ' + (k.trasa || 'inna trasa') + ')' : '');
+                kierowcy += opcjaHtml(k.id, k.nazwa + dopisek, !!k.zajety || !!k.nie_kierowca, String(k.id) === wK);
             });
             const kierowca = (d.kierowcy || []).find((k) => String(k.id) === wK);
             if (wK && !kierowca) {
                 const znany = t && t.kierowca && String(t.kierowca.id) === wK ? t.kierowca : null;
                 kierowcy += opcjaHtml(wK, (znany ? znany.nazwa : 'Kierowca nr ' + wK) + ' (nieaktywny)', true, true);
                 uwagaK = 'Kierowca nie jest już aktywnym pracownikiem. Zostaje na tej trasie; po zmianie nie wybierzesz go ponownie.';
+            } else if (kierowca && kierowca.nie_kierowca) {
+                uwagaK = 'Nie jest już kierowcą (zmiana we Flocie). Zostaje na tej trasie; po zmianie nie wybierzesz go ponownie.';
             } else if (kierowca && kierowca.zajety) {
                 uwagaK = 'Kierowca jest zajęty w tych dniach na trasie „' + (kierowca.trasa || 'inna trasa') +
                     '”. Wybierz innego albo zmień daty.';
@@ -1501,9 +1507,10 @@
     const kluczBleduTrasy = (klucz) => 'trasa-blad-' + (klucz === null || klucz === undefined ? 'nowa' : klucz);
 
     // Odmowa dotycząca pojazdu albo kierowcy (services/routes.py, _sprawdz_zasoby: zajęty
-    // w tych dniach, wyłączony z floty, nieaktywny) — tylko taki błąd kasuje udana dostępność.
+    // w tych dniach, wyłączony z floty, nieaktywny, bez znacznika kierowcy — runda 2) —
+    // tylko taki błąd kasuje udana dostępność.
     const bladZasobu = (e) => !!e && (e.status === 409 || e.status === 422) &&
-        /zajęty|wyłączony z floty|aktywnego kierowcy/i.test(String(e.message || ''));
+        /zajęty|wyłączony z floty|aktywnego kierowcy|nie jest kierowcą/i.test(String(e.message || ''));
 
     function fokusNaBledneZPola(blad) {
         pokazBlad(blad.tekst, 'pole');
