@@ -152,9 +152,19 @@ def pojazd(name=None, capacity_kg=None, is_active=True, registration=None):
 
 
 def kierowca(imie='Jan', nazwisko=None, aktywny=True):
-    """Kierowca (pracownik produkcji)."""
+    """Kierowca trasy: pracownik produkcji ZE znacznikiem is_driver (runda 2 — tylko taki
+    jest w wyborze kierowcy i przechodzi walidację nowego przypisania do trasy)."""
     k = ProductionWorker(first_name=imie, last_name=nazwisko or 'Kierowca %d' % next(_licznik),
-                         is_active=aktywny)
+                         is_active=aktywny, is_driver=True)
     db.session.add(k)
     db.session.commit()
     return k
+
+
+def pracownik(imie='Piotr', nazwisko=None, aktywny=True):
+    """Pracownik produkcji BEZ znacznika kierowcy (kandydat na kierowcę)."""
+    p = ProductionWorker(first_name=imie, last_name=nazwisko or 'Pracownik %d' % next(_licznik),
+                         is_active=aktywny, is_driver=False)
+    db.session.add(p)
+    db.session.commit()
+    return p

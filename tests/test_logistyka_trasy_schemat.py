@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import os
+import re
 from datetime import date
 
 import pytest
@@ -7,10 +8,13 @@ from sqlalchemy.exc import IntegrityError
 
 from extensions import db
 from modules.production.logistics.models import Route, RouteStop, Vehicle
+from modules.production.models import ProductionWorker
 from tests.logistyka_fixtures import app, kierowca, pojazd, zamowienie  # noqa: F401
 
 MIGRACJA = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                         'migrations', '2026-09-27-logistyka-trasy-flota.sql')
+MIGRACJA_KIEROWCOW = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                  'migrations', '2026-09-28-logistyka-kierowcy.sql')
 
 
 def test_trasa_z_przystankami_w_kolejnosci(app):
@@ -49,3 +53,19 @@ def test_migracja_tras():
     assert 'LONGTEXT' in sql and 'DELIMITER' not in sql
     # fix-1, Ruling A1: wiersz blokady zapisów tras w prod_config.
     assert 'INSERT IGNORE INTO prod_config' in sql and "'logistyka_trasy_blokada'" in sql
+
+
+def test_pracownik_domyslnie_nie_jest_kierowca(app):
+    with app.app_context():
+        p = ProductionWorker(first_name='Ala', last_name='Nowa')
+        db.session.add(p)
+        db.session.commit()
+        assert p.is_driver is False
+
+
+def test_migracja_kierowcow():
+    sql = open(MIGRACJA_KIEROWCOW, encoding='utf-8').read()
+    assert "TABLE_NAME = 'prod_workers'" in sql and "COLUMN_NAME = 'is_driver'" in sql
+    assert 'ADD COLUMN is_driver TINYINT(1) NOT NULL DEFAULT 0' in sql
+    assert 'PREPARE krok FROM @sql' in sql and 'DELIMITER' not in sql
+    assert not re.search(r'^\s*ALTER TABLE', sql, re.MULTILINE)   # ALTER tylko w PREPARE

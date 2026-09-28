@@ -1393,6 +1393,9 @@ class ProductionWorker(db.Model):
     allowed_stations = Column(String(255), nullable=True,
                               comment='CSV kodów stanowisk; NULL/pusty = wszystkie')
     is_active = Column(Boolean, nullable=False, default=True, index=True)
+    # Logistyka (runda 2): kierowca tras — ustawiany wyłącznie w zakładce Logistyka → Flota
+    # (zakładka Pracownicy go nie zna). Migracja 2026-09-28-logistyka-kierowcy.sql.
+    is_driver = Column(Boolean, nullable=False, default=False)
     user_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'),
                      nullable=True, index=True,
                      comment='Opcjonalne powiązanie z kontem CRM')

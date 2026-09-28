@@ -309,7 +309,41 @@ def vehicle_active(vehicle_id):
 @logistics_panel_bp.route('/drivers', methods=['GET'])
 @guard
 def drivers():
-    return jsonify({'success': True, 'drivers': fleet.kierowcy()})
+    # (runda 2, spec 2.6) Tylko kierowcy (aktywni, is_driver) z nazwami tras roboczych
+    # i zatwierdzonych — Flota podaje je w potwierdzeniu zdjęcia znacznika.
+    return jsonify({'success': True, 'drivers': fleet.kierowcy_z_trasami()})
+
+
+@logistics_panel_bp.route('/drivers/candidates', methods=['GET'])
+@guard
+def driver_candidates():
+    return jsonify({'success': True, 'candidates': fleet.kandydaci_na_kierowcow()})
+
+
+@logistics_panel_bp.route('/drivers', methods=['POST'])
+@guard
+def driver_add():
+    """{worker_id} → {driver, drivers}. Znacznik kierowcy to nie zapis trasy — bez blokady tras."""
+    try:
+        pracownik = fleet.dodaj_kierowce(_cialo().get('worker_id'))
+    except LogistykaBlad as e:
+        return _odmowa(e)
+    db.session.commit()
+    return jsonify({'success': True, 'driver': fleet.serializuj_kierowce(pracownik),
+                    'drivers': fleet.kierowcy_z_trasami()})
+
+
+@logistics_panel_bp.route('/drivers/<int:worker_id>', methods=['DELETE'])
+@guard
+def driver_remove(worker_id):
+    """Zdjęcie znacznika → {driver, drivers}; pracownik zostaje, na swoich trasach też."""
+    try:
+        pracownik = fleet.usun_kierowce(worker_id)
+    except LogistykaBlad as e:
+        return _odmowa(e)
+    db.session.commit()
+    return jsonify({'success': True, 'driver': fleet.serializuj_kierowce(pracownik),
+                    'drivers': fleet.kierowcy_z_trasami()})
 
 
 @logistics_panel_bp.route('/availability', methods=['GET'])

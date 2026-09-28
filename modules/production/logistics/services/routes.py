@@ -295,12 +295,28 @@ def zajetosc(date_from, date_to, pomin_route_id=None, aktualny=False):
 
 def dostepnosc(date_from, date_to, pomin_route_id=None):
     z = zajetosc(date_from, date_to, pomin_route_id)   # podgląd UI — zwykły odczyt wystarczy
+    kierowcy = fleet.kierowcy()
+    # (runda 2, spec 2.6) Kierowca edytowanej trasy, któremu zdjęto znacznik, zostaje na niej
+    # (rozstrzygnięcie 33) — w wyborze TEJ trasy jest widoczny z `nie_kierowca: True` (UI:
+    # „(nie jest już kierowcą)”). Nieaktywnego nie dokładamy: UI pokazuje go z danych trasy
+    # jako „(nieaktywny)”, jak dotąd. W nowej i w cudzej trasie go nie ma.
+    obecny = _kierowca_trasy(pomin_route_id)
+    if obecny is not None and obecny.is_active and not obecny.is_driver:
+        kierowcy.append({'id': obecny.id, 'nazwa': fleet.nazwa_pracownika(obecny),
+                         'nie_kierowca': True})
     return {
         'pojazdy': [dict(p, zajety=p['id'] in z['pojazdy'], trasa=z['pojazdy'].get(p['id']))
                     for p in fleet.lista_pojazdow(tylko_aktywne=True)],
         'kierowcy': [dict(k, zajety=k['id'] in z['kierowcy'], trasa=z['kierowcy'].get(k['id']))
-                     for k in fleet.kierowcy()],
+                     for k in kierowcy],
     }
+
+
+def _kierowca_trasy(route_id):
+    if not route_id:
+        return None
+    trasa = Route.query.get(route_id)
+    return trasa.driver if trasa is not None else None
 
 
 def _sprawdz_zasoby(od, do, vehicle_id, driver_id, route=None):
@@ -312,6 +328,8 @@ def _sprawdz_zasoby(od, do, vehicle_id, driver_id, route=None):
     trasach, więc zmiana nazwy trasy albo jej przywrócenie nie może wymagać wymiany
     pojazdu. Zakaz wyłączonego dotyczy tylko NOWEGO przypisania. Zajętość sprawdzamy
     zawsze — także dla niezmienionego pojazdu.
+    (runda 2) Kierowca nowego albo zmienionego przypisania musi mieć znacznik is_driver
+    (409); niezmieniony kierowca trasy przechodzi i bez niego.
     """
     obecny_pojazd = route.vehicle_id if route is not None else None
     obecny_kierowca = route.driver_worker_id if route is not None else None
@@ -336,6 +354,15 @@ def _sprawdz_zasoby(od, do, vehicle_id, driver_id, route=None):
         kierowca = ProductionWorker.query.get(driver_id)
         if kierowca is None or (not kierowca.is_active and driver_id != obecny_kierowca):
             raise LogistykaBlad(u'Nie ma takiego aktywnego kierowcy.', status=422)
+        # (runda 2, spec 2.6) Kierowcą NOWEGO albo ZMIENIONEGO przypisania może być tylko
+        # pracownik ze znacznikiem (Flota → Kierowcy). Niezmieniony kierowca trasy zostaje, choć
+        # znacznik mu zdjęto — jak wyłączony pojazd (I3, rozstrzygnięcie 33). Odczyt zwykły, jak
+        # dotąd: zdjęcie znacznika nie bierze blokady tras, a obie kolejności (zapis trasy przed
+        # albo po zdjęciu) kończą się stanem, który ta reguła i tak dopuszcza.
+        if not kierowca.is_driver and driver_id != obecny_kierowca:
+            raise LogistykaBlad(u'{} nie jest kierowcą. Wybierz kogoś z listy kierowców albo dodaj '
+                                u'tę osobę we Flocie.'.format(fleet.nazwa_pracownika(kierowca)),
+                                status=409)
     # Sprawdzenie konfliktu MUSI być odczytem bieżącym (Ruling A4) — inaczej
     # trasa, którą inny piszący właśnie zacommitował, byłaby niewidoczna.
     z = zajetosc(od, do, pomin_route_id, aktualny=True)

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Flota pojazdów i lista kierowców (pracownicy produkcji) — spec 8.1."""
+"""Flota pojazdów i kierowcy tras (pracownicy produkcji ze znacznikiem is_driver) — spec 8.1, runda 2 (2.6)."""
 import re
 
 from sqlalchemy.orm import selectinload
@@ -120,8 +120,105 @@ def ustaw_aktywnosc(pojazd, aktywny):
     return pojazd
 
 
+def nazwa_pracownika(p):
+    return u'{} {}'.format(p.first_name, p.last_name).strip()
+
+
+def _pracownicy(kierowca):
+    """Aktywni pracownicy produkcji ze znacznikiem kierowcy (True) albo bez niego (False)."""
+    return (ProductionWorker.query
+            .filter(ProductionWorker.is_active.is_(True), ProductionWorker.is_driver.is_(kierowca))
+            .order_by(ProductionWorker.sort_order, ProductionWorker.last_name).all())
+
+
 def kierowcy():
-    pracownicy = (ProductionWorker.query.filter(ProductionWorker.is_active.is_(True))
-                  .order_by(ProductionWorker.sort_order, ProductionWorker.last_name).all())
-    return [{'id': p.id, 'nazwa': u'{} {}'.format(p.first_name, p.last_name).strip()}
-            for p in pracownicy]
+    """
+    (runda 2, spec 2.6) Kierowcy tras: AKTYWNI pracownicy ze znacznikiem is_driver (do rundy 2
+    — wszyscy aktywni). Kształt bez zmian, [{id, nazwa}] — używają go GET /drivers
+    (przez kierowcy_z_trasami) i routes.dostepnosc (wybór kierowcy w edytorze trasy).
+    """
+    return [{'id': p.id, 'nazwa': nazwa_pracownika(p)} for p in _pracownicy(True)]
+
+
+def kandydaci_na_kierowcow():
+    """Okno „Dodaj kierowcę” we Flocie: aktywni pracownicy BEZ znacznika."""
+    return [{'id': p.id, 'nazwa': nazwa_pracownika(p)} for p in _pracownicy(False)]
+
+
+def trasy_kierowcow(ids):
+    """
+    {worker_id: [nazwa trasy, …]} — trasy robocze i zatwierdzone (po dacie od, potem id),
+    na których pracownik jest kierowcą. Potwierdzenie zdjęcia znacznika podaje je z nazwy:
+    kierowca na nich zostaje (spec 2.6, rozstrzygnięcie 33).
+    """
+    if not ids:
+        return {}
+    wynik = {}
+    for worker_id, nazwa in (db.session.query(Route.driver_worker_id, Route.name)
+                             .filter(Route.driver_worker_id.in_(list(ids)),
+                                     Route.status.in_(STATUSY_TRASY_AKTYWNE))
+                             .order_by(Route.date_from, Route.id).all()):
+        wynik.setdefault(worker_id, []).append(nazwa)
+    return wynik
+
+
+def kierowcy_z_trasami():
+    """GET /drivers: kierowcy z nazwami ich aktywnych tras — dwa zapytania na całą listę."""
+    lista = kierowcy()
+    trasy = trasy_kierowcow([k['id'] for k in lista])
+    return [dict(k, trasy=trasy.get(k['id'], [])) for k in lista]
+
+
+def serializuj_kierowce(p):
+    return {'id': p.id, 'nazwa': nazwa_pracownika(p), 'is_driver': bool(p.is_driver),
+            'trasy': trasy_kierowcow([p.id]).get(p.id, [])}
+
+
+def _id_pracownika(wartosc):
+    """
+    Identyfikator pracownika z ciała żądania: int (nie bool — `True` to w Pythonie 1) albo
+    tekst z cyframi ASCII (_ID_RE), zakres 1…999 999 999. Wszystko inne → 422; nigdy gołego
+    int() na nieznanym typie (wzór: routes._id).
+    """
+    liczba = None
+    if isinstance(wartosc, int) and not isinstance(wartosc, bool):
+        liczba = wartosc
+    elif isinstance(wartosc, str) and _ID_RE.fullmatch(wartosc.strip()):
+        liczba = int(wartosc.strip())
+    if liczba is None or not 0 < liczba < 10 ** 9:
+        raise LogistykaBlad(u'Wybierz pracownika z listy.', status=422)
+    return liczba
+
+
+def _pracownik(worker_id):
+    pracownik = ProductionWorker.query.get(_id_pracownika(worker_id))
+    if pracownik is None:
+        raise LogistykaBlad(u'Nie ma takiego pracownika.', status=404)
+    return pracownik
+
+
+def dodaj_kierowce(worker_id):
+    """
+    (runda 2, spec 2.6) Znacznik kierowcy na aktywnym pracowniku. Idempotentne. 404 — nie ma
+    pracownika, 409 — pracownik nieaktywny. To NIE jest zapis trasy: bez routes.zablokuj_trasy();
+    trasy sprawdzają kierowcę przy własnym zapisie (_sprawdz_zasoby). Nie commituje.
+    """
+    pracownik = _pracownik(worker_id)
+    if not pracownik.is_active:
+        raise LogistykaBlad(u'{} nie jest już aktywnym pracownikiem — nie może zostać kierowcą.'.format(
+            nazwa_pracownika(pracownik)), status=409)
+    pracownik.is_driver = True
+    db.session.flush()
+    return pracownik
+
+
+def usun_kierowce(worker_id):
+    """
+    Zdjęcie znacznika: pracownik zostaje w systemie, a na trasach, na których już jest
+    kierowcą, zostaje (routes._sprawdz_zasoby przepuszcza niezmienionego kierowcę —
+    rozstrzygnięcie 33). Idempotentne; 404 — nie ma pracownika. Bez blokady tras. Nie commituje.
+    """
+    pracownik = _pracownik(worker_id)
+    pracownik.is_driver = False
+    db.session.flush()
+    return pracownik

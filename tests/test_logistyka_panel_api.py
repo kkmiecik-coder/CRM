@@ -230,6 +230,11 @@ TRASY_PANELU = [
     ('post', '/geocode'),
     ('put', '/orders/1/geo'),
     ('post', '/orders/1/geo/reset'),
+    # Runda 2 (spec 2.6): kierowcy tras pod tą samą kontrolą dostępu.
+    ('get', '/drivers'),
+    ('get', '/drivers/candidates'),
+    ('post', '/drivers'),
+    ('delete', '/drivers/1'),
 ]
 
 
