@@ -13,6 +13,7 @@ from flask import jsonify, request, send_file
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
+from sqlalchemy.orm.exc import ObjectDeletedError, StaleDataError
 
 from extensions import db
 from modules.production.logistics import logistics_panel_bp
@@ -456,7 +457,16 @@ def route_get(route_id):
     trasa = _trasa_ze_szczegolami(route_id)
     if trasa is None:
         return _blad(u'Nie ma takiej trasy.', 404)
-    return jsonify({'success': True, 'route': _szczegoly(trasa)})
+    try:
+        szczegoly = _szczegoly(trasa)
+    except (StaleDataError, ObjectDeletedError):
+        # (M11) GET zapisuje przebieg (_szczegoly → routing.przelicz → commit) bez blokady
+        # tras. Trasa usunięta w tym czasie: UPDATE nie trafia w wiersz (StaleDataError)
+        # albo wygaszona po commicie trasa nie ma już wiersza (ObjectDeletedError) — to 404,
+        # nie 500.
+        db.session.rollback()
+        return _blad(u'Nie ma takiej trasy.', 404)
+    return jsonify({'success': True, 'route': szczegoly})
 
 
 @logistics_panel_bp.route('/routes/<int:route_id>/routimo', methods=['GET'])

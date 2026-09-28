@@ -770,7 +770,8 @@ def ustaw_recznie(order, lat, lng):
         raise LogistykaBlad(u'Nieprawidłowe współrzędne.', status=422)
     try:
         lat, lng = float(lat), float(lng)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
+        # (M6) OverflowError: liczba całkowita z JSON-a za duża na float (np. 10**400).
         raise LogistykaBlad(u'Nieprawidłowe współrzędne.', status=422)
     if not (-90 <= lat <= 90 and -180 <= lng <= 180):
         raise LogistykaBlad(u'Współrzędne poza zakresem.', status=422)

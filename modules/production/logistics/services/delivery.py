@@ -210,6 +210,12 @@ def ustaw_sposob_dostawy(order, sposob, user_id=None, teraz=None):
     stary = sposoby.normalizuj(order.override_delivery_method)
     if stary == nowy:
         return {'zmieniono': False, 'przepakowanie': False, 'usunieto_z_trasy': None}
+    # (M3) Przesyłka już utworzona (kurier mógł ją odebrać) — zmiana sposobu wysłałaby do
+    # Base. status nowego sposobu (np. 149777 „Czeka na odbiór”) zamiast statusu wysyłki.
+    # Jak adres (zmien_adres). Po porównaniu bez zmian: ten sam sposób zostaje no-opem.
+    if order.shipping_package_id or order.shipping_tracking_number:
+        raise LogistykaBlad(u'Zamówienie {} ma już utworzoną przesyłkę — sposób dostawy zmień '
+                            u'u kuriera i w Base.'.format(order.internal_order_number))
 
     zdejmuje = nowy != sposoby.TRANSPORT   # kurier, odbiór i cofnięcie (nowy=None) zdejmują z trasy
     przystanek = _przystanek_do_zmiany(order, zdejmuje, u'zmień sposób dostawy')
@@ -311,7 +317,9 @@ def _cofnij_sposob(order, stary, user_id, teraz):
 
 # Limity pól adresu w Base. (setOrderFields): dłuższej wartości Base. nie przyjmie.
 LIMIT_ADRESU, LIMIT_KODU, LIMIT_MIASTA = 156, 20, 100
-_KOD_PL = re.compile(r'\d{2}-\d{3}')
+# (M7) Tylko cyfry ASCII: `\d` i str.isdigit() przepuszczają też cyfry Unicode (np. „٣٥-٣١٠”),
+# które poszłyby do Base. i wypadły z filtra województw.
+_KOD_PL = re.compile(r'[0-9]{2}-[0-9]{3}')
 
 
 def zmien_adres(order, adres, kod, miasto, user_id=None, teraz=None):
@@ -338,7 +346,7 @@ def zmien_adres(order, adres, kod, miasto, user_id=None, teraz=None):
         raise LogistykaBlad(u'Za długi adres: ulica do {} znaków, kod do {}, miejscowość do {}.'.format(
             LIMIT_ADRESU, LIMIT_KODU, LIMIT_MIASTA), status=422)
     if kod and ((order.delivery_country_code or '').strip().upper() or 'PL') == 'PL':
-        if kod.isdigit() and len(kod) == 5:
+        if kod.isascii() and kod.isdigit() and len(kod) == 5:
             kod = kod[:2] + '-' + kod[2:]
         elif not _KOD_PL.fullmatch(kod):
             raise LogistykaBlad(u'Kod pocztowy w formacie 00-000.', status=422)
