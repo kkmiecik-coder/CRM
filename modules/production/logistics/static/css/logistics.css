@@ -979,6 +979,23 @@
     color: var(--il-status-danger, #dc2626);
 }
 
+/* (D11) Flota: kierowcy się nie wczytali — w panelu kierowców błąd i „Spróbuj ponownie” zamiast
+   pustej listy (pojazdy obok mogą działać). Tytuł i opis jak stan błędu tabeli, mniejsze —
+   panel to wąska kolumna. Selektor mocniejszy niż .lg-kierowcy li z logistics-trasy.css. */
+.logistics-tab .lg-kierowcy li.lg-kierowcy-blad {
+    display: block;
+    padding: 10px 10px 12px;
+}
+
+.logistics-tab .lg-kierowcy-blad .lg-stan-tytul {
+    font-size: 13px;
+    color: var(--il-status-danger, #dc2626);
+}
+
+.logistics-tab .lg-kierowcy-blad .lg-przycisk {
+    margin-top: 8px;
+}
+
 /* ─── Legenda ─── */
 .logistics-tab .lg-legenda {
     display: flex;
@@ -2136,7 +2153,10 @@ html.lg-przeciaganie-uchwytu * {
     flex: 1 1 auto; min-width: 0; height: 30px; padding-top: 2px; padding-bottom: 2px; font-size: 12.5px;
     border-color: var(--il-border, #c8cdd5); border-radius: var(--il-radius, 3px);
 }
-.logistics-tab .lg-dymek-select:disabled { cursor: progress; }
+/* (D9) Trwała blokada (wydane, anulowane) jak select wiersza; kursor „w toku” tylko na czas
+   zapisu (aria-busy ustawia dymekHtml w logistics-map.js). */
+.logistics-tab .lg-dymek-select:disabled { cursor: not-allowed; }
+.logistics-tab .lg-dymek-select:disabled[aria-busy="true"] { cursor: progress; }
 
 .logistics-tab .lg-dymek-klient {
     margin-top: 4px;

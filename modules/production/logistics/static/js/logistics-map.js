@@ -30,6 +30,11 @@
  *   window.LogisticsMap.onSposob(cb)                     cb(id, sposob) → Promise — wybór sposobu
  *                                                        w dymku; zapis robi logistics.js (ta sama
  *                                                        droga co select w wierszu listy)
+ *   window.LogisticsMap.ustawCzyZapisywane(fn)           fn(id) → true, gdy lista zapisuje zmianę tego
+ *                                                        zamówienia (wiersz, hurt, „Wydane klientowi”):
+ *                                                        select w dymku czeka wtedy jak select wiersza (D1)
+ *   window.LogisticsMap.odswiezDymek(id)                 otwarty dymek zamówienia od nowa (początek i koniec
+ *                                                        zapisu w liście)
  * Gotowość ogłasza zdarzenie `logistics:mapa-gotowa` na document (detail.root), zmianę
  * podkładu — `logistics:podklad` (detail {root, podklad}; mapka edytora trasy idzie za nią).
  *
@@ -205,6 +210,9 @@
     const sluchaczeSposobu = [];         // onSposob (runda 2): zapis sposobu z dymku robi lista
     const zapisywaneSposoby = new Set(); // id zamówień, dla których leci zmiana sposobu z dymku
     const timerySposobu = new Map();     // id → zwłoka wyboru w dymku (osobno dla każdego zamówienia)
+    // (D1) Funkcja listy (ustawCzyZapisywane): czy logistics.js zapisuje teraz zmianę tego zamówienia
+    // z wiersza, hurtu albo „Wydane klientowi” — wybór w dymku czeka wtedy jak select wiersza.
+    let czyZapisywaneWLiscie = null;
     const przyciskZakladki = document.getElementById('logistics-tab');
     // (oględziny Task 8, I2) Mapa schowana (podzakładka, inna zakładka panelu) ma rozmiar 0.
     // Po powrocie dopasowuje się do treści widoku od nowa — chyba że użytkownik ją przesunął
@@ -246,6 +254,15 @@
         return String(wartosc).replace(/[&<>"']/g, (c) => ({
             '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
         }[c]));
+    }
+
+    // Odmiana: 1 zamówienie, 2–4 zamówienia, 5+ zamówień (12–14 → zamówień) — jak w logistics.js.
+    function odmiana(n, formy) {
+        const d = n % 10;
+        const s = n % 100;
+        if (n === 1) return formy[0];
+        if (d >= 2 && d <= 4 && (s < 12 || s > 14)) return formy[1];
+        return formy[2];
     }
 
     const kluczSposobu = (sposob) => (SPOSOBY.includes(sposob) ? sposob : 'brak');
@@ -333,7 +350,8 @@
             od = do_;
         });
         const rozmiar = ile < 10 ? 34 : (ile < 50 ? 40 : 46);
-        const opis = ile + ' zamówień w tym miejscu. Kliknij, żeby przybliżyć.';
+        const opis = ile + ' ' + odmiana(ile, ['zamówienie', 'zamówienia', 'zamówień']) + ' w tym miejscu. ' +
+            'Kliknij, żeby przybliżyć.';
         return L.divIcon({
             className: 'lg-znacznik-klaster',
             html: '<div class="lg-klaster" style="--lg-klaster-pierscien: conic-gradient(' + odcinki.join(', ') + ')"' +
@@ -373,7 +391,18 @@
         if (z.wydane) return 'Zamówienie wydane klientowi. Sposobu dostawy nie można już zmienić.';
         if (z.etap && z.etap.status === 'anulowane') return 'Zamówienie anulowane.';
         if (zapisywaneSposoby.has(z.id)) return 'Zapisywanie…';
+        // (D1) Zapis z wiersza, hurtu albo „Wydane klientowi” — wyboru z dymku lista teraz nie wyśle.
+        if (zapisWLiscie(z.id)) return 'Zapisuje się poprzednia zmiana…';
         return '';
+    }
+
+    // (D1) Czy lista (logistics.js) zapisuje teraz zmianę zamówienia `id`.
+    function zapisWLiscie(id) {
+        try {
+            return !!(czyZapisywaneWLiscie && czyZapisywaneWLiscie(id));
+        } catch (e) {
+            return false;   // stara instancja listy (forceRefresh) — dymek bez tej blokady
+        }
     }
 
     function dymekHtml(z) {
@@ -414,11 +443,15 @@
         // atrybut (nie atrybut selecta wiersza ani licznika filtra): delegacja listy na #logistics-root
         // wzięłaby go za jeden z nich.
         const blokada = powodBlokadySposobu(z);
+        // (D9) Na czas zapisu (z dymku albo z listy) select ma aria-busy — CSS daje mu wtedy kursor
+        // „w toku”; trwała blokada (wydane, anulowane) ma kursor „niedozwolone”, jak select wiersza.
+        const zapisTrwa = !!blokada && (zapisywaneSposoby.has(z.id) || zapisWLiscie(z.id));
         const wybor = '<label class="lg-dymek-wybor">' +
             '<span class="lg-pin lg-pin--' + sposob + '" aria-hidden="true"></span>' +
             '<select class="form-select form-select-sm lg-dymek-select" data-lg-mapa-sposob data-id="' + esc(z.id) + '"' +
                 ' aria-label="Sposób dostawy zamówienia ' + esc(z.numer) + '"' +
-                (blokada ? ' disabled title="' + esc(blokada) + '"' : '') + '>' + opcjeSposobu(sposob) + '</select>' +
+                (blokada ? ' disabled title="' + esc(blokada) + '"' : '') + (zapisTrwa ? ' aria-busy="true"' : '') +
+                '>' + opcjeSposobu(sposob) + '</select>' +
             '</label>';
 
         return '<div class="lg-dymek-tresc">' +
@@ -2110,6 +2143,11 @@
         };
     }
 
+    // (D1) Lista podaje funkcję „czy zapisuje zmianę zamówienia id” — patrz powodBlokadySposobu.
+    function ustawCzyZapisywane(fn) {
+        czyZapisywaneWLiscie = typeof fn === 'function' ? fn : null;
+    }
+
     // Widoczność: zakładka Bootstrap (shown.bs.tab) i każda zmiana rozmiaru
     // kontenera (zwinięcie panelu bocznego, zmiana układu, ukrycie zakładki).
     // (oględziny Task 8, I2) Schowana mapa (podzakładka Trasy/Flota, inna zakładka panelu)
@@ -2197,6 +2235,7 @@
         sluchaczeBledow.length = 0;
         sluchaczeSposobu.length = 0;
         zapisywaneSposoby.clear();
+        czyZapisywaneWLiscie = null;
         sluchaczeWyboruTrasy.length = 0;
         if (window.LogisticsMap === api) delete window.LogisticsMap;
     }
@@ -2209,6 +2248,12 @@
         onZmiana: onZmiana,
         onBlad: onBlad,
         onSposob: onSposob,
+        // Runda 2 (D1): blokada wyboru w dymku na czas zapisu w liście i przerysowanie otwartego
+        // dymku, gdy ten zapis się zaczyna i kończy (fokus w dymku zostaje, jeśli był).
+        ustawCzyZapisywane: ustawCzyZapisywane,
+        odswiezDymek: (id) => {
+            if (!zniszczona) odswiezDymek(id, fokusWDymku(id));
+        },
         ustawNaMapie: ustawNaMapie,
         anuluj: anulujTryb,
         zajeta: () => !!tryb,

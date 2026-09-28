@@ -14,7 +14,7 @@
      blokuje CDN). #}
 <link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet/leaflet.css') }}?v=1.9.4">
 <link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet-markercluster/MarkerCluster.css') }}?v=1.5.3">
-<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20260928a">
+<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20260928b">
 {# Etap 3: trasy, flota, widok tras na mapie — osobny arkusz (logistics.css zostaje nietknięty). #}
 <link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics-trasy.css') }}?v=20260928b">
 
@@ -211,8 +211,8 @@
                data-carto-key="{{ carto_basemaps_key }}"
                data-skrypt-leaflet="{{ url_for('production.static', filename='vendor/leaflet/leaflet.js') }}?v=1.9.4"
                data-skrypt-klastry="{{ url_for('production.static', filename='vendor/leaflet-markercluster/leaflet.markercluster.js') }}?v=1.5.3"
-               data-skrypt-mapy="{{ url_for('logistics_panel.static', filename='js/logistics-map.js') }}?v=20260928a"
-               data-skrypt-trasy="{{ url_for('logistics_panel.static', filename='js/logistics-routes.js') }}?v=20260928d"></div>
+               data-skrypt-mapy="{{ url_for('logistics_panel.static', filename='js/logistics-map.js') }}?v=20260928b"
+               data-skrypt-trasy="{{ url_for('logistics_panel.static', filename='js/logistics-routes.js') }}?v=20260928e"></div>
           {# Pasek trybu (korekta, ustawianie punktu) i wyniku akcji na mapie. #}
           <div class="lg-mapa-pasek" data-lg-mapa="pasek" role="status" aria-live="polite" hidden></div>
           <div class="lg-mapa-stan is-ladowanie" data-lg-mapa="stan" role="status">Ładowanie mapy…</div>
@@ -624,6 +624,9 @@
       <p class="lg-dialog-blad" id="lg-kierowca-blad" data-lg-flota="kierowca-blad" role="alert" hidden></p>
       <div class="lg-dialog-akcje">
         <button type="button" class="lg-przycisk" data-lg-flota-akcja="kierowca-zamknij">Zamknij</button>
+        {# (D7) Tylko po błędzie wczytania pracowników — pokazuje go logistics-fleet.js razem z błędem. #}
+        <button type="button" class="lg-przycisk lg-przycisk--glowny" data-lg-flota="kandydaci-ponow"
+                data-lg-flota-akcja="kandydaci-ponow" hidden><i class="fas fa-rotate-right" aria-hidden="true"></i>Spróbuj ponownie</button>
       </div>
     </form>
   </dialog>
@@ -695,6 +698,6 @@
         });
 })();
 </script>
-<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20260928c"></script>
-<script src="{{ url_for('logistics_panel.static', filename='js/logistics-fleet.js') }}?v=20260928a"></script>
+<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20260928d"></script>
+<script src="{{ url_for('logistics_panel.static', filename='js/logistics-fleet.js') }}?v=20260928b"></script>
 <script src="{{ url_for('logistics_panel.static', filename='js/logistics-wojewodztwa.js') }}?v=20260928a"></script>

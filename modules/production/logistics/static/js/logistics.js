@@ -67,6 +67,8 @@
  *       przez window.LogisticsWojewodztwa.wyczysc({cicho: true}).
  *   Zmiana filtra zamówień przełącza mapę z „Trasy” na „Zamówienia” (mapaNaZamowienia).
  *   window.LogisticsMap.onSposob(zmienSposobZMapy) — wybór sposobu w dymku pinezki (ta sama droga co select wiersza).
+ *   window.LogisticsMap.ustawCzyZapisywane(czyZapisywane) + odswiezDymek(id) — (D1) dymek pinezki wie
+ *       o zapisie tego zamówienia z wiersza, hurtu albo „Wydane klientowi” i czeka jak select wiersza.
  */
 (function () {
     'use strict';
@@ -1182,6 +1184,7 @@
             stan.docelowe.set(id, sposob);
             odswiezWiersz(id, false);
         });
+        odswiezDymkiMapy(ids);
         try {
             return await zapytanie('/orders/delivery-method', {
                 metoda: 'POST', dane: { order_ids: ids, sposob: sposob },
@@ -1191,6 +1194,7 @@
                 stan.wysylane.delete(id);
                 stan.docelowe.delete(id);
             });
+            odswiezDymkiMapy(ids);
         }
     }
 
@@ -1285,6 +1289,9 @@
         oczekujaceSelecty.set(id, setTimeout(async () => {
             oczekujaceSelecty.delete(id);
             if (zniszczona) return;
+            // (D3) Na czas zapisu select jest nieaktywny, więc fokus klawiatury spada z niego na <body>
+            // i sam nie wraca — oddajemy go po odpowiedzi (jak dymek mapy). Mysz działa jak dotąd.
+            const fokus = fokusKlawiaturyNaSelecie(id);
             try {
                 const dane = await wyslijSposob([id], wartosc);
                 const wynik = nowyWynik();
@@ -1295,7 +1302,30 @@
                 odswiezWiersz(id, false);
                 pokazKomunikat('blad', 'Nie zmieniono sposobu dostawy zamówienia ' + w.numer + '. ' + e.message);
             }
+            if (fokus && !zniszczona) oddajFokusSelectowi(id);
         }, ZWLOKA_SELECTA_MS));
+    }
+
+    // (D3) Fokus z klawiatury (:focus-visible — klik myszą go nie daje) na selecie sposobu wiersza `id`.
+    function fokusKlawiaturyNaSelecie(id) {
+        const a = document.activeElement;
+        if (!a || !a.classList || !a.classList.contains('lg-sposob') || !tbody.contains(a)) return false;
+        const tr = a.closest('tr[data-id]');
+        if (!tr || Number(tr.getAttribute('data-id')) !== id) return false;
+        try {
+            return a.matches(':focus-visible');
+        } catch (e) {
+            return false;   // przeglądarka bez :focus-visible — jak dotąd, bez oddawania fokusu
+        }
+    }
+
+    // (D3) Fokus wraca na select wiersza tylko wtedy, gdy nigdzie go nie ma — przeniesiony w trakcie
+    // zapisu (Tab, klik) zostaje tam, gdzie użytkownik go zostawił.
+    function oddajFokusSelectowi(id) {
+        const a = document.activeElement;
+        if (a && a !== document.body && a !== document.documentElement && a.isConnected) return;
+        const s = tbody.querySelector('tr[data-id="' + id + '"] .lg-sposob');
+        if (s && !s.disabled) s.focus({ preventScroll: true });
     }
 
     /**
@@ -1306,7 +1336,15 @@
      */
     async function zmienSposobZMapy(id, sposob) {
         const w = znajdz(id);
-        if (zniszczona || !w || stan.wysylane.has(id)) return;
+        if (zniszczona || !w) return;
+        if (stan.wysylane.has(id)) {
+            // (D1) Trwa zapis tego zamówienia z wiersza, hurtu albo „Wydane klientowi” — wyboru z dymku
+            // nie wysyłamy i mówimy to wprost (dawniej ginął bez słowa). Dymek po tej obietnicy rysuje
+            // się od nowa z danych serwera (logistics-map.js, wyslijSposobZDymku).
+            pokazKomunikat('info', 'Poczekaj, aż zapisze się poprzednia zmiana zamówienia ' + w.numer + '.',
+                { klucz: 'sposob-w-toku', widok: 'dashboard' });
+            return;
+        }
         // Oczekująca zmiana z selecta tego wiersza (zwłoka) ustępuje wyborowi z dymku.
         clearTimeout(oczekujaceSelecty.get(id));
         oczekujaceSelecty.delete(id);
@@ -1523,15 +1561,19 @@
         if (!window.confirm('Zamówienie ' + w.numer + ' zostało odebrane przez klienta?')) return;
         stan.wysylane.add(id);
         odswiezWiersz(id, false);
+        odswiezDymkiMapy([id]);
         try {
             const dane = await zapytanie('/orders/' + encodeURIComponent(id) + '/handed-over', { metoda: 'POST', dane: {} });
             stan.wysylane.delete(id);
             if (zniszczona) return;
             podmienWiersze([dane.order]);
+            // Po podmianie: dymek zna już „wydane” (klucz pinezki się nie zmienia, więc mapa sama go nie przerysuje).
+            odswiezDymkiMapy([id]);
             pokazKomunikat('ok', 'Zamówienie ' + w.numer + ' wydane klientowi.', { klucz: 'wynik' });
         } catch (e) {
             stan.wysylane.delete(id);
             odswiezWiersz(id, false);
+            odswiezDymkiMapy([id]);
             pokazKomunikat('blad', 'Nie oznaczono wydania zamówienia ' + w.numer + '. ' + e.message);
         }
     }
@@ -1710,10 +1752,31 @@
         wczytaj('uzytkownik');
     }
 
+    // (D2) Województwa zaznaczone, zanim ten plik się wykonał (skrypty zakładki startują w dowolnej
+    // kolejności): ich zdarzenie logistics:wojewodztwa poszło w próżnię, więc pierwsze pobranie listy
+    // bierze wybór wprost z panelu — z jego API albo z samych pól.
+    function wojewodztwaZPanelu() {
+        const w = window.LogisticsWojewodztwa;
+        if (w && w.root === root && typeof w.wybrane === 'function') return w.wybrane();
+        return Array.from(root.querySelectorAll('input[data-lg-woj-pole]:checked')).map((p) => p.value);
+    }
+
     // Odznacza pola panelu województw; filtr listy ustawia wołający (`cicho` — bez zdarzenia).
     function wyczyscWojewodztwa(opcje) {
         const w = window.LogisticsWojewodztwa;
         if (w && w.root === root && typeof w.wyczysc === 'function') w.wyczysc(opcje);
+    }
+
+    // Runda 2 (D1): dla dymku pinezki — zapis tego zamówienia (wiersz, hurt, „Wydane klientowi”) w toku.
+    const czyZapisywane = (id) => stan.wysylane.has(id);
+
+    // (D1) Zapis zamówień `ids` zaczął się albo skończył — otwarty dymek jednego z nich rysuje się
+    // od nowa (mapa sama przerysowuje go tylko przy zmianie pinezki), więc wybór w nim czeka razem
+    // z selectem wiersza i wraca razem z nim.
+    function odswiezDymkiMapy(ids) {
+        const m = mapa();
+        if (!m || m !== mapaPolaczona || typeof m.odswiezDymek !== 'function') return;
+        ids.forEach((id) => m.odswiezDymek(id));
     }
 
     function polaczZMapa() {
@@ -1724,6 +1787,7 @@
         m.onZmiana(naZmianePunktu);
         if (typeof m.onBlad === 'function') m.onBlad(naBladMapy);
         if (typeof m.onSposob === 'function') m.onSposob(zmienSposobZMapy);
+        if (typeof m.ustawCzyZapisywane === 'function') m.ustawCzyZapisywane(czyZapisywane);
         przekazDoMapy();
         // Kolory tras na plakietkach pochodzą z mapy — wiersze na trasach dostają je teraz.
         if (!stan.pierwszeLadowanie && stan.wiersze.some((w) => w.trasa)) renderujTabele();
@@ -2348,5 +2412,6 @@
     polaczZMapa();
     zegar = setInterval(tik, ZEGAR_MS);
     renderujPrzelacznikZamknietych();
+    stan.filtr.woj = wojewodztwaZPanelu();
     wczytaj('uzytkownik');
 })();

@@ -245,6 +245,9 @@
     // nadpisuje jej starszym wierszem serwera (scalZLokalnymi).
     let licznikZmian = 0;
     const lokalneZmiany = new Map();
+    // (D8) Nazwy kierowców z każdej dostępności (id → nazwa): wybór osoby, której w trakcie edycji
+    // zdjęto znacznik, pokazuje dalej jej nazwę, choć dostępność już jej nie zna.
+    const nazwyKierowcow = new Map();
 
     // Mapka edytora — osobna instancja Leafleta.
     let mapka = null;
@@ -1233,9 +1236,11 @@
             esc(tekst) + '</option>';
     }
 
-    function ustawUwage(element, tekst) {
+    // ikona (opcjonalnie) — klasa Font Awesome zamiast ostrzeżenia, np. podpowiedź (D8).
+    function ustawUwage(element, tekst, ikona) {
         if (!element) return;
-        element.innerHTML = tekst ? '<i class="fas fa-triangle-exclamation" aria-hidden="true"></i><span>' + esc(tekst) + '</span>' : '';
+        element.innerHTML = tekst ? '<i class="fas ' + (ikona || 'fa-triangle-exclamation') + '" aria-hidden="true"></i>' +
+            '<span>' + esc(tekst) + '</span>' : '';
         element.hidden = !tekst;
     }
 
@@ -1255,6 +1260,7 @@
         let kierowcy = '<option value=""' + (wK ? '' : ' selected') + '>Bez kierowcy</option>';
         let uwagaP = '';
         let uwagaK = '';
+        let ikonaK = '';
         if (d) {
             (d.pojazdy || []).forEach((p) => {
                 pojazdy += opcjaHtml(p.id, opisPojazdu(p) + (p.zajety ? ' (zajęty — ' + (p.trasa || 'inna trasa') + ')' : ''),
@@ -1270,6 +1276,8 @@
                     '”. Wybierz inny albo zmień daty.';
             }
             (d.kierowcy || []).forEach((k) => {
+                // (D8) Nazwa na zapas: osoba, której w trakcie edycji zdjęto znacznik, znika z dostępności.
+                nazwyKierowcow.set(String(k.id), k.nazwa);
                 // (runda 2, spec 2.6) Kierowca tej trasy, któremu we Flocie zdjęto znacznik: zostaje
                 // wybrany (serwer przyjmuje niezmienionego), ale po zmianie nie wrócisz do niego.
                 const dopisek = k.nie_kierowca ? ' (nie jest już kierowcą)'
@@ -1277,15 +1285,28 @@
                 kierowcy += opcjaHtml(k.id, k.nazwa + dopisek, !!k.zajety || !!k.nie_kierowca, String(k.id) === wK);
             });
             const kierowca = (d.kierowcy || []).find((k) => String(k.id) === wK);
-            if (wK && !kierowca) {
-                const znany = t && t.kierowca && String(t.kierowca.id) === wK ? t.kierowca : null;
-                kierowcy += opcjaHtml(wK, (znany ? znany.nazwa : 'Kierowca nr ' + wK) + ' (nieaktywny)', true, true);
+            // Kierowca ZAPISANY na tej trasie — tylko o nim dostępność wie, że zostaje (nie_kierowca).
+            const zapisany = !!(t && t.kierowca && String(t.kierowca.id) === wK);
+            if (wK && !kierowca && zapisany) {
+                // Zapisanego kierowcy bez znacznika dostępność by nie pominęła — nie ma go, bo przestał
+                // być aktywnym pracownikiem.
+                kierowcy += opcjaHtml(wK, (t.kierowca.nazwa || 'Kierowca nr ' + wK) + ' (nieaktywny)', true, true);
                 uwagaK = 'Kierowca nie jest już aktywnym pracownikiem. Zostaje na tej trasie; po zmianie nie wybierzesz go ponownie.';
+            } else if (wK && !kierowca) {
+                // (D8) Niezapisany wybór (albo nowa trasa): osobie zdjęto we Flocie znacznik kierowcy.
+                // To nie „nieaktywny pracownik” i nic tu nie „zostaje na trasie” — zapis dostałby 409.
+                kierowcy += opcjaHtml(wK, (nazwyKierowcow.get(wK) || 'Kierowca nr ' + wK) + ' (nie jest już kierowcą)',
+                    true, true);
+                uwagaK = 'Nie jest już kierowcą (zmiana we Flocie). Wybierz innego kierowcę.';
             } else if (kierowca && kierowca.nie_kierowca) {
                 uwagaK = 'Nie jest już kierowcą (zmiana we Flocie). Zostaje na tej trasie; po zmianie nie wybierzesz go ponownie.';
             } else if (kierowca && kierowca.zajety) {
                 uwagaK = 'Kierowca jest zajęty w tych dniach na trasie „' + (kierowca.trasa || 'inna trasa') +
                     '”. Wybierz innego albo zmień daty.';
+            } else if (!(d.kierowcy || []).some((k) => !k.nie_kierowca)) {
+                // (D8) Nikogo do wyboru (np. zaraz po wdrożeniu) — select ma samo „Bez kierowcy”.
+                uwagaK = 'Brak kierowców do wyboru. Dodaj kierowców we Flocie.';
+                ikonaK = 'fa-circle-info';
             }
         } else {
             // Tylko do odczytu albo dostępność jeszcze w drodze: sama bieżąca wartość trasy.
@@ -1300,7 +1321,7 @@
         selectPojazdu.innerHTML = pojazdy;
         selectKierowcy.innerHTML = kierowcy;
         ustawUwage(uwagaPojazduEl, uwagaP);
-        ustawUwage(uwagaKierowcyEl, uwagaK);
+        ustawUwage(uwagaKierowcyEl, uwagaK, ikonaK);
         odswiezAkcje();
     }
 

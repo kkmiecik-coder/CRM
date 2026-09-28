@@ -61,14 +61,19 @@
     const kandydaciEl = el('kandydaci');
     const kandydaciStanEl = el('kandydaci-stan');
     const bladKierowcyEl = el('kierowca-blad');
+    const kandydaciPonowBtn = el('kandydaci-ponow');
 
     const stan = {
         pojazdy: [],
         kierowcy: [],
-        wczytano: false,
-        blad: null,
+        wczytano: false,         // pojazdy
+        blad: null,              // błąd odczytu pojazdów
+        // (D11) Kierowcy czytani niezależnie od pojazdów: własne „wczytano” i własny błąd.
+        kierowcyWczytani: false,
+        kierowcyBlad: null,
         zapisywane: new Set(),   // id pojazdów, dla których leci „Wyłącz/Włącz”
         kandydaci: null,               // okno „Dodaj kierowcę”: GET /drivers/candidates (null = w drodze)
+        kandydaciBlad: null,           // (D7) błąd tego odczytu — okno pokazuje wtedy tylko błąd i ponowienie
         dodaniKierowcy: new Set(),     // id pracowników, dla których leci POST /drivers
         usuwaniKierowcy: new Set(),    // id kierowców, dla których leci DELETE /drivers/<id>
         ostatnioDodany: '',            // nazwa ostatnio dodanego — potwierdzenie w oknie
@@ -252,22 +257,38 @@
         if (kontroler) kontroler.abort();
         const moj = new AbortController();
         kontroler = moj;
-        try {
-            const [pojazdy, kierowcy] = await Promise.all([
-                zapytanie('/vehicles', { signal: moj.signal }),
-                zapytanie('/drivers', { signal: moj.signal }),
-            ]);
-            if (zniszczona || moj !== kontroler) return;
-            stan.pojazdy = Array.isArray(pojazdy.vehicles) ? pojazdy.vehicles : [];
-            stan.kierowcy = Array.isArray(kierowcy.drivers) ? kierowcy.drivers : [];
+        // (D11) Pojazdy i kierowcy to dwa niezależne odczyty: błąd /drivers nie chowa pojazdów
+        // (i odwrotnie) — każda lista pokazuje swój wynik albo swój błąd.
+        const [pojazdy, kierowcy] = await Promise.allSettled([
+            zapytanie('/vehicles', { signal: moj.signal }),
+            zapytanie('/drivers', { signal: moj.signal }),
+        ]);
+        // Przerwane (nowsze wczytanie albo zniszczenie instancji) — wynik należy do kogoś innego.
+        if (zniszczona || moj !== kontroler) return;
+        kontroler = null;
+        const bladP = pojazdy.status === 'rejected' ? pojazdy.reason : null;
+        const bladK = kierowcy.status === 'rejected' ? kierowcy.reason : null;
+        // Lista już na ekranie, a odświeżenie nie wyszło: lista zostaje, błąd w komunikacie.
+        const nieodswiezone = [];
+        if (bladP) {
+            stan.blad = bladP.message;
+            if (stan.wczytano) nieodswiezone.push(['pojazdów', bladP]);
+        } else {
+            stan.pojazdy = Array.isArray(pojazdy.value.vehicles) ? pojazdy.value.vehicles : [];
             stan.wczytano = true;
             stan.blad = null;
-        } catch (e) {
-            if ((e && e.name === 'AbortError') || zniszczona || moj !== kontroler) return;
-            stan.blad = e.message;
-            if (stan.wczytano) komunikat('blad', 'Nie odświeżono floty. ' + e.message, { klucz: 'flota' });
-        } finally {
-            if (moj === kontroler) kontroler = null;
+        }
+        if (bladK) {
+            stan.kierowcyBlad = bladK.message;
+            if (stan.kierowcyWczytani) nieodswiezone.push(['kierowców', bladK]);
+        } else {
+            stan.kierowcy = Array.isArray(kierowcy.value.drivers) ? kierowcy.value.drivers : [];
+            stan.kierowcyWczytani = true;
+            stan.kierowcyBlad = null;
+        }
+        if (nieodswiezone.length) {
+            komunikat('blad', 'Nie odświeżono ' + nieodswiezone.map((n) => n[0]).join(' ani ') + '. ' +
+                nieodswiezone[0][1].message, { klucz: 'flota' });
         }
         renderuj();
     }
@@ -481,10 +502,29 @@
         const a = document.activeElement;
         const li = a && kierowcyEl.contains(a) ? a.closest('[data-kierowca-id]') : null;
         const indeks = li ? Array.from(kierowcyEl.children).indexOf(li) : -1;
-        kierowcyEl.innerHTML = !stan.wczytano ? ''
-            : (stan.kierowcy.length ? stan.kierowcy.map(kierowcaHtml).join('')
-                : '<li class="lg-kierowcy-pusto">Dodaj kierowców spośród pracowników.</li>');
-        if (kierowcyIleEl) kierowcyIleEl.textContent = stan.wczytano ? String(stan.kierowcy.length) : '';
+        const naPonowieniu = !!(a && kierowcyEl.contains(a) && a.getAttribute('data-lg-flota-akcja') === 'ponow');
+        let html = '';
+        if (stan.kierowcyBlad && !stan.kierowcyWczytani) {
+            // (D11) Kierowcy się nie wczytali (pojazdy obok mogą działać) — błąd zamiast pustej listy,
+            // która wyglądałaby jak „nie ma jeszcze kierowców”.
+            html = '<li class="lg-kierowcy-blad">' +
+                '<span class="lg-stan-tytul">Nie udało się pobrać kierowców.</span>' +
+                '<span class="lg-stan-opis">' + esc(stan.kierowcyBlad) + '</span>' +
+                '<button type="button" class="lg-przycisk" data-lg-flota-akcja="ponow">' +
+                '<i class="fas fa-rotate-right" aria-hidden="true"></i>Spróbuj ponownie</button></li>';
+        } else if (stan.kierowcyWczytani) {
+            html = stan.kierowcy.length ? stan.kierowcy.map(kierowcaHtml).join('')
+                : '<li class="lg-kierowcy-pusto">Dodaj kierowców spośród pracowników.</li>';
+        }
+        kierowcyEl.innerHTML = html;
+        if (kierowcyIleEl) kierowcyIleEl.textContent = stan.kierowcyWczytani ? String(stan.kierowcy.length) : '';
+        if (naPonowieniu) {
+            // „Spróbuj ponownie” zniknął razem z błędem — fokus na nowy (znów błąd) albo „Dodaj kierowcę”.
+            const cel = kierowcyEl.querySelector('[data-lg-flota-akcja="ponow"]') ||
+                panel.querySelector('[data-lg-flota-akcja="dodaj-kierowce"]');
+            if (cel) cel.focus({ preventScroll: true });
+            return;
+        }
         if (!li) return;
         const cel = kierowcyEl.querySelector('[data-kierowca-id="' + li.getAttribute('data-kierowca-id') + '"] .lg-kierowca-usun') ||
             (kierowcyEl.children[Math.min(indeks, kierowcyEl.children.length - 1)] || { querySelector: () => null })
@@ -494,7 +534,12 @@
     }
 
     function przyjmijKierowcow(lista) {
-        if (Array.isArray(lista)) stan.kierowcy = lista;
+        if (Array.isArray(lista)) {
+            // Pełna lista z POST/DELETE /drivers — tak samo dobra jak odczyt GET /drivers.
+            stan.kierowcy = lista;
+            stan.kierowcyWczytani = true;
+            stan.kierowcyBlad = null;
+        }
         renderujKierowcow();
         // Otwarta trasa ma od razu aktualny wybór kierowcy (logistics-routes.js, dostępność).
         document.dispatchEvent(new CustomEvent('logistics:flota-zmieniona', { detail: { root: root } }));
@@ -559,17 +604,22 @@
         const q = bezOgonkow(fraza);
         const teksty = [];
         let html = '';
-        if (stan.ostatnioDodany) teksty.push('Dodano „' + stan.ostatnioDodany + '” do kierowców.');
-        if (stan.kandydaci === null) {
-            teksty.push('Wczytywanie pracowników…');
-        } else {
-            const pasujacy = stan.kandydaci.filter((k) => !q || bezOgonkow(k.nazwa).includes(q));
-            html = pasujacy.map(kandydatHtml).join('');
-            if (!stan.kandydaci.length) teksty.push('Wszyscy aktywni pracownicy są już kierowcami.');
-            else if (!pasujacy.length) teksty.push('Nikt nie pasuje do „' + fraza + '”.');
+        // (D7) Po błędzie wczytania okno pokazuje tylko błąd (lg-dialog-blad) i „Spróbuj ponownie” —
+        // pusta lista nie znaczy wtedy „wszyscy są już kierowcami”.
+        if (!stan.kandydaciBlad) {
+            if (stan.ostatnioDodany) teksty.push('Dodano „' + stan.ostatnioDodany + '” do kierowców.');
+            if (stan.kandydaci === null) {
+                teksty.push('Wczytywanie pracowników…');
+            } else {
+                const pasujacy = stan.kandydaci.filter((k) => !q || bezOgonkow(k.nazwa).includes(q));
+                html = pasujacy.map(kandydatHtml).join('');
+                if (!stan.kandydaci.length) teksty.push('Wszyscy aktywni pracownicy są już kierowcami.');
+                else if (!pasujacy.length) teksty.push('Nikt nie pasuje do „' + fraza + '”.');
+            }
         }
         kandydaciEl.innerHTML = html;
         if (kandydaciStanEl) kandydaciStanEl.textContent = teksty.join(' ');
+        if (kandydaciPonowBtn) kandydaciPonowBtn.hidden = !stan.kandydaciBlad;
         if (!fokusLi) return;
         const id = fokusLi.getAttribute('data-pracownik-id');
         const przyciski = Array.from(kandydaciEl.querySelectorAll('button'));
@@ -583,6 +633,12 @@
         const moj = new AbortController();
         kontrolerKandydatow = moj;
         stan.kandydaci = null;
+        // (D7) Nowa próba zdejmuje błąd poprzedniego wczytania — tylko ten: odmowa „Dodaj” (404/409
+        // woła wczytanie od nowa) zostaje w oknie.
+        if (stan.kandydaciBlad) {
+            stan.kandydaciBlad = null;
+            pokazBladKierowcy('');
+        }
         renderujKandydatow();
         try {
             const odp = await zapytanie('/drivers/candidates', { signal: moj.signal });
@@ -591,7 +647,8 @@
         } catch (e) {
             if ((e && e.name === 'AbortError') || zniszczona || moj !== kontrolerKandydatow) return;
             stan.kandydaci = [];
-            pokazBladKierowcy('Nie wczytano pracowników. ' + e.message);
+            stan.kandydaciBlad = 'Nie wczytano pracowników. ' + e.message;
+            pokazBladKierowcy(stan.kandydaciBlad);
         } finally {
             if (moj === kontrolerKandydatow) kontrolerKandydatow = null;
         }
@@ -632,7 +689,10 @@
             stan.kandydaci = (stan.kandydaci || []).filter((x) => x.id !== id);
             stan.ostatnioDodany = k.nazwa;
             przyjmijKierowcow(odp.drivers);
-            komunikat('ok', 'Dodano kierowcę „' + k.nazwa + '”.', { klucz: 'kierowcy' });
+            // (oględziny rundy 2, pkt 6) Otwarte okno ma własne potwierdzenie („Dodano „X” do
+            // kierowców.”), a komunikat zakładki leżałby pod nim (warstwa górna <dialog>) i znikał
+            // niewidziany — pokazujemy go tylko wtedy, gdy okno zamknięto w trakcie zapisu.
+            if (!(dialogKierowcy && dialogKierowcy.open)) komunikat('ok', 'Dodano kierowcę „' + k.nazwa + '”.', { klucz: 'kierowcy' });
         } catch (e) {
             if (zniszczona) return;
             const tekst = 'Nie dodano „' + k.nazwa + '”. ' + e.message;
@@ -731,6 +791,10 @@
             } else if (akcja === 'wybierz-kierowce') {
                 const li = b.closest('[data-pracownik-id]');
                 if (li) dodajKierowce(Number(li.getAttribute('data-pracownik-id')));
+            } else if (akcja === 'kandydaci-ponow') {
+                // (D7) Przycisk zniknie razem z błędem — fokus najpierw na wyszukiwarkę okna.
+                if (kandydaciQ) kandydaciQ.focus();
+                wczytajKandydatow();
             }
         }, naSluch);
         dialogKierowcy.addEventListener('cancel', (e) => {
