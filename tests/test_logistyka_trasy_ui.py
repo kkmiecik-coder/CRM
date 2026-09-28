@@ -368,3 +368,57 @@ def test_nowe_pliki_sprzataja_po_sobie():
         assert 'delete window.{}'.format(nazwa) in js, nazwa
     assert 'mapka.remove()' in trasy            # mapka edytora niszczona razem z edytorem
     assert "credentials: 'same-origin'" in trasy and "credentials: 'same-origin'" in flota
+
+
+# ─── Runda poprawek 4.1 ───
+
+def test_hurtowe_dodanie_dokonczone_w_tle_nie_rusza_zaznaczenia_ani_fokusu():
+    """Task 2 (runda 4.1, rozstrzygnięcie 39): zapis hurtowego „Dodaj do trasy…” dokończony
+    w tle (okno zamknięte drugim Esc przeglądarki w trakcie zapisu) nie ma już otwartego okna,
+    które pokazałoby wynik — ale hurtTrasa nie może ślepo wołać odznaczWszystko ani przenosić
+    fokus: logistyk mógł w międzyczasie zaznaczyć coś innego albo pracować w innym polu."""
+    trasy = _plik('static', 'js', 'logistics-routes.js')
+    js = _plik('static', 'js', 'logistics.js')
+
+    # logistics-routes.js: zakonczDodawanieWTle znaczy wynik jako dokończony w tle (kopia
+    # d.wynik z wTle: true; null zostaje null). Ścieżka z otwartym oknem bez zmian.
+    zakoncz = _funkcja(trasy, 'zakonczDodawanieWTle')
+    assert 'd.wynik ? Object.assign({}, d.wynik, { wTle: true }) : null' in zakoncz
+    zamknij = _funkcja(trasy, 'zamknijOknoDodawania')
+    assert 'wTle' not in zamknij and 'd.gotowe(d.wynik || null);' in zamknij
+    # opis publicznej obietnicy dodajDoTrasy wspomina, co daje pole wTle.
+    naglowek = trasy.index('Publiczne (logistics.js:')
+    poczatek_fn = trasy.index('function dodajDoTrasy(zamowienia, opcje)')
+    assert 'wTle' in trasy[naglowek:poczatek_fn]
+
+    # logistics.js: hurtTrasa — dwie gałęzie wg wynik.wTle (podział na treść if-a i resztę,
+    # bo to jedna funkcja ze strażnikiem/return, nie if/else).
+    hurt = _funkcja(js, 'hurtTrasa')
+    assert 'if (!wynik.wTle) {' in hurt
+    poczatek = hurt.index('if (!wynik.wTle) {')
+    koniec = hurt.index('\n            }\n', poczatek)
+    otwarte, wtle = hurt[poczatek:koniec], hurt[koniec:]
+    # ścieżka z otwartym oknem (bez znacznika) — bez zmian (oględziny Task 8, I3).
+    assert 'odznaczWszystko();' in otwarte and 'fokusPoDodaniuDoTrasy(wynik.dodane);' in otwarte
+
+    # ścieżka w tle: NIE woła odznaczWszystko, odznacza tylko wynik.dodane wciąż zaznaczone.
+    assert 'odznaczWszystko()' not in wtle
+    assert 'wynik.dodane.filter((id) => stan.zaznaczone.has(id))' in wtle
+    assert 'ustawZaznaczenie(id, false)' in wtle
+    assert 'renderujZaznaczenie();' in wtle
+    # stan.ostatniKlik zerowany tylko, gdy wskazywał jedno z odznaczonych (zdjete).
+    assert wtle.index('zdjete') < wtle.index('stan.ostatniKlik = null')
+    assert 'zdjete.includes(stan.ostatniKlik)' in wtle
+
+    # fokus tylko, gdy przed odznaczeniem był w pasku hurtu, a pasek po odznaczeniu zniknął.
+    assert "el('hurt').contains(aktywny)" in wtle
+    assert wtle.index('renderujZaznaczenie();') < wtle.index("el('hurt').hidden")
+    assert "fokusWPasku && el('hurt').hidden" in wtle
+    assert wtle.count('fokusPoDodaniuDoTrasy(wynik.dodane)') == 1
+
+
+def test_hurtowe_dodanie_w_tle_wersje_skryptow_podbite():
+    """Task 2 (runda 4.1): zmiana logistics.js i logistics-routes.js — nowy ?v=."""
+    html = _plik('templates', 'logistics', 'tab_content.html')
+    assert "filename='js/logistics.js') }}?v=20260928a" in html
+    assert "filename='js/logistics-routes.js') }}?v=20260928a" in html

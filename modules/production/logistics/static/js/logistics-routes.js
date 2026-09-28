@@ -2661,7 +2661,8 @@
      * Publiczne (logistics.js: pasek hurtu i „bez trasy” w wierszu). zamowienia — wiersze
      * listy ({id, numer, sposob, trasa, zamkniete, m3}). Na trasę trafia tylko otwarty
      * transport własny bez trasy — resztę pomijamy i mówimy o tym w oknie. Obietnica daje
-     * {dodane, bledy, orders} (orders = świeże wiersze z plakietką trasy) albo null.
+     * {dodane, bledy, orders, wTle} (orders = świeże wiersze z plakietką trasy; wTle: true,
+     * gdy zapis dokończył się w tle po zamknięciu okna — patrz zakonczDodawanieWTle) albo null.
      */
     function dodajDoTrasy(zamowienia, opcje) {
         const o = opcje || {};
@@ -2918,7 +2919,9 @@
     // Zapis dokończony w tle (okno zamknięte w trakcie) — obietnica dodajDoTrasy się rozstrzyga.
     function zakonczDodawanieWTle(d) {
         dodawaniaWTle.delete(d);
-        d.gotowe(d.wynik || null);
+        // (4.1) logistics.js dostaje kopię wyniku ze znacznikiem — zaznaczenie i fokus mogły się
+        // zmienić, zanim zapis się skończył (hurtTrasa reaguje inaczej niż przy otwartym oknie).
+        d.gotowe(d.wynik ? Object.assign({}, d.wynik, { wTle: true }) : null);
     }
 
     /** Zamyka okno, oddaje fokus i dopiero wtedy odpowiada logistics.js (fokus przeżyje przerysowanie wiersza). */

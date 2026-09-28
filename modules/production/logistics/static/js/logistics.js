@@ -1389,8 +1389,21 @@
         if (!wybrane.length) return;
         dodajDoTrasy(wybrane, przycisk, (wynik) => {
             if (!wynik.dodane || !wynik.dodane.length) return;
-            odznaczWszystko();
-            fokusPoDodaniuDoTrasy(wynik.dodane);
+            if (!wynik.wTle) {
+                odznaczWszystko();
+                fokusPoDodaniuDoTrasy(wynik.dodane);
+                return;
+            }
+            // (4.1) zapis dokończony w tle — logistyk mógł już zaznaczyć coś innego: z zaznaczenia
+            // schodzą tylko dodane zamówienia, reszta zostaje; fokus ruszamy tylko, gdyby inaczej
+            // zginął razem z paskiem hurtu (był w nim, a pasek po odznaczeniu zniknął).
+            const aktywny = document.activeElement;
+            const fokusWPasku = !!(aktywny && el('hurt').contains(aktywny));
+            const zdjete = wynik.dodane.filter((id) => stan.zaznaczone.has(id));
+            zdjete.forEach((id) => ustawZaznaczenie(id, false));
+            if (zdjete.includes(stan.ostatniKlik)) stan.ostatniKlik = null;
+            renderujZaznaczenie();
+            if (fokusWPasku && el('hurt').hidden) fokusPoDodaniuDoTrasy(wynik.dodane);
         });
     }
 
