@@ -1,9 +1,43 @@
-# Logistyka równoległa — etap 3 (trasy i flota): stan gałęzi i przekazanie na Maca
+# Logistyka równoległa — etap 3 (trasy i flota): stan gałęzi i kontynuacja
 
-Data: 2026-09-26. Źródło: sesja na Windows (tryb subagent-driven, plan
-`docs/superpowers/plans/2026-09-24-logistyka-etap-3-trasy-flota.md`, spec
-`docs/superpowers/specs/2026-09-24-logistyka-rownolegla-trasy-design.md`). Plany etapów 1–3 i spec są od tego
-commita w repo na gałęzi (mimo `.gitignore`, na prośbę Konrada — repo jest publiczne, więc nie dopisuj tu sekretów).
+Data: 2026-09-26, aktualizacja 2026-09-28 (**kontynuujemy na Windows**, nie na Macu). Źródło: sesja na Windows
+(tryb subagent-driven, plan `docs/superpowers/plans/2026-09-24-logistyka-etap-3-trasy-flota.md`, spec
+`docs/superpowers/specs/2026-09-24-logistyka-rownolegla-trasy-design.md`). Plany etapów 1–3 i spec są w repo na gałęzi
+(mimo `.gitignore`, na prośbę Konrada — repo jest publiczne, więc nie dopisuj tu sekretów ani uwag bezpieczeństwa).
+**Ten dokument jest jedynym źródłem prawdy o przebiegu etapu 3** — roboczy katalog procesu (ledger `.superpowers/sdd/…`
+z raportami przeglądów) zniknął razem z usuniętym worktree; raporty oględzin i testów zostały w scratchpadzie (sekcja 0).
+
+## 0. Stan na 28.09.2026 (Windows)
+
+- Gałąź `claude/logistyka-etap-3-trasy` na origin i lokalnie = ten commit (wcześniej `c22bf0ef`); `main` = `origin/main` =
+  `a5a0f1f9` — od startu gałęzi **nic nowego w `main`**, więc merge `main` do gałęzi nie jest potrzebny.
+- Worktree: `C:\Users\Grafik\Documents\woodpower-crm\.claude\worktrees\logistyka-etap-3-trasy` (odtworzony 28.09 na
+  istniejącej gałęzi; worktree etapu 2 usunięty — gałąź `claude/logistyka-etap-2-mapa` została na origin). Główny checkout
+  stoi na `main` i obsługuje kontener 5002 — **nie przełączaj w nim gałęzi**.
+- Podglądy (Docker, obraz `logistyka3-app`, sieć `woodpower-crm_default`; w konfiguracji pusty klucz Base. i integracje,
+  bez klucza ORS i CARTO → przebiegi liniami prostymi, podkład OSM). **Oba mają kod gałęzi po fali końcowej**
+  (`241ff75d`; późniejsze commity zmieniają tylko dokumenty — sprawdzone 28.09 porównaniem plików):
+  - **127.0.0.1:5003** — kontener `logistyka3-podglad`, baza `logistyka3_podglad` (kopia lokalnej bazy z 25.09 + dane
+    testowe z oględzin: trasy 18–20 „Trasa A/B/C (oględziny)”, 22–23 „R2 Trasa X/Y”, 33 „F1 (oględziny)” (wykonana),
+    pojazdy Iveco Daily, Ford Transit, R2 Bus; **trasa 17 „trasa 1” jest Konrada — nie ruszać**).
+  - **127.0.0.1:5004** — kontener `logistyka3-prod`, baza `logistyka3_prod` = **zrzut produkcji z 25.09 21:07** po
+    migracjach etapów 1–3 (4/4 OK). Kod odświeżony 28.09 (wcześniej stał na `433b2c6b`, sprzed poprawek interfejsu).
+    Flota pusta, tras brak, współrzędnych brak (stan „jak po wdrożeniu dziś”). Własne ciasteczka
+    `session_lg3prod`/`remember_lg3prod`; logowanie hasłem produkcyjnym.
+  - Odświeżenie kodu podglądu (strażnik sandboxa nie przepuszcza potoku `git archive | tar`, więc dwa kroki):
+    `git archive --output=<katalog podglądu>/kod.tar HEAD`, `tar -xf <katalog podglądu>/kod.tar -C <katalog podglądu>/kod`
+    (`config/core.json` i skrypty `_*.py` nie są w gicie, więc zostają), potem `docker restart <kontener>` i sprawdzenie
+    `/login` = 200 oraz `[Migrations]` w `docker logs`. Katalogi podglądów: 5003 →
+    `C:\Users\Grafik\AppData\Local\Temp\claude\C--Users-Grafik-Documents-woodpower-crm\320e7d76-d002-459d-83b4-3b0a3df0403a\scratchpad\podglad`,
+    5004 → `…\320e7d76-d002-459d-83b4-3b0a3df0403a\scratchpad\podglad-prod` (kod w podkatalogu `kod`, montowany jako `/app`).
+    To katalog tymczasowy Windows — jeśli zniknie, podglądy trzeba postawić od nowa (sekcja 3).
+- Raporty z weryfikacji (scratchpad poprzedniej sesji, `…\320e7d76-d002-459d-83b4-3b0a3df0403a\scratchpad\podglad\`):
+  `RAPORT.md` (przygotowanie podglądu), `RAPORT-BLOKADA.md` (testy blokady na dwóch sesjach MySQL + skrypt
+  `kod\_proba_blokady.py`), `SMOKE-API.md` (315 złych żądań), `OGLEDZINY.md`, `OGLEDZINY-2.md`, `OGLEDZINY-3.md`,
+  `OGLEDZINY-4.md` (4 tury oględzin UI). Skrypty pomocnicze w kodzie podglądu 5003: `_sesja.py` (ciasteczko sesji admina
+  dla wbudowanej przeglądarki), `_routimo_check.py` (eksport Routimo po stronie serwera).
+- Zrzut produkcji (dane klientów) nadal w `…\320e7d76-d002-459d-83b4-3b0a3df0403a\scratchpad\prod\crm_dump_2026-09-25.sql.gz`.
+- Klucz `CARTO_BASEMAPS_KEY` jest w `config/core.json` na VPS od 25.09 (z restartem). Kod produkcji jeszcze go nie czyta.
 
 ## 1. Gałęzie i stan
 
@@ -19,10 +53,12 @@ commita w repo na gałęzi (mimo `.gitignore`, na prośbę Konrada — repo jest
   - 315 „złych” żądań do całego API logistyki na MySQL — 0 × 5xx, integralność danych OK;
   - 4 tury oględzin interfejsu we wbudowanej przeglądarce na kopii danych (1440/1280/1024/768) — ostatnia: PASS poza punktem 4.1 niżej.
 
-## 2. Zmiany w bazie przy aktualizacji repo na Macu (przeczytaj, zanim uruchomisz kod gałęzi)
+## 2. Zmiany w bazie przy uruchamianiu kodu gałęzi na innej bazie (przeczytaj, zanim to zrobisz)
 
+Dotyczy każdej bazy, która jeszcze nie widziała kodu etapów 1–3 — na Windows: robocza `woodpower_crm_local` (5002),
+na Macu: jego lokalna baza. Kopie `logistyka3_podglad` i `logistyka3_prod` mają już te migracje.
 Migracje wykonują się **same przy starcie aplikacji** (`RUN_MIGRATIONS`, domyślnie włączone) i przy `flask migrate`.
-Uruchomienie kodu tej gałęzi na bazie Maca wykona **nieodwracalnie** cztery migracje (runner zapisuje je w `schema_migrations`):
+Uruchomienie kodu tej gałęzi na takiej bazie wykona **nieodwracalnie** cztery migracje (runner zapisuje je w `schema_migrations`):
 
 1. `2026-09-25-logistyka-sposob-dostawy.sql` (etap 1):
    - nowe kolumny `prod_orders`: `delivery_method_set_at`, `delivery_method_set_by`, `handed_over_at`, `handed_over_by`,
@@ -51,16 +87,21 @@ Zalecenie (tak było na Windows):
 - `config/core.json` (nie w repo): `CARTO_BASEMAPS_KEY` — opcjonalny, klucz ograniczony do `crm.woodpower.pl`, lokalnie
   kafelki CARTO dają 403/znak wodny → przełącz podkład na OSM; `OPENROUTESERVICE_API_KEY` — opcjonalny, bez niego przebiegi
   tras liniami prostymi („przebieg przybliżony”), z nim km i czas po drogach. Po zmianie `core.json` zrestartuj kontener app.
-- `.env`: `FLASK_SECRET_KEY` (już jest), porty Maca `CRM_APP_PORT=5002`, `CRM_DB_PORT=3308`.
+- `.env`: `FLASK_SECRET_KEY` (już jest), porty `CRM_APP_PORT=5002`, `CRM_DB_PORT=3308` (Windows i Mac tak samo).
 - Stan „jak po wdrożeniu dziś” (kopia produkcji z 25.09): 209 zamówień w Logistyce, 208 z nich „Nie ustawiono”,
   **75 ma pozycje czekające na pakowanie** (tablet zablokuje ich pakowanie do ustawienia sposobu dostawy), flota pusta,
   współrzędnych brak (trzeba „Zlokalizuj teraz” albo cron).
 
-## 3. Testy i podgląd na Macu
+## 3. Testy i podgląd
 
 - Z katalogu worktree: `docker compose -p logistyka3 run --rm --no-deps app pytest tests/ -q -p no:cacheprovider`
-  (oczekiwane 4695 passed, 3 skipped); `integrations/blog_seo` osobno. `docker compose exec` z worktree testuje
-  GŁÓWNY checkout, nie gałąź. Nie twórz `config/core.json` w worktree (zmienia wyniki testów).
+  (oczekiwane 4695 passed, 3 skipped; obraz `logistyka3-app` już zbudowany); `integrations/blog_seo` osobno.
+  `docker compose exec` z worktree testuje GŁÓWNY checkout, nie gałąź. Nie twórz `config/core.json` w worktree
+  (zmienia wyniki testów). W Git Bash polecenia dockera ze ścieżkami `/app` lub `C:/…` poprzedzaj `MSYS_NO_PATHCONV=1`.
+- Na Windows podglądy 5003/5004 już stoją (sekcja 0); po każdej zmianie kodu odśwież ich kod. Sesja dla wbudowanej przeglądarki:
+  skrypt `_sesja.py` w kodzie podglądu (`create_app()` + `login_user` admina w `test_request_context` + `save_session`)
+  → wartość ciasteczka wstrzyknięta przez `document.cookie` (bez `user_session_token` aplikacja nie wymaga wiersza
+  `user_sessions`). Eksport Routimo sprawdzaj po stronie serwera (`_routimo_check.py`), nie klikając pobierania.
 - Podgląd gałęzi: osobny kontener z kodem z `git archive` + kopia bazy + kopia `core.json` bez integracji, na innym porcie;
   gdy chodzi obok innego podglądu na tym samym hoście, ustaw w jego `core.json` własne `SESSION_COOKIE_NAME` i
   `REMEMBER_COOKIE_NAME` (ciasteczka nie rozróżniają portów). Loguj się przez `127.0.0.1:<port>`, nie `localhost`.
@@ -82,8 +123,8 @@ Zalecenie (tak było na Windows):
    UNIQUE `order_id`). Dziś taką doróbkę trzeba obsłużyć poza CRM.
 2. **Odhaczenie trasy tylko ze spakowanymi**: przyjąłem, że niespakowane zamówienie nie może być „dostarczone” (409,
    w oknie pole nieaktywne z wyjaśnieniem) — potwierdź.
-3. Uwagi bezpieczeństwa znalezione przy przeglądach (poza zakresem etapu) Konrad dostał w czacie — celowo nie ma ich
-   w publicznym repo.
+3. Uwagi bezpieczeństwa znalezione przy przeglądach (poza zakresem etapu) Konrad dostał w czacie; są też w pamięci
+   Claude na tym komputerze — celowo nie ma ich w publicznym repo.
 
 ### 4.3. Świadomie odłożone drobiazgi (mogą czekać)
 - Backend: ikona „etykiety sprzed zmiany” nie widzi zmian trasy po wydruku (brak znacznika czasu przypisania);
@@ -153,33 +194,38 @@ Zalecenie (tak było na Windows):
    trasy na plakietce; akcja Base. „Odebrane → drukuj KP” przy statusie ustawionym przez API; jeden testowy wydruk etykiety
    z długą nazwą trasy.
 
-## 7. Sprzątanie na Windows (gdy już niepotrzebne)
+## 7. Sprzątanie na Windows (dopiero po zakończeniu prac — na czas kontynuacji podglądy i bazy zostają)
 - Podglądy: `docker rm -f logistyka3-podglad logistyka3-prod`; bazy w kontenerze `woodpower-crm-db-1`:
   `DROP DATABASE logistyka3_podglad; DROP DATABASE logistyka3_prod;`.
-- Zrzut produkcji (dane klientów) w scratchpadzie sesji: `…\scratchpad\prod\crm_dump_2026-09-25.sql.gz` — usuń ręcznie.
-- `C:\Users\Grafik\Downloads\routimo_krakow_2026-09-29.xlsx` (2 B, plik testowy) — usuń ręcznie.
+- Zrzut produkcji (dane klientów) w scratchpadzie sesji: `…\scratchpad\prod\crm_dump_2026-09-25.sql.gz` — usuń ręcznie;
+  razem z nim cały katalog scratchpadu sesji `320e7d76-…` (kody podglądów, archiwa `kod.tar`, raporty).
+- `C:\Users\Grafik\Downloads\routimo_krakow_2026-09-29.xlsx` (2 B, plik testowy) — nadal leży, usuń ręcznie.
 - Kopia konfiguracji na serwerze przed wpisaniem klucza CARTO: `config/core.json.bak-20260925-carto` (600).
 
-## 8. Prompt startowy dla sesji na Macu
+## 8. Prompt startowy dla kolejnej sesji (Windows)
 
-> Kontynuujemy „logistykę równoległą” w WoodPower CRM — etap 3 (trasy i flota). Repo: `~/Documents/woodpower-crm`.
-> Gałąź robocza: `claude/logistyka-etap-3-trasy` (zawiera etapy 1 i 2; nic nie jest w `main` ani wdrożone; **nie merguj
-> i nie pushuj na `main` bez mojego polecenia**). Pracuj w osobnym worktree:
-> `git fetch origin && git worktree add ../woodpower-crm-logistyka-3 claude/logistyka-etap-3-trasy` i nie przełączaj gałęzi
-> w głównym checkoucie.
+> Kontynuujemy „logistykę równoległą” w WoodPower CRM — etap 3 (trasy i flota), dalej na Windows. Repo:
+> `C:\Users\Grafik\Documents\woodpower-crm`. Gałąź robocza `claude/logistyka-etap-3-trasy` (zawiera etapy 1 i 2; nic nie
+> jest w `main` ani wdrożone; **nie merguj i nie pushuj na `main` bez mojego polecenia**). Pracuj w istniejącym worktree
+> `C:\Users\Grafik\Documents\woodpower-crm\.claude\worktrees\logistyka-etap-3-trasy` — jeśli sesja wystartowała gdzie
+> indziej (np. w nowym worktree od `main`), przejdź do niego; gdyby go nie było:
+> `git worktree add .claude/worktrees/logistyka-etap-3-trasy claude/logistyka-etap-3-trasy`. Nie przełączaj gałęzi
+> w głównym checkoucie (na nim stoi `main` i kontener 5002).
 >
-> Najpierw przeczytaj w worktree `docs/superpowers/plans/2026-09-26-logistyka-etap-3-przekazanie.md` (stan, rozstrzygnięcia,
-> decyzje, **sekcja 2 — zmiany w bazie**, lista wdrożenia), potem plan `docs/superpowers/plans/2026-09-24-logistyka-etap-3-trasy-flota.md`
-> i spec `docs/superpowers/specs/2026-09-24-logistyka-rownolegla-trasy-design.md`.
+> Najpierw przeczytaj w worktree `docs/superpowers/plans/2026-09-26-logistyka-etap-3-przekazanie.md` — to jedyne źródło
+> prawdy o etapie 3 (sekcja 0: stan na 28.09, podglądy i raporty; 2: zmiany w bazie; 4: co otwarte; 5: rozstrzygnięcia;
+> 6: lista wdrożenia), potem plan `docs/superpowers/plans/2026-09-24-logistyka-etap-3-trasy-flota.md` i spec
+> `docs/superpowers/specs/2026-09-24-logistyka-rownolegla-trasy-design.md`.
 >
-> Przygotuj środowisko: kopia bazy do testów (migracje etapów 1–3 wykonają się same przy starcie i są nieodwracalne —
-> nie na mojej roboczej bazie, jeśli używam jej dla `main`), w konfiguracji testowej wyczyść klucz Base., pocztę i
-> integracje; sprawdź testy `docker compose -p logistyka3 run --rm --no-deps app pytest tests/ -q -p no:cacheprovider`
-> (oczekiwane 4695 passed, 3 skipped) i uruchom podgląd gałęzi na kopii danych. Na Macu `python3`, porty 5002/3308.
+> Sprawdź środowisko: `git fetch origin` (czy gałąź i `main` nie odjechały od stanu z sekcji 0), testy z katalogu worktree
+> `docker compose -p logistyka3 run --rm --no-deps app pytest tests/ -q -p no:cacheprovider` (oczekiwane 4695 passed,
+> 3 skipped), podglądy 127.0.0.1:5003 (dane testowe) i 127.0.0.1:5004 (kopia produkcji z 25.09) odpowiadają. Nie uruchamiaj
+> kodu gałęzi na roboczej bazie `woodpower_crm_local` (migracje nieodwracalne — sekcja 2).
 >
-> Zadania na start: (1) popraw punkt 4.1 dokumentu przekazania (anulowane zamówienie wracające do puli po odhaczeniu +
-> hurtowe dodanie po zamknięciu okna), (2) potem przejdziemy do moich uwag z testów i **nowych rzeczy spoza planu** —
-> wypiszę je w następnej wiadomości. Pracuj w trybie subagent-driven (superpowers): przegląd po każdej zmianie, na koniec
-> adwersaryjny przegląd całej gałęzi i oględziny UI na kopii danych we wbudowanej przeglądarce (nigdy mój Chrome).
-> Commity Conventional Commits po polsku (scope `production`), na koniec push gałęzi na origin. Zacznij od potwierdzenia,
-> że środowisko działa, i czekaj na moją listę.
+> Potem popraw punkt 4.1 (anulowane zamówienie wracające do puli po odhaczeniu trasy + hurtowe „Dodaj do trasy…”
+> kończące się po zamknięciu okna). Moje uwagi z testów i **nowe rzeczy spoza planu** wypiszę w kolejnej wiadomości —
+> z nich zrobimy plan następnej rundy. Tryb subagent-driven (superpowers): przegląd po każdym zadaniu, na koniec
+> adwersaryjny przegląd całej gałęzi i oględziny UI na kopii danych. Subagenci tylko we wbudowanej przeglądarce
+> (`mcp__Claude_Browser__*`) — nigdy mój Chrome ani `chrome.exe`, nigdy produkcja, bez pobierania plików. Po zmianach kodu
+> odświeżaj kod podglądów (sekcja 0). Commity Conventional Commits po polsku (scope `production`), dokument przekazania
+> aktualizuj na bieżąco (sekcje 0, 4 i 5), na koniec push gałęzi na origin. Zacznij od potwierdzenia, że środowisko działa.
