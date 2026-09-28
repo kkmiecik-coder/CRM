@@ -26,6 +26,10 @@
  *   window.LogisticsMap.kolorTrasy(id), .widok()         klasa koloru trasy, bieżący widok
  *   window.LogisticsMap.onBlad(cb)                       cb(tekst) — odmowa zapisu punktu, gdy pasek
  *                                                        trybu należy już do następnego zamówienia
+ * Runda 2 (spec 2.2):
+ *   window.LogisticsMap.onSposob(cb)                     cb(id, sposob) → Promise — wybór sposobu
+ *                                                        w dymku; zapis robi logistics.js (ta sama
+ *                                                        droga co select w wierszu listy)
  * Gotowość ogłasza zdarzenie `logistics:mapa-gotowa` na document (detail.root), zmianę
  * podkładu — `logistics:podklad` (detail {root, podklad}; mapka edytora trasy idzie za nią).
  *
@@ -131,6 +135,9 @@
     const MARGINES_DOPASOWANIA = { paddingTopLeft: [56, 44], paddingBottomRight: [36, 64] };
     const CZAS_PROBY_DYMKU_MS = 1500; // przybliżenie + rozsunięcie klastra trwa ~0,5 s
     const PASEK_OK_MS = 5000;
+    // Strzałki na zamkniętym <select> w Windows zmieniają wartość od razu — wysyłamy tę, na
+    // której logistyk się zatrzymał (jak ZWLOKA_SELECTA_MS w logistics.js).
+    const ZWLOKA_SPOSOBU_MS = 350;
 
     // Pastylka — te same liczby co w logistics.css (rowek 16 px, minima kolumn).
     const SZER_ROWKA = 16;
@@ -195,6 +202,9 @@
     const sluchaczeWyboru = [];
     const sluchaczeZmian = [];
     const sluchaczeBledow = [];      // onBlad (etap 3): odmowy zapisu punktu spoza bieżącego trybu
+    const sluchaczeSposobu = [];         // onSposob (runda 2): zapis sposobu z dymku robi lista
+    const zapisywaneSposoby = new Set(); // id zamówień, dla których leci zmiana sposobu z dymku
+    const timerySposobu = new Map();     // id → zwłoka wyboru w dymku (osobno dla każdego zamówienia)
     const przyciskZakladki = document.getElementById('logistics-tab');
     // (oględziny Task 8, I2) Mapa schowana (podzakładka, inna zakładka panelu) ma rozmiar 0.
     // Po powrocie dopasowuje się do treści widoku od nowa — chyba że użytkownik ją przesunął
@@ -352,6 +362,20 @@
             (dni > 0 ? ' <span class="lg-dymek-po">po terminie</span>' : '') + '</time>';
     }
 
+    // Kolejność i podpisy jak w wierszu listy: „Nie ustawiono” (wysyłane jako 'brak'), potem SPOSOBY.
+    function opcjeSposobu(wybrany) {
+        return ['brak'].concat(SPOSOBY).map((s) => '<option value="' + s + '"' +
+            (s === wybrany ? ' selected' : '') + '>' + esc(ETYKIETY[s]) + '</option>').join('');
+    }
+
+    // Te same blokady co select w wierszu (logistics.js, wierszHtml) — serwer i tak by odmówił.
+    function powodBlokadySposobu(z) {
+        if (z.wydane) return 'Zamówienie wydane klientowi. Sposobu dostawy nie można już zmienić.';
+        if (z.etap && z.etap.status === 'anulowane') return 'Zamówienie anulowane.';
+        if (zapisywaneSposoby.has(z.id)) return 'Zapisywanie…';
+        return '';
+    }
+
     function dymekHtml(z) {
         if (!z) return '';
         const sposob = kluczSposobu(z.sposob);
@@ -385,14 +409,25 @@
                 '<i class="fas fa-rotate-left" aria-hidden="true"></i>Przywróć automat</button>');
         }
 
+        // Runda 2 (spec 2.2): wybór sposobu dostawy — te same opcje, podpisy i blokady co select
+        // w wierszu listy; zapis robi lista (onSposob). Klasa lg-dymek-select, NIE lg-sposob, i własny
+        // atrybut (nie atrybut selecta wiersza ani licznika filtra): delegacja listy na #logistics-root
+        // wzięłaby go za jeden z nich.
+        const blokada = powodBlokadySposobu(z);
+        const wybor = '<label class="lg-dymek-wybor">' +
+            '<span class="lg-pin lg-pin--' + sposob + '" aria-hidden="true"></span>' +
+            '<select class="form-select form-select-sm lg-dymek-select" data-lg-mapa-sposob data-id="' + esc(z.id) + '"' +
+                ' aria-label="Sposób dostawy zamówienia ' + esc(z.numer) + '"' +
+                (blokada ? ' disabled title="' + esc(blokada) + '"' : '') + '>' + opcjeSposobu(sposob) + '</select>' +
+            '</label>';
+
         return '<div class="lg-dymek-tresc">' +
             '<div class="lg-dymek-gora">' +
                 '<span class="lg-dymek-numer">' + esc(z.numer) + '</span>' +
-                '<span class="lg-dymek-sposob"><span class="lg-pin lg-pin--' + sposob + '" aria-hidden="true"></span>' +
-                    esc(ETYKIETY[sposob]) + '</span>' +
             '</div>' +
             '<div class="lg-dymek-klient">' + (z.klient ? esc(z.klient) : '<span class="lg-brak-danych">brak nazwy</span>') + '</div>' +
             (adres ? '<div class="lg-dymek-adres">' + adres + '</div>' : '') +
+            wybor +
             '<dl class="lg-dymek-dane">' +
                 '<div><dt>Etap</dt><dd><span class="lg-etap" data-etap="' + esc(etap.status) + '">' +
                     (etap.status === 'spakowane'
@@ -1165,6 +1200,65 @@
             else if (akcja === 'przywroc') przywrocAutomat(id);
             else if (akcja === 'potwierdz') potwierdzPunkt(id, b);
         });
+        // Runda 2: wybór sposobu dostawy w dymku (Leaflet nie zatrzymuje `change`).
+        el.addEventListener('change', (e) => {
+            const s = e.target.closest('select[data-lg-mapa-sposob]');
+            if (s && !s.disabled) naZmianeSposobuWDymku(Number(s.getAttribute('data-id')), s.value);
+        });
+    }
+
+    // ── Sposób dostawy z dymku (runda 2, spec 2.2) ──────────────────────────
+
+    function naZmianeSposobuWDymku(id, sposob) {
+        clearTimeout(timerySposobu.get(id));
+        timerySposobu.set(id, setTimeout(() => {
+            timerySposobu.delete(id);
+            wyslijSposobZDymku(id, sposob);
+        }, ZWLOKA_SPOSOBU_MS));
+    }
+
+    /**
+     * Zapis przez listę: pierwszy słuchacz onSposob (logistics.js) wysyła POST tą samą drogą co
+     * select w wierszu i kończy obietnicę PO podmianie wiersza i pinezek. Na czas zapisu select
+     * w dymku nieaktywny; potem dymek zawsze od nowa z bieżących danych — po odmowie (także
+     * w `bledy` przy HTTP 200: aktualizujZnacznik nie przerysuje dymku, gdy sposób się nie
+     * zmienił) i po błędzie połączenia select wraca do wartości z serwera.
+     */
+    async function wyslijSposobZDymku(id, sposob) {
+        const z = zamowienia.get(id);
+        const cb = sluchaczeSposobu[0];
+        if (zniszczona || !z || !cb || zapisywaneSposoby.has(id) || sposob === kluczSposobu(z.sposob)) {
+            odswiezDymek(id, false);
+            return;
+        }
+        const fokus = fokusWDymku(id);
+        zapisywaneSposoby.add(id);
+        odswiezDymek(id, false);
+        try {
+            await cb(id, sposob);
+        } catch (e) {
+            console.error('[LogisticsMap] onSposob:', e);
+        } finally {
+            zapisywaneSposoby.delete(id);
+            if (!zniszczona) odswiezDymek(id, fokus);
+        }
+    }
+
+    function fokusWDymku(id) {
+        const m = znaczniki.get(id);
+        const el = m && m.isPopupOpen() ? m.getPopup().getElement() : null;
+        return !!(el && el.contains(document.activeElement));
+    }
+
+    // Dymek od nowa z bieżących danych (popup.update() woła dymekHtml). `fokus` — wybór wraca pod klawiaturę.
+    function odswiezDymek(id, fokus) {
+        const m = znaczniki.get(id);
+        if (!m || !m.isPopupOpen()) return;
+        m.getPopup().update();
+        if (!fokus) return;
+        const el = m.getPopup().getElement();
+        const s = el && el.querySelector('select[data-lg-mapa-sposob]');
+        if (s && !s.disabled) s.focus({ preventScroll: true });
     }
 
     // ── Zapis punktu ────────────────────────────────────────────────────────
@@ -2008,6 +2102,14 @@
         };
     }
 
+    function onSposob(cb) {
+        if (typeof cb === 'function') sluchaczeSposobu.push(cb);
+        return () => {
+            const i = sluchaczeSposobu.indexOf(cb);
+            if (i !== -1) sluchaczeSposobu.splice(i, 1);
+        };
+    }
+
     // Widoczność: zakładka Bootstrap (shown.bs.tab) i każda zmiana rozmiaru
     // kontenera (zwinięcie panelu bocznego, zmiana układu, ukrycie zakładki).
     // (oględziny Task 8, I2) Schowana mapa (podzakładka Trasy/Flota, inna zakładka panelu)
@@ -2045,6 +2147,8 @@
         zniszczona = true;
         clearTimeout(timerPaska);
         clearTimeout(timerWskazania);
+        timerySposobu.forEach((t) => clearTimeout(t));
+        timerySposobu.clear();
         if (obserwator) obserwator.disconnect();
         document.removeEventListener('keydown', naKlawisz);
         window.removeEventListener('resize', poZmianieRozmiaru);
@@ -2091,6 +2195,8 @@
         sluchaczeWyboru.length = 0;
         sluchaczeZmian.length = 0;
         sluchaczeBledow.length = 0;
+        sluchaczeSposobu.length = 0;
+        zapisywaneSposoby.clear();
         sluchaczeWyboruTrasy.length = 0;
         if (window.LogisticsMap === api) delete window.LogisticsMap;
     }
@@ -2102,6 +2208,7 @@
         onSelect: onSelect,
         onZmiana: onZmiana,
         onBlad: onBlad,
+        onSposob: onSposob,
         ustawNaMapie: ustawNaMapie,
         anuluj: anulujTryb,
         zajeta: () => !!tryb,

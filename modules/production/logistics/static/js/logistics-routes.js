@@ -2376,8 +2376,10 @@
         mapka = L.map(mapkaEl, {
             minZoom: 5,
             maxZoom: 19,
-            // Kółko myszy przybliża dopiero po kliknięciu w mapkę — przewijanie edytora nie łapie się na niej.
-            scrollWheelZoom: false,
+            // (runda 2, spec 2.7) Kółko myszy przybliża od razu, jak na mapie Dashboardu — bez
+            // aktywacji kliknięciem. Świadomy koszt: przewijając edytor z kursorem nad mapką,
+            // przybliża się mapka zamiast strony.
+            scrollWheelZoom: true,
             // (oględziny I2) Rozmiar pilnuje ResizeObserver (naRozmiarMapki). Nasłuch okna
             // Leafleta przesuwał SCHOWANĄ mapkę (rozmiar 0) i po powrocie trasa była poza kadrem.
             trackResize: false,
@@ -2401,8 +2403,6 @@
         dopasowanieMapkiWToku = true;
         mapka.fitBounds(POLSKA, { padding: [8, 8] });
         dopasowanieMapkiWToku = false;
-        mapka.on('click', () => { if (mapka) mapka.scrollWheelZoom.enable(); });
-        mapka.on('mouseout', () => { if (mapka) mapka.scrollWheelZoom.disable(); });
         ustawSzerokoscDymkow();
         return true;
     }

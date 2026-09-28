@@ -516,7 +516,9 @@
    panelem bocznym daje zakładce ~910 px. Kolumny z treścią o znanej długości
    mają width: 1% (tyle, ile treść), klient bierze resztę; metoda z Base.
    i podpowiedź są przycinane wielokropkiem (pełny tekst w title). */
-.logistics-tab .lg-k-zaznacz { width: 52px; padding-left: 6px !important; padding-right: 0 !important; }
+/* (runda 2, spec 2.3) Pole wyboru ok. 14 px od lewej krawędzi ramki (było 6 px); szerokość
+   +8 px, żeby pole i trójkąt rozwinięcia miały tyle miejsca co dotąd. */
+.logistics-tab .lg-k-zaznacz { width: 60px; padding-left: 14px !important; padding-right: 0 !important; }
 .logistics-tab .lg-k-numer { width: 1%; white-space: nowrap; }
 .logistics-tab .lg-k-adres { display: none; }
 .logistics-tab .lg-k-metoda { width: 1%; }
@@ -525,6 +527,10 @@
 .logistics-tab .lg-k-termin { width: 1%; white-space: nowrap; }
 .logistics-tab .lg-k-m3 { width: 1%; white-space: nowrap; text-align: right !important; }
 .logistics-tab .lg-k-stan { width: 1%; }
+/* (runda 2, spec 2.3) Ostatnia kolumna tyle samo od prawej krawędzi. Specyficzność (0,3,1) —
+   wyżej niż ogólne .lg-tabela th/td (0,2,1), także w progach niżej. */
+.logistics-tab .lg-tabela th.lg-k-stan,
+.logistics-tab .lg-tabela td.lg-k-stan { padding-right: 14px; }
 
 .logistics-tab .lg-zaznacz-pole {
     display: flex;
@@ -1123,6 +1129,9 @@
     .logistics-tab .lg-sposob { width: 144px; }
     .logistics-tab .lg-tabela th,
     .logistics-tab .lg-tabela td { padding-left: 7px; padding-right: 7px; }
+    .logistics-tab .lg-k-zaznacz { padding-left: 12px !important; }
+    .logistics-tab .lg-tabela th.lg-k-stan,
+    .logistics-tab .lg-tabela td.lg-k-stan { padding-right: 12px; }
     .logistics-tab .lg-k-stan { white-space: normal; }
 }
 
@@ -1131,6 +1140,9 @@
 @container lg-tabela (max-width: 760px) {
     .logistics-tab .lg-tabela th,
     .logistics-tab .lg-tabela td { padding-left: 5px; padding-right: 5px; }
+    .logistics-tab .lg-k-zaznacz { padding-left: 9px !important; }
+    .logistics-tab .lg-tabela th.lg-k-stan,
+    .logistics-tab .lg-tabela td.lg-k-stan { padding-right: 9px; }
     .logistics-tab .lg-k-etap { min-width: 92px; }
 }
 
@@ -2117,20 +2129,14 @@ html.lg-przeciaganie-uchwytu * {
     font-weight: 700;
 }
 
-.logistics-tab .lg-dymek-sposob {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    margin-left: auto;
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--il-text-secondary, #7a8291);
-    white-space: nowrap;
+/* Runda 2 (spec 2.2): sposób dostawy w dymku — ten sam wybór co w wierszu listy. */
+.logistics-tab .lg-dymek-wybor { display: flex; align-items: center; gap: 8px; margin: 8px 0 0; }
+.logistics-tab .lg-dymek-wybor .lg-pin { flex: none; margin-top: -2px; }
+.logistics-tab .lg-dymek-select {
+    flex: 1 1 auto; min-width: 0; height: 30px; padding-top: 2px; padding-bottom: 2px; font-size: 12.5px;
+    border-color: var(--il-border, #c8cdd5); border-radius: var(--il-radius, 3px);
 }
-
-.logistics-tab .lg-dymek-sposob .lg-pin {
-    margin-top: -2px;
-}
+.logistics-tab .lg-dymek-select:disabled { cursor: progress; }
 
 .logistics-tab .lg-dymek-klient {
     margin-top: 4px;
@@ -2622,11 +2628,12 @@ html.lg-przeciaganie-uchwytu * {
 /* width: 0 + min-width: 100% — jak linie adresu: pozycje (długie nazwy w jednej
    linii) nie wchodzą do szerokości tabeli, tylko wypełniają to, co wiersz dostał.
    Bez tego komórka z colspan rozpychała tabelę w bok. */
+/* (runda 2) Wcięcie pod kolumną „Zamówienie” po poszerzeniu pierwszej kolumny do 60 px; z prawej jak ostatnia kolumna. */
 .logistics-tab .lg-pozycje {
     box-sizing: border-box;
     width: 0;
     min-width: 100%;
-    padding: 2px 12px 4px 58px;
+    padding: 2px 14px 4px 66px;
 }
 
 .logistics-tab .lg-pozycja {

@@ -66,6 +66,7 @@
  *       (serwer); przy pustym stanie „Wyczyść województwa”, przy „Zdejmij filtry” pola odznaczamy
  *       przez window.LogisticsWojewodztwa.wyczysc({cicho: true}).
  *   Zmiana filtra zamówień przełącza mapę z „Trasy” na „Zamówienia” (mapaNaZamowienia).
+ *   window.LogisticsMap.onSposob(zmienSposobZMapy) — wybór sposobu w dymku pinezki (ta sama droga co select wiersza).
  */
 (function () {
     'use strict';
@@ -1297,6 +1298,36 @@
         }, ZWLOKA_SELECTA_MS));
     }
 
+    /**
+     * Runda 2 (spec 2.2): wybór sposobu w dymku pinezki (logistics-map.js, onSposob) — ta sama
+     * droga co select w wierszu: POST /orders/delivery-method (wyslijSposob), podsumujZmiany
+     * (komunikaty, także odmowy z `bledy`), podmienWiersze → przekazDoMapy (wiersz, liczniki,
+     * kolor pinezki). Obietnica kończy się PO podmianie — mapa przerysowuje wtedy dymek.
+     */
+    async function zmienSposobZMapy(id, sposob) {
+        const w = znajdz(id);
+        if (zniszczona || !w || stan.wysylane.has(id)) return;
+        // Oczekująca zmiana z selecta tego wiersza (zwłoka) ustępuje wyborowi z dymku.
+        clearTimeout(oczekujaceSelecty.get(id));
+        oczekujaceSelecty.delete(id);
+        stan.docelowe.delete(id);
+        if (sposob === (w.sposob || 'brak')) {
+            odswiezWiersz(id, false);
+            return;
+        }
+        try {
+            const dane = await wyslijSposob([id], sposob);
+            if (zniszczona) return;
+            const wynik = nowyWynik();
+            dolacz(wynik, dane);
+            podsumujZmiany(wynik, true);
+        } catch (e) {
+            if (zniszczona) return;
+            odswiezWiersz(id, false);
+            pokazKomunikat('blad', 'Nie zmieniono sposobu dostawy zamówienia ' + w.numer + '. ' + e.message);
+        }
+    }
+
     async function hurtowo(grupy, opisAkcji) {
         // grupy: Map(sposob → [id]); po jednym żądaniu na sposób (i na paczkę 500 id).
         stan.hurtTrwa = true;
@@ -1692,6 +1723,7 @@
         m.onSelect(naWyborNaMapie);
         m.onZmiana(naZmianePunktu);
         if (typeof m.onBlad === 'function') m.onBlad(naBladMapy);
+        if (typeof m.onSposob === 'function') m.onSposob(zmienSposobZMapy);
         przekazDoMapy();
         // Kolory tras na plakietkach pochodzą z mapy — wiersze na trasach dostają je teraz.
         if (!stan.pierwszeLadowanie && stan.wiersze.some((w) => w.trasa)) renderujTabele();
