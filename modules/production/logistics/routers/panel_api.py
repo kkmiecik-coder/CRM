@@ -15,7 +15,7 @@ from sqlalchemy.orm import selectinload
 import modules.users.decorators as user_decorators
 from extensions import db
 from modules.logging import get_structured_logger
-from modules.production.logistics import logistics_panel_bp, sposoby
+from modules.production.logistics import logistics_panel_bp, sposoby, wojewodztwa
 from modules.production.logistics.services import bl_sync, delivery, geocoding, lista, routes
 from modules.production.models import ProductionOrder
 
@@ -82,12 +82,17 @@ def orders():
     q = (request.args.get('q') or '').strip() or None
     if zamkniete and not q:
         return _blad(u'Wyszukiwanie zamkniętych zamówień wymaga frazy.', 422)
+    # (runda 2, spec 2.5) Województwa: parametr wielokrotny (?woj=a&woj=b), pusta wartość
+    # = brak filtra, nieznany identyfikator = 422 (jak inne złe parametry listy).
+    woj = list(dict.fromkeys(w for w in request.args.getlist('woj') if w))
+    if wojewodztwa.nieznane(woj):
+        return _blad(u'Nieznany filtr województwa.', 422)
     wstrzymane = bl_sync.wstrzymane_do()
     return jsonify({
         'success': True,
         'orders': lista.pobierz(sposob=request.args.get('sposob') or None,
                                 etap=request.args.get('etap') or None,
-                                q=q, zamkniete=zamkniete),
+                                q=q, zamkniete=zamkniete, woj=woj or None),
         'liczniki': lista.liczniki(),
         'base_wstrzymane_do': wstrzymane.isoformat() if wstrzymane else None,
         'bez_lokalizacji': geocoding.bez_lokalizacji(),

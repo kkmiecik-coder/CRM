@@ -6,7 +6,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import selectinload
 
 from extensions import db
-from modules.production.logistics import sposoby
+from modules.production.logistics import sposoby, wojewodztwa
 from modules.production.logistics.models import RouteStop
 from modules.production.logistics.services import geocoding, routes
 from modules.production.logistics.services.delivery import aktywne_produkty, wszystkie_spakowane
@@ -178,7 +178,7 @@ def _klucz(wiersz):
             wiersz['termin'] or '', wiersz['numer'] or '')
 
 
-def pobierz(sposob=None, etap=None, q=None, zamkniete=False):
+def pobierz(sposob=None, etap=None, q=None, zamkniete=False, woj=None):
     """
     UWAGA (R3, poprawka względem briefu): wszystkie filtry (q, otwarte/zamknięte,
     sposob) muszą trafić do zapytania PRZED order_by/limit. W SQLAlchemy < 2.0
@@ -189,6 +189,9 @@ def pobierz(sposob=None, etap=None, q=None, zamkniete=False):
     jest filtrem SQL w tym samym bloku, nie post-filtrem Pythonowym po wczytaniu —
     inaczej `zamkniete=1&q=...&sposob=bez_trasy` obcięłoby wynik do LIMIT_ZAMKNIETYCH
     PRZED odsianiem zamówień na trasie, gubiąc trafienia spoza limitu.
+
+    Runda 2 (spec 2.5): `woj` — lista identyfikatorów z wojewodztwa.opcje(); filtr SQL
+    z kodu pocztowego i kraju w tym samym bloku (R3), przed order_by/limit zamkniętych.
     """
     # Konfiguracje pozycji (gatunek, technologia, klasa) jednym zapytaniem na listę —
     # bez tego każda pozycja dociągałaby swoją osobno (setki zapytań co odświeżenie).
@@ -208,6 +211,8 @@ def pobierz(sposob=None, etap=None, q=None, zamkniete=False):
             ~ProductionOrder.id.in_(db.session.query(RouteStop.order_id)))
     elif sposoby.normalizuj(sposob):
         zapytanie = zapytanie.filter(ProductionOrder.override_delivery_method == sposob)
+    if woj:
+        zapytanie = zapytanie.filter(wojewodztwa.warunek(woj))
     if zamkniete:
         zapytanie = zapytanie.order_by(ProductionOrder.id.desc()).limit(LIMIT_ZAMKNIETYCH)
     zamowienia = zapytanie.all()
