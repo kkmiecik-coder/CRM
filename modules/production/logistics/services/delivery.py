@@ -59,13 +59,15 @@ def zamkniecie_wyliczone(order, trasa=None):
     """
     Tabela z sekcji 6.2 specu. Transport własny zamyka dopiero trasa wykonana (etap 3).
 
-    `trasa` — (resztka O1) świeża trasa, na której leży (albo leżał) przystanek zamówienia,
-    podana przez routes.wykonaj/przywroc: odczytana pod blokadą tras, z przystankami już po
-    zmianie w tej transakcji. Wtedy decyduje ona, a nie routes.przystanek_zamowienia —
-    zwykły odczyt z migawki transakcji sprzed blokady mógłby nie zobaczyć przystanku dodanego
-    tuż przed nią (zamówienie zostałoby otwarte do crona). Bez `trasa` (cron, products_api,
-    zmiana sposobu) — zwykły odczyt jak dotąd: ci wołający nie trzymają blokady tras, więc
-    odczyt blokujący odwróciłby kolejność blokad (wiersz blokady zawsze pierwszy).
+    `trasa` — (resztka O1; Task 1, runda 4.1: też routes.usun_przystanek) świeża trasa, na
+    której leży (albo leżał) przystanek zamówienia, podana przez routes.wykonaj/przywroc/
+    usun_przystanek: odczytana pod blokadą tras, z przystankami już po zmianie w tej
+    transakcji. Wtedy decyduje ona, a nie routes.przystanek_zamowienia — zwykły odczyt z
+    migawki transakcji sprzed blokady mógłby nie zobaczyć przystanku dodanego tuż przed nią
+    (zamówienie zostałoby otwarte do crona) albo wciąż widzieć przystanek, który ta sama
+    transakcja właśnie zdjęła. Bez `trasa` (cron, products_api, zmiana sposobu) — zwykły
+    odczyt jak dotąd: ci wołający nie trzymają blokady tras, więc odczyt blokujący odwróciłby
+    kolejność blokad (wiersz blokady zawsze pierwszy).
     """
     aktywne = aktywne_produkty(order)
     if not aktywne:
@@ -89,7 +91,7 @@ def zamkniecie_wyliczone(order, trasa=None):
 
 def przelicz_zamkniecie(order, teraz=None, trasa=None):
     """Ustawia albo czyści logistics_closed_at. Zwraca True, gdy stan się zmienił.
-    `trasa` — patrz zamkniecie_wyliczone (tylko routes.wykonaj/przywroc)."""
+    `trasa` — patrz zamkniecie_wyliczone (tylko routes.wykonaj/przywroc/usun_przystanek)."""
     zamkniete = zamkniecie_wyliczone(order, trasa=trasa)
     if zamkniete and order.logistics_closed_at is None:
         order.logistics_closed_at = teraz or get_local_now()

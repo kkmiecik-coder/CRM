@@ -8,6 +8,7 @@ from extensions import db
 from modules.production.logistics import sposoby as s
 from modules.production.logistics.models import OrderGeo, Route
 from modules.production.logistics.services import routes
+from modules.production.models import ProductionOrder
 from tests.logistyka_fixtures import BASE, app, client, kierowca, pojazd, zamowienie  # noqa: F401
 
 
@@ -393,6 +394,29 @@ def test_usuniecie_przystanku_z_roboczej(client, app):
     r = client.delete(BASE + '/routes/%d/stops/%d' % (rid, a))
     assert r.status_code == 200
     assert r.get_json()['route']['podsumowanie']['przystanki'] == 0
+
+
+def test_usuniecie_przystanku_anulowanego_zamyka_i_znika_z_puli(client, app):
+    """Task 1 (runda 4.1): ręczne DELETE stops/<order_id> zamówienia anulowanego w całości
+    (anulowanie ominęło przeliczenie zamknięcia) ma zamykać je od razu — i nie pojawiać się
+    w puli „Do dodania" (ten sam endpoint GET /orders?sposob=bez_trasy, którego używa edytor
+    trasy), zamiast wisieć tam otwarte do crona."""
+    with app.app_context():
+        cid = zamowienie(sposob=s.TRANSPORT, statusy=('czeka_na_wyciecie',)).id
+    rid = _nowa(client).get_json()['route']['id']
+    client.post(BASE + '/routes/%d/stops' % rid, json={'order_ids': [cid]})
+    with app.app_context():
+        c = ProductionOrder.query.get(cid)
+        for p in c.products:
+            p.current_status = 'anulowane'
+        db.session.commit()
+        assert c.logistics_closed_at is None
+    r = client.delete(BASE + '/routes/%d/stops/%d' % (rid, cid))
+    assert r.status_code == 200
+    with app.app_context():
+        assert ProductionOrder.query.get(cid).logistics_closed_at is not None
+    kandydaci = {o['id'] for o in client.get(BASE + '/orders?sposob=bez_trasy').get_json()['orders']}
+    assert cid not in kandydaci
 
 
 def test_lista_tras_sortowanie_i_filtr_dat(client, app):

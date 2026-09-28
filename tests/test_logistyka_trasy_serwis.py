@@ -192,6 +192,25 @@ def test_usuniecie_roboczej(app):
         assert routes.przystanek_zamowienia(a.id) is None
 
 
+def test_usuniecie_trasy_zamyka_anulowany_a_aktywny_zostaje_otwarty(app):
+    """Task 1 (runda 4.1): routes.usun kasuje każdy przystanek przez usun_przystanek —
+    ten musi przeliczać logistics_closed_at, inaczej zamówienie anulowane w całości
+    (zamknięcie ominięte przy anulowaniu) wisiałoby otwarte w puli bez trasy."""
+    with app.app_context():
+        t = _trasa()
+        aktywny = _transport()
+        anulowany = _transport()
+        routes.dodaj_przystanki(t, [aktywny.id, anulowany.id])
+        for p in anulowany.products:
+            p.current_status = 'anulowane'
+        db.session.commit()
+        assert anulowany.logistics_closed_at is None
+        routes.usun(t)
+        db.session.commit()
+        assert anulowany.logistics_closed_at is not None
+        assert aktywny.logistics_closed_at is None
+
+
 def test_podsumowanie_i_ladownosc(app):
     with app.app_context():
         v = pojazd(capacity_kg=100)
@@ -552,6 +571,30 @@ def test_odhaczenie_pomija_anulowane_w_regule_spakowania(app):
             p.current_status = 'anulowane'
         db.session.commit()
         assert routes.wykonaj(t, [a.id, c.id]) == {'dostarczone': [a.id, c.id], 'niedostarczone': []}
+
+
+def test_odhaczenie_zdejmuje_anulowanego_i_zamyka_zamowienie(app):
+    """Task 1 (runda 4.1, rozstrzygnięcie 40): zamówienie anulowane w całości PO dodaniu
+    do trasy (anulowanie ominęło przeliczenie — p.current_status='anulowane' wprost, bez
+    przelicz_zamkniecie) trafia jako niedostarczone (tak jak z okna „Odhacz jako wykonaną",
+    które anulowane wysyła jako niedostarczone — routes.wykonaj → usun_przystanek). Zdjęcie
+    z trasy MUSI przeliczyć zamknięcie, żeby zamówienie nie wisiało otwarte w puli „Transport
+    bez trasy" do crona przelicz_otwarte (do 1 h)."""
+    with app.app_context():
+        t = _trasa()
+        a = _transport(statusy=('spakowane',))
+        c = _transport(statusy=('czeka_na_wyciecie',))
+        routes.dodaj_przystanki(t, [a.id, c.id])
+        for p in c.products:
+            p.current_status = 'anulowane'
+        db.session.commit()
+        assert c.logistics_closed_at is None
+        wynik = routes.wykonaj(t, dostarczone_ids=[a.id])
+        db.session.commit()
+        assert wynik == {'dostarczone': [a.id], 'niedostarczone': [c.id]}
+        assert RouteStop.query.filter_by(order_id=c.id).first() is None
+        assert c.logistics_closed_at is not None
+        assert a.logistics_closed_at is not None
 
 
 def test_odhaczenie_wymaga_listy_dostarczonych(app):

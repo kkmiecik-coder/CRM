@@ -554,6 +554,17 @@ def usun_przystanek(route, order_id, user_id=None, note=None, wymagaj_roboczej=T
     delivery.zapisz_log(order, 'trasa_usuniete', route.name[:64], None, user_id=user_id,
                         note=note, route_id=route.id, teraz=teraz)
     delivery.podbij_pozycje(order, teraz)
+    # (Task 1, runda 4.1, rozstrzygnięcie 40) Jedyne miejsce, w którym przystanek schodzi
+    # z trasy (wykonaj przez pętlę niedostarczonych, ręczne DELETE, usun trasy,
+    # delivery._zdejmij_z_trasy przy zmianie sposobu) — spec 6.2 wymaga przeliczenia
+    # zamknięcia po KAŻDEJ zmianie, która może go dotyczyć. Bez tego zamówienie anulowane
+    # w całości, którego anulowanie ominęło przelicz_zamkniecie (SQL, wyścig, ścieżka bez
+    # przeliczenia), wracało do puli „Transport bez trasy” otwarte i wisiało tam do crona
+    # przelicz_otwarte (≤ 1 h) zamiast zamknąć się od razu. `trasa=route` — ta sama świeża
+    # trasa spod zablokuj_trasy() powyżej, z route.stops już PO usunięciu tego przystanku w
+    # tej transakcji (UNIQUE order_id: nie ma go na tej trasie, to nie ma go na żadnej) —
+    # zwykły odczyt (routes.przystanek_zamowienia) czytałby migawkę sprzed blokady.
+    delivery.przelicz_zamkniecie(order, teraz, trasa=route)
     return order
 
 
