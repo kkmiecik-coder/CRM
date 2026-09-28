@@ -40,9 +40,12 @@ def test_opcje_z_mapy_raportow():
 
 
 def test_prefiksy_zgodne_z_mapa_raportow():
-    """Jedno źródło prawdy: każdy prefiks 00–99 ma to samo województwo co Region w Routimo."""
+    """Jedno źródło prawdy: każdy prefiks 00–99 ma to samo województwo co Region w Routimo
+    (`wojewodztwa.prefiksy()` to zakresy dwucyfrowe bez wyjątków trzycyfrowych — sufiks '-700'
+    dobrany tak, żeby żaden z 20 wyjątków w POSTCODE_OVERRIDES go nie przechwycił; wyjątki
+    trzycyfrowe ma osobny test niżej i tests/test_reports_mapa_kodow.py)."""
     for n in range(100):
-        kod = '%02d-100' % n
+        kod = '%02d-700' % n
         oczekiwane = PostcodeToStateMapper.get_state_from_postcode(kod)
         znalezione = [nazwa for ident, nazwa in wojewodztwa.wojewodztwa()
                       if '%02d' % n in wojewodztwa.prefiksy(ident)]
@@ -79,9 +82,13 @@ def test_zagranica(app):
         assert _ids(['podkarpackie']) == {pl, pusty}
 
 
-@pytest.mark.parametrize('kod', [None, '', '   ', 'brak', 'ab-123', '3', '24-100', '69-100',
-                                 '88-100', '89-100', 'PL-35-310'])
+@pytest.mark.parametrize('kod', [None, '', '   ', 'brak', 'ab-123', '3', 'zz-999', 'PL35310',
+                                 'PL-35-310'])
 def test_bez_wojewodztwa(app, kod):
+    # 24-100/69-100/88-100/89-100 usuniete stad task 7 — po uzupelnieniu mapy maja wojewodztwo
+    # (kolejno: lubelskie, lubuskie, kujawsko-pomorskie x2), sprawdza je test_dotychczasowe_luki_
+    # _i_przestawienia w tests/test_reports_mapa_kodow.py. W zamian genuinie nieznane: 'zz-999'
+    # (litery na poczatku) i 'PL35310' (litery bez separatora, wariant 'PL-35-310').
     with app.app_context():
         oid = _z(kod)
         _z('35-100')
@@ -159,3 +166,46 @@ def test_api_pusty_woj_bez_filtra(client, app):
     with app.app_context():
         a, b = _z('35-100'), _z('80-100')
     assert {o['id'] for o in client.get(BASE + '/orders?woj=').get_json()['orders']} == {a, b}
+
+
+def test_rownowaznosc_sql_i_pythona_dla_wyjatkow_trzycyfrowych(app):
+    """Task 7: filtr SQL (wojewodztwa.warunek) ma dawac DOKLADNIE ten sam wynik co mapa w
+    Pythonie (PostcodeToStateMapper.get_state_from_postcode) — dla kazdego z 18 identyfikatorow
+    zbior zamowien z lista.pobierz(woj=[id]) rowna sie zbiorowi zamowien, dla ktorych mapa w
+    Pythonie daje to wojewodztwo (bez_wojewodztwa — gdy mapa daje None).
+
+    Pelne 1000 zamowien (jeden na kazdy p3 '000'..'999') w tej fixture jest za wolne (osobny
+    commit na zamowienie w app.zamowienie() + w _z() — ponad 20 s w kontenerze), wiec zgodnie z
+    briefem uzywamy co trzeciego p3 PLUS wszystkich 20 wyjatkow z POSTCODE_OVERRIDES i ich
+    sasiadow (p3-1, p3+1 — pilnuje granic miedzy wyjatkiem a domyslnym zakresem), plus kilku
+    kodow dwucyfrowych i pustych/smieciowych."""
+    with app.app_context():
+        wyjatki = set(PostcodeToStateMapper.POSTCODE_OVERRIDES)
+        sasiedzi = set()
+        for kod3 in wyjatki:
+            n = int(kod3)
+            if n > 0:
+                sasiedzi.add('%03d' % (n - 1))
+            if n < 999:
+                sasiedzi.add('%03d' % (n + 1))
+        co_trzeci = set('%03d' % n for n in range(0, 1000, 3))
+        p3_do_testu = sorted(co_trzeci | wyjatki | sasiedzi)
+
+        nazwa_na_ident = {nazwa: ident for ident, nazwa in wojewodztwa.wojewodztwa()}
+        oczekiwane = dict((ident, set()) for ident, _ in wojewodztwa.opcje())
+
+        def _zapisz(kod):
+            oid = _z(kod)
+            nazwa = PostcodeToStateMapper.get_state_from_postcode(kod)
+            ident = nazwa_na_ident[nazwa] if nazwa else wojewodztwa.BEZ_WOJEWODZTWA
+            oczekiwane[ident].add(oid)
+
+        for kod3 in p3_do_testu:
+            _zapisz('%s-00' % kod3)
+        for kod2 in ('26', '77', '00', '99'):          # kilka kodow dwucyfrowych
+            _zapisz(kod2)
+        for smieciowy in ('', None, 'brak'):           # i pustych/smieciowych
+            _zapisz(smieciowy)
+
+        for ident in [i for i, _ in wojewodztwa.opcje()]:
+            assert _ids([ident]) == oczekiwane[ident], ident
