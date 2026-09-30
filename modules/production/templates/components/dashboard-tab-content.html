@@ -296,8 +296,13 @@
         {# ─── LOGISTYKA: pasek pod pipeline'em (runda 2 logistyki, spec 2.1) ───
            Logistyka jest równoległa do produkcji — nie stanowisko na szynie. Liczba z
            lista_logistyki.liczba_bez_sposobu() (dashboard_api.py); id „logistics-pending”
-           zostaje. Oba teksty są w DOM, stan przełącza klasa (CSS: .il-logistyka--spokoj). #}
+           zostaje. Oba teksty są w DOM, stan przełącza klasa (CSS: .il-logistyka--spokoj).
+           Obok dwa liczniki Weryfikacji (krok 4.3, spec 11) z weryfikacja.liczba_do_weryfikacji()
+           i liczba_problemow() — niezależne od stanu spokoju; „Problemy” dostaje klasę is-alarm,
+           gdy N > 0 (JS: updateVerification w dashboard-module.js). #}
         {% set lg_n = dashboard_stats.logistics.pending_count|default(0) %}
+        {% set wv_do = dashboard_stats.logistics.verification_pending|default(0) %}
+        {% set wv_problemy = dashboard_stats.logistics.verification_problems|default(0) %}
         <div class="il-logistyka{{ ' il-logistyka--spokoj' if not lg_n else '' }}" data-lg-pasek="logistyka">
           <i class="fas fa-truck il-logistyka-ikona" aria-hidden="true"></i>
           <p class="il-logistyka-tekst">
@@ -305,6 +310,17 @@
             <span class="il-logistyka-liczba"><strong class="il-logistyka-n" id="logistics-pending">{{ lg_n }}</strong> bez sposobu dostawy</span>
             <span class="il-logistyka-spokoj-tekst">wszystkie zamówienia mają sposób dostawy</span>
           </p>
+          {# Grupa jako span, nie div: test_logistyka_sprzatanie tnie blok paska po pierwszym zamknięciu diva. #}
+          <span class="il-logistyka-weryfikacja" role="group" aria-label="Weryfikacja zamówień">
+            <span class="il-logistyka-weryfikacja-do">
+              <span class="il-logistyka-etykieta">Do weryfikacji:</span>
+              <strong class="il-logistyka-n" id="verification-pending">{{ wv_do }}</strong>
+            </span>
+            <span class="il-logistyka-weryfikacja-problemy{{ ' is-alarm' if wv_problemy else '' }}">
+              <span class="il-logistyka-etykieta">Problemy:</span>
+              <strong class="il-logistyka-n" id="verification-problems">{{ wv_problemy }}</strong>
+            </span>
+          </span>
           <a href="{{ url_for('production.production_main.dashboard') }}?tab=logistics" class="il-logistyka-otworz">Otwórz Logistykę<i class="fas fa-arrow-right" aria-hidden="true"></i></a>
         </div>
         {# ─── /LOGISTYKA ─── #}

@@ -2697,6 +2697,32 @@ body {
   font-size: 12.5px; font-weight: 600; color: var(--il-text-primary); text-decoration: none; white-space: nowrap;
 }
 .il-logistyka-otworz:hover { border-color: var(--il-text-secondary); color: var(--il-text-primary); }
+/* Liczniki Weryfikacji (krok 4.3): dwie pary „etykieta: N” obok tekstu, odcięte cienką kreską.
+   Nie zależą od stanu spokoju paska. „Problemy” przy N > 0 (klasa is-alarm) dostaje czerwień
+   i lekkie tło — tylko kolor i obwódka, bez ruchu. Pasek siedzi w lewej kolumnie (3fr 2fr), więc
+   o zawijaniu decyduje szerokość samego paska (container query), nie okna: poniżej 720px grupa
+   schodzi do własnego wiersza pod tekstem. Bez obsługi container queries zostaje zwykłe zawijanie. */
+.il-logistyka { container-type: inline-size; container-name: il-logistyka; flex-wrap: wrap; }
+.il-logistyka-weryfikacja {
+  flex: none; display: flex; align-items: center; gap: 14px; margin: 0; padding-left: 14px;
+  border-left: 1px solid var(--il-border-light);
+}
+.il-logistyka-weryfikacja-do,
+.il-logistyka-weryfikacja-problemy {
+  margin: 0; padding: 2px 8px; border: 1px solid transparent; border-radius: var(--il-radius);
+  font-size: 13px; color: var(--il-text-primary); white-space: nowrap;
+}
+.il-logistyka-etykieta { margin-right: 4px; color: var(--il-text-secondary); }
+.il-logistyka-weryfikacja-problemy.is-alarm {
+  color: var(--il-status-danger); background: rgba(220, 38, 38, 0.07); border-color: rgba(220, 38, 38, 0.3);
+}
+.il-logistyka-weryfikacja-problemy.is-alarm .il-logistyka-etykieta { color: var(--il-status-danger); font-weight: 600; }
+@container il-logistyka (max-width: 720px) {
+  .il-logistyka-weryfikacja {
+    order: 3; flex: 1 0 100%; padding: 6px 0 0; border-left: 0; border-top: 1px solid var(--il-border-light);
+  }
+  .il-logistyka-otworz { margin-left: auto; }
+}
 .il-logistyka--spokoj { background: var(--il-bg-card); border-color: var(--il-border-light); border-left-color: var(--il-border); }
 .il-logistyka--spokoj .il-logistyka-ikona { color: var(--il-text-muted); }
 .il-logistyka--spokoj .il-logistyka-liczba,

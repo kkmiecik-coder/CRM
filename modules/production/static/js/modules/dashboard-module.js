@@ -198,6 +198,8 @@ class DashboardModule {
                 // Runda 2 logistyki (D6): pasek „Logistyka: N bez sposobu dostawy” pod pipeline'em
                 // odświeża się razem z dashboardem (np. po synchronizacji z Base.), nie tylko przy renderze.
                 this.updateLogisticsPending(data.data.logistics_pending);
+                // Krok 4.3: liczniki „Do weryfikacji” i „Problemy” na tym samym pasku (null = błąd licznika).
+                this.updateVerification(data.data.verification);
             }
         });
 
@@ -2325,6 +2327,24 @@ class DashboardModule {
         el.textContent = String(liczba);
         const pasek = el.closest('.il-logistyka');
         if (pasek) pasek.classList.toggle('il-logistyka--spokoj', liczba === 0);
+    }
+
+    /**
+     * Liczniki Weryfikacji na pasku logistyki (krok 4.3). null = błąd licznika po stronie serwera —
+     * zostają ostatnie liczby (jak updateLogisticsPending). „Problemy” przy N > 0 dostaje klasę
+     * is-alarm (czerwień w production-panel.css); ten sam znacznik co w dashboard-tab-content.html.
+     */
+    updateVerification(dane) {
+        if (!dane || typeof dane !== 'object') return;
+        const liczba = (v) => typeof v === 'number' && Number.isFinite(v);
+        const doWeryfikacji = document.getElementById('verification-pending');
+        const problemy = document.getElementById('verification-problems');
+        if (doWeryfikacji && liczba(dane.pending)) doWeryfikacji.textContent = String(dane.pending);
+        if (problemy && liczba(dane.problems)) {
+            problemy.textContent = String(dane.problems);
+            const blok = problemy.closest('.il-logistyka-weryfikacja-problemy');
+            if (blok) blok.classList.toggle('is-alarm', dane.problems > 0);
+        }
     }
 
     updateStationTabletStatus(station, tabletStatus) {

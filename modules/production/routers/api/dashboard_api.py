@@ -217,6 +217,23 @@ def _safe_logistyka_bez_sposobu():
         return None
 
 
+def _safe_weryfikacja():
+    """
+    Liczniki Weryfikacji na pasku logistyki (logistyka etap 4, spec 11): {'pending', 'problems'} —
+    ta sama definicja co lista telefonu i filtr panelu (weryfikacja.warunek_do_weryfikacji). Wzorzec
+    osłony jak _safe_logistyka_bez_sposobu: błąd licznika → None (front zostawia ostatnie liczby).
+    """
+    from modules.production.logistics.services import weryfikacja
+    try:
+        return {'pending': weryfikacja.liczba_do_weryfikacji(get_local_now()),
+                'problems': weryfikacja.liczba_problemow()}
+    except Exception as e:
+        logger.warning("Nie udało się policzyć zamówień do weryfikacji", extra={
+            'error': str(e)
+        })
+        return None
+
+
 # ============================================================================
 # DASHBOARD STATS
 # ============================================================================
@@ -1019,8 +1036,12 @@ def dashboard_tab_content():
         # Definicja „Nie ustawiono” wspólna z filtrem `brak` zakładki Logistyka.
         from modules.production.logistics.services import lista as lista_logistyki
         logistics_pending = lista_logistyki.liczba_bez_sposobu()
+        # Liczniki Weryfikacji (krok 4.3) na tym samym pasku; błąd licznika nie psuje zakładki.
+        weryfikacja_liczniki = _safe_weryfikacja() or {}
         dashboard_stats['logistics'] = {
-            'pending_count': logistics_pending
+            'pending_count': logistics_pending,
+            'verification_pending': weryfikacja_liczniki.get('pending', 0),
+            'verification_problems': weryfikacja_liczniki.get('problems', 0),
         }
 
         # Dzisiejsze sumy — z eventów stanowiska pakowania (faktyczna fizyczna praca)
@@ -1280,6 +1301,8 @@ def dashboard_data():
             'errors_count': errors_24h,
             # Pasek logistyki pod pipeline'em odświeża się razem z dashboardem (runda 2, D6).
             'logistics_pending': _safe_logistyka_bez_sposobu(),
+            # Liczniki Weryfikacji na pasku (krok 4.3): {'pending', 'problems'} albo None przy błędzie.
+            'verification': _safe_weryfikacja(),
             'timestamp': get_local_now().isoformat()
         }
 

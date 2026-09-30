@@ -38,6 +38,24 @@ def test_pasek_pokazuje_liczbe_albo_spokoj(n, spokoj):
     assert 'href="/production/?tab=logistics"' in html and 'Otwórz Logistykę' in html
 
 
+@pytest.mark.parametrize('do_weryfikacji, problemy', [(0, 0), (5, 2)])
+def test_pasek_pokazuje_weryfikacje(do_weryfikacji, problemy):
+    html = Environment(autoescape=True).from_string(_pasek()).render(
+        dashboard_stats={'logistics': {'pending_count': 0, 'verification_pending': do_weryfikacji,
+                                       'verification_problems': problemy}},
+        url_for=lambda endpoint, **k: '/production/')
+    assert 'id="verification-pending">%d<' % do_weryfikacji in html
+    assert 'id="verification-problems">%d<' % problemy in html
+    assert 'Do weryfikacji' in html and 'Problemy' in html
+
+
+def test_odswiezanie_paska_weryfikacji():
+    js = _plik(DASHBOARD_JS)
+    assert 'updateVerification(' in js and 'data.data.verification' in js
+    assert "getElementById('verification-pending')" in js
+    assert "getElementById('verification-problems')" in js
+
+
 def test_pasek_pod_pipelineem_w_tej_samej_karcie():
     html = _plik(SZABLON)
     assert 'data-station="logistics"' not in html and 'il-station--gate' not in html
