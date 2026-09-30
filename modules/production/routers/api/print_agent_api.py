@@ -4,8 +4,10 @@ Autoryzacja: nagłówek `Authorization: Bearer <LABEL_PRINTER_AGENT_TOKEN>`.
 NIE wymaga sesji webowej.
 
 Wzorzec: agent budzi się na sygnał push (Centrifugo, kanał `print:agent`),
-woła GET /api/print-agent/jobs?limit=10, drukuje lokalnie ZPL z pola
-zpl_payload, potem POST /api/print-agent/ack z listą wyników. Polling został
+woła GET /api/print-agent/jobs?limit=10&printers=<drukarka>, drukuje lokalnie ZPL z pola
+zpl_payload, potem POST /api/print-agent/ack z listą wyników. Każda drukarka ma własną
+kolejkę (etap 4 logistyki: 'etykiety' 60x40 i 'wysylka' 100x150); agent sprzed etapu 4
+nie podaje parametru i dostaje wyłącznie 'etykiety'. Polling został
 jako siatka bezpieczeństwa — 60 s gdy kanał push żyje, 10 s gdy padł.
 Token do połączenia z brokerem agent bierze z GET /realtime-token.
 
@@ -126,13 +128,32 @@ def _expire_stale_pending(force=False):
     return expired_count
 
 
+def _drukarki_z_zapytania(surowe):
+    """`?printers=etykiety,wysylka` → krotka znanych nazw w kolejności podania.
+
+    Brak parametru = tylko dotychczasowa drukarka: agent sprzed etapu 4 nie zna
+    parametru, a etykieta 100x150 wysłana na drukarkę 60x40 to zmarnowane etykiety.
+    Parametr podany, ale pusty albo z samymi nieznanymi nazwami = nic (agent z
+    literówką w config.ini nie może przejąć cudzej kolejki).
+    """
+    if surowe is None:
+        return (LabelPrintJob.DRUKARKA_ETYKIETY,)
+    nazwy = []
+    for nazwa in str(surowe).split(','):
+        nazwa = nazwa.strip().lower()
+        if nazwa in LabelPrintJob.DRUKARKI and nazwa not in nazwy:
+            nazwy.append(nazwa)
+    return tuple(nazwy)
+
+
 @print_agent_bp.route('/jobs', methods=['GET'])
 @require_agent_token
 def list_jobs():
     """
-    GET /api/print-agent/jobs?limit=10
-    Zwraca listę pending zadań ZPL do wydrukowania (w kolejności FIFO).
-    Przy okazji oznacza zadania starsze niż 1h jako expired.
+    GET /api/print-agent/jobs?limit=10&printers=etykiety,wysylka
+    Zwraca pending zadania ZPL wskazanych drukarek (FIFO). Bez `printers` —
+    tylko 'etykiety' (zgodność ze starym agentem). Przy okazji oznacza zadania
+    starsze niż 1h jako expired.
     """
     _expire_stale_pending()
 
@@ -141,9 +162,15 @@ def list_jobs():
     except (TypeError, ValueError):
         limit = 10
 
+    drukarki = _drukarki_z_zapytania(request.args.get('printers'))
+    if not drukarki:
+        return jsonify({'jobs': [], 'count': 0}), 200
+
     jobs = (LabelPrintJob.query
-            .filter_by(status='pending')
-            .order_by(LabelPrintJob.requested_at.asc())
+            .filter(LabelPrintJob.status == 'pending',
+                    LabelPrintJob.printer.in_(drukarki))
+            # id jako drugi klucz: zadania z tej samej milisekundy wychodzą w kolejności wstawienia
+            .order_by(LabelPrintJob.requested_at.asc(), LabelPrintJob.id.asc())
             .limit(limit)
             .all())
 
@@ -151,6 +178,7 @@ def list_jobs():
         'jobs': [
             {
                 'id': j.id,
+                'printer': j.printer,
                 'short_product_id': j.short_product_id,
                 'baselinker_order_id': j.baselinker_order_id,
                 'station_code': j.station_code,
