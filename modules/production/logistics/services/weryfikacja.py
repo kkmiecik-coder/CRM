@@ -230,6 +230,18 @@ def podpis_listy(zamowienia, pakunki, teraz):
             sum(p.label_print_count or 0 for p in wszystkie_paczki))
 
 
+def _jest_praca_dla_reguly(order, aktywne):
+    """
+    Czy reguła uniewaznij_etapy ma co robić NA STANIE, KTÓRY WIDZI W PAMIĘCI: któraś niezanulowana pozycja
+    nie jest „spakowane lub dalej”, a zamówienie ma jeszcze deklarację paczek, weryfikację albo pozycje do
+    cofnięcia z etapów logistycznych. Czyta tylko kolumny zamówienia i statusy już wczytanych pozycji.
+    """
+    if not aktywne or all(p.current_status in sposoby.STATUSY_PO_SPAKOWANIU for p in aktywne):
+        return False
+    cofane = [p for p in aktywne if p.current_status in _COFANE_DO_SPAKOWANYCH]
+    return bool(cofane) or order.packages_declared_at is not None or order.verified_at is not None
+
+
 def uniewaznij_etapy(order, teraz, powod, user_id=None, worker_id=None, device_id=None):
     """
     Jedna reguła (spec 4.5, ostatni wiersz, i 8.5): zamówienie, którego któraś niezanulowana pozycja
@@ -239,26 +251,39 @@ def uniewaznij_etapy(order, teraz, powod, user_id=None, worker_id=None, device_i
     'spakowane'. Po ponownym spakowaniu zamówienie przechodzi kroki od nowa.
 
     `powod` — tekst do logu i komunikatu wygaszonego zadania druku (np. u'nowa pozycja z Base.').
-    Zwraca True, gdy coś zmieniła. Gdy nie ma czego kasować, nie pyta bazy (czyta kolumny zamówienia
-    i statusy już wczytanych pozycji) — woła ją cron dla każdego otwartego zamówienia. NIE commituje.
+    Zwraca True, gdy coś zmieniła. NIE commituje.
 
-    Kolejność blokad: najpierw zapis wiersza zamówienia (flush), potem paczki (odczyt blokujący) —
-    ta sama kolejność co w deklaracji i akcjach Weryfikacji (zamówienie → paczki), więc nie tworzy
-    z nimi cyklu. Globalnej blokady deklaracji NIE bierze: wołający (panel, synchronizacja, tablet)
-    trzymają już inne blokady, a wiersz blokady musiałby być pierwszy.
+    REGUŁA SAMA ROBI ODCZYT BIEŻĄCY (nie wymaga go od wołającego). Wołający (cron, panel, synchronizacja)
+    podają zamówienie i pozycje z migawki MySQL (REPEATABLE READ), a decyzja „co cofnąć” na takim stanie
+    potrafiła unieważnić świeżą deklarację paczek innego urządzenia albo zalogować drugie
+    `weryfikacja_cofnieta` po już zatwierdzonym „Cofnij weryfikację”. Dlatego:
+    1. Tania wstępna ocena na stanie wołającego (`_jest_praca_dla_reguly`, bez zapytań): brak pracy →
+       False bez dotykania bazy. Woła ją cron dla każdego otwartego zamówienia.
+    2. Widoczna praca → potwierdzenie na odczycie bieżącym, w kolejności Weryfikacji: zamówienie FOR
+       UPDATE po PK z `populate_existing` → paczki FOR UPDATE → pozycje po PK FOR UPDATE z
+       `populate_existing` (`paczki.zablokuj_stan`). Wołający, którzy już trzymają te blokady
+       (`cofnij_do_pakowania`, hurtowa zmiana statusu po zablokowaniu zamówień i pozycji), dostają je
+       bez czekania.
+    3. Dopiero na tym stanie liczy, co cofnąć, i działa. Gdy po odczycie bieżącym pracy nie ma, nie robi
+       nic i niczego nie loguje.
 
-    Wymagania wobec wołającego: reguła decyduje na stanie W PAMIĘCI (packages_declared_at, verified_at,
-    statusy pozycji), więc zamówienie ma być wczytane odczytem bieżącym (po blokadzie wiersza zamówienia,
-    nie z migawki sprzed niej), a wołający nie zapisuje pozycji przed tą blokadą. „Bez zapytań” zachodzi
-    tylko przy już wczytanych pozycjach (cron ładuje je przez selectinload) — inaczej samo
-    `order.products` jest zapytaniem.
+    Niezapisane zmiany wołającego nie giną: `populate_existing` NADPISUJE atrybuty obiektów w sesji, więc
+    przed pierwszym zapytaniem jest jawny `flush()` (także gdy wołający wyłączył autoflush) — zmiany
+    lądują w bazie, a odczyt wczytuje z niej te same wartości. Zapis zamówienia poprzedza zapis pozycji
+    w jednym flushu (kolejność zależności tabel), więc flush nie odwraca kolejności blokad.
     """
+    if not _jest_praca_dla_reguly(order, delivery.aktywne_produkty(order)):
+        return False
+    db.session.flush()   # niezapisane zmiany wołającego do bazy PRZED odczytem nadpisującym obiekty
+    istnieje = (ProductionOrder.query.filter(ProductionOrder.id == order.id)
+                .with_for_update().populate_existing().first())
+    if istnieje is None:
+        return False
+    stare = paczki.zablokuj_stan(order)
     aktywne = delivery.aktywne_produkty(order)
-    if not aktywne or all(p.current_status in sposoby.STATUSY_PO_SPAKOWANIU for p in aktywne):
+    if not _jest_praca_dla_reguly(order, aktywne):
         return False
     cofane = [p for p in aktywne if p.current_status in _COFANE_DO_SPAKOWANYCH]
-    if order.packages_declared_at is None and order.verified_at is None and not cofane:
-        return False
     notatka = (powod or u'')[:255] or None
     for p in cofane:
         p.current_status = 'spakowane'
@@ -269,8 +294,6 @@ def uniewaznij_etapy(order, teraz, powod, user_id=None, worker_id=None, device_i
                             worker_id=worker_id, device_id=device_id, teraz=teraz)
     if order.packages_declared_at is not None:
         order.packages_declared_at = None
-        db.session.flush()   # wiersz zamówienia przed paczkami (kolejność blokad — docstring)
-        stare = paczki.aktualne_paczki(order.id, do_zapisu=True)
         paczki.uniewaznij(stare, teraz, powod=notatka or u'unieważnienie etapów')
         delivery.zapisz_log(order, 'paczki', paczki.opis_paczek(stare), None, note=notatka,
                             user_id=user_id, worker_id=worker_id, device_id=device_id, teraz=teraz)

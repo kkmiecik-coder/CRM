@@ -7,7 +7,7 @@ from sqlalchemy import event
 from extensions import db
 from modules.production.logistics.models import LogisticsLog
 from modules.production.logistics.services import weryfikacja
-from modules.production.models import LabelPrintJob, ProductionPackage
+from modules.production.models import LabelPrintJob, ProductionOrder, ProductionPackage, ProductionProduct
 from tests.logistyka_fixtures import app, produkt, zamowienie  # noqa: F401
 
 TERAZ = datetime(2026, 10, 1, 9, 0)
@@ -119,3 +119,88 @@ def test_ponowione_zakoncz_pakowania_nie_cofa_statusu_logistyki(app, monkeypatch
         order.products[0].complete_task('packaging')
         assert order.products[0].current_status == status
     assert wolania == []
+
+
+# --- Reguła sama potwierdza pracę na odczycie bieżącym (fala końcowa 4.3, F10) --------------------------
+# SQLite nie ma migawki, więc „stan wołającego” odtwarzamy tak jak tests/weryfikacja_pomocnicze.py: obiekty
+# zostają w sesji ORM w starym stanie (bez commitu i odświeżenia), a w bazie ktoś inny już zapisał nowy —
+# surowymi UPDATE/INSERT poza ORM. Decyzja reguły ma zapaść na stanie z bazy.
+
+NOWA_DEKLARACJA = datetime(2026, 10, 1, 8, 30)
+
+
+def test_cron_nie_uniewaznia_swiezej_deklaracji_innego_urzadzenia(app):
+    """Cron ma w pamięci migawkę: pozycje w produkcji (doróbka) i stara deklaracja paczek — wygląda na
+    pracę. W bazie inne urządzenie zdążyło spakować pozycje i zadeklarować paczki od nowa. Świeża
+    deklaracja ma zostać nietknięta, a reguła nic nie zalogować."""
+    from modules.production.logistics.services import delivery
+    order, stare = _z_paczkami(statusy=('czeka_na_pakowanie', 'czeka_na_pakowanie'))
+    order_id = order.id
+    assert [p.current_status for p in order.products] == ['czeka_na_pakowanie'] * 2   # wczytane do pamięci
+    # „Drugie urządzenie”: pakuje, unieważnia starą deklarację i deklaruje nową (surowo, poza sesją ORM).
+    db.session.execute(ProductionProduct.__table__.update()
+                       .where(ProductionProduct.__table__.c.order_id == order_id)
+                       .values(current_status='spakowane'))
+    db.session.execute(ProductionPackage.__table__.update()
+                       .where(ProductionPackage.__table__.c.order_id == order_id)
+                       .values(voided_at=NOWA_DEKLARACJA))
+    db.session.execute(ProductionPackage.__table__.insert().values(
+        order_id=order_id, seq=1, kind='paczka', declared_at=NOWA_DEKLARACJA))
+    db.session.execute(ProductionOrder.__table__.update()
+                       .where(ProductionOrder.__table__.c.id == order_id)
+                       .values(packages_declared_at=NOWA_DEKLARACJA))
+    # Migawka crona jest nieświeża: pozycje w produkcji i stara deklaracja.
+    assert [p.current_status for p in order.products] == ['czeka_na_pakowanie'] * 2
+    assert order.packages_declared_at == DEKLARACJA
+
+    delivery.przelicz_otwarte(teraz=TERAZ)
+    db.session.commit()
+
+    db.session.expire_all()
+    aktualne = ProductionPackage.query.filter_by(order_id=order_id, voided_at=None).all()
+    assert [(p.seq, p.declared_at) for p in aktualne] == [(1, NOWA_DEKLARACJA)]   # świeża deklaracja żyje
+    assert ProductionOrder.query.get(order_id).packages_declared_at == NOWA_DEKLARACJA
+    assert [p.current_status for p in ProductionOrder.query.get(order_id).products] == ['spakowane'] * 2
+    assert LogisticsLog.query.count() == 0
+
+
+def test_cron_nadal_uniewaznia_gdy_praca_jest_tez_w_bazie(app):
+    """Kontrola odwrotna: stan z migawki zgadza się z bazą, więc reguła unieważnia jak dotąd."""
+    from modules.production.logistics.services import delivery
+    order, lista = _z_paczkami(statusy=('czeka_na_pakowanie', 'czeka_na_pakowanie'))
+    delivery.przelicz_otwarte(teraz=TERAZ)
+    db.session.commit()
+    assert all(p.voided_at == TERAZ for p in ProductionPackage.query.filter_by(order_id=order.id))
+    assert ProductionOrder.query.get(order.id).packages_declared_at is None
+    assert [w.action for w in LogisticsLog.query.filter_by(order_id=order.id)] == ['paczki']
+
+
+def test_regula_potwierdza_prace_na_odczycie_biezacym_a_nie_na_obiekcie_wolajacego(app):
+    """Wołający podaje zamówienie ze starym `verified_at` (migawka), a w bazie weryfikacja już została
+    cofnięta przez kogoś innego. Reguła nie loguje drugiego `weryfikacja_cofnieta`."""
+    order, _lista = _z_paczkami(statusy=('zweryfikowane', 'czeka_na_pakowanie'), zweryfikowane=True,
+                                verified_at=DEKLARACJA)
+    order_id = order.id
+    assert order.verified_at == DEKLARACJA
+    db.session.execute(ProductionOrder.__table__.update()
+                       .where(ProductionOrder.__table__.c.id == order_id).values(verified_at=None))
+    db.session.execute(ProductionProduct.__table__.update()
+                       .where(ProductionProduct.__table__.c.order_id == order_id)
+                       .values(current_status='czeka_na_pakowanie'))
+    assert weryfikacja.uniewaznij_etapy(order, TERAZ, u'kontrola') is True      # praca: paczki nadal ważne
+    db.session.commit()
+    assert [w.action for w in LogisticsLog.query.filter_by(order_id=order_id)] == ['paczki']
+
+
+def test_regula_nie_gubi_niezapisanych_zmian_wolajacego(app):
+    """`populate_existing` nadpisuje obiekty w sesji — jawny flush przed nim zapisuje zmiany wołającego,
+    więc odczyt wczytuje z bazy te same wartości (tu: pozycja przestawiona do produkcji tuż przed regułą)."""
+    order, _lista = _z_paczkami(statusy=('spakowane', 'spakowane'))
+    order.products[0].current_status = 'czeka_na_pakowanie'       # zmiana tylko w pamięci, bez flush
+    order.repack_reason = u'Weryfikacja: Inne'
+    assert weryfikacja.uniewaznij_etapy(order, TERAZ, u'test') is True
+    db.session.commit()
+    db.session.expire_all()
+    o = ProductionOrder.query.get(order.id)
+    assert [p.current_status for p in o.products] == ['czeka_na_pakowanie', 'spakowane']
+    assert o.repack_reason == u'Weryfikacja: Inne' and o.packages_declared_at is None

@@ -176,6 +176,50 @@ def test_panel_transport_na_kuriera_nie_nadpisuje_banera_weryfikacji(app, client
     assert all(p.voided_at is not None for p in ProductionPackage.query.filter_by(order_id=order_id))
 
 
+def test_panel_zmiana_na_kuriera_po_zatwierdzonym_cofnij_weryfikacje_loguje_jedno_cofniecie(
+        app, client, bez_base, monkeypatch):
+    """F10: panel czyta zamówienie z migawki (zweryfikowane), a „Cofnij weryfikację” z telefonu zdążyło się
+    już zatwierdzić. Zmiana sposobu na kuriera nie dopisuje drugiego `weryfikacja_cofnieta` — reguła
+    potwierdza pracę na odczycie bieżącym. Przepakowanie wygrywa, paczki tracą ważność."""
+    order = zamowienie(sposob=s.TRANSPORT, statusy=('zweryfikowane', 'zweryfikowane'),
+                       verified_at=T0, verified_by_worker_id=3)
+    _paczki(order, n=2, zweryfikowane=True)
+    order_id = order.id
+    oryginal = d.ustaw_sposob_dostawy
+
+    def po_cudzym_cofnij_weryfikacje(zamowienie_panelu, *args, **kwargs):
+        # Telefon zatwierdził „Cofnij weryfikację” po tym, jak panel wczytał zamówienie: surowe zapisy poza
+        # ORM (w bazie stan nowy), a obiekty panelu w sesji zostają w starym stanie.
+        assert zamowienie_panelu.verified_at == T0
+        assert [p.current_status for p in zamowienie_panelu.products] == ['zweryfikowane', 'zweryfikowane']
+        db.session.execute(ProductionOrder.__table__.update()
+                           .where(ProductionOrder.__table__.c.id == order_id)
+                           .values(verified_at=None, verified_by_worker_id=None))
+        db.session.execute(ProductionProduct.__table__.update()
+                           .where(ProductionProduct.__table__.c.order_id == order_id)
+                           .values(current_status='spakowane'))
+        db.session.execute(ProductionPackage.__table__.update()
+                           .where(ProductionPackage.__table__.c.order_id == order_id)
+                           .values(verified_at=None))
+        db.session.execute(LogisticsLog.__table__.insert().values(
+            order_id=order_id, action='weryfikacja_cofnieta', worker_id=3, note=u'Cofnij weryfikację',
+            created_at=T1))
+        return oryginal(zamowienie_panelu, *args, **kwargs)
+
+    monkeypatch.setattr(d, 'ustaw_sposob_dostawy', po_cudzym_cofnij_weryfikacje)
+    r = _zmien_sposob_w_panelu(client, order, s.KURIER)
+    assert r.status_code == 200, r.get_json()
+    db.session.expire_all()
+    akcje = [w.action for w in LogisticsLog.query.filter_by(order_id=order_id).order_by(LogisticsLog.id)]
+    assert akcje.count('weryfikacja_cofnieta') == 1                       # tylko wpis telefonu
+    assert akcje.count('paczki') == 1 and akcje.count('przepakowanie') == 1
+    o = ProductionOrder.query.get(order_id)
+    assert o.verified_at is None and o.packages_declared_at is None
+    assert [p.current_status for p in o.products] == ['czeka_na_pakowanie', 'czeka_na_pakowanie']
+    assert (o.repack_required, o.repack_reason) == (True, s.PRZEPAKUJ_NA_KURIERA)
+    assert all(p.voided_at is not None for p in ProductionPackage.query.filter_by(order_id=order_id))
+
+
 def test_cofniecie_do_nie_ustawiono_nie_kasuje_banera_z_weryfikacji(app):
     tekst = u'Weryfikacja: Brak elementu: nóżka'
     order = zamowienie(sposob=s.KURIER, statusy=('czeka_na_pakowanie',), repack_required=True, repack_reason=tekst)
