@@ -27,6 +27,10 @@ const STATUS_DISPLAY_NAMES = {
     'czeka_na_logistyke': 'Czeka na logistykę',
     'czeka_na_pakowanie': 'Czeka na pakowanie',
     'spakowane': 'Spakowane',
+    // Statusy po spakowaniu (logistyka etap 4) — pozycje w archiwum mogą być już wydane klientowi.
+    'zweryfikowane': 'Zweryfikowane',
+    'zaladowane': 'Załadowane',
+    'dostarczone': 'Dostarczone',
     'w_realizacji': 'W realizacji',
     'wstrzymane': 'Wstrzymane',
     'anulowane': 'Anulowane'
@@ -943,7 +947,10 @@ class ArchiveModule {
             'czeka_na_lakiernie': 'status-painting',
             'czeka_na_logistyke': 'status-logistics',
             'czeka_na_pakowanie': 'status-packaging',
-            'spakowane': 'status-completed'
+            'spakowane': 'status-completed',
+            'zweryfikowane': 'status-completed',
+            'zaladowane': 'status-completed',
+            'dostarczone': 'status-completed'
         };
         return map[status] || 'status-completed';
     }
@@ -958,7 +965,10 @@ class ArchiveModule {
             'czeka_na_lakiernie': 'badge-painting',
             'czeka_na_logistyke': 'badge-logistics',
             'czeka_na_pakowanie': 'badge-packaging',
-            'spakowane': 'badge-completed'
+            'spakowane': 'badge-completed',
+            'zweryfikowane': 'badge-completed',
+            'zaladowane': 'badge-completed',
+            'dostarczone': 'badge-completed'
         };
         return map[status] || 'badge-completed';
     }

@@ -47,3 +47,9 @@ def test_formularz_oferuje_krawedzie_i_lakiernie_bez_logistyki():
 
 def test_formularz_nie_oferuje_juz_wykanczania():
     assert 'czeka_na_wykanczanie' not in _wartosci_selecta()
+
+
+def test_formularz_nie_oferuje_statusow_logistyki():
+    """Spec 8.6 (krok 4.3 logistyki): zweryfikowane/zaladowane/dostarczone nadaje tylko logistyka."""
+    from modules.production.logistics import sposoby
+    assert not set(_wartosci_selecta()) & set(sposoby.STATUSY_LOGISTYCZNE)

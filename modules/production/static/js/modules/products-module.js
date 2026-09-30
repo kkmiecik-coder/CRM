@@ -20,6 +20,10 @@
  * Data: 2025-01-15
  */
 
+// Statusy „spakowane lub dalej” (logistyka etap 4) — kopia sposoby.STATUSY_PO_SPAKOWANIU w Pythonie.
+// Pytania „czy pozycja jest skończona” idą przez tę listę, nie przez porównanie z 'spakowane'.
+const STATUSY_PO_SPAKOWANIU = ['spakowane', 'zweryfikowane', 'zaladowane', 'dostarczone'];
+
 class ProductsModule {
 
     // Ile wpisów historii odsłania jedno kliknięcie "Pokaż więcej".
@@ -41,6 +45,10 @@ class ProductsModule {
         'czeka_na_logistyke': 'Logistyka',
         'czeka_na_pakowanie': 'Pakowanie',
         'spakowane': 'Spakowane',
+        // Statusy po spakowaniu nadaje wyłącznie logistyka (Weryfikacja, Dostawa).
+        'zweryfikowane': 'Zweryfikowane',
+        'zaladowane': 'Załadowane',
+        'dostarczone': 'Dostarczone',
         'w_realizacji': 'W realizacji',
         'wstrzymane': 'Wstrzymane',
         'anulowane': 'Anulowane'
@@ -67,6 +75,9 @@ class ProductsModule {
         'czeka_na_pakowanie': { icon: 'fa-box', displayName: 'Pakowanie', color: 'packaging-theme', badgeClass: 'badge-packaging' },
         'w_trakcie_pakowania': { icon: 'fa-box', displayName: 'Pakowanie', color: 'packaging-theme', badgeClass: 'badge-packaging' },
         'spakowane': { icon: 'fa-check-circle', displayName: 'Spakowane', color: 'text-success', badgeClass: 'badge-success' },
+        'zweryfikowane': { icon: 'fa-clipboard-check', displayName: 'Zweryfikowane', color: 'text-success', badgeClass: 'badge-success' },
+        'zaladowane': { icon: 'fa-truck-loading', displayName: 'Załadowane', color: 'text-success', badgeClass: 'badge-success' },
+        'dostarczone': { icon: 'fa-flag-checkered', displayName: 'Dostarczone', color: 'text-success', badgeClass: 'badge-success' },
         'w_realizacji': { icon: 'fa-cog', displayName: 'W realizacji', color: 'text-info', badgeClass: 'badge-info' },
         'wstrzymane': { icon: 'fa-pause-circle', displayName: 'Wstrzymane', color: 'text-warning', badgeClass: 'badge-warning' },
         'anulowane': { icon: 'fa-times-circle', displayName: 'Anulowane', color: 'text-danger', badgeClass: 'badge-danger' }
@@ -1412,7 +1423,7 @@ class ProductsModule {
                 order.status = statuses[0];
                 order.statusLabel = this.getStatusDisplayName(statuses[0]);
             } else {
-                const completedCount = order.products.filter(p => p.current_status === 'spakowane').length;
+                const completedCount = order.products.filter(p => STATUSY_PO_SPAKOWANIU.includes(p.current_status)).length;
                 order.status = 'mixed';
                 order.statusLabel = `Różne (${completedCount}/${order.productCount})`;
             }
@@ -1776,6 +1787,9 @@ class ProductsModule {
             'czeka_na_logistyke': 'status-logistics',
             'czeka_na_pakowanie': 'status-packaging',
             'spakowane': 'status-completed',
+            'zweryfikowane': 'status-completed',
+            'zaladowane': 'status-completed',
+            'dostarczone': 'status-completed',
             'w_realizacji': 'status-inprogress',
             'wstrzymane': 'status-paused',
             'anulowane': 'status-cancelled',
@@ -1796,6 +1810,9 @@ class ProductsModule {
             'czeka_na_logistyke': 'badge-logistics',
             'czeka_na_pakowanie': 'badge-packaging',
             'spakowane': 'badge-completed',
+            'zweryfikowane': 'badge-completed',
+            'zaladowane': 'badge-completed',
+            'dostarczone': 'badge-completed',
             'w_realizacji': 'badge-assembly',
             'wstrzymane': 'badge-paused',
             'anulowane': 'badge-cancelled',
@@ -2136,6 +2153,10 @@ class ProductsModule {
             'czeka_na_pakowanie': 'packaging',
             'w_trakcie_pakowania': 'packaging',
             'spakowane': 'completed',
+            // Bez jawnego wpisu domyślne 'paused' pokazałoby te statusy jak wstrzymane.
+            'zweryfikowane': 'completed',
+            'zaladowane': 'completed',
+            'dostarczone': 'completed',
             'wstrzymane': 'paused',
             'anulowane': 'cancelled'
         };
@@ -3383,7 +3404,7 @@ class ProductsModule {
         const orders = this.state.filteredOrders;
 
         // Statystyki liczone per niespakowana sztuka — pomijamy pozycje
-        // 'spakowane' i 'anulowane'; remaining = quantity - quantity_done_packaging.
+        // spakowane (i dalej: STATUSY_PO_SPAKOWANIU) oraz 'anulowane'; remaining = quantity - quantity_done_packaging.
         const archiveMode = this.state.viewMode === 'archive';
         let totalCount = 0;
         let totalQuantity = 0;
@@ -3406,7 +3427,7 @@ class ProductsModule {
                 return;
             }
 
-            if (status === 'spakowane' || status === 'anulowane') return;
+            if (STATUSY_PO_SPAKOWANIU.includes(status) || status === 'anulowane') return;
             const done = parseInt(p.quantity_done_packaging) || 0;
             const remaining = qty - done;
             if (remaining <= 0) return;
@@ -3538,6 +3559,9 @@ class ProductsModule {
             'czeka_na_pakowanie': 'status-waiting',
             'w_trakcie_pakowania': 'status-packaging',
             'spakowane': 'status-completed',
+            'zweryfikowane': 'status-completed',
+            'zaladowane': 'status-completed',
+            'dostarczone': 'status-completed',
             'anulowane': 'status-cancelled',
             'wstrzymane': 'status-paused'
         };
@@ -4115,8 +4139,8 @@ class ProductsModule {
             }
         });
 
-        // Spakowane = 100%
-        if (currentStatus === 'spakowane') passedStations = stations.length;
+        // Spakowane (i dalej) = 100%
+        if (STATUSY_PO_SPAKOWANIU.includes(currentStatus)) passedStations = stations.length;
 
         const totalPercent = Math.round((passedStations / stations.length) * 100);
         badge.textContent = `${quantity} szt. • ${totalPercent}%`;
@@ -4175,8 +4199,8 @@ class ProductsModule {
             if (product[endFields[laterCode]]) return true;
             // Product is currently at a later station
             if (currentStatus === statusMap[laterCode]) return true;
-            // Product is already packed
-            if (currentStatus === 'spakowane') return true;
+            // Product is already packed (or further)
+            if (STATUSY_PO_SPAKOWANIU.includes(currentStatus)) return true;
             return false;
         });
 
@@ -4680,6 +4704,24 @@ class ProductsModule {
             'spakowane': {
                 icon: 'fa-check-circle',
                 displayName: 'Spakowane',
+                color: 'text-success',
+                cssClass: 'completed'
+            },
+            'zweryfikowane': {
+                icon: 'fa-clipboard-check',
+                displayName: 'Zweryfikowane',
+                color: 'text-success',
+                cssClass: 'completed'
+            },
+            'zaladowane': {
+                icon: 'fa-truck-loading',
+                displayName: 'Załadowane',
+                color: 'text-success',
+                cssClass: 'completed'
+            },
+            'dostarczone': {
+                icon: 'fa-flag-checkered',
+                displayName: 'Dostarczone',
                 color: 'text-success',
                 cssClass: 'completed'
             },
