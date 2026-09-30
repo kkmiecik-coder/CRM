@@ -87,3 +87,9 @@ def test_retry_produkcji_zakonczonej_pomijany_po_weryfikacji(app, monkeypatch):
     powod = bl._powod_pominiecia_ponowienia(order.internal_order_number, 'edges',
                                             bl.PRODUCTION_COMPLETED_STATUS_ID)
     assert powod == u'zamówienie już spakowane'
+
+
+def test_statusy_na_aucie_lub_u_klienta_to_logistyka_bez_weryfikacji():
+    """Strażnik „nie cofaj statusu Base.” wyprowadzony ze stałej logistyki, nie z literałów."""
+    assert bl.STATUSY_NA_AUCIE_LUB_U_KLIENTA == ('zaladowane', 'dostarczone')
+    assert set(bl.STATUSY_NA_AUCIE_LUB_U_KLIENTA) == set(s.STATUSY_LOGISTYCZNE) - {'zweryfikowane'}

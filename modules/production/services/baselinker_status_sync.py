@@ -19,7 +19,7 @@ Trzy momenty zmiany statusu w BL:
    Wyjść z produkcji jest trzy: formatowanie (surowy bez obróbki krawędzi),
    Krawędzie (surowy z obróbką) i Lakiernia (olejowany / lakierowany).
    Warunek: wszystkie AKTYWNE (nieanulowane) pozycje w POSTPROD_STATUSES
-   (pakowanie / spakowane), co najmniej jedna aktywna.
+   (pakowanie / spakowane lub dalej), co najmniej jedna aktywna.
 
 3. Po ukończeniu pakowania ostatniego produktu zamówienia:
    schedule_after_station_complete() → status po spakowaniu według sposobu dostawy
@@ -61,6 +61,13 @@ PRODUCTION_RAW_STATUS_ID = 138619  # fallback dla "W produkcji - surowe"
 # Statusy lokalne CRM oznaczające „produkcja zakończona” (czeka na pakowanie / po pakowaniu).
 # Logistyka nie jest już etapem — żyje równolegle na zamówieniu.
 POSTPROD_STATUSES = frozenset(('czeka_na_pakowanie',) + sposoby.STATUSY_PO_SPAKOWANIU)
+
+# Statusy, w których towar jest już na aucie albo u klienta — status Base. „po spakowaniu” cofnąłby
+# go z „Załadowane”/„Wysłane”/„Dostarczona”/„Odebrane”. 'zweryfikowane' zostaje poza tą listą:
+# towar stoi jeszcze w hali, więc ponowienie statusu po spakowaniu ma przejść. Wyprowadzone ze stałej
+# logistyki, żeby nowy status logistyki nie rozjechał strażnika.
+STATUSY_NA_AUCIE_LUB_U_KLIENTA = tuple(
+    st for st in sposoby.STATUSY_LOGISTYCZNE if st != 'zweryfikowane')
 
 # Stanowiska, po których zamówienie może skończyć produkcję.
 # 'gluing' wchodzi tu tylko przy cut_to_size=False (produkt omija formatowanie
@@ -297,7 +304,7 @@ def _cel_po_stanowisku(products: List, station_code: str) -> Optional[int]:
         # (logistyka etap 4) Towar na aucie albo u klienta: status po spakowaniu cofnąłby Base.
         # z „Załadowane”/„Wysłane”/„Dostarczona”/„Odebrane” (jak strażnik handed_over_at niżej).
         # 'zweryfikowane' przechodzi — ponowienie nie może przepaść przez szybką weryfikację.
-        if any(p.current_status in ('zaladowane', 'dostarczone') for p in aktywne):
+        if any(p.current_status in STATUSY_NA_AUCIE_LUB_U_KLIENTA for p in aktywne):
             return None
         return _determine_packaging_target_status(aktywne[0].order)
     if station_code in PRODUCTION_STATIONS:

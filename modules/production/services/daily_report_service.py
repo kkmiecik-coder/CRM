@@ -45,9 +45,9 @@ def _granice_doby(dzien):
 
 
 # Statusy, które nie są zaległością: praca skończona albo odwołana.
-# 'wstrzymane' NIE jest tu celowo — panel (reports_service.STATUSY_ZAMKNIETE:116)
-# wyklucza tylko te dwa i trzyma wstrzymane jako osobny segment, żeby wstrzymana
-# pozycja po terminie była widoczna. Mail ma pokazywać to samo co panel.
+# 'wstrzymane' NIE jest tu celowo — panel (reports_service.STATUSY_ZAMKNIETE)
+# wyklucza tylko statusy po spakowaniu i anulowane, a wstrzymane trzyma jako osobny segment,
+# żeby wstrzymana pozycja po terminie była widoczna. Mail ma pokazywać to samo co panel.
 _STATUSY_POZA_BACKLOGIEM = sposoby.STATUSY_PO_SPAKOWANIU + ('anulowane',)
 
 

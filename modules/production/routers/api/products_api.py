@@ -616,7 +616,7 @@ def products_tab_content():
     """
     try:
         # Tryb widoku: active (default) | archive | all
-        # active  → ukrywa zamówienia, w których WSZYSTKIE pozycje mają status 'spakowane'
+        # active  → ukrywa zamówienia, w których WSZYSTKIE pozycje są spakowane lub dalej
         # archive → pokazuje wyłącznie te zamówienia
         # all     → bez filtra
         view_mode = request.args.get('view', 'active').lower()
@@ -642,7 +642,7 @@ def products_tab_content():
             joinedload(ProductionItem.configuration),
         )
 
-        # active: odetnij zamówienia archiwalne (wszystkie pozycje spakowane
+        # active: odetnij zamówienia archiwalne (wszystkie pozycje spakowane lub dalej
         # albo wszystkie anulowane) — ten sam warunek co w widoku archiwum.
         if view_mode == 'active':
             archived_subq = db.session.query(
@@ -1354,7 +1354,11 @@ def bulk_action():
             from modules.production.logistics.services.delivery import przelicz_zamkniecie
             from modules.production.logistics.services import weryfikacja
             teraz = get_local_now()
-            for zamowienie in {p.order for p in products if p.order is not None}:
+            # Stała kolejność (rosnące id): reguła unieważniania zapisuje wiersz zamówienia i bierze
+            # blokady paczek, więc dwa równoległe zapisy na nakładających się zamówieniach muszą
+            # brać je w tej samej kolejności — inaczej zakleszczenie (MySQL 1213).
+            for zamowienie in sorted({p.order for p in products if p.order is not None},
+                                     key=lambda o: o.id):
                 # Pozycja cofnięta do produkcji unieważnia paczki, weryfikację i załadunek zamówienia.
                 weryfikacja.uniewaznij_etapy(zamowienie, teraz, u'zmiana statusu w panelu',
                                              user_id=current_user.id)

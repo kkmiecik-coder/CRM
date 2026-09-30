@@ -109,3 +109,21 @@ def test_reczna_zmiana_statusu_wola_regule_uniewaznienia(client, app, monkeypatc
     with app.app_context():
         order_id = db.session.get(ProductionProduct, pid).order_id
     assert wolania == [(order_id, u'zmiana statusu w panelu')]
+
+
+def test_reczna_zmiana_statusu_uniewaznia_zamowienia_w_stalej_kolejnosci(client, app, monkeypatch):
+    """
+    Reguła unieważniania zapisuje wiersz zamówienia i bierze blokady paczek, więc dwa równoległe
+    hurtowe zapisy na nakładających się zamówieniach muszą je brać w tej samej kolejności
+    (rosnące id), niezależnie od kolejności product_ids w żądaniu — inaczej MySQL 1213.
+    """
+    from modules.production.logistics.services import weryfikacja
+    wolania = []
+    monkeypatch.setattr(weryfikacja, 'uniewaznij_etapy',
+                        lambda order, teraz, powod, **k: wolania.append(order.id) or False)
+    pids = [produkt(app, status='spakowane', numer='25/0010{}'.format(n))[0] for n in range(6)]
+    # Żądanie w odwrotnej kolejności niż powstawały zamówienia.
+    assert _masowo(client, list(reversed(pids)), 'czeka_na_pakowanie').status_code == 200
+    with app.app_context():
+        id_zamowien = sorted(db.session.get(ProductionProduct, pid).order_id for pid in pids)
+    assert wolania == id_zamowien
