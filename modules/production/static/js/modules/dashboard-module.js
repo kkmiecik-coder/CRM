@@ -198,7 +198,7 @@ class DashboardModule {
                 // Runda 2 logistyki (D6): pasek „Logistyka: N bez sposobu dostawy” pod pipeline'em
                 // odświeża się razem z dashboardem (np. po synchronizacji z Base.), nie tylko przy renderze.
                 this.updateLogisticsPending(data.data.logistics_pending);
-                // Krok 4.3: liczniki „Do weryfikacji” i „Problemy” na tym samym pasku (null = błąd licznika).
+                // Krok 4.3: liczniki „Do weryfikacji” i „Problemy” na tym samym pasku (null = błąd licznika → „—”).
                 this.updateVerification(data.data.verification);
             }
         });
@@ -2330,20 +2330,22 @@ class DashboardModule {
     }
 
     /**
-     * Liczniki Weryfikacji na pasku logistyki (krok 4.3). null = błąd licznika po stronie serwera —
-     * zostają ostatnie liczby (jak updateLogisticsPending). „Problemy” przy N > 0 dostaje klasę
-     * is-alarm (czerwień w production-panel.css); ten sam znacznik co w dashboard-tab-content.html.
+     * Liczniki Weryfikacji na pasku logistyki (krok 4.3). Błąd licznika po stronie serwera (cały obiekt
+     * albo pojedyncza wartość null/brak) to „—”, a nie ostatnie liczby ani zero: nieaktualne albo zerowe
+     * „Problemy” bez alarmu dawałyby fałszywy spokój (Ruling 18). „—” nie dostaje klasy is-alarm
+     * (czerwień w production-panel.css). Przy liczbach: „Problemy” N > 0 dostaje is-alarm; ten sam znacznik
+     * i ten sam „—” co w dashboard-tab-content.html.
      */
     updateVerification(dane) {
-        if (!dane || typeof dane !== 'object') return;
         const liczba = (v) => typeof v === 'number' && Number.isFinite(v);
+        const wartosci = dane && typeof dane === 'object' ? dane : {};
         const doWeryfikacji = document.getElementById('verification-pending');
         const problemy = document.getElementById('verification-problems');
-        if (doWeryfikacji && liczba(dane.pending)) doWeryfikacji.textContent = String(dane.pending);
-        if (problemy && liczba(dane.problems)) {
-            problemy.textContent = String(dane.problems);
+        if (doWeryfikacji) doWeryfikacji.textContent = liczba(wartosci.pending) ? String(wartosci.pending) : '—';
+        if (problemy) {
+            problemy.textContent = liczba(wartosci.problems) ? String(wartosci.problems) : '—';
             const blok = problemy.closest('.il-logistyka-weryfikacja-problemy');
-            if (blok) blok.classList.toggle('is-alarm', dane.problems > 0);
+            if (blok) blok.classList.toggle('is-alarm', liczba(wartosci.problems) && wartosci.problems > 0);
         }
     }
 

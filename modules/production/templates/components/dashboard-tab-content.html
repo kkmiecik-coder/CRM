@@ -299,7 +299,8 @@
            zostaje. Oba teksty są w DOM, stan przełącza klasa (CSS: .il-logistyka--spokoj).
            Obok dwa liczniki Weryfikacji (krok 4.3, spec 11) z weryfikacja.liczba_do_weryfikacji()
            i liczba_problemow() — niezależne od stanu spokoju; „Problemy” dostaje klasę is-alarm,
-           gdy N > 0 (JS: updateVerification w dashboard-module.js). #}
+           gdy N > 0 (JS: updateVerification w dashboard-module.js). Błąd licznika (None) to „—” i brak
+           alarmu, a nie zero. #}
         {% set lg_n = dashboard_stats.logistics.pending_count|default(0) %}
         {% set wv_do = dashboard_stats.logistics.verification_pending|default(0) %}
         {% set wv_problemy = dashboard_stats.logistics.verification_problems|default(0) %}
@@ -314,11 +315,11 @@
           <span class="il-logistyka-weryfikacja" role="group" aria-label="Weryfikacja zamówień">
             <span class="il-logistyka-weryfikacja-do">
               <span class="il-logistyka-etykieta">Do weryfikacji:</span>
-              <strong class="il-logistyka-n" id="verification-pending">{{ wv_do }}</strong>
+              <strong class="il-logistyka-n" id="verification-pending">{{ '—' if wv_do is none else wv_do }}</strong>
             </span>
             <span class="il-logistyka-weryfikacja-problemy{{ ' is-alarm' if wv_problemy else '' }}">
               <span class="il-logistyka-etykieta">Problemy:</span>
-              <strong class="il-logistyka-n" id="verification-problems">{{ wv_problemy }}</strong>
+              <strong class="il-logistyka-n" id="verification-problems">{{ '—' if wv_problemy is none else wv_problemy }}</strong>
             </span>
           </span>
           <a href="{{ url_for('production.production_main.dashboard') }}?tab=logistics" class="il-logistyka-otworz">Otwórz Logistykę<i class="fas fa-arrow-right" aria-hidden="true"></i></a>

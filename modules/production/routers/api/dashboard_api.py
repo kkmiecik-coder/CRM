@@ -234,6 +234,19 @@ def _safe_weryfikacja():
         return None
 
 
+def _liczniki_weryfikacji():
+    """
+    Liczniki Weryfikacji dla odpowiedzi dashboardu: zawsze {'pending', 'problems'}. Przy błędzie licznika
+    (_safe_weryfikacja zwraca None) OBIE wartości są None, a nie 0: zero mówiłoby „wszystko w porządku”,
+    a „Problemy: 0” bez alarmu przy awarii licznika to fałszywy spokój (Ruling 18). Szablon i JS pokazują
+    wtedy „—” i nie nadają klasy is-alarm.
+    """
+    liczniki = _safe_weryfikacja()
+    if liczniki is None:
+        return {'pending': None, 'problems': None}
+    return liczniki
+
+
 # ============================================================================
 # DASHBOARD STATS
 # ============================================================================
@@ -1036,12 +1049,13 @@ def dashboard_tab_content():
         # Definicja „Nie ustawiono” wspólna z filtrem `brak` zakładki Logistyka.
         from modules.production.logistics.services import lista as lista_logistyki
         logistics_pending = lista_logistyki.liczba_bez_sposobu()
-        # Liczniki Weryfikacji (krok 4.3) na tym samym pasku; błąd licznika nie psuje zakładki.
-        weryfikacja_liczniki = _safe_weryfikacja() or {}
+        # Liczniki Weryfikacji (krok 4.3) na tym samym pasku; błąd licznika nie psuje zakładki, a pasek
+        # pokazuje wtedy „—” (None), nie zero.
+        weryfikacja_liczniki = _liczniki_weryfikacji()
         dashboard_stats['logistics'] = {
             'pending_count': logistics_pending,
-            'verification_pending': weryfikacja_liczniki.get('pending', 0),
-            'verification_problems': weryfikacja_liczniki.get('problems', 0),
+            'verification_pending': weryfikacja_liczniki['pending'],
+            'verification_problems': weryfikacja_liczniki['problems'],
         }
 
         # Dzisiejsze sumy — z eventów stanowiska pakowania (faktyczna fizyczna praca)
@@ -1301,8 +1315,9 @@ def dashboard_data():
             'errors_count': errors_24h,
             # Pasek logistyki pod pipeline'em odświeża się razem z dashboardem (runda 2, D6).
             'logistics_pending': _safe_logistyka_bez_sposobu(),
-            # Liczniki Weryfikacji na pasku (krok 4.3): {'pending', 'problems'} albo None przy błędzie.
-            'verification': _safe_weryfikacja(),
+            # Liczniki Weryfikacji na pasku (krok 4.3): {'pending', 'problems'}; przy błędzie licznika obie
+            # wartości to None (front pokazuje „—”, bez alarmu).
+            'verification': _liczniki_weryfikacji(),
             'timestamp': get_local_now().isoformat()
         }
 

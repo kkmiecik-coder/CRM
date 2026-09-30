@@ -89,3 +89,45 @@ def test_wersje_zasobow_dashboardu_podbite():
     m = re.search(r"filename='js/modules/dashboard-module\.js'\) \}\}\?v=(\w+)", html)
     assert m and m.group(1) != '20260410'
     assert re.search(r"filename='css/production-panel\.css'\) \}\}\?v=\w+", html)
+
+
+# --- Błąd licznika Weryfikacji: „—” zamiast zera i brak alarmu (fala końcowa 4.3, F5, Ruling 18) ---------
+
+def _pasek_z(**logistyka):
+    return Environment(autoescape=True).from_string(_pasek()).render(
+        dashboard_stats={'logistics': dict(pending_count=0, **logistyka)},
+        url_for=lambda endpoint, **k: '/production/')
+
+
+def test_pasek_z_bledem_licznika_pokazuje_kreski_bez_alarmu():
+    html = _pasek_z(verification_pending=None, verification_problems=None)
+    assert 'id="verification-pending">—<' in html and 'id="verification-problems">—<' in html
+    assert 'is-alarm' not in html
+
+
+@pytest.mark.parametrize('problemy, alarm', [(0, False), (1, True), (7, True)])
+def test_pasek_alarm_tylko_przy_problemach_wiekszych_od_zera(problemy, alarm):
+    html = _pasek_z(verification_pending=3, verification_problems=problemy)
+    assert ('class="il-logistyka-weryfikacja-problemy is-alarm"' in html) is alarm
+    assert 'id="verification-problems">%d<' % problemy in html
+
+
+def test_pasek_z_jednym_licznikiem_none_nie_psuje_drugiego():
+    html = _pasek_z(verification_pending=5, verification_problems=None)
+    assert 'id="verification-pending">5<' in html and 'id="verification-problems">—<' in html
+    assert 'is-alarm' not in html
+
+
+def test_js_paska_weryfikacji_pokazuje_kreski_przy_bledzie_licznika():
+    js = _plik(DASHBOARD_JS)
+    fn = js[js.index('    updateVerification(dane) {'):]
+    fn = fn[:fn.index('\n    }\n')]
+    assert "if (!dane || typeof dane !== 'object') return;" not in fn   # null nie zostawia starych liczb
+    assert fn.count("'—'") == 2                                         # „Do weryfikacji” i „Problemy”
+    assert "classList.toggle('is-alarm', liczba(wartosci.problems) && wartosci.problems > 0)" in fn
+
+
+def test_skrypt_dashboardu_ma_podbita_wersje():
+    html = _plik(PANEL_HTML)
+    m = re.search(r"js/modules/dashboard-module\.js'\) \}\}\?v=(\w+)", html)
+    assert m and m.group(1) >= '20261001b'
