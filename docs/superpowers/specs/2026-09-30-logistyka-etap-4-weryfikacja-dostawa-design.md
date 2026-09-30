@@ -154,12 +154,15 @@ sprawdzić na kopii produkcji czasem wykonania.
 | `declared_at`, `declared_by_worker_id`, `declared_device_id` | | kto zadeklarował |
 | `voided_at` | DATETIME NULL, indeks | unieważniona (nowa deklaracja / cofnięcie / doróbka) |
 | `label_printed_at`, `label_print_count` | | druk etykiety |
+| `label_delivery_text` | VARCHAR(40) NULL | napis z pasa sposobu dostawy w chwili druku (ikona „sprzed zmiany”) |
 | `verified_at`, `verified_by_worker_id`, `verified_method` ENUM('skan','reczne') | | weryfikacja |
 | `loaded_at`, `loaded_by_worker_id`, `loaded_method` ENUM('skan','reczne'), `loaded_route_id` | | załadunek |
 
 Aktualna deklaracja = paczki zamówienia z `voided_at IS NULL`. N (mianownik „2 / 3”) = ich liczba.
 
 ### 5.3 `prod_orders` (kroki 4.2–4.3)
+
+`packages_declared_at` — krok 4.2; pozostałe kolumny — migracja kroku 4.3.
 
 - `packages_declared_at DATETIME NULL` — ostatnia ważna deklaracja.
 - `verified_at DATETIME NULL`, `verified_by_worker_id INT NULL` — zamówienie zweryfikowane.
@@ -243,7 +246,8 @@ dół treści ≤ 1130 punktów (zapas na przesunięcie). Układ (wzór wydrukow
    „WoodPower, Bachorz 14N”.
 
 Etykieta nie jest przedrukowywana automatycznie po zmianie sposobu dostawy albo trasy; panel pokazuje ikonę „etykiety
-paczek sprzed zmiany” (jak dla etykiet produktów w etapie 1) (przeniesione do kroku 4.2).
+paczek sprzed zmiany” (jak dla etykiet produktów w etapie 1) (przeniesione do kroku 4.2). Ikona to porównanie napisu
+zapamiętanego na paczce (`label_delivery_text`) z dzisiejszym; ponowny druk gasi ikonę.
 
 ### 6.4 Drukarka — ustalenia z testu 30.09
 
@@ -280,10 +284,24 @@ Waga = Σ(`volume_m3 × quantity`) niezanulowanych pozycji × `WAGA_KG_NA_M3` (8
 
 - `PUT /api/mobile/orders/<internal_order_number>/packages` z
   `{"kind": "paczka|paleta", "count": 1..10, "pallet_type": "eur|niestandardowa|null", "length_cm": .., "width_cm": ..}`.
-- Przyjmowana, gdy **wszystkie niezanulowane pozycje są `spakowane`** (inaczej 409 `order_not_packed`). Po weryfikacji
-  zablokowana (409 `order_verified` — najpierw „Cofnij weryfikację”).
+- Przyjmowana, gdy **wszystkie niezanulowane pozycje są `spakowane`** (inaczej 409 `order_not_packed`). Blokada po
+  weryfikacji (409 `order_verified` — najpierw „Cofnij weryfikację”) **przeniesiona do kroku 4.3**: w 4.2 weryfikacji
+  jeszcze nie ma.
 - Unieważnia poprzednie paczki, tworzy N nowych, `packages_declared_at`, wpis `paczki` w logu, podbija `updated_at`
   pozycji (ETag), kolejkuje N etykiet na drukarkę `wysylka`. Idempotentna przez `X-Operation-Id`.
+- Błędy (`error` + `message`): `invalid_packages` 422 — zły rodzaj, liczba poza 1..10, brak albo wymiar palety
+  niestandardowej poza 20–400 cm, zły typ palety; pola bez znaczenia dla rodzaju (wymiar przy EUR i przy paczce, typ
+  palety przy paczce) są **pomijane, nie odrzucane** (422 z kolejki offline to deklaracja utracona bez śladu; EUR ma
+  zawsze 120×80). Liczby (`count`, wymiary) przyjmują też całkowity float (`2.0`); `1.5`, tekst i wartości logiczne to
+  422. `order_not_found` 404, `station_not_allowed` 403 (paczki deklaruje i drukuje tylko `packaging` albo
+  `verification`), `order_not_packed` 409.
+- Numer wewnętrzny powtarza się co roku (licznik startuje od nowa), więc zamówienie to **najnowsze** o tym numerze
+  (najwyższe `id`). Id ustalane zwykłym odczytem, a wiersz blokowany dopiero po kluczu głównym: kolumna
+  `internal_order_number` nie ma indeksu i blokujący odczyt po niej założyłby blokady next-key na całej tabeli.
+- Odpowiedź 200: `{"internal_order_number", "packages_declared_at", "packages": [{"id", "code" ("P-<id>"), "seq",
+  "kind", "pallet_type", "length_cm", "width_cm", "label_print_count", "label_printed_at"}], "labels_queued", "message"}`.
+- `GET /api/mobile/orders/<nr>/packages` (decyzja 30.09): aktualne paczki w tym samym kształcie (bez `labels_queued` i
+  `message`), bez cache, dla każdego stanowiska — tablet pokazuje je i drukuje ponownie jedną albo wszystkie.
 - Appka wysyła ją po „ZAKOŃCZ”, który domyka całe zamówienie: najpierw jak dziś zakończenia pozycji, potem deklaracja
   (kolejka offline zachowuje kolejność). Wcześniejsze raty pakowania (rzadkie: 10/742 zamówień od sierpnia pakowane w
   różne dni) nie pokazują okna.
@@ -294,7 +312,10 @@ Waga = Σ(`volume_m3 × quantity`) niezanulowanych pozycji × `WAGA_KG_NA_M3` (8
 ### 7.3 Ponowny druk
 
 `POST /api/mobile/packages/<id>/print` (jedna) i `POST /api/mobile/orders/<nr>/packages/print` (wszystkie ważne) —
-z tabletu pakowania i telefonu Weryfikacji. Unieważniona paczka → 409 `package_void`.
+z tabletu pakowania i telefonu Weryfikacji. Błędy: `package_not_found` 404 (brak paczki o tym id), `package_void` 409
+(unieważniona paczka), `no_packages` 409 (druk wszystkich dla zamówienia bez deklaracji), `station_not_allowed` 403.
+Etykieta drukuje się **z bieżącymi danymi** zamówienia (pas sposobu dostawy, odbiorca, zawartość), a nie z chwili
+deklaracji; zapisuje nowy `label_delivery_text`, więc gasi ikonę „sprzed zmiany”.
 
 ## 8. Krok 4.3 — statusy i Weryfikacja
 
@@ -331,7 +352,7 @@ produktu) otwiera zamówienie; inne kody → komunikat „Nieznany kod”.
 Jak przepakowanie z etapu 1 (`delivery.py`): pozycje → `czeka_na_pakowanie`, `set_quantity_done('packaging', 0,
 source='system')`, `packaging_completed_at = NULL`, `repack_required = 1`, paczki unieważnione, Base. 138620, po
 ponownym spakowaniu status po spakowaniu według sposobu. `transport` dostaje `repack_reason` (dla przepakowania na
-kuriera: „Przepakuj na kuriera”); `KSZTALT_ODPOWIEDZI_KOLEJKI` 3 → 4. Zamówienie na trasie zostaje na niej (kierowca
+kuriera: „Przepakuj na kuriera”); `KSZTALT_ODPOWIEDZI_KOLEJKI` 4 → 5 (w kroku 4.3; 4 = `packing_hint` z kroku 4.2). Zamówienie na trasie zostaje na niej (kierowca
 zobaczy „NIESPAKOWANE”).
 
 ### 8.5 Przejścia systemowe
@@ -440,7 +461,10 @@ Trasa z kodami paczek leży w telefonie; skany rozpoznawane lokalnie, akcje w ko
 Plan każdego kroku dostaje sesja appki. Zakres:
 1. `StationCode`: `VERIFICATION`, `DELIVERY` (telefon; poza kolejkami `activeStatuses`).
 2. Okno paczek na pakowaniu (tablet): Paczka/Paleta, kafelki 1–10, EUR/niestandardowa z wymiarem, zaznaczenie z
-   `packing_hint`; po „ZAKOŃCZ” domykającym zamówienie → `PUT …/packages` w kolejce offline; 404 = pomiń.
+   `packing_hint`; po „ZAKOŃCZ” domykającym zamówienie → `PUT …/packages` w kolejce offline; 404 = pomiń. Okno
+   pojawia się tylko przy obecnym `packing_hint` (stary backend go nie wysyła); kończy się „Zatwierdź” albo „Wróć”
+   (Wróć anuluje ZAKOŃCZ). Ponowny druk online przez `GET …/packages` (lista aktualnych paczek, druk jednej albo
+   wszystkich).
 3. Baner `repack_reason` (fallback: dzisiejszy tekst przy `repack_required`).
 4. Ekrany telefonowe: pion, jedna kolumna, ciemne, dotyk ≥ 48 dp, bez animacji; skaner w trybie ciągłym z haptyką;
    lokalne rozpoznawanie `P-<id>` i `N_S`; kolejka offline dla nowych akcji.
@@ -493,7 +517,7 @@ pytest (SQLite), usługi zewnętrzne zamockowane:
 - wywołania Base. (Załadowane, 149763, 149778, 417343 przy cofnięciach, 138620 przy cofnięciu do pakowania);
 - trasy: nowe statusy, zajętość, blokady edycji, „Odhacz” z Base., „Cofnij dostarczenie”, zakończenie załadunku ze
   „Zostaje”;
-- kontrakt API (kształty, ETag, `KSZTALT_ODPOWIEDZI_KOLEJKI = 4`, `is_driver` w katalogu), uprawnienia (401/403/400);
+- kontrakt API (kształty, ETag, `KSZTALT_ODPOWIEDZI_KOLEJKI = 5` po kroku 4.3 — 4 po kroku 4.2 z `packing_hint`, `is_driver` w katalogu), uprawnienia (401/403/400);
 - testy odwołujące się do `'spakowane'` przejrzane pod kątem 8.6.
 
 Migracje dodatkowo na MySQL (`db` i kopia produkcji). Po każdym kroku przegląd kodu całej zmiany i oględziny z danymi.
