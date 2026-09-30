@@ -21,9 +21,9 @@ from sqlalchemy.pool import StaticPool
 
 from extensions import db
 from modules.production.models import (
-    ProcessedMobileOperation, ProductionConfig, ProductionConfiguration,
-    ProductionDevice, ProductionOrder, ProductionProduct, ProductionReworkLog,
-    ProductionStationEvent, ProductionWorker,
+    LabelPrintJob, ProcessedMobileOperation, ProductionConfig, ProductionConfiguration,
+    ProductionDevice, ProductionOrder, ProductionPackage, ProductionProduct,
+    ProductionReworkLog, ProductionStationEvent, ProductionWorker,
 )
 from modules.production.logistics.models import LogisticsLog, OrderGeo, Route, RouteStop, Vehicle
 from modules.users.models import User
@@ -45,7 +45,7 @@ TABLES = [m.__table__ for m in (
     User, ProductionDevice, ProductionConfig, ProcessedMobileOperation,
     ProductionOrder, ProductionProduct, ProductionConfiguration,
     ProductionReworkLog, ProductionStationEvent, ProductionWorker, LogisticsLog, OrderGeo,
-    Vehicle, Route, RouteStop,
+    Vehicle, Route, RouteStop, LabelPrintJob, ProductionPackage,
 )]
 
 # LONGTEXT nie istnieje w SQLite — ten sam zabieg co w tests/test_routing_krawedzie.py.
@@ -100,12 +100,17 @@ def client(app):
 
 
 def zamowienie(sposob=None, statusy=('czeka_na_wyciecie',), delivery_method='Kurier DPD',
-               miasto='Kraków', bl_id=None, **kolumny):
-    """Zamówienie z jednym produktem na każdy podany status (quantity=2)."""
+               miasto='Kraków', bl_id=None, numer_wewnetrzny=None, **kolumny):
+    """Zamówienie z jednym produktem na każdy podany status (quantity=2).
+
+    `numer_wewnetrzny` — same cyfry jak na produkcji; potrzebne tam, gdzie numer idzie
+    w ścieżce URL (endpointy paczek).
+    """
     numer = next(_licznik)
     order = ProductionOrder(
         baselinker_order_id=bl_id if bl_id is not None else 700000 + numer,
-        internal_order_number='26/%05d' % numer,
+        internal_order_number=(numer_wewnetrzny if numer_wewnetrzny is not None
+                               else '26/%05d' % numer),
         client_name='Klient %d' % numer,
         delivery_method=delivery_method,
         delivery_address='ul. Testowa %d' % numer,

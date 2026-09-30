@@ -205,6 +205,9 @@ class ProductionOrder(db.Model):
     # Chwila, w której ostatni niezanulowany produkt wszedł do pakowania
     # („Zeszło z produkcji” w Arkuszu). Nazwa historyczna — kolumnę czyta raport.
     logistics_completed_at = Column(DateTime, index=True)
+    # Ostatnia ważna deklaracja paczek (logistyka etap 4, krok 4.2). Same paczki:
+    # ProductionPackage (prod_packages); aktualne = voided_at IS NULL.
+    packages_declared_at = Column(DateTime)
 
     shipping_package_id = Column(Integer)
     shipping_tracking_number = Column(String(100))
@@ -969,12 +972,63 @@ class LabelPrintJob(db.Model):
     # a stary agent (bez ?printers=) dostaje wyłącznie te zadania.
     printer = Column(String(20), nullable=False, default='etykiety', server_default='etykiety')
     # Paczka, której dotyczy etykieta (krok 4.2 — prod_packages); NULL dla etykiet produktów.
-    package_id = Column(Integer, nullable=True)
+    package_id = Column(Integer, ForeignKey('prod_packages.id', ondelete='SET NULL'), nullable=True)
     printed_at = Column(DateTime, nullable=True)
     error_message = Column(Text, nullable=True)
 
     def __repr__(self):
         return f'<LabelPrintJob {self.id} {self.short_product_id} {self.status}>'
+
+
+class ProductionPackage(db.Model):
+    """
+    Paczka albo paleta zamówienia (logistyka etap 4, spec 5.2). Kod na etykiecie i w QR:
+    'P-<id>'. Aktualna deklaracja zamówienia = jego paczki z voided_at IS NULL. Nowa
+    deklaracja (a od kroku 4.3 także cofnięcie do pakowania i doróbka) unieważnia
+    poprzednie — wiersze zostają, bo skan starej etykiety ma odpowiedzieć „nieaktualna”,
+    a nie „nie ma takiej paczki”.
+    """
+    __tablename__ = 'prod_packages'
+
+    RODZAJE = ('paczka', 'paleta')
+    TYPY_PALET = ('eur', 'niestandardowa')
+    SPOSOBY_POTWIERDZENIA = ('skan', 'reczne')
+
+    id = Column(Integer, primary_key=True)
+    order_id = Column(Integer, ForeignKey('prod_orders.id', ondelete='CASCADE'),
+                      nullable=False, index=True)
+    seq = Column(SmallInteger, nullable=False)              # 1..N w deklaracji
+    kind = Column(Enum(*RODZAJE, name='package_kind'), nullable=False)
+    pallet_type = Column(Enum(*TYPY_PALET, name='package_pallet_type'))
+    length_cm = Column(SmallInteger)                         # EUR 120x80, niestandardowa 20-400
+    width_cm = Column(SmallInteger)
+    declared_at = Column(DateTime, nullable=False, default=get_local_now)
+    declared_by_worker_id = Column(Integer)
+    declared_device_id = Column(Integer)                     # prod_devices.id
+    voided_at = Column(DateTime, index=True)
+    label_printed_at = Column(DateTime)
+    label_print_count = Column(Integer, nullable=False, default=0)
+    # Napis z pasa sposobu dostawy w chwili druku (np. 'TRASA: Rzeszow 07.10'). Inny napis
+    # dziś = etykieta sprzed zmiany — ikona w panelu Logistyki (decyzja Konrada 30.09).
+    label_delivery_text = Column(String(40))
+    # Weryfikacja (krok 4.3) i załadunek (krok 4.4).
+    verified_at = Column(DateTime)
+    verified_by_worker_id = Column(Integer)
+    verified_method = Column(Enum(*SPOSOBY_POTWIERDZENIA, name='package_verified_method'))
+    loaded_at = Column(DateTime)
+    loaded_by_worker_id = Column(Integer)
+    loaded_method = Column(Enum(*SPOSOBY_POTWIERDZENIA, name='package_loaded_method'))
+    loaded_route_id = Column(Integer)
+
+    order = relationship('ProductionOrder')
+
+    @property
+    def kod(self):
+        """Kod paczki na etykiecie, w QR i w API: 'P-<id>'."""
+        return 'P-%d' % self.id
+
+    def __repr__(self):
+        return f'<ProductionPackage P-{self.id} order={self.order_id} seq={self.seq}>'
 
 
 class ProductionSecurityEvent(db.Model):

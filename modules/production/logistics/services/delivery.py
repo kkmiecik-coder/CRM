@@ -42,11 +42,11 @@ def wszystkie_spakowane(order):
 
 
 def zapisz_log(order, akcja, stara=None, nowa=None, user_id=None, note=None,
-               route_id=None, teraz=None):
+               route_id=None, teraz=None, worker_id=None, device_id=None):
     db.session.add(LogisticsLog(
         order_id=order.id, action=akcja, old_value=stara, new_value=nowa,
-        user_id=user_id, note=note, route_id=route_id,
-        created_at=teraz or get_local_now()))
+        user_id=user_id, worker_id=worker_id, device_id=device_id, note=note,
+        route_id=route_id, created_at=teraz or get_local_now()))
 
 
 def podbij_pozycje(order, teraz):

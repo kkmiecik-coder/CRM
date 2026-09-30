@@ -8,7 +8,8 @@ from extensions import db
 from modules.production.models import get_local_now
 
 AKCJE_LOGU = ('sposob_dostawy', 'wydane', 'przepakowanie',
-              'trasa_dodane', 'trasa_usuniete', 'trasa_status', 'adres')
+              'trasa_dodane', 'trasa_usuniete', 'trasa_status', 'adres',
+              'paczki')
 
 
 class LogisticsLog(db.Model):
@@ -23,6 +24,10 @@ class LogisticsLog(db.Model):
     new_value = Column(String(64))
     route_id = Column(Integer)
     user_id = Column(Integer, index=True)
+    # Akcje z tabletów i telefonów (etap 4) mają pracownika i urządzenie (prod_devices.id),
+    # a nie użytkownika panelu.
+    worker_id = Column(Integer)
+    device_id = Column(Integer)
     note = Column(String(255))
     created_at = Column(DateTime, nullable=False, default=get_local_now, index=True)
 

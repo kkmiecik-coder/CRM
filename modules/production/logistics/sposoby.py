@@ -39,6 +39,13 @@ STATUS_DOSTARCZONE_TRANSPORT = 149778
 STATUS_PO_SPAKOWANIU = {KURIER: STATUS_SPAKOWANE, TRANSPORT: STATUS_PLANOWANA_TRASA,
                         ODBIOR: STATUS_CZEKA_NA_ODBIOR}
 
+# Szacunek wagi drewna (logistyka etap 4, spec 7.1): podpowiedź paczek na tablecie pakowania,
+# podsumowanie trasy i eksport Routimo liczą z tej samej gęstości (etykieta paczki ma kopię
+# w package_label — test pilnuje zgodności).
+WAGA_KG_NA_M3 = 800
+# Podpowiedź na tablecie pakowania: szacunek powyżej progu → paleta EUR, do progu → paczka.
+PROG_PALETY_KG = 40
+
 NIE_USTAWIONO = 'Nie ustawiono'
 _ETYKIETA = {KURIER: 'Kurier', TRANSPORT: 'Transport WoodPower', ODBIOR: 'Odbiór osobisty'}
 
