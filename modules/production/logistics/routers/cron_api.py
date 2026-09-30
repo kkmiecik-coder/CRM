@@ -4,8 +4,8 @@ Cron logistyki — co godzinę z crontaba serwera:
     scripts/cron_endpoint.sh POST /production/api/logistics/cron
 
 Endpoint NIE wykonuje długiej pracy: sync worker gunicorna ma 30 s na żądanie.
-Przenosi osierocone `czeka_na_logistyke` do pakowania, przestawia pozycje już wydanych
-zamówień na `dostarczone` (okno wdrożenia kroku 4.3), przelicza cykl zamówień
+Przenosi osierocone `czeka_na_logistyke` do pakowania, raz (znacznik w prod_config) przestawia
+pozycje już wydanych zamówień na `dostarczone` (okno wdrożenia kroku 4.3), przelicza cykl zamówień
 (szybkie, w bazie) i uruchamia w tle dopychacz Base. oraz geokoder adresów.
 """
 import traceback
@@ -37,7 +37,10 @@ def cron():
                 'przeniesione': przeniesione})
         # Okno wdrożenia kroku 4.3: pozycje już wydanych odbiorów osobistych przestawiamy na
         # 'dostarczone' dopiero po restarcie (migracja tego nie robi — stary kod nie zna wartości
-        # ENUM, patrz delivery.dostarcz_wydane). Po pierwszym przebiegu zwraca 0.
+        # ENUM, patrz delivery.dostarcz_wydane). JEDNORAZOWO: po pierwszym udanym przebiegu w
+        # prod_config zostaje znacznik `logistyka_wydane_dostarczone` i kolejne przebiegi zwracają 0
+        # bez pytania o pozycje — inaczej co godzinę przestawialibyśmy na 'dostarczone' pozycje wydanego
+        # zamówienia, które wróciły z doróbki i są znów spakowane, choć klient ich nie odebrał.
         wydane_dostarczone = delivery.dostarcz_wydane()
         if wydane_dostarczone:
             logger.info('CRON: pozycje wydanych zamówień przestawione na dostarczone', extra={

@@ -8,6 +8,7 @@ sposobu dostawy, przepakowanie i log szły w jednej transakcji.
 import re
 
 from sqlalchemy import and_, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from extensions import db
@@ -475,20 +476,58 @@ def przenies_osierocone_z_logistyki(teraz=None):
     return len(produkty)
 
 
+# Znacznik w prod_config: przestawienie wydanych zamówień na 'dostarczone' (dostarcz_wydane) już się odbyło.
+KLUCZ_WYDANE_DOSTARCZONE = 'logistyka_wydane_dostarczone'
+
+
+def _znacznik_wydane_dostarczone():
+    """Wiersz prod_config ze znacznikiem dostarcz_wydane albo None, gdy przestawienie jeszcze się nie odbyło."""
+    from modules.production.models import ProductionConfig
+    return ProductionConfig.query.filter_by(config_key=KLUCZ_WYDANE_DOSTARCZONE).first()
+
+
 def dostarcz_wydane(teraz=None):
     """
     Pozycje 'spakowane' zamówień już wydanych klientowi (handed_over_at) → 'dostarczone'.
-    Zwraca liczbę przestawionych pozycji.
+    Zwraca liczbę przestawionych pozycji. JEDNORAZOWE: po pierwszym udanym przebiegu w prod_config
+    zostaje znacznik `logistyka_wydane_dostarczone` (chwila przebiegu, '%Y-%m-%d %H:%M:%S', te same
+    pola co `weryfikacja.data_wdrozenia()`), a każdy kolejny przebieg widzi go i zwraca 0, nie pytając
+    o pozycje.
 
     Od kroku 4.3 „Wydane klientowi” ustawia 'dostarczone' samo (delivery.wydaj), ale zamówienia
     wydane wcześniej zostały ze 'spakowane'. Migracja tego NIE robi: deploy.sh wykonuje ją PRZED
     restartem, a stary kod w oknie wdrożenia ma Enum bez 'dostarczone' — pierwszy odczyt takiego
     wiersza rzuciłby LookupError (500 na listach). Dlatego przepisanie idzie z crona po restarcie,
     przez ORM (audyt prod_product_events działa tylko tam) i z podbiciem updated_at (ETag kolejek
-    tabletów). Idempotentne: gdy nic nie zostało, zwraca 0.
+    tabletów). Obejmuje zamówienia wydane przed wdrożeniem, także te wydane przez stary kod w oknie
+    między migracją a restartem.
+
+    DLACZEGO TYLKO RAZ: cron chodzi co godzinę bez ograniczeń. Zamówienie wydane klientowi, w którym
+    pozycja przeszła doróbkę albo Base. dołożył nową, po ponownym spakowaniu jest znów 'spakowane'
+    przy niezmienionym handed_over_at. Przebieg „zawsze” przestawiłby ją po godzinie na 'dostarczone',
+    choć klient jej nie odebrał. Po znaczniku taka pozycja zostaje 'spakowane'.
+
+    Znacznik powstaje także wtedy, gdy nie było nic do przestawienia, i w tej samej transakcji co
+    przestawienie (commituje wołający): nieudany przebieg cofa jedno i drugie, więc następny powtórzy
+    całość. Dwa równoległe przebiegi: `config_key` ma unikalność (model `ProductionConfig`), więc
+    znacznik wstawiamy PRZED przestawieniem, w SAVEPOINT. Drugi przebieg czeka na pierwszy (klucz
+    unikalny), po jego commicie dostaje duplikat, łapie go i zwraca 0 bez błędu — pozycji nie rusza.
     """
-    from modules.production.models import ProductionOrder, ProductionProduct
+    from modules.production.models import ProductionConfig, ProductionOrder, ProductionProduct
     teraz = teraz or get_local_now()
+    if _znacznik_wydane_dostarczone() is not None:
+        return 0
+    try:
+        with db.session.begin_nested():
+            db.session.add(ProductionConfig(
+                config_key=KLUCZ_WYDANE_DOSTARCZONE,
+                config_value=teraz.strftime('%Y-%m-%d %H:%M:%S'),
+                config_type='string',
+                config_description=u'Logistyka: wydane zamówienia przestawione na dostarczone (krok 4.3, jednorazowo)'))
+            db.session.flush()
+    except IntegrityError:
+        # Równoległy przebieg zdążył ze znacznikiem (i z przestawieniem) — nic do roboty.
+        return 0
     produkty = (ProductionProduct.query
                 .join(ProductionOrder, ProductionOrder.id == ProductionProduct.order_id)
                 .filter(ProductionOrder.handed_over_at.isnot(None),

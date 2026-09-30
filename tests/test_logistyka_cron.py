@@ -6,7 +6,7 @@ import pytest
 from extensions import db
 from modules.production.logistics import sposoby as s
 from modules.production.logistics.services import bl_sync, geocoding
-from modules.production.models import ProductionOrder
+from modules.production.models import ProductionConfig, ProductionOrder
 from tests.logistyka_fixtures import BASE, SEKRET_CRONA, app, client, produkt, zamowienie  # noqa: F401
 
 NAGLOWEK = {'X-Cron-Secret': SEKRET_CRONA}
@@ -192,6 +192,8 @@ def test_dostarcz_wydane_przestawia_tylko_spakowane_wydanych(app):
         assert [p.current_status for p in w_produkcji.products] == ['czeka_na_pakowanie']
         # idempotentnie: drugi przebieg nie ma czego przestawiać
         assert delivery.dostarcz_wydane(teraz) == 0
+        znacznik = ProductionConfig.query.filter_by(config_key=delivery.KLUCZ_WYDANE_DOSTARCZONE).one()
+        assert znacznik.config_value == '2026-10-01 08:00:00'   # chwila pierwszego przebiegu
 
 
 def test_cron_przestawia_wydane_na_dostarczone(client, app, watki):
@@ -209,3 +211,97 @@ def test_cron_przestawia_wydane_na_dostarczone(client, app, watki):
         assert order.logistics_closed_at is not None   # zamkniecie wydanego odbioru zostaje
     # idempotentnie: kolejny przebieg nic nie przestawia
     assert client.post(BASE + '/cron', headers=NAGLOWEK).get_json()['wydane_dostarczone'] == 0
+
+
+# ── Jednorazowość przestawienia wydanych (fala końcowa 4.3, F1/I1) ──────────────────────────────
+# Znacznik `logistyka_wydane_dostarczone` w prod_config: pierwszy udany przebieg przestawia pozycje
+# wydanych zamówień i go zapisuje, kolejne zwracają 0 bez pytania o pozycje. Bez niego cron co godzinę
+# „dostarczałby” pozycje wydanego zamówienia, które wróciły z doróbki i są znów spakowane.
+
+def _znacznik():
+    return ProductionConfig.query.filter_by(config_key='logistyka_wydane_dostarczone').all()
+
+
+def test_pierwszy_przebieg_przestawia_wydane_i_zapisuje_znacznik(client, app, watki):
+    """(a) Pierwszy przebieg: wydane 'spakowane' → 'dostarczone' i znacznik z chwilą przebiegu."""
+    with app.app_context():
+        order = zamowienie(sposob=s.ODBIOR, statusy=('spakowane', 'spakowane'),
+                           handed_over_at=datetime(2026, 9, 20), logistics_closed_at=datetime(2026, 9, 20))
+        order_id = order.id
+        assert _znacznik() == []
+    assert client.post(BASE + '/cron', headers=NAGLOWEK).get_json()['wydane_dostarczone'] == 2
+    with app.app_context():
+        assert [p.current_status for p in ProductionOrder.query.get(order_id).products] ==             ['dostarczone', 'dostarczone']
+        znacznik = _znacznik()
+        assert len(znacznik) == 1
+        datetime.strptime(znacznik[0].config_value, '%Y-%m-%d %H:%M:%S')   # format jak weryfikacja.data_wdrozenia()
+
+
+def test_po_znaczniku_pozycja_wydanego_po_dorobce_zostaje_spakowana(client, app, watki):
+    """(b) Po znaczniku: pozycja wydanego zamówienia wróciła do produkcji (doróbka) i znów jest
+    'spakowane' — kolejny przebieg jej nie rusza, bo klient jej nie odebrał. Tak samo nowa pozycja
+    wydanego zamówienia, spakowana już po przebiegu."""
+    with app.app_context():
+        order = zamowienie(sposob=s.ODBIOR, statusy=('spakowane', 'spakowane'),
+                           handed_over_at=datetime(2026, 9, 20), logistics_closed_at=datetime(2026, 9, 20))
+        order_id = order.id
+    assert client.post(BASE + '/cron', headers=NAGLOWEK).get_json()['wydane_dostarczone'] == 2
+    with app.app_context():
+        order = ProductionOrder.query.get(order_id)
+        dorobka = order.products[0]
+        dorobka.current_status = 'czeka_na_pakowanie'     # doróbka: pozycja wraca do produkcji
+        db.session.commit()
+        dorobka.current_status = 'spakowane'              # i znów jest spakowana (complete_task)
+        produkt(order, status='spakowane')                # Base. dołożył pozycję, też spakowana
+        db.session.commit()
+    assert client.post(BASE + '/cron', headers=NAGLOWEK).get_json()['wydane_dostarczone'] == 0
+    with app.app_context():
+        assert [p.current_status for p in ProductionOrder.query.get(order_id).products] ==             ['spakowane', 'dostarczone', 'spakowane']
+        assert len(_znacznik()) == 1
+
+
+def test_przebieg_na_pustej_bazie_ustawia_znacznik_i_zwraca_zero(client, app, watki):
+    """(c) Nic do przestawienia: znacznik i tak powstaje (inaczej każdy przebieg pytałby o pozycje)."""
+    from modules.production.logistics.services import delivery
+    with app.app_context():
+        assert ProductionOrder.query.count() == 0 and _znacznik() == []
+        assert delivery.dostarcz_wydane(datetime(2026, 10, 1, 8, 0)) == 0
+        db.session.commit()
+        assert [z.config_value for z in _znacznik()] == ['2026-10-01 08:00:00']
+    r = client.post(BASE + '/cron', headers=NAGLOWEK)
+    assert r.status_code == 200 and r.get_json()['wydane_dostarczone'] == 0
+    with app.app_context():
+        assert len(_znacznik()) == 1                      # kolejny przebieg nie dubluje znacznika
+
+
+def test_przebieg_ze_znacznikiem_nie_pyta_o_pozycje(app):
+    from sqlalchemy import event
+    from modules.production.logistics.services import delivery
+    with app.app_context():
+        zamowienie(sposob=s.ODBIOR, statusy=('spakowane',), handed_over_at=datetime(2026, 9, 20))
+        assert delivery.dostarcz_wydane() == 1
+        db.session.commit()
+
+        zapytania = []
+        event.listen(db.engine, 'before_cursor_execute',
+                     lambda conn, cursor, statement, *a, **k: zapytania.append(statement))
+        assert delivery.dostarcz_wydane() == 0
+        assert zapytania and not any('prod_products' in z for z in zapytania)   # tylko odczyt znacznika
+
+
+def test_rownolegly_przebieg_z_duplikatem_znacznika_konczy_sie_zerem_bez_bledu(app, monkeypatch):
+    """Dwa przebiegi naraz: drugi nie widzi jeszcze znacznika pierwszego (odczyt sprzed jego commitu),
+    wstawia własny i dostaje duplikat klucza. Ma zwrócić 0 bez wyjątku, nie ruszyć pozycji, a sesja
+    zostaje sprawna (wołający commituje dalej)."""
+    from modules.production.logistics.services import delivery
+    with app.app_context():
+        order = zamowienie(sposob=s.ODBIOR, statusy=('spakowane',), handed_over_at=datetime(2026, 9, 20))
+        assert delivery.dostarcz_wydane() == 1                     # „pierwszy” przebieg, zacommitowany
+        db.session.commit()
+        order.products[0].current_status = 'spakowane'             # pozycja wróciła po doróbce
+        db.session.commit()
+        monkeypatch.setattr(delivery, '_znacznik_wydane_dostarczone', lambda: None)   # odczyt „sprzed commitu”
+        assert delivery.dostarcz_wydane() == 0
+        db.session.commit()
+        assert order.products[0].current_status == 'spakowane'
+        assert len(_znacznik()) == 1
