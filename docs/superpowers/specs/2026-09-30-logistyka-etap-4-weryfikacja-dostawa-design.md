@@ -193,12 +193,12 @@ i powód idą w `note`.
 - Ustawienia drukarki paczek w panelu konfiguracji produkcji (`prod_config`, jak `LABEL_PRINTER_*`):
   `PACKAGE_LABEL_OFFSET_X_DOTS`, `PACKAGE_LABEL_OFFSET_Y_DOTS` (przesunięcie w punktach dodawane do współrzędnych
   każdego pola — `^LH` nie przyjmuje wartości ujemnych; domyślnie 0, zakres ±120) i przycisk
-  **„Wydruk próbny”** dla każdej drukarki (zadanie z etykietą testową: ramka z marginesem 3 mm, miarka w rogach, QR).
+  **„Wydruk próbny”** dla każdej drukarki (zadanie z etykietą testową: ramka 3 mm od krawędzi, bieżące przesunięcie, QR).
   Oba klucze zakłada migracja `2026-09-30-druk-klucze-przesuniecia.sql` (typ `integer`, wartość 0), a
   `config_service` waliduje je po nazwie klucza (liczba całkowita −120…120). Powód: zapis klucza bez wiersza w
   `prod_config` dostawał typ zgadywany z wartości (`json`/`string`) i omijał walidację.
 - Stanowiska uprawnione do etykiet paczek: `packaging` i `verification` (stała, niezależna od
-  `LABEL_PRINTER_ALLOWED_STATIONS` dla etykiet produktów).
+  `LABEL_PRINTER_ALLOWED_STATIONS` dla etykiet produktów) (przeniesione do kroku 4.2).
 
 ### 6.2 Agent (`tools/print_agent/`)
 
@@ -206,10 +206,12 @@ i powód idą w `note`.
   9100) albo `type = windows` (`name` = nazwa kolejki wydruku Windows; surowe bajty przez `winspool.drv`
   `OpenPrinter/StartDocPrinter(RAW)/WritePrinter` na `ctypes`, bez zewnętrznych pakietów). Stara sekcja `[printer]`
   czytana jako `etykiety`. Nazwy drukarek nie rozróżniają wielkości liter.
-- Agent pyta o zadania wszystkich skonfigurowanych drukarek jednym zapytaniem i kieruje każde według `printer`.
-  Nieznana drukarka → zadanie zostaje `pending` (log ostrzeżenia), nie `failed`.
-- Awaria jednej drukarki nie wstrzymuje drugiej (osobne liczniki błędów i ponowień). Kolejkę `etykiety` agent
-  zawsze obsługuje **pierwszą** — martwa drukarka paczek nie opóźnia etykiet produktów.
+- Agent pyta o zadania osobno dla każdej skonfigurowanej drukarki (jedno `GET` z `?printers=<nazwa>` na drukarkę),
+  a kolejkę `etykiety` obsługuje zawsze **pierwszą** — martwa drukarka paczek nie opóźnia etykiet produktów.
+- Nieudany wydruk przerywa partię tej drukarki: jedno zadanie dostaje `failed`, reszta partii zostaje `pending`.
+  Osobnych liczników błędów ani ponowień per drukarka nie ma. Zadania innej drukarki (np. od starego serwera, który
+  ignoruje `?printers=`) agent po cichu zostawia jako `pending`; ostrzeżenie o nieznanej nazwie drukarki pojawia się
+  tylko przy wczytaniu konfiguracji.
 - Nieudany zapis w trybie `windows` kończy się `AbortPrinter` (dokument jest anulowany, nie wysyłany do drukarki
   jako urwany). W tym trybie „sukces” oznacza „przyjęte przez spooler Windows”, a nie „wydrukowane” — agent nie
   widzi błędów samej drukarki (brak papieru, otwarta pokrywa).
@@ -219,8 +221,11 @@ i powód idą w `note`.
 
 ### 6.3 Etykieta paczki (ZPL, 100×150 mm, 203 dpi = 800×1200 punktów)
 
-Nowa funkcja `generate_package_label_zpl(package, order, cfg)` w `label_print_service.py`. Tekst transliterowany do ASCII
-tą samą mapą co etykiety produktów (`label_print_service.py:38`), `^ i ~` usuwane z danych. Treść w marginesie ≥ 3 mm,
+Funkcja `package_label.generate_package_label_zpl(dane: DaneEtykietyPaczki, przesuniecie)` w
+`modules/production/services/package_label.py`; kolejkowanie przez `print_queue_service.zakolejkuj_zpl(...)` (flush,
+bez commita — commit i sygnał dla agenta robi wywołujący). Krok 4.2 buduje `DaneEtykietyPaczki` z `prod_packages`.
+Tekst transliterowany do ASCII (polskie litery jak na etykietach produktów, reszta spoza ASCII usuwana),
+`^ i ~` usuwane z danych. Treść w marginesie ≥ 3 mm,
 dół treści ≤ 1130 punktów (zapas na przesunięcie). Układ (wzór wydrukowany 30.09 na zamówieniu 1450):
 
 1. **Nagłówek:** „ZAMOWIENIE” i duży numer wewnętrzny; po prawej czarny kafel „PACZKA” / „PALETA” i „2 / 3”.
@@ -234,10 +239,11 @@ dół treści ≤ 1130 punktów (zapas na przesunięcie). Układ (wzór wydrukow
    (w ZPL `~` zaczyna komendy sterujące, więc w etykiecie nie występuje nigdzie), „N poz. / N szt. / m³”, data spakowania.
 5. **Zawartość zamówienia:** wiersze „n. Gatunek technologia klasa DxSxG cm … N szt.” (wykończenie, gdy nie surowe);
    do 14 wierszy, przy większej liczbie 13 wierszy i „+ N pozycji (N szt.) – pełna lista w CRM”.
-6. **Stopka:** numer Base., numer zamówienia klienta, „WoodPower, Bachorz 14N”.
+6. **Stopka:** numer Base., numer zamówienia klienta (ucięty do 15 znaków, by całość mieściła się w jednej linii),
+   „WoodPower, Bachorz 14N”.
 
 Etykieta nie jest przedrukowywana automatycznie po zmianie sposobu dostawy albo trasy; panel pokazuje ikonę „etykiety
-paczek sprzed zmiany” (jak dla etykiet produktów w etapie 1).
+paczek sprzed zmiany” (jak dla etykiet produktów w etapie 1) (przeniesione do kroku 4.2).
 
 ### 6.4 Drukarka — ustalenia z testu 30.09
 
@@ -248,6 +254,16 @@ na etykiecie z wolnym miejscem ok. 4 mm u góry i 2 mm na dole. Wniosek: **kalib
 krokiem instalacji** (i po każdej zmianie rolki na inną), treść etykiety trzyma margines ≥ 3 mm, a resztę wyrównuje
 przesunięcie w ustawieniach (6.1; na drukarce testowej ok. −8 punktów w pionie). Drukarka ma adres fabryczny spoza
 sieci hali — konfiguracja sieci drukarki to krok wdrożenia 4.1, na hali.
+
+Dalsze ustalenia z testu 30.09 (z Konradem, XP-410B):
+
+- **Prędkość druku:** 3 cale/s (`^PR3`) daje wyraźnie lepszą czerń niż domyślne 6; komenda jest w etykiecie paczki i
+  w wydruku próbnym (stała `PREDKOSC_DRUKU_CALE_S`). Ok. 2 s na etykietę nie ma znaczenia przy pakowaniu.
+- **Ściskanie wydruku w pionie** brało się z tarcia dużej rolki opartej o spód drukarki (mechanika, nie ZPL). Przy
+  instalacji na hali: uchwyt rolki zewnętrzny albo mniejsza rolka, potem `--kalibruj wysylka`, wydruk próbny i dopiero
+  ustawienie przesunięcia.
+- **Stan wdrożenia:** nowy agent działa na hali od 30.09 (etykiety produktów); drukarka paczek nie jest tam jeszcze
+  podłączona.
 
 ## 7. Krok 4.2 — paczki na pakowaniu
 
