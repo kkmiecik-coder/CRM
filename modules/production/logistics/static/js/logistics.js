@@ -876,6 +876,7 @@
         const ikony = [];
         if (w.przepakowanie) ikony.push(ikona('fa-box-open', 'lg-ikona--przepakowanie', 'Czeka na przepakowanie na kuriera'));
         if (w.etykiety_sprzed_zmiany) ikony.push(ikona('fa-tags', 'lg-ikona--etykiety', 'Etykiety wydrukowane przed zmianą sposobu dostawy'));
+        if (w.etykiety_paczek_sprzed_zmiany) ikony.push(ikona('fa-box', 'lg-ikona--etykiety', 'Etykiety paczek sprzed zmiany sposobu dostawy lub trasy. Wydrukuj je ponownie na pakowaniu.'));
         if (w.base_czeka) ikony.push(ikona('fa-cloud-arrow-up', 'lg-ikona--base', 'Base.: czeka na wysłanie'));
         if (w.geo && w.geo.adres_zmieniony) {
             ikony.push(ikona('fa-map-location-dot', 'lg-ikona--adres',

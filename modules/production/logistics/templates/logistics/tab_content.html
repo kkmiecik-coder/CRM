@@ -278,6 +278,7 @@
         <div class="lg-legenda">
           <span><i class="fas fa-box-open lg-ikona--przepakowanie" aria-hidden="true"></i>czeka na przepakowanie na kuriera</span>
           <span><i class="fas fa-tags lg-ikona--etykiety" aria-hidden="true"></i>etykiety wydrukowane przed zmianą sposobu</span>
+          <span><i class="fas fa-box lg-ikona--etykiety" aria-hidden="true"></i>etykiety paczek sprzed zmiany sposobu lub trasy</span>
           <span><i class="fas fa-cloud-arrow-up lg-ikona--base" aria-hidden="true"></i>Base.: czeka na wysłanie</span>
           <span><img class="lg-logo-base" src="{{ url_for('logistics_panel.static', filename='img/base-logo.png') }}?v=20260925a" alt="" width="16" height="16">podpowiedź sposobu z metody w Base.</span>
           <span><i class="fas fa-map-location-dot lg-ikona--adres" aria-hidden="true"></i>adres zmieniony po ręcznym ustawieniu punktu</span>
@@ -698,6 +699,6 @@
         });
 })();
 </script>
-<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20260928d"></script>
+<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20260930a"></script>
 <script src="{{ url_for('logistics_panel.static', filename='js/logistics-fleet.js') }}?v=20260928b"></script>
 <script src="{{ url_for('logistics_panel.static', filename='js/logistics-wojewodztwa.js') }}?v=20260928a"></script>

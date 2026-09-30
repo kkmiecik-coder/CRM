@@ -508,8 +508,9 @@ def test_pozycje_bez_zapytania_na_kazda_pozycje(app):
             event.remove(db.engine, 'before_cursor_execute', sluchacz)
         assert len(wiersze) == 6 and all(w['pozycje'][0]['gatunek'] == 'Dąb' for w in wiersze)
         # Stała liczba, niezależna od liczby pozycji: zamówienia, pozycje, konfiguracje, punkty
-        # mapy, trasy (etap 3: routes.trasy_zamowien — jedno zapytanie JOIN na całą listę).
-        assert len(zapytania) <= 5
+        # mapy, trasy (etap 3: routes.trasy_zamowien — jedno zapytanie JOIN na całą listę),
+        # paczki (etap 4: paczki.aktualne_paczki_zamowien — jedno zapytanie na całą listę).
+        assert len(zapytania) <= 6
 
 
 def test_wiersz_rozwija_sie_po_kliknieciu_w_tlo():

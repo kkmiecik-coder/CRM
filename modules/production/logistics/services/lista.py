@@ -7,8 +7,8 @@ from sqlalchemy.orm import selectinload
 
 from extensions import db
 from modules.production.logistics import sposoby, wojewodztwa
-from modules.production.logistics.models import RouteStop
-from modules.production.logistics.services import geocoding, routes
+from modules.production.logistics.models import RouteStop, STATUSY_TRASY_AKTYWNE
+from modules.production.logistics.services import geocoding, paczki, paczki_druk, routes
 from modules.production.logistics.services.delivery import aktywne_produkty, wszystkie_spakowane
 from modules.production.models import ProductionOrder, ProductionProduct
 from modules.production.services.station_catalog import STATION_LABELS, STATION_PENDING_STATUS
@@ -136,7 +136,25 @@ def _pozycja(p):
     }
 
 
-def serializuj(order, geo=None, trasa=None):
+def _etykiety_paczek_sprzed_zmiany(order, trasa, paczki_zamowienia):
+    """
+    Spec 6.3: etykiety paczki nie przedrukowujemy sami po zmianie sposobu dostawy albo
+    trasy — panel pokazuje ikonę, gdy napis z pasa na wydrukowanej etykiecie (zapamiętany
+    na paczce) różni się od dzisiejszego. Liczy się tylko trasa aktywna: wykonana nie
+    trafia na etykietę (jak w paczki_druk.drukuj_etykiety → routes.trasa_dla_tabletu).
+    """
+    wydrukowane = [p for p in paczki_zamowienia if p.label_printed_at is not None]
+    if not wydrukowane:
+        return False
+    aktywna = trasa if trasa is not None and trasa.status in STATUSY_TRASY_AKTYWNE else None
+    napis = paczki_druk.napis_sposobu(order, aktywna)
+    return any(p.label_delivery_text != napis for p in wydrukowane)
+
+
+def serializuj(order, geo=None, trasa=None, paczki_zamowienia=None):
+    if paczki_zamowienia is None:
+        # Pojedynczy wiersz (odświeżenie po akcji) — listy podają mapę jednym zapytaniem.
+        paczki_zamowienia = paczki.aktualne_paczki(order.id)
     aktywne = aktywne_produkty(order)
     sposob = sposoby.normalizuj(order.override_delivery_method)
     terminy = [p.deadline_date for p in aktywne if p.deadline_date]
@@ -163,6 +181,7 @@ def serializuj(order, geo=None, trasa=None):
                            or order.bl_address_pending),
         'etykiety_sprzed_zmiany': bool(ustawiono) and any(
             p.label_printed_at is not None and p.label_printed_at < ustawiono for p in aktywne),
+        'etykiety_paczek_sprzed_zmiany': _etykiety_paczek_sprzed_zmiany(order, trasa, paczki_zamowienia),
         'przepakowanie': bool(order.repack_required),
         # Rozwijany wiersz listy: wszystkie pozycje (anulowane też — wyszarzone).
         'pozycje': [_pozycja(p) for p in sorted(
@@ -219,7 +238,9 @@ def pobierz(sposob=None, etap=None, q=None, zamkniete=False, woj=None):
     ids = [o.id for o in zamowienia]
     punkty = geocoding.geo_zamowien(ids)
     trasy = routes.trasy_zamowien(ids)
-    wiersze = [serializuj(o, punkty.get(o.id), trasy.get(o.id)) for o in zamowienia]
+    pakunki = paczki.aktualne_paczki_zamowien(ids)
+    wiersze = [serializuj(o, punkty.get(o.id), trasy.get(o.id), pakunki.get(o.id, []))
+               for o in zamowienia]
     if etap:
         wiersze = [w for w in wiersze if w['etap']['status'] == etap]
     return sorted(wiersze, key=_klucz)

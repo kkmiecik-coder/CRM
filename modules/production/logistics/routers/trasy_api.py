@@ -19,7 +19,7 @@ from extensions import db
 from modules.production.logistics import logistics_panel_bp
 from modules.production.logistics.models import Route, STATUSY_TRASY, Vehicle
 from modules.production.logistics.routers.panel_api import LIMIT_HURTU, _blad, _user_id, guard
-from modules.production.logistics.services import fleet, geocoding, lista, routes, routimo, routing
+from modules.production.logistics.services import fleet, geocoding, lista, paczki, routes, routimo, routing
 from modules.production.logistics.services.delivery import LogistykaBlad
 from modules.production.models import ProductionOrder, ProductionProduct
 
@@ -213,8 +213,10 @@ def _szczegoly(route, przelicz_wykonana=False):
             zamowienia = _zamowienia_z_produktami(route, swieze=True)
             punkty = geocoding.geo_zamowien([o.id for o in zamowienia])
     dane = routes.serializuj_trase(route, zamowienia, punkty)
+    pakunki = paczki.aktualne_paczki_zamowien([o.id for o in zamowienia])
     dane['przystanki'] = [{'pozycja': numer, 'anulowane': anulowane,
-                           'zamowienie': lista.serializuj(o, punkty.get(o.id), route)}
+                           'zamowienie': lista.serializuj(o, punkty.get(o.id), route,
+                                                          pakunki.get(o.id, []))}
                           for o, numer, anulowane in routes.numeracja_przystankow(zamowienia)]
     dane['przebieg'] = routing.przebieg(route)
     return dane

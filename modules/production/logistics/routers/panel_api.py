@@ -16,7 +16,7 @@ import modules.users.decorators as user_decorators
 from extensions import db
 from modules.logging import get_structured_logger
 from modules.production.logistics import logistics_panel_bp, sposoby, wojewodztwa
-from modules.production.logistics.services import bl_sync, delivery, geocoding, lista, routes
+from modules.production.logistics.services import bl_sync, delivery, geocoding, lista, paczki, routes
 from modules.production.models import ProductionOrder
 
 logger = get_structured_logger('production.logistics.panel_api')
@@ -180,9 +180,11 @@ def delivery_method():
                   .filter(ProductionOrder.id.in_(ids)).all())
     punkty = geocoding.geo_zamowien(ids)
     trasy = routes.trasy_zamowien(ids)
+    pakunki = paczki.aktualne_paczki_zamowien(ids)
     return jsonify({'success': True, 'zmienione': zmienione, 'przepakowanie': przepakowanie,
                     'bledy': bledy, 'usunieto_z_trasy': usunieto,
-                    'orders': [lista.serializuj(o, punkty.get(o.id), trasy.get(o.id))
+                    'orders': [lista.serializuj(o, punkty.get(o.id), trasy.get(o.id),
+                                                pakunki.get(o.id, []))
                               for o in odswiezone]})
 
 
