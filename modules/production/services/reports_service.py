@@ -49,6 +49,7 @@ from sqlalchemy import case, distinct, func
 
 from extensions import db
 from modules.logging import get_structured_logger
+from modules.production.logistics import sposoby
 
 from ..models import (
     ProductionOrder, ProductionProduct, ProductionReworkLog,
@@ -113,7 +114,7 @@ ETYKIETY_KOSZYKOW = {
 # Praca skończona albo odwołana wypada — wykres pokazuje stan bieżący, nie
 # historię. Zmierzone: bez tego filtra słupek „Po terminie" pokazuje 83.7 m³
 # zamiast 0.889, bo 2133 spakowanych pozycji ma termin w przeszłości.
-STATUSY_ZAMKNIETE = ('spakowane', 'anulowane')
+STATUSY_ZAMKNIETE = sposoby.STATUSY_PO_SPAKOWANIU + ('anulowane',)
 
 # Etapy w toku, które nie są stanowiskiem. To nazwy STATUSÓW, nie stanowisk,
 # więc station_catalog ich nie dotyczy i nic się nie rozjeżdża.

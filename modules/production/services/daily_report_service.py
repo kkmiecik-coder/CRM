@@ -19,6 +19,7 @@ from datetime import datetime, time
 from sqlalchemy import func
 
 from extensions import db
+from modules.production.logistics import sposoby
 from ..models import (
     ProductionOrder, ProductionProduct, ProductionStationEvent,
     ProductionStationEventWorker, get_local_now,
@@ -47,7 +48,7 @@ def _granice_doby(dzien):
 # 'wstrzymane' NIE jest tu celowo — panel (reports_service.STATUSY_ZAMKNIETE:116)
 # wyklucza tylko te dwa i trzyma wstrzymane jako osobny segment, żeby wstrzymana
 # pozycja po terminie była widoczna. Mail ma pokazywać to samo co panel.
-_STATUSY_POZA_BACKLOGIEM = ('spakowane', 'anulowane')
+_STATUSY_POZA_BACKLOGIEM = sposoby.STATUSY_PO_SPAKOWANIU + ('anulowane',)
 
 
 def _cofniecia_stanowisk(dzien):

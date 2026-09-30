@@ -212,3 +212,30 @@ def test_endpoint_oznacza_spakowane_data_i_bez_stanowiska(app):
     assert statusy[0] == ('czeka_na_pakowanie', None, 'packaging')
     assert ('spakowane', '2026-09-21T14:30:00', None) in statusy
     assert ('spakowane', None, None) in statusy
+
+
+def test_zamowienie_zweryfikowane_i_dostarczone_idzie_do_archiwum(app):
+    _zamowienie(app, '700', [dict(current_status='zweryfikowane', priority_rank=1,
+                                  packaging_completed_at=datetime(2026, 10, 1, 8))])
+    _zamowienie(app, '710', [dict(current_status='dostarczone',
+                                  packaging_completed_at=datetime(2026, 9, 30, 8))])
+    _zamowienie(app, '720', [dict(current_status='czeka_na_krawedzie', priority_rank=9)])
+    with app.app_context():
+        items, _more, _total = search_orders_global('Kowalski', limit=50)
+    assert _numery(items) == ['720', '700', '710']
+
+
+def test_endpoint_oznacza_date_spakowania_po_weryfikacji(app):
+    _zamowienie(app, '730', [dict(current_status='zweryfikowane',
+                                  packaging_completed_at=datetime(2026, 10, 1, 9, 15))])
+    with app.app_context():
+        device = ProductionDevice(device_id='TAB-S2', device_name='Tablet', station_code='formatting')
+        db.session.add(device)
+        db.session.commit()
+        token = generate_token(device)
+    odp = app.test_client().get('/api/mobile/orders/search?q=Kowalski',
+                                headers={'Authorization': 'Bearer ' + token, 'X-App-Version': '1.0.0'})
+    assert odp.status_code == 200, odp.get_json()
+    wiersze = [(o['status'], o['packed_at'], o['current_station']) for o in odp.get_json()['orders']]
+    assert wiersze == [('zweryfikowane', '2026-10-01T09:15:00', None)]
+

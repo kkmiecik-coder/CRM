@@ -503,3 +503,17 @@ def test_pusty_wynik_ma_spojna_paginacje_i_statystyki(app, client):
     assert dane['pagination']['has_next'] is False
     assert dane['stats']['archive']['orders_count'] == 0
     assert dane['stats']['archive']['avg_realization_days'] is None
+
+
+def test_zamowienia_po_weryfikacji_i_wydaniu_zostaja_w_archiwum(app, client):
+    """Krok 4.3: statusy po spakowaniu to dalej „zakończone produkcyjnie” (regułę zmieni krok 4.5)."""
+    baza = datetime(2026, 10, 1, 12, 0, 0)
+    _zamowienie(app, '26/00011', [{'status': 'zweryfikowane', 'packaging_completed_at': baza}],
+                bl_id=555011)
+    _zamowienie(app, '26/00012', [{'status': 'dostarczone', 'packaging_completed_at': baza},
+                                  {'status': 'spakowane', 'packaging_completed_at': baza}], bl_id=555012)
+    _zamowienie(app, '26/00013', [{'status': 'zweryfikowane', 'packaging_completed_at': baza},
+                                  {'status': 'czeka_na_wyciecie'}], bl_id=555013)
+    numery = set(_numery(_archiwum(client)))
+    assert {'26/00011', '26/00012'} <= numery and '26/00013' not in numery
+

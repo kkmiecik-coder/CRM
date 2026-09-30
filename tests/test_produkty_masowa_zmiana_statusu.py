@@ -22,6 +22,8 @@ plik w pakiecie — listener audytu milczy w całym przebiegu i tak ma zostać.
 import os
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from extensions import db
@@ -85,3 +87,25 @@ def test_inne_akcje_nie_wymagaja_statusu(client, app):
     assert r.status_code == 200, r.get_data()[:500]
     with app.app_context():
         assert db.session.get(ProductionProduct, pid).priority_rank == 42
+
+
+@pytest.mark.parametrize('status', ['zweryfikowane', 'zaladowane', 'dostarczone'])
+def test_statusow_logistyki_nie_ustawia_sie_recznie(client, app, status):
+    """Spec 8.6: nowe statusy nadaje tylko logistyka — hurtowa zmiana ich nie oferuje."""
+    pid, _ = produkt(app, status='czeka_na_pakowanie')
+    r = _masowo(client, [pid], status)
+    assert r.status_code == 400
+    with app.app_context():
+        assert db.session.get(ProductionProduct, pid).current_status == 'czeka_na_pakowanie'
+
+
+def test_reczna_zmiana_statusu_wola_regule_uniewaznienia(client, app, monkeypatch):
+    from modules.production.logistics.services import weryfikacja
+    wolania = []
+    monkeypatch.setattr(weryfikacja, 'uniewaznij_etapy',
+                        lambda order, teraz, powod, **k: wolania.append((order.id, powod)) or False)
+    pid, _ = produkt(app, status='spakowane')
+    assert _masowo(client, [pid], 'czeka_na_pakowanie').status_code == 200
+    with app.app_context():
+        order_id = db.session.get(ProductionProduct, pid).order_id
+    assert wolania == [(order_id, u'zmiana statusu w panelu')]

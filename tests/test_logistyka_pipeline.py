@@ -44,7 +44,7 @@ def test_spakowanie_kuriera_zamyka_cykl(app):
 
 
 def test_postprod_bez_logistyki():
-    assert bl.POSTPROD_STATUSES == frozenset({'czeka_na_pakowanie', 'spakowane'})
+    assert bl.POSTPROD_STATUSES == frozenset(('czeka_na_pakowanie',) + s.STATUSY_PO_SPAKOWANIU)
 
 
 @pytest.mark.parametrize('sposob, status', [

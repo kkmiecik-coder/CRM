@@ -24,6 +24,7 @@ from sqlalchemy.orm import joinedload
 
 from extensions import db
 from modules.logging import get_structured_logger
+from modules.production.logistics import sposoby
 from modules.production.models import (
     MobileAppRelease,
     ProcessedMobileOperation,
@@ -851,7 +852,7 @@ def _match_item_dimensions(item, query_mm_sorted):
 
 # Statusy pozycji, które skończyły drogę przez produkcję. Zamówienie złożone
 # wyłącznie z nich to archiwum — w wyszukiwarce idzie za aktywnymi.
-ARCHIVE_STATUSES = frozenset({'spakowane', 'anulowane'})
+ARCHIVE_STATUSES = frozenset(sposoby.STATUSY_PO_SPAKOWANIU) | {'anulowane'}
 
 
 def search_orders_global(query, limit=50):
@@ -867,7 +868,7 @@ def search_orders_global(query, limit=50):
       3. Python: dopasuj wymiarowo (multiset, tolerancja ±5 mm).
       4. Zbierz zamówienia pasujących pozycji i posortuj: najpierw aktywne
          (priority_rank ASC NULLS LAST, internal_order_number), potem
-         archiwalne — spakowane/anulowane — od najświeżej spakowanego.
+         archiwalne — spakowane lub dalej/anulowane — od najświeżej spakowanego.
       5. Po przycięciu do `limit` zamówień dociągnij WSZYSTKIE pozycje
          z tych zamówień, w kolejności zamówień z kroku 4.
 

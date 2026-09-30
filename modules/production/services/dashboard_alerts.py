@@ -20,6 +20,7 @@ from datetime import date, timedelta
 
 from sqlalchemy.orm import joinedload
 
+from modules.production.logistics import sposoby
 from ..models import ProductionItem
 from .station_catalog import station_short_label
 
@@ -100,7 +101,7 @@ def build_deadline_alerts(days_ahead=3, limit=None):
         # drugie, więc anulowane zamówienia wisiały na górze kafla na czerwono
         # („-68 DNI") i przebijały realnie zagrożone terminy. Widać to było
         # dopiero, gdy kafel zaczął pokazywać stanowisko.
-        ProductionItem.current_status.notin_(('spakowane', 'anulowane'))
+        ProductionItem.current_status.notin_(sposoby.STATUSY_PO_SPAKOWANIU + ('anulowane',))
     ).order_by(ProductionItem.deadline_date.asc()).all()
 
     orders_map = {}

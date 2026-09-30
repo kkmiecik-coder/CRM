@@ -10,6 +10,7 @@ import traceback
 
 from . import station_bp, logger, get_station_config, MONITOR_STATION_MAP, _get_monitor_station_data
 from ...services.station_catalog import resolve_station_code
+from modules.production.logistics import sposoby
 
 
 # ============================================================================
@@ -170,6 +171,9 @@ def production_monitor():
             'czeka_na_lakiernie': 'Lakiernia',
             'czeka_na_pakowanie': 'Pakowanie',
             'spakowane': 'Spakowane',
+            'zweryfikowane': 'Zweryfikowane',
+            'zaladowane': 'Załadowane',
+            'dostarczone': 'Dostarczone',
         }
 
         status_class_map = {
@@ -181,6 +185,9 @@ def production_monitor():
             'czeka_na_lakiernie': 'status-painting',
             'czeka_na_pakowanie': 'status-packaging',
             'spakowane': 'status-completed',
+            'zweryfikowane': 'status-completed',
+            'zaladowane': 'status-completed',
+            'dostarczone': 'status-completed',
         }
 
         # Pobierz wszystkie aktywne zamowienia (nie spakowane)
@@ -191,7 +198,7 @@ def production_monitor():
         ).join(
             ProductionProduct, ProductionProduct.order_id == ProductionOrder.id
         ).filter(
-            ProductionProduct.current_status != 'spakowane',
+            ProductionProduct.current_status.notin_(sposoby.STATUSY_PO_SPAKOWANIU),
             ProductionOrder.internal_order_number.isnot(None)
         ).distinct().all()
 
@@ -230,7 +237,7 @@ def production_monitor():
                 # Suma quantity_done dla wszystkich pozycji na tym stanowisku
                 for p in products:
                     completed_products += getattr(p, quantity_done_col, 0)
-            elif dominant_status == 'spakowane':
+            elif dominant_status in sposoby.STATUSY_PO_SPAKOWANIU:
                 # Wszystkie produkty sa gotowe
                 completed_products = total_products
 
@@ -252,7 +259,7 @@ def production_monitor():
         # Statystyki monitora
         monitor_stats = {
             'total_orders': len(orders),
-            'completed_orders': sum(1 for o in orders if o['dominant_status'] == 'spakowane'),
+            'completed_orders': sum(1 for o in orders if o['dominant_status'] in sposoby.STATUSY_PO_SPAKOWANIU),
             'total_products': sum(o['total_products'] for o in orders),
             'total_volume': sum(o['total_volume'] for o in orders)
         }
@@ -324,6 +331,9 @@ def ajax_production_monitor():
             'czeka_na_lakiernie': 'Lakiernia',
             'czeka_na_pakowanie': 'Pakowanie',
             'spakowane': 'Spakowane',
+            'zweryfikowane': 'Zweryfikowane',
+            'zaladowane': 'Załadowane',
+            'dostarczone': 'Dostarczone',
         }
 
         status_class_map = {
@@ -335,6 +345,9 @@ def ajax_production_monitor():
             'czeka_na_lakiernie': 'status-painting',
             'czeka_na_pakowanie': 'status-packaging',
             'spakowane': 'status-completed',
+            'zweryfikowane': 'status-completed',
+            'zaladowane': 'status-completed',
+            'dostarczone': 'status-completed',
         }
 
         # Pobierz wszystkie aktywne zamowienia (nie spakowane)
@@ -344,7 +357,7 @@ def ajax_production_monitor():
         ).join(
             ProductionProduct, ProductionProduct.order_id == ProductionOrder.id
         ).filter(
-            ProductionProduct.current_status != 'spakowane',
+            ProductionProduct.current_status.notin_(sposoby.STATUSY_PO_SPAKOWANIU),
             ProductionOrder.internal_order_number.isnot(None)
         ).distinct().all()
 
@@ -380,7 +393,7 @@ def ajax_production_monitor():
                 station_code, quantity_done_col = status_to_station[dominant_status]
                 for p in products:
                     completed_products += getattr(p, quantity_done_col, 0)
-            elif dominant_status == 'spakowane':
+            elif dominant_status in sposoby.STATUSY_PO_SPAKOWANIU:
                 completed_products = total_products
 
             orders.append({
@@ -400,7 +413,7 @@ def ajax_production_monitor():
         # Statystyki
         stats = {
             'total_orders': len(orders),
-            'completed_orders': sum(1 for o in orders if o['dominant_status'] == 'spakowane'),
+            'completed_orders': sum(1 for o in orders if o['dominant_status'] in sposoby.STATUSY_PO_SPAKOWANIU),
             'total_products': sum(o['total_products'] for o in orders),
             'total_volume': sum(o['total_volume'] for o in orders)
         }

@@ -24,7 +24,8 @@ Trzy momenty zmiany statusu w BL:
 3. Po ukończeniu pakowania ostatniego produktu zamówienia:
    schedule_after_station_complete() → status po spakowaniu według sposobu dostawy
    (logistics/sposoby.py: kurier 138623, transport 417343, odbiór 149777).
-   Warunek: wszystkie aktywne pozycje mają current_status == 'spakowane'
+   Warunek: wszystkie aktywne pozycje są spakowane lub dalej (sposoby.STATUSY_PO_SPAKOWANIU),
+   żadna nie jest załadowana ani dostarczona
    i odbiór nie został jeszcze wydany klientowi (149779 jest ostateczny).
 
 Web ścieżka (complete_order_bulk) commituje sama → wywołuje flush_pending_syncs()
@@ -44,6 +45,7 @@ import threading
 from typing import List, Optional
 from flask import g, current_app
 from modules.logging import get_structured_logger
+from modules.production.logistics import sposoby
 from .station_catalog import resolve_station_code
 
 logger = get_structured_logger('production.baselinker_status_sync')
@@ -58,7 +60,7 @@ PRODUCTION_RAW_STATUS_ID = 138619  # fallback dla "W produkcji - surowe"
 
 # Statusy lokalne CRM oznaczające „produkcja zakończona” (czeka na pakowanie / po pakowaniu).
 # Logistyka nie jest już etapem — żyje równolegle na zamówieniu.
-POSTPROD_STATUSES = frozenset({'czeka_na_pakowanie', 'spakowane'})
+POSTPROD_STATUSES = frozenset(('czeka_na_pakowanie',) + sposoby.STATUSY_PO_SPAKOWANIU)
 
 # Stanowiska, po których zamówienie może skończyć produkcję.
 # 'gluing' wchodzi tu tylko przy cut_to_size=False (produkt omija formatowanie
@@ -248,7 +250,6 @@ def _determine_packaging_target_status(order) -> int:
     Brak decyzji jest możliwy tylko przez ręczną zmianę statusu przez admina
     (tablet bez sposobu dostawy dostaje 409) → 138623 z ostrzeżeniem.
     """
-    from modules.production.logistics import sposoby
     sposob = sposoby.normalizuj(order.override_delivery_method)
     if sposob is not None:
         return sposoby.STATUS_PO_SPAKOWANIU[sposob]
@@ -291,7 +292,12 @@ def _cel_po_stanowisku(products: List, station_code: str) -> Optional[int]:
     if not aktywne:
         return None
     if station_code == 'packaging':
-        if not all(p.current_status == 'spakowane' for p in aktywne):
+        if not all(p.current_status in sposoby.STATUSY_PO_SPAKOWANIU for p in aktywne):
+            return None
+        # (logistyka etap 4) Towar na aucie albo u klienta: status po spakowaniu cofnąłby Base.
+        # z „Załadowane”/„Wysłane”/„Dostarczona”/„Odebrane” (jak strażnik handed_over_at niżej).
+        # 'zweryfikowane' przechodzi — ponowienie nie może przepaść przez szybką weryfikację.
+        if any(p.current_status in ('zaladowane', 'dostarczone') for p in aktywne):
             return None
         return _determine_packaging_target_status(aktywne[0].order)
     if station_code in PRODUCTION_STATIONS:
@@ -433,7 +439,7 @@ def _powod_pominiecia_ponowienia(internal_order_number: str, station_code: str,
         return 'zamówienie wydane klientowi'
     aktywne = [p for p in products if p.current_status != 'anulowane']
     if (zaplanowany_cel == PRODUCTION_COMPLETED_STATUS_ID and aktywne
-            and all(p.current_status == 'spakowane' for p in aktywne)):
+            and all(p.current_status in sposoby.STATUSY_PO_SPAKOWANIU for p in aktywne)):
         # Pakowacz zdążył spakować całe zamówienie (i poszedł status po spakowaniu) —
         # „Produkcja zakończona” cofnęłaby Base. o etap.
         return 'zamówienie już spakowane'

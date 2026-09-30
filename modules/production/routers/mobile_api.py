@@ -28,6 +28,7 @@ from modules.production.services.label_print_service import (
 )
 from modules.production.services.worker_service import WorkerError
 from modules.production.services.station_catalog import resolve_station_code
+from modules.production.logistics import sposoby
 from modules.production.services.mobile_api_service import (
     STATION_STATUS_MAP,
     STATUS_TO_STATION,
@@ -331,7 +332,7 @@ def orders_search():
     każda z dodatkowym polem `current_station` (mapowanie current_status →
     kod stanowiska, lub null gdy pozycja poza produkcją).
 
-    Wyniki obejmują też archiwum (spakowane i anulowane) — tablet otwiera je
+    Wyniki obejmują też archiwum (spakowane lub dalej i anulowane) — tablet otwiera je
     tylko do podglądu. Idą ZA aktywnymi zamówieniami, od najświeżej
     spakowanego. Pozycja spakowana ma `packed_at` (ISO 8601) — czas
     zamknięcia pakowania; null dla pozostałych i dla historycznych
@@ -371,7 +372,7 @@ def orders_search():
         # a nowe pole w serialize_order zmieniłoby im kształt odpowiedzi.
         dto['packed_at'] = (
             it.packaging_completed_at.isoformat()
-            if it.current_status == 'spakowane' and it.packaging_completed_at
+            if it.current_status in sposoby.STATUSY_PO_SPAKOWANIU and it.packaging_completed_at
             else None
         )
         serialized.append(dto)

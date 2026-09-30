@@ -13,6 +13,7 @@ from sqlalchemy import func, and_
 from sqlalchemy.orm import joinedload
 
 from . import api_bp, logger, ProductionItem, ProductionError, ProductionSyncLog, get_local_now
+from modules.production.logistics import sposoby
 from ...services.station_events_service import (
     get_station_work_in_range,
     get_station_work_per_day,
@@ -289,7 +290,7 @@ def dashboard_stats():
         today = datetime.now().date()
         overdue_count = ProductionItem.query.filter(
             ProductionItem.deadline_date < today,
-            ProductionItem.current_status != 'spakowane'
+            ProductionItem.current_status.notin_(sposoby.STATUSY_PO_SPAKOWANIU)
         ).count()
 
         # Produkty spakowane dzisiaj
@@ -313,7 +314,7 @@ def dashboard_stats():
         # Średnia objętość w produkcji
         avg_volume = db.session.query(func.avg(ProductionItem.volume_m3)).filter(
             ProductionItem.volume_m3.isnot(None),
-            ProductionItem.current_status != 'spakowane'
+            ProductionItem.current_status.notin_(sposoby.STATUSY_PO_SPAKOWANIU)
         ).scalar()
 
         # ============================================================================
@@ -379,7 +380,7 @@ def dashboard_stats():
         if include_products:
             # Najwyższy priorytet + najbliższe deadline
             priority_products = ProductionItem.query.filter(
-                ProductionItem.current_status != 'spakowane'
+                ProductionItem.current_status.notin_(sposoby.STATUSY_PO_SPAKOWANIU)
             ).order_by(
                 ProductionItem.priority_rank.asc(),
                 ProductionItem.deadline_date.asc()
@@ -1070,7 +1071,7 @@ def dashboard_tab_content():
         in_production_items = ProductionItem.query.options(
             joinedload(ProductionItem.order),
         ).filter(
-            ProductionItem.current_status.notin_(('spakowane', 'anulowane')),
+            ProductionItem.current_status.notin_(sposoby.STATUSY_PO_SPAKOWANIU + ('anulowane',)),
             db.func.coalesce(ProductionItem.quantity_done_packaging, 0) < ProductionItem.quantity
         ).all()
 
@@ -1217,7 +1218,7 @@ def dashboard_data():
             joinedload(ProductionItem.order),
         ).filter(
             ProductionItem.deadline_date <= (today + timedelta(days=3)),
-            ProductionItem.current_status != 'spakowane'
+            ProductionItem.current_status.notin_(sposoby.STATUSY_PO_SPAKOWANIU)
         ).order_by(ProductionItem.deadline_date.asc()).all()
 
         # Group by order (baselinker_order_id)
@@ -1245,7 +1246,7 @@ def dashboard_data():
         # "In production now" — liczone per niespakowana sztuka.
         # Wykluczamy spakowane i anulowane.
         in_production_items_dd = ProductionItem.query.filter(
-            ProductionItem.current_status.notin_(('spakowane', 'anulowane')),
+            ProductionItem.current_status.notin_(sposoby.STATUSY_PO_SPAKOWANIU + ('anulowane',)),
             db.func.coalesce(ProductionItem.quantity_done_packaging, 0) < ProductionItem.quantity
         ).all()
 

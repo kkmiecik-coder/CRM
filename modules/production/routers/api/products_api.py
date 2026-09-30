@@ -17,6 +17,7 @@ from sqlalchemy.orm import joinedload
 from . import api_bp, logger, ProductionItem, ProductionError, get_local_now
 from .common_api import admin_required, _format_status, _validate_config_value
 from modules.production.models import ProductionOrder, ProductionConfiguration
+from modules.production.logistics import sposoby
 
 
 # Ile zamówień archiwalnych na stronę.
@@ -284,12 +285,13 @@ def _serialize_product(product, workers_by_product, product_counts_by_order):
 def _archived_order_condition():
     """
     Zamówienie należy do archiwum, gdy:
-     - WSZYSTKIE pozycje mają status 'spakowane' (zakończone produkcyjnie), LUB
+     - WSZYSTKIE pozycje są spakowane lub dalej (zakończone produkcyjnie; regułę archiwum
+       zmienia krok 4.5 logistyki), LUB
      - WSZYSTKIE pozycje mają status 'anulowane' (całe zamówienie anulowane).
     Warunek działa w HAVING nad GROUP BY internal_order_number.
     """
     fully_packed = func.sum(
-        case((ProductionItem.current_status != 'spakowane', 1), else_=0)
+        case((ProductionItem.current_status.notin_(sposoby.STATUSY_PO_SPAKOWANIU), 1), else_=0)
     ) == 0
     fully_cancelled = func.sum(
         case((ProductionItem.current_status != 'anulowane', 1), else_=0)
@@ -757,7 +759,7 @@ def products_tab_content():
         total_count = 0
         stats_breakdown_source = []
         for p in products_data:
-            if p.get('current_status') in ('spakowane', 'anulowane'):
+            if p.get('current_status') in sposoby.STATUSY_PO_SPAKOWANIU + ('anulowane',):
                 continue
             qty = int(p.get('quantity') or 0)
             done = int(p.get('quantity_done_packaging') or 0)
@@ -1289,7 +1291,9 @@ def bulk_action():
             nowy_status = parameters.get('new_status')
             # 'czeka_na_logistyke' zostaje w ENUM do sprzątania, ale nie jest już
             # etapem pipeline'u — logistyka żyje równolegle na zamówieniu.
-            dozwolone_statusy = set(ProductionItem.current_status.type.enums) - {'czeka_na_logistyke'}
+            # Statusy po spakowaniu nadaje tylko logistyka (spec 8.6) — ręcznie ich nie ustawiamy.
+            dozwolone_statusy = (set(ProductionItem.current_status.type.enums) - {'czeka_na_logistyke'}
+                                 - set(sposoby.STATUSY_LOGISTYCZNE))
             if nowy_status not in dozwolone_statusy:
                 return jsonify({
                     'success': False,
@@ -1348,7 +1352,12 @@ def bulk_action():
         if action == 'update_status':
             # Ręczna zmiana statusu może zamknąć albo otworzyć cykl logistyczny zamówienia.
             from modules.production.logistics.services.delivery import przelicz_zamkniecie
+            from modules.production.logistics.services import weryfikacja
+            teraz = get_local_now()
             for zamowienie in {p.order for p in products if p.order is not None}:
+                # Pozycja cofnięta do produkcji unieważnia paczki, weryfikację i załadunek zamówienia.
+                weryfikacja.uniewaznij_etapy(zamowienie, teraz, u'zmiana statusu w panelu',
+                                             user_id=current_user.id)
                 przelicz_zamkniecie(zamowienie)
 
         # Zapisz zmiany dla akcji modyfikujących
@@ -1568,6 +1577,9 @@ def _export_excel(products, timestamp):
         'czeka_na_lakiernie': 'FCE4EC',
         'czeka_na_pakowanie': 'E0F7FA',
         'spakowane': 'C8E6C9',
+        'zweryfikowane': 'A5D6A7',
+        'zaladowane': 'B3E5FC',
+        'dostarczone': 'D7CCC8',
         'anulowane': 'FFCDD2',
         'wstrzymane': 'CFD8DC'
     }
@@ -2144,6 +2156,9 @@ def get_filters_data():
             {'value': 'czeka_na_skladanie', 'label': 'Czeka na składanie'},
             {'value': 'czeka_na_pakowanie', 'label': 'Czeka na pakowanie'},
             {'value': 'spakowane', 'label': 'Spakowane'},
+            {'value': 'zweryfikowane', 'label': 'Zweryfikowane'},
+            {'value': 'zaladowane', 'label': 'Załadowane'},
+            {'value': 'dostarczone', 'label': 'Dostarczone'},
             {'value': 'wstrzymane', 'label': 'Wstrzymane'}
         ]
         
