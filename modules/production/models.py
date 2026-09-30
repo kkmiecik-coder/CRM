@@ -208,6 +208,16 @@ class ProductionOrder(db.Model):
     # Ostatnia ważna deklaracja paczek (logistyka etap 4, krok 4.2). Same paczki:
     # ProductionPackage (prod_packages); aktualne = voided_at IS NULL.
     packages_declared_at = Column(DateTime)
+    # Weryfikacja (logistyka etap 4, krok 4.3): kto i kiedy zweryfikował wszystkie paczki.
+    verified_at = Column(DateTime)
+    verified_by_worker_id = Column(Integer)
+    # Problem zgłoszony przy weryfikacji; NULL = brak. Powody: weryfikacja.POWODY_PROBLEMU.
+    problem_reason = Column(String(32))
+    problem_note = Column(String(255))
+    problem_at = Column(DateTime)
+    problem_by_worker_id = Column(Integer)
+    # Tekst banera na tablecie pakowania, gdy repack_required (np. „Weryfikacja: Uszkodzenie: …”).
+    repack_reason = Column(String(255))
 
     shipping_package_id = Column(Integer)
     shipping_tracking_number = Column(String(100))
@@ -361,6 +371,9 @@ class ProductionProduct(db.Model):
         'czeka_na_sklejanie', 'czeka_na_formatowanie', 'czeka_na_krawedzie',
         'czeka_na_lakiernie', 'czeka_na_logistyke', 'czeka_na_pakowanie',
         'spakowane', 'anulowane', 'wstrzymane', 'w_realizacji',
+        # Logistyka etap 4 (krok 4.3) — po spakowaniu, dopisane NA KOŃCU (migracja
+        # 2026-09-30-logistyka-weryfikacja.sql); nadaje je tylko logistyka (sposoby.STATUSY_LOGISTYCZNE).
+        'zweryfikowane', 'zaladowane', 'dostarczone',
         name='production_status'
     ), default='czeka_na_wyciecie', nullable=False, index=True)
 
@@ -460,6 +473,9 @@ class ProductionProduct(db.Model):
             'czeka_na_logistyke': 'Czeka na logistykę',
             'czeka_na_pakowanie': 'Czeka na pakowanie',
             'spakowane': 'Spakowane',
+            'zweryfikowane': 'Zweryfikowane',
+            'zaladowane': 'Załadowane',
+            'dostarczone': 'Dostarczone',
             'anulowane': 'Anulowane',
             'wstrzymane': 'Wstrzymane',
             'w_realizacji': 'W realizacji'
@@ -622,6 +638,15 @@ class ProductionProduct(db.Model):
         # obok całego bloku tranzycji — licznik się zapisuje, a current_status
         # zostaje bez zmian i zlecenie utyka na stanowisku.
         station_code = resolve_station_code(station_code)
+        # Logistyka etap 4: pozycja zweryfikowana, załadowana albo dostarczona jest już „dalej niż
+        # spakowana”. Ponowione z kolejki offline „ZAKOŃCZ” pakowania nie może jej cofnąć do
+        # 'spakowane' (zamówienie straciłoby spójny stan weryfikacji). Dziś spakowane → spakowane
+        # też niczego nie zmienia, więc strażnik tylko utrzymuje to zachowanie dla nowych statusów.
+        if station_code == 'packaging':
+            from modules.production.logistics import sposoby as _sposoby
+            if self.current_status in _sposoby.STATUSY_LOGISTYCZNE:
+                self.updated_at = get_local_now()
+                return
         now = get_local_now()
         next_status_map = {
             'cutting': 'czeka_na_sklejanie',
@@ -989,6 +1014,9 @@ class ProductionPackage(db.Model):
     a nie „nie ma takiej paczki”.
     """
     __tablename__ = 'prod_packages'
+    # Aktualna deklaracja = paczki zamówienia z voided_at IS NULL — tak pytają wszystkie odczyty
+    # (migracja 2026-09-30-logistyka-weryfikacja.sql zastąpiła tym osobny indeks po voided_at).
+    __table_args__ = (Index('ix_prod_packages_order_voided', 'order_id', 'voided_at'),)
 
     RODZAJE = ('paczka', 'paleta')
     TYPY_PALET = ('eur', 'niestandardowa')
@@ -1005,7 +1033,7 @@ class ProductionPackage(db.Model):
     declared_at = Column(DateTime, nullable=False, default=get_local_now)
     declared_by_worker_id = Column(Integer)
     declared_device_id = Column(Integer)                     # prod_devices.id
-    voided_at = Column(DateTime, index=True)
+    voided_at = Column(DateTime)
     label_printed_at = Column(DateTime)
     label_print_count = Column(Integer, nullable=False, default=0)
     # Napis z pasa sposobu dostawy w chwili druku (np. 'TRASA: Rzeszow 07.10'). Inny napis

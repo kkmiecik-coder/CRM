@@ -87,8 +87,13 @@ def test_migracja_paczek():
         assert kolumna in tabela, kolumna
     assert 'REFERENCES prod_orders (id) ON DELETE CASCADE' in tabela
     enum = next(p for p in polecenia if p.startswith('ALTER TABLE prod_logistics_log MODIFY action'))
+    # Akcje z kroku 4.3 dopisuje migracja 2026-09-30-logistyka-weryfikacja.sql (pilnuje jej
+    # tests/test_weryfikacja_schemat.py) — ta migracja zna tylko akcje do kroku 4.2.
+    akcje_kroku_4_3 = ('weryfikacja', 'weryfikacja_cofnieta', 'problem', 'problem_rozwiazany',
+                       'cofniete_do_pakowania')
     for akcja in AKCJE_LOGU:
-        assert "'%s'" % akcja in enum, akcja
+        if akcja not in akcje_kroku_4_3:
+            assert "'%s'" % akcja in enum, akcja
     assert 'paczki' in AKCJE_LOGU
     # 3 kolumny + klucz obcy — każdy ALTER dodający coś osłonięty warunkiem (runner wykonuje
     # katalog przy każdym deployu); MODIFY enuma jest idempotentny sam z siebie.

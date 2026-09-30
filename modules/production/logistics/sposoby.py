@@ -39,6 +39,16 @@ STATUS_DOSTARCZONE_TRANSPORT = 149778
 STATUS_PO_SPAKOWANIU = {KURIER: STATUS_SPAKOWANE, TRANSPORT: STATUS_PLANOWANA_TRASA,
                         ODBIOR: STATUS_CZEKA_NA_ODBIOR}
 
+# Statusy pozycji „spakowane lub dalej” (logistyka etap 4, spec 4.1): produkcja zakończona, towar
+# spakowany. Jedna stała na cały CRM — tam, gdzie kod pyta, czy pozycja wyszła z produkcji, a nie
+# czy czeka dokładnie na weryfikację. W JS i szablonach — kopia listy z odsyłaczem tutaj.
+STATUSY_PO_SPAKOWANIU = ('spakowane', 'zweryfikowane', 'zaladowane', 'dostarczone')
+# Statusy nadawane wyłącznie przez logistykę (Weryfikacja, „Wydane klientowi”, Dostawa w kroku 4.4) —
+# hurtowa zmiana statusu ich nie oferuje, a deklaracja paczek po nich odmawia (409 order_verified).
+STATUSY_LOGISTYCZNE = ('zweryfikowane', 'zaladowane', 'dostarczone')
+# Tekst banera na tablecie pakowania przy przepakowaniu na kuriera (transport.repack_reason).
+PRZEPAKUJ_NA_KURIERA = u'Przepakuj na kuriera'
+
 # Szacunek wagi drewna (logistyka etap 4, spec 7.1): podpowiedź paczek na tablecie pakowania,
 # podsumowanie trasy i eksport Routimo liczą z tej samej gęstości (etykieta paczki ma kopię
 # w package_label — test pilnuje zgodności).
