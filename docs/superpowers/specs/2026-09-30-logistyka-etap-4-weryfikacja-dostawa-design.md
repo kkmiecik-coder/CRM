@@ -231,9 +231,12 @@ paczek sprzed zmiany” (jak dla etykiet produktów w etapie 1).
 ### 6.4 Drukarka — ustalenia z testu 30.09
 
 Xprinter XP-410B (firmware 1.038), etykiety 100×150 z przerwą 3 mm. **Emulacja ZPL działa**; polskie znaki poza Ó/ó
-nie drukują się (strona kodowa 850) → ASCII. Wydruk przesunięty ok. 4 mm w dół, lewa krawędź ramki ucięta → kalibracja
-czujnika przerwy przy instalacji i przesunięcie w ustawieniach (6.1). Drukarka ma adres fabryczny spoza sieci hali —
-konfiguracja sieci drukarki to krok wdrożenia 4.1.
+nie drukują się (strona kodowa 850) → ASCII. Przed kalibracją wydruk był przesunięty w dół i ucięty z boku; po
+poprawieniu prowadnic boki są dobre, a po kalibracji czujnika przerwy (TSPL `GAPDETECT`) cała ramka 100×150 mieści się
+na etykiecie z wolnym miejscem ok. 4 mm u góry i 2 mm na dole. Wniosek: **kalibracja `GAPDETECT` jest obowiązkowym
+krokiem instalacji** (i po każdej zmianie rolki na inną), treść etykiety trzyma margines ≥ 3 mm, a resztę wyrównuje
+przesunięcie w ustawieniach (6.1; na drukarce testowej ok. −8 punktów w pionie). Drukarka ma adres fabryczny spoza
+sieci hali — konfiguracja sieci drukarki to krok wdrożenia 4.1, na hali.
 
 ## 7. Krok 4.2 — paczki na pakowaniu
 
