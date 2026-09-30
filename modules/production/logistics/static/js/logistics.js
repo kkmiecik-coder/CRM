@@ -33,7 +33,7 @@
  * to filtr listy i odświeżanie listy.
  *
  * Krok 4.3 (Weryfikacja, spec 11): etapy po spakowaniu (Zweryfikowane, Załadowane, Dostarczone), paczki
- * i plakietka „BEZ PACZEK” pod etapem, ikona problemu w kolumnie Stan oraz trzy wzajemnie wykluczające
+ * i plakietka „BEZ PACZEK” pod etapem, problem (ikona + widoczny powód, fokusowalny) pod etapem oraz trzy wzajemnie wykluczające
  * się filtry serwera (`stan` = do_weryfikacji | problem | bez_paczek) z liczbami z pola `weryfikacja`.
  *
  * Filtr etapu działa PO STRONIE PRZEGLĄDARKI (parametru `etap` nie wysyłamy):
@@ -891,11 +891,25 @@
         return '';
     }
 
-    // Dymek ikony problemu: „Problem: Uszkodzenie — róg (30.09, 14:05)”; notatka jest opcjonalna.
+    // Pełna treść problemu: „Problem: Uszkodzenie — róg (30.09, 14:05)”; notatka jest opcjonalna.
     function opisProblemu(problem) {
         const kiedy = [dataKrotka(problem.kiedy), godzina(problem.kiedy)].filter(Boolean).join(', ');
         return 'Problem: ' + (problem.etykieta || problem.powod || 'zgłoszony') +
             (problem.notatka ? ' — ' + problem.notatka : '') + (kiedy ? ' (' + kiedy + ')' : '');
+    }
+
+    /**
+     * Problem zgłoszony przy Weryfikacji, pod etapem: ikona i WIDOCZNY powód („Uszkodzenie”) — na
+     * tablecie nie ma dymków, więc powód nie może siedzieć tylko w `title`. Pełna treść (powód,
+     * notatka, kiedy) jest w `title` i w `aria-label`; element ma `tabindex="0"`, żeby dało się go
+     * sfokusować z klawiatury i żeby czytnik ekranu przeczytał całość.
+     */
+    function problemHtml(w) {
+        if (!w.problem) return '';
+        const opis = opisProblemu(w.problem);
+        return '<span class="lg-problem" tabindex="0" role="note" aria-label="' + esc(opis) + '" title="' + esc(opis) + '">' +
+            '<i class="fas fa-triangle-exclamation lg-ikona--problem" aria-hidden="true"></i>' +
+            '<span class="lg-problem-powod">' + esc(w.problem.etykieta || w.problem.powod || 'Problem') + '</span></span>';
     }
 
     /**
@@ -966,8 +980,6 @@
         }
 
         const ikony = [];
-        // Krok 4.3 (spec 11): otwarty problem z Weryfikacji — pierwsza ikona, z powodem i notatką w dymku.
-        if (w.problem) ikony.push(ikona('fa-triangle-exclamation', 'lg-ikona--problem', opisProblemu(w.problem)));
         if (w.przepakowanie) ikony.push(ikona('fa-box-open', 'lg-ikona--przepakowanie', 'Czeka na przepakowanie na kuriera'));
         if (w.etykiety_sprzed_zmiany) ikony.push(ikona('fa-tags', 'lg-ikona--etykiety', 'Etykiety wydrukowane przed zmianą sposobu dostawy'));
         if (w.etykiety_paczek_sprzed_zmiany) ikony.push(ikona('fa-box', 'lg-ikona--etykiety', 'Etykiety paczek sprzed zmiany sposobu dostawy lub trasy. Wydrukuj je ponownie na pakowaniu.'));
@@ -1018,7 +1030,7 @@
             '<td class="lg-k-adres">' + adresHtml(w) + '</td>' +
             '<td class="lg-k-metoda">' + metoda + podpowiedz + '</td>' +
             '<td class="lg-k-sposob">' + selectSposobu(w, !!powod, powod) + plakietkaTrasy(w) + '</td>' +
-            '<td class="lg-k-etap">' + etapHtml(etap) + paczkiHtml(w) + '</td>' +
+            '<td class="lg-k-etap">' + etapHtml(etap) + paczkiHtml(w) + problemHtml(w) + '</td>' +
             '<td class="lg-k-termin">' + komorkaTerminu(w.termin) + '</td>' +
             '<td class="lg-k-m3"><span class="lg-m3">' + m3 + '</span></td>' +
             '<td class="lg-k-stan"><div class="lg-stan-komorka">' +
@@ -1067,7 +1079,8 @@
     // Fokus klawiatury w wierszu (select sposobu, pinezka / „Ustaw na mapie”,
     // checkbox) przeżywa przerysowanie — ten sam rodzaj pola w tym samym wierszu.
     // Adres jest w wierszu dwa razy (pod klientem i w kolumnie) — stąd także kolumna.
-    const KLASY_FOKUSU = ['lg-sposob', 'lg-na-mapie', 'lg-zaznacz', 'lg-rozwin', 'lg-adres', 'lg-plakietka-trasy'];
+    const KLASY_FOKUSU = ['lg-sposob', 'lg-na-mapie', 'lg-zaznacz', 'lg-rozwin', 'lg-adres', 'lg-plakietka-trasy',
+        'lg-problem'];
 
     function fokusWiersza(kontener) {
         const a = document.activeElement;

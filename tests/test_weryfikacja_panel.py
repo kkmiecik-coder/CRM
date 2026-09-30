@@ -121,11 +121,13 @@ def test_endpoint_listy_ma_stala_liczbe_zapytan(app, client):
     teraz = get_local_now()
     for _ in range(2):
         _spakowane(paczek=2, problem_reason='inne', problem_at=teraz)
+        _spakowane(zamkniete=True)      # kandydaci do plakietki BEZ PACZEK: okno Weryfikacji liczone raz na listę
     for adres in (BASE + '/orders', BASE + '/orders?stan=do_weryfikacji', BASE + '/orders?stan=problem'):
         zapytania(adres)            # rozgrzewka: pierwsze żądanie dokłada jednorazowe odczyty (np. sprawdzenie tabel)
         male = zapytania(adres)
         for _ in range(6):
             _spakowane(paczek=2, problem_reason='inne', problem_at=teraz)
+            _spakowane(zamkniete=True)
         assert zapytania(adres) == male, adres
 
 
@@ -152,5 +154,67 @@ def test_front_filtry_weryfikacji_w_logice_listy():
     assert 'stan.filtr.stan);' in js[js.index('const zawezonyWidok'):js.index('const bezGeoWWidoku')]
     # Liczby przy filtrach z odpowiedzi listy, a problem ma ikonę z dymkiem „Problem: …”.
     assert 'stan.weryfikacja = dane.weryfikacja' in js
-    assert "ikona('fa-triangle-exclamation', 'lg-ikona--problem', opisProblemu(w.problem))" in js
     assert "'Problem: '" in js
+
+
+# ── Runda poprawek 1 (I1): plakietka BEZ PACZEK w zakresie filtra „Bez paczek” ──────────────
+
+def test_bez_paczek_to_zakres_listy_weryfikacji(app):
+    """Flaga wiersza ma tę samą definicję co filtr: bez aktualnych paczek, wszystkie pozycje dokładnie
+    'spakowane', zamówienie otwarte albo spakowane w oknie listy Weryfikacji."""
+    flaga = lambda order: lista.serializuj(order)['bez_paczek']  # noqa: E731
+    assert flaga(_spakowane(sposob=s.TRANSPORT)) is True                          # otwarte, bez paczek
+    assert flaga(_spakowane(sposob=s.TRANSPORT, dni_temu=30)) is True             # otwarte bez względu na wiek
+    assert flaga(_spakowane(zamkniete=True, dni_temu=0)) is True                  # świeże kurierskie, zamknięte
+    assert flaga(_spakowane(zamkniete=True, dni_temu=12)) is False                # historyczne, poza oknem
+    assert flaga(_spakowane(statusy=('zweryfikowane',))) is False                 # już zweryfikowane
+    assert flaga(_spakowane(statusy=('spakowane', 'zweryfikowane'))) is False     # nie wszystkie 'spakowane'
+    assert flaga(_spakowane(statusy=('spakowane', 'anulowane'))) is True          # anulowana nie liczy się
+    assert flaga(_spakowane(paczek=1)) is False                                   # ma paczki
+    assert flaga(zamowienie(statusy=('czeka_na_pakowanie',))) is False            # jeszcze nie spakowane
+
+
+def test_plakietka_bez_paczek_zgodna_z_filtrem_takze_w_wyszukiwaniu_zamknietych(app, client):
+    """Wyszukiwanie zamkniętych (zamkniete=1 + fraza) nie może dawać plakietki zamówieniom, których
+    nie ma w filtrze „Bez paczek” — zbiór wierszy z flagą == zbiór z ?stan=bez_paczek."""
+    _spakowane(sposob=s.TRANSPORT)
+    _spakowane(sposob=s.TRANSPORT, dni_temu=30)
+    _spakowane(zamkniete=True)
+    _spakowane(zamkniete=True, dni_temu=12)
+    _spakowane(zamkniete=True, dni_temu=40)
+    _spakowane(statusy=('zweryfikowane',))
+    _spakowane(statusy=('spakowane', 'zweryfikowane'))
+    _spakowane(paczek=2)
+    wiersze = client.get(BASE + '/orders?zamkniete=1&q=Klient').get_json()['orders']
+    assert len(wiersze) == 8
+    z_flaga = {w['numer'] for w in wiersze if w['bez_paczek']}
+    z_filtra = {w['numer'] for w in client.get(BASE + '/orders?stan=bez_paczek').get_json()['orders']}
+    assert z_flaga == z_filtra and len(z_flaga) == 3
+
+
+# ── Runda poprawek 1 (I2): widoczny powód problemu, element dostępny z klawiatury ─────────────
+
+def test_problem_ma_widoczny_powod_i_jest_dostepny_z_klawiatury():
+    """Na tablecie nie ma dymków, więc sam `title` ikony nie wystarcza: powód jest widocznym napisem
+    w kolumnie Etap, a element z pełną treścią (powód, notatka, kiedy) da się sfokusować i ma aria-label."""
+    js = _plik('static', 'js', 'logistics.js')
+    fn = js[js.index('function problemHtml'):]
+    fn = fn[:fn.index('\n    }\n')]
+    assert 'if (!w.problem) return' in fn
+    assert 'tabindex="0"' in fn and 'aria-label="' in fn and 'title="' in fn      # fokus + pełna treść
+    assert 'opisProblemu(w.problem)' in fn                                      # powód, notatka, kiedy
+    assert '<span class="lg-problem-powod">' in fn and 'w.problem.etykieta' in fn   # widoczny powód
+    assert 'fa-triangle-exclamation' in fn and 'aria-hidden="true"' in fn       # ikona dekoracyjna
+    # Element stoi w kolumnie Etap (nie tylko w dymku ikony w kolumnie Stan) i fokus przeżywa odświeżenie.
+    assert "etapHtml(etap) + paczkiHtml(w) + problemHtml(w)" in js
+    assert "ikona('fa-triangle-exclamation'" not in js
+    assert "'lg-problem'" in js[js.index('const KLASY_FOKUSU'):js.index('function fokusWiersza')]
+    css = _plik('static', 'css', 'logistics.css')
+    assert '.logistics-tab .lg-problem {' in css and 'logistics-tab .lg-problem i' in css
+
+
+def test_wersje_zakladki_podbite_po_poprawce_panelu_weryfikacji():
+    szablon = _plik('templates', 'logistics', 'tab_content.html')
+    for plik in ('js/logistics.js', 'css/logistics.css'):
+        m = re.search(r"filename='" + re.escape(plik) + r"'\) \}\}\?v=(\w+)", szablon)
+        assert m and m.group(1) >= '20261001b', plik

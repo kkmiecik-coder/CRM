@@ -186,10 +186,11 @@ def delivery_method():
     punkty = geocoding.geo_zamowien(ids)
     trasy = routes.trasy_zamowien(ids)
     pakunki = paczki.aktualne_paczki_zamowien(ids)
+    okno = lista.okno_weryfikacji()   # jedno na cały hurt (plakietka BEZ PACZEK), liczone na żądanie
     return jsonify({'success': True, 'zmienione': zmienione, 'przepakowanie': przepakowanie,
                     'bledy': bledy, 'usunieto_z_trasy': usunieto,
                     'orders': [lista.serializuj(o, punkty.get(o.id), trasy.get(o.id),
-                                                pakunki.get(o.id, []))
+                                                pakunki.get(o.id, []), okno)
                               for o in odswiezone]})
 
 

@@ -14,7 +14,7 @@
      blokuje CDN). #}
 <link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet/leaflet.css') }}?v=1.9.4">
 <link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet-markercluster/MarkerCluster.css') }}?v=1.5.3">
-<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20261001a">
+<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20261001b">
 {# Etap 3: trasy, flota, widok tras na mapie — osobny arkusz (logistics.css zostaje nietknięty). #}
 <link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics-trasy.css') }}?v=20260928b">
 
@@ -721,6 +721,6 @@
         });
 })();
 </script>
-<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20261001a"></script>
+<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20261001b"></script>
 <script src="{{ url_for('logistics_panel.static', filename='js/logistics-fleet.js') }}?v=20260928b"></script>
 <script src="{{ url_for('logistics_panel.static', filename='js/logistics-wojewodztwa.js') }}?v=20260928a"></script>

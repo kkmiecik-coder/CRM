@@ -890,6 +890,31 @@
     color: var(--il-text-primary, #1a1a2e);
 }
 
+/* Problem z Weryfikacji pod etapem: ikona i WIDOCZNY powód (tablet nie ma dymków), pełna treść w
+   `title` i `aria-label`; element jest fokusowalny (tabindex="0"), więc wyraźny obrys fokusu z
+   `.logistics-tab :focus-visible`. Kolor jak ikona „czeka na przepakowanie” — coś do załatwienia. */
+.logistics-tab .lg-problem {
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
+    width: fit-content;
+    margin: 4px 0 0 15px;
+    padding: 1px 6px 1px 5px;
+    font-size: 11.5px;
+    font-weight: 600;
+    line-height: 1.5;
+    color: var(--il-status-danger, #dc2626);
+    background: rgba(220, 38, 38, 0.06);
+    border: 1px solid rgba(220, 38, 38, 0.3);
+    border-radius: 2px;
+    white-space: nowrap;
+    cursor: default;
+}
+
+.logistics-tab .lg-problem i {
+    font-size: 11px;
+}
+
 /* „BEZ PACZEK”: spakowane zamówienie bez deklaracji paczek — akcent kolejki (amber), jak
    znacznik „doróbka” w pozycjach, ale z tłem, bo to sprawa do załatwienia. */
 .logistics-tab .lg-bez-paczek {

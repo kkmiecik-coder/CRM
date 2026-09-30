@@ -187,10 +187,47 @@ def _problem(order):
             'notatka': order.problem_note, 'kiedy': order.problem_at.isoformat()}
 
 
-def serializuj(order, geo=None, trasa=None, paczki_zamowienia=None):
+def okno_weryfikacji(teraz=None):
+    """
+    Funkcja bez argumentów zwracająca początek okna listy Weryfikacji (weryfikacja.poczatek_okna).
+    Liczy go dopiero przy pierwszym wywołaniu i pamięta — lista woła ją raz na całą listę i tylko
+    wtedy, gdy któryś wiersz naprawdę jej potrzebuje (zamknięte, spakowane, bez paczek), więc zwykła
+    lista nie dokłada żadnego zapytania, a przy wielu takich wierszach nadal jest jedno.
+    """
+    teraz = teraz or get_local_now()
+    pamiec = []
+
+    def okno():
+        if not pamiec:
+            pamiec.append(weryfikacja.poczatek_okna(teraz))
+        return pamiec[0]
+    return okno
+
+
+def _bez_paczek(order, aktywne, paczki_zamowienia, okno):
+    """
+    Plakietka „BEZ PACZEK” (spec 11) w TYM SAMYM zakresie co filtr i licznik „Bez paczek”
+    (weryfikacja.warunek_bez_paczek): zamówienie bez aktualnych paczek, którego wszystkie
+    niezanulowane pozycje są dokładnie 'spakowane', i które jest w zakresie listy Weryfikacji —
+    otwarte w Logistyce albo spakowane nie wcześniej niż początek okna. Bez tego historyczne
+    zamówienia kurierskie (zamknięte, dawno spakowane) dostawałyby plakietkę przy wyszukiwaniu
+    zamkniętych, choć filtr ich nie pokazuje.
+    """
+    if paczki_zamowienia or not wszystkie_w(order, ('spakowane',)):
+        return False
+    if order.logistics_closed_at is None:
+        return True
+    spakowano = max((p.packaging_completed_at for p in aktywne if p.packaging_completed_at), default=None)
+    return spakowano is not None and spakowano >= okno()
+
+
+def serializuj(order, geo=None, trasa=None, paczki_zamowienia=None, okno_weryfikacji_zamowien=None):
     if paczki_zamowienia is None:
         # Pojedynczy wiersz (odświeżenie po akcji) — listy podają mapę jednym zapytaniem.
         paczki_zamowienia = paczki.aktualne_paczki(order.id)
+    # Początek okna Weryfikacji: lista podaje jeden wspólny (okno_weryfikacji()), pojedynczy wiersz
+    # liczy sam — i tylko jeśli go potrzebuje.
+    okno = okno_weryfikacji_zamowien or okno_weryfikacji()
     aktywne = aktywne_produkty(order)
     sposob = sposoby.normalizuj(order.override_delivery_method)
     terminy = [p.deadline_date for p in aktywne if p.deadline_date]
@@ -222,7 +259,7 @@ def serializuj(order, geo=None, trasa=None, paczki_zamowienia=None):
         'paczki': ({'opis': paczki.opis_paczek(paczki_zamowienia), 'liczba': len(paczki_zamowienia),
                     'zweryfikowane': sum(1 for p in paczki_zamowienia if p.verified_at is not None)}
                    if paczki_zamowienia else None),
-        'bez_paczek': not paczki_zamowienia and wszystkie_w(order, ('spakowane', 'zweryfikowane')),
+        'bez_paczek': _bez_paczek(order, aktywne, paczki_zamowienia, okno),
         'problem': _problem(order),
         'zweryfikowano': order.verified_at.isoformat() if order.verified_at else None,
         'przepakowanie': bool(order.repack_required),
@@ -294,7 +331,8 @@ def pobierz(sposob=None, etap=None, q=None, zamkniete=False, woj=None, stan=None
     punkty = geocoding.geo_zamowien(ids)
     trasy = routes.trasy_zamowien(ids)
     pakunki = paczki.aktualne_paczki_zamowien(ids)
-    wiersze = [serializuj(o, punkty.get(o.id), trasy.get(o.id), pakunki.get(o.id, []))
+    okno = okno_weryfikacji(teraz)   # jedno na listę, liczone dopiero gdy wiersz go potrzebuje
+    wiersze = [serializuj(o, punkty.get(o.id), trasy.get(o.id), pakunki.get(o.id, []), okno)
                for o in zamowienia]
     if etap:
         wiersze = [w for w in wiersze if w['etap']['status'] == etap]
