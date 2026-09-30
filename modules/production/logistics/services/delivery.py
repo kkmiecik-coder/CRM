@@ -573,7 +573,9 @@ def przelicz_otwarte(teraz=None):
     # zmiany statusu), dostają ją najpóźniej przy godzinnym przebiegu. Bez pracy nie pyta bazy.
     from modules.production.logistics.services import weryfikacja
     zmienione = 0
-    for order in otwarte + do_otwarcia:
+    # Rosnąco po id: reguła z pracą blokuje zamówienie FOR UPDATE do końca przebiegu, a hurtowa zmiana
+    # statusu blokuje zamówienia w tej samej kolejności — bez tego dwa wspólne zamówienia mogłyby dać 1213.
+    for order in sorted(otwarte + do_otwarcia, key=lambda o: o.id):
         weryfikacja.uniewaznij_etapy(order, teraz, u'kontrola cykliczna')
         if przelicz_zamkniecie(order, teraz):
             zmienione += 1
