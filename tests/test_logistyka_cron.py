@@ -164,3 +164,48 @@ def test_przeniesienie_przelicza_zamkniecie(app):
         assert delivery.przenies_osierocone_z_logistyki() == 1
         db.session.commit()
         assert order.logistics_closed_at is None
+
+
+# ── Krok 4.3: pozycje już wydanych zamówień → 'dostarczone' (po restarcie, nie w migracji) ──────
+# Migracja działa przed restartem, a stary kod nie zna 'dostarczone' w ENUM — przepisanie robi cron.
+
+def test_dostarcz_wydane_przestawia_tylko_spakowane_wydanych(app):
+    from modules.production.logistics.services import delivery
+    with app.app_context():
+        wydane = zamowienie(sposob=s.ODBIOR, statusy=('spakowane', 'spakowane', 'anulowane'),
+                            handed_over_at=datetime(2026, 9, 20))
+        niewydane = zamowienie(sposob=s.ODBIOR, statusy=('spakowane',))
+        w_produkcji = zamowienie(sposob=s.ODBIOR, statusy=('czeka_na_pakowanie',),
+                                 handed_over_at=datetime(2026, 9, 20))
+        for order in (wydane, niewydane, w_produkcji):
+            for p in order.products:
+                p.updated_at = datetime(2026, 1, 1)
+        db.session.commit()
+        teraz = datetime(2026, 10, 1, 8, 0)
+
+        assert delivery.dostarcz_wydane(teraz) == 2
+        db.session.commit()
+
+        assert [p.current_status for p in wydane.products] == ['dostarczone', 'dostarczone', 'anulowane']
+        assert [p.updated_at for p in wydane.products] == [teraz, teraz, datetime(2026, 1, 1)]  # ETag tabletów
+        assert [p.current_status for p in niewydane.products] == ['spakowane']
+        assert [p.current_status for p in w_produkcji.products] == ['czeka_na_pakowanie']
+        # idempotentnie: drugi przebieg nie ma czego przestawiać
+        assert delivery.dostarcz_wydane(teraz) == 0
+
+
+def test_cron_przestawia_wydane_na_dostarczone(client, app, watki):
+    with app.app_context():
+        order = zamowienie(sposob=s.ODBIOR, statusy=('spakowane', 'spakowane'),
+                           handed_over_at=datetime(2026, 9, 20),
+                           logistics_closed_at=datetime(2026, 9, 20))
+        order_id = order.id
+    r = client.post(BASE + '/cron', headers=NAGLOWEK)
+    assert r.status_code == 200
+    assert r.get_json()['wydane_dostarczone'] == 2
+    with app.app_context():
+        order = ProductionOrder.query.get(order_id)
+        assert [p.current_status for p in order.products] == ['dostarczone', 'dostarczone']
+        assert order.logistics_closed_at is not None   # zamkniecie wydanego odbioru zostaje
+    # idempotentnie: kolejny przebieg nic nie przestawia
+    assert client.post(BASE + '/cron', headers=NAGLOWEK).get_json()['wydane_dostarczone'] == 0

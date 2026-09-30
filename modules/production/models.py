@@ -640,8 +640,10 @@ class ProductionProduct(db.Model):
         station_code = resolve_station_code(station_code)
         # Logistyka etap 4: pozycja zweryfikowana, załadowana albo dostarczona jest już „dalej niż
         # spakowana”. Ponowione z kolejki offline „ZAKOŃCZ” pakowania nie może jej cofnąć do
-        # 'spakowane' (zamówienie straciłoby spójny stan weryfikacji). Dziś spakowane → spakowane
-        # też niczego nie zmienia, więc strażnik tylko utrzymuje to zachowanie dla nowych statusów.
+        # 'spakowane' (zamówienie straciłoby spójny stan weryfikacji), więc dla tych statusów
+        # kończymy od razu, bez po_spakowaniu. Dla 'spakowane' ponowione ZAKOŃCZ przechodzi dalej
+        # jak dotąd: status zostaje, ale po_spakowaniu nadal się wywołuje (może zdjąć repack_required
+        # i zaległe 138620 oraz przeliczyć zamknięcie) — tego strażnik nie dotyka.
         if station_code == 'packaging':
             from modules.production.logistics import sposoby as _sposoby
             if self.current_status in _sposoby.STATUSY_LOGISTYCZNE:

@@ -280,7 +280,10 @@ Albo po prostu `./deploy.sh` — robi dokładnie to samo, z lockiem i logami.
   `scripts/cron_endpoint.sh POST /production/api/logistics/cron` — między migracją a restartem (przeliczenie
   klientów trwa do 300 s) stary kod wciąż zapisuje `czeka_na_logistyke`; cron przenosi takie produkty do
   pakowania (`przeniesione_z_logistyki` w odpowiedzi), inaczej do pierwszego godzinnego przebiegu nie widzi
-  ich żaden tablet ani filtr.
+  ich żaden tablet ani filtr. **Po wdrożeniu kroku 4.3 logistyki uruchom cron tak samo raz ręcznie, po
+  restarcie** — przestawia pozycje już wydanych odbiorów osobistych na `dostarczone`
+  (`wydane_dostarczone` w odpowiedzi). Migracja tego nie robi, bo stary kod w oknie wdrożenia nie zna tej
+  wartości ENUM (odczyt takiego wiersza rzuciłby `LookupError`, czyli 500 na listach).
 - **Trasy logistyki — jeden piszący naraz:** każda funkcja, która zmienia trasy albo przystanki (także zmiana
   sposobu dostawy, adresu i pinezki zamówienia z trasy oraz nazwy pojazdu; pod tą samą blokadą idzie też
   „Wydane klientowi”), bierze **najpierw** blokadę `routes.zablokuj_trasy()` (`logistics/services/routes.py`):

@@ -42,6 +42,8 @@ STATUS_PO_SPAKOWANIU = {KURIER: STATUS_SPAKOWANE, TRANSPORT: STATUS_PLANOWANA_TR
 # Statusy pozycji „spakowane lub dalej” (logistyka etap 4, spec 4.1): produkcja zakończona, towar
 # spakowany. Jedna stała na cały CRM — tam, gdzie kod pyta, czy pozycja wyszła z produkcji, a nie
 # czy czeka dokładnie na weryfikację. W JS i szablonach — kopia listy z odsyłaczem tutaj.
+# Uwaga: STATUS_PO_SPAKOWANIU (id statusów Base. wg sposobu dostawy) i STATUSY_PO_SPAKOWANIU (statusy
+# pozycji) różnią się jedną literą, a znaczą co innego.
 STATUSY_PO_SPAKOWANIU = ('spakowane', 'zweryfikowane', 'zaladowane', 'dostarczone')
 # Statusy nadawane wyłącznie przez logistykę (Weryfikacja, „Wydane klientowi”, Dostawa w kroku 4.4) —
 # hurtowa zmiana statusu ich nie oferuje, a deklaracja paczek po nich odmawia (409 order_verified).

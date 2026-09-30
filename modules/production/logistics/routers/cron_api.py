@@ -4,7 +4,8 @@ Cron logistyki — co godzinę z crontaba serwera:
     scripts/cron_endpoint.sh POST /production/api/logistics/cron
 
 Endpoint NIE wykonuje długiej pracy: sync worker gunicorna ma 30 s na żądanie.
-Przenosi osierocone `czeka_na_logistyke` do pakowania, przelicza cykl zamówień
+Przenosi osierocone `czeka_na_logistyke` do pakowania, przestawia pozycje już wydanych
+zamówień na `dostarczone` (okno wdrożenia kroku 4.3), przelicza cykl zamówień
 (szybkie, w bazie) i uruchamia w tle dopychacz Base. oraz geokoder adresów.
 """
 import traceback
@@ -34,6 +35,13 @@ def cron():
         if przeniesione:
             logger.warning('CRON: produkty w czeka_na_logistyke przeniesione do pakowania', extra={
                 'przeniesione': przeniesione})
+        # Okno wdrożenia kroku 4.3: pozycje już wydanych odbiorów osobistych przestawiamy na
+        # 'dostarczone' dopiero po restarcie (migracja tego nie robi — stary kod nie zna wartości
+        # ENUM, patrz delivery.dostarcz_wydane). Po pierwszym przebiegu zwraca 0.
+        wydane_dostarczone = delivery.dostarcz_wydane()
+        if wydane_dostarczone:
+            logger.info('CRON: pozycje wydanych zamówień przestawione na dostarczone', extra={
+                'pozycje': wydane_dostarczone})
         przeliczone = delivery.przelicz_otwarte()
         db.session.commit()
         uruchomiony = bl_sync.uruchom_w_tle(current_app._get_current_object())
@@ -42,6 +50,7 @@ def cron():
         return jsonify({
             'success': True,
             'przeniesione_z_logistyki': przeniesione,
+            'wydane_dostarczone': wydane_dostarczone,
             'przeliczone': przeliczone,
             'dopychacz_uruchomiony': bool(uruchomiony),
             'geokoder_uruchomiony': bool(geokoder),

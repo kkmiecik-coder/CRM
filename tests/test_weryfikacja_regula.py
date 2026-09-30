@@ -108,7 +108,9 @@ def test_bez_zapytan_gdy_nie_ma_czego_kasowac(app):
 
 def test_ponowione_zakoncz_pakowania_nie_cofa_statusu_logistyki(app, monkeypatch):
     """Kolejka offline tabletu może dosłać „ZAKOŃCZ” po weryfikacji — pozycja zostaje zweryfikowana,
-    a po_spakowaniu się nie odpala (dziś spakowane → spakowane też niczego nie zmienia)."""
+    załadowana albo dostarczona, a po_spakowaniu się nie odpala. Dla 'spakowane' ponowione ZAKOŃCZ
+    nadal woła po_spakowaniu (może zdjąć repack_required i zaległe 138620 oraz przeliczyć zamknięcie) —
+    strażnik dotyczy tylko statusów logistycznych."""
     from modules.production.logistics.services import delivery
     wolania = []
     monkeypatch.setattr(delivery, 'po_spakowaniu', lambda *a, **k: wolania.append(a))

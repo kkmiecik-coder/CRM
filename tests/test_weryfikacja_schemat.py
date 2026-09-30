@@ -94,10 +94,10 @@ def test_migracja():
     assert 'ALTER TABLE prod_packages DROP INDEX ix_prod_packages_voided_at' in sql
     od = next(p for p in polecenia if p.startswith('INSERT IGNORE INTO prod_config'))
     assert "'logistyka_weryfikacja_od'" in od and 'CAST(NOW() AS CHAR)' in od
-    wydane = next(p for p in polecenia if p.startswith('UPDATE prod_products'))
-    assert "SET p.current_status = 'dostarczone'" in wydane
-    assert 'o.handed_over_at IS NOT NULL' in wydane and "p.current_status = 'spakowane'" in wydane
-    assert polecenia.index(status) < polecenia.index(wydane)
+    # Wydane odbiory przestawia cron po restarcie (delivery.dostarcz_wydane): migracja działa PRZED
+    # restartem, a stary kod nie zna 'dostarczone' w ENUM — żadnego UPDATE pozycji w tym pliku.
+    assert 'UPDATE prod_products' not in sql
+    assert not any(p.upper().startswith('UPDATE') for p in polecenia)
     assert 'DELIMITER' not in sql.upper()
 
 

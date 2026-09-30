@@ -3,7 +3,9 @@
 -- zamówieniu, akcje logu Weryfikacji, indeks paczek po (zamówienie, unieważnienie) i chwila startu listy
 -- „Do weryfikacji”. Idempotentna: MODIFY enumów jest idempotentny sam z siebie, ALTER dodające kolumny i
 -- zmieniające indeksy osłonięte warunkiem z information_schema przez PREPARE/EXECUTE (bez zmiany
--- separatora poleceń), wiersz konfiguracji przez INSERT IGNORE, przepisanie wydanych - warunkiem na status.
+-- separatora poleceń), wiersz konfiguracji przez INSERT IGNORE. Pozycje zamówień już wydanych (odbiór
+-- osobisty) przestawia na 'dostarczone' cron logistyki po restarcie (delivery.dostarcz_wydane), a nie ta
+-- migracja: deploy.sh wykonuje ją PRZED restartem, a stary kod w oknie wdrożenia nie zna tej wartości ENUM.
 
 -- Nowe wartości NA KOŃCU listy: MySQL 8 zmienia wtedy same metadane (bez przebudowy tabeli). Zestaw
 -- znaków i porównywanie jak w bazie produkcyjnej (kolumna ma je jawnie w SHOW CREATE TABLE).
@@ -90,11 +92,3 @@ INSERT IGNORE INTO prod_config (config_key, config_value, config_description, co
 VALUES ('logistyka_weryfikacja_od', CAST(NOW() AS CHAR),
         'Logistyka: lista Do weryfikacji obejmuje zamówienia spakowane od tej chwili (wdrożenie kroku 4.3)',
         'string', NOW(), NOW());
-
--- „Wydane klientowi” od kroku 4.3 ustawia pozycje na 'dostarczone' - zamówienia wydane wcześniej dostają
--- ten sam stan. Zwykły UPDATE omija audyt prod_product_events (listener działa tylko w ORM) - świadomie:
--- to przepisanie historii, nie czyjaś praca.
-UPDATE prod_products p
-  JOIN prod_orders o ON o.id = p.order_id
-   SET p.current_status = 'dostarczone'
- WHERE o.handed_over_at IS NOT NULL AND p.current_status = 'spakowane';

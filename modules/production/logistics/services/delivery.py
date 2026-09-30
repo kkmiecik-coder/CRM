@@ -46,8 +46,9 @@ def wszystkie_w(order, statusy):
 def wszystkie_spakowane(order):
     """
     „Spakowane lub dalej” (logistyka etap 4, spec 4.1): towar całego zamówienia jest spakowany —
-    także zweryfikowany, załadowany albo dostarczony. Tak pytają lista i trasy (przycisk „Wydane”,
-    „Odhacz”), etykieta paczki i zmiana sposobu dostawy. Kto potrzebuje DOKŁADNIE 'spakowane'
+    także zweryfikowany, załadowany albo dostarczony. Tak pytają lista (plakietka „spakowane”),
+    routes.wykonaj (odhaczenie trasy) i sam delivery (po_spakowaniu, zmiana sposobu dostawy).
+    Kto potrzebuje DOKŁADNIE 'spakowane'
     (deklaracja paczek), woła wszystkie_w(order, ('spakowane',)).
     """
     return wszystkie_w(order, sposoby.STATUSY_PO_SPAKOWANIU)
@@ -461,6 +462,31 @@ def przenies_osierocone_z_logistyki(teraz=None):
     for order in zamowienia.values():
         odnotuj_wejscie_do_pakowania(order, teraz)
         przelicz_zamkniecie(order, teraz)
+    return len(produkty)
+
+
+def dostarcz_wydane(teraz=None):
+    """
+    Pozycje 'spakowane' zamówień już wydanych klientowi (handed_over_at) → 'dostarczone'.
+    Zwraca liczbę przestawionych pozycji.
+
+    Od kroku 4.3 „Wydane klientowi” ustawia 'dostarczone' samo (delivery.wydaj), ale zamówienia
+    wydane wcześniej zostały ze 'spakowane'. Migracja tego NIE robi: deploy.sh wykonuje ją PRZED
+    restartem, a stary kod w oknie wdrożenia ma Enum bez 'dostarczone' — pierwszy odczyt takiego
+    wiersza rzuciłby LookupError (500 na listach). Dlatego przepisanie idzie z crona po restarcie,
+    przez ORM (audyt prod_product_events działa tylko tam) i z podbiciem updated_at (ETag kolejek
+    tabletów). Idempotentne: gdy nic nie zostało, zwraca 0.
+    """
+    from modules.production.models import ProductionOrder, ProductionProduct
+    teraz = teraz or get_local_now()
+    produkty = (ProductionProduct.query
+                .join(ProductionOrder, ProductionOrder.id == ProductionProduct.order_id)
+                .filter(ProductionOrder.handed_over_at.isnot(None),
+                        ProductionProduct.current_status == 'spakowane')
+                .all())
+    for p in produkty:
+        p.current_status = 'dostarczone'
+        p.updated_at = teraz
     return len(produkty)
 
 

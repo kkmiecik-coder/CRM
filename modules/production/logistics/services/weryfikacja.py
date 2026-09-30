@@ -23,7 +23,7 @@ logger = get_structured_logger('production.logistics.weryfikacja')
 
 # Pozycje, które wracają do 'spakowane', gdy zamówienie wróci do produkcji. 'dostarczone' zostaje
 # (decyzja Konrada 30.09): towar u klienta jest u klienta.
-_COFANE_DO_SPAKOWANYCH = ('zweryfikowane', 'zaladowane')
+_COFANE_DO_SPAKOWANYCH = tuple(st for st in sposoby.STATUSY_LOGISTYCZNE if st != 'dostarczone')
 
 STANOWISKO = 'verification'
 # Zamówienia zamknięte w Logistyce (kurier) są na liście przez tyle dni od spakowania (decyzja 30.09).
@@ -238,6 +238,12 @@ def uniewaznij_etapy(order, teraz, powod, user_id=None, worker_id=None, device_i
     ta sama kolejność co w deklaracji i akcjach Weryfikacji (zamówienie → paczki), więc nie tworzy
     z nimi cyklu. Globalnej blokady deklaracji NIE bierze: wołający (panel, synchronizacja, tablet)
     trzymają już inne blokady, a wiersz blokady musiałby być pierwszy.
+
+    Wymagania wobec wołającego: reguła decyduje na stanie W PAMIĘCI (packages_declared_at, verified_at,
+    statusy pozycji), więc zamówienie ma być wczytane odczytem bieżącym (po blokadzie wiersza zamówienia,
+    nie z migawki sprzed niej), a wołający nie zapisuje pozycji przed tą blokadą. „Bez zapytań” zachodzi
+    tylko przy już wczytanych pozycjach (cron ładuje je przez selectinload) — inaczej samo
+    `order.products` jest zapytaniem.
     """
     aktywne = delivery.aktywne_produkty(order)
     if not aktywne or all(p.current_status in sposoby.STATUSY_PO_SPAKOWANIU for p in aktywne):
@@ -257,7 +263,7 @@ def uniewaznij_etapy(order, teraz, powod, user_id=None, worker_id=None, device_i
         order.packages_declared_at = None
         db.session.flush()   # wiersz zamówienia przed paczkami (kolejność blokad — docstring)
         stare = paczki.aktualne_paczki(order.id, do_zapisu=True)
-        paczki.uniewaznij(stare, teraz, powod=powod)
+        paczki.uniewaznij(stare, teraz, powod=notatka or u'unieważnienie etapów')
         delivery.zapisz_log(order, 'paczki', paczki.opis_paczek(stare), None, note=notatka,
                             user_id=user_id, worker_id=worker_id, device_id=device_id, teraz=teraz)
     delivery.podbij_pozycje(order, teraz)
