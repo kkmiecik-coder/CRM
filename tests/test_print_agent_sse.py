@@ -218,7 +218,7 @@ def test_agent_oproznia_kolejke_a_nie_pobiera_jednej_porcji(monkeypatch):
     pobrania = []
     wydrukowane = []
 
-    monkeypatch.setattr(print_agent, 'fetch_jobs', lambda c: (pobrania.append(1), porcje.pop(0))[1])
+    monkeypatch.setattr(print_agent, 'fetch_jobs', lambda c, drukarka='etykiety': (pobrania.append(1), porcje.pop(0))[1])
     monkeypatch.setattr(print_agent, 'send_to_printer', lambda c, z: wydrukowane.append(z))
     monkeypatch.setattr(print_agent, 'ack_jobs', lambda c, r: {'updated': len(r)})
 
@@ -244,7 +244,7 @@ def test_martwa_drukarka_nie_pali_calej_kolejki(monkeypatch):
     potwierdzone = []
     pobrania = []
 
-    def fetch(c):
+    def fetch(c, drukarka='etykiety'):
         pobrania.append(1)
         return {'jobs': [{'id': i, 'short_product_id': 'X', 'zpl_payload': '^XA^XZ',
                           'requested_at': None} for i in range(10)]}
@@ -271,7 +271,7 @@ def test_niepelna_porcja_konczy_cykl(monkeypatch):
            'printer_port': 9100, 'printer_timeout': 5}
     pobrania = []
 
-    def fetch(c):
+    def fetch(c, drukarka='etykiety'):
         pobrania.append(1)
         return {'jobs': [{'id': 1, 'short_product_id': 'X', 'zpl_payload': '^XA^XZ',
                           'requested_at': None}]}
@@ -290,7 +290,7 @@ def test_oproznianie_kolejki_ma_bezpiecznik(monkeypatch):
            'printer_port': 9100, 'printer_timeout': 5}
     pobrania = []
 
-    def fetch(c):
+    def fetch(c, drukarka='etykiety'):
         pobrania.append(1)
         return {'jobs': [{'id': 1, 'short_product_id': 'X', 'zpl_payload': '^XA^XZ',
                           'requested_at': None}] * 2}          # zawsze pełna porcja

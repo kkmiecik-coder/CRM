@@ -2,7 +2,7 @@
 
 ## Co to jest
 
-Mały skrypt w Pythonie, który chodzi 24/7 na hubie biura, odbiera z CRM zadania drukowania etykiet (ZPL) i wysyła je przez TCP do drukarki Xprinter XP-423B w sieci lokalnej. Po wydruku odsyła do CRM potwierdzenie (ACK), żeby zadanie nie było próbowane ponownie. Pracuje tylko w godzinach pracy — w nocy i w niedzielę agent śpi.
+Mały skrypt w Pythonie, który chodzi 24/7 na hubie biura, odbiera z CRM zadania drukowania etykiet (ZPL) i wysyła je przez TCP do drukarek Xprinter: XP-423B (etykiety produktów 60×40) i XP-410B (etykiety paczek 100×150, od etapu 4 logistyki). Po wydruku odsyła do CRM potwierdzenie (ACK), żeby zadanie nie było próbowane ponownie. Pracuje tylko w godzinach pracy — w nocy i w niedzielę agent śpi.
 
 ## Jak agent dowiaduje się o zadaniach
 
@@ -20,7 +20,7 @@ Do połączenia z brokerem agent potrzebuje krótkotrwałego tokena, który pobi
 ## Wymagania
 
 - Python 3.8+ (Windows)
-- Dostęp do sieci LAN z drukarką (`192.168.100.199:9100`)
+- Dostęp do drukarek: w sieci LAN (np. `192.168.100.199:9100`) albo podpiętych do tego komputera (kolejka wydruku Windows)
 - Dostęp do internetu (HTTPS do `crm.woodpower.pl`)
 - Pakiety opcjonalne: `pip install colorama` (kolorowe logi na starszym CMD; nieobowiązkowe)
 
@@ -119,6 +119,34 @@ git pull
 Agent nie używa żadnych zewnętrznych pakietów, więc aktualizacja nigdy nie wymaga `pip install`.
 
 Potem zamknij okno agenta i odpal `start.bat` ponownie. `config.ini` i logi nie są w gicie, więc `git pull` ich nie ruszy.
+
+## Dwie drukarki (od etapu 4 logistyki)
+
+Każda drukarka to osobna sekcja `[printer:<nazwa>]` w `config.ini` — wzór w
+`config.example.ini`. Nazwy są wspólne z CRM: `etykiety` (etykiety produktów 60×40)
+i `wysylka` (etykiety paczek 100×150). Agent pyta CRM o zadania każdej drukarki
+osobno, więc awaria jednej nie wstrzymuje drugiej. Stary `config.ini` z sekcją
+`[printer]` działa dalej jako drukarka `etykiety`.
+
+Drukarka podpięta do tego komputera (USB): `type = windows` i `name = <nazwa kolejki
+wydruku>` — dokładnie tak, jak w Ustawienia → Drukarki. Agent wysyła ZPL „na surowo”
+(typ danych RAW), sterownik go nie przerabia.
+
+### Aktualizacja agenta na komputerze hali
+
+1. Zatrzymaj agenta (zamknij okno).
+2. Podmień `print_agent.py` i `README.md` w folderze agenta (`config.ini` zostaw).
+3. W `config.ini` dopisz sekcję `[printer:wysylka]` (adres drukarki paczek w sieci hali).
+4. `python print_agent.py --kalibruj wysylka` — drukarka przewinie kilka pustych etykiet.
+5. Uruchom agenta (`start.bat`) i w CRM: Konfiguracja → Drukarka etykiet → „Wydruk
+   próbny: Drukarka paczek”. Ramka ma mieć ok. 3 mm od każdej krawędzi; jeśli nie,
+   popraw „Drukarka paczek: przesunięcie” (8 punktów = 1 mm), zapisz i drukuj ponownie.
+
+### Kalibracja (`--kalibruj`)
+
+`python print_agent.py --kalibruj wysylka` wysyła do drukarki komendę TSPL `GAPDETECT`.
+Rób to przy instalacji i po każdej zmianie rolki na inny rozmiar — bez kalibracji
+XP-410B drukował ok. 6 mm za nisko.
 
 ## Diagnostyka
 
