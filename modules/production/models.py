@@ -927,6 +927,16 @@ class LabelPrintJob(db.Model):
     STATUS_FAILED = 'failed'
     STATUS_EXPIRED = 'expired'
 
+    # Drukarki (logistyka etap 4, spec 5.1). Nazwy są wspólne z agentem druku
+    # (sekcje [printer:<nazwa>] w jego config.ini) — zmiana tu = zmiana na hubie.
+    DRUKARKA_ETYKIETY = 'etykiety'   # etykiety produktów 60x40 (dotychczasowa drukarka)
+    DRUKARKA_WYSYLKA = 'wysylka'     # etykiety paczek 100x150 przy pakowaniu
+    DRUKARKI = (DRUKARKA_ETYKIETY, DRUKARKA_WYSYLKA)
+
+    __table_args__ = (
+        Index('ix_prod_print_queue_printer_status', 'printer', 'status'),
+    )
+
     id = Column(Integer, primary_key=True)
     short_product_id = Column(String(20), nullable=False, index=True)
     # Klucz JEDNOZNACZNY. short_product_id wyżej dzielą oryginał i doróbka
@@ -955,6 +965,11 @@ class LabelPrintJob(db.Model):
         Enum('pending', 'printed', 'failed', 'expired', name='print_job_status'),
         default='pending', nullable=False, index=True,
     )
+    # Drukarka docelowa. Domyślna 'etykiety': kod etykiet produktów jej nie podaje,
+    # a stary agent (bez ?printers=) dostaje wyłącznie te zadania.
+    printer = Column(String(20), nullable=False, default='etykiety', server_default='etykiety')
+    # Paczka, której dotyczy etykieta (krok 4.2 — prod_packages); NULL dla etykiet produktów.
+    package_id = Column(Integer, nullable=True)
     printed_at = Column(DateTime, nullable=True)
     error_message = Column(Text, nullable=True)
 
