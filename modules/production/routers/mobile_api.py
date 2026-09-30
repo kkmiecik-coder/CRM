@@ -1039,8 +1039,24 @@ def _stanowisko_paczek():
 
 
 def _zamowienie_po_numerze(numer, do_zapisu=False):
-    """Zamówienie po numerze wewnętrznym. `do_zapisu=True` — z blokadą wiersza (FOR UPDATE)."""
-    zapytanie = ProductionOrder.query.filter_by(internal_order_number=str(numer).strip())
+    """
+    Najnowsze zamówienie o numerze wewnętrznym (licznik numerów startuje co roku od nowa,
+    więc numer się powtarza — bierzemy wyższe id). `do_zapisu=True` — z blokadą wiersza
+    (FOR UPDATE).
+
+    Id ustalamy odczytem BEZ blokady i dopiero po kluczu głównym blokujemy wiersz:
+    kolumna internal_order_number nie ma indeksu, więc `FOR UPDATE` po niej skanuje
+    tabelę i InnoDB (REPEATABLE READ) zakłada blokady next-key na prawie całym
+    prod_orders, czyli wstrzymuje każdy zapis do zamówień na hali.
+    """
+    order_id = (db.session.query(ProductionOrder.id)
+                .filter(ProductionOrder.internal_order_number == str(numer).strip())
+                .order_by(ProductionOrder.id.desc())
+                .limit(1)
+                .scalar())
+    if order_id is None:
+        return None
+    zapytanie = ProductionOrder.query.filter_by(id=order_id)
     if do_zapisu:
         zapytanie = zapytanie.with_for_update().populate_existing()
     return zapytanie.first()
@@ -1110,12 +1126,15 @@ def order_packages_declare(numer):
         deklaracja = paczki.waliduj_deklaracje(request.get_json(silent=True))
     except paczki.PaczkiBlad as e:
         return _blad_paczek(e)
-    order = _zamowienie_po_numerze(numer, do_zapisu=True)
-    if order is None:
-        return _brak_zamowienia(numer)
+    # Pracownicy PRZED blokadą zamówienia: order_complete też najpierw dotyka wierszy sesji
+    # (touch_sessions), a dopiero potem blokuje pozycję i zamówienie — odwrócona kolejność
+    # dawałaby zakleszczenie (MySQL 1213) przy równoległym „ZAKOŃCZ” i deklaracji.
     worker_ids, _sesje, err = _resolve_workers()
     if err:
         return err
+    order = _zamowienie_po_numerze(numer, do_zapisu=True)
+    if order is None:
+        return _brak_zamowienia(numer)
     try:
         nowe = paczki.zadeklaruj(order, deklaracja, stanowisko, _aktor(),
                                  worker_id=worker_ids[0] if worker_ids else None,

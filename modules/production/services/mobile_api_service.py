@@ -477,6 +477,12 @@ def with_idempotency(f=None, retryable_statuses=None, require_operation_id=False
     (żeby klient mógł retry). Handler MUSI zwracać (response, status)
     i NIE MOŻE wewnątrz wywoływać db.session.commit() — zrobi to decorator.
 
+    Sygnał dla agenta druku: handler, który kolejkuje etykiety, tylko go planuje
+    (print_queue_service.zaplanuj_sygnal_po_commicie); decorator wysyła go dopiero po
+    udanym commicie (wyslij_zaplanowany_sygnal, pod hookiem BL). Przy rollbacku
+    (5xx, `retryable_statuses`, wyjątek), powtórce idempotentnej i wyścigu
+    IntegrityError sygnał nie idzie — zaplanowana liczba ginie razem z `g` żądania.
+
     retryable_statuses: zbiór kodów 4xx, które mają być traktowane jak 5xx —
     rollback i BRAK zapisu, żeby klient mógł ponowić z tym samym
     X-Operation-Id. Trakownia używa {409}: gdy zlecenie zostało w międzyczasie

@@ -122,6 +122,21 @@ def test_zle_dane_422(app, client, sygnaly, dane):
     assert ProductionPackage.query.count() == 0 and LabelPrintJob.query.count() == 0 and sygnaly == []
 
 
+@pytest.mark.parametrize('dane, ile, wymiar', [
+    ({'kind': 'paczka', 'count': 2.0}, 2, (None, None)),
+    ({'kind': 'paleta', 'count': 1, 'pallet_type': 'niestandardowa', 'length_cm': 150.0, 'width_cm': 100},
+     1, (150, 100)),
+])
+def test_calkowite_liczby_zmiennoprzecinkowe_przechodza(app, client, sygnaly, dane, ile, wymiar):
+    """422 jest zapamiętywane, czyli wyrzuca deklarację z kolejki offline tabletu (2.0 == 2)."""
+    order = _spakowane()
+    r = _put(client, order, _urzadzenie(), dane)
+    assert r.status_code == 200, r.get_json()
+    lista = paczki.aktualne_paczki(order.id)
+    assert len(lista) == ile and (lista[0].length_cm, lista[0].width_cm) == wymiar
+    assert isinstance(lista[0].seq, int) and sygnaly == [ile]
+
+
 def test_niespakowane_zamowienie_409_i_ponowienie_po_spakowaniu(app, client, sygnaly):
     """Review Focus 2: kolejka appki nie gwarantuje, że ostatni COMPLETE przeszedł pierwszy."""
     order, device = _spakowane(statusy=('spakowane', 'czeka_na_pakowanie')), _urzadzenie()
@@ -221,6 +236,58 @@ def test_sygnal_dla_agenta_dopiero_po_commicie(app, client, monkeypatch):
         event.remove(db.session, 'after_commit', _po_commicie)
     assert kolejnosc[-2:] == ['commit', ('sygnal', 2)]
     assert kolejnosc.count(('sygnal', 2)) == 1
+
+
+def _dwa_zamowienia_o_tym_samym_numerze():
+    """Licznik numerów startuje co roku od nowa — numer się powtarza, a nowsze zamówienie ma wyższe id."""
+    starsze = zamowienie(sposob=s.KURIER, statusy=('spakowane', 'spakowane'), numer_wewnetrzny='1777')
+    nowsze = zamowienie(sposob=s.KURIER, statusy=('spakowane', 'spakowane'), numer_wewnetrzny='1777')
+    assert nowsze.id > starsze.id and nowsze.internal_order_number == starsze.internal_order_number
+    return starsze, nowsze
+
+
+def test_put_przy_powtorzonym_numerze_trafia_w_nowsze_zamowienie(app, client, sygnaly):
+    starsze, nowsze = _dwa_zamowienia_o_tym_samym_numerze()
+    r = _put(client, nowsze, _urzadzenie(), {'kind': 'paczka', 'count': 2})
+    assert r.status_code == 200, r.get_json()
+    assert [p.order_id for p in ProductionPackage.query.all()] == [nowsze.id, nowsze.id]
+    assert paczki.aktualne_paczki(starsze.id) == []
+    assert ProductionOrder.query.get(starsze.id).packages_declared_at is None
+    assert ProductionOrder.query.get(nowsze.id).packages_declared_at is not None
+    assert LogisticsLog.query.filter_by(order_id=starsze.id, action='paczki').count() == 0
+
+
+def test_get_przy_powtorzonym_numerze_czyta_nowsze_zamowienie(app, client, sygnaly):
+    starsze, nowsze = _dwa_zamowienia_o_tym_samym_numerze()
+    device = _urzadzenie()
+    # Paczka starszego zamówienia nie może wyciec do odpowiedzi o numerze.
+    db.session.add(ProductionPackage(order_id=starsze.id, seq=1, kind='paczka',
+                                     declared_at=datetime(2026, 1, 5)))
+    db.session.commit()
+    assert client.get(_url(nowsze), headers=_naglowki(device)).get_json()['packages'] == []
+    assert _put(client, nowsze, device, {'kind': 'paczka', 'count': 1}).status_code == 200
+    dane = client.get(_url(nowsze), headers=_naglowki(device)).get_json()
+    assert [p['id'] for p in dane['packages']] ==         [p.id for p in ProductionPackage.query.filter_by(order_id=nowsze.id)]
+    assert dane['packages_declared_at']
+
+
+def test_pracownicy_przed_blokada_zamowienia(app, client, sygnaly, monkeypatch):
+    """Ta sama kolejność co w order_complete (sesje pracowników, potem blokada) — bez zakleszczenia."""
+    kolejnosc = []
+    pracownicy, zamowienie_po_numerze = mobile_api._resolve_workers, mobile_api._zamowienie_po_numerze
+
+    def _pracownicy():
+        kolejnosc.append('pracownicy')
+        return pracownicy()
+
+    def _zamowienie(numer, do_zapisu=False):
+        kolejnosc.append('blokada' if do_zapisu else 'odczyt')
+        return zamowienie_po_numerze(numer, do_zapisu=do_zapisu)
+
+    monkeypatch.setattr(mobile_api, '_resolve_workers', _pracownicy)
+    monkeypatch.setattr(mobile_api, '_zamowienie_po_numerze', _zamowienie)
+    assert _put(client, _spakowane(), _urzadzenie(), {'kind': 'paczka', 'count': 1}).status_code == 200
+    assert kolejnosc == ['pracownicy', 'blokada']
 
 
 def test_get_zwraca_aktualne_paczki(app, client, sygnaly):

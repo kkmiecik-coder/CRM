@@ -113,8 +113,18 @@ def serializuj_paczke(p):
 
 
 def _liczba(wartosc):
-    """Liczba całkowita z JSON-a; bool to nie liczba (w Pythonie True == 1)."""
-    return wartosc if isinstance(wartosc, int) and not isinstance(wartosc, bool) else None
+    """
+    Liczba całkowita z JSON-a. Bool to nie liczba (w Pythonie True == 1); całkowity float
+    (2.0) przyjmujemy jako 2, bo 422 jest zapamiętywane i wyrzuca deklarację z kolejki
+    offline tabletu; 1.5 i tekst odpadają.
+    """
+    if isinstance(wartosc, bool):
+        return None
+    if isinstance(wartosc, int):
+        return wartosc
+    if isinstance(wartosc, float) and wartosc.is_integer():
+        return int(wartosc)
+    return None
 
 
 def waliduj_deklaracje(dane):
@@ -187,8 +197,11 @@ def zadeklaruj(order, deklaracja, stanowisko, aktor, worker_id=None, device_id=N
     `order` MUSI być odczytany z blokadą (router: _zamowienie_po_numerze(do_zapisu=True)) —
     dwie deklaracje naraz (dwa tablety, powtórka z nowym X-Operation-Id) dałyby dwa komplety
     paczek. Poprzednie paczki czytamy odczytem bieżącym z tego samego powodu.
-    Stan pozycji czytamy zwykłym odczytem: migawka sprzed blokady może najwyżej dać
-    fałszywe 409 order_not_packed, które appka ponawia.
+    Stan pozycji czytamy zwykłym odczytem, więc migawka sprzed blokady może dać fałszywe
+    409 order_not_packed (appka ponawia) ALBO przyjąć deklarację względem statusów sprzed
+    równoległej zmiany (np. przełączenia na ponowne pakowanie). Stan końcowy odpowiada
+    wtedy poprawnej kolejności szeregowej (deklaracja, potem zmiana), a krok 4.3
+    unieważnia paczki, gdy zamówienie przestaje być w całości spakowane.
     """
     if not delivery.wszystkie_spakowane(order):
         raise PaczkiBlad('order_not_packed', u'Zamówienie {} nie jest jeszcze w całości spakowane — '
