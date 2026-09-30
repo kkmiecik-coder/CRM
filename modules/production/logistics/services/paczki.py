@@ -16,7 +16,7 @@ from modules.logging import get_structured_logger
 from modules.production.logistics import sposoby
 from modules.production.logistics.services import delivery, paczki_druk
 from modules.production.models import (
-    LabelPrintJob, ProductionConfig, ProductionPackage, get_local_now,
+    LabelPrintJob, ProductionConfig, ProductionPackage, ProductionProduct, get_local_now,
 )
 
 logger = get_structured_logger('production.logistics.paczki')
@@ -107,6 +107,31 @@ def aktualne_paczki_zamowien(order_ids):
               .order_by(ProductionPackage.order_id, ProductionPackage.seq, ProductionPackage.id)):
         wynik.setdefault(p.order_id, []).append(p)
     return wynik
+
+
+def zablokuj_stan(order):
+    """
+    Odczyt BIEŻĄCY stanu, na którym zapis paczek albo Weryfikacji ma zdecydować. Zwraca aktualne paczki
+    zamówienia. Jedyna definicja tego odczytu: woła ją `zadeklaruj` (deklaracja paczek) i
+    `weryfikacja.zablokuj_stan` (zapisy Weryfikacji), żeby obie strony decydowały na tym samym stanie.
+
+    Kolejność blokad (każdy taki zapis): zamówienie FOR UPDATE trzyma już wołający (router) → paczki FOR
+    UPDATE → pozycje FOR UPDATE po kluczu głównym (bez blokad luk) → dopiero zapisy. Odczyt jest BIEŻĄCY
+    (`populate_existing`), nie zwykły: MySQL pracuje na REPEATABLE READ, a migawka powstaje przy pierwszym
+    zwykłym odczycie transakcji (już w before_request albo przy sprawdzaniu pracownika), więc leniwe
+    `order.products` pokazałoby statusy sprzed czekania na blokady — cudze przepakowanie, „Wydane
+    klientowi”, anulowanie z synchronizacji, weryfikacja albo pierwszy z dwóch skanów zostałyby po cichu
+    nadpisane albo strażnik (order_verified, order_not_packed) przepuściłby przegranego w wyścigu.
+    `populate_existing` odświeża pozycje w identity map, więc `order.products`, `podbij_pozycje`
+    i serializer odpowiedzi widzą bieżące wartości. Lista pozycji (klucze) pochodzi z `order.products`:
+    blokada po `order_id` zakładałaby blokady luk na indeksie i zakleszczała się.
+    """
+    aktualne = aktualne_paczki(order.id, do_zapisu=True)
+    ids = [p.id for p in order.products]
+    if ids:
+        (ProductionProduct.query.filter(ProductionProduct.id.in_(ids)).order_by(ProductionProduct.id)
+         .with_for_update().populate_existing().all())
+    return aktualne
 
 
 def serializuj_paczke(p):
@@ -295,17 +320,21 @@ def zadeklaruj(order, deklaracja, stanowisko, aktor, worker_id=None, device_id=N
     drukarkę 'wysylka'. NIE commituje. Zwraca krotkę (nowe paczki, liczba unieważnionych).
 
     Router bierze najpierw `zablokuj_deklaracje()` (kolejność blokad: patrz jej docstring).
-    `order` MUSI być odczytany z blokadą (_zamowienie_po_numerze(do_zapisu=True)) —
-    dwie deklaracje naraz (dwa tablety, powtórka z nowym X-Operation-Id) dałyby dwa komplety
-    paczek. Poprzednie paczki czytamy odczytem bieżącym z tego samego powodu.
-    Stan pozycji czytamy zwykłym odczytem, więc migawka sprzed blokady może dać fałszywe
-    409 order_not_packed (appka ponawia) ALBO przyjąć deklarację względem statusów sprzed
-    równoległej zmiany (np. przełączenia na ponowne pakowanie). Przy wyścigu ze zmianą
-    sposobu dostawy w panelu etykiety mogą mieć napis już po zmianie (czytamy go z
-    zablokowanego wiersza zamówienia), a statusy pozycji sprzed niej (migawka). Przepakowanie
-    i tak kończy się nową deklaracją, a zamówienie, które przestało być w całości spakowane,
-    traci paczki przez weryfikacja.uniewaznij_etapy.
+    `order` MUSI być odczytany z blokadą i `populate_existing` (_zamowienie_po_numerze(do_zapisu=True)) —
+    dwie deklaracje naraz (dwa tablety, powtórka z nowym X-Operation-Id) dałyby dwa komplety paczek.
+
+    DECYZJA NA STANIE BIEŻĄCYM: strażniki (order_verified, order_not_packed) liczą się na statusach
+    pozycji z odczytu bieżącego (`zablokuj_stan`: paczki FOR UPDATE → pozycje po PK FOR UPDATE z
+    `populate_existing`, ta sama kolejność i ten sam odczyt co zapisy Weryfikacji), a nie z leniwego
+    `order.products`, który w REPEATABLE READ pokazuje migawkę sprzed czekania na blokady. Bez tego
+    przegrany w wyścigu z weryfikacją widział statusy sprzed niej, przechodził oba strażniki i deklarował
+    nowe paczki po weryfikacji: zamówienie zweryfikowane z niesprawdzonymi aktualnymi paczkami. Migawka
+    nie może już dać ani przyjęcia deklaracji względem nieaktualnych statusów, ani fałszywego 409.
+    Przy wyścigu ze zmianą sposobu dostawy w panelu napis na etykiecie czytamy z zablokowanego wiersza
+    zamówienia; przepakowanie i tak kończy się nową deklaracją, a zamówienie, które przestało być w
+    całości spakowane, traci paczki przez weryfikacja.uniewaznij_etapy.
     """
+    stare = zablokuj_stan(order)
     etap = next((p.current_status for p in delivery.aktywne_produkty(order)
                  if p.current_status in sposoby.STATUSY_LOGISTYCZNE), None)
     if etap is not None:
@@ -316,7 +345,6 @@ def zadeklaruj(order, deklaracja, stanowisko, aktor, worker_id=None, device_id=N
                          u'paczki deklaruje się po spakowaniu ostatniej pozycji.'.format(
                              order.internal_order_number), 409)
     teraz = teraz or get_local_now()
-    stare = aktualne_paczki(order.id, do_zapisu=True)
     uniewaznione = uniewaznij(stare, teraz)
     nowe = [ProductionPackage(order_id=order.id, seq=numer, kind=deklaracja.kind,
                               pallet_type=deklaracja.pallet_type, length_cm=deklaracja.length_cm,

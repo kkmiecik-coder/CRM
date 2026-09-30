@@ -315,23 +315,11 @@ def sprawdz_stan(order):
 def zablokuj_stan(order):
     """
     Odczyt bieżący stanu, na którym zapis Weryfikacji ma zdecydować. Zwraca aktualne paczki zamówienia.
-
-    Kolejność blokad (każdy zapis Weryfikacji): zamówienie FOR UPDATE trzyma już router →
-    paczki FOR UPDATE → pozycje FOR UPDATE po kluczu głównym (bez blokad luk) → dopiero zapisy.
-    Odczyt jest BIEŻĄCY (`populate_existing`), nie zwykły: MySQL pracuje na REPEATABLE READ, a migawka
-    powstaje przy pierwszym zwykłym odczycie transakcji (już w before_request), więc leniwe
-    `order.products` pokazałoby statusy sprzed czekania na blokady — cudze przepakowanie, „Wydane
-    klientowi”, anulowanie z synchronizacji albo pierwszy z dwóch skanów zostałyby po cichu nadpisane.
-    `populate_existing` odświeża pozycje w identity map, więc `order.products`, `podbij_pozycje`
-    i serializer odpowiedzi widzą bieżące wartości. Lista pozycji (klucze) pochodzi z `order.products`:
-    blokada po `order_id` zakładałaby blokady luk na indeksie i zakleszczała się (jak przy deklaracji).
+    Definicja odczytu (kolejność blokad, dlaczego bieżący, a nie migawka) siedzi w `paczki.zablokuj_stan`,
+    bo woła ją też deklaracja paczek: zamówienie FOR UPDATE trzyma już router → paczki FOR UPDATE →
+    pozycje po PK FOR UPDATE → dopiero zapisy.
     """
-    aktualne = paczki.aktualne_paczki(order.id, do_zapisu=True)
-    ids = [p.id for p in order.products]
-    if ids:
-        (ProductionProduct.query.filter(ProductionProduct.id.in_(ids)).order_by(ProductionProduct.id)
-         .with_for_update().populate_existing().all())
-    return aktualne
+    return paczki.zablokuj_stan(order)
 
 
 def stan_do_zapisu(order):

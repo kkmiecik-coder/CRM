@@ -13,14 +13,17 @@ from extensions import db
 from modules.production.logistics import sposoby as s
 from modules.production.logistics.models import LogisticsLog
 from modules.production.logistics.services import paczki
-from modules.production.models import (LabelPrintJob, ProductionConfig, ProductionDevice,
-                                       ProductionOrder, ProductionPackage, ProductionProduct)
+from modules.production.models import (LabelPrintJob, ProcessedMobileOperation, ProductionConfig,
+                                       ProductionDevice, ProductionOrder, ProductionPackage,
+                                       ProductionProduct)
 from modules.production.routers import mobile_api
 from modules.production.services import print_queue_service as pqs
 from modules.production.services.mobile_api_service import generate_token, with_idempotency
 from tests.logistyka_fixtures import app, client, pracownik, zamowienie  # noqa: F401
+from tests.weryfikacja_pomocnicze import migawka_pozycji
 
 _numery = itertools.count(1400)
+T0 = datetime(2026, 10, 1, 8, 0)
 _licznik = itertools.count(1)
 
 
@@ -153,6 +156,57 @@ def test_niespakowane_zamowienie_409_i_ponowienie_po_spakowaniu(app, client, syg
     db.session.commit()
     r = client.put(_url(order), json={'kind': 'paczka', 'count': 1}, headers=naglowki)
     assert r.status_code == 200 and ProductionPackage.query.count() == 1
+
+
+# --- Deklaracja decyduje na stanie BIEŻĄCYM pozycji (fala końcowa 4.3, F8) ------------------------------
+# Migawka MySQL (REPEATABLE READ) powstaje przed czekaniem na blokady, więc leniwe `order.products` pokazuje
+# statusy sprzed cudzej weryfikacji. Przelotka migawka_pozycji wpycha do sesji ORM pozycje w starym stanie,
+# a w bazie zostawia nowy (wzór z tests/test_weryfikacja_akcje.py) — strażnik ma zobaczyć bazę.
+
+@pytest.mark.parametrize('w_bazie, kod', [
+    ('zweryfikowane', 'order_verified'),        # równoległa weryfikacja zdążyła przed blokadą
+    ('zaladowane', 'order_verified'),
+    ('dostarczone', 'order_verified'),
+    ('czeka_na_pakowanie', 'order_not_packed'), # pozycja wróciła „w tle” do pakowania
+])
+def test_deklaracja_decyduje_na_biezacym_stanie_pozycji(app, client, sygnaly, monkeypatch, w_bazie, kod):
+    order, device = _spakowane(), _urzadzenie()
+    migawka_pozycji(monkeypatch, paczki, 'zadeklaruj', w_pamieci='spakowane', w_bazie=w_bazie)
+    r = _put(client, order, device, {'kind': 'paczka', 'count': 2})
+    assert (r.status_code, r.get_json()['error']) == (409, kod), r.get_json()
+    assert order.internal_order_number in r.get_json()['message']
+    assert ProductionPackage.query.filter_by(order_id=order.id).count() == 0     # żadnych nowych paczek
+    assert LabelPrintJob.query.count() == 0 and sygnaly == []
+    assert ProductionOrder.query.get(order.id).packages_declared_at is None
+    assert ProcessedMobileOperation.query.count() == 0                            # 409 niezapamiętane
+
+
+def test_deklaracja_po_cichej_weryfikacji_nie_zostawia_zamowienia_zweryfikowanego_z_niesprawdzonymi_paczkami(
+        app, client, sygnaly, monkeypatch):
+    """Sedno F8: przegrany w wyścigu z weryfikacją deklarował nowe paczki PO weryfikacji. Jedyny dozwolony
+    stan końcowy to brak nowej deklaracji: stare, sprawdzone paczki ważne, a zamówienie zweryfikowane."""
+    kto = pracownik()
+    order, device = _spakowane(statusy=('zweryfikowane', 'zweryfikowane'), verified_at=T0), _urzadzenie()
+    stare = ProductionPackage(order_id=order.id, seq=1, kind='paczka', declared_at=T0, verified_at=T0,
+                              verified_method='skan', verified_by_worker_id=kto.id)
+    db.session.add(stare)
+    order.packages_declared_at = T0
+    db.session.commit()
+    migawka_pozycji(monkeypatch, paczki, 'zadeklaruj', w_pamieci='spakowane', w_bazie='zweryfikowane')
+    r = _put(client, order, device, {'kind': 'paczka', 'count': 3})
+    assert (r.status_code, r.get_json()['error']) == (409, 'order_verified')
+    aktualne = paczki.aktualne_paczki(order.id)
+    assert [(p.id, p.verified_at) for p in aktualne] == [(stare.id, T0)]          # stara deklaracja ważna
+    assert ProductionOrder.query.get(order.id).verified_at == T0
+
+
+def test_deklaracja_na_aktualnym_stanie_nadal_przechodzi_gdy_baza_zgadza_sie_z_pamiecia(app, client, sygnaly,
+                                                                                    monkeypatch):
+    """Przelotka bez rozjazdu (pamięć = baza) niczego nie psuje: zwykła deklaracja przechodzi."""
+    order, device = _spakowane(), _urzadzenie()
+    migawka_pozycji(monkeypatch, paczki, 'zadeklaruj', w_pamieci='spakowane', w_bazie='spakowane')
+    assert _put(client, order, device, {'kind': 'paczka', 'count': 2}).status_code == 200
+    assert ProductionPackage.query.filter_by(order_id=order.id).count() == 2
 
 
 def test_anulowana_pozycja_nie_blokuje_deklaracji(app, client, sygnaly):
