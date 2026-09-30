@@ -72,6 +72,12 @@ def _blad(e):
     return jsonify({'error': e.kod, 'message': e.komunikat}), e.status
 
 
+def _dane_json():
+    """Ciało JSON jako słownik; brak, zły JSON albo inny typ niż obiekt → pusty słownik (kontrakt: pola opcjonalne)."""
+    dane = request.get_json(silent=True)
+    return dane if isinstance(dane, dict) else {}
+
+
 @weryfikacja_mobile_bp.route('/orders', methods=['GET'])
 @require_device_token
 @wymaga_weryfikacji
@@ -109,8 +115,11 @@ def _zamowienie_do_zapisu(numer):
 
 
 def _odpowiedz(order, message, **dodatkowe):
+    # Skład paczek z odczytu bieżącego (blokady i tak są wzięte): zwykły SELECT pokazałby migawkę
+    # MySQL sprzed czekania na blokady, czyli paczki sprzed cudzej deklaracji albo weryfikacji.
     dane = {'order': weryfikacja.serializuj_zamowienie(
-                order, paczki.aktualne_paczki(order.id), routes.trasy_zamowien([order.id]).get(order.id)),
+                order, paczki.aktualne_paczki(order.id, do_zapisu=True),
+                routes.trasy_zamowien([order.id]).get(order.id)),
             'message': message}
     dane.update(dodatkowe)
     return jsonify(dane), 200
@@ -122,7 +131,7 @@ def _odpowiedz(order, message, **dodatkowe):
 @with_idempotency(retryable_statuses=BLEDY_DO_PONOWIENIA)
 def verification_package_verify(package_id):
     """POST /api/mobile/verification/packages/<id>/verify {"method": "skan"|"reczne"} (spec 8.3)."""
-    metoda = (request.get_json(silent=True) or {}).get('method') or 'skan'
+    metoda = _dane_json().get('method') or 'skan'
     if metoda not in weryfikacja.METODY:
         return jsonify({'error': 'invalid_method', 'message': u'Sposób weryfikacji: „skan” albo „reczne”.'}), 422
     worker_id, err = _pracownik()
@@ -141,7 +150,7 @@ def verification_package_verify(package_id):
                                                                 device_id=g.device.id)
     except weryfikacja.WeryfikacjaBlad as e:
         return _blad(e)
-    aktualne = paczki.aktualne_paczki(order.id)
+    aktualne = paczki.aktualne_paczki(order.id, do_zapisu=True)
     licznik = u'{} / {}'.format(sum(1 for p in aktualne if p.verified_at is not None), len(aktualne))
     if zmieniono and zweryfikowane:
         komunikat = u'Zamówienie {} zweryfikowane ({}).'.format(order.internal_order_number, licznik)
@@ -196,12 +205,6 @@ def verification_unverify(numer):
         order.internal_order_number), changed=True)
 
 
-def _dane_json():
-    """Ciało JSON jako słownik; brak, zły JSON albo inny typ niż obiekt → pusty słownik (kontrakt: pola opcjonalne)."""
-    dane = request.get_json(silent=True)
-    return dane if isinstance(dane, dict) else {}
-
-
 @weryfikacja_mobile_bp.route('/orders/<numer>/problem', methods=['POST'])
 @require_device_token
 @wymaga_weryfikacji
@@ -240,6 +243,8 @@ def verification_problem_resolve(numer):
     order = _zamowienie_do_zapisu(numer)
     if order is None:
         return _brak_zamowienia(numer)
+    # Kolejność blokad (paczki → pozycje) jak w pozostałych zapisach; rozwiaz_problem podbija pozycje.
+    weryfikacja.zablokuj_stan(order)
     zmieniono = weryfikacja.rozwiaz_problem(order, worker_id=worker_id, device_id=g.device.id)
     komunikat = (u'Problem w zamówieniu {} rozwiązany.' if zmieniono
                  else u'Zamówienie {} nie ma otwartego problemu.').format(order.internal_order_number)

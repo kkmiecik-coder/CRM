@@ -312,6 +312,38 @@ def sprawdz_stan(order):
     return aktywne
 
 
+def zablokuj_stan(order):
+    """
+    Odczyt bieżący stanu, na którym zapis Weryfikacji ma zdecydować. Zwraca aktualne paczki zamówienia.
+
+    Kolejność blokad (każdy zapis Weryfikacji): zamówienie FOR UPDATE trzyma już router →
+    paczki FOR UPDATE → pozycje FOR UPDATE po kluczu głównym (bez blokad luk) → dopiero zapisy.
+    Odczyt jest BIEŻĄCY (`populate_existing`), nie zwykły: MySQL pracuje na REPEATABLE READ, a migawka
+    powstaje przy pierwszym zwykłym odczycie transakcji (już w before_request), więc leniwe
+    `order.products` pokazałoby statusy sprzed czekania na blokady — cudze przepakowanie, „Wydane
+    klientowi”, anulowanie z synchronizacji albo pierwszy z dwóch skanów zostałyby po cichu nadpisane.
+    `populate_existing` odświeża pozycje w identity map, więc `order.products`, `podbij_pozycje`
+    i serializer odpowiedzi widzą bieżące wartości. Lista pozycji (klucze) pochodzi z `order.products`:
+    blokada po `order_id` zakładałaby blokady luk na indeksie i zakleszczała się (jak przy deklaracji).
+    """
+    aktualne = paczki.aktualne_paczki(order.id, do_zapisu=True)
+    ids = [p.id for p in order.products]
+    if ids:
+        (ProductionProduct.query.filter(ProductionProduct.id.in_(ids)).order_by(ProductionProduct.id)
+         .with_for_update().populate_existing().all())
+    return aktualne
+
+
+def stan_do_zapisu(order):
+    """
+    `(aktywne pozycje, aktualne paczki)` z odczytu bieżącego (zablokuj_stan) — dopiero na nim sprawdzenia
+    sprawdz_stan (409 order_status / order_not_packed). Wołać w każdym zapisie Weryfikacji, zanim cokolwiek
+    zostanie zapisane.
+    """
+    aktualne = zablokuj_stan(order)
+    return sprawdz_stan(order), aktualne
+
+
 def problem_otwarty(order):
     return WeryfikacjaBlad('problem_open', u'Zamówienie {} ma zgłoszony problem ({}) — najpierw go '
                            u'rozwiąż.'.format(order.internal_order_number,
@@ -340,18 +372,18 @@ def zweryfikuj_paczke(paczka, order, metoda, worker_id=None, device_id=None, ter
     Skan albo ręczne odhaczenie jednej paczki (spec 8.3). Zwraca (zmieniono, zamówienie_zweryfikowane).
     Ostatnia ważna paczka → zamówienie 'zweryfikowane'. Ponowny skan sprawdzonej paczki = OK bez zmian.
     Router bierze paczki.zablokuj_deklaracje(), potem zamówienie i paczkę FOR UPDATE (w tej kolejności —
-    jak deklaracja, zamówienie → paczki). NIE commituje.
+    jak deklaracja, zamówienie → paczki). Stan pozycji i paczek, na którym funkcja decyduje, pochodzi
+    z odczytu bieżącego (stan_do_zapisu) — także „czy to była ostatnia paczka”. NIE commituje.
     """
     teraz = teraz or get_local_now()
     if paczka.voided_at is not None:
         raise WeryfikacjaBlad('package_void', u'Etykieta nieaktualna — paczki zadeklarowano ponownie.')
-    aktywne = sprawdz_stan(order)
+    aktywne, aktualne = stan_do_zapisu(order)
     if order.problem_at is not None:
         raise problem_otwarty(order)
     if paczka.verified_at is not None:
         return False, all(p.current_status == 'zweryfikowane' for p in aktywne)
     _oznacz(paczka, metoda, worker_id, teraz)
-    aktualne = paczki.aktualne_paczki(order.id, do_zapisu=True)
     zweryfikowane = all(p.verified_at is not None for p in aktualne)
     if zweryfikowane:
         _zweryfikuj_zamowienie(order, aktywne, aktualne, metoda, worker_id, device_id, teraz)
@@ -363,10 +395,9 @@ def zweryfikuj_wszystkie(order, worker_id=None, device_id=None, teraz=None):
     """„Zweryfikuj wszystkie” (spec 8.3): niesprawdzone ważne paczki ręcznie. Zwraca True, gdy coś
     zmieniła. Weryfikacja wymaga zadeklarowanych paczek (spec 4.4) → bez nich 409 no_packages."""
     teraz = teraz or get_local_now()
-    aktywne = sprawdz_stan(order)
+    aktywne, aktualne = stan_do_zapisu(order)
     if order.problem_at is not None:
         raise problem_otwarty(order)
-    aktualne = paczki.aktualne_paczki(order.id, do_zapisu=True)
     if not aktualne:
         raise WeryfikacjaBlad('no_packages', u'Zamówienie {} nie ma zadeklarowanych paczek — najpierw '
                               u'zadeklaruj paczki.'.format(order.internal_order_number))
@@ -380,16 +411,18 @@ def zweryfikuj_wszystkie(order, worker_id=None, device_id=None, teraz=None):
     return True
 
 
-def cofnij_weryfikacje_zamowienia(order, aktywne, powod, worker_id, device_id, teraz):
+def cofnij_weryfikacje_zamowienia(order, aktywne, aktualne, powod, worker_id, device_id, teraz):
     """Pozycje zweryfikowane → 'spakowane', znaczniki weryfikacji zamówienia i aktualnych paczek
     czyszczone (spec 4.5), log 'weryfikacja_cofnieta' z powodem. Wspólne dla „Cofnij weryfikację”
-    i zgłoszenia problemu (Task 7)."""
+    i zgłoszenia problemu (Task 7). `aktywne` i `aktualne` pochodzą z stan_do_zapisu — paczki są już
+    zablokowane i czytane bieżąco, więc funkcja nie czyta ich drugi raz (kolejność blokad: paczki
+    przed zapisem pozycji)."""
     for p in aktywne:
         if p.current_status == 'zweryfikowane':
             p.current_status = 'spakowane'
     order.verified_at = None
     order.verified_by_worker_id = None
-    for p in paczki.aktualne_paczki(order.id, do_zapisu=True):
+    for p in aktualne:
         p.verified_at = None
         p.verified_by_worker_id = None
         p.verified_method = None
@@ -402,11 +435,11 @@ def cofnij_weryfikacje_zamowienia(order, aktywne, powod, worker_id, device_id, t
 def cofnij_weryfikacje(order, worker_id=None, device_id=None, teraz=None, powod=u'Cofnij weryfikację'):
     """„Cofnij weryfikację” (spec 4.5): tylko zamówienie zweryfikowane i niezaładowane."""
     teraz = teraz or get_local_now()
-    aktywne = sprawdz_stan(order)
+    aktywne, aktualne = stan_do_zapisu(order)
     if not all(p.current_status == 'zweryfikowane' for p in aktywne):
         raise WeryfikacjaBlad('order_not_verified', u'Zamówienie {} nie jest zweryfikowane.'.format(
             order.internal_order_number))
-    cofnij_weryfikacje_zamowienia(order, aktywne, powod, worker_id, device_id, teraz)
+    cofnij_weryfikacje_zamowienia(order, aktywne, aktualne, powod, worker_id, device_id, teraz)
     return True
 
 
@@ -436,11 +469,10 @@ def zglos_problem(order, powod, notatka, worker_id=None, device_id=None, teraz=N
     teraz = teraz or get_local_now()
     waliduj_powod(powod)
     notatka = _notatka(notatka)
-    aktywne = sprawdz_stan(order)
-    aktualne = paczki.aktualne_paczki(order.id, do_zapisu=True)
+    aktywne, aktualne = stan_do_zapisu(order)
     if (order.verified_at is not None or any(p.current_status == 'zweryfikowane' for p in aktywne)
             or any(p.verified_at is not None for p in aktualne)):
-        cofnij_weryfikacje_zamowienia(order, aktywne, u'problem: {}'.format(POWODY_PROBLEMU[powod]),
+        cofnij_weryfikacje_zamowienia(order, aktywne, aktualne, u'problem: {}'.format(POWODY_PROBLEMU[powod]),
                                       worker_id, device_id, teraz)
     stary = order.problem_reason
     order.problem_reason = powod
@@ -475,17 +507,21 @@ def cofnij_do_pakowania(order, powod=None, notatka=None, worker_id=None, device_
     licznik pakowania wyzerowany zdarzeniem systemowym, repack_required + repack_reason
     („Weryfikacja: <powód>: <notatka>”), Base. 138620 (dopychacz po commicie), paczki i weryfikacja
     unieważnione jedną regułą, otwarty problem przeniesiony do banera. Brak powodu w żądaniu → powód
-    i notatka z otwartego problemu. Zamówienie na trasie zostaje na niej. Zwraca tekst banera.
+    i notatka z otwartego problemu; podany powód bez notatki też bierze notatkę otwartego problemu
+    (flaga problemu przenosi się do banera w całości). Zamówienie na trasie zostaje na niej.
+    Stan pozycji i paczek czytany jest bieżąco (stan_do_zapisu) PRZED pętlą przestawiającą pozycje:
+    pętla i `set_quantity_done` (delta zdarzenia stanowiska) pracują na świeżych wartościach, a reguła
+    uniewaznij_etapy bierze już posiadane blokady paczek. Zwraca tekst banera.
     """
     teraz = teraz or get_local_now()
     notatka = _notatka(notatka)
-    if not powod and order.problem_at is not None:
-        powod = order.problem_reason
+    if order.problem_at is not None:
+        powod = powod or order.problem_reason
         notatka = notatka or order.problem_note
     if not powod:
         raise WeryfikacjaBlad('invalid_problem', u'Podaj powód cofnięcia do pakowania.', 422)
     waliduj_powod(powod)
-    aktywne = sprawdz_stan(order)
+    aktywne, _aktualne = stan_do_zapisu(order)
     przed, _napis = etap(aktywne)
     tekst = (u'Weryfikacja: {}'.format(POWODY_PROBLEMU[powod])
              + (u': {}'.format(notatka) if notatka else u''))[:255]

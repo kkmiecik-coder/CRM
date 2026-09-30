@@ -9,9 +9,11 @@ import pytest
 from extensions import db
 from modules.production.logistics import sposoby as s
 from modules.production.logistics.models import LogisticsLog
+from modules.production.logistics.services import weryfikacja
 from modules.production.models import ProcessedMobileOperation, ProductionDevice, ProductionOrder, ProductionPackage
 from modules.production.services.mobile_api_service import generate_token
 from tests.logistyka_fixtures import app, client, pracownik, zamowienie  # noqa: F401
+from tests.weryfikacja_pomocnicze import migawka_pozycji
 
 BASE = '/api/mobile/verification'
 T0 = datetime(2026, 10, 1, 8, 0)
@@ -192,3 +194,73 @@ def test_deklaracja_po_weryfikacji_z_telefonu_409(app, client):
     r = client.put('/api/mobile/orders/%s/packages' % order.internal_order_number,
                    json={'kind': 'paczka', 'count': 2}, headers=_naglowki(device, kto))
     assert (r.status_code, r.get_json()['error']) == (409, 'order_verified')
+
+
+def test_body_niebedace_obiektem_to_domyslny_skan_a_nie_500(app, client):
+    """`verification_package_verify` czyta `method` przez _dane_json(): JSON-owa lista to nie 500
+    (5xx telefon ponawia bez końca), tylko domyślny skan."""
+    kto, device = pracownik(), _urzadzenie()
+    order, (p1,) = _z_paczkami(n=1)
+    r = client.post('%s/packages/%d/verify' % (BASE, p1.id), json=['x'], headers=_naglowki(device, kto))
+    assert r.status_code == 200, r.get_json()
+    assert ProductionPackage.query.get(p1.id).verified_method == 'skan'
+
+
+# --- Zapisy decydują na bieżącym stanie pozycji (odczyt bieżący, nie migawka MySQL) ----------------
+# Przelotka migawka_pozycji wpycha do sesji ORM pozycje w starym stanie, a w bazie zostawia nowy —
+# odtwarza to, co na MySQL (REPEATABLE READ) robi migawka sprzed czekania na blokady.
+
+def test_dwa_skany_ostatniej_paczki_obie_odpowiedzi_zweryfikowane(app, client, monkeypatch):
+    kto, device = pracownik(), _urzadzenie()
+    order, (p1,) = _z_paczkami(n=1)
+    pierwsza = _verify(client, p1, device, kto)
+    migawka_pozycji(monkeypatch, weryfikacja, 'zweryfikuj_paczke', w_pamieci='spakowane')
+    druga = _verify(client, p1, device, kto)              # inny X-Operation-Id
+    assert (pierwsza.status_code, druga.status_code) == (200, 200)
+    assert pierwsza.get_json()['order_verified'] is True and druga.get_json()['order_verified'] is True
+    assert druga.get_json()['changed'] is False and druga.get_json()['order']['stage'] == 'zweryfikowane'
+    assert LogisticsLog.query.filter_by(order_id=order.id, action='weryfikacja').count() == 1
+
+
+def test_dwa_zweryfikuj_wszystkie_drugie_bez_zmian(app, client, monkeypatch):
+    kto, device = pracownik(), _urzadzenie()
+    order, _paczki = _z_paczkami()
+    url = '%s/orders/%s/verify-all' % (BASE, order.internal_order_number)
+    pierwsze = client.post(url, headers=_naglowki(device, kto))
+    kiedy = ProductionOrder.query.get(order.id).verified_at
+    migawka_pozycji(monkeypatch, weryfikacja, 'zweryfikuj_wszystkie', w_pamieci='spakowane')
+    drugie = client.post(url, headers=_naglowki(device, kto))   # inny X-Operation-Id
+    assert (pierwsze.get_json()['changed'], drugie.get_json()['changed']) == (True, False)
+    assert drugie.get_json()['order_verified'] is True
+    assert LogisticsLog.query.filter_by(order_id=order.id, action='weryfikacja').count() == 1
+    assert ProductionOrder.query.get(order.id).verified_at == kiedy
+
+
+def test_unverify_po_cichym_przepakowaniu_to_409_a_nie_nadpisanie(app, client, monkeypatch):
+    kto, device = pracownik(), _urzadzenie()
+    order, _paczki = _z_paczkami(statusy=('zweryfikowane', 'zweryfikowane'), verified_at=T0)
+    migawka_pozycji(monkeypatch, weryfikacja, 'cofnij_weryfikacje',
+                    w_pamieci='zweryfikowane', w_bazie='czeka_na_pakowanie')
+    r = client.post('%s/orders/%s/unverify' % (BASE, order.internal_order_number), headers=_naglowki(device, kto))
+    assert (r.status_code, r.get_json()['error']) == (409, 'order_not_packed')
+    assert ProcessedMobileOperation.query.count() == 0
+
+
+def test_weryfikacja_ostatniej_paczki_po_cichym_wydaniu_to_409(app, client, monkeypatch):
+    """Odbiór osobisty: „Wydane klientowi” zdążyło przestawić pozycje na 'dostarczone' — skan nie może
+    ich z powrotem zrobić 'zweryfikowanymi'."""
+    kto, device = pracownik(), _urzadzenie()
+    order, (p1,) = _z_paczkami(sposob=s.ODBIOR, n=1)
+    migawka_pozycji(monkeypatch, weryfikacja, 'zweryfikuj_paczke', w_pamieci='spakowane', w_bazie='dostarczone')
+    r = _verify(client, p1, device, kto)
+    assert (r.status_code, r.get_json()['error']) == (409, 'order_status')
+    assert ProcessedMobileOperation.query.count() == 0
+
+
+def test_zweryfikuj_wszystkie_po_cichej_anulacji_pozycji(app, client, monkeypatch):
+    """Pozycja anulowana z synchronizacji nie wraca jako zweryfikowana: aktywne liczy się na bieżących statusach."""
+    kto, device = pracownik(), _urzadzenie()
+    order, _paczki = _z_paczkami()
+    migawka_pozycji(monkeypatch, weryfikacja, 'zweryfikuj_wszystkie', w_pamieci='spakowane', w_bazie='anulowane')
+    r = client.post('%s/orders/%s/verify-all' % (BASE, order.internal_order_number), headers=_naglowki(device, kto))
+    assert (r.status_code, r.get_json()['error']) == (409, 'order_status')
