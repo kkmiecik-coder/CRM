@@ -46,6 +46,9 @@ STATION_LABELS = {
     # sesję, więc nazwa jest potrzebna, ale w listach stanowisk produkcyjnych
     # (STATION_ORDER) świadomie jej nie ma.
     'sawmill': 'Trakownia',
+    # Logistyka etap 4 — telefon biura sprawdzający paczki. Jak trakownia: poza STATION_ORDER
+    # (nie ma kolejki statusów), ale z nazwą, bo pracownik ma tu sesję.
+    'verification': 'Weryfikacja',
 }
 
 

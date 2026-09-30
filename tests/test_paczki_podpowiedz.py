@@ -146,4 +146,5 @@ def test_serializuj_paczke(app):
     assert paczki.serializuj_paczke(p) == {
         'id': p.id, 'code': 'P-%d' % p.id, 'seq': 1, 'kind': 'paleta', 'pallet_type': 'eur',
         'length_cm': 120, 'width_cm': 80, 'label_print_count': 2,
-        'label_printed_at': '2026-09-30T12:05:00'}
+        'label_printed_at': '2026-09-30T12:05:00',
+        'verified': False, 'verified_at': None, 'verified_method': None}

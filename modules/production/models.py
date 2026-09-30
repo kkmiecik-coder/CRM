@@ -1158,6 +1158,7 @@ class ProductionDevice(db.Model):
         'edges',
         'painting',
         'sawmill',   # trakownia — rejestr surowca, poza pipeline'em produktów
+        'verification',  # Weryfikacja paczek (logistyka etap 4) — telefon biura, poza pipeline'em produktów
         # Stary tablet wykańczalni jest w bazie zarejestrowany jako 'finishing'
         # i dojeżdża na tej rejestracji do wydania APK. Zdjęcie tej wartości
         # przed czasem daje 403 station_mismatch na każdej akcji z kolejki

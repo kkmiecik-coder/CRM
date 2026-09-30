@@ -261,7 +261,7 @@ HEARTBEAT_ACTIVE_THRESHOLD_MINUTES = 20
 # 'painting' doszło razem z podziałem Wykańczania: Lakiernia ma własny tablet.
 _STATION_CODES_WITH_TABLETS = (
     'cutting', 'assembly', 'gluing', 'formatting', 'edges', 'painting',
-    'packaging', 'sawmill',
+    'packaging', 'sawmill', 'verification',
 )
 
 

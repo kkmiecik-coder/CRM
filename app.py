@@ -877,6 +877,9 @@ def create_app():
         from modules.production.sawmill import sawmill_mobile_bp, sawmill_panel_bp
         app.register_blueprint(sawmill_mobile_bp, url_prefix='/api/mobile/sawmill')
         app.register_blueprint(sawmill_panel_bp, url_prefix='/production/api/sawmill')
+        # Logistyka etap 4, krok 4.3: telefon Weryfikacji.
+        from modules.production.logistics.routers.weryfikacja_api import weryfikacja_mobile_bp
+        app.register_blueprint(weryfikacja_mobile_bp, url_prefix='/api/mobile/verification')
         from modules.production.logistics import logistics_panel_bp
         app.register_blueprint(logistics_panel_bp, url_prefix='/production/api/logistics')
         app.register_blueprint(print_agent_bp, url_prefix='/api/print-agent')

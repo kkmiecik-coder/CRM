@@ -110,7 +110,7 @@ def aktualne_paczki_zamowien(order_ids):
 
 
 def serializuj_paczke(p):
-    """Paczka w API mobilnym (kontrakt kroku 4.2; krok 4.3 dołoży stan weryfikacji)."""
+    """Paczka w API mobilnym (kontrakt kroków 4.2–4.3)."""
     return {
         'id': p.id,
         'code': p.kod,
@@ -121,6 +121,10 @@ def serializuj_paczke(p):
         'width_cm': p.width_cm,
         'label_print_count': p.label_print_count or 0,
         'label_printed_at': p.label_printed_at.isoformat() if p.label_printed_at else None,
+        # Krok 4.3: stan weryfikacji (telefon Weryfikacji, spec 8.2).
+        'verified': p.verified_at is not None,
+        'verified_at': p.verified_at.isoformat() if p.verified_at else None,
+        'verified_method': p.verified_method,
     }
 
 

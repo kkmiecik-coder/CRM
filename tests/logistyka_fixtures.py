@@ -23,7 +23,7 @@ from extensions import db
 from modules.production.models import (
     LabelPrintJob, ProcessedMobileOperation, ProductionConfig, ProductionConfiguration,
     ProductionDevice, ProductionOrder, ProductionPackage, ProductionProduct,
-    ProductionReworkLog, ProductionStationEvent, ProductionWorker,
+    ProductionReworkLog, ProductionStationEvent, ProductionWorker, ProductionWorkerSession,
 )
 from modules.production.logistics.models import LogisticsLog, OrderGeo, Route, RouteStop, Vehicle
 from modules.users.models import User
@@ -46,6 +46,7 @@ TABLES = [m.__table__ for m in (
     ProductionOrder, ProductionProduct, ProductionConfiguration,
     ProductionReworkLog, ProductionStationEvent, ProductionWorker, LogisticsLog, OrderGeo,
     Vehicle, Route, RouteStop, LabelPrintJob, ProductionPackage,
+    ProductionWorkerSession,   # touch_sessions (API Weryfikacji) czyta sesje pracowników
 )]
 
 # LONGTEXT nie istnieje w SQLite — ten sam zabieg co w tests/test_routing_krawedzie.py.
@@ -80,6 +81,8 @@ def app(monkeypatch):
     from modules.production.routers.mobile_api import mobile_api_bp
     app.register_blueprint(logistics_panel_bp, url_prefix=BASE)
     app.register_blueprint(mobile_api_bp, url_prefix='/api/mobile')
+    from modules.production.logistics.routers.weryfikacja_api import weryfikacja_mobile_bp
+    app.register_blueprint(weryfikacja_mobile_bp, url_prefix='/api/mobile/verification')
     # Szablon zakładki bierze Leaflet przez url_for('production.static') — stawiamy
     # sam folder statyczny modułu produkcji pod tym samym adresem co w aplikacji,
     # bez rejestrowania całego modułu produkcji.

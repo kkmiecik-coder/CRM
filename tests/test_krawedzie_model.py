@@ -303,7 +303,7 @@ def test_walidator_dalej_odrzuca_kod_spoza_zbioru():
         ProductionDevice(device_id='tablet-x', station_code='krawedzie')
 
 
-def test_zbior_kodow_urzadzen_ma_dokladnie_dziewiec_wpisow():
+def test_zbior_kodow_urzadzen_ma_dokladnie_dziesiec_wpisow():
     """
     Wzmocnienie ponad brief: same asercje 'in' przeszłyby też na zbiorze-worku,
     do którego ktoś przez pomyłkę dorzucił dodatkowe/martwe kody (np. zostawił
@@ -314,6 +314,7 @@ def test_zbior_kodow_urzadzen_ma_dokladnie_dziewiec_wpisow():
     assert ProductionDevice.VALID_STATION_CODES == {
         'packaging', 'cutting', 'assembly', 'gluing', 'formatting',
         'edges', 'painting', 'finishing', 'sawmill',
+        'verification',   # Weryfikacja paczek (logistyka etap 4, krok 4.3)
     }
 
 
