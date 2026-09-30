@@ -16,7 +16,7 @@ from modules.logging import get_structured_logger
 from modules.production.logistics import sposoby
 from modules.production.logistics.models import STATUSY_TRASY_AKTYWNE
 from modules.production.logistics.services import delivery, paczki, routes
-from modules.production.models import ProductionConfig, ProductionOrder, ProductionProduct
+from modules.production.models import ProductionConfig, ProductionOrder, ProductionProduct, get_local_now
 from modules.production.services.station_catalog import STATION_LABELS, STATION_PENDING_STATUS
 
 logger = get_structured_logger('production.logistics.weryfikacja')
@@ -275,4 +275,136 @@ def uniewaznij_etapy(order, teraz, powod, user_id=None, worker_id=None, device_i
         delivery.zapisz_log(order, 'paczki', paczki.opis_paczek(stare), None, note=notatka,
                             user_id=user_id, worker_id=worker_id, device_id=device_id, teraz=teraz)
     delivery.podbij_pozycje(order, teraz)
+    return True
+
+
+METODY = ('skan', 'reczne')   # = ProductionPackage.SPOSOBY_POTWIERDZENIA
+_OPIS_METODY = {'skan': u'skan', 'reczne': u'ręcznie'}
+
+
+class WeryfikacjaBlad(Exception):
+    """Odmowa z kodem dla appki (`error`) i komunikatem dla człowieka (`message`)."""
+
+    def __init__(self, kod, komunikat, status=409):
+        super().__init__(komunikat)
+        self.kod = kod
+        self.komunikat = komunikat
+        self.status = status
+
+
+def sprawdz_stan(order):
+    """
+    Zamówienie, na którym Weryfikacja może działać: każda niezanulowana pozycja 'spakowane' albo
+    'zweryfikowane' (spec 8.3). Załadowane i dostarczone → 409 order_status (spec 4.5: cofnięcia
+    Weryfikacji działają do załadunku). Zwraca aktywne pozycje.
+    """
+    numer = order.internal_order_number
+    aktywne = delivery.aktywne_produkty(order)
+    if not aktywne:
+        raise WeryfikacjaBlad('order_status', u'Zamówienie {} jest anulowane.'.format(numer))
+    if any(p.current_status not in sposoby.STATUSY_PO_SPAKOWANIU for p in aktywne):
+        raise WeryfikacjaBlad('order_not_packed', u'Zamówienie {} nie jest jeszcze w całości spakowane — '
+                              u'weryfikacja po spakowaniu wszystkich pozycji.'.format(numer))
+    if any(p.current_status == 'dostarczone' for p in aktywne):
+        raise WeryfikacjaBlad('order_status', u'Zamówienie {} jest już dostarczone.'.format(numer))
+    if any(p.current_status == 'zaladowane' for p in aktywne):
+        raise WeryfikacjaBlad('order_status', u'Zamówienie {} jest już załadowane.'.format(numer))
+    return aktywne
+
+
+def problem_otwarty(order):
+    return WeryfikacjaBlad('problem_open', u'Zamówienie {} ma zgłoszony problem ({}) — najpierw go '
+                           u'rozwiąż.'.format(order.internal_order_number,
+                                              POWODY_PROBLEMU.get(order.problem_reason, order.problem_reason)))
+
+
+def _oznacz(paczka, metoda, worker_id, teraz):
+    paczka.verified_at = teraz
+    paczka.verified_by_worker_id = worker_id
+    paczka.verified_method = metoda
+
+
+def _zweryfikuj_zamowienie(order, aktywne, aktualne, metoda, worker_id, device_id, teraz):
+    """Wszystkie ważne paczki sprawdzone → pozycje 'zweryfikowane', kto i kiedy, log (spec 8.3)."""
+    for p in aktywne:
+        p.current_status = 'zweryfikowane'
+    order.verified_at = teraz
+    order.verified_by_worker_id = worker_id
+    delivery.zapisz_log(order, 'weryfikacja', None, paczki.opis_paczek(aktualne), worker_id=worker_id,
+                        device_id=device_id, note=_OPIS_METODY[metoda], teraz=teraz)
+    delivery.przelicz_zamkniecie(order, teraz)
+
+
+def zweryfikuj_paczke(paczka, order, metoda, worker_id=None, device_id=None, teraz=None):
+    """
+    Skan albo ręczne odhaczenie jednej paczki (spec 8.3). Zwraca (zmieniono, zamówienie_zweryfikowane).
+    Ostatnia ważna paczka → zamówienie 'zweryfikowane'. Ponowny skan sprawdzonej paczki = OK bez zmian.
+    Router bierze paczki.zablokuj_deklaracje(), potem zamówienie i paczkę FOR UPDATE (w tej kolejności —
+    jak deklaracja, zamówienie → paczki). NIE commituje.
+    """
+    teraz = teraz or get_local_now()
+    if paczka.voided_at is not None:
+        raise WeryfikacjaBlad('package_void', u'Etykieta nieaktualna — paczki zadeklarowano ponownie.')
+    aktywne = sprawdz_stan(order)
+    if order.problem_at is not None:
+        raise problem_otwarty(order)
+    if paczka.verified_at is not None:
+        return False, all(p.current_status == 'zweryfikowane' for p in aktywne)
+    _oznacz(paczka, metoda, worker_id, teraz)
+    aktualne = paczki.aktualne_paczki(order.id, do_zapisu=True)
+    zweryfikowane = all(p.verified_at is not None for p in aktualne)
+    if zweryfikowane:
+        _zweryfikuj_zamowienie(order, aktywne, aktualne, metoda, worker_id, device_id, teraz)
+    delivery.podbij_pozycje(order, teraz)
+    return True, zweryfikowane
+
+
+def zweryfikuj_wszystkie(order, worker_id=None, device_id=None, teraz=None):
+    """„Zweryfikuj wszystkie” (spec 8.3): niesprawdzone ważne paczki ręcznie. Zwraca True, gdy coś
+    zmieniła. Weryfikacja wymaga zadeklarowanych paczek (spec 4.4) → bez nich 409 no_packages."""
+    teraz = teraz or get_local_now()
+    aktywne = sprawdz_stan(order)
+    if order.problem_at is not None:
+        raise problem_otwarty(order)
+    aktualne = paczki.aktualne_paczki(order.id, do_zapisu=True)
+    if not aktualne:
+        raise WeryfikacjaBlad('no_packages', u'Zamówienie {} nie ma zadeklarowanych paczek — najpierw '
+                              u'zadeklaruj paczki.'.format(order.internal_order_number))
+    niesprawdzone = [p for p in aktualne if p.verified_at is None]
+    if not niesprawdzone and all(p.current_status == 'zweryfikowane' for p in aktywne):
+        return False
+    for p in niesprawdzone:
+        _oznacz(p, 'reczne', worker_id, teraz)
+    _zweryfikuj_zamowienie(order, aktywne, aktualne, 'reczne', worker_id, device_id, teraz)
+    delivery.podbij_pozycje(order, teraz)
+    return True
+
+
+def cofnij_weryfikacje_zamowienia(order, aktywne, powod, worker_id, device_id, teraz):
+    """Pozycje zweryfikowane → 'spakowane', znaczniki weryfikacji zamówienia i aktualnych paczek
+    czyszczone (spec 4.5), log 'weryfikacja_cofnieta' z powodem. Wspólne dla „Cofnij weryfikację”
+    i zgłoszenia problemu (Task 7)."""
+    for p in aktywne:
+        if p.current_status == 'zweryfikowane':
+            p.current_status = 'spakowane'
+    order.verified_at = None
+    order.verified_by_worker_id = None
+    for p in paczki.aktualne_paczki(order.id, do_zapisu=True):
+        p.verified_at = None
+        p.verified_by_worker_id = None
+        p.verified_method = None
+    delivery.zapisz_log(order, 'weryfikacja_cofnieta', note=(powod or u'')[:255] or None,
+                        worker_id=worker_id, device_id=device_id, teraz=teraz)
+    delivery.przelicz_zamkniecie(order, teraz)
+    delivery.podbij_pozycje(order, teraz)
+
+
+def cofnij_weryfikacje(order, worker_id=None, device_id=None, teraz=None, powod=u'Cofnij weryfikację'):
+    """„Cofnij weryfikację” (spec 4.5): tylko zamówienie zweryfikowane i niezaładowane."""
+    teraz = teraz or get_local_now()
+    aktywne = sprawdz_stan(order)
+    if not all(p.current_status == 'zweryfikowane' for p in aktywne):
+        raise WeryfikacjaBlad('order_not_verified', u'Zamówienie {} nie jest zweryfikowane.'.format(
+            order.internal_order_number))
+    cofnij_weryfikacje_zamowienia(order, aktywne, powod, worker_id, device_id, teraz)
     return True

@@ -12,12 +12,13 @@ from functools import wraps
 
 from flask import Blueprint, g, jsonify, request
 
+from extensions import db
 from modules.logging import get_structured_logger
 from modules.production.logistics.services import paczki, routes, weryfikacja
-from modules.production.models import get_local_now
-from modules.production.routers.mobile_api import BLEDY_DO_PONOWIENIA, _zamowienie_po_numerze  # noqa: F401
+from modules.production.models import ProductionOrder, ProductionPackage, get_local_now
+from modules.production.routers.mobile_api import BLEDY_DO_PONOWIENIA, _zamowienie_po_numerze
 from modules.production.services import worker_service
-from modules.production.services.mobile_api_service import require_device_token, with_idempotency  # noqa: F401
+from modules.production.services.mobile_api_service import require_device_token, with_idempotency
 from modules.production.services.station_catalog import resolve_station_code
 from modules.production.services.worker_service import WorkerError
 from modules.production.utils.cache import cached_json, if_none_match, make_weak_etag, no_store_json, not_modified
@@ -99,3 +100,97 @@ def verification_order_details(numer):
     return no_store_json({'order': weryfikacja.serializuj_zamowienie(
         order, paczki.aktualne_paczki(order.id), routes.trasy_zamowien([order.id]).get(order.id),
         z_pozycjami=True)})
+
+
+def _zamowienie_do_zapisu(numer):
+    """Kolejność blokad zapisu Weryfikacji: blokada deklaracji paczek → wiersz zamówienia po PK."""
+    paczki.zablokuj_deklaracje()
+    return _zamowienie_po_numerze(numer, do_zapisu=True)
+
+
+def _odpowiedz(order, message, **dodatkowe):
+    dane = {'order': weryfikacja.serializuj_zamowienie(
+                order, paczki.aktualne_paczki(order.id), routes.trasy_zamowien([order.id]).get(order.id)),
+            'message': message}
+    dane.update(dodatkowe)
+    return jsonify(dane), 200
+
+
+@weryfikacja_mobile_bp.route('/packages/<int:package_id>/verify', methods=['POST'])
+@require_device_token
+@wymaga_weryfikacji
+@with_idempotency(retryable_statuses=BLEDY_DO_PONOWIENIA)
+def verification_package_verify(package_id):
+    """POST /api/mobile/verification/packages/<id>/verify {"method": "skan"|"reczne"} (spec 8.3)."""
+    metoda = (request.get_json(silent=True) or {}).get('method') or 'skan'
+    if metoda not in weryfikacja.METODY:
+        return jsonify({'error': 'invalid_method', 'message': u'Sposób weryfikacji: „skan” albo „reczne”.'}), 422
+    worker_id, err = _pracownik()
+    if err:
+        return err
+    paczki.zablokuj_deklaracje()
+    # Zamówienie paczki ustalamy zwykłym odczytem, a blokujemy najpierw zamówienie, potem paczkę —
+    # ta sama kolejność co deklaracja (zamówienie → paczki), więc bez cyklu blokad.
+    order_id = db.session.query(ProductionPackage.order_id).filter_by(id=package_id).scalar()
+    if order_id is None:
+        return jsonify({'error': 'package_not_found', 'message': u'Nie ma paczki P-{}.'.format(package_id)}), 404
+    order = ProductionOrder.query.filter_by(id=order_id).with_for_update().populate_existing().one()
+    paczka = ProductionPackage.query.filter_by(id=package_id).with_for_update().populate_existing().one()
+    try:
+        zmieniono, zweryfikowane = weryfikacja.zweryfikuj_paczke(paczka, order, metoda, worker_id=worker_id,
+                                                                device_id=g.device.id)
+    except weryfikacja.WeryfikacjaBlad as e:
+        return _blad(e)
+    aktualne = paczki.aktualne_paczki(order.id)
+    licznik = u'{} / {}'.format(sum(1 for p in aktualne if p.verified_at is not None), len(aktualne))
+    if zmieniono and zweryfikowane:
+        komunikat = u'Zamówienie {} zweryfikowane ({}).'.format(order.internal_order_number, licznik)
+    elif zmieniono:
+        komunikat = u'Paczka {} sprawdzona ({}).'.format(paczka.kod, licznik)
+    else:
+        komunikat = u'Paczka {} była już sprawdzona ({}).'.format(paczka.kod, licznik)
+    logger.info("Weryfikacja: paczka", extra={'package': paczka.kod, 'changed': zmieniono,
+                                              'order_verified': zweryfikowane, 'device_id': g.device.device_id})
+    return _odpowiedz(order, komunikat, package=paczki.serializuj_paczke(paczka),
+                      order_verified=zweryfikowane, changed=zmieniono)
+
+
+@weryfikacja_mobile_bp.route('/orders/<numer>/verify-all', methods=['POST'])
+@require_device_token
+@wymaga_weryfikacji
+@with_idempotency(retryable_statuses=BLEDY_DO_PONOWIENIA)
+def verification_verify_all(numer):
+    """POST /api/mobile/verification/orders/<nr>/verify-all — wszystkie ważne paczki ręcznie."""
+    worker_id, err = _pracownik()
+    if err:
+        return err
+    order = _zamowienie_do_zapisu(numer)
+    if order is None:
+        return _brak_zamowienia(numer)
+    try:
+        zmieniono = weryfikacja.zweryfikuj_wszystkie(order, worker_id=worker_id, device_id=g.device.id)
+    except weryfikacja.WeryfikacjaBlad as e:
+        return _blad(e)
+    komunikat = (u'Zamówienie {} zweryfikowane ręcznie.' if zmieniono
+                 else u'Zamówienie {} było już zweryfikowane.').format(order.internal_order_number)
+    return _odpowiedz(order, komunikat, order_verified=True, changed=zmieniono)
+
+
+@weryfikacja_mobile_bp.route('/orders/<numer>/unverify', methods=['POST'])
+@require_device_token
+@wymaga_weryfikacji
+@with_idempotency(retryable_statuses=BLEDY_DO_PONOWIENIA)
+def verification_unverify(numer):
+    """POST /api/mobile/verification/orders/<nr>/unverify — „Cofnij weryfikację” (spec 4.5)."""
+    worker_id, err = _pracownik()
+    if err:
+        return err
+    order = _zamowienie_do_zapisu(numer)
+    if order is None:
+        return _brak_zamowienia(numer)
+    try:
+        weryfikacja.cofnij_weryfikacje(order, worker_id=worker_id, device_id=g.device.id)
+    except weryfikacja.WeryfikacjaBlad as e:
+        return _blad(e)
+    return _odpowiedz(order, u'Cofnięto weryfikację zamówienia {} — paczki trzeba sprawdzić od nowa.'.format(
+        order.internal_order_number), changed=True)
