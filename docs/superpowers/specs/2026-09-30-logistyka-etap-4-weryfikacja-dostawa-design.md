@@ -352,7 +352,11 @@ kolejności z zamówieniem, adresem, telefonem (`client_phone`), współrzędnym
   co najmniej jeden jest załadowany (inaczej 409 z listą braków; trasę, z której nic nie jedzie, logistyk cofa albo
   usuwa w panelu). Pod blokadą tras: „Zostaje” → zdjęcie z trasy
   (`routes.usun_przystanek`, log `zostaje` + `trasa_usuniete` z powodem); załadowane → pozycje `zaladowane`, Base.
-  `STATUS_ZALADOWANE` (nowa stała w `sposoby.py`); trasa → `zaladowana`, `loaded_at/by`.
+  `STATUS_ZALADOWANE = 524520` (nowa stała w `sposoby.py`; status założony przez Konrada 30.09, sprawdzony w Base.);
+  trasa → `zaladowana`, `loaded_at/by`.
+- Raporty: 524520 i 417343 dopisane do listy statusów „Wyprodukowane” (`modules/reports/models.py:688`, obok 149763)
+  i do słownika nazw statusów (`modules/reports/service.py:30-49`, `modules/baselinker/routers.py:554`) — inaczej
+  zamówienia załadowane i zaplanowane na trasę wypadają z „Wyprodukowane”, a Analiza sprzedażowa pokazuje „Status N”.
 
 ### 9.4 Wyjazd
 
@@ -470,9 +474,8 @@ Migracje dodatkowo na MySQL (`db` i kopia produkcji). Po każdym kroku przegląd
 ## 16. Do zebrania przed realizacją
 
 - Adres drukarki paczek w sieci hali (krok 4.1) i wynik kalibracji/przesunięcia.
-- Numer statusu Base. „Załadowane – trans. WoodPower” (krok 4.4). Propozycja nazw: podstawowa „Załadowane - trans.
-  WoodPower” (29 zn.), skrócona „Załadowane” (10), pełna dla klienta „Zamówienie jest załadowane na nasz samochód i
-  wkrótce wyruszy w trasę. Nasz kierowca skontaktuje się z Tobą przed dostawą.”, komentarz „Ustawia CRM automatycznie,
-  gdy kierowca zakończy załadunek trasy w appce (stanowisko Dostawa). Nie ustawiać ręcznie.”
+- ~~Numer statusu Base. „Załadowane”~~ — **zrobione 30.09: 524520** „Załadowane - trans. WoodPower”, w grupie statusów
+  transportu własnego między „Planowana trasa” (417343) a „Wysłane - trans. WoodPower” (149763, Konrad skrócił nazwę;
+  kod porównuje statusy po numerach, więc zmiana nazwy nic nie psuje).
 - Telefony: rejestracja jako urządzenia stanowisk, pracownik biura w `prod_workers`, kierowcy oznaczeni.
 - Akcja automatyczna w Base. „drukuj KP przy Odebrane” (etap 2) — sprawdzić, że nie koliduje z nowymi statusami.
