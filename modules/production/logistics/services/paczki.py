@@ -227,3 +227,28 @@ def zadeklaruj(order, deklaracja, stanowisko, aktor, worker_id=None, device_id=N
     delivery.podbij_pozycje(order, teraz)
     paczki_druk.drukuj_etykiety(order, nowe, len(nowe), stanowisko, aktor, teraz)
     return nowe
+
+
+def drukuj_ponownie_paczke(paczka, stanowisko, aktor, teraz=None):
+    """
+    Ponowny druk etykiety jednej ważnej paczki (spec 7.3) z BIEŻĄCYMI danymi zamówienia —
+    gasi ikonę „etykiety paczek sprzed zmiany”. Paczka z unieważnionej deklaracji → 409.
+    `paczka` MUSI być odczytana z blokadą (równoległa deklaracja mogła ją unieważnić).
+    """
+    if paczka.voided_at is not None:
+        raise PaczkiBlad('package_void', u'Etykieta nieaktualna — paczki zadeklarowano ponownie.', 409)
+    z_ilu = len(aktualne_paczki(paczka.order_id))
+    paczki_druk.drukuj_etykiety(paczka.order, [paczka], z_ilu, stanowisko, aktor,
+                                teraz or get_local_now())
+
+
+def drukuj_ponownie_zamowienie(order, stanowisko, aktor, teraz=None):
+    """Ponowny druk etykiet wszystkich ważnych paczek zamówienia. Zwraca paczki; bez
+    deklaracji → 409 no_packages. `order` z blokadą (jak w zadeklaruj)."""
+    aktualne = aktualne_paczki(order.id, do_zapisu=True)
+    if not aktualne:
+        raise PaczkiBlad('no_packages', u'Zamówienie {} nie ma zadeklarowanych paczek.'.format(
+            order.internal_order_number), 409)
+    paczki_druk.drukuj_etykiety(order, aktualne, len(aktualne), stanowisko, aktor,
+                                teraz or get_local_now())
+    return aktualne

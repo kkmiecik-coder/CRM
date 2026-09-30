@@ -13,7 +13,7 @@ from sqlalchemy.orm import joinedload
 
 from extensions import db
 from modules.logging import get_structured_logger
-from modules.production.models import ProductionConfig, ProductionDevice, ProductionItem, ProductionOrder
+from modules.production.models import ProductionConfig, ProductionDevice, ProductionItem, ProductionOrder, ProductionPackage
 from modules.production.utils.cache import (
     cached_json,
     if_none_match,
@@ -1151,6 +1151,68 @@ def order_packages_declare(numer):
     return jsonify(_odpowiedz_paczek(
         order, nowe, labels_queued=len(nowe),
         message=u'Zadeklarowano {}. Etykiety poszły do drukarki paczek.'.format(tekst))), 200
+
+
+@mobile_api_bp.route('/packages/<int:package_id>/print', methods=['POST'])
+@require_device_token
+@with_idempotency(retryable_statuses=BLEDY_DO_PONOWIENIA)
+def package_print(package_id):
+    """
+    POST /api/mobile/packages/<id>/print — ponowny druk etykiety jednej paczki (spec 7.3),
+    z tabletu pakowania i (krok 4.3) telefonu Weryfikacji. Etykieta z bieżącymi danymi.
+    X-Operation-Id chroni przed podwójnym wydrukiem przy powtórce po timeoucie.
+    """
+    from modules.production.logistics.services import paczki
+    stanowisko, err = _stanowisko_paczek()
+    if err:
+        return err
+    paczka = (ProductionPackage.query.filter_by(id=package_id)
+              .with_for_update().populate_existing().first())
+    if paczka is None:
+        return jsonify({'error': 'package_not_found',
+                        'message': u'Nie ma paczki P-{}.'.format(package_id)}), 404
+    try:
+        paczki.drukuj_ponownie_paczke(paczka, stanowisko, _aktor())
+    except paczki.PaczkiBlad as e:
+        return _blad_paczek(e)
+    logger.info("Mobile API: ponowny druk etykiety paczki", extra={
+        'package': paczka.kod, 'station_code': stanowisko, 'device_id': g.device.device_id,
+        'worker_id': _profil_do_logu(),
+    })
+    return jsonify({
+        'success': True, 'labels_queued': 1, 'package': paczki.serializuj_paczke(paczka),
+        'message': u'Etykieta {} poszła do drukarki paczek.'.format(paczka.kod),
+    }), 200
+
+
+@mobile_api_bp.route('/orders/<numer>/packages/print', methods=['POST'])
+@require_device_token
+@with_idempotency(retryable_statuses=BLEDY_DO_PONOWIENIA)
+def order_packages_print(numer):
+    """POST /api/mobile/orders/<internal_order_number>/packages/print — ponowny druk etykiet
+    wszystkich ważnych paczek zamówienia (spec 7.3)."""
+    from modules.production.logistics.services import paczki
+    stanowisko, err = _stanowisko_paczek()
+    if err:
+        return err
+    order = _zamowienie_po_numerze(numer, do_zapisu=True)
+    if order is None:
+        return _brak_zamowienia(numer)
+    try:
+        aktualne = paczki.drukuj_ponownie_zamowienie(order, stanowisko, _aktor())
+    except paczki.PaczkiBlad as e:
+        return _blad_paczek(e)
+    logger.info("Mobile API: ponowny druk etykiet paczek zamówienia", extra={
+        'internal_order_number': order.internal_order_number, 'etykiet': len(aktualne),
+        'station_code': stanowisko, 'device_id': g.device.device_id,
+        'worker_id': _profil_do_logu(),
+    })
+    return jsonify({
+        'success': True, 'labels_queued': len(aktualne),
+        'packages': [paczki.serializuj_paczke(p) for p in aktualne],
+        'message': u'Etykiety paczek zamówienia {} ({}) poszły do drukarki paczek.'.format(
+            order.internal_order_number, len(aktualne)),
+    }), 200
 
 
 # ============================================================================
