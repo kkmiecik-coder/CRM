@@ -300,6 +300,9 @@ Albo po prostu `./deploy.sh` — robi dokładnie to samo, z lockiem i logami.
 - **Deklaracje paczek — jedna naraz:** `paczki.zablokuj_deklaracje()` (wiersz `logistyka_paczki_blokada` w
   `prod_config`, migracja `2026-09-30-logistyka-paczki-blokada.sql`) przed blokadą zamówienia; dwie pierwsze
   deklaracje różnych zamówień bez niej zakleszczały się na luce indeksu `prod_packages` (MySQL 1213).
+  Zapisy telefonu Weryfikacji (`/api/mobile/verification/*`) biorą tę samą blokadę: pracownicy →
+  `paczki.zablokuj_deklaracje()` → zamówienie po PK → paczki → pozycje. Reguła `weryfikacja.uniewaznij_etapy`
+  (powrót pozycji do produkcji) blokady globalnej nie bierze — zapisuje najpierw zamówienie, potem paczki.
 
 ## Architecture
 

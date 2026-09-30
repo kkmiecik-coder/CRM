@@ -75,7 +75,11 @@ zamówieniu, przypisanie pozycji do paczek, paleta z kilku zamówień, wyświetl
 
 `current_status` (ENUM `production_status`) dostaje na końcu: `zweryfikowane`, `zaladowane`, `dostarczone`.
 - Zmieniają się **dla wszystkich niezanulowanych pozycji zamówienia naraz**, gdy zamówienie przejdzie krok.
-- `spakowane` zostaje nazwą; w UI po etapie 4 opisujemy je jako „Spakowane — czeka na weryfikację”.
+- `spakowane` zostaje nazwą; w UI po etapie 4 opisujemy je jako „Spakowane — czeka na weryfikację”. (krok 4.3) To napis
+  **etapu zamówienia** w panelu Logistyki i na telefonie Weryfikacji (`stage_label`); `status_display_name` pozycji
+  zostaje „Spakowane” (raporty, historia produktu).
+- (krok 4.3) Nowe statusy nadaje wyłącznie logistyka (Weryfikacja, „Wydane klientowi”, w kroku 4.4 Dostawa) —
+  hurtowa zmiana statusu ich nie oferuje (serwer i listy wyboru).
 - „Spakowane lub dalej” (`STATUSY_PO_SPAKOWANIU = {'spakowane','zweryfikowane','zaladowane','dostarczone'}`) — jedna
   stała w `logistics/sposoby.py`, używana wszędzie tam, gdzie dziś kod pyta o `== 'spakowane'` w znaczeniu „produkcja
   zakończona” (mapa miejsc w 8.6).
@@ -89,7 +93,11 @@ zamówieniu, przypisanie pozycji do paczek, paleta z kilku zamówień, wyświetl
 | Kurier | spakowane → zweryfikowane | Spakowane (138623), dalej kurierzy w Base. | po spakowaniu |
 
 „Wydane klientowi” (etap 1) od kroku 4.3 ustawia też pozycje na `dostarczone`. Działa ze `spakowane` i `zweryfikowane`
-(bez wymogu weryfikacji).
+(bez wymogu weryfikacji). (krok 4.3) Pozycje `spakowane` zamówień **już wydanych** przed wdrożeniem przestawia na
+`dostarczone` cron logistyki (`delivery.dostarcz_wydane`, klucz `wydane_dostarczone` w odpowiedzi, wołany obok
+`przenies_osierocone_z_logistyki`), a nie migracja: migracja wykonuje się przed restartem, a stary kod w oknie wdrożenia
+nie zna tej wartości ENUM (odczyt takiego wiersza rzuciłby `LookupError`, czyli 500 na listach). Po wdrożeniu kroku
+4.3 cron trzeba więc uruchomić raz ręcznie (CLAUDE.md, „Logistyka równoległa”).
 
 ### 4.3 Statusy trasy
 
@@ -124,6 +132,9 @@ Zmienione reguły (reszta tabeli z etapu 1 bez zmian):
 - kurier: zamknięte, gdy wszystkie niezanulowane pozycje są w `STATUSY_PO_SPAKOWANIU`,
 - odbiór osobisty: `handed_over_at` (bez zmian),
 - transport własny: wszystkie niezanulowane pozycje `dostarczone` (zamiast „przystanek na trasie wykonanej”).
+  **(krok 4.3) Ta reguła przechodzi do kroku 4.4, razem z Dostawą** (decyzja Konrada 30.09): w 4.3 transport własny
+  zamyka się jak dotąd, „przystanek na trasie wykonanej”, a odhaczenie trasy nie zmienia statusów pozycji. W 4.3
+  zmienia się tylko reguła kuriera (inaczej zweryfikowane zamówienia kurierskie by się otwierały).
 
 Historia jest bezpieczna: migracja etapu 1 zamyka stare spakowane zamówienia, a cron `przelicz_otwarte` otwiera
 zamknięte, gdy wróci aktywna pozycja (doróbka).
@@ -152,7 +163,7 @@ sprawdzić na kopii produkcji czasem wykonania.
 | `pallet_type` | ENUM('eur','niestandardowa') NULL | tylko paleta |
 | `length_cm`, `width_cm` | SMALLINT NULL | EUR = 120×80; niestandardowa 20–400 cm |
 | `declared_at`, `declared_by_worker_id`, `declared_device_id` | | kto zadeklarował |
-| `voided_at` | DATETIME NULL, indeks | unieważniona (nowa deklaracja / cofnięcie / doróbka) |
+| `voided_at` | DATETIME NULL | unieważniona (nowa deklaracja / cofnięcie / doróbka); (krok 4.3) indeks złożony `ix_prod_packages_order_voided (order_id, voided_at)` zastępuje indeks samego `voided_at` — zapytania o paczki zawsze filtrują po zamówieniu, osobny indeks po `voided_at` nie miał zapytań (`ix_prod_packages_order_id` zostaje) |
 | `label_printed_at`, `label_print_count` | | druk etykiety |
 | `label_delivery_text` | VARCHAR(40) NULL | napis z pasa sposobu dostawy w chwili druku (ikona „sprzed zmiany”) |
 | `verified_at`, `verified_by_worker_id`, `verified_method` ENUM('skan','reczne') | | weryfikacja |
@@ -169,6 +180,11 @@ Aktualna deklaracja = paczki zamówienia z `voided_at IS NULL`. N (mianownik „
 - `problem_reason VARCHAR(32) NULL`, `problem_note VARCHAR(255) NULL`, `problem_at DATETIME NULL`,
   `problem_by_worker_id INT NULL` — zgłoszony problem (NULL = brak).
 - `repack_reason VARCHAR(255) NULL` — tekst banera na tablecie pakowania (uzupełnia istniejące `repack_required`).
+- (krok 4.3) Wiersz `prod_config` `logistyka_weryfikacja_od` (zakłada migracja, `INSERT IGNORE`: pierwsze wykonanie
+  zapisuje chwilę wdrożenia, kolejne jej nie ruszają) — początek zakresu listy „Do weryfikacji” (8.2). Migracja zapisuje
+  ją w strefie serwera MySQL, a aplikacja liczy czasem lokalnym (Warszawa), więc w dniu wdrożenia próg wypada najwyżej
+  2 h wcześniej — na liście może pojawić się kilka zamówień spakowanych tuż przed wdrożeniem; wartość można poprawić
+  w `prod_config`.
 
 ### 5.4 `prod_routes` i `prod_route_stops` (krok 4.4)
 
@@ -324,7 +340,9 @@ deklaracji; zapisuje nowy `label_delivery_text`, więc gasi ikonę „sprzed zmi
 `verification` („Weryfikacja”) w `ProductionDevice.VALID_STATION_CODES`, `STATION_LABELS` (poza `STATION_ORDER`, jak
 `sawmill`), `_STATION_CODES_WITH_TABLETS` (telemetria). Pracownik biura loguje się przez „Kto pracuje?” — musi mieć
 wpis w `prod_workers`; stanowisko wymaga nagłówka `X-Worker-Ids` niezależnie od `WORKER_SELECTION_REQUIRED`
-(400 `worker_required`).
+(400 `worker_required`). (krok 4.3) Nagłówek jest wymagany na **endpointach zapisu** Weryfikacji; odczyty (lista,
+szczegóły zamówienia) go nie wymagają — nie ma czego przypisać. Zapisy mają `X-Operation-Id`; 400, 403, 404 i 409 są
+„do ponowienia” (niezapamiętane, akcja zostaje w kolejce offline), 422 jest zapamiętane.
 
 ### 8.2 Lista „Do weryfikacji”
 
@@ -332,6 +350,27 @@ wpis w `prod_workers`; stanowisko wymaga nagłówka `X-Worker-Ids` niezależnie 
 zamówienia z problemem. Każde z paczkami (`id`, kod, `seq`, rodzaj, stan weryfikacji), sposobem dostawy/trasą
 (`transport`), klientem, miejscowością, flagą problemu i „BEZ PACZEK”. Kolejność: zamówienia z tras o najbliższej dacie
 początku, potem według `packaging_completed_at` rosnąco. Filtry w appce: Wszystkie / Trasy / Kurier / Odbiór.
+
+(krok 4.3) Doprecyzowania:
+- **Zakres** (decyzja Konrada 30.09; dotyczy telefonu, filtra „Do weryfikacji” w panelu i licznika dashboardu):
+  zamówienia, których wszystkie niezanulowane pozycje są `spakowane`, i które są **otwarte w Logistyce** albo
+  **spakowane w ostatnich 7 dniach, nie wcześniej niż od wdrożenia kroku 4.3** (`logistyka_weryfikacja_od`, 5.3), plus
+  **zawsze** zamówienia z otwartym problemem. Powód: na kopii produkcji z 28.09 jest 1512 zamówień w całości
+  spakowanych (112 z ostatnich 7 dni) — bez zawężenia wszystkie trafiłyby na listę, a zamówienia kurierskie (zamykane
+  przy spakowaniu) muszą na niej być przez 7 dni.
+- **Lista telefonu zawiera też zamówienia `zweryfikowane`** (w tym samym zakresie): skaner rozpoznaje `P-<id>` lokalnie
+  z listy, a „ponowny skan = OK bez zmian” i „Cofnij weryfikację” wymagają, żeby zamówienie zweryfikowane nadal było
+  w telefonie. Licznik „Do weryfikacji: N” i filtr panelu liczą tylko `spakowane`.
+- **Kolejność**: zamówienia z problemem nie mają osobnego miejsca — kolejność jak wyżej (trasa aktywna z najbliższą
+  datą początku, potem `packed_at` rosnąco, potem numer).
+- **ETag listy** zależy od dnia (okno dni przesuwa się bez zmian danych), liczby zamówień, najnowszego `updated_at`
+  **zamówień** (problem, weryfikacja i dane klienta zmieniają same kolumny zamówienia, a nie pozycje), najnowszego
+  `updated_at` i liczby pozycji (akcje Weryfikacji, deklaracje i zmiany tras podbijają pozycje) oraz stanu paczek
+  (weryfikacja, wydruki); `KSZTALT_LISTY = 1`.
+- **Plakietka „BEZ PACZEK”** (zamówienie do weryfikacji bez aktualnej deklaracji, np. po starej appce pakowania albo
+  zmianie admina) ma **zakres filtra „Do weryfikacji”**: zamknięte w Logistyce zamówienia spoza okna dni, których nie
+  pokazuje ani telefon, ani filtr, plakietki nie dostają (inaczej wyszukiwanie w panelu oznaczałoby historyczne
+  zamówienia jako „BEZ PACZEK”). Okno liczy się raz na listę.
 
 ### 8.3 Akcje
 
@@ -347,6 +386,34 @@ początku, potem według `packaging_completed_at` rosnąco. Filtry w appce: Wszy
 Skaner w appce rozpoznaje `^P-\d+$` lokalnie z listy (działa bez zasięgu, akcja idzie kolejką offline); `N_S` (etykieta
 produktu) otwiera zamówienie; inne kody → komunikat „Nieznany kod”.
 
+(krok 4.3) Doprecyzowania kontraktu (pełny kształt: plan kroku 4.3, „Kontrakt API Weryfikacji”):
+- **Kody błędów** (`{"error", "message"}`): `order_not_packed` 409 (pozycja przed spakowaniem), `order_status` 409
+  (zamówienie już załadowane, dostarczone albo anulowane), `no_packages` 409 (weryfikacja bez deklaracji — 4.4),
+  `order_not_verified` 409 (cofnięcie weryfikacji zamówienia niezweryfikowanego), `package_void` 409, `problem_open`
+  409, `order_not_found` i `package_not_found` 404, `invalid_method` 422 (`method` to `skan` albo `reczne`, brak = `skan`),
+  `invalid_problem` 422 (zły powód albo brak powodu cofnięcia do pakowania bez otwartego problemu),
+  `station_not_allowed` 403, `worker_required` 400. Nowe w deklaracji paczek: `PUT /api/mobile/orders/<nr>/packages`
+  na zamówieniu z pozycją `zweryfikowane`, `zaladowane` albo `dostarczone` → 409 `order_verified` („najpierw Cofnij
+  weryfikację”).
+- `problem` na zamówieniu, które ma już problem, **nadpisuje** powód i notatkę (200); `problem/resolve` bez problemu =
+  200 bez zmian (kolejka offline nie może utknąć na 409). Notatka dłuższa niż 255 znaków jest **ucinana** (422 z kolejki
+  offline to utracona akcja).
+- **Współbieżność**: każdy zapis `/api/mobile/verification/*` bierze blokady w jednej kolejności: pracownicy
+  (`touch_sessions`) → `paczki.zablokuj_deklaracje()` → zamówienie `FOR UPDATE` po kluczu głównym → paczki `FOR UPDATE`
+  → pozycje `FOR UPDATE` po kluczu głównym. Stan, na którym zapis decyduje (paczki, potem pozycje), jest czytany
+  **po** blokadzie odczytem bieżącym (`with_for_update().populate_existing()`): MySQL pracuje na REPEATABLE READ,
+  a migawka powstaje przy pierwszym zwykłym odczycie transakcji (już w `before_request`), więc zwykły odczyt po
+  blokadzie pokazałby stan sprzed czekania i po cichu nadpisał cudze przepakowanie, „Wydane klientowi” albo pierwszy
+  z dwóch skanów. Reguła unieważniania (8.5) blokady globalnej nie bierze: zapisuje najpierw zamówienie, potem paczki.
+  Wyścigi na dwóch sesjach MySQL (Task 10: kopia produkcji, 13 par operacji × 5 przebiegów i serie dodatkowe z
+  opóźnieniem jednej strony) nie pokazały zakleszczeń ani niespójności w parach zapisów Weryfikacji, w pierwszej
+  deklaracji względem reguły, w ACK agenta druku i w podwójnym skanie, a wskazały trzy miejsca poza tą kolejnością:
+  deklaracja paczek czyta statusy pozycji z migawki po czekaniu na blokadę (zamówienie zweryfikowane z niesprawdzonymi
+  aktualnymi paczkami), hurtowa zmiana statusu zapisuje pozycje przed zamówieniem (zakleszczenie z weryfikacją — 500 i
+  ponowienie tym samym `X-Operation-Id` daje 200 — albo `verified_at` zostaje po powrocie do pakowania), a doróbka
+  (`reject`) blokuje pozycję przed zamówieniem (zakleszczenie z zapisem Weryfikacji, także samonaprawiające się);
+  decyzja o poprawkach należy do Konrada.
+
 ### 8.4 Cofnięcie do pakowania
 
 Jak przepakowanie z etapu 1 (`delivery.py`): pozycje → `czeka_na_pakowanie`, `set_quantity_done('packaging', 0,
@@ -355,11 +422,25 @@ ponownym spakowaniu status po spakowaniu według sposobu. `transport` dostaje `r
 kuriera: „Przepakuj na kuriera”); `KSZTALT_ODPOWIEDZI_KOLEJKI` 4 → 5 (w kroku 4.3; 4 = `packing_hint` z kroku 4.2). Zamówienie na trasie zostaje na niej (kierowca
 zobaczy „NIESPAKOWANE”).
 
+(krok 4.3) `repack_reason` ustawia też przepakowanie na kuriera (`"Przepakuj na kuriera"`).
+`transport.repack_reason` = `order.repack_reason` przy `repack_required`, a przy starym `repack_required` bez tekstu
+(sprzed kroku 4.3) — `"Przepakuj na kuriera"`; bez przepakowania `null`. Ponowne spakowanie czyści oba pola. Zmiana
+sposobu dostawy na inny niż kurier zdejmuje **tylko** baner „Przepakuj na kuriera”: baner z Weryfikacji („Weryfikacja:
+Uszkodzenie: …”) to informacja o towarze, nie o kurierze, i zostaje do ponownego spakowania. Po „Cofnij do pakowania”
+otwarty problem zamówienia przenosi się do banera w całości (flaga problemu znika).
+
 ### 8.5 Przejścia systemowe
 
 - Wejście pozycji do produkcji w zamówieniu z paczkami (doróbka, nowa pozycja z Base.) → paczki unieważnione,
   `verified_at = NULL`, pozostałe pozycje wracają do `spakowane` (albo zostają niżej, jeśli nie były spakowane).
 - `delivery.po_spakowaniu` bez zmian dla Base.; `przelicz_zamkniecie` według 4.6.
+- (krok 4.3) **Doróbka albo nowa pozycja w zamówieniu dostarczonym** (decyzja Konrada 30.09): pozycje `dostarczone`
+  zostają dostarczone (towar u klienta jest u klienta); paczki i weryfikacja kasują się, a pozycje `zweryfikowane`
+  i `zaladowane` wracają do `spakowane`. Tę jedną regułę (`weryfikacja.uniewaznij_etapy`) woła każda ścieżka powrotu
+  pozycji do produkcji: doróbka, synchronizacja z Base., przepakowanie na kuriera, „Cofnij do pakowania”, hurtowa zmiana
+  statusu i cron `przelicz_otwarte` (łata resztę).
+- (krok 4.3) Stara akcja z kolejki offline po weryfikacji (ponowione „ZAKOŃCZ” pakowania, powtórzony skan z tym samym
+  `X-Operation-Id`) nie cofa zamówienia zweryfikowanego ani nie weryfikuje go drugi raz.
 
 ### 8.6 Przegląd miejsc z `'spakowane'` (każde: „dokładnie spakowane” czy „spakowane lub dalej”)
 
@@ -451,7 +532,12 @@ Trasa z kodami paczek leży w telefonie; skany rozpoznawane lokalnie, akcje w ko
 
 - Lista (Dashboard Logistyki): kolumna „Etap” z nowymi stanami (Spakowane — czeka na weryfikację, Zweryfikowane,
   Załadowane, W trasie, Dostarczone), pod nią paczki („2 × paczka”, „1 × EUR”) i ikona problemu z powodem w dymku;
-  filtry „Do weryfikacji”, „Problem”, „Bez paczek”.
+  filtry „Do weryfikacji”, „Problem”, „Bez paczek”. (krok 4.3) Filtry mają własny zakres (8.2), niezależny od podziału
+  na otwarte i zamknięte zamówienia, a liczby przy filtrach liczy serwer. Powód problemu jest widoczny jako napis przy
+  ikonie (nie tylko w dymku), dostępny z klawiatury. „Do weryfikacji” obejmuje tylko `spakowane`; zamówienia
+  `zweryfikowane` nie są w tym filtrze. Etap „W trasie” (zamówienie na trasie `w_trasie`) pojawia się w kroku 4.4,
+  razem ze statusami tras. Panel daje tylko ikonę i filtry: rozwiązywanie problemu i cofanie weryfikacji z panelu
+  webowego są poza zakresem kroku 4.3 (robi je telefon Weryfikacji).
 - Pasek logistyki pod szyną dashboardu produkcji: „Do weryfikacji: N” i „Problemy: N” (w odświeżaniu
   `dashboard-data`, obok `logistics_pending`).
 - UI tworzone ze skillem `frontend-design:frontend-design`; w tekstach UI „Base.”.
