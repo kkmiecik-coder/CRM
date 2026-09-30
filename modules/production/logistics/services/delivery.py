@@ -309,8 +309,7 @@ def ustaw_sposob_dostawy(order, sposob, user_id=None, teraz=None):
         # Zmiana na sposób inny niż kurier zamyka ewentualne przepakowanie:
         # towar już wrócił do pakowania i po prostu się pakuje, baner
         # „PRZEPAKUJ NA KURIERA” dla transportu/odbioru nie ma sensu.
-        order.repack_required = False
-        order.repack_reason = None
+        _zdejmij_baner_przepakowania_na_kuriera(order)
 
     usunieto_z_trasy = None
     if przystanek is not None and zdejmuje:
@@ -319,6 +318,18 @@ def ustaw_sposob_dostawy(order, sposob, user_id=None, teraz=None):
     podbij_pozycje(order, teraz)
     przelicz_zamkniecie(order, teraz)
     return {'zmieniono': True, 'przepakowanie': przepakowanie, 'usunieto_z_trasy': usunieto_z_trasy}
+
+
+def _zdejmij_baner_przepakowania_na_kuriera(order):
+    """
+    Zmiana sposobu dostawy zdejmuje TYLKO baner „Przepakuj na kuriera” (także stare repack_required
+    bez tekstu): przy innym sposobie takie przepakowanie traci sens. Baner z Weryfikacji („Weryfikacja:
+    Uszkodzenie: …”, krok 4.3) zostaje — to informacja dla pakowacza o towarze, a nie o kurierze;
+    czyści go dopiero ponowne spakowanie (po_spakowaniu).
+    """
+    if not order.repack_reason or order.repack_reason == sposoby.PRZEPAKUJ_NA_KURIERA:
+        order.repack_required = False
+        order.repack_reason = None
 
 
 def _cofnij_sposob(order, stary, user_id, teraz):
@@ -341,8 +352,7 @@ def _cofnij_sposob(order, stary, user_id, teraz):
     if order.bl_status_pending_id in sposoby.STATUS_PO_SPAKOWANIU.values():
         order.bl_status_pending_id = None
     # Przepakowanie na kuriera bez kuriera nie ma sensu (jak przy zmianie na transport).
-    order.repack_required = False
-    order.repack_reason = None
+    _zdejmij_baner_przepakowania_na_kuriera(order)
     zapisz_log(order, 'sposob_dostawy', stary, None, user_id=user_id, teraz=teraz)
     podbij_pozycje(order, teraz)
     przelicz_zamkniecie(order, teraz)

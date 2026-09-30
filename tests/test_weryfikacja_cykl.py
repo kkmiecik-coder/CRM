@@ -94,6 +94,43 @@ def test_zmiana_na_inny_niz_kurier_i_spakowanie_czyszcza_baner(app):
     assert (drugie.repack_required, drugie.repack_reason) == (False, None)
 
 
+@pytest.mark.parametrize('nowy', [s.TRANSPORT, s.ODBIOR])
+def test_zmiana_sposobu_nie_kasuje_banera_z_weryfikacji(app, nowy):
+    """Weryfikacja cofnęła zamówienie do pakowania („Uszkodzenie”) — zmiana sposobu przez logistyka
+    nie może zabrać pakowaczowi tej informacji; czyści ją dopiero ponowne spakowanie."""
+    tekst = u'Weryfikacja: Uszkodzenie: pęknięty blat'
+    order = zamowienie(sposob=s.KURIER, statusy=('czeka_na_pakowanie',), repack_required=True, repack_reason=tekst)
+    d.ustaw_sposob_dostawy(order, nowy, teraz=T0)
+    assert (order.repack_required, order.repack_reason) == (True, tekst)
+    for p in order.products:
+        p.current_status = 'spakowane'
+    d.po_spakowaniu(order, T1)
+    assert (order.repack_required, order.repack_reason) == (False, None)
+
+
+def test_cofniecie_do_nie_ustawiono_nie_kasuje_banera_z_weryfikacji(app):
+    tekst = u'Weryfikacja: Brak elementu: nóżka'
+    order = zamowienie(sposob=s.KURIER, statusy=('czeka_na_pakowanie',), repack_required=True, repack_reason=tekst)
+    d.ustaw_sposob_dostawy(order, s.BRAK, teraz=T0)
+    assert order.override_delivery_method is None
+    assert (order.repack_required, order.repack_reason) == (True, tekst)
+
+
+@pytest.mark.parametrize('powod', [s.PRZEPAKUJ_NA_KURIERA, None, u''])
+def test_cofniecie_do_nie_ustawiono_czysci_baner_przepakowania_na_kuriera(app, powod):
+    """„Przepakuj na kuriera” (także stare repack_required bez tekstu) traci sens bez kuriera."""
+    order = zamowienie(sposob=s.KURIER, statusy=('czeka_na_pakowanie',), repack_required=True, repack_reason=powod)
+    d.ustaw_sposob_dostawy(order, s.BRAK, teraz=T0)
+    assert (order.repack_required, order.repack_reason) == (False, None)
+
+
+@pytest.mark.parametrize('powod', [None, u''])
+def test_zmiana_na_transport_czysci_stare_przepakowanie_bez_tekstu(app, powod):
+    order = zamowienie(sposob=s.KURIER, statusy=('czeka_na_pakowanie',), repack_required=True, repack_reason=powod)
+    d.ustaw_sposob_dostawy(order, s.TRANSPORT, teraz=T0)
+    assert (order.repack_required, order.repack_reason) == (False, None)
+
+
 def test_zaladowane_nie_zmienia_sposobu(app):
     order = zamowienie(sposob=s.TRANSPORT, statusy=('zaladowane',))
     assert d.ustaw_sposob_dostawy(order, s.TRANSPORT, teraz=T0)['zmieniono'] is False  # bez zmiany = no-op
