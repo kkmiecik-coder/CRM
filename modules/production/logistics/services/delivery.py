@@ -15,7 +15,8 @@ from modules.production.logistics import sposoby
 from modules.production.logistics.models import LogisticsLog, Route, RouteStop, STATUSY_TRASY_AKTYWNE
 from modules.production.models import get_local_now
 
-STATUSY_PO_PRODUKCJI = ('czeka_na_pakowanie', 'spakowane')
+# Pozycja „zeszła z produkcji”: czeka na pakowanie albo jest spakowana lub dalej (logistyka etap 4).
+STATUSY_PO_PRODUKCJI = ('czeka_na_pakowanie',) + sposoby.STATUSY_PO_SPAKOWANIU
 
 
 class LogistykaBlad(Exception):
@@ -36,9 +37,20 @@ def aktywne_produkty(order):
     return [p for p in order.products if p.current_status != 'anulowane']
 
 
-def wszystkie_spakowane(order):
+def wszystkie_w(order, statusy):
+    """Czy zamówienie ma aktywną (niezanulowaną) pozycję i każda aktywna jest w `statusy`."""
     aktywne = aktywne_produkty(order)
-    return bool(aktywne) and all(p.current_status == 'spakowane' for p in aktywne)
+    return bool(aktywne) and all(p.current_status in statusy for p in aktywne)
+
+
+def wszystkie_spakowane(order):
+    """
+    „Spakowane lub dalej” (logistyka etap 4, spec 4.1): towar całego zamówienia jest spakowany —
+    także zweryfikowany, załadowany albo dostarczony. Tak pytają lista i trasy (przycisk „Wydane”,
+    „Odhacz”), etykieta paczki i zmiana sposobu dostawy. Kto potrzebuje DOKŁADNIE 'spakowane'
+    (deklaracja paczek), woła wszystkie_w(order, ('spakowane',)).
+    """
+    return wszystkie_w(order, sposoby.STATUSY_PO_SPAKOWANIU)
 
 
 def zapisz_log(order, akcja, stara=None, nowa=None, user_id=None, note=None,
@@ -76,7 +88,8 @@ def zamkniecie_wyliczone(order, trasa=None):
     if sposob is None or order.repack_required:
         return False
     if sposob == sposoby.KURIER:
-        return all(p.current_status == 'spakowane' for p in aktywne)
+        # Kurier kończy cykl po spakowaniu; weryfikacja nie może go z powrotem otworzyć.
+        return all(p.current_status in sposoby.STATUSY_PO_SPAKOWANIU for p in aktywne)
     if sposob == sposoby.ODBIOR:
         return order.handed_over_at is not None
     # Transport własny: koniec cyklu = przystanek na trasie wykonanej (etap 3).
@@ -120,8 +133,9 @@ def po_spakowaniu(order, teraz):
         # z powrotem transport kasuje flagę, a znacznik 138620 zostaje.
         if order.bl_status_pending_id == sposoby.STATUS_PRODUKCJA_ZAKONCZONA:
             order.bl_status_pending_id = None
-        if order.repack_required:
+        if order.repack_required or order.repack_reason:
             order.repack_required = False
+            order.repack_reason = None
             podbij_pozycje(order, teraz)
     przelicz_zamkniecie(order, teraz)
 
@@ -210,6 +224,11 @@ def ustaw_sposob_dostawy(order, sposob, user_id=None, teraz=None):
     stary = sposoby.normalizuj(order.override_delivery_method)
     if stary == nowy:
         return {'zmieniono': False, 'przepakowanie': False, 'usunieto_z_trasy': None}
+    # (etap 4) Towar na aucie albo u klienta — nowy sposób dostawy wysłałby do Base. status po
+    # spakowaniu i cofnął „Załadowane”/„Wysłane”/„Dostarczona”. Po porównaniu bez zmian, jak przesyłka.
+    if any(p.current_status in ('zaladowane', 'dostarczone') for p in aktywne_produkty(order)):
+        raise LogistykaBlad(u'Zamówienie {} jest już załadowane albo dostarczone — sposobu dostawy '
+                            u'nie zmieniamy.'.format(order.internal_order_number))
     # (M3) Przesyłka już utworzona (kurier mógł ją odebrać) — zmiana sposobu wysłałaby do
     # Base. status nowego sposobu (np. 149777 „Czeka na odbiór”) zamiast statusu wysyłki.
     # Jak adres (zmien_adres). Po porównaniu bez zmian: ten sam sposób zostaje no-opem.
@@ -229,7 +248,7 @@ def ustaw_sposob_dostawy(order, sposob, user_id=None, teraz=None):
 
     teraz = teraz or get_local_now()
     if cofniecie:
-        if any(p.current_status == 'spakowane' for p in aktywne_produkty(order)):
+        if any(p.current_status in sposoby.STATUSY_PO_SPAKOWANIU for p in aktywne_produkty(order)):
             # Przegląd K1: po cofnięciu kolejny wybór nie wiedziałby, pod jaki sposób
             # pakowano (stary = None), więc „transport (spakowane) → brak → kurier”
             # ominęłoby przepakowanie i zamknęło zamówienie. Przy spakowanym towarze
@@ -247,7 +266,8 @@ def ustaw_sposob_dostawy(order, sposob, user_id=None, teraz=None):
     order.delivery_method_set_by = user_id
     zapisz_log(order, 'sposob_dostawy', stary, nowy, user_id=user_id, teraz=teraz)
 
-    spakowane = [p for p in aktywne_produkty(order) if p.current_status == 'spakowane']
+    spakowane = [p for p in aktywne_produkty(order)
+                 if p.current_status in sposoby.STATUSY_PO_SPAKOWANIU]
     przepakowanie = (nowy == sposoby.KURIER
                      and stary in (sposoby.TRANSPORT, sposoby.ODBIOR)
                      and bool(spakowane))
@@ -264,6 +284,10 @@ def ustaw_sposob_dostawy(order, sposob, user_id=None, teraz=None):
             order.bl_status_pending_id = sposoby.STATUS_PRODUKCJA_ZAKONCZONA
             nowy_status = True
         zapisz_log(order, 'przepakowanie', stary, nowy, user_id=user_id, teraz=teraz)
+        order.repack_reason = sposoby.PRZEPAKUJ_NA_KURIERA
+        # Jedna reguła (spec 4.5): zamówienie wróciło do pakowania — paczki i weryfikacja kasują się.
+        from modules.production.logistics.services import weryfikacja
+        weryfikacja.uniewaznij_etapy(order, teraz, u'przepakowanie na kuriera', user_id=user_id)
     elif wszystkie_spakowane(order):
         order.bl_status_pending_id = sposoby.STATUS_PO_SPAKOWANIU[nowy]
         nowy_status = True
@@ -285,6 +309,7 @@ def ustaw_sposob_dostawy(order, sposob, user_id=None, teraz=None):
         # towar już wrócił do pakowania i po prostu się pakuje, baner
         # „PRZEPAKUJ NA KURIERA” dla transportu/odbioru nie ma sensu.
         order.repack_required = False
+        order.repack_reason = None
 
     usunieto_z_trasy = None
     if przystanek is not None and zdejmuje:
@@ -316,6 +341,7 @@ def _cofnij_sposob(order, stary, user_id, teraz):
         order.bl_status_pending_id = None
     # Przepakowanie na kuriera bez kuriera nie ma sensu (jak przy zmianie na transport).
     order.repack_required = False
+    order.repack_reason = None
     zapisz_log(order, 'sposob_dostawy', stary, None, user_id=user_id, teraz=teraz)
     podbij_pozycje(order, teraz)
     przelicz_zamkniecie(order, teraz)
@@ -397,13 +423,16 @@ def wydaj_klientowi(order, user_id=None, teraz=None):
         raise LogistykaBlad(u'„Wydane klientowi” dotyczy tylko odbioru osobistego.')
     if order.handed_over_at is not None:
         raise LogistykaBlad(u'Zamówienie {} jest już wydane.'.format(order.internal_order_number))
-    if not wszystkie_spakowane(order):
+    # Spec 4.2 i 4.4: wydanie nie czeka na weryfikację — działa ze 'spakowane' i 'zweryfikowane'.
+    if not wszystkie_w(order, ('spakowane', 'zweryfikowane')):
         raise LogistykaBlad(u'Zamówienie {} nie jest jeszcze w całości spakowane.'.format(
             order.internal_order_number))
     teraz = teraz or get_local_now()
     order.handed_over_at = teraz
     order.handed_over_by = user_id
     order.bl_status_pending_id = sposoby.STATUS_ODEBRANE
+    for p in aktywne_produkty(order):
+        p.current_status = 'dostarczone'
     zapisz_log(order, 'wydane', user_id=user_id, teraz=teraz)
     podbij_pozycje(order, teraz)
     przelicz_zamkniecie(order, teraz)
@@ -442,7 +471,9 @@ def przelicz_otwarte(teraz=None):
     transport własny i przystanek na trasie AKTYWNEJ (roboczej/zatwierdzonej) — takie
     zamówienie jeszcze nie pojechało, więc zamknięte być nie może (np. trasa przywrócona
     albo zamówienie dodane do trasy tuż przed odhaczeniem innej), a samo nie wróci:
-    spakowane w całości nie łapie się na warunek „znów aktywne pozycje”.
+    spakowane lub dalej (w całości) nie łapie się na warunek „znów aktywne pozycje”.
+    Każde przeliczane zamówienie przechodzi też przez regułę unieważniania etapów
+    (weryfikacja.uniewaznij_etapy) — zweryfikowane w całości zostaje zamknięte i nietknięte.
     """
     from modules.production.models import ProductionOrder, ProductionProduct
     teraz = teraz or get_local_now()
@@ -454,9 +485,17 @@ def przelicz_otwarte(teraz=None):
     do_otwarcia = (ProductionOrder.query.options(selectinload(ProductionOrder.products))
                    .filter(ProductionOrder.logistics_closed_at.isnot(None))
                    .filter(or_(
-                       ProductionOrder.products.any(
-                           ProductionProduct.current_status.notin_(('spakowane', 'anulowane'))),
+                       ProductionOrder.products.any(ProductionProduct.current_status.notin_(
+                           sposoby.STATUSY_PO_SPAKOWANIU + ('anulowane',))),
                        and_(ProductionOrder.override_delivery_method == sposoby.TRANSPORT,
                             ProductionOrder.id.in_(na_aktywnych_trasach))))
                    .all())
-    return sum(1 for order in otwarte + do_otwarcia if przelicz_zamkniecie(order, teraz))
+    # Siatka bezpieczeństwa jednej reguły (spec 8.5): ścieżki, które nie wołają jej same (np. przyszłe
+    # zmiany statusu), dostają ją najpóźniej przy godzinnym przebiegu. Bez pracy nie pyta bazy.
+    from modules.production.logistics.services import weryfikacja
+    zmienione = 0
+    for order in otwarte + do_otwarcia:
+        weryfikacja.uniewaznij_etapy(order, teraz, u'kontrola cykliczna')
+        if przelicz_zamkniecie(order, teraz):
+            zmienione += 1
+    return zmienione

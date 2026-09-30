@@ -2770,6 +2770,18 @@ class BaselinkerSyncService:
                             except Exception as e:
                                 result['errors'].append(f"Błąd dodawania produktu: {str(e)}")
 
+                if result['added']:
+                    # Logistyka etap 4 (spec 8.5): nowa pozycja z Base. w zamówieniu z paczkami albo
+                    # weryfikacją — jedna reguła unieważnia etapy. Nowe pozycje mają tylko order_id,
+                    # więc kolekcję pozycji zamówienia czytamy od nowa.
+                    from modules.production.logistics.services import weryfikacja
+                    zamowienie = ProductionOrder.query.filter_by(
+                        baselinker_order_id=baselinker_order_id).first()
+                    if zamowienie is not None:
+                        db.session.flush()
+                        db.session.expire(zamowienie, ['products'])
+                        weryfikacja.uniewaznij_etapy(zamowienie, get_local_now(), u'nowa pozycja z Base.')
+
             # 4. Aktualizuj dane na poziomie zamówienia (na ProductionOrder, nie produktach)
             if changes.get('order_level'):
                 order_obj = ProductionOrder.query.filter_by(

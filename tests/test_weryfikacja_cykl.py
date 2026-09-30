@@ -1,0 +1,175 @@
+# -*- coding: utf-8 -*-
+"""Cykl zamówienia w logistyce po nowych statusach (logistyka etap 4, krok 4.3, spec 4.1, 4.2, 4.5, 4.6, 8.5)."""
+from datetime import datetime
+
+import pytest
+
+from extensions import db
+from modules.production.logistics import sposoby as s
+from modules.production.logistics.models import LogisticsLog
+from modules.production.logistics.services import delivery as d, paczki
+from modules.production.models import ProductionPackage, ProductionProduct
+from tests.logistyka_fixtures import app, produkt, zamowienie  # noqa: F401
+
+T0 = datetime(2026, 10, 1, 8, 0)
+T1 = datetime(2026, 10, 1, 9, 0)
+
+
+def _paczki(order, n=2, zweryfikowane=False):
+    lista = [ProductionPackage(order_id=order.id, seq=i, kind='paczka', declared_at=T0,
+                               verified_at=T0 if zweryfikowane else None) for i in range(1, n + 1)]
+    db.session.add_all(lista)
+    order.packages_declared_at = T0
+    db.session.commit()
+    return lista
+
+
+def test_spakowane_lub_dalej_i_dokladnie_spakowane(app):
+    order = zamowienie(sposob=s.KURIER, statusy=('zweryfikowane', 'dostarczone', 'anulowane'))
+    assert d.wszystkie_spakowane(order) is True
+    assert d.wszystkie_w(order, ('spakowane',)) is False
+    assert d.wszystkie_w(zamowienie(statusy=('anulowane',)), s.STATUSY_PO_SPAKOWANIU) is False
+    assert d.STATUSY_PO_PRODUKCJI == ('czeka_na_pakowanie',) + s.STATUSY_PO_SPAKOWANIU
+
+
+@pytest.mark.parametrize('sposob, statusy, kolumny, zamkniete', [
+    (s.KURIER, ('zweryfikowane',), {}, True),
+    (s.KURIER, ('spakowane', 'zweryfikowane'), {}, True),
+    (s.KURIER, ('zweryfikowane', 'czeka_na_pakowanie'), {}, False),
+    (s.TRANSPORT, ('zweryfikowane',), {}, False),          # transport zamyka trasa wykonana (decyzja 2)
+    (s.ODBIOR, ('dostarczone',), {'handed_over_at': T0}, True),
+])
+def test_zamkniecie_po_nowych_statusach(app, sposob, statusy, kolumny, zamkniete):
+    assert d.zamkniecie_wyliczone(zamowienie(sposob=sposob, statusy=statusy, **kolumny)) is zamkniete
+
+
+@pytest.mark.parametrize('statusy', [('spakowane',), ('zweryfikowane',), ('spakowane', 'anulowane')])
+def test_wydanie_klientowi_ustawia_dostarczone(app, statusy):
+    order = zamowienie(sposob=s.ODBIOR, statusy=statusy)
+    d.wydaj_klientowi(order, user_id=5, teraz=T0)
+    assert [p.current_status for p in order.products] == \
+        ['anulowane' if st == 'anulowane' else 'dostarczone' for st in statusy]
+    assert (order.handed_over_at, order.bl_status_pending_id, order.logistics_closed_at) == \
+        (T0, s.STATUS_ODEBRANE, T0)
+    assert all(p.updated_at == T0 for p in order.products)
+
+
+@pytest.mark.parametrize('statusy', [('czeka_na_pakowanie', 'spakowane'), ('zaladowane',)])
+def test_wydanie_tylko_ze_spakowanego_albo_zweryfikowanego(app, statusy):
+    with pytest.raises(d.LogistykaBlad):
+        d.wydaj_klientowi(zamowienie(sposob=s.ODBIOR, statusy=statusy), teraz=T0)
+
+
+def test_cofniecie_do_nie_ustawiono_odmawia_przy_zweryfikowanym(app):
+    order = zamowienie(sposob=s.KURIER, statusy=('zweryfikowane',))
+    with pytest.raises(d.LogistykaBlad):
+        d.ustaw_sposob_dostawy(order, s.BRAK, teraz=T0)
+
+
+def test_przepakowanie_zweryfikowanego_uniewaznia_paczki_i_weryfikacje(app):
+    order = zamowienie(sposob=s.TRANSPORT, statusy=('zweryfikowane', 'zweryfikowane'),
+                       verified_at=T0, verified_by_worker_id=3)
+    stare = _paczki(order, zweryfikowane=True)
+    wynik = d.ustaw_sposob_dostawy(order, s.KURIER, user_id=7, teraz=T1)
+    db.session.commit()
+    assert wynik['przepakowanie'] is True
+    assert [p.current_status for p in order.products] == ['czeka_na_pakowanie', 'czeka_na_pakowanie']
+    assert (order.repack_required, order.repack_reason) == (True, s.PRZEPAKUJ_NA_KURIERA)
+    assert (order.verified_at, order.packages_declared_at) == (None, None)
+    assert all(p.voided_at == T1 for p in ProductionPackage.query.filter_by(order_id=order.id))
+    akcje = [w.action for w in LogisticsLog.query.filter_by(order_id=order.id).order_by(LogisticsLog.id)]
+    assert akcje[:2] == ['sposob_dostawy', 'przepakowanie']
+    assert set(akcje[2:]) == {'weryfikacja_cofnieta', 'paczki'}
+    assert order.bl_status_pending_id == s.STATUS_PRODUKCJA_ZAKONCZONA
+
+
+def test_zmiana_na_inny_niz_kurier_i_spakowanie_czyszcza_baner(app):
+    order = zamowienie(sposob=s.KURIER, statusy=('czeka_na_pakowanie',), repack_required=True,
+                       repack_reason=s.PRZEPAKUJ_NA_KURIERA)
+    d.ustaw_sposob_dostawy(order, s.TRANSPORT, teraz=T0)
+    assert (order.repack_required, order.repack_reason) == (False, None)
+    drugie = zamowienie(sposob=s.KURIER, statusy=('spakowane',), repack_required=True,
+                        repack_reason=u'Weryfikacja: Uszkodzenie')
+    d.po_spakowaniu(drugie, T0)
+    assert (drugie.repack_required, drugie.repack_reason) == (False, None)
+
+
+def test_zaladowane_nie_zmienia_sposobu(app):
+    order = zamowienie(sposob=s.TRANSPORT, statusy=('zaladowane',))
+    assert d.ustaw_sposob_dostawy(order, s.TRANSPORT, teraz=T0)['zmieniono'] is False  # bez zmiany = no-op
+    with pytest.raises(d.LogistykaBlad) as e:
+        d.ustaw_sposob_dostawy(order, s.KURIER, teraz=T0)
+    assert e.value.status == 409
+
+
+def test_cron_nie_otwiera_zweryfikowanego_i_czysci_etapy_po_nowej_pozycji(app):
+    zweryfikowane = zamowienie(sposob=s.KURIER, statusy=('zweryfikowane',), logistics_closed_at=T0,
+                               verified_at=T0)
+    z_nowa = zamowienie(sposob=s.KURIER, statusy=('spakowane',), logistics_closed_at=T0)
+    _paczki(z_nowa)
+    produkt(z_nowa, status='czeka_na_wyciecie')
+    db.session.commit()
+
+    d.przelicz_otwarte(teraz=T1)
+    db.session.commit()
+
+    assert zweryfikowane.logistics_closed_at == T0 and zweryfikowane.verified_at == T0
+    assert z_nowa.logistics_closed_at is None and z_nowa.packages_declared_at is None
+    assert all(p.voided_at == T1 for p in ProductionPackage.query.filter_by(order_id=z_nowa.id))
+    assert LogisticsLog.query.filter_by(order_id=z_nowa.id, action='paczki').one().note == u'kontrola cykliczna'
+
+
+@pytest.mark.parametrize('status, fragment', [
+    ('zweryfikowane', u'Cofnij weryfikację'), ('zaladowane', u'załadowane'), ('dostarczone', u'dostarczone')])
+def test_deklaracja_po_weryfikacji_409(app, status, fragment):
+    order = zamowienie(sposob=s.KURIER, statusy=(status, status))
+    with pytest.raises(paczki.PaczkiBlad) as e:
+        paczki.zadeklaruj(order, paczki.Deklaracja('paczka', 1), 'verification',
+                          {'type': 'device', 'id': 'TEL-1'}, teraz=T0)
+    assert (e.value.kod, e.value.status) == ('order_verified', 409) and fragment in e.value.komunikat
+
+
+def test_deklaracja_dalej_wymaga_dokladnie_spakowanego(app):
+    order = zamowienie(sposob=s.KURIER, statusy=('spakowane', 'czeka_na_pakowanie'))
+    with pytest.raises(paczki.PaczkiBlad) as e:
+        paczki.zadeklaruj(order, paczki.Deklaracja('paczka', 1), 'packaging',
+                          {'type': 'device', 'id': 'TAB-1'}, teraz=T0)
+    assert e.value.kod == 'order_not_packed'
+
+
+def test_dorobka_uniewaznia_etapy(app):
+    from modules.production.services import rework_service
+    order = zamowienie(sposob=s.KURIER, statusy=('spakowane', 'czeka_na_pakowanie'))
+    stare = _paczki(order, n=1)
+    rework_service.reject_product_quantity(product_id=order.products[1].id, quantity=1,
+                                           reason_category=sorted(rework_service.VALID_REASONS)[0],
+                                           rejected_at_station='packaging')
+    assert ProductionPackage.query.get(stare[0].id).voided_at is not None
+    assert order.packages_declared_at is None
+
+
+def test_nowa_pozycja_z_base_uniewaznia_etapy(app, monkeypatch):
+    from modules.production.services.sync_service import BaselinkerSyncService
+    order = zamowienie(sposob=s.KURIER, statusy=('zweryfikowane',), numer_wewnetrzny='1450',
+                       verified_at=T0)
+    stare = _paczki(order, n=1, zweryfikowane=True)
+    serwis = BaselinkerSyncService()
+    monkeypatch.setattr(serwis, 'get_order_from_baselinker', lambda _id: {
+        'products': [{'order_product_id': '77', 'name': 'Blat', 'quantity': 1}]})
+    monkeypatch.setattr('modules.production.services.parser_service.ProductNameParser.parse_product_name',
+                        lambda self, nazwa: None)
+
+    def nowa_pozycja(dane):
+        return ProductionProduct(order_id=order.id, short_product_id=dane['short_product_id'],
+                                 product_sequence_in_order=dane['product_sequence_in_order'],
+                                 original_product_name=dane['original_product_name'], quantity=1,
+                                 current_status='czeka_na_wyciecie')
+
+    monkeypatch.setattr(serwis, '_create_production_product_from_data', nowa_pozycja)
+    wynik = serwis.apply_baselinker_changes(order.baselinker_order_id,
+                                            {'products_to_add': [{'order_product_id': '77'}]})
+    assert wynik['success'] is True and wynik['added'] == 1
+    db.session.expire_all()
+    assert ProductionPackage.query.get(stare[0].id).voided_at is not None
+    statusy = sorted(p.current_status for p in ProductionProduct.query.filter_by(order_id=order.id))
+    assert statusy == ['czeka_na_wyciecie', 'spakowane']

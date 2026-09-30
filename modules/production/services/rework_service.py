@@ -293,6 +293,14 @@ def reject_product_quantity(
     )
     db.session.add(log_entry)
 
+    # Logistyka etap 4 (spec 8.5): doróbka w zamówieniu z paczkami albo weryfikacją — jedna reguła
+    # unieważnia etapy. Doróbka ma tylko order_id, więc kolekcję pozycji zamówienia czytamy od nowa.
+    if original.order is not None:
+        from modules.production.logistics.services import weryfikacja
+        db.session.expire(original.order, ['products'])
+        weryfikacja.uniewaznij_etapy(original.order, now, u'doróbka',
+                                     worker_id=(worker_ids[0] if worker_ids else None))
+
     try:
         db.session.commit()
     except Exception:

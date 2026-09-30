@@ -275,6 +275,15 @@ def _zaloz_wiersz_blokady():
                 config_type='string', created_at=teraz, updated_at=teraz))
 
 
+# Spec 7.2 i 13: deklaracja po weryfikacji → 409 order_verified (najpierw „Cofnij weryfikację”).
+_ODMOWA_PO_WERYFIKACJI = {
+    'zweryfikowane': u'Zamówienie {} jest już zweryfikowane — najpierw „Cofnij weryfikację”, potem '
+                     u'zadeklaruj paczki od nowa.',
+    'zaladowane': u'Zamówienie {} jest już załadowane — paczek nie można zmienić.',
+    'dostarczone': u'Zamówienie {} jest już dostarczone — paczek nie można zmienić.',
+}
+
+
 def zadeklaruj(order, deklaracja, stanowisko, aktor, worker_id=None, device_id=None, teraz=None):
     """
     Nowa deklaracja paczek (spec 7.2): unieważnia poprzednią, tworzy N paczek z numerami
@@ -290,10 +299,15 @@ def zadeklaruj(order, deklaracja, stanowisko, aktor, worker_id=None, device_id=N
     równoległej zmiany (np. przełączenia na ponowne pakowanie). Przy wyścigu ze zmianą
     sposobu dostawy w panelu etykiety mogą mieć napis już po zmianie (czytamy go z
     zablokowanego wiersza zamówienia), a statusy pozycji sprzed niej (migawka). Przepakowanie
-    i tak kończy się nową deklaracją, a od kroku 4.3 zamówienie, które przestało być w całości
-    spakowane, ma paczki unieważniane.
+    i tak kończy się nową deklaracją, a zamówienie, które przestało być w całości spakowane,
+    traci paczki przez weryfikacja.uniewaznij_etapy.
     """
-    if not delivery.wszystkie_spakowane(order):
+    etap = next((p.current_status for p in delivery.aktywne_produkty(order)
+                 if p.current_status in sposoby.STATUSY_LOGISTYCZNE), None)
+    if etap is not None:
+        raise PaczkiBlad('order_verified', _ODMOWA_PO_WERYFIKACJI[etap].format(
+            order.internal_order_number), 409)
+    if not delivery.wszystkie_w(order, ('spakowane',)):
         raise PaczkiBlad('order_not_packed', u'Zamówienie {} nie jest jeszcze w całości spakowane — '
                          u'paczki deklaruje się po spakowaniu ostatniej pozycji.'.format(
                              order.internal_order_number), 409)
