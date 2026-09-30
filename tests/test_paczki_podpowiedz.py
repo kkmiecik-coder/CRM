@@ -97,12 +97,13 @@ def test_kolejka_pakowania_nie_laduje_pozycji_zamowien_osobnymi_zapytaniami(app,
     assert len(zapytania) == 3, zapytania
 
 
-def test_etag_kolejki_niesie_ksztalt_4(app, client):
+def test_etag_kolejki_niesie_ksztalt_5(app, client):
+    # 5 — transport.repack_reason (etap 4, krok 4.3); packing_hint z kroku 4.2 wszedł w kształcie 4
     zamowienie(sposob=s.KURIER, statusy=('czeka_na_pakowanie',))
     r = client.get('/api/mobile/stations/packaging/orders',
                    headers={'Authorization': 'Bearer ' + _token(app)})
-    assert mobile_api.KSZTALT_ODPOWIEDZI_KOLEJKI == 4
-    assert r.headers['ETag'].endswith(':4"')
+    assert mobile_api.KSZTALT_ODPOWIEDZI_KOLEJKI == 5
+    assert r.headers['ETag'].endswith(':5"')
 
 
 def test_wyszukiwarka_niesie_podpowiedz(app, client):

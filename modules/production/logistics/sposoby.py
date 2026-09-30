@@ -100,7 +100,19 @@ def transport_payload(order, trasa=None):
         'trip_date': data.isoformat() if data is not None else None,
         'vehicle_name': pojazd.name if pojazd is not None else None,
         'repack_required': bool(getattr(order, 'repack_required', False)) if order is not None else False,
+        'repack_reason': _tekst_przepakowania(order),
     }
+
+
+def _tekst_przepakowania(order):
+    """
+    Tekst banera na tablecie pakowania (logistyka etap 4, spec 8.4): powód z Weryfikacji albo
+    przepakowania na kuriera. Stare repack_required bez tekstu (sprzed kroku 4.3) → tekst domyślny.
+    Bez przepakowania — None (appka pokazuje baner tylko przy repack_required).
+    """
+    if order is None or not getattr(order, 'repack_required', False):
+        return None
+    return getattr(order, 'repack_reason', None) or PRZEPAKUJ_NA_KURIERA
 
 
 def podpowiedz(order):

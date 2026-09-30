@@ -60,7 +60,7 @@ def test_tablet_widzi_trase_i_etykieta_tez(app):
             dane = serialize_order(order.products[0], station_code='packaging')
         assert dane['transport'] == {'mode': 'wlasny', 'trip_name': 'Kraków + Tarnów',
                                      'trip_date': '2026-10-01', 'vehicle_name': 'Iveco KR 1',
-                                     'repack_required': False}
+                                     'repack_required': False, 'repack_reason': None}
         assert _format_delivery_label(order.products[0]) == 'Krakow + Tarnow' or \
             _format_delivery_label(order.products[0]).startswith('Krak')
 

@@ -449,6 +449,32 @@ def po_zmianie(order_ids):
     uruchom_w_tle(current_app._get_current_object())
 
 
+def zaplanuj_po_commicie(order_id):
+    """
+    Zamówienie, którego zmiana czeka na wysłanie do Base., zapamiętane w `g` żądania API mobilnego.
+    Dopychacz startuje dopiero po udanym commicie (with_idempotency → wyslij_zaplanowane); przy
+    rollbacku i powtórce idempotentnej lista ginie razem z `g` (jak sygnał dla agenta druku).
+    """
+    from flask import g, has_request_context
+    if not has_request_context():
+        return
+    lista = getattr(g, '_logistyka_bl_po_commicie', None)
+    if lista is None:
+        lista = g._logistyka_bl_po_commicie = []
+    lista.append(order_id)
+
+
+def wyslij_zaplanowane():
+    """Po commicie: uruchamia dopychacz dla zamówień z zaplanuj_po_commicie (najwyżej raz na żądanie)."""
+    from flask import g, has_request_context
+    if not has_request_context():
+        return
+    lista = getattr(g, '_logistyka_bl_po_commicie', None) or []
+    g._logistyka_bl_po_commicie = []
+    if lista:
+        po_zmianie(lista)
+
+
 # ── Furtka pod stanowisko kierowcy (etap „kierowca”, dziś NIEWOŁANE) ──────
 
 def oznacz_wyslane(order):

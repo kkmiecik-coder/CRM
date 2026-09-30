@@ -484,6 +484,10 @@ def with_idempotency(f=None, retryable_statuses=None, require_operation_id=False
     (5xx, `retryable_statuses`, wyjątek), powtórce idempotentnej i wyścigu
     IntegrityError sygnał nie idzie — zaplanowana liczba ginie razem z `g` żądania.
 
+    Dopychacz logistyki (Base.): handler, po którego zmianie coś czeka na wysłanie do Base., tylko
+    to planuje (bl_sync.zaplanuj_po_commicie); decorator uruchamia dopychacz w tle dopiero po
+    udanym commicie (wyslij_zaplanowane) — na tych samych zasadach co sygnał dla agenta druku.
+
     retryable_statuses: zbiór kodów 4xx, które mają być traktowane jak 5xx —
     rollback i BRAK zapisu, żeby klient mógł ponowić z tym samym
     X-Operation-Id. Trakownia używa {409}: gdy zlecenie zostało w międzyczasie
@@ -638,6 +642,16 @@ def with_idempotency(f=None, retryable_statuses=None, require_operation_id=False
             except Exception as sygnal_error:
                 logger.error("Mobile API: błąd sygnału dla agenta druku", extra={
                     'error': str(sygnal_error),
+                })
+
+            # Logistyka etap 4: zmiany dla Base. z telefonu (np. 138620 po „Cofnij do pakowania”) —
+            # dopychacz w tle dopiero po commicie (bl_sync.zaplanuj_po_commicie).
+            try:
+                from modules.production.logistics.services.bl_sync import wyslij_zaplanowane
+                wyslij_zaplanowane()
+            except Exception as bl_logistyka_error:
+                logger.error("Mobile API: błąd uruchomienia dopychacza logistyki", extra={
+                    'error': str(bl_logistyka_error),
                 })
 
             return response_obj, status_code

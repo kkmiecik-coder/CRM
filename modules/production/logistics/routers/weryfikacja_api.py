@@ -194,3 +194,75 @@ def verification_unverify(numer):
         return _blad(e)
     return _odpowiedz(order, u'Cofnięto weryfikację zamówienia {} — paczki trzeba sprawdzić od nowa.'.format(
         order.internal_order_number), changed=True)
+
+
+def _dane_json():
+    """Ciało JSON jako słownik; brak, zły JSON albo inny typ niż obiekt → pusty słownik (kontrakt: pola opcjonalne)."""
+    dane = request.get_json(silent=True)
+    return dane if isinstance(dane, dict) else {}
+
+
+@weryfikacja_mobile_bp.route('/orders/<numer>/problem', methods=['POST'])
+@require_device_token
+@wymaga_weryfikacji
+@with_idempotency(retryable_statuses=BLEDY_DO_PONOWIENIA)
+def verification_problem(numer):
+    """POST /api/mobile/verification/orders/<nr>/problem {"reason", "note"} (spec 8.3)."""
+    dane = _dane_json()
+    try:
+        weryfikacja.waliduj_powod(dane.get('reason'))
+    except weryfikacja.WeryfikacjaBlad as e:
+        return _blad(e)
+    worker_id, err = _pracownik()
+    if err:
+        return err
+    order = _zamowienie_do_zapisu(numer)
+    if order is None:
+        return _brak_zamowienia(numer)
+    try:
+        weryfikacja.zglos_problem(order, dane.get('reason'), dane.get('note'), worker_id=worker_id,
+                                  device_id=g.device.id)
+    except weryfikacja.WeryfikacjaBlad as e:
+        return _blad(e)
+    return _odpowiedz(order, u'Zgłoszono problem w zamówieniu {}: {}.'.format(
+        order.internal_order_number, weryfikacja.POWODY_PROBLEMU[dane.get('reason')]), changed=True)
+
+
+@weryfikacja_mobile_bp.route('/orders/<numer>/problem/resolve', methods=['POST'])
+@require_device_token
+@wymaga_weryfikacji
+@with_idempotency(retryable_statuses=BLEDY_DO_PONOWIENIA)
+def verification_problem_resolve(numer):
+    """POST /api/mobile/verification/orders/<nr>/problem/resolve — zdjęcie flagi problemu."""
+    worker_id, err = _pracownik()
+    if err:
+        return err
+    order = _zamowienie_do_zapisu(numer)
+    if order is None:
+        return _brak_zamowienia(numer)
+    zmieniono = weryfikacja.rozwiaz_problem(order, worker_id=worker_id, device_id=g.device.id)
+    komunikat = (u'Problem w zamówieniu {} rozwiązany.' if zmieniono
+                 else u'Zamówienie {} nie ma otwartego problemu.').format(order.internal_order_number)
+    return _odpowiedz(order, komunikat, changed=zmieniono)
+
+
+@weryfikacja_mobile_bp.route('/orders/<numer>/revert-to-packing', methods=['POST'])
+@require_device_token
+@wymaga_weryfikacji
+@with_idempotency(retryable_statuses=BLEDY_DO_PONOWIENIA)
+def verification_revert_to_packing(numer):
+    """POST /api/mobile/verification/orders/<nr>/revert-to-packing {"reason"?, "note"?} (spec 8.4)."""
+    dane = _dane_json()
+    worker_id, err = _pracownik()
+    if err:
+        return err
+    order = _zamowienie_do_zapisu(numer)
+    if order is None:
+        return _brak_zamowienia(numer)
+    try:
+        weryfikacja.cofnij_do_pakowania(order, dane.get('reason'), dane.get('note'), worker_id=worker_id,
+                                        device_id=g.device.id)
+    except weryfikacja.WeryfikacjaBlad as e:
+        return _blad(e)
+    return _odpowiedz(order, u'Zamówienie {} wraca do pakowania. Paczki są nieaktualne — pakowacz '
+                             u'zadeklaruje je od nowa.'.format(order.internal_order_number), changed=True)

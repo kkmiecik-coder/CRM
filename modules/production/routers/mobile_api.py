@@ -133,7 +133,8 @@ BLEDY_DO_PONOWIENIA = {400, 403, 404, 409}
 #   2 — 2026-09-18: label_print_count, label_offset, label_total (panel kafelków)
 #   3 — 2026-09-25: obiekt `transport` (logistyka równoległa)
 #   4 — 2026-09-30: `packing_hint` (logistyka etap 4, krok 4.2 — okno paczek na pakowaniu)
-KSZTALT_ODPOWIEDZI_KOLEJKI = 4
+#   5 — 2026-09-30: `transport.repack_reason` (logistyka etap 4, krok 4.3 — baner przepakowania)
+KSZTALT_ODPOWIEDZI_KOLEJKI = 5
 
 
 def _resolve_workers():

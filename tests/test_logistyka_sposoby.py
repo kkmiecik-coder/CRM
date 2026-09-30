@@ -37,7 +37,7 @@ def test_transport_bez_sposobu_i_bez_trasy():
     order = NS(override_delivery_method=None, repack_required=False)
     assert s.transport_payload(order) == {
         'mode': None, 'trip_name': None, 'trip_date': None,
-        'vehicle_name': None, 'repack_required': False}
+        'vehicle_name': None, 'repack_required': False, 'repack_reason': None}
 
 
 def test_transport_z_trasa_i_przepakowaniem():
@@ -46,7 +46,16 @@ def test_transport_z_trasa_i_przepakowaniem():
                vehicle=NS(name='Iveco KR 12345'))
     assert s.transport_payload(order, trasa) == {
         'mode': 'wlasny', 'trip_name': 'Kraków + Tarnów', 'trip_date': '2026-09-30',
-        'vehicle_name': 'Iveco KR 12345', 'repack_required': True}
+        'vehicle_name': 'Iveco KR 12345', 'repack_required': True,
+        'repack_reason': s.PRZEPAKUJ_NA_KURIERA}   # stary repack_required bez tekstu → tekst domyślny
+
+
+def test_transport_z_powodem_z_weryfikacji():
+    order = NS(override_delivery_method=s.KURIER, repack_required=True,
+               repack_reason=u'Weryfikacja: Uszkodzenie: pęknięty blat')
+    assert s.transport_payload(order)['repack_reason'] == u'Weryfikacja: Uszkodzenie: pęknięty blat'
+    order.repack_required = False
+    assert s.transport_payload(order)['repack_reason'] is None
 
 
 def test_transport_dla_braku_zamowienia_to_nadal_obiekt():

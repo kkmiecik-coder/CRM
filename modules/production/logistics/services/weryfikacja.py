@@ -408,3 +408,102 @@ def cofnij_weryfikacje(order, worker_id=None, device_id=None, teraz=None, powod=
             order.internal_order_number))
     cofnij_weryfikacje_zamowienia(order, aktywne, powod, worker_id, device_id, teraz)
     return True
+
+
+def _notatka(wartosc):
+    """Notatka z JSON-a: tekst z pojedynczymi spacjami, najwyżej 255 znaków (dłuższa jest ucinana —
+    422 z kolejki offline to utracona akcja); inny typ albo pusty tekst → None."""
+    if not isinstance(wartosc, str):
+        return None
+    return ' '.join(wartosc.split())[:255] or None
+
+
+def waliduj_powod(powod):
+    # Typ sprawdzamy przed słownikiem: lista z JSON-a nie jest hashowalna (TypeError → 500, a 5xx
+    # telefon ponawia bez końca), a błędny powód ma być 422 zapamiętanym przez idempotencję.
+    if not isinstance(powod, str) or powod not in POWODY_PROBLEMU:
+        raise WeryfikacjaBlad('invalid_problem', u'Powód problemu: {}.'.format(
+            u', '.join(sorted(POWODY_PROBLEMU))), 422)
+    return powod
+
+
+def zglos_problem(order, powod, notatka, worker_id=None, device_id=None, teraz=None):
+    """
+    Zgłoszenie problemu (spec 8.3): tylko przed załadunkiem. Zamówienie zweryfikowane (albo z częścią
+    sprawdzonych paczek) traci weryfikację — inaczej problem obszedłby bramkę załadunku. Ponowne
+    zgłoszenie nadpisuje powód i notatkę. NIE commituje.
+    """
+    teraz = teraz or get_local_now()
+    waliduj_powod(powod)
+    notatka = _notatka(notatka)
+    aktywne = sprawdz_stan(order)
+    aktualne = paczki.aktualne_paczki(order.id, do_zapisu=True)
+    if (order.verified_at is not None or any(p.current_status == 'zweryfikowane' for p in aktywne)
+            or any(p.verified_at is not None for p in aktualne)):
+        cofnij_weryfikacje_zamowienia(order, aktywne, u'problem: {}'.format(POWODY_PROBLEMU[powod]),
+                                      worker_id, device_id, teraz)
+    stary = order.problem_reason
+    order.problem_reason = powod
+    order.problem_note = notatka
+    order.problem_at = teraz
+    order.problem_by_worker_id = worker_id
+    delivery.zapisz_log(order, 'problem', stary, powod, note=notatka, worker_id=worker_id,
+                        device_id=device_id, teraz=teraz)
+    delivery.podbij_pozycje(order, teraz)
+    return True
+
+
+def rozwiaz_problem(order, worker_id=None, device_id=None, teraz=None, notatka=None):
+    """Zdjęcie flagi problemu (spec 8.3). Bez problemu — False bez zmian (kolejka offline nie utyka)."""
+    if order.problem_at is None:
+        return False
+    teraz = teraz or get_local_now()
+    stary = order.problem_reason
+    order.problem_reason = None
+    order.problem_note = None
+    order.problem_at = None
+    order.problem_by_worker_id = None
+    delivery.zapisz_log(order, 'problem_rozwiazany', stary, None, note=notatka, worker_id=worker_id,
+                        device_id=device_id, teraz=teraz)
+    delivery.podbij_pozycje(order, teraz)
+    return True
+
+
+def cofnij_do_pakowania(order, powod=None, notatka=None, worker_id=None, device_id=None, teraz=None):
+    """
+    „Cofnij do pakowania” (spec 4.5 i 8.4) — jak przepakowanie z etapu 1: pozycje → czeka_na_pakowanie,
+    licznik pakowania wyzerowany zdarzeniem systemowym, repack_required + repack_reason
+    („Weryfikacja: <powód>: <notatka>”), Base. 138620 (dopychacz po commicie), paczki i weryfikacja
+    unieważnione jedną regułą, otwarty problem przeniesiony do banera. Brak powodu w żądaniu → powód
+    i notatka z otwartego problemu. Zamówienie na trasie zostaje na niej. Zwraca tekst banera.
+    """
+    teraz = teraz or get_local_now()
+    notatka = _notatka(notatka)
+    if not powod and order.problem_at is not None:
+        powod = order.problem_reason
+        notatka = notatka or order.problem_note
+    if not powod:
+        raise WeryfikacjaBlad('invalid_problem', u'Podaj powód cofnięcia do pakowania.', 422)
+    waliduj_powod(powod)
+    aktywne = sprawdz_stan(order)
+    przed, _napis = etap(aktywne)
+    tekst = (u'Weryfikacja: {}'.format(POWODY_PROBLEMU[powod])
+             + (u': {}'.format(notatka) if notatka else u''))[:255]
+    for p in aktywne:
+        # Zdarzenie systemowe bez atrybucji — jak przepakowanie w delivery.ustaw_sposob_dostawy.
+        p.set_quantity_done('packaging', 0, source='system')
+        p.packaging_completed_at = None
+        p.current_status = 'czeka_na_pakowanie'
+    order.repack_required = True
+    order.repack_reason = tekst
+    order.bl_status_pending_id = sposoby.STATUS_PRODUKCJA_ZAKONCZONA
+    if order.problem_at is not None:
+        rozwiaz_problem(order, worker_id, device_id, teraz, notatka=u'przeniesiony do banera pakowania')
+    delivery.zapisz_log(order, 'cofniete_do_pakowania', przed, 'czeka_na_pakowanie', note=tekst,
+                        worker_id=worker_id, device_id=device_id, teraz=teraz)
+    uniewaznij_etapy(order, teraz, u'cofnięte do pakowania', worker_id=worker_id, device_id=device_id)
+    delivery.przelicz_zamkniecie(order, teraz)
+    delivery.podbij_pozycje(order, teraz)
+    from modules.production.logistics.services import bl_sync
+    bl_sync.zaplanuj_po_commicie(order.id)
+    return tekst

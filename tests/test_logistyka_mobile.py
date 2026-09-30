@@ -36,7 +36,8 @@ def test_serializer_zawsze_ma_obiekt_transport_i_stare_delivery_type(app):
         bez = zamowienie(statusy=('czeka_na_pakowanie',), delivery_method='Odbiór osobisty')
         dane = serialize_order(bez.products[0], station_code='packaging')
         assert dane['transport'] == {'mode': None, 'trip_name': None, 'trip_date': None,
-                                     'vehicle_name': None, 'repack_required': False}
+                                     'vehicle_name': None, 'repack_required': False,
+                                     'repack_reason': None}
         assert dane['delivery_type'] == 'courier'  # heurystyka odbioru już nie decyduje
         z = zamowienie(sposob=s.ODBIOR, statusy=('czeka_na_pakowanie',))
         dane = serialize_order(z.products[0], station_code='packaging')
@@ -45,7 +46,7 @@ def test_serializer_zawsze_ma_obiekt_transport_i_stare_delivery_type(app):
 
 
 def test_ksztalt_odpowiedzi_podbity():
-    assert mobile_api.KSZTALT_ODPOWIEDZI_KOLEJKI == 4   # 4 — packing_hint (etap 4, krok 4.2)
+    assert mobile_api.KSZTALT_ODPOWIEDZI_KOLEJKI == 5   # 5 — transport.repack_reason (etap 4, krok 4.3)
 
 
 def test_pakowanie_bez_sposobu_to_409_z_komunikatem(app, client):
