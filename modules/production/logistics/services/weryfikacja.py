@@ -46,6 +46,8 @@ NAZWY_ETAPOW = {
 }
 # Etap przed spakowaniem = stanowisko, na którym pozycja czeka (jak kolumna listy Logistyki).
 _NAZWA_STANOWISKA = {status: STATION_LABELS[kod] for kod, status in STATION_PENDING_STATUS.items()}
+# Nieczytelne wartości KLUCZ_OD, o których już ostrzegliśmy w tym procesie (data_wdrozenia()).
+_OSTRZEZONE_WARTOSCI = set()
 
 
 def data_wdrozenia():
@@ -57,8 +59,11 @@ def data_wdrozenia():
     try:
         return datetime.strptime(tekst[:19], '%Y-%m-%d %H:%M:%S')
     except ValueError:
-        logger.warning(u"Nieczytelna data w prod_config '{}': {!r} - lista Do weryfikacji liczy "
-                       u"samo okno {} dni".format(KLUCZ_OD, tekst, DNI_LISTY))
+        # Telefon odpytuje listę co kilkanaście sekund — ostrzegamy raz na wartość w procesie.
+        if tekst not in _OSTRZEZONE_WARTOSCI:
+            _OSTRZEZONE_WARTOSCI.add(tekst)
+            logger.warning(u"Nieczytelna data w prod_config '{}': {!r} - lista Do weryfikacji liczy "
+                           u"samo okno {} dni".format(KLUCZ_OD, tekst, DNI_LISTY))
         return None
 
 
@@ -211,12 +216,15 @@ def lista(teraz):
 
 def podpis_listy(zamowienia, pakunki, teraz):
     """Części ETagu listy: dzień (okno dni przesuwa się bez zmian danych), liczba zamówień, najnowszy
-    updated_at i liczba pozycji (akcje Weryfikacji, deklaracje i zmiany tras podbijają pozycje), stan
-    paczek (weryfikacja, wydruki)."""
+    updated_at zamówień (problem, weryfikacja, dane klienta z synchronizacji — zmiany samych kolumn
+    zamówienia), najnowszy updated_at i liczba pozycji (akcje Weryfikacji, deklaracje i zmiany tras
+    podbijają pozycje), stan paczek (weryfikacja, wydruki)."""
     pozycje = [p for o in zamowienia for p in o.products]
     znaczniki = [p.updated_at for p in pozycje if p.updated_at]
+    znaczniki_zamowien = [o.updated_at for o in zamowienia if o.updated_at]
     wszystkie_paczki = [p for lista_paczek in pakunki.values() for p in lista_paczek]
     return (teraz.date().isoformat(), len(zamowienia),
+            int(max(znaczniki_zamowien).timestamp()) if znaczniki_zamowien else 0,
             int(max(znaczniki).timestamp()) if znaczniki else 0, len(pozycje), len(wszystkie_paczki),
             sum(1 for p in wszystkie_paczki if p.verified_at is not None),
             sum(p.label_print_count or 0 for p in wszystkie_paczki))
