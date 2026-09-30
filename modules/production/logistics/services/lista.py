@@ -140,19 +140,33 @@ def _etykiety_paczek_sprzed_zmiany(order, trasa, paczki_zamowienia):
     """
     Spec 6.3: etykiety paczki nie przedrukowujemy sami po zmianie sposobu dostawy albo
     trasy — panel pokazuje ikonę, gdy napis z pasa na wydrukowanej etykiecie (zapamiętany
-    na paczce) różni się od dzisiejszego. Liczy się tylko trasa aktywna: wykonana nie
+    na paczce) różni się od dzisiejszego.
+
+    Zamówienie OTWARTE: dzisiejszy napis liczymy tylko z trasy aktywnej — wykonana nie
     trafia na etykietę (jak w paczki_druk.drukuj_etykiety → routes.trasa_dla_tabletu).
-    Zamówienie zamknięte w Logistyce nie dostaje ikony: etykiety są już bez znaczenia (po
-    wykonaniu trasy napis to „TRANSPORT WOODPOWER”, a na etykiecie wciąż „TRASA: …”, więc
-    ikona świeciłaby na zawsze), a zmiana, która ma znaczenie, otwiera zamówienie z powrotem.
+
+    Zamówienie ZAMKNIĘTE w Logistyce (decyzja Konrada 30.09): ikona też się pokazuje, ale
+    napis liczymy z trasy zamówienia także wtedy, gdy jest wykonana — etykieta była
+    drukowana, gdy trasa była aktywna („TRASA: …”), a po wykonaniu trasy dzisiejszy napis
+    bez niej to „TRANSPORT WOODPOWER”, więc samo porównanie z napisem „bez trasy” świeciłoby
+    na każdym zamówieniu dowiezionym trasą. Prawdziwa zmiana po zamknięciu (sposób dostawy
+    zmieniony na odbiór albo kuriera, inna trasa) nadal zapala ikonę.
+
+    Przypadek graniczny, świadomie zostawiony: etykieta wydrukowana, zanim zamówienie trafiło
+    na trasę („TRANSPORT WOODPOWER”), a potem zamówienie dowiezione trasą — napis na etykiecie
+    naprawdę różni się od dzisiejszego („TRASA: …”), więc ikona zostaje.
+
+    `trasa` ma tu pochodzić z routes.trasy_zamowien() (trasa zamówienia w dowolnym statusie,
+    jedno zapytanie na listę), nie z mapy tras aktywnych — inaczej wykonana by nie dotarła.
     """
-    if order.logistics_closed_at is not None:
-        return False
     wydrukowane = [p for p in paczki_zamowienia if p.label_printed_at is not None]
     if not wydrukowane:
         return False
-    aktywna = trasa if trasa is not None and trasa.status in STATUSY_TRASY_AKTYWNE else None
-    napis = paczki_druk.napis_sposobu(order, aktywna)
+    if order.logistics_closed_at is not None:
+        trasa_napisu = trasa
+    else:
+        trasa_napisu = trasa if trasa is not None and trasa.status in STATUSY_TRASY_AKTYWNE else None
+    napis = paczki_druk.napis_sposobu(order, trasa_napisu)
     return any(p.label_delivery_text != napis for p in wydrukowane)
 
 

@@ -247,7 +247,7 @@ dół treści ≤ 1130 punktów (zapas na przesunięcie). Układ (wzór wydrukow
 
 Etykieta nie jest przedrukowywana automatycznie po zmianie sposobu dostawy albo trasy; panel pokazuje ikonę „etykiety
 paczek sprzed zmiany” (jak dla etykiet produktów w etapie 1) (przeniesione do kroku 4.2). Ikona to porównanie napisu
-zapamiętanego na paczce (`label_delivery_text`) z dzisiejszym; ponowny druk gasi ikonę.
+zapamiętanego na paczce (`label_delivery_text`) z dzisiejszym; ponowny druk gasi ikonę. Ikona pokazuje się także na zamówieniach zamkniętych w Logistyce; dla nich napis porównujemy z trasą zamówienia także wtedy, gdy jest wykonana (decyzja Konrada 30.09).
 
 ### 6.4 Drukarka — ustalenia z testu 30.09
 
