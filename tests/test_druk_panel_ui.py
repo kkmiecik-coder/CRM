@@ -2,6 +2,7 @@
 """Panel Konfiguracja: drukarka paczek (logistyka etap 4, krok 4.1). Testy tekstu źródła —
 repo nie ma runnera JS, a szablon renderuje się tylko w pełnej apce."""
 import os
+import re
 
 KORZEN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SZABLON = os.path.join(KORZEN, 'modules', 'production', 'templates', 'components', 'config-tab-content.html')
@@ -23,7 +24,11 @@ def test_pola_przesuniecia_w_szablonie():
         assert "configChanged('%s', parseInt(this.value))" % klucz in html
         assert "resetToDefault('%s')" % klucz in html
         assert 'config_groups.printer.%s.value|default(0)' % klucz in html
-    assert html.count('min="-120" max="120"') >= 2
+        # zakres sprawdzany osobno dla każdego pola (baza szablonu ma już jedno takie pole)
+        pole_input = re.search(r'<input[^>]*id="%s"[^>]*>' % pole, html, re.S)
+        assert pole_input, pole
+        assert 'min="-120"' in pole_input.group(0)
+        assert 'max="120"' in pole_input.group(0)
 
 
 def test_przyciski_wydruku_probnego():
@@ -40,6 +45,12 @@ def test_skrypt_zna_pola_i_wydruk():
     assert "fetch('/production/api/print-test'" in js
     assert 'async wydrukProbny(drukarka)' in js
     assert 'window.wydrukProbny = function' in js
+    # jeden komunikat po wydruku: ostrzeżenie zamiast sukcesu przy niezapisanym przesunięciu,
+    # a odpowiedź nie-JSON (502, logowanie) nie może wywalić parsowania
+    poczatek = js.index('async wydrukProbny(drukarka)')
+    metoda = js[poczatek:js.index('// CACHE MANAGEMENT', poczatek)]
+    assert "'warning'" in metoda
+    assert 'response.json().catch(' in metoda
 
 
 def test_nowa_wersja_skryptu_konfiguracji():

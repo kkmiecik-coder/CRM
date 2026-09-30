@@ -1013,14 +1013,13 @@ class ConfigModule {
 
     /**
      * Wydruk próbny na drukarce etykiet albo paczek (logistyka etap 4).
-     * Serwer bierze ZAPISANE przesunięcia, więc przy niezapisanej zmianie ostrzegamy.
+     * Serwer bierze ZAPISANE przesunięcia. Przy niezapisanej zmianie przesunięcia
+     * po udanym wydruku pokazujemy JEDEN komunikat ostrzegawczy (osobny komunikat
+     * przed wysłaniem zostałby od razu przykryty komunikatem o sukcesie).
      */
     async wydrukProbny(drukarka) {
         const niezapisane = Object.keys(this.pendingChanges || {})
             .some(klucz => klucz.startsWith('PACKAGE_LABEL_OFFSET_') || klucz.startsWith('LABEL_PRINTER_OFFSET_'));
-        if (niezapisane) {
-            this.showToast('Masz niezapisane przesunięcie — wydruk próbny użyje zapisanych wartości.', 'info');
-        }
         try {
             const response = await fetch('/production/api/print-test', {
                 method: 'POST',
@@ -1030,11 +1029,20 @@ class ConfigModule {
                 },
                 body: JSON.stringify({ printer: drukarka })
             });
-            const result = await response.json();
+            // Odpowiedź nie-JSON (strona 502 z nginx, przekierowanie na logowanie)
+            // ma dać komunikat z kodem HTTP, a nie błąd parsowania.
+            const result = await response.json().catch(() => ({}));
             if (!response.ok || !result.success) {
                 throw new Error(result.error || `HTTP ${response.status}`);
             }
-            this.showToast(result.message, 'success');
+            if (niezapisane) {
+                this.showToast(
+                    `${result.message} Uwaga: wydruk użył zapisanych przesunięć — niezapisane zmiany nie mają wpływu.`,
+                    'warning'
+                );
+            } else {
+                this.showToast(result.message, 'success');
+            }
         } catch (error) {
             console.error('[ConfigModule] Wydruk próbny:', error);
             this.showToast(`Wydruk próbny nie poszedł: ${error.message}`, 'error');
