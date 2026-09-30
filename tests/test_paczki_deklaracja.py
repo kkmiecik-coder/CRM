@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Deklaracja paczek z tabletu pakowania (logistyka etap 4, krok 4.2, spec 7.2)."""
+import io
 import itertools
+import os
 from datetime import datetime
 
 import pytest
@@ -11,8 +13,8 @@ from extensions import db
 from modules.production.logistics import sposoby as s
 from modules.production.logistics.models import LogisticsLog
 from modules.production.logistics.services import paczki
-from modules.production.models import (LabelPrintJob, ProductionDevice, ProductionOrder,
-                                       ProductionPackage, ProductionProduct)
+from modules.production.models import (LabelPrintJob, ProductionConfig, ProductionDevice,
+                                       ProductionOrder, ProductionPackage, ProductionProduct)
 from modules.production.routers import mobile_api
 from modules.production.services import print_queue_service as pqs
 from modules.production.services.mobile_api_service import generate_token, with_idempotency
@@ -313,22 +315,90 @@ def test_get_przy_powtorzonym_numerze_czyta_nowsze_zamowienie(app, client, sygna
 
 
 def test_pracownicy_przed_blokada_zamowienia(app, client, sygnaly, monkeypatch):
-    """Ta sama kolejność co w order_complete (sesje pracowników, potem blokada) — bez zakleszczenia."""
+    """Kolejność blokad: sesje pracowników (jak w order_complete) → blokada deklaracji paczek →
+    blokada zamówienia — bez zakleszczenia."""
     kolejnosc = []
     pracownicy, zamowienie_po_numerze = mobile_api._resolve_workers, mobile_api._zamowienie_po_numerze
+    blokada_paczek = paczki.zablokuj_deklaracje
 
     def _pracownicy():
         kolejnosc.append('pracownicy')
         return pracownicy()
+
+    def _blokada_paczek():
+        kolejnosc.append('blokada_paczek')
+        return blokada_paczek()
 
     def _zamowienie(numer, do_zapisu=False):
         kolejnosc.append('blokada' if do_zapisu else 'odczyt')
         return zamowienie_po_numerze(numer, do_zapisu=do_zapisu)
 
     monkeypatch.setattr(mobile_api, '_resolve_workers', _pracownicy)
+    monkeypatch.setattr(paczki, 'zablokuj_deklaracje', _blokada_paczek)
     monkeypatch.setattr(mobile_api, '_zamowienie_po_numerze', _zamowienie)
     assert _put(client, _spakowane(), _urzadzenie(), {'kind': 'paczka', 'count': 1}).status_code == 200
-    assert kolejnosc == ['pracownicy', 'blokada']
+    assert kolejnosc == ['pracownicy', 'blokada_paczek', 'blokada']
+
+
+def _wiersz_blokady():
+    return ProductionConfig.query.filter_by(config_key=paczki.KLUCZ_BLOKADY).all()
+
+
+def test_zablokuj_deklaracje_zwraca_wiersz_blokady(app):
+    """Z wierszem w prod_config (zakłada go migracja) funkcja bierze na nim blokadę i go zwraca."""
+    db.session.add(ProductionConfig(config_key=paczki.KLUCZ_BLOKADY, config_value='',
+                                    config_type='string'))
+    db.session.commit()
+    wiersz = paczki.zablokuj_deklaracje()
+    assert wiersz is not None and wiersz.config_key == 'logistyka_paczki_blokada'
+    assert len(_wiersz_blokady()) == 1
+
+
+def test_zablokuj_deklaracje_bez_wiersza_na_sqlite_nie_rzuca(app, client, sygnaly, monkeypatch):
+    """Fixture testowy tworzy sam schemat, bez danych migracji: brak wiersza = fail-open
+    (None, ostrzeżenie raz na proces, żadnego zakładania wiersza poza MySQL), a deklaracja przechodzi."""
+    monkeypatch.setattr(paczki, '_blokada_ostrzezono', False)
+    assert paczki._samonaprawa_blokady() is False
+    assert paczki.zablokuj_deklaracje() is None
+    assert paczki._blokada_ostrzezono is True
+    assert _wiersz_blokady() == []
+    order = _spakowane()
+    assert _put(client, order, _urzadzenie(), {'kind': 'paczka', 'count': 2}).status_code == 200
+    assert ProductionPackage.query.filter_by(order_id=order.id).count() == 2
+    assert _wiersz_blokady() == []
+
+
+def test_zablokuj_deklaracje_zaklada_brakujacy_wiersz_na_mysql(app, monkeypatch):
+    """Baza, która wykonała migrację przed dodaniem wiersza (runner pamięta pliki po nazwie):
+    na MySQL wiersz zakłada się sam w tej transakcji, a kolejne wywołanie go nie dubluje.
+    Na SQLite testów samonaprawę włączamy ręcznie."""
+    monkeypatch.setattr(paczki, '_samonaprawa_blokady', lambda: True)
+    wiersz = paczki.zablokuj_deklaracje()
+    assert wiersz is not None and wiersz.config_key == paczki.KLUCZ_BLOKADY
+    assert paczki.zablokuj_deklaracje().id == wiersz.id
+    db.session.commit()
+    zapisane = _wiersz_blokady()
+    assert len(zapisane) == 1 and zapisane[0].config_type == 'string'
+    assert zapisane[0].config_description == paczki.OPIS_BLOKADY
+
+
+MIGRACJA_BLOKADY = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                'migrations', '2026-09-30-logistyka-paczki-blokada.sql')
+
+
+def test_migracja_blokady_paczek():
+    """Plik istnieje, runner go rozpoznaje, zakłada wiersz blokady idempotentnie (INSERT IGNORE),
+    a opis w migracji i w kodzie to ten sam napis."""
+    from migrations.migration_service import MigrationService
+    assert os.path.isfile(MIGRACJA_BLOKADY)
+    assert MigrationService(db=None)._match(os.path.basename(MIGRACJA_BLOKADY)) is not None
+    sql = io.open(MIGRACJA_BLOKADY, encoding='utf-8').read()
+    assert 'INSERT IGNORE INTO prod_config' in sql and "'logistyka_paczki_blokada'" in sql
+    assert paczki.OPIS_BLOKADY in sql and "'%s'" % paczki.KLUCZ_BLOKADY in sql
+    assert 'delimiter' not in sql.lower()
+    # jedno polecenie: komentarze nie mogą rozciąć wstawienia (średnik tylko na końcu)
+    polecenia = MigrationService.split_statements(sql)
+    assert len(polecenia) == 1 and polecenia[0].startswith('INSERT IGNORE INTO prod_config')
 
 
 def test_get_zwraca_aktualne_paczki(app, client, sygnaly):

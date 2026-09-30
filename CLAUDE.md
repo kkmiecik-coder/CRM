@@ -294,6 +294,9 @@ Albo po prostu `./deploy.sh` — robi dokładnie to samo, z lockiem i logami.
   zwykłym odczycie transakcji (już w `before_request`), nie przy wzięciu blokady. Baza, która wykonała starszą
   wersję pliku migracji, nie ma wiersza blokady (runner pamięta migracje po nazwie pliku): na MySQL kod zakłada
   go sam (`INSERT IGNORE`, WARNING w logu), a na innych bazach zapisy tras nie są wtedy serializowane.
+- **Deklaracje paczek — jedna naraz:** `paczki.zablokuj_deklaracje()` (wiersz `logistyka_paczki_blokada` w
+  `prod_config`, migracja `2026-09-30-logistyka-paczki-blokada.sql`) przed blokadą zamówienia; dwie pierwsze
+  deklaracje różnych zamówień bez niej zakleszczały się na luce indeksu `prod_packages` (MySQL 1213).
 
 ## Architecture
 

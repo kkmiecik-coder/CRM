@@ -9,10 +9,17 @@ NIE commitują — robi to wołający (API mobilne przez @with_idempotency).
 from dataclasses import dataclass
 from typing import Optional
 
+from sqlalchemy import insert
+
 from extensions import db
+from modules.logging import get_structured_logger
 from modules.production.logistics import sposoby
 from modules.production.logistics.services import delivery, paczki_druk
-from modules.production.models import LabelPrintJob, ProductionPackage, get_local_now
+from modules.production.models import (
+    LabelPrintJob, ProductionConfig, ProductionPackage, get_local_now,
+)
+
+logger = get_structured_logger('production.logistics.paczki')
 
 # Stanowiska, które deklarują paczki i drukują ich etykiety (spec 6.1) — niezależnie od
 # LABEL_PRINTER_ALLOWED_STATIONS (etykiety produktów). 'verification' dochodzi w kroku 4.3.
@@ -20,6 +27,11 @@ STANOWISKA_PACZEK = ('packaging', 'verification')
 MAKS_PACZEK = 10
 WYMIAR_EUR = (120, 80)
 WYMIAR_MIN_CM, WYMIAR_MAX_CM = 20, 400
+# Klucz wiersza prod_config, który serializuje deklaracje paczek — patrz zablokuj_deklaracje().
+KLUCZ_BLOKADY = 'logistyka_paczki_blokada'
+OPIS_BLOKADY = 'Logistyka: blokada deklaracji paczek (jedna naraz)'   # jak w migracji 2026-09-30
+# Ostrzeżenie o braku wiersza blokady najwyżej raz na proces (jak routes._blokada_ostrzezono).
+_blokada_ostrzezono = False
 
 
 class PaczkiBlad(Exception):
@@ -202,13 +214,75 @@ def uniewaznij(lista, teraz):
     return len(lista)
 
 
+def zablokuj_deklaracje():
+    """
+    Blokada „jedna deklaracja paczek naraz”: FOR UPDATE na wspólnym wierszu `prod_config`
+    `logistyka_paczki_blokada` (zakłada go migracja 2026-09-30-logistyka-paczki-blokada.sql).
+    Zwraca ten wiersz albo None, gdy go nie ma (baza bez migracji, SQLite testów).
+
+    DLACZEGO: `zadeklaruj` czyta poprzednie paczki zamówienia odczytem blokującym
+    (`aktualne_paczki(..., do_zapisu=True)`, czyli SELECT … FOR UPDATE po `order_id`). Gdy
+    zamówienie nie ma jeszcze paczek, InnoDB bierze blokadę LUKI indeksu `ix_prod_packages_order_id`.
+    Blokady luk są ze sobą zgodne, więc dwie pierwsze deklaracje dla RÓŻNYCH zamówień blokują
+    tę samą lukę, po czym obie wstawiają nowe paczki w tę lukę — każda czeka na drugą i MySQL
+    cofa jedną (1213). Zmierzone 30.09 na kopii produkcji: 4 zakleszczenia w 5 próbach.
+    Deklaracje są rzadkie (jedna na spakowane zamówienie), więc serializujemy je jednym wierszem
+    blokady, tak jak zapisy tras (`routes.zablokuj_trasy`).
+
+    ZASADA KOLEJNOŚCI BLOKAD (ta sama transakcja, od początku): pracownicy (touch_sessions w
+    `_resolve_workers`) → `zablokuj_deklaracje()` → wiersz zamówienia po PK → paczki. Nikt
+    inny nie bierze tej blokady. Ponowny druk (`order_packages_print`, `package_print`) jej nie
+    potrzebuje: nie wstawia paczek, więc jego blokady rekordów i luk nie tworzą cyklu z deklaracją.
+
+    Brak wiersza: na MySQL zakładamy go sami w TEJ transakcji (`INSERT IGNORE`, potem ponowny
+    odczyt FOR UPDATE, WARNING w logu) — baza, która wykonała migrację przed dodaniem tego
+    wiersza, nie zostanie z wyścigiem. Na innych bazach (SQLite testów: fixture tworzy sam
+    schemat) deklaracje nie są serializowane, a ostrzeżenie idzie raz na proces (fail-open).
+    """
+    global _blokada_ostrzezono
+    zapytanie = ProductionConfig.query.filter_by(config_key=KLUCZ_BLOKADY).with_for_update()
+    wiersz = zapytanie.first()
+    if wiersz is None and _samonaprawa_blokady():
+        _zaloz_wiersz_blokady()
+        wiersz = zapytanie.populate_existing().first()
+        logger.warning(u"Brak wiersza blokady paczek '{}' w prod_config - zalozony "
+                       u"(INSERT IGNORE); od teraz deklaracje paczek sa serializowane".format(KLUCZ_BLOKADY))
+    if wiersz is None and not _blokada_ostrzezono:
+        _blokada_ostrzezono = True
+        logger.warning(u"Brak wiersza blokady paczek '{}' w prod_config - deklaracje paczek "
+                       u"NIE sa serializowane (migracja go zaklada)".format(KLUCZ_BLOKADY))
+    return wiersz
+
+
+def _samonaprawa_blokady():
+    """Samonaprawa brakującego wiersza blokady tylko na MySQL (produkcja, lokalny Docker)."""
+    return db.engine.dialect.name == 'mysql'
+
+
+def _zaloz_wiersz_blokady():
+    """
+    Wiersz blokady jak w migracji — INSERT IGNORE w bieżącej transakcji (nie w osobnym
+    połączeniu: SELECT … FOR UPDATE, który nie znalazł wiersza, trzyma blokadę luki indeksu
+    config_key, więc wstawienie z innej transakcji czekałoby na nas). Przefiks „OR IGNORE”
+    dla SQLite — tylko dla testu samonaprawy.
+    """
+    teraz = get_local_now()
+    db.session.execute(
+        insert(ProductionConfig.__table__)
+        .prefix_with('IGNORE', dialect='mysql')
+        .prefix_with('OR IGNORE', dialect='sqlite')
+        .values(config_key=KLUCZ_BLOKADY, config_value='', config_description=OPIS_BLOKADY,
+                config_type='string', created_at=teraz, updated_at=teraz))
+
+
 def zadeklaruj(order, deklaracja, stanowisko, aktor, worker_id=None, device_id=None, teraz=None):
     """
     Nowa deklaracja paczek (spec 7.2): unieważnia poprzednią, tworzy N paczek z numerami
     1..N, zapisuje log `paczki`, podbija ETag kolejek tabletów i kolejkuje N etykiet na
     drukarkę 'wysylka'. NIE commituje. Zwraca krotkę (nowe paczki, liczba unieważnionych).
 
-    `order` MUSI być odczytany z blokadą (router: _zamowienie_po_numerze(do_zapisu=True)) —
+    Router bierze najpierw `zablokuj_deklaracje()` (kolejność blokad: patrz jej docstring).
+    `order` MUSI być odczytany z blokadą (_zamowienie_po_numerze(do_zapisu=True)) —
     dwie deklaracje naraz (dwa tablety, powtórka z nowym X-Operation-Id) dałyby dwa komplety
     paczek. Poprzednie paczki czytamy odczytem bieżącym z tego samego powodu.
     Stan pozycji czytamy zwykłym odczytem, więc migawka sprzed blokady może dać fałszywe

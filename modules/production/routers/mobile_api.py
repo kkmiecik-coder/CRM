@@ -1126,12 +1126,16 @@ def order_packages_declare(numer):
         deklaracja = paczki.waliduj_deklaracje(request.get_json(silent=True))
     except paczki.PaczkiBlad as e:
         return _blad_paczek(e)
+    # Kolejność blokad: pracownicy → blokada deklaracji paczek → wiersz zamówienia → paczki.
     # Pracownicy PRZED blokadą zamówienia: order_complete też najpierw dotyka wierszy sesji
     # (touch_sessions), a dopiero potem blokuje pozycję i zamówienie — odwrócona kolejność
     # dawałaby zakleszczenie (MySQL 1213) przy równoległym „ZAKOŃCZ” i deklaracji.
     worker_ids, _sesje, err = _resolve_workers()
     if err:
         return err
+    # Jedna deklaracja naraz: bez tego dwie pierwsze deklaracje różnych zamówień blokowały
+    # tę samą lukę indeksu prod_packages i zakleszczały się (MySQL 1213) — patrz docstring.
+    paczki.zablokuj_deklaracje()
     order = _zamowienie_po_numerze(numer, do_zapisu=True)
     if order is None:
         return _brak_zamowienia(numer)
