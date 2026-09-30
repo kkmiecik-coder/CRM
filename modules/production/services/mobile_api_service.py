@@ -623,6 +623,16 @@ def with_idempotency(f=None, retryable_statuses=None, require_operation_id=False
                     'error': str(bl_error),
                 })
 
+            # Etykiety paczek (logistyka etap 4): sygnał dla agenta druku dopiero po commicie —
+            # handler tylko go zaplanował (print_queue_service.zaplanuj_sygnal_po_commicie).
+            try:
+                from .print_queue_service import wyslij_zaplanowany_sygnal
+                wyslij_zaplanowany_sygnal()
+            except Exception as sygnal_error:
+                logger.error("Mobile API: błąd sygnału dla agenta druku", extra={
+                    'error': str(sygnal_error),
+                })
+
             return response_obj, status_code
         return wrapper
 

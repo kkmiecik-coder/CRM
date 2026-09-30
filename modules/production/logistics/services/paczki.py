@@ -6,8 +6,39 @@ Paczka = paczka albo paleta zadeklarowana przy pakowaniu; kod na etykiecie i w Q
 'P-<id>'. Aktualna deklaracja zamówienia = jego paczki z voided_at IS NULL. Funkcje
 NIE commitują — robi to wołający (API mobilne przez @with_idempotency).
 """
+from dataclasses import dataclass
+from typing import Optional
+
+from extensions import db
 from modules.production.logistics import sposoby
-from modules.production.models import ProductionPackage
+from modules.production.logistics.services import delivery, paczki_druk
+from modules.production.models import ProductionPackage, get_local_now
+
+# Stanowiska, które deklarują paczki i drukują ich etykiety (spec 6.1) — niezależnie od
+# LABEL_PRINTER_ALLOWED_STATIONS (etykiety produktów). 'verification' dochodzi w kroku 4.3.
+STANOWISKA_PACZEK = ('packaging', 'verification')
+MAKS_PACZEK = 10
+WYMIAR_EUR = (120, 80)
+WYMIAR_MIN_CM, WYMIAR_MAX_CM = 20, 400
+
+
+class PaczkiBlad(Exception):
+    """Odmowa z kodem dla appki (`error`) i komunikatem dla człowieka (`message`)."""
+
+    def __init__(self, kod, komunikat, status):
+        super().__init__(komunikat)
+        self.kod = kod
+        self.komunikat = komunikat
+        self.status = status
+
+
+@dataclass(frozen=True)
+class Deklaracja:
+    kind: str
+    count: int
+    pallet_type: Optional[str] = None
+    length_cm: Optional[int] = None
+    width_cm: Optional[int] = None
 
 
 def podpowiedz_pakowania(produkty):
@@ -79,3 +110,107 @@ def serializuj_paczke(p):
         'label_print_count': p.label_print_count or 0,
         'label_printed_at': p.label_printed_at.isoformat() if p.label_printed_at else None,
     }
+
+
+def _liczba(wartosc):
+    """Liczba całkowita z JSON-a; bool to nie liczba (w Pythonie True == 1)."""
+    return wartosc if isinstance(wartosc, int) and not isinstance(wartosc, bool) else None
+
+
+def waliduj_deklaracje(dane):
+    """
+    Body PUT …/packages → Deklaracja albo PaczkiBlad 422 `invalid_packages`.
+
+    Pola bez znaczenia dla danego rodzaju pomijamy zamiast odrzucać (wymiar przy EUR i przy
+    paczce, typ palety przy paczce): 422 z kolejki offline tabletu to deklaracja utracona
+    bez śladu, a te pola nie zmieniają jej sensu. EUR ma zawsze 120×80.
+    """
+    def blad(tekst):
+        return PaczkiBlad('invalid_packages', tekst, 422)
+
+    if not isinstance(dane, dict):
+        raise blad(u'Brak danych paczek.')
+    kind = dane.get('kind')
+    if kind not in ProductionPackage.RODZAJE:
+        raise blad(u'Rodzaj musi być „paczka” albo „paleta”.')
+    count = _liczba(dane.get('count'))
+    if count is None or not 1 <= count <= MAKS_PACZEK:
+        raise blad(u'Liczba paczek od 1 do %d.' % MAKS_PACZEK)
+    if kind == 'paczka':
+        return Deklaracja('paczka', count)
+    typ = dane.get('pallet_type')
+    if typ == 'eur':
+        return Deklaracja('paleta', count, 'eur', *WYMIAR_EUR)
+    if typ == 'niestandardowa':
+        dlugosc, szerokosc = _liczba(dane.get('length_cm')), _liczba(dane.get('width_cm'))
+        if dlugosc is None or szerokosc is None or not all(
+                WYMIAR_MIN_CM <= w <= WYMIAR_MAX_CM for w in (dlugosc, szerokosc)):
+            raise blad(u'Wymiar palety niestandardowej: od %d do %d cm.' % (WYMIAR_MIN_CM, WYMIAR_MAX_CM))
+        return Deklaracja('paleta', count, 'niestandardowa', dlugosc, szerokosc)
+    raise blad(u'Typ palety: „eur” albo „niestandardowa”.')
+
+
+def opis(kind, count, pallet_type=None, length_cm=None, width_cm=None):
+    """„3 × paczka”, „1 × EUR”, „2 × paleta 150×100” — log logistyki i komunikaty (spec 11)."""
+    if kind != 'paleta':
+        rodzaj = u'paczka'
+    elif pallet_type == 'eur':
+        rodzaj = u'EUR'
+    elif length_cm and width_cm:
+        rodzaj = u'paleta %d×%d' % (length_cm, width_cm)
+    else:
+        rodzaj = u'paleta'
+    return u'%d × %s' % (count, rodzaj)
+
+
+def opis_paczek(lista):
+    """Opis zapisanej deklaracji (jeden rodzaj na zamówienie — mieszane poza zakresem, spec 3)."""
+    if not lista:
+        return None
+    p = lista[0]
+    return opis(p.kind, len(lista), p.pallet_type, p.length_cm, p.width_cm)
+
+
+def uniewaznij(lista, teraz):
+    """Unieważnia paczki (wiersze zostają — skan starej etykiety ma dostać „nieaktualna”)."""
+    for p in lista:
+        p.voided_at = teraz
+    return len(lista)
+
+
+def zadeklaruj(order, deklaracja, stanowisko, aktor, worker_id=None, device_id=None, teraz=None):
+    """
+    Nowa deklaracja paczek (spec 7.2): unieważnia poprzednią, tworzy N paczek z numerami
+    1..N, zapisuje log `paczki`, podbija ETag kolejek tabletów i kolejkuje N etykiet na
+    drukarkę 'wysylka'. NIE commituje.
+
+    `order` MUSI być odczytany z blokadą (router: _zamowienie_po_numerze(do_zapisu=True)) —
+    dwie deklaracje naraz (dwa tablety, powtórka z nowym X-Operation-Id) dałyby dwa komplety
+    paczek. Poprzednie paczki czytamy odczytem bieżącym z tego samego powodu.
+    Stan pozycji czytamy zwykłym odczytem: migawka sprzed blokady może najwyżej dać
+    fałszywe 409 order_not_packed, które appka ponawia.
+    """
+    if not delivery.wszystkie_spakowane(order):
+        raise PaczkiBlad('order_not_packed', u'Zamówienie {} nie jest jeszcze w całości spakowane — '
+                         u'paczki deklaruje się po spakowaniu ostatniej pozycji.'.format(
+                             order.internal_order_number), 409)
+    teraz = teraz or get_local_now()
+    stare = aktualne_paczki(order.id, do_zapisu=True)
+    uniewaznij(stare, teraz)
+    nowe = [ProductionPackage(order_id=order.id, seq=numer, kind=deklaracja.kind,
+                              pallet_type=deklaracja.pallet_type, length_cm=deklaracja.length_cm,
+                              width_cm=deklaracja.width_cm, declared_at=teraz,
+                              declared_by_worker_id=worker_id, declared_device_id=device_id)
+            for numer in range(1, deklaracja.count + 1)]
+    db.session.add_all(nowe)
+    db.session.flush()
+    order.packages_declared_at = teraz
+    delivery.zapisz_log(order, 'paczki', opis_paczek(stare),
+                        opis(deklaracja.kind, deklaracja.count, deklaracja.pallet_type,
+                             deklaracja.length_cm, deklaracja.width_cm),
+                        worker_id=worker_id, device_id=device_id,
+                        note=u'stanowisko: {}'.format(stanowisko), teraz=teraz)
+    # ETag kolejek tabletów liczy się z MAX(updated_at) pozycji.
+    delivery.podbij_pozycje(order, teraz)
+    paczki_druk.drukuj_etykiety(order, nowe, len(nowe), stanowisko, aktor, teraz)
+    return nowe

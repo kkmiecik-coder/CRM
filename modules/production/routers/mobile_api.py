@@ -1018,6 +1018,123 @@ def mobile_print_labels_for_order(baselinker_order_id):
 
 
 # ============================================================================
+# PACZKI (logistyka etap 4, krok 4.2 — spec 7.2 i 7.3)
+# ============================================================================
+
+def _stanowisko_paczek():
+    """
+    (kod, None), gdy stanowisko z JWT deklaruje paczki i drukuje ich etykiety
+    (paczki.STANOWISKA_PACZEK), inaczej (None, odpowiedź 403). Kod bierzemy z JWT jak
+    druk etykiet produktów — klient nie przysyła go w body, więc nie ma czego porównywać
+    pod kątem station_mismatch.
+    """
+    from modules.production.logistics.services import paczki
+    kod = resolve_station_code((g.device.station_code or '').strip())
+    if kod not in paczki.STANOWISKA_PACZEK:
+        return None, (jsonify({
+            'error': 'station_not_allowed',
+            'message': u'Paczki deklaruje i drukuje stanowisko Pakowanie albo Weryfikacja.',
+        }), 403)
+    return kod, None
+
+
+def _zamowienie_po_numerze(numer, do_zapisu=False):
+    """Zamówienie po numerze wewnętrznym. `do_zapisu=True` — z blokadą wiersza (FOR UPDATE)."""
+    zapytanie = ProductionOrder.query.filter_by(internal_order_number=str(numer).strip())
+    if do_zapisu:
+        zapytanie = zapytanie.with_for_update().populate_existing()
+    return zapytanie.first()
+
+
+def _brak_zamowienia(numer):
+    return jsonify({'error': 'order_not_found',
+                    'message': u'Nie ma zamówienia {}.'.format(numer)}), 404
+
+
+def _blad_paczek(e):
+    return jsonify({'error': e.kod, 'message': e.komunikat}), e.status
+
+
+def _aktor():
+    return {'type': 'device', 'id': g.device.device_id}
+
+
+def _odpowiedz_paczek(order, paczki_lista, **dodatkowe):
+    from modules.production.logistics.services import paczki
+    dane = {
+        'internal_order_number': order.internal_order_number,
+        'packages_declared_at': (order.packages_declared_at.isoformat()
+                                 if order.packages_declared_at else None),
+        'packages': [paczki.serializuj_paczke(p) for p in paczki_lista],
+    }
+    dane.update(dodatkowe)
+    return dane
+
+
+@mobile_api_bp.route('/orders/<numer>/packages', methods=['GET'])
+@require_device_token
+def order_packages(numer):
+    """
+    GET /api/mobile/orders/<internal_order_number>/packages — aktualne paczki zamówienia
+    (decyzja Konrada 30.09: tablet pokazuje je i drukuje ponownie jedną albo wszystkie).
+    Każde stanowisko może czytać. Bez cache: stan zmienia się deklaracją z innego urządzenia.
+    """
+    from modules.production.logistics.services import paczki
+    order = _zamowienie_po_numerze(numer)
+    if order is None:
+        return _brak_zamowienia(numer)
+    return no_store_json(_odpowiedz_paczek(order, paczki.aktualne_paczki(order.id)))
+
+
+@mobile_api_bp.route('/orders/<numer>/packages', methods=['PUT'])
+@require_device_token
+@with_idempotency(retryable_statuses=BLEDY_DO_PONOWIENIA)
+def order_packages_declare(numer):
+    """
+    PUT /api/mobile/orders/<internal_order_number>/packages — deklaracja paczek (spec 7.2).
+
+    Body: {"kind": "paczka"|"paleta", "count": 1..10, "pallet_type": "eur"|"niestandardowa"|null,
+           "length_cm": int|null, "width_cm": int|null}
+
+    Appka wysyła ją po „ZAKOŃCZ”, który domyka zamówienie — po zakończeniach pozycji, tą samą
+    kolejką offline. 409 order_not_packed jest w BLEDY_DO_PONOWIENIA (niezapamiętane): kolejka
+    appki nie gwarantuje, że wszystkie COMPLETE przeszły przed deklaracją, więc ten sam
+    X-Operation-Id musi przejść, gdy zamówienie się domknie. Stara appka pakuje bez deklaracji
+    (backend to przyjmuje), a nowa appka na starym backendzie dostaje 404 i pomija deklarację.
+    """
+    from modules.production.logistics.services import paczki
+    stanowisko, err = _stanowisko_paczek()
+    if err:
+        return err
+    try:
+        deklaracja = paczki.waliduj_deklaracje(request.get_json(silent=True))
+    except paczki.PaczkiBlad as e:
+        return _blad_paczek(e)
+    order = _zamowienie_po_numerze(numer, do_zapisu=True)
+    if order is None:
+        return _brak_zamowienia(numer)
+    worker_ids, _sesje, err = _resolve_workers()
+    if err:
+        return err
+    try:
+        nowe = paczki.zadeklaruj(order, deklaracja, stanowisko, _aktor(),
+                                 worker_id=worker_ids[0] if worker_ids else None,
+                                 device_id=g.device.id)
+    except paczki.PaczkiBlad as e:
+        return _blad_paczek(e)
+
+    tekst = paczki.opis(deklaracja.kind, deklaracja.count, deklaracja.pallet_type,
+                        deklaracja.length_cm, deklaracja.width_cm)
+    logger.info("Mobile API: paczki zadeklarowane", extra={
+        'internal_order_number': order.internal_order_number, 'paczki': tekst,
+        'station_code': stanowisko, 'device_id': g.device.device_id,
+    })
+    return jsonify(_odpowiedz_paczek(
+        order, nowe, labels_queued=len(nowe),
+        message=u'Zadeklarowano {}. Etykiety poszły do drukarki paczek.'.format(tekst))), 200
+
+
+# ============================================================================
 # DEVICES — heartbeat / telemetria
 # ============================================================================
 
