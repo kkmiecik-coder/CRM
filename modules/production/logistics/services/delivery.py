@@ -286,7 +286,11 @@ def ustaw_sposob_dostawy(order, sposob, user_id=None, teraz=None):
             order.bl_status_pending_id = sposoby.STATUS_PRODUKCJA_ZAKONCZONA
             nowy_status = True
         zapisz_log(order, 'przepakowanie', stary, nowy, user_id=user_id, teraz=teraz)
-        order.repack_reason = sposoby.PRZEPAKUJ_NA_KURIERA
+        # Powód z Weryfikacji (np. „Weryfikacja: Uszkodzenie: …”) jest ważniejszy niż ogólne „na kuriera”:
+        # zostaje na tablecie pakowania. Sposób „kurier” pakowacz widzi na tablecie i tak, a powód z
+        # Weryfikacji inaczej przepadłby po zmianie sposobu dostawy. repack_required ustawiamy jak zawsze.
+        if not order.repack_reason or order.repack_reason == sposoby.PRZEPAKUJ_NA_KURIERA:
+            order.repack_reason = sposoby.PRZEPAKUJ_NA_KURIERA
         # Jedna reguła (spec 4.5): zamówienie wróciło do pakowania — paczki i weryfikacja kasują się.
         from modules.production.logistics.services import weryfikacja
         weryfikacja.uniewaznij_etapy(order, teraz, u'przepakowanie na kuriera', user_id=user_id)

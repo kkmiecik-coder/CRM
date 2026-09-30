@@ -7,9 +7,9 @@ import pytest
 from extensions import db
 from modules.production.logistics import sposoby as s
 from modules.production.logistics.models import LogisticsLog
-from modules.production.logistics.services import delivery as d, paczki
-from modules.production.models import ProductionPackage, ProductionProduct
-from tests.logistyka_fixtures import app, produkt, zamowienie  # noqa: F401
+from modules.production.logistics.services import bl_sync, delivery as d, paczki
+from modules.production.models import ProductionOrder, ProductionPackage, ProductionProduct
+from tests.logistyka_fixtures import BASE, app, client, produkt, zamowienie  # noqa: F401
 
 T0 = datetime(2026, 10, 1, 8, 0)
 T1 = datetime(2026, 10, 1, 9, 0)
@@ -106,6 +106,74 @@ def test_zmiana_sposobu_nie_kasuje_banera_z_weryfikacji(app, nowy):
         p.current_status = 'spakowane'
     d.po_spakowaniu(order, T1)
     assert (order.repack_required, order.repack_reason) == (False, None)
+
+
+# --- Przepakowanie na kuriera a baner Weryfikacji (fala końcowa 4.3, F4) --------------------------
+
+def test_przepakowanie_na_kuriera_nie_nadpisuje_banera_z_weryfikacji(app):
+    """Zamówienie cofnięte z Weryfikacji z powodem („Uszkodzenie”), potem spakowane ponownie przy
+    transporcie: zmiana na kuriera przepakowuje je, ale powód z Weryfikacji jest ważniejszy niż
+    „Przepakuj na kuriera” — sposób „kurier” pakowacz widzi na tablecie i tak."""
+    tekst = u'Weryfikacja: Uszkodzenie: pęknięty blat'
+    order = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane', 'spakowane'),
+                       repack_required=True, repack_reason=tekst)
+    wynik = d.ustaw_sposob_dostawy(order, s.KURIER, teraz=T1)
+    assert wynik['przepakowanie'] is True
+    assert (order.repack_required, order.repack_reason) == (True, tekst)
+    assert [p.current_status for p in order.products] == ['czeka_na_pakowanie', 'czeka_na_pakowanie']
+
+
+@pytest.mark.parametrize('powod', [None, u'', s.PRZEPAKUJ_NA_KURIERA])
+def test_przepakowanie_na_kuriera_bez_powodu_z_weryfikacji_ustawia_przepakuj_na_kuriera(app, powod):
+    order = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane',), repack_required=bool(powod),
+                       repack_reason=powod)
+    d.ustaw_sposob_dostawy(order, s.KURIER, teraz=T1)
+    assert (order.repack_required, order.repack_reason) == (True, s.PRZEPAKUJ_NA_KURIERA)
+
+
+# --- Panel: zmiana sposobu dostawy na prawdziwych paczkach (fala końcowa 4.3, F6b) ----------------
+
+@pytest.fixture()
+def bez_base(monkeypatch):
+    wywolane = []
+    monkeypatch.setattr(bl_sync, 'po_zmianie', lambda ids: wywolane.append(list(ids)))
+    return wywolane
+
+
+def _zmien_sposob_w_panelu(client, order, sposob):
+    return client.post(BASE + '/orders/delivery-method', json={'order_ids': [order.id], 'sposob': sposob})
+
+
+def test_panel_transport_na_kuriera_uniewaznia_paczki_i_ustawia_powod(app, client, bez_base):
+    """Styk zadań: POST panelu → ustaw_sposob_dostawy → prawdziwa reguła unieważnienia etapów."""
+    order = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane', 'spakowane'))
+    _paczki(order, n=2, zweryfikowane=True)
+    order_id = order.id
+    r = _zmien_sposob_w_panelu(client, order, s.KURIER)
+    assert r.status_code == 200, r.get_json()
+    assert r.get_json()['przepakowanie'] == [order_id]
+    db.session.expire_all()
+    o = ProductionOrder.query.get(order_id)
+    assert [p.current_status for p in o.products] == ['czeka_na_pakowanie', 'czeka_na_pakowanie']
+    assert (o.repack_required, o.repack_reason) == (True, s.PRZEPAKUJ_NA_KURIERA)
+    paczki_zamowienia = ProductionPackage.query.filter_by(order_id=order_id).all()
+    assert len(paczki_zamowienia) == 2 and all(p.voided_at is not None for p in paczki_zamowienia)
+    assert o.packages_declared_at is None and o.bl_status_pending_id == s.STATUS_PRODUKCJA_ZAKONCZONA
+    assert 'paczki' in [w.action for w in LogisticsLog.query.filter_by(order_id=order_id)]
+
+
+def test_panel_transport_na_kuriera_nie_nadpisuje_banera_weryfikacji(app, client, bez_base):
+    tekst = u'Weryfikacja: Brak elementu: nóżka'
+    order = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane', 'spakowane'),
+                       repack_required=True, repack_reason=tekst)
+    _paczki(order, n=2)
+    order_id = order.id
+    assert _zmien_sposob_w_panelu(client, order, s.KURIER).status_code == 200
+    db.session.expire_all()
+    o = ProductionOrder.query.get(order_id)
+    assert (o.repack_required, o.repack_reason) == (True, tekst)       # baner Weryfikacji zostaje
+    assert [p.current_status for p in o.products] == ['czeka_na_pakowanie', 'czeka_na_pakowanie']
+    assert all(p.voided_at is not None for p in ProductionPackage.query.filter_by(order_id=order_id))
 
 
 def test_cofniecie_do_nie_ustawiono_nie_kasuje_banera_z_weryfikacji(app):

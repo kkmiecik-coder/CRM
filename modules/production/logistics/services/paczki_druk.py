@@ -25,8 +25,18 @@ def napis_sposobu(order, trasa=None):
     """
     Tekst pasa sposobu dostawy (spec 6.3, pkt 2), już w ASCII i przycięty. Ten sam napis
     trafia na etykietę i do prod_packages.label_delivery_text — panel Logistyki porównuje
-    go z dzisiejszym („etykiety paczek sprzed zmiany”). `trasa` — trasa AKTYWNA zamówienia
-    (robocza/zatwierdzona) albo None; trasa wykonana już nie jedzie, więc nie trafia na etykietę.
+    go z dzisiejszym („etykiety paczek sprzed zmiany”).
+
+    `trasa` — trasa, z której liczymy napis „TRASA: …”, albo None. Funkcja NIE sprawdza jej
+    statusu, robi to wołający:
+    - przy druku (`drukuj_etykiety`) to trasa AKTYWNA zamówienia (robocza/zatwierdzona,
+      `routes.trasa_dla_tabletu`) albo None; trasa wykonana już nie jedzie, więc nie trafia
+      na etykietę;
+    - przy porównaniu w panelu (`lista._etykiety_paczek_sprzed_zmiany`) zamówienie OTWARTE dostaje
+      to samo (tylko aktywna), a zamówienie ZAMKNIĘTE w Logistyce trasę w dowolnym statusie, także
+      wykonaną (`routes.trasy_zamowien`): etykieta była drukowana, gdy trasa była aktywna, więc
+      porównujemy z napisem „TRASA: …”, a nie z „TRANSPORT WOODPOWER”, inaczej każde zamówienie
+      dowiezione trasą świeciłoby ikoną na zawsze.
     """
     sposob = sposoby.normalizuj(getattr(order, 'override_delivery_method', None))
     if sposob == sposoby.TRANSPORT and trasa is not None:
