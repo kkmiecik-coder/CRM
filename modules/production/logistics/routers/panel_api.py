@@ -110,13 +110,18 @@ def orders():
     woj = list(dict.fromkeys(w for w in request.args.getlist('woj') if w))
     if wojewodztwa.nieznane(woj):
         return _blad(u'Nieznany filtr województwa.', 422)
+    # Krok 4.3 (spec 11): filtry Weryfikacji; nieznana wartość = 422 jak inne złe parametry listy.
+    stan = request.args.get('stan') or None
+    if stan is not None and stan not in lista.STANY_WERYFIKACJI:
+        return _blad(u'Nieznany filtr weryfikacji.', 422)
     wstrzymane = bl_sync.wstrzymane_do()
     return jsonify({
         'success': True,
         'orders': lista.pobierz(sposob=request.args.get('sposob') or None,
                                 etap=request.args.get('etap') or None,
-                                q=q, zamkniete=zamkniete, woj=woj or None),
+                                q=q, zamkniete=zamkniete, woj=woj or None, stan=stan),
         'liczniki': lista.liczniki(),
+        'weryfikacja': lista.liczniki_weryfikacji(),
         'base_wstrzymane_do': wstrzymane.isoformat() if wstrzymane else None,
         'bez_lokalizacji': geocoding.bez_lokalizacji(),
         'geokoder_dziala': geocoding.geokoder_dziala(),

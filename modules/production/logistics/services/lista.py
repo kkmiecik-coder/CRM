@@ -8,20 +8,24 @@ from sqlalchemy.orm import selectinload
 from extensions import db
 from modules.production.logistics import sposoby, wojewodztwa
 from modules.production.logistics.models import RouteStop, STATUSY_TRASY_AKTYWNE
-from modules.production.logistics.services import geocoding, paczki, paczki_druk, routes
-from modules.production.logistics.services.delivery import aktywne_produkty, wszystkie_spakowane
-from modules.production.models import ProductionOrder, ProductionProduct
+from modules.production.logistics.services import geocoding, paczki, paczki_druk, routes, weryfikacja
+from modules.production.logistics.services.delivery import aktywne_produkty, wszystkie_spakowane, wszystkie_w
+from modules.production.models import ProductionOrder, ProductionProduct, get_local_now
 from modules.production.services.station_catalog import STATION_LABELS, STATION_PENDING_STATUS
 
 # Najwcześniejszy etap zamówienia = etap jego najbardziej zaległej pozycji.
 KOLEJNOSC_ETAPOW = ('wstrzymane', 'czeka_na_wyciecie', 'czeka_na_skladanie',
                     'czeka_na_sklejanie', 'czeka_na_formatowanie', 'czeka_na_krawedzie',
-                    'czeka_na_lakiernie', 'czeka_na_pakowanie', 'spakowane')
+                    'czeka_na_lakiernie', 'czeka_na_pakowanie', 'spakowane',
+                    'zweryfikowane', 'zaladowane', 'dostarczone')
 LIMIT_ZAMKNIETYCH = 50
+# Filtr `stan` listy (krok 4.3, spec 11): zakres własny, niezależny od podziału otwarte/zamknięte.
+STANY_WERYFIKACJI = ('do_weryfikacji', 'problem', 'bez_paczek')
 
 # Etap w kolumnie listy = STANOWISKO, na którym pozycja czeka („Lakiernia”, nie
 # „Czeka na lakiernię”) — nazwy z jednego źródła (station_catalog), tymi samymi
-# mówią monitory na hali. Statusy spoza kolejek (spakowane, wstrzymane) — jak w bazie.
+# mówią monitory na hali. Statusy po spakowaniu nazywa weryfikacja.NAZWY_ETAPOW
+# („Spakowane — czeka na weryfikację”). Pozostałe (wstrzymane) — jak w bazie.
 NAZWA_STANOWISKA = {status: STATION_LABELS[kod] for kod, status in STATION_PENDING_STATUS.items()}
 
 
@@ -82,13 +86,18 @@ def _warunki_frazy(fraza):
     return warunki
 
 
+def _nazwa_etapu(produkt):
+    """Napis etapu pozycji: po spakowaniu z weryfikacja.NAZWY_ETAPOW, dalej stanowisko, na końcu status."""
+    return (weryfikacja.NAZWY_ETAPOW.get(produkt.current_status)
+            or NAZWA_STANOWISKA.get(produkt.current_status) or produkt.status_display_name)
+
+
 def _etap(aktywne):
     if not aktywne:
         return {'status': 'anulowane', 'nazwa': 'Anulowane'}
     najwczesniejszy = min(aktywne, key=lambda p: _ranga(p.current_status))
     status = najwczesniejszy.current_status
-    return {'status': status,
-            'nazwa': NAZWA_STANOWISKA.get(status) or najwczesniejszy.status_display_name}
+    return {'status': status, 'nazwa': _nazwa_etapu(najwczesniejszy)}
 
 
 def _geo(punkt):
@@ -130,8 +139,7 @@ def _pozycja(p):
         'dorobka': p.original_product_id is not None,
         'ilosc': p.quantity or 1,
         'm3': round(float(p.volume_m3 or 0) * (p.quantity or 1), 4),
-        'etap': {'status': p.current_status,
-                 'nazwa': NAZWA_STANOWISKA.get(p.current_status) or p.status_display_name},
+        'etap': {'status': p.current_status, 'nazwa': _nazwa_etapu(p)},
         'anulowana': p.current_status == 'anulowane',
     }
 
@@ -170,6 +178,15 @@ def _etykiety_paczek_sprzed_zmiany(order, trasa, paczki_zamowienia):
     return any(p.label_delivery_text != napis for p in wydrukowane)
 
 
+def _problem(order):
+    """Otwarty problem z Weryfikacji (powód, notatka, kiedy) albo None."""
+    if order.problem_at is None:
+        return None
+    return {'powod': order.problem_reason,
+            'etykieta': weryfikacja.POWODY_PROBLEMU.get(order.problem_reason, order.problem_reason),
+            'notatka': order.problem_note, 'kiedy': order.problem_at.isoformat()}
+
+
 def serializuj(order, geo=None, trasa=None, paczki_zamowienia=None):
     if paczki_zamowienia is None:
         # Pojedynczy wiersz (odświeżenie po akcji) — listy podają mapę jednym zapytaniem.
@@ -201,6 +218,13 @@ def serializuj(order, geo=None, trasa=None, paczki_zamowienia=None):
         'etykiety_sprzed_zmiany': bool(ustawiono) and any(
             p.label_printed_at is not None and p.label_printed_at < ustawiono for p in aktywne),
         'etykiety_paczek_sprzed_zmiany': _etykiety_paczek_sprzed_zmiany(order, trasa, paczki_zamowienia),
+        # Krok 4.3 (spec 11): paczki pod kolumną Etap, plakietka „BEZ PACZEK”, ikona problemu.
+        'paczki': ({'opis': paczki.opis_paczek(paczki_zamowienia), 'liczba': len(paczki_zamowienia),
+                    'zweryfikowane': sum(1 for p in paczki_zamowienia if p.verified_at is not None)}
+                   if paczki_zamowienia else None),
+        'bez_paczek': not paczki_zamowienia and wszystkie_w(order, ('spakowane', 'zweryfikowane')),
+        'problem': _problem(order),
+        'zweryfikowano': order.verified_at.isoformat() if order.verified_at else None,
         'przepakowanie': bool(order.repack_required),
         # Rozwijany wiersz listy: wszystkie pozycje (anulowane też — wyszarzone).
         'pozycje': [_pozycja(p) for p in sorted(
@@ -216,7 +240,7 @@ def _klucz(wiersz):
             wiersz['termin'] or '', wiersz['numer'] or '')
 
 
-def pobierz(sposob=None, etap=None, q=None, zamkniete=False, woj=None):
+def pobierz(sposob=None, etap=None, q=None, zamkniete=False, woj=None, stan=None):
     """
     UWAGA (R3, poprawka względem briefu): wszystkie filtry (q, otwarte/zamknięte,
     sposob) muszą trafić do zapytania PRZED order_by/limit. W SQLAlchemy < 2.0
@@ -230,6 +254,9 @@ def pobierz(sposob=None, etap=None, q=None, zamkniete=False, woj=None):
 
     Runda 2 (spec 2.5): `woj` — lista identyfikatorów z wojewodztwa.opcje(); filtr SQL
     z kodu pocztowego i kraju w tym samym bloku (R3), przed order_by/limit zamkniętych.
+
+    Krok 4.3 (spec 11): `stan` ∈ STANY_WERYFIKACJI — filtr SQL z weryfikacja.py w tym samym
+    bloku (R3). Ma własny zakres i zastępuje podział otwarte/zamknięte oraz limit zamkniętych.
     """
     # Konfiguracje pozycji (gatunek, technologia, klasa) jednym zapytaniem na listę —
     # bez tego każda pozycja dociągałaby swoją osobno (setki zapytań co odświeżenie).
@@ -237,7 +264,16 @@ def pobierz(sposob=None, etap=None, q=None, zamkniete=False, woj=None):
         selectinload(ProductionOrder.products).selectinload(ProductionProduct.configuration))
     if q:
         zapytanie = zapytanie.filter(*_warunki_frazy(q))
-    if not zamkniete:
+    # Krok 4.3 (spec 11): filtry Weryfikacji mają własny zakres (zamówienia kurierskie zamykają się
+    # przy spakowaniu, a nadal czekają na weryfikację) — zastępują podział otwarte/zamknięte.
+    teraz = get_local_now()
+    if stan == 'do_weryfikacji':
+        zapytanie = zapytanie.filter(weryfikacja.warunek_do_weryfikacji(teraz))
+    elif stan == 'problem':
+        zapytanie = zapytanie.filter(weryfikacja.warunek_problemu())
+    elif stan == 'bez_paczek':
+        zapytanie = zapytanie.filter(weryfikacja.warunek_bez_paczek(teraz))
+    elif not zamkniete:
         zapytanie = zapytanie.filter(ProductionOrder.logistics_closed_at.is_(None))
     if sposob == 'brak':
         zapytanie = zapytanie.filter(warunek_bez_sposobu())
@@ -251,7 +287,7 @@ def pobierz(sposob=None, etap=None, q=None, zamkniete=False, woj=None):
         zapytanie = zapytanie.filter(ProductionOrder.override_delivery_method == sposob)
     if woj:
         zapytanie = zapytanie.filter(wojewodztwa.warunek(woj))
-    if zamkniete:
+    if zamkniete and not stan:
         zapytanie = zapytanie.order_by(ProductionOrder.id.desc()).limit(LIMIT_ZAMKNIETYCH)
     zamowienia = zapytanie.all()
     ids = [o.id for o in zamowienia]
@@ -272,3 +308,12 @@ def liczniki():
         klucz = sposoby.normalizuj(wartosc) or 'brak'
         wynik[klucz] += 1
     return wynik
+
+
+def liczniki_weryfikacji():
+    """Liczby przy filtrach Weryfikacji (spec 11) — trzy zapytania COUNT, niezależne od listy."""
+    teraz = get_local_now()
+    return {'do_weryfikacji': weryfikacja.liczba_do_weryfikacji(teraz),
+            'problem': weryfikacja.liczba_problemow(),
+            'bez_paczek': db.session.query(func.count(ProductionOrder.id)).filter(
+                weryfikacja.warunek_bez_paczek(teraz)).scalar() or 0}

@@ -14,7 +14,7 @@
      blokuje CDN). #}
 <link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet/leaflet.css') }}?v=1.9.4">
 <link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet-markercluster/MarkerCluster.css') }}?v=1.5.3">
-<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20260928b">
+<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20261001a">
 {# Etap 3: trasy, flota, widok tras na mapie — osobny arkusz (logistics.css zostaje nietknięty). #}
 <link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics-trasy.css') }}?v=20260928b">
 
@@ -128,6 +128,26 @@
                   title="Zamówienia z transportem własnym, które nie są jeszcze na żadnej trasie">
             <i class="fas fa-route" aria-hidden="true"></i><span>Transport bez trasy</span>
           </button>
+          {# Krok 4.3 (spec 11): filtry Weryfikacji — filtr serwera (?stan=…), wykluczają się wzajemnie
+               (logistics.js, ustawStanFiltra). Liczby przychodzą w odpowiedzi listy (`weryfikacja`), więc
+               nie zależą od bieżącego widoku. Ta sama rodzina co „Transport bez trasy”: aktywny = ciemny. #}
+          <div class="lg-filtry-stanu" role="group" aria-label="Weryfikacja paczek">
+            <button type="button" class="lg-filtr-stanu" data-lg-stan="do_weryfikacji" aria-pressed="false"
+                    title="Spakowane zamówienia, które czekają na sprawdzenie paczek">
+              <i class="fas fa-clipboard-check" aria-hidden="true"></i><span>Do weryfikacji</span>
+              <span class="lg-filtr-stanu-liczba">–</span>
+            </button>
+            <button type="button" class="lg-filtr-stanu" data-lg-stan="problem" aria-pressed="false"
+                    title="Zamówienia z problemem zgłoszonym przy weryfikacji paczek">
+              <i class="fas fa-triangle-exclamation" aria-hidden="true"></i><span>Problem</span>
+              <span class="lg-filtr-stanu-liczba">–</span>
+            </button>
+            <button type="button" class="lg-filtr-stanu" data-lg-stan="bez_paczek" aria-pressed="false"
+                    title="Spakowane zamówienia bez zadeklarowanych paczek">
+              <i class="fas fa-boxes-stacked" aria-hidden="true"></i><span>Bez paczek</span>
+              <span class="lg-filtr-stanu-liczba">–</span>
+            </button>
+          </div>
           {# Runda 2 (spec 2.5): województwa z KODU POCZTOWEGO (te same zakresy co Region w eksporcie
                Routimo — modules/production/logistics/wojewodztwa.py). Kilka naraz, filtr serwera
                (?woj=…), bez zapamiętywania. Panel: logistics-wojewodztwa.js; filtr listy: logistics.js
@@ -211,8 +231,8 @@
                data-carto-key="{{ carto_basemaps_key }}"
                data-skrypt-leaflet="{{ url_for('production.static', filename='vendor/leaflet/leaflet.js') }}?v=1.9.4"
                data-skrypt-klastry="{{ url_for('production.static', filename='vendor/leaflet-markercluster/leaflet.markercluster.js') }}?v=1.5.3"
-               data-skrypt-mapy="{{ url_for('logistics_panel.static', filename='js/logistics-map.js') }}?v=20260928b"
-               data-skrypt-trasy="{{ url_for('logistics_panel.static', filename='js/logistics-routes.js') }}?v=20260928e"></div>
+               data-skrypt-mapy="{{ url_for('logistics_panel.static', filename='js/logistics-map.js') }}?v=20261001a"
+               data-skrypt-trasy="{{ url_for('logistics_panel.static', filename='js/logistics-routes.js') }}?v=20261001a"></div>
           {# Pasek trybu (korekta, ustawianie punktu) i wyniku akcji na mapie. #}
           <div class="lg-mapa-pasek" data-lg-mapa="pasek" role="status" aria-live="polite" hidden></div>
           <div class="lg-mapa-stan is-ladowanie" data-lg-mapa="stan" role="status">Ładowanie mapy…</div>
@@ -279,6 +299,8 @@
           <span><i class="fas fa-box-open lg-ikona--przepakowanie" aria-hidden="true"></i>czeka na przepakowanie na kuriera</span>
           <span><i class="fas fa-tags lg-ikona--etykiety" aria-hidden="true"></i>etykiety wydrukowane przed zmianą sposobu</span>
           <span><i class="fas fa-box lg-ikona--etykiety" aria-hidden="true"></i>etykiety paczek sprzed zmiany sposobu lub trasy</span>
+          <span><i class="fas fa-triangle-exclamation lg-ikona--problem" aria-hidden="true"></i>problem zgłoszony przy weryfikacji paczek</span>
+          <span><span class="lg-bez-paczek" aria-hidden="true">BEZ PACZEK</span>spakowane, ale bez zadeklarowanych paczek</span>
           <span><i class="fas fa-cloud-arrow-up lg-ikona--base" aria-hidden="true"></i>Base.: czeka na wysłanie</span>
           <span><img class="lg-logo-base" src="{{ url_for('logistics_panel.static', filename='img/base-logo.png') }}?v=20260925a" alt="" width="16" height="16">podpowiedź sposobu z metody w Base.</span>
           <span><i class="fas fa-map-location-dot lg-ikona--adres" aria-hidden="true"></i>adres zmieniony po ręcznym ustawieniu punktu</span>
@@ -699,6 +721,6 @@
         });
 })();
 </script>
-<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20260930a"></script>
+<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20261001a"></script>
 <script src="{{ url_for('logistics_panel.static', filename='js/logistics-fleet.js') }}?v=20260928b"></script>
 <script src="{{ url_for('logistics_panel.static', filename='js/logistics-wojewodztwa.js') }}?v=20260928a"></script>

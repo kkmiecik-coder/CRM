@@ -370,6 +370,76 @@
     color: var(--il-text-primary, #1a1a2e);
 }
 
+/* ─── Filtry Weryfikacji: Do weryfikacji, Problem, Bez paczek (krok 4.3, spec 11) ───
+   Ta sama rodzina co „Transport bez trasy” (logistics-trasy.css): biały przycisk z dolnym
+   cieniem, aktywny = ciemny. Trzy przyciski jedną grupą (wykluczają się), z liczbą po prawej. */
+.logistics-tab .lg-filtry-stanu {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.logistics-tab .lg-filtr-stanu {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 32px;
+    padding: 0 10px 1px;
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    box-shadow: inset 0 -2px 0 var(--il-inset-shadow, #d4d9e1);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--il-text-secondary, #7a8291);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.logistics-tab .lg-filtr-stanu i {
+    font-size: 12px;
+    color: var(--il-text-secondary, #7a8291);
+}
+
+.logistics-tab .lg-filtr-stanu[data-lg-stan="do_weryfikacji"] i { color: var(--il-status-ok, #16a34a); }
+.logistics-tab .lg-filtr-stanu[data-lg-stan="problem"] i { color: var(--il-status-danger, #dc2626); }
+.logistics-tab .lg-filtr-stanu[data-lg-stan="bez_paczek"] i { color: var(--il-status-warn, #d97706); }
+
+.logistics-tab .lg-filtr-stanu-liczba {
+    font-family: var(--lg-mono);
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--il-text-muted, #9ba3b0);
+    font-variant-numeric: tabular-nums;
+}
+
+.logistics-tab .lg-filtr-stanu.is-niepusty .lg-filtr-stanu-liczba {
+    color: var(--il-text-primary, #1a1a2e);
+}
+
+.logistics-tab .lg-filtr-stanu[data-lg-stan="problem"].is-niepusty .lg-filtr-stanu-liczba {
+    color: var(--il-status-danger, #dc2626);
+}
+
+.logistics-tab .lg-filtr-stanu:hover {
+    border-color: var(--il-text-secondary, #7a8291);
+    color: var(--il-text-primary, #1a1a2e);
+}
+
+.logistics-tab .lg-filtr-stanu.is-aktywny,
+.logistics-tab .lg-filtr-stanu.is-aktywny:hover {
+    background: var(--il-text-primary, #1a1a2e);
+    border-color: var(--il-text-primary, #1a1a2e);
+    box-shadow: none;
+    color: #fff;
+}
+
+.logistics-tab .lg-filtr-stanu.is-aktywny i,
+.logistics-tab .lg-filtr-stanu.is-aktywny .lg-filtr-stanu-liczba,
+.logistics-tab .lg-filtr-stanu[data-lg-stan="problem"].is-aktywny .lg-filtr-stanu-liczba {
+    color: #fff;
+}
+
 .logistics-tab .lg-ile {
     margin-left: auto;
     font-size: 12.5px;
@@ -765,8 +835,12 @@
 .logistics-tab [data-etap="wstrzymane"] .lg-etap-znak { background: var(--il-status-danger, #dc2626); border-radius: 1px; }
 .logistics-tab [data-etap="anulowane"] .lg-etap-znak { background: none; border: 1px solid var(--il-status-inactive, #9ba3b0); }
 
-/* Spakowane = gotowe do wydania: ptaszek zamiast kropki. */
-.logistics-tab [data-etap="spakowane"] .lg-etap-znak {
+/* Spakowane i dalej (weryfikacja, załadunek, dostawa, krok 4.3): ptaszek zamiast kropki, ten sam
+   zielony co „spakowane”. Dostarczone to sprawa zamknięta — ptaszek zostaje, nazwa cichnie do szarości. */
+.logistics-tab [data-etap="spakowane"] .lg-etap-znak,
+.logistics-tab [data-etap="zweryfikowane"] .lg-etap-znak,
+.logistics-tab [data-etap="zaladowane"] .lg-etap-znak,
+.logistics-tab [data-etap="dostarczone"] .lg-etap-znak {
     width: auto;
     height: auto;
     background: none;
@@ -776,9 +850,62 @@
     font-size: 12px;
 }
 
-.logistics-tab [data-etap="spakowane"] .lg-etap-nazwa {
+.logistics-tab [data-etap="spakowane"] .lg-etap-nazwa,
+.logistics-tab [data-etap="zweryfikowane"] .lg-etap-nazwa,
+.logistics-tab [data-etap="zaladowane"] .lg-etap-nazwa {
     font-weight: 600;
     color: var(--il-status-ok, #16a34a);
+}
+
+.logistics-tab [data-etap="dostarczone"] .lg-etap-nazwa {
+    font-weight: 500;
+    color: var(--il-text-secondary, #7a8291);
+}
+
+/* Dopisek nazwy etapu po myślniku („czeka na weryfikację”) — druga linia, cicho. */
+.logistics-tab .lg-etap-dopisek {
+    display: block;
+    font-size: 11px;
+    font-weight: 400;
+    line-height: 1.35;
+    color: var(--il-text-secondary, #7a8291);
+}
+
+/* Paczki pod etapem (krok 4.3, spec 11): opis deklaracji i postęp sprawdzania. Wcięcie = kropka
+   etapu (8 px) + odstęp (7 px), żeby linie stały pod nazwą, nie pod znakiem. */
+.logistics-tab .lg-paczki {
+    display: block;
+    margin-top: 3px;
+    padding-left: 15px;
+    font-size: 11.5px;
+    line-height: 1.35;
+    color: var(--il-text-secondary, #7a8291);
+    white-space: nowrap;
+}
+
+.logistics-tab .lg-paczki-postep {
+    display: block;
+    font-family: var(--lg-mono);
+    font-size: 11px;
+    color: var(--il-text-primary, #1a1a2e);
+}
+
+/* „BEZ PACZEK”: spakowane zamówienie bez deklaracji paczek — akcent kolejki (amber), jak
+   znacznik „doróbka” w pozycjach, ale z tłem, bo to sprawa do załatwienia. */
+.logistics-tab .lg-bez-paczek {
+    display: inline-block;
+    margin: 4px 0 0 15px;
+    padding: 1px 6px;
+    font-family: var(--lg-mono);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.6px;
+    line-height: 1.5;
+    color: var(--lg-kolejka-tekst);
+    background: var(--lg-kolejka-tlo);
+    border: 1px solid rgba(217, 119, 6, 0.35);
+    border-radius: 2px;
+    white-space: nowrap;
 }
 
 .logistics-tab .lg-termin,
@@ -813,6 +940,7 @@
 }
 
 .logistics-tab .lg-ikona--przepakowanie { color: var(--il-status-danger, #dc2626); }
+.logistics-tab .lg-ikona--problem { color: var(--il-status-danger, #dc2626); }
 .logistics-tab .lg-ikona--etykiety { color: var(--il-status-warn, #d97706); }
 .logistics-tab .lg-ikona--base { color: var(--il-text-secondary, #7a8291); }
 .logistics-tab .lg-ikona--adres { color: var(--il-status-warn, #d97706); }
@@ -1011,6 +1139,10 @@
     margin-right: 6px;
 }
 
+.logistics-tab .lg-legenda .lg-bez-paczek {
+    margin: 0 6px 0 0;
+}
+
 .logistics-tab .lg-legenda-skrot {
     margin-left: auto;
     color: var(--il-text-muted, #9ba3b0);
@@ -1176,6 +1308,7 @@
     .logistics-tab .lg-zaznacz-pole { min-height: 40px; }
     .logistics-tab .lg-zaznacz-pole input { width: 20px; height: 20px; }
     .logistics-tab .lg-sposob { height: 36px; }
+    .logistics-tab .lg-filtr-stanu { height: 36px; }
 }
 
 /* ============================================================================

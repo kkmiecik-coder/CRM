@@ -32,6 +32,10 @@
  * lokalizacji” i „Zlokalizuj teraz” w nagłówku mapy obsługuje ten plik —
  * to filtr listy i odświeżanie listy.
  *
+ * Krok 4.3 (Weryfikacja, spec 11): etapy po spakowaniu (Zweryfikowane, Załadowane, Dostarczone), paczki
+ * i plakietka „BEZ PACZEK” pod etapem, ikona problemu w kolumnie Stan oraz trzy wzajemnie wykluczające
+ * się filtry serwera (`stan` = do_weryfikacji | problem | bez_paczek) z liczbami z pola `weryfikacja`.
+ *
  * Filtr etapu działa PO STRONIE PRZEGLĄDARKI (parametru `etap` nie wysyłamy):
  * lista wyboru ma pokazywać etapy obecne na liście, a po zawężeniu na
  * serwerze zostałby w niej tylko jeden etap. Przy okazji przełączanie etapu
@@ -99,12 +103,25 @@
     };
     const NIE_USTAWIONO = 'Nie ustawiono';
 
-    // Kolejność etapów w filtrze = kolejność linii produkcyjnej.
+    // Kolejność etapów w filtrze = kolejność linii produkcyjnej, a po niej etapy logistyki
+    // (krok 4.3: weryfikacja, załadunek, dostawa).
     const KOLEJNOSC_ETAPOW = [
         'czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_sklejanie',
         'czeka_na_formatowanie', 'czeka_na_krawedzie', 'czeka_na_lakiernie',
-        'czeka_na_pakowanie', 'spakowane', 'wstrzymane', 'anulowane',
+        'czeka_na_pakowanie', 'spakowane', 'zweryfikowane', 'zaladowane', 'dostarczone',
+        'wstrzymane', 'anulowane',
     ];
+    // Towar spakowany albo dalej (ptaszek przy etapie) — jak sposoby.STATUSY_PO_SPAKOWANIU.
+    const STATUSY_PO_SPAKOWANIU = ['spakowane', 'zweryfikowane', 'zaladowane', 'dostarczone'];
+    // Krok 4.3 (spec 11): filtry Weryfikacji (serwer, parametr `stan`) — treść pustej listy.
+    const PUSTE_STANY = {
+        do_weryfikacji: ['Brak zamówień do weryfikacji.',
+            'Zamówienia trafiają tu po spakowaniu, do czasu sprawdzenia paczek.'],
+        problem: ['Brak zamówień z problemem.',
+            'Problem zgłasza się przy weryfikacji paczek na telefonie.'],
+        bez_paczek: ['Brak zamówień bez paczek.',
+            'Każde spakowane zamówienie ma zadeklarowane paczki.'],
+    };
 
     const ODSWIEZANIE_MS = 60000;   // lista odświeża się co 60 s…
     // …a co 30 s, póki geokoder pracuje w tle (nowe pinezki; postęp idzie osobno,
@@ -137,11 +154,13 @@
     const stan = {
         wiersze: [],                // ostatnia lista z API (przed filtrem etapu)
         liczniki: null,
+        weryfikacja: null,          // liczby przy filtrach Weryfikacji: {do_weryfikacji, problem, bez_paczek}
         wstrzymaneDo: null,
         // geo: filtr dokładności lokalizacji (po stronie przeglądarki, jak etap):
         // '' | 'dokladna' | 'przyblizona' | 'reczna' | 'brak' („Bez lokalizacji”).
         // Runda 2: woj — filtr województw (parametr serwera wielokrotny), z logistics-wojewodztwa.js.
-        filtr: { sposob: '', etap: '', q: '', zamkniete: false, geo: '', woj: [] },
+        // Krok 4.3: stan — filtr Weryfikacji (serwer, jak sposób): '' | 'do_weryfikacji' | 'problem' | 'bez_paczek'.
+        filtr: { sposob: '', etap: '', q: '', zamkniete: false, geo: '', woj: [], stan: '' },
         zaznaczone: new Set(),
         rozwiniete: new Set(),      // id zamówień z rozwiniętymi pozycjami (przeżywa odświeżenie)
         ostatniKlik: null,          // id do zaznaczania zakresu z Shiftem
@@ -295,6 +314,8 @@
 
         const params = new URLSearchParams();
         if (stan.filtr.sposob) params.set('sposob', stan.filtr.sposob);
+        // Krok 4.3: filtr Weryfikacji ma własny zakres po stronie serwera (nie tylko otwarte).
+        if (stan.filtr.stan) params.set('stan', stan.filtr.stan);
         if (stan.filtr.q) params.set('q', stan.filtr.q);
         // Bez frazy API odpowiada 422 — przełącznik i tak jest wtedy wyłączony.
         if (stan.filtr.q && stan.filtr.zamkniete) params.set('zamkniete', '1');
@@ -313,6 +334,7 @@
             if (zniszczona || moje !== numerZapytania) return;
             stan.wiersze = Array.isArray(dane.orders) ? dane.orders : [];
             stan.liczniki = dane.liczniki || null;
+            stan.weryfikacja = dane.weryfikacja || null;
             stan.wstrzymaneDo = dane.base_wstrzymane_do || null;
             przyjmijStanGeo(dane);
             stan.blad = null;
@@ -472,13 +494,15 @@
 
     // Filtry inne niż „Bez lokalizacji” zawężają listę — licznik „Bez lokalizacji”
     // (globalny, z API) mówi wtedy więcej, niż widać; stąd „· w widoku k”.
-    const zawezonyWidok = () => !!(stan.filtr.sposob || stan.filtr.etap || stan.filtr.q || stan.filtr.woj.length);
+    const zawezonyWidok = () => !!(stan.filtr.sposob || stan.filtr.etap || stan.filtr.q || stan.filtr.woj.length ||
+        stan.filtr.stan);
     const bezGeoWWidoku = () => poEtapie().filter((w) => !w.geo).length;
 
     // ── Render: nagłówek, liczniki, baner, etapy ────────────────────────────
 
     function renderujWszystko() {
         renderujLiczniki();
+        renderujFiltryStanu();
         renderujBaner();
         renderujEtapy();
         renderujFiltrGeo();
@@ -512,6 +536,22 @@
         });
         const brak = root.querySelector('.lg-licznik--brak');
         brak.classList.toggle('is-niepusty', !!(l && Number(l.brak) > 0));
+    }
+
+    // Filtry Weryfikacji (spec 11): przyciski z liczbą z odpowiedzi listy, aria-pressed, wykluczają się.
+    // Liczba 0 zostaje na przycisku (filtr aktywny z zerem nadal da się zdjąć); > 0 dostaje akcent.
+    function renderujFiltryStanu() {
+        const liczby = stan.weryfikacja;
+        root.querySelectorAll('[data-lg-stan]').forEach((b) => {
+            const klucz = b.getAttribute('data-lg-stan');
+            const aktywny = klucz === stan.filtr.stan;
+            const liczba = liczby ? (Number(liczby[klucz]) || 0) : null;
+            b.classList.toggle('is-aktywny', aktywny);
+            b.classList.toggle('is-niepusty', liczba !== null && liczba > 0);
+            b.setAttribute('aria-pressed', aktywny ? 'true' : 'false');
+            const span = b.querySelector('.lg-filtr-stanu-liczba');
+            if (span) span.textContent = liczba === null ? '–' : String(liczba);
+        });
     }
 
     function renderujBaner() {
@@ -649,14 +689,22 @@
         } else if (f.woj.length) {
             // Runda 2: filtr województw (serwer) — bez tej gałęzi pusty widok twierdziłby, że nie ma
             // otwartych zamówień albo że każde ma już sposób dostawy.
-            tytul = 'Brak zamówień w wybranych województwach' + (f.sposob || f.q ? ' przy tych filtrach.' : '.');
+            tytul = 'Brak zamówień w wybranych województwach' + (f.sposob || f.q || f.stan ? ' przy tych filtrach.' : '.');
             przycisk = przyciskStanu('wyczysc-wojewodztwa', 'Wyczyść województwa');
         } else if (f.q) {
             tytul = 'Nic nie pasuje do „' + f.q + '”' + (f.zamkniete ? ', także wśród zamkniętych.' : '.');
-            if (!f.zamkniete) {
+            // Filtr Weryfikacji ma własny zakres (nie tylko otwarte) — „także zamknięte” nic by nie zmieniło.
+            if (!f.zamkniete && !f.stan) {
                 opis = 'Szukamy w otwartych zamówieniach. Zamówienia wydane i wysłane są zamknięte.';
                 przycisk = przyciskStanu('szukaj-zamkniete', 'Szukaj także w zamkniętych', 'fa-magnifying-glass');
             }
+        } else if (f.stan && PUSTE_STANY[f.stan]) {
+            // Krok 4.3 (spec 11): filtr Weryfikacji; przy drugim filtrze (sposób) dopisujemy, czego dotyczy.
+            tytul = f.sposob
+                ? PUSTE_STANY[f.stan][0].replace(/\.$/, '') + ' przy tym sposobie dostawy.'
+                : PUSTE_STANY[f.stan][0];
+            opis = PUSTE_STANY[f.stan][1];
+            przycisk = przyciskStanu('zdejmij-stan', 'Zdejmij filtr');
         } else if (f.sposob === 'bez_trasy') {
             // Etap 3: filtr „Transport bez trasy”.
             tytul = 'Każde otwarte zamówienie z transportem własnym jest już na trasie.';
@@ -803,6 +851,54 @@
     }
 
     /**
+     * Etap jako kropka w kolorze stanowiska (spakowane i dalej: ptaszek) z nazwą. Nazwy etapów po
+     * spakowaniu mają dopisek po myślniku („Spakowane — czeka na weryfikację”) — w wąskiej kolumnie
+     * dopisek idzie do drugiej linii, a czytnik ekranu czyta całość (myślnik w visually-hidden).
+     */
+    function etapHtml(etap, klasa) {
+        const nazwa = String(etap.nazwa || etap.status || '');
+        const i = nazwa.indexOf(' — ');
+        const glowna = i === -1 ? nazwa : nazwa.slice(0, i);
+        const dopisek = i === -1 ? '' : nazwa.slice(i + 3);
+        const znak = STATUSY_PO_SPAKOWANIU.includes(etap.status)
+            ? '<i class="fas fa-check lg-etap-znak" aria-hidden="true"></i>'
+            : '<span class="lg-etap-znak" aria-hidden="true"></span>';
+        return '<span class="lg-etap' + (klasa ? ' ' + klasa : '') + '" data-etap="' + esc(etap.status) + '"' +
+            (dopisek ? ' title="' + esc(nazwa) + '"' : '') + '>' + znak +
+            '<span class="lg-etap-nazwa">' + esc(glowna) +
+            (dopisek
+                ? '<span class="visually-hidden"> — </span><span class="lg-etap-dopisek">' + esc(dopisek) + '</span>'
+                : '') +
+            '</span></span>';
+    }
+
+    /**
+     * Krok 4.3 (spec 11): pod etapem paczki zamówienia (opis deklaracji, w trakcie sprawdzania
+     * „sprawdzono 1/2”) albo plakietka „BEZ PACZEK” dla spakowanego zamówienia bez deklaracji.
+     */
+    function paczkiHtml(w) {
+        const p = w.paczki;
+        if (p) {
+            const postep = p.zweryfikowane > 0 && p.zweryfikowane < p.liczba
+                ? '<span class="lg-paczki-postep">sprawdzono ' + esc(p.zweryfikowane) + '/' + esc(p.liczba) + '</span>'
+                : '';
+            return '<span class="lg-paczki" title="Paczki: ' + esc(p.opis) + '">' + esc(p.opis) + postep + '</span>';
+        }
+        if (w.bez_paczek) {
+            return '<span class="lg-bez-paczek" title="Zamówienie jest spakowane, ale nie ma zadeklarowanych paczek">' +
+                'BEZ PACZEK</span>';
+        }
+        return '';
+    }
+
+    // Dymek ikony problemu: „Problem: Uszkodzenie — róg (30.09, 14:05)”; notatka jest opcjonalna.
+    function opisProblemu(problem) {
+        const kiedy = [dataKrotka(problem.kiedy), godzina(problem.kiedy)].filter(Boolean).join(', ');
+        return 'Problem: ' + (problem.etykieta || problem.powod || 'zgłoszony') +
+            (problem.notatka ? ' — ' + problem.notatka : '') + (kiedy ? ' (' + kiedy + ')' : '');
+    }
+
+    /**
      * Rozwinięty wiersz: pozycje zamówienia jak na liście produktów — nazwa i ID,
      * gatunek / technologia / klasa / grubość, ilość, m³ i stanowisko, na którym
      * pozycja czeka (ta sama kropka i nazwa co w kolumnie „Etap produkcji”).
@@ -824,11 +920,7 @@
                 '<div class="lg-pozycja-znaczniki">' + znaczniki.join('') + '</div>' +
                 '<span class="lg-pozycja-ilosc">' + esc(p.ilosc) + ' szt.</span>' +
                 '<span class="lg-pozycja-m3">' + m3 + '</span>' +
-                '<span class="lg-etap lg-pozycja-etap" data-etap="' + esc(etap.status) + '">' +
-                    (etap.status === 'spakowane'
-                        ? '<i class="fas fa-check lg-etap-znak" aria-hidden="true"></i>'
-                        : '<span class="lg-etap-znak" aria-hidden="true"></span>') +
-                    '<span class="lg-etap-nazwa">' + esc(etap.nazwa || etap.status) + '</span></span>' +
+                etapHtml(etap, 'lg-pozycja-etap') +
                 '</div>';
         }).join('') : '<div class="lg-pozycja lg-pozycja--pusto">Zamówienie nie ma pozycji.</div>';
         return '<tr class="lg-pozycje-wiersz" data-pozycje-dla="' + esc(w.id) + '">' +
@@ -874,6 +966,8 @@
         }
 
         const ikony = [];
+        // Krok 4.3 (spec 11): otwarty problem z Weryfikacji — pierwsza ikona, z powodem i notatką w dymku.
+        if (w.problem) ikony.push(ikona('fa-triangle-exclamation', 'lg-ikona--problem', opisProblemu(w.problem)));
         if (w.przepakowanie) ikony.push(ikona('fa-box-open', 'lg-ikona--przepakowanie', 'Czeka na przepakowanie na kuriera'));
         if (w.etykiety_sprzed_zmiany) ikony.push(ikona('fa-tags', 'lg-ikona--etykiety', 'Etykiety wydrukowane przed zmianą sposobu dostawy'));
         if (w.etykiety_paczek_sprzed_zmiany) ikony.push(ikona('fa-box', 'lg-ikona--etykiety', 'Etykiety paczek sprzed zmiany sposobu dostawy lub trasy. Wydrukuj je ponownie na pakowaniu.'));
@@ -924,11 +1018,7 @@
             '<td class="lg-k-adres">' + adresHtml(w) + '</td>' +
             '<td class="lg-k-metoda">' + metoda + podpowiedz + '</td>' +
             '<td class="lg-k-sposob">' + selectSposobu(w, !!powod, powod) + plakietkaTrasy(w) + '</td>' +
-            '<td class="lg-k-etap"><span class="lg-etap" data-etap="' + esc(etap.status) + '">' +
-                (etap.status === 'spakowane'
-                    ? '<i class="fas fa-check lg-etap-znak" aria-hidden="true"></i>'
-                    : '<span class="lg-etap-znak" aria-hidden="true"></span>') +
-                '<span class="lg-etap-nazwa">' + esc(etap.nazwa || etap.status) + '</span></span></td>' +
+            '<td class="lg-k-etap">' + etapHtml(etap) + paczkiHtml(w) + '</td>' +
             '<td class="lg-k-termin">' + komorkaTerminu(w.termin) + '</td>' +
             '<td class="lg-k-m3"><span class="lg-m3">' + m3 + '</span></td>' +
             '<td class="lg-k-stan"><div class="lg-stan-komorka">' +
@@ -2080,6 +2170,17 @@
 
     // ── Filtry ──────────────────────────────────────────────────────────────
 
+    // Krok 4.3 (spec 11): filtry Weryfikacji (Do weryfikacji, Problem, Bez paczek) wykluczają się
+    // wzajemnie i działają na serwerze (?stan=…) — drugie kliknięcie aktywnego zdejmuje filtr.
+    function ustawStanFiltra(nowy) {
+        stan.filtr.stan = stan.filtr.stan === nowy ? '' : nowy;
+        stan.dopasujMape = true;
+        mapaNaZamowienia();
+        odznaczWszystko();
+        renderujFiltryStanu();
+        wczytaj('uzytkownik');
+    }
+
     function ustawSposobFiltra(sposob) {
         // Drugie kliknięcie aktywnego licznika zdejmuje filtr.
         stan.filtr.sposob = stan.filtr.sposob === sposob ? '' : sposob;
@@ -2096,6 +2197,7 @@
     function zdejmijFiltry() {
         clearTimeout(timerSzukania);
         stan.filtr.sposob = '';
+        stan.filtr.stan = '';
         stan.filtr.etap = '';
         stan.filtr.q = '';
         stan.filtr.zamkniete = false;
@@ -2107,6 +2209,7 @@
         renderujPrzelacznikZamknietych();
         odznaczWszystko();
         renderujLiczniki();
+        renderujFiltryStanu();
         wczytaj('uzytkownik');
     }
 
@@ -2147,6 +2250,11 @@
         const licznik = e.target.closest('[data-lg-sposob]');
         if (licznik) {
             ustawSposobFiltra(licznik.getAttribute('data-lg-sposob'));
+            return;
+        }
+        const filtrStanu = e.target.closest('[data-lg-stan]');
+        if (filtrStanu) {
+            ustawStanFiltra(filtrStanu.getAttribute('data-lg-stan'));
             return;
         }
         const przycisk = e.target.closest('[data-lg-akcja]');
@@ -2191,6 +2299,14 @@
                 stan.dopasujMape = true;
                 mapaNaZamowienia();
                 renderujLiczniki();
+                wczytaj('uzytkownik');
+                break;
+            case 'zdejmij-stan':
+                // Pusty stan przy filtrze Weryfikacji — zdejmujemy tylko ten filtr.
+                stan.filtr.stan = '';
+                stan.dopasujMape = true;
+                mapaNaZamowienia();
+                renderujFiltryStanu();
                 wczytaj('uzytkownik');
                 break;
             case 'szukaj-zamkniete':

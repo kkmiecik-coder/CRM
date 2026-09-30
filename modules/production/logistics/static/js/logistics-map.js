@@ -152,6 +152,8 @@
     const KLUCZ_UDZIALU = 'logistyka.mapa.udzial';
 
     const SPOSOBY = ['kurier_baselinker', 'transport_woodpower', 'odbior_osobisty'];
+    // Towar spakowany albo dalej (ptaszek przy etapie) — jak sposoby.STATUSY_PO_SPAKOWANIU.
+    const STATUSY_PO_SPAKOWANIU = ['spakowane', 'zweryfikowane', 'zaladowane', 'dostarczone'];
     // Te same etykiety co w logistics.js (backend podpisuje transport jako
     // „Transport WoodPower” — to tekst do Base., w zakładce mówimy po ludzku).
     const ETYKIETY = {
@@ -463,7 +465,7 @@
             wybor +
             '<dl class="lg-dymek-dane">' +
                 '<div><dt>Etap</dt><dd><span class="lg-etap" data-etap="' + esc(etap.status) + '">' +
-                    (etap.status === 'spakowane'
+                    (STATUSY_PO_SPAKOWANIU.includes(etap.status)
                         ? '<i class="fas fa-check lg-etap-znak" aria-hidden="true"></i>'
                         : '<span class="lg-etap-znak" aria-hidden="true"></span>') +
                     '<span class="lg-etap-nazwa">' + esc(etap.nazwa || etap.status) + '</span></span></dd></div>' +

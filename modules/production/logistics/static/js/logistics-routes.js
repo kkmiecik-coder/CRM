@@ -84,6 +84,8 @@
     // wagę trasy zawsze liczy serwer (podsumowanie).
     const WAGA_KG_NA_M3 = 800;
     const TRANSPORT = 'transport_woodpower';
+    // Towar spakowany albo dalej (ptaszek przy etapie) — jak sposoby.STATUSY_PO_SPAKOWANIU.
+    const STATUSY_PO_SPAKOWANIU = ['spakowane', 'zweryfikowane', 'zaladowane', 'dostarczone'];
     // Zakres roku w filtrze „Wykonane” (jak min/max w szablonie) — Chrome przepuszcza w polu
     // daty rok 5–6-cyfrowy (np. 92026), a serwer taki odrzuca (oględziny M5). Filtr przeszukuje
     // historię, więc granic dat trasy (niżej) celowo nie ma.
@@ -457,10 +459,10 @@
 
     /**
      * Znacznik etapu w kropce koloru stanowiska — ten sam co w kolumnie „Etap” listy zamówień
-     * (logistics.css, .lg-etap[data-etap]); spakowane z ptaszkiem. tekst — napis obok kropki.
+     * (logistics.css, .lg-etap[data-etap]); spakowane i dalej z ptaszkiem. tekst — napis obok kropki.
      */
     function znacznikEtapuHtml(status, tekst, klasa) {
-        const znak = status === 'spakowane'
+        const znak = STATUSY_PO_SPAKOWANIU.includes(status)
             ? '<i class="fas fa-check lg-etap-znak" aria-hidden="true"></i>'
             : '<span class="lg-etap-znak" aria-hidden="true"></span>';
         return '<span class="lg-etap' + (klasa ? ' ' + klasa : '') + '" data-etap="' + esc(status) + '">' + znak +

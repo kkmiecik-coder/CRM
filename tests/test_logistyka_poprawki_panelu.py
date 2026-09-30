@@ -115,7 +115,7 @@ def test_cofniecie_juz_nieustawionego_nic_nie_zmienia(app):
     ('czeka_na_wyciecie', 'Wycinanie - mikro'),
     ('czeka_na_lakiernie', 'Lakiernia'),
     ('czeka_na_pakowanie', 'Pakowanie'),
-    ('spakowane', 'Spakowane'),
+    ('spakowane', u'Spakowane — czeka na weryfikację'),   # spec 4.1 i 11 (krok 4.3)
     ('wstrzymane', 'Wstrzymane'),
 ])
 def test_etap_to_nazwa_stanowiska(app, status, nazwa):
