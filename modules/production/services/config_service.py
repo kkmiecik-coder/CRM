@@ -402,6 +402,14 @@ class ProductionConfigService:
             if not (1 <= days <= 365):
                 raise ConfigError("Domyślny deadline musi być między 1 a 365 dni")
         
+        elif key.startswith('PACKAGE_LABEL_OFFSET_') and config_type == 'integer':
+            # Przesunięcie etykiety paczki (logistyka etap 4) — powyżej 15 mm to źle
+            # założona rolka, a nie kalibracja; generator i tak przycina do ±120.
+            przesuniecie = int(value)
+            if not (-120 <= przesuniecie <= 120):
+                raise ConfigError("Przesunięcie etykiety paczki musi być między -120 a 120 punktów "
+                                  "(8 punktów = 1 mm)")
+
         elif key.endswith('_IPS') and config_type == 'ip_list':
             # Walidacja listy IP
             import ipaddress

@@ -251,6 +251,9 @@ def config_tab_content():
             'LABEL_PRINTER_ALLOWED_STATIONS':('printer',     'formatting,packaging',     'string'),
             'LABEL_PRINTER_USE_AGENT':       ('printer',     'false',                    'boolean'),
             'LABEL_PRINTER_AGENT_TOKEN':     ('printer',     'change-me-in-prod',        'string'),
+            # Drukarka paczek 100x150 (logistyka etap 4) — przesunięcie w punktach, 8 = 1 mm
+            'PACKAGE_LABEL_OFFSET_X_DOTS':   ('printer',     0,                          'integer'),
+            'PACKAGE_LABEL_OFFSET_Y_DOTS':   ('printer',     0,                          'integer'),
 
             # Profile pracowników (docs/worker-profiles-backend.md §4.5).
             # WORKER_SELECTION_REQUIRED to KILL-SWITCH: przy 'true' awaria katalogu
@@ -517,6 +520,8 @@ def update_configs():
             'LABEL_PRINTER_RETRY_COUNT', 'LABEL_PRINTER_OFFSET_LT', 'LABEL_PRINTER_OFFSET_LS',
             'LABEL_PRINTER_ALLOWED_STATIONS',
             'LABEL_PRINTER_USE_AGENT', 'LABEL_PRINTER_AGENT_TOKEN',
+            # Drukarka paczek — bez tego pola w UI istnieją, ale zapis wraca błędem.
+            'PACKAGE_LABEL_OFFSET_X_DOTS', 'PACKAGE_LABEL_OFFSET_Y_DOTS',
             # Profile pracowników — bez tego przełącznik w UI istnieje, ale zapis
             # wraca błędem "Niepozwolone klucze konfiguracji".
             'WORKER_SELECTION_REQUIRED', 'WORKER_SESSION_IDLE_TIMEOUT_MINUTES',
@@ -797,3 +802,34 @@ def get_config_info(config_key: str):
 # ============================================================================
 
 
+# ============================================================================
+# WYDRUK PRÓBNY - ustawianie drukarek z panelu Konfiguracja
+# ============================================================================
+
+@api_bp.route('/print-test', methods=['POST'])
+@admin_required
+def api_print_test():
+    """
+    POST /production/api/print-test  {"printer": "etykiety" | "wysylka"}
+
+    Wydruk próbny z panelu Konfiguracja → Drukarka etykiet. Wkłada jedno zadanie do
+    kolejki agenta druku — samą etykietę drukuje agent na komputerze hali.
+    """
+    from ...services import print_queue_service
+
+    dane = request.get_json(silent=True) or {}
+    drukarka = dane.get('printer')
+    try:
+        job = print_queue_service.wydruk_probny(
+            drukarka, {'type': 'user', 'id': current_user.id})
+    except print_queue_service.NieznanaDrukarka:
+        return jsonify({
+            'success': False,
+            'error': 'Nieznana drukarka — wybierz drukarkę etykiet albo drukarkę paczek.',
+        }), 400
+    return jsonify({
+        'success': True,
+        'job_id': job.id,
+        'message': 'Wydruk próbny w kolejce: %s. Etykieta wyjdzie, gdy agent druku pobierze zadanie.'
+                   % print_queue_service.NAZWY_DRUKAREK[drukarka],
+    }), 200
