@@ -11,6 +11,13 @@
  * - Reset do wartości domyślnych
  */
 
+// Karta drukarki: lista wyboru przełącza widoczne grupy ustawień (etykiety / paczki).
+// Grupa 'wspolne' (agent druku) jest widoczna zawsze. Wybór to ustawienie widoku,
+// a nie klucz konfiguracji, więc nie trafia do pendingChanges ani do bazy.
+const DRUKARKI = ['etykiety', 'wysylka'];
+const DRUKARKA_DOMYSLNA = 'etykiety';
+const KLUCZ_DRUKARKI_STORAGE = 'konfiguracja.drukarka';
+
 class ConfigModule {
     constructor() {
         this.pendingChanges = {};
@@ -109,6 +116,9 @@ class ConfigModule {
      */
     loadOriginalValuesFromDOM() {
         console.log('[ConfigModule] 📥 loadOriginalValuesFromDOM() called by external trigger');
+        // Zakładka Konfiguracja wczytuje się przez AJAX, więc stan listy drukarek
+        // ustawiamy dopiero tu, gdy jej treść jest już w DOM (nie na DOMContentLoaded).
+        this.initWyborDrukarki();
         this.loadOriginalValues();
 
         // Trakownia: osobny mechanizm, POZA pendingChanges/saveAllChanges —
@@ -1011,15 +1021,105 @@ class ConfigModule {
         }
     }
 
+    // ========================================================================
+    // WYBÓR DRUKARKI (karta „Drukarka etykiet”: etykiety / paczki)
+    // ========================================================================
+
+    /**
+     * Sprowadza wartość do jednej ze znanych drukarek; nieznana albo pusta
+     * (np. stary wpis w localStorage) daje domyślne etykiety.
+     */
+    normalizujDrukarke(wartosc) {
+        return DRUKARKI.includes(wartosc) ? wartosc : DRUKARKA_DOMYSLNA;
+    }
+
+    /**
+     * Odczyt zapamiętanego wyboru. localStorage bywa zablokowany (prywatne okno,
+     * blokada danych witryny) i wtedy rzuca wyjątek, więc czytamy w try/catch,
+     * a panel działa dalej z domyślną drukarką.
+     */
+    odczytajZapamietanaDrukarke() {
+        try {
+            return this.normalizujDrukarke(window.localStorage.getItem(KLUCZ_DRUKARKI_STORAGE));
+        } catch (error) {
+            return DRUKARKA_DOMYSLNA;
+        }
+    }
+
+    /**
+     * Zapis wyboru w localStorage. Błąd zapisu (zablokowany storage) pomijamy:
+     * wybór działa do przeładowania strony, nic się przez to nie psuje.
+     */
+    zapamietajDrukarke(drukarka) {
+        try {
+            window.localStorage.setItem(KLUCZ_DRUKARKI_STORAGE, drukarka);
+        } catch (error) {
+            // storage niedostępny: bez pamięci wyboru
+        }
+    }
+
+    /**
+     * Pokazuje grupę wybranej drukarki i grupę wspólną, ukrywa pozostałe.
+     * Pola ukrytych grup zostają w DOM, więc zapis, „Przywróć domyślne”
+     * i śledzenie zmian działają dla nich tak samo jak dla widocznych.
+     */
+    pokazGrupeDrukarki(drukarka) {
+        document.querySelectorAll('.config-drukarka-grupa[data-drukarka]').forEach(grupa => {
+            const nazwa = grupa.getAttribute('data-drukarka');
+            grupa.hidden = !(nazwa === 'wspolne' || nazwa === drukarka);
+        });
+    }
+
+    /**
+     * Stan początkowy listy drukarek po wczytaniu zakładki: ostatni wybór
+     * z localStorage albo etykiety. Błąd tutaj nie może zablokować wczytywania
+     * wartości oryginalnych (śledzenie zmian), więc jest łapany.
+     */
+    initWyborDrukarki() {
+        try {
+            const lista = document.getElementById('drukarka_wybor');
+            if (!lista) return;
+            const drukarka = this.odczytajZapamietanaDrukarke();
+            lista.value = drukarka;
+            this.pokazGrupeDrukarki(drukarka);
+        } catch (error) {
+            console.error('[ConfigModule] Wybór drukarki:', error);
+        }
+    }
+
+    /**
+     * Zmiana wyboru w liście: przełącza grupy bez przeładowania i zapamiętuje wybór.
+     */
+    wybierzDrukarke(wartosc) {
+        const drukarka = this.normalizujDrukarke(wartosc);
+        const lista = document.getElementById('drukarka_wybor');
+        if (lista && lista.value !== drukarka) {
+            lista.value = drukarka;
+        }
+        this.pokazGrupeDrukarki(drukarka);
+        this.zapamietajDrukarke(drukarka);
+    }
+
+    /**
+     * Wydruk próbny na drukarce wybranej w liście (jedyna ścieżka z przycisku).
+     */
+    wydrukProbnyWybranej() {
+        const lista = document.getElementById('drukarka_wybor');
+        return this.wydrukProbny(this.normalizujDrukarke(lista ? lista.value : null));
+    }
+
     /**
      * Wydruk próbny na drukarce etykiet albo paczek (logistyka etap 4).
      * Serwer bierze ZAPISANE przesunięcia. Przy niezapisanej zmianie przesunięcia
+     * TEJ drukarki (paczki: PACKAGE_LABEL_OFFSET_*, etykiety: LABEL_PRINTER_OFFSET_*)
      * po udanym wydruku pokazujemy JEDEN komunikat ostrzegawczy (osobny komunikat
      * przed wysłaniem zostałby od razu przykryty komunikatem o sukcesie).
+     * Zmiany przesunięcia drugiej drukarki nie mają wpływu na ten wydruk, więc nie ostrzegamy.
      */
     async wydrukProbny(drukarka) {
+        const prefiksPrzesuniec = drukarka === 'wysylka' ? 'PACKAGE_LABEL_OFFSET_' : 'LABEL_PRINTER_OFFSET_';
         const niezapisane = Object.keys(this.pendingChanges || {})
-            .some(klucz => klucz.startsWith('PACKAGE_LABEL_OFFSET_') || klucz.startsWith('LABEL_PRINTER_OFFSET_'));
+            .some(klucz => klucz.startsWith(prefiksPrzesuniec));
         try {
             const response = await fetch('/production/api/print-test', {
                 method: 'POST',
@@ -1194,6 +1294,18 @@ window.clearCache = function () {
 window.wydrukProbny = function (drukarka) {
     if (window.configModule) {
         window.configModule.wydrukProbny(drukarka);
+    }
+};
+
+window.wydrukProbnyWybranej = function () {
+    if (window.configModule) {
+        window.configModule.wydrukProbnyWybranej();
+    }
+};
+
+window.wybierzDrukarke = function (drukarka) {
+    if (window.configModule) {
+        window.configModule.wybierzDrukarke(drukarka);
     }
 };
 

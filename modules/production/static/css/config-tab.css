@@ -175,6 +175,34 @@
     min-width: 280px;
 }
 
+/* ─── KARTA DRUKARKI: grupy pozycji wybranej drukarki ─── */
+/* Grupa niewybranej drukarki ma atrybut hidden (bez własnego display, żeby nie
+   nadpisywał ukrywania). Pole w ukrytej grupie zostaje w DOM. */
+.config-drukarka-naglowek {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 10px;
+    padding: 8px 14px;
+    background: var(--il-bg-base, #eef0f4);
+    border-bottom: 1px solid var(--il-border-light, #e2e5ea);
+    font-size: 11px;
+    color: var(--il-text-muted, #9ba3b0);
+}
+
+.config-drukarka-naglowek strong {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--il-text-secondary, #7a8291);
+}
+
+/* Ostatnia pozycja grupy nie jest ostatnia w karcie: zostaje linia oddzielająca od dalszej części */
+.config-drukarka-grupa .config-item:last-child {
+    border-bottom: 1px solid var(--il-bg-base, #eef0f4);
+}
+
 .config-item-header {
     display: flex;
     align-items: center;
