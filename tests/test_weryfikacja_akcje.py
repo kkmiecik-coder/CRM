@@ -10,7 +10,8 @@ from extensions import db
 from modules.production.logistics import sposoby as s
 from modules.production.logistics.models import LogisticsLog
 from modules.production.logistics.services import weryfikacja
-from modules.production.models import ProcessedMobileOperation, ProductionDevice, ProductionOrder, ProductionPackage
+from modules.production.models import (ProcessedMobileOperation, ProductionDevice, ProductionOrder,
+                                       ProductionPackage, get_local_now)
 from modules.production.services.mobile_api_service import generate_token
 from tests.logistyka_fixtures import app, client, pracownik, zamowienie  # noqa: F401
 from tests.weryfikacja_pomocnicze import migawka_pozycji
@@ -45,9 +46,14 @@ def _naglowki(device, kto=None, op_id=None, **inne):
     return naglowki
 
 
-def _z_paczkami(statusy=('spakowane', 'spakowane'), n=2, sposob=s.KURIER, **kolumny):
+def _z_paczkami(statusy=('spakowane', 'spakowane'), n=2, sposob=s.KURIER, spakowano=None, **kolumny):
     order = zamowienie(sposob=sposob, statusy=statusy, numer_wewnetrzny=str(next(_numery)),
                        packages_declared_at=T0, **kolumny)
+    # Jak na produkcji: spakowanie zawsze zapisuje packaging_completed_at. Zakres listy Weryfikacji
+    # (weryfikacja.warunek_zakresu) liczy od niego zamówienia zamknięte w Logistyce (kurier po weryfikacji),
+    # więc „teraz”, nie stała data: stała wypadłaby z okna 7 dni za tydzień.
+    for p in order.products:
+        p.packaging_completed_at = spakowano or get_local_now()
     lista = [ProductionPackage(order_id=order.id, seq=i, kind='paczka', declared_at=T0)
              for i in range(1, n + 1)]
     db.session.add_all(lista)
@@ -91,6 +97,43 @@ def test_ponowny_skan_bez_zmian(app, client):
     assert ponowny.status_code == 200
     assert (ponowny.get_json()['changed'], ponowny.get_json()['order_verified']) == (False, True)
     assert LogisticsLog.query.filter_by(order_id=order.id, action='weryfikacja').count() == 1
+
+
+def test_skan_sprawdzonej_paczki_domyka_zamowienie_gdy_wszystkie_paczki_sa_sprawdzone(app, client):
+    """Po hurtowej zmianie „zweryfikowane” → „spakowane” paczki zostają sprawdzone, a pozycje nie są
+    zweryfikowane — żaden skan nie zmieniałby niczego, więc ponowny skan domyka zamówienie (raz)."""
+    kto, device = pracownik(), _urzadzenie()
+    order, (p1, p2) = _z_paczkami()                      # pozycje 'spakowane' ustawione bezpośrednio
+    for p in (p1, p2):
+        p.verified_at, p.verified_method, p.verified_by_worker_id = T0, 'skan', kto.id
+    db.session.commit()
+
+    pierwszy = _verify(client, p1, device, kto)
+    assert pierwszy.status_code == 200, pierwszy.get_json()
+    assert (pierwszy.get_json()['changed'], pierwszy.get_json()['order_verified']) == (True, True)
+    assert pierwszy.get_json()['order']['stage'] == 'zweryfikowane'
+    o = ProductionOrder.query.get(order.id)
+    assert [p.current_status for p in o.products] == ['zweryfikowane', 'zweryfikowane']
+    assert o.verified_at is not None and o.verified_by_worker_id == kto.id
+    wpis = LogisticsLog.query.filter_by(order_id=order.id, action='weryfikacja').one()
+    assert (wpis.new_value, wpis.note, wpis.worker_id) == (u'2 × paczka', 'skan', kto.id)
+    kiedy = o.verified_at
+
+    drugi = _verify(client, p2, device, kto)             # teraz naprawdę bez zmian
+    assert (drugi.get_json()['changed'], drugi.get_json()['order_verified']) == (False, True)
+    assert LogisticsLog.query.filter_by(order_id=order.id, action='weryfikacja').count() == 1
+    assert ProductionOrder.query.get(order.id).verified_at == kiedy
+
+
+def test_skan_sprawdzonej_paczki_nie_domyka_zamowienia_gdy_inna_paczka_czeka(app, client):
+    kto, device = pracownik(), _urzadzenie()
+    order, (p1, _p2) = _z_paczkami()
+    p1.verified_at, p1.verified_method, p1.verified_by_worker_id = T0, 'skan', kto.id
+    db.session.commit()
+    r = _verify(client, p1, device, kto)
+    assert (r.get_json()['changed'], r.get_json()['order_verified']) == (False, False)
+    assert [p.current_status for p in ProductionOrder.query.get(order.id).products] == ['spakowane', 'spakowane']
+    assert LogisticsLog.query.filter_by(order_id=order.id, action='weryfikacja').count() == 0
 
 
 @pytest.mark.parametrize('ustaw, kod', [

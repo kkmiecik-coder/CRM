@@ -350,6 +350,37 @@ def problem_otwarty(order):
                                               POWODY_PROBLEMU.get(order.problem_reason, order.problem_reason)))
 
 
+def sprawdz_zakres(order, teraz):
+    """
+    Zapis Weryfikacji tylko na zamówieniu z zakresu listy (fala końcowa kroku 4.3). Wołana w KAŻDYM
+    zapisie poza `rozwiaz_problem`, PO blokadach i PO sprawdzeniach stanu (`stan_do_zapisu`,
+    `problem_open`, `no_packages`, `order_not_verified` — bardziej konkretny kod wygrywa), tuż przed
+    pierwszym zapisem. Bez niej „Cofnij do pakowania” na zamówieniu kurierskim sprzed miesięcy
+    wysłałoby do Base. status 138620, otworzyło je w Logistyce i dało tabletom pakowania.
+
+    Zakres = `warunek_zakresu(teraz)` (zamówienie otwarte w Logistyce albo z pozycją spakowaną od
+    `poczatek_okna(teraz)`) ALBO otwarty problem (`order.problem_at`, z obiektu już zablokowanego i
+    odświeżonego odczytem bieżącym). Zamówienie z otwartym problemem zostaje w zakresie bez względu na
+    wiek, bo problem trzeba móc rozwiązać i cofnąć do pakowania. Poza zakresem: 409 `order_status`,
+    więc bez zapamiętania w idempotencji (BLEDY_DO_PONOWIENIA) i bez startu dopychacza Base.
+    (`zaplanuj_po_commicie` rusza dopiero po tej kontroli).
+
+    Zwykły SELECT, nie FOR UPDATE: podzapytanie po pozycjach blokowałoby luki indeksów. Migawka MySQL
+    (REPEATABLE READ) sprzed czekania na blokady tu nie szkodzi: to tylko obrona zakresu, a błąd nie jest
+    zapamiętany, więc telefon może ponowić ze świeżą migawką. Świeżo spakowane zamówienie nie wypadnie
+    z zakresu przez starą migawkę: sprzed spakowania widać je jako otwarte w Logistyce, a po spakowaniu
+    ma packaging_completed_at z ostatnich chwil, czyli w oknie listy.
+    """
+    if order.problem_at is not None:
+        return
+    w_zakresie = (db.session.query(ProductionOrder.id)
+                  .filter(ProductionOrder.id == order.id, warunek_zakresu(teraz)).first())
+    if w_zakresie is None:
+        raise WeryfikacjaBlad('order_status', u'Zamówienie {} jest poza listą Weryfikacji (spakowane ponad {} '
+                              u'dni temu albo przed uruchomieniem Weryfikacji).'.format(
+                                  order.internal_order_number, DNI_LISTY))
+
+
 def _oznacz(paczka, metoda, worker_id, teraz):
     paczka.verified_at = teraz
     paczka.verified_by_worker_id = worker_id
@@ -370,7 +401,10 @@ def _zweryfikuj_zamowienie(order, aktywne, aktualne, metoda, worker_id, device_i
 def zweryfikuj_paczke(paczka, order, metoda, worker_id=None, device_id=None, teraz=None):
     """
     Skan albo ręczne odhaczenie jednej paczki (spec 8.3). Zwraca (zmieniono, zamówienie_zweryfikowane).
-    Ostatnia ważna paczka → zamówienie 'zweryfikowane'. Ponowny skan sprawdzonej paczki = OK bez zmian.
+    Ostatnia ważna paczka → zamówienie 'zweryfikowane'. Ponowny skan sprawdzonej paczki = OK bez zmian,
+    chyba że WSZYSTKIE aktualne paczki są już sprawdzone, a pozycje jeszcze nie są 'zweryfikowane'
+    (po hurtowej zmianie statusów) — wtedy ten skan domyka zamówienie i zwraca (True, True).
+    Zapis tylko w zakresie listy (sprawdz_zakres).
     Router bierze paczki.zablokuj_deklaracje(), potem zamówienie i paczkę FOR UPDATE (w tej kolejności —
     jak deklaracja, zamówienie → paczki). Stan pozycji i paczek, na którym funkcja decyduje, pochodzi
     z odczytu bieżącego (stan_do_zapisu) — także „czy to była ostatnia paczka”. NIE commituje.
@@ -381,8 +415,17 @@ def zweryfikuj_paczke(paczka, order, metoda, worker_id=None, device_id=None, ter
     aktywne, aktualne = stan_do_zapisu(order)
     if order.problem_at is not None:
         raise problem_otwarty(order)
+    sprawdz_zakres(order, teraz)
     if paczka.verified_at is not None:
-        return False, all(p.current_status == 'zweryfikowane' for p in aktywne)
+        zweryfikowane = all(p.current_status == 'zweryfikowane' for p in aktywne)
+        if not zweryfikowane and all(p.verified_at is not None for p in aktualne):
+            # Wszystkie aktualne paczki są już sprawdzone, a pozycje nie są zweryfikowane — tak zostaje
+            # po hurtowej zmianie „zweryfikowane” → „spakowane” (paczki zachowują znaczniki). Żaden
+            # skan nie zmieniłby wtedy niczego, więc ponowny skan domyka zamówienie.
+            _zweryfikuj_zamowienie(order, aktywne, aktualne, metoda, worker_id, device_id, teraz)
+            delivery.podbij_pozycje(order, teraz)
+            return True, True
+        return False, zweryfikowane
     _oznacz(paczka, metoda, worker_id, teraz)
     zweryfikowane = all(p.verified_at is not None for p in aktualne)
     if zweryfikowane:
@@ -401,6 +444,7 @@ def zweryfikuj_wszystkie(order, worker_id=None, device_id=None, teraz=None):
     if not aktualne:
         raise WeryfikacjaBlad('no_packages', u'Zamówienie {} nie ma zadeklarowanych paczek — najpierw '
                               u'zadeklaruj paczki.'.format(order.internal_order_number))
+    sprawdz_zakres(order, teraz)
     niesprawdzone = [p for p in aktualne if p.verified_at is None]
     if not niesprawdzone and all(p.current_status == 'zweryfikowane' for p in aktywne):
         return False
@@ -439,6 +483,7 @@ def cofnij_weryfikacje(order, worker_id=None, device_id=None, teraz=None, powod=
     if not all(p.current_status == 'zweryfikowane' for p in aktywne):
         raise WeryfikacjaBlad('order_not_verified', u'Zamówienie {} nie jest zweryfikowane.'.format(
             order.internal_order_number))
+    sprawdz_zakres(order, teraz)
     cofnij_weryfikacje_zamowienia(order, aktywne, aktualne, powod, worker_id, device_id, teraz)
     return True
 
@@ -470,6 +515,7 @@ def zglos_problem(order, powod, notatka, worker_id=None, device_id=None, teraz=N
     waliduj_powod(powod)
     notatka = _notatka(notatka)
     aktywne, aktualne = stan_do_zapisu(order)
+    sprawdz_zakres(order, teraz)
     if (order.verified_at is not None or any(p.current_status == 'zweryfikowane' for p in aktywne)
             or any(p.verified_at is not None for p in aktualne)):
         cofnij_weryfikacje_zamowienia(order, aktywne, aktualne, u'problem: {}'.format(POWODY_PROBLEMU[powod]),
@@ -522,6 +568,7 @@ def cofnij_do_pakowania(order, powod=None, notatka=None, worker_id=None, device_
         raise WeryfikacjaBlad('invalid_problem', u'Podaj powód cofnięcia do pakowania.', 422)
     waliduj_powod(powod)
     aktywne, _aktualne = stan_do_zapisu(order)
+    sprawdz_zakres(order, teraz)   # przed pierwszym zapisem i przed zaplanowaniem dopychacza Base.
     przed, _napis = etap(aktywne)
     tekst = (u'Weryfikacja: {}'.format(POWODY_PROBLEMU[powod])
              + (u': {}'.format(notatka) if notatka else u''))[:255]

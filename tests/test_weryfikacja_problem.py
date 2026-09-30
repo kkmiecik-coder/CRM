@@ -2,7 +2,7 @@
 """Problem przy weryfikacji, „Cofnij do pakowania” i baner repack_reason na tablecie pakowania
 (logistyka etap 4, krok 4.3, spec 4.5, 8.3 i 8.4)."""
 import itertools
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import pytest
 from flask import g, jsonify
@@ -12,8 +12,8 @@ from modules.production.logistics import sposoby as s
 from modules.production.logistics.models import LogisticsLog, Route, RouteStop
 from modules.production.logistics.routers import weryfikacja_api
 from modules.production.logistics.services import bl_sync, weryfikacja
-from modules.production.models import (ProcessedMobileOperation, ProductionDevice, ProductionOrder,
-                                       ProductionPackage)
+from modules.production.models import (ProcessedMobileOperation, ProductionConfig, ProductionDevice,
+                                       ProductionOrder, ProductionPackage, get_local_now)
 from modules.production.routers import mobile_api
 from modules.production.services.mobile_api_service import generate_token
 from tests.logistyka_fixtures import app, client, pracownik, zamowienie  # noqa: F401
@@ -59,11 +59,14 @@ def _naglowki(device, kto=None, op_id=None):
     return naglowki
 
 
-def _z_paczkami(statusy=('spakowane', 'spakowane'), n=2, sposob=s.KURIER, zweryfikowane=False, **kolumny):
+def _z_paczkami(statusy=('spakowane', 'spakowane'), n=2, sposob=s.KURIER, zweryfikowane=False,
+                spakowano=None, **kolumny):
     order = zamowienie(sposob=sposob, statusy=statusy, numer_wewnetrzny=str(next(_numery)),
                        packages_declared_at=T0, **kolumny)
+    # „Teraz”, nie stała data: zakres listy Weryfikacji (warunek_zakresu) liczy zamówienia zamknięte
+    # w Logistyce od packaging_completed_at w oknie 7 dni — stała T0 wypadłaby z niego za tydzień.
     for p in order.products:
-        p.packaging_completed_at = T0
+        p.packaging_completed_at = spakowano or get_local_now()
     db.session.add_all([ProductionPackage(order_id=order.id, seq=i, kind='paczka', declared_at=T0,
                                           verified_at=T0 if zweryfikowane else None,
                                           verified_method='skan' if zweryfikowane else None)
@@ -316,3 +319,137 @@ def test_cofniecie_do_pakowania_przestawia_pozycje_z_biezacego_stanu(app, client
     o = ProductionOrder.query.get(order.id)
     assert [(p.current_status, p.quantity_done_packaging) for p in o.products] == \
         [('czeka_na_pakowanie', 0), ('czeka_na_pakowanie', 0)]
+
+
+# --- Zapisy tylko w zakresie listy (fala końcowa 4.3, F2) ---------------------------------------------
+# Zakres = zamówienie otwarte w Logistyce albo z pozycją spakowaną od początku okna (7 dni, nie wcześniej
+# niż wdrożenie) ALBO z otwartym problemem. Poza nim każdy zapis poza problem/resolve: 409 order_status,
+# niezapamiętane, bez dopychacza Base. Zamówienie kurierskie po weryfikacji jest zamknięte w Logistyce,
+# więc o zakresie decyduje data spakowania.
+
+def _stary_kurier(statusy=('spakowane', 'spakowane'), dni=10, **kolumny):
+    """Zamówienie kurierskie zamknięte w Logistyce, spakowane `dni` dni temu (okno listy to 7)."""
+    dawno = get_local_now() - timedelta(days=dni)
+    return _z_paczkami(statusy=statusy, spakowano=dawno, logistics_closed_at=dawno,
+                       zweryfikowane=statusy[0] == 'zweryfikowane', **kolumny)
+
+
+def _stan(order):
+    """Stan zamówienia z bazy (po wygaszeniu sesji) — do porównania „przed” i „po” odmowie."""
+    db.session.expire_all()
+    o = ProductionOrder.query.get(order.id)
+    return ([p.current_status for p in o.products], o.verified_at, o.problem_at, o.problem_reason,
+            o.repack_required, o.repack_reason, o.packages_declared_at, o.logistics_closed_at,
+            o.bl_status_pending_id,
+            [(x.verified_at, x.voided_at) for x in ProductionPackage.query.filter_by(order_id=order.id)
+             .order_by(ProductionPackage.seq)])
+
+
+def _wywolaj(client, order, akcja, device, kto):
+    if akcja == 'verify':
+        paczka = ProductionPackage.query.filter_by(order_id=order.id, seq=1).one()
+        return client.post('%s/packages/%d/verify' % (BASE, paczka.id), json={'method': 'skan'},
+                           headers=_naglowki(device, kto))
+    return _post(client, order, akcja, device, kto, reason='inne')
+
+
+@pytest.mark.parametrize('akcja', ['verify', 'verify-all', 'unverify', 'problem', 'revert-to-packing'])
+def test_zapis_poza_zakresem_listy_to_409_order_status(app, client, dopychacz, akcja):
+    kto, device = pracownik(), _urzadzenie()
+    zweryfikowane = akcja == 'unverify'       # cofnięcie weryfikacji ma sens dopiero na zweryfikowanym
+    order = _stary_kurier(statusy=('zweryfikowane',) * 2 if zweryfikowane else ('spakowane',) * 2,
+                          verified_at=T0 if zweryfikowane else None)
+    przed = _stan(order)
+    r = _wywolaj(client, order, akcja, device, kto)
+    assert (r.status_code, r.get_json()['error']) == (409, 'order_status'), r.get_json()
+    assert u'poza listą Weryfikacji' in r.get_json()['message']
+    assert order.internal_order_number in r.get_json()['message']
+    assert _stan(order) == przed                                  # nic się nie zmieniło
+    assert ProcessedMobileOperation.query.count() == 0            # 409 niezapamiętane (BLEDY_DO_PONOWIENIA)
+    assert _akcje(order) == []
+    assert dopychacz == [] and not g.get('_logistyka_bl_po_commicie')   # dopychacz Base. nie wystartował
+
+
+def test_odmowa_poza_zakresem_nie_otwiera_zamowienia_i_nie_wysyla_138620(app, client, dopychacz):
+    """Sedno poprawki: „Cofnij do pakowania” na starym zamówieniu kurierskim nie otwiera go w Logistyce."""
+    order = _stary_kurier(statusy=('zweryfikowane', 'zweryfikowane'), verified_at=T0)
+    r = _post(client, order, 'revert-to-packing', _urzadzenie(), pracownik(), reason='uszkodzenie')
+    assert r.status_code == 409
+    o = ProductionOrder.query.get(order.id)
+    assert (o.repack_required, o.bl_status_pending_id) == (False, None) and o.logistics_closed_at is not None
+    assert all(p.voided_at is None for p in ProductionPackage.query.filter_by(order_id=order.id))
+    assert dopychacz == []
+
+
+def test_poza_zakresem_z_otwartym_problemem_mozna_rozwiazac_i_cofnac_do_pakowania(app, client, dopychacz):
+    """Otwarty problem = w zakresie: `problem/resolve` działa, `revert-to-packing` też (i uruchamia dopychacz)."""
+    kto, device = pracownik(), _urzadzenie()
+    do_rozwiazania = _stary_kurier(problem_reason='etykieta', problem_at=T0)
+    r = _post(client, do_rozwiazania, 'problem/resolve', device, kto)
+    assert r.status_code == 200 and r.get_json()['changed'] is True
+    assert ProductionOrder.query.get(do_rozwiazania.id).problem_at is None
+    # po rozwiązaniu problemu zamówienie wraca poza zakres, więc kolejny zapis jest już odrzucony
+    po = _post(client, do_rozwiazania, 'problem', device, kto, reason='inne')
+    assert (po.status_code, po.get_json()['error']) == (409, 'order_status')
+
+    do_cofniecia = _stary_kurier(problem_reason='uszkodzenie', problem_note=u'pęknięty blat', problem_at=T0)
+    r = _post(client, do_cofniecia, 'revert-to-packing', device, kto)
+    assert r.status_code == 200, r.get_json()
+    o = ProductionOrder.query.get(do_cofniecia.id)
+    assert o.repack_reason == u'Weryfikacja: Uszkodzenie: pęknięty blat' and o.logistics_closed_at is None
+    assert dopychacz == ['start']
+
+
+def test_poza_zakresem_z_otwartym_problemem_problem_open_wygrywa_z_zakresem(app, client):
+    """Kolejność sprawdzeń: bardziej konkretny kod (problem_open) przed zakresem; sam problem w zakresie."""
+    kto, device = pracownik(), _urzadzenie()
+    order = _stary_kurier(problem_reason='inne', problem_at=T0)
+    r = _wywolaj(client, order, 'verify', device, kto)
+    assert (r.status_code, r.get_json()['error']) == (409, 'problem_open')
+    ponowne = _post(client, order, 'problem', device, kto, reason='etykieta')      # nadpisanie powodu działa
+    assert ponowne.status_code == 200
+    assert ProductionOrder.query.get(order.id).problem_reason == 'etykieta'
+
+
+@pytest.mark.parametrize('statusy, kod, fragment', [
+    (('spakowane', 'czeka_na_pakowanie'), 'order_not_packed', u'nie jest jeszcze w całości spakowane'),
+    (('dostarczone', 'dostarczone'), 'order_status', u'już dostarczone'),
+    (('zaladowane', 'zaladowane'), 'order_status', u'już załadowane'),
+])
+def test_poza_zakresem_konkretniejsze_sprawdzenie_stanu_wygrywa_z_zakresem(app, client, statusy, kod, fragment):
+    r = _post(client, _stary_kurier(statusy=statusy), 'problem', _urzadzenie(), pracownik(), reason='inne')
+    assert (r.status_code, r.get_json()['error']) == (409, kod)
+    assert fragment in r.get_json()['message'] and u'poza listą' not in r.get_json()['message']
+
+
+def test_zamowienie_spakowane_przed_wdrozeniem_weryfikacji_jest_poza_zakresem(app, client, dopychacz):
+    teraz = get_local_now()
+    db.session.add(ProductionConfig(config_key='logistyka_weryfikacja_od', config_type='string',
+                                    config_value=(teraz - timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')))
+    db.session.commit()
+    kto, device = pracownik(), _urzadzenie()
+    # 3 dni temu: w oknie 7 dni, ale PRZED wdrożeniem kroku 4.3 — poza zakresem
+    przed = teraz - timedelta(days=3)
+    stare = _z_paczkami(spakowano=przed, logistics_closed_at=przed)
+    r = _post(client, stare, 'revert-to-packing', device, kto, reason='inne')
+    assert (r.status_code, r.get_json()['error']) == (409, 'order_status')
+    assert dopychacz == [] and ProductionOrder.query.get(stare.id).logistics_closed_at is not None
+    # spakowane po wdrożeniu, choć też zamknięte w Logistyce: w zakresie
+    po = _z_paczkami(spakowano=teraz - timedelta(hours=2), logistics_closed_at=teraz - timedelta(hours=2))
+    assert _post(client, po, 'problem', device, kto, reason='inne').status_code == 200
+
+
+def test_zamkniete_spakowane_wczoraj_i_otwarte_bez_wzgledu_na_date_sa_w_zakresie(app, client):
+    kto, device = pracownik(), _urzadzenie()
+    wczoraj = _stary_kurier(dni=1)
+    assert _post(client, wczoraj, 'problem', device, kto, reason='inne').status_code == 200
+    otwarte = _stary_kurier(dni=30)
+    ProductionOrder.query.get(otwarte.id).logistics_closed_at = None       # otwarte w Logistyce: bez względu na datę
+    db.session.commit()
+    assert _post(client, otwarte, 'problem', device, kto, reason='inne').status_code == 200
+
+
+def test_odczyt_zamowienia_poza_zakresem_zostaje_bez_ograniczenia(app, client):
+    order = _stary_kurier()
+    r = client.get('%s/orders/%s' % (BASE, order.internal_order_number), headers=_naglowki(_urzadzenie()))
+    assert r.status_code == 200 and r.get_json()['order']['internal_order_number'] == order.internal_order_number

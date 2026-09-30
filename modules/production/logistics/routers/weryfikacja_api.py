@@ -7,6 +7,9 @@ Handlery zapisu NIE commitują — robi to dekorator idempotencji. Kolejność b
 pracownicy (touch_sessions w _pracownik) → paczki.zablokuj_deklaracje() → zamówienie po PK →
 paczki → pozycje. Deklaracja paczek i ponowny druk z telefonu idą istniejącymi endpointami
 /api/mobile/orders/<nr>/packages (stanowisko 'verification' jest w paczki.STANOWISKA_PACZEK).
+
+Zapisy (poza problem/resolve) działają tylko na zamówieniach z zakresu listy: poza nim 409 `order_status`
+(weryfikacja.sprawdz_zakres, niezapamiętane w idempotencji). GET /orders/<nr> zostaje bez ograniczenia.
 """
 from functools import wraps
 
