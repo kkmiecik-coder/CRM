@@ -1239,6 +1239,33 @@ def admin_apply_baselinker_changes():
 
 
 
+def _zablokuj_zamowienia_i_pozycje(product_ids):
+    """
+    Zaznaczone pozycje hurtowej zmiany statusu, wczytane po zablokowaniu ich zamówień. Zwraca pozycje.
+
+    Kolejność blokad jak w zapisach Weryfikacji: zamówienia FOR UPDATE (rosnące id) → pozycje po PK FOR
+    UPDATE (rosnące id) → dopiero zmiany statusów i reguła uniewaznij_etapy. Dotąd hurt najpierw zapisywał
+    pozycje (flush daje blokadę pozycji), a dopiero potem reguła zapisywała zamówienie — odwrotnie niż
+    Weryfikacja (zamówienie → pozycje), stąd zakleszczenie MySQL 1213. Do tego zamówienie i pozycje szły
+    z migawki REPEATABLE READ: zamówienie, które Weryfikacja zdążyła zweryfikować, miało w pamięci stare
+    `verified_at`, więc reguła kasowała paczki, ale nie czyściła weryfikacji.
+
+    Identyfikatory zamówień bierzemy zwykłym odczytem `order_id` (ta kolumna pozycji się nie zmienia), a
+    zamówienia i pozycje czytamy odczytem bieżącym (`populate_existing`): obiekty w sesji dostają wartości
+    z bazy zamiast migawki. `p.order` każdej pozycji wskazuje te same, odświeżone obiekty. Wołać PRZED
+    jakąkolwiek zmianą obiektów w sesji: `populate_existing` nadpisuje atrybuty, a autoflush zapisałby
+    zmienioną pozycję przed blokadą zamówienia.
+    """
+    id_zamowien = sorted({order_id for (order_id,) in
+                          db.session.query(ProductionItem.order_id)
+                          .filter(ProductionItem.id.in_(product_ids)).all() if order_id is not None})
+    if id_zamowien:
+        (ProductionOrder.query.filter(ProductionOrder.id.in_(id_zamowien)).order_by(ProductionOrder.id)
+         .with_for_update().populate_existing().all())
+    return (ProductionItem.query.filter(ProductionItem.id.in_(product_ids)).order_by(ProductionItem.id)
+            .with_for_update().populate_existing().all())
+
+
 @api_bp.route('/products/bulk-action', methods=['POST'])
 @login_required
 def bulk_action():
@@ -1301,8 +1328,12 @@ def bulk_action():
                         nowy_status, sorted(dozwolone_statusy))
                 }), 400
 
-        # Pobierz produkty
-        products = ProductionItem.query.filter(ProductionItem.id.in_(product_ids)).all()
+        # Pobierz produkty. Zmiana statusu może zmienić zamówienie (reguła uniewaznij_etapy), więc najpierw
+        # blokujemy zamówienia, potem pozycje, obie listy bieżącym odczytem (patrz _zablokuj_zamowienia_i_pozycje).
+        if action == 'update_status':
+            products = _zablokuj_zamowienia_i_pozycje(product_ids)
+        else:
+            products = ProductionItem.query.filter(ProductionItem.id.in_(product_ids)).all()
         
         if not products:
             return jsonify({'success': False, 'error': 'Nie znaleziono produktów'}), 404

@@ -180,3 +180,113 @@ def test_hurt_do_produkcji_uniewaznia_etapy_prawdziwa_regula(client, app):
         assert set(wpisy) == {'weryfikacja_cofnieta', 'paczki'}
         assert wpisy['weryfikacja_cofnieta'].note == u'zmiana statusu w panelu'
         assert wpisy['weryfikacja_cofnieta'].user_id == 1
+
+
+# --- Hurt blokuje zamówienia przed pozycjami i czyta je bieżąco (fala końcowa 4.3, F9) -------------------
+# SQLite nie ma migawki ani blokad wierszy, więc „tuż przed żądaniem” odtwarzamy jak
+# tests/weryfikacja_pomocnicze.py: obiekty zostają w sesji w starym stanie, a w bazie ktoś inny (Weryfikacja)
+# zapisał nowy — surowymi UPDATE poza ORM. Kolejność blokad pilnuje test na kolejności zapytań.
+
+def _zamowienie_z_dwiema_pozycjami(app, numer, status='spakowane'):
+    """(id_zamowienia, id_pierwszej, id_drugiej); kurier, dwie pozycje, dwie niesprawdzone paczki."""
+    from datetime import datetime
+
+    from modules.production.logistics import sposoby
+    from modules.production.logistics.models import LogisticsLog
+    from modules.production.models import LabelPrintJob, ProductionPackage
+    chwila = datetime(2026, 10, 1, 8, 0)
+    with app.app_context():
+        # Tych tabel nie zakłada wspólny zestaw tego modułu testów (reguła zapisuje log i paczki).
+        db.metadata.create_all(bind=db.engine, tables=[
+            LogisticsLog.__table__, ProductionPackage.__table__, LabelPrintJob.__table__])
+    pierwsza_id, _ = produkt(app, status=status, numer=numer)
+    with app.app_context():
+        pierwsza = db.session.get(ProductionProduct, pierwsza_id)
+        order = pierwsza.order
+        druga = ProductionProduct(
+            order_id=order.id, short_product_id=numer.replace('/', '') + '_2', product_sequence_in_order=2,
+            original_product_name='Blat dębowy', current_status=status, quantity=1, volume_m3=0.1)
+        db.session.add(druga)
+        order.override_delivery_method = sposoby.KURIER
+        order.packages_declared_at = chwila
+        db.session.add_all([ProductionPackage(order_id=order.id, seq=i, kind='paczka', declared_at=chwila)
+                            for i in (1, 2)])
+        db.session.commit()
+        return order.id, pierwsza_id, druga.id
+
+
+def test_hurt_czyta_zamowienie_biezaco_weryfikacja_zatwierdzona_tuz_przed_zadaniem(client, app):
+    """Weryfikacja zatwierdziła się tuż przed żądaniem hurtu, a obiekty w sesji mają jeszcze stary stan
+    (zamówienie niezweryfikowane, pozycje 'spakowane'). Po hurcie zamówienie nie może zostać z `verified_at`
+    przy pozycji w pakowaniu: weryfikacja czyszczona, paczki unieważnione, wpis `weryfikacja_cofnieta`."""
+    from datetime import datetime
+
+    from modules.production.logistics.models import LogisticsLog
+    from modules.production.models import ProductionOrder, ProductionPackage
+    chwila = datetime(2026, 10, 1, 8, 0)
+    order_id, pierwsza_id, druga_id = _zamowienie_z_dwiema_pozycjami(app, '25/00302')
+
+    order = db.session.get(ProductionOrder, order_id)                 # „migawka” żądania
+    assert order.verified_at is None
+    assert [p.current_status for p in order.products] == ['spakowane', 'spakowane']
+    db.session.execute(ProductionOrder.__table__.update().where(ProductionOrder.__table__.c.id == order_id)
+                       .values(verified_at=chwila, verified_by_worker_id=7))
+    db.session.execute(ProductionProduct.__table__.update()
+                       .where(ProductionProduct.__table__.c.order_id == order_id)
+                       .values(current_status='zweryfikowane'))
+    db.session.execute(ProductionPackage.__table__.update()
+                       .where(ProductionPackage.__table__.c.order_id == order_id)
+                       .values(verified_at=chwila, verified_method='skan'))
+    assert order.verified_at is None                                  # obiekt w sesji nadal stary
+
+    r = _masowo(client, [pierwsza_id], 'czeka_na_pakowanie')
+    assert r.status_code == 200, r.get_data()[:500]
+    assert r.get_json()['processed_count'] == 1
+
+    db.session.expire_all()
+    order = db.session.get(ProductionOrder, order_id)
+    assert order.verified_at is None and order.verified_by_worker_id is None
+    assert order.packages_declared_at is None
+    assert db.session.get(ProductionProduct, pierwsza_id).current_status == 'czeka_na_pakowanie'
+    assert db.session.get(ProductionProduct, druga_id).current_status == 'spakowane'   # z 'zweryfikowane'
+    paczki = ProductionPackage.query.filter_by(order_id=order_id).all()
+    assert len(paczki) == 2 and all(p.voided_at is not None for p in paczki)
+    assert sorted(w.action for w in LogisticsLog.query.filter_by(order_id=order_id)) == \
+        ['paczki', 'weryfikacja_cofnieta']
+
+
+def test_hurt_blokuje_zamowienia_posortowane_przed_pozycjami_i_przed_pierwszym_zapisem(client, app):
+    """Kolejność blokad jak w Weryfikacji: zamówienia (rosnące id) → pozycje po PK (rosnące id) → dopiero
+    pierwszy zapis. SQLite pomija FOR UPDATE, więc pilnujemy kolejności samych zapytań."""
+    from sqlalchemy import event
+    trojka = [_zamowienie_z_dwiema_pozycjami(app, '25/0040{}'.format(n)) for n in range(3)]
+    id_zamowien = sorted(t[0] for t in trojka)
+    wybrane = [t[1] for t in reversed(trojka)]       # żądanie w odwrotnej kolejności niż powstawały
+
+    zapytania = []
+
+    def zapamietaj(conn, cursor, statement, parameters, context, executemany):
+        zapytania.append((statement, parameters))
+
+    event.listen(db.engine, 'before_cursor_execute', zapamietaj)
+    try:
+        assert _masowo(client, wybrane, 'czeka_na_pakowanie').status_code == 200
+    finally:
+        event.remove(db.engine, 'before_cursor_execute', zapamietaj)
+
+    def pierwsze(warunek):
+        return next(i for i, (sql, _p) in enumerate(zapytania) if warunek(' '.join(sql.split())))
+
+    blokada_zamowien = pierwsze(lambda q: q.startswith('SELECT') and 'FROM prod_orders' in q
+                                and 'WHERE prod_orders.id IN' in q and 'ORDER BY prod_orders.id' in q)
+    blokada_pozycji = pierwsze(lambda q: q.startswith('SELECT') and 'FROM prod_products' in q
+                               and 'WHERE prod_products.id IN' in q and 'ORDER BY prod_products.id' in q)
+    pierwszy_zapis = pierwsze(lambda q: q.startswith('UPDATE prod_'))
+    assert blokada_zamowien < blokada_pozycji < pierwszy_zapis
+    assert list(zapytania[blokada_zamowien][1]) == id_zamowien       # zamówienia w kolejności rosnących id
+    assert sorted(zapytania[blokada_pozycji][1]) == sorted(wybrane)  # te pozycje, a kolejność blokad daje ORDER BY id
+
+
+def test_hurt_nieistniejace_pozycje_daja_404_jak_dotad(client, app):
+    r = _masowo(client, [987654], 'czeka_na_pakowanie')
+    assert r.status_code == 404 and r.get_json()['success'] is False
