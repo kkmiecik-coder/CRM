@@ -402,10 +402,20 @@ class ProductionConfigService:
             if not (1 <= days <= 365):
                 raise ConfigError("Domyślny deadline musi być między 1 a 365 dni")
         
-        elif key.startswith('PACKAGE_LABEL_OFFSET_') and config_type == 'integer':
+        elif key.startswith('PACKAGE_LABEL_OFFSET_'):
             # Przesunięcie etykiety paczki (logistyka etap 4) — powyżej 15 mm to źle
             # założona rolka, a nie kalibracja; generator i tak przycina do ±120.
-            przesuniecie = int(value)
+            # Warunek po KLUCZU, nie po typie: gdy wiersza nie ma w prod_config, typ jest
+            # zgadywany z wartości, a tekst "500" wychodzi jako 'json' (zapis '"500"') —
+            # sprawdzanie typu 'integer' przepuściłoby wtedy wszystko.
+            tekst = str(value).strip()
+            if len(tekst) >= 2 and tekst[0] == '"' and tekst[-1] == '"':
+                tekst = tekst[1:-1]  # napis JSON: "-8" liczymy jak -8
+            try:
+                przesuniecie = int(tekst.strip())
+            except ValueError:
+                raise ConfigError("Przesunięcie etykiety paczki musi być liczbą całkowitą "
+                                  "(8 punktów = 1 mm)")
             if not (-120 <= przesuniecie <= 120):
                 raise ConfigError("Przesunięcie etykiety paczki musi być między -120 a 120 punktów "
                                   "(8 punktów = 1 mm)")

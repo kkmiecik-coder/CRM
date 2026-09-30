@@ -817,7 +817,9 @@ def api_print_test():
     """
     from ...services import print_queue_service
 
-    dane = request.get_json(silent=True) or {}
+    dane = request.get_json(silent=True)
+    if not isinstance(dane, dict):
+        dane = {}  # ciało spoza obiektu JSON (lista, napis) to ten sam błąd co brak drukarki
     drukarka = dane.get('printer')
     try:
         job = print_queue_service.wydruk_probny(
