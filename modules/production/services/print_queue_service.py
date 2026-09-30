@@ -7,6 +7,8 @@ użyje go do etykiet paczek. `wydruk_probny` służy do ustawienia drukarki z pa
 (Konfiguracja → Drukarka etykiet). Druk robi agent na komputerze hali; CRM tylko
 kolejkuje i budzi agenta sygnałem.
 """
+from flask import g
+
 from extensions import db
 from modules.logging import get_structured_logger
 from modules.production.models import LabelPrintJob
@@ -86,3 +88,23 @@ def wydruk_probny(drukarka, aktor):
     realtime_service.publish_print_signal(1)
     logger.info('Wydruk próbny w kolejce', extra={'printer': drukarka, 'job_id': job.id})
     return job
+
+
+def zaplanuj_sygnal_po_commicie(liczba):
+    """
+    Sygnał dla agenta druku PO commicie transakcji żądania (etykiety paczek z API
+    mobilnego, krok 4.2). W API mobilnym commit robi @with_idempotency, więc handler nie
+    może wysłać sygnału sam — agent obudzony przed commitem wróciłby z pustymi rękami.
+    Wysyła go wyslij_zaplanowany_sygnal() wołane przez dekorator po udanym commicie;
+    odmowa i błąd kończą się rollbackiem bez sygnału (g żyje tylko do końca żądania).
+    """
+    g.sygnal_druku_po_commicie = getattr(g, 'sygnal_druku_po_commicie', 0) + int(liczba)
+
+
+def wyslij_zaplanowany_sygnal():
+    """Wysyła zaplanowany sygnał (jeden na żądanie, z sumą zadań). Zwraca liczbę zadań."""
+    liczba = getattr(g, 'sygnal_druku_po_commicie', 0)
+    g.sygnal_druku_po_commicie = 0
+    if liczba:
+        realtime_service.publish_print_signal(liczba)
+    return liczba
