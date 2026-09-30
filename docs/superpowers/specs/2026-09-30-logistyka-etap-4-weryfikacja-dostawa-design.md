@@ -217,12 +217,12 @@ dół treści ≤ 1130 punktów (zapas na przesunięcie). Układ (wzór wydrukow
 2. **Pas sposobu dostawy** (biały na czarnym): `KURIER`, `ODBIOR OSOBISTY`, `TRASA: <nazwa> <data>` albo
    `TRANSPORT WOODPOWER` (bez trasy), `NIE USTAWIONO`.
 3. **Odbiorca — zanonimizowany** (uwaga Konrada po wzorze): z nazwy (osoba, a gdy jej brak — firma) dwa pierwsze
-   słowa, z każdego 3 pierwsze znaki i `***`, gdy słowo jest dłuższe (np. „Dar*** Kow***”). Bez ulicy i kodu
-   pocztowego — tylko miejscowość dostawy. Pełne dane są w CRM pod kodem paczki.
+   słowa, z każdego 3 pierwsze znaki i `***`, gdy słowo jest dłuższe (np. „Dar*** Kow***”). **Żadnych danych
+   adresowych** — bez ulicy, kodu pocztowego i miejscowości. Pełne dane są w CRM pod kodem paczki.
 4. **QR** (`^BQN,2,11`, treść `P-<id>`) i obok: kod `P-<id>`, rodzaj i typ (`PALETA EUR 120x80`,
    `PALETA 150x100`, `PACZKA`), waga szacunkowa (m³ × `WAGA_KG_NA_M3`), „N poz. / N szt. / m³”, data spakowania.
 5. **Zawartość zamówienia:** wiersze „n. Gatunek technologia klasa DxSxG cm … N szt.” (wykończenie, gdy nie surowe);
-   do 12 wierszy, przy większej liczbie 11 wierszy i „+ N pozycji (N szt.) – pełna lista w CRM”.
+   do 14 wierszy, przy większej liczbie 13 wierszy i „+ N pozycji (N szt.) – pełna lista w CRM”.
 6. **Stopka:** numer Base., numer zamówienia klienta, „WoodPower, Bachorz 14N”.
 
 Etykieta nie jest przedrukowywana automatycznie po zmianie sposobu dostawy albo trasy; panel pokazuje ikonę „etykiety
@@ -452,7 +452,7 @@ Konrada. Merge do `main` = deploy.
 
 pytest (SQLite), usługi zewnętrzne zamockowane:
 - kolejka wydruku: filtr `printers`, zgodność wsteczna agenta bez parametru; ZPL etykiety paczki (ASCII, pola, ucinanie
-  listy, marginesy, anonimizacja odbiorcy — brak pełnej nazwy, ulicy i kodu w ZPL); agent: kierowanie po `printer`, tryb `windows` (zamockowany `ctypes`), stara sekcja `[printer]`;
+  listy, marginesy, anonimizacja odbiorcy — brak pełnej nazwy i jakichkolwiek danych adresowych w ZPL); agent: kierowanie po `printer`, tryb `windows` (zamockowany `ctypes`), stara sekcja `[printer]`;
 - podpowiedź paczek (próg 40 kg, anulowane pozycje), deklaracja (warunki, unieważnianie, druk N etykiet, idempotencja);
 - przejścia statusów dla każdego sposobu dostawy, wszystkie cofnięcia z 4.5, bramki z 4.4;
 - `zamkniecie_wyliczone` (nowe reguły), archiwum (4.5), `ARCHIVE_STATUSES`;
