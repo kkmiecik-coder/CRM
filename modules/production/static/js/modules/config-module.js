@@ -58,6 +58,9 @@ class ConfigModule {
             'STATION_CUTTING_PRIORITY_SORT': 'priority_rank',
             'STATION_ASSEMBLY_PRIORITY_SORT': 'priority_rank',
             'STATION_PACKAGING_PRIORITY_SORT': 'priority_rank',
+            // Drukarka paczek (logistyka etap 4) — zgodne z EXPECTED w config_api.py
+            'PACKAGE_LABEL_OFFSET_X_DOTS': 0,
+            'PACKAGE_LABEL_OFFSET_Y_DOTS': 0,
             // Pusta lista = raport dzienny wyłączony (nie ma osobnego klucza
             // DAILY_REPORT_ENABLED). Bez tego wpisu "Przywróć domyślne" przy
             // tym polu nie znajdowało wartości i pokazywało toast błędu.
@@ -245,7 +248,9 @@ class ConfigModule {
                 'worker_session_idle_timeout_minutes': 'WORKER_SESSION_IDLE_TIMEOUT_MINUTES',
                 'worker_session_night_cutoff': 'WORKER_SESSION_NIGHT_CUTOFF',
                 'worker_quick_pick_count': 'WORKER_QUICK_PICK_COUNT',
-                'label_printer_agent_token': 'LABEL_PRINTER_AGENT_TOKEN'
+                'label_printer_agent_token': 'LABEL_PRINTER_AGENT_TOKEN',
+                'package_label_offset_x': 'PACKAGE_LABEL_OFFSET_X_DOTS',
+                'package_label_offset_y': 'PACKAGE_LABEL_OFFSET_Y_DOTS'
             };
 
             let foundCount = 0;
@@ -681,6 +686,8 @@ class ConfigModule {
             'WORKER_SESSION_NIGHT_CUTOFF': 'worker_session_night_cutoff',
             'WORKER_QUICK_PICK_COUNT': 'worker_quick_pick_count',
             'LABEL_PRINTER_AGENT_TOKEN': 'label_printer_agent_token',
+            'PACKAGE_LABEL_OFFSET_X_DOTS': 'package_label_offset_x',
+            'PACKAGE_LABEL_OFFSET_Y_DOTS': 'package_label_offset_y',
             'STATION_ALLOWED_IPS': 'ip-list-items'
         };
 
@@ -809,6 +816,8 @@ class ConfigModule {
             'WORKER_SESSION_NIGHT_CUTOFF': 'worker_session_night_cutoff',
             'WORKER_QUICK_PICK_COUNT': 'worker_quick_pick_count',
             'LABEL_PRINTER_AGENT_TOKEN': 'label_printer_agent_token',
+            'PACKAGE_LABEL_OFFSET_X_DOTS': 'package_label_offset_x',
+            'PACKAGE_LABEL_OFFSET_Y_DOTS': 'package_label_offset_y',
             'STATION_ALLOWED_IPS': 'ip-list-items'
         };
 
@@ -1002,6 +1011,36 @@ class ConfigModule {
         }
     }
 
+    /**
+     * Wydruk próbny na drukarce etykiet albo paczek (logistyka etap 4).
+     * Serwer bierze ZAPISANE przesunięcia, więc przy niezapisanej zmianie ostrzegamy.
+     */
+    async wydrukProbny(drukarka) {
+        const niezapisane = Object.keys(this.pendingChanges || {})
+            .some(klucz => klucz.startsWith('PACKAGE_LABEL_OFFSET_') || klucz.startsWith('LABEL_PRINTER_OFFSET_'));
+        if (niezapisane) {
+            this.showToast('Masz niezapisane przesunięcie — wydruk próbny użyje zapisanych wartości.', 'info');
+        }
+        try {
+            const response = await fetch('/production/api/print-test', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: JSON.stringify({ printer: drukarka })
+            });
+            const result = await response.json();
+            if (!response.ok || !result.success) {
+                throw new Error(result.error || `HTTP ${response.status}`);
+            }
+            this.showToast(result.message, 'success');
+        } catch (error) {
+            console.error('[ConfigModule] Wydruk próbny:', error);
+            this.showToast(`Wydruk próbny nie poszedł: ${error.message}`, 'error');
+        }
+    }
+
     // ========================================================================
     // CACHE MANAGEMENT
     // ========================================================================
@@ -1141,6 +1180,12 @@ window.validateJSON = function (textarea) {
 window.clearCache = function () {
     if (window.configModule) {
         window.configModule.clearCache();
+    }
+};
+
+window.wydrukProbny = function (drukarka) {
+    if (window.configModule) {
+        window.configModule.wydrukProbny(drukarka);
     }
 };
 

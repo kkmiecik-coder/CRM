@@ -1120,6 +1120,113 @@
                     </div>
                 </div>
 
+                <!-- PACKAGE_LABEL_OFFSET_X_DOTS (logistyka etap 4) -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-arrows-alt-h"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">Drukarka paczek: przesunięcie poziome <span class="default-badge">domyślnie: 0</span></h5>
+                                    <p class="config-item-description">Przesuwa całą etykietę paczki 100×150 w punktach (8 punktów = 1 mm). Dodatnie w prawo, ujemne w lewo. Zakres od −120 do 120.</p>
+                                </div>
+                            </div>
+                            <div class="config-item-meta">
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-user"></i>
+                                    <span>Ostatnio: {{ config_groups.printer.PACKAGE_LABEL_OFFSET_X_DOTS.updated_by|default('System') }}</span>
+                                </div>
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-clock"></i>
+                                    <span>{{ config_groups.printer.PACKAGE_LABEL_OFFSET_X_DOTS.updated_at|default('---') }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="number" class="form-control" id="package_label_offset_x"
+                                           value="{{ config_groups.printer.PACKAGE_LABEL_OFFSET_X_DOTS.value|default(0) }}"
+                                           min="-120" max="120"
+                                           oninput="configChanged('PACKAGE_LABEL_OFFSET_X_DOTS', parseInt(this.value))">
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('PACKAGE_LABEL_OFFSET_X_DOTS')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- PACKAGE_LABEL_OFFSET_Y_DOTS (logistyka etap 4) -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-arrows-alt-v"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">Drukarka paczek: przesunięcie pionowe <span class="default-badge">domyślnie: 0</span></h5>
+                                    <p class="config-item-description">Dodatnie w dół, ujemne w górę (8 punktów = 1 mm). Zakres od −120 do 120. Najpierw skalibruj drukarkę (agent druku: <code>--kalibruj wysylka</code>).</p>
+                                </div>
+                            </div>
+                            <div class="config-item-meta">
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-user"></i>
+                                    <span>Ostatnio: {{ config_groups.printer.PACKAGE_LABEL_OFFSET_Y_DOTS.updated_by|default('System') }}</span>
+                                </div>
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-clock"></i>
+                                    <span>{{ config_groups.printer.PACKAGE_LABEL_OFFSET_Y_DOTS.updated_at|default('---') }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="number" class="form-control" id="package_label_offset_y"
+                                           value="{{ config_groups.printer.PACKAGE_LABEL_OFFSET_Y_DOTS.value|default(0) }}"
+                                           min="-120" max="120"
+                                           oninput="configChanged('PACKAGE_LABEL_OFFSET_Y_DOTS', parseInt(this.value))">
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('PACKAGE_LABEL_OFFSET_Y_DOTS')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Wydruk próbny (logistyka etap 4) -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-print"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">Wydruk próbny</h5>
+                                    <p class="config-item-description">Wysyła etykietę testową do kolejki agenta druku. Na drukarce paczek ramka powinna mieć ok. 3 mm od każdej krawędzi; jeśli nie, popraw przesunięcie, zapisz zmiany i drukuj ponownie.</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <button type="button" class="btn btn-outline-primary btn-sm" onclick="wydrukProbny('etykiety')">
+                                    <i class="fas fa-print me-1"></i>Drukarka etykiet (60×40)
+                                </button>
+                                <button type="button" class="btn btn-outline-primary btn-sm" onclick="wydrukProbny('wysylka')">
+                                    <i class="fas fa-print me-1"></i>Drukarka paczek (100×150)
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
             </div>
         </div>
 
