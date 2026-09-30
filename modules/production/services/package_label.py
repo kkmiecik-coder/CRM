@@ -7,7 +7,7 @@ czytamy tylko przesunięcie z panelu. Dane paczki zbiera w kroku 4.2 serwis pacz
 
 Zasady druku (ustalone z Konradem 30.09 na wzorach z zamówienia 1450):
 - tylko ASCII: emulacja ZPL drukarek Xprinter nie ma polskich znaków (z
-  "ĄĆĘŁŃÓŚŹŻ" wyszło tylko Ó), więc litery zamieniamy jak na etykietach
+  „ĄĆĘŁŃÓŚŹŻ" wyszło tylko Ó), więc litery zamieniamy jak na etykietach
   produktów, a resztę spoza ASCII usuwamy;
 - odbiorca zanonimizowany i ZERO danych adresowych — pełne dane są w CRM pod
   kodem paczki;
@@ -150,8 +150,7 @@ def generate_package_label_zpl(dane, przesuniecie=(0, 0)):
     z.pole(24, 390, '^BQN,2,11^FDLA,%s^FS' % kod)
     z.pole(330, 406, '^A0N,56,52^FD%s^FS' % kod)
     z.pole(330, 472, '^A0N,36,34^FD%s^FS' % opis_rodzaju(dane))
-    if m3 > 0:
-        z.pole(330, 516, '^A0N,32,30^FDWaga szac.: ~%d kg^FS' % round(m3 * WAGA_KG_NA_M3))
+    z.pole(330, 516, '^A0N,32,30^FDWaga szac.: ok. %d kg^FS' % round(m3 * WAGA_KG_NA_M3))
     z.pole(330, 556, '^A0N,32,30^FD%d poz. / %d szt. / %s m3^FS'
            % (len(dane.pozycje), sztuk, ('%.3f' % m3).replace('.', ',')))
     if dane.spakowano:

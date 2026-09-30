@@ -22,7 +22,7 @@ def _pozycja(**zmiany):
 def _dane(**zmiany):
     dane = dict(numer_zamowienia='1450', kod_paczki='P-12345', rodzaj='paleta',
                 typ_palety='eur', numer=1, z_ilu=1, sposob='TRANSPORT WOODPOWER',
-                odbiorca='Dariusz Kowalczyk', pozycje=[_pozycja()], m3=0.0,
+                odbiorca='Dariusz Kowalczyk', pozycje=[_pozycja()], m3=0.373,
                 spakowano=date(2026, 9, 25), base_id=49915386, zamowienie_klienta='2149/2026')
     dane.update(zmiany)
     return DaneEtykietyPaczki(**dane)
@@ -79,7 +79,7 @@ def test_rodzaj_i_numer_paczki():
 def test_waga_i_podsumowanie():
     zpl = pl.generate_package_label_zpl(_dane(pozycje=[_pozycja(ilosc=5), _pozycja(ilosc=3)],
                                               m3=0.373))
-    assert 'Waga szac.: ~298 kg' in zpl
+    assert 'Waga szac.: ok. 298 kg' in zpl
     assert '2 poz. / 8 szt. / 0,373 m3' in zpl
     assert 'Spakowano: 25.09.2026' in zpl
 
