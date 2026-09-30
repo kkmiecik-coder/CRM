@@ -67,6 +67,26 @@ def test_rozmiar_i_kod_qr():
     assert '^BQN,2,11^FDLA,P-12345^FS' in zpl
 
 
+def test_predkosc_druku_3_cale_na_sekunde_w_obu_etykietach():
+    """Test 30.09 na XP-410B: 3 cale/s daje lepszą czerń niż domyślne 6 (kod QR skanuje telefon)."""
+    assert pl.PREDKOSC_DRUKU_CALE_S == 3
+    assert pl.generate_package_label_zpl(_dane()).startswith('^XA\n^PR3\n')
+    assert pl.generate_test_label_zpl((0, 0)).startswith('^XA\n^PR3\n')
+
+
+def test_stopka_z_adresem_firmy():
+    zpl = pl.generate_package_label_zpl(_dane())
+    assert '^FDBase.: 49915386   Zam. klienta: 2149/2026   WoodPower, Bachorz 14N^FS' in zpl
+    bez_danych = pl.generate_package_label_zpl(_dane(base_id=None, zamowienie_klienta=None))
+    assert '^FDBase.: -   Zam. klienta: -   WoodPower, Bachorz 14N^FS' in bez_danych
+
+
+def test_stopka_ucina_numer_zamowienia_klienta_do_15_znakow():
+    zpl = pl.generate_package_label_zpl(_dane(zamowienie_klienta='A' * 30))
+    assert 'Zam. klienta: ' + 'A' * 12 + '...   WoodPower, Bachorz 14N' in zpl
+    assert 'A' * 13 not in zpl
+
+
 def test_rodzaj_i_numer_paczki():
     assert 'PALETA EUR 120x80' in pl.generate_package_label_zpl(_dane())
     zpl = pl.generate_package_label_zpl(_dane(rodzaj='paczka', typ_palety=None, numer=2, z_ilu=3))

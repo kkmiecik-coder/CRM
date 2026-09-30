@@ -17,7 +17,7 @@ Zasady druku (ustalone z Konradem 30.09 na wzorach z zamówienia 1450):
 import unicodedata
 from dataclasses import dataclass, field
 from datetime import date
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 from modules.production.models import ProductionConfig
 from modules.production.services.label_print_service import _tekst_pola_zpl
@@ -34,6 +34,12 @@ WAGA_KG_NA_M3 = 800
 KLUCZ_PRZESUNIECIA_X = 'PACKAGE_LABEL_OFFSET_X_DOTS'
 KLUCZ_PRZESUNIECIA_Y = 'PACKAGE_LABEL_OFFSET_Y_DOTS'
 MAKS_PRZESUNIECIA = 120  # 15 mm — większe przesunięcie to źle założona rolka, nie kalibracja
+# Prędkość druku w calach na sekundę (^PR). Test 30.09 na XP-410B: 3 cale/s daje wyraźnie
+# lepszą czerń niż domyślne 6, a kod QR skanujemy telefonem. Ok. 2 s więcej na etykietę
+# nie ma znaczenia przy pakowaniu.
+PREDKOSC_DRUKU_CALE_S = 3
+# Numer zamówienia klienta w stopce: dłuższy nie mieści się w jednej linii z adresem firmy (736 punktów).
+MAKS_ZAMOWIENIA_KLIENTA = 15
 
 
 @dataclass
@@ -111,7 +117,8 @@ class _Zpl:
 
     def __init__(self, przesuniecie):
         self.dx, self.dy = przesuniecie
-        self.linie = ['^XA', '^CI0', '^PW%d' % SZEROKOSC, '^LL%d' % WYSOKOSC, '^LH0,0']
+        self.linie = ['^XA', '^PR%d' % PREDKOSC_DRUKU_CALE_S, '^CI0',
+                      '^PW%d' % SZEROKOSC, '^LL%d' % WYSOKOSC, '^LH0,0']
 
     def pole(self, x, y, tresc):
         self.linie.append('^FO%d,%d%s' % (max(0, x + self.dx), max(0, y + self.dy), tresc))
@@ -173,8 +180,9 @@ def generate_package_label_zpl(dane, przesuniecie=(0, 0)):
 
     # 6. Stopka
     z.pole(32, 1100, '^GB736,2,2^FS')
-    z.pole(32, 1108, '^A0N,22,22^FDBase.: %s   Zam. klienta: %s   WoodPower^FS'
-           % (dane.base_id or '-', _ascii(dane.zamowienie_klienta or '-', 20)))
+    z.pole(32, 1108, '^A0N,22,22^FDBase.: %s   Zam. klienta: %s   WoodPower, Bachorz 14N^FS'
+           % (dane.base_id or '-',
+              _ascii(dane.zamowienie_klienta or '-', MAKS_ZAMOWIENIA_KLIENTA)))
     return z.gotowe()
 
 
