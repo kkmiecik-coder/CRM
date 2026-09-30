@@ -210,6 +210,7 @@ def start_czujki():
 # Nazwy są wspólne z CRM (kolumna prod_print_queue.printer, logistyka etap 4):
 # 'etykiety' = etykiety produktów 60x40, 'wysylka' = etykiety paczek 100x150.
 DRUKARKA_DOMYSLNA = 'etykiety'
+ZNANE_DRUKARKI = ('etykiety', 'wysylka')
 TYPY_POLACZENIA = ('tcp', 'windows')
 PREFIKS_SEKCJI_DRUKARKI = 'printer:'
 
@@ -233,31 +234,49 @@ def _drukarka_z_sekcji(cp, sekcja, nazwa):
     return drukarka
 
 
+def _etykiety_najpierw(drukarki):
+    """Kopia słownika drukarek z 'etykiety' na początku, reszta w dotychczasowej
+    kolejności. Kolejność decyduje o tym, którą drukarkę opróżniamy pierwszą —
+    etykiety produktów idą przed paczkami, więc niedostępna drukarka paczek
+    nie opóźnia ich ani nie przerywa cyklu."""
+    return {n: drukarki[n] for n in sorted(drukarki, key=lambda n: n != DRUKARKA_DOMYSLNA)}
+
+
 def wczytaj_drukarki(cp):
     """Drukarki z config.ini: sekcje [printer:<nazwa>]. Stara sekcja [printer]
     (config.ini sprzed etapu 4 stoi na hubie i nikt go nie podmieni przy
-    aktualizacji) działa dalej jako drukarka 'etykiety'."""
+    aktualizacji) działa dalej jako drukarka 'etykiety'.
+
+    Nazwa drukarki jest zawsze małymi literami (tak ją zna CRM). 'etykiety'
+    jest w wyniku pierwsza, niezależnie od kolejności sekcji w pliku."""
     drukarki = {}
     for sekcja in cp.sections():
         if not sekcja.startswith(PREFIKS_SEKCJI_DRUKARKI):
             continue
-        nazwa = sekcja[len(PREFIKS_SEKCJI_DRUKARKI):].strip()
+        nazwa = sekcja[len(PREFIKS_SEKCJI_DRUKARKI):].strip().lower()
         if not nazwa:
             raise ValueError(f"[{sekcja}] brak nazwy drukarki po 'printer:'")
+        if nazwa in drukarki:
+            raise ValueError(f"[{sekcja}] drukarka „{nazwa}” jest w config.ini dwa razy "
+                             "(nazwy nie rozróżniają wielkości liter)")
+        if nazwa not in ZNANE_DRUKARKI:
+            warn(f"Drukarka „{nazwa}” z config.ini nie jest znana CRM (znane: "
+                 f"{', '.join(ZNANE_DRUKARKI)}) — zadania z CRM nigdy do niej nie trafią")
         drukarki[nazwa] = _drukarka_z_sekcji(cp, sekcja, nazwa)
     if DRUKARKA_DOMYSLNA not in drukarki and cp.has_section('printer'):
         drukarki[DRUKARKA_DOMYSLNA] = _drukarka_z_sekcji(cp, 'printer', DRUKARKA_DOMYSLNA)
     if not drukarki:
         raise ValueError("Brak drukarek w config.ini — dodaj sekcję [printer:etykiety] "
                          "albo [printer:wysylka] (wzór w config.example.ini)")
-    return drukarki
+    return _etykiety_najpierw(drukarki)
 
 
 def _drukarki(cfg):
-    """Drukarki z konfiguracji. Słownik bez 'printers' (starsze wywołania i testy)
-    to jedna drukarka TCP 'etykiety' z dawnych kluczy printer_*."""
+    """Drukarki z konfiguracji, 'etykiety' pierwsza. Słownik bez 'printers'
+    (starsze wywołania i testy) to jedna drukarka TCP 'etykiety' z dawnych
+    kluczy printer_*."""
     if cfg.get('printers'):
-        return cfg['printers']
+        return _etykiety_najpierw(cfg['printers'])
     return {DRUKARKA_DOMYSLNA: {'nazwa': DRUKARKA_DOMYSLNA, 'type': 'tcp', 'ip': cfg['printer_ip'],
                                 'port': cfg.get('printer_port', 9100),
                                 'timeout': cfg.get('printer_timeout', 15)}}
@@ -700,7 +719,11 @@ def _ostatni_blad():
 def _drukuj_przez_windows(nazwa, dane):
     """Surowe bajty do kolejki wydruku Windows z typem danych RAW — sterownik ich nie
     przerabia, drukarka dostaje ZPL jak po sieci. Tak drukuje drukarka podpięta przez
-    USB (sprawdzone 30.09.2026 na Xprinter XP-410B)."""
+    USB (sprawdzone 30.09.2026 na Xprinter XP-410B).
+
+    Dokument, którego nie udało się zapisać w całości, jest ANULOWANY
+    (AbortPrinter), a nie kończony — EndDocPrinter puściłby do drukarki
+    urwany kawałek ZPL. Dokument kończymy dopiero po pełnym zapisie."""
     ws = _winspool()
     uchwyt = ctypes.c_void_p()
     if not ws.OpenPrinterW(nazwa, ctypes.byref(uchwyt), None):
@@ -710,8 +733,10 @@ def _drukuj_przez_windows(nazwa, dane):
         info = _DocInfo1('WoodPower CRM', None, 'RAW')
         if not ws.StartDocPrinterW(uchwyt, 1, ctypes.byref(info)):
             raise OSError(f"Kolejka „{nazwa}” nie przyjęła dokumentu (błąd {_ostatni_blad()})")
+        zapisany_w_calosci = False
         try:
-            ws.StartPagePrinter(uchwyt)
+            if not ws.StartPagePrinter(uchwyt):
+                raise OSError(f"Kolejka „{nazwa}” nie przyjęła strony (błąd {_ostatni_blad()})")
             bufor = ctypes.create_string_buffer(dane, len(dane))
             zapisane = ctypes.c_uint32(0)
             if (not ws.WritePrinter(uchwyt, bufor, len(dane), ctypes.byref(zapisane))
@@ -719,8 +744,12 @@ def _drukuj_przez_windows(nazwa, dane):
                 raise OSError(f"Kolejka „{nazwa}” przyjęła {zapisane.value} z {len(dane)} bajtów "
                               f"(błąd {_ostatni_blad()})")
             ws.EndPagePrinter(uchwyt)
+            zapisany_w_calosci = True
         finally:
-            ws.EndDocPrinter(uchwyt)
+            if zapisany_w_calosci:
+                ws.EndDocPrinter(uchwyt)
+            else:
+                ws.AbortPrinter(uchwyt)
     finally:
         ws.ClosePrinter(uchwyt)
 
@@ -826,9 +855,10 @@ def run_once(cfg, signal_at=None, stan=None):
     wywołało, stawało się nową zaległością. Tak właśnie 12.08.2026 jedna
     etykieta czekała 85 s przy sprawnym kanale push.
 
-    Od etapu 4 logistyki każda drukarka ma własną kolejkę i opróżniamy je po kolei —
-    martwa drukarka paczek z pełną kolejką nie zasłania etykiet produktów. Błąd
-    komunikacji z CRM przerywa cały cykl (dotyczy wszystkich drukarek naraz).
+    Od etapu 4 logistyki każda drukarka ma własną kolejkę i opróżniamy je po kolei,
+    etykiety produktów jako pierwsze — martwa drukarka paczek z pełną kolejką nie
+    zasłania ich ani nie opóźnia. Błąd komunikacji z CRM przerywa cały cykl
+    (dotyczy wszystkich drukarek naraz).
     """
     for nazwa, drukarka in _drukarki(cfg).items():
         if not _oproznij_drukarke(cfg, nazwa, drukarka, signal_at, stan):
@@ -867,17 +897,19 @@ def _process_one_batch(cfg, nazwa, drukarka, signal_at=None, stan=None):
     if not jobs:
         return 'ok'  # cisza w logach przy braku zadań
 
-    info(f"[{nazwa}] Pobrano {len(jobs)} zadań → drukuję...")
+    # Serwer sprzed etapu 4 ignoruje ?printers= i nie podaje drukarki — wtedy
+    # każde zadanie to etykieta produktu. Cudzych zadań nie drukujemy ani nie
+    # potwierdzamy: zostają `pending` dla właściwej drukarki. Nazwy porównujemy
+    # bez względu na wielkość liter.
+    moje = [j for j in jobs if str(j.get('printer') or DRUKARKA_DOMYSLNA).strip().lower() == nazwa.lower()]
+    cudze = len(jobs) - len(moje)
+    if not moje:
+        return 'ok'   # same cudze zadania — nic do wydruku ani potwierdzenia, cisza w logach
+
+    info(f"[{nazwa}] Pobrano {len(moje)} zadań → drukuję...")
     results = []
     drukarka_padla = False
-    cudze = 0
-    for j in jobs:
-        # Serwer sprzed etapu 4 ignoruje ?printers= i nie podaje drukarki — wtedy
-        # każde zadanie to etykieta produktu. Cudzych zadań nie drukujemy ani nie
-        # potwierdzamy: zostają `pending` dla właściwej drukarki.
-        if (j.get('printer') or DRUKARKA_DOMYSLNA) != nazwa:
-            cudze += 1
-            continue
+    for j in moje:
         timing = _describe_timing(signal_at, j.get('requested_at'))
         if drukarka_padla:
             # Nie dobijamy się do martwej drukarki resztą porcji — każda próba
@@ -898,9 +930,6 @@ def _process_one_batch(cfg, nazwa, drukarka, signal_at=None, stan=None):
             # gniazda („timed out") nie odróżnia braku etykiet od wyłączonego
             # zasilania, a operator przy maszynie potrzebuje właśnie tego.
             log_printer_status(drukarka)
-
-    if not results:
-        return 'ok'   # same cudze zadania — nic do potwierdzenia
 
     try:
         resp = ack_jobs(cfg, results)
@@ -1215,11 +1244,23 @@ def calibrate_mode(nazwa):
        "Potem zrób wydruk próbny z panelu CRM (Konfiguracja → Drukarka etykiet).")
 
 
+def uruchom_narzedzie(funkcja, *argumenty):
+    """Tryby jednorazowe (`--kalibruj`, `--drukarka`): błąd konfiguracji, brak
+    config.ini albo nieosiągalna drukarka to krótki komunikat i kod wyjścia 1,
+    a nie traceback — z tych trybów korzysta operator, nie programista.
+    (FileNotFoundError to podklasa OSError.)"""
+    try:
+        funkcja(*argumenty)
+    except (ValueError, OSError, configparser.Error) as e:
+        err(f"Błąd: {e}")
+        sys.exit(1)
+
+
 if __name__ == '__main__':
     if '--kalibruj' in sys.argv:
         i = sys.argv.index('--kalibruj')
-        calibrate_mode(sys.argv[i + 1] if len(sys.argv) > i + 1 else 'wysylka')
+        uruchom_narzedzie(calibrate_mode, sys.argv[i + 1] if len(sys.argv) > i + 1 else 'wysylka')
     elif '--drukarka' in sys.argv or '--printer-status' in sys.argv:
-        printer_status_mode()
+        uruchom_narzedzie(printer_status_mode)
     else:
         main()

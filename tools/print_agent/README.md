@@ -2,7 +2,7 @@
 
 ## Co to jest
 
-Mały skrypt w Pythonie, który chodzi 24/7 na hubie biura, odbiera z CRM zadania drukowania etykiet (ZPL) i wysyła je przez TCP do drukarek Xprinter: XP-423B (etykiety produktów 60×40) i XP-410B (etykiety paczek 100×150, od etapu 4 logistyki). Po wydruku odsyła do CRM potwierdzenie (ACK), żeby zadanie nie było próbowane ponownie. Pracuje tylko w godzinach pracy — w nocy i w niedzielę agent śpi.
+Mały skrypt w Pythonie, który chodzi 24/7 na hubie biura, odbiera z CRM zadania drukowania etykiet (ZPL) i wysyła je przez TCP albo przez kolejkę wydruku Windows do drukarek Xprinter: XP-423B (etykiety produktów 60×40) i XP-410B (etykiety paczek 100×150, od etapu 4 logistyki). Po wydruku odsyła do CRM potwierdzenie (ACK), żeby zadanie nie było próbowane ponownie. Pracuje tylko w godzinach pracy — w nocy i w niedzielę agent śpi.
 
 ## Jak agent dowiaduje się o zadaniach
 
@@ -131,6 +131,11 @@ osobno, więc awaria jednej nie wstrzymuje drugiej. Stary `config.ini` z sekcją
 Drukarka podpięta do tego komputera (USB): `type = windows` i `name = <nazwa kolejki
 wydruku>` — dokładnie tak, jak w Ustawienia → Drukarki. Agent wysyła ZPL „na surowo”
 (typ danych RAW), sterownik go nie przerabia.
+
+**Uwaga:** przy `type = windows` sukces w agencie znaczy „kolejka Windows przyjęła
+zadanie”, a nie „drukarka wydrukowała”. Wyłączonej drukarki USB agent nie wykryje —
+zadanie czeka wtedy w kolejce Windows i wydrukuje się samo, gdy drukarka wróci. Nie
+klikaj więc drukowania ponownie (wyjdą dwie etykiety); sprawdź Ustawienia → Drukarki.
 
 ### Aktualizacja agenta na komputerze hali
 
