@@ -191,20 +191,30 @@ i powód idą w `note`.
   bez zmian (po id zadania). Wygaszanie przeterminowanych zadań (`_expire_stale_pending`) działa per zadanie jak dziś.
 - Sygnał push (Centrifugo `print:agent`) bez zmian — agent i tak pobiera zadania zapytaniem.
 - Ustawienia drukarki paczek w panelu konfiguracji produkcji (`prod_config`, jak `LABEL_PRINTER_*`):
-  `PACKAGE_LABEL_OFFSET_X_DOTS`, `PACKAGE_LABEL_OFFSET_Y_DOTS` (przesunięcie `^LH`, domyślnie 0) i przycisk
+  `PACKAGE_LABEL_OFFSET_X_DOTS`, `PACKAGE_LABEL_OFFSET_Y_DOTS` (przesunięcie w punktach dodawane do współrzędnych
+  każdego pola — `^LH` nie przyjmuje wartości ujemnych; domyślnie 0, zakres ±120) i przycisk
   **„Wydruk próbny”** dla każdej drukarki (zadanie z etykietą testową: ramka z marginesem 3 mm, miarka w rogach, QR).
+  Oba klucze zakłada migracja `2026-09-30-druk-klucze-przesuniecia.sql` (typ `integer`, wartość 0), a
+  `config_service` waliduje je po nazwie klucza (liczba całkowita −120…120). Powód: zapis klucza bez wiersza w
+  `prod_config` dostawał typ zgadywany z wartości (`json`/`string`) i omijał walidację.
 - Stanowiska uprawnione do etykiet paczek: `packaging` i `verification` (stała, niezależna od
   `LABEL_PRINTER_ALLOWED_STATIONS` dla etykiet produktów).
 
 ### 6.2 Agent (`tools/print_agent/`)
 
-- `config.ini`: sekcje `[printer:etykiety]` i `[printer:wysylka]`, każda z `type = tcp` (`host`, `port`, domyślnie
+- `config.ini`: sekcje `[printer:etykiety]` i `[printer:wysylka]`, każda z `type = tcp` (`ip`, `port`, domyślnie
   9100) albo `type = windows` (`name` = nazwa kolejki wydruku Windows; surowe bajty przez `winspool.drv`
   `OpenPrinter/StartDocPrinter(RAW)/WritePrinter` na `ctypes`, bez zewnętrznych pakietów). Stara sekcja `[printer]`
-  czytana jako `etykiety`.
+  czytana jako `etykiety`. Nazwy drukarek nie rozróżniają wielkości liter.
 - Agent pyta o zadania wszystkich skonfigurowanych drukarek jednym zapytaniem i kieruje każde według `printer`.
   Nieznana drukarka → zadanie zostaje `pending` (log ostrzeżenia), nie `failed`.
-- Awaria jednej drukarki nie wstrzymuje drugiej (osobne liczniki błędów i ponowień).
+- Awaria jednej drukarki nie wstrzymuje drugiej (osobne liczniki błędów i ponowień). Kolejkę `etykiety` agent
+  zawsze obsługuje **pierwszą** — martwa drukarka paczek nie opóźnia etykiet produktów.
+- Nieudany zapis w trybie `windows` kończy się `AbortPrinter` (dokument jest anulowany, nie wysyłany do drukarki
+  jako urwany). W tym trybie „sukces” oznacza „przyjęte przez spooler Windows”, a nie „wydrukowane” — agent nie
+  widzi błędów samej drukarki (brak papieru, otwarta pokrywa).
+- `python print_agent.py --kalibruj [nazwa]` wysyła TSPL `GAPDETECT` (kalibracja z 6.4 bez dodatkowych narzędzi na
+  hubie); bez nazwy kalibruje drukarkę paczek.
 - README: dwie drukarki, tryb `windows`, aktualizacja na komputerze hali (kopiowanie folderu, `config.ini`, restart).
 
 ### 6.3 Etykieta paczki (ZPL, 100×150 mm, 203 dpi = 800×1200 punktów)
@@ -220,7 +230,8 @@ dół treści ≤ 1130 punktów (zapas na przesunięcie). Układ (wzór wydrukow
    słowa, z każdego 3 pierwsze znaki i `***`, gdy słowo jest dłuższe (np. „Dar*** Kow***”). **Żadnych danych
    adresowych** — bez ulicy, kodu pocztowego i miejscowości. Pełne dane są w CRM pod kodem paczki.
 4. **QR** (`^BQN,2,11`, treść `P-<id>`) i obok: kod `P-<id>`, rodzaj i typ (`PALETA EUR 120x80`,
-   `PALETA 150x100`, `PACZKA`), waga szacunkowa (m³ × `WAGA_KG_NA_M3`), „N poz. / N szt. / m³”, data spakowania.
+   `PALETA 150x100`, `PACZKA`), waga szacunkowa (m³ × `WAGA_KG_NA_M3`) jako wiersz `Waga szac.: ok. N kg` — bez `~`
+   (w ZPL `~` zaczyna komendy sterujące, więc w etykiecie nie występuje nigdzie), „N poz. / N szt. / m³”, data spakowania.
 5. **Zawartość zamówienia:** wiersze „n. Gatunek technologia klasa DxSxG cm … N szt.” (wykończenie, gdy nie surowe);
    do 14 wierszy, przy większej liczbie 13 wierszy i „+ N pozycji (N szt.) – pełna lista w CRM”.
 6. **Stopka:** numer Base., numer zamówienia klienta, „WoodPower, Bachorz 14N”.
