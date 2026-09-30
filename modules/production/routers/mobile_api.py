@@ -131,7 +131,8 @@ BLEDY_DO_PONOWIENIA = {400, 403, 404, 409}
 # PODBIJ przy każdej zmianie zestawu pól w serialize_order().
 #   2 — 2026-09-18: label_print_count, label_offset, label_total (panel kafelków)
 #   3 — 2026-09-25: obiekt `transport` (logistyka równoległa)
-KSZTALT_ODPOWIEDZI_KOLEJKI = 3
+#   4 — 2026-09-30: `packing_hint` (logistyka etap 4, krok 4.2 — okno paczek na pakowaniu)
+KSZTALT_ODPOWIEDZI_KOLEJKI = 4
 
 
 def _resolve_workers():
@@ -301,12 +302,16 @@ def station_orders(station_code):
     # przez sześć tabletów niezależnie, poza cyklem także przy każdym powrocie
     # aplikacji na pierwszy plan.
     numeracja = compute_label_offsets(items)
+    # Podpowiedź paczek z tej samej listy (są w niej wszystkie pozycje każdego zamówienia).
+    from modules.production.logistics.services.paczki import podpowiedzi_zamowien
+    podpowiedzi = podpowiedzi_zamowien(items)
 
     return cached_json({
         'station_code': station_code,
         'count': len(items),
         'orders': [
-            serialize_order(it, station_code=station_code, label_numbering=numeracja)
+            serialize_order(it, station_code=station_code, label_numbering=numeracja,
+                            packing_hints=podpowiedzi)
             for it in items
         ],
     }, etag)
@@ -356,9 +361,11 @@ def orders_search():
         return jsonify({'error': 'search_failed', 'detail': str(e)}), 500
 
     numeracja = compute_label_offsets(items)
+    from modules.production.logistics.services.paczki import podpowiedzi_zamowien
+    podpowiedzi = podpowiedzi_zamowien(items)
     serialized = []
     for it in items:
-        dto = serialize_order(it, label_numbering=numeracja)
+        dto = serialize_order(it, label_numbering=numeracja, packing_hints=podpowiedzi)
         dto['current_station'] = STATUS_TO_STATION.get(it.current_status)
         # Tylko w wyszukiwarce: listy stanowisk nigdy nie zawierają spakowanych,
         # a nowe pole w serialize_order zmieniłoby im kształt odpowiedzi.

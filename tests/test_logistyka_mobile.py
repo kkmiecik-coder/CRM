@@ -45,7 +45,7 @@ def test_serializer_zawsze_ma_obiekt_transport_i_stare_delivery_type(app):
 
 
 def test_ksztalt_odpowiedzi_podbity():
-    assert mobile_api.KSZTALT_ODPOWIEDZI_KOLEJKI == 3
+    assert mobile_api.KSZTALT_ODPOWIEDZI_KOLEJKI == 4   # 4 — packing_hint (etap 4, krok 4.2)
 
 
 def test_pakowanie_bez_sposobu_to_409_z_komunikatem(app, client):

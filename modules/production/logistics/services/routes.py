@@ -29,7 +29,7 @@ logger = get_structured_logger('production.logistics.routes')
 # blokują pojazd/kierowcę. Import zamiast drugiej literalnej krotki: jedno miejsce
 # prawdy o tym, co znaczy "aktywna trasa".
 AKTYWNE = STATUSY_TRASY_AKTYWNE
-WAGA_KG_NA_M3 = 800
+WAGA_KG_NA_M3 = sposoby.WAGA_KG_NA_M3   # etap 4: jedno źródło gęstości (sposoby.py)
 MAKS_NAZWA = 120
 # (fix-2, przegląd Task 6) prod_routes.notes to TEXT w MySQL (limit 65 535 B) —
 # bez tego limitu notatka dłuższa od tego (nie licząc wielobajtowych znaków —

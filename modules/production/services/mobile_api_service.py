@@ -1048,7 +1048,7 @@ def _build_attachments(item):
     }]
 
 
-def serialize_order(item, station_code=None, label_numbering=None):
+def serialize_order(item, station_code=None, label_numbering=None, packing_hints=None):
     """
     ProductionItem → dict (OrderDto).
     Gdy podano station_code, dokłada quantity_done dla tego stanowiska.
@@ -1057,6 +1057,10 @@ def serialize_order(item, station_code=None, label_numbering=None):
     compute_label_offsets(). Listy MUSZĄ ją podawać — bez tego każda pozycja
     płaci własnym zapytaniem o rodzeństwo z zamówienia. Pojedyncze pozycje mogą
     ją pominąć; policzymy dla tej jednej.
+
+    `packing_hints` — gotowa mapa {order_id: packing_hint} z paczki.podpowiedzi_zamowien();
+    listy MUSZĄ ją podawać (jak label_numbering), pojedyncza pozycja policzy podpowiedź
+    z pozycji swojego zamówienia.
     """
     def _num(value):
         return float(value) if value is not None else None
@@ -1133,6 +1137,15 @@ def serialize_order(item, station_code=None, label_numbering=None):
         trasa = trasa_dla_tabletu(item.order.id)
     transport = sposoby.transport_payload(item.order, trasa)
 
+    # Podpowiedź paczek (logistyka etap 4, spec 7.1) — ta sama dla wszystkich pozycji
+    # zamówienia; tablet zaznacza nią wybór w oknie paczek przy „ZAKOŃCZ”. Obecność pola
+    # mówi appce, że backend przyjmuje deklarację paczek (jak `transport` w etapie 1).
+    from modules.production.logistics.services import paczki
+    if packing_hints is not None and item.order_id in packing_hints:
+        packing_hint = packing_hints[item.order_id]
+    else:
+        packing_hint = paczki.podpowiedz_pakowania(item.order.products if item.order else [item])
+
     return {
         'id': item.id,
         'short_id': item.short_product_id,
@@ -1170,6 +1183,7 @@ def serialize_order(item, station_code=None, label_numbering=None):
         'order_source_display': item.order.order_source_display if item.order else None,
         'delivery_type': delivery_type,
         'transport': transport,
+        'packing_hint': packing_hint,
         'wood_species': item.configuration.species if item.configuration else None,
         'wood_class': item.configuration.wood_class if item.configuration else None,
         'technology': item.configuration.technology if item.configuration else None,
