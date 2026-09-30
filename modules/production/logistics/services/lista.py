@@ -142,7 +142,12 @@ def _etykiety_paczek_sprzed_zmiany(order, trasa, paczki_zamowienia):
     trasy — panel pokazuje ikonę, gdy napis z pasa na wydrukowanej etykiecie (zapamiętany
     na paczce) różni się od dzisiejszego. Liczy się tylko trasa aktywna: wykonana nie
     trafia na etykietę (jak w paczki_druk.drukuj_etykiety → routes.trasa_dla_tabletu).
+    Zamówienie zamknięte w Logistyce nie dostaje ikony: etykiety są już bez znaczenia (po
+    wykonaniu trasy napis to „TRANSPORT WOODPOWER”, a na etykiecie wciąż „TRASA: …”, więc
+    ikona świeciłaby na zawsze), a zmiana, która ma znaczenie, otwiera zamówienie z powrotem.
     """
+    if order.logistics_closed_at is not None:
+        return False
     wydrukowane = [p for p in paczki_zamowienia if p.label_printed_at is not None]
     if not wydrukowane:
         return False

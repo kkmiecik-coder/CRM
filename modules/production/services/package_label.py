@@ -185,8 +185,7 @@ def generate_package_label_zpl(dane, przesuniecie=(0, 0)):
         z.pole(32, y, '^A0N,27,25^FD+ %d pozycji (%d szt.) - pelna lista w CRM^FS'
                % (len(reszta), sum(int(p.ilosc or 0) for p in reszta)))
 
-    # 6. Stopka. Numer Base. przez int(): to liczba z bazy, a tekst (np. z komendą ZPL)
-    # ma się wywrócić głośno, zamiast trafić do pola.
+    # 6. Stopka. Numer Base. to liczba z bazy — int() pilnuje formatu pola.
     base = '%d' % int(dane.base_id) if dane.base_id else '-'
     z.pole(32, 1100, '^GB736,2,2^FS')
     z.pole(32, 1108, '^A0N,22,22^FDBase.: %s   Zam. klienta: %s   WoodPower, Bachorz 14N^FS'

@@ -4,6 +4,7 @@ import itertools
 from datetime import datetime
 
 import pytest
+from flask import jsonify
 from sqlalchemy import event
 
 from extensions import db
@@ -14,7 +15,7 @@ from modules.production.models import (LabelPrintJob, ProductionDevice, Producti
                                        ProductionPackage, ProductionProduct)
 from modules.production.routers import mobile_api
 from modules.production.services import print_queue_service as pqs
-from modules.production.services.mobile_api_service import generate_token
+from modules.production.services.mobile_api_service import generate_token, with_idempotency
 from tests.logistyka_fixtures import app, client, pracownik, zamowienie  # noqa: F401
 
 _numery = itertools.count(1400)
@@ -175,6 +176,46 @@ def test_ponowna_deklaracja_uniewaznia_poprzednia(app, client, sygnaly):
     assert [(w.old_value, w.new_value) for w in wpisy] == [(None, u'2 × paczka'), (u'2 × paczka', u'1 × EUR')]
 
 
+def test_ponowna_deklaracja_wygasza_oczekujace_zadania_starych_paczek(app, client, sygnaly):
+    """Agent druku pobiera `pending` — etykiety unieważnionych paczek nie mogą wyjść obok nowych."""
+    order, device = _spakowane(), _urzadzenie()
+    assert _put(client, order, device, {'kind': 'paczka', 'count': 2}).status_code == 200
+    stare = LabelPrintJob.query.order_by(LabelPrintJob.id).all()
+    assert [z.status for z in stare] == ['pending', 'pending']
+    stare[1].status = 'printed'                   # ta etykieta już wyszła na drukarkę
+    db.session.commit()
+    assert _put(client, order, device, {'kind': 'paczka', 'count': 1}).status_code == 200
+    stare_id = [z.id for z in stare]
+    pierwsze, drugie = (LabelPrintJob.query.get(i) for i in stare_id)
+    assert pierwsze.status == 'expired'
+    assert pierwsze.error_message == u'Paczka unieważniona — nowa deklaracja paczek'
+    assert drugie.status == 'printed' and drugie.error_message is None
+    nowe = LabelPrintJob.query.filter(LabelPrintJob.id.notin_(stare_id)).all()
+    assert [(z.status, z.package_id) for z in nowe] == [('pending', paczki.aktualne_paczki(order.id)[0].id)]
+
+
+def test_pierwsza_deklaracja_nie_wygasza_cudzych_zadan(app, client, sygnaly):
+    """Zadania bez paczki (etykiety produktów) i innych zamówień zostają nietknięte."""
+    inne = _spakowane()
+    assert _put(client, inne, _urzadzenie(), {'kind': 'paczka', 'count': 1}).status_code == 200
+    db.session.add(LabelPrintJob(short_product_id='1_1', zpl_payload='^XA^XZ', station_code='labels',
+                                 requested_by_type='device', requested_by_id='x', status='pending'))
+    db.session.commit()
+    order = _spakowane()
+    assert _put(client, order, _urzadzenie(), {'kind': 'paczka', 'count': 1}).status_code == 200
+    assert LabelPrintJob.query.filter_by(status='pending').count() == 3
+    assert LabelPrintJob.query.filter_by(status='expired').count() == 0
+
+
+def test_komunikat_ponownej_deklaracji_mowi_o_nieaktualnych_etykietach(app, client, sygnaly):
+    order, device = _spakowane(), _urzadzenie()
+    pierwsza = _put(client, order, device, {'kind': 'paczka', 'count': 2})
+    assert pierwsza.status_code == 200 and 'Poprzednie' not in pierwsza.get_json()['message']
+    druga = _put(client, order, device, {'kind': 'paleta', 'count': 1, 'pallet_type': 'eur'})
+    assert druga.status_code == 200
+    assert u'Poprzednie etykiety (2) są nieaktualne.' in druga.get_json()['message']
+
+
 def test_ten_sam_operation_id_nie_deklaruje_drugi_raz(app, client, sygnaly):
     """Review Focus 1: powtórka z kolejki offline po timeoucie."""
     order, device = _spakowane(), _urzadzenie()
@@ -323,3 +364,21 @@ def test_stara_appka_pakuje_bez_deklaracji(app, client, sygnaly):
 ])
 def test_opis_deklaracji(argumenty, tekst):
     assert paczki.opis(*argumenty) == tekst
+
+
+@pytest.mark.parametrize('status, sygnal', [
+    (409, []),          # retryable_statuses: rollback, więc etykiet w kolejce nie ma
+    (500, []),
+    (200, [2]),
+])
+def test_dekorator_wysyla_zaplanowany_sygnal_tylko_po_udanym_commicie(app, sygnaly, status, sygnal):
+    """Handler planuje sygnał ZANIM wiadomo, czy dekorator zatwierdzi transakcję."""
+    @with_idempotency(retryable_statuses={409})
+    def handler():
+        pqs.zaplanuj_sygnal_po_commicie(2)
+        return jsonify({'status': status}), status
+
+    with app.test_request_context('/x', method='PUT', headers={'X-Operation-Id': 'op-sygnal-%d' % status}):
+        _, zwrocony = handler()
+    assert zwrocony == status
+    assert sygnaly == sygnal

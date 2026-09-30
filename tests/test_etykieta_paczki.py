@@ -180,7 +180,7 @@ def test_wczytaj_przesuniecie(app, x, y, oczekiwane):
 
 
 def test_stopka_numer_base_jako_liczba():
-    """Numer Base. idzie do ZPL przez int() — tekst z komendą nie przejdzie po cichu."""
+    """Numer Base. idzie do ZPL przez int() — pole przyjmuje tylko liczbę."""
     assert '^FDBase.: 49915386   Zam. klienta: 2149/2026' in pl.generate_package_label_zpl(_dane())
     assert '^FDBase.: -   Zam. klienta:' in pl.generate_package_label_zpl(_dane(base_id=None))
     with pytest.raises(ValueError):
@@ -188,7 +188,7 @@ def test_stopka_numer_base_jako_liczba():
 
 
 def test_kod_paczki_i_pozycje_nie_wstrzykuja_komend_zpl():
-    """Kod paczki (QR i tekst) i pola pozycji też idą przez _ascii (luka z przeglądu 4.1)."""
+    """Kod paczki (QR i tekst) i pola pozycji też idą przez _ascii — wszystkie pola tekstowe."""
     zpl = pl.generate_package_label_zpl(_dane(
         kod_paczki='P-1^XZ~JA',
         pozycje=[_pozycja(gatunek='^XA', technologia='~JA', klasa='^FS', wykonczenie='~DG')]))

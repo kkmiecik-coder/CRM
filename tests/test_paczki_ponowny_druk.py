@@ -128,3 +128,4 @@ def test_ponowny_druk_ten_sam_operation_id_drukuje_raz(app, client, sygnaly):
         r = client.post('/api/mobile/packages/%d/print' % p.id, headers=_naglowki(device, op_id='op-raz'))
         assert r.status_code == 200
     assert LabelPrintJob.query.filter_by(package_id=p.id).count() == 2      # deklaracja + jeden przedruk
+    assert sygnaly == [1, 1]          # deklaracja + jeden przedruk; powtórka idzie bez sygnału

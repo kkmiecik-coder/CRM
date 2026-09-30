@@ -43,9 +43,10 @@ SET @sql = IF(@brak, 'ALTER TABLE prod_orders ADD COLUMN packages_declared_at DA
               'SELECT "packages_declared_at juz jest" AS info');
 PREPARE krok FROM @sql; EXECUTE krok; DEALLOCATE PREPARE krok;
 
--- Log logistyki: akcja 'paczki' (MODIFY do tej samej definicji jest bezpieczny przy każdym
--- przebiegu - lista wartości tylko rośnie) oraz pracownik i urządzenie (akcje z tabletów
--- i telefonów nie mają użytkownika panelu).
+-- Log logistyki: akcja 'paczki' oraz pracownik i urządzenie (akcje z tabletów i telefonów
+-- nie mają użytkownika panelu). Runner wykonuje plik raz (schema_migrations). Przy ręcznym
+-- ponownym uruchomieniu po kroku 4.3 ten MODIFY skurczyłby listę wartości, więc kolejne
+-- migracje rozszerzające ENUM muszą zawierać wszystkie wartości (także 'paczki').
 ALTER TABLE prod_logistics_log MODIFY action
     ENUM('sposob_dostawy','wydane','przepakowanie',
          'trasa_dodane','trasa_usuniete','trasa_status','adres','paczki') NOT NULL;

@@ -75,6 +75,24 @@ def test_ikona_po_dodaniu_do_trasy_i_po_wykonaniu_trasy(app, client):
     assert _wiersz(client, order)['etykiety_paczek_sprzed_zmiany'] is False
 
 
+def test_ikona_znika_na_zamowieniu_zamknietym_w_logistyce(app):
+    """Po wykonaniu trasy napis to „TRANSPORT WOODPOWER”, a na etykiecie „TRASA: …” — bez
+    zamknięcia zamówienie z wykonanej trasy pokazywałoby ikonę na zawsze."""
+    order = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane',))
+    _paczka(order, 'TRASA: Rzeszow 07.10')
+    trasa = Route(name=u'Rzeszów', date_from=date(2026, 10, 7), date_to=date(2026, 10, 7),
+                  status='wykonana')
+    db.session.add(trasa)
+    db.session.flush()
+    db.session.add(RouteStop(route_id=trasa.id, order_id=order.id, position=1))
+    db.session.commit()
+    # Bez zamknięcia: napis się różni (wykonana trasa nie jedzie), więc ikona świeci.
+    assert lista.serializuj(order, trasa=trasa)['etykiety_paczek_sprzed_zmiany'] is True
+    order.logistics_closed_at = datetime(2026, 10, 8, 12, 0)
+    db.session.commit()
+    assert lista.serializuj(order, trasa=trasa)['etykiety_paczek_sprzed_zmiany'] is False
+
+
 def test_lista_czyta_paczki_jednym_zapytaniem(app, client):
     for _ in range(3):
         _paczka(zamowienie(sposob=s.TRANSPORT, statusy=('spakowane',)), 'KURIER')

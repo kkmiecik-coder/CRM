@@ -5,6 +5,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy import event
 
 from extensions import db
 from modules.production.logistics import sposoby as s
@@ -67,6 +68,33 @@ def test_kolejka_pakowania_niesie_podpowiedz_calego_zamowienia(app, client):
     pozycje = [o for o in dane['orders'] if o['internal_order_number'] == order.internal_order_number]
     assert len(pozycje) == 2
     assert all(o['packing_hint'] == dict(PALETA, weight_kg=77) for o in pozycje)
+
+
+def test_kolejka_pakowania_nie_laduje_pozycji_zamowien_osobnymi_zapytaniami(app, client):
+    """
+    Podpowiedź liczy się z listy pozycji, którą kolejka i tak ma (packing_hints=). Bez niej
+    serialize_order sięgałby do leniwego `order.products` i dokładał zapytanie na KAŻDE
+    zamówienie (tu 3, czyli razem 6). Przypięte: 3 zapytania o prod_products, niezależnie od
+    liczby zamówień — suma ETagu (MAX/COUNT), lista pozycji i mapa numeracji etykiet.
+    """
+    for _ in range(3):
+        zamowienie(sposob=s.KURIER, statusy=('czeka_na_pakowanie', 'spakowane'))
+    zapytania = []
+
+    def nasluch(conn, cursor, statement, parameters, context, executemany):
+        gorna = ' '.join(statement.upper().split())
+        if gorna.startswith('SELECT') and 'FROM PROD_PRODUCTS' in gorna:
+            zapytania.append(gorna)
+
+    event.listen(db.engine, 'before_cursor_execute', nasluch)
+    try:
+        r = client.get('/api/mobile/stations/packaging/orders',
+                       headers={'Authorization': 'Bearer ' + _token(app)})
+    finally:
+        event.remove(db.engine, 'before_cursor_execute', nasluch)
+    assert r.status_code == 200 and len(r.get_json()['orders']) == 6
+    assert all(o['packing_hint'] for o in r.get_json()['orders'])
+    assert len(zapytania) == 3, zapytania
 
 
 def test_etag_kolejki_niesie_ksztalt_4(app, client):

@@ -1136,9 +1136,9 @@ def order_packages_declare(numer):
     if order is None:
         return _brak_zamowienia(numer)
     try:
-        nowe = paczki.zadeklaruj(order, deklaracja, stanowisko, _aktor(),
-                                 worker_id=worker_ids[0] if worker_ids else None,
-                                 device_id=g.device.id)
+        nowe, uniewaznione = paczki.zadeklaruj(order, deklaracja, stanowisko, _aktor(),
+                                               worker_id=worker_ids[0] if worker_ids else None,
+                                               device_id=g.device.id)
     except paczki.PaczkiBlad as e:
         return _blad_paczek(e)
 
@@ -1148,9 +1148,10 @@ def order_packages_declare(numer):
         'internal_order_number': order.internal_order_number, 'paczki': tekst,
         'station_code': stanowisko, 'device_id': g.device.device_id,
     })
-    return jsonify(_odpowiedz_paczek(
-        order, nowe, labels_queued=len(nowe),
-        message=u'Zadeklarowano {}. Etykiety poszły do drukarki paczek.'.format(tekst))), 200
+    komunikat = u'Zadeklarowano {}. Etykiety poszły do drukarki paczek.'.format(tekst)
+    if uniewaznione:
+        komunikat += u' Poprzednie etykiety ({}) są nieaktualne.'.format(uniewaznione)
+    return jsonify(_odpowiedz_paczek(order, nowe, labels_queued=len(nowe), message=komunikat)), 200
 
 
 @mobile_api_bp.route('/packages/<int:package_id>/print', methods=['POST'])

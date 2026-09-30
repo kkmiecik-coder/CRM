@@ -12,7 +12,7 @@ from typing import Optional
 from extensions import db
 from modules.production.logistics import sposoby
 from modules.production.logistics.services import delivery, paczki_druk
-from modules.production.models import ProductionPackage, get_local_now
+from modules.production.models import LabelPrintJob, ProductionPackage, get_local_now
 
 # Stanowiska, które deklarują paczki i drukują ich etykiety (spec 6.1) — niezależnie od
 # LABEL_PRINTER_ALLOWED_STATIONS (etykiety produktów). 'verification' dochodzi w kroku 4.3.
@@ -182,9 +182,23 @@ def opis_paczek(lista):
 
 
 def uniewaznij(lista, teraz):
-    """Unieważnia paczki (wiersze zostają — skan starej etykiety ma dostać „nieaktualna”)."""
+    """
+    Unieważnia paczki (wiersze zostają — skan starej etykiety ma dostać „nieaktualna”) i
+    w tej samej transakcji wygasza ich oczekujące zadania druku (`pending` → `expired`).
+    Agent druku pobiera właśnie `pending`, więc bez tego etykiety starych paczek wyszłyby
+    na drukarkę obok nowych (np. po przerwie w pracy agenta). Zadań `printed` i `failed`
+    nie ruszamy; zadanie już przekazane do spoolera Windows jest poza zasięgiem CRM.
+    Zwraca liczbę unieważnionych paczek.
+    """
     for p in lista:
         p.voided_at = teraz
+    if lista:
+        (LabelPrintJob.query
+         .filter(LabelPrintJob.status == LabelPrintJob.STATUS_PENDING,
+                 LabelPrintJob.package_id.in_([p.id for p in lista]))
+         .update({'status': LabelPrintJob.STATUS_EXPIRED,
+                  'error_message': u'Paczka unieważniona — nowa deklaracja paczek'},
+                 synchronize_session=False))
     return len(lista)
 
 
@@ -192,16 +206,18 @@ def zadeklaruj(order, deklaracja, stanowisko, aktor, worker_id=None, device_id=N
     """
     Nowa deklaracja paczek (spec 7.2): unieważnia poprzednią, tworzy N paczek z numerami
     1..N, zapisuje log `paczki`, podbija ETag kolejek tabletów i kolejkuje N etykiet na
-    drukarkę 'wysylka'. NIE commituje.
+    drukarkę 'wysylka'. NIE commituje. Zwraca krotkę (nowe paczki, liczba unieważnionych).
 
     `order` MUSI być odczytany z blokadą (router: _zamowienie_po_numerze(do_zapisu=True)) —
     dwie deklaracje naraz (dwa tablety, powtórka z nowym X-Operation-Id) dałyby dwa komplety
     paczek. Poprzednie paczki czytamy odczytem bieżącym z tego samego powodu.
     Stan pozycji czytamy zwykłym odczytem, więc migawka sprzed blokady może dać fałszywe
     409 order_not_packed (appka ponawia) ALBO przyjąć deklarację względem statusów sprzed
-    równoległej zmiany (np. przełączenia na ponowne pakowanie). Stan końcowy odpowiada
-    wtedy poprawnej kolejności szeregowej (deklaracja, potem zmiana), a krok 4.3
-    unieważnia paczki, gdy zamówienie przestaje być w całości spakowane.
+    równoległej zmiany (np. przełączenia na ponowne pakowanie). Przy wyścigu ze zmianą
+    sposobu dostawy w panelu etykiety mogą mieć napis już po zmianie (czytamy go z
+    zablokowanego wiersza zamówienia), a statusy pozycji sprzed niej (migawka). Przepakowanie
+    i tak kończy się nową deklaracją, a od kroku 4.3 zamówienie, które przestało być w całości
+    spakowane, ma paczki unieważniane.
     """
     if not delivery.wszystkie_spakowane(order):
         raise PaczkiBlad('order_not_packed', u'Zamówienie {} nie jest jeszcze w całości spakowane — '
@@ -209,7 +225,7 @@ def zadeklaruj(order, deklaracja, stanowisko, aktor, worker_id=None, device_id=N
                              order.internal_order_number), 409)
     teraz = teraz or get_local_now()
     stare = aktualne_paczki(order.id, do_zapisu=True)
-    uniewaznij(stare, teraz)
+    uniewaznione = uniewaznij(stare, teraz)
     nowe = [ProductionPackage(order_id=order.id, seq=numer, kind=deklaracja.kind,
                               pallet_type=deklaracja.pallet_type, length_cm=deklaracja.length_cm,
                               width_cm=deklaracja.width_cm, declared_at=teraz,
@@ -226,7 +242,7 @@ def zadeklaruj(order, deklaracja, stanowisko, aktor, worker_id=None, device_id=N
     # ETag kolejek tabletów liczy się z MAX(updated_at) pozycji.
     delivery.podbij_pozycje(order, teraz)
     paczki_druk.drukuj_etykiety(order, nowe, len(nowe), stanowisko, aktor, teraz)
-    return nowe
+    return nowe, uniewaznione
 
 
 def drukuj_ponownie_paczke(paczka, stanowisko, aktor, teraz=None):
@@ -237,6 +253,9 @@ def drukuj_ponownie_paczke(paczka, stanowisko, aktor, teraz=None):
     """
     if paczka.voided_at is not None:
         raise PaczkiBlad('package_void', u'Etykieta nieaktualna — paczki zadeklarowano ponownie.', 409)
+    # Odczyt celowo bez blokady: rodzeństwo ważnej, zablokowanej paczki nie może się zmienić
+    # (deklaracja unieważnia wszystkie naraz), a blokowanie rodzeństwa zakleszczyłoby dwa
+    # równoległe przedruki pojedynczych paczek.
     z_ilu = len(aktualne_paczki(paczka.order_id))
     paczki_druk.drukuj_etykiety(paczka.order, [paczka], z_ilu, stanowisko, aktor,
                                 teraz or get_local_now())
