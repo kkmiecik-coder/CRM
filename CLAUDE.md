@@ -322,7 +322,10 @@ Albo po prostu `./deploy.sh` — robi dokładnie to samo, z lockiem i logami.
   pozycje jednym flushem rosnąco po PK i potem nie sięga po wiersz zamówienia — także pośrednio, przez INSERT do
   tabeli z FK do `prod_orders` (`prod_logistics_log`, `prod_packages`, `prod_route_stops`).** Jeden flush to: odczyt
   pozycji, potem same przypisania i zapis przy commicie (SQLAlchemy sortuje UPDATE-y jednego mappera po PK); każde
-  zapytanie pomiędzy autoflushuje, a dwa flushe są rosnące każdy z osobna, razem już nie. Tak piszą liczniki sztuk
+  zapytanie pomiędzy autoflushuje, a dwa flushe są rosnące każdy z osobna, razem już nie. Reguła wystarcza wobec
+  pisarzy jednego zamówienia (ZAKOŃCZ, doróbka, Base., druk); hurt i przeniesienie osieroconych blokują pozycje
+  zamówienie po zamówieniu, czyli w kolejności (zamówienie, id), więc z pisarzem wielu zamówień bez blokady
+  zamówień rzadkie 1213 jest nadal możliwe (hurt ponawia raz). Tak piszą liczniki sztuk
   (`PATCH …/quantity`, edycja sztuk w panelu admina), faza 2 crona logistyki (`delivery.dostarcz_wydane`:
   jednorazowe przestawienie pozycji zamówień wydanych klientowi, we własnej transakcji, bez blokad zamówień), druk
   etykiet w trybie TCP i druk pojedynczej etykiety (`print_labels_batch`, zapis w końcowym commicie) oraz priorytety
@@ -331,9 +334,11 @@ Albo po prostu `./deploy.sh` — robi dokładnie to samo, z lockiem i logami.
   chroni dziś sama kolejność flushu (INSERT z FK do `prod_orders`, czyli blokada S na zamówieniu, idzie przed
   UPDATE pozycji) — to przypadek, nie reguła: nowy zapis statusów pozycji pod blokadą tras bierze
   `blokady_zamowien.zablokuj_zamowienia(ids)` zaraz po `routes.zablokuj_trasy()`. Znane wyjątki, bez naprawy:
-  hurtowe usunięcie pozycji (`bulk-action` z `delete`, tylko admin) — DELETE-y idą jednym flushem rosnąco, ale
-  doróbce usuwanej pozycji, która sama zostaje, ORM najpierw zeruje `original_product_id` (UPDATE pozycji
-  o wyższym id przed DELETE niższej; naprawa: zamówienia, potem ich pozycje, jak w hurtowej zmianie statusu);
+  hurtowe usunięcie pozycji (`bulk-action` z `delete`, tylko admin) — bez doróbek DELETE-y idą jednym flushem
+  rosnąco, ale gdy wśród usuwanych jest pozycja z doróbką, SQLAlchemy porządkuje zapisy według zależności
+  oryginał–doróbka, nie po PK: doróbka (wyższe id) dostaje UPDATE `original_product_id = NULL` albo DELETE przed
+  DELETE oryginału, także przy usuwaniu całego zamówienia (naprawa: zamówienia, potem ich pozycje, jak w hurtowej
+  zmianie statusu);
   ręczna synchronizacja z `force_update`, która dopisuje pozycje istniejącym zamówieniom, i `sync-cron`
   (`sync_paid_orders_only`) przy ponownym imporcie istniejącego zamówienia — ta sama klasa wyjątku, dziś
   nieaktywna, bo cron importu nie jest uruchamiany; gdyby miał wrócić, trzeba najpierw dodać blokadę zamówienia.
