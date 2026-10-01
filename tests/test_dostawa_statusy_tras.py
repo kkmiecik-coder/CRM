@@ -7,12 +7,19 @@ import os
 import pytest
 
 from extensions import db
-from modules.production.logistics.services import bl_sync, delivery, lista, paczki, routes, weryfikacja
+from modules.production.logistics import sposoby as s
+from modules.production.logistics.models import OrderGeo
+from modules.production.logistics.services import bl_sync, delivery, geocoding, lista, paczki, routes, weryfikacja
 from modules.production.logistics.services.delivery import LogistykaBlad
 from tests.dostawa_pomocnicze import DZIEN, T0, trasa, zaladuj_wprost, zamowienie_z_paczkami
 from tests.logistyka_fixtures import BASE, app, client, kierowca, pojazd  # noqa: F401
 
 KORZEN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _bez_zaladunku(p):
+    """Wszystkie cztery znaczniki załadunku paczki puste."""
+    return (p.loaded_at, p.loaded_by_worker_id, p.loaded_method, p.loaded_route_id) == (None, None, None, None)
 
 
 @pytest.mark.parametrize('status, fragment', [
@@ -37,6 +44,40 @@ def test_zmiana_adresu_zamowienia_dostarczonego_na_trasie_w_drodze_409(app):
     with pytest.raises(LogistykaBlad) as e:
         delivery.zmien_adres(order, u'ul. Nowa 1', '35-001', u'Rzeszów')
     assert e.value.status == 409 and u'zostało dostarczone' in e.value.komunikat
+
+
+@pytest.mark.parametrize('status, fragment', [
+    ('zaladowana', u'najpierw cofnij załadunek'),
+    ('w_trasie', u'gdy kierowca rozliczy przystanek'),
+])
+@pytest.mark.parametrize('nowy', [s.KURIER, s.ODBIOR, s.BRAK])
+def test_zmiana_sposobu_zamowienia_z_trasy_zaladowanej_i_w_trasie_409(app, status, fragment, nowy):
+    """Zamówienie po doróbce (pozycje znowu „spakowane”) zostaje na trasie załadowanej albo w drodze — zdjęcie
+    go z trasy zmianą sposobu dostawy odmawia, przystanek i sposób zostają."""
+    order, _ = zamowienie_z_paczkami(statusy=('spakowane', 'spakowane'), zweryfikowane=False)
+    t = trasa([order], status=status)
+    with pytest.raises(LogistykaBlad) as e:
+        delivery.ustaw_sposob_dostawy(order, nowy, teraz=T0)
+    assert e.value.status == 409
+    assert t.name in e.value.komunikat and fragment in e.value.komunikat
+    assert order.override_delivery_method == s.TRANSPORT
+    assert routes.przystanek_zamowienia(order.id).route_id == t.id
+
+
+@pytest.mark.parametrize('status, fragment', [
+    ('zaladowana', u'najpierw cofnij załadunek'),
+    ('w_trasie', u'gdy kierowca rozliczy przystanek'),
+])
+def test_pinezka_zamowienia_z_trasy_zaladowanej_i_w_trasie_409(app, status, fragment):
+    """Ręczna korekta i reset pinezki (geocoding → sprawdz_trase_przed_zmiana) blokuje ta sama bramka co adres."""
+    order, _ = zamowienie_z_paczkami(statusy=('spakowane', 'spakowane'), zweryfikowane=False)
+    t = trasa([order], status=status)
+    for wywolanie in (lambda: geocoding.ustaw_recznie(order, 50.06, 19.94), lambda: geocoding.resetuj(order)):
+        with pytest.raises(LogistykaBlad) as e:
+            wywolanie()
+        assert e.value.status == 409
+        assert t.name in e.value.komunikat and fragment in e.value.komunikat
+    assert OrderGeo.query.get(order.id) is None
 
 
 @pytest.mark.parametrize('status, napis', [('zaladowana', u'załadowana'), ('w_trasie', u'w trasie')])
@@ -89,7 +130,7 @@ def test_cofniecie_weryfikacji_czysci_zaladunek(app):
     weryfikacja.cofnij_weryfikacje(order, worker_id=3, teraz=T0)
     db.session.commit()
     for p in lista_paczek:
-        assert (p.loaded_at, p.loaded_by_worker_id, p.loaded_method, p.loaded_route_id) == (None, None, None, None)
+        assert _bez_zaladunku(p)
         assert p.verified_at is None
     assert [p.current_status for p in order.products] == ['spakowane', 'spakowane']
 
@@ -106,7 +147,7 @@ def test_regula_uniewaznienia_czysci_zaladunek(app):
     db.session.commit()
     assert [p.current_status for p in order.products] == ['czeka_na_wyciecie', 'spakowane']
     for p in lista_paczek:
-        assert p.voided_at is not None and p.loaded_at is None and p.loaded_route_id is None
+        assert p.voided_at is not None and _bez_zaladunku(p)
     assert routes.przystanek_zamowienia(order.id).route_id == t.id
 
 
@@ -127,12 +168,44 @@ def test_etap_w_trasie_na_liscie_logistyki(app):
     assert lista.serializuj(stoi, None, ts)['etap'] == {'status': 'zaladowane', 'nazwa': u'Załadowane'}
 
 
+def test_pobierz_filtruje_etap_w_trasie_i_zaladowane(app):
+    """Etap „w_trasie” zastępuje „zaladowane” zamówieniu na trasie w drodze; filtr `etap` działa na etapie
+    wiersza, więc `etap=zaladowane` takiego zamówienia nie zwraca."""
+    jedzie, _ = zamowienie_z_paczkami(statusy=('zaladowane',))
+    stoi, _ = zamowienie_z_paczkami(statusy=('zaladowane',))
+    trasa([jedzie], status='w_trasie')
+    trasa([stoi], status='zaladowana')
+    numery = lambda etap: {w['numer'] for w in lista.pobierz(etap=etap)}
+    assert numery('w_trasie') == {jedzie.internal_order_number}
+    assert numery('zaladowane') == {stoi.internal_order_number}
+
+
 def test_paczki_na_liscie_licza_zaladowane(app):
     order, lista_paczek = zamowienie_z_paczkami(paczek=3)
     t = trasa([order])
     zaladuj_wprost(lista_paczek[:2], t)
     assert lista.serializuj(order, None, t)['paczki'] == {'opis': u'3 × paczka', 'liczba': 3,
                                                           'zweryfikowane': 3, 'zaladowane': 2}
+
+
+def test_paczki_na_liscie_licza_zaladunek_tylko_z_trasy_zamowienia(app):
+    """Znacznik z innej trasy zostaje np. po „Cofnij zatwierdzenie” w trakcie załadunku i zmianie trasy —
+    nie liczy się zamówieniu, a bez trasy zamówienia licznik to 0."""
+    order, lista_paczek = zamowienie_z_paczkami(paczek=3)
+    t, inna = trasa([order]), trasa([])
+    zaladuj_wprost(lista_paczek[:2], inna)
+    assert lista.serializuj(order, None, t)['paczki']['zaladowane'] == 0
+    zaladuj_wprost(lista_paczek[2:], t)
+    assert lista.serializuj(order, None, t)['paczki']['zaladowane'] == 1
+    assert lista.serializuj(order, None, None)['paczki']['zaladowane'] == 0
+
+
+def test_wyczysc_zaladunek_zwraca_liczbe_zaladowanych_paczek(app):
+    order, lista_paczek = zamowienie_z_paczkami(paczek=3)
+    zaladuj_wprost(lista_paczek[:2], trasa([order]), kto_id=7)
+    assert paczki.wyczysc_zaladunek(lista_paczek) == 2
+    assert all(_bez_zaladunku(p) for p in lista_paczek)
+    assert paczki.wyczysc_zaladunek(lista_paczek) == 0
 
 
 def test_znaczniki_base_dostawy(app):
@@ -172,8 +245,9 @@ def test_cofniecie_sprawdzenia_paczki_czysci_zaladunek_zamowienia(app):
     db.session.commit()
     assert wynik == (True, True)
     assert [p.current_status for p in order.products] == ['spakowane', 'spakowane']
-    assert all(p.loaded_at is None and p.loaded_route_id is None for p in lista_paczek)
-    assert lista_paczek[1].verified_at is not None
+    assert all(_bez_zaladunku(p) for p in lista_paczek)
+    assert lista_paczek[0].verified_at is None          # cofnięta paczka znowu niesprawdzona
+    assert lista_paczek[1].verified_at is not None      # pozostałe zostają sprawdzone
 
 
 def test_cofniecie_sprawdzenia_paczki_zamowienia_zaladowanego_409(app):
@@ -184,4 +258,6 @@ def test_cofniecie_sprawdzenia_paczki_zamowienia_zaladowanego_409(app):
         weryfikacja.cofnij_sprawdzenie_paczki(lista_paczek[0], order, worker_id=3, teraz=T0)
     assert e.value.kod == 'order_status'
     db.session.rollback()
-    assert all(p.loaded_route_id == t.id and p.verified_at is not None for p in lista_paczek)
+    # Odmowa niczego nie zmieniła: znaczniki załadunku i weryfikacji stoją jak przed wywołaniem.
+    assert all((p.loaded_at, p.loaded_by_worker_id, p.loaded_method, p.loaded_route_id) == (T0, 7, 'skan', t.id)
+               and p.verified_at is not None for p in lista_paczek)

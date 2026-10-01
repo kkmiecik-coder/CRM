@@ -95,6 +95,11 @@ def _nazwa_etapu(produkt):
 
 
 def _etap(aktywne, trasa=None):
+    """
+    Etap zamówienia = etap jego najbardziej zaległej pozycji. Wyjątek (krok 4.4): pozycje `zaladowane` na trasie
+    w drodze dają etap `w_trasie` zamiast `zaladowane` — filtr `etap` w `pobierz` działa na etapie wiersza,
+    więc `etap=zaladowane` zamówienia z trasy w drodze nie zwraca, a `etap=w_trasie` tak.
+    """
     if not aktywne:
         return {'status': 'anulowane', 'nazwa': 'Anulowane'}
     najwczesniejszy = min(aktywne, key=lambda p: _ranga(p.current_status))
@@ -262,8 +267,12 @@ def serializuj(order, geo=None, trasa=None, paczki_zamowienia=None, okno_weryfik
         # Krok 4.3 (spec 11): paczki pod kolumną Etap, plakietka „BEZ PACZEK”, ikona problemu.
         'paczki': ({'opis': paczki.opis_paczek(paczki_zamowienia), 'liczba': len(paczki_zamowienia),
                     'zweryfikowane': sum(1 for p in paczki_zamowienia if p.verified_at is not None),
-                    # Krok 4.4: panel tras pokazuje „załadowano 1/2” przy przystanku.
-                    'zaladowane': sum(1 for p in paczki_zamowienia if p.loaded_at is not None)}
+                    # Krok 4.4: panel tras pokazuje „załadowano 1/2” przy przystanku. Liczy się tylko załadunek
+                    # na trasę zamówienia: znacznik z innej trasy zostaje np. po „Cofnij zatwierdzenie”
+                    # w trakcie załadunku i zmianie trasy; bez trasy zamówienia licznik to 0.
+                    'zaladowane': sum(1 for p in paczki_zamowienia
+                                      if trasa is not None and p.loaded_at is not None
+                                      and p.loaded_route_id == trasa.id)}
                    if paczki_zamowienia else None),
         'bez_paczek': _bez_paczek(order, aktywne, paczki_zamowienia, okno),
         'problem': _problem(order),
