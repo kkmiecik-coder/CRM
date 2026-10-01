@@ -41,6 +41,8 @@ Poza testami SQLite (Task 3, MySQL na dwóch sesjach): panel ↔ ZAKOŃCZ (czę�
 1. Kolejność blokad doróbki zostaje do tego kroku; „zamówienie najpierw” dla stanowisk to zadanie wstępne kroku 4.4 (decyzja z oględzin 4.3).
 2. Krok 4.4 w dwóch planach: **4.4a** (ten) i **4.4b** (Dostawa + plan appki). 4.4a realizujemy od razu po akceptacji.
 3. Etapy 3 i 4 wdrażamy razem (jedno wdrożenie etapów 1–4) — wpis w specu 14 robi Task 3.
+4. Plan zaakceptowany („Akceptuję, ruszaj”). **Błąd `sync_source='admin_update'` naprawiamy w 4.4a** (Task 2, Step 4b): dodanie pozycji z Base. w panelu admina nie nadpisuje już zamówieniu `sync_source`.
+5. Akcje automatyczne Base. (spec 16): jedyna akcja to „Ustawiono status” → warunek „Status zamówienia = Odebrane” → „Drukuj dokument KP [PDF]” (ID 292653, zrzut od Konrada 1.10). „Odebrane” (149779) ustawia tylko „Wydane klientowi” przy odbiorze osobistym; statusy Dostawy (524520, 149763, 149778, 417343) jej nie wyzwalają — plan 4.4b wysyła statusy jak w specu.
 
 ## Doprecyzowania (do specu w Task 3)
 
@@ -49,11 +51,11 @@ Poza testami SQLite (Task 3, MySQL na dwóch sesjach): panel ↔ ZAKOŃCZ (czę�
 - **Zmiany z Base. przeliczają zamknięcie od razu** (`delivery.przelicz_zamkniecie` po usunięciu/dodaniu pozycji). Dotąd zamknięte zamówienie kurierskie z nową pozycją czekało na godzinny cron, a usunięcie ostatniej niespakowanej pozycji nie zamykało cyklu. Bez tego kryterium „zero błędnych zamknięć” w wyścigu zmian z Base. z ZAKOŃCZ nie byłoby spełnione.
 - **Wywołanie Base. przed blokadami.** `apply_baselinker_changes` pobiera zamówienie z Base. (`get_order_from_baselinker`, tylko gdy są pozycje do dodania) na samym początku, przed blokadą zamówienia; dotąd robił to w kroku 3, gdy pozycje usunięte i zmienione były już zablokowane.
 - **Siatka w cronie** (spec 4.6) zostaje jako zabezpieczenie; przyczynę (ZAKOŃCZ na migawce sposobu) usuwa ten krok.
+- **`sync_source` przy dodaniu pozycji z Base.** (decyzja Konrada 4): zamówienie zachowuje swoje źródło synchronizacji; dawne `admin_update` było spoza ENUM kolumny i na MySQL wywracało całą operację.
 
 ## Poza zakresem (zgłoszone kontrolerowi, bez zmian w kodzie)
 
-Z przeglądu ścieżek pisarzy (1.10), do decyzji Konrada:
-- `apply_baselinker_changes` przy dodawaniu pozycji ustawia zamówieniu `sync_source = 'admin_update'`, a kolumna to `ENUM('baselinker_auto','manual_entry')` — na MySQL w trybie ścisłym dodanie pozycji z panelu admina najpewniej pada (1265). Dlatego wyścig „zmiany z Base. ↔ ZAKOŃCZ” w Task 3 używa zmiany ilości i danych zamówienia; Task 3 sprawdza jednym wywołaniem, czy dodanie pada na 5004, i melduje wynik.
+Z przeglądu ścieżek pisarzy (1.10), do decyzji Konrada (pierwsza pozycja z tej listy — `sync_source='admin_update'` — wyjęta: naprawiamy ją w Task 2 na polecenie Konrada):
 - Ten sam panel przy zmianie nazwy pozycji zmienia w miejscu współdzielony wiersz `prod_configurations` (wszystkie pozycje z tą konfiguracją).
 - `reject_product_quantity` commituje w handlerze (wbrew kontraktowi `with_idempotency`): błąd po tym commicie i ponowienie z kolejki offline dałyby drugą doróbkę.
 - `baselinker_status_sync._produkty_zamowienia` szuka zamówienia po `internal_order_number`, który powtarza się co rok — może wymieszać pozycje starego zamówienia.
@@ -75,7 +77,7 @@ Z przeglądu ścieżek pisarzy (1.10), do decyzji Konrada:
 | `modules/production/logistics/services/delivery.py` (`odnotuj_wejscie_do_pakowania`, `po_spakowaniu`, `przenies_osierocone_z_logistyki`) | 1 | docstringi (warunek odczytu bieżącego), cron osieroconych: zamówienia przed pozycjami |
 | `tests/blokady_pomocnicze.py` (nowy), `tests/test_blokady_zamowien.py` (nowy) | 1 | kolejność zapytań, migawka przed zapisem, testy |
 | `modules/production/services/rework_service.py` | 2 | doróbka: blokada zamówienia i pozycji zamiast samej pozycji |
-| `modules/production/services/sync_service.py` (`apply_baselinker_changes`) | 2 | Base. przed blokadami, blokada zamówienia i pozycji, przeliczenie zamknięcia |
+| `modules/production/services/sync_service.py` (`apply_baselinker_changes`) | 2 | Base. przed blokadami, blokada zamówienia i pozycji, przeliczenie zamknięcia, bez nadpisywania `sync_source` |
 | `tests/test_blokady_dorobka_base.py` (nowy) | 2 | testy |
 | skrypty wyścigów w `C:\Users\Grafik\Documents\woodpower-podglady\logistyka4\kod\` (poza repo) | 3 | tryby MySQL |
 | `CLAUDE.md`, spec | 3 | kolejność blokad, wyniki, decyzje Konrada |
@@ -573,7 +575,7 @@ git commit -m "fix(production): ZAKONCZ blokuje zamowienie przed pozycjami i dec
 
 **Interfaces:**
 - Consumes: `blokady_zamowien.zablokuj_zamowienie_pozycji(product_id)`, `blokady_zamowien.zablokuj_zamowienie(order_id)` (Task 1); `tests/blokady_pomocnicze.py` (Task 1).
-- Produces: `apply_baselinker_changes` pobiera zamówienie z Base. (tylko gdy `products_to_add`) PRZED blokadami, blokuje zamówienie i jego pozycje przed pierwszym zapisem i na końcu woła `delivery.przelicz_zamkniecie`. Kształt wyniku (`success`, `added`, `removed`, `updated`, `errors`, `error`) bez zmian.
+- Produces: `apply_baselinker_changes` pobiera zamówienie z Base. (tylko gdy `products_to_add`) PRZED blokadami, blokuje zamówienie i jego pozycje przed pierwszym zapisem, nie nadpisuje zamówieniu `sync_source` przy dodawaniu pozycji (decyzja Konrada 4) i na końcu woła `delivery.przelicz_zamkniecie`. Kształt wyniku (`success`, `added`, `removed`, `updated`, `errors`, `error`) bez zmian.
 
 - [ ] **Step 1: Testy, które padną**
 
@@ -708,12 +710,30 @@ def test_zmiany_z_base_usuniecie_niespakowanej_zamyka_kuriera_od_razu(app):
     assert wynik['success'] is True and wynik['removed'] == 1, wynik
     db.session.expire_all()
     assert db.session.get(ProductionOrder, order_id).logistics_closed_at is not None
+
+
+def test_zmiany_z_base_nowa_pozycja_nie_nadpisuje_zrodla_synchronizacji(app, monkeypatch):
+    """Decyzja Konrada 1.10: dodanie pozycji z panelu admina ustawiało zamówieniu sync_source='admin_update', a kolumna
+    to ENUM('baselinker_auto','manual_entry') — na MySQL w trybie ścisłym wywracało to całą operację (1265). SQLite
+    ENUM-u nie pilnuje, więc sprawdzamy samą wartość. Prawdziwe _create_production_product_from_data (bez podmiany)."""
+    order = zamowienie(sposob=s.KURIER, statusy=('spakowane',), sync_source='baselinker_auto')
+    order_id, bl_id = order.id, order.baselinker_order_id
+    serwis = BaselinkerSyncService()
+    monkeypatch.setattr(serwis, 'get_order_from_baselinker', lambda _id: {
+        'products': [{'order_product_id': '77', 'name': 'Blat', 'quantity': 1}]})
+    monkeypatch.setattr('modules.production.services.parser_service.ProductNameParser.parse_product_name',
+                        lambda self, nazwa: None)
+    wynik = serwis.apply_baselinker_changes(bl_id, {'products_to_add': [{'order_product_id': '77'}]})
+    assert wynik['success'] is True and wynik['added'] == 1, wynik
+    db.session.expire_all()
+    assert db.session.get(ProductionOrder, order_id).sync_source == 'baselinker_auto'
+    assert ProductionProduct.query.filter_by(order_id=order_id).count() == 2
 ```
 
 - [ ] **Step 2: Testy padają**
 
 Run: `PYTEST tests/test_blokady_dorobka_base.py`
-Expected: FAIL — `test_dorobka_blokuje_zamowienie_przed_pozycjami_przed_zapisem` (StopIteration: brak blokady zamówień), `test_dorobka_sprawdza_stanowisko_na_biezacym_statusie` (brak wyjątku — oryginał z sesji bez `populate_existing`), `test_zmiany_z_base_pytaja_base_przed_blokadami` (StopIteration: brak blokady zamówień), `test_zmiany_z_base_blokuja_zamowienie_przed_zapisem_pozycji`, `test_zmiany_z_base_nowa_pozycja_otwiera_zamkniete_od_razu` (zostaje zamknięte), `test_zmiany_z_base_usuniecie_niespakowanej_zamyka_kuriera_od_razu` (zostaje otwarte).
+Expected: FAIL — `test_dorobka_blokuje_zamowienie_przed_pozycjami_przed_zapisem` (StopIteration: brak blokady zamówień), `test_dorobka_sprawdza_stanowisko_na_biezacym_statusie` (brak wyjątku — oryginał z sesji bez `populate_existing`), `test_zmiany_z_base_pytaja_base_przed_blokadami` (StopIteration: brak blokady zamówień), `test_zmiany_z_base_blokuja_zamowienie_przed_zapisem_pozycji`, `test_zmiany_z_base_nowa_pozycja_otwiera_zamkniete_od_razu` (zostaje zamknięte), `test_zmiany_z_base_usuniecie_niespakowanej_zamyka_kuriera_od_razu` (zostaje otwarte), `test_zmiany_z_base_nowa_pozycja_nie_nadpisuje_zrodla_synchronizacji` (`sync_source == 'admin_update'`).
 
 - [ ] **Step 3: Doróbka**
 
@@ -844,6 +864,22 @@ na:
                         weryfikacja.uniewaznij_etapy(zamowienie, get_local_now(), u'nowa pozycja z Base.')
 ```
 
+- [ ] **Step 4b: `sync_source` przy dodawaniu pozycji (decyzja Konrada 4)**
+
+W kroku 3 (`new_product_data`, linia ok. 2734) usuń linię:
+```python
+                                    'sync_source': 'admin_update',
+```
+i w jej miejscu zostaw komentarz:
+```python
+                                    # sync_source zamówienia zostaje bez zmian (decyzja Konrada 1.10): kolumna to
+                                    # ENUM('baselinker_auto','manual_entry'), a 'admin_update' wywracało na MySQL całą
+                                    # operację (1265). _create_production_product_from_data przepisuje na zamówienie
+                                    # klucze z ORDER_LEVEL_KEYS, więc samo pominięcie klucza wystarcza.
+```
+
+- [ ] **Step 4c: Przeliczenie zamknięcia**
+
 Przed `db.session.commit()` (linia ok. 2807) dodaj:
 ```python
             # Pozycje mogły zniknąć albo dojść — cykl logistyczny przeliczamy od razu (krok 4.4a). Dotąd zamknięte
@@ -865,7 +901,7 @@ Expected: PASS.
 - [ ] **Step 6: Pełny pakiet**
 
 Run: `PYTEST tests/`
-Expected: `5495 passed, 3 skipped` (5489 + 6 nowych). Każdy inny wynik — opisz w raporcie.
+Expected: `5496 passed, 3 skipped` (5489 + 7 nowych). Każdy inny wynik — opisz w raporcie.
 
 - [ ] **Step 7: Commit**
 
@@ -873,7 +909,7 @@ Expected: `5495 passed, 3 skipped` (5489 + 6 nowych). Każdy inny wynik — opis
 git add modules/production/services/rework_service.py modules/production/services/sync_service.py \
   tests/test_blokady_dorobka_base.py
 git commit -m "fix(production): dorobka i zmiany z Base. blokuja zamowienie przed pozycjami" \
-  -m "Zadanie wstepne kroku 4.4 logistyki: reject_product_quantity i apply_baselinker_changes biora blokade zamowienia i jego pozycji (odczyt biezacy) przed pierwszym zapisem. Zamowienie z Base. pobierane przed blokadami, zamkniecie cyklu przeliczane od razu po zmianie pozycji." \
+  -m "Zadanie wstepne kroku 4.4 logistyki: reject_product_quantity i apply_baselinker_changes biora blokade zamowienia i jego pozycji (odczyt biezacy) przed pierwszym zapisem. Zamowienie z Base. pobierane przed blokadami, zamkniecie cyklu przeliczane od razu po zmianie pozycji, dodanie pozycji nie nadpisuje juz sync_source zamowienia (wartosc spoza ENUM wywracala operacje na MySQL)." \
   -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
@@ -927,9 +963,9 @@ Nowe tryby (opis w docstringu trybu, jak w kroku 4.3; stan wyjściowy przez `w.r
 | `panel-wejscie` (nowy) | 2 pozycje: pierwsza `czeka_na_pakowanie`, druga `czeka_na_krawedzie` z `parsed_finish_type='surowe'` i `quantity_done_edges=0`, `logistics_completed_at=NULL`; parzyste kurier → odbiór, nieparzyste transport → kurier | panel: zmiana sposobu (`przepakowanie: true` — pomijane, niespakowane) | ZAKOŃCZ Krawędzi drugiej pozycji (urządzenie `PODGLAD-KRAWEDZIE`, `station_code: edges`) | oba 200, druga `czeka_na_pakowanie`, `logistics_completed_at` ustawione, nowy sposób, 0 × 1213, zamknięcie zgodne |
 | `dorobka-zakoncz` (nowy) | kurier, 2 pozycje `czeka_na_pakowanie` (pierwsza `quantity=2`), 2 paczki ważne (stan sztuczny jak `dorobka-weryfikacja`, żeby reguła miała pracę) | doróbka 1 szt. pierwszej pozycji z pakowania | ZAKOŃCZ drugiej pozycji | oba 200, pierwsza `quantity=1`, jest doróbka, druga `spakowane`, paczki unieważnione, 0 × 1213, zamknięcie zgodne (otwarte) |
 | `dorobka-panel` (nowy) | 2 pozycje: pierwsza `czeka_na_pakowanie` (`quantity=2`), druga `spakowane`, 2 paczki ważne (stan sztuczny); parzyste kurier → odbiór, nieparzyste transport → kurier | doróbka 1 szt. pierwszej pozycji z pakowania | panel: zmiana sposobu (`przepakowanie: true`) | oba 200, nowy sposób, doróbka istnieje, paczki unieważnione, 0 × 1213, zamknięcie zgodne |
-| `sync-zakoncz` (nowy) | kurier, pierwsza `spakowane`, druga `czeka_na_pakowanie` | `POST /production/api/admin/apply-baselinker-changes` (sesja admina): `products_to_update` = ilość pierwszej pozycji +1, `order_level` = `delivery_city` (zapis zamówienia) | ostatnie ZAKOŃCZ pakowania | oba 200, druga `spakowane`, zamówienie zamknięte (kurier, wszystko spakowane), nowe miasto, 0 × 1213, zamknięcie zgodne |
+| `sync-zakoncz` (nowy) | kurier, pierwsza `spakowane`, druga `czeka_na_pakowanie` | `POST /production/api/admin/apply-baselinker-changes` (sesja admina). Parzyste: `products_to_update` = ilość pierwszej pozycji +1 i `order_level` = `delivery_city` (zapis zamówienia). Nieparzyste: `products_to_add` z jedną nową pozycją (`BaselinkerSyncService.get_order_from_baselinker` podmienione w procesie skryptu na odpowiedź z tą pozycją — bez sieci) | ostatnie ZAKOŃCZ pakowania | oba 200, druga `spakowane`, 0 × 1213, zamknięcie zgodne. Parzyste: zamówienie zamknięte (kurier, wszystko spakowane), nowe miasto. Nieparzyste: nowa pozycja `czeka_na_wyciecie`, zamówienie OTWARTE, `sync_source` bez zmian |
 
-Przed serią `sync-zakoncz` jedno wywołanie kontrolne ścieżki dodania pozycji (`products_to_add` z podmienionym w procesie skryptu `BaselinkerSyncService.get_order_from_baselinker`) na osobnym zamówieniu z puli: zapisz w raporcie, czy MySQL przyjmuje `sync_source='admin_update'` (spodziewane: błąd 1265 — zgłoszone w „Poza zakresem” planu). Nie naprawiaj.
+Przed serią `sync-zakoncz` jedno wywołanie kontrolne ścieżki dodania pozycji (`products_to_add`, podmienione Base.) na osobnym zamówieniu z puli, na kodzie HEAD: oczekiwane 200, `added == 1`, `sync_source` zamówienia bez zmian (poprawka z Task 2, Step 4b — dawniej MySQL odrzucał `admin_update` spoza ENUM). Wynik do raportu.
 
 - [ ] **Step 3: Serie**
 
@@ -970,7 +1006,7 @@ W specu (dopiski z „(krok 4.4a)”, jak w poprzednich krokach):
 
 - [ ] **Step 7: Pełny pakiet, Python 3.9, commit dokumentów**
 
-Run: `PYTEST tests/` → `5495 passed, 3 skipped`.
+Run: `PYTEST tests/` → `5496 passed, 3 skipped`.
 Składnia pod 3.9: `compile()` i `ast.parse(feature_version=(3, 9))` w obrazie `python:3.9-slim` dla plików `.py` zmienionych od `b0fc115a` (jak w kroku 4.3) → wszystkie OK; brak `X | Y` w adnotacjach poza plikami z `from __future__ import annotations`.
 
 ```bash
@@ -982,7 +1018,7 @@ git commit -m "docs: krok 4.4a logistyki - zamowienie najpierw dla stanowisk, wy
 
 - [ ] **Step 8: Meldunek (kontroler)**
 
-SendMessage do „Sesja centralna rozwoju logistyki”: commity 4.4a, wynik pełnego pakietu, tabela wyścigów (przebiegi, 0 × 1213, 0 błędnych zamknięć), wynik ścieżki dodania pozycji z Base. na MySQL, lista „Poza zakresem” do decyzji Konrada, stan podglądu 5004.
+SendMessage do „Sesja centralna rozwoju logistyki”: commity 4.4a, wynik pełnego pakietu, tabela wyścigów (przebiegi, 0 × 1213, 0 błędnych zamknięć), wynik ścieżki dodania pozycji z Base. na MySQL (po poprawce `sync_source`), lista „Poza zakresem” do decyzji Konrada, stan podglądu 5004.
 
 ---
 
