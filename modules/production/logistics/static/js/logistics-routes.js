@@ -26,10 +26,15 @@
  *   POST   {API}/routes/<id>/stops                   {order_ids} → {route, dodane, bledy}
  *   DELETE {API}/routes/<id>/stops/<order_id>        zdjęcie przystanku
  *   PUT    {API}/routes/<id>/stops/order             {order_ids} — nowa kolejność
- *   POST   {API}/routes/<id>/approve | /revert | /complete | /restore
+ *   POST   {API}/routes/<id>/approve | /revert | /unload | /complete | /stops/<oid>/undo-delivered
  *          /complete {delivered_order_ids} (wymagane); 409 z `niespakowane` [id], gdy jako
- *          dostarczone oznaczono zamówienie, które nie jest w całości spakowane
- *   GET    {API}/routes/<id>/routimo                 plik .xlsx (zatwierdzona, wykonana);
+ *          dostarczone oznaczono zamówienie, które nie jest w całości spakowane.
+ *          /unload — „Cofnij załadunek” (trasa załadowana wraca do zatwierdzonej);
+ *          /stops/<oid>/undo-delivered — „Cofnij dostarczenie” (trasa w drodze albo wykonana)
+ *          Krok 4.4: trasa ma też `postep` {przystanki, zaladowane, dostarczone}, `zaladowana`,
+ *          `wyjazd`, `odhaczona_w_panelu`; przystanek `zamowienie.dostawa` {dostarczono, zostaje}
+ *          i `zamowienie.paczki.zaladowane`. Dawnego „Przywróć trasę” już nie ma.
+ *   GET    {API}/routes/<id>/routimo                 plik .xlsx (od zatwierdzonej wzwyż);
  *          nagłówek X-Routimo-Pominiete = ile anulowanych przystanków pominięto
  *   GET    {API}/availability?date_from=&date_to=&route_id=   pojazdy i kierowcy, zajęci z nazwą trasy;
  *          kierowca tej trasy bez znacznika: nie_kierowca (runda 2)
@@ -101,10 +106,14 @@
     // i „Pokaż całą trasę”, u dołu atrybucja — żaden przystanek nie ląduje pod kontrolką.
     const MARGINES_MAPKI = { paddingTopLeft: [54, 30], paddingBottomRight: [30, 30] };
 
-    const NAZWY_STATUSOW = { robocza: 'Robocza', zatwierdzona: 'Zatwierdzona', wykonana: 'Wykonana' };
-    const IKONY_STATUSOW = { robocza: 'fa-pen', zatwierdzona: 'fa-lock', wykonana: 'fa-check' };
-    // [akcja, etykieta, ikona, odmiana przycisku] — przyciski edytora wg statusu (R12:
-    // „Odhacz jako wykonaną” także z roboczej).
+    const NAZWY_STATUSOW = { robocza: 'Robocza', zatwierdzona: 'Zatwierdzona', zaladowana: 'Załadowana',
+        w_trasie: 'W trasie', wykonana: 'Wykonana' };
+    const IKONY_STATUSOW = { robocza: 'fa-pen', zatwierdzona: 'fa-lock', zaladowana: 'fa-truck-ramp-box',
+        w_trasie: 'fa-truck-fast', wykonana: 'fa-check' };
+    // Trasy, które da się odhaczyć w panelu (R12 etapu 3: także robocza; krok 4.4: załadowana i w drodze).
+    const ODHACZALNE = ['robocza', 'zatwierdzona', 'zaladowana', 'w_trasie'];
+    // [akcja, etykieta, ikona, odmiana przycisku] — przyciski edytora wg statusu. Krok 4.4: „Przywróć trasę” znika,
+    // zastępuje ją „Cofnij dostarczenie” przy przystanku (spec 9.7); trasa załadowana ma „Cofnij załadunek”.
     const AKCJE = {
         nowa: [
             ['utworz', 'Utwórz trasę', 'fa-plus', 'glowny'],
@@ -121,9 +130,17 @@
             ['wykonaj', 'Odhacz jako wykonaną', 'fa-check-double', ''],
             ['cofnij', 'Cofnij do roboczej', 'fa-lock-open', ''],
         ],
+        zaladowana: [
+            ['routimo', 'Eksport do Routimo', 'fa-file-excel', ''],
+            ['cofnij-zaladunek', 'Cofnij załadunek', 'fa-dolly', ''],
+            ['wykonaj', 'Odhacz jako wykonaną', 'fa-check-double', ''],
+        ],
+        w_trasie: [
+            ['routimo', 'Eksport do Routimo', 'fa-file-excel', ''],
+            ['wykonaj', 'Odhacz jako wykonaną', 'fa-check-double', ''],
+        ],
         wykonana: [
             ['routimo', 'Eksport do Routimo', 'fa-file-excel', ''],
-            ['przywroc', 'Przywróć trasę', 'fa-rotate-left', ''],
         ],
     };
 
@@ -143,6 +160,8 @@
     const listy = {
         robocza: { lista: el('robocze'), ile: el('robocze-ile') },
         zatwierdzona: { lista: el('zatwierdzone'), ile: el('zatwierdzone-ile') },
+        zaladowana: { lista: el('zaladowane'), ile: el('zaladowane-ile') },
+        w_trasie: { lista: el('w-trasie'), ile: el('w-trasie-ile') },
         wykonana: { lista: el('wykonane-lista'), ile: el('wykonane-ile') },
     };
     const filtrWykonanychEl = el('wykonane-filtr');
@@ -153,6 +172,7 @@
     const ukladEdytoraEl = trescEl ? trescEl.querySelector('.lg-edytor-uklad') : null;
     const statusEl = el('status');
     const tytulEl = el('tytul');
+    const postepEl = el('postep');
     const akcjeEl = el('akcje');
     const bladEl = el('blad');
     const form = el('form');
@@ -285,6 +305,9 @@
 
     const ZAMOWIENIE = ['zamówienie', 'zamówienia', 'zamówień'];
     const PRZYSTANEK = ['przystanek', 'przystanki', 'przystanków'];
+    const PACZKA = ['paczka', 'paczki', 'paczek'];
+    // „14:05” z ISO serwera (czas lokalny bez strefy, jak w całym API logistyki) — bez przeliczania stref.
+    const godzinaZIso = (iso) => (iso && iso.length >= 16 ? iso.slice(11, 16) : '');
     const ileZamowien = (n) => n + ' ' + odmiana(n, ZAMOWIENIE);
     const ilePrzystankow = (n) => n + ' ' + odmiana(n, PRZYSTANEK);
 
@@ -462,7 +485,7 @@
      * (logistics.css, .lg-etap[data-etap]); spakowane i dalej z ptaszkiem. tekst — napis obok kropki.
      */
     function znacznikEtapuHtml(status, tekst, klasa) {
-        const znak = STATUSY_PO_SPAKOWANIU.includes(status)
+        const znak = STATUSY_PO_SPAKOWANIU.includes(status) || status === 'w_trasie'
             ? '<i class="fas fa-check lg-etap-znak" aria-hidden="true"></i>'
             : '<span class="lg-etap-znak" aria-hidden="true"></span>';
         return '<span class="lg-etap' + (klasa ? ' ' + klasa : '') + '" data-etap="' + esc(status) + '">' + znak +
@@ -480,6 +503,7 @@
 
     // Okno „Odhacz”: stan pakowania słowami rulingu I1 — „spakowane”, „niespakowane — <etap>”, „anulowane”.
     function stanWykonaniaHtml(z, stanP) {
+        if (stanP === 'dostarczone') return znacznikEtapuHtml('dostarczone', 'dostarczone');
         if (stanP === 'spakowane') return znacznikEtapuHtml('spakowane', 'spakowane');
         if (stanP === 'anulowane') return znacznikEtapuHtml('anulowane', 'anulowane');
         const etap = (z && z.etap) || { status: '', nazwa: '' };
@@ -626,6 +650,20 @@
     // od słowa „trasa” — wtedy bez dopisanego „Trasa”.
     const nazwaWOpisie = (nazwa) => (/^\s*trasa(\s|$)/i.test(String(nazwa || '')) ? String(nazwa) : 'Trasa ' + nazwa);
 
+    // Krok 4.4 (spec 9.7): „załadowano 7/8 · dostarczono 3/7” — liczy serwer (routes.postep) na przystankach
+    // aktywnych. Zatwierdzona pokazuje załadunek dopiero, gdy kierowca zaczął ładować; wykonana — same dostarczenia.
+    function postepTekst(t) {
+        const p = t && t.postep;
+        if (!p || !p.przystanki) return '';
+        const zaladowano = 'załadowano ' + p.zaladowane + '/' + p.przystanki;
+        const dostarczono = 'dostarczono ' + p.dostarczone + '/' + p.przystanki;
+        if (t.status === 'zatwierdzona') return p.zaladowane ? zaladowano : '';
+        if (t.status === 'zaladowana') return zaladowano;
+        if (t.status === 'w_trasie') return zaladowano + ' · ' + dostarczono;
+        if (t.status === 'wykonana') return dostarczono;
+        return '';
+    }
+
     function pozycjaListyHtml(t) {
         const p = t.podsumowanie || {};
         const otwarta = !!(stan.otwarta && stan.otwarta.id === t.id && !stan.nowa);
@@ -638,7 +676,8 @@
         // Etykieta wprost — treść to kilka pól obok siebie, czytnik skleiłby je bez przerw.
         const opis = nazwaWOpisie(t.nazwa) + ', ' + zakresDat(t.date_from, t.date_to) +
             ', ' + (pojazd ? 'pojazd ' + pojazd : 'bez pojazdu') + ', ' + (kierowca ? 'kierowca ' + kierowca : 'bez kierowcy') +
-            ', ' + ilePrzystankow(ile) + ', ' + kg(p.waga_kg) + (przekroczona ? ', przekroczona ładowność pojazdu' : '');
+            ', ' + ilePrzystankow(ile) + ', ' + kg(p.waga_kg) + (przekroczona ? ', przekroczona ładowność pojazdu' : '') +
+            (postepTekst(t) ? ', ' + postepTekst(t) : '');
         return '<li><button type="button" class="' + klasy.join(' ') + '" data-lg-trasa-id="' + esc(t.id) + '"' +
             ' aria-label="' + esc(opis) + '"' + (otwarta ? ' aria-current="true"' : '') + '>' +
             '<span class="lg-trasa-pozycja-nazwa">' + esc(t.nazwa) + '</span>' +
@@ -656,6 +695,7 @@
                 '<span' + (przekroczona ? ' class="is-przekroczona"' : '') + '><b>' +
                     esc(liczbaCala.format(Number(p.waga_kg) || 0)) + '</b> kg</span>' +
             '</span>' +
+            (postepTekst(t) ? '<span class="lg-trasa-pozycja-postep">' + esc(postepTekst(t)) + '</span>' : '') +
             '</button></li>';
     }
 
@@ -679,12 +719,14 @@
 
     function rysujListe() {
         const wgStatusu = (status) => stan.trasy.filter((t) => t.status === status).sort(poDacie);
-        // Wykonane: najnowsze na górze (archiwum), robocze i zatwierdzone — najbliższe na górze.
+        // Wykonane: najnowsze na górze (archiwum), aktywne — najbliższe na górze.
         const wykonane = (stan.filtrWykonanych ? stan.filtrWykonanych.trasy : wgStatusu('wykonana'))
             .slice().sort((a, b) => poDacie(b, a));
         const sekcje = {
             robocza: [wgStatusu('robocza'), 'Brak tras roboczych.'],
             zatwierdzona: [wgStatusu('zatwierdzona'), 'Brak zatwierdzonych tras.'],
+            zaladowana: [wgStatusu('zaladowana'), 'Brak załadowanych tras.'],
+            w_trasie: [wgStatusu('w_trasie'), 'Brak tras w drodze.'],
             wykonana: [wykonane, stan.filtrWykonanych ? 'Brak wykonanych tras w tych dniach.'
                 : 'Brak wykonanych tras w ostatnich 30 dniach.'],
         };
@@ -824,6 +866,7 @@
             id: r.id, nazwa: r.nazwa, date_from: r.date_from, date_to: r.date_to, status: r.status,
             pojazd: r.pojazd, kierowca: r.kierowca, notatka: r.notatka,
             zatwierdzona: r.zatwierdzona, wykonana: r.wykonana, podsumowanie: r.podsumowanie,
+            postep: r.postep, zaladowana: r.zaladowana, wyjazd: r.wyjazd, odhaczona_w_panelu: r.odhaczona_w_panelu,
         };
     }
 
@@ -1190,6 +1233,10 @@
         ustawKolor(edytor, t ? kolor(t.id) : '');
         statusEl.innerHTML = t ? statusHtml(t.status) : '';
         tytulEl.textContent = t ? t.nazwa : 'Nowa trasa';
+        if (postepEl) {
+            postepEl.textContent = t ? postepTekst(t) : '';
+            postepEl.setAttribute('data-status', t ? String(t.status || '') : '');   // kolor postępu wg statusu trasy
+        }
         // (runda 2, przegląd pkt 5) Trasa tylko do odczytu zawsze pokazuje wartości z serwera
         // — także opis pojazdu w selekcie (nazwa, „wyłączony z floty”) po odświeżeniu trasy.
         if (o.formularz || !edytowalnaForma()) wypelnijFormularz();
@@ -1643,13 +1690,41 @@
         fokusNaTytul(ctx);
     }
 
-    async function przywroc(ctx) {
+    // Ile paczek kierowca zdążył załadować na trasę (suma z przystanków — `zamowienie.paczki.zaladowane` liczy
+    // tylko paczki załadowane na tę trasę) i ostrzeżenie do „Cofnij zatwierdzenie”: cofnięcie czyści załadunek.
+    function opisZaladunkuTrasy(t) {
+        const paczek = (t.przystanki || []).reduce((suma, p) => {
+            const pa = p.zamowienie && p.zamowienie.paczki;
+            return suma + (pa ? Number(pa.zaladowane) || 0 : 0);
+        }, 0);
+        const przystankow = t.postep ? Number(t.postep.zaladowane) || 0 : 0;
+        if (!paczek && !przystankow) return '';
+        return 'Kierowca zaczął załadunek' + (paczek ? ' (' + paczek + ' ' + odmiana(paczek, PACZKA) + ')' : '') +
+            '. Cofnięcie zatwierdzenia wyczyści załadunek — paczki trzeba będzie zeskanować ponownie.';
+    }
+
+    // Krok 4.4: „Cofnij dostarczenie” przy przystanku zastępuje „Przywróć trasę” — trasa wykonana wraca do
+    // „W trasie”, a zamówienie znów jest otwarte (POST /routes/<id>/stops/<oid>/undo-delivered).
+    async function cofnijDostarczenie(ctx, orderId) {
         const t = ctx.trasa;
         if (!t) return;
-        const odp = await zapytanie('/routes/' + t.id + '/restore', { metoda: 'POST', dane: {} });
+        const odp = await zapytanie('/routes/' + t.id + '/stops/' + encodeURIComponent(orderId) + '/undo-delivered',
+            { metoda: 'POST', dane: {} });
         if (zniszczona) return;
         przyjmijOdpowiedz(ctx, odp.route, { formularz: true, zmiana: true });
-        komunikat('info', 'Trasa „' + odp.route.nazwa + '” przywrócona do zatwierdzonych.', { klucz: 'trasa' });
+        komunikat('info', 'Cofnięto dostarczenie. Trasa „' + odp.route.nazwa + '” jest znów w drodze.', { klucz: 'trasa' });
+        fokusNaTytul(ctx);
+    }
+
+    // „Cofnij załadunek” (trasa załadowana): wraca do zatwierdzonej, znaczniki załadunku znikają.
+    async function cofnijZaladunek(ctx) {
+        const t = ctx.trasa;
+        if (!t) return;
+        const odp = await zapytanie('/routes/' + t.id + '/unload', { metoda: 'POST', dane: {} });
+        if (zniszczona) return;
+        przyjmijOdpowiedz(ctx, odp.route, { formularz: true, zmiana: true });
+        komunikat('info', 'Trasa „' + odp.route.nazwa + '” znów jest zatwierdzona — kierowca załaduje ją od nowa.',
+            { klucz: 'trasa' });
         fokusNaTytul(ctx);
     }
 
@@ -1823,13 +1898,41 @@
         return z.geo.quality === 'przyblizona' ? 'lg-stacja--przyblizona' : '';
     }
 
+    // Krok 4.4 (spec 9.7): przy przystanku paczki i stan Dostawy — „załadowano 1/2”, „Zostaje: <powód>”,
+    // „Dostarczono 14:05” z „Cofnij dostarczenie” (trasa w drodze albo wykonana; zastępuje „Przywróć trasę”).
+    function dostawaPrzystankuHtml(z, status) {
+        if (status === 'robocza') return '';
+        const d = z.dostawa || {};
+        const czesci = [];
+        if (d.dostarczono) {
+            czesci.push('<span class="lg-przystanek-dostarczono"><i class="fas fa-check" aria-hidden="true"></i>' +
+                'Dostarczono ' + esc(godzinaZIso(d.dostarczono)) + '</span>');
+            if (status === 'w_trasie' || status === 'wykonana') {
+                czesci.push('<button type="button" class="lg-przycisk lg-przycisk--cichy lg-przystanek-cofnij"' +
+                    ' data-lg-przystanek="cofnij-dostarczenie"' +
+                    ' aria-label="' + esc('Cofnij dostarczenie zamówienia ' + z.numer) + '">' +
+                    '<i class="fas fa-rotate-left" aria-hidden="true"></i><span>Cofnij dostarczenie</span></button>');
+            }
+        } else if (d.zostaje) {
+            czesci.push('<span class="lg-przystanek-zostaje"><i class="fas fa-triangle-exclamation" aria-hidden="true"></i>' +
+                'Zostaje: ' + esc(d.zostaje.etykieta) +
+                (d.zostaje.notatka ? ' — ' + esc(d.zostaje.notatka) : '') + '</span>');
+        }
+        // Dostarczony przystanek był załadowany w całości — licznik paczek nic już nie mówi, zostaje godzina.
+        if (z.paczki && status !== 'wykonana' && !d.dostarczono) {
+            czesci.push('<span class="lg-przystanek-paczki">załadowano ' + esc(z.paczki.zaladowane) + '/' +
+                esc(z.paczki.liczba) + '</span>');
+        }
+        return czesci.length ? '<div class="lg-przystanek-dostawa">' + czesci.join('') + '</div>' : '';
+    }
+
     /**
      * Wiersz przystanku. indeks — miejsce na liście (od 0; ↑/↓), numer — numer stacji wśród
      * AKTYWNYCH przystanków (jak `pozycja` z API — kolejność w Routimo); null = anulowany (I5):
      * stacja „—”, plakietka „Anulowane”, wiersz przygaszony. Pozostałe mają etap zamówienia
      * (ptaszek = spakowane) — widać, co jeszcze nie jest gotowe do odhaczenia.
      */
-    function przystanekHtml(z, indeks, ile, numer, edyt) {
+    function przystanekHtml(z, indeks, ile, numer, edyt, status) {
         const anul = numer === null;
         const bezGeo = !maGeo(z);
         const opis = (anul ? 'przystanek anulowany' : 'przystanek ' + numer) + ', zamówienie ' + z.numer;
@@ -1851,6 +1954,7 @@
                         : etapPrzystankuHtml(z)) +
                 '</div>' +
                 '<div class="lg-przystanek-adres">' + adresHtml(z) + '</div>' +
+                (anul ? '' : dostawaPrzystankuHtml(z, status)) +
             '</div>' +
             '<div class="lg-przystanek-meta">' +
                 (bezGeo && !anul ? '<span class="lg-pin lg-pin--pusta" role="img" aria-label="Brak punktu na mapie"' +
@@ -1953,7 +2057,7 @@
         // z API (routes.numeracja_przystankow), a przy przesuwaniu nowe numery widać od razu.
         let numer = 0;
         przystankiEl.innerHTML = kolejne.length
-            ? kolejne.map((z, i) => przystanekHtml(z, i, kolejne.length, anulowane(z) ? null : (numer += 1), edyt)).join('')
+            ? kolejne.map((z, i) => przystanekHtml(z, i, kolejne.length, anulowane(z) ? null : (numer += 1), edyt, t.status)).join('')
             : '<li class="lg-przystanek lg-przystanek--pusto">' + (edyt
                 ? 'Brak przystanków. Dodaj zamówienia z listy „Do dodania” niżej albo na Dashboardzie („Dodaj do trasy…”).'
                 : 'Trasa nie ma przystanków.') + '</li>';
@@ -3024,6 +3128,8 @@
     // (I1) Każdy przystanek pokazuje stan pakowania. Dostarczone mogą być tylko spakowane
     // w całości (serwer odmawia 409 z `niespakowane`) — pole niespakowanego jest nieaktywne,
     // anulowanego też (takie zamówienie schodzi z trasy i do żadnej puli nie wraca).
+    // Krok 4.4: przystanek dostarczony już przez kierowcę (`zamowienie.dostawa.dostarczono`) jest
+    // zawsze dostarczony — pole zaznaczone i nieaktywne, a serwer i tak go tak zostawia.
 
     function bladWykonania(tekst) {
         wykonajBladEl.textContent = tekst || '';
@@ -3034,10 +3140,12 @@
     const UWAGA_WYKONANIA = {
         niespakowane: 'wróci do puli bez trasy; spakuj na tablecie, żeby oznaczyć jako dostarczone',
         anulowane: 'zdejmiemy z trasy',
+        dostarczone: 'dostarczone przez kierowcę — zostaje dostarczone',
     };
 
     function stanPrzystankuWykonania(p) {
         const z = p.zamowienie || {};
+        if (z.dostawa && z.dostawa.dostarczono) return 'dostarczone';
         if (p.anulowane || anulowane(z)) return 'anulowane';
         return z.spakowane ? 'spakowane' : 'niespakowane';
     }
@@ -3047,7 +3155,7 @@
         const stanP = stanPrzystankuWykonania(p);
         const mozna = stanP === 'spakowane';
         // Domyślnie dostarczone są tylko spakowane; wybór użytkownika przeżywa przebudowę listy.
-        const zaznaczone = mozna && (w.wybory.has(z.id) ? w.wybory.get(z.id) : true);
+        const zaznaczone = stanP === 'dostarczone' || (mozna && (w.wybory.has(z.id) ? w.wybory.get(z.id) : true));
         const numer = p.pozycja === null || p.pozycja === undefined ? '—' : p.pozycja;
         const miejscowosc = [z.kod, z.miasto].filter(Boolean).join(' ');
         const adres = [miejscowosc, z.adres].filter(Boolean).join(', ');
@@ -3097,7 +3205,8 @@
             const pozycja = c.closest('.lg-wykonaj-pozycja');
             const klasy = pozycja ? pozycja.classList : null;
             const stanP = klasy && klasy.contains('lg-wykonaj-pozycja--anulowane') ? 'anulowane'
-                : (klasy && klasy.contains('lg-wykonaj-pozycja--niespakowane') ? 'niespakowane' : 'spakowane');
+                : (klasy && klasy.contains('lg-wykonaj-pozycja--niespakowane') ? 'niespakowane'
+                    : (klasy && klasy.contains('lg-wykonaj-pozycja--dostarczone') ? 'dostarczone' : 'spakowane'));
             if (c.checked) {
                 dostarczone += 1;
             } else if (stanP === 'anulowane') {
@@ -3124,15 +3233,15 @@
 
     /**
      * Przyciski i pola okna: odhaczenie czeka na świeżą listę i na zapis; trasy, która nie jest
-     * już robocza ani zatwierdzona (albo nie ma przystanków), odhaczyć się nie da. Pola
-     * niespakowanych i anulowanych zostają nieaktywne także po nieudanym zapisie.
+     * już do odhaczenia (wykonana) albo nie ma przystanków, odhaczyć się nie da. Pola
+     * niespakowanych, anulowanych i dostarczonych przez kierowcę zostają nieaktywne także po nieudanym zapisie.
      */
     function odswiezPrzyciskiWykonania() {
         const w = wykonywanie;
         const trwa = !!(w && w.zapis);
         const wczytuje = !!(w && w.wczytywanie);
         const t = w ? w.trasa : null;
-        const aktywna = !!(t && (t.status === 'robocza' || t.status === 'zatwierdzona') && (t.przystanki || []).length);
+        const aktywna = !!(t && ODHACZALNE.includes(t.status) && (t.przystanki || []).length);
         wykonajZapiszBtn.disabled = trwa || wczytuje || !aktywna;
         wykonajZapiszBtn.textContent = trwa ? 'Zapisywanie…' : 'Odhacz jako wykonaną';
         const anuluj = formWykonaj.querySelector('[data-lg-trasy-akcja="wykonaj-anuluj"]');
@@ -3289,7 +3398,7 @@
             const zmiany = opisZmianPrzystankow(poprzednia, trasa);
             if (zmiany) teksty.push(zmiany);
         }
-        if (trasa.status !== 'robocza' && trasa.status !== 'zatwierdzona') {
+        if (!ODHACZALNE.includes(trasa.status)) {
             teksty.push('Trasa „' + trasa.nazwa + '” jest już ' + String(NAZWY_STATUSOW[trasa.status] || trasa.status).toLowerCase() +
                 ' — nie ma czego odhaczać.');
         } else if (!(trasa.przystanki || []).length) {
@@ -3303,7 +3412,7 @@
 
     async function otworzWykonanie(powrot) {
         const t = stan.otwarta;
-        if (!t || stan.nowa || (t.status !== 'robocza' && t.status !== 'zatwierdzona') || !dialogWykonaj) return;
+        if (!t || stan.nowa || !ODHACZALNE.includes(t.status) || !dialogWykonaj) return;
         if (wykonanieOtwierane || wykonywanie || dialogWykonaj.open || akcjaTrwa()) return;
         if (zmieniony() && !formularzPoprawny()) return;
         wykonanieOtwierane = true;
@@ -3327,7 +3436,7 @@
         // edytor — okno „Odhacz” nie otwiera się dla trasy, której nie wybierał.
         if (zniszczona || stan.sesja !== sesja) return;
         const trasa = stan.otwarta;
-        if (!trasa || stan.nowa || (trasa.status !== 'robocza' && trasa.status !== 'zatwierdzona')) return;
+        if (!trasa || stan.nowa || !ODHACZALNE.includes(trasa.status)) return;
         const w = {
             id: trasa.id, nazwa: trasa.nazwa, sesja: sesja, powrot: powrot || null, zapis: false,
             wczytywanie: false, trasa: null, wybory: new Map(), nowe: new Set(), kontroler: null,
@@ -3443,15 +3552,17 @@
                 if (!zmieniony() || formularzPoprawny()) mutacja(zatwierdz);
                 break;
             case 'cofnij':
+                // Ruling 21b: cofnięcie zatwierdzenia czyści też znaczniki załadunku, jeśli kierowca już ładował.
                 if (t && window.confirm('Cofnąć zatwierdzenie trasy „' + t.nazwa + '”?\n' +
+                    (opisZaladunkuTrasy(t) ? opisZaladunkuTrasy(t) + '\n' : '') +
                     'Trasę będzie można znów edytować. Plik dla Routimo trzeba będzie wyeksportować ponownie.')) {
                     mutacja(cofnij);
                 }
                 break;
-            case 'przywroc':
-                if (t && window.confirm('Przywrócić trasę „' + t.nazwa + '” do zatwierdzonych?\n' +
-                    'Jej zamówienia wrócą do otwartych w logistyce.')) {
-                    mutacja(przywroc);
+            case 'cofnij-zaladunek':
+                if (t && window.confirm('Cofnąć załadunek trasy „' + t.nazwa + '”?\n' +
+                    'Paczki trzeba będzie załadować od nowa, a Base. dostanie z powrotem status „Planowana trasa”.')) {
+                    mutacja(cofnijZaladunek);
                 }
                 break;
             case 'usun': {
@@ -3510,6 +3621,17 @@
             else if (akcja === 'dol') przesun(id, indeks + 1);
             else if (akcja === 'usun' && akcjaTrwa()) oglos('Poczekaj, aż zapisze się poprzednia zmiana trasy.');
             else if (akcja === 'usun') mutacja((ctx) => usunPrzystanek(ctx, id));
+            else if (akcja === 'cofnij-dostarczenie') {
+                const pozycja = stan.otwarta && !stan.nowa
+                    ? (stan.otwarta.przystanki || []).find((x) => x.zamowienie.id === id) : null;
+                const numerZamowienia = pozycja ? pozycja.zamowienie.numer : '';
+                if (akcjaTrwa()) {
+                    oglos('Poczekaj, aż zapisze się poprzednia zmiana trasy.');
+                } else if (window.confirm('Cofnąć dostarczenie zamówienia ' + numerZamowienia + '?\n' +
+                    'Zamówienie znów będzie otwarte, a Base. dostanie status „Wysłane - trans. WoodPower”.')) {
+                    mutacja((ctx) => cofnijDostarczenie(ctx, id));
+                }
+            }
             return;
         }
         const kandydat = e.target.closest('[data-lg-kandydat="dodaj"]');

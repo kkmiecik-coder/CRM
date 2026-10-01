@@ -392,6 +392,10 @@
     function powodBlokadySposobu(z) {
         if (z.wydane) return 'Zamówienie wydane klientowi. Sposobu dostawy nie można już zmienić.';
         if (z.etap && z.etap.status === 'anulowane') return 'Zamówienie anulowane.';
+        // Krok 4.4: towar na trasie (załadowany, w drodze) albo dostarczony — jak select w wierszu listy.
+        if (z.etap && ['zaladowane', 'w_trasie', 'dostarczone'].includes(z.etap.status)) {
+            return 'Towar jest już załadowany na trasę albo dostarczony. Sposobu dostawy nie można zmienić.';
+        }
         if (zapisywaneSposoby.has(z.id)) return 'Zapisywanie…';
         // (D1) Zapis z wiersza, hurtu albo „Wydane klientowi” — wyboru z dymku lista teraz nie wyśle.
         if (zapisWLiscie(z.id)) return 'Zapisuje się poprzednia zmiana…';
@@ -465,7 +469,7 @@
             wybor +
             '<dl class="lg-dymek-dane">' +
                 '<div><dt>Etap</dt><dd><span class="lg-etap" data-etap="' + esc(etap.status) + '">' +
-                    (STATUSY_PO_SPAKOWANIU.includes(etap.status)
+                    (STATUSY_PO_SPAKOWANIU.includes(etap.status) || etap.status === 'w_trasie'
                         ? '<i class="fas fa-check lg-etap-znak" aria-hidden="true"></i>'
                         : '<span class="lg-etap-znak" aria-hidden="true"></span>') +
                     '<span class="lg-etap-nazwa">' + esc(etap.nazwa || etap.status) + '</span></span></dd></div>' +
@@ -1690,7 +1694,8 @@
     // „Grupuj pinezki” i położenie mapy zostają). Dane tras pobiera
     // logistics-routes.js (GET /routes/map) i podaje przez renderTrasy().
 
-    const NAZWY_STATUSOW_TRAS = { robocza: 'Robocza', zatwierdzona: 'Zatwierdzona', wykonana: 'Wykonana' };
+    const NAZWY_STATUSOW_TRAS = { robocza: 'Robocza', zatwierdzona: 'Zatwierdzona', zaladowana: 'Załadowana',
+        w_trasie: 'W trasie', wykonana: 'Wykonana' };
 
     function kolorTrasy(id) {
         const n = Math.abs(Math.floor(Number(id) || 0));
@@ -1847,7 +1852,7 @@
             return;
         }
         if (!trasyDane.length) {
-            legendaTras.innerHTML = pusto('Brak aktywnych tras (roboczych ani zatwierdzonych).');
+            legendaTras.innerHTML = pusto('Brak aktywnych tras.');
             return;
         }
         legendaTras.innerHTML = trasyDane.map((t) => {

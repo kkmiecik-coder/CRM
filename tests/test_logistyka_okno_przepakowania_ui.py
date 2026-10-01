@@ -76,9 +76,10 @@ def test_js_kazda_sciezka_zmiany_pyta_przed_wyslaniem():
         assert f.index('zapytajOPrzepakowanie(') < f.index('!decyzja') < f.rindex(wysylka), nazwa
     # Wiersz niespakowany albo bez zmiany sposobu nie dostaje okna.
     assert 'biezacy.spakowane && wartosc !== (biezacy.sposob || \'brak\')' in _funkcja(js, 'zmianaSelecta')
-    assert 'if (w.spakowane) {' in _funkcja(js, 'zmienSposobZMapy')
+    # Krok 4.4: zamówienie załadowane na trasę albo dostarczone nie dostaje okna (serwer odmawia 409).
+    assert 'if (w.spakowane && !poZaladunku(w)) {' in _funkcja(js, 'zmienSposobZMapy')
     hurt = _funkcja(js, 'hurtSposob')
-    assert "sposob !== (w.sposob || 'brak')" in hurt and 'zmieniane.filter((w) => w.spakowane)' in hurt
+    assert "sposob !== (w.sposob || 'brak')" in hurt and 'zmieniane.filter((w) => w.spakowane && !poZaladunku(w))' in hurt
 
 
 def test_js_anuluj_w_selecie_i_dymku_przywraca_wiersz():

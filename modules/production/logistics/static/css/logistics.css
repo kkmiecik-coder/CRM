@@ -840,11 +840,13 @@
 .logistics-tab [data-etap="wstrzymane"] .lg-etap-znak { background: var(--il-status-danger, #dc2626); border-radius: 1px; }
 .logistics-tab [data-etap="anulowane"] .lg-etap-znak { background: none; border: 1px solid var(--il-status-inactive, #9ba3b0); }
 
-/* Spakowane i dalej (weryfikacja, załadunek, dostawa, krok 4.3): ptaszek zamiast kropki, ten sam
-   zielony co „spakowane”. Dostarczone to sprawa zamknięta — ptaszek zostaje, nazwa cichnie do szarości. */
+/* Spakowane i dalej (weryfikacja, załadunek, dostawa, krok 4.3; „W trasie”, krok 4.4): ptaszek zamiast
+   kropki, ten sam zielony co „spakowane”. „W trasie” to etap w ruchu — nazwa w niebieskim; dostarczone to
+   sprawa zamknięta — ptaszek zostaje, nazwa cichnie do szarości. */
 .logistics-tab [data-etap="spakowane"] .lg-etap-znak,
 .logistics-tab [data-etap="zweryfikowane"] .lg-etap-znak,
 .logistics-tab [data-etap="zaladowane"] .lg-etap-znak,
+.logistics-tab [data-etap="w_trasie"] .lg-etap-znak,
 .logistics-tab [data-etap="dostarczone"] .lg-etap-znak {
     width: auto;
     height: auto;
@@ -860,6 +862,11 @@
 .logistics-tab [data-etap="zaladowane"] .lg-etap-nazwa {
     font-weight: 600;
     color: var(--il-status-ok, #16a34a);
+}
+
+.logistics-tab [data-etap="w_trasie"] .lg-etap-nazwa {
+    font-weight: 600;
+    color: #1d4ed8;
 }
 
 .logistics-tab [data-etap="dostarczone"] .lg-etap-nazwa {

@@ -318,6 +318,13 @@
     color: #15803d;
 }
 
+/* Krok 4.4: załadowana i w drodze — niebieski „w ruchu”, odróżnialny od kłódki (zatwierdzona) i ptaszka
+   (wykonana); status niesie też ikona (rampa / auto w ruchu) i nazwa w title. */
+.logistics-tab .lg-plakietka-trasy--zaladowana > .lg-plakietka-trasy-status,
+.logistics-tab .lg-plakietka-trasy--w_trasie > .lg-plakietka-trasy-status {
+    color: #1d4ed8;
+}
+
 .logistics-tab .lg-plakietka-trasy--kolor,
 .logistics-tab .lg-plakietka-trasy--kolor:hover {
     padding-left: 5px;
@@ -617,6 +624,28 @@
     background: rgba(22, 163, 74, 0.07);
     border-color: rgba(22, 163, 74, 0.45);
     color: #15803d;
+}
+
+/* Krok 4.4 (Dostawa): trasa ma teraz drogę robocza (przerywana) → zatwierdzona (czarna) → załadowana
+   (niebieski odcień) → w trasie (niebieska, pełna: jedzie) → wykonana (zielony odcień). Ikona i nazwa
+   zawsze obok, więc status nie zależy od samego koloru. */
+.logistics-tab .lg-status--zaladowana {
+    background: rgba(37, 99, 235, 0.07);
+    border-color: rgba(37, 99, 235, 0.45);
+    color: #1d4ed8;
+}
+
+.logistics-tab .lg-status--w_trasie {
+    background: var(--il-status-info, #2563eb);
+    border-color: var(--il-status-info, #2563eb);
+    color: #fff;
+}
+
+/* Wysoki kontrast / wymuszone kolory: tła znikają, więc różnicę niosą obwódki (pełna 2 px dla
+   etapów Dostawy, przerywana robocza) obok ikony i nazwy. */
+@media (forced-colors: active) {
+    .logistics-tab .lg-status--zaladowana,
+    .logistics-tab .lg-status--w_trasie { border-width: 2px; }
 }
 
 .logistics-tab .lg-status--male {
@@ -976,6 +1005,24 @@
     color: var(--lg-niebezpieczny);
 }
 
+/* Krok 4.4: postęp Dostawy pod liczbami trasy („załadowano 7/8 · dostarczono 3/7”) — mono jak daty,
+   cyfry równe; trasa załadowana i w drodze w niebieskim, wykonana zostaje spokojna. */
+.logistics-tab .lg-trasa-pozycja-postep {
+    grid-column: 1 / -1;
+    margin-top: 1px;
+    font-family: var(--lg-mono);
+    font-size: 11.5px;
+    line-height: 1.4;
+    color: var(--il-text-secondary, #7a8291);
+    font-variant-numeric: tabular-nums;
+}
+
+.logistics-tab .lg-trasa-pozycja--zaladowana .lg-trasa-pozycja-postep,
+.logistics-tab .lg-trasa-pozycja--w_trasie .lg-trasa-pozycja-postep {
+    font-weight: 600;
+    color: #1d4ed8;
+}
+
 /* ─── Edytor trasy (prawa kolumna) ─── */
 .logistics-tab .lg-edytor {
     container-type: inline-size;
@@ -1056,13 +1103,17 @@
 
 .logistics-tab .lg-edytor-tytul-rzad {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 10px;
+    gap: 2px 10px;
     flex: 1 1 240px;
     min-width: 0;
 }
 
+/* flex-basis 0: tytuł zajmuje resztę pierwszej linii (status, tytuł, ×), a postęp Dostawy (krok 4.4)
+   ląduje pod nim w osobnej linii — długa nazwa trasy zawija się jak dotąd, nie spycha postępu w kolumnę. */
 .logistics-tab .lg-edytor-tytul {
+    flex: 1 1 0;
     min-width: 0;
     margin: 0;
     font: 700 16px/1.3 var(--lg-mono);
@@ -1072,6 +1123,29 @@
 
 .logistics-tab .lg-edytor-tytul:focus {
     outline: none;
+}
+
+/* Krok 4.4: postęp pod nazwą trasy, w osobnej linii; pusty (robocza, zatwierdzona bez załadunku) znika. */
+.logistics-tab .lg-edytor-postep {
+    flex: 1 0 100%;
+    order: 1;
+    font-family: var(--lg-mono);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--il-text-secondary, #7a8291);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* Kolor jak status trasy: załadowana i w drodze niebieski, wykonana zielony, zatwierdzona (załadunek trwa) czarny. */
+.logistics-tab .lg-edytor-postep[data-status="zatwierdzona"] { color: var(--il-text-primary, #1a1a2e); }
+.logistics-tab .lg-edytor-postep[data-status="zaladowana"],
+.logistics-tab .lg-edytor-postep[data-status="w_trasie"] { color: #1d4ed8; }
+.logistics-tab .lg-edytor-postep[data-status="wykonana"] { color: #15803d; }
+
+.logistics-tab .lg-edytor-postep:empty {
+    display: none;
 }
 
 .logistics-tab .lg-edytor-zamknij {
@@ -1481,6 +1555,80 @@
 
 .logistics-tab .lg-przystanek-adres .lg-adres-ulica {
     font-size: 11.5px;
+}
+
+/* Krok 4.4 (spec 9.7): stan Dostawy pod adresem przystanku — „Dostarczono 14:05” z „Cofnij dostarczenie”,
+   „Zostaje: <powód>” (ostrzegawczo, w kolorach „czeka”) i licznik załadowanych paczek. */
+.logistics-tab .lg-przystanek-dostawa {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 10px;
+    margin-top: 4px;
+}
+
+.logistics-tab .lg-przystanek-dostarczono {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 5px;
+    font-size: 11.5px;
+    font-weight: 600;
+    line-height: 1.5;
+    color: #15803d;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.logistics-tab .lg-przystanek-dostarczono i {
+    font-size: 10px;
+}
+
+.logistics-tab .lg-przystanek-zostaje {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 5px;
+    min-width: 0;
+    padding: 1px 6px 1px 5px;
+    font-size: 11.5px;
+    font-weight: 600;
+    line-height: 1.5;
+    color: var(--lg-czeka-tekst);
+    background: var(--lg-czeka-tlo);
+    border: 1px solid var(--lg-czeka-ramka);
+    border-radius: 2px;
+    overflow-wrap: anywhere;
+}
+
+.logistics-tab .lg-przystanek-zostaje i {
+    flex: none;
+    font-size: 11px;
+}
+
+.logistics-tab .lg-przystanek-paczki {
+    font-family: var(--lg-mono);
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--il-text-secondary, #7a8291);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.logistics-tab .lg-przystanek-cofnij {
+    padding: 1px 8px 2px;
+    font-size: 11.5px;
+}
+
+.logistics-tab .lg-przystanek-cofnij i {
+    font-size: 10px;
+}
+
+.logistics-tab .lg-przystanek-cofnij:hover:not([aria-disabled="true"]) {
+    color: var(--il-text-primary, #1a1a2e);
+}
+
+.logistics-tab .lg-przystanek-cofnij[aria-disabled="true"] {
+    opacity: 0.4;
+    cursor: progress;
 }
 
 .logistics-tab .lg-przystanek-meta {
@@ -2076,7 +2224,8 @@
 }
 
 .logistics-tab .lg-wykonaj-pozycja--niespakowane,
-.logistics-tab .lg-wykonaj-pozycja--anulowane {
+.logistics-tab .lg-wykonaj-pozycja--anulowane,
+.logistics-tab .lg-wykonaj-pozycja--dostarczone {
     cursor: default;
 }
 
@@ -2092,6 +2241,17 @@
 .logistics-tab .lg-wykonaj-pozycja--niespakowane .lg-wykonaj-uwaga {
     font-weight: 600;
     color: var(--lg-kolejka-tekst);
+}
+
+/* Krok 4.4: dostarczony już przez kierowcę — zawsze dostarczony: pole zaznaczone i nieaktywne, zielony
+   odcień zamiast tła kolejki (nic nie wraca do puli). */
+.logistics-tab .lg-wykonaj-pozycja--dostarczone {
+    background: rgba(22, 163, 74, 0.05);
+}
+
+.logistics-tab .lg-wykonaj-pozycja--dostarczone .lg-wykonaj-uwaga {
+    font-weight: 600;
+    color: #15803d;
 }
 
 /* Anulowany schodzi z trasy i do żadnej puli nie wraca — przygaszony, bez tła kolejki. */
@@ -2420,7 +2580,8 @@
     .logistics-tab .lg-flota-pojazdy .lg-sekcja-naglowek .lg-przycisk { min-height: 38px; }
     .logistics-tab .lg-ikona-przycisk,
     .logistics-tab .lg-edytor-zamknij { width: 36px; height: 36px; }
-    .logistics-tab .lg-przystanek-usun { min-height: 36px; }
+    .logistics-tab .lg-przystanek-usun,
+    .logistics-tab .lg-przystanek-cofnij { min-height: 36px; }
     .logistics-tab .lg-kandydat .lg-przycisk,
     .logistics-tab .lg-flota-akcje .lg-przycisk { min-height: 34px; }
     .logistics-tab .lg-flota-kierowcy .lg-sekcja-naglowek .lg-przycisk { min-height: 38px; }

@@ -38,7 +38,7 @@ def test_mapa_ma_widok_tras_i_fabryke_podkladu():
 def test_js_uzywa_api_tras_i_floty():
     js = _js()
     for fraza in ('/routes/map', '/availability', '/stops/order', '/approve', '/revert',
-                  '/complete', '/restore', '/routimo', '/vehicles', '/drivers',
+                  '/complete', '/undo-delivered', '/unload', '/routimo', '/vehicles', '/drivers',
                   'bez_trasy', 'hurt-trasa', 'usunieto_z_trasy', 'dragstart', '(zajęty',
                   'window.LogisticsRoutes', 'window.LogisticsFleet', 'komunikat:', 'pokazWidok'):
         assert fraza in js, fraza
@@ -109,7 +109,8 @@ def test_odpowiedz_mutacji_nie_przejmuje_edytora_innej_trasy():
     trasy = _plik('static', 'js', 'logistics-routes.js')
     assert 'akcjaTrwa:' not in trasy and 'stan.akcjaTrwa' not in trasy   # zajętość per trasa (stan.wToku)
     assert 'stan.sesja += 1' in _funkcja(trasy, 'resetEdytora')
-    for nazwa in ('zapisz', 'zatwierdz', 'cofnij', 'przywroc', 'usunPrzystanek', 'dodajKandydatow'):
+    for nazwa in ('zapisz', 'zatwierdz', 'cofnij', 'cofnijZaladunek', 'cofnijDostarczenie', 'usunPrzystanek',
+                  'dodajKandydatow'):
         tresc = _funkcja(trasy, nazwa)
         assert 'przyjmijOdpowiedz(ctx, odp.route' in tresc and 'przyjmijTrase(' not in tresc, nazwa
     assert 'przyjmijOdpowiedz(w, odp.route' in _funkcja(trasy, 'zatwierdzWykonanie')

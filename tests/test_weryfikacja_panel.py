@@ -88,7 +88,9 @@ def test_front_zna_nowe_etapy_i_filtry():
     kolejnosc = re.search(r"KOLEJNOSC_ETAPOW = \[([^\]]*)\]", js).group(1)
     wartosci = re.findall(r"'(\w+)'", kolejnosc)
     i = wartosci.index('spakowane')
-    assert wartosci[i:i + 4] == list(s.STATUSY_PO_SPAKOWANIU)
+    # Krok 4.4: „W trasie” to etap zamówienia (pozycje załadowane, trasa w drodze), nie status pozycji — stoi
+    # między załadowanymi a dostarczonymi.
+    assert wartosci[i:i + 5] == ['spakowane', 'zweryfikowane', 'zaladowane', 'w_trasie', 'dostarczone']
     assert re.search(r"const STATUSY_PO_SPAKOWANIU = \['spakowane', 'zweryfikowane', 'zaladowane', 'dostarczone'\]", js)
     for plik in ('logistics.js', 'logistics-map.js', 'logistics-routes.js'):
         tresc = _plik('static', 'js', plik)

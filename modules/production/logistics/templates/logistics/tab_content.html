@@ -14,9 +14,9 @@
      blokuje CDN). #}
 <link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet/leaflet.css') }}?v=1.9.4">
 <link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet-markercluster/MarkerCluster.css') }}?v=1.5.3">
-<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20261001d">
+<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20261001f">
 {# Etap 3: trasy, flota, widok tras na mapie — osobny arkusz (logistics.css zostaje nietknięty). #}
-<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics-trasy.css') }}?v=20260928b">
+<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics-trasy.css') }}?v=20261001f">
 
 <div id="logistics-root" class="logistics-tab"
      data-api="{{ url_for('logistics_panel.orders') }}"
@@ -231,8 +231,8 @@
                data-carto-key="{{ carto_basemaps_key }}"
                data-skrypt-leaflet="{{ url_for('production.static', filename='vendor/leaflet/leaflet.js') }}?v=1.9.4"
                data-skrypt-klastry="{{ url_for('production.static', filename='vendor/leaflet-markercluster/leaflet.markercluster.js') }}?v=1.5.3"
-               data-skrypt-mapy="{{ url_for('logistics_panel.static', filename='js/logistics-map.js') }}?v=20261001a"
-               data-skrypt-trasy="{{ url_for('logistics_panel.static', filename='js/logistics-routes.js') }}?v=20261001a"></div>
+               data-skrypt-mapy="{{ url_for('logistics_panel.static', filename='js/logistics-map.js') }}?v=20261001f"
+               data-skrypt-trasy="{{ url_for('logistics_panel.static', filename='js/logistics-routes.js') }}?v=20261001f"></div>
           {# Pasek trybu (korekta, ustawianie punktu) i wyniku akcji na mapie. #}
           <div class="lg-mapa-pasek" data-lg-mapa="pasek" role="status" aria-live="polite" hidden></div>
           <div class="lg-mapa-stan is-ladowanie" data-lg-mapa="stan" role="status">Ładowanie mapy…</div>
@@ -348,7 +348,7 @@
        data-logistics-view="routes" hidden>
     <div class="lg-trasy" data-lg-trasy="uklad">
 
-      {# ─── LISTA TRAS ─── Robocze i Zatwierdzone rozwinięte, Wykonane zwinięte
+      {# ─── LISTA TRAS ─── Robocze, Zatwierdzone, Załadowane i W trasie rozwinięte, Wykonane zwinięte
            (domyślnie ostatnie 30 dni, filtr dat pyta serwer o starsze). #}
       <section class="lg-trasy-lista" aria-label="Lista tras">
         <div class="lg-trasy-lista-naglowek">
@@ -368,6 +368,15 @@
         <section class="lg-trasy-sekcja" aria-labelledby="lg-trasy-zatwierdzone">
           <h3 class="lg-trasy-sekcja-tytul" id="lg-trasy-zatwierdzone">Zatwierdzone <span class="lg-trasy-sekcja-ile" data-lg-trasy="zatwierdzone-ile"></span></h3>
           <ul class="lg-trasy-pozycje" data-lg-trasy="zatwierdzone"></ul>
+        </section>
+        {# Krok 4.4 (Dostawa): trasa załadowana przez kierowcę, a po „Ruszam” w drodze — aż do wykonanej. #}
+        <section class="lg-trasy-sekcja" aria-labelledby="lg-trasy-zaladowane">
+          <h3 class="lg-trasy-sekcja-tytul" id="lg-trasy-zaladowane">Załadowane <span class="lg-trasy-sekcja-ile" data-lg-trasy="zaladowane-ile"></span></h3>
+          <ul class="lg-trasy-pozycje" data-lg-trasy="zaladowane"></ul>
+        </section>
+        <section class="lg-trasy-sekcja" aria-labelledby="lg-trasy-w-trasie">
+          <h3 class="lg-trasy-sekcja-tytul" id="lg-trasy-w-trasie">W trasie <span class="lg-trasy-sekcja-ile" data-lg-trasy="w-trasie-ile"></span></h3>
+          <ul class="lg-trasy-pozycje" data-lg-trasy="w-trasie"></ul>
         </section>
         <details class="lg-trasy-sekcja lg-trasy-wykonane" data-lg-trasy="wykonane">
           <summary class="lg-trasy-sekcja-tytul">Wykonane <span class="lg-trasy-sekcja-ile" data-lg-trasy="wykonane-ile"></span></summary>
@@ -396,6 +405,8 @@
             <div class="lg-edytor-tytul-rzad">
               <span data-lg-trasy="status"></span>
               <h2 class="lg-edytor-tytul" id="lg-edytor-tytul" tabindex="-1" data-lg-trasy="tytul">Nowa trasa</h2>
+              {# Krok 4.4: „załadowano 7/8 · dostarczono 3/7” — liczy serwer, tekst składa logistics-routes.js. #}
+              <span class="lg-edytor-postep" data-lg-trasy="postep" aria-live="polite"></span>
               <button type="button" class="lg-edytor-zamknij" data-lg-trasy-akcja="zamknij"
                       title="Zamknij trasę" aria-label="Zamknij trasę"><i class="fas fa-xmark" aria-hidden="true"></i></button>
             </div>
@@ -618,11 +629,13 @@
 
   {# „Odhacz jako wykonaną” — lista przystanków ze świeżego GET /routes/<id> (logistics-routes.js,
        wczytajDoWykonania). Spakowane zaznaczone jako dostarczone; niespakowanych i anulowanych
-       zaznaczyć się nie da (serwer odmawia 409). Wysyłamy zawsze jawną listę delivered_order_ids. #}
+       zaznaczyć się nie da (serwer odmawia 409). Krok 4.4: przystanki dostarczone już przez kierowcę
+       są zawsze dostarczone — pole zaznaczone i nieaktywne, serwer zostawia je dostarczone.
+       Wysyłamy zawsze jawną listę delivered_order_ids. #}
   <dialog class="lg-dialog lg-dialog--trasy" data-lg="trasa-wykonaj-dialog" aria-labelledby="lg-trasa-wykonaj-tytul">
     <form class="lg-dialog-form" data-lg-trasy="wykonaj-form" novalidate>
       <h2 class="lg-dialog-tytul" id="lg-trasa-wykonaj-tytul">Odhacz jako wykonaną <span class="lg-dialog-numer" data-lg-trasy="wykonaj-nazwa"></span></h2>
-      <p class="lg-dialog-opis">Zaznaczone zamówienia oznaczymy jako dostarczone, odznaczone zdejmiemy z trasy i wrócą do puli bez trasy. Dostarczone mogą być tylko zamówienia spakowane w całości.</p>
+      <p class="lg-dialog-opis">Zaznaczone zamówienia oznaczymy jako dostarczone (Base. dostanie status „Dostarczona - trans. WoodPower”), odznaczone zdejmiemy z trasy i wrócą do puli bez trasy. Dostarczone mogą być tylko zamówienia spakowane w całości. Przystanki dostarczone już przez kierowcę zostają dostarczone.</p>
       <ul class="lg-wykonaj-lista" data-lg-trasy="wykonaj-lista" aria-label="Przystanki trasy"></ul>
       <p class="lg-wykonaj-ile" data-lg-trasy="wykonaj-ile" aria-live="polite"></p>
       <p class="lg-dialog-blad" data-lg-trasy="wykonaj-blad" role="alert" hidden></p>
@@ -745,6 +758,6 @@
         });
 })();
 </script>
-<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20261001e"></script>
+<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20261001f"></script>
 <script src="{{ url_for('logistics_panel.static', filename='js/logistics-fleet.js') }}?v=20260928b"></script>
 <script src="{{ url_for('logistics_panel.static', filename='js/logistics-wojewodztwa.js') }}?v=20260928a"></script>

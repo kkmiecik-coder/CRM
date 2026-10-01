@@ -110,11 +110,18 @@
     const KOLEJNOSC_ETAPOW = [
         'czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_sklejanie',
         'czeka_na_formatowanie', 'czeka_na_krawedzie', 'czeka_na_lakiernie',
-        'czeka_na_pakowanie', 'spakowane', 'zweryfikowane', 'zaladowane', 'dostarczone',
+        // Krok 4.4: „W trasie” to etap zamówienia (pozycje załadowane, trasa w drodze), nie status pozycji.
+        'czeka_na_pakowanie', 'spakowane', 'zweryfikowane', 'zaladowane', 'w_trasie', 'dostarczone',
         'wstrzymane', 'anulowane',
     ];
     // Towar spakowany albo dalej (ptaszek przy etapie) — jak sposoby.STATUSY_PO_SPAKOWANIU.
     const STATUSY_PO_SPAKOWANIU = ['spakowane', 'zweryfikowane', 'zaladowane', 'dostarczone'];
+    // Krok 4.4: towar załadowany na trasę, w drodze albo dostarczony — sposobu dostawy nie zmienia się (serwer
+    // odmawia 409), więc select jest zablokowany, a okno przepakowania (spec 8.7) takich zamówień nie dotyczy.
+    const ETAPY_PO_ZALADUNKU = ['zaladowane', 'w_trasie', 'dostarczone'];
+    const poZaladunku = (w) => !!(w && w.etap && ETAPY_PO_ZALADUNKU.includes(w.etap.status));
+    // Ptaszek przy etapie: spakowane i dalej, w tym „W trasie” (etap zamówienia, którego nie ma wśród statusów pozycji).
+    const maPtaszekEtapu = (status) => STATUSY_PO_SPAKOWANIU.includes(status) || status === 'w_trasie';
     // Krok 4.3 (spec 11): filtry Weryfikacji (serwer, parametr `stan`) — treść pustej listy.
     const PUSTE_STANY = {
         do_weryfikacji: ['Brak zamówień do weryfikacji.',
@@ -146,10 +153,12 @@
     // Etap 3: podzakładki (data-lg-widok na przyciskach, data-logistics-view na panelach).
     const WIDOKI = ['dashboard', 'routes', 'fleet'];
     const KLUCZ_WIDOKU_LS = 'logistyka.widok';
-    const STATUSY_TRAS = { robocza: 'robocza', zatwierdzona: 'zatwierdzona', wykonana: 'wykonana' };
-    // Status trasy na plakietce jako znak — te same ikony co w edytorze trasy (ołówek = szkic,
-    // kłódka = zatwierdzona, ptaszek = wykonana); całą szerokość plakietki dostaje nazwa.
-    const IKONY_TRAS = { robocza: 'fa-pen', zatwierdzona: 'fa-lock', wykonana: 'fa-check' };
+    const STATUSY_TRAS = { robocza: 'robocza', zatwierdzona: 'zatwierdzona', zaladowana: 'załadowana',
+        w_trasie: 'w trasie', wykonana: 'wykonana' };
+    // Status trasy na plakietce jako znak — te same ikony co w edytorze trasy (ołówek = szkic, kłódka = zatwierdzona,
+    // auto z rampą = załadowana, auto w ruchu = w trasie, ptaszek = wykonana); całą szerokość plakietki dostaje nazwa.
+    const IKONY_TRAS = { robocza: 'fa-pen', zatwierdzona: 'fa-lock', zaladowana: 'fa-truck-ramp-box',
+        w_trasie: 'fa-truck-fast', wykonana: 'fa-check' };
 
     // ── Stan ────────────────────────────────────────────────────────────────
 
@@ -862,7 +871,7 @@
         const i = nazwa.indexOf(' — ');
         const glowna = i === -1 ? nazwa : nazwa.slice(0, i);
         const dopisek = i === -1 ? '' : nazwa.slice(i + 3);
-        const znak = STATUSY_PO_SPAKOWANIU.includes(etap.status)
+        const znak = maPtaszekEtapu(etap.status)
             ? '<i class="fas fa-check lg-etap-znak" aria-hidden="true"></i>'
             : '<span class="lg-etap-znak" aria-hidden="true"></span>';
         return '<span class="lg-etap' + (klasa ? ' ' + klasa : '') + '" data-etap="' + esc(etap.status) + '"' +
@@ -966,6 +975,7 @@
         let powod = '';
         if (w.wydane) powod = 'Zamówienie wydane klientowi. Sposobu dostawy nie można już zmienić.';
         else if (anulowane) powod = 'Zamówienie anulowane.';
+        else if (poZaladunku(w)) powod = 'Towar jest już załadowany na trasę albo dostarczony. Sposobu dostawy nie można zmienić.';
         else if (stan.wysylane.has(w.id)) powod = 'Zapisywanie…';
 
         const metoda = w.metoda_z_base
@@ -1703,7 +1713,7 @@
                 // Spec 8.7: zamówienie w całości spakowane — najpierw decyzja o przepakowaniu.
                 let przepakowanie;
                 const biezacy = znajdz(id) || w;
-                if (biezacy.spakowane && wartosc !== (biezacy.sposob || 'brak')) {
+                if (biezacy.spakowane && wartosc !== (biezacy.sposob || 'brak') && !poZaladunku(biezacy)) {
                     const decyzja = await zapytajOPrzepakowanie([biezacy], wartosc);
                     if (zniszczona) return;
                     if (!decyzja) {
@@ -1777,7 +1787,7 @@
         try {
             // Spec 8.7: zamówienie w całości spakowane — najpierw decyzja o przepakowaniu.
             let przepakowanie;
-            if (w.spakowane) {
+            if (w.spakowane && !poZaladunku(w)) {
                 const decyzja = await zapytajOPrzepakowanie([w], sposob);
                 if (zniszczona) return;
                 if (!decyzja) {
@@ -1858,7 +1868,7 @@
         if (!ids.length || !SPOSOBY.includes(sposob)) return;
         // Spec 8.7: jedno okno dla zamówień w całości spakowanych z partii (z tych, którym sposób się zmieni).
         const zmieniane = ids.map(znajdz).filter((w) => w && sposob !== (w.sposob || 'brak'));
-        const doDecyzji = zmieniane.filter((w) => w.spakowane);
+        const doDecyzji = zmieniane.filter((w) => w.spakowane && !poZaladunku(w));
         let decyzja = null;
         if (doDecyzji.length) {
             // `inne` = niespakowane zamówienia, którym sposób też się zmieni (do opisu: Anuluj wstrzymuje i je).
@@ -1886,7 +1896,7 @@
             return;
         }
         // Spec 8.7: jedno okno dla całej partii, „obowiązkowe” liczone per zamówienie względem jego podpowiedzi.
-        const spakowane = doZmiany.filter((w) => w.spakowane);
+        const spakowane = doZmiany.filter((w) => w.spakowane && !poZaladunku(w));
         let decyzja = null;
         if (spakowane.length) {
             decyzja = await zapytajOPrzepakowanie(spakowane, (w) => w.podpowiedz,
