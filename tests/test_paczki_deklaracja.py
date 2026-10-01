@@ -3,7 +3,7 @@
 import io
 import itertools
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 from flask import jsonify
@@ -15,7 +15,7 @@ from modules.production.logistics.models import LogisticsLog
 from modules.production.logistics.services import paczki
 from modules.production.models import (LabelPrintJob, ProcessedMobileOperation, ProductionConfig,
                                        ProductionDevice, ProductionOrder, ProductionPackage,
-                                       ProductionProduct)
+                                       ProductionProduct, get_local_now)
 from modules.production.routers import mobile_api
 from modules.production.services import print_queue_service as pqs
 from modules.production.services.mobile_api_service import generate_token, with_idempotency
@@ -207,6 +207,103 @@ def test_deklaracja_na_aktualnym_stanie_nadal_przechodzi_gdy_baza_zgadza_sie_z_p
     migawka_pozycji(monkeypatch, paczki, 'zadeklaruj', w_pamieci='spakowane', w_bazie='spakowane')
     assert _put(client, order, device, {'kind': 'paczka', 'count': 2}).status_code == 200
     assert ProductionPackage.query.filter_by(order_id=order.id).count() == 2
+
+
+# --- Wstępna odmowa order_not_packed z migawki, zanim zablokujemy pozycje (fala końcowa 4.3, F11) --------
+# Powód: ostatni „ZAKOŃCZ” trzyma pozycję i sięga po zamówienie, a deklaracja trzyma zamówienie — czekanie na
+# pozycje pod blokadą zamówienia dawało 1213 (MySQL, 19 z 20 przebiegów). SQLite nie ma blokad, więc pilnujemy
+# kolejności i treści zapytań: przy odmowie z pamięci nie ma SELECT-u pozycji po PK (odczyt bieżący) ani paczek.
+
+def _zapytania_zadania(client, order, device):
+    """(odpowiedź, lista zapytań SQL) PUT-a deklaracji."""
+    zapytania = []
+
+    def zapamietaj(conn, cursor, statement, parameters, context, executemany):
+        zapytania.append(' '.join(statement.split()))
+
+    event.listen(db.engine, 'before_cursor_execute', zapamietaj)
+    try:
+        r = _put(client, order, device, {'kind': 'paczka', 'count': 1})
+    finally:
+        event.remove(db.engine, 'before_cursor_execute', zapamietaj)
+    return r, zapytania
+
+
+def _odczyt_biezacy_pozycji(zapytania):
+    return [q for q in zapytania if q.startswith('SELECT') and 'FROM prod_products' in q
+            and 'WHERE prod_products.id IN' in q and 'ORDER BY prod_products.id' in q]
+
+
+def test_niespakowane_z_pamieci_odmawia_bez_odczytu_biezacego_pozycji(app, client, sygnaly):
+    order, device = _spakowane(statusy=('spakowane', 'czeka_na_pakowanie')), _urzadzenie()
+    r, zapytania = _zapytania_zadania(client, order, device)
+    assert (r.status_code, r.get_json()['error']) == (409, 'order_not_packed')
+    assert order.internal_order_number in r.get_json()['message']
+    assert _odczyt_biezacy_pozycji(zapytania) == []                       # bez sięgania po pozycje po PK
+    assert not [q for q in zapytania if 'FROM prod_packages' in q]        # i bez blokady paczek
+    assert ProductionPackage.query.count() == 0 and LabelPrintJob.query.count() == 0 and sygnaly == []
+
+
+def test_migawka_niespakowana_odmawia_wstepnie_choc_baza_ma_juz_spakowane(app, client, sygnaly, monkeypatch):
+    """Migawka sprzed zatwierdzenia ostatniego „ZAKOŃCZ”: 409 order_not_packed (appka ponowi tę samą operację),
+    bez czekania na pozycje."""
+    order, device = _spakowane(), _urzadzenie()
+    migawka_pozycji(monkeypatch, paczki, 'zadeklaruj', w_pamieci='czeka_na_pakowanie', w_bazie='spakowane')
+    r, zapytania = _zapytania_zadania(client, order, device)
+    assert (r.status_code, r.get_json()['error']) == (409, 'order_not_packed')
+    assert _odczyt_biezacy_pozycji(zapytania) == []
+    assert ProductionPackage.query.count() == 0 and ProcessedMobileOperation.query.count() == 0
+
+
+def test_spakowane_z_pamieci_nadal_idzie_odczytem_biezacym(app, client, sygnaly):
+    """Kontrola odwrotna: gdy migawka pokazuje spakowane, ostateczna decyzja zapada na odczycie bieżącym."""
+    order, device = _spakowane(), _urzadzenie()
+    r, zapytania = _zapytania_zadania(client, order, device)
+    assert r.status_code == 200
+    assert len(_odczyt_biezacy_pozycji(zapytania)) == 1
+
+
+# --- Telefon Weryfikacji deklaruje tylko w zakresie listy (fala końcowa 4.3, F13) -----------------------
+
+def _spakowane_dawno(dni, **kolumny):
+    """Kurier zamknięty w Logistyce, spakowany `dni` dni temu (okno listy Weryfikacji to 7 dni)."""
+    dawno = get_local_now() - timedelta(days=dni)
+    order = _spakowane(logistics_closed_at=dawno, **kolumny)
+    for p in order.products:
+        p.packaging_completed_at = dawno
+    db.session.commit()
+    return order
+
+
+def test_telefon_weryfikacji_poza_zakresem_listy_nie_deklaruje_paczek(app, client, sygnaly):
+    order = _spakowane_dawno(10)
+    r = _put(client, order, _urzadzenie('verification'), {'kind': 'paczka', 'count': 2})
+    assert (r.status_code, r.get_json()['error']) == (409, 'order_status')
+    assert u'poza listą Weryfikacji' in r.get_json()['message']
+    assert ProductionPackage.query.count() == 0 and LabelPrintJob.query.count() == 0 and sygnaly == []
+    assert ProductionOrder.query.get(order.id).packages_declared_at is None
+    assert ProcessedMobileOperation.query.count() == 0                    # 409 niezapamiętane
+
+
+def test_tablet_pakowania_na_tym_samym_zamowieniu_deklaruje_jak_dotad(app, client, sygnaly):
+    order = _spakowane_dawno(10)
+    r = _put(client, order, _urzadzenie('packaging'), {'kind': 'paczka', 'count': 2})
+    assert r.status_code == 200, r.get_json()
+    assert ProductionPackage.query.filter_by(order_id=order.id).count() == 2
+
+
+def test_telefon_weryfikacji_w_zakresie_listy_deklaruje(app, client, sygnaly):
+    order = _spakowane_dawno(1)
+    r = _put(client, order, _urzadzenie('verification'), {'kind': 'paczka', 'count': 1})
+    assert r.status_code == 200, r.get_json()
+    assert ProductionPackage.query.filter_by(order_id=order.id).count() == 1
+
+
+def test_telefon_weryfikacji_konkretniejszy_kod_wygrywa_z_zakresem(app, client, sygnaly):
+    """Zamówienie poza zakresem i jeszcze niespakowane: 409 order_not_packed, nie order_status."""
+    order = _spakowane_dawno(10, statusy=('spakowane', 'czeka_na_pakowanie'))
+    r = _put(client, order, _urzadzenie('verification'), {'kind': 'paczka', 'count': 1})
+    assert (r.status_code, r.get_json()['error']) == (409, 'order_not_packed')
 
 
 def test_anulowana_pozycja_nie_blokuje_deklaracji(app, client, sygnaly):

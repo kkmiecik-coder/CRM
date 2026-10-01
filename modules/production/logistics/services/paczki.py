@@ -313,6 +313,22 @@ _ODMOWA_PO_WERYFIKACJI = {
 }
 
 
+_ODMOWA_NIESPAKOWANE = (u'Zamówienie {} nie jest jeszcze w całości spakowane — '
+                        u'paczki deklaruje się po spakowaniu ostatniej pozycji.')
+
+
+def _sprawdz_zakres_telefonu(order, stanowisko, teraz):
+    """Deklaracja z telefonu Weryfikacji tylko w zakresie listy: poza nim 409 order_status (ten sam kod i
+    komunikat co zapisy Weryfikacji). Tablet pakowania nie ma tego ograniczenia."""
+    from modules.production.logistics.services import weryfikacja
+    if stanowisko != weryfikacja.STANOWISKO:
+        return
+    try:
+        weryfikacja.sprawdz_zakres(order, teraz)
+    except weryfikacja.WeryfikacjaBlad as e:
+        raise PaczkiBlad(e.kod, e.komunikat, e.status)
+
+
 def zadeklaruj(order, deklaracja, stanowisko, aktor, worker_id=None, device_id=None, teraz=None):
     """
     Nowa deklaracja paczek (spec 7.2): unieważnia poprzednią, tworzy N paczek z numerami
@@ -323,17 +339,34 @@ def zadeklaruj(order, deklaracja, stanowisko, aktor, worker_id=None, device_id=N
     `order` MUSI być odczytany z blokadą i `populate_existing` (_zamowienie_po_numerze(do_zapisu=True)) —
     dwie deklaracje naraz (dwa tablety, powtórka z nowym X-Operation-Id) dałyby dwa komplety paczek.
 
-    DECYZJA NA STANIE BIEŻĄCYM: strażniki (order_verified, order_not_packed) liczą się na statusach
-    pozycji z odczytu bieżącego (`zablokuj_stan`: paczki FOR UPDATE → pozycje po PK FOR UPDATE z
-    `populate_existing`, ta sama kolejność i ten sam odczyt co zapisy Weryfikacji), a nie z leniwego
-    `order.products`, który w REPEATABLE READ pokazuje migawkę sprzed czekania na blokady. Bez tego
-    przegrany w wyścigu z weryfikacją widział statusy sprzed niej, przechodził oba strażniki i deklarował
-    nowe paczki po weryfikacji: zamówienie zweryfikowane z niesprawdzonymi aktualnymi paczkami. Migawka
-    nie może już dać ani przyjęcia deklaracji względem nieaktualnych statusów, ani fałszywego 409.
+    KOLEJNOŚĆ SPRAWDZEŃ (trzy kroki):
+    1. WSTĘPNA ODMOWA `order_not_packed` na stanie z pamięci (migawka MySQL, REPEATABLE READ), zanim
+       cokolwiek zablokujemy. Migawka pokazuje tylko zatwierdzone zmiany: jeśli widać w niej, że
+       wszystkie pozycje są spakowane lub dalej, ostatni „ZAKOŃCZ” już się zatwierdził i nie trzyma
+       pozycji. Jeśli nie widać, odmawiamy od razu, bez sięgania po pozycje. Czekanie na nie pod blokadą
+       zamówienia zakleszczało się z „ZAKOŃCZ” (MySQL 1213): ostatni „ZAKOŃCZ” trzyma pozycję i sięga po
+       zamówienie, a deklaracja trzyma zamówienie i sięgałaby po pozycję. 409 jest w BLEDY_DO_PONOWIENIA,
+       więc appka ponowi tą samą operację, gdy „ZAKOŃCZ” się zatwierdzi.
+    2. ODCZYT BIEŻĄCY (`zablokuj_stan`: paczki FOR UPDATE → pozycje po PK FOR UPDATE z `populate_existing`,
+       ta sama kolejność i ten sam odczyt co zapisy Weryfikacji).
+    3. OBA STRAŻNIKI (order_verified, order_not_packed) na statusach z tego odczytu: ostateczna decyzja
+       zapada na stanie bieżącym, więc przegrany w wyścigu z weryfikacją (która zdążyła po migawce) dostaje
+       409 order_verified zamiast deklarować nowe paczki po weryfikacji (zamówienie zweryfikowane z
+       niesprawdzonymi aktualnymi paczkami).
+    Migawka nadal ma wpływ w jednym miejscu: LISTA kluczy pozycji do zablokowania pochodzi z
+    `order.products` (blokada po `order_id` zakładałaby blokady luk indeksu i zakleszczała się). Pozycja
+    dodana przez synchronizację po migawce nie jest więc ani blokowana, ani widziana przez strażniki; jeśli
+    przez nią zamówienie przestało być w całości spakowane, trafi do reguły uniewaznij_etapy w cronie,
+    który unieważni paczki.
     Przy wyścigu ze zmianą sposobu dostawy w panelu napis na etykiecie czytamy z zablokowanego wiersza
     zamówienia; przepakowanie i tak kończy się nową deklaracją, a zamówienie, które przestało być w
     całości spakowane, traci paczki przez weryfikacja.uniewaznij_etapy.
+
+    Telefon Weryfikacji (stanowisko 'verification') deklaruje tylko na zamówieniach z zakresu listy
+    (weryfikacja.sprawdz_zakres, po strażnikach, przed pierwszym zapisem). Tablet pakowania bez zmian.
     """
+    if not delivery.wszystkie_w(order, sposoby.STATUSY_PO_SPAKOWANIU):
+        raise PaczkiBlad('order_not_packed', _ODMOWA_NIESPAKOWANE.format(order.internal_order_number), 409)
     stare = zablokuj_stan(order)
     etap = next((p.current_status for p in delivery.aktywne_produkty(order)
                  if p.current_status in sposoby.STATUSY_LOGISTYCZNE), None)
@@ -341,10 +374,9 @@ def zadeklaruj(order, deklaracja, stanowisko, aktor, worker_id=None, device_id=N
         raise PaczkiBlad('order_verified', _ODMOWA_PO_WERYFIKACJI[etap].format(
             order.internal_order_number), 409)
     if not delivery.wszystkie_w(order, ('spakowane',)):
-        raise PaczkiBlad('order_not_packed', u'Zamówienie {} nie jest jeszcze w całości spakowane — '
-                         u'paczki deklaruje się po spakowaniu ostatniej pozycji.'.format(
-                             order.internal_order_number), 409)
+        raise PaczkiBlad('order_not_packed', _ODMOWA_NIESPAKOWANE.format(order.internal_order_number), 409)
     teraz = teraz or get_local_now()
+    _sprawdz_zakres_telefonu(order, stanowisko, teraz)
     uniewaznione = uniewaznij(stare, teraz)
     nowe = [ProductionPackage(order_id=order.id, seq=numer, kind=deklaracja.kind,
                               pallet_type=deklaracja.pallet_type, length_cm=deklaracja.length_cm,
