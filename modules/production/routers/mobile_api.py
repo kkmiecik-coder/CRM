@@ -136,6 +136,13 @@ BLEDY_DO_PONOWIENIA = {400, 403, 404, 409}
 #   5 — 2026-09-30: `transport.repack_reason` (logistyka etap 4, krok 4.3 — baner przepakowania)
 KSZTALT_ODPOWIEDZI_KOLEJKI = 5
 
+# Wersja KSZTAŁTU katalogu pracowników (GET /workers) — część ETagu, jak KSZTALT_ODPOWIEDZI_KOLEJKI.
+# ETag katalogu liczy się z MAX(prod_workers.updated_at) i odcisku konfiguracji, więc nowe pole bez tego
+# segmentu nie dotarłoby do urządzeń z zapamiętanym katalogiem (304). PODBIJ przy każdej zmianie zestawu pól
+# w worker_service.serialize_worker_for_mobile().
+#   2 — 2026-10-01: `is_driver` (logistyka etap 4, krok 4.4 — bramka stanowiska Dostawa)
+KSZTALT_KATALOGU_PRACOWNIKOW = 2
+
 
 def _resolve_workers():
     """
@@ -1332,7 +1339,8 @@ def workers_catalog():
     odświeżeniu. Dlatego `catalog_version` = dokładnie ta wartość, którą
     wystawiamy w nagłówku.
 
-    W ETag wchodzą TRZY rzeczy:
+    W ETag wchodzą TRZY rzeczy (po segmencie kształtu KSZTALT_KATALOGU_PRACOWNIKOW, który tuż za nazwą
+    `workers` unieważnia katalog zapamiętany przy starszym zestawie pól):
       1. station_code z JWT — recent_on_station jest per stanowisko;
       2. MAX(prod_workers.updated_at) — zmiana katalogu (dodanie, edycja,
          dezaktywacja pracownika);
@@ -1354,7 +1362,7 @@ def workers_catalog():
 
     worker_service.odswiez_konfiguracje_jesli_nieaktualna()
 
-    etag = make_weak_etag('workers', station_code,
+    etag = make_weak_etag('workers', KSZTALT_KATALOGU_PRACOWNIKOW, station_code,
                           worker_service.get_catalog_version(),
                           worker_service.get_config_fingerprint())
     if if_none_match(etag):

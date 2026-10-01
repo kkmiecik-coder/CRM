@@ -49,6 +49,9 @@ STATION_LABELS = {
     # Logistyka etap 4 — telefon biura sprawdzający paczki. Jak trakownia: poza STATION_ORDER
     # (nie ma kolejki statusów), ale z nazwą, bo pracownik ma tu sesję.
     'verification': 'Weryfikacja',
+    # Logistyka etap 4, krok 4.4 — telefon kierowcy (załadunek, wyjazd, dostarczenia). Jak Weryfikacja:
+    # poza STATION_ORDER, ale z nazwą, bo kierowca ma tu sesję.
+    'delivery': 'Dostawa',
 }
 
 

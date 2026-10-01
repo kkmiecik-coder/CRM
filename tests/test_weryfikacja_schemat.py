@@ -62,8 +62,9 @@ def test_kolumny_weryfikacji_i_problemu_na_zamowieniu(app):
 
 
 def test_akcje_logu_weryfikacji():
-    assert list(AKCJE_LOGU) == STARE_AKCJE + ['weryfikacja', 'weryfikacja_cofnieta', 'problem',
-                                              'problem_rozwiazany', 'cofniete_do_pakowania']
+    # Akcje Dostawy (krok 4.4) dochodzą na końcu — pilnuje ich tests/test_dostawa_schemat.py.
+    assert list(AKCJE_LOGU)[:13] == STARE_AKCJE + ['weryfikacja', 'weryfikacja_cofnieta', 'problem',
+                                                   'problem_rozwiazany', 'cofniete_do_pakowania']
 
 
 def test_indeks_paczek_po_zamowieniu_i_uniewaznieniu():
@@ -80,7 +81,8 @@ def test_migracja():
     assert _wartosci(status) == list(ProductionProduct.current_status.type.enums)
     assert 'COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT' in status
     log = next(p for p in polecenia if p.startswith('ALTER TABLE prod_logistics_log MODIFY action'))
-    assert _wartosci(log) == list(AKCJE_LOGU)
+    # Migracja kroku 4.3 zna akcje do 4.3; akcje Dostawy dopisuje 2026-10-01-logistyka-dostawa.sql.
+    assert _wartosci(log) == list(AKCJE_LOGU)[:13]
     for kolumna in ('verified_at DATETIME NULL', 'verified_by_worker_id INT NULL',
                     'problem_reason VARCHAR(32) NULL', 'problem_note VARCHAR(255) NULL',
                     'problem_at DATETIME NULL', 'problem_by_worker_id INT NULL',

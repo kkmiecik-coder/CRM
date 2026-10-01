@@ -12,7 +12,9 @@ AKCJE_LOGU = ('sposob_dostawy', 'wydane', 'przepakowanie',
               'paczki',
               # Weryfikacja (logistyka etap 4, krok 4.3).
               'weryfikacja', 'weryfikacja_cofnieta', 'problem', 'problem_rozwiazany',
-              'cofniete_do_pakowania')
+              'cofniete_do_pakowania',
+              # Dostawa (logistyka etap 4, krok 4.4).
+              'zaladunek', 'zostaje', 'wyjazd', 'dostarczone', 'niedostarczone', 'dostarczenie_cofniete')
 
 
 class LogisticsLog(db.Model):
@@ -54,9 +56,12 @@ class OrderGeo(db.Model):
     updated_at = Column(DateTime, default=get_local_now, onupdate=get_local_now)
 
 
-STATUSY_TRASY = ('robocza', 'zatwierdzona', 'wykonana')
-# Trasy, które widzi tablet i które blokują pojazd/kierowcę (jeszcze nie wykonane).
-STATUSY_TRASY_AKTYWNE = ('robocza', 'zatwierdzona')
+# Kolejność jak w ENUM bazy (nowe wartości dopisane na końcu migracją kroku 4.4); cykl trasy:
+# robocza → zatwierdzona → zaladowana → w_trasie → wykonana.
+STATUSY_TRASY = ('robocza', 'zatwierdzona', 'wykonana', 'zaladowana', 'w_trasie')
+# Trasy, które widzi tablet i które blokują pojazd/kierowcę (jeszcze nie wykonane). Krok 4.4: także
+# załadowana (kierowca zakończył załadunek) i w trasie (kierowca ruszył).
+STATUSY_TRASY_AKTYWNE = ('robocza', 'zatwierdzona', 'zaladowana', 'w_trasie')
 
 
 class Vehicle(db.Model):
@@ -74,7 +79,7 @@ class Vehicle(db.Model):
 
 
 class Route(db.Model):
-    """Trasa transportu własnego: Robocza → Zatwierdzona → Wykonana."""
+    """Trasa transportu własnego: Robocza → Zatwierdzona → Załadowana → W trasie → Wykonana."""
     __tablename__ = 'prod_routes'
 
     id = Column(Integer, primary_key=True)
@@ -90,6 +95,11 @@ class Route(db.Model):
     approved_by = Column(Integer)
     completed_at = Column(DateTime)
     completed_by = Column(Integer)
+    # Dostawa (krok 4.4): zakończenie załadunku i wyjazd — pracownik z telefonu kierowcy.
+    loaded_at = Column(DateTime)
+    loaded_by_worker_id = Column(Integer)
+    departed_at = Column(DateTime)
+    departed_by_worker_id = Column(Integer)
     created_at = Column(DateTime, default=get_local_now, nullable=False)
     created_by = Column(Integer)
     updated_at = Column(DateTime, default=get_local_now, onupdate=get_local_now)
@@ -116,5 +126,11 @@ class RouteStop(db.Model):
     order_id = Column(Integer, ForeignKey('prod_orders.id', ondelete='CASCADE'),
                       nullable=False, unique=True)
     position = Column(Integer, nullable=False)
+    # Dostawa (krok 4.4): dostarczenie (kto i kiedy) oraz czasowe „Zostaje” z powodem — do zakończenia
+    # załadunku, które zdejmuje taki przystanek z trasy (dostawa.POWODY_ZOSTAJE).
+    delivered_at = Column(DateTime)
+    delivered_by_worker_id = Column(Integer)
+    stays_reason = Column(String(32))
+    stays_note = Column(String(255))
 
     route = relationship('Route', back_populates='stops')

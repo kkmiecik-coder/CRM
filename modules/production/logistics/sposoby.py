@@ -32,7 +32,9 @@ STATUS_SPAKOWANE = 138623
 STATUS_PLANOWANA_TRASA = 417343
 STATUS_CZEKA_NA_ODBIOR = 149777
 STATUS_ODEBRANE = 149779
-# Furtka pod stanowisko kierowcy — w etapie 1 nikt ich nie ustawia.
+# Transport własny — stanowisko Dostawa (krok 4.4): „Załadowane - trans. WoodPower” po zakończeniu załadunku
+# (status założony w Base. 30.09.2026), „Wysłane - trans. WoodPower” po „Ruszam”, „Dostarczona” po dostarczeniu.
+STATUS_ZALADOWANE = 524520
 STATUS_WYSLANE_TRANSPORT = 149763
 STATUS_DOSTARCZONE_TRANSPORT = 149778
 

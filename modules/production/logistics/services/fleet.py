@@ -90,8 +90,8 @@ def _podbij_zamowienia_pojazdu(pojazd):
     """
     Tablet pokazuje `transport.vehicle_name` dla zamówień na aktywnej trasie, a ETag
     jego kolejki liczy się z MAX(updated_at) pozycji — zmiana nazwy pojazdu musi więc
-    podbić pozycje wszystkich zamówień na trasach ROBOCZYCH/ZATWIERDZONYCH tego pojazdu
-    (spec 6.5). Trasy WYKONANE tabletu już nie interesują.
+    podbić pozycje wszystkich zamówień na trasach aktywnych tego pojazdu (robocza, zatwierdzona,
+    załadowana, w trasie — STATUSY_TRASY_AKTYWNE; spec 6.5). Trasy WYKONANE tabletu już nie interesują.
 
     (M2) Wołane pod blokadą tras (zapisz_pojazd). Przystanki odczytem BIEŻĄCYM (FOR SHARE):
     zwykły SELECT czytałby migawkę sprzed czekania na blokadę i pominąłby zamówienie dodane
@@ -147,7 +147,8 @@ def kandydaci_na_kierowcow():
 
 def trasy_kierowcow(ids):
     """
-    {worker_id: [nazwa trasy, …]} — trasy robocze i zatwierdzone (po dacie od, potem id),
+    {worker_id: [nazwa trasy, …]} — trasy aktywne (robocza, zatwierdzona, załadowana, w trasie —
+    STATUSY_TRASY_AKTYWNE; po dacie od, potem id),
     na których pracownik jest kierowcą. Potwierdzenie zdjęcia znacznika podaje je z nazwy:
     kierowca na nich zostaje (spec 2.6, rozstrzygnięcie 33).
     """
@@ -163,7 +164,7 @@ def trasy_kierowcow(ids):
 
 
 def kierowcy_z_trasami():
-    """GET /drivers: kierowcy z nazwami ich aktywnych tras — dwa zapytania na całą listę."""
+    """GET /drivers: kierowcy z nazwami ich aktywnych tras (STATUSY_TRASY_AKTYWNE) — dwa zapytania na listę."""
     lista = kierowcy()
     trasy = trasy_kierowcow([k['id'] for k in lista])
     return [dict(k, trasy=trasy.get(k['id'], [])) for k in lista]
