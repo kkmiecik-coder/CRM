@@ -233,3 +233,131 @@ def test_endpoint_blokuje_zamowienia_przed_odczytem_pozycji(app, client):
     i_poz = next(i for i, q in enumerate(zapytania) if 'FROM prod_products' in q)
     i_upd = next(i for i, q in enumerate(zapytania) if q.lstrip().upper().startswith('UPDATE'))
     assert i_zam < i_poz < i_upd
+
+
+# ── I1b: jedno automatyczne ponowienie po zakleszczeniu 1213 (fala końcowa 8.7) ──────────────────
+# Panel jest ofiarą zakleszczenia ze stanowiskiem (spec 8.7, „Współbieżność”). Żądanie jest bezpieczne
+# do powtórzenia, bo decyzja jest jawna w ciele, więc `delivery_method` powtarza zapis najwyżej raz
+# i tylko po 1213. Błąd po ponowieniu idzie do globalnego handlera OperationalError (app.py: rollback
+# i odpowiedź 500); apka testowa go nie ma (a w trybie debug Flask przepuszcza wyjątek do testu),
+# więc `_globalny_handler` go odtwarza.
+
+def _blad_mysql(kod, komunikat):
+    from sqlalchemy.exc import OperationalError
+    return OperationalError('UPDATE prod_orders SET ...', {}, Exception(kod, komunikat))
+
+
+def _globalny_handler(app):
+    """Odpowiednik handlera OperationalError z app.py: rollback i 500. Rejestrować przed pierwszym żądaniem."""
+    from flask import jsonify
+    from sqlalchemy.exc import OperationalError
+
+    @app.errorhandler(OperationalError)
+    def _blad_bazy(e):
+        db.session.rollback()
+        return jsonify({'error': 'database_error'}), 500
+
+
+def _scenariusz(monkeypatch, wyniki):
+    """Podmienia `ustaw_sposob_dostawy`: n-te wywołanie najpierw wykonuje PRAWDZIWĄ zmianę (zostaje w sesji,
+    więc rollback musi ją cofnąć), a potem rzuca `wyniki[n]`, gdy to wyjątek. Poza listą działa normalnie.
+    Zwraca listę numerów zamówień z kolejnych wywołań."""
+    oryginal = d.ustaw_sposob_dostawy
+    wywolania = []
+
+    def falszywa(order, sposob, **kwargs):
+        wynik = oryginal(order, sposob, **kwargs)
+        numer = len(wywolania)
+        wywolania.append(order.id)
+        if numer < len(wyniki) and wyniki[numer] is not None:
+            raise wyniki[numer]
+        return wynik
+    monkeypatch.setattr(d, 'ustaw_sposob_dostawy', falszywa)
+    return wywolania
+
+
+def _sposob_w_bazie(order_id):
+    from modules.production.models import ProductionOrder
+    db.session.rollback()   # świeży odczyt, bez migawki z poprzedniego żądania
+    return ProductionOrder.query.get(order_id).override_delivery_method
+
+
+def test_endpoint_ponawia_raz_po_1213_i_zmienia_zamowienie(app, client, monkeypatch):
+    with app.app_context():
+        order = zamowienie(sposob=s.KURIER, statusy=('czeka_na_pakowanie',))
+        i = order.id
+    wywolania = _scenariusz(monkeypatch, [_blad_mysql(1213, 'Deadlock found when trying to get lock')])
+    r = _post(client, [i], s.ODBIOR)
+    assert r.status_code == 200
+    j = r.get_json()
+    assert j['success'] is True and j['zmienione'] == [i] and j['bledy'] == []
+    assert wywolania == [i, i]                      # pierwsza próba (1213) i jedno ponowienie
+    with app.app_context():
+        assert _sposob_w_bazie(i) == s.ODBIOR
+        assert len(_akcje()) == 1                   # wpis logu z pierwszej próby wycofał rollback
+
+
+def test_endpoint_ponowienie_liczy_wyniki_od_zera(app, client, monkeypatch):
+    """Hurt dwóch zamówień: 1213 na drugim w pierwszej próbie. Wynik drugiej próby nie dokłada pierwszego
+    zamówienia drugi raz."""
+    with app.app_context():
+        a = zamowienie(sposob=s.KURIER, statusy=('czeka_na_pakowanie',))
+        b = zamowienie(sposob=s.KURIER, statusy=('czeka_na_pakowanie',))
+        ids = [a.id, b.id]
+    wywolania = _scenariusz(monkeypatch, [None, _blad_mysql(1213, 'Deadlock')])
+    j = _post(client, ids, s.ODBIOR).get_json()
+    assert wywolania == [ids[0], ids[1], ids[0], ids[1]]
+    assert j['zmienione'] == ids and j['bledy'] == []
+
+
+def test_endpoint_druga_proba_decyduje_na_nowym_stanie(app, client, monkeypatch):
+    """Między próbami stanowisko spakowało zamówienie (commit zamyka 1213). Ponowienie widzi stan po
+    commicie: zamówienie w całości spakowane bez decyzji → `wymaga_decyzji_przepakowania`, nic się nie zmienia."""
+    with app.app_context():
+        order = zamowienie(sposob=s.KURIER, statusy=('czeka_na_pakowanie',))
+        i = order.id
+    oryginal = d.ustaw_sposob_dostawy
+    wywolania = []
+
+    def stanowisko_wygrywa(order, sposob, **kwargs):
+        wywolania.append(order.id)
+        if len(wywolania) == 1:
+            db.session.rollback()
+            for p in order.products:
+                p.current_status = 'spakowane'      # commit „stanowiska” poza naszą transakcją
+            db.session.commit()
+            raise _blad_mysql(1213, 'Deadlock')
+        return oryginal(order, sposob, **kwargs)
+    monkeypatch.setattr(d, 'ustaw_sposob_dostawy', stanowisko_wygrywa)
+    j = _post(client, [i], s.ODBIOR).get_json()
+    assert wywolania == [i, i]
+    assert j['zmienione'] == []
+    assert [b['kod'] for b in j['bledy']] == ['wymaga_decyzji_przepakowania']
+    with app.app_context():
+        assert _sposob_w_bazie(i) == s.KURIER
+
+
+def test_endpoint_dwa_1213_z_rzedu_to_500_i_zamowienie_bez_zmian(app, client, monkeypatch):
+    _globalny_handler(app)
+    with app.app_context():
+        order = zamowienie(sposob=s.KURIER, statusy=('czeka_na_pakowanie',))
+        i = order.id
+    wywolania = _scenariusz(monkeypatch, [_blad_mysql(1213, 'Deadlock'), _blad_mysql(1213, 'Deadlock')])
+    r = _post(client, [i], s.ODBIOR)
+    assert r.status_code == 500
+    assert wywolania == [i, i]                      # najwyżej jedno ponowienie
+    with app.app_context():
+        assert _sposob_w_bazie(i) == s.KURIER and _akcje() == []
+
+
+def test_endpoint_inny_operational_error_nie_jest_ponawiany(app, client, monkeypatch):
+    _globalny_handler(app)
+    with app.app_context():
+        order = zamowienie(sposob=s.KURIER, statusy=('czeka_na_pakowanie',))
+        i = order.id
+    wywolania = _scenariusz(monkeypatch, [_blad_mysql(2006, 'MySQL server has gone away')])
+    r = _post(client, [i], s.ODBIOR)
+    assert r.status_code == 500
+    assert wywolania == [i]
+    with app.app_context():
+        assert _sposob_w_bazie(i) == s.KURIER

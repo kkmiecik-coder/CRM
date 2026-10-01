@@ -9,7 +9,7 @@ from functools import wraps
 
 from flask import current_app, jsonify, render_template, request
 from flask_login import current_user, login_required
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import selectinload
 
 import modules.users.decorators as user_decorators
@@ -130,35 +130,18 @@ def orders():
     })
 
 
-@logistics_panel_bp.route('/orders/delivery-method', methods=['POST'])
-@guard
-def delivery_method():
-    dane = request.get_json(silent=True) or {}
-    if not isinstance(dane, dict):
-        # Tablica albo skalar w ciele JSON — bez tego .get() rzuca AttributeError (500).
-        return _blad(u'Nieprawidłowe dane żądania.', 422)
-    ids = dane.get('order_ids')
-    # 'brak' = „Nie ustawiono” — cofnięcie pomyłki (delivery.ustaw_sposob_dostawy).
-    sposob = (sposoby.BRAK if dane.get('sposob') == sposoby.BRAK
-              else sposoby.normalizuj(dane.get('sposob')))
-    if not isinstance(ids, list) or not ids or len(ids) > LIMIT_HURTU:
-        return _blad(u'Podaj od 1 do {} zamówień.'.format(LIMIT_HURTU), 422)
-    # bool jest podklasą int w Pythonie — bez wyłączenia [True] przeszłoby jako id=1.
-    # Bez tej walidacji element inny niż int (np. dict, string) trafia surowy do
-    # ProductionOrder.id.in_(ids) i SQLAlchemy rzuca ProgrammingError z bazy (500,
-    # szum w Sentry) zamiast czystego 422 tego endpointu dla złych danych wejściowych.
-    if any(not isinstance(i, int) or isinstance(i, bool) for i in ids):
-        return _blad(u'Identyfikatory zamówień muszą być liczbami całkowitymi.', 422)
-    if sposob is None:
-        return _blad(u'Nieznany sposób dostawy.', 422)
-    # Spec 8.7: decyzja logistyka o zamówieniach w całości spakowanych. Brak pola albo null = brak decyzji;
-    # każda inna wartość niż true/false to błąd (1, "tak", [] itd. nie przechodzą za decyzję).
-    przepakowanie_decyzja = dane.get('przepakowanie')
-    if przepakowanie_decyzja is not None and not isinstance(przepakowanie_decyzja, bool):
-        return _blad(u'Pole przepakowanie musi mieć wartość true albo false.', 422)
-    # PRZED _zapis_pod_blokada: po commicie current_user.id to zwykły SELECT (migawka sprzed blokady).
-    user_id = _user_id()
+def _kod_mysql(blad):
+    """Kod błędu MySQL z OperationalError (np. 1213 = zakleszczenie) albo None."""
+    argumenty = getattr(getattr(blad, 'orig', None), 'args', None) or ()
+    return argumenty[0] if argumenty else None
 
+
+def _zapisz_zmiane_sposobu(ids, sposob, przepakowanie_decyzja, user_id):
+    """
+    Cały zapis zmiany sposobu dostawy w jednej transakcji: blokada tras, blokady zamówień, pętla, commit.
+    Zwraca (zmienione, przepakowanie, bledy, usunieto) — listy liczone od zera przy każdym wywołaniu, więc
+    funkcję wolno wywołać drugi raz po rollbacku (jedno ponowienie po 1213, patrz `delivery_method`).
+    """
     # Blokada globalna tras PRZED pierwszym zapisem (fix-1, Ruling A7) — kolejność
     # „trasa najpierw": bez tego pętla niżej mogłaby trzymać blokady wierszy pozycji
     # zamówienia O1 i czekać na blokadę trasy, podczas gdy zatwierdzenie trasy
@@ -194,6 +177,56 @@ def delivery_method():
         if wynik.get('usunieto_z_trasy'):
             usunieto.append({'order_id': order.id, 'trasa': wynik['usunieto_z_trasy']})
     db.session.commit()
+    return zmienione, przepakowanie, bledy, usunieto
+
+
+@logistics_panel_bp.route('/orders/delivery-method', methods=['POST'])
+@guard
+def delivery_method():
+    dane = request.get_json(silent=True) or {}
+    if not isinstance(dane, dict):
+        # Tablica albo skalar w ciele JSON — bez tego .get() rzuca AttributeError (500).
+        return _blad(u'Nieprawidłowe dane żądania.', 422)
+    ids = dane.get('order_ids')
+    # 'brak' = „Nie ustawiono” — cofnięcie pomyłki (delivery.ustaw_sposob_dostawy).
+    sposob = (sposoby.BRAK if dane.get('sposob') == sposoby.BRAK
+              else sposoby.normalizuj(dane.get('sposob')))
+    if not isinstance(ids, list) or not ids or len(ids) > LIMIT_HURTU:
+        return _blad(u'Podaj od 1 do {} zamówień.'.format(LIMIT_HURTU), 422)
+    # bool jest podklasą int w Pythonie — bez wyłączenia [True] przeszłoby jako id=1.
+    # Bez tej walidacji element inny niż int (np. dict, string) trafia surowy do
+    # ProductionOrder.id.in_(ids) i SQLAlchemy rzuca ProgrammingError z bazy (500,
+    # szum w Sentry) zamiast czystego 422 tego endpointu dla złych danych wejściowych.
+    if any(not isinstance(i, int) or isinstance(i, bool) for i in ids):
+        return _blad(u'Identyfikatory zamówień muszą być liczbami całkowitymi.', 422)
+    if sposob is None:
+        return _blad(u'Nieznany sposób dostawy.', 422)
+    # Spec 8.7: decyzja logistyka o zamówieniach w całości spakowanych. Brak pola albo null = brak decyzji;
+    # każda inna wartość niż true/false to błąd (1, "tak", [] itd. nie przechodzą za decyzję).
+    przepakowanie_decyzja = dane.get('przepakowanie')
+    if przepakowanie_decyzja is not None and not isinstance(przepakowanie_decyzja, bool):
+        return _blad(u'Pole przepakowanie musi mieć wartość true albo false.', 422)
+    # PRZED _zapis_pod_blokada: po commicie current_user.id to zwykły SELECT (migawka sprzed blokady).
+    user_id = _user_id()
+
+    # Jedno automatyczne ponowienie po zakleszczeniu 1213 (I1b). Blokada zamówień panelu trzyma je przez
+    # całą pętlę zmiany, a stanowisko (ZAKOŃCZ, wejście do pakowania) najpierw zapisuje pozycję, potem
+    # zamówienie, więc zmiana sposobu na zamówieniu z pozycją w ruchu na stanowisku może paść ofiarą
+    # zakleszczenia (spec 8.7, „Współbieżność”). Żądanie jest bezpieczne do powtórzenia: decyzja jest jawna
+    # w ciele (`przepakowanie`), a druga próba decyduje na nowym stanie spod nowych blokad — zamówienie,
+    # które dopiero się spakowało, dostanie `wymaga_decyzji_przepakowania`, a nie zmianę wbrew regule.
+    # Najwyżej jedna próba więcej: drugie 1213 i każdy inny błąd idą dalej do globalnego handlera (500).
+    try:
+        zmienione, przepakowanie, bledy, usunieto = _zapisz_zmiane_sposobu(
+            ids, sposob, przepakowanie_decyzja, user_id)
+    except OperationalError as e:
+        if _kod_mysql(e) != 1213:
+            raise
+        db.session.rollback()
+        logger.warning("Logistyka: zakleszczenie 1213 przy zmianie sposobu dostawy, ponawiam raz", extra={
+            'user_id': user_id, 'sposob': sposob, 'zamowien': len(ids)})
+        zmienione, przepakowanie, bledy, usunieto = _zapisz_zmiane_sposobu(
+            ids, sposob, przepakowanie_decyzja, user_id)
     logger.info("Logistyka: zmiana sposobu dostawy", extra={
         'user_id': user_id, 'sposob': sposob, 'zmienione': len(zmienione),
         'bledy': len(bledy)})

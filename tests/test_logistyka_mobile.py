@@ -10,7 +10,7 @@ from modules.production.models import ProductionDevice, ProductionProduct
 from modules.production.routers import mobile_api
 from modules.production.services.mobile_api_service import generate_token, serialize_order
 from modules.production.services.label_print_service import _format_delivery_label
-from tests.logistyka_fixtures import app, client, zamowienie  # noqa: F401
+from tests.logistyka_fixtures import BASE, app, client, zamowienie  # noqa: F401
 
 
 @pytest.fixture(autouse=True)
@@ -75,6 +75,36 @@ def test_to_samo_op_id_przechodzi_po_decyzji_logistyka(app, client):
         from modules.production.models import ProductionOrder
         delivery.ustaw_sposob_dostawy(ProductionOrder.query.get(oid), s.KURIER)
         db.session.commit()
+    r = client.post('/api/mobile/orders/%d/complete' % pid, headers=naglowki)
+    assert r.status_code == 200
+    assert r.get_json()['status'] == 'spakowane'
+
+
+def test_po_nie_ustawiono_z_przepakowaniem_tablet_dostaje_409_do_wyboru_sposobu(app, client):
+    """Review Focus 4 (spec 8.7): „Nie ustawiono” z cofnięciem do pakowania zostawia sposób NULL i
+    `repack_required`, więc tablet pakowania dostaje 409 `delivery_method_not_set`. Po wyborze sposobu w
+    panelu to samo pakowanie przechodzi."""
+    token = _token(app)
+    naglowki = {'Authorization': 'Bearer ' + token, 'X-Operation-Id': 'op-4'}
+    with app.app_context():
+        order = zamowienie(sposob=s.KURIER, statusy=('spakowane',))
+        pid, oid = order.products[0].id, order.id
+    panel = client.post(BASE + '/orders/delivery-method',
+                        json={'order_ids': [oid], 'sposob': s.BRAK, 'przepakowanie': True})
+    assert panel.status_code == 200 and panel.get_json()['przepakowanie'] == [oid]
+    with app.app_context():
+        from modules.production.models import ProductionOrder
+        wiersz = ProductionOrder.query.get(oid)
+        assert wiersz.override_delivery_method is None and wiersz.repack_required is True
+        assert ProductionProduct.query.get(pid).current_status == 'czeka_na_pakowanie'
+    r = client.post('/api/mobile/orders/%d/complete' % pid, headers=naglowki)
+    assert r.status_code == 409
+    assert r.get_json()['error'] == 'delivery_method_not_set'
+    with app.app_context():
+        assert ProductionProduct.query.get(pid).current_status == 'czeka_na_pakowanie'
+    # Logistyk wybiera sposób w panelu (pozycja czeka na pakowanie, więc decyzja o przepakowaniu nie dotyczy).
+    wybor = client.post(BASE + '/orders/delivery-method', json={'order_ids': [oid], 'sposob': s.ODBIOR})
+    assert wybor.status_code == 200 and wybor.get_json()['zmienione'] == [oid]
     r = client.post('/api/mobile/orders/%d/complete' % pid, headers=naglowki)
     assert r.status_code == 200
     assert r.get_json()['status'] == 'spakowane'
