@@ -307,9 +307,10 @@ Albo po prostu `./deploy.sh` — robi dokładnie to samo, z lockiem i logami.
   `paczki.zablokuj_deklaracje()` → zamówienie po PK → paczki → pozycje (`paczki.zablokuj_stan`) i decydują na
   odczycie bieżącym; deklaracja paczek tak samo, z wstępną odmową „nie w całości spakowane” przed blokadą pozycji.
   Reguła `weryfikacja.uniewaznij_etapy` (powrót pozycji do produkcji) blokady globalnej nie bierze; gdy ma pracę,
-  potwierdza ją odczytem bieżącym w tej samej kolejności. Hurtowa zmiana statusu i cron logistyki blokują
-  zamówienia rosnąco po id. Stanowiska (ZAKOŃCZ, doróbka) i synchronizacja biorą pozycję przed zamówieniem —
-  z zapisami Weryfikacji możliwe rzadkie 1213 (500, ponowienie z kolejki offline przechodzi).
+  potwierdza ją odczytem bieżącym w tej samej kolejności. Hurtowa zmiana statusu, cron logistyki oraz zmiana
+  sposobu dostawy w panelu (po blokadzie tras) blokują zamówienia rosnąco po id. Stanowiska (ZAKOŃCZ, doróbka)
+  i synchronizacja biorą pozycję przed zamówieniem — z zapisami Weryfikacji możliwe rzadkie 1213 (500, ponowienie
+  z kolejki offline przechodzi).
 
 ## Architecture
 

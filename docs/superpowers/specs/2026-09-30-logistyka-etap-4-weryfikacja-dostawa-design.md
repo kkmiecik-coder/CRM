@@ -147,6 +147,23 @@ Zmienione reguły (reszta tabeli z etapu 1 bez zmian):
 Historia jest bezpieczna: migracja etapu 1 zamyka stare spakowane zamówienia, a cron `przelicz_otwarte` otwiera
 zamknięte, gdy wróci aktywna pozycja (doróbka).
 
+**Siatka w cronie (decyzja Konrada 1.10).** Stanowisko (ostatnie „ZAKOŃCZ” pakowania) decyduje o zamknięciu cyklu na
+migawce sposobu dostawy, więc zmiana sposobu z panelu w tej samej chwili może zostawić zamówienie zamknięte wbrew
+regule (przyczyna: kolejność blokad stanowisk, poprawka w zadaniu wstępnym kroku 4.4). Dlatego `przelicz_otwarte`
+otwiera też zamknięte zamówienia z aktywną pozycją, dla których `zamkniecie_wyliczone` daje False: odbiór bez
+`handed_over_at`, transport bez trasy `wykonana`, sposób NULL i `repack_required`; bez aktywnych pozycji zamówienie
+zostaje zamknięte, jak mówi reguła. Siatka obejmuje wyłącznie zamknięcia ściśle późniejsze niż
+`logistyka_weryfikacja_od` (`weryfikacja.data_wdrozenia()`), a brak znacznika albo nieczytelna data ją wyłącza. Bez
+tego zawężenia pierwszy przebieg otworzyłby masowo zamknięcia historyczne: migracja etapu 1 zamknęła przy wdrożeniu
+(`NOW()`) każde zamówienie spakowane bez względu na sposób (na kopii z 28.09 ok. 1500, w tym sposób NULL, transport bez
+trasy i odbiór bez wydania). Zawężenie jest bezpieczne, bo runner migracji wykonuje pliki w kolejności nazw:
+`2026-09-25-…` (zamknięcie historyczne) idzie zawsze PRZED `2026-09-30-logistyka-weryfikacja.sql` (znacznik,
+`CAST(NOW() AS CHAR)`), więc zamknięcie historyczne ma `logistics_closed_at <= znacznik`, także przy jednym deployu
+etapów 1–4, gdy obie wartości wypadają w tej samej sekundzie (DATETIME bez ułamków); warunek „ściśle większe” je
+wyklucza. Znacznik i zamknięcia z migracji mają czas MySQL (`NOW()`), a zamknięcia z kodu `get_local_now()` (czas
+polski). Czas polski nigdy nie jest wcześniejszy niż UTC ani niż czas serwera w tej samej strefie, więc mieszanie
+stref przesuwa zamknięcia z kodu tylko w bezpieczną stronę, na później od znacznika (por. Ruling 6 kroku 4.3).
+
 ## 5. Model danych
 
 Migracje w formacie `2026-MM-DD-nazwa.sql`, idempotentne, bez `DELIMITER`, sprawdzone na MySQL w kontenerze `db` i na
@@ -534,9 +551,16 @@ zmianie sposobu na takim zamówieniu (select w wierszu, dymek mapy, hurt):
   `przepakowanie=true` kontra ponowne „ZAKOŃCZ” zamówienia w całości spakowanego, deklaracja paczek, weryfikacja
   ostatniej paczki z telefonu i hurt dwóch zamówień kontra cron logistyki, po 62 przebiegi każdy (czysta bariera i
   rozjazd startu 0–40 ms oraz 0–15 ms), nie dały ani jednego 1213, odpowiedzi 500 ani ważnej paczki na cofniętym
-  zamówieniu, a jedyne zakleszczenie to dosłowne ostatnie „ZAKOŃCZ” na zamówieniu spakowanym w połowie przy zmianie z
-  kuriera na odbiór (11 z 62 przebiegów: „ZAKOŃCZ” zamykające cykl kuriera bierze pozycję przed zamówieniem, a panel
-  zamówienie przed pozycją; panel jest ofiarą, ponowienie przechodzi, stan spójny; poprawka do decyzji Konrada).
+  zamówieniu. Jedyne zakleszczenie pomiaru to dosłowne ostatnie „ZAKOŃCZ” na zamówieniu spakowanym w połowie przy
+  zmianie z kuriera na odbiór (11 z 62 przebiegów), ale to nie jest granica problemu. Blokada zamówień panelu
+  (`panel_api.py`, `FOR UPDATE` rosnąco po id) trzyma zamówienia przez całą pętlę zmiany, a stanowisko (ZAKOŃCZ,
+  wejście do pakowania) najpierw zapisuje pozycję, potem zamówienie (`odnotuj_wejscie_do_pakowania`,
+  `po_spakowaniu`). Okno 1213 dotyczy więc KAŻDEJ zmiany sposobu na zamówieniu, które ma pozycję w ruchu na
+  stanowisku, a nie tylko „ostatniego ZAKOŃCZ przy kurier → odbiór”. Ofiarą może być też stanowisko, np. przy dużym
+  hurcie. Obie strony ponawiają: panel jedną automatyczną próbą po 1213 (`delivery_method` w `panel_api.py`), a
+  tablet kolejką offline. Poprawność się nie pogorszyła, bo dodatek usunął przeplot z decyzją panelu na starej
+  migawce; pogorszyła się dostępność. Właściwa poprawka to zadanie wstępne kroku 4.4 („zamówienie najpierw” dla
+  stanowisk, decyzja Konrada 3).
 
 ## 9. Krok 4.4 — Dostawa
 
@@ -685,6 +709,8 @@ Komunikaty po polsku, w API z `error` (kod) i `message` (tekst dla człowieka).
    ('zweryfikowane','zaladowane','dostarczone');` oraz `DELETE FROM prod_config WHERE
    config_key='logistyka_wydane_dostarczone';` (ponowne wdrożenie znów przestawi wydane). ENUM-y, kolumny
    i log mogą zostać — stary kod ich nie czyta.
+   Dodatek 8.7 (semantyka `transport.repack_required`, Ruling 3) wchodzi RAZEM z 4.3: kształt odpowiedzi kolejki 5
+   (`KSZTALT_ODPOWIEDZI_KOLEJKI`) obejmuje oba. Gdyby dodatek szedł osobno po 4.3, musiałby podbić go do 6.
 4. **4.4:** status „Załadowane – trans. WoodPower” założony w Base. (numer do `sposoby.STATUS_ZALADOWANE`), backend +
    appka z Dostawą; telefon kierowcy, kierowca oznaczony we Flocie.
 5. **4.5:** backend.
