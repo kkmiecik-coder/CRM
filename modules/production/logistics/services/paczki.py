@@ -243,6 +243,26 @@ def uniewaznij(lista, teraz, powod=u'nowa deklaracja paczek'):
     return len(lista)
 
 
+def wyczysc_zaladunek(lista):
+    """
+    Czyści znaczniki załadunku paczek (krok 4.4): towar wraca z auta albo przestał się nadawać do załadunku —
+    cofnięcie weryfikacji, reguła unieważniania etapów, „Zostaje”, niedostarczenie, „Cofnij załadunek”.
+    Zwraca liczbę paczek, które były załadowane. NIE commituje.
+
+    Pracuje na obiektach, które wołający już zablokował i trzyma (odczyt bieżący `zablokuj_stan`) — niczego
+    nie dociąga z bazy.
+    """
+    ile = 0
+    for p in lista:
+        if p.loaded_at is not None or p.loaded_route_id is not None:
+            ile += 1
+        p.loaded_at = None
+        p.loaded_by_worker_id = None
+        p.loaded_method = None
+        p.loaded_route_id = None
+    return ile
+
+
 def zablokuj_deklaracje():
     """
     Blokada „jedna deklaracja paczek naraz”: FOR UPDATE na wspólnym wierszu `prod_config`

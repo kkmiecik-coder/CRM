@@ -2,8 +2,9 @@
 """
 Trasy transportu własnego (spec, sekcja 8.2).
 
-Statusy: robocza (pełna edycja) → zatwierdzona (zablokowana, eksport Routimo)
-→ wykonana (tylko odczyt; przywracana do zatwierdzonej). Funkcje NIE commitują.
+Statusy: robocza (pełna edycja) → zatwierdzona (zablokowana, eksport Routimo) → zaladowana
+(kierowca zakończył załadunek) → w_trasie (kierowca ruszył) → wykonana (tylko odczyt; dostarczenie cofa
+„Cofnij dostarczenie”). Przejścia Dostawy: services/dostawa.py. Funkcje NIE commitują.
 Każda zmiana widoczna na tablecie podbija updated_at pozycji zamówień
 (ETag kolejek tabletów — spec 6.5).
 """
@@ -242,7 +243,8 @@ def _lista_id(wartosc):
 
 def _wymagaj_statusu(route, *statusy):
     if route.status not in statusy:
-        opis = {'robocza': u'robocza', 'zatwierdzona': u'zatwierdzona', 'wykonana': u'wykonana'}
+        opis = {'robocza': u'robocza', 'zatwierdzona': u'zatwierdzona', 'wykonana': u'wykonana',
+                'zaladowana': u'załadowana', 'w_trasie': u'w trasie'}
         raise LogistykaBlad(u'Trasa „{}” jest {} — ta operacja nie jest dostępna.'.format(
             route.name, opis.get(route.status, route.status)))
 
@@ -456,7 +458,7 @@ def mapa_tras_aktywnych():
 
 
 def trasa_dla_tabletu(order_id):
-    """Trasa (robocza/zatwierdzona) zamówienia; jedno zapytanie na żądanie HTTP (cache w g)."""
+    """Trasa aktywna (robocza … w trasie) zamówienia; jedno zapytanie na żądanie HTTP (cache w g)."""
     from flask import g, has_request_context
     if has_request_context():
         mapa = getattr(g, '_logistyka_trasy_aktywne', None)

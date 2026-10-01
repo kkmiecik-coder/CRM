@@ -158,6 +158,11 @@ def _przystanek_do_zmiany(order, zdejmuje, opis):
     zamówienie z trasy albo zmienia adres (`zdejmuje=True`), wymaga cofnięcia
     zatwierdzenia (eksport do Routimo mógł już pójść). Zwraca przystanek albo None.
 
+    (krok 4.4, spec 4.3) Trasa załadowana i w trasie jest zablokowana jak zatwierdzona: zmiana zdejmująca zamówienie
+    z trasy albo zmieniająca adres → 409. Załadowaną odblokowuje „Cofnij załadunek” w panelu tras, a z trasy w
+    drodze zamówienie schodzi dopiero, gdy kierowca rozliczy przystanek („Niedostarczone” wraca je do puli).
+    Przystanek już dostarczony na trasie jeszcze w drodze traktujemy jak trasę wykonaną.
+
     (fix-1, Ruling A6) Odczyt BIEŻĄCY przystanku i blokada globalna PRZED odczytem
     statusu trasy — zwykły SELECT czytałby migawkę sprzed blokady i mógłby przepuścić
     zmianę na trasie, którą ktoś inny właśnie zatwierdził albo wykonał w międzyczasie.
@@ -183,9 +188,16 @@ def _przystanek_do_zmiany(order, zdejmuje, opis):
     if przystanek is None:
         return None
     trasa = routes.zablokuj_trasy(przystanek.route)
-    if trasa.status == 'wykonana':
+    # Krok 4.4: przystanek już dostarczony na trasie jeszcze w drodze traktujemy jak trasę wykonaną.
+    if trasa.status == 'wykonana' or przystanek.delivered_at is not None:
         raise LogistykaBlad(u'Zamówienie {} zostało dostarczone trasą „{}”.'.format(
             order.internal_order_number, trasa.name))
+    if trasa.status == 'zaladowana' and zdejmuje:
+        raise LogistykaBlad(u'Zamówienie {} jest załadowane na trasę „{}” — najpierw cofnij załadunek w panelu '
+                            u'tras, potem {}.'.format(order.internal_order_number, trasa.name, opis))
+    if trasa.status == 'w_trasie' and zdejmuje:
+        raise LogistykaBlad(u'Zamówienie {} jedzie trasą „{}” — {} dopiero, gdy kierowca rozliczy '
+                            u'przystanek.'.format(order.internal_order_number, trasa.name, opis))
     if trasa.status == 'zatwierdzona' and zdejmuje:
         raise LogistykaBlad(u'Zamówienie {} jest na zatwierdzonej trasie „{}” — najpierw cofnij '
                             u'jej zatwierdzenie, potem {}.'.format(order.internal_order_number,

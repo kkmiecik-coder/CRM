@@ -23,7 +23,8 @@ from modules.production.logistics.services import fleet, geocoding, lista, paczk
 from modules.production.logistics.services.delivery import LogistykaBlad
 from modules.production.models import ProductionOrder, ProductionProduct
 
-KOLEJNOSC_STATUSOW = {'robocza': 0, 'zatwierdzona': 1, 'wykonana': 2}
+# Sekcje listy tras w kolejności cyklu trasy (krok 4.4: załadowane i w trasie między zatwierdzonymi a wykonanymi).
+KOLEJNOSC_STATUSOW = {'robocza': 0, 'zatwierdzona': 1, 'zaladowana': 2, 'w_trasie': 3, 'wykonana': 4}
 # (I1, ruling okna domyślnego) Bez jawnego `od` GET /routes ciągnąłby WSZYSTKIE
 # trasy w historii firmy — trasy WYKONANE (zamknięty, archiwalny stan) starsze
 # niż tyle dni znikają z domyślnego widoku; robocza/zatwierdzona NIGDY nie są
@@ -477,16 +478,16 @@ def route_routimo(route_id):
     """
     Eksport trasy do Routimo (spec 8.4, Task 7) — tylko do odczytu: żadnej
     blokady trasy (routes.zablokuj_trasy) i żadnego wołania ORS, w przeciwieństwie
-    do _szczegoly/routing.przelicz. Dostępny dla trasy zatwierdzonej ORAZ wykonanej
-    (R11, kontroler) — przewoźnik może pobrać plik ponownie już po zamknięciu trasy;
-    robocza (jeszcze się zmienia) zwraca 409, jak reszta operacji na trasie.
+    do _szczegoly/routing.przelicz. Dostępny od zatwierdzonej wzwyż: zatwierdzona, załadowana, w trasie i wykonana
+    (R11 — przewoźnik może pobrać plik ponownie po zamknięciu trasy); robocza (jeszcze się zmienia) zwraca 409,
+    jak reszta operacji na trasie.
     (I5) Przystanki anulowanych zamówień pomijamy; ich liczba idzie w nagłówku
     X-Routimo-Pominiete (zawsze, także 0) — interfejs dopisuje ją do komunikatu po pobraniu.
     """
     trasa = _trasa_albo_none(route_id)
     if trasa is None:
         return _blad(u'Nie ma takiej trasy.', 404)
-    if trasa.status not in ('zatwierdzona', 'wykonana'):
+    if trasa.status not in ('zatwierdzona', 'zaladowana', 'w_trasie', 'wykonana'):
         return _blad(u'Eksport do Routimo jest dostępny po zatwierdzeniu trasy.', 409)
     wiersze, pominiete = routimo.przygotuj_eksport(trasa)
     odpowiedz = send_file(io.BytesIO(routimo.zbuduj_excel(wiersze)), as_attachment=True,

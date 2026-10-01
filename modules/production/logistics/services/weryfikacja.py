@@ -293,6 +293,9 @@ def uniewaznij_etapy(order, teraz, powod, user_id=None, worker_id=None, device_i
     notatka = (powod or u'')[:255] or None
     for p in cofane:
         p.current_status = 'spakowane'
+    # (krok 4.4) Zamówienie wróciło do produkcji, więc nic z niego nie jest już na aucie. Paczki unieważniane niżej
+    # nie mogą liczyć się trasie jako załadowane.
+    paczki.wyczysc_zaladunek(stare)
     if order.verified_at is not None:
         order.verified_at = None
         order.verified_by_worker_id = None
@@ -488,11 +491,13 @@ def cofnij_sprawdzenie_paczki(paczka, order, worker_id=None, device_id=None, ter
     'spakowane', a `verified_at` i `verified_by_worker_id` zamówienia są czyszczone. Pozostałe paczki
     ZOSTAJĄ sprawdzone — dlatego nie `cofnij_weryfikacje_zamowienia`, które czyści wszystkie. Potem
     przeliczenie zamknięcia, podbicie pozycji (ETag kolejek i listy) i log `weryfikacja_cofnieta`.
+
+    (krok 4.4) Czyści też znaczniki załadunku wszystkich paczek zamówienia, które przestało być zweryfikowane.
     """
     teraz = teraz or get_local_now()
     if paczka.voided_at is not None:
         raise WeryfikacjaBlad('package_void', u'Etykieta nieaktualna — paczki zadeklarowano ponownie.')
-    aktywne, _aktualne = stan_do_zapisu(order)
+    aktywne, aktualne = stan_do_zapisu(order)
     bylo_zweryfikowane = all(p.current_status == 'zweryfikowane' for p in aktywne)
     if paczka.verified_at is None:
         return False, bylo_zweryfikowane   # nic do cofnięcia: bez zapisu, więc zakres go nie dotyczy
@@ -503,6 +508,9 @@ def cofnij_sprawdzenie_paczki(paczka, order, worker_id=None, device_id=None, ter
             p.current_status = 'spakowane'
         order.verified_at = None
         order.verified_by_worker_id = None
+        # Zamówienie niezweryfikowane nie może być na aucie: kierowca zobaczy NIEZWERYFIKOWANE, a znaczniki
+        # załadunku znikają ze WSZYSTKICH aktualnych paczek (zablokowanych odczytem bieżącym wyżej).
+        paczki.wyczysc_zaladunek(aktualne)
     delivery.zapisz_log(order, 'weryfikacja_cofnieta', stara=u'{} sprawdzona'.format(paczka.kod),
                         nowa=u'{} niesprawdzona'.format(paczka.kod), worker_id=worker_id, device_id=device_id,
                         note=u'cofnięto sprawdzenie paczki'
@@ -539,7 +547,10 @@ def cofnij_weryfikacje_zamowienia(order, aktywne, aktualne, powod, worker_id, de
     czyszczone (spec 4.5), log 'weryfikacja_cofnieta' z powodem. Wspólne dla „Cofnij weryfikację”
     i zgłoszenia problemu (Task 7). `aktywne` i `aktualne` pochodzą z stan_do_zapisu — paczki są już
     zablokowane i czytane bieżąco, więc funkcja nie czyta ich drugi raz (kolejność blokad: paczki
-    przed zapisem pozycji)."""
+    przed zapisem pozycji).
+
+    (krok 4.4) Czyści też znaczniki załadunku: weryfikację cofnięto w trakcie załadunku, a paczka bez weryfikacji
+    nie może liczyć się jako załadowana."""
     for p in aktywne:
         if p.current_status == 'zweryfikowane':
             p.current_status = 'spakowane'
@@ -549,6 +560,7 @@ def cofnij_weryfikacje_zamowienia(order, aktywne, aktualne, powod, worker_id, de
         p.verified_at = None
         p.verified_by_worker_id = None
         p.verified_method = None
+    paczki.wyczysc_zaladunek(aktualne)
     delivery.zapisz_log(order, 'weryfikacja_cofnieta', note=(powod or u'')[:255] or None,
                         worker_id=worker_id, device_id=device_id, teraz=teraz)
     delivery.przelicz_zamkniecie(order, teraz)

@@ -27,6 +27,8 @@ STANY_WERYFIKACJI = ('do_weryfikacji', 'problem', 'bez_paczek')
 # mówią monitory na hali. Statusy po spakowaniu nazywa weryfikacja.NAZWY_ETAPOW
 # („Spakowane — czeka na weryfikację”). Pozostałe (wstrzymane) — jak w bazie.
 NAZWA_STANOWISKA = {status: STATION_LABELS[kod] for kod, status in STATION_PENDING_STATUS.items()}
+# Etap zamówienia załadowanego na trasę, która już ruszyła (krok 4.4, spec 11) — wynika z pozycji I trasy.
+NAZWA_W_TRASIE = u'W trasie'
 
 
 def _ranga(status):
@@ -92,11 +94,13 @@ def _nazwa_etapu(produkt):
             or NAZWA_STANOWISKA.get(produkt.current_status) or produkt.status_display_name)
 
 
-def _etap(aktywne):
+def _etap(aktywne, trasa=None):
     if not aktywne:
         return {'status': 'anulowane', 'nazwa': 'Anulowane'}
     najwczesniejszy = min(aktywne, key=lambda p: _ranga(p.current_status))
     status = najwczesniejszy.current_status
+    if status == 'zaladowane' and trasa is not None and trasa.status == 'w_trasie':
+        return {'status': 'w_trasie', 'nazwa': NAZWA_W_TRASIE}
     return {'status': status, 'nazwa': _nazwa_etapu(najwczesniejszy)}
 
 
@@ -244,7 +248,7 @@ def serializuj(order, geo=None, trasa=None, paczki_zamowienia=None, okno_weryfik
         'podpowiedz': sposoby.podpowiedz(order),
         'sposob': sposob,
         'sposob_etykieta': sposoby.etykieta(sposob),
-        'etap': _etap(aktywne),
+        'etap': _etap(aktywne, trasa),
         'termin': min(terminy).isoformat() if terminy else None,
         'm3': round(sum(float(p.volume_m3 or 0) * (p.quantity or 1) for p in aktywne), 4),
         'spakowane': wszystkie_spakowane(order),
@@ -257,7 +261,9 @@ def serializuj(order, geo=None, trasa=None, paczki_zamowienia=None, okno_weryfik
         'etykiety_paczek_sprzed_zmiany': _etykiety_paczek_sprzed_zmiany(order, trasa, paczki_zamowienia),
         # Krok 4.3 (spec 11): paczki pod kolumną Etap, plakietka „BEZ PACZEK”, ikona problemu.
         'paczki': ({'opis': paczki.opis_paczek(paczki_zamowienia), 'liczba': len(paczki_zamowienia),
-                    'zweryfikowane': sum(1 for p in paczki_zamowienia if p.verified_at is not None)}
+                    'zweryfikowane': sum(1 for p in paczki_zamowienia if p.verified_at is not None),
+                    # Krok 4.4: panel tras pokazuje „załadowano 1/2” przy przystanku.
+                    'zaladowane': sum(1 for p in paczki_zamowienia if p.loaded_at is not None)}
                    if paczki_zamowienia else None),
         'bez_paczek': _bez_paczek(order, aktywne, paczki_zamowienia, okno),
         'problem': _problem(order),

@@ -54,7 +54,7 @@ def test_paczki_problem_i_bez_paczek_w_wierszu(app):
     teraz = get_local_now()
     z_paczkami = _spakowane(paczek=2, problem_reason='uszkodzenie', problem_note=u'róg', problem_at=teraz)
     wiersz = lista.serializuj(z_paczkami)
-    assert wiersz['paczki'] == {'opis': u'2 × paczka', 'liczba': 2, 'zweryfikowane': 1}
+    assert wiersz['paczki'] == {'opis': u'2 × paczka', 'liczba': 2, 'zweryfikowane': 1, 'zaladowane': 0}
     assert wiersz['problem'] == {'powod': 'uszkodzenie', 'etykieta': 'Uszkodzenie', 'notatka': u'róg',
                                  'kiedy': teraz.isoformat()}
     assert wiersz['bez_paczek'] is False

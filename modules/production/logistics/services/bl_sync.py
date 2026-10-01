@@ -475,11 +475,23 @@ def wyslij_zaplanowane():
         po_zmianie(lista)
 
 
-# ── Furtka pod stanowisko kierowcy (etap „kierowca”, dziś NIEWOŁANE) ──────
+# ── Statusy Dostawy (logistyka etap 4, krok 4.4) — sam znacznik, wysyła dopychacz po commicie ──────
+
+def oznacz_zaladowane(order):
+    """Zakończony załadunek trasy: „Załadowane - trans. WoodPower”."""
+    order.bl_status_pending_id = sposoby.STATUS_ZALADOWANE
+
 
 def oznacz_wyslane(order):
+    """„Ruszam w trasę” i cofnięcie dostarczenia: „Wysłane - trans. WoodPower”."""
     order.bl_status_pending_id = sposoby.STATUS_WYSLANE_TRANSPORT
 
 
 def oznacz_dostarczone(order):
+    """Dostarczone (telefon) albo odhaczone w panelu: „Dostarczona - trans. WoodPower”."""
     order.bl_status_pending_id = sposoby.STATUS_DOSTARCZONE_TRANSPORT
+
+
+def oznacz_planowana_trasa(order):
+    """Cofnięty załadunek albo niedostarczone zamówienie, które było załadowane: „Planowana trasa”."""
+    order.bl_status_pending_id = sposoby.STATUS_PLANOWANA_TRASA
