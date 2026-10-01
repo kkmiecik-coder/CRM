@@ -476,6 +476,40 @@ reports_service.py}`, `static/js/modules/{archive-module.js, products-module.js}
 Nowe statusy dostają etykiety i kolory w listach, filtrach i linii czasu (kroki Weryfikacja, Załadunek, Dostarczenie);
 hurtowa zmiana statusu (`bulk_action`) **nie** oferuje nowych statusów.
 
+### 8.7 Zmiana sposobu dostawy na spakowanym zamówieniu (decyzja Konrada 1.10.2026, z testu 4.2)
+
+Dotyczy zamówienia **w całości spakowanego** (każda niezanulowana pozycja `spakowane` albo `zweryfikowane`). Zamówienia
+częściowo spakowane działają jak dotąd: zmiana na kuriera z transportu albo odbioru sama przepakowuje spakowane pozycje,
+a „Nie ustawiono” daje błąd. Blokady sprzed decyzji zostają i wygrywają z oknem: wydane klientowi, załadowane albo
+dostarczone, utworzona przesyłka, trasa wykonana, trasa zatwierdzona przy zmianie zdejmującej z trasy.
+
+Zamiast błędu (dawniej: „jest już spakowane — nie da się cofnąć do »Nie ustawiono«”) panel pokazuje okno przy **każdej**
+zmianie sposobu na takim zamówieniu (select w wierszu, dymek mapy, hurt):
+
+| Zmiana | Opcje w oknie |
+|---|---|
+| na „Nie ustawiono” | „Cofnij do pakowania”, „Anuluj” (bez przepakowania nie wolno — kolejny wybór nie wiedziałby, pod jaki sposób pakowano) |
+| na kuriera z transportu własnego albo odbioru | „Cofnij do pakowania”, „Anuluj” (przepakowanie na kuriera jest obowiązkowe) |
+| pozostałe (kurier → transport/odbiór, transport ↔ odbiór, „Nie ustawiono” → dowolny) | „Zmień bez przepakowania”, „Cofnij do pakowania”, „Anuluj” |
+
+- **Zmień bez przepakowania** — jak dotąd: nowy sposób, status Base. po spakowaniu dla nowego sposobu, paczki i weryfikacja
+  zostają, ikona „etykiety paczek sprzed zmiany” każe przedrukować etykiety.
+- **Cofnij do pakowania** — mechanizm przepakowania: pozycje → `czeka_na_pakowanie`, paczki unieważnione, weryfikacja
+  skasowana (reguła 8.5), `repack_required`, Base. 138620, nowy sposób zapisany (przy „Nie ustawiono” NULL — pakowanie
+  czeka na decyzję logistyka, 409 `delivery_method_not_set`). Baner `repack_reason`: „Przepakuj na kuriera” (zmiana na
+  kuriera z transportu albo odbioru), w pozostałych „Logistyka: zmiana sposobu dostawy na <sposób>” albo „Logistyka:
+  sposób dostawy do ustalenia”. Kolejna zmiana sposobu przed ponownym spakowaniem przepisuje baner „Logistyka: …” na nowy
+  sposób. Powód z Weryfikacji („Weryfikacja: …”) ma pierwszeństwo i nie jest nadpisywany. Ponowne spakowanie czyści baner.
+- **Hurt** (zaznaczone zamówienia): jedno okno dla partii („N z zaznaczonych jest w całości spakowanych”). Gdy logistyk
+  wybierze „Zmień bez przepakowania”, a część zamówień wymaga przepakowania, drugie okno pyta o nie osobno: „Cofnij je do
+  pakowania” albo „Pomiń je”. „Anuluj” w dowolnym oknie nie wysyła niczego, także dla zamówień niespakowanych.
+- **Backend** (`POST /production/api/logistics/orders/delivery-method`, pole `przepakowanie`: `true` | `false` | brak):
+  w całości spakowane zamówienie bez decyzji nie zmienia się i trafia do `bledy` z `kod: "wymaga_decyzji_przepakowania"`
+  i `opcje` (`["przepakuj"]` albo `["przepakuj", "bez_przepakowania"]`); `false` przy przepakowaniu obowiązkowym → `bledy`
+  z `kod: "wymaga_przepakowania"`. Stary front (karta otwarta w czasie wdrożenia) pokazuje to jako zwykłą odmowę z
+  komunikatem. Decyzja zapada pod blokadą tras i blokadami wierszy zamówień (rosnąco po id), na migawce utworzonej po
+  tych blokadach; pozycji panel nie blokuje przed zamówieniem (stanowiska biorą pozycję przed zamówieniem).
+
 ## 9. Krok 4.4 — Dostawa
 
 ### 9.1 Stanowisko i kierowca
