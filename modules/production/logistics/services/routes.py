@@ -682,7 +682,27 @@ def numeracja_przystankow(zamowienia):
     return wynik
 
 
-def serializuj_trase(route, zamowienia=None, punkty=None):
+def postep(route, zamowienia, pakunki):
+    """
+    Postęp Dostawy w nagłówku edytora i na liście tras (krok 4.4, spec 9.7: „załadowano 7/8 · dostarczono 3/7”),
+    liczony na przystankach aktywnych (zamówienia z choć jedną nieanulowaną pozycją). `zaladowane` — przystanek
+    z co najmniej jedną aktualną paczką i wszystkimi załadowanymi na tę trasę (po dostarczeniu znaczniki zostają);
+    `dostarczone` — przystanek z `delivered_at`. `pakunki` — {order_id: [aktualne paczki]}.
+    """
+    aktywne = {o.id for o in zamowienia if delivery.aktywne_produkty(o)}
+    stopy = [s for s in route.stops if s.order_id in aktywne]
+
+    def zaladowany(order_id):
+        lista_paczek = pakunki.get(order_id, [])
+        return bool(lista_paczek) and all(p.loaded_at is not None and p.loaded_route_id == route.id
+                                          for p in lista_paczek)
+
+    return {'przystanki': len(stopy),
+            'zaladowane': sum(1 for s in stopy if zaladowany(s.order_id)),
+            'dostarczone': sum(1 for s in stopy if s.delivered_at is not None)}
+
+
+def serializuj_trase(route, zamowienia=None, punkty=None, pakunki=None):
     kierowca = route.driver
     dane = {
         'id': route.id,
@@ -697,7 +717,14 @@ def serializuj_trase(route, zamowienia=None, punkty=None):
         'notatka': route.notes,
         'zatwierdzona': route.approved_at.isoformat() if route.approved_at else None,
         'wykonana': route.completed_at.isoformat() if route.completed_at else None,
+        # Krok 4.4: Dostawa — koniec załadunku, wyjazd i czy trasę zamknął logistyk (telefon nie cofa wtedy
+        # ostatniego dostarczenia; trasa zamknięta telefonem ma completed_by NULL).
+        'zaladowana': route.loaded_at.isoformat() if route.loaded_at else None,
+        'wyjazd': route.departed_at.isoformat() if route.departed_at else None,
+        'odhaczona_w_panelu': route.status == 'wykonana' and route.completed_by is not None,
     }
     if zamowienia is not None:
         dane['podsumowanie'] = podsumowanie(route, zamowienia, punkty or {})
+        if pakunki is not None:
+            dane['postep'] = postep(route, zamowienia, pakunki)
     return dane

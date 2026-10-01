@@ -5,6 +5,9 @@ API tras, floty i dostępności — /production/api/logistics/* (etap 3).
 Eksport do Routimo: `GET /routes/<id>/routimo` (Task 7) — formatowanie w
 modules/production/logistics/services/routimo.py, wspólne z eksportem
 zakładki Raporty (modules/reports/routers.generate_routimo_excel).
+
+Dostawa (krok 4.4): `POST /routes/<id>/unload` („Cofnij załadunek”), `POST /routes/<id>/stops/<oid>/undo-delivered`
+(„Cofnij dostarczenie”), odhaczenie `/complete` przez services/dostawa.py.
 """
 import io
 from datetime import timedelta
@@ -191,6 +194,21 @@ def _wczytaj_trasy(zapytanie, swieze=False):
     return trasy, zamowienia_wg_trasy, punkty
 
 
+def _dostawa_przystanku(stop):
+    """
+    Krok 4.4: dostarczenie i „Zostaje” przystanku dla edytora trasy i okna „Odhacz”. W słowniku zamówienia
+    (`zamowienie.dostawa`), bo front buduje listę przystanków z samych zamówień (przystankiWidoczne).
+    """
+    if stop is None:
+        return {'dostarczono': None, 'zostaje': None}
+    zostaje = None
+    if stop.stays_reason:
+        zostaje = {'powod': stop.stays_reason,
+                   'etykieta': dostawa.POWODY_ZOSTAJE.get(stop.stays_reason, stop.stays_reason),
+                   'notatka': stop.stays_note}
+    return {'dostarczono': stop.delivered_at.isoformat() if stop.delivered_at else None, 'zostaje': zostaje}
+
+
 def _szczegoly(route, przelicz_wykonana=False):
     """
     Szczegóły trasy dla edytora: podsumowanie, przystanki (I5: `pozycja` = numer wśród
@@ -214,12 +232,14 @@ def _szczegoly(route, przelicz_wykonana=False):
             route = swieza
             zamowienia = _zamowienia_z_produktami(route, swieze=True)
             punkty = geocoding.geo_zamowien([o.id for o in zamowienia])
-    dane = routes.serializuj_trase(route, zamowienia, punkty)
     pakunki = paczki.aktualne_paczki_zamowien([o.id for o in zamowienia])
-    dane['przystanki'] = [{'pozycja': numer, 'anulowane': anulowane,
-                           'zamowienie': lista.serializuj(o, punkty.get(o.id), route,
-                                                          pakunki.get(o.id, []))}
-                          for o, numer, anulowane in routes.numeracja_przystankow(zamowienia)]
+    dane = routes.serializuj_trase(route, zamowienia, punkty, pakunki)
+    przystanki = {s.order_id: s for s in route.stops}
+    dane['przystanki'] = []
+    for o, numer, anulowane in routes.numeracja_przystankow(zamowienia):
+        zamowienie = lista.serializuj(o, punkty.get(o.id), route, pakunki.get(o.id, []))
+        zamowienie['dostawa'] = _dostawa_przystanku(przystanki.get(o.id))
+        dane['przystanki'].append({'pozycja': numer, 'anulowane': anulowane, 'zamowienie': zamowienie})
     dane['przebieg'] = routing.przebieg(route)
     return dane
 
@@ -407,7 +427,10 @@ def routes_list():
         zapytanie = zapytanie.filter(Route.date_from <= do)
     trasy, zamowienia_wg_trasy, punkty = _wczytaj_trasy(zapytanie)
     trasy = sorted(trasy, key=lambda r: (KOLEJNOSC_STATUSOW[r.status], r.date_from, r.id))
-    wynik = [routes.serializuj_trase(trasa, zamowienia_wg_trasy[trasa.id], punkty) for trasa in trasy]
+    # Krok 4.4: postęp Dostawy przy każdej trasie — paczki wszystkich tras jednym zapytaniem.
+    pakunki = paczki.aktualne_paczki_zamowien(
+        [o.id for zamowienia in zamowienia_wg_trasy.values() for o in zamowienia])
+    wynik = [routes.serializuj_trase(trasa, zamowienia_wg_trasy[trasa.id], punkty, pakunki) for trasa in trasy]
     return jsonify({'success': True, 'routes': wynik})
 
 
@@ -556,6 +579,13 @@ def route_revert(route_id):
     user_id = _user_id()
     _zapis_pod_blokada()
     return _akcja(route_id, lambda t: dostawa.cofnij_zatwierdzenie(t, user_id=user_id) and None)
+
+
+@logistics_panel_bp.route('/routes/<int:route_id>/unload', methods=['POST'])
+@guard
+def route_unload(route_id):
+    """„Cofnij załadunek” (krok 4.4, spec 4.5 i 9.7): trasa załadowana wraca do zatwierdzonej."""
+    return _akcja(route_id, lambda t: dostawa.cofnij_zaladunek(t, user_id=_user_id()) and None)
 
 
 @logistics_panel_bp.route('/routes/<int:route_id>/complete', methods=['POST'])
