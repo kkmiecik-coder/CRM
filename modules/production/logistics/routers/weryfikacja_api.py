@@ -167,6 +167,45 @@ def verification_package_verify(package_id):
                       order_verified=zweryfikowane, changed=zmieniono)
 
 
+@weryfikacja_mobile_bp.route('/packages/<int:package_id>/unverify', methods=['POST'])
+@require_device_token
+@wymaga_weryfikacji
+@with_idempotency(retryable_statuses=BLEDY_DO_PONOWIENIA)
+def verification_package_unverify(package_id):
+    """POST /api/mobile/verification/packages/<id>/unverify — cofnięcie sprawdzenia jednej paczki (spec 4.5, 8.3)."""
+    worker_id, err = _pracownik()
+    if err:
+        return err
+    # Kolejność blokad identyczna jak w verification_package_verify: deklaracje → zamówienie → paczka → serwis.
+    paczki.zablokuj_deklaracje()
+    order_id = db.session.query(ProductionPackage.order_id).filter_by(id=package_id).scalar()
+    if order_id is None:
+        return jsonify({'error': 'package_not_found', 'message': u'Nie ma paczki P-{}.'.format(package_id)}), 404
+    order = ProductionOrder.query.filter_by(id=order_id).with_for_update().populate_existing().one()
+    paczka = ProductionPackage.query.filter_by(id=package_id).with_for_update().populate_existing().one()
+    try:
+        zmieniono, bylo_zweryfikowane = weryfikacja.cofnij_sprawdzenie_paczki(
+            paczka, order, worker_id=worker_id, device_id=g.device.id)
+    except weryfikacja.WeryfikacjaBlad as e:
+        return _blad(e)
+    # Po cofnięciu zamówienie nigdy nie jest zweryfikowane; bez zmiany zostaje, jakie było.
+    zweryfikowane = False if zmieniono else bylo_zweryfikowane
+    aktualne = paczki.aktualne_paczki(order.id, do_zapisu=True)
+    licznik = u'{} / {}'.format(sum(1 for p in aktualne if p.verified_at is not None), len(aktualne))
+    if zmieniono and bylo_zweryfikowane:
+        komunikat = u'{} — cofnięto sprawdzenie. Zamówienie {} wraca do sprawdzania ({}).'.format(
+            paczka.kod, order.internal_order_number, licznik)
+    elif zmieniono:
+        komunikat = u'{} — cofnięto sprawdzenie ({}).'.format(paczka.kod, licznik)
+    else:
+        komunikat = u'{} nie była sprawdzona ({}).'.format(paczka.kod, licznik)
+    logger.info("Weryfikacja: cofnięcie paczki", extra={'package': paczka.kod, 'changed': zmieniono,
+                                                       'order_verified': zweryfikowane,
+                                                       'device_id': g.device.device_id})
+    return _odpowiedz(order, komunikat, package=paczki.serializuj_paczke(paczka),
+                      order_verified=zweryfikowane, changed=zmieniono)
+
+
 @weryfikacja_mobile_bp.route('/orders/<numer>/verify-all', methods=['POST'])
 @require_device_token
 @wymaga_weryfikacji

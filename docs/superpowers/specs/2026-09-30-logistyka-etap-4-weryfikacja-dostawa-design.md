@@ -119,6 +119,7 @@ nie zna tej wartości ENUM (odczyt takiego wiersza rzuciłby `LookupError`, czyl
 | Akcja | Kto | Skutek |
 |---|---|---|
 | Cofnij weryfikację | weryfikator (do załadunku) | pozycje → `spakowane`, znaczniki weryfikacji paczek czyszczone |
+| Cofnij sprawdzenie paczki | weryfikator (do załadunku) | znaczniki weryfikacji tej jednej paczki czyszczone; pozostałe paczki zostają sprawdzone; zamówienie było zweryfikowane → jego pozycje → `spakowane` i `verified_at` zamówienia czyszczone |
 | Cofnij do pakowania | weryfikator (`spakowane`/`zweryfikowane`) | pozycje → `czeka_na_pakowanie`, paczki unieważnione, `repack_required` + `repack_reason`, Base. 138620 |
 | Zostaje | kierowca (przed „Zakończ załadunek”) | przy zakończeniu: zamówienie zdjęte z trasy (pula), statusy bez zmian |
 | Cofnij załadunek | logistyk w panelu (trasa `zaladowana`) | pozycje → `zweryfikowane`, znaczniki załadunku czyszczone, Base. 417343, trasa → `zatwierdzona` |
@@ -407,6 +408,7 @@ początku, potem według `packaging_completed_at` rosnąco. Filtry w appce: Wszy
 | Endpoint | Działanie |
 |---|---|
 | `POST /verification/packages/<id>/verify` `{method}` | paczka zweryfikowana; ostatnia ważna → zamówienie `zweryfikowane` (pozycje, `verified_at`, log). Ponowny skan = OK bez zmian. Unieważniona → 409 `package_void`. Zamówienie z problemem → 409 `problem_open` |
+| `POST /verification/packages/<id>/unverify` | cofnięcie sprawdzenia jednej paczki (4.5). Unieważniona → 409 `package_void`; pozycja przed spakowaniem → 409 `order_not_packed`; zamówienie załadowane albo dostarczone → 409 `order_status` (cofnięcia działają do załadunku). Paczka niesprawdzona → 200 `changed: false` bez zapisu i bez logu, bez sprawdzania zakresu listy (jak ponowny skan). Przed zapisem zakres listy (poza nim 409 `order_status`). Otwarty problem NIE blokuje. Zapis: znaczniki paczki czyszczone; jeśli wszystkie niezanulowane pozycje były `zweryfikowane`, wracają do `spakowane`, a `verified_at` i `verified_by_worker_id` zamówienia są czyszczone — pozostałe paczki zostają sprawdzone (stąd nie „Cofnij weryfikację”, które czyści wszystkie). Potem przeliczenie zamknięcia i podbicie pozycji. Log `weryfikacja_cofnieta` (`P-<id> sprawdzona` → `P-<id> niesprawdzona`) przy każdej zmianie. Odpowiedź jak `verify`; `order_verified` = stan po akcji (po cofnięciu zawsze `false`) |
 | `POST /verification/orders/<nr>/verify-all` | wszystkie ważne paczki ręcznie (`reczne`) |
 | `POST /verification/orders/<nr>/unverify` | tylko `zweryfikowane` i niezaładowane → pozycje `spakowane` |
 | `POST /verification/orders/<nr>/problem` `{reason, note}` | flaga problemu; powody: `brak_elementu`, `uszkodzenie`, `etykieta`, `opakowanie`, `inne`. Tylko przed załadunkiem; zamówienie `zweryfikowane` wraca do `spakowane` (cofnięcie weryfikacji), więc bramka załadunku obejmuje też problemy |

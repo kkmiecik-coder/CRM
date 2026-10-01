@@ -405,6 +405,13 @@ def _oznacz(paczka, metoda, worker_id, teraz):
     paczka.verified_method = metoda
 
 
+def _odznacz(paczka):
+    """Odwrotność `_oznacz`: paczka znowu niesprawdzona."""
+    paczka.verified_at = None
+    paczka.verified_by_worker_id = None
+    paczka.verified_method = None
+
+
 def _zweryfikuj_zamowienie(order, aktywne, aktualne, metoda, worker_id, device_id, teraz):
     """Wszystkie ważne paczki sprawdzone → pozycje 'zweryfikowane', kto i kiedy, log (spec 8.3)."""
     for p in aktywne:
@@ -453,6 +460,55 @@ def zweryfikuj_paczke(paczka, order, metoda, worker_id=None, device_id=None, ter
         _zweryfikuj_zamowienie(order, aktywne, aktualne, metoda, worker_id, device_id, teraz)
     delivery.podbij_pozycje(order, teraz)
     return True, zweryfikowane
+
+
+def cofnij_sprawdzenie_paczki(paczka, order, worker_id=None, device_id=None, teraz=None):
+    """
+    Cofnięcie sprawdzenia JEDNEJ paczki (spec 4.5 i 8.3). Zwraca (zmieniono, bylo_zweryfikowane):
+    `bylo_zweryfikowane` = wszystkie niezanulowane pozycje były 'zweryfikowane' w chwili wywołania
+    (odczyt bieżący). Gdy nic się nie zmieniło, to samo pole mówi, czy zamówienie jest zweryfikowane.
+    NIE commituje.
+
+    Kolejność blokad (jak `zweryfikuj_paczke`): router bierze paczki.zablokuj_deklaracje(), potem zamówienie
+    FOR UPDATE, potem paczkę FOR UPDATE; tu `stan_do_zapisu` czyta bieżąco paczki FOR UPDATE i pozycje po PK
+    FOR UPDATE, dopiero potem zapisy. Stan, na którym funkcja decyduje (w tym „czy zamówienie było
+    zweryfikowane”), pochodzi z tego odczytu, a nie z migawki MySQL.
+
+    Paczka unieważniona → 409 package_void. Zamówienie z pozycją przed spakowaniem → order_not_packed,
+    załadowane albo dostarczone → order_status (spec 4.5: cofnięcia Weryfikacji działają do załadunku).
+    Otwarty problem NIE blokuje (w przeciwieństwie do `zweryfikuj_paczke`): cofnięcie sprawdzenia nie
+    omija bramki załadunku, tylko ją zamyka.
+
+    Paczka niesprawdzona = (False, …) bez zapisu i bez logu, także poza zakresem listy: zakres sprawdza się
+    dopiero przed faktycznym zapisem (`sprawdz_zakres`), tak jak przy ponownym skanie sprawdzonej paczki.
+
+    Zapis: znaczniki paczki czyszczone. Jeśli zamówienie było zweryfikowane, jego pozycje wracają do
+    'spakowane', a `verified_at` i `verified_by_worker_id` zamówienia są czyszczone. Pozostałe paczki
+    ZOSTAJĄ sprawdzone — dlatego nie `cofnij_weryfikacje_zamowienia`, które czyści wszystkie. Potem
+    przeliczenie zamknięcia, podbicie pozycji (ETag kolejek i listy) i log `weryfikacja_cofnieta`.
+    """
+    teraz = teraz or get_local_now()
+    if paczka.voided_at is not None:
+        raise WeryfikacjaBlad('package_void', u'Etykieta nieaktualna — paczki zadeklarowano ponownie.')
+    aktywne, _aktualne = stan_do_zapisu(order)
+    bylo_zweryfikowane = all(p.current_status == 'zweryfikowane' for p in aktywne)
+    if paczka.verified_at is None:
+        return False, bylo_zweryfikowane   # nic do cofnięcia: bez zapisu, więc zakres go nie dotyczy
+    sprawdz_zakres(order, teraz)
+    _odznacz(paczka)
+    if bylo_zweryfikowane:
+        for p in aktywne:
+            p.current_status = 'spakowane'
+        order.verified_at = None
+        order.verified_by_worker_id = None
+    delivery.zapisz_log(order, 'weryfikacja_cofnieta', stara=u'{} sprawdzona'.format(paczka.kod),
+                        nowa=u'{} niesprawdzona'.format(paczka.kod), worker_id=worker_id, device_id=device_id,
+                        note=u'cofnięto sprawdzenie paczki'
+                             + (u', zamówienie wraca do sprawdzania' if bylo_zweryfikowane else u''),
+                        teraz=teraz)
+    delivery.przelicz_zamkniecie(order, teraz)
+    delivery.podbij_pozycje(order, teraz)
+    return True, bylo_zweryfikowane
 
 
 def zweryfikuj_wszystkie(order, worker_id=None, device_id=None, teraz=None):

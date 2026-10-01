@@ -78,6 +78,7 @@ Prefiks `/api/mobile/verification`. Wszystkie: `Authorization: Bearer <JWT urzą
 | `GET /orders` | — | `{"orders": [Zamówienie…], "count": N}`; nagłówek `ETag`, `If-None-Match` → 304 | 403 |
 | `GET /orders/<nr>` | — | `{"order": Zamówienie + "items": [Pozycja…]}` (`no-store`) | 404 `order_not_found`, 403 |
 | `POST /packages/<id>/verify` | `{"method": "skan"\|"reczne"}` (brak = `skan`) | `{"package": Paczka, "order": Zamówienie, "order_verified": bool, "changed": bool, "message"}` | 404 `package_not_found`; 409 `package_void`, `problem_open`, `order_not_packed`, `order_status`; 422 `invalid_method` |
+| `POST /packages/<id>/unverify` | — (`X-Worker-Ids` wymagany) | `{"package": Paczka, "order": Zamówienie, "order_verified": bool, "changed": bool, "message"}`; po cofnięciu `order_verified` = `false`, bez zmiany `true` tylko gdy wszystkie aktywne pozycje `zweryfikowane`; paczka z `verified*` = null | 404 `package_not_found`; 409 `package_void`, `order_not_packed`, `order_status` (także zamówienie spoza listy); otwarty problem NIE blokuje |
 | `POST /orders/<nr>/verify-all` | — | `{"order", "order_verified": true, "changed", "message"}` | 404 `order_not_found`; 409 `no_packages`, `problem_open`, `order_not_packed`, `order_status` |
 | `POST /orders/<nr>/unverify` | — | `{"order", "changed": true, "message"}` | 404; 409 `order_not_verified`, `order_status` |
 | `POST /orders/<nr>/problem` | `{"reason", "note"}` | `{"order", "changed": true, "message"}` | 404; 409 `order_not_packed`, `order_status`; 422 `invalid_problem` |
