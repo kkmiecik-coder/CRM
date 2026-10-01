@@ -93,6 +93,8 @@ def app(monkeypatch):
     app.register_blueprint(mobile_api_bp, url_prefix='/api/mobile')
     from modules.production.logistics.routers.weryfikacja_api import weryfikacja_mobile_bp
     app.register_blueprint(weryfikacja_mobile_bp, url_prefix='/api/mobile/verification')
+    from modules.production.logistics.routers.dostawa_api import dostawa_mobile_bp
+    app.register_blueprint(dostawa_mobile_bp, url_prefix='/api/mobile/delivery')
     # Szablon zakładki bierze Leaflet przez url_for('production.static') — stawiamy
     # sam folder statyczny modułu produkcji pod tym samym adresem co w aplikacji,
     # bez rejestrowania całego modułu produkcji.

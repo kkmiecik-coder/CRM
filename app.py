@@ -880,6 +880,9 @@ def create_app():
         # Logistyka etap 4, krok 4.3: telefon Weryfikacji.
         from modules.production.logistics.routers.weryfikacja_api import weryfikacja_mobile_bp
         app.register_blueprint(weryfikacja_mobile_bp, url_prefix='/api/mobile/verification')
+        # Logistyka etap 4, krok 4.4: telefon kierowcy (Dostawa).
+        from modules.production.logistics.routers.dostawa_api import dostawa_mobile_bp
+        app.register_blueprint(dostawa_mobile_bp, url_prefix='/api/mobile/delivery')
         from modules.production.logistics import logistics_panel_bp
         app.register_blueprint(logistics_panel_bp, url_prefix='/production/api/logistics')
         app.register_blueprint(print_agent_bp, url_prefix='/api/print-agent')
