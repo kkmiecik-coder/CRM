@@ -869,7 +869,9 @@
             (dopisek ? ' title="' + esc(nazwa) + '"' : '') + '>' + znak +
             '<span class="lg-etap-nazwa">' + esc(glowna) +
             (dopisek
-                ? '<span class="visually-hidden"> — </span><span class="lg-etap-dopisek">' + esc(dopisek) + '</span>'
+                // Plakietka „czeka na weryfikację” (uwaga Konrada z oględzin 1.10): klepsydra, nie ⚠ problemu.
+                ? '<span class="visually-hidden"> — </span><span class="lg-etap-dopisek">' +
+                  '<i class="fas fa-hourglass-half" aria-hidden="true"></i>' + esc(dopisek) + '</span>'
                 : '') +
             '</span></span>';
     }

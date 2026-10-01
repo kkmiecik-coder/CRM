@@ -218,3 +218,21 @@ def test_wersje_zakladki_podbite_po_poprawce_panelu_weryfikacji():
     for plik in ('js/logistics.js', 'css/logistics.css'):
         m = re.search(r"filename='" + re.escape(plik) + r"'\) \}\}\?v=(\w+)", szablon)
         assert m and m.group(1) >= '20261001b', plik
+
+
+def test_czeka_na_weryfikacje_to_zolta_plakietka_z_klepsydra():
+    """Uwaga Konrada z oględzin 1.10: dopisek „czeka na weryfikację” wygląda jak plakietka problemu,
+    ale w żółtym ostrzegawczym kolorze (inny niż amber „BEZ PACZEK”) i z klepsydrą zamiast ⚠."""
+    js = _plik('static', 'js', 'logistics.js')
+    css = _plik('static', 'css', 'logistics.css')
+    html = _plik('templates', 'logistics', 'tab_content.html')
+    funkcja = js[js.index('function etapHtml('):js.index('function paczkiHtml(')]
+    assert 'lg-etap-dopisek' in funkcja and 'fa-hourglass-half' in funkcja
+    assert 'fa-triangle-exclamation' not in funkcja
+    regula = css[css.index('.logistics-tab .lg-etap-dopisek {'):]
+    regula = regula[:regula.index('}')]
+    for oczekiwane in ('border: 1px solid var(--lg-czeka-ramka)', 'background: var(--lg-czeka-tlo)',
+                       'color: var(--lg-czeka-tekst)'):
+        assert oczekiwane in regula
+    assert '--lg-czeka-tekst' in css and '--lg-czeka-tekst: #9a4a05' not in css
+    assert re.search(r'class="lg-etap-dopisek"[^>]*><i class="fas fa-hourglass-half"></i>czeka na weryfikację', html)

@@ -24,6 +24,11 @@
     --lg-kolejka-tlo: rgba(217, 119, 6, 0.07);
     --lg-kolejka-tlo-hover: rgba(217, 119, 6, 0.12);
     --lg-kolejka-tekst: #9a4a05;
+    /* „Czeka na weryfikację” — żółty ostrzegawczy, wyraźnie inny niż amber kolejki i „BEZ PACZEK”
+       (uwaga Konrada z oględzin 1.10); tekst ciemnożółty dla kontrastu na białym tle. */
+    --lg-czeka-tekst: #6f5300;
+    --lg-czeka-tlo: rgba(250, 204, 21, 0.16);
+    --lg-czeka-ramka: rgba(202, 158, 4, 0.55);
     --lg-tasma: repeating-linear-gradient(
         -45deg,
         var(--il-status-warn, #d97706) 0 5px,
@@ -862,13 +867,28 @@
     color: var(--il-text-secondary, #7a8291);
 }
 
-/* Dopisek nazwy etapu po myślniku („czeka na weryfikację”) — druga linia, cicho. */
+/* Dopisek nazwy etapu po myślniku („czeka na weryfikację”) — plakietka w kształcie problemu z
+   Weryfikacji (.lg-problem), ale żółta ostrzegawcza i z klepsydrą: zamówienie czeka na ruch, to nie
+   błąd (uwaga Konrada z oględzin 1.10). Stoi w nazwie etapu, więc wcięcie pod znakiem już ma. */
 .logistics-tab .lg-etap-dopisek {
-    display: block;
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
+    width: fit-content;
+    margin-top: 4px;
+    padding: 1px 6px 1px 5px;
+    font-size: 11.5px;
+    font-weight: 600;
+    line-height: 1.5;
+    color: var(--lg-czeka-tekst);
+    background: var(--lg-czeka-tlo);
+    border: 1px solid var(--lg-czeka-ramka);
+    border-radius: 2px;
+    white-space: nowrap;
+}
+
+.logistics-tab .lg-etap-dopisek i {
     font-size: 11px;
-    font-weight: 400;
-    line-height: 1.35;
-    color: var(--il-text-secondary, #7a8291);
 }
 
 /* Paczki pod etapem (krok 4.3, spec 11): opis deklaracji i postęp sprawdzania. Wcięcie = kropka
@@ -1166,6 +1186,15 @@
 
 .logistics-tab .lg-legenda .lg-bez-paczek {
     margin: 0 6px 0 0;
+}
+
+.logistics-tab .lg-legenda .lg-etap-dopisek {
+    display: inline-flex;
+    margin: 0 6px 0 0;
+}
+
+.logistics-tab .lg-legenda .lg-etap-dopisek i {
+    margin-right: 0;
 }
 
 .logistics-tab .lg-legenda-skrot {

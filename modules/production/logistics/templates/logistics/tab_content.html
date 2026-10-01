@@ -14,7 +14,7 @@
      blokuje CDN). #}
 <link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet/leaflet.css') }}?v=1.9.4">
 <link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet-markercluster/MarkerCluster.css') }}?v=1.5.3">
-<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20261001c">
+<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20261001d">
 {# Etap 3: trasy, flota, widok tras na mapie — osobny arkusz (logistics.css zostaje nietknięty). #}
 <link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics-trasy.css') }}?v=20260928b">
 
@@ -299,6 +299,7 @@
           <span><i class="fas fa-box-open lg-ikona--przepakowanie" aria-hidden="true"></i>wróciło do pakowania, czeka na ponowne spakowanie</span>
           <span><i class="fas fa-tags lg-ikona--etykiety" aria-hidden="true"></i>etykiety wydrukowane przed zmianą sposobu</span>
           <span><i class="fas fa-box lg-ikona--etykiety" aria-hidden="true"></i>etykiety paczek sprzed zmiany sposobu lub trasy</span>
+          <span><span class="lg-etap-dopisek" aria-hidden="true"><i class="fas fa-hourglass-half"></i>czeka na weryfikację</span>spakowane, paczki czekają na sprawdzenie</span>
           <span><i class="fas fa-triangle-exclamation lg-ikona--problem" aria-hidden="true"></i>problem zgłoszony przy weryfikacji paczek</span>
           <span><span class="lg-bez-paczek" aria-hidden="true">BEZ PACZEK</span>spakowane, ale bez zadeklarowanych paczek</span>
           <span><i class="fas fa-cloud-arrow-up lg-ikona--base" aria-hidden="true"></i>Base.: czeka na wysłanie</span>
@@ -744,6 +745,6 @@
         });
 })();
 </script>
-<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20261001c"></script>
+<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20261001d"></script>
 <script src="{{ url_for('logistics_panel.static', filename='js/logistics-fleet.js') }}?v=20260928b"></script>
 <script src="{{ url_for('logistics_panel.static', filename='js/logistics-wojewodztwa.js') }}?v=20260928a"></script>
