@@ -559,9 +559,11 @@ def dodaj_przystanki(route, order_ids, user_id=None):
     return {'dodane': dodane, 'bledy': bledy}
 
 
-def usun_przystanek(route, order_id, user_id=None, note=None, wymagaj_roboczej=True):
+def usun_przystanek(route, order_id, user_id=None, note=None, wymagaj_roboczej=True, worker_id=None,
+                    device_id=None):
     # (fix-1, Ruling A3) Wołania zagnieżdżone (wykonaj/usun w pętli) są bezpieczne —
-    # patrz docstring zablokuj_trasy().
+    # patrz docstring zablokuj_trasy(). `worker_id`/`device_id` (krok 4.4): zdjęcie z telefonu kierowcy
+    # („Zostaje” przy zakończeniu załadunku, „Niedostarczone”).
     route = zablokuj_trasy(route)
     if wymagaj_roboczej:
         _wymagaj_statusu(route, 'robocza')
@@ -581,6 +583,7 @@ def usun_przystanek(route, order_id, user_id=None, note=None, wymagaj_roboczej=T
     _przenumeruj(route)
     teraz = get_local_now()
     delivery.zapisz_log(order, 'trasa_usuniete', route.name[:64], None, user_id=user_id,
+                        worker_id=worker_id, device_id=device_id,
                         note=note, route_id=route.id, teraz=teraz)
     delivery.podbij_pozycje(order, teraz)
     # (Task 1, runda 4.1, rozstrzygnięcie 40) Jedyne miejsce, w którym przystanek schodzi
