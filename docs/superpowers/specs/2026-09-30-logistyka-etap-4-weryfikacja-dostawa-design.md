@@ -124,7 +124,15 @@ nie zna tej wartości ENUM (odczyt takiego wiersza rzuciłby `LookupError`, czyl
 | Cofnij załadunek | logistyk w panelu (trasa `zaladowana`) | pozycje → `zweryfikowane`, znaczniki załadunku czyszczone, Base. 417343, trasa → `zatwierdzona` |
 | Niedostarczone | kierowca (trasa `w_trasie`) albo panel | zdjęte z trasy (pula), pozycje → `zweryfikowane`, znaczniki załadunku czyszczone, Base. 417343 |
 | Cofnij dostarczenie | kierowca (ostatnie, trasa `w_trasie`) albo panel (dowolny przystanek) | pozycje → `zaladowane`, Base. 149763, trasa `wykonana` → `w_trasie` |
-| Doróbka / nowa pozycja / przepakowanie | system | paczki unieważnione, weryfikacja i załadunek zamówienia kasują się; zamówienie przejdzie kroki od nowa po spakowaniu |
+| Doróbka / nowa pozycja / przepakowanie | system | paczki unieważnione, weryfikacja i załadunek zamówienia kasują się; zamówienie przejdzie kroki od nowa po spakowaniu (poza zamówieniem z pozycjami `dostarczone` — niżej) |
+
+**Znane ograniczenie — doróbka albo nowa pozycja w zamówieniu z pozycjami `dostarczone`** (decyzja Konrada
+1.10.2026: obsługa ręczna, poza systemem; nowego cyklu nie robimy ani w 4.3, ani w 4.4). Pozycje `dostarczone`
+zostają, a przerobiona albo dodana pozycja po spakowaniu zostaje `spakowane`: deklaracja paczek dostaje 409
+`order_verified` („…jest już dostarczone — paczek nie można zmienić”), zapisy Weryfikacji 409 `order_status`,
+zamówienia nie ma na liście „Do weryfikacji”, w filtrach ani w licznikach, a przy odbiorze osobistym `handed_over_at`
+blokuje drugie „Wydane klientowi”. Cron nie przestawi takiej pozycji na `dostarczone` (przestawienie wydanych jest
+jednorazowe, sekcja 14). Biuro obsługuje taki przypadek poza systemem.
 
 ### 4.6 Cykl logistyki (`delivery.zamkniecie_wyliczone`)
 
@@ -414,8 +422,9 @@ produktu) otwiera zamówienie; inne kody → komunikat „Nieznany kod”.
   zapisach Weryfikacji, deklaracji paczek względem weryfikacji, „ZAKOŃCZ” i reguły, hurtowej zmianie statusu, ACK
   agenta druku ani w podwójnym skanie. Znany wyjątek: doróbka (`reject`) blokuje pozycję przed zamówieniem — w stanie
   sztucznym (paczki jeszcze ważne, pozycja już w pakowaniu) zakleszcza się z zapisem Weryfikacji, w stanie realnym
-  0 z 11; ofiara dostaje 500, a ponowienie tym samym `X-Operation-Id` przechodzi. Kolejność „zamówienie najpierw”
-  dla wszystkich pisarzy stanowisk to osobna decyzja Konrada.
+  0 z 11; ofiara dostaje 500, a ponowienie tym samym `X-Operation-Id` przechodzi (decyzja Konrada 1.10.2026: zostaje).
+  Kolejność „zamówienie najpierw” dla wszystkich pisarzy stanowisk to osobne zadanie wstępne kroku 4.4, przed nowymi
+  zapisami Dostawy.
 
 ### 8.4 Cofnięcie do pakowania
 
@@ -431,6 +440,11 @@ zobaczy „NIESPAKOWANE”).
 sposobu dostawy na inny niż kurier zdejmuje **tylko** baner „Przepakuj na kuriera”: baner z Weryfikacji („Weryfikacja:
 Uszkodzenie: …”) to informacja o towarze, nie o kurierze, i zostaje do ponownego spakowania. Po „Cofnij do pakowania”
 otwarty problem zamówienia przenosi się do banera w całości (flaga problemu znika).
+
+Zamówienie kurierskie mogło już odjechać z kurierem, a CRM tego nie wie. Dlatego appka przed „Cofnij do pakowania”
+zamówienia kurierskiego pyta „Paczka jeszcze na hali?”, a odpowiedź „Nie” nie wysyła cofnięcia (decyzja Konrada
+1.10.2026). Backend nie ma parametru potwierdzenia: pytanie chroni przed pomyłką osoby z telefonem, a parametr
+wysyłany zawsze przez tę samą appkę niczego by nie dodał.
 
 ### 8.5 Przejścia systemowe
 
@@ -557,7 +571,8 @@ Plan każdego kroku dostaje sesja appki. Zakres:
 3. Baner `repack_reason` (fallback: dzisiejszy tekst przy `repack_required`).
 4. Ekrany telefonowe: pion, jedna kolumna, ciemne, dotyk ≥ 48 dp, bez animacji; skaner w trybie ciągłym z haptyką;
    lokalne rozpoznawanie `P-<id>` i `N_S`; kolejka offline dla nowych akcji.
-5. Weryfikacja: lista, filtry, szczegóły, problem, cofnięcia, deklaracja paczek, ponowny druk.
+5. Weryfikacja: lista, filtry, szczegóły, problem, cofnięcia, deklaracja paczek, ponowny druk. Przed „Cofnij do
+   pakowania” zamówienia kurierskiego pytanie „Paczka jeszcze na hali?” (8.4).
 6. Dostawa: Moje trasy, Załadunek (odwrotna kolejność), Zostaje, Zakończ, Ruszam, Dostarczenia (Nawiguj, Zadzwoń),
    cofnięcie ostatniego dostarczenia; bramka tylko z kierowcami (`is_driver`).
 7. Room: nowe tabele/kolumny z migracją (bez `fallbackToDestructiveMigration`).
