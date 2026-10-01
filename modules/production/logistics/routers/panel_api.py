@@ -18,6 +18,7 @@ from modules.logging import get_structured_logger
 from modules.production.logistics import logistics_panel_bp, sposoby, wojewodztwa
 from modules.production.logistics.services import bl_sync, delivery, geocoding, lista, paczki, routes
 from modules.production.models import ProductionOrder
+from modules.production.services import blokady_zamowien
 
 logger = get_structured_logger('production.logistics.panel_api')
 LIMIT_HURTU = 500
@@ -130,12 +131,6 @@ def orders():
     })
 
 
-def _kod_mysql(blad):
-    """Kod błędu MySQL z OperationalError (np. 1213 = zakleszczenie) albo None."""
-    argumenty = getattr(getattr(blad, 'orig', None), 'args', None) or ()
-    return argumenty[0] if argumenty else None
-
-
 def _zapisz_zmiane_sposobu(ids, sposob, przepakowanie_decyzja, user_id):
     """
     Cały zapis zmiany sposobu dostawy w jednej transakcji: blokada tras, blokady zamówień, pętla, commit.
@@ -222,7 +217,7 @@ def delivery_method():
         zmienione, przepakowanie, bledy, usunieto = _zapisz_zmiane_sposobu(
             ids, sposob, przepakowanie_decyzja, user_id)
     except OperationalError as e:
-        if _kod_mysql(e) != 1213:
+        if blokady_zamowien.kod_mysql(e) != 1213:
             raise
         db.session.rollback()
         logger.warning("Logistyka: zakleszczenie 1213 przy zmianie sposobu dostawy, ponawiam raz", extra={
