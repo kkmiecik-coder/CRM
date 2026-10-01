@@ -434,7 +434,8 @@ produktu) otwiera zamówienie; inne kody → komunikat „Nieznany kod”.
   offline to utracona akcja).
 - **Współbieżność**: każdy zapis `/api/mobile/verification/*` bierze blokady w jednej kolejności: pracownicy
   (`touch_sessions`) → `paczki.zablokuj_deklaracje()` → zamówienie `FOR UPDATE` po kluczu głównym → paczki `FOR UPDATE`
-  → pozycje `FOR UPDATE` po kluczu głównym. Stan, na którym zapis decyduje (paczki, potem pozycje), jest czytany
+  → pozycje `FOR UPDATE` po kluczu głównym (od kroku 4.4a: wszystkie pozycje zamówienia jednym odczytem po
+  `order_id`). Stan, na którym zapis decyduje (paczki, potem pozycje), jest czytany
   **po** blokadzie odczytem bieżącym (`with_for_update().populate_existing()`): MySQL pracuje na REPEATABLE READ,
   a migawka powstaje przy pierwszym zwykłym odczycie transakcji (już w `before_request`), więc zwykły odczyt po
   blokadzie pokazałby stan sprzed czekania i po cichu nadpisał cudze przepakowanie, „Wydane klientowi” albo pierwszy
@@ -543,7 +544,8 @@ zmianie sposobu na takim zamówieniu (select w wierszu, dymek mapy, hurt):
   i `opcje` (`["przepakuj"]` albo `["przepakuj", "bez_przepakowania"]`); `false` przy przepakowaniu obowiązkowym → `bledy`
   z `kod: "wymaga_przepakowania"`. Stary front (karta otwarta w czasie wdrożenia) pokazuje to jako zwykłą odmowę z
   komunikatem. Decyzja zapada pod blokadą tras i blokadami wierszy zamówień (rosnąco po id), na migawce utworzonej po
-  tych blokadach; pozycji panel nie blokuje przed zamówieniem (stanowiska biorą pozycję przed zamówieniem).
+  tych blokadach; pozycji panel nie blokuje przed zamówieniem (do kroku 4.4a stanowiska brały pozycję przed zamówieniem;
+  od 4.4a biorą zamówienie najpierw).
 - **Odstępstwa z realizacji** (1.10.2026):
   - Panel nie bierze blokady deklaracji paczek (`paczki.zablokuj_deklaracje`): wiersz zamówienia `FOR UPDATE`
     serializuje go z Weryfikacją i deklaracją, bo obie biorą zamówienie przed paczkami.

@@ -308,7 +308,8 @@ Albo po prostu `./deploy.sh` — robi dokładnie to samo, z lockiem i logami.
   odczycie bieżącym; deklaracja paczek tak samo, z wstępną odmową „nie w całości spakowane” przed blokadą pozycji.
   Reguła `weryfikacja.uniewaznij_etapy` (powrót pozycji do produkcji) blokady globalnej nie bierze; gdy ma pracę,
   potwierdza ją odczytem bieżącym w tej samej kolejności. Hurtowa zmiana statusu, cron logistyki oraz zmiana
-  sposobu dostawy w panelu (po blokadzie tras) blokują zamówienia rosnąco po id. **Zamówienie najpierw**
+  sposobu dostawy w panelu (po blokadzie tras) blokują zamówienia rosnąco po id; hurt i przeniesienie
+  osieroconych w cronie potem także wszystkie pozycje tych zamówień (jak niżej). **Zamówienie najpierw**
   (krok 4.4a): ZAKOŃCZ i wejście do pakowania na tabletach (`POST /api/mobile/orders/<id>/complete`), doróbka
   (`reject_product_quantity`), zmiany z Base. (`apply_baselinker_changes`), druk etykiet całego zamówienia w trybie
   agenta i przeniesienie osieroconych w cronie blokują wiersz zamówienia, potem wszystkie jego pozycje — jednym
@@ -318,7 +319,9 @@ Albo po prostu `./deploy.sh` — robi dokładnie to samo, z lockiem i logami.
   `pozycja.order` czytałoby zamówienie od nowa ze starej migawki REPEATABLE READ). Nowy zapis pozycji zamówienia
   zaczyna od tej samej blokady. Wywołanie Base. (HTTP) idzie przed blokadami, a po nim `commit` i odczyt blokujący
   id zamówienia. Cron logistyki commituje każdą fazę osobno. Bez blokady zamówienia piszą tylko liczniki sztuk
-  (`PATCH …/quantity`, edycja sztuk w panelu admina) oraz dwa znane wyjątki, bez naprawy: ręczna synchronizacja
+  (`PATCH …/quantity`, edycja sztuk w panelu admina), faza 2 crona logistyki (`delivery.dostarcz_wydane`:
+  jednorazowe przestawienie pozycji zamówień wydanych klientowi, we własnej transakcji, bez blokad zamówień)
+  oraz dwa znane wyjątki, bez naprawy: ręczna synchronizacja
   z `force_update`, która dopisuje pozycje istniejącym zamówieniom, i `sync-cron` (`sync_paid_orders_only`) przy
   ponownym imporcie istniejącego zamówienia — ta sama klasa wyjątku, dziś nieaktywna, bo cron importu nie jest
   uruchamiany; gdyby miał wrócić, trzeba najpierw dodać blokadę zamówienia. Na rzadkie zakleszczenie z takim

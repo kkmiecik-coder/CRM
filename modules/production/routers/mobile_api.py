@@ -1149,7 +1149,7 @@ def order_packages_declare(numer):
         return _blad_paczek(e)
     # Kolejność blokad: pracownicy → blokada deklaracji paczek → wiersz zamówienia → paczki.
     # Pracownicy PRZED blokadą zamówienia: order_complete też najpierw dotyka wierszy sesji
-    # (touch_sessions), a dopiero potem blokuje pozycję i zamówienie — odwrócona kolejność
+    # (touch_sessions), a dopiero potem blokuje zamówienie i jego pozycje — odwrócona kolejność
     # dawałaby zakleszczenie (MySQL 1213) przy równoległym „ZAKOŃCZ” i deklaracji.
     worker_ids, _sesje, err = _resolve_workers()
     if err:

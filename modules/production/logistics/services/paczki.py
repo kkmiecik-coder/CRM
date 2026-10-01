@@ -344,8 +344,9 @@ def zadeklaruj(order, deklaracja, stanowisko, aktor, worker_id=None, device_id=N
        cokolwiek zablokujemy. Migawka pokazuje tylko zatwierdzone zmiany: jeśli widać w niej, że
        wszystkie pozycje są spakowane lub dalej, ostatni „ZAKOŃCZ” już się zatwierdził i nie trzyma
        pozycji. Jeśli nie widać, odmawiamy od razu, bez sięgania po pozycje. Czekanie na nie pod blokadą
-       zamówienia zakleszczało się z „ZAKOŃCZ” (MySQL 1213): ostatni „ZAKOŃCZ” trzyma pozycję i sięga po
-       zamówienie, a deklaracja trzyma zamówienie i sięgałaby po pozycję. 409 jest w BLEDY_DO_PONOWIENIA,
+       zamówienia zakleszczało się z „ZAKOŃCZ” (MySQL 1213), dopóki ostatni „ZAKOŃCZ” trzymał pozycję
+       i sięgał po zamówienie. Od kroku 4.4a „ZAKOŃCZ” bierze zamówienie najpierw, więc wstępna odmowa
+       zostaje jako szybka odpowiedź bez czekania na cudzą transakcję. 409 jest w BLEDY_DO_PONOWIENIA,
        więc appka ponowi tą samą operację, gdy „ZAKOŃCZ” się zatwierdzi.
     2. ODCZYT BIEŻĄCY (`zablokuj_stan`: paczki FOR UPDATE → wszystkie pozycje FOR UPDATE po `order_id`
        z `populate_existing`, ta sama kolejność i ten sam odczyt co zapisy Weryfikacji).

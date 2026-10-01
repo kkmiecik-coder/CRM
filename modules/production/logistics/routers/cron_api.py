@@ -40,9 +40,9 @@ def cron():
         # rosnąca (trzymalibyśmy zamówienie 100 z pierwszej fazy, prosząc o 50 z trzeciej), a to cykl z hurtową
         # zmianą statusu (MySQL 1213). Faza 2 (dostarcz_wydane) nie bierze blokad zamówień (zwykły odczyt,
         # zapis pozycji po PK), więc jej blokady wierszy pozycji, wzięte bez blokady zamówienia, siedziałyby w jednej
-        # transakcji z blokadami zamówień fazy 3 w odwróconej kolejności (pozycja przed zamówieniem), czyli odwrotnie
-        # niż pisarze stanowisk i panelu, którzy biorą zamówienie najpierw. Commit po fazie zwalnia jej blokady przed następną. Skutek
-        # uboczny: błąd późniejszej fazy (500) nie cofa wcześniejszej, co jest bezpieczne — każda jest
+        # transakcji z blokadami zamówień fazy 3 w odwróconej kolejności (pozycja przed zamówieniem),
+        # czyli odwrotnie niż pisarze stanowisk i panelu, którzy biorą zamówienie najpierw. Commit po fazie
+        # zwalnia jej blokady przed następną. Skutek uboczny: błąd późniejszej fazy (500) nie cofa wcześniejszej, co jest bezpieczne — każda jest
         # idempotentna, a dostarcz_wydane commituje razem ze swoim znacznikiem jednorazowości.
         db.session.commit()
         if przeniesione:
