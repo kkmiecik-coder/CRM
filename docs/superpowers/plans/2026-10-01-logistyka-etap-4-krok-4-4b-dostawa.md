@@ -45,11 +45,13 @@ Poza testami SQLite (Task 8, MySQL): kolejność blokad Dostawa ↔ panel tras �
 2. **Etapy 3 i 4 wdrażamy jednym wdrożeniem** — w chwili wdrożenia nie ma tras wykonanych, więc jednorazowego przestawienia pozycji z tras wykonanych na `dostarczone` nie robimy (zapis w specu 14, Task 3 kroku 4.4a).
 3. **Telefon cofa ostatnie dostarczenie także zaraz po automatycznym zamknięciu trasy** (trasa wraca z `wykonana` do `w_trasie`); odstępstwo od specu 9.5.
 4. Akcje automatyczne Base.: jedyna to „Odebrane” → druk KP (ID 292653); statusy Dostawy jej nie wyzwalają.
+5. **Zastępstwo kierowcy — tylko zmianą kierowcy w panelu** (przed załadunkiem: cofnij zatwierdzenie → zmień kierowcę → zatwierdź). „Moje trasy” pokazują wyłącznie trasy przypisanego kierowcy, bez parametru „wszystkie trasy” w API. Serwer nadal przyjmuje zapisy na trasie od każdego aktywnego kierowcy (nie szkodzi, appka tego nie wykorzystuje).
+6. **Eksport Routimo ze starej zakładki Raporty** (`modules/reports/routers.py`, `excluded_status_ids` bez 417343 i 524520) — zakładka do wyrzucenia, ignorujemy; bez zmian w kodzie (uwaga centrali o podwójnej dostawie przedstawiona Konradowi 1.10).
 
 ## Doprecyzowania i odstępstwa (do specu w Task 8)
 
 - **Ścieżki z trasą.** Załadunek i jego cofnięcie: `POST /delivery/routes/<route_id>/packages/<package_id>/load|unload` (spec: `/delivery/packages/<id>/load`) — odmowa `package_not_on_route` potrzebuje trasy, w kontekście której kierowca skanuje. Przystanki po `order_id` (nie po numerze wewnętrznym, który powtarza się co rok).
-- **Wszystkie endpointy telefonu wymagają kierowcy** (`X-Worker-Ids`, pierwszy = kierowca), także odczyty — „Moje trasy” to trasy tego kierowcy. Akcje na trasie przyjmujemy od **każdego** aktywnego kierowcy (zastępstwo bez cofania trasy); appka pokazuje tylko trasy zalogowanego kierowcy.
+- **Wszystkie endpointy telefonu wymagają kierowcy** (`X-Worker-Ids`, pierwszy = kierowca), także odczyty — „Moje trasy” to trasy tego kierowcy. Akcje na trasie przyjmujemy od **każdego** aktywnego kierowcy (nie szkodzi); appka pokazuje tylko trasy zalogowanego kierowcy, a zastępstwo załatwia zmiana kierowcy w panelu (decyzja 5).
 - **„Moje trasy”**: trasy kierowcy `zatwierdzona` z `date_to >= dziś` oraz **`zaladowana` i `w_trasie` bez względu na datę** (spec: wszystkie z `date_to >= dziś`) — rozpoczęta trasa nie może zniknąć z telefonu o północy. Szczegóły trasy (`GET /delivery/routes/<id>`) także dla `wykonana` (ekran po zamknięciu, cofnięcie ostatniego dostarczenia); trasa robocza → 404.
 - **Cofnięcie ostatniego dostarczenia z telefonu** (decyzja 3): trasa `w_trasie`, albo `wykonana` zamknięta automatycznie ostatnim dostarczeniem z telefonu (`completed_by IS NULL`). Trasa odhaczona w panelu (`completed_by` = użytkownik) — tylko panel. „Ostatnie” = przystanek z najpóźniejszym `delivered_at` (remis: wyższa pozycja).
 - **„Cofnij dostarczenie” w panelu** (zastępuje „Przywróć trasę”): dowolny dostarczony przystanek trasy `w_trasie` albo `wykonana`; trasa wykonana wraca do `w_trasie`. **Bez sprawdzania zajętości pojazdu i kierowcy** (to korekta, nie planowanie — dawne „Przywróć” sprawdzało).
@@ -66,7 +68,7 @@ Poza testami SQLite (Task 8, MySQL): kolejność blokad Dostawa ↔ panel tras �
 - Archiwum (`dostarczone` w archiwum pokazuje „Spakowane”) — krok 4.5.
 - Doróbka albo nowa pozycja w zamówieniu z pozycjami `dostarczone` — obsługa ręczna (decyzja Konrada 1.10, spec 4.5).
 - Cofnięcie „Ruszam” — nie ma (spec go nie przewiduje); pomyłkę logistyk rozlicza „Odhacz”.
-- Eksport Routimo z zakładki Raporty (`modules/reports/routers.py`, lista `excluded_status_ids`) nie zna 524520 — zgłoszone do decyzji Konrada w meldunku, bez zmian w kodzie.
+- Eksport Routimo ze starej zakładki Raporty — decyzja 6 (zakładka do wyrzucenia, ignorujemy).
 
 ## Kontrakt API Dostawy (dla appki i przeglądu)
 
@@ -4118,4 +4120,4 @@ git commit -m "docs: krok 4.4 logistyki - kolejnosc blokad Dostawy, odstepstwa w
 
 - [ ] **Step 10 (kontroler): Meldunek do centrali**
 
-SendMessage do „Sesja centralna rozwoju logistyki”: commity kroku 4.4b, wynik pakietu, wyścigi (tryby, przebiegi, 0 × 1213 albo opis), liczby siatki crona z kopii, decyzje Konrada z oględzin, rzeczy odłożone (m.in. eksport Routimo z zakładki Raporty nie zna 524520 — `modules/reports/routers.py`, lista `excluded_status_ids`), działania po stronie hali/Base./appki (telefon kierowcy zarejestrowany na `delivery`, kierowcy oznaczeni we Flocie, status 524520 w Base. jest), co wpisać do promptu 4.5 (archiwum: `dostarczone` pokazuje „Spakowane”).
+SendMessage do „Sesja centralna rozwoju logistyki”: commity kroku 4.4b, wynik pakietu, wyścigi (tryby, przebiegi, 0 × 1213 albo opis), liczby siatki crona z kopii, decyzje Konrada z oględzin, rzeczy odłożone, działania po stronie hali/Base./appki (telefon kierowcy zarejestrowany na `delivery`, kierowcy oznaczeni we Flocie, status 524520 w Base. jest), co wpisać do promptu 4.5 (archiwum: `dostarczone` pokazuje „Spakowane”).
