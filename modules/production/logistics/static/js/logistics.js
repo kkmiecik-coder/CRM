@@ -1544,6 +1544,18 @@
 
     function otworzOkno(wiersze, sposob, opcje) {
         return new Promise((rozwiaz) => {
+            // Zakładka Logistyka schowana (np. logistyk przeszedł na inną zakładkę CRM, gdy czekało zapytanie
+            // albo kolejka okien): okno nie ma układu, więc użytkownik nie zobaczyłby pytania, a obietnica
+            // wisiałaby i blokowała kolejkę. Traktujemy to jak „Anuluj”: nic nie wysyłamy, wiersz wraca.
+            // Sprawdzamy układ elementu, a nie widoczność karty przeglądarki (karta w tle to inny przypadek).
+            if (!root.getClientRects().length) {
+                if (!zniszczona) {
+                    pokazKomunikat('info', 'Zmiana sposobu dostawy anulowana — zakładka Logistyka była ukryta.',
+                        { klucz: 'przepakowanie-ukryta' });
+                }
+                rozwiaz(null);
+                return;
+            }
             if (zniszczona || !dialogPrzepak || !wiersze.length) {
                 rozwiaz(null);
                 return;
@@ -1587,9 +1599,21 @@
     }
 
     if (dialogPrzepak) {
-        el('przepak-anuluj').addEventListener('click', () => zamknijOkno(null));
-        el('przepak-bez').addEventListener('click', () => wybranoWOknie('bez'));
-        el('przepak-cofnij').addEventListener('click', () => wybranoWOknie('cofnij'));
+        // Drugi klik dwuklika (`detail` > 1) ignorujemy: po pierwszym kliknięciu okno może przejść do
+        // kroku drugiego (hurt) i drugi klik w to samo miejsce wybrałby tam opcję bez udziału użytkownika.
+        // Klawiatura (Enter, spacja) daje `detail` 0, więc działa jak dotąd.
+        el('przepak-anuluj').addEventListener('click', (e) => {
+            if (e.detail > 1) return;
+            zamknijOkno(null);
+        });
+        el('przepak-bez').addEventListener('click', (e) => {
+            if (e.detail > 1) return;
+            wybranoWOknie('bez');
+        });
+        el('przepak-cofnij').addEventListener('click', (e) => {
+            if (e.detail > 1) return;
+            wybranoWOknie('cofnij');
+        });
         // Esc: zamykamy sami (z oddaniem fokusu), jak okno adresu.
         dialogPrzepak.addEventListener('cancel', (e) => {
             e.preventDefault();

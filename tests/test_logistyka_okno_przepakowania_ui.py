@@ -151,3 +151,39 @@ def test_wersje_podbite_po_oknie_przepakowania():
     for plik in ('js/logistics.js', 'css/logistics.css'):
         m = re.search(r"filename='" + re.escape(plik) + r"'\) \}\}\?v=(\w+)", html)
         assert m and m.group(1) >= '20261001c', plik
+
+
+# ── Fala końcowa 8.7 (M1, M2): schowana zakładka i podwójny klik ───────────────────────────────
+
+def test_js_okno_w_schowanej_zakladce_to_anuluj():
+    """M1: gdy panel Logistyka nie ma układu (schowana zakładka), obietnica kończy się od razu jak po
+    „Anuluj” (null), z komunikatem info. Strażnik to getClientRects, nie document.hidden, i stoi na początku
+    obietnicy, przed pierwszym użyciem okna."""
+    js = _plik('static', 'js', 'logistics.js')
+    f = _funkcja(js, 'otworzOkno')
+    straznik = 'if (!root.getClientRects().length) {'
+    assert straznik in f and 'document.hidden' not in js[js.index('function otworzOkno('):js.index('function zapytajOPrzepakowanie(')]
+    assert f.index('return new Promise((rozwiaz) => {') < f.index(straznik) < f.index('if (zniszczona ||')
+    assert f.index(straznik) < f.index('showModal()')
+    galaz = f[f.index(straznik):f.index('if (zniszczona ||')]
+    assert "pokazKomunikat('info'," in galaz and 'zakładka Logistyka była ukryta' in galaz
+    assert 'rozwiaz(null);' in galaz and 'return;' in galaz
+
+
+def test_js_przyciski_okna_ignoruja_drugi_klik_dwuklika():
+    """M2: drugi klik dwuklika (`e.detail > 1`) nie wybiera niczego w kroku drugim okna hurtu. Enter i spacja
+    na przycisku dają `detail` 0, więc klawiatura działa dalej."""
+    js = _plik('static', 'js', 'logistics.js')
+    blok = js[js.index("el('przepak-anuluj').addEventListener"):js.index("dialogPrzepak.addEventListener('cancel'")]
+    for przycisk, wywolanie in (('przepak-anuluj', 'zamknijOkno(null);'), ('przepak-bez', "wybranoWOknie('bez');"),
+                                ('przepak-cofnij', "wybranoWOknie('cofnij');")):
+        handler = blok[blok.index("el('" + przycisk + "').addEventListener('click', (e) => {"):]
+        handler = handler[:handler.index('});')]
+        assert handler.index('if (e.detail > 1) return;') < handler.index(wywolanie), przycisk
+    assert blok.count('if (e.detail > 1) return;') == 3
+
+
+def test_wersja_skryptu_zakladki_podbita_po_poprawkach_okna():
+    html = _plik('templates', 'logistics', 'tab_content.html')
+    m = re.search(r"filename='js/logistics\.js'\) \}\}\?v=(\w+)", html)
+    assert m and m.group(1) >= '20261001e'
