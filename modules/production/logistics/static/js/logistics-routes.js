@@ -1234,7 +1234,9 @@
         statusEl.innerHTML = t ? statusHtml(t.status) : '';
         tytulEl.textContent = t ? t.nazwa : 'Nowa trasa';
         if (postepEl) {
-            postepEl.textContent = t ? postepTekst(t) : '';
+            // aria-live: czytnik dostaje tylko prawdziwą zmianę (renderujEdytor woła się też przy odświeżeniach).
+            const tekstPostepu = t ? postepTekst(t) : '';
+            if (postepEl.textContent !== tekstPostepu) postepEl.textContent = tekstPostepu;
             postepEl.setAttribute('data-status', t ? String(t.status || '') : '');   // kolor postępu wg statusu trasy
         }
         // (runda 2, przegląd pkt 5) Trasa tylko do odczytu zawsze pokazuje wartości z serwera
@@ -1691,16 +1693,62 @@
     }
 
     // Ile paczek kierowca zdążył załadować na trasę (suma z przystanków — `zamowienie.paczki.zaladowane` liczy
-    // tylko paczki załadowane na tę trasę) i ostrzeżenie do „Cofnij zatwierdzenie”: cofnięcie czyści załadunek.
+    // tylko paczki załadowane na tę trasę) i ostrzeżenie do „Cofnij zatwierdzenie”: cofnięcie czyści załadunek
+    // oraz decyzje „Zostaje” kierowcy (backend, Ruling 25).
     function opisZaladunkuTrasy(t) {
-        const paczek = (t.przystanki || []).reduce((suma, p) => {
+        const przystanki = t.przystanki || [];
+        const paczek = przystanki.reduce((suma, p) => {
             const pa = p.zamowienie && p.zamowienie.paczki;
             return suma + (pa ? Number(pa.zaladowane) || 0 : 0);
         }, 0);
         const przystankow = t.postep ? Number(t.postep.zaladowane) || 0 : 0;
-        if (!paczek && !przystankow) return '';
-        return 'Kierowca zaczął załadunek' + (paczek ? ' (' + paczek + ' ' + odmiana(paczek, PACZKA) + ')' : '') +
-            '. Cofnięcie zatwierdzenia wyczyści załadunek — paczki trzeba będzie zeskanować ponownie.';
+        const zostaje = przystanki.filter((p) => p.zamowienie && p.zamowienie.dostawa && p.zamowienie.dostawa.zostaje).length;
+        if (paczek || przystankow) {
+            return 'Kierowca zaczął załadunek' + (paczek ? ' (' + paczek + ' ' + odmiana(paczek, PACZKA) + ')' : '') +
+                '. Cofnięcie zatwierdzenia wyczyści załadunek i decyzje „Zostaje” — kierowca zeskanuje paczki ponownie.';
+        }
+        if (zostaje) {
+            return 'Kierowca oznaczył ' + ileZamowien(zostaje) + ' jako „Zostaje”. ' +
+                'Cofnięcie zatwierdzenia wyczyści te decyzje.';
+        }
+        return '';
+    }
+
+    let cofniecieSprawdzane = false;   // dwuklik „Cofnij do roboczej” nie pyta dwa razy, gdy czeka odczyt trasy
+
+    /**
+     * „Cofnij do roboczej” (Ruling 27): kierowca mógł zacząć skanować po otwarciu edytora, więc przed pytaniem
+     * czytamy trasę od nowa (GET /routes/<id>) i z niej liczymy ostrzeżenie. Gdy odczyt się nie uda, liczymy
+     * z tego, co jest w edytorze. Trasa, która przestała być zatwierdzona (kierowca skończył załadunek), nie
+     * dostaje pytania — odświeżamy edytor i mówimy dlaczego.
+     */
+    async function zapytajOCofniecieZatwierdzenia(t) {
+        if (cofniecieSprawdzane) return;
+        cofniecieSprawdzane = true;
+        let biezaca = t;
+        try {
+            const dane = await zapytanie('/routes/' + t.id);
+            if (dane && dane.route) biezaca = dane.route;
+        } catch (e) {
+            if (przerwane(e)) return;
+            // Bez odczytu: ostrzeżenie z danych edytora.
+        } finally {
+            cofniecieSprawdzane = false;
+        }
+        if (zniszczona || !stan.otwarta || stan.nowa || stan.otwarta.id !== t.id) return;
+        if (biezaca.status !== 'zatwierdzona') {
+            komunikat('info', 'Trasa „' + biezaca.nazwa + '” ma już status „' +
+                (NAZWY_STATUSOW[biezaca.status] || biezaca.status) + '” — cofnięcie zatwierdzenia nie jest dostępne. Odświeżyliśmy trasę.',
+                { klucz: 'trasa' });
+            odswiezOtwarta();
+            return;
+        }
+        const ostrzezenie = opisZaladunkuTrasy(biezaca);
+        if (window.confirm('Cofnąć zatwierdzenie trasy „' + biezaca.nazwa + '”?\n' +
+            (ostrzezenie ? ostrzezenie + '\n' : '') +
+            'Trasę będzie można znów edytować. Plik dla Routimo trzeba będzie wyeksportować ponownie.')) {
+            mutacja(cofnij);
+        }
     }
 
     // Krok 4.4: „Cofnij dostarczenie” przy przystanku zastępuje „Przywróć trasę” — trasa wykonana wraca do
@@ -1900,13 +1948,20 @@
 
     // Krok 4.4 (spec 9.7): przy przystanku paczki i stan Dostawy — „załadowano 1/2”, „Zostaje: <powód>”,
     // „Dostarczono 14:05” z „Cofnij dostarczenie” (trasa w drodze albo wykonana; zastępuje „Przywróć trasę”).
+    // „14:05” dla dostarczenia z dzisiaj, „01.10 14:05” dla wcześniejszego (trasa w drodze od wczoraj, wykonana).
+    function czasDostarczenia(iso) {
+        const godzina = godzinaZIso(iso);
+        const dzien = iso ? String(iso).slice(0, 10) : '';
+        return dzien && dzien !== dzisIso() ? dataKrotka(dzien) + ' ' + godzina : godzina;
+    }
+
     function dostawaPrzystankuHtml(z, status) {
         if (status === 'robocza') return '';
         const d = z.dostawa || {};
         const czesci = [];
         if (d.dostarczono) {
             czesci.push('<span class="lg-przystanek-dostarczono"><i class="fas fa-check" aria-hidden="true"></i>' +
-                'Dostarczono ' + esc(godzinaZIso(d.dostarczono)) + '</span>');
+                'Dostarczono ' + esc(czasDostarczenia(d.dostarczono)) + '</span>');
             if (status === 'w_trasie' || status === 'wykonana') {
                 czesci.push('<button type="button" class="lg-przycisk lg-przycisk--cichy lg-przystanek-cofnij"' +
                     ' data-lg-przystanek="cofnij-dostarczenie"' +
@@ -1996,6 +2051,16 @@
         if (!li) {
             const wiersze = przystankiEl.querySelectorAll('.lg-przystanek[data-order-id]');
             li = wiersze[Math.min(f.indeks, wiersze.length - 1)] || null;
+        }
+        // „Cofnij dostarczenie” (trasa w drodze / wykonana): fokus wraca na ten sam przycisk tego samego przystanku,
+        // jeśli wciąż istnieje; po udanym cofnięciu go nie ma i fokus idzie na tytuł (niżej, jak po innych zmianach).
+        if (f.akcja === 'cofnij-dostarczenie') {
+            const ten = przystankiEl.querySelector('.lg-przystanek[data-order-id="' + f.id +
+                '"] [data-lg-przystanek="cofnij-dostarczenie"]');
+            if (ten && !ten.disabled) {
+                ten.focus({ preventScroll: true });
+                return;
+            }
         }
         const kolejnosc = f.akcja === 'gora' ? ['gora', 'dol', 'usun'] : (f.akcja === 'dol' ? ['dol', 'gora', 'usun'] : ['usun', 'gora', 'dol']);
         for (let i = 0; li && i < kolejnosc.length; i += 1) {
@@ -3128,8 +3193,9 @@
     // (I1) Każdy przystanek pokazuje stan pakowania. Dostarczone mogą być tylko spakowane
     // w całości (serwer odmawia 409 z `niespakowane`) — pole niespakowanego jest nieaktywne,
     // anulowanego też (takie zamówienie schodzi z trasy i do żadnej puli nie wraca).
-    // Krok 4.4: przystanek dostarczony już przez kierowcę (`zamowienie.dostawa.dostarczono`) jest
-    // zawsze dostarczony — pole zaznaczone i nieaktywne, a serwer i tak go tak zostawia.
+    // Krok 4.4: przystanek już dostarczony (`zamowienie.dostawa.dostarczono` — przez kierowcę albo wcześniejsze
+    // odhaczenie) jest zawsze dostarczony: pole zaznaczone i nieaktywne, a serwer i tak go tak zostawia.
+    // Przystanek z decyzją kierowcy „Zostaje” (`dostawa.zostaje`) jest domyślnie odznaczony; logistyk może go zaznaczyć.
 
     function bladWykonania(tekst) {
         wykonajBladEl.textContent = tekst || '';
@@ -3140,7 +3206,7 @@
     const UWAGA_WYKONANIA = {
         niespakowane: 'wróci do puli bez trasy; spakuj na tablecie, żeby oznaczyć jako dostarczone',
         anulowane: 'zdejmiemy z trasy',
-        dostarczone: 'dostarczone przez kierowcę — zostaje dostarczone',
+        dostarczone: 'już dostarczone — zostaje dostarczone',
     };
 
     function stanPrzystankuWykonania(p) {
@@ -3154,8 +3220,10 @@
         const z = p.zamowienie;
         const stanP = stanPrzystankuWykonania(p);
         const mozna = stanP === 'spakowane';
-        // Domyślnie dostarczone są tylko spakowane; wybór użytkownika przeżywa przebudowę listy.
-        const zaznaczone = stanP === 'dostarczone' || (mozna && (w.wybory.has(z.id) ? w.wybory.get(z.id) : true));
+        const zostaje = stanP !== 'dostarczone' && z.dostawa && z.dostawa.zostaje ? z.dostawa.zostaje : null;
+        // Domyślnie dostarczone są tylko spakowane i bez „Zostaje”; wybór użytkownika przeżywa przebudowę listy.
+        const zaznaczone = stanP === 'dostarczone' ||
+            (mozna && (w.wybory.has(z.id) ? w.wybory.get(z.id) : !zostaje));
         const numer = p.pozycja === null || p.pozycja === undefined ? '—' : p.pozycja;
         const miejscowosc = [z.kod, z.miasto].filter(Boolean).join(' ');
         const adres = [miejscowosc, z.adres].filter(Boolean).join(', ');
@@ -3171,7 +3239,10 @@
                 (nowy ? '<span class="lg-wykonaj-nowy">nowy na trasie</span>' : '') +
                 (adres ? '<span class="lg-wykonaj-adres" title="' + esc(adres) + '">' + esc(adres) + '</span>' : '') +
                 '<span class="lg-wykonaj-stan">' + stanWykonaniaHtml(z, stanP) +
-                    (uwaga ? '<span class="lg-wykonaj-uwaga">' + esc(uwaga) + '</span>' : '') + '</span>' +
+                    (uwaga ? '<span class="lg-wykonaj-uwaga">' + esc(uwaga) + '</span>' : '') +
+                    (zostaje ? '<span class="lg-przystanek-zostaje"><i class="fas fa-triangle-exclamation" aria-hidden="true"></i>' +
+                        'Zostaje: ' + esc(zostaje.etykieta) + (zostaje.notatka ? ' — ' + esc(zostaje.notatka) : '') + '</span>' : '') +
+                    '</span>' +
             '</span>' +
             '<span class="lg-wykonaj-powrot">wróci do puli bez trasy</span>' +
             '</label></li>';
@@ -3314,6 +3385,11 @@
                 (n ? ', ' + ileZamowien(n) + ' ' + odmiana(n, ['wraca', 'wracają', 'wraca']) + ' do puli bez trasy' : '') +
                 (a ? ', ' + ileAnulowanych(a) + ' ' + odmiana(a, ['zdjęte', 'zdjęte', 'zdjętych']) + ' z trasy' : '') + '.',
                 { klucz: 'trasa' });
+        } else if (route.odhaczona_w_panelu === false) {
+            // Wykonana, ale nie z panelu: ostatnie dostarczenie potwierdził kierowca na telefonie — nasze odhaczenie
+            // się nie zapisało i nie wolno mówić, że się zapisało.
+            komunikat('info', 'Trasa „' + route.nazwa + '” jest już wykonana — zamknął ją kierowca, potwierdzając ostatnie ' +
+                'dostarczenie na telefonie. Odhaczenie z panelu się nie zapisało.', { klucz: 'trasa' });
         } else {
             komunikat('ok', 'Trasa „' + route.nazwa + '” jest wykonana — odpowiedź serwera nie dotarła, ale odhaczenie się zapisało.',
                 { klucz: 'trasa' });
@@ -3552,12 +3628,9 @@
                 if (!zmieniony() || formularzPoprawny()) mutacja(zatwierdz);
                 break;
             case 'cofnij':
-                // Ruling 21b: cofnięcie zatwierdzenia czyści też znaczniki załadunku, jeśli kierowca już ładował.
-                if (t && window.confirm('Cofnąć zatwierdzenie trasy „' + t.nazwa + '”?\n' +
-                    (opisZaladunkuTrasy(t) ? opisZaladunkuTrasy(t) + '\n' : '') +
-                    'Trasę będzie można znów edytować. Plik dla Routimo trzeba będzie wyeksportować ponownie.')) {
-                    mutacja(cofnij);
-                }
+                // Ruling 21b i 27: cofnięcie zatwierdzenia czyści też załadunek i „Zostaje”, jeśli kierowca już ładował
+                // — pytanie z ostrzeżeniem liczonym ze świeżej trasy (zapytajOCofniecieZatwierdzenia).
+                if (t) zapytajOCofniecieZatwierdzenia(t);
                 break;
             case 'cofnij-zaladunek':
                 if (t && window.confirm('Cofnąć załadunek trasy „' + t.nazwa + '”?\n' +

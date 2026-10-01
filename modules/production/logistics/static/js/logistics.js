@@ -1418,6 +1418,10 @@
 
     const etykietaSposobu = (s) => (s === 'brak' ? NIE_USTAWIONO : (ETYKIETY[s] || s));
     const liczbaInnych = (n) => (n === 1 ? '1 niespakowanego zamówienia' : n + ' niespakowanych zamówień');
+    // Krok 4.4 (Ruling 27): zamówienia załadowane na trasę, w drodze albo dostarczone serwer odrzuca — okno tylko o tym mówi.
+    const zdaniePoZaladunku = (n) => n + ' ' + odmiana(n, [
+        'zamówienie jest już załadowane lub dostarczone', 'zamówienia są już załadowane lub dostarczone',
+        'zamówień jest już załadowanych lub dostarczonych']) + ' — sposobu dostawy nie zmienimy.';
 
     /** Zdanie „dlaczego”, gdy dla tych zamówień przepakowanie jest obowiązkowe. */
     function zasadaPrzepakowania(wiersze, celDla) {
@@ -1466,6 +1470,7 @@
             ? 'Nowy sposób dostawy: „' + etykietaSposobu(cele[0]) + '”.'
             : 'Nowy sposób dostawy: wg podpowiedzi z Base.';
         if (o.inne > 0) opis += ' „Anuluj” wstrzyma całą zmianę, także dla ' + liczbaInnych(o.inne) + '.';
+        if (o.poZaladunku > 0) opis += ' ' + zdaniePoZaladunku(o.poZaladunku);
 
         let powod = '';
         if (o.obowiazkowe.length && !o.dobrowolne.length) {
@@ -1578,6 +1583,7 @@
                 wiersze: wiersze,
                 celDla: celDla,
                 inne: (opcje && opcje.inne) || 0,
+                poZaladunku: (opcje && opcje.poZaladunku) || 0,
                 obowiazkowe: wiersze.filter((w) => przepakowanieObowiazkowe(w, celDla(w))),
                 dobrowolne: wiersze.filter((w) => !przepakowanieObowiazkowe(w, celDla(w))),
                 krok: 1,
@@ -1599,7 +1605,8 @@
     /**
      * Okno decyzji (spec 8.7). `wiersze` = zamówienia w całości spakowane z partii, `sposob` docelowy
      * (tekst albo funkcja wiersz → sposób). `opcje.inne` = ile niespakowanych zamówień jedzie w tej
-     * samej partii (tylko do opisu: „Anuluj” wstrzymuje i je).
+     * samej partii (tylko do opisu: „Anuluj” wstrzymuje i je); `opcje.poZaladunku` = ile zamówień jest już
+     * załadowanych, w trasie albo dostarczonych (opis: sposobu im nie zmienimy).
      * Zwraca Promise<{przepakuj: [id], bez: [id], pomin: [id]} | null> (null = Anuluj, nic nie wysyłamy).
      */
     function zapytajOPrzepakowanie(wiersze, sposob, opcje) {
@@ -1871,8 +1878,12 @@
         const doDecyzji = zmieniane.filter((w) => w.spakowane && !poZaladunku(w));
         let decyzja = null;
         if (doDecyzji.length) {
-            // `inne` = niespakowane zamówienia, którym sposób też się zmieni (do opisu: Anuluj wstrzymuje i je).
-            decyzja = await zapytajOPrzepakowanie(doDecyzji, sposob, { inne: zmieniane.length - doDecyzji.length });
+            // `inne` = faktycznie niespakowane zamówienia, którym sposób też się zmieni (do opisu: Anuluj wstrzymuje
+            // i je); `poZaladunku` osobno — te serwer odrzuci (Ruling 27, krok 4.4).
+            decyzja = await zapytajOPrzepakowanie(doDecyzji, sposob, {
+                inne: zmieniane.filter((w) => !w.spakowane && !poZaladunku(w)).length,
+                poZaladunku: zmieniane.filter(poZaladunku).length,
+            });
             if (zniszczona || !decyzja) return;     // Anuluj: nic nie wysyłamy, także dla niespakowanych
         }
         const cele = new Map(ids.map((id) => [id, sposob]));
@@ -1899,8 +1910,10 @@
         const spakowane = doZmiany.filter((w) => w.spakowane && !poZaladunku(w));
         let decyzja = null;
         if (spakowane.length) {
-            decyzja = await zapytajOPrzepakowanie(spakowane, (w) => w.podpowiedz,
-                { inne: doZmiany.length - spakowane.length });
+            decyzja = await zapytajOPrzepakowanie(spakowane, (w) => w.podpowiedz, {
+                inne: doZmiany.filter((w) => !w.spakowane && !poZaladunku(w)).length,
+                poZaladunku: doZmiany.filter(poZaladunku).length,
+            });
             if (zniszczona || !decyzja) return;
         }
         const cele = new Map(doZmiany.map((w) => [w.id, w.podpowiedz]));

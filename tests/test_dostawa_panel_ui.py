@@ -16,10 +16,17 @@ def _plik(*czesci):
         return f.read()
 
 
+def _funkcja(js, nazwa):
+    """Treść funkcji z IIFE (wcięcie 4 spacje) — od nagłówka do zamykającej klamry."""
+    start = js.index('function ' + nazwa + '(')
+    return js[start:js.index('\n    }\n', start)]
+
+
 def test_trasy_js_zna_statusy_dostawy_i_nowe_akcje():
     js = _plik('static', 'js', 'logistics-routes.js')
     for fraza in ("zaladowana: 'Załadowana'", "w_trasie: 'W trasie'", "'/unload'", "'/undo-delivered'",
-                  "'cofnij-zaladunek'", "'cofnij-dostarczenie'", 'postep', 'dostarczono', 'zostaje',
+                  "'cofnij-zaladunek'", "'cofnij-dostarczenie'", 'postepTekst(', 'lg-przystanek-dostarczono',
+                  'lg-przystanek-zostaje', 'lg-przystanek-paczki',
                   "const ODHACZALNE = ['robocza', 'zatwierdzona', 'zaladowana', 'w_trasie']"):
         assert fraza in js, fraza
     assert '/restore' not in js and "'przywroc'" not in js
@@ -40,7 +47,10 @@ def test_szablon_ma_sekcje_postep_i_opis_odhaczenia(client):
         < html.index('data-lg-trasy="w-trasie"') < html.index('data-lg-trasy="wykonane"')
     okno = html[html.index('data-lg="trasa-wykonaj-dialog"'):]
     okno = okno[:okno.index('</dialog>')]
-    assert u'Base.' in okno and u'kierowc' in okno     # odhaczenie wysyła statusy; dostarczone z telefonu zostają
+    # Odhaczenie wysyła statusy do Base.; przystanki już dostarczone zostają dostarczone (kto je dostarczył — kierowca
+    # albo wcześniejsze odhaczenie — okno nie rozstrzyga, Ruling 27 pkt 5).
+    assert u'Base.' in okno and u'Przystanki już dostarczone zostają dostarczone.' in okno
+    assert u'kierowc' not in okno
 
 
 def test_lista_logistyki_zna_etap_w_trasie_i_blokuje_sposob_po_zaladunku():
@@ -51,7 +61,11 @@ def test_lista_logistyki_zna_etap_w_trasie_i_blokuje_sposob_po_zaladunku():
     for fraza in ("zaladowana: 'załadowana'", "w_trasie: 'w trasie'", 'const poZaladunku'):
         assert fraza in js, fraza
     assert 'w.spakowane && !poZaladunku(w)' in js
-    assert js.count('!poZaladunku(w)') >= 3          # wiersz, hurt sposobu, hurt podpowiedzi — bez okna 8.7
+    # Okno 8.7 omija zamówienia po załadunku na czterech ścieżkach: select w wierszu (zmianaSelecta, bieżący wiersz
+    # `biezacy`), dymek mapy (zmienSposobZMapy) i obie akcje hurtowe (hurtSposob, hurtPodpowiedzi).
+    assert '!poZaladunku(biezacy)' in _funkcja(js, 'zmianaSelecta')
+    for nazwa in ('zmienSposobZMapy', 'hurtSposob', 'hurtPodpowiedzi'):
+        assert '!poZaladunku(w)' in _funkcja(js, nazwa), nazwa
     mapa = _plik('static', 'js', 'logistics-map.js')
     assert "w_trasie: 'W trasie'" in mapa and "zaladowana: 'Załadowana'" in mapa
     assert u'załadowany' in mapa[mapa.index('function powodBlokadySposobu'):][:1500]
@@ -64,3 +78,84 @@ def test_style_statusow_dostawy():
                   '.lg-przystanek-dostarczono', '.lg-przystanek-zostaje', '.lg-wykonaj-pozycja--dostarczone'):
         assert klasa in css, klasa
     assert '[data-etap="w_trasie"]' in _plik('static', 'css', 'logistics.css')
+
+
+# ── Runda 1 po przeglądzie (Ruling 27) ───────────────────────────────────────────────────────────────────
+
+def test_okno_odhacz_przystanki_dostarczone_i_zostaje():
+    js = _plik('static', 'js', 'logistics-routes.js')
+    assert js.count('ODHACZALNE.includes(') == 4        # przycisk okna, komunikat po odczycie, otwarcie, przygotowanie
+    uwagi = js[js.index('const UWAGA_WYKONANIA = {'):]
+    uwagi = uwagi[:uwagi.index('};')]
+    assert "dostarczone: 'już dostarczone" in uwagi and 'kierowc' not in uwagi     # neutralnie, bez „przez kierowcę”
+    assert 'z.dostawa.dostarczono' in _funkcja(js, 'stanPrzystankuWykonania')
+    pozycja = _funkcja(js, 'pozycjaWykonaniaHtml')
+    # „Zostaje” z telefonu: pokazane z etykietą i domyślnie ODZNACZONE (logistyk może zaznaczyć).
+    assert 'z.dostawa.zostaje' in pozycja and ': !zostaje)' in pozycja
+    assert "'Zostaje: ' + esc(zostaje.etykieta)" in pozycja and 'lg-przystanek-zostaje' in pozycja
+    # Przystanek już dostarczony nie dostaje „Zostaje” (jest zawsze dostarczony i nieaktywny).
+    assert "stanP !== 'dostarczone' && z.dostawa" in pozycja
+
+
+def test_przystanek_pokazuje_dostawe_z_data_i_cofnieciem():
+    js = _plik('static', 'js', 'logistics-routes.js')
+    dostawa = _funkcja(js, 'dostawaPrzystankuHtml')
+    assert 'esc(d.zostaje.etykieta)' in dostawa
+    assert "status === 'w_trasie' || status === 'wykonana'" in dostawa
+    assert "if (status === 'robocza') return '';" in dostawa
+    assert 'czasDostarczenia(d.dostarczono)' in dostawa
+    # Dostarczenie sprzed dziś ma datę („01.10 14:05”), z dzisiaj samą godzinę.
+    czas = _funkcja(js, 'czasDostarczenia')
+    assert 'dzisIso()' in czas and 'dataKrotka(dzien)' in czas and 'godzinaZIso(iso)' in czas
+    # Fokus po przebudowie listy wraca na ten sam „Cofnij dostarczenie” (Ruling 27 pkt 6).
+    fokus = _funkcja(js, 'przywrocFokusPrzystanku')
+    assert "f.akcja === 'cofnij-dostarczenie'" in fokus and 'data-lg-przystanek="cofnij-dostarczenie"' in fokus
+
+
+def test_postep_w_naglowku_zmienia_tekst_tylko_gdy_sie_zmienil():
+    edytor = _funkcja(_plik('static', 'js', 'logistics-routes.js'), 'renderujEdytor')
+    assert 'postepEl.textContent !== tekstPostepu' in edytor
+    assert 'postepEl.textContent = tekstPostepu' in edytor
+    assert 'postepEl.textContent = t ?' not in edytor        # bez bezwarunkowego przypisania (aria-live)
+
+
+def test_cofniecie_zatwierdzenia_pyta_o_swieza_trase_i_ostrzega_o_zostaje():
+    js = _plik('static', 'js', 'logistics-routes.js')
+    galaz = js[js.index("case 'cofnij':"):js.index("case 'cofnij-zaladunek':")]
+    assert 'zapytajOCofniecieZatwierdzenia(t)' in galaz and 'window.confirm' not in galaz
+    pytanie = _funkcja(js, 'zapytajOCofniecieZatwierdzenia')
+    assert "zapytanie('/routes/' + t.id)" in pytanie            # świeża trasa przed liczeniem
+    assert pytanie.index("zapytanie('/routes/' + t.id)") < pytanie.index('opisZaladunkuTrasy(biezaca)')
+    assert 'let biezaca = t;' in pytanie and 'catch (e)' in pytanie   # bez odczytu liczymy z edytora
+    assert "biezaca.status !== 'zatwierdzona'" in pytanie       # kierowca skończył załadunek: bez pytania
+    assert 'cofniecieSprawdzane' in pytanie                     # dwuklik nie pyta dwa razy
+    opis = _funkcja(js, 'opisZaladunkuTrasy')
+    assert u'wyczyści załadunek i decyzje „Zostaje” — kierowca zeskanuje paczki ponownie.' in opis
+    assert 'dostawa.zostaje' in opis                            # same decyzje „Zostaje” też ostrzegają
+
+
+def test_niepewne_odhaczenie_rozroznia_trase_zamknieta_przez_kierowce():
+    js = _plik('static', 'js', 'logistics-routes.js')
+    po = _funkcja(js, 'poOdhaczeniu')
+    i = po.index('route.odhaczona_w_panelu === false')
+    assert 'Odhaczenie z panelu się nie zapisało' in po[i:]
+    assert po.index('odhaczenie się zapisało') > i              # „zapisało się” tylko dla odhaczonej w panelu
+    assert 'zamknął ją kierowca' in po
+
+
+def test_okno_przepakowania_liczy_niespakowane_osobno_od_zaladowanych():
+    js = _plik('static', 'js', 'logistics.js')
+    hurt = _funkcja(js, 'hurtSposob')
+    assert 'inne: zmieniane.filter((w) => !w.spakowane && !poZaladunku(w)).length' in hurt
+    assert 'poZaladunku: zmieniane.filter(poZaladunku).length' in hurt
+    assert 'zmieniane.length - doDecyzji.length' not in hurt
+    podpowiedzi = _funkcja(js, 'hurtPodpowiedzi')
+    assert 'inne: doZmiany.filter((w) => !w.spakowane && !poZaladunku(w)).length' in podpowiedzi
+    assert 'poZaladunku: doZmiany.filter(poZaladunku).length' in podpowiedzi
+    assert 'doZmiany.length - spakowane.length' not in podpowiedzi
+    # Osobne zdanie w opisie okna i przekazanie liczby przez okno.
+    assert 'o.poZaladunku > 0' in _funkcja(js, 'pokazKrokPierwszy')
+    assert 'poZaladunku: (opcje && opcje.poZaladunku) || 0' in js
+    for forma in (u"'zamówienie jest już załadowane lub dostarczone'", u"'zamówienia są już załadowane lub dostarczone'",
+                  u"'zamówień jest już załadowanych lub dostarczonych'", u"' — sposobu dostawy nie zmienimy.'"):
+        assert forma in js, forma
