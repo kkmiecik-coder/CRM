@@ -554,7 +554,9 @@ git commit -m "feat(production): okno decyzji o przepakowaniu przy zmianie sposo
   - po przepakowaniu brak ważnych paczek i `verified_at`;
   - pozycje `czeka_na_pakowanie`;
   - nigdy `zweryfikowane` z nowym sposobem bez decyzji;
-  - 1213 z ponowieniem 200 dopuszczalne tylko pojedynczo.
+  - na cofniętym zamówieniu zero ważnych paczek (`voided_at IS NULL`); prośba centrali.
+
+  Kryterium (prośba centrali): zero 1213 w `panel-zakoncz` i `panel-deklaracja` (kilkadziesiąt przebiegów każdy). Każde 1213 to STOP: mechanizm z `SHOW ENGINE INNODB STATUS` idzie do kontrolera, a decyzja zapada przed zamknięciem kroku. Znane ryzyko do sprawdzenia: reguła `uniewaznij_etapy` przy pracy blokuje pozycje pod blokadą zamówienia, a ostatnie „ZAKOŃCZ” trzyma pozycję i sięga po zamówienie.
 
   Zapisz liczby i mechanizm każdego 1213 (`SHOW ENGINE INNODB STATUS`).
 - [ ] **Step 3:** Odtwórz bazę pod oględziny (`_ogledziny_przygotuj.py`). Dopisz 2 zamówienia w całości spakowane do oględzin okna: jedno transport (do zmiany na kuriera, przepakowanie obowiązkowe) i jedno kurier (do zmiany na odbiór, dobrowolne). Numery wpisz do raportu.
