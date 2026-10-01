@@ -21,7 +21,7 @@ from modules.production.utils.cache import (
     no_store_json,
     not_modified,
 )
-from modules.production.services import label_print_service, worker_service
+from modules.production.services import blokady_zamowien, label_print_service, worker_service
 from modules.production.services.label_print_service import (
     StationNotAllowed,
     compute_label_offsets,
@@ -444,7 +444,12 @@ def order_complete(order_id):
     if err:
         return err
 
-    item = ProductionItem.query.get(order_id)
+    # „Zamówienie najpierw” (logistyka etap 4, krok 4.4a): wiersz zamówienia i wszystkie jego pozycje blokujemy
+    # i czytamy bieżąco, ZANIM cokolwiek zapiszemy — w kolejności panelu Logistyki i Weryfikacji. Dotąd ZAKOŃCZ
+    # zapisywał pozycję przed zamówieniem (1213 ze zmianą sposobu dostawy w panelu), a po_spakowaniu
+    # i odnotuj_wejscie_do_pakowania decydowały na migawce: sposób dostawy sprzed zmiany w panelu zamykał cykl
+    # odbioru, a pozycja zrobiona chwilę wcześniej na innym tablecie wyglądała na niezrobioną.
+    item = blokady_zamowien.zablokuj_zamowienie_pozycji(order_id)
     if not item:
         return jsonify({'error': 'order_not_found'}), 404
 

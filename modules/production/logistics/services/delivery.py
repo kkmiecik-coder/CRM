@@ -118,7 +118,11 @@ def przelicz_zamkniecie(order, teraz=None, trasa=None):
 
 
 def odnotuj_wejscie_do_pakowania(order, teraz):
-    """„Zeszło z produkcji” (Arkusz): chwila, gdy OSTATNI aktywny produkt wszedł do pakowania."""
+    """
+    „Zeszło z produkcji” (Arkusz): chwila, gdy OSTATNI aktywny produkt wszedł do pakowania.
+    Wołający trzyma blokadę zamówienia i jego pozycji z odczytem bieżącym (blokady_zamowien, krok 4.4a), więc
+    statusy pozostałych pozycji są bieżące — także pozycji zrobionej chwilę wcześniej na innym tablecie.
+    """
     if order.logistics_completed_at is not None:
         return
     aktywne = aktywne_produkty(order)
@@ -127,7 +131,12 @@ def odnotuj_wejscie_do_pakowania(order, teraz):
 
 
 def po_spakowaniu(order, teraz):
-    """Wołane z complete_task('packaging'). Kończy przepakowanie i przelicza cykl."""
+    """
+    Wołane z complete_task('packaging'). Kończy przepakowanie i przelicza cykl.
+    Wołający (ZAKOŃCZ, mobile_api.order_complete) trzyma blokadę zamówienia i jego pozycji z odczytem bieżącym
+    (blokady_zamowien, krok 4.4a): zamknięcie zapada na bieżącym sposobie dostawy i statusach, a nie na migawce
+    sprzed zmiany w panelu (spec 4.6, „Siatka w cronie”).
+    """
     if wszystkie_spakowane(order):
         # Zaległe 138620 z przepakowania nie może nadpisać statusu po spakowaniu,
         # który właśnie wysyła ścieżka pakowania (baselinker_status_sync).
@@ -534,21 +543,28 @@ def przenies_osierocone_z_logistyki(teraz=None):
     Po restarcie taki produkt nie ma kolejki na tablecie ani filtra na liście — wisi
     niewidoczny. Cron zamiata go tą samą drogą, jaką idzie dziś wyjście z produkcji
     (complete_task). Idempotentne: gdy nic nie zostało, zwraca 0.
+
+    (krok 4.4a) Zamówienia (rosnąco po id) i ich pozycje blokujemy odczytem bieżącym PRZED zapisem pozycji —
+    w kolejności stanowisk, panelu i reguły unieważniania; dotąd zapis pozycji szedł przed zapisem zamówienia.
     """
     from modules.production.models import ProductionProduct
+    from modules.production.services import blokady_zamowien
     teraz = teraz or get_local_now()
-    produkty = (ProductionProduct.query
-                .filter(ProductionProduct.current_status == 'czeka_na_logistyke').all())
-    zamowienia = {}
-    for p in produkty:
-        p.current_status = 'czeka_na_pakowanie'
-        p.updated_at = teraz  # ETag kolejki pakowania na tablecie
-        if p.order is not None:
-            zamowienia[p.order.id] = p.order
-    for order in zamowienia.values():
+    id_zamowien = [order_id for (order_id,) in
+                   db.session.query(ProductionProduct.order_id)
+                   .filter(ProductionProduct.current_status == 'czeka_na_logistyke').distinct().all()]
+    zamowienia = blokady_zamowien.zablokuj_zamowienia(id_zamowien)
+    przeniesione = 0
+    for order in zamowienia:
+        for p in blokady_zamowien.zablokuj_pozycje(order):
+            if p.current_status == 'czeka_na_logistyke':
+                p.current_status = 'czeka_na_pakowanie'
+                p.updated_at = teraz  # ETag kolejki pakowania na tablecie
+                przeniesione += 1
+    for order in zamowienia:
         odnotuj_wejscie_do_pakowania(order, teraz)
         przelicz_zamkniecie(order, teraz)
-    return len(produkty)
+    return przeniesione
 
 
 # Znacznik w prod_config: przestawienie wydanych zamówień na 'dostarczone' (dostarcz_wydane) już się odbyło.
