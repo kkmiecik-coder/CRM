@@ -321,7 +321,10 @@ Albo po prostu `./deploy.sh` — robi dokładnie to samo, z lockiem i logami.
   (`PATCH …/quantity`, edycja sztuk w panelu admina) oraz dwa znane wyjątki, bez naprawy: ręczna synchronizacja
   z `force_update`, która dopisuje pozycje istniejącym zamówieniom, i `sync-cron` (`sync_paid_orders_only`) przy
   ponownym imporcie istniejącego zamówienia — ta sama klasa wyjątku, dziś nieaktywna, bo cron importu nie jest
-  uruchamiany; gdyby miał wrócić, trzeba najpierw dodać blokadę zamówienia.
+  uruchamiany; gdyby miał wrócić, trzeba najpierw dodać blokadę zamówienia. Na rzadkie zakleszczenie z takim
+  wyjątkiem zmiana sposobu dostawy w panelu i hurtowa zmiana statusu odpowiadają jednym automatycznym
+  ponowieniem: rollback i cały zapis od nowa, z decyzją na nowym stanie (`blokady_zamowien.kod_mysql`); drugie
+  1213 kończy się odpowiedzią 500 z rollbackiem.
 
 ## Architecture
 
