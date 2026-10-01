@@ -31,7 +31,7 @@ def test_zmiana_sposobu_zdejmuje_z_roboczej(app):
     """Review Focus 2."""
     with app.app_context():
         trasa, order = _na_trasie('robocza')
-        wynik = delivery.ustaw_sposob_dostawy(order, s.ODBIOR)
+        wynik = delivery.ustaw_sposob_dostawy(order, s.ODBIOR, przepakowanie=False)
         db.session.commit()
         assert wynik['usunieto_z_trasy'] == 'Kraków + Tarnów'
         assert routes.przystanek_zamowienia(order.id) is None

@@ -207,11 +207,31 @@ def _zdejmij_z_trasy(przystanek, order, user_id):
     return nazwa
 
 
-def ustaw_sposob_dostawy(order, sposob, user_id=None, teraz=None):
+def przepakowanie_obowiazkowe(stary, nowy):
+    """Spec 8.7: bez przepakowania nie wolno przy „Nie ustawiono” (nowy None) albo przy zmianie na kuriera
+    z transportu własnego lub odbioru (paczki pod inny sposób, kolejny wybór nie wiedziałby, pod co pakowano)."""
+    return nowy is None or (nowy == sposoby.KURIER and stary in (sposoby.TRANSPORT, sposoby.ODBIOR))
+
+
+def _odswiez_baner_logistyki(order, nowy):
+    """Baner „Logistyka: …” (spec 8.7) idzie za bieżącym sposobem, dopóki pozycje nie zostaną spakowane."""
+    if order.repack_required and (order.repack_reason or '').startswith(sposoby.PREFIKS_BANERA_LOGISTYKI):
+        order.repack_reason = sposoby.baner_logistyki(nowy)
+
+
+def ustaw_sposob_dostawy(order, sposob, user_id=None, teraz=None, przepakowanie=None):
     """
     `sposob` = jeden z sposoby.SPOSOBY albo sposoby.BRAK („Nie ustawiono”) — cofnięcie
     pomyłki logistyka. Samo None / pusty tekst NIE cofa (to raczej zgubione pole
     formularza niż decyzja), tylko daje 422 jak nieznana wartość.
+
+    `przepakowanie` (spec 8.7) — decyzja logistyka i działa WYŁĄCZNIE na zamówieniu w całości spakowanym
+    (wszystkie_spakowane): None = brak decyzji (odmowa `wymaga_decyzji_przepakowania` z listą opcji),
+    True = cofnij do pakowania i ustaw nowy sposób, False = zmień bez przepakowania (odmowa
+    `wymaga_przepakowania`, gdy przepakowanie jest obowiązkowe — patrz przepakowanie_obowiazkowe).
+    Zamówienie niespakowane albo spakowane częściowo działa jak dotąd, parametr jest wtedy pomijany:
+    zmiana na kuriera z transportu albo odbioru sama przepakowuje spakowane pozycje, „Nie ustawiono”
+    jest odmową.
     """
     cofniecie = sposob == sposoby.BRAK
     nowy = None if cofniecie else sposoby.normalizuj(sposob)
@@ -248,19 +268,43 @@ def ustaw_sposob_dostawy(order, sposob, user_id=None, teraz=None):
     zdejmuje = nowy != sposoby.TRANSPORT   # kurier, odbiór i cofnięcie (nowy=None) zdejmują z trasy
     przystanek = _przystanek_do_zmiany(order, zdejmuje, u'zmień sposób dostawy')
 
+    w_calosci = wszystkie_spakowane(order)
+    decyzja = None
+    if w_calosci:
+        # Spec 8.7: każda zmiana sposobu na zamówieniu w całości spakowanym wymaga decyzji logistyka.
+        obowiazkowe = przepakowanie_obowiazkowe(stary, nowy)
+        if przepakowanie is None:
+            raise LogistykaBlad(
+                u'Zamówienie {} jest w całości spakowane — wybierz, czy cofnąć je do pakowania (odśwież stronę, '
+                u'jeśli nie widzisz okna).'.format(order.internal_order_number),
+                dane={'kod': 'wymaga_decyzji_przepakowania',
+                      'opcje': ['przepakuj'] if obowiazkowe else ['przepakuj', 'bez_przepakowania']})
+        if przepakowanie is False and obowiazkowe:
+            raise LogistykaBlad(
+                u'Zamówienie {}: zmiana na „{}” wymaga cofnięcia do pakowania — nie zmieniono.'.format(
+                    order.internal_order_number, sposoby.etykieta(nowy)),
+                dane={'kod': 'wymaga_przepakowania'})
+        decyzja = bool(przepakowanie)
+
     teraz = teraz or get_local_now()
     if cofniecie:
-        if any(p.current_status in sposoby.STATUSY_PO_SPAKOWANIU for p in aktywne_produkty(order)):
+        if not w_calosci and any(p.current_status in sposoby.STATUSY_PO_SPAKOWANIU
+                                 for p in aktywne_produkty(order)):
             # Przegląd K1: po cofnięciu kolejny wybór nie wiedziałby, pod jaki sposób
             # pakowano (stary = None), więc „transport (spakowane) → brak → kurier”
             # ominęłoby przepakowanie i zamknęło zamówienie. Przy spakowanym towarze
             # logistyk wybiera od razu właściwy sposób — zmiana na kuriera sama cofnie
-            # towar do przepakowania.
+            # towar do przepakowania. Dotyczy zamówienia spakowanego CZĘŚCIOWO; w całości spakowane
+            # dostaje decyzję (spec 8.7): „Nie ustawiono” tylko razem z cofnięciem do pakowania.
             raise LogistykaBlad(
                 u'Zamówienie {} jest już spakowane — nie da się cofnąć do „Nie ustawiono”. '
                 u'Wybierz od razu właściwy sposób dostawy.'.format(order.internal_order_number))
+        if w_calosci:
+            # Tu zawsze decyzja True: False przy „Nie ustawiono” odpadło wyżej jako obowiązkowe.
+            _cofnij_do_pakowania(order, stary, None, user_id, teraz)
         usunieto = _zdejmij_z_trasy(przystanek, order, user_id) if przystanek is not None else None
         wynik = _cofnij_sposob(order, stary, user_id, teraz)
+        wynik['przepakowanie'] = bool(w_calosci)
         wynik['usunieto_z_trasy'] = usunieto
         return wynik
     order.override_delivery_method = nowy
@@ -268,32 +312,17 @@ def ustaw_sposob_dostawy(order, sposob, user_id=None, teraz=None):
     order.delivery_method_set_by = user_id
     zapisz_log(order, 'sposob_dostawy', stary, nowy, user_id=user_id, teraz=teraz)
 
-    spakowane = [p for p in aktywne_produkty(order)
-                 if p.current_status in sposoby.STATUSY_PO_SPAKOWANIU]
-    przepakowanie = (nowy == sposoby.KURIER
-                     and stary in (sposoby.TRANSPORT, sposoby.ODBIOR)
-                     and bool(spakowane))
+    if w_calosci:
+        przepakowanie_zrob = decyzja
+    else:
+        spakowane = [p for p in aktywne_produkty(order)
+                     if p.current_status in sposoby.STATUSY_PO_SPAKOWANIU]
+        przepakowanie_zrob = (nowy == sposoby.KURIER
+                              and stary in (sposoby.TRANSPORT, sposoby.ODBIOR)
+                              and bool(spakowane))
     nowy_status = False
-    if przepakowanie:
-        order.repack_required = True
-        for p in spakowane:
-            # Zdarzenie systemowe bez atrybucji: cofnięcie spakowania nie jest
-            # niczyją pracą, a statystyki pierwotnego pakowacza zostają.
-            p.set_quantity_done('packaging', 0, source='system')
-            p.packaging_completed_at = None
-            p.current_status = 'czeka_na_pakowanie'
-        if all(p.current_status in STATUSY_PO_PRODUKCJI for p in aktywne_produkty(order)):
-            order.bl_status_pending_id = sposoby.STATUS_PRODUKCJA_ZAKONCZONA
-            nowy_status = True
-        zapisz_log(order, 'przepakowanie', stary, nowy, user_id=user_id, teraz=teraz)
-        # Powód z Weryfikacji (np. „Weryfikacja: Uszkodzenie: …”) jest ważniejszy niż ogólne „na kuriera”:
-        # zostaje na tablecie pakowania. Sposób „kurier” pakowacz widzi na tablecie i tak, a powód z
-        # Weryfikacji inaczej przepadłby po zmianie sposobu dostawy. repack_required ustawiamy jak zawsze.
-        if not order.repack_reason or order.repack_reason == sposoby.PRZEPAKUJ_NA_KURIERA:
-            order.repack_reason = sposoby.PRZEPAKUJ_NA_KURIERA
-        # Jedna reguła (spec 4.5): zamówienie wróciło do pakowania — paczki i weryfikacja kasują się.
-        from modules.production.logistics.services import weryfikacja
-        weryfikacja.uniewaznij_etapy(order, teraz, u'przepakowanie na kuriera', user_id=user_id)
+    if przepakowanie_zrob:
+        nowy_status = _cofnij_do_pakowania(order, stary, nowy, user_id, teraz)
     elif wszystkie_spakowane(order):
         order.bl_status_pending_id = sposoby.STATUS_PO_SPAKOWANIU[nowy]
         nowy_status = True
@@ -310,6 +339,11 @@ def ustaw_sposob_dostawy(order, sposob, user_id=None, teraz=None):
     if (order.delivery_method or '').strip() != sposoby.TEKST_BASE[nowy]:
         order.bl_delivery_method_pending = True
 
+    if not przepakowanie_zrob:
+        # Baner panelu („Logistyka: …”) idzie za bieżącym sposobem, dopóki pozycje się nie spakują.
+        # PRZED zdjęciem banera kuriera niżej: tamten zdejmuje tylko „Przepakuj na kuriera”.
+        _odswiez_baner_logistyki(order, nowy)
+
     if nowy != sposoby.KURIER:
         # Zmiana na sposób inny niż kurier zamyka ewentualne przepakowanie:
         # towar już wrócił do pakowania i po prostu się pakuje, baner
@@ -322,7 +356,42 @@ def ustaw_sposob_dostawy(order, sposob, user_id=None, teraz=None):
 
     podbij_pozycje(order, teraz)
     przelicz_zamkniecie(order, teraz)
-    return {'zmieniono': True, 'przepakowanie': przepakowanie, 'usunieto_z_trasy': usunieto_z_trasy}
+    return {'zmieniono': True, 'przepakowanie': przepakowanie_zrob, 'usunieto_z_trasy': usunieto_z_trasy}
+
+
+def _cofnij_do_pakowania(order, stary, nowy, user_id, teraz):
+    """
+    Spakowane pozycje wracają do pakowania (zmiana sposobu z panelu, spec 8.7, i przepakowanie na kuriera):
+    licznik pakowania wyzerowany zdarzeniem systemowym, repack_required + baner, Base. 138620 (gdy cały
+    towar zszedł z produkcji), log `przepakowanie`, paczki i weryfikacja kasują się jedną regułą (spec 4.5).
+    `nowy` None = „Nie ustawiono”. Zwraca True, gdy ustawiła do wysyłki status 138620. NIE commituje.
+    """
+    spakowane = [p for p in aktywne_produkty(order)
+                 if p.current_status in sposoby.STATUSY_PO_SPAKOWANIU]
+    order.repack_required = True
+    for p in spakowane:
+        # Zdarzenie systemowe bez atrybucji: cofnięcie spakowania nie jest
+        # niczyją pracą, a statystyki pierwotnego pakowacza zostają.
+        p.set_quantity_done('packaging', 0, source='system')
+        p.packaging_completed_at = None
+        p.current_status = 'czeka_na_pakowanie'
+    nowy_status = False
+    if all(p.current_status in STATUSY_PO_PRODUKCJI for p in aktywne_produkty(order)):
+        order.bl_status_pending_id = sposoby.STATUS_PRODUKCJA_ZAKONCZONA
+        nowy_status = True
+    zapisz_log(order, 'przepakowanie', stary, nowy, user_id=user_id, teraz=teraz)
+    # Powód z Weryfikacji (np. „Weryfikacja: Uszkodzenie: …”) jest ważniejszy niż baner panelu: zostaje na
+    # tablecie pakowania, bo inaczej przepadłby po zmianie sposobu dostawy. Nadpisujemy tylko baner
+    # systemowy (brak, „Przepakuj na kuriera”, wcześniejszy „Logistyka: …”). repack_required ustawione wyżej.
+    tekst = (sposoby.PRZEPAKUJ_NA_KURIERA
+             if nowy == sposoby.KURIER and stary in (sposoby.TRANSPORT, sposoby.ODBIOR)
+             else sposoby.baner_logistyki(nowy))
+    if sposoby.baner_systemowy(order.repack_reason):
+        order.repack_reason = tekst
+    # Jedna reguła (spec 4.5): zamówienie wróciło do pakowania — paczki i weryfikacja kasują się.
+    from modules.production.logistics.services import weryfikacja
+    weryfikacja.uniewaznij_etapy(order, teraz, u'cofnięcie do pakowania z panelu', user_id=user_id)
+    return nowy_status
 
 
 def _zdejmij_baner_przepakowania_na_kuriera(order):
@@ -345,8 +414,9 @@ def _cofnij_sposob(order, stary, user_id, teraz):
     której dotyczyły, już nie obowiązuje). Metody, która do Base. już poszła, nie
     „odwołujemy” — Base. nie ma pustej metody dostawy; logistyk ustawi właściwy
     sposób i ten nadpisze ją przy następnej wysyłce. Tak samo zostaje status po
-    spakowaniu, który już poszedł do Base. Wołana tylko, gdy nic nie jest spakowane
-    (patrz ustaw_sposob_dostawy). Tablet: pozycje, które nie są
+    spakowaniu, który już poszedł do Base. Wołana tylko, gdy nic nie jest spakowane albo gdy
+    ustaw_sposob_dostawy dopiero co cofnęło spakowane pozycje do pakowania (spec 8.7).
+    Tablet: pozycje, które nie są
     jeszcze spakowane, znów blokują pakowanie (409 delivery_method_not_set), a
     zamówienie wraca na listę otwartych (przelicz_zamkniecie).
     """
@@ -357,6 +427,7 @@ def _cofnij_sposob(order, stary, user_id, teraz):
     if order.bl_status_pending_id in sposoby.STATUS_PO_SPAKOWANIU.values():
         order.bl_status_pending_id = None
     # Przepakowanie na kuriera bez kuriera nie ma sensu (jak przy zmianie na transport).
+    _odswiez_baner_logistyki(order, None)
     _zdejmij_baner_przepakowania_na_kuriera(order)
     zapisz_log(order, 'sposob_dostawy', stary, None, user_id=user_id, teraz=teraz)
     podbij_pozycje(order, teraz)

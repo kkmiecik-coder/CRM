@@ -64,7 +64,7 @@ def test_zmiana_sposobu_podbija_updated_at_wszystkich_pozycji(app):
 def test_zmiana_po_spakowaniu_ustawia_status_base_nowego_sposobu(app):
     with app.app_context():
         order = zamowienie(sposob=s.KURIER, statusy=('spakowane',))
-        d.ustaw_sposob_dostawy(order, s.TRANSPORT, teraz=T0)
+        d.ustaw_sposob_dostawy(order, s.TRANSPORT, teraz=T0, przepakowanie=False)
         assert order.bl_status_pending_id == s.STATUS_PLANOWANA_TRASA
         assert order.products[0].current_status == 'spakowane'  # bez przepakowania
 
@@ -72,7 +72,7 @@ def test_zmiana_po_spakowaniu_ustawia_status_base_nowego_sposobu(app):
 def test_przepakowanie_na_kuriera(app):
     with app.app_context():
         order = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane', 'spakowane'))
-        wynik = d.ustaw_sposob_dostawy(order, s.KURIER, user_id=3, teraz=T0)
+        wynik = d.ustaw_sposob_dostawy(order, s.KURIER, user_id=3, teraz=T0, przepakowanie=True)
         db.session.commit()
         assert wynik['przepakowanie'] is True
         assert order.repack_required is True
@@ -91,7 +91,7 @@ def test_zmiana_z_przepakowania_na_inny_niz_kurier_kasuje_flage(app):
     transportu/odbioru — towar i tak wraca do zwykłego pakowania."""
     with app.app_context():
         order = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane',))
-        d.ustaw_sposob_dostawy(order, s.KURIER, teraz=T0)
+        d.ustaw_sposob_dostawy(order, s.KURIER, teraz=T0, przepakowanie=True)
         assert order.repack_required is True
         d.ustaw_sposob_dostawy(order, s.ODBIOR, teraz=T1)
         assert order.repack_required is False
@@ -103,7 +103,7 @@ def test_spakowanie_po_przepakowaniu_kasuje_zalegly_status_138620(app):
     """Review Focus 3: stary 138620 nie może nadpisać świeżego 138623."""
     with app.app_context():
         order = zamowienie(sposob=s.ODBIOR, statusy=('spakowane',))
-        d.ustaw_sposob_dostawy(order, s.KURIER, teraz=T0)
+        d.ustaw_sposob_dostawy(order, s.KURIER, teraz=T0, przepakowanie=True)
         p = order.products[0]
         p.current_status = 'spakowane'
         d.po_spakowaniu(order, T1)
@@ -118,7 +118,7 @@ def test_zalegly_138620_kasowany_po_spakowaniu_takze_bez_flagi_przepakowania(app
     go PO statusie po spakowaniu (417343), cofając Base. do „Produkcja zakończona”."""
     with app.app_context():
         order = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane', 'spakowane'))
-        d.ustaw_sposob_dostawy(order, s.KURIER, teraz=T0)
+        d.ustaw_sposob_dostawy(order, s.KURIER, teraz=T0, przepakowanie=True)
         db.session.commit()
         assert order.repack_required is True
         assert order.bl_status_pending_id == s.STATUS_PRODUKCJA_ZAKONCZONA
@@ -140,7 +140,7 @@ def test_zmiana_sposobu_bez_nowego_statusu_kasuje_nieaktualny_status_po_spakowan
     spakowane), a 149777 „Czeka na odbiór” dla zamówienia w produkcji jest nieaktualne."""
     with app.app_context():
         order = zamowienie(sposob=s.KURIER, statusy=('spakowane',))
-        d.ustaw_sposob_dostawy(order, s.ODBIOR, teraz=T0)
+        d.ustaw_sposob_dostawy(order, s.ODBIOR, teraz=T0, przepakowanie=False)
         assert order.bl_status_pending_id == s.STATUS_CZEKA_NA_ODBIOR
         produkt(order, status='czeka_na_wyciecie')
         db.session.commit()
@@ -155,7 +155,7 @@ def test_przepakowanie_bez_138620_kasuje_nieaktualny_status_po_spakowaniu(app):
     więc zostałby 417343 „Planowana trasa” dla zamówienia kurierskiego."""
     with app.app_context():
         order = zamowienie(sposob=s.ODBIOR, statusy=('spakowane',))
-        d.ustaw_sposob_dostawy(order, s.TRANSPORT, teraz=T0)
+        d.ustaw_sposob_dostawy(order, s.TRANSPORT, teraz=T0, przepakowanie=False)
         assert order.bl_status_pending_id == s.STATUS_PLANOWANA_TRASA
         produkt(order, status='czeka_na_wyciecie')
         db.session.commit()
@@ -176,7 +176,7 @@ def test_zmiana_sposobu_nie_rusza_znacznika_spoza_statusow_po_spakowaniu(app):
 def test_kurier_na_transport_po_spakowaniu_bez_przepakowania(app):
     with app.app_context():
         order = zamowienie(sposob=s.KURIER, statusy=('spakowane',))
-        assert d.ustaw_sposob_dostawy(order, s.ODBIOR, teraz=T0)['przepakowanie'] is False
+        assert d.ustaw_sposob_dostawy(order, s.ODBIOR, teraz=T0, przepakowanie=False)['przepakowanie'] is False
         assert order.repack_required is False
         assert order.bl_status_pending_id == s.STATUS_CZEKA_NA_ODBIOR
         assert order.logistics_closed_at is None  # odbiór czeka na wydanie

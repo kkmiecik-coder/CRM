@@ -404,7 +404,7 @@ def test_status_wyczyszczony_w_trakcie_setorderfields_nie_jest_wysylany(app, mon
         order = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane',),
                            delivery_method='Transport WoodPower')
         from modules.production.logistics.services import delivery
-        delivery.ustaw_sposob_dostawy(order, s.KURIER)
+        delivery.ustaw_sposob_dostawy(order, s.KURIER, przepakowanie=True)
         db.session.commit()
         assert order.bl_status_pending_id == s.STATUS_PRODUKCJA_ZAKONCZONA
         assert order.bl_delivery_method_pending is True

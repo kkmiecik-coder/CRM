@@ -151,6 +151,13 @@ def delivery_method():
         return _blad(u'Identyfikatory zamówień muszą być liczbami całkowitymi.', 422)
     if sposob is None:
         return _blad(u'Nieznany sposób dostawy.', 422)
+    # Spec 8.7: decyzja logistyka o zamówieniach w całości spakowanych. Brak pola albo null = brak decyzji;
+    # każda inna wartość niż true/false to błąd (1, "tak", [] itd. nie przechodzą za decyzję).
+    przepakowanie_decyzja = dane.get('przepakowanie')
+    if przepakowanie_decyzja is not None and not isinstance(przepakowanie_decyzja, bool):
+        return _blad(u'Pole przepakowanie musi mieć wartość true albo false.', 422)
+    # PRZED _zapis_pod_blokada: po commicie current_user.id to zwykły SELECT (migawka sprzed blokady).
+    user_id = _user_id()
 
     # Blokada globalna tras PRZED pierwszym zapisem (fix-1, Ruling A7) — kolejność
     # „trasa najpierw": bez tego pętla niżej mogłaby trzymać blokady wierszy pozycji
@@ -158,16 +165,27 @@ def delivery_method():
     # (trzymające jej blokadę) czekałoby na podbicie tych samych pozycji — zakleszczenie.
     # (I1) Także przed odczytem zamówień — patrz _zapis_pod_blokada.
     _zapis_pod_blokada()
+    # Spec 8.7: wiersze zamówień FOR UPDATE rosnąco po id (jak hurt statusu i cron), potem zwykły odczyt
+    # z pozycjami. Migawka powstaje dopiero teraz, więc decyzja „w całości spakowane” widzi wszystko, co
+    # zatwierdzono przed blokadami (np. Weryfikację albo deklarację paczek). Pozycji nie blokujemy:
+    # stanowiska biorą pozycję przed zamówieniem (1213).
+    db.session.query(ProductionOrder.id).filter(ProductionOrder.id.in_(ids)) \
+        .order_by(ProductionOrder.id).with_for_update().all()
 
     zmienione, przepakowanie, bledy, usunieto = [], [], [], []
     # selectinload: pozycje wszystkich zamówień jednym zapytaniem, nie zamówienie
     # po zamówieniu (hurt do LIMIT_HURTU zamówień, a pozycji potrzebuje każda zmiana).
+    # populate_existing: obiekty z sesji (np. z wcześniejszych odczytów) nadpisujemy stanem spod blokad.
     for order in (ProductionOrder.query.options(selectinload(ProductionOrder.products))
-                  .filter(ProductionOrder.id.in_(ids)).all()):
+                  .filter(ProductionOrder.id.in_(ids)).order_by(ProductionOrder.id)
+                  .populate_existing().all()):
         try:
-            wynik = delivery.ustaw_sposob_dostawy(order, sposob, user_id=_user_id())
+            wynik = delivery.ustaw_sposob_dostawy(order, sposob, user_id=user_id,
+                                                  przepakowanie=przepakowanie_decyzja)
         except delivery.LogistykaBlad as e:
-            bledy.append({'order_id': order.id, 'komunikat': e.komunikat})
+            wpis = {'order_id': order.id, 'komunikat': e.komunikat}
+            wpis.update(e.dane or {})
+            bledy.append(wpis)
             continue
         if wynik['zmieniono']:
             zmienione.append(order.id)
@@ -177,7 +195,7 @@ def delivery_method():
             usunieto.append({'order_id': order.id, 'trasa': wynik['usunieto_z_trasy']})
     db.session.commit()
     logger.info("Logistyka: zmiana sposobu dostawy", extra={
-        'user_id': _user_id(), 'sposob': sposob, 'zmienione': len(zmienione),
+        'user_id': user_id, 'sposob': sposob, 'zmienione': len(zmienione),
         'bledy': len(bledy)})
 
     bl_sync.po_zmianie(zmienione)

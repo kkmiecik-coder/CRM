@@ -79,7 +79,7 @@ def test_ponowienie_po_zmianie_sposobu_nie_wysyla_starego_celu(app, base):
         plan = _pierwsza_proba_pada(app, base, order, 'packaging')
         assert plan['target_status_id'] == s.STATUS_SPAKOWANE
 
-        delivery.ustaw_sposob_dostawy(order, s.ODBIOR)
+        delivery.ustaw_sposob_dostawy(order, s.ODBIOR, przepakowanie=False)
         db.session.commit()
         assert order.bl_status_pending_id == s.STATUS_CZEKA_NA_ODBIOR
         order.bl_status_pending_id = None  # dopychacz wysłał 149777 i wyczyścił znacznik

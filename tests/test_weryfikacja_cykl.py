@@ -62,15 +62,19 @@ def test_wydanie_tylko_ze_spakowanego_albo_zweryfikowanego(app, statusy):
 
 def test_cofniecie_do_nie_ustawiono_odmawia_przy_zweryfikowanym(app):
     order = zamowienie(sposob=s.KURIER, statusy=('zweryfikowane',))
-    with pytest.raises(d.LogistykaBlad):
+    with pytest.raises(d.LogistykaBlad) as e:
         d.ustaw_sposob_dostawy(order, s.BRAK, teraz=T0)
+    # Spec 8.7: zamówienie w całości spakowane (także zweryfikowane) dostaje decyzję zamiast dawnego błędu
+    # „nie da się cofnąć”; „Nie ustawiono” jest możliwe tylko razem z cofnięciem do pakowania.
+    assert e.value.dane['kod'] == 'wymaga_decyzji_przepakowania'
+    assert e.value.dane['opcje'] == ['przepakuj']
 
 
 def test_przepakowanie_zweryfikowanego_uniewaznia_paczki_i_weryfikacje(app):
     order = zamowienie(sposob=s.TRANSPORT, statusy=('zweryfikowane', 'zweryfikowane'),
                        verified_at=T0, verified_by_worker_id=3)
     stare = _paczki(order, zweryfikowane=True)
-    wynik = d.ustaw_sposob_dostawy(order, s.KURIER, user_id=7, teraz=T1)
+    wynik = d.ustaw_sposob_dostawy(order, s.KURIER, user_id=7, teraz=T1, przepakowanie=True)
     db.session.commit()
     assert wynik['przepakowanie'] is True
     assert [p.current_status for p in order.products] == ['czeka_na_pakowanie', 'czeka_na_pakowanie']
@@ -117,7 +121,7 @@ def test_przepakowanie_na_kuriera_nie_nadpisuje_banera_z_weryfikacji(app):
     tekst = u'Weryfikacja: Uszkodzenie: pęknięty blat'
     order = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane', 'spakowane'),
                        repack_required=True, repack_reason=tekst)
-    wynik = d.ustaw_sposob_dostawy(order, s.KURIER, teraz=T1)
+    wynik = d.ustaw_sposob_dostawy(order, s.KURIER, teraz=T1, przepakowanie=True)
     assert wynik['przepakowanie'] is True
     assert (order.repack_required, order.repack_reason) == (True, tekst)
     assert [p.current_status for p in order.products] == ['czeka_na_pakowanie', 'czeka_na_pakowanie']
@@ -127,7 +131,7 @@ def test_przepakowanie_na_kuriera_nie_nadpisuje_banera_z_weryfikacji(app):
 def test_przepakowanie_na_kuriera_bez_powodu_z_weryfikacji_ustawia_przepakuj_na_kuriera(app, powod):
     order = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane',), repack_required=bool(powod),
                        repack_reason=powod)
-    d.ustaw_sposob_dostawy(order, s.KURIER, teraz=T1)
+    d.ustaw_sposob_dostawy(order, s.KURIER, teraz=T1, przepakowanie=True)
     assert (order.repack_required, order.repack_reason) == (True, s.PRZEPAKUJ_NA_KURIERA)
 
 
@@ -141,7 +145,10 @@ def bez_base(monkeypatch):
 
 
 def _zmien_sposob_w_panelu(client, order, sposob):
-    return client.post(BASE + '/orders/delivery-method', json={'order_ids': [order.id], 'sposob': sposob})
+    # Wszystkie wołania w tym pliku to zmiana na kuriera z transportu na zamówieniu w całości spakowanym —
+    # dawne automatyczne przepakowanie, od spec 8.7 jawna decyzja logistyka.
+    return client.post(BASE + '/orders/delivery-method',
+                       json={'order_ids': [order.id], 'sposob': sposob, 'przepakowanie': True})
 
 
 def test_panel_transport_na_kuriera_uniewaznia_paczki_i_ustawia_powod(app, client, bez_base):

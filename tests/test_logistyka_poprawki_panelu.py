@@ -64,7 +64,7 @@ def test_cofniecie_spakowanego_to_blad(app, sposob):
 def test_spakowane_pod_transport_prosto_na_kuriera_to_przepakowanie(app):
     with app.app_context():
         order = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane',))
-        assert delivery.ustaw_sposob_dostawy(order, s.KURIER)['przepakowanie'] is True
+        assert delivery.ustaw_sposob_dostawy(order, s.KURIER, przepakowanie=True)['przepakowanie'] is True
         assert order.repack_required is True
 
 

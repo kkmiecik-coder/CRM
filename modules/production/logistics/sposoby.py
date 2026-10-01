@@ -50,6 +50,23 @@ STATUSY_PO_SPAKOWANIU = ('spakowane', 'zweryfikowane', 'zaladowane', 'dostarczon
 STATUSY_LOGISTYCZNE = ('zweryfikowane', 'zaladowane', 'dostarczone')
 # Tekst banera na tablecie pakowania przy przepakowaniu na kuriera (transport.repack_reason).
 PRZEPAKUJ_NA_KURIERA = u'Przepakuj na kuriera'
+# Baner po „Cofnij do pakowania” z panelu Logistyki (spec 8.7). Prefiks odróżnia baner panelu, który kolejna
+# zmiana sposobu przepisuje, od powodu z Weryfikacji („Weryfikacja: …”), którego system nie nadpisuje.
+PREFIKS_BANERA_LOGISTYKI = u'Logistyka: '
+
+
+def baner_logistyki(sposob):
+    """Tekst banera przepakowania z panelu; `sposob` None = „Nie ustawiono”."""
+    s = normalizuj(sposob)
+    if s is None:
+        return PREFIKS_BANERA_LOGISTYKI + u'sposób dostawy do ustalenia'
+    return PREFIKS_BANERA_LOGISTYKI + u'zmiana sposobu dostawy na ' + _ETYKIETA[s]
+
+
+def baner_systemowy(tekst):
+    """Baner, który system może nadpisać: brak, „Przepakuj na kuriera” albo baner panelu (spec 8.7)."""
+    return not tekst or tekst == PRZEPAKUJ_NA_KURIERA or tekst.startswith(PREFIKS_BANERA_LOGISTYKI)
+
 
 # Szacunek wagi drewna (logistyka etap 4, spec 7.1): podpowiedź paczek na tablecie pakowania,
 # podsumowanie trasy i eksport Routimo liczą z tej samej gęstości (etykieta paczki ma kopię
