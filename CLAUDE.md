@@ -281,9 +281,12 @@ Albo po prostu `./deploy.sh` — robi dokładnie to samo, z lockiem i logami.
   klientów trwa do 300 s) stary kod wciąż zapisuje `czeka_na_logistyke`; cron przenosi takie produkty do
   pakowania (`przeniesione_z_logistyki` w odpowiedzi), inaczej do pierwszego godzinnego przebiegu nie widzi
   ich żaden tablet ani filtr. **Po wdrożeniu kroku 4.3 logistyki uruchom cron tak samo raz ręcznie, po
-  restarcie** — przestawia pozycje już wydanych odbiorów osobistych na `dostarczone`
-  (`wydane_dostarczone` w odpowiedzi). Migracja tego nie robi, bo stary kod w oknie wdrożenia nie zna tej
-  wartości ENUM (odczyt takiego wiersza rzuciłby `LookupError`, czyli 500 na listach).
+  restarcie** — jednorazowo przestawia pozycje już wydanych odbiorów osobistych na `dostarczone`
+  (`wydane_dostarczone` w odpowiedzi; znacznik `logistyka_wydane_dostarczone` w `prod_config` blokuje kolejne
+  przebiegi). Migracja tego nie robi, bo stary kod w oknie wdrożenia nie zna tej
+  wartości ENUM (odczyt takiego wiersza rzuciłby `LookupError`, czyli 500 na listach). Z tego samego powodu
+  wycofanie 4.3 po zapisaniu nowych statusów wymaga migracji cofającej je na `spakowane` — gotowy przepis
+  w specu etapu 4, sekcja 14.
 - **Trasy logistyki — jeden piszący naraz:** każda funkcja, która zmienia trasy albo przystanki (także zmiana
   sposobu dostawy, adresu i pinezki zamówienia z trasy oraz nazwy pojazdu; pod tą samą blokadą idzie też
   „Wydane klientowi”), bierze **najpierw** blokadę `routes.zablokuj_trasy()` (`logistics/services/routes.py`):
@@ -301,8 +304,12 @@ Albo po prostu `./deploy.sh` — robi dokładnie to samo, z lockiem i logami.
   `prod_config`, migracja `2026-09-30-logistyka-paczki-blokada.sql`) przed blokadą zamówienia; dwie pierwsze
   deklaracje różnych zamówień bez niej zakleszczały się na luce indeksu `prod_packages` (MySQL 1213).
   Zapisy telefonu Weryfikacji (`/api/mobile/verification/*`) biorą tę samą blokadę: pracownicy →
-  `paczki.zablokuj_deklaracje()` → zamówienie po PK → paczki → pozycje. Reguła `weryfikacja.uniewaznij_etapy`
-  (powrót pozycji do produkcji) blokady globalnej nie bierze — zapisuje najpierw zamówienie, potem paczki.
+  `paczki.zablokuj_deklaracje()` → zamówienie po PK → paczki → pozycje (`paczki.zablokuj_stan`) i decydują na
+  odczycie bieżącym; deklaracja paczek tak samo, z wstępną odmową „nie w całości spakowane” przed blokadą pozycji.
+  Reguła `weryfikacja.uniewaznij_etapy` (powrót pozycji do produkcji) blokady globalnej nie bierze; gdy ma pracę,
+  potwierdza ją odczytem bieżącym w tej samej kolejności. Hurtowa zmiana statusu i cron logistyki blokują
+  zamówienia rosnąco po id. Stanowiska (ZAKOŃCZ, doróbka) i synchronizacja biorą pozycję przed zamówieniem —
+  z zapisami Weryfikacji możliwe rzadkie 1213 (500, ponowienie z kolejki offline przechodzi).
 
 ## Architecture
 

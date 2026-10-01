@@ -404,15 +404,18 @@ produktu) otwiera zamówienie; inne kody → komunikat „Nieznany kod”.
   **po** blokadzie odczytem bieżącym (`with_for_update().populate_existing()`): MySQL pracuje na REPEATABLE READ,
   a migawka powstaje przy pierwszym zwykłym odczycie transakcji (już w `before_request`), więc zwykły odczyt po
   blokadzie pokazałby stan sprzed czekania i po cichu nadpisał cudze przepakowanie, „Wydane klientowi” albo pierwszy
-  z dwóch skanów. Reguła unieważniania (8.5) blokady globalnej nie bierze: zapisuje najpierw zamówienie, potem paczki.
-  Wyścigi na dwóch sesjach MySQL (Task 10: kopia produkcji, 13 par operacji × 5 przebiegów i serie dodatkowe z
-  opóźnieniem jednej strony) nie pokazały zakleszczeń ani niespójności w parach zapisów Weryfikacji, w pierwszej
-  deklaracji względem reguły, w ACK agenta druku i w podwójnym skanie, a wskazały trzy miejsca poza tą kolejnością:
-  deklaracja paczek czyta statusy pozycji z migawki po czekaniu na blokadę (zamówienie zweryfikowane z niesprawdzonymi
-  aktualnymi paczkami), hurtowa zmiana statusu zapisuje pozycje przed zamówieniem (zakleszczenie z weryfikacją — 500 i
-  ponowienie tym samym `X-Operation-Id` daje 200 — albo `verified_at` zostaje po powrocie do pakowania), a doróbka
-  (`reject`) blokuje pozycję przed zamówieniem (zakleszczenie z zapisem Weryfikacji, także samonaprawiające się);
-  decyzja o poprawkach należy do Konrada.
+  z dwóch skanów. Reguła unieważniania (8.5) blokady globalnej nie bierze; gdy ma pracę, potwierdza ją odczytem
+  bieżącym w tej samej kolejności (zamówienie → paczki → pozycje). Deklaracja paczek bierze ten sam odczyt bieżący,
+  ale najpierw odmawia „nie w całości spakowane” na migawce, zanim sięgnie po pozycje: ostatnie „ZAKOŃCZ” trzyma
+  pozycję i sięga po zamówienie, więc czekanie na pozycje pod blokadą zamówienia dawało 1213. Hurtowa zmiana statusu
+  i cron logistyki blokują zamówienia rosnąco po id przed pozycjami.
+  Wyścigi na dwóch sesjach MySQL (Task 10, kopia produkcji: 13 par operacji × 5 przebiegów i serie z opóźnieniem
+  jednej strony, po fali poprawek powtórka w ponad 300 przebiegach) nie pokazują niespójności ani zakleszczeń w
+  zapisach Weryfikacji, deklaracji paczek względem weryfikacji, „ZAKOŃCZ” i reguły, hurtowej zmianie statusu, ACK
+  agenta druku ani w podwójnym skanie. Znany wyjątek: doróbka (`reject`) blokuje pozycję przed zamówieniem — w stanie
+  sztucznym (paczki jeszcze ważne, pozycja już w pakowaniu) zakleszcza się z zapisem Weryfikacji, w stanie realnym
+  0 z 11; ofiara dostaje 500, a ponowienie tym samym `X-Operation-Id` przechodzi. Kolejność „zamówienie najpierw”
+  dla wszystkich pisarzy stanowisk to osobna decyzja Konrada.
 
 ### 8.4 Cofnięcie do pakowania
 
@@ -566,6 +569,9 @@ Plan każdego kroku dostaje sesja appki. Zakres:
 |---|---|
 | Deklaracja paczek przed końcem pakowania | 409 `order_not_packed` |
 | Deklaracja po weryfikacji | 409 `order_verified` |
+| Zapis Weryfikacji na zamówieniu spoza listy (zamknięte w Logistyce, spakowane ponad 7 dni temu albo przed wdrożeniem 4.3, bez otwartego problemu) | 409 `order_status`; `problem/resolve` i szczegóły zamówienia działają zawsze |
+| Akcja Weryfikacji, gdy pozycja w międzyczasie wróciła do produkcji | 409 `order_not_packed` |
+| Cofnięcie do pakowania bez powodu | 422 `invalid_problem` (zapamiętane w idempotencji) |
 | Skan unieważnionej etykiety | 409 `package_void` „Etykieta nieaktualna — paczki zadeklarowano ponownie” |
 | Weryfikacja przy otwartym problemie | 409 `problem_open` |
 | Załadunek niezweryfikowanego | 409 `order_not_verified` |
@@ -585,6 +591,18 @@ Komunikaty po polsku, w API z `error` (kod) i `message` (tekst dla człowieka).
    dwiema drukarkami; drukarka paczek w sieci hali, kalibracja, „Wydruk próbny”, ustawienie przesunięcia.
 2. **4.2:** backend (przyjmuje pakowanie z deklaracją i bez), potem appka z oknem paczek.
 3. **4.3:** backend + appka z Weryfikacją; rejestracja telefonu weryfikatora, pracownik biura w `prod_workers`.
+   Stara appka tabletów (v1.6.4) znosi nowe statusy (status to napis, nieznany daje tylko usterki wyglądu do nowego
+   APK), więc backend może wejść przed appką. Po restarcie raz ręcznie cron logistyki: jednorazowo przestawia
+   wydane odbiory osobiste na `dostarczone` i zapisuje znacznik `logistyka_wydane_dostarczone` w `prod_config`;
+   kolejne przebiegi niczego nie przestawiają (doróbka po wydaniu nie staje się sama „dostarczona”).
+   Gdy znacznik ma chwilę sprzed restartu (godzinny cron trafił w oknie wdrożenia na nowy worker gunicorna),
+   usuń wiersz i uruchom cron ponownie — inaczej wydania starym kodem do restartu zostaną `spakowane`.
+   **Wycofanie** po zapisaniu nowych statusów: stary kod nie zna ich w Enum (`LookupError`, czyli 500 na listach,
+   w archiwum, wyszukiwarce tabletów i monitorach), więc revert na `main` musi nieść migrację, która wykona się
+   przed restartem: `UPDATE prod_products SET current_status='spakowane' WHERE current_status IN
+   ('zweryfikowane','zaladowane','dostarczone');` oraz `DELETE FROM prod_config WHERE
+   config_key='logistyka_wydane_dostarczone';` (ponowne wdrożenie znów przestawi wydane). ENUM-y, kolumny
+   i log mogą zostać — stary kod ich nie czyta.
 4. **4.4:** status „Załadowane – trans. WoodPower” założony w Base. (numer do `sposoby.STATUS_ZALADOWANE`), backend +
    appka z Dostawą; telefon kierowcy, kierowca oznaczony we Flocie.
 5. **4.5:** backend.
