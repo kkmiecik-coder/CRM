@@ -209,7 +209,9 @@ def test_baner_na_tablecie_i_ponowne_spakowanie(app, client, dopychacz):
     tablet = _urzadzenie('packaging')
     r = client.get('/api/mobile/stations/packaging/orders', headers={'Authorization': 'Bearer ' + generate_token(tablet)})
     transport = r.get_json()['orders'][0]['transport']
-    assert (transport['repack_required'], transport['repack_reason']) == (True, u'Weryfikacja: Opakowanie')
+    # Baner z Weryfikacji idzie w API tylko jako repack_reason; repack_required=true znaczy tam wyłącznie
+    # „przepakuj na kuriera” (stara appka pokazałaby przy nim na sztywno „PRZEPAKUJ NA KURIERA”).
+    assert (transport['repack_required'], transport['repack_reason']) == (False, u'Weryfikacja: Opakowanie')
     assert mobile_api.KSZTALT_ODPOWIEDZI_KOLEJKI == 5
     o = ProductionOrder.query.get(order.id)
     for p in o.products:

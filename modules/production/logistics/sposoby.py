@@ -107,6 +107,12 @@ def transport_payload(order, trasa=None):
     Obiekt `transport` API mobilnego. ZAWSZE słownik, nigdy None — brak obiektu
     oznacza dla appki stary backend (brak blokady pakowania).
     `trasa` dochodzi w etapie 3; do tego czasu pola trip_* są puste.
+
+    `repack_required` znaczy w API WYŁĄCZNIE „przepakuj na kuriera” (patrz _przepakowanie_na_kuriera).
+    Nowa appka pokazuje baner, gdy jest `repack_reason`, a stara nie zna tego pola i przy każdym
+    `repack_required = true` pokazuje na sztywno „PRZEPAKUJ NA KURIERA”. Baner z Weryfikacji
+    („Weryfikacja: …”) i z panelu („Logistyka: …”) idzie więc tylko w `repack_reason`, żeby stara appka
+    nie wydała pakowaczowi błędnego polecenia. Kolumna `prod_orders.repack_required` i logika CRM bez zmian.
     """
     sposob = normalizuj(getattr(order, 'override_delivery_method', None)) if order is not None else None
     pojazd = getattr(trasa, 'vehicle', None) if trasa is not None else None
@@ -116,16 +122,29 @@ def transport_payload(order, trasa=None):
         'trip_name': trasa.name if trasa is not None else None,
         'trip_date': data.isoformat() if data is not None else None,
         'vehicle_name': pojazd.name if pojazd is not None else None,
-        'repack_required': bool(getattr(order, 'repack_required', False)) if order is not None else False,
+        'repack_required': _przepakowanie_na_kuriera(order),
         'repack_reason': _tekst_przepakowania(order),
     }
 
 
+def _przepakowanie_na_kuriera(order):
+    """
+    Czy baner dotyczy kuriera: `repack_required` jest prawdą, a powód jest pusty (stare przepakowanie sprzed
+    kroku 4.3) albo równy „Przepakuj na kuriera”. Baner z Weryfikacji i z panelu to NIE jest przepakowanie
+    na kuriera — dla starej appki (zna tylko `repack_required`) zostaje wtedy False.
+    """
+    if order is None or not getattr(order, 'repack_required', False):
+        return False
+    powod = getattr(order, 'repack_reason', None)
+    return not powod or powod == PRZEPAKUJ_NA_KURIERA
+
+
 def _tekst_przepakowania(order):
     """
-    Tekst banera na tablecie pakowania (logistyka etap 4, spec 8.4): powód z Weryfikacji albo
-    przepakowania na kuriera. Stare repack_required bez tekstu (sprzed kroku 4.3) → tekst domyślny.
-    Bez przepakowania — None (appka pokazuje baner tylko przy repack_required).
+    Tekst banera na tablecie pakowania (logistyka etap 4, spec 8.4 i 8.7): powód z Weryfikacji, z panelu
+    Logistyki albo przepakowania na kuriera. Stare repack_required bez tekstu (sprzed kroku 4.3) → tekst
+    domyślny. Bez przepakowania — None. Nowa appka pokazuje baner, gdy jest ten tekst; stara tylko przy
+    `repack_required`, dlatego `repack_required` w API oznacza wyłącznie przepakowanie na kuriera.
     """
     if order is None or not getattr(order, 'repack_required', False):
         return None

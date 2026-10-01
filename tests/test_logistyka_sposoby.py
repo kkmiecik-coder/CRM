@@ -58,6 +58,32 @@ def test_transport_z_powodem_z_weryfikacji():
     assert s.transport_payload(order)['repack_reason'] is None
 
 
+@pytest.mark.parametrize('powod, oczekiwane', [
+    # Przepakowanie na kuriera: stara appka (zna tylko repack_required) pokazuje „PRZEPAKUJ NA KURIERA” słusznie.
+    (s.PRZEPAKUJ_NA_KURIERA, (True, s.PRZEPAKUJ_NA_KURIERA)),
+    # Stare repack_required bez tekstu (sprzed kroku 4.3) to też przepakowanie na kuriera.
+    (None, (True, s.PRZEPAKUJ_NA_KURIERA)),
+    (u'', (True, s.PRZEPAKUJ_NA_KURIERA)),
+    # Baner z panelu i z Weryfikacji idzie tylko w repack_reason: stara appka nie dostaje repack_required=true,
+    # bo pokazałaby pakowaczowi błędne „PRZEPAKUJ NA KURIERA”.
+    (s.baner_logistyki(s.ODBIOR), (False, s.baner_logistyki(s.ODBIOR))),
+    (s.baner_logistyki(None), (False, s.baner_logistyki(None))),
+    (u'Weryfikacja: Uszkodzenie: pęknięty blat', (False, u'Weryfikacja: Uszkodzenie: pęknięty blat')),
+])
+def test_repack_required_w_api_to_tylko_przepakowanie_na_kuriera(powod, oczekiwane):
+    order = NS(override_delivery_method=s.KURIER, repack_required=True, repack_reason=powod)
+    transport = s.transport_payload(order)
+    assert (transport['repack_required'], transport['repack_reason']) == oczekiwane
+
+
+@pytest.mark.parametrize('powod', [None, u'', s.PRZEPAKUJ_NA_KURIERA, u'Logistyka: sposób dostawy do ustalenia',
+                                   u'Weryfikacja: Opakowanie'])
+def test_bez_przepakowania_api_daje_false_i_none(powod):
+    order = NS(override_delivery_method=s.KURIER, repack_required=False, repack_reason=powod)
+    transport = s.transport_payload(order)
+    assert (transport['repack_required'], transport['repack_reason']) == (False, None)
+
+
 def test_transport_dla_braku_zamowienia_to_nadal_obiekt():
     """Nowy backend ZAWSZE wysyła obiekt — appka odróżnia po nim stary backend."""
     assert s.transport_payload(None)['mode'] is None
