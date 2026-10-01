@@ -453,3 +453,53 @@ def test_odczyt_zamowienia_poza_zakresem_zostaje_bez_ograniczenia(app, client):
     order = _stary_kurier()
     r = client.get('%s/orders/%s' % (BASE, order.internal_order_number), headers=_naglowki(_urzadzenie()))
     assert r.status_code == 200 and r.get_json()['order']['internal_order_number'] == order.internal_order_number
+
+
+# --- Zakres sprawdzany dopiero przed faktycznym zapisem (fala końcowa 4.3, F12) -------------------------
+
+def test_ponowny_skan_sprawdzonej_paczki_poza_zakresem_to_200_bez_zmian(app, client, dopychacz):
+    """Skan, który niczego nie zapisuje, nie sprawdza zakresu: stare zamówienie kurierskie (zweryfikowane,
+    paczki sprawdzone) daje 200 `changed: false`, jak przed F2."""
+    kto, device = pracownik(), _urzadzenie()
+    order = _stary_kurier(statusy=('zweryfikowane', 'zweryfikowane'), verified_at=T0)
+    przed = _stan(order)
+    r = _wywolaj(client, order, 'verify', device, kto)
+    assert r.status_code == 200, r.get_json()
+    assert (r.get_json()['changed'], r.get_json()['order_verified']) == (False, True)
+    assert _stan(order) == przed and _akcje(order) == [] and dopychacz == []
+
+
+def test_zweryfikuj_wszystkie_na_juz_zweryfikowanym_poza_zakresem_to_200_bez_zmian(app, client):
+    kto, device = pracownik(), _urzadzenie()
+    order = _stary_kurier(statusy=('zweryfikowane', 'zweryfikowane'), verified_at=T0)
+    przed = _stan(order)
+    r = _post(client, order, 'verify-all', device, kto)
+    assert r.status_code == 200, r.get_json()
+    assert r.get_json()['changed'] is False
+    assert _stan(order) == przed and _akcje(order) == []
+
+
+def test_skan_pierwszej_niesprawdzonej_paczki_poza_zakresem_to_409(app, client):
+    """Pierwszy skan zapisuje, więc zakres obowiązuje (to samo co w parametryzowanym teście `verify`,
+    tu z drugą paczką już sprawdzoną: zmiana nadal jest zapisem)."""
+    kto, device = pracownik(), _urzadzenie()
+    order = _stary_kurier()
+    ProductionPackage.query.filter_by(order_id=order.id, seq=2).one().verified_at = T0
+    db.session.commit()
+    przed = _stan(order)
+    r = _wywolaj(client, order, 'verify', device, kto)
+    assert (r.status_code, r.get_json()['error']) == (409, 'order_status')
+    assert _stan(order) == przed and ProcessedMobileOperation.query.count() == 0
+
+
+def test_domkniecie_z_f3_poza_zakresem_to_409(app, client):
+    """Skan sprawdzonej paczki, który domknąłby zamówienie (F3), jest zapisem, więc poza zakresem 409."""
+    kto, device = pracownik(), _urzadzenie()
+    order = _stary_kurier()
+    for p in ProductionPackage.query.filter_by(order_id=order.id):
+        p.verified_at, p.verified_method = T0, 'skan'
+    db.session.commit()
+    przed = _stan(order)
+    r = _wywolaj(client, order, 'verify', device, kto)
+    assert (r.status_code, r.get_json()['error']) == (409, 'order_status')
+    assert _stan(order) == przed and _akcje(order) == []

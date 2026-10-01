@@ -269,8 +269,12 @@ def uniewaznij_etapy(order, teraz, powod, user_id=None, worker_id=None, device_i
 
     Niezapisane zmiany wołającego nie giną: `populate_existing` NADPISUJE atrybuty obiektów w sesji, więc
     przed pierwszym zapytaniem jest jawny `flush()` (także gdy wołający wyłączył autoflush) — zmiany
-    lądują w bazie, a odczyt wczytuje z niej te same wartości. Zapis zamówienia poprzedza zapis pozycji
-    w jednym flushu (kolejność zależności tabel), więc flush nie odwraca kolejności blokad.
+    lądują w bazie, a odczyt wczytuje z niej te same wartości. Kolejność blokad w tym flushu: jeśli
+    wołający zmienił też zamówienie (panel: ustaw_sposob_dostawy), UPDATE zamówienia poprzedza UPDATE
+    pozycji (kolejność zależności tabel), więc kolejność jest ta sama co u Weryfikacji. Gdy zmienił tylko
+    pozycje (synchronizacja, doróbka), flush zapisuje najpierw pozycje, a dopiero potem reguła bierze
+    zamówienie: para pozycja → zamówienie jest znana i samonaprawiająca się (ofiara 1213 ponawia), a jej
+    pełne usunięcie to decyzja Konrada (doróbka, Task 10 sekcja 4.3).
     """
     if not _jest_praca_dla_reguly(order, delivery.aktywne_produkty(order)):
         return False
@@ -363,10 +367,11 @@ def problem_otwarty(order):
 
 def sprawdz_zakres(order, teraz):
     """
-    Zapis Weryfikacji tylko na zamówieniu z zakresu listy (fala końcowa kroku 4.3). Wołana w KAŻDYM
+    Zapis Weryfikacji tylko na zamówieniu z zakresu listy (fala końcowa kroku 4.3). Wołana w każdym
     zapisie poza `rozwiaz_problem`, PO blokadach i PO sprawdzeniach stanu (`stan_do_zapisu`,
     `problem_open`, `no_packages`, `order_not_verified` — bardziej konkretny kod wygrywa), tuż przed
-    pierwszym zapisem. Bez niej „Cofnij do pakowania” na zamówieniu kurierskim sprzed miesięcy
+    pierwszym FAKTYCZNYM zapisem: przebieg, który niczego by nie zmienił (ponowny skan sprawdzonej
+    paczki, „Zweryfikuj wszystkie” na już zweryfikowanym), zakresu nie sprawdza i daje 200 bez zmian. Bez niej „Cofnij do pakowania” na zamówieniu kurierskim sprzed miesięcy
     wysłałoby do Base. status 138620, otworzyło je w Logistyce i dało tabletom pakowania.
 
     Zakres = `warunek_zakresu(teraz)` (zamówienie otwarte w Logistyce albo z pozycją spakowaną od
@@ -415,7 +420,8 @@ def zweryfikuj_paczke(paczka, order, metoda, worker_id=None, device_id=None, ter
     Ostatnia ważna paczka → zamówienie 'zweryfikowane'. Ponowny skan sprawdzonej paczki = OK bez zmian,
     chyba że WSZYSTKIE aktualne paczki są już sprawdzone, a pozycje jeszcze nie są 'zweryfikowane'
     (po hurtowej zmianie statusów) — wtedy ten skan domyka zamówienie i zwraca (True, True).
-    Zapis tylko w zakresie listy (sprawdz_zakres).
+    Zapis tylko w zakresie listy (sprawdz_zakres), sprawdzany tuż przed faktycznym zapisem: ponowny skan
+    sprawdzonej paczki, który niczego nie zmienia, daje 200 bez zmian także poza zakresem.
     Router bierze paczki.zablokuj_deklaracje(), potem zamówienie i paczkę FOR UPDATE (w tej kolejności —
     jak deklaracja, zamówienie → paczki). Stan pozycji i paczek, na którym funkcja decyduje, pochodzi
     z odczytu bieżącego (stan_do_zapisu) — także „czy to była ostatnia paczka”. NIE commituje.
@@ -426,17 +432,19 @@ def zweryfikuj_paczke(paczka, order, metoda, worker_id=None, device_id=None, ter
     aktywne, aktualne = stan_do_zapisu(order)
     if order.problem_at is not None:
         raise problem_otwarty(order)
-    sprawdz_zakres(order, teraz)
     if paczka.verified_at is not None:
         zweryfikowane = all(p.current_status == 'zweryfikowane' for p in aktywne)
         if not zweryfikowane and all(p.verified_at is not None for p in aktualne):
             # Wszystkie aktualne paczki są już sprawdzone, a pozycje nie są zweryfikowane — tak zostaje
             # po hurtowej zmianie „zweryfikowane” → „spakowane” (paczki zachowują znaczniki). Żaden
-            # skan nie zmieniłby wtedy niczego, więc ponowny skan domyka zamówienie.
+            # skan nie zmieniłby wtedy niczego, więc ponowny skan domyka zamówienie. To zapis, więc
+            # dopiero tu zakres.
+            sprawdz_zakres(order, teraz)
             _zweryfikuj_zamowienie(order, aktywne, aktualne, metoda, worker_id, device_id, teraz)
             delivery.podbij_pozycje(order, teraz)
             return True, True
-        return False, zweryfikowane
+        return False, zweryfikowane   # skan bez zmian niczego nie zapisuje, więc zakres go nie dotyczy
+    sprawdz_zakres(order, teraz)
     _oznacz(paczka, metoda, worker_id, teraz)
     zweryfikowane = all(p.verified_at is not None for p in aktualne)
     if zweryfikowane:
@@ -455,10 +463,10 @@ def zweryfikuj_wszystkie(order, worker_id=None, device_id=None, teraz=None):
     if not aktualne:
         raise WeryfikacjaBlad('no_packages', u'Zamówienie {} nie ma zadeklarowanych paczek — najpierw '
                               u'zadeklaruj paczki.'.format(order.internal_order_number))
-    sprawdz_zakres(order, teraz)
     niesprawdzone = [p for p in aktualne if p.verified_at is None]
     if not niesprawdzone and all(p.current_status == 'zweryfikowane' for p in aktywne):
-        return False
+        return False   # pusty przebieg niczego nie zapisuje, więc zakres go nie dotyczy
+    sprawdz_zakres(order, teraz)
     for p in niesprawdzone:
         _oznacz(p, 'reczne', worker_id, teraz)
     _zweryfikuj_zamowienie(order, aktywne, aktualne, 'reczne', worker_id, device_id, teraz)
