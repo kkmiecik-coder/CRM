@@ -292,6 +292,11 @@ Dalsze ustalenia z testu 30.09 (z Konradem, XP-410B):
   ustawienie przesunięcia.
 - **Stan wdrożenia:** nowy agent działa na hali od 30.09 (etykiety produktów); drukarka paczek nie jest tam jeszcze
   podłączona.
+- **Test kroku 4.2 (1.10, z Konradem, XP-410B, podgląd na kopii produkcji, kod 00c09009) — zaliczony w całości:**
+  deklaracja 2 paczek („PACZKA 1 / 2”, „2 / 2”, pas „TRANSPORT WOODPOWER”, QR skanowany telefonem, odbiorca
+  zanonimizowany, bez adresu); palety niestandardowej 150×100 (14 pozycji, pas „NIE USTAWIONO”); po zmianie sposobu
+  dostawy w panelu zapala się ikona „etykiety paczek sprzed zmiany”, a ponowny druk (pas „ODBIOR OSOBISTY”) ją gasi.
+  Ścieżka: deklaracja → kolejka CRM → agent (kolejka Windows) → drukarka → ACK.
 
 ## 7. Krok 4.2 — paczki na pakowaniu
 
