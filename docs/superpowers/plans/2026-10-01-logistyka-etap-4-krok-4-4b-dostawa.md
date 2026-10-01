@@ -567,7 +567,7 @@ git commit -m "feat(production): schemat Dostawy - statusy tras, przystanki, sta
 - Modify: `modules/production/logistics/services/routes.py:1-9` (docstring modułu), `:243-247` (`_wymagaj_statusu`)
 - Modify: `modules/production/logistics/routers/trasy_api.py:26` (`KOLEJNOSC_STATUSOW`), `:474-496` (`route_routimo`)
 - Modify: `modules/production/logistics/services/paczki.py` (nowa `wyczysc_zaladunek`)
-- Modify: `modules/production/logistics/services/weryfikacja.py:245-305` (`uniewaznij_etapy`), `:479-497` (`cofnij_weryfikacje_zamowienia`)
+- Modify: `modules/production/logistics/services/weryfikacja.py:245-305` (`uniewaznij_etapy`), `:479-497` (`cofnij_weryfikacje_zamowienia`) i funkcja cofnięcia weryfikacji jednej paczki (z sesji kroku 4.3, nazwa w briefie)
 - Modify: `modules/production/logistics/services/lista.py:95-100` (`_etap`), `:224-272` (`serializuj`)
 - Modify: `modules/production/logistics/services/bl_sync.py:478-485`
 - Modify: `modules/reports/models.py:685-703`, `modules/reports/service.py:30-49`, `modules/baselinker/routers.py:544-562`
@@ -916,6 +916,36 @@ w trakcie załadunku, a paczka bez weryfikacji nie może liczyć się jako zała
     paczki.wyczysc_zaladunek(aktualne)
 ```
 
+**Cofnięcie sprawdzenia jednej paczki** — `weryfikacja.cofnij_sprawdzenie_paczki(paczka, order, worker_id=None, device_id=None, teraz=None) -> (zmieniono, bylo_zweryfikowane)` (endpoint `POST /api/mobile/verification/packages/<id>/unverify`, zatwierdzony przez Konrada 1.10; robi go sesja kroku 4.3 na gałęzi `claude/logistyka-etap-4-unverify`, kontroler scala jej commit przed dyspozycją tego zadania). Odmowę dla zamówienia z pozycjami `zaladowane`/`dostarczone` funkcja już ma (409 `order_status` z `sprawdz_stan` przez `stan_do_zapisu`, jak cofnięcie weryfikacji zamówienia — spec 4.5 „do załadunku”). Dopisz tylko czyszczenie znaczników załadunku: gdy cofnięcie przywraca zamówieniu `spakowane` (gałąź `bylo_zweryfikowane`; w trakcie załadunku trasa jest jeszcze zatwierdzona) — `paczki.wyczysc_zaladunek(<aktualne paczki zamówienia ze stan_do_zapisu>)` na WSZYSTKICH aktualnych paczkach, przed logiem: zamówienie niezweryfikowane nie może być na aucie, a kierowca zobaczy NIEZWERYFIKOWANE. W docstringu funkcji dopisz „(krok 4.4) Czyści też znaczniki załadunku wszystkich paczek zamówienia, które przestało być zweryfikowane.”
+
+Testy (w `tests/test_dostawa_statusy_tras.py`):
+```python
+def test_cofniecie_sprawdzenia_paczki_czysci_zaladunek_zamowienia(app):
+    """Weryfikator cofa sprawdzenie jednej paczki w trakcie załadunku — zamówienie wraca do „spakowane”, a znaczniki
+    załadunku znikają ze wszystkich jego paczek (pozostałe paczki zostają sprawdzone)."""
+    order, lista_paczek = zamowienie_z_paczkami()
+    t = trasa([order])
+    zaladuj_wprost(lista_paczek, t, kto_id=7)
+    wynik = weryfikacja.cofnij_sprawdzenie_paczki(lista_paczek[0], order, worker_id=3, teraz=T0)
+    db.session.commit()
+    assert wynik == (True, True)
+    assert [p.current_status for p in order.products] == ['spakowane', 'spakowane']
+    assert all(p.loaded_at is None and p.loaded_route_id is None for p in lista_paczek)
+    assert lista_paczek[1].verified_at is not None
+
+
+def test_cofniecie_sprawdzenia_paczki_zamowienia_zaladowanego_409(app):
+    order, lista_paczek = zamowienie_z_paczkami(statusy=('zaladowane', 'zaladowane'))
+    t = trasa([order], status='zaladowana')
+    zaladuj_wprost(lista_paczek, t, kto_id=7)
+    with pytest.raises(weryfikacja.WeryfikacjaBlad) as e:
+        weryfikacja.cofnij_sprawdzenie_paczki(lista_paczek[0], order, worker_id=3, teraz=T0)
+    assert e.value.kod == 'order_status'
+    db.session.rollback()
+    assert all(p.loaded_route_id == t.id and p.verified_at is not None for p in lista_paczek)
+```
+(Jeśli scalona wersja funkcji ma inną sygnaturę albo kod odmowy, kontroler poprawia oba testy w briefie.)
+
 - [ ] **Step 6: Etap „W trasie” i liczba załadowanych paczek**
 
 `modules/production/logistics/services/lista.py` (pod `NAZWA_STANOWISKA`):
@@ -1005,7 +1035,7 @@ Expected: PASS.
 - [ ] **Step 10: Pełny pakiet**
 
 Run: `PYTEST tests/`
-Expected: `wynik Task 1 + 21 passed, 3 skipped`.
+Expected: `wynik Task 1 + 23 passed, 3 skipped` (21 w pliku z kroku 2 + 2 testy cofnięcia weryfikacji jednej paczki).
 
 - [ ] **Step 11: Commit**
 
@@ -4062,6 +4092,8 @@ WHERE o.logistics_closed_at IS NOT NULL
 | `dostarczenie-sync` | „Dostarczone” | zmiana z Base. (ilość, `apply_baselinker_changes`) na tym zamówieniu | 200 / sukces |
 | `cofniecie-dwa` | telefon `undo-delivered` | panel `undo-delivered` tego przystanku | jedno `changed: true`, drugie bez zmian |
 | `niedostarczenie-odhaczenie` | „Niedostarczone” | panel „Odhacz” | 200 / 200 albo 404 / 200; zamówienie w puli albo dostarczone, nigdy oba |
+| `cofniecie-paczki-zaladunek` | Weryfikacja: `POST /verification/packages/<id>/unverify` (paczka z trasy zatwierdzonej) | skan innej paczki tego zamówienia | 200 / 409 `order_not_verified` albo 200 / 200 (skan pierwszy — potem cofnięcie czyści znaczniki); nigdy paczka załadowana przy zamówieniu niezweryfikowanym |
+| `cofniecie-paczki-zakonczenie` | ten sam `unverify` | „Zakończ załadunek” | 200 / 409 `loading_incomplete` (`niezweryfikowane`) albo 409 / 200 (załadunek pierwszy — zamówienie załadowane, cofnięcie odmówione) |
 
 Niezmienniki po każdym przebiegu: trasa `zaladowana`/`w_trasie` ⇒ wszystkie aktywne pozycje jej przystanków (niedostarczonych) `zaladowane`, aktualne paczki załadowane na tę trasę; przystanek z `delivered_at` ⇔ pozycje `dostarczone` ⇔ `logistics_closed_at` ustawione; zamówienie zdjęte z trasy (Zostaje, Niedostarczone, odznaczone) ⇒ brak znaczników załadunku i pozycje nie `zaladowane`; `bl_status_pending_id` zgodny z ostatnim przejściem (524520 / 149763 / 149778 / 417343); dokładnie jeden wpis logu na przejście.
 
