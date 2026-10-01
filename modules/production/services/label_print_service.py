@@ -120,6 +120,18 @@ def _load_config():
     }
 
 
+def tryb_agenta(cfg=None):
+    """
+    True, gdy etykiety idą przez agenta druku (kolejka prod_print_queue, LABEL_PRINTER_USE_AGENT), False — gdy
+    po TCP prosto do drukarki. Jedno źródło tej decyzji: print_labels_batch wybiera nim tryb wysyłki, a druk etykiet
+    całego zamówienia (mobile_api.mobile_print_labels_for_order) — czy przed drukiem zablokować zamówienie
+    („zamówienie najpierw”, logistyka etap 4, krok 4.4a). `cfg` — wynik _load_config(), gdy wołający już go ma.
+    """
+    if cfg is None:
+        cfg = _load_config()
+    return bool(cfg['use_agent'])
+
+
 def _compute_unit_offsets(items_by_id):
     """Dla każdej pozycji w batchu zwraca (offset, total_units) w obrębie
     zamówienia BaseLinker. Kluczem jest `ProductionItem.id`, NIE short_product_id.
@@ -654,7 +666,7 @@ def print_labels_batch(short_product_ids, station_code, actor,
     }
 
     # Tryb agenta — zamiast TCP wstaw rekordy do prod_print_queue
-    if cfg['use_agent']:
+    if tryb_agenta(cfg):
         return _enqueue_labels(ids, items_by_id, station_code, actor, cfg,
                                units_by_item=units_by_item)
 

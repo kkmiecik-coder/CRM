@@ -991,8 +991,9 @@ def mobile_print_labels_for_order(baselinker_order_id):
     if not items:
         return jsonify({'success': False, 'message': 'Brak produktów w zamówieniu.'}), 404
 
-    # „Zamówienie najpierw” (logistyka etap 4, krok 4.4a), TYLKO w trybie agenta (LABEL_PRINTER_USE_AGENT, ten
-    # sam warunek, którym print_labels_batch wybiera tryb). W trybie agenta druk zapisuje liczniki wydrukowanych
+    # „Zamówienie najpierw” (logistyka etap 4, krok 4.4a), TYLKO w trybie agenta (LABEL_PRINTER_USE_AGENT;
+    # label_print_service.tryb_agenta, ten sam pomocnik, którym print_labels_batch wybiera tryb wysyłki, więc
+    # blokada i tryb zawsze się zgadzają). W trybie agenta druk zapisuje liczniki wydrukowanych
     # sztuk pozycja po pozycji (flush), w kolejności numeracji etykiet (product_sequence_in_order). Doróbka
     # kopiuje sekwencję oryginału, więc ta kolejność nie jest kolejnością id, w której ZAKOŃCZ blokuje pozycje —
     # bez wspólnej blokady zamówienia to cykl (MySQL 1213). Blokujemy więc zamówienie i wszystkie jego pozycje,
@@ -1001,7 +1002,7 @@ def mobile_print_labels_for_order(baselinker_order_id):
     # w kolejności klucza głównego, czyli rosnąco jak w ZAKOŃCZ. Blokada trzymana przez druk po sieci (przy
     # niedostępnej drukarce do (retry_count + 1) × timeout_seconds, domyślnie ok. 6 s) tylko wstrzymywałaby
     # ZAKOŃCZ tego zamówienia.
-    if label_print_service._load_config()['use_agent']:
+    if label_print_service.tryb_agenta():
         blokady_zamowien.zablokuj_zamowienie(items[0].order_id)
 
     short_ids = [i.short_product_id for i in items]

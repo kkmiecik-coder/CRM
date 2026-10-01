@@ -349,6 +349,25 @@ def test_druk_etykiet_zamowienia_w_trybie_tcp_nie_blokuje_zamowienia(app, client
     assert max(drukarka.zapytania_przy_wysylce) <= z.pierwsze(zapis)
 
 
+def test_druk_etykiet_zamowienia_blokada_i_tryb_wysylki_z_jednego_pomocnika(app, client, monkeypatch):
+    """Decyzja o blokadzie zamówienia i wybór trybu wysyłki idą z jednego pomocnika (label_print_service.tryb_agenta),
+    więc zawsze się zgadzają: pomocnik mówi „agent” przy wyłączonym LABEL_PRINTER_USE_AGENT → druk blokuje
+    zamówienie i pozycje, kolejkuje etykiety i nie otwiera gniazda TCP."""
+    order = zamowienie(statusy=())
+    produkt(order, status='czeka_na_pakowanie', sekwencja=1)
+    db.session.commit()
+    bl_id = order.baselinker_order_id
+    naglowki = _naglowki()
+    otwarte_gniazda = []
+    monkeypatch.setattr(label_print_service, 'tryb_agenta', lambda cfg=None: True)
+    monkeypatch.setattr(label_print_service, '_open_printer_socket', lambda cfg: otwarte_gniazda.append(cfg))
+    with Zapytania() as z:
+        r = client.post('/api/mobile/orders/%d/print-labels' % bl_id, headers=naglowki)
+    assert r.status_code == 200 and r.get_json()['success_count'] == 1, r.get_data()[:300]
+    assert z.pierwsze(blokada_zamowien) < z.pierwsze(blokada_pozycji) < z.pierwsze(zapis)
+    assert otwarte_gniazda == [] and LabelPrintJob.query.count() == 2   # 2 sztuki → 2 etykiety w kolejce
+
+
 # --- Cron: przeniesienie osieroconych ---------------------------------------------------------------------
 
 def test_cron_osieroconych_blokuje_zamowienia_przed_zapisem_pozycji(app):
