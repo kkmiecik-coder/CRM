@@ -624,25 +624,55 @@ def przelicz_otwarte(teraz=None):
     spakowane lub dalej (w całości) nie łapie się na warunek „znów aktywne pozycje”.
     Każde przeliczane zamówienie przechodzi też przez regułę unieważniania etapów
     (weryfikacja.uniewaznij_etapy) — zweryfikowane w całości zostaje zamknięte i nietknięte.
+    Od 1.10 (spec 4.6) łapie też zamknięcia po wdrożeniu 4.3, których reguła zamkniecie_wyliczone
+    nie dałaby (odbiór niewydany, transport bez trasy wykonanej, brak sposobu, przepakowanie).
     """
     from modules.production.models import ProductionOrder, ProductionProduct
+    # Siatka bezpieczeństwa jednej reguły (spec 8.5): ścieżki, które nie wołają jej same (np. przyszłe
+    # zmiany statusu), dostają ją najpóźniej przy godzinnym przebiegu. Bez pracy nie pyta bazy.
+    from modules.production.logistics.services import weryfikacja
     teraz = teraz or get_local_now()
     otwarte = (ProductionOrder.query.options(selectinload(ProductionOrder.products))
                .filter(ProductionOrder.logistics_closed_at.is_(None)).all())
     na_aktywnych_trasach = (db.session.query(RouteStop.order_id)
                             .join(Route, Route.id == RouteStop.route_id)
                             .filter(Route.status.in_(STATUSY_TRASY_AKTYWNE)))
+    warunki_otwarcia = [
+        ProductionOrder.products.any(ProductionProduct.current_status.notin_(
+            sposoby.STATUSY_PO_SPAKOWANIU + ('anulowane',))),
+        and_(ProductionOrder.override_delivery_method == sposoby.TRANSPORT,
+             ProductionOrder.id.in_(na_aktywnych_trasach))]
+    # Siatka na zamknięcie zapadłe na nieaktualnym stanie (decyzja Konrada 1.10, spec 4.6): stanowisko
+    # (ostatnie ZAKOŃCZ pakowania) decyduje o zamknięciu cyklu na migawce sposobu dostawy, więc zmiana
+    # sposobu z panelu w tej samej chwili zostawia zamówienie zamknięte, choć reguła
+    # zamkniecie_wyliczone dałaby False. Dopisujemy te przypadki, każdy z wymogiem aktywnej pozycji
+    # (bez aktywnych reguła zamyka, więc takie zamówienie zostaje zamknięte). Zapytanie ma zostać tanie:
+    # warunki są wąskie i nie ma pełnego przeglądu zamkniętych.
+    # ZAWĘŻENIE (wymóg centrali): tylko zamknięcia PO wdrożeniu 4.3, ściśle później niż znacznik
+    # logistyka_weryfikacja_od. Migracja etapu 1 (2026-09-25, `NOW()`) zamknęła historycznie ~1500
+    # zamówień spakowanych bez względu na sposób (NULL, transport bez trasy, odbiór bez wydania), a
+    # runner wykonuje pliki w kolejności nazw, więc ta migracja idzie zawsze PRZED
+    # 2026-09-30-logistyka-weryfikacja.sql (znacznik, `NOW()`): zamknięcie historyczne ma
+    # logistics_closed_at <= znacznik, także gdy obie wartości wypadną w tej samej sekundzie (DATETIME
+    # bez ułamków), a warunek „ściśle większe” je wyklucza. Zamknięcia z kodu (get_local_now) są
+    # późniejsze niż znacznik. Brak znacznika albo nieczytelna data wyłącza siatkę.
+    wdrozenie = weryfikacja.data_wdrozenia()
+    if wdrozenie is not None:
+        na_trasach_wykonanych = (db.session.query(RouteStop.order_id)
+                                 .join(Route, Route.id == RouteStop.route_id)
+                                 .filter(Route.status == 'wykonana'))
+        sposob = ProductionOrder.override_delivery_method
+        warunki_otwarcia.append(and_(
+            ProductionOrder.logistics_closed_at > wdrozenie,
+            ProductionOrder.products.any(ProductionProduct.current_status != 'anulowane'),
+            or_(and_(sposob == sposoby.ODBIOR, ProductionOrder.handed_over_at.is_(None)),
+                and_(sposob == sposoby.TRANSPORT, ~ProductionOrder.id.in_(na_trasach_wykonanych)),
+                sposob.is_(None),
+                ProductionOrder.repack_required.is_(True))))
     do_otwarcia = (ProductionOrder.query.options(selectinload(ProductionOrder.products))
                    .filter(ProductionOrder.logistics_closed_at.isnot(None))
-                   .filter(or_(
-                       ProductionOrder.products.any(ProductionProduct.current_status.notin_(
-                           sposoby.STATUSY_PO_SPAKOWANIU + ('anulowane',))),
-                       and_(ProductionOrder.override_delivery_method == sposoby.TRANSPORT,
-                            ProductionOrder.id.in_(na_aktywnych_trasach))))
+                   .filter(or_(*warunki_otwarcia))
                    .all())
-    # Siatka bezpieczeństwa jednej reguły (spec 8.5): ścieżki, które nie wołają jej same (np. przyszłe
-    # zmiany statusu), dostają ją najpóźniej przy godzinnym przebiegu. Bez pracy nie pyta bazy.
-    from modules.production.logistics.services import weryfikacja
     zmienione = 0
     # Rosnąco po id: reguła z pracą blokuje zamówienie FOR UPDATE do końca przebiegu, a hurtowa zmiana
     # statusu blokuje zamówienia w tej samej kolejności — bez tego dwa wspólne zamówienia mogłyby dać 1213.

@@ -305,3 +305,123 @@ def test_rownolegly_przebieg_z_duplikatem_znacznika_konczy_sie_zerem_bez_bledu(a
         db.session.commit()
         assert order.products[0].current_status == 'spakowane'
         assert len(_znacznik()) == 1
+
+
+# ── Siatka w cronie: zamknięcia zapadłe na nieaktualnym stanie (decyzja Konrada 1.10, spec 4.6) ──
+# Stanowisko decyduje o zamknięciu na migawce sposobu dostawy; zmiana sposobu z panelu w tej samej chwili
+# zostawia zamówienie zamknięte wbrew regule. `przelicz_otwarte` otwiera je, ale TYLKO gdy zamknięcie jest
+# późniejsze niż znacznik wdrożenia 4.3 (`logistyka_weryfikacja_od`) — migracja etapu 1 zamknęła historycznie
+# ~1500 zamówień bez względu na sposób dostawy i bez zawężenia pierwszy przebieg otworzyłby je masowo.
+
+ZNACZNIK = datetime(2026, 9, 30, 12, 0, 0)
+PO_ZNACZNIKU = datetime(2026, 9, 30, 12, 5, 0)      # 5 minut po wdrożeniu 4.3
+
+
+def _ustaw_znacznik(wartosc=ZNACZNIK):
+    db.session.add(ProductionConfig(
+        config_key='logistyka_weryfikacja_od', config_type='string',
+        config_value=wartosc if isinstance(wartosc, str) else wartosc.strftime('%Y-%m-%d %H:%M:%S')))
+    db.session.commit()
+
+
+def _na_trasie(order, status):
+    from modules.production.logistics.models import Route, RouteStop
+    trasa = Route(name='T ' + status, date_from=datetime(2026, 10, 1).date(),
+                  date_to=datetime(2026, 10, 1).date(), status=status)
+    db.session.add(trasa)
+    db.session.flush()
+    db.session.add(RouteStop(route_id=trasa.id, order_id=order.id, position=1))
+    db.session.commit()
+
+
+def _po_przebiegu(zamowienia):
+    """Uruchamia siatkę crona i zwraca (liczba zmian, [czy zamówienie zostało zamknięte])."""
+    from modules.production.logistics.services import delivery
+    zmienione = delivery.przelicz_otwarte()
+    db.session.commit()
+    return zmienione, [ProductionOrder.query.get(o.id).logistics_closed_at is not None
+                       for o in zamowienia]
+
+
+def test_siatka_otwiera_zamkniecia_wbrew_regule(app):
+    """Odbiór bez wydania, transport bez trasy, sposób NULL i `repack_required` — zamknięte po wdrożeniu
+    4.3, a reguła `zamkniecie_wyliczone` daje False: wszystkie wracają na listę otwartych."""
+    with app.app_context():
+        _ustaw_znacznik()
+        odbior = zamowienie(sposob=s.ODBIOR, statusy=('spakowane',), logistics_closed_at=PO_ZNACZNIKU)
+        transport = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane',), logistics_closed_at=PO_ZNACZNIKU)
+        brak = zamowienie(sposob=None, statusy=('spakowane',), logistics_closed_at=PO_ZNACZNIKU)
+        przepakowanie = zamowienie(sposob=s.KURIER, statusy=('spakowane',), logistics_closed_at=PO_ZNACZNIKU,
+                                   repack_required=True)
+        zmienione, zamkniete = _po_przebiegu([odbior, transport, brak, przepakowanie])
+        assert zamkniete == [False] * 4
+        assert zmienione == 4   # licznik crona obejmuje zamówienia otwarte siatką
+
+
+def test_siatka_zostawia_zamkniecia_zgodne_z_regula(app):
+    """Odbiór po wydaniu, transport na trasie wykonanej, kurier w całości spakowany i zamówienie z samymi
+    anulowanymi pozycjami (bez aktywnych reguła zamyka, nawet przy sposobie NULL) zostają zamknięte."""
+    with app.app_context():
+        _ustaw_znacznik()
+        odebrany = zamowienie(sposob=s.ODBIOR, statusy=('spakowane',), logistics_closed_at=PO_ZNACZNIKU,
+                              handed_over_at=PO_ZNACZNIKU)
+        dowieziony = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane',), logistics_closed_at=PO_ZNACZNIKU)
+        _na_trasie(dowieziony, 'wykonana')
+        kurier = zamowienie(sposob=s.KURIER, statusy=('spakowane',), logistics_closed_at=PO_ZNACZNIKU)
+        anulowane = zamowienie(sposob=None, statusy=('anulowane', 'anulowane'), logistics_closed_at=PO_ZNACZNIKU)
+        zmienione, zamkniete = _po_przebiegu([odebrany, dowieziony, kurier, anulowane])
+        assert zamkniete == [True] * 4
+        assert zmienione == 0
+
+
+@pytest.mark.parametrize('sposob', [None, s.TRANSPORT, s.ODBIOR])
+def test_siatka_nie_rusza_zamkniec_z_migracji_etapu_1(app, sposob):
+    """Zamknięcie historyczne ma `logistics_closed_at <= znacznik` (migracja etapu 1 idzie przed migracją
+    znacznika, `NOW()` w obu) — także gdy wypada w TEJ SAMEJ sekundzie (DATETIME bez ułamków) albo wcześniej.
+    Zostaje zamknięte, mimo że sposób nie daje zamknięcia według reguły."""
+    with app.app_context():
+        _ustaw_znacznik()
+        ta_sama_sekunda = zamowienie(sposob=sposob, statusy=('spakowane',), logistics_closed_at=ZNACZNIK)
+        wczesniej = zamowienie(sposob=sposob, statusy=('spakowane',),
+                               logistics_closed_at=datetime(2026, 9, 25, 8, 0, 0))
+        zmienione, zamkniete = _po_przebiegu([ta_sama_sekunda, wczesniej])
+        assert zamkniete == [True, True]
+        assert zmienione == 0
+
+
+@pytest.mark.parametrize('sposob', [None, s.TRANSPORT, s.ODBIOR])
+def test_siatka_otwiera_to_samo_zamkniete_po_znaczniku(app, sposob):
+    """Ten sam przypadek zamknięty 5 minut po znaczniku (kod aplikacji, nie migracja): otwarty."""
+    with app.app_context():
+        _ustaw_znacznik()
+        po = zamowienie(sposob=sposob, statusy=('spakowane',), logistics_closed_at=PO_ZNACZNIKU)
+        zmienione, zamkniete = _po_przebiegu([po])
+        assert zamkniete == [False]
+        assert zmienione == 1
+
+
+@pytest.mark.parametrize('wartosc', [None, 'to nie data'])
+def test_siatka_bez_znacznika_albo_z_nieczytelnym_nic_nie_otwiera(app, wartosc):
+    """Brak wiersza `logistyka_weryfikacja_od` (albo nieczytelna data) wyłącza siatkę: `do_otwarcia`
+    działa jak dotąd, a zamknięcia wbrew regule zostają."""
+    with app.app_context():
+        if wartosc is not None:
+            _ustaw_znacznik(wartosc)
+        odbior = zamowienie(sposob=s.ODBIOR, statusy=('spakowane',), logistics_closed_at=PO_ZNACZNIKU)
+        brak = zamowienie(sposob=None, statusy=('spakowane',), logistics_closed_at=PO_ZNACZNIKU)
+        zmienione, zamkniete = _po_przebiegu([odbior, brak])
+        assert zamkniete == [True, True]
+        assert zmienione == 0
+
+
+def test_siatka_nie_wylacza_dotychczasowych_warunkow(app):
+    """Z siatką albo bez: nowa aktywna pozycja w zamkniętym zamówieniu kurierskim dalej je otwiera,
+    także gdy zamknięcie jest sprzed znacznika."""
+    with app.app_context():
+        _ustaw_znacznik()
+        order = zamowienie(sposob=s.KURIER, statusy=('spakowane',), logistics_closed_at=datetime(2026, 9, 25))
+        produkt(order, status='czeka_na_wyciecie')
+        db.session.commit()
+        zmienione, zamkniete = _po_przebiegu([order])
+        assert zamkniete == [False]
+        assert zmienione == 1
