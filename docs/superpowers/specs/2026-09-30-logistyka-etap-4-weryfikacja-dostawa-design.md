@@ -751,6 +751,13 @@ Komunikaty po polsku, w API z `error` (kod) i `message` (tekst dla człowieka).
    etapów 1–4 (etap 1 wymagał appki przed backendem, kroki 4.2–4.4 backendu przed appką) ustala plan wdrożenia
    prowadzony przez centralę.
 5. **4.5:** backend.
+6. **4.4b — nazwa statusu w Analizie sprzedażowej:** jednorazowa migracja `2026-10-01-analiza-planowana-trasa.sql`
+   zmienia w historycznych wierszach `sales_orders` nazwę „Status 417343” na „Planowana trasa” (decyzja Konrada
+   1.10; od commita 73232c57 mapa nazw zna ten status, ale stare wiersze zostawały ze starą nazwą i ten sam status
+   siedział w dwóch kubełkach). Warunek po obu kolumnach (`baselinker_status_id = 417343` i stara nazwa), więc
+   migracja jest idempotentna: drugi przebieg zmienia 0 wierszy. Na kopii produkcji (dane z ok. 25.09) zmienia 66
+   wierszy; na produkcji liczba może być inna. Skrypt przeliczenia klientów (`deploy.sh`, krok 6) liczy po
+   identyfikatorze statusu, nie po nazwie, więc zmiana nazwy nie wymaga osobnego przeliczenia.
 
 Każdy krok: push gałęzi, przegląd całej zmiany, oględziny na kopii produkcji (podgląd), wdrożenie tylko na polecenie
 Konrada. Merge do `main` = deploy.
