@@ -340,14 +340,16 @@ def zadeklaruj(order, deklaracja, stanowisko, aktor, worker_id=None, device_id=N
     dwie deklaracje naraz (dwa tablety, powtórka z nowym X-Operation-Id) dałyby dwa komplety paczek.
 
     KOLEJNOŚĆ SPRAWDZEŃ (trzy kroki):
-    1. WSTĘPNA ODMOWA `order_not_packed` na stanie z pamięci (migawka MySQL, REPEATABLE READ), zanim
-       cokolwiek zablokujemy. Migawka pokazuje tylko zatwierdzone zmiany: jeśli widać w niej, że
-       wszystkie pozycje są spakowane lub dalej, ostatni „ZAKOŃCZ” już się zatwierdził i nie trzyma
-       pozycji. Jeśli nie widać, odmawiamy od razu, bez sięgania po pozycje. Czekanie na nie pod blokadą
-       zamówienia zakleszczało się z „ZAKOŃCZ” (MySQL 1213), dopóki ostatni „ZAKOŃCZ” trzymał pozycję
-       i sięgał po zamówienie. Od kroku 4.4a „ZAKOŃCZ” bierze zamówienie najpierw, więc wstępna odmowa
-       zostaje jako szybka odpowiedź bez czekania na cudzą transakcję. 409 jest w BLEDY_DO_PONOWIENIA,
-       więc appka ponowi tą samą operację, gdy „ZAKOŃCZ” się zatwierdzi.
+    1. WSTĘPNA ODMOWA `order_not_packed` na stanie z pamięci (migawka MySQL, REPEATABLE READ), przed
+       odczytem blokującym paczek i pozycji. Router trzyma już wtedy blokadę deklaracji i wiersz zamówienia
+       (FOR UPDATE). Migawka pokazuje tylko zatwierdzone zmiany: jeśli widać w niej, że wszystkie pozycje
+       są spakowane lub dalej, ostatni „ZAKOŃCZ” już się zatwierdził. Jeśli nie widać, odmawiamy od razu,
+       bez sięgania po pozycje. Do kroku 4.4a ostatni „ZAKOŃCZ” trzymał pozycję i sięgał po zamówienie,
+       więc czekanie na pozycje pod blokadą zamówienia zakleszczało się z nim (MySQL 1213). Od kroku 4.4a
+       „ZAKOŃCZ” bierze zamówienie najpierw (czeka na nie, zanim zablokuje pozycje), więc wstępna odmowa
+       oszczędza już tylko odczytów blokujących pozycji i paczek oraz czekania na pisarzy pozycji spoza
+       zasady „zamówienie najpierw” (np. liczniki sztuk, priorytety). 409 jest w BLEDY_DO_PONOWIENIA, więc
+       appka ponowi tę samą operację, gdy „ZAKOŃCZ” się zatwierdzi.
     2. ODCZYT BIEŻĄCY (`zablokuj_stan`: paczki FOR UPDATE → wszystkie pozycje FOR UPDATE po `order_id`
        z `populate_existing`, ta sama kolejność i ten sam odczyt co zapisy Weryfikacji).
     3. OBA STRAŻNIKI (order_verified, order_not_packed) na statusach z tego odczytu: ostateczna decyzja

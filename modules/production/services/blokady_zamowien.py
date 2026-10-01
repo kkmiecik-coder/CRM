@@ -2,12 +2,17 @@
 """
 Kolejność blokad pisarzy zamówienia — „zamówienie najpierw” (logistyka etap 4, krok 4.4a).
 
-Zasada (ta sama co w panelu Logistyki, Weryfikacji, deklaracji paczek, hurtowej zmianie statusu i cronie
-logistyki): wiersz zamówienia FOR UPDATE po kluczu głównym → wszystkie pozycje zamówienia FOR UPDATE → dopiero
-zapisy. Stanowiska (ZAKOŃCZ i wejście do pakowania), doróbka i zmiany z Base. brały dotąd pozycję przed
-zamówieniem: zapisywały pozycję (flush), a zamówienie dopiero w po_spakowaniu albo w regule unieważniania
-etapów. Panel trzymał zamówienie i sięgał po pozycję, więc dwie odwrotne kolejności dawały MySQL 1213
-(spec 8.7, „Współbieżność”).
+Zasada: wiersz zamówienia FOR UPDATE po kluczu głównym → wszystkie pozycje zamówienia FOR UPDATE → dopiero
+zapisy. Tak samo blokują Weryfikacja i deklaracja paczek (`paczki.zablokuj_stan`), hurtowa zmiana statusu
+i przeniesienie osieroconych w cronie logistyki. Zmiana sposobu dostawy w panelu Logistyki
+(`panel_api._zapisz_zmiane_sposobu`) blokuje tylko wiersze zamówień (rosnąco po id), bez pozycji: pisarze
+pozycji z tej zasady czekają już na wierszu zamówienia, zanim sięgną po jego pozycje.
+
+Stanowiska (ZAKOŃCZ i wejście do pakowania), doróbka i zmiany z Base. brały dotąd pozycję przed zamówieniem:
+zapisywały pozycję (flush), a zamówienie dopiero w po_spakowaniu albo w regule unieważniania etapów. Panel
+trzymał zamówienie i sięgał po pozycję, więc dwie odwrotne kolejności dawały MySQL 1213 (spec 8.7,
+„Współbieżność”). Pisarze pozycji BEZ blokady zamówienia (liczniki sztuk, priorytety, druk TCP — lista
+w CLAUDE.md) zapisują pozycje jednym flushem rosnąco po kluczu głównym i potem nie sięgają po wiersz zamówienia.
 
 Oba odczyty są BIEŻĄCE (`with_for_update().populate_existing()`). MySQL pracuje na REPEATABLE READ, a migawka
 transakcji powstaje przy pierwszym zwykłym odczycie (w API mobilnym: sprawdzenie powtórki X-Operation-Id),
