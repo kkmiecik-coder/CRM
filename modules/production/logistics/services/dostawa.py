@@ -76,8 +76,11 @@ def waliduj_powod(powod, slownik):
 
 
 def waliduj_metode(metoda):
-    """`skan` (domyślnie) albo `reczne`; inaczej 422 invalid_method."""
-    wynik = metoda or 'skan'
+    """
+    `skan` tylko wtedy, gdy pola nie ma (None), albo `reczne`. Każda inna wartość — także fałszywa z JSON-a (false,
+    0, "", []) — to 422 invalid_method: 422 jest zapamiętywane, więc nie zgadujemy „skan” za appkę.
+    """
+    wynik = 'skan' if metoda is None else metoda
     if not isinstance(wynik, str) or wynik not in METODY:
         raise DostawaBlad('invalid_method', u'Sposób załadunku: „skan” albo „reczne”.', status=422)
     return wynik
@@ -124,7 +127,13 @@ def zablokuj(route):
     modułu) i decyduje tylko na tych obiektach: `order.products` to pozycje z odczytu bieżącego
     (blokady_zamowien.zablokuj_pozycje), paczki — z odczytu blokującego (paczki.zablokuj_stan).
     """
-    trasa = routes.zablokuj_trasy(route)
+    try:
+        trasa = routes.zablokuj_trasy(route)
+    except LogistykaBlad as e:
+        if e.status != 404:
+            raise
+        # Trasa skasowana (np. w panelu) między odczytem routera a blokadą — każda odmowa Dostawy ma kod dla appki.
+        raise DostawaBlad('route_not_found', u'Nie ma takiej trasy.', status=404) from e
     paczki.zablokuj_deklaracje()
     zamowienia = {o.id: o for o in blokady_zamowien.zablokuj_zamowienia([s.order_id for s in trasa.stops])}
     pakunki = {order_id: paczki.zablokuj_stan(zamowienia[order_id]) for order_id in sorted(zamowienia)}
@@ -137,14 +146,19 @@ def _paczka_niewazna():
 
 def _paczka_spoza_trasy(order_id, trasa):
     """
-    409 package_not_on_route z nazwą trasy, na której jest zamówienie paczki, albo „bez trasy” (spec 9.3). Zwykłe
-    odczyty wystarczą: to tylko treść odmowy, a zamówienia spoza trasy nie blokujemy (odwróciłoby to kolejność
-    blokad).
+    409 package_not_on_route z nazwą trasy, na której jest zamówienie paczki, albo „bez trasy” (spec 9.3). Wołana
+    pod trzymaną blokadą tras: przystanek i nazwę jego trasy czytamy odczytem bieżącym — zwykły odczyt widziałby
+    migawkę sprzed czekania na blokadę (zamówienie przeniesione na inną trasę tuż przed skanem), a trasy założonej
+    po migawce nie widziałby wcale. Zamówienia nie blokujemy (nie ma go na tej trasie, blokada odwróciłaby
+    kolejność blokad); jego numer wewnętrzny się nie zmienia, więc tu zwykły odczyt wystarczy.
     """
     order = ProductionOrder.query.get(order_id)
     numer = _numer(order) if order is not None else u'#{}'.format(order_id)
-    inna = routes.przystanek_zamowienia(order_id)
-    nazwa = inna.route.name if inna is not None else None
+    inna = routes.przystanek_zamowienia(order_id, aktualny=True)
+    nazwa = None
+    if inna is not None:
+        nazwa = (db.session.query(Route.name).filter(Route.id == inna.route_id)
+                 .with_for_update(read=True).scalar())
     gdzie = u'na trasie „{}”'.format(nazwa) if nazwa else u'bez trasy'
     return DostawaBlad('package_not_on_route', u'Paczka zamówienia {} nie jedzie trasą „{}” — zamówienie jest {}.'
                        .format(numer, trasa.name, gdzie), dane={'route_name': nazwa})
@@ -153,6 +167,11 @@ def _paczka_spoza_trasy(order_id, trasa):
 def _niezweryfikowane(order):
     return DostawaBlad('order_not_verified', u'Zamówienie {} nie jest zweryfikowane — na auto ładujemy tylko '
                        u'zweryfikowane paczki.'.format(_numer(order)))
+
+
+def _anulowane(order):
+    """Zamówienie bez aktywnych pozycji (anulowane w całości): ten sam kod co niezweryfikowane, własny komunikat."""
+    return DostawaBlad('order_not_verified', u'Zamówienie {} jest anulowane — nie ładujemy.'.format(_numer(order)))
 
 
 def _wiersz_paczki(package_id):
@@ -166,27 +185,37 @@ def _wiersz_paczki(package_id):
 
 def _wstepna_odmowa(route, wiersz):
     """
-    Odmowa z migawki, PRZED blokadami (lekcja 1213 z kroku 4.3: nie czekamy na blokady, skoro i tak odmówimy):
-    paczka unieważniona (to się nie cofa) albo zamówienie z TEJ trasy, które w migawce nie jest zweryfikowane.
-    Paczkę zamówienia spoza tej trasy przepuszczamy — odmowa z nazwą jego trasy zapada pod blokadami. Migawka może
-    się spóźniać o chwilę (weryfikacja zapisana tuż przed skanem): wtedy appka pokazuje odmowę, a ponowny skan
-    przechodzi — 409 nie jest zapamiętywane.
+    Odmowa z migawki, PRZED blokadami (lekcja 1213 z kroku 4.3: nie czekamy na blokady, skoro i tak odmówimy).
+    To tylko skrót: ostateczna decyzja zawsze zapada pod blokadami, na odczycie bieżącym, i sama sprawdza
+    wszystko, co tu (test_odmowy_skanu_zapadaja_pod_blokadami). Migawka może się spóźniać o chwilę (weryfikacja
+    zapisana tuż przed skanem): wtedy appka pokazuje odmowę, a ponowny skan przechodzi — 409 nie jest zapamiętywane.
 
-    Sprawdzenia idą w tej samej kolejności co decyzja pod blokadami: trasa, która w migawce nie jest zatwierdzona,
-    nie dostaje odmowy „niezweryfikowane” — pod blokadami dostanie route_status. Inaczej skan po zakończeniu
-    załadunku (pozycje już 'zaladowane') mówiłby kierowcy, że towar z auta „nie jest zweryfikowany”.
+    Co gwarantuje:
+    - package_void, gdy paczka jest unieważniona w migawce. Unieważnienie się nie cofa, więc tej etykiety nie da
+      się załadować nigdy. Kod może być inny niż pod blokadami (tam np. route_status na trasie już załadowanej),
+      sam wynik — odmowa — nie.
+    - order_not_verified tylko wtedy, gdy w migawce zamówienie paczki stoi na przystanku TEJ trasy, trasa jest
+      zatwierdzona, przystanek nie ma „Zostaje”, a pozycje nie są wszystkie zweryfikowane (albo wszystkie są
+      anulowane — wtedy komunikat „anulowane”). Pod blokadami te warunki sprawdzamy przed weryfikacją, więc
+      przy stanie z migawki decyzja pod blokadami dałaby ten sam kod. W każdym innym przypadku (zamówienie na innej
+      trasie albo bez trasy, trasa nie zatwierdzona, przystanek „Zostaje”) przepuszczamy: właściwy kod
+      (package_not_on_route, route_status, stop_stays) daje decyzja pod blokadami — inaczej np. skan po
+      zakończeniu załadunku mówiłby, że towar z auta „nie jest zweryfikowany”.
     """
     if wiersz.voided_at is not None:
         raise _paczka_niewazna()
-    przystanek = (db.session.query(RouteStop.route_id, Route.status)
+    przystanek = (db.session.query(RouteStop.route_id, RouteStop.stays_reason, Route.status)
                   .join(Route, Route.id == RouteStop.route_id)
                   .filter(RouteStop.order_id == wiersz.order_id).first())
-    if przystanek is None or przystanek.route_id != route.id or przystanek.status != 'zatwierdzona':
+    if (przystanek is None or przystanek.route_id != route.id or przystanek.status != 'zatwierdzona'
+            or przystanek.stays_reason):
         return
     statusy = [s for (s,) in db.session.query(ProductionProduct.current_status)
                .filter(ProductionProduct.order_id == wiersz.order_id,
                        ProductionProduct.current_status != 'anulowane')]
-    if not statusy or any(s != 'zweryfikowane' for s in statusy):
+    if not statusy:
+        raise _anulowane(ProductionOrder.query.get(wiersz.order_id))
+    if any(s != 'zweryfikowane' for s in statusy):
         raise _niezweryfikowane(ProductionOrder.query.get(wiersz.order_id))
 
 
@@ -196,6 +225,8 @@ def zaladuj_paczke(route, package_id, metoda='skan', worker_id=None, device_id=N
     paczka ważna, jej zamówienie na TEJ trasie i zweryfikowane, przystanek bez „Zostaje” (inaczej 409 stop_stays —
     bez cichego zdejmowania oznaczenia). Ponowny skan = bez zmian. Pozycje zostają 'zweryfikowane' — 'zaladowane'
     dostają dopiero przy zakończeniu załadunku.
+
+    `device_id` nie jest tu zapisywane: ślad w logu powstaje przy zakończeniu załadunku (plan).
     """
     metoda = waliduj_metode(metoda)
     wiersz = _wiersz_paczki(package_id)
@@ -216,7 +247,9 @@ def zaladuj_paczke(route, package_id, metoda='skan', worker_id=None, device_id=N
         raise DostawaBlad('stop_stays', u'Zamówienie {} ma oznaczenie „Zostaje” ({}) — najpierw je zdejmij.'.format(
             _numer(order), POWODY_ZOSTAJE.get(stop.stays_reason, stop.stays_reason)))
     aktywne = delivery.aktywne_produkty(order)
-    if not aktywne or any(p.current_status != 'zweryfikowane' for p in aktywne):
+    if not aktywne:
+        raise _anulowane(order)
+    if any(p.current_status != 'zweryfikowane' for p in aktywne):
         raise _niezweryfikowane(order)
     if paczka.loaded_at is not None and paczka.loaded_route_id == trasa.id:
         return paczka, False
@@ -231,7 +264,8 @@ def zaladuj_paczke(route, package_id, metoda='skan', worker_id=None, device_id=N
 
 def rozladuj_paczke(route, package_id, worker_id=None, device_id=None, teraz=None):
     """Cofnięcie pomyłki przed zakończeniem załadunku (spec 9.3). Zwraca (paczka, zmieniono); paczka niezaładowana
-    na tę trasę → bez zmian."""
+    na tę trasę → bez zmian. `worker_id` i `device_id` nie są tu zapisywane: ślad w logu powstaje przy zakończeniu
+    załadunku (plan)."""
     wiersz = _wiersz_paczki(package_id)
     trasa, zamowienia, _pakunki = zablokuj(route)
     _wymagaj_statusu(trasa, 'zatwierdzona')
@@ -251,6 +285,8 @@ def ustaw_zostaje(route, order_id, powod, notatka=None, worker_id=None, device_i
     """
     „Zostaje” z powodem (spec 9.3) — przystanek zejdzie z trasy przy zakończeniu załadunku. Czyści znaczniki
     załadunku paczek zamówienia na tej trasie. Zwraca True, gdy coś zmieniła (ten sam powód i notatka — bez zmian).
+    `worker_id` i `device_id` nie są tu zapisywane: ślad w logu (`zostaje`) powstaje przy zakończeniu załadunku
+    (plan).
     """
     waliduj_powod(powod, POWODY_ZOSTAJE)
     notatka = _notatka(notatka)
@@ -267,7 +303,8 @@ def ustaw_zostaje(route, order_id, powod, notatka=None, worker_id=None, device_i
 
 
 def zdejmij_zostaje(route, order_id, worker_id=None, device_id=None, teraz=None):
-    """Zdjęcie „Zostaje” przed zakończeniem załadunku. Zwraca True, gdy przystanek je miał."""
+    """Zdjęcie „Zostaje” przed zakończeniem załadunku. Zwraca True, gdy przystanek je miał. `worker_id`
+    i `device_id` nie są tu zapisywane: ślad w logu powstaje przy zakończeniu załadunku (plan)."""
     trasa, zamowienia, _pakunki = zablokuj(route)
     _wymagaj_statusu(trasa, 'zatwierdzona')
     stop = _przystanek(trasa, order_id)
@@ -291,14 +328,22 @@ def zakoncz_zaladunek(route, worker_id=None, device_id=None, teraz=None):
     w całości schodzi z trasy sam. Braki → 409 loading_incomplete z listą `braki`; nic załadowanego → 409
     nothing_loaded (trasę, z której nic nie jedzie, logistyk cofa albo usuwa w panelu).
 
-    Pod blokadami: „Zostaje” → zdjęcie z trasy (routes.usun_przystanek, log `zostaje` z powodem); załadowane →
-    pozycje 'zaladowane', Base. 524520 (dopychacz po commicie), log `zaladunek`; trasa → 'zaladowana', kto i kiedy.
-    Zwraca (świeża trasa, usuniete: [{order_id, internal_order_number, reason}]).
+    Pod blokadami: „Zostaje” → zdjęcie z trasy (routes.usun_przystanek, log `zostaje` z powodem); anulowane →
+    zdjęcie z trasy i wyczyszczenie znaczników załadunku jego paczek; załadowane → pozycje 'zaladowane', Base.
+    524520 (dopychacz po commicie), log `zaladunek`; trasa → 'zaladowana', kto i kiedy.
+
+    Zwraca (świeża trasa, usuniete):
+    - załadunek zakończony teraz: `usuniete` = lista [{order_id, internal_order_number, reason}] (może być pusta);
+    - trasa już 'zaladowana' albo 'w_trasie' (Ruling 23 — powtórka z kolejki offline z nowym X-Operation-Id):
+      `usuniete` = None, bez żadnej zmiany i bez odmowy; router odpowiada 200 {changed: false, removed: []}.
+    Inne statusy (robocza, wykonana) → 409 route_status.
 
     Zdejmowane zamówienia trzymają listy `zostaja` i `anulowane` (silne referencje), więc
     routes.usun_przystanek bierze je z mapy tożsamości (`query.get`) zamiast czytać od nowa z migawki.
     """
     trasa, zamowienia, pakunki = zablokuj(route)
+    if trasa.status in ('zaladowana', 'w_trasie'):
+        return trasa, None
     _wymagaj_statusu(trasa, 'zatwierdzona')
     braki, zostaja, anulowane, zaladowane = [], [], [], []
     for stop in list(trasa.stops):
@@ -345,6 +390,9 @@ def zakoncz_zaladunek(route, worker_id=None, device_id=None, teraz=None):
     for order in anulowane:
         usuniete.append({'order_id': order.id, 'internal_order_number': order.internal_order_number,
                          'reason': 'anulowane'})
+        # Anulowane po skanie: paczki nie mogą zostać „na aucie” trasy, z której zamówienie schodzi (obiekty paczek
+        # są już zablokowane — zablokuj).
+        paczki.wyczysc_zaladunek(pakunki.get(order.id, []))
         routes.usun_przystanek(trasa, order.id, note=u'anulowane', wymagaj_roboczej=False,
                                worker_id=worker_id, device_id=device_id)
     trasa = routes.zablokuj_trasy(trasa)   # świeże przystanki po zdjęciach (ta sama transakcja, bez czekania)
@@ -367,10 +415,11 @@ def ruszaj(route, worker_id=None, device_id=None, teraz=None):
     """
     „Ruszam w trasę” (spec 9.4): trasa załadowana → w_trasie, kto i kiedy, Base. 149763 dla zamówień z pozycjami
     załadowanymi, log `wyjazd` (to on zapisuje tę zmianę statusu trasy — bez osobnego `trasa_status`). Trasa już
-    w trasie → bez zmian (powtórka z kolejki offline). Zwraca (trasa, zmieniono).
+    w trasie albo wykonana (Ruling 23 — powtórka z kolejki offline, także po ostatnim dostarczeniu) → bez zmian
+    i bez odmowy. Robocza i zatwierdzona → 409 route_status. Zwraca (trasa, zmieniono).
     """
     trasa, zamowienia, _pakunki = zablokuj(route)
-    if trasa.status == 'w_trasie':
+    if trasa.status in ('w_trasie', 'wykonana'):
         return trasa, False
     _wymagaj_statusu(trasa, 'zaladowana')
     teraz = teraz or get_local_now()

@@ -6,6 +6,7 @@ obiektach” (Ruling P2). Importuj razem z fiksturami:
     from tests.dostawa_pomocnicze import T0, DZIEN, trasa, zamowienie_z_paczkami
     from tests.logistyka_fixtures import app, client  # noqa: F401
 """
+import collections
 import gc
 import itertools
 from datetime import date, datetime
@@ -89,15 +90,21 @@ def odsmiecaj_po_blokadach(monkeypatch):
     i jego pozycje trzymają się tylko nawzajem — cykl, który zbiera dopiero gc), a późniejszy dostęp
     (`ProductionOrder.query.get`, `order.products`) czyta je od nowa zwykłym SELECT-em — na MySQL z migawki
     REPEATABLE READ sprzed blokad.
+
+    Zwraca licznik wywołań przelotek według nazwy (`collections.Counter`: '_wymagaj_statusu', 'zapisz_log'). Test
+    sprawdza nim, że odśmiecanie naprawdę zaszło — przelotka, której zapis nie woła, niczego by nie sprawdziła.
     """
+    licznik = collections.Counter()
     for modul, nazwa in ((dostawa, '_wymagaj_statusu'), (delivery, 'zapisz_log')):
         oryginal = getattr(modul, nazwa)
 
-        def przelotka(*a, _oryginal=oryginal, **k):
+        def przelotka(*a, _oryginal=oryginal, _nazwa=nazwa, **k):
+            licznik[_nazwa] += 1
             gc.collect()
             return _oryginal(*a, **k)
 
         monkeypatch.setattr(modul, nazwa, przelotka)
+    return licznik
 
 
 def zwykle_odczyty_stanu(z):

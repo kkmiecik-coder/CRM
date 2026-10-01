@@ -3,8 +3,10 @@
 zakończenie załadunku, wyjazd, „Cofnij załadunek” z panelu i „Cofnij zatwierdzenie” w trakcie załadunku (Ruling 21b)
 — serwis services/dostawa.py."""
 import gc
+from types import SimpleNamespace
 
 import pytest
+from flask import g
 from sqlalchemy import event
 
 from extensions import db
@@ -26,6 +28,19 @@ def _blad(funkcja, *args, **kwargs):
 
 def _akcje(order):
     return [w.action for w in LogisticsLog.query.filter_by(order_id=order.id).order_by(LogisticsLog.id)]
+
+
+def _zaplanowane_po_commicie(app, funkcja, *args, **kwargs):
+    """Zamówienia, które zapis zaplanował dla dopychacza Base. po commicie (bl_sync.zaplanuj_po_commicie zapisuje je
+    w `g` żądania; `g` żyje w kontekście aplikacji fikstury, więc listę zerujemy przed wywołaniem)."""
+    with app.test_request_context():
+        g._logistyka_bl_po_commicie = []
+        funkcja(*args, **kwargs)
+        return list(g._logistyka_bl_po_commicie)
+
+
+def _zapisy(z):
+    return [sql for sql, _par in z.lista if sql.startswith(('UPDATE', 'INSERT', 'DELETE'))]
 
 
 # --- Skan paczki --------------------------------------------------------------------------------------
@@ -80,6 +95,76 @@ def test_zaladunek_tylko_na_trasie_zatwierdzonej(app):
         db.session.commit()
 
 
+def test_metoda_tylko_skan_albo_reczne(app):
+    """Brak pola (None) = skan; każda inna wartość, także fałszywa z JSON-a (false, 0, "", []), to 422 — nie po cichu
+    „skan” (422 jest zapamiętywane, więc bez zgadywania)."""
+    order, (p1, _p2) = zamowienie_z_paczkami()
+    t = trasa([order])
+    for metoda in (False, 0, '', [], 'SKAN'):
+        e = _blad(dostawa.zaladuj_paczke, t, p1.id, metoda)
+        assert (e.kod, e.status) == ('invalid_method', 422), metoda
+    assert p1.loaded_at is None
+    dostawa.zaladuj_paczke(t, p1.id, None, worker_id=7)
+    assert p1.loaded_method == 'skan'
+
+
+def test_odmowy_skanu_zapadaja_pod_blokadami(app, monkeypatch):
+    """Wstępna odmowa to tylko skrót z migawki: bez niej (stan zmieniony już po migawce) decyzja pod blokadami daje
+    te same odmowy — paczka unieważniona package_void, zamówienie niezweryfikowane order_not_verified — a paczka
+    zostaje niezaładowana i nic nie idzie do bazy."""
+    monkeypatch.setattr(dostawa, '_wstepna_odmowa', lambda *a, **k: None)
+    order, (p1, _p2) = zamowienie_z_paczkami()
+    t = trasa([order])
+    p1.voided_at = T0
+    db.session.commit()
+    niezweryfikowane, (n1, _n2) = zamowienie_z_paczkami(statusy=('spakowane', 'spakowane'), zweryfikowane=False)
+    t2 = trasa([niezweryfikowane])
+    for route, paczka, kod in ((t, p1, 'package_void'), (t2, n1, 'order_not_verified')):
+        with Zapytania() as z:
+            with pytest.raises(dostawa.DostawaBlad) as e:
+                dostawa.zaladuj_paczke(route, paczka.id, worker_id=7)
+            db.session.flush()   # zmiana zostawiona w sesji poszłaby do bazy teraz
+        assert e.value.kod == kod
+        assert paczka.loaded_at is None and _zapisy(z) == []
+        db.session.rollback()
+
+
+def test_skan_zamowienia_anulowanego(app, monkeypatch):
+    """Zamówienie bez aktywnych pozycji: kod order_not_verified jak dotąd, komunikat mówi wprost, że anulowane —
+    i z migawki, i pod blokadami."""
+    order, (p1, _p2) = zamowienie_z_paczkami(statusy=('anulowane',))
+    t = trasa([order])
+    komunikat = u'Zamówienie {} jest anulowane — nie ładujemy.'.format(order.internal_order_number)
+    e = _blad(dostawa.zaladuj_paczke, t, p1.id)
+    assert (e.kod, e.komunikat) == ('order_not_verified', komunikat)
+    monkeypatch.setattr(dostawa, '_wstepna_odmowa', lambda *a, **k: None)
+    e = _blad(dostawa.zaladuj_paczke, t, p1.id)
+    assert (e.kod, e.komunikat) == ('order_not_verified', komunikat)
+
+
+def test_skan_przystanku_zostaje_niezweryfikowanego(app):
+    """Przystanek „Zostaje” z niezweryfikowanym zamówieniem: stop_stays (najpierw zdejmij „Zostaje”), jak w kontrakcie
+    — wstępna odmowa z migawki nie wyprzedza tego „niezweryfikowanym”."""
+    order, (p1,) = zamowienie_z_paczkami(statusy=('spakowane',), paczek=1, zweryfikowane=False)
+    t = trasa([order])
+    dostawa.ustaw_zostaje(t, order.id, 'niezweryfikowane')
+    db.session.commit()
+    assert _blad(dostawa.zaladuj_paczke, t, p1.id).kod == 'stop_stays'
+
+
+def test_skasowana_trasa_404_z_kodem(app):
+    """Trasa skasowana (np. w panelu) między odczytem routera a blokadą — każda odmowa Dostawy ma kod:
+    404 route_not_found."""
+    order, (p1, _p2) = zamowienie_z_paczkami()
+    trasa([order])
+    skasowana = SimpleNamespace(id=987654, name=u'Skasowana')
+    for funkcja, args in ((dostawa.zaladuj_paczke, (p1.id,)), (dostawa.rozladuj_paczke, (p1.id,)),
+                          (dostawa.ustaw_zostaje, (order.id, 'inne')), (dostawa.zdejmij_zostaje, (order.id,)),
+                          (dostawa.zakoncz_zaladunek, ()), (dostawa.ruszaj, ()), (dostawa.cofnij_zaladunek, ())):
+        e = _blad(funkcja, skasowana, *args)
+        assert (e.kod, e.status) == ('route_not_found', 404), funkcja.__name__
+
+
 def test_skan_po_zakonczeniu_zaladunku_mowi_o_statusie_trasy(app):
     """Po zakończeniu załadunku pozycje są 'zaladowane'. Wstępna odmowa z migawki sprawdza to samo i w tej samej
     kolejności co decyzja pod blokadami (najpierw status trasy), więc skan dostaje route_status, a nie mylące
@@ -127,6 +212,23 @@ def test_skan_paczki_z_innej_trasy_mowi_o_trasie(app):
     assert e.kod == 'package_not_on_route' and u'Krosno 05.10' in e.komunikat
 
 
+def test_skan_paczki_z_innej_trasy_nazwa_z_odczytu_biezacego(app):
+    """Nazwa trasy w odmowie package_not_on_route pochodzi z odczytu bieżącego pod blokadą tras: przystanek
+    w sesji jest nieświeży (migawka: „Lublin 03.10”), a w bazie zamówienie jest już na trasie „Krosno 05.10”."""
+    order, _ = zamowienie_z_paczkami()
+    t = trasa([order])
+    inne, (q1, _q2) = zamowienie_z_paczkami()
+    stara = trasa([inne], nazwa=u'Lublin 03.10')
+    nowa = trasa([], nazwa=u'Krosno 05.10')
+    przystanek = RouteStop.query.filter_by(order_id=inne.id).one()   # w sesji: stara trasa
+    assert przystanek.route_id == stara.id
+    db.session.execute(RouteStop.__table__.update().where(RouteStop.__table__.c.id == przystanek.id)
+                       .values(route_id=nowa.id))
+    e = _blad(dostawa.zaladuj_paczke, t, q1.id)
+    assert e.kod == 'package_not_on_route' and e.dane == {'route_name': u'Krosno 05.10'}
+    assert u'Krosno 05.10' in e.komunikat
+
+
 def test_skan_przystanku_zostaje_409(app):
     order, (p1, _p2) = zamowienie_z_paczkami()
     t = trasa([order])
@@ -145,6 +247,23 @@ def test_rozladunek_cofa_pomylke(app):
     db.session.commit()
     assert zmieniono is True and (p1.loaded_at, p1.loaded_route_id, p1.loaded_method) == (None, None, None)
     assert dostawa.rozladuj_paczke(t, p1.id)[1] is False
+
+
+def test_rozladunek_odmowy(app):
+    order, (p1, _p2) = zamowienie_z_paczkami()
+    t = trasa([order])
+    zaladuj_wprost([p1], t)
+    e = _blad(dostawa.rozladuj_paczke, t, 987654)
+    assert (e.kod, e.status) == ('package_not_found', 404)
+    inne, (q1, _q2) = zamowienie_z_paczkami()
+    trasa([inne], nazwa=u'Lublin 03.10')
+    e = _blad(dostawa.rozladuj_paczke, t, q1.id)
+    assert (e.kod, e.dane) == ('package_not_on_route', {'route_name': u'Lublin 03.10'})
+    jedzie, (j1, _j2) = zamowienie_z_paczkami(statusy=('zaladowane', 'zaladowane'))
+    zaladowana = trasa([jedzie], status='zaladowana')
+    zaladuj_wprost([j1], zaladowana)
+    assert _blad(dostawa.rozladuj_paczke, zaladowana, j1.id).kod == 'route_status'
+    assert (p1.loaded_route_id, j1.loaded_route_id) == (t.id, zaladowana.id)
 
 
 # --- „Zostaje” ---------------------------------------------------------------------------------------
@@ -179,6 +298,16 @@ def test_zostaje_odmowy(app):
     assert _blad(dostawa.ustaw_zostaje, w_trasie, jedzie.id, 'inne').kod == 'route_status'
 
 
+def test_zdejmij_zostaje_odmowy(app):
+    order, _ = zamowienie_z_paczkami()
+    t = trasa([order])
+    e = _blad(dostawa.zdejmij_zostaje, t, 987654)
+    assert (e.kod, e.status) == ('stop_not_found', 404)
+    jedzie, _ = zamowienie_z_paczkami(statusy=('zaladowane',))
+    zaladowana = trasa([jedzie], status='zaladowana')
+    assert _blad(dostawa.zdejmij_zostaje, zaladowana, jedzie.id).kod == 'route_status'
+
+
 # --- Zakończenie załadunku ---------------------------------------------------------------------------
 
 def test_zakonczenie_zaladunku(app):
@@ -202,23 +331,30 @@ def test_zakonczenie_zaladunku(app):
     wpis = LogisticsLog.query.filter_by(order_id=zostaje.id, action='zostaje').one()
     assert (wpis.new_value, wpis.note, wpis.worker_id, wpis.device_id) == \
         ('brak_miejsca', u'Brak miejsca: za długie', 7, 3)
-    assert LogisticsLog.query.filter_by(order_id=zostaje.id, action='trasa_usuniete').one().worker_id == 7
+    usuniecie = LogisticsLog.query.filter_by(order_id=zostaje.id, action='trasa_usuniete').one()
+    assert (usuniecie.worker_id, usuniecie.device_id) == (7, 3)
     zaladunek = LogisticsLog.query.filter_by(order_id=jedzie.id, action='zaladunek').one()
-    assert (zaladunek.old_value, zaladunek.new_value, zaladunek.note) == (None, 'zaladowane', u'2 × paczka')
+    assert (zaladunek.old_value, zaladunek.new_value, zaladunek.note, zaladunek.worker_id, zaladunek.device_id) == \
+        (None, 'zaladowane', u'2 × paczka', 7, 3)
     status = LogisticsLog.query.filter_by(order_id=jedzie.id, action='trasa_status').one()
-    assert (status.old_value, status.new_value, status.worker_id) == ('zatwierdzona', 'zaladowana', 7)
+    assert (status.old_value, status.new_value, status.worker_id, status.device_id) == \
+        ('zatwierdzona', 'zaladowana', 7, 3)
 
 
 def test_zakonczenie_zdejmuje_anulowane(app):
+    """Przystanek zamówienia anulowanego w całości schodzi z trasy razem ze znacznikami załadunku jego paczek
+    (anulowanie po skanie — paczki nie mogą zostać „na aucie” trasy, z której zamówienie zeszło)."""
     jedzie, paczki_jedzie = zamowienie_z_paczkami()
-    anulowane, _ = zamowienie_z_paczkami(statusy=('anulowane',))
+    anulowane, paczki_anulowanego = zamowienie_z_paczkami(statusy=('anulowane',))
     t = trasa([jedzie, anulowane])
-    zaladuj_wprost(paczki_jedzie, t)
+    zaladuj_wprost(paczki_jedzie + paczki_anulowanego, t)
     _trasa, usuniete = dostawa.zakoncz_zaladunek(t, worker_id=7)
     db.session.commit()
     assert usuniete == [{'order_id': anulowane.id, 'internal_order_number': anulowane.internal_order_number,
                          'reason': 'anulowane'}]
     assert RouteStop.query.filter_by(order_id=anulowane.id).first() is None
+    assert all(_znacznik(p) == (None, None, None, None) for p in paczki_anulowanego)
+    assert all(p.loaded_route_id == t.id for p in paczki_jedzie)
 
 
 def test_zakonczenie_lista_brakow(app):
@@ -260,6 +396,49 @@ def test_zakonczenie_bez_zaladowanych_409(app):
     assert RouteStop.query.filter_by(order_id=order.id).one().stays_reason == 'inne'   # nic nie zdjęte
 
 
+def test_powtorka_zakonczenia_zaladunku_bez_zmian(app):
+    """Ruling 23: „Zakończ załadunek” powtórzone z kolejki offline (nowy X-Operation-Id) na trasie już załadowanej
+    albo w trasie — bez zmian i bez odmowy: (trasa, None), router odpowiada 200 {changed: false, removed: []}.
+    Trasa robocza i wykonana — dalej route_status."""
+    jedzie, paczki_jedzie = zamowienie_z_paczkami()
+    t = trasa([jedzie])
+    zaladuj_wprost(paczki_jedzie, t)
+    dostawa.zakoncz_zaladunek(t, worker_id=7, teraz=T0)
+    db.session.commit()
+    jedzie.bl_status_pending_id = None   # dopychacz wysłał
+    db.session.commit()
+    logi = LogisticsLog.query.count()
+    for status in ('zaladowana', 'w_trasie'):
+        t.status = status
+        db.session.commit()
+        wynik = []
+        assert _zaplanowane_po_commicie(app, lambda: wynik.append(dostawa.zakoncz_zaladunek(t, worker_id=8))) == []
+        db.session.commit()
+        trasa_po, usuniete = wynik[0]
+        assert (trasa_po.status, usuniete, trasa_po.loaded_by_worker_id, trasa_po.loaded_at) == (status, None, 7, T0)
+    assert LogisticsLog.query.count() == logi and jedzie.bl_status_pending_id is None
+    for status in ('robocza', 'wykonana'):
+        t.status = status
+        db.session.commit()
+        assert _blad(dostawa.zakoncz_zaladunek, t).kod == 'route_status', status
+
+
+def test_zakonczenie_i_wyjazd_planuja_dopychacz_po_commicie(app):
+    """Telefon uruchamia dopychacz Base. dopiero po commicie (with_idempotency → bl_sync.wyslij_zaplanowane):
+    zakończenie i wyjazd planują tylko zamówienia z nowym statusem Base."""
+    jedzie, paczki_jedzie = zamowienie_z_paczkami()
+    zostaje, _ = zamowienie_z_paczkami()
+    t = trasa([jedzie, zostaje])
+    zaladuj_wprost(paczki_jedzie, t)
+    dostawa.ustaw_zostaje(t, zostaje.id, 'inne')
+    db.session.commit()
+    assert _zaplanowane_po_commicie(app, dostawa.zakoncz_zaladunek, t, worker_id=7) == [jedzie.id]
+    db.session.commit()
+    assert _zaplanowane_po_commicie(app, dostawa.ruszaj, t, worker_id=7) == [jedzie.id]
+    db.session.commit()
+    assert _zaplanowane_po_commicie(app, dostawa.ruszaj, t, worker_id=7) == []   # powtórka
+
+
 # --- Wyjazd i cofnięcie załadunku ------------------------------------------------------------------------
 
 def test_ruszam(app):
@@ -271,7 +450,7 @@ def test_ruszam(app):
     assert (trasa_po.departed_at, trasa_po.departed_by_worker_id) == (T0, 7)
     assert order.bl_status_pending_id == 149763
     wpis = LogisticsLog.query.filter_by(order_id=order.id, action='wyjazd').one()
-    assert (wpis.old_value, wpis.new_value, wpis.worker_id) == ('zaladowana', 'w_trasie', 7)
+    assert (wpis.old_value, wpis.new_value, wpis.worker_id, wpis.device_id) == ('zaladowana', 'w_trasie', 7, 3)
 
 
 def test_ponowne_ruszam_bez_zmian(app):
@@ -291,6 +470,23 @@ def test_ruszam_wymaga_zakonczonego_zaladunku(app):
     order, _ = zamowienie_z_paczkami()
     t = trasa([order])
     assert _blad(dostawa.ruszaj, t).kod == 'route_status'
+    t.status = 'robocza'
+    db.session.commit()
+    assert _blad(dostawa.ruszaj, t).kod == 'route_status'
+
+
+def test_ruszam_po_zamknieciu_trasy_bez_zmian(app):
+    """Ruling 23: „Ruszam” z kolejki offline dochodzi, gdy trasa jest już wykonana (ostatnie dostarczenie albo
+    odhaczenie) — bez zmian i bez odmowy, bez statusu Base. i logu."""
+    order, _ = zamowienie_z_paczkami(statusy=('dostarczone',))
+    t = trasa([order], status='wykonana', departed_at=T0, departed_by_worker_id=7)
+    assert _zaplanowane_po_commicie(app, dostawa.ruszaj, t, worker_id=8) == []
+    db.session.commit()
+    trasa_po, zmieniono = dostawa.ruszaj(t, worker_id=8)
+    db.session.commit()
+    assert (zmieniono, trasa_po.status, trasa_po.departed_at, trasa_po.departed_by_worker_id) == \
+        (False, 'wykonana', T0, 7)
+    assert order.bl_status_pending_id is None and _akcje(order) == []
 
 
 def test_cofnij_zaladunek_z_panelu(app):
@@ -306,6 +502,21 @@ def test_cofnij_zaladunek_z_panelu(app):
     wpis = LogisticsLog.query.filter_by(order_id=order.id, action='zaladunek').one()
     assert (wpis.old_value, wpis.new_value, wpis.user_id) == ('zaladowane', None, 1)
     assert _blad(dostawa.cofnij_zaladunek, trasa_po).kod == 'route_status'
+
+
+def test_cofniecie_zaladunku_bez_pozycji_zaladowanych(app):
+    """Przystanek, którego pozycje nie są 'zaladowane' (np. weryfikacja cofnięta i powtórzona po zakończeniu
+    załadunku): bez 417343 i bez logu `zaladunek` — tylko `trasa_status`; dopychacz po commicie tylko dla
+    zamówienia, które było załadowane."""
+    a, paczki_a = zamowienie_z_paczkami(statusy=('zaladowane', 'zaladowane'))
+    b, _ = zamowienie_z_paczkami()
+    t = trasa([a, b], status='zaladowana')
+    zaladuj_wprost(paczki_a, t)
+    assert _zaplanowane_po_commicie(app, dostawa.cofnij_zaladunek, t, user_id=1) == [a.id]
+    db.session.commit()
+    assert (a.bl_status_pending_id, b.bl_status_pending_id) == (417343, None)
+    assert _akcje(b) == ['trasa_status']
+    assert [p.current_status for p in b.products] == ['zweryfikowane', 'zweryfikowane']
 
 
 # --- „Cofnij zatwierdzenie” w trakcie załadunku (Ruling 21b) --------------------------------------------
@@ -465,11 +676,12 @@ def test_skan_decyduje_na_zablokowanych_obiektach(app, monkeypatch):
     route_id, paczka_id = t.id, p1.id
     db.session.expunge_all()     # obiekty testu odłączone: zablokowane przeżyją tylko dzięki referencjom zapisu
     gc.collect()
-    odsmiecaj_po_blokadach(monkeypatch)
+    licznik = odsmiecaj_po_blokadach(monkeypatch)
     route = db.session.get(Route, route_id)
     with Zapytania() as z:
         paczka, zmieniono = dostawa.zaladuj_paczke(route, paczka_id, worker_id=7, teraz=T0)
         db.session.flush()
+    assert licznik['_wymagaj_statusu'] > 0
     assert zwykle_odczyty_stanu(z) == []
     assert zmieniono is True and (paczka.id, paczka.loaded_route_id, paczka.loaded_at) == (paczka_id, route_id, T0)
 
@@ -488,11 +700,51 @@ def test_zakonczenie_decyduje_na_zablokowanych_obiektach(app, monkeypatch):
     route_id, ids = t.id, (jedzie.id, zostaje.id, anulowane.id)
     db.session.expunge_all()
     gc.collect()
-    odsmiecaj_po_blokadach(monkeypatch)
+    licznik = odsmiecaj_po_blokadach(monkeypatch)
     route = db.session.get(Route, route_id)
     with Zapytania() as z:
         trasa_po, usuniete = dostawa.zakoncz_zaladunek(route, worker_id=7, teraz=T0)
         db.session.flush()
+    assert licznik['_wymagaj_statusu'] > 0 and licznik['zapisz_log'] > 0
     assert zwykle_odczyty_stanu(z) == []
     assert [s.order_id for s in trasa_po.stops] == [ids[0]]
     assert [(u['order_id'], u['reason']) for u in usuniete] == [(ids[1], 'inne'), (ids[2], 'anulowane')]
+
+
+def test_wyjazd_decyduje_na_zablokowanych_obiektach(app, monkeypatch):
+    """Ruling P2 dla „Ruszam” (wiele przystanków, status Base. tylko dla zamówień z pozycjami załadowanymi)."""
+    a, _ = zamowienie_z_paczkami(statusy=('zaladowane', 'zaladowane'))
+    b, _ = zamowienie_z_paczkami(statusy=('zaladowane',))
+    t = trasa([a, b], status='zaladowana')
+    route_id, ids = t.id, [a.id, b.id]
+    db.session.expunge_all()
+    gc.collect()
+    licznik = odsmiecaj_po_blokadach(monkeypatch)
+    route = db.session.get(Route, route_id)
+    with Zapytania() as z:
+        trasa_po, zmieniono = dostawa.ruszaj(route, worker_id=7, teraz=T0)
+        db.session.flush()
+    assert licznik['_wymagaj_statusu'] > 0 and licznik['zapisz_log'] > 0
+    assert zwykle_odczyty_stanu(z) == []
+    assert (zmieniono, trasa_po.status) == (True, 'w_trasie')
+    assert sorted(w.order_id for w in LogisticsLog.query.filter_by(action='wyjazd')) == sorted(ids)
+
+
+def test_cofniecie_zaladunku_decyduje_na_zablokowanych_obiektach(app, monkeypatch):
+    """Ruling P2 dla „Cofnij załadunek” (pozycje, znaczniki paczek i statusy Base. kilku zamówień)."""
+    a, paczki_a = zamowienie_z_paczkami(statusy=('zaladowane', 'zaladowane'))
+    b, paczki_b = zamowienie_z_paczkami(statusy=('zaladowane',))
+    t = trasa([a, b], status='zaladowana', loaded_at=T0, loaded_by_worker_id=7)
+    zaladuj_wprost(paczki_a + paczki_b, t)
+    route_id, paczki_ids = t.id, [p.id for p in paczki_a + paczki_b]
+    db.session.expunge_all()
+    gc.collect()
+    licznik = odsmiecaj_po_blokadach(monkeypatch)
+    route = db.session.get(Route, route_id)
+    with Zapytania() as z:
+        trasa_po = dostawa.cofnij_zaladunek(route, user_id=1, teraz=T0)
+        db.session.flush()
+    assert licznik['_wymagaj_statusu'] > 0 and licznik['zapisz_log'] > 0
+    assert zwykle_odczyty_stanu(z) == []
+    assert trasa_po.status == 'zatwierdzona'
+    assert [db.session.get(ProductionPackage, pid).loaded_route_id for pid in paczki_ids] == [None] * 4
