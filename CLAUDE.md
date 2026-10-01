@@ -308,9 +308,20 @@ Albo po prostu `./deploy.sh` — robi dokładnie to samo, z lockiem i logami.
   odczycie bieżącym; deklaracja paczek tak samo, z wstępną odmową „nie w całości spakowane” przed blokadą pozycji.
   Reguła `weryfikacja.uniewaznij_etapy` (powrót pozycji do produkcji) blokady globalnej nie bierze; gdy ma pracę,
   potwierdza ją odczytem bieżącym w tej samej kolejności. Hurtowa zmiana statusu, cron logistyki oraz zmiana
-  sposobu dostawy w panelu (po blokadzie tras) blokują zamówienia rosnąco po id. Stanowiska (ZAKOŃCZ, doróbka)
-  i synchronizacja biorą pozycję przed zamówieniem — z zapisami Weryfikacji i ze zmianą sposobu w panelu możliwe
-  rzadkie 1213 (panel ponawia raz sam, tablet z kolejki offline).
+  sposobu dostawy w panelu (po blokadzie tras) blokują zamówienia rosnąco po id. **Zamówienie najpierw**
+  (krok 4.4a): ZAKOŃCZ i wejście do pakowania na tabletach (`POST /api/mobile/orders/<id>/complete`), doróbka
+  (`reject_product_quantity`), zmiany z Base. (`apply_baselinker_changes`), druk etykiet całego zamówienia w trybie
+  agenta i przeniesienie osieroconych w cronie blokują wiersz zamówienia, potem wszystkie jego pozycje — jednym
+  odczytem bieżącym po `order_id` (`services/blokady_zamowien.zablokuj_pozycje`; tak samo `paczki.zablokuj_stan`),
+  zanim cokolwiek zapiszą. Widać więc też pozycje dodane albo usunięte tuż przed blokadą, a zablokowane obiekty
+  sesja trzyma silnymi referencjami (mapa tożsamości SQLAlchemy trzyma czyste obiekty słabo — bez tego późniejsze
+  `pozycja.order` czytałoby zamówienie od nowa ze starej migawki REPEATABLE READ). Nowy zapis pozycji zamówienia
+  zaczyna od tej samej blokady. Wywołanie Base. (HTTP) idzie przed blokadami, a po nim `commit` i odczyt blokujący
+  id zamówienia. Cron logistyki commituje każdą fazę osobno. Bez blokady zamówienia piszą tylko liczniki sztuk
+  (`PATCH …/quantity`, edycja sztuk w panelu admina) oraz dwa znane wyjątki, bez naprawy: ręczna synchronizacja
+  z `force_update`, która dopisuje pozycje istniejącym zamówieniom, i `sync-cron` (`sync_paid_orders_only`) przy
+  ponownym imporcie istniejącego zamówienia — ta sama klasa wyjątku, dziś nieaktywna, bo cron importu nie jest
+  uruchamiany; gdyby miał wrócić, trzeba najpierw dodać blokadę zamówienia.
 
 ## Architecture
 

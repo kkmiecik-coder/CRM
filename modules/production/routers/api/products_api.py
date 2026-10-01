@@ -1245,8 +1245,9 @@ def _zablokuj_zamowienia_i_pozycje(product_ids):
     Zaznaczone pozycje hurtowej zmiany statusu, wczytane po zablokowaniu ich zamówień. Zwraca krotkę
     (zablokowane zamówienia rosnąco po id, zaznaczone pozycje rosnąco po id).
 
-    Kolejność blokad jak w zapisach Weryfikacji: zamówienia FOR UPDATE (rosnące id) → pozycje po PK FOR
-    UPDATE (rosnące id) → dopiero zmiany statusów i reguła uniewaznij_etapy. Dotąd hurt najpierw zapisywał
+    Kolejność blokad jak w zapisach Weryfikacji: zamówienia FOR UPDATE (rosnące id) → wszystkie pozycje każdego
+    zamówienia FOR UPDATE po `order_id` (`blokady_zamowien.zablokuj_pozycje`, rosnąco po id) → dopiero zmiany
+    statusów i reguła uniewaznij_etapy. Dotąd hurt najpierw zapisywał
     pozycje (flush daje blokadę pozycji), a dopiero potem reguła zapisywała zamówienie — odwrotnie niż
     Weryfikacja (zamówienie → pozycje), stąd zakleszczenie MySQL 1213. Do tego zamówienie i pozycje szły
     z migawki REPEATABLE READ: zamówienie, które Weryfikacja zdążyła zweryfikować, miało w pamięci stare

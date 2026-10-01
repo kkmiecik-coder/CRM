@@ -164,6 +164,8 @@ etapów 1–4, gdy obie wartości wypadają w tej samej sekundzie (DATETIME bez 
 wyklucza. Znacznik i zamknięcia z migracji mają czas MySQL (`NOW()`), a zamknięcia z kodu `get_local_now()` (czas
 polski). Czas polski nigdy nie jest wcześniejszy niż UTC ani niż czas serwera w tej samej strefie, więc mieszanie
 stref przesuwa zamknięcia z kodu tylko w bezpieczną stronę, na później od znacznika (por. Ruling 6 kroku 4.3).
+(krok 4.4a) Przyczynę usuwa zadanie wstępne kroku 4.4: ZAKOŃCZ blokuje zamówienie przed pozycjami i decyduje na
+odczycie bieżącym; siatka zostaje jako zabezpieczenie.
 
 ## 5. Model danych
 
@@ -449,6 +451,20 @@ produktu) otwiera zamówienie; inne kody → komunikat „Nieznany kod”.
   0 z 11; ofiara dostaje 500, a ponowienie tym samym `X-Operation-Id` przechodzi (decyzja Konrada 1.10.2026: zostaje).
   Kolejność „zamówienie najpierw” dla wszystkich pisarzy stanowisk to osobne zadanie wstępne kroku 4.4, przed nowymi
   zapisami Dostawy.
+  (krok 4.4a) Usunięte: ZAKOŃCZ, wejście do pakowania, doróbka i zmiany z Base. biorą zamówienie przed pozycją
+  (`services/blokady_zamowien.py`); pozycje zamówienia czytane są jednym odczytem bieżącym po `order_id` (tak samo
+  zapisy Weryfikacji i deklaracja paczek, `paczki.zablokuj_stan`), a zablokowane obiekty sesja trzyma silnymi
+  referencjami. Pierwsza seria na kodzie sprzed tej poprawki dała 0 × 1213, ale niezgodne zamknięcia (odczyt
+  bieżący nie wystarczał: odrzucone zablokowane obiekty były czytane od nowa z migawki, a pozycja dodana po migawce
+  była niewidoczna). Wyścigi MySQL po poprawce (kopia produkcji, 1.10.2026, 873 przebiegi w 26 trybach; czysta
+  bariera oraz rozjazd startu 0–40 i 0–15 ms): 0 × 1213, 0 odpowiedzi 500, 0 niezgodnych zamknięć. W tym
+  `dorobka-weryfikacja` (w kroku 4.3 13 z 16 × 1213) 0 z 10, doróbka kontra ZAKOŃCZ w zamówieniu sąsiednim w indeksie
+  pozycji (62), cron logistyki z pracą dla reguły kontra doróbka (62) i hurtowa zmiana statusu kontra ZAKOŃCZ (30).
+  Import nowego zamówienia kontra ostatnie ZAKOŃCZ najnowszego zamówienia (62): import czeka na COMMIT ZAKOŃCZ
+  (odczyt po `order_id` trzyma lukę indeksu za pozycjami najnowszego zamówienia); w przebiegach mediana żądania
+  importu 171–207 ms wobec 141 ms samodzielnie, a oczekiwanie na blokady najwyżej 16 ms. Znane wyjątki bez
+  naprawy: ręczna synchronizacja z `force_update` oraz `sync-cron` (`sync_paid_orders_only`) przy ponownym imporcie
+  istniejącego zamówienia dopisują pozycje bez blokady zamówienia (cron importu dziś nie jest uruchamiany).
 
 ### 8.4 Cofnięcie do pakowania
 
@@ -566,6 +582,10 @@ zmianie sposobu na takim zamówieniu (select w wierszu, dymek mapy, hurt):
   tablet kolejką offline. Poprawność się nie pogorszyła, bo dodatek usunął przeplot z decyzją panelu na starej
   migawce; pogorszyła się dostępność. Właściwa poprawka to zadanie wstępne kroku 4.4 („zamówienie najpierw” dla
   stanowisk, decyzja Konrada 3).
+  (krok 4.4a) Po zmianie kolejności blokad stanowisk tryb ostatniego ZAKOŃCZ na zamówieniu spakowanym w połowie:
+  0 × 1213 i 0 błędnych zamknięć w 82 przebiegach (62 na kodzie `20fee377` i 20 na końcowym `5f7d5620`). Na kodzie sprzed
+  poprawki odczytu pozycji (`32469b9c`) ten sam tryb dawał 0 × 1213, ale 27 z 62 błędnych zamknięć (w kroku 4.3: 11 z
+  62 × 1213 i 11 z 62 zamkniętych odbiorów).
 
 ## 9. Krok 4.4 — Dostawa
 
@@ -723,6 +743,11 @@ Komunikaty po polsku, w API z `error` (kod) i `message` (tekst dla człowieka).
    (`KSZTALT_ODPOWIEDZI_KOLEJKI`) obejmuje oba. Gdyby dodatek szedł osobno po 4.3, musiałby podbić go do 6.
 4. **4.4:** status „Załadowane – trans. WoodPower” założony w Base. (numer do `sposoby.STATUS_ZALADOWANE`), backend +
    appka z Dostawą; telefon kierowcy, kierowca oznaczony we Flocie.
+   Etapy 3 i 4 wdrażamy jednym wdrożeniem (decyzja Konrada 1.10), więc w chwili wdrożenia nie ma tras wykonanych.
+   Gdyby etap 3 poszedł wcześniej, przed 4.4 trzeba dopisać jednorazowe przestawienie pozycji zamówień z tras
+   wykonanych na `dostarczone` (wzór `delivery.dostarcz_wydane`). Kolejność APK ↔ backend przy wspólnym wdrożeniu
+   etapów 1–4 (etap 1 wymagał appki przed backendem, kroki 4.2–4.4 backendu przed appką) ustala plan wdrożenia
+   prowadzony przez centralę.
 5. **4.5:** backend.
 
 Każdy krok: push gałęzi, przegląd całej zmiany, oględziny na kopii produkcji (podgląd), wdrożenie tylko na polecenie

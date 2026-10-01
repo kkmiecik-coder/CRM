@@ -150,8 +150,9 @@ def _zapisz_zmiane_sposobu(ids, sposob, przepakowanie_decyzja, user_id):
     _zapis_pod_blokada()
     # Spec 8.7: wiersze zamówień FOR UPDATE rosnąco po id (jak hurt statusu i cron), potem zwykły odczyt
     # z pozycjami. Migawka powstaje dopiero teraz, więc decyzja „w całości spakowane” widzi wszystko, co
-    # zatwierdzono przed blokadami (np. Weryfikację albo deklarację paczek). Pozycji nie blokujemy:
-    # stanowiska biorą pozycję przed zamówieniem (1213).
+    # zatwierdzono przed blokadami (np. Weryfikację albo deklarację paczek). Pozycji nie blokujemy: pisarze
+    # pozycji (ZAKOŃCZ, wejście do pakowania, doróbka, Weryfikacja, hurt) biorą od kroku 4.4a najpierw wiersz
+    # zamówienia, więc blokada zamówienia wyklucza ich z tego zamówienia, zanim sięgną po pozycje.
     db.session.query(ProductionOrder.id).filter(ProductionOrder.id.in_(ids)) \
         .order_by(ProductionOrder.id).with_for_update().all()
 
@@ -209,10 +210,11 @@ def delivery_method():
     # PRZED _zapis_pod_blokada: po commicie current_user.id to zwykły SELECT (migawka sprzed blokady).
     user_id = _user_id()
 
-    # Jedno automatyczne ponowienie po zakleszczeniu 1213 (I1b). Blokada zamówień panelu trzyma je przez
-    # całą pętlę zmiany, a stanowisko (ZAKOŃCZ, wejście do pakowania) najpierw zapisuje pozycję, potem
-    # zamówienie, więc zmiana sposobu na zamówieniu z pozycją w ruchu na stanowisku może paść ofiarą
-    # zakleszczenia (spec 8.7, „Współbieżność”). Żądanie jest bezpieczne do powtórzenia: decyzja jest jawna
+    # Jedno automatyczne ponowienie po zakleszczeniu 1213 (I1b), zostawione jako zabezpieczenie. Zmiana
+    # sposobu na zamówieniu z pozycją w ruchu na stanowisku zakleszczała się, gdy stanowisko najpierw zapisywało
+    # pozycję, potem zamówienie (spec 8.7, „Współbieżność”); od kroku 4.4a stanowiska, doróbka, Weryfikacja
+    # i hurt biorą wiersz zamówienia przed pozycjami (wyścigi MySQL: 0 × 1213), więc ponowienie obejmuje już tylko
+    # ścieżki spoza tej zasady (np. ręczna synchronizacja z force_update). Żądanie jest bezpieczne do powtórzenia: decyzja jest jawna
     # w ciele (`przepakowanie`), a druga próba decyduje na nowym stanie spod nowych blokad — zamówienie,
     # które dopiero się spakowało, dostanie `wymaga_decyzji_przepakowania`, a nie zmianę wbrew regule.
     # Najwyżej jedna próba więcej: drugie 1213 i każdy inny błąd idą dalej do globalnego handlera (500).

@@ -260,8 +260,8 @@ def uniewaznij_etapy(order, teraz, powod, user_id=None, worker_id=None, device_i
     1. Tania wstępna ocena na stanie wołającego (`_jest_praca_dla_reguly`, bez zapytań): brak pracy →
        False bez dotykania bazy. Woła ją cron dla każdego otwartego zamówienia.
     2. Widoczna praca → potwierdzenie na odczycie bieżącym, w kolejności Weryfikacji: zamówienie FOR
-       UPDATE po PK z `populate_existing` → paczki FOR UPDATE → pozycje po PK FOR UPDATE z
-       `populate_existing` (`paczki.zablokuj_stan`). Wołający, którzy już trzymają te blokady
+       UPDATE po PK z `populate_existing` → paczki FOR UPDATE → wszystkie pozycje zamówienia FOR UPDATE po
+       `order_id` (`paczki.zablokuj_stan` → `blokady_zamowien.zablokuj_pozycje`). Wołający, którzy już trzymają te blokady
        (`cofnij_do_pakowania`, hurtowa zmiana statusu po zablokowaniu zamówień i pozycji), dostają je
        bez czekania.
     3. Dopiero na tym stanie liczy, co cofnąć, i działa. Gdy po odczycie bieżącym pracy nie ma, nie robi
@@ -271,10 +271,12 @@ def uniewaznij_etapy(order, teraz, powod, user_id=None, worker_id=None, device_i
     przed pierwszym zapytaniem jest jawny `flush()` (także gdy wołający wyłączył autoflush) — zmiany
     lądują w bazie, a odczyt wczytuje z niej te same wartości. Kolejność blokad w tym flushu: jeśli
     wołający zmienił też zamówienie (panel: ustaw_sposob_dostawy), UPDATE zamówienia poprzedza UPDATE
-    pozycji (kolejność zależności tabel), więc kolejność jest ta sama co u Weryfikacji. Gdy zmienił tylko
-    pozycje (synchronizacja, doróbka), flush zapisuje najpierw pozycje, a dopiero potem reguła bierze
-    zamówienie: para pozycja → zamówienie jest znana i samonaprawiająca się (ofiara 1213 ponawia), a jej
-    pełne usunięcie to decyzja Konrada (doróbka, Task 10 sekcja 4.3).
+    pozycji (kolejność zależności tabel), więc kolejność jest ta sama co u Weryfikacji. Wołający, którzy
+    zmieniają pozycje przed regułą (doróbka, synchronizacja z Base., hurtowa zmiana statusu), od kroku 4.4a biorą
+    na samym początku wiersz zamówienia i wszystkie jego pozycje (`services/blokady_zamowien.py`), zanim cokolwiek
+    zapiszą, więc flush niczego nie odwraca: pary „pozycja → zamówienie” (dawny wyjątek doróbki i synchronizacji,
+    spec 8.3 „Współbieżność”) już tam nie ma. Regułę po własnych zapisach wołający odświeżają tym samym
+    helperem (`zablokuj_pozycje`).
     """
     if not _jest_praca_dla_reguly(order, delivery.aktywne_produkty(order)):
         return False
@@ -344,7 +346,7 @@ def zablokuj_stan(order):
     Odczyt bieżący stanu, na którym zapis Weryfikacji ma zdecydować. Zwraca aktualne paczki zamówienia.
     Definicja odczytu (kolejność blokad, dlaczego bieżący, a nie migawka) siedzi w `paczki.zablokuj_stan`,
     bo woła ją też deklaracja paczek: zamówienie FOR UPDATE trzyma już router → paczki FOR UPDATE →
-    pozycje po PK FOR UPDATE → dopiero zapisy.
+    wszystkie pozycje zamówienia FOR UPDATE po `order_id` → dopiero zapisy.
     """
     return paczki.zablokuj_stan(order)
 
@@ -470,8 +472,8 @@ def cofnij_sprawdzenie_paczki(paczka, order, worker_id=None, device_id=None, ter
     NIE commituje.
 
     Kolejność blokad (jak `zweryfikuj_paczke`): router bierze paczki.zablokuj_deklaracje(), potem zamówienie
-    FOR UPDATE, potem paczkę FOR UPDATE; tu `stan_do_zapisu` czyta bieżąco paczki FOR UPDATE i pozycje po PK
-    FOR UPDATE, dopiero potem zapisy. Stan, na którym funkcja decyduje (w tym „czy zamówienie było
+    FOR UPDATE, potem paczkę FOR UPDATE; tu `stan_do_zapisu` czyta bieżąco paczki FOR UPDATE i wszystkie pozycje
+    zamówienia FOR UPDATE po `order_id`, dopiero potem zapisy. Stan, na którym funkcja decyduje (w tym „czy zamówienie było
     zweryfikowane”), pochodzi z tego odczytu, a nie z migawki MySQL.
 
     Paczka unieważniona → 409 package_void. Zamówienie z pozycją przed spakowaniem → order_not_packed,
