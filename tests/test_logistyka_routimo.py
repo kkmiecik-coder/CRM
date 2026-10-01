@@ -44,7 +44,7 @@ from datetime import date
 from extensions import db
 from modules.production.logistics import sposoby as s
 from modules.production.logistics.models import OrderGeo
-from modules.production.logistics.services import geocoding, routes, routimo
+from modules.production.logistics.services import dostawa, geocoding, routes, routimo
 from tests.logistyka_fixtures import BASE, app, client, pojazd, zamowienie  # noqa: F401,E402
 
 
@@ -103,7 +103,7 @@ def test_eksport_dla_wykonanej_trasy(client, app):
     przewoźnik może pobrać plik ponownie już po zamknięciu trasy."""
     with app.app_context():
         trasa, _a, _b = _zatwierdzona(app)
-        routes.wykonaj(trasa, [_a.id, _b.id])
+        dostawa.odhacz(trasa, [_a.id, _b.id])
         db.session.commit()
         rid = trasa.id
     r = client.get(BASE + '/routes/%d/routimo' % rid)

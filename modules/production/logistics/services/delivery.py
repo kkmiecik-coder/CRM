@@ -24,7 +24,7 @@ class LogistykaBlad(Exception):
     """
     Odmowa z komunikatem dla człowieka. status = kod HTTP (409 stan, 422 dane).
     `dane` — dodatkowe pola odpowiedzi JSON obok `error` (np. `niespakowane` z odhaczenia
-    trasy, routes.wykonaj), żeby interfejs nie musiał wyczytywać ich z tekstu komunikatu.
+    trasy, dostawa.odhacz), żeby interfejs nie musiał wyczytywać ich z tekstu komunikatu.
     """
 
     def __init__(self, komunikat, status=409, dane=None):
@@ -48,7 +48,7 @@ def wszystkie_spakowane(order):
     """
     „Spakowane lub dalej” (logistyka etap 4, spec 4.1): towar całego zamówienia jest spakowany —
     także zweryfikowany, załadowany albo dostarczony. Tak pytają lista (plakietka „spakowane”),
-    routes.wykonaj (odhaczenie trasy) i sam delivery (po_spakowaniu, zmiana sposobu dostawy).
+    dostawa.odhacz (odhaczenie trasy) i sam delivery (po_spakowaniu, zmiana sposobu dostawy).
     Kto potrzebuje DOKŁADNIE 'spakowane'
     (deklaracja paczek), woła wszystkie_w(order, ('spakowane',)).
     """
@@ -69,19 +69,11 @@ def podbij_pozycje(order, teraz):
         p.updated_at = teraz
 
 
-def zamkniecie_wyliczone(order, trasa=None):
+def zamkniecie_wyliczone(order):
     """
-    Tabela z sekcji 6.2 specu. Transport własny zamyka dopiero trasa wykonana (etap 3).
-
-    `trasa` — (resztka O1; Task 1, runda 4.1: też routes.usun_przystanek) świeża trasa, na
-    której leży (albo leżał) przystanek zamówienia, podana przez routes.wykonaj/przywroc/
-    usun_przystanek: odczytana pod blokadą tras, z przystankami już po zmianie w tej
-    transakcji. Wtedy decyduje ona, a nie routes.przystanek_zamowienia — zwykły odczyt z
-    migawki transakcji sprzed blokady mógłby nie zobaczyć przystanku dodanego tuż przed nią
-    (zamówienie zostałoby otwarte do crona); `trasa` daje ten sam stan bez nowego zwykłego
-    odczytu przystanków (reguła: po blokadzie tylko świeża `route.stops`). Bez `trasa` (cron,
-    products_api, zmiana sposobu) — zwykły odczyt jak dotąd: ci wołający nie trzymają blokady
-    tras, więc odczyt blokujący odwróciłby kolejność blokad (wiersz blokady zawsze pierwszy).
+    Tabela z sekcji 6.2 specu. Transport własny zamyka się po dostarczeniu (krok 4.4, spec 4.6): wszystkie aktywne
+    pozycje 'dostarczone' — nadaje je Dostawa (telefon kierowcy albo odhaczenie trasy w panelu). Reguła nie czyta
+    tras, więc wołający spod blokady tras nie musi jej już podawać świeżej trasy (dawny parametr `trasa`, resztka O1).
     """
     aktywne = aktywne_produkty(order)
     if not aktywne:
@@ -94,20 +86,12 @@ def zamkniecie_wyliczone(order, trasa=None):
         return all(p.current_status in sposoby.STATUSY_PO_SPAKOWANIU for p in aktywne)
     if sposob == sposoby.ODBIOR:
         return order.handed_over_at is not None
-    # Transport własny: koniec cyklu = przystanek na trasie wykonanej (etap 3).
-    if trasa is not None:
-        # Zamówienie jest na co najwyżej jednej trasie (UNIQUE order_id) — nie ma go na tej,
-        # to nie ma go na żadnej.
-        return trasa.status == 'wykonana' and any(s.order_id == order.id for s in trasa.stops)
-    from modules.production.logistics.services import routes
-    przystanek = routes.przystanek_zamowienia(order.id)
-    return przystanek is not None and przystanek.route.status == 'wykonana'
+    return all(p.current_status == 'dostarczone' for p in aktywne)
 
 
-def przelicz_zamkniecie(order, teraz=None, trasa=None):
-    """Ustawia albo czyści logistics_closed_at. Zwraca True, gdy stan się zmienił.
-    `trasa` — patrz zamkniecie_wyliczone (tylko routes.wykonaj/przywroc/usun_przystanek)."""
-    zamkniete = zamkniecie_wyliczone(order, trasa=trasa)
+def przelicz_zamkniecie(order, teraz=None):
+    """Ustawia albo czyści logistics_closed_at. Zwraca True, gdy stan się zmienił."""
+    zamkniete = zamkniecie_wyliczone(order)
     if zamkniete and order.logistics_closed_at is None:
         order.logistics_closed_at = teraz or get_local_now()
         return True
@@ -209,8 +193,10 @@ def sprawdz_trase_przed_zmiana(order, opis):
     """
     (fix-1) Wejście publiczne do `_przystanek_do_zmiany` dla wołających spoza tego
     modułu — ręczna korekta i reset pinezki mapy (`geocoding.ustaw_recznie`/
-    `resetuj`) to też „zmiana”, którą trasa zatwierdzona blokuje: eksport do
-    Routimo (spec 8.4) mógł już pójść z bieżącym punktem (spec 10). `_przystanek_do_zmiany`
+    `resetuj`) to też „zmiana”, którą blokuje trasa zatwierdzona (eksport do
+    Routimo, spec 8.4, mógł już pójść z bieżącym punktem, spec 10), a od kroku 4.4
+    także trasa załadowana i w trasie (towar jest na aucie, kierowca jedzie według
+    tego punktu) oraz — jak dotąd — przystanek dostarczony i trasa wykonana. `_przystanek_do_zmiany`
     zostaje prywatny (wołany też z `ustaw_sposob_dostawy`/`zmien_adres` w TYM
     module) — to jedyny publiczny, udokumentowany sposób odwołania się doń z
     zewnątrz, zamiast każdy wołający sięgał po nazwę z podkreśleniem. Nic nie
@@ -646,14 +632,13 @@ def przelicz_otwarte(teraz=None):
     """
     Siatka bezpieczeństwa dla crona: przelicza zamówienia otwarte oraz zamknięte,
     które znów mają aktywne produkty (Base. dołożył pozycję, doróbka) albo (M10) mają
-    transport własny i przystanek na trasie AKTYWNEJ (roboczej/zatwierdzonej) — takie
-    zamówienie jeszcze nie pojechało, więc zamknięte być nie może (np. trasa przywrócona
-    albo zamówienie dodane do trasy tuż przed odhaczeniem innej), a samo nie wróci:
-    spakowane lub dalej (w całości) nie łapie się na warunek „znów aktywne pozycje”.
+    transport własny i przystanek na trasie aktywnej (krok 4.4: także załadowanej i w drodze) —
+    zamknięte może być tylko zamówienie dostarczone, a samo nie wróci: spakowane lub dalej
+    (w całości) nie łapie się na warunek „znów aktywne pozycje”.
     Każde przeliczane zamówienie przechodzi też przez regułę unieważniania etapów
     (weryfikacja.uniewaznij_etapy) — zweryfikowane w całości zostaje zamknięte i nietknięte.
     Od 1.10 (spec 4.6) łapie też zamknięcia po wdrożeniu 4.3, których reguła zamkniecie_wyliczone
-    nie dałaby (odbiór niewydany, transport bez trasy wykonanej, brak sposobu, przepakowanie).
+    nie dałaby (odbiór niewydany, transport z pozycją niedostarczoną, brak sposobu, przepakowanie).
     """
     from modules.production.models import ProductionOrder, ProductionProduct
     # Siatka bezpieczeństwa jednej reguły (spec 8.5): ścieżki, które nie wołają jej same (np. przyszłe
@@ -686,15 +671,14 @@ def przelicz_otwarte(teraz=None):
     # późniejsze niż znacznik. Brak znacznika albo nieczytelna data wyłącza siatkę.
     wdrozenie = weryfikacja.data_wdrozenia()
     if wdrozenie is not None:
-        na_trasach_wykonanych = (db.session.query(RouteStop.order_id)
-                                 .join(Route, Route.id == RouteStop.route_id)
-                                 .filter(Route.status == 'wykonana'))
         sposob = ProductionOrder.override_delivery_method
         warunki_otwarcia.append(and_(
             ProductionOrder.logistics_closed_at > wdrozenie,
             ProductionOrder.products.any(ProductionProduct.current_status != 'anulowane'),
             or_(and_(sposob == sposoby.ODBIOR, ProductionOrder.handed_over_at.is_(None)),
-                and_(sposob == sposoby.TRANSPORT, ~ProductionOrder.id.in_(na_trasach_wykonanych)),
+                # Krok 4.4 (spec 4.6): transport zamyka „dostarczone”, nie trasa wykonana.
+                and_(sposob == sposoby.TRANSPORT, ProductionOrder.products.any(
+                    ProductionProduct.current_status.notin_(('dostarczone', 'anulowane')))),
                 sposob.is_(None),
                 ProductionOrder.repack_required.is_(True))))
     do_otwarcia = (ProductionOrder.query.options(selectinload(ProductionOrder.products))

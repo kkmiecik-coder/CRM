@@ -1,18 +1,22 @@
 # -*- coding: utf-8 -*-
 """Wspólne dane testów Dostawy (logistyka etap 4, krok 4.4): zamówienie z paczkami, trasa z przystankami,
-paczki załadowane wprost, telefon kierowcy i jego nagłówki. Importuj razem z fiksturami:
+paczki załadowane wprost, telefon kierowcy i jego nagłówki oraz narzędzia testów „decyzja na zablokowanych
+obiektach” (Ruling P2). Importuj razem z fiksturami:
 
     from tests.dostawa_pomocnicze import T0, DZIEN, trasa, zamowienie_z_paczkami
     from tests.logistyka_fixtures import app, client  # noqa: F401
 """
+import gc
 import itertools
 from datetime import date, datetime
 
 from extensions import db
 from modules.production.logistics import sposoby as s
 from modules.production.logistics.models import Route, RouteStop
+from modules.production.logistics.services import delivery, dostawa
 from modules.production.models import ProductionDevice, ProductionPackage
 from modules.production.services.mobile_api_service import generate_token
+from tests.blokady_pomocnicze import blokada_zamowien
 from tests.logistyka_fixtures import kierowca, zamowienie
 
 T0 = datetime(2026, 10, 1, 8, 0)
@@ -69,3 +73,36 @@ def naglowki(device, kto=None, op_id=None):
     if kto is not None:
         wynik['X-Worker-Ids'] = str(kto.id)
     return wynik
+
+
+# --- Decyzje na zablokowanych obiektach (krok 4.4a, przyczyna A; Ruling P2 kroku 4.4b) -------------------
+
+_TABELE_STANU = ('FROM prod_orders', 'FROM prod_products', 'FROM prod_packages', 'FROM prod_route_stops',
+                 'FROM prod_routes')
+
+
+def odsmiecaj_po_blokadach(monkeypatch):
+    """
+    Odśmiecanie pamięci tuż po blokadach (przelotka na dostawa._wymagaj_statusu — pierwszy krok po zablokuj)
+    i przy każdym wpisie logu (delivery.zapisz_log, także w routes.usun_przystanek). Mapa tożsamości sesji trzyma
+    czyste obiekty SŁABO: zablokowane zamówienie, którego zapis Dostawy nie trzyma, znika wtedy z sesji (zamówienie
+    i jego pozycje trzymają się tylko nawzajem — cykl, który zbiera dopiero gc), a późniejszy dostęp
+    (`ProductionOrder.query.get`, `order.products`) czyta je od nowa zwykłym SELECT-em — na MySQL z migawki
+    REPEATABLE READ sprzed blokad.
+    """
+    for modul, nazwa in ((dostawa, '_wymagaj_statusu'), (delivery, 'zapisz_log')):
+        oryginal = getattr(modul, nazwa)
+
+        def przelotka(*a, _oryginal=oryginal, **k):
+            gc.collect()
+            return _oryginal(*a, **k)
+
+        monkeypatch.setattr(modul, nazwa, przelotka)
+
+
+def zwykle_odczyty_stanu(z):
+    """Zwykłe (nieblokujące) SELECT-y zamówień, pozycji, paczek i tras od pierwszej blokady zamówień."""
+    od = z.pierwsze(blokada_zamowien)
+    return [sql for sql, _par in z.lista[od:]
+            if sql.startswith('SELECT') and any(t in sql for t in _TABELE_STANU)
+            and not sql.endswith((' FOR UPDATE', ' LOCK IN SHARE MODE'))]

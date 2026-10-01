@@ -152,8 +152,8 @@ def zablokuj_trasy(route=None):
     DLACZEGO: nic w repo nie ustawia poziomu izolacji, więc MySQL 8.4 pracuje na
     REPEATABLE READ. Migawka zwykłego SELECT-a pochodzi z PIERWSZEGO zwykłego
     odczytu CAŁEJ transakcji — nie z chwili wzięcia blokady. Wołający prawie zawsze
-    coś już przeczytał, zanim tu dotarł (Flask-Login ładuje usera; `edytuj`/
-    `przywroc` dostają już wczytaną trasę), więc samo wzięcie blokady NIE
+    coś już przeczytał, zanim tu dotarł (Flask-Login ładuje usera; `edytuj` i przejścia
+    Dostawy dostają już wczytaną trasę), więc samo wzięcie blokady NIE
     wystarcza — potrzeba odczytu BIEŻĄCEGO: `FOR UPDATE`/`FOR SHARE` w InnoDB
     czyta ostatni ZACOMMITOWANY wiersz (nie migawkę), a `populate_existing()`
     wymusza nadpisanie atrybutów obiektu już siedzącego w identity mapie —
@@ -167,7 +167,7 @@ def zablokuj_trasy(route=None):
     jeden wspólny zamek pierwszy eliminuje ten scenariusz.
 
     ZASADA: każda funkcja zmieniająca trasę woła to PIERWSZA, przed jakimkolwiek
-    zapisem. Wywołania zagnieżdżone w tej samej transakcji (np. `wykonaj` →
+    zapisem. Wywołania zagnieżdżone w tej samej transakcji (np. `dostawa.odhacz` →
     `usun_przystanek`) są bezpieczne — blokada jest już trzymana (MySQL pozwala
     tej samej transakcji wielokrotnie zablokować ten sam wiersz), a autoflush
     przed kolejnym SELECT-em i tak wypycha wcześniejsze zmiany tej transakcji.
@@ -251,7 +251,7 @@ def _wymagaj_statusu(route, *statusy):
 
 def zamowienia_trasy(route, z_pozycjami=False):
     """Zamówienia trasy w kolejności przystanków. `z_pozycjami` — z `products` jednym
-    zapytaniem (wykonaj czyta pozycje każdego przystanku, bez tego N zapytań)."""
+    zapytaniem (dla wołającego, który czyta pozycje każdego przystanku — bez tego N zapytań)."""
     ids = [s.order_id for s in route.stops]
     if not ids:
         return []
@@ -324,12 +324,11 @@ def _kierowca_trasy(route_id):
 def _sprawdz_zasoby(od, do, vehicle_id, driver_id, route=None):
     """
     Pojazd i kierowca trasy: istnieją, są aktywni i wolni w tych dniach (409 z nazwą
-    kolidującej trasy). `route` — trasa, której zapis sprawdzamy (edycja, przywrócenie;
-    przy tworzeniu None): pomijamy ją w zajętości, a (I3, spec 8.1) jej OBECNY pojazd
-    i kierowca mogą już być wyłączeni — wyłączony pojazd zostaje widoczny na starych
-    trasach, więc zmiana nazwy trasy albo jej przywrócenie nie może wymagać wymiany
-    pojazdu. Zakaz wyłączonego dotyczy tylko NOWEGO przypisania. Zajętość sprawdzamy
-    zawsze — także dla niezmienionego pojazdu.
+    kolidującej trasy). `route` — trasa, której zapis sprawdzamy (edycja; przy tworzeniu
+    None): pomijamy ją w zajętości, a (I3, spec 8.1) jej OBECNY pojazd i kierowca mogą
+    już być wyłączeni — wyłączony pojazd zostaje widoczny na starych trasach, więc zmiana
+    nazwy trasy nie może wymagać wymiany pojazdu. Zakaz wyłączonego dotyczy tylko NOWEGO
+    przypisania. Zajętość sprawdzamy zawsze — także dla niezmienionego pojazdu.
     (runda 2) Kierowca nowego albo zmienionego przypisania musi mieć znacznik is_driver
     (409); niezmieniony kierowca trasy przechodzi i bez niego.
     """
@@ -561,7 +560,7 @@ def dodaj_przystanki(route, order_ids, user_id=None):
 
 def usun_przystanek(route, order_id, user_id=None, note=None, wymagaj_roboczej=True, worker_id=None,
                     device_id=None):
-    # (fix-1, Ruling A3) Wołania zagnieżdżone (wykonaj/usun w pętli) są bezpieczne —
+    # (fix-1, Ruling A3) Wołania zagnieżdżone (dostawa.odhacz, usun w pętli) są bezpieczne —
     # patrz docstring zablokuj_trasy(). `worker_id`/`device_id` (krok 4.4): zdjęcie z telefonu kierowcy
     # („Zostaje” przy zakończeniu załadunku, „Niedostarczone”).
     route = zablokuj_trasy(route)
@@ -571,7 +570,7 @@ def usun_przystanek(route, order_id, user_id=None, note=None, wymagaj_roboczej=T
     # powyżej), NIE nowym zapytaniem — zwykły SELECT czytałby migawkę transakcji
     # sprzed zdjęcia blokady: mógłby zgubić przystanek dodany przez poprzedniego
     # piszącego (fałszywe 404 — potwierdzone realnym wyścigiem dwóch sesji MySQL:
-    # wykonaj rzucał 404 na przystanku dodanym równolegle) albo trafić na już
+    # dawne odhaczenie, routes.wykonaj, rzucało 404 na przystanku dodanym równolegle) albo trafić na już
     # usunięty (StaleDataError przy DELETE nieistniejącego wiersza).
     przystanek = next((s for s in route.stops if s.order_id == order_id), None)
     if przystanek is None:
@@ -586,17 +585,11 @@ def usun_przystanek(route, order_id, user_id=None, note=None, wymagaj_roboczej=T
                         worker_id=worker_id, device_id=device_id,
                         note=note, route_id=route.id, teraz=teraz)
     delivery.podbij_pozycje(order, teraz)
-    # (Task 1, runda 4.1, rozstrzygnięcie 40) Jedyne miejsce, w którym przystanek schodzi
-    # z trasy (wykonaj przez pętlę niedostarczonych, ręczne DELETE, usun trasy,
-    # delivery._zdejmij_z_trasy przy zmianie sposobu) — spec 6.2 wymaga przeliczenia
-    # zamknięcia po KAŻDEJ zmianie, która może go dotyczyć. Bez tego zamówienie anulowane
-    # w całości, którego anulowanie ominęło przelicz_zamkniecie (SQL, wyścig, ścieżka bez
-    # przeliczenia), wracało do puli „Transport bez trasy” otwarte i wisiało tam do crona
-    # przelicz_otwarte (≤ 1 h) zamiast zamknąć się od razu. `trasa=route` — ta sama świeża
-    # trasa spod zablokuj_trasy() powyżej, z route.stops już PO usunięciu tego przystanku w
-    # tej transakcji (UNIQUE order_id: nie ma go na tej trasie, to nie ma go na żadnej) —
-    # bez nowego zwykłego odczytu przystanków (reguła: po blokadzie tylko świeża route.stops).
-    delivery.przelicz_zamkniecie(order, teraz, trasa=route)
+    # (Task 1, runda 4.1, rozstrzygnięcie 40) Jedyne miejsce, w którym przystanek schodzi z trasy (odhaczenie,
+    # niedostarczenie, „Zostaje”, ręczne DELETE, usun trasy, delivery._zdejmij_z_trasy) — spec 6.2 wymaga
+    # przeliczenia zamknięcia po każdej zmianie, która może go dotyczyć (np. zamówienie anulowane w całości, którego
+    # anulowanie ominęło przeliczenie, zamyka się od razu zamiast czekać na cron). Od kroku 4.4 reguła nie czyta tras.
+    delivery.przelicz_zamkniecie(order, teraz)
     return order
 
 
@@ -635,87 +628,6 @@ def cofnij_do_roboczej(route, user_id=None):
     route.status, route.approved_at, route.approved_by = 'robocza', None, None
     _log_statusu(route, 'zatwierdzona', 'robocza', user_id, teraz)
     _podbij_trase(route, teraz)
-
-
-def _odmowa_niespakowanych(zamowienia, niespakowane):
-    numery = u', '.join(zamowienia[i].internal_order_number or u'#{}'.format(i) for i in niespakowane)
-    if len(niespakowane) == 1:
-        tekst = (u'Zamówienie {} nie jest jeszcze w całości spakowane — spakuj je na tablecie '
-                 u'albo odznacz, a wróci do puli bez trasy.')
-    else:
-        tekst = (u'Zamówienia {} nie są jeszcze w całości spakowane — spakuj je na tablecie '
-                 u'albo odznacz, a wrócą do puli bez trasy.')
-    return LogistykaBlad(tekst.format(numery), status=409, dane={'niespakowane': niespakowane})
-
-
-def wykonaj(route, dostarczone_ids, user_id=None):
-    """
-    Odhaczenie trasy: `dostarczone_ids` (WYMAGANE, także pusta lista — M6) to zamówienia
-    dostarczone; pozostałe przystanki schodzą z trasy (notatka „niedostarczone”) i wracają
-    do puli bez trasy. Kiedyś brak listy znaczył „wszystkie” — a więc także przystanek,
-    który ktoś dodał, gdy okno odhaczenia było już otwarte.
-
-    (I1) Odmowa 409, gdy jako dostarczone oznaczono zamówienie, którego aktywne pozycje nie
-    są wszystkie spakowane (precedens: delivery.wydaj_klientowi): dostarczone zamyka
-    zamówienie na zawsze — cron go nie otworzy, a późniejsze spakowanie tylko wyśle do
-    Base. „Planowana trasa”, więc niedokończone zamówienie znikałoby z logistyki bez śladu.
-    Odpowiedź niesie `niespakowane` (id zamówień). Zamówienia bez aktywnych pozycji
-    (wszystkie anulowane) ta reguła pomija — są zamknięte i do żadnej puli nie wracają.
-    """
-    route = zablokuj_trasy(route)   # (fix-1, Ruling A3) przed _wymagaj_statusu — świeży stan
-    _wymagaj_statusu(route, *AKTYWNE)
-    na_trasie = [s.order_id for s in route.stops]
-    if not na_trasie:
-        raise LogistykaBlad(u'Trasa nie ma przystanków.', status=422)
-    if dostarczone_ids is None:
-        raise LogistykaBlad(u'Podaj listę dostarczonych zamówień (delivered_order_ids), '
-                            u'także pustą.', status=422)
-    dostarczone = set(_lista_id(dostarczone_ids))
-    if not dostarczone <= set(na_trasie):
-        raise LogistykaBlad(u'Część zamówień nie należy do tej trasy.', status=422)
-    zamowienia = {o.id: o for o in zamowienia_trasy(route, z_pozycjami=True)}
-    niespakowane = [i for i in na_trasie if i in dostarczone and i in zamowienia
-                    and delivery.aktywne_produkty(zamowienia[i])
-                    and not delivery.wszystkie_spakowane(zamowienia[i])]
-    if niespakowane:
-        raise _odmowa_niespakowanych(zamowienia, niespakowane)
-    niedostarczone = [i for i in na_trasie if i not in dostarczone]
-    for order_id in niedostarczone:
-        usun_przystanek(route, order_id, user_id=user_id, note=u'niedostarczone',
-                        wymagaj_roboczej=False)
-    teraz = get_local_now()
-    stary = route.status
-    route.status, route.completed_at, route.completed_by = 'wykonana', teraz, user_id
-    db.session.flush()
-    # Świeże route.stops (po zdjęciu niedostarczonych, spod blokady) — i ta sama trasa
-    # decyduje o zamknięciu (resztka O1, delivery.zamkniecie_wyliczone).
-    for s in route.stops:
-        order = zamowienia.get(s.order_id)
-        if order is None:
-            continue
-        delivery.zapisz_log(order, 'trasa_status', stary, 'wykonana', user_id=user_id,
-                            route_id=route.id, teraz=teraz)
-        delivery.podbij_pozycje(order, teraz)
-        delivery.przelicz_zamkniecie(order, teraz, trasa=route)
-    return {'dostarczone': [i for i in na_trasie if i in dostarczone],
-            'niedostarczone': niedostarczone}
-
-
-def przywroc(route, user_id=None):
-    route = zablokuj_trasy(route)   # (fix-1, Ruling A3) przed _wymagaj_statusu — świeży stan
-    _wymagaj_statusu(route, 'wykonana')
-    # (I3) Obecny pojazd i kierowca mogą być już wyłączeni — przywrócenie ich nie wymienia;
-    # zajętość w tych dniach sprawdzamy jak przy każdym zapisie.
-    _sprawdz_zasoby(route.date_from, route.date_to, route.vehicle_id, route.driver_worker_id,
-                    route=route)
-    teraz = get_local_now()
-    route.status, route.completed_at, route.completed_by = 'zatwierdzona', None, None
-    db.session.flush()
-    for order in zamowienia_trasy(route, z_pozycjami=True):
-        delivery.zapisz_log(order, 'trasa_status', 'wykonana', 'zatwierdzona', user_id=user_id,
-                            route_id=route.id, teraz=teraz)
-        delivery.podbij_pozycje(order, teraz)
-        delivery.przelicz_zamkniecie(order, teraz, trasa=route)
 
 
 def usun(route, user_id=None):

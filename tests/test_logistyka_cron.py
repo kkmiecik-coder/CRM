@@ -61,13 +61,13 @@ def test_cron_otwiera_zamowienie_z_nowa_aktywna_pozycja(client, app, watki):
 
 def test_cron_otwiera_zamkniete_na_aktywnej_trasie(client, app, watki):
     """M10 (fala poprawek): zamówienie z transportem własnym, w całości spakowane, zamknięte,
-    a z przystankiem na trasie AKTYWNEJ — jeszcze nie pojechało, więc cron je otwiera. To samo
-    zamówienie na trasie WYKONANEJ zostaje zamknięte."""
+    a z przystankiem na trasie AKTYWNEJ — jeszcze nie pojechało, więc cron je otwiera. Zamówienie dostarczone
+    (pozycje „dostarczone”, krok 4.4) na trasie WYKONANEJ zostaje zamknięte."""
     from modules.production.logistics.models import Route, RouteStop
     with app.app_context():
         otwierane = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane',),
                                logistics_closed_at=datetime(2026, 9, 20))
-        dostarczone = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane',),
+        dostarczone = zamowienie(sposob=s.TRANSPORT, statusy=('dostarczone',),
                                  logistics_closed_at=datetime(2026, 9, 20))
         for order, status in ((otwierane, 'zatwierdzona'), (dostarczone, 'wykonana')):
             trasa = Route(name='T ' + status, date_from=datetime(2026, 10, 1).date(),
@@ -358,14 +358,27 @@ def test_siatka_otwiera_zamkniecia_wbrew_regule(app):
         assert zmienione == 4   # licznik crona obejmuje zamówienia otwarte siatką
 
 
+def test_siatka_otwiera_transport_z_pozycja_niedostarczona_na_trasie_wykonanej(app):
+    """Krok 4.4 (spec 4.6): transport zamyka „dostarczone”, nie trasa wykonana — zamknięty po znaczniku z pozycją
+    niedostarczoną wraca na listę otwartych, także na trasie wykonanej."""
+    with app.app_context():
+        _ustaw_znacznik()
+        order = zamowienie(sposob=s.TRANSPORT, statusy=('dostarczone', 'zaladowane'),
+                           logistics_closed_at=PO_ZNACZNIKU)
+        _na_trasie(order, 'wykonana')
+        zmienione, zamkniete = _po_przebiegu([order])
+        assert zamkniete == [False] and zmienione == 1
+
+
 def test_siatka_zostawia_zamkniecia_zgodne_z_regula(app):
-    """Odbiór po wydaniu, transport na trasie wykonanej, kurier w całości spakowany i zamówienie z samymi
-    anulowanymi pozycjami (bez aktywnych reguła zamyka, nawet przy sposobie NULL) zostają zamknięte."""
+    """Odbiór po wydaniu, transport dostarczony (pozycje „dostarczone”, krok 4.4), kurier w całości spakowany
+    i zamówienie z samymi anulowanymi pozycjami (bez aktywnych reguła zamyka, nawet przy sposobie NULL) zostają
+    zamknięte."""
     with app.app_context():
         _ustaw_znacznik()
         odebrany = zamowienie(sposob=s.ODBIOR, statusy=('spakowane',), logistics_closed_at=PO_ZNACZNIKU,
                               handed_over_at=PO_ZNACZNIKU)
-        dowieziony = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane',), logistics_closed_at=PO_ZNACZNIKU)
+        dowieziony = zamowienie(sposob=s.TRANSPORT, statusy=('dostarczone',), logistics_closed_at=PO_ZNACZNIKU)
         _na_trasie(dowieziony, 'wykonana')
         kurier = zamowienie(sposob=s.KURIER, statusy=('spakowane',), logistics_closed_at=PO_ZNACZNIKU)
         anulowane = zamowienie(sposob=None, statusy=('anulowane', 'anulowane'), logistics_closed_at=PO_ZNACZNIKU)

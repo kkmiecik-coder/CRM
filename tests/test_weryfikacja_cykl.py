@@ -36,7 +36,7 @@ def test_spakowane_lub_dalej_i_dokladnie_spakowane(app):
     (s.KURIER, ('zweryfikowane',), {}, True),
     (s.KURIER, ('spakowane', 'zweryfikowane'), {}, True),
     (s.KURIER, ('zweryfikowane', 'czeka_na_pakowanie'), {}, False),
-    (s.TRANSPORT, ('zweryfikowane',), {}, False),          # transport zamyka trasa wykonana (decyzja 2)
+    (s.TRANSPORT, ('zweryfikowane',), {}, False),          # transport zamyka „dostarczone” (krok 4.4, spec 4.6)
     (s.ODBIOR, ('dostarczone',), {'handed_over_at': T0}, True),
 ])
 def test_zamkniecie_po_nowych_statusach(app, sposob, statusy, kolumny, zamkniete):

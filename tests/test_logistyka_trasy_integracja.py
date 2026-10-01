@@ -6,7 +6,7 @@ import pytest
 from extensions import db
 from modules.production.logistics import sposoby as s
 from modules.production.logistics.models import OrderGeo
-from modules.production.logistics.services import delivery, routes
+from modules.production.logistics.services import delivery, dostawa, routes
 from modules.production.logistics.services.delivery import LogistykaBlad
 from modules.production.services.label_print_service import _format_delivery_label
 from modules.production.services.mobile_api_service import serialize_order
@@ -22,7 +22,7 @@ def _na_trasie(status='robocza', statusy=('spakowane',)):
     if status in ('zatwierdzona', 'wykonana'):
         routes.zatwierdz(trasa)
     if status == 'wykonana':
-        routes.wykonaj(trasa, [order.id])
+        dostawa.odhacz(trasa, [order.id])
     db.session.commit()
     return trasa, order
 

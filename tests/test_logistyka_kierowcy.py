@@ -6,7 +6,7 @@ import pytest
 
 from extensions import db
 from modules.production.logistics import sposoby as s
-from modules.production.logistics.services import fleet, routes
+from modules.production.logistics.services import dostawa, fleet, routes
 from modules.production.logistics.services.delivery import LogistykaBlad
 from tests.logistyka_fixtures import BASE, app, client, kierowca, pracownik, zamowienie  # noqa: F401
 
@@ -95,7 +95,7 @@ def test_nowy_albo_zmieniony_kierowca_bez_znacznika_to_409(app):
 
 def test_kierowca_bez_znacznika_zostaje_na_swojej_trasie(app):
     """Review Focus 2 (rozstrzygnięcie 33): zdjęcie znacznika nie psuje tras, na których
-    kierowca już jest — edycja i przywrócenie przechodzą, wybór pokazuje go tylko w jego
+    kierowca już jest — edycja i cofnięcie dostarczenia przechodzą, wybór pokazuje go tylko w jego
     trasie (`nie_kierowca`), a po zmianie na innego kierowcę nie da się do niego wrócić."""
     with app.app_context():
         k = kierowca(imie='Adam', nazwisko='Nowak')
@@ -106,7 +106,7 @@ def test_kierowca_bez_znacznika_zostaje_na_swojej_trasie(app):
         a = zamowienie(sposob=s.TRANSPORT, statusy=('spakowane',))
         routes.dodaj_przystanki(w, [a.id])
         routes.zatwierdz(w)
-        routes.wykonaj(w, [a.id])
+        dostawa.odhacz(w, [a.id])
         db.session.commit()
 
         fleet.usun_kierowce(k.id)
@@ -115,9 +115,9 @@ def test_kierowca_bez_znacznika_zostaje_na_swojej_trasie(app):
         routes.edytuj(t, {'name': 'Kraków 2', 'date_from': '2026-10-01', 'driver_worker_id': k.id})
         db.session.commit()
         assert (t.name, t.driver_worker_id) == ('Kraków 2', k.id)
-        routes.przywroc(w)
+        dostawa.cofnij_dostarczenie(w, a.id)
         db.session.commit()
-        assert w.status == 'zatwierdzona'
+        assert w.status == 'w_trasie'
 
         dzien = date(2026, 10, 1)
         assert {'id': k.id, 'nazwa': 'Adam Nowak', 'nie_kierowca': True, 'zajety': False,

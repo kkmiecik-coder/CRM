@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from extensions import db
 from modules.production.logistics import sposoby as s
 from modules.production.logistics.models import OrderGeo, Route
-from modules.production.logistics.services import routes
+from modules.production.logistics.services import dostawa, routes
 from modules.production.models import ProductionOrder
 from tests.logistyka_fixtures import BASE, app, client, kierowca, pojazd, zamowienie  # noqa: F401
 
@@ -58,7 +58,8 @@ def test_pelny_cykl_trasy(client, app):
     assert client.delete(BASE + '/routes/%d/stops/%d' % (rid, a)).status_code == 409
     r = client.post(BASE + '/routes/%d/complete' % rid, json={'delivered_order_ids': [b]})
     assert r.get_json()['wynik'] == {'dostarczone': [b], 'niedostarczone': [a]}
-    assert client.post(BASE + '/routes/%d/restore' % rid).get_json()['route']['status'] == 'zatwierdzona'
+    r = client.post(BASE + '/routes/%d/stops/%d/undo-delivered' % (rid, b))
+    assert r.status_code == 200 and r.get_json()['route']['status'] == 'w_trasie'
 
 
 def test_mapa_tras_aktywnych(client, app):
@@ -324,14 +325,14 @@ def test_lista_tras_domyslne_okno_wykonanych(client, app):
                                'date_from': (dzis - timedelta(days=60)).isoformat()})
         routes.dodaj_przystanki(stara, [a])
         routes.zatwierdz(stara)
-        routes.wykonaj(stara, [a])
+        dostawa.odhacz(stara, [a])
         db.session.commit()
 
         swieza = routes.utworz({'name': 'Świeża wykonana',
                                 'date_from': (dzis - timedelta(days=5)).isoformat()})
         routes.dodaj_przystanki(swieza, [b])
         routes.zatwierdz(swieza)
-        routes.wykonaj(swieza, [b])
+        dostawa.odhacz(swieza, [b])
         db.session.commit()
 
         stara_robocza = routes.utworz({'name': 'Stara robocza',
@@ -623,4 +624,4 @@ def test_404_akcje_na_nieznanej_trasie(client):
     assert client.post(BASE + '/routes/%d/approve' % nid).status_code == 404
     assert client.post(BASE + '/routes/%d/revert' % nid).status_code == 404
     assert client.post(BASE + '/routes/%d/complete' % nid).status_code == 404
-    assert client.post(BASE + '/routes/%d/restore' % nid).status_code == 404
+    assert client.post(BASE + '/routes/%d/stops/1/undo-delivered' % nid).status_code == 404

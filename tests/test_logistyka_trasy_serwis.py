@@ -8,7 +8,7 @@ from sqlalchemy import text
 from extensions import db
 from modules.production.logistics import sposoby as s
 from modules.production.logistics.models import LogisticsLog, RouteStop
-from modules.production.logistics.services import routes
+from modules.production.logistics.services import dostawa, routes
 from modules.production.logistics.services.delivery import LogistykaBlad
 from tests.logistyka_fixtures import app, kierowca, pojazd, zamowienie  # noqa: F401
 
@@ -156,7 +156,7 @@ def test_niedostarczony_wraca_do_puli(app):
         for p in b.products:
             p.updated_at = datetime(2026, 1, 1)
         db.session.commit()
-        wynik = routes.wykonaj(t, dostarczone_ids=[a.id])
+        wynik = dostawa.odhacz(t, dostarczone_ids=[a.id])
         db.session.commit()
         assert wynik == {'dostarczone': [a.id], 'niedostarczone': [b.id]}
         assert t.status == 'wykonana' and t.completed_at is not None
@@ -169,17 +169,17 @@ def test_niedostarczony_wraca_do_puli(app):
         assert notatka == 'niedostarczone'
 
 
-def test_przywrocenie_otwiera_zamowienia(app):
+def test_cofniecie_dostarczenia_otwiera_zamowienie(app):
     with app.app_context():
         t = _trasa()
         a = _transport(statusy=('spakowane',))
         routes.dodaj_przystanki(t, [a.id])
-        routes.wykonaj(t, [a.id])
+        dostawa.odhacz(t, [a.id])
         db.session.commit()
         assert a.logistics_closed_at is not None
-        routes.przywroc(t)
+        dostawa.cofnij_dostarczenie(t, a.id)
         db.session.commit()
-        assert t.status == 'zatwierdzona' and a.logistics_closed_at is None
+        assert t.status == 'w_trasie' and a.logistics_closed_at is None
 
 
 def test_usuniecie_roboczej(app):
@@ -301,7 +301,7 @@ def test_zle_id_w_wykonaj_float(app):
         routes.dodaj_przystanki(t, [a.id])
         db.session.commit()
         with pytest.raises(LogistykaBlad) as e:
-            routes.wykonaj(t, dostarczone_ids=[1.5])
+            dostawa.odhacz(t, dostarczone_ids=[1.5])
         assert e.value.status == 422
         assert t.status == 'robocza'
 
@@ -318,7 +318,7 @@ def _trasa_ze_statusem(status):
     if status in ('zatwierdzona', 'wykonana'):
         routes.zatwierdz(t)
     if status == 'wykonana':
-        routes.wykonaj(t, [o.id])
+        dostawa.odhacz(t, [o.id])
     db.session.commit()
     return t, o
 
@@ -327,10 +327,10 @@ def _trasa_ze_statusem(status):
     ('robocza', lambda t: routes.edytuj(t, {'name': 'Nowa', 'date_from': '2026-10-01'})),
     ('robocza', lambda t: routes.zatwierdz(t)),
     ('zatwierdzona', lambda t: routes.cofnij_do_roboczej(t)),
-    ('zatwierdzona', lambda t: routes.wykonaj(t, [s.order_id for s in t.stops])),
-    ('wykonana', lambda t: routes.przywroc(t)),
+    ('zatwierdzona', lambda t: dostawa.odhacz(t, [s.order_id for s in t.stops])),
+    ('wykonana', lambda t: dostawa.cofnij_dostarczenie(t, t.stops[0].order_id)),
     ('robocza', lambda t: routes.usun(t)),
-], ids=['edytuj', 'zatwierdz', 'cofnij_do_roboczej', 'wykonaj', 'przywroc', 'usun'])
+], ids=['edytuj', 'zatwierdz', 'cofnij_do_roboczej', 'odhacz', 'cofnij_dostarczenie', 'usun'])
 def test_kazda_zmiana_trasy_podbija_pozycje(app, status, operacja):
     with app.app_context():
         t, o = _trasa_ze_statusem(status)
@@ -438,17 +438,17 @@ def test_zablokuj_trasy_na_starcie_kazdej_funkcji_zmieniajacej(app, monkeypatch)
 
         routes.zatwierdz(t)
         przed = len(wywolania)
-        routes.wykonaj(t, [o1.id])
+        dostawa.odhacz(t, [o1.id])
         assert t.id in wywolania[przed:]
 
-        routes.przywroc(t)
+        dostawa.cofnij_dostarczenie(t, o1.id)
         assert wywolania[-1] == t.id
 
-        routes.cofnij_do_roboczej(t)
-        assert wywolania[-1] == t.id
-
-        routes.usun(t)
-        assert t.id in wywolania[-2:]   # własne wywołanie + re-entrantne z usun_przystanek
+        # (krok 4.4) Z trasy w drodze nie ma powrotu do roboczej — usunięcie sprawdzamy na drugiej trasie.
+        druga = routes.utworz({'name': 'C', 'date_from': '2026-10-02'})
+        routes.dodaj_przystanki(druga, [o2.id])
+        routes.usun(druga)
+        assert druga.id in wywolania[-2:]   # własne wywołanie + re-entrantne z usun_przystanek
 
 
 def test_zablokuj_trasy_widzi_swiezy_status_mimo_identity_mapy(app):
@@ -551,7 +551,7 @@ def test_odhaczenie_odmawia_niespakowanych_dostarczonych(app):
         routes.zatwierdz(t)
         db.session.commit()
         with pytest.raises(LogistykaBlad) as e:
-            routes.wykonaj(t, [a.id, b.id])
+            dostawa.odhacz(t, [a.id, b.id])
         assert e.value.status == 409
         assert e.value.dane == {'niespakowane': [b.id]}
         assert b.internal_order_number in e.value.komunikat
@@ -559,7 +559,7 @@ def test_odhaczenie_odmawia_niespakowanych_dostarczonych(app):
         db.session.rollback()
         assert t.status == 'zatwierdzona' and {x.order_id for x in t.stops} == {a.id, b.id}
         # Niespakowane odznaczone — wraca do puli, spakowane dostarczone.
-        assert routes.wykonaj(t, [a.id]) == {'dostarczone': [a.id], 'niedostarczone': [b.id]}
+        assert dostawa.odhacz(t, [a.id]) == {'dostarczone': [a.id], 'niedostarczone': [b.id]}
         db.session.commit()
         assert a.logistics_closed_at is not None and b.logistics_closed_at is None
 
@@ -571,7 +571,7 @@ def test_odhaczenie_wiele_niespakowanych_w_jednym_komunikacie(app):
         routes.dodaj_przystanki(t, [a.id, b.id])
         db.session.commit()
         with pytest.raises(LogistykaBlad) as e:
-            routes.wykonaj(t, [a.id, b.id])
+            dostawa.odhacz(t, [a.id, b.id])
         assert e.value.dane == {'niespakowane': [a.id, b.id]}
         assert e.value.komunikat.startswith(u'Zamówienia {}, {} nie są'.format(
             a.internal_order_number, b.internal_order_number))
@@ -587,14 +587,14 @@ def test_odhaczenie_pomija_anulowane_w_regule_spakowania(app):
         for p in c.products:
             p.current_status = 'anulowane'
         db.session.commit()
-        assert routes.wykonaj(t, [a.id, c.id]) == {'dostarczone': [a.id, c.id], 'niedostarczone': []}
+        assert dostawa.odhacz(t, [a.id, c.id]) == {'dostarczone': [a.id, c.id], 'niedostarczone': []}
 
 
 def test_odhaczenie_zdejmuje_anulowanego_i_zamyka_zamowienie(app):
     """Task 1 (runda 4.1, rozstrzygnięcie 40): zamówienie anulowane w całości PO dodaniu
     do trasy (anulowanie ominęło przeliczenie — p.current_status='anulowane' wprost, bez
     przelicz_zamkniecie) trafia jako niedostarczone (tak jak z okna „Odhacz jako wykonaną",
-    które anulowane wysyła jako niedostarczone — routes.wykonaj → usun_przystanek). Zdjęcie
+    które anulowane wysyła jako niedostarczone — dostawa.odhacz → usun_przystanek). Zdjęcie
     z trasy MUSI przeliczyć zamknięcie, żeby zamówienie nie wisiało otwarte w puli „Transport
     bez trasy" do crona przelicz_otwarte (do 1 h)."""
     with app.app_context():
@@ -606,7 +606,7 @@ def test_odhaczenie_zdejmuje_anulowanego_i_zamyka_zamowienie(app):
             p.current_status = 'anulowane'
         db.session.commit()
         assert c.logistics_closed_at is None
-        wynik = routes.wykonaj(t, dostarczone_ids=[a.id])
+        wynik = dostawa.odhacz(t, dostarczone_ids=[a.id])
         db.session.commit()
         assert wynik == {'dostarczone': [a.id], 'niedostarczone': [c.id]}
         assert RouteStop.query.filter_by(order_id=c.id).first() is None
@@ -622,14 +622,14 @@ def test_odhaczenie_wymaga_listy_dostarczonych(app):
         routes.dodaj_przystanki(t, [a.id])
         db.session.commit()
         with pytest.raises(LogistykaBlad) as e:
-            routes.wykonaj(t, None)
+            dostawa.odhacz(t, None)
         assert e.value.status == 422 and 'delivered_order_ids' in e.value.komunikat
         assert t.status == 'robocza'
 
 
 def test_odhaczenie_zamyka_wedlug_swiezej_trasy(app, monkeypatch):
-    """Resztka O1: wykonaj/przywroc decydują o zamknięciu ze świeżej trasy spod blokady, nie
-    z routes.przystanek_zamowienia (zwykły odczyt z migawki transakcji)."""
+    """(krok 4.4) Reguła transportu nie czyta tras: odhaczenie i cofnięcie dostarczenia decydują o zamknięciu
+    bez routes.przystanek_zamowienia (zwykłego odczytu z migawki transakcji)."""
     with app.app_context():
         t = _trasa()
         a = _transport(statusy=('spakowane',))
@@ -640,25 +640,17 @@ def test_odhaczenie_zamyka_wedlug_swiezej_trasy(app, monkeypatch):
             raise AssertionError('zamknięcie liczone ze zwykłego odczytu przystanku')
 
         monkeypatch.setattr(routes, 'przystanek_zamowienia', _nie_wolno)
-        routes.wykonaj(t, [a.id])
+        dostawa.odhacz(t, [a.id])
         db.session.commit()
         assert a.logistics_closed_at is not None
-        routes.przywroc(t)
+        dostawa.cofnij_dostarczenie(t, a.id)
         db.session.commit()
         assert a.logistics_closed_at is None
 
 
-# --- I3: niezmieniony wyłączony pojazd/kierowca nie blokuje edycji ani przywrócenia ---
-
-def _wykonana_z(pojazd_id=None, kierowca_id=None):
-    t = _trasa(vehicle_id=pojazd_id, driver_worker_id=kierowca_id)
-    a = _transport(statusy=('spakowane',))
-    routes.dodaj_przystanki(t, [a.id])
-    routes.zatwierdz(t)
-    routes.wykonaj(t, [a.id])
-    db.session.commit()
-    return t
-
+# --- I3: niezmieniony wyłączony pojazd/kierowca nie blokuje edycji ---
+# (krok 4.4) „Przywróć trasę” zniknęło; cofnięcie dostarczenia celowo nie sprawdza zasobów
+# (test_panel_cofa_dowolne_dostarczenie_bez_sprawdzania_zajetosci w test_dostawa_dostarczenia.py).
 
 def test_wylaczony_pojazd_i_kierowca_zostaja_przy_edycji(app):
     """I3 (spec 8.1): wyłączony pojazd zostaje widoczny na starych trasach — zmiana nazwy
@@ -672,17 +664,6 @@ def test_wylaczony_pojazd_i_kierowca_zostaja_przy_edycji(app):
                           'vehicle_id': v.id, 'driver_worker_id': k.id})
         db.session.commit()
         assert (t.name, t.vehicle_id, t.driver_worker_id) == ('Nowa nazwa', v.id, k.id)
-
-
-def test_przywrocenie_z_wylaczonym_pojazdem_i_kierowca(app):
-    with app.app_context():
-        v, k = pojazd(), kierowca()
-        t = _wykonana_z(v.id, k.id)
-        v.is_active, k.is_active = False, False
-        db.session.commit()
-        routes.przywroc(t)
-        db.session.commit()
-        assert t.status == 'zatwierdzona'
 
 
 @pytest.mark.parametrize('zasob', ['pojazd', 'kierowca'])
@@ -702,17 +683,6 @@ def test_nowe_przypisanie_wylaczonego_odrzucone(app, zasob):
         with pytest.raises(LogistykaBlad) as e:
             routes.utworz({'name': 'B', 'date_from': '2026-10-05', pole: nowy.id})
         assert e.value.status == 422
-
-
-def test_przywrocenie_nadal_sprawdza_zajetosc(app):
-    """I3: pominięte jest tylko sprawdzenie aktywności — zajęty pojazd dalej daje 409."""
-    with app.app_context():
-        v = pojazd()
-        t = _wykonana_z(v.id)
-        druga = _trasa(name='Druga', vehicle_id=v.id)
-        with pytest.raises(LogistykaBlad) as e:
-            routes.przywroc(t)
-        assert e.value.status == 409 and druga.name in e.value.komunikat
 
 
 # --- M8: granice dat trasy ---

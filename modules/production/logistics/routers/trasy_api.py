@@ -18,8 +18,9 @@ from sqlalchemy.orm.exc import ObjectDeletedError, StaleDataError
 from extensions import db
 from modules.production.logistics import logistics_panel_bp
 from modules.production.logistics.models import Route, STATUSY_TRASY, Vehicle
-from modules.production.logistics.routers.panel_api import LIMIT_HURTU, _blad, _user_id, guard
-from modules.production.logistics.services import fleet, geocoding, lista, paczki, routes, routimo, routing
+from modules.production.logistics.routers.panel_api import LIMIT_HURTU, _blad, _user_id, _zapis_pod_blokada, guard
+from modules.production.logistics.services import (bl_sync, dostawa, fleet, geocoding, lista, paczki, routes,
+                                                   routimo, routing)
 from modules.production.logistics.services.delivery import LogistykaBlad
 from modules.production.models import ProductionOrder, ProductionProduct
 
@@ -27,8 +28,8 @@ from modules.production.models import ProductionOrder, ProductionProduct
 KOLEJNOSC_STATUSOW = {'robocza': 0, 'zatwierdzona': 1, 'zaladowana': 2, 'w_trasie': 3, 'wykonana': 4}
 # (I1, ruling okna domyślnego) Bez jawnego `od` GET /routes ciągnąłby WSZYSTKIE
 # trasy w historii firmy — trasy WYKONANE (zamknięty, archiwalny stan) starsze
-# niż tyle dni znikają z domyślnego widoku; robocza/zatwierdzona NIGDY nie są
-# tym oknem przycinane (to bieżąca praca logistyki).
+# niż tyle dni znikają z domyślnego widoku; trasy w każdym innym statusie (robocza,
+# zatwierdzona, załadowana, w trasie) NIGDY nie są tym oknem przycinane (to bieżąca praca).
 DNI_WYKONANYCH_DOMYSLNIE = 30
 KOMUNIKAT_KONFLIKT_PRZYSTANKU = (u'Zamówienie trafiło w międzyczasie na inną trasę — '
                                  u'odśwież listę i spróbuj ponownie.')
@@ -230,7 +231,7 @@ def _trasa_albo_none(route_id):
 def _akcja(route_id, funkcja, przelicz_wykonana=False):
     """
     Wspólny szkielet endpointów zmieniających trasę: 404, gdy jej nie ma; `funkcja`
-    (zwykle lambda wołająca services/routes.py) razem z commitem w jednym
+    (lambda wołająca services/routes.py albo services/dostawa.py) razem z commitem w jednym
     try/except — `LogistykaBlad` (odmowa czytelna dla człowieka, w tym 404 „trasa
     zniknęła w międzyczasie" z routes.zablokuj_trasy) i `IntegrityError` (wyścig o
     UNIQUE, patrz `_konflikt`) obie kończą się bez zmian w bazie. Odpowiedź zawsze
@@ -250,6 +251,9 @@ def _akcja(route_id, funkcja, przelicz_wykonana=False):
         return _odmowa(e)
     except IntegrityError:
         return _konflikt(KOMUNIKAT_KONFLIKT_PRZYSTANKU)
+    # Krok 4.4: przejścia Dostawy z panelu (odhaczenie, cofnięcia) zostawiają znaczniki statusów Base. —
+    # dopychacz rusza dopiero po udanym commicie (bl_sync.zaplanuj_po_commicie w serwisie).
+    bl_sync.wyslij_zaplanowane()
     odpowiedz = {'success': True, 'route': _szczegoly(trasa, przelicz_wykonana)}
     if isinstance(wynik, dict):
         odpowiedz.update(wynik if 'dodane' in wynik else {'wynik': wynik})
@@ -394,8 +398,8 @@ def routes_list():
         zapytanie = zapytanie.filter(Route.date_to >= od)
     else:
         # (I1, ruling okna domyślnego) Brak `od` → trasy WYKONANE starsze niż
-        # DNI_WYKONANYCH_DOMYSLNIE dni znikają z listy; robocza/zatwierdzona
-        # przechodzą zawsze (pierwszy człon OR-a). „Dziś” z routes.dzis() — to samo,
+        # DNI_WYKONANYCH_DOMYSLNIE dni znikają z listy; każdy inny status (także
+        # załadowana i w trasie) przechodzi zawsze (pierwszy człon OR-a). „Dziś” z routes.dzis() — to samo,
         # które wyznacza granice dat tras.
         granica = routes.dzis() - timedelta(days=DNI_WYKONANYCH_DOMYSLNIE)
         zapytanie = zapytanie.filter(or_(Route.status != 'wykonana', Route.date_to >= granica))
@@ -545,20 +549,27 @@ def route_approve(route_id):
 @logistics_panel_bp.route('/routes/<int:route_id>/revert', methods=['POST'])
 @guard
 def route_revert(route_id):
-    return _akcja(route_id, lambda t: routes.cofnij_do_roboczej(t, user_id=_user_id()))
+    # Krok 4.4 (Ruling 21b): cofnięcie zatwierdzenia czyści znaczniki załadunku tej trasy
+    # (dostawa.cofnij_zatwierdzenie), a sprawdza je zwykłym odczytem — transakcja zaczyna się więc od nowa
+    # tuż przed blokadą tras, żeby migawka powstała już pod nią (_zapis_pod_blokada). Użytkownik PRZED
+    # commitem: po nim current_user.id to zwykły SELECT, czyli migawka sprzed blokady.
+    user_id = _user_id()
+    _zapis_pod_blokada()
+    return _akcja(route_id, lambda t: dostawa.cofnij_zatwierdzenie(t, user_id=user_id) and None)
 
 
 @logistics_panel_bp.route('/routes/<int:route_id>/complete', methods=['POST'])
 @guard
 def route_complete(route_id):
     # (M6) `delivered_order_ids` wymagane (lista, także pusta) — brak albo null to 422
-    # z routes.wykonaj, nie „wszystko dostarczone”. (I1) 409 z `niespakowane` przechodzi
-    # przez _akcja → _odmowa razem z pozostałymi polami odmowy.
-    return _akcja(route_id, lambda t: routes.wykonaj(
+    # z dostawa.odhacz, nie „wszystko dostarczone”. (I1) 409 z `niespakowane` przechodzi
+    # przez _akcja → _odmowa razem z pozostałymi polami odmowy. Krok 4.4: odhaczenie wysyła statusy Base.
+    return _akcja(route_id, lambda t: dostawa.odhacz(
         t, _cialo().get('delivered_order_ids'), user_id=_user_id()), przelicz_wykonana=True)
 
 
-@logistics_panel_bp.route('/routes/<int:route_id>/restore', methods=['POST'])
+@logistics_panel_bp.route('/routes/<int:route_id>/stops/<int:order_id>/undo-delivered', methods=['POST'])
 @guard
-def route_restore(route_id):
-    return _akcja(route_id, lambda t: routes.przywroc(t, user_id=_user_id()))
+def route_stop_undo_delivered(route_id, order_id):
+    """„Cofnij dostarczenie” przy przystanku (krok 4.4, spec 4.5 i 9.7) — zastępuje „Przywróć trasę”."""
+    return _akcja(route_id, lambda t: dostawa.cofnij_dostarczenie(t, order_id, user_id=_user_id()) and None)

@@ -1,16 +1,20 @@
 # -*- coding: utf-8 -*-
 """Załadunek trasy (logistyka etap 4, krok 4.4, spec 9.3–9.4 i 4.5): skan paczek z bramką weryfikacji, „Zostaje”,
-zakończenie załadunku, wyjazd i „Cofnij załadunek” z panelu — serwis services/dostawa.py."""
+zakończenie załadunku, wyjazd, „Cofnij załadunek” z panelu i „Cofnij zatwierdzenie” w trakcie załadunku (Ruling 21b)
+— serwis services/dostawa.py."""
 import gc
 
 import pytest
+from sqlalchemy import event
 
 from extensions import db
 from modules.production.logistics.models import LogisticsLog, Route, RouteStop
-from modules.production.logistics.services import delivery, dostawa, routes
-from tests.blokady_pomocnicze import Zapytania, blokada_pozycji, blokada_zamowien, zapis
-from tests.dostawa_pomocnicze import T0, trasa, zaladuj_wprost, zamowienie_z_paczkami
-from tests.logistyka_fixtures import app  # noqa: F401
+from modules.production.logistics.services import dostawa, routes
+from modules.production.models import ProductionPackage
+from tests.blokady_pomocnicze import Zapytania, blokada_pozycji, blokada_zamowien, klauzula_blokady, zapis
+from tests.dostawa_pomocnicze import (T0, odsmiecaj_po_blokadach, trasa, zaladuj_wprost, zamowienie_z_paczkami,
+                                     zwykle_odczyty_stanu)
+from tests.logistyka_fixtures import BASE, app, client  # noqa: F401
 
 
 def _blad(funkcja, *args, **kwargs):
@@ -304,6 +308,128 @@ def test_cofnij_zaladunek_z_panelu(app):
     assert _blad(dostawa.cofnij_zaladunek, trasa_po).kod == 'route_status'
 
 
+# --- „Cofnij zatwierdzenie” w trakcie załadunku (Ruling 21b) --------------------------------------------
+
+def _znacznik(paczka):
+    return (paczka.loaded_at, paczka.loaded_by_worker_id, paczka.loaded_method, paczka.loaded_route_id)
+
+
+def test_cofniecie_zatwierdzenia_czysci_zaladunek_tej_trasy(app):
+    """Kierowca załadował część paczek (pozycje dalej zweryfikowane), logistyk cofa zatwierdzenie (np. zastępstwo
+    kierowcy, decyzja Konrada 5): znaczniki tej trasy znikają, log `zaladunek` tylko przy zamówieniu, któremu coś
+    wyczyszczono; status trasy i log `trasa_status` jak dotąd."""
+    a, (a1, a2) = zamowienie_z_paczkami()
+    b, _ = zamowienie_z_paczkami()
+    t = trasa([a, b])
+    dostawa.zaladuj_paczke(t, a1.id, worker_id=7, teraz=T0)
+    db.session.commit()
+    trasa_po = dostawa.cofnij_zatwierdzenie(t, user_id=1, teraz=T0)
+    db.session.commit()
+    assert (trasa_po.status, trasa_po.approved_at, trasa_po.approved_by) == ('robocza', None, None)
+    assert _znacznik(a1) == _znacznik(a2) == (None, None, None, None)
+    assert [p.current_status for p in a.products] == ['zweryfikowane', 'zweryfikowane']
+    wpis = LogisticsLog.query.filter_by(order_id=a.id, action='zaladunek').one()
+    assert (wpis.old_value, wpis.new_value, wpis.note, wpis.user_id, wpis.route_id) == (
+        'zaladowane', None, u'cofnięte zatwierdzenie trasy', 1, t.id)
+    assert LogisticsLog.query.filter_by(order_id=b.id, action='zaladunek').count() == 0
+    for order in (a, b):
+        status = LogisticsLog.query.filter_by(order_id=order.id, action='trasa_status').one()
+        assert (status.old_value, status.new_value, status.user_id) == ('zatwierdzona', 'robocza', 1)
+
+
+def test_cofniecie_zatwierdzenia_nie_rusza_znacznika_innej_trasy(app):
+    """Czyścimy tylko znaczniki TEJ trasy: nieaktualny znacznik innej trasy na paczce zamówienia z tej trasy i paczki
+    zamówienia z innej trasy zostają."""
+    a, (a1, a2) = zamowienie_z_paczkami()
+    c, (c1, _c2) = zamowienie_z_paczkami()
+    t = trasa([a])
+    inna = trasa([c])
+    zaladuj_wprost([a1], t, kto_id=7)
+    zaladuj_wprost([a2, c1], inna, kto_id=8)
+    dostawa.cofnij_zatwierdzenie(t, user_id=1)
+    db.session.commit()
+    assert _znacznik(a1) == (None, None, None, None)
+    assert _znacznik(a2) == _znacznik(c1) == (T0, 8, 'skan', inna.id)
+    assert inna.status == 'zatwierdzona'
+
+
+def test_cofniecie_zatwierdzenia_bez_znacznikow_tylko_blokada_tras(app):
+    """Bez znaczników tej trasy (znacznik innej trasy się nie liczy) — jak dotąd: blokada tras i sama trasa, bez
+    blokady deklaracji, zamówień i pozycji."""
+    order, (p1, _p2) = zamowienie_z_paczkami()
+    t = trasa([order])
+    inna = trasa([], status='zatwierdzona')
+    zaladuj_wprost([p1], inna)
+    with Zapytania() as z:
+        dostawa.cofnij_zatwierdzenie(t, user_id=1)
+        db.session.flush()
+    blokujace = [(sql, tuple(par or ())) for sql, par in z.lista
+                 if sql.endswith((' FOR UPDATE', ' LOCK IN SHARE MODE'))]
+    assert blokujace and all(('FROM prod_config' in sql and 'logistyka_trasy_blokada' in par)
+                             or 'FROM prod_routes' in sql for sql, par in blokujace)
+    assert t.status == 'robocza' and p1.loaded_route_id == inna.id
+
+
+def test_cofniecie_zatwierdzenia_kolejnosc_blokad(app):
+    """Ze znacznikami: blokada tras → blokada deklaracji → zamówienia trasy rosnąco → paczki → pozycje → pierwszy
+    zapis (kolejność zapisu Dostawy, Ruling 20)."""
+    a, paczki_a = zamowienie_z_paczkami()
+    b, paczki_b = zamowienie_z_paczkami()
+    t = trasa([b, a])
+    zaladuj_wprost(paczki_a[:1] + paczki_b[:1], t)
+    with Zapytania() as z:
+        dostawa.cofnij_zatwierdzenie(t, user_id=1)
+        db.session.flush()
+
+    def blokada(klucz):
+        return next(i for i, (sql, par) in enumerate(z.lista)
+                    if 'FROM prod_config' in sql and klucz in tuple(par or ()))
+
+    zamowienia_i = z.pierwsze(blokada_zamowien)
+    paczki_i = z.pierwsze(lambda sql: 'FROM prod_packages' in sql and sql.endswith(' FOR UPDATE'))
+    assert (blokada('logistyka_trasy_blokada') < blokada('logistyka_paczki_blokada') < zamowienia_i < paczki_i
+            < z.pierwsze(blokada_pozycji) < z.pierwsze(zapis))
+    assert list(z.lista[zamowienia_i][1]) == sorted([a.id, b.id])
+    assert all(p.loaded_route_id is None for p in paczki_a + paczki_b)
+
+
+def test_api_cofniecie_zatwierdzenia_czysci_zaladunek(app, client):
+    """POST /routes/<id>/revert: odpowiedź jak dotąd (trasa robocza), znaczniki tej trasy wyczyszczone."""
+    order, (p1, _p2) = zamowienie_z_paczkami()
+    t = trasa([order])
+    zaladuj_wprost([p1], t, kto_id=7)
+    rid, pid = t.id, p1.id
+    r = client.post(BASE + '/routes/%d/revert' % rid)
+    assert r.status_code == 200, r.get_data()[:300]
+    odpowiedz = r.get_json()
+    assert odpowiedz['success'] is True and odpowiedz['route']['status'] == 'robocza' and 'wynik' not in odpowiedz
+    assert db.session.get(ProductionPackage, pid).loaded_route_id is None
+
+
+def test_api_cofniecie_zatwierdzenia_migawka_pod_blokada_tras(app, client, monkeypatch):
+    """Znaczniki sprawdza zwykły odczyt, więc żądanie zaczyna transakcję od nowa (commit) i pierwszym poleceniem
+    nowej bierze blokadę tras — migawka powstaje dopiero pod nią i widzi każdy zacommitowany załadunek
+    (panel_api._zapis_pod_blokada)."""
+    order, _ = zamowienie_z_paczkami()
+    rid = trasa([order]).id
+    zdarzenia = []
+
+    def zapytanie(conn, cursor, statement, parameters, context, executemany):
+        blokada = klauzula_blokady(context)
+        zdarzenia.append(' '.join(statement.split()) + (' ' + blokada if blokada else ''))
+
+    oryginal = db.session.commit
+    monkeypatch.setattr(db.session, 'commit', lambda: (zdarzenia.append('COMMIT'), oryginal())[1])
+    event.listen(db.engine, 'before_cursor_execute', zapytanie)
+    try:
+        r = client.post(BASE + '/routes/%d/revert' % rid)
+    finally:
+        event.remove(db.engine, 'before_cursor_execute', zapytanie)
+    assert r.status_code == 200, r.get_data()[:300]
+    assert zdarzenia[0] == 'COMMIT'
+    assert 'FROM prod_config' in zdarzenia[1] and zdarzenia[1].endswith(' FOR UPDATE')
+
+
 # --- Kolejność blokad --------------------------------------------------------------------------------
 
 def test_kolejnosc_blokad_zapisu_dostawy(app):
@@ -330,37 +456,6 @@ def test_kolejnosc_blokad_zapisu_dostawy(app):
 
 # --- Decyzje na zablokowanych obiektach (krok 4.4a, przyczyna A) ---------------------------------------
 
-_TABELE_STANU = ('FROM prod_orders', 'FROM prod_products', 'FROM prod_packages', 'FROM prod_route_stops',
-                 'FROM prod_routes')
-
-
-def _odsmiecaj_po_blokadach(monkeypatch):
-    """
-    Odśmiecanie pamięci tuż po blokadach (przelotka na dostawa._wymagaj_statusu — pierwszy krok po zablokuj)
-    i przy każdym wpisie logu (delivery.zapisz_log, także w routes.usun_przystanek). Mapa tożsamości sesji trzyma
-    czyste obiekty SŁABO: zablokowane zamówienie, którego zapis Dostawy nie trzyma, znika wtedy z sesji (zamówienie
-    i jego pozycje trzymają się tylko nawzajem — cykl, który zbiera dopiero gc), a późniejszy dostęp
-    (`ProductionOrder.query.get`, `order.products`) czyta je od nowa zwykłym SELECT-em — na MySQL z migawki
-    REPEATABLE READ sprzed blokad.
-    """
-    for modul, nazwa in ((dostawa, '_wymagaj_statusu'), (delivery, 'zapisz_log')):
-        oryginal = getattr(modul, nazwa)
-
-        def przelotka(*a, _oryginal=oryginal, **k):
-            gc.collect()
-            return _oryginal(*a, **k)
-
-        monkeypatch.setattr(modul, nazwa, przelotka)
-
-
-def _zwykle_odczyty_stanu(z):
-    """Zwykłe (nieblokujące) SELECT-y zamówień, pozycji, paczek i tras od pierwszej blokady zamówień."""
-    od = z.pierwsze(blokada_zamowien)
-    return [sql for sql, _par in z.lista[od:]
-            if sql.startswith('SELECT') and any(t in sql for t in _TABELE_STANU)
-            and not sql.endswith((' FOR UPDATE', ' LOCK IN SHARE MODE'))]
-
-
 def test_skan_decyduje_na_zablokowanych_obiektach(app, monkeypatch):
     """Ruling P2 (przyczyna A kroku 4.4a): skan trzyma wynik zablokuj (trasa, zamówienia, paczki) do decyzji
     i odpowiedzi. Po odśmieceniu pamięci między blokadami a decyzją nie idzie żaden zwykły odczyt zamówienia
@@ -370,12 +465,12 @@ def test_skan_decyduje_na_zablokowanych_obiektach(app, monkeypatch):
     route_id, paczka_id = t.id, p1.id
     db.session.expunge_all()     # obiekty testu odłączone: zablokowane przeżyją tylko dzięki referencjom zapisu
     gc.collect()
-    _odsmiecaj_po_blokadach(monkeypatch)
+    odsmiecaj_po_blokadach(monkeypatch)
     route = db.session.get(Route, route_id)
     with Zapytania() as z:
         paczka, zmieniono = dostawa.zaladuj_paczke(route, paczka_id, worker_id=7, teraz=T0)
         db.session.flush()
-    assert _zwykle_odczyty_stanu(z) == []
+    assert zwykle_odczyty_stanu(z) == []
     assert zmieniono is True and (paczka.id, paczka.loaded_route_id, paczka.loaded_at) == (paczka_id, route_id, T0)
 
 
@@ -393,11 +488,11 @@ def test_zakonczenie_decyduje_na_zablokowanych_obiektach(app, monkeypatch):
     route_id, ids = t.id, (jedzie.id, zostaje.id, anulowane.id)
     db.session.expunge_all()
     gc.collect()
-    _odsmiecaj_po_blokadach(monkeypatch)
+    odsmiecaj_po_blokadach(monkeypatch)
     route = db.session.get(Route, route_id)
     with Zapytania() as z:
         trasa_po, usuniete = dostawa.zakoncz_zaladunek(route, worker_id=7, teraz=T0)
         db.session.flush()
-    assert _zwykle_odczyty_stanu(z) == []
+    assert zwykle_odczyty_stanu(z) == []
     assert [s.order_id for s in trasa_po.stops] == [ids[0]]
     assert [(u['order_id'], u['reason']) for u in usuniete] == [(ids[1], 'inne'), (ids[2], 'anulowane')]
