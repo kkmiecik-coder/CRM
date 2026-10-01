@@ -1256,8 +1256,12 @@ def mark_order_complete(item, station_code, *, device_id=None,
     """
     Oznacza zlecenie jako ukończone na danym stanowisku.
 
-    Deleguje do `ProductionItem.complete_task(station_code)` — tej samej
-    metody modelu której używa web-handler `/production/api/complete-task`.
+    WARUNEK WSTĘPNY (logistyka etap 4, krok 4.4a, „zamówienie najpierw”): wołający trzyma blokadę wiersza
+    zamówienia i wszystkich jego pozycji z odczytem bieżącym (services/blokady_zamowien.py; ZAKOŃCZ robi to
+    w mobile_api.order_complete). Tranzycja decyduje o statusach pozostałych pozycji i o sposobie dostawy
+    zamówienia (wejście do pakowania, po_spakowaniu, zamknięcie cyklu), a na migawce zamknęłaby cykl błędnie.
+
+    Deleguje do `ProductionItem.complete_task(station_code)`.
     Pełna tranzycja statusu (cutting/assembly/gluing/formatting/edges/
     painting/packaging) plus reguły specjalne (pominięcie Krawędzi dla
     produktów bez obróbki krawędzi — niezależnie od wykończenia, Lakiernia

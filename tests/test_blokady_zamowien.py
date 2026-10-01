@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-„Zamówienie najpierw” (logistyka etap 4, krok 4.4a): ZAKOŃCZ i wejście do pakowania na tablecie oraz cron
-osieroconych blokują wiersz zamówienia przed pozycjami i decydują na odczycie bieżącym.
+„Zamówienie najpierw” (logistyka etap 4, krok 4.4a): ZAKOŃCZ i wejście do pakowania na tablecie, druk etykiet
+całego zamówienia oraz cron osieroconych blokują wiersz zamówienia przed pozycjami i decydują na odczycie
+bieżącym. Pozycje skasowane po migawce znikają z kolekcji zamówienia, a cron logistyki jedzie fazami w osobnych
+transakcjach.
 
 SQLite nie ma blokad wierszy ani migawki MySQL. Kolejność blokad sprawdzamy na kolejności zapytań
 (tests/blokady_pomocnicze.py), a odczyt bieżący — obiektami zostawionymi w sesji w starym stanie, podczas gdy
@@ -10,18 +12,21 @@ mobile_api._resolve_workers: to ostatni krok handlera przed odczytem pozycji, ju
 require_device_token (commit wygasza obiekty sesji, więc wcześniej wczytany stan by nie przetrwał).
 """
 import itertools
+from datetime import datetime
 
 import pytest
+from sqlalchemy.orm.attributes import set_committed_value
 
 from extensions import db
 from modules.production.logistics import sposoby as s
 from modules.production.logistics.services import delivery
-from modules.production.models import ProductionDevice, ProductionOrder, ProductionProduct
+from modules.production.models import (
+    LabelPrintJob, ProductionConfig, ProductionDevice, ProductionOrder, ProductionProduct)
 from modules.production.routers import mobile_api
 from modules.production.services import blokady_zamowien
 from modules.production.services.mobile_api_service import generate_token
 from tests.blokady_pomocnicze import Zapytania, blokada_pozycji, blokada_zamowien, zapis
-from tests.logistyka_fixtures import app, client, zamowienie  # noqa: F401
+from tests.logistyka_fixtures import BASE, SEKRET_CRONA, app, client, produkt, zamowienie  # noqa: F401
 
 _licznik = itertools.count(1)
 _ZAMOWIENIA = ProductionOrder.__table__
@@ -56,20 +61,24 @@ def _migawka_przed_zapisem(monkeypatch, order_id, zamowienie_w_bazie=None, pozyc
     Przelotka na mobile_api._resolve_workers: po prawdziwym wywołaniu wczytuje zamówienie i jego pozycje do sesji
     („migawka” żądania), a potem surowym UPDATE zapisuje w bazie cudzą zmianę (`zamowienie_w_bazie` — kolumny
     zamówienia, `pozycje_w_bazie` — {id pozycji: status}). Obiekty w sesji zostają stare: zmianę zobaczy tylko
-    odczyt bieżący (populate_existing).
+    odczyt bieżący (populate_existing). Trzymamy je SILNIE do końca testu: identity map sesji jest słaba, a obiekt,
+    który z niej zniknie, wczytałby się potem świeży, więc test nie sprawdzałby odczytu bieżącego.
     """
     oryginal = mobile_api._resolve_workers
+    trzymane = []
 
     def przelotka():
         wynik = oryginal()
         order = db.session.get(ProductionOrder, order_id)
-        stare = (order.override_delivery_method, [p.current_status for p in order.products])
+        pozycje = list(order.products)
+        stare = (order.override_delivery_method, [p.current_status for p in pozycje])
         if zamowienie_w_bazie:
             db.session.execute(_ZAMOWIENIA.update().where(_ZAMOWIENIA.c.id == order_id)
                                .values(**zamowienie_w_bazie))
         for pid, status in (pozycje_w_bazie or {}).items():
             db.session.execute(_POZYCJE.update().where(_POZYCJE.c.id == pid).values(current_status=status))
-        assert (order.override_delivery_method, [p.current_status for p in order.products]) == stare
+        assert (order.override_delivery_method, [p.current_status for p in pozycje]) == stare
+        trzymane.append((order, pozycje))
         return wynik
 
     monkeypatch.setattr(mobile_api, '_resolve_workers', przelotka)
@@ -107,6 +116,45 @@ def test_zablokuj_zamowienie_pozycji_czyta_biezaco(app):
 def test_zablokuj_zamowienie_pozycji_bez_pozycji(app):
     assert blokady_zamowien.zablokuj_zamowienie_pozycji(987654) is None
     assert blokady_zamowien.zablokuj_zamowienie(987654) is None
+
+
+def test_zablokuj_pozycje_wyrzuca_z_kolekcji_pozycje_skasowane_po_migawce(app):
+    """Base. kasuje pozycje na twardo. Kolekcja `order.products` pochodzi z migawki (na MySQL zwykły odczyt po
+    blokadzie zamówienia nadal widzi skasowany wiersz), a blokada po kluczu głównym go nie znajduje. Taki „duch”
+    liczyłby się w aktywne_produkty, a podbij_pozycje dałoby StaleDataError (500). Po blokadzie kolekcja ma tylko
+    istniejące pozycje."""
+    order = zamowienie(sposob=s.KURIER, statusy=('czeka_na_pakowanie', 'czeka_na_pakowanie'))
+    pierwsza, druga = order.products
+    pierwsza_id, druga_id = pierwsza.id, druga.id
+    assert [p.id for p in order.products] == [pierwsza_id, druga_id]  # kolekcja wczytana: „migawka”
+    db.session.execute(_POZYCJE.delete().where(_POZYCJE.c.id == pierwsza_id))  # cudzy DELETE za plecami ORM
+    assert [p.id for p in order.products] == [pierwsza_id, druga_id]  # sesja nadal widzi ducha
+    zablokowane = blokady_zamowien.zablokuj_pozycje(order)
+    assert [p.id for p in zablokowane] == [druga_id]
+    assert [p.id for p in order.products] == [druga_id]
+    assert [p.id for p in delivery.aktywne_produkty(order)] == [druga_id]
+
+
+def test_zablokuj_zamowienie_wyrzuca_z_kolekcji_pozycje_skasowane_po_migawce(app, monkeypatch):
+    """Ta sama reguła przez pełną ścieżkę (zamówienie, potem pozycje). SQLite nie ma migawki: po blokadzie
+    zamówienia zwykły odczyt kolekcji widzi już skasowany wiersz. Migawkę MySQL (REPEATABLE READ) odtwarzamy
+    przelotką: po prawdziwej blokadzie zamówienia kolekcja wraca w stanie sprzed cudzego DELETE."""
+    order = zamowienie(sposob=s.KURIER, statusy=('czeka_na_pakowanie', 'czeka_na_pakowanie'))
+    pierwsza, druga = order.products
+    pierwsza_id, druga_id = pierwsza.id, druga.id
+    z_migawki = list(order.products)
+    db.session.execute(_POZYCJE.delete().where(_POZYCJE.c.id == pierwsza_id))
+    oryginal = blokady_zamowien.zablokuj_zamowienia
+
+    def zamowienia_z_kolekcja_z_migawki(order_ids):
+        zamowienia = oryginal(order_ids)
+        for zamowienie_ in zamowienia:
+            set_committed_value(zamowienie_, 'products', list(z_migawki))
+        return zamowienia
+
+    monkeypatch.setattr(blokady_zamowien, 'zablokuj_zamowienia', zamowienia_z_kolekcja_z_migawki)
+    assert blokady_zamowien.zablokuj_zamowienie(order.id) is order
+    assert [p.id for p in order.products] == [druga_id]
 
 
 # --- ZAKOŃCZ i wejście do pakowania ---------------------------------------------------------------------
@@ -176,6 +224,34 @@ def test_zakoncz_brak_pozycji_404(app, client):
     assert r.status_code == 404 and r.get_json()['error'] == 'order_not_found'
 
 
+# --- Druk etykiet całego zamówienia ---------------------------------------------------------------------
+
+def test_druk_etykiet_zamowienia_blokuje_zamowienie_i_pozycje_przed_zapisem(app, client):
+    """Tryb agenta zapisuje pozycje (liczniki wydrukowanych sztuk) jedną po drugiej, w kolejności numeracji etykiet
+    (product_sequence_in_order). Doróbka kopiuje sekwencję oryginału, więc ta kolejność nie jest kolejnością id,
+    w której ZAKOŃCZ blokuje pozycje: bez wspólnej blokady zamówienia to cykl (MySQL 1213). Druk blokuje więc
+    zamówienie i wszystkie pozycje rosnąco, zanim cokolwiek zapisze, a kolejność samych etykiet zostaje ta sama."""
+    db.session.add(ProductionConfig(config_key='LABEL_PRINTER_USE_AGENT', config_value='true'))
+    order = zamowienie(statusy=())
+    trzecia = produkt(order, status='czeka_na_pakowanie', sekwencja=3)   # najniższe id, najwyższa sekwencja
+    pierwsza = produkt(order, status='czeka_na_pakowanie', sekwencja=1)
+    druga = produkt(order, status='czeka_na_pakowanie', sekwencja=2)
+    db.session.commit()
+    order_id, bl_id = order.id, order.baselinker_order_id
+    wszystkie = sorted((trzecia.id, pierwsza.id, druga.id))
+    kolejnosc_druku = [pierwsza.short_product_id, druga.short_product_id, trzecia.short_product_id]
+    naglowki = _naglowki()
+    with Zapytania() as z:
+        r = client.post('/api/mobile/orders/%d/print-labels' % bl_id, headers=naglowki)
+    assert r.status_code == 200 and r.get_json()['success_count'] == 3, r.get_data()[:300]
+    zamowienia, blokada, pierwszy_zapis = z.pierwsze(blokada_zamowien), z.pierwsze(blokada_pozycji), z.pierwsze(zapis)
+    assert zamowienia < blokada < pierwszy_zapis
+    assert list(z.lista[zamowienia][1]) == [order_id]
+    assert sorted(z.lista[blokada][1]) == wszystkie
+    zadania = LabelPrintJob.query.order_by(LabelPrintJob.id).all()
+    assert [k for k, _ in itertools.groupby(j.short_product_id for j in zadania)] == kolejnosc_druku
+
+
 # --- Cron: przeniesienie osieroconych ---------------------------------------------------------------------
 
 def test_cron_osieroconych_blokuje_zamowienia_przed_zapisem_pozycji(app):
@@ -188,3 +264,62 @@ def test_cron_osieroconych_blokuje_zamowienia_przed_zapisem_pozycji(app):
     zamowienia, blokada, pierwszy_zapis = z.pierwsze(blokada_zamowien), z.pierwsze(blokada_pozycji), z.pierwsze(zapis)
     assert zamowienia < blokada < pierwszy_zapis
     assert list(z.lista[zamowienia][1]) == ids
+
+
+def test_cron_osieroconych_czyta_pozycje_biezaco(app, monkeypatch):
+    """Inny zapis przenosi pierwszą pozycję MIĘDZY odczytem id zamówień a ich blokadą, a sesja trzyma ją jeszcze
+    w starym stanie. Cron czyta pozycje bieżąco: nie liczy jej i nie nadpisuje jej updated_at (ETag kolejki
+    pakowania)."""
+    order = zamowienie(sposob=s.KURIER, statusy=('czeka_na_logistyke', 'czeka_na_logistyke'))
+    pierwsza, druga = order.products
+    pierwsza_id, druga_id = pierwsza.id, druga.id
+    cudzy_zapis, teraz = datetime(2026, 10, 1, 11, 0), datetime(2026, 10, 1, 12, 0)
+    assert [p.current_status for p in (pierwsza, druga)] == ['czeka_na_logistyke'] * 2  # stan sprzed cudzego zapisu
+    oryginal = blokady_zamowien.zablokuj_zamowienia
+
+    def przelotka(order_ids):
+        db.session.execute(_POZYCJE.update().where(_POZYCJE.c.id == pierwsza_id)
+                           .values(current_status='czeka_na_pakowanie', updated_at=cudzy_zapis))
+        assert pierwsza.current_status == 'czeka_na_logistyke'  # w sesji nadal stary stan
+        return oryginal(order_ids)
+
+    monkeypatch.setattr(blokady_zamowien, 'zablokuj_zamowienia', przelotka)
+    assert delivery.przenies_osierocone_z_logistyki(teraz=teraz) == 1
+    db.session.commit()
+    db.session.expire_all()
+    pierwsza, druga = db.session.get(ProductionProduct, pierwsza_id), db.session.get(ProductionProduct, druga_id)
+    assert (pierwsza.current_status, pierwsza.updated_at) == ('czeka_na_pakowanie', cudzy_zapis)
+    assert (druga.current_status, druga.updated_at) == ('czeka_na_pakowanie', teraz)
+
+
+def _przeliczenie_pada(monkeypatch):
+    """Ostatnia faza crona (przelicz_otwarte) rzuca wyjątek: cron odpowiada 500 i robi rollback tej fazy."""
+    def pada(*a, **k):
+        raise RuntimeError('awaria przeliczenia')
+    monkeypatch.setattr(delivery, 'przelicz_otwarte', pada)
+
+
+def test_cron_zapisuje_przeniesienie_osieroconych_mimo_bledu_pozniejszej_fazy(app, client, monkeypatch):
+    """Cron jedzie fazami (przeniesienie osieroconych, dostarcz_wydane, przelicz_otwarte), każda w osobnej
+    transakcji i każda blokuje zamówienia rosnąco. Jedna transakcja na całość trzymałaby zamówienia fazy
+    pierwszej, prosząc o zamówienia drugiej (suma nie jest rosnąca: cykl z hurtową zmianą statusu). Skutek
+    uboczny: błąd późniejszej fazy nie cofa wcześniejszej."""
+    order = zamowienie(sposob=s.KURIER, statusy=('czeka_na_logistyke',))
+    order_id = order.id
+    _przeliczenie_pada(monkeypatch)
+    r = client.post(BASE + '/cron', headers={'X-Cron-Secret': SEKRET_CRONA})
+    assert r.status_code == 500 and r.get_json()['success'] is False
+    db.session.expire_all()
+    assert [p.current_status for p in db.session.get(ProductionOrder, order_id).products] == ['czeka_na_pakowanie']
+
+
+def test_cron_zapisuje_dostarcz_wydane_mimo_bledu_pozniejszej_fazy(app, client, monkeypatch):
+    """Druga faza (dostarcz_wydane) też kończy się własnym commitem, razem ze znacznikiem jednorazowości."""
+    order = zamowienie(sposob=s.ODBIOR, statusy=('spakowane',), handed_over_at=datetime(2026, 9, 20))
+    order_id = order.id
+    _przeliczenie_pada(monkeypatch)
+    r = client.post(BASE + '/cron', headers={'X-Cron-Secret': SEKRET_CRONA})
+    assert r.status_code == 500 and r.get_json()['success'] is False
+    db.session.expire_all()
+    assert [p.current_status for p in db.session.get(ProductionOrder, order_id).products] == ['dostarczone']
+    assert ProductionConfig.query.filter_by(config_key=delivery.KLUCZ_WYDANE_DOSTARCZONE).count() == 1

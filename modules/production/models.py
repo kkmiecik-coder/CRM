@@ -631,6 +631,16 @@ class ProductionProduct(db.Model):
         return self.cut_to_size is False
 
     def complete_task(self, station_code):
+        """
+        Tranzycja pozycji po ZAKOŃCZ na stanowisku `station_code` (w kodzie produkcyjnym woła ją tylko
+        mark_order_complete).
+
+        WARUNEK WSTĘPNY (logistyka etap 4, krok 4.4a, „zamówienie najpierw”): wołający trzyma blokadę wiersza
+        zamówienia i wszystkich jego pozycji z odczytem bieżącym (services/blokady_zamowien.py). Wejście do
+        pakowania i spakowanie decydują o cyklu logistycznym zamówienia (odnotuj_wejscie_do_pakowania,
+        po_spakowaniu, przelicz_zamkniecie) na statusach pozostałych pozycji i sposobie dostawy; na migawce
+        zapadłyby na nieaktualnym stanie, a zapis zamówienia po zapisie pozycji dałby cykl blokad (MySQL 1213).
+        """
         # Stary tablet może przysłać 'finishing'; niżej porównujemy wyłącznie
         # z kodami kanonicznymi, więc alias rozwijamy raz, na wejściu.
         # Normalizacja i przemianowanie kluczy mapy MUSZĄ iść razem: sama

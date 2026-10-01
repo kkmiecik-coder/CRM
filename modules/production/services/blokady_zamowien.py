@@ -20,9 +20,14 @@ Lista kluczy pozycji pochodzi z `order.products` (zwykły odczyt), jak w paczki.
 `order_id` zakładałaby blokady luk indeksu. Pozycja dodana przez inny zapis po migawce, a przed blokadą
 zamówienia, nie zostanie więc zablokowana ani policzona. Zmiany z Base. biorą tę samą blokadę zamówienia przed
 dodaniem pozycji, więc okno jest rzędu milisekund, a resztę łata cron logistyki (przelicz_otwarte).
+Pozycja SKASOWANA po migawce (Base. kasuje na twardo, od kroku 4.4a pod blokadą zamówienia) wisiałaby w tej
+kolekcji ze stanem z migawki, a blokada po kluczu głównym jej nie znajduje: zablokuj_pozycje wyrzuca ją z
+`order.products` (liczyłaby się w aktywne_produkty, a podbij_pozycje dałoby StaleDataError).
 
 Funkcje nie commitują.
 """
+from sqlalchemy.orm.attributes import set_committed_value
+
 from extensions import db
 from modules.production.models import ProductionOrder, ProductionProduct
 
@@ -44,12 +49,21 @@ def zablokuj_pozycje(order):
     """
     Wszystkie pozycje zamówienia (także anulowane) FOR UPDATE po kluczu głównym, rosnąco, odczytem bieżącym.
     Zwraca je w tej kolejności. Wołać PO zablokowaniu wiersza zamówienia.
+
+    Kolekcja `order.products` pochodzi z migawki. Pozycje skasowane po niej znikają z kolekcji (usuwamy tylko te,
+    których blokada nie znalazła; kolejność pozostałych i ewentualne niezapisane pozycje bez zmian), a dodane po
+    migawce nadal są niewidoczne, jak dotąd — nie da się ich zablokować po kluczu głównym.
     """
     ids = sorted(p.id for p in order.products if p.id is not None)
     if not ids:
         return []
-    return (ProductionProduct.query.filter(ProductionProduct.id.in_(ids)).order_by(ProductionProduct.id)
-            .with_for_update().populate_existing().all())
+    zablokowane = (ProductionProduct.query.filter(ProductionProduct.id.in_(ids)).order_by(ProductionProduct.id)
+                   .with_for_update().populate_existing().all())
+    skasowane = set(ids) - {p.id for p in zablokowane}
+    if skasowane:
+        # set_committed_value: korekta pamięci, bez zdarzeń kolekcji (delete-orphan, backref) i bez zapisu w bazie.
+        set_committed_value(order, 'products', [p for p in order.products if p.id not in skasowane])
+    return zablokowane
 
 
 def zablokuj_zamowienie(order_id):

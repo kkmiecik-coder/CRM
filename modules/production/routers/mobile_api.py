@@ -990,6 +990,16 @@ def mobile_print_labels_for_order(baselinker_order_id):
     if not items:
         return jsonify({'success': False, 'message': 'Brak produktów w zamówieniu.'}), 404
 
+    # „Zamówienie najpierw” (logistyka etap 4, krok 4.4a): w trybie agenta druk zapisuje liczniki wydrukowanych
+    # sztuk pozycja po pozycji (flush), w kolejności numeracji etykiet (product_sequence_in_order). Doróbka
+    # kopiuje sekwencję oryginału, więc ta kolejność nie jest kolejnością id, w której ZAKOŃCZ blokuje
+    # pozycje — bez wspólnej blokady zamówienia to cykl (MySQL 1213). Blokujemy więc zamówienie i wszystkie
+    # jego pozycje, zanim cokolwiek zapiszemy. Kolejność druku etykiet zostaje bez zmian (short_ids niżej
+    # z `items`). W trybie TCP (agent wyłączony) blokady trwają przez cały druk po sieci: przy niedostępnej
+    # drukarce do (retry_count + 1) × timeout_seconds, domyślnie ok. 6 s; w trybie agenta druk to tylko
+    # wstawienie zadań do kolejki.
+    blokady_zamowien.zablokuj_zamowienie(items[0].order_id)
+
     short_ids = [i.short_product_id for i in items]
     try:
         result = label_print_service.print_labels_batch(
