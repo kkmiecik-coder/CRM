@@ -2603,6 +2603,9 @@ class BaselinkerSyncService:
         """
         Aplikuje zmiany z porównania do bazy danych.
 
+        Uwaga: funkcja commituje już po pobraniu zamówienia z Base. (nowa transakcja przed blokadą zamówienia), więc
+        wołający nie powinien mieć w sesji niezapisanych zmian — zostałyby zatwierdzone tym commitem.
+
         Args:
             baselinker_order_id: ID zamówienia
             changes: Struktura zmian z compare_order_with_baselinker
@@ -2634,8 +2637,20 @@ class BaselinkerSyncService:
             # Logistyki, Weryfikacji i stanowisk.
             bl_order = (self.get_order_from_baselinker(baselinker_order_id)
                         if changes.get('products_to_add') else None)
+
+            # Nowa transakcja po wywołaniu Base. (jak `_zapis_pod_blokada()` w panelu Logistyki). MySQL pracuje na
+            # REPEATABLE READ, a migawka powstaje przy pierwszym ZWYKŁYM odczycie transakcji — tu najpóźniej przy
+            # `current_user.id` w routerze, czyli PRZED wywołaniem HTTP do Base., które trwa do kilkudziesięciu sekund.
+            # Pozycja dopisana w tym czasie (np. doróbka z tabletu) byłaby niewidoczna dla zwykłych odczytów pod
+            # blokadą: wypadłaby z listy blokowanych pozycji i z przeliczenia zamknięcia, które zapadłoby na nieaktualnym
+            # składzie. Dlatego COMMIT kończy starą migawkę (nic jeszcze nie zmieniliśmy, a funkcja i tak commituje na
+            # końcu), a id zamówienia czytamy odczytem BLOKUJĄCYM: ten nie zakłada migawki, więc pierwszy zwykły odczyt
+            # nowej transakcji (lista pozycji w zablokuj_pozycje) wypada już PO blokadzie zamówienia. Między COMMIT-em
+            # a blokadą żadnych odczytów, także atrybutów ORM, które commit właśnie wygasił.
+            db.session.commit()
             zamowienie_id = (db.session.query(ProductionOrder.id)
-                             .filter(ProductionOrder.baselinker_order_id == baselinker_order_id).scalar())
+                             .filter(ProductionOrder.baselinker_order_id == baselinker_order_id)
+                             .with_for_update().scalar())
             zamowienie = zablokuj_zamowienie(zamowienie_id) if zamowienie_id is not None else None
 
             # 1. Usuń produkty
@@ -2818,8 +2833,8 @@ class BaselinkerSyncService:
                 })
 
             # Pozycje mogły zniknąć albo dojść — cykl logistyczny przeliczamy od razu (krok 4.4a). Dotąd zamknięte
-            # zamówienie kurierskie z nową pozycją czekało na godzinny cron, a usunięcie ostatniej niespakowanej
-            # pozycji w ogóle nie zamykało cyklu.
+            # zamówienie kurierskie z nową pozycją czekało na godzinny cron; tak samo zamknięcie po usunięciu
+            # ostatniej niespakowanej pozycji.
             if zamowienie is not None:
                 db.session.flush()
                 db.session.expire(zamowienie, ['products'])

@@ -3,16 +3,21 @@
 „Zamówienie najpierw” w doróbce i w zmianach z Base. (logistyka etap 4, krok 4.4a). SQLite pomija FOR UPDATE
 i nie ma migawki MySQL: kolejność blokad sprawdzamy na kolejności zapytań (tests/blokady_pomocnicze.py), a odczyt
 bieżący — obiektem zostawionym w sesji w starym stanie przy cudzym zapisie w bazie (surowy UPDATE poza ORM).
+Kolejność COMMIT-u i odczytu blokującego — znacznikami na tej samej osi czasu co zapytania (`_os_zdarzen`).
 """
+from contextlib import contextmanager
 from datetime import datetime
 
 import pytest
+from sqlalchemy import event
+from sqlalchemy.orm import Query
 
 from extensions import db
 from modules.production.logistics import sposoby as s
 from modules.production.models import ProductionOrder, ProductionProduct
 from modules.production.services import rework_service
 from modules.production.services.sync_service import BaselinkerSyncService
+from modules.users.models import User
 from tests.blokady_pomocnicze import Zapytania, blokada_pozycji, blokada_zamowien, zapis
 from tests.logistyka_fixtures import app, zamowienie  # noqa: F401
 
@@ -46,6 +51,63 @@ def _serwis_z_nowa_pozycja(monkeypatch, order, zdarzenia=None):
     monkeypatch.setattr('modules.production.services.parser_service.ProductNameParser.parse_product_name',
                         lambda self, nazwa: None)
     return serwis
+
+
+@contextmanager
+def _os_zdarzen():
+    """
+    Zapytania SQL (tests/blokady_pomocnicze.py) z dwoma znacznikami na tej samej osi czasu: ('commit', None) przy każdym
+    COMMIT-cie połączenia i ('for_update', None) przy każdym zapytaniu z `with_for_update()`. SQLite wycina FOR UPDATE
+    z tekstu SQL, więc odczyt blokujący widać tylko po wywołaniu `with_for_update()`; znacznik wpada tuż przed SQL tego
+    zapytania (zapytanie wykonuje się zaraz po zbudowaniu).
+    """
+    with Zapytania() as z:
+        def commit(_polaczenie):
+            z.lista.append(('commit', None))
+
+        oryginal = Query.with_for_update
+
+        def z_blokada(self, *args, **kwargs):
+            z.lista.append(('for_update', None))
+            return oryginal(self, *args, **kwargs)
+
+        event.listen(db.engine, 'commit', commit)
+        Query.with_for_update = z_blokada
+        try:
+            yield z
+        finally:
+            Query.with_for_update = oryginal
+            event.remove(db.engine, 'commit', commit)
+
+
+def _jak_router(z):
+    """`current_user.id` w routerze to zwykły odczyt: tu MySQL zakłada migawkę REPEATABLE READ, jeszcze przed wywołaniem
+    funkcji serwisu. Znacznik ('router', None) oznacza początek osi czasu po tym odczycie."""
+    db.session.query(User.id).first()
+    z.lista.append(('router', None))
+
+
+def _os(zdarzenia):
+    """Oś czasu do komunikatów asercji: znaczniki jak są, SQL skrócony do pierwszych 70 znaków."""
+    return [e[0] if e[0] in ('router', 'base', 'commit', 'for_update') else e[0][:70] for e in zdarzenia]
+
+
+def _sprawdz_commit_i_blokujacy_odczyt_id(z, po):
+    """
+    Po zdarzeniu `po` pierwszy COMMIT (kończy starą migawkę) wypada PRZED pierwszą blokadą zamówień, a zaraz po nim idzie
+    odczyt BLOKUJĄCY id zamówienia po baselinker_order_id (jak `_zapis_pod_blokada()` w panelu Logistyki): taki odczyt nie
+    zakłada migawki, więc pierwszy zwykły odczyt nowej transakcji (lista pozycji do zablokowania) wypada już po blokadzie
+    zamówienia. Zwraca indeks COMMIT-u.
+    """
+    start = z.lista.index(po)
+    commit = z.lista.index(('commit', None), start)
+    blokada = z.pierwsze(blokada_zamowien)
+    assert commit < blokada, 'COMMIT dopiero po pierwszej blokadzie zamówień: %s' % _os(z.lista[start:blokada + 1])
+    assert z.lista[commit + 1] == ('for_update', None), \
+        'po COMMIT-cie nie idzie odczyt blokujący: %s' % _os(z.lista[commit:commit + 3])
+    assert 'baselinker_order_id' in z.lista[commit + 2][0], \
+        'odczyt blokujący nie czyta id po baselinker_order_id: %s' % _os(z.lista[commit:commit + 3])
+    return commit
 
 
 # --- Doróbka -------------------------------------------------------------------------------------------
@@ -130,9 +192,11 @@ def test_zmiany_z_base_usuniecie_niespakowanej_zamyka_kuriera_od_razu(app):
 
 def test_zmiany_z_base_nowa_pozycja_nie_nadpisuje_zrodla_synchronizacji(app, monkeypatch):
     """Decyzja Konrada 1.10: dodanie pozycji z panelu admina ustawiało zamówieniu sync_source='admin_update', a kolumna
-    to ENUM('baselinker_auto','manual_entry') — na MySQL w trybie ścisłym wywracało to całą operację (1265). SQLite
-    ENUM-u nie pilnuje, więc sprawdzamy samą wartość. Prawdziwe _create_production_product_from_data (bez podmiany)."""
-    order = zamowienie(sposob=s.KURIER, statusy=('spakowane',), numer_wewnetrzny='1450', sync_source='baselinker_auto')
+    to ENUM('baselinker_auto','manual_entry') — na MySQL w trybie ścisłym wywracało to całą operację (1265). SQLite nie
+    ma CHECK dla ENUM, ale Enum SQLAlchemy rzuca LookupError przy odczycie wartości spoza listy, więc stary kod kończy się
+    success False; asercja wartości pilnuje, żeby źródła nie podmienić na inną dozwoloną wartość (stąd 'manual_entry',
+    a nie domyślne 'baselinker_auto'). Prawdziwe _create_production_product_from_data (bez podmiany)."""
+    order = zamowienie(sposob=s.KURIER, statusy=('spakowane',), numer_wewnetrzny='1450', sync_source='manual_entry')
     order_id, bl_id = order.id, order.baselinker_order_id
     serwis = BaselinkerSyncService()
     monkeypatch.setattr(serwis, 'get_order_from_baselinker', lambda _id: {
@@ -142,5 +206,40 @@ def test_zmiany_z_base_nowa_pozycja_nie_nadpisuje_zrodla_synchronizacji(app, mon
     wynik = serwis.apply_baselinker_changes(bl_id, {'products_to_add': [{'order_product_id': '77'}]})
     assert wynik['success'] is True and wynik['added'] == 1, wynik
     db.session.expire_all()
-    assert db.session.get(ProductionOrder, order_id).sync_source == 'baselinker_auto'
+    assert db.session.get(ProductionOrder, order_id).sync_source == 'manual_entry'
     assert ProductionProduct.query.filter_by(order_id=order_id).count() == 2
+
+
+def test_zmiany_z_base_po_wywolaniu_base_zaczynaja_nowa_transakcje_z_blokujacym_odczytem(app, monkeypatch):
+    """
+    Migawka REPEATABLE READ powstaje przy pierwszym zwykłym odczycie transakcji, w żądaniu admina już w routerze
+    (`current_user.id`), czyli PRZED wywołaniem HTTP do Base., które trwa do kilkudziesięciu sekund. Pozycja dopisana
+    w tym czasie (np. doróbka z tabletu) nie byłaby widoczna dla zwykłych odczytów pod blokadą zamówienia: wypadłaby
+    z listy blokowanych pozycji i z przeliczenia zamknięcia. Po wywołaniu Base. idzie więc COMMIT (kończy starą migawkę),
+    a pierwszym poleceniem nowej transakcji jest odczyt BLOKUJĄCY id zamówienia: nie zakłada migawki, więc lista pozycji
+    do zablokowania jest czytana już po blokadzie zamówienia.
+    """
+    order = zamowienie(sposob=s.KURIER, statusy=('spakowane',), numer_wewnetrzny='1450')
+    bl_id = order.baselinker_order_id
+    with _os_zdarzen() as z:
+        _jak_router(z)
+        serwis = _serwis_z_nowa_pozycja(monkeypatch, order, zdarzenia=z.lista)
+        wynik = serwis.apply_baselinker_changes(bl_id, {'products_to_add': [{'order_product_id': '77'}]})
+    assert wynik['success'] is True and wynik['added'] == 1, wynik
+    _sprawdz_commit_i_blokujacy_odczyt_id(z, po=('base', None))
+
+
+def test_zmiany_z_base_bez_wywolania_base_tez_koncza_stara_migawke(app):
+    """To samo bez dodawania pozycji (nie ma wywołania Base.): migawka z początku żądania i tak jest starsza niż blokada
+    zamówienia, a czekanie na cudzy zapis (np. doróbkę) zostawiłoby zwykłe odczyty pod blokadą na stanie sprzed niego."""
+    order = zamowienie(sposob=s.KURIER, statusy=('spakowane', 'spakowane'), numer_wewnetrzny='1450')
+    pierwsza = order.products[0]
+    zmiany = {'products_to_update': [{'id': pierwsza.id, 'short_product_id': pierwsza.short_product_id,
+                                      'changes': [{'field': 'quantity', 'new_value': 5}]}]}
+    bl_id = order.baselinker_order_id
+    serwis = BaselinkerSyncService()
+    with _os_zdarzen() as z:
+        _jak_router(z)
+        wynik = serwis.apply_baselinker_changes(bl_id, zmiany)
+    assert wynik['success'] is True and wynik['updated'] == 1, wynik
+    _sprawdz_commit_i_blokujacy_odczyt_id(z, po=('router', None))
