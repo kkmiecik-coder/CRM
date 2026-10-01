@@ -18,6 +18,7 @@ from . import api_bp, logger, ProductionItem, ProductionError, get_local_now
 from .common_api import admin_required, _format_status, _validate_config_value
 from modules.production.models import ProductionOrder, ProductionConfiguration
 from modules.production.logistics import sposoby
+from modules.production.services import blokady_zamowien
 
 
 # Ile zamówień archiwalnych na stronę.
@@ -1241,7 +1242,8 @@ def admin_apply_baselinker_changes():
 
 def _zablokuj_zamowienia_i_pozycje(product_ids):
     """
-    Zaznaczone pozycje hurtowej zmiany statusu, wczytane po zablokowaniu ich zamówień. Zwraca pozycje.
+    Zaznaczone pozycje hurtowej zmiany statusu, wczytane po zablokowaniu ich zamówień. Zwraca krotkę
+    (zablokowane zamówienia rosnąco po id, zaznaczone pozycje rosnąco po id).
 
     Kolejność blokad jak w zapisach Weryfikacji: zamówienia FOR UPDATE (rosnące id) → pozycje po PK FOR
     UPDATE (rosnące id) → dopiero zmiany statusów i reguła uniewaznij_etapy. Dotąd hurt najpierw zapisywał
@@ -1255,15 +1257,22 @@ def _zablokuj_zamowienia_i_pozycje(product_ids):
     z bazy zamiast migawki. `p.order` każdej pozycji wskazuje te same, odświeżone obiekty. Wołać PRZED
     jakąkolwiek zmianą obiektów w sesji: `populate_existing` nadpisuje atrybuty, a autoflush zapisałby
     zmienioną pozycję przed blokadą zamówienia.
+
+    (Krok 4.4a, runda 4) Zamówienia i pozycje blokuje `blokady_zamowien` (zablokuj_zamowienia, potem
+    zablokuj_pozycje zamówienie po zamówieniu, rosnąco): blokowane są WSZYSTKIE pozycje każdego zamówienia po
+    `order_id`, nie tylko zaznaczone, bo reguła unieważniania i przeliczenie zamknięcia decydują na całym składzie
+    zamówienia. Wołający trzyma zwróconą listę zamówień do końca decyzji: wynik blokady, którego nikt nie trzymał,
+    znikał z mapy tożsamości (trzyma czyste obiekty słabo), a `p.order` czytało wtedy zamówienie od nowa zwykłym
+    SELECT-em — na MySQL z migawki sprzed blokady.
     """
-    id_zamowien = sorted({order_id for (order_id,) in
-                          db.session.query(ProductionItem.order_id)
-                          .filter(ProductionItem.id.in_(product_ids)).all() if order_id is not None})
-    if id_zamowien:
-        (ProductionOrder.query.filter(ProductionOrder.id.in_(id_zamowien)).order_by(ProductionOrder.id)
-         .with_for_update().populate_existing().all())
-    return (ProductionItem.query.filter(ProductionItem.id.in_(product_ids)).order_by(ProductionItem.id)
-            .with_for_update().populate_existing().all())
+    wiersze = (db.session.query(ProductionItem.id, ProductionItem.order_id)
+               .filter(ProductionItem.id.in_(product_ids)).all())
+    zaznaczone = {product_id for product_id, _order_id in wiersze}
+    zamowienia = blokady_zamowien.zablokuj_zamowienia(order_id for _product_id, order_id in wiersze)
+    pozycje = []
+    for zamowienie in zamowienia:
+        pozycje.extend(p for p in blokady_zamowien.zablokuj_pozycje(zamowienie) if p.id in zaznaczone)
+    return zamowienia, sorted(pozycje, key=lambda p: p.id)
 
 
 @api_bp.route('/products/bulk-action', methods=['POST'])
@@ -1330,8 +1339,10 @@ def bulk_action():
 
         # Pobierz produkty. Zmiana statusu może zmienić zamówienie (reguła uniewaznij_etapy), więc najpierw
         # blokujemy zamówienia, potem pozycje, obie listy bieżącym odczytem (patrz _zablokuj_zamowienia_i_pozycje).
+        # `zamowienia` trzymamy do końca decyzji niżej (silne referencje do zablokowanych obiektów).
+        zamowienia = []
         if action == 'update_status':
-            products = _zablokuj_zamowienia_i_pozycje(product_ids)
+            zamowienia, products = _zablokuj_zamowienia_i_pozycje(product_ids)
         else:
             products = ProductionItem.query.filter(ProductionItem.id.in_(product_ids)).all()
         
@@ -1387,9 +1398,9 @@ def bulk_action():
             teraz = get_local_now()
             # Stała kolejność (rosnące id): reguła unieważniania zapisuje wiersz zamówienia i bierze
             # blokady paczek, więc dwa równoległe zapisy na nakładających się zamówieniach muszą
-            # brać je w tej samej kolejności — inaczej zakleszczenie (MySQL 1213).
-            for zamowienie in sorted({p.order for p in products if p.order is not None},
-                                     key=lambda o: o.id):
+            # brać je w tej samej kolejności — inaczej zakleszczenie (MySQL 1213). `zamowienia` to wynik
+            # blokady (rosnąco po id, ze składem z odczytu bieżącego): decyzja nie czyta zamówień od nowa.
+            for zamowienie in zamowienia:
                 # Pozycja cofnięta do produkcji unieważnia paczki, weryfikację i załadunek zamówienia.
                 weryfikacja.uniewaznij_etapy(zamowienie, teraz, u'zmiana statusu w panelu',
                                              user_id=current_user.id)

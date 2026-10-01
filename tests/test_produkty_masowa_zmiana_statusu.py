@@ -19,6 +19,7 @@ w kodzie i mieć własny test.
 Ten plik nie zakłada tabeli prod_product_events, bo nie robi tego żaden inny
 plik w pakiecie — listener audytu milczy w całym przebiegu i tak ma zostać.
 """
+import gc
 import os
 import sys
 
@@ -28,6 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from extensions import db
 from modules.production.models import ProductionProduct
+from tests.blokady_pomocnicze import Zapytania, blokada_pozycji, blokada_zamowien
 from tests.krawedzie_fixtures import BASE, app, client, produkt  # noqa: F401
 
 
@@ -216,9 +218,15 @@ def _zamowienie_z_dwiema_pozycjami(app, numer, status='spakowane'):
 
 
 def test_hurt_czyta_zamowienie_biezaco_weryfikacja_zatwierdzona_tuz_przed_zadaniem(client, app):
-    """Weryfikacja zatwierdziła się tuż przed żądaniem hurtu, a obiekty w sesji mają jeszcze stary stan
-    (zamówienie niezweryfikowane, pozycje 'spakowane'). Po hurcie zamówienie nie może zostać z `verified_at`
-    przy pozycji w pakowaniu: weryfikacja czyszczona, paczki unieważnione, wpis `weryfikacja_cofnieta`."""
+    """Weryfikacja zatwierdziła się tuż przed żądaniem hurtu, a pozycje w sesji mają jeszcze stary stan
+    ('spakowane'). Po hurcie zamówienie nie może zostać z `verified_at` przy pozycji w pakowaniu: weryfikacja
+    czyszczona, paczki unieważnione, wpis `weryfikacja_cofnieta`.
+
+    Zamówienia test NIE trzyma przez wywołanie hurtu (jak w produkcji, gdzie nikt go nie trzyma). Dawniej trzymał je
+    w zmiennej, a to maskowało błąd: zamówienie zablokowane w hurcie przeżywało w mapie tożsamości tylko dzięki
+    testowi, więc `p.order` nie czytało go od nowa zwykłym SELECT-em (na MySQL — z migawki sprzed blokady).
+    Sam mechanizm (zero zwykłych odczytów zamówienia przed decyzją) sprawdza
+    test_hurt_decyduje_na_zablokowanych_zamowieniach_bez_ponownego_odczytu."""
     from datetime import datetime
 
     from modules.production.logistics.models import LogisticsLog
@@ -228,7 +236,8 @@ def test_hurt_czyta_zamowienie_biezaco_weryfikacja_zatwierdzona_tuz_przed_zadani
 
     order = db.session.get(ProductionOrder, order_id)                 # „migawka” żądania
     assert order.verified_at is None
-    assert [p.current_status for p in order.products] == ['spakowane', 'spakowane']
+    pozycje = list(order.products)                                    # pozycje zostają w sesji w starym stanie
+    assert [p.current_status for p in pozycje] == ['spakowane', 'spakowane']
     db.session.execute(ProductionOrder.__table__.update().where(ProductionOrder.__table__.c.id == order_id)
                        .values(verified_at=chwila, verified_by_worker_id=7))
     db.session.execute(ProductionProduct.__table__.update()
@@ -238,6 +247,10 @@ def test_hurt_czyta_zamowienie_biezaco_weryfikacja_zatwierdzona_tuz_przed_zadani
                        .where(ProductionPackage.__table__.c.order_id == order_id)
                        .values(verified_at=chwila, verified_method='skan'))
     assert order.verified_at is None                                  # obiekt w sesji nadal stary
+    assert [p.current_status for p in pozycje] == ['spakowane', 'spakowane']
+    del order
+    gc.collect()
+    assert not [o for o in db.session.identity_map.values() if isinstance(o, ProductionOrder)]  # nic nie maskuje
 
     r = _masowo(client, [pierwsza_id], 'czeka_na_pakowanie')
     assert r.status_code == 200, r.get_data()[:500]
@@ -256,35 +269,69 @@ def test_hurt_czyta_zamowienie_biezaco_weryfikacja_zatwierdzona_tuz_przed_zadani
 
 
 def test_hurt_blokuje_zamowienia_posortowane_przed_pozycjami_i_przed_pierwszym_zapisem(client, app):
-    """Kolejność blokad jak w Weryfikacji: zamówienia (rosnące id) → pozycje po PK (rosnące id) → dopiero
-    pierwszy zapis. SQLite pomija FOR UPDATE, więc pilnujemy kolejności samych zapytań."""
-    from sqlalchemy import event
+    """Kolejność blokad jak w Weryfikacji: zamówienia (rosnące id) → wszystkie pozycje każdego zamówienia po
+    `order_id` (blokady_zamowien.zablokuj_pozycje, zamówienia rosnąco) → dopiero pierwszy zapis. Blokowane są
+    wszystkie pozycje zamówienia, nie tylko zaznaczone: reguła unieważniania i przeliczenie zamknięcia decydują na
+    całym składzie zamówienia. SQLite pomija FOR UPDATE, więc pilnujemy kolejności samych zapytań."""
     trojka = [_zamowienie_z_dwiema_pozycjami(app, '25/0040{}'.format(n)) for n in range(3)]
     id_zamowien = sorted(t[0] for t in trojka)
     wybrane = [t[1] for t in reversed(trojka)]       # żądanie w odwrotnej kolejności niż powstawały
 
-    zapytania = []
-
-    def zapamietaj(conn, cursor, statement, parameters, context, executemany):
-        zapytania.append((statement, parameters))
-
-    event.listen(db.engine, 'before_cursor_execute', zapamietaj)
-    try:
+    with Zapytania() as z:
         assert _masowo(client, wybrane, 'czeka_na_pakowanie').status_code == 200
-    finally:
-        event.remove(db.engine, 'before_cursor_execute', zapamietaj)
 
-    def pierwsze(warunek):
-        return next(i for i, (sql, _p) in enumerate(zapytania) if warunek(' '.join(sql.split())))
+    zamowienia, pierwszy_zapis = z.pierwsze(blokada_zamowien), z.pierwsze(lambda q: q.startswith('UPDATE prod_'))
+    pozycje = [i for i, (sql, _p) in enumerate(z.lista) if blokada_pozycji(sql) and i < pierwszy_zapis]
+    assert pozycje and zamowienia < pozycje[0]
+    assert list(z.lista[zamowienia][1]) == id_zamowien                     # zamówienia w kolejności rosnących id
+    assert [list(z.lista[i][1]) for i in pozycje] == [[o] for o in id_zamowien]   # pozycje zamówienie po zamówieniu
 
-    blokada_zamowien = pierwsze(lambda q: q.startswith('SELECT') and 'FROM prod_orders' in q
-                                and 'WHERE prod_orders.id IN' in q and 'ORDER BY prod_orders.id' in q)
-    blokada_pozycji = pierwsze(lambda q: q.startswith('SELECT') and 'FROM prod_products' in q
-                               and 'WHERE prod_products.id IN' in q and 'ORDER BY prod_products.id' in q)
-    pierwszy_zapis = pierwsze(lambda q: q.startswith('UPDATE prod_'))
-    assert blokada_zamowien < blokada_pozycji < pierwszy_zapis
-    assert list(zapytania[blokada_zamowien][1]) == id_zamowien       # zamówienia w kolejności rosnących id
-    assert sorted(zapytania[blokada_pozycji][1]) == sorted(wybrane)  # te pozycje, a kolejność blokad daje ORDER BY id
+
+def test_hurt_decyduje_na_zablokowanych_zamowieniach_bez_ponownego_odczytu(client, app, monkeypatch):
+    """Przyczyna A z wyścigów MySQL (zadanie 3), tu w hurcie. Zamówienia blokowane odczytem bieżącym ginęły z sesji
+    (mapa tożsamości trzyma czyste obiekty SŁABO, a wyniku blokady nikt nie trzymał), więc `p.order` przed regułą
+    unieważniania i przeliczeniem zamknięcia czytało zamówienie od nowa zwykłym SELECT-em — na MySQL z migawki
+    sprzed blokady, a `order.products` leniwie (pozycje niezaznaczone też z migawki). Przykład: deklaracja paczek
+    zatwierdzona tuż przed hurtem zostawała nieunieważniona. Test nie trzyma ani zamówienia, ani pozycji. Przed
+    decyzją jedynym odczytem zamówień jest ich blokada, a przy decyzji reguły i przeliczenia zamknięcia stan
+    zamówienia i wszystkich jego pozycji jest już w pamięci (zero zapytań)."""
+    from modules.production.logistics.models import LogisticsLog
+    from modules.production.logistics.services import delivery, weryfikacja
+    from modules.production.models import ProductionOrder, ProductionPackage
+    order_id, pierwsza_id, druga_id = _zamowienie_z_dwiema_pozycjami(app, '25/00303')
+    db.session.expunge_all()
+    gc.collect()
+    decyzje, os_czasu = [], []
+
+    def szpieg(nazwa, oryginal):
+        def opakowanie(order, *args, **kwargs):
+            pozycja_na_osi = len(os_czasu[0].lista)
+            with Zapytania() as przy_decyzji:
+                stan = (order.id, order.packages_declared_at is not None,
+                        [(p.id, p.current_status) for p in order.products])
+            decyzje.append((nazwa, stan, przy_decyzji.lista, pozycja_na_osi))
+            return oryginal(order, *args, **kwargs)
+        return opakowanie
+
+    monkeypatch.setattr(weryfikacja, 'uniewaznij_etapy', szpieg('regula', weryfikacja.uniewaznij_etapy))
+    monkeypatch.setattr(delivery, 'przelicz_zamkniecie', szpieg('zamkniecie', delivery.przelicz_zamkniecie))
+    with Zapytania() as z:
+        os_czasu.append(z)
+        r = _masowo(client, [pierwsza_id], 'czeka_na_pakowanie')
+    assert r.status_code == 200, r.get_data()[:500]
+    assert [d[0] for d in decyzje] == ['regula', 'zamkniecie']
+    odczyty_zamowien = [sql for sql, _p in z.lista[:decyzje[0][3]]
+                        if sql.startswith('SELECT') and 'FROM prod_orders' in sql]
+    assert odczyty_zamowien and all(blokada_zamowien(sql) for sql in odczyty_zamowien), odczyty_zamowien
+    for nazwa, _stan, zapytania_przy_decyzji, _poz in decyzje:
+        assert zapytania_przy_decyzji == [], (nazwa, zapytania_przy_decyzji)   # stan już w pamięci, bez odczytu
+    assert decyzje[0][1] == (order_id, True, [(pierwsza_id, 'czeka_na_pakowanie'), (druga_id, 'spakowane')])
+
+    db.session.expire_all()
+    order = db.session.get(ProductionOrder, order_id)
+    assert order.packages_declared_at is None and order.logistics_closed_at is None
+    assert all(p.voided_at is not None for p in ProductionPackage.query.filter_by(order_id=order_id))
+    assert [w.action for w in LogisticsLog.query.filter_by(order_id=order_id)] == ['paczki']
 
 
 def test_hurt_nieistniejace_pozycje_daja_404_jak_dotad(client, app):

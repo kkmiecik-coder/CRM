@@ -97,8 +97,8 @@ def _sprawdz_commit_i_blokujacy_odczyt_id(z, po):
     """
     Po zdarzeniu `po` pierwszy COMMIT (kończy starą migawkę) wypada PRZED pierwszą blokadą zamówień, a zaraz po nim idzie
     odczyt BLOKUJĄCY id zamówienia po baselinker_order_id (jak `_zapis_pod_blokada()` w panelu Logistyki): taki odczyt nie
-    zakłada migawki, więc pierwszy zwykły odczyt nowej transakcji (lista pozycji do zablokowania) wypada już po blokadzie
-    zamówienia. Zwraca indeks COMMIT-u.
+    zakłada migawki, więc pierwszy zwykły odczyt nowej transakcji (np. `existing_product`, `max_seq`; lista pozycji to
+    odczyt blokujący po order_id) wypada już po blokadzie zamówienia. Zwraca indeks COMMIT-u.
     """
     start = z.lista.index(po)
     commit = z.lista.index(('commit', None), start)
@@ -248,10 +248,10 @@ def test_zmiany_z_base_po_wywolaniu_base_zaczynaja_nowa_transakcje_z_blokujacym_
     """
     Migawka REPEATABLE READ powstaje przy pierwszym zwykłym odczycie transakcji, w żądaniu admina już w routerze
     (`current_user.id`), czyli PRZED wywołaniem HTTP do Base., które trwa do kilkudziesięciu sekund. Pozycja dopisana
-    w tym czasie (np. doróbka z tabletu) nie byłaby widoczna dla zwykłych odczytów pod blokadą zamówienia: wypadłaby
-    z listy blokowanych pozycji i z przeliczenia zamknięcia. Po wywołaniu Base. idzie więc COMMIT (kończy starą migawkę),
-    a pierwszym poleceniem nowej transakcji jest odczyt BLOKUJĄCY id zamówienia: nie zakłada migawki, więc lista pozycji
-    do zablokowania jest czytana już po blokadzie zamówienia.
+    w tym czasie (np. doróbka z tabletu) nie byłaby widoczna dla zwykłych odczytów pod blokadą zamówienia (np.
+    `existing_product`, `max_seq`; listę pozycji i przeliczenie zamknięcia chroni już odczyt blokujący po order_id).
+    Po wywołaniu Base. idzie więc COMMIT (kończy starą migawkę), a pierwszym poleceniem nowej transakcji jest odczyt
+    BLOKUJĄCY id zamówienia: nie zakłada migawki, więc każdy zwykły odczyt wypada już po blokadzie zamówienia.
     """
     order = zamowienie(sposob=s.KURIER, statusy=('spakowane',), numer_wewnetrzny='1450')
     bl_id = order.baselinker_order_id
