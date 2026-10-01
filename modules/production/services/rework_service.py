@@ -17,7 +17,7 @@ from modules.production.models import (
     get_local_now,
 )
 from modules.production.services.station_catalog import STATION_PENDING_STATUS
-from modules.production.services.blokady_zamowien import zablokuj_zamowienie_pozycji
+from modules.production.services.blokady_zamowien import zablokuj_pozycje, zablokuj_zamowienie_pozycji
 
 logger = logging.getLogger(__name__)
 
@@ -296,10 +296,13 @@ def reject_product_quantity(
     db.session.add(log_entry)
 
     # Logistyka etap 4 (spec 8.5): doróbka w zamówieniu z paczkami albo weryfikacją — jedna reguła
-    # unieważnia etapy. Doróbka ma tylko order_id, więc kolekcję pozycji zamówienia czytamy od nowa.
+    # unieważnia etapy. Doróbka ma tylko order_id, więc kolekcję pozycji zamówienia czytamy od nowa ODCZYTEM
+    # BIEŻĄCYM po order_id (blokady już trzymamy): autoflush wypycha najpierw doróbkę i zmiany oryginału, więc
+    # reguła widzi doróbkę i bieżący skład zamówienia. Zwykły odczyt kolekcji (dawne expire) pokazałby na MySQL
+    # migawkę sprzed blokady.
     if original.order is not None:
         from modules.production.logistics.services import weryfikacja
-        db.session.expire(original.order, ['products'])
+        zablokuj_pozycje(original.order)
         weryfikacja.uniewaznij_etapy(original.order, now, u'doróbka',
                                      worker_id=(worker_ids[0] if worker_ids else None))
 

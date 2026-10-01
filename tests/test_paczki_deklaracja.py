@@ -19,6 +19,7 @@ from modules.production.models import (LabelPrintJob, ProcessedMobileOperation, 
 from modules.production.routers import mobile_api
 from modules.production.services import print_queue_service as pqs
 from modules.production.services.mobile_api_service import generate_token, with_idempotency
+from tests.blokady_pomocnicze import blokada_pozycji
 from tests.logistyka_fixtures import app, client, pracownik, zamowienie  # noqa: F401
 from tests.weryfikacja_pomocnicze import migawka_pozycji
 
@@ -212,7 +213,7 @@ def test_deklaracja_na_aktualnym_stanie_nadal_przechodzi_gdy_baza_zgadza_sie_z_p
 # --- Wstępna odmowa order_not_packed z migawki, zanim zablokujemy pozycje (fala końcowa 4.3, F11) --------
 # Powód: ostatni „ZAKOŃCZ” trzyma pozycję i sięga po zamówienie, a deklaracja trzyma zamówienie — czekanie na
 # pozycje pod blokadą zamówienia dawało 1213 (MySQL, 19 z 20 przebiegów). SQLite nie ma blokad, więc pilnujemy
-# kolejności i treści zapytań: przy odmowie z pamięci nie ma SELECT-u pozycji po PK (odczyt bieżący) ani paczek.
+# kolejności i treści zapytań: przy odmowie z pamięci nie ma odczytu blokującego pozycji (po order_id) ani paczek.
 
 def _zapytania_zadania(client, order, device):
     """(odpowiedź, lista zapytań SQL) PUT-a deklaracji."""
@@ -230,8 +231,8 @@ def _zapytania_zadania(client, order, device):
 
 
 def _odczyt_biezacy_pozycji(zapytania):
-    return [q for q in zapytania if q.startswith('SELECT') and 'FROM prod_products' in q
-            and 'WHERE prod_products.id IN' in q and 'ORDER BY prod_products.id' in q]
+    """Odczyty blokujące pozycji (blokady_zamowien.zablokuj_pozycje, kształt jak w tests/blokady_pomocnicze.py)."""
+    return [q for q in zapytania if blokada_pozycji(q)]
 
 
 def test_niespakowane_z_pamieci_odmawia_bez_odczytu_biezacego_pozycji(app, client, sygnaly):
@@ -239,7 +240,7 @@ def test_niespakowane_z_pamieci_odmawia_bez_odczytu_biezacego_pozycji(app, clien
     r, zapytania = _zapytania_zadania(client, order, device)
     assert (r.status_code, r.get_json()['error']) == (409, 'order_not_packed')
     assert order.internal_order_number in r.get_json()['message']
-    assert _odczyt_biezacy_pozycji(zapytania) == []                       # bez sięgania po pozycje po PK
+    assert _odczyt_biezacy_pozycji(zapytania) == []                       # bez odczytu blokującego pozycji
     assert not [q for q in zapytania if 'FROM prod_packages' in q]        # i bez blokady paczek
     assert ProductionPackage.query.count() == 0 and LabelPrintJob.query.count() == 0 and sygnaly == []
 

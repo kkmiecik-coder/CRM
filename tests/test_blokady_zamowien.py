@@ -2,8 +2,9 @@
 """
 „Zamówienie najpierw” (logistyka etap 4, krok 4.4a): ZAKOŃCZ i wejście do pakowania na tablecie, druk etykiet
 całego zamówienia oraz cron osieroconych blokują wiersz zamówienia przed pozycjami i decydują na odczycie
-bieżącym. Pozycje skasowane po migawce znikają z kolekcji zamówienia, a cron logistyki jedzie fazami w osobnych
-transakcjach.
+bieżącym. Pozycje czytamy po `order_id`, więc kolekcja zamówienia po blokadzie ma pozycje dodane po migawce i nie
+ma skasowanych, a zablokowane zamówienie i pozycje trzymają się nawzajem silnymi referencjami. Cron logistyki
+jedzie fazami w osobnych transakcjach.
 
 SQLite nie ma blokad wierszy ani migawki MySQL. Kolejność blokad sprawdzamy na kolejności zapytań
 (tests/blokady_pomocnicze.py), a odczyt bieżący — obiektami zostawionymi w sesji w starym stanie, podczas gdy
@@ -11,6 +12,7 @@ w bazie leży już cudzy zapis (surowy UPDATE poza ORM). Stan „migawki” wstr
 mobile_api._resolve_workers: to ostatni krok handlera przed odczytem pozycji, już po commicie
 require_device_token (commit wygasza obiekty sesji, więc wcześniej wczytany stan by nie przetrwał).
 """
+import gc
 import itertools
 from datetime import datetime
 
@@ -25,7 +27,8 @@ from modules.production.models import (
 from modules.production.routers import mobile_api
 from modules.production.services import blokady_zamowien, label_print_service
 from modules.production.services.mobile_api_service import generate_token
-from tests.blokady_pomocnicze import Zapytania, blokada_pozycji, blokada_zamowien, zapis
+from tests.blokady_pomocnicze import (
+    Zapytania, blokada_pozycji, blokada_zamowien, dodaj_pozycje_za_plecami, zapis)
 from tests.logistyka_fixtures import BASE, SEKRET_CRONA, app, client, produkt, zamowienie  # noqa: F401
 
 _licznik = itertools.count(1)
@@ -129,6 +132,28 @@ def test_zablokuj_zamowienie_pozycji_czyta_biezaco(app):
     assert (order.override_delivery_method, pierwsza.current_status) == (s.ODBIOR, 'spakowane')
 
 
+def test_zablokuj_zamowienie_pozycji_trzyma_zamowienie_i_pozycje(app):
+    """Przyczyna A z wyścigów MySQL (zadanie 3): mapa tożsamości sesji trzyma czyste obiekty SŁABO. Zamówienie
+    zablokowane odczytem bieżącym, którego nikt nie trzymał, znikało z sesji, a późniejsze `pozycja.order`
+    (po_spakowaniu) czytało je od nowa zwykłym SELECT-em, na MySQL ze starej migawki: ostatnie ZAKOŃCZ zamykało
+    cykl odbioru osobistego na sposobie „kurier”. Zablokowane zamówienie i pozycje trzymają się więc nawzajem
+    (`pozycja.order`, `order.products`): po zwróceniu samej pozycji i odśmieceniu pamięci dostęp do zamówienia
+    i jego pozycji nie wysyła ani jednego zapytania."""
+    order = zamowienie(sposob=s.KURIER, statusy=('spakowane', 'czeka_na_pakowanie'))
+    order_id = order.id
+    pozycje = sorted(p.id for p in order.products)
+    db.session.expunge_all()   # sesja pusta: obiekty przeżyją tylko dzięki referencjom zostawionym przez blokadę
+    pozycja = blokady_zamowien.zablokuj_zamowienie_pozycji(pozycje[1])
+    gc.collect()
+    with Zapytania() as z:
+        zamowienie_pozycji = pozycja.order
+        wszystkie = list(zamowienie_pozycji.products)
+        wzajemne = [p.order is zamowienie_pozycji for p in wszystkie]
+    assert z.lista == [], z.lista
+    assert (zamowienie_pozycji.id, [p.id for p in wszystkie]) == (order_id, pozycje)
+    assert wzajemne == [True, True] and pozycja in wszystkie
+
+
 def test_zablokuj_zamowienie_pozycji_bez_pozycji(app):
     assert blokady_zamowien.zablokuj_zamowienie_pozycji(987654) is None
     assert blokady_zamowien.zablokuj_zamowienie(987654) is None
@@ -136,9 +161,9 @@ def test_zablokuj_zamowienie_pozycji_bez_pozycji(app):
 
 def test_zablokuj_pozycje_wyrzuca_z_kolekcji_pozycje_skasowane_po_migawce(app):
     """Base. kasuje pozycje na twardo. Kolekcja `order.products` pochodzi z migawki (na MySQL zwykły odczyt po
-    blokadzie zamówienia nadal widzi skasowany wiersz), a blokada po kluczu głównym go nie znajduje. Taki „duch”
-    liczyłby się w aktywne_produkty, a podbij_pozycje dałoby StaleDataError (500). Po blokadzie kolekcja ma tylko
-    istniejące pozycje."""
+    blokadzie zamówienia nadal widzi skasowany wiersz), a odczyt blokujący po `order_id` go nie znajduje. Taki
+    „duch” liczyłby się w aktywne_produkty, a podbij_pozycje dałoby StaleDataError (500). Po blokadzie kolekcja ma
+    tylko istniejące pozycje."""
     order = zamowienie(sposob=s.KURIER, statusy=('czeka_na_pakowanie', 'czeka_na_pakowanie'))
     pierwsza, druga = order.products
     pierwsza_id, druga_id = pierwsza.id, druga.id
@@ -173,6 +198,39 @@ def test_zablokuj_zamowienie_wyrzuca_z_kolekcji_pozycje_skasowane_po_migawce(app
     assert [p.id for p in order.products] == [druga_id]
 
 
+def test_zablokuj_zamowienie_blokuje_i_liczy_pozycje_dodane_po_migawce(app, monkeypatch):
+    """Przyczyna B z wyścigów MySQL (zadanie 3): zmiany z Base. dodały pozycję po migawce ZAKOŃCZ, a przed jego
+    blokadą zamówienia. Kolekcja `order.products` z migawki jej nie ma, więc lista kluczy z kolekcji nie
+    blokowała jej i nie liczyła (zamówienie zamknięte, choć trzecia pozycja czeka na wycięcie). Pozycje czytamy
+    po `order_id` odczytem blokującym: trzecia jest w kolekcji i przyszła z tego odczytu (na MySQL FOR UPDATE).
+    SQLite nie ma migawki: po blokadzie zamówienia zwykły odczyt kolekcji widziałby już nową pozycję, więc
+    migawkę odtwarzamy jak przy pozycjach skasowanych — po prawdziwej blokadzie zamówienia kolekcja wraca w stanie
+    sprzed cudzego INSERT-u."""
+    order = zamowienie(sposob=s.KURIER, statusy=('spakowane', 'czeka_na_pakowanie'))
+    z_migawki = list(order.products)
+    ids = sorted(p.id for p in z_migawki)
+    trzecia_id = dodaj_pozycje_za_plecami(order.id, 3)
+    assert sorted(p.id for p in order.products) == ids   # sesja nie widzi nowej pozycji
+    oryginal = blokady_zamowien.zablokuj_zamowienia
+
+    def zamowienia_z_kolekcja_z_migawki(order_ids):
+        zamowienia = oryginal(order_ids)
+        for zamowienie_ in zamowienia:
+            set_committed_value(zamowienie_, 'products', list(z_migawki))
+        return zamowienia
+
+    monkeypatch.setattr(blokady_zamowien, 'zablokuj_zamowienia', zamowienia_z_kolekcja_z_migawki)
+    with Zapytania() as z:
+        assert blokady_zamowien.zablokuj_zamowienie(order.id) is order
+    assert [p.id for p in order.products] == ids + [trzecia_id]
+    assert order.products[2].current_status == 'czeka_na_wyciecie'
+    assert [p.id for p in delivery.aktywne_produkty(order)] == ids + [trzecia_id]
+    # Jedyny odczyt pozycji w blokadzie to odczyt blokujący po order_id — z niego przyszła trzecia pozycja.
+    odczyty_pozycji = [(sql, parametry) for sql, parametry in z.lista if 'FROM prod_products' in sql]
+    assert len(odczyty_pozycji) == 1 and blokada_pozycji(odczyty_pozycji[0][0]), odczyty_pozycji
+    assert list(odczyty_pozycji[0][1]) == [order.id]
+
+
 # --- ZAKOŃCZ i wejście do pakowania ---------------------------------------------------------------------
 
 def test_zakoncz_blokuje_zamowienie_przed_pozycjami_przed_zapisem(app, client):
@@ -186,7 +244,7 @@ def test_zakoncz_blokuje_zamowienie_przed_pozycjami_przed_zapisem(app, client):
     zamowienia, blokada, pierwszy_zapis = z.pierwsze(blokada_zamowien), z.pierwsze(blokada_pozycji), z.pierwsze(zapis)
     assert zamowienia < blokada < pierwszy_zapis
     assert list(z.lista[zamowienia][1]) == [order_id]
-    assert sorted(z.lista[blokada][1]) == pozycje
+    assert list(z.lista[blokada][1]) == [order_id]   # wszystkie pozycje zamówienia, po order_id
 
 
 def test_ostatnie_zakoncz_decyduje_na_biezacym_sposobie_dostawy(app, client, monkeypatch):
@@ -254,7 +312,6 @@ def test_druk_etykiet_zamowienia_blokuje_zamowienie_i_pozycje_przed_zapisem(app,
     druga = produkt(order, status='czeka_na_pakowanie', sekwencja=2)
     db.session.commit()
     order_id, bl_id = order.id, order.baselinker_order_id
-    wszystkie = sorted((trzecia.id, pierwsza.id, druga.id))
     kolejnosc_druku = [pierwsza.short_product_id, druga.short_product_id, trzecia.short_product_id]
     naglowki = _naglowki()
     with Zapytania() as z:
@@ -263,7 +320,7 @@ def test_druk_etykiet_zamowienia_blokuje_zamowienie_i_pozycje_przed_zapisem(app,
     zamowienia, blokada, pierwszy_zapis = z.pierwsze(blokada_zamowien), z.pierwsze(blokada_pozycji), z.pierwsze(zapis)
     assert zamowienia < blokada < pierwszy_zapis
     assert list(z.lista[zamowienia][1]) == [order_id]
-    assert sorted(z.lista[blokada][1]) == wszystkie
+    assert list(z.lista[blokada][1]) == [order_id]   # wszystkie pozycje zamówienia, po order_id
     zadania = LabelPrintJob.query.order_by(LabelPrintJob.id).all()
     assert [k for k, _ in itertools.groupby(j.short_product_id for j in zadania)] == kolejnosc_druku
 

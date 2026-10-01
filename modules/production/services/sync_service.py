@@ -2616,7 +2616,7 @@ class BaselinkerSyncService:
         from ..models import ProductionItem, ProductionOrder
         from .parser_service import ProductNameParser
         from modules.production.logistics.services import delivery
-        from .blokady_zamowien import zablokuj_zamowienie
+        from .blokady_zamowien import zablokuj_pozycje, zablokuj_zamowienie
 
         result = {
             'success': False,
@@ -2642,11 +2642,11 @@ class BaselinkerSyncService:
             # REPEATABLE READ, a migawka powstaje przy pierwszym ZWYKŁYM odczycie transakcji — tu najpóźniej przy
             # `current_user.id` w routerze, czyli PRZED wywołaniem HTTP do Base., które trwa do kilkudziesięciu sekund.
             # Pozycja dopisana w tym czasie (np. doróbka z tabletu) byłaby niewidoczna dla zwykłych odczytów pod
-            # blokadą: wypadłaby z listy blokowanych pozycji i z przeliczenia zamknięcia, które zapadłoby na nieaktualnym
-            # składzie. Dlatego COMMIT kończy starą migawkę (nic jeszcze nie zmieniliśmy, a funkcja i tak commituje na
-            # końcu), a id zamówienia czytamy odczytem BLOKUJĄCYM: ten nie zakłada migawki, więc pierwszy zwykły odczyt
-            # nowej transakcji (lista pozycji w zablokuj_pozycje) wypada już PO blokadzie zamówienia. Między COMMIT-em
-            # a blokadą żadnych odczytów, także atrybutów ORM, które commit właśnie wygasił.
+            # blokadą (listę pozycji i przeliczenie zamknięcia chroni już odczyt bieżący po order_id w zablokuj_pozycje,
+            # ale np. `existing_product` i `max_seq` niżej to zwykłe odczyty). Dlatego COMMIT kończy starą migawkę (nic
+            # jeszcze nie zmieniliśmy, a funkcja i tak commituje na końcu), a id zamówienia czytamy odczytem BLOKUJĄCYM:
+            # ten nie zakłada migawki, więc pierwszy zwykły odczyt nowej transakcji wypada już PO blokadzie zamówienia.
+            # Między COMMIT-em a blokadą żadnych odczytów, także atrybutów ORM, które commit właśnie wygasił.
             db.session.commit()
             zamowienie_id = (db.session.query(ProductionOrder.id)
                              .filter(ProductionOrder.baselinker_order_id == baselinker_order_id)
@@ -2803,11 +2803,11 @@ class BaselinkerSyncService:
                 if result['added']:
                     # Logistyka etap 4 (spec 8.5): nowa pozycja z Base. w zamówieniu z paczkami albo
                     # weryfikacją — jedna reguła unieważnia etapy. Nowe pozycje mają tylko order_id,
-                    # więc kolekcję pozycji zamówienia czytamy od nowa. `zamowienie` — zablokowane na początku.
+                    # więc kolekcję pozycji zamówienia czytamy od nowa odczytem bieżącym po order_id (autoflush
+                    # wypycha najpierw nowe pozycje). `zamowienie` — zablokowane na początku.
                     from modules.production.logistics.services import weryfikacja
                     if zamowienie is not None:
-                        db.session.flush()
-                        db.session.expire(zamowienie, ['products'])
+                        zablokuj_pozycje(zamowienie)
                         weryfikacja.uniewaznij_etapy(zamowienie, get_local_now(), u'nowa pozycja z Base.')
 
             # 4. Aktualizuj dane na poziomie zamówienia (na ProductionOrder, nie produktach)
@@ -2834,10 +2834,10 @@ class BaselinkerSyncService:
 
             # Pozycje mogły zniknąć albo dojść — cykl logistyczny przeliczamy od razu (krok 4.4a). Dotąd zamknięte
             # zamówienie kurierskie z nową pozycją czekało na godzinny cron; tak samo zamknięcie po usunięciu
-            # ostatniej niespakowanej pozycji.
+            # ostatniej niespakowanej pozycji. Skład zamówienia: odczyt bieżący po order_id (autoflush wypycha
+            # najpierw usunięcia, zmiany i nowe pozycje) — ta sama droga odświeżania listy co u innych pisarzy.
             if zamowienie is not None:
-                db.session.flush()
-                db.session.expire(zamowienie, ['products'])
+                zablokuj_pozycje(zamowienie)
                 delivery.przelicz_zamkniecie(zamowienie)
 
             db.session.commit()

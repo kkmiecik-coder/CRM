@@ -3,8 +3,8 @@
 Kolejność blokad pisarzy zamówienia — „zamówienie najpierw” (logistyka etap 4, krok 4.4a).
 
 Zasada (ta sama co w panelu Logistyki, Weryfikacji, deklaracji paczek, hurtowej zmianie statusu i cronie
-logistyki): wiersz zamówienia FOR UPDATE po kluczu głównym → pozycje zamówienia FOR UPDATE po kluczu głównym
-→ dopiero zapisy. Stanowiska (ZAKOŃCZ i wejście do pakowania), doróbka i zmiany z Base. brały dotąd pozycję przed
+logistyki): wiersz zamówienia FOR UPDATE po kluczu głównym → wszystkie pozycje zamówienia FOR UPDATE → dopiero
+zapisy. Stanowiska (ZAKOŃCZ i wejście do pakowania), doróbka i zmiany z Base. brały dotąd pozycję przed
 zamówieniem: zapisywały pozycję (flush), a zamówienie dopiero w po_spakowaniu albo w regule unieważniania
 etapów. Panel trzymał zamówienie i sięgał po pozycję, więc dwie odwrotne kolejności dawały MySQL 1213
 (spec 8.7, „Współbieżność”).
@@ -12,17 +12,30 @@ etapów. Panel trzymał zamówienie i sięgał po pozycję, więc dwie odwrotne 
 Oba odczyty są BIEŻĄCE (`with_for_update().populate_existing()`). MySQL pracuje na REPEATABLE READ, a migawka
 transakcji powstaje przy pierwszym zwykłym odczycie (w API mobilnym: sprawdzenie powtórki X-Operation-Id),
 więc zwykły odczyt po czekaniu na blokadę pokazałby stan sprzed cudzego zapisu — tak ostatni ZAKOŃCZ zamykał
-cykl odbioru osobistego na sposobie „kurier” z migawki (spec 4.6, „Siatka w cronie”). `populate_existing`
-nadpisuje atrybuty obiektów już wczytanych do sesji: funkcje wołać PRZED pierwszą zmianą zamówienia i pozycji
-w tej transakcji, inaczej niezapisane zmiany przepadną.
+cykl odbioru osobistego na sposobie „kurier” z migawki (spec 4.6, „Siatka w cronie”). Blokadę zamówienia brać
+PRZED pierwszą zmianą zamówienia i pozycji: autoflush zapytania zapisałby zmienioną pozycję jeszcze przed
+blokadą zamówienia (odwrotna kolejność, 1213). `populate_existing` nadpisuje atrybuty obiektów w sesji
+wartościami z bazy; wcześniejsze zmiany z tej samej transakcji przetrwają dzięki autoflushowi przed zapytaniem
+(z tego korzysta ponowne zablokuj_pozycje po własnych zapisach doróbki i zmian z Base.), a przy wyłączonym
+autoflushu trzeba wcześniej `db.session.flush()`.
 
-Lista kluczy pozycji pochodzi z `order.products` (zwykły odczyt), jak w paczki.zablokuj_stan: blokada po
-`order_id` zakładałaby blokady luk indeksu. Pozycja dodana przez inny zapis po migawce, a przed blokadą
-zamówienia, nie zostanie więc zablokowana ani policzona. Zmiany z Base. biorą tę samą blokadę zamówienia przed
-dodaniem pozycji, więc okno jest rzędu milisekund, a resztę łata cron logistyki (przelicz_otwarte).
-Pozycja SKASOWANA po migawce (Base. kasuje na twardo, od kroku 4.4a pod blokadą zamówienia) wisiałaby w tej
-kolekcji ze stanem z migawki, a blokada po kluczu głównym jej nie znajduje: zablokuj_pozycje wyrzuca ją z
-`order.products` (liczyłaby się w aktywne_produkty, a podbij_pozycje dałoby StaleDataError).
+Pozycje czytamy po `order_id`, a nie po kluczach z `order.products`. Kolekcja pochodzi ze zwykłego odczytu
+(migawki): pozycja dodana przez inny zapis po migawce, a przed blokadą zamówienia (zmiany z Base. tuż przed
+ZAKOŃCZ), nie byłaby ani zablokowana, ani policzona, a pozycja skasowana wisiałaby w kolekcji jako „duch”
+(liczyłaby się w aktywne_produkty, a podbij_pozycje dałoby StaleDataError). Odczyt bieżący po `order_id` widzi
+pozycje dodane i skasowane po migawce, a jego wynik staje się kolekcją `order.products`.
+
+Blokady następnego klucza, które ten odczyt zakłada na indeksie `order_id` (pozycje zamówienia i luka za ostatnią
+z nich), nie tworzą cyklu z pisarzami tego zamówienia: doróbka i zmiany z Base. (dodanie i usunięcie pozycji)
+najpierw blokują wiersz zamówienia, więc czekają już na nim. Wstawienie pozycji w cudzą lukę (pozycje NOWEGO
+zamówienia z importu za ostatnim zamówieniem w indeksie, nowa pozycja zamówienia poprzedzającego w indeksie)
+najwyżej czeka do końca transakcji trzymającej lukę. Na MySQL sprawdza to zadanie 3 (wyścigi kroku 4.4a).
+
+Zablokowane zamówienie i pozycje trzymają się nawzajem silnymi referencjami (`order.products` i
+`pozycja.order`). Mapa tożsamości sesji trzyma czyste obiekty SŁABO: zamówienie zablokowane odczytem bieżącym,
+którego nikt nie trzymał, znikało z sesji, a późniejsze `pozycja.order` (po_spakowaniu) czytało je od nowa
+zwykłym SELECT-em ze starej migawki (zadanie 3: ostatnie ZAKOŃCZ zamykało cykl odbioru osobistego na sposobie
+„kurier” mimo odczytu bieżącego).
 
 Funkcje nie commitują.
 """
@@ -47,27 +60,30 @@ def zablokuj_zamowienia(order_ids):
 
 def zablokuj_pozycje(order):
     """
-    Wszystkie pozycje zamówienia (także anulowane) FOR UPDATE po kluczu głównym, rosnąco, odczytem bieżącym.
-    Zwraca je w tej kolejności. Wołać PO zablokowaniu wiersza zamówienia.
+    Wszystkie pozycje zamówienia (także anulowane) FOR UPDATE, odczytem BIEŻĄCYM po `order_id`, rosnąco po id.
+    Zwraca je w tej kolejności. Ta sama lista staje się kolekcją `order.products`, a każda pozycja dostaje
+    `pozycja.order = order` (silne referencje, patrz docstring modułu). Wołać PO zablokowaniu wiersza zamówienia.
 
-    Kolekcja `order.products` pochodzi z migawki. Pozycje skasowane po niej znikają z kolekcji (usuwamy tylko te,
-    których blokada nie znalazła; kolejność pozostałych i ewentualne niezapisane pozycje bez zmian), a dodane po
-    migawce nadal są niewidoczne, jak dotąd — nie da się ich zablokować po kluczu głównym.
+    Odczyt po `order_id` widzi pozycje dodane i skasowane po migawce transakcji, więc po wywołaniu kolekcja to
+    bieżący skład zamówienia: bez „duchów” i z pozycjami dodanymi przez inny zapis. Ponowne wywołanie po własnych
+    zapisach (doróbka, zmiany z Base.) odświeża kolekcję — autoflush wypycha najpierw zmiany do bazy.
     """
-    ids = sorted(p.id for p in order.products if p.id is not None)
-    if not ids:
-        return []
-    zablokowane = (ProductionProduct.query.filter(ProductionProduct.id.in_(ids)).order_by(ProductionProduct.id)
-                   .with_for_update().populate_existing().all())
-    skasowane = set(ids) - {p.id for p in zablokowane}
-    if skasowane:
-        # set_committed_value: korekta pamięci, bez zdarzeń kolekcji (delete-orphan, backref) i bez zapisu w bazie.
-        set_committed_value(order, 'products', [p for p in order.products if p.id not in skasowane])
-    return zablokowane
+    pozycje = (ProductionProduct.query.filter(ProductionProduct.order_id == order.id)
+               .order_by(ProductionProduct.id).with_for_update().populate_existing().all())
+    # Silne referencje: mapa tożsamości trzyma czyste obiekty słabo — bez nich zablokowane zamówienie i pozycje
+    # mogłyby zniknąć z sesji, a późniejsze `pozycja.order` / `order.products` przeczytałyby je od nowa zwykłym
+    # SELECT-em ze starej migawki (MySQL REPEATABLE READ). set_committed_value: bez zdarzeń kolekcji i zapisu.
+    set_committed_value(order, 'products', pozycje)
+    for p in pozycje:
+        set_committed_value(p, 'order', order)
+    return pozycje
 
 
 def zablokuj_zamowienie(order_id):
-    """Zamówienie, potem wszystkie jego pozycje (odczyt bieżący). Zwraca zamówienie albo None, gdy go nie ma."""
+    """
+    Zamówienie, potem wszystkie jego pozycje (odczyt bieżący; `order.products` = pozycje z tego odczytu).
+    Zwraca zamówienie albo None, gdy go nie ma.
+    """
     zamowienia = zablokuj_zamowienia([order_id])
     if not zamowienia:
         return None
@@ -78,13 +94,17 @@ def zablokuj_zamowienie(order_id):
 def zablokuj_zamowienie_pozycji(product_id):
     """
     Pisarz jednej pozycji (ZAKOŃCZ i wejście do pakowania na tablecie, doróbka): zamówienie tej pozycji, potem
-    wszystkie jego pozycje — ZANIM cokolwiek zapisze. Zwraca pozycję po odczycie bieżącym albo None, gdy jej nie
-    ma. `order_id` pozycji czytamy zwykłym odczytem: ta kolumna się nie zmienia.
+    wszystkie jego pozycje — ZANIM cokolwiek zapisze. Zwraca pozycję z odczytu bieżącego, powiązaną z zablokowanym
+    zamówieniem (`pozycja.order`), albo None, gdy jej nie ma. `order_id` pozycji czytamy zwykłym odczytem: ta
+    kolumna się nie zmienia.
     """
     wiersz = (db.session.query(ProductionProduct.order_id)
               .filter(ProductionProduct.id == product_id).first())
     if wiersz is None:
         return None
-    zablokuj_zamowienie(wiersz.order_id)
-    return (ProductionProduct.query.filter(ProductionProduct.id == product_id)
-            .with_for_update().populate_existing().one_or_none())
+    zamowienie = zablokuj_zamowienie(wiersz.order_id)
+    if zamowienie is None:
+        return None
+    # Pozycja z bieżącego odczytu, powiązana z zablokowanym zamówieniem (silna referencja przez `pozycja.order`);
+    # skasowana po migawce → None (404, tablet ponowi albo pokaże komunikat).
+    return next((p for p in zamowienie.products if p.id == product_id), None)

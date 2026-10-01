@@ -16,8 +16,9 @@ from modules.logging import get_structured_logger
 from modules.production.logistics import sposoby
 from modules.production.logistics.services import delivery, paczki_druk
 from modules.production.models import (
-    LabelPrintJob, ProductionConfig, ProductionPackage, ProductionProduct, get_local_now,
+    LabelPrintJob, ProductionConfig, ProductionPackage, get_local_now,
 )
+from modules.production.services import blokady_zamowien
 
 logger = get_structured_logger('production.logistics.paczki')
 
@@ -116,21 +117,20 @@ def zablokuj_stan(order):
     `weryfikacja.zablokuj_stan` (zapisy Weryfikacji), żeby obie strony decydowały na tym samym stanie.
 
     Kolejność blokad (każdy taki zapis): zamówienie FOR UPDATE trzyma już wołający (router) → paczki FOR
-    UPDATE → pozycje FOR UPDATE po kluczu głównym (bez blokad luk) → dopiero zapisy. Odczyt jest BIEŻĄCY
-    (`populate_existing`), nie zwykły: MySQL pracuje na REPEATABLE READ, a migawka powstaje przy pierwszym
-    zwykłym odczycie transakcji (już w before_request albo przy sprawdzaniu pracownika), więc leniwe
-    `order.products` pokazałoby statusy sprzed czekania na blokady — cudze przepakowanie, „Wydane
-    klientowi”, anulowanie z synchronizacji, weryfikacja albo pierwszy z dwóch skanów zostałyby po cichu
-    nadpisane albo strażnik (order_verified, order_not_packed) przepuściłby przegranego w wyścigu.
-    `populate_existing` odświeża pozycje w identity map, więc `order.products`, `podbij_pozycje`
-    i serializer odpowiedzi widzą bieżące wartości. Lista pozycji (klucze) pochodzi z `order.products`:
-    blokada po `order_id` zakładałaby blokady luk na indeksie i zakleszczała się.
+    UPDATE → wszystkie pozycje zamówienia FOR UPDATE po `order_id` (`blokady_zamowien.zablokuj_pozycje`) →
+    dopiero zapisy. Odczyt jest BIEŻĄCY (`populate_existing`), nie zwykły: MySQL pracuje na REPEATABLE READ,
+    a migawka powstaje przy pierwszym zwykłym odczycie transakcji (już w before_request albo przy sprawdzaniu
+    pracownika), więc leniwe `order.products` pokazałoby statusy sprzed czekania na blokady — cudze
+    przepakowanie, „Wydane klientowi”, anulowanie z synchronizacji, weryfikacja albo pierwszy z dwóch skanów
+    zostałyby po cichu nadpisane albo strażnik (order_verified, order_not_packed) przepuściłby przegranego
+    w wyścigu. Wynik odczytu staje się kolekcją `order.products`, więc `order.products`, `podbij_pozycje`
+    i serializer odpowiedzi widzą bieżące wartości i bieżący skład zamówienia. Pozycje czytamy po `order_id`,
+    nie po kluczach z `order.products` (migawka): odczyt widzi też pozycję dodaną przez synchronizację po
+    migawce i nie zostawia w kolekcji skasowanej. Blokady następnego klucza na indeksie `order_id` nie tworzą
+    cyklu — uzasadnienie w docstringu modułu blokady_zamowien.
     """
     aktualne = aktualne_paczki(order.id, do_zapisu=True)
-    ids = [p.id for p in order.products]
-    if ids:
-        (ProductionProduct.query.filter(ProductionProduct.id.in_(ids)).order_by(ProductionProduct.id)
-         .with_for_update().populate_existing().all())
+    blokady_zamowien.zablokuj_pozycje(order)
     return aktualne
 
 
@@ -347,17 +347,14 @@ def zadeklaruj(order, deklaracja, stanowisko, aktor, worker_id=None, device_id=N
        zamówienia zakleszczało się z „ZAKOŃCZ” (MySQL 1213): ostatni „ZAKOŃCZ” trzyma pozycję i sięga po
        zamówienie, a deklaracja trzyma zamówienie i sięgałaby po pozycję. 409 jest w BLEDY_DO_PONOWIENIA,
        więc appka ponowi tą samą operację, gdy „ZAKOŃCZ” się zatwierdzi.
-    2. ODCZYT BIEŻĄCY (`zablokuj_stan`: paczki FOR UPDATE → pozycje po PK FOR UPDATE z `populate_existing`,
-       ta sama kolejność i ten sam odczyt co zapisy Weryfikacji).
+    2. ODCZYT BIEŻĄCY (`zablokuj_stan`: paczki FOR UPDATE → wszystkie pozycje FOR UPDATE po `order_id`
+       z `populate_existing`, ta sama kolejność i ten sam odczyt co zapisy Weryfikacji).
     3. OBA STRAŻNIKI (order_verified, order_not_packed) na statusach z tego odczytu: ostateczna decyzja
        zapada na stanie bieżącym, więc przegrany w wyścigu z weryfikacją (która zdążyła po migawce) dostaje
        409 order_verified zamiast deklarować nowe paczki po weryfikacji (zamówienie zweryfikowane z
        niesprawdzonymi aktualnymi paczkami).
-    Migawka nadal ma wpływ w jednym miejscu: LISTA kluczy pozycji do zablokowania pochodzi z
-    `order.products` (blokada po `order_id` zakładałaby blokady luk indeksu i zakleszczała się). Pozycja
-    dodana przez synchronizację po migawce nie jest więc ani blokowana, ani widziana przez strażniki; jeśli
-    przez nią zamówienie przestało być w całości spakowane, trafi do reguły uniewaznij_etapy w cronie,
-    który unieważni paczki.
+    Pozycje do strażników pochodzą z odczytu bieżącego po `order_id`, nie z migawki: pozycję dodaną przez
+    synchronizację po migawce strażniki też widzą (i jest zablokowana), więc order_not_packed zapada od razu.
     Przy wyścigu ze zmianą sposobu dostawy w panelu napis na etykiecie czytamy z zablokowanego wiersza
     zamówienia; przepakowanie i tak kończy się nową deklaracją, a zamówienie, które przestało być w
     całości spakowane, traci paczki przez weryfikacja.uniewaznij_etapy.

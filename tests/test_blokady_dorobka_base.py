@@ -18,7 +18,8 @@ from modules.production.models import ProductionOrder, ProductionProduct
 from modules.production.services import rework_service
 from modules.production.services.sync_service import BaselinkerSyncService
 from modules.users.models import User
-from tests.blokady_pomocnicze import Zapytania, blokada_pozycji, blokada_zamowien, zapis
+from tests.blokady_pomocnicze import (
+    Zapytania, blokada_pozycji, blokada_zamowien, dodaj_pozycje_za_plecami, zapis)
 from tests.logistyka_fixtures import app, zamowienie  # noqa: F401
 
 T0 = datetime(2026, 10, 1, 8, 0)
@@ -121,7 +122,40 @@ def test_dorobka_blokuje_zamowienie_przed_pozycjami_przed_zapisem(app):
     zamowienia, blokada, pierwszy_zapis = z.pierwsze(blokada_zamowien), z.pierwsze(blokada_pozycji), z.pierwsze(zapis)
     assert zamowienia < blokada < pierwszy_zapis
     assert list(z.lista[zamowienia][1]) == [order_id]
-    assert sorted(z.lista[blokada][1]) == pozycje
+    assert list(z.lista[blokada][1]) == [order_id]   # wszystkie pozycje zamówienia, po order_id
+
+
+def test_dorobka_regula_decyduje_na_pozycjach_z_odczytu_biezacego(app, monkeypatch):
+    """Reguła unieważniania etapów (spec 8.5) decyduje po doróbce na pozycjach z odczytu blokującego po `order_id`,
+    wykonanego już po zapisie doróbki. Dotąd kolekcja była wygaszana i czytana od nowa zwykłym odczytem — na MySQL
+    z migawki sprzed blokady, bez pozycji dodanej w międzyczasie przez inny zapis. W chwili decyzji kolekcja ma
+    wszystkie pozycje (także dodaną za plecami ORM przed doróbką i samą doróbkę), a dostęp do niej nie wysyła już
+    żadnego zapytania. SQLite nie ma migawki, więc dodaną pozycję widziałby i zwykły odczyt: o tym, skąd jest
+    kolekcja, rozstrzyga brak zapytania przy decyzji i odczyt blokujący po INSERT-cie doróbki."""
+    from modules.production.logistics.services import weryfikacja
+    order = zamowienie(sposob=s.KURIER, statusy=('spakowane', 'czeka_na_pakowanie'))
+    order_id = order.id
+    pozycje = sorted(p.id for p in order.products)
+    dodana = dodaj_pozycje_za_plecami(order_id, 3)
+    oryginal = weryfikacja.uniewaznij_etapy
+    przy_decyzji = []
+
+    def regula(order_, teraz, powod, **kwargs):
+        with Zapytania() as przy_odczycie:
+            ids = [p.id for p in order_.products]
+        przy_decyzji.append((order_.id, ids, przy_odczycie.lista))
+        return oryginal(order_, teraz, powod, **kwargs)
+
+    monkeypatch.setattr(weryfikacja, 'uniewaznij_etapy', regula)
+    with Zapytania() as z:
+        _oryginal, dorobka, _log = _odrzuc(pozycje[1])
+    assert len(przy_decyzji) == 1
+    zamowienie_id, ids, zapytania_przy_decyzji = przy_decyzji[0]
+    assert zapytania_przy_decyzji == [], zapytania_przy_decyzji   # kolekcja z odczytu blokującego, nie leniwa
+    assert (zamowienie_id, ids) == (order_id, pozycje + [dodana, dorobka.id])
+    wstawienie = z.pierwsze(lambda sql: sql.startswith('INSERT INTO prod_products'))
+    po_wstawieniu = [i for i, (sql, _p) in enumerate(z.lista) if i > wstawienie and blokada_pozycji(sql)]
+    assert po_wstawieniu and list(z.lista[po_wstawieniu[0]][1]) == [order_id]
 
 
 def test_dorobka_sprawdza_stanowisko_na_biezacym_statusie(app):
