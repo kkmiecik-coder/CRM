@@ -19,7 +19,7 @@ from modules.production.models import (LabelPrintJob, ProcessedMobileOperation, 
 from modules.production.routers import mobile_api
 from modules.production.services import print_queue_service as pqs
 from modules.production.services.mobile_api_service import generate_token, with_idempotency
-from tests.blokady_pomocnicze import blokada_pozycji
+from tests.blokady_pomocnicze import Zapytania, blokada_pozycji
 from tests.logistyka_fixtures import app, client, pracownik, zamowienie  # noqa: F401
 from tests.weryfikacja_pomocnicze import migawka_pozycji
 
@@ -216,22 +216,16 @@ def test_deklaracja_na_aktualnym_stanie_nadal_przechodzi_gdy_baza_zgadza_sie_z_p
 # kolejności i treści zapytań: przy odmowie z pamięci nie ma odczytu blokującego pozycji (po order_id) ani paczek.
 
 def _zapytania_zadania(client, order, device):
-    """(odpowiedź, lista zapytań SQL) PUT-a deklaracji."""
-    zapytania = []
-
-    def zapamietaj(conn, cursor, statement, parameters, context, executemany):
-        zapytania.append(' '.join(statement.split()))
-
-    event.listen(db.engine, 'before_cursor_execute', zapamietaj)
-    try:
+    """(odpowiedź, lista zapytań SQL) PUT-a deklaracji; odczyty blokujące z dopiskiem FOR UPDATE
+    (tests/blokady_pomocnicze.Zapytania)."""
+    with Zapytania() as z:
         r = _put(client, order, device, {'kind': 'paczka', 'count': 1})
-    finally:
-        event.remove(db.engine, 'before_cursor_execute', zapamietaj)
-    return r, zapytania
+    return r, [sql for sql, _parametry in z.lista]
 
 
 def _odczyt_biezacy_pozycji(zapytania):
-    """Odczyty blokujące pozycji (blokady_zamowien.zablokuj_pozycje, kształt jak w tests/blokady_pomocnicze.py)."""
+    """Odczyty blokujące pozycji (blokady_zamowien.zablokuj_pozycje, kształt i FOR UPDATE jak w
+    tests/blokady_pomocnicze.py)."""
     return [q for q in zapytania if blokada_pozycji(q)]
 
 
