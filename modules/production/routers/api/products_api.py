@@ -2679,6 +2679,19 @@ def product_details(product_id):
         }), 500
 
 
+def _id_pozycji(wartosc):
+    """
+    Id pozycji z żądania przeciągania jako int albo None (pozycja pominięta). Front wysyła liczby, ale
+    `query.get('12')` znajdowało też pozycję 12, więc liczba całkowita zapisana tekstem przechodzi dalej;
+    ułamek ('12.5', 12.5) i tekst nieliczbowy nie wskazują żadnej pozycji.
+    """
+    try:
+        liczba = int(wartosc)
+    except (TypeError, ValueError):
+        return None
+    return liczba if liczba == wartosc or str(liczba) == str(wartosc).strip() else None
+
+
 @api_bp.route('/update-priority', methods=['POST'])
 @login_required
 def update_priority():
@@ -2697,24 +2710,31 @@ def update_priority():
         updated_products = []
         
         if 'products' in data:
-            # ZMIANA: Batch update dla drag & drop (używa priority_rank)
-            products_data = data.get('products', [])
-            
-            for product_data in products_data:
-                product_id = product_data.get('id')
-                new_priority_rank = product_data.get('priority_rank')
+            # Batch update dla drag & drop (priority_rank). Pisarz pozycji BEZ blokady zamówienia (logistyka
+            # etap 4, krok 4.4a), więc zapisuje pozycje jednym flushem, rosnąco po kluczu głównym — w tej samej
+            # kolejności, w której ZAKOŃCZ i doróbka blokują pozycje zamówienia (blokady_zamowien.zablokuj_pozycje).
+            # Dawniej `query.get` w pętli autoflushowało poprzedni UPDATE, więc blokady szły w kolejności żądania
+            # (rang): przeciąganie trzymało pozycję o wyższym id i czekało na niższą, a ZAKOŃCZ odwrotnie (1213).
+            # Teraz: jeden odczyt wszystkich pozycji, przypisania bez zapytań i jeden flush przy commicie, w którym
+            # SQLAlchemy sortuje UPDATE-y jednego mappera po kluczu głównym (orm.persistence._sort_states).
+            # no_autoflush pilnuje, żeby żadne zapytanie dopisane kiedyś w pętli nie rozbiło tego flushu.
+            wpisy = [(d.get('id'), d.get('priority_rank')) for d in data.get('products', [])]
+            wpisy = [(pid, ranga) for pid, ranga in wpisy if pid is not None and ranga is not None]
+            klucze = {pid: _id_pozycji(pid) for pid, _ranga in wpisy}
+            ids = sorted({k for k in klucze.values() if k is not None})
+            pozycje = ({p.id: p for p in ProductionItem.query.filter(ProductionItem.id.in_(ids)).all()}
+                       if ids else {})
 
-                if product_id is None or new_priority_rank is None:
-                    continue
-
-                product = ProductionItem.query.get(product_id)
-                if product:
-                    product.priority_rank = new_priority_rank
-                    product.priority_manual_override = True  # Drag&drop = manual
-                    updated_products.append({
-                        'id': product_id,
-                        'new_priority_rank': new_priority_rank
-                    })
+            with db.session.no_autoflush:
+                for product_id, new_priority_rank in wpisy:   # odpowiedź w kolejności żądania
+                    product = pozycje.get(klucze[product_id])
+                    if product:
+                        product.priority_rank = new_priority_rank
+                        product.priority_manual_override = True  # Drag&drop = manual
+                        updated_products.append({
+                            'id': product_id,
+                            'new_priority_rank': new_priority_rank
+                        })
         
         elif 'product_id' in data:
             product_id = data.get('product_id')

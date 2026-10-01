@@ -202,6 +202,13 @@ class NewPriorityCalculator:
                         'zagnieżdżone wywołanie odrzucone')
 
                 sesja = nowa_sesja_priorytetow()
+                # Pozycje zapisujemy JEDNYM flushem przy commicie (KROK 8), w którym SQLAlchemy sortuje
+                # UPDATE-y po kluczu głównym — tak samo, jak ZAKOŃCZ i doróbka blokują pozycje zamówienia
+                # (blokady_zamowien.zablokuj_pozycje; logistyka etap 4, krok 4.4a). Z autoflushem zapytanie
+                # o zarezerwowane rangi (KROK 7) wypychało osobno grupy grubości z KROKU 2, a potem commit
+                # rangi: dwa flushe, każdy rosnąco, razem już nie (pozycja o wyższym id blokowana przed
+                # niższą → MySQL 1213 z ZAKOŃCZ). Wynik tego zapytania nie zależy od grup grubości.
+                sesja.autoflush = False
                 try:
                     # Od tej chwili `_sesja_robocza()` oddaje NASZĄ sesję, więc
                     # zapytania KROKU 1 i KROKU 7 nie odpalają autoflushu

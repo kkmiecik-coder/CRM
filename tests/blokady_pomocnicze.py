@@ -53,6 +53,22 @@ def zapis(sql):
                            'DELETE FROM prod_products'))
 
 
+def id_zapisow_pozycji(lista):
+    """
+    Id pozycji z kolejnych UPDATE-ów `prod_products` (`… WHERE prod_products.id = ?`, id to ostatni parametr),
+    w kolejności wykonania — czyli w kolejności blokad X na pozycjach. Zapis wsadowy (executemany) rozwijamy
+    wiersz po wierszu, w kolejności parametrów: tak wykonuje go też PyMySQL (UPDATE jeden po drugim).
+    """
+    ids = []
+    for sql, parametry in lista:
+        if not (isinstance(sql, str) and sql.startswith('UPDATE prod_products')
+                and sql.endswith('WHERE prod_products.id = ?')):
+            continue
+        wiersze = parametry if parametry and isinstance(parametry[0], (list, tuple)) else [parametry]
+        ids.extend(wiersz[-1] for wiersz in wiersze)
+    return ids
+
+
 def dodaj_pozycje_za_plecami(order_id, sekwencja, status='czeka_na_wyciecie'):
     """Cudzy zapis po migawce: pozycja zamówienia wstawiona surowym INSERT-em, poza ORM — sesja o niej nie wie
     (kolekcja `order.products` już wczytana jej nie ma). Zwraca id nowej pozycji."""
