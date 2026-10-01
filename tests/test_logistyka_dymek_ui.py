@@ -66,7 +66,7 @@ def test_dymek_przerysowuje_wybor_po_kazdej_odpowiedzi():
     assert 'm.getPopup().update()' in _funkcja(mapa, 'odswiezDymek')
     assert 'm.onSposob(zmienSposobZMapy)' in _funkcja(lista, 'polaczZMapa')
     zmien = _funkcja(lista, 'zmienSposobZMapy')
-    assert 'wyslijSposob([id], sposob)' in zmien and 'podsumujZmiany(wynik, true)' in zmien
+    assert 'wyslijSposobZDecyzja([id], sposob, przepakowanie)' in zmien and 'podsumujZmiany(wynik, true)' in zmien
     assert "pokazKomunikat('blad', 'Nie zmieniono sposobu dostawy zamówienia '" in zmien
     assert 'clearTimeout(oczekujaceSelecty.get(id))' in zmien
 

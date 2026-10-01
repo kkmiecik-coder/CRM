@@ -17,7 +17,9 @@
  *                                              (woj: parametr wielokrotny) + bez_lokalizacji,
  *                                              geokoder_dziala,
  *                                              geokoder_postep ({zrobione, wszystkie} | null)
- *   POST {API}/orders/delivery-method          {order_ids, sposob}
+ *   POST {API}/orders/delivery-method          {order_ids, sposob, przepakowanie?}
+ *                                              (przepakowanie: true | false — decyzja z okna dla zamówień
+ *                                              w całości spakowanych, krok 4.3 spec 8.7; odmowy z `kod`)
  *   POST {API}/orders/<id>/handed-over         „Wydane klientowi”
  *   POST {API}/geocode                         „Zlokalizuj teraz” (wątek w tle, 202)
  *   GET  {API}/geocode                         lekki stan geokodera (postęp przycisku)
@@ -980,7 +982,7 @@
         }
 
         const ikony = [];
-        if (w.przepakowanie) ikony.push(ikona('fa-box-open', 'lg-ikona--przepakowanie', 'Czeka na przepakowanie na kuriera'));
+        if (w.przepakowanie) ikony.push(ikona('fa-box-open', 'lg-ikona--przepakowanie', 'Wróciło do pakowania, czeka na ponowne spakowanie'));
         if (w.etykiety_sprzed_zmiany) ikony.push(ikona('fa-tags', 'lg-ikona--etykiety', 'Etykiety wydrukowane przed zmianą sposobu dostawy'));
         if (w.etykiety_paczek_sprzed_zmiany) ikony.push(ikona('fa-box', 'lg-ikona--etykiety', 'Etykiety paczek sprzed zmiany sposobu dostawy lub trasy. Wydrukuj je ponownie na pakowaniu.'));
         if (w.base_czeka) ikony.push(ikona('fa-cloud-arrow-up', 'lg-ikona--base', 'Base.: czeka na wysłanie'));
@@ -1281,18 +1283,21 @@
         return z ? z.numer : '#' + id;
     }
 
-    /** Jedno żądanie POST /orders/delivery-method (≤ 500 id). */
-    async function wyslijSposob(ids, sposob) {
+    /**
+     * Jedno żądanie POST /orders/delivery-method (≤ 500 id). `przepakowanie` (true | false) to decyzja
+     * z okna dla zamówień w całości spakowanych (spec 8.7); bez decyzji (undefined) pola w ciele nie ma.
+     */
+    async function wyslijSposob(ids, sposob, przepakowanie) {
         ids.forEach((id) => {
             stan.wysylane.add(id);
             stan.docelowe.set(id, sposob);
             odswiezWiersz(id, false);
         });
         odswiezDymkiMapy(ids);
+        const dane = { order_ids: ids, sposob: sposob };
+        if (przepakowanie !== undefined) dane.przepakowanie = przepakowanie;
         try {
-            return await zapytanie('/orders/delivery-method', {
-                metoda: 'POST', dane: { order_ids: ids, sposob: sposob },
-            });
+            return await zapytanie('/orders/delivery-method', { metoda: 'POST', dane: dane });
         } finally {
             ids.forEach((id) => {
                 stan.wysylane.delete(id);
@@ -1318,7 +1323,7 @@
             const n = wynik.zmienione.length;
             if (n) {
                 pokazKomunikat('ok', opisAkcji + ': ' + ileZamowien(n) + '.', { klucz: 'wynik' });
-            } else if (!wynik.bledy.length) {
+            } else if (!wynik.bledy.length && !wynik.pominiete.length && !wynik.anulowane.length) {
                 pokazKomunikat('info', 'Nic się nie zmieniło. Zaznaczone zamówienia miały już ten sposób dostawy.',
                     { klucz: 'wynik' });
             }
@@ -1326,8 +1331,17 @@
         if (wynik.przepakowanie.length) {
             const numery = wynik.przepakowanie.map(numer).join(', ');
             pokazKomunikat('uwaga', wynik.przepakowanie.length === 1
-                ? 'Zamówienie ' + numery + ' wraca do pakowania: czeka na przepakowanie na kuriera.'
-                : 'Wracają do pakowania, czekają na przepakowanie na kuriera: ' + numery + '.');
+                ? 'Zamówienie ' + numery + ' wraca do pakowania.'
+                : 'Wracają do pakowania: ' + numery + '.');
+        }
+        // Spec 8.7: zamówienia pominięte w oknie hurtu nie poszły do serwera; anulowane w oknie
+        // ponowienia (dane z przeglądarki były nieaktualne) też zostały bez zmian.
+        if (wynik.pominiete.length) {
+            pokazKomunikat('info', 'Pominięto (wymagają cofnięcia do pakowania): ' +
+                wynik.pominiete.map(numer).join(', ') + '.');
+        }
+        if (wynik.anulowane.length) {
+            pokazKomunikat('info', 'Anulowano zmianę sposobu dostawy: ' + wynik.anulowane.map(numer).join(', ') + '.');
         }
         if (wynik.bledy.length) {
             const n = wynik.bledy.length;
@@ -1362,7 +1376,7 @@
     }
 
     function nowyWynik() {
-        return { zmienione: [], przepakowanie: [], bledy: [], orders: [], usunieto_z_trasy: [] };
+        return { zmienione: [], przepakowanie: [], bledy: [], orders: [], usunieto_z_trasy: [], pominiete: [], anulowane: [] };
     }
 
     function dolacz(wynik, dane) {
@@ -1371,6 +1385,269 @@
         wynik.bledy = wynik.bledy.concat(dane.bledy || []);
         wynik.orders = wynik.orders.concat(dane.orders || []);
         wynik.usunieto_z_trasy = wynik.usunieto_z_trasy.concat(dane.usunieto_z_trasy || []);
+        wynik.pominiete = wynik.pominiete.concat(dane.pominiete || []);
+        wynik.anulowane = wynik.anulowane.concat(dane.anulowane || []);
+    }
+
+    // ── Decyzja o przepakowaniu (krok 4.3, spec 8.7) ────────────────────────
+    // Zmiana sposobu na zamówieniu w CAŁOŚCI spakowanym (w.spakowane) nie idzie od razu: logistyk
+    // wybiera w oknie, czy cofnąć zamówienie do pakowania. Dotyczy selecta w wierszu, dymku mapy
+    // i akcji hurtowych. Serwer i tak sprawdza (kody w `bledy`), okno oszczędza mu odmów.
+
+    // Spec 8.7: czy zmiana zamówienia w całości spakowanego wymaga przepakowania (bez wyboru „bez”).
+    function przepakowanieObowiazkowe(w, sposob) {
+        return sposob === 'brak' || (sposob === 'kurier_baselinker'
+            && (w.sposob === 'transport_woodpower' || w.sposob === 'odbior_osobisty'));
+    }
+
+    const dialogPrzepak = el('przepakowanie-dialog');
+    let okno = null;                        // stan otwartego okna (null = zamknięte)
+    let kolejkaOkna = Promise.resolve();    // dwa zapytania naraz (zwłoka selecta) idą jedno po drugim
+
+    const etykietaSposobu = (s) => (s === 'brak' ? NIE_USTAWIONO : (ETYKIETY[s] || s));
+    const liczbaInnych = (n) => (n === 1 ? '1 niespakowanego zamówienia' : n + ' niespakowanych zamówień');
+
+    /** Zdanie „dlaczego”, gdy dla tych zamówień przepakowanie jest obowiązkowe. */
+    function zasadaPrzepakowania(wiersze, celDla) {
+        const rodzaje = new Set(wiersze.map((w) => (celDla(w) === 'brak' ? 'brak' : 'kurier')));
+        if (rodzaje.size === 2) {
+            return 'zmiana na „' + NIE_USTAWIONO + '” albo na kuriera z transportu własnego lub odbioru osobistego';
+        }
+        return rodzaje.has('brak')
+            ? 'zmiana na „' + NIE_USTAWIONO + '”'
+            : 'zmiana na kuriera z transportu własnego albo odbioru osobistego';
+    }
+
+    function tekstObowiazku(wiersze, celDla) {
+        const zasada = zasadaPrzepakowania(wiersze, celDla);
+        const tekst = zasada.charAt(0).toUpperCase() + zasada.slice(1) + ' wymaga cofnięcia do pakowania';
+        // „Nie ustawiono” zostawia pakowanie bez sposobu, więc zamówienie czeka na nową decyzję.
+        const tylkoBrak = wiersze.every((w) => celDla(w) === 'brak');
+        return tekst + (tylkoBrak ? ': pakowanie poczeka, aż ustawisz nowy sposób dostawy.' : '.');
+    }
+
+    function wyborHtml(ikonaFa, klasaIkony, nazwa, opis) {
+        return '<div class="lg-przepak-wybor"><dt><i class="fas ' + ikonaFa + ' ' + klasaIkony +
+            '" aria-hidden="true"></i>' + esc(nazwa) + '</dt><dd>' + esc(opis) + '</dd></div>';
+    }
+
+    function ustawTrescOkna(t) {
+        el('przepak-tytul').textContent = t.tytul;
+        el('przepak-opis').textContent = t.opis;
+        [['przepak-numery', t.numery], ['przepak-powod', t.powod]].forEach((p) => {
+            const pole = el(p[0]);
+            pole.textContent = p[1] || '';
+            pole.hidden = !p[1];
+        });
+        el('przepak-wybory').innerHTML = t.wybory;
+        el('przepak-bez').hidden = !t.etykietaBez;
+        if (t.etykietaBez) el('przepak-bez').textContent = t.etykietaBez;
+        el('przepak-cofnij').textContent = t.etykietaCofnij;
+    }
+
+    function pokazKrokPierwszy() {
+        const o = okno;
+        const n = o.wiersze.length;
+        o.krok = 1;
+        const cele = Array.from(new Set(o.wiersze.map(o.celDla)));
+        let opis = cele.length === 1
+            ? 'Nowy sposób dostawy: „' + etykietaSposobu(cele[0]) + '”.'
+            : 'Nowy sposób dostawy: wg podpowiedzi z Base.';
+        if (o.inne > 0) opis += ' „Anuluj” wstrzyma całą zmianę, także dla ' + liczbaInnych(o.inne) + '.';
+
+        let powod = '';
+        if (o.obowiazkowe.length && !o.dobrowolne.length) {
+            powod = tekstObowiazku(o.obowiazkowe, o.celDla);
+        } else if (o.obowiazkowe.length) {
+            const k = o.obowiazkowe.length;
+            powod = 'Dla ' + (k === 1 ? 'jednego' : k) + ' z nich cofnięcie do pakowania jest obowiązkowe (' +
+                zasadaPrzepakowania(o.obowiazkowe, o.celDla) + '). Gdy wybierzesz „Zmień bez przepakowania”, ' +
+                'zapytamy o nie osobno.';
+        }
+
+        let wybory = wyborHtml('fa-box-open', 'lg-ikona--przepakowanie', 'Cofnij do pakowania',
+            'Pozycje wracają do pakowania, a paczki i etykiety paczek przestają obowiązywać. ' +
+            'Base. dostaje status „Produkcja zakończona”, a tablet pokaże baner.');
+        if (o.dobrowolne.length) {
+            wybory += wyborHtml('fa-box', 'lg-ikona--etykiety', 'Zmień bez przepakowania',
+                'Ustawimy nowy sposób i status Base. dla nowego sposobu. Paczki zostają, ale ich etykiety ' +
+                'trzeba wydrukować ponownie (ikona przy zamówieniu).');
+        }
+        ustawTrescOkna({
+            tytul: n === 1
+                ? 'Zamówienie ' + o.wiersze[0].numer + ' jest spakowane'
+                : n + ' z zaznaczonych zamówień ' + odmiana(n, ['', 'są w całości spakowane', 'jest w całości spakowanych']),
+            opis: opis,
+            numery: '',
+            powod: powod,
+            wybory: wybory,
+            etykietaBez: o.dobrowolne.length ? 'Zmień bez przepakowania' : '',
+            etykietaCofnij: 'Cofnij do pakowania',
+        });
+    }
+
+    // Drugi krok (decyzja Konrada 2): po „Zmień bez przepakowania” w partii, w której część zamówień
+    // wymaga cofnięcia, pytamy osobno o te zamówienia. „Anuluj” kasuje całą zmianę.
+    function pokazKrokDrugi() {
+        const o = okno;
+        const k = o.obowiazkowe.length;
+        const numery = o.obowiazkowe.map((w) => w.numer);
+        o.krok = 2;
+        ustawTrescOkna({
+            tytul: k + ' z nich ' + odmiana(k, ['wymaga', 'wymagają', 'wymaga']) + ' cofnięcia do pakowania',
+            opis: 'Pozostałe zamówienia zmienimy bez cofania do pakowania. „Anuluj” wstrzyma całą zmianę.',
+            numery: 'Zamówienia: ' + numery.slice(0, 10).join(', ') +
+                (numery.length > 10 ? ' i ' + (numery.length - 10) + ' innych' : ''),
+            powod: tekstObowiazku(o.obowiazkowe, o.celDla),
+            wybory: wyborHtml('fa-box-open', 'lg-ikona--przepakowanie', 'Cofnij je do pakowania',
+                'Wrócą do pakowania i dostaną nowy sposób dostawy. Ich paczki i etykiety paczek przestaną obowiązywać.') +
+                wyborHtml('fa-ban', 'lg-ikona--pominiecie', 'Pomiń je',
+                    'Zostaną bez zmian, ze swoim obecnym sposobem dostawy.'),
+            etykietaBez: 'Pomiń je',
+            etykietaCofnij: 'Cofnij je do pakowania',
+        });
+        el('przepak-anuluj').focus();
+    }
+
+    /** Zamyka okno i rozstrzyga obietnicę (null = Anuluj). Fokus wraca od razu, przed odpowiedzią. */
+    function zamknijOkno(wynik) {
+        const o = okno;
+        if (!o) return;
+        okno = null;
+        if (dialogPrzepak.open) dialogPrzepak.close();
+        const cel = o.powrot;
+        if (cel && cel.isConnected && !cel.disabled) cel.focus({ preventScroll: true });
+        o.rozwiaz(wynik);
+    }
+
+    function wybranoWOknie(wybor) {
+        const o = okno;
+        if (!o) return;
+        const ids = (wiersze) => wiersze.map((w) => w.id);
+        if (o.krok === 1) {
+            if (wybor === 'cofnij') {
+                zamknijOkno({ przepakuj: ids(o.wiersze), bez: [], pomin: [] });
+            } else if (o.obowiazkowe.length) {
+                pokazKrokDrugi();
+            } else {
+                zamknijOkno({ przepakuj: [], bez: ids(o.wiersze), pomin: [] });
+            }
+            return;
+        }
+        const bez = ids(o.dobrowolne);
+        zamknijOkno(wybor === 'cofnij'
+            ? { przepakuj: ids(o.obowiazkowe), bez: bez, pomin: [] }
+            : { przepakuj: [], bez: bez, pomin: ids(o.obowiazkowe) });
+    }
+
+    function otworzOkno(wiersze, sposob, opcje) {
+        return new Promise((rozwiaz) => {
+            if (zniszczona || !dialogPrzepak || !wiersze.length) {
+                rozwiaz(null);
+                return;
+            }
+            // `sposob`: jeden sposób dla całej partii albo funkcja (wiersz → sposób docelowy), np. przy
+            // podpowiedziach z Base., gdzie każde zamówienie ma swój cel.
+            const celDla = typeof sposob === 'function' ? sposob : () => sposob;
+            const aktywny = document.activeElement;
+            okno = {
+                wiersze: wiersze,
+                celDla: celDla,
+                inne: (opcje && opcje.inne) || 0,
+                obowiazkowe: wiersze.filter((w) => przepakowanieObowiazkowe(w, celDla(w))),
+                dobrowolne: wiersze.filter((w) => !przepakowanieObowiazkowe(w, celDla(w))),
+                krok: 1,
+                rozwiaz: rozwiaz,
+                powrot: aktywny && aktywny !== document.body ? aktywny : null,
+            };
+            pokazKrokPierwszy();
+            try {
+                dialogPrzepak.showModal();
+            } catch (e) {
+                okno = null;
+                rozwiaz(null);
+                return;
+            }
+            el('przepak-anuluj').focus();
+        });
+    }
+
+    /**
+     * Okno decyzji (spec 8.7). `wiersze` = zamówienia w całości spakowane z partii, `sposob` docelowy
+     * (tekst albo funkcja wiersz → sposób). `opcje.inne` = ile niespakowanych zamówień jedzie w tej
+     * samej partii (tylko do opisu: „Anuluj” wstrzymuje i je).
+     * Zwraca Promise<{przepakuj: [id], bez: [id], pomin: [id]} | null> (null = Anuluj, nic nie wysyłamy).
+     */
+    function zapytajOPrzepakowanie(wiersze, sposob, opcje) {
+        const odpowiedz = kolejkaOkna.then(() => otworzOkno(wiersze, sposob, opcje));
+        kolejkaOkna = odpowiedz.catch(() => null);
+        return odpowiedz;
+    }
+
+    if (dialogPrzepak) {
+        el('przepak-anuluj').addEventListener('click', () => zamknijOkno(null));
+        el('przepak-bez').addEventListener('click', () => wybranoWOknie('bez'));
+        el('przepak-cofnij').addEventListener('click', () => wybranoWOknie('cofnij'));
+        // Esc: zamykamy sami (z oddaniem fokusu), jak okno adresu.
+        dialogPrzepak.addEventListener('cancel', (e) => {
+            e.preventDefault();
+            zamknijOkno(null);
+        });
+        // Klik w tło okna (poza treścią) = Anuluj.
+        dialogPrzepak.addEventListener('click', (e) => {
+            if (e.target === dialogPrzepak) zamknijOkno(null);
+        });
+        // Zamknięcie inną drogą (np. drugi Esc w Chrome mimo preventDefault) też kończy pytanie.
+        // `close` po naszym zamknięciu przychodzi asynchronicznie, gdy kolejne okno może już stać
+        // otwarte — to zdarzenie ignorujemy.
+        dialogPrzepak.addEventListener('close', () => {
+            if (okno && !dialogPrzepak.open) zamknijOkno(null);
+        });
+    }
+
+    /**
+     * Wysyła zmianę sposobu z decyzją z okna (`przepakowanie`: true | false | undefined). Gdy serwer odmówi
+     * kodem `wymaga_decyzji_przepakowania` (dane w przeglądarce były nieaktualne: zamówienie spakowano już
+     * po odświeżeniu listy), wyjmuje te odmowy z błędów, pyta w oknie o te zamówienia i wysyła je jeszcze
+     * raz z decyzją. Raz: kolejna taka odmowa zostaje zwykłą odmową w `bledy`.
+     * Zwraca dane w kształcie nowyWynik() (do dolacz()), z `anulowane` / `pominiete` z okna ponowienia.
+     */
+    async function wyslijSposobZDecyzja(ids, sposob, przepakowanie) {
+        const dane = await wyslijSposob(ids, sposob, przepakowanie);
+        const bledy = Array.isArray(dane.bledy) ? dane.bledy : [];
+        const doDecyzji = bledy.filter((b) => b.kod === 'wymaga_decyzji_przepakowania');
+        if (!doDecyzji.length) return dane;
+
+        const wynik = nowyWynik();
+        dolacz(wynik, Object.assign({}, dane, { bledy: bledy.filter((b) => b.kod !== 'wymaga_decyzji_przepakowania') }));
+        const wiersze = doDecyzji
+            .map((b) => (dane.orders || []).find((o) => o.id === b.order_id) || znajdz(b.order_id))
+            .filter(Boolean);
+        if (!wiersze.length) {
+            wynik.bledy = wynik.bledy.concat(doDecyzji);
+            return wynik;
+        }
+        const decyzja = await zapytajOPrzepakowanie(wiersze, sposob);
+        if (!decyzja) {
+            wynik.anulowane = wynik.anulowane.concat(wiersze.map((w) => w.id));
+            return wynik;
+        }
+        wynik.pominiete = wynik.pominiete.concat(decyzja.pomin);
+        const zadania = [];
+        if (decyzja.przepakuj.length) zadania.push({ ids: decyzja.przepakuj, przepakowanie: true });
+        if (decyzja.bez.length) zadania.push({ ids: decyzja.bez, przepakowanie: false });
+        for (const zadanie of zadania) {
+            try {
+                const ponowne = await wyslijSposob(zadanie.ids, sposob, zadanie.przepakowanie);
+                // Wiersze z drugiej odpowiedzi zastępują te z pierwszej (jeden błysk, nowszy stan).
+                const nowe = new Set((ponowne.orders || []).map((o) => o.id));
+                wynik.orders = wynik.orders.filter((o) => !nowe.has(o.id));
+                dolacz(wynik, ponowne);
+            } catch (e) {
+                zadanie.ids.forEach((id) => wynik.bledy.push({ order_id: id, komunikat: e.message }));
+            }
+        }
+        return wynik;
     }
 
     // Select w wierszu: od razu (po krótkiej zwłoce, patrz ZWLOKA_SELECTA_MS)
@@ -1397,7 +1674,21 @@
             // i sam nie wraca — oddajemy go po odpowiedzi (jak dymek mapy). Mysz działa jak dotąd.
             const fokus = fokusKlawiaturyNaSelecie(id);
             try {
-                const dane = await wyslijSposob([id], wartosc);
+                // Spec 8.7: zamówienie w całości spakowane — najpierw decyzja o przepakowaniu.
+                let przepakowanie;
+                const biezacy = znajdz(id) || w;
+                if (biezacy.spakowane && wartosc !== (biezacy.sposob || 'brak')) {
+                    const decyzja = await zapytajOPrzepakowanie([biezacy], wartosc);
+                    if (zniszczona) return;
+                    if (!decyzja) {
+                        // Anuluj: nic nie wysyłamy, select wraca do stanu z serwera (fokus zostaje na nim).
+                        stan.docelowe.delete(id);
+                        odswiezWiersz(id, false);
+                        return;
+                    }
+                    przepakowanie = decyzja.przepakuj.length > 0;
+                }
+                const dane = await wyslijSposobZDecyzja([id], wartosc, przepakowanie);
                 const wynik = nowyWynik();
                 dolacz(wynik, dane);
                 podsumujZmiany(wynik, true);
@@ -1458,7 +1749,19 @@
             return;
         }
         try {
-            const dane = await wyslijSposob([id], sposob);
+            // Spec 8.7: zamówienie w całości spakowane — najpierw decyzja o przepakowaniu.
+            let przepakowanie;
+            if (w.spakowane) {
+                const decyzja = await zapytajOPrzepakowanie([w], sposob);
+                if (zniszczona) return;
+                if (!decyzja) {
+                    // Anuluj: nic nie wysyłamy, wiersz i dymek wracają do stanu z serwera.
+                    odswiezWiersz(id, false);
+                    return;
+                }
+                przepakowanie = decyzja.przepakuj.length > 0;
+            }
+            const dane = await wyslijSposobZDecyzja([id], sposob, przepakowanie);
             if (zniszczona) return;
             const wynik = nowyWynik();
             dolacz(wynik, dane);
@@ -1470,18 +1773,21 @@
         }
     }
 
-    async function hurtowo(grupy, opisAkcji) {
-        // grupy: Map(sposob → [id]); po jednym żądaniu na sposób (i na paczkę 500 id).
+    async function hurtowo(zadania, opisAkcji, pominiete) {
+        // zadania: [{sposob, ids, przepakowanie}]; po jednym żądaniu na zadanie (i na paczkę 500 id).
+        // `przepakowanie` (spec 8.7) = decyzja z okna dla zamówień w całości spakowanych, undefined dla
+        // reszty. `pominiete` — zamówienia, które logistyk w oknie kazał pominąć (nie idą na serwer).
         stan.hurtTrwa = true;
         renderujZaznaczenie();
         const wynik = nowyWynik();
+        wynik.pominiete = (pominiete || []).slice();
         let bladPolaczenia = null;
         try {
-            for (const [sposob, ids] of grupy) {
-                for (let i = 0; i < ids.length; i += LIMIT_HURTU) {
-                    const paczka = ids.slice(i, i + LIMIT_HURTU);
+            for (const zadanie of zadania) {
+                for (let i = 0; i < zadanie.ids.length; i += LIMIT_HURTU) {
+                    const paczka = zadanie.ids.slice(i, i + LIMIT_HURTU);
                     try {
-                        dolacz(wynik, await wyslijSposob(paczka, sposob));
+                        dolacz(wynik, await wyslijSposobZDecyzja(paczka, zadanie.sposob, zadanie.przepakowanie));
                     } catch (e) {
                         bladPolaczenia = e;
                         paczka.forEach((id) => odswiezWiersz(id, false));
@@ -1501,13 +1807,43 @@
         renderujZaznaczenie();
     }
 
-    function hurtSposob(sposob) {
-        const ids = Array.from(stan.zaznaczone);
-        if (!ids.length || !SPOSOBY.includes(sposob)) return;
-        hurtowo(new Map([[sposob, ids]]), 'Ustawiono „' + ETYKIETY[sposob] + '”');
+    /**
+     * Zaznaczone zamówienia + decyzja z okna → lista żądań {sposob, ids, przepakowanie}. `cele`: Map(id → sposób).
+     * Niespakowane i te bez zmiany idą bez pola `przepakowanie`, spakowane wg decyzji (true / false),
+     * pominięte wcale.
+     */
+    function zadaniaHurtu(cele, decyzja) {
+        const przepakuj = new Set(decyzja ? decyzja.przepakuj : []);
+        const bez = new Set(decyzja ? decyzja.bez : []);
+        const pomin = new Set(decyzja ? decyzja.pomin : []);
+        const zadania = new Map();
+        cele.forEach((sposob, id) => {
+            if (pomin.has(id)) return;
+            const przepakowanie = przepakuj.has(id) ? true : (bez.has(id) ? false : undefined);
+            const klucz = sposob + '|' + przepakowanie;
+            if (!zadania.has(klucz)) zadania.set(klucz, { sposob: sposob, ids: [], przepakowanie: przepakowanie });
+            zadania.get(klucz).ids.push(id);
+        });
+        return Array.from(zadania.values());
     }
 
-    function hurtPodpowiedzi() {
+    async function hurtSposob(sposob) {
+        const ids = Array.from(stan.zaznaczone);
+        if (!ids.length || !SPOSOBY.includes(sposob)) return;
+        // Spec 8.7: jedno okno dla zamówień w całości spakowanych z partii (z tych, którym sposób się zmieni).
+        const zmieniane = ids.map(znajdz).filter((w) => w && sposob !== (w.sposob || 'brak'));
+        const doDecyzji = zmieniane.filter((w) => w.spakowane);
+        let decyzja = null;
+        if (doDecyzji.length) {
+            // `inne` = niespakowane zamówienia, którym sposób też się zmieni (do opisu: Anuluj wstrzymuje i je).
+            decyzja = await zapytajOPrzepakowanie(doDecyzji, sposob, { inne: zmieniane.length - doDecyzji.length });
+            if (zniszczona || !decyzja) return;     // Anuluj: nic nie wysyłamy, także dla niespakowanych
+        }
+        const cele = new Map(ids.map((id) => [id, sposob]));
+        hurtowo(zadaniaHurtu(cele, decyzja), 'Ustawiono „' + ETYKIETY[sposob] + '”', decyzja ? decyzja.pomin : []);
+    }
+
+    async function hurtPodpowiedzi() {
         const wybrane = Array.from(stan.zaznaczone).map(znajdz).filter(Boolean);
         const doZmiany = wybrane.filter((w) => w.podpowiedz && SPOSOBY.includes(w.podpowiedz) && w.podpowiedz !== w.sposob);
         if (!doZmiany.length) {
@@ -1523,12 +1859,16 @@
             'Zastąpić go podpowiedzią z Base.?')) {
             return;
         }
-        const grupy = new Map();
-        doZmiany.forEach((w) => {
-            if (!grupy.has(w.podpowiedz)) grupy.set(w.podpowiedz, []);
-            grupy.get(w.podpowiedz).push(w.id);
-        });
-        hurtowo(grupy, 'Przyjęto podpowiedzi z Base.');
+        // Spec 8.7: jedno okno dla całej partii, „obowiązkowe” liczone per zamówienie względem jego podpowiedzi.
+        const spakowane = doZmiany.filter((w) => w.spakowane);
+        let decyzja = null;
+        if (spakowane.length) {
+            decyzja = await zapytajOPrzepakowanie(spakowane, (w) => w.podpowiedz,
+                { inne: doZmiany.length - spakowane.length });
+            if (zniszczona || !decyzja) return;
+        }
+        const cele = new Map(doZmiany.map((w) => [w.id, w.podpowiedz]));
+        hurtowo(zadaniaHurtu(cele, decyzja), 'Przyjęto podpowiedzi z Base.', decyzja ? decyzja.pomin : []);
     }
 
     // ── Trasy (etap 3): „Dodaj do trasy…” i podzakładki ─────────────────────
@@ -2480,6 +2820,7 @@
         document.removeEventListener('shown.bs.tab', naPokazanieZakladki);
         if (obserwatorWysokosci) obserwatorWysokosci.disconnect();
         zamknijAdres();
+        zamknijOkno(null);
         oczekujaceSelecty.forEach((t) => clearTimeout(t));
         oczekujaceSelecty.clear();
         if (kontrolerListy) kontrolerListy.abort();

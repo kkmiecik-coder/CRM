@@ -2690,6 +2690,94 @@ html.lg-przeciaganie-uchwytu * {
 }
 
 
+/* ─── Okno decyzji o przepakowaniu (krok 4.3, spec 8.7) ───
+   To samo okno co poprawka adresu (lg-dialog*); dokładamy tylko treść. Każdy wybór ma nad opisem
+   etykietę przycisku i tę samą ikonę, którą zamówienie dostanie w wierszu (pudełko = wróciło do
+   pakowania, czerwone; paczka = etykiety do przedrukowania, bursztynowa), więc logistyk od razu wie,
+   co zobaczy w liście. Powód obowiązku w tym samym bursztynie co komunikaty „uwaga” zakładki. */
+.logistics-tab .lg-dialog--przepakowanie {
+    width: min(520px, calc(100vw - 32px));
+}
+
+.logistics-tab .lg-przepak-tresc {
+    display: grid;
+    gap: 12px;
+}
+
+.logistics-tab .lg-przepak-numery {
+    margin: 0;
+    padding: 7px 10px;
+    font: 600 12.5px/1.5 var(--lg-mono);
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+    background: var(--lg-hover);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+}
+
+.logistics-tab .lg-przepak-powod {
+    margin: 0;
+    padding: 7px 10px;
+    font-size: 12.5px;
+    line-height: 1.45;
+    border-left: 3px solid var(--il-status-warn, #d97706);
+    background: rgba(217, 119, 6, 0.05);
+}
+
+.logistics-tab .lg-przepak-numery[hidden],
+.logistics-tab .lg-przepak-powod[hidden],
+.logistics-tab .lg-dialog--przepakowanie .lg-dialog-akcje .lg-przycisk[hidden] {
+    display: none;
+}
+
+.logistics-tab .lg-przepak-wybory {
+    display: grid;
+    gap: 10px;
+    margin: 0;
+}
+
+.logistics-tab .lg-przepak-wybor {
+    display: grid;
+    gap: 2px;
+}
+
+.logistics-tab .lg-przepak-wybor dt {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    font: 700 12.5px/1.35 var(--lg-mono);
+    color: var(--il-text-primary, #1a1a2e);
+}
+
+.logistics-tab .lg-przepak-wybor dt i {
+    flex: none;
+    width: 14px;
+    font-size: 12px;
+    text-align: center;
+}
+
+.logistics-tab .lg-przepak-wybor dd {
+    margin: 0 0 0 21px;
+    font-size: 12.5px;
+    line-height: 1.45;
+    color: var(--il-text-primary, #1a1a2e);
+}
+
+.logistics-tab .lg-ikona--pominiecie { color: var(--il-text-secondary, #7a8291); }
+
+@media (max-width: 480px) {
+    /* Wąski ekran: przyciski jeden pod drugim, główny na górze (w kodzie stoi ostatni). */
+    .logistics-tab .lg-dialog--przepakowanie .lg-dialog-akcje {
+        flex-direction: column-reverse;
+        align-items: stretch;
+    }
+
+    .logistics-tab .lg-dialog--przepakowanie .lg-dialog-akcje .lg-przycisk {
+        justify-content: center;
+    }
+}
+
+
 /* ─── Sortowanie z nagłówka ───
    Nagłówek to przycisk w kolorze nagłówka (nie wygląda jak przycisk). Aktywna
    kolumna: ciemniejszy tekst i strzałka kierunku; nieaktywne pokazują blady

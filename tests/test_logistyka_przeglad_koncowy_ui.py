@@ -133,7 +133,7 @@ def test_d1_wybor_z_dymku_w_trakcie_zapisu_mowi_poczekaj():
     assert ("pokazKomunikat('info', 'Poczekaj, aż zapisze się poprzednia zmiana zamówienia ' + w.numer + '.'"
             in galaz)
     assert 'return;' in galaz
-    assert zmien.index('if (stan.wysylane.has(id)) {') < zmien.index('wyslijSposob([id], sposob)')
+    assert zmien.index('if (stan.wysylane.has(id)) {') < zmien.index('wyslijSposobZDecyzja([id], sposob, przepakowanie)')
     # Po odpowiedzi listy (także tej odmowie) dymek rysuje się od nowa z danych serwera.
     koniec = _funkcja(mapa, 'wyslijSposobZDymku')
     assert 'odswiezDymek(id, fokus)' in koniec[koniec.index('} finally {'):]
@@ -169,7 +169,7 @@ def test_d3_select_wiersza_oddaje_fokus_klawiatury_po_zapisie():
     lista = _js('logistics.js')
     zmiana = _funkcja(lista, 'zmianaSelecta')
     assert zmiana.index('const fokus = fokusKlawiaturyNaSelecie(id);') < \
-        zmiana.index('await wyslijSposob([id], wartosc)')
+        zmiana.index('await wyslijSposobZDecyzja([id], wartosc, przepakowanie)')
     oddanie = zmiana.index('if (fokus && !zniszczona) oddajFokusSelectowi(id);')
     assert oddanie > zmiana.index('podsumujZmiany(wynik, true)')
     assert oddanie > zmiana.index("pokazKomunikat('blad', 'Nie zmieniono sposobu dostawy zamówienia '")

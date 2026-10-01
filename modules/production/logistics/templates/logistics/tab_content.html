@@ -14,7 +14,7 @@
      blokuje CDN). #}
 <link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet/leaflet.css') }}?v=1.9.4">
 <link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet-markercluster/MarkerCluster.css') }}?v=1.5.3">
-<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20261001b">
+<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20261001c">
 {# Etap 3: trasy, flota, widok tras na mapie — osobny arkusz (logistics.css zostaje nietknięty). #}
 <link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics-trasy.css') }}?v=20260928b">
 
@@ -296,7 +296,7 @@
 
         {# Legenda ikon tabeli — na tablecie nie ma dymków po najechaniu (title). #}
         <div class="lg-legenda">
-          <span><i class="fas fa-box-open lg-ikona--przepakowanie" aria-hidden="true"></i>czeka na przepakowanie na kuriera</span>
+          <span><i class="fas fa-box-open lg-ikona--przepakowanie" aria-hidden="true"></i>wróciło do pakowania, czeka na ponowne spakowanie</span>
           <span><i class="fas fa-tags lg-ikona--etykiety" aria-hidden="true"></i>etykiety wydrukowane przed zmianą sposobu</span>
           <span><i class="fas fa-box lg-ikona--etykiety" aria-hidden="true"></i>etykiety paczek sprzed zmiany sposobu lub trasy</span>
           <span><i class="fas fa-triangle-exclamation lg-ikona--problem" aria-hidden="true"></i>problem zgłoszony przy weryfikacji paczek</span>
@@ -556,6 +556,29 @@
     </form>
   </dialog>
 
+  {# ─── DECYZJA O PRZEPAKOWANIU (krok 4.3, spec 8.7) ─── zmiana sposobu dostawy na zamówieniu
+       w całości spakowanym (select w wierszu, dymek mapy, akcje hurtowe). Jedno okno, treść
+       składa logistics.js (zapytajOPrzepakowanie): krok 1 „Cofnij do pakowania” / „Zmień bez
+       przepakowania” / „Anuluj”, krok 2 (tylko hurt) pyta osobno o zamówienia, które wymagają
+       cofnięcia. Natywny <dialog>: Esc i klik w tło = Anuluj, fokus wraca tam, skąd okno otwarto.
+       Region aria-live czyta zmianę treści między krokami. #}
+  <dialog class="lg-dialog lg-dialog--przepakowanie" data-lg="przepakowanie-dialog" aria-labelledby="lg-przepak-tytul">
+    <div class="lg-dialog-form">
+      <div class="lg-przepak-tresc" aria-live="polite">
+        <h2 class="lg-dialog-tytul" id="lg-przepak-tytul" data-lg="przepak-tytul"></h2>
+        <p class="lg-dialog-opis" data-lg="przepak-opis"></p>
+        <p class="lg-przepak-numery" data-lg="przepak-numery" hidden></p>
+        <p class="lg-przepak-powod" data-lg="przepak-powod" hidden></p>
+        <dl class="lg-przepak-wybory" data-lg="przepak-wybory"></dl>
+      </div>
+      <div class="lg-dialog-akcje">
+        <button type="button" class="lg-przycisk" data-lg="przepak-anuluj">Anuluj</button>
+        <button type="button" class="lg-przycisk" data-lg="przepak-bez">Zmień bez przepakowania</button>
+        <button type="button" class="lg-przycisk lg-przycisk--glowny" data-lg="przepak-cofnij">Cofnij do pakowania</button>
+      </div>
+    </div>
+  </dialog>
+
   {# ─── ETAP 3: okna tras i floty ─── poza panelami podzakładek: „Dodaj do trasy…”
        otwiera się z Dashboardu, gdy panel Tras jest schowany (okno w schowanym
        rodzicu nie byłoby widać). Ten sam wzór co okno adresu: Esc i klik w tło
@@ -721,6 +744,6 @@
         });
 })();
 </script>
-<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20261001b"></script>
+<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20261001c"></script>
 <script src="{{ url_for('logistics_panel.static', filename='js/logistics-fleet.js') }}?v=20260928b"></script>
 <script src="{{ url_for('logistics_panel.static', filename='js/logistics-wojewodztwa.js') }}?v=20260928a"></script>
