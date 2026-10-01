@@ -337,3 +337,229 @@ def test_hurt_decyduje_na_zablokowanych_zamowieniach_bez_ponownego_odczytu(clien
 def test_hurt_nieistniejace_pozycje_daja_404_jak_dotad(client, app):
     r = _masowo(client, [987654], 'czeka_na_pakowanie')
     assert r.status_code == 404 and r.get_json()['success'] is False
+
+
+# --- Jedno automatyczne ponowienie po zakleszczeniu 1213 (krok 4.4a, runda 5) ---------------------------------
+# Ścieżki spoza zasady „zamówienie najpierw” (ręczna synchronizacja z force_update) mogą rzadko zakleszczyć hurt.
+# Hurt powtarza więc cały zapis najwyżej raz i tylko po 1213, tym samym wzorem co zmiana sposobu dostawy w panelu
+# (tests/test_logistyka_zmiana_spakowanego.py, I1b). Drugie 1213 i każdy inny błąd kończą się 500 z rollbackiem
+# (zewnętrzny `except Exception` w `bulk_action`), więc apka testowa nie potrzebuje własnego handlera.
+
+def _blad_mysql(kod, komunikat):
+    from sqlalchemy.exc import OperationalError
+    return OperationalError('UPDATE prod_products SET ...', {}, Exception(kod, komunikat))
+
+
+def _scenariusz(monkeypatch, wyniki):
+    """Podmienia `weryfikacja.uniewaznij_etapy`: n-te wywołanie najpierw wykonuje PRAWDZIWĄ regułę (jej zapisy
+    zostają w sesji, więc rollback musi je cofnąć), a potem rzuca `wyniki[n]`, gdy to wyjątek. Poza listą działa
+    normalnie. Zwraca listę (id zamówienia, user_id, czy zamówienie MA deklarację paczek w chwili wejścia do
+    reguły) z kolejnych wywołań: druga próba po rollbacku startuje ze stanu sprzed pierwszej, więc deklaracja
+    jest przy wejściu tak samo jak za pierwszym razem."""
+    from modules.production.logistics.services import weryfikacja
+    oryginal = weryfikacja.uniewaznij_etapy
+    wywolania = []
+
+    def falszywa(order, teraz, powod, **kwargs):
+        przy_wejsciu = (order.id, kwargs.get('user_id'), order.packages_declared_at is not None)
+        wynik = oryginal(order, teraz, powod, **kwargs)
+        numer = len(wywolania)
+        wywolania.append(przy_wejsciu)
+        if numer < len(wyniki) and wyniki[numer] is not None:
+            raise wyniki[numer]
+        return wynik
+    monkeypatch.setattr(weryfikacja, 'uniewaznij_etapy', falszywa)
+    return wywolania
+
+
+def _stan_zamowienia(order_id):
+    """(statusy pozycji, paczki: unieważnione?, akcje logu) ze świeżego odczytu bazy."""
+    from modules.production.logistics.models import LogisticsLog
+    from modules.production.models import ProductionOrder, ProductionPackage
+    db.session.rollback()   # świeży odczyt, bez migawki z poprzedniego żądania
+    statusy = [p.current_status for p in db.session.get(ProductionOrder, order_id).products]
+    paczki = [p.voided_at is not None for p in ProductionPackage.query.filter_by(order_id=order_id)]
+    akcje = sorted(w.action for w in LogisticsLog.query.filter_by(order_id=order_id))
+    return statusy, paczki, akcje
+
+
+def test_hurt_ponawia_raz_po_1213_i_zmienia_status(client, app, monkeypatch):
+    """1213 przy pierwszej próbie (po prawdziwej regule, jej zapisy są w sesji) → jedno ponowienie: 200, status
+    zmieniony, reguła zadziałała skutecznie raz (jeden wpis logu, paczki unieważnione), pozycja policzona raz."""
+    order_id, pierwsza_id, druga_id = _zamowienie_z_dwiema_pozycjami(app, '25/00501')
+    wywolania = _scenariusz(monkeypatch, [_blad_mysql(1213, 'Deadlock found when trying to get lock')])
+
+    r = _masowo(client, [pierwsza_id], 'czeka_na_pakowanie')
+
+    assert r.status_code == 200, r.get_data()[:500]
+    assert r.get_json()['success'] is True and r.get_json()['processed_count'] == 1
+    assert r.get_json()['failed_count'] == 0 and r.get_json()['errors'] == []
+    # Pierwsza próba (1213) i jedno ponowienie, obie z tym samym user_id i obie ze stanu sprzed pierwszej próby
+    # (deklaracja paczek wciąż jest przy wejściu do reguły): bez rollbacku druga próba widziałaby już zapisy pierwszej.
+    assert wywolania == [(order_id, 1, True), (order_id, 1, True)]
+    statusy, paczki, akcje = _stan_zamowienia(order_id)
+    assert statusy == ['czeka_na_pakowanie', 'spakowane']
+    assert paczki == [True, True]
+    assert akcje == ['paczki']                                   # wpis logu z pierwszej próby wycofał rollback
+
+
+def test_hurt_ponowienie_liczy_wyniki_od_zera(client, app, monkeypatch):
+    """Hurt dwóch zamówień: 1213 na drugim w pierwszej próbie. Druga próba nie dokłada pozycji pierwszego
+    zamówienia drugi raz: `processed_count` to liczba zaznaczonych pozycji (2), a każde zamówienie ma jeden wpis."""
+    a = _zamowienie_z_dwiema_pozycjami(app, '25/00502')
+    b = _zamowienie_z_dwiema_pozycjami(app, '25/00503')
+    wywolania = _scenariusz(monkeypatch, [None, _blad_mysql(1213, 'Deadlock')])
+
+    r = _masowo(client, [a[1], b[1]], 'czeka_na_pakowanie')
+
+    assert r.status_code == 200, r.get_data()[:500]
+    assert r.get_json()['processed_count'] == 2 and r.get_json()['failed_count'] == 0
+    # Pierwszy w drugiej próbie (a) startuje ze stanu sprzed pierwszej: rollback cofnął jego unieważnienie.
+    assert wywolania == [(a[0], 1, True), (b[0], 1, True), (a[0], 1, True), (b[0], 1, True)]
+    for order_id in (a[0], b[0]):
+        statusy, paczki, akcje = _stan_zamowienia(order_id)
+        assert statusy == ['czeka_na_pakowanie', 'spakowane'] and paczki == [True, True]
+        assert akcje == ['paczki']
+
+
+def test_hurt_dwa_1213_z_rzedu_to_500_i_nic_nie_zapisane(client, app, monkeypatch):
+    order_id, pierwsza_id, _druga_id = _zamowienie_z_dwiema_pozycjami(app, '25/00504')
+    wywolania = _scenariusz(monkeypatch, [_blad_mysql(1213, 'Deadlock'), _blad_mysql(1213, 'Deadlock')])
+
+    r = _masowo(client, [pierwsza_id], 'czeka_na_pakowanie')
+
+    assert r.status_code == 500 and r.get_json()['success'] is False
+    assert len(wywolania) == 2                                   # najwyżej jedno ponowienie
+    statusy, paczki, akcje = _stan_zamowienia(order_id)
+    assert statusy == ['spakowane', 'spakowane']                 # rollback cofnął obie próby
+    assert paczki == [False, False] and akcje == []
+
+
+def test_hurt_inny_kod_mysql_nie_jest_ponawiany(client, app, monkeypatch):
+    """Tylko 1213 daje ponowienie: 1205 (lock wait timeout) to 500 po jednej próbie, bez zapisu."""
+    order_id, pierwsza_id, _druga_id = _zamowienie_z_dwiema_pozycjami(app, '25/00505')
+    wywolania = _scenariusz(monkeypatch, [_blad_mysql(1205, 'Lock wait timeout exceeded')])
+
+    r = _masowo(client, [pierwsza_id], 'czeka_na_pakowanie')
+
+    assert r.status_code == 500 and r.get_json()['success'] is False
+    assert len(wywolania) == 1
+    statusy, paczki, akcje = _stan_zamowienia(order_id)
+    assert statusy == ['spakowane', 'spakowane'] and paczki == [False, False] and akcje == []
+
+
+def test_hurt_blad_bez_kodu_mysql_nie_jest_ponawiany(client, app, monkeypatch):
+    """OperationalError bez `orig.args` (np. zerwane połączenie opakowane przez sterownik) to nie 1213."""
+    from sqlalchemy.exc import OperationalError
+    order_id, pierwsza_id, _druga_id = _zamowienie_z_dwiema_pozycjami(app, '25/00508')
+    wywolania = _scenariusz(monkeypatch, [OperationalError('SELECT 1', {}, Exception())])
+
+    r = _masowo(client, [pierwsza_id], 'czeka_na_pakowanie')
+
+    assert r.status_code == 500 and len(wywolania) == 1
+    statusy, _paczki, akcje = _stan_zamowienia(order_id)
+    assert statusy == ['spakowane', 'spakowane'] and akcje == []
+
+
+def test_hurt_druga_proba_na_nowym_stanie_bez_pracy_nie_zostawia_wpisow_z_pierwszej(client, app, monkeypatch):
+    """Ofiara zakleszczenia traci transakcję (rollback), a cudzy zapis się zatwierdza: Weryfikacja unieważniła
+    deklarację paczek. Druga próba decyduje na nowym stanie — reguła nie ma już pracy, więc nie loguje niczego,
+    a wpisy pierwszej próby nie wracają. Skutki uboczne poza bazą reguła nie planuje (nic w `flask.g`), więc nic
+    nie może pójść podwójnie ani zostać po wycofanej próbie."""
+    from datetime import datetime
+
+    from flask import g
+
+    from modules.production.logistics.services import weryfikacja
+    from modules.production.models import ProductionOrder, ProductionPackage
+    order_id, pierwsza_id, _druga_id = _zamowienie_z_dwiema_pozycjami(app, '25/00509')
+    oryginal = weryfikacja.uniewaznij_etapy
+    wywolania, zaplanowane_w_g = [], []
+
+    def regula(order, teraz, powod, **kwargs):
+        wywolania.append(order.id)
+        # Zaplanowane „po commicie” (dopychacz Base., sygnał druku, status Base.) leżałyby w `flask.g` żądania.
+        zaplanowane_w_g.append([k for k in vars(g) if 'po_commicie' in k or 'pending' in k])
+        wynik = oryginal(order, teraz, powod, **kwargs)           # zapisy pierwszej próby: log, paczki
+        if len(wywolania) == 1:
+            db.session.rollback()                                  # serwer cofa transakcję ofiary
+            db.session.execute(ProductionOrder.__table__.update()
+                               .where(ProductionOrder.__table__.c.id == order_id)
+                               .values(packages_declared_at=None))
+            db.session.execute(ProductionPackage.__table__.update()
+                               .where(ProductionPackage.__table__.c.order_id == order_id)
+                               .values(voided_at=datetime(2026, 10, 1, 9, 0)))
+            db.session.commit()                                    # cudzy zapis zatwierdzony
+            raise _blad_mysql(1213, 'Deadlock')
+        return wynik
+    monkeypatch.setattr(weryfikacja, 'uniewaznij_etapy', regula)
+
+    r = _masowo(client, [pierwsza_id], 'czeka_na_pakowanie')
+
+    assert r.status_code == 200, r.get_data()[:500]
+    assert r.get_json()['processed_count'] == 1
+    assert wywolania == [order_id, order_id]
+    statusy, paczki, akcje = _stan_zamowienia(order_id)
+    assert statusy == ['czeka_na_pakowanie', 'spakowane']
+    assert paczki == [True, True]                                  # unieważnione cudzym zapisem
+    assert akcje == []                                             # ani wpis pierwszej próby, ani drugiej
+    assert zaplanowane_w_g == [[], []]                              # nic zaplanowanego w `flask.g` w żadnej próbie
+
+
+def test_hurt_ponowienie_blokuje_zamowienia_i_pozycje_od_nowa(client, app, monkeypatch):
+    """Druga próba zaczyna od własnych blokad: zamówienia, potem pozycje, a jej zapis następuje dopiero po nich.
+    Pierwsza próba zapisuje (flush reguły) przed rzuceniem 1213."""
+    order_id, pierwsza_id, _druga_id = _zamowienie_z_dwiema_pozycjami(app, '25/00506')
+    _scenariusz(monkeypatch, [_blad_mysql(1213, 'Deadlock')])
+
+    with Zapytania() as z:
+        assert _masowo(client, [pierwsza_id], 'czeka_na_pakowanie').status_code == 200
+
+    blokady_z = [i for i, (sql, _p) in enumerate(z.lista) if blokada_zamowien(sql)]
+    blokady_p = [i for i, (sql, _p) in enumerate(z.lista) if blokada_pozycji(sql)]
+    zapisy = [i for i, (sql, _p) in enumerate(z.lista) if sql.startswith('UPDATE prod_')]
+    assert len(blokady_z) == 2 and zapisy
+    assert zapisy[0] > blokady_z[0]                              # pierwsza próba: blokada przed pierwszym zapisem
+    assert [i for i in blokady_p if i > blokady_z[1]]            # druga próba blokuje pozycje po zamówieniach
+    assert [i for i in zapisy if i > blokady_z[1]]               # i dopiero potem zapisuje
+
+
+def test_hurt_druga_proba_decyduje_na_nowo_zablokowanych_zamowieniach_bez_odczytu(client, app, monkeypatch):
+    """Rollback wygasza wszystkie obiekty sesji, w tym zamówienia z pierwszej próby. Druga próba nie może używać
+    starej listy: blokuje zamówienia i pozycje od nowa, a przy decyzji reguły i przeliczenia zamknięcia stan
+    jest już w pamięci (zero zapytań), taki sam jak w pierwszej próbie."""
+    from modules.production.logistics.services import delivery, weryfikacja
+    order_id, pierwsza_id, druga_id = _zamowienie_z_dwiema_pozycjami(app, '25/00507')
+    db.session.expunge_all()
+    gc.collect()
+    oryginal_reguly = weryfikacja.uniewaznij_etapy
+    proby = []   # (stan zamówienia przy decyzji, zapytania wykonane przy odczycie tego stanu) na kolejne próby
+
+    def regula(order, teraz, powod, **kwargs):
+        with Zapytania() as przy_decyzji:
+            stan = (order.id, order.packages_declared_at is not None,
+                    [(p.id, p.current_status) for p in order.products])
+        proby.append((stan, przy_decyzji.lista))
+        wynik = oryginal_reguly(order, teraz, powod, **kwargs)
+        if len(proby) == 1:
+            raise _blad_mysql(1213, 'Deadlock')
+        return wynik
+    monkeypatch.setattr(weryfikacja, 'uniewaznij_etapy', regula)
+    oryginal_zamkniecia = delivery.przelicz_zamkniecie
+    zamkniecia = []
+
+    def zamkniecie(order, *args, **kwargs):
+        with Zapytania() as przy_decyzji:
+            stan = [(p.id, p.current_status) for p in order.products]
+        zamkniecia.append((stan, przy_decyzji.lista))
+        return oryginal_zamkniecia(order, *args, **kwargs)
+    monkeypatch.setattr(delivery, 'przelicz_zamkniecie', zamkniecie)
+
+    r = _masowo(client, [pierwsza_id], 'czeka_na_pakowanie')
+
+    assert r.status_code == 200, r.get_data()[:500]
+    assert len(proby) == 2
+    oczekiwany = (order_id, True, [(pierwsza_id, 'czeka_na_pakowanie'), (druga_id, 'spakowane')])
+    for stan, zapytania in proby:
+        assert stan == oczekiwany and zapytania == [], (stan, zapytania)
+    assert zamkniecia == [([(pierwsza_id, 'czeka_na_pakowanie'), (druga_id, 'spakowane')], [])]

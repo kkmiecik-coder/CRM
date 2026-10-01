@@ -12,6 +12,7 @@ from flask import request, jsonify, render_template, current_app
 from flask_login import login_required, current_user
 from extensions import db
 from sqlalchemy import and_, or_, func, distinct, cast, literal, String, case
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import joinedload
 
 from . import api_bp, logger, ProductionItem, ProductionError, get_local_now
@@ -1276,6 +1277,56 @@ def _zablokuj_zamowienia_i_pozycje(product_ids):
     return zamowienia, sorted(pozycje, key=lambda p: p.id)
 
 
+def _zapisz_zmiane_statusu(product_ids, nowy_status, user_id):
+    """
+    Cały zapis hurtowej zmiany statusu w jednej transakcji: blokady (`_zablokuj_zamowienia_i_pozycje`), pętla
+    statusów, reguła unieważniania etapów z przeliczeniem zamknięcia i commit. Zwraca słownik odpowiedzi
+    (`results`) albo None, gdy po blokadzie nie ma żadnej z zaznaczonych pozycji (wołający odpowiada 404).
+
+    Wynik liczy się od zera przy każdym wywołaniu, a zablokowane zamówienia trzyma lokalna lista do końca decyzji
+    (silne referencje), więc funkcję wolno wywołać drugi raz po rollbacku: jedno ponowienie po zakleszczeniu 1213,
+    patrz `bulk_action`. `user_id` podaje wołający, pobrany przed pierwszą próbą: po rollbacku `current_user.id`
+    byłby zwykłym SELECT-em, czyli odczytem spoza blokad.
+    """
+    # Ręczna zmiana statusu może zamknąć albo otworzyć cykl logistyczny zamówienia.
+    from modules.production.logistics.services.delivery import przelicz_zamkniecie
+    from modules.production.logistics.services import weryfikacja
+    zamowienia, products = _zablokuj_zamowienia_i_pozycje(product_ids)
+    if not products:
+        return None
+
+    results = {
+        'success': True,
+        'action': 'update_status',
+        'processed_count': 0,
+        'failed_count': 0,
+        'errors': []
+    }
+
+    for product in products:
+        try:
+            if nowy_status and hasattr(ProductionItem, 'current_status'):
+                product.current_status = nowy_status
+                results['processed_count'] += 1
+        except Exception as e:
+            logger.error(f"Błąd bulk action dla produktu {product.id}", extra={'error': str(e)})
+            results['errors'].append(f'Błąd produktu {product.id}: {str(e)}')
+            results['failed_count'] += 1
+
+    teraz = get_local_now()
+    # Stała kolejność (rosnące id): reguła unieważniania zapisuje wiersz zamówienia i bierze
+    # blokady paczek, więc dwa równoległe zapisy na nakładających się zamówieniach muszą
+    # brać je w tej samej kolejności — inaczej zakleszczenie (MySQL 1213). `zamowienia` to wynik
+    # blokady (rosnąco po id, ze składem z odczytu bieżącego): decyzja nie czyta zamówień od nowa.
+    for zamowienie in zamowienia:
+        # Pozycja cofnięta do produkcji unieważnia paczki, weryfikację i załadunek zamówienia.
+        weryfikacja.uniewaznij_etapy(zamowienie, teraz, u'zmiana statusu w panelu', user_id=user_id)
+        przelicz_zamkniecie(zamowienie)
+
+    db.session.commit()
+    return results
+
+
 @api_bp.route('/products/bulk-action', methods=['POST'])
 @login_required
 def bulk_action():
@@ -1338,81 +1389,78 @@ def bulk_action():
                         nowy_status, sorted(dozwolone_statusy))
                 }), 400
 
-        # Pobierz produkty. Zmiana statusu może zmienić zamówienie (reguła uniewaznij_etapy), więc najpierw
-        # blokujemy zamówienia, potem pozycje, obie listy bieżącym odczytem (patrz _zablokuj_zamowienia_i_pozycje).
-        # `zamowienia` trzymamy do końca decyzji niżej (silne referencje do zablokowanych obiektów).
-        zamowienia = []
+        # PRZED pierwszą próbą zapisu i przed jakimkolwiek commitem albo rollbackiem: po nich `current_user.id`
+        # byłby zwykłym SELECT-em (obiekty sesji wygasają), czyli odczytem spoza blokad.
+        user_id = current_user.id
+
         if action == 'update_status':
-            zamowienia, products = _zablokuj_zamowienia_i_pozycje(product_ids)
+            # Zmiana statusu może zmienić zamówienie (reguła uniewaznij_etapy), więc zapis blokuje najpierw
+            # zamówienia, potem pozycje, obie listy bieżącym odczytem (patrz _zablokuj_zamowienia_i_pozycje).
+            # Jedno automatyczne ponowienie po zakleszczeniu MySQL 1213, tym samym wzorem co zmiana sposobu
+            # dostawy w panelu Logistyki: ścieżki spoza zasady „zamówienie najpierw” (ręczna synchronizacja
+            # z force_update dopisuje pozycje bez blokady zamówienia) mogą rzadko zakleszczyć hurt. Żądanie jest
+            # bezpieczne do powtórzenia: nowy status jest jawny w ciele, a druga próba blokuje zamówienia od
+            # nowa i decyduje na stanie spod nowych blokad. Wynik liczy się od zera w każdej próbie. Drugie
+            # 1213 i każdy inny błąd idą dalej do `except Exception` niżej (rollback i 500).
+            try:
+                results = _zapisz_zmiane_statusu(product_ids, nowy_status, user_id)
+            except OperationalError as e:
+                if blokady_zamowien.kod_mysql(e) != 1213:
+                    raise
+                db.session.rollback()
+                logger.warning("Hurtowa zmiana statusu: zakleszczenie 1213, ponawiam raz", extra={
+                    'user_id': user_id, 'product_count': len(product_ids)})
+                results = _zapisz_zmiane_statusu(product_ids, nowy_status, user_id)
+            if results is None:
+                return jsonify({'success': False, 'error': 'Nie znaleziono produktów'}), 404
         else:
             products = ProductionItem.query.filter(ProductionItem.id.in_(product_ids)).all()
-        
-        if not products:
-            return jsonify({'success': False, 'error': 'Nie znaleziono produktów'}), 404
-        
-        results = {
-            'success': True,
-            'action': action,
-            'processed_count': 0,
-            'failed_count': 0,
-            'errors': []
-        }
-        
-        # Wykonaj akcję na każdym produkcie
-        for product in products:
-            try:
-                if action == 'update_status':
-                    new_status = parameters.get('new_status')
-                    if new_status and hasattr(ProductionItem, 'current_status'):
-                        product.current_status = new_status
-                        results['processed_count'] += 1
-                
-                elif action == 'update_priority':
-                    new_priority = parameters.get('new_priority')
-                    if new_priority is not None:
-                        product.priority_rank = int(new_priority)
-                        results['processed_count'] += 1
-                
-                elif action == 'delete':
-                    # Tylko admin może usuwać
-                    if not (hasattr(current_user, 'role') and current_user.role.lower() in ['admin', 'administrator']):
-                        results['errors'].append(f'Brak uprawnień do usunięcia produktu {product.id}')
-                        results['failed_count'] += 1
-                        continue
-                    
-                    db.session.delete(product)
-                    results['processed_count'] += 1
-                
-                elif action == 'export':
-                    # Export będzie obsłużony w osobnym endpoincie
-                    results['processed_count'] += 1
-                
-            except Exception as e:
-                logger.error(f"Błąd bulk action dla produktu {product.id}", extra={'error': str(e)})
-                results['errors'].append(f'Błąd produktu {product.id}: {str(e)}')
-                results['failed_count'] += 1
-        
-        if action == 'update_status':
-            # Ręczna zmiana statusu może zamknąć albo otworzyć cykl logistyczny zamówienia.
-            from modules.production.logistics.services.delivery import przelicz_zamkniecie
-            from modules.production.logistics.services import weryfikacja
-            teraz = get_local_now()
-            # Stała kolejność (rosnące id): reguła unieważniania zapisuje wiersz zamówienia i bierze
-            # blokady paczek, więc dwa równoległe zapisy na nakładających się zamówieniach muszą
-            # brać je w tej samej kolejności — inaczej zakleszczenie (MySQL 1213). `zamowienia` to wynik
-            # blokady (rosnąco po id, ze składem z odczytu bieżącego): decyzja nie czyta zamówień od nowa.
-            for zamowienie in zamowienia:
-                # Pozycja cofnięta do produkcji unieważnia paczki, weryfikację i załadunek zamówienia.
-                weryfikacja.uniewaznij_etapy(zamowienie, teraz, u'zmiana statusu w panelu',
-                                             user_id=current_user.id)
-                przelicz_zamkniecie(zamowienie)
 
-        # Zapisz zmiany dla akcji modyfikujących
-        if action in ['update_status', 'update_priority', 'delete']:
-            db.session.commit()
-        
+            if not products:
+                return jsonify({'success': False, 'error': 'Nie znaleziono produktów'}), 404
+
+            results = {
+                'success': True,
+                'action': action,
+                'processed_count': 0,
+                'failed_count': 0,
+                'errors': []
+            }
+
+            # Wykonaj akcję na każdym produkcie
+            for product in products:
+                try:
+                    if action == 'update_priority':
+                        new_priority = parameters.get('new_priority')
+                        if new_priority is not None:
+                            product.priority_rank = int(new_priority)
+                            results['processed_count'] += 1
+
+                    elif action == 'delete':
+                        # Tylko admin może usuwać
+                        if not (hasattr(current_user, 'role') and current_user.role.lower() in ['admin', 'administrator']):
+                            results['errors'].append(f'Brak uprawnień do usunięcia produktu {product.id}')
+                            results['failed_count'] += 1
+                            continue
+
+                        db.session.delete(product)
+                        results['processed_count'] += 1
+
+                    elif action == 'export':
+                        # Export będzie obsłużony w osobnym endpoincie
+                        results['processed_count'] += 1
+
+                except Exception as e:
+                    logger.error(f"Błąd bulk action dla produktu {product.id}", extra={'error': str(e)})
+                    results['errors'].append(f'Błąd produktu {product.id}: {str(e)}')
+                    results['failed_count'] += 1
+
+            # Zapisz zmiany dla akcji modyfikujących (update_status commituje w _zapisz_zmiane_statusu)
+            if action in ['update_priority', 'delete']:
+                db.session.commit()
+
         logger.info("Bulk action wykonana", extra={
-            'user_id': current_user.id,
+            'user_id': user_id,
             'action': action,
             'product_count': len(product_ids),
             'processed': results['processed_count'],

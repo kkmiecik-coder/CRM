@@ -420,3 +420,20 @@ def test_cron_zapisuje_dostarcz_wydane_mimo_bledu_pozniejszej_fazy(app, client, 
     db.session.expire_all()
     assert [p.current_status for p in db.session.get(ProductionOrder, order_id).products] == ['dostarczone']
     assert ProductionConfig.query.filter_by(config_key=delivery.KLUCZ_WYDANE_DOSTARCZONE).count() == 1
+
+
+# --- kod_mysql: kod błędu MySQL z OperationalError (jedno ponowienie hurtu po 1213) ----------------------------
+
+def test_kod_mysql_zwraca_kod_z_orig():
+    from sqlalchemy.exc import OperationalError
+    blad = OperationalError('UPDATE prod_orders SET ...', {}, Exception(1213, 'Deadlock found'))
+    assert blokady_zamowien.kod_mysql(blad) == 1213
+
+
+@pytest.mark.parametrize('blad', [
+    ValueError('to nie błąd bazy'),                           # brak `orig`
+    type('Bez', (Exception,), {'orig': None})(),              # `orig` pusty
+    type('Pusty', (Exception,), {'orig': Exception()})(),     # `orig` bez argumentów
+])
+def test_kod_mysql_bez_kodu_zwraca_none(blad):
+    assert blokady_zamowien.kod_mysql(blad) is None
