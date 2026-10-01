@@ -111,9 +111,11 @@ Prefiks `/api/mobile/delivery`. Wszystkie: `Authorization: Bearer <JWT urządzen
 | 2 | Task 2 (statusy tras w istniejącym backendzie) | — |
 | 3 | Task 3 (załadunek w serwisie) | — |
 | 4 | Task 4 (dostarczenia, reguła transportu, odhaczenie) | — |
-| 5 | Task 5 (API panelu tras) | Task 6 (API telefonu) — `…-b6`, `-p logistyka4-b6`, baza = commit Task 4 |
-| 6 | Task 7 (front, frontend-design) — po scaleniu Task 5 | (Task 6 trwa albo już scalony; pełne pakiety nigdy naraz) |
-| 7 | Task 8 (MySQL, oględziny, spec) | — |
+| 5 | Task 5 (API panelu tras) | Task 6 (API telefonu) — `…-b6`, `-p logistyka4-b6`, baza = commit Task 4; Task 7 (front) — `…-b7`, `-p logistyka4-b7`, baza = commit Task 4, pisany według kontraktu z Task 5 (pola `postep`, `zaladowana`, `wyjazd`, `odhaczona_w_panelu`, `zamowienie.dostawa`, endpointy `/unload` i `/stops/<oid>/undo-delivered`); skrypt wyścigów Task 8 (`_dostawa_wyscigi.py` poza repo) — przygotowany z wyprzedzeniem według kontraktu, uruchamiany dopiero w Task 8 |
+| 6 | scalenie Task 6 i Task 7 cherry-pickiem po Task 5 (Task 7: oględziny na żywym API dopiero po scaleniu) | — |
+| 7 | Task 8 (MySQL — tylko odpalenie przygotowanych serii, oględziny, spec) | — |
+
+Przegląd zadania N idzie równolegle z implementerem N+1 (pliki rozłączne). Testy celowane mogą iść w kilku torach naraz; pełne pakiety — najwyżej dwa naraz w całym systemie (po poprawce pamięci pakietu, f8658ffa); wyścigi MySQL tylko na 5004, seria po serii.
 
 ## Mapa plików
 
@@ -1706,10 +1708,12 @@ def zakoncz_zaladunek(route, worker_id=None, device_id=None, teraz=None):
                 'loaded': len(na_aucie), 'total': len(aktualne)}
         if not aktualne:
             braki.append(dict(wpis, reason='bez_paczek'))
+        elif any(p.current_status != 'zweryfikowane' for p in aktywne):
+            # Przed brakami załadunku: cofnięta weryfikacja czyści znaczniki załadunku, a kierowcy ważniejsze jest,
+            # że tego zamówienia w ogóle nie załaduje (skan dostanie order_not_verified).
+            braki.append(dict(wpis, reason='niezweryfikowane'))
         elif len(na_aucie) < len(aktualne):
             braki.append(dict(wpis, reason='niezaladowane'))
-        elif any(p.current_status != 'zweryfikowane' for p in aktywne):
-            braki.append(dict(wpis, reason='niezweryfikowane'))
         else:
             zaladowane.append(order)
     if braki:
@@ -3651,6 +3655,8 @@ git commit -m "feat(production): API telefonu kierowcy - moje trasy, zaladunek, 
 ---
 
 ### Task 7: Front panelu tras i listy Logistyki (frontend-design)
+
+**Tor równoległy** z Task 5 (i Task 6): worktree `.claude/worktrees/logistyka-etap-4-b7`, gałąź `claude/logistyka-etap-4-b7` z commita Task 4, projekt dockera `logistyka4-b7`; kod według kontraktu z Task 5 (Interfaces niżej). W torze tylko testy celowane (Step 9 bez oględzin); oględziny i pełny pakiet (Step 10) po scaleniu cherry-pickiem do głównego worktree, gdy Task 5 jest już scalony.
 
 **REQUIRED SUB-SKILL:** `frontend-design:frontend-design` — w istniejącym stylu zakładek (tokeny `--lg-*`, klasy `lg-*`, ikony Font Awesome z `static/vendor`), dostęp z klawiatury, bez animacji przy `prefers-reduced-motion`. Sprawdź, że użyte ikony są w wersji Font Awesome dołączonej do repo (grep w `static/vendor`); brakującą zastąp istniejącą.
 
