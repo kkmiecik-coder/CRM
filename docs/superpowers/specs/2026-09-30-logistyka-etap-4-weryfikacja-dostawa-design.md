@@ -509,6 +509,34 @@ zmianie sposobu na takim zamówieniu (select w wierszu, dymek mapy, hurt):
   z `kod: "wymaga_przepakowania"`. Stary front (karta otwarta w czasie wdrożenia) pokazuje to jako zwykłą odmowę z
   komunikatem. Decyzja zapada pod blokadą tras i blokadami wierszy zamówień (rosnąco po id), na migawce utworzonej po
   tych blokadach; pozycji panel nie blokuje przed zamówieniem (stanowiska biorą pozycję przed zamówieniem).
+- **Odstępstwa z realizacji** (1.10.2026):
+  - Panel nie bierze blokady deklaracji paczek (`paczki.zablokuj_deklaracje`): wiersz zamówienia `FOR UPDATE`
+    serializuje go z Weryfikacją i deklaracją, bo obie biorą zamówienie przed paczkami.
+  - Pole `przepakowanie` poza `true`, `false`, `null` i brakiem pola daje 422 „Pole przepakowanie musi mieć wartość
+    true albo false.” (`1`, `"tak"`, `[]` nie przechodzą za decyzję).
+  - API tabletów (zmiana względem 8.4): `transport.repack_required` jest prawdziwe tylko przy przepakowaniu na
+    kuriera. Baner „Logistyka: …” i „Weryfikacja: …” idzie wyłącznie jako `transport.repack_reason`, bo stara appka
+    (1.6.4) pokazuje baner przy samym `repack_required` i wyświetlałaby błędne „PRZEPAKUJ NA KURIERA”. Skutek:
+    stara appka nie pokaże banera z innego powodu niż kurier, nowa pokazuje go z `repack_reason`.
+  - Powód reguły unieważniania etapów to „cofnięcie do pakowania z panelu” także dla dawnego automatycznego
+    przepakowania na kuriera (wcześniej „przepakowanie na kuriera”); zmienia się tylko notatka w logach `paczki` i
+    `weryfikacja_cofnieta` oraz komunikat wygaszonego zadania druku.
+  - „Nie ustawiono” z cofnięciem do pakowania zostawia `repack_required = 1`, baner „Logistyka: sposób dostawy do
+    ustalenia” i sposób NULL; tablet odmawia pakowania (409 `delivery_method_not_set`) do ustawienia sposobu.
+  - Front: ikona wiersza i legenda mówią „wróciło do pakowania, czeka na ponowne spakowanie” (`repack_required`
+    ustawia teraz każda zmiana z cofnięciem, nie tylko przepakowanie na kuriera); fokus startowy okna jest na „Anuluj”,
+    żeby Enter nie cofnął zamówienia przypadkiem; zamówienie z hurtu, które już ma docelowy sposób, nie dostaje okna
+    (serwer odpowie „bez zmian”); gdy dane w przeglądarce są starsze niż serwer (zamówienie spakowano po odświeżeniu
+    listy), odmowa `wymaga_decyzji_przepakowania` otwiera okno, a wysyłka idzie jeszcze raz (tylko raz). Komunikaty
+    wyniku: „Zamówienie {nr} wraca do pakowania.”, „Wracają do pakowania: {numery}.”, „Pominięto (wymagają cofnięcia
+    do pakowania): {numery}.”, „Anulowano zmianę sposobu dostawy: {numery}.”.
+- **Współbieżność** (wyścigi na dwóch sesjach MySQL, kopia produkcji, 1.10.2026): zmiana sposobu z
+  `przepakowanie=true` kontra ponowne „ZAKOŃCZ” zamówienia w całości spakowanego, deklaracja paczek, weryfikacja
+  ostatniej paczki z telefonu i hurt dwóch zamówień kontra cron logistyki, po 62 przebiegi każdy (czysta bariera i
+  rozjazd startu 0–40 ms oraz 0–15 ms), nie dały ani jednego 1213, odpowiedzi 500 ani ważnej paczki na cofniętym
+  zamówieniu, a jedyne zakleszczenie to dosłowne ostatnie „ZAKOŃCZ” na zamówieniu spakowanym w połowie przy zmianie z
+  kuriera na odbiór (11 z 62 przebiegów: „ZAKOŃCZ” zamykające cykl kuriera bierze pozycję przed zamówieniem, a panel
+  zamówienie przed pozycją; panel jest ofiarą, ponowienie przechodzi, stan spójny; poprawka do decyzji Konrada).
 
 ## 9. Krok 4.4 — Dostawa
 
