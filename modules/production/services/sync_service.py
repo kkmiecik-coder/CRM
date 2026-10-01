@@ -2612,6 +2612,8 @@ class BaselinkerSyncService:
         """
         from ..models import ProductionItem, ProductionOrder
         from .parser_service import ProductNameParser
+        from modules.production.logistics.services import delivery
+        from .blokady_zamowien import zablokuj_zamowienie
 
         result = {
             'success': False,
@@ -2624,6 +2626,17 @@ class BaselinkerSyncService:
 
         try:
             parser = ProductNameParser()
+
+            # „Zamówienie najpierw” (logistyka etap 4, krok 4.4a). Zamówienie z Base. (pełne dane nowych pozycji)
+            # pobieramy PRZED blokadami: wywołanie HTTP trwa do kilkudziesięciu sekund, a tablety czekałyby na wiersz
+            # zamówienia dłużej niż timeout gunicorna (30 s). Potem wiersz zamówienia i wszystkie jego pozycje
+            # blokujemy odczytem bieżącym, zanim usuniemy, zmienimy albo dodamy pozycję — w kolejności panelu
+            # Logistyki, Weryfikacji i stanowisk.
+            bl_order = (self.get_order_from_baselinker(baselinker_order_id)
+                        if changes.get('products_to_add') else None)
+            zamowienie_id = (db.session.query(ProductionOrder.id)
+                             .filter(ProductionOrder.baselinker_order_id == baselinker_order_id).scalar())
+            zamowienie = zablokuj_zamowienie(zamowienie_id) if zamowienie_id is not None else None
 
             # 1. Usuń produkty
             for product_to_remove in changes.get('products_to_remove', []):
@@ -2682,8 +2695,7 @@ class BaselinkerSyncService:
 
             # 3. Dodaj nowe produkty
             if changes.get('products_to_add'):
-                # Pobierz zamówienie z BL dla pełnych danych
-                bl_order = self.get_order_from_baselinker(baselinker_order_id)
+                # Zamówienie z Base. pobrane na początku metody, przed blokadami.
                 if bl_order:
                     # Pobierz istniejący produkt z tego zamówienia dla kontekstu
                     existing_product = ProductionItem.query.join(ProductionOrder).filter(
@@ -2731,7 +2743,10 @@ class BaselinkerSyncService:
                                     'original_product_name': bl_product.get('name', ''),
                                     'quantity': bl_product.get('quantity', 1),
                                     'current_status': 'czeka_na_wyciecie',
-                                    'sync_source': 'admin_update',
+                                    # sync_source zamówienia zostaje bez zmian (decyzja Konrada 1.10): kolumna to
+                                    # ENUM('baselinker_auto','manual_entry'), a 'admin_update' wywracało na MySQL całą
+                                    # operację (1265). _create_production_product_from_data przepisuje na zamówienie
+                                    # klucze z ORDER_LEVEL_KEYS, więc samo pominięcie klucza wystarcza.
                                     'client_name': existing_product.order.client_name if existing_product.order else None,
                                     'client_email': existing_product.order.client_email if existing_product.order else None,
                                     'client_phone': existing_product.order.client_phone if existing_product.order else None,
@@ -2773,10 +2788,8 @@ class BaselinkerSyncService:
                 if result['added']:
                     # Logistyka etap 4 (spec 8.5): nowa pozycja z Base. w zamówieniu z paczkami albo
                     # weryfikacją — jedna reguła unieważnia etapy. Nowe pozycje mają tylko order_id,
-                    # więc kolekcję pozycji zamówienia czytamy od nowa.
+                    # więc kolekcję pozycji zamówienia czytamy od nowa. `zamowienie` — zablokowane na początku.
                     from modules.production.logistics.services import weryfikacja
-                    zamowienie = ProductionOrder.query.filter_by(
-                        baselinker_order_id=baselinker_order_id).first()
                     if zamowienie is not None:
                         db.session.flush()
                         db.session.expire(zamowienie, ['products'])
@@ -2803,6 +2816,14 @@ class BaselinkerSyncService:
                     'order_id': baselinker_order_id,
                     'fields_updated': [c['field'] for c in changes['order_level']]
                 })
+
+            # Pozycje mogły zniknąć albo dojść — cykl logistyczny przeliczamy od razu (krok 4.4a). Dotąd zamknięte
+            # zamówienie kurierskie z nową pozycją czekało na godzinny cron, a usunięcie ostatniej niespakowanej
+            # pozycji w ogóle nie zamykało cyklu.
+            if zamowienie is not None:
+                db.session.flush()
+                db.session.expire(zamowienie, ['products'])
+                delivery.przelicz_zamkniecie(zamowienie)
 
             db.session.commit()
             result['success'] = True

@@ -2,7 +2,8 @@
 Service: reject sztuk produktu z aktualnego stanowiska (formatowanie i wszystkie
 stanowiska za nim: sklejanie, krawędzie, lakiernia, pakowanie).
 Tworzy rekord doróbki w prod_products, decrementuje quantity oryginału,
-zapisuje wpis w prod_rework_log. Wszystko w jednej transakcji z SELECT ... FOR UPDATE.
+zapisuje wpis w prod_rework_log. Wszystko w jednej transakcji z blokadą zamówienia
+i jego pozycji (SELECT ... FOR UPDATE, „zamówienie najpierw” — services/blokady_zamowien.py).
 """
 from __future__ import annotations
 
@@ -16,6 +17,7 @@ from modules.production.models import (
     get_local_now,
 )
 from modules.production.services.station_catalog import STATION_PENDING_STATUS
+from modules.production.services.blokady_zamowien import zablokuj_zamowienie_pozycji
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +105,8 @@ def reject_product_quantity(
     Wykonuje reject `quantity` sztuk z `product_id` na stanowisku `rejected_at_station`.
 
     Zwraca: (oryginał_po_update, doróbka, wpis_w_rework_log).
-    Cały flow w jednej transakcji z SELECT ... FOR UPDATE na oryginale.
+    Cały flow w jednej transakcji: najpierw blokada zamówienia oryginału i wszystkich jego pozycji
+    (odczyt bieżący, krok 4.4a logistyki), dopiero potem sprawdzenia i zapisy.
 
     worker_ids: profile wybrane na tablecie (nagłówek X-Worker-Ids). Doróbka NIE
     generuje eventu stanowiskowego — nie woła set_quantity_done() — więc nie ma
@@ -130,13 +133,12 @@ def reject_product_quantity(
             f'cofać można tylko z: {sorted(VALID_REJECT_STATIONS)}'
         )
 
-    # Pesymistyczna blokada wiersza oryginału
-    original: ProductionProduct | None = (
-        db.session.query(ProductionProduct)
-        .filter(ProductionProduct.id == product_id)
-        .with_for_update()
-        .one_or_none()
-    )
+    # „Zamówienie najpierw” (logistyka etap 4, krok 4.4a): wiersz zamówienia oryginału, potem wszystkie jego
+    # pozycje — blokada i odczyt bieżący, zanim cokolwiek sprawdzimy i zapiszemy. Ta sama kolejność co panel
+    # Logistyki, Weryfikacja i ZAKOŃCZ. Dotąd doróbka blokowała samą pozycję, a zamówienie brała dopiero reguła
+    # unieważniania etapów (1213 z zapisem Weryfikacji, spec 8.3 „Współbieżność”); sprawdzenie stanowiska
+    # decyduje teraz na bieżącym statusie, także gdy pozycja była już wczytana do sesji.
+    original: ProductionProduct | None = zablokuj_zamowienie_pozycji(product_id)
     if original is None:
         raise RejectError('product_not_found', f'product {product_id} nie istnieje', status=404)
 
