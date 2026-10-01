@@ -368,11 +368,13 @@ def problem_otwarty(order):
 def sprawdz_zakres(order, teraz):
     """
     Zapis Weryfikacji tylko na zamówieniu z zakresu listy (fala końcowa kroku 4.3). Wołana w każdym
-    zapisie poza `rozwiaz_problem`, PO blokadach i PO sprawdzeniach stanu (`stan_do_zapisu`,
+    zapisie poza `rozwiaz_problem` (oraz w deklaracji paczek z telefonu Weryfikacji —
+    `paczki._sprawdz_zakres_telefonu`), PO blokadach i PO sprawdzeniach stanu (`stan_do_zapisu`,
     `problem_open`, `no_packages`, `order_not_verified` — bardziej konkretny kod wygrywa), tuż przed
     pierwszym FAKTYCZNYM zapisem: przebieg, który niczego by nie zmienił (ponowny skan sprawdzonej
-    paczki, „Zweryfikuj wszystkie” na już zweryfikowanym), zakresu nie sprawdza i daje 200 bez zmian. Bez niej „Cofnij do pakowania” na zamówieniu kurierskim sprzed miesięcy
-    wysłałoby do Base. status 138620, otworzyło je w Logistyce i dało tabletom pakowania.
+    paczki, „Zweryfikuj wszystkie” na już zweryfikowanym), zakresu nie sprawdza i daje 200 bez zmian.
+    Bez tej kontroli „Cofnij do pakowania” na zamówieniu kurierskim sprzed miesięcy wysłałoby do Base.
+    status 138620, otworzyło je w Logistyce i dało tabletom pakowania.
 
     Zakres = `warunek_zakresu(teraz)` (zamówienie otwarte w Logistyce albo z pozycją spakowaną od
     `poczatek_okna(teraz)`) ALBO otwarty problem (`order.problem_at`, z obiektu już zablokowanego i
