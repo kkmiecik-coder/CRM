@@ -26,6 +26,7 @@ from modules.production.models import (
     ProductionReworkLog, ProductionStationEvent, ProductionWorker, ProductionWorkerSession,
 )
 from modules.production.logistics.models import LogisticsLog, OrderGeo, Route, RouteStop, Vehicle
+from modules.production.logistics.services import bl_sync as _bl_sync
 from modules.users.models import User
 from modules.calculator.models import Multiplier  # noqa: F401
 from modules.clients.models import Client  # noqa: F401
@@ -53,6 +54,8 @@ TABLES = [m.__table__ for m in (
 ProductionOrder.__table__.c.shipping_label_base64.type = db.Text()
 
 _licznik = itertools.count(1)
+# Prawdziwy start wątku dopychacza Base. — fikstura `app` podmienia tylko jego (patrz komentarz w `app`).
+_URUCHOM_W_TLE = _bl_sync.uruchom_w_tle
 
 
 @pytest.fixture()
@@ -62,6 +65,13 @@ def app(monkeypatch):
                         lambda *a, **k: (lambda f: f))
     from modules.production.logistics.services import routes as uslugi_tras
     monkeypatch.setattr(uslugi_tras, 'dzis', lambda: DZIS_TESTOW)
+    # Zapisy logistyki (panel tras, telefony) planują dopychacz Base. po commicie: bl_sync.po_zmianie →
+    # uruchom_w_tle. Prawdziwy wątek dopychacza pracowałby w testach na tym samym połączeniu StaticPool co test
+    # i losowo psuł jego transakcję — podmieniamy sam start wątku. po_zmianie i lista w `g` działają jak dotąd.
+    # Tylko gdy nikt go jeszcze nie podmienił: fikstura pliku testów, która liczy starty, mogła zrobić to
+    # wcześniej (autouse bez zależności od `app`); późniejsze podmiany i tak wygrywają.
+    if _bl_sync.uruchom_w_tle is _URUCHOM_W_TLE:
+        monkeypatch.setattr(_bl_sync, 'uruchom_w_tle', lambda app_: True)
 
     app = Flask(__name__)
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite://'
