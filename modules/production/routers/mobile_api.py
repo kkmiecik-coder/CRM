@@ -430,7 +430,8 @@ def order_complete(order_id):
     Pełna tranzycja statusu (z regułami specjalnymi: Lakiernia dla
     olejowanych i lakierowanych, pominięcie Krawędzi dla produktów BEZ
     obróbki krawędzi — niezależnie od wykończenia) jest delegowana do
-    `ProductionItem.complete_task()` — tej samej metody, której używa web.
+    `ProductionItem.complete_task()` (przez `mark_order_complete`). Webowy
+    handler `/production/api/complete-task` już nie istnieje.
 
     Idempotency: przy nagłówku X-Operation-Id powtórne wywołanie zwraca
     zapisany response (nie wykonuje akcji drugi raz).
@@ -990,15 +991,18 @@ def mobile_print_labels_for_order(baselinker_order_id):
     if not items:
         return jsonify({'success': False, 'message': 'Brak produktów w zamówieniu.'}), 404
 
-    # „Zamówienie najpierw” (logistyka etap 4, krok 4.4a): w trybie agenta druk zapisuje liczniki wydrukowanych
+    # „Zamówienie najpierw” (logistyka etap 4, krok 4.4a), TYLKO w trybie agenta (LABEL_PRINTER_USE_AGENT, ten
+    # sam warunek, którym print_labels_batch wybiera tryb). W trybie agenta druk zapisuje liczniki wydrukowanych
     # sztuk pozycja po pozycji (flush), w kolejności numeracji etykiet (product_sequence_in_order). Doróbka
-    # kopiuje sekwencję oryginału, więc ta kolejność nie jest kolejnością id, w której ZAKOŃCZ blokuje
-    # pozycje — bez wspólnej blokady zamówienia to cykl (MySQL 1213). Blokujemy więc zamówienie i wszystkie
-    # jego pozycje, zanim cokolwiek zapiszemy. Kolejność druku etykiet zostaje bez zmian (short_ids niżej
-    # z `items`). W trybie TCP (agent wyłączony) blokady trwają przez cały druk po sieci: przy niedostępnej
-    # drukarce do (retry_count + 1) × timeout_seconds, domyślnie ok. 6 s; w trybie agenta druk to tylko
-    # wstawienie zadań do kolejki.
-    blokady_zamowien.zablokuj_zamowienie(items[0].order_id)
+    # kopiuje sekwencję oryginału, więc ta kolejność nie jest kolejnością id, w której ZAKOŃCZ blokuje pozycje —
+    # bez wspólnej blokady zamówienia to cykl (MySQL 1213). Blokujemy więc zamówienie i wszystkie jego pozycje,
+    # zanim cokolwiek zapiszemy; kolejność druku etykiet zostaje bez zmian (short_ids niżej z `items`).
+    # W trybie TCP cyklu nie ma: pętla druku nie robi zapytań, więc zapisy pozycji idą w końcowym commicie,
+    # w kolejności klucza głównego, czyli rosnąco jak w ZAKOŃCZ. Blokada trzymana przez druk po sieci (przy
+    # niedostępnej drukarce do (retry_count + 1) × timeout_seconds, domyślnie ok. 6 s) tylko wstrzymywałaby
+    # ZAKOŃCZ tego zamówienia.
+    if label_print_service._load_config()['use_agent']:
+        blokady_zamowien.zablokuj_zamowienie(items[0].order_id)
 
     short_ids = [i.short_product_id for i in items]
     try:

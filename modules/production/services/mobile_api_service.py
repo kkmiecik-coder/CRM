@@ -5,8 +5,9 @@ Obsługuje warstwę logiki dla blueprintu mobile_api_bp (natywna appka Android).
 Router (`routers/mobile_api.py`) powinien być cienki — walidacja wejścia
 i wywołanie funkcji z tego modułu.
 
-Tranzycje statusu deleguje do `ProductionItem.complete_task()` — tej samej
-metody modelu, której używa web-handler `/production/api/complete-task`.
+Tranzycje statusu deleguje do `ProductionItem.complete_task()` (w kodzie
+produkcyjnym woła ją tylko `mark_order_complete` z tego modułu). Webowy handler
+`/production/api/complete-task` został usunięty razem z panelami webowymi stanowisk.
 """
 
 import ipaddress

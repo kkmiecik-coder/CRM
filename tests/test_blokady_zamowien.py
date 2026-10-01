@@ -23,7 +23,7 @@ from modules.production.logistics.services import delivery
 from modules.production.models import (
     LabelPrintJob, ProductionConfig, ProductionDevice, ProductionOrder, ProductionProduct)
 from modules.production.routers import mobile_api
-from modules.production.services import blokady_zamowien
+from modules.production.services import blokady_zamowien, label_print_service
 from modules.production.services.mobile_api_service import generate_token
 from tests.blokady_pomocnicze import Zapytania, blokada_pozycji, blokada_zamowien, zapis
 from tests.logistyka_fixtures import BASE, SEKRET_CRONA, app, client, produkt, zamowienie  # noqa: F401
@@ -87,6 +87,22 @@ def _migawka_przed_zapisem(monkeypatch, order_id, zamowienie_w_bazie=None, pozyc
 def _po_zadaniu(order_id):
     db.session.expire_all()
     return db.session.get(ProductionOrder, order_id)
+
+
+class _AtrapaDrukarki(object):
+    """Gniazdo TCP drukarki bez sieci: zapamiętuje etykiety i to, ile zapytań do bazy poszło do chwili wysyłki."""
+
+    def __init__(self, zapytania):
+        self.etykiety = []
+        self.zapytania_przy_wysylce = []
+        self._zapytania = zapytania
+
+    def sendall(self, dane):
+        self.etykiety.append(dane)
+        self.zapytania_przy_wysylce.append(len(self._zapytania.lista))
+
+    def close(self):
+        pass
 
 
 # --- Moduł blokad ---------------------------------------------------------------------------------------
@@ -250,6 +266,30 @@ def test_druk_etykiet_zamowienia_blokuje_zamowienie_i_pozycje_przed_zapisem(app,
     assert sorted(z.lista[blokada][1]) == wszystkie
     zadania = LabelPrintJob.query.order_by(LabelPrintJob.id).all()
     assert [k for k, _ in itertools.groupby(j.short_product_id for j in zadania)] == kolejnosc_druku
+
+
+def test_druk_etykiet_zamowienia_w_trybie_tcp_nie_blokuje_zamowienia(app, client, monkeypatch):
+    """Tryb TCP (LABEL_PRINTER_USE_AGENT wyłączone, domyślny): pętla druku nie robi zapytań, więc zapisy pozycji idą
+    w końcowym commicie, w kolejności klucza głównego (jak blokuje ZAKOŃCZ) — cyklu nie ma. Blokada trzymana przez
+    druk po sieci (przy niedostępnej drukarce do ok. 6 s) tylko wstrzymywałaby ZAKOŃCZ tego zamówienia, więc
+    w tym trybie jej nie bierzemy."""
+    order = zamowienie(statusy=())
+    produkt(order, status='czeka_na_pakowanie', sekwencja=3)
+    produkt(order, status='czeka_na_pakowanie', sekwencja=1)
+    produkt(order, status='czeka_na_pakowanie', sekwencja=2)
+    db.session.commit()
+    bl_id = order.baselinker_order_id
+    naglowki = _naglowki()
+    z = Zapytania()
+    drukarka = _AtrapaDrukarki(z)
+    monkeypatch.setattr(label_print_service, '_open_printer_socket', lambda cfg: drukarka)
+    with z:
+        r = client.post('/api/mobile/orders/%d/print-labels' % bl_id, headers=naglowki)
+    assert r.status_code == 200 and r.get_json()['success_count'] == 3, r.get_data()[:300]
+    assert len(drukarka.etykiety) == 6  # 3 pozycje po 2 sztuki, wysłane do (atrapy) drukarki
+    assert not [sql for sql, _ in z.lista if blokada_zamowien(sql) or blokada_pozycji(sql)]
+    # zapisy pozycji dopiero po wysyłce do drukarki (końcowy commit), nie w trakcie druku
+    assert max(drukarka.zapytania_przy_wysylce) <= z.pierwsze(zapis)
 
 
 # --- Cron: przeniesienie osieroconych ---------------------------------------------------------------------
