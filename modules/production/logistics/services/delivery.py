@@ -650,8 +650,8 @@ def przelicz_otwarte(teraz=None):
     # warunki są wąskie i nie ma pełnego przeglądu zamkniętych.
     # ZAWĘŻENIE (wymóg centrali): tylko zamknięcia PO wdrożeniu 4.3, ściśle później niż znacznik
     # logistyka_weryfikacja_od. Migracja etapu 1 (2026-09-25, `NOW()`) zamknęła historycznie ~1500
-    # zamówień spakowanych bez względu na sposób (NULL, transport bez trasy, odbiór bez wydania), a
-    # runner wykonuje pliki w kolejności nazw, więc ta migracja idzie zawsze PRZED
+    # zamówień spakowanych poza odbiorem osobistym (głównie NULL i transport bez trasy), a
+    # runner wykonuje pliki w kolejności nazw, więc ta migracja idzie PRZED
     # 2026-09-30-logistyka-weryfikacja.sql (znacznik, `NOW()`): zamknięcie historyczne ma
     # logistics_closed_at <= znacznik, także gdy obie wartości wypadną w tej samej sekundzie (DATETIME
     # bez ułamków), a warunek „ściśle większe” je wyklucza. Zamknięcia z kodu (get_local_now) są

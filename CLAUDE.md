@@ -309,8 +309,8 @@ Albo po prostu `./deploy.sh` — robi dokładnie to samo, z lockiem i logami.
   Reguła `weryfikacja.uniewaznij_etapy` (powrót pozycji do produkcji) blokady globalnej nie bierze; gdy ma pracę,
   potwierdza ją odczytem bieżącym w tej samej kolejności. Hurtowa zmiana statusu, cron logistyki oraz zmiana
   sposobu dostawy w panelu (po blokadzie tras) blokują zamówienia rosnąco po id. Stanowiska (ZAKOŃCZ, doróbka)
-  i synchronizacja biorą pozycję przed zamówieniem — z zapisami Weryfikacji możliwe rzadkie 1213 (500, ponowienie
-  z kolejki offline przechodzi).
+  i synchronizacja biorą pozycję przed zamówieniem — z zapisami Weryfikacji i ze zmianą sposobu w panelu możliwe
+  rzadkie 1213 (panel ponawia raz sam, tablet z kolejki offline).
 
 ## Architecture
 

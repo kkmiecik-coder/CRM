@@ -155,9 +155,9 @@ otwiera też zamknięte zamówienia z aktywną pozycją, dla których `zamknieci
 zostaje zamknięte, jak mówi reguła. Siatka obejmuje wyłącznie zamknięcia ściśle późniejsze niż
 `logistyka_weryfikacja_od` (`weryfikacja.data_wdrozenia()`), a brak znacznika albo nieczytelna data ją wyłącza. Bez
 tego zawężenia pierwszy przebieg otworzyłby masowo zamknięcia historyczne: migracja etapu 1 zamknęła przy wdrożeniu
-(`NOW()`) każde zamówienie spakowane bez względu na sposób (na kopii z 28.09 ok. 1500, w tym sposób NULL, transport bez
-trasy i odbiór bez wydania). Zawężenie jest bezpieczne, bo runner migracji wykonuje pliki w kolejności nazw:
-`2026-09-25-…` (zamknięcie historyczne) idzie zawsze PRZED `2026-09-30-logistyka-weryfikacja.sql` (znacznik,
+(`NOW()`) każde zamówienie spakowane poza odbiorem osobistym, bez względu na sposób (na kopii z 28.09 ok. 1500, głównie
+sposób NULL i transport bez trasy; odbiorów migracja nie zamykała). Zawężenie jest bezpieczne, bo runner migracji wykonuje pliki w kolejności nazw:
+`2026-09-25-…` (zamknięcie historyczne) idzie PRZED `2026-09-30-logistyka-weryfikacja.sql` (znacznik,
 `CAST(NOW() AS CHAR)`), więc zamknięcie historyczne ma `logistics_closed_at <= znacznik`, także przy jednym deployu
 etapów 1–4, gdy obie wartości wypadają w tej samej sekundzie (DATETIME bez ułamków); warunek „ściśle większe” je
 wyklucza. Znacznik i zamknięcia z migracji mają czas MySQL (`NOW()`), a zamknięcia z kodu `get_local_now()` (czas
@@ -556,7 +556,10 @@ zmianie sposobu na takim zamówieniu (select w wierszu, dymek mapy, hurt):
   (`panel_api.py`, `FOR UPDATE` rosnąco po id) trzyma zamówienia przez całą pętlę zmiany, a stanowisko (ZAKOŃCZ,
   wejście do pakowania) najpierw zapisuje pozycję, potem zamówienie (`odnotuj_wejscie_do_pakowania`,
   `po_spakowaniu`). Okno 1213 dotyczy więc KAŻDEJ zmiany sposobu na zamówieniu, które ma pozycję w ruchu na
-  stanowisku, a nie tylko „ostatniego ZAKOŃCZ przy kurier → odbiór”. Ofiarą może być też stanowisko, np. przy dużym
+  stanowisku, a nie tylko „ostatniego ZAKOŃCZ przy kurier → odbiór”. Ściśle: zakleszczenie wymaga, żeby transakcja
+  stanowiska zapisała wiersz zamówienia — przy wejściu ostatniej pozycji do pakowania (puste
+  `logistics_completed_at`) albo przy „ZAKOŃCZ” pakowania, które zmienia zamknięcie, flagi przepakowania lub zaległy
+  138620; w pozostałych przypadkach stanowisko tylko czeka na blokadę. Ofiarą może być też stanowisko, np. przy dużym
   hurcie. Obie strony ponawiają: panel jedną automatyczną próbą po 1213 (`delivery_method` w `panel_api.py`), a
   tablet kolejką offline. Poprawność się nie pogorszyła, bo dodatek usunął przeplot z decyzją panelu na starej
   migawce; pogorszyła się dostępność. Właściwa poprawka to zadanie wstępne kroku 4.4 („zamówienie najpierw” dla
@@ -701,6 +704,11 @@ Komunikaty po polsku, w API z `error` (kod) i `message` (tekst dla człowieka).
    APK), więc backend może wejść przed appką. Po restarcie raz ręcznie cron logistyki: jednorazowo przestawia
    wydane odbiory osobiste na `dostarczone` i zapisuje znacznik `logistyka_wydane_dostarczone` w `prod_config`;
    kolejne przebiegi niczego nie przestawiają (doróbka po wydaniu nie staje się sama „dostarczona”).
+   Siatka w cronie (4.6) zakłada, że migracja etapu 1 `2026-09-25-logistyka-sposob-dostawy.sql` wykonała się PRZED
+   `2026-09-30-logistyka-weryfikacja.sql`. Gdyby przy wdrożeniu padła tylko ta pierwsza i wykonała się dopiero przy
+   kolejnym deployu, jej zamknięcia historyczne dostaną czas późniejszy niż znacznik — wtedy PRZED pierwszym cronem
+   ustaw `logistyka_weryfikacja_od` na chwilę po jej wykonaniu (`flask migrate-status`); usunięcie wiersza nie pomoże,
+   bo migracja 4.3 się nie powtórzy.
    Gdy znacznik ma chwilę sprzed restartu (godzinny cron trafił w oknie wdrożenia na nowy worker gunicorna),
    usuń wiersz i uruchom cron ponownie — inaczej wydania starym kodem do restartu zostaną `spakowane`.
    **Wycofanie** po zapisaniu nowych statusów: stary kod nie zna ich w Enum (`LookupError`, czyli 500 na listach,
