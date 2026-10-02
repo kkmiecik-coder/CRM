@@ -630,13 +630,20 @@ def test_odznaczenie_w_odhacz_z_trasy_zaladowanej_planowana_trasa_bez_wzgledu_na
 
 
 def test_niedostarczenie_anulowanego_w_calosci_bez_statusu_base(app):
-    """Zamówienie anulowane w całości ma w Base. status anulowania — zdjęcie z trasy w drodze go nie nadpisuje."""
+    """Zamówienie anulowane w całości ma w Base. status anulowania — zejście do puli przy zamknięciu trasy go nie
+    nadpisuje (runda 1 U10: dawniej test kończył się przed zamknięciem i sprawdzał tautologię). Dostarczenie A
+    zamyka trasę, anulowane niedostarczone D schodzi z niej bez statusu Base., A dostaje swoje 149778."""
     a = _zaladowane()
     d = zamowienie_z_paczkami(statusy=('anulowane', 'anulowane'))
     t = _w_trasie(a, d)
     dostawa.nie_dostarcz(t, d[0].id, 'inne', worker_id=7, teraz=T1)
     db.session.commit()
-    assert d[0].bl_status_pending_id is None
+    assert t.status == 'w_trasie' and RouteStop.query.filter_by(order_id=d[0].id).one().not_delivered_at == T1
+    _t, _zmieniono, zamknieta = dostawa.dostarcz(t, a[0].id, worker_id=7, teraz=T2)
+    db.session.commit()
+    assert zamknieta is True and t.status == 'wykonana'
+    assert RouteStop.query.filter_by(order_id=d[0].id).first() is None          # zszedł z trasy
+    assert d[0].bl_status_pending_id is None and a[0].bl_status_pending_id == 149778
 
 
 def test_spoznione_dostarczone_po_odznaczeniu_w_panelu_ma_jasny_komunikat(app):

@@ -606,26 +606,40 @@ def _rozliczona(trasa, zamowienia):
                for s in trasa.stops)
 
 
-def _zamknij_jesli_rozliczona(trasa, teraz, zamowienia=None, pakunki=None, user_id=None, worker_id=None,
-                              device_id=None):
+class Rozliczenie(tuple):
+    """
+    Wynik `dostarcz` i `nie_dostarcz`: (trasa, zmieniono, zamknieta) — rozpakowuje się jak zwykła krotka — oraz
+    `zdjete_do_puli`: ile niedostarczonych przystanków zeszło do puli przy zamknięciu trasy w TYM zapisie (U10, runda
+    1: tekst komunikatu telefonu ze stanu pod blokadami, nie z odczytu trasy sprzed blokad).
+    """
+
+    def __new__(cls, trasa, zmieniono, zamknieta, zdjete_do_puli=0):
+        wynik = super().__new__(cls, (trasa, zmieniono, zamknieta))
+        wynik.zdjete_do_puli = zdjete_do_puli
+        return wynik
+
+
+def _zamknij_jesli_rozliczona(trasa, teraz, zamowienia, pakunki, user_id=None, worker_id=None, device_id=None):
     """
     Spec 9.5: brak nierozliczonych przystanków → trasa 'wykonana'. `completed_by` zostaje NULL — zamknął telefon
     (albo zdjęcie po powrocie do produkcji), więc kierowca może jeszcze cofnąć ostatnie dostarczenie (decyzja
-    Konrada 3). Zwraca True, gdy zamknęła. `zamowienia` i `pakunki` — zablokowane zamówienia i aktualne paczki trasy
-    (krotka zablokuj, silne referencje).
+    Konrada 3). Zwraca None, gdy trasy nie zamknęła, a po zamknięciu liczbę niedostarczonych zdjętych do puli.
+    `zamowienia` i `pakunki` — zablokowane zamówienia i aktualne paczki CAŁEJ trasy (krotka zablokuj, silne
+    referencje); wymagane, bo bez nich niedostarczone zostałyby na trasie zamkniętej (U10, runda 1).
 
     U10 (Ruling 32): przed zamknięciem niedostarczone przystanki schodzą do puli (_zdejmij_niedostarczone — status
     trasy jeszcze 'w_trasie', reguła 417343), a `trasa_status` dostają przystanki, które zostały (jak dawniej po
     zdjęciach).
     """
-    if trasa.status != 'w_trasie' or not _rozliczona(trasa, zamowienia or {}):
-        return False
-    if _zdejmij_niedostarczone(trasa, zamowienia or {}, pakunki or {}, teraz, user_id=user_id, worker_id=worker_id,
-                               device_id=device_id):
+    if trasa.status != 'w_trasie' or not _rozliczona(trasa, zamowienia):
+        return None
+    zdjete = _zdejmij_niedostarczone(trasa, zamowienia, pakunki, teraz, user_id=user_id, worker_id=worker_id,
+                                     device_id=device_id)
+    if zdjete:
         trasa = routes.zablokuj_trasy(trasa)   # świeże przystanki po zdjęciach (ta sama transakcja, bez czekania)
     trasa.status, trasa.completed_at, trasa.completed_by = 'wykonana', teraz, None
     _log_trasy(trasa, 'w_trasie', 'wykonana', teraz, user_id=user_id, worker_id=worker_id, device_id=device_id)
-    return True
+    return len(zdjete)
 
 
 NOTATKA_DOSTARCZENIA_ZOSTAJE = u'oznaczone jako dostarczone'
@@ -688,6 +702,23 @@ def _opis_niedostarczenia(powod, notatka):
     return (etykieta_powodu(powod) + (u': ' + notatka if notatka else u''))[:255]
 
 
+def zdjete_do_postepu(historia):
+    """
+    Runda 1 U10 (R32.8): z historii tras ({route_id: [wpisy niedostarczone_zdjete]}) tylko zamówienia zdjęte DO PULI jako
+    niedostarczone — bez powrotu do produkcji (`dorobka`, `zmiana_base`: wróciły do produkcji, nie do puli, a ich
+    zdjęcie zmniejsza liczbę przystanków jak dawniej) i bez zamówień anulowanych w całości (przed zamknięciem nie liczą
+    się ani do przystanków, ani do niedostarczonych). Dzięki temu mianownik „dostarczono X/Y” (przystanki + zdjęte) nie
+    zmienia się przy zamknięciu trasy. Jedno zapytanie o aktywne pozycje — tylko widok (zwykły odczyt, GET panelu).
+    """
+    ids = {w['order_id'] for wpisy in historia.values() for w in wpisy if w['powod'] not in POWODY_POWROTU}
+    aktywne = set()
+    if ids:
+        aktywne = {i for (i,) in db.session.query(ProductionProduct.order_id).filter(
+            ProductionProduct.order_id.in_(sorted(ids)), ProductionProduct.current_status != 'anulowane').distinct()}
+    return {route_id: [w for w in wpisy if w['powod'] not in POWODY_POWROTU and w['order_id'] in aktywne]
+            for route_id, wpisy in historia.items()}
+
+
 def rozbierz_opis(powod, note):
     """(etykieta, notatka) z wpisu `niedostarczone` — odwrotność _opis_niedostarczenia (notatka bez prefiksu)."""
     etykieta = etykieta_powodu(powod)
@@ -744,13 +775,15 @@ def _zdejmij_niedostarczone(trasa, zamowienia, pakunki, teraz, user_id=None, wor
     """
     U10: wszystkie niedostarczone przystanki trasy schodzą do puli (_wycofaj_z_trasy), w kolejności przystanków —
     przy zamknięciu trasy, PRZED zmianą statusu. Zamówienia i paczki z krotki zablokuj (silne referencje). Zwraca
-    listę zdjętych order_id.
+    listę zdjętych order_id. Brak zamówienia przystanku w `zamowienia` to błąd wołającego (krotka nie z tej trasy) —
+    wyjątek zamiast cichego pominięcia, które zostawiłoby niedostarczony przystanek na trasie zamkniętej.
     """
     zdjete = []
     for stop in [s for s in trasa.stops if s.not_delivered_at is not None]:
         order = zamowienia.get(stop.order_id)
         if order is None:
-            continue
+            raise RuntimeError(u'Zamknięcie trasy {}: brak zablokowanego zamówienia {} niedostarczonego przystanku '
+                               u'(przekaż krotkę dostawa.zablokuj całej trasy).'.format(trasa.id, stop.order_id))
         _wycofaj_z_trasy(trasa, order, pakunki.get(order.id, []), teraz, user_id=user_id, worker_id=worker_id,
                          device_id=device_id)
         zdjete.append(order.id)
@@ -812,8 +845,8 @@ def _brak_przystanku_dostarczenia(trasa, order_id):
 
 def dostarcz(route, order_id, worker_id=None, device_id=None, teraz=None):
     """
-    „Dostarczone” na przystanku (spec 9.5) — także wprost z niedostarczonego (U10). Zwraca (trasa, zmieniono,
-    zamknieta). Wszystkie aktywne pozycje muszą być 'zaladowane' — zamówienie, które wróciło do produkcji albo zostało
+    „Dostarczone” na przystanku (spec 9.5) — także wprost z niedostarczonego (U10). Zwraca Rozliczenie (trasa,
+    zmieniono, zamknieta). Wszystkie aktywne pozycje muszą być 'zaladowane' — zamówienie, które wróciło do produkcji albo zostało
     anulowane w trakcie jazdy, dostaje 409 order_status (kierowca rozlicza je „Niedostarczone”). Ostatni rozliczony
     przystanek zamyka trasę (niedostarczone schodzą wtedy do puli). Przystanek już dostarczony = bez zmian (powtórka
     z kolejki offline), także na trasie, którą to dostarczenie zamknęło. Brak przystanku → 404 stop_not_found
@@ -824,7 +857,7 @@ def dostarcz(route, order_id, worker_id=None, device_id=None, teraz=None):
     if stop is None:
         raise _brak_przystanku_dostarczenia(trasa, order_id)
     if stop.delivered_at is not None:
-        return trasa, False, False
+        return Rozliczenie(trasa, False, False)
     _wymagaj_statusu(trasa, 'w_trasie')
     order = zamowienia.get(order_id)
     aktywne = delivery.aktywne_produkty(order) if order is not None else []
@@ -834,15 +867,15 @@ def dostarcz(route, order_id, worker_id=None, device_id=None, teraz=None):
                           u'anulowane. Rozlicz przystanek jako „Niedostarczone”.'.format(numer))
     teraz = teraz or get_local_now()
     _oznacz_dostarczone(order, stop, teraz, worker_id=worker_id, device_id=device_id)
-    return trasa, True, _zamknij_jesli_rozliczona(trasa, teraz, zamowienia, pakunki, worker_id=worker_id,
-                                                  device_id=device_id)
+    zdjete = _zamknij_jesli_rozliczona(trasa, teraz, zamowienia, pakunki, worker_id=worker_id, device_id=device_id)
+    return Rozliczenie(trasa, True, zdjete is not None, zdjete or 0)
 
 
 def nie_dostarcz(route, order_id, powod, notatka=None, worker_id=None, device_id=None, teraz=None):
     """
     „Niedostarczone” z powodem (spec 9.5, U10 — Ruling 32): przystanek zostaje na trasie jako niedostarczony
     (_oznacz_niedostarczone), do puli schodzi przy zamknięciu trasy. Przystanek dostarczony → 409 stop_delivered
-    (najpierw cofnij dostarczenie). Ostatni rozliczony przystanek zamyka trasę. Zwraca (trasa, zmieniono, zamknieta).
+    (najpierw cofnij dostarczenie). Ostatni rozliczony przystanek zamyka trasę. Zwraca Rozliczenie (trasa, zmieniono, zamknieta).
 
     Powtórki z kolejki offline (Ruling 26 i 32): przystanek już niedostarczony z tym samym powodem i notatką → bez
     zmian (inny powód albo notatka — zmiana, nowy wpis w logu); przystanku już nie ma, a ostatni wpis rozliczenia
@@ -853,18 +886,18 @@ def nie_dostarcz(route, order_id, powod, notatka=None, worker_id=None, device_id
     notatka = _notatka(notatka)
     trasa, zamowienia, pakunki = zablokuj(route)
     if not any(s.order_id == order_id for s in trasa.stops) and _powtorka_niedostarczenia(trasa, order_id):
-        return trasa, False, False
+        return Rozliczenie(trasa, False, False)
     stop = _przystanek(trasa, order_id)
     _wymagaj_statusu(trasa, 'w_trasie')
     if stop.delivered_at is not None:
         raise DostawaBlad('stop_delivered', u'Przystanek jest już dostarczony — najpierw cofnij dostarczenie.')
     if stop.not_delivered_at is not None and (stop.not_delivered_reason, stop.not_delivered_note) == (powod, notatka):
-        return trasa, False, False
+        return Rozliczenie(trasa, False, False)
     teraz = teraz or get_local_now()
     _oznacz_niedostarczone(zamowienia[order_id], stop, powod, notatka, teraz, worker_id=worker_id,
                            device_id=device_id)
-    return trasa, True, _zamknij_jesli_rozliczona(trasa, teraz, zamowienia, pakunki, worker_id=worker_id,
-                                                  device_id=device_id)
+    zdjete = _zamknij_jesli_rozliczona(trasa, teraz, zamowienia, pakunki, worker_id=worker_id, device_id=device_id)
+    return Rozliczenie(trasa, True, zdjete is not None, zdjete or 0)
 
 
 def cofnij_niedostarczenie(route, order_id, user_id=None, worker_id=None, device_id=None, teraz=None):
@@ -896,18 +929,24 @@ def cofnij_niedostarczenie(route, order_id, user_id=None, worker_id=None, device
 def zdejmij_niedostarczone(route, order_id, user_id=None, teraz=None):
     """
     „Zdejmij z trasy” niedostarczonego przystanku w panelu tras (U10, trasa w drodze): zamówienie od razu schodzi do
-    puli (_wycofaj_z_trasy — Ruling 25, Base. 417343, log `trasa_usuniete`). Trasa się nie zamyka: zdejmowany
-    przystanek był już rozliczony, więc pozostałe nie zmieniają rozliczenia. Przystanek, który nie jest niedostarczony
+    puli (_wycofaj_z_trasy — Ruling 25, Base. 417343, log `trasa_usuniete`). Przystanek, który nie jest niedostarczony
     → 409; brak przystanku → 404. Zwraca świeżą trasę.
+
+    Runda 1 U10: zdjęcie samo niczego nie rozlicza (zdejmowany przystanek był rozliczony), ale trasa mogła już być
+    rozliczona bez zdarzenia zamykającego — np. klient anulował w Base. ostatni otwarty przystanek (C2), a reszta jest
+    dostarczona albo niedostarczona. Wtedy zamykamy ją tu (_zamknij_jesli_rozliczona na tych samych blokadach;
+    `completed_by` NULL — zamknięcie automatyczne).
     """
     trasa, zamowienia, pakunki = zablokuj(route)
     stop = _przystanek(trasa, order_id)
     _wymagaj_statusu(trasa, 'w_trasie')
     if stop.not_delivered_at is None:
         raise LogistykaBlad(u'Zdjąć z trasy można tylko przystanek niedostarczony.', status=409)
-    _wycofaj_z_trasy(trasa, zamowienia[order_id], pakunki.get(order_id, []), teraz or get_local_now(),
-                     user_id=user_id)
-    return routes.zablokuj_trasy(trasa)   # świeże przystanki po zdjęciu (ta sama transakcja, bez czekania)
+    teraz = teraz or get_local_now()
+    _wycofaj_z_trasy(trasa, zamowienia[order_id], pakunki.get(order_id, []), teraz, user_id=user_id)
+    trasa = routes.zablokuj_trasy(trasa)   # świeże przystanki po zdjęciu (ta sama transakcja, bez czekania)
+    _zamknij_jesli_rozliczona(trasa, teraz, zamowienia, pakunki, user_id=user_id)
+    return trasa
 
 
 def niedostarczone_zdjete(trasy, aktualny=False):
@@ -921,20 +960,24 @@ def niedostarczone_zdjete(trasy, aktualny=False):
     Tylko trasy STATUSY_Z_HISTORIA — robocza i zatwierdzona (np. po „Cofnij załadunek”) historii nie pokazują. Jedno
     zapytanie po indeksie route_id. `aktualny` — odczyt bieżący (współdzielony): odpowiedź zapisu telefonu pod
     trzymaną blokadą tras. Wpisy z route_id zapisują wyłącznie posiadacze tej blokady (routes.py, dostawa.py), więc nikt
-    nie czeka na nas z wpisem tej trasy, a po tym odczycie zapis na nic już nie czeka (jak C1).
+    nie czeka na nas z wpisem tej trasy. Blokada luki na brzegu zakresu indeksu może na chwilę wstrzymać wpis logu bez
+    trasy (cron, hurt, Weryfikacja) — do naszego commitu; cyklu nie ma, bo ten odczyt jest OSTATNIM odczytem blokującym
+    transakcji zapisu (dostawa_widok.trasa_po_zapisie; pilnuje test_api_historia_ostatnim_odczytem_blokujacym), a numer
+    i klienta zdjętych zamówień czytamy potem zwykłym odczytem (dostawa_widok.historia).
     """
     wynik = {t.id: [] for t in trasy}
     obecne = {t.id: {s.order_id for s in t.stops} for t in trasy if t.status in STATUSY_Z_HISTORIA}
     if not obecne:
         return wynik
+    # Bez ORDER BY (runda 1 U10): przy odczycie blokującym sortowanie po PRIMARY mogłoby skłonić optymalizator do
+    # przeglądu całej tabeli logu, a wtedy blokady objęłyby cały log. Kolejność wpisów ustalamy w Pythonie po id.
     zapytanie = (db.session.query(LogisticsLog.id, LogisticsLog.order_id, LogisticsLog.route_id, LogisticsLog.action,
                                   LogisticsLog.new_value, LogisticsLog.note, LogisticsLog.created_at)
-                 .filter(LogisticsLog.route_id.in_(sorted(obecne)), LogisticsLog.action.in_(AKCJE_ROZLICZENIA))
-                 .order_by(LogisticsLog.id))
+                 .filter(LogisticsLog.route_id.in_(sorted(obecne)), LogisticsLog.action.in_(AKCJE_ROZLICZENIA)))
     if aktualny:
         zapytanie = zapytanie.with_for_update(read=True)
     ostatnie = {}
-    for wpis in zapytanie.all():
+    for wpis in sorted(zapytanie.all(), key=lambda w: w.id):
         ostatnie[(wpis.route_id, wpis.order_id)] = wpis
     for (route_id, order_id), wpis in sorted(ostatnie.items(), key=lambda para: (para[1].created_at, para[1].id)):
         if wpis.action != 'niedostarczone' or order_id in obecne[route_id]:
@@ -993,6 +1036,11 @@ def zdejmij_z_trasy_w_drodze(blokady, order, powod, teraz, user_id=None, worker_
     trasa, zamowienia, pakunki = blokady
     aktywne = delivery.aktywne_produkty(order)
     if not any(p.current_status not in sposoby.STATUSY_PO_SPAKOWANIU for p in aktywne):
+        # Runda 1 U10: zamówienie zostaje, ale zmiana mogła rozliczyć trasę (C2 — np. klient anulował w Base. ostatni
+        # otwarty przystanek, a reszta jest dostarczona albo niedostarczona). Zamykamy ją na tych samych blokadach,
+        # inaczej niedostarczone wisiałyby na trasie bez zdarzenia, które by je zdjęło.
+        _zamknij_jesli_rozliczona(trasa, teraz, zamowienia, pakunki, user_id=user_id, worker_id=worker_id,
+                                  device_id=device_id)
         return None
     etykieta, notatka = POWODY_POWROTU[powod]
     # Zamówienie, paczki i pozycje są już zablokowane (zablokuj) — tu tylko odczyt bieżący aktualnych paczek.

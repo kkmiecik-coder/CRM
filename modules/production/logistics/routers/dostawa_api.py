@@ -330,14 +330,13 @@ def delivery_stop_delivered(route_id, order_id):
     """POST …/stops/<order_id>/delivered — „Dostarczone” (spec 9.5)."""
     def akcja(trasa, kierowca):
         numer = _numer(order_id)
-        # Tylko do wyboru tekstu: czy na trasie były niedostarczone (odczyt przed blokadami — po zamknięciu przystanków
-        # już nie ma, a decyzja i tak zapada w serwisie na odczycie bieżącym).
-        byly_niedostarczone = any(s.not_delivered_at is not None for s in trasa.stops)
-        _t, zmieniono, zamknieta = dostawa.dostarcz(trasa, order_id, worker_id=kierowca.id, device_id=g.device.id)
+        wynik = dostawa.dostarcz(trasa, order_id, worker_id=kierowca.id, device_id=g.device.id)
+        _t, zmieniono, zamknieta = wynik
         komunikat = (u'Dostarczono zamówienie {}.' if zmieniono
                      else u'Zamówienie {} było już dostarczone.').format(numer)
         if zamknieta:
-            komunikat += TRASA_ZAKONCZONA if byly_niedostarczone else u' Trasa zakończona.'
+            # Runda 1 U10: dopisek o puli tylko, gdy to zamknięcie naprawdę zdjęło niedostarczone (stan pod blokadami).
+            komunikat += TRASA_ZAKONCZONA if wynik.zdjete_do_puli else u' Trasa zakończona.'
         return komunikat, {'changed': zmieniono, 'route_completed': zamknieta}
     return _zapis(route_id, akcja)
 
@@ -362,12 +361,12 @@ def delivery_stop_not_delivered(route_id, order_id):
 
     def akcja(trasa, kierowca):
         numer = _numer(order_id)
-        na_trasie = any(s.order_id == order_id for s in trasa.stops)
-        _t, zmieniono, zamknieta = dostawa.nie_dostarcz(trasa, order_id, dane.get('reason'), dane.get('note'),
-                                                        worker_id=kierowca.id, device_id=g.device.id)
+        trasa_po, zmieniono, zamknieta = dostawa.nie_dostarcz(trasa, order_id, dane.get('reason'), dane.get('note'),
+                                                              worker_id=kierowca.id, device_id=g.device.id)
         if not zmieniono:
-            # `na_trasie` z trasy wczytanej przez _zapis (przed blokadami) — tylko wybór tekstu, decyzja zapadła
-            # w serwisie na odczycie bieżącym.
+            # Runda 1 U10: tekst ze świeżej trasy spod blokad — bez zmian nic nie zeszło z trasy, więc przystanek jest
+            # na niej wtedy i tylko wtedy, gdy to powtórka na niedostarczonym (inaczej zszedł już do puli).
+            na_trasie = any(s.order_id == order_id for s in trasa_po.stops)
             tekst = (u'Zamówienie {} jest już oznaczone jako niedostarczone.' if na_trasie
                      else u'Zamówienie {} było już rozliczone jako niedostarczone.')
             return tekst.format(numer), {'changed': False, 'route_completed': False}

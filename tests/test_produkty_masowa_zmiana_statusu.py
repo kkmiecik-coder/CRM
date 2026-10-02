@@ -782,8 +782,10 @@ def test_hurt_odmawia_zamowieniu_z_trasy_zaladowanej_i_w_drodze(client, app, sta
     r = _masowo(client, [pozycje[0]], nowy_status)
 
     assert r.status_code == 409, r.get_data()[:500]
-    komunikat = (u'Zamówienie 25/00611 jest na trasie „Rzeszów 02.10” ({}) — najpierw Cofnij załadunek albo '
-                 u'Niedostarczone.'.format(opis))
+    # Runda 1 U10: krok zależy od statusu trasy — „Niedostarczone” samo nie zdejmuje już zamówienia z trasy w drodze.
+    krok = (u'najpierw Cofnij załadunek.' if status_trasy == 'zaladowana'
+            else u'najpierw Niedostarczone, potem Zdejmij z trasy w panelu tras.')
+    komunikat = u'Zamówienie 25/00611 jest na trasie „Rzeszów 02.10” ({}) — {}'.format(opis, krok)
     dane = r.get_json()
     assert dane['success'] is False and dane['error'] == komunikat
     assert (dane['processed_count'], dane['failed_count'], dane['errors']) == (0, 1, [komunikat])
@@ -807,8 +809,8 @@ def test_hurt_odmawia_tylko_zamowieniu_z_trasy_w_drodze_reszta_przechodzi(client
     assert r.status_code == 200, r.get_data()[:500]
     dane = r.get_json()
     assert dane['success'] is True and (dane['processed_count'], dane['failed_count']) == (1, 2)
-    assert dane['errors'] == [u'Zamówienie 25/00612 jest na trasie „Rzeszów 02.10” (w drodze) — najpierw Cofnij '
-                              u'załadunek albo Niedostarczone.']
+    assert dane['errors'] == [u'Zamówienie 25/00612 jest na trasie „Rzeszów 02.10” (w drodze) — najpierw '
+                              u'Niedostarczone, potem Zdejmij z trasy w panelu tras.']
     assert _stan_logistyki(jedzie)[0] == ['zaladowane', 'zaladowane']
     assert _stan_logistyki(stoi)[0] == ['czeka_na_pakowanie', 'spakowane']
 

@@ -302,7 +302,9 @@ def _szczegoly(route, przelicz_wykonana=False):
             punkty = geocoding.geo_zamowien([o.id for o in zamowienia])
     pakunki = paczki.aktualne_paczki_zamowien([o.id for o in zamowienia])
     historia = dostawa.niedostarczone_zdjete([route])[route.id]
-    dane = routes.serializuj_trase(route, zamowienia, punkty, pakunki, historia)
+    # Runda 1 U10 (R32.8): do postępu liczą się tylko zdjęte do puli jako niedostarczone (mianownik stały przy zamknięciu).
+    dane = routes.serializuj_trase(route, zamowienia, punkty, pakunki,
+                                   dostawa.zdjete_do_postepu({route.id: historia})[route.id])
     dane['niedostarczone_zdjete'] = _niedostarczone_zdjete(historia)
     przystanki = {s.order_id: s for s in route.stops}
     cofniecia = _cofniecia_dostarczen(route.id, [s.order_id for s in route.stops if s.delivered_at is None])
@@ -332,7 +334,8 @@ def _akcja(route_id, funkcja, przelicz_wykonana=False, ponow_po_1213=False, prze
     `przelicz_wykonana` — tylko /complete: jedno przeliczenie przebiegu mimo statusu
     `wykonana` (patrz `_szczegoly`).
 
-    `ponow_po_1213` — akcje Dostawy (odhaczenie, „Cofnij załadunek”, „Cofnij dostarczenie”, „Cofnij zatwierdzenie”;
+    `ponow_po_1213` — akcje Dostawy (odhaczenie, „Cofnij załadunek”, „Cofnij dostarczenie”, „Cofnij zatwierdzenie”,
+    od U10 także „Cofnij niedostarczenie” i „Zdejmij z trasy” niedostarczonego;
     fala końcowa 4.4b, B1): blokują pozycje wszystkich zamówień trasy w kolejności (zamówienie, id), więc z pisarzami
     wielu pozycji bez blokady zamówień (priorytety, druk TCP) rzadkie MySQL 1213 jest możliwe. Wtedy jedno ponowienie:
     rollback, porzucenie planu dopychacza Base. z tej próby i cała akcja od nowa (trasa, `funkcja`, commit), decyzja na
@@ -522,7 +525,7 @@ def routes_list():
     pakunki = paczki.aktualne_paczki_zamowien(
         [o.id for zamowienia in zamowienia_wg_trasy.values() for o in zamowienia])
     # U10: historia niedostarczonych wszystkich tras listy jednym zapytaniem (postęp „niedostarczono”).
-    historia = dostawa.niedostarczone_zdjete(trasy)
+    historia = dostawa.zdjete_do_postepu(dostawa.niedostarczone_zdjete(trasy))
     wynik = [routes.serializuj_trase(trasa, zamowienia_wg_trasy[trasa.id], punkty, pakunki, historia[trasa.id])
              for trasa in trasy]
     return jsonify({'success': True, 'routes': wynik})

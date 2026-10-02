@@ -235,21 +235,6 @@ def test_powtorka_niedostarczenia_po_zejsciu_do_puli_bez_zmian(app):
     assert len(_wpisy(a[0], 'niedostarczone')) == 1 and len(_wpisy(a[0], 'trasa_usuniete')) == 1
 
 
-def test_brak_przystanku_bez_niedostarczenia_z_tej_trasy_to_404(app):
-    a, b = _zaladowane(), _zaladowane()
-    t = _w_trasie(a)
-    druga = _w_trasie(b)
-    assert _blad(dostawa.nie_dostarcz, t, b[0].id, 'inne').kod == 'stop_not_found'        # nigdy na tej trasie
-    dostawa.nie_dostarcz(t, a[0].id, 'odmowa', worker_id=7, teraz=T1)                      # zamyka t, a → pula
-    db.session.commit()
-    assert _blad(dostawa.nie_dostarcz, druga, a[0].id, 'inne').kod == 'stop_not_found'    # niedostarczone z innej
-    nowa = trasa([], status='robocza')
-    assert routes.dodaj_przystanki(nowa, [a[0].id])['dodane'] == [a[0].id]
-    db.session.commit()
-    e = _blad(dostawa.nie_dostarcz, t, a[0].id, 'inne')                                   # ostatni: trasa_dodane
-    assert (e.kod, e.status) == ('stop_not_found', 404)
-
-
 def test_spoznione_dostarczone_po_zejsciu_do_puli_404_z_komunikatem(app):
     a, b = _zaladowane(), _zaladowane()
     t = _w_trasie(a, b)
@@ -337,7 +322,9 @@ def test_zdejmij_niedostarczone_w_panelu(app):
 
 def test_dorobka_na_niedostarczonym_zdejmuje_od_razu(app):
     """Ruling 30 bez zmian (R32.6): doróbka na niedostarczonym przystanku trasy w drodze zdejmuje go od razu z powodem
-    `dorobka` (ten powód trafia do historii). Gdy to zamyka trasę, inne niedostarczone też schodzą do puli."""
+    `dorobka` (ten powód trafia do historii), a trasa z przystankiem do dostarczenia zostaje w drodze. Pierwsza część
+    to tylko przygotowanie: trasę zamyka zwykłe dostarczenie. Zamknięcie trasy PRZEZ doróbkę i zmianę z Base.
+    sprawdza test_dostawa_niedostarczone_zamkniecia."""
     from modules.production.services import rework_service
     a = zamowienie_z_paczkami(statusy=('zaladowane', 'zaladowane'))
     b, c = _zaladowane(), _zaladowane()

@@ -1325,7 +1325,8 @@ def _trasy_w_drodze(order_ids):
 def _odmowa_trasy_w_drodze(zamowienie, nazwa, status, stan):
     """Komunikat odmowy hurtu z wykonalnym krokiem: przystanek już dostarczony (trasa w drodze) cofa się przez
     „Cofnij dostarczenie” (Ruling 30.6); oznaczony jako niedostarczony (U10, Ruling 32) wisi na trasie do jej końca
-    albo do „Zdejmij z trasy” w panelu tras; pozostałe — „Cofnij załadunek” albo „Niedostarczone”."""
+    albo do „Zdejmij z trasy” w panelu tras; pozostałe — „Cofnij załadunek” (trasa załadowana) albo „Niedostarczone”
+    i „Zdejmij z trasy” (trasa w drodze)."""
     numer = zamowienie.internal_order_number or u'#{}'.format(zamowienie.id)
     opis = _OPIS_TRASY_W_DRODZE.get(status, status)
     if stan == 'niedostarczony':
@@ -1334,7 +1335,12 @@ def _odmowa_trasy_w_drodze(zamowienie, nazwa, status, stan):
     if stan == 'dostarczony':
         return (u'Zamówienie {} jest dostarczone na trasie „{}” ({}) — najpierw Cofnij dostarczenie.'
                 .format(numer, nazwa, opis))
-    return (u'Zamówienie {} jest na trasie „{}” ({}) — najpierw Cofnij załadunek albo Niedostarczone.'
+    # Runda 1 U10: „Niedostarczone” zostawia zamówienie na trasie do jej końca, więc samo nie wystarcza — z trasy
+    # w drodze zdejmuje je dopiero „Zdejmij z trasy” w panelu (albo zamknięcie trasy); „Cofnij załadunek” jest tylko dla
+    # trasy załadowanej.
+    if status == 'zaladowana':
+        return (u'Zamówienie {} jest na trasie „{}” ({}) — najpierw Cofnij załadunek.'.format(numer, nazwa, opis))
+    return (u'Zamówienie {} jest na trasie „{}” ({}) — najpierw Niedostarczone, potem Zdejmij z trasy w panelu tras.'
             .format(numer, nazwa, opis))
 
 
