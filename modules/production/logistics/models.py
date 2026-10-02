@@ -14,7 +14,9 @@ AKCJE_LOGU = ('sposob_dostawy', 'wydane', 'przepakowanie',
               'weryfikacja', 'weryfikacja_cofnieta', 'problem', 'problem_rozwiazany',
               'cofniete_do_pakowania',
               # Dostawa (logistyka etap 4, krok 4.4).
-              'zaladunek', 'zostaje', 'wyjazd', 'dostarczone', 'niedostarczone', 'dostarczenie_cofniete')
+              'zaladunek', 'zostaje', 'wyjazd', 'dostarczone', 'niedostarczone', 'dostarczenie_cofniete',
+              # U10 (Ruling 32): „Cofnij niedostarczenie” — niedostarczony przystanek zostaje na trasie do jej końca.
+              'niedostarczenie_cofniete')
 
 
 class LogisticsLog(db.Model):
@@ -27,7 +29,8 @@ class LogisticsLog(db.Model):
     action = Column(Enum(*AKCJE_LOGU, name='logistics_log_action'), nullable=False)
     old_value = Column(String(64))
     new_value = Column(String(64))
-    route_id = Column(Integer)
+    # Indeks (U10, Ruling 32): historia niedostarczonych trasy i liczniki listy tras czytają log po trasie.
+    route_id = Column(Integer, index=True)
     user_id = Column(Integer, index=True)
     # Akcje z tabletów i telefonów (etap 4) mają pracownika i urządzenie (prod_devices.id),
     # a nie użytkownika panelu.
@@ -132,5 +135,12 @@ class RouteStop(db.Model):
     delivered_by_worker_id = Column(Integer)
     stays_reason = Column(String(32))
     stays_note = Column(String(255))
+    # U10 (decyzja Konrada 2.10, Ruling 32): „Niedostarczone” zostaje na przystanku do końca trasy (kto, kiedy, powód
+    # z dostawa.POWODY_NIEDOSTARCZENIA, notatka). Tylko na trasie w drodze — zamknięcie trasy zdejmuje takie przystanki
+    # do puli (dostawa._zdejmij_niedostarczone), a historia zostaje w logu.
+    not_delivered_at = Column(DateTime)
+    not_delivered_reason = Column(String(32))
+    not_delivered_note = Column(String(255))
+    not_delivered_by_worker_id = Column(Integer)
 
     route = relationship('Route', back_populates='stops')

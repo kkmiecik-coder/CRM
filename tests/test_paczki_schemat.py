@@ -91,7 +91,7 @@ def test_migracja_paczek():
     # i 2026-10-01-logistyka-dostawa.sql — ta migracja zna tylko akcje do kroku 4.2.
     akcje_po_4_2 = ('weryfikacja', 'weryfikacja_cofnieta', 'problem', 'problem_rozwiazany',
                     'cofniete_do_pakowania', 'zaladunek', 'zostaje', 'wyjazd', 'dostarczone',
-                    'niedostarczone', 'dostarczenie_cofniete')
+                    'niedostarczone', 'dostarczenie_cofniete', 'niedostarczenie_cofniete')
     for akcja in AKCJE_LOGU:
         if akcja not in akcje_po_4_2:
             assert "'%s'" % akcja in enum, akcja

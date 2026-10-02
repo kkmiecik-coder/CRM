@@ -43,7 +43,8 @@ def test_statusy_tras_nowe_na_koncu_i_aktywne():
 
 
 def test_akcje_logu_dostawy_na_koncu():
-    assert list(AKCJE_LOGU) == AKCJE_DO_4_3 + AKCJE_DOSTAWY
+    # U10 (Ruling 32) dopisuje za nimi `niedostarczenie_cofniete` — własną migracją (test_dostawa_niedostarczone_schemat).
+    assert list(AKCJE_LOGU)[:len(AKCJE_DO_4_3 + AKCJE_DOSTAWY)] == AKCJE_DO_4_3 + AKCJE_DOSTAWY
 
 
 def test_statusy_base_dostawy():
@@ -77,7 +78,9 @@ def test_migracja():
     assert _wartosci(trasy) == list(STATUSY_TRASY)
     assert 'COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT' in trasy
     log = next(p for p in polecenia if p.startswith('ALTER TABLE prod_logistics_log MODIFY action'))
-    assert _wartosci(log) == list(AKCJE_LOGU)   # pełna lista: brakująca wartość skasowałaby akcję wpisom w logu
+    # Pełna lista z chwili tej migracji (brakująca wartość skasowałaby akcję wpisom w logu); późniejsze dopisuje
+    # migracja U10.
+    assert _wartosci(log) == AKCJE_DO_4_3 + AKCJE_DOSTAWY
     for tabela, kolumna in (('prod_routes', 'loaded_at DATETIME NULL'),
                             ('prod_routes', 'loaded_by_worker_id INT NULL'),
                             ('prod_routes', 'departed_at DATETIME NULL'),
