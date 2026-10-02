@@ -823,6 +823,7 @@ Dostawa częściowa („Zostaje” na pojedynczej paczce) odrzucona przez Konrad
 | Ruling 27 | Poprawki frontu panelu tras: okno „Odhacz” (Zostaje, domyślne zaznaczenia), ostrzeżenie „Cofnij zatwierdzenie” ze świeżego odczytu trasy, neutralne „już dostarczone”, dostępność. |
 | Ruling 28 | Punkt nawigacji telefonu tą samą regułą co Routimo, „Moje trasy” z trasą zatwierdzoną w trakcie załadunku po dacie końca, bramki stanowiska (403 `station_not_allowed`) i kierowcy sprawdzane na każdym endpoincie telefonu, `completed_by_panel`, rollback przy każdej odmowie zapisu telefonu. |
 | Ruling 30 | Runda 2 fali końcowej: pusta trasa po doróbce (odmowa „Ruszam”, „Odhacz” zamyka), zmiana z Base. zdejmuje z trasy w drodze jak doróbka (blokada tras przed zamówieniem, cała trasa w kolejności Dostawy), 417343 zawsze przy zdjęciu z trasy w drodze, C2 w zamknięciu po doróbce, komunikaty spóźnionego „Dostarczone” i hurtu na przystanku dostarczonym, pominięte zamówienia w panelu produktów. |
+| Ruling 31 | Runda 3 fali końcowej: panel tras odhacza pustą trasę załadowaną albo w drodze, zdjęcie z trasy po zmianie z Base. z użytkownikiem panelu w logach, przeciąganie i przeliczenie priorytetów ponawiają raz po MySQL 1213 (wyścig z Dostawą). |
 | P1 | Numery wierszy w planie 4.4b są orientacyjne (sprzed 4.4a) — kod szuka się po nazwie funkcji. |
 | P2 | Wynik `dostawa.zablokuj` (trasa, zamówienia, paczki) zapis trzyma w zmiennych do końca decyzji i odpowiedzi i decyduje tylko na tych obiektach (mapa tożsamości trzyma czyste obiekty słabo). |
 

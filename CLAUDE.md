@@ -347,7 +347,8 @@ Albo po prostu `./deploy.sh` — robi dokładnie to samo, z lockiem i logami.
   jednorazowe przestawienie pozycji zamówień wydanych klientowi, we własnej transakcji, bez blokad zamówień), druk
   etykiet w trybie TCP i druk pojedynczej etykiety (`print_labels_batch`, zapis w końcowym commicie) oraz priorytety
   (przeciąganie `update-priority` jednym odczytem, hurtowa i ręczna zmiana priorytetu, przeliczenie
-  `priority_service` na własnej sesji bez autoflushu). Akcje tras (`routes.py`, przez `delivery.podbij_pozycje`)
+  `priority_service` na własnej sesji bez autoflushu). Przeciąganie i przeliczenie priorytetów ponawiają raz po 1213
+  (wyścig z Dostawą na kopii produkcji: rollback i cały zapis od nowa; przeliczenie na nowej własnej sesji). Akcje tras (`routes.py`, przez `delivery.podbij_pozycje`)
   chroni dziś sama kolejność flushu (INSERT z FK do `prod_orders`, czyli blokada S na zamówieniu, idzie przed
   UPDATE pozycji) — to przypadek, nie reguła: nowy zapis statusów pozycji pod blokadą tras bierze
   `blokady_zamowien.zablokuj_zamowienia(ids)` zaraz po `routes.zablokuj_trasy()`. Znane wyjątki, bez naprawy:
@@ -359,9 +360,9 @@ Albo po prostu `./deploy.sh` — robi dokładnie to samo, z lockiem i logami.
   ręczna synchronizacja z `force_update`, która dopisuje pozycje istniejącym zamówieniom, i `sync-cron`
   (`sync_paid_orders_only`) przy ponownym imporcie istniejącego zamówienia — ta sama klasa wyjątku, dziś
   nieaktywna, bo cron importu nie jest uruchamiany; gdyby miał wrócić, trzeba najpierw dodać blokadę zamówienia.
-  Na rzadkie zakleszczenie z takim wyjątkiem zmiana sposobu dostawy w panelu, hurtowa zmiana statusu i zapisy
+  Na rzadkie zakleszczenie z takim wyjątkiem zmiana sposobu dostawy w panelu, hurtowa zmiana statusu, zapisy
   Dostawy (telefon kierowcy — ponowienie wewnątrz handlera, wpis idempotencji raz — i akcje Dostawy w panelu tras)
-  odpowiadają jednym automatycznym ponowieniem: rollback i cały zapis od nowa, z decyzją na nowym stanie
+  oraz przeciąganie i przeliczenie priorytetów odpowiadają jednym automatycznym ponowieniem: rollback i cały zapis od nowa, z decyzją na nowym stanie
   (`blokady_zamowien.kod_mysql`); drugie 1213 kończy się odpowiedzią 500 z rollbackiem.
 
 ## Architecture
