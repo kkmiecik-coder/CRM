@@ -2920,6 +2920,7 @@ class ProductsModule {
                 const statusName = this.getStatusDisplayName(newStatus);
                 if (this.shared?.toastSystem) this.shared.toastSystem.show(`Status zmieniony na "${statusName}" dla ${result.processed_count} produktów`, 'success');
                 else alert(`Status zmieniony na "${statusName}" dla ${result.processed_count} produktów`);
+                this.showBulkStatusSkipped(result);
                 this.state.selectedProducts.clear();
                 this.toggleBulkActionsVisibility();
                 if (this.shared?.apiClient) this.shared.apiClient.clearCache();
@@ -2930,6 +2931,26 @@ class ProductsModule {
         } catch (error) {
             console.error('[ProductsModule] Bulk status change failed:', error);
             alert(`Błąd zmiany statusu: ${error.message}`);
+        }
+    }
+
+    /**
+     * Pominięte przy hurtowej zmianie statusu (logistyka, Ruling 30): serwer zmienił część zaznaczonych, a resztę
+     * odmówił per zamówienie (np. zamówienie na trasie załadowanej albo w drodze) — komunikaty są w `errors`, liczba
+     * pominiętych pozycji w `failed_count`. Pokazujemy je osobnym ostrzeżeniem, które nie znika samo.
+     * Komunikaty serwera niosą dane (numer zamówienia, nazwa trasy), a okienko powiadomień składa treść przez innerHTML
+     * — każdy komunikat idzie przez escapeHtml; okno alert dostaje czysty tekst.
+     */
+    showBulkStatusSkipped(result) {
+        const komunikaty = Array.isArray(result.errors) ? result.errors.map((k) => String(k)) : [];
+        const pominieto = Number(result.failed_count) || 0;
+        if (!komunikaty.length && !pominieto) return;
+        const naglowek = `Pominięto ${pominieto} produktów:`;
+        if (this.shared?.toastSystem) {
+            const tresc = [this.escapeHtml(naglowek), ...komunikaty.map((k) => this.escapeHtml(k))].join('<br>');
+            this.shared.toastSystem.show(tresc, 'warning', { persistent: true });
+        } else {
+            alert([naglowek, ...komunikaty].join('\n'));
         }
     }
 
