@@ -108,6 +108,8 @@ nie zna tej wartości ENUM (odczyt takiego wiersza rzuciłby `LookupError`, czyl
 - Eksport Routimo dostępny od `zatwierdzona` wzwyż, także z `wykonana` (ruling R11 etapu 3 — przewoźnik może pobrać
   plik ponownie po zamknięciu trasy; tak działa kod, patrz 9.8).
 - `wykonana` ustawia się sama po rozliczeniu ostatniego przystanku albo ręcznie z panelu (9.7).
+- **Nazwy dla ludzi (decyzja Konrada 2.10, oględziny U7):** Robocza, Zatwierdzona, Załadowana, W trasie,
+  **Dostarczona** (wartość `wykonana` w bazie i API bez zmian; sekcja listy tras „Dostarczone”). Szczegóły w 9.8.
 
 ### 4.4 Bramki
 
@@ -651,10 +653,12 @@ Trasa z kodami paczek leży w telefonie; skany rozpoznawane lokalnie, akcje w ko
 
 ### 9.7 Zmiany w panelu tras (etap 3)
 
-- Sekcje listy tras: Robocze, Zatwierdzone, **Załadowane**, **W trasie**, Wykonane; kłódka i postęp
+- Sekcje listy tras: Robocze, Zatwierdzone, **Załadowane**, **W trasie**, Wykonane (od 2.10 „Dostarczone”, 9.8);
+  kłódka i postęp
   „załadowano 7/8 · dostarczono 3/7” w nagłówku edytora; przy przystanku paczki i stany.
 - **„Cofnij załadunek”** (trasa `zaladowana`) — 4.5.
-- **„Odhacz jako wykonaną”** (z `zatwierdzona`/`zaladowana`/`w_trasie`): zaznaczone → jak „Dostarczone” (pozycje
+- **„Odhacz jako dostarczoną”** (do 2.10 „Odhacz jako wykonaną”; z `zatwierdzona`/`zaladowana`/`w_trasie`):
+  zaznaczone → jak „Dostarczone” (pozycje
   `dostarczone`, 149778); odznaczone → jak „Niedostarczone” z powodem `odhaczone_w_panelu`. Wymóg „spakowane lub
   dalej” zostaje. **Zmiana względem etapu 3:** odhaczenie wysyła statusy do Base.
 - **„Przywróć trasę” znika**; zastępuje ją **„Cofnij dostarczenie”** przy przystanku (4.5).
@@ -733,7 +737,7 @@ Dostawa częściowa („Zostaje” na pojedynczej paczce) odrzucona przez Konrad
 **Panel tras**
 - **„Cofnij dostarczenie”** (zamiast „Przywróć trasę”): dowolny dostarczony przystanek trasy `w_trasie` albo `wykonana`;
   trasa wykonana wraca do `w_trasie`. Bez sprawdzania zajętości pojazdu i kierowcy (korekta, nie planowanie).
-- **„Odhacz jako wykonaną”** zostaje dostępne także z roboczej (ruling R12 etapu 3; 9.7 wymienia zatwierdzoną, załadowaną
+- **„Odhacz jako dostarczoną”** zostaje dostępne także z roboczej (ruling R12 etapu 3; 9.7 wymienia zatwierdzoną, załadowaną
   i w trasie). Przystanki już dostarczone są zawsze dostarczone (okno pokazuje je zaznaczone i zablokowane). Odznaczony
   przystanek: Ruling 25, Base. 417343 tylko gdy zamówienie było załadowane (zamówienie z trasy zatwierdzonej ma 417343
   od spakowania).
@@ -771,7 +775,7 @@ Dostawa częściowa („Zostaje” na pojedynczej paczce) odrzucona przez Konrad
 - **Pusta trasa (Ruling 30).** Doróbka albo zmiana z Base. na jedynym przystanku trasy załadowanej zostawia trasę bez
   przystanków. „Ruszam” takiej trasy → 409 `route_status` „Trasa nie ma przystanków — logistyk cofnie załadunek albo
   odhaczy ją w panelu tras.” (trasa w drodze bez przystanków nie zamknęłaby się sama). W panelu: „Cofnij załadunek”
-  albo „Odhacz” — pustą trasę załadowaną albo w drodze odhaczenie zamyka jako wykonaną (pusta lista dostarczonych,
+  albo „Odhacz” — pustą trasę załadowaną albo w drodze odhaczenie zamyka jako dostarczoną (`wykonana`; pusta lista dostarczonych,
   zapis tylko na trasie: bez wpisów logu i bez Base.). Pusta robocza i zatwierdzona — jak dotąd 422.
 - **417343 przy zdjęciu z trasy w drodze (Ruling 30).** „Niedostarczone” i odznaczenie w „Odhacz” z trasy załadowanej
   albo w drodze zawsze wysyłają „Planowana trasa” (Base. ma wtedy „Załadowane” albo „Wysłane”, także gdy pozycje
@@ -807,6 +811,16 @@ Dostawa częściowa („Zostaje” na pojedynczej paczce) odrzucona przez Konrad
 - **Spóźnione „Dostarczone” po odznaczeniu w panelu (C5).** Przystanku już nie ma, a ostatni wpis logu zamówienia to
   niedostarczenie z tej trasy z powodem `odhaczone_w_panelu` (odczyt bieżący jak w C1): kod bez zmian, 404
   `stop_not_found`, komunikat „Logistyk zdjął to zamówienie z trasy w panelu.”
+
+**Oględziny 2.10 (Konrad) — nazwy i kontrakt**
+- **Status `wykonana` dla ludzi to „Dostarczona” (U7).** Wartość w bazie i API zostaje `wykonana`. Plakietki i etykiety
+  statusu w panelu, sekcja listy tras „Dostarczone”, komunikaty panelu i odmowy serwera mówią „dostarczona”; przycisk
+  i okno odhaczenia to „Odhacz jako dostarczoną”.
+- **Kontrakt API Dostawy:** `status_label` trasy (`TrasaKrotko`, `Trasa`) przyjmuje „Zatwierdzona”, „Załadowana”,
+  „W trasie”, „Dostarczona” (dawniej „Wykonana”). Appka rozpoznaje stan trasy wyłącznie po polu `status`; etykieta służy
+  tylko do wyświetlania i może się zmieniać.
+- **Szczegóły trasy w panelu (addytywnie):** `zamowienie.dostawa.cofnieto` (czas ostatniego „Cofnij dostarczenie”
+  zamówienia na tej trasie, null po ponownym dostarczeniu) i `dostarczone` przy przystanku w `GET /routes/map`.
 
 **Rozstrzygnięcia realizacji** — etykiety używane w komentarzach kodu i w testach (dziennik realizacji nie jest w repo):
 

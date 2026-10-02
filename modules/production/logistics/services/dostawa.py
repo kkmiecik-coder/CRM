@@ -55,7 +55,7 @@ POWODY_NIEDOSTARCZENIA = {
     'uszkodzenie': u'Uszkodzenie',
     'inne': u'Inne',
 }
-# Przystanek odznaczony w oknie „Odhacz jako wykonaną” panelu tras (spec 9.7) — tylko panel, nie telefon.
+# Przystanek odznaczony w oknie „Odhacz jako dostarczoną” panelu tras (spec 9.7) — tylko panel, nie telefon.
 POWOD_ODHACZENIA = 'odhaczone_w_panelu'
 ETYKIETA_ODHACZENIA = u'Odhaczone w panelu'
 # Trasy, z których zamówienie nie wraca do produkcji bez zdjęcia z trasy (w Base. ma „Załadowane” albo „Wysłane”):
@@ -911,7 +911,7 @@ def _odmowa_niespakowanych(zamowienia, niespakowane):
 
 def odhacz(route, dostarczone_ids, user_id=None, teraz=None):
     """
-    „Odhacz jako wykonaną” z panelu tras (spec 9.7; dostępne też z roboczej — ruling R12 etapu 3). Zastępuje
+    „Odhacz jako dostarczoną” z panelu tras (spec 9.7; dostępne też z roboczej — ruling R12 etapu 3). Zastępuje
     routes.wykonaj z etapu 3. `dostarczone_ids` (WYMAGANE, także pusta lista — M6) to zamówienia dostarczone;
     przystanki dostarczone już z telefonu zostają dostarczone. Zaznaczone → jak „Dostarczone” (pozycje
     'dostarczone', Base. 149778); odznaczone → jak „Niedostarczone” z powodem `odhaczone_w_panelu`. (I1) 409 z
@@ -922,7 +922,8 @@ def odhacz(route, dostarczone_ids, user_id=None, teraz=None):
 
     Trasa bez przystanków: robocza i zatwierdzona → 422 (logistyk ją usuwa albo uzupełnia). Załadowaną albo w drodze
     (Ruling 30: doróbka albo zmiana z Base. zdjęła jedyny przystanek, a „Ruszam” takiej trasy odmawia) „Odhacz”
-    zamyka jako wykonaną — z pustą listą dostarczonych; zapis tylko na trasie (bez wpisów logu, bo nie ma zamówień,
+    zamyka jako dostarczoną (status 'wykonana') — z pustą listą dostarczonych; zapis tylko na trasie (bez wpisów logu,
+    bo nie ma zamówień,
     i bez Base.).
     """
     trasa, zamowienia, pakunki = zablokuj(route)
