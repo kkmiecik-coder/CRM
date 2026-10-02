@@ -70,7 +70,8 @@ def test_confirm_cofnij_dostarczenie_mowi_o_niedostarczonych_w_puli():
     wprost, że te zamówienia zostają w puli (R32.4)."""
     js = _plik('static', 'js', 'logistics-routes.js')
     klik = _funkcja(js, 'naKlikPanelu')
-    assert "stan.otwarta.status === 'wykonana'" in klik and '(stan.otwarta.niedostarczone_zdjete || []).length' in klik
+    assert "stan.otwarta.status === 'wykonana'" in klik
+    assert '(stan.otwarta.niedostarczone_zdjete || []).filter(doPuli).length' in klik   # bez doróbek (runda 1)
     assert u'zostają w puli bez trasy' in klik and u'nie wrócą na tę trasę' in klik
 
 
@@ -80,7 +81,10 @@ def test_historia_niedostarczonych_zdjetych_pod_osia(client):
     historia = _funkcja(js, 'renderujZdjete')
     assert '(t && t.niedostarczone_zdjete) || []' in historia
     assert u"'Niedostarczone — wróciły do puli'" in historia and u"'Niedostarczone — zdjęte z trasy'" in historia
-    assert u"'Niedostarczono ' + esc(dataIGodzina(h.kiedy))" in historia and 'opisNiedostarczenia(h)' in historia
+    # Runda 1 U10: zdjęte przez powrót do produkcji — „Zdjęto”, separator „·” (bez podwójnego myślnika).
+    assert "(doPuli(h) ? 'Niedostarczono ' : 'Zdjęto ') + esc(dataIGodzina(h.kiedy)) + ' · '" in historia
+    assert 'opisNiedostarczenia(h)' in historia
+    assert "const POWODY_POWROTU = ['dorobka', 'zmiana_base'];" in js
     assert 'renderujZdjete(' in _funkcja(js, 'renderujPrzystanki')
     html = _plik('templates', 'logistics', 'tab_content.html')
     assert '<div class="lg-zdjete" data-lg-trasy="zdjete" hidden></div>' in html
@@ -133,7 +137,7 @@ def test_css_niedostarczonego_i_kontrast():
 
 def test_wersje_podbite_po_u10():
     html = _plik('templates', 'logistics', 'tab_content.html')
-    for plik, stara in (('js/logistics-routes.js', '20261002i'), ('css/logistics-trasy.css', '20261002k')):
+    for plik, stara in (('js/logistics-routes.js', '20261002u10'), ('css/logistics-trasy.css', '20261002k')):
         m = re.search(r"filename='" + re.escape(plik) + r"'\) \}\}\?v=(\w+)", html)
         assert m and m.group(1) > stara, plik
     m = re.search(r"filename='js/logistics-map\.js'\) \}\}\?v=(\w+)", html)

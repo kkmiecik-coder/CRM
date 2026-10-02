@@ -2026,6 +2026,10 @@
     // U10 (decyzja Konrada 2.10, Ruling 32): przystanek niedostarczony (`zamowienie.dostawa.niedostarczono`) zostaje
     // na trasie w drodze do jej końca — szara tarcza z białym numerem, przygaszony wiersz, powód przy przystanku.
     const niedostarczony = (z) => !!(z && z.dostawa && z.dostawa.niedostarczono);
+    // Powody zdjęcia z trasy przez powrót do produkcji (Ruling 30: doróbka, zmiana z Base.) — te zamówienia nie poszły
+    // do puli bez trasy (runda 1 U10: licznik w potwierdzeniu „Cofnij dostarczenie” i opis w historii).
+    const POWODY_POWROTU = ['dorobka', 'zmiana_base'];
+    const doPuli = (h) => !POWODY_POWROTU.includes(h.powod);
 
     // „Brak klienta: nikt nie otworzył” — etykieta powodu z notatką (przystanek i historia zdjętych mają te same pola).
     function opisNiedostarczenia(n) {
@@ -2277,7 +2281,10 @@
                     '<span class="lg-zdjete-klient">' + (h.klient ? esc(h.klient) : '') +
                         (h.miasto ? ', ' + esc(h.miasto) : '') + '</span>' +
                     '<span class="lg-przystanek-niedostarczono"><i class="fas fa-ban" aria-hidden="true"></i>' +
-                        'Niedostarczono ' + esc(dataIGodzina(h.kiedy)) + ' — ' + esc(opisNiedostarczenia(h)) + '</span>' +
+                        // Powrót do produkcji ma etykietę z myślnikiem („Doróbka — wraca do produkcji”) — kropka
+                        // środkowa zamiast drugiego myślnika, a zamiast „Niedostarczono” — „Zdjęto”.
+                        (doPuli(h) ? 'Niedostarczono ' : 'Zdjęto ') + esc(dataIGodzina(h.kiedy)) + ' · ' +
+                        esc(opisNiedostarczenia(h)) + '</span>' +
                 '</span></li>').join('') + '</ul>';
     }
 
@@ -3909,8 +3916,10 @@
                 } else if (akcja === 'cofnij-dostarczenie') {
                     // U10 (R32.4, koordynator 2.10): na trasie dostarczonej niedostarczone zeszły już do puli — cofnięcie
                     // dostarczenia otwiera trasę, ale ich na nią nie przywraca. Mówimy to wprost.
+                    // Runda 1 U10: tylko zamówienia, które poszły do PULI (bez zdjętych przez doróbkę albo zmianę
+                    // z Base. — te wróciły do produkcji).
                     const zdjete = stan.otwarta.status === 'wykonana'
-                        ? (stan.otwarta.niedostarczone_zdjete || []).length : 0;
+                        ? (stan.otwarta.niedostarczone_zdjete || []).filter(doPuli).length : 0;
                     if (window.confirm('Cofnąć dostarczenie zamówienia ' + numerZamowienia + '?\n' +
                         'Zamówienie znów będzie otwarte, a Base. dostanie status „Wysłane - trans. WoodPower”.' +
                         (zdjete ? '\nNiedostarczone zamówienia tej trasy (' + zdjete + ') zostają w puli bez trasy' +
