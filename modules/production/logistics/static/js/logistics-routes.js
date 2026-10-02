@@ -1832,9 +1832,23 @@
         przyjmijOdpowiedz(ctx, odp.route, { formularz: true, zmiana: true });
         const przystanek = (t.przystanki || []).find((p) => p.zamowienie && p.zamowienie.id === Number(orderId));
         const numer = przystanek ? przystanek.zamowienie.numer : '';
-        komunikat('info', 'Zamówienie' + (numer ? ' ' + numer : '') + ' zdjęte z trasy — wraca do puli bez trasy.',
+        // Runda 2 U10: trasa rozliczona (np. klient anulował ostatni otwarty przystanek) zamyka się przy tym zdjęciu,
+        // a zamknięcie zdejmuje do puli także pozostałe niedostarczone — mówimy to wprost (to nieodwracalne, R32.4).
+        komunikat('info', 'Zamówienie' + (numer ? ' ' + numer : '') + ' zdjęte z trasy — wraca do puli bez trasy.' +
+            (odp.route && odp.route.status === 'wykonana'
+                ? ' Trasa zakończona — pozostałe niedostarczone wróciły do puli.' : ''),
             { klucz: 'trasa' });
         fokusNaTytul(ctx);
+    }
+
+    // Runda 2 U10: czy poza przystankiem `orderId` wszystkie są rozliczone (dostarczone, niedostarczone albo
+    // anulowane w całości) — wtedy „Zdejmij z trasy” zamknie trasę (dostawa.zdejmij_niedostarczone).
+    function zdjecieZamknieTrase(t, orderId) {
+        return (t.przystanki || []).every((p) => {
+            const z = p.zamowienie || {};
+            const d = z.dostawa || {};
+            return z.id === orderId || p.anulowane || anulowane(z) || !!d.dostarczono || !!d.niedostarczono;
+        });
     }
 
     // „Cofnij załadunek” (trasa załadowana): wraca do zatwierdzonej, znaczniki załadunku znikają.
@@ -3933,7 +3947,10 @@
                     }
                 } else if (akcja === 'zdejmij-niedostarczone') {
                     if (window.confirm('Zdjąć z trasy niedostarczone zamówienie ' + numerZamowienia + '?\n' +
-                        'Zamówienie od razu wróci do puli bez trasy, a Base. dostanie status „Planowana trasa”.')) {
+                        'Zamówienie od razu wróci do puli bez trasy, a Base. dostanie status „Planowana trasa”.' +
+                        (zdjecieZamknieTrase(stan.otwarta, id)
+                            ? '\nPozostałe przystanki są już rozliczone — trasa się zakończy, a pozostałe niedostarczone' +
+                                ' też wrócą do puli.' : ''))) {
                         mutacja((ctx) => zdejmijNiedostarczone(ctx, id));
                     }
                 }

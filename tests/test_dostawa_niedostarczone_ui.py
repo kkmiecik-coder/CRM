@@ -137,7 +137,7 @@ def test_css_niedostarczonego_i_kontrast():
 
 def test_wersje_podbite_po_u10():
     html = _plik('templates', 'logistics', 'tab_content.html')
-    for plik, stara in (('js/logistics-routes.js', '20261002u10'), ('css/logistics-trasy.css', '20261002k')):
+    for plik, stara in (('js/logistics-routes.js', '20261002u11'), ('css/logistics-trasy.css', '20261002k')):
         m = re.search(r"filename='" + re.escape(plik) + r"'\) \}\}\?v=(\w+)", html)
         assert m and m.group(1) > stara, plik
     m = re.search(r"filename='js/logistics-map\.js'\) \}\}\?v=(\w+)", html)
@@ -149,3 +149,17 @@ def test_szablon_ma_sekcje_historii_pod_osia():
     sekcja = html[html.index('data-lg-trasy="przystanki-sekcja"'):]
     sekcja = sekcja[:sekcja.index('</section>')]
     assert sekcja.index('data-lg-trasy="linia"') < sekcja.index('data-lg-trasy="zdjete"')
+
+
+def test_zdejmij_z_trasy_uprzedza_i_mowi_o_zamknieciu_trasy():
+    """Runda 2 U10: „Zdejmij z trasy” na trasie rozliczonej zamyka ją i zdejmuje do puli pozostałe niedostarczone —
+    confirm uprzedza (wszystkie inne przystanki rozliczone), a komunikat po odpowiedzi z `wykonana` to mówi."""
+    js = _plik('static', 'js', 'logistics-routes.js')
+    zamyka = _funkcja(js, 'zdjecieZamknieTrase')
+    assert '!!d.dostarczono || !!d.niedostarczono' in zamyka and 'z.id === orderId' in zamyka and 'p.anulowane' in zamyka
+    klik = _funkcja(js, 'naKlikPanelu')
+    assert 'zdjecieZamknieTrase(stan.otwarta, id)' in klik
+    assert u'trasa się zakończy, a pozostałe niedostarczone' in klik
+    zdejmij = _funkcja(js, 'zdejmijNiedostarczone')
+    assert "odp.route.status === 'wykonana'" in zdejmij
+    assert u'Trasa zakończona — pozostałe niedostarczone wróciły do puli.' in zdejmij
