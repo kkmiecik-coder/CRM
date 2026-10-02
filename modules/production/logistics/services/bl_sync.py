@@ -451,9 +451,10 @@ def po_zmianie(order_ids):
 
 def zaplanuj_po_commicie(order_id):
     """
-    Zamówienie, którego zmiana czeka na wysłanie do Base., zapamiętane w `g` żądania API mobilnego.
-    Dopychacz startuje dopiero po udanym commicie (with_idempotency → wyslij_zaplanowane); przy
-    rollbacku i powtórce idempotentnej lista ginie razem z `g` (jak sygnał dla agenta druku).
+    Zamówienie, którego zmiana czeka na wysłanie do Base., zapamiętane w `g` żądania. Dopychacz startuje
+    dopiero po udanym commicie: API mobilne przez with_idempotency → wyslij_zaplanowane, panel tras przez
+    trasy_api._akcja → wyslij_zaplanowane (krok 4.4: odhaczenie, cofnięcia). Przy rollbacku i powtórce
+    idempotentnej lista ginie razem z `g` (jak sygnał dla agenta druku).
     """
     from flask import g, has_request_context
     if not has_request_context():

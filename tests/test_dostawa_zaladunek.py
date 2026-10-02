@@ -566,11 +566,14 @@ def test_cofniecie_zatwierdzenia_nie_rusza_znacznika_innej_trasy(app):
 
 def test_cofniecie_zatwierdzenia_bez_znacznikow_tylko_blokada_tras(app):
     """Bez znaczników tej trasy (znacznik innej trasy się nie liczy) — jak dotąd: blokada tras i sama trasa, bez
-    blokady deklaracji, zamówień i pozycji."""
+    blokady deklaracji, zamówień i pozycji. Flagi „Zostaje” leżą na przystankach (pod blokadą tras), więc ich
+    zdjęcie też nie potrzebuje blokad zamówień."""
     order, (p1, _p2) = zamowienie_z_paczkami()
     t = trasa([order])
     inna = trasa([], status='zatwierdzona')
     zaladuj_wprost([p1], inna)
+    dostawa.ustaw_zostaje(t, order.id, 'brak_miejsca')
+    db.session.commit()
     with Zapytania() as z:
         dostawa.cofnij_zatwierdzenie(t, user_id=1)
         db.session.flush()
@@ -579,6 +582,35 @@ def test_cofniecie_zatwierdzenia_bez_znacznikow_tylko_blokada_tras(app):
     assert blokujace and all(('FROM prod_config' in sql and 'logistyka_trasy_blokada' in par)
                              or 'FROM prod_routes' in sql for sql, par in blokujace)
     assert t.status == 'robocza' and p1.loaded_route_id == inna.id
+    assert RouteStop.query.filter_by(order_id=order.id).one().stays_reason is None
+
+
+def test_cofniecie_zatwierdzenia_zdejmuje_zostaje(app):
+    """Runda 1 zadania 4: powrót do roboczej to nowy załadunek od zera — flagi „Zostaje” przystanków tej trasy
+    znikają (zastępca kierowcy nie dziedziczy cudzych decyzji), z logiem `zostaje` (powód → brak) przy przystanku,
+    któremu coś zdjęto. Także na trasie ze znacznikami załadunku."""
+    a, (a1, _a2) = zamowienie_z_paczkami()
+    b, _ = zamowienie_z_paczkami()
+    c, _ = zamowienie_z_paczkami()
+    t = trasa([a, b, c])
+    dostawa.ustaw_zostaje(t, b.id, 'uszkodzone', u'pęknięty blat')
+    dostawa.zaladuj_paczke(t, a1.id, worker_id=7, teraz=T0)
+    db.session.commit()
+    dostawa.cofnij_zatwierdzenie(t, user_id=1, teraz=T0)
+    db.session.commit()
+    assert [(st.stays_reason, st.stays_note) for st in t.stops] == [(None, None)] * 3
+    wpis = LogisticsLog.query.filter_by(order_id=b.id, action='zostaje').one()
+    assert (wpis.old_value, wpis.new_value, wpis.note, wpis.user_id, wpis.route_id) == (
+        'uszkodzone', None, u'cofnięte zatwierdzenie trasy', 1, t.id)
+    assert LogisticsLog.query.filter(LogisticsLog.order_id.in_([a.id, c.id]),
+                                     LogisticsLog.action == 'zostaje').count() == 0
+    routes.zatwierdz(t, user_id=1)
+    db.session.commit()
+    assert dostawa.zaladuj_paczke(t, _paczka(b), worker_id=8)[1] is True    # skan bez 409 stop_stays
+
+
+def _paczka(order):
+    return ProductionPackage.query.filter_by(order_id=order.id).order_by(ProductionPackage.id).first().id
 
 
 def test_cofniecie_zatwierdzenia_kolejnosc_blokad(app):
@@ -748,3 +780,27 @@ def test_cofniecie_zaladunku_decyduje_na_zablokowanych_obiektach(app, monkeypatc
     assert zwykle_odczyty_stanu(z) == []
     assert trasa_po.status == 'zatwierdzona'
     assert [db.session.get(ProductionPackage, pid).loaded_route_id for pid in paczki_ids] == [None] * 4
+
+
+def test_cofniecie_zatwierdzenia_decyduje_na_zablokowanych_obiektach(app, monkeypatch):
+    """Ruling P2 dla „Cofnij zatwierdzenie” ze znacznikami załadunku i flagą „Zostaje”: po blokadach Dostawy żaden
+    zwykły odczyt zamówień (status trasy, log i podbicie routes.cofnij_do_roboczej idą na zamówieniach z zablokuj).
+    Odśmiecanie przy każdym wpisie logu (ta ścieżka nie woła dostawa._wymagaj_statusu — status sprawdza blokada tras
+    przed sprawdzeniem znaczników)."""
+    a, paczki_a = zamowienie_z_paczkami()
+    b, _ = zamowienie_z_paczkami()
+    t = trasa([a, b])
+    zaladuj_wprost(paczki_a[:1], t, kto_id=7)
+    dostawa.ustaw_zostaje(t, b.id, 'inne')
+    db.session.commit()
+    route_id, paczka_id = t.id, paczki_a[0].id
+    db.session.expunge_all()
+    gc.collect()
+    licznik = odsmiecaj_po_blokadach(monkeypatch)
+    route = db.session.get(Route, route_id)
+    with Zapytania() as z:
+        trasa_po = dostawa.cofnij_zatwierdzenie(route, user_id=1, teraz=T0)
+        db.session.flush()
+    assert licznik['zapisz_log'] > 0
+    assert zwykle_odczyty_stanu(z) == []
+    assert trasa_po.status == 'robocza' and db.session.get(ProductionPackage, paczka_id).loaded_route_id is None

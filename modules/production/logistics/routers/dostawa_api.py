@@ -11,7 +11,7 @@ bl_sync.zaplanuj_po_commicie; dekorator woła wyslij_zaplanowane). Kolejność b
 (touch_sessions w _kierowca) → dostawa.zablokuj (trasy → deklaracje paczek → zamówienia trasy rosnąco → paczki →
 pozycje).
 
-Każda odpowiedź 200 zapisu — także `changed: false` (powtórka z kolejki offline, Ruling 23) — niesie pełną trasę
+Każda odpowiedź 200 zapisu — także `changed: false` (powtórka z kolejki offline, Ruling 23 i 26) — niesie pełną trasę
 (`route`, ten sam kształt co GET) i `message`: appka podmienia swoją trasę na tę z odpowiedzi.
 """
 from functools import wraps
@@ -307,7 +307,12 @@ def delivery_stop_delivered(route_id, order_id):
 @wymaga_dostawy
 @with_idempotency(retryable_statuses=BLEDY_DO_PONOWIENIA)
 def delivery_stop_not_delivered(route_id, order_id):
-    """POST …/stops/<order_id>/not-delivered {"reason", "note"?} — „Niedostarczone” (spec 9.5, 4.5)."""
+    """
+    POST …/stops/<order_id>/not-delivered {"reason", "note"?} — „Niedostarczone” (spec 9.5, 4.5). Powtórka z nowym
+    X-Operation-Id po udanym zdjęciu przystanku (Ruling 26, kolejka offline) → 200 {changed: false,
+    route_completed: false} z pełną trasą, jak powtórki zakończenia załadunku i wyjazdu (Ruling 23); każdy inny brak
+    przystanku → 404 stop_not_found.
+    """
     dane = _dane_json()
     try:
         dostawa.waliduj_powod(dane.get('reason'), dostawa.POWODY_NIEDOSTARCZENIA)
@@ -316,12 +321,15 @@ def delivery_stop_not_delivered(route_id, order_id):
 
     def akcja(trasa, kierowca):
         numer = _numer(order_id)
-        _t, zamknieta = dostawa.nie_dostarcz(trasa, order_id, dane.get('reason'), dane.get('note'),
-                                             worker_id=kierowca.id, device_id=g.device.id)
+        _t, zmieniono, zamknieta = dostawa.nie_dostarcz(trasa, order_id, dane.get('reason'), dane.get('note'),
+                                                        worker_id=kierowca.id, device_id=g.device.id)
+        if not zmieniono:
+            return (u'Zamówienie {} było już rozliczone jako niedostarczone.'.format(numer),
+                    {'changed': False, 'route_completed': False})
         komunikat = u'Zamówienie {} niedostarczone — wraca do puli bez trasy.'.format(numer)
         if zamknieta:
             komunikat += u' Trasa zakończona.'
-        return komunikat, {'route_completed': zamknieta}
+        return komunikat, {'changed': True, 'route_completed': zamknieta}
     return _zapis(route_id, akcja)
 
 

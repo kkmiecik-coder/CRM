@@ -169,11 +169,19 @@ def test_niedostarczony_wraca_do_puli(app):
         assert notatka == 'niedostarczone'
 
 
-def test_cofniecie_dostarczenia_otwiera_zamowienie(app):
+def test_cofniecie_dostarczenia_otwiera_zamowienie(app, monkeypatch):
+    """Odhaczenie zamyka, cofnięcie dostarczenia otwiera. (krok 4.4) Reguła transportu nie czyta tras — bez
+    routes.przystanek_zamowienia (zwykłego odczytu z migawki transakcji)."""
     with app.app_context():
         t = _trasa()
         a = _transport(statusy=('spakowane',))
         routes.dodaj_przystanki(t, [a.id])
+        db.session.commit()
+
+        def _nie_wolno(*args, **kwargs):
+            raise AssertionError('zamknięcie liczone ze zwykłego odczytu przystanku')
+
+        monkeypatch.setattr(routes, 'przystanek_zamowienia', _nie_wolno)
         dostawa.odhacz(t, [a.id])
         db.session.commit()
         assert a.logistics_closed_at is not None
@@ -294,7 +302,7 @@ def test_zle_id_w_zmien_kolejnosc_nie_lista(app):
         assert [x.order_id for x in t.stops] == [a.id]
 
 
-def test_zle_id_w_wykonaj_float(app):
+def test_zle_id_w_odhaczeniu_float(app):
     with app.app_context():
         t = _trasa()
         a = _transport(statusy=('spakowane',))
@@ -625,27 +633,6 @@ def test_odhaczenie_wymaga_listy_dostarczonych(app):
             dostawa.odhacz(t, None)
         assert e.value.status == 422 and 'delivered_order_ids' in e.value.komunikat
         assert t.status == 'robocza'
-
-
-def test_odhaczenie_zamyka_wedlug_swiezej_trasy(app, monkeypatch):
-    """(krok 4.4) Reguła transportu nie czyta tras: odhaczenie i cofnięcie dostarczenia decydują o zamknięciu
-    bez routes.przystanek_zamowienia (zwykłego odczytu z migawki transakcji)."""
-    with app.app_context():
-        t = _trasa()
-        a = _transport(statusy=('spakowane',))
-        routes.dodaj_przystanki(t, [a.id])
-        db.session.commit()
-
-        def _nie_wolno(*args, **kwargs):
-            raise AssertionError('zamknięcie liczone ze zwykłego odczytu przystanku')
-
-        monkeypatch.setattr(routes, 'przystanek_zamowienia', _nie_wolno)
-        dostawa.odhacz(t, [a.id])
-        db.session.commit()
-        assert a.logistics_closed_at is not None
-        dostawa.cofnij_dostarczenie(t, a.id)
-        db.session.commit()
-        assert a.logistics_closed_at is None
 
 
 # --- I3: niezmieniony wyłączony pojazd/kierowca nie blokuje edycji ---

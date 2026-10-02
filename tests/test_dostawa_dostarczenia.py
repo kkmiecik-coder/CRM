@@ -109,10 +109,10 @@ def test_niedostarczenie_wraca_zamowienie_do_puli(app):
     a, b = _zaladowane(), _zaladowane()
     t = _w_trasie(a, b)
     order, lista_paczek = a
-    trasa_po, zamknieta = dostawa.nie_dostarcz(t, order.id, 'brak_klienta', u' nikt  nie otworzył ', worker_id=7,
-                                               device_id=3, teraz=T1)
+    trasa_po, zmieniono, zamknieta = dostawa.nie_dostarcz(t, order.id, 'brak_klienta', u' nikt  nie otworzył ',
+                                                          worker_id=7, device_id=3, teraz=T1)
     db.session.commit()
-    assert zamknieta is False and [st.order_id for st in trasa_po.stops] == [b[0].id]
+    assert (zmieniono, zamknieta) == (True, False) and [st.order_id for st in trasa_po.stops] == [b[0].id]
     assert [p.current_status for p in order.products] == ['zweryfikowane', 'zweryfikowane']
     assert all(p.loaded_at is None and p.loaded_route_id is None for p in lista_paczek)
     assert order.bl_status_pending_id == 417343 and order.logistics_closed_at is None
@@ -127,9 +127,9 @@ def test_rozliczenie_ostatniego_przystanku_niedostarczeniem_zamyka_trase(app):
     a, b = _zaladowane(), _zaladowane()
     t = _w_trasie(a, b)
     dostawa.dostarcz(t, a[0].id, worker_id=7, teraz=T1)
-    trasa_po, zamknieta = dostawa.nie_dostarcz(t, b[0].id, 'odmowa', worker_id=7, teraz=T2)
+    trasa_po, zmieniono, zamknieta = dostawa.nie_dostarcz(t, b[0].id, 'odmowa', worker_id=7, teraz=T2)
     db.session.commit()
-    assert zamknieta is True and trasa_po.status == 'wykonana'
+    assert (zmieniono, zamknieta, trasa_po.status) == (True, True, 'wykonana')
     assert [st.order_id for st in trasa_po.stops] == [a[0].id]
 
 
@@ -144,6 +144,64 @@ def test_niedostarczenie_odmowy(app):
     stoi, _ = _zaladowane()
     zaladowana = trasa([stoi], status='zaladowana')
     assert _blad(dostawa.nie_dostarcz, zaladowana, stoi.id, 'inne').kod == 'route_status'
+
+
+def test_powtorka_niedostarczenia_bez_zmian(app):
+    """Ruling 26: powtórka „Niedostarczone” (kolejka offline, nowy X-Operation-Id) po udanym zdjęciu przystanku — bez
+    zmian zamiast 404 stop_not_found, także gdy to niedostarczenie zamknęło trasę; bez drugiego wpisu w logu."""
+    a = _zaladowane()
+    t = _w_trasie(a)
+    dostawa.nie_dostarcz(t, a[0].id, 'odmowa', worker_id=7, teraz=T1)
+    db.session.commit()
+    assert t.status == 'wykonana'
+    a[0].bl_status_pending_id = None   # dopychacz wysłał
+    db.session.commit()
+    trasa_po, zmieniono, zamknieta = dostawa.nie_dostarcz(t, a[0].id, 'brak_klienta', worker_id=8, teraz=T2)
+    assert (zmieniono, zamknieta, trasa_po.status) == (False, False, 'wykonana')
+    assert a[0].bl_status_pending_id is None
+    assert LogisticsLog.query.filter_by(order_id=a[0].id, action='niedostarczone').count() == 1
+    assert LogisticsLog.query.filter_by(order_id=a[0].id, action='trasa_usuniete').count() == 1
+
+
+def test_brak_przystanku_bez_niedostarczenia_z_tej_trasy_to_404(app):
+    """Ruling 26 — rozpoznanie powtórki jest wąskie: tylko gdy OSTATNI wpis logu zamówienia to niedostarczenie
+    z TEJ trasy. Zamówienie spoza trasy, niedostarczone z innej trasy albo po niedostarczeniu dodane do nowej trasy
+    — 404 stop_not_found jak dotąd."""
+    a, b = _zaladowane(), _zaladowane()
+    t = _w_trasie(a)
+    druga = _w_trasie(b)
+    assert _blad(dostawa.nie_dostarcz, t, b[0].id, 'inne').kod == 'stop_not_found'        # nigdy na tej trasie
+    dostawa.nie_dostarcz(t, a[0].id, 'odmowa', worker_id=7, teraz=T1)
+    db.session.commit()
+    assert _blad(dostawa.nie_dostarcz, druga, a[0].id, 'inne').kod == 'stop_not_found'    # niedostarczone z innej
+    nowa = trasa([], status='robocza')
+    assert routes.dodaj_przystanki(nowa, [a[0].id])['dodane'] == [a[0].id]
+    db.session.commit()
+    e = _blad(dostawa.nie_dostarcz, t, a[0].id, 'inne')                                   # ostatni wpis: trasa_dodane
+    assert (e.kod, e.status) == ('stop_not_found', 404)
+
+
+@pytest.mark.parametrize('rozliczenie', ['odznaczenie', 'niedostarczone'])
+def test_wycofanie_niezweryfikowanego_wraca_do_spakowanych(app, rozliczenie):
+    """Ruling 25 (A): trasa odhaczona bez załadunku z zamówieniem niezweryfikowanym, cofnięte dostarczenie (pozycje
+    'zaladowane', trasa w drodze), potem odznaczenie przy odhaczeniu albo „Niedostarczone” — pozycje wracają do
+    'spakowane', nie 'zweryfikowane': weryfikacji nie było, a „zweryfikowane” ominęłoby bramkę załadunku. 417343 jak
+    dotąd (było „załadowane”)."""
+    order, _ = zamowienie_z_paczkami(statusy=('spakowane', 'spakowane'), zweryfikowane=False)
+    t = trasa([order])
+    dostawa.odhacz(t, [order.id], user_id=1, teraz=T0)
+    db.session.commit()
+    dostawa.cofnij_dostarczenie(t, order.id, user_id=1, teraz=T1)
+    db.session.commit()
+    assert [p.current_status for p in order.products] == ['zaladowane', 'zaladowane'] and t.status == 'w_trasie'
+    if rozliczenie == 'odznaczenie':
+        dostawa.odhacz(t, [], user_id=1, teraz=T2)
+    else:
+        dostawa.nie_dostarcz(t, order.id, 'odmowa', worker_id=7, teraz=T2)
+    db.session.commit()
+    assert [p.current_status for p in order.products] == ['spakowane', 'spakowane']
+    assert order.verified_at is None and order.bl_status_pending_id == 417343
+    assert routes.przystanek_zamowienia(order.id) is None
 
 
 # --- „Cofnij dostarczenie” ---------------------------------------------------------------------------------
@@ -227,6 +285,22 @@ def test_panel_cofa_dowolne_dostarczenie_bez_sprawdzania_zajetosci(app):
     assert (wpis.user_id, wpis.worker_id) == (1, None)
 
 
+def test_cofniecie_dostarczenia_anulowanego_bez_wpisu_w_logu(app):
+    """Przystanek zamówienia anulowanego w całości (odhaczony jako dostarczony, bez statusu Base.): cofnięcie zdejmuje
+    znacznik dostarczenia, ale nie zapisuje „dostarczone → zaladowane” — żadna pozycja się nie zmieniła."""
+    a = _zaladowane()
+    d = zamowienie_z_paczkami(statusy=('anulowane',))
+    t = _w_trasie(a, d)
+    dostawa.odhacz(t, [a[0].id, d[0].id], user_id=1, teraz=T1)
+    db.session.commit()
+    trasa_po, zmieniono = dostawa.cofnij_dostarczenie(t, d[0].id, user_id=1, teraz=T2)
+    db.session.commit()
+    assert zmieniono is True and trasa_po.status == 'w_trasie'
+    assert RouteStop.query.filter_by(order_id=d[0].id).one().delivered_at is None
+    assert LogisticsLog.query.filter_by(order_id=d[0].id, action='dostarczenie_cofniete').count() == 0
+    assert d[0].bl_status_pending_id is None
+
+
 # --- „Odhacz jako wykonaną” ------------------------------------------------------------------------------
 
 def test_odhaczenie_trasy_w_drodze_ze_statusami_base(app):
@@ -265,6 +339,20 @@ def test_odhaczenie_trasy_zatwierdzonej_bez_zaladunku(app):
     assert [p.current_status for p in b[0].products] == ['spakowane'] and b[0].bl_status_pending_id is None
 
 
+def test_odhaczenie_zamyka_anulowane_w_calosci(app):
+    """Zamówienie anulowane w całości, którego anulowanie ominęło przeliczenie (otwarte), zaznaczone przy odhaczeniu:
+    przystanek dostarczony bez statusu Base. i zamknięcie od razu — jak dawne routes.wykonaj."""
+    a = _zaladowane()
+    d = zamowienie_z_paczkami(statusy=('anulowane', 'anulowane'))
+    t = _w_trasie(a, d)
+    assert d[0].logistics_closed_at is None
+    wynik = dostawa.odhacz(t, [a[0].id, d[0].id], user_id=1, teraz=T1)
+    db.session.commit()
+    assert wynik == {'dostarczone': [a[0].id, d[0].id], 'niedostarczone': []}
+    assert d[0].logistics_closed_at == T1 and d[0].bl_status_pending_id is None
+    assert RouteStop.query.filter_by(order_id=d[0].id).one().delivered_at == T1
+
+
 # --- Reguła transportu ------------------------------------------------------------------------------------
 
 @pytest.mark.parametrize('statusy, zamkniete', [
@@ -297,6 +385,17 @@ def test_panel_cofniecie_dostarczenia_przez_api(app, client):
     assert client.post(BASE + '/routes/%d/restore' % rid).status_code == 404   # „Przywróć trasę” zniknęło
 
 
+def test_panel_ponowne_odhaczenie_wykonanej_409(app, client):
+    """Powtórne „Odhacz” trasy już wykonanej (podwójne kliknięcie, druga karta) — 409 bez zmian, jak w etapie 3."""
+    a = _zaladowane()
+    t = _w_trasie(a)
+    rid, oid = t.id, a[0].id
+    assert client.post(BASE + '/routes/%d/complete' % rid, json={'delivered_order_ids': [oid]}).status_code == 200
+    r = client.post(BASE + '/routes/%d/complete' % rid, json={'delivered_order_ids': [oid]})
+    assert r.status_code == 409 and r.get_json()['success'] is False and u'wykonana' in r.get_json()['error']
+    assert LogisticsLog.query.filter_by(order_id=oid, action='dostarczone').count() == 1
+
+
 def test_panel_uruchamia_dopychacz_base_po_odhaczeniu(app, client, monkeypatch):
     """Odhaczenie z panelu wysyła statusy Base. (zmiana względem etapu 3) — dopychacz rusza po commicie."""
     wywolania = []
@@ -315,10 +414,11 @@ def test_panel_uruchamia_dopychacz_base_po_odhaczeniu(app, client, monkeypatch):
 # pozycji, paczek ani tras — decyzje i zapisy idą na obiektach z odczytu bieżącego.
 
 def _odlacz_i_odsmiecaj(monkeypatch, route_id):
+    """(trasa wczytana na nowo, licznik przelotek odśmiecania — test sprawdza, że odśmiecanie naprawdę zaszło)."""
     db.session.expunge_all()
     gc.collect()
-    odsmiecaj_po_blokadach(monkeypatch)
-    return db.session.get(Route, route_id)
+    licznik = odsmiecaj_po_blokadach(monkeypatch)
+    return db.session.get(Route, route_id), licznik
 
 
 def test_dostarczenie_decyduje_na_zablokowanych_obiektach(app, monkeypatch):
@@ -328,11 +428,11 @@ def test_dostarczenie_decyduje_na_zablokowanych_obiektach(app, monkeypatch):
     dostawa.dostarcz(t, b[0].id, worker_id=7, teraz=T0)
     db.session.commit()
     route_id, oid = t.id, a[0].id
-    route = _odlacz_i_odsmiecaj(monkeypatch, route_id)
+    route, licznik = _odlacz_i_odsmiecaj(monkeypatch, route_id)
     with Zapytania() as z:
         trasa_po, zmieniono, zamknieta = dostawa.dostarcz(route, oid, worker_id=7, teraz=T1)
         db.session.flush()
-    assert zwykle_odczyty_stanu(z) == []
+    assert zwykle_odczyty_stanu(z) == [] and licznik['_wymagaj_statusu'] > 0 and licznik['zapisz_log'] > 0
     assert (zmieniono, zamknieta, trasa_po.status) == (True, True, 'wykonana')
 
 
@@ -344,11 +444,11 @@ def test_niedostarczenie_decyduje_na_zablokowanych_obiektach(app, monkeypatch):
     dostawa.dostarcz(t, b[0].id, worker_id=7, teraz=T0)
     db.session.commit()
     route_id, oid, zostaje_id = t.id, a[0].id, b[0].id
-    route = _odlacz_i_odsmiecaj(monkeypatch, route_id)
+    route, licznik = _odlacz_i_odsmiecaj(monkeypatch, route_id)
     with Zapytania() as z:
-        trasa_po, zamknieta = dostawa.nie_dostarcz(route, oid, 'brak_klienta', worker_id=7, teraz=T1)
+        trasa_po, _zmieniono, zamknieta = dostawa.nie_dostarcz(route, oid, 'brak_klienta', worker_id=7, teraz=T1)
         db.session.flush()
-    assert zwykle_odczyty_stanu(z) == []
+    assert zwykle_odczyty_stanu(z) == [] and licznik['_wymagaj_statusu'] > 0 and licznik['zapisz_log'] > 0
     assert zamknieta is True and [st.order_id for st in trasa_po.stops] == [zostaje_id]
 
 
@@ -361,9 +461,26 @@ def test_odhaczenie_decyduje_na_zablokowanych_obiektach(app, monkeypatch):
     dostawa.dostarcz(t, a[0].id, worker_id=7, teraz=T0)
     db.session.commit()
     route_id, ids = t.id, [a[0].id, b[0].id, c[0].id, d[0].id]
-    route = _odlacz_i_odsmiecaj(monkeypatch, route_id)
+    route, licznik = _odlacz_i_odsmiecaj(monkeypatch, route_id)
     with Zapytania() as z:
         wynik = dostawa.odhacz(route, [ids[1], ids[3]], user_id=1, teraz=T1)
         db.session.flush()
-    assert zwykle_odczyty_stanu(z) == []
+    assert zwykle_odczyty_stanu(z) == [] and licznik['_wymagaj_statusu'] > 0 and licznik['zapisz_log'] > 0
     assert wynik == {'dostarczone': [ids[0], ids[1], ids[3]], 'niedostarczone': [ids[2]]}
+
+
+def test_cofniecie_dostarczenia_decyduje_na_zablokowanych_obiektach(app, monkeypatch):
+    """Telefon cofa ostatnie dostarczenie zaraz po automatycznym zamknięciu trasy (wybór „ostatniego” po przystankach,
+    trasa wraca do „w trasie”: log `trasa_status` przy każdym przystanku)."""
+    a, b = _zaladowane(), _zaladowane()
+    t = _w_trasie(a, b)
+    dostawa.dostarcz(t, a[0].id, worker_id=7, teraz=T0)
+    dostawa.dostarcz(t, b[0].id, worker_id=7, teraz=T1)
+    db.session.commit()
+    route_id, oid = t.id, b[0].id
+    route, licznik = _odlacz_i_odsmiecaj(monkeypatch, route_id)
+    with Zapytania() as z:
+        trasa_po, zmieniono = dostawa.cofnij_dostarczenie(route, oid, z_telefonu=True, worker_id=7, teraz=T2)
+        db.session.flush()
+    assert zwykle_odczyty_stanu(z) == [] and licznik['_wymagaj_statusu'] > 0 and licznik['zapisz_log'] > 0
+    assert (zmieniono, trasa_po.status) == (True, 'w_trasie')

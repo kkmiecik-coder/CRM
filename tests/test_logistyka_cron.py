@@ -370,6 +370,18 @@ def test_siatka_otwiera_transport_z_pozycja_niedostarczona_na_trasie_wykonanej(a
         assert zamkniete == [False] and zmienione == 1
 
 
+def test_siatka_transport_na_trasie_w_drodze(app):
+    """Krok 4.4: na trasie w drodze (aktywnej, M10) zamówienie dostarczone (pozycje „dostarczone”) zostaje zamknięte,
+    a zamknięte z pozycjami „zaladowane” wraca na listę otwartych."""
+    with app.app_context():
+        dostarczone = zamowienie(sposob=s.TRANSPORT, statusy=('dostarczone',), logistics_closed_at=PO_ZNACZNIKU)
+        zaladowane = zamowienie(sposob=s.TRANSPORT, statusy=('zaladowane',), logistics_closed_at=PO_ZNACZNIKU)
+        _na_trasie(dostarczone, 'w_trasie')
+        _na_trasie(zaladowane, 'w_trasie')
+        zmienione, zamkniete = _po_przebiegu([dostarczone, zaladowane])
+        assert zamkniete == [True, False] and zmienione == 1
+
+
 def test_siatka_zostawia_zamkniecia_zgodne_z_regula(app):
     """Odbiór po wydaniu, transport dostarczony (pozycje „dostarczone”, krok 4.4), kurier w całości spakowany
     i zamówienie z samymi anulowanymi pozycjami (bez aktywnych reguła zamyka, nawet przy sposobie NULL) zostają

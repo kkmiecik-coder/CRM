@@ -471,6 +471,9 @@ def cofnij_zaladunek(route, user_id=None, teraz=None):
 
 # ── „Cofnij zatwierdzenie” w trakcie załadunku (panel tras, Ruling 21b kroku 4.4b) ─────────────────
 
+NOTATKA_COFNIETEGO_ZATWIERDZENIA = u'cofnięte zatwierdzenie trasy'
+
+
 def _ze_znacznikiem_trasy(aktualne, trasa):
     """Aktualne paczki zamówienia ze znacznikiem załadunku TEJ trasy (wystarczy sam `loaded_route_id`)."""
     return [p for p in aktualne if p.loaded_route_id == trasa.id]
@@ -497,8 +500,12 @@ def cofnij_zatwierdzenie(route, user_id=None, teraz=None):
     załadunku). Takie znaczniki czyścimy pod blokadami Dostawy (zablokuj — kolejność z docstringu modułu), z logiem
     `zaladunek` (zaladowane → brak, notatka „cofnięte zatwierdzenie trasy”) i podbiciem pozycji (ETag kolejek
     i szczegółów trasy w telefonie) — inaczej zostałyby na paczkach także wtedy, gdy przystanek trafi potem na inną
-    trasę. Bez znaczników — jak dotąd: sama blokada tras, bez blokad zamówień. Flagi „Zostaje” przystanków zostają
-    bez zmian. Zwraca świeżą trasę.
+    trasę. Bez znaczników — jak dotąd: sama blokada tras, bez blokad zamówień. Zwraca świeżą trasę.
+
+    Flagi „Zostaje” przystanków tej trasy też znikają (runda 1 zadania 4): powrót do roboczej to nowy załadunek
+    od zera, a zastępca kierowcy (decyzja 5) nie dziedziczy cudzych decyzji. Log `zostaje` (powód → brak, ta sama
+    notatka) przy przystanku, któremu coś zdjęto. Flagi leżą na przystankach, które blokada tras czyta odczytem
+    bieżącym, więc ich zdjęcie nie wymaga blokad zamówień.
 
     Sprawdzenie znaczników to zwykły odczyt. Znaczniki tej trasy zakłada tylko załadunek (zaladuj_paczke), a ten
     bierze blokadę tras — dlatego router (trasy_api.route_revert) zaczyna transakcję od nowa tuż przed tą blokadą
@@ -506,21 +513,38 @@ def cofnij_zatwierdzenie(route, user_id=None, teraz=None):
     Znaczniki czyści też (bez blokady tras) cofnięcie weryfikacji i reguła unieważniania etapów: gdy migawka pokaże
     znacznik już wyczyszczony, decyzja pod blokadami (odczyt bieżący) niczego nie zapisze.
     """
+    teraz = teraz or get_local_now()
     trasa = routes.zablokuj_trasy(route)
+    zablokowane = None
     if trasa.status == 'zatwierdzona' and _sa_znaczniki_zaladunku(trasa):
         # Silne referencje (docstring modułu): krotka zablokuj zostaje w zmiennych do końca zapisów.
         trasa, zamowienia, pakunki = zablokuj(trasa)
-        teraz = teraz or get_local_now()
         for order_id in sorted(zamowienia):
             order = zamowienia[order_id]
             if not paczki.wyczysc_zaladunek(_ze_znacznikiem_trasy(pakunki.get(order_id, []), trasa)):
                 continue
-            delivery.zapisz_log(order, 'zaladunek', 'zaladowane', None, note=u'cofnięte zatwierdzenie trasy',
+            delivery.zapisz_log(order, 'zaladunek', 'zaladowane', None, note=NOTATKA_COFNIETEGO_ZATWIERDZENIA,
                                 route_id=trasa.id, user_id=user_id, teraz=teraz)
             delivery.podbij_pozycje(order, teraz)
-    # Dotychczasowa logika na trasie spod blokady (status, kto i kiedy, log `trasa_status`, podbicie pozycji).
-    routes.cofnij_do_roboczej(trasa, user_id=user_id)
+        zablokowane = [zamowienia[s.order_id] for s in trasa.stops if s.order_id in zamowienia]
+    if trasa.status == 'zatwierdzona':
+        _zdejmij_flagi_zostaje(trasa, user_id, teraz)
+    # Dotychczasowa logika na trasie spod blokady (status, kto i kiedy, log `trasa_status`, podbicie pozycji) — ze
+    # znacznikami na zamówieniach z zablokuj, bez zwykłego odczytu zamówień po blokadach (Ruling P2).
+    routes.cofnij_do_roboczej(trasa, user_id=user_id, zamowienia=zablokowane)
     return trasa
+
+
+def _zdejmij_flagi_zostaje(trasa, user_id, teraz):
+    """Flagi „Zostaje” przystanków świeżej trasy (spod blokady tras) → brak, log `zostaje` przy każdym zdjętym."""
+    for s in trasa.stops:
+        if s.stays_reason is None and s.stays_note is None:
+            continue
+        # Sam order_id przystanku — bez czytania zamówień (jak _log_trasy).
+        db.session.add(LogisticsLog(order_id=s.order_id, action='zostaje', old_value=(s.stays_reason or None),
+                                    new_value=None, note=NOTATKA_COFNIETEGO_ZATWIERDZENIA, route_id=trasa.id,
+                                    user_id=user_id, created_at=teraz))
+        s.stays_reason, s.stays_note = None, None
 
 
 # ── Dostarczenia (trasa w drodze) i odhaczenie z panelu ─────────────────────────────────────────────
@@ -561,24 +585,49 @@ def _oznacz_dostarczone(order, stop, teraz, user_id=None, worker_id=None, device
 def _wycofaj_z_trasy(trasa, order, aktualne, powod, notatka, teraz, user_id=None, worker_id=None, device_id=None):
     """
     „Niedostarczone” (telefon) i przystanek odznaczony przy odhaczeniu (panel), spec 4.5: zamówienie wraca do puli
-    „Transport bez trasy” jako zweryfikowane — pozycje 'zaladowane' → 'zweryfikowane', znaczniki załadunku
-    czyszczone, Base. 417343 tylko, gdy było załadowane (zamówienie z trasy zatwierdzonej ma 417343 od spakowania),
-    log `niedostarczone` z powodem, zdjęcie z trasy (routes.usun_przystanek: log `trasa_usuniete` z notatką
-    „niedostarczone” jak w etapie 3 i przeliczenie zamknięcia).
+    „Transport bez trasy” — pozycje 'zaladowane' → 'zweryfikowane', znaczniki załadunku czyszczone, Base. 417343
+    tylko, gdy było załadowane (zamówienie z trasy zatwierdzonej ma 417343 od spakowania), zdjęcie z trasy
+    (routes.usun_przystanek: log `trasa_usuniete` z notatką „niedostarczone” jak w etapie 3 i przeliczenie
+    zamknięcia), log `niedostarczone` z powodem.
+
+    Ruling 25 (A): zamówienie bez weryfikacji (`verified_at` NULL — trasa odhaczona bez załadunku, potem cofnięte
+    dostarczenie dało 'zaladowane') wraca do 'spakowane', nie 'zweryfikowane': „zweryfikowane” bez weryfikacji
+    ominęłoby bramkę załadunku.
+
+    Log `niedostarczone` idzie PO zdjęciu z trasy, więc jest ostatnim wpisem zamówienia — po nim nie_dostarcz
+    rozpoznaje powtórkę z kolejki offline (Ruling 26, _powtorka_niedostarczenia).
     """
+    wraca = 'zweryfikowane' if order.verified_at is not None else 'spakowane'
     cofniete = [p for p in delivery.aktywne_produkty(order) if p.current_status == 'zaladowane']
     for p in cofniete:
-        p.current_status = 'zweryfikowane'
+        p.current_status = wraca
     paczki.wyczysc_zaladunek(aktualne)
     if cofniete:
         bl_sync.oznacz_planowana_trasa(order)
         bl_sync.zaplanuj_po_commicie(order.id)
+    routes.usun_przystanek(trasa, order.id, user_id=user_id, note=u'niedostarczone', wymagaj_roboczej=False,
+                           worker_id=worker_id, device_id=device_id)
     etykieta = ETYKIETA_ODHACZENIA if powod == POWOD_ODHACZENIA else POWODY_NIEDOSTARCZENIA.get(powod, powod)
     delivery.zapisz_log(order, 'niedostarczone', None, powod,
                         note=(etykieta + (u': ' + notatka if notatka else u''))[:255], route_id=trasa.id,
                         user_id=user_id, worker_id=worker_id, device_id=device_id, teraz=teraz)
-    routes.usun_przystanek(trasa, order.id, user_id=user_id, note=u'niedostarczone', wymagaj_roboczej=False,
-                           worker_id=worker_id, device_id=device_id)
+
+
+def _powtorka_niedostarczenia(trasa, order_id):
+    """
+    Ruling 26: czy brak przystanku to skutek udanego „Niedostarczone” z TEJ trasy — OSTATNI wpis logu zamówienia
+    to `niedostarczone` z route_id tej trasy (_wycofaj_z_trasy pisze go jako ostatni). Wąsko: zamówienie, którego
+    na trasie nie było, niedostarczone z innej trasy albo zmienione potem (np. dodane do nowej trasy) → False.
+
+    Zwykły odczyt: rozstrzyga tylko między „bez zmian” a 404 — nic nie zapisuje. Migawka sprzed czekania na blokadę
+    może najwyżej nie zobaczyć niedostarczenia zacommitowanego w tej chwili (dawne 404 — appka ponowi), a wpis
+    nowszy niż migawka nie zmieni wyniku „bez zmian” w zapis. Blokującego odczytu logu nie bierzemy: zamówienia
+    spoza trasy nie blokujemy, a blokada jego wpisów przed blokadą zamówienia dokładałaby nową kolejność blokad.
+    """
+    ostatni = (db.session.query(LogisticsLog.action, LogisticsLog.route_id)
+               .filter(LogisticsLog.order_id == order_id)
+               .order_by(LogisticsLog.id.desc()).first())
+    return ostatni is not None and ostatni.action == 'niedostarczone' and ostatni.route_id == trasa.id
 
 
 def dostarcz(route, order_id, worker_id=None, device_id=None, teraz=None):
@@ -608,12 +657,17 @@ def nie_dostarcz(route, order_id, powod, notatka=None, worker_id=None, device_id
     """
     „Niedostarczone” z powodem (spec 9.5 i 4.5) — patrz _wycofaj_z_trasy. Przystanek dostarczony → 409
     stop_delivered (najpierw cofnij dostarczenie). Ostatni rozliczony przystanek zamyka trasę. Zwraca
-    (trasa, zamknieta). Powtórka po zdjęciu przystanku dostaje 404 stop_not_found (niezapamiętane — appka odświeża
-    trasę).
+    (trasa, zmieniono, zamknieta).
+
+    Powtórka (Ruling 26 — kolejka offline z nowym X-Operation-Id po udanym zdjęciu przystanku): przystanku już nie
+    ma, a ostatni wpis logu zamówienia to niedostarczenie z tej trasy → (trasa, False, False), bez zmian i bez
+    odmowy, także na trasie, którą to niedostarczenie zamknęło. Każdy inny brak przystanku → 404 stop_not_found.
     """
     waliduj_powod(powod, POWODY_NIEDOSTARCZENIA)
     notatka = _notatka(notatka)
     trasa, zamowienia, pakunki = zablokuj(route)
+    if not any(s.order_id == order_id for s in trasa.stops) and _powtorka_niedostarczenia(trasa, order_id):
+        return trasa, False, False
     stop = _przystanek(trasa, order_id)
     _wymagaj_statusu(trasa, 'w_trasie')
     if stop.delivered_at is not None:
@@ -622,7 +676,7 @@ def nie_dostarcz(route, order_id, powod, notatka=None, worker_id=None, device_id
     _wycofaj_z_trasy(trasa, zamowienia[order_id], pakunki.get(order_id, []), powod, notatka, teraz,
                      worker_id=worker_id, device_id=device_id)
     trasa = routes.zablokuj_trasy(trasa)   # świeże przystanki po zdjęciu (ta sama transakcja, bez czekania)
-    return trasa, _zamknij_jesli_rozliczona(trasa, teraz, worker_id=worker_id, device_id=device_id)
+    return trasa, True, _zamknij_jesli_rozliczona(trasa, teraz, worker_id=worker_id, device_id=device_id)
 
 
 def cofnij_dostarczenie(route, order_id, z_telefonu=False, user_id=None, worker_id=None, device_id=None,
@@ -662,8 +716,10 @@ def cofnij_dostarczenie(route, order_id, z_telefonu=False, user_id=None, worker_
         if cofniete:
             bl_sync.oznacz_wyslane(order)
             bl_sync.zaplanuj_po_commicie(order.id)
-        delivery.zapisz_log(order, 'dostarczenie_cofniete', 'dostarczone', 'zaladowane', route_id=trasa.id,
-                            user_id=user_id, worker_id=worker_id, device_id=device_id, teraz=teraz)
+            # Wpis tylko, gdy któraś pozycja się zmieniła: przystanek zamówienia anulowanego w całości (odhaczony
+            # bez statusu Base.) traci sam znacznik dostarczenia, bez „dostarczone → zaladowane” w historii.
+            delivery.zapisz_log(order, 'dostarczenie_cofniete', 'dostarczone', 'zaladowane', route_id=trasa.id,
+                                user_id=user_id, worker_id=worker_id, device_id=device_id, teraz=teraz)
         delivery.podbij_pozycje(order, teraz)
         delivery.przelicz_zamkniecie(order, teraz)
     stop.delivered_at = None

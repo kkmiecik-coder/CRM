@@ -249,26 +249,23 @@ def _wymagaj_statusu(route, *statusy):
             route.name, opis.get(route.status, route.status)))
 
 
-def zamowienia_trasy(route, z_pozycjami=False):
-    """Zamówienia trasy w kolejności przystanków. `z_pozycjami` — z `products` jednym
-    zapytaniem (dla wołającego, który czyta pozycje każdego przystanku — bez tego N zapytań)."""
+def zamowienia_trasy(route):
+    """Zamówienia trasy w kolejności przystanków (zwykły odczyt)."""
     ids = [s.order_id for s in route.stops]
     if not ids:
         return []
-    zapytanie = ProductionOrder.query
-    if z_pozycjami:
-        zapytanie = zapytanie.options(selectinload(ProductionOrder.products))
-    po_id = {o.id: o for o in zapytanie.filter(ProductionOrder.id.in_(ids)).all()}
+    po_id = {o.id: o for o in ProductionOrder.query.filter(ProductionOrder.id.in_(ids)).all()}
     return [po_id[i] for i in ids if i in po_id]
 
 
-def _podbij_trase(route, teraz):
-    for order in zamowienia_trasy(route):
+def _podbij_trase(route, teraz, zamowienia=None):
+    """`zamowienia` — już zablokowane przez wołającego (patrz cofnij_do_roboczej); bez nich zwykły odczyt."""
+    for order in (zamowienia if zamowienia is not None else zamowienia_trasy(route)):
         delivery.podbij_pozycje(order, teraz)
 
 
-def _log_statusu(route, stary, nowy, user_id, teraz):
-    for order in zamowienia_trasy(route):
+def _log_statusu(route, stary, nowy, user_id, teraz, zamowienia=None):
+    for order in (zamowienia if zamowienia is not None else zamowienia_trasy(route)):
         delivery.zapisz_log(order, 'trasa_status', stary, nowy, user_id=user_id,
                             route_id=route.id, teraz=teraz)
 
@@ -621,13 +618,23 @@ def zatwierdz(route, user_id=None):
     _podbij_trase(route, teraz)
 
 
-def cofnij_do_roboczej(route, user_id=None):
+def cofnij_do_roboczej(route, user_id=None, zamowienia=None):
+    """
+    Trasa zatwierdzona → robocza (log `trasa_status`, podbicie pozycji).
+
+    UWAGA (krok 4.4): z panelu tras wołać przez dostawa.cofnij_zatwierdzenie (trasy_api.route_revert). Ta funkcja
+    sama nie czyści znaczników załadunku paczek ani flag „Zostaje” przystanków — kierowca mógł już zacząć ładować —
+    więc wołana wprost zostawiłaby je na paczkach i przystankach trasy, która wraca do edycji.
+
+    `zamowienia` — zamówienia trasy w kolejności przystanków, już zablokowane przez wołającego (dostawa.zablokuj):
+    log i podbicie idą na nich, bez zwykłego odczytu zamówień po blokadach (Ruling P2). Bez nich — zwykły odczyt.
+    """
     route = zablokuj_trasy(route)   # (fix-1, Ruling A3) przed _wymagaj_statusu — świeży stan
     _wymagaj_statusu(route, 'zatwierdzona')
     teraz = get_local_now()
     route.status, route.approved_at, route.approved_by = 'robocza', None, None
-    _log_statusu(route, 'zatwierdzona', 'robocza', user_id, teraz)
-    _podbij_trase(route, teraz)
+    _log_statusu(route, 'zatwierdzona', 'robocza', user_id, teraz, zamowienia)
+    _podbij_trase(route, teraz, zamowienia)
 
 
 def usun(route, user_id=None):
