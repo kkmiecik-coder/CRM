@@ -111,6 +111,16 @@ def test_wiersz_pozycji():
     assert '^FD5 szt.^FS' in zpl
 
 
+def test_dlugi_opis_pozycji_ucina_do_60_znakow():
+    # Limit dobrany na wydruku próbnym 2.10 (wiersz z 60 znakami wyglądał najlepiej).
+    zpl = pl.generate_package_label_zpl(_dane(pozycje=[_pozycja(
+        technologia='mikrowczep', dlugosc_cm=300, szerokosc_cm=65,
+        wykonczenie='lakierowane bezbarwne mat olejowosk twardy')]))
+    wiersz = re.search(r'\^FD(1\. Dab[^^]*)\^FS', zpl).group(1)
+    assert len(wiersz) <= 60  # obcięcie zdejmuje spację przed „...”
+    assert wiersz == '1. Dab mikrowczep A/B 300x65x4 cm, lakierowane bezbarwne...'
+
+
 def test_surowe_bez_dopisku():
     zpl = pl.generate_package_label_zpl(_dane(pozycje=[_pozycja(wykonczenie='surowe')]))
     assert 'surowe' not in zpl

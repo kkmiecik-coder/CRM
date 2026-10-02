@@ -26,7 +26,10 @@ SZEROKOSC = 800          # 100 mm przy 203 dpi (8 punktów na mm)
 WYSOKOSC = 1200          # 150 mm
 MARGINES = 24            # 3 mm
 MAKS_WIERSZY = 14        # pozycji na etykiecie; przy większej liczbie 13 + „+ N pozycji"
-MAKS_OPISU = 40          # znaków opisu pozycji — dalej wchodziłby na kolumnę ilości (x=600)
+# Znaków opisu pozycji razem z numerem wiersza i „...”. Dobrane z Konradem 2.10 na XP-410B
+# (wydruk próbny 56–82 znaki): przy 60 zostaje wyraźny odstęp od kolumny „N szt.”,
+# która jest wyrównana do prawej krawędzi (x=600..768), więc tekst może zachodzić za x=600.
+MAKS_OPISU = 60
 # Kopia sposoby.WAGA_KG_NA_M3 (logistyka etap 4) — test pilnuje zgodności. Import zamiast
 # kopii ładowałby pakiet modules.production.logistics z jego routerami, a ten moduł ma
 # zostać lekki (czytają go serwisy druku).
