@@ -7,7 +7,9 @@ modules/production/logistics/services/routimo.py, wspólne z eksportem
 zakładki Raporty (modules/reports/routers.generate_routimo_excel).
 
 Dostawa (krok 4.4): `POST /routes/<id>/unload` („Cofnij załadunek”), `POST /routes/<id>/stops/<oid>/undo-delivered`
-(„Cofnij dostarczenie”), odhaczenie `/complete` przez services/dostawa.py.
+(„Cofnij dostarczenie”), odhaczenie `/complete` przez services/dostawa.py. U10 (Ruling 32): niedostarczony przystanek
+zostaje na trasie w drodze — `POST /routes/<id>/stops/<oid>/undo-not-delivered` („Cofnij niedostarczenie”)
+i `/remove-not-delivered` („Zdejmij z trasy”), historia zdjętych w `niedostarczone_zdjete`.
 """
 import io
 from datetime import timedelta
@@ -163,10 +165,15 @@ def _przystanki_mapy(zamowienia, punkty, przystanki=None):
     def dostarczony(order_id):
         stop = przystanki.get(order_id)
         return bool(stop is not None and stop.delivered_at is not None)
+
+    def niedostarczony(order_id):
+        # U10 (Ruling 32): niedostarczony wisi na trasie w drodze do jej końca — szara stacja na mapie.
+        stop = przystanki.get(order_id)
+        return bool(stop is not None and stop.not_delivered_at is not None)
     return [{'pozycja': numer, 'anulowane': anulowane, 'order_id': o.id,
              'numer': o.internal_order_number, 'klient': o.client_name,
              'lat': wspolrzedna(o.id, 'lat'), 'lng': wspolrzedna(o.id, 'lng'),
-             'dostarczone': dostarczony(o.id)}
+             'dostarczone': dostarczony(o.id), 'niedostarczone': niedostarczony(o.id)}
             for o, numer, anulowane in routes.numeracja_przystankow(zamowienia)]
 
 
@@ -233,14 +240,41 @@ def _dostawa_przystanku(stop, cofnieto=None):
     dostarczony (delivered_at) ma tu null — ślad cofnięcia widać tylko do ponownego dostarczenia.
     """
     if stop is None:
-        return {'dostarczono': None, 'zostaje': None, 'cofnieto': None}
+        return {'dostarczono': None, 'zostaje': None, 'cofnieto': None, 'niedostarczono': None}
     zostaje = None
     if stop.stays_reason:
         zostaje = {'powod': stop.stays_reason,
                    'etykieta': dostawa.POWODY_ZOSTAJE.get(stop.stays_reason, stop.stays_reason),
                    'notatka': stop.stays_note}
+    # U10 (Ruling 32): przystanek niedostarczony zostaje na trasie w drodze do jej końca.
+    niedostarczono = None
+    if stop.not_delivered_at is not None:
+        niedostarczono = {'powod': stop.not_delivered_reason,
+                          'etykieta': dostawa.etykieta_powodu(stop.not_delivered_reason),
+                          'notatka': stop.not_delivered_note, 'kiedy': stop.not_delivered_at.isoformat()}
     return {'dostarczono': stop.delivered_at.isoformat() if stop.delivered_at else None, 'zostaje': zostaje,
-            'cofnieto': cofnieto.isoformat() if cofnieto and stop.delivered_at is None else None}
+            'cofnieto': cofnieto.isoformat() if cofnieto and stop.delivered_at is None else None,
+            'niedostarczono': niedostarczono}
+
+
+def _niedostarczone_zdjete(historia):
+    """
+    U10 (Ruling 32): historia trasy (dostawa.niedostarczone_zdjete) dla edytora — z numerem, klientem i miastem
+    zamówienia (zwykły odczyt samych kolumn: zamówienia nie ma już na trasie, to tylko widok).
+    """
+    ids = [w['order_id'] for w in historia]
+    zamowienia = {}
+    if ids:
+        zamowienia = {i: (numer, klient, miasto) for i, numer, klient, miasto in db.session.query(
+            ProductionOrder.id, ProductionOrder.internal_order_number, ProductionOrder.client_name,
+            ProductionOrder.delivery_city).filter(ProductionOrder.id.in_(ids))}
+    wynik = []
+    for w in historia:
+        numer, klient, miasto = zamowienia.get(w['order_id'], (None, None, None))
+        wynik.append({'order_id': w['order_id'], 'numer': numer, 'klient': klient, 'miasto': miasto,
+                      'powod': w['powod'], 'etykieta': w['etykieta'], 'notatka': w['notatka'],
+                      'kiedy': w['kiedy'].isoformat()})
+    return wynik
 
 
 def _szczegoly(route, przelicz_wykonana=False):
@@ -267,7 +301,9 @@ def _szczegoly(route, przelicz_wykonana=False):
             zamowienia = _zamowienia_z_produktami(route, swieze=True)
             punkty = geocoding.geo_zamowien([o.id for o in zamowienia])
     pakunki = paczki.aktualne_paczki_zamowien([o.id for o in zamowienia])
-    dane = routes.serializuj_trase(route, zamowienia, punkty, pakunki)
+    historia = dostawa.niedostarczone_zdjete([route])[route.id]
+    dane = routes.serializuj_trase(route, zamowienia, punkty, pakunki, historia)
+    dane['niedostarczone_zdjete'] = _niedostarczone_zdjete(historia)
     przystanki = {s.order_id: s for s in route.stops}
     cofniecia = _cofniecia_dostarczen(route.id, [s.order_id for s in route.stops if s.delivered_at is None])
     dane['przystanki'] = []
@@ -485,7 +521,10 @@ def routes_list():
     # Krok 4.4: postęp Dostawy przy każdej trasie — paczki wszystkich tras jednym zapytaniem.
     pakunki = paczki.aktualne_paczki_zamowien(
         [o.id for zamowienia in zamowienia_wg_trasy.values() for o in zamowienia])
-    wynik = [routes.serializuj_trase(trasa, zamowienia_wg_trasy[trasa.id], punkty, pakunki) for trasa in trasy]
+    # U10: historia niedostarczonych wszystkich tras listy jednym zapytaniem (postęp „niedostarczono”).
+    historia = dostawa.niedostarczone_zdjete(trasy)
+    wynik = [routes.serializuj_trase(trasa, zamowienia_wg_trasy[trasa.id], punkty, pakunki, historia[trasa.id])
+             for trasa in trasy]
     return jsonify({'success': True, 'routes': wynik})
 
 
@@ -665,4 +704,24 @@ def route_stop_undo_delivered(route_id, order_id):
     """„Cofnij dostarczenie” przy przystanku (krok 4.4, spec 4.5 i 9.7) — zastępuje „Przywróć trasę”."""
     user_id = _user_id()
     return _akcja(route_id, lambda t: dostawa.cofnij_dostarczenie(t, order_id, user_id=user_id) and None,
+                  ponow_po_1213=True)
+
+
+@logistics_panel_bp.route('/routes/<int:route_id>/stops/<int:order_id>/undo-not-delivered', methods=['POST'])
+@guard
+def route_stop_undo_not_delivered(route_id, order_id):
+    """„Cofnij niedostarczenie” przy przystanku trasy w drodze (U10, Ruling 32) — symetrycznie do „Cofnij
+    dostarczenie”; przystanek, który nie jest niedostarczony — bez zmian."""
+    user_id = _user_id()
+    return _akcja(route_id, lambda t: dostawa.cofnij_niedostarczenie(t, order_id, user_id=user_id) and None,
+                  ponow_po_1213=True)
+
+
+@logistics_panel_bp.route('/routes/<int:route_id>/stops/<int:order_id>/remove-not-delivered', methods=['POST'])
+@guard
+def route_stop_remove_not_delivered(route_id, order_id):
+    """„Zdejmij z trasy” niedostarczony przystanek trasy w drodze (U10, Ruling 32): zamówienie od razu wraca do puli
+    bez trasy (Base. 417343 po commicie), historia zostaje."""
+    user_id = _user_id()
+    return _akcja(route_id, lambda t: dostawa.zdejmij_niedostarczone(t, order_id, user_id=user_id) and None,
                   ponow_po_1213=True)

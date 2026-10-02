@@ -48,8 +48,10 @@ def test_szczegoly_trasy_w_zaladunku(app, client):
     przystanki = _przystanki(dane)
     assert przystanki[zostaje.id]['dostawa'] == {
         'dostarczono': None,
-        'zostaje': {'powod': 'brak_miejsca', 'etykieta': u'Brak miejsca', 'notatka': u'za długie'}, 'cofnieto': None}
-    assert przystanki[pelne.id]['dostawa'] == {'dostarczono': None, 'zostaje': None, 'cofnieto': None}
+        'zostaje': {'powod': 'brak_miejsca', 'etykieta': u'Brak miejsca', 'notatka': u'za długie'}, 'cofnieto': None,
+        'niedostarczono': None}
+    assert przystanki[pelne.id]['dostawa'] == {'dostarczono': None, 'zostaje': None, 'cofnieto': None,
+                                               'niedostarczono': None}
     assert przystanki[czesc.id]['paczki']['zaladowane'] == 1
 
 
@@ -127,7 +129,7 @@ def test_szczegoly_trasy_pokazuja_cofniecie_dostarczenia(app, client, monkeypatc
     dostawa.dostarcz(t, ia, worker_id=7, teraz=pierwsze + timedelta(minutes=10))
     db.session.commit()
     assert przystanki()[ia]['dostawa'] == {'dostarczono': (pierwsze + timedelta(minutes=10)).isoformat(),
-                                           'zostaje': None, 'cofnieto': None}
+                                           'zostaje': None, 'cofnieto': None, 'niedostarczono': None}
     drugie = pierwsze + timedelta(minutes=20)
     dostawa.cofnij_dostarczenie(t, ia, user_id=1, teraz=drugie)
     db.session.commit()
@@ -152,3 +154,94 @@ def test_mapa_tras_oznacza_dostarczone_przystanki(app, client):
     db.session.commit()
     mapa = next(x for x in client.get(BASE + '/routes/map').get_json()['routes'] if x['id'] == rid)
     assert {p['order_id']: p['dostarczone'] for p in mapa['przystanki']} == {ia: True, ib: False}
+
+
+# --- U10 (Ruling 32): niedostarczone na trasie w panelu ---------------------------------------------------------
+
+def _w_drodze(ile=3):
+    zamowienia = [zamowienie_z_paczkami(statusy=('zaladowane', 'zaladowane')) for _ in range(ile)]
+    t = trasa([o for o, _ in zamowienia], status='w_trasie', loaded_at=T0, departed_at=T0)
+    zaladuj_wprost([p for _, lista in zamowienia for p in lista], t)
+    return t, [o for o, _ in zamowienia]
+
+
+def test_szczegoly_niedostarczony_przystanek_i_historia(app, client):
+    t, (a, b, c) = _w_drodze()
+    rid, ia, ib, ic = t.id, a.id, b.id, c.id
+    dostawa.nie_dostarcz(t, ia, 'brak_klienta', u'nikt', worker_id=7, teraz=T0)
+    dostawa.nie_dostarcz(t, ib, 'odmowa', worker_id=7, teraz=T0)
+    db.session.commit()
+    dostawa.zdejmij_niedostarczone(t, ib, user_id=1, teraz=T0 + timedelta(hours=1))
+    db.session.commit()
+    dane = client.get(BASE + '/routes/%d' % rid).get_json()['route']
+    assert dane['postep'] == {'przystanki': 2, 'zaladowane': 2, 'dostarczone': 0, 'niedostarczone': 2, 'zdjete': 1}
+    przystanki = _przystanki(dane)
+    assert przystanki[ia]['dostawa']['niedostarczono'] == {
+        'powod': 'brak_klienta', 'etykieta': u'Brak klienta', 'notatka': u'nikt', 'kiedy': T0.isoformat()}
+    assert przystanki[ic]['dostawa']['niedostarczono'] is None
+    assert dane['niedostarczone_zdjete'] == [{
+        'order_id': ib, 'numer': b.internal_order_number, 'klient': b.client_name, 'miasto': b.delivery_city,
+        'powod': 'odmowa', 'etykieta': u'Odmowa przyjęcia', 'notatka': None, 'kiedy': T0.isoformat()}]
+    # Lista tras — postęp z historią; mapa — niedostarczony przystanek oznaczony.
+    wpis = next(x for x in client.get(BASE + '/routes').get_json()['routes'] if x['id'] == rid)
+    assert wpis['postep'] == dane['postep']
+    mapa = next(x for x in client.get(BASE + '/routes/map').get_json()['routes'] if x['id'] == rid)
+    assert {p['order_id']: p['niedostarczone'] for p in mapa['przystanki']} == {ia: True, ic: False}
+
+
+def test_panel_cofnij_niedostarczenie(app, client, monkeypatch):
+    wywolania = []
+    monkeypatch.setattr(bl_sync, 'po_zmianie', lambda ids: wywolania.append(sorted(ids)))
+    t, (a, _b, _c) = _w_drodze()
+    rid, ia = t.id, a.id
+    dostawa.nie_dostarcz(t, ia, 'odmowa', worker_id=7, teraz=T0)
+    db.session.commit()
+    r = client.post(BASE + '/routes/%d/stops/%d/undo-not-delivered' % (rid, ia))
+    assert r.status_code == 200, r.get_data()[:300]
+    assert _przystanki(r.get_json()['route'])[ia]['dostawa']['niedostarczono'] is None
+    wpis = LogisticsLog.query.filter_by(order_id=ia, action='niedostarczenie_cofniete').one()
+    assert (wpis.old_value, wpis.worker_id) == ('odmowa', None)                # z panelu — bez kierowcy
+    assert wywolania == []                                                   # Base. bez zmian
+    r = client.post(BASE + '/routes/%d/stops/%d/undo-not-delivered' % (rid, ia))
+    assert r.status_code == 200                                              # powtórka — bez zmian
+    assert client.post(BASE + '/routes/999999/stops/%d/undo-not-delivered' % ia).status_code == 404
+
+
+def test_panel_zdejmij_niedostarczone(app, client, monkeypatch):
+    wywolania = []
+    monkeypatch.setattr(bl_sync, 'po_zmianie', lambda ids: wywolania.append(sorted(ids)))
+    t, (a, b, _c) = _w_drodze()
+    rid, ia, ib = t.id, a.id, b.id
+    dostawa.nie_dostarcz(t, ia, 'odmowa', worker_id=7, teraz=T0)
+    db.session.commit()
+    r = client.post(BASE + '/routes/%d/stops/%d/remove-not-delivered' % (rid, ib))
+    assert r.status_code == 409 and u'tylko przystanek niedostarczony' in r.get_json()['error']
+    r = client.post(BASE + '/routes/%d/stops/%d/remove-not-delivered' % (rid, ia))
+    assert r.status_code == 200, r.get_data()[:300]
+    dane = r.get_json()['route']
+    assert dane['status'] == 'w_trasie' and ia not in _przystanki(dane)
+    assert [h['order_id'] for h in dane['niedostarczone_zdjete']] == [ia]
+    assert wywolania == [[ia]]                                               # 417343 po commicie
+    assert routes.przystanek_zamowienia(ia) is None
+    assert client.post(BASE + '/routes/%d/stops/%d/remove-not-delivered' % (rid, ia)).status_code == 404
+
+
+def test_odhacz_przez_api_zdejmuje_niedostarczone_z_historia(app, client):
+    t, (a, b, c) = _w_drodze()
+    rid, ia, ib, ic = t.id, a.id, b.id, c.id
+    dostawa.nie_dostarcz(t, ia, 'brak_klienta', worker_id=7, teraz=T0)
+    db.session.commit()
+    r = client.post(BASE + '/routes/%d/complete' % rid, json={'delivered_order_ids': [ic]})
+    assert r.status_code == 200, r.get_data()[:300]
+    dane = r.get_json()['route']
+    assert (dane['status'], sorted(_przystanki(dane))) == ('wykonana', [ic])
+    assert [(h['order_id'], h['powod']) for h in dane['niedostarczone_zdjete']] == [
+        (ia, 'brak_klienta'), (ib, 'odhaczone_w_panelu')]
+    assert dane['postep'] == {'przystanki': 1, 'zaladowane': 1, 'dostarczone': 1, 'niedostarczone': 2, 'zdjete': 2}
+
+
+def test_robocza_nie_pokazuje_historii(app, client):
+    order, _ = zamowienie_z_paczkami()
+    t = trasa([order], status='robocza')
+    dane = client.get(BASE + '/routes/%d' % t.id).get_json()['route']
+    assert dane['niedostarczone_zdjete'] == []

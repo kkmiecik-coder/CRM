@@ -273,6 +273,14 @@ def _dostarczona():
     return t, a
 
 
+def _niedostarczona():
+    """(trasa w drodze z pierwszym zamówieniem niedostarczonym — U10, przystanek zostaje na trasie, zamówienie)."""
+    t, a, _b = _w_trasie()
+    dostawa.nie_dostarcz(t, a.id, 'odmowa', worker_id=7, teraz=T0)
+    db.session.commit()
+    return t, a
+
+
 def _z_dopychaczem(przygotuj, ktore):
     """Przygotowanie akcji panelu → (trasa, zamówienie akcji, [id zamówień, z którymi dopychacz Base. ma ruszyć raz
     po commicie drugiej próby]); `ktore(trasa, zamówienia)` wybiera je z zamówień przygotowania."""
@@ -292,6 +300,11 @@ AKCJE_PANELU = {
                  lambda oid: {'delivered_order_ids': [oid]}, 'dostarczone', 'wykonana'),
     'undo-delivered': ('cofnij_dostarczenie', _z_dopychaczem(_dostarczona, lambda t, a: [a]),
                        '/routes/{r}/stops/{o}/undo-delivered', None, 'dostarczenie_cofniete', 'w_trasie'),
+    # U10: „Cofnij niedostarczenie” nie zmienia statusów Base.; „Zdejmij z trasy” wysyła 417343.
+    'undo-not-delivered': ('cofnij_niedostarczenie', _z_dopychaczem(_niedostarczona, lambda t, a: []),
+                           '/routes/{r}/stops/{o}/undo-not-delivered', None, 'niedostarczenie_cofniete', 'w_trasie'),
+    'remove-not-delivered': ('zdejmij_niedostarczone', _z_dopychaczem(_niedostarczona, lambda t, a: [a]),
+                             '/routes/{r}/stops/{o}/remove-not-delivered', None, 'trasa_usuniete', 'w_trasie'),
     # „Cofnij zatwierdzenie” nie zmienia statusów Base. — dopychacz nie rusza wcale.
     'revert': ('cofnij_zatwierdzenie', _z_dopychaczem(_zatwierdzona_w_zaladunku, lambda t, a: []),
                '/routes/{r}/revert', None, 'zaladunek', 'robocza'),
