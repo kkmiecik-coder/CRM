@@ -235,6 +235,8 @@ TRASY_PANELU = [
     ('get', '/drivers/candidates'),
     ('post', '/drivers'),
     ('delete', '/drivers/1'),
+    # Krok 4.4d: podgląd optymalizacji kolejności trasy.
+    ('post', '/routes/1/optimize'),
 ]
 
 

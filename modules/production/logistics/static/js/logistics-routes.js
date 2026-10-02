@@ -25,7 +25,12 @@
  *   DELETE {API}/routes/<id>                         usunięcie (robocza)
  *   POST   {API}/routes/<id>/stops                   {order_ids} → {route, dodane, bledy}
  *   DELETE {API}/routes/<id>/stops/<order_id>        zdjęcie przystanku
- *   PUT    {API}/routes/<id>/stops/order             {order_ids} — nowa kolejność
+ *   PUT    {API}/routes/<id>/stops/order             {order_ids[, obecne_order_ids]} — nowa kolejność; 409, gdy
+ *          przystanki trasy są inne niż w order_ids albo kolejność inna niż obecne_order_ids (krok 4.4d)
+ *   POST   {API}/routes/<id>/optimize                podgląd optymalizacji kolejności (robocza, krok 4.4d) — nic nie
+ *          zapisuje → {optymalizacja: {order_ids, obecne_order_ids, zmieniona, obecna, proponowana, zysk
+ *          ({km, minuty}), przystanki [{order_id, numer, klient, miasto, pozycja_obecna, pozycja_nowa,
+ *          optymalizowany, powod}], pominiete}}; 422 nic do optymalizacji, 502 błąd/limit ORS, 503 brak klucza
  *   POST   {API}/routes/<id>/approve | /revert | /unload | /complete | /stops/<oid>/undo-delivered
  *          /complete {delivered_order_ids} (wymagane); 409 z `niespakowane` [id], gdy jako
  *          dostarczone oznaczono zamówienie, które nie jest w całości spakowane.
@@ -132,6 +137,8 @@
         ],
         robocza: [
             ['zapisz', 'Zapisz', 'fa-floppy-disk', ''],
+            // Krok 4.4d: tylko trasa robocza (zatwierdzona i dalej są zablokowane do edycji); bez klucza ORS — brak.
+            ['optymalizuj', 'Optymalizuj trasę', 'fa-route', ''],
             ['zatwierdz', 'Zatwierdź', 'fa-lock', 'glowny'],
             ['wykonaj', 'Odhacz jako dostarczoną', 'fa-check-double', ''],
             ['usun', 'Usuń trasę', 'fa-trash-can', 'niebezpieczny'],
@@ -153,6 +160,17 @@
         wykonana: [
             ['routimo', 'Eksport do Routimo', 'fa-file-excel', ''],
         ],
+    };
+
+    // Krok 4.4d: klucz OpenRouteService w config/core.json (szablon, panel_api.tab_content) — bez niego przycisk
+    // „Optymalizuj trasę” nie powstaje (endpoint i tak odpowiada 503).
+    const ORS_DOSTEPNY = root.getAttribute('data-ors') === '1';
+    // Powody, dla których przystanek nie idzie do optymalizacji (services/optymalizacja.py) — zostaje na końcu.
+    const POWODY_POMINIECIA = {
+        przyblizony: 'punkt przybliżony',
+        brak_punktu: 'brak punktu na mapie',
+        anulowane: 'anulowane — nie jedziemy',
+        nieosiagalny: 'OpenRouteService nie znalazł dojazdu',
     };
 
     const bezRuchu = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
@@ -230,6 +248,16 @@
     const wykonajBladEl = el('wykonaj-blad');
     const wykonajZapiszBtn = el('wykonaj-zapisz');
 
+    const dialogOptymalizuj = root.querySelector('[data-lg="trasa-optymalizuj-dialog"]');
+    const formOptymalizuj = el('optymalizuj-form');
+    const optymNazwaEl = el('optymalizuj-nazwa');
+    const optymZyskEl = el('optymalizuj-zysk');
+    const optymListaEl = el('optymalizuj-lista');
+    const optymPominieteEl = el('optymalizuj-pominiete');
+    const optymBladEl = el('optymalizuj-blad');
+    const optymZastosujBtn = el('optymalizuj-zastosuj');
+    const optymPonowBtn = el('optymalizuj-ponow');
+
     // ── Stan ────────────────────────────────────────────────────────────────
 
     const stan = {
@@ -278,6 +306,7 @@
     let dodawanie = null;            // otwarte okno „Dodaj do trasy…”
     const dodawaniaWTle = new Set(); // zapisy okna zamkniętego w trakcie (minor 3) — kończą się w tle
     let wykonywanie = null;          // otwarte okno „Odhacz jako dostarczoną”
+    let optymalizowanie = null;      // otwarte okno „Optymalizuj trasę” (krok 4.4d)
     // (oględziny m3) Trasy zmienione u nas (odpowiedź mutacji albo odczyt trasy): id →
     // {wersja, trasa (skrót listy) | null = usunięta}. Lista pobrana PRZED taką zmianą nie
     // nadpisuje jej starszym wierszem serwera (scalZLokalnymi).
@@ -1448,7 +1477,8 @@
         // Przyciski od nowa tylko przy zmianie statusu — fokus na przycisku przeżywa zapis.
         if (akcjeEl.getAttribute('data-klucz') !== klucz) {
             akcjeEl.setAttribute('data-klucz', klucz);
-            akcjeEl.innerHTML = (AKCJE[klucz] || []).map(([akcja, etykieta, ikona, odmianaPrzycisku]) =>
+            akcjeEl.innerHTML = (AKCJE[klucz] || []).filter(([akcja]) => akcja !== 'optymalizuj' || ORS_DOSTEPNY)
+                .map(([akcja, etykieta, ikona, odmianaPrzycisku]) =>
                 '<button type="button" class="lg-przycisk' + (odmianaPrzycisku ? ' lg-przycisk--' + odmianaPrzycisku : '') + '"' +
                 ' data-lg-trasy-akcja="' + akcja + '">' +
                 (ikona ? '<i class="fas ' + ikona + '" aria-hidden="true"></i>' : '') + esc(etykieta) + '</button>'
@@ -1484,6 +1514,9 @@
                 } else if (zmiany) {
                     tytul = 'Zapisze zmiany i zatwierdzi trasę.';
                 }
+            } else if (akcja === 'optymalizuj' && dokladnePrzystanki(stan.nowa ? null : stan.otwarta) < 2) {
+                wylaczony = true;
+                tytul = NIC_DO_OPTYMALIZACJI;
             } else if (akcja === 'wykonaj' && !ile && !zamykanaBezPrzystankow(stan.nowa ? null : stan.otwarta)) {
                 wylaczony = true;
                 tytul = 'Trasa nie ma przystanków.';
@@ -3829,6 +3862,263 @@
         }
     }
 
+    // ── Optymalizacja kolejności (krok 4.4d, spec etapu 4, 9.9) ─────────────
+    //
+    // POST /routes/<id>/optimize liczy propozycję (ORS Optimization) i NIC nie zapisuje. „Zastosuj” wysyła istniejący
+    // PUT /stops/order z proponowaną kolejnością i kolejnością, na której ją policzono (obecne_order_ids): trasa
+    // zmieniona w międzyczasie → 409, okno mówi to i proponuje ponowną optymalizację. Bez automatu przy zmianach.
+
+    const NIC_DO_OPTYMALIZACJI = 'Nie ma czego optymalizować — potrzeba co najmniej 2 przystanków z dokładnym punktem ' +
+        'na mapie.';
+
+    // Przystanki z dokładnym punktem (te idą do optymalizacji; serwer sprawdza to samo).
+    function dokladnePrzystanki(t) {
+        if (!t) return 0;
+        return (t.przystanki || []).filter((p) => !p.anulowane && maGeo(p.zamowienie) &&
+            p.zamowienie.geo.quality === 'dokladna').length;
+    }
+
+    const kmTekst = (km) => (km === null || km === undefined ? '—' : liczbaKm.format(Number(km)) + ' km');
+
+    // Zysk: „−32,3 km” / „+4,0 km” (minus = krócej); zero bez znaku.
+    function roznicaTekst(wartosc, format) {
+        const v = Number(wartosc) || 0;
+        if (!v) return format(0);
+        return (v > 0 ? '−' : '+') + format(Math.abs(v));
+    }
+
+    let optymalizacjaOtwierana = false;   // dwuklik nie otwiera okna dwa razy (showModal rzuca)
+
+    async function otworzOptymalizacje(powrot) {
+        const t = stan.otwarta;
+        if (!ORS_DOSTEPNY || !t || stan.nowa || t.status !== 'robocza' || !dialogOptymalizuj) return;
+        if (optymalizacjaOtwierana || optymalizowanie || dialogOptymalizuj.open || akcjaTrwa()) return;
+        optymalizacjaOtwierana = true;
+        try {
+            const sesja = stan.sesja;
+            // Przestawiona ręcznie kolejność czeka na zapis — propozycja liczy się od tej, którą zna serwer.
+            await dokonczKolejnosc();
+            if (zniszczona || stan.sesja !== sesja) return;
+            const trasa = stan.otwarta;
+            if (!trasa || stan.nowa || trasa.status !== 'robocza') return;
+            const o = { id: trasa.id, nazwa: trasa.nazwa, sesja: sesja, powrot: powrot || null, wynik: null,
+                wczytywanie: false, zapis: false, kontroler: null, konflikt: false };
+            optymalizowanie = o;
+            optymNazwaEl.textContent = trasa.nazwa;
+            ustawKolor(optymListaEl, kolor(trasa.id));
+            dialogOptymalizuj.showModal();
+            const anuluj = formOptymalizuj.querySelector('[data-lg-trasy-akcja="optymalizuj-anuluj"]');
+            if (anuluj) anuluj.focus();
+            await wczytajOptymalizacje(o);
+        } finally {
+            optymalizacjaOtwierana = false;
+        }
+    }
+
+    function zamknijOptymalizacje(bezFokusu) {
+        const o = optymalizowanie;
+        optymalizowanie = null;
+        if (o && o.kontroler) o.kontroler.abort();
+        if (dialogOptymalizuj && dialogOptymalizuj.open) dialogOptymalizuj.close();
+        if (bezFokusu) return;
+        const cel = o && o.powrot && o.powrot.isConnected && !o.powrot.disabled ? o.powrot : tytulEl;
+        if (cel) cel.focus({ preventScroll: true });
+    }
+
+    function bladOptymalizacji(tekst) {
+        optymBladEl.textContent = tekst || '';
+        optymBladEl.hidden = !tekst;
+    }
+
+    function stanListyOptymalizacji(tekst) {
+        optymListaEl.innerHTML = '<li class="lg-optym-stan-listy">' + esc(tekst) + '</li>';
+        optymZyskEl.innerHTML = '';
+        optymPominieteEl.hidden = true;
+    }
+
+    async function wczytajOptymalizacje(o) {
+        if (!o || o.zapis || zniszczona) return;
+        if (o.kontroler) o.kontroler.abort();
+        o.kontroler = new AbortController();
+        o.wczytywanie = true;
+        o.wynik = null;
+        o.konflikt = false;
+        bladOptymalizacji('');
+        stanListyOptymalizacji('Liczenie propozycji w OpenRouteService…');
+        odswiezPrzyciskiOptymalizacji();
+        try {
+            const odp = await zapytanie('/routes/' + o.id + '/optimize', { metoda: 'POST', signal: o.kontroler.signal });
+            if (zniszczona || optymalizowanie !== o) return;
+            o.wynik = odp.optymalizacja || null;
+            renderujOptymalizacje(o);
+        } catch (e) {
+            if (zniszczona || przerwane(e) || optymalizowanie !== o) return;
+            if (e.status === 404) {
+                zamknijOptymalizacje(true);
+                odswiezOtwarta();
+                return;
+            }
+            stanListyOptymalizacji('Brak propozycji.');
+            bladOptymalizacji(e.message);
+            // Trasa zatwierdzona w międzyczasie (409) — edytor dostaje świeży stan i przyciski.
+            if (e.status === 409) odswiezOtwarta();
+        } finally {
+            if (optymalizowanie === o) {
+                o.wczytywanie = false;
+                o.kontroler = null;
+                odswiezPrzyciskiOptymalizacji();
+            }
+        }
+    }
+
+    function renderujOptymalizacje(o) {
+        const w = o.wynik;
+        if (!w) {
+            stanListyOptymalizacji('Brak propozycji.');
+            return;
+        }
+        // Numer jak na osi przystanków: wśród przystanków, do których jedziemy (anulowane bez numeru).
+        const numery = (ids) => {
+            const wynik = new Map();
+            let n = 0;
+            ids.forEach((id) => {
+                const p = w.przystanki.find((x) => x.order_id === id);
+                if (p && p.powod !== 'anulowane') wynik.set(id, ++n);
+            });
+            return wynik;
+        };
+        const przed = numery(w.obecne_order_ids || []);
+        const po = numery(w.order_ids || []);
+        const zysk = w.zysk || {};
+        const skraca = (Number(zysk.minuty) || 0) > 0 || (!Number(zysk.minuty) && (Number(zysk.km) || 0) > 0);
+        const komorka = (etykieta, wartosc, klasa) => '<div class="lg-optym-liczba' + (klasa ? ' ' + klasa : '') + '">' +
+            '<dt>' + esc(etykieta) + '</dt><dd>' + wartosc + '</dd></div>';
+        let werdykt;
+        if (!w.zmieniona) werdykt = 'Obecna kolejność jest już najlepsza — nie ma czego zmieniać.';
+        else if (!skraca) werdykt = 'Proponowana kolejność nie skraca trasy — możesz zostać przy obecnej.';
+        else {
+            const km = Number(zysk.km) || 0;
+            const min = Number(zysk.minuty) || 0;
+            werdykt = (min > 0 ? 'Szybciej o ' + czasHM(min) + ' h jazdy' : 'Ten sam czas jazdy') +
+                (km > 0 ? ', krócej o ' + kmTekst(km) : (km < 0 ? ', ale dłużej o ' + kmTekst(-km) : '')) + '.';
+        }
+        optymZyskEl.innerHTML = '<dl class="lg-optym-liczby">' +
+            komorka('Obecnie', esc(kmTekst(w.obecna.km)) + '<span>' + esc(czasHM(w.obecna.minuty)) + ' h</span>') +
+            komorka('Po optymalizacji', esc(kmTekst(w.proponowana.km)) + '<span>' + esc(czasHM(w.proponowana.minuty)) +
+                ' h</span>') +
+            komorka('Zysk', esc(roznicaTekst(zysk.km, kmTekst)) + '<span>' +
+                esc(roznicaTekst(zysk.minuty, (m) => czasHM(m) + ' h')) + '</span>', skraca ? 'is-zysk' : 'is-brak') +
+            '</dl><p class="lg-optym-werdykt' + (skraca ? '' : ' is-brak') + '">' + esc(werdykt) + '</p>';
+        optymListaEl.innerHTML = w.przystanki.map((p) => {
+            const numer = po.get(p.order_id);
+            const bylo = przed.get(p.order_id);
+            const klasaStacji = { przyblizony: 'lg-stacja--przyblizona', brak_punktu: 'lg-stacja--bez-geo',
+                anulowane: 'lg-stacja--anulowana' }[p.powod] || '';
+            let zmiana;
+            if (numer === undefined) zmiana = '';
+            else if (bylo === numer) zmiana = '<span class="lg-optym-bylo">bez zmian</span>';
+            else zmiana = '<span class="lg-optym-bylo is-zmiana">było ' + esc(bylo) + '</span>';
+            const opis = 'Przystanek ' + (numer === undefined ? 'bez numeru' : numer) + ', ' + (p.numer || '') +
+                (p.klient ? ', ' + p.klient : '') + (numer !== undefined && bylo !== numer ? ', wcześniej ' + bylo : '') +
+                (p.powod ? ', ' + (POWODY_POMINIECIA[p.powod] || p.powod) + ', zostaje na końcu' : '');
+            return '<li class="lg-optym-pozycja' + (p.powod ? ' is-pominiety' : '') + '" aria-label="' + esc(opis) + '">' +
+                '<span class="lg-stacja' + (klasaStacji ? ' ' + klasaStacji : '') + '" aria-hidden="true">' +
+                    esc(numer === undefined ? '—' : numer) + '</span>' +
+                '<span class="lg-optym-tresc" aria-hidden="true"><span class="lg-numer">' + esc(p.numer || '') + '</span>' +
+                    '<span class="lg-optym-klient">' + (p.klient ? esc(p.klient) : 'brak nazwy') + '</span>' +
+                    (p.miasto ? '<span class="lg-optym-miasto">' + esc(p.miasto) + '</span>' : '') +
+                    (p.powod ? '<span class="lg-optym-powod">' + esc(POWODY_POMINIECIA[p.powod] || p.powod) +
+                        ' — zostaje na końcu</span>' : '') +
+                '</span>' +
+                '<span aria-hidden="true">' + zmiana + '</span>' +
+                '</li>';
+        }).join('');
+        const pominiete = Number(w.pominiete) || 0;
+        optymPominieteEl.hidden = !pominiete;
+        optymPominieteEl.textContent = pominiete
+            ? ilePrzystankow(pominiete) + ' bez dokładnego punktu (albo anulowanych) nie ' +
+                odmiana(pominiete, ['brał', 'brały', 'brało']) + ' udziału w optymalizacji — ' +
+                odmiana(pominiete, ['zostaje', 'zostają', 'zostaje']) + ' na końcu w dotychczasowej kolejności.'
+            : '';
+    }
+
+    function odswiezPrzyciskiOptymalizacji() {
+        const o = optymalizowanie;
+        if (!o) return;
+        const w = o.wynik;
+        optymZastosujBtn.disabled = o.zapis || o.wczytywanie || o.konflikt || !w || !w.zmieniona;
+        optymZastosujBtn.textContent = o.zapis ? 'Zapisywanie…' : 'Zastosuj';
+        optymPonowBtn.hidden = !o.konflikt;
+        optymPonowBtn.disabled = o.zapis || o.wczytywanie;
+        const anuluj = formOptymalizuj.querySelector('[data-lg-trasy-akcja="optymalizuj-anuluj"]');
+        if (anuluj) anuluj.disabled = o.zapis;
+        if (o.wczytywanie) optymListaEl.setAttribute('aria-busy', 'true'); else optymListaEl.removeAttribute('aria-busy');
+    }
+
+    /**
+     * „Zastosuj”: PUT /stops/order z proponowaną kolejnością (serwer bierze blokadę tras i sprawdza status). 409 —
+     * trasa zmieniła się od policzenia propozycji: tekst serwera w oknie, „Optymalizuj ponownie”, edytor od nowa.
+     */
+    async function zastosujOptymalizacje() {
+        const o = optymalizowanie;
+        if (!o || o.zapis || o.wczytywanie || o.konflikt || !o.wynik || !o.wynik.zmieniona || zniszczona) return;
+        const klucz = String(o.id);
+        if (stan.wToku.has(klucz)) return;
+        const w = o.wynik;
+        o.zapis = true;
+        bladOptymalizacji('');
+        odswiezPrzyciskiOptymalizacji();
+        stan.wToku.add(klucz);
+        odswiezAkcje();
+        try {
+            const odp = await zapytanie('/routes/' + o.id + '/stops/order', {
+                metoda: 'PUT', dane: { order_ids: w.order_ids, obecne_order_ids: w.obecne_order_ids },
+            });
+            if (zniszczona) return;
+            stan.wToku.delete(klucz);
+            const otwarte = optymalizowanie === o;
+            if (otwarte) zamknijOptymalizacje(true);
+            przyjmijOdpowiedz(o, odp.route, { zmiana: true });
+            const zysk = w.zysk || {};
+            komunikat('ok', 'Zastosowano nową kolejność przystanków trasy „' + o.nazwa + '”' +
+                ((Number(zysk.minuty) || 0) > 0 || (Number(zysk.km) || 0) > 0
+                    ? ' (' + roznicaTekst(zysk.km, kmTekst) + ', ' + roznicaTekst(zysk.minuty, (m) => czasHM(m) + ' h') + ').'
+                    : '.'), { klucz: 'trasa' });
+            if (otwarte && naEkranie(o)) oglos('Zastosowano nową kolejność przystanków.');
+            if (otwarte) {
+                const cel = o.powrot && o.powrot.isConnected && !o.powrot.disabled ? o.powrot : tytulEl;
+                if (cel) cel.focus({ preventScroll: true });
+            }
+        } catch (e) {
+            if (zniszczona) return;
+            const niepewna = niepewnaOdpowiedz(e);
+            if (optymalizowanie === o) {
+                o.zapis = false;
+                if (e.status === 404) {
+                    zamknijOptymalizacje(true);
+                } else if (e.status === 409 || e.status === 422 || niepewna) {
+                    o.konflikt = true;
+                    bladOptymalizacji(e.message + (niepewna
+                        ? ' Kolejność mogła się zapisać — trasę pobieramy od nowa.'
+                        : ' Policz propozycję jeszcze raz: „Optymalizuj ponownie”.'));
+                } else {
+                    bladOptymalizacji(e.message);
+                }
+                odswiezPrzyciskiOptymalizacji();
+                if (o.konflikt && !optymPonowBtn.hidden) optymPonowBtn.focus();
+            } else {
+                komunikat('blad', 'Trasa „' + o.nazwa + '”: nie zastosowano optymalizacji. ' + e.message,
+                    { klucz: kluczBleduTrasy(klucz) });
+            }
+            if (e.status === 409 || e.status === 404 || e.status === 422 || niepewna) {
+                if (stan.otwarta && !stan.nowa && stan.otwarta.id === o.id) odswiezOtwarta();
+            }
+        } finally {
+            stan.wToku.delete(klucz);
+            if (!zniszczona) odswiezAkcje();
+        }
+    }
+
     // ── Zdarzenia ───────────────────────────────────────────────────────────
 
     function akcjaEdytora(akcja, przycisk) {
@@ -3889,6 +4179,9 @@
                 break;
             case 'wykonaj':
                 otworzWykonanie(przycisk);
+                break;
+            case 'optymalizuj':
+                otworzOptymalizacje(przycisk);
                 break;
             case 'dodaj-zaznaczone':
                 mutacja((ctx) => dodajKandydatow(ctx, Array.from(stan.zaznaczeniKandydaci)));
@@ -4196,6 +4489,9 @@
         if (wykonywanie && wykonywanie.kontroler) wykonywanie.kontroler.abort();
         wykonywanie = null;
         if (dialogWykonaj && dialogWykonaj.open) dialogWykonaj.close();
+        if (optymalizowanie && optymalizowanie.kontroler) optymalizowanie.kontroler.abort();
+        optymalizowanie = null;
+        if (dialogOptymalizuj && dialogOptymalizuj.open) dialogOptymalizuj.close();
         if (window.LogisticsRoutes === api) delete window.LogisticsRoutes;
     }
 
@@ -4307,6 +4603,33 @@
             const w = wykonywanie;
             wykonywanie = null;
             if (w && w.kontroler) w.kontroler.abort();
+        }, naSluch);
+    }
+
+    if (dialogOptymalizuj && formOptymalizuj) {
+        formOptymalizuj.addEventListener('submit', (e) => {
+            e.preventDefault();
+            zastosujOptymalizacje();
+        }, naSluch);
+        formOptymalizuj.addEventListener('click', (e) => {
+            const b = e.target.closest('[data-lg-trasy-akcja]');
+            if (!b || b.disabled) return;
+            const akcja = b.getAttribute('data-lg-trasy-akcja');
+            if (akcja === 'optymalizuj-anuluj') zamknijOptymalizacje();
+            else if (akcja === 'optymalizuj-ponow' && optymalizowanie) wczytajOptymalizacje(optymalizowanie);
+        }, naSluch);
+        dialogOptymalizuj.addEventListener('cancel', (e) => {
+            e.preventDefault();
+            if (!(optymalizowanie && optymalizowanie.zapis)) zamknijOptymalizacje();
+        }, naSluch);
+        dialogOptymalizuj.addEventListener('click', (e) => {
+            if (e.target === dialogOptymalizuj && !(optymalizowanie && optymalizowanie.zapis)) zamknijOptymalizacje();
+        }, naSluch);
+        // Zamknięte inną drogą: liczenie propozycji przerwane; zapis w toku kończy się sam (komunikat).
+        dialogOptymalizuj.addEventListener('close', () => {
+            const o = optymalizowanie;
+            optymalizowanie = null;
+            if (o && o.kontroler) o.kontroler.abort();
         }, naSluch);
     }
 

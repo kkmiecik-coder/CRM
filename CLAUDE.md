@@ -262,7 +262,8 @@ Albo po prostu `./deploy.sh` — robi dokładnie to samo, z lockiem i logami.
   `CEIDG_JWT_TOKEN` (wyszukiwanie firm w CEIDG; bez niego, gdy GUS i MF nie znajdą
   firmy, `/clients/api/gus_lookup` zwraca 503 zamiast szukać w CEIDG),
   `OPENROUTESERVICE_API_KEY` (przebieg tras logistyki po drogach, km i czas; bez niego trasy rysują się liniami
-  prostymi z dopiskiem „przebieg przybliżony” — nic się nie psuje),
+  prostymi z dopiskiem „przebieg przybliżony” — nic się nie psuje; ten sam klucz liczy „Optymalizuj trasę”, bez
+  niego przycisku nie ma),
   `CARTO_BASEMAPS_KEY` (kafelki mapy logistyki; bez niego mapa ma znak wodny CARTO;
   klucz jest widoczny w przeglądarce, więc w panelu CARTO ogranicz go do domeny
   crm.woodpower.pl; limit darmowy 1 mln kafelków/mies.). Po dopisaniu klucza do

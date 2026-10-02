@@ -594,13 +594,27 @@ def usun_przystanek(route, order_id, user_id=None, note=None, wymagaj_roboczej=T
     return order
 
 
-def zmien_kolejnosc(route, order_ids):
+KOMUNIKAT_INNE_PRZYSTANKI = (u'Przystanki trasy zmieniły się w międzyczasie (ktoś dodał, zdjął albo przestawił '
+                             u'przystanek) — odśwież trasę i ustaw kolejność ponownie.')
+
+
+def zmien_kolejnosc(route, order_ids, oczekiwane=None):
+    """
+    Nowa kolejność przystanków trasy roboczej. Lista z powtórzeniem — 422 (złe dane); lista z innym zestawem
+    przystanków niż trasa ma TERAZ — 409 (krok 4.4d: trasa zmieniła się od chwili, gdy front ją wczytał).
+    `oczekiwane` (opcjonalnie) — kolejność, na której wołający oparł nową (podgląd optymalizacji, spec 9.9):
+    inna niż bieżąca pod blokadą → 409, żeby „Zastosuj” nie nadpisał cudzej, świeższej kolejności.
+    """
     route = zablokuj_trasy(route)   # (fix-1, Ruling A3) przed _wymagaj_statusu — świeży stan
     _wymagaj_statusu(route, 'robocza')
     nowe = _lista_id(order_ids)
     obecne = {s.order_id: s for s in route.stops}
-    if len(nowe) != len(obecne) or set(nowe) != set(obecne):
+    if len(nowe) != len(set(nowe)):
         raise LogistykaBlad(u'Kolejność musi zawierać dokładnie przystanki tej trasy.', status=422)
+    if set(nowe) != set(obecne):
+        raise LogistykaBlad(KOMUNIKAT_INNE_PRZYSTANKI, status=409)
+    if oczekiwane is not None and _lista_id(oczekiwane) != [s.order_id for s in route.stops]:
+        raise LogistykaBlad(KOMUNIKAT_INNE_PRZYSTANKI, status=409)
     for pozycja, order_id in enumerate(nowe, start=1):
         obecne[order_id].position = pozycja
     # (fix-2, O1) Porządek w PAMIĘCI (sort route.stops), bez expire() + zwykłego

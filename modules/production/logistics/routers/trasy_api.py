@@ -10,6 +10,8 @@ Dostawa (krok 4.4): `POST /routes/<id>/unload` („Cofnij załadunek”), `POST 
 („Cofnij dostarczenie”), odhaczenie `/complete` przez services/dostawa.py. U10 (Ruling 32): niedostarczony przystanek
 zostaje na trasie w drodze — `POST /routes/<id>/stops/<oid>/undo-not-delivered` („Cofnij niedostarczenie”)
 i `/remove-not-delivered` („Zdejmij z trasy”), historia zdjętych w `niedostarczone_zdjete`.
+
+Optymalizacja kolejności (krok 4.4d): `POST /routes/<id>/optimize` — podgląd (services/optymalizacja.py), bez zapisu.
 """
 import io
 from datetime import timedelta
@@ -25,8 +27,8 @@ from modules.logging import get_structured_logger
 from modules.production.logistics import logistics_panel_bp
 from modules.production.logistics.models import LogisticsLog, Route, STATUSY_TRASY, Vehicle
 from modules.production.logistics.routers.panel_api import LIMIT_HURTU, _blad, _user_id, _zapis_pod_blokada, guard
-from modules.production.logistics.services import (bl_sync, dostawa, fleet, geocoding, lista, paczki, routes,
-                                                   routimo, routing)
+from modules.production.logistics.services import (bl_sync, dostawa, fleet, geocoding, lista, optymalizacja, paczki,
+                                                   routes, routimo, routing)
 from modules.production.logistics.services.delivery import LogistykaBlad
 from modules.production.models import ProductionOrder, ProductionProduct
 from modules.production.services import blokady_zamowien
@@ -657,7 +659,29 @@ def route_stop_remove(route_id, order_id):
 @logistics_panel_bp.route('/routes/<int:route_id>/stops/order', methods=['PUT'])
 @guard
 def route_stops_order(route_id):
-    return _akcja(route_id, lambda t: routes.zmien_kolejnosc(t, _cialo().get('order_ids') or []))
+    # Krok 4.4d: `obecne_order_ids` (opcjonalne) — kolejność, na której oparto nową (okno optymalizacji);
+    # inna niż bieżąca → 409 (routes.zmien_kolejnosc).
+    return _akcja(route_id, lambda t: routes.zmien_kolejnosc(t, _cialo().get('order_ids') or [],
+                                                             oczekiwane=_cialo().get('obecne_order_ids')))
+
+
+@logistics_panel_bp.route('/routes/<int:route_id>/optimize', methods=['POST'])
+@guard
+def route_optimize(route_id):
+    """
+    Podgląd optymalizacji kolejności przystanków trasy roboczej (krok 4.4d, spec 9.9) — ORS Optimization,
+    NIC nie zapisuje i nie bierze blokady tras. Zastosowanie: PUT /routes/<id>/stops/order z `order_ids`
+    i `obecne_order_ids` z tej odpowiedzi. Odmowy: 404, 409 (status), 422 (mniej niż 2 przystanki z dokładnym
+    punktem, za dużo przystanków), 502 (błąd albo limit ORS), 503 (brak klucza ORS).
+    """
+    trasa = _trasa_albo_none(route_id)
+    if trasa is None:
+        return _blad(u'Nie ma takiej trasy.', 404)
+    try:
+        wynik = optymalizacja.zaproponuj(trasa)
+    except LogistykaBlad as e:
+        return _odmowa(e)
+    return jsonify({'success': True, 'optymalizacja': wynik})
 
 
 @logistics_panel_bp.route('/routes/<int:route_id>/approve', methods=['POST'])

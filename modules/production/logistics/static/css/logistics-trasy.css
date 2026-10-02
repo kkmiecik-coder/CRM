@@ -2634,6 +2634,158 @@
     opacity: 0.6;
 }
 
+/* ─── Okno „Optymalizuj trasę” (krok 4.4d) ───
+   Liczby jak podsumowanie trasy (obecnie | po optymalizacji | zysk), pod nimi nowa kolejność z tarczami osi
+   przystanków i dopiskiem „było N”. Zysk mówi tekstem i znakiem (−32,3 km), kolor tylko go wzmacnia. */
+.logistics-tab .lg-optym-zysk:empty {
+    display: none;
+}
+
+.logistics-tab .lg-optym-liczby {
+    display: flex;
+    flex-wrap: wrap;
+    margin: 0;
+    background: var(--il-bg-base, #eef0f4);
+    border: 1px solid var(--il-border-light, #e2e5ea);
+    border-radius: var(--il-radius, 3px);
+}
+
+.logistics-tab .lg-optym-liczba {
+    flex: 1 1 0;
+    min-width: 120px;
+    padding: 6px 12px 7px;
+    border-right: 1px solid var(--il-border-light, #e2e5ea);
+}
+
+.logistics-tab .lg-optym-liczba:last-child {
+    border-right: 0;
+}
+
+.logistics-tab .lg-optym-liczba dt {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--lg-tekst-opis);
+}
+
+.logistics-tab .lg-optym-liczba dd {
+    margin: 1px 0 0;
+    font: 700 15px/1.25 var(--lg-mono);
+    color: var(--il-text-primary, #1a1a2e);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.logistics-tab .lg-optym-liczba dd span {
+    display: block;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--lg-tekst-opis);
+}
+
+.logistics-tab .lg-optym-liczba.is-zysk dd,
+.logistics-tab .lg-optym-liczba.is-zysk dd span {
+    color: #166534;
+}
+
+.logistics-tab .lg-optym-werdykt {
+    margin: 6px 0 0;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #166534;
+}
+
+.logistics-tab .lg-optym-werdykt.is-brak {
+    color: var(--lg-tekst-opis);
+}
+
+.logistics-tab .lg-optym-lista {
+    max-height: min(360px, 42vh);
+    margin: 0;
+    padding: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+    list-style: none;
+    border: 1px solid var(--il-border-light, #e2e5ea);
+    border-radius: var(--il-radius, 3px);
+    transition: opacity 0.15s;
+}
+
+.logistics-tab .lg-optym-lista[aria-busy="true"] {
+    opacity: 0.6;
+}
+
+.logistics-tab .lg-optym-lista li + li {
+    border-top: 1px solid var(--il-border-light, #e2e5ea);
+}
+
+.logistics-tab .lg-optym-pozycja {
+    display: grid;
+    grid-template-columns: 26px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 1px 10px;
+    padding: 7px 10px;
+    font-size: 13px;
+    color: var(--il-text-primary, #1a1a2e);
+}
+
+.logistics-tab .lg-optym-pozycja.is-pominiety {
+    background: var(--lg-kolejka-tlo);
+}
+
+.logistics-tab .lg-optym-tresc {
+    min-width: 0;
+}
+
+.logistics-tab .lg-optym-tresc .lg-numer {
+    display: inline;
+    margin-right: 8px;
+    font-size: 12px;
+}
+
+.logistics-tab .lg-optym-klient {
+    font-weight: 600;
+}
+
+.logistics-tab .lg-optym-miasto {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    color: var(--lg-tekst-opis);
+}
+
+.logistics-tab .lg-optym-powod {
+    display: block;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--lg-kolejka-tekst);
+}
+
+.logistics-tab .lg-optym-bylo {
+    font: 500 11.5px/1.3 var(--lg-mono);
+    color: var(--lg-tekst-opis);
+    white-space: nowrap;
+}
+
+.logistics-tab .lg-optym-bylo.is-zmiana {
+    font-weight: 700;
+    color: var(--il-text-primary, #1a1a2e);
+}
+
+.logistics-tab .lg-optym-pominiete {
+    margin: -4px 0 0;
+    font-size: 12.5px;
+    color: var(--lg-kolejka-tekst);
+}
+
+.logistics-tab .lg-optym-stan-listy {
+    padding: 14px 12px;
+    font-size: 12.5px;
+    color: var(--lg-tekst-opis);
+    text-align: center;
+}
+
 /* ============================================================================
    PODZAKŁADKA FLOTA
    ============================================================================ */
@@ -2942,4 +3094,5 @@
     .logistics-tab .lg-podsumowanie-liczby,
     .logistics-tab .lg-trasy-wykonane > summary::before { transition: none; }
     .logistics-tab .lg-przystanek.is-przeniesiony { animation: none; }
+    .logistics-tab .lg-optym-lista { transition: none; }
 }

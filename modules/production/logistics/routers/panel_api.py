@@ -16,7 +16,7 @@ import modules.users.decorators as user_decorators
 from extensions import db
 from modules.logging import get_structured_logger
 from modules.production.logistics import logistics_panel_bp, sposoby, wojewodztwa
-from modules.production.logistics.services import bl_sync, delivery, geocoding, lista, paczki, routes
+from modules.production.logistics.services import bl_sync, delivery, geocoding, lista, paczki, routes, routing
 from modules.production.models import ProductionOrder
 from modules.production.services import blokady_zamowien
 
@@ -96,7 +96,9 @@ def tab_content():
                            carto_basemaps_key=_klucz_carto_basemaps(),
                            # Runda 2 (spec 2.5): opcje filtra województw z jednego źródła.
                            opcje_wojewodztw=wojewodztwa.wojewodztwa(),
-                           opcje_pozostale=wojewodztwa.POZOSTALE)
+                           opcje_pozostale=wojewodztwa.POZOSTALE,
+                           # Krok 4.4d: bez klucza ORS przycisk „Optymalizuj trasę” jest ukryty (endpoint i tak 503).
+                           ors_dostepny=routing.klucz_ors() is not None)
 
 
 @logistics_panel_bp.route('/orders', methods=['GET'])

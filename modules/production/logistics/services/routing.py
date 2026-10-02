@@ -81,6 +81,30 @@ def _linie_proste(route, punkty):
     route.geometry_approx = True
 
 
+def zapytaj_przebieg(punkty, klucz, http_post=requests.post, timeout=TIMEOUT_S):
+    """
+    Jedno zapytanie ORS Directions dla punktów [(lat, lng)] w podanej kolejności → pierwsza cecha GeoJSON
+    (geometria + summary). Błąd HTTP i zła odpowiedź rzucają wyjątek — decyzję zostawiamy wołającemu
+    (przelicz: linie proste; optymalizacja kolejności: komunikat, krok 4.4d).
+    """
+    wspolrzedne = [[p[1], p[0]] for p in punkty]
+    # (M12) radiuses -1 = szukaj najbliższej drogi bez limitu odległości — przy
+    # domyślnych 350 m jedno gospodarstwo daleko od drogi zamieniało całą trasę
+    # w linie proste.
+    odp = http_post(ORS_URL, json={'coordinates': wspolrzedne, 'radiuses': [-1] * len(wspolrzedne)},
+                    headers={'Authorization': klucz, 'Content-Type': 'application/json'},
+                    timeout=timeout)
+    odp.raise_for_status()
+    return odp.json()['features'][0]
+
+
+def km_i_minuty(cecha):
+    """(km z jednym miejscem po przecinku, minuty) z summary cechy ORS Directions."""
+    podsumowanie = cecha['properties']['summary']
+    return (round(float(podsumowanie['distance']) / 1000.0, 1),
+            int(round(float(podsumowanie['duration']) / 60.0)))
+
+
 def przelicz(route, punkty_zamowien, http_post=requests.post, wymus=False, teraz=None):
     """
     Przelicza przebieg, gdy cache (geometry_hash) nie pasuje do bieżących punktów i warunków
@@ -117,20 +141,10 @@ def przelicz(route, punkty_zamowien, http_post=requests.post, wymus=False, teraz
     elif not klucz:
         route.geometry_hash = skrot_bez_klucza
     else:
-        wspolrzedne = [[p[1], p[0]] for p in punkty]
         try:
-            # (M12) radiuses -1 = szukaj najbliższej drogi bez limitu odległości — przy
-            # domyślnych 350 m jedno gospodarstwo daleko od drogi zamieniało całą trasę
-            # w linie proste.
-            odp = http_post(ORS_URL, json={'coordinates': wspolrzedne, 'radiuses': [-1] * len(wspolrzedne)},
-                            headers={'Authorization': klucz, 'Content-Type': 'application/json'},
-                            timeout=TIMEOUT_S)
-            odp.raise_for_status()
-            cecha = odp.json()['features'][0]
-            podsumowanie = cecha['properties']['summary']
+            cecha = zapytaj_przebieg(punkty, klucz, http_post)
             route.geometry_json = json.dumps(cecha['geometry'])
-            route.distance_km = round(float(podsumowanie['distance']) / 1000.0, 1)
-            route.duration_min = int(round(float(podsumowanie['duration']) / 60.0))
+            route.distance_km, route.duration_min = km_i_minuty(cecha)
             route.geometry_approx = False
             route.geometry_hash = skrot
             return True

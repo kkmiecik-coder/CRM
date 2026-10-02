@@ -16,12 +16,13 @@
 <link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet-markercluster/MarkerCluster.css') }}?v=1.5.3">
 <link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20261001f">
 {# Etap 3: trasy, flota, widok tras na mapie — osobny arkusz (logistics.css zostaje nietknięty). #}
-<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics-trasy.css') }}?v=20261002u10">
+<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics-trasy.css') }}?v=20261002o1">
 
 <div id="logistics-root" class="logistics-tab"
      data-api="{{ url_for('logistics_panel.orders') }}"
      data-magazyn-lat="{{ magazyn.lat }}" data-magazyn-lng="{{ magazyn.lng }}"
      data-magazyn-nazwa="{{ magazyn.nazwa }}"
+     data-ors="{{ '1' if ors_dostepny else '0' }}"
      data-logo-base="{{ url_for('logistics_panel.static', filename='img/base-logo.png') }}?v=20260925a">
 
   {# ─── NAGŁÓWEK: podzakładki + odświeżanie ───
@@ -232,7 +233,7 @@
                data-skrypt-leaflet="{{ url_for('production.static', filename='vendor/leaflet/leaflet.js') }}?v=1.9.4"
                data-skrypt-klastry="{{ url_for('production.static', filename='vendor/leaflet-markercluster/leaflet.markercluster.js') }}?v=1.5.3"
                data-skrypt-mapy="{{ url_for('logistics_panel.static', filename='js/logistics-map.js') }}?v=20261002u10"
-               data-skrypt-trasy="{{ url_for('logistics_panel.static', filename='js/logistics-routes.js') }}?v=20261002u12"></div>
+               data-skrypt-trasy="{{ url_for('logistics_panel.static', filename='js/logistics-routes.js') }}?v=20261002o1"></div>
           {# Pasek trybu (korekta, ustawianie punktu) i wyniku akcji na mapie. #}
           <div class="lg-mapa-pasek" data-lg-mapa="pasek" role="status" aria-live="polite" hidden></div>
           <div class="lg-mapa-stan is-ladowanie" data-lg-mapa="stan" role="status">Ładowanie mapy…</div>
@@ -660,6 +661,25 @@
       <div class="lg-dialog-akcje">
         <button type="button" class="lg-przycisk" data-lg-trasy-akcja="wykonaj-anuluj">Anuluj</button>
         <button type="submit" class="lg-przycisk lg-przycisk--glowny" data-lg-trasy="wykonaj-zapisz">Odhacz jako dostarczoną</button>
+      </div>
+    </form>
+  </dialog>
+
+  {# Krok 4.4d: „Optymalizuj trasę” (trasa robocza) — podgląd z POST /routes/<id>/optimize (nic nie zapisuje);
+       „Zastosuj” wysyła PUT /routes/<id>/stops/order. Przystanki bez dokładnego punktu i anulowane zostają na końcu
+       w dotychczasowej kolejności. Wypełnia logistics-routes.js (otworzOptymalizacje). #}
+  <dialog class="lg-dialog lg-dialog--trasy" data-lg="trasa-optymalizuj-dialog" aria-labelledby="lg-trasa-optymalizuj-tytul">
+    <form class="lg-dialog-form" data-lg-trasy="optymalizuj-form" novalidate>
+      <h2 class="lg-dialog-tytul" id="lg-trasa-optymalizuj-tytul">Optymalizuj trasę <span class="lg-dialog-numer" data-lg-trasy="optymalizuj-nazwa"></span></h2>
+      <p class="lg-dialog-opis">Propozycja kolejności przystanków po drogach (OpenRouteService): wyjazd z magazynu i powrót do niego. Nic się nie zmieni, dopóki nie klikniesz „Zastosuj”.</p>
+      <div class="lg-optym-zysk" data-lg-trasy="optymalizuj-zysk" aria-live="polite"></div>
+      <ol class="lg-optym-lista" data-lg-trasy="optymalizuj-lista" aria-label="Proponowana kolejność przystanków"></ol>
+      <p class="lg-optym-pominiete" data-lg-trasy="optymalizuj-pominiete" hidden></p>
+      <p class="lg-dialog-blad" data-lg-trasy="optymalizuj-blad" role="alert" hidden></p>
+      <div class="lg-dialog-akcje">
+        <button type="button" class="lg-przycisk" data-lg-trasy-akcja="optymalizuj-anuluj">Anuluj</button>
+        <button type="button" class="lg-przycisk" data-lg-trasy="optymalizuj-ponow" data-lg-trasy-akcja="optymalizuj-ponow" hidden><i class="fas fa-rotate-right" aria-hidden="true"></i>Optymalizuj ponownie</button>
+        <button type="submit" class="lg-przycisk lg-przycisk--glowny" data-lg-trasy="optymalizuj-zastosuj" disabled>Zastosuj</button>
       </div>
     </form>
   </dialog>
