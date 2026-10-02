@@ -1616,6 +1616,26 @@ tr.row-changed td:first-child {
 
 #apkUploadForm .form-group {
     margin-bottom: 18px;
+    /* Globalne .form-group (style.css) ma max-width: 400px — tu za ciasno. */
+    max-width: 640px;
+}
+
+/* versionCode i versionName obok siebie; na wąskim ekranie jedno pod drugim */
+#apkUploadForm .apk-form-row {
+    display: grid;
+    grid-template-columns: minmax(0, 200px) minmax(0, 1fr);
+    gap: 16px;
+    max-width: 640px;
+}
+
+#apkUploadForm .apk-form-row .form-group {
+    max-width: none;
+}
+
+/* Release notes: grupa bez limitu szerokości, żeby textarea dało się
+   rozciągnąć w poziomie aż do krawędzi sekcji */
+#apkUploadForm .apk-notes-group {
+    max-width: none;
 }
 
 #apkUploadForm label {
@@ -1631,6 +1651,7 @@ tr.row-changed td:first-child {
 }
 
 #apkUploadForm input[type="text"],
+#apkUploadForm input[type="number"],
 #apkUploadForm input[type="file"],
 #apkUploadForm textarea {
     width: 100%;
@@ -1644,8 +1665,50 @@ tr.row-changed td:first-child {
 }
 
 #apkUploadForm textarea {
-    resize: vertical;
-    min-height: 90px;
+    /* Szerokość startowa jak reszta pól; uchwyt rozciąga w obie strony,
+       max-width pilnuje, żeby nie wyjechać poza sekcję. */
+    width: 640px;
+    max-width: 100%;
+    min-width: 260px;
+    min-height: 110px;
+    resize: both;
+    line-height: 1.5;
+}
+
+#apkUploadForm .apk-activate-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 0;
+    padding: 10px 14px;
+    background: var(--bg-input, #ffffff);
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+#apkUploadForm .apk-activate-label input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    accent-color: var(--primary-color, #2563eb);
+    cursor: pointer;
+}
+
+#apkUploadForm .apk-activate-label:has(input:checked) {
+    border-color: var(--primary-color, #2563eb);
+    background: rgba(37, 99, 235, 0.06);
+}
+
+@media (max-width: 600px) {
+    #apkUploadForm .apk-form-row {
+        grid-template-columns: 1fr;
+        gap: 0;
+    }
+
+    #apkUploadForm textarea {
+        min-width: 0;
+    }
 }
 
 #apkUploadForm input[type="file"] {

@@ -226,24 +226,27 @@
                                 <input type="file" name="apk" id="apkFileInput" accept=".apk,application/vnd.android.package-archive" required>
                                 <small class="form-hint">version_code i version_name wpisz ręcznie z <code>build.gradle.kts</code>. version_code musi być wyższy od poprzedniego.</small>
                             </div>
-                            <div class="form-group">
-                                <label>versionCode <span class="required">*</span></label>
-                                <input type="number" name="version_code" min="1" step="1" placeholder="np. 12" required>
-                                <small class="form-hint">Liczba całkowita z <code>build.gradle.kts</code> (defaultConfig → versionCode).</small>
+                            <div class="apk-form-row">
+                                <div class="form-group">
+                                    <label>versionCode <span class="required">*</span></label>
+                                    <input type="number" name="version_code" min="1" step="1" placeholder="np. 12" required>
+                                    <small class="form-hint">Liczba całkowita z <code>build.gradle.kts</code> (defaultConfig → versionCode).</small>
+                                </div>
+                                <div class="form-group">
+                                    <label>versionName <span class="required">*</span></label>
+                                    <input type="text" name="version_name" maxlength="32" placeholder="np. 1.0.2-hotfix" required>
+                                    <small class="form-hint">String z <code>build.gradle.kts</code> (defaultConfig → versionName), max 32 znaki.</small>
+                                </div>
                             </div>
-                            <div class="form-group">
-                                <label>versionName <span class="required">*</span></label>
-                                <input type="text" name="version_name" maxlength="32" placeholder="np. 1.0.2-hotfix" required>
-                                <small class="form-hint">String z <code>build.gradle.kts</code> (defaultConfig → versionName), max 32 znaki.</small>
-                            </div>
-                            <div class="form-group">
+                            <div class="form-group apk-notes-group">
                                 <label>Release notes (opcjonalnie)</label>
-                                <textarea name="release_notes" rows="5" placeholder="Co się zmieniło w tej wersji? Każda linia będzie widoczna na tablecie." style="width: 100%; box-sizing: border-box; resize: vertical;"></textarea>
+                                <textarea name="release_notes" rows="6" placeholder="Co się zmieniło w tej wersji? Każda linia będzie widoczna na tablecie."></textarea>
+                                <small class="form-hint">Pole można rozciągać w pionie i w poziomie (uchwyt w prawym dolnym rogu).</small>
                             </div>
-                            <div class="form-group">
-                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <div class="form-group apk-activate-group">
+                                <label class="apk-activate-label">
                                     <input type="checkbox" name="activate" value="1" id="apkActivateInput">
-                                    Aktywuj od razu (tablety pobiorą tę wersję)
+                                    <span>Aktywuj od razu (tablety pobiorą tę wersję)</span>
                                 </label>
                                 <small class="form-hint">Bez zaznaczenia release zostanie wgrany jako nieaktywny — włączysz go później przełącznikiem „Aktywny” w historii poniżej.</small>
                             </div>
