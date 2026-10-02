@@ -824,10 +824,15 @@
     pointer-events: none;
 }
 
-/* Wąski ekran: stały pasek mobilny CRM (.mobile-topbar, 60 px, style.css) — nakładka zaczyna się pod nim. */
+/* Wąski ekran: stały pasek mobilny CRM (.mobile-topbar, style.css: 60 px, przy ≤ 480 px 56 px). Przewija się
+   .main-content, który zaczyna się POD paskiem (margin-top = wysokość paska), więc sticky top: 0 nakładki już stoi
+   pod paskiem — przesunięcie liczyłoby pasek dwa razy. Stos skraca się tylko o wysokość paska, żeby × ostatniej
+   karty zostało na ekranie. */
 @media (max-width: 768px) {
-    .logistics-tab .lg-komunikaty--nakladka { top: 60px; }
     .logistics-tab .lg-komunikaty-stos { max-height: calc(100vh - 60px); max-height: calc(100dvh - 60px); }
+}
+@media (max-width: 480px) {
+    .logistics-tab .lg-komunikaty-stos { max-height: calc(100vh - 56px); max-height: calc(100dvh - 56px); }
 }
 
 .logistics-tab .lg-komunikaty-stos > .lg-komunikat {

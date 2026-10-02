@@ -595,16 +595,22 @@ def test_komunikaty_logistyki_w_prawym_gornym_rogu_z_pomaranczowa_poswiata(clien
 def test_stos_komunikatow_miesci_sie_w_oknie_i_pod_paskiem_mobilnym(client):  # noqa: F811
     """Runda 1 po oględzinach 2.10 (U9): karty leżą w stosie .lg-komunikaty-stos, który ma najwyżej wysokość okna
     i przewija się (× ostatniego trwałego komunikatu osiągalne); pusta część stosu nie łapie kliknięć. Przy
-    ≤ 768 px nakładka zaczyna się pod stałym paskiem mobilnym CRM (60 px). Pusta nakładka zostaje w drzewie."""
+    ≤ 768 px stos skraca się o stały pasek mobilny CRM (nakładka bez przesunięcia: przewijany .main-content już
+    zaczyna się pod paskiem). Pusta nakładka zostaje w drzewie."""
     css = _plik('static', 'css', 'logistics-trasy.css')
     stos = _regula(css, '.logistics-tab .lg-komunikaty-stos')
     for fraza in ('flex: none;', 'max-height: 100vh;', 'max-height: 100dvh;', 'overflow-y: auto;',
                   'pointer-events: none;', 'flex-direction: column;'):
         assert fraza in stos, fraza
     assert 'pointer-events: auto;' in _regula(css, '.logistics-tab .lg-komunikaty-stos > .lg-komunikat')
-    mobilny = css[css.index('@media (max-width: 768px) {\n    .logistics-tab .lg-komunikaty--nakladka'):]
+    # Przewija się .main-content, który już zaczyna się pod paskiem mobilnym — nakładka bez przesunięcia (top: 0),
+    # skraca się tylko stos (60 px, przy ≤ 480 px 56 px).
+    mobilny = css[css.index('@media (max-width: 768px) {\n    .logistics-tab .lg-komunikaty-stos'):]
     mobilny = mobilny[:mobilny.index('\n}\n')]
-    assert '.lg-komunikaty--nakladka { top: 60px; }' in mobilny and 'calc(100vh - 60px)' in mobilny
+    assert 'calc(100vh - 60px)' in mobilny and 'top:' not in mobilny
+    waski = css[css.index('@media (max-width: 480px) {\n    .logistics-tab .lg-komunikaty-stos'):]
+    assert 'calc(100vh - 56px)' in waski[:waski.index('\n}\n')]
+    assert 'top: 0;' in _regula(css, '.logistics-tab .lg-komunikaty--nakladka')
     assert '.mobile-topbar' in open(os.path.join(os.path.dirname(LOG), '..', '..', 'static', 'css', 'style.css'),
                                     encoding='utf-8').read()
     pusta = _regula(css, '.logistics-tab .lg-komunikaty.lg-komunikaty--nakladka,\n'
