@@ -279,8 +279,11 @@ def zablokuj_deklaracje():
     blokady, tak jak zapisy tras (`routes.zablokuj_trasy`).
 
     ZASADA KOLEJNOŚCI BLOKAD (ta sama transakcja, od początku): pracownicy (touch_sessions w
-    `_resolve_workers`) → `zablokuj_deklaracje()` → wiersz zamówienia po PK → paczki. Nikt
-    inny nie bierze tej blokady. Ponowny druk (`order_packages_print`, `package_print`) jej nie
+    `_resolve_workers`) → [blokada tras] → `zablokuj_deklaracje()` → wiersz zamówienia po PK → paczki.
+    Biorą ją deklaracja paczek, zapisy Weryfikacji i Dostawa (`dostawa.zablokuj`: telefon kierowcy i akcje
+    Dostawy w panelu tras). Dostawa bierze ją PO globalnej blokadzie tras (`routes.zablokuj_trasy`) — nigdy
+    odwrotnie: kto wziąłby blokadę tras po tej, zakleszczyłby się z Dostawą. Deklaracja i Weryfikacja blokady
+    tras nie biorą. Ponowny druk (`order_packages_print`, `package_print`) tej blokady nie
     potrzebuje: nie wstawia paczek, więc jego blokady rekordów i luk nie tworzą cyklu z deklaracją.
 
     Brak wiersza: na MySQL zakładamy go sami w TEJ transakcji (`INSERT IGNORE`, potem ponowny

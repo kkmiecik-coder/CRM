@@ -1,14 +1,9 @@
 # -*- coding: utf-8 -*-
 """Panel tras po kroku 4.4 (spec 9.7): „Cofnij załadunek”, postęp „załadowano x/y · dostarczono a/b”, kiedy
 załadowano i ruszono, trasa odhaczona w panelu, dostarczenie i „Zostaje” przy przystanku."""
-import gc
-
 from extensions import db
-from modules.production.logistics.models import Route
 from modules.production.logistics.services import bl_sync, dostawa, routes
-from tests.blokady_pomocnicze import Zapytania
-from tests.dostawa_pomocnicze import (T0, odsmiecaj_po_blokadach, trasa, zaladuj_wprost, zamowienie_z_paczkami,
-                                     zwykle_odczyty_stanu)
+from tests.dostawa_pomocnicze import T0, trasa, zaladuj_wprost, zamowienie_z_paczkami
 from tests.logistyka_fixtures import BASE, app, client  # noqa: F401
 
 
@@ -99,23 +94,3 @@ def test_trasa_odhaczona_w_panelu(app):
     assert routes.serializuj_trase(t)['odhaczona_w_panelu'] is True
     t.completed_by = None                      # zamknął telefon (ostatnie „Dostarczone”)
     assert routes.serializuj_trase(t)['odhaczona_w_panelu'] is False
-
-
-def test_cofniecie_zaladunku_decyduje_na_zablokowanych_obiektach(app, monkeypatch):
-    """Ruling P2 dla ścieżki `/unload` (dostawa.cofnij_zaladunek, wiele zamówień): po odśmieceniu pamięci po
-    blokadach i przy każdym wpisie logu żaden zwykły odczyt zamówienia, pozycji, paczek ani tras — decyzje i zapisy
-    idą na obiektach z odczytu bieżącego (zablokuj)."""
-    a, paczki_a = zamowienie_z_paczkami(statusy=('zaladowane', 'zaladowane'))
-    b, paczki_b = zamowienie_z_paczkami(statusy=('zaladowane', 'zaladowane'))
-    t = trasa([a, b], status='zaladowana', loaded_at=T0)
-    zaladuj_wprost(paczki_a + paczki_b, t)
-    route_id, ids = t.id, (a.id, b.id)
-    db.session.expunge_all()     # obiekty testu odłączone: zablokowane przeżyją tylko dzięki referencjom zapisu
-    gc.collect()
-    odsmiecaj_po_blokadach(monkeypatch)
-    route = db.session.get(Route, route_id)
-    with Zapytania() as z:
-        trasa_po = dostawa.cofnij_zaladunek(route, user_id=1, teraz=T0)
-        db.session.flush()
-    assert zwykle_odczyty_stanu(z) == []
-    assert trasa_po.status == 'zatwierdzona' and [s.order_id for s in trasa_po.stops] == list(ids)

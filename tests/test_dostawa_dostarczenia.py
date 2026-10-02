@@ -484,3 +484,130 @@ def test_cofniecie_dostarczenia_decyduje_na_zablokowanych_obiektach(app, monkeyp
         db.session.flush()
     assert zwykle_odczyty_stanu(z) == [] and licznik['_wymagaj_statusu'] > 0 and licznik['zapisz_log'] > 0
     assert (zmieniono, trasa_po.status) == (True, 'w_trasie')
+
+
+# --- Fala końcowa kroku 4.4b (C1–C5) --------------------------------------------------------------------------
+
+def _odczyty_logu(z):
+    return [sql for sql, _p in z.lista if sql.startswith('SELECT') and 'FROM prod_logistics_log' in sql]
+
+
+def test_powtorka_niedostarczenia_rozpoznana_odczytem_biezacym(app):
+    """C1 (Ruling 26): ostatni wpis logu zamówienia czytamy odczytem BIEŻĄCYM (LOCK IN SHARE MODE), pod trzymanymi
+    blokadami tras i zamówień trasy. Zwykły SELECT na MySQL widziałby migawkę sprzed czekania na blokady — w wyścigu
+    z „Odhacz” albo drugim telefonem (albo przy zdublowanym X-Operation-Id) kierowca dostawał 404 zamiast 200 bez
+    zmian. SQLite nie ma migawki, więc pilnujemy rodzaju odczytu."""
+    a, b = _zaladowane(), _zaladowane()
+    t = _w_trasie(a, b)
+    dostawa.nie_dostarcz(t, a[0].id, 'odmowa', worker_id=7, teraz=T1)
+    db.session.commit()
+    with Zapytania() as z:
+        _trasa_po, zmieniono, _zamknieta = dostawa.nie_dostarcz(t, a[0].id, 'brak_klienta', worker_id=8, teraz=T2)
+    assert zmieniono is False
+    odczyty = _odczyty_logu(z)
+    assert odczyty and all(sql.endswith(' LOCK IN SHARE MODE') for sql in odczyty), odczyty
+
+
+def test_przystanek_anulowanego_w_calosci_rozliczony_trasa_zamyka_sie(app):
+    """C2: klient anulował zamówienie C w Base. po zakończeniu załadunku. Kierowca dostarcza A i B — liczniki
+    pokazują „dostarczono 2/2”, więc trasa zamyka się sama: przystanek zamówienia anulowanego w całości liczy się jako
+    rozliczony (nie musi mieć delivered_at)."""
+    a, b = _zaladowane(), _zaladowane()
+    c = zamowienie_z_paczkami(statusy=('anulowane', 'anulowane'))
+    t = _w_trasie(a, b, c)
+    dostawa.dostarcz(t, a[0].id, worker_id=7, teraz=T1)
+    trasa_po, _zmieniono, zamknieta = dostawa.dostarcz(t, b[0].id, worker_id=7, teraz=T2)
+    db.session.commit()
+    assert zamknieta is True and (trasa_po.status, trasa_po.completed_at, trasa_po.completed_by) == ('wykonana', T2,
+                                                                                                    None)
+    assert RouteStop.query.filter_by(order_id=c[0].id).one().delivered_at is None
+    # Niedostarczenie ostatniego aktywnego przystanku też zamyka trasę z przystankiem anulowanym.
+    d, e = _zaladowane(), zamowienie_z_paczkami(statusy=('anulowane',))
+    druga = _w_trasie(d, e)
+    trasa_po, _zmieniono, zamknieta = dostawa.nie_dostarcz(druga, d[0].id, 'odmowa', worker_id=7, teraz=T2)
+    db.session.commit()
+    assert zamknieta is True and trasa_po.status == 'wykonana'
+
+
+def test_dostarczenie_zdejmuje_flage_zostaje(app):
+    """C3: przystanek z „Zostaje” zaznaczony jako dostarczony w „Odhacz” (trasa zatwierdzona w trakcie załadunku) traci
+    flagę — inaczej po „Cofnij dostarczenie” trasa w drodze pokazywałaby „Zostaje: <powód>”, którego nie da się już
+    zdjąć. Ślad w logu (`zostaje`: powód → brak) jak przy cofnięciu zatwierdzenia."""
+    from modules.production.logistics.services import dostawa_widok
+    a, b = zamowienie_z_paczkami(), zamowienie_z_paczkami()
+    t = trasa([a[0], b[0]])
+    stop = RouteStop.query.filter_by(order_id=a[0].id).one()
+    stop.stays_reason, stop.stays_note = 'brak_miejsca', u'nie weszło'
+    db.session.commit()
+    dostawa.odhacz(t, [a[0].id, b[0].id], user_id=1, teraz=T1)
+    db.session.commit()
+    stop = RouteStop.query.filter_by(order_id=a[0].id).one()
+    assert (stop.stays_reason, stop.stays_note) == (None, None)
+    wpis = LogisticsLog.query.filter_by(order_id=a[0].id, action='zostaje').one()
+    assert (wpis.old_value, wpis.new_value, wpis.note, wpis.user_id) == ('brak_miejsca', None,
+                                                                         u'oznaczone jako dostarczone', 1)
+    dostawa.cofnij_dostarczenie(t, a[0].id, user_id=1, teraz=T2)
+    db.session.commit()
+    widok = dostawa_widok.serializuj(*dostawa_widok.wczytaj(t.id))
+    assert [s['stays'] for s in widok['stops'] if s['order_id'] == a[0].id] == [None]
+    # Przystanek bez „Zostaje” — bez wpisu.
+    assert LogisticsLog.query.filter_by(order_id=b[0].id, action='zostaje').count() == 0
+
+
+def test_telefon_nie_cofa_dostarczenia_zaznaczonego_w_panelu(app):
+    """C4: odhaczenie w panelu → „Cofnij dostarczenie” jednego przystanku w panelu (trasa wraca do „w trasie”,
+    completed_by NULL) → telefon nie może cofnąć dostarczenia, które zaznaczył logistyk (delivered_by_worker_id NULL)
+    — 409 route_status. Dostarczenie z telefonu telefon nadal cofa."""
+    a, b = _zaladowane(), _zaladowane()
+    t = _w_trasie(a, b)
+    dostawa.odhacz(t, [a[0].id, b[0].id], user_id=1, teraz=T1)
+    db.session.commit()
+    assert [s.delivered_by_worker_id for s in RouteStop.query.order_by(RouteStop.id)] == [None, None]
+    dostawa.cofnij_dostarczenie(t, b[0].id, user_id=1, teraz=T2)
+    db.session.commit()
+    assert (t.status, t.completed_by) == ('w_trasie', None)
+    e = _blad(dostawa.cofnij_dostarczenie, t, a[0].id, z_telefonu=True, worker_id=7)
+    assert (e.kod, e.status) == ('route_status', 409)
+    assert e.komunikat == u'To dostarczenie zaznaczył logistyk w panelu — cofnąć może tylko panel.'
+    assert RouteStop.query.filter_by(order_id=a[0].id).one().delivered_at == T1
+    dostawa.dostarcz(t, b[0].id, worker_id=7, teraz=T2)                     # dostarczenie z telefonu
+    db.session.commit()
+    assert dostawa.cofnij_dostarczenie(t, b[0].id, z_telefonu=True, worker_id=7, teraz=T2)[1] is True
+
+
+def test_odhaczenie_anulowanego_bez_kierowcy_w_dostarczeniu(app):
+    """C4: przystanek zamówienia anulowanego w całości odhaczony w panelu też jest „dostarczeniem z panelu”."""
+    a = _zaladowane()
+    d = zamowienie_z_paczkami(statusy=('anulowane',))
+    t = _w_trasie(a, d)
+    stop = RouteStop.query.filter_by(order_id=d[0].id).one()
+    stop.delivered_by_worker_id = 7                                           # pozostałość po dawnym zapisie
+    db.session.commit()
+    dostawa.odhacz(t, [a[0].id, d[0].id], user_id=1, teraz=T1)
+    db.session.commit()
+    stop = RouteStop.query.filter_by(order_id=d[0].id).one()
+    assert (stop.delivered_at, stop.delivered_by_worker_id) == (T1, None)
+
+
+def test_spoznione_dostarczone_po_odznaczeniu_w_panelu_ma_jasny_komunikat(app):
+    """C5: kierowca potwierdził dostarczenie offline, a logistyk w tym czasie odhaczył trasę i odznaczył ten przystanek.
+    Kod zostaje 404 stop_not_found (appka bez zmian), komunikat mówi, co się stało. Odczyt logu bieżący (jak C1)."""
+    a, b = _zaladowane(), _zaladowane()
+    t = _w_trasie(a, b)
+    dostawa.odhacz(t, [b[0].id], user_id=1, teraz=T1)
+    db.session.commit()
+    with Zapytania() as z:
+        e = _blad(dostawa.dostarcz, t, a[0].id, worker_id=7)
+    assert (e.kod, e.status) == ('stop_not_found', 404)
+    assert e.komunikat == u'Logistyk zdjął to zamówienie z trasy w panelu.'
+    odczyty = _odczyty_logu(z)
+    assert odczyty and all(sql.endswith(' LOCK IN SHARE MODE') for sql in odczyty), odczyty
+    # Zamówienie, którego na trasie nie było, i niedostarczenie z telefonu — dawny komunikat.
+    e = _blad(dostawa.dostarcz, t, zamowienie_z_paczkami(statusy=('zaladowane',))[0].id, worker_id=7)
+    assert (e.kod, e.status) == ('stop_not_found', 404) and e.komunikat.startswith(u'Tego zamówienia nie ma na trasie')
+    c, d = _zaladowane(), _zaladowane()
+    druga = _w_trasie(c, d)
+    dostawa.nie_dostarcz(druga, c[0].id, 'odmowa', worker_id=7, teraz=T1)
+    db.session.commit()
+    e = _blad(dostawa.dostarcz, druga, c[0].id, worker_id=7)
+    assert e.komunikat.startswith(u'Tego zamówienia nie ma na trasie')
