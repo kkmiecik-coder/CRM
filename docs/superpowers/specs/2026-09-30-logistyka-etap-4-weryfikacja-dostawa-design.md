@@ -665,6 +665,8 @@ Trasa z kodami paczek leży w telefonie; skany rozpoznawane lokalnie, akcje w ko
 Odstępstwa od 9.1–9.7 i rozstrzygnięcia z realizacji (plan 4.4b, decyzje Konrada z 1.10). Gdzie tekst różni się od
 9.1–9.7, wygrywa ta sekcja.
 
+Dostawa częściowa („Zostaje” na pojedynczej paczce) odrzucona przez Konrada 2.10 — zamówienie jedzie zawsze w całości.
+
 **Ścieżki i bramki**
 - **Ścieżki z trasą.** Załadunek i jego cofnięcie to `POST /api/mobile/delivery/routes/<route_id>/packages/<package_id>/load|unload`
   (nie `/delivery/packages/<id>/load`): odmowa `package_not_on_route` potrzebuje trasy, w kontekście której kierowca
