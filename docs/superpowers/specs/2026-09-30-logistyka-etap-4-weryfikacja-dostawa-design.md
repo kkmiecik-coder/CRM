@@ -892,8 +892,8 @@ Komunikaty po polsku, w API z `error` (kod) i `message` (tekst dla człowieka).
    wykonanych na `dostarczone` (wzór `delivery.dostarcz_wydane`). Kolejność APK ↔ backend: etap 1 wymagał appki
    przed backendem, kroki 4.2–4.3 backendu przed appką (pkt 2–3), a dla 4.4 oba porządki są bezpieczne — nowa appka
    na starym backendzie ukrywa Dostawę (rejestracja `delivery` → 400 `invalid_station_code`,
-   `/api/mobile/delivery/*` → 404); kolejność przy wspólnym wdrożeniu etapów 1–4 ustala plan wdrożenia prowadzony
-   przez centralę.
+   `/api/mobile/delivery/*` → 404). Ustalona kolejność wdrożenia (centrala, 2.10): APK 1.7.0 idzie PRZED backendem
+   (jest zgodna ze starym backendem).
    **Wycofanie** po zapisaniu nowych stanów: stary kod nie zna statusów tras `zaladowana`/`w_trasie` ani akcji logu
    Dostawy w Enum (`LookupError`), więc revert musi nieść migrację przed restartem:
    `UPDATE prod_routes SET status='zatwierdzona' WHERE status IN ('zaladowana','w_trasie');` oraz
