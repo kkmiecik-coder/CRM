@@ -416,12 +416,17 @@ def test_wersje_po_oknie_odhacz_jako_dostarczona():
 # --- Oględziny 2.10 (Konrad), U8: „Cofnięto dostawę …” przy przystanku -----------------------------------------
 
 def test_przystanek_pokazuje_cofniecie_dostawy_do_ponownego_dostarczenia():
-    """U8: pasek Dostawy przy przystanku pokazuje „Cofnięto dostawę <czas>” (czas jak „Dostarczono”, przez esc),
-    dopóki przystanek nie jest znów dostarczony; pole `cofnieto` daje serwer (trasy_api._dostawa_przystanku)."""
+    """U8: pasek Dostawy przy przystanku pokazuje „Cofnięto dostawę <data i godzina>” (runda 1: zawsze z datą, także
+    dla dzisiaj; „Dostarczono” zostaje z samą godziną dla dziś), przez esc, dopóki przystanek nie jest znów
+    dostarczony; pole `cofnieto` daje serwer (trasy_api._dostawa_przystanku)."""
     js = _plik('static', 'js', 'logistics-routes.js')
     pasek = _funkcja(js, 'dostawaPrzystankuHtml')
     assert 'if (!d.dostarczono && d.cofnieto) {' in pasek
-    assert u"'Cofnięto dostawę ' + esc(czasDostarczenia(d.cofnieto))" in pasek
+    assert u"'Cofnięto dostawę ' + esc(dataIGodzina(d.cofnieto))" in pasek
+    assert u"'Dostarczono ' + esc(czasDostarczenia(d.dostarczono))" in pasek
+    data_i_godzina = _funkcja(js, 'dataIGodzina')
+    assert "[dataKrotka(dzien), godzinaZIso(iso)].filter(Boolean).join(' ')" in data_i_godzina
+    assert 'dzisIso' not in data_i_godzina
     assert '<span class="lg-przystanek-cofnieto"><i class="fas fa-rotate-left" aria-hidden="true"></i>' in pasek
     assert pasek.index("if (status === 'robocza') return '';") < pasek.index('d.cofnieto')
     css = _plik('static', 'css', 'logistics-trasy.css')
@@ -479,3 +484,26 @@ def test_wersje_po_nazwie_statusu_dostarczona():
                         ('js/logistics.js', '20261002a')):
         m = re.search(r"filename='" + re.escape(plik) + r"'\) \}\}\?v=(\w+)", html)
         assert m and m.group(1) > stara, plik
+
+
+
+# --- Runda 1 po oględzinach 2.10: kontrast legendy, pustych sekcji i najechania na „Dostarczone” -----------------
+
+def test_kontrast_legendy_i_paska_dostarczonych():
+    """Runda 1: legenda tarcz, puste sekcje listy i opis filtra drugorzędnym kolorem ≥ 4,5:1 na bieli; najechanie
+    na pas „Dostarczone” ciemniejszą zielenią (≥ 4,5:1 na tle najechania). Panel nie ma trybu ciemnego."""
+    css = _plik('static', 'css', 'logistics-trasy.css')
+    assert '--lg-tekst-opis: #5b6372;' in css and _kontrast('#5b6372', '#ffffff') >= 4.5
+    for selektor in ('.logistics-tab .lg-legenda-stacji {', '.logistics-tab .lg-trasy-pusto {',
+                     '.logistics-tab .lg-trasy-filtr-opis {'):
+        regula = css[css.index(selektor):]
+        assert 'color: var(--lg-tekst-opis);' in regula[:regula.index('}')], selektor
+    wykonana = css[css.index('.logistics-tab .lg-trasy-sekcja--wykonana {'):]
+    wykonana = wykonana[:wykonana.index('}')]
+    assert '--lg-sekcja-pasek-hover: #e1f3e7;' in wykonana and '--lg-sekcja-tekst-hover: #166534;' in wykonana
+    assert _kontrast('#166534', '#e1f3e7') >= 4.5 and _kontrast('#15803d', '#eff9f2') >= 4.5
+    najechanie = css[css.index('.logistics-tab .lg-trasy-wykonane > summary:hover {'):]
+    assert 'color: var(--lg-sekcja-tekst-hover, var(--lg-sekcja-tekst));' in najechanie[:najechanie.index('}')]
+    strzalka = css[css.index('.logistics-tab .lg-trasy-wykonane > summary::before {'):]
+    assert 'color: currentColor;' in strzalka[:strzalka.index('}')]
+    assert 'prefers-color-scheme' not in css

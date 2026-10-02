@@ -198,8 +198,8 @@ def test_fokus_listy_tras_i_wczytywanie_trasy():
 def test_runda_3_wczytywanie_i_nakladka():
     """Runda 3: inert tylko formularz, akcje, przystanki i „Do dodania” (× i „Wszystkie trasy”
     czynne); sesja wraca po nieudanym wczytaniu; po 404 fokus na sąsiedniej pozycji listy;
-    komunikaty nakładki nieprzezroczyste. (U9) Nakładka u góry nie ma zapasu pod treścią, więc pusty
-    kontener może znikać jak w etapie 2."""
+    komunikaty nakładki nieprzezroczyste. (U9, runda 1) Pusta nakładka zostaje w drzewie jako region aria-live
+    o wysokości 0 (karty leżą w stosie .lg-komunikaty-stos)."""
     trasy = _plik('static', 'js', 'logistics-routes.js')
     wczytywanie = _funkcja(trasy, 'ustawWczytywanie')
     assert '[form, akcjeEl, podsumowanieEl, ukladEdytoraEl, kandydaciSekcja]' in wczytywanie
@@ -209,11 +209,12 @@ def test_runda_3_wczytywanie_i_nakladka():
     assert otworz.index('sasiadNaLiscie(id)') < otworz.index('usunZListy(id)') < otworz.index('fokusNaSasiada(sasiad)')
     assert 'if (zmieniony() && !zmianyPorzucone)' in _funkcja(trasy, 'pozwolOpuscic')
     css = _plik('static', 'css', 'logistics-trasy.css')
-    assert '.lg-komunikaty--nakladka:empty' not in css
-    nakladka = css[css.index('.logistics-tab .lg-komunikaty--nakladka > .lg-komunikat {'):]
+    pusta = css[css.index('.logistics-tab .lg-komunikaty.lg-komunikaty--nakladka:empty {'):]
+    assert 'display: flex;' in pusta[:pusta.index('}')]
+    nakladka = css[css.index('.logistics-tab .lg-komunikaty-stos > .lg-komunikat {'):]
     assert 'background-color: var(--il-bg-card, #fff);' in nakladka[:nakladka.index('}')]
     for odmiana in ('uwaga', 'blad'):
-        assert '.logistics-tab .lg-komunikaty--nakladka > .lg-komunikat--%s {\n    background-image: linear-gradient(' % odmiana in css
+        assert '.logistics-tab .lg-komunikaty-stos > .lg-komunikat--%s {\n    background-image: linear-gradient(' % odmiana in css
     ladowanie = css[css.index('.logistics-tab .lg-edytor.is-laduje'):]
     ladowanie = ladowanie[:ladowanie.index('}')]
     assert 'pointer-events' not in ladowanie and 'lg-edytor-wstecz' not in ladowanie and 'lg-edytor-zamknij' not in ladowanie
@@ -565,19 +566,21 @@ def test_komunikaty_logistyki_w_prawym_gornym_rogu_z_pomaranczowa_poswiata(clien
         start = html.index('data-logistics-view="%s"' % widok)
         po_otwarciu = html[html.index('>', start) + 1:].lstrip()
         assert po_otwarciu.startswith('<div class="lg-komunikaty lg-komunikaty--nakladka"'), widok
-        assert 'data-lg-komunikaty="%s" aria-live="polite"></div>' % widok in po_otwarciu[:200], widok
+        assert ('data-lg-komunikaty="%s" aria-live="polite"><div class="lg-komunikaty-stos"></div></div>' % widok
+                in po_otwarciu[:250]), widok
     assert 'data-lg="komunikaty" data-lg-komunikaty="dashboard"' in html      # el('komunikaty') w logistics.js
     css = _plik('static', 'css', 'logistics-trasy.css')
     nakladka = _regula(css, '.logistics-tab .lg-komunikaty--nakladka')
-    for fraza in ('position: sticky', 'top: 12px', 'height: 0', 'align-items: flex-end', 'pointer-events: none'):
+    for fraza in ('position: sticky', 'top: 0', 'height: 0', 'align-items: flex-end', 'pointer-events: none'):
         assert fraza in nakladka, fraza
     assert int(re.search(r'z-index: (\d+)', nakladka).group(1)) > 1000           # nad kontrolkami Leafleta
-    assert 'overflow: visible' in _regula(css, '.logistics-tab .lg-komunikaty.lg-komunikaty--nakladka')
+    assert 'overflow: visible' in _regula(css, '.logistics-tab .lg-komunikaty.lg-komunikaty--nakladka,\n'
+                                               '.logistics-tab .lg-komunikaty.lg-komunikaty--nakladka:empty')
     assert '--lg-marka: #ED6B24;' in css
-    karta = _regula(css, '.logistics-tab .lg-komunikaty--nakladka > .lg-komunikat')
+    karta = _regula(css, '.logistics-tab .lg-komunikaty-stos > .lg-komunikat')
     assert 'border-top-color: var(--lg-marka)' in karta and 'border-left-color' not in karta
     assert 'rgba(237, 107, 36' in karta and 'background-color: var(--il-bg-card, #fff)' in karta
-    wymuszone = css[css.index('@media (forced-colors: active) {\n    .logistics-tab .lg-komunikaty--nakladka'):]
+    wymuszone = css[css.index('@media (forced-colors: active) {\n    .logistics-tab .lg-komunikaty-stos'):]
     assert 'border-width: 2px' in wymuszone[:wymuszone.index('\n}\n')]
     js = _plik('static', 'js', 'logistics.js')
     pokaz = _funkcja(js, 'pokazKomunikat')
@@ -586,3 +589,31 @@ def test_komunikaty_logistyki_w_prawym_gornym_rogu_z_pomaranczowa_poswiata(clien
     assert """root.querySelector('[data-lg-komunikaty="' + widok + '"]')""" in pokaz
     m = re.search(r"filename='css/logistics-trasy\.css'\) \}\}\?v=(\w+)", _plik('templates', 'logistics', 'tab_content.html'))
     assert m and m.group(1) > '20261002f', m and m.group(1)
+
+
+
+def test_stos_komunikatow_miesci_sie_w_oknie_i_pod_paskiem_mobilnym(client):  # noqa: F811
+    """Runda 1 po oględzinach 2.10 (U9): karty leżą w stosie .lg-komunikaty-stos, który ma najwyżej wysokość okna
+    i przewija się (× ostatniego trwałego komunikatu osiągalne); pusta część stosu nie łapie kliknięć. Przy
+    ≤ 768 px nakładka zaczyna się pod stałym paskiem mobilnym CRM (60 px). Pusta nakładka zostaje w drzewie."""
+    css = _plik('static', 'css', 'logistics-trasy.css')
+    stos = _regula(css, '.logistics-tab .lg-komunikaty-stos')
+    for fraza in ('flex: none;', 'max-height: 100vh;', 'max-height: 100dvh;', 'overflow-y: auto;',
+                  'pointer-events: none;', 'flex-direction: column;'):
+        assert fraza in stos, fraza
+    assert 'pointer-events: auto;' in _regula(css, '.logistics-tab .lg-komunikaty-stos > .lg-komunikat')
+    mobilny = css[css.index('@media (max-width: 768px) {\n    .logistics-tab .lg-komunikaty--nakladka'):]
+    mobilny = mobilny[:mobilny.index('\n}\n')]
+    assert '.lg-komunikaty--nakladka { top: 60px; }' in mobilny and 'calc(100vh - 60px)' in mobilny
+    assert '.mobile-topbar' in open(os.path.join(os.path.dirname(LOG), '..', '..', 'static', 'css', 'style.css'),
+                                    encoding='utf-8').read()
+    pusta = _regula(css, '.logistics-tab .lg-komunikaty.lg-komunikaty--nakladka,\n'
+                         '.logistics-tab .lg-komunikaty.lg-komunikaty--nakladka:empty')
+    assert 'display: flex;' in pusta and 'overflow: visible;' in pusta
+    pokaz = _funkcja(_plik('static', 'js', 'logistics.js'), 'pokazKomunikat')
+    assert "(kontener.querySelector('.lg-komunikaty-stos') || kontener).appendChild(box);" in pokaz
+    html = client.get(BASE + '/tab-content').get_data(as_text=True)
+    assert html.count('<div class="lg-komunikaty-stos"></div>') == 3
+    for plik, stara in (('js/logistics.js', '20261002g'), ('css/logistics-trasy.css', '20261002h')):
+        m = re.search(r"filename='" + re.escape(plik) + r"'\) \}\}\?v=(\w+)", _plik('templates', 'logistics', 'tab_content.html'))
+        assert m and m.group(1) > stara, plik

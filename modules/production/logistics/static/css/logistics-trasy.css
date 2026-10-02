@@ -29,6 +29,9 @@
    ============================================================================ */
 
 .logistics-tab {
+    /* (runda 1 po oględzinach 2.10) Drugorzędny tekst na bieli i jasnych tłach ≥ 4,5:1 (6,0:1 na bieli) — legenda
+       tarcz, puste sekcje listy tras, opis filtra. --il-text-secondary (#7a8291) ma na bieli ok. 3,9:1. */
+    --lg-tekst-opis: #5b6372;
     --lg-trasa-0: #ee7c2f;   /* pomarańczowy */
     --lg-trasa-1: #e640c9;   /* fuksjowy */
     --lg-trasa-2: #2a9bd6;   /* błękitny */
@@ -554,7 +557,7 @@
     list-style: none;
     font-size: 11.5px;
     line-height: 1.4;
-    color: var(--il-text-secondary, #7a8291);
+    color: var(--lg-tekst-opis);
 }
 
 .logistics-tab .lg-legenda-stacji li {
@@ -769,7 +772,9 @@
    rosną w dół przy prawej krawędzi; najnowszy najniżej. Żeby rzucały się w oczy: obwódka i poświata
    w pomarańczu marki zza karty komunikatu. Lewa krawędź zostaje w barwie typu (ok / uwaga / błąd), ikona też —
    typ nie zależy od pomarańczu. Tekst dalej ogłasza aria-live i role status/alert; × i czas (ok/info 6 s) bez
-   zmian (logistics.js, pokazKomunikat). Komponent tylko Logistyki (#logistics-root), reszta CRM bez zmian. */
+   zmian (logistics.js, pokazKomunikat). Komponent tylko Logistyki (#logistics-root), reszta CRM bez zmian.
+   (runda 1) Karty leżą w stosie .lg-komunikaty-stos (szablon), który przewija się, gdy trwałe komunikaty przerosną
+   okno — × ostatniej karty zawsze da się osiągnąć. */
 .logistics-tab {
     /* Pomarańcz marki WoodPower (jak --brand-primary w module dashboard). */
     --lg-marka: #ED6B24;
@@ -777,30 +782,58 @@
 
 .logistics-tab .lg-komunikaty--nakladka {
     position: sticky;
-    top: 12px;
+    top: 0;
     /* Nad kontrolkami Leafleta mapy Dashboardu (z-index do 1000) i panelem województw. */
     z-index: 1200;
     display: flex;
     flex-direction: column;
     align-items: flex-end;
-    gap: 8px;
     height: 0;
     margin: 0;
     pointer-events: none;
 }
 
-/* Reguły etapu 2 dla kontenera w liście Dashboardu (puste = display: none, w układzie piętrowym
-   max-height ze scrollem) nie dotyczą nakładki — scroll przy wysokości 0 uciąłby komunikaty. */
-.logistics-tab .lg-komunikaty.lg-komunikaty--nakladka {
+/* Reguły etapu 2 dla kontenera komunikatów (pusty = display: none, w układzie piętrowym max-height ze scrollem)
+   nie dotyczą nakładki: scroll przy wysokości 0 uciąłby komunikaty, a region aria-live zostaje w drzewie także
+   bez komunikatów (wysokość 0) — istniejący region czytniki ogłaszają pewniej niż wstawiony z display: none.
+   Stos w środku i tak sprawia, że kontener nie jest :empty. */
+.logistics-tab .lg-komunikaty.lg-komunikaty--nakladka,
+.logistics-tab .lg-komunikaty.lg-komunikaty--nakladka:empty {
+    display: flex;
     max-height: none;
     margin-bottom: 0;
     overflow: visible;
 }
 
-.logistics-tab .lg-komunikaty--nakladka > .lg-komunikat {
+/* Stos kart: najwyżej wysokość okna, dalej przewija się we własnym obszarze. Odstęp od krawędzi mieści poświatę
+   kart (przewijany obszar ją przycina); pusta część stosu nie łapie kliknięć, karty tak. */
+.logistics-tab .lg-komunikaty-stos {
+    /* Bez flex: none stos kurczyłby się do wysokości 0 nakładki (przewijany element flex ma min-height 0). */
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+    box-sizing: border-box;
+    width: min(476px, 100%);
+    max-height: 100vh;
+    max-height: 100dvh;
+    padding: 12px 18px 22px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    pointer-events: none;
+}
+
+/* Wąski ekran: stały pasek mobilny CRM (.mobile-topbar, 60 px, style.css) — nakładka zaczyna się pod nim. */
+@media (max-width: 768px) {
+    .logistics-tab .lg-komunikaty--nakladka { top: 60px; }
+    .logistics-tab .lg-komunikaty-stos { max-height: calc(100vh - 60px); max-height: calc(100dvh - 60px); }
+}
+
+.logistics-tab .lg-komunikaty-stos > .lg-komunikat {
     flex: none;
     box-sizing: border-box;
-    width: min(440px, 100%);
+    width: 100%;
     /* (runda 3, pkt 1) Nieprzezroczysta podstawa: odmiany uwaga i błąd mają tło z 4–5 % koloru,
        które nad treścią przepuszczałoby tekst spod spodu. Odcień zostaje — gradient niżej. */
     background-color: var(--il-bg-card, #fff);
@@ -808,23 +841,24 @@
     border-right-color: var(--lg-marka);
     border-bottom-color: var(--lg-marka);
     border-left-width: 4px;
-    box-shadow: 0 0 0 1px rgba(237, 107, 36, 0.3),
-        0 0 22px 4px rgba(237, 107, 36, 0.4),
-        0 8px 22px rgba(26, 26, 46, 0.16);
+    /* Poświata mieści się w odstępie stosu (18 px z boków, 22 px u dołu). */
+    box-shadow: 0 0 0 1px rgba(237, 107, 36, 0.35),
+        0 0 16px 2px rgba(237, 107, 36, 0.45),
+        0 6px 14px rgba(26, 26, 46, 0.14);
     pointer-events: auto;
 }
 
-.logistics-tab .lg-komunikaty--nakladka > .lg-komunikat--uwaga {
+.logistics-tab .lg-komunikaty-stos > .lg-komunikat--uwaga {
     background-image: linear-gradient(rgba(217, 119, 6, 0.05), rgba(217, 119, 6, 0.05));
 }
 
-.logistics-tab .lg-komunikaty--nakladka > .lg-komunikat--blad {
+.logistics-tab .lg-komunikaty-stos > .lg-komunikat--blad {
     background-image: linear-gradient(rgba(220, 38, 38, 0.04), rgba(220, 38, 38, 0.04));
 }
 
 /* Wymuszone kolory zdejmują cienie — komunikat wyróżnia grubsza obwódka. */
 @media (forced-colors: active) {
-    .logistics-tab .lg-komunikaty--nakladka > .lg-komunikat { border-width: 2px; border-left-width: 4px; }
+    .logistics-tab .lg-komunikaty-stos > .lg-komunikat { border-width: 2px; border-left-width: 4px; }
 }
 
 /* ============================================================================
@@ -945,6 +979,8 @@
     --lg-sekcja-tlo: rgba(22, 163, 74, 0.04);
     --lg-sekcja-pasek: #eff9f2;          /* rgba(22, 163, 74, 0.07) na bieli */
     --lg-sekcja-pasek-hover: #e1f3e7;    /* rgba(22, 163, 74, 0.13) na bieli */
+    /* (runda 1) #15803d na tle najechania ma 4,3:1 — przy najechaniu ciemniejsza zieleń (6,2:1). */
+    --lg-sekcja-tekst-hover: #166534;
     --lg-sekcja-tekst: #15803d;
     --lg-sekcja-ikona: #15803d;
 }
@@ -1010,7 +1046,7 @@
 .logistics-tab .lg-trasy-pusto {
     padding: 1px 2px 2px;
     font-size: 12.5px;
-    color: var(--il-text-secondary, #7a8291);
+    color: var(--lg-tekst-opis);
 }
 
 /* Wykonane: natywne <details>, zwinięte; strzałka jak trójkąt rozwijanych pozycji.
@@ -1034,7 +1070,7 @@
     content: '▶';
     flex: none;
     font-size: 8px;
-    color: var(--lg-sekcja-tekst);
+    color: currentColor;
     transition: transform 0.15s;
 }
 
@@ -1044,6 +1080,7 @@
 
 .logistics-tab .lg-trasy-wykonane > summary:hover {
     background: var(--lg-sekcja-pasek-hover);
+    color: var(--lg-sekcja-tekst-hover, var(--lg-sekcja-tekst));
 }
 
 .logistics-tab .lg-trasy-filtr {
@@ -1070,7 +1107,7 @@
 .logistics-tab .lg-trasy-filtr-opis {
     margin: 0 8px;
     font-size: 11.5px;
-    color: var(--il-text-secondary, #7a8291);
+    color: var(--lg-tekst-opis);
 }
 
 /* Wysoki kontrast / wymuszone kolory: tła pasów i ramek znikają — sekcje dalej dzieli ramka

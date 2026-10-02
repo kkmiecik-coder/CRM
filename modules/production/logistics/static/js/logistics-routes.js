@@ -1997,6 +1997,12 @@
         return dzien && dzien !== dzisIso() ? dataKrotka(dzien) + ' ' + godzina : godzina;
     }
 
+    // (runda 1 po oględzinach 2.10) Zawsze „02.10 11:03” — także dla dzisiaj (ślad cofnięcia ma dać się odtworzyć).
+    function dataIGodzina(iso) {
+        const dzien = iso ? String(iso).slice(0, 10) : '';
+        return [dataKrotka(dzien), godzinaZIso(iso)].filter(Boolean).join(' ');
+    }
+
     function dostawaPrzystankuHtml(z, status) {
         if (status === 'robocza') return '';
         const d = z.dostawa || {};
@@ -2016,10 +2022,10 @@
                 (d.zostaje.notatka ? ' — ' + esc(d.zostaje.notatka) : '') + '</span>');
         }
         // (U8, oględziny 2.10) Ślad po „Cofnij dostarczenie”, dopóki przystanek nie jest znów dostarczony (serwer daje
-        // `cofnieto` null po ponownym dostarczeniu). Czas jak przy „Dostarczono”: sama godzina dziś, inaczej z datą.
+        // `cofnieto` null po ponownym dostarczeniu). Zawsze data i godzina (runda 1), także dla dzisiejszego cofnięcia.
         if (!d.dostarczono && d.cofnieto) {
             czesci.push('<span class="lg-przystanek-cofnieto"><i class="fas fa-rotate-left" aria-hidden="true"></i>' +
-                'Cofnięto dostawę ' + esc(czasDostarczenia(d.cofnieto)) + '</span>');
+                'Cofnięto dostawę ' + esc(dataIGodzina(d.cofnieto)) + '</span>');
         }
         // Dostarczony przystanek był załadowany w całości — licznik paczek nic już nie mówi, zostaje godzina.
         if (z.paczki && status !== 'wykonana' && !d.dostarczono) {
@@ -2820,7 +2826,8 @@
 
     function zniszczMapke() {
         znacznikiMapki.clear();
-        // (U2) Zdjęcie przełącznika kończy jego śledzenie w logistics-map.js (mapka.remove() nie woła onRemove kontrolek).
+        // (U2) Zdjęcie przełącznika kończy jego śledzenie w logistics-map.js. mapka.remove() też zdejmuje kontrolki
+        // (Leaflet 1.9.4: zdarzenie 'unload'), ale tylko mapy już wczytanej — jawne zdjęcie nie zależy od tego.
         if (mapka && kontrolkaPodkladuMapki) {
             try { mapka.removeControl(kontrolkaPodkladuMapki); } catch (e) { /* mapka już zdjęta */ }
         }

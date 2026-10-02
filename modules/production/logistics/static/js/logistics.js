@@ -1284,7 +1284,10 @@
         box.appendChild(x);
 
         const widok = WIDOKI.includes(o.widok) ? o.widok : stan.widok;
-        (root.querySelector('[data-lg-komunikaty="' + widok + '"]') || el('komunikaty')).appendChild(box);
+        const kontener = root.querySelector('[data-lg-komunikaty="' + widok + '"]') || el('komunikaty');
+        // (runda 1 po oględzinach 2.10) Nakładka trzyma karty w przewijanym stosie (szablon, .lg-komunikaty-stos),
+        // żeby trwałe komunikaty nie wyszły poza okno; kontener zostaje regionem aria-live.
+        (kontener.querySelector('.lg-komunikaty-stos') || kontener).appendChild(box);
         if (typ === 'ok' || typ === 'info') {
             setTimeout(() => { if (box.isConnected) box.remove(); }, 6000);
         }
