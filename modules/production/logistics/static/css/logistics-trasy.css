@@ -523,16 +523,15 @@
     opacity: 0.8;
 }
 
-/* (U4, oględziny 2.10) Przystanek DOSTARCZONY: zielona tarcza z czarnym numerem — na osi przystanków
-   w edytorze, w oknie „Odhacz”, w legendzie tarcz i na pinezkach przystanków (mapka edytora, mapa
-   tras Dashboardu — decyzja Konrada 2.10). Atrament panelu
-   na --il-status-ok: 5,2:1 (WCAG AA dla zwykłego tekstu). Styl obwódki zostaje (przerywana = punkt
-   przybliżony, kropkowana = brak punktu), zmienia się tylko barwa. Obok tarczy zawsze stoi tekst
-   „Dostarczono …”, więc stan nie zależy od samego koloru. */
+/* (U4, oględziny 2.10) Przystanek DOSTARCZONY: zielona tarcza z BIAŁYM numerem (Konrad 2.10: czarny był ledwo
+   widoczny) — na osi przystanków w edytorze, w oknie „Odhacz”, w legendzie tarcz i na pinezkach przystanków
+   (mapka edytora, mapa tras Dashboardu). Zieleń ciemniejsza niż --il-status-ok, żeby biel miała 5,0:1 (WCAG AA
+   dla zwykłego tekstu). Styl obwódki zostaje (przerywana = punkt przybliżony, kropkowana = brak punktu), zmienia
+   się tylko barwa. Obok tarczy zawsze stoi tekst „Dostarczono …”, więc stan nie zależy od samego koloru. */
 .logistics-tab .lg-stacja--dostarczona {
-    background: var(--il-status-ok, #16a34a);
-    border-color: #15803d;
-    color: var(--il-text-primary, #1a1a2e);
+    background: #15803d;
+    border-color: #166534;
+    color: #fff;
 }
 
 /* Wymuszone kolory zdejmują tła — dostarczony dostaje odwróconą tarczę z kolorów systemu. */

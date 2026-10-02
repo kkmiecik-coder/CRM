@@ -301,9 +301,9 @@ def _kontrast(a, b):
     return (la + 0.05) / (lb + 0.05)
 
 
-def test_dostarczony_przystanek_ma_zielona_tarcze_z_czarnym_numerem():
-    """U4: przystanek z `zamowienie.dostawa.dostarczono` — zielona tarcza (--il-status-ok) z czarnym numerem
-    (atrament panelu, ≥ 4,5:1) na osi przystanków edytora i w oknie „Odhacz”. Decyzja Konrada 2.10: pinezki też —
+def test_dostarczony_przystanek_ma_zielona_tarcze_z_bialym_numerem():
+    """U4: przystanek z `zamowienie.dostawa.dostarczono` — zielona tarcza z białym numerem (Konrad 2.10: czarny
+    ledwo widoczny; ≥ 4,5:1) na osi przystanków edytora i w oknie „Odhacz”. Decyzja Konrada 2.10: pinezki też —
     na mapce edytora i na mapie tras Dashboardu (pole `dostarczone` z /routes/map), z „Dostarczono” w dymku."""
     js = _plik('static', 'js', 'logistics-routes.js')
     assert 'const dostarczony = (z) => !!(z && z.dostawa && z.dostawa.dostarczono);' in js
@@ -322,10 +322,10 @@ def test_dostarczony_przystanek_ma_zielona_tarcze_z_czarnym_numerem():
     css = _plik('static', 'css', 'logistics-trasy.css')
     regula = css[css.index('.logistics-tab .lg-stacja--dostarczona {'):]
     regula = regula[:regula.index('}')]
-    assert 'background: var(--il-status-ok, #16a34a)' in regula and 'color: var(--il-text-primary, #1a1a2e)' in regula
+    assert 'background: #15803d' in regula and 'color: #fff' in regula
     assert 'border-style' not in regula          # przerywana / kropkowana obwódka (punkt mapy) zostaje
     assert css.index('.logistics-tab .lg-stacja--bez-geo {') < css.index('.logistics-tab .lg-stacja--dostarczona {')
-    assert _kontrast('#1a1a2e', '#16a34a') >= 4.5
+    assert _kontrast('#ffffff', '#15803d') >= 4.5
     wymuszone = css[css.index('@media (forced-colors: active) {\n    .logistics-tab .lg-stacja--dostarczona {'):]
     wymuszone = wymuszone[:wymuszone.index('\n}\n')]
     assert 'background: CanvasText' in wymuszone and 'color: Canvas;' in wymuszone

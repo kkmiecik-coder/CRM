@@ -1771,7 +1771,7 @@
      * Przystanek: biała „stacja” z obwódką w kolorze trasy i numerem — ta sama co w edytorze trasy.
      * (I5) Anulowany (zamówienie bez aktywnych pozycji, API: `anulowane`, `pozycja` = null) —
      * szara stacja z „—”: Routimo go pomija, więc numer mają tylko aktywne przystanki.
-     * (U4, oględziny 2.10) Dostarczony (API: `dostarczone`) — zielona stacja z czarnym numerem, jak w edytorze.
+     * (U4, oględziny 2.10) Dostarczony (API: `dostarczone`) — zielona stacja z białym numerem, jak w edytorze.
      */
     function ikonaPrzystanku(numer, klasaKoloru, anulowany, dostarczony) {
         const tekst = anulowany ? '—' : String(numer);
