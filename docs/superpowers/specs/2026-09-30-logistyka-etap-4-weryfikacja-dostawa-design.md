@@ -126,7 +126,8 @@ nie zna tej wartości ENUM (odczyt takiego wiersza rzuciłby `LookupError`, czyl
 | Cofnij do pakowania | weryfikator (`spakowane`/`zweryfikowane`) | pozycje → `czeka_na_pakowanie`, paczki unieważnione, `repack_required` + `repack_reason`, Base. 138620 |
 | Zostaje | kierowca (przed „Zakończ załadunek”) | przy zakończeniu: zamówienie zdjęte z trasy (pula), statusy bez zmian |
 | Cofnij załadunek | logistyk w panelu (trasa `zaladowana`) | pozycje → `zweryfikowane`, znaczniki załadunku czyszczone, Base. 417343, trasa → `zatwierdzona` |
-| Niedostarczone | kierowca (trasa `w_trasie`) albo panel | zdjęte z trasy (pula), pozycje → `zweryfikowane`, znaczniki załadunku czyszczone, Base. 417343 |
+| Niedostarczone | kierowca (trasa `w_trasie`) albo panel („Odhacz”) | **U10 (Ruling 32):** przystanek zostaje na trasie do jej końca jako niedostarczony (powód, notatka, kto, kiedy); pozycje `zaladowane`, znaczniki załadunku i Base. („Wysłane”) bez zmian. Do puli schodzi przy zamknięciu trasy albo przez „Zdejmij z trasy” w panelu: pozycje → `zweryfikowane`, znaczniki załadunku czyszczone, Base. 417343 |
+| Cofnij niedostarczenie (U10) | kierowca albo panel (trasa `w_trasie`) | przystanek znów do dostarczenia, log `niedostarczenie_cofniete`; Base. bez zmian |
 | Cofnij dostarczenie | kierowca (ostatnie, trasa `w_trasie`) albo panel (dowolny przystanek) | pozycje → `zaladowane`, Base. 149763, trasa `wykonana` → `w_trasie` |
 | Doróbka / nowa pozycja / przepakowanie | system | paczki unieważnione, weryfikacja i załadunek zamówienia kasują się; zamówienie przejdzie kroki od nowa po spakowaniu (poza zamówieniem z pozycjami `dostarczone` — niżej) |
 | Doróbka na zamówieniu z trasy `zaladowana`/`w_trasie` (decyzja Konrada 2.10) | system | jak „Niedostarczone”: pozycje do produkcji (reguła wyżej), przystanek zdjęty z trasy (log `trasa_usuniete`, notatka „doróbka”), znaczniki załadunku czyszczone, Base. 417343, log `niedostarczone` z powodem `dorobka`; zdjęcie ostatniego nierozliczonego przystanku trasy w drodze zamyka trasę (przystanek anulowanego w całości jest rozliczony). Przystanek już dostarczony zostaje (niżej). Trasa robocza i zatwierdzona — bez zmian (sama reguła wyżej) |
@@ -228,13 +229,17 @@ Aktualna deklaracja = paczki zamówienia z `voided_at IS NULL`. N (mianownik „
 - `prod_routes`: `loaded_at`, `loaded_by_worker_id`, `departed_at`, `departed_by_worker_id` (NULL).
 - `prod_route_stops`: `delivered_at DATETIME NULL`, `delivered_by_worker_id INT NULL`,
   `stays_reason VARCHAR(32) NULL`, `stays_note VARCHAR(255) NULL` (czasowe „Zostaje” do zakończenia załadunku).
+- U10 (Ruling 32, migracja `2026-10-02-logistyka-niedostarczone-na-trasie.sql`): `prod_route_stops` +
+  `not_delivered_at DATETIME NULL`, `not_delivered_reason VARCHAR(32) NULL`, `not_delivered_note VARCHAR(255) NULL`,
+  `not_delivered_by_worker_id INT NULL` (niedostarczony przystanek na trasie w drodze).
 
 ### 5.5 `prod_logistics_log`
 
 ENUM akcji + `paczki`, `weryfikacja`, `weryfikacja_cofnieta`, `problem`, `problem_rozwiazany`, `cofniete_do_pakowania`,
 `zaladunek`, `zostaje`, `wyjazd`, `dostarczone`, `niedostarczone`, `dostarczenie_cofniete`. Nowa kolumna
 `worker_id INT NULL` (akcje z telefonów mają pracownika, nie użytkownika) i `device_id INT NULL`. Sposób (skan/ręcznie)
-i powód idą w `note`.
+i powód idą w `note`. U10 (Ruling 32): + `niedostarczenie_cofniete` (na końcu listy) i indeks
+`ix_prod_logistics_log_route_id` (historia niedostarczonych trasy).
 
 ## 6. Krok 4.1 — druk na dwóch drukarkach
 
@@ -641,9 +646,11 @@ załadowanych zamówień (`bl_sync.oznacz_wyslane` + `po_zmianie`).
 - `POST /delivery/routes/<id>/stops/<order>/delivered` → pozycje `dostarczone`, `delivered_at/by`, Base. 149778
   (`bl_sync.oznacz_dostarczone`), `przelicz_zamkniecie`.
 - `POST …/not-delivered` `{reason, note}`; powody: `brak_klienta`, `odmowa`, `brak_dojazdu`, `uszkodzenie`, `inne`
-  → 4.5.
+  → 4.5. Od U10 przystanek zostaje na trasie do jej końca; `POST …/undo-not-delivered` cofa niedostarczenie,
+  a „Dostarczone” działa także ze stanu niedostarczonego (9.8, Ruling 32).
 - `POST …/undo-delivered` — tylko ostatnie dostarczenie, trasa `w_trasie`.
-- Brak nierozliczonych przystanków → trasa `wykonana` (`completed_at`, log z pracownikiem).
+- Brak nierozliczonych przystanków (każdy dostarczony albo niedostarczony) → trasa `wykonana` (`completed_at`, log
+  z pracownikiem); niedostarczone schodzą wtedy do puli (U10).
 
 ### 9.6 Offline i współbieżność
 
@@ -711,7 +718,8 @@ Dostawa częściowa („Zostaje” na pojedynczej paczce) odrzucona przez Konrad
   załadunek od zera; wpis `zostaje` z tą samą notatką).
 - **Log.** `zaladunek` przy zakończeniu załadunku (brak → `zaladowane`, notatka: opis paczek) i przy „Cofnij załadunek”
   (`zaladowane` → brak, notatka „cofnięty w panelu”); `zostaje` przy zdjęciu przystanku z powodem; `wyjazd`; `dostarczone`;
-  `niedostarczone` (notatka: powód i opis; wpis idzie po zdjęciu przystanku, więc jest ostatnim wpisem zamówienia);
+  `niedostarczone` (notatka: powód i opis; od U10 wpis powstaje przy oznaczeniu, a zdjęcie do puli przy zamknięciu
+  trasy dopisuje po nim `trasa_usuniete`);
   `dostarczenie_cofniete` tylko wtedy, gdy któraś pozycja się zmieniła; zmiany statusu trasy jak dotąd `trasa_status`,
   z jednym wyjątkiem: „Ruszam” (`zaladowana` → `w_trasie`) zapisuje wyłącznie wpis `wyjazd`, bez `trasa_status`.
   Wpis `trasa_usuniete` przy niedostarczeniu ma notatkę `niedostarczone` jak w etapie 3.
@@ -719,16 +727,18 @@ Dostawa częściowa („Zostaje” na pojedynczej paczce) odrzucona przez Konrad
 **Wyjazd i dostarczenia**
 - **Powtórki z kolejki offline bez zmian (Ruling 23 i 26).** `finish-loading` na trasie `zaladowana`/`w_trasie` → 200
   `{changed: false, removed: []}` (pierwsze zakończenie ma `changed: true`); `depart` na trasie `w_trasie`/`wykonana` → 200
-  `{changed: false}`; `not-delivered` po udanym zdjęciu przystanku → 200 `{changed: false, route_completed: false}`, gdy
-  OSTATNI wpis logu zamówienia to niedostarczenie z tej trasy, także na trasie, którą to niedostarczenie zamknęło (każdy inny
-  brak przystanku → 404 `stop_not_found`). Spóźnione „Niedostarczone” po odznaczeniu zamówienia w panelu też dostaje 200,
+  `{changed: false}`; `not-delivered` po zejściu przystanku do puli → 200 `{changed: false, route_completed: false}`, gdy
+  ostatni wpis ROZLICZENIA zamówienia (U10: `dostawa.AKCJE_ROZLICZENIA`, dawniej ostatni wpis logu w ogóle) to
+  niedostarczenie z tej trasy, także na trasie, którą to niedostarczenie zamknęło (każdy inny brak przystanku → 404
+  `stop_not_found`); na przystanku już niedostarczonym ten sam powód i notatka → 200 `changed: false`. Spóźnione „Niedostarczone” po odznaczeniu zamówienia w panelu też dostaje 200,
   a powód kierowcy nie jest zapisywany (zostaje wpis panelu `odhaczone_w_panelu`). Każde 200 zapisu zawiera pełną trasę
   (`route`) i `message`, także przy `changed: false`: appka podmienia trasę z odpowiedzi i zdejmuje wpis z kolejki.
 - **Cofnięcie ostatniego dostarczenia z telefonu także po automatycznym zamknięciu trasy** (decyzja 3; odstępstwo od 9.5):
   trasa `w_trasie` albo `wykonana` zamknięta ostatnim dostarczeniem z telefonu (`completed_by` NULL) wraca do `w_trasie`.
   Trasa odhaczona w panelu (`completed_by` ustawione, pole `completed_by_panel` w odpowiedzi) — tylko panel. „Ostatnie” =
   przystanek z najpóźniejszym `delivered_at` (remis: wyższa pozycja).
-- **Trasa bez przystanków po ostatnim „Niedostarczone”** zamyka się jako `wykonana` (kierowca wrócił ze wszystkim).
+- **Trasa z samymi niedostarczonymi** zamyka się jako `wykonana` (kierowca wrócił ze wszystkim), a niedostarczone
+  schodzą do puli (U10).
 - **Każdy zapis Dostawy blokuje zamówienia całej trasy**, nie tylko przystanku, którego dotyczy: odpowiedź telefonu (pełna
   trasa) jest liczona z tych samych blokad, na odczycie bieżącym, więc dwa telefony na jednej trasie widzą swoje zapisy
   nawzajem. Kolejność blokad: pracownicy (tylko telefon), blokada tras, blokada deklaracji paczek, zamówienia rosnąco po id,
@@ -822,6 +832,64 @@ Dostawa częściowa („Zostaje” na pojedynczej paczce) odrzucona przez Konrad
 - **Szczegóły trasy w panelu (addytywnie):** `zamowienie.dostawa.cofnieto` (czas ostatniego „Cofnij dostarczenie”
   zamówienia na tej trasie, null po ponownym dostarczeniu) i `dostarczone` przy przystanku w `GET /routes/map`.
 
+**U10 (decyzja Konrada 2.10, test appki na tablecie) — „Niedostarczone” zostaje na trasie do jej końca (Ruling 32)**
+
+Gdzie wcześniejsze punkty tej sekcji (Ruling 25, 26, C1, C5, 417343 przy zdjęciu z trasy w drodze, „Odhacz”) mówią
+o zdjęciu przystanku przy „Niedostarczone”, od U10 dotyczą one zejścia niedostarczonego do puli (R32.2).
+- **R32.1 Stan na przystanku.** „Niedostarczone” ustawia `not_delivered_at/_reason/_note/_by_worker_id` przystanku trasy
+  `w_trasie` (log `niedostarczone`: powód, notatka „Etykieta: notatka”). Pozycje zostają `zaladowane` (towar jest na
+  aucie), znaczniki załadunku zostają, Base. zostaje „Wysłane - trans. WoodPower” (149763). Niedostarczony przystanek
+  istnieje tylko na trasie w drodze: jedyne wyjście z `w_trasie` to zamknięcie, a ono zdejmuje wszystkie niedostarczone.
+  Kierowca może go dostarczyć wprost („Dostarczone” czyści niedostarczenie) albo cofnąć niedostarczenie.
+- **R32.2 Zejście do puli** (`dostawa._wycofaj_z_trasy`): pozycje `zaladowane` → `zweryfikowane` (bez weryfikacji
+  `spakowane`, Ruling 25), znaczniki załadunku czyszczone, Base. 417343 według Ruling 30, `routes.usun_przystanek`
+  (log `trasa_usuniete`, notatka „niedostarczone”, z tym, kto zamyka). Przy zamknięciu trasy — każdą ścieżką: ostatnie
+  „Dostarczone” albo „Niedostarczone”, doróbka i zmiana z Base. (Ruling 30), „Odhacz” — przed ustawieniem `wykonana`;
+  albo przez „Zdejmij z trasy” w panelu (trasa w drodze, tylko przystanek niedostarczony; trasa się nie zamyka).
+  Trasa zamyka się, gdy każdy przystanek jest dostarczony, niedostarczony albo zamówienia anulowanego w całości (C2).
+- **R32.3 Historia z logu.** `prod_route_stops.order_id` jest UNIQUE, a zamówienie z puli trzeba móc zaplanować na
+  inną trasę, więc przystanek zdjętego znika. Historia trasy (`dostawa.niedostarczone_zdjete`) = zamówienia, których
+  ostatni wpis rozliczenia z tą trasą (`trasa_dodane`, `niedostarczone`, `niedostarczenie_cofniete`, `dostarczone`,
+  `dostarczenie_cofniete`) to `niedostarczone`, a przystanku na tej trasie już nie ma; tylko trasy `zaladowana`,
+  `w_trasie`, `wykonana`. Jedno zapytanie po indeksie `ix_prod_logistics_log_route_id`.
+- **R32.4 „Cofnij dostarczenie” nie przywraca zdjętych niedostarczonych** (są w puli, Base. ma 417343, mogły trafić na
+  inną trasę). Panel mówi to wprost w potwierdzeniu, gdy trasa dostarczona ma niedostarczone w historii. Zamknięcie
+  trasy jest więc dla niedostarczonych nieodwracalne — appka ostrzega przed ostatnim rozliczeniem (liczy to sama
+  z przystanków).
+- **R32.5 Panel.** Przy niedostarczonym przystanku trasy w drodze: szara tarcza, „Niedostarczono <data godz> —
+  powód[: notatka]”, „Cofnij niedostarczenie” (`POST /routes/<id>/stops/<oid>/undo-not-delivered`) i „Zdejmij z trasy”
+  (`…/remove-not-delivered`, Base. 417343). „Odhacz”: odznaczony przystanek do dostarczenia → niedostarczony z powodem
+  `odhaczone_w_panelu`; niedostarczony przez kierowcę domyślnie odznaczony i zachowuje jego powód; zaznaczony →
+  dostarczony; zamknięcie od razu zdejmuje niedostarczone do puli (skutek jak dawniej, plus historia). Pod osią
+  przystanków sekcja „Niedostarczone — zdjęte z trasy” / „— wróciły do puli” (`route.niedostarczone_zdjete`).
+- **R32.6 Doróbka i zmiana z Base.** na przystanku trasy załadowanej albo w drodze — bez zmian (Ruling 30), także na
+  niedostarczonym: zdjęcie od razu z powodem `dorobka`/`zmiana_base` (ten powód trafia do historii). Hurt dalej odmawia
+  (zamówienie jest na trasie), dla niedostarczonego: „…jest niedostarczone na trasie „T” (w drodze) — wróci do puli po
+  zakończeniu trasy albo po „Zdejmij z trasy” w panelu tras.” Zmiana sposobu dostawy, adresu i pinezki
+  niedostarczonego → 409 „…jest niedostarczone na trasie „T” — <zmiana> po zakończeniu trasy albo po zdjęciu go z trasy
+  w panelu tras.”
+- **R32.7 Powtórki z kolejki offline.** Niedostarczony z tym samym powodem i notatką → 200 `changed: false`; inny powód
+  albo notatka → zmiana (nowy wpis w logu). Brak przystanku, a ostatni wpis rozliczenia zamówienia to `niedostarczone`
+  z tej trasy → 200 `changed: false` (odczyt bieżący jak C1). „Cofnij niedostarczenie” na przystanku, który nie jest
+  niedostarczony → 200 `changed: false`; po zejściu do puli → 404 `stop_not_found` z komunikatem „Zamówienie rozliczone
+  jako niedostarczone zeszło już z trasy — jest w puli bez trasy.” (tak samo spóźnione „Dostarczone”).
+- **R32.8 Lista Logistyki, cron, postęp.** Etap `w_trasie` z nazwą „W trasie — niedostarczone” (filtr `etap=w_trasie`
+  bez zmian). Cron bez zmian (pozycje `zaladowane` — transport nie jest zamknięty). Postęp: `postep.niedostarczone`
+  (na trasie + zdjęte) i `postep.zdjete`; panel pisze „dostarczono X/Y · niedostarczono Z”, Y = przystanki + zdjęte
+  (nie maleje przy zamknięciu).
+- **R32.9 Odczyty historii.** Odpowiedź zapisu telefonu czyta historię odczytem bieżącym (współdzielonym) pod trzymaną
+  blokadą tras — wpisy z `route_id` piszą tylko posiadacze tej blokady, a po odczycie zapis na nic już nie czeka (jak
+  C1). Numer i klient zdjętych zamówień — zwykły odczyt samych kolumn (tych zamówień zapis nie blokuje: blokada po
+  zamówieniach trasy odwróciłaby rosnącą kolejność). GET-y — zwykły odczyt.
+- **R32.10 Kontrakt telefonu** (`KSZTALT_TRASY = 2`): przystanek `state: 'niedostarczone'` („Niedostarczone”;
+  anulowane w całości ma pierwszeństwo) i `not_delivered: null | {reason, reason_label, note, at}`; `TrasaKrotko`
+  + `stops_not_delivered` (niedostarczone obecne na trasie); `Trasa` + `removed_not_delivered: [{order_id,
+  internal_order_number, client_name, not_delivered}]`; `POST /routes/<rid>/stops/<oid>/undo-not-delivered` (po
+  `order_id`, idempotentny, ponowienie po 1213 jak inne zapisy). Panel (addytywnie): `zamowienie.dostawa.niedostarczono`
+  `{powod, etykieta, notatka, kiedy}`, `route.niedostarczone_zdjete` `[{order_id, numer, klient, miasto, powod,
+  etykieta, notatka, kiedy}]`, `postep.niedostarczone/zdjete`, przy przystanku `/routes/map` pole `niedostarczone`.
+  Log: nowa akcja `niedostarczenie_cofniete`.
+
 **Rozstrzygnięcia realizacji** — etykiety używane w komentarzach kodu i w testach (dziennik realizacji nie jest w repo):
 
 | Etykieta | Sedno |
@@ -838,6 +906,7 @@ Dostawa częściowa („Zostaje” na pojedynczej paczce) odrzucona przez Konrad
 | Ruling 28 | Punkt nawigacji telefonu tą samą regułą co Routimo, „Moje trasy” z trasą zatwierdzoną w trakcie załadunku po dacie końca, bramki stanowiska (403 `station_not_allowed`) i kierowcy sprawdzane na każdym endpoincie telefonu, `completed_by_panel`, rollback przy każdej odmowie zapisu telefonu. |
 | Ruling 30 | Runda 2 fali końcowej: pusta trasa po doróbce (odmowa „Ruszam”, „Odhacz” zamyka), zmiana z Base. zdejmuje z trasy w drodze jak doróbka (blokada tras przed zamówieniem, cała trasa w kolejności Dostawy), 417343 zawsze przy zdjęciu z trasy w drodze, C2 w zamknięciu po doróbce, komunikaty spóźnionego „Dostarczone” i hurtu na przystanku dostarczonym, pominięte zamówienia w panelu produktów. |
 | Ruling 31 | Runda 3 fali końcowej: panel tras odhacza pustą trasę załadowaną albo w drodze, zdjęcie z trasy po zmianie z Base. z użytkownikiem panelu w logach, przeciąganie i przeliczenie priorytetów ponawiają raz po MySQL 1213 (wyścig z Dostawą). |
+| Ruling 32 | U10 (decyzja Konrada 2.10): „Niedostarczone” zostaje na trasie do jej końca — stan na przystanku, zejście do puli przy zamknięciu albo „Zdejmij z trasy”, historia z logu, „Cofnij niedostarczenie” (telefon i panel), powtórki po ostatnim wpisie rozliczenia, kontrakt telefonu w kształcie 2 (punkty R32.1–R32.10 wyżej). |
 | P1 | Numery wierszy w planie 4.4b są orientacyjne (sprzed 4.4a) — kod szuka się po nazwie funkcji. |
 | P2 | Wynik `dostawa.zablokuj` (trasa, zamówienia, paczki) zapis trzyma w zmiennych do końca decyzji i odpowiedzi i decyduje tylko na tych obiektach (mapa tożsamości trzyma czyste obiekty słabo). |
 

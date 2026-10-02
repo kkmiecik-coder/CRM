@@ -302,16 +302,23 @@ Albo po prostu `./deploy.sh` — robi dokładnie to samo, z lockiem i logami.
   go sam (`INSERT IGNORE`, WARNING w logu), a na innych bazach zapisy tras nie są wtedy serializowane.
   **Dostawa (krok 4.4, `logistics/services/dostawa.py`)** — telefon kierowcy (`/api/mobile/delivery/*`) i przejścia
   z panelu tras (odhaczenie z odznaczeniem przystanków, czyli „Niedostarczone” z panelu, „Cofnij załadunek”, „Cofnij
-  dostarczenie”, „Cofnij zatwierdzenie” trasy ze znacznikami załadunku — bez znaczników ta ostatnia bierze tylko
-  blokadę tras): [pracownicy, tylko telefon] → blokada tras → blokada deklaracji paczek → zamówienia CAŁEJ trasy
-  rosnąco po id → paczki → pozycje; decyzje na odczycie bieżącym, a odpowiedź telefonu (pełna trasa) z tych samych
+  dostarczenie”, „Cofnij niedostarczenie”, „Zdejmij z trasy” niedostarczonego, „Cofnij zatwierdzenie” trasy ze
+  znacznikami załadunku — bez znaczników ta ostatnia bierze tylko blokadę tras): [pracownicy, tylko telefon] →
+  blokada tras → blokada deklaracji paczek → zamówienia CAŁEJ trasy rosnąco po id → paczki → pozycje; decyzje na odczycie bieżącym, a odpowiedź telefonu (pełna trasa) z tych samych
   blokad. Zakleszczenie 1213 — jedno ponowienie całego zapisu (`dostawa_api._zapis`, `trasy_api._akcja`, niżej).
   **Doróbka, zmiana z Base. i hurtowa zmiana statusu też biorą blokadę tras NAJPIERW**, przed blokadami zamówień
   (decyzja Konrada 2.10, Ruling 30): zamówienie z przystankiem na trasie załadowanej albo w drodze, które wraca do
   produkcji, doróbka i zmiana z Base. zdejmują z trasy jak „Niedostarczone” (`dostawa.zdejmij_z_trasy_w_drodze`,
   Base. 417343), a hurt mu odmawia (odmowa w `errors`, 409 gdy obejmuje wszystko); status trasy czytają odczytem
   bieżącym pod tą blokadą. Doróbka i zmiana z Base. blokują wtedy całą trasę w kolejności Dostawy
-  (`dostawa.blokady_trasy_w_drodze`), bo zdjęcie może ją zamknąć. Transport własny zamyka się po `dostarczone`
+  (`dostawa.blokady_trasy_w_drodze`), bo zdjęcie może ją zamknąć. **„Niedostarczone” zostaje na trasie do jej końca**
+  (U10, decyzja Konrada 2.10, Ruling 32 w specu etapu 4): stan na przystanku (`prod_route_stops.not_delivered_*`,
+  pozycje dalej `zaladowane`, Base. bez zmian), a do puli zamówienie schodzi przy zamknięciu trasy (każdy przystanek
+  dostarczony albo niedostarczony; `dostawa._zdejmij_niedostarczone` przed ustawieniem `wykonana`, na krotce
+  `zablokuj` — także w zamknięciu po doróbce) albo przez „Zdejmij z trasy” w panelu. `order_id` przystanku jest
+  UNIQUE, więc historia zdjętych idzie z logu (`dostawa.niedostarczone_zdjete`, indeks `route_id`); odpowiedź zapisu
+  telefonu czyta ją odczytem bieżącym pod blokadą tras. Powtórkę „Niedostarczone” rozpoznaje ostatni wpis ROZLICZENIA
+  zamówienia (`dostawa.AKCJE_ROZLICZENIA`), nie ostatni wpis logu. Transport własny zamyka się po `dostarczone`
   na pozycjach (reguła nie czyta tras); siatka crona otwiera transport zamknięty po znaczniku
   `logistyka_weryfikacja_od` z pozycją niedostarczoną.
 - **Deklaracje paczek — jedna naraz:** `paczki.zablokuj_deklaracje()` (wiersz `logistyka_paczki_blokada` w
