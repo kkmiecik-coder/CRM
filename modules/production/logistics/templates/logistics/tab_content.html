@@ -16,7 +16,7 @@
 <link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet-markercluster/MarkerCluster.css') }}?v=1.5.3">
 <link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20261001f">
 {# Etap 3: trasy, flota, widok tras na mapie — osobny arkusz (logistics.css zostaje nietknięty). #}
-<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics-trasy.css') }}?v=20261002f">
+<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics-trasy.css') }}?v=20261002g">
 
 <div id="logistics-root" class="logistics-tab"
      data-api="{{ url_for('logistics_panel.orders') }}"
@@ -48,6 +48,10 @@
   {# ═══ PODZAKŁADKA DASHBOARD ═══ — cała dotychczasowa treść zakładki (etapy 1–2). #}
   <div class="lg-widok" id="lg-widok-dashboard" role="tabpanel" aria-labelledby="lg-zakladka-dashboard"
        data-logistics-view="dashboard">
+    {# (U9, oględziny 2.10) Komunikaty podzakładki NA POCZĄTKU panelu: nakładka sticky w prawym górnym rogu
+         (CSS: .lg-komunikaty--nakladka) — nie przesuwa układu, widać ją też po przewinięciu. pokazKomunikat
+         (logistics.js) wybiera kontener bieżącej podzakładki. #}
+    <div class="lg-komunikaty lg-komunikaty--nakladka" data-lg="komunikaty" data-lg-komunikaty="dashboard" aria-live="polite"></div>
 
   {# ─── LICZNIKI = FILTR SPOSOBU DOSTAWY ───
        Liczą wszystkie OTWARTE zamówienia (niezależnie od wyszukiwarki).
@@ -181,10 +185,6 @@
           <span class="lg-ile" data-lg="ile" aria-live="polite"></span>
         </div>
 
-        {# Komunikaty po akcjach (zmiany, błędy, przepakowanie, lokalizowanie). Trasy
-             i Flota mają własne miejsca (data-lg-komunikaty) — pokazKomunikat wybiera
-             to z bieżącej podzakładki. #}
-        <div class="lg-komunikaty" data-lg="komunikaty" data-lg-komunikaty="dashboard" aria-live="polite"></div>
       </div>
 
       {# ─── MAPA ───
@@ -346,6 +346,7 @@
        z id trasy) ten sam na liście, w edytorze, na mapce i na mapie Dashboardu. #}
   <div class="lg-widok lg-widok--trasy" id="lg-widok-routes" role="tabpanel" aria-labelledby="lg-zakladka-routes"
        data-logistics-view="routes" hidden>
+    <div class="lg-komunikaty lg-komunikaty--nakladka" data-lg-komunikaty="routes" aria-live="polite"></div>
     <div class="lg-trasy" data-lg-trasy="uklad">
 
       {# ─── LISTA TRAS ─── Robocze, Zatwierdzone, Załadowane i W trasie rozwinięte, Wykonane zwinięte
@@ -501,15 +502,13 @@
         </div>
       </section>
     </div>
-    {# Komunikaty Tras NA KOŃCU panelu: nakładka przy dolnej krawędzi widoku (CSS, sticky),
-       więc pojawienie się i zniknięcie komunikatu nie przesuwa przycisków (oględziny, N3). #}
-    <div class="lg-komunikaty lg-komunikaty--nakladka" data-lg-komunikaty="routes" aria-live="polite"></div>
   </div>
 
   {# ═══ PODZAKŁADKA FLOTA ═══ (etap 3) — logistics-fleet.js. Pojazdów nie kasujemy:
        wyłączony zostaje na starych trasach, nie da się go wybrać do nowych. #}
   <div class="lg-widok lg-widok--flota" id="lg-widok-fleet" role="tabpanel" aria-labelledby="lg-zakladka-fleet"
        data-logistics-view="fleet" hidden>
+    <div class="lg-komunikaty lg-komunikaty--nakladka" data-lg-komunikaty="fleet" aria-live="polite"></div>
     <div class="lg-flota">
       <section class="lg-flota-pojazdy" aria-labelledby="lg-flota-tytul">
         <div class="lg-sekcja-naglowek">
@@ -550,7 +549,6 @@
         <ul class="lg-kierowcy" data-lg-flota="kierowcy"></ul>
       </section>
     </div>
-    <div class="lg-komunikaty lg-komunikaty--nakladka" data-lg-komunikaty="fleet" aria-live="polite"></div>
   </div>
 
   {# ─── POPRAWKA ADRESU ─── (dwuklik w adres na liście albo Enter na fokusie).

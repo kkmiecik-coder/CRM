@@ -762,44 +762,54 @@
     cursor: progress;
 }
 
-/* ─── Komunikaty Tras i Floty: nakładka (oględziny Task 8, runda 2, N3) ───
-   Na końcu panelu, przyklejone do dolnej krawędzi widoku (sticky, wysokość 0 — nie zajmują
-   miejsca), rosną w górę nad treścią; najnowszy najniżej. Pojawienie się i zniknięcie
-   komunikatu nie przesuwa przycisków edytora ani Floty (wcześniej skrzynka u góry panelu
-   spychała wszystko o ~45 px i po 6 s wracała — kliknięcia trafiały obok). Tekst dalej
-   ogłasza aria-live i role status/alert. Dashboard (etap 2) bez zmian. */
+/* ─── Komunikaty Logistyki: nakładka w prawym górnym rogu (U9, oględziny 2.10) ───
+   Wszystkie trzy podzakładki (Dashboard, Trasy, Flota): kontener na POCZĄTKU panelu, przyklejony do górnej
+   krawędzi okna (sticky, wysokość 0 — nie zajmuje miejsca, nie przesuwa przycisków, jak nakładka N3), komunikaty
+   rosną w dół przy prawej krawędzi; najnowszy najniżej. Żeby rzucały się w oczy: obwódka i poświata
+   w pomarańczu marki zza karty komunikatu. Lewa krawędź zostaje w barwie typu (ok / uwaga / błąd), ikona też —
+   typ nie zależy od pomarańczu. Tekst dalej ogłasza aria-live i role status/alert; × i czas (ok/info 6 s) bez
+   zmian (logistics.js, pokazKomunikat). Komponent tylko Logistyki (#logistics-root), reszta CRM bez zmian. */
+.logistics-tab {
+    /* Pomarańcz marki WoodPower (jak --brand-primary w module dashboard). */
+    --lg-marka: #ED6B24;
+}
+
 .logistics-tab .lg-komunikaty--nakladka {
     position: sticky;
-    bottom: 14px;
-    z-index: 40;
+    top: 12px;
+    /* Nad kontrolkami Leafleta mapy Dashboardu (z-index do 1000) i panelem województw. */
+    z-index: 1200;
     display: flex;
     flex-direction: column;
-    justify-content: flex-end;
-    align-items: flex-start;
-    gap: 6px;
+    align-items: flex-end;
+    gap: 8px;
     height: 0;
-    /* Stały zapas pod treścią na komunikat (do dwóch linii): przy krótkim panelu (Flota)
-       komunikat stoi pod ostatnim wierszem, a nie na nim. */
-    margin: 66px 0 0;
+    margin: 0;
     pointer-events: none;
 }
 
-/* (runda 3, pkt 2) Pusty kontener też zostaje (z zapasem 66 px): reguła etapu 2
-   `.lg-komunikaty:empty { display: none }` zdejmowała zapas, gdy znikał ostatni komunikat —
-   przy dole przewiniętej strony panel skakał wtedy o 66 px. Dashboard bez zmian. */
-.logistics-tab .lg-komunikaty.lg-komunikaty--nakladka:empty {
-    display: flex;
+/* Reguły etapu 2 dla kontenera w liście Dashboardu (puste = display: none, w układzie piętrowym
+   max-height ze scrollem) nie dotyczą nakładki — scroll przy wysokości 0 uciąłby komunikaty. */
+.logistics-tab .lg-komunikaty.lg-komunikaty--nakladka {
+    max-height: none;
+    margin-bottom: 0;
+    overflow: visible;
 }
 
 .logistics-tab .lg-komunikaty--nakladka > .lg-komunikat {
     flex: none;
     box-sizing: border-box;
-    width: min(560px, 100%);
-    /* (runda 3, pkt 1) Nieprzezroczysta podstawa: odmiany etapu 2 (uwaga, błąd) mają tło
-       z 4–5 % koloru, które nad treścią przepuszczało tekst spod spodu. Odcień zostaje —
-       jako gradient na białym tle (niżej). */
+    width: min(440px, 100%);
+    /* (runda 3, pkt 1) Nieprzezroczysta podstawa: odmiany uwaga i błąd mają tło z 4–5 % koloru,
+       które nad treścią przepuszczałoby tekst spod spodu. Odcień zostaje — gradient niżej. */
     background-color: var(--il-bg-card, #fff);
-    box-shadow: 0 8px 24px rgba(26, 26, 46, 0.2);
+    border-top-color: var(--lg-marka);
+    border-right-color: var(--lg-marka);
+    border-bottom-color: var(--lg-marka);
+    border-left-width: 4px;
+    box-shadow: 0 0 0 1px rgba(237, 107, 36, 0.3),
+        0 0 22px 4px rgba(237, 107, 36, 0.4),
+        0 8px 22px rgba(26, 26, 46, 0.16);
     pointer-events: auto;
 }
 
@@ -809,6 +819,11 @@
 
 .logistics-tab .lg-komunikaty--nakladka > .lg-komunikat--blad {
     background-image: linear-gradient(rgba(220, 38, 38, 0.04), rgba(220, 38, 38, 0.04));
+}
+
+/* Wymuszone kolory zdejmują cienie — komunikat wyróżnia grubsza obwódka. */
+@media (forced-colors: active) {
+    .logistics-tab .lg-komunikaty--nakladka > .lg-komunikat { border-width: 2px; border-left-width: 4px; }
 }
 
 /* ============================================================================
