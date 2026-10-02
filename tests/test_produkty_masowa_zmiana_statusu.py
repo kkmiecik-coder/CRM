@@ -749,6 +749,27 @@ def test_hurt_na_przystanku_dostarczonym_podpowiada_cofniecie_dostarczenia(clien
     assert _stan_logistyki(order_id)[0] == ['dostarczone', 'dostarczone']
 
 
+def test_hurt_na_przystanku_niedostarczonym_mowi_o_koncu_trasy(client, app):
+    """U10 (Ruling 32): przystanek oznaczony jako niedostarczony wisi na trasie w drodze do jej końca — hurt dalej
+    odmawia (zamówienie jest na trasie), a komunikat wskazuje, kiedy zamówienie wróci do puli."""
+    from datetime import datetime
+
+    from modules.production.logistics.models import RouteStop
+    order_id, pozycje, _paczki, _trasa = _zamowienie_logistyki(
+        app, '25/00619', statusy=('zaladowane', 'zaladowane'), status_trasy='w_trasie', zaladowane=True)
+    with app.app_context():
+        stop = RouteStop.query.filter_by(order_id=order_id).one()
+        stop.not_delivered_at, stop.not_delivered_reason = datetime(2026, 10, 2, 11, 0), 'odmowa'
+        db.session.commit()
+
+    r = _masowo(client, [pozycje[0]], 'czeka_na_pakowanie')
+
+    assert r.status_code == 409, r.get_data()[:500]
+    assert r.get_json()['error'] == (u'Zamówienie 25/00619 jest niedostarczone na trasie „Rzeszów 02.10” (w drodze) — '
+                                     u'wróci do puli po zakończeniu trasy albo po „Zdejmij z trasy” w panelu tras.')
+    assert _stan_logistyki(order_id)[0] == ['zaladowane', 'zaladowane']
+
+
 @pytest.mark.parametrize('nowy_status', ['czeka_na_pakowanie', 'spakowane'])
 @pytest.mark.parametrize('status_trasy, opis', [('zaladowana', u'załadowana'), ('w_trasie', u'w drodze')])
 def test_hurt_odmawia_zamowieniu_z_trasy_zaladowanej_i_w_drodze(client, app, status_trasy, opis, nowy_status):

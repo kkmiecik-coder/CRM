@@ -29,6 +29,8 @@ STANY_WERYFIKACJI = ('do_weryfikacji', 'problem', 'bez_paczek')
 NAZWA_STANOWISKA = {status: STATION_LABELS[kod] for kod, status in STATION_PENDING_STATUS.items()}
 # Etap zamówienia załadowanego na trasę, która już ruszyła (krok 4.4, spec 11) — wynika z pozycji I trasy.
 NAZWA_W_TRASIE = u'W trasie'
+# U10 (Ruling 32): niedostarczone wisi na trasie w drodze do jej końca (pozycje 'zaladowane', towar na aucie).
+NAZWA_W_TRASIE_NIEDOSTARCZONE = u'W trasie — niedostarczone'
 
 
 def _ranga(status):
@@ -94,17 +96,22 @@ def _nazwa_etapu(produkt):
             or NAZWA_STANOWISKA.get(produkt.current_status) or produkt.status_display_name)
 
 
-def _etap(aktywne, trasa=None):
+def _etap(aktywne, trasa=None, order_id=None):
     """
     Etap zamówienia = etap jego najbardziej zaległej pozycji. Wyjątek (krok 4.4): pozycje `zaladowane` na trasie
     w drodze dają etap `w_trasie` zamiast `zaladowane` — filtr `etap` w `pobierz` działa na etapie wiersza,
-    więc `etap=zaladowane` zamówienia z trasy w drodze nie zwraca, a `etap=w_trasie` tak.
+    więc `etap=zaladowane` zamówienia z trasy w drodze nie zwraca, a `etap=w_trasie` tak. Przystanek niedostarczony
+    (U10) — ten sam etap z nazwą „W trasie — niedostarczone” (przystanek z `trasa.stops` — jedno leniwe zapytanie na
+    trasę w drodze w żądaniu).
     """
     if not aktywne:
         return {'status': 'anulowane', 'nazwa': 'Anulowane'}
     najwczesniejszy = min(aktywne, key=lambda p: _ranga(p.current_status))
     status = najwczesniejszy.current_status
     if status == 'zaladowane' and trasa is not None and trasa.status == 'w_trasie':
+        stop = next((s for s in trasa.stops if s.order_id == order_id), None)
+        if stop is not None and stop.not_delivered_at is not None:
+            return {'status': 'w_trasie', 'nazwa': NAZWA_W_TRASIE_NIEDOSTARCZONE}
         return {'status': 'w_trasie', 'nazwa': NAZWA_W_TRASIE}
     return {'status': status, 'nazwa': _nazwa_etapu(najwczesniejszy)}
 
@@ -253,7 +260,7 @@ def serializuj(order, geo=None, trasa=None, paczki_zamowienia=None, okno_weryfik
         'podpowiedz': sposoby.podpowiedz(order),
         'sposob': sposob,
         'sposob_etykieta': sposoby.etykieta(sposob),
-        'etap': _etap(aktywne, trasa),
+        'etap': _etap(aktywne, trasa, order.id),
         'termin': min(terminy).isoformat() if terminy else None,
         'm3': round(sum(float(p.volume_m3 or 0) * (p.quantity or 1) for p in aktywne), 4),
         'spakowane': wszystkie_spakowane(order),

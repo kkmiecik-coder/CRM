@@ -1300,7 +1300,8 @@ _OPIS_TRASY_W_DRODZE = {'zaladowana': u'załadowana', 'w_trasie': u'w drodze'}
 
 def _trasy_w_drodze(order_ids):
     """
-    {order_id: (nazwa trasy, status, czy przystanek dostarczony)} zamówień, których przystanek jest na trasie
+    {order_id: (nazwa trasy, status, stan przystanku: 'dostarczony' | 'niedostarczony' | None)} zamówień, których
+    przystanek jest na trasie
     załadowanej albo w drodze
     (`dostawa.STATUSY_W_DRODZE`). Odczyt BIEŻĄCY (blokada współdzielona, LOCK IN SHARE MODE), wołany pod globalną
     blokadą tras: przystanki i trasy zapisuje tylko jej posiadacz, więc wynik obowiązuje do końca transakcji. Zwykły
@@ -1311,19 +1312,26 @@ def _trasy_w_drodze(order_ids):
     ids = sorted({i for i in order_ids if i is not None})
     if not ids:
         return {}
-    wiersze = (db.session.query(RouteStop.order_id, Route.name, Route.status, RouteStop.delivered_at)
+    wiersze = (db.session.query(RouteStop.order_id, Route.name, Route.status, RouteStop.delivered_at,
+                                RouteStop.not_delivered_at)
                .join(Route, Route.id == RouteStop.route_id)
                .filter(RouteStop.order_id.in_(ids), Route.status.in_(dostawa.STATUSY_W_DRODZE))
                .with_for_update(read=True).all())
-    return {order_id: (nazwa, status, dostarczono is not None) for order_id, nazwa, status, dostarczono in wiersze}
+    return {order_id: (nazwa, status, 'dostarczony' if dostarczono is not None
+                       else ('niedostarczony' if niedostarczono is not None else None))
+            for order_id, nazwa, status, dostarczono, niedostarczono in wiersze}
 
 
-def _odmowa_trasy_w_drodze(zamowienie, nazwa, status, dostarczony):
+def _odmowa_trasy_w_drodze(zamowienie, nazwa, status, stan):
     """Komunikat odmowy hurtu z wykonalnym krokiem: przystanek już dostarczony (trasa w drodze) cofa się przez
-    „Cofnij dostarczenie” (Ruling 30.6); niedostarczony — „Cofnij załadunek” albo „Niedostarczone”."""
+    „Cofnij dostarczenie” (Ruling 30.6); oznaczony jako niedostarczony (U10, Ruling 32) wisi na trasie do jej końca
+    albo do „Zdejmij z trasy” w panelu tras; pozostałe — „Cofnij załadunek” albo „Niedostarczone”."""
     numer = zamowienie.internal_order_number or u'#{}'.format(zamowienie.id)
     opis = _OPIS_TRASY_W_DRODZE.get(status, status)
-    if dostarczony:
+    if stan == 'niedostarczony':
+        return (u'Zamówienie {} jest niedostarczone na trasie „{}” ({}) — wróci do puli po zakończeniu trasy albo po '
+                u'„Zdejmij z trasy” w panelu tras.'.format(numer, nazwa, opis))
+    if stan == 'dostarczony':
         return (u'Zamówienie {} jest dostarczone na trasie „{}” ({}) — najpierw Cofnij dostarczenie.'
                 .format(numer, nazwa, opis))
     return (u'Zamówienie {} jest na trasie „{}” ({}) — najpierw Cofnij załadunek albo Niedostarczone.'

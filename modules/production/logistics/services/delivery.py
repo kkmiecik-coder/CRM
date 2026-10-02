@@ -144,7 +144,8 @@ def _przystanek_do_zmiany(order, zdejmuje, opis):
 
     (krok 4.4, spec 4.3) Trasa załadowana i w trasie jest zablokowana jak zatwierdzona: zmiana zdejmująca zamówienie
     z trasy albo zmieniająca adres → 409. Załadowaną odblokowuje „Cofnij załadunek” w panelu tras, a z trasy w
-    drodze zamówienie schodzi dopiero, gdy kierowca rozliczy przystanek („Niedostarczone” wraca je do puli).
+    drodze zamówienie schodzi dopiero, gdy kierowca rozliczy przystanek. U10 (Ruling 32): niedostarczone wisi na
+    trasie do jej końca albo do „Zdejmij z trasy” w panelu — wtedy własny komunikat.
     Przystanek już dostarczony na trasie jeszcze w drodze traktujemy jak trasę wykonaną.
 
     (fix-1, Ruling A6) Odczyt BIEŻĄCY przystanku i blokada globalna PRZED odczytem
@@ -179,6 +180,10 @@ def _przystanek_do_zmiany(order, zdejmuje, opis):
     if trasa.status == 'zaladowana' and zdejmuje:
         raise LogistykaBlad(u'Zamówienie {} jest załadowane na trasę „{}” — najpierw cofnij załadunek w panelu '
                             u'tras, potem {}.'.format(order.internal_order_number, trasa.name, opis))
+    if trasa.status == 'w_trasie' and zdejmuje and przystanek.not_delivered_at is not None:
+        # U10 (Ruling 32): niedostarczone wisi na trasie do jej końca — przystanek jest już rozliczony.
+        raise LogistykaBlad(u'Zamówienie {} jest niedostarczone na trasie „{}” — {} po zakończeniu trasy albo po '
+                            u'zdjęciu go z trasy w panelu tras.'.format(order.internal_order_number, trasa.name, opis))
     if trasa.status == 'w_trasie' and zdejmuje:
         raise LogistykaBlad(u'Zamówienie {} jedzie trasą „{}” — {} dopiero, gdy kierowca rozliczy '
                             u'przystanek.'.format(order.internal_order_number, trasa.name, opis))

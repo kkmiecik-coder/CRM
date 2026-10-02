@@ -693,12 +693,16 @@ def numeracja_przystankow(zamowienia):
     return wynik
 
 
-def postep(route, zamowienia, pakunki):
+def postep(route, zamowienia, pakunki, zdjete=()):
     """
     Postęp Dostawy w nagłówku edytora i na liście tras (krok 4.4, spec 9.7: „załadowano 7/8 · dostarczono 3/7”),
     liczony na przystankach aktywnych (zamówienia z choć jedną nieanulowaną pozycją). `zaladowane` — przystanek
     z co najmniej jedną aktualną paczką i wszystkimi załadowanymi na tę trasę (po dostarczeniu znaczniki zostają);
     `dostarczone` — przystanek z `delivered_at`. `pakunki` — {order_id: [aktualne paczki]}.
+
+    U10 (Ruling 32): `zdjete` — historia trasy (dostawa.niedostarczone_zdjete: zamówienia, które zeszły z niej jako
+    niedostarczone); `niedostarczone` = przystanki z `not_delivered_at` + zdjęte, `zdjete` = ich liczba. Front liczy
+    „dostarczono X/Y” z Y = przystanki + zdjęte, więc Y nie maleje, gdy zamknięcie zdejmuje niedostarczone do puli.
     """
     aktywne = {o.id for o in zamowienia if delivery.aktywne_produkty(o)}
     stopy = [s for s in route.stops if s.order_id in aktywne]
@@ -710,10 +714,12 @@ def postep(route, zamowienia, pakunki):
 
     return {'przystanki': len(stopy),
             'zaladowane': sum(1 for s in stopy if zaladowany(s.order_id)),
-            'dostarczone': sum(1 for s in stopy if s.delivered_at is not None)}
+            'dostarczone': sum(1 for s in stopy if s.delivered_at is not None),
+            'niedostarczone': sum(1 for s in stopy if s.not_delivered_at is not None) + len(zdjete),
+            'zdjete': len(zdjete)}
 
 
-def serializuj_trase(route, zamowienia=None, punkty=None, pakunki=None):
+def serializuj_trase(route, zamowienia=None, punkty=None, pakunki=None, zdjete=()):
     kierowca = route.driver
     dane = {
         'id': route.id,
@@ -737,5 +743,5 @@ def serializuj_trase(route, zamowienia=None, punkty=None, pakunki=None):
     if zamowienia is not None:
         dane['podsumowanie'] = podsumowanie(route, zamowienia, punkty or {})
         if pakunki is not None:
-            dane['postep'] = postep(route, zamowienia, pakunki)
+            dane['postep'] = postep(route, zamowienia, pakunki, zdjete)
     return dane

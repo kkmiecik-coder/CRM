@@ -42,7 +42,8 @@ def test_szczegoly_trasy_w_zaladunku(app, client):
     r = client.get(BASE + '/routes/%d' % t.id)
     assert r.status_code == 200, r.get_data()[:300]
     dane = r.get_json()['route']
-    assert dane['postep'] == {'przystanki': 3, 'zaladowane': 1, 'dostarczone': 0}   # anulowane się nie liczy
+    # Anulowane się nie liczy.
+    assert dane['postep'] == {'przystanki': 3, 'zaladowane': 1, 'dostarczone': 0, 'niedostarczone': 0, 'zdjete': 0}
     assert (dane['zaladowana'], dane['wyjazd'], dane['odhaczona_w_panelu']) == (None, None, False)
     przystanki = _przystanki(dane)
     assert przystanki[zostaje.id]['dostawa'] == {
@@ -60,7 +61,7 @@ def test_szczegoly_trasy_w_drodze(app, client):
     dostawa.dostarcz(t, a.id, worker_id=7, teraz=T0)
     db.session.commit()
     dane = client.get(BASE + '/routes/%d' % t.id).get_json()['route']
-    assert dane['postep'] == {'przystanki': 2, 'zaladowane': 2, 'dostarczone': 1}
+    assert dane['postep'] == {'przystanki': 2, 'zaladowane': 2, 'dostarczone': 1, 'niedostarczone': 0, 'zdjete': 0}
     assert (dane['zaladowana'], dane['wyjazd']) == (T0.isoformat(), T0.isoformat())
     przystanki = _przystanki(dane)
     assert przystanki[a.id]['dostawa']['dostarczono'] == T0.isoformat()
@@ -73,7 +74,7 @@ def test_lista_tras_ma_postep(app, client):
     zaladuj_wprost(lista_paczek, t)
     trasy = client.get(BASE + '/routes').get_json()['routes']
     wpis = next(x for x in trasy if x['id'] == t.id)
-    assert wpis['postep'] == {'przystanki': 1, 'zaladowane': 1, 'dostarczone': 0}
+    assert wpis['postep'] == {'przystanki': 1, 'zaladowane': 1, 'dostarczone': 0, 'niedostarczone': 0, 'zdjete': 0}
 
 
 def test_postep_nie_liczy_znacznika_innej_trasy(app, client):
@@ -86,7 +87,7 @@ def test_postep_nie_liczy_znacznika_innej_trasy(app, client):
     t = trasa([z_obca_trasa, bez_paczek])
     zaladuj_wprost(paczki_obce, obca)
     dane = client.get(BASE + '/routes/%d' % t.id).get_json()['route']
-    assert dane['postep'] == {'przystanki': 2, 'zaladowane': 0, 'dostarczone': 0}
+    assert dane['postep'] == {'przystanki': 2, 'zaladowane': 0, 'dostarczone': 0, 'niedostarczone': 0, 'zdjete': 0}
 
 
 def test_trasa_odhaczona_w_panelu(app):

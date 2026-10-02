@@ -253,13 +253,14 @@ def test_niedostarczenie_przez_api(app, client):
     assert r.status_code == 200, r.get_data()[:300]
     dane = r.get_json()
     assert (dane['changed'], dane['route_completed']) == (True, False)
-    assert [s['order_id'] for s in dane['route']['stops']] == [b.id]
-    # Ruling 26: powtórka z nowym X-Operation-Id (kolejka offline) po udanym zdjęciu — 200 bez zmian, nie 404.
-    r = client.post(adres, headers=naglowki(device, k), json={'reason': 'brak_klienta'})
+    # U10 (Ruling 32): niedostarczone zostaje na trasie do jej końca.
+    assert [s['order_id'] for s in dane['route']['stops']] == [a.id, b.id]
+    # Ruling 26 i 32: powtórka z nowym X-Operation-Id (kolejka offline) z tym samym powodem — 200 bez zmian.
+    r = client.post(adres, headers=naglowki(device, k), json={'reason': 'brak_klienta', 'note': u'nie odbiera'})
     assert r.status_code == 200, r.get_data()[:300]
     powtorka = r.get_json()
     assert (powtorka['changed'], powtorka['route_completed']) == (False, False) and powtorka['message']
-    assert [s['order_id'] for s in powtorka['route']['stops']] == [b.id]
+    assert [s['order_id'] for s in powtorka['route']['stops']] == [a.id, b.id]
     assert LogisticsLog.query.filter_by(order_id=a.id, action='niedostarczone').count() == 1
     # Zamówienie, którego na tej trasie nigdy nie było — dalej 404 stop_not_found.
     obce = zamowienie_z_paczkami(statusy=('zaladowane',))[0].id
@@ -491,7 +492,8 @@ def test_przeplyw_kierowcy_z_powtorkami(app, client, monkeypatch):
     assert dane['route']['stops'][0]['delivered_at'] is None
     assert wywolania[-1] == ([oid], True)
 
-    # Ruling 26: „Niedostarczone” zdejmuje ostatni przystanek (trasa zakończona); powtórka z nowym id — bez zmian.
+    # Ruling 26 i 32: „Niedostarczone” na ostatnim przystanku zamyka trasę, a zamknięcie zdejmuje go do puli;
+    # powtórka z nowym id — bez zmian.
     dane, powtorka = krok('post', '/routes/%d/stops/%d/not-delivered' % (rid, oid), 'e2e-not-delivered',
                           json={'reason': 'odmowa'})
     assert (dane['changed'], dane['route_completed'], dane['route']['status']) == (True, True, 'wykonana')
@@ -506,7 +508,9 @@ def test_przeplyw_kierowcy_z_powtorkami(app, client, monkeypatch):
     akcje = [w.action for w in LogisticsLog.query.filter_by(order_id=oid).order_by(LogisticsLog.id)]
     for akcja in ('zaladunek', 'wyjazd', 'dostarczone', 'dostarczenie_cofniete', 'niedostarczone'):
         assert akcje.count(akcja) == 1, (akcja, akcje)
-    assert akcje[-1] == 'niedostarczone'          # ostatni wpis — po nim rozpoznajemy powtórkę (Ruling 26)
+    # Zamknięcie dopisuje po niedostarczeniu zdjęcie z trasy — powtórkę rozpoznajemy po ostatnim wpisie rozliczenia
+    # (dostawa.AKCJE_ROZLICZENIA), nie po ostatnim wpisie w ogóle (Ruling 32).
+    assert akcje[-2:] == ['niedostarczone', 'trasa_usuniete']
 
 
 def test_zapisy_przez_api_decyduja_i_odpowiadaja_na_zablokowanych_obiektach(app, client, monkeypatch):

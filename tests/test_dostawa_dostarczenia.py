@@ -106,13 +106,19 @@ def test_dostarczenie_wymaga_trasy_w_drodze(app):
 # --- „Niedostarczone” ------------------------------------------------------------------------------------
 
 def test_niedostarczenie_wraca_zamowienie_do_puli(app):
+    """U10 (Ruling 32): niedostarczone zostaje na trasie do jej końca — do puli wraca przy zamknięciu trasy (tu:
+    ostatnim dostarczeniem; `trasa_usuniete` ma pracownika i telefon zamykającego). Szczegóły:
+    test_dostawa_niedostarczone_na_trasie."""
     a, b = _zaladowane(), _zaladowane()
     t = _w_trasie(a, b)
     order, lista_paczek = a
     trasa_po, zmieniono, zamknieta = dostawa.nie_dostarcz(t, order.id, 'brak_klienta', u' nikt  nie otworzył ',
                                                           worker_id=7, device_id=3, teraz=T1)
     db.session.commit()
-    assert (zmieniono, zamknieta) == (True, False) and [st.order_id for st in trasa_po.stops] == [b[0].id]
+    assert (zmieniono, zamknieta) == (True, False) and [st.order_id for st in trasa_po.stops] == [order.id, b[0].id]
+    trasa_po, _zmieniono, zamknieta = dostawa.dostarcz(t, b[0].id, worker_id=7, device_id=3, teraz=T2)
+    db.session.commit()
+    assert zamknieta is True and [st.order_id for st in trasa_po.stops] == [b[0].id]
     assert [p.current_status for p in order.products] == ['zweryfikowane', 'zweryfikowane']
     assert all(p.loaded_at is None and p.loaded_route_id is None for p in lista_paczek)
     assert order.bl_status_pending_id == 417343 and order.logistics_closed_at is None
@@ -498,9 +504,9 @@ def test_powtorka_niedostarczenia_rozpoznana_odczytem_biezacym(app):
     blokadami tras i zamówień trasy. Zwykły SELECT na MySQL widziałby migawkę sprzed czekania na blokady — w wyścigu
     z „Odhacz” albo drugim telefonem (albo przy zdublowanym X-Operation-Id) kierowca dostawał 404 zamiast 200 bez
     zmian. SQLite nie ma migawki, więc pilnujemy rodzaju odczytu."""
-    a, b = _zaladowane(), _zaladowane()
-    t = _w_trasie(a, b)
-    dostawa.nie_dostarcz(t, a[0].id, 'odmowa', worker_id=7, teraz=T1)
+    a = _zaladowane()
+    t = _w_trasie(a)
+    dostawa.nie_dostarcz(t, a[0].id, 'odmowa', worker_id=7, teraz=T1)   # U10: zamyka trasę, zamówienie → pula
     db.session.commit()
     with Zapytania() as z:
         _trasa_po, zmieniono, _zamknieta = dostawa.nie_dostarcz(t, a[0].id, 'brak_klienta', worker_id=8, teraz=T2)
@@ -606,6 +612,9 @@ def test_niedostarczenie_z_trasy_w_drodze_planowana_trasa_bez_wzgledu_na_pozycje
     t = _w_trasie(a, b)
     dostawa.nie_dostarcz(t, a[0].id, 'odmowa', worker_id=7, teraz=T1)
     db.session.commit()
+    assert a[0].bl_status_pending_id is None              # U10: Base. dopiero przy zejściu do puli (zamknięcie trasy)
+    dostawa.dostarcz(t, b[0].id, worker_id=7, teraz=T2)
+    db.session.commit()
     assert [p.current_status for p in a[0].products] == ['spakowane', 'spakowane']
     assert a[0].bl_status_pending_id == 417343
 
@@ -646,9 +655,9 @@ def test_spoznione_dostarczone_po_odznaczeniu_w_panelu_ma_jasny_komunikat(app):
     # Zamówienie, którego na trasie nie było, i niedostarczenie z telefonu — dawny komunikat.
     e = _blad(dostawa.dostarcz, t, zamowienie_z_paczkami(statusy=('zaladowane',))[0].id, worker_id=7)
     assert (e.kod, e.status) == ('stop_not_found', 404) and e.komunikat.startswith(u'Tego zamówienia nie ma na trasie')
+    # U10: niedostarczone z telefonu zostaje na trasie w drodze — spóźnione „Dostarczone” po prostu je dostarcza.
     c, d = _zaladowane(), _zaladowane()
     druga = _w_trasie(c, d)
     dostawa.nie_dostarcz(druga, c[0].id, 'odmowa', worker_id=7, teraz=T1)
     db.session.commit()
-    e = _blad(dostawa.dostarcz, druga, c[0].id, worker_id=7)
-    assert e.komunikat.startswith(u'Tego zamówienia nie ma na trasie')
+    assert dostawa.dostarcz(druga, c[0].id, worker_id=7, teraz=T2)[1] is True
