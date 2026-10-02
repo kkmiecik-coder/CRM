@@ -901,3 +901,13 @@ def test_api_historia_w_odpowiedzi_zapisu_odczytem_biezacym(app, client):
         client.get(API + '/routes/%d' % t.id, headers=naglowki(device, k))
     odczyty = odczyty_historii(z)
     assert odczyty and not any(sql.endswith(' LOCK IN SHARE MODE') for sql in odczyty), odczyty
+
+
+def test_api_ostatnie_dostarczenie_bez_niedostarczonych_ma_krotki_komunikat(app, client):
+    """Dopisek o puli tylko wtedy, gdy na trasie były niedostarczone (U10)."""
+    device, k = telefon_kierowcy()
+    t, (a,) = _w_drodze_kierowcy(k, ile=1)
+    r = client.post(API + '/routes/%d/stops/%d/delivered' % (t.id, a.id), headers=naglowki(device, k))
+    dane = r.get_json()
+    assert dane['route_completed'] is True
+    assert dane['message'] == u'Dostarczono zamówienie {}. Trasa zakończona.'.format(a.internal_order_number)

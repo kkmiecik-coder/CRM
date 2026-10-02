@@ -330,11 +330,14 @@ def delivery_stop_delivered(route_id, order_id):
     """POST …/stops/<order_id>/delivered — „Dostarczone” (spec 9.5)."""
     def akcja(trasa, kierowca):
         numer = _numer(order_id)
+        # Tylko do wyboru tekstu: czy na trasie były niedostarczone (odczyt przed blokadami — po zamknięciu przystanków
+        # już nie ma, a decyzja i tak zapada w serwisie na odczycie bieżącym).
+        byly_niedostarczone = any(s.not_delivered_at is not None for s in trasa.stops)
         _t, zmieniono, zamknieta = dostawa.dostarcz(trasa, order_id, worker_id=kierowca.id, device_id=g.device.id)
         komunikat = (u'Dostarczono zamówienie {}.' if zmieniono
                      else u'Zamówienie {} było już dostarczone.').format(numer)
         if zamknieta:
-            komunikat += TRASA_ZAKONCZONA
+            komunikat += TRASA_ZAKONCZONA if byly_niedostarczone else u' Trasa zakończona.'
         return komunikat, {'changed': zmieniono, 'route_completed': zamknieta}
     return _zapis(route_id, akcja)
 
