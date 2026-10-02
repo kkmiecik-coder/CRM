@@ -231,8 +231,8 @@
                data-carto-key="{{ carto_basemaps_key }}"
                data-skrypt-leaflet="{{ url_for('production.static', filename='vendor/leaflet/leaflet.js') }}?v=1.9.4"
                data-skrypt-klastry="{{ url_for('production.static', filename='vendor/leaflet-markercluster/leaflet.markercluster.js') }}?v=1.5.3"
-               data-skrypt-mapy="{{ url_for('logistics_panel.static', filename='js/logistics-map.js') }}?v=20261001f"
-               data-skrypt-trasy="{{ url_for('logistics_panel.static', filename='js/logistics-routes.js') }}?v=20261001g"></div>
+               data-skrypt-mapy="{{ url_for('logistics_panel.static', filename='js/logistics-map.js') }}?v=20261002a"
+               data-skrypt-trasy="{{ url_for('logistics_panel.static', filename='js/logistics-routes.js') }}?v=20261002a"></div>
           {# Pasek trybu (korekta, ustawianie punktu) i wyniku akcji na mapie. #}
           <div class="lg-mapa-pasek" data-lg-mapa="pasek" role="status" aria-live="polite" hidden></div>
           <div class="lg-mapa-stan is-ladowanie" data-lg-mapa="stan" role="status">Ładowanie mapy…</div>
@@ -636,7 +636,7 @@
   <dialog class="lg-dialog lg-dialog--trasy" data-lg="trasa-wykonaj-dialog" aria-labelledby="lg-trasa-wykonaj-tytul">
     <form class="lg-dialog-form" data-lg-trasy="wykonaj-form" novalidate>
       <h2 class="lg-dialog-tytul" id="lg-trasa-wykonaj-tytul">Odhacz jako wykonaną <span class="lg-dialog-numer" data-lg-trasy="wykonaj-nazwa"></span></h2>
-      <p class="lg-dialog-opis">Zaznaczone zamówienia oznaczymy jako dostarczone (Base. dostanie status „Dostarczona - trans. WoodPower”), odznaczone zdejmiemy z trasy i wrócą do puli bez trasy. Dostarczone mogą być tylko zamówienia spakowane w całości. Przystanki już dostarczone zostają dostarczone.</p>
+      <p class="lg-dialog-opis">Zaznaczone zamówienia oznaczymy jako dostarczone (Base. dostanie status „Dostarczona - trans. WoodPower”), odznaczone zdejmiemy z trasy i wrócą do puli bez trasy (jeśli były już załadowane, Base. dostanie dla nich status „Planowana trasa”). Dostarczone mogą być tylko zamówienia spakowane w całości. Przystanki już dostarczone zostają dostarczone.</p>
       <ul class="lg-wykonaj-lista" data-lg-trasy="wykonaj-lista" aria-label="Przystanki trasy"></ul>
       <p class="lg-wykonaj-ile" data-lg-trasy="wykonaj-ile" aria-live="polite"></p>
       <p class="lg-dialog-blad" data-lg-trasy="wykonaj-blad" role="alert" hidden></p>
@@ -759,6 +759,6 @@
         });
 })();
 </script>
-<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20261001g"></script>
-<script src="{{ url_for('logistics_panel.static', filename='js/logistics-fleet.js') }}?v=20260928b"></script>
+<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20261002a"></script>
+<script src="{{ url_for('logistics_panel.static', filename='js/logistics-fleet.js') }}?v=20261002a"></script>
 <script src="{{ url_for('logistics_panel.static', filename='js/logistics-wojewodztwa.js') }}?v=20260928a"></script>

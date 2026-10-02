@@ -85,6 +85,8 @@
     const DNI_WYKONANYCH = 30;          // domyślne okno wykonanych, jak DNI_WYKONANYCH_DOMYSLNIE w API
     const ZWLOKA_DOSTEPNOSCI_MS = 250;
     const DEBOUNCE_SZUKAJ_MS = 300;
+    // „Cofnij do roboczej”: tyle czekamy na świeży odczyt trasy, zanim ostrzeżenie policzymy z danych edytora.
+    const LIMIT_ODCZYTU_MS = 10000;
     // Jak WAGA_KG_NA_M3 w services/routes.py — tylko podgląd w oknie „Dodaj do trasy…”;
     // wagę trasy zawsze liczy serwer (podsumowanie).
     const WAGA_KG_NA_M3 = 800;
@@ -1714,33 +1716,43 @@
         return '';
     }
 
-    let cofniecieSprawdzane = false;   // dwuklik „Cofnij do roboczej” nie pyta dwa razy, gdy czeka odczyt trasy
-
     /**
      * „Cofnij do roboczej” (Ruling 27): kierowca mógł zacząć skanować po otwarciu edytora, więc przed pytaniem
-     * czytamy trasę od nowa (GET /routes/<id>) i z niej liczymy ostrzeżenie. Gdy odczyt się nie uda, liczymy
-     * z tego, co jest w edytorze. Trasa, która przestała być zatwierdzona (kierowca skończył załadunek), nie
-     * dostaje pytania — odświeżamy edytor i mówimy dlaczego.
+     * czytamy trasę od nowa (GET /routes/<id>) i z niej liczymy ostrzeżenie. Na czas odczytu przyciski tej trasy
+     * czekają (stan.wToku, jak przy zapisie — to też chroni przed dwuklikiem) i czytnik ekranu słyszy, co się
+     * dzieje. Odczyt ma limit czasu (LIMIT_ODCZYTU_MS); gdy się nie uda albo nie zdąży, liczymy ostrzeżenie
+     * z tego, co jest w edytorze (serwer i tak odmówi, jeśli trasa jest już inna). Trasa, która przestała być
+     * zatwierdzona (kierowca skończył załadunek), nie dostaje pytania — przyjmujemy trasę, którą właśnie
+     * odczytaliśmy (bez drugiego GET), i mówimy dlaczego.
      */
     async function zapytajOCofniecieZatwierdzenia(t) {
-        if (cofniecieSprawdzane) return;
-        cofniecieSprawdzane = true;
+        const klucz = String(t.id);
+        if (zniszczona || stan.wToku.has(klucz)) return;
+        const start = licznikZmian;
+        const kontroler = new AbortController();
+        const limit = setTimeout(() => kontroler.abort(), LIMIT_ODCZYTU_MS);
         let biezaca = t;
+        stan.wToku.add(klucz);
+        odswiezAkcje();
+        oglos('Sprawdzamy stan trasy…');
         try {
-            const dane = await zapytanie('/routes/' + t.id);
+            const dane = await zapytanie('/routes/' + t.id, { signal: kontroler.signal });
             if (dane && dane.route) biezaca = dane.route;
         } catch (e) {
-            if (przerwane(e)) return;
-            // Bez odczytu: ostrzeżenie z danych edytora.
+            // Bez odczytu (błąd sieci albo limit czasu): ostrzeżenie z danych edytora.
         } finally {
-            cofniecieSprawdzane = false;
+            clearTimeout(limit);
+            stan.wToku.delete(klucz);
+            if (!zniszczona) odswiezAkcje();
         }
         if (zniszczona || !stan.otwarta || stan.nowa || stan.otwarta.id !== t.id) return;
         if (biezaca.status !== 'zatwierdzona') {
+            const odswiezona = przyjmijSwiezyOdczyt(biezaca, start);
             komunikat('info', 'Trasa „' + biezaca.nazwa + '” ma już status „' +
-                (NAZWY_STATUSOW[biezaca.status] || biezaca.status) + '” — cofnięcie zatwierdzenia nie jest dostępne. Odświeżyliśmy trasę.',
+                (NAZWY_STATUSOW[biezaca.status] || biezaca.status) + '” — cofnięcie zatwierdzenia nie jest dostępne.' +
+                (odswiezona ? ' Odświeżyliśmy trasę.' : '') +
+                (biezaca.status === 'zaladowana' ? ' Użyj „Cofnij załadunek”.' : ''),
                 { klucz: 'trasa' });
-            odswiezOtwarta();
             return;
         }
         const ostrzezenie = opisZaladunkuTrasy(biezaca);
@@ -1760,7 +1772,15 @@
             { metoda: 'POST', dane: {} });
         if (zniszczona) return;
         przyjmijOdpowiedz(ctx, odp.route, { formularz: true, zmiana: true });
-        komunikat('info', 'Cofnięto dostarczenie. Trasa „' + odp.route.nazwa + '” jest znów w drodze.', { klucz: 'trasa' });
+        // Komunikat nazywa zamówienie (kilka cofnięć pod rząd nadpisuje klucz 'trasa'), a o trasie mówi tylko wtedy,
+        // gdy naprawdę wróciła z „Wykonana” do „W trasie” — przy trasie już w drodze cofnięto jeden przystanek.
+        const przystanek = (t.przystanki || []).find((p) => p.zamowienie && p.zamowienie.id === Number(orderId));
+        const numer = przystanek ? przystanek.zamowienie.numer : '';
+        const cofnieto = 'Cofnięto dostarczenie' + (numer ? ' zamówienia ' + numer : '') + '. ';
+        const trasaWrocila = t.status === 'wykonana' && odp.route.status !== 'wykonana';
+        komunikat('info', cofnieto + (trasaWrocila
+            ? 'Trasa „' + odp.route.nazwa + '” znów jest w drodze.'
+            : 'Zamówienie znów jest do dostarczenia.'), { klucz: 'trasa' });
         fokusNaTytul(ctx);
     }
 
@@ -3305,7 +3325,7 @@
     /**
      * Przyciski i pola okna: odhaczenie czeka na świeżą listę i na zapis; trasy, która nie jest
      * już do odhaczenia (wykonana) albo nie ma przystanków, odhaczyć się nie da. Pola
-     * niespakowanych, anulowanych i dostarczonych przez kierowcę zostają nieaktywne także po nieudanym zapisie.
+     * niespakowanych, anulowanych i już dostarczonych zostają nieaktywne także po nieudanym zapisie.
      */
     function odswiezPrzyciskiWykonania() {
         const w = wykonywanie;
@@ -3834,19 +3854,30 @@
         znacznikiMapki.forEach((m) => { if (m.isTooltipOpen()) m.closeTooltip(); });
     }
 
+    /**
+     * Świeżo odczytana trasa (GET /routes/<id>) → otwarty edytor. Zwraca, czy ją przyjęła. Nie robi nic, gdy edytor
+     * jest już przy innej trasie, trasa ma zmianę w drodze albo niezapisaną kolejność, ani (oględziny m3) gdy trasa
+     * zmieniła się u nas po wysłaniu odczytu (start = licznikZmian z chwili wysłania; odpowiedź mutacji jest
+     * świeższa) — starszy odczyt jej nie cofa.
+     */
+    function przyjmijSwiezyOdczyt(route, start) {
+        if (zniszczona || !route || !stan.otwarta || stan.nowa || stan.otwarta.id !== route.id || akcjaTrwa() || stan.kolejnosc) {
+            return false;
+        }
+        const lokalna = lokalneZmiany.get(route.id);
+        if (lokalna && lokalna.wersja > start) return false;
+        przyjmijTrase(route);
+        if (edytowalnaTrasa()) wczytajKandydatow();
+        return true;
+    }
+
     async function odswiezOtwarta() {
         const t = stan.otwarta;
         if (!t || stan.nowa || zniszczona) return;
         const start = licznikZmian;
         try {
             const dane = await zapytanie('/routes/' + t.id);
-            if (zniszczona || !stan.otwarta || stan.nowa || stan.otwarta.id !== t.id || akcjaTrwa() || stan.kolejnosc) return;
-            // (oględziny m3) Trasa zmieniła się u nas po wysłaniu tego odczytu (odpowiedź
-            // mutacji jest świeższa) — starszy odczyt jej nie cofa.
-            const lokalna = lokalneZmiany.get(t.id);
-            if (lokalna && lokalna.wersja > start) return;
-            przyjmijTrase(dane.route);
-            if (edytowalnaTrasa()) wczytajKandydatow();
+            przyjmijSwiezyOdczyt(dane.route, start);
         } catch (e) {
             if (zniszczona || !stan.otwarta || stan.otwarta.id !== t.id) return;
             if (e.status === 404) {

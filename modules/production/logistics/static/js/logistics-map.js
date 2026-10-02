@@ -394,7 +394,10 @@
         if (z.etap && z.etap.status === 'anulowane') return 'Zamówienie anulowane.';
         // Krok 4.4: towar na trasie (załadowany, w drodze) albo dostarczony — jak select w wierszu listy.
         if (z.etap && ['zaladowane', 'w_trasie', 'dostarczone'].includes(z.etap.status)) {
-            return 'Towar jest już załadowany na trasę albo dostarczony. Sposobu dostawy nie można zmienić.';
+            // Trasa załadowana ma wyjście („Cofnij załadunek”), trasa w drodze i dostarczenie nie — jak select w wierszu.
+            return z.etap.status === 'zaladowane'
+                ? 'Towar jest już załadowany na trasę. Żeby zmienić sposób dostawy, najpierw użyj „Cofnij załadunek” w zakładce Trasy.'
+                : 'Towar jest już załadowany na trasę albo dostarczony. Sposobu dostawy nie można zmienić.';
         }
         if (zapisywaneSposoby.has(z.id)) return 'Zapisywanie…';
         // (D1) Zapis z wiersza, hurtu albo „Wydane klientowi” — wyboru z dymku lista teraz nie wyśle.

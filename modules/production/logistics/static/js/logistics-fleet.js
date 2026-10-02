@@ -12,7 +12,8 @@
  *   POST {API}/vehicles                 {name, registration, capacity_kg} → {vehicle}
  *   PUT  {API}/vehicles/<id>            jw. — zmiana
  *   POST {API}/vehicles/<id>/active     {active: true | false}
- *   GET    {API}/drivers                kierowcy (aktywni ze znacznikiem) z nazwami tras roboczych/zatwierdzonych
+ *   GET    {API}/drivers                kierowcy (aktywni ze znacznikiem) z nazwami tras aktywnych (robocza,
+ *                                        zatwierdzona, załadowana, w trasie)
  *   GET    {API}/drivers/candidates     aktywni pracownicy bez znacznika — okno „Dodaj kierowcę”
  *   POST   {API}/drivers                {worker_id} → {driver, drivers}
  *   DELETE {API}/drivers/<id>           zdjęcie znacznika → {driver, drivers} (na swoich trasach zostaje)

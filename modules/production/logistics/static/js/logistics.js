@@ -120,6 +120,12 @@
     // odmawia 409), więc select jest zablokowany, a okno przepakowania (spec 8.7) takich zamówień nie dotyczy.
     const ETAPY_PO_ZALADUNKU = ['zaladowane', 'w_trasie', 'dostarczone'];
     const poZaladunku = (w) => !!(w && w.etap && ETAPY_PO_ZALADUNKU.includes(w.etap.status));
+    // Powód zablokowanego selecta po załadunku. Etap „załadowane” = trasa załadowana, a z niej logistyk może wyjść
+    // sam („Cofnij załadunek” w panelu tras, delivery.py) — mówimy to; trasa w drodze i dostarczenie takiego wyjścia
+    // nie mają. Ten sam tekst stoi w dymku mapy (logistics-map.js, powodBlokadySposobu).
+    const powodPoZaladunku = (w) => (w && w.etap && w.etap.status === 'zaladowane'
+        ? 'Towar jest już załadowany na trasę. Żeby zmienić sposób dostawy, najpierw użyj „Cofnij załadunek” w zakładce Trasy.'
+        : 'Towar jest już załadowany na trasę albo dostarczony. Sposobu dostawy nie można zmienić.');
     // Ptaszek przy etapie: spakowane i dalej, w tym „W trasie” (etap zamówienia, którego nie ma wśród statusów pozycji).
     const maPtaszekEtapu = (status) => STATUSY_PO_SPAKOWANIU.includes(status) || status === 'w_trasie';
     // Krok 4.3 (spec 11): filtry Weryfikacji (serwer, parametr `stan`) — treść pustej listy.
@@ -975,7 +981,7 @@
         let powod = '';
         if (w.wydane) powod = 'Zamówienie wydane klientowi. Sposobu dostawy nie można już zmienić.';
         else if (anulowane) powod = 'Zamówienie anulowane.';
-        else if (poZaladunku(w)) powod = 'Towar jest już załadowany na trasę albo dostarczony. Sposobu dostawy nie można zmienić.';
+        else if (poZaladunku(w)) powod = powodPoZaladunku(w);
         else if (stan.wysylane.has(w.id)) powod = 'Zapisywanie…';
 
         const metoda = w.metoda_z_base

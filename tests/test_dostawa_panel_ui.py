@@ -124,11 +124,11 @@ def test_cofniecie_zatwierdzenia_pyta_o_swieza_trase_i_ostrzega_o_zostaje():
     galaz = js[js.index("case 'cofnij':"):js.index("case 'cofnij-zaladunek':")]
     assert 'zapytajOCofniecieZatwierdzenia(t)' in galaz and 'window.confirm' not in galaz
     pytanie = _funkcja(js, 'zapytajOCofniecieZatwierdzenia')
-    assert "zapytanie('/routes/' + t.id)" in pytanie            # świeża trasa przed liczeniem
-    assert pytanie.index("zapytanie('/routes/' + t.id)") < pytanie.index('opisZaladunkuTrasy(biezaca)')
+    assert "zapytanie('/routes/' + t.id" in pytanie             # świeża trasa przed liczeniem
+    assert pytanie.index("zapytanie('/routes/' + t.id") < pytanie.index('opisZaladunkuTrasy(biezaca)')
     assert 'let biezaca = t;' in pytanie and 'catch (e)' in pytanie   # bez odczytu liczymy z edytora
     assert "biezaca.status !== 'zatwierdzona'" in pytanie       # kierowca skończył załadunek: bez pytania
-    assert 'cofniecieSprawdzane' in pytanie                     # dwuklik nie pyta dwa razy
+    assert 'stan.wToku.has(klucz)' in pytanie                   # dwuklik nie pyta dwa razy (trasa „w toku”)
     opis = _funkcja(js, 'opisZaladunkuTrasy')
     assert u'wyczyści załadunek i decyzje „Zostaje” — kierowca zeskanuje paczki ponownie.' in opis
     assert 'dostawa.zostaje' in opis                            # same decyzje „Zostaje” też ostrzegają
@@ -159,3 +159,92 @@ def test_okno_przepakowania_liczy_niespakowane_osobno_od_zaladowanych():
     for forma in (u"'zamówienie jest już załadowane lub dostarczone'", u"'zamówienia są już załadowane lub dostarczone'",
                   u"'zamówień jest już załadowanych lub dostarczonych'", u"' — sposobu dostawy nie zmienimy.'"):
         assert forma in js, forma
+
+
+
+# ── Poprawki po przeglądzie całej gałęzi (krok 4.4b, front) ──────────────────────────────────────────────
+
+def test_cofnij_do_roboczej_czeka_na_odczyt_z_limitem_czasu():
+    js = _plik('static', 'js', 'logistics-routes.js')
+    assert 'const LIMIT_ODCZYTU_MS = 10000;' in js
+    assert 'cofniecieSprawdzane' not in js                      # zastąpiona wspólnym znacznikiem „w toku”
+    pytanie = _funkcja(js, 'zapytajOCofniecieZatwierdzenia')
+    odczyt = pytanie.index("zapytanie('/routes/' + t.id")
+    # Na czas odczytu przyciski trasy czekają (jak przy zapisie), a czytnik ekranu dostaje komunikat.
+    assert pytanie.index('stan.wToku.add(klucz)') < pytanie.index('odswiezAkcje()') < pytanie.index('oglos(') < odczyt
+    assert 'Sprawdzamy stan trasy' in pytanie
+    # Znacznik schodzi PRZED pytaniem — „tak” w oknie nie może trafić w blokadę własnej mutacji.
+    assert pytanie.index('stan.wToku.delete(klucz)') < pytanie.index('window.confirm')
+    # Limit czasu: odczyt idzie z sygnałem, zegar jest zdejmowany, a po przerwaniu liczymy z danych edytora.
+    assert 'new AbortController()' in pytanie and 'signal: kontroler.signal' in pytanie
+    assert 'setTimeout(() => kontroler.abort(), LIMIT_ODCZYTU_MS)' in pytanie and 'clearTimeout(limit)' in pytanie
+    assert 'przerwane(e)' not in pytanie                        # przerwanie limitem to nie wyjście z funkcji
+
+
+def test_cofnij_do_roboczej_po_zmianie_statusu_nie_pyta_serwera_drugi_raz():
+    js = _plik('static', 'js', 'logistics-routes.js')
+    pytanie = _funkcja(js, 'zapytajOCofniecieZatwierdzenia')
+    galaz = pytanie[pytanie.index("biezaca.status !== 'zatwierdzona'"):pytanie.index('opisZaladunkuTrasy(biezaca)')]
+    assert 'odswiezOtwarta' not in pytanie                      # bez drugiego GET — trasa jest już w ręku
+    assert 'przyjmijSwiezyOdczyt(biezaca, start)' in galaz and 'const start = licznikZmian;' in pytanie
+    # Wskazówka tylko dla trasy załadowanej: wyjście to „Cofnij załadunek”.
+    assert re.search(u"biezaca\\.status === 'zaladowana' \\? ' Użyj „Cofnij załadunek”\\.'", galaz)
+    # Odczyt przyjmowany tak samo jak w odswiezOtwarta: nie cofa nowszej zmiany u nas, nie rusza trasy w toku.
+    przyjecie = _funkcja(js, 'przyjmijSwiezyOdczyt')
+    assert 'akcjaTrwa()' in przyjecie and 'lokalna.wersja > start' in przyjecie and 'przyjmijTrase(route)' in przyjecie
+    assert 'przyjmijSwiezyOdczyt(dane.route, start)' in _funkcja(js, 'odswiezOtwarta')
+
+
+def test_cofnij_dostarczenie_nazywa_zamowienie_i_trase_tylko_gdy_wrocila():
+    dostawa = _funkcja(_plik('static', 'js', 'logistics-routes.js'), 'cofnijDostarczenie')
+    assert u"'Cofnięto dostarczenie'" in dostawa and 'zamowienie.numer' in dostawa     # komunikat podaje numer
+    assert u'jest znów w drodze' not in dostawa                 # stary tekst mówił to zawsze
+    # „Znów w drodze” tylko, gdy trasa była wykonana, a po cofnięciu już nie jest; inaczej zdanie neutralne.
+    assert "t.status === 'wykonana' && odp.route.status !== 'wykonana'" in dostawa
+    assert dostawa.index("t.status === 'wykonana'") < dostawa.index(u'znów jest w drodze')
+    assert u'Zamówienie znów jest do dostarczenia.' in dostawa
+    assert 'esc(' not in dostawa                                # komunikat idzie jako tekst, nie HTML
+
+
+def test_komentarz_odhaczenia_nie_mowi_o_kierowcy():
+    js = _plik('static', 'js', 'logistics-routes.js')
+    assert u'dostarczonych przez kierowc' not in js
+    assert u'anulowanych i już dostarczonych zostają nieaktywne' in js
+
+
+def test_opis_okna_odhacz_mowi_o_planowanej_trasie_dla_odznaczonych():
+    html = _plik('templates', 'logistics', 'tab_content.html')
+    okno = html[html.index('data-lg="trasa-wykonaj-dialog"'):]
+    okno = okno[:okno.index('</dialog>')]
+    opis = okno[okno.index('lg-dialog-opis'):]
+    opis = opis[:opis.index('</p>')]
+    assert u'odznaczone zdejmiemy z trasy' in opis
+    # Odznaczone, które były już załadowane, dostają w Base. status „Planowana trasa” (Ruling 25).
+    assert u'były już załadowane' in opis and u'Base. dostanie dla nich status „Planowana trasa”' in opis
+    assert opis.index(u'odznaczone zdejmiemy') < opis.index(u'Planowana trasa') < opis.index(u'Dostarczone mogą być')
+    assert u'BaseLinker' not in opis and u'kierowc' not in opis
+
+
+def test_zablokowany_select_po_zaladunku_wskazuje_cofniecie_zaladunku():
+    lista = _plik('static', 'js', 'logistics.js')
+    mapa = _funkcja(_plik('static', 'js', 'logistics-map.js'), 'powodBlokadySposobu')
+    ogolny = u'Towar jest już załadowany na trasę albo dostarczony. Sposobu dostawy nie można zmienić.'
+    droga = u'najpierw użyj „Cofnij załadunek” w zakładce Trasy'
+    # Select w wierszu listy: powód z jednego pomocnika, wyjście tylko dla etapu „załadowane” (trasa załadowana).
+    pomocnik = lista[lista.index('const powodPoZaladunku ='):]
+    pomocnik = pomocnik[:pomocnik.index(');\n')]
+    assert "w.etap.status === 'zaladowane'" in pomocnik and droga in pomocnik and ogolny in pomocnik
+    assert pomocnik.index(droga) < pomocnik.index(ogolny)
+    assert 'powod = powodPoZaladunku(w);' in lista
+    # Dymek mapy: ten sam podział (trasa w drodze i dostarczenie zostają przy tekście ogólnym).
+    assert "z.etap.status === 'zaladowane'" in mapa and droga in mapa and ogolny in mapa
+    assert mapa.index(droga) < mapa.index(ogolny)
+
+
+def test_wersje_plikow_podbite_po_poprawkach_frontu_4_4b():
+    html = _plik('templates', 'logistics', 'tab_content.html')
+    for plik, stara in (('js/logistics-routes.js', '20261001g'), ('js/logistics.js', '20261001g'),
+                        ('js/logistics-map.js', '20261001f'), ('js/logistics-fleet.js', '20260928b')):
+        m = re.search(r"filename='" + re.escape(plik) + r"'\) \}\}\?v=(\w+)", html)
+        assert m, plik
+        assert m.group(1) > stara, plik
