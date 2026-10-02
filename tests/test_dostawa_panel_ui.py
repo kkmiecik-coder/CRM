@@ -403,3 +403,25 @@ def test_wersje_po_oknie_odhacz_jako_dostarczona():
     for plik, stara in (('js/logistics-routes.js', '20261002c'), ('css/logistics-trasy.css', '20261002d')):
         m = re.search(r"filename='" + re.escape(plik) + r"'\) \}\}\?v=(\w+)", html)
         assert m and m.group(1) > stara, plik
+
+
+# --- Oględziny 2.10 (Konrad), U8: „Cofnięto dostawę …” przy przystanku -----------------------------------------
+
+def test_przystanek_pokazuje_cofniecie_dostawy_do_ponownego_dostarczenia():
+    """U8: pasek Dostawy przy przystanku pokazuje „Cofnięto dostawę <czas>” (czas jak „Dostarczono”, przez esc),
+    dopóki przystanek nie jest znów dostarczony; pole `cofnieto` daje serwer (trasy_api._dostawa_przystanku)."""
+    js = _plik('static', 'js', 'logistics-routes.js')
+    pasek = _funkcja(js, 'dostawaPrzystankuHtml')
+    assert 'if (!d.dostarczono && d.cofnieto) {' in pasek
+    assert u"'Cofnięto dostawę ' + esc(czasDostarczenia(d.cofnieto))" in pasek
+    assert '<span class="lg-przystanek-cofnieto"><i class="fas fa-rotate-left" aria-hidden="true"></i>' in pasek
+    assert pasek.index("if (status === 'robocza') return '';") < pasek.index('d.cofnieto')
+    css = _plik('static', 'css', 'logistics-trasy.css')
+    regula = css[css.index('.logistics-tab .lg-przystanek-cofnieto {'):]
+    regula = regula[:regula.index('}')]
+    assert 'color: var(--lg-kolejka-tekst, #9a4a05)' in regula
+    assert _kontrast('#9a4a05', '#ffffff') >= 4.5
+    html = _plik('templates', 'logistics', 'tab_content.html')
+    for plik, stara in (('js/logistics-routes.js', '20261002d'), ('css/logistics-trasy.css', '20261002e')):
+        m = re.search(r"filename='" + re.escape(plik) + r"'\) \}\}\?v=(\w+)", html)
+        assert m and m.group(1) > stara, plik

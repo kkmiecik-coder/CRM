@@ -1750,6 +1750,24 @@
     font-size: 10px;
 }
 
+/* (U8, oględziny 2.10) „Cofnięto dostawę 2.10 11:03” — ślad po cofnięciu dostarczenia, do ponownego dostarczenia.
+   Ten sam krój co „Dostarczono”, barwa kolejki (zamówienie wróciło do rozliczenia), ponad 6:1 na bieli. */
+.logistics-tab .lg-przystanek-cofnieto {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 5px;
+    font-size: 11.5px;
+    font-weight: 600;
+    line-height: 1.5;
+    color: var(--lg-kolejka-tekst, #9a4a05);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.logistics-tab .lg-przystanek-cofnieto i {
+    font-size: 10px;
+}
+
 .logistics-tab .lg-przystanek-zostaje {
     display: inline-flex;
     align-items: baseline;

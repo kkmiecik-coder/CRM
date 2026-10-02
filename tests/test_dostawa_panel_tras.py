@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 """Panel tras po kroku 4.4 (spec 9.7): „Cofnij załadunek”, postęp „załadowano x/y · dostarczono a/b”, kiedy
 załadowano i ruszono, trasa odhaczona w panelu, dostarczenie i „Zostaje” przy przystanku."""
+from datetime import timedelta
+
 from extensions import db
+from modules.production.logistics.models import LogisticsLog
 from modules.production.logistics.services import bl_sync, dostawa, routes
 from tests.dostawa_pomocnicze import T0, trasa, zaladuj_wprost, zamowienie_z_paczkami
 from tests.logistyka_fixtures import BASE, app, client  # noqa: F401
@@ -44,8 +47,8 @@ def test_szczegoly_trasy_w_zaladunku(app, client):
     przystanki = _przystanki(dane)
     assert przystanki[zostaje.id]['dostawa'] == {
         'dostarczono': None,
-        'zostaje': {'powod': 'brak_miejsca', 'etykieta': u'Brak miejsca', 'notatka': u'za długie'}}
-    assert przystanki[pelne.id]['dostawa'] == {'dostarczono': None, 'zostaje': None}
+        'zostaje': {'powod': 'brak_miejsca', 'etykieta': u'Brak miejsca', 'notatka': u'za długie'}, 'cofnieto': None}
+    assert przystanki[pelne.id]['dostawa'] == {'dostarczono': None, 'zostaje': None, 'cofnieto': None}
     assert przystanki[czesc.id]['paczki']['zaladowane'] == 1
 
 
@@ -94,3 +97,43 @@ def test_trasa_odhaczona_w_panelu(app):
     assert routes.serializuj_trase(t)['odhaczona_w_panelu'] is True
     t.completed_by = None                      # zamknął telefon (ostatnie „Dostarczone”)
     assert routes.serializuj_trase(t)['odhaczona_w_panelu'] is False
+
+
+def test_szczegoly_trasy_pokazuja_cofniecie_dostarczenia(app, client, monkeypatch):
+    """U8 (oględziny 2.10): `zamowienie.dostawa.cofnieto` — czas ostatniego „Cofnij dostarczenie” zamówienia na TEJ
+    trasie (wpis logu `dostarczenie_cofniete`); null, gdy przystanek jest znów dostarczony; wpis z innej trasy pominięty."""
+    monkeypatch.setattr(bl_sync, 'po_zmianie', lambda ids: None)
+    a, paczki_a = zamowienie_z_paczkami(statusy=('zaladowane', 'zaladowane'))
+    b, paczki_b = zamowienie_z_paczkami(statusy=('zaladowane', 'zaladowane'))
+    t = trasa([a, b], status='w_trasie', loaded_at=T0, departed_at=T0)
+    zaladuj_wprost(paczki_a + paczki_b, t)
+    rid, ia, ib = t.id, a.id, b.id
+    dostawa.dostarcz(t, ia, worker_id=7, teraz=T0)
+    db.session.commit()
+
+    def przystanki():
+        r = client.get(BASE + '/routes/%d' % rid)
+        assert r.status_code == 200, r.get_data()[:300]
+        return _przystanki(r.get_json()['route'])
+
+    assert przystanki()[ia]['dostawa']['cofnieto'] is None            # dostarczony, nigdy niecofnięty
+    r = client.post(BASE + '/routes/%d/stops/%d/undo-delivered' % (rid, ia))
+    assert r.status_code == 200, r.get_data()[:300]
+    pierwsze = LogisticsLog.query.filter_by(order_id=ia, action='dostarczenie_cofniete').one().created_at
+    assert _przystanki(r.get_json()['route'])[ia]['dostawa']['cofnieto'] == pierwsze.isoformat()   # odpowiedź akcji też
+
+    # Znów dostarczony — ślad cofnięcia znika; drugie cofnięcie pokazuje NAJNOWSZY wpis.
+    dostawa.dostarcz(t, ia, worker_id=7, teraz=pierwsze + timedelta(minutes=10))
+    db.session.commit()
+    assert przystanki()[ia]['dostawa'] == {'dostarczono': (pierwsze + timedelta(minutes=10)).isoformat(),
+                                           'zostaje': None, 'cofnieto': None}
+    drugie = pierwsze + timedelta(minutes=20)
+    dostawa.cofnij_dostarczenie(t, ia, user_id=1, teraz=drugie)
+    db.session.commit()
+    assert przystanki()[ia]['dostawa']['cofnieto'] == drugie.isoformat()
+
+    # Wpis z innej trasy (to samo zamówienie b) nie liczy się dla tej trasy.
+    db.session.add(LogisticsLog(order_id=ib, action='dostarczenie_cofniete', old_value='dostarczone',
+                                new_value='zaladowane', route_id=rid + 1000, created_at=drugie))
+    db.session.commit()
+    assert przystanki()[ib]['dostawa']['cofnieto'] is None

@@ -13,7 +13,7 @@ import io
 from datetime import timedelta
 
 from flask import jsonify, request, send_file
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.exc import ObjectDeletedError, StaleDataError
@@ -21,7 +21,7 @@ from sqlalchemy.orm.exc import ObjectDeletedError, StaleDataError
 from extensions import db
 from modules.logging import get_structured_logger
 from modules.production.logistics import logistics_panel_bp
-from modules.production.logistics.models import Route, STATUSY_TRASY, Vehicle
+from modules.production.logistics.models import LogisticsLog, Route, STATUSY_TRASY, Vehicle
 from modules.production.logistics.routers.panel_api import LIMIT_HURTU, _blad, _user_id, _zapis_pod_blokada, guard
 from modules.production.logistics.services import (bl_sync, dostawa, fleet, geocoding, lista, paczki, routes,
                                                    routimo, routing)
@@ -198,19 +198,38 @@ def _wczytaj_trasy(zapytanie, swieze=False):
     return trasy, zamowienia_wg_trasy, punkty
 
 
-def _dostawa_przystanku(stop):
+def _cofniecia_dostarczen(route_id, order_ids):
+    """
+    (U8, oględziny 2.10) Czas ostatniego „Cofnij dostarczenie” (wpis logu `dostarczenie_cofniete`) zamówień na TEJ
+    trasie: {order_id: datetime}. Jedno zapytanie dla całej trasy (MAX po zamówieniu, indeks order_id), zwykły
+    odczyt — to tylko widok, bez blokad.
+    """
+    if not order_ids:
+        return {}
+    wiersze = db.session.query(LogisticsLog.order_id, func.max(LogisticsLog.created_at)).filter(
+        LogisticsLog.order_id.in_(order_ids),
+        LogisticsLog.route_id == route_id,
+        LogisticsLog.action == 'dostarczenie_cofniete',
+    ).group_by(LogisticsLog.order_id).all()
+    return {order_id: kiedy for order_id, kiedy in wiersze if kiedy is not None}
+
+
+def _dostawa_przystanku(stop, cofnieto=None):
     """
     Krok 4.4: dostarczenie i „Zostaje” przystanku dla edytora trasy i okna „Odhacz”. W słowniku zamówienia
     (`zamowienie.dostawa`), bo front buduje listę przystanków z samych zamówień (przystankiWidoczne).
+    (U8) `cofnieto` — kiedy ostatnio cofnięto dostarczenie na tej trasie (_cofniecia_dostarczen); przystanek znów
+    dostarczony (delivered_at) ma tu null — ślad cofnięcia widać tylko do ponownego dostarczenia.
     """
     if stop is None:
-        return {'dostarczono': None, 'zostaje': None}
+        return {'dostarczono': None, 'zostaje': None, 'cofnieto': None}
     zostaje = None
     if stop.stays_reason:
         zostaje = {'powod': stop.stays_reason,
                    'etykieta': dostawa.POWODY_ZOSTAJE.get(stop.stays_reason, stop.stays_reason),
                    'notatka': stop.stays_note}
-    return {'dostarczono': stop.delivered_at.isoformat() if stop.delivered_at else None, 'zostaje': zostaje}
+    return {'dostarczono': stop.delivered_at.isoformat() if stop.delivered_at else None, 'zostaje': zostaje,
+            'cofnieto': cofnieto.isoformat() if cofnieto and stop.delivered_at is None else None}
 
 
 def _szczegoly(route, przelicz_wykonana=False):
@@ -239,10 +258,11 @@ def _szczegoly(route, przelicz_wykonana=False):
     pakunki = paczki.aktualne_paczki_zamowien([o.id for o in zamowienia])
     dane = routes.serializuj_trase(route, zamowienia, punkty, pakunki)
     przystanki = {s.order_id: s for s in route.stops}
+    cofniecia = _cofniecia_dostarczen(route.id, [s.order_id for s in route.stops if s.delivered_at is None])
     dane['przystanki'] = []
     for o, numer, anulowane in routes.numeracja_przystankow(zamowienia):
         zamowienie = lista.serializuj(o, punkty.get(o.id), route, pakunki.get(o.id, []))
-        zamowienie['dostawa'] = _dostawa_przystanku(przystanki.get(o.id))
+        zamowienie['dostawa'] = _dostawa_przystanku(przystanki.get(o.id), cofniecia.get(o.id))
         dane['przystanki'].append({'pozycja': numer, 'anulowane': anulowane, 'zamowienie': zamowienie})
     dane['przebieg'] = routing.przebieg(route)
     return dane

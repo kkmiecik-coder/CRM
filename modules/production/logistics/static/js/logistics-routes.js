@@ -32,7 +32,7 @@
  *          /unload — „Cofnij załadunek” (trasa załadowana wraca do zatwierdzonej);
  *          /stops/<oid>/undo-delivered — „Cofnij dostarczenie” (trasa w drodze albo wykonana)
  *          Krok 4.4: trasa ma też `postep` {przystanki, zaladowane, dostarczone}, `zaladowana`,
- *          `wyjazd`, `odhaczona_w_panelu`; przystanek `zamowienie.dostawa` {dostarczono, zostaje}
+ *          `wyjazd`, `odhaczona_w_panelu`; przystanek `zamowienie.dostawa` {dostarczono, zostaje, cofnieto}
  *          i `zamowienie.paczki.zaladowane`. Dawnego „Przywróć trasę” już nie ma.
  *   GET    {API}/routes/<id>/routimo                 plik .xlsx (od zatwierdzonej wzwyż);
  *          nagłówek X-Routimo-Pominiete = ile anulowanych przystanków pominięto
@@ -2008,6 +2008,12 @@
             czesci.push('<span class="lg-przystanek-zostaje"><i class="fas fa-triangle-exclamation" aria-hidden="true"></i>' +
                 'Zostaje: ' + esc(d.zostaje.etykieta) +
                 (d.zostaje.notatka ? ' — ' + esc(d.zostaje.notatka) : '') + '</span>');
+        }
+        // (U8, oględziny 2.10) Ślad po „Cofnij dostarczenie”, dopóki przystanek nie jest znów dostarczony (serwer daje
+        // `cofnieto` null po ponownym dostarczeniu). Czas jak przy „Dostarczono”: sama godzina dziś, inaczej z datą.
+        if (!d.dostarczono && d.cofnieto) {
+            czesci.push('<span class="lg-przystanek-cofnieto"><i class="fas fa-rotate-left" aria-hidden="true"></i>' +
+                'Cofnięto dostawę ' + esc(czasDostarczenia(d.cofnieto)) + '</span>');
         }
         // Dostarczony przystanek był załadowany w całości — licznik paczek nic już nie mówi, zostaje godzina.
         if (z.paczki && status !== 'wykonana' && !d.dostarczono) {
