@@ -125,8 +125,9 @@ def kod_mysql(blad):
     Kod błędu MySQL z `OperationalError` (np. 1213 = zakleszczenie, 1205 = przekroczony czas blokady) albo None,
     gdy wyjątek nie niesie kodu (brak `orig`, pusty `orig.args`). Po tym kodzie zapis ponawia się raz i tylko po
     1213: hurtowa zmiana statusu (`products_api.bulk_action`), zmiana sposobu dostawy w panelu Logistyki
-    (`panel_api.delivery_method`) i zapisy Dostawy (telefon kierowcy `dostawa_api._zapis`, akcje Dostawy w panelu
-    tras `trasy_api._akcja`).
+    (`panel_api.delivery_method`), zapisy Dostawy (telefon kierowcy `dostawa_api._zapis`, akcje Dostawy w panelu
+    tras `trasy_api._akcja`) oraz priorytety (przeciąganie `products_api.update_priority`, przeliczenie
+    `priority_service.recalculate_all_priorities`).
     """
     argumenty = getattr(getattr(blad, 'orig', None), 'args', None) or ()
     return argumenty[0] if argumenty else None
