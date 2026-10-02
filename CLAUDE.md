@@ -306,10 +306,12 @@ Albo po prostu `./deploy.sh` — robi dokładnie to samo, z lockiem i logami.
   blokadę tras): [pracownicy, tylko telefon] → blokada tras → blokada deklaracji paczek → zamówienia CAŁEJ trasy
   rosnąco po id → paczki → pozycje; decyzje na odczycie bieżącym, a odpowiedź telefonu (pełna trasa) z tych samych
   blokad. Zakleszczenie 1213 — jedno ponowienie całego zapisu (`dostawa_api._zapis`, `trasy_api._akcja`, niżej).
-  **Doróbka i hurtowa zmiana statusu też biorą blokadę tras NAJPIERW**, przed blokadami zamówień (decyzja Konrada
-  2.10): zamówienie z przystankiem na trasie załadowanej albo w drodze doróbka zdejmuje z trasy jak „Niedostarczone”
-  (`dostawa.zdejmij_po_dorobce`, Base. 417343), a hurt mu odmawia (odmowa w `errors`, 409 gdy obejmuje wszystko);
-  status trasy obie czytają odczytem bieżącym pod tą blokadą. Transport własny zamyka się po `dostarczone`
+  **Doróbka, zmiana z Base. i hurtowa zmiana statusu też biorą blokadę tras NAJPIERW**, przed blokadami zamówień
+  (decyzja Konrada 2.10, Ruling 30): zamówienie z przystankiem na trasie załadowanej albo w drodze, które wraca do
+  produkcji, doróbka i zmiana z Base. zdejmują z trasy jak „Niedostarczone” (`dostawa.zdejmij_z_trasy_w_drodze`,
+  Base. 417343), a hurt mu odmawia (odmowa w `errors`, 409 gdy obejmuje wszystko); status trasy czytają odczytem
+  bieżącym pod tą blokadą. Doróbka i zmiana z Base. blokują wtedy całą trasę w kolejności Dostawy
+  (`dostawa.blokady_trasy_w_drodze`), bo zdjęcie może ją zamknąć. Transport własny zamyka się po `dostarczone`
   na pozycjach (reguła nie czyta tras); siatka crona otwiera transport zamknięty po znaczniku
   `logistyka_weryfikacja_od` z pozycją niedostarczoną.
 - **Deklaracje paczek — jedna naraz:** `paczki.zablokuj_deklaracje()` (wiersz `logistyka_paczki_blokada` w
@@ -329,8 +331,9 @@ Albo po prostu `./deploy.sh` — robi dokładnie to samo, z lockiem i logami.
   zanim cokolwiek zapiszą. Widać więc też pozycje dodane albo usunięte tuż przed blokadą, a zablokowane obiekty
   sesja trzyma silnymi referencjami (mapa tożsamości SQLAlchemy trzyma czyste obiekty słabo — bez tego późniejsze
   `pozycja.order` czytałoby zamówienie od nowa ze starej migawki REPEATABLE READ). Nowy zapis pozycji zamówienia
-  zaczyna od tej samej blokady. Wywołanie Base. (HTTP) idzie przed blokadami, a po nim `commit` i odczyt blokujący
-  id zamówienia. Cron logistyki commituje każdą fazę osobno. **Pisarz pozycji bez blokady zamówienia zapisuje
+  zaczyna od tej samej blokady. Wywołanie Base. (HTTP) idzie przed blokadami; id zamówienia czytamy jeszcze w starej
+  transakcji (powiązanie z `baselinker_order_id` się nie zmienia), potem `commit`, blokada tras i blokada zamówienia —
+  między commitem a blokadą zamówienia same odczyty blokujące. Cron logistyki commituje każdą fazę osobno. **Pisarz pozycji bez blokady zamówienia zapisuje
   pozycje jednym flushem rosnąco po PK i potem nie sięga po wiersz zamówienia — także pośrednio, przez INSERT do
   tabeli z FK do `prod_orders` (`prod_logistics_log`, `prod_packages`, `prod_route_stops`).** Jeden flush to: odczyt
   pozycji, potem same przypisania i zapis przy commicie (SQLAlchemy sortuje UPDATE-y jednego mappera po PK); każde

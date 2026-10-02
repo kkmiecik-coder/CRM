@@ -127,7 +127,8 @@ nie zna tej wartości ENUM (odczyt takiego wiersza rzuciłby `LookupError`, czyl
 | Niedostarczone | kierowca (trasa `w_trasie`) albo panel | zdjęte z trasy (pula), pozycje → `zweryfikowane`, znaczniki załadunku czyszczone, Base. 417343 |
 | Cofnij dostarczenie | kierowca (ostatnie, trasa `w_trasie`) albo panel (dowolny przystanek) | pozycje → `zaladowane`, Base. 149763, trasa `wykonana` → `w_trasie` |
 | Doróbka / nowa pozycja / przepakowanie | system | paczki unieważnione, weryfikacja i załadunek zamówienia kasują się; zamówienie przejdzie kroki od nowa po spakowaniu (poza zamówieniem z pozycjami `dostarczone` — niżej) |
-| Doróbka na zamówieniu z trasy `zaladowana`/`w_trasie` (decyzja Konrada 2.10) | system | jak „Niedostarczone”: pozycje do produkcji (reguła wyżej), przystanek zdjęty z trasy (log `trasa_usuniete`, notatka „doróbka”), znaczniki załadunku czyszczone, Base. 417343, log `niedostarczone` z powodem `dorobka`; zdjęcie ostatniego nierozliczonego przystanku trasy w drodze zamyka trasę. Przystanek już dostarczony zostaje (niżej). Trasa robocza i zatwierdzona — bez zmian (sama reguła wyżej) |
+| Doróbka na zamówieniu z trasy `zaladowana`/`w_trasie` (decyzja Konrada 2.10) | system | jak „Niedostarczone”: pozycje do produkcji (reguła wyżej), przystanek zdjęty z trasy (log `trasa_usuniete`, notatka „doróbka”), znaczniki załadunku czyszczone, Base. 417343, log `niedostarczone` z powodem `dorobka`; zdjęcie ostatniego nierozliczonego przystanku trasy w drodze zamyka trasę (przystanek anulowanego w całości jest rozliczony). Przystanek już dostarczony zostaje (niżej). Trasa robocza i zatwierdzona — bez zmian (sama reguła wyżej) |
+| Zmiana z Base. cofająca do produkcji zamówienie z trasy `zaladowana`/`w_trasie` (Ruling 30) | system | jak doróbka wyżej, z powodem `zmiana_base` i notatką „zmiana z Base.”; zmiana, która nie cofa do produkcji (ilość, nazwa), zostawia przystanek |
 | Hurtowa zmiana statusu na status produkcyjny albo `spakowane` zamówienia z trasy `zaladowana`/`w_trasie` (decyzja Konrada 2.10) | panel produkcji | odmowa dla tego zamówienia: „Zamówienie X jest na trasie „T” (załadowana / w drodze) — najpierw Cofnij załadunek albo Niedostarczone.”; reszta zaznaczonych przechodzi, a gdy odmowa obejmuje wszystkie — 409 bez zapisów. Anulowanie przechodzi (Dostawa obsługuje zamówienie anulowane) |
 | Hurtowa zmiana statusu na `spakowane` zamówienia zweryfikowanego (decyzja Konrada 2.10) | panel produkcji | jak „Cofnij weryfikację”: pozycje `zweryfikowane` → `spakowane`, `verified_at` zamówienia i znaczniki weryfikacji paczek czyszczone, znaczniki załadunku czyszczone, log `weryfikacja_cofnieta` (z użytkownikiem); paczki zostają ważne. Zamyka lukę z audytu wyścigów (15, „LEGACY”) |
 
@@ -747,13 +748,39 @@ Odstępstwa od 9.1–9.7 i rozstrzygnięcia z realizacji (plan 4.4b, decyzje Kon
 - **Decyzja Konrada A2 — powrót do produkcji z trasy załadowanej albo w drodze.** Hurt (status produkcyjny albo
   `spakowane`) odmawia zamówieniu, którego przystanek jest na trasie `zaladowana`/`w_trasie`: błąd per zamówienie
   w `errors` (jego zaznaczone pozycje w `failed_count`), reszta zaznaczonych przechodzi; gdy odmowa obejmuje wszystkie
-  zaznaczone pozycje — 409 z `error`, bez zapisów. Anulowanie przechodzi (Dostawa obsługuje anulowane). Doróbki nie da
-  się odmówić, więc zdejmuje zamówienie z takiej trasy jak „Niedostarczone” (`dostawa.zdejmij_po_dorobce`; skutki
-  w 4.5). Kolejność blokad obu: **globalna blokada tras najpierw** (hurt: blokada tras → odczyt bieżący przystanków
-  i tras zaznaczonych zamówień → zamówienia rosnąco → pozycje; doróbka: blokada tras → zamówienie → pozycje → reguła
-  unieważniania → odczyt bieżący przystanku i trasy → zdjęcie), czyli kolejność Dostawy. Doróbka nie blokuje
-  zamówień pozostałych przystanków (cron blokuje zamówienia rosnąco), więc zamknięcie trasy po doróbce liczy tylko
-  przystanki dostarczone.
+  zaznaczone pozycje — 409 z `error`, bez zapisów. Anulowanie przechodzi (Dostawa obsługuje anulowane). Zamówienie
+  z przystankiem już dostarczonym na trasie w drodze dostaje komunikat „…najpierw Cofnij dostarczenie” (Ruling 30).
+  Doróbki nie da się odmówić, więc zdejmuje zamówienie z takiej trasy jak „Niedostarczone”
+  (`dostawa.zdejmij_z_trasy_w_drodze`; skutki w 4.5). Kolejność blokad obu: **globalna blokada tras najpierw** (hurt:
+  blokada tras → odczyt bieżący przystanków i tras zaznaczonych zamówień → zamówienia rosnąco → pozycje; doróbka:
+  blokada tras → odczyt blokujący przystanku → na trasie załadowanej albo w drodze blokady Dostawy CAŁEJ trasy
+  (`dostawa.blokady_trasy_w_drodze`: deklaracje paczek → zamówienia rosnąco → paczki → pozycje), inaczej samo
+  zamówienie → pozycje → reguła unieważniania → zdjęcie), czyli kolejność Dostawy. Zamówienia wszystkich przystanków
+  blokujemy przed zapisami (Ruling 30), bo zdjęcie może zamknąć trasę, a zamknięcie decyduje na nich (C2 — przystanek
+  anulowanego w całości jest rozliczony) i zapisuje przy nich `trasa_status`; blokowanie ich dopiero po własnym
+  zamówieniu odwróciłoby rosnącą kolejność crona logistyki.
+- **Zmiana z Base. jak doróbka (Ruling 30).** Zmiana z Base., która cofa do produkcji zamówienie z trasy załadowanej
+  albo w drodze (nowa pozycja z Base.), zdejmuje je z trasy tak samo (powód `zmiana_base`, notatka „zmiana z Base.”).
+  Kolejność: wywołanie Base. (HTTP) przed blokadami → id zamówienia zwykłym odczytem jeszcze w starej transakcji
+  (powiązanie z `baselinker_order_id` się nie zmienia) → COMMIT → blokada tras → odczyt blokujący przystanku → blokady
+  Dostawy całej trasy w drodze albo samo zamówienie → pozycje; między COMMIT-em a blokadą zamówień same odczyty
+  blokujące, więc zwykłe odczyty pod blokadą widzą stan bieżący. Zmiana, która nie cofa do produkcji (ilość, nazwa),
+  zostawia przystanek. Status Base. wysyła dopychacz po wyniku (router zmian z Base.).
+- **Pusta trasa (Ruling 30).** Doróbka albo zmiana z Base. na jedynym przystanku trasy załadowanej zostawia trasę bez
+  przystanków. „Ruszam” takiej trasy → 409 `route_status` „Trasa nie ma przystanków — logistyk cofnie załadunek albo
+  odhaczy ją w panelu tras.” (trasa w drodze bez przystanków nie zamknęłaby się sama). W panelu: „Cofnij załadunek”
+  albo „Odhacz” — pustą trasę załadowaną albo w drodze odhaczenie zamyka jako wykonaną (pusta lista dostarczonych,
+  zapis tylko na trasie: bez wpisów logu i bez Base.). Pusta robocza i zatwierdzona — jak dotąd 422.
+- **417343 przy zdjęciu z trasy w drodze (Ruling 30).** „Niedostarczone” i odznaczenie w „Odhacz” z trasy załadowanej
+  albo w drodze zawsze wysyłają „Planowana trasa” (Base. ma wtedy „Załadowane” albo „Wysłane”, także gdy pozycje
+  cofnięto wcześniej), poza zamówieniem anulowanym w całości (Base. ma status anulowania); z trasy roboczej
+  i zatwierdzonej — jak dotąd tylko po załadunku. Spójnie z doróbką i zmianą z Base.
+- **Spóźnione „Dostarczone” po powrocie do produkcji (Ruling 30).** Przystanek zdjęty przez doróbkę albo zmianę
+  z Base. (ostatni wpis logu: niedostarczenie z tej trasy z powodem `dorobka`/`zmiana_base`): 404 `stop_not_found`
+  z komunikatem „Zamówienie wróciło do produkcji i zostało zdjęte z trasy.” Spóźnione „Niedostarczone” — powtórka
+  (Ruling 26).
+- **Front hurtu (Ruling 30).** Panel produktów pokazuje pominięte zamówienia z komunikatami serwera (osobne
+  ostrzeżenie), gdy hurt zmienił tylko część zaznaczonych.
 - **Ponowienie po 1213 (B1).** Dostawa blokuje pozycje wszystkich zamówień trasy w kolejności (zamówienie, id), a trasa
   robocza i zatwierdzona może mieć zamówienia w produkcji (doróbka dokłada starszemu zamówieniu pozycję o wyższym id).
   Z pisarzami wielu pozycji bez blokady zamówień (przeliczenie i przeciąganie priorytetów, druk TCP) rzadkie 1213 jest
@@ -792,7 +819,8 @@ Odstępstwa od 9.1–9.7 i rozstrzygnięcia z realizacji (plan 4.4b, decyzje Kon
 | Ruling 25 | Zamówienie zdjęte z trasy wraca do `zweryfikowane` tylko z weryfikacją (inaczej `spakowane`); „Cofnij zatwierdzenie” zdejmuje flagi „Zostaje”; log `dostarczenie_cofniete` tylko przy zmianie pozycji. |
 | Ruling 26 | Powtórka „Niedostarczone” po udanym zdjęciu przystanku (ostatni wpis logu = niedostarczenie z tej trasy) → 200 `changed: false` zamiast 404. |
 | Ruling 27 | Poprawki frontu panelu tras: okno „Odhacz” (Zostaje, domyślne zaznaczenia), ostrzeżenie „Cofnij zatwierdzenie” ze świeżego odczytu trasy, neutralne „już dostarczone”, dostępność. |
-| Ruling 28 | Punkt nawigacji telefonu tą samą regułą co Routimo, „Moje trasy” z trasą zatwierdzoną w trakcie załadunku po dacie końca, `completed_by_panel`, rollback przy każdej odmowie zapisu telefonu. |
+| Ruling 28 | Punkt nawigacji telefonu tą samą regułą co Routimo, „Moje trasy” z trasą zatwierdzoną w trakcie załadunku po dacie końca, bramki stanowiska (403 `station_not_allowed`) i kierowcy sprawdzane na każdym endpoincie telefonu, `completed_by_panel`, rollback przy każdej odmowie zapisu telefonu. |
+| Ruling 30 | Runda 2 fali końcowej: pusta trasa po doróbce (odmowa „Ruszam”, „Odhacz” zamyka), zmiana z Base. zdejmuje z trasy w drodze jak doróbka (blokada tras przed zamówieniem, cała trasa w kolejności Dostawy), 417343 zawsze przy zdjęciu z trasy w drodze, C2 w zamknięciu po doróbce, komunikaty spóźnionego „Dostarczone” i hurtu na przystanku dostarczonym, pominięte zamówienia w panelu produktów. |
 | P1 | Numery wierszy w planie 4.4b są orientacyjne (sprzed 4.4a) — kod szuka się po nazwie funkcji. |
 | P2 | Wynik `dostawa.zablokuj` (trasa, zamówienia, paczki) zapis trzyma w zmiennych do końca decyzji i odpowiedzi i decyduje tylko na tych obiektach (mapa tożsamości trzyma czyste obiekty słabo). |
 
@@ -965,7 +993,12 @@ wszystkie pozycje są „spakowane lub dalej”, `weryfikacja._jest_praca_dla_re
 (b) hurtowa zmiana pozycji do produkcji po zakończeniu załadunku cofa zamówienie do pakowania (znaczniki i paczki znikają),
 ale znacznik Base. 524520 („Załadowane”) zostaje na zamówieniu, a trasa zostaje `zaladowana` z tym przystankiem (według
 kodu kierowca zobaczy `niespakowane`, a „Dostarczone” da 409 `order_status`) — 3 przebiegi. Zgodne z Review Focus 5 planu 4.4b.
-Obie luki zamykają decyzje Konrada z 2.10 (A1 i A2 — tabela w 4.5 i „Fala końcowa” w 9.8).
+Po fali końcowej (decyzje Konrada z 2.10 i Ruling 30, tabela w 4.5 i „Fala końcowa” w 9.8): lukę (a) zamyka A1 — hurt na
+„spakowane” cofa weryfikację, znaczniki weryfikacji i załadunku. Lukę (b) zamykają dla znanych ścieżek: hurt (odmowa dla
+zamówień z trasy załadowanej albo w drodze), doróbka i zmiana z Base. (zdjęcie z trasy, 417343). Nie jest to dowód, że
+innej drogi nie ma: ręczna synchronizacja z `force_update`, która dopisuje pozycje istniejącym zamówieniom (dziś
+nieaktywna, CLAUDE.md), nie bierze blokady tras i zostawiłaby przystanek. Powtórzone serie MySQL po rundzie 2 — wyniki
+w raporcie kontrolera.
 
 ## 16. Do zebrania przed realizacją
 
