@@ -1225,6 +1225,11 @@ def admin_apply_baselinker_changes():
 
         sync_service = BaselinkerSyncService()
         result = sync_service.apply_baselinker_changes(baselinker_order_id, changes)
+        if result.get('success'):
+            # Logistyka (Ruling 30): zamówienie zdjęte z trasy w drodze czeka na „Planowana trasa” w Base. — dopychacz
+            # rusza dopiero po commicie zapisu (apply_baselinker_changes commituje sam).
+            from modules.production.logistics.services import bl_sync
+            bl_sync.wyslij_zaplanowane()
 
         return jsonify(result), 200
 
@@ -1270,7 +1275,7 @@ def _zablokuj_zamowienia_i_pozycje(product_ids):
     (Fala końcowa 4.4b, decyzja Konrada A2) Przed blokadami zamówień — globalna blokada tras (`routes.zablokuj_trasy`)
     i odczyt bieżący przystanków tych zamówień na trasach załadowanych i w drodze (`_trasy_w_drodze`): kolejność
     Dostawy (blokada tras → zamówienia → paczki i pozycje). Status trasy, na którym hurt odmawia, czytamy pod blokadą,
-    która go chroni. Zwraca więc trójkę: (zamówienia, zaznaczone pozycje, {order_id: (nazwa trasy, status)}).
+    która go chroni. Zwraca więc trójkę: (zamówienia, zaznaczone pozycje, wynik `_trasy_w_drodze`).
     """
     from modules.production.logistics.services import routes
     wiersze = (db.session.query(ProductionItem.id, ProductionItem.order_id)
@@ -1292,7 +1297,8 @@ _OPIS_TRASY_W_DRODZE = {'zaladowana': u'załadowana', 'w_trasie': u'w drodze'}
 
 def _trasy_w_drodze(order_ids):
     """
-    {order_id: (nazwa trasy, status)} zamówień, których przystanek jest na trasie załadowanej albo w drodze
+    {order_id: (nazwa trasy, status, czy przystanek dostarczony)} zamówień, których przystanek jest na trasie
+    załadowanej albo w drodze
     (`dostawa.STATUSY_W_DRODZE`). Odczyt BIEŻĄCY (blokada współdzielona, LOCK IN SHARE MODE), wołany pod globalną
     blokadą tras: przystanki i trasy zapisuje tylko jej posiadacz, więc wynik obowiązuje do końca transakcji. Zwykły
     SELECT widziałby migawkę REPEATABLE READ sprzed czekania na blokadę (np. załadunek zakończony w tej chwili).
@@ -1302,17 +1308,23 @@ def _trasy_w_drodze(order_ids):
     ids = sorted({i for i in order_ids if i is not None})
     if not ids:
         return {}
-    wiersze = (db.session.query(RouteStop.order_id, Route.name, Route.status)
+    wiersze = (db.session.query(RouteStop.order_id, Route.name, Route.status, RouteStop.delivered_at)
                .join(Route, Route.id == RouteStop.route_id)
                .filter(RouteStop.order_id.in_(ids), Route.status.in_(dostawa.STATUSY_W_DRODZE))
                .with_for_update(read=True).all())
-    return {order_id: (nazwa, status) for order_id, nazwa, status in wiersze}
+    return {order_id: (nazwa, status, dostarczono is not None) for order_id, nazwa, status, dostarczono in wiersze}
 
 
-def _odmowa_trasy_w_drodze(zamowienie, nazwa, status):
+def _odmowa_trasy_w_drodze(zamowienie, nazwa, status, dostarczony):
+    """Komunikat odmowy hurtu z wykonalnym krokiem: przystanek już dostarczony (trasa w drodze) cofa się przez
+    „Cofnij dostarczenie” (Ruling 30.6); niedostarczony — „Cofnij załadunek” albo „Niedostarczone”."""
     numer = zamowienie.internal_order_number or u'#{}'.format(zamowienie.id)
+    opis = _OPIS_TRASY_W_DRODZE.get(status, status)
+    if dostarczony:
+        return (u'Zamówienie {} jest dostarczone na trasie „{}” ({}) — najpierw Cofnij dostarczenie.'
+                .format(numer, nazwa, opis))
     return (u'Zamówienie {} jest na trasie „{}” ({}) — najpierw Cofnij załadunek albo Niedostarczone.'
-            .format(numer, nazwa, _OPIS_TRASY_W_DRODZE.get(status, status)))
+            .format(numer, nazwa, opis))
 
 
 def _zapisz_zmiane_statusu(product_ids, nowy_status, user_id):

@@ -701,15 +701,52 @@ def test_hurt_na_spakowane_widzi_weryfikacje_zatwierdzona_tuz_przed_zadaniem(cli
                        .where(ProductionPackage.__table__.c.order_id == order_id)
                        .values(verified_at=chwila, verified_method='skan'))
     assert order.verified_at is None                                        # obiekt w sesji nadal stary
-    del order, stare
-    gc.collect()
+    # Przesłanka testu: stare obiekty ZOSTAJĄ w sesji przez całe żądanie (trzymamy je) — decyzja A1 ma zapaść na
+    # stanie z odczytu bieżącego hurtu (populate_existing nadpisuje te obiekty), a nie na ich starych wartościach.
+
+    r = _masowo(client, [pozycje[0]], 'spakowane')
+
+    assert r.status_code == 200, r.get_data()[:500]
+    assert order.id == order_id and len(stare) == 2                          # przesłanka żyła do końca żądania
+    statusy, verified_at, paczki, akcje, _s = _stan_logistyki(order_id)
+    assert statusy == ['spakowane', 'spakowane'] and verified_at is None
+    assert [p[0] for p in paczki] == [None, None] and akcje == ['weryfikacja_cofnieta']
+
+
+def test_hurt_na_spakowane_nie_cofa_weryfikacji_drugi_raz_po_regule(client, app):
+    """A1, gałąź `and not cofnieto`: gdy reguła unieważniania etapów sama cofnęła weryfikację (zamówienie ma też
+    pozycję w produkcji), hurt nie woła „Cofnij weryfikację” drugi raz — jeden wpis `weryfikacja_cofnieta`."""
+    order_id, pozycje, _paczki, _trasa = _zamowienie_logistyki(
+        app, '25/00604', statusy=('zweryfikowane', 'czeka_na_pakowanie'))
 
     r = _masowo(client, [pozycje[0]], 'spakowane')
 
     assert r.status_code == 200, r.get_data()[:500]
     statusy, verified_at, paczki, akcje, _s = _stan_logistyki(order_id)
-    assert statusy == ['spakowane', 'spakowane'] and verified_at is None
-    assert [p[0] for p in paczki] == [None, None] and akcje == ['weryfikacja_cofnieta']
+    assert statusy == ['spakowane', 'czeka_na_pakowanie'] and verified_at is None
+    assert [p[2] for p in paczki] == [True, True]                            # reguła unieważniła paczki
+    assert akcje == ['weryfikacja_cofnieta', 'paczki']
+
+
+def test_hurt_na_przystanku_dostarczonym_podpowiada_cofniecie_dostarczenia(client, app):
+    """Ruling 30.6: zamówienie z przystankiem już dostarczonym na trasie w drodze — odmowa zostaje, ale komunikat
+    wskazuje wykonalny krok („najpierw Cofnij dostarczenie”), a nie załadunek ani „Niedostarczone”."""
+    from datetime import datetime
+
+    from modules.production.logistics.models import RouteStop
+    order_id, pozycje, _paczki, _trasa = _zamowienie_logistyki(
+        app, '25/00618', statusy=('dostarczone', 'dostarczone'), status_trasy='w_trasie', zaladowane=True)
+    with app.app_context():
+        stop = RouteStop.query.filter_by(order_id=order_id).one()
+        stop.delivered_at, stop.delivered_by_worker_id = datetime(2026, 10, 2, 11, 0), 7
+        db.session.commit()
+
+    r = _masowo(client, [pozycje[0]], 'czeka_na_pakowanie')
+
+    assert r.status_code == 409, r.get_data()[:500]
+    assert r.get_json()['error'] == (u'Zamówienie 25/00618 jest dostarczone na trasie „Rzeszów 02.10” (w drodze) — '
+                                     u'najpierw Cofnij dostarczenie.')
+    assert _stan_logistyki(order_id)[0] == ['dostarczone', 'dostarczone']
 
 
 @pytest.mark.parametrize('nowy_status', ['czeka_na_pakowanie', 'spakowane'])

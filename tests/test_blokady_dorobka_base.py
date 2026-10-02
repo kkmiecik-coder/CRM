@@ -95,19 +95,27 @@ def _os(zdarzenia):
 
 def _sprawdz_commit_i_blokujacy_odczyt_id(z, po):
     """
-    Po zdarzeniu `po` pierwszy COMMIT (kończy starą migawkę) wypada PRZED pierwszą blokadą zamówień, a zaraz po nim idzie
-    odczyt BLOKUJĄCY id zamówienia po baselinker_order_id (jak `_zapis_pod_blokada()` w panelu Logistyki): taki odczyt nie
-    zakłada migawki, więc pierwszy zwykły odczyt nowej transakcji (np. `existing_product`, `max_seq`; lista pozycji to
-    odczyt blokujący po order_id) wypada już po blokadzie zamówienia. Zwraca indeks COMMIT-u.
+    Po zdarzeniu `po` pierwszy COMMIT (kończy starą migawkę) wypada PRZED pierwszą blokadą zamówień, a od niego do tej
+    blokady idą wyłącznie odczyty BLOKUJĄCE (jak `_zapis_pod_blokada()` w panelu Logistyki): nie zakładają migawki, więc
+    pierwszy zwykły odczyt nowej transakcji (np. `existing_product`, `max_seq`; lista pozycji to odczyt blokujący po
+    order_id) wypada już po blokadzie zamówienia. Pierwszy po COMMIT-cie jest globalna blokada tras (Ruling 30: zmiana
+    z Base. może zdjąć zamówienie z trasy w drodze — blokada tras przed blokadą zamówienia, kolejność Dostawy). Id
+    zamówienia po baselinker_order_id czytamy jeszcze przed COMMIT-em (powiązanie się nie zmienia), żeby nie blokować
+    wiersza zamówienia przed blokadą tras. Zwraca indeks COMMIT-u.
     """
+    from modules.production.logistics.services.routes import KLUCZ_BLOKADY
     start = z.lista.index(po)
     commit = z.lista.index(('commit', None), start)
     blokada = z.pierwsze(blokada_zamowien)
     assert commit < blokada, 'COMMIT dopiero po pierwszej blokadzie zamówień: %s' % _os(z.lista[start:blokada + 1])
-    assert z.lista[commit + 1] == ('for_update', None), \
-        'po COMMIT-cie nie idzie odczyt blokujący: %s' % _os(z.lista[commit:commit + 3])
-    assert 'baselinker_order_id' in z.lista[commit + 2][0], \
-        'odczyt blokujący nie czyta id po baselinker_order_id: %s' % _os(z.lista[commit:commit + 3])
+    assert any('baselinker_order_id' in sql for sql, _p in z.lista[start:commit]), (
+        'id zamówienia nie czytane przed COMMIT-em: %s' % _os(z.lista[start:commit + 1]))
+    po_commicie = [(sql, par) for sql, par in z.lista[commit + 1:blokada + 1] if sql not in ('for_update', 'commit')]
+    assert all(sql.endswith((' FOR UPDATE', ' LOCK IN SHARE MODE')) for sql, _p in po_commicie), (
+        'zwykły odczyt między COMMIT-em a blokadą zamówień: %s' % _os(z.lista[commit:blokada + 1]))
+    pierwszy, parametry = po_commicie[0]
+    assert 'FROM prod_config' in pierwszy and KLUCZ_BLOKADY in tuple(parametry or ()), (
+        'po COMMIT-cie nie idzie blokada tras: %s' % _os(z.lista[commit:commit + 3]))
     return commit
 
 
@@ -250,8 +258,9 @@ def test_zmiany_z_base_po_wywolaniu_base_zaczynaja_nowa_transakcje_z_blokujacym_
     (`current_user.id`), czyli PRZED wywołaniem HTTP do Base., które trwa do kilkudziesięciu sekund. Pozycja dopisana
     w tym czasie (np. doróbka z tabletu) nie byłaby widoczna dla zwykłych odczytów pod blokadą zamówienia (np.
     `existing_product`, `max_seq`; listę pozycji i przeliczenie zamknięcia chroni już odczyt blokujący po order_id).
-    Po wywołaniu Base. idzie więc COMMIT (kończy starą migawkę), a pierwszym poleceniem nowej transakcji jest odczyt
-    BLOKUJĄCY id zamówienia: nie zakłada migawki, więc każdy zwykły odczyt wypada już po blokadzie zamówienia.
+    Po wywołaniu Base. idzie więc COMMIT (kończy starą migawkę), a do blokady zamówienia nowa transakcja robi same
+    odczyty BLOKUJĄCE (blokada tras, przystanek): nie zakładają migawki, więc każdy zwykły odczyt wypada już po
+    blokadzie zamówienia.
     """
     order = zamowienie(sposob=s.KURIER, statusy=('spakowane',), numer_wewnetrzny='1450')
     bl_id = order.baselinker_order_id

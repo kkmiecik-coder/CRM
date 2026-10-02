@@ -575,18 +575,58 @@ def test_telefon_nie_cofa_dostarczenia_zaznaczonego_w_panelu(app):
     assert dostawa.cofnij_dostarczenie(t, b[0].id, z_telefonu=True, worker_id=7, teraz=T2)[1] is True
 
 
-def test_odhaczenie_anulowanego_bez_kierowcy_w_dostarczeniu(app):
-    """C4: przystanek zamówienia anulowanego w całości odhaczony w panelu też jest „dostarczeniem z panelu”."""
+def test_telefon_nie_cofa_odhaczonego_w_panelu_przystanku_anulowanego(app):
+    """C4 dla przystanku zamówienia anulowanego w całości (osiągalny cykl): „Odhacz” zaznacza go jako dostarczony bez
+    kierowcy, logistyk cofa w panelu dostarczenie drugiego przystanku (trasa wraca do „w trasie”, completed_by NULL),
+    a ostatnim dostarczeniem zostaje przystanek anulowanego z panelu — telefon go nie cofa (409 route_status)."""
     a = _zaladowane()
     d = zamowienie_z_paczkami(statusy=('anulowane',))
     t = _w_trasie(a, d)
-    stop = RouteStop.query.filter_by(order_id=d[0].id).one()
-    stop.delivered_by_worker_id = 7                                           # pozostałość po dawnym zapisie
-    db.session.commit()
     dostawa.odhacz(t, [a[0].id, d[0].id], user_id=1, teraz=T1)
     db.session.commit()
     stop = RouteStop.query.filter_by(order_id=d[0].id).one()
     assert (stop.delivered_at, stop.delivered_by_worker_id) == (T1, None)
+    dostawa.cofnij_dostarczenie(t, a[0].id, user_id=1, teraz=T2)
+    db.session.commit()
+    assert (t.status, t.completed_by) == ('w_trasie', None)
+    e = _blad(dostawa.cofnij_dostarczenie, t, d[0].id, z_telefonu=True, worker_id=7)
+    assert (e.kod, e.status) == ('route_status', 409) and u'logistyk w panelu' in e.komunikat
+    assert RouteStop.query.filter_by(order_id=d[0].id).one().delivered_at == T1
+
+
+# --- Ruling 30.3: „Niedostarczone” z trasy załadowanej albo w drodze zawsze daje 417343 ---------------------------
+
+def test_niedostarczenie_z_trasy_w_drodze_planowana_trasa_bez_wzgledu_na_pozycje(app):
+    """W Base. zamówienie z trasy w drodze ma „Wysłane” (149763) albo „Załadowane” (524520) — także gdy jego pozycje
+    cofnęła wcześniej zmiana z Base. albo dawny hurt. Zdjęcie z takiej trasy zawsze daje „Planowana trasa”, spójnie
+    z doróbką."""
+    a = zamowienie_z_paczkami(statusy=('spakowane', 'spakowane'), zweryfikowane=False)
+    b = _zaladowane()
+    t = _w_trasie(a, b)
+    dostawa.nie_dostarcz(t, a[0].id, 'odmowa', worker_id=7, teraz=T1)
+    db.session.commit()
+    assert [p.current_status for p in a[0].products] == ['spakowane', 'spakowane']
+    assert a[0].bl_status_pending_id == 417343
+
+
+def test_odznaczenie_w_odhacz_z_trasy_zaladowanej_planowana_trasa_bez_wzgledu_na_pozycje(app):
+    a = zamowienie_z_paczkami(statusy=('spakowane', 'spakowane'), zweryfikowane=False)
+    b = _zaladowane()
+    t = trasa([a[0], b[0]], status='zaladowana', loaded_at=T0)
+    zaladuj_wprost(b[1], t)
+    dostawa.odhacz(t, [b[0].id], user_id=1, teraz=T1)
+    db.session.commit()
+    assert a[0].bl_status_pending_id == 417343
+
+
+def test_niedostarczenie_anulowanego_w_calosci_bez_statusu_base(app):
+    """Zamówienie anulowane w całości ma w Base. status anulowania — zdjęcie z trasy w drodze go nie nadpisuje."""
+    a = _zaladowane()
+    d = zamowienie_z_paczkami(statusy=('anulowane', 'anulowane'))
+    t = _w_trasie(a, d)
+    dostawa.nie_dostarcz(t, d[0].id, 'inne', worker_id=7, teraz=T1)
+    db.session.commit()
+    assert d[0].bl_status_pending_id is None
 
 
 def test_spoznione_dostarczone_po_odznaczeniu_w_panelu_ma_jasny_komunikat(app):

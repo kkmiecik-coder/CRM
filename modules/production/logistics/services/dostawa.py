@@ -31,6 +31,7 @@ znikałoby z sesji (zamówienie i pozycje trzymają się tylko nawzajem), a pó�
 albo `order.products` czytałoby je od nowa zwykłym SELECT-em — na MySQL ze starej migawki.
 """
 from extensions import db
+from modules.production.logistics import sposoby
 from modules.production.logistics.models import LogisticsLog, Route, RouteStop
 from modules.production.logistics.services import bl_sync, delivery, paczki, routes
 from modules.production.logistics.services.delivery import LogistykaBlad
@@ -57,6 +58,18 @@ POWODY_NIEDOSTARCZENIA = {
 # Przystanek odznaczony w oknie „Odhacz jako wykonaną” panelu tras (spec 9.7) — tylko panel, nie telefon.
 POWOD_ODHACZENIA = 'odhaczone_w_panelu'
 ETYKIETA_ODHACZENIA = u'Odhaczone w panelu'
+# Trasy, z których zamówienie nie wraca do produkcji bez zdjęcia z trasy (w Base. ma „Załadowane” albo „Wysłane”):
+# hurt odmawia (products_api), doróbka i zmiana z Base. zdejmują (zdejmij_z_trasy_w_drodze), „Niedostarczone” zawsze
+# wysyła 417343 (_wycofaj_z_trasy).
+STATUSY_W_DRODZE = ('zaladowana', 'w_trasie')
+# Powrót do produkcji z trasy w drodze (decyzja Konrada 2.10 A2, Ruling 30): powód we wpisie `niedostarczone` →
+# (etykieta tego wpisu, notatka wpisu `trasa_usuniete`).
+POWOD_DOROBKI = 'dorobka'
+POWOD_ZMIANY_BASE = 'zmiana_base'
+POWODY_POWROTU = {
+    POWOD_DOROBKI: (u'Doróbka — wraca do produkcji', u'doróbka'),
+    POWOD_ZMIANY_BASE: (u'Zmiana z Base. — wraca do produkcji', u'zmiana z Base.'),
+}
 NAZWY_STATUSOW_TRASY = {'robocza': u'Robocza', 'zatwierdzona': u'Zatwierdzona', 'zaladowana': u'Załadowana',
                         'w_trasie': u'W trasie', 'wykonana': u'Wykonana'}
 
@@ -421,11 +434,17 @@ def ruszaj(route, worker_id=None, device_id=None, teraz=None):
     załadowanymi, log `wyjazd` (to on zapisuje tę zmianę statusu trasy — bez osobnego `trasa_status`). Trasa już
     w trasie albo wykonana (Ruling 23 — powtórka z kolejki offline, także po ostatnim dostarczeniu) → bez zmian
     i bez odmowy. Robocza i zatwierdzona → 409 route_status. Zwraca (trasa, zmieniono).
+
+    Trasa załadowana bez przystanków (Ruling 30: doróbka albo zmiana z Base. zdjęła jedyny przystanek) → 409
+    route_status: trasa w drodze bez przystanków nie zamknęłaby się sama — logistyk cofa załadunek albo odhacza ją.
     """
     trasa, zamowienia, _pakunki = zablokuj(route)
     if trasa.status in ('w_trasie', 'wykonana'):
         return trasa, False
     _wymagaj_statusu(trasa, 'zaladowana')
+    if not trasa.stops:
+        raise DostawaBlad('route_status', u'Trasa nie ma przystanków — logistyk cofnie załadunek albo odhaczy ją '
+                                          u'w panelu tras.')
     teraz = teraz or get_local_now()
     trasa.status = 'w_trasie'
     trasa.departed_at = teraz
@@ -568,16 +587,16 @@ def _rozliczona(trasa, zamowienia):
     return all(s.delivered_at is not None or anulowane(s.order_id) for s in trasa.stops)
 
 
-def _zamknij_jesli_rozliczona(trasa, teraz, zamowienia=None, worker_id=None, device_id=None):
+def _zamknij_jesli_rozliczona(trasa, teraz, zamowienia=None, user_id=None, worker_id=None, device_id=None):
     """
-    Spec 9.5: brak nierozliczonych przystanków → trasa 'wykonana'. `completed_by` zostaje NULL — zamknął telefon,
-    więc kierowca może jeszcze cofnąć ostatnie dostarczenie (decyzja Konrada 3). Zwraca True, gdy zamknęła.
-    `zamowienia` — zablokowane zamówienia trasy (_rozliczona).
+    Spec 9.5: brak nierozliczonych przystanków → trasa 'wykonana'. `completed_by` zostaje NULL — zamknął telefon
+    (albo zdjęcie po powrocie do produkcji), więc kierowca może jeszcze cofnąć ostatnie dostarczenie (decyzja
+    Konrada 3). Zwraca True, gdy zamknęła. `zamowienia` — zablokowane zamówienia trasy (_rozliczona).
     """
     if trasa.status != 'w_trasie' or not _rozliczona(trasa, zamowienia or {}):
         return False
     trasa.status, trasa.completed_at, trasa.completed_by = 'wykonana', teraz, None
-    _log_trasy(trasa, 'w_trasie', 'wykonana', teraz, worker_id=worker_id, device_id=device_id)
+    _log_trasy(trasa, 'w_trasie', 'wykonana', teraz, user_id=user_id, worker_id=worker_id, device_id=device_id)
     return True
 
 
@@ -623,10 +642,14 @@ def _zdejmij_zostaje_dostarczonego(stop, teraz, user_id=None, worker_id=None, de
 def _wycofaj_z_trasy(trasa, order, aktualne, powod, notatka, teraz, user_id=None, worker_id=None, device_id=None):
     """
     „Niedostarczone” (telefon) i przystanek odznaczony przy odhaczeniu (panel), spec 4.5: zamówienie wraca do puli
-    „Transport bez trasy” — pozycje 'zaladowane' → 'zweryfikowane', znaczniki załadunku czyszczone, Base. 417343
-    tylko, gdy było załadowane (zamówienie z trasy zatwierdzonej ma 417343 od spakowania), zdjęcie z trasy
-    (routes.usun_przystanek: log `trasa_usuniete` z notatką „niedostarczone” jak w etapie 3 i przeliczenie
-    zamknięcia), log `niedostarczone` z powodem.
+    „Transport bez trasy” — pozycje 'zaladowane' → 'zweryfikowane', znaczniki załadunku czyszczone, Base. 417343,
+    zdjęcie z trasy (routes.usun_przystanek: log `trasa_usuniete` z notatką „niedostarczone” jak w etapie 3
+    i przeliczenie zamknięcia), log `niedostarczone` z powodem.
+
+    Base. 417343 (Ruling 30): zawsze z trasy załadowanej albo w drodze — Base. ma wtedy „Załadowane” albo „Wysłane”,
+    także gdy pozycje cofnęła wcześniej zmiana z Base. albo dawny hurt (spójnie z doróbką), poza zamówieniem
+    anulowanym w całości (Base. ma status anulowania — nie nadpisujemy go); z trasy roboczej i zatwierdzonej — tylko,
+    gdy było załadowane (zamówienie z trasy zatwierdzonej ma 417343 od spakowania).
 
     Ruling 25 (A): zamówienie bez weryfikacji (`verified_at` NULL — trasa odhaczona bez załadunku, potem cofnięte
     dostarczenie dało 'zaladowane') wraca do 'spakowane', nie 'zweryfikowane': „zweryfikowane” bez weryfikacji
@@ -640,7 +663,7 @@ def _wycofaj_z_trasy(trasa, order, aktualne, powod, notatka, teraz, user_id=None
     for p in cofniete:
         p.current_status = wraca
     paczki.wyczysc_zaladunek(aktualne)
-    if cofniete:
+    if cofniete or (trasa.status in STATUSY_W_DRODZE and delivery.aktywne_produkty(order)):
         bl_sync.oznacz_planowana_trasa(order)
         bl_sync.zaplanuj_po_commicie(order.id)
     routes.usun_przystanek(trasa, order.id, user_id=user_id, note=u'niedostarczone', wymagaj_roboczej=False,
@@ -654,8 +677,9 @@ def _wycofaj_z_trasy(trasa, order, aktualne, powod, notatka, teraz, user_id=None
 def _ostatnie_niedostarczenie(trasa, order_id):
     """
     Wartość (powód) OSTATNIEGO wpisu logu zamówienia, gdy to `niedostarczone` z TEJ trasy, inaczej None.
-    `_wycofaj_z_trasy` i `zdejmij_po_dorobce` piszą ten wpis jako ostatni (po zdjęciu przystanku). Wąsko: zamówienie,
-    którego na trasie nie było, niedostarczone z innej trasy albo zmienione potem (np. dodane do nowej trasy) → None.
+    `_wycofaj_z_trasy` i `zdejmij_z_trasy_w_drodze` piszą ten wpis jako ostatni (po zdjęciu przystanku). Wąsko:
+    zamówienie, którego na trasie nie było, niedostarczone z innej trasy albo zmienione potem (np. dodane do nowej
+    trasy) → None.
 
     Odczyt BIEŻĄCY (fala końcowa 4.4b, C1): blokada współdzielona na ostatnim wpisie i luce za nim. Wołamy pod
     trzymanymi blokadami tras, deklaracji i zamówień trasy (zablokuj). Wpisy logu zamówienia zapisują tylko
@@ -677,7 +701,8 @@ def _ostatnie_niedostarczenie(trasa, order_id):
 def _powtorka_niedostarczenia(trasa, order_id):
     """
     Ruling 26: brak przystanku to skutek udanego „Niedostarczone” z TEJ trasy (także spóźnionego po odznaczeniu
-    w panelu i po doróbce) — ostatni wpis logu zamówienia to `niedostarczone` z tej trasy (_ostatnie_niedostarczenie).
+    w panelu, po doróbce i po zmianie z Base.) — ostatni wpis logu zamówienia to `niedostarczone` z tej trasy
+    (_ostatnie_niedostarczenie).
     """
     return _ostatnie_niedostarczenie(trasa, order_id) is not None
 
@@ -686,10 +711,14 @@ def _brak_przystanku_dostarczenia(trasa, order_id):
     """
     404 stop_not_found dla „Dostarczone” bez przystanku. C5 (fala końcowa 4.4b): kierowca potwierdził dostarczenie
     offline, a logistyk w tym czasie odhaczył trasę i odznaczył ten przystanek — kod bez zmian (appka klasyfikuje go
-    jak dotąd), ale komunikat mówi, co się stało, zamiast „Tego zamówienia nie ma na trasie”.
+    jak dotąd), ale komunikat mówi, co się stało, zamiast „Tego zamówienia nie ma na trasie”. Tak samo po zdjęciu
+    z trasy w drodze przez doróbkę albo zmianę z Base. (Ruling 30).
     """
-    if _ostatnie_niedostarczenie(trasa, order_id) == POWOD_ODHACZENIA:
+    powod = _ostatnie_niedostarczenie(trasa, order_id)
+    if powod == POWOD_ODHACZENIA:
         return DostawaBlad('stop_not_found', u'Logistyk zdjął to zamówienie z trasy w panelu.', status=404)
+    if powod in POWODY_POWROTU:
+        return DostawaBlad('stop_not_found', u'Zamówienie wróciło do produkcji i zostało zdjęte z trasy.', status=404)
     return DostawaBlad('stop_not_found', u'Tego zamówienia nie ma na trasie „{}”.'.format(trasa.name), status=404)
 
 
@@ -747,58 +776,66 @@ def nie_dostarcz(route, order_id, powod, notatka=None, worker_id=None, device_id
                                                   device_id=device_id)
 
 
-# ── Doróbka na zamówieniu z trasy załadowanej albo w drodze (decyzja Konrada 2.10, A2) ─────────────────
+# ── Powrót do produkcji z trasy załadowanej albo w drodze (decyzja Konrada 2.10 A2, Ruling 30) ────────────
 
-POWOD_DOROBKI = 'dorobka'
-ETYKIETA_DOROBKI = u'Doróbka — wraca do produkcji'
-NOTATKA_DOROBKI = u'doróbka'
-# Trasy, z których zamówienia nie cofa się do produkcji bez zdjęcia z trasy: hurt odmawia (products_api), doróbka
-# zdejmuje (zdejmij_po_dorobce).
-STATUSY_W_DRODZE = ('zaladowana', 'w_trasie')
-
-
-def zdejmij_po_dorobce(order, teraz, worker_id=None, device_id=None):
+def blokady_trasy_w_drodze(order_id):
     """
-    Decyzja Konrada 2.10 (A2): doróbka (rework_service.reject_product_quantity — odrzut sztuk na stanowisku, którego
-    nie da się odmówić) na zamówieniu, którego przystanek jest na trasie załadowanej albo w drodze, zdejmuje je z trasy
-    jak „Niedostarczone”. Pozycje idą do produkcji jak dotąd (regułę unieważniania etapów doróbka woła wcześniej:
-    'zaladowane' → 'spakowane', paczki unieważnione, weryfikacja skasowana). Tu: znaczniki załadunku czyszczone,
-    Base. 417343 „Planowana trasa” — bez warunku, bo w Base. wisi „Załadowane” albo „Wysłane” także wtedy, gdy pozycje
-    cofnęła wcześniej zmiana z Base. — przystanek zdjęty (routes.usun_przystanek, log `trasa_usuniete` z notatką
-    „doróbka”), a na końcu log `niedostarczone` z powodem `dorobka`: ostatni wpis zamówienia, więc spóźnione
-    „Niedostarczone” z kolejki telefonu jest powtórką (Ruling 26 — rozpoznanie powtórki po ostatnim wpisie logu).
-    Zdjęcie ostatniego nierozliczonego przystanku trasy w drodze zamyka ją, jak „Niedostarczone”.
-    Zwraca nazwę trasy, z której zdjęto, albo None.
+    Pierwszy krok doróbki i zmiany z Base. po globalnej blokadzie tras, PRZED blokadą zamówienia. Gdy przystanek
+    zamówienia jest niedostarczony na trasie załadowanej albo w drodze — blokady Dostawy CAŁEJ trasy (zablokuj:
+    trasa → deklaracje paczek → zamówienia rosnąco → paczki → pozycje) i ich wynik (trasa, {order_id: zamówienie},
+    {order_id: [paczki]}); wołający bierze swoje zamówienie z tej mapy zamiast blokować je osobno. Inaczej None —
+    wołający blokuje samo zamówienie, jak dotąd.
 
-    Bez zmian (None): zamówienie bez trasy, na trasie roboczej albo zatwierdzonej (tam działa sama reguła
-    unieważniania, jak dotąd) i przystanek już dostarczony — dostarczenie to historia (spec 4.5: doróbka w zamówieniu
-    z pozycjami `dostarczone` obsługuje biuro).
+    Dlaczego cała trasa: zdjęcie z trasy w drodze może ją zamknąć, a zamknięcie decyduje na zamówieniach pozostałych
+    przystanków (przystanek anulowanego w całości jest rozliczony — C2) i zapisuje przy nich `trasa_status` (wpis z FK
+    do zamówienia). Blokada tych zamówień PO własnym zamówieniu odwróciłaby kolejność rosnącą crona logistyki — dlatego
+    wszystkie w kolejności Dostawy, zanim zapis sięgnie po cokolwiek innego.
 
-    Kolejność blokad: wołający bierze blokadę tras PRZED blokadą zamówienia (jak Dostawa), potem zamówienie i wszystkie
-    jego pozycje odczytem bieżącym i trzyma `order` silnie. Przystanek i trasę czytamy tu odczytem bieżącym pod blokadą
-    tras — piszą je tylko jej posiadacze. Zamówień pozostałych przystanków NIE blokujemy: cron logistyki blokuje
-    zamówienia rosnąco, więc blokada drugiego zamówienia po naszym mogłaby dać cykl. Zamknięcie trasy liczy więc tylko
-    przystanki dostarczone (przystanek zamówienia anulowanego w całości rozliczy kierowca albo panel), a wpis
-    `trasa_status` przy pozostałych — już dostarczonych — przystankach bierze na ich zamówieniach jedynie blokadę S
-    klucza obcego; nikt, kto trzyma takie zamówienie, nie czeka na nasze ani na blokadę tras. NIE commituje.
+    Przystanek i status trasy czytamy jednym odczytem BLOKUJĄCYM kolumn (bez obiektów ORM i bez leniwego dociągania
+    trasy): pod blokadą tras piszą je tylko jej posiadacze, a żaden zwykły odczyt nie zakłada tu migawki REPEATABLE READ
+    przed blokadami zamówień (zmiana z Base. czyta potem zwykłymi zapytaniami pozycje pod blokadą zamówienia).
     """
-    przystanek = routes.przystanek_zamowienia(order.id, aktualny=True)
-    if przystanek is None or przystanek.delivered_at is not None:
+    wiersz = (db.session.query(RouteStop.route_id, RouteStop.delivered_at, Route.status)
+              .join(Route, Route.id == RouteStop.route_id)
+              .filter(RouteStop.order_id == order_id)
+              .with_for_update(read=True).first())
+    if wiersz is None or wiersz.delivered_at is not None or wiersz.status not in STATUSY_W_DRODZE:
         return None
-    trasa = routes.zablokuj_trasy(przystanek.route)
-    if trasa.status not in STATUSY_W_DRODZE:
+    return zablokuj(wiersz.route_id)
+
+
+def zdejmij_z_trasy_w_drodze(blokady, order, powod, teraz, user_id=None, worker_id=None, device_id=None):
+    """
+    Zamówienie z trasy załadowanej albo w drodze, które wróciło do produkcji (doróbka — decyzja Konrada 2.10 A2;
+    zmiana z Base., np. nowa pozycja — Ruling 30), schodzi z trasy jak przy „Niedostarczone”. Pozycje idą do produkcji
+    jak dotąd (regułę unieważniania etapów wołający woła wcześniej: 'zaladowane' → 'spakowane', paczki unieważnione,
+    weryfikacja skasowana). Tu: znaczniki załadunku czyszczone, Base. 417343 „Planowana trasa” — bez warunku, bo w Base.
+    wisi „Załadowane” albo „Wysłane” także wtedy, gdy pozycje cofnięto wcześniej — przystanek zdjęty
+    (routes.usun_przystanek, log `trasa_usuniete` z notatką powodu), a na końcu log `niedostarczone` z powodem
+    (`dorobka`, `zmiana_base`) jako ostatni wpis zamówienia: spóźnione „Niedostarczone” z kolejki telefonu jest wtedy
+    powtórką (Ruling 26), a spóźnione „Dostarczone” dostaje jasny komunikat (_brak_przystanku_dostarczenia). Zdjęcie
+    ostatniego nierozliczonego przystanku trasy w drodze zamyka ją, jak „Niedostarczone” (z C2 — na zablokowanych
+    zamówieniach wszystkich przystanków). Zwraca nazwę trasy, z której zdjęto, albo None.
+
+    `blokady` — wynik blokady_trasy_w_drodze (wołający trzyma go do końca zapisu — silne referencje). Zamówienie, które
+    NIE wróciło do produkcji (wszystkie aktywne pozycje spakowane lub dalej, np. zmiana ilości z Base.; anulowane
+    w całości), zostaje na trasie — None. NIE commituje.
+    """
+    trasa, zamowienia, _pakunki = blokady
+    aktywne = delivery.aktywne_produkty(order)
+    if not any(p.current_status not in sposoby.STATUSY_PO_SPAKOWANIU for p in aktywne):
         return None
-    # Zamówienie trzymamy już z pozycjami; paczki po pozycjach — ta sama kolejność co reguła unieważniania w doróbce.
+    etykieta, notatka = POWODY_POWROTU[powod]
+    # Zamówienie, paczki i pozycje są już zablokowane (zablokuj) — tu tylko odczyt bieżący aktualnych paczek.
     paczki.wyczysc_zaladunek(paczki.zablokuj_stan(order))
     bl_sync.oznacz_planowana_trasa(order)
     bl_sync.zaplanuj_po_commicie(order.id)
-    routes.usun_przystanek(trasa, order.id, note=NOTATKA_DOROBKI, wymagaj_roboczej=False, worker_id=worker_id,
-                           device_id=device_id)
-    delivery.zapisz_log(order, 'niedostarczone', None, POWOD_DOROBKI, note=ETYKIETA_DOROBKI, route_id=trasa.id,
+    routes.usun_przystanek(trasa, order.id, user_id=user_id, note=notatka, wymagaj_roboczej=False,
+                           worker_id=worker_id, device_id=device_id)
+    delivery.zapisz_log(order, 'niedostarczone', None, powod, note=etykieta, route_id=trasa.id, user_id=user_id,
                         worker_id=worker_id, device_id=device_id, teraz=teraz)
     trasa = routes.zablokuj_trasy(trasa)   # świeże przystanki po zdjęciu (ta sama transakcja, bez czekania)
-    # Innych zamówień trasy nie blokujemy (docstring), więc zamknięcie liczy tylko przystanki dostarczone.
-    _zamknij_jesli_rozliczona(trasa, teraz, worker_id=worker_id, device_id=device_id)
+    _zamknij_jesli_rozliczona(trasa, teraz, zamowienia, user_id=user_id, worker_id=worker_id, device_id=device_id)
     return trasa.name
 
 
@@ -880,11 +917,16 @@ def odhacz(route, dostarczone_ids, user_id=None, teraz=None):
     (lub dalej); zamówienia bez aktywnych pozycji ta reguła pomija. Trasa → 'wykonana', completed_by = użytkownik
     (telefon nie cofa wtedy ostatniego dostarczenia). Zwraca {'dostarczone', 'niedostarczone'} w kolejności
     przystanków.
+
+    Trasa bez przystanków: robocza i zatwierdzona → 422 (logistyk ją usuwa albo uzupełnia). Załadowaną albo w drodze
+    (Ruling 30: doróbka albo zmiana z Base. zdjęła jedyny przystanek, a „Ruszam” takiej trasy odmawia) „Odhacz”
+    zamyka jako wykonaną — z pustą listą dostarczonych; zapis tylko na trasie (bez wpisów logu, bo nie ma zamówień,
+    i bez Base.).
     """
     trasa, zamowienia, pakunki = zablokuj(route)
     _wymagaj_statusu(trasa, *routes.AKTYWNE)
     na_trasie = [s.order_id for s in trasa.stops]
-    if not na_trasie:
+    if not na_trasie and trasa.status not in STATUSY_W_DRODZE:
         raise LogistykaBlad(u'Trasa nie ma przystanków.', status=422)
     if dostarczone_ids is None:
         raise LogistykaBlad(u'Podaj listę dostarczonych zamówień (delivered_order_ids), '
@@ -913,7 +955,7 @@ def odhacz(route, dostarczone_ids, user_id=None, teraz=None):
         if order is not None and delivery.aktywne_produkty(order):
             _oznacz_dostarczone(order, stop, teraz, user_id=user_id)
         else:
-            # Anulowane w całości — bez statusu Base. Też dostarczenie z panelu (C4: kierowca NULL) i bez „Zostaje” (C3).
+            # Anulowane w całości — bez statusu Base. Też dostarczenie z panelu (C4: kierowca NULL), bez „Zostaje”.
             stop.delivered_at, stop.delivered_by_worker_id = teraz, None
             _zdejmij_zostaje_dostarczonego(stop, teraz, user_id=user_id)
             if order is not None:

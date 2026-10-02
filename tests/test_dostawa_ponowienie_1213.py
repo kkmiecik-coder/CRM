@@ -16,7 +16,7 @@ from sqlalchemy.exc import OperationalError
 
 from extensions import db
 from modules.production.logistics.models import LogisticsLog, Route, RouteStop
-from modules.production.logistics.services import bl_sync, dostawa
+from modules.production.logistics.services import bl_sync, dostawa, dostawa_widok
 from modules.production.models import ProcessedMobileOperation, ProductionProduct
 from tests.blokady_pomocnicze import Zapytania
 from tests.dostawa_pomocnicze import T0, naglowki, telefon_kierowcy, trasa, zaladuj_wprost, zamowienie_z_paczkami
@@ -175,6 +175,42 @@ def test_telefon_inny_blad_bez_ponowienia(app, client, monkeypatch, dopychacz, b
     assert _statusy(oid) == ['zaladowane', 'zaladowane'] and dopychacz == []
 
 
+def test_telefon_1213_przy_flushu_zapisow_akcji_jest_ponawiane(app, client, monkeypatch, dopychacz):
+    """`_zapis` wypycha zapisy akcji flushem WEWNĄTRZ ponowienia, zanim handler odda wynik dekoratorowi idempotencji.
+    Zakleszczenie przy tym flushu (UPDATE-y czekają tam na cudze blokady) daje więc jedno ponowienie i 200, a nie 500
+    z commitu dekoratora. Pierwszy jawny flush po zbudowaniu odpowiedzi rzuca 1213 — to flush `_zapis`."""
+    device, k = telefon_kierowcy()
+    t, a, _b = _w_trasie(k)
+    rid, oid = t.id, a.id
+    odpowiedzi, rzucone = [], []
+    oryginal_widok = dostawa_widok.trasa_po_zapisie
+
+    def widok(trasa_):
+        wynik = oryginal_widok(trasa_)
+        odpowiedzi.append(1)
+        return wynik
+
+    oryginal_flush = db.session.flush
+
+    def flush(*args, **kwargs):
+        if odpowiedzi and not rzucone:
+            rzucone.append(1)
+            raise _blad_mysql(1213)
+        return oryginal_flush(*args, **kwargs)
+
+    monkeypatch.setattr(dostawa_widok, 'trasa_po_zapisie', widok)
+    monkeypatch.setattr(db.session, 'flush', flush)
+
+    r = client.post(API + '/routes/%d/stops/%d/delivered' % (rid, oid), headers=naglowki(device, k, op_id='op-flush'))
+
+    assert r.status_code == 200, r.get_data()[:300]
+    assert rzucone == [1] and len(odpowiedzi) == 2                  # 1213 przy flushu, potem druga próba
+    assert r.get_json()['changed'] is True
+    assert _liczba(oid, 'dostarczone') == 1
+    assert ProcessedMobileOperation.query.filter_by(operation_id='op-flush').count() == 1
+    assert dopychacz == [[oid]]
+
+
 def test_telefon_ponowienie_zaczyna_od_kierowcy(app, client, monkeypatch):
     """Druga próba zaczyna od nowa od kierowcy: sesje pracowników to pierwsze blokady zapisu telefonu, a rollback
     cofnął ich odświeżenie z pierwszej próby."""
@@ -217,15 +253,28 @@ def _dostarczona():
     return t, a
 
 
+def _z_dopychaczem(przygotuj, ktore):
+    """Przygotowanie akcji panelu → (trasa, zamówienie akcji, [id zamówień, z którymi dopychacz Base. ma ruszyć raz
+    po commicie drugiej próby]); `ktore(trasa, zamówienia)` wybiera je z zamówień przygotowania."""
+    def wrapper():
+        wynik = przygotuj()
+        return wynik[0], wynik[1], sorted(o.id for o in ktore(*wynik))
+    return wrapper
+
+
 AKCJE_PANELU = {
-    # nazwa: (funkcja serwisu, przygotowanie → (trasa, zamówienie), ścieżka, ciało, (akcja logu skutku, notatka|None),
-    #         status trasy po)
-    'unload': ('cofnij_zaladunek', _zaladowana, '/routes/{r}/unload', None, 'zaladunek', 'zatwierdzona'),
-    'complete': ('odhacz', lambda: _w_trasie()[:2], '/routes/{r}/complete',
+    # nazwa: (funkcja serwisu, przygotowanie → (trasa, zamówienie, oczekiwany dopychacz), ścieżka, ciało,
+    #         akcja logu skutku, status trasy po)
+    'unload': ('cofnij_zaladunek', _z_dopychaczem(_zaladowana, lambda t, a: [a]), '/routes/{r}/unload', None,
+               'zaladunek', 'zatwierdzona'),
+    # Zaznaczone a → „Dostarczona” (149778), odznaczone b → „Planowana trasa” (417343): jeden start z oboma.
+    'complete': ('odhacz', _z_dopychaczem(_w_trasie, lambda t, a, b: [a, b]), '/routes/{r}/complete',
                  lambda oid: {'delivered_order_ids': [oid]}, 'dostarczone', 'wykonana'),
-    'undo-delivered': ('cofnij_dostarczenie', _dostarczona, '/routes/{r}/stops/{o}/undo-delivered', None,
-                       'dostarczenie_cofniete', 'w_trasie'),
-    'revert': ('cofnij_zatwierdzenie', _zatwierdzona_w_zaladunku, '/routes/{r}/revert', None, 'zaladunek', 'robocza'),
+    'undo-delivered': ('cofnij_dostarczenie', _z_dopychaczem(_dostarczona, lambda t, a: [a]),
+                       '/routes/{r}/stops/{o}/undo-delivered', None, 'dostarczenie_cofniete', 'w_trasie'),
+    # „Cofnij zatwierdzenie” nie zmienia statusów Base. — dopychacz nie rusza wcale.
+    'revert': ('cofnij_zatwierdzenie', _z_dopychaczem(_zatwierdzona_w_zaladunku, lambda t, a: []),
+               '/routes/{r}/revert', None, 'zaladunek', 'robocza'),
 }
 
 
@@ -237,7 +286,7 @@ def _post_panelu(client, akcja, rid, oid):
 @pytest.mark.parametrize('akcja', sorted(AKCJE_PANELU))
 def test_panel_ponawia_raz_po_1213(app, client, monkeypatch, dopychacz, akcja):
     funkcja, przygotuj, _sciezka, _cialo, log_skutku, status_po = AKCJE_PANELU[akcja]
-    t, a = przygotuj()
+    t, a, oczekiwany = przygotuj()
     rid, oid = t.id, a.id
     dopychacz.clear()
     proby = _scenariusz(monkeypatch, funkcja, [_blad_mysql(1213)])
@@ -248,14 +297,14 @@ def test_panel_ponawia_raz_po_1213(app, client, monkeypatch, dopychacz, akcja):
     assert len(proby) == 2
     assert r.get_json()['route']['status'] == status_po
     assert _liczba(oid, log_skutku) == 1
-    # Dopychacz najwyżej raz, a każde zamówienie raz — plan pierwszej próby przepadł razem z jej rollbackiem.
-    assert len(dopychacz) <= 1 and all(lista == sorted(set(lista)) for lista in dopychacz)
+    # Dokładnie jeden start dopychacza z planem drugiej próby — plan pierwszej przepadł razem z jej rollbackiem.
+    assert dopychacz == ([oczekiwany] if oczekiwany else [])
 
 
 @pytest.mark.parametrize('akcja', sorted(AKCJE_PANELU))
 def test_panel_dwa_1213_z_rzedu_to_500_bez_zapisow(app, client, monkeypatch, dopychacz, akcja):
     funkcja, przygotuj, _sciezka, _cialo, log_skutku, _status_po = AKCJE_PANELU[akcja]
-    t, a = przygotuj()
+    t, a, _oczekiwany = przygotuj()
     rid, oid = t.id, a.id
     status_przed = t.status
     przed = _liczba(oid, log_skutku)
@@ -272,7 +321,7 @@ def test_panel_dwa_1213_z_rzedu_to_500_bez_zapisow(app, client, monkeypatch, dop
 @pytest.mark.parametrize('akcja', sorted(AKCJE_PANELU))
 def test_panel_inny_kod_bez_ponowienia(app, client, monkeypatch, dopychacz, akcja):
     funkcja, przygotuj, _sciezka, _cialo, _log, _status_po = AKCJE_PANELU[akcja]
-    t, a = przygotuj()
+    t, a, _oczekiwany = przygotuj()
     rid, oid = t.id, a.id
     status_przed = t.status
     proby = _scenariusz(monkeypatch, funkcja, [_blad_mysql(1205, 'Lock wait timeout exceeded')])

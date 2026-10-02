@@ -146,8 +146,8 @@ def _id(wartosc, pole):
 def zablokuj_trasy(route=None):
     """
     (fix-1, Ruling A) Blokada globalna „jeden piszący trasy naraz" + — gdy podano
-    `route` — jej ODCZYT BIEŻĄCY razem z przystankami. Zwraca świeżą trasę (albo
-    None, gdy wołane bez argumentu).
+    `route` (obiekt trasy albo jej id) — jej ODCZYT BIEŻĄCY razem z przystankami. Zwraca
+    świeżą trasę (albo None, gdy wołane bez argumentu).
 
     DLACZEGO: nic w repo nie ustawia poziomu izolacji, więc MySQL 8.4 pracuje na
     REPEATABLE READ. Migawka zwykłego SELECT-a pochodzi z PIERWSZEGO zwykłego
@@ -193,8 +193,11 @@ def zablokuj_trasy(route=None):
                        u"NIE sa serializowane (migracja go zaklada)".format(KLUCZ_BLOKADY))
     if route is None:
         return None
+    # Trasa albo samo jej id (Ruling 30: zapis, który zna tylko route_id przystanku z odczytu blokującego, nie
+    # dociąga trasy leniwie — zwykły odczyt założyłby migawkę przed blokadami zamówień).
+    route_id = route if isinstance(route, int) else route.id
     swieza = (Route.query.options(joinedload(Route.stops))
-             .filter(Route.id == route.id)
+             .filter(Route.id == route_id)
              .with_for_update().populate_existing().one_or_none())
     if swieza is None:
         raise LogistykaBlad(u'Nie ma takiej trasy.', status=404)

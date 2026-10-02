@@ -2604,7 +2604,9 @@ class BaselinkerSyncService:
         Aplikuje zmiany z porównania do bazy danych.
 
         Uwaga: funkcja commituje już po pobraniu zamówienia z Base. (nowa transakcja przed blokadą zamówienia), więc
-        wołający nie powinien mieć w sesji niezapisanych zmian — zostałyby zatwierdzone tym commitem.
+        wołający nie powinien mieć w sesji niezapisanych zmian — zostałyby zatwierdzone tym commitem. Status dla
+        Base. po zdjęciu zamówienia z trasy w drodze (417343) czeka na wysyłkę w `bl_sync` — wołający uruchamia
+        dopychacz po wyniku (bl_sync.wyslij_zaplanowane).
 
         Args:
             baselinker_order_id: ID zamówienia
@@ -2615,7 +2617,7 @@ class BaselinkerSyncService:
         """
         from ..models import ProductionItem, ProductionOrder
         from .parser_service import ProductNameParser
-        from modules.production.logistics.services import delivery
+        from modules.production.logistics.services import delivery, dostawa, routes
         from .blokady_zamowien import zablokuj_pozycje, zablokuj_zamowienie
 
         result = {
@@ -2644,14 +2646,28 @@ class BaselinkerSyncService:
             # Pozycja dopisana w tym czasie (np. doróbka z tabletu) byłaby niewidoczna dla zwykłych odczytów pod
             # blokadą (listę pozycji i przeliczenie zamknięcia chroni już odczyt bieżący po order_id w zablokuj_pozycje,
             # ale np. `existing_product` i `max_seq` niżej to zwykłe odczyty). Dlatego COMMIT kończy starą migawkę (nic
-            # jeszcze nie zmieniliśmy, a funkcja i tak commituje na końcu), a id zamówienia czytamy odczytem BLOKUJĄCYM:
-            # ten nie zakłada migawki, więc pierwszy zwykły odczyt nowej transakcji wypada już PO blokadzie zamówienia.
-            # Między COMMIT-em a blokadą żadnych odczytów, także atrybutów ORM, które commit właśnie wygasił.
-            db.session.commit()
+            # jeszcze nie zmieniliśmy, a funkcja i tak commituje na końcu), a po nim idą same odczyty BLOKUJĄCE (nie
+            # zakładają migawki), więc pierwszy zwykły odczyt nowej transakcji wypada już PO blokadzie zamówienia.
+            # Między COMMIT-em a blokadą żadnych zwykłych odczytów, także atrybutów ORM, które commit właśnie wygasił.
+            #
+            # Id zamówienia czytamy jeszcze PRZED commitem, zwykłym odczytem w starej transakcji: powiązanie
+            # baselinker_order_id → id się nie zmienia, a odczyt blokujący wiersza zamówienia po commicie wziąłby
+            # zamówienie przed blokadą tras (niżej) — odwrotnie niż Dostawa.
+            #
+            # Logistyka (Ruling 30, fala końcowa 4.4b): nowa pozycja z Base. cofa zamówienie do produkcji, a z trasy
+            # załadowanej albo w drodze zamówienie wtedy schodzi (dostawa.zdejmij_z_trasy_w_drodze, jak doróbka).
+            # Przystanki zmienia tylko posiadacz globalnej blokady tras, więc bierzemy ją po commicie i PRZED blokadą
+            # zamówienia (kolejność Dostawy). Zamówienie z trasy w drodze blokujemy razem z całą trasą
+            # (dostawa.blokady_trasy_w_drodze: zamówienia rosnąco) — zdjęcie może ją zamknąć.
             zamowienie_id = (db.session.query(ProductionOrder.id)
-                             .filter(ProductionOrder.baselinker_order_id == baselinker_order_id)
-                             .with_for_update().scalar())
-            zamowienie = zablokuj_zamowienie(zamowienie_id) if zamowienie_id is not None else None
+                             .filter(ProductionOrder.baselinker_order_id == baselinker_order_id).scalar())
+            db.session.commit()
+            routes.zablokuj_trasy()
+            blokady = dostawa.blokady_trasy_w_drodze(zamowienie_id) if zamowienie_id is not None else None
+            if blokady is not None:
+                zamowienie = blokady[1].get(zamowienie_id)
+            else:
+                zamowienie = zablokuj_zamowienie(zamowienie_id) if zamowienie_id is not None else None
 
             # 1. Usuń produkty
             for product_to_remove in changes.get('products_to_remove', []):
@@ -2839,6 +2855,10 @@ class BaselinkerSyncService:
             if zamowienie is not None:
                 zablokuj_pozycje(zamowienie)
                 delivery.przelicz_zamkniecie(zamowienie)
+                if blokady is not None:
+                    # Ruling 30: zamówienie z trasy załadowanej albo w drodze, które wróciło do produkcji, schodzi z
+                    # trasy jak po doróbce (decyzja na pozycjach z odczytu bieżącego wyżej, pod blokadą tras).
+                    dostawa.zdejmij_z_trasy_w_drodze(blokady, zamowienie, dostawa.POWOD_ZMIANY_BASE, get_local_now())
 
             db.session.commit()
             result['success'] = True
