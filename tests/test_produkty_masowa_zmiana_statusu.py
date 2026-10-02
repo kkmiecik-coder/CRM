@@ -840,3 +840,20 @@ def test_hurt_blokuje_trasy_przed_zamowieniami_i_pozycjami(client, app):
     assert list(z.lista[zamowienia][1]) == sorted([a[0], b[0]])
     assert not [sql for sql, _p in z.lista[:trasy] if sql.endswith((' FOR UPDATE', ' LOCK IN SHARE MODE'))
                 or zapis(sql)]
+
+
+def test_zmiany_z_base_przekazuja_uzytkownika_panelu(client, app, monkeypatch):
+    """Ruling 31.2: router zmian z Base. podaje serwisowi użytkownika panelu (pobranego przed wywołaniem serwisu, który
+    commituje po pobraniu zamówienia z Base.) — zdjęcie zamówienia z trasy w drodze zapisze go w logach trasy."""
+    from modules.production.services.sync_service import BaselinkerSyncService
+    wywolania = []
+
+    def zastosuj(self, baselinker_order_id, changes, user_id=None):
+        wywolania.append((baselinker_order_id, user_id))
+        return {'success': True, 'added': 0, 'removed': 0, 'updated': 0, 'errors': [], 'error': None}
+
+    monkeypatch.setattr(BaselinkerSyncService, 'apply_baselinker_changes', zastosuj)
+    r = client.post(BASE + '/admin/apply-baselinker-changes',
+                    json={'baselinker_order_id': 2500777, 'changes': {'products_to_update': []}})
+    assert r.status_code == 200, r.get_data()[:300]
+    assert wywolania == [(2500777, 1)]

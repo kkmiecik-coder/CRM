@@ -1224,7 +1224,10 @@ def admin_apply_baselinker_changes():
         from ...services.sync_service import BaselinkerSyncService
 
         sync_service = BaselinkerSyncService()
-        result = sync_service.apply_baselinker_changes(baselinker_order_id, changes)
+        # Użytkownik PRZED serwisem: serwis commituje po wywołaniu Base., a po commicie current_user.id byłby zwykłym
+        # SELECT-em w nowej transakcji (migawka przed blokadami). Trafia do logów logistyki (Ruling 31).
+        user_id = current_user.id
+        result = sync_service.apply_baselinker_changes(baselinker_order_id, changes, user_id=user_id)
         if result.get('success'):
             # Logistyka (Ruling 30): zamówienie zdjęte z trasy w drodze czeka na „Planowana trasa” w Base. — dopychacz
             # rusza dopiero po commicie zapisu (apply_baselinker_changes commituje sam).

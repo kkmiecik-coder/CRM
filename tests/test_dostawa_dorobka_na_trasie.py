@@ -363,6 +363,29 @@ def test_zmiana_z_base_cofajaca_do_produkcji_zdejmuje_zamowienie_z_trasy(app, mo
     assert wpisy[-1] == ('niedostarczone', 'zmiana_base', u'Zmiana z Base. — wraca do produkcji', route_id)
 
 
+def test_zmiana_z_base_zapisuje_uzytkownika_przy_zdjeciu_i_zamknieciu_trasy(app, monkeypatch):
+    """Ruling 31.2: zdjęcie z trasy po zmianie z Base. ma użytkownika panelu (admina, który zastosował zmiany) we
+    wpisach `trasa_usuniete`, `niedostarczone` i `trasa_status` zamknięcia trasy."""
+    order, paczki_a = zamowienie_z_paczkami(statusy=('zaladowane', 'zaladowane'))
+    drugie, _p = zamowienie_z_paczkami(statusy=('dostarczone', 'dostarczone'))
+    t = trasa([order, drugie], status='w_trasie', loaded_at=T0)
+    zaladuj_wprost(paczki_a, t, kto_id=7)
+    stop = RouteStop.query.filter_by(order_id=drugie.id).one()
+    stop.delivered_at, stop.delivered_by_worker_id = T0, 7
+    db.session.commit()
+    order_id, drugie_id, route_id = order.id, drugie.id, t.id
+
+    wynik = _serwis_z_nowa_pozycja(monkeypatch, order).apply_baselinker_changes(
+        order.baselinker_order_id, {'products_to_add': [{'order_product_id': '77'}]}, user_id=5)
+
+    assert wynik['success'] is True, wynik
+    db.session.expire_all()
+    assert db.session.get(Route, route_id).status == 'wykonana'
+    wpisy = {(w.order_id, w.action): w.user_id for w in LogisticsLog.query.filter_by(route_id=route_id)}
+    assert wpisy[(order_id, 'trasa_usuniete')] == 5 and wpisy[(order_id, 'niedostarczone')] == 5
+    assert wpisy[(drugie_id, 'trasa_status')] == 5
+
+
 def test_zmiana_z_base_bez_powrotu_do_produkcji_zostawia_przystanek(app):
     """Zmiana z Base., która nie cofa zamówienia do produkcji (np. ilość), nie zdejmuje go z trasy w drodze."""
     order, paczki_a = zamowienie_z_paczkami(statusy=('zaladowane', 'zaladowane'))

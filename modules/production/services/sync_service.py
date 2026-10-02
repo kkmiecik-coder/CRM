@@ -2599,7 +2599,8 @@ class BaselinkerSyncService:
             result['error'] = f'Błąd porównania: {str(e)}'
             return result
 
-    def apply_baselinker_changes(self, baselinker_order_id: int, changes: Dict[str, Any]) -> Dict[str, Any]:
+    def apply_baselinker_changes(self, baselinker_order_id: int, changes: Dict[str, Any],
+                                 user_id: Optional[int] = None) -> Dict[str, Any]:
         """
         Aplikuje zmiany z porównania do bazy danych.
 
@@ -2611,6 +2612,9 @@ class BaselinkerSyncService:
         Args:
             baselinker_order_id: ID zamówienia
             changes: Struktura zmian z compare_order_with_baselinker
+            user_id: Użytkownik panelu, który stosuje zmiany — trafia do logów logistyki przy zdjęciu zamówienia
+                z trasy w drodze (Ruling 31). Wołający pobiera go PRZED wywołaniem: po commicie w środku tej metody
+                `current_user.id` byłby zwykłym SELECT-em, który założyłby migawkę przed blokadami.
 
         Returns:
             Dict z wynikiem operacji
@@ -2858,7 +2862,8 @@ class BaselinkerSyncService:
                 if blokady is not None:
                     # Ruling 30: zamówienie z trasy załadowanej albo w drodze, które wróciło do produkcji, schodzi z
                     # trasy jak po doróbce (decyzja na pozycjach z odczytu bieżącego wyżej, pod blokadą tras).
-                    dostawa.zdejmij_z_trasy_w_drodze(blokady, zamowienie, dostawa.POWOD_ZMIANY_BASE, get_local_now())
+                    dostawa.zdejmij_z_trasy_w_drodze(blokady, zamowienie, dostawa.POWOD_ZMIANY_BASE, get_local_now(),
+                                                     user_id=user_id)
 
             db.session.commit()
             result['success'] = True
