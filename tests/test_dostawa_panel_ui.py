@@ -303,14 +303,22 @@ def _kontrast(a, b):
 
 def test_dostarczony_przystanek_ma_zielona_tarcze_z_czarnym_numerem():
     """U4: przystanek z `zamowienie.dostawa.dostarczono` — zielona tarcza (--il-status-ok) z czarnym numerem
-    (atrament panelu, ≥ 4,5:1) na osi przystanków edytora i w oknie „Odhacz”; pinezki map bez zmian."""
+    (atrament panelu, ≥ 4,5:1) na osi przystanków edytora i w oknie „Odhacz”. Decyzja Konrada 2.10: pinezki też —
+    na mapce edytora i na mapie tras Dashboardu (pole `dostarczone` z /routes/map), z „Dostarczono” w dymku."""
     js = _plik('static', 'js', 'logistics-routes.js')
     assert 'const dostarczony = (z) => !!(z && z.dostawa && z.dostawa.dostarczono);' in js
     assert ("if (!anul && status !== 'robocza' && dostarczony(z)) klasyStacji.push('lg-stacja--dostarczona');"
             in _funkcja(js, 'przystanekHtml'))
     assert "(stanP === 'dostarczone' ? ' lg-stacja--dostarczona' : '')" in _funkcja(js, 'pozycjaWykonaniaHtml')
-    assert 'lg-stacja--dostarczona' not in _funkcja(js, 'ikonaStacji')
-    assert 'lg-stacja--dostarczona' not in _plik('static', 'js', 'logistics-map.js')
+    mapka = _funkcja(js, 'narysujMapke')
+    assert "const dostarczonyP = !anul && t.status !== 'robocza' && dostarczony(z);" in mapka
+    assert "dostarczonyP ? 'lg-stacja--dostarczona' : ''" in mapka and 'ikonaStacji(anul ? ' in mapka
+    assert "'Dostarczono ' + czasDostarczenia(z.dostawa.dostarczono)" in mapka
+    mapa = _plik('static', 'js', 'logistics-map.js')
+    assert "(!anulowany && dostarczony ? ' lg-stacja--dostarczona' : '')" in _funkcja(mapa, 'ikonaPrzystanku')
+    trasy_mapy = _funkcja(mapa, 'narysujTrasy')
+    assert 'const dostarczony = !anulowany && !!p.dostarczone;' in trasy_mapy
+    assert 'ikonaPrzystanku(p.pozycja, klasa, anulowany, dostarczony)' in trasy_mapy
     css = _plik('static', 'css', 'logistics-trasy.css')
     regula = css[css.index('.logistics-tab .lg-stacja--dostarczona {'):]
     regula = regula[:regula.index('}')]
@@ -423,5 +431,13 @@ def test_przystanek_pokazuje_cofniecie_dostawy_do_ponownego_dostarczenia():
     assert _kontrast('#9a4a05', '#ffffff') >= 4.5
     html = _plik('templates', 'logistics', 'tab_content.html')
     for plik, stara in (('js/logistics-routes.js', '20261002d'), ('css/logistics-trasy.css', '20261002e')):
+        m = re.search(r"filename='" + re.escape(plik) + r"'\) \}\}\?v=(\w+)", html)
+        assert m and m.group(1) > stara, plik
+
+
+def test_wersje_po_zielonych_pinezkach_dostarczonych():
+    html = _plik('templates', 'logistics', 'tab_content.html')
+    for plik, stara in (('js/logistics-routes.js', '20261002e'), ('js/logistics-map.js', '20261002a'),
+                        ('css/logistics-trasy.css', '20261002g')):
         m = re.search(r"filename='" + re.escape(plik) + r"'\) \}\}\?v=(\w+)", html)
         assert m and m.group(1) > stara, plik

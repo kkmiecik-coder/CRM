@@ -521,7 +521,8 @@
 }
 
 /* (U4, oględziny 2.10) Przystanek DOSTARCZONY: zielona tarcza z czarnym numerem — na osi przystanków
-   w edytorze, w oknie „Odhacz” i w legendzie tarcz. Pinezek na mapach to nie dotyczy. Atrament panelu
+   w edytorze, w oknie „Odhacz”, w legendzie tarcz i na pinezkach przystanków (mapka edytora, mapa
+   tras Dashboardu — decyzja Konrada 2.10). Atrament panelu
    na --il-status-ok: 5,2:1 (WCAG AA dla zwykłego tekstu). Styl obwódki zostaje (przerywana = punkt
    przybliżony, kropkowana = brak punktu), zmienia się tylko barwa. Obok tarczy zawsze stoi tekst
    „Dostarczono …”, więc stan nie zależy od samego koloru. */

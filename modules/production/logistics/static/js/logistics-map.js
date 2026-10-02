@@ -1732,13 +1732,15 @@
      * Przystanek: biała „stacja” z obwódką w kolorze trasy i numerem — ta sama co w edytorze trasy.
      * (I5) Anulowany (zamówienie bez aktywnych pozycji, API: `anulowane`, `pozycja` = null) —
      * szara stacja z „—”: Routimo go pomija, więc numer mają tylko aktywne przystanki.
+     * (U4, oględziny 2.10) Dostarczony (API: `dostarczone`) — zielona stacja z czarnym numerem, jak w edytorze.
      */
-    function ikonaPrzystanku(numer, klasaKoloru, anulowany) {
+    function ikonaPrzystanku(numer, klasaKoloru, anulowany, dostarczony) {
         const tekst = anulowany ? '—' : String(numer);
         return L.divIcon({
             className: 'lg-znacznik-przystanku',
             html: '<span class="lg-stacja lg-stacja--mapa ' + klasaKoloru + (tekst.length > 2 ? ' lg-stacja--dlugi' : '') +
-                (anulowany ? ' lg-stacja--anulowana' : '') + '">' + esc(tekst) + '</span>',
+                (anulowany ? ' lg-stacja--anulowana' : '') + (!anulowany && dostarczony ? ' lg-stacja--dostarczona' : '') +
+                '">' + esc(tekst) + '</span>',
             iconSize: [24, 24],
             iconAnchor: [12, 12],
             // Dymek z kierunkiem 'auto' (lewo/prawo, w stronę środka mapy) — od krawędzi stacji.
@@ -1781,8 +1783,9 @@
             (t.przystanki || []).forEach((p) => {
                 if (!maPunkt(p)) return;
                 const anulowany = !!p.anulowane;
+                const dostarczony = !anulowany && !!p.dostarczone;
                 L.marker([p.lat, p.lng], {
-                    icon: ikonaPrzystanku(p.pozycja, klasa, anulowany),
+                    icon: ikonaPrzystanku(p.pozycja, klasa, anulowany, dostarczony),
                     // Klawiatura wybiera trasy z legendy pod mapą — bez setek przystanków Tab.
                     keyboard: false,
                     zIndexOffset: anulowany ? 400 : 500,
@@ -1790,7 +1793,8 @@
                 }).bindTooltip('<b>' + (anulowany ? '— ' : esc(p.pozycja) + '. ') + esc(p.numer) + '</b>' +
                     (p.klient ? ' ' + esc(p.klient) : '') +
                     '<span class="lg-podpowiedz-mapy-uwaga">' + esc(t.nazwa) + '</span>' +
-                    (anulowany ? '<span class="lg-podpowiedz-mapy-uwaga">Anulowane — nie trafi do Routimo</span>' : ''), {
+                    (anulowany ? '<span class="lg-podpowiedz-mapy-uwaga">Anulowane — nie trafi do Routimo</span>' : '') +
+                    (dostarczony ? '<span class="lg-podpowiedz-mapy-uwaga">Dostarczone</span>' : ''), {
                     className: 'lg-podpowiedz-mapy lg-podpowiedz-mapy--zawijana', direction: 'auto', opacity: 1,
                 }).addTo(grupa);
             });

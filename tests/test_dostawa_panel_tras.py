@@ -137,3 +137,17 @@ def test_szczegoly_trasy_pokazuja_cofniecie_dostarczenia(app, client, monkeypatc
                                 new_value='zaladowane', route_id=rid + 1000, created_at=drugie))
     db.session.commit()
     assert przystanki()[ib]['dostawa']['cofnieto'] is None
+
+
+def test_mapa_tras_oznacza_dostarczone_przystanki(app, client):
+    """U4 (decyzja Konrada 2.10): GET /routes/map niesie przy przystanku `dostarczone` — mapa tras Dashboardu rysuje
+    go zieloną stacją, jak oś w edytorze. Pole addytywne, bez dodatkowych zapytań (przystanki z selectinload)."""
+    a, paczki_a = zamowienie_z_paczkami(statusy=('zaladowane', 'zaladowane'))
+    b, paczki_b = zamowienie_z_paczkami(statusy=('zaladowane', 'zaladowane'))
+    t = trasa([a, b], status='w_trasie', loaded_at=T0, departed_at=T0)
+    zaladuj_wprost(paczki_a + paczki_b, t)
+    rid, ia, ib = t.id, a.id, b.id
+    dostawa.dostarcz(t, ia, worker_id=7, teraz=T0)
+    db.session.commit()
+    mapa = next(x for x in client.get(BASE + '/routes/map').get_json()['routes'] if x['id'] == rid)
+    assert {p['order_id']: p['dostarczone'] for p in mapa['przystanki']} == {ia: True, ib: False}

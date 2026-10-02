@@ -1979,7 +1979,8 @@
     }
 
     // (U4, oględziny 2.10) Przystanek dostarczony (`zamowienie.dostawa.dostarczono`) — zielona tarcza z czarnym
-    // numerem na osi przystanków w edytorze i w oknie „Odhacz”. Pinezek na mapach to nie dotyczy.
+    // numerem na osi przystanków w edytorze, w oknie „Odhacz” i na pinezce mapki edytora (decyzja Konrada 2.10;
+    // mapa Dashboardu — logistics-map.js, pole `dostarczone` z /routes/map).
     const dostarczony = (z) => !!(z && z.dostawa && z.dostawa.dostarczono);
 
     // Krok 4.4 (spec 9.7): przy przystanku paczki i stan Dostawy — „załadowano 1/2”, „Zostaje: <powód>”,
@@ -2717,10 +2718,15 @@
             if (!anul) numer += 1;
             if (!maGeo(z)) return;
             const przyblizony = z.geo.quality === 'przyblizona';
+            // (U4) Dostarczony — zielona pinezka jak tarcza na osi (robocza stanu Dostawy nie pokazuje).
+            const dostarczonyP = !anul && t.status !== 'robocza' && dostarczony(z);
             const uwaga = anul ? 'Anulowane — nie trafi do Routimo'
-                : (przyblizony ? 'Punkt przybliżony (miejscowość)' : '');
+                : [przyblizony ? 'Punkt przybliżony (miejscowość)' : '',
+                    dostarczonyP ? 'Dostarczono ' + czasDostarczenia(z.dostawa.dostarczono) : ''].filter(Boolean).join('. ');
+            const klasyStanu = anul ? 'lg-stacja--anulowana'
+                : [klasaGeoStacji(z), dostarczonyP ? 'lg-stacja--dostarczona' : ''].filter(Boolean).join(' ');
             const znacznik = L.marker([z.geo.lat, z.geo.lng], {
-                icon: ikonaStacji(anul ? '—' : numer, klasa, anul ? 'lg-stacja--anulowana' : klasaGeoStacji(z)),
+                icon: ikonaStacji(anul ? '—' : numer, klasa, klasyStanu),
                 keyboard: false,          // klawiatura ma listę przystanków obok
                 zIndexOffset: anul ? 400 : 500,
                 riseOnHover: true,

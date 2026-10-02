@@ -147,15 +147,26 @@ def _trasa_ze_szczegolami(route_id, swieze=False):
     return zapytanie.one_or_none()
 
 
-def _przystanki_mapy(zamowienia, punkty):
-    """Przystanki trasy dla GET /routes/map — (I5) z numerem wśród aktywnych i flagą anulowanych."""
+def _przystanki_mapy(zamowienia, punkty, przystanki=None):
+    """
+    Przystanki trasy dla GET /routes/map — (I5) z numerem wśród aktywnych i flagą anulowanych.
+    (U4, oględziny 2.10) `dostarczone` — przystanek z delivered_at (zielona stacja na mapie, jak na osi edytora);
+    `przystanki` = {order_id: RouteStop} trasy (już wczytane selectinload — bez dodatkowych zapytań).
+    """
+    przystanki = przystanki or {}
+
     def wspolrzedna(order_id, pole):
         punkt = punkty.get(order_id)
         wartosc = getattr(punkt, pole) if punkt is not None else None
         return float(wartosc) if wartosc is not None else None
+
+    def dostarczony(order_id):
+        stop = przystanki.get(order_id)
+        return bool(stop is not None and stop.delivered_at is not None)
     return [{'pozycja': numer, 'anulowane': anulowane, 'order_id': o.id,
              'numer': o.internal_order_number, 'klient': o.client_name,
-             'lat': wspolrzedna(o.id, 'lat'), 'lng': wspolrzedna(o.id, 'lng')}
+             'lat': wspolrzedna(o.id, 'lat'), 'lng': wspolrzedna(o.id, 'lng'),
+             'dostarczone': dostarczony(o.id)}
             for o, numer, anulowane in routes.numeracja_przystankow(zamowienia)]
 
 
@@ -520,7 +531,7 @@ def routes_map():
         'id': trasa.id, 'nazwa': trasa.name, 'status': trasa.status,
         'date_from': trasa.date_from.isoformat(), 'date_to': trasa.date_to.isoformat(),
         'przebieg': routing.przebieg(trasa), 'przyblizony': bool(trasa.geometry_approx),
-        'przystanki': _przystanki_mapy(zamowienia_wg_trasy[trasa.id], punkty),
+        'przystanki': _przystanki_mapy(zamowienia_wg_trasy[trasa.id], punkty, {s.order_id: s for s in trasa.stops}),
     } for trasa in trasy]
     return jsonify({'success': True, 'routes': wynik})
 
