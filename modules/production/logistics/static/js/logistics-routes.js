@@ -114,6 +114,11 @@
         w_trasie: 'fa-truck-fast', wykonana: 'fa-check' };
     // Trasy, które da się odhaczyć w panelu (R12 etapu 3: także robocza; krok 4.4: załadowana i w drodze).
     const ODHACZALNE = ['robocza', 'zatwierdzona', 'zaladowana', 'w_trasie'];
+    // (Ruling 30/31) Trasa załadowana albo w drodze bez przystanków — doróbka albo zmiana z Base. zdjęła jej ostatni
+    // przystanek, a „Ruszam” takiej trasy odmawia. „Odhacz” zamyka ją jako wykonaną (pusta lista dostarczonych; serwer
+    // dla tych dwóch statusów to przyjmuje). Pustej roboczej i zatwierdzonej nie odhaczamy — tę logistyk usuwa.
+    const ZAMYKANE_BEZ_PRZYSTANKOW = ['zaladowana', 'w_trasie'];
+    const PUSTA_DO_ZAMKNIECIA = 'Trasa nie ma przystanków — zatwierdź, żeby ją zamknąć.';
     // [akcja, etykieta, ikona, odmiana przycisku] — przyciski edytora wg statusu. Krok 4.4: „Przywróć trasę” znika,
     // zastępuje ją „Cofnij dostarczenie” przy przystanku (spec 9.7); trasa załadowana ma „Cofnij załadunek”.
     const AKCJE = {
@@ -905,6 +910,8 @@
     const edytowalnaTrasa = () => !!(stan.otwarta && !stan.nowa && stan.otwarta.status === 'robocza');
     const edytowalnaForma = () => stan.nowa || edytowalnaTrasa();
     const liczbaPrzystankow = () => (stan.otwarta && !stan.nowa ? (stan.otwarta.przystanki || []).length : 0);
+    // Pusta trasa załadowana albo w drodze — „Odhacz” ją zamyka (ZAMYKANE_BEZ_PRZYSTANKOW).
+    const zamykanaBezPrzystankow = (t) => !!(t && ZAMYKANE_BEZ_PRZYSTANKOW.includes(t.status) && !(t.przystanki || []).length);
 
     function daneFormularza() {
         const od = pole('date_from') ? pole('date_from').value : '';
@@ -1463,9 +1470,11 @@
                 } else if (zmiany) {
                     tytul = 'Zapisze zmiany i zatwierdzi trasę.';
                 }
-            } else if (akcja === 'wykonaj' && !ile) {
+            } else if (akcja === 'wykonaj' && !ile && !zamykanaBezPrzystankow(stan.nowa ? null : stan.otwarta)) {
                 wylaczony = true;
                 tytul = 'Trasa nie ma przystanków.';
+            } else if (akcja === 'wykonaj' && !ile) {
+                tytul = 'Trasa nie ma przystanków — odhaczenie zamknie ją jako wykonaną.';
             }
             b.disabled = wylaczony;
             if (czeka && !wylaczony) {
@@ -3277,7 +3286,7 @@
     function renderujListeWykonania(w) {
         const przystanki = (w.trasa && w.trasa.przystanki) || [];
         if (!przystanki.length) {
-            pokazStanListyWykonania('Trasa nie ma już przystanków.');
+            pokazStanListyWykonania(zamykanaBezPrzystankow(w.trasa) ? PUSTA_DO_ZAMKNIECIA : 'Trasa nie ma już przystanków.');
             return;
         }
         wykonajListaEl.innerHTML = przystanki.map((p) => pozycjaWykonaniaHtml(w, p)).join('');
@@ -3324,7 +3333,8 @@
 
     /**
      * Przyciski i pola okna: odhaczenie czeka na świeżą listę i na zapis; trasy, która nie jest
-     * już do odhaczenia (wykonana) albo nie ma przystanków, odhaczyć się nie da. Pola
+     * już do odhaczenia (wykonana) albo nie ma przystanków, odhaczyć się nie da — poza pustą trasą
+     * załadowaną albo w drodze, którą odhaczenie zamyka (Ruling 31). Pola
      * niespakowanych, anulowanych i już dostarczonych zostają nieaktywne także po nieudanym zapisie.
      */
     function odswiezPrzyciskiWykonania() {
@@ -3332,7 +3342,8 @@
         const trwa = !!(w && w.zapis);
         const wczytuje = !!(w && w.wczytywanie);
         const t = w ? w.trasa : null;
-        const aktywna = !!(t && ODHACZALNE.includes(t.status) && (t.przystanki || []).length);
+        const aktywna = !!(t && ODHACZALNE.includes(t.status) &&
+            ((t.przystanki || []).length || zamykanaBezPrzystankow(t)));
         wykonajZapiszBtn.disabled = trwa || wczytuje || !aktywna;
         wykonajZapiszBtn.textContent = trwa ? 'Zapisywanie…' : 'Odhacz jako wykonaną';
         const anuluj = formWykonaj.querySelector('[data-lg-trasy-akcja="wykonaj-anuluj"]');
@@ -3497,7 +3508,7 @@
         if (!ODHACZALNE.includes(trasa.status)) {
             teksty.push('Trasa „' + trasa.nazwa + '” jest już ' + String(NAZWY_STATUSOW[trasa.status] || trasa.status).toLowerCase() +
                 ' — nie ma czego odhaczać.');
-        } else if (!(trasa.przystanki || []).length) {
+        } else if (!(trasa.przystanki || []).length && !zamykanaBezPrzystankow(trasa)) {
             teksty.push('Trasa nie ma już przystanków — nie ma czego odhaczać.');
         }
         bladWykonania(teksty.join(' '));

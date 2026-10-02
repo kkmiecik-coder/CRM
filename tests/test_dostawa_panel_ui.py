@@ -248,3 +248,41 @@ def test_wersje_plikow_podbite_po_poprawkach_frontu_4_4b():
         m = re.search(r"filename='" + re.escape(plik) + r"'\) \}\}\?v=(\w+)", html)
         assert m, plik
         assert m.group(1) > stara, plik
+
+
+# --- Ruling 31.1: „Odhacz” pustej trasy załadowanej albo w drodze --------------------------------------------
+# Doróbka albo zmiana z Base. może zdjąć jedyny przystanek trasy załadowanej (Ruling 30). „Ruszam” takiej trasy
+# odmawia i odsyła logistyka do „Odhacz” w panelu, a serwer zamyka pustą trasę załadowaną albo w drodze — panel musi
+# więc dopuścić „Odhacz” bez przystanków dla tych dwóch statusów (dla roboczej i zatwierdzonej zostaje jak dotąd).
+
+def test_odhacz_pustej_trasy_zaladowanej_i_w_drodze():
+    js = _plik('static', 'js', 'logistics-routes.js')
+    assert "const ZAMYKANE_BEZ_PRZYSTANKOW = ['zaladowana', 'w_trasie'];" in js
+    pomocnik = js[js.index('const zamykanaBezPrzystankow = (t) =>'):]
+    pomocnik = pomocnik[:pomocnik.index(';\n')]
+    assert 'ZAMYKANE_BEZ_PRZYSTANKOW.includes(t.status)' in pomocnik and '!(t.przystanki || []).length' in pomocnik
+    # Przycisk edytora: „Trasa nie ma przystanków.” (wyłączony) tylko, gdy trasy nie da się zamknąć bez przystanków.
+    akcje = _funkcja(js, 'odswiezAkcje')
+    i = akcje.index("akcja === 'wykonaj'")
+    galaz = akcje[i:akcje.index("tytul = 'Trasa nie ma przystanków.'", i)]
+    assert '!zamykanaBezPrzystankow(' in galaz
+    # Okno „Odhacz”: przycisk aktywny także dla pustej trasy do zamknięcia, z tekstem w miejscu listy.
+    przyciski = _funkcja(js, 'odswiezPrzyciskiWykonania')
+    assert '|| zamykanaBezPrzystankow(t)' in przyciski
+    lista = _funkcja(js, 'renderujListeWykonania')
+    assert 'zamykanaBezPrzystankow(w.trasa) ? PUSTA_DO_ZAMKNIECIA' in lista
+    assert u"const PUSTA_DO_ZAMKNIECIA = 'Trasa nie ma przystanków — zatwierdź, żeby ją zamknąć.';" in js
+    # Komunikat „nie ma czego odhaczać” — tylko dla pustej trasy, której nie da się zamknąć bez przystanków.
+    wczytanie = _funkcja(js, 'wczytajDoWykonania')
+    i = wczytanie.index(u'Trasa nie ma już przystanków — nie ma czego odhaczać.')
+    assert '!zamykanaBezPrzystankow(trasa)' in wczytanie[wczytanie.rindex('} else if', 0, i):i]
+    # Niepusta trasa jak dotąd: przycisk aktywny przy przystankach, lista z pozycjami.
+    assert '(t.przystanki || []).length || zamykanaBezPrzystankow(t)' in przyciski
+    assert 'przystanki.map((p) => pozycjaWykonaniaHtml(w, p))' in lista
+    assert js.count('ODHACZALNE.includes(') == 4
+
+
+def test_wersja_tras_podbita_po_odhaczeniu_pustej_trasy():
+    html = _plik('templates', 'logistics', 'tab_content.html')
+    m = re.search(r"filename='js/logistics-routes\.js'\) \}\}\?v=(\w+)", html)
+    assert m and m.group(1) > '20261002a', m and m.group(1)
