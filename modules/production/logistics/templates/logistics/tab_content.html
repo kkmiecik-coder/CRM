@@ -16,7 +16,7 @@
 <link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet-markercluster/MarkerCluster.css') }}?v=1.5.3">
 <link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20261001f">
 {# Etap 3: trasy, flota, widok tras na mapie — osobny arkusz (logistics.css zostaje nietknięty). #}
-<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics-trasy.css') }}?v=20261001f">
+<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics-trasy.css') }}?v=20261002c">
 
 <div id="logistics-root" class="logistics-tab"
      data-api="{{ url_for('logistics_panel.orders') }}"
@@ -349,7 +349,8 @@
     <div class="lg-trasy" data-lg-trasy="uklad">
 
       {# ─── LISTA TRAS ─── Robocze, Zatwierdzone, Załadowane i W trasie rozwinięte, Wykonane zwinięte
-           (domyślnie ostatnie 30 dni, filtr dat pyta serwer o starsze). #}
+           (domyślnie ostatnie 30 dni, filtr dat pyta serwer o starsze). Każda sekcja to ramka z pasem
+           nagłówka w barwach plakietki statusu (lg-trasy-sekcja--<status>, ikona jak w plakietce). #}
       <section class="lg-trasy-lista" aria-label="Lista tras">
         <div class="lg-trasy-lista-naglowek">
           <button type="button" class="lg-przycisk lg-przycisk--glowny" data-lg-trasy-akcja="nowa">
@@ -361,25 +362,25 @@
           </button>
         </div>
         <p class="lg-trasy-stan" data-lg-trasy="stan" role="status">Ładowanie tras…</p>
-        <section class="lg-trasy-sekcja" aria-labelledby="lg-trasy-robocze">
-          <h3 class="lg-trasy-sekcja-tytul" id="lg-trasy-robocze">Robocze <span class="lg-trasy-sekcja-ile" data-lg-trasy="robocze-ile"></span></h3>
+        <section class="lg-trasy-sekcja lg-trasy-sekcja--robocza" aria-labelledby="lg-trasy-robocze">
+          <h3 class="lg-trasy-sekcja-tytul" id="lg-trasy-robocze"><i class="fas fa-pen lg-trasy-sekcja-ikona" aria-hidden="true"></i>Robocze <span class="lg-trasy-sekcja-ile" data-lg-trasy="robocze-ile"></span></h3>
           <ul class="lg-trasy-pozycje" data-lg-trasy="robocze"></ul>
         </section>
-        <section class="lg-trasy-sekcja" aria-labelledby="lg-trasy-zatwierdzone">
-          <h3 class="lg-trasy-sekcja-tytul" id="lg-trasy-zatwierdzone">Zatwierdzone <span class="lg-trasy-sekcja-ile" data-lg-trasy="zatwierdzone-ile"></span></h3>
+        <section class="lg-trasy-sekcja lg-trasy-sekcja--zatwierdzona" aria-labelledby="lg-trasy-zatwierdzone">
+          <h3 class="lg-trasy-sekcja-tytul" id="lg-trasy-zatwierdzone"><i class="fas fa-lock lg-trasy-sekcja-ikona" aria-hidden="true"></i>Zatwierdzone <span class="lg-trasy-sekcja-ile" data-lg-trasy="zatwierdzone-ile"></span></h3>
           <ul class="lg-trasy-pozycje" data-lg-trasy="zatwierdzone"></ul>
         </section>
         {# Krok 4.4 (Dostawa): trasa załadowana przez kierowcę, a po „Ruszam” w drodze — aż do wykonanej. #}
-        <section class="lg-trasy-sekcja" aria-labelledby="lg-trasy-zaladowane">
-          <h3 class="lg-trasy-sekcja-tytul" id="lg-trasy-zaladowane">Załadowane <span class="lg-trasy-sekcja-ile" data-lg-trasy="zaladowane-ile"></span></h3>
+        <section class="lg-trasy-sekcja lg-trasy-sekcja--zaladowana" aria-labelledby="lg-trasy-zaladowane">
+          <h3 class="lg-trasy-sekcja-tytul" id="lg-trasy-zaladowane"><i class="fas fa-truck-ramp-box lg-trasy-sekcja-ikona" aria-hidden="true"></i>Załadowane <span class="lg-trasy-sekcja-ile" data-lg-trasy="zaladowane-ile"></span></h3>
           <ul class="lg-trasy-pozycje" data-lg-trasy="zaladowane"></ul>
         </section>
-        <section class="lg-trasy-sekcja" aria-labelledby="lg-trasy-w-trasie">
-          <h3 class="lg-trasy-sekcja-tytul" id="lg-trasy-w-trasie">W trasie <span class="lg-trasy-sekcja-ile" data-lg-trasy="w-trasie-ile"></span></h3>
+        <section class="lg-trasy-sekcja lg-trasy-sekcja--w_trasie" aria-labelledby="lg-trasy-w-trasie">
+          <h3 class="lg-trasy-sekcja-tytul" id="lg-trasy-w-trasie"><i class="fas fa-truck-fast lg-trasy-sekcja-ikona" aria-hidden="true"></i>W trasie <span class="lg-trasy-sekcja-ile" data-lg-trasy="w-trasie-ile"></span></h3>
           <ul class="lg-trasy-pozycje" data-lg-trasy="w-trasie"></ul>
         </section>
-        <details class="lg-trasy-sekcja lg-trasy-wykonane" data-lg-trasy="wykonane">
-          <summary class="lg-trasy-sekcja-tytul">Wykonane <span class="lg-trasy-sekcja-ile" data-lg-trasy="wykonane-ile"></span></summary>
+        <details class="lg-trasy-sekcja lg-trasy-sekcja--wykonana lg-trasy-wykonane" data-lg-trasy="wykonane">
+          <summary class="lg-trasy-sekcja-tytul"><i class="fas fa-check lg-trasy-sekcja-ikona" aria-hidden="true"></i>Wykonane <span class="lg-trasy-sekcja-ile" data-lg-trasy="wykonane-ile"></span></summary>
           <form class="lg-trasy-filtr" data-lg-trasy="wykonane-filtr" novalidate>
             <label class="lg-pole lg-pole--data"><span>Od</span><input type="date" name="od" min="2000-01-01" max="2099-12-31"></label>
             <label class="lg-pole lg-pole--data"><span>Do</span><input type="date" name="do" min="2000-01-01" max="2099-12-31"></label>

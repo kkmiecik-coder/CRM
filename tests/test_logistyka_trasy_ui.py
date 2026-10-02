@@ -501,3 +501,49 @@ def test_dodanie_w_tle_nie_zalezy_od_zdarzenia_close():
     zakoncz = _funkcja(trasy, 'zakonczDodawanieWTle')
     assert zakoncz.index('dodawanie === d') < zakoncz.index('dodawaniaWTle.delete(d);')
     assert 'dodawanie = null;' in zakoncz and 'ustawZapisDodawania(false);' in zakoncz
+
+
+# ─── Oględziny 2.10 (Konrad), U1: sekcje statusów na liście tras wyraźnie od siebie oddzielone ───
+
+def _regula(css, selektor):
+    start = css.index(selektor + ' {')
+    return css[start:css.index('}', start)]
+
+
+def test_sekcje_listy_tras_maja_pas_w_barwach_statusu(client):  # noqa: F811
+    """U1: każda sekcja listy tras to ramka z pasem nagłówka w barwach plakietki statusu — ta sama ikona co
+    plakietka (IKONY_STATUSOW), nazwa i liczba tras przy prawej krawędzi. Nagłówek zostaje h3 z tym samym id
+    (Wykonane — <summary>), więc fokus po zniknięciu trasy (sasiadNaLiscie) trafia tam jak dotąd."""
+    trasy = _plik('static', 'js', 'logistics-routes.js')
+    poczatek = trasy.index('const IKONY_STATUSOW = {')
+    ikony = dict(re.findall(r"(\w+): '(fa-[\w-]+)'", trasy[poczatek:trasy.index('};', poczatek)]))
+    html = client.get(BASE + '/tab-content').get_data(as_text=True)
+    lista = html[html.index('class="lg-trasy-lista"'):html.index('data-lg-trasy="edytor"')]
+    sekcje = re.findall(r'<(section|details) class="lg-trasy-sekcja lg-trasy-sekcja--(\w+)[^"]*"[^>]*>\s*'
+                        r'<(h3|summary) class="lg-trasy-sekcja-tytul"[^>]*>'
+                        r'<i class="fas (fa-[\w-]+) lg-trasy-sekcja-ikona" aria-hidden="true"></i>', lista)
+    assert [s[1] for s in sekcje] == ['robocza', 'zatwierdzona', 'zaladowana', 'w_trasie', 'wykonana']
+    for _, status, naglowek, ikona in sekcje:
+        assert ikona == ikony[status], status
+        assert naglowek == ('summary' if status == 'wykonana' else 'h3'), status
+    for id_ in ('lg-trasy-robocze', 'lg-trasy-zatwierdzone', 'lg-trasy-zaladowane', 'lg-trasy-w-trasie'):
+        assert 'class="lg-trasy-sekcja-tytul" id="%s"' % id_ in lista, id_
+    assert "sekcja.querySelector('.lg-trasy-sekcja-tytul')" in _funkcja(trasy, 'sasiadNaLiscie')
+
+    css = _plik('static', 'css', 'logistics-trasy.css')
+    sekcja = _regula(css, '.logistics-tab .lg-trasy-sekcja')
+    assert 'border: 1px solid var(--lg-sekcja-ramka)' in sekcja and 'background: var(--lg-sekcja-tlo)' in sekcja
+    assert 'margin-top' in _regula(css, '.logistics-tab .lg-trasy-sekcja + .lg-trasy-sekcja')
+    for status in ('robocza', 'zatwierdzona', 'zaladowana', 'w_trasie', 'wykonana'):
+        assert '--lg-sekcja-pasek' in _regula(css, '.logistics-tab .lg-trasy-sekcja--' + status) or status == 'robocza'
+    assert 'border-style: dashed' in _regula(css, '.logistics-tab .lg-trasy-sekcja--robocza')
+    pas = _regula(css, '.logistics-tab .lg-trasy-sekcja-tytul')
+    assert 'background: var(--lg-sekcja-pasek)' in pas and 'border-bottom: 1px solid var(--lg-sekcja-ramka)' in pas
+    assert 'margin-left: auto' in _regula(css, '.logistics-tab .lg-trasy-sekcja-ile')
+    assert 'display: none' in _regula(css, '.logistics-tab .lg-trasy-sekcja-ile:empty')
+    # Wymuszone kolory: tła znikają, sekcje dzieli ramka (etapy Dostawy grubsza — jak plakietki).
+    wymuszone = css[css.index('@media (forced-colors: active) {', css.index('.lg-trasy-filtr-opis {')):]
+    wymuszone = wymuszone[:wymuszone.index('\n}\n')]
+    assert '.lg-trasy-sekcja--w_trasie { border-width: 2px; }' in wymuszone
+    m = re.search(r"filename='css/logistics-trasy\.css'\) \}\}\?v=(\w+)", _plik('templates', 'logistics', 'tab_content.html'))
+    assert m and m.group(1) > '20261001f', m and m.group(1)
