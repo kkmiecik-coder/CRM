@@ -301,9 +301,15 @@ Albo po prostu `./deploy.sh` — robi dokładnie to samo, z lockiem i logami.
   wersję pliku migracji, nie ma wiersza blokady (runner pamięta migracje po nazwie pliku): na MySQL kod zakłada
   go sam (`INSERT IGNORE`, WARNING w logu), a na innych bazach zapisy tras nie są wtedy serializowane.
   **Dostawa (krok 4.4, `logistics/services/dostawa.py`)** — telefon kierowcy (`/api/mobile/delivery/*`) i przejścia
-  z panelu tras (odhaczenie, „Cofnij załadunek”, „Cofnij dostarczenie”): [pracownicy, tylko telefon] → blokada tras
-  → blokada deklaracji paczek → zamówienia CAŁEJ trasy rosnąco po id → paczki → pozycje; decyzje na odczycie
-  bieżącym, a odpowiedź telefonu (pełna trasa) z tych samych blokad. Transport własny zamyka się po `dostarczone`
+  z panelu tras (odhaczenie z odznaczeniem przystanków, czyli „Niedostarczone” z panelu, „Cofnij załadunek”, „Cofnij
+  dostarczenie”, „Cofnij zatwierdzenie” trasy ze znacznikami załadunku — bez znaczników ta ostatnia bierze tylko
+  blokadę tras): [pracownicy, tylko telefon] → blokada tras → blokada deklaracji paczek → zamówienia CAŁEJ trasy
+  rosnąco po id → paczki → pozycje; decyzje na odczycie bieżącym, a odpowiedź telefonu (pełna trasa) z tych samych
+  blokad. Zakleszczenie 1213 — jedno ponowienie całego zapisu (`dostawa_api._zapis`, `trasy_api._akcja`, niżej).
+  **Doróbka i hurtowa zmiana statusu też biorą blokadę tras NAJPIERW**, przed blokadami zamówień (decyzja Konrada
+  2.10): zamówienie z przystankiem na trasie załadowanej albo w drodze doróbka zdejmuje z trasy jak „Niedostarczone”
+  (`dostawa.zdejmij_po_dorobce`, Base. 417343), a hurt mu odmawia (odmowa w `errors`, 409 gdy obejmuje wszystko);
+  status trasy obie czytają odczytem bieżącym pod tą blokadą. Transport własny zamyka się po `dostarczone`
   na pozycjach (reguła nie czyta tras); siatka crona otwiera transport zamknięty po znaczniku
   `logistyka_weryfikacja_od` z pozycją niedostarczoną.
 - **Deklaracje paczek — jedna naraz:** `paczki.zablokuj_deklaracje()` (wiersz `logistyka_paczki_blokada` w
@@ -313,8 +319,8 @@ Albo po prostu `./deploy.sh` — robi dokładnie to samo, z lockiem i logami.
   `paczki.zablokuj_deklaracje()` → zamówienie po PK → paczki → pozycje (`paczki.zablokuj_stan`) i decydują na
   odczycie bieżącym; deklaracja paczek tak samo, z wstępną odmową „nie w całości spakowane” przed blokadą pozycji.
   Reguła `weryfikacja.uniewaznij_etapy` (powrót pozycji do produkcji) blokady globalnej nie bierze; gdy ma pracę,
-  potwierdza ją odczytem bieżącym w tej samej kolejności. Hurtowa zmiana statusu, cron logistyki oraz zmiana
-  sposobu dostawy w panelu (po blokadzie tras) blokują zamówienia rosnąco po id; hurt i przeniesienie
+  potwierdza ją odczytem bieżącym w tej samej kolejności. Hurtowa zmiana statusu i zmiana sposobu dostawy w panelu
+  (obie po blokadzie tras) oraz cron logistyki blokują zamówienia rosnąco po id; hurt i przeniesienie
   osieroconych w cronie potem także wszystkie pozycje tych zamówień (jak niżej). **Zamówienie najpierw**
   (krok 4.4a): ZAKOŃCZ i wejście do pakowania na tabletach (`POST /api/mobile/orders/<id>/complete`), doróbka
   (`reject_product_quantity`), zmiany z Base. (`apply_baselinker_changes`), druk etykiet całego zamówienia w trybie
@@ -329,9 +335,11 @@ Albo po prostu `./deploy.sh` — robi dokładnie to samo, z lockiem i logami.
   tabeli z FK do `prod_orders` (`prod_logistics_log`, `prod_packages`, `prod_route_stops`).** Jeden flush to: odczyt
   pozycji, potem same przypisania i zapis przy commicie (SQLAlchemy sortuje UPDATE-y jednego mappera po PK); każde
   zapytanie pomiędzy autoflushuje, a dwa flushe są rosnące każdy z osobna, razem już nie. Reguła wystarcza wobec
-  pisarzy jednego zamówienia (ZAKOŃCZ, doróbka, Base., druk); hurt i przeniesienie osieroconych blokują pozycje
-  zamówienie po zamówieniu, czyli w kolejności (zamówienie, id), więc z pisarzem wielu zamówień bez blokady
-  zamówień rzadkie 1213 jest nadal możliwe (hurt ponawia raz). Tak piszą liczniki sztuk
+  pisarzy jednego zamówienia (ZAKOŃCZ, doróbka, Base., druk); hurt, przeniesienie osieroconych i Dostawa (pozycje
+  wszystkich zamówień trasy — trasa robocza i zatwierdzona może mieć zamówienia w produkcji, a doróbka dokłada
+  starszemu zamówieniu pozycję o wyższym id) blokują pozycje zamówienie po zamówieniu, czyli w kolejności
+  (zamówienie, id), więc z pisarzem wielu zamówień bez blokady zamówień rzadkie 1213 jest nadal możliwe (hurt
+  i Dostawa ponawiają raz). Tak piszą liczniki sztuk
   (`PATCH …/quantity`, edycja sztuk w panelu admina), faza 2 crona logistyki (`delivery.dostarcz_wydane`:
   jednorazowe przestawienie pozycji zamówień wydanych klientowi, we własnej transakcji, bez blokad zamówień), druk
   etykiet w trybie TCP i druk pojedynczej etykiety (`print_labels_batch`, zapis w końcowym commicie) oraz priorytety
@@ -348,8 +356,9 @@ Albo po prostu `./deploy.sh` — robi dokładnie to samo, z lockiem i logami.
   ręczna synchronizacja z `force_update`, która dopisuje pozycje istniejącym zamówieniom, i `sync-cron`
   (`sync_paid_orders_only`) przy ponownym imporcie istniejącego zamówienia — ta sama klasa wyjątku, dziś
   nieaktywna, bo cron importu nie jest uruchamiany; gdyby miał wrócić, trzeba najpierw dodać blokadę zamówienia.
-  Na rzadkie zakleszczenie z takim wyjątkiem zmiana sposobu dostawy w panelu i hurtowa zmiana statusu odpowiadają
-  jednym automatycznym ponowieniem: rollback i cały zapis od nowa, z decyzją na nowym stanie
+  Na rzadkie zakleszczenie z takim wyjątkiem zmiana sposobu dostawy w panelu, hurtowa zmiana statusu i zapisy
+  Dostawy (telefon kierowcy — ponowienie wewnątrz handlera, wpis idempotencji raz — i akcje Dostawy w panelu tras)
+  odpowiadają jednym automatycznym ponowieniem: rollback i cały zapis od nowa, z decyzją na nowym stanie
   (`blokady_zamowien.kod_mysql`); drugie 1213 kończy się odpowiedzią 500 z rollbackiem.
 
 ## Architecture
