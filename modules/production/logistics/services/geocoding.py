@@ -422,6 +422,22 @@ def skrot_adresu(order):
     return hashlib.sha1(tekst.encode('utf-8')).hexdigest()
 
 
+def punkt_do_nawigacji(punkt, order):
+    """
+    (szerokość, długość) punktu, który wolno dać do nawigacji, albo None — jedna reguła dla eksportu Routimo
+    (routimo.wspolrzedne_dla_routimo) i telefonu kierowcy (dostawa_widok). Tylko punkt DOKŁADNY: przybliżony
+    (środek miejscowości) wysłałby kierowcę w złe miejsce. Nie punkt ręczny, po którym adres zmienił się w Base.
+    (`address_changed_after_manual`), ani punkt policzony dla innego adresu niż bieżący adres zamówienia (skrót):
+    adres zmieniony w Base. wraca synchronizacją, a punkt ma stary skrót do najbliższego udanego przebiegu
+    geokodera (cron co godzinę, przy awarii usług dłużej). Bez punktu nawigacja szuka po adresie.
+    """
+    if (punkt is None or punkt.lat is None or punkt.lng is None
+            or punkt.quality != 'dokladna' or punkt.address_changed_after_manual
+            or punkt.address_hash != skrot_adresu(order)):
+        return None
+    return float(punkt.lat), float(punkt.lng)
+
+
 def _ma_adres(order):
     return any((x or '').strip() for x in (order.delivery_address, order.delivery_city,
                                             order.delivery_postcode))

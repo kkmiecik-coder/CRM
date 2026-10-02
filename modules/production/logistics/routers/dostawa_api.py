@@ -3,9 +3,10 @@
 API telefonu kierowcy — /api/mobile/delivery/* (logistyka etap 4, krok 4.4, spec 9; kontrakt w planie 4.4b).
 
 Reużywa autoryzację i idempotencję API mobilnego produkcji (require_device_token, with_idempotency). Każde żądanie
-ma kierowcę: pierwszy identyfikator z X-Worker-Ids, aktywny pracownik ze znacznikiem is_driver. Odczyty pokazują
-trasy tego kierowcy; zapisy przyjmujemy od każdego aktywnego kierowcy (zastępstwo bez przepisywania trasy).
-Handlery zapisu NIE commitują — robi to dekorator idempotencji; 400/403/404/409 nie są zapamiętywane
+ma kierowcę: pierwszy identyfikator z X-Worker-Ids, aktywny pracownik ze znacznikiem is_driver. Lista „Moje trasy”
+(GET /routes) zawiera tylko trasy zalogowanego kierowcy; szczegóły trasy (GET /routes/<id>) widzi i zapisy na niej
+robi każdy aktywny kierowca (decyzja Konrada 5 — zastępstwo załatwia zmiana kierowcy w panelu, appka pokazuje tylko
+trasy zalogowanego, a serwerowi przyjmowanie cudzych nie szkodzi). Handlery zapisu NIE commitują — robi to dekorator idempotencji; 400/403/404/409 nie są zapamiętywane
 (BLEDY_DO_PONOWIENIA), 422 jest. Dopychacz Base. rusza dopiero po commicie (serwis tylko planuje:
 bl_sync.zaplanuj_po_commicie; dekorator woła wyslij_zaplanowane). Kolejność blokad zapisu: pracownicy
 (touch_sessions w _kierowca) → dostawa.zablokuj (trasy → deklaracje paczek → zamówienia trasy rosnąco → paczki →
@@ -18,6 +19,7 @@ from functools import wraps
 
 from flask import Blueprint, g, jsonify, request
 
+from extensions import db
 from modules.logging import get_structured_logger
 from modules.production.logistics.models import Route
 from modules.production.logistics.services import dostawa, dostawa_widok, routes
@@ -41,7 +43,8 @@ KSZTALT_TRASY = 1
 
 
 def wymaga_dostawy(f):
-    """Urządzenie zarejestrowane na stanowisku Dostawa (kod z JWT, jak Weryfikacja)."""
+    """Urządzenie zarejestrowane na stanowisku Dostawa — kolumna `station_code` urządzenia z bazy (g.device
+    z require_device_token), nie wartość z tokenu; jak Weryfikacja."""
     @wraps(f)
     def wrapper(*args, **kwargs):
         if resolve_station_code((g.device.station_code or '').strip()) != dostawa.STANOWISKO:
@@ -68,6 +71,8 @@ def _kierowca(dotknij=True):
         ids = worker_service.resolve_worker_ids(request.headers.get('X-Worker-Ids'), required=False)
     except WorkerError as e:
         if e.error_code == 'worker_inactive':
+            # Appka Dostawy wysyła jeden identyfikator — kierowcę — więc nieaktywny z nagłówka to on (kontrakt:
+            # 403 not_a_driver). Przy kilku identyfikatorach dotyczyłoby to każdego nieaktywnego z listy.
             return None, _nie_kierowca()
         payload, status = e.as_response()
         return None, (jsonify(payload), status)
@@ -120,6 +125,11 @@ def _zapis(route_id, akcja):
 
     Odmowy serwisu i odczyt trasy po zapisie stoją w jednym `try`: trasa skasowana w międzyczasie daje 404
     route_not_found (dostawa.zablokuj), a nie 500.
+
+    Odmowa = żadnych zapisów akcji, stąd rollback przed odpowiedzią. 400/403/404/409 cofa i tak with_idempotency
+    (BLEDY_DO_PONOWIENIA), ale 422 zapamiętuje i commituje RAZEM z transakcją. Serwis Dostawy rzuca 422 tylko przed
+    zapisami (walidacja wejścia: waliduj_powod, waliduj_metode), a ten rollback pilnuje tego także na przyszłość —
+    inaczej częściowe zapisy weszłyby do bazy razem z wpisem idempotencji.
     """
     kierowca, err = _kierowca()
     if err:
@@ -131,6 +141,7 @@ def _zapis(route_id, akcja):
         komunikat, dodatkowe = akcja(trasa, kierowca)
         dane = {'route': dostawa_widok.trasa_po_zapisie(trasa), 'message': komunikat}
     except LogistykaBlad as e:
+        db.session.rollback()
         return _blad(e)
     dane.update(dodatkowe)
     logger.info('Dostawa: zapis', extra={'route_id': route_id, 'endpoint': request.endpoint,

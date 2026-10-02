@@ -4,12 +4,13 @@ z ETagiem, załadunek, „Zostaje”, zakończenie załadunku, wyjazd, dostarcze
 import gc
 from datetime import timedelta
 
+import pytest
 from sqlalchemy import text
 
 from extensions import db
 from modules.production.logistics import sposoby
 from modules.production.logistics.models import LogisticsLog, OrderGeo, RouteStop
-from modules.production.logistics.services import bl_sync, dostawa, dostawa_widok, routes
+from modules.production.logistics.services import bl_sync, dostawa, dostawa_widok, geocoding, routes, routimo
 from modules.production.logistics.services.delivery import LogistykaBlad
 from modules.production.models import ProcessedMobileOperation, ProductionDevice
 from tests.blokady_pomocnicze import Zapytania
@@ -88,7 +89,7 @@ def test_trasa_ksztalt_i_stany(app, client):
     t = _trasa_kierowcy(k, [gotowe, niezweryfikowane, problem, niespakowane, anulowane], nazwa=u'Rzeszów 02.10')
     zaladuj_wprost([g1], t, kto_id=k.id)
     db.session.add(OrderGeo(order_id=gotowe.id, lat=50.04, lng=22.0, source='gugik', quality='dokladna',
-                            address_hash='x' * 40))
+                            address_hash=geocoding.skrot_adresu(gotowe)))
     db.session.add(OrderGeo(order_id=niezweryfikowane.id, lat=50.0, lng=21.9, source='nominatim',
                             quality='przyblizona', address_hash='y' * 40))
     dostawa.ustaw_zostaje(t, niespakowane.id, 'niespakowane')
@@ -558,3 +559,163 @@ def test_zapisy_przez_api_decyduja_i_odpowiadaja_na_zablokowanych_obiektach(app,
     assert r.get_json()['route']['status'] == 'w_trasie'
     assert [s['order_id'] for s in r.get_json()['route']['stops']] == [ia]
     assert licznik['_wymagaj_statusu'] > 0 and licznik['zapisz_log'] > 0
+
+
+# --- Runda 1 zadania 6 (Ruling 28) -----------------------------------------------------------------------------
+
+def test_punkt_do_nawigacji_wspolna_regula(app):
+    """Jedna reguła punktu do nawigacji (Routimo i telefon kierowcy): tylko punkt dokładny, policzony dla bieżącego
+    adresu zamówienia, a ręczny — tylko gdy adres nie zmienił się po ustawieniu pinezki. Routimo bez zmian:
+    brak punktu → puste komórki."""
+    order, _ = zamowienie_z_paczkami()
+    skrot = geocoding.skrot_adresu(order)
+
+    def punkt(**kolumny):
+        dane = dict(order_id=order.id, lat=50.04, lng=22.0, source='gugik', quality='dokladna', address_hash=skrot,
+                    address_changed_after_manual=False)
+        dane.update(kolumny)
+        return OrderGeo(**dane)
+
+    assert geocoding.punkt_do_nawigacji(punkt(), order) == (50.04, 22.0)
+    assert geocoding.punkt_do_nawigacji(punkt(source='reczna'), order) == (50.04, 22.0)
+    for zly in (None, punkt(lat=None), punkt(lng=None), punkt(quality='przyblizona'),
+                punkt(source='reczna', address_changed_after_manual=True), punkt(address_hash='x' * 40)):
+        assert geocoding.punkt_do_nawigacji(zly, order) is None
+        assert routimo.wspolrzedne_dla_routimo(zly, order) == ('', '')
+    assert routimo.wspolrzedne_dla_routimo(punkt(), order) == (50.04, 22.0)
+
+
+def test_geo_przystanku_tylko_punkt_do_nawigacji(app, client):
+    """Ruling 28: punkt ręczny, po którym adres zmienił się w Base., i punkt policzony dla starego adresu (geokoder
+    jeszcze nie przeliczył) nie prowadzą kierowcy pod stary adres — w GET i w odpowiedzi zapisu."""
+    device, k = telefon_kierowcy()
+    aktualny, (p1, _p2) = zamowienie_z_paczkami()
+    reczny, _ = zamowienie_z_paczkami()
+    stary, _ = zamowienie_z_paczkami()
+    t = _trasa_kierowcy(k, [aktualny, reczny, stary])
+    db.session.add_all([
+        OrderGeo(order_id=aktualny.id, lat=50.04, lng=22.0, source='gugik', quality='dokladna',
+                 address_hash=geocoding.skrot_adresu(aktualny)),
+        OrderGeo(order_id=reczny.id, lat=50.1, lng=22.1, source='reczna', quality='dokladna',
+                 address_hash=geocoding.skrot_adresu(reczny), address_changed_after_manual=True),
+        OrderGeo(order_id=stary.id, lat=50.2, lng=22.2, source='gugik', quality='dokladna',
+                 address_hash=geocoding.skrot_adresu(stary)),
+    ])
+    stary.delivery_address = u'ul. Nowa 1'          # adres zmieniony w Base. po geokodowaniu
+    db.session.commit()
+    oczekiwane = {aktualny.id: {'lat': 50.04, 'lng': 22.0}, reczny.id: None, stary.id: None}
+    r = client.get(API + '/routes/%d' % t.id, headers=naglowki(device, k))
+    assert {s['order_id']: s['geo'] for s in r.get_json()['route']['stops']} == oczekiwane
+    r = client.post(API + '/routes/%d/packages/%d/load' % (t.id, p1.id), headers=naglowki(device, k), json={})
+    assert r.status_code == 200, r.get_data()[:300]
+    assert {s['order_id']: s['geo'] for s in r.get_json()['route']['stops']} == oczekiwane
+
+
+def test_moje_trasy_zatwierdzona_z_rozpoczetym_zaladunkiem(app, client):
+    """Review Focus 3, Ruling 28: trasa zatwierdzona, na którą kierowca już coś załadował, nie znika z „Moich tras”
+    po północy (date_to < dziś). Znacznik paczki nieaktualnej (unieważnionej) się nie liczy."""
+    device, k = telefon_kierowcy()
+    wczoraj = DZIS_TESTOW - timedelta(days=1)
+    order, (p1, _p2) = zamowienie_z_paczkami()
+    zaczeta = _trasa_kierowcy(k, [order], nazwa=u'Zaczęta wczoraj', od=wczoraj)
+    zaladuj_wprost([p1], zaczeta, kto_id=k.id)
+    inne, (q1, _q2) = zamowienie_z_paczkami()
+    niewazna = _trasa_kierowcy(k, [inne], nazwa=u'Znacznik nieaktualnej paczki', od=wczoraj)
+    zaladuj_wprost([q1], niewazna, kto_id=k.id)
+    q1.voided_at = T0
+    dzisiejsza = _trasa_kierowcy(k, [zamowienie_z_paczkami()[0]], nazwa=u'Dziś')
+    db.session.commit()
+    r = client.get(API + '/routes', headers=naglowki(device, k))
+    assert r.status_code == 200, r.get_data()[:300]
+    trasy = r.get_json()['routes']
+    assert [t['id'] for t in trasy] == [zaczeta.id, dzisiejsza.id]
+    assert (trasy[0]['status'], trasy[0]['packages_loaded']) == ('zatwierdzona', 1)
+
+
+# Wszystkie endpointy blueprintu (reguły Flaska) — test niżej sprawdza, że lista jest pełna.
+ENDPOINTY = [
+    ('GET', '/routes'),
+    ('GET', '/routes/<int:route_id>'),
+    ('POST', '/routes/<int:route_id>/packages/<int:package_id>/load'),
+    ('POST', '/routes/<int:route_id>/packages/<int:package_id>/unload'),
+    ('POST', '/routes/<int:route_id>/stops/<int:order_id>/stays'),
+    ('DELETE', '/routes/<int:route_id>/stops/<int:order_id>/stays'),
+    ('POST', '/routes/<int:route_id>/finish-loading'),
+    ('POST', '/routes/<int:route_id>/depart'),
+    ('POST', '/routes/<int:route_id>/stops/<int:order_id>/delivered'),
+    ('POST', '/routes/<int:route_id>/stops/<int:order_id>/not-delivered'),
+    ('POST', '/routes/<int:route_id>/stops/<int:order_id>/undo-delivered'),
+]
+
+
+def test_lista_endpointow_bramek_jest_pelna(app):
+    reguly = {(metoda, r.rule[len(API):]) for r in app.url_map.iter_rules() if r.rule.startswith(API + '/')
+              for metoda in r.methods - {'HEAD', 'OPTIONS'}}
+    assert reguly == set(ENDPOINTY)
+
+
+@pytest.mark.parametrize('metoda, wzor', ENDPOINTY, ids=['%s %s' % e for e in ENDPOINTY])
+def test_bramki_kazdego_endpointu(app, client, metoda, wzor):
+    """Ruling 28: każdy endpoint (nie tylko GET /routes) odmawia urządzeniu spoza stanowiska Dostawa (403
+    station_not_allowed) i pracownikowi bez znacznika kierowcy (403 not_a_driver). Ciało jest poprawne, więc odmowa
+    pochodzi z bramki; 403 nie jest zapamiętywane, nic się nie zmienia."""
+    device, k = telefon_kierowcy()
+    obcy = ProductionDevice(device_id='TEL-OBCY', device_name='Telefon biura', station_code='verification')
+    db.session.add(obcy)
+    db.session.commit()
+    order, (p1, _p2) = zamowienie_z_paczkami()
+    t = _trasa_kierowcy(k, [order])
+    sciezka = (API + wzor.replace('<int:route_id>', str(t.id)).replace('<int:package_id>', str(p1.id))
+               .replace('<int:order_id>', str(order.id)))
+    cialo = None if metoda == 'GET' else {'method': 'skan', 'reason': 'inne'}
+    for naglowek, kod in ((naglowki(obcy, k, op_id='op-bramka-stanowisko'), 'station_not_allowed'),
+                          (naglowki(device, pracownik(), op_id='op-bramka-kierowca'), 'not_a_driver')):
+        r = client.open(sciezka, method=metoda, headers=naglowek, json=cialo)
+        assert r.status_code == 403 and r.get_json()['error'] == kod, (sciezka, kod, r.get_data()[:300])
+        assert ProcessedMobileOperation.query.get(naglowek['X-Operation-Id']) is None
+    assert p1.loaded_at is None and RouteStop.query.filter_by(order_id=order.id).one().stays_reason is None
+    assert LogisticsLog.query.count() == 0
+
+
+def test_completed_by_panel(app, client):
+    """Ruling 28: `completed_by_panel` False po zamknięciu trasy telefonem (ostatnie „Dostarczone”), True po
+    odhaczeniu w panelu — wtedy telefon nie cofa ostatniego dostarczenia (decyzja Konrada 3)."""
+    device, k = telefon_kierowcy()
+    telefonem, paczki_t = zamowienie_z_paczkami(statusy=('zaladowane', 'zaladowane'))
+    t = _trasa_kierowcy(k, [telefonem], status='w_trasie', loaded_at=T0, departed_at=T0)
+    zaladuj_wprost(paczki_t, t, kto_id=k.id)
+    r = client.post(API + '/routes/%d/stops/%d/delivered' % (t.id, telefonem.id), headers=naglowki(device, k))
+    assert r.status_code == 200 and r.get_json()['route']['status'] == 'wykonana'
+    assert r.get_json()['route']['completed_by_panel'] is False
+    r = client.get(API + '/routes/%d' % t.id, headers=naglowki(device, k))
+    assert r.get_json()['route']['completed_by_panel'] is False
+
+    w_panelu, paczki_p = zamowienie_z_paczkami(statusy=('zaladowane', 'zaladowane'))
+    p = _trasa_kierowcy(k, [w_panelu], status='w_trasie', loaded_at=T0, departed_at=T0)
+    zaladuj_wprost(paczki_p, p, kto_id=k.id)
+    dostawa.odhacz(p, [w_panelu.id], user_id=1)
+    db.session.commit()
+    r = client.get(API + '/routes/%d' % p.id, headers=naglowki(device, k))
+    assert (r.get_json()['route']['status'], r.get_json()['route']['completed_by_panel']) == ('wykonana', True)
+    r = client.post(API + '/routes/%d/stops/%d/undo-delivered' % (p.id, w_panelu.id), headers=naglowki(device, k))
+    assert r.status_code == 409 and r.get_json()['error'] == 'route_status'
+
+
+def test_odmowa_422_z_akcji_nie_zostawia_zapisow(app, client, monkeypatch):
+    """Ruling 28: with_idempotency zapamiętuje 422 i commituje je RAZEM z transakcją. Odmowa z akcji (_zapis)
+    cofa wszystko, co akcja zdążyła zapisać — w bazie zostaje tylko wpis idempotencji."""
+    device, k = telefon_kierowcy()
+    order, _ = zamowienie_z_paczkami()
+    t = _trasa_kierowcy(k, [order])
+
+    def zapis_i_odmowa(route, order_id, *a, **kw):
+        RouteStop.query.filter_by(order_id=order_id).one().stays_reason = 'inne'
+        db.session.flush()
+        raise dostawa.DostawaBlad('invalid_reason', u'Odmowa po zapisie.', status=422)
+
+    monkeypatch.setattr(dostawa, 'ustaw_zostaje', zapis_i_odmowa)
+    r = client.post(API + '/routes/%d/stops/%d/stays' % (t.id, order.id),
+                    headers=naglowki(device, k, op_id='op-422-po-zapisie'), json={'reason': 'inne'})
+    assert r.status_code == 422 and r.get_json()['error'] == 'invalid_reason'
+    assert ProcessedMobileOperation.query.get('op-422-po-zapisie') is not None      # 422 zapamiętane
+    assert RouteStop.query.filter_by(order_id=order.id).one().stays_reason is None

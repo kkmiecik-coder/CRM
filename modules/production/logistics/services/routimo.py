@@ -118,12 +118,11 @@ def wspolrzedne_dla_routimo(punkt, order):
     (M10) Także gdy skrót adresu punktu nie zgadza się z bieżącym adresem zamówienia:
     adres zmieniony w Base. wraca synchronizacją, a punkt ma stary skrót do najbliższego
     udanego przebiegu geokodera (cron co godzinę, przy awarii usług dłużej).
+
+    Reguła jest wspólna z telefonem kierowcy: geocoding.punkt_do_nawigacji.
     """
-    if (punkt is None or punkt.lat is None or punkt.lng is None
-            or punkt.quality != 'dokladna' or punkt.address_changed_after_manual
-            or punkt.address_hash != geocoding.skrot_adresu(order)):
-        return '', ''
-    return float(punkt.lat), float(punkt.lng)
+    wspolrzedne = geocoding.punkt_do_nawigacji(punkt, order)
+    return wspolrzedne if wspolrzedne is not None else ('', '')
 
 
 def przygotuj_eksport(route):

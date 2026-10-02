@@ -6,12 +6,12 @@ i stanami zamówień — kształt z kontraktu API Dostawy (plan kroku 4.4b, sekc
 import hashlib
 import json
 
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, exists, or_
 from sqlalchemy.orm import selectinload
 
-from modules.production.logistics.models import Route
+from modules.production.logistics.models import Route, RouteStop
 from modules.production.logistics.services import delivery, dostawa, geocoding, paczki, routes, weryfikacja
-from modules.production.models import ProductionOrder
+from modules.production.models import ProductionOrder, ProductionPackage
 
 ETYKIETY_STANU = {
     'zweryfikowane': u'Zweryfikowane',
@@ -26,12 +26,18 @@ ETYKIETY_STANU = {
 def moje_trasy(kierowca_id, dzis):
     """
     „Moje trasy” (spec 9.2 z odstępstwem z planu 4.4b): trasy kierowcy zatwierdzone z `date_to >= dziś` oraz
-    załadowane i w drodze bez względu na datę — rozpoczęta trasa nie może zniknąć z telefonu o północy.
-    Najbliższa `date_from` pierwsza.
+    załadowane i w drodze bez względu na datę — rozpoczęta trasa nie może zniknąć z telefonu o północy. Rozpoczęta
+    jest też trasa zatwierdzona z rozpoczętym załadunkiem: aktualna paczka zamówienia z jej przystanku ma znacznik
+    załadunku tej trasy (Ruling 28, jak dostawa._sa_znaczniki_zaladunku). Najbliższa `date_from` pierwsza.
     """
+    zaladunek_zaczety = exists().where(and_(
+        RouteStop.route_id == Route.id,
+        ProductionPackage.order_id == RouteStop.order_id,
+        ProductionPackage.loaded_route_id == Route.id,
+        ProductionPackage.voided_at.is_(None)))
     return (Route.query.options(selectinload(Route.stops), selectinload(Route.vehicle))
             .filter(Route.driver_worker_id == kierowca_id,
-                    or_(and_(Route.status == 'zatwierdzona', Route.date_to >= dzis),
+                    or_(and_(Route.status == 'zatwierdzona', or_(Route.date_to >= dzis, zaladunek_zaczety)),
                         Route.status.in_(('zaladowana', 'w_trasie'))))
             .order_by(Route.date_from, Route.id).all())
 
@@ -109,6 +115,9 @@ def _przystanek(stop, order, numer, pakunki_zamowienia, punkt, trasa):
     if stan == 'problem':
         etykieta = u'PROBLEM: ' + weryfikacja.POWODY_PROBLEMU.get(order.problem_reason, order.problem_reason or u'')
     m3 = round(sum(float(p.volume_m3 or 0) * (p.quantity or 1) for p in aktywne), 4)
+    # Ta sama reguła co Routimo: punkt dokładny, policzony dla bieżącego adresu, bez ręcznego sprzed zmiany adresu.
+    # W odpowiedzi zapisu `order` pochodzi z odczytu bieżącego (zablokuj), więc skrót liczymy z aktualnego adresu.
+    nawigacja = geocoding.punkt_do_nawigacji(punkt, order)
     return {
         'position': numer,
         'order_id': order.id,
@@ -119,9 +128,7 @@ def _przystanek(stop, order, numer, pakunki_zamowienia, punkt, trasa):
         'phone': order.client_phone,
         'address': {'street': order.delivery_address, 'postcode': order.delivery_postcode,
                     'city': order.delivery_city, 'country_code': order.delivery_country_code},
-        # Tylko punkt dokładny — przybliżony (miejscowość) prowadziłby nawigację w złe miejsce.
-        'geo': ({'lat': float(punkt.lat), 'lng': float(punkt.lng)}
-                if punkt is not None and punkt.quality == 'dokladna' and punkt.lat is not None else None),
+        'geo': {'lat': nawigacja[0], 'lng': nawigacja[1]} if nawigacja is not None else None,
         'order_notes': order.order_notes,
         'm3': m3,
         'weight_kg': int(round(m3 * routes.WAGA_KG_NA_M3)),
