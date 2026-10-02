@@ -356,3 +356,50 @@ def test_wersje_po_tarczy_dostarczonego_i_legendzie():
     for plik, stara in (('js/logistics-routes.js', '20261002b'), ('css/logistics-trasy.css', '20261002c')):
         m = re.search(r"filename='" + re.escape(plik) + r"'\) \}\}\?v=(\w+)", html)
         assert m and m.group(1) > stara, plik
+
+
+# --- Oględziny 2.10 (Konrad), U5 i U7: okno „Odhacz jako dostarczoną” -------------------------------------------
+
+def test_odhacz_jako_dostarczona_w_calym_panelu_tras(client):  # noqa: F811
+    """U7: przycisk w nagłówku edytora (AKCJE, każdy status), tytuł okna i przycisk zatwierdzenia (także po zapisie) —
+    „Odhacz jako dostarczoną”. Nazwy statusu trasy („Wykonana”, sekcja „Wykonane”) zostają."""
+    js = _plik('static', 'js', 'logistics-routes.js')
+    assert u"'Odhacz jako wykonaną'" not in js
+    akcje = js[js.index('const AKCJE = {'):]
+    akcje = akcje[:akcje.index('\n    };')]
+    assert akcje.count(u"['wykonaj', 'Odhacz jako dostarczoną', 'fa-check-double', '']") == 4
+    assert u"trwa ? 'Zapisywanie…' : 'Odhacz jako dostarczoną'" in js
+    html = client.get(BASE + '/tab-content').get_data(as_text=True)
+    assert u'Odhacz jako wykonaną' not in html
+    okno = html[html.index('data-lg="trasa-wykonaj-dialog"'):]
+    okno = okno[:okno.index('</dialog>')]
+    assert u'id="lg-trasa-wykonaj-tytul">Odhacz jako dostarczoną <span class="lg-dialog-numer"' in okno
+    assert u'data-lg-trasy="wykonaj-zapisz">Odhacz jako dostarczoną</button>' in okno
+    assert u"wykonana: 'Wykonana'" in js and u'>Wykonane <span class="lg-trasy-sekcja-ile"' in html
+
+
+def test_nazwa_trasy_w_oknach_tras_od_drugiej_linii(client):  # noqa: F811
+    """U5: w oknach tras (Odhacz, Dodaj do trasy — ten sam element .lg-dialog-numer w tytule) nazwa trasy albo numer
+    zamówienia stoi pod tytułem, nie w jego linii. Okno adresu na Dashboardzie (logistics.css) bez zmian."""
+    css = _plik('static', 'css', 'logistics-trasy.css')
+    regula = css[css.index('.logistics-tab .lg-dialog--trasy .lg-dialog-numer {'):]
+    regula = regula[:regula.index('}')]
+    assert 'display: block' in regula and 'overflow-wrap: anywhere' in regula
+    pusty = css[css.index('.logistics-tab .lg-dialog--trasy .lg-dialog-numer:empty {'):]
+    assert 'display: none' in pusty[:pusty.index('}')]
+    html = client.get(BASE + '/tab-content').get_data(as_text=True)
+    for okno in ('trasa-wykonaj-dialog', 'trasa-dodaj-dialog'):
+        assert '<dialog class="lg-dialog lg-dialog--trasy" data-lg="%s"' % okno in html, okno
+        tresc = html[html.index('data-lg="%s"' % okno):]
+        tresc = tresc[:tresc.index('</dialog>')]
+        assert re.search(r'<h2 class="lg-dialog-tytul"[^>]*>[^<]+ <span class="lg-dialog-numer"', tresc), okno
+    ogolna = _plik('static', 'css', 'logistics.css')
+    ogolna = ogolna[ogolna.index('.logistics-tab .lg-dialog-numer {'):]
+    assert 'margin-left: 6px' in ogolna[:ogolna.index('}')]
+
+
+def test_wersje_po_oknie_odhacz_jako_dostarczona():
+    html = _plik('templates', 'logistics', 'tab_content.html')
+    for plik, stara in (('js/logistics-routes.js', '20261002c'), ('css/logistics-trasy.css', '20261002d')):
+        m = re.search(r"filename='" + re.escape(plik) + r"'\) \}\}\?v=(\w+)", html)
+        assert m and m.group(1) > stara, plik

@@ -16,7 +16,7 @@
 <link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet-markercluster/MarkerCluster.css') }}?v=1.5.3">
 <link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20261001f">
 {# Etap 3: trasy, flota, widok tras na mapie — osobny arkusz (logistics.css zostaje nietknięty). #}
-<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics-trasy.css') }}?v=20261002d">
+<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics-trasy.css') }}?v=20261002e">
 
 <div id="logistics-root" class="logistics-tab"
      data-api="{{ url_for('logistics_panel.orders') }}"
@@ -232,7 +232,7 @@
                data-skrypt-leaflet="{{ url_for('production.static', filename='vendor/leaflet/leaflet.js') }}?v=1.9.4"
                data-skrypt-klastry="{{ url_for('production.static', filename='vendor/leaflet-markercluster/leaflet.markercluster.js') }}?v=1.5.3"
                data-skrypt-mapy="{{ url_for('logistics_panel.static', filename='js/logistics-map.js') }}?v=20261002a"
-               data-skrypt-trasy="{{ url_for('logistics_panel.static', filename='js/logistics-routes.js') }}?v=20261002c"></div>
+               data-skrypt-trasy="{{ url_for('logistics_panel.static', filename='js/logistics-routes.js') }}?v=20261002d"></div>
           {# Pasek trybu (korekta, ustawianie punktu) i wyniku akcji na mapie. #}
           <div class="lg-mapa-pasek" data-lg-mapa="pasek" role="status" aria-live="polite" hidden></div>
           <div class="lg-mapa-stan is-ladowanie" data-lg-mapa="stan" role="status">Ładowanie mapy…</div>
@@ -641,7 +641,7 @@
     </form>
   </dialog>
 
-  {# „Odhacz jako wykonaną” — lista przystanków ze świeżego GET /routes/<id> (logistics-routes.js,
+  {# „Odhacz jako dostarczoną” (U7, oględziny 2.10: dawniej „Odhacz jako wykonaną”) — lista przystanków ze świeżego GET /routes/<id> (logistics-routes.js,
        wczytajDoWykonania). Spakowane zaznaczone jako dostarczone; niespakowanych i anulowanych
        zaznaczyć się nie da (serwer odmawia 409). Krok 4.4: przystanki już dostarczone (przez kierowcę albo
        wcześniejsze odhaczenie) są zawsze dostarczone — pole zaznaczone i nieaktywne, serwer zostawia je
@@ -649,7 +649,7 @@
        Wysyłamy zawsze jawną listę delivered_order_ids. #}
   <dialog class="lg-dialog lg-dialog--trasy" data-lg="trasa-wykonaj-dialog" aria-labelledby="lg-trasa-wykonaj-tytul">
     <form class="lg-dialog-form" data-lg-trasy="wykonaj-form" novalidate>
-      <h2 class="lg-dialog-tytul" id="lg-trasa-wykonaj-tytul">Odhacz jako wykonaną <span class="lg-dialog-numer" data-lg-trasy="wykonaj-nazwa"></span></h2>
+      <h2 class="lg-dialog-tytul" id="lg-trasa-wykonaj-tytul">Odhacz jako dostarczoną <span class="lg-dialog-numer" data-lg-trasy="wykonaj-nazwa"></span></h2>
       <p class="lg-dialog-opis">Zaznaczone zamówienia oznaczymy jako dostarczone (Base. dostanie status „Dostarczona - trans. WoodPower”), odznaczone zdejmiemy z trasy i wrócą do puli bez trasy (jeśli były już załadowane, Base. dostanie dla nich status „Planowana trasa”). Dostarczone mogą być tylko zamówienia spakowane w całości. Przystanki już dostarczone zostają dostarczone.</p>
       <ul class="lg-wykonaj-lista" data-lg-trasy="wykonaj-lista" aria-label="Przystanki trasy"></ul>
       <p class="lg-wykonaj-ile" data-lg-trasy="wykonaj-ile" aria-live="polite"></p>
@@ -657,7 +657,7 @@
       <p class="lg-dialog-blad" data-lg-trasy="wykonaj-blad" role="alert" hidden></p>
       <div class="lg-dialog-akcje">
         <button type="button" class="lg-przycisk" data-lg-trasy-akcja="wykonaj-anuluj">Anuluj</button>
-        <button type="submit" class="lg-przycisk lg-przycisk--glowny" data-lg-trasy="wykonaj-zapisz">Odhacz jako wykonaną</button>
+        <button type="submit" class="lg-przycisk lg-przycisk--glowny" data-lg-trasy="wykonaj-zapisz">Odhacz jako dostarczoną</button>
       </div>
     </form>
   </dialog>

@@ -129,22 +129,22 @@
         robocza: [
             ['zapisz', 'Zapisz', 'fa-floppy-disk', ''],
             ['zatwierdz', 'Zatwierdź', 'fa-lock', 'glowny'],
-            ['wykonaj', 'Odhacz jako wykonaną', 'fa-check-double', ''],
+            ['wykonaj', 'Odhacz jako dostarczoną', 'fa-check-double', ''],
             ['usun', 'Usuń trasę', 'fa-trash-can', 'niebezpieczny'],
         ],
         zatwierdzona: [
             ['routimo', 'Eksport do Routimo', 'fa-file-excel', 'glowny'],
-            ['wykonaj', 'Odhacz jako wykonaną', 'fa-check-double', ''],
+            ['wykonaj', 'Odhacz jako dostarczoną', 'fa-check-double', ''],
             ['cofnij', 'Cofnij do roboczej', 'fa-lock-open', ''],
         ],
         zaladowana: [
             ['routimo', 'Eksport do Routimo', 'fa-file-excel', ''],
             ['cofnij-zaladunek', 'Cofnij załadunek', 'fa-dolly', ''],
-            ['wykonaj', 'Odhacz jako wykonaną', 'fa-check-double', ''],
+            ['wykonaj', 'Odhacz jako dostarczoną', 'fa-check-double', ''],
         ],
         w_trasie: [
             ['routimo', 'Eksport do Routimo', 'fa-file-excel', ''],
-            ['wykonaj', 'Odhacz jako wykonaną', 'fa-check-double', ''],
+            ['wykonaj', 'Odhacz jako dostarczoną', 'fa-check-double', ''],
         ],
         wykonana: [
             ['routimo', 'Eksport do Routimo', 'fa-file-excel', ''],
@@ -271,7 +271,7 @@
     let chwytZPrzycisku = false;     // wciśnięcie zaczęło się na przycisku — to nie przeciąganie
     let dodawanie = null;            // otwarte okno „Dodaj do trasy…”
     const dodawaniaWTle = new Set(); // zapisy okna zamkniętego w trakcie (minor 3) — kończą się w tle
-    let wykonywanie = null;          // otwarte okno „Odhacz jako wykonaną”
+    let wykonywanie = null;          // otwarte okno „Odhacz jako dostarczoną”
     // (oględziny m3) Trasy zmienione u nas (odpowiedź mutacji albo odczyt trasy): id →
     // {wersja, trasa (skrót listy) | null = usunięta}. Lista pobrana PRZED taką zmianą nie
     // nadpisuje jej starszym wierszem serwera (scalZLokalnymi).
@@ -3222,7 +3222,7 @@
         dodawanieDoTla(d, true);
     }
 
-    // ── Okno „Odhacz jako wykonaną” ─────────────────────────────────────────
+    // ── Okno „Odhacz jako dostarczoną” (U7, oględziny 2.10: dawniej „Odhacz jako wykonaną”) ──
     //
     // (przegląd końcowy, Important) Lista przystanków w oknie pochodzi ZAWSZE ze świeżego
     // GET /routes/<id>, pobranego przy otwarciu („Wczytywanie przystanków…”, odhaczenie czeka),
@@ -3357,7 +3357,7 @@
         const aktywna = !!(t && ODHACZALNE.includes(t.status) &&
             ((t.przystanki || []).length || zamykanaBezPrzystankow(t)));
         wykonajZapiszBtn.disabled = trwa || wczytuje || !aktywna;
-        wykonajZapiszBtn.textContent = trwa ? 'Zapisywanie…' : 'Odhacz jako wykonaną';
+        wykonajZapiszBtn.textContent = trwa ? 'Zapisywanie…' : 'Odhacz jako dostarczoną';
         const anuluj = formWykonaj.querySelector('[data-lg-trasy-akcja="wykonaj-anuluj"]');
         if (anuluj) anuluj.disabled = trwa;
         wykonajListaEl.querySelectorAll('input[type="checkbox"]').forEach((c) => {

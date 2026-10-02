@@ -2136,6 +2136,20 @@
     width: min(560px, calc(100vw - 32px));
 }
 
+/* (U5, oględziny 2.10) Okna tras („Odhacz jako dostarczoną”, „Dodaj do trasy”): tytuł w pierwszej linii,
+   nazwa trasy albo numer zamówienia od drugiej — długa nazwa nie zawija się w środku tytułu. Ten sam
+   element .lg-dialog-numer w obu oknach; okno adresu na Dashboardzie bez zmian. */
+.logistics-tab .lg-dialog--trasy .lg-dialog-numer {
+    display: block;
+    margin: 2px 0 0;
+    font-size: 13px;
+    overflow-wrap: anywhere;
+}
+
+.logistics-tab .lg-dialog--trasy .lg-dialog-numer:empty {
+    display: none;
+}
+
 .logistics-tab :is(.lg-dialog--trasy, .lg-dialog--pojazd) .lg-dialog-opis:empty {
     display: none;
 }
@@ -2278,7 +2292,7 @@
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 }
 
-/* „Odhacz jako wykonaną”: każdy przystanek to pole wyboru; odznaczony dostaje
+/* „Odhacz jako dostarczoną”: każdy przystanek to pole wyboru; odznaczony dostaje
    ciepłe tło kolejki i dopisek, że wraca do puli bez trasy. */
 .logistics-tab .lg-wykonaj-lista {
     max-height: min(380px, 46vh);
