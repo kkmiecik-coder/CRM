@@ -29,9 +29,9 @@ def napis_sposobu(order, trasa=None):
 
     `trasa` — trasa, z której liczymy napis „TRASA: …”, albo None. Funkcja NIE sprawdza jej
     statusu, robi to wołający:
-    - przy druku (`drukuj_etykiety`) to trasa AKTYWNA zamówienia (robocza/zatwierdzona,
-      `routes.trasa_dla_tabletu`) albo None; trasa wykonana już nie jedzie, więc nie trafia
-      na etykietę;
+    - przy druku (`drukuj_etykiety`) to trasa AKTYWNA zamówienia (robocza, zatwierdzona, załadowana
+      albo w trasie — `routes.trasa_dla_tabletu`) albo None; trasa wykonana już nie jedzie, więc nie
+      trafia na etykietę;
     - przy porównaniu w panelu (`lista._etykiety_paczek_sprzed_zmiany`) zamówienie OTWARTE dostaje
       to samo (tylko aktywna), a zamówienie ZAMKNIĘTE w Logistyce trasę w dowolnym statusie, także
       wykonaną (`routes.trasy_zamowien`): etykieta była drukowana, gdy trasa była aktywna, więc

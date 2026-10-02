@@ -309,6 +309,9 @@ def pobierz(sposob=None, etap=None, q=None, zamkniete=False, woj=None, stan=None
 
     Krok 4.3 (spec 11): `stan` ∈ STANY_WERYFIKACJI — filtr SQL z weryfikacja.py w tym samym
     bloku (R3). Ma własny zakres i zastępuje podział otwarte/zamknięte oraz limit zamkniętych.
+
+    Filtr `etap` działa na etapie wiersza (`_etap`), nie na statusie pozycji: `etap=zaladowane` nie zwraca
+    zamówienia z trasy w drodze (jego pozycje `zaladowane` dają tam etap `w_trasie`), a `etap=w_trasie` tak.
     """
     # Konfiguracje pozycji (gatunek, technologia, klasa) jednym zapytaniem na listę —
     # bez tego każda pozycja dociągałaby swoją osobno (setki zapytań co odświeżenie).

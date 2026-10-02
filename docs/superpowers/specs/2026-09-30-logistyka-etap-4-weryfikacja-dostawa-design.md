@@ -144,6 +144,7 @@ Zmienione reguły (reszta tabeli z etapu 1 bez zmian):
   **(krok 4.3) Ta reguła przechodzi do kroku 4.4, razem z Dostawą** (decyzja Konrada 30.09): w 4.3 transport własny
   zamyka się jak dotąd, „przystanek na trasie wykonanej”, a odhaczenie trasy nie zmienia statusów pozycji. W 4.3
   zmienia się tylko reguła kuriera (inaczej zweryfikowane zamówienia kurierskie by się otwierały).
+  (krok 4.4) Wdrożone: reguła nie czyta tras, parametr `trasa` zniknął z `zamkniecie_wyliczone`/`przelicz_zamkniecie`.
 
 Historia jest bezpieczna: migracja etapu 1 zamyka stare spakowane zamówienia, a cron `przelicz_otwarte` otwiera
 zamknięte, gdy wróci aktywna pozycja (doróbka).
@@ -152,8 +153,8 @@ zamknięte, gdy wróci aktywna pozycja (doróbka).
 migawce sposobu dostawy, więc zmiana sposobu z panelu w tej samej chwili może zostawić zamówienie zamknięte wbrew
 regule (przyczyna: kolejność blokad stanowisk, poprawka w zadaniu wstępnym kroku 4.4). Dlatego `przelicz_otwarte`
 otwiera też zamknięte zamówienia z aktywną pozycją, dla których `zamkniecie_wyliczone` daje False: odbiór bez
-`handed_over_at`, transport bez trasy `wykonana`, sposób NULL i `repack_required`; bez aktywnych pozycji zamówienie
-zostaje zamknięte, jak mówi reguła. Siatka obejmuje wyłącznie zamknięcia ściśle późniejsze niż
+`handed_over_at`, transport z aktywną pozycją inną niż `dostarczone` (krok 4.4), sposób NULL i `repack_required`;
+bez aktywnych pozycji zamówienie zostaje zamknięte, jak mówi reguła. Siatka obejmuje wyłącznie zamknięcia ściśle późniejsze niż
 `logistyka_weryfikacja_od` (`weryfikacja.data_wdrozenia()`), a brak znacznika albo nieczytelna data ją wyłącza. Bez
 tego zawężenia pierwszy przebieg otworzyłby masowo zamknięcia historyczne: migracja etapu 1 zamknęła przy wdrożeniu
 (`NOW()`) każde zamówienie spakowane poza odbiorem osobistym, bez względu na sposób (na kopii z 28.09 ok. 1500, głównie
@@ -654,6 +655,85 @@ Trasa z kodami paczek leży w telefonie; skany rozpoznawane lokalnie, akcje w ko
 - **„Przywróć trasę” znika**; zastępuje ją **„Cofnij dostarczenie”** przy przystanku (4.5).
 - Zajętość pojazdów i kierowców liczy `zaladowana` i `w_trasie` jako aktywne.
 
+### 9.8 Doprecyzowania kroku 4.4 (plan 4.4b)
+
+Odstępstwa od 9.1–9.7 i rozstrzygnięcia z realizacji (plan 4.4b, decyzje Konrada z 1.10). Gdzie tekst różni się od
+9.1–9.7, wygrywa ta sekcja.
+
+**Ścieżki i bramki**
+- **Ścieżki z trasą.** Załadunek i jego cofnięcie to `POST /api/mobile/delivery/routes/<route_id>/packages/<package_id>/load|unload`
+  (nie `/delivery/packages/<id>/load`): odmowa `package_not_on_route` potrzebuje trasy, w kontekście której kierowca
+  skanuje. Przystanki adresowane po `order_id`, nie po numerze wewnętrznym (powtarza się co rok).
+- **Wszystkie endpointy z kierowcą.** Każdy endpoint telefonu, także odczyty (to „Moje trasy” tego kierowcy), wymaga
+  `X-Worker-Ids` z kierowcą na pierwszym miejscu: brak → 400 `worker_required`, pracownik bez `is_driver` albo
+  nieaktywny → 403 `not_a_driver`. Zapisy na trasie przyjmujemy od każdego aktywnego kierowcy (nie szkodzi), a appka
+  pokazuje tylko trasy zalogowanego. Zastępstwo załatwia wyłącznie zmiana kierowcy w panelu: przed załadunkiem „Cofnij
+  zatwierdzenie”, zmiana kierowcy, zatwierdzenie (decyzja 5). Nie ma parametru „wszystkie trasy”.
+- **Kody odmów.** Każda odmowa serwisu ma kod (`error`), komunikat po polsku (`message`) i pola dodatkowe (np. `braki`);
+  400/403/404/409 nie są zapamiętywane przez idempotencję (`BLEDY_DO_PONOWIENIA`), 422 tak. Trasa skasowana w trakcie
+  żądania → 404 `route_not_found`; trasa robocza dla telefonu to także 404 (nie jest dla kierowcy). Zapis telefonu robi
+  rollback przy każdej odmowie, więc odmowa niczego nie zostawia w sesji.
+- **Zakres „Moich tras”.** Trasy kierowcy `zatwierdzona` z `date_to >= dziś` oraz `zaladowana` i `w_trasie` bez względu
+  na datę (rozpoczęta trasa nie znika z telefonu o północy). Trasa zatwierdzona z rozpoczętym załadunkiem (paczka ze
+  znacznikiem tej trasy) zostaje także po dacie końca. Szczegóły trasy (`GET /delivery/routes/<id>`) także dla
+  `wykonana` (ekran po zamknięciu i cofnięcie ostatniego dostarczenia); trasa robocza → 404.
+- **Punkt nawigacji.** Telefon podaje współrzędne tą samą regułą co eksport Routimo (`geocoding.punkt_do_nawigacji`):
+  tylko punkt dokładny, aktualny dla adresu zamówienia; ręczny punkt po zmianie adresu (inny `address_hash`) nie jest podawany.
+- **Postęp.** Liczniki `paczki.zaladowane` i `postep` liczą tylko znaczniki załadunku tej trasy (paczka załadowana na inną
+  trasę się nie liczy).
+
+**Załadunek**
+- **Zakończenie załadunku i jego braki.** Przystanek „załadowany” = co najmniej jedna aktualna paczka, wszystkie aktualne
+  paczki załadowane na tę trasę i pozycje nadal `zweryfikowane` (odczyt bieżący). Przystanek zamówienia anulowanego w całości
+  jest zdejmowany z trasy (notatka „anulowane”) zamiast blokować. Braki → 409 `loading_incomplete` z listą `braki`
+  (`niezaladowane`, `niezweryfikowane`, `bez_paczek`; powód `niezweryfikowane` sprawdzany przed `niezaladowane`); nic
+  załadowanego → 409 `nothing_loaded`.
+- **Skan paczki z przystanku „Zostaje”** → 409 `stop_stays` („najpierw zdejmij »Zostaje«”), bez cichego zdejmowania oznaczenia.
+- **Ruling 21b: „Cofnij zatwierdzenie” trasy z rozpoczętym załadunkiem** czyści znaczniki załadunku paczek tej trasy pod
+  blokadami Dostawy (trasy, deklaracje, zamówienia rosnąco, paczki i pozycje), z wpisem `zaladunek` (notatka „cofnięte
+  zatwierdzenie trasy”). Odmowa 409 odpadła: panel nie ma rozładunku częściowo załadowanej trasy zatwierdzonej, więc logistyk
+  zostałby w pułapce. Zastępstwo kierowcy w trakcie załadunku zeruje więc postęp (paczki trzeba zeskanować ponownie).
+- **Ruling 25: zamówienie zdjęte z trasy.** Zamówienie zdjęte z trasy („Niedostarczone”, odznaczenie w „Odhacz”) wraca do puli
+  „Transport bez trasy”: pozycje `zaladowane` → `zweryfikowane`, a gdy zamówienie nie jest zweryfikowane (`verified_at` NULL;
+  trasa odhaczona bez załadunku, potem cofnięte dostarczenie) → `spakowane`, bo „zweryfikowane” bez weryfikacji ominęłoby
+  bramkę załadunku. „Cofnij zatwierdzenie” zdejmuje też flagi „Zostaje” przystanków trasy (powrót do roboczej to nowy
+  załadunek od zera; wpis `zostaje` z tą samą notatką).
+- **Log.** `zaladunek` przy zakończeniu załadunku (brak → `zaladowane`, notatka: opis paczek) i przy „Cofnij załadunek”
+  (`zaladowane` → brak, notatka „cofnięty w panelu”); `zostaje` przy zdjęciu przystanku z powodem; `wyjazd`; `dostarczone`;
+  `niedostarczone` (notatka: powód i opis; wpis idzie po zdjęciu przystanku, więc jest ostatnim wpisem zamówienia);
+  `dostarczenie_cofniete` tylko wtedy, gdy któraś pozycja się zmieniła; zmiany statusu trasy jak dotąd `trasa_status`.
+  Wpis `trasa_usuniete` przy niedostarczeniu ma notatkę `niedostarczone` jak w etapie 3.
+
+**Wyjazd i dostarczenia**
+- **Powtórki z kolejki offline bez zmian (Ruling 23 i 26).** `finish-loading` na trasie `zaladowana`/`w_trasie` → 200
+  `{changed: false, removed: []}` (pierwsze zakończenie ma `changed: true`); `depart` na trasie `w_trasie`/`wykonana` → 200
+  `{changed: false}`; `not-delivered` po udanym zdjęciu przystanku → 200 `{changed: false, route_completed: false}`, gdy
+  OSTATNI wpis logu zamówienia to niedostarczenie z tej trasy, także na trasie, którą to niedostarczenie zamknęło (każdy inny
+  brak przystanku → 404 `stop_not_found`). Spóźnione „Niedostarczone” po odznaczeniu zamówienia w panelu też dostaje 200,
+  a powód kierowcy nie jest zapisywany (zostaje wpis panelu `odhaczone_w_panelu`). Każde 200 zapisu zawiera pełną trasę
+  (`route`) i `message`, także przy `changed: false`: appka podmienia trasę z odpowiedzi i zdejmuje wpis z kolejki.
+- **Cofnięcie ostatniego dostarczenia z telefonu także po automatycznym zamknięciu trasy** (decyzja 3; odstępstwo od 9.5):
+  trasa `w_trasie` albo `wykonana` zamknięta ostatnim dostarczeniem z telefonu (`completed_by` NULL) wraca do `w_trasie`.
+  Trasa odhaczona w panelu (`completed_by` ustawione, pole `completed_by_panel` w odpowiedzi) — tylko panel. „Ostatnie” =
+  przystanek z najpóźniejszym `delivered_at` (remis: wyższa pozycja).
+- **Trasa bez przystanków po ostatnim „Niedostarczone”** zamyka się jako `wykonana` (kierowca wrócił ze wszystkim).
+- **Każdy zapis Dostawy blokuje zamówienia całej trasy**, nie tylko przystanku, którego dotyczy: odpowiedź telefonu (pełna
+  trasa) jest liczona z tych samych blokad, na odczycie bieżącym, więc dwa telefony na jednej trasie widzą swoje zapisy
+  nawzajem. Kolejność blokad: pracownicy (tylko telefon), blokada tras, blokada deklaracji paczek, zamówienia rosnąco po id,
+  paczki, pozycje (CLAUDE.md, „Dostawa”).
+
+**Panel tras**
+- **„Cofnij dostarczenie”** (zamiast „Przywróć trasę”): dowolny dostarczony przystanek trasy `w_trasie` albo `wykonana`;
+  trasa wykonana wraca do `w_trasie`. Bez sprawdzania zajętości pojazdu i kierowcy (korekta, nie planowanie).
+- **„Odhacz jako wykonaną”** zostaje dostępne także z roboczej (ruling R12 etapu 3; 9.7 wymienia zatwierdzoną, załadowaną
+  i w trasie). Przystanki już dostarczone są zawsze dostarczone (okno pokazuje je zaznaczone i zablokowane). Odznaczony
+  przystanek: Ruling 25, Base. 417343 tylko gdy zamówienie było załadowane (zamówienie z trasy zatwierdzonej ma 417343
+  od spakowania).
+- **Routimo.** Eksport z `zatwierdzona`, `zaladowana`, `w_trasie` i `wykonana` (9.7 i plan mówiły „bez wykonanej”;
+  dziś wykonana jest dozwolona, ruling R11 etapu 3, i zostaje).
+- **Etap „W trasie”** na liście Logistyki: pozycje `zaladowane`, a trasa zamówienia `w_trasie`. To etap zamówienia na liście
+  (`lista._etap`), nie status pozycji, więc filtr `etap=zaladowane` nie zwraca zamówień z trasy w drodze.
+
 ## 10. Krok 4.5 — archiwum
 
 - `_archived_order_condition` (`routers/api/products_api.py:284`): zamówienie archiwalne, gdy
@@ -750,14 +830,32 @@ Komunikaty po polsku, w API z `error` (kod) i `message` (tekst dla człowieka).
    wykonanych na `dostarczone` (wzór `delivery.dostarcz_wydane`). Kolejność APK ↔ backend przy wspólnym wdrożeniu
    etapów 1–4 (etap 1 wymagał appki przed backendem, kroki 4.2–4.4 backendu przed appką) ustala plan wdrożenia
    prowadzony przez centralę.
-5. **4.5:** backend.
-6. **4.4b — nazwa statusu w Analizie sprzedażowej:** jednorazowa migracja `2026-10-01-analiza-planowana-trasa.sql`
-   zmienia w historycznych wierszach `sales_orders` nazwę „Status 417343” na „Planowana trasa” (decyzja Konrada
-   1.10; od commita 73232c57 mapa nazw zna ten status, ale stare wiersze zostawały ze starą nazwą i ten sam status
-   siedział w dwóch kubełkach). Warunek po obu kolumnach (`baselinker_status_id = 417343` i stara nazwa), więc
-   migracja jest idempotentna: drugi przebieg zmienia 0 wierszy. Na kopii produkcji (dane z ok. 25.09) zmienia 66
-   wierszy; na produkcji liczba może być inna. Skrypt przeliczenia klientów (`deploy.sh`, krok 6) liczy po
+   Kolejność APK ↔ backend: nowa appka na starym backendzie ukrywa Dostawę (rejestracja `delivery` → 400
+   `invalid_station_code`, `/api/mobile/delivery/*` → 404), więc appka może wejść przed backendem.
+   **Wycofanie** po zapisaniu nowych stanów: stary kod nie zna statusów tras `zaladowana`/`w_trasie` ani akcji logu
+   Dostawy w Enum (`LookupError`), więc revert musi nieść migrację przed restartem:
+   `UPDATE prod_routes SET status='zatwierdzona' WHERE status IN ('zaladowana','w_trasie');` oraz
+   `UPDATE prod_logistics_log SET action='trasa_status' WHERE action IN
+   ('zaladunek','zostaje','wyjazd','dostarczone','niedostarczone','dostarczenie_cofniete');` (pozycje
+   `zaladowane`/`dostarczone` zna już kod 4.3).
+5. **4.4b — nazwa statusu 417343 w Analizie sprzedażowej i w starym Raporcie sprzedażowym:** dwie jednorazowe migracje
+   zmieniają w historycznych wierszach nazwę „Status 417343” na „Planowana trasa” (od commita 73232c57 mapa nazw zna ten
+   status, ale stare wiersze zostawały ze starą nazwą i ten sam status siedział w dwóch kubełkach; decyzje Konrada: Analiza
+   1.10, stary raport 2.10):
+   - `2026-10-01-analiza-planowana-trasa.sql` — `sales_orders`; na kopii produkcji (dane z ok. 25.09) zmienia 66 wierszy;
+   - `2026-10-02-raport-planowana-trasa.sql` — `baselinker_reports_orders`; na kopii zmienia 131 wierszy. Kolumna
+     `updated_at` tej tabeli nie ma `ON UPDATE`, więc surowy `UPDATE` jej nie zmienia. Tabelę zakłada wyłącznie
+     `create_all`, żadna migracja jej nie tworzy, więc migracja jest osłonięta: sprawdza `information_schema` i dopiero
+     wtedy robi `PREPARE`/`EXECUTE`. Goły `UPDATE` na bazie bez tej tabeli zablokowałby wszystkie kolejne deploye błędem
+     1146. Próba na zastępczej bazie MySQL: 131 wierszy, drugi przebieg 0, `updated_at` bez zmian.
+   Obie mają warunek po obu kolumnach (`baselinker_status_id = 417343` i stara nazwa), więc są idempotentne: drugi przebieg
+   zmienia 0 wierszy. Na produkcji liczby mogą być inne. Skrypt przeliczenia klientów (`deploy.sh`, krok 6) liczy po
    identyfikatorze statusu, nie po nazwie, więc zmiana nazwy nie wymaga osobnego przeliczenia.
+   Notatka wdrożeniowa: po wdrożeniu sprawdź oba zapytania: `SELECT COUNT(*) FROM sales_orders WHERE
+   current_status='Status 417343'` oraz `SELECT COUNT(*) FROM baselinker_reports_orders WHERE
+   current_status='Status 417343'`. Wynik > 0 oznacza zapis starego kodu w oknie między migracją a restartem — wtedy ręcznie
+   ten sam idempotentny `UPDATE` z odpowiedniej migracji.
+6. **4.5:** backend.
 
 Każdy krok: push gałęzi, przegląd całej zmiany, oględziny na kopii produkcji (podgląd), wdrożenie tylko na polecenie
 Konrada. Merge do `main` = deploy.
@@ -777,6 +875,32 @@ pytest (SQLite), usługi zewnętrzne zamockowane:
 - testy odwołujące się do `'spakowane'` przejrzane pod kątem 8.6.
 
 Migracje dodatkowo na MySQL (`db` i kopia produkcji). Po każdym kroku przegląd kodu całej zmiany i oględziny z danymi.
+
+**Wyniki MySQL kroku 4.4 (podgląd na kopii produkcji, 2.10).** Wyścigi dwóch sesji (osobne `test_client()`, bariera dwóch
+wątków, rozjazd startu 0–40 ms i 0–15 ms): 18 trybów Dostawy (łańcuch skan, zakończenie załadunku, Weryfikacja,
+deklaracja paczek, doróbka, ZAKOŃCZ pakowania, cron logistyki, hurtowa zmiana statusu, „Dostarczone”, „Niedostarczone”,
+„Odhacz”, „Cofnij dostarczenie”, „Cofnij zatwierdzenie”, zmiana z Base., skan paczki z cudzej trasy i powtórki z kolejki
+offline) po 30 przebiegów (10 na czystej barierze, po 10 z rozjazdem), czyli 540 przebiegów, oraz regresja kroku 4.4a
+(`panel-zakoncz`, `dorobka-zakoncz`, `sync-zakoncz`, po 10): razem 570 przebiegów. Wynik: **0 × 1213** (licznik InnoDB
+`lock_deadlocks` 0 przed i po, 0 wpisów `1213`/`deadlock`/`lock wait` w logu aplikacji), **0 × 500**, **0 niespójnych
+stanów** i 0 niezgodnych zamknięć cyklu. Po każdym przebiegu sprawdzane są niezmienniki: trasa załadowana albo w drodze ma
+wszystkie aktywne pozycje nierozliczonych przystanków `zaladowane` i paczki załadowane na tę trasę; przystanek z
+`delivered_at` ⇔ pozycje `dostarczone` ⇔ `logistics_closed_at`; zamówienie zdjęte z trasy nie ma znaczników załadunku;
+żadna ważna paczka nie wskazuje trasy roboczej; `bl_status_pending_id` zgodny z ostatnim przejściem; dokładnie jeden wpis
+logu na przejście; kształt odpowiedzi telefonu (Ruling 23 i 26). Siatka crona na kopii (reguła transportu po
+`dostarczone`): przed i po `przelicz_otwarte` zero zamknięć transportu po znaczniku z pozycją niedostarczoną i zero z
+przystankiem na trasie aktywnej, `przeliczone: 0` (na produkcji przy wdrożeniu etapów 3 i 4 razem też nie ma tras ani
+zamknięć po znaczniku). Migracje 4.4b wykonały się przy starcie podglądu (2/2) bez błędów; migracja Analizy zmieniła 66
+wierszy.
+
+Audyt wyścigów (nie błędy kroku 4.4, znane luki spoza zakresu): (a) hurtowa zmiana jednej pozycji zamówienia zweryfikowanego
+na `spakowane` zostawia `verified_at`, znaczniki załadunku i paczki załadowane (reguła unieważniania nie ma wtedy pracy, bo
+wszystkie pozycje są „spakowane lub dalej”, `weryfikacja._jest_praca_dla_reguly`; luka sprzed 4.4) — 15 przebiegów oznaczonych
+`LEGACY`; gdy hurt jest pierwszy, bramka zakończenia załadunku (statusy pozycji) odmawia z powodem `niezweryfikowane`
+(13 z 15), a gdy zakończenie jest pierwsze, trasa jedzie z pozycjami `spakowane` i `zaladowane` (2 z 15);
+(b) hurtowa zmiana pozycji do produkcji po zakończeniu załadunku cofa zamówienie do pakowania (znaczniki i paczki znikają),
+ale znacznik Base. 524520 („Załadowane”) zostaje na zamówieniu, a trasa zostaje `zaladowana` z tym przystankiem (według
+kodu kierowca zobaczy `niespakowane`, a „Dostarczone” da 409 `order_status`) — 3 przebiegi. Zgodne z Review Focus 5 planu 4.4b.
 
 ## 16. Do zebrania przed realizacją
 

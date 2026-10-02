@@ -337,8 +337,8 @@ def vehicle_active(vehicle_id):
 @logistics_panel_bp.route('/drivers', methods=['GET'])
 @guard
 def drivers():
-    # (runda 2, spec 2.6) Tylko kierowcy (aktywni, is_driver) z nazwami tras roboczych
-    # i zatwierdzonych — Flota podaje je w potwierdzeniu zdjęcia znacznika.
+    # (runda 2, spec 2.6) Tylko kierowcy (aktywni, is_driver) z nazwami ich tras aktywnych (robocza,
+    # zatwierdzona, załadowana, w trasie) — Flota podaje je w potwierdzeniu zdjęcia znacznika.
     return jsonify({'success': True, 'drivers': fleet.kierowcy_z_trasami()})
 
 
