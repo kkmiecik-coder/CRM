@@ -160,7 +160,7 @@
     const WIDOKI = ['dashboard', 'routes', 'fleet'];
     const KLUCZ_WIDOKU_LS = 'logistyka.widok';
     const STATUSY_TRAS = { robocza: 'robocza', zatwierdzona: 'zatwierdzona', zaladowana: 'załadowana',
-        w_trasie: 'w trasie', wykonana: 'wykonana' };
+        w_trasie: 'w trasie', wykonana: 'dostarczona' };   // (U7) 'wykonana' dla ludzi = „dostarczona”
     // Status trasy na plakietce jako znak — te same ikony co w edytorze trasy (ołówek = szkic, kłódka = zatwierdzona,
     // auto z rampą = załadowana, auto w ruchu = w trasie, ptaszek = wykonana); całą szerokość plakietki dostaje nazwa.
     const IKONY_TRAS = { robocza: 'fa-pen', zatwierdzona: 'fa-lock', zaladowana: 'fa-truck-ramp-box',

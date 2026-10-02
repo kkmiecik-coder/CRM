@@ -719,3 +719,20 @@ def test_odmowa_422_z_akcji_nie_zostawia_zapisow(app, client, monkeypatch):
     assert r.status_code == 422 and r.get_json()['error'] == 'invalid_reason'
     assert ProcessedMobileOperation.query.get('op-422-po-zapisie') is not None      # 422 zapamiętane
     assert RouteStop.query.filter_by(order_id=order.id).one().stays_reason is None
+
+
+
+# --- Decyzja Konrada 2.10, U7: status_label trasy wykonanej to „Dostarczona” ------------------------------------
+
+def test_status_label_trasy_wykonanej_to_dostarczona(app, client):
+    """U7: telefon dostaje `status_label` ze słownika dostawa.NAZWY_STATUSOW_TRASY — dla statusu 'wykonana'
+    „Dostarczona” (wartość `status` zostaje 'wykonana'); komunikaty odmowy serwera mówią „dostarczona”."""
+    assert dostawa.NAZWY_STATUSOW_TRASY['wykonana'] == u'Dostarczona'
+    device, k = telefon_kierowcy()
+    t = _trasa_kierowcy(k, [zamowienie_z_paczkami()[0]], nazwa=u'Zamknięta', status='wykonana')
+    r = client.get(API + '/routes/%d' % t.id, headers=naglowki(device, k))
+    assert r.status_code == 200, r.get_data()[:300]
+    assert (r.get_json()['route']['status'], r.get_json()['route']['status_label']) == ('wykonana', u'Dostarczona')
+    with pytest.raises(LogistykaBlad) as blad:
+        routes._wymagaj_statusu(t, 'robocza')
+    assert u'Trasa „Zamknięta” jest dostarczona' in str(blad.value)

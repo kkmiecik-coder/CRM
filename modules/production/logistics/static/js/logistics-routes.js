@@ -108,14 +108,16 @@
     // i „Pokaż całą trasę”, u dołu atrybucja — żaden przystanek nie ląduje pod kontrolką.
     const MARGINES_MAPKI = { paddingTopLeft: [54, 30], paddingBottomRight: [30, 30] };
 
+    // (U7, decyzja Konrada 2.10) Status 'wykonana' dla ludzi to „Dostarczona” (sekcja „Dostarczone”) — wartość
+    // w bazie i API zostaje 'wykonana'.
     const NAZWY_STATUSOW = { robocza: 'Robocza', zatwierdzona: 'Zatwierdzona', zaladowana: 'Załadowana',
-        w_trasie: 'W trasie', wykonana: 'Wykonana' };
+        w_trasie: 'W trasie', wykonana: 'Dostarczona' };
     const IKONY_STATUSOW = { robocza: 'fa-pen', zatwierdzona: 'fa-lock', zaladowana: 'fa-truck-ramp-box',
         w_trasie: 'fa-truck-fast', wykonana: 'fa-check' };
     // Trasy, które da się odhaczyć w panelu (R12 etapu 3: także robocza; krok 4.4: załadowana i w drodze).
     const ODHACZALNE = ['robocza', 'zatwierdzona', 'zaladowana', 'w_trasie'];
     // (Ruling 30/31) Trasa załadowana albo w drodze bez przystanków — doróbka albo zmiana z Base. zdjęła jej ostatni
-    // przystanek, a „Ruszam” takiej trasy odmawia. „Odhacz” zamyka ją jako wykonaną (pusta lista dostarczonych; serwer
+    // przystanek, a „Ruszam” takiej trasy odmawia. „Odhacz” zamyka ją jako dostarczoną (pusta lista dostarczonych; serwer
     // dla tych dwóch statusów to przyjmuje). Pustej roboczej i zatwierdzonej nie odhaczamy — tę logistyk usuwa.
     const ZAMYKANE_BEZ_PRZYSTANKOW = ['zaladowana', 'w_trasie'];
     const PUSTA_DO_ZAMKNIECIA = 'Trasa nie ma przystanków — zatwierdź, żeby ją zamknąć.';
@@ -737,8 +739,8 @@
             zatwierdzona: [wgStatusu('zatwierdzona'), 'Brak zatwierdzonych tras.'],
             zaladowana: [wgStatusu('zaladowana'), 'Brak załadowanych tras.'],
             w_trasie: [wgStatusu('w_trasie'), 'Brak tras w drodze.'],
-            wykonana: [wykonane, stan.filtrWykonanych ? 'Brak wykonanych tras w tych dniach.'
-                : 'Brak wykonanych tras w ostatnich 30 dniach.'],
+            wykonana: [wykonane, stan.filtrWykonanych ? 'Brak dostarczonych tras w tych dniach.'
+                : 'Brak dostarczonych tras w ostatnich 30 dniach.'],
         };
         Object.keys(listy).forEach((status) => {
             const { lista, ile } = listy[status];
@@ -852,7 +854,7 @@
             renderujListe();
         } catch (e) {
             if (przerwane(e) || zniszczona || kontroler !== kontrolerWykonanych) return;
-            if (opisWykonanychEl) opisWykonanychEl.textContent = 'Nie wczytano wykonanych tras. ' + e.message;
+            if (opisWykonanychEl) opisWykonanychEl.textContent = 'Nie wczytano dostarczonych tras. ' + e.message;
         } finally {
             if (kontroler === kontrolerWykonanych) kontrolerWykonanych = null;
         }
@@ -1477,7 +1479,7 @@
                 wylaczony = true;
                 tytul = 'Trasa nie ma przystanków.';
             } else if (akcja === 'wykonaj' && !ile) {
-                tytul = 'Trasa nie ma przystanków — odhaczenie zamknie ją jako wykonaną.';
+                tytul = 'Trasa nie ma przystanków — odhaczenie zamknie ją jako dostarczoną.';
             }
             b.disabled = wylaczony;
             if (czeka && !wylaczony) {
@@ -1785,7 +1787,7 @@
         if (zniszczona) return;
         przyjmijOdpowiedz(ctx, odp.route, { formularz: true, zmiana: true });
         // Komunikat nazywa zamówienie (kilka cofnięć pod rząd nadpisuje klucz 'trasa'), a o trasie mówi tylko wtedy,
-        // gdy naprawdę wróciła z „Wykonana” do „W trasie” — przy trasie już w drodze cofnięto jeden przystanek.
+        // gdy naprawdę wróciła z „Dostarczona” (wykonana) do „W trasie” — przy trasie już w drodze cofnięto jeden przystanek.
         const przystanek = (t.przystanki || []).find((p) => p.zamowienie && p.zamowienie.id === Number(orderId));
         const numer = przystanek ? przystanek.zamowienie.numer : '';
         const cofnieto = 'Cofnięto dostarczenie' + (numer ? ' zamówienia ' + numer : '') + '. ';
@@ -3234,7 +3236,7 @@
         dodawanieDoTla(d, true);
     }
 
-    // ── Okno „Odhacz jako dostarczoną” (U7, oględziny 2.10: dawniej „Odhacz jako wykonaną”) ──
+    // ── Okno „Odhacz jako dostarczoną” (U7, oględziny 2.10: nowa nazwa okna i przycisków) ──
     //
     // (przegląd końcowy, Important) Lista przystanków w oknie pochodzi ZAWSZE ze świeżego
     // GET /routes/<id>, pobranego przy otwarciu („Wczytywanie przystanków…”, odhaczenie czeka),
@@ -3344,7 +3346,7 @@
         });
         const czesci = [dostarczone
             ? 'Dostarczone: ' + dostarczone + ' z ' + pola.length + '.'
-            : 'Nic nie zaznaczono: trasa będzie wykonana bez przystanków.'];
+            : 'Nic nie zaznaczono: trasa zamknie się jako dostarczona bez przystanków.'];
         if (wracaja) {
             czesci.push(ileZamowien(wracaja) + ' ' + odmiana(wracaja, ['wróci', 'wrócą', 'wróci']) + ' do puli bez trasy' +
                 (niespakowane ? ' (w tym ' + niespakowane + ' ' + odmiana(niespakowane, ['niespakowane', 'niespakowane',
@@ -3436,17 +3438,17 @@
             const niedostarczone = wynik.niedostarczone || [];
             const a = niedostarczone.filter((id) => anulowaneWOknie.has(id)).length;
             const n = niedostarczone.length - a;
-            komunikat('ok', 'Trasa „' + route.nazwa + '” wykonana: dostarczono ' + ileZamowien(d) +
+            komunikat('ok', 'Trasa „' + route.nazwa + '” dostarczona — dostarczono ' + ileZamowien(d) +
                 (n ? ', ' + ileZamowien(n) + ' ' + odmiana(n, ['wraca', 'wracają', 'wraca']) + ' do puli bez trasy' : '') +
                 (a ? ', ' + ileAnulowanych(a) + ' ' + odmiana(a, ['zdjęte', 'zdjęte', 'zdjętych']) + ' z trasy' : '') + '.',
                 { klucz: 'trasa' });
         } else if (route.odhaczona_w_panelu === false) {
             // Wykonana, ale nie z panelu: ostatnie dostarczenie potwierdził kierowca na telefonie — nasze odhaczenie
             // się nie zapisało i nie wolno mówić, że się zapisało.
-            komunikat('info', 'Trasa „' + route.nazwa + '” jest już wykonana — zamknął ją kierowca, potwierdzając ostatnie ' +
+            komunikat('info', 'Trasa „' + route.nazwa + '” jest już dostarczona — zamknął ją kierowca, potwierdzając ostatnie ' +
                 'dostarczenie na telefonie. Odhaczenie z panelu się nie zapisało.', { klucz: 'trasa' });
         } else {
-            komunikat('ok', 'Trasa „' + route.nazwa + '” jest wykonana — odpowiedź serwera nie dotarła, ale odhaczenie się zapisało.',
+            komunikat('ok', 'Trasa „' + route.nazwa + '” jest dostarczona — odpowiedź serwera nie dotarła, ale odhaczenie się zapisało.',
                 { klucz: 'trasa' });
         }
         if (naMiejscu && tytulEl && tytulEl.offsetParent !== null) {

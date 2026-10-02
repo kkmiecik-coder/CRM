@@ -70,8 +70,10 @@ POWODY_POWROTU = {
     POWOD_DOROBKI: (u'Doróbka — wraca do produkcji', u'doróbka'),
     POWOD_ZMIANY_BASE: (u'Zmiana z Base. — wraca do produkcji', u'zmiana z Base.'),
 }
+# (U7, decyzja Konrada 2.10) Status 'wykonana' dla ludzi to „Dostarczona” — wartość w bazie i API zostaje. Słownik idzie
+# też do telefonu kierowcy (dostawa_widok: `status_label`).
 NAZWY_STATUSOW_TRASY = {'robocza': u'Robocza', 'zatwierdzona': u'Zatwierdzona', 'zaladowana': u'Załadowana',
-                        'w_trasie': u'W trasie', 'wykonana': u'Wykonana'}
+                        'w_trasie': u'W trasie', 'wykonana': u'Dostarczona'}
 
 
 class DostawaBlad(LogistykaBlad):

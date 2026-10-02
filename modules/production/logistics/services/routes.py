@@ -246,7 +246,8 @@ def _lista_id(wartosc):
 
 def _wymagaj_statusu(route, *statusy):
     if route.status not in statusy:
-        opis = {'robocza': u'robocza', 'zatwierdzona': u'zatwierdzona', 'wykonana': u'wykonana',
+        # (U7, decyzja Konrada 2.10) 'wykonana' dla ludzi = „dostarczona”.
+        opis = {'robocza': u'robocza', 'zatwierdzona': u'zatwierdzona', 'wykonana': u'dostarczona',
                 'zaladowana': u'załadowana', 'w_trasie': u'w trasie'}
         raise LogistykaBlad(u'Trasa „{}” jest {} — ta operacja nie jest dostępna.'.format(
             route.name, opis.get(route.status, route.status)))

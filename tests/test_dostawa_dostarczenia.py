@@ -392,7 +392,8 @@ def test_panel_ponowne_odhaczenie_wykonanej_409(app, client):
     rid, oid = t.id, a[0].id
     assert client.post(BASE + '/routes/%d/complete' % rid, json={'delivered_order_ids': [oid]}).status_code == 200
     r = client.post(BASE + '/routes/%d/complete' % rid, json={'delivered_order_ids': [oid]})
-    assert r.status_code == 409 and r.get_json()['success'] is False and u'wykonana' in r.get_json()['error']
+    # (U7, decyzja Konrada 2.10) status 'wykonana' dla ludzi to „dostarczona”.
+    assert r.status_code == 409 and r.get_json()['success'] is False and u'dostarczona' in r.get_json()['error']
     assert LogisticsLog.query.filter_by(order_id=oid, action='dostarczone').count() == 1
 
 

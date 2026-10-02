@@ -370,7 +370,7 @@ def test_wersje_po_tarczy_dostarczonego_i_legendzie():
 
 def test_odhacz_jako_dostarczona_w_calym_panelu_tras(client):  # noqa: F811
     """U7: przycisk w nagłówku edytora (AKCJE, każdy status), tytuł okna i przycisk zatwierdzenia (także po zapisie) —
-    „Odhacz jako dostarczoną”. Nazwy statusu trasy („Wykonana”, sekcja „Wykonane”) zostają."""
+    „Odhacz jako dostarczoną”. Nazwę statusu trasy zmieniła osobna decyzja (test niżej: „Dostarczona”)."""
     js = _plik('static', 'js', 'logistics-routes.js')
     assert u"'Odhacz jako wykonaną'" not in js
     akcje = js[js.index('const AKCJE = {'):]
@@ -383,7 +383,7 @@ def test_odhacz_jako_dostarczona_w_calym_panelu_tras(client):  # noqa: F811
     okno = okno[:okno.index('</dialog>')]
     assert u'id="lg-trasa-wykonaj-tytul">Odhacz jako dostarczoną <span class="lg-dialog-numer"' in okno
     assert u'data-lg-trasy="wykonaj-zapisz">Odhacz jako dostarczoną</button>' in okno
-    assert u"wykonana: 'Wykonana'" in js and u'>Wykonane <span class="lg-trasy-sekcja-ile"' in html
+    assert u"wykonana: 'Dostarczona'" in js and u'>Dostarczone <span class="lg-trasy-sekcja-ile"' in html
 
 
 def test_nazwa_trasy_w_oknach_tras_od_drugiej_linii(client):  # noqa: F811
@@ -439,5 +439,43 @@ def test_wersje_po_zielonych_pinezkach_dostarczonych():
     html = _plik('templates', 'logistics', 'tab_content.html')
     for plik, stara in (('js/logistics-routes.js', '20261002e'), ('js/logistics-map.js', '20261002a'),
                         ('css/logistics-trasy.css', '20261002g')):
+        m = re.search(r"filename='" + re.escape(plik) + r"'\) \}\}\?v=(\w+)", html)
+        assert m and m.group(1) > stara, plik
+
+
+
+# --- Decyzja Konrada 2.10, U7: status trasy „Wykonana” dla ludzi to „Dostarczona” -------------------------------
+
+def test_status_wykonana_dla_ludzi_to_dostarczona(client):  # noqa: F811
+    """U7: etykiety i plakietki statusu (panel tras, mapa, lista Dashboardu), sekcja listy „Dostarczone”, puste stany,
+    podpowiedzi i komunikaty mówią „dostarczona”; wartość statusu 'wykonana' w kodzie i API zostaje. Etap pozycji
+    „Dostarczone” na liście Logistyki bez zmian."""
+    trasy = _plik('static', 'js', 'logistics-routes.js')
+    mapa = _plik('static', 'js', 'logistics-map.js')
+    lista = _plik('static', 'js', 'logistics.js')
+    assert u"w_trasie: 'W trasie', wykonana: 'Dostarczona' };" in trasy
+    assert u"w_trasie: 'W trasie', wykonana: 'Dostarczona' };" in mapa
+    assert u"w_trasie: 'w trasie', wykonana: 'dostarczona' };" in lista
+    for js in (trasy, mapa, lista):
+        for stary in (u"'Wykonana'", u"wykonana: 'wykonana'", u'wykonanych tras', u'jako wykonaną', u'jest wykonana',
+                      u'jest już wykonana', u'” wykonana', u'będzie wykonana'):
+            assert stary not in js, stary
+    for nowy in (u'Brak dostarczonych tras w tych dniach.', u'Brak dostarczonych tras w ostatnich 30 dniach.',
+                 u'Nie wczytano dostarczonych tras. ', u'odhaczenie zamknie ją jako dostarczoną.',
+                 u'trasa zamknie się jako dostarczona bez przystanków.', u'” dostarczona — dostarczono ',
+                 u'” jest już dostarczona — zamknął ją kierowca', u'” jest dostarczona — odpowiedź serwera'):
+        assert nowy in trasy, nowy
+    assert "status: 'wykonana'" in trasy                      # API bez zmian
+    html = client.get(BASE + '/tab-content').get_data(as_text=True)
+    assert u'>Dostarczone <span class="lg-trasy-sekcja-ile" data-lg-trasy="wykonane-ile">' in html
+    assert u'>Wykonane <' not in html
+    # Etap pozycji „Dostarczone” na liście Logistyki (inna rzecz niż status trasy) bez zmian.
+    assert u"'dostarczone'" in lista
+
+
+def test_wersje_po_nazwie_statusu_dostarczona():
+    html = _plik('templates', 'logistics', 'tab_content.html')
+    for plik, stara in (('js/logistics-routes.js', '20261002f'), ('js/logistics-map.js', '20261002f'),
+                        ('js/logistics.js', '20261002a')):
         m = re.search(r"filename='" + re.escape(plik) + r"'\) \}\}\?v=(\w+)", html)
         assert m and m.group(1) > stara, plik

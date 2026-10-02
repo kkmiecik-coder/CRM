@@ -1698,7 +1698,7 @@
     // logistics-routes.js (GET /routes/map) i podaje przez renderTrasy().
 
     const NAZWY_STATUSOW_TRAS = { robocza: 'Robocza', zatwierdzona: 'Zatwierdzona', zaladowana: 'Załadowana',
-        w_trasie: 'W trasie', wykonana: 'Wykonana' };
+        w_trasie: 'W trasie', wykonana: 'Dostarczona' };   // (U7) 'wykonana' dla ludzi = „Dostarczona”
 
     function kolorTrasy(id) {
         const n = Math.abs(Math.floor(Number(id) || 0));
