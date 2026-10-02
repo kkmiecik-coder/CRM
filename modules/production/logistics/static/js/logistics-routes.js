@@ -54,7 +54,8 @@
  *   `logistics:trasy-zmienione` {root} (logistics.js) — zmiana sposobu dostawy zdjęła
  *       zamówienia z tras: lista, otwarta trasa i mapa tras pobierają się od nowa.
  *   `logistics:flota-zmieniona` {root} (logistics-fleet.js) — dostępność pojazdów od nowa.
- *   `logistics:podklad` {root, podklad} (logistics-map.js) — mapka edytora zmienia podkład
+ *   `logistics:podklad` {root, podklad} (logistics-map.js) — mapka edytora zmienia podkład (U2: także po wyborze
+ *   w jej własnym przełączniku — LogisticsMap.dodajKontrolkePodkladow)
  *       razem z mapą Dashboardu.
  *   `logistics:mapa-gotowa` {root} (logistics-map.js) — łączymy się z mapą Dashboardu.
  *
@@ -106,7 +107,8 @@
     const MAKS_ROZPIETOSC_DNI = 31;
     // (oględziny M10) Zapas od krawędzi mapki przy dopasowaniu: z lewej kolumna +/−
     // i „Pokaż całą trasę”, u dołu atrybucja — żaden przystanek nie ląduje pod kontrolką.
-    const MARGINES_MAPKI = { paddingTopLeft: [54, 30], paddingBottomRight: [30, 30] };
+    // (U2) U dołu także miniaturki podkładu (lewy dolny róg) — zapas jak na mapie Dashboardu.
+    const MARGINES_MAPKI = { paddingTopLeft: [54, 30], paddingBottomRight: [30, 64] };
 
     // (U7, decyzja Konrada 2.10) Status 'wykonana' dla ludzi to „Dostarczona” (sekcja „Dostarczone”) — wartość
     // w bazie i API zostaje 'wykonana'.
@@ -287,6 +289,7 @@
     let mapka = null;
     let warstwaMapki = null;
     let kafelkiMapki = null;          // L.TileLayer podkładu mapki (podmieniany za mapą Dashboardu)
+    let kontrolkaPodkladuMapki = null; // (U2) przełącznik podkładu mapki (L.Control z logistics-map.js)
     let mapkaDopasowana = false;
     let mapkaCzekaNaDopasowanie = false;
     // (oględziny I2) Schowana mapka (rozmiar 0) po powrocie dopasowuje się do trasy od nowa —
@@ -2634,6 +2637,7 @@
         dodajKontrolkeCalejTrasy();
         mapka.attributionControl.setPrefix(false);
         kafelkiMapki = warstwaPodkladuMapki().addTo(mapka);
+        dodajKontrolkePodkladuMapki();
         warstwaMapki = L.featureGroup().addTo(mapka);
         mapkaUkryta = false;
         mapkaRuszona = false;
@@ -2648,9 +2652,30 @@
         return true;
     }
 
-    /** (oględziny M6) Podkład Dashboardu zmieniony przy otwartym edytorze — mapka za nim. */
+    /**
+     * (U2, oględziny 2.10) Przełącznik podkładu na mapce — ten sam co na mapie Dashboardu (miniaturki Voyager,
+     * Positron, OpenStreetMap; klucz CARTO i obsługa odrzuconego klucza z logistics-map.js). Wybór jest wspólny dla
+     * obu map i zapamiętany w przeglądarce tak jak na Dashboardzie; warstwę mapki podmienia naZmianePodkladu.
+     * Bez mapy Dashboardu (plik mapy się nie wczytał) mapka zostaje na OpenStreetMap, bez przełącznika.
+     */
+    function dodajKontrolkePodkladuMapki() {
+        if (!mapka) return;
+        if (kontrolkaPodkladuMapki) {
+            try { mapka.removeControl(kontrolkaPodkladuMapki); } catch (e) { /* już zdjęta */ }
+            kontrolkaPodkladuMapki = null;
+        }
+        const m = mapaDashboardu();
+        if (m && typeof m.dodajKontrolkePodkladow === 'function') kontrolkaPodkladuMapki = m.dodajKontrolkePodkladow(mapka);
+    }
+
+    /** (oględziny M6) Podkład zmieniony (mapa Dashboardu albo przełącznik mapki) — mapka za nim. */
     function naZmianePodkladu(e) {
         if (!e.detail || e.detail.root !== root || zniszczona || !mapka) return;
+        podmienPodkladMapki();
+    }
+
+    function podmienPodkladMapki() {
+        if (!mapka) return;
         const nowa = warstwaPodkladuMapki();
         try {
             nowa.addTo(mapka);
@@ -2795,6 +2820,11 @@
 
     function zniszczMapke() {
         znacznikiMapki.clear();
+        // (U2) Zdjęcie przełącznika kończy jego śledzenie w logistics-map.js (mapka.remove() nie woła onRemove kontrolek).
+        if (mapka && kontrolkaPodkladuMapki) {
+            try { mapka.removeControl(kontrolkaPodkladuMapki); } catch (e) { /* mapka już zdjęta */ }
+        }
+        kontrolkaPodkladuMapki = null;
         if (mapka) {
             try { mapka.remove(); } catch (e) { /* kontener mógł już zniknąć z DOM */ }
         }
@@ -2896,6 +2926,11 @@
         if (przelacznikMapy && typeof m.ustawWidok === 'function') {
             przelacznikMapy.querySelectorAll('[data-lg-mapa-widok]').forEach((b) => { b.disabled = false; });
             if (typeof m.widok === 'function' && m.widok() === 'trasy') odswiezMapeTras();
+        }
+        // (U2) Mapka powstała bez tej mapy (albo przy jej poprzedniej instancji) — podkład i przełącznik od nowa.
+        if (mapka) {
+            podmienPodkladMapki();
+            dodajKontrolkePodkladuMapki();
         }
         // Kolory tras na liście i w edytorze pochodzą z mapy — teraz już są.
         renderujListe();

@@ -222,3 +222,43 @@ def test_kolumna_adres_w_dwoch_liniach():
     assert 'text-overflow: ellipsis' in linia and 'min-width: 100%' in linia
     dymek = _funkcja(_mapa_js(), 'dymekHtml')
     assert 'lg-dymek-miejscowosc' in dymek and 'lg-dymek-ulica' in dymek and 'esc(z.adres)' in dymek
+
+
+# ─── Oględziny 2.10 (Konrad), U2: przełącznik podkładu na mapce edytora trasy ───
+
+def test_mapka_edytora_ma_wlasny_przelacznik_podkladu():
+    """U2: mapka edytora ma ten sam przełącznik co mapa Dashboardu (miniaturki Voyager, Positron, OpenStreetMap;
+    klucz CARTO i obsługa odrzuconego klucza z logistics-map.js). Wybór wspólny dla obu map i zapamiętany jak na
+    Dashboardzie (localStorage + `logistics:podklad`), także zanim mapa Dashboardu powstała. Bez satelity."""
+    import re
+    mapa = _mapa_js()
+    kontrolka = _funkcja(mapa, 'dodajKontrolkePodkladow')
+    assert 'function dodajKontrolkePodkladow(cel) {' in mapa
+    assert 'return new Kontrolka().addTo(cel || mapa);' in kontrolka
+    assert 'wybierzPodklad(podklad.id);' in kontrolka and 'kontrolkiPodkladow.add(div);' in kontrolka
+    assert 'onRemove: function () {' in kontrolka and 'kontrolkiPodkladow.delete(div);' in kontrolka
+    assert 'podgladyPodkladow.set(img, podklad);' in kontrolka
+    wybierz = _funkcja(mapa, 'wybierzPodklad')
+    assert wybierz.index('przelaczPodklad(id);') < wybierz.index('zapiszPodklad(id);')
+    assert "new CustomEvent('logistics:podklad'" in wybierz and 'podkladBezMapy = id;' in wybierz
+    assert 'kontrolkiPodkladow.forEach(' in _funkcja(mapa, 'zaznaczAktywnyPodklad')
+    assert 'const podklad = biezacyPodklad();' in _funkcja(mapa, 'nowaWarstwaPodkladu')
+    assert 'podgladyPodkladow.forEach((p, img) =>' in _funkcja(mapa, 'nowaWarstwaKafelkow')
+    assert '(podkladBezMapy || czytajPodklad())' in mapa
+    assert 'dodajKontrolkePodkladow: (innaMapa) => (zniszczona || !innaMapa ? null : dodajKontrolkePodkladow(innaMapa)),' in mapa
+    assert [p for p in re.findall(r"id: '(\w+)', nazwa:", mapa)] == ['voyager', 'positron', 'osm']
+    assert 'satel' not in mapa.lower()
+    trasy = _plik(LOG, 'static', 'js', 'logistics-routes.js')
+    assert 'dodajKontrolkePodkladuMapki();' in _funkcja(trasy, 'zapewnijMapke')
+    dodaj = _funkcja(trasy, 'dodajKontrolkePodkladuMapki')
+    assert 'kontrolkaPodkladuMapki = m.dodajKontrolkePodkladow(mapka);' in dodaj
+    assert 'mapka.removeControl(kontrolkaPodkladuMapki)' in dodaj
+    assert 'mapka.removeControl(kontrolkaPodkladuMapki)' in _funkcja(trasy, 'zniszczMapke')
+    assert 'podmienPodkladMapki();' in _funkcja(trasy, 'naZmianePodkladu')
+    polacz = _funkcja(trasy, 'polaczZMapa')
+    assert 'podmienPodkladMapki();' in polacz and 'dodajKontrolkePodkladuMapki();' in polacz
+    assert 'paddingBottomRight: [30, 64]' in trasy           # zapas na miniaturki u dołu mapki
+    html = _szablon()
+    for plik, stara in (('js/logistics-routes.js', '20261002g'), ('js/logistics-map.js', '20261002g')):
+        m = re.search(r"filename='" + re.escape(plik) + r"'\) \}\}\?v=(\w+)", html)
+        assert m and m.group(1) > stara, plik

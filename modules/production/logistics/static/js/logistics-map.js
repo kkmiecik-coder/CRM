@@ -23,6 +23,8 @@
  *   window.LogisticsMap.renderTrasy(trasy, {blad})       aktywne trasy z GET /routes/map
  *   window.LogisticsMap.onWyborTrasy(cb)                 cb(route_id) — klik w trasę albo w legendę
  *   window.LogisticsMap.nowaWarstwaPodkladu()            L.TileLayer bieżącego podkładu (mapka edytora)
+ *   window.LogisticsMap.dodajKontrolkePodkladow(mapka)   (U2) ten sam przełącznik podkładu na innej mapie; wybór
+ *                                                        wspólny i zapamiętany jak tutaj (→ `logistics:podklad`)
  *   window.LogisticsMap.kolorTrasy(id), .widok()         klasa koloru trasy, bieżący widok
  *   window.LogisticsMap.onBlad(cb)                       cb(tekst) — odmowa zapisu punktu, gdy pasek
  *                                                        trybu należy już do następnego zamówienia
@@ -182,12 +184,17 @@
     let warstwaEdycji = null;        // tymczasowa pinezka korekty / ustawiania
     let warstwaKafelkow = null;      // L.TileLayer aktywnego podkładu (Voyager/Positron/OSM)
     let kontrolkaAtrybucji = null;   // L.Control.Attribution — treść zależy od podkładu
-    let kontrolkaPodkladowEl = null; // <div> kontrolki wyboru podkładu (przyciski z podglądem)
-    let aktywnyPodklad = null;       // element z PODKLADY
+    // (U2, oględziny 2.10) Kontrolki wyboru podkładu (<div> z przyciskami z podglądem) — ta na tej mapie i ta na
+    // mapce edytora trasy (dodajKontrolkePodkladow(mapka)). Zaznaczenie aktywnego idzie do wszystkich naraz.
+    const kontrolkiPodkladow = new Set();
+    let aktywnyPodklad = null;       // element z PODKLADY (podkład tej mapy, gdy już powstała)
+    // (U2) Podkład wybrany na mapce edytora, zanim powstała ta mapa (Dashboard jeszcze schowany) — gdy localStorage
+    // nie działa (tryb prywatny), wybór żyje tu do końca instancji.
+    let podkladBezMapy = null;
     // CARTO odrzuciło klucz (np. klucz ograniczony do innej domeny): do końca tej
     // instancji mapy kafelki i podglądy CARTO idą bez klucza — znak wodny zamiast pustki.
     let kluczOdrzucony = false;
-    const podgladyPodkladow = new Map(); // id podkładu → <img> podglądu w kontrolce
+    const podgladyPodkladow = new Map(); // <img> podglądu w kontrolce → podkład (wszystkie kontrolki)
     // Numer ostatniego żądania otwarcia dymku (klik w wiersz, zapis punktu). Spóźnione
     // wywołania zwrotne (moveend, zoomToShowLayer) starszych żądań nic nie otwierają.
     let nrWskazania = 0;
@@ -661,9 +668,8 @@
                     // Aktywny podkład tej mapy (ten sam podkład, te same subdomeny) i mapki tras.
                     if (mapa && warstwaKafelkow && aktywnyPodklad) warstwaKafelkow.setUrl(szablonKafelkow(aktywnyPodklad));
                     warstwyZewnetrzne.forEach((w) => w.warstwa.setUrl(szablonKafelkow(w.podklad)));
-                    podgladyPodkladow.forEach((img, id) => {
-                        const p = PODKLADY.find((x) => x.id === id);
-                        if (p && p.klucz) img.src = adresPodgladu(p, true);
+                    podgladyPodkladow.forEach((p, img) => {
+                        if (p.klucz) img.src = adresPodgladu(p, true);
                     });
                 }, 0);
             });
@@ -730,12 +736,38 @@
         document.dispatchEvent(new CustomEvent('logistics:podklad', { detail: { root: root, podklad: id } }));
     }
 
+    /** Podkład tej mapy, a zanim powstała — wybór z mapki edytora albo zapamiętany w przeglądarce. */
+    function biezacyPodklad() {
+        return aktywnyPodklad || PODKLADY.find((p) => p.id === (podkladBezMapy || czytajPodklad())) || PODKLADY[0];
+    }
+
+    /**
+     * (U2, oględziny 2.10) Wybór z dowolnej kontrolki podkładu. Gdy ta mapa już jest — zwykłe przełączenie (zapis,
+     * zdarzenie dla mapki edytora). Gdy jej jeszcze nie ma (logistyk wszedł od razu na Trasy) — sam wybór: zapis jak
+     * tutaj, zaznaczenie w kontrolkach i `logistics:podklad`, za którym idzie mapka; ta mapa weźmie go przy starcie.
+     */
+    function wybierzPodklad(id) {
+        if (zniszczona) return;
+        if (mapa) {
+            przelaczPodklad(id);
+            return;
+        }
+        const podklad = PODKLADY.find((p) => p.id === id);
+        if (!podklad || podklad === biezacyPodklad()) return;
+        podkladBezMapy = id;
+        zapiszPodklad(id);
+        zaznaczAktywnyPodklad();
+        document.dispatchEvent(new CustomEvent('logistics:podklad', { detail: { root: root, podklad: id } }));
+    }
+
     function zaznaczAktywnyPodklad() {
-        if (!kontrolkaPodkladowEl) return;
-        kontrolkaPodkladowEl.querySelectorAll('[data-podklad]').forEach((b) => {
-            const aktywny = b.getAttribute('data-podklad') === aktywnyPodklad.id;
-            b.setAttribute('aria-pressed', aktywny ? 'true' : 'false');
-            b.classList.toggle('is-aktywny', aktywny);
+        const id = biezacyPodklad().id;
+        kontrolkiPodkladow.forEach((div) => {
+            div.querySelectorAll('[data-podklad]').forEach((b) => {
+                const aktywny = b.getAttribute('data-podklad') === id;
+                b.setAttribute('aria-pressed', aktywny ? 'true' : 'false');
+                b.classList.toggle('is-aktywny', aktywny);
+            });
         });
     }
 
@@ -743,10 +775,17 @@
      * Kontrolka Leafleta: rząd samych miniaturek (podgląd stylu), bez podpisów —
      * nazwa w title i aria-label. Kompaktowa, żeby w wąskiej (300 px) i niskiej
      * mapie nie zasłaniała pinezek ani atrybucji.
+     * (U2, oględziny 2.10) cel — inna mapa (mapka edytora trasy, API dodajKontrolkePodkladow): ten sam przełącznik,
+     * wybór wspólny (wybierzPodklad). Zdjęcie kontrolki (removeControl) kończy jej śledzenie.
      */
-    function dodajKontrolkePodkladow() {
+    function dodajKontrolkePodkladow(cel) {
         const Kontrolka = L.Control.extend({
             options: { position: 'bottomleft' },
+            onRemove: function () {
+                const div = this.getContainer();
+                kontrolkiPodkladow.delete(div);
+                if (div) div.querySelectorAll('img').forEach((img) => podgladyPodkladow.delete(img));
+            },
             onAdd: function () {
                 const div = L.DomUtil.create('div', 'lg-mapa-podklady');
                 div.setAttribute('role', 'group');
@@ -771,7 +810,7 @@
                         img.addEventListener('error', naBlad);
                     }
                     img.src = adresPodgladu(podklad);
-                    podgladyPodkladow.set(podklad.id, img);
+                    podgladyPodkladow.set(img, podklad);
                     img.alt = '';
                     img.width = 56;
                     img.height = 56;
@@ -779,17 +818,17 @@
                     img.decoding = 'async';
                     L.DomEvent.on(b, 'click', (e) => {
                         L.DomEvent.preventDefault(e);
-                        przelaczPodklad(podklad.id);
+                        wybierzPodklad(podklad.id);
                     });
                 });
                 L.DomEvent.disableClickPropagation(div);
                 L.DomEvent.disableScrollPropagation(div);
-                kontrolkaPodkladowEl = div;
+                kontrolkiPodkladow.add(div);
                 zaznaczAktywnyPodklad();
                 return div;
             },
         });
-        new Kontrolka().addTo(mapa);
+        return new Kontrolka().addTo(cel || mapa);
     }
 
     // ── Grupowanie pinezek (klastry albo każda pinezka osobno) ──────────────
@@ -917,7 +956,7 @@
         mapa.on('movestart', () => { if (!dopasowanieWToku) widokRuszony = true; });
         mapa.on('dragstart', () => { widokRuszony = true; });
         mapa.on('moveend', () => { dopasowanieWToku = false; });
-        aktywnyPodklad = PODKLADY.find((p) => p.id === czytajPodklad()) || PODKLADY[0];
+        aktywnyPodklad = PODKLADY.find((p) => p.id === (podkladBezMapy || czytajPodklad())) || PODKLADY[0];
         kontrolkaAtrybucji = L.control.attribution({ prefix: false }).addTo(mapa);
         kontrolkaAtrybucji.addAttribution(aktywnyPodklad.atrybucja);
         warstwaKafelkow = nowaWarstwaKafelkow(aktywnyPodklad).addTo(mapa);
@@ -2009,7 +2048,7 @@
      */
     function nowaWarstwaPodkladu() {
         if (zniszczona) return null;
-        const podklad = aktywnyPodklad || PODKLADY.find((p) => p.id === czytajPodklad()) || PODKLADY[0];
+        const podklad = biezacyPodklad();
         const warstwa = nowaWarstwaKafelkow(podklad, true);
         // Atrybucja w opcjach warstwy — domyślna kontrolka mapki zbierze ją sama
         // (ta mapa ma kontrolkę ręczną, więc tu warstwy jej nie niosą).
@@ -2233,7 +2272,7 @@
         mapa = null;
         warstwaKafelkow = null;
         kontrolkaAtrybucji = null;
-        kontrolkaPodkladowEl = null;
+        kontrolkiPodkladow.clear();
         przelacznikGrupowania = null;
         przyciskDopasowania = null;
         pinezki = null;
@@ -2278,6 +2317,8 @@
         renderTrasy: renderTrasy,
         onWyborTrasy: onWyborTrasy,
         nowaWarstwaPodkladu: nowaWarstwaPodkladu,
+        // (U2) Przełącznik podkładu na mapce edytora trasy — zwraca L.Control (albo null po zniszczeniu).
+        dodajKontrolkePodkladow: (innaMapa) => (zniszczona || !innaMapa ? null : dodajKontrolkePodkladow(innaMapa)),
         kolorTrasy: kolorTrasy,
         zniszcz: zniszcz,
     };
