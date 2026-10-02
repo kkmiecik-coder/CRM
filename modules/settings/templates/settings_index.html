@@ -214,7 +214,7 @@
                 <div class="settings-section">
                     <div class="section-header">
                         <h2>Aplikacja stanowiskowa (Android)</h2>
-                        <p>Zarządzanie release'ami pliku APK dla tabletów stanowiskowych. Po wgraniu nowej wersji tablety same się zaktualizują (pytają endpoint <code>/api/mobile/app/version</code>).</p>
+                        <p>Zarządzanie release'ami pliku APK dla tabletów stanowiskowych. Wgrana wersja jest domyślnie <strong>nieaktywna</strong> — tablety pobiorą ją dopiero po włączeniu przełącznika „Aktywny” w historii (albo od razu, jeśli zaznaczysz „Aktywuj od razu”). Tablety pytają endpoint <code>/api/mobile/app/version</code>.</p>
                     </div>
 
                     <!-- Upload nowego APK -->
@@ -239,6 +239,13 @@
                             <div class="form-group">
                                 <label>Release notes (opcjonalnie)</label>
                                 <textarea name="release_notes" rows="5" placeholder="Co się zmieniło w tej wersji? Każda linia będzie widoczna na tablecie." style="width: 100%; box-sizing: border-box; resize: vertical;"></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                    <input type="checkbox" name="activate" value="1" id="apkActivateInput">
+                                    Aktywuj od razu (tablety pobiorą tę wersję)
+                                </label>
+                                <small class="form-hint">Bez zaznaczenia release zostanie wgrany jako nieaktywny — włączysz go później przełącznikiem „Aktywny” w historii poniżej.</small>
                             </div>
                             <div class="apk-upload-progress" id="apkUploadProgress" style="display: none;">
                                 <div class="apk-progress-bar-wrapper">
@@ -311,6 +318,7 @@
                         <ul>
                             <li>Backend liczy SHA-256 i odczytuje versionCode/versionName z manifestu APK automatycznie.</li>
                             <li>Tablety pytają <code>/api/mobile/app/version</code> i pobierają najnowszy <strong>aktywny</strong> release.</li>
+                            <li>Nowy release jest domyślnie nieaktywny — wydanie na tablety = włącz suwak "Aktywny" w jego wierszu (albo zaznacz "Aktywuj od razu" przy wgrywaniu).</li>
                             <li>Wycofanie buggy wersji = przełącz suwak "Aktywny" w wierszu releaseu.</li>
                             <li>Przy więcej niż jednym aktywnym release'ie wybierany jest ten z najwyższym <code>version_code</code>.</li>
                         </ul>

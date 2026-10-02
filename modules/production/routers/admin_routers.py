@@ -372,10 +372,11 @@ def mobile_upload_apk():
 
     Multipart form: pole `apk` (plik), `version_code` (wymagane, int > 0,
     z build.gradle.kts), `version_name` (wymagane, string, max 32 znaki),
-    `release_notes` (opcjonalnie). Backend waliduje versionCode
+    `release_notes` (opcjonalnie), `activate` (opcjonalnie; `1` = release od
+    razu aktywny, brak pola = nieaktywny). Backend waliduje versionCode
     > max(istniejących) i zapisuje plik do instance/mobile_apk/.
     """
-    from ..services.mobile_api_service import register_release
+    from ..services.mobile_api_service import register_release, flaga_aktywacji
 
     apk_file = request.files.get('apk')
     if apk_file is None:
@@ -384,6 +385,7 @@ def mobile_upload_apk():
     version_code_raw = request.form.get('version_code', '').strip()
     version_name = request.form.get('version_name', '').strip()
     release_notes = request.form.get('release_notes', '').strip()
+    activate = flaga_aktywacji(request.form.get('activate'))
 
     if not version_code_raw:
         return jsonify({'success': False, 'error': 'Pole `version_code` jest wymagane (z build.gradle.kts)'}), 400
@@ -406,6 +408,7 @@ def mobile_upload_apk():
             version_name=version_name,
             release_notes=release_notes,
             user_id=current_user.id,
+            activate=activate,
         )
     except ValueError as e:
         return jsonify({'success': False, 'error': str(e)}), 400

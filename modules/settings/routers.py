@@ -119,8 +119,14 @@ def production_app():
 @settings_bp.route('/api/mobile-releases/upload', methods=['POST'])
 @require_admin
 def api_mobile_release_upload():
-    """Upload nowego APK + automatyczna rejestracja release'u."""
-    from modules.production.services.mobile_api_service import register_release
+    """
+    Upload nowego APK + automatyczna rejestracja release'u.
+
+    Release powstaje NIEAKTYWNY, chyba że formularz przyśle `activate=1`
+    (checkbox „Aktywuj od razu”). Nieaktywny włącza się przełącznikiem
+    „Aktywny” w historii release'ów.
+    """
+    from modules.production.services.mobile_api_service import register_release, flaga_aktywacji
 
     apk_file = request.files.get('apk')
     if apk_file is None:
@@ -129,6 +135,7 @@ def api_mobile_release_upload():
     version_code_raw = request.form.get('version_code', '').strip()
     version_name = request.form.get('version_name', '').strip()
     release_notes = request.form.get('release_notes', '').strip()
+    activate = flaga_aktywacji(request.form.get('activate'))
 
     if not version_code_raw:
         return jsonify({'success': False, 'error': 'Pole `version_code` jest wymagane (z build.gradle.kts)'}), 400
@@ -154,6 +161,7 @@ def api_mobile_release_upload():
             version_name=version_name,
             release_notes=release_notes,
             user_id=user.id if user else None,
+            activate=activate,
         )
     except ValueError as e:
         return jsonify({'success': False, 'error': str(e)}), 400

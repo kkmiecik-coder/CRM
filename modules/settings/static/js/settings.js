@@ -1914,9 +1914,13 @@ document.addEventListener('DOMContentLoaded', function() {
                     progressFill.style.width = '100%';
                     progressPercent.textContent = '100%';
                     progressEta.textContent = 'Gotowe';
-                    statusEl.textContent = `OK — release v${data.release.version_code} (${data.release.version_name}) zarejestrowany. Odświeżam…`;
+                    const stanRelease = data.release.is_active
+                        ? 'AKTYWNY — tablety pobiorą tę wersję'
+                        : 'NIEAKTYWNY — włącz przełącznik „Aktywny” w historii, gdy zechcesz wydać';
+                    statusEl.textContent = `OK — release v${data.release.version_code} (${data.release.version_name}) zarejestrowany, ${stanRelease}. Odświeżam…`;
                     statusEl.style.color = '#28a745';
-                    setTimeout(() => window.location.reload(), 1200);
+                    // 3 s, żeby zdążyć przeczytać, czy release jest aktywny.
+                    setTimeout(() => window.location.reload(), 3000);
                 } else {
                     const msg = (data && data.error) || ('HTTP ' + xhr.status);
                     statusEl.textContent = 'Błąd: ' + msg;

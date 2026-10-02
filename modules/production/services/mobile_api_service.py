@@ -1401,9 +1401,25 @@ def _hash_file_sha256(path, chunk_size=1024 * 1024):
     return h.hexdigest()
 
 
-def register_release(file_storage, version_code, version_name, release_notes, user_id):
+def flaga_aktywacji(wartosc):
+    """
+    Pole formularza uploadu `activate` (checkbox „Aktywuj od razu”).
+    Niezaznaczony checkbox w ogóle nie trafia do formularza, więc brak pola
+    = release nieaktywny. Typowe zapisy prawdy → True, cała reszta → False.
+    """
+    return (wartosc or '').strip().lower() in ('1', 'true', 'on', 'yes', 'tak')
+
+
+def register_release(file_storage, version_code, version_name, release_notes, user_id,
+                     activate=False):
     """
     Rejestruje nowy release APK.
+
+    Domyślnie release powstaje NIEAKTYWNY (`activate=False`): tablety go nie
+    widzą (`latest_active()` i pobieranie APK pomijają nieaktywne), dopóki
+    admin nie włączy przełącznika „Aktywny” w historii release'ów. Pozwala to
+    wgrać APK z wyprzedzeniem, np. przed wdrożeniem backendu, którego wymaga.
+    `activate=True` = natychmiastowe wydanie na wszystkie tablety.
 
     Kroki:
     1. Save uploadu do tymczasowego pliku w instance/mobile_apk/.
@@ -1474,7 +1490,7 @@ def register_release(file_storage, version_code, version_name, release_notes, us
             sha256=sha256,
             release_notes=(release_notes or '').strip() or None,
             uploaded_by_user_id=user_id,
-            is_active=True,
+            is_active=bool(activate),
         )
         db.session.add(release)
         db.session.commit()
@@ -1485,6 +1501,7 @@ def register_release(file_storage, version_code, version_name, release_notes, us
             'sha256': sha256,
             'size_bytes': size,
             'uploaded_by': user_id,
+            'is_active': release.is_active,
         })
         return release
 
@@ -1521,7 +1538,10 @@ def list_releases():
 
 
 def set_release_active(release_id, is_active):
-    """Toggle is_active dla release'u — pozwala wycofać buggy build."""
+    """
+    Toggle is_active dla release'u — pozwala wycofać buggy build albo włączyć
+    release wgrany jako nieaktywny (domyślny tryb uploadu).
+    """
     release = MobileAppRelease.query.get(release_id)
     if release is None:
         raise ValueError(f'Release {release_id} nie istnieje')
