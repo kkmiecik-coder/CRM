@@ -112,6 +112,26 @@ def test_telefon_ponawia_raz_po_1213(app, client, monkeypatch, dopychacz):
     assert dopychacz == [[oid]]
 
 
+def test_telefon_cofniecie_niedostarczenia_ponawia_raz_po_1213(app, client, monkeypatch, dopychacz):
+    """U10: „Cofnij niedostarczenie” z telefonu idzie przez ten sam szkielet zapisu (_zapis) — jedno ponowienie,
+    jeden wpis logu i jeden wpis idempotencji."""
+    device, k = telefon_kierowcy()
+    t, a, _b = _w_trasie(k)
+    dostawa.nie_dostarcz(t, a.id, 'odmowa', worker_id=k.id, teraz=T0)
+    db.session.commit()
+    rid, oid = t.id, a.id
+    proby = _scenariusz(monkeypatch, 'cofnij_niedostarczenie', [_blad_mysql(1213)])
+
+    r = client.post(API + '/routes/%d/stops/%d/undo-not-delivered' % (rid, oid),
+                    headers=naglowki(device, k, op_id='op-1213-nd'))
+
+    assert r.status_code == 200, r.get_data()[:300]
+    assert r.get_json()['changed'] is True and len(proby) == 2
+    assert _liczba(oid, 'niedostarczenie_cofniete') == 1
+    assert RouteStop.query.filter_by(order_id=oid).one().not_delivered_at is None
+    assert ProcessedMobileOperation.query.filter_by(operation_id='op-1213-nd').count() == 1
+
+
 def test_telefon_druga_proba_decyduje_na_nowym_stanie(app, client, monkeypatch, dopychacz):
     """Ofiara zakleszczenia traci transakcję, a cudzy zapis się zatwierdza (drugi telefon dostarczył ten przystanek).
     Druga próba decyduje na nowym stanie — powtórka bez zmian, bez wpisu i bez dopychacza z pierwszej próby."""

@@ -74,7 +74,8 @@ def test_moje_trasy_zakres(app, client):
     pierwsza = dane['routes'][0]
     assert (pierwsza['status'], pierwsza['status_label']) == ('w_trasie', u'W trasie')
     assert set(pierwsza) == {'id', 'name', 'date_from', 'date_to', 'status', 'status_label', 'vehicle_name',
-                             'stops_total', 'stops_delivered', 'packages_total', 'packages_loaded'}
+                             'stops_total', 'stops_delivered', 'stops_not_delivered', 'packages_total',
+                             'packages_loaded'}
 
 
 def test_trasa_ksztalt_i_stany(app, client):
@@ -129,7 +130,7 @@ def test_trasa_etag_i_304(app, client):
     t = _trasa_kierowcy(k, [order])
     r = client.get(API + '/routes/%d' % t.id, headers=naglowki(device, k))
     etag = r.headers['ETag']
-    assert etag.startswith('W/"dostawa:1:%d:' % t.id)
+    assert etag.startswith('W/"dostawa:2:%d:' % t.id)   # kształt 2 — U10 (niedostarczone na trasie)
     assert r.headers['Cache-Control'] == 'private, max-age=0'
     r = client.get(API + '/routes/%d' % t.id, headers=dict(naglowki(device, k), **{'If-None-Match': etag}))
     assert r.status_code == 304
@@ -286,12 +287,13 @@ def test_zastepca_zapisuje_na_cudzej_trasie(app, client):
 
 # Kształty z sekcji „Kontrakt API Dostawy” planu 4.4b.
 KLUCZE_TRASY_KROTKO = {'id', 'name', 'date_from', 'date_to', 'status', 'status_label', 'vehicle_name',
-                       'stops_total', 'stops_delivered', 'packages_total', 'packages_loaded'}
+                       'stops_total', 'stops_delivered', 'stops_not_delivered', 'packages_total', 'packages_loaded'}
 KLUCZE_TRASY = KLUCZE_TRASY_KROTKO | {'vehicle_registration', 'notes', 'loaded_at', 'departed_at', 'completed_at',
-                                      'completed_by_panel', 'stops'}
+                                      'completed_by_panel', 'stops', 'removed_not_delivered'}
 KLUCZE_PRZYSTANKU = {'position', 'order_id', 'internal_order_number', 'client_name', 'recipient', 'phone',
                      'address', 'geo', 'order_notes', 'm3', 'weight_kg', 'packages', 'packages_total',
-                     'packages_loaded', 'state', 'state_label', 'problem', 'stays', 'delivered_at'}
+                     'packages_loaded', 'state', 'state_label', 'problem', 'stays', 'delivered_at',
+                     'not_delivered'}
 KLUCZE_PACZKI = {'id', 'code', 'seq', 'kind', 'pallet_type', 'length_cm', 'width_cm', 'verified', 'loaded',
                  'loaded_at', 'loaded_method'}
 
@@ -513,6 +515,12 @@ def test_przeplyw_kierowcy_z_powtorkami(app, client, monkeypatch):
     assert akcje[-2:] == ['niedostarczone', 'trasa_usuniete']
 
 
+def _numery_zdjetych(sql):
+    return sql.startswith('SELECT prod_orders.id AS prod_orders_id, prod_orders.internal_order_number AS '
+                          'prod_orders_internal_order_number, prod_orders.client_name AS prod_orders_client_name '
+                          'FROM prod_orders WHERE prod_orders.id IN')
+
+
 def test_zapisy_przez_api_decyduja_i_odpowiadaja_na_zablokowanych_obiektach(app, client, monkeypatch):
     """Ruling P2 na ścieżce HTTP: od pierwszej blokady zamówień do końca serializacji odpowiedzi
     (dostawa_widok.trasa_po_zapisie) żaden zwykły SELECT zamówień, pozycji, paczek ani tras — decyzje serwisu
@@ -559,7 +567,9 @@ def test_zapisy_przez_api_decyduja_i_odpowiadaja_na_zablokowanych_obiektach(app,
         assert r.status_code == 200, (sciezka, r.get_data()[:300])
         do_odpowiedzi = Zapytania()
         do_odpowiedzi.lista = z.lista[:biezace['koniec']]          # decyzja i serializacja, bez commitu i po nim
-        assert zwykle_odczyty_stanu(do_odpowiedzi) == [], sciezka
+        # U10 (R32.9): numer i klient zamówień ZDJĘTYCH z trasy (historia niedostarczonych) to świadomie zwykły
+        # odczyt samych kolumn — tych zamówień zapis nie blokuje (dostawa_widok.historia), a numer się nie zmienia.
+        assert [sql for sql in zwykle_odczyty_stanu(do_odpowiedzi) if not _numery_zdjetych(sql)] == [], sciezka
     assert r.get_json()['route']['status'] == 'w_trasie'
     assert [s['order_id'] for s in r.get_json()['route']['stops']] == [ia]
     assert licznik['_wymagaj_statusu'] > 0 and licznik['zapisz_log'] > 0
@@ -649,6 +659,7 @@ ENDPOINTY = [
     ('POST', '/routes/<int:route_id>/stops/<int:order_id>/delivered'),
     ('POST', '/routes/<int:route_id>/stops/<int:order_id>/not-delivered'),
     ('POST', '/routes/<int:route_id>/stops/<int:order_id>/undo-delivered'),
+    ('POST', '/routes/<int:route_id>/stops/<int:order_id>/undo-not-delivered'),
 ]
 
 
@@ -740,3 +751,153 @@ def test_status_label_trasy_wykonanej_to_dostarczona(app, client):
     with pytest.raises(LogistykaBlad) as blad:
         routes._wymagaj_statusu(t, 'robocza')
     assert u'Trasa „Zamknięta” jest dostarczona' in str(blad.value)
+
+
+# --- U10 (Ruling 32): „Niedostarczone” zostaje na trasie do jej końca -------------------------------------------
+
+def _w_drodze_kierowcy(k, ile=2):
+    zamowienia = [zamowienie_z_paczkami(statusy=('zaladowane', 'zaladowane')) for _ in range(ile)]
+    t = _trasa_kierowcy(k, [o for o, _ in zamowienia], status='w_trasie', loaded_at=T0, departed_at=T0)
+    zaladuj_wprost([p for _, lista in zamowienia for p in lista], t, kto_id=k.id)
+    return t, [o for o, _ in zamowienia]
+
+
+def test_api_niedostarczony_przystanek_zostaje_ze_stanem(app, client):
+    device, k = telefon_kierowcy()
+    t, (a, b) = _w_drodze_kierowcy(k)
+    r = client.post(API + '/routes/%d/stops/%d/not-delivered' % (t.id, a.id), headers=naglowki(device, k),
+                    json={'reason': 'brak_klienta', 'note': u'nie odbiera'})
+    assert r.status_code == 200, r.get_data()[:300]
+    dane = r.get_json()
+    assert (dane['changed'], dane['route_completed']) == (True, False)
+    assert dane['message'] == u'Zamówienie {} niedostarczone — zostaje na trasie do jej końca.'.format(
+        a.internal_order_number)
+    trasa_ = dane['route']
+    assert (trasa_['stops_total'], trasa_['stops_delivered'], trasa_['stops_not_delivered']) == (2, 0, 1)
+    assert trasa_['removed_not_delivered'] == []
+    stopy = {s['order_id']: s for s in trasa_['stops']}
+    s = stopy[a.id]
+    assert (s['state'], s['state_label'], s['delivered_at'], s['packages_loaded']) == (
+        'niedostarczone', u'Niedostarczone', None, 2)
+    assert set(s['not_delivered']) == {'reason', 'reason_label', 'note', 'at'}
+    assert (s['not_delivered']['reason'], s['not_delivered']['reason_label'], s['not_delivered']['note']) == (
+        'brak_klienta', u'Brak klienta', u'nie odbiera')
+    assert s['not_delivered']['at']
+    assert stopy[b.id]['not_delivered'] is None and stopy[b.id]['state'] == 'zaladowane'
+    # GET trasy i „Moje trasy” — to samo.
+    r = client.get(API + '/routes/%d' % t.id, headers=naglowki(device, k))
+    assert r.get_json()['route']['stops'] == trasa_['stops']
+    lista = client.get(API + '/routes', headers=naglowki(device, k)).get_json()['routes']
+    assert [(w['id'], w['stops_not_delivered']) for w in lista] == [(t.id, 1)]
+    # Ten sam powód i notatka (kolejka offline, nowy X-Operation-Id) — bez zmian; inny powód — zmiana.
+    r = client.post(API + '/routes/%d/stops/%d/not-delivered' % (t.id, a.id), headers=naglowki(device, k),
+                    json={'reason': 'brak_klienta', 'note': u'nie odbiera'})
+    assert r.get_json()['changed'] is False
+    assert r.get_json()['message'] == u'Zamówienie {} jest już oznaczone jako niedostarczone.'.format(
+        a.internal_order_number)
+    r = client.post(API + '/routes/%d/stops/%d/not-delivered' % (t.id, a.id), headers=naglowki(device, k),
+                    json={'reason': 'odmowa'})
+    assert r.get_json()['changed'] is True
+    assert {s['order_id']: s for s in r.get_json()['route']['stops']}[a.id]['not_delivered']['reason'] == 'odmowa'
+
+
+def test_api_cofnij_niedostarczenie(app, client):
+    device, k = telefon_kierowcy()
+    t, (a, _b) = _w_drodze_kierowcy(k)
+    dostawa.nie_dostarcz(t, a.id, 'odmowa', worker_id=k.id, teraz=T0)
+    db.session.commit()
+    adres = API + '/routes/%d/stops/%d/undo-not-delivered' % (t.id, a.id)
+    assert client.post(adres, headers=naglowki(device)).status_code == 400            # bez kierowcy
+    r = client.post(adres, headers=naglowki(device, k, op_id='op-undo-nd'))
+    assert r.status_code == 200, r.get_data()[:300]
+    dane = r.get_json()
+    assert dane['changed'] is True
+    assert dane['message'] == u'Cofnięto niedostarczenie zamówienia {} — znów do dostarczenia.'.format(
+        a.internal_order_number)
+    stop = {s['order_id']: s for s in dane['route']['stops']}[a.id]
+    assert (stop['state'], stop['not_delivered']) == ('zaladowane', None)
+    assert dane['route']['stops_not_delivered'] == 0
+    # Ten sam X-Operation-Id — odpowiedź z idempotencji; nowy (kolejka offline) — 200 bez zmian.
+    assert client.post(adres, headers=naglowki(device, k, op_id='op-undo-nd')).get_json() == dane
+    r = client.post(adres, headers=naglowki(device, k))
+    assert (r.status_code, r.get_json()['changed']) == (200, False)
+    assert r.get_json()['message'] == u'Zamówienie {} nie było oznaczone jako niedostarczone.'.format(
+        a.internal_order_number)
+    assert LogisticsLog.query.filter_by(order_id=a.id, action='niedostarczenie_cofniete').count() == 1
+    r = client.post(API + '/routes/987654/stops/%d/undo-not-delivered' % a.id, headers=naglowki(device, k))
+    assert (r.status_code, r.get_json()['error']) == (404, 'route_not_found')
+
+
+def test_api_dostarczone_z_niedostarczonego(app, client):
+    device, k = telefon_kierowcy()
+    t, (a, _b) = _w_drodze_kierowcy(k)
+    dostawa.nie_dostarcz(t, a.id, 'odmowa', worker_id=k.id, teraz=T0)
+    db.session.commit()
+    r = client.post(API + '/routes/%d/stops/%d/delivered' % (t.id, a.id), headers=naglowki(device, k))
+    assert r.status_code == 200, r.get_data()[:300]
+    stop = {s['order_id']: s for s in r.get_json()['route']['stops']}[a.id]
+    assert (stop['state'], stop['not_delivered']) == ('dostarczone', None) and stop['delivered_at']
+
+
+def test_api_po_zamknieciu_niedostarczone_w_historii(app, client):
+    device, k = telefon_kierowcy()
+    t, (a, b) = _w_drodze_kierowcy(k)
+    dostawa.nie_dostarcz(t, a.id, 'brak_klienta', u'zadzwonić', worker_id=k.id, teraz=T0)
+    db.session.commit()
+    r = client.post(API + '/routes/%d/stops/%d/delivered' % (t.id, b.id), headers=naglowki(device, k))
+    assert r.status_code == 200, r.get_data()[:300]
+    dane = r.get_json()
+    assert dane['route_completed'] is True
+    assert dane['message'] == (u'Dostarczono zamówienie {}. Trasa zakończona — niedostarczone wracają do puli bez '
+                               u'trasy.'.format(b.internal_order_number))
+    trasa_ = dane['route']
+    assert (trasa_['status'], [s['order_id'] for s in trasa_['stops']]) == ('wykonana', [b.id])
+    assert (trasa_['stops_total'], trasa_['stops_not_delivered']) == (1, 0)
+    assert trasa_['removed_not_delivered'] == [{
+        'order_id': a.id, 'internal_order_number': a.internal_order_number, 'client_name': a.client_name,
+        'not_delivered': {'reason': 'brak_klienta', 'reason_label': u'Brak klienta', 'note': u'zadzwonić',
+                          'at': T0.isoformat()}}]
+    assert client.get(API + '/routes/%d' % t.id, headers=naglowki(device, k)).get_json()['route'] == trasa_
+    # Spóźnione akcje na zdjętym przystanku: „Niedostarczone” — bez zmian (Ruling 26), pozostałe — 404 z komunikatem.
+    r = client.post(API + '/routes/%d/stops/%d/not-delivered' % (t.id, a.id), headers=naglowki(device, k),
+                    json={'reason': 'brak_klienta'})
+    assert (r.status_code, r.get_json()['changed'], r.get_json()['route_completed']) == (200, False, False)
+    for akcja in ('undo-not-delivered', 'delivered'):
+        r = client.post(API + '/routes/%d/stops/%d/%s' % (t.id, a.id, akcja), headers=naglowki(device, k))
+        assert (r.status_code, r.get_json()['error']) == (404, 'stop_not_found'), akcja
+        assert u'zeszło już z trasy' in r.get_json()['message']
+
+
+def test_api_niedostarczenie_zamykajace_trase_ma_komunikat(app, client):
+    device, k = telefon_kierowcy()
+    t, (a,) = _w_drodze_kierowcy(k, ile=1)
+    r = client.post(API + '/routes/%d/stops/%d/not-delivered' % (t.id, a.id), headers=naglowki(device, k),
+                    json={'reason': 'odmowa'})
+    dane = r.get_json()
+    assert (dane['changed'], dane['route_completed'], dane['route']['status']) == (True, True, 'wykonana')
+    assert dane['message'] == (u'Zamówienie {} niedostarczone. Trasa zakończona — niedostarczone wracają do puli '
+                               u'bez trasy.'.format(a.internal_order_number))
+    assert [h['order_id'] for h in dane['route']['removed_not_delivered']] == [a.id]
+
+
+def test_api_historia_w_odpowiedzi_zapisu_odczytem_biezacym(app, client):
+    """R32.9: odpowiedź zapisu (dostawa_widok.trasa_po_zapisie) czyta historię niedostarczonych odczytem bieżącym, pod
+    trzymaną blokadą tras; GET — zwykłym."""
+    device, k = telefon_kierowcy()
+    t, (a, b) = _w_drodze_kierowcy(k)
+    dostawa.nie_dostarcz(t, a.id, 'odmowa', worker_id=k.id, teraz=T0)
+    db.session.commit()
+
+    def odczyty_historii(z):
+        return [sql for sql, _p in z.lista if sql.startswith('SELECT') and 'FROM prod_logistics_log' in sql
+                and 'prod_logistics_log.route_id IN' in sql]
+
+    with Zapytania() as z:
+        r = client.post(API + '/routes/%d/stops/%d/delivered' % (t.id, b.id), headers=naglowki(device, k))
+    assert r.status_code == 200
+    odczyty = odczyty_historii(z)
+    assert odczyty and all(sql.endswith(' LOCK IN SHARE MODE') for sql in odczyty), odczyty
+    with Zapytania() as z:
+        client.get(API + '/routes/%d' % t.id, headers=naglowki(device, k))
+    odczyty = odczyty_historii(z)
+    assert odczyty and not any(sql.endswith(' LOCK IN SHARE MODE') for sql in odczyty), odczyty

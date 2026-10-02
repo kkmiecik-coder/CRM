@@ -40,7 +40,11 @@ dostawa_mobile_bp = Blueprint('dostawa_mobile', __name__)
 # Wersja KSZTAŁTU odpowiedzi trasy — część ETagu (jak KSZTALT_LISTY Weryfikacji).
 # PODBIJ przy każdej zmianie zestawu pól w dostawa_widok.serializuj().
 #   1 — 2026-10-01: pierwsza wersja (krok 4.4)
-KSZTALT_TRASY = 1
+#   2 — 2026-10-02: U10 (Ruling 32) — stan przystanku 'niedostarczone', `not_delivered`, `stops_not_delivered`,
+#       `removed_not_delivered`
+KSZTALT_TRASY = 2
+# Dopisek komunikatu, gdy zapis zamknął trasę z niedostarczonymi (U10: schodzą wtedy do puli).
+TRASA_ZAKONCZONA = u' Trasa zakończona — niedostarczone wracają do puli bez trasy.'
 
 
 def wymaga_dostawy(f):
@@ -330,7 +334,7 @@ def delivery_stop_delivered(route_id, order_id):
         komunikat = (u'Dostarczono zamówienie {}.' if zmieniono
                      else u'Zamówienie {} było już dostarczone.').format(numer)
         if zamknieta:
-            komunikat += u' Trasa zakończona.'
+            komunikat += TRASA_ZAKONCZONA
         return komunikat, {'changed': zmieniono, 'route_completed': zamknieta}
     return _zapis(route_id, akcja)
 
@@ -341,10 +345,11 @@ def delivery_stop_delivered(route_id, order_id):
 @with_idempotency(retryable_statuses=BLEDY_DO_PONOWIENIA)
 def delivery_stop_not_delivered(route_id, order_id):
     """
-    POST …/stops/<order_id>/not-delivered {"reason", "note"?} — „Niedostarczone” (spec 9.5, 4.5). Powtórka z nowym
-    X-Operation-Id po udanym zdjęciu przystanku (Ruling 26, kolejka offline) → 200 {changed: false,
-    route_completed: false} z pełną trasą, jak powtórki zakończenia załadunku i wyjazdu (Ruling 23); każdy inny brak
-    przystanku → 404 stop_not_found.
+    POST …/stops/<order_id>/not-delivered {"reason", "note"?} — „Niedostarczone” (spec 9.5, 4.5; U10, Ruling 32:
+    przystanek zostaje na trasie do jej końca, ze stanem 'niedostarczone'). Ten sam powód i notatka na przystanku już
+    niedostarczonym albo powtórka z nowym X-Operation-Id po zejściu przystanku do puli (Ruling 26, kolejka offline) →
+    200 {changed: false, route_completed: false} z pełną trasą, jak powtórki zakończenia załadunku i wyjazdu
+    (Ruling 23); inny powód albo notatka → zmiana. Każdy inny brak przystanku → 404 stop_not_found.
     """
     dane = _dane_json()
     try:
@@ -354,15 +359,20 @@ def delivery_stop_not_delivered(route_id, order_id):
 
     def akcja(trasa, kierowca):
         numer = _numer(order_id)
+        na_trasie = any(s.order_id == order_id for s in trasa.stops)
         _t, zmieniono, zamknieta = dostawa.nie_dostarcz(trasa, order_id, dane.get('reason'), dane.get('note'),
                                                         worker_id=kierowca.id, device_id=g.device.id)
         if not zmieniono:
-            return (u'Zamówienie {} było już rozliczone jako niedostarczone.'.format(numer),
-                    {'changed': False, 'route_completed': False})
-        komunikat = u'Zamówienie {} niedostarczone — wraca do puli bez trasy.'.format(numer)
+            # `na_trasie` z trasy wczytanej przez _zapis (przed blokadami) — tylko wybór tekstu, decyzja zapadła
+            # w serwisie na odczycie bieżącym.
+            tekst = (u'Zamówienie {} jest już oznaczone jako niedostarczone.' if na_trasie
+                     else u'Zamówienie {} było już rozliczone jako niedostarczone.')
+            return tekst.format(numer), {'changed': False, 'route_completed': False}
         if zamknieta:
-            komunikat += u' Trasa zakończona.'
-        return komunikat, {'changed': True, 'route_completed': zamknieta}
+            return (u'Zamówienie {} niedostarczone.'.format(numer) + TRASA_ZAKONCZONA,
+                    {'changed': True, 'route_completed': True})
+        return (u'Zamówienie {} niedostarczone — zostaje na trasie do jej końca.'.format(numer),
+                {'changed': True, 'route_completed': False})
     return _zapis(route_id, akcja)
 
 
@@ -379,4 +389,23 @@ def delivery_stop_undo_delivered(route_id, order_id):
                                                     device_id=g.device.id)
         return (u'Cofnięto dostarczenie zamówienia {}.' if zmieniono
                 else u'Zamówienie {} nie było dostarczone.').format(numer), {'changed': zmieniono}
+    return _zapis(route_id, akcja)
+
+
+@dostawa_mobile_bp.route('/routes/<int:route_id>/stops/<int:order_id>/undo-not-delivered', methods=['POST'])
+@require_device_token
+@wymaga_dostawy
+@with_idempotency(retryable_statuses=BLEDY_DO_PONOWIENIA)
+def delivery_stop_undo_not_delivered(route_id, order_id):
+    """
+    POST …/stops/<order_id>/undo-not-delivered — „Cofnij niedostarczenie” (U10, Ruling 32): przystanek wraca do „do
+    dostarczenia”. Przystanek, który nie jest niedostarczony → 200 changed: false (powtórka z kolejki offline); brak
+    przystanku (np. zamówienie zeszło do puli przy zamknięciu trasy) → 404 stop_not_found z komunikatem.
+    """
+    def akcja(trasa, kierowca):
+        numer = _numer(order_id)
+        _t, zmieniono = dostawa.cofnij_niedostarczenie(trasa, order_id, worker_id=kierowca.id,
+                                                       device_id=g.device.id)
+        return (u'Cofnięto niedostarczenie zamówienia {} — znów do dostarczenia.' if zmieniono
+                else u'Zamówienie {} nie było oznaczone jako niedostarczone.').format(numer), {'changed': zmieniono}
     return _zapis(route_id, akcja)

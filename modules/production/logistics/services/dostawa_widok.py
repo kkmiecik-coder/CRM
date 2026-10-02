@@ -9,6 +9,7 @@ import json
 from sqlalchemy import and_, exists, or_
 from sqlalchemy.orm import selectinload
 
+from extensions import db
 from modules.production.logistics.models import Route, RouteStop
 from modules.production.logistics.services import delivery, dostawa, geocoding, paczki, routes, weryfikacja
 from modules.production.models import ProductionOrder, ProductionPackage
@@ -19,6 +20,7 @@ ETYKIETY_STANU = {
     'niespakowane': u'NIESPAKOWANE',
     'zaladowane': u'Załadowane',
     'dostarczone': u'Dostarczone',
+    'niedostarczone': u'Niedostarczone',
     'anulowane': u'Anulowane',
 }
 
@@ -61,10 +63,13 @@ def serializuj_paczke(p, trasa):
             'loaded_method': p.loaded_method}
 
 
-def _stan(order, aktywne):
-    """Stan zamówienia dla kierowcy (spec 9.2)."""
+def _stan(order, aktywne, stop=None):
+    """Stan zamówienia dla kierowcy (spec 9.2). Przystanek niedostarczony (U10, Ruling 32) — 'niedostarczone' (pozycje
+    są wtedy 'zaladowane'); zamówienie anulowane w całości ma pierwszeństwo."""
     if not aktywne:
         return 'anulowane'
+    if stop is not None and stop.not_delivered_at is not None:
+        return 'niedostarczone'
     statusy = {p.current_status for p in aktywne}
     if statusy == {'dostarczone'}:
         return 'dostarczone'
@@ -94,6 +99,8 @@ def _krotko(trasa, zamowienia, pakunki):
         'vehicle_name': trasa.vehicle.name if trasa.vehicle is not None else None,
         'stops_total': len(stopy),
         'stops_delivered': sum(1 for s in stopy if s.delivered_at is not None),
+        # U10: przystanki aktywne obecne na trasie w stanie „niedostarczone” (zdjęte do puli — removed_not_delivered).
+        'stops_not_delivered': sum(1 for s in stopy if s.not_delivered_at is not None),
         'packages_total': len(paczki_trasy),
         'packages_loaded': sum(1 for p in paczki_trasy if _zaladowana(p, trasa)),
     }
@@ -110,7 +117,7 @@ def lista_moich_tras(kierowca_id, dzis):
 
 def _przystanek(stop, order, numer, pakunki_zamowienia, punkt, trasa):
     aktywne = delivery.aktywne_produkty(order)
-    stan = _stan(order, aktywne)
+    stan = _stan(order, aktywne, stop)
     etykieta = ETYKIETY_STANU.get(stan)
     if stan == 'problem':
         etykieta = u'PROBLEM: ' + weryfikacja.POWODY_PROBLEMU.get(order.problem_reason, order.problem_reason or u'')
@@ -144,11 +151,53 @@ def _przystanek(stop, order, numer, pakunki_zamowienia, punkt, trasa):
                    'reason_label': dostawa.POWODY_ZOSTAJE.get(stop.stays_reason, stop.stays_reason),
                    'note': stop.stays_note} if stop.stays_reason else None),
         'delivered_at': stop.delivered_at.isoformat() if stop.delivered_at else None,
+        'not_delivered': _niedostarczenie(stop),
     }
 
 
-def serializuj(trasa, zamowienia, pakunki, punkty):
-    """Trasa z kontraktu. `zamowienia` — {order_id: zamówienie}, `pakunki` — {order_id: [aktualne paczki]}."""
+def _niedostarczenie(stop):
+    """U10 (Ruling 32): {reason, reason_label, note, at} przystanku niedostarczonego, inaczej None."""
+    if stop.not_delivered_at is None:
+        return None
+    return {'reason': stop.not_delivered_reason,
+            'reason_label': dostawa.etykieta_powodu(stop.not_delivered_reason),
+            'note': stop.not_delivered_note, 'at': stop.not_delivered_at.isoformat()}
+
+
+def _zdjete(historia, numery):
+    """
+    `removed_not_delivered` (U10): zamówienia, które zeszły z trasy jako niedostarczone (dostawa.niedostarczone_zdjete),
+    w kolejności czasu niedostarczenia. `numery` — {order_id: (numer wewnętrzny, klient)}.
+    """
+    wynik = []
+    for wpis in historia:
+        numer, klient = numery.get(wpis['order_id'], (None, None))
+        wynik.append({'order_id': wpis['order_id'], 'internal_order_number': numer, 'client_name': klient,
+                      'not_delivered': {'reason': wpis['powod'], 'reason_label': wpis['etykieta'],
+                                        'note': wpis['notatka'], 'at': wpis['kiedy'].isoformat()}})
+    return wynik
+
+
+def historia(trasa, aktualny=False):
+    """
+    Historia niedostarczonych trasy dla telefonu: (wpisy dostawa.niedostarczone_zdjete, {order_id: (numer, klient)}).
+    Numer i klient zamówień spoza trasy — zwykły odczyt samych kolumn (bez obiektów ORM): tych zamówień zapis Dostawy
+    nie blokuje (blokada po zamówieniach trasy odwróciłaby rosnącą kolejność blokad zamówień), a numer wewnętrzny się
+    nie zmienia (jak dostawa._paczka_spoza_trasy).
+    """
+    wpisy = dostawa.niedostarczone_zdjete([trasa], aktualny=aktualny)[trasa.id]
+    ids = [w['order_id'] for w in wpisy]
+    numery = {}
+    if ids:
+        numery = {i: (numer, klient) for i, numer, klient in db.session.query(
+            ProductionOrder.id, ProductionOrder.internal_order_number, ProductionOrder.client_name)
+            .filter(ProductionOrder.id.in_(ids))}
+    return wpisy, numery
+
+
+def serializuj(trasa, zamowienia, pakunki, punkty, historia_trasy=None):
+    """Trasa z kontraktu. `zamowienia` — {order_id: zamówienie}, `pakunki` — {order_id: [aktualne paczki]},
+    `historia_trasy` — wynik historia() (U10: `removed_not_delivered`)."""
     dane = _krotko(trasa, zamowienia, pakunki)
     kolejne = [zamowienia[s.order_id] for s in trasa.stops if s.order_id in zamowienia]
     przystanki = {s.order_id: s for s in trasa.stops}
@@ -162,17 +211,19 @@ def serializuj(trasa, zamowienia, pakunki, punkty):
         'completed_by_panel': trasa.status == 'wykonana' and trasa.completed_by is not None,
         'stops': [_przystanek(przystanki[o.id], o, numer, pakunki.get(o.id, []), punkty.get(o.id), trasa)
                   for o, numer, _anulowane in routes.numeracja_przystankow(kolejne)],
+        'removed_not_delivered': _zdjete(*(historia_trasy or ([], {}))),
     })
     return dane
 
 
 def wczytaj(route_id):
-    """(trasa, zamówienia, paczki, punkty) do GET — kilka zapytań zbiorczych; brak trasy → None."""
+    """(trasa, zamówienia, paczki, punkty, historia) do GET — kilka zapytań zbiorczych; brak trasy → None."""
     trasa = Route.query.options(selectinload(Route.stops), selectinload(Route.vehicle)).get(route_id)
     if trasa is None:
         return None
     ids = [s.order_id for s in trasa.stops]
-    return trasa, _zamowienia(ids), paczki.aktualne_paczki_zamowien(ids), geocoding.geo_zamowien(ids)
+    return (trasa, _zamowienia(ids), paczki.aktualne_paczki_zamowien(ids), geocoding.geo_zamowien(ids),
+            historia(trasa))
 
 
 def trasa_po_zapisie(trasa):
@@ -180,10 +231,12 @@ def trasa_po_zapisie(trasa):
     Pełna trasa w odpowiedzi zapisu z telefonu — z odczytu bieżącego: dostawa.zablokuj drugi raz w tej samej
     transakcji (blokady już trzymane, nic nie czeka). Zwykły odczyt pokazałby migawkę sprzed czekania na blokady,
     np. paczki załadowane w tym czasie drugim telefonem. Krotkę z zablokuj trzymamy w zmiennych do końca
-    serializacji (silne referencje — docstring modułu dostawa).
+    serializacji (silne referencje — docstring modułu dostawa). Historię niedostarczonych (U10) czytamy odczytem
+    bieżącym pod trzymaną blokadą tras (R32.9, dostawa.niedostarczone_zdjete).
     """
     trasa, zamowienia, pakunki = dostawa.zablokuj(trasa)
-    return serializuj(trasa, zamowienia, pakunki, geocoding.geo_zamowien(list(zamowienia)))
+    return serializuj(trasa, zamowienia, pakunki, geocoding.geo_zamowien(list(zamowienia)),
+                      historia(trasa, aktualny=True))
 
 
 def podpis(dane):
