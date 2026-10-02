@@ -17,8 +17,12 @@ Każdy zapis blokuje zamówienia CAŁEJ trasy, nie tylko przystanku, którego do
 pełną trasę (dostawa_widok.trasa_po_zapisie) i ma ona być bieżąca także dla pozostałych przystanków (dwa telefony
 na jednej trasie). Zwykły odczyt po blokadach widziałby migawkę sprzed czekania na nie, a blokujący odczyt cudzych
 paczek bez blokady ich zamówienia odwróciłby kolejność blokad (reguła unieważniania: zamówienie → paczki →
-pozycje). Zamówienia z trasy zatwierdzonej i dalej nie mają już pracy stanowisk, więc szersza blokada nikogo
-realnie nie wstrzymuje (Base. i doróbka czekają kilka milisekund).
+pozycje). Trasa robocza i zatwierdzona może jednak mieć zamówienia jeszcze w produkcji (dodanie do trasy i
+zatwierdzenie nie wymagają spakowania), więc szersza blokada wstrzymuje na chwilę także stanowiska, doróbkę i Base.
+tych zamówień. Pozycje wielu zamówień blokujemy w kolejności (zamówienie, id), a doróbka dokłada do starszego
+zamówienia pozycję o wyższym id — z pisarzami wielu pozycji bez blokady zamówień, którzy piszą rosnąco po id
+(przeliczenie i przeciąganie priorytetów, druk TCP), rzadkie zakleszczenie MySQL 1213 jest więc możliwe, jak w hurcie.
+Zapisy Dostawy ponawiają się wtedy raz, od nowa i na nowym stanie (dostawa_api._zapis, trasy_api._akcja).
 
 SILNE REFERENCJE (lekcja kroku 4.4a, przyczyna A): mapa tożsamości sesji trzyma czyste obiekty SŁABO. Wynik
 zablokuj (trasa, {order_id: zamówienie}, {order_id: [paczki]}) każda funkcja trzyma w zmiennych lokalnych aż do

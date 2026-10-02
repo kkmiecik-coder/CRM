@@ -465,6 +465,18 @@ def zaplanuj_po_commicie(order_id):
     lista.append(order_id)
 
 
+def porzuc_zaplanowane():
+    """
+    Rollback przed ponowieniem zapisu w tym samym żądaniu (jedno ponowienie po MySQL 1213 w zapisach Dostawy:
+    dostawa_api._zapis, trasy_api._akcja): plan pierwszej próby przepada razem z jej transakcją — druga próba planuje
+    od nowa, na nowym stanie. Bez tego dopychacz dostałby zamówienie z wycofanej próby (nic by nie wysłał, bo znacznik
+    Base. zniknął w rollbacku, ale startowałby niepotrzebnie, a zamówienie szłoby na listę dwa razy).
+    """
+    from flask import g, has_request_context
+    if has_request_context():
+        g._logistyka_bl_po_commicie = []
+
+
 def wyslij_zaplanowane():
     """Po commicie: uruchamia dopychacz dla zamówień z zaplanuj_po_commicie (najwyżej raz na żądanie)."""
     from flask import g, has_request_context

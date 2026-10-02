@@ -10,7 +10,7 @@ trasy zalogowanego, a serwerowi przyjmowanie cudzych nie szkodzi). Handlery zapi
 (BLEDY_DO_PONOWIENIA), 422 jest. Dopychacz Base. rusza dopiero po commicie (serwis tylko planuje:
 bl_sync.zaplanuj_po_commicie; dekorator woła wyslij_zaplanowane). Kolejność blokad zapisu: pracownicy
 (touch_sessions w _kierowca) → dostawa.zablokuj (trasy → deklaracje paczek → zamówienia trasy rosnąco → paczki →
-pozycje).
+pozycje). Zakleszczenie MySQL 1213 — jedno ponowienie całego zapisu w handlerze (_zapis).
 
 Każda odpowiedź 200 zapisu — także `changed: false` (powtórka z kolejki offline, Ruling 23 i 26) — niesie pełną trasę
 (`route`, ten sam kształt co GET) i `message`: appka podmienia swoją trasę na tę z odpowiedzi.
@@ -18,15 +18,16 @@ Każda odpowiedź 200 zapisu — także `changed: false` (powtórka z kolejki of
 from functools import wraps
 
 from flask import Blueprint, g, jsonify, request
+from sqlalchemy.exc import OperationalError
 
 from extensions import db
 from modules.logging import get_structured_logger
 from modules.production.logistics.models import Route
-from modules.production.logistics.services import dostawa, dostawa_widok, routes
+from modules.production.logistics.services import bl_sync, dostawa, dostawa_widok, routes
 from modules.production.logistics.services.delivery import LogistykaBlad
 from modules.production.models import ProductionOrder, ProductionWorker
 from modules.production.routers.mobile_api import BLEDY_DO_PONOWIENIA
-from modules.production.services import worker_service
+from modules.production.services import blokady_zamowien, worker_service
 from modules.production.services.mobile_api_service import require_device_token, with_idempotency
 from modules.production.services.station_catalog import resolve_station_code
 from modules.production.services.worker_service import WorkerError
@@ -130,19 +131,40 @@ def _zapis(route_id, akcja):
     (BLEDY_DO_PONOWIENIA), ale 422 zapamiętuje i commituje RAZEM z transakcją. Serwis Dostawy rzuca 422 tylko przed
     zapisami (walidacja wejścia: waliduj_powod, waliduj_metode), a ten rollback pilnuje tego także na przyszłość —
     inaczej częściowe zapisy weszłyby do bazy razem z wpisem idempotencji.
+
+    Jedno automatyczne ponowienie po zakleszczeniu MySQL 1213 (fala końcowa 4.4b, B1). Dostawa blokuje pozycje
+    WSZYSTKICH zamówień trasy w kolejności (zamówienie, id), a trasa robocza i zatwierdzona może mieć zamówienia
+    w produkcji (doróbka dokłada pozycję o wyższym id do starszego zamówienia). Pisarze wielu pozycji bez blokady
+    zamówień (przeliczenie i przeciąganie priorytetów, druk TCP) piszą rosnąco po id, więc rzadkie 1213 jest możliwe —
+    jak w hurcie i przeniesieniu osieroconych. Wtedy rollback, porzucenie planu dopychacza Base. z tej próby i CAŁY
+    zapis od nowa: kierowca (sesje pracowników to pierwsze blokady), trasa, akcja — decyzja na nowym stanie. Ponowienie
+    jest WEWNĄTRZ handlera, więc dekorator idempotencji widzi jeden wynik i zapisuje jeden wpis. Drugie 1213 i każdy
+    inny błąd bazy idą dalej (with_idempotency: rollback i 500, wpis niezapamiętany). `flush` w środku `try` wypycha
+    zapisy akcji, zanim handler odda wynik — inaczej zakleszczenie przy flushu w commicie dekoratora wypadłoby poza
+    ponowieniem.
     """
-    kierowca, err = _kierowca()
-    if err:
-        return err
-    trasa = Route.query.get(route_id)
-    if trasa is None or trasa.status == 'robocza':
-        return _brak_trasy()
-    try:
-        komunikat, dodatkowe = akcja(trasa, kierowca)
-        dane = {'route': dostawa_widok.trasa_po_zapisie(trasa), 'message': komunikat}
-    except LogistykaBlad as e:
-        db.session.rollback()
-        return _blad(e)
+    for proba in (1, 2):
+        kierowca, err = _kierowca()
+        if err:
+            return err
+        trasa = Route.query.get(route_id)
+        if trasa is None or trasa.status == 'robocza':
+            return _brak_trasy()
+        try:
+            komunikat, dodatkowe = akcja(trasa, kierowca)
+            dane = {'route': dostawa_widok.trasa_po_zapisie(trasa), 'message': komunikat}
+            db.session.flush()
+            break
+        except LogistykaBlad as e:
+            db.session.rollback()
+            return _blad(e)
+        except OperationalError as e:
+            if proba == 2 or blokady_zamowien.kod_mysql(e) != 1213:
+                raise
+            db.session.rollback()
+            bl_sync.porzuc_zaplanowane()
+            logger.warning('Dostawa: zakleszczenie 1213, ponawiam raz', extra={
+                'route_id': route_id, 'endpoint': request.endpoint, 'device_id': g.device.device_id})
     dane.update(dodatkowe)
     logger.info('Dostawa: zapis', extra={'route_id': route_id, 'endpoint': request.endpoint,
                                          'changed': dodatkowe.get('changed'), 'worker_id': kierowca.id,

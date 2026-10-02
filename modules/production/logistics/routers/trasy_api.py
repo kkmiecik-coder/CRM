@@ -14,11 +14,12 @@ from datetime import timedelta
 
 from flask import jsonify, request, send_file
 from sqlalchemy import or_
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.exc import ObjectDeletedError, StaleDataError
 
 from extensions import db
+from modules.logging import get_structured_logger
 from modules.production.logistics import logistics_panel_bp
 from modules.production.logistics.models import Route, STATUSY_TRASY, Vehicle
 from modules.production.logistics.routers.panel_api import LIMIT_HURTU, _blad, _user_id, _zapis_pod_blokada, guard
@@ -26,6 +27,9 @@ from modules.production.logistics.services import (bl_sync, dostawa, fleet, geoc
                                                    routimo, routing)
 from modules.production.logistics.services.delivery import LogistykaBlad
 from modules.production.models import ProductionOrder, ProductionProduct
+from modules.production.services import blokady_zamowien
+
+logger = get_structured_logger('production.logistics.trasy_api')
 
 # Sekcje listy tras w kolejności cyklu trasy (krok 4.4: załadowane i w trasie między zatwierdzonymi a wykonanymi).
 KOLEJNOSC_STATUSOW = {'robocza': 0, 'zatwierdzona': 1, 'zaladowana': 2, 'w_trasie': 3, 'wykonana': 4}
@@ -248,7 +252,7 @@ def _trasa_albo_none(route_id):
     return Route.query.get(route_id)
 
 
-def _akcja(route_id, funkcja, przelicz_wykonana=False):
+def _akcja(route_id, funkcja, przelicz_wykonana=False, ponow_po_1213=False, przed=None):
     """
     Wspólny szkielet endpointów zmieniających trasę: 404, gdy jej nie ma; `funkcja`
     (lambda wołająca services/routes.py albo services/dostawa.py) razem z commitem w jednym
@@ -260,17 +264,37 @@ def _akcja(route_id, funkcja, przelicz_wykonana=False):
     kluczem `wynik` (np. `complete` → `dostarczone`/`niedostarczone`).
     `przelicz_wykonana` — tylko /complete: jedno przeliczenie przebiegu mimo statusu
     `wykonana` (patrz `_szczegoly`).
+
+    `ponow_po_1213` — akcje Dostawy (odhaczenie, „Cofnij załadunek”, „Cofnij dostarczenie”, „Cofnij zatwierdzenie”;
+    fala końcowa 4.4b, B1): blokują pozycje wszystkich zamówień trasy w kolejności (zamówienie, id), więc z pisarzami
+    wielu pozycji bez blokady zamówień (priorytety, druk TCP) rzadkie MySQL 1213 jest możliwe. Wtedy jedno ponowienie:
+    rollback, porzucenie planu dopychacza Base. z tej próby i cała akcja od nowa (trasa, `funkcja`, commit), decyzja na
+    nowym stanie. Drugie 1213 i każdy inny błąd bazy idą dalej do globalnej obsługi (rollback, 500). Ponowienie obejmuje
+    tylko `funkcja` i commit — nigdy `_szczegoly` po commicie (zapis już się odbył). `przed` — wołane na początku
+    KAŻDEJ próby, przed odczytem trasy (np. `_zapis_pod_blokada` dla „Cofnij zatwierdzenie”: transakcja od nowa tuż
+    przed blokadą tras, także w drugiej próbie).
     """
-    trasa = _trasa_albo_none(route_id)
-    if trasa is None:
-        return _blad(u'Nie ma takiej trasy.', 404)
-    try:
-        wynik = funkcja(trasa)
-        db.session.commit()
-    except LogistykaBlad as e:
-        return _odmowa(e)
-    except IntegrityError:
-        return _konflikt(KOMUNIKAT_KONFLIKT_PRZYSTANKU)
+    for proba in (1, 2):
+        if przed is not None:
+            przed()
+        trasa = _trasa_albo_none(route_id)
+        if trasa is None:
+            return _blad(u'Nie ma takiej trasy.', 404)
+        try:
+            wynik = funkcja(trasa)
+            db.session.commit()
+            break
+        except LogistykaBlad as e:
+            return _odmowa(e)
+        except IntegrityError:
+            return _konflikt(KOMUNIKAT_KONFLIKT_PRZYSTANKU)
+        except OperationalError as e:
+            if not ponow_po_1213 or proba == 2 or blokady_zamowien.kod_mysql(e) != 1213:
+                raise
+            db.session.rollback()
+            bl_sync.porzuc_zaplanowane()
+            logger.warning('Trasy: zakleszczenie 1213 w akcji Dostawy, ponawiam raz', extra={
+                'route_id': route_id, 'endpoint': request.endpoint})
     # Krok 4.4: przejścia Dostawy z panelu (odhaczenie, cofnięcia) zostawiają znaczniki statusów Base. —
     # dopychacz rusza dopiero po udanym commicie (bl_sync.zaplanuj_po_commicie w serwisie).
     bl_sync.wyslij_zaplanowane()
@@ -574,18 +598,23 @@ def route_approve(route_id):
 def route_revert(route_id):
     # Krok 4.4 (Ruling 21b): cofnięcie zatwierdzenia czyści znaczniki załadunku tej trasy
     # (dostawa.cofnij_zatwierdzenie), a sprawdza je zwykłym odczytem — transakcja zaczyna się więc od nowa
-    # tuż przed blokadą tras, żeby migawka powstała już pod nią (_zapis_pod_blokada). Użytkownik PRZED
-    # commitem: po nim current_user.id to zwykły SELECT, czyli migawka sprzed blokady.
+    # tuż przed blokadą tras, żeby migawka powstała już pod nią (_zapis_pod_blokada), także w ponowieniu po 1213
+    # (`przed` wołane na początku każdej próby). Użytkownik PRZED commitem: po nim current_user.id to zwykły
+    # SELECT, czyli migawka sprzed blokady.
     user_id = _user_id()
-    _zapis_pod_blokada()
-    return _akcja(route_id, lambda t: dostawa.cofnij_zatwierdzenie(t, user_id=user_id) and None)
+    return _akcja(route_id, lambda t: dostawa.cofnij_zatwierdzenie(t, user_id=user_id) and None,
+                  ponow_po_1213=True, przed=_zapis_pod_blokada)
 
+
+# Akcje Dostawy w panelu (krok 4.4) ponawiają się raz po MySQL 1213 (_akcja, `ponow_po_1213`). Użytkownika czytamy
+# przed pierwszą próbą: po rollbacku current_user.id byłby zwykłym SELECT-em w nowej transakcji.
 
 @logistics_panel_bp.route('/routes/<int:route_id>/unload', methods=['POST'])
 @guard
 def route_unload(route_id):
     """„Cofnij załadunek” (krok 4.4, spec 4.5 i 9.7): trasa załadowana wraca do zatwierdzonej."""
-    return _akcja(route_id, lambda t: dostawa.cofnij_zaladunek(t, user_id=_user_id()) and None)
+    user_id = _user_id()
+    return _akcja(route_id, lambda t: dostawa.cofnij_zaladunek(t, user_id=user_id) and None, ponow_po_1213=True)
 
 
 @logistics_panel_bp.route('/routes/<int:route_id>/complete', methods=['POST'])
@@ -594,12 +623,15 @@ def route_complete(route_id):
     # (M6) `delivered_order_ids` wymagane (lista, także pusta) — brak albo null to 422
     # z dostawa.odhacz, nie „wszystko dostarczone”. (I1) 409 z `niespakowane` przechodzi
     # przez _akcja → _odmowa razem z pozostałymi polami odmowy. Krok 4.4: odhaczenie wysyła statusy Base.
+    user_id = _user_id()
     return _akcja(route_id, lambda t: dostawa.odhacz(
-        t, _cialo().get('delivered_order_ids'), user_id=_user_id()), przelicz_wykonana=True)
+        t, _cialo().get('delivered_order_ids'), user_id=user_id), przelicz_wykonana=True, ponow_po_1213=True)
 
 
 @logistics_panel_bp.route('/routes/<int:route_id>/stops/<int:order_id>/undo-delivered', methods=['POST'])
 @guard
 def route_stop_undo_delivered(route_id, order_id):
     """„Cofnij dostarczenie” przy przystanku (krok 4.4, spec 4.5 i 9.7) — zastępuje „Przywróć trasę”."""
-    return _akcja(route_id, lambda t: dostawa.cofnij_dostarczenie(t, order_id, user_id=_user_id()) and None)
+    user_id = _user_id()
+    return _akcja(route_id, lambda t: dostawa.cofnij_dostarczenie(t, order_id, user_id=user_id) and None,
+                  ponow_po_1213=True)
