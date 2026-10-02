@@ -933,6 +933,41 @@ o zdjęciu przystanku przy „Niedostarczone”, od U10 dotyczą one zejścia ni
 | P1 | Numery wierszy w planie 4.4b są orientacyjne (sprzed 4.4a) — kod szuka się po nazwie funkcji. |
 | P2 | Wynik `dostawa.zablokuj` (trasa, zamówienia, paczki) zapis trzyma w zmiennych do końca decyzji i odpowiedzi i decyduje tylko na tych obiektach (mapa tożsamości trzyma czyste obiekty słabo). |
 
+### 9.9 Optymalizacja kolejności (krok 4.4d)
+
+Decyzja Konrada (2.10): przycisk „Optymalizuj trasę” w edytorze trasy **roboczej** — podgląd, potem świadome
+„Zastosuj”. Bez automatu przy każdej zmianie (nadpisywałby ręczną kolejność i zużywał limit ORS).
+
+- **Przycisk:** tylko trasa `robocza` (zatwierdzona i dalej są zablokowane do edycji — przycisku nie ma). Bez klucza
+  `OPENROUTESERVICE_API_KEY` przycisk nie powstaje (`data-ors` w szablonie). Mniej niż 2 przystanki z dokładnym punktem —
+  przycisk nieaktywny z dymkiem „Nie ma czego optymalizować…”.
+- **`POST /production/api/logistics/routes/<id>/optimize`** (`services/optymalizacja.py`) — tylko podgląd: bez blokady
+  tras, bez zapisu. ORS Optimization (VROOM, `https://api.openrouteservice.org/optimization`, ten sam klucz): jeden
+  pojazd `driving-car`, start = koniec = magazyn, zadania = przystanki z **dokładnym** punktem (`OrderGeo.quality =
+  'dokladna'`, nieanulowane). Przystanki z punktem przybliżonym, bez punktu, anulowane w całości i zadania, których
+  ORS nie przydzielił (`unassigned`, powód `nieosiagalny`), idą na koniec w dotychczasowej kolejności.
+  Km i czas obu kolejności z ORS Directions tak jak przebieg trasy (`routing.zapytaj_przebieg`: magazyn → przystanki
+  z punktem, także przybliżonym → magazyn); obecna z zapisanego przebiegu, gdy jest po drogach i dla tych samych
+  punktów. Najwyżej 3 zapytania ORS w budżecie 22 s (gunicorn 30 s).
+- **Odpowiedź 200:** `{success, optymalizacja: {route_id, obecne_order_ids, order_ids, zmieniona, obecna: {km, minuty},
+  proponowana: {km, minuty}, zysk: {km, minuty} (dodatni = krócej), przystanki: [{order_id, numer, klient, miasto,
+  pozycja_obecna, pozycja_nowa, optymalizowany, powod: null | przyblizony | brak_punktu | anulowane | nieosiagalny}],
+  optymalizowane, pominiete}}`.
+- **Odmowy** (`{success: false, error}`): 404 brak trasy; 409 trasa nie jest robocza; 422 mniej niż 2 przystanki
+  z dokładnym punktem („Nie ma czego optymalizować — …”, pole `pominiete`) albo ponad 48 przystanków z punktem;
+  502 błąd, zła odpowiedź albo limit ORS (429 — osobny komunikat), kolejność bez zmian; 503 brak klucza („Brak klucza
+  OpenRouteService — optymalizacja niedostępna.”).
+- **„Zastosuj”:** istniejący `PUT /routes/<id>/stops/order` z `order_ids` i (nowe, opcjonalne) `obecne_order_ids` —
+  kolejnością, na której policzono propozycję. Pod blokadą tras: inny zestaw przystanków niż w `order_ids` → **409**
+  (dotąd 422; lista z powtórzeniem dalej 422), kolejność inna niż `obecne_order_ids` → 409. Okno pokazuje tekst
+  serwera i „Optymalizuj ponownie”, edytor pobiera trasę od nowa.
+- **Okno** (`<dialog>` jak „Odhacz”): liczby obecnie / po optymalizacji / zysk, nowa kolejność z tarczami osi
+  (numer wśród przystanków aktywnych) i dopiskiem „było N”, pominięte z powodem; Esc i Anuluj zamykają, fokus
+  wraca na przycisk; bez animacji przy `prefers-reduced-motion`.
+- **Do sprawdzenia lokalnie z kluczem** (testy idą na atrapie ORS): realna odpowiedź Optimization (pole `job`
+  w krokach, `unassigned`), przystanek daleko od drogi (Optimization nie ma `radiuses` jak Directions — możliwy błąd
+  „routable point”, wtedy 502), czas odpowiedzi przy ~20 przystankach, zysk na prawdziwej trasie.
+
 ## 10. Krok 4.5 — archiwum
 
 - `_archived_order_condition` (`routers/api/products_api.py:284`): zamówienie archiwalne, gdy
