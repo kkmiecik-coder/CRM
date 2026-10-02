@@ -852,6 +852,10 @@ o zdjęciu przystanku przy „Niedostarczone”, od U10 dotyczą one zejścia ni
   produkcji (`zdejmij_z_trasy_w_drodze`, ścieżka bez zdjęcia), oraz panelowe „Zdejmij z trasy” — na tych samych
   blokadach Dostawy, z `completed_by` NULL. Zamknięcie wymaga zablokowanych zamówień i paczek całej trasy (krotka
   `zablokuj`); brak zamówienia niedostarczonego przystanku to wyjątek (błąd wołającego), nie ciche pominięcie.
+  **Znane ograniczenie:** hurtowe „anulowane” w panelu produkcji nie zamyka trasy, którą rozliczyło (hurt blokuje
+  tylko zaznaczone zamówienia, nie całą trasę — zamknięcie odwróciłoby kolejność blokad). Niedostarczone wiszą wtedy na
+  trasie z „Wysłane” do pierwszego zdarzenia: „Zdejmij z trasy” w panelu (zamyka trasę), „Odhacz” albo
+  „Niedostarczone” z telefonu na anulowanym przystanku.
 - **R32.3 Historia z logu.** `prod_route_stops.order_id` jest UNIQUE, a zamówienie z puli trzeba móc zaplanować na
   inną trasę, więc przystanek zdjętego znika. Historia trasy (`dostawa.niedostarczone_zdjete`) = zamówienia, których
   ostatni wpis rozliczenia z tą trasą (`trasa_dodane`, `niedostarczone`, `niedostarczenie_cofniete`, `dostarczone`,
@@ -897,8 +901,9 @@ o zdjęciu przystanku przy „Niedostarczone”, od U10 dotyczą one zejścia ni
 - **R32.9 Odczyty historii.** Odpowiedź zapisu telefonu czyta historię odczytem bieżącym (współdzielonym) pod trzymaną
   blokadą tras — wpisy z `route_id` piszą tylko posiadacze tej blokady, a po odczycie zapis na nic już nie czeka (jak
   C1). To OSTATNI odczyt blokujący transakcji zapisu (test), bez `ORDER BY` (kolejność w Pythonie — sortowanie po
-  PRIMARY mogłoby skłonić optymalizator do przeglądu całego logu pod blokadą). Numer i klient zdjętych zamówień — zwykły odczyt samych kolumn (tych zamówień zapis nie blokuje: blokada po
-  zamówieniach trasy odwróciłaby rosnącą kolejność). GET-y — zwykły odczyt.
+  PRIMARY mogłoby skłonić optymalizator do przeglądu całego logu pod blokadą). Numer i klient zdjętych zamówień —
+  zwykły odczyt samych kolumn (tych zamówień zapis nie blokuje: blokada po zamówieniach trasy odwróciłaby rosnącą
+  kolejność). GET-y — zwykły odczyt.
 - **R32.10 Kontrakt telefonu** (`KSZTALT_TRASY = 2`): przystanek `state: 'niedostarczone'` („Niedostarczone”;
   anulowane w całości ma pierwszeństwo) i `not_delivered: null | {reason, reason_label, note, at}`; `TrasaKrotko`
   + `stops_not_delivered` (niedostarczone obecne na trasie); `Trasa` + `removed_not_delivered: [{order_id,
@@ -1067,6 +1072,9 @@ Komunikaty po polsku, w API z `error` (kod) i `message` (tekst dla człowieka).
       jak w przepisie 4.4). Kolumny `not_delivered_*`, indeks `route_id` i wartość ENUM mogą zostać — stary kod ich
       nie używa.
    3. Dopiero potem restart na starym kodzie (deploy robi to sam: migracja → restart).
+   Po wycofaniu spóźniona powtórka „Niedostarczone” z kolejki telefonu dla zamówienia zdjętego przy zamknięciu trasy
+   w czasie U10 dostanie 404 `stop_not_found` zamiast 200 `changed: false` — stary kod patrzy na ostatni wpis logu,
+   a jest nim `trasa_usuniete`. Szkody nie ma: niedostarczenie jest już zapisane, appka tylko pokaże odmowę.
 7. **4.5:** backend.
 
 Każdy krok: push gałęzi, przegląd całej zmiany, oględziny na kopii produkcji (podgląd), wdrożenie tylko na polecenie

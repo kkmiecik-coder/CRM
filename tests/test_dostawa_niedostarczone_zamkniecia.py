@@ -108,13 +108,17 @@ def test_zmiana_z_base_zamyka_trase_i_zdejmuje_niedostarczone_do_puli(app, monke
     _sprawdz_zejscie_do_puli(a_id, paczki_a, route_id, (None, 5))
 
 
-def test_zamkniecie_przez_dorobke_decyduje_na_zablokowanych_obiektach(app, monkeypatch):
-    """Ruling P2 na ścieżce doróbki, która zamyka trasę i zdejmuje niedostarczone: od pierwszej blokady zamówień żaden
-    zwykły SELECT zamówień, pozycji, paczek ani tras (obiekty odłączone, pamięć odśmiecana po blokadach)."""
+def _odczyty_po_pk_w_dorobce(monkeypatch, zamyka):
+    """
+    (zwykłe odczyty stanu w doróbce bez odczytów pozycji po PK, liczba odczytów pozycji po PK). `zamyka` — trasa ma
+    poza zamówieniem doróbki tylko niedostarczone A (doróbka zamyka trasę), inaczej A jest do dostarczenia (trasa
+    zostaje w drodze — przebieg kontrolny, ta sama doróbka bez zamknięcia).
+    """
     a, b = _zaladowane(), _zaladowane(('zaladowane', 'czeka_na_pakowanie'))
     t = _w_trasie(a, b)
-    dostawa.nie_dostarcz(t, a[0].id, 'brak_klienta', worker_id=7, teraz=T1)
-    db.session.commit()
+    if zamyka:
+        dostawa.nie_dostarcz(t, a[0].id, 'brak_klienta', worker_id=7, teraz=T1)
+        db.session.commit()
     route_id, pozycja_id = t.id, _w_pakowaniu(b[0]).id
     db.session.expunge_all()
     gc.collect()
@@ -124,10 +128,24 @@ def test_zamkniecie_przez_dorobke_decyduje_na_zablokowanych_obiektach(app, monke
                                                rejected_at_station='packaging', worker_ids=[9])
     assert licznik['zapisz_log'] > 0
     db.session.expire_all()
-    assert db.session.get(Route, route_id).status == 'wykonana'
-    # Odczyt pozycji po PK (prod_products.id = ?) robi sama doróbka, także bez U10 i bez zamknięcia trasy (sprawdzone
-    # sondą na trasie otwartej) — poza zakresem; z zamknięcia i zejścia do puli nie ma żadnego zwykłego odczytu.
-    assert [sql for sql in zwykle_odczyty_stanu(z) if not sql.endswith('WHERE prod_products.id = ?')] == []
+    assert db.session.get(Route, route_id).status == ('wykonana' if zamyka else 'w_trasie')
+    zwykle = zwykle_odczyty_stanu(z)
+    po_pk = [sql for sql in zwykle if sql.endswith('WHERE prod_products.id = ?')]
+    return [sql for sql in zwykle if sql not in po_pk], len(po_pk)
+
+
+def test_zamkniecie_przez_dorobke_decyduje_na_zablokowanych_obiektach(app, monkeypatch):
+    """Ruling P2 na ścieżce doróbki, która zamyka trasę i zdejmuje niedostarczone: od pierwszej blokady zamówień żaden
+    zwykły SELECT zamówień, pozycji, paczek ani tras (obiekty odłączone, pamięć odśmiecana po blokadach).
+
+    Wyjątek: odczyty pozycji po PK (`prod_products.id = ?`), które robi sama doróbka, także bez U10 i bez zamknięcia
+    trasy — poza zakresem. Runda 2: dopuszczamy ich dokładnie tyle, ile w przebiegu kontrolnym bez zamknięcia (ta sama
+    doróbka na trasie, która zostaje w drodze), więc nowy taki odczyt z zamknięcia albo zejścia do puli test złapie.
+    """
+    inne_kontrolne, po_pk_kontrolne = _odczyty_po_pk_w_dorobce(monkeypatch, zamyka=False)
+    inne, po_pk = _odczyty_po_pk_w_dorobce(monkeypatch, zamyka=True)
+    assert inne_kontrolne == [] and inne == []
+    assert po_pk == po_pk_kontrolne, (po_pk, po_pk_kontrolne)
 
 
 # --- cz. 1 #3: trasa rozliczona bez zdarzenia zamykającego (C2) -------------------------------------------------

@@ -962,7 +962,7 @@ def niedostarczone_zdjete(trasy, aktualny=False):
     trzymaną blokadą tras. Wpisy z route_id zapisują wyłącznie posiadacze tej blokady (routes.py, dostawa.py), więc nikt
     nie czeka na nas z wpisem tej trasy. Blokada luki na brzegu zakresu indeksu może na chwilę wstrzymać wpis logu bez
     trasy (cron, hurt, Weryfikacja) — do naszego commitu; cyklu nie ma, bo ten odczyt jest OSTATNIM odczytem blokującym
-    transakcji zapisu (dostawa_widok.trasa_po_zapisie; pilnuje test_api_historia_ostatnim_odczytem_blokujacym), a numer
+    transakcji zapisu (dostawa_widok.trasa_po_zapisie; pilnuje test_historia_ostatnim_odczytem_blokujacym_zapisu_telefonu), a numer
     i klienta zdjętych zamówień czytamy potem zwykłym odczytem (dostawa_widok.historia).
     """
     wynik = {t.id: [] for t in trasy}
