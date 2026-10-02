@@ -304,8 +304,9 @@ Albo po prostu `./deploy.sh` — robi dokładnie to samo, z lockiem i logami.
   z panelu tras (odhaczenie z odznaczeniem przystanków, czyli „Niedostarczone” z panelu, „Cofnij załadunek”, „Cofnij
   dostarczenie”, „Cofnij niedostarczenie”, „Zdejmij z trasy” niedostarczonego, „Cofnij zatwierdzenie” trasy ze
   znacznikami załadunku — bez znaczników ta ostatnia bierze tylko blokadę tras): [pracownicy, tylko telefon] →
-  blokada tras → blokada deklaracji paczek → zamówienia CAŁEJ trasy rosnąco po id → paczki → pozycje; decyzje na odczycie bieżącym, a odpowiedź telefonu (pełna trasa) z tych samych
-  blokad. Zakleszczenie 1213 — jedno ponowienie całego zapisu (`dostawa_api._zapis`, `trasy_api._akcja`, niżej).
+  blokada tras → blokada deklaracji paczek → zamówienia CAŁEJ trasy rosnąco po id → paczki → pozycje; decyzje na
+  odczycie bieżącym, a odpowiedź telefonu (pełna trasa) z tych samych blokad. Zakleszczenie 1213 — jedno ponowienie
+  całego zapisu (`dostawa_api._zapis`, `trasy_api._akcja`, niżej).
   **Doróbka, zmiana z Base. i hurtowa zmiana statusu też biorą blokadę tras NAJPIERW**, przed blokadami zamówień
   (decyzja Konrada 2.10, Ruling 30): zamówienie z przystankiem na trasie załadowanej albo w drodze, które wraca do
   produkcji, doróbka i zmiana z Base. zdejmują z trasy jak „Niedostarczone” (`dostawa.zdejmij_z_trasy_w_drodze`,
