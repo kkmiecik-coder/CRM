@@ -16,7 +16,7 @@
 <link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet-markercluster/MarkerCluster.css') }}?v=1.5.3">
 <link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20261001f">
 {# Etap 3: trasy, flota, widok tras na mapie — osobny arkusz (logistics.css zostaje nietknięty). #}
-<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics-trasy.css') }}?v=20261002c">
+<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics-trasy.css') }}?v=20261002d">
 
 <div id="logistics-root" class="logistics-tab"
      data-api="{{ url_for('logistics_panel.orders') }}"
@@ -232,7 +232,7 @@
                data-skrypt-leaflet="{{ url_for('production.static', filename='vendor/leaflet/leaflet.js') }}?v=1.9.4"
                data-skrypt-klastry="{{ url_for('production.static', filename='vendor/leaflet-markercluster/leaflet.markercluster.js') }}?v=1.5.3"
                data-skrypt-mapy="{{ url_for('logistics_panel.static', filename='js/logistics-map.js') }}?v=20261002a"
-               data-skrypt-trasy="{{ url_for('logistics_panel.static', filename='js/logistics-routes.js') }}?v=20261002b"></div>
+               data-skrypt-trasy="{{ url_for('logistics_panel.static', filename='js/logistics-routes.js') }}?v=20261002c"></div>
           {# Pasek trybu (korekta, ustawianie punktu) i wyniku akcji na mapie. #}
           <div class="lg-mapa-pasek" data-lg-mapa="pasek" role="status" aria-live="polite" hidden></div>
           <div class="lg-mapa-stan is-ladowanie" data-lg-mapa="stan" role="status">Ładowanie mapy…</div>
@@ -392,6 +392,18 @@
         </details>
       </section>
 
+      {# (U6, oględziny 2.10) Legenda tarcz przystanków — te same tarcze (.lg-stacja) pod osią przystanków
+           w edytorze i na dole okna „Odhacz”. Kolor trasy dziedziczy po edytorze; w oknie klasę koloru
+           ustawia logistics-routes.js (przygotujWykonanie). #}
+      {% macro legenda_stacji(klucz) -%}
+      <ul class="lg-legenda-stacji" data-lg-trasy="{{ klucz }}" aria-label="Oznaczenia przystanków">
+        <li><span class="lg-stacja lg-stacja--legenda" aria-hidden="true">1</span>dokładny punkt na mapie</li>
+        <li><span class="lg-stacja lg-stacja--legenda lg-stacja--przyblizona" aria-hidden="true">1</span>punkt przybliżony (tylko miejscowość)</li>
+        <li><span class="lg-stacja lg-stacja--legenda lg-stacja--bez-geo" aria-hidden="true">1</span>brak punktu na mapie</li>
+        <li><span class="lg-stacja lg-stacja--legenda lg-stacja--dostarczona" aria-hidden="true">1</span>dostarczone</li>
+      </ul>
+      {%- endmacro %}
+
       {# ─── EDYTOR TRASY ─── szkielet; wartości, przystanki i przyciski wypełnia JS. #}
       <section class="lg-edytor" data-lg-trasy="edytor" aria-labelledby="lg-edytor-tytul">
         <div class="lg-edytor-pusty" data-lg-trasy="pusty">
@@ -459,6 +471,7 @@
                   <span>Powrót do magazynu</span>
                 </div>
               </div>
+              {{ legenda_stacji('legenda-stacji') }}
               <p class="visually-hidden" data-lg-trasy="ogloszenie" aria-live="assertive"></p>
             </section>
             <div class="lg-edytor-mapka">
@@ -640,6 +653,7 @@
       <p class="lg-dialog-opis">Zaznaczone zamówienia oznaczymy jako dostarczone (Base. dostanie status „Dostarczona - trans. WoodPower”), odznaczone zdejmiemy z trasy i wrócą do puli bez trasy (jeśli były już załadowane, Base. dostanie dla nich status „Planowana trasa”). Dostarczone mogą być tylko zamówienia spakowane w całości. Przystanki już dostarczone zostają dostarczone.</p>
       <ul class="lg-wykonaj-lista" data-lg-trasy="wykonaj-lista" aria-label="Przystanki trasy"></ul>
       <p class="lg-wykonaj-ile" data-lg-trasy="wykonaj-ile" aria-live="polite"></p>
+      {{ legenda_stacji('wykonaj-legenda') }}
       <p class="lg-dialog-blad" data-lg-trasy="wykonaj-blad" role="alert" hidden></p>
       <div class="lg-dialog-akcje">
         <button type="button" class="lg-przycisk" data-lg-trasy-akcja="wykonaj-anuluj">Anuluj</button>

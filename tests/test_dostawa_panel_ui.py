@@ -286,3 +286,73 @@ def test_wersja_tras_podbita_po_odhaczeniu_pustej_trasy():
     html = _plik('templates', 'logistics', 'tab_content.html')
     m = re.search(r"filename='js/logistics-routes\.js'\) \}\}\?v=(\w+)", html)
     assert m and m.group(1) > '20261002a', m and m.group(1)
+
+
+# --- Oględziny 2.10 (Konrad), U4 i U6: zielona tarcza dostarczonego przystanku, legenda tarcz ----------------
+
+def _luminancja(hex_):
+    kanaly = [int(hex_[i:i + 2], 16) / 255.0 for i in (1, 3, 5)]
+    lin = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in kanaly]
+    return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+
+
+def _kontrast(a, b):
+    la, lb = sorted((_luminancja(a), _luminancja(b)), reverse=True)
+    return (la + 0.05) / (lb + 0.05)
+
+
+def test_dostarczony_przystanek_ma_zielona_tarcze_z_czarnym_numerem():
+    """U4: przystanek z `zamowienie.dostawa.dostarczono` — zielona tarcza (--il-status-ok) z czarnym numerem
+    (atrament panelu, ≥ 4,5:1) na osi przystanków edytora i w oknie „Odhacz”; pinezki map bez zmian."""
+    js = _plik('static', 'js', 'logistics-routes.js')
+    assert 'const dostarczony = (z) => !!(z && z.dostawa && z.dostawa.dostarczono);' in js
+    assert ("if (!anul && status !== 'robocza' && dostarczony(z)) klasyStacji.push('lg-stacja--dostarczona');"
+            in _funkcja(js, 'przystanekHtml'))
+    assert "(stanP === 'dostarczone' ? ' lg-stacja--dostarczona' : '')" in _funkcja(js, 'pozycjaWykonaniaHtml')
+    assert 'lg-stacja--dostarczona' not in _funkcja(js, 'ikonaStacji')
+    assert 'lg-stacja--dostarczona' not in _plik('static', 'js', 'logistics-map.js')
+    css = _plik('static', 'css', 'logistics-trasy.css')
+    regula = css[css.index('.logistics-tab .lg-stacja--dostarczona {'):]
+    regula = regula[:regula.index('}')]
+    assert 'background: var(--il-status-ok, #16a34a)' in regula and 'color: var(--il-text-primary, #1a1a2e)' in regula
+    assert 'border-style' not in regula          # przerywana / kropkowana obwódka (punkt mapy) zostaje
+    assert css.index('.logistics-tab .lg-stacja--bez-geo {') < css.index('.logistics-tab .lg-stacja--dostarczona {')
+    assert _kontrast('#1a1a2e', '#16a34a') >= 4.5
+    wymuszone = css[css.index('@media (forced-colors: active) {\n    .logistics-tab .lg-stacja--dostarczona {'):]
+    wymuszone = wymuszone[:wymuszone.index('\n}\n')]
+    assert 'background: CanvasText' in wymuszone and 'color: Canvas;' in wymuszone
+
+
+def test_legenda_tarcz_pod_osia_przystankow_i_w_oknie_odhacz(client):  # noqa: F811
+    """U6: legenda tarcz (dokładny punkt, przybliżony, brak punktu, dostarczone) z jednego makra — pod osią
+    przystanków w edytorze (ukryta, gdy oś nie ma przystanków) i na dole okna „Odhacz”, w kolorze trasy."""
+    html = client.get(BASE + '/tab-content').get_data(as_text=True)
+    legendy = re.findall(r'<ul class="lg-legenda-stacji" data-lg-trasy="([\w-]+)" aria-label="Oznaczenia przystanków">'
+                         r'(.*?)</ul>', html, re.S)
+    assert [k for k, _ in legendy] == ['legenda-stacji', 'wykonaj-legenda']
+    assert legendy[0][1] == legendy[1][1]
+    for klasa, opis in (('', u'dokładny punkt na mapie'),
+                        (' lg-stacja--przyblizona', u'punkt przybliżony (tylko miejscowość)'),
+                        (' lg-stacja--bez-geo', u'brak punktu na mapie'),
+                        (' lg-stacja--dostarczona', u'dostarczone')):
+        assert u'<span class="lg-stacja lg-stacja--legenda%s" aria-hidden="true">1</span>%s</li>' % (klasa, opis) \
+            in legendy[0][1], opis
+    sekcja = html[html.index('data-lg-trasy="przystanki-sekcja"'):]
+    assert 'data-lg-trasy="legenda-stacji"' in sekcja[:sekcja.index('</section>')]
+    okno = html[html.index('data-lg="trasa-wykonaj-dialog"'):]
+    okno = okno[:okno.index('</dialog>')]
+    assert okno.index('data-lg-trasy="wykonaj-lista"') < okno.index('data-lg-trasy="wykonaj-legenda"') \
+        < okno.index('class="lg-dialog-akcje"')
+    js = _plik('static', 'js', 'logistics-routes.js')
+    przystanki = _funkcja(js, 'renderujPrzystanki')
+    assert 'legendaStacjiEl.hidden = true;' in przystanki and 'legendaStacjiEl.hidden = !kolejne.length;' in przystanki
+    assert 'ustawKolor(wykonajLegendaEl, kolor(trasa.id));' in _funkcja(js, 'przygotujWykonanie')
+    css = _plik('static', 'css', 'logistics-trasy.css')
+    assert '.logistics-tab .lg-stacja--legenda {' in css and '.logistics-tab .lg-legenda-stacji {' in css
+
+
+def test_wersje_po_tarczy_dostarczonego_i_legendzie():
+    html = _plik('templates', 'logistics', 'tab_content.html')
+    for plik, stara in (('js/logistics-routes.js', '20261002b'), ('css/logistics-trasy.css', '20261002c')):
+        m = re.search(r"filename='" + re.escape(plik) + r"'\) \}\}\?v=(\w+)", html)
+        assert m and m.group(1) > stara, plik

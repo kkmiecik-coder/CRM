@@ -193,6 +193,8 @@
     const przystankiEl = el('przystanki');
     const przystankiStanEl = el('przystanki-stan');
     const ogloszenieEl = el('ogloszenie');
+    // (U6, oględziny 2.10) Legenda tarcz przystanków pod osią — widać ją, gdy oś ma przystanki.
+    const legendaStacjiEl = el('legenda-stacji');
     const mapkaEl = el('mapka');
     const mapkaStanEl = el('mapka-stan');
     const kandydaciSekcja = el('kandydaci-sekcja');
@@ -217,6 +219,7 @@
     const formWykonaj = el('wykonaj-form');
     const wykonajNazwaEl = el('wykonaj-nazwa');
     const wykonajListaEl = el('wykonaj-lista');
+    const wykonajLegendaEl = el('wykonaj-legenda');
     const wykonajIleEl = el('wykonaj-ile');
     const wykonajBladEl = el('wykonaj-blad');
     const wykonajZapiszBtn = el('wykonaj-zapisz');
@@ -1975,6 +1978,10 @@
         return z.geo.quality === 'przyblizona' ? 'lg-stacja--przyblizona' : '';
     }
 
+    // (U4, oględziny 2.10) Przystanek dostarczony (`zamowienie.dostawa.dostarczono`) — zielona tarcza z czarnym
+    // numerem na osi przystanków w edytorze i w oknie „Odhacz”. Pinezek na mapach to nie dotyczy.
+    const dostarczony = (z) => !!(z && z.dostawa && z.dostawa.dostarczono);
+
     // Krok 4.4 (spec 9.7): przy przystanku paczki i stan Dostawy — „załadowano 1/2”, „Zostaje: <powód>”,
     // „Dostarczono 14:05” z „Cofnij dostarczenie” (trasa w drodze albo wykonana; zastępuje „Przywróć trasę”).
     // „14:05” dla dostarczenia z dzisiaj, „01.10 14:05” dla wcześniejszego (trasa w drodze od wczoraj, wykonana).
@@ -2024,6 +2031,8 @@
         const geo = anul ? 'lg-stacja--anulowana' : klasaGeoStacji(z);
         if (geo) klasyStacji.push(geo);
         if (!anul && String(numer).length > 2) klasyStacji.push('lg-stacja--dlugi');
+        // Jak pasek Dostawy przy przystanku (dostawaPrzystankuHtml) — robocza trasa stanu Dostawy nie pokazuje.
+        if (!anul && status !== 'robocza' && dostarczony(z)) klasyStacji.push('lg-stacja--dostarczona');
         return '<li class="lg-przystanek' + (anul ? ' lg-przystanek--anulowany' : '') + '" data-order-id="' + esc(z.id) + '"' +
             (edyt ? ' draggable="true"' : '') + '>' +
             '<span class="' + klasyStacji.join(' ') + '" aria-hidden="true"' +
@@ -2138,6 +2147,7 @@
             liniaEl.classList.remove('is-przyblizona');
             liniaEl.classList.add('is-tylko-odczyt');
             przystankiEl.innerHTML = '<li class="lg-przystanek lg-przystanek--pusto">Utwórz trasę, a potem dodaj do niej zamówienia.</li>';
+            if (legendaStacjiEl) legendaStacjiEl.hidden = true;
             renderujStanPrzystankow();
             return;
         }
@@ -2155,6 +2165,7 @@
             : '<li class="lg-przystanek lg-przystanek--pusto">' + (edyt
                 ? 'Brak przystanków. Dodaj zamówienia z listy „Do dodania” niżej albo na Dashboardzie („Dodaj do trasy…”).'
                 : 'Trasa nie ma przystanków.') + '</li>';
+        if (legendaStacjiEl) legendaStacjiEl.hidden = !kolejne.length;
         odswiezPrzyciskiPrzystankow();
         przywrocFokusPrzystanku(fokus);
         renderujStanPrzystankow();
@@ -3262,7 +3273,8 @@
         return '<li><label class="lg-wykonaj-pozycja lg-wykonaj-pozycja--' + stanP + (nowy ? ' is-nowy' : '') + '">' +
             '<input type="checkbox" value="' + esc(z.id) + '"' + (zaznaczone ? ' checked' : '') +
                 (mozna ? ' data-lg-mozna="1"' : ' disabled') + '>' +
-            '<span class="lg-stacja' + (geo ? ' ' + geo : '') + '" aria-hidden="true">' + esc(numer) + '</span>' +
+            '<span class="lg-stacja' + (geo ? ' ' + geo : '') + (stanP === 'dostarczone' ? ' lg-stacja--dostarczona' : '') +
+                '" aria-hidden="true">' + esc(numer) + '</span>' +
             '<span class="lg-wykonaj-tresc"><span class="lg-numer">' + esc(z.numer) + '</span>' +
                 '<span class="lg-wykonaj-klient">' + (z.klient ? esc(z.klient) : 'brak nazwy') + '</span>' +
                 (nowy ? '<span class="lg-wykonaj-nowy">nowy na trasie</span>' : '') +
@@ -3551,6 +3563,7 @@
         wykonywanie = w;
         wykonajNazwaEl.textContent = trasa.nazwa;
         ustawKolor(wykonajListaEl, kolor(trasa.id));
+        ustawKolor(wykonajLegendaEl, kolor(trasa.id));
         bladWykonania('');
         pokazStanListyWykonania('Wczytywanie przystanków…');
         dialogWykonaj.showModal();
