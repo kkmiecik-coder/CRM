@@ -303,7 +303,7 @@ def test_stan_pakowania_i_anulowane_przystanki():
     assert 'Number(p.anulowane)' in _funkcja(trasy, 'renderujPodsumowanie')
     assert 'anulowane(z) ? null : (numer += 1)' in _funkcja(trasy, 'renderujPrzystanki')
     # (U4, oględziny 2.10) czwarty argument — dostarczony (zielona stacja); anulowany jak dotąd.
-    assert 'ikonaPrzystanku(p.pozycja, klasa, anulowany, dostarczony)' in _funkcja(_plik('static', 'js', 'logistics-map.js'),
+    assert 'ikonaPrzystanku(p.pozycja, klasa, anulowany, dostarczony, niedostarczony)' in _funkcja(_plik('static', 'js', 'logistics-map.js'),
                                                                      'narysujTrasy')
     css = _plik('static', 'css', 'logistics-trasy.css')
     for klasa in ('.lg-stacja--anulowana {', '.lg-przystanek--anulowany', '.lg-plakietka-anulowane {',

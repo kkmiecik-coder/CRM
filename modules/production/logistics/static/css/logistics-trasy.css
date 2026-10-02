@@ -544,6 +544,23 @@
     }
 }
 
+/* U10 (decyzja Konrada 2.10, Ruling 32): przystanek NIEDOSTARCZONY (wisi na trasie w drodze do jej końca) — szara
+   tarcza z białym numerem (4,8:1), na osi, w oknie „Odhacz”, w historii zdjętych, w legendzie i na pinezkach. */
+.logistics-tab .lg-stacja--niedostarczona {
+    background: #6b7280;
+    border-color: #4b5563;
+    color: #fff;
+}
+
+@media (forced-colors: active) {
+    .logistics-tab .lg-stacja--niedostarczona {
+        forced-color-adjust: none;
+        background: GrayText;
+        border-color: GrayText;
+        color: Canvas;
+    }
+}
+
 /* ─── Legenda tarcz przystanków (U6, oględziny 2.10) ───
    Pod osią przystanków w edytorze i na dole okna „Odhacz” — jedno makro szablonu (legenda_stacji).
    Mała i cicha: tarcze w skali, opis drugorzędnym kolorem, w kolorze bieżącej trasy. */
@@ -1359,7 +1376,9 @@
     line-height: 1.3;
     color: var(--il-text-secondary, #7a8291);
     font-variant-numeric: tabular-nums;
-    white-space: nowrap;
+    /* U10: z „· niedostarczono Z” linia nie mieści się na wąskim ekranie — zawija się zamiast wychodzić poza edytor. */
+    min-width: 0;
+    white-space: normal;
 }
 
 /* Kolor jak status trasy: załadowana i w drodze niebieski, wykonana zielony, zatwierdzona (załadunek trwa) czarny. */
@@ -1823,6 +1842,71 @@
 
 .logistics-tab .lg-przystanek-cofnieto i {
     font-size: 10px;
+}
+
+/* U10: „Niedostarczono 02.10 14:05 — Brak klienta: …” przy przystanku, w oknie „Odhacz” i w historii (≥ 7:1). */
+.logistics-tab .lg-przystanek-niedostarczono {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 5px;
+    min-width: 0;
+    font-size: 11.5px;
+    font-weight: 600;
+    line-height: 1.5;
+    color: #4b5563;
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+}
+
+.logistics-tab .lg-przystanek-niedostarczono i {
+    font-size: 10px;
+}
+
+/* Wiersz niedostarczonego przygasa jak anulowany — pasek Dostawy z przyciskami zostaje pełny. */
+.logistics-tab .lg-przystanek--niedostarczony :is(.lg-numer, .lg-przystanek-klient, .lg-przystanek-adres, .lg-przystanek-m3) {
+    opacity: 0.65;
+}
+
+/* Historia niedostarczonych zdjętych z trasy — pod osią przystanków, bez akcji. */
+.logistics-tab .lg-zdjete {
+    margin-top: 14px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--il-border, #c8cdd5);
+}
+
+.logistics-tab .lg-zdjete-tytul {
+    margin: 0 0 6px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--il-text-secondary, #7a8291);
+}
+
+.logistics-tab .lg-zdjete-lista {
+    display: grid;
+    gap: 6px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.logistics-tab .lg-zdjete-pozycja {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px;
+    align-items: start;
+}
+
+.logistics-tab .lg-zdjete-tresc {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 8px;
+    min-width: 0;
+}
+
+.logistics-tab .lg-zdjete-klient {
+    min-width: 0;
+    color: var(--il-text-secondary, #7a8291);
+    overflow-wrap: anywhere;
 }
 
 .logistics-tab .lg-przystanek-zostaje {

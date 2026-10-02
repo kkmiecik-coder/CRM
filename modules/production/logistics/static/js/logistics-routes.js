@@ -199,6 +199,8 @@
     const ogloszenieEl = el('ogloszenie');
     // (U6, oględziny 2.10) Legenda tarcz przystanków pod osią — widać ją, gdy oś ma przystanki.
     const legendaStacjiEl = el('legenda-stacji');
+    // U10: historia niedostarczonych zdjętych z trasy (pod osią przystanków).
+    const zdjeteEl = el('zdjete');
     const mapkaEl = el('mapka');
     const mapkaStanEl = el('mapka-stan');
     const kandydaciSekcja = el('kandydaci-sekcja');
@@ -667,11 +669,15 @@
 
     // Krok 4.4 (spec 9.7): „załadowano 7/8 · dostarczono 3/7” — liczy serwer (routes.postep) na przystankach
     // aktywnych. Zatwierdzona pokazuje załadunek dopiero, gdy kierowca zaczął ładować; wykonana — same dostarczenia.
+    // U10 (Ruling 32): „dostarczono X/Y · niedostarczono Z” — Y liczy też niedostarczone zdjęte z trasy (`zdjete`),
+    // więc nie maleje, gdy zamknięcie trasy zdejmuje niedostarczone do puli; „· niedostarczono” tylko, gdy Z > 0.
     function postepTekst(t) {
         const p = t && t.postep;
-        if (!p || !p.przystanki) return '';
+        const zdjete = p ? (Number(p.zdjete) || 0) : 0;
+        if (!p || !(p.przystanki || zdjete)) return '';
         const zaladowano = 'załadowano ' + p.zaladowane + '/' + p.przystanki;
-        const dostarczono = 'dostarczono ' + p.dostarczone + '/' + p.przystanki;
+        const dostarczono = 'dostarczono ' + p.dostarczone + '/' + (p.przystanki + zdjete) +
+            (p.niedostarczone ? ' · niedostarczono ' + p.niedostarczone : '');
         if (t.status === 'zatwierdzona') return p.zaladowane ? zaladowano : '';
         if (t.status === 'zaladowana') return zaladowano;
         if (t.status === 'w_trasie') return zaladowano + ' · ' + dostarczono;
@@ -1801,6 +1807,36 @@
         fokusNaTytul(ctx);
     }
 
+    // U10 (Ruling 32): „Cofnij niedostarczenie” — przystanek trasy w drodze znów do dostarczenia (Base. bez zmian).
+    async function cofnijNiedostarczenie(ctx, orderId) {
+        const t = ctx.trasa;
+        if (!t) return;
+        const odp = await zapytanie('/routes/' + t.id + '/stops/' + encodeURIComponent(orderId) + '/undo-not-delivered',
+            { metoda: 'POST', dane: {} });
+        if (zniszczona) return;
+        przyjmijOdpowiedz(ctx, odp.route, { formularz: true, zmiana: true });
+        const przystanek = (t.przystanki || []).find((p) => p.zamowienie && p.zamowienie.id === Number(orderId));
+        const numer = przystanek ? przystanek.zamowienie.numer : '';
+        komunikat('info', 'Cofnięto niedostarczenie' + (numer ? ' zamówienia ' + numer : '') +
+            ' — znów do dostarczenia.', { klucz: 'trasa' });
+        fokusNaTytul(ctx);
+    }
+
+    // U10 (Ruling 32): „Zdejmij z trasy” niedostarczony przystanek — zamówienie od razu wraca do puli bez trasy.
+    async function zdejmijNiedostarczone(ctx, orderId) {
+        const t = ctx.trasa;
+        if (!t) return;
+        const odp = await zapytanie('/routes/' + t.id + '/stops/' + encodeURIComponent(orderId) + '/remove-not-delivered',
+            { metoda: 'POST', dane: {} });
+        if (zniszczona) return;
+        przyjmijOdpowiedz(ctx, odp.route, { formularz: true, zmiana: true });
+        const przystanek = (t.przystanki || []).find((p) => p.zamowienie && p.zamowienie.id === Number(orderId));
+        const numer = przystanek ? przystanek.zamowienie.numer : '';
+        komunikat('info', 'Zamówienie' + (numer ? ' ' + numer : '') + ' zdjęte z trasy — wraca do puli bez trasy.',
+            { klucz: 'trasa' });
+        fokusNaTytul(ctx);
+    }
+
     // „Cofnij załadunek” (trasa załadowana): wraca do zatwierdzonej, znaczniki załadunku znikają.
     async function cofnijZaladunek(ctx) {
         const t = ctx.trasa;
@@ -1987,6 +2023,14 @@
     // numerem na osi przystanków w edytorze, w oknie „Odhacz” i na pinezce mapki edytora (decyzja Konrada 2.10;
     // mapa Dashboardu — logistics-map.js, pole `dostarczone` z /routes/map).
     const dostarczony = (z) => !!(z && z.dostawa && z.dostawa.dostarczono);
+    // U10 (decyzja Konrada 2.10, Ruling 32): przystanek niedostarczony (`zamowienie.dostawa.niedostarczono`) zostaje
+    // na trasie w drodze do jej końca — szara tarcza z białym numerem, przygaszony wiersz, powód przy przystanku.
+    const niedostarczony = (z) => !!(z && z.dostawa && z.dostawa.niedostarczono);
+
+    // „Brak klienta: nikt nie otworzył” — etykieta powodu z notatką (przystanek i historia zdjętych mają te same pola).
+    function opisNiedostarczenia(n) {
+        return n.etykieta + (n.notatka ? ': ' + n.notatka : '');
+    }
 
     // Krok 4.4 (spec 9.7): przy przystanku paczki i stan Dostawy — „załadowano 1/2”, „Zostaje: <powód>”,
     // „Dostarczono 14:05” z „Cofnij dostarczenie” (trasa w drodze albo wykonana; zastępuje „Przywróć trasę”).
@@ -2015,6 +2059,22 @@
                     ' data-lg-przystanek="cofnij-dostarczenie"' +
                     ' aria-label="' + esc('Cofnij dostarczenie zamówienia ' + z.numer) + '">' +
                     '<i class="fas fa-rotate-left" aria-hidden="true"></i><span>Cofnij dostarczenie</span></button>');
+            }
+        } else if (d.niedostarczono) {
+            // U10: niedostarczony wisi na trasie w drodze do jej końca; logistyk może cofnąć niedostarczenie albo
+            // zdjąć zamówienie do puli od razu (Base. „Planowana trasa”).
+            czesci.push('<span class="lg-przystanek-niedostarczono"><i class="fas fa-ban" aria-hidden="true"></i>' +
+                'Niedostarczono ' + esc(dataIGodzina(d.niedostarczono.kiedy)) + ' — ' +
+                esc(opisNiedostarczenia(d.niedostarczono)) + '</span>');
+            if (status === 'w_trasie') {
+                czesci.push('<button type="button" class="lg-przycisk lg-przycisk--cichy lg-przystanek-cofnij"' +
+                    ' data-lg-przystanek="cofnij-niedostarczenie"' +
+                    ' aria-label="' + esc('Cofnij niedostarczenie zamówienia ' + z.numer) + '">' +
+                    '<i class="fas fa-rotate-left" aria-hidden="true"></i><span>Cofnij niedostarczenie</span></button>');
+                czesci.push('<button type="button" class="lg-przycisk lg-przycisk--cichy lg-przystanek-cofnij"' +
+                    ' data-lg-przystanek="zdejmij-niedostarczone"' +
+                    ' aria-label="' + esc('Zdejmij z trasy niedostarczone zamówienie ' + z.numer) + '">' +
+                    '<i class="fas fa-arrow-right-from-bracket" aria-hidden="true"></i><span>Zdejmij z trasy</span></button>');
             }
         } else if (d.zostaje) {
             czesci.push('<span class="lg-przystanek-zostaje"><i class="fas fa-triangle-exclamation" aria-hidden="true"></i>' +
@@ -2051,7 +2111,11 @@
         if (!anul && String(numer).length > 2) klasyStacji.push('lg-stacja--dlugi');
         // Jak pasek Dostawy przy przystanku (dostawaPrzystankuHtml) — robocza trasa stanu Dostawy nie pokazuje.
         if (!anul && status !== 'robocza' && dostarczony(z)) klasyStacji.push('lg-stacja--dostarczona');
-        return '<li class="lg-przystanek' + (anul ? ' lg-przystanek--anulowany' : '') + '" data-order-id="' + esc(z.id) + '"' +
+        // U10: niedostarczony na trasie w drodze — szara tarcza i przygaszony wiersz.
+        const niedost = !anul && status !== 'robocza' && !dostarczony(z) && niedostarczony(z);
+        if (niedost) klasyStacji.push('lg-stacja--niedostarczona');
+        return '<li class="lg-przystanek' + (anul ? ' lg-przystanek--anulowany' : '') +
+            (niedost ? ' lg-przystanek--niedostarczony' : '') + '" data-order-id="' + esc(z.id) + '"' +
             (edyt ? ' draggable="true"' : '') + '>' +
             '<span class="' + klasyStacji.join(' ') + '" aria-hidden="true"' +
                 (geo === 'lg-stacja--przyblizona' ? ' title="Punkt przybliżony (miejscowość)"' : '') + '>' + (anul ? '—' : numer) + '</span>' +
@@ -2110,9 +2174,10 @@
         }
         // „Cofnij dostarczenie” (trasa w drodze / wykonana): fokus wraca na ten sam przycisk tego samego przystanku,
         // jeśli wciąż istnieje; po udanym cofnięciu go nie ma i fokus idzie na tytuł (niżej, jak po innych zmianach).
-        if (f.akcja === 'cofnij-dostarczenie') {
+        // U10: tak samo „Cofnij niedostarczenie” i „Zdejmij z trasy” niedostarczonego przystanku.
+        if (['cofnij-dostarczenie', 'cofnij-niedostarczenie', 'zdejmij-niedostarczone'].includes(f.akcja)) {
             const ten = przystankiEl.querySelector('.lg-przystanek[data-order-id="' + f.id +
-                '"] [data-lg-przystanek="cofnij-dostarczenie"]');
+                '"] [data-lg-przystanek="' + f.akcja + '"]');
             if (ten && !ten.disabled) {
                 ten.focus({ preventScroll: true });
                 return;
@@ -2166,6 +2231,7 @@
             liniaEl.classList.add('is-tylko-odczyt');
             przystankiEl.innerHTML = '<li class="lg-przystanek lg-przystanek--pusto">Utwórz trasę, a potem dodaj do niej zamówienia.</li>';
             if (legendaStacjiEl) legendaStacjiEl.hidden = true;
+            renderujZdjete(null);
             renderujStanPrzystankow();
             return;
         }
@@ -2184,9 +2250,35 @@
                 ? 'Brak przystanków. Dodaj zamówienia z listy „Do dodania” niżej albo na Dashboardzie („Dodaj do trasy…”).'
                 : 'Trasa nie ma przystanków.') + '</li>';
         if (legendaStacjiEl) legendaStacjiEl.hidden = !kolejne.length;
+        renderujZdjete(t);
         odswiezPrzyciskiPrzystankow();
         przywrocFokusPrzystanku(fokus);
         renderujStanPrzystankow();
+    }
+
+    /**
+     * U10 (Ruling 32): zamówienia, które zeszły z tej trasy jako niedostarczone (`niedostarczone_zdjete` — przy
+     * zamknięciu trasy, „Zdejmij z trasy”, doróbce albo zmianie z Base.) — szare wiersze bez akcji, pod osią
+     * przystanków. Serwer podaje je tylko dla tras załadowanych, w drodze i dostarczonych.
+     */
+    function renderujZdjete(t) {
+        if (!zdjeteEl) return;
+        const lista = (t && t.niedostarczone_zdjete) || [];
+        zdjeteEl.hidden = !lista.length;
+        if (!lista.length) {
+            zdjeteEl.innerHTML = '';
+            return;
+        }
+        const tytul = t.status === 'wykonana' ? 'Niedostarczone — wróciły do puli' : 'Niedostarczone — zdjęte z trasy';
+        zdjeteEl.innerHTML = '<h4 class="lg-zdjete-tytul">' + esc(tytul) + ' (' + lista.length + ')</h4>' +
+            '<ul class="lg-zdjete-lista">' + lista.map((h) => '<li class="lg-zdjete-pozycja">' +
+                '<span class="lg-stacja lg-stacja--niedostarczona" aria-hidden="true">—</span>' +
+                '<span class="lg-zdjete-tresc"><span class="lg-numer">' + esc(h.numer || '#' + h.order_id) + '</span>' +
+                    '<span class="lg-zdjete-klient">' + (h.klient ? esc(h.klient) : '') +
+                        (h.miasto ? ', ' + esc(h.miasto) : '') + '</span>' +
+                    '<span class="lg-przystanek-niedostarczono"><i class="fas fa-ban" aria-hidden="true"></i>' +
+                        'Niedostarczono ' + esc(dataIGodzina(h.kiedy)) + ' — ' + esc(opisNiedostarczenia(h)) + '</span>' +
+                '</span></li>').join('') + '</ul>';
     }
 
     function oznaczPrzeniesiony(orderId) {
@@ -2753,11 +2845,16 @@
             const przyblizony = z.geo.quality === 'przyblizona';
             // (U4) Dostarczony — zielona pinezka jak tarcza na osi (robocza stanu Dostawy nie pokazuje).
             const dostarczonyP = !anul && t.status !== 'robocza' && dostarczony(z);
+            // U10: niedostarczony na trasie w drodze — szara pinezka jak tarcza na osi.
+            const niedostarczonyP = !anul && !dostarczonyP && t.status !== 'robocza' && niedostarczony(z);
             const uwaga = anul ? 'Anulowane — nie trafi do Routimo'
                 : [przyblizony ? 'Punkt przybliżony (miejscowość)' : '',
-                    dostarczonyP ? 'Dostarczono ' + czasDostarczenia(z.dostawa.dostarczono) : ''].filter(Boolean).join('. ');
+                    dostarczonyP ? 'Dostarczono ' + czasDostarczenia(z.dostawa.dostarczono) : '',
+                    niedostarczonyP ? 'Niedostarczono ' + dataIGodzina(z.dostawa.niedostarczono.kiedy) + ' — ' +
+                        opisNiedostarczenia(z.dostawa.niedostarczono) : ''].filter(Boolean).join('. ');
             const klasyStanu = anul ? 'lg-stacja--anulowana'
-                : [klasaGeoStacji(z), dostarczonyP ? 'lg-stacja--dostarczona' : ''].filter(Boolean).join(' ');
+                : [klasaGeoStacji(z), dostarczonyP ? 'lg-stacja--dostarczona' : '',
+                    niedostarczonyP ? 'lg-stacja--niedostarczona' : ''].filter(Boolean).join(' ');
             const znacznik = L.marker([z.geo.lat, z.geo.lng], {
                 icon: ikonaStacji(anul ? '—' : numer, klasa, klasyStanu),
                 keyboard: false,          // klawiatura ma listę przystanków obok
@@ -3317,9 +3414,14 @@
         const stanP = stanPrzystankuWykonania(p);
         const mozna = stanP === 'spakowane';
         const zostaje = stanP !== 'dostarczone' && z.dostawa && z.dostawa.zostaje ? z.dostawa.zostaje : null;
-        // Domyślnie dostarczone są tylko spakowane i bez „Zostaje”; wybór użytkownika przeżywa przebudowę listy.
+        // U10: niedostarczony przez kierowcę — domyślnie odznaczony (zachowa powód kierowcy i wróci do puli);
+        // zaznaczenie oznacza go jako dostarczony.
+        const niedostarczono = stanP !== 'dostarczone' && z.dostawa && z.dostawa.niedostarczono ? z.dostawa.niedostarczono
+            : null;
+        // Domyślnie dostarczone są tylko spakowane, bez „Zostaje” i bez niedostarczenia; wybór użytkownika przeżywa
+        // przebudowę listy.
         const zaznaczone = stanP === 'dostarczone' ||
-            (mozna && (w.wybory.has(z.id) ? w.wybory.get(z.id) : !zostaje));
+            (mozna && (w.wybory.has(z.id) ? w.wybory.get(z.id) : !zostaje && !niedostarczono));
         const numer = p.pozycja === null || p.pozycja === undefined ? '—' : p.pozycja;
         const miejscowosc = [z.kod, z.miasto].filter(Boolean).join(' ');
         const adres = [miejscowosc, z.adres].filter(Boolean).join(', ');
@@ -3330,6 +3432,7 @@
             '<input type="checkbox" value="' + esc(z.id) + '"' + (zaznaczone ? ' checked' : '') +
                 (mozna ? ' data-lg-mozna="1"' : ' disabled') + '>' +
             '<span class="lg-stacja' + (geo ? ' ' + geo : '') + (stanP === 'dostarczone' ? ' lg-stacja--dostarczona' : '') +
+                (niedostarczono ? ' lg-stacja--niedostarczona' : '') +
                 '" aria-hidden="true">' + esc(numer) + '</span>' +
             '<span class="lg-wykonaj-tresc"><span class="lg-numer">' + esc(z.numer) + '</span>' +
                 '<span class="lg-wykonaj-klient">' + (z.klient ? esc(z.klient) : 'brak nazwy') + '</span>' +
@@ -3339,6 +3442,9 @@
                     (uwaga ? '<span class="lg-wykonaj-uwaga">' + esc(uwaga) + '</span>' : '') +
                     (zostaje ? '<span class="lg-przystanek-zostaje"><i class="fas fa-triangle-exclamation" aria-hidden="true"></i>' +
                         'Zostaje: ' + esc(zostaje.etykieta) + (zostaje.notatka ? ' — ' + esc(zostaje.notatka) : '') + '</span>' : '') +
+                    (niedostarczono ? '<span class="lg-przystanek-niedostarczono"><i class="fas fa-ban" aria-hidden="true"></i>' +
+                        'Niedostarczono ' + esc(dataIGodzina(niedostarczono.kiedy)) + ' — ' +
+                        esc(opisNiedostarczenia(niedostarczono)) + '</span>' : '') +
                     '</span>' +
             '</span>' +
             '<span class="lg-wykonaj-powrot">wróci do puli bez trasy</span>' +
@@ -3794,15 +3900,33 @@
             else if (akcja === 'dol') przesun(id, indeks + 1);
             else if (akcja === 'usun' && akcjaTrwa()) oglos('Poczekaj, aż zapisze się poprzednia zmiana trasy.');
             else if (akcja === 'usun') mutacja((ctx) => usunPrzystanek(ctx, id));
-            else if (akcja === 'cofnij-dostarczenie') {
+            else if (['cofnij-dostarczenie', 'cofnij-niedostarczenie', 'zdejmij-niedostarczone'].includes(akcja)) {
                 const pozycja = stan.otwarta && !stan.nowa
                     ? (stan.otwarta.przystanki || []).find((x) => x.zamowienie.id === id) : null;
                 const numerZamowienia = pozycja ? pozycja.zamowienie.numer : '';
                 if (akcjaTrwa()) {
                     oglos('Poczekaj, aż zapisze się poprzednia zmiana trasy.');
-                } else if (window.confirm('Cofnąć dostarczenie zamówienia ' + numerZamowienia + '?\n' +
-                    'Zamówienie znów będzie otwarte, a Base. dostanie status „Wysłane - trans. WoodPower”.')) {
-                    mutacja((ctx) => cofnijDostarczenie(ctx, id));
+                } else if (akcja === 'cofnij-dostarczenie') {
+                    // U10 (R32.4, koordynator 2.10): na trasie dostarczonej niedostarczone zeszły już do puli — cofnięcie
+                    // dostarczenia otwiera trasę, ale ich na nią nie przywraca. Mówimy to wprost.
+                    const zdjete = stan.otwarta.status === 'wykonana'
+                        ? (stan.otwarta.niedostarczone_zdjete || []).length : 0;
+                    if (window.confirm('Cofnąć dostarczenie zamówienia ' + numerZamowienia + '?\n' +
+                        'Zamówienie znów będzie otwarte, a Base. dostanie status „Wysłane - trans. WoodPower”.' +
+                        (zdjete ? '\nNiedostarczone zamówienia tej trasy (' + zdjete + ') zostają w puli bez trasy' +
+                            ' — nie wrócą na tę trasę.' : ''))) {
+                        mutacja((ctx) => cofnijDostarczenie(ctx, id));
+                    }
+                } else if (akcja === 'cofnij-niedostarczenie') {
+                    if (window.confirm('Cofnąć niedostarczenie zamówienia ' + numerZamowienia + '?\n' +
+                        'Przystanek znów będzie do dostarczenia — kierowca zobaczy go w telefonie.')) {
+                        mutacja((ctx) => cofnijNiedostarczenie(ctx, id));
+                    }
+                } else if (akcja === 'zdejmij-niedostarczone') {
+                    if (window.confirm('Zdjąć z trasy niedostarczone zamówienie ' + numerZamowienia + '?\n' +
+                        'Zamówienie od razu wróci do puli bez trasy, a Base. dostanie status „Planowana trasa”.')) {
+                        mutacja((ctx) => zdejmijNiedostarczone(ctx, id));
+                    }
                 }
             }
             return;

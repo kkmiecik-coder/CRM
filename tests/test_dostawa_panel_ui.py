@@ -91,7 +91,8 @@ def test_okno_odhacz_przystanki_dostarczone_i_zostaje():
     assert 'z.dostawa.dostarczono' in _funkcja(js, 'stanPrzystankuWykonania')
     pozycja = _funkcja(js, 'pozycjaWykonaniaHtml')
     # „Zostaje” z telefonu: pokazane z etykietą i domyślnie ODZNACZONE (logistyk może zaznaczyć).
-    assert 'z.dostawa.zostaje' in pozycja and ': !zostaje)' in pozycja
+    # U10: domyślnie odznaczone są też przystanki niedostarczone (test_dostawa_niedostarczone_ui).
+    assert 'z.dostawa.zostaje' in pozycja and ': !zostaje && !niedostarczono)' in pozycja
     assert "'Zostaje: ' + esc(zostaje.etykieta)" in pozycja and 'lg-przystanek-zostaje' in pozycja
     # Przystanek już dostarczony nie dostaje „Zostaje” (jest zawsze dostarczony i nieaktywny).
     assert "stanP !== 'dostarczone' && z.dostawa" in pozycja
@@ -109,7 +110,9 @@ def test_przystanek_pokazuje_dostawe_z_data_i_cofnieciem():
     assert 'dzisIso()' in czas and 'dataKrotka(dzien)' in czas and 'godzinaZIso(iso)' in czas
     # Fokus po przebudowie listy wraca na ten sam „Cofnij dostarczenie” (Ruling 27 pkt 6).
     fokus = _funkcja(js, 'przywrocFokusPrzystanku')
-    assert "f.akcja === 'cofnij-dostarczenie'" in fokus and 'data-lg-przystanek="cofnij-dostarczenie"' in fokus
+    # U10: ta sama ścieżka fokusu dla „Cofnij niedostarczenie” i „Zdejmij z trasy”.
+    assert "['cofnij-dostarczenie', 'cofnij-niedostarczenie', 'zdejmij-niedostarczone'].includes(f.akcja)" in fokus
+    assert 'data-lg-przystanek="\' + f.akcja + \'"]' in fokus
 
 
 def test_postep_w_naglowku_zmienia_tekst_tylko_gdy_sie_zmienil():
@@ -318,7 +321,7 @@ def test_dostarczony_przystanek_ma_zielona_tarcze_z_bialym_numerem():
     assert "(!anulowany && dostarczony ? ' lg-stacja--dostarczona' : '')" in _funkcja(mapa, 'ikonaPrzystanku')
     trasy_mapy = _funkcja(mapa, 'narysujTrasy')
     assert 'const dostarczony = !anulowany && !!p.dostarczone;' in trasy_mapy
-    assert 'ikonaPrzystanku(p.pozycja, klasa, anulowany, dostarczony)' in trasy_mapy
+    assert 'ikonaPrzystanku(p.pozycja, klasa, anulowany, dostarczony, niedostarczony)' in trasy_mapy   # + U10
     css = _plik('static', 'css', 'logistics-trasy.css')
     regula = css[css.index('.logistics-tab .lg-stacja--dostarczona {'):]
     regula = regula[:regula.index('}')]

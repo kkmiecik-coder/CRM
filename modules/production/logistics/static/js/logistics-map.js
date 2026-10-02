@@ -1772,13 +1772,15 @@
      * (I5) Anulowany (zamówienie bez aktywnych pozycji, API: `anulowane`, `pozycja` = null) —
      * szara stacja z „—”: Routimo go pomija, więc numer mają tylko aktywne przystanki.
      * (U4, oględziny 2.10) Dostarczony (API: `dostarczone`) — zielona stacja z białym numerem, jak w edytorze.
+     * U10 (Ruling 32): niedostarczony na trasie w drodze (API: `niedostarczone`) — szara stacja z białym numerem.
      */
-    function ikonaPrzystanku(numer, klasaKoloru, anulowany, dostarczony) {
+    function ikonaPrzystanku(numer, klasaKoloru, anulowany, dostarczony, niedostarczony) {
         const tekst = anulowany ? '—' : String(numer);
         return L.divIcon({
             className: 'lg-znacznik-przystanku',
             html: '<span class="lg-stacja lg-stacja--mapa ' + klasaKoloru + (tekst.length > 2 ? ' lg-stacja--dlugi' : '') +
                 (anulowany ? ' lg-stacja--anulowana' : '') + (!anulowany && dostarczony ? ' lg-stacja--dostarczona' : '') +
+                (!anulowany && !dostarczony && niedostarczony ? ' lg-stacja--niedostarczona' : '') +
                 '">' + esc(tekst) + '</span>',
             iconSize: [24, 24],
             iconAnchor: [12, 12],
@@ -1823,8 +1825,9 @@
                 if (!maPunkt(p)) return;
                 const anulowany = !!p.anulowane;
                 const dostarczony = !anulowany && !!p.dostarczone;
+                const niedostarczony = !anulowany && !!p.niedostarczone;
                 L.marker([p.lat, p.lng], {
-                    icon: ikonaPrzystanku(p.pozycja, klasa, anulowany, dostarczony),
+                    icon: ikonaPrzystanku(p.pozycja, klasa, anulowany, dostarczony, niedostarczony),
                     // Klawiatura wybiera trasy z legendy pod mapą — bez setek przystanków Tab.
                     keyboard: false,
                     zIndexOffset: anulowany ? 400 : 500,
@@ -1833,7 +1836,8 @@
                     (p.klient ? ' ' + esc(p.klient) : '') +
                     '<span class="lg-podpowiedz-mapy-uwaga">' + esc(t.nazwa) + '</span>' +
                     (anulowany ? '<span class="lg-podpowiedz-mapy-uwaga">Anulowane — nie trafi do Routimo</span>' : '') +
-                    (dostarczony ? '<span class="lg-podpowiedz-mapy-uwaga">Dostarczone</span>' : ''), {
+                    (dostarczony ? '<span class="lg-podpowiedz-mapy-uwaga">Dostarczone</span>' : '') +
+                    (!dostarczony && niedostarczony ? '<span class="lg-podpowiedz-mapy-uwaga">Niedostarczone</span>' : ''), {
                     className: 'lg-podpowiedz-mapy lg-podpowiedz-mapy--zawijana', direction: 'auto', opacity: 1,
                 }).addTo(grupa);
             });
