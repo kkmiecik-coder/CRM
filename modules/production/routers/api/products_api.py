@@ -2812,75 +2812,101 @@ def update_priority():
     Formaty:
     - Batch: {"products": [{"id": 1, "priority_rank": 3}, ...]}
     - Single: {"product_id": 1, "priority_rank": 3}
+
+    Jedno automatyczne ponowienie po zakleszczeniu MySQL 1213 (Ruling 31, wyścig „skan kierowcy × przeciąganie”
+    na kopii produkcji): przeciąganie zapisuje pozycje rosnąco po id bez blokady zamówienia, a Dostawa blokuje pozycje
+    wielu zamówień w kolejności (zamówienie, id) — rzadkie 1213 zostaje możliwe, jak w hurcie. Rollback i całe
+    przypisanie od nowa (`_zapisz_priorytety` czyta pozycje od nowa); żądanie jest bezpieczne do powtórzenia, bo rangi
+    są jawne w ciele. Drugie 1213 i każdy inny błąd — 500 z rollbackiem, jak dotąd.
     """
     try:
         data = request.get_json()
         if not data:
             return jsonify({'success': False, 'error': 'Brak danych JSON'}), 400
-        
-        updated_products = []
-        
-        if 'products' in data:
-            # Batch update dla drag & drop (priority_rank). Pisarz pozycji BEZ blokady zamówienia (logistyka
-            # etap 4, krok 4.4a), więc zapisuje pozycje jednym flushem, rosnąco po kluczu głównym — w tej samej
-            # kolejności, w której ZAKOŃCZ i doróbka blokują pozycje zamówienia (blokady_zamowien.zablokuj_pozycje).
-            # Dawniej `query.get` w pętli autoflushowało poprzedni UPDATE, więc blokady szły w kolejności żądania
-            # (rang): przeciąganie trzymało pozycję o wyższym id i czekało na niższą, a ZAKOŃCZ odwrotnie (1213).
-            # Teraz: jeden odczyt wszystkich pozycji, przypisania bez zapytań i jeden flush przy commicie, w którym
-            # SQLAlchemy sortuje UPDATE-y jednego mappera po kluczu głównym (orm.persistence._sort_states).
-            # no_autoflush pilnuje, żeby żadne zapytanie dopisane kiedyś w pętli nie rozbiło tego flushu.
-            wpisy = [(d.get('id'), d.get('priority_rank')) for d in data.get('products', [])]
-            wpisy = [(pid, ranga) for pid, ranga in wpisy if pid is not None and ranga is not None]
-            klucze = {pid: _id_pozycji(pid) for pid, _ranga in wpisy}
-            ids = sorted({k for k in klucze.values() if k is not None})
-            pozycje = ({p.id: p for p in ProductionItem.query.filter(ProductionItem.id.in_(ids)).all()}
-                       if ids else {})
 
-            with db.session.no_autoflush:
-                for product_id, new_priority_rank in wpisy:   # odpowiedź w kolejności żądania
-                    product = pozycje.get(klucze[product_id])
-                    if product:
-                        product.priority_rank = new_priority_rank
-                        product.priority_manual_override = True  # Drag&drop = manual
-                        updated_products.append({
-                            'id': product_id,
-                            'new_priority_rank': new_priority_rank
-                        })
-        
-        elif 'product_id' in data:
-            product_id = data.get('product_id')
-            new_priority_rank = data.get('priority_rank')
+        try:
+            updated_products, odmowa = _zapisz_priorytety(data)
+        except OperationalError as e:
+            if blokady_zamowien.kod_mysql(e) != 1213:
+                raise
+            db.session.rollback()
+            logger.warning("Przeciąganie priorytetów: zakleszczenie 1213, ponawiam raz", extra={
+                'product_count': len(data.get('products') or []) or 1})
+            updated_products, odmowa = _zapisz_priorytety(data)
+        if odmowa is not None:
+            return odmowa
 
-            if product_id is None or new_priority_rank is None:
-                return jsonify({'success': False, 'error': 'Wymagane: product_id i priority_rank'}), 400
-
-            product = ProductionItem.query.get(product_id)
-            if not product:
-                return jsonify({'success': False, 'error': f'Produkt {product_id} nie znaleziony'}), 404
-
-            product.priority_rank = new_priority_rank
-            product.priority_manual_override = True
-            updated_products.append({'id': product_id, 'new_priority_rank': new_priority_rank})
-        
-        else:
-            return jsonify({'success': False, 'error': 'Wymagane: product_id+priority_rank LUB products'}), 400
-        
-        # Zapisz zmiany
-        db.session.commit()
-        
         return jsonify({
             'success': True,
             'message': f'Zaktualizowano priorytety {len(updated_products)} produktów',
             'updated_count': len(updated_products),
             'updated_products': updated_products
         })
-        
+
     except Exception as e:
         db.session.rollback()
         return jsonify({
             'success': False,
             'error': f'Błąd aktualizacji priorytetów: {str(e)}'
         }), 500
+
+
+def _zapisz_priorytety(data):
+    """
+    Cały zapis `update-priority` w jednej transakcji: odczyt pozycji, przypisania, commit. Zwraca
+    (updated_products, None) albo (None, odpowiedź odmowy 400/404 — bez zapisów). Wynik liczy się od zera przy każdym
+    wywołaniu, więc funkcję wolno wywołać drugi raz po rollbacku (ponowienie po 1213 w `update_priority`).
+    """
+    updated_products = []
+
+    if 'products' in data:
+        # Batch update dla drag & drop (priority_rank). Pisarz pozycji BEZ blokady zamówienia (logistyka
+        # etap 4, krok 4.4a), więc zapisuje pozycje jednym flushem, rosnąco po kluczu głównym — w tej samej
+        # kolejności, w której ZAKOŃCZ i doróbka blokują pozycje zamówienia (blokady_zamowien.zablokuj_pozycje).
+        # Dawniej `query.get` w pętli autoflushowało poprzedni UPDATE, więc blokady szły w kolejności żądania
+        # (rang): przeciąganie trzymało pozycję o wyższym id i czekało na niższą, a ZAKOŃCZ odwrotnie (1213).
+        # Teraz: jeden odczyt wszystkich pozycji, przypisania bez zapytań i jeden flush przy commicie, w którym
+        # SQLAlchemy sortuje UPDATE-y jednego mappera po kluczu głównym (orm.persistence._sort_states).
+        # no_autoflush pilnuje, żeby żadne zapytanie dopisane kiedyś w pętli nie rozbiło tego flushu.
+        wpisy = [(d.get('id'), d.get('priority_rank')) for d in data.get('products', [])]
+        wpisy = [(pid, ranga) for pid, ranga in wpisy if pid is not None and ranga is not None]
+        klucze = {pid: _id_pozycji(pid) for pid, _ranga in wpisy}
+        ids = sorted({k for k in klucze.values() if k is not None})
+        pozycje = ({p.id: p for p in ProductionItem.query.filter(ProductionItem.id.in_(ids)).all()}
+                   if ids else {})
+
+        with db.session.no_autoflush:
+            for product_id, new_priority_rank in wpisy:   # odpowiedź w kolejności żądania
+                product = pozycje.get(klucze[product_id])
+                if product:
+                    product.priority_rank = new_priority_rank
+                    product.priority_manual_override = True  # Drag&drop = manual
+                    updated_products.append({
+                        'id': product_id,
+                        'new_priority_rank': new_priority_rank
+                    })
+
+    elif 'product_id' in data:
+        product_id = data.get('product_id')
+        new_priority_rank = data.get('priority_rank')
+
+        if product_id is None or new_priority_rank is None:
+            return None, (jsonify({'success': False, 'error': 'Wymagane: product_id i priority_rank'}), 400)
+
+        product = ProductionItem.query.get(product_id)
+        if not product:
+            return None, (jsonify({'success': False, 'error': f'Produkt {product_id} nie znaleziony'}), 404)
+
+        product.priority_rank = new_priority_rank
+        product.priority_manual_override = True
+        updated_products.append({'id': product_id, 'new_priority_rank': new_priority_rank})
+
+    else:
+        return None, (jsonify({'success': False, 'error': 'Wymagane: product_id+priority_rank LUB products'}), 400)
+
+    # Zapisz zmiany
+    db.session.commit()
+    return updated_products, None
 
 # ============================================================================
 # HELPER FUNCTIONS

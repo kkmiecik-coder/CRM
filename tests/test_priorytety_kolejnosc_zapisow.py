@@ -153,3 +153,146 @@ def test_przeliczenie_priorytetow_zapisuje_pozycje_jednym_flushem_rosnaco(app, m
         wyzsza = db.session.get(ProductionProduct, wyzsze)
         assert wyzsza.thickness_group == '3.6-4.5'
         assert sorted(db.session.get(ProductionProduct, pid).priority_rank for pid in (nizsze, wyzsze)) == [1, 2]
+
+
+# --- Jedno ponowienie po MySQL 1213 (Ruling 31.3, wyścigi na kopii produkcji) ---------------------------------------
+# Seria „skan kierowcy × przeciąganie priorytetów” dała 1 × 1213 z ofiarą po stronie przeciągania (500). Pisarze
+# priorytetów zapisują pozycje rosnąco po id, a Dostawa blokuje pozycje wielu zamówień w kolejności (zamówienie, id)
+# — rzadkie zakleszczenie zostaje możliwe, więc przeciąganie i przeliczenie ponawiają raz, jak hurt i Dostawa.
+
+def _blad_mysql(kod, komunikat='Deadlock found when trying to get lock'):
+    from sqlalchemy.exc import OperationalError
+    return OperationalError('UPDATE prod_products SET ...', {}, Exception(kod, komunikat))
+
+
+def _commit_z_bledami(monkeypatch, bledy):
+    """`db.session.commit` (handler przeciągania): n-te wywołanie najpierw wypycha zapisy (UPDATE-y idą do bazy, więc
+    rollback musi je cofnąć), potem rzuca `bledy[n]`; poza listą — prawdziwy commit. Zwraca listę wywołań."""
+    oryginal = db.session.commit
+    wywolania = []
+
+    def commit():
+        numer = len(wywolania)
+        wywolania.append(numer)
+        if numer < len(bledy) and bledy[numer] is not None:
+            db.session.flush()
+            raise bledy[numer]
+        return oryginal()
+
+    monkeypatch.setattr(db.session, 'commit', commit)
+    return wywolania
+
+
+def _rangi(app, ids):
+    with app.app_context():
+        db.session.rollback()
+        return [(db.session.get(ProductionProduct, pid).priority_rank,
+                 db.session.get(ProductionProduct, pid).priority_manual_override) for pid in ids]
+
+
+def test_przeciaganie_ponawia_raz_po_1213(app, client, monkeypatch):
+    nizsze, wyzsze = _zamowienie_z_pozycjami(app)
+    proby = _commit_z_bledami(monkeypatch, [_blad_mysql(1213)])
+
+    r = _przeciagnij(client, [{'id': wyzsze, 'priority_rank': 1}, {'id': nizsze, 'priority_rank': 2}])
+
+    assert r.status_code == 200, r.get_data()[:300]
+    assert len(proby) == 2 and r.get_json()['updated_count'] == 2
+    assert _rangi(app, [nizsze, wyzsze]) == [(2, True), (1, True)]
+
+
+def test_przeciaganie_dwa_1213_z_rzedu_to_500_bez_zapisow(app, client, monkeypatch):
+    nizsze, wyzsze = _zamowienie_z_pozycjami(app)
+    przed = _rangi(app, [nizsze, wyzsze])
+    proby = _commit_z_bledami(monkeypatch, [_blad_mysql(1213), _blad_mysql(1213)])
+
+    r = _przeciagnij(client, [{'id': wyzsze, 'priority_rank': 1}, {'id': nizsze, 'priority_rank': 2}])
+
+    assert r.status_code == 500 and r.get_json()['success'] is False
+    assert len(proby) == 2
+    assert _rangi(app, [nizsze, wyzsze]) == przed
+
+
+def test_przeciaganie_inny_kod_bez_ponowienia(app, client, monkeypatch):
+    nizsze, wyzsze = _zamowienie_z_pozycjami(app)
+    proby = _commit_z_bledami(monkeypatch, [_blad_mysql(1205, 'Lock wait timeout exceeded')])
+
+    r = _przeciagnij(client, [{'id': wyzsze, 'priority_rank': 1}, {'id': nizsze, 'priority_rank': 2}])
+
+    assert r.status_code == 500 and len(proby) == 1
+
+
+def test_zmiana_priorytetu_jednej_pozycji_ponawia_raz_po_1213(app, client, monkeypatch):
+    (pid,) = _zamowienie_z_pozycjami(app, ile=1)
+    proby = _commit_z_bledami(monkeypatch, [_blad_mysql(1213)])
+
+    r = client.post(BASE + '/update-priority', json={'product_id': pid, 'priority_rank': 4})
+
+    assert r.status_code == 200, r.get_data()[:300]
+    assert len(proby) == 2 and _rangi(app, [pid]) == [(4, True)]
+
+
+def _sesje_z_bledami(monkeypatch, bledy):
+    """Własne sesje przeliczenia: n-ta sesja przy commicie najpierw wypycha zapisy, potem rzuca `bledy[n]` (gdy nie
+    None). Zwraca listę założonych sesji."""
+    oryginal = priority_service.nowa_sesja_priorytetow
+    sesje = []
+
+    def nowa():
+        sesja = oryginal()
+        numer = len(sesje)
+        sesje.append(sesja)
+        if numer < len(bledy) and bledy[numer] is not None:
+            def commit():
+                sesja.flush()
+                raise bledy[numer]
+            sesja.commit = commit
+        return sesja
+
+    monkeypatch.setattr(priority_service, 'nowa_sesja_priorytetow', nowa)
+    return sesje
+
+
+def _do_przeliczenia(app, monkeypatch):
+    nizsze, wyzsze = _zamowienie_z_pozycjami(app, status='czeka_na_wyciecie')
+    kalkulator = priority_service.NewPriorityCalculator()
+    _aktywne_bez_isnull(kalkulator, monkeypatch)
+    return kalkulator, (nizsze, wyzsze)
+
+
+def test_przeliczenie_ponawia_raz_po_1213_na_nowej_sesji(app, monkeypatch):
+    """Przeliczenie ma własną sesję: po 1213 rollback i zamknięcie tej sesji, potem całe przeliczenie od nowa na nowej
+    sesji (stan liczony od zera — bez podwójnych skutków: przeliczenie nie ma skutków poza tą sesją)."""
+    with app.app_context():
+        kalkulator, ids = _do_przeliczenia(app, monkeypatch)
+        sesje = _sesje_z_bledami(monkeypatch, [_blad_mysql(1213)])
+
+        wynik = kalkulator.recalculate_all_priorities()
+
+        assert wynik['success'] is True, wynik
+        assert len(sesje) == 2 and wynik['products_prioritized'] == 2
+        db.session.rollback()
+        assert sorted(db.session.get(ProductionProduct, pid).priority_rank for pid in ids) == [1, 2]
+
+
+def test_przeliczenie_dwa_1213_z_rzedu_bez_zapisow(app, monkeypatch):
+    with app.app_context():
+        kalkulator, ids = _do_przeliczenia(app, monkeypatch)
+        przed = [db.session.get(ProductionProduct, pid).priority_rank for pid in ids]
+        sesje = _sesje_z_bledami(monkeypatch, [_blad_mysql(1213), _blad_mysql(1213)])
+
+        wynik = kalkulator.recalculate_all_priorities()
+
+        assert wynik['success'] is False and len(sesje) == 2
+        db.session.rollback()
+        assert [db.session.get(ProductionProduct, pid).priority_rank for pid in ids] == przed
+
+
+def test_przeliczenie_inny_kod_bez_ponowienia(app, monkeypatch):
+    with app.app_context():
+        kalkulator, _ids = _do_przeliczenia(app, monkeypatch)
+        sesje = _sesje_z_bledami(monkeypatch, [_blad_mysql(1205, 'Lock wait timeout exceeded')])
+
+        wynik = kalkulator.recalculate_all_priorities()
+
+        assert wynik['success'] is False and len(sesje) == 1

@@ -70,6 +70,7 @@ from typing import Dict, Any, List, Optional, Tuple, Set
 from collections import defaultdict
 from modules.logging import get_structured_logger
 from sqlalchemy import func, inspect as sa_inspect
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import joinedload, object_session
 
 logger = get_structured_logger('production.priority.v2')
@@ -201,99 +202,21 @@ class NewPriorityCalculator:
                         'Przeliczanie priorytetów już trwa w tym wątku — '
                         'zagnieżdżone wywołanie odrzucone')
 
-                sesja = nowa_sesja_priorytetow()
-                # Pozycje zapisujemy JEDNYM flushem przy commicie (KROK 8), w którym SQLAlchemy sortuje
-                # UPDATE-y po kluczu głównym — tak samo, jak ZAKOŃCZ i doróbka blokują pozycje zamówienia
-                # (blokady_zamowien.zablokuj_pozycje; logistyka etap 4, krok 4.4a). Z autoflushem zapytanie
-                # o zarezerwowane rangi (KROK 7) wypychało osobno grupy grubości z KROKU 2, a potem commit
-                # rangi: dwa flushe, każdy rosnąco, razem już nie (pozycja o wyższym id blokowana przed
-                # niższą → MySQL 1213 z ZAKOŃCZ). Wynik tego zapytania nie zależy od grup grubości.
-                sesja.autoflush = False
-                try:
-                    # Od tej chwili `_sesja_robocza()` oddaje NASZĄ sesję, więc
-                    # zapytania KROKU 1 i KROKU 7 nie odpalają autoflushu
-                    # sesji wołającego (nieudany flush na poziomie KORZENIA
-                    # jego transakcji zabrałby mu całą pracę).
-                    self._watek.sesja = sesja
-
-                    # KROK 1: Pobieranie wszystkich aktywnych produktów
-                    products = self._pozycje_w_mojej_sesji(
-                        self.get_active_products_for_prioritization(), sesja)
-                    logger.info(f"Pobrano {len(products)} aktywnych produktów z kolejki")
-
-                    if not products:
-                        # Niczego nie zmieniliśmy — nie ma czego zatwierdzać.
-                        return {
-                            'success': True,
-                            'products_processed': 0,
-                            'message': 'Brak produktów w kolejce do priorytetyzacji',
-                            'duration_seconds': 0
-                        }
-
-                    # KROK 2: Aktualizacja thickness_group dla wszystkich produktów
-                    thickness_updated = self.update_thickness_groups_batch(products)
-                    logger.debug(f"Zaktualizowano thickness_group dla {thickness_updated} produktów")
-
-                    # KROK 3: Grupowanie po tygodniach
-                    weekly_groups = self.group_products_by_weeks(products)
-                    logger.info(f"Pogrupowano produkty w {len(weekly_groups)} tygodni")
-
-                    # KROK 4-6: Przetwarzanie każdego tygodnia i sortowanie globalne
-                    all_sorted_products = []
-                    week_stats = {}
-
-                    for week_key, week_products in weekly_groups.items():
-                        # Statystyki częstotliwości dla tygodnia
-                        stats = self.calculate_week_statistics(week_products)
-                        week_stats[week_key] = stats
-
-                        # Priorytety grup dla tygodnia
-                        group_priorities = self.determine_group_priorities(stats)
-
-                        # Sortowanie produktów w tygodniu
-                        sorted_week_products = self.sort_products_by_rules(week_products, group_priorities)
-                        all_sorted_products.extend(sorted_week_products)
-
-                    logger.info(f"Posortowano wszystkie produkty globalnie: {len(all_sorted_products)}")
-
-                    # KROK 7: Przypisanie numeracji sekwencyjnej
-                    ranking_result = self.assign_sequential_ranks(all_sorted_products)
-
-                    # KROK 8: Zatwierdzenie WŁASNEJ transakcji.
-                    #
-                    # Jedno `commit()` na własnej sesji, bez punktów zapisu
-                    # i bez okien: cokolwiek tu padnie — flush odrzucony
-                    # przez bazę, zerwane połączenie, zakleszczenie — leci
-                    # do gałęzi błędu, która wycofuje NASZĄ sesję. Transakcja
-                    # wołającego jest poza tym wszystkim i zostaje nietknięta.
-                    sesja.commit()
-
-                    duration = (datetime.now() - start_time).total_seconds()
-
-                    result = {
-                        'success': True,
-                        'products_processed': len(products),
-                        'products_prioritized': ranking_result['products_updated'],
-                        'manual_overrides_preserved': ranking_result['manual_overrides_preserved'],
-                        'weekly_groups_processed': len(weekly_groups),
-                        'duration_seconds': round(duration, 2),
-                        'algorithm_version': '2.0',
-                        'week_statistics': week_stats,
-                        'ranking_details': ranking_result
-                    }
-
-                    logger.info("Zakończono przeliczanie priorytetów", extra=result)
-                    return result
-
-                except Exception:
-                    self._wycofaj_wlasna_prace(sesja)
-                    raise
-                finally:
-                    # Kolejność jest istotna: najpierw odcinamy sesję od metod
-                    # pomocniczych, dopiero potem ją zamykamy. Odwrotnie
-                    # `_sesja_robocza()` mogłaby wydać zamkniętą sesję.
-                    self._watek.sesja = None
-                    self._zamknij_sesje(sesja)
+                # Jedno automatyczne ponowienie po zakleszczeniu MySQL 1213 (Ruling 31, wyścigi na kopii produkcji):
+                # przeliczenie zapisuje pozycje rosnąco po id bez blokady zamówień, a Dostawa i hurt blokują pozycje
+                # wielu zamówień w kolejności (zamówienie, id). Próba pracuje na WŁASNEJ sesji, którą przy błędzie
+                # cofa i zamyka (`_przelicz_raz`), więc druga próba zaczyna od nowej sesji i liczy wszystko od zera
+                # na bieżącym stanie. Bez podwójnych skutków: przeliczenie nie ma skutków poza swoją sesją (żadnego
+                # Base., druku ani pracy wołającego), a wynik pierwszej próby zniknął z jej rollbackiem. Drugie
+                # 1213 i każdy inny błąd — gałąź błędu niżej (`success: False`, nic nie zapisane).
+                from .blokady_zamowien import kod_mysql
+                for proba in (1, 2):
+                    try:
+                        return self._przelicz_raz(start_time)
+                    except OperationalError as e:
+                        if proba == 2 or kod_mysql(e) != 1213:
+                            raise
+                        logger.warning("Przeliczenie priorytetów: zakleszczenie 1213, ponawiam raz na nowej sesji")
 
         except Exception as e:
             logger.error("Błąd przeliczania priorytetów", extra={
@@ -307,6 +230,106 @@ class NewPriorityCalculator:
                 'products_processed': 0,
                 'duration_seconds': (datetime.now() - start_time).total_seconds()
             }
+
+    def _przelicz_raz(self, start_time) -> Dict[str, Any]:
+        """
+        Jedna próba przeliczenia (KROKI 1–8) na nowej, WŁASNEJ sesji: przy błędzie cofa i zamyka tę sesję i rzuca
+        dalej (ponowienie po 1213 i gałąź błędu w `recalculate_all_priorities`). Woła ją wyłącznie
+        `recalculate_all_priorities`, pod `self._lock` i po sprawdzeniu, że w tym wątku nie trwa inne przeliczanie.
+        """
+        sesja = nowa_sesja_priorytetow()
+        # Pozycje zapisujemy JEDNYM flushem przy commicie (KROK 8), w którym SQLAlchemy sortuje
+        # UPDATE-y po kluczu głównym — tak samo, jak ZAKOŃCZ i doróbka blokują pozycje zamówienia
+        # (blokady_zamowien.zablokuj_pozycje; logistyka etap 4, krok 4.4a). Z autoflushem zapytanie
+        # o zarezerwowane rangi (KROK 7) wypychało osobno grupy grubości z KROKU 2, a potem commit
+        # rangi: dwa flushe, każdy rosnąco, razem już nie (pozycja o wyższym id blokowana przed
+        # niższą → MySQL 1213 z ZAKOŃCZ). Wynik tego zapytania nie zależy od grup grubości.
+        sesja.autoflush = False
+        try:
+            # Od tej chwili `_sesja_robocza()` oddaje NASZĄ sesję, więc
+            # zapytania KROKU 1 i KROKU 7 nie odpalają autoflushu
+            # sesji wołającego (nieudany flush na poziomie KORZENIA
+            # jego transakcji zabrałby mu całą pracę).
+            self._watek.sesja = sesja
+
+            # KROK 1: Pobieranie wszystkich aktywnych produktów
+            products = self._pozycje_w_mojej_sesji(
+                self.get_active_products_for_prioritization(), sesja)
+            logger.info(f"Pobrano {len(products)} aktywnych produktów z kolejki")
+
+            if not products:
+                # Niczego nie zmieniliśmy — nie ma czego zatwierdzać.
+                return {
+                    'success': True,
+                    'products_processed': 0,
+                    'message': 'Brak produktów w kolejce do priorytetyzacji',
+                    'duration_seconds': 0
+                }
+
+            # KROK 2: Aktualizacja thickness_group dla wszystkich produktów
+            thickness_updated = self.update_thickness_groups_batch(products)
+            logger.debug(f"Zaktualizowano thickness_group dla {thickness_updated} produktów")
+
+            # KROK 3: Grupowanie po tygodniach
+            weekly_groups = self.group_products_by_weeks(products)
+            logger.info(f"Pogrupowano produkty w {len(weekly_groups)} tygodni")
+
+            # KROK 4-6: Przetwarzanie każdego tygodnia i sortowanie globalne
+            all_sorted_products = []
+            week_stats = {}
+
+            for week_key, week_products in weekly_groups.items():
+                # Statystyki częstotliwości dla tygodnia
+                stats = self.calculate_week_statistics(week_products)
+                week_stats[week_key] = stats
+
+                # Priorytety grup dla tygodnia
+                group_priorities = self.determine_group_priorities(stats)
+
+                # Sortowanie produktów w tygodniu
+                sorted_week_products = self.sort_products_by_rules(week_products, group_priorities)
+                all_sorted_products.extend(sorted_week_products)
+
+            logger.info(f"Posortowano wszystkie produkty globalnie: {len(all_sorted_products)}")
+
+            # KROK 7: Przypisanie numeracji sekwencyjnej
+            ranking_result = self.assign_sequential_ranks(all_sorted_products)
+
+            # KROK 8: Zatwierdzenie WŁASNEJ transakcji.
+            #
+            # Jedno `commit()` na własnej sesji, bez punktów zapisu
+            # i bez okien: cokolwiek tu padnie — flush odrzucony
+            # przez bazę, zerwane połączenie, zakleszczenie — leci
+            # do gałęzi błędu, która wycofuje NASZĄ sesję. Transakcja
+            # wołającego jest poza tym wszystkim i zostaje nietknięta.
+            sesja.commit()
+
+            duration = (datetime.now() - start_time).total_seconds()
+
+            result = {
+                'success': True,
+                'products_processed': len(products),
+                'products_prioritized': ranking_result['products_updated'],
+                'manual_overrides_preserved': ranking_result['manual_overrides_preserved'],
+                'weekly_groups_processed': len(weekly_groups),
+                'duration_seconds': round(duration, 2),
+                'algorithm_version': '2.0',
+                'week_statistics': week_stats,
+                'ranking_details': ranking_result
+            }
+
+            logger.info("Zakończono przeliczanie priorytetów", extra=result)
+            return result
+
+        except Exception:
+            self._wycofaj_wlasna_prace(sesja)
+            raise
+        finally:
+            # Kolejność jest istotna: najpierw odcinamy sesję od metod
+            # pomocniczych, dopiero potem ją zamykamy. Odwrotnie
+            # `_sesja_robocza()` mogłaby wydać zamkniętą sesję.
+            self._watek.sesja = None
+            self._zamknij_sesje(sesja)
 
     def _sesja_watku(self):
         """Sesja przeliczania trwającego W TYM WĄTKU albo `None`.
