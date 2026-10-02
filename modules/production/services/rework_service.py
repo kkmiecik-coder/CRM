@@ -3,7 +3,9 @@ Service: reject sztuk produktu z aktualnego stanowiska (formatowanie i wszystkie
 stanowiska za nim: sklejanie, krawędzie, lakiernia, pakowanie).
 Tworzy rekord doróbki w prod_products, decrementuje quantity oryginału,
 zapisuje wpis w prod_rework_log. Wszystko w jednej transakcji z blokadą zamówienia
-i jego pozycji (SELECT ... FOR UPDATE, „zamówienie najpierw” — services/blokady_zamowien.py).
+i jego pozycji (SELECT ... FOR UPDATE, „zamówienie najpierw” — services/blokady_zamowien.py),
+poprzedzoną globalną blokadą tras logistyki (zamówienie z trasy załadowanej albo w drodze
+schodzi z trasy — dostawa.zdejmij_po_dorobce).
 """
 from __future__ import annotations
 
@@ -105,8 +107,9 @@ def reject_product_quantity(
     Wykonuje reject `quantity` sztuk z `product_id` na stanowisku `rejected_at_station`.
 
     Zwraca: (oryginał_po_update, doróbka, wpis_w_rework_log).
-    Cały flow w jednej transakcji: najpierw blokada zamówienia oryginału i wszystkich jego pozycji
-    (odczyt bieżący, krok 4.4a logistyki), dopiero potem sprawdzenia i zapisy.
+    Cały flow w jednej transakcji: najpierw globalna blokada tras logistyki (decyzja Konrada 2.10, A2),
+    potem blokada zamówienia oryginału i wszystkich jego pozycji (odczyt bieżący, krok 4.4a logistyki),
+    dopiero potem sprawdzenia i zapisy.
 
     worker_ids: profile wybrane na tablecie (nagłówek X-Worker-Ids). Doróbka NIE
     generuje eventu stanowiskowego — nie woła set_quantity_done() — więc nie ma
@@ -132,6 +135,13 @@ def reject_product_quantity(
             'invalid_station',
             f'cofać można tylko z: {sorted(VALID_REJECT_STATIONS)}'
         )
+
+    # Logistyka (fala końcowa 4.4b, decyzja Konrada A2): doróbka zamówienia z trasy załadowanej albo w drodze zdejmuje
+    # je z trasy (dostawa.zdejmij_po_dorobce), a przystanki i trasy zmienia tylko posiadacz globalnej blokady tras.
+    # Bierzemy ją bezwarunkowo i NAJPIERW, przed blokadą zamówienia — w kolejności Dostawy (blokada tras → zamówienia →
+    # paczki i pozycje). Doróbka jest rzadka, a blokada to jeden wiersz prod_config, trzymany do commitu niżej.
+    from modules.production.logistics.services import routes
+    routes.zablokuj_trasy()
 
     # „Zamówienie najpierw” (logistyka etap 4, krok 4.4a): wiersz zamówienia oryginału, potem wszystkie jego
     # pozycje — blokada i odczyt bieżący, zanim cokolwiek sprawdzimy i zapiszemy. Ta sama kolejność co panel
@@ -301,10 +311,14 @@ def reject_product_quantity(
     # reguła widzi doróbkę i bieżący skład zamówienia. Zwykły odczyt kolekcji (dawne expire) pokazałby na MySQL
     # migawkę sprzed blokady.
     if original.order is not None:
-        from modules.production.logistics.services import weryfikacja
+        from modules.production.logistics.services import dostawa, weryfikacja
         zablokuj_pozycje(original.order)
         weryfikacja.uniewaznij_etapy(original.order, now, u'doróbka',
                                      worker_id=(worker_ids[0] if worker_ids else None))
+        # Decyzja Konrada 2.10 (A2): z trasy załadowanej albo w drodze zamówienie schodzi jak „Niedostarczone” —
+        # decyzja na odczycie bieżącym przystanku i trasy pod blokadą tras wziętą na początku. Urządzenia nie podajemy:
+        # log logistyki trzyma id z prod_devices, a tu mamy tylko kod urządzenia.
+        dostawa.zdejmij_po_dorobce(original.order, now, worker_id=(worker_ids[0] if worker_ids else None))
 
     try:
         db.session.commit()

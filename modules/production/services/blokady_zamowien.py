@@ -8,6 +8,11 @@ i przeniesienie osieroconych w cronie logistyki. Zmiana sposobu dostawy w panelu
 (`panel_api._zapisz_zmiane_sposobu`) blokuje tylko wiersze zamówień (rosnąco po id), bez pozycji: pisarze
 pozycji z tej zasady czekają już na wierszu zamówienia, zanim sięgną po jego pozycje.
 
+(Fala końcowa kroku 4.4b, decyzja Konrada A2) Doróbka i hurtowa zmiana statusu biorą przed blokadą zamówień
+globalną blokadę tras (`routes.zablokuj_trasy`) — w kolejności Dostawy (blokada tras → zamówienia → paczki i pozycje):
+zamówienie z trasy załadowanej albo w drodze doróbka zdejmuje z trasy, a hurt mu odmawia, i obie decyzje zapadają na
+statusie trasy czytanym pod tą blokadą.
+
 Stanowiska (ZAKOŃCZ i wejście do pakowania), doróbka i zmiany z Base. brały dotąd pozycję przed zamówieniem:
 zapisywały pozycję (flush), a zamówienie dopiero w po_spakowaniu albo w regule unieważniania etapów. Panel
 trzymał zamówienie i sięgał po pozycję, więc dwie odwrotne kolejności dawały MySQL 1213 (spec 8.7,

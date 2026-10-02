@@ -30,6 +30,7 @@ from modules.production.models import (
     ProductionProduct, ProductionStationEvent,
     ProductionStationEventWorker, ProductionWorker, ProductionWorkerSession,
 )
+from modules.production.logistics.models import Route, RouteStop, Vehicle
 from modules.users.models import User
 # configure_mappers() przy pierwszym zapytaniu konfiguruje CAŁY rejestr mapperów —
 # bez tych importów wywala się na relationship('Multiplier')/('Client')/('QuoteStatus').
@@ -47,6 +48,8 @@ TABLES = [m.__table__ for m in (
     User, ProductionDevice, ProductionConfig, ProductionOrder, ProductionProduct,
     ProductionConfiguration, ProductionWorker, ProductionWorkerSession,
     ProductionStationEvent, ProductionStationEventWorker,
+    # Hurtowa zmiana statusu czyta przystanki i trasy zamówień pod blokadą tras (decyzja Konrada 2.10, A2).
+    Vehicle, Route, RouteStop,
 )]
 
 SZABLON_STANOWISK = os.path.join(KORZEN, 'modules', 'production', 'templates',

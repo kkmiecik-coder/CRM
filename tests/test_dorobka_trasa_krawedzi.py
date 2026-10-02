@@ -26,8 +26,9 @@ from flask import Flask
 from sqlalchemy.pool import StaticPool
 
 from extensions import db
+from modules.production.logistics.models import Route, RouteStop, Vehicle
 from modules.production.models import (
-    ProductionConfiguration, ProductionOrder, ProductionProduct,
+    ProductionConfig, ProductionConfiguration, ProductionOrder, ProductionProduct,
     ProductionReworkLog, ProductionStationEvent,
 )
 from modules.production.services.rework_service import (
@@ -43,6 +44,8 @@ import modules.quotes.models  # noqa: F401
 _TABLES = [m.__table__ for m in (
     User, ProductionOrder, ProductionProduct, ProductionConfiguration,
     ProductionReworkLog, ProductionStationEvent,
+    # Doróbka bierze globalną blokadę tras i czyta przystanek zamówienia (decyzja Konrada 2.10, A2).
+    ProductionConfig, Vehicle, Route, RouteStop,
 )]
 
 # SQLite nie zna typu MySQL LONGTEXT — to samo obejście co w pozostałych

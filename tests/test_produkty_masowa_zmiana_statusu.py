@@ -563,3 +563,243 @@ def test_hurt_druga_proba_decyduje_na_nowo_zablokowanych_zamowieniach_bez_odczyt
     for stan, zapytania in proby:
         assert stan == oczekiwany and zapytania == [], (stan, zapytania)
     assert zamkniecia == [([(pierwsza_id, 'czeka_na_pakowanie'), (druga_id, 'spakowane')], [])]
+
+
+# --- Decyzje Konrada 2.10 (fala końcowa kroku 4.4b) -------------------------------------------------------------
+# A1: hurtowa zmiana na „spakowane” na zamówieniu zweryfikowanym unieważnia weryfikację (ta sama reguła co „Cofnij
+# weryfikację”). A2: zamówienie, którego przystanek jest na trasie załadowanej albo w drodze, hurt odmawia (409 dla
+# tego zamówienia, reszta zaznaczonych przechodzi) — status trasy czytany pod globalną blokadą tras, którą hurt bierze
+# PRZED blokadami zamówień i pozycji (kolejność Dostawy).
+
+def _tabele_logistyki(app):
+    from modules.production.logistics.models import LogisticsLog
+    from modules.production.models import LabelPrintJob, ProductionPackage
+    with app.app_context():
+        # Tych tabel nie zakłada wspólny zestaw tego modułu testów (reguły zapisują log i paczki).
+        db.metadata.create_all(bind=db.engine, tables=[
+            LogisticsLog.__table__, ProductionPackage.__table__, LabelPrintJob.__table__])
+
+
+def _zamowienie_logistyki(app, numer, statusy=('zweryfikowane', 'zweryfikowane'), status_trasy=None,
+                          zweryfikowane=True, paczek=2, zaladowane=False, nazwa_trasy=u'Rzeszów 02.10'):
+    """
+    (id zamówienia, [id pozycji], [id paczek], id trasy albo None). Transport własny, pozycje w `statusy`, `paczek`
+    aktualnych paczek (sprawdzonych, gdy `zweryfikowane` — wtedy też verified_at zamówienia), przystanek na trasie
+    o statusie `status_trasy` (None = bez trasy), paczki załadowane na tę trasę, gdy `zaladowane`.
+    """
+    from datetime import date, datetime
+
+    from modules.production.logistics import sposoby
+    from modules.production.logistics.models import Route, RouteStop
+    from modules.production.models import ProductionPackage
+    chwila = datetime(2026, 10, 1, 8, 0)
+    _tabele_logistyki(app)
+    pierwsza_id, _ = produkt(app, status=statusy[0], numer=numer)
+    with app.app_context():
+        order = db.session.get(ProductionProduct, pierwsza_id).order
+        for i, status in enumerate(statusy[1:], start=2):
+            db.session.add(ProductionProduct(
+                order_id=order.id, short_product_id='%s_%d' % (numer.replace('/', ''), i), product_sequence_in_order=i,
+                original_product_name='Blat dębowy', current_status=status, quantity=1, volume_m3=0.1))
+        order.override_delivery_method = sposoby.TRANSPORT
+        if zweryfikowane:
+            order.verified_at, order.verified_by_worker_id = chwila, 7
+        if paczek:
+            order.packages_declared_at = chwila
+        paczki = [ProductionPackage(order_id=order.id, seq=i, kind='paczka', declared_at=chwila,
+                                    verified_at=chwila if zweryfikowane else None,
+                                    verified_by_worker_id=7 if zweryfikowane else None,
+                                    verified_method='skan' if zweryfikowane else None)
+                  for i in range(1, paczek + 1)]
+        db.session.add_all(paczki)
+        trasa_id = None
+        if status_trasy is not None:
+            trasa = Route(name=nazwa_trasy, date_from=date(2026, 10, 2), date_to=date(2026, 10, 2),
+                          status=status_trasy)
+            db.session.add(trasa)
+            db.session.flush()
+            db.session.add(RouteStop(route_id=trasa.id, order_id=order.id, position=1))
+            trasa_id = trasa.id
+            if zaladowane:
+                for p in paczki:
+                    p.loaded_at, p.loaded_by_worker_id, p.loaded_method, p.loaded_route_id = chwila, 7, 'skan', trasa_id
+        db.session.commit()
+        pozycje = sorted(p.id for p in ProductionProduct.query.filter_by(order_id=order.id))
+        return order.id, pozycje, [p.id for p in paczki], trasa_id
+
+
+def _stan_logistyki(order_id):
+    """(statusy pozycji rosnąco po id, verified_at zamówienia, paczki: [(verified_at, loaded_route_id, voided?)],
+    akcje logu, przystanek jest?) ze świeżego odczytu bazy."""
+    from modules.production.logistics.models import LogisticsLog, RouteStop
+    from modules.production.models import ProductionOrder, ProductionPackage
+    db.session.rollback()
+    order = db.session.get(ProductionOrder, order_id)
+    statusy = [p.current_status for p in ProductionProduct.query.filter_by(order_id=order_id)
+               .order_by(ProductionProduct.id)]
+    paczki = [(p.verified_at, p.loaded_route_id, p.voided_at is not None)
+              for p in ProductionPackage.query.filter_by(order_id=order_id).order_by(ProductionPackage.id)]
+    akcje = [w.action for w in LogisticsLog.query.filter_by(order_id=order_id).order_by(LogisticsLog.id)]
+    przystanek = RouteStop.query.filter_by(order_id=order_id).first() is not None
+    return statusy, order.verified_at, paczki, akcje, przystanek
+
+
+def test_hurt_na_spakowane_uniewaznia_weryfikacje(client, app):
+    """A1: jedna pozycja zamówienia zweryfikowanego → „spakowane”. Jak „Cofnij weryfikację”: wszystkie pozycje
+    zweryfikowane → spakowane, verified_at zamówienia i znaczniki weryfikacji paczek czyszczone, znaczniki załadunku
+    (załadunek na trasie zatwierdzonej w toku) czyszczone, wpis `weryfikacja_cofnieta` z użytkownikiem. Deklaracja paczek
+    zostaje (paczki ważne) — dokładnie jak przy „Cofnij weryfikację”."""
+    from modules.production.logistics.models import LogisticsLog
+    from modules.production.models import ProductionOrder
+    order_id, pozycje, _paczki, _trasa = _zamowienie_logistyki(app, '25/00601', status_trasy='zatwierdzona',
+                                                               zaladowane=True)
+
+    r = _masowo(client, [pozycje[0]], 'spakowane')
+
+    assert r.status_code == 200, r.get_data()[:500]
+    assert r.get_json()['processed_count'] == 1 and r.get_json()['errors'] == []
+    statusy, verified_at, paczki, akcje, przystanek = _stan_logistyki(order_id)
+    assert statusy == ['spakowane', 'spakowane']
+    assert verified_at is None and db.session.get(ProductionOrder, order_id).verified_by_worker_id is None
+    assert paczki == [(None, None, False), (None, None, False)]
+    assert akcje == ['weryfikacja_cofnieta'] and przystanek
+    wpis = LogisticsLog.query.filter_by(order_id=order_id).one()
+    assert (wpis.note, wpis.user_id) == (u'zmiana statusu w panelu', 1)
+    assert db.session.get(ProductionOrder, order_id).packages_declared_at is not None
+
+
+def test_hurt_na_spakowane_bez_weryfikacji_niczego_nie_cofa(client, app):
+    """A1 dotyczy tylko zamówienia zweryfikowanego: pozycja z pakowania → „spakowane” bez weryfikacji — bez wpisu."""
+    order_id, pozycje, _paczki, _trasa = _zamowienie_logistyki(
+        app, '25/00602', statusy=('czeka_na_pakowanie', 'spakowane'), zweryfikowane=False, paczek=0)
+
+    r = _masowo(client, [pozycje[0]], 'spakowane')
+
+    assert r.status_code == 200, r.get_data()[:500]
+    statusy, verified_at, _p, akcje, _s = _stan_logistyki(order_id)
+    assert statusy == ['spakowane', 'spakowane'] and verified_at is None and akcje == []
+
+
+def test_hurt_na_spakowane_widzi_weryfikacje_zatwierdzona_tuz_przed_zadaniem(client, app):
+    """A1 na odczycie bieżącym: obiekty w sesji pokazują zamówienie niezweryfikowane, a w bazie Weryfikacja zdążyła
+    je zweryfikować tuż przed hurtem (surowy UPDATE poza ORM). Hurt → „spakowane” i tak cofa weryfikację."""
+    from datetime import datetime
+
+    from modules.production.models import ProductionOrder, ProductionPackage
+    chwila = datetime(2026, 10, 1, 9, 0)
+    order_id, pozycje, _paczki, _trasa = _zamowienie_logistyki(
+        app, '25/00603', statusy=('spakowane', 'spakowane'), zweryfikowane=False)
+    order = db.session.get(ProductionOrder, order_id)                       # „migawka” żądania
+    stare = list(order.products)
+    assert order.verified_at is None and [p.current_status for p in stare] == ['spakowane', 'spakowane']
+    db.session.execute(ProductionOrder.__table__.update().where(ProductionOrder.__table__.c.id == order_id)
+                       .values(verified_at=chwila, verified_by_worker_id=7))
+    db.session.execute(ProductionProduct.__table__.update()
+                       .where(ProductionProduct.__table__.c.order_id == order_id)
+                       .values(current_status='zweryfikowane'))
+    db.session.execute(ProductionPackage.__table__.update()
+                       .where(ProductionPackage.__table__.c.order_id == order_id)
+                       .values(verified_at=chwila, verified_method='skan'))
+    assert order.verified_at is None                                        # obiekt w sesji nadal stary
+    del order, stare
+    gc.collect()
+
+    r = _masowo(client, [pozycje[0]], 'spakowane')
+
+    assert r.status_code == 200, r.get_data()[:500]
+    statusy, verified_at, paczki, akcje, _s = _stan_logistyki(order_id)
+    assert statusy == ['spakowane', 'spakowane'] and verified_at is None
+    assert [p[0] for p in paczki] == [None, None] and akcje == ['weryfikacja_cofnieta']
+
+
+@pytest.mark.parametrize('nowy_status', ['czeka_na_pakowanie', 'spakowane'])
+@pytest.mark.parametrize('status_trasy, opis', [('zaladowana', u'załadowana'), ('w_trasie', u'w drodze')])
+def test_hurt_odmawia_zamowieniu_z_trasy_zaladowanej_i_w_drodze(client, app, status_trasy, opis, nowy_status):
+    """A2: zamówienie z trasy załadowanej albo w drodze — 409 z komunikatem, bez żadnych zmian (pozycje, paczki,
+    weryfikacja, przystanek, log)."""
+    from modules.production.models import ProductionOrder
+    order_id, pozycje, _paczki, trasa_id = _zamowienie_logistyki(
+        app, '25/00611', statusy=('zaladowane', 'zaladowane'), status_trasy=status_trasy, zaladowane=True)
+
+    r = _masowo(client, [pozycje[0]], nowy_status)
+
+    assert r.status_code == 409, r.get_data()[:500]
+    komunikat = (u'Zamówienie 25/00611 jest na trasie „Rzeszów 02.10” ({}) — najpierw Cofnij załadunek albo '
+                 u'Niedostarczone.'.format(opis))
+    dane = r.get_json()
+    assert dane['success'] is False and dane['error'] == komunikat
+    assert (dane['processed_count'], dane['failed_count'], dane['errors']) == (0, 1, [komunikat])
+    statusy, verified_at, paczki, akcje, przystanek = _stan_logistyki(order_id)
+    assert statusy == ['zaladowane', 'zaladowane'] and verified_at is not None
+    assert [p[1:] for p in paczki] == [(trasa_id, False), (trasa_id, False)]
+    assert akcje == [] and przystanek
+    assert db.session.get(ProductionOrder, order_id).bl_status_pending_id is None
+
+
+def test_hurt_odmawia_tylko_zamowieniu_z_trasy_w_drodze_reszta_przechodzi(client, app):
+    """A2, semantyka hurtu: odmowa per zamówienie w `errors` (wszystkie jego zaznaczone pozycje w failed_count), reszta
+    zaznaczonych przechodzi — 200."""
+    jedzie, pozycje_j, _p, _t = _zamowienie_logistyki(
+        app, '25/00612', statusy=('zaladowane', 'zaladowane'), status_trasy='w_trasie', zaladowane=True)
+    stoi, pozycje_s, _p2, _t2 = _zamowienie_logistyki(
+        app, '25/00613', statusy=('spakowane', 'spakowane'), zweryfikowane=False, paczek=0)
+
+    r = _masowo(client, pozycje_j + [pozycje_s[0]], 'czeka_na_pakowanie')
+
+    assert r.status_code == 200, r.get_data()[:500]
+    dane = r.get_json()
+    assert dane['success'] is True and (dane['processed_count'], dane['failed_count']) == (1, 2)
+    assert dane['errors'] == [u'Zamówienie 25/00612 jest na trasie „Rzeszów 02.10” (w drodze) — najpierw Cofnij '
+                              u'załadunek albo Niedostarczone.']
+    assert _stan_logistyki(jedzie)[0] == ['zaladowane', 'zaladowane']
+    assert _stan_logistyki(stoi)[0] == ['czeka_na_pakowanie', 'spakowane']
+
+
+@pytest.mark.parametrize('status_trasy', [None, 'robocza', 'zatwierdzona'])
+def test_hurt_na_trasie_roboczej_zatwierdzonej_i_bez_trasy_jak_dotad(client, app, status_trasy):
+    """A2 nie dotyczy tras roboczych i zatwierdzonych ani zamówień bez trasy: reguła unieważniania jak dotąd,
+    przystanek zostaje."""
+    order_id, pozycje, _paczki, _trasa = _zamowienie_logistyki(app, '25/00614', status_trasy=status_trasy)
+
+    r = _masowo(client, [pozycje[0]], 'czeka_na_pakowanie')
+
+    assert r.status_code == 200, r.get_data()[:500]
+    assert r.get_json()['processed_count'] == 1
+    statusy, verified_at, paczki, akcje, przystanek = _stan_logistyki(order_id)
+    assert statusy == ['czeka_na_pakowanie', 'spakowane'] and verified_at is None
+    assert [p[2] for p in paczki] == [True, True]                            # paczki unieważnione regułą
+    assert akcje == ['weryfikacja_cofnieta', 'paczki']
+    assert przystanek is (status_trasy is not None)
+
+
+def test_hurt_anulowanie_pozycji_na_trasie_w_drodze_przechodzi(client, app):
+    """Anulowanie to nie powrót do produkcji: Dostawa obsługuje anulowane (przystanek anulowanego w całości,
+    „Niedostarczone”), więc hurt na „anulowane” nie odmawia także na trasie w drodze."""
+    order_id, pozycje, _paczki, _trasa = _zamowienie_logistyki(
+        app, '25/00615', statusy=('zaladowane', 'zaladowane'), status_trasy='w_trasie', zaladowane=True)
+
+    r = _masowo(client, [pozycje[0]], 'anulowane')
+
+    assert r.status_code == 200, r.get_data()[:500]
+    statusy, _v, _p, _a, przystanek = _stan_logistyki(order_id)
+    assert statusy == ['anulowane', 'zaladowane'] and przystanek
+
+
+def test_hurt_blokuje_trasy_przed_zamowieniami_i_pozycjami(client, app):
+    """A2: kolejność blokad jak w Dostawie — globalna blokada tras → przystanki i trasy zamówień (odczyt blokujący)
+    → zamówienia rosnąco → wszystkie pozycje zamówienie po zamówieniu → pierwszy zapis. Przed blokadą tras hurt niczego
+    nie blokuje."""
+    from tests.blokady_pomocnicze import indeks_blokady_tras, odczyt_przystankow, zapis
+    a = _zamowienie_logistyki(app, '25/00616', status_trasy='zatwierdzona')
+    b = _zamowienie_logistyki(app, '25/00617')
+
+    with Zapytania() as z:
+        assert _masowo(client, [b[1][0], a[1][0]], 'czeka_na_pakowanie').status_code == 200
+
+    trasy = indeks_blokady_tras(z)
+    przystanki, zamowienia = z.pierwsze(odczyt_przystankow), z.pierwsze(blokada_zamowien)
+    pozycje, pierwszy_zapis = z.pierwsze(blokada_pozycji), z.pierwsze(zapis)
+    assert trasy < przystanki < zamowienia < pozycje < pierwszy_zapis
+    assert list(z.lista[zamowienia][1]) == sorted([a[0], b[0]])
+    assert not [sql for sql, _p in z.lista[:trasy] if sql.endswith((' FOR UPDATE', ' LOCK IN SHARE MODE'))
+                or zapis(sql)]

@@ -27,6 +27,7 @@ from modules.production.models import (
     ProductionStationEvent, ProductionStationEventWorker, ProductionWorker,
     ProductionWorkerSession, get_local_now,
 )
+from modules.production.logistics.models import Route, RouteStop, Vehicle
 from modules.production.routers.mobile_api import mobile_api_bp
 from modules.production.services import worker_service
 from modules.production.services.mobile_api_service import generate_token
@@ -42,6 +43,8 @@ _TABLES = [m.__table__ for m in (
     ProductionOrder, ProductionProduct, ProductionConfiguration, ProductionReworkLog,
     ProductionWorker, ProductionWorkerSession, ProductionStationEvent,
     ProductionStationEventWorker,
+    # Doróbka bierze globalną blokadę tras i czyta przystanek zamówienia (decyzja Konrada 2.10, A2).
+    Vehicle, Route, RouteStop,
 )]
 
 # SQLite nie zna LONGTEXT — to samo obejście co w pozostałych testach mobilnych.

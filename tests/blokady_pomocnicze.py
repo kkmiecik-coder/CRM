@@ -60,6 +60,24 @@ def klauzula_blokady(context):
     return 'LOCK IN SHARE MODE' if argument.read else 'FOR UPDATE'
 
 
+def indeks_blokady_tras(z):
+    """
+    Indeks pierwszej globalnej blokady tras (`routes.zablokuj_trasy`: `SELECT … FROM prod_config … FOR UPDATE`
+    z kluczem `logistyka_trasy_blokada` w parametrach) w zapytaniach `z`; brak → StopIteration (test pada). Klucz
+    w parametrach odróżnia ją od blokady deklaracji paczek (ten sam wzór zapytania, inny wiersz `prod_config`).
+    """
+    from modules.production.logistics.services.routes import KLUCZ_BLOKADY
+    return next(i for i, (sql, parametry) in enumerate(z.lista)
+                if sql.startswith('SELECT') and 'FROM prod_config' in sql and sql.endswith(' FOR UPDATE')
+                and KLUCZ_BLOKADY in tuple(parametry or ()))
+
+
+def odczyt_przystankow(sql):
+    """Odczyt BIEŻĄCY przystanków (`prod_route_stops`) — blokujący, FOR UPDATE albo LOCK IN SHARE MODE."""
+    return (sql.startswith('SELECT') and 'FROM prod_route_stops' in sql
+            and sql.endswith((' FOR UPDATE', ' LOCK IN SHARE MODE')))
+
+
 def blokada_zamowien(sql):
     return (sql.startswith('SELECT') and 'FROM prod_orders' in sql and 'WHERE prod_orders.id IN' in sql
             and 'ORDER BY prod_orders.id' in sql and sql.endswith(' FOR UPDATE'))

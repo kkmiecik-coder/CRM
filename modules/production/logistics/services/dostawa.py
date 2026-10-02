@@ -679,6 +679,60 @@ def nie_dostarcz(route, order_id, powod, notatka=None, worker_id=None, device_id
     return trasa, True, _zamknij_jesli_rozliczona(trasa, teraz, worker_id=worker_id, device_id=device_id)
 
 
+# ── Doróbka na zamówieniu z trasy załadowanej albo w drodze (decyzja Konrada 2.10, A2) ─────────────────
+
+POWOD_DOROBKI = 'dorobka'
+ETYKIETA_DOROBKI = u'Doróbka — wraca do produkcji'
+NOTATKA_DOROBKI = u'doróbka'
+# Trasy, z których zamówienia nie cofa się do produkcji bez zdjęcia z trasy: hurt odmawia (products_api), doróbka
+# zdejmuje (zdejmij_po_dorobce).
+STATUSY_W_DRODZE = ('zaladowana', 'w_trasie')
+
+
+def zdejmij_po_dorobce(order, teraz, worker_id=None, device_id=None):
+    """
+    Decyzja Konrada 2.10 (A2): doróbka (rework_service.reject_product_quantity — odrzut sztuk na stanowisku, którego
+    nie da się odmówić) na zamówieniu, którego przystanek jest na trasie załadowanej albo w drodze, zdejmuje je z trasy
+    jak „Niedostarczone”. Pozycje idą do produkcji jak dotąd (regułę unieważniania etapów doróbka woła wcześniej:
+    'zaladowane' → 'spakowane', paczki unieważnione, weryfikacja skasowana). Tu: znaczniki załadunku czyszczone,
+    Base. 417343 „Planowana trasa” — bez warunku, bo w Base. wisi „Załadowane” albo „Wysłane” także wtedy, gdy pozycje
+    cofnęła wcześniej zmiana z Base. — przystanek zdjęty (routes.usun_przystanek, log `trasa_usuniete` z notatką
+    „doróbka”), a na końcu log `niedostarczone` z powodem `dorobka`: ostatni wpis zamówienia, więc spóźnione
+    „Niedostarczone” z kolejki telefonu jest powtórką (Ruling 26 — rozpoznanie powtórki po ostatnim wpisie logu).
+    Zdjęcie ostatniego nierozliczonego przystanku trasy w drodze zamyka ją, jak „Niedostarczone”.
+    Zwraca nazwę trasy, z której zdjęto, albo None.
+
+    Bez zmian (None): zamówienie bez trasy, na trasie roboczej albo zatwierdzonej (tam działa sama reguła
+    unieważniania, jak dotąd) i przystanek już dostarczony — dostarczenie to historia (spec 4.5: doróbka w zamówieniu
+    z pozycjami `dostarczone` obsługuje biuro).
+
+    Kolejność blokad: wołający bierze blokadę tras PRZED blokadą zamówienia (jak Dostawa), potem zamówienie i wszystkie
+    jego pozycje odczytem bieżącym i trzyma `order` silnie. Przystanek i trasę czytamy tu odczytem bieżącym pod blokadą
+    tras — piszą je tylko jej posiadacze. Zamówień pozostałych przystanków NIE blokujemy: cron logistyki blokuje
+    zamówienia rosnąco, więc blokada drugiego zamówienia po naszym mogłaby dać cykl. Zamknięcie trasy liczy więc tylko
+    przystanki dostarczone (przystanek zamówienia anulowanego w całości rozliczy kierowca albo panel), a wpis
+    `trasa_status` przy pozostałych — już dostarczonych — przystankach bierze na ich zamówieniach jedynie blokadę S
+    klucza obcego; nikt, kto trzyma takie zamówienie, nie czeka na nasze ani na blokadę tras. NIE commituje.
+    """
+    przystanek = routes.przystanek_zamowienia(order.id, aktualny=True)
+    if przystanek is None or przystanek.delivered_at is not None:
+        return None
+    trasa = routes.zablokuj_trasy(przystanek.route)
+    if trasa.status not in STATUSY_W_DRODZE:
+        return None
+    # Zamówienie trzymamy już z pozycjami; paczki po pozycjach — ta sama kolejność co reguła unieważniania w doróbce.
+    paczki.wyczysc_zaladunek(paczki.zablokuj_stan(order))
+    bl_sync.oznacz_planowana_trasa(order)
+    bl_sync.zaplanuj_po_commicie(order.id)
+    routes.usun_przystanek(trasa, order.id, note=NOTATKA_DOROBKI, wymagaj_roboczej=False, worker_id=worker_id,
+                           device_id=device_id)
+    delivery.zapisz_log(order, 'niedostarczone', None, POWOD_DOROBKI, note=ETYKIETA_DOROBKI, route_id=trasa.id,
+                        worker_id=worker_id, device_id=device_id, teraz=teraz)
+    trasa = routes.zablokuj_trasy(trasa)   # świeże przystanki po zdjęciu (ta sama transakcja, bez czekania)
+    _zamknij_jesli_rozliczona(trasa, teraz, worker_id=worker_id, device_id=device_id)
+    return trasa.name
+
+
 def cofnij_dostarczenie(route, order_id, z_telefonu=False, user_id=None, worker_id=None, device_id=None,
                         teraz=None):
     """

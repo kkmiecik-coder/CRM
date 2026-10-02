@@ -542,7 +542,7 @@ def zweryfikuj_wszystkie(order, worker_id=None, device_id=None, teraz=None):
     return True
 
 
-def cofnij_weryfikacje_zamowienia(order, aktywne, aktualne, powod, worker_id, device_id, teraz):
+def cofnij_weryfikacje_zamowienia(order, aktywne, aktualne, powod, worker_id, device_id, teraz, user_id=None):
     """Pozycje zweryfikowane → 'spakowane', znaczniki weryfikacji zamówienia i aktualnych paczek
     czyszczone (spec 4.5), log 'weryfikacja_cofnieta' z powodem. Wspólne dla „Cofnij weryfikację”
     i zgłoszenia problemu (Task 7). `aktywne` i `aktualne` pochodzą z stan_do_zapisu — paczki są już
@@ -550,7 +550,10 @@ def cofnij_weryfikacje_zamowienia(order, aktywne, aktualne, powod, worker_id, de
     przed zapisem pozycji).
 
     (krok 4.4) Czyści też znaczniki załadunku: weryfikację cofnięto w trakcie załadunku, a paczka bez weryfikacji
-    nie może liczyć się jako załadowana."""
+    nie może liczyć się jako załadowana.
+
+    (fala końcowa 4.4b, decyzja Konrada A1) Woła ją też hurtowa zmiana statusu na „spakowane” na zamówieniu
+    zweryfikowanym (products_api._zapisz_zmiane_statusu) — `user_id` to użytkownik panelu w logu."""
     for p in aktywne:
         if p.current_status == 'zweryfikowane':
             p.current_status = 'spakowane'
@@ -561,7 +564,7 @@ def cofnij_weryfikacje_zamowienia(order, aktywne, aktualne, powod, worker_id, de
         p.verified_by_worker_id = None
         p.verified_method = None
     paczki.wyczysc_zaladunek(aktualne)
-    delivery.zapisz_log(order, 'weryfikacja_cofnieta', note=(powod or u'')[:255] or None,
+    delivery.zapisz_log(order, 'weryfikacja_cofnieta', note=(powod or u'')[:255] or None, user_id=user_id,
                         worker_id=worker_id, device_id=device_id, teraz=teraz)
     delivery.przelicz_zamkniecie(order, teraz)
     delivery.podbij_pozycje(order, teraz)
