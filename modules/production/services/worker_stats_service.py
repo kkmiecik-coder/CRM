@@ -29,7 +29,7 @@ a SQLite (na którym chodzą testy).
 
 from datetime import datetime, timedelta
 
-from sqlalchemy import case, func
+from sqlalchemy import Float, case, func, type_coerce
 
 from extensions import db
 from modules.logging import get_structured_logger
@@ -84,11 +84,22 @@ MIEJSC_WKLADU = 2
 
 # ── Powierzchnia (m2) lakierni ──────────────────────────────────────────────
 # Lakiernia obrabia tylko pozycje olejowane i lakierowane, a jej robotę mierzy
-# się też w m2 powierzchni (nie tylko w m3 objętości). Powierzchnia jednej
-# sztuki to długość × szerokość z nazwy produktu — sprawdzone na wrześniu 2026
-# na produkcji: zgadza się co do grosza z objętość / grubość.
+# się też w m2 powierzchni (nie tylko w m3 objętości). Liczymy PEŁNĄ powierzchnię
+# elementu, czyli każdą płaską ścianę: góra + dół + 4 boki, z wymiarów
+# produktu (długość, szerokość, grubość w cm):
+#     2 · (dł·szer + dł·gr + szer·gr) / 10000
+# Kształty okrągłe i niestandardowe liczą się jak prostopadłościan opisany na
+# nich — nie mamy dla nich osobnego wzoru.
 STANOWISKO_LAKIERNI = 'painting'
 WYKONCZENIA_LAKIERNI = ('olejowane', 'lakierowane')
+
+
+def powierzchnia_sztuki_m2(dlugosc_cm, szerokosc_cm, grubosc_cm):
+    """Pełna powierzchnia JEDNEJ sztuki w m2 (wersja Pythonowa wzoru z SQL)."""
+    dl = float(dlugosc_cm or 0)
+    sz = float(szerokosc_cm or 0)
+    gr = float(grubosc_cm or 0)
+    return 2 * (dl * sz + dl * gr + sz * gr) / 10000.0
 
 
 def m2_wg_wykonczenia(ilosc):
@@ -97,10 +108,15 @@ def m2_wg_wykonczenia(ilosc):
 
     `ilosc` to wyrażenie mnożące powierzchnię jednej sztuki (np. delta zdarzenia
     albo quantity pozycji). Zapytanie musi zawierać ProductionProduct.
+    Wzór jak w powierzchnia_sztuki_m2().
     """
-    powierzchnia = (func.coalesce(ProductionProduct.parsed_length_cm, 0)
-                    * func.coalesce(ProductionProduct.parsed_width_cm, 0)
-                    / 10000.0) * ilosc
+    dl = func.coalesce(ProductionProduct.parsed_length_cm, 0)
+    sz = func.coalesce(ProductionProduct.parsed_width_cm, 0)
+    gr = func.coalesce(ProductionProduct.parsed_thickness_cm, 0)
+    # type_coerce na Float: kolumny wymiarów to Numeric(10,2), więc bez tego
+    # SQLAlchemy zaokrąglałby SUMĘ do dwóch miejsc (zjadając tysięczne).
+    powierzchnia = type_coerce(
+        (2 * (dl * sz + dl * gr + sz * gr) / 10000.0) * ilosc, Float)
     return tuple(
         func.coalesce(func.sum(case(
             (ProductionProduct.parsed_finish_type == typ, powierzchnia),
@@ -109,8 +125,14 @@ def m2_wg_wykonczenia(ilosc):
 
 
 def para_m2(olejowane, lakierowane):
-    """Para m2 do JSON-a: {'oiled': …, 'lacquered': …} zaokrąglona do 0.01."""
-    return {'oiled': _zaokraglij(olejowane, 2), 'lacquered': _zaokraglij(lakierowane, 2)}
+    """
+    Para m2 do JSON-a: {'oiled': …, 'lacquered': …}, zaokrąglona do 0.001.
+
+    Trzy miejsca jak m3: wiersze są potem sumowane, a przy dwóch miejscach błąd
+    zaokrągleń rósłby z liczbą wierszy. Front pokazuje 2 miejsca.
+    """
+    return {'oiled': _zaokraglij(olejowane, 3),
+            'lacquered': _zaokraglij(lakierowane, 3)}
 
 
 def zaokr_wklad(wartosc):

@@ -14,7 +14,7 @@ from . import api_bp, logger, ProductionItem, ProductionSyncLog, get_local_now
 from modules.production.models import ProductionConfiguration, ProductionOrder
 
 from ...services.reports_service import (
-    STANOWISKO_LAKIERNI, m2_wg_wykonczenia, para_m2,
+    STANOWISKO_LAKIERNI, m2_wg_wykonczenia, para_m2, powierzchnia_sztuki_m2,
 )
 from ...services.station_catalog import (
     STATION_LABELS, STATION_ORDER, STATION_PENDING_STATUS,
@@ -836,9 +836,9 @@ def reports_station_output():
                 'volume_per_unit_m3': round(volume_per_unit, 4),
                 'volume_done_eod_m3': round(volume_per_unit * qty_done_eod, 4),
                 'finish_type': w.parsed_finish_type,
-                'area_done_eod_m2': round(
-                    float(w.parsed_length_cm or 0) * float(w.parsed_width_cm or 0)
-                    / 10000 * qty_done_eod, 2),
+                'area_done_eod_m2': round(powierzchnia_sztuki_m2(
+                    w.parsed_length_cm, w.parsed_width_cm,
+                    w.parsed_thickness_cm) * qty_done_eod, 3),
                 'wood_species': w.species,
                 'thickness_cm': (float(w.parsed_thickness_cm)
                                  if w.parsed_thickness_cm else None),

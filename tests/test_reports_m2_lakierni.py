@@ -3,8 +3,12 @@
 m2 (olejowane / lakierowane) na stanowisku Lakiernia w Raportach produkcji.
 
 Lakiernia mierzy robotę także w powierzchni, nie tylko w m3. Powierzchnia
-jednej sztuki = długość × szerokość z nazwy produktu. Inne stanowiska m2 nie
+jednej sztuki to PEŁNA powierzchnia: góra + dół + 4 boki, czyli
+2·(dł·szer + dł·gr + szer·gr) z wymiarów produktu. Inne stanowiska m2 nie
 dostają — to zakładka o lakierni, nie o całej hali.
+
+Wymiary testowe (grubość 4 cm): 200×60 = 2.608 m2 na sztukę,
+100×50 = 1.12 m2, 100×100 = 2.16 m2.
 """
 
 import os
@@ -29,7 +33,7 @@ from tests.test_reports_alias_krawedzi import (  # noqa: F401
 _licznik = [0]
 
 
-def _blat(wykonczenie, dlugosc, szerokosc, ilosc=2):
+def _blat(wykonczenie, dlugosc, szerokosc, ilosc=2, grubosc=4):
     """Pozycja o znanej powierzchni; objętość dowolna (nie wchodzi do m2)."""
     _licznik[0] += 1
     numer = _licznik[0]
@@ -43,6 +47,7 @@ def _blat(wykonczenie, dlugosc, szerokosc, ilosc=2):
         product_sequence_in_order=1, original_product_name='Blat',
         quantity=ilosc, volume_m3=0.1, current_status='czeka_na_lakiernie',
         parsed_length_cm=dlugosc, parsed_width_cm=szerokosc,
+        parsed_thickness_cm=grubosc,
         parsed_finish_type=wykonczenie,
         created_at=datetime.combine(PONIEDZIALEK, time(9, 0)))
     db.session.add(produkt)
@@ -71,8 +76,19 @@ def _pracownik():
     return w
 
 
-def test_m2_liczy_dlugosc_razy_szerokosc(app):
-    """200 × 60 cm = 1.2 m2 na sztukę; 2 szt. olejowane = 2.4, 1 szt. lakierowana = 0.5."""
+def test_powierzchnia_sztuki_to_gora_dol_i_cztery_boki():
+    """Sześcian 10 cm ma 6 ścian po 100 cm2 = 0.06 m2; płyta 100×100×2 to 2.08 m2."""
+    from modules.production.services.worker_stats_service import (
+        powierzchnia_sztuki_m2)
+
+    assert powierzchnia_sztuki_m2(10, 10, 10) == 0.06
+    assert powierzchnia_sztuki_m2(100, 100, 2) == 2.08
+    # Brak grubości nie wywala liczenia (zostaje góra + dół).
+    assert powierzchnia_sztuki_m2(100, 50, None) == 1.0
+
+
+def test_m2_liczy_pelna_powierzchnie_sztuki(app):
+    """200×60×4 cm = 2.608 m2 na sztukę (2 szt. olejowane = 5.216); 100×50×4 = 1.12."""
     with app.app_context():
         olej = _blat('olejowane', 200, 60)
         lakier = _blat('lakierowane', 100, 50, ilosc=1)
@@ -84,8 +100,8 @@ def test_m2_liczy_dlugosc_razy_szerokosc(app):
                          if s['station_code'] == 'painting')
 
         # kolejka = całe pozycje czekające (quantity), okno = netto zdarzeń
-        assert lakiernia['pending_m2'] == {'oiled': 2.4, 'lacquered': 0.5}
-        assert lakiernia['window_m2'] == {'oiled': 2.4, 'lacquered': 0.5}
+        assert lakiernia['pending_m2'] == {'oiled': 5.216, 'lacquered': 1.12}
+        assert lakiernia['window_m2'] == {'oiled': 5.216, 'lacquered': 1.12}
 
 
 def test_dni_zapasu_tylko_lakiernia_ma_m2(app):
@@ -107,9 +123,9 @@ def test_wklad_lakierni_ma_m2_osob_i_stanowiska_a_bez_podpisu_to_roznica(app):
         wynik = reports_service.wklad_pracownikow_na_stanowisku(
             'painting', PONIEDZIALEK, PONIEDZIALEK)
 
-        assert wynik['summary']['station_m2'] == {'oiled': 2.4, 'lacquered': 1.0}
-        assert wynik['workers'][0]['m2'] == {'oiled': 2.4, 'lacquered': 0.0}
-        assert wynik['unassigned']['m2'] == {'oiled': 0.0, 'lacquered': 1.0}
+        assert wynik['summary']['station_m2'] == {'oiled': 5.216, 'lacquered': 2.16}
+        assert wynik['workers'][0]['m2'] == {'oiled': 5.216, 'lacquered': 0.0}
+        assert wynik['unassigned']['m2'] == {'oiled': 0.0, 'lacquered': 2.16}
 
 
 def test_wklad_innego_stanowiska_nie_ma_m2(app):
@@ -133,7 +149,7 @@ def test_obsada_vs_przerob_m2_tylko_w_wierszu_lakierni(app):
         wynik = reports_service.obsada_vs_przerob(PONIEDZIALEK, PONIEDZIALEK)
         wiersze = {w['station_code']: w for w in wynik['rows']}
 
-        assert wiersze['painting']['m2'] == {'oiled': 2.4, 'lacquered': 0.0}
+        assert wiersze['painting']['m2'] == {'oiled': 5.216, 'lacquered': 0.0}
         assert 'm2' not in wiersze['gluing']
 
 
@@ -149,12 +165,13 @@ def test_raport_pracownikow_liczy_m2_lakierni_na_osobe_i_w_sumie(app):
 
         # sklejanie nie wlicza się do m2 lakierni
         assert raport['worker_totals'][0]['painting_m2'] == {
-            'oiled': 2.4, 'lacquered': 0.0}
-        assert raport['summary']['painting_m2'] == {'oiled': 2.4, 'lacquered': 0.0}
+            'oiled': 5.216, 'lacquered': 0.0}
+        assert raport['summary']['painting_m2'] == {
+            'oiled': 5.216, 'lacquered': 0.0}
         assert raport['summary']['unassigned_painting_m2'] == {
-            'oiled': 0.0, 'lacquered': 1.0}
+            'oiled': 0.0, 'lacquered': 2.16}
         assert raport['daily_totals'][0]['painting_m2'] == {
-            'oiled': 2.4, 'lacquered': 1.0}
+            'oiled': 5.216, 'lacquered': 2.16}
         wiersze_lakierni = [w for w in raport['rows'] if 'm2' in w]
         assert [w['station_code'] for w in wiersze_lakierni] == ['painting']
 
@@ -163,7 +180,7 @@ def test_wykonanie_stanowiska_lakiernia_ma_stan_m2_i_m2_w_wierszach(
         app, client, zalogowany):
     with app.app_context():
         olej = _blat('olejowane', 200, 60, ilosc=5)
-        # 3 z 5 sztuk gotowe po ostatnim evencie: stan EOD = 3 × 1.2 m2
+        # 3 z 5 sztuk gotowe po ostatnim evencie: stan EOD = 3 × 2.608 m2
         _event(olej, 'painting', 3, ilosc_po=3)
         lakier = _blat('lakierowane', 100, 50, ilosc=1)
         _event(lakier, 'painting', 1, ilosc_po=1)
@@ -173,9 +190,9 @@ def test_wykonanie_stanowiska_lakiernia_ma_stan_m2_i_m2_w_wierszach(
     assert odp.status_code == 200, odp.get_json()
     dane = odp.get_json()
     assert dane['summary']['painting_done_eod_m2'] == {
-        'oiled': 3.6, 'lacquered': 0.5}
+        'oiled': 7.824, 'lacquered': 1.12}
     po_typie = {p['finish_type']: p['area_done_eod_m2'] for p in dane['items']}
-    assert po_typie == {'olejowane': 3.6, 'lakierowane': 0.5}
+    assert po_typie == {'olejowane': 7.824, 'lakierowane': 1.12}
 
 
 def test_wykonanie_innego_stanowiska_nie_ma_stanu_m2(app, client, zalogowany):

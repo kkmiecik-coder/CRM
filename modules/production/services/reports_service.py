@@ -61,7 +61,8 @@ from .station_catalog import (
 from .station_events_service import ZRODLA_AUTOMATU
 from .worker_stats_service import (
     STANOWISKO_LAKIERNI, ZakresError, granice_zakresu, m2_wg_wykonczenia,
-    minuty_sesji, para_m2, praca_nieprzypisana, zaokr_wklad,
+    minuty_sesji, para_m2, powierzchnia_sztuki_m2, praca_nieprzypisana,
+    zaokr_wklad,
 )
 
 logger = get_structured_logger('production.reports')
