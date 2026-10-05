@@ -11,10 +11,10 @@
    merytoryczna: widget zaczyna się od wyboru STANOWISKA, a ludzie są dopiero
    jego rozbiciem. Przeniesiony do „Ludzi" zapraszałby do czytania w drugą
    stronę — najpierw osoba, potem stanowisko — czyli do porównywania ludzi
-   między stanowiskami, którego m³ nie znoszą.
+   między stanowiskami, którego m3 nie znoszą.
 
    HEATMAPA OBOK TIMELINE'U, NIE ZAMIAST NIEGO. Timeline 48 kubełków odpowiada
-   na „co się działo w TYM dniu na TYM stanowisku" (drill-down, sztuki i m³,
+   na „co się działo w TYM dniu na TYM stanowisku" (drill-down, sztuki i m3,
    filtr stanowiska), heatmapa na „o której hala w ogóle pracuje w typowym
    tygodniu" (wszystkie stanowiska naraz, średnia na wystąpienie dnia tygodnia).
    Skasowanie timeline'u zabrałoby jedyne miejsce, w którym widać godzinę
@@ -87,8 +87,8 @@
                 </span>
                 <div class="so-mode-switch" id="so-mode-switch">
                     <button type="button" data-mode="pieces" class="active">Sztuki</button>
-                    <button type="button" data-mode="volume">m³</button>
-                    <button type="button" data-mode="both">Sztuki + m³</button>
+                    <button type="button" data-mode="volume">m3</button>
+                    <button type="button" data-mode="both">Sztuki + m3</button>
                 </div>
             </div>
             <div class="so-timeline-canvas-wrapper">
@@ -107,7 +107,7 @@
             {# OBA kafelki STANU znikają w trybie „Wszystkie stanowiska".
                Suma stanów z siedmiu stanowisk nie jest stanem niczego: ta sama
                pozycja liczy się raz na każde stanowisko, przez które przeszła,
-               więc na 30 dniach wychodziło 84.180 m³ „wykonane" przy 28.260 m³
+               więc na 30 dniach wychodziło 84.180 m3 „wykonane" przy 28.260 m3
                PEŁNEJ objętości tych produktów — kafelek przekraczał fizyczne
                maksimum trzykrotnie. Ruch (suma delt) jest addytywny i zostaje. #}
             <div class="so-stat" id="so-summary-qty-box">
@@ -122,11 +122,22 @@
                zakresu), a widget „Kto ile zrobił" pod spodem pokazuje RUCH
                (ile przybyło w zakresie). Te dwie liczby różnią się z definicji
                — zmierzone 06-12.08 na pakowaniu: 5.250 stanu wobec 5.849
-               ruchu — więc obie mają w podpisie jednostkę, a nie samo „m³". #}
+               ruchu — więc obie mają w podpisie jednostkę, a nie samo „m3". #}
             <div class="so-stat" id="so-summary-volume-box"
                  title="STAN po ostatnim zdarzeniu zakresu na TYM stanowisku: ile z tych pozycji jest już wykonane. To NIE jest przyrost w zakresie — ten pokazuje widget „Kto ile zrobił na stanowisku" pod spodem. W trybie „Wszystkie stanowiska" ten kafelek nie istnieje, bo suma stanów z różnych stanowisk nie jest stanem pozycji.">
                 <span class="so-stat-value" id="so-summary-volume">0.000</span>
-                <span class="so-stat-label" id="so-summary-volume-label">m³ wykonane — stan (EOD)</span>
+                <span class="so-stat-label" id="so-summary-volume-label">m3 wykonane — stan (EOD)</span>
+            </div>
+            {# Tylko Lakiernia: ten sam STAN co kafelek m3 powyżej, w m2 powierzchni. #}
+            <div class="so-stat" id="so-summary-m2-oiled-box" style="display: none;"
+                 title="STAN po ostatnim zdarzeniu zakresu na Lakierni: powierzchnia (długość × szerokość) pozycji OLEJOWANYCH, które są już wykonane.">
+                <span class="so-stat-value" id="so-summary-m2-oiled">0.00</span>
+                <span class="so-stat-label">m2 olejowane — stan (EOD)</span>
+            </div>
+            <div class="so-stat" id="so-summary-m2-lacquered-box" style="display: none;"
+                 title="STAN po ostatnim zdarzeniu zakresu na Lakierni: powierzchnia (długość × szerokość) pozycji LAKIEROWANYCH, które są już wykonane.">
+                <span class="so-stat-value" id="so-summary-m2-lacquered">0.00</span>
+                <span class="so-stat-label">m2 lakierowane — stan (EOD)</span>
             </div>
             <div class="so-stat" id="so-summary-distinct-box" style="display: none;"
                  title="Ile RÓŻNYCH produktów dotknęło w tym zakresie jakiekolwiek stanowisko. Kafelek obok liczy WIERSZE (pozycja × stanowisko), więc jest większy — ta sama pozycja przechodzi przez kilka stanowisk.">
@@ -152,7 +163,8 @@
                             <th id="so-col-station-label" style="display: none;">Stanowisko</th>
                             <th id="so-col-eod-label">Wykonano (EOD)</th>
                             <th id="so-col-delta-label">Ruch dnia</th>
-                            <th>m³ wykonane</th>
+                            <th>m3 wykonane</th>
+                            <th id="so-col-m2-label" style="display: none;">m2 wykonane</th>
                             <th>Gatunek / grubość</th>
                             <th>Status</th>
                             <th>Ostatni event</th>
@@ -176,7 +188,7 @@
      widget mówi ILE zrobiło stanowisko, ten rozbija tę samą liczbę na ludzi.
      Suma słupków (osoby + „Bez podpisu") ma się zgadzać z RUCHEM stanowiska
      co do trzeciego miejsca — obie strony liczą z tym samym filtrem źródła.
-     UWAGA: kafelek „m³ wykonane — stan (EOD)" u sąsiada to INNA liczba (stan
+     UWAGA: kafelek „m3 wykonane — stan (EOD)" u sąsiada to INNA liczba (stan
      po ostatnim evencie, nie przyrost w zakresie) i oba kafelki mają to
      napisane w podpisie, żeby nikt ich nie zestawiał jako rozjazdu.
 
@@ -220,16 +232,27 @@
     </div>
     <div class="widget-content">
         {# JEDNOSTKA W PODPISIE KAŻDEGO KAFELKA — to nie jest ozdoba.
-           „m³ stanowiska" stało dwa centymetry pod „m³ wykonane (EOD)"
+           „m3 stanowiska" stało dwa centymetry pod „m3 wykonane (EOD)"
            z widgetu wyżej i pokazywało inną liczbę, bo tamten liczy STAN,
            a ten RUCH w zakresie (zmierzone 06-12.08, pakowanie: 5.250 vs
            5.849). Kafelek pokrycia ma jednostkę z tego samego powodu:
-           liczy ruch w SZTUKACH, nie udział m³. #}
+           liczy ruch w SZTUKACH, nie udział m3. #}
         <div class="wo-summary" id="sw-summary" style="display: none;">
             <div class="wo-stat"
-                 title="RUCH netto w zakresie: ile m³ przybyło na tym stanowisku (dorobki minus cofnięcia). Widget wyżej pokazuje STAN na koniec zakresu — to inna liczba i ma prawo się różnić.">
+                 title="RUCH netto w zakresie: ile m3 przybyło na tym stanowisku (dorobki minus cofnięcia). Widget wyżej pokazuje STAN na koniec zakresu — to inna liczba i ma prawo się różnić.">
                 <span class="wo-stat-value" id="sw-sum-m3">0</span>
-                <span class="wo-stat-label">m³ ruchu w zakresie</span>
+                <span class="wo-stat-label">m3 ruchu w zakresie</span>
+            </div>
+            {# Tylko Lakiernia: ten sam RUCH netto co kafelek m3, w m2 powierzchni. #}
+            <div class="wo-stat" id="sw-m2-oiled-box" style="display: none;"
+                 title="RUCH netto w zakresie: powierzchnia (długość × szerokość) pozycji OLEJOWANYCH zrobionych na Lakierni.">
+                <span class="wo-stat-value" id="sw-sum-m2-oiled">0</span>
+                <span class="wo-stat-label">m2 olejowane (ruch w zakresie)</span>
+            </div>
+            <div class="wo-stat" id="sw-m2-lacquered-box" style="display: none;"
+                 title="RUCH netto w zakresie: powierzchnia (długość × szerokość) pozycji LAKIEROWANYCH zrobionych na Lakierni.">
+                <span class="wo-stat-value" id="sw-sum-m2-lacquered">0</span>
+                <span class="wo-stat-label">m2 lakierowane (ruch w zakresie)</span>
             </div>
             <div class="wo-stat"
                  title="RUCH netto w zakresie w sztukach — dorobki minus cofnięcia.">
@@ -242,7 +265,7 @@
                 <span class="wo-stat-label">osób z aktywnością</span>
             </div>
             <div class="wo-stat" id="sw-share-box"
-                 title="Ta sama liczba, co na wykresie „Pokrycie atrybucją w czasie" w podzakładce Ludzie — jedna definicja, liczona raz. Jednostką jest RUCH W SZTUKACH liczony na wartościach bezwzględnych zdarzeń, nie udział m³.">
+                 title="Ta sama liczba, co na wykresie „Pokrycie atrybucją w czasie" w podzakładce Ludzie — jedna definicja, liczona raz. Jednostką jest RUCH W SZTUKACH liczony na wartościach bezwzględnych zdarzeń, nie udział m3.">
                 <span class="wo-stat-value" id="sw-sum-share">—</span>
                 <span class="wo-stat-label">ruchu (szt.) z podpisem</span>
             </div>
@@ -533,6 +556,7 @@ let soCurrentPage = 1;            // 1-based
 let soChartMode = 'pieces';       // 'pieces' | 'volume' | 'both'
 let soTimelineChart = null;       // instancja Chart.js
 let soCurrentTimeline = null;     // ostatnia odebrana struktura timeline
+let soIsPainting = false;         // true gdy wybrana Lakiernia (dodatkowe m2)
 let soIsAllStations = false;      // true gdy aktualnie wybrane 'Wszystkie stanowiska'
 // Parametry ostatniego udanego zapytania — przewracanie strony dociąga
 // kolejne wiersze z serwera, a nie kroi listę, której już nie mamy w pamięci.
@@ -700,6 +724,7 @@ async function loadStationOutput(station, startDate, endDate, page = 1) {
 
         // Tryb wszystkie-stanowiska propagujemy do renderera tabeli
         soIsAllStations = !!data.is_all_stations;
+        soIsPainting = data.station === 'painting';
 
         // Aktualizuj nagłówki kolumn / labelki summary
         soUpdateRangeLabels(daysCount);
@@ -738,8 +763,18 @@ async function loadStationOutput(station, startDate, endDate, page = 1) {
         }
         if (data.summary.total_volume_done_eod_m3 !== null) {
             el('so-summary-volume').textContent =
-                data.summary.total_volume_done_eod_m3.toFixed(3) + ' m³';
+                data.summary.total_volume_done_eod_m3.toFixed(3) + ' m3';
         }
+        // m2 tylko dla Lakierni (backend oddaje null dla pozostałych stanowisk).
+        const m2 = data.summary.painting_done_eod_m2;
+        el('so-summary-m2-oiled-box').style.display = m2 ? '' : 'none';
+        el('so-summary-m2-lacquered-box').style.display = m2 ? '' : 'none';
+        if (m2) {
+            el('so-summary-m2-oiled').textContent = m2.oiled.toFixed(2) + ' m2';
+            el('so-summary-m2-lacquered').textContent = m2.lacquered.toFixed(2) + ' m2';
+        }
+        const m2Col = el('so-col-m2-label');
+        if (m2Col) m2Col.style.display = soIsPainting ? '' : 'none';
 
         // Kafelek pojawia się tylko wtedy, gdy automat faktycznie coś przeskoczył —
         // przy większości stanowisk będzie zawsze ukryty i nie zaśmieci widoku.
@@ -770,7 +805,7 @@ async function loadStationOutput(station, startDate, endDate, page = 1) {
 //
 // Wiersz w tym trybie to (pozycja × stanowisko), więc „Pozycje" kłamało:
 // 2540 wierszy przy 789 różnych produktach na oknie 30-dniowym. Kafelki STANU
-// (sztuki i m³ na koniec zakresu) w ogóle nie mają w tym trybie sensu —
+// (sztuki i m3 na koniec zakresu) w ogóle nie mają w tym trybie sensu —
 // backend oddaje dla nich null, a my je chowamy zamiast rysować sumę stanów
 // z siedmiu różnych etapów procesu.
 function soUpdateStationColumn(isAll) {
@@ -817,7 +852,7 @@ function soUpdateRangeLabels(daysCount) {
 
     const volLabel = el('so-summary-volume-label');
     if (volLabel) volLabel.textContent = isRange
-        ? 'm³ wykonane — stan (koniec zakresu)' : 'm³ wykonane — stan (EOD)';
+        ? 'm3 wykonane — stan (koniec zakresu)' : 'm3 wykonane — stan (EOD)';
 
     const colEod = el('so-col-eod-label');
     if (colEod) colEod.textContent = isRange ? 'Wykonano (koniec zakresu)' : 'Wykonano (EOD)';
@@ -843,6 +878,11 @@ function renderSoItemRow(it) {
         ? `<td style="font-size: 12px;">${escapeHtml(it.station_label || it.station_code || '—')}</td>`
         : '';
 
+    // Lakiernia: m2 pozycji i jej wykończenie (olejowane / lakierowane).
+    const m2Cell = soIsPainting
+        ? `<td>${(it.area_done_eod_m2 || 0).toFixed(2)} <span style="font-size: 10px; color: var(--il-text-secondary, #7a8291);">${escapeHtml(it.finish_type || '')}</span></td>`
+        : '';
+
     return `
         <tr>
             <td><strong>${it.baselinker_order_id || '—'}</strong></td>
@@ -854,6 +894,7 @@ function renderSoItemRow(it) {
             <td class="so-progress">${it.quantity_done_eod} / ${it.quantity}</td>
             <td class="${deltaClass}">${deltaSign}${it.day_delta_sum}</td>
             <td>${it.volume_done_eod_m3.toFixed(3)}</td>
+            ${m2Cell}
             <td style="font-size: 12px;">${escapeHtml(woodMeta)}</td>
             <td><span class="status-badge" style="background: var(--il-bg-base, #eef0f4); padding: 2px 6px; font-size: 10px;">${escapeHtml(status)}</span></td>
             <td style="font-family: monospace; font-size: 11px;">${lastEvent}</td>
@@ -1002,7 +1043,7 @@ function renderSoTimeline(timeline) {
 
     // Labels datasetów + tick formattery zależą od trybu (sumy vs średnia)
     const piecesLabel = isAvg ? 'Sztuki śr./dzień' : 'Sztuki';
-    const volumeLabel = isAvg ? 'm³ śr./dzień' : 'm³';
+    const volumeLabel = isAvg ? 'm3 śr./dzień' : 'm3';
     const piecesAxisTitle = isAvg ? 'Sztuki / dzień' : 'Sztuki';
     const piecesTickFmt = isAvg ? (v => v.toFixed(1)) : (v => Math.round(v));
 
@@ -1027,7 +1068,7 @@ function renderSoTimeline(timeline) {
         });
         scales.y = {
             beginAtZero: true,
-            title: { display: true, text: isAvg ? 'm³ / dzień' : 'm³', font: { size: 10 } },
+            title: { display: true, text: isAvg ? 'm3 / dzień' : 'm3', font: { size: 10 } },
             ticks: { font: { size: 10 }, callback: v => v.toFixed(2) },
         };
     } else {
@@ -1058,7 +1099,7 @@ function renderSoTimeline(timeline) {
             type: 'linear',
             position: 'right',
             beginAtZero: true,
-            title: { display: true, text: isAvg ? 'm³ / dzień' : 'm³', font: { size: 10 }, color: volumeColor },
+            title: { display: true, text: isAvg ? 'm3 / dzień' : 'm3', font: { size: 10 }, color: volumeColor },
             ticks: { font: { size: 10 }, color: volumeColor, callback: v => v.toFixed(2) },
             grid: { drawOnChartArea: false },
         };
@@ -1095,8 +1136,8 @@ function renderSoTimeline(timeline) {
                         },
                         label: (ctx) => {
                             const v = ctx.parsed.y;
-                            if (ctx.dataset.label && ctx.dataset.label.startsWith('m³')) {
-                                return `${ctx.dataset.label}: ${v.toFixed(3)} m³`;
+                            if (ctx.dataset.label && ctx.dataset.label.startsWith('m3')) {
+                                return `${ctx.dataset.label}: ${v.toFixed(3)} m3`;
                             }
                             // Sztuki: średnia bywa ułamkowa, suma jest całkowita
                             const formatted = isAvg ? v.toFixed(1) : Math.round(v);
@@ -1336,7 +1377,7 @@ function createReportsPerformanceChart(chartData, period, mode = 'all_stations',
                 position: 'left',
                 title: {
                     display: true,
-                    text: 'Objętość (m³)',
+                    text: 'Objętość (m3)',
                     font: { size: 11, weight: 'bold' },
                     color: '#007bff'
                 },
@@ -1412,7 +1453,7 @@ function createReportsPerformanceChart(chartData, period, mode = 'all_stations',
                 } else if (context.dataset.yAxisID === 'y2') {
                     label += context.parsed.y.toLocaleString('pl-PL', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' PLN';
                 } else {
-                    label += context.parsed.y.toFixed(2) + ' m³';
+                    label += context.parsed.y.toFixed(2) + ' m3';
                 }
                 return label;
             }
@@ -1440,13 +1481,13 @@ function createReportsPerformanceChart(chartData, period, mode = 'all_stations',
             y: {
                 title: {
                     display: true,
-                    text: 'Objętość (m³)',
+                    text: 'Objętość (m3)',
                     font: { size: 12, weight: 'bold' }
                 },
                 beginAtZero: true,
                 ticks: {
                     callback: function(value) {
-                        return value.toFixed(1) + ' m³';
+                        return value.toFixed(1) + ' m3';
                     }
                 },
                 grid: {
@@ -1460,13 +1501,13 @@ function createReportsPerformanceChart(chartData, period, mode = 'all_stations',
             label: function(context) {
                 let label = context.dataset.label || '';
                 if (label) label += ': ';
-                label += context.parsed.y.toFixed(2) + ' m³';
+                label += context.parsed.y.toFixed(2) + ' m3';
                 return label;
             },
             footer: function(tooltipItems) {
                 let sum = 0;
                 tooltipItems.forEach(item => sum += item.parsed.y);
-                return 'Suma: ' + sum.toFixed(2) + ' m³';
+                return 'Suma: ' + sum.toFixed(2) + ' m3';
             }
         };
     }
@@ -1572,7 +1613,7 @@ function updateChartSummary(summary) {
     const valueEl = el('summary-value');
 
     if (volumeEl) {
-        volumeEl.textContent = summary.total_volume.toFixed(2) + ' m³';
+        volumeEl.textContent = summary.total_volume.toFixed(2) + ' m3';
     }
     if (quantityEl) {
         quantityEl.textContent = summary.total_quantity.toLocaleString('pl-PL') + ' szt.';
@@ -1669,7 +1710,7 @@ const dosWtyczkaEtykiet = {
             if (!w) return;
             if (w.reason === 'brak_przerobu') {
                 ctx.fillStyle = DOS_KOLOR_BRAK;
-                ctx.fillText(`brak przerobu — kolejka ${liczba(w.pending_m3, 3)} m³`,
+                ctx.fillText(`brak przerobu — kolejka ${liczba(w.pending_m3, 3)} m3`,
                              chart.scales.x.left + 6, slupek.y);
             } else if (w.reason === 'pusto') {
                 ctx.fillStyle = '#7a8291';
@@ -1780,10 +1821,23 @@ function renderujDniZapasu(dane) {
                         },
                         afterLabel: (ctx) => {
                             const s = stanowiska[ctx.dataIndex];
+                            // Lakiernia: m2 olejowane / lakierowane obok m3.
+                            const m2Linie = [];
+                            if (s.pending_m2) {
+                                m2Linie.push(
+                                    `Kolejka m2: ${liczba(s.pending_m2.oiled, 2)} olejowane, `
+                                    + `${liczba(s.pending_m2.lacquered, 2)} lakierowane`);
+                            }
+                            if (s.window_m2) {
+                                m2Linie.push(
+                                    `W oknie m2: ${liczba(s.window_m2.oiled, 2)} olejowane, `
+                                    + `${liczba(s.window_m2.lacquered, 2)} lakierowane`);
+                            }
                             return [
-                                `Kolejka: ${liczba(s.pending_m3, 3)} m³`,
-                                `Tempo: ${liczba(s.avg_daily_m3, 3)} m³/dzień `
-                                    + `(${liczba(s.window_m3, 3)} m³ w oknie)`,
+                                `Kolejka: ${liczba(s.pending_m3, 3)} m3`,
+                                `Tempo: ${liczba(s.avg_daily_m3, 3)} m3/dzień `
+                                    + `(${liczba(s.window_m3, 3)} m3 w oknie)`,
+                                ...m2Linie,
                                 // Chart.js nie zawija tekstu, więc łamiemy sami.
                                 'Kolejka to całe pozycje czekające,',
                                 'tempo to netto zrobionych sztuk —',
@@ -1969,7 +2023,7 @@ function renderujHeatmape(dane) {
             const opis = wartosc === 0 && zdarzenia === 0
                 ? `${HM_DNI[d]} ${hmGodzina(g)}–${hmGodzina(g + 1)} · nic nie zgłoszono`
                 : `${HM_DNI[d]} ${hmGodzina(g)}–${hmGodzina(g + 1)} · średnio `
-                    + `${liczba(wartosc, 3)} m³ · ${zdarzenia} zdarzeń `
+                    + `${liczba(wartosc, 3)} m3 · ${zdarzenia} zdarzeń `
                     + `z ${wystapienia} ${HM_DNI_MNOGA[d]}`;
             const styl = kolor ? ` style="background: ${kolor}"` : '';
             czesci.push(`<div class="hm-cell${wartosc < 0 ? ' hm-cell-neg' : ''}"`
@@ -1992,7 +2046,7 @@ function renderujLegendeHeatmapy(dane) {
     const czesci = [
         '<span>mniej</span>',
         `<span class="hm-legend-scale">${probki}</span>`,
-        `<span>więcej (maks ${escapeHtml(maks.toFixed(3))} m³/godz.)</span>`,
+        `<span>więcej (maks ${escapeHtml(maks.toFixed(3))} m3/godz.)</span>`,
     ];
     if (dane.has_negative) {
         // Cofnięcia mają własną rampę i obrys, bo inaczej „minus" wygląda jak
@@ -2023,7 +2077,7 @@ function opiszHeatmape(dane) {
         .join(' · ');
 
     const czesci = [
-        `Wartość w komórce to ŚREDNIE m³ na jedno wystąpienie danego dnia tygodnia `
+        `Wartość w komórce to ŚREDNIE m3 na jedno wystąpienie danego dnia tygodnia `
         + `w oknie ${dane.range_from} – ${dane.range_to} (${dzielniki}), nie suma.`,
         `${dane.events_total} zdarzeń, bez auto_skip i system — to samo „zrobione", `
         + 'co w pozostałych widgetach.',
@@ -2300,9 +2354,9 @@ function opiszDorobki(dane) {
 // Wykres 8: Kto ile zrobił na stanowisku
 // GET /production/api/reports/station-worker-output
 //
-// Dwa słupki na osobę i DWIE osie, bo m³ i sztuki to dwie różne jednostki —
+// Dwa słupki na osobę i DWIE osie, bo m3 i sztuki to dwie różne jednostki —
 // ten sam układ, co „Obsada vs przerób" w podzakładce Ludzie. Kolory też te
-// same (zielony = m³, niebieski = druga miara), żeby przejście między
+// same (zielony = m3, niebieski = druga miara), żeby przejście między
 // podzakładkami nie wymagało uczenia się nowej legendy.
 //
 // Oś X to LUDZIE, ale wyłącznie w obrębie stanowiska wybranego w nagłówku.
@@ -2489,7 +2543,7 @@ function renderujWkladOsob(dane) {
         const panel = el('sw-brak-profili');
         panel.textContent =
             `${dane.station_label}: w okresie ${dane.start_date} – ${dane.end_date} `
-            + `przeszło tędy ${liczba(p.station_m3, 3)} m³ (${p.station_pieces} szt.) `
+            + `przeszło tędy ${liczba(p.station_m3, 3)} m3 (${p.station_pieces} szt.) `
             + 'i ani jedna sztuka nie ma podpisu pracownika. To nie jest brak '
             + 'pracy ani brak danych — na wykresie widać całość jako jeden '
             + `słupek „${SW_ETYKIETA_BRAK}". Nazwiska pojawią się na osi wtedy, `
@@ -2506,11 +2560,18 @@ function renderujWkladOsob(dane) {
 function swKafelki(dane) {
     const p = dane.summary;
     el('sw-sum-m3').textContent = liczba(p.station_m3, 3);
+    // m2 tylko dla Lakierni (inne stanowiska nie dostają station_m2).
+    el('sw-m2-oiled-box').style.display = p.station_m2 ? '' : 'none';
+    el('sw-m2-lacquered-box').style.display = p.station_m2 ? '' : 'none';
+    if (p.station_m2) {
+        el('sw-sum-m2-oiled').textContent = liczba(p.station_m2.oiled, 2);
+        el('sw-sum-m2-lacquered').textContent = liczba(p.station_m2.lacquered, 2);
+    }
     el('sw-sum-pieces').textContent = p.station_pieces;
     el('sw-sum-workers').textContent = p.workers_count;
     // JEDNA liczba pokrycia w całej aplikacji — serwer liczy ją tą samą
     // funkcją, z której rysuje się wykres „Pokrycie atrybucją w czasie".
-    // Wcześniej stała tu druga definicja (udział m³ zamiast ruchu w sztukach)
+    // Wcześniej stała tu druga definicja (udział m3 zamiast ruchu w sztukach)
     // i te dwa widgety podawały dwie różne odpowiedzi na to samo pytanie.
     el('sw-sum-share').textContent =
         p.attribution_coverage_pct === null
@@ -2524,12 +2585,13 @@ function swKafelki(dane) {
 }
 
 // Osoby + jeden słupek „Bez podpisu" na końcu. Kolejność ustala backend
-// (malejąco po m³), front jej NIE zmienia — inaczej dwa odświeżenia tego
+// (malejąco po m3), front jej NIE zmienia — inaczej dwa odświeżenia tego
 // samego zakresu dałyby dwa różne wykresy.
 function swSlupki(dane) {
     const slupki = (dane.workers || []).map(w => ({
         etykieta: w.worker_name,
         m3: w.m3,
+        m2: w.m2 || null,
         pieces: w.pieces,
         events: w.events,
         negative: w.negative,
@@ -2547,6 +2609,7 @@ function swSlupki(dane) {
         slupki.push({
             etykieta: SW_ETYKIETA_BRAK,
             m3: dane.unassigned.m3,
+            m2: dane.unassigned.m2 || null,
             pieces: dane.unassigned.pieces,
             events: null,
             negative: !!dane.unassigned.negative,
@@ -2569,8 +2632,8 @@ function swRysuj(dane) {
 
     const slupki = swSlupki(dane);
 
-    // Liczba miejsc na osi m³ zależy od skali: przy dniu, w którym pakowanie
-    // zrobiło 0.038 m³, jedno miejsce dawało kolumnę samych zer.
+    // Liczba miejsc na osi m3 zależy od skali: przy dniu, w którym pakowanie
+    // zrobiło 0.038 m3, jedno miejsce dawało kolumnę samych zer.
     const maksM3 = Math.max(0, ...slupki.map(s => Math.abs(s.m3) || 0));
     const miejscM3 = maksM3 && maksM3 < 1 ? 3 : 2;
 
@@ -2586,7 +2649,7 @@ function swRysuj(dane) {
             labels: slupki.map(s => s.etykieta),
             datasets: [
                 {
-                    label: 'm³',
+                    label: 'm3',
                     data: slupki.map(s => s.m3),
                     backgroundColor: kolorM3,
                     borderWidth: 0,
@@ -2616,12 +2679,16 @@ function swRysuj(dane) {
                         label: (ctx) => {
                             const s = slupki[ctx.dataIndex] || {};
                             return ctx.datasetIndex === 0
-                                ? `m³: ${liczba(s.m3, 3)}`
+                                ? `m3: ${liczba(s.m3, 3)}`
                                 : `Wkład: ${liczba(s.pieces, 2)} szt.`;
                         },
                         afterBody: (items) => {
                             const s = slupki[items[0]?.dataIndex ?? 0] || {};
                             const linie = [];
+                            if (s.m2) {
+                                linie.push(`m2 olejowane: ${liczba(s.m2.oiled, 2)}`);
+                                linie.push(`m2 lakierowane: ${liczba(s.m2.lacquered, 2)}`);
+                            }
                             if (s.brak) {
                                 linie.push('Praca bez wybranego profilu — '
                                     + 'nie wiadomo, kto ją wykonał.');
@@ -2661,7 +2728,7 @@ function swRysuj(dane) {
                     type: 'linear',
                     position: 'left',
                     beginAtZero: true,
-                    title: { display: true, text: 'm³', font: { size: 10 },
+                    title: { display: true, text: 'm3', font: { size: 10 },
                              color: SW_KOLOR_M3 },
                     ticks: { font: { size: 10 }, color: SW_KOLOR_M3,
                              callback: (v) => v.toFixed(miejscM3) },
@@ -2716,7 +2783,7 @@ function swNotatka(dane) {
             + 'więc przy brygadzie wychodzą ułamki — nikt nie zrobił jednej '
             + 'trzeciej deski, każdy uczestniczył w całej.');
         czesci.push('Porównuj osoby WYŁĄCZNIE w obrębie tego jednego stanowiska: '
-            + 'm³ na sklejaniu i m³ na pakowaniu to inna robota.');
+            + 'm3 na sklejaniu i m3 na pakowaniu to inna robota.');
         czesci.push(swPrzypisHistoryczny(dane));
     }
     // textContent, nie innerHTML — w podpisie siedzi nazwa stanowiska z bazy.
@@ -2724,7 +2791,7 @@ function swNotatka(dane) {
 
     const ostrzezenia = [];
     if (jestWykres && dane.unassigned && dane.unassigned.present) {
-        ostrzezenia.push(`Bez podpisu: ${liczba(dane.unassigned.m3, 3)} m³ `
+        ostrzezenia.push(`Bez podpisu: ${liczba(dane.unassigned.m3, 3)} m3 `
             + `(${dane.unassigned.pieces} szt.) — szary słupek „${SW_ETYKIETA_BRAK}" `
             + 'na końcu wykresu. Bez niego suma osób wyglądałaby na całą '
             + 'produkcję stanowiska.');
@@ -2752,7 +2819,7 @@ function swNotatka(dane) {
         // z sąsiadem i uzna, że jeden z nich kłamie.
         ostrzezenia.push('Suma słupków nie zgadza się z przerobem stanowiska '
             + `(${liczba(p.attributed_m3, 3)} + ${liczba(p.unassigned_m3, 3)} `
-            + `≠ ${liczba(p.station_m3, 3)} m³) — zgłoś to, bo udziały eventów `
+            + `≠ ${liczba(p.station_m3, 3)} m3) — zgłoś to, bo udziały eventów `
             + 'powinny sumować się do całości.');
     }
     el('sw-warn').textContent = ostrzezenia.join(' ');

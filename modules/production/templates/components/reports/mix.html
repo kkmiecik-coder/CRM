@@ -23,9 +23,9 @@
                             <tr>
                                 <th>Status</th>
                                 <th>Ilość</th>
-                                <th>Objętość (m³)</th>
+                                <th>Objętość (m3)</th>
                                 <th>% całości</th>
-                                <th>Gatunki m³</th>
+                                <th>Gatunki m3</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -51,7 +51,7 @@
                                         {% for sp in item['species_breakdown'] %}
                                         <div class="species-row">
                                             <span class="species-name">{{ sp.label }}</span>
-                                            <span class="species-vol">{{ sp.volume }} m³</span>
+                                            <span class="species-vol">{{ sp.volume }} m3</span>
                                         </div>
                                         {% endfor %}
                                     </div>
@@ -81,7 +81,7 @@
                     <div class="status-chart-canvas"><canvas id="status-volume-chart"></canvas></div>
                 </div>
                 <div class="status-chart-card" style="grid-column: 1 / -1;">
-                    <h6>Gatunki m³</h6>
+                    <h6>Gatunki m3</h6>
                     <div class="status-chart-canvas" style="height: 160px;"><canvas id="species-volume-chart"></canvas></div>
                 </div>
             </div>
@@ -106,7 +106,7 @@
                     {% for item in species_breakdown %}
                     <div class="legend-item small">
                         <span class="legend-color" style="background-color: {{ ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#C9CBCF', '#7BC043'][loop.index0 % 8] }}"></span>
-                        {{ item['name'] }}: <strong>{{ item['count'] }}</strong> ({{ "%.3f"|format(item['volume']) }} m³)
+                        {{ item['name'] }}: <strong>{{ item['count'] }}</strong> ({{ "%.3f"|format(item['volume']) }} m3)
                     </div>
                     {% endfor %}
                 </div>
@@ -136,7 +136,7 @@
                     {% for item in technology_breakdown %}
                     <div class="legend-item small">
                         <span class="legend-color" style="background-color: {{ ['#FFCE56', '#FF6384', '#36A2EB', '#4BC0C0', '#9966FF', '#FF9F40', '#C9CBCF', '#7BC043'][loop.index0 % 8] }}"></span>
-                        {{ item['name'] }}: <strong>{{ item['count'] }}</strong> ({{ "%.3f"|format(item['volume']) }} m³)
+                        {{ item['name'] }}: <strong>{{ item['count'] }}</strong> ({{ "%.3f"|format(item['volume']) }} m3)
                     </div>
                     {% endfor %}
                 </div>
@@ -151,7 +151,7 @@
                     {% for item in wood_class_breakdown %}
                     <div class="legend-item small">
                         <span class="legend-color" style="background-color: {{ ['#8B4513', '#D2691E', '#CD853F', '#DEB887', '#F4A460', '#D2B48C', '#BC8F8F', '#A0522D'][loop.index0 % 8] }}"></span>
-                        {{ item['name'] }}: <strong>{{ item['count'] }}</strong> ({{ "%.3f"|format(item['volume']) }} m³)
+                        {{ item['name'] }}: <strong>{{ item['count'] }}</strong> ({{ "%.3f"|format(item['volume']) }} m3)
                     </div>
                     {% endfor %}
                 </div>
@@ -249,7 +249,7 @@ function initializeStatusVolumeChart() {
                         label: (ctx) => {
                             const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
                             const pct = Math.round(ctx.raw / total * 100);
-                            return `${ctx.label}: ${ctx.raw.toFixed(3)} m³ (${pct}%)`;
+                            return `${ctx.label}: ${ctx.raw.toFixed(3)} m3 (${pct}%)`;
                         }
                     }
                 }
@@ -286,7 +286,7 @@ function initializeSpeciesVolumeChart() {
                         label: (ctx) => {
                             const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
                             const pct = Math.round(ctx.raw / total * 100);
-                            return `${ctx.label}: ${ctx.raw.toFixed(3)} m³ (${pct}%)`;
+                            return `${ctx.label}: ${ctx.raw.toFixed(3)} m3 (${pct}%)`;
                         }
                     }
                 }

@@ -60,8 +60,8 @@ from .station_catalog import (
 )
 from .station_events_service import ZRODLA_AUTOMATU
 from .worker_stats_service import (
-    ZakresError, granice_zakresu, minuty_sesji, praca_nieprzypisana,
-    zaokr_wklad,
+    STANOWISKO_LAKIERNI, ZakresError, granice_zakresu, m2_wg_wykonczenia,
+    minuty_sesji, para_m2, praca_nieprzypisana, zaokr_wklad,
 )
 
 logger = get_structured_logger('production.reports')
@@ -70,7 +70,7 @@ logger = get_structured_logger('production.reports')
 # ── Wykres 1: okno dni roboczych ────────────────────────────────────────────
 # „Dzień roboczy" liczymy Z DANYCH, nie z kalendarza — reguła kalendarzowa nie
 # umie obsłużyć świąt ani zmiany rytmu hali, a przy tym wpuszcza do mianownika
-# soboty serwisowe. 2026-08-01 (sobota) miała 0.043 m³ przy średniej ~4 m³:
+# soboty serwisowe. 2026-08-01 (sobota) miała 0.043 m3 przy średniej ~4 m3:
 # bez progu taka doba nie tylko zaniża średnią o ~7%, ale WYPYCHA z okna jeden
 # realny dzień roboczy.
 PROG_DNIA_ROBOCZEGO = 0.05      # 5% średniej dobowej
@@ -111,7 +111,7 @@ ETYKIETY_KOSZYKOW = {
 }
 
 # Praca skończona albo odwołana wypada — wykres pokazuje stan bieżący, nie
-# historię. Zmierzone: bez tego filtra słupek „Po terminie" pokazuje 83.7 m³
+# historię. Zmierzone: bez tego filtra słupek „Po terminie" pokazuje 83.7 m3
 # zamiast 0.889, bo 2133 spakowanych pozycji ma termin w przeszłości.
 STATUSY_ZAMKNIETE = ('spakowane', 'anulowane')
 
@@ -338,6 +338,25 @@ def dni_zapasu_stanowisk(end_date=None, okno_dni=OKNO_DNI_ROBOCZYCH):
         func.date(ProductionStationEvent.created_at).in_(dni_iso),
     ).group_by(ProductionStationEvent.station_code).all())
 
+    # Lakiernia dostaje do tego jeszcze m2 (olejowane / lakierowane): kolejka
+    # (ta sama definicja co pending_m3, tylko powierzchnia) i przerób w oknie.
+    kolejka_olej, kolejka_lakier = db.session.query(
+        *m2_wg_wykonczenia(ProductionProduct.quantity)
+    ).filter(
+        ProductionProduct.current_status
+        == STATION_PENDING_STATUS[STANOWISKO_LAKIERNI]
+    ).one()
+    okno_olej, okno_lakier = db.session.query(
+        *m2_wg_wykonczenia(ProductionStationEvent.delta)
+    ).select_from(ProductionStationEvent).join(
+        ProductionProduct,
+        ProductionProduct.id == ProductionStationEvent.production_item_id,
+    ).filter(
+        ~ProductionStationEvent.source.in_(ZRODLA_AUTOMATU),
+        ProductionStationEvent.station_code == STANOWISKO_LAKIERNI,
+        func.date(ProductionStationEvent.created_at).in_(dni_iso),
+    ).one()
+
     stanowiska = []
     for kod, status_kolejki in STATION_PENDING_STATUS.items():
         kolejka_m3 = float(kolejki.get(status_kolejki, 0) or 0)
@@ -354,7 +373,7 @@ def dni_zapasu_stanowisk(end_date=None, okno_dni=OKNO_DNI_ROBOCZYCH):
             powod = None
             dni_zapasu = round(kolejka_m3 / srednia, 2)
 
-        stanowiska.append({
+        wpis = {
             'station_code': kod,
             'station_label': station_label(kod),
             'pending_m3': _zaokr(kolejka_m3),
@@ -362,7 +381,11 @@ def dni_zapasu_stanowisk(end_date=None, okno_dni=OKNO_DNI_ROBOCZYCH):
             'window_m3': _zaokr(okno_m3),
             'days_of_supply': dni_zapasu,
             'reason': powod,
-        })
+        }
+        if kod == STANOWISKO_LAKIERNI:
+            wpis['pending_m2'] = para_m2(kolejka_olej, kolejka_lakier)
+            wpis['window_m2'] = para_m2(okno_olej, okno_lakier)
+        stanowiska.append(wpis)
 
     kolejnosc_powodu = {'brak_przerobu': 0, None: 1, 'pusto': 2}
     stanowiska.sort(key=lambda s: (kolejnosc_powodu[s['reason']],
@@ -411,7 +434,7 @@ def _segment_pozycji(status):
 
 def termin_vs_postep(limit_pozycji=LIMIT_POZYCJI_TERMINOW):
     """
-    Migawka: ile m³ stoi w którym koszyku terminu i na jakim stanowisku.
+    Migawka: ile m3 stoi w którym koszyku terminu i na jakim stanowisku.
 
     Bez zakresu dat — w odróżnieniu od pozostałych widgetów raportów to jest
     STAN NA TERAZ, nie historia.
@@ -419,7 +442,7 @@ def termin_vs_postep(limit_pozycji=LIMIT_POZYCJI_TERMINOW):
     Trzy rzeczy, które łatwo tu zrobić źle:
       1. `dzis` MUSI pochodzić z get_local_now() (Europe/Warsaw). Kontener
          chodzi na UTC, więc CURDATE() między 22:00 a północą daje inny dzień —
-         zmierzone: koszyk 1-2 dni 4 poz./0.104 m³ lokalnie vs 2 poz./0.036 m³
+         zmierzone: koszyk 1-2 dni 4 poz./0.104 m3 lokalnie vs 2 poz./0.036 m3
          po CURDATE().
       2. NIE używać kolumny days_until_deadline — liczy się raz przy syncu
          i wietrzeje. Zmierzone: pozycja z zapisanym 14 ma faktycznie -98 dni.
@@ -535,18 +558,18 @@ def termin_vs_postep(limit_pozycji=LIMIT_POZYCJI_TERMINOW):
 
 def wejscie_vs_wyjscie(start_date, end_date, agregacja='auto'):
     """
-    Ile m³ dziennie wchodzi do produkcji (nowe pozycje) i ile wychodzi
+    Ile m3 dziennie wchodzi do produkcji (nowe pozycje) i ile wychodzi
     (pakowanie), plus skumulowana różnica.
 
     WEEKENDÓW NIE WOLNO WYCIĄĆ — odwrotnie niż przy wykresach 1 i 4. Hala
     pracuje pn-pt (sobota 12 eventów, niedziela 1 w całej historii), ale
-    zamówienia wpadają też w weekend: 2026-08-09, niedziela, 0.367 m³ wejścia
+    zamówienia wpadają też w weekend: 2026-08-09, niedziela, 0.367 m3 wejścia
     przy zerowym wyjściu. Wycięcie weekendów skasowałoby realny napływ i wykres
     skłamałby w stronę „nadążamy". Oś jest 7-dniowa.
 
     LINIA SKUMULOWANA MIERZY DRYF W OKNIE, NIE WIP: startuje od zera w pierwszym
-    dniu zakresu, więc +2.5 m³ znaczy „w tych 90 dniach weszło o 2.5 m³ więcej
-    niż wyszło", a nie „w hali leży 2.5 m³" (to jest ~6.2 m³ z kolejek).
+    dniu zakresu, więc +2.5 m3 znaczy „w tych 90 dniach weszło o 2.5 m3 więcej
+    niż wyszło", a nie „w hali leży 2.5 m3" (to jest ~6.2 m3 z kolejek).
 
     Pozycje anulowane wypadają po stronie wejścia — anulowany produkt nigdy nie
     przejdzie przez pakowanie, więc trzymanie go trwale zawyżałoby linię.
@@ -656,7 +679,7 @@ def wejscie_vs_wyjscie(start_date, end_date, agregacja='auto'):
 
 def heatmapa_godzinowa(start_date, end_date):
     """
-    Siatka 7 × 24 (wiersz 0 = poniedziałek), wartość = ŚREDNIE m³ na jedno
+    Siatka 7 × 24 (wiersz 0 = poniedziałek), wartość = ŚREDNIE m3 na jedno
     wystąpienie danego dnia tygodnia w oknie.
 
     NORMALIZACJA JEST OBOWIĄZKOWA. Okno 30-dniowe 2026-07-13..2026-08-11 ma
@@ -730,22 +753,22 @@ def heatmapa_godzinowa(start_date, end_date):
 def obsada_vs_przerob(start_date, end_date):
     """
     Osobogodziny (z sesji pracy) zestawione z przerobem (z eventów), plus
-    iloraz m³ na osobogodzinę.
+    iloraz m3 na osobogodzinę.
 
-    NIE PORÓWNUJ STANOWISK MIĘDZY SOBĄ w trybie m³/h. Zmierzone: cutting 0.021
+    NIE PORÓWNUJ STANOWISK MIĘDZY SOBĄ w trybie m3/h. Zmierzone: cutting 0.021
     vs gluing 0.224 — dziesięciokrotna różnica, która nie mówi nic o ludziach,
-    bo m³ nie są porównywalne między stanowiskami (spakowanie metra trwa minuty,
+    bo m3 nie są porównywalne między stanowiskami (spakowanie metra trwa minuty,
     sklejenie godziny). To ten sam powód, dla którego tabela wydajności jest
-    sortowana po nazwisku, a nie po m³.
+    sortowana po nazwisku, a nie po m3.
 
     in_pipeline=False dostaje trakownia: sesja tam być może, ale
     prod_station_events tego kodu nie zna (to rejestr surowca), więc wyszłoby
-    „8 h / 0 m³" czytane jako bezczynność. Tempa dla takich wierszy nie liczymy.
+    „8 h / 0 m3" czytane jako bezczynność. Tempa dla takich wierszy nie liczymy.
 
     TEMPO LICZY SIĘ Z DÓB, KTÓRE MAJĄ SESJE — nie z całego zakresu. Licznik
     brany z całego okna przy mianowniku istniejącym tylko dla części dób dawał
     wskaźnik rosnący razem z zakresem zamiast się stabilizować: zmierzone
-    2026-08-12 na sklejaniu 0.056 (Dziś) → 0.614 (7 dni) → 2.898 m³/h (30 dni),
+    2026-08-12 na sklejaniu 0.056 (Dziś) → 0.614 (7 dni) → 2.898 m3/h (30 dni),
     czyli 52× dla tego samego stanowiska, przy osobogodzinach stojących
     w miejscu (24.5 / 24.6 / 24.6 h — wszystkie 14 sesji jest z dziś).
     Wiersz niesie `days_with_sessions` i `days_in_range`, żeby front mógł
@@ -780,13 +803,14 @@ def obsada_vs_przerob(start_date, end_date):
     # dób z sesjami (mianownik tempa). Dwa zapytania dałyby dwie okazje do
     # rozjazdu filtrów.
     przerob = {}
-    for kod, dzien, sztuki, metry, eventy in db.session.query(
+    for kod, dzien, sztuki, metry, eventy, m2_olej, m2_lakier in db.session.query(
             ProductionStationEvent.station_code,
             func.date(ProductionStationEvent.created_at),
             func.sum(ProductionStationEvent.delta),
             func.sum(func.coalesce(ProductionProduct.volume_m3, 0)
                      * ProductionStationEvent.delta),
             func.count(ProductionStationEvent.id),
+            *m2_wg_wykonczenia(ProductionStationEvent.delta),
     ).join(
         ProductionProduct,
         ProductionProduct.id == ProductionStationEvent.production_item_id,
@@ -797,10 +821,13 @@ def obsada_vs_przerob(start_date, end_date):
         func.date(ProductionStationEvent.created_at),
     ).all():
         wpis = przerob.setdefault(kod, {'pieces': 0, 'm3': 0.0, 'events': 0,
+                                        'm2_olej': 0.0, 'm2_lakier': 0.0,
                                         'per_dzien': {}})
         wpis['pieces'] += int(sztuki or 0)
         wpis['m3'] += float(metry or 0)
         wpis['events'] += int(eventy or 0)
+        wpis['m2_olej'] += float(m2_olej or 0)
+        wpis['m2_lakier'] += float(m2_lakier or 0)
         wpis['per_dzien'][_na_date(dzien).isoformat()] = float(metry or 0)
 
     # Suma kodów z obu stron: stanowisko z sesjami bez eventów I stanowisko
@@ -812,12 +839,13 @@ def obsada_vs_przerob(start_date, end_date):
         minut = minuty.get(kod, 0)
         godziny = minut / 60
         praca = przerob.get(kod) or {'pieces': 0, 'm3': 0.0, 'events': 0,
+                                     'm2_olej': 0.0, 'm2_lakier': 0.0,
                                      'per_dzien': {}}
         w_pipeline = kod in STATION_ORDER
         doby = doby_sesji.get(kod, set())
         # Licznik tempa z tych samych dób, z których pochodzi mianownik.
         metry_w_dobach = sum(m for d, m in praca['per_dzien'].items() if d in doby)
-        wiersze.append({
+        wiersz = {
             'station_code': kod,
             'station_label': station_label(kod),
             'person_hours': round(godziny, 1),
@@ -832,7 +860,10 @@ def obsada_vs_przerob(start_date, end_date):
             'days_in_range': dni_zakresu,
             'open_sessions': otwarte.get(kod, 0),
             'in_pipeline': w_pipeline,
-        })
+        }
+        if kod == STANOWISKO_LAKIERNI:
+            wiersz['m2'] = para_m2(praca['m2_olej'], praca['m2_lakier'])
+        wiersze.append(wiersz)
 
     # Sumy z MINUT, nie z zaokrąglonych godzin: siedem stanowisk × do 0.05 h
     # błędu dawało 234.6 zamiast 234.7 i kafelek kłócił się z tabelą.
@@ -1071,7 +1102,7 @@ def rejestracja_dorobek(start_date, end_date):
 # sumują się do 1.0 na event, więc różnicy z definicji nie ma. Tolerancja
 # pokrywa WYŁĄCZNIE zaokrąglenia: praca_nieprzypisana() oddaje wiersze już
 # zaokrąglone do 3 miejsc na (dzień, stanowisko), więc 30-dniowy zakres potrafi
-# uzbierać do ~0.015 m³ czystej arytmetyki zmiennoprzecinkowej.
+# uzbierać do ~0.015 m3 czystej arytmetyki zmiennoprzecinkowej.
 TOLERANCJA_SUMY_M3 = 0.02
 TOLERANCJA_SUMY_SZTUK = 0.5
 
@@ -1097,7 +1128,7 @@ def _sprawdz_stanowisko(station):
     station = resolve_station_code(station)
     if not station or station == 'all':
         raise ZakresError(
-            'Ten wykres wymaga JEDNEGO stanowiska — m³ nie są porównywalne '
+            'Ten wykres wymaga JEDNEGO stanowiska — m3 nie są porównywalne '
             'między stanowiskami, więc wykres zbiorczy nie znaczyłby nic.')
     if station not in STATION_ORDER:
         raise ZakresError(
@@ -1135,22 +1166,22 @@ def _slupek_osoby(worker_id, nazwa, sztuki, metry, eventy):
 
 def wklad_pracownikow_na_stanowisku(station, start_date, end_date):
     """
-    Kto ile zrobił na JEDNYM, wybranym stanowisku — m³ i wkład w sztukach.
+    Kto ile zrobił na JEDNYM, wybranym stanowisku — m3 i wkład w sztukach.
 
     DLACZEGO STANOWISKO JEST OBOWIĄZKOWE (i dlaczego nie ma tu 'all')
     -----------------------------------------------------------------
-    Audyt odrzucił listę porównującą ludzi MIĘDZY stanowiskami: m³ na sklejaniu
-    i m³ na pakowaniu to inna robota, więc taki ranking mierzy, kto miał
+    Audyt odrzucił listę porównującą ludzi MIĘDZY stanowiskami: m3 na sklejaniu
+    i m3 na pakowaniu to inna robota, więc taki ranking mierzy, kto miał
     szczęście stać na końcu procesu, a nie kto się narobił. Ten agregat jest
     odwrotnością tamtego pomysłu — stanowisko jest WYBRANE, a porównanie
     odbywa się wewnątrz niego, czyli dokładnie w warunku, który audyt postawił
-    („m³ i tempo porównywalne wyłącznie w obrębie jednego stanowiska").
+    („m3 i tempo porównywalne wyłącznie w obrębie jednego stanowiska").
     Dlatego `station='all'` leci błędem, a nie sumą: zbiorczy wykres wszystkich
     stanowisk naraz JEST tamtym odrzuconym leaderboardem.
 
     TRZY LICZBY, KTÓRE MUSZĄ SIĘ ZGADZAĆ
     ------------------------------------
-    Sam wykres osób kłamie, gdy stanowisko zrobiło 40 m³, a podpisane jest 22:
+    Sam wykres osób kłamie, gdy stanowisko zrobiło 40 m3, a podpisane jest 22:
     czyta się go jako całą produkcję stanowiska. Dlatego obok osób jedzie
     `unassigned` (praca BEZ wiersza atrybucji, liczona tą samą funkcją, co
     tabela wydajności — nie drugą kopią) oraz `station_*` z własnego agregatu.
@@ -1162,8 +1193,8 @@ def wklad_pracownikow_na_stanowisku(station, start_date, end_date):
     UWAGA NA JEDNOSTKĘ `station_m3`: to RUCH NETTO w zakresie (suma
     delta × objętość), a NIE stan „wykonane na koniec zakresu" z sąsiedniego
     widgetu. Te dwie liczby różnią się z definicji i mają prawo się różnić —
-    zmierzone na kopii produkcji 06-12.08: pakowanie 5.849 m³ ruchu wobec
-    5.250 m³ stanu EOD. Kafelki są podpisane tak, żeby nikt ich nie zestawiał
+    zmierzone na kopii produkcji 06-12.08: pakowanie 5.849 m3 ruchu wobec
+    5.250 m3 stanu EOD. Kafelki są podpisane tak, żeby nikt ich nie zestawiał
     jako „ta sama liczba, dwie wartości".
 
     KTO WCHODZI NA OŚ
@@ -1173,7 +1204,7 @@ def wklad_pracownikow_na_stanowisku(station, start_date, end_date):
     jest aktywnością, a wykres ma odpowiadać na pytanie „kto tu dziś był
     i co z tego wyszło". Lista budowana wyłącznie z atrybucji gubiła człowieka,
     który stał przy maszynie i nie odhaczył ani sztuki; ten sam błąd
-    naprawialiśmy już raz w tabeli wydajności (wiersz „8 h / 0 m³").
+    naprawialiśmy już raz w tabeli wydajności (wiersz „8 h / 0 m3").
 
     UJEMNE NETTO
     ------------
@@ -1182,7 +1213,7 @@ def wklad_pracownikow_na_stanowisku(station, start_date, end_date):
     wtedy, gdy poprawia własną pomyłkę z poprzedniego dnia albo cudzą z tego
     samego. TAKIEJ OSOBY NIE UKRYWAMY i nie zerujemy jej słupka: ujemny wynik
     to informacja („tego dnia głównie cofał"), a schowanie go rozjechałoby sumę
-    z przerobem stanowiska. Sortowanie malejąco po m³ i tak zsuwa takie słupki
+    z przerobem stanowiska. Sortowanie malejąco po m3 i tak zsuwa takie słupki
     na koniec, a flaga `negative` pozwala frontowi je odróżnić kolorem.
 
     Pieces są ułamkowe, bo share = 1/N — przy brygadzie nikt nie zrobił jednej
@@ -1205,6 +1236,8 @@ def wklad_pracownikow_na_stanowisku(station, start_date, end_date):
         func.sum(func.coalesce(ProductionProduct.volume_m3, 0)
                  * ProductionStationEvent.delta * ProductionStationEventWorker.share),
         func.count(ProductionStationEvent.id),
+        *m2_wg_wykonczenia(ProductionStationEvent.delta
+                           * ProductionStationEventWorker.share),
     ).join(
         ProductionStationEvent,
         ProductionStationEvent.id == ProductionStationEventWorker.event_id,
@@ -1220,15 +1253,22 @@ def wklad_pracownikow_na_stanowisku(station, start_date, end_date):
         ProductionWorker.last_name,
     ).all()
 
+    jest_lakiernia = station == STANOWISKO_LAKIERNI
     osoby = []
     surowe_sztuki = surowe_metry = 0.0
-    for wid, imie, nazwisko, sztuki, metry, eventy in wiersze:
+    surowe_m2_olej = surowe_m2_lakier = 0.0
+    for wid, imie, nazwisko, sztuki, metry, eventy, m2_olej, m2_lakier in wiersze:
         sztuki = float(sztuki or 0)
         metry = float(metry or 0)
         surowe_sztuki += sztuki
         surowe_metry += metry
-        osoby.append(_slupek_osoby(
-            wid, f'{imie} {nazwisko}'.strip(), sztuki, metry, int(eventy or 0)))
+        slupek = _slupek_osoby(
+            wid, f'{imie} {nazwisko}'.strip(), sztuki, metry, int(eventy or 0))
+        if jest_lakiernia:
+            surowe_m2_olej += float(m2_olej or 0)
+            surowe_m2_lakier += float(m2_lakier or 0)
+            slupek['m2'] = para_m2(m2_olej, m2_lakier)
+        osoby.append(slupek)
 
     # ── Osoby, które BYŁY, ale nic nie odbiły ────────────────────────────
     # Sesja na tym stanowisku to aktywność, więc taka osoba należy na oś tak
@@ -1252,10 +1292,13 @@ def wklad_pracownikow_na_stanowisku(station, start_date, end_date):
         if wid in znani:
             continue
         znani.add(wid)
-        osoby.append(_slupek_osoby(
-            wid, f'{imie} {nazwisko}'.strip(), 0.0, 0.0, 0))
+        slupek = _slupek_osoby(
+            wid, f'{imie} {nazwisko}'.strip(), 0.0, 0.0, 0)
+        if jest_lakiernia:
+            slupek['m2'] = para_m2(0, 0)
+        osoby.append(slupek)
 
-    # Malejąco po m³ — w obrębie JEDNEGO stanowiska to uczciwe porównanie i o to
+    # Malejąco po m3 — w obrębie JEDNEGO stanowiska to uczciwe porównanie i o to
     # w tym widgecie chodzi. Nazwisko jako drugi klucz, żeby dwie osoby z tym
     # samym wynikiem nie zamieniały się miejscami między odświeżeniami.
     osoby.sort(key=lambda o: (-o['m3'], o['worker_name']))
@@ -1274,11 +1317,13 @@ def wklad_pracownikow_na_stanowisku(station, start_date, end_date):
     # słupków ma się zgadzać. Liczba EVENTÓW, nie suma delt, rozstrzyga
     # o pustym stanie — dzień, w którym wszystko dorobiono i cofnięto, ma netto
     # zero, ale pracą był.
-    sztuki_stanowiska, metry_stanowiska, eventy_stanowiska = db.session.query(
+    (sztuki_stanowiska, metry_stanowiska, eventy_stanowiska,
+     m2_olej_stanowiska, m2_lakier_stanowiska) = db.session.query(
         func.sum(ProductionStationEvent.delta),
         func.sum(func.coalesce(ProductionProduct.volume_m3, 0)
                  * ProductionStationEvent.delta),
         func.count(ProductionStationEvent.id),
+        *m2_wg_wykonczenia(ProductionStationEvent.delta),
     ).join(
         ProductionProduct,
         ProductionProduct.id == ProductionStationEvent.production_item_id,
@@ -1313,14 +1358,14 @@ def wklad_pracownikow_na_stanowisku(station, start_date, end_date):
     # ── Ile tej roboty ma podpis ─────────────────────────────────────────
     # JEDNA funkcja — ta sama, z której rysuje się wykres „Pokrycie atrybucją
     # w czasie" i kafelek w tabeli wydajności. Stała tu wcześniej DRUGA
-    # implementacja: udział m³ netto (na ABS dopiero z sumy per osoba) zamiast
+    # implementacja: udział m3 netto (na ABS dopiero z sumy per osoba) zamiast
     # ruchu w sztukach z ABS na poziomie eventu. Dwie odpowiedzi na to samo
     # pytanie, dwa widgety w zasięgu wzroku — zmierzone na kopii produkcji
     # 06-12.08: montaż 28.4% tu wobec 25.4% na wykresie pokrycia, formatowanie
     # 8.8% wobec 6.6%, sklejanie 9.1% wobec 10.7%.
     #
-    # Cena: jednostką jest RUCH W SZTUKACH, nie m³ — i kafelek jest tak
-    # podpisany. Przeliczanie tego na m³ oznaczałoby napisanie tej definicji
+    # Cena: jednostką jest RUCH W SZTUKACH, nie m3 — i kafelek jest tak
+    # podpisany. Przeliczanie tego na m3 oznaczałoby napisanie tej definicji
     # po raz drugi, czyli powrót dokładnie tam, skąd wyszliśmy.
     pokrycie = pokrycie_atrybucji_dziennie(
         start_date, end_date, station=station)['summary']
@@ -1347,7 +1392,7 @@ def wklad_pracownikow_na_stanowisku(station, start_date, end_date):
     sztuki_bez = zaokr_wklad(sztuki_bez)
     metry_bez = _zaokr(metry_bez)
 
-    return {
+    wynik = {
         'start_date': start_date.isoformat(),
         'end_date': end_date.isoformat(),
         'station': station,
@@ -1366,7 +1411,7 @@ def wklad_pracownikow_na_stanowisku(station, start_date, end_date):
             'zero': metry_bez == 0 and sztuki_bez == 0,
         },
         'summary': {
-            # RUCH NETTO w zakresie (Σ delta × m³), nie stan „wykonane na
+            # RUCH NETTO w zakresie (Σ delta × m3), nie stan „wykonane na
             # koniec zakresu" z sąsiedniego widgetu — patrz docstring.
             'station_pieces': zaokr_wklad(sztuki_stanowiska),
             'station_m3': _zaokr(metry_stanowiska),
@@ -1395,6 +1440,17 @@ def wklad_pracownikow_na_stanowisku(station, start_date, end_date):
             'sums_match': zgodne,
         },
     }
+
+    # Lakiernia: m2 olejowane / lakierowane obok m3 (ruch netto w zakresie).
+    # „Bez podpisu" to różnica stanowiska i podpisanych — zgadza się z resztą
+    # z definicji, bez trzeciego zapytania.
+    if jest_lakiernia:
+        wynik['unassigned']['m2'] = para_m2(
+            float(m2_olej_stanowiska or 0) - surowe_m2_olej,
+            float(m2_lakier_stanowiska or 0) - surowe_m2_lakier)
+        wynik['summary']['station_m2'] = para_m2(
+            m2_olej_stanowiska, m2_lakier_stanowiska)
+    return wynik
 
 
 # ════════════════════════════════════════════════════════════════════════════

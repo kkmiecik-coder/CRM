@@ -8,7 +8,7 @@
      1. Wydajność pracowników — kto ile zrobił,
      2. Pokrycie atrybucją (wykres 6) — na ile tym liczbom można dziś ufać;
         siedzi POD tabelą, bo jest rozwinięciem jej kafelka „pokrycia atrybucją",
-     3. Obsada vs przerób (wykres 5) — ilu ludzi stało przy ilu m³.
+     3. Obsada vs przerób (wykres 5) — ilu ludzi stało przy ilu m3.
 
    Badge „Trwa nauka" wisi na (1) i (3). Na (2) go NIE MA i to jest świadome:
    ten wykres JEST miernikiem nauki, więc oznaczanie go byłoby błędnym kołem.
@@ -64,8 +64,8 @@
         </p>
 
         {# Każdy kafelek ma JEDNOSTKĘ w podpisie i DEFINICJĘ w title — wzorem
-           widgetu „Kto ile zrobił na stanowisku". Bez tego kafelek „m³" (praca
-           Z PODPISEM) stał obok kafelka „m³ przerobu" z widgetu obsady (CAŁA
+           widgetu „Kto ile zrobił na stanowisku". Bez tego kafelek „m3" (praca
+           Z PODPISEM) stał obok kafelka „m3 przerobu" z widgetu obsady (CAŁA
            hala) i wyglądało to jak rozjazd 10-krotny, choć obie liczby są
            poprawne i opisują co innego. #}
         <div class="wo-summary" id="wo-summary" style="display: none;">
@@ -77,7 +77,17 @@
             <div class="wo-stat"
                  title="Objętość pracy Z PODPISEM — podzbiór przerobu całej hali. Przerób hali pokazuje widget „Obsada vs przerób" niżej; różnica to wiersz „Bez podpisu".">
                 <span class="wo-stat-value" id="wo-sum-m3">0</span>
-                <span class="wo-stat-label">m³ z podpisem</span>
+                <span class="wo-stat-label">m3 z podpisem</span>
+            </div>
+            <div class="wo-stat"
+                 title="Powierzchnia (długość × szerokość) pozycji OLEJOWANYCH zrobionych na Lakierni — praca Z PODPISEM.">
+                <span class="wo-stat-value" id="wo-sum-m2-oiled">0</span>
+                <span class="wo-stat-label">m2 olejowane, Lakiernia (z podpisem)</span>
+            </div>
+            <div class="wo-stat"
+                 title="Powierzchnia (długość × szerokość) pozycji LAKIEROWANYCH zrobionych na Lakierni — praca Z PODPISEM.">
+                <span class="wo-stat-value" id="wo-sum-m2-lacquered">0</span>
+                <span class="wo-stat-label">m2 lakierowane, Lakiernia (z podpisem)</span>
             </div>
             <div class="wo-stat"
                  title="Suma kolumny „Godziny" z tabeli niżej — z aktywnym filtrem stanowiska. Obejmuje też ludzi bez ani jednej atrybucji, jeśli mieli sesję.">
@@ -100,11 +110,11 @@
             </div>
             {# Ten sam podpis i ten sam tooltip co w widgecie „Kto ile zrobił
                na stanowisku": mianownikiem jest suma ABS(delta) na EVENCIE,
-               więc to udział RUCHU W SZTUKACH — nie udział m³ i nie netto.
+               więc to udział RUCHU W SZTUKACH — nie udział m3 i nie netto.
                Bez tego czytelnik dzielił kafelki obok i wychodziły mu inne
-               procenty (25,4% vs 28,4% z m³ vs 23,0% ze sztuk). #}
+               procenty (25,4% vs 28,4% z m3 vs 23,0% ze sztuk). #}
             <div class="wo-stat" id="wo-coverage-box"
-                 title="Ile RUCHU (suma wartości bezwzględnych delt na poziomie zdarzenia) ma podpis pracownika. To NIE jest udział m³ ani wynik dzielenia kafelków obok — cofnięcia liczą się tu tak samo jak dorobki.">
+                 title="Ile RUCHU (suma wartości bezwzględnych delt na poziomie zdarzenia) ma podpis pracownika. To NIE jest udział m3 ani wynik dzielenia kafelków obok — cofnięcia liczą się tu tak samo jak dorobki.">
                 <span class="wo-stat-value" id="wo-coverage">—</span>
                 <span class="wo-stat-label">% ruchu (szt.) z podpisem</span>
             </div>
@@ -129,9 +139,10 @@
                             <th class="text-end" title="Praca zespołowa dzieli się po równo: dwie osoby przy 10 sztukach mają po 5. Stąd wartości ułamkowe.">
                                 Wkład (szt.) <i class="fas fa-circle-info wo-info-ikona"></i>
                             </th>
-                            <th class="text-end">m³</th>
+                            <th class="text-end">m3</th>
+                            <th class="text-end" title="Powierzchnia zrobiona na Lakierni: olejowane / lakierowane.">m2 Lakiernia (olej. / lak.)</th>
                             <th class="text-end">Godziny</th>
-                            <th class="text-end" id="wo-col-pace">Tempo (m³/h)</th>
+                            <th class="text-end" id="wo-col-pace">Tempo (m3/h)</th>
                         </tr>
                     </thead>
                     <tbody id="wo-totals-body"></tbody>
@@ -153,7 +164,8 @@
                             <th>Pracownik</th>
                             <th>Stanowisko</th>
                             <th class="text-end">Wkład (szt.)</th>
-                            <th class="text-end">m³</th>
+                            <th class="text-end">m3</th>
+                            <th class="text-end" title="Tylko wiersze Lakierni: olejowane / lakierowane.">m2 (olej. / lak.)</th>
                         </tr>
                     </thead>
                     <tbody id="wo-rows-body"></tbody>
@@ -221,8 +233,8 @@
      Wykres 5: obsada vs przerób
      GET /production/api/reports/staffing-vs-output
 
-     Dwa słupki na stanowisko: osobogodziny (z sesji) i m³ (z eventów). Iloraz
-     m³/h NIE jest osobnym słupkiem i to jest decyzja, nie przeoczenie —
+     Dwa słupki na stanowisko: osobogodziny (z sesji) i m3 (z eventów). Iloraz
+     m3/h NIE jest osobnym słupkiem i to jest decyzja, nie przeoczenie —
      narysowany jako długość zapraszałby do rankingu stanowisk, a te liczby są
      nieporównywalne (spakowanie metra trwa minuty, sklejenie godziny). Dlatego
      jedzie w podpisie osi i w tooltipie, czyli tam, gdzie czyta się go per
@@ -260,7 +272,7 @@
             </div>
             <div class="wo-stat">
                 <span class="wo-stat-value" id="sv-sum-m3">0</span>
-                <span class="wo-stat-label">m³ przerobu</span>
+                <span class="wo-stat-label">m3 przerobu</span>
             </div>
             <div class="wo-stat">
                 <span class="wo-stat-value" id="sv-sum-pieces">0</span>
@@ -447,6 +459,13 @@ const WO_ROZMIAR_STRONY = 15;
 let woWiersze = [];
 let woStrona = 1;
 
+// m2 Lakierni jako „olejowane / lakierowane"; „—" gdy brak powierzchni
+// (inne stanowisko albo zero), żeby tabela nie roiła się od zer.
+function woM2(m2) {
+    if (!m2 || (!m2.oiled && !m2.lacquered)) return '—';
+    return `${m2.oiled.toFixed(2)} / ${m2.lacquered.toFixed(2)}`;
+}
+
 function woRenderujStrone() {
     const tbody = el('wo-rows-body');
     const paginacja = el('wo-pagination');
@@ -467,6 +486,7 @@ function woRenderujStrone() {
             <td>${escapeHtml(w.station_label)}</td>
             <td class="text-end">${w.pieces}</td>
             <td class="text-end">${w.m3}</td>
+            <td class="text-end">${woM2(w.m2)}</td>
         </tr>`).join('');
 
     if (!paginacja) return;
@@ -584,6 +604,8 @@ function woRender(raport) {
 
     el('wo-sum-pieces').textContent = p.pieces;
     el('wo-sum-m3').textContent = p.m3;
+    el('wo-sum-m2-oiled').textContent = p.painting_m2.oiled.toFixed(2);
+    el('wo-sum-m2-lacquered').textContent = p.painting_m2.lacquered.toFixed(2);
     el('wo-sum-hours').textContent = p.hours;
     el('wo-sum-hours-all').textContent = p.session_hours_all;
     el('wo-sum-workers').textContent = p.workers_count;
@@ -610,6 +632,7 @@ function woRender(raport) {
             <td class="wo-muted">${escapeHtml(w.stations.join(', '))}</td>
             <td class="text-end">${w.pieces}</td>
             <td class="text-end">${w.m3}</td>
+            <td class="text-end">${woM2(w.painting_m2)}</td>
             <td class="text-end">${woGodziny(w)}</td>
             <td class="text-end">${w.pace_m3_per_hour === null ? '—' : w.pace_m3_per_hour}</td>
         </tr>`).join('');
@@ -623,6 +646,7 @@ function woRender(raport) {
                 <td class="wo-muted">praca bez wybranego profilu</td>
                 <td class="text-end">${p.unassigned_pieces}</td>
                 <td class="text-end">${p.unassigned_m3}</td>
+                <td class="text-end">${woM2(p.unassigned_painting_m2)}</td>
                 <td class="text-end">—</td>
                 <td class="text-end">—</td>
             </tr>`);
@@ -667,7 +691,7 @@ function woNotatka(raport) {
     const p = raport.summary;
     const czesci = [escapeHtml(`${raport.start_date} – ${raport.end_date}`)];
 
-    // To samo ostrzeżenie, które niosą sv-note i sw-note. m³ nie są
+    // To samo ostrzeżenie, które niosą sv-note i sw-note. m3 nie są
     // porównywalne między stanowiskami, a tabela domyślnie miesza wszystkie.
     czesci.push('tempo porównuj wyłącznie w obrębie JEDNEGO stanowiska — '
         + 'spakowanie metra trwa minuty, sklejenie godziny');
@@ -896,7 +920,7 @@ function initCoverageWidget() {
 // GET /production/api/reports/staffing-vs-output
 //
 // Dwa słupki na stanowisko i DWIE osie, bo to dwie różne jednostki. Iloraz
-// m³/h jedzie w podpisie osi X i w tooltipie, a nie jako trzeci słupek —
+// m3/h jedzie w podpisie osi X i w tooltipie, a nie jako trzeci słupek —
 // patrz komentarz przy markupie widgetu.
 // ════════════════════════════════════════════════════════════════════
 let svZakres = null;
@@ -967,7 +991,7 @@ function svRender(dane) {
 
 function svNotatka(dane, wiersze) {
     ustawHtml('sv-note', escapeHtml(`${dane.start_date} – ${dane.end_date}`)
-        + ' · m³ na osobogodzinę czytaj dla JEDNEGO stanowiska w czasie, nigdy '
+        + ' · m3 na osobogodzinę czytaj dla JEDNEGO stanowiska w czasie, nigdy '
         + 'między stanowiskami — spakowanie metra trwa minuty, sklejenie godziny.');
 
     const p = dane.summary;
@@ -996,7 +1020,7 @@ function svNotatka(dane, wiersze) {
     }
 
     // Stanowisko spoza rejestru eventów (trakownia): sesja tam bywa, ale
-    // prod_station_events tego kodu nie zna, więc „8 h / 0 m³" nie znaczy nic.
+    // prod_station_events tego kodu nie zna, więc „8 h / 0 m3" nie znaczy nic.
     const pozaRejestrem = wiersze
         .filter(w => !w.in_pipeline && w.person_minutes)
         .map(w => w.station_label);
@@ -1008,7 +1032,7 @@ function svNotatka(dane, wiersze) {
 
     // Stan POŚREDNI, którego żadne z ostrzeżeń wyżej nie łapało: stanowisko MA
     // i godziny, i przerób, ale sesje pokrywają tylko część dób zakresu.
-    // Tempo takiego wiersza liczy się z tych kilku dób, a słupek m³ z całego
+    // Tempo takiego wiersza liczy się z tych kilku dób, a słupek m3 z całego
     // zakresu — bez tego zdania czytelnik zestawia dwie różne skale.
     const czesciowe = wiersze
         .filter(w => w.m3_per_person_hour !== null
@@ -1017,7 +1041,7 @@ function svNotatka(dane, wiersze) {
     if (czesciowe.length) {
         ostrzezenia.push('Tempo z części zakresu: '
             + `${escapeHtml(czesciowe.join(', '))} — sesje są tylko w niektórych `
-            + 'dobach, więc m³/h liczy się WYŁĄCZNIE z nich. Słupek m³ obok '
+            + 'dobach, więc m3/h liczy się WYŁĄCZNIE z nich. Słupek m3 obok '
             + 'pokazuje cały zakres i tych dwóch liczb nie wolno dzielić.');
     }
 
@@ -1048,8 +1072,8 @@ function svRysuj(wiersze) {
     const KOLOR_GODZIN = '#2563eb';
     const KOLOR_M3 = '#16a34a';
 
-    // Liczba miejsc po przecinku na osi m³ zależy od skali zakresu: przy dniu,
-    // w którym pracowała sama lakiernia (max 0.37 m³), jedno miejsce dawało
+    // Liczba miejsc po przecinku na osi m3 zależy od skali zakresu: przy dniu,
+    // w którym pracowała sama lakiernia (max 0.37 m3), jedno miejsce dawało
     // „0.1, 0.1, 0.2, 0.2" — dwie różne kreski z tą samą etykietą.
     const maxM3 = Math.max(0, ...wiersze.map(w => w.m3 || 0));
     const miejscM3 = maxM3 && maxM3 < 1 ? 2 : 1;
@@ -1063,7 +1087,7 @@ function svRysuj(wiersze) {
             ? (w.in_pipeline ? 'brak sesji' : 'poza rejestrem')
             // Gdy sesje pokrywają tylko część dób, liczba pochodzi WYŁĄCZNIE
             // z nich — i musi to być widać w tym samym miejscu, w którym stoi.
-            : `${liczba(w.m3_per_person_hour, 3)} m³/h`
+            : `${liczba(w.m3_per_person_hour, 3)} m3/h`
               + (w.days_with_sessions < w.days_in_range
                  ? ` (z ${w.days_with_sessions}/${w.days_in_range} dni)` : ''),
     ]);
@@ -1085,7 +1109,7 @@ function svRysuj(wiersze) {
                     yAxisID: 'y',
                 },
                 {
-                    label: 'Przerób (m³)',
+                    label: 'Przerób (m3)',
                     data: wiersze.map(w => w.m3),
                     backgroundColor: KOLOR_M3,
                     borderWidth: 0,
@@ -1112,17 +1136,22 @@ function svRysuj(wiersze) {
                             const w = wiersze[ctx.dataIndex] || {};
                             return ctx.datasetIndex === 0
                                 ? `Osobogodziny: ${liczba(w.person_minutes / 60, 1)} h`
-                                : `Przerób: ${liczba(w.m3, 3)} m³ · ${w.pieces} szt.`;
+                                : `Przerób: ${liczba(w.m3, 3)} m3 · ${w.pieces} szt.`;
                         },
                         afterBody: (items) => {
                             const w = wiersze[items[0]?.dataIndex ?? 0] || {};
                             const linie = [];
+                            // Lakiernia: m2 olejowane / lakierowane obok m3.
+                            if (w.m2) {
+                                linie.push(`m2 olejowane: ${liczba(w.m2.oiled, 2)}`);
+                                linie.push(`m2 lakierowane: ${liczba(w.m2.lacquered, 2)}`);
+                            }
                             if (w.m3_per_person_hour !== null) {
-                                linie.push(`Tempo: ${liczba(w.m3_per_person_hour, 3)} m³/h`);
+                                linie.push(`Tempo: ${liczba(w.m3_per_person_hour, 3)} m3/h`);
                                 if (w.days_with_sessions < w.days_in_range) {
                                     linie.push(`Liczone z ${w.days_with_sessions} `
                                         + `z ${w.days_in_range} dni zakresu `
-                                        + `(${liczba(w.m3_in_session_days, 3)} m³ `
+                                        + `(${liczba(w.m3_in_session_days, 3)} m3 `
                                         + 'w tych dobach)');
                                 }
                             } else if (!w.in_pipeline) {
@@ -1165,7 +1194,7 @@ function svRysuj(wiersze) {
                     type: 'linear',
                     position: 'right',
                     beginAtZero: true,
-                    title: { display: true, text: 'm³', font: { size: 10 },
+                    title: { display: true, text: 'm3', font: { size: 10 },
                              color: KOLOR_M3 },
                     ticks: { font: { size: 10 }, color: KOLOR_M3,
                              callback: (v) => v.toFixed(miejscM3) },

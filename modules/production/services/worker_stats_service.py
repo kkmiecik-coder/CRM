@@ -29,7 +29,7 @@ a SQLite (na którym chodzą testy).
 
 from datetime import datetime, timedelta
 
-from sqlalchemy import func
+from sqlalchemy import case, func
 
 from extensions import db
 from modules.logging import get_structured_logger
@@ -82,6 +82,37 @@ def _zaokraglij(wartosc, miejsca=1):
 MIEJSC_WKLADU = 2
 
 
+# ── Powierzchnia (m2) lakierni ──────────────────────────────────────────────
+# Lakiernia obrabia tylko pozycje olejowane i lakierowane, a jej robotę mierzy
+# się też w m2 powierzchni (nie tylko w m3 objętości). Powierzchnia jednej
+# sztuki to długość × szerokość z nazwy produktu — sprawdzone na wrześniu 2026
+# na produkcji: zgadza się co do grosza z objętość / grubość.
+STANOWISKO_LAKIERNI = 'painting'
+WYKONCZENIA_LAKIERNI = ('olejowane', 'lakierowane')
+
+
+def m2_wg_wykonczenia(ilosc):
+    """
+    Dwie sumy SQL: m2 olejowanych i m2 lakierowanych.
+
+    `ilosc` to wyrażenie mnożące powierzchnię jednej sztuki (np. delta zdarzenia
+    albo quantity pozycji). Zapytanie musi zawierać ProductionProduct.
+    """
+    powierzchnia = (func.coalesce(ProductionProduct.parsed_length_cm, 0)
+                    * func.coalesce(ProductionProduct.parsed_width_cm, 0)
+                    / 10000.0) * ilosc
+    return tuple(
+        func.coalesce(func.sum(case(
+            (ProductionProduct.parsed_finish_type == typ, powierzchnia),
+            else_=0)), 0)
+        for typ in WYKONCZENIA_LAKIERNI)
+
+
+def para_m2(olejowane, lakierowane):
+    """Para m2 do JSON-a: {'oiled': …, 'lacquered': …} zaokrąglona do 0.01."""
+    return {'oiled': _zaokraglij(olejowane, 2), 'lacquered': _zaokraglij(lakierowane, 2)}
+
+
 def zaokr_wklad(wartosc):
     """Zaokrąglenie wkładu w sztukach — jedno dla wszystkich widgetów."""
     return _zaokraglij(wartosc, MIEJSC_WKLADU)
@@ -123,7 +154,7 @@ def minuty_sesji(sesja, teraz, cutoff, idle_minut=None):
     długości zależnie od tego, czy cron zdążył ją domknąć. Zmierzone
     2026-08-12 o 11:31: sesja 12 (pakowanie, Owsiany, start 06:16:57, ostatnia
     aktywność 08:33:18) liczyła się na 314 min, a cron domknąłby ją na
-    10:33:18, czyli 256 min — kafelek „osobogodzin" i tempo m³/h kurczyły się
+    10:33:18, czyli 256 min — kafelek „osobogodzin" i tempo m3/h kurczyły się
     WSTECZ po każdym przebiegu crona. Że ścieżka zapisu tak właśnie liczy,
     widać w danych: sesja 5 ma ended_at dokładnie 120 minut po last_activity_at.
 
@@ -133,7 +164,7 @@ def minuty_sesji(sesja, teraz, cutoff, idle_minut=None):
 
       • sesja rozpoczęta PO cutoffie swojej doby miała granicę WCZEŚNIEJ niż
         własny start, więc wychodziło ZERO minut. Cała zmiana takiego
-        pracownika znikała z raportu, a tempo m³/h dzieliło przez zero;
+        pracownika znikała z raportu, a tempo m3/h dzieliło przez zero;
       • sesja domknięta, która przekroczyła cutoff (22:55 → 00:55) albo miała
         koniec późniejszy niż moment liczenia raportu, gubiła przepracowane
         minuty — z dwóch godzin robiło się pięć minut.
@@ -176,6 +207,8 @@ def wydajnosc_pracownikow(start_date, end_date, station=None, worker_id=None):
         func.sum(ProductionStationEvent.delta * ProductionStationEventWorker.share),
         func.sum(func.coalesce(ProductionProduct.volume_m3, 0)
                  * ProductionStationEvent.delta * ProductionStationEventWorker.share),
+        *m2_wg_wykonczenia(ProductionStationEvent.delta
+                           * ProductionStationEventWorker.share),
     ).join(
         ProductionStationEvent,
         ProductionStationEvent.id == ProductionStationEventWorker.event_id,
@@ -205,8 +238,8 @@ def wydajnosc_pracownikow(start_date, end_date, station=None, worker_id=None):
     )
 
     wiersze = []
-    for wid, imie, nazwisko, dzien, kod, sztuki, metry in zapytanie.all():
-        wiersze.append({
+    for wid, imie, nazwisko, dzien, kod, sztuki, metry, m2_olej, m2_lakier in zapytanie.all():
+        wiersz = {
             'worker_id': wid,
             'worker_name': f'{imie} {nazwisko}'.strip(),
             'work_date': str(dzien)[:10],
@@ -214,7 +247,11 @@ def wydajnosc_pracownikow(start_date, end_date, station=None, worker_id=None):
             'station_label': station_label(kod),
             'pieces': zaokr_wklad(sztuki),
             'm3': _zaokraglij(metry, 3),
-        })
+        }
+        # m2 (olejowane / lakierowane) tylko w wierszach Lakierni.
+        if kod == STANOWISKO_LAKIERNI:
+            wiersz['m2'] = para_m2(m2_olej, m2_lakier)
+        wiersze.append(wiersz)
 
     wiersze.sort(key=lambda w: (w['work_date'], w['worker_name'], w['station_label']),
                  reverse=False)
@@ -237,6 +274,7 @@ def praca_nieprzypisana(start_date, end_date, station=None):
         func.sum(ProductionStationEvent.delta),
         func.sum(func.coalesce(ProductionProduct.volume_m3, 0)
                  * ProductionStationEvent.delta),
+        *m2_wg_wykonczenia(ProductionStationEvent.delta),
     ).outerjoin(
         ProductionStationEventWorker,
         ProductionStationEventWorker.event_id == ProductionStationEvent.id,
@@ -258,16 +296,19 @@ def praca_nieprzypisana(start_date, end_date, station=None):
         ProductionStationEvent.station_code,
     )
 
-    return [
-        {
+    wiersze = []
+    for dzien, kod, sztuki, metry, m2_olej, m2_lakier in zapytanie.all():
+        wiersz = {
             'work_date': str(dzien)[:10],
             'station_code': kod,
             'station_label': station_label(kod),
             'pieces': zaokr_wklad(sztuki),
             'm3': _zaokraglij(metry, 3),
         }
-        for dzien, kod, sztuki, metry in zapytanie.all()
-    ]
+        if kod == STANOWISKO_LAKIERNI:
+            wiersz['m2'] = para_m2(m2_olej, m2_lakier)
+        wiersze.append(wiersz)
+    return wiersze
 
 
 def czas_pracy(start_date, end_date, worker_id=None, station=None):
@@ -275,7 +316,7 @@ def czas_pracy(start_date, end_date, worker_id=None, station=None):
     {(worker_id, 'YYYY-MM-DD'): minuty} z sesji pracy.
 
     `station` MUSI być przekazywane razem z filtrem stanowiska na wydajności —
-    inaczej licznik (m³ z jednego stanowiska) dzieli się przez mianownik (czas
+    inaczej licznik (m3 z jednego stanowiska) dzieli się przez mianownik (czas
     ze wszystkich), co zaniża tempo tym, którzy pracują na kilku stanowiskach.
 
     Sesja otwarta liczy się do teraz, ale NIE dłużej niż do nocnego cutoffu
@@ -468,9 +509,9 @@ def raport_wydajnosci(start_date, end_date, station=None, worker_id=None):
     Komplet danych do raportu: wiersze, sumy per pracownik, sumy dzienne,
     praca nieprzypisana i podsumowanie okresu.
 
-    Tempo = m³ / (minuty / 60). Liczymy je tylko tam, gdzie pracownik ma
+    Tempo = m3 / (minuty / 60). Liczymy je tylko tam, gdzie pracownik ma
     JAKĄKOLWIEK atrybucję: bez sesji tempo byłoby dzieleniem przez zero,
-    a bez atrybucji — dzieleniem zera, czyli „0 m³/h" postawionym przy
+    a bez atrybucji — dzieleniem zera, czyli „0 m3/h" postawionym przy
     nazwisku człowieka, o którym raport nic nie wie.
     """
     wiersze = wydajnosc_pracownikow(start_date, end_date, station, worker_id)
@@ -485,13 +526,17 @@ def raport_wydajnosci(start_date, end_date, station=None, worker_id=None):
             'worker_id': w['worker_id'],
             'worker_name': w['worker_name'],
             'pieces': 0.0, 'm3': 0.0, 'minutes': 0, 'stations': set(),
+            'm2_olej': 0.0, 'm2_lakier': 0.0,
         })
         wpis['pieces'] += w['pieces']
         wpis['m3'] += w['m3']
         wpis['stations'].add(w['station_label'])
+        if 'm2' in w:
+            wpis['m2_olej'] += w['m2']['oiled']
+            wpis['m2_lakier'] += w['m2']['lacquered']
 
     # Pracownicy, którzy MIELI SESJĘ, ale nie odbili ani jednej sztuki, też
-    # muszą się pojawić — wiersz "8,0 h / 0 m³ / tempo —" sam rzuca się w oczy
+    # muszą się pojawić — wiersz "8,0 h / 0 m3 / tempo —" sam rzuca się w oczy
     # i jest jedyną odpowiedzią na pytanie "czy ktoś stoi bezczynnie".
     # Wcześniej tabela powstawała wyłącznie z atrybucji, więc taka osoba
     # znikała, a jej godziny zostawały tylko w sumie zbiorczej.
@@ -503,6 +548,7 @@ def raport_wydajnosci(start_date, end_date, station=None, worker_id=None):
                 'worker_id': pracownik.id,
                 'worker_name': pracownik.full_name,
                 'pieces': 0.0, 'm3': 0.0, 'minutes': 0, 'stations': set(),
+                'm2_olej': 0.0, 'm2_lakier': 0.0,
             }
 
     for (wid, _dzien), minut in minuty.items():
@@ -524,15 +570,18 @@ def raport_wydajnosci(start_date, end_date, station=None, worker_id=None):
             'worker_name': wpis['worker_name'],
             'pieces': zaokr_wklad(wpis['pieces']),
             'm3': _zaokraglij(wpis['m3'], 3),
+            # m2 zrobione na Lakierni (olejowane / lakierowane); na innych
+            # stanowiskach powierzchni się nie liczy, więc to samo zero.
+            'painting_m2': para_m2(wpis['m2_olej'], wpis['m2_lakier']),
             'minutes': wpis['minutes'],
             'hours': _zaokraglij(godziny, 1),
             'stations': sorted(wpis['stations']),
             # Bramka na atrybucji, nie tylko na godzinach. Sama bramka `if
             # godziny` chroniła przed dzieleniem PRZEZ zero, ale nie przed
             # dzieleniem ZERA: Józef Pustelnik (87 min sesji, ani jednej
-            # atrybucji) dostawał „tempo 0.0 m³/h", czyli zarzut bezczynności
+            # atrybucji) dostawał „tempo 0.0 m3/h", czyli zarzut bezczynności
             # postawiony na podstawie braku danych. Docstring obok obiecuje
-            # dla takiego wiersza „8,0 h / 0 m³ / tempo —" i to jest ta obietnica.
+            # dla takiego wiersza „8,0 h / 0 m3 / tempo —" i to jest ta obietnica.
             'pace_m3_per_hour': (_zaokraglij(wpis['m3'] / godziny, 3)
                                  if godziny and ma_atrybucje else None),
             'has_attribution': ma_atrybucje,
@@ -540,8 +589,8 @@ def raport_wydajnosci(start_date, end_date, station=None, worker_id=None):
             # oglądania — front oznacza go gwiazdką zamiast udawać pomiar.
             'open_sessions': otwarte.get(wpis['worker_id'], 0),
         })
-    # Sortowanie po NAZWISKU, nie po m³. Sortowanie malejąco po objętości robi
-    # z tej tabeli ranking wydajności, a m³ nie są porównywalne między
+    # Sortowanie po NAZWISKU, nie po m3. Sortowanie malejąco po objętości robi
+    # z tej tabeli ranking wydajności, a m3 nie są porównywalne między
     # stanowiskami: spakowanie metra sześciennego trwa minuty, sklejenie —
     # godziny. Na górze zawsze lądowałby pakowacz, niezależnie od tego, kto
     # naprawdę się narobił. Kto chce rankingu, filtruje po stanowisku.
@@ -552,14 +601,20 @@ def raport_wydajnosci(start_date, end_date, station=None, worker_id=None):
     for zrodlo in (wiersze, nieprzypisane):
         for w in zrodlo:
             wpis = per_dzien.setdefault(w['work_date'], {
-                'work_date': w['work_date'], 'pieces': 0.0, 'm3': 0.0})
+                'work_date': w['work_date'], 'pieces': 0.0, 'm3': 0.0,
+                'm2_olej': 0.0, 'm2_lakier': 0.0})
             wpis['pieces'] += w['pieces']
             wpis['m3'] += w['m3']
+            if 'm2' in w:
+                wpis['m2_olej'] += w['m2']['oiled']
+                wpis['m2_lakier'] += w['m2']['lacquered']
 
     podsumowanie_dzienne = sorted(
         ({'work_date': w['work_date'],
           'pieces': zaokr_wklad(w['pieces']),
-          'm3': _zaokraglij(w['m3'], 3)} for w in per_dzien.values()),
+          'm3': _zaokraglij(w['m3'], 3),
+          'painting_m2': para_m2(w['m2_olej'], w['m2_lakier'])}
+         for w in per_dzien.values()),
         key=lambda w: w['work_date'])
 
     sztuki_nieprzypisane = sum(w['pieces'] for w in nieprzypisane)
@@ -624,6 +679,13 @@ def raport_wydajnosci(start_date, end_date, station=None, worker_id=None):
             'station_events': liczba_eventow_pracy(start_date, end_date, station),
             'unassigned_pieces': zaokr_wklad(sztuki_nieprzypisane),
             'unassigned_m3': _zaokraglij(sum(w['m3'] for w in nieprzypisane), 3),
+            # m2 Lakierni: z podpisem (wiersze) i bez (nieprzypisane).
+            'painting_m2': para_m2(
+                sum(w['m2']['oiled'] for w in wiersze if 'm2' in w),
+                sum(w['m2']['lacquered'] for w in wiersze if 'm2' in w)),
+            'unassigned_painting_m2': para_m2(
+                sum(w['m2']['oiled'] for w in nieprzypisane if 'm2' in w),
+                sum(w['m2']['lacquered'] for w in nieprzypisane if 'm2' in w)),
             # Ile produkcji w tym okresie wiadomo komu przypisać. Ten jeden
             # procent mówi, na ile raportowi w ogóle można ufać.
             #

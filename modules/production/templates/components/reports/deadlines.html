@@ -59,7 +59,7 @@
                         <th>Termin</th>
                         <th>Dni</th>
                         <th>Szt.</th>
-                        <th>m³</th>
+                        <th>m3</th>
                     </tr>
                 </thead>
                 <tbody id="dp-table-body"></tbody>
@@ -229,7 +229,7 @@ let dpTylkoPilne = false;
 // Suma koszyka. Gdy widać KOMPLET serii, bierzemy ją gotową z backendu
 // (totals.m3), a nie z dodawania słupków: serwer sumuje surowe objętości
 // i zaokrągla RAZ, my dodawalibyśmy osiem liczb już zaokrąglonych. Zmierzone na
-// kopii produkcyjnej: koszyk „8+ dni" to 5.215 m³ z totals i 5.214 m³ z dodawania
+// kopii produkcyjnej: koszyk „8+ dni" to 5.215 m3 z totals i 5.214 m3 z dodawania
 // słupków. Dwie różne liczby na jednym wykresie to dokładnie ta klasa błędu,
 // którą raport ma likwidować, a nie produkować.
 // Po ukryciu serii w legendzie pytanie się zmienia („ile bez lakierni") i wtedy
@@ -242,7 +242,7 @@ function dpSumaKoszyka(chart, idx, zBackendu) {
 }
 
 // Podpis nad każdym słupkiem. Bez tego stos trzeba czytać z osi, a różnica
-// między 0.104 a 0.999 m³ jest na oku nie do odczytania.
+// między 0.104 a 0.999 m3 jest na oku nie do odczytania.
 const dpWtyczkaSum = {
     id: 'dpSumyNadSlupkami',
     afterDatasetsDraw(chart, args, opcje) {
@@ -323,7 +323,7 @@ function renderDeadlineProgress() {
     if (nota) {
         const czesci = [
             `Stan na <strong>${escapeHtml(dpDane.as_of || '—')}</strong>`,
-            `${dpDane.totals.items_total} poz. / ${m3(dpDane.totals.m3_total)} m³ w toku`,
+            `${dpDane.totals.items_total} poz. / ${m3(dpDane.totals.m3_total)} m3 w toku`,
             'pozycje spakowane i anulowane nie są liczone',
         ];
         let html = czesci.join(' · ') + '.';
@@ -413,14 +413,14 @@ function dpRysuj(canvas, etykiety, serie, ileKoszykow) {
                         label: (ctx) => {
                             const poz = ctx.dataset.dpPozycje?.[ctx.dataIndex] ?? 0;
                             const szt = ctx.dataset.dpSztuki?.[ctx.dataIndex] ?? 0;
-                            return `${ctx.dataset.label}: ${m3(ctx.parsed.y)} m³ · ${poz} poz. / ${szt} szt.`;
+                            return `${ctx.dataset.label}: ${m3(ctx.parsed.y)} m3 · ${poz} poz. / ${szt} szt.`;
                         },
                         footer: (items) => {
                             if (!items.length) return '';
                             // Ta sama funkcja co podpis nad słupkiem — tooltip
                             // i etykieta nie mają prawa podać innej liczby.
                             const suma = dpSumaKoszyka(items[0].chart, items[0].dataIndex, sumyKoszykow);
-                            return `Razem w koszyku: ${m3(suma)} m³`;
+                            return `Razem w koszyku: ${m3(suma)} m3`;
                         },
                     },
                 },
@@ -430,7 +430,7 @@ function dpRysuj(canvas, etykiety, serie, ileKoszykow) {
                 y: {
                     stacked: true,
                     beginAtZero: true,
-                    title: { display: true, text: 'm³ w toku', font: { size: 10 } },
+                    title: { display: true, text: 'm3 w toku', font: { size: 10 } },
                     ticks: { font: { size: 10 }, callback: v => v.toFixed(2) },
                     grid: { color: 'rgba(0,0,0,0.05)' },
                 },
@@ -475,7 +475,7 @@ function dpRenderBreadcrumb(kodKoszyka, kodStanowiska) {
         czesci.push('<span>›</span>');
         czesci.push(`<span>${escapeHtml(dpEtykietaSegmentu(kodStanowiska))}</span>`);
     }
-    czesci.push(`<span>· ${dpPozycje.length} poz. / ${m3(sumaM3)} m³</span>`);
+    czesci.push(`<span>· ${dpPozycje.length} poz. / ${m3(sumaM3)} m3</span>`);
     if (kodStanowiska) {
         czesci.push('<button type="button" data-act="koszyk">cały koszyk</button>');
     }
@@ -673,13 +673,13 @@ function renderFlowInOut(dane) {
         const czesci = [
             `${escapeHtml(dane.start_date)} – ${escapeHtml(dane.end_date)}`,
             tygodniowo ? 'słupki tygodniowe (data = poniedziałek)' : 'słupki dzienne',
-            `weszło ${m3(dane.total_in_m3)} m³, wyszło ${m3(dane.total_out_m3)} m³`,
-            `dryf ${dryf >= 0 ? '+' : ''}${m3(dryf)} m³`,
+            `weszło ${m3(dane.total_in_m3)} m3, wyszło ${m3(dane.total_out_m3)} m3`,
+            `dryf ${dryf >= 0 ? '+' : ''}${m3(dryf)} m3`,
         ];
         let html = czesci.join(' · ') + '.';
         html += ' Linia kumulacji startuje od zera w pierwszym dniu zakresu, więc mierzy'
              + ' <strong>dryf w oknie</strong> („weszło o tyle więcej, niż wyszło”), a nie to,'
-             + ' ile m³ leży dziś w hali. Oś jest 7-dniowa — zamówienia wpadają też w weekend,'
+             + ' ile m3 leży dziś w hali. Oś jest 7-dniowa — zamówienia wpadają też w weekend,'
              + ' choć hala wtedy nie pracuje. Wyjście liczy wyłącznie pracę ludzi na pakowaniu'
              + ' (pominięcia automatyczne nie wchodzą).';
         if (dane.range_trimmed) {
@@ -720,7 +720,7 @@ function renderFlowInOut(dane) {
 
 function fioRysuj(canvas, dni, tygodniowo) {
     const etykiety = dni.map(d => fioEtykieta(d.date));
-    const jednostka = tygodniowo ? 'm³ / tydzień' : 'm³ / dzień';
+    const jednostka = tygodniowo ? 'm3 / tydzień' : 'm3 / dzień';
 
     zniszczWykres(canvas);
     new Chart(canvas.getContext('2d'), {
@@ -743,8 +743,8 @@ function fioRysuj(canvas, dni, tygodniowo) {
                     order: 2,
                 },
                 {
-                    // Kumulacja ma własną oś: chodzi o ±kilka m³ przy słupkach
-                    // rzędu 1-2 m³, więc na wspólnej osi albo znika, albo
+                    // Kumulacja ma własną oś: chodzi o ±kilka m3 przy słupkach
+                    // rzędu 1-2 m3, więc na wspólnej osi albo znika, albo
                     // spłaszcza słupki do paska przy zerze.
                     type: 'line',
                     label: 'Kumulacja (dryf w oknie)',
@@ -779,7 +779,7 @@ function fioRysuj(canvas, dni, tygodniowo) {
                                 : data.toLocaleDateString('pl-PL', {
                                     weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' });
                         },
-                        label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y >= 0 && ctx.dataset.yAxisID === 'y1' ? '+' : ''}${m3(ctx.parsed.y)} m³`,
+                        label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y >= 0 && ctx.dataset.yAxisID === 'y1' ? '+' : ''}${m3(ctx.parsed.y)} m3`,
                     },
                 },
             },
@@ -797,7 +797,7 @@ function fioRysuj(canvas, dni, tygodniowo) {
                 },
                 y1: {
                     position: 'right',
-                    title: { display: true, text: 'Kumulacja m³', font: { size: 10 }, color: FIO_KOLOR_KUM },
+                    title: { display: true, text: 'Kumulacja m3', font: { size: 10 }, color: FIO_KOLOR_KUM },
                     ticks: { font: { size: 10 }, color: FIO_KOLOR_KUM, callback: v => v.toFixed(1) },
                     grid: { drawOnChartArea: false },
                 },

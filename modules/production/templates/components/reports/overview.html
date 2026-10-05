@@ -306,7 +306,7 @@ function rysujKolejki(dane) {
         if (s.reason === 'brak_przerobu') {
             klasa += ' ov-queue-warn';
             szerokosc = 100;
-            prawa = `kolejka ${m3(s.pending_m3)} m³, zero przerobu w oknie`;
+            prawa = `kolejka ${m3(s.pending_m3)} m3, zero przerobu w oknie`;
         } else if (s.reason === 'pusto') {
             klasa += ' ov-queue-idle';
             prawa = 'bez kolejki';
@@ -322,10 +322,10 @@ function rysujKolejki(dane) {
         // Dzielnik pod spodem zamiast liczby dób z pracą: „ile dób pracowało"
         // nie ma w kontrakcie tego endpointu, a wzięte z obsady byłoby z innego
         // okna (30 dni kalendarzowych vs 14 roboczych) i tworzyłoby rozjazd.
-        // Właściciel czyta „0.0740 m³/dzień" i sam widzi, że to strużka.
+        // Właściciel czyta „0.0740 m3/dzień" i sam widzi, że to strużka.
         const dzielnik = s.reason === 'pusto'
             ? ''
-            : `${m3(s.pending_m3)} m³ ÷ ${(Number(s.avg_daily_m3) || 0).toFixed(4)} m³/dzień`;
+            : `${m3(s.pending_m3)} m3 ÷ ${(Number(s.avg_daily_m3) || 0).toFixed(4)} m3/dzień`;
 
         return `<button type="button" class="${klasa}" data-station="${escapeHtml(s.station_code)}"
                         title="Otwórz Stanowiska nastawione na: ${escapeHtml(s.station_label)}">
@@ -407,13 +407,13 @@ function rysujTerminy(dane) {
         if (n === 0) klasa += ' ov-tile-zero';
         else if (k.alarm) klasa += ' ov-tile-warn';
         return `<button type="button" class="${klasa}">
-                    <span class="ov-tile-value">${n} poz. / ${m3(met(k.idx))} m³</span>
+                    <span class="ov-tile-value">${n} poz. / ${m3(met(k.idx))} m3</span>
                     <span class="ov-tile-label">${escapeHtml(k.etykieta)}</span>
                 </button>`;
     }).join('')
     + `<button type="button" class="ov-tile ov-tile-total"
-               title="Suma czterech koszyków: ${escapeHtml(skladniki)} = ${m3(sumaM3)} m³">
-           <span class="ov-tile-value">${sumaPoz} poz. / ${m3(sumaM3)} m³</span>
+               title="Suma czterech koszyków: ${escapeHtml(skladniki)} = ${m3(sumaM3)} m3">
+           <span class="ov-tile-value">${sumaPoz} poz. / ${m3(sumaM3)} m3</span>
            <span class="ov-tile-label">razem do 7 dni</span>
        </button>`;
 
@@ -429,7 +429,7 @@ function rysujTerminy(dane) {
     segmenty.innerHTML = udzialy.length
         ? '<span class="ov-seg-title">Przed czym stoi:</span>' + udzialy.map(s =>
             `<button type="button" class="ov-seg-item">${escapeHtml(s.label)}
-                 <strong>${s.items} / ${m3(s.m3)} m³</strong></button>`).join('')
+                 <strong>${s.items} / ${m3(s.m3)} m3</strong></button>`).join('')
         : '';
 
     root.querySelectorAll('#ov-terminy-kafelki .ov-tile, #ov-terminy-segmenty .ov-seg-item')
@@ -450,7 +450,7 @@ function rysujTerminy(dane) {
 // ELEMENT 4 — Praca po terminie
 //
 // Rozdzielenie „na produkcji" / „poza produkcją" jest OBOWIĄZKOWE. Bez niego
-// właściciel czyta „0.794 m³ po terminie na produkcji", co jest nieprawdą:
+// właściciel czyta „0.794 m3 po terminie na produkcji", co jest nieprawdą:
 // dziś cała ta objętość stoi w Logistyce (zamknięte zlecenie sprzed trzech
 // miesięcy), a nie na hali. Element ma realny wyłącznik — ktoś domyka zlecenie
 // i linia gaśnie.
@@ -489,11 +489,11 @@ function rysujPoTerminie(dane) {
     cialo.innerHTML =
         `<button type="button" class="ov-line ${prodPoz ? 'ov-line-alarm' : 'ov-line-ok'}">
              <span class="ov-line-label">na produkcji:</span>
-             <strong>${prodPoz} poz. / ${m3(prodM3)} m³</strong>
+             <strong>${prodPoz} poz. / ${m3(prodM3)} m3</strong>
          </button>`
       + `<button type="button" class="ov-line ov-line-neutral">
              <span class="ov-line-label">poza produkcją${escapeHtml(opisPoza)}:</span>
-             <strong>${pozaPoz} poz. / ${m3(pozaM3)} m³</strong>
+             <strong>${pozaPoz} poz. / ${m3(pozaM3)} m3</strong>
          </button>`;
 
     cialo.querySelectorAll('.ov-line')
@@ -512,7 +512,7 @@ function rysujPoTerminie(dane) {
 // ════════════════════════════════════════════════════════════════════
 // ELEMENT 5 — Kto jest teraz na hali
 //
-// Lista BEZ SORTOWANIA PO TEMPIE i bez rankingu. m³/h nie są porównywalne
+// Lista BEZ SORTOWANIA PO TEMPIE i bez rankingu. m3/h nie są porównywalne
 // między stanowiskami (spakowanie metra trwa minuty, sklejenie godziny), więc
 // każde sortowanie po dorobku byłoby rankingiem ludzi za wybór stanowiska.
 // Kolejność jest taka, jak z serwera: po godzinie rozpoczęcia sesji.
@@ -566,7 +566,7 @@ function rysujHale(sesje, obsada) {
       + `<button type="button" class="ov-tile"
                  title="Przerób wszystkich stanowisk dziś, netto eventów (bez auto_skip i system).">
              <span class="ov-tile-value">${m3(metry)}</span>
-             <span class="ov-tile-label">m³ przerobu dziś</span>
+             <span class="ov-tile-label">m3 przerobu dziś</span>
          </button>`;
 
     lista.innerHTML = otwarte.map((s) => {
@@ -577,7 +577,7 @@ function rysujHale(sesje, obsada) {
         return `<button type="button" class="ov-crew-row${s.idle_over_timeout ? ' ov-crew-warn' : ''}">
                     <span class="ov-crew-name">${escapeHtml(s.worker_name)}</span>
                     <span class="ov-crew-meta">${escapeHtml(s.station_label)} · od ${escapeHtml(odKiedy)} ${bezczynny}</span>
-                    <span class="ov-crew-out">${(Number(s.pieces) || 0).toFixed(0)} szt. / ${m3(s.m3)} m³ w tej sesji</span>
+                    <span class="ov-crew-out">${(Number(s.pieces) || 0).toFixed(0)} szt. / ${m3(s.m3)} m3 w tej sesji</span>
                 </button>`;
     }).join('');
 
@@ -633,8 +633,8 @@ function rysujPrzeplyw(dane) {
         // zero na osi — tak samo jak w widgecie źródłowym.
         const pusty = !(d.in_m3 > 0) && !(d.out_m3 > 0);
         const tytul = dzisiaj
-            ? `${d.date} — DZIEŃ W TOKU: wejście ${m3(d.in_m3)} m³, wyjście ${m3(d.out_m3)} m³ (do tej pory)`
-            : `${d.date}: wejście ${m3(d.in_m3)} m³, wyjście ${m3(d.out_m3)} m³`;
+            ? `${d.date} — DZIEŃ W TOKU: wejście ${m3(d.in_m3)} m3, wyjście ${m3(d.out_m3)} m3 (do tej pory)`
+            : `${d.date}: wejście ${m3(d.in_m3)} m3, wyjście ${m3(d.out_m3)} m3`;
         return `<div class="ov-flow-day${dzisiaj ? ' ov-flow-today' : ''}" title="${escapeHtml(tytul)}">
                     <span class="ov-flow-bars">
                         ${pusty ? '<span class="ov-flow-none"></span>' : `
@@ -649,7 +649,7 @@ function rysujPrzeplyw(dane) {
 
     // Próg dryfu Z DANYCH, nie z kalendarza: dwie średnie dobowe wyjścia,
     // liczone po dobach, w których cokolwiek wyjechało. Zmierzone: na 14 dniach
-    // próg 2.15 m³ przy dryfie 0.091 (zgaszone), na 60 dniach próg ok. 2.09
+    // próg 2.15 m3 przy dryfie 0.091 (zgaszone), na 60 dniach próg ok. 2.09
     // przy dryfie 2.747 (zapalone) — próg zapala się i gaśnie na realnych
     // danych, a nie tylko w teorii.
     const dobyZWyjsciem = dni.filter(d => (d.out_m3 || 0) > 0).length;
@@ -659,10 +659,10 @@ function rysujPrzeplyw(dane) {
 
     if (nota) {
         nota.textContent =
-            `Dryf ${dane.days.length} dni: ${dryf > 0 ? '+' : ''}${m3(dryf)} m³ `
-            + `(weszło ${m3(dane.total_in_m3)} m³, wyszło ${m3(dane.total_out_m3)} m³). `
+            `Dryf ${dane.days.length} dni: ${dryf > 0 ? '+' : ''}${m3(dryf)} m3 `
+            + `(weszło ${m3(dane.total_in_m3)} m3, wyszło ${m3(dane.total_out_m3)} m3). `
             + (alarmuj
-                ? `To już ponad dwa dni typowego wyjścia (próg ${m3(prog)} m³) — hala nie nadąża.`
+                ? `To już ponad dwa dni typowego wyjścia (próg ${m3(prog)} m3) — hala nie nadąża.`
                 : 'Ostatni słupek to dzień w toku — urośnie do końca zmiany.');
         nota.classList.toggle('report-note-warn', alarmuj);
     }

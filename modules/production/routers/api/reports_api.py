@@ -13,6 +13,9 @@ from sqlalchemy import func
 from . import api_bp, logger, ProductionItem, ProductionSyncLog, get_local_now
 from modules.production.models import ProductionConfiguration, ProductionOrder
 
+from ...services.reports_service import (
+    STANOWISKO_LAKIERNI, m2_wg_wykonczenia, para_m2,
+)
 from ...services.station_catalog import (
     STATION_LABELS, STATION_ORDER, STATION_PENDING_STATUS,
     resolve_station_code, station_choices, station_label,
@@ -199,7 +202,7 @@ def reports_deadline_progress():
     """
     GET /production/api/reports/deadline-progress
 
-    Wykres 2: ile m³ stoi w którym koszyku terminu i na jakim stanowisku.
+    Wykres 2: ile m3 stoi w którym koszyku terminu i na jakim stanowisku.
     Bez parametrów — migawka stanu bieżącego, bez zakresu dat i presetów.
 
     `items` (do 500 pozycji + flaga items_truncated) jedzie w tej samej
@@ -245,7 +248,7 @@ def reports_flow_in_out():
         ?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
         &granularity=auto|dzien|tydzien
 
-    Wykres 3: m³ wchodzące (nowe pozycje) vs wychodzące (pakowanie) dzień po
+    Wykres 3: m3 wchodzące (nowe pozycje) vs wychodzące (pakowanie) dzień po
     dniu plus skumulowana różnica. Domyślnie 90 dni.
 
     `days` jest ZAWSZE ciągłe i pełne (z zerami), a cumulative_diff_m3 jest już
@@ -276,7 +279,7 @@ def reports_hourly_heatmap():
     GET /production/api/reports/hourly-heatmap
         ?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
 
-    Wykres 4: siatka 7 × 24 (wiersz 0 = poniedziałek) ze ŚREDNIM m³ na jedno
+    Wykres 4: siatka 7 × 24 (wiersz 0 = poniedziałek) ze ŚREDNIM m3 na jedno
     wystąpienie danego dnia tygodnia. Domyślnie 30 dni.
 
     grid_m3 jest JUŻ ZNORMALIZOWANY — front nie dzieli przez nic. Dzielnik
@@ -302,12 +305,12 @@ def reports_staffing_vs_output():
         ?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
 
     Wykres 5: osobogodziny (z sesji pracy) vs przerób (z eventów) per
-    stanowisko, plus iloraz m³ na osobogodzinę. Domyślnie 7 dni.
+    stanowisko, plus iloraz m3 na osobogodzinę. Domyślnie 7 dni.
 
     Odpowiedź niesie `learning` — to główny konsument badge'a „Trwa nauka":
     obsada jest wiarygodna wyłącznie tam, gdzie ludzie się logują. Front
     porównuje stanowisko ZE SOBĄ W CZASIE, nigdy stanowiska między sobą
-    (m³ nie są porównywalne: spakowanie metra trwa minuty, sklejenie godziny).
+    (m3 nie są porównywalne: spakowanie metra trwa minuty, sklejenie godziny).
     """
     from ...services import reports_service
 
@@ -397,7 +400,7 @@ def reports_station_worker_output():
     GET /production/api/reports/station-worker-output
         ?station=<kod>&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
 
-    Wykres 8: kto ile zrobił na JEDNYM stanowisku — m³ (oś lewa) i wkład
+    Wykres 8: kto ile zrobił na JEDNYM stanowisku — m3 (oś lewa) i wkład
     w sztukach (oś prawa), plus wyszarzony słupek „Nieprzypisane". Domyślnie
     jeden dzień, jak sąsiedni widget „Wykonanie stanowiska w dniu".
 
@@ -431,7 +434,7 @@ def reports_station_worker_output():
     if station in ('', 'all'):
         return jsonify({
             'success': False,
-            'error': ('Podaj JEDNO stanowisko — m³ nie są porównywalne między '
+            'error': ('Podaj JEDNO stanowisko — m3 nie są porównywalne między '
                       'stanowiskami, więc wykres zbiorczy nie znaczyłby nic. '
                       f'Dozwolone: {sorted(VALID_STATIONS)}'),
         }), 400
@@ -587,7 +590,7 @@ def reports_station_output():
     - day_delta_sum: netto ruch w zakresie (suma delta) — np. +5,-1,+2 = +6
     - station_code, station_label: stanowisko, którego dotyczy wiersz
     - quantity: total szt. pozycji
-    - volume_per_unit, volume_done_eod (m³)
+    - volume_per_unit, volume_done_eod (m3)
     - meta: short_product_id, original_product_name, baselinker_order_id, status, gatunek/grubość
 
     Lista jest STRONICOWANA PO STRONIE SERWERA (limit/offset, patrz
@@ -734,7 +737,7 @@ def reports_station_output():
 
         # STAN (EOD) sumujemy WYŁĄCZNIE dla jednego stanowiska. W trybie
         # zbiorczym suma stanów z siedmiu stanowisk nie jest stanem czegokolwiek
-        # — zmierzone na 30 dniach: 84.180 m³ „wykonane" przy 28.260 m³ pełnej
+        # — zmierzone na 30 dniach: 84.180 m3 „wykonane" przy 28.260 m3 pełnej
         # objętości tych produktów, czyli kafelek przekraczał fizyczne maksimum
         # trzykrotnie. Front w tym trybie chowa oba kafelki stanu (None).
         sum_qty_done_eod = None
@@ -753,6 +756,20 @@ def reports_station_output():
             ).one()
             sum_qty_done_eod = int(stan_q[0] or 0)
             sum_volume_done_eod = round(float(stan_q[1] or 0.0), 4)
+
+        # Lakiernia: ten sam STAN co kafelek m3, tylko w m2 powierzchni
+        # i z rozbiciem na olejowane / lakierowane.
+        painting_m2 = None
+        if station == STANOWISKO_LAKIERNI:
+            m2_olej, m2_lakier = db.session.query(
+                *m2_wg_wykonczenia(ProductionStationEvent.quantity_done_after)
+            ).select_from(agg).join(
+                ProductionStationEvent,
+                ProductionStationEvent.id == agg.c.last_event_id,
+            ).join(
+                ProductionItem, ProductionItem.id == agg.c.item_id
+            ).one()
+            painting_m2 = para_m2(m2_olej, m2_lakier)
 
         # ── Strona listy ──
         #
@@ -780,6 +797,9 @@ def reports_station_output():
             ProductionItem.current_status,
             ProductionItem.quantity,
             ProductionItem.volume_m3,
+            ProductionItem.parsed_length_cm,
+            ProductionItem.parsed_width_cm,
+            ProductionItem.parsed_finish_type,
             ProductionItem.parsed_thickness_cm,
             ProductionOrder.baselinker_order_id,
             ProductionOrder.internal_order_number,
@@ -815,6 +835,10 @@ def reports_station_output():
                 'event_count': int(w.event_count or 0),
                 'volume_per_unit_m3': round(volume_per_unit, 4),
                 'volume_done_eod_m3': round(volume_per_unit * qty_done_eod, 4),
+                'finish_type': w.parsed_finish_type,
+                'area_done_eod_m2': round(
+                    float(w.parsed_length_cm or 0) * float(w.parsed_width_cm or 0)
+                    / 10000 * qty_done_eod, 2),
                 'wood_species': w.species,
                 'thickness_cm': (float(w.parsed_thickness_cm)
                                  if w.parsed_thickness_cm else None),
@@ -885,6 +909,8 @@ def reports_station_output():
                 # jest stanem niczego (patrz komentarz przy stan_q wyżej).
                 'total_quantity_done_eod': sum_qty_done_eod,
                 'total_volume_done_eod_m3': sum_volume_done_eod,
+                # Tylko dla stanowiska Lakiernia, inaczej None.
+                'painting_done_eod_m2': painting_m2,
                 'total_day_delta': sum_day_delta,
                 # Sztuki, które automat przeskoczył — NIE są wliczone powyżej.
                 # Pokazujemy je jawnie, żeby nikt nie szukał różnicy między
@@ -929,11 +955,11 @@ def reports_tab_content():
         # date.today() między północą a 02:00 czasu polskiego oddaje WCZORAJ.
         # Wszystkie widgety pod tym paskiem liczą z czasu lokalnego, więc pasek
         # KPI pokazywał wtedy inne okno niż one: zmierzone na prod_products,
-        # okno lokalne 08-06..08-12 = 163 poz / 5.849 m³, okno przesunięte
-        # o dobę = 195 poz / 7.657 m³ (+19.6% / +30.9%).
+        # okno lokalne 08-06..08-12 = 163 poz / 5.849 m3, okno przesunięte
+        # o dobę = 195 poz / 7.657 m3 (+19.6% / +30.9%).
         today = get_local_now().date()
 
-        # Kafelki KPI: ukończone i m³ z ostatnich 7 dni. Wcześniej liczyła to
+        # Kafelki KPI: ukończone i m3 z ostatnich 7 dni. Wcześniej liczyła to
         # pętla po dniach — 14 zapytań na dwie liczby, które i tak zaraz były
         # sumowane. Rozbicie dzienne nie miało konsumenta (ani szablon, ani JS
         # go nie czytały), więc jeden agregat na całym zakresie daje ten sam
