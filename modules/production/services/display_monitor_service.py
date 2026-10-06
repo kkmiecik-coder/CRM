@@ -38,7 +38,6 @@ from datetime import datetime, date
 from sqlalchemy import text
 
 from extensions import db
-from modules.production.logistics import sposoby
 from modules.production.models import ProductionConfig
 
 # Canonical order - MUST match firmware's screen order.
@@ -59,11 +58,6 @@ STATION_CODES = [
     ('pnt', 'painting',   'czeka_na_lakiernie'),
     ('pkg', 'packaging',  'czeka_na_pakowanie'),
 ]
-
-
-# Statusy „poza produkcją” w surowym SQL — literały składane ze stałych kodu, nie z danych.
-_SQL_ZAKONCZONE = ','.join("'%s'" % st for st in sposoby.STATUSY_PO_SPAKOWANIU + ('anulowane',))
-_SQL_NIEAKTYWNE = _SQL_ZAKONCZONE + ",'wstrzymane'"
 
 
 def _build_aggregation_sql():
@@ -91,7 +85,7 @@ def _build_aggregation_sql():
         parts.append(
             f", SUM(CASE WHEN pp.quantity_done_{suffix} > 0 "
             f"AND pp.quantity_done_{suffix} < pp.quantity "
-            f"AND pp.current_status NOT IN ({_SQL_NIEAKTYWNE}) "
+            f"AND pp.current_status NOT IN ('spakowane','anulowane','wstrzymane') "
             f"THEN 1 ELSE 0 END) AS ip_{code}"
         )
 
@@ -104,11 +98,11 @@ def _build_aggregation_sql():
 
     # overall metrics (per-species contribution; Python sums)
     parts.append(
-        ", SUM(CASE WHEN pp.current_status NOT IN (" + _SQL_NIEAKTYWNE + ") "
+        ", SUM(CASE WHEN pp.current_status NOT IN ('spakowane','anulowane','wstrzymane') "
         "THEN 1 ELSE 0 END) AS overall_ip"
     )
     parts.append(
-        ", COALESCE(SUM(CASE WHEN pp.current_status NOT IN (" + _SQL_NIEAKTYWNE + ") "
+        ", COALESCE(SUM(CASE WHEN pp.current_status NOT IN ('spakowane','anulowane','wstrzymane') "
         "THEN COALESCE(pp.total_value_net, 0) ELSE 0 END), 0) AS overall_value_ip"
     )
     parts.append(
@@ -117,7 +111,7 @@ def _build_aggregation_sql():
     )
     parts.append(
         ", SUM(CASE WHEN pp.deadline_date < :today "
-        "AND pp.current_status NOT IN (" + _SQL_ZAKONCZONE + ") "
+        "AND pp.current_status NOT IN ('spakowane','anulowane') "
         "THEN 1 ELSE 0 END) AS overall_overdue"
     )
 

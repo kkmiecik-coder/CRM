@@ -70,9 +70,3 @@ def test_kazdy_status_dropdownu_istnieje_w_enumie_modelu():
     assert wartosci, u'nie znaleziono żadnej wartości — kotwica się rozjechała'
     nadmiarowe = [w for w in wartosci if w not in dozwolone]
     assert nadmiarowe == [], u'statusy spoza enuma: {}'.format(nadmiarowe)
-
-
-def test_dropdown_masowej_zmiany_bez_statusow_logistyki():
-    from modules.production.logistics import sposoby
-    wartosci = set(re.findall(r"value: '(\w+)'", _lista_dropdownu()))
-    assert not wartosci & set(sposoby.STATUSY_LOGISTYCZNE)

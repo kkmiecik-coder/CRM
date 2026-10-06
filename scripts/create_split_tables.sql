@@ -86,7 +86,7 @@ CREATE TABLE prod_products (
   -- Import historyczny z prod_items wymaga wiec najpierw uruchomienia
   -- migracji 2026-09-15-krawedzie-podzial-wykanczania.sql na zrodle.
   -- 'czeka_na_kompletacje' zostaje na potrzeby tego samego, historycznego importu.
-  current_status ENUM('czeka_na_wyciecie','czeka_na_skladanie','czeka_na_kompletacje','czeka_na_sklejanie','czeka_na_formatowanie','czeka_na_krawedzie','czeka_na_lakiernie','czeka_na_logistyke','czeka_na_pakowanie','spakowane','anulowane','wstrzymane','w_realizacji','zweryfikowane','zaladowane','dostarczone') NOT NULL DEFAULT 'czeka_na_wyciecie',
+  current_status ENUM('czeka_na_wyciecie','czeka_na_skladanie','czeka_na_kompletacje','czeka_na_sklejanie','czeka_na_formatowanie','czeka_na_krawedzie','czeka_na_lakiernie','czeka_na_logistyke','czeka_na_pakowanie','spakowane','anulowane','wstrzymane','w_realizacji') NOT NULL DEFAULT 'czeka_na_wyciecie',
   deadline_date DATE NULL,
   days_until_deadline INT NULL,
   priority_rank INT NULL,

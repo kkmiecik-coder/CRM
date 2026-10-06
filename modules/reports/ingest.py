@@ -757,9 +757,9 @@ def mapuj_zamowienie(order: Dict, pozycje: Optional[List[Dict]] = None) -> Dict:
         # i widoczna w arkuszu, więc użytkownik dostawał ten napis wprost
         # w komórce, a karty grupujące po statusie robiły z niego osobny
         # kubełek. Brak statusu to brak wartości, czyli NULL. Nieznany, ale
-        # ISTNIEJĄCY identyfikator zostaje jako „Status N” (N = numer z
-        # BaseLinkera) — to niesie informację (numer do sprawdzenia w
-        # BaseLinkerze) i jest zgodne z danymi historycznymi.
+        # ISTNIEJĄCY identyfikator zostaje jako „Status 417343" — to niesie
+        # informację (numer do sprawdzenia w BaseLinkerze) i jest zgodne
+        # z danymi historycznymi.
         'current_status': (STATUSY_BASELINKER.get(status_id, f'Status {status_id}')
                            if status_id is not None else None),
         'baselinker_status_id': status_id,

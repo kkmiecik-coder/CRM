@@ -495,10 +495,8 @@ def test_zamowienie_bez_produktow_daje_puste_pozycje():
 
 def test_status_bierze_sie_z_mapy_wspolnej_ze_stara_zakladka():
     assert STATUSY_BASELINKER[155824] == 'Nowe - opłacone'
-    # Id spoza mapy (417343 i 524520 weszły do niej w kroku 4.4 logistyki — „Planowana trasa”, „Załadowane”).
-    zam = zamowienie(order_status_id=999999)
-    assert mapuj_zamowienie(zam)['current_status'] == 'Status 999999'
-    assert mapuj_zamowienie(zamowienie(order_status_id=417343))['current_status'] == 'Planowana trasa'
+    zam = zamowienie(order_status_id=417343)
+    assert mapuj_zamowienie(zam)['current_status'] == 'Status 417343'
 
 
 @pytest.mark.parametrize('status_z_bl', [None, '', 'nie-liczba'])

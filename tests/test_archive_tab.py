@@ -34,7 +34,6 @@ from modules.users.models import User
 from modules.calculator.models import Multiplier  # noqa: F401
 from modules.clients.models import Client  # noqa: F401
 import modules.quotes.models  # noqa: F401
-from modules.production.logistics.sposoby import STATUSY_PO_SPAKOWANIU
 
 BASE = '/production/api'
 
@@ -115,33 +114,13 @@ def _config(species='dąb', technology='lity', wood_class='A/B'):
     return cfg
 
 
-_AUTO = object()
-
-
-def _domyslne_zamkniecie(pozycje):
-    """
-    Krok 4.5: archiwum = zamknięte w Logistyce. Domyślnie zamówienie w całości spakowane lub
-    dalej jest zamknięte w chwili ostatniego spakowania (jak kurier) — dzięki temu daty
-    „Zakończono” starszych testów zostają te same. W produkcji albo w całości anulowane: otwarte.
-    """
-    aktywne = [p for p in pozycje if p.get('status', 'spakowane') != 'anulowane']
-    if not aktywne or any(p.get('status', 'spakowane') not in STATUSY_PO_SPAKOWANIU for p in aktywne):
-        return None
-    daty = [p['packaging_completed_at'] for p in aktywne if p.get('packaging_completed_at')]
-    return max(daty) if daty else datetime(2026, 1, 1, 12, 0, 0)
-
-
 def _zamowienie(app, numer, pozycje, client_name='Jan Kowalski',
-                bl_id=None, client_order_number=None, quote_number=None,
-                closed_at=_AUTO):
+                bl_id=None, client_order_number=None, quote_number=None):
     """
     Tworzy zamówienie z listą pozycji. Każda pozycja to dict z opcjonalnymi
     kluczami: status, species, technology, wood_class, thickness, name,
-    packaging_completed_at, created_at, updated_at, volume, value, quantity.
-    `closed_at` — `logistics_closed_at`; domyślnie `_domyslne_zamkniecie(pozycje)`.
+    packaging_completed_at, created_at, volume, value, quantity.
     """
-    if closed_at is _AUTO:
-        closed_at = _domyslne_zamkniecie(pozycje)
     with app.app_context():
         order = ProductionOrder(
             baselinker_order_id=bl_id or (10000 + int(str(abs(hash(numer)))[:5])),
@@ -149,7 +128,6 @@ def _zamowienie(app, numer, pozycje, client_name='Jan Kowalski',
             client_name=client_name,
             client_order_number=client_order_number,
             quote_number=quote_number,
-            logistics_closed_at=closed_at,
         )
         db.session.add(order)
         db.session.flush()
@@ -171,8 +149,6 @@ def _zamowienie(app, numer, pozycje, client_name='Jan Kowalski',
                 packaging_completed_at=poz.get('packaging_completed_at'),
                 created_at=poz.get('created_at'),
             )
-            if poz.get('updated_at'):
-                produkt.updated_at = poz['updated_at']
             db.session.add(produkt)
         db.session.commit()
         return order.id
@@ -527,191 +503,3 @@ def test_pusty_wynik_ma_spojna_paginacje_i_statystyki(app, client):
     assert dane['pagination']['has_next'] is False
     assert dane['stats']['archive']['orders_count'] == 0
     assert dane['stats']['archive']['avg_realization_days'] is None
-
-
-def test_zamowienia_po_weryfikacji_i_wydaniu_zostaja_w_archiwum(app, client):
-    """Statusy po spakowaniu zamknięte w Logistyce są w archiwum; pozycja w produkcji — nie."""
-    baza = datetime(2026, 10, 1, 12, 0, 0)
-    _zamowienie(app, '26/00011', [{'status': 'zweryfikowane', 'packaging_completed_at': baza}],
-                bl_id=555011)
-    _zamowienie(app, '26/00012', [{'status': 'dostarczone', 'packaging_completed_at': baza},
-                                  {'status': 'spakowane', 'packaging_completed_at': baza}], bl_id=555012)
-    _zamowienie(app, '26/00013', [{'status': 'zweryfikowane', 'packaging_completed_at': baza},
-                                  {'status': 'czeka_na_wyciecie'}], bl_id=555013)
-    numery = set(_numery(_archiwum(client)))
-    assert {'26/00011', '26/00012'} <= numery and '26/00013' not in numery
-
-
-
-# --- KROK 4.5: ARCHIWUM = ZAMKNIĘTE W LOGISTYCE ------------------------------
-
-WDROZENIE = datetime(2026, 9, 30, 20, 0, 0)
-
-
-def _znacznik(app, wartosc=WDROZENIE):
-    """Znacznik kroku 4.3 (`logistyka_weryfikacja_od`) — tekst jak z migracji (`CAST(NOW() AS CHAR)`)."""
-    with app.app_context():
-        db.session.add(ProductionConfig(config_key='logistyka_weryfikacja_od',
-                                        config_value=wartosc.strftime('%Y-%m-%d %H:%M:%S'),
-                                        config_type='string'))
-        db.session.commit()
-
-
-def _aktywne(client):
-    r = client.get(f'{BASE}/products-tab-content?view=active')
-    assert r.status_code == 200, r.get_data()[:500]
-    return _numery(r.get_json()['initial_data'])
-
-
-def _zakonczono(dane):
-    """{numer: order_completed_at} z odpowiedzi archiwum."""
-    return {p['internal_order_number']: p['order_completed_at'] for p in dane['products']}
-
-
-def test_spakowane_otwarte_w_logistyce_zostaja_w_aktywnych(app, client):
-    """
-    Transport czekający na trasę albo w drodze, odbiór niewydany: towar spakowany, ale cykl
-    Logistyki otwarty — zamówienie NIE znika z aktywnych i nie wchodzi do archiwum.
-    """
-    baza = datetime(2026, 10, 2, 12, 0, 0)
-    _zamowienie(app, '26/00101', [{'status': 'spakowane', 'packaging_completed_at': baza}],
-                bl_id=555101, closed_at=None)                       # transport bez trasy
-    _zamowienie(app, '26/00102', [{'status': 'zaladowane', 'packaging_completed_at': baza}],
-                bl_id=555102, closed_at=None)                       # transport w drodze
-    _zamowienie(app, '26/00103', [{'status': 'zweryfikowane', 'packaging_completed_at': baza}],
-                bl_id=555103, closed_at=None)                       # odbiór niewydany
-    _zamowienie(app, '26/00104', [{'status': 'spakowane', 'packaging_completed_at': baza}],
-                bl_id=555104, closed_at=baza)                       # kurier — zamknięty
-
-    archiwum = set(_numery(_archiwum(client)))
-    aktywne = set(_aktywne(client))
-    assert archiwum == {'26/00104'}
-    assert {'26/00101', '26/00102', '26/00103'} <= aktywne
-    assert '26/00104' not in aktywne
-
-
-def test_zamkniete_z_pozycja_w_produkcji_nie_znika_z_aktywnych(app, client):
-    """Bezpiecznik na chwilę między doróbką a przeliczeniem cyklu przez crona."""
-    baza = datetime(2026, 10, 2, 12, 0, 0)
-    _zamowienie(app, '26/00111', [{'status': 'dostarczone', 'packaging_completed_at': baza},
-                                  {'status': 'czeka_na_wyciecie'}],
-                bl_id=555111, closed_at=baza)
-    assert '26/00111' not in _numery(_archiwum(client))
-    assert '26/00111' in _aktywne(client)
-
-
-def test_w_calosci_anulowane_bez_zamkniecia_jest_w_archiwum(app, client):
-    """Cron zamyka je przy najbliższym przebiegu; do tej pory data to ostatnia zmiana pozycji."""
-    zmiana = datetime(2026, 10, 3, 9, 30, 0)
-    _zamowienie(app, '26/00121', [{'status': 'anulowane', 'updated_at': zmiana},
-                                  {'status': 'anulowane', 'updated_at': zmiana - timedelta(days=2)}],
-                bl_id=555121, closed_at=None)
-    dane = _archiwum(client)
-    assert _numery(dane) == ['26/00121']
-    assert _zakonczono(dane)['26/00121'] == zmiana.isoformat()
-    assert '26/00121' not in _aktywne(client)
-
-
-def test_data_zakonczenia_to_zamkniecie_w_logistyce(app, client):
-    """Transport: spakowane 1.10, dostarczone 3.10 — „Zakończono” to dostarczenie, nie spakowanie."""
-    spakowano = datetime(2026, 10, 1, 10, 0, 0)
-    dostarczono = datetime(2026, 10, 3, 15, 0, 0)
-    _znacznik(app)
-    _zamowienie(app, '26/00131', [{'status': 'dostarczone', 'packaging_completed_at': spakowano,
-                                   'created_at': spakowano - timedelta(days=4)}],
-                bl_id=555131, closed_at=dostarczono)
-    _zamowienie(app, '26/00132', [{'status': 'spakowane',
-                                   'packaging_completed_at': datetime(2026, 10, 2, 10, 0, 0)}],
-                bl_id=555132, closed_at=datetime(2026, 10, 2, 10, 0, 0))
-
-    dane = _archiwum(client)
-    assert _zakonczono(dane)['26/00131'] == dostarczono.isoformat()
-    # Sortowanie po dacie zamknięcia: dostarczone 3.10 przed kurierem z 2.10.
-    assert _numery(dane) == ['26/00131', '26/00132']
-    # Filtr dat i statystyki liczą po tej samej dacie.
-    assert _numery(_archiwum(client, completed_from='2026-10-03', completed_to='2026-10-03')) == ['26/00131']
-    assert _numery(_archiwum(client, completed_from='2026-10-01', completed_to='2026-10-01')) == []
-    tylko = _archiwum(client, completed_from='2026-10-03')
-    assert tylko['stats']['archive']['avg_realization_days'] == pytest.approx(6.2)
-
-
-def test_zamkniecia_historyczne_licza_sie_od_spakowania(app, client):
-    """
-    Migracja etapu 1 zamknęła historię hurtem (`NOW()` przy wdrożeniu), przed znacznikiem
-    kroku 4.3. Takie zamówienie ma w archiwum datę spakowania, nie datę wdrożenia — także
-    gdy zamknięcie i znacznik wypadły w tej samej sekundzie.
-    """
-    _znacznik(app)
-    spakowano = datetime(2026, 6, 15, 11, 0, 0)
-    _zamowienie(app, '26/00141', [{'packaging_completed_at': spakowano},
-                                  {'packaging_completed_at': spakowano - timedelta(days=1)}],
-                bl_id=555141, closed_at=WDROZENIE - timedelta(minutes=1))
-    _zamowienie(app, '26/00142', [{'packaging_completed_at': spakowano + timedelta(days=1)}],
-                bl_id=555142, closed_at=WDROZENIE)                  # ta sama sekunda co znacznik
-    # Historyczne bez daty spakowania (sprzed zapisywania) zostają bez daty, jak dotąd.
-    _zamowienie(app, '26/00143', [{'packaging_completed_at': None}],
-                bl_id=555143, closed_at=WDROZENIE - timedelta(minutes=1))
-    # Zamknięcie po wdrożeniu — data zamknięcia.
-    po = WDROZENIE + timedelta(seconds=1)
-    _zamowienie(app, '26/00144', [{'packaging_completed_at': datetime(2026, 9, 30, 9, 0, 0)}],
-                bl_id=555144, closed_at=po)
-
-    dane = _archiwum(client)
-    daty = _zakonczono(dane)
-    assert daty['26/00141'] == spakowano.isoformat()
-    assert daty['26/00142'] == (spakowano + timedelta(days=1)).isoformat()
-    assert daty['26/00143'] is None
-    assert daty['26/00144'] == po.isoformat()
-    assert _numery(dane) == ['26/00144', '26/00142', '26/00141', '26/00143']
-    # Filtr dat po dacie spakowania, nie po dniu wdrożenia.
-    assert _numery(_archiwum(client, completed_from='2026-06-15', completed_to='2026-06-15')) == ['26/00141']
-    assert set(_numery(_archiwum(client, completed_from='2026-09-30', completed_to='2026-09-30'))) == {'26/00144'}
-
-
-def test_bez_znacznika_kazde_zamkniecie_jest_biezace(app, client):
-    """Baza bez migracji kroku 4.3: data zamknięcia bez wyjątków."""
-    zamknieto = datetime(2026, 9, 25, 8, 0, 0)
-    _zamowienie(app, '26/00151', [{'packaging_completed_at': datetime(2026, 6, 1)}],
-                bl_id=555151, closed_at=zamknieto)
-    assert _zakonczono(_archiwum(client))['26/00151'] == zamknieto.isoformat()
-
-
-@pytest.mark.parametrize('statusy, etap, napis', [
-    (('spakowane',), 'spakowane', 'Spakowane'),
-    (('zweryfikowane', 'zweryfikowane'), 'zweryfikowane', 'Zweryfikowane'),
-    (('zaladowane',), 'zaladowane', u'Załadowane'),
-    (('dostarczone', 'anulowane'), 'dostarczone', 'Dostarczone'),
-    # Najbardziej zaległa pozycja decyduje (doróbka po dostarczeniu, spec 4.5).
-    (('dostarczone', 'spakowane'), 'spakowane', 'Spakowane'),
-    (('anulowane', 'anulowane'), 'anulowane', 'Anulowane'),
-])
-def test_etap_zamowienia_w_archiwum(app, client, statusy, etap, napis):
-    """Dawniej archiwum pokazywało stałe „Spakowane” także dla dostarczonych."""
-    baza = datetime(2026, 10, 2, 12, 0, 0)
-    _zamowienie(app, '26/00161', [{'status': st, 'packaging_completed_at': baza} for st in statusy],
-                bl_id=555161, closed_at=baza)
-    produkty = _archiwum(client)['products']
-    assert produkty
-    assert {(p['order_stage_status'], p['order_stage_label']) for p in produkty} == {(etap, napis)}
-
-
-def test_liczba_zapytan_stala_ze_znacznikiem(app, client):
-    """Znacznik czytamy raz na żądanie, etapy liczymy z wczytanych pozycji — bez N+1."""
-    _znacznik(app)
-    baza = datetime(2026, 10, 1, 12, 0, 0)
-
-    def dodaj(od, do):
-        for i in range(od, do):
-            _zamowienie(app, f'26/{i:05d}', [{'status': 'dostarczone', 'packaging_completed_at': baza},
-                                             {'status': 'zweryfikowane', 'packaging_completed_at': baza}],
-                        bl_id=600000 + i, closed_at=baza + timedelta(days=i))
-
-    dodaj(1, 6)
-    with app.app_context():
-        with LicznikZapytan(db.engine) as malo:
-            _archiwum(client)
-    dodaj(6, 31)
-    with app.app_context():
-        with LicznikZapytan(db.engine) as duzo:
-            _archiwum(client)
-    assert len(malo) == len(duzo) <= 11

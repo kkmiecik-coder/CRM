@@ -195,11 +195,6 @@ class DashboardModule {
                 if (data.data.in_production) {
                     this.updateInProductionWidget(data.data.in_production);
                 }
-                // Runda 2 logistyki (D6): pasek „Logistyka: N bez sposobu dostawy” pod pipeline'em
-                // odświeża się razem z dashboardem (np. po synchronizacji z Base.), nie tylko przy renderze.
-                this.updateLogisticsPending(data.data.logistics_pending);
-                // Krok 4.3: liczniki „Do weryfikacji” i „Problemy” na tym samym pasku (null = błąd licznika → „—”).
-                this.updateVerification(data.data.verification);
             }
         });
 
@@ -475,7 +470,7 @@ class DashboardModule {
      * DLACZEGO TUTAJ, A NIE W SZABLONIE: kropki muszą jechać ze stałą
      * prędkością niezależnie od długości trasy, a długość ścieżki SVG zna
      * dopiero przeglądarka (getTotalLength()). Gdyby wszystkie trasy miały
-     * ten sam CZAS cyklu, kropka na długim łuku Sklejanie→Pakowanie wlokłaby
+     * ten sam CZAS cyklu, kropka na długim łuku Sklejanie→Logistyka wlokłaby
      * się wolniej niż ta na czterdziestopikselowym odcinku między sąsiednimi
      * wierszami.
      *
@@ -497,18 +492,15 @@ class DashboardModule {
         const Y = i => 24.5 + i * WYSOKOSC_WIERSZA;
         const X = 32, A = 23, B = 41, L = 6, R = 48;
 
-        // Kody w kolejności wierszy — węzeł bierze barwę swojego stanowiska. Logistyki tu nie ma
-        // (runda 2 logistyki): jest równoległa do produkcji, jej licznik to pasek pod listą.
+        // Kody w kolejności wierszy — węzeł bierze barwę swojego stanowiska.
         const kody = ['cutting', 'assembly', 'gluing', 'formatting',
-                      'edges', 'painting', 'packaging'];
+                      'edges', 'painting', 'logistics', 'packaging'];
         const barwy = {
             cutting: 'var(--il-station-cut)', assembly: 'var(--il-station-asm)',
             gluing: 'var(--il-station-glu)', formatting: 'var(--il-station-fmt)',
             edges: 'var(--il-station-fin)', painting: 'var(--il-station-cmp)',
-            packaging: 'var(--il-station-pak)',
+            logistics: '#6366f1', packaging: 'var(--il-station-pak)',
         };
-        // Pakowanie to ostatni wiersz — na nim kończą się linia bazowa i łuk obejścia.
-        const PAK = kody.length - 1;
 
         const doWycinania = `C${X},12 ${A},12 ${A},${Y(0)}`;
         const doSkladania = `C${X},17 ${B},20 ${B},${Y(1)}`;
@@ -516,8 +508,8 @@ class DashboardModule {
         const zSkladania = `V${Y(2) - 17} C${B},${Y(2) - 7} ${X},${Y(2) - 10} ${X},${Y(2)}`;
         // Trasy omijające wynikają z ProductionProduct.complete_task():
         // brak docięcia na wymiar wyrzuca pozycję ze Sklejania wprost do
-        // Pakowania, a brak obróbki krawędzi — z Formatowania do Lakierni.
-        const lukDlugi = `M${X},${Y(2)} C${L},${Y(2) + 51} ${L},${Y(PAK) - 51} ${X},${Y(PAK)}`;
+        // Logistyki, a brak obróbki krawędzi — z Formatowania do Lakierni.
+        const lukDlugi = `M${X},${Y(2)} C${L},${Y(2) + 51} ${L},${Y(6) - 51} ${X},${Y(6)}`;
         const lukKrotki = `M${X},${Y(3)} C${R},${Y(3) + 27} ${R},${Y(5) - 27} ${X},${Y(5)}`;
 
         const linia = (d, kolor) => `<path d="${d}" fill="none" stroke="${kolor || '#e2e7ec'}" stroke-width="1.5" stroke-linecap="round"/>`;
@@ -526,7 +518,7 @@ class DashboardModule {
         szyna.innerHTML = [
             linia(`M${X},0 ${doWycinania} ${zWycinania}`),
             linia(`M${X},0 ${doSkladania} ${zSkladania}`),
-            linia(`M${X},${Y(2)} V${Y(PAK)}`),
+            linia(`M${X},${Y(2)} V${Y(7)}`),
             linia(lukDlugi, '#eee2ca'),
             linia(lukKrotki, '#eee2ca'),
             skok(`M${X},0 ${doWycinania}`),
@@ -536,7 +528,8 @@ class DashboardModule {
             skok(`M${X},${Y(2)} V${Y(3)}`),
             skok(`M${X},${Y(3)} V${Y(4)}`),
             skok(`M${X},${Y(4)} V${Y(5)}`),
-            skok(`M${X},${Y(5)} V${Y(PAK)}`),
+            skok(`M${X},${Y(5)} V${Y(6)}`),
+            skok(`M${X},${Y(6)} V${Y(7)}`),
             skok(lukDlugi, '#c07a16'),
             skok(lukKrotki, '#c07a16'),
             kody.map((kod, i) => {
@@ -2312,41 +2305,6 @@ class DashboardModule {
         this.updateElementText('in-production-items', data.items || 0);
         this.updateElementText('in-production-products', data.products || 0);
         this.updateElementText('in-production-m3', data.m3 || 0);
-    }
-
-    /**
-     * Pasek logistyki pod pipeline'em (runda 2 logistyki, D6): liczba otwartych zamówień bez
-     * sposobu dostawy i stan spokoju przy zerze — ten sam element i ta sama klasa
-     * il-logistyka--spokoj co w szablonie (dashboard-tab-content.html). Brak liczby (serwer jej
-     * nie policzył, _safe_logistyka_bez_sposobu) zostawia ostatnią, zamiast pokazać zero.
-     */
-    updateLogisticsPending(liczba) {
-        if (typeof liczba !== 'number' || !Number.isFinite(liczba)) return;
-        const el = document.getElementById('logistics-pending');
-        if (!el) return;
-        el.textContent = String(liczba);
-        const pasek = el.closest('.il-logistyka');
-        if (pasek) pasek.classList.toggle('il-logistyka--spokoj', liczba === 0);
-    }
-
-    /**
-     * Liczniki Weryfikacji na pasku logistyki (krok 4.3). Błąd licznika po stronie serwera (cały obiekt
-     * albo pojedyncza wartość null/brak) to „—”, a nie ostatnie liczby ani zero: nieaktualne albo zerowe
-     * „Problemy” bez alarmu dawałyby fałszywy spokój (Ruling 18). „—” nie dostaje klasy is-alarm
-     * (czerwień w production-panel.css). Przy liczbach: „Problemy” N > 0 dostaje is-alarm; ten sam znacznik
-     * i ten sam „—” co w dashboard-tab-content.html.
-     */
-    updateVerification(dane) {
-        const liczba = (v) => typeof v === 'number' && Number.isFinite(v);
-        const wartosci = dane && typeof dane === 'object' ? dane : {};
-        const doWeryfikacji = document.getElementById('verification-pending');
-        const problemy = document.getElementById('verification-problems');
-        if (doWeryfikacji) doWeryfikacji.textContent = liczba(wartosci.pending) ? String(wartosci.pending) : '—';
-        if (problemy) {
-            problemy.textContent = liczba(wartosci.problems) ? String(wartosci.problems) : '—';
-            const blok = problemy.closest('.il-logistyka-weryfikacja-problemy');
-            if (blok) blok.classList.toggle('is-alarm', liczba(wartosci.problems) && wartosci.problems > 0);
-        }
     }
 
     updateStationTabletStatus(station, tabletStatus) {

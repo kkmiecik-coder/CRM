@@ -183,49 +183,8 @@ class ProductionOrder(db.Model):
     delivery_postcode = Column(String(20))
     delivery_country_code = Column(String(10))
 
-    # SPOSÓB DOSTAWY (logistyka równoległa, 2026-09). NULL = „Nie ustawiono”.
-    # Wartości i wszystko, co z nich wynika: modules/production/logistics/sposoby.py.
     override_delivery_method = Column(String(255))
-    delivery_method_set_at = Column(DateTime)
-    delivery_method_set_by = Column(Integer)
-    # „Wydane klientowi” — tylko odbiór osobisty.
-    handed_over_at = Column(DateTime)
-    handed_over_by = Column(Integer)
-    # Spakowane pod transport/odbiór, zmienione na kuriera — wraca do pakowania.
-    repack_required = Column(Boolean, nullable=False, default=False)
-    # Koniec cyklu logistycznego; NULL = zamówienie widoczne w zakładce Logistyka.
-    # Liczy go WYŁĄCZNIE logistics.services.delivery.przelicz_zamkniecie().
-    logistics_closed_at = Column(DateTime, index=True)
-    # Znaczniki „do wysłania do Base.” — przeżywają restart, dopycha je bl_sync.
-    bl_delivery_method_pending = Column(Boolean, nullable=False, default=False)
-    bl_status_pending_id = Column(Integer)
-    # Adres dostawy poprawiony w zakładce Logistyka, jeszcze niewysłany do Base.
-    # Dopóki stoi, synchronizacja z Base. nie nadpisuje adresu (sync_service).
-    bl_address_pending = Column(Boolean, nullable=False, default=False)
-    # Chwila, w której ostatni niezanulowany produkt wszedł do pakowania
-    # („Zeszło z produkcji” w Arkuszu). Nazwa historyczna — kolumnę czyta raport.
     logistics_completed_at = Column(DateTime, index=True)
-    # Ostatnia ważna deklaracja paczek (logistyka etap 4, krok 4.2). Same paczki:
-    # ProductionPackage (prod_packages); aktualne = voided_at IS NULL.
-    packages_declared_at = Column(DateTime)
-    # Weryfikacja (logistyka etap 4, krok 4.3): kto i kiedy zweryfikował wszystkie paczki.
-    verified_at = Column(DateTime)
-    verified_by_worker_id = Column(Integer)
-    # Problem zgłoszony przy weryfikacji; NULL = brak. Powody: weryfikacja.POWODY_PROBLEMU.
-    problem_reason = Column(String(32))
-    problem_note = Column(String(255))
-    problem_at = Column(DateTime)
-    problem_by_worker_id = Column(Integer)
-    # Tekst banera na tablecie pakowania, gdy repack_required (np. „Weryfikacja: Uszkodzenie: …”).
-    repack_reason = Column(String(255))
-    # Priorytety produkcji (spec 2026-10-04, sekcja 8.1). Gwiazdki 0–5 ustawia biuro (priorytety.services.gwiazdki).
-    priority_stars = Column(SmallInteger, nullable=False, default=0)
-    priority_stars_set_at = Column(DateTime)
-    priority_stars_set_by = Column(Integer)
-    # Pamięć podręczna rangi: ranga zamówienia 1..M i pozycja jego szczebla na drabinie. Liczy ją wyłącznie
-    # priorytety.services.kolejka.utrwal(); zamówienia nieaktywne zachowują wartość z ostatniego przeliczenia.
-    priority_rank = Column(Integer, index=True)
-    priority_rung = Column(Integer)
 
     shipping_package_id = Column(Integer)
     shipping_tracking_number = Column(String(100))
@@ -379,9 +338,6 @@ class ProductionProduct(db.Model):
         'czeka_na_sklejanie', 'czeka_na_formatowanie', 'czeka_na_krawedzie',
         'czeka_na_lakiernie', 'czeka_na_logistyke', 'czeka_na_pakowanie',
         'spakowane', 'anulowane', 'wstrzymane', 'w_realizacji',
-        # Logistyka etap 4 (krok 4.3) — po spakowaniu, dopisane NA KOŃCU (migracja
-        # 2026-09-30-logistyka-weryfikacja.sql); nadaje je tylko logistyka (sposoby.STATUSY_LOGISTYCZNE).
-        'zweryfikowane', 'zaladowane', 'dostarczone',
         name='production_status'
     ), default='czeka_na_wyciecie', nullable=False, index=True)
 
@@ -481,9 +437,6 @@ class ProductionProduct(db.Model):
             'czeka_na_logistyke': 'Czeka na logistykę',
             'czeka_na_pakowanie': 'Czeka na pakowanie',
             'spakowane': 'Spakowane',
-            'zweryfikowane': 'Zweryfikowane',
-            'zaladowane': 'Załadowane',
-            'dostarczone': 'Dostarczone',
             'anulowane': 'Anulowane',
             'wstrzymane': 'Wstrzymane',
             'w_realizacji': 'W realizacji'
@@ -519,12 +472,14 @@ class ProductionProduct(db.Model):
         return self.thickness_group
 
     def lock_priority(self, rank: int):
-        """Martwe od P1 priorytetów (2026-10): rangę liczy `priorytety.services.kolejka.utrwal()`.
-        Usuwane w P4 razem z `priority_manual_override`."""
+        if rank < 1:
+            raise ValueError("Numer priorytetu musi być >= 1")
+        self.priority_rank = rank
+        self.priority_manual_override = True
+        self.is_priority = True
 
     def unlock_priority(self):
-        """Martwe od P1 priorytetów (2026-10): rangę liczy `priorytety.services.kolejka.utrwal()`.
-        Usuwane w P4 razem z `priority_manual_override`."""
+        self.priority_manual_override = False
 
     def is_in_production_queue(self):
         return self.current_status in [
@@ -632,21 +587,10 @@ class ProductionProduct(db.Model):
         """
         return not self.parsed_edge_processing
 
-    def should_skip_formatting(self):
-        """Bez docięcia na wymiar produkt omija formatowanie i Krawędzie — idzie prosto do pakowania."""
+    def should_skip_to_logistics(self):
         return self.cut_to_size is False
 
     def complete_task(self, station_code):
-        """
-        Tranzycja pozycji po ZAKOŃCZ na stanowisku `station_code` (w kodzie produkcyjnym woła ją tylko
-        mark_order_complete).
-
-        WARUNEK WSTĘPNY (logistyka etap 4, krok 4.4a, „zamówienie najpierw”): wołający trzyma blokadę wiersza
-        zamówienia i wszystkich jego pozycji z odczytem bieżącym (services/blokady_zamowien.py). Wejście do
-        pakowania i spakowanie decydują o cyklu logistycznym zamówienia (odnotuj_wejscie_do_pakowania,
-        po_spakowaniu, przelicz_zamkniecie) na statusach pozostałych pozycji i sposobie dostawy; na migawce
-        zapadłyby na nieaktualnym stanie, a zapis zamówienia po zapisie pozycji dałby cykl blokad (MySQL 1213).
-        """
         # Stary tablet może przysłać 'finishing'; niżej porównujemy wyłącznie
         # z kodami kanonicznymi, więc alias rozwijamy raz, na wejściu.
         # Normalizacja i przemianowanie kluczy mapy MUSZĄ iść razem: sama
@@ -654,72 +598,63 @@ class ProductionProduct(db.Model):
         # obok całego bloku tranzycji — licznik się zapisuje, a current_status
         # zostaje bez zmian i zlecenie utyka na stanowisku.
         station_code = resolve_station_code(station_code)
-        # Logistyka etap 4: pozycja zweryfikowana, załadowana albo dostarczona jest już „dalej niż
-        # spakowana”. Ponowione z kolejki offline „ZAKOŃCZ” pakowania nie może jej cofnąć do
-        # 'spakowane' (zamówienie straciłoby spójny stan weryfikacji), więc dla tych statusów
-        # kończymy od razu, bez po_spakowaniu. Dla 'spakowane' ponowione ZAKOŃCZ przechodzi dalej
-        # jak dotąd: status zostaje, ale po_spakowaniu nadal się wywołuje (może zdjąć repack_required
-        # i zaległe 138620 oraz przeliczyć zamknięcie) — tego strażnik nie dotyka.
-        if station_code == 'packaging':
-            from modules.production.logistics import sposoby as _sposoby
-            if self.current_status in _sposoby.STATUSY_LOGISTYCZNE:
-                self.updated_at = get_local_now()
-                return
         now = get_local_now()
         next_status_map = {
             'cutting': 'czeka_na_sklejanie',
             'assembly': 'czeka_na_sklejanie',
             'gluing': 'czeka_na_formatowanie',
             'formatting': 'czeka_na_krawedzie',
-            'edges': 'czeka_na_pakowanie',
-            'painting': 'czeka_na_pakowanie',
+            'edges': 'czeka_na_logistyke',
+            'painting': 'czeka_na_logistyke',
             'packaging': 'spakowane'
         }
         if station_code in next_status_map:
             next_status = next_status_map[station_code]
 
-            if station_code == 'gluing' and self.should_skip_formatting():
-                next_status = 'czeka_na_pakowanie'
+            if station_code == 'gluing' and self.should_skip_to_logistics():
+                next_status = 'czeka_na_logistyke'
                 for skipped in ('formatting', 'edges'):
                     self.set_quantity_done(skipped, self.quantity, source='auto_skip')
                     completed_attr = f'{skipped}_completed_at'
                     if getattr(self, completed_attr, None) is None:
                         setattr(self, completed_attr, now)
 
-            # Trzecie wyjście z formatowania: bez obróbki krawędzi → Lakiernia
-            # (olej/lakier) albo prosto do pakowania.
+            # Trzecie wyjście z formatowania. KOLEJNOŚĆ JEST CAŁĄ LOGIKĄ: blok
+            # stoi PO bloku gluing (inny station_code, brak kolizji) i PRZED
+            # blokiem odbioru osobistego, bo to ono zamienia logistykę na
+            # pakowanie i musi widzieć ostateczną decyzję.
             if station_code == 'formatting' and self.should_skip_edges():
                 self.set_quantity_done('edges', self.quantity, source='system')
                 if self.parsed_finish_type in ('olejowane', 'lakierowane'):
                     next_status = 'czeka_na_lakiernie'
                 else:
-                    next_status = 'czeka_na_pakowanie'
+                    next_status = 'czeka_na_logistyke'
 
             if station_code == 'edges':
                 if self.parsed_finish_type in ('olejowane', 'lakierowane'):
                     next_status = 'czeka_na_lakiernie'
+
+            if next_status == 'czeka_na_logistyke' and (self.order and self.order.is_personal_pickup):
+                next_status = 'czeka_na_pakowanie'
+                if self.order:
+                    self.order.logistics_completed_at = now
 
             self.current_status = next_status
             completed_attr = f'{station_code}_completed_at'
             if getattr(self, completed_attr, None) is None:
                 setattr(self, completed_attr, now)
 
-            # Logistyka jest równoległa do produkcji (spec 2026-09-24): produkcja
-            # kończy się wejściem do pakowania, a sposób dostawy żyje na zamówieniu.
-            if self.order is not None:
-                from modules.production.logistics.services import delivery as _logistyka
-                if next_status == 'czeka_na_pakowanie':
-                    _logistyka.odnotuj_wejscie_do_pakowania(self.order, now)
-                elif next_status == 'spakowane':
-                    _logistyka.po_spakowaniu(self.order, now)
-
         self.updated_at = now
 
         # Domknięcie doróbki: gdy rekord-doróbka (original_product_id NOT NULL) osiąga
         # status czeka_na_formatowanie, jej życie "w trasie" się kończy.
         if self.original_product_id is not None and self.current_status == 'czeka_na_formatowanie':
-            # Ranga 0 i ramka doróbki zostają do końca produkcji (priorytety P1, spec 2026-10-04, 9.5): doróbka jest
-            # pierwsza na każdym stanowisku, nie tylko do Formatowania.
+            # Odznaczenie manual priority — doróbka dotarła na formatowanie,
+            # gdzie ma już banner "Doróbka". Pomarańczowa ramka zbędna.
+            self.priority_manual_override = False
+            self.priority_rank = None
+            self.is_priority = False
+
             # Domknięcie audit log
             ProductionReworkLog.query.filter(
                 ProductionReworkLog.rework_product_id == self.id,
@@ -969,16 +904,6 @@ class LabelPrintJob(db.Model):
     STATUS_FAILED = 'failed'
     STATUS_EXPIRED = 'expired'
 
-    # Drukarki (logistyka etap 4, spec 5.1). Nazwy są wspólne z agentem druku
-    # (sekcje [printer:<nazwa>] w jego config.ini) — zmiana tu = zmiana na hubie.
-    DRUKARKA_ETYKIETY = 'etykiety'   # etykiety produktów 60x40 (dotychczasowa drukarka)
-    DRUKARKA_WYSYLKA = 'wysylka'     # etykiety paczek 100x150 przy pakowaniu
-    DRUKARKI = (DRUKARKA_ETYKIETY, DRUKARKA_WYSYLKA)
-
-    __table_args__ = (
-        Index('ix_prod_print_queue_printer_status', 'printer', 'status'),
-    )
-
     id = Column(Integer, primary_key=True)
     short_product_id = Column(String(20), nullable=False, index=True)
     # Klucz JEDNOZNACZNY. short_product_id wyżej dzielą oryginał i doróbka
@@ -1007,70 +932,11 @@ class LabelPrintJob(db.Model):
         Enum('pending', 'printed', 'failed', 'expired', name='print_job_status'),
         default='pending', nullable=False, index=True,
     )
-    # Drukarka docelowa. Domyślna 'etykiety': kod etykiet produktów jej nie podaje,
-    # a stary agent (bez ?printers=) dostaje wyłącznie te zadania.
-    printer = Column(String(20), nullable=False, default='etykiety', server_default='etykiety')
-    # Paczka, której dotyczy etykieta (krok 4.2 — prod_packages); NULL dla etykiet produktów.
-    package_id = Column(Integer, ForeignKey('prod_packages.id', ondelete='SET NULL'), nullable=True)
     printed_at = Column(DateTime, nullable=True)
     error_message = Column(Text, nullable=True)
 
     def __repr__(self):
         return f'<LabelPrintJob {self.id} {self.short_product_id} {self.status}>'
-
-
-class ProductionPackage(db.Model):
-    """
-    Paczka albo paleta zamówienia (logistyka etap 4, spec 5.2). Kod na etykiecie i w QR:
-    'P-<id>'. Aktualna deklaracja zamówienia = jego paczki z voided_at IS NULL. Nowa
-    deklaracja (a od kroku 4.3 także cofnięcie do pakowania i doróbka) unieważnia
-    poprzednie — wiersze zostają, bo skan starej etykiety ma odpowiedzieć „nieaktualna”,
-    a nie „nie ma takiej paczki”.
-    """
-    __tablename__ = 'prod_packages'
-    # Aktualna deklaracja = paczki zamówienia z voided_at IS NULL — tak pytają wszystkie odczyty
-    # (migracja 2026-09-30-logistyka-weryfikacja.sql zastąpiła tym osobny indeks po voided_at).
-    __table_args__ = (Index('ix_prod_packages_order_voided', 'order_id', 'voided_at'),)
-
-    RODZAJE = ('paczka', 'paleta')
-    TYPY_PALET = ('eur', 'niestandardowa')
-    SPOSOBY_POTWIERDZENIA = ('skan', 'reczne')
-
-    id = Column(Integer, primary_key=True)
-    order_id = Column(Integer, ForeignKey('prod_orders.id', ondelete='CASCADE'),
-                      nullable=False, index=True)
-    seq = Column(SmallInteger, nullable=False)              # 1..N w deklaracji
-    kind = Column(Enum(*RODZAJE, name='package_kind'), nullable=False)
-    pallet_type = Column(Enum(*TYPY_PALET, name='package_pallet_type'))
-    length_cm = Column(SmallInteger)                         # EUR 120x80, niestandardowa 20-400
-    width_cm = Column(SmallInteger)
-    declared_at = Column(DateTime, nullable=False, default=get_local_now)
-    declared_by_worker_id = Column(Integer)
-    declared_device_id = Column(Integer)                     # prod_devices.id
-    voided_at = Column(DateTime)
-    label_printed_at = Column(DateTime)
-    label_print_count = Column(Integer, nullable=False, default=0)
-    # Napis z pasa sposobu dostawy w chwili druku (np. 'TRASA: Rzeszow 07.10'). Inny napis
-    # dziś = etykieta sprzed zmiany — ikona w panelu Logistyki (decyzja Konrada 30.09).
-    label_delivery_text = Column(String(40))
-    # Weryfikacja (krok 4.3) i załadunek (krok 4.4).
-    verified_at = Column(DateTime)
-    verified_by_worker_id = Column(Integer)
-    verified_method = Column(Enum(*SPOSOBY_POTWIERDZENIA, name='package_verified_method'))
-    loaded_at = Column(DateTime)
-    loaded_by_worker_id = Column(Integer)
-    loaded_method = Column(Enum(*SPOSOBY_POTWIERDZENIA, name='package_loaded_method'))
-    loaded_route_id = Column(Integer)
-
-    order = relationship('ProductionOrder')
-
-    @property
-    def kod(self):
-        """Kod paczki na etykiecie, w QR i w API: 'P-<id>'."""
-        return 'P-%d' % self.id
-
-    def __repr__(self):
-        return f'<ProductionPackage P-{self.id} order={self.order_id} seq={self.seq}>'
 
 
 class ProductionSecurityEvent(db.Model):
@@ -1172,8 +1038,6 @@ class ProductionDevice(db.Model):
         'edges',
         'painting',
         'sawmill',   # trakownia — rejestr surowca, poza pipeline'em produktów
-        'verification',  # Weryfikacja paczek (logistyka etap 4) — telefon biura, poza pipeline'em produktów
-        'delivery',      # Dostawa (logistyka etap 4, krok 4.4) — telefon kierowcy, poza pipeline'em produktów
         # Stary tablet wykańczalni jest w bazie zarejestrowany jako 'finishing'
         # i dojeżdża na tej rejestracji do wydania APK. Zdjęcie tej wartości
         # przed czasem daje 403 station_mismatch na każdej akcji z kolejki
@@ -1506,9 +1370,6 @@ class ProductionWorker(db.Model):
     allowed_stations = Column(String(255), nullable=True,
                               comment='CSV kodów stanowisk; NULL/pusty = wszystkie')
     is_active = Column(Boolean, nullable=False, default=True, index=True)
-    # Logistyka (runda 2): kierowca tras — ustawiany wyłącznie w zakładce Logistyka → Flota
-    # (zakładka Pracownicy go nie zna). Migracja 2026-09-28-logistyka-kierowcy.sql.
-    is_driver = Column(Boolean, nullable=False, default=False)
     user_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'),
                      nullable=True, index=True,
                      comment='Opcjonalne powiązanie z kontem CRM')

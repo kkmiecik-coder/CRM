@@ -112,7 +112,7 @@ def test_enum_statusu_zna_krawedzie_a_nie_wykanczanie():
     assert 'czeka_na_wykanczanie' not in wartosci
 
 
-def test_enum_statusu_ma_pietnascie_wartosci_bez_duplikatow():
+def test_enum_statusu_ma_dokladnie_dwanascie_wartosci_bez_duplikatow():
     """
     Wzmocnienie testu porządku poniżej: `index(krawedzie) == index(formatowanie) + 1`
     sprawdza WYŁĄCZNIE pozycję względną, więc przepuściłby literówkę wstawiającą
@@ -120,11 +120,9 @@ def test_enum_statusu_ma_pietnascie_wartosci_bez_duplikatow():
     całego bloku) — pierwsze wystąpienie nadal siedziałoby na właściwym miejscu,
     a `index()` zwraca zawsze PIERWSZE dopasowanie, więc duplikat by się nie ujawnił.
     Tu liczymy elementy wprost i porównujemy z zbiorem, żeby taki duplikat złapać.
-    Od kroku 4.3 logistyki na końcu listy stoją 'zweryfikowane', 'zaladowane', 'dostarczone'
-    (migracja 2026-09-30-logistyka-weryfikacja.sql).
     """
     wartosci = list(ProductionProduct.__table__.c.current_status.type.enums)
-    assert len(wartosci) == 15
+    assert len(wartosci) == 12
     assert len(wartosci) == len(set(wartosci))
 
 
@@ -303,7 +301,7 @@ def test_walidator_dalej_odrzuca_kod_spoza_zbioru():
         ProductionDevice(device_id='tablet-x', station_code='krawedzie')
 
 
-def test_zbior_kodow_urzadzen_ma_dokladnie_jedenascie_wpisow():
+def test_zbior_kodow_urzadzen_ma_dokladnie_dziewiec_wpisow():
     """
     Wzmocnienie ponad brief: same asercje 'in' przeszłyby też na zbiorze-worku,
     do którego ktoś przez pomyłkę dorzucił dodatkowe/martwe kody (np. zostawił
@@ -314,8 +312,6 @@ def test_zbior_kodow_urzadzen_ma_dokladnie_jedenascie_wpisow():
     assert ProductionDevice.VALID_STATION_CODES == {
         'packaging', 'cutting', 'assembly', 'gluing', 'formatting',
         'edges', 'painting', 'finishing', 'sawmill',
-        'verification',   # Weryfikacja paczek (logistyka etap 4, krok 4.3)
-        'delivery',       # Dostawa (logistyka etap 4, krok 4.4)
     }
 
 

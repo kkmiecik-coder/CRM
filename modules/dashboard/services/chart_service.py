@@ -245,11 +245,6 @@ def get_production_overview():
         'czeka_na_logistyke': {'name': 'Czeka na logistykę', 'color': '#0d9488'},
         'czeka_na_pakowanie': {'name': 'Czeka na pakowanie', 'color': '#f59e0b'},
         'spakowane': {'name': 'Spakowane', 'color': '#10b981'},
-        # Logistyka etap 4 (krok 4.3): statusy po spakowaniu — ciemne odcienie, żeby nie zlać się
-        # z zielenią 'spakowane' i kolorami stanowisk.
-        'zweryfikowane': {'name': 'Zweryfikowane', 'color': '#14532d'},
-        'zaladowane': {'name': 'Załadowane', 'color': '#1e3a8a'},
-        'dostarczone': {'name': 'Dostarczone', 'color': '#713f12'},
         'anulowane': {'name': 'Anulowane', 'color': '#ef4444'},
         'wstrzymane': {'name': 'Wstrzymane', 'color': '#f97316'},
         'w_realizacji': {'name': 'W realizacji', 'color': '#eab308'},

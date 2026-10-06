@@ -7,24 +7,18 @@
  * Odpowiedzialności:
  * - Zaawansowane filtrowanie produktów (text search + 5 multi-select dropdownów)
  * - Proste renderowanie listy produktów (bez virtual scroll)
- * - Kolejność kart = ranga zamówienia, gwiazdki 0–5, plakietki trasy, tagów i odłożeń
- *   (priorytety produkcji, K4a; zapisy wyłącznie przez window.Priorytety z priorytety.js)
+ * - Drag & drop z animacjami feedback
  * - Akcje grupowe (bulk actions) z modal
  * - Export Excel z opcjami
  * - Auto-refresh hybrydowy zachowujący stan UI
  * - System color coding i urgency indicators
- *
+ * // Import drag & drop functionality
+ * // ProductsDragDrop will be loaded dynamically
+ * 
  * Autor: Konrad Kmiecik
  * Wersja: 2.0 - Przepisany bez virtual scrolling
  * Data: 2025-01-15
  */
-
-// Statusy „spakowane lub dalej” (logistyka etap 4) — kopia sposoby.STATUSY_PO_SPAKOWANIU w Pythonie.
-// Pytania „czy pozycja jest skończona” idą przez tę listę, nie przez porównanie z 'spakowane'.
-const STATUSY_PO_SPAKOWANIU = ['spakowane', 'zweryfikowane', 'zaladowane', 'dostarczone'];
-// Hurt „Ustaw gwiazdki” (K4-poprawka-1, decyzja Konrada 5.10): ponad tyle zamówień naraz — okno potwierdzenia
-// (zdjęcie gwiazdek pyta zawsze).
-const PROG_POTWIERDZENIA_HURTU = 10;
 
 class ProductsModule {
 
@@ -47,10 +41,6 @@ class ProductsModule {
         'czeka_na_logistyke': 'Logistyka',
         'czeka_na_pakowanie': 'Pakowanie',
         'spakowane': 'Spakowane',
-        // Statusy po spakowaniu nadaje wyłącznie logistyka (Weryfikacja, Dostawa).
-        'zweryfikowane': 'Zweryfikowane',
-        'zaladowane': 'Załadowane',
-        'dostarczone': 'Dostarczone',
         'w_realizacji': 'W realizacji',
         'wstrzymane': 'Wstrzymane',
         'anulowane': 'Anulowane'
@@ -77,9 +67,6 @@ class ProductsModule {
         'czeka_na_pakowanie': { icon: 'fa-box', displayName: 'Pakowanie', color: 'packaging-theme', badgeClass: 'badge-packaging' },
         'w_trakcie_pakowania': { icon: 'fa-box', displayName: 'Pakowanie', color: 'packaging-theme', badgeClass: 'badge-packaging' },
         'spakowane': { icon: 'fa-check-circle', displayName: 'Spakowane', color: 'text-success', badgeClass: 'badge-success' },
-        'zweryfikowane': { icon: 'fa-clipboard-check', displayName: 'Zweryfikowane', color: 'text-success', badgeClass: 'badge-success' },
-        'zaladowane': { icon: 'fa-truck-loading', displayName: 'Załadowane', color: 'text-success', badgeClass: 'badge-success' },
-        'dostarczone': { icon: 'fa-flag-checkered', displayName: 'Dostarczone', color: 'text-success', badgeClass: 'badge-success' },
         'w_realizacji': { icon: 'fa-cog', displayName: 'W realizacji', color: 'text-info', badgeClass: 'badge-info' },
         'wstrzymane': { icon: 'fa-pause-circle', displayName: 'Wstrzymane', color: 'text-warning', badgeClass: 'badge-warning' },
         'anulowane': { icon: 'fa-times-circle', displayName: 'Anulowane', color: 'text-danger', badgeClass: 'badge-danger' }
@@ -102,6 +89,7 @@ class ProductsModule {
 
         // Main components
         this.components = {
+            dragDrop: null,
             filters: null,
             modals: null,
             exportTool: null,
@@ -142,12 +130,6 @@ class ProductsModule {
             orders: [],           // Grouped orders
             filteredOrders: [],   // After filtering
             expandedOrders: new Set(),  // Track which orders are expanded
-
-            // Priorytety produkcji (K4a): order_id → wpis z GET /kolejka (ranga, szczebel, tagi, trasa),
-            // order_id → odłożenia z GET /odlozenia; priorytetyBlad → karty po terminie z ostrzeżeniem.
-            priorytety: new Map(),
-            odlozenia: new Map(),
-            priorytetyBlad: false,
 
             // Auto-refresh
             lastUpdate: null,
@@ -236,13 +218,6 @@ class ProductsModule {
             // Usuń event listeners
             this.removeEventListeners();
 
-            // Słuchacz zmian priorytetów — funkcją wyrejestrowania z eventBus.on (off bez handlera zdjąłby
-            // słuchaczy innych modułów).
-            if (this._odpinijPriorytety) {
-                this._odpinijPriorytety();
-                this._odpinijPriorytety = null;
-            }
-
             // Wyczyść dane
             this.state.products = [];
             this.state.filteredProducts = [];
@@ -255,6 +230,11 @@ class ProductsModule {
             }
 
             this.isLoaded = false;
+            // Cleanup drag & drop
+            if (this.components.dragDrop) {
+                this.components.dragDrop.destroy();
+                this.components.dragDrop = null;
+            }
             console.log('[ProductsModule] Module unloaded');
 
         } catch (error) {
@@ -270,7 +250,6 @@ class ProductsModule {
             console.log('[ProductsModule] Refreshing data...');
 
             await this.loadProductsData();
-            await this.wczytajPriorytety();
             this.applyAllFilters();
 
             console.log('[ProductsModule] Data refreshed successfully');
@@ -284,6 +263,11 @@ class ProductsModule {
 
     destroy() {
         this.unload();
+        // Destroy drag & drop
+        if (this.components.dragDrop) {
+            this.components.dragDrop.destroy();
+            this.components.dragDrop = null;
+        }
         this.components = null;
         this.state = null;
         this.elements = null;
@@ -361,6 +345,9 @@ class ProductsModule {
 
             // Inicjalizuj filtry badges
             this.initializeFilterBadges();
+
+            // Inicjalizuj drag & drop
+            this.initializeDragDrop();
 
             console.log('[ProductsModule] Components initialized');
             return true;
@@ -689,6 +676,32 @@ class ProductsModule {
         this.applyAllFilters();
     }
 
+    initializeDragDrop() {
+        try {
+            if (typeof ProductsDragDrop === 'undefined') {
+                console.warn('[ProductsModule] ProductsDragDrop class not available');
+                this.components.dragDrop = null;
+                return false;
+            }
+            
+            this.components.dragDrop = new ProductsDragDrop(this);
+            const initialized = this.components.dragDrop.initialize();
+            
+            if (initialized) {
+                console.log('[ProductsModule] Drag & Drop initialized successfully');
+            } else {
+                console.error('[ProductsModule] Failed to initialize Drag & Drop');
+                this.components.dragDrop = null;
+            }
+            
+            return initialized;
+        } catch (error) {
+            console.error('[ProductsModule] Error initializing Drag & Drop:', error);
+            this.components.dragDrop = null;
+            return false;
+        }
+    }
+
     // ========================================================================
     // EVENT LISTENERS SETUP
     // ========================================================================
@@ -771,22 +784,6 @@ class ProductsModule {
         // Bulk actions event listeners
         this.setupBulkActionsEventListeners();
 
-        // Priorytety produkcji (K4a): przycisk „Drabina priorytetów” w nagłówku zakładki i odświeżenie kolejności
-        // kart po zmianie gwiazdek, drabiny albo stołu (zdarzenie z window.Priorytety).
-        const drabinaBtn = document.querySelector('[data-priorytety="drabina"]');
-        if (drabinaBtn) {
-            if (window.Priorytety) {
-                drabinaBtn.addEventListener('click', () => window.Priorytety.otworzDrabine());
-            } else {
-                drabinaBtn.disabled = true;
-                drabinaBtn.title = 'Priorytety nie wczytały się. Odśwież stronę.';
-            }
-        }
-        const bus = this.shared?.eventBus || window.ProductionShared?.eventBus;
-        if (bus && !this._odpinijPriorytety) {
-            this._odpinijPriorytety = bus.on('priorytety:zmiana', (zmiana) => this.poZmianiePriorytetow(zmiana));
-        }
-
         // Keyboard shortcuts
         document.addEventListener('keydown', this.onKeydown);
 
@@ -820,6 +817,9 @@ class ProductsModule {
                 this.handleBulkAction('delete');
             });
         }
+
+        // NOTE: Przycisk "Ustaw priorytet" (#bulk-set-priority) powinien zostać
+        // usunięty z HTML template products-tab-content.html
 
         console.log('[ProductsModule] Bulk actions event listeners setup completed');
     }
@@ -872,9 +872,6 @@ class ProductsModule {
 
             // Załaduj dane produktów
             await this.loadProductsData();
-
-            // Ranga zamówień i odłożenia (nie rzuca: przy błędzie karty idą po terminie z ostrzeżeniem)
-            await this.wczytajPriorytety();
 
             // Załaduj opcje filtrów (po załadowaniu produktów)
             await this.loadFiltersData();
@@ -964,159 +961,6 @@ class ProductsModule {
         } catch (error) {
             console.error('[ProductsModule] Error loading products data:', error);
             throw error;
-        }
-    }
-
-    // ========================================================================
-    // PRIORYTETY PRODUKCJI (K4a): ranga z GET /kolejka, odłożenia, gwiazdki
-    // ========================================================================
-
-    /**
-     * Ranga zamówień (wspólny komponent window.Priorytety) i odłożenia stanowisk do plakietek. Nie rzuca:
-     * gdy kolejka się nie wczyta (albo priorytety.js w ogóle), karty idą po terminie z ostrzeżeniem w pasku.
-     */
-    async wczytajPriorytety() {
-        // Kilka zdarzeń pod rząd (strzałki drabiny, hurt) daje kilka odczytów naraz — wynik starszego, który
-        // wróci później, nie może nadpisać nowszego.
-        this._numerPriorytetow = (this._numerPriorytetow || 0);
-        const numer = ++this._numerPriorytetow;
-        const P = window.Priorytety;
-        if (!P) {
-            this.state.priorytety = new Map();
-            this.state.odlozenia = new Map();
-            this.state.priorytetyBlad = true;
-            this.pokazOstrzezeniePriorytetow();
-            return;
-        }
-        // Oba odczyty równolegle; błąd /odlozenia nie psuje kolejności kart (tylko brak plakietek odłożeń).
-        const odlozeniaP = P.pobierzOdlozenia().catch((e) => {
-            console.warn('[ProductsModule] Odłożenia niedostępne:', e);
-            return new Map();
-        });
-        try {
-            const [kolejka, odlozenia] = await Promise.all([P.pobierzKolejke(), odlozeniaP]);
-            if (numer !== this._numerPriorytetow) return;
-            this.state.priorytety = kolejka;
-            this.state.odlozenia = odlozenia;
-            this.state.priorytetyBlad = false;
-        } catch (e) {
-            if (numer !== this._numerPriorytetow) return;
-            console.warn('[ProductsModule] Priorytety niedostępne:', e);
-            this.state.priorytety = new Map();
-            this.state.odlozenia = new Map();
-            this.state.priorytetyBlad = true;
-        }
-        this.pokazOstrzezeniePriorytetow();
-    }
-
-    pokazOstrzezeniePriorytetow() {
-        const ostrzezenie = document.getElementById('il-priorytety-ostrzezenie');
-        if (ostrzezenie) ostrzezenie.hidden = !this.state.priorytetyBlad;
-    }
-
-    /** Słuchacz 'priorytety:zmiana': nowe gwiazdki lokalnie, potem kolejka i odłożenia od nowa i przerysowanie. */
-    async poZmianiePriorytetow(zmiana) {
-        if (zmiana && zmiana.rodzaj === 'gwiazdki' && Number.isInteger(zmiana.gwiazdki)) {
-            const ids = new Set(zmiana.order_ids || []);
-            this.state.products.forEach((p) => {
-                if (ids.has(p.order_id)) p.order_priority_stars = zmiana.gwiazdki;
-            });
-        }
-        await this.wczytajPriorytety();
-        this.applyAllFilters();
-    }
-
-    /**
-     * Plakietki karty zamówienia (spec 7.1): trasa, tagi z kolejki, „Odłożone na …” po stanowiskach.
-     * Treść przez escapeHtml, atrybuty przez escapeAttr (nazwa trasy i notatka odłożenia pochodzą od ludzi).
-     */
-    plakietkiPriorytetuHtml(order) {
-        const P = window.Priorytety;
-        if (!P || order.orderId == null) return '';
-        const wpis = this.state.priorytety.get(order.orderId);
-        const czesci = [];
-        if (wpis && wpis.trasa) {
-            const t = wpis.trasa;
-            const data = t.date_from ? `${t.date_from.slice(8, 10)}.${t.date_from.slice(5, 7)}` : '';
-            const opis = `Trasa ${t.nazwa}${data ? ', od ' + data : ''}`;
-            czesci.push(`<span class="il-prio-tag il-prio-tag--trasa" title="${this.escapeAttr(opis)}"><i class="fas fa-truck" aria-hidden="true"></i> ${this.escapeHtml(t.nazwa)}${data ? ' ' + this.escapeHtml(data) : ''}</span>`);
-        }
-        ((wpis && wpis.tagi) || []).forEach((tag) => {
-            czesci.push(`<span class="il-prio-tag il-prio-tag--${this.escapeAttr(tag)}">${this.escapeHtml(P.etykietaTagu(tag))}</span>`);
-        });
-        const poStanowisku = new Map();
-        (this.state.odlozenia.get(order.orderId) || []).forEach((o) => {
-            if (!poStanowisku.has(o.stanowisko)) poStanowisku.set(o.stanowisko, []);
-            poStanowisku.get(o.stanowisko).push(o);
-        });
-        poStanowisku.forEach((lista) => {
-            czesci.push(`<span class="il-prio-tag il-prio-tag--odlozone" title="${this.escapeAttr(P.opisOdlozen(lista))}">${this.escapeHtml(P.etykietaOdlozenia(lista))}</span>`);
-        });
-        return czesci.join('');
-    }
-
-    /**
-     * Hurt „Ustaw gwiazdki” (Doprecyzowania p. 7): gwiazdki dotyczą całych zamówień zaznaczonych pozycji —
-     * unikalne order_id, najwyżej LIMIT_HURTU w jednym żądaniu (bez dzielenia na partie). Po udanym zapisie
-     * selekcja jest czyszczona (poprawka 6.10), po błędzie zostaje do ponowienia.
-     * Zdjęcie gwiazdek albo hurt ponad PROG_POTWIERDZENIA_HURTU zamówień — najpierw okno potwierdzenia z fokusem na
-     * „Anuluj” (wybierak startuje na „Bez gwiazdek”, więc mimowolny Enter nie może niczego zapisać).
-     */
-    async showBulkStarsPicker(selectedIds) {
-        const P = window.Priorytety;
-        const toast = this.shared?.toastSystem;
-        const powiedz = (tresc, typ) => {
-            if (toast) toast.show(this.escapeHtml(tresc), typ);
-            else alert(tresc);
-        };
-        if (!P) {
-            powiedz('Priorytety nie wczytały się. Odśwież stronę.', 'error');
-            return;
-        }
-        const klucze = new Set(selectedIds);
-        const ids = new Set();
-        this.state.products.forEach((p) => {
-            if (klucze.has(this._getProductKey(p)) && p.order_id != null) ids.add(p.order_id);
-        });
-        if (!ids.size) {
-            powiedz('Zaznaczone pozycje nie mają zamówienia.', 'warning');
-            return;
-        }
-        if (ids.size > P.LIMIT_HURTU) {
-            powiedz(`Gwiazdki można ustawić najwyżej ${P.LIMIT_HURTU} zamówieniom naraz (zaznaczono ${ids.size}).`, 'warning');
-            return;
-        }
-        const przycisk = document.querySelector('#il-bulk-bar [data-action="stars"]');
-        const n = await P.wybierzGwiazdki(przycisk, 0, {
-            opis: `Gwiazdki dotyczą całych zamówień (zaznaczonych: ${ids.size})`,
-        });
-        if (n === null) return;
-        if (n === 0 || ids.size > PROG_POTWIERDZENIA_HURTU) {
-            const potwierdzone = await P.potwierdz(n === 0 ? {
-                tytul: 'Zdjąć gwiazdki?',
-                tresc: `Zaznaczone zamówienia: ${ids.size}. Każde zostanie bez gwiazdek (0 z 5). `
-                    + 'Zmiana dotyczy całych zamówień.',
-                zatwierdz: `Zdejmij gwiazdki (${ids.size})`,
-            } : {
-                tytul: 'Ustawić gwiazdki hurtem?',
-                tresc: `Zaznaczone zamówienia: ${ids.size}. Każde dostanie ${P.opisGwiazdek(n)} (${'★'.repeat(n)}). `
-                    + 'Zmiana dotyczy całych zamówień.',
-                zatwierdz: `Ustaw ${'★'.repeat(n)} (${ids.size})`,
-            });
-            if (!potwierdzone) return;
-        }
-        try {
-            const odp = await P.ustawGwiazdki(Array.from(ids), n);
-            let tresc = `Gwiazdki ${n ? '★'.repeat(n) : 'zdjęte'}: zmieniono ${odp.zmienione.length}, bez zmian ${odp.bez_zmian.length}`;
-            if (odp.nieznane && odp.nieznane.length) tresc += `, pominięto ${odp.nieznane.length} (brak zamówienia)`;
-            powiedz(tresc + '.', 'success');
-            // Karty przestawią się według nowej rangi — zaznaczenie czyścimy w całości, żeby następna akcja
-            // hurtowa nie objęła zamówienia, które przeskoczyło w inne miejsce listy.
-            this.state.selectedProducts.clear();
-            this.syncAllCheckboxes();
-            this.toggleBulkActionsVisibility();
-        } catch (e) {
-            powiedz(e.message, 'error');
         }
     }
 
@@ -1535,9 +1379,7 @@ class ProductsModule {
                     productCount: 0,
                     status: null,
                     deadline: null,
-                    // Priorytety produkcji (K4a): id zamówienia (klucz kolejki i modalu) i jego gwiazdki 0–5
-                    orderId: product.order_id ?? null,
-                    gwiazdki: Number(product.order_priority_stars) || 0,
+                    isPriority: false,
                     orderNotes: product.order_notes || '',
                     attachmentUrl: null
                 });
@@ -1549,6 +1391,7 @@ class ProductsModule {
             order.totalVolume += (parseFloat(product.volume_m3) || 0) * (product.quantity || 1);
             order.totalValue += parseFloat(product.total_value_net) || 0;
 
+            if (product.is_priority) order.isPriority = true;
             if (product.order_notes && !order.orderNotes) order.orderNotes = product.order_notes;
             if (product.quote_number && !order.quoteNumber) order.quoteNumber = product.quote_number;
             if (product.order_source_display && !order.orderSource) order.orderSource = product.order_source_display;
@@ -1569,7 +1412,7 @@ class ProductsModule {
                 order.status = statuses[0];
                 order.statusLabel = this.getStatusDisplayName(statuses[0]);
             } else {
-                const completedCount = order.products.filter(p => STATUSY_PO_SPAKOWANIU.includes(p.current_status)).length;
+                const completedCount = order.products.filter(p => p.current_status === 'spakowane').length;
                 order.status = 'mixed';
                 order.statusLabel = `Różne (${completedCount}/${order.productCount})`;
             }
@@ -1624,7 +1467,6 @@ class ProductsModule {
         const card = clone.querySelector('.il-order-card');
 
         card.setAttribute('data-order-key', order.orderKey);
-        if (order.orderId != null) card.setAttribute('data-order-id', order.orderId);
 
         // Add status class to card for mobile border-left
         const stationClass = this.getStationClassFromStatus(order.status);
@@ -1694,21 +1536,15 @@ class ProductsModule {
         const stationClass = this.getStationClassFromStatus(order.status);
         header.classList.add(stationClass);
 
-        // Priorytety produkcji (K4a): miejsce w kolejce (ranga z GET /kolejka; spoza kolejki „—”) i przycisk
-        // gwiazdek otwierający modal priorytetu zamówienia.
-        const wpis = order.orderId != null ? this.state.priorytety.get(order.orderId) : null;
-        const ranga = header.querySelector('.il-order-ranga');
-        if (ranga) ranga.textContent = wpis && wpis.ranga != null ? `#${wpis.ranga}` : '—';
-        const przycisk = header.querySelector('.il-priorytet-btn');
-        if (przycisk) {
-            const P = window.Priorytety;
-            przycisk.innerHTML = P ? window.Priorytety.gwiazdkiHtml(order.gwiazdki, { male: true })
-                : this.escapeHtml(`${order.gwiazdki}★`);
-            const opis = wpis && wpis.szczebel ? `${wpis.szczebel.etykieta}, miejsce ${wpis.ranga}` : 'Priorytet zamówienia';
-            przycisk.setAttribute('title', opis);
-            przycisk.setAttribute('aria-label',
-                `Priorytet zamówienia ${order.internalOrderNumber || ''}: ${P ? P.opisGwiazdek(order.gwiazdki) : order.gwiazdki}`);
-            if (!P || order.orderId == null) przycisk.disabled = true;
+        // Star — all priority = active+filled, some = partial (border only)
+        const star = header.querySelector('.il-star-btn');
+        const allPriority = order.products.length > 0 && order.products.every(p => p.is_priority);
+        const anyPriority = order.products.some(p => p.is_priority);
+        if (allPriority) {
+            star.classList.add('active');
+            star.querySelector('i').className = 'fas fa-star';
+        } else if (anyPriority) {
+            star.classList.add('partial');
         }
 
         // Client info
@@ -1729,8 +1565,6 @@ class ProductsModule {
         if (order.quoteNumber) {
             idsContainer.innerHTML += `<span class="il-order-id-tag">${order.quoteNumber}</span>`;
         }
-        // Plakietki: trasa, tagi, „Odłożone na …”
-        idsContainer.insertAdjacentHTML('beforeend', this.plakietkiPriorytetuHtml(order));
 
         // Metrics
         header.querySelector('.il-order-positions').textContent = order.productCount;
@@ -1762,9 +1596,9 @@ class ProductsModule {
         // Expand/collapse on header click
         header.addEventListener('click', (e) => {
             if (e.target.closest('.il-order-checkbox') ||
-                e.target.closest('.il-priorytet-btn') ||
+                e.target.closest('.il-star-btn') ||
                 e.target.closest('.il-order-actions') ||
-                e.target.closest('.il-prio-tag')) return;
+                e.target.closest('.il-drag-handle')) return;
 
             const isExpanded = this.state.expandedOrders.has(order.orderKey);
             if (isExpanded) {
@@ -1824,16 +1658,12 @@ class ProductsModule {
             });
         });
 
-        // Przycisk gwiazdek → modal priorytetu zamówienia (priorytety produkcji, K4a)
-        const priorytetBtn = header.querySelector('.il-priorytet-btn');
-        if (priorytetBtn) {
-            priorytetBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                if (window.Priorytety && order.orderId != null) {
-                    window.Priorytety.otworzModalPriorytetu(order.orderId);
-                }
-            });
-        }
+        // Star button (order-level)
+        const starBtn = header.querySelector('.il-star-btn');
+        starBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.toggleOrderPriority(order);
+        });
 
         // Action buttons — set disabled state based on data availability
         header.querySelectorAll('.il-order-action-btn').forEach(btn => {
@@ -1879,6 +1709,19 @@ class ProductsModule {
                 }
             });
         });
+
+        // Drag handle
+        const dragHandle = header.querySelector('.il-drag-handle');
+        if (dragHandle) {
+            card.setAttribute('draggable', 'true');
+            card.addEventListener('dragstart', (e) => {
+                e.dataTransfer.setData('text/plain', order.orderKey);
+                card.classList.add('dragging');
+            });
+            card.addEventListener('dragend', () => {
+                card.classList.remove('dragging');
+            });
+        }
     }
 
     showCommentTooltip(btn, order) {
@@ -1933,9 +1776,6 @@ class ProductsModule {
             'czeka_na_logistyke': 'status-logistics',
             'czeka_na_pakowanie': 'status-packaging',
             'spakowane': 'status-completed',
-            'zweryfikowane': 'status-completed',
-            'zaladowane': 'status-completed',
-            'dostarczone': 'status-completed',
             'w_realizacji': 'status-inprogress',
             'wstrzymane': 'status-paused',
             'anulowane': 'status-cancelled',
@@ -1956,9 +1796,6 @@ class ProductsModule {
             'czeka_na_logistyke': 'badge-logistics',
             'czeka_na_pakowanie': 'badge-packaging',
             'spakowane': 'badge-completed',
-            'zweryfikowane': 'badge-completed',
-            'zaladowane': 'badge-completed',
-            'dostarczone': 'badge-completed',
             'w_realizacji': 'badge-assembly',
             'wstrzymane': 'badge-paused',
             'anulowane': 'badge-cancelled',
@@ -1973,31 +1810,12 @@ class ProductsModule {
         const dir = this.state.sortDirection === 'asc' ? 1 : -1;
 
         if (!col) {
-            if (this.state.priorytetyBlad) {
-                // Priorytety się nie wczytały: po terminie (najpilniejsze pierwsze), jak przed K4a.
-                this.state.filteredOrders.sort((a, b) => {
-                    if (!a.deadline) return 1;
-                    if (!b.deadline) return -1;
-                    return a.deadline.localeCompare(b.deadline);
-                });
-            } else {
-                // Domyślnie po randze zamówienia z GET /kolejka (spec 7.1). Zamówienia spoza kolejki (spakowane,
-                // wstrzymane) na końcu, między sobą po terminie, potem po numerze (Doprecyzowania p. 2).
-                const ranga = (o) => {
-                    const wpis = o.orderId != null ? this.state.priorytety.get(o.orderId) : null;
-                    return wpis && wpis.ranga != null ? wpis.ranga : Infinity;
-                };
-                this.state.filteredOrders.sort((a, b) => {
-                    const ra = ranga(a);
-                    const rb = ranga(b);
-                    if (ra !== rb) return ra < rb ? -1 : 1;
-                    const ta = a.deadline || '9999-12-31';
-                    const tb = b.deadline || '9999-12-31';
-                    if (ta !== tb) return ta.localeCompare(tb);
-                    return String(a.internalOrderNumber || '').localeCompare(String(b.internalOrderNumber || ''),
-                        'pl', { numeric: true });
-                });
-            }
+            // Default: sort by deadline (most urgent first)
+            this.state.filteredOrders.sort((a, b) => {
+                if (!a.deadline) return 1;
+                if (!b.deadline) return -1;
+                return a.deadline.localeCompare(b.deadline);
+            });
             return;
         }
 
@@ -2049,6 +1867,19 @@ class ProductsModule {
         // Checkbox
         const checkbox = row.querySelector('.il-product-checkbox');
         checkbox.checked = this.state.selectedProducts.has(product.unique_id || String(product.id));
+
+        // Star (product-level)
+        const productStar = row.querySelector('.il-product-star');
+        if (productStar) {
+            if (product.is_priority) {
+                productStar.classList.add('active');
+                productStar.querySelector('i').classList.replace('far', 'fas');
+            }
+            productStar.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.toggleProductPriority(product, productStar);
+            });
+        }
 
         // Name
         row.querySelector('.il-product-name-text').textContent = product.original_product_name || '—';
@@ -2109,8 +1940,10 @@ class ProductsModule {
             rowElement.style.marginBottom = '6px';
             rowElement.classList.add('simple-row');
             rowElement.setAttribute('data-product-id', product.id);
+            rowElement.setAttribute('data-priority', product.priority_rank || 0);
             rowElement.setAttribute('data-status', product.current_status || '');
             rowElement.setAttribute('data-index', index);
+            rowElement.setAttribute('data-is-priority', product.is_priority ? 'true' : 'false');
             rowElement.setAttribute('data-order-number', product.internal_order_number || '');
 
             // Wypełnij dane produktu
@@ -2138,6 +1971,23 @@ class ProductsModule {
             if (checkbox) {
                 checkbox.checked = this.state.selectedProducts.has(this._getProductKey(product));
                 checkbox.setAttribute('data-product-id', product.id);
+            }
+
+            // 2. Gwiazdka priorytetu
+            const starBtn = rowElement.querySelector('.prod_list-star-btn');
+            if (starBtn) {
+                starBtn.setAttribute('data-product-id', product.id);
+                starBtn.setAttribute('data-order-number', product.internal_order_number || '');
+                if (product.is_priority) {
+                    starBtn.classList.add('active');
+                }
+            }
+
+            // 3. Priority rank
+            const priorityElement = rowElement.querySelector('.prod_list-priority-rank');
+            if (priorityElement) {
+                const priority = parseInt(product.priority_rank) || 100;
+                priorityElement.textContent = priority;
             }
 
             // 3. Klient (nazwa + numery zamówień)
@@ -2286,10 +2136,6 @@ class ProductsModule {
             'czeka_na_pakowanie': 'packaging',
             'w_trakcie_pakowania': 'packaging',
             'spakowane': 'completed',
-            // Bez jawnego wpisu domyślne 'paused' pokazałoby te statusy jak wstrzymane.
-            'zweryfikowane': 'completed',
-            'zaladowane': 'completed',
-            'dostarczone': 'completed',
             'wstrzymane': 'paused',
             'anulowane': 'cancelled'
         };
@@ -2453,6 +2299,24 @@ class ProductsModule {
                 });
             }
 
+            // Star button (gwiazdka priorytetu)
+            const starBtn = rowElement.querySelector('.prod_list-star-btn');
+            if (starBtn) {
+                starBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.handleStarClick(starBtn, product);
+                });
+            }
+
+            // Priority element - klikalne
+            const priorityElement = rowElement.querySelector('.prod_list-priority-rank');
+            if (priorityElement) {
+                priorityElement.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.showEditPriorityModal(product);
+                });
+            }
+
             // Row click - cały wiersz
             rowElement.addEventListener('click', (e) => {
                 // Nie reaguj jeśli kliknięto w input, button lub link
@@ -2466,6 +2330,121 @@ class ProductsModule {
         } catch (error) {
             console.error('[ProductsModule] Error attaching row listeners:', error);
         }
+    }
+
+    // ========================================================================
+    // PRIORITY STAR METHODS - Obsługa gwiazdki priorytetu
+    // ========================================================================
+
+    /**
+     * Toggle priorytetu pojedynczego produktu (klik w gwiazdkę produktu)
+     */
+    async toggleProductPriority(product, starBtn) {
+        const newPriority = !product.is_priority;
+        await this._sendPriorityUpdate(product.id, null, 'product', newPriority);
+    }
+
+    /**
+     * Toggle priorytetu całego zamówienia (klik w gwiazdkę zamówienia)
+     */
+    async toggleOrderPriority(order) {
+        const allHavePriority = order.products.every(p => p.is_priority);
+        const newPriority = !allHavePriority;
+        const orderNumber = order.internalOrderNumber || order.products[0]?.internal_order_number;
+        await this._sendPriorityUpdate(null, orderNumber, 'order', newPriority);
+    }
+
+    /**
+     * Wysyła żądanie zmiany priorytetu do API i aktualizuje UI
+     */
+    async _sendPriorityUpdate(productId, orderNumber, mode, isPriority) {
+        try {
+            const response = await fetch('/production/api/set-priority', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    product_id: productId,
+                    order_number: orderNumber,
+                    mode: mode,
+                    is_priority: isPriority
+                })
+            });
+
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error || 'Nieznany błąd');
+
+            // Aktualizuj lokalne dane
+            if (data.updated_products) {
+                data.updated_products.forEach(updated => {
+                    const localProduct = this.state.products.find(p => p.id === updated.id);
+                    if (localProduct) localProduct.is_priority = updated.is_priority;
+                    const filteredProduct = this.state.filteredProducts.find(p => p.id === updated.id);
+                    if (filteredProduct) filteredProduct.is_priority = updated.is_priority;
+                });
+            }
+
+            // Aktualizuj UI
+            this.refreshStarUI();
+
+            if (this.shared?.toastSystem) {
+                const count = data.updated_products?.length || 1;
+                const msg = isPriority
+                    ? `Oznaczono ${count} produkt(ów) jako priorytetowe`
+                    : `Usunięto priorytet dla ${count} produktu(ów)`;
+                this.shared.toastSystem.show(msg, 'success', 3000);
+            }
+
+        } catch (error) {
+            console.error('[ProductsModule] Error setting priority:', error);
+            if (this.shared?.toastSystem) {
+                this.shared.toastSystem.show(`Błąd: ${error.message}`, 'error', 5000);
+            }
+        }
+    }
+
+    /**
+     * Odświeża stan gwiazdek w całym widoku (produkty + nagłówki zamówień)
+     */
+    refreshStarUI() {
+        // Gwiazdki na produktach (il-product-row)
+        document.querySelectorAll('.il-product-row[data-product-id]').forEach(row => {
+            const productId = parseInt(row.getAttribute('data-product-id'));
+            const product = this.state.products.find(p => p.id === productId);
+            if (!product) return;
+            const star = row.querySelector('.il-product-star');
+            if (!star) return;
+            const icon = star.querySelector('i');
+            if (product.is_priority) {
+                star.classList.add('active');
+                if (icon) icon.classList.replace('far', 'fas');
+            } else {
+                star.classList.remove('active');
+                if (icon) icon.classList.replace('fas', 'far');
+            }
+        });
+
+        // Gwiazdki na nagłówkach zamówień
+        document.querySelectorAll('.il-order-card').forEach(card => {
+            const orderStar = card.querySelector('.il-order-header > .il-star-btn');
+            if (!orderStar) return;
+            const productRows = card.querySelectorAll('.il-product-row[data-product-id]');
+            const productIds = Array.from(productRows).map(el => parseInt(el.getAttribute('data-product-id')));
+            const orderProducts = this.state.products.filter(p => productIds.includes(p.id));
+
+            const anyPriority = orderProducts.some(p => p.is_priority);
+            const allPriority = orderProducts.length > 0 && orderProducts.every(p => p.is_priority);
+            const icon = orderStar.querySelector('i');
+
+            orderStar.classList.remove('active', 'partial');
+            if (icon) icon.classList.replace('fas', 'far');
+
+            if (allPriority) {
+                orderStar.classList.add('active');
+                if (icon) icon.classList.replace('far', 'fas');
+            } else if (anyPriority) {
+                orderStar.classList.add('partial');
+            }
+        });
     }
 
     showProductEditModal(productId) {
@@ -2732,10 +2711,6 @@ class ProductsModule {
     }
 
     handleKeydown(e) {
-        if (document.querySelector('dialog[open], .pr-wybierak')) return;
-        // Okna priorytetów (modal, drabina, dymek gwiazdek) mają własne klawisze — Esc w nich nie czyści selekcji
-        // listy, a Ctrl+A nie zaznacza wszystkiego pod spodem (Doprecyzowania p. 14).
-
         // Ctrl+A - Select all
         if (e.ctrlKey && e.key === 'a' && !e.target.matches('input, textarea')) {
             e.preventDefault();
@@ -2774,9 +2749,6 @@ class ProductsModule {
             case 'change-status':
                 this.showBulkStatusChangeDropdown(selectedIds);
                 break;
-            case 'stars':
-                this.showBulkStarsPicker(selectedIds);
-                break;
             case 'export-selected':
                 this.handleExportSelected(selectedIds);
                 break;
@@ -2804,6 +2776,7 @@ class ProductsModule {
             { value: 'czeka_na_formatowanie', label: 'Formatowanie' },
             { value: 'czeka_na_krawedzie', label: 'Krawędzie' },
             { value: 'czeka_na_lakiernie', label: 'Lakiernia' },
+            { value: 'czeka_na_logistyke', label: 'Logistyka' },
             { value: 'czeka_na_pakowanie', label: 'Pakowanie' },
             { value: 'spakowane', label: 'Spakowane' },
             { value: 'wstrzymane', label: 'Wstrzymane' },
@@ -2927,7 +2900,6 @@ class ProductsModule {
                 const statusName = this.getStatusDisplayName(newStatus);
                 if (this.shared?.toastSystem) this.shared.toastSystem.show(`Status zmieniony na "${statusName}" dla ${result.processed_count} produktów`, 'success');
                 else alert(`Status zmieniony na "${statusName}" dla ${result.processed_count} produktów`);
-                this.showBulkStatusSkipped(result);
                 this.state.selectedProducts.clear();
                 this.toggleBulkActionsVisibility();
                 if (this.shared?.apiClient) this.shared.apiClient.clearCache();
@@ -2938,26 +2910,6 @@ class ProductsModule {
         } catch (error) {
             console.error('[ProductsModule] Bulk status change failed:', error);
             alert(`Błąd zmiany statusu: ${error.message}`);
-        }
-    }
-
-    /**
-     * Pominięte przy hurtowej zmianie statusu (logistyka, Ruling 30): serwer zmienił część zaznaczonych, a resztę
-     * odmówił per zamówienie (np. zamówienie na trasie załadowanej albo w drodze) — komunikaty są w `errors`, liczba
-     * pominiętych pozycji w `failed_count`. Pokazujemy je osobnym ostrzeżeniem, które nie znika samo.
-     * Komunikaty serwera niosą dane (numer zamówienia, nazwa trasy), a okienko powiadomień składa treść przez innerHTML
-     * — każdy komunikat idzie przez escapeHtml; okno alert dostaje czysty tekst.
-     */
-    showBulkStatusSkipped(result) {
-        const komunikaty = Array.isArray(result.errors) ? result.errors.map((k) => String(k)) : [];
-        const pominieto = Number(result.failed_count) || 0;
-        if (!komunikaty.length && !pominieto) return;
-        const naglowek = `Pominięto ${pominieto} produktów:`;
-        if (this.shared?.toastSystem) {
-            const tresc = [this.escapeHtml(naglowek), ...komunikaty.map((k) => this.escapeHtml(k))].join('<br>');
-            this.shared.toastSystem.show(tresc, 'warning', { persistent: true });
-        } else {
-            alert([naglowek, ...komunikaty].join('\n'));
         }
     }
 
@@ -3232,16 +3184,6 @@ class ProductsModule {
             checkbox.checked = key ? this.state.selectedProducts.has(key) : false;
         });
 
-        // Pole zamówienia w nagłówku karty: karta rysowana od nowa (np. po zmianie rangi) startuje z pustym polem,
-        // a pozycje w zwiniętych wierszach mogą być zaznaczone — liczymy je z selekcji, żeby nic nie było ukryte.
-        document.querySelectorAll('.il-order-card').forEach(card => {
-            const orderKey = card.getAttribute('data-order-key');
-            const orderCheckbox = card.querySelector('.il-order-checkbox');
-            if (!orderCheckbox || !orderKey) return;
-            const order = this.state.filteredOrders.find(o => o.orderKey === orderKey);
-            if (order) this._updateOrderCheckboxState(orderCheckbox, order);
-        });
-
         this.updateSelectAllCheckbox();
     }
 
@@ -3347,9 +3289,6 @@ class ProductsModule {
                                 case 'status':
                                     this.handleBulkAction('change-status');
                                     break;
-                                case 'stars':
-                                    this.handleBulkAction('stars');
-                                    break;
                                 case 'export':
                                     this.handleBulkAction('export-selected');
                                     break;
@@ -3445,7 +3384,7 @@ class ProductsModule {
         const orders = this.state.filteredOrders;
 
         // Statystyki liczone per niespakowana sztuka — pomijamy pozycje
-        // spakowane (i dalej: STATUSY_PO_SPAKOWANIU) oraz 'anulowane'; remaining = quantity - quantity_done_packaging.
+        // 'spakowane' i 'anulowane'; remaining = quantity - quantity_done_packaging.
         const archiveMode = this.state.viewMode === 'archive';
         let totalCount = 0;
         let totalQuantity = 0;
@@ -3468,7 +3407,7 @@ class ProductsModule {
                 return;
             }
 
-            if (STATUSY_PO_SPAKOWANIU.includes(status) || status === 'anulowane') return;
+            if (status === 'spakowane' || status === 'anulowane') return;
             const done = parseInt(p.quantity_done_packaging) || 0;
             const remaining = qty - done;
             if (remaining <= 0) return;
@@ -3600,9 +3539,6 @@ class ProductsModule {
             'czeka_na_pakowanie': 'status-waiting',
             'w_trakcie_pakowania': 'status-packaging',
             'spakowane': 'status-completed',
-            'zweryfikowane': 'status-completed',
-            'zaladowane': 'status-completed',
-            'dostarczone': 'status-completed',
             'anulowane': 'status-cancelled',
             'wstrzymane': 'status-paused'
         };
@@ -3620,6 +3556,16 @@ class ProductsModule {
         if (daysUntilDeadline <= 1) return 'urgent';
         if (daysUntilDeadline <= 7) return 'warning';
         return 'normal';
+    }
+
+    updatePriorityColor(element, priority) {
+        const score = parseInt(priority) || 100;
+        element.className = 'priority-rank';
+        
+        if (score >= 180) element.classList.add('priority-critical');
+        else if (score >= 140) element.classList.add('priority-high');
+        else if (score >= 80) element.classList.add('priority-medium');
+        else element.classList.add('priority-low');
     }
 
     // ========================================================================
@@ -3788,6 +3734,7 @@ class ProductsModule {
     updateHeaderStatus(headerStatusBadge, product) {
         const statusIcon = headerStatusBadge.querySelector('i');
         const statusText = headerStatusBadge.querySelector('.status-text');
+        const priorityIndicator = headerStatusBadge.querySelector('.priority-indicator');
 
         const statusConfig = this.getStatusConfig(product.current_status);
         
@@ -3797,6 +3744,11 @@ class ProductsModule {
         
         if (statusText) {
             statusText.textContent = statusConfig.displayName;
+        }
+
+        if (priorityIndicator) {
+            const priority = parseInt(product.priority_rank) || 100;
+            priorityIndicator.className = `priority-indicator ${this.getPriorityClass(priority)}`;
         }
     }
 
@@ -3974,7 +3926,7 @@ class ProductsModule {
             commonStations.push('painting');
         }
 
-        commonStations.push('packaging');
+        commonStations.push('logistics', 'packaging');
 
         if (technology === 'mikrowczep') {
             return ['cutting', ...commonStations];
@@ -4059,6 +4011,16 @@ class ProductsModule {
                 durationField: null
             },
             {
+                code: 'logistics',
+                name: 'Logistyka',
+                status: 'czeka_na_logistyke',
+                icon: 'fas fa-truck',
+                color: 'logistics-theme',
+                startField: null,
+                endField: 'logistics_completed_at',
+                durationField: null
+            },
+            {
                 code: 'packaging',
                 name: 'Pakowanie',
                 status: 'czeka_na_pakowanie',
@@ -4131,6 +4093,7 @@ class ProductsModule {
             'formatting': 'formatting_completed_at',
             'edges': 'edges_completed_at',
             'painting': 'painting_completed_at',
+            'logistics': 'logistics_completed_at',
             'packaging': 'packaging_completed_at'
         };
         const statusMap = {
@@ -4140,6 +4103,7 @@ class ProductsModule {
             'formatting': 'czeka_na_formatowanie',
             'edges': 'czeka_na_krawedzie',
             'painting': 'czeka_na_lakiernie',
+            'logistics': 'czeka_na_logistyke',
             'packaging': 'czeka_na_pakowanie'
         };
 
@@ -4164,8 +4128,8 @@ class ProductsModule {
             }
         });
 
-        // Spakowane (i dalej) = 100%
-        if (STATUSY_PO_SPAKOWANIU.includes(currentStatus)) passedStations = stations.length;
+        // Spakowane = 100%
+        if (currentStatus === 'spakowane') passedStations = stations.length;
 
         const totalPercent = Math.round((passedStations / stations.length) * 100);
         badge.textContent = `${quantity} szt. • ${totalPercent}%`;
@@ -4175,7 +4139,7 @@ class ProductsModule {
      * Określa stan timeline dla stacji
      */
     getTimelineState(station, product) {
-        const stationOrder = ['cutting', 'assembly', 'gluing', 'formatting', 'edges', 'painting', 'packaging'];
+        const stationOrder = ['cutting', 'assembly', 'gluing', 'formatting', 'edges', 'painting', 'logistics', 'packaging'];
         const endFields = {
             'cutting': 'cutting_completed_at',
             'assembly': 'assembly_completed_at',
@@ -4183,6 +4147,7 @@ class ProductsModule {
             'formatting': 'formatting_completed_at',
             'edges': 'edges_completed_at',
             'painting': 'painting_completed_at',
+            'logistics': 'logistics_completed_at',
             'packaging': 'packaging_completed_at'
         };
         const statusMap = {
@@ -4192,6 +4157,7 @@ class ProductsModule {
             'formatting': 'czeka_na_formatowanie',
             'edges': 'czeka_na_krawedzie',
             'painting': 'czeka_na_lakiernie',
+            'logistics': 'czeka_na_logistyke',
             'packaging': 'czeka_na_pakowanie'
         };
 
@@ -4224,8 +4190,8 @@ class ProductsModule {
             if (product[endFields[laterCode]]) return true;
             // Product is currently at a later station
             if (currentStatus === statusMap[laterCode]) return true;
-            // Product is already packed (or further)
-            if (STATUSY_PO_SPAKOWANIU.includes(currentStatus)) return true;
+            // Product is already packed
+            if (currentStatus === 'spakowane') return true;
             return false;
         });
 
@@ -4729,24 +4695,6 @@ class ProductsModule {
             'spakowane': {
                 icon: 'fa-check-circle',
                 displayName: 'Spakowane',
-                color: 'text-success',
-                cssClass: 'completed'
-            },
-            'zweryfikowane': {
-                icon: 'fa-clipboard-check',
-                displayName: 'Zweryfikowane',
-                color: 'text-success',
-                cssClass: 'completed'
-            },
-            'zaladowane': {
-                icon: 'fa-truck-loading',
-                displayName: 'Załadowane',
-                color: 'text-success',
-                cssClass: 'completed'
-            },
-            'dostarczone': {
-                icon: 'fa-flag-checkered',
-                displayName: 'Dostarczone',
                 color: 'text-success',
                 cssClass: 'completed'
             },
@@ -5591,7 +5539,43 @@ class ProductsModule {
         return 'dni';
     }
 
+    /**
+     * Zwraca klasę CSS dla priorytetu
+     */
+    getPriorityClass(priority) {
+        if (priority >= 180) return 'priority-critical';
+        if (priority >= 140) return 'priority-high';
+        if (priority >= 80) return 'priority-medium';
+        return 'priority-low';
+    }
+
     // getStatusConfig — single definition at line ~3907, removed duplicate here
+
+    // ========================================================================
+    // DRAG & DROP PUBLIC API
+    // ========================================================================
+
+    enableDragDrop() {
+        if (this.components.dragDrop) {
+            this.components.dragDrop.enable();
+            console.log('[ProductsModule] Drag & Drop enabled');
+        }
+    }
+
+    disableDragDrop() {
+        if (this.components.dragDrop) {
+            this.components.dragDrop.disable();
+            console.log('[ProductsModule] Drag & Drop disabled');
+        }
+    }
+
+    isDragDropEnabled() {
+        return this.components.dragDrop ? this.components.dragDrop.isEnabled() : false;
+    }
+
+    isDragging() {
+        return this.components.dragDrop ? this.components.dragDrop.isDragging() : false;
+    }
 
 }
 

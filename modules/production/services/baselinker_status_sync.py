@@ -16,17 +16,13 @@ Trzy momenty zmiany statusu w BL:
 
 2. Po ukończeniu ostatniego stanowiska produkcyjnego zamówienia:
    schedule_after_station_complete() → "Produkcja zakończona" (138620)
+   Warunek: wszystkie pozycje zamówienia mają current_status w POSTPROD_STATUSES.
    Wyjść z produkcji jest trzy: formatowanie (surowy bez obróbki krawędzi),
    Krawędzie (surowy z obróbką) i Lakiernia (olejowany / lakierowany).
-   Warunek: wszystkie AKTYWNE (nieanulowane) pozycje w POSTPROD_STATUSES
-   (pakowanie / spakowane lub dalej), co najmniej jedna aktywna.
 
 3. Po ukończeniu pakowania ostatniego produktu zamówienia:
-   schedule_after_station_complete() → status po spakowaniu według sposobu dostawy
-   (logistics/sposoby.py: kurier 138623, transport 417343, odbiór 149777).
-   Warunek: wszystkie aktywne pozycje są spakowane lub dalej (sposoby.STATUSY_PO_SPAKOWANIU),
-   żadna nie jest załadowana ani dostarczona
-   i odbiór nie został jeszcze wydany klientowi (149779 jest ostateczny).
+   schedule_after_station_complete() → "Zamówienie spakowane" (138623)
+   Warunek: wszystkie pozycje mają current_status == 'spakowane'.
 
 Web ścieżka (complete_order_bulk) commituje sama → wywołuje flush_pending_syncs()
 od razu po commit. Mobile ścieżka (with_idempotency) commituje w decoratorze →
@@ -34,18 +30,13 @@ decorator po commit wywołuje flush_pending_syncs(). W obu przypadkach handler
 woła schedule_after_station_complete() przed return.
 
 Retry przy błędzie API: threading.Timer z backoff 5/15/30/60/120/300/600s
-(suma ~18 min). Daemon thread - nie blokuje shutdown procesu. Każde ponowienie
-czyta zamówienie od nowa i pomija wysyłkę, gdy cel przestał być aktualny
-(_powod_pominiecia_ponowienia) — w tym czasie logistyka mogła zmienić sposób
-dostawy albo wydać zamówienie, a jej dopychacz (logistics/services/bl_sync.py)
-wysłał już nowszy status.
+(suma ~18 min). Daemon thread - nie blokuje shutdown procesu.
 """
 
 import threading
 from typing import List, Optional
 from flask import g, current_app
 from modules.logging import get_structured_logger
-from modules.production.logistics import sposoby
 from .station_catalog import resolve_station_code
 
 logger = get_structured_logger('production.baselinker_status_sync')
@@ -55,19 +46,12 @@ PRODUCTION_COMPLETED_STATUS_ID = 138620
 ORDER_PACKED_STATUS_ID = 138623
 PRODUCTION_RAW_STATUS_ID = 138619  # fallback dla "W produkcji - surowe"
 
-# Status po pakowaniu zależy od sposobu dostawy — mapa STATUS_PO_SPAKOWANIU
-# w logistics/sposoby.py (patrz _determine_packaging_target_status).
+# Statusy po pakowaniu - zależne od metody dostawy (patrz _determine_packaging_target_status)
+WAITING_PERSONAL_PICKUP_STATUS_ID = 149777  # "Czeka na odbiór osobisty"
+PLANNED_ROUTE_STATUS_ID = 417343            # "Planowana trasa" (transport WoodPower)
 
-# Statusy lokalne CRM oznaczające „produkcja zakończona” (czeka na pakowanie / po pakowaniu).
-# Logistyka nie jest już etapem — żyje równolegle na zamówieniu.
-POSTPROD_STATUSES = frozenset(('czeka_na_pakowanie',) + sposoby.STATUSY_PO_SPAKOWANIU)
-
-# Statusy, w których towar jest już na aucie albo u klienta — status Base. „po spakowaniu” cofnąłby
-# go z „Załadowane”/„Wysłane”/„Dostarczona”/„Odebrane”. 'zweryfikowane' zostaje poza tą listą:
-# towar stoi jeszcze w hali, więc ponowienie statusu po spakowaniu ma przejść. Wyprowadzone ze stałej
-# logistyki, żeby nowy status logistyki nie rozjechał strażnika.
-STATUSY_NA_AUCIE_LUB_U_KLIENTA = tuple(
-    st for st in sposoby.STATUSY_LOGISTYCZNE if st != 'zweryfikowane')
+# Statusy lokalne CRM oznaczające "produkcja zakończona, czekamy na logistykę/pakowanie/po pakowaniu"
+POSTPROD_STATUSES = frozenset({'czeka_na_logistyke', 'czeka_na_pakowanie', 'spakowane'})
 
 # Stanowiska, po których zamówienie może skończyć produkcję.
 # 'gluing' wchodzi tu tylko przy cut_to_size=False (produkt omija formatowanie
@@ -248,94 +232,67 @@ def flush_pending_syncs() -> None:
             })
 
 
-def _determine_packaging_target_status(order) -> Optional[int]:
+def _determine_packaging_target_status(order) -> int:
     """
-    Status Base. po spakowaniu ostatniego produktu — WYŁĄCZNIE z decyzji logistyka
-    (override_delivery_method), mapa w logistics/sposoby.py. Heurystyka odbioru
-    osobistego z metody dostawy Base. nie decyduje już o niczym.
+    Wybiera ID statusu BL po ukończeniu pakowania na podstawie typu dostawy zamówienia.
 
-    Krok 4.6 (decyzja Konrada 5.10): pakowanie bez sposobu dostawy przechodzi, a Base. nie
-    dostaje wtedy ŻADNEGO statusu (None). Status po spakowaniu dla wybranego sposobu wyśle
-    pierwsze ustawienie sposobu w panelu (delivery.ustaw_sposob_dostawy → bl_status_pending_id).
+    Reguła decyzyjna (kolejność istotna):
+    1. is_personal_pickup                              → 149777 (Czeka na odbiór osobisty)
+    2. override_delivery_method == 'transport_woodpower' → 417343 (Planowana trasa)
+    3. override_delivery_method == 'kurier_baselinker'   → 138623 (Zamówienie spakowane)
+    4. fallback (NULL/unknown)                           → 138623 + warn log
+
+    is_personal_pickup musi być pierwsze, bo dla odbioru osobistego logistyka
+    jest pomijana i override_delivery_method jest NULL.
     """
-    sposob = sposoby.normalizuj(order.override_delivery_method)
-    if sposob is not None:
-        return sposoby.STATUS_PO_SPAKOWANIU[sposob]
-    logger.info("Spakowane bez sposobu dostawy - status Base. czeka na decyzję logistyki", extra={
+    if order.is_personal_pickup:
+        return WAITING_PERSONAL_PICKUP_STATUS_ID
+
+    override = (order.override_delivery_method or '').strip()
+    if override == 'transport_woodpower':
+        return PLANNED_ROUTE_STATUS_ID
+    if override == 'kurier_baselinker':
+        return ORDER_PACKED_STATUS_ID
+
+    logger.warning("Pakowanie ukończone bez decyzji logistyki - fallback na 'spakowane'", extra={
         'internal_order_number': order.internal_order_number,
         'baselinker_order_id': order.baselinker_order_id,
+        'override_delivery_method': order.override_delivery_method,
     })
-    return None
+    return ORDER_PACKED_STATUS_ID
 
 
-def _produkty_zamowienia(internal_order_number: str) -> List:
-    """
-    Agregator stanu zamówienia liczy WSZYSTKIE prod_products zamówienia,
-    włącznie z doróbkami (original_product_id IS NOT NULL). BL status
-    "wyprodukowane" / "spakowane" zostaje wysłany dopiero gdy oryginał
-    + wszystkie doróbki są gotowe (brak filtra po original_product_id IS NULL).
-    """
+def _process_pending(app, internal_order_number: str, station_code: str) -> None:
+    """Określa target_status i odpala próbę setOrderStatus."""
     from ..models import ProductionItem, ProductionOrder
     from sqlalchemy.orm import joinedload
 
-    return (
+    # Agregator stanu zamówienia liczy WSZYSTKIE prod_products zamówienia,
+    # włącznie z doróbkami (original_product_id IS NOT NULL). BL status
+    # "wyprodukowane" / "spakowane" zostaje wysłany dopiero gdy oryginał
+    # + wszystkie doróbki są gotowe (brak filtra po original_product_id IS NULL).
+    products = (
         ProductionItem.query
         .options(joinedload(ProductionItem.order))
         .join(ProductionOrder)
         .filter(ProductionOrder.internal_order_number == internal_order_number)
         .all()
     )
-
-
-def _cel_po_stanowisku(products: List, station_code: str) -> Optional[int]:
-    """
-    Status Base. po stanowisku albo None, gdy warunek stanowiska nie jest spełniony.
-    Jedna logika dla pierwszej próby (_process_pending) i ponowień (_retry_attempt).
-
-    Pozycje anulowane nie blokują — tak samo jak delivery.wszystkie_spakowane
-    w logistyce (wcześniej jedna anulowana pozycja sprawiała, że zamówienie nigdy
-    nie dostawało statusu po stanowisku). Zamówienie musi mieć choć jedną aktywną.
-    """
-    aktywne = [p for p in products if p.current_status != 'anulowane']
-    if not aktywne:
-        return None
-    if station_code == 'packaging':
-        if not all(p.current_status in sposoby.STATUSY_PO_SPAKOWANIU for p in aktywne):
-            return None
-        # (logistyka etap 4) Towar na aucie albo u klienta: status po spakowaniu cofnąłby Base.
-        # z „Załadowane”/„Wysłane”/„Dostarczona”/„Odebrane” (jak strażnik handed_over_at niżej).
-        # 'zweryfikowane' przechodzi — ponowienie nie może przepaść przez szybką weryfikację.
-        if any(p.current_status in STATUSY_NA_AUCIE_LUB_U_KLIENTA for p in aktywne):
-            return None
-        return _determine_packaging_target_status(aktywne[0].order)
-    if station_code in PRODUCTION_STATIONS:
-        if not all(p.current_status in POSTPROD_STATUSES for p in aktywne):
-            return None
-        return PRODUCTION_COMPLETED_STATUS_ID
-    return None
-
-
-def _process_pending(app, internal_order_number: str, station_code: str) -> None:
-    """Określa target_status i odpala próbę setOrderStatus."""
-    products = _produkty_zamowienia(internal_order_number)
     if not products:
         return
 
-    order = products[0].order
-    if station_code == 'packaging' and order is not None and order.handed_over_at is not None:
-        # Odbiór już wydany klientowi: 149779 („Odebrane”) jest ostateczny, a status
-        # po spakowaniu (np. po doróbce spakowanej po wydaniu) cofnąłby Base.
-        logger.info("Zamówienie wydane klientowi - pomijam status po spakowaniu", extra={
-            'internal_order_number': internal_order_number,
-            'baselinker_order_id': order.baselinker_order_id,
-        })
+    if station_code == 'packaging':
+        if not all(p.current_status == 'spakowane' for p in products):
+            return
+        target = _determine_packaging_target_status(products[0].order)
+    elif station_code in PRODUCTION_STATIONS:
+        if not all(p.current_status in POSTPROD_STATUSES for p in products):
+            return
+        target = PRODUCTION_COMPLETED_STATUS_ID
+    else:
         return
 
-    target = _cel_po_stanowisku(products, station_code)
-    if target is None:
-        return
-
-    baselinker_order_id = order.baselinker_order_id if order else None
+    baselinker_order_id = products[0].order.baselinker_order_id if products[0].order else None
     if not baselinker_order_id:
         logger.warning("Brak baselinker_order_id - pomijam BL sync", extra={
             'internal_order_number': internal_order_number,
@@ -356,7 +313,7 @@ def _process_pending(app, internal_order_number: str, station_code: str) -> None
     # Niepowodzenie → schedule retry
     _schedule_retry(app, baselinker_order_id, target,
                     internal_order_number=internal_order_number,
-                    attempt=0, station_code=station_code)
+                    attempt=0)
 
 
 # ============================================================================
@@ -384,11 +341,8 @@ def _call_set_order_status(baselinker_order_id: int, target_status_id: int) -> b
 
 
 def _schedule_retry(app, baselinker_order_id: int, target_status_id: int,
-                    *, internal_order_number: str, attempt: int, station_code: str) -> None:
-    """
-    Planuje kolejną próbę przez threading.Timer (daemon). `station_code` jedzie
-    razem z celem, żeby ponowienie mogło przeliczyć cel tą samą logiką.
-    """
+                    *, internal_order_number: str, attempt: int) -> None:
+    """Planuje kolejną próbę przez threading.Timer (daemon)."""
     if attempt >= len(RETRY_DELAYS_S):
         logger.error("Wyczerpano retry dla BL setOrderStatus", extra={
             'internal_order_number': internal_order_number,
@@ -416,105 +370,17 @@ def _schedule_retry(app, baselinker_order_id: int, target_status_id: int,
             'target_status_id': target_status_id,
             'internal_order_number': internal_order_number,
             'attempt': attempt + 1,
-            'station_code': station_code,
         },
     )
     timer.daemon = True
     timer.start()
 
 
-def _powod_pominiecia_ponowienia(internal_order_number: str, station_code: str,
-                                 zaplanowany_cel: int) -> Optional[str]:
-    """
-    Ponowienie wysyła cel policzony nawet ~19 min wcześniej. W tym czasie logistyk
-    mógł zmienić sposób dostawy albo wydać zamówienie, a dopychacz logistyki wysłać
-    już NOWSZY status — stary cel nadpisałby go w Base. Dlatego przed każdym
-    ponowieniem czytamy zamówienie od nowa (świeża sesja wątku timera) i przeliczamy
-    cel tą samą logiką co pierwsza próba.
-
-    Zwraca powód pominięcia (do logu) albo None, gdy ponowienie jest nadal aktualne.
-    """
-    products = _produkty_zamowienia(internal_order_number)
-    order = products[0].order if products else None
-    if order is None:
-        return 'zamówienie nie istnieje'
-    if order.bl_status_pending_id is not None:
-        # Na zamówieniu czeka znacznik statusu logistyki — status Base. należy
-        # teraz do dopychacza (bl_sync), timer się nie wtrąca.
-        return 'status należy do dopychacza logistyki (bl_status_pending_id={})'.format(
-            order.bl_status_pending_id)
-    if order.handed_over_at is not None:
-        return 'zamówienie wydane klientowi'
-    aktywne = [p for p in products if p.current_status != 'anulowane']
-    if (zaplanowany_cel == PRODUCTION_COMPLETED_STATUS_ID and aktywne
-            and all(p.current_status in sposoby.STATUSY_PO_SPAKOWANIU for p in aktywne)
-            and sposoby.normalizuj(order.override_delivery_method) is not None):
-        # Pakowacz zdążył spakować całe zamówienie (i poszedł status po spakowaniu) —
-        # „Produkcja zakończona” cofnęłaby Base. o etap. Krok 4.6: spakowane BEZ sposobu
-        # nie dostaje statusu po spakowaniu, więc „Produkcja zakończona” idzie normalnie.
-        return 'zamówienie już spakowane'
-    cel = _cel_po_stanowisku(products, station_code)
-    if cel is None:
-        return 'warunek stanowiska przestał być spełniony'
-    if cel != zaplanowany_cel:
-        return 'cel zmienił się na {}'.format(cel)
-    return None
-
-
-def _po_spoznionym_138620(app, internal_order_number: str) -> None:
-    """
-    Krok 4.6: ponowienie 138620 przechodzi także dla zamówienia spakowanego bez sposobu dostawy (status po spakowaniu
-    nie poszedł). Wywołanie Base. trwa nawet ~105 s; gdy w tym czasie logistyk ustawił sposób, a dopychacz zdążył
-    wysłać status po spakowaniu i zdjąć znacznik, spóźnione 138620 cofnęłoby Base. na „Produkcja zakończona” bez śladu
-    w CRM. Wtedy stawiamy znacznik statusu po spakowaniu jeszcze raz — dopychacz go dośle. Blokada „zamówienie
-    najpierw” (blokady_zamowien), decyzja na odczycie bieżącym.
-    """
-    from extensions import db
-    from ..models import ProductionOrder
-    from modules.production.services import blokady_zamowien
-    from modules.production.logistics.services import bl_sync, delivery
-    try:
-        wiersz = ProductionOrder.query.filter_by(internal_order_number=internal_order_number).first()
-        order = blokady_zamowien.zablokuj_zamowienie(wiersz.id) if wiersz is not None else None
-        sposob = sposoby.normalizuj(order.override_delivery_method) if order is not None else None
-        aktywne = [p for p in order.products if p.current_status != 'anulowane'] if order is not None else []
-        if (sposob is None or order.bl_status_pending_id is not None or order.handed_over_at is not None
-                or not delivery.wszystkie_spakowane(order)
-                or any(p.current_status in STATUSY_NA_AUCIE_LUB_U_KLIENTA for p in aktywne)):
-            db.session.rollback()
-            return
-        order.bl_status_pending_id = sposoby.STATUS_PO_SPAKOWANIU[sposob]
-        db.session.commit()
-        logger.warning("Spóźnione 138620 po ustawieniu sposobu - status po spakowaniu do ponownej wysyłki", extra={
-            'internal_order_number': internal_order_number,
-            'status_po_spakowaniu': order.bl_status_pending_id,
-        })
-        bl_sync.uruchom_w_tle(app)
-    except Exception as e:
-        db.session.rollback()
-        logger.error("Nie udało się sprawdzić statusu po spóźnionym 138620", extra={
-            'internal_order_number': internal_order_number,
-            'error': str(e),
-        })
-
-
 def _retry_attempt(*, app, baselinker_order_id: int, target_status_id: int,
-                   internal_order_number: str, attempt: int, station_code: str) -> None:
+                   internal_order_number: str, attempt: int) -> None:
     """Wykonuje retry w app_context. Przy kolejnym błędzie planuje następny retry."""
     try:
         with app.app_context():
-            powod = _powod_pominiecia_ponowienia(
-                internal_order_number, station_code, target_status_id)
-            if powod is not None:
-                logger.info("BL setOrderStatus retry pominięty - cel nieaktualny", extra={
-                    'internal_order_number': internal_order_number,
-                    'baselinker_order_id': baselinker_order_id,
-                    'target_status_id': target_status_id,
-                    'station_code': station_code,
-                    'attempt': attempt,
-                    'powod': powod,
-                })
-                return
             success = _call_set_order_status(baselinker_order_id, target_status_id)
             if success:
                 logger.info("BL setOrderStatus retry OK", extra={
@@ -523,8 +389,6 @@ def _retry_attempt(*, app, baselinker_order_id: int, target_status_id: int,
                     'target_status_id': target_status_id,
                     'attempt': attempt,
                 })
-                if target_status_id == PRODUCTION_COMPLETED_STATUS_ID:
-                    _po_spoznionym_138620(app, internal_order_number)
                 return
     except Exception as e:
         logger.error("Wyjątek podczas BL retry", extra={
@@ -535,4 +399,4 @@ def _retry_attempt(*, app, baselinker_order_id: int, target_status_id: int,
 
     _schedule_retry(app, baselinker_order_id, target_status_id,
                     internal_order_number=internal_order_number,
-                    attempt=attempt, station_code=station_code)
+                    attempt=attempt)

@@ -35,8 +35,6 @@ from modules.production.models import (
     ProductionReworkLog, ProductionStationEvent, ProductionStationEventWorker,
     ProductionWorker, ProductionWorkerSession, get_local_now,
 )
-from modules.production.logistics.models import Route, RouteStop, Vehicle
-from modules.production.priorytety.models import PriorityLog, PriorityRung, StationDesk
 from modules.production.routers.mobile_api import mobile_api_bp
 from modules.production.services.mobile_api_service import (
     STATION_COMPLETED_AT_FIELD,
@@ -56,10 +54,6 @@ _TABLES = [m.__table__ for m in (
     ProductionOrder, ProductionProduct, ProductionConfiguration,
     ProductionReworkLog, ProductionWorker, ProductionWorkerSession,
     ProductionStationEvent, ProductionStationEventWorker,
-    # Doróbka bierze globalną blokadę tras i czyta przystanek zamówienia (decyzja Konrada 2.10, A2).
-    Vehicle, Route, RouteStop,
-    # Priorytety produkcji: routes.utworz zakłada szczebel trasy, a utrwal() czyta drabinę.
-    PriorityRung, PriorityLog, StationDesk,
 )]
 
 # SQLite nie zna LONGTEXT — to samo obejście co w pozostałych testach mobilnych.
@@ -128,8 +122,9 @@ def _produkt(app, status='czeka_na_krawedzie', quantity=2,
 
     Adres dostawy jest OBOWIĄZKOWY, nie ozdobny. ProductionOrder
     .is_personal_pickup (models.py:172-185) zwraca True, gdy zamówienie nie ma
-    ANI adresu, ANI miasta, ANI kodu pocztowego. Bez tych pól test trasy
-    sprawdzałby odbiór osobisty zamiast routingu stanowisk.
+    ANI adresu, ANI miasta, ANI kodu pocztowego — a complete_task (models.py:518)
+    zamienia wtedy 'czeka_na_logistyke' na 'czeka_na_pakowanie'. Bez tych pól
+    test trasy sprawdzałby odbiór osobisty zamiast routingu stanowisk.
     """
     with app.app_context():
         order = ProductionOrder(
@@ -360,7 +355,7 @@ def test_body_z_kodem_finishing_tez_rozwija_sie_na_edges(client, app):
     with app.app_context():
         produkt = ProductionProduct.query.get(produkt_id)
         assert produkt.quantity_done_edges == 2
-        assert produkt.current_status == 'czeka_na_pakowanie'
+        assert produkt.current_status == 'czeka_na_logistyke'
 
 
 def test_stary_tablet_odbija_sztuki_przez_patch_quantity(client, app):
@@ -546,7 +541,7 @@ def test_nowy_tablet_lakierni_domyka_lakiernie(client, app):
                       json={})
 
     assert odp.status_code == 200, odp.get_json()
-    assert odp.get_json()['status'] == 'czeka_na_pakowanie'
+    assert odp.get_json()['status'] == 'czeka_na_logistyke'
 
     with app.app_context():
         produkt = ProductionProduct.query.get(produkt_id)

@@ -935,24 +935,13 @@ class BaselinkerSyncService:
                 priority_recalc_result = priority_calculator.recalculate_all_priorities()
             
                 logger.info("Zakończono przeliczanie priorytetów", extra={
-                    # raport `kolejka.utrwal()` (przez warstwę zgodności priority_service)
-                    'zmienione_pozycje': priority_recalc_result.get('zmienione_pozycje', 0),
-                    'zamowien': priority_recalc_result.get('zamowien', 0)
+                    'products_updated': priority_recalc_result.get('products_updated', 0),
+                    'manual_overrides_preserved': priority_recalc_result.get('manual_overrides_preserved', 0)
                 })
             
             except Exception as priority_error:
                 logger.error("Błąd przeliczania priorytetów", extra={'error': str(priority_error)})
                 priority_recalc_result = {'error': str(priority_error)}
-
-            # Priorytety produkcji (spec 2026-10-04, 5.4): nowe pozycje zaczynają na Wycinaniu (mikrowczep) albo
-            # Składaniu (lity) — tablety obu stanowisk startowych dostają sygnał „pobierz stół”. Pozycje każdego
-            # zamówienia są już zatwierdzone (commit w pętli wyżej), więc sygnał idzie po commicie; nadmiarowy
-            # sygnał kosztuje jedno tanie `GET desk`. Awaria brokera nie może wywrócić synchronizacji.
-            try:
-                from modules.production.priorytety.services import sygnaly
-                sygnaly.wyslij('cutting', 'assembly')
-            except Exception as sygnaly_error:
-                logger.error("Błąd sygnałów stanowisk po imporcie", extra={'error': str(sygnaly_error)})
 
         # ===== ZAPIS DO ANALIZY SPRZEDAŻOWEJ =====================================
         # Tutaj, a nie przed pętlą — uzasadnienie przy `zamowienia_dla_analityki`
@@ -1723,13 +1712,8 @@ class BaselinkerSyncService:
             order = ProductionOrder(baselinker_order_id=bl_id)
             db.session.add(order)
 
-        # Adres poprawiony w zakładce Logistyka, a jeszcze niewysłany do Base.
-        # (bl_address_pending): Base. ma stary — nie cofamy poprawki logistyka.
-        adres_czeka = bool(getattr(order, 'bl_address_pending', False))
         for key in ORDER_LEVEL_KEYS:
             if key in product_data and product_data[key] is not None:
-                if adres_czeka and key in ('delivery_address', 'delivery_postcode', 'delivery_city'):
-                    continue
                 # NIE nadpisuj istniejących danych orderu pustym stringiem
                 value = product_data[key]
                 if isinstance(value, str) and not value.strip():
@@ -2610,30 +2594,19 @@ class BaselinkerSyncService:
             result['error'] = f'Błąd porównania: {str(e)}'
             return result
 
-    def apply_baselinker_changes(self, baselinker_order_id: int, changes: Dict[str, Any],
-                                 user_id: Optional[int] = None) -> Dict[str, Any]:
+    def apply_baselinker_changes(self, baselinker_order_id: int, changes: Dict[str, Any]) -> Dict[str, Any]:
         """
         Aplikuje zmiany z porównania do bazy danych.
-
-        Uwaga: funkcja commituje już po pobraniu zamówienia z Base. (nowa transakcja przed blokadą zamówienia), więc
-        wołający nie powinien mieć w sesji niezapisanych zmian — zostałyby zatwierdzone tym commitem. Status dla
-        Base. po zdjęciu zamówienia z trasy w drodze (417343) czeka na wysyłkę w `bl_sync` — wołający uruchamia
-        dopychacz po wyniku (bl_sync.wyslij_zaplanowane).
 
         Args:
             baselinker_order_id: ID zamówienia
             changes: Struktura zmian z compare_order_with_baselinker
-            user_id: Użytkownik panelu, który stosuje zmiany — trafia do logów logistyki przy zdjęciu zamówienia
-                z trasy w drodze (Ruling 31). Wołający pobiera go PRZED wywołaniem: po commicie w środku tej metody
-                `current_user.id` byłby zwykłym SELECT-em, który założyłby migawkę przed blokadami.
 
         Returns:
             Dict z wynikiem operacji
         """
         from ..models import ProductionItem, ProductionOrder
         from .parser_service import ProductNameParser
-        from modules.production.logistics.services import delivery, dostawa, routes
-        from .blokady_zamowien import zablokuj_pozycje, zablokuj_zamowienie
 
         result = {
             'success': False,
@@ -2646,43 +2619,6 @@ class BaselinkerSyncService:
 
         try:
             parser = ProductNameParser()
-
-            # „Zamówienie najpierw” (logistyka etap 4, krok 4.4a). Zamówienie z Base. (pełne dane nowych pozycji)
-            # pobieramy PRZED blokadami: wywołanie HTTP trwa do kilkudziesięciu sekund, a tablety czekałyby na wiersz
-            # zamówienia dłużej niż timeout gunicorna (30 s). Potem wiersz zamówienia i wszystkie jego pozycje
-            # blokujemy odczytem bieżącym, zanim usuniemy, zmienimy albo dodamy pozycję — w kolejności panelu
-            # Logistyki, Weryfikacji i stanowisk.
-            bl_order = (self.get_order_from_baselinker(baselinker_order_id)
-                        if changes.get('products_to_add') else None)
-
-            # Nowa transakcja po wywołaniu Base. (jak `_zapis_pod_blokada()` w panelu Logistyki). MySQL pracuje na
-            # REPEATABLE READ, a migawka powstaje przy pierwszym ZWYKŁYM odczycie transakcji — tu najpóźniej przy
-            # `current_user.id` w routerze, czyli PRZED wywołaniem HTTP do Base., które trwa do kilkudziesięciu sekund.
-            # Pozycja dopisana w tym czasie (np. doróbka z tabletu) byłaby niewidoczna dla zwykłych odczytów pod
-            # blokadą (listę pozycji i przeliczenie zamknięcia chroni już odczyt bieżący po order_id w zablokuj_pozycje,
-            # ale np. `existing_product` i `max_seq` niżej to zwykłe odczyty). Dlatego COMMIT kończy starą migawkę (nic
-            # jeszcze nie zmieniliśmy, a funkcja i tak commituje na końcu), a po nim idą same odczyty BLOKUJĄCE (nie
-            # zakładają migawki), więc pierwszy zwykły odczyt nowej transakcji wypada już PO blokadzie zamówienia.
-            # Między COMMIT-em a blokadą żadnych zwykłych odczytów, także atrybutów ORM, które commit właśnie wygasił.
-            #
-            # Id zamówienia czytamy jeszcze PRZED commitem, zwykłym odczytem w starej transakcji: powiązanie
-            # baselinker_order_id → id się nie zmienia, a odczyt blokujący wiersza zamówienia po commicie wziąłby
-            # zamówienie przed blokadą tras (niżej) — odwrotnie niż Dostawa.
-            #
-            # Logistyka (Ruling 30, fala końcowa 4.4b): nowa pozycja z Base. cofa zamówienie do produkcji, a z trasy
-            # załadowanej albo w drodze zamówienie wtedy schodzi (dostawa.zdejmij_z_trasy_w_drodze, jak doróbka).
-            # Przystanki zmienia tylko posiadacz globalnej blokady tras, więc bierzemy ją po commicie i PRZED blokadą
-            # zamówienia (kolejność Dostawy). Zamówienie z trasy w drodze blokujemy razem z całą trasą
-            # (dostawa.blokady_trasy_w_drodze: zamówienia rosnąco) — zdjęcie może ją zamknąć.
-            zamowienie_id = (db.session.query(ProductionOrder.id)
-                             .filter(ProductionOrder.baselinker_order_id == baselinker_order_id).scalar())
-            db.session.commit()
-            routes.zablokuj_trasy()
-            blokady = dostawa.blokady_trasy_w_drodze(zamowienie_id) if zamowienie_id is not None else None
-            if blokady is not None:
-                zamowienie = blokady[1].get(zamowienie_id)
-            else:
-                zamowienie = zablokuj_zamowienie(zamowienie_id) if zamowienie_id is not None else None
 
             # 1. Usuń produkty
             for product_to_remove in changes.get('products_to_remove', []):
@@ -2741,7 +2677,8 @@ class BaselinkerSyncService:
 
             # 3. Dodaj nowe produkty
             if changes.get('products_to_add'):
-                # Zamówienie z Base. pobrane na początku metody, przed blokadami.
+                # Pobierz zamówienie z BL dla pełnych danych
+                bl_order = self.get_order_from_baselinker(baselinker_order_id)
                 if bl_order:
                     # Pobierz istniejący produkt z tego zamówienia dla kontekstu
                     existing_product = ProductionItem.query.join(ProductionOrder).filter(
@@ -2789,10 +2726,7 @@ class BaselinkerSyncService:
                                     'original_product_name': bl_product.get('name', ''),
                                     'quantity': bl_product.get('quantity', 1),
                                     'current_status': 'czeka_na_wyciecie',
-                                    # sync_source zamówienia zostaje bez zmian (decyzja Konrada 1.10): kolumna to
-                                    # ENUM('baselinker_auto','manual_entry'), a 'admin_update' wywracało na MySQL całą
-                                    # operację (1265). _create_production_product_from_data przepisuje na zamówienie
-                                    # klucze z ORDER_LEVEL_KEYS, więc samo pominięcie klucza wystarcza.
+                                    'sync_source': 'admin_update',
                                     'client_name': existing_product.order.client_name if existing_product.order else None,
                                     'client_email': existing_product.order.client_email if existing_product.order else None,
                                     'client_phone': existing_product.order.client_phone if existing_product.order else None,
@@ -2831,16 +2765,6 @@ class BaselinkerSyncService:
                             except Exception as e:
                                 result['errors'].append(f"Błąd dodawania produktu: {str(e)}")
 
-                if result['added']:
-                    # Logistyka etap 4 (spec 8.5): nowa pozycja z Base. w zamówieniu z paczkami albo
-                    # weryfikacją — jedna reguła unieważnia etapy. Nowe pozycje mają tylko order_id,
-                    # więc kolekcję pozycji zamówienia czytamy od nowa odczytem bieżącym po order_id (autoflush
-                    # wypycha najpierw nowe pozycje). `zamowienie` — zablokowane na początku.
-                    from modules.production.logistics.services import weryfikacja
-                    if zamowienie is not None:
-                        zablokuj_pozycje(zamowienie)
-                        weryfikacja.uniewaznij_etapy(zamowienie, get_local_now(), u'nowa pozycja z Base.')
-
             # 4. Aktualizuj dane na poziomie zamówienia (na ProductionOrder, nie produktach)
             if changes.get('order_level'):
                 order_obj = ProductionOrder.query.filter_by(
@@ -2862,25 +2786,6 @@ class BaselinkerSyncService:
                     'order_id': baselinker_order_id,
                     'fields_updated': [c['field'] for c in changes['order_level']]
                 })
-
-            # Pozycje mogły zniknąć albo dojść — cykl logistyczny przeliczamy od razu (krok 4.4a). Dotąd zamknięte
-            # zamówienie kurierskie z nową pozycją czekało na godzinny cron; tak samo zamknięcie po usunięciu
-            # ostatniej niespakowanej pozycji. Skład zamówienia: odczyt bieżący po order_id (autoflush wypycha
-            # najpierw usunięcia, zmiany i nowe pozycje) — ta sama droga odświeżania listy co u innych pisarzy.
-            if zamowienie is not None:
-                zablokuj_pozycje(zamowienie)
-                delivery.przelicz_zamkniecie(zamowienie)
-                # Priorytety produkcji (spec 2026-10-04, 5.1): usunięta pozycja traci kafel, a nowa pozycja (zaczyna
-                # od Wycinania) czyni zamówienie niekompletnym na Formatowaniu i Pakowaniu — kafle schodzą ze stołu
-                # w tej samej transakcji, pod trzymaną blokadą zamówienia, na składzie z odczytu bieżącego wyżej.
-                # Router wysyła sygnał stanowiskom po commicie (`zdjete_stanowiska`).
-                from modules.production.priorytety.services import stol
-                result['zdjete_stanowiska'] = sorted(stol.zdejmij_nieaktualne(zamowienie))
-                if blokady is not None:
-                    # Ruling 30: zamówienie z trasy załadowanej albo w drodze, które wróciło do produkcji, schodzi z
-                    # trasy jak po doróbce (decyzja na pozycjach z odczytu bieżącego wyżej, pod blokadą tras).
-                    dostawa.zdejmij_z_trasy_w_drodze(blokady, zamowienie, dostawa.POWOD_ZMIANY_BASE, get_local_now(),
-                                                     user_id=user_id)
 
             db.session.commit()
             result['success'] = True
@@ -3249,35 +3154,20 @@ class BaselinkerSyncService:
         else:
             base_date = date.today()
 
-        # Wybór liczby dni: surowe zamówienie = 10, wykończone (choć 1 produkt) = 14 (decyzja 5.10).
-        # Wartości z prod_config (Konfiguracja → „Terminy”), awaryjnie 10 / 14 z kodu.
+        # Wybór liczby dni: surowe zamówienie = 16, wykończone (choć 1 produkt) = 21.
+        # Wartości konfigurowalne w panelu (z fallbackiem do defaultów przez config service).
         try:
             from .config_service import get_config_service
             config = get_config_service()
             if self._order_has_finished_product(order):
-                deadline_days = int(config.get_config('DEADLINE_FINISHED_DAYS', 14))
+                deadline_days = int(config.get_config('DEADLINE_FINISHED_DAYS', 21))
             else:
-                deadline_days = int(config.get_config('DEADLINE_DEFAULT_DAYS', 10))
+                deadline_days = int(config.get_config('DEADLINE_DEFAULT_DAYS', 16))
         except Exception as e:
             logger.warning("Błąd odczytu konfiguracji deadline — fallback", extra={
                 'error': str(e)
             })
-            deadline_days = 14 if self._order_has_finished_product(order) else 10
-
-        # Dni robocze albo kalendarzowe (prod_config DEADLINE_DAY_TYPE, spec priorytetów 2026-10-04, 4.3). Przełącznik
-        # działa wyłącznie tutaj, czyli przy nadawaniu terminu NOWYM pozycjom — terminów już zapisanych nikt nie
-        # przelicza. Błąd odczytu ustawienia = dni robocze (dotychczasowe zachowanie).
-        try:
-            from modules.production.priorytety.services import ustawienia
-            kalendarzowe = ustawienia.typ_dni_terminu() == 'kalendarzowe'
-        except Exception as e:
-            logger.warning("Błąd odczytu typu dni terminu — przyjmuję dni robocze", extra={
-                'error': str(e)
-            })
-            kalendarzowe = False
-
-        if kalendarzowe:
-            return base_date + timedelta(days=max(deadline_days, 0))
+            deadline_days = 21 if self._order_has_finished_product(order) else 16
 
         try:
             deadline_date = self._add_business_days(base_date, deadline_days)

@@ -13,7 +13,7 @@ from sqlalchemy import func, and_
 from sqlalchemy.orm import joinedload
 
 from . import api_bp, logger, ProductionItem, ProductionError, ProductionSyncLog, get_local_now
-from modules.production.logistics import sposoby
+from modules.production.models import ProductionOrder
 from ...services.station_events_service import (
     get_station_work_in_range,
     get_station_work_per_day,
@@ -163,23 +163,6 @@ def _safe_tempo():
         return {}
 
 
-def _safe_pilne_zamowienia():
-    """
-    Zamówienia aktywne na szczeblach ★★★★★, ★★★★, „Po terminie” i trasach (priorytety, spec 7.2) — ta sama liczba
-    co liczniki w modalu drabiny. Wzór osłony jak _safe_tempo(): błąd warstwy priorytetów (np. brak tabel w oknie
-    wdrożenia) daje None i log ERROR, a nie 500 całego dashboardu. Czysty odczyt, bez blokad.
-    """
-    from ...priorytety.services import widok
-    try:
-        return widok.liczba_pilnych_zamowien()
-    except Exception as e:
-        db.session.rollback()
-        logger.error("Nie udało się policzyć pilnych zamówień z drabiny priorytetów", extra={
-            'error': str(e)
-        })
-        return None
-
-
 def _obciazenie(pending_m3, tempo_m3_dzien):
     """
     Ile DNI PRACY stoi przed stanowiskiem: kolejka w m³ podzielona przez
@@ -214,54 +197,6 @@ def _safe_obsada():
             'error': str(e)
         })
         return {}
-
-
-def _safe_logistyka_bez_sposobu():
-    """
-    Pasek „Logistyka: N bez sposobu dostawy” pod pipeline'em przy CYKLICZNYM odświeżaniu
-    dashboardu (runda 2 logistyki, D6) — ta sama funkcja co przy renderze zakładki
-    (lista_logistyki.liczba_bez_sposobu). Ten sam wzorzec osłony co _safe_sawmill_stats():
-    pasek jest dodatkiem do odświeżenia, więc błąd licznika daje None (front zostawia ostatnią
-    liczbę), a nie 500 dla kafelków wszystkich stanowisk.
-    """
-    from modules.production.logistics.services import lista as lista_logistyki
-    try:
-        return lista_logistyki.liczba_bez_sposobu()
-    except Exception as e:
-        logger.warning("Nie udało się policzyć zamówień bez sposobu dostawy", extra={
-            'error': str(e)
-        })
-        return None
-
-
-def _safe_weryfikacja():
-    """
-    Liczniki Weryfikacji na pasku logistyki (logistyka etap 4, spec 11): {'pending', 'problems'} —
-    ta sama definicja co lista telefonu i filtr panelu (weryfikacja.warunek_do_weryfikacji). Wzorzec
-    osłony jak _safe_logistyka_bez_sposobu: błąd licznika → None (front zostawia ostatnie liczby).
-    """
-    from modules.production.logistics.services import weryfikacja
-    try:
-        return {'pending': weryfikacja.liczba_do_weryfikacji(get_local_now()),
-                'problems': weryfikacja.liczba_problemow()}
-    except Exception as e:
-        logger.warning("Nie udało się policzyć zamówień do weryfikacji", extra={
-            'error': str(e)
-        })
-        return None
-
-
-def _liczniki_weryfikacji():
-    """
-    Liczniki Weryfikacji dla odpowiedzi dashboardu: zawsze {'pending', 'problems'}. Przy błędzie licznika
-    (_safe_weryfikacja zwraca None) OBIE wartości są None, a nie 0: zero mówiłoby „wszystko w porządku”,
-    a „Problemy: 0” bez alarmu przy awarii licznika to fałszywy spokój (Ruling 18). Szablon i JS pokazują
-    wtedy „—” i nie nadają klasy is-alarm.
-    """
-    liczniki = _safe_weryfikacja()
-    if liczniki is None:
-        return {'pending': None, 'problems': None}
-    return liczniki
 
 
 # ============================================================================
@@ -323,19 +258,26 @@ def dashboard_stats():
                     'waiting_count': count,
                     'avg_priority': round(avg_priority or 0, 1)
                 }
+            elif status == 'czeka_na_logistyke':
+                stations_stats['logistics'] = {
+                    'waiting_count': count,
+                    'avg_priority': round(avg_priority or 0, 1)
+                }
 
         # ============================================================================
         # DODATKOWE STATYSTYKI (nowe)
         # ============================================================================
 
-        # Pilne ZAMÓWIENIA: szczeble ★★★★★, ★★★★, „Po terminie” i trasy drabiny priorytetów (None przy błędzie)
-        high_priority_count = _safe_pilne_zamowienia()
+        # Produkty z wysokim priorytetem (>=150)
+        high_priority_count = ProductionItem.query.filter(
+            ProductionItem.priority_rank.isnot(None), ProductionItem.priority_rank <= 10
+        ).count()
 
         # Produkty przeterminowane
         today = datetime.now().date()
         overdue_count = ProductionItem.query.filter(
             ProductionItem.deadline_date < today,
-            ProductionItem.current_status.notin_(sposoby.STATUSY_PO_SPAKOWANIU)
+            ProductionItem.current_status != 'spakowane'
         ).count()
 
         # Produkty spakowane dzisiaj
@@ -359,7 +301,7 @@ def dashboard_stats():
         # Średnia objętość w produkcji
         avg_volume = db.session.query(func.avg(ProductionItem.volume_m3)).filter(
             ProductionItem.volume_m3.isnot(None),
-            ProductionItem.current_status.notin_(sposoby.STATUSY_PO_SPAKOWANIU)
+            ProductionItem.current_status != 'spakowane'
         ).scalar()
 
         # ============================================================================
@@ -378,13 +320,12 @@ def dashboard_stats():
                 'priority': 'high'
             })
 
-        # Alert o pilnych zamówieniach (szczeble drabiny priorytetów)
-        if (high_priority_count or 0) > 10:
+        # Alert o produktach z wysokim priorytetem
+        if high_priority_count > 10:
             alerts.append({
                 'type': 'warning',
-                'title': 'Dużo pilnych zamówień',
-                'message': f'{high_priority_count} zamówień w produkcji na szczeblach ★★★★★, ★★★★, '
-                           f'„Po terminie” i trasach',
+                'title': 'Dużo produktów wysokiego priorytetu',
+                'message': f'{high_priority_count} produktów z priorytetem ≥150',
                 'count': high_priority_count,
                 'priority': 'medium'
             })
@@ -426,7 +367,7 @@ def dashboard_stats():
         if include_products:
             # Najwyższy priorytet + najbliższe deadline
             priority_products = ProductionItem.query.filter(
-                ProductionItem.current_status.notin_(sposoby.STATUSY_PO_SPAKOWANIU)
+                ProductionItem.current_status != 'spakowane'
             ).order_by(
                 ProductionItem.priority_rank.asc(),
                 ProductionItem.deadline_date.asc()
@@ -1060,18 +1001,13 @@ def dashboard_tab_content():
                 dashboard_stats['stations'][station_code]['pending_m3'],
                 tempo.get(station_code))
 
-        # Bramka Logistyki: otwarte zamówienia, którym logistyk nie ustawił jeszcze
-        # sposobu dostawy (logistyka jest równoległa — nie liczymy statusu produktu).
-        # Definicja „Nie ustawiono” wspólna z filtrem `brak` zakładki Logistyka.
-        from modules.production.logistics.services import lista as lista_logistyki
-        logistics_pending = lista_logistyki.liczba_bez_sposobu()
-        # Liczniki Weryfikacji (krok 4.3) na tym samym pasku; błąd licznika nie psuje zakładki, a pasek
-        # pokazuje wtedy „—” (None), nie zero.
-        weryfikacja_liczniki = _liczniki_weryfikacji()
+        logistics_pending = db.session.query(
+            db.func.count(db.func.distinct(ProductionOrder.internal_order_number))
+        ).join(ProductionItem, ProductionItem.order_id == ProductionOrder.id).filter(
+            ProductionItem.current_status == 'czeka_na_logistyke'
+        ).scalar() or 0
         dashboard_stats['logistics'] = {
-            'pending_count': logistics_pending,
-            'verification_pending': weryfikacja_liczniki['pending'],
-            'verification_problems': weryfikacja_liczniki['problems'],
+            'pending_count': logistics_pending
         }
 
         # Dzisiejsze sumy — z eventów stanowiska pakowania (faktyczna fizyczna praca)
@@ -1122,7 +1058,7 @@ def dashboard_tab_content():
         in_production_items = ProductionItem.query.options(
             joinedload(ProductionItem.order),
         ).filter(
-            ProductionItem.current_status.notin_(sposoby.STATUSY_PO_SPAKOWANIU + ('anulowane',)),
+            ProductionItem.current_status.notin_(('spakowane', 'anulowane')),
             db.func.coalesce(ProductionItem.quantity_done_packaging, 0) < ProductionItem.quantity
         ).all()
 
@@ -1269,7 +1205,7 @@ def dashboard_data():
             joinedload(ProductionItem.order),
         ).filter(
             ProductionItem.deadline_date <= (today + timedelta(days=3)),
-            ProductionItem.current_status.notin_(sposoby.STATUSY_PO_SPAKOWANIU)
+            ProductionItem.current_status != 'spakowane'
         ).order_by(ProductionItem.deadline_date.asc()).all()
 
         # Group by order (baselinker_order_id)
@@ -1297,7 +1233,7 @@ def dashboard_data():
         # "In production now" — liczone per niespakowana sztuka.
         # Wykluczamy spakowane i anulowane.
         in_production_items_dd = ProductionItem.query.filter(
-            ProductionItem.current_status.notin_(sposoby.STATUSY_PO_SPAKOWANIU + ('anulowane',)),
+            ProductionItem.current_status.notin_(('spakowane', 'anulowane')),
             db.func.coalesce(ProductionItem.quantity_done_packaging, 0) < ProductionItem.quantity
         ).all()
 
@@ -1329,11 +1265,6 @@ def dashboard_data():
             'alerts': alerts_data,
             'in_production': in_production_stats,
             'errors_count': errors_24h,
-            # Pasek logistyki pod pipeline'em odświeża się razem z dashboardem (runda 2, D6).
-            'logistics_pending': _safe_logistyka_bez_sposobu(),
-            # Liczniki Weryfikacji na pasku (krok 4.3): {'pending', 'problems'}; przy błędzie licznika obie
-            # wartości to None (front pokazuje „—”, bez alarmu).
-            'verification': _liczniki_weryfikacji(),
             'timestamp': get_local_now().isoformat()
         }
 

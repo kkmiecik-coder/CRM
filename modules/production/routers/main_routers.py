@@ -24,7 +24,6 @@ from extensions import db
 from modules.users.decorators import require_module_access
 from sqlalchemy.orm import joinedload
 from ..services.dashboard_alerts import build_deadline_alerts
-from modules.production.logistics import sposoby
 from ..services.station_catalog import STATION_PENDING_STATUS
 
 # Utworzenie Blueprint dla głównych routów
@@ -148,7 +147,7 @@ def dashboard():
         in_prod_items = ProductionItem.query.options(
             joinedload(ProductionItem.order),
         ).filter(
-            ProductionItem.current_status.notin_(sposoby.STATUSY_PO_SPAKOWANIU + ('anulowane',)),
+            ProductionItem.current_status.notin_(('spakowane', 'anulowane')),
             db.func.coalesce(ProductionItem.quantity_done_packaging, 0) < ProductionItem.quantity
         ).all()
         in_prod_order_ids = set()
@@ -201,8 +200,8 @@ def dashboard():
 @main_bp.route('/logistics')
 @login_required
 def logistics():
-    """Stara strona logistyki — dziś zakładka panelu produkcji (zakładki z linków i zakładek przeglądarki)."""
-    return redirect(url_for('production.production_main.dashboard') + '?tab=logistics')
+    """Strona stanowiska Logistyka — decyzja o transporcie"""
+    return render_template('logistics/logistics.html')
 
 
 @main_bp.route('/config')

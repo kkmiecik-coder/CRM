@@ -683,11 +683,9 @@ class BaselinkerReportOrder(db.Model):
             self.production_value_net = float(self.value_net or 0.0)
     
         # NOWA LOGIKA: Statusy dla "Wyprodukowane" (zamiast tylko "Czeka na odbiór osobisty")
-        # ID statusów: 138620, 138623, 105113, 105114, 149763, 149777, 138624, 149778, 149779,
-        # 417343 (Planowana trasa) i 524520 (Załadowane) — logistyka etap 4, krok 4.4 (spec 9.3)
+        # ID statusów: 138620, 138623, 105113, 105114, 149763, 149777, 138624, 149778, 149779
         elif (self.baselinker_status_id and
-              self.baselinker_status_id in [138620, 138623, 105113, 105114, 149763, 149777, 138624, 149778, 149779,
-                                            417343, 524520]):
+              self.baselinker_status_id in [138620, 138623, 105113, 105114, 149763, 149777, 138624, 149778, 149779]):
             self.ready_pickup_volume = float(self.total_volume or 0.0)
             self.ready_pickup_value_net = float(self.value_net or 0.0)
     
@@ -701,8 +699,6 @@ class BaselinkerReportOrder(db.Model):
             'czeka na odbiór osobisty',       # 149777
             'dostarczona - kurier',           # 138624
             'dostarczona - transport woodpower', # 149778
-            'planowana trasa',                # 417343
-            'załadowane - trans. woodpower',  # 524520
             'odebrane'                        # 149779
         ]):
             self.ready_pickup_volume = float(self.total_volume or 0.0)

@@ -17,7 +17,6 @@ from modules.logging import get_structured_logger
 from extensions import db
 from modules.users.decorators import require_module_access
 from ..models import get_local_now
-from modules.production.logistics import sposoby
 
 # Blueprint — name must stay 'production_admin' (referenced via url_for)
 admin_bp = Blueprint('production_admin', __name__)
@@ -97,7 +96,7 @@ def _get_admin_dashboard_data():
         ).count()
         completed_today = ProductionItem.query.filter(
             and_(
-                ProductionItem.current_status.in_(sposoby.STATUSY_PO_SPAKOWANIU),
+                ProductionItem.current_status == 'spakowane',
                 ProductionItem.packaging_completed_at >= today_start
             )
         ).count()

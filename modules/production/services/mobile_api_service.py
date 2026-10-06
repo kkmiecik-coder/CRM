@@ -5,9 +5,8 @@ Obsługuje warstwę logiki dla blueprintu mobile_api_bp (natywna appka Android).
 Router (`routers/mobile_api.py`) powinien być cienki — walidacja wejścia
 i wywołanie funkcji z tego modułu.
 
-Tranzycje statusu deleguje do `ProductionItem.complete_task()` (w kodzie
-produkcyjnym woła ją tylko `mark_order_complete` z tego modułu). Webowy handler
-`/production/api/complete-task` został usunięty razem z panelami webowymi stanowisk.
+Tranzycje statusu deleguje do `ProductionItem.complete_task()` — tej samej
+metody modelu, której używa web-handler `/production/api/complete-task`.
 """
 
 import ipaddress
@@ -25,7 +24,6 @@ from sqlalchemy.orm import joinedload
 
 from extensions import db
 from modules.logging import get_structured_logger
-from modules.production.logistics import sposoby
 from modules.production.models import (
     MobileAppRelease,
     ProcessedMobileOperation,
@@ -263,7 +261,7 @@ HEARTBEAT_ACTIVE_THRESHOLD_MINUTES = 20
 # 'painting' doszło razem z podziałem Wykańczania: Lakiernia ma własny tablet.
 _STATION_CODES_WITH_TABLETS = (
     'cutting', 'assembly', 'gluing', 'formatting', 'edges', 'painting',
-    'packaging', 'sawmill', 'verification', 'delivery',
+    'packaging', 'sawmill',
 )
 
 
@@ -479,22 +477,6 @@ def with_idempotency(f=None, retryable_statuses=None, require_operation_id=False
     (żeby klient mógł retry). Handler MUSI zwracać (response, status)
     i NIE MOŻE wewnątrz wywoływać db.session.commit() — zrobi to decorator.
 
-    Sygnał dla agenta druku: handler, który kolejkuje etykiety, tylko go planuje
-    (print_queue_service.zaplanuj_sygnal_po_commicie); decorator wysyła go dopiero po
-    udanym commicie (wyslij_zaplanowany_sygnal, pod hookiem BL). Przy rollbacku
-    (5xx, `retryable_statuses`, wyjątek), powtórce idempotentnej i wyścigu
-    IntegrityError sygnał nie idzie — zaplanowana liczba ginie razem z `g` żądania.
-
-    Dopychacz logistyki (Base.): handler, po którego zmianie coś czeka na wysłanie do Base., tylko
-    to planuje (bl_sync.zaplanuj_po_commicie); decorator uruchamia dopychacz w tle dopiero po
-    udanym commicie (wyslij_zaplanowane) — na tych samych zasadach co sygnał dla agenta druku.
-
-    Sygnały stanowisk (priorytety produkcji, spec 2026-10-04, 5.4): handler, który zmienia stół stanowiska
-    (ZAKOŃCZ, licznik sztuk, Odłóż, doróbka), tylko je planuje (priorytety.services.sygnaly.zaplanuj);
-    decorator wysyła je zaraz po udanym commicie, przed hakiem Base. (sygnaly.wyslij), a przy rollbacku — 5xx,
-    `retryable_statuses`, wyjątek handlera, wyścig IntegrityError — porzuca plan jawnie (sygnaly.porzuc). Przy
-    powtórce idempotentnej handler się nie wykonuje, więc nie ma czego wysyłać.
-
     retryable_statuses: zbiór kodów 4xx, które mają być traktowane jak 5xx —
     rollback i BRAK zapisu, żeby klient mógł ponowić z tym samym
     X-Operation-Id. Trakownia używa {409}: gdy zlecenie zostało w międzyczasie
@@ -522,16 +504,6 @@ def with_idempotency(f=None, retryable_statuses=None, require_operation_id=False
     ponawiaj", a tu wadliwe jest samo żądanie, nie pomiar.
     """
     retryable = frozenset(retryable_statuses or ())
-
-    def _porzuc_sygnaly_stanowisk():
-        # Rollback: zaplanowane sygnały `station:<kod>` przepadają razem z transakcją.
-        try:
-            from modules.production.priorytety.services import sygnaly
-            sygnaly.porzuc()
-        except Exception as sygnaly_error:
-            logger.error("Mobile API: błąd porzucania sygnałów stanowisk", extra={
-                'error': str(sygnaly_error),
-            })
 
     def decorator(func):
         @wraps(func)
@@ -571,7 +543,6 @@ def with_idempotency(f=None, retryable_statuses=None, require_operation_id=False
                 result = func(*args, **kwargs)
             except Exception as e:
                 db.session.rollback()
-                _porzuc_sygnaly_stanowisk()
                 logger.error("Mobile API handler exception", extra={
                     'endpoint': request.endpoint,
                     'operation_id': op_id or None,
@@ -591,7 +562,6 @@ def with_idempotency(f=None, retryable_statuses=None, require_operation_id=False
             # zapisuj (klient retry z tym samym X-Operation-Id)
             if status_code >= 500 or status_code in retryable:
                 db.session.rollback()
-                _porzuc_sygnaly_stanowisk()
                 return response_obj, status_code
 
             # 2xx / 4xx — commit, zapisz operation_id w tej samej transakcji
@@ -623,7 +593,6 @@ def with_idempotency(f=None, retryable_statuses=None, require_operation_id=False
                     # pierwszy. Rollback naszej sesji i zwróć zapisany przez
                     # rywala response.
                     db.session.rollback()
-                    _porzuc_sygnaly_stanowisk()
                     existing = ProcessedMobileOperation.query.filter_by(
                         operation_id=op_id
                     ).first()
@@ -645,18 +614,6 @@ def with_idempotency(f=None, retryable_statuses=None, require_operation_id=False
             else:
                 db.session.commit()
 
-            # Priorytety produkcji (spec 2026-10-04, 5.4): sygnały `station:<kod>` dla tabletów stanowisk — po
-            # commicie, bo tablet po sygnale woła GET desk i przed commitem zobaczyłby stary stół. PIERWSZE po
-            # commicie, przed hakiem Base.: ten przy ZAKOŃCZ kończącym zamówienie robi synchroniczne HTTP
-            # (`setOrderStatus`), a drugi tablet stanowiska nie ma na nie czekać.
-            try:
-                from modules.production.priorytety.services import sygnaly
-                sygnaly.wyslij()
-            except Exception as sygnaly_error:
-                logger.error("Mobile API: błąd sygnałów stanowisk", extra={
-                    'error': str(sygnaly_error),
-                })
-
             # Hook BL: po commit może triggerować zmiany statusu w BaseLinker
             try:
                 from .baselinker_status_sync import flush_pending_syncs
@@ -664,37 +621,6 @@ def with_idempotency(f=None, retryable_statuses=None, require_operation_id=False
             except Exception as bl_error:
                 logger.error("Mobile API: błąd flush BL status sync", extra={
                     'error': str(bl_error),
-                })
-
-            # Etykiety paczek (logistyka etap 4): sygnał dla agenta druku dopiero po commicie —
-            # handler tylko go zaplanował (print_queue_service.zaplanuj_sygnal_po_commicie).
-            try:
-                from .print_queue_service import wyslij_zaplanowany_sygnal
-                wyslij_zaplanowany_sygnal()
-            except Exception as sygnal_error:
-                logger.error("Mobile API: błąd sygnału dla agenta druku", extra={
-                    'error': str(sygnal_error),
-                })
-
-            # Logistyka etap 4: zmiany dla Base. z telefonu (np. 138620 po „Cofnij do pakowania”) —
-            # dopychacz w tle dopiero po commicie (bl_sync.zaplanuj_po_commicie).
-            try:
-                from modules.production.logistics.services.bl_sync import wyslij_zaplanowane
-                wyslij_zaplanowane()
-            except Exception as bl_logistyka_error:
-                logger.error("Mobile API: błąd uruchomienia dopychacza logistyki", extra={
-                    'error': str(bl_logistyka_error),
-                })
-
-            # Priorytety produkcji: zapis z telefonu, który zmienia kolejkę (Dostawa, „Cofnij do pakowania”),
-            # tylko zaplanował przeliczenie rang (kolejka.zaplanuj_po_commicie) — wykonujemy je dopiero po commicie,
-            # na własnej sesji kolejka.utrwal.
-            try:
-                from modules.production.priorytety.services.kolejka import wykonaj_zaplanowane
-                wykonaj_zaplanowane()
-            except Exception as priorytety_error:
-                logger.error("Mobile API: błąd przeliczenia priorytetów po commicie", extra={
-                    'error': str(priorytety_error),
                 })
 
             return response_obj, status_code
@@ -909,12 +835,7 @@ def _match_item_dimensions(item, query_mm_sorted):
 
 # Statusy pozycji, które skończyły drogę przez produkcję. Zamówienie złożone
 # wyłącznie z nich to archiwum — w wyszukiwarce idzie za aktywnymi.
-# Celowo po statusach pozycji, a NIE po `logistics_closed_at` jak archiwum panelu
-# (krok 4.5, spec 10): wyszukiwarka służy hali, a dla hali zamówienie spakowane jest
-# skończone, także gdy czeka w Logistyce na trasę albo odbiór. Odpowiedź nie ma pola
-# sekcji (appka 1.7.3 widzi tylko pola pozycji: status, `current_station`, `packed_at`),
-# więc inny podział po stronie serwera zmieniłby wyłącznie kolejność wyników.
-ARCHIVE_STATUSES = frozenset(sposoby.STATUSY_PO_SPAKOWANIU) | {'anulowane'}
+ARCHIVE_STATUSES = frozenset({'spakowane', 'anulowane'})
 
 
 def search_orders_global(query, limit=50):
@@ -930,7 +851,7 @@ def search_orders_global(query, limit=50):
       3. Python: dopasuj wymiarowo (multiset, tolerancja ±5 mm).
       4. Zbierz zamówienia pasujących pozycji i posortuj: najpierw aktywne
          (priority_rank ASC NULLS LAST, internal_order_number), potem
-         archiwalne — spakowane lub dalej/anulowane — od najświeżej spakowanego.
+         archiwalne — spakowane/anulowane — od najświeżej spakowanego.
       5. Po przycięciu do `limit` zamówień dociągnij WSZYSTKIE pozycje
          z tych zamówień, w kolejności zamówień z kroku 4.
 
@@ -1127,7 +1048,7 @@ def _build_attachments(item):
     }]
 
 
-def serialize_order(item, station_code=None, label_numbering=None, packing_hints=None, priorytety=None):
+def serialize_order(item, station_code=None, label_numbering=None):
     """
     ProductionItem → dict (OrderDto).
     Gdy podano station_code, dokłada quantity_done dla tego stanowiska.
@@ -1136,16 +1057,6 @@ def serialize_order(item, station_code=None, label_numbering=None, packing_hints
     compute_label_offsets(). Listy MUSZĄ ją podawać — bez tego każda pozycja
     płaci własnym zapytaniem o rodzeństwo z zamówienia. Pojedyncze pozycje mogą
     ją pominąć; policzymy dla tej jednej.
-
-    `packing_hints` — gotowa mapa {order_id: packing_hint} z paczki.podpowiedzi_zamowien();
-    listy MUSZĄ ją podawać (jak label_numbering), pojedyncza pozycja policzy podpowiedź
-    z pozycji swojego zamówienia.
-
-    `priorytety` — gotowa mapa {item_id: priorytet} z priorytety.services.stol.kontekst_priorytetu();
-    listy MUSZĄ ją podawać (dwa zapytania na całą listę zamiast dwóch na pozycję), pojedyncza pozycja
-    policzy swój. Pole `priorytet` (spec 2026-10-04, 6.1): gwiazdki zamówienia, rodzaj szczebla, trasa
-    i miejsce pozycji w zamówieniu — nowa appka rysuje z niego plakietki kafla; `priority_rank`
-    i `is_priority` zostają dla starej.
     """
     def _num(value):
         return float(value) if value is not None else None
@@ -1198,6 +1109,10 @@ def serialize_order(item, station_code=None, label_numbering=None, packing_hints
     if station_code and station_code in STATION_QUANTITY_FIELD:
         quantity_done = getattr(item, STATION_QUANTITY_FIELD[station_code], None)
 
+    # Kategoria dostawy — kolejność warunków przeniesiona z badge'a dostawy
+    # w panelu pakowania (templates/stations/packaging.html, usunięty w Etapie 0
+    # profili pracowników; kod w historii gita, commit 0391556).
+    # Odrębna od property ProductionItem.delivery_type (zwracającej tylko 2 wartości).
     # Numeracja etykiet. Aplikacja rysuje kafelek sztuki numerem GLOBALNYM —
     # tym samym, który wychodzi na papier — więc offsetu nie da się pominąć:
     # tablet widzi pojedyncze pozycje, a numeracja biegnie przez całe zamówienie.
@@ -1208,39 +1123,16 @@ def serialize_order(item, station_code=None, label_numbering=None, packing_hints
     )
     label_printed = [n + label_offset for n in wydrukowane_sztuki(item)]
 
-    # Sposób dostawy — jedno źródło: logistics/sposoby.py (logistyka równoległa).
-    # `delivery_type` zostaje dla starych APK (tylko stare wartości), a `transport`
-    # jest ZAWSZE obecny: jego brak oznacza dla appki stary backend.
-    from modules.production.logistics import sposoby
-    delivery_type = sposoby.legacy_delivery_type(
-        item.order.override_delivery_method if item.order else None)
-    # Trasa aktywna (etap 3): tylko dla transportu własnego, jedno zapytanie na
-    # żądanie HTTP — trasa_dla_tabletu cache'uje w g (routes.py).
-    trasa = None
-    if item.order is not None and sposoby.normalizuj(item.order.override_delivery_method) == sposoby.TRANSPORT:
-        from modules.production.logistics.services.routes import trasa_dla_tabletu
-        trasa = trasa_dla_tabletu(item.order.id)
-    transport = sposoby.transport_payload(item.order, trasa)
-
-    # Podpowiedź paczek (logistyka etap 4, spec 7.1) — ta sama dla wszystkich pozycji
-    # zamówienia; tablet zaznacza nią wybór w oknie paczek przy „ZAKOŃCZ”. Obecność pola
-    # mówi appce, że backend przyjmuje deklarację paczek (jak `transport` w etapie 1).
-    from modules.production.logistics.services import paczki
-    if packing_hints is not None and item.order_id in packing_hints:
-        packing_hint = packing_hints[item.order_id]
+    override_delivery = item.order.override_delivery_method if item.order else None
+    is_personal = item.order.is_personal_pickup if item.order else False
+    if override_delivery == 'transport_woodpower':
+        delivery_type = 'transport_woodpower'
+    elif override_delivery == 'kurier_baselinker':
+        delivery_type = 'courier_baselinker'
+    elif is_personal:
+        delivery_type = 'personal_pickup'
     else:
-        packing_hint = paczki.podpowiedz_pakowania(item.order.products if item.order else [item])
-
-    # Priorytety produkcji. Import lokalny: serwis stołu nie importuje tego modułu, ale pakiet priorytetów
-    # ładuje się razem z modelami produkcji (cykl importów przy imporcie na górze).
-    if priorytety is None or item.id not in priorytety:
-        from modules.production.priorytety.services import stol
-        priorytety = stol.kontekst_priorytetu([item])
-    priorytet = priorytety.get(item.id)
-    # Lakiernia (lista po grupach wykończenia, spec priorytetów 3.2): appka rysuje separator grupy z tego pola.
-    from modules.production.priorytety.services import lista, ustawienia as ustawienia_priorytetow
-    grupa_wykonczenia = (lista.grupa_wykonczenia_json(item)
-                         if station_code in ustawienia_priorytetow.STANOWISKA_BEZ_STOLU else None)
+        delivery_type = 'courier'
 
     return {
         'id': item.id,
@@ -1278,8 +1170,6 @@ def serialize_order(item, station_code=None, label_numbering=None, packing_hints
         'order_source_name': item.order.order_source_name if item.order else None,
         'order_source_display': item.order.order_source_display if item.order else None,
         'delivery_type': delivery_type,
-        'transport': transport,
-        'packing_hint': packing_hint,
         'wood_species': item.configuration.species if item.configuration else None,
         'wood_class': item.configuration.wood_class if item.configuration else None,
         'technology': item.configuration.technology if item.configuration else None,
@@ -1289,8 +1179,6 @@ def serialize_order(item, station_code=None, label_numbering=None, packing_hints
         'quantity_done': quantity_done,
         'priority_rank': item.priority_rank,
         'is_priority': item.is_priority,
-        'priorytet': priorytet,
-        'grupa_wykonczenia': grupa_wykonczenia,
         'status': item.current_status,
         'status_display': item.status_display_name,
         'finish': finish,
@@ -1323,16 +1211,13 @@ def mark_order_complete(item, station_code, *, device_id=None,
     """
     Oznacza zlecenie jako ukończone na danym stanowisku.
 
-    WARUNEK WSTĘPNY (logistyka etap 4, krok 4.4a, „zamówienie najpierw”): wołający trzyma blokadę wiersza
-    zamówienia i wszystkich jego pozycji z odczytem bieżącym (services/blokady_zamowien.py; ZAKOŃCZ robi to
-    w mobile_api.order_complete). Tranzycja decyduje o statusach pozostałych pozycji i o sposobie dostawy
-    zamówienia (wejście do pakowania, po_spakowaniu, zamknięcie cyklu), a na migawce zamknęłaby cykl błędnie.
-
-    Deleguje do `ProductionItem.complete_task(station_code)`.
+    Deleguje do `ProductionItem.complete_task(station_code)` — tej samej
+    metody modelu której używa web-handler `/production/api/complete-task`.
     Pełna tranzycja statusu (cutting/assembly/gluing/formatting/edges/
     painting/packaging) plus reguły specjalne (pominięcie Krawędzi dla
     produktów bez obróbki krawędzi — niezależnie od wykończenia, Lakiernia
-    dla olejowanych i lakierowanych) są obsłużone w modelu.
+    dla olejowanych i lakierowanych, personal_pickup omija logistykę)
+    są obsłużone w modelu.
 
     NAJPIERW domykamy sztuki przez set_quantity_done(), DOPIERO POTEM
     complete_task(). Powód (docs/worker-profiles-backend.md §8, pułapka nr 1):
@@ -1846,23 +1731,13 @@ def get_station_queue_delta(station_code, since_ts):
 
     base = ProductionItem.query.filter(ProductionItem.current_status == status)
 
-    # Lakiernia (bez stołu): delta w kolejności listy po grupach wykończenia (spec priorytetów 3.2) — do tego
-    # potrzebne są pełne pozycje z zamówieniem. Pozostałe stanowiska: zapytania jak dotąd, same id.
-    from modules.production.priorytety.services import lista, ustawienia as ustawienia_priorytetow
-    po_wykonczeniu = station_code in ustawienia_priorytetow.STANOWISKA_BEZ_STOLU
-
-    if po_wykonczeniu:
-        w_statusie = lista.porzadek_listy(
-            station_code, base.options(joinedload(ProductionItem.order)).all())
-        all_ids = [it.id for it in w_statusie]
-    else:
-        all_ids = [
-            row[0] for row in base.with_entities(ProductionItem.id)
-            .order_by(
-                func.coalesce(ProductionItem.priority_rank, 999999).asc(),
-                ProductionItem.created_at.asc(),
-            ).all()
-        ]
+    all_ids = [
+        row[0] for row in base.with_entities(ProductionItem.id)
+        .order_by(
+            func.coalesce(ProductionItem.priority_rank, 999999).asc(),
+            ProductionItem.created_at.asc(),
+        ).all()
+    ]
 
     changed_items = base.options(
         joinedload(ProductionItem.order),
@@ -1873,16 +1748,10 @@ def get_station_queue_delta(station_code, since_ts):
         func.coalesce(ProductionItem.priority_rank, 999999).asc(),
         ProductionItem.created_at.asc(),
     ).all()
-    if po_wykonczeniu:
-        miejsce = {item_id: i for i, item_id in enumerate(all_ids)}
-        changed_items.sort(key=lambda it: miejsce.get(it.id, len(miejsce)))
 
     # Policzone RAZ dla całej listy — wewnątrz listy składanej liczyłoby się
     # dla każdej pozycji osobno, czyli dokładnie to, czego ta mapa unika.
     numeracja = compute_label_offsets(changed_items)
-    # Priorytet — też jedna mapa na całą listę (import lokalny, jak w serialize_order).
-    from modules.production.priorytety.services import stol
-    priorytety = stol.kontekst_priorytetu(changed_items)
 
     return {
         'station_code': station_code,
@@ -1890,7 +1759,7 @@ def get_station_queue_delta(station_code, since_ts):
         'since_ts': since_ts.isoformat(),
         'all_ids': all_ids,
         'changed': [
-            serialize_order(it, station_code=station_code, label_numbering=numeracja, priorytety=priorytety)
+            serialize_order(it, station_code=station_code, label_numbering=numeracja)
             for it in changed_items
         ],
     }

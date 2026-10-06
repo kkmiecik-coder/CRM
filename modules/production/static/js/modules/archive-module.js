@@ -1,5 +1,5 @@
 /**
- * ArchiveModule — widok zamówień zamkniętych w Logistyce (albo w całości anulowanych).
+ * ArchiveModule — widok zamówień w pełni spakowanych.
  *
  * Niezależny od ProductsModule. Reużywa endpoint /products-tab-content z view=archive
  * oraz część stylów (.il-*) z products-tab.css; własny scope DOM przez prefix `arch-`.
@@ -27,10 +27,6 @@ const STATUS_DISPLAY_NAMES = {
     'czeka_na_logistyke': 'Czeka na logistykę',
     'czeka_na_pakowanie': 'Czeka na pakowanie',
     'spakowane': 'Spakowane',
-    // Statusy po spakowaniu (logistyka etap 4) — pozycje w archiwum mogą być już wydane klientowi.
-    'zweryfikowane': 'Zweryfikowane',
-    'zaladowane': 'Załadowane',
-    'dostarczone': 'Dostarczone',
     'w_realizacji': 'W realizacji',
     'wstrzymane': 'Wstrzymane',
     'anulowane': 'Anulowane'
@@ -243,10 +239,8 @@ class ArchiveModule {
                     totalVolume: 0,
                     totalValue: 0,
                     productCount: 0,
-                    // Prawdziwy etap zamówienia z serwera (krok 4.5): Spakowane, Zweryfikowane,
-                    // Załadowane, Dostarczone albo Anulowane. Zapas na starą odpowiedź z cache.
-                    status: product.order_stage_status || 'spakowane',
-                    statusLabel: product.order_stage_label || 'Spakowane',
+                    status: 'spakowane',
+                    statusLabel: 'Spakowane',
                     completedAt: product.order_completed_at || null,
                     earliestCreatedAt: null,
                     realizationDays: null
@@ -260,8 +254,7 @@ class ArchiveModule {
             order.totalValue += parseFloat(product.total_value_net) || 0;
             if (product.quote_number && !order.quoteNumber) order.quoteNumber = product.quote_number;
 
-            // completedAt: backend ustawia order_completed_at = data zamknięcia w Logistyce
-            // (zamknięcia historyczne: MAX(packaging_completed_at)) — patrz _archive_completed_expr
+            // completedAt: backend już ustawia order_completed_at = MAX(packaging_completed_at)
             if (product.order_completed_at && (!order.completedAt || product.order_completed_at > order.completedAt)) {
                 order.completedAt = product.order_completed_at;
             }
@@ -443,7 +436,7 @@ class ArchiveModule {
     populateOrderHeader(card, order) {
         const header = card.querySelector('.arch-order-header');
 
-        // Status border-left (etap zamówienia: po spakowaniu → status-completed, anulowane → status-cancelled)
+        // Status border-left (z definicji 'spakowane' → status-completed)
         header.classList.add(this.getStationClassFromStatus(order.status));
 
         // Client + IDs
@@ -589,7 +582,7 @@ class ArchiveModule {
             } else {
                 console.warn('[ArchiveModule] productsModule.showProductDetails niedostępne');
                 if (this.shared && this.shared.toastSystem) {
-                    this.shared.toastSystem.show('Otwórz najpierw zakładkę "Lista produkcyjna" aby załadować szczegóły', 'warning');
+                    this.shared.toastSystem.show('Otwórz najpierw zakładkę "Lista produktów" aby załadować szczegóły', 'warning');
                 }
             }
         } catch (err) {
@@ -950,11 +943,7 @@ class ArchiveModule {
             'czeka_na_lakiernie': 'status-painting',
             'czeka_na_logistyke': 'status-logistics',
             'czeka_na_pakowanie': 'status-packaging',
-            'spakowane': 'status-completed',
-            'zweryfikowane': 'status-completed',
-            'zaladowane': 'status-completed',
-            'dostarczone': 'status-completed',
-            'anulowane': 'status-cancelled'
+            'spakowane': 'status-completed'
         };
         return map[status] || 'status-completed';
     }
@@ -969,11 +958,7 @@ class ArchiveModule {
             'czeka_na_lakiernie': 'badge-painting',
             'czeka_na_logistyke': 'badge-logistics',
             'czeka_na_pakowanie': 'badge-packaging',
-            'spakowane': 'badge-completed',
-            'zweryfikowane': 'badge-completed',
-            'zaladowane': 'badge-completed',
-            'dostarczone': 'badge-completed',
-            'anulowane': 'badge-cancelled'
+            'spakowane': 'badge-completed'
         };
         return map[status] || 'badge-completed';
     }

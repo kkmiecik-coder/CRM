@@ -20,7 +20,6 @@ from datetime import date, timedelta
 
 from sqlalchemy.orm import joinedload
 
-from modules.production.logistics import sposoby
 from ..models import ProductionItem
 from .station_catalog import station_short_label
 
@@ -53,12 +52,16 @@ _STATUS_RANK = {
     # pigułkę podpisaną surowym kodem 'finishing' obok pigułki „Krawędzie".
     'czeka_na_krawedzie': (5, 'edges'),
     'czeka_na_lakiernie': (6, 'painting'),
+    'czeka_na_logistyke': (7, 'logistics'),
     'czeka_na_pakowanie': (8, 'packaging'),
 }
 
-# Etykiety dla pozycji spoza pipeline'u stanowisk.
+# Etykiety dla pozycji spoza pipeline'u stanowisk. 'logistics' nie jest
+# stanowiskiem w station_catalog (nie ma tabletu na hali), ale jest etapem,
+# na którym pozycja realnie stoi — i ma swój kafelek na dashboardzie.
 _EXTRA_LABELS = {
     'hold': 'Wstrzymane',
+    'logistics': 'Logistyka',
 }
 
 # Ranga dla statusów, których nie ma w mapie ('w_realizacji', 'anulowane',
@@ -101,7 +104,7 @@ def build_deadline_alerts(days_ahead=3, limit=None):
         # drugie, więc anulowane zamówienia wisiały na górze kafla na czerwono
         # („-68 DNI") i przebijały realnie zagrożone terminy. Widać to było
         # dopiero, gdy kafel zaczął pokazywać stanowisko.
-        ProductionItem.current_status.notin_(sposoby.STATUSY_PO_SPAKOWANIU + ('anulowane',))
+        ProductionItem.current_status.notin_(('spakowane', 'anulowane'))
     ).order_by(ProductionItem.deadline_date.asc()).all()
 
     orders_map = {}

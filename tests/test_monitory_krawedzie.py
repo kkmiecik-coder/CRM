@@ -55,14 +55,8 @@ STATYKA = os.path.join(KORZEN, 'modules', 'production', 'static')
 # LONGTEXT (MySQL) nie istnieje w SQLite — jak w pozostalych pakietach.
 ProductionOrder.__table__.c.shipping_label_base64.type = db.Text()
 
-# Priorytety produkcji (krok K4b): monitory czytają drabinę, stół i trasy (rangę i plakietki z kolumn).
-from modules.production.logistics.models import Route, RouteStop, Vehicle  # noqa: E402
-from modules.production.models import ProductionWorker  # noqa: E402
-from modules.production.priorytety.models import PriorityLog, PriorityRung, StationDesk  # noqa: E402
-
 TABELE = [m.__table__ for m in (
     User, ProductionConfig, ProductionOrder, ProductionProduct, ProductionConfiguration,
-    ProductionWorker, Vehicle, Route, RouteStop, PriorityRung, PriorityLog, StationDesk,
 )]
 
 

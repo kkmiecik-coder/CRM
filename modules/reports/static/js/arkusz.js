@@ -831,8 +831,8 @@
         element.textContent = opcja;
         pole.appendChild(element);
       });
-      /* Status spoza slownika (np. „Status N" zapisany historycznie, zanim id
-         weszlo do slownika) nie jest na liscie — dokladamy go jako wylaczona opcje, zeby
+      /* Status spoza slownika („Status 417343", 131 wierszy na produkcji)
+         nie jest na liscie — dokladamy go jako wylaczona opcje, zeby
          uzytkownik widzial, co jest teraz, i wiedzial, ze tego nie wyśle. */
       if (wartosc && (kolumna.opcje || []).indexOf(wartosc) === -1) {
         var obcy = document.createElement('option');

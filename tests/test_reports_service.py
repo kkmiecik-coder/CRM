@@ -2176,23 +2176,3 @@ def test_miks_bierze_nazwy_stanowisk_z_katalogu(app):
         # Statusy spoza pipeline'u dostają własne nazwy, nie kod z podłogami.
         assert etykiety['spakowane'] == 'Spakowane'
         assert etykiety['czeka_na_logistyke'] == 'Logistyka'
-
-
-def test_termin_vs_postep_is_priority_z_kolumny_pochodnej(app):
-    """
-    Priorytety produkcji (krok K4b): raport terminów czyta `is_priority` pozycji — od K1 to kolumna POCHODNA
-    (doróbka ∨ ★≥1 ∨ po terminie), którą ustawia `kolejka.utrwal()`. Raport nie liczy jej sam; test regresji, że
-    pokazuje wartość z kolumny (pozycja zamówienia z gwiazdką → True, bez → False).
-    """
-    with app.app_context():
-        from modules.production.models import get_local_now
-        za_tydzien = get_local_now().date() + timedelta(days=7)
-        z_gwiazdka = _produkt(deadline=za_tydzien)
-        z_gwiazdka.is_priority = True          # jak po utrwal() dla zamówienia ★1
-        z_gwiazdka.order.priority_stars = 1
-        bez = _produkt(deadline=za_tydzien)
-        db.session.commit()
-
-        pozycje = {p['product_id']: p['is_priority'] for p in reports_service.termin_vs_postep()['items']}
-
-        assert pozycje == {z_gwiazdka.id: True, bez.id: False}

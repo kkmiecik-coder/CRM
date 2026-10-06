@@ -27,8 +27,6 @@ from modules.production.models import (
     ProductionStationEvent, ProductionStationEventWorker, ProductionWorker,
     ProductionWorkerSession, get_local_now,
 )
-from modules.production.logistics.models import Route, RouteStop, Vehicle
-from modules.production.priorytety.models import PriorityLog, PriorityRung, StationDesk
 from modules.production.routers.mobile_api import mobile_api_bp
 from modules.production.services import worker_service
 from modules.production.services.mobile_api_service import generate_token
@@ -44,10 +42,6 @@ _TABLES = [m.__table__ for m in (
     ProductionOrder, ProductionProduct, ProductionConfiguration, ProductionReworkLog,
     ProductionWorker, ProductionWorkerSession, ProductionStationEvent,
     ProductionStationEventWorker,
-    # Doróbka bierze globalną blokadę tras i czyta przystanek zamówienia (decyzja Konrada 2.10, A2).
-    Vehicle, Route, RouteStop,
-    # Priorytety produkcji: routes.utworz zakłada szczebel trasy, a utrwal() czyta drabinę.
-    PriorityRung, PriorityLog, StationDesk,
 )]
 
 # SQLite nie zna LONGTEXT — to samo obejście co w pozostałych testach mobilnych.
@@ -128,11 +122,10 @@ def _pracownicy(app, ilu=2, aktywni=True):
         return [w.id for w in dodani]
 
 
-def _produkt(app, status='czeka_na_sklejanie', quantity=10, override_delivery_method=None):
+def _produkt(app, status='czeka_na_sklejanie', quantity=10):
     with app.app_context():
         order = ProductionOrder(baselinker_order_id=990001,
-                                internal_order_number='26/00042',
-                                override_delivery_method=override_delivery_method)
+                                internal_order_number='26/00042')
         db.session.add(order)
         db.session.flush()
         produkt = ProductionProduct(
@@ -1528,8 +1521,7 @@ def test_complete_nadal_kolejkuje_sync_baselinkera(client, app, monkeypatch):
     """
     token = _token(app, station_code='packaging')
     ids = _pracownicy(app, 1)
-    produkt_id = _produkt(app, status='czeka_na_pakowanie',
-                          override_delivery_method='kurier_baselinker')
+    produkt_id = _produkt(app, status='czeka_na_pakowanie')
 
     zaplanowane = []
     monkeypatch.setattr(

@@ -28,8 +28,6 @@ from modules.logging import get_structured_logger
 logger = get_structured_logger('production.realtime')
 
 CHANNEL_PRINT_AGENT = 'print:agent'
-# Kanał tabletów stanowiska (priorytety produkcji, spec 2026-10-04, 5.4): 'station:gluing', 'station:packaging', …
-CHANNEL_STATION = 'station:{}'
 
 DEFAULT_API_URL = 'http://127.0.0.1:8091/api/publish'
 DEFAULT_TOKEN_TTL_SECONDS = 3600
@@ -189,21 +187,6 @@ def publish_print_signal(job_count):
     GET /api/print-agent/jobs i to ono jest źródłem prawdy.
     """
     return publish(CHANNEL_PRINT_AGENT, {'kind': 'print', 'count': int(job_count or 0)})
-
-
-def channel_station(station_code):
-    """Nazwa kanału tabletów stanowiska: `station:<kod>`."""
-    return CHANNEL_STATION.format(station_code)
-
-
-def publish_station_signal(station_code):
-    """Budzi tablety stanowiska: „stół się zmienił, pobierz go”.
-
-    Bez ładunku użytkowego — tablet po sygnale woła GET /api/mobile/stations/<kod>/desk i to ono jest źródłem
-    prawdy (jak agent druku po `publish_print_signal`). Wołać PO commicie zapisu; planowanie i wysyłkę po commicie
-    robi `priorytety/services/sygnaly.py`. Zwraca True/False, nigdy nie rzuca (patrz `publish`).
-    """
-    return publish(channel_station(station_code), {'kind': 'station', 'station': station_code})
 
 
 def issue_connection_token(subject, channels, ttl_seconds=None):

@@ -1,49 +1,5 @@
 <!-- stations-tab-content.html -->
-<!-- Zakładka Stanowiska: to samo, co widzi tablet — stół, odłożone, niekompletne i kolejka każdego stanowiska
-     (spec priorytetów 7.2). Lakiernia pracuje z listy po wykończeniu, bez stołu. Dane: stations_api.py. -->
-{% import 'components/_priorytet_plakietki.html' as prio %}
-{% set NAZWY_STANOWISK = {'cutting': 'Wycinanie', 'assembly': 'Składanie', 'gluing': 'Sklejanie',
-                          'formatting': 'Formatowanie', 'edges': 'Krawędzie', 'painting': 'Lakiernia',
-                          'packaging': 'Pakowanie'} %}
-
-{% macro termin(kafel) -%}
-{% set dni = kafel.dni_do_terminu %}
-{% if dni is not none %}
-<span class="deadline-text {% if dni < 0 %}overdue{% elif dni <= 1 %}urgent{% elif dni <= 3 %}warning{% endif %}">
-    {% if dni < 0 %}{{ dni|abs }}d temu{% elif dni == 0 %}Dziś{% elif dni == 1 %}Jutro{% else %}{{ dni }}d{% endif %}
-</span>
-{% else %}
-<span class="text-muted">-</span>
-{% endif %}
-{%- endmacro %}
-
-{% macro opis_kafla(kafel, jednostka) -%}
-{% if jednostka == 'zamowienie' %}
-<strong>{{ kafel.numer }}</strong>
-<span class="kafel-meta">{{ kafel.pozycji }} poz.</span>
-{% else %}
-<strong>{{ kafel.short_id or kafel.numer }}</strong>
-{% if kafel.material %}
-<span class="kafel-meta">{{ kafel.material.gatunek or '' }} {{ kafel.material.klasa or '' }}{% if kafel.wymiary and kafel.wymiary.dlugosc_cm %} · {{ kafel.wymiary.dlugosc_cm|round(1)|replace('.0', '') }}×{{ (kafel.wymiary.szerokosc_cm or 0)|round(1)|replace('.0', '') }}×{{ (kafel.wymiary.grubosc_cm or 0)|round(1)|replace('.0', '') }}{% endif %}</span>
-{% endif %}
-{% endif %}
-{{ prio.gwiazdki(kafel.gwiazdki) }}
-{{ prio.plakietka(kafel.szczebel, kafel.dorobka) }}
-{%- endmacro %}
-
-{% macro godzina(iso) -%}{{ iso[11:16] if iso else '' }}{%- endmacro %}
-
-{#- „Zdejmij ze stołu” (spec 5.7): kafel wraca do kolejki stanowiska. Kafel, który po zdjęciu stanąłby pierwszy
-    w kolejce (albo doróbka), wróci przy najbliższym dopełnieniu — podpis mówi to biuru (raport K3, D7). -#}
-{% macro zdejmij(station_key, kafel) -%}
-<span class="kafel-akcje" onclick="event.stopPropagation()">
-    <button type="button" class="btn-zdejmij"
-            onclick="zdejmijZeStolu('{{ station_key }}', '{{ kafel.unit_key }}', {{ 'true' if kafel.wroci_przy_dopelnieniu else 'false' }})">
-        Zdejmij ze stołu
-    </button>
-    {% if kafel.wroci_przy_dopelnieniu %}<span class="kafel-wroci">kafel wróci przy następnym dopełnieniu</span>{% endif %}
-</span>
-{%- endmacro %}
+<!-- Minimalistyczna zakładka Stanowiska -->
 
 <div class="stations-container">
     <!-- Przepływ produkcji - minimalistyczny -->
@@ -62,8 +18,8 @@
                 <div class="workflow-name">{{ station.name }}</div>
                 <div class="workflow-count">
                     {{ station.stats.total_pending }}
-                    {% if station.stats.odlozone %}
-                    <span class="odlozone-dot" title="{{ station.stats.odlozone }} odłożonych"></span>
+                    {% if station.stats.high_priority > 0 %}
+                    <span class="high-priority-dot" title="{{ station.stats.high_priority }} priorytetowych"></span>
                     {% endif %}
                 </div>
                 {% if not loop.last %}
@@ -77,7 +33,7 @@
     <!-- Lista stanowisk -->
     <div class="stations-list">
         {% for station_key, station in stations_data.items() %}
-        <div class="station-item" data-stanowisko="{{ station_key }}">
+        <div class="station-item">
             <div class="station-header">
                 <div class="station-title-group">
                     <span class="station-emoji">{{ station.icon }}</span>
@@ -85,13 +41,8 @@
                         <h4>{{ station.name }}</h4>
                         <div class="station-stats-inline">
                             {{ station.stats.total_pending }} oczekuje
-                            {% if station.tryb %}
-                            <span class="stol-pasek">
-                                • Tryb: {{ 'stół' if station.tryb == 'stol' else 'zgodność (stara appka)' }}
-                                • Na stole {{ station.stats.na_stole }}/{{ station.stats.miejsca }}
-                                • Odłożone {{ station.stats.odlozone }}/{{ station.stats.limit_odlozen }}
-                                • W kolejce {{ station.stats.kolejka_dalej }}
-                            </span>
+                            {% if station.stats.high_priority > 0 %}
+                            <span class="priority-count">• {{ station.stats.high_priority }} pilne</span>
                             {% endif %}
                         </div>
                     </div>
@@ -114,102 +65,41 @@
                     </div>
                 </div>
 
-                {% if station.blad_priorytetow %}
-                <div class="empty-state prio-blad">
-                    <i class="fas fa-exclamation-triangle"></i> Stół i kolejka chwilowo niedostępne
-                </div>
-                {% endif %}
-
-                {% if station.stol %}
-                <div class="stol-sekcja">
-                    <div class="preview-title">Na stole ({{ station.stol|length }}/{{ station.stats.miejsca }}{% if station.stol|length > station.stats.miejsca %} — ponad K: doróbki, wysłane przez biuro, startowe{% endif %})</div>
-                    <ul class="stol-lista">
-                        {% for kafel in station.stol %}
-                        <li class="stol-kafel" onclick="viewProductDetails('{{ kafel.short_id or kafel.numer }}')">
-                            {{ opis_kafla(kafel, station.jednostka) }}
-                            {{ prio.zrodlo_kafla(kafel.zrodlo) }}
-                            <span class="kafel-czas">od {{ godzina(kafel.pobrano) }}{% if kafel.wyslal %}, {{ kafel.wyslal }}{% endif %}</span>
-                            {{ zdejmij(station_key, kafel) }}
-                        </li>
-                        {% endfor %}
-                    </ul>
-                </div>
-                {% elif station.tryb == 'stol' and not station.blad_priorytetow %}
-                <div class="stol-sekcja stol-pusty">Stół pusty — zapełni go tablet przy najbliższym odświeżeniu.</div>
-                {% endif %}
-
-                {% if station.odlozone %}
-                <div class="stol-sekcja odlozone-sekcja">
-                    <div class="preview-title">Odłożone ({{ station.odlozone|length }}/{{ station.stats.limit_odlozen }})</div>
-                    <ul class="stol-lista">
-                        {% for kafel in station.odlozone %}
-                        <li class="stol-kafel odlozony" onclick="viewProductDetails('{{ kafel.short_id or kafel.numer }}')">
-                            {{ opis_kafla(kafel, station.jednostka) }}
-                            <span class="odlozenie-powod">{{ kafel.powod_etykieta or kafel.powod }}</span>
-                            {% if kafel.notatka %}<span class="odlozenie-notatka">„{{ kafel.notatka }}”</span>{% endif %}
-                            <span class="kafel-czas">{{ godzina(kafel.odlozono) }}{% if kafel.pracownik %}, {{ kafel.pracownik }}{% endif %}</span>
-                            {{ zdejmij(station_key, kafel) }}
-                        </li>
-                        {% endfor %}
-                    </ul>
-                </div>
-                {% endif %}
-
-                {% if station.widma %}
-                <div class="stol-sekcja widma-sekcja">
-                    <div class="preview-title">Do zdjęcia ze stołu (kafle bez pozycji na stanowisku)</div>
-                    <ul class="stol-lista">
-                        {% for widmo in station.widma %}
-                        <li class="stol-kafel widmo">
-                            <strong>{{ widmo.short_id or widmo.numer or widmo.unit_key }}</strong>
-                            <span class="kafel-meta">{{ widmo.opis }}{% if widmo.odlozony %} · odłożony{% endif %}</span>
-                            {{ prio.zrodlo_kafla(widmo.zrodlo) }}
-                            {{ zdejmij(station_key, widmo) }}
-                        </li>
-                        {% endfor %}
-                    </ul>
-                </div>
-                {% endif %}
-
-                {% if station.jednostka == 'zamowienie' and station.niekompletne %}
-                <div class="stol-sekcja niekompletne-sekcja">
-                    <div class="preview-title">Niekompletne</div>
-                    <ul class="stol-lista">
-                        {% for wiersz in station.niekompletne %}
-                        <li class="stol-kafel niekompletny" onclick="viewProductDetails('{{ wiersz.numer }}')">
-                            <strong>{{ wiersz.numer }}</strong>
-                            <span class="kafel-meta">{{ wiersz.na_stanowisku }}/{{ wiersz.pozycji }} na stanowisku</span>
-                            <span class="kafel-meta">brakuje:
-                                {% for b in wiersz.brakuje %}{{ b.short_id }} ({{ NAZWY_STANOWISK.get(b.stanowisko, b.stanowisko or 'poza produkcją') }}){% if not loop.last %}, {% endif %}{% endfor %}
-                            </span>
-                        </li>
-                        {% endfor %}
-                    </ul>
-                </div>
-                {% endif %}
-
-                {% if station.kolejka %}
+                {% if station.pending_products and station.pending_products|length > 0 %}
                 <div class="products-preview">
-                    <div class="preview-title">
-                        {% if station.tryb %}Dalej w kolejce (pierwsze {{ station.kolejka|length }}){% else %}Dalej na liście (pierwsze {{ station.kolejka|length }}){% endif %}
-                    </div>
+                    <div class="preview-title">Następne w kolejce:</div>
                     <table class="preview-table">
-                        {% for kafel in station.kolejka %}
-                        <tr onclick="viewProductDetails('{{ kafel.short_id or kafel.numer }}')">
-                            <td class="td-lp">{{ loop.index }}.</td>
-                            <td class="td-id">{{ kafel.short_id or kafel.numer }}</td>
-                            <td class="td-prio">{{ prio.gwiazdki(kafel.gwiazdki) }} {{ prio.plakietka(kafel.szczebel, kafel.dorobka) }}</td>
-                            <td class="td-name">
-                                {% if kafel.grupa %}{{ kafel.grupa }}
-                                {% elif station.jednostka == 'zamowienie' %}{{ kafel.pozycji }} poz.
-                                {% elif kafel.material %}{{ kafel.material.gatunek or '' }} {{ kafel.material.klasa or '' }}{% if kafel.material.grubosc_cm %} {{ kafel.material.grubosc_cm|round(1)|replace('.0', '') }} cm{% endif %}
+                        {% for product in station.pending_products[:5] %}
+                        <tr onclick="viewProductDetails('{{ product.short_id }}')">
+                            <td class="td-priority">
+                                <span class="priority-value priority-{{ 'critical' if product.priority_rank and product.priority_rank <= 10 else 'high' if product.priority_rank and product.priority_rank <= 50 else 'normal' if product.priority_rank and product.priority_rank <= 100 else 'low' }}">
+                                    {{ product.priority_rank or '-' }}
+                                </span>
+                            </td>
+                            <td class="td-id">{{ product.short_id }}</td>
+                            <td class="td-name">{{ product.product_name|truncate(50, True) }}</td>
+                            <td class="td-deadline">
+                                {% if product.deadline_date %}
+                                    {% set days_remaining = product.days_remaining %}
+                                    <span class="deadline-text {% if days_remaining < 0 %}overdue{% elif days_remaining <= 1 %}urgent{% elif days_remaining <= 3 %}warning{% endif %}">
+                                        {% if days_remaining < 0 %}
+                                            {{ days_remaining|abs }}d temu
+                                        {% elif days_remaining == 0 %}
+                                            Dziś
+                                        {% elif days_remaining == 1 %}
+                                            Jutro
+                                        {% else %}
+                                            {{ days_remaining }}d
+                                        {% endif %}
+                                    </span>
+                                {% else %}
+                                    <span class="text-muted">-</span>
                                 {% endif %}
                             </td>
-                            <td class="td-deadline">{{ termin(kafel) }}</td>
                         </tr>
                         {% endfor %}
                     </table>
-                    {% if station.stats.total_pending > station.kolejka|length %}
+                    {% if station.stats.total_pending > 5 %}
                     <div class="preview-footer">
                         <button class="btn-show-more" onclick="viewFullStationList('{{ station_key }}')">
                             Pokaż wszystkie ({{ station.stats.total_pending }})
@@ -217,7 +107,7 @@
                     </div>
                     {% endif %}
                 </div>
-                {% elif not station.stol and not station.odlozone and not station.blad_priorytetow %}
+                {% else %}
                 <div class="empty-state">
                     <i class="fas fa-check-circle"></i> Brak oczekujących produktów
                 </div>
@@ -226,6 +116,97 @@
         </div>
         {% endfor %}
     </div>
+
+    <!-- Priorytetowe produkty -->
+    {% set all_priority_products = [] %}
+    {% for station_key, station in stations_data.items() %}
+        {% for product in station.pending_products %}
+            {% if product.priority_rank and product.priority_rank <= 10 %}
+                {% set _ = all_priority_products.append({
+                    'station_key': station_key,
+                    'station_name': station.name,
+                    'station_icon': station.icon,
+                    'product': product
+                }) %}
+            {% endif %}
+        {% endfor %}
+    {% endfor %}
+
+    {% set sorted_priority_products = all_priority_products|sort(attribute='product.priority_rank') %}
+
+    {% if sorted_priority_products|length > 0 %}
+    <div class="priority-section">
+        <div class="section-header">
+            <h3><i class="fas fa-exclamation-triangle me-2"></i>Produkty wymagające uwagi</h3>
+            <span class="priority-badge">{{ sorted_priority_products|length }} produktów</span>
+        </div>
+
+        <table class="priority-table">
+            <thead>
+                <tr>
+                    <th width="80">Priorytet</th>
+                    <th width="140">Stanowisko</th>
+                    <th width="140">ID Produktu</th>
+                    <th>Nazwa produktu</th>
+                    <th width="120">Deadline</th>
+                    <th width="100">Objętość</th>
+                    <th width="140">Akcje</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in sorted_priority_products[:15] %}
+                <tr>
+                    <td>
+                        <span class="priority-value priority-critical">{{ item.product.priority_rank }}</span>
+                    </td>
+                    <td>
+                        <span class="station-label">
+                            <span class="station-emoji-small">{{ item.station_icon }}</span>
+                            {{ item.station_name }}
+                        </span>
+                    </td>
+                    <td>
+                        <strong>{{ item.product.short_id }}</strong>
+                        <br><small class="text-muted">{{ item.product.internal_order_number or '' }}</small>
+                    </td>
+                    <td>{{ item.product.product_name }}</td>
+                    <td>
+                        {% if item.product.deadline_date %}
+                            {% set days_remaining = item.product.days_remaining %}
+                            <span class="deadline-text {% if days_remaining < 0 %}overdue{% elif days_remaining <= 1 %}urgent{% elif days_remaining <= 3 %}warning{% endif %}">
+                                {% if days_remaining < 0 %}
+                                    {{ days_remaining|abs }} dni temu
+                                {% elif days_remaining == 0 %}
+                                    Dziś
+                                {% elif days_remaining == 1 %}
+                                    Jutro
+                                {% else %}
+                                    Za {{ days_remaining }} dni
+                                {% endif %}
+                            </span>
+                        {% else %}
+                            <span class="text-muted">Brak terminu</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ "%.3f"|format(item.product.volume_m3) }} m³</td>
+                    <td>
+                        <button class="btn-icon"
+                                onclick="startProcessing('{{ item.station_key }}', '{{ item.product.short_id }}')"
+                                title="Rozpocznij">
+                            <i class="fas fa-play"></i>
+                        </button>
+                        <button class="btn-icon"
+                                onclick="viewProductDetails('{{ item.product.short_id }}')"
+                                title="Szczegóły">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
 </div>
 
 <script>
@@ -235,9 +216,7 @@ function initStationsTab() {
 }
 
 function initStationRefreshTimers() {
-    // Skrypt wykonuje się przy każdym wstawieniu HTML zakładki — bez osłony każde odświeżenie dokładałoby timer.
-    if (window.__stanowiskaTimer) clearInterval(window.__stanowiskaTimer);
-    window.__stanowiskaTimer = setInterval(() => {
+    setInterval(() => {
         refreshWorkflowData();
     }, 120000);
 }
@@ -259,15 +238,9 @@ function navigateToStation(stationKey) {
 }
 
 function refreshWorkflowData() {
-    // Odświeżenie przez loader panelu: bez wpisu w pamięci zakładek wczytuje treść od nowa.
-    const app = window.ProductionApp;
-    if (!app || !document.getElementById('stations-tab-wrapper')) return;
-    // Timer żyje na `window` także po przejściu na inną zakładkę — odświeżamy tylko widoczną zakładkę w widocznym
-    // oknie (endpoint liczy kolejkę każdego stanowiska).
-    const zakladka = document.getElementById('stations-tab-content');
-    if (document.hidden || !zakladka || !zakladka.classList.contains('active')) return;
-    app.state.tabCache.delete('stations-tab');
-    window.ProductionApp.loadTabContent('stations-tab');
+    if (typeof window.loadTabContent === 'function') {
+        window.loadTabContent('stations-tab', true);
+    }
 }
 
 function viewFullStationList(stationKey) {
@@ -286,34 +259,10 @@ function viewFullStationList(stationKey) {
     }
 }
 
-// „Zdejmij ze stołu” (spec 5.7): kafel wraca do kolejki stanowiska; tablety dociągną stół po sygnale.
-async function zdejmijZeStolu(stanowisko, unitKey, wroci) {
-    let pytanie = 'Zdjąć ten kafel ze stołu? Wróci do kolejki stanowiska.';
-    if (wroci) {
-        pytanie += '\n\nUwaga: kafel wróci przy następnym dopełnieniu stołu (jest pierwszy w kolejce albo to doróbka). '
-                 + 'Żeby go wstrzymać, zmień gwiazdki albo status zamówienia.';
+function startProcessing(stationKey, productId) {
+    if (confirm(`Czy rozpocząć przetwarzanie produktu ${productId}?`)) {
+        alert('Funkcja będzie wkrótce dostępna');
     }
-    if (!confirm(pytanie)) return;
-    try {
-        const odpowiedz = await fetch('/production/api/priorytety/stoly/' + encodeURIComponent(stanowisko) + '/zdejmij', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-            body: JSON.stringify({ unit_key: unitKey })
-        });
-        const wynik = await odpowiedz.json().catch(() => ({}));
-        if (!odpowiedz.ok) {
-            if (wynik.error === 'brak_kafla') {
-                alert('Tego kafla nie ma już na stole.');
-            } else {
-                alert(wynik.message || ('Nie udało się zdjąć kafla (HTTP ' + odpowiedz.status + ').'));
-                return;
-            }
-        }
-    } catch (blad) {
-        alert('Brak połączenia z serwerem — kafel nie został zdjęty.');
-        return;
-    }
-    refreshWorkflowData();
 }
 
 function viewProductDetails(productId) {

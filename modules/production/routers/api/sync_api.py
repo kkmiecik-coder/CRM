@@ -14,7 +14,6 @@ from sqlalchemy import text
 from . import api_bp, logger, ProductionItem, ProductionError, ProductionSyncLog, ProductionConfig, get_local_now
 from .common_api import admin_required, cron_secret_required
 from modules.production.services.parser_service import parse_product_name, is_non_production_item
-from modules.production.logistics import sposoby
 
 
 def order_has_blocking_parsing_error(processed_products):
@@ -604,7 +603,7 @@ def health_check():
                 ).count()
                 
                 completed_today = ProductionItem.query.filter(
-                    ProductionItem.current_status.in_(sposoby.STATUSY_PO_SPAKOWANIU),
+                    ProductionItem.current_status == 'spakowane',
                     ProductionItem.packaging_completed_at >= datetime.combine(date.today(), datetime.min.time())
                 ).count()
                 

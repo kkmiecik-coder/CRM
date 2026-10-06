@@ -24,7 +24,6 @@ from modules.production.models import (
     ProductionDevice, ProductionOrder, ProductionProduct, ProductionReworkLog,
     ProductionStationEvent,
 )
-from modules.production.priorytety.models import PriorityLog, StationDesk
 from modules.production.routers.mobile_api import mobile_api_bp
 from modules.production.services.mobile_api_service import generate_token
 from modules.users.models import User
@@ -43,8 +42,6 @@ _TABLES = [m.__table__ for m in (
     # przez set_quantity_done() i zostawia event stanowiskowy — patrz naprawa
     # pułapki nr 1 w docs/worker-profiles-backend.md §8.
     ProductionStationEvent,
-    # Priorytety produkcji (krok K3): ZAKONCZ uzgadnia wiersze stolu zamowienia i loguje zamkniecie odlozenia.
-    StationDesk, PriorityLog,
 )]
 
 # SQLite (tylko testy) nie zna typu MySQL LONGTEXT (ProductionOrder.shipping_label_base64) -
@@ -96,7 +93,6 @@ def _zlecenie_gotowe_do_pakowania(app):
         order = ProductionOrder(
             baselinker_order_id=990001,
             internal_order_number='26/00042',
-            override_delivery_method='kurier_baselinker',
         )
         db.session.add(order)
         db.session.flush()
@@ -258,7 +254,7 @@ def test_complete_na_krawedziach_zamyka_produkcje_w_baselinkerze(client, app, mo
 
     with app.app_context():
         refreshed = ProductionProduct.query.get(product_id)
-        assert refreshed.current_status == 'czeka_na_pakowanie'
+        assert refreshed.current_status == 'czeka_na_logistyke'
         assert refreshed.quantity_done_edges == 2
         assert refreshed.edges_completed_at is not None
 

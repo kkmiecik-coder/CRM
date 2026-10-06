@@ -41,34 +41,6 @@ if not os.environ.get('FLASK_SECRET_KEY', '').strip():
     os.environ['FLASK_SECRET_KEY'] = secrets.token_hex(32)
 
 
-# SZUM OSTRZEŻEŃ Z WERKZEUGA A PAMIĘĆ PAKIETU
-# ===========================================
-# Werkzeug 2.0.3 kompiluje każdą regułę URL przez moduł `ast`, używając
-# `ast.Str` i atrybutu `.s`. Od Pythona 3.12 (obraz Dockera) każde takie
-# użycie to DeprecationWarning, a testy budują aplikację Flask z blueprintami
-# niemal w każdym teście — pełny pakiet produkuje ich ok. 3,2 mln. Pytest
-# trzyma każde ostrzeżenie w pamięci jako osobny obiekt aż do podsumowania
-# na końcu, więc pamięć rośnie liniowo z liczbą testów (pomiar: 4079 testów,
-# 3 209 417 ostrzeżeń, z czego 3 200 000 to te dwa komunikaty).
-#
-# Wyciszamy WYŁĄCZNIE te dwa komunikaty — pozostałe ostrzeżenia (SAWarning,
-# utcnow, własne ostrzeżenia aplikacji) dalej trafiają do podsumowania.
-# Produkcja (Python 3.9) tych ostrzeżeń w ogóle nie widzi. Filtr znika
-# z sensem, gdy Werkzeug pójdzie w górę (wersje 2.2+ nie używają `ast.Str`).
-#
-# Przez addinivalue_line, a nie warnings.filterwarnings: pytest przed każdym
-# testem odtwarza filtry z konfiguracji i nadpisałby filtr ustawiony ręcznie.
-_SZUM_WERKZEUGA = (
-    r'ignore:ast\.Str is deprecated:DeprecationWarning',
-    r'ignore:Attribute s is deprecated:DeprecationWarning',
-)
-
-
-def pytest_configure(config):
-    for filtr in _SZUM_WERKZEUGA:
-        config.addinivalue_line('filterwarnings', filtr)
-
-
 class _ZamrozonyDatetime(datetime):
     """datetime z zatrzymanym now(); reszta zachowania bez zmian."""
 

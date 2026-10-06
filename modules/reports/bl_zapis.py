@@ -41,9 +41,9 @@ _VAT = Decimal('1.23')
 _TYPY_CENY = ('netto', 'brutto')
 
 # Odwrócona mapa statusów. `current_status` jest w rejestrze tekstem, a API
-# przyjmuje identyfikator. Statusu spoza tej mapy („Status N”, np. zapisany
-# historycznie, zanim id weszło do mapy) nie da się wysłać — walidacja odrzuca
-# go już przy edycji, bo lista `opcje` kolumny bierze się z tego samego słownika.
+# przyjmuje identyfikator. Statusu spoza tej mapy („Status 417343", 131 wierszy
+# na produkcji) nie da się wysłać — walidacja odrzuca go już przy edycji,
+# bo lista `opcje` kolumny bierze się z tego samego słownika.
 _IDENTYFIKATORY_STATUSOW = {nazwa: numer for numer, nazwa in STATUSY_BASELINKER.items()}
 
 

@@ -7,10 +7,10 @@ lakierni — cały routing jest pokryty pośrednio, przez order_timeline_service
 który ma WŁASNĄ kopię reguły. Ten plik pokrywa cztery ścieżki produktu wprost
 na modelu:
 
-    surowy bez krawędzi            → pakowanie
-    olej/lakier bez krawędzi       → Lakiernia → pakowanie     (NOWA GAŁĄŹ)
-    surowy z krawędziami           → Krawędzie → pakowanie
-    olej/lakier z krawędziami      → Krawędzie → Lakiernia → pakowanie
+    surowy bez krawędzi            → logistyka
+    olej/lakier bez krawędzi       → Lakiernia → logistyka     (NOWA GAŁĄŹ)
+    surowy z krawędziami           → Krawędzie → logistyka
+    olej/lakier z krawędziami      → Krawędzie → Lakiernia → logistyka
 
 Ten plik nie zakłada tabeli prod_product_events, bo nie robi tego żaden inny
 plik w pakiecie — listener audytu milczy w całym przebiegu i tak ma zostać.
@@ -71,7 +71,8 @@ def _produkt(finish='surowe', edge=False, cut_to_size=True, quantity=10,
 
     Adres, miasto i kod pocztowy są obowiązkowe dla wariantu kurierskiego:
     ProductionOrder.is_personal_pickup (models.py:171-183) uznaje zamówienie
-    BEZ żadnego z tych pól za odbiór osobisty.
+    BEZ żadnego z tych pól za odbiór osobisty, co po cichu zamieniłoby
+    logistykę na pakowanie w każdym teście trasy.
     """
     numer = next(_licznik)
     if odbior_osobisty:
@@ -125,7 +126,7 @@ def test_lakierowany_z_krawedziami_z_formatowania_idzie_na_krawedzie(app):
         assert produkt.current_status == 'czeka_na_krawedzie'
 
 
-def test_z_krawedzi_surowy_idzie_do_pakowania(app):
+def test_z_krawedzi_surowy_idzie_do_logistyki(app):
     """
     Dowód, że KLUCZ mapy następnych statusów nazywa się dziś 'edges'.
     Implementacja, która znormalizuje wejście, ale zostawi w mapie stary klucz
@@ -136,7 +137,7 @@ def test_z_krawedzi_surowy_idzie_do_pakowania(app):
         produkt = _produkt(finish='surowe', edge=True, status='czeka_na_krawedzie')
         produkt.complete_task('edges')
         db.session.commit()
-        assert produkt.current_status == 'czeka_na_pakowanie'
+        assert produkt.current_status == 'czeka_na_logistyke'
         assert produkt.edges_completed_at is not None
 
 
@@ -156,12 +157,12 @@ def test_z_krawedzi_lakierowany_idzie_do_lakierni(app):
         assert produkt.current_status == 'czeka_na_lakiernie'
 
 
-def test_lakiernia_konczy_na_pakowaniu(app):
+def test_lakiernia_konczy_na_logistyce(app):
     with app.app_context():
         produkt = _produkt(finish='olejowane', edge=True, status='czeka_na_lakiernie')
         produkt.complete_task('painting')
         db.session.commit()
-        assert produkt.current_status == 'czeka_na_pakowanie'
+        assert produkt.current_status == 'czeka_na_logistyke'
         assert produkt.painting_completed_at is not None
 
 
@@ -194,7 +195,7 @@ def test_alias_finishing_z_bialymi_znakami_tez_domyka_krawedzie(app):
         produkt = _produkt(finish='surowe', edge=True, status='czeka_na_krawedzie')
         produkt.complete_task('  finishing  ')
         db.session.commit()
-        assert produkt.current_status == 'czeka_na_pakowanie'
+        assert produkt.current_status == 'czeka_na_logistyke'
         assert produkt.edges_completed_at is not None
         assert not hasattr(produkt, 'finishing_completed_at')
 
@@ -236,7 +237,7 @@ def test_formatowanie_z_krawedziami_nie_zalicza_z_gory_pracy_na_krawedziach(app)
 def test_skrot_cut_to_size_pomija_formatowanie_i_krawedzie_i_nie_wchodzi_do_lakierni(app):
     """
     Skrót zachowuje dzisiejsze zachowanie: zamyka formatowanie i Krawędzie dla
-    KAŻDEGO wykończenia, także olejowanego, i jedzie prosto do pakowania.
+    KAŻDEGO wykończenia, także olejowanego, i jedzie prosto do logistyki.
     Zmienia się w nim wyłącznie nazwa odhaczanego stanowiska.
     """
     with app.app_context():
@@ -244,7 +245,7 @@ def test_skrot_cut_to_size_pomija_formatowanie_i_krawedzie_i_nie_wchodzi_do_laki
                            status='czeka_na_sklejanie')
         produkt.complete_task('gluing')
         db.session.commit()
-        assert produkt.current_status == 'czeka_na_pakowanie'
+        assert produkt.current_status == 'czeka_na_logistyke'
         assert produkt.quantity_done_formatting == produkt.quantity
         assert produkt.quantity_done_edges == produkt.quantity
         assert produkt.edges_completed_at is not None
@@ -254,16 +255,13 @@ def test_skrot_cut_to_size_pomija_formatowanie_i_krawedzie_i_nie_wchodzi_do_laki
 
 
 def test_domkniecie_dorobki_na_formatowaniu_dziala_dalej(app):
-    """Regresja obok zmienianego kodu: doróbka wracająca na formatowanie dalej zamyka wpis audytu.
-
-    Od priorytetów produkcji P1 (spec 2026-10-04-priorytety-produkcji-design.md, sekcja 9.5) Formatowanie NIE
-    kasuje już rangi ani ramki doróbki: ranga 0 i `is_priority` zostają do końca produkcji (doróbka jest pierwsza
-    na każdym stanowisku), a `priority_manual_override` zeruje wyłącznie `kolejka.utrwal()`."""
+    """Regresja obok zmienianego kodu: doróbka wracająca na formatowanie ma
+    dalej gasić ręczny priorytet i zamykać wpis audytu (models.py:530-543)."""
     with app.app_context():
         oryginal = _produkt(finish='surowe', edge=True)
         dorobka = _produkt(finish='surowe', edge=True, status='czeka_na_sklejanie')
         dorobka.original_product_id = oryginal.id
-        dorobka.priority_rank = 0
+        dorobka.priority_manual_override = True
         dorobka.is_priority = True
         wpis = ProductionReworkLog(
             original_product_id=oryginal.id, rework_product_id=dorobka.id,
@@ -276,9 +274,8 @@ def test_domkniecie_dorobki_na_formatowaniu_dziala_dalej(app):
         db.session.commit()
 
         assert dorobka.current_status == 'czeka_na_formatowanie'
-        assert dorobka.priority_rank == 0
-        assert dorobka.is_priority is True
         assert dorobka.priority_manual_override is False
+        assert dorobka.is_priority is False
         assert wpis.closed_at is not None
 
 
@@ -311,12 +308,12 @@ def test_should_skip_edges_traktuje_brak_danych_jak_brak_krawedzi():
     assert produkt.should_skip_edges() is True
 
 
-def test_surowy_bez_krawedzi_z_formatowania_idzie_do_pakowania(app):
+def test_surowy_bez_krawedzi_z_formatowania_idzie_do_logistyki(app):
     with app.app_context():
         produkt = _produkt(finish='surowe', edge=False)
         produkt.complete_task('formatting')
         db.session.commit()
-        assert produkt.current_status == 'czeka_na_pakowanie'
+        assert produkt.current_status == 'czeka_na_logistyke'
 
 
 def test_olejowany_bez_krawedzi_z_formatowania_idzie_prosto_do_lakierni(app):
@@ -367,12 +364,9 @@ def test_pominiecie_krawedzi_nie_domyka_lakierni(app):
         assert ProductionStationEvent.query.filter_by(station_code='painting').count() == 0
 
 
-def test_odbior_osobisty_idzie_do_pakowania_jak_kazde_zamowienie(app):
-    """Trzy drogi do pakowania: formatowanie (surowy bez krawędzi), Krawędzie
-    (surowy) i Lakiernia. Odbiór osobisty nie jest już wyjątkiem — blok, który
-    kiedyś zamieniał logistykę na pakowanie tylko dla niego, został usunięty,
-    bo KAŻDE zamówienie (nie tylko odbiór osobisty) kończy produkcję wejściem
-    do pakowania. Sposób dostawy zostaje NULL, dopóki logistyk go nie ustawi."""
+def test_odbior_osobisty_zamienia_logistyke_na_pakowanie_na_kazdym_z_trzech_wyjsc(app):
+    """Trzy drogi do logistyki: formatowanie (surowy bez krawędzi), Krawędzie
+    (surowy) i Lakiernia. Każda musi uwzględnić odbiór osobisty (models.py:518-521)."""
     with app.app_context():
         z_formatowania = _produkt(finish='surowe', edge=False, odbior_osobisty=True)
         z_formatowania.complete_task('formatting')
@@ -389,11 +383,11 @@ def test_odbior_osobisty_idzie_do_pakowania_jak_kazde_zamowienie(app):
         assert z_formatowania.current_status == 'czeka_na_pakowanie'
         assert z_krawedzi.current_status == 'czeka_na_pakowanie'
         assert z_lakierni.current_status == 'czeka_na_pakowanie'
-        assert z_lakierni.order.override_delivery_method is None
+        assert z_lakierni.order.logistics_completed_at is not None
 
 
 # ============================================================================
-# CZTERY ŚCIEŻKI PRODUKTU — PRZEBIEG OD FORMATOWANIA DO PAKOWANIA
+# CZTERY ŚCIEŻKI PRODUKTU — PRZEBIEG OD FORMATOWANIA DO LOGISTYKI
 # ============================================================================
 #
 # Wzmocnienie ponad brief. Testy powyżej sprawdzają POJEDYNCZE przejścia, każde
@@ -405,20 +399,20 @@ def test_odbior_osobisty_idzie_do_pakowania_jak_kazde_zamowienie(app):
 # Poniższe cztery testy prowadzą JEDEN produkt przez całą trasę, odhaczając
 # kolejne stanowiska w takiej kolejności, w jakiej robią to tablety na hali.
 
-def test_sciezka_surowy_bez_krawedzi_formatowanie_pakowanie(app):
-    """Ścieżka 1/4: surowy, bez krawędzi → pakowanie."""
+def test_sciezka_surowy_bez_krawedzi_formatowanie_logistyka(app):
+    """Ścieżka 1/4: surowy, bez krawędzi → logistyka."""
     with app.app_context():
         produkt = _produkt(finish='surowe', edge=False, quantity=5)
         produkt.complete_task('formatting')
         db.session.commit()
-        assert produkt.current_status == 'czeka_na_pakowanie'
+        assert produkt.current_status == 'czeka_na_logistyke'
         assert produkt.quantity_done_edges == 5
         assert produkt.quantity_done_painting == 0
         assert produkt.painting_completed_at is None
 
 
-def test_sciezka_olejowany_bez_krawedzi_formatowanie_lakiernia_pakowanie(app):
-    """Ścieżka 2/4: olejowany, bez krawędzi → Lakiernia → pakowanie.
+def test_sciezka_olejowany_bez_krawedzi_formatowanie_lakiernia_logistyka(app):
+    """Ścieżka 2/4: olejowany, bez krawędzi → Lakiernia → logistyka.
     NOWA GAŁĄŹ — stary routing nie potrafił jej wytworzyć."""
     with app.app_context():
         produkt = _produkt(finish='olejowane', edge=False, quantity=5)
@@ -429,12 +423,12 @@ def test_sciezka_olejowany_bez_krawedzi_formatowanie_lakiernia_pakowanie(app):
 
         produkt.complete_task('painting')
         db.session.commit()
-        assert produkt.current_status == 'czeka_na_pakowanie'
+        assert produkt.current_status == 'czeka_na_logistyke'
         assert produkt.painting_completed_at is not None
 
 
-def test_sciezka_surowy_z_krawedziami_formatowanie_krawedzie_pakowanie(app):
-    """Ścieżka 3/4: surowy, z krawędziami → Krawędzie → pakowanie."""
+def test_sciezka_surowy_z_krawedziami_formatowanie_krawedzie_logistyka(app):
+    """Ścieżka 3/4: surowy, z krawędziami → Krawędzie → logistyka."""
     with app.app_context():
         produkt = _produkt(finish='surowe', edge=True, quantity=5)
 
@@ -446,13 +440,13 @@ def test_sciezka_surowy_z_krawedziami_formatowanie_krawedzie_pakowanie(app):
         produkt.set_quantity_done('edges', 5, source='mobile')
         produkt.complete_task('edges')
         db.session.commit()
-        assert produkt.current_status == 'czeka_na_pakowanie'
+        assert produkt.current_status == 'czeka_na_logistyke'
         assert produkt.edges_completed_at is not None
         assert produkt.quantity_done_painting == 0
 
 
-def test_sciezka_lakierowany_z_krawedziami_formatowanie_krawedzie_lakiernia_pakowanie(app):
-    """Ścieżka 4/4: lakierowany, z krawędziami → Krawędzie → Lakiernia → pakowanie."""
+def test_sciezka_lakierowany_z_krawedziami_formatowanie_krawedzie_lakiernia_logistyka(app):
+    """Ścieżka 4/4: lakierowany, z krawędziami → Krawędzie → Lakiernia → logistyka."""
     with app.app_context():
         produkt = _produkt(finish='lakierowane', edge=True, quantity=5)
 
@@ -468,7 +462,7 @@ def test_sciezka_lakierowany_z_krawedziami_formatowanie_krawedzie_lakiernia_pako
         produkt.set_quantity_done('painting', 5, source='mobile')
         produkt.complete_task('painting')
         db.session.commit()
-        assert produkt.current_status == 'czeka_na_pakowanie'
+        assert produkt.current_status == 'czeka_na_logistyke'
         assert produkt.painting_completed_at is not None
 
 
@@ -480,7 +474,7 @@ def test_sciezka_lakierowany_z_krawedziami_formatowanie_krawedzie_lakiernia_pako
 # (models.py:563-564) nie miała dotąd wprost testu: produkt, którego
 # parsed_finish_type NIE jest ani 'olejowane', ani 'lakierowane' (czyli też
 # 'surowe', ale i cokolwiek spoza znanej trójki, albo NULL), a bez obróbki
-# krawędzi, jedzie z formatowania PROSTO do pakowania — kod sprawdza wyłącznie
+# krawędzi, jedzie z formatowania PROSTO do logistyki — kod sprawdza wyłącznie
 # przynależność do ('olejowane', 'lakierowane'), więc każda inna wartość ląduje
 # w tej samej gałęzi co 'surowe'.
 #
@@ -489,10 +483,10 @@ def test_sciezka_lakierowany_z_krawedziami_formatowanie_krawedzie_lakiernia_pako
 # Mimo to reguła ma być udokumentowana świadomą decyzją, a nie przypadkowym
 # efektem ubocznym gdzie indziej: gdyby parser kiedyś zaczął emitować czwartą
 # wartość, TE testy są miejscem, w którym trzeba świadomie zdecydować, czy taki
-# produkt ma zatrzymać się na Lakierni, czy jechać dalej prosto do pakowania —
+# produkt ma zatrzymać się na Lakierni, czy jechać dalej prosto do logistyki —
 # zamiast to odkryć jako zaskoczenie na hali.
 
-def test_wykonczenie_spoza_trojki_bez_krawedzi_jedzie_z_formatowania_do_pakowania(app):
+def test_wykonczenie_spoza_trojki_bez_krawedzi_jedzie_z_formatowania_do_logistyki(app):
     """
     Przypina dzisiejsze zachowanie gałęzi `else`: wykończenie spoza znanej
     trójki (tu: 'bejcowane' — wartość, której parser dziś nie emituje, ale
@@ -506,7 +500,7 @@ def test_wykonczenie_spoza_trojki_bez_krawedzi_jedzie_z_formatowania_do_pakowani
         produkt = _produkt(finish='bejcowane', edge=False, quantity=7)
         produkt.complete_task('formatting')
         db.session.commit()
-        assert produkt.current_status == 'czeka_na_pakowanie'
+        assert produkt.current_status == 'czeka_na_logistyke'
         assert produkt.quantity_done_edges == 7
         assert produkt.quantity_done_painting == 0
         assert produkt.painting_completed_at is None
@@ -530,4 +524,4 @@ def test_wykonczenie_none_bez_krawedzi_trafia_do_tej_samej_galezi():
         parsed_finish_type=None, parsed_edge_processing=False,
         cut_to_size=True)
     produkt.complete_task('formatting')
-    assert produkt.current_status == 'czeka_na_pakowanie'
+    assert produkt.current_status == 'czeka_na_logistyke'

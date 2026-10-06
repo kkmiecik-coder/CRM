@@ -89,14 +89,6 @@ _CFG_CALY_DZIEN = {
 }
 
 
-@pytest.fixture()
-def godziny_pracy(monkeypatch):
-    """Okno pracy otwarte niezależnie od zegara. Sama konfiguracja `_CFG_CALY_DZIEN` nie wystarcza:
-    agent nie pracuje w niedzielę ani w ostatniej minucie doby, więc wtedy `wait_for_signal` od razu
-    zwracało 'poll' i testy strumienia oblewały zależnie od dnia uruchomienia."""
-    monkeypatch.setattr(print_agent, 'in_working_hours', lambda cfg, now=None: True)
-
-
 class _PingujacyStream:
     """Strumień, który regularnie przysyła pingi — jak żywy broker."""
     def __init__(self, odstep):
@@ -109,7 +101,7 @@ class _PingujacyStream:
         return b'data: {}'
 
 
-def test_nigdy_nie_przerywamy_czytania_w_pol(godziny_pracy):
+def test_nigdy_nie_przerywamy_czytania_w_pol():
     """Regresja z produkcji 12.08.2026: kanał push padał równo co 60 s.
 
     Przerwany timeoutem readline() TRWALE psuje bufor strumienia (kolejne
@@ -130,7 +122,7 @@ def test_nigdy_nie_przerywamy_czytania_w_pol(godziny_pracy):
     )
 
 
-def test_deadline_konczy_czekanie_na_najblizszej_ramce(godziny_pracy):
+def test_deadline_konczy_czekanie_na_najblizszej_ramce():
     """Deadline dotrzymujemy z dokładnością do jednego odstępu między pingami —
     zegar sprawdzamy MIĘDZY ramkami, nie przerywając czytania."""
     stream = _PingujacyStream(odstep=0.2)
@@ -142,7 +134,7 @@ def test_deadline_konczy_czekanie_na_najblizszej_ramce(godziny_pracy):
     assert time.monotonic() - start < 2, 'czekanie nie zakończyło się na kolejnej ramce'
 
 
-def test_cisza_dluzsza_niz_limit_pinga_zamyka_polaczenie(godziny_pracy):
+def test_cisza_dluzsza_niz_limit_pinga_zamyka_polaczenie():
     # sleep_scale=0: nie chcemy czekać w teście realnych 40 s ciszy.
     stream = _FakeStream(sleep_scale=0)
     # Deadline daleko → decyduje limit ciszy, a brak pinga to realna awaria.
@@ -152,7 +144,7 @@ def test_cisza_dluzsza_niz_limit_pinga_zamyka_polaczenie(godziny_pracy):
     assert stream.timeouts_requested == [print_agent.SSE_PING_TIMEOUT_SECONDS]
 
 
-def test_limit_czytania_nie_dziedziczy_limitu_nawiazania_polaczenia(monkeypatch, godziny_pracy):
+def test_limit_czytania_nie_dziedziczy_limitu_nawiazania_polaczenia(monkeypatch):
     """Regresja z produkcji 12.08.2026: kanał push rozpadał się co 5 sekund.
 
     http.client dla odpowiedzi bez Content-Length (a taki jest strumień SSE)
@@ -226,7 +218,7 @@ def test_agent_oproznia_kolejke_a_nie_pobiera_jednej_porcji(monkeypatch):
     pobrania = []
     wydrukowane = []
 
-    monkeypatch.setattr(print_agent, 'fetch_jobs', lambda c, drukarka='etykiety': (pobrania.append(1), porcje.pop(0))[1])
+    monkeypatch.setattr(print_agent, 'fetch_jobs', lambda c: (pobrania.append(1), porcje.pop(0))[1])
     monkeypatch.setattr(print_agent, 'send_to_printer', lambda c, z: wydrukowane.append(z))
     monkeypatch.setattr(print_agent, 'ack_jobs', lambda c, r: {'updated': len(r)})
 
@@ -252,7 +244,7 @@ def test_martwa_drukarka_nie_pali_calej_kolejki(monkeypatch):
     potwierdzone = []
     pobrania = []
 
-    def fetch(c, drukarka='etykiety'):
+    def fetch(c):
         pobrania.append(1)
         return {'jobs': [{'id': i, 'short_product_id': 'X', 'zpl_payload': '^XA^XZ',
                           'requested_at': None} for i in range(10)]}
@@ -279,7 +271,7 @@ def test_niepelna_porcja_konczy_cykl(monkeypatch):
            'printer_port': 9100, 'printer_timeout': 5}
     pobrania = []
 
-    def fetch(c, drukarka='etykiety'):
+    def fetch(c):
         pobrania.append(1)
         return {'jobs': [{'id': 1, 'short_product_id': 'X', 'zpl_payload': '^XA^XZ',
                           'requested_at': None}]}
@@ -298,7 +290,7 @@ def test_oproznianie_kolejki_ma_bezpiecznik(monkeypatch):
            'printer_port': 9100, 'printer_timeout': 5}
     pobrania = []
 
-    def fetch(c, drukarka='etykiety'):
+    def fetch(c):
         pobrania.append(1)
         return {'jobs': [{'id': 1, 'short_product_id': 'X', 'zpl_payload': '^XA^XZ',
                           'requested_at': None}] * 2}          # zawsze pełna porcja

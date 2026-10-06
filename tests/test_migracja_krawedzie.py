@@ -156,12 +156,9 @@ def test_kolejka_dzieli_sie_na_lakiernie_i_krawedzie():
 def test_enum_migracji_zgadza_sie_z_enumem_modelu():
     """MODIFY COLUMN musi objac wszystko, co zna models.py, inaczej ORM zapisze
     wartosc, ktorej baza nie zna (blad 1265 pod STRICT_TRANS_TABLES)."""
-    from modules.production.logistics import sposoby
     from modules.production.models import ProductionProduct
 
-    # Wartości z kroku 4.3 logistyki dopisuje migracja 2026-09-30-logistyka-weryfikacja.sql
-    # (pilnuje jej tests/test_weryfikacja_schemat.py).
-    wartosci_modelu = set(ProductionProduct.current_status.type.enums) - set(sposoby.STATUSY_LOGISTYCZNE)
+    wartosci_modelu = set(ProductionProduct.current_status.type.enums)
     assert "czeka_na_krawedzie" in wartosci_modelu
     assert "czeka_na_wykanczanie" not in wartosci_modelu
 
@@ -498,7 +495,6 @@ def test_zwezajacy_alter_zgadza_sie_z_enumem_modelu():
     Zgubiona przy przepisywaniu listy wartosc (np. 'wstrzymane') przeszlaby
     przez oba testy, a w bazie skasowalaby status kilkudziesieciu pozycji —
     MySQL zamienia niepasujaca wartosc enuma na pusty string."""
-    from modules.production.logistics import sposoby
     from modules.production.models import ProductionProduct
 
     zwezajacy = [_bez_bialych(p) for p in _polecenia()
@@ -507,9 +503,7 @@ def test_zwezajacy_alter_zgadza_sie_z_enumem_modelu():
     wartosci_migracji = set(re.findall(r"'([^']+)'", lista))
     # Dokladna rownosc, nie zawieranie: brakujaca wartosc kasuje status
     # pozycjom (MySQL wstawia pusty string), nadmiarowa zostawia martwy kod.
-    # Wartości z kroku 4.3 logistyki dopisuje migracja 2026-09-30-logistyka-weryfikacja.sql
-    # (pilnuje jej tests/test_weryfikacja_schemat.py).
-    assert wartosci_migracji == set(ProductionProduct.current_status.type.enums) - set(sposoby.STATUSY_LOGISTYCZNE)
+    assert wartosci_migracji == set(ProductionProduct.current_status.type.enums)
 
 
 def test_dzieli_sie_na_30_polecen():

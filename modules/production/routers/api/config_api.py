@@ -11,14 +11,8 @@ from flask import request, jsonify, render_template
 from flask_login import login_required, current_user
 from extensions import db
 
-from . import api_bp, logger, ProductionItem, ProductionConfig, get_local_now
+from . import api_bp, logger, ProductionItem, ProductionConfig, ProductionPriorityConfig, get_local_now
 from .common_api import admin_required, _validate_config_value
-
-# Klucze priorytetów i terminów zapisuje WYŁĄCZNIE `PUT /production/api/priorytety/ustawienia` (Konfiguracja →
-# „Terminy” / „Stół stanowisk”) — jedna droga zapisu z walidacją zakresów i wpisem w logu priorytetów (plan K4b).
-PREFIKSY_KLUCZY_PRIORYTETOW = ('priorytety_', 'DEADLINE_')
-KOMUNIKAT_KLUCZ_PRIORYTETOW = (u'Ten klucz zapisuje się w Konfiguracji → Terminy / Stół stanowisk '
-                               u'(PUT /production/api/priorytety/ustawienia)')
 
 
 @api_bp.route('/update-config', methods=['POST'])
@@ -57,10 +51,6 @@ def update_config():
                 'success': False,
                 'error': 'Wymagane pola: config_key, config_value'
             }), 400
-
-        # Druga droga zapisu kluczy priorytetów i terminów zamknięta (plan K4b, Doprecyzowania 14).
-        if str(config_key).startswith(PREFIKSY_KLUCZY_PRIORYTETOW):
-            return jsonify({'success': False, 'error': KOMUNIKAT_KLUCZ_PRIORYTETOW}), 400
         
         # Walidacja config_type
         valid_types = ['string', 'integer', 'boolean', 'json', 'ip_list']
@@ -165,8 +155,7 @@ def config_tab_content():
         from types import SimpleNamespace
         import json
 
-        from ...models import ProductionConfig
-        from ...services.station_catalog import STATION_ORDER, station_label
+        from ...models import ProductionConfig, ProductionPriorityConfig
         from ...services.config_service import get_config_service
 
         def _parse_value(raw_value: str, cfg_type: str):
@@ -234,8 +223,11 @@ def config_tab_content():
             # get_station_config() w routers/stations/__init__.py
             'STATION_SHOW_DETAILED_INFO':   ('stations',    True,        'boolean'),
 
-            # Terminy i stół stanowisk: karty czytają i zapisują PUT/GET /production/api/priorytety/ustawienia,
-            # nie ten słownik (plan K4b). Martwe klucze starego algorytmu priorytetów usunięte.
+            # Priorytety i Deadlines
+            'DEADLINE_DEFAULT_DAYS':        ('priorities',  16,          'integer'),
+            'DEADLINE_FINISHED_DAYS':       ('priorities',  21,          'integer'),
+            'PRIORITY_RECALC_INTERVAL_HOURS': ('priorities', 24,         'integer'),
+            'PRIORITY_ALGORITHM_VERSION':   ('priorities',  '2.0',       'string'),
 
             # System i Debug
             'DEBUG_PRODUCTION_BACKEND':     ('system',      False,       'boolean'),
@@ -259,9 +251,6 @@ def config_tab_content():
             'LABEL_PRINTER_ALLOWED_STATIONS':('printer',     'formatting,packaging',     'string'),
             'LABEL_PRINTER_USE_AGENT':       ('printer',     'false',                    'boolean'),
             'LABEL_PRINTER_AGENT_TOKEN':     ('printer',     'change-me-in-prod',        'string'),
-            # Drukarka paczek 100x150 (logistyka etap 4) — przesunięcie w punktach, 8 = 1 mm
-            'PACKAGE_LABEL_OFFSET_X_DOTS':   ('printer',     0,                          'integer'),
-            'PACKAGE_LABEL_OFFSET_Y_DOTS':   ('printer',     0,                          'integer'),
 
             # Profile pracowników (docs/worker-profiles-backend.md §4.5).
             # WORKER_SELECTION_REQUIRED to KILL-SWITCH: przy 'true' awaria katalogu
@@ -333,8 +322,13 @@ def config_tab_content():
             for group, items in config_groups.items()
         }
 
-        # 5) (Konfiguracje starego algorytmu priorytetów — `prod_priority_config` — nie są już czytane: tabelę
-        #    usuwa krok K8, a zakładka nie może od niej zależeć.)
+        # 5) Konfiguracje priorytetów (drag & drop)
+        priority_configs = (
+            ProductionPriorityConfig.query
+            .filter_by(is_active=True)
+            .order_by(ProductionPriorityConfig.display_order)
+            .all()
+        )
 
         # 6) Statystyki cache (zostawiamy bez zmian)
         config_service = get_config_service()
@@ -344,6 +338,15 @@ def config_tab_content():
         config_data = {
             'all_configs': all_configs,     # dict -> OK do JSON
             'config_groups': config_groups, # dict -> OK do JSON
+            'priority_configs': [
+                {
+                    'id': pc.id,
+                    'criterion_name': pc.criterion_name,
+                    'weight': pc.weight,
+                    'display_order': pc.display_order,
+                    'is_active': pc.is_active
+                } for pc in priority_configs
+            ],
             'cache_stats': cache_stats
         }
 
@@ -353,9 +356,8 @@ def config_tab_content():
             config_data=config_data,
             # Dla kompatybilności z istniejącym szablonem:
             config_groups=config_groups_ns,   # <- PODSTAWIAMY wersję kropkową, żeby działał dot-access
-            cache_stats=cache_stats,
-            # Wiersze karty „Stół stanowisk” (kolejność procesu); wartości wpisuje JS z GET /priorytety/ustawienia.
-            stanowiska_stolu=[(kod, station_label(kod)) for kod in STATION_ORDER]
+            priority_configs=priority_configs,
+            cache_stats=cache_stats
         )
 
         return jsonify({
@@ -497,26 +499,24 @@ def update_configs():
                 'error': 'Brak konfiguracji do aktualizacji'
             }), 400
         
-        # Walidacja - sprawdź czy są to dozwolone klucze konfiguracji.
-        # Klucze priorytetów i terminów zapisuje wyłącznie PUT /production/api/priorytety/ustawienia — jedna droga
-        # zapisu (plan K4b); martwe klucze starego algorytmu priorytetów usunięte (wiersze sprząta K8).
+        # Walidacja - sprawdź czy są to dozwolone klucze konfiguracji
         allowed_config_keys = {
             'SYNC_ENABLED', 'MAX_SYNC_ITEMS_PER_BATCH', 'BASELINKER_TARGET_STATUS_COMPLETED',
             'BASELINKER_SOURCE_STATUS_PAID', 'BASELINKER_TARGET_STATUS_PRODUCTION', 'SYNC_RETRY_COUNT',
             'STATION_ALLOWED_IPS', 'REFRESH_INTERVAL_SECONDS', 'STATION_AUTO_REFRESH_ENABLED',
-            'STATION_SHOW_DETAILED_INFO', 'STATION_MAX_PRODUCTS_DISPLAY', 'DEBUG_PRODUCTION_BACKEND',
+            'STATION_SHOW_DETAILED_INFO', 'STATION_MAX_PRODUCTS_DISPLAY', 'DEADLINE_DEFAULT_DAYS',
+            'PRIORITY_RECALC_INTERVAL_HOURS', 'PRIORITY_ALGORITHM_VERSION', 'DEBUG_PRODUCTION_BACKEND',
             'DEBUG_PRODUCTION_FRONTEND', 'CACHE_DURATION_SECONDS', 'ADMIN_EMAIL_NOTIFICATIONS',
             # Bez tego pole w UI istnieje, ale zapis wraca błędem
             # „Niepozwolone klucze konfiguracji".
             'DAILY_REPORT_RECIPIENTS',
             'ERROR_NOTIFICATION_THRESHOLD', 'BASELINKER_STATUSES_CACHE', 'MAX_PRODUCTS_PER_ORDER',
-            'STATION_IP_CACHE_DURATION_MINUTES',
+            'STATION_IP_CACHE_DURATION_MINUTES', 'STATION_CUTTING_PRIORITY_SORT',
+            'STATION_ASSEMBLY_PRIORITY_SORT', 'STATION_PACKAGING_PRIORITY_SORT',
             'LABEL_PRINTER_IP', 'LABEL_PRINTER_PORT', 'LABEL_PRINTER_TIMEOUT_SECONDS',
             'LABEL_PRINTER_RETRY_COUNT', 'LABEL_PRINTER_OFFSET_LT', 'LABEL_PRINTER_OFFSET_LS',
             'LABEL_PRINTER_ALLOWED_STATIONS',
             'LABEL_PRINTER_USE_AGENT', 'LABEL_PRINTER_AGENT_TOKEN',
-            # Drukarka paczek — bez tego pola w UI istnieją, ale zapis wraca błędem.
-            'PACKAGE_LABEL_OFFSET_X_DOTS', 'PACKAGE_LABEL_OFFSET_Y_DOTS',
             # Profile pracowników — bez tego przełącznik w UI istnieje, ale zapis
             # wraca błędem "Niepozwolone klucze konfiguracji".
             'WORKER_SELECTION_REQUIRED', 'WORKER_SESSION_IDLE_TIMEOUT_MINUTES',
@@ -793,35 +793,7 @@ def get_config_info(config_key: str):
 
 
 # ============================================================================
-# WYDRUK PRÓBNY - ustawianie drukarek z panelu Konfiguracja
+# PRIORITY STAR ENDPOINTS - Gwiazdka priorytetu dla produktów
 # ============================================================================
 
-@api_bp.route('/print-test', methods=['POST'])
-@admin_required
-def api_print_test():
-    """
-    POST /production/api/print-test  {"printer": "etykiety" | "wysylka"}
 
-    Wydruk próbny z panelu Konfiguracja → Drukarka etykiet. Wkłada jedno zadanie do
-    kolejki agenta druku — samą etykietę drukuje agent na komputerze hali.
-    """
-    from ...services import print_queue_service
-
-    dane = request.get_json(silent=True)
-    if not isinstance(dane, dict):
-        dane = {}  # ciało spoza obiektu JSON (lista, napis) to ten sam błąd co brak drukarki
-    drukarka = dane.get('printer')
-    try:
-        job = print_queue_service.wydruk_probny(
-            drukarka, {'type': 'user', 'id': current_user.id})
-    except print_queue_service.NieznanaDrukarka:
-        return jsonify({
-            'success': False,
-            'error': 'Nieznana drukarka — wybierz drukarkę etykiet albo drukarkę paczek.',
-        }), 400
-    return jsonify({
-        'success': True,
-        'job_id': job.id,
-        'message': 'Wydruk próbny w kolejce: %s. Etykieta wyjdzie, gdy agent druku pobierze zadanie.'
-                   % print_queue_service.NAZWY_DRUKAREK[drukarka],
-    }), 200

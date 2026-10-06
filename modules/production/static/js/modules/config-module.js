@@ -11,41 +11,6 @@
  * - Reset do wartości domyślnych
  */
 
-// Karta drukarki: lista wyboru przełącza widoczne grupy ustawień (etykiety / paczki).
-// Grupa 'wspolne' (agent druku) jest widoczna zawsze. Wybór to ustawienie widoku,
-// a nie klucz konfiguracji, więc nie trafia do pendingChanges ani do bazy.
-const DRUKARKI = ['etykiety', 'wysylka'];
-const DRUKARKA_DOMYSLNA = 'etykiety';
-const KLUCZ_DRUKARKI_STORAGE = 'konfiguracja.drukarka';
-
-// Karty „Terminy” i „Stół stanowisk” (priorytety produkcji, krok K4b): jedyna droga zapisu tych ustawień to
-// PUT /production/api/priorytety/ustawienia — poza pendingChanges/saveAllChanges (wzór: Trakownia). Mapa: pole
-// ciała PUT → id pola formularza, osobno dla każdej karty; wiersze stanowisk czytamy z tabeli (data-stanowisko).
-const ADRES_USTAWIEN_PRIORYTETOW = '/production/api/priorytety/ustawienia';
-const POLA_PRIORYTETOW = {
-    terminy: {
-        deadline_default_days: 'prio_deadline_default_days',
-        deadline_finished_days: 'prio_deadline_finished_days',
-        deadline_day_type: 'prio_deadline_day_type'
-    },
-    stol: {
-        blisko_terminu_dni: 'prio_blisko_terminu_dni',
-        min_app_version_code: 'prio_min_app_version_code'
-    }
-};
-// Pole stanowiska w ciele PUT → klasa kontrolki w wierszu tabeli „Stół stanowisk”.
-const POLA_STANOWISKA_PRIORYTETOW = {
-    tryb: 'prio-tryb',
-    miejsca: 'prio-miejsca',
-    jednostka: 'prio-jednostka',
-    limit_odlozen: 'prio-limit'
-};
-const KARTY_PRIORYTETOW = ['prio_karta_terminy', 'prio_karta_stol'];
-// Start stołów (spec 5.8): podgląd kafli rozpoczętych, „Przygotuj stoły”, „Włącz stoły”. Stoły włączamy na sześciu
-// stanowiskach — Lakiernia pracuje na stałe z listy po wykończeniu (spec, ustalenie 15).
-const ADRES_STARTU_STOLOW = '/production/api/priorytety/start';
-const STANOWISKA_STOLOW = ['cutting', 'assembly', 'gluing', 'formatting', 'edges', 'packaging'];
-
 class ConfigModule {
     constructor() {
         this.pendingChanges = {};
@@ -79,6 +44,9 @@ class ConfigModule {
             'STATION_AUTO_REFRESH_ENABLED': true,
             'STATION_SHOW_DETAILED_INFO': true,
             'STATION_MAX_PRODUCTS_DISPLAY': 50,
+            'DEADLINE_DEFAULT_DAYS': 14,
+            'PRIORITY_RECALC_INTERVAL_HOURS': 24,
+            'PRIORITY_ALGORITHM_VERSION': '2.0',
             'DEBUG_PRODUCTION_BACKEND': false,
             'DEBUG_PRODUCTION_FRONTEND': false,
             'CACHE_DURATION_SECONDS': 3600,
@@ -87,9 +55,9 @@ class ConfigModule {
             'BASELINKER_STATUSES_CACHE': '{"id": 105112, "name": "Nowe - opłacone", "color": "ffffff"}',
             'MAX_PRODUCTS_PER_ORDER': 999,
             'STATION_IP_CACHE_DURATION_MINUTES': 10,
-            // Drukarka paczek (logistyka etap 4) — zgodne z EXPECTED w config_api.py
-            'PACKAGE_LABEL_OFFSET_X_DOTS': 0,
-            'PACKAGE_LABEL_OFFSET_Y_DOTS': 0,
+            'STATION_CUTTING_PRIORITY_SORT': 'priority_rank',
+            'STATION_ASSEMBLY_PRIORITY_SORT': 'priority_rank',
+            'STATION_PACKAGING_PRIORITY_SORT': 'priority_rank',
             // Pusta lista = raport dzienny wyłączony (nie ma osobnego klucza
             // DAILY_REPORT_ENABLED). Bez tego wpisu "Przywróć domyślne" przy
             // tym polu nie znajdowało wartości i pokazywało toast błędu.
@@ -138,9 +106,6 @@ class ConfigModule {
      */
     loadOriginalValuesFromDOM() {
         console.log('[ConfigModule] 📥 loadOriginalValuesFromDOM() called by external trigger');
-        // Zakładka Konfiguracja wczytuje się przez AJAX, więc stan listy drukarek
-        // ustawiamy dopiero tu, gdy jej treść jest już w DOM (nie na DOMContentLoaded).
-        this.initWyborDrukarki();
         this.loadOriginalValues();
 
         // Trakownia: osobny mechanizm, POZA pendingChanges/saveAllChanges —
@@ -149,304 +114,6 @@ class ConfigModule {
         // ogólny system configów tego modułu. Pola same wczytują swoją wartość
         // i same się zapisują (patrz saveSawmillSetting niżej).
         this.loadSawmillSettings();
-
-        // Terminy i stół stanowisk: też osobny mechanizm (PUT /production/api/priorytety/ustawienia).
-        this.loadPriorytetyUstawienia();
-        this.loadStartStolow();
-    }
-
-    /**
-     * Wczytuje ustawienia priorytetów (GET /production/api/priorytety/ustawienia) do kart „Terminy” i „Stół
-     * stanowisk”. Brak kart w DOM — cicho. 403 (zakładkę widzi każdy z dostępem do produkcji, ustawienia tylko
-     * admin) — pola zablokowane, przyciski ukryte, napis „Tylko administrator”, bez toastu błędu.
-     */
-    async loadPriorytetyUstawienia() {
-        const karty = KARTY_PRIORYTETOW.map(id => document.getElementById(id)).filter(Boolean);
-        if (!karty.length) return;
-
-        try {
-            const resp = await fetch(ADRES_USTAWIEN_PRIORYTETOW, {
-                headers: { 'X-Requested-With': 'XMLHttpRequest' }
-            });
-            if (resp.status === 403) {
-                karty.forEach(karta => {
-                    karta.querySelectorAll('input, select').forEach(pole => { pole.disabled = true; });
-                    karta.querySelectorAll('.prio-karta-stopka button').forEach(btn => { btn.hidden = true; });
-                    karta.querySelectorAll('.prio-tylko-admin').forEach(napis => { napis.hidden = false; });
-                });
-                // Podgląd startu zostaje (guard), akcje startu są tylko dla admina.
-                document.querySelectorAll('#prio_start_przygotuj, #prio_start_wlacz').forEach(btn => { btn.hidden = true; });
-                return;
-            }
-            if (!resp.ok) {
-                console.warn('[ConfigModule] Nie udało się pobrać ustawień priorytetów:', resp.status);
-                return;
-            }
-            this.wypelnijPriorytety(await resp.json());
-        } catch (error) {
-            console.error('[ConfigModule] Błąd ładowania ustawień priorytetów:', error);
-        }
-    }
-
-    /** Wpisuje stan z odpowiedzi GET/PUT /ustawienia do pól obu kart i zapamiętuje go do porównań. */
-    wypelnijPriorytety(stan) {
-        this.prioStan = stan;
-        Object.values(POLA_PRIORYTETOW).forEach(mapa => {
-            Object.entries(mapa).forEach(([pole, idPola]) => {
-                const element = document.getElementById(idPola);
-                if (!element) return;
-                element.value = stan[pole] === undefined || stan[pole] === null ? '' : stan[pole];
-                element.classList.remove('is-invalid');
-            });
-        });
-        document.querySelectorAll('#prio_karta_stol tr[data-stanowisko]').forEach(wiersz => {
-            const dane = (stan.stanowiska || {})[wiersz.dataset.stanowisko] || {};
-            Object.entries(POLA_STANOWISKA_PRIORYTETOW).forEach(([pole, klasa]) => {
-                const element = wiersz.querySelector('.' + klasa);
-                if (!element) return;
-                element.value = dane[pole] === undefined || dane[pole] === null ? '' : dane[pole];
-                element.classList.remove('is-invalid');
-            });
-        });
-    }
-
-    /** Wartość pola do ciała PUT: liczba dla pól liczbowych (pusty / zły tekst idzie dalej — serwer odpowie 400). */
-    wartoscPolaPriorytetu(element) {
-        if (element.type !== 'number') return element.value;
-        const liczba = Number(element.value);
-        return element.value.trim() !== '' && Number.isFinite(liczba) ? liczba : element.value;
-    }
-
-    /**
-     * Ciało PUT dla karty: TYLKO pola różne od ostatnio wczytanych (this.prioStan), w kształcie K2:
-     * {"stanowiska": {"gluing": {"miejsca": 1}}, "blisko_terminu_dni": 3, …}. Wiersz Lakierni nie ma pól
-     * (stół jej nie dotyczy), więc nigdy nie trafia do ciała.
-     */
-    zbierzZmianyPriorytetow(karta) {
-        const stan = this.prioStan || {};
-        const cialo = {};
-        Object.entries(POLA_PRIORYTETOW[karta] || {}).forEach(([pole, idPola]) => {
-            const element = document.getElementById(idPola);
-            if (!element) return;
-            const wartosc = this.wartoscPolaPriorytetu(element);
-            if (wartosc !== stan[pole]) cialo[pole] = wartosc;
-        });
-        if (karta === 'stol') {
-            document.querySelectorAll('#prio_karta_stol tr[data-stanowisko]').forEach(wiersz => {
-                if (!wiersz.querySelector('.prio-tryb')) return;
-                const kod = wiersz.dataset.stanowisko;
-                const dane = (stan.stanowiska || {})[kod] || {};
-                Object.entries(POLA_STANOWISKA_PRIORYTETOW).forEach(([pole, klasa]) => {
-                    const element = wiersz.querySelector('.' + klasa);
-                    if (!element) return;
-                    const wartosc = this.wartoscPolaPriorytetu(element);
-                    if (wartosc !== dane[pole]) {
-                        cialo.stanowiska = cialo.stanowiska || {};
-                        cialo.stanowiska[kod] = cialo.stanowiska[kod] || {};
-                        cialo.stanowiska[kod][pole] = wartosc;
-                    }
-                });
-            });
-        }
-        return cialo;
-    }
-
-    /** Pole formularza dla ścieżki `pole` z odpowiedzi 400 (np. `stanowiska.gluing.miejsca`). */
-    polePriorytetu(sciezka) {
-        if (!sciezka) return null;
-        const czesci = String(sciezka).split('.');
-        if (czesci[0] === 'stanowiska' && czesci.length === 3) {
-            const klasa = POLA_STANOWISKA_PRIORYTETOW[czesci[2]];
-            const wiersz = document.querySelector(`#prio_karta_stol tr[data-stanowisko="${czesci[1]}"]`);
-            return wiersz && klasa ? wiersz.querySelector('.' + klasa) : null;
-        }
-        for (const mapa of Object.values(POLA_PRIORYTETOW)) {
-            if (mapa[czesci[0]]) return document.getElementById(mapa[czesci[0]]);
-        }
-        return null;
-    }
-
-    /**
-     * Podgląd startu stołów (GET /production/api/priorytety/start): ile kafli rozpoczętych wejdzie na stół każdego
-     * stanowiska. Błąd — komunikat w sekcji, bez toastu (sekcja jest informacyjna).
-     */
-    async loadStartStolow() {
-        const podglad = document.getElementById('prio_start_podglad');
-        if (!podglad) return;
-        try {
-            const resp = await fetch(ADRES_STARTU_STOLOW, {
-                headers: { 'X-Requested-With': 'XMLHttpRequest' }
-            });
-            if (!resp.ok) {
-                podglad.textContent = `Nie udało się wczytać podglądu startu (HTTP ${resp.status}).`;
-                return;
-            }
-            const dane = await resp.json();
-            this.renderStartStolow(podglad, dane.stanowiska || []);
-        } catch (error) {
-            console.error('[ConfigModule] Błąd podglądu startu stołów:', error);
-            podglad.textContent = 'Brak połączenia z serwerem — podgląd startu niedostępny.';
-        }
-    }
-
-    /** Lista stanowisk z liczbą kafli rozpoczętych; kafle rozwijane. Teksty z bazy wyłącznie przez textContent. */
-    renderStartStolow(podglad, stanowiska) {
-        podglad.replaceChildren();
-        const razem = stanowiska.reduce((suma, st) => suma + (st.liczba || 0), 0);
-        const naglowek = document.createElement('p');
-        naglowek.className = 'prio-start-razem';
-        naglowek.textContent = `Kafle rozpoczęte na stanowiskach: ${razem}`;
-        podglad.appendChild(naglowek);
-        stanowiska.forEach(st => {
-            const blok = document.createElement('details');
-            blok.className = 'prio-start-stanowisko';
-            const tytul = document.createElement('summary');
-            const tryb = st.tryb === 'stol' ? 'stół' : 'zgodność';
-            tytul.textContent = `${st.nazwa}: ${st.liczba} rozpoczętych, już na stole ${st.na_stole} (K = ${st.miejsca}, tryb: ${tryb})`;
-            blok.appendChild(tytul);
-            const lista = document.createElement('ul');
-            (st.kafle || []).forEach(kafel => {
-                const wpis = document.createElement('li');
-                const opis = kafel.short_id ? `${kafel.short_id} (zam. ${kafel.numer})` : `zamówienie ${kafel.numer}`;
-                wpis.textContent = opis + (kafel.na_stole ? ' — już na stole' : '');
-                lista.appendChild(wpis);
-            });
-            if (!(st.kafle || []).length) {
-                const pusto = document.createElement('li');
-                pusto.textContent = 'brak kafli rozpoczętych';
-                lista.appendChild(pusto);
-            }
-            blok.appendChild(lista);
-            podglad.appendChild(blok);
-        });
-    }
-
-    /**
-     * „Przygotuj stoły” (admin, po zakończeniu zmiany): POST /production/api/priorytety/start/przygotuj — kafle
-     * rozpoczęte stają się kaflami stołu ze źródłem `start`. Idempotentne; przy błędzie serwer podaje stanowisko
-     * `nieudane` (wcześniejsze zostają przygotowane — wystarczy powtórzyć).
-     */
-    async przygotujStoly() {
-        const pytanie = 'Przygotować stoły? Kafle rozpoczęte na stanowiskach staną się kaflami stołu '
-            + '(źródło „rozpoczęte przed startem”). Rób to po zakończeniu zmiany. Można powtórzyć — dokłada tylko nowe.';
-        if (!confirm(pytanie)) return;
-        try {
-            const resp = await fetch(ADRES_STARTU_STOLOW + '/przygotuj', {
-                method: 'POST',
-                headers: { 'X-Requested-With': 'XMLHttpRequest' }
-            });
-            const result = await resp.json().catch(() => ({}));
-            if (resp.status === 403) {
-                this.showToast('Tylko administrator może przygotować stoły', 'error');
-            } else if (!resp.ok) {
-                const gdzie = result.nieudane ? ` (przerwane na stanowisku: ${result.nieudane}; powtórz)` : '';
-                this.showToast((result.message || `Nie udało się przygotować stołów (HTTP ${resp.status})`) + gdzie, 'error');
-            } else {
-                const dodane = (result.stanowiska || []).map(st => `${st.stanowisko}: +${st.dodane}`).join(', ');
-                this.showToast(`Stoły przygotowane. ${dodane}`, 'success');
-            }
-        } catch (error) {
-            console.error('[ConfigModule] Błąd przygotowania stołów:', error);
-            this.showToast('Błąd połączenia z serwerem', 'error');
-        }
-        await this.loadStartStolow();
-    }
-
-    /**
-     * „Włącz stoły” (admin, przed rozpoczęciem zmiany): JEDEN zapis PUT /production/api/priorytety/ustawienia —
-     * minimalna wersja appki z pola karty i tryb `stol` dla sześciu stanowisk (bez Lakierni). Przy progu wersji 0
-     * serwer odmawia (400 `prog_wersji_wymagany`, K4-poprawka-1; raport K3, rozstrz. 39) i nic nie zapisuje — wtedy
-     * bez pytania: toast z komunikatem serwera i podświetlone pole progu.
-     */
-    async wlaczStoly() {
-        const pole = document.getElementById('prio_min_app_version_code');
-        const wersja = pole ? this.wartoscPolaPriorytetu(pole) : 0;
-        // Odpowiedź serwera nadpisze pola karty — niezapisane zmiany K, jednostki czy limitu przepadłyby po cichu.
-        const zmiany = this.zbierzZmianyPriorytetow('stol');
-        delete zmiany.min_app_version_code;
-        const ostrzezenie = Object.keys(zmiany).length
-            ? 'Karta „Stół stanowisk” ma niezapisane zmiany — po włączeniu stołów przepadną. '
-                + 'Anuluj i najpierw kliknij „Zapisz stół stanowisk”, jeśli mają zostać.'
-            : '';
-        if (wersja !== 0) {
-            const pytanie = 'Włączyć stoły na sześciu stanowiskach (Wycinanie, Składanie, Sklejanie, Formatowanie, '
-                + `Krawędzie, Pakowanie)? Minimalna wersja appki: ${wersja}. Lakiernia zostaje na liście.`
-                + (ostrzezenie ? '\n\n' + ostrzezenie : '');
-            if (!confirm(pytanie)) return;
-        } else if (ostrzezenie && !confirm(ostrzezenie)) {
-            // Próg 0: serwer przepuszcza tylko zapis bez zmian (zastany stół na sześciu stanowiskach przy progu 0),
-            // a wtedy odpowiedź też nadpisuje pola karty.
-            return;
-        }
-        document.querySelectorAll('.prio-karta .is-invalid').forEach(el => el.classList.remove('is-invalid'));
-
-        const stanowiska = {};
-        STANOWISKA_STOLOW.forEach(kod => { stanowiska[kod] = { tryb: 'stol' }; });
-        try {
-            const resp = await fetch(ADRES_USTAWIEN_PRIORYTETOW, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-                body: JSON.stringify({ min_app_version_code: wersja, stanowiska: stanowiska })
-            });
-            const result = await resp.json().catch(() => ({}));
-            if (resp.status === 403) {
-                this.showToast('Tylko administrator może włączyć stoły', 'error');
-                return;
-            }
-            if (!resp.ok) {
-                const blednePole = this.polePriorytetu(result.pole);
-                if (blednePole) blednePole.classList.add('is-invalid');
-                this.showToast(result.message || `Nie udało się włączyć stołów (HTTP ${resp.status})`, 'error');
-                return;
-            }
-            this.wypelnijPriorytety(result);
-            this.showToast('Stoły włączone na sześciu stanowiskach. Przesuń „Rozpoczęte” na szczyt drabiny.', 'success');
-        } catch (error) {
-            console.error('[ConfigModule] Błąd włączania stołów:', error);
-            this.showToast('Błąd połączenia z serwerem', 'error');
-        }
-        await this.loadStartStolow();
-    }
-
-    /**
-     * Zapis karty „Terminy” albo „Stół stanowisk” przez PUT /production/api/priorytety/ustawienia: tylko zmienione
-     * pola, odpowiedź odświeża pola obu kart. 400 → podświetlone pole z `pole` i komunikat serwera; 403 → tylko admin.
-     */
-    async savePriorytetyUstawienia(karta) {
-        const cialo = this.zbierzZmianyPriorytetow(karta);
-        if (!Object.keys(cialo).length) {
-            this.showToast('Brak zmian do zapisania', 'info');
-            return;
-        }
-        document.querySelectorAll('.prio-karta .is-invalid').forEach(pole => pole.classList.remove('is-invalid'));
-
-        try {
-            const resp = await fetch(ADRES_USTAWIEN_PRIORYTETOW, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-                body: JSON.stringify(cialo)
-            });
-            const result = await resp.json().catch(() => ({}));
-            if (resp.status === 403) {
-                this.showToast('Tylko administrator może zmieniać ustawienia priorytetów', 'error');
-                return;
-            }
-            if (!resp.ok) {
-                const pole = this.polePriorytetu(result.pole);
-                if (pole) pole.classList.add('is-invalid');
-                this.showToast(result.message || `Nie udało się zapisać ustawień (HTTP ${resp.status})`, 'error');
-                return;
-            }
-            this.wypelnijPriorytety(result);
-            const przeliczenie = {
-                ok: ' Kolejka przeliczona.',
-                nieudane: ' Kolejkę przeliczy najbliższy cron.'
-            }[result.przeliczenie] || '';
-            this.showToast('Zapisano.' + przeliczenie, 'success');
-        } catch (error) {
-            console.error('[ConfigModule] Błąd zapisu ustawień priorytetów:', error);
-            this.showToast('Błąd połączenia z serwerem', 'error');
-        }
     }
 
     /**
@@ -555,6 +222,9 @@ class ConfigModule {
                 'station_auto_refresh': 'STATION_AUTO_REFRESH_ENABLED',
                 'station_show_details': 'STATION_SHOW_DETAILED_INFO',
                 'station_max_products': 'STATION_MAX_PRODUCTS_DISPLAY',
+                'deadline_days': 'DEADLINE_DEFAULT_DAYS',
+                'priority_recalc': 'PRIORITY_RECALC_INTERVAL_HOURS',
+                'priority_version': 'PRIORITY_ALGORITHM_VERSION',
                 'debug_backend': 'DEBUG_PRODUCTION_BACKEND',
                 'debug_frontend': 'DEBUG_PRODUCTION_FRONTEND',
                 'cache_duration': 'CACHE_DURATION_SECONDS',
@@ -575,9 +245,7 @@ class ConfigModule {
                 'worker_session_idle_timeout_minutes': 'WORKER_SESSION_IDLE_TIMEOUT_MINUTES',
                 'worker_session_night_cutoff': 'WORKER_SESSION_NIGHT_CUTOFF',
                 'worker_quick_pick_count': 'WORKER_QUICK_PICK_COUNT',
-                'label_printer_agent_token': 'LABEL_PRINTER_AGENT_TOKEN',
-                'package_label_offset_x': 'PACKAGE_LABEL_OFFSET_X_DOTS',
-                'package_label_offset_y': 'PACKAGE_LABEL_OFFSET_Y_DOTS'
+                'label_printer_agent_token': 'LABEL_PRINTER_AGENT_TOKEN'
             };
 
             let foundCount = 0;
@@ -989,6 +657,9 @@ class ConfigModule {
             'STATION_AUTO_REFRESH_ENABLED': 'station_auto_refresh',
             'STATION_SHOW_DETAILED_INFO': 'station_show_details',
             'STATION_MAX_PRODUCTS_DISPLAY': 'station_max_products',
+            'DEADLINE_DEFAULT_DAYS': 'deadline_days',
+            'PRIORITY_RECALC_INTERVAL_HOURS': 'priority_recalc',
+            'PRIORITY_ALGORITHM_VERSION': 'priority_version',
             'DEBUG_PRODUCTION_BACKEND': 'debug_backend',
             'DEBUG_PRODUCTION_FRONTEND': 'debug_frontend',
             'CACHE_DURATION_SECONDS': 'cache_duration',
@@ -1010,8 +681,6 @@ class ConfigModule {
             'WORKER_SESSION_NIGHT_CUTOFF': 'worker_session_night_cutoff',
             'WORKER_QUICK_PICK_COUNT': 'worker_quick_pick_count',
             'LABEL_PRINTER_AGENT_TOKEN': 'label_printer_agent_token',
-            'PACKAGE_LABEL_OFFSET_X_DOTS': 'package_label_offset_x',
-            'PACKAGE_LABEL_OFFSET_Y_DOTS': 'package_label_offset_y',
             'STATION_ALLOWED_IPS': 'ip-list-items'
         };
 
@@ -1116,6 +785,9 @@ class ConfigModule {
             'STATION_AUTO_REFRESH_ENABLED': 'station_auto_refresh',
             'STATION_SHOW_DETAILED_INFO': 'station_show_details',
             'STATION_MAX_PRODUCTS_DISPLAY': 'station_max_products',
+            'DEADLINE_DEFAULT_DAYS': 'deadline_days',
+            'PRIORITY_RECALC_INTERVAL_HOURS': 'priority_recalc',
+            'PRIORITY_ALGORITHM_VERSION': 'priority_version',
             'DEBUG_PRODUCTION_BACKEND': 'debug_backend',
             'DEBUG_PRODUCTION_FRONTEND': 'debug_frontend',
             'CACHE_DURATION_SECONDS': 'cache_duration',
@@ -1137,8 +809,6 @@ class ConfigModule {
             'WORKER_SESSION_NIGHT_CUTOFF': 'worker_session_night_cutoff',
             'WORKER_QUICK_PICK_COUNT': 'worker_quick_pick_count',
             'LABEL_PRINTER_AGENT_TOKEN': 'label_printer_agent_token',
-            'PACKAGE_LABEL_OFFSET_X_DOTS': 'package_label_offset_x',
-            'PACKAGE_LABEL_OFFSET_Y_DOTS': 'package_label_offset_y',
             'STATION_ALLOWED_IPS': 'ip-list-items'
         };
 
@@ -1333,134 +1003,6 @@ class ConfigModule {
     }
 
     // ========================================================================
-    // WYBÓR DRUKARKI (karta „Drukarka etykiet”: etykiety / paczki)
-    // ========================================================================
-
-    /**
-     * Sprowadza wartość do jednej ze znanych drukarek; nieznana albo pusta
-     * (np. stary wpis w localStorage) daje domyślne etykiety.
-     */
-    normalizujDrukarke(wartosc) {
-        return DRUKARKI.includes(wartosc) ? wartosc : DRUKARKA_DOMYSLNA;
-    }
-
-    /**
-     * Odczyt zapamiętanego wyboru. localStorage bywa zablokowany (prywatne okno,
-     * blokada danych witryny) i wtedy rzuca wyjątek, więc czytamy w try/catch,
-     * a panel działa dalej z domyślną drukarką.
-     */
-    odczytajZapamietanaDrukarke() {
-        try {
-            return this.normalizujDrukarke(window.localStorage.getItem(KLUCZ_DRUKARKI_STORAGE));
-        } catch (error) {
-            return DRUKARKA_DOMYSLNA;
-        }
-    }
-
-    /**
-     * Zapis wyboru w localStorage. Błąd zapisu (zablokowany storage) pomijamy:
-     * wybór działa do przeładowania strony, nic się przez to nie psuje.
-     */
-    zapamietajDrukarke(drukarka) {
-        try {
-            window.localStorage.setItem(KLUCZ_DRUKARKI_STORAGE, drukarka);
-        } catch (error) {
-            // storage niedostępny: bez pamięci wyboru
-        }
-    }
-
-    /**
-     * Pokazuje grupę wybranej drukarki i grupę wspólną, ukrywa pozostałe.
-     * Pola ukrytych grup zostają w DOM, więc zapis, „Przywróć domyślne”
-     * i śledzenie zmian działają dla nich tak samo jak dla widocznych.
-     */
-    pokazGrupeDrukarki(drukarka) {
-        document.querySelectorAll('.config-drukarka-grupa[data-drukarka]').forEach(grupa => {
-            const nazwa = grupa.getAttribute('data-drukarka');
-            grupa.hidden = !(nazwa === 'wspolne' || nazwa === drukarka);
-        });
-    }
-
-    /**
-     * Stan początkowy listy drukarek po wczytaniu zakładki: ostatni wybór
-     * z localStorage albo etykiety. Błąd tutaj nie może zablokować wczytywania
-     * wartości oryginalnych (śledzenie zmian), więc jest łapany.
-     */
-    initWyborDrukarki() {
-        try {
-            const lista = document.getElementById('drukarka_wybor');
-            if (!lista) return;
-            const drukarka = this.odczytajZapamietanaDrukarke();
-            lista.value = drukarka;
-            this.pokazGrupeDrukarki(drukarka);
-        } catch (error) {
-            console.error('[ConfigModule] Wybór drukarki:', error);
-        }
-    }
-
-    /**
-     * Zmiana wyboru w liście: przełącza grupy bez przeładowania i zapamiętuje wybór.
-     */
-    wybierzDrukarke(wartosc) {
-        const drukarka = this.normalizujDrukarke(wartosc);
-        const lista = document.getElementById('drukarka_wybor');
-        if (lista && lista.value !== drukarka) {
-            lista.value = drukarka;
-        }
-        this.pokazGrupeDrukarki(drukarka);
-        this.zapamietajDrukarke(drukarka);
-    }
-
-    /**
-     * Wydruk próbny na drukarce wybranej w liście (jedyna ścieżka z przycisku).
-     */
-    wydrukProbnyWybranej() {
-        const lista = document.getElementById('drukarka_wybor');
-        return this.wydrukProbny(this.normalizujDrukarke(lista ? lista.value : null));
-    }
-
-    /**
-     * Wydruk próbny na drukarce etykiet albo paczek (logistyka etap 4).
-     * Serwer bierze ZAPISANE przesunięcia. Przy niezapisanej zmianie przesunięcia
-     * TEJ drukarki (paczki: PACKAGE_LABEL_OFFSET_*, etykiety: LABEL_PRINTER_OFFSET_*)
-     * po udanym wydruku pokazujemy JEDEN komunikat ostrzegawczy (osobny komunikat
-     * przed wysłaniem zostałby od razu przykryty komunikatem o sukcesie).
-     * Zmiany przesunięcia drugiej drukarki nie mają wpływu na ten wydruk, więc nie ostrzegamy.
-     */
-    async wydrukProbny(drukarka) {
-        const prefiksPrzesuniec = drukarka === 'wysylka' ? 'PACKAGE_LABEL_OFFSET_' : 'LABEL_PRINTER_OFFSET_';
-        const niezapisane = Object.keys(this.pendingChanges || {})
-            .some(klucz => klucz.startsWith(prefiksPrzesuniec));
-        try {
-            const response = await fetch('/production/api/print-test', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Requested-With': 'XMLHttpRequest'
-                },
-                body: JSON.stringify({ printer: drukarka })
-            });
-            // Odpowiedź nie-JSON (strona 502 z nginx, przekierowanie na logowanie)
-            // ma dać komunikat z kodem HTTP, a nie błąd parsowania.
-            const result = await response.json().catch(() => ({}));
-            if (!response.ok || !result.success) {
-                throw new Error(result.error || `HTTP ${response.status}`);
-            }
-            if (niezapisane) {
-                this.showToast(
-                    `${result.message} Uwaga: wydruk użył zapisanych przesunięć — niezapisane zmiany nie mają wpływu.`,
-                    'warning'
-                );
-            } else {
-                this.showToast(result.message, 'success');
-            }
-        } catch (error) {
-            console.error('[ConfigModule] Wydruk próbny:', error);
-            this.showToast(`Wydruk próbny nie poszedł: ${error.message}`, 'error');
-        }
-    }
-
-    // ========================================================================
     // CACHE MANAGEMENT
     // ========================================================================
 
@@ -1578,30 +1120,6 @@ window.sawmillSettingChanged = function (key, fieldId) {
     }
 };
 
-window.savePriorytetyUstawienia = function (karta) {
-    if (window.configModule) {
-        window.configModule.savePriorytetyUstawienia(karta);
-    }
-};
-
-window.odswiezStartStolow = function () {
-    if (window.configModule) {
-        window.configModule.loadStartStolow();
-    }
-};
-
-window.przygotujStoly = function () {
-    if (window.configModule) {
-        window.configModule.przygotujStoly();
-    }
-};
-
-window.wlaczStoly = function () {
-    if (window.configModule) {
-        window.configModule.wlaczStoly();
-    }
-};
-
 window.addIP = function () {
     if (window.configModule) {
         window.configModule.addIP();
@@ -1623,24 +1141,6 @@ window.validateJSON = function (textarea) {
 window.clearCache = function () {
     if (window.configModule) {
         window.configModule.clearCache();
-    }
-};
-
-window.wydrukProbny = function (drukarka) {
-    if (window.configModule) {
-        window.configModule.wydrukProbny(drukarka);
-    }
-};
-
-window.wydrukProbnyWybranej = function () {
-    if (window.configModule) {
-        window.configModule.wydrukProbnyWybranej();
-    }
-};
-
-window.wybierzDrukarke = function (drukarka) {
-    if (window.configModule) {
-        window.configModule.wybierzDrukarke(drukarka);
     }
 };
 
