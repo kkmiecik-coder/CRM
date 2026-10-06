@@ -275,6 +275,8 @@ def serialize_worker_for_mobile(worker, avatar_base_url=None, recent=False):
         'allowed_stations': worker.allowed_stations_list,
         'recent_on_station': recent,
         'sort_order': worker.sort_order or 0,
+        # Logistyka etap 4, krok 4.4: bramka stanowiska Dostawa pokazuje tylko kierowców (Flota → Kierowcy).
+        'is_driver': bool(worker.is_driver),
     }
 
 

@@ -15,9 +15,12 @@ from datetime import datetime
 
 from extensions import db
 from modules.logging import get_structured_logger
-from modules.production.models import LabelPrintJob, ProductionConfig, ProductionItem, ProductionOrder
+from modules.production.models import (
+    LabelPrintJob, ProductionConfig, ProductionItem, ProductionOrder, ProductionPackage,
+)
 from modules.production.services import realtime_service
 from modules.production.services.station_catalog import resolve_station_code
+from sqlalchemy import case
 from sqlalchemy.orm import joinedload
 
 logger = get_structured_logger('production.label_print')
@@ -118,6 +121,18 @@ def _load_config():
         'use_agent': use_agent_raw in ('1', 'true', 'yes', 'on'),
         'agent_token': (rows.get('LABEL_PRINTER_AGENT_TOKEN') or '').strip(),
     }
+
+
+def tryb_agenta(cfg=None):
+    """
+    True, gdy etykiety idą przez agenta druku (kolejka prod_print_queue, LABEL_PRINTER_USE_AGENT), False — gdy
+    po TCP prosto do drukarki. Jedno źródło tej decyzji: print_labels_batch wybiera nim tryb wysyłki, a druk etykiet
+    całego zamówienia (mobile_api.mobile_print_labels_for_order) — czy przed drukiem zablokować zamówienie
+    („zamówienie najpierw”, logistyka etap 4, krok 4.4a). `cfg` — wynik _load_config(), gdy wołający już go ma.
+    """
+    if cfg is None:
+        cfg = _load_config()
+    return bool(cfg['use_agent'])
 
 
 def _compute_unit_offsets(items_by_id):
@@ -251,8 +266,15 @@ def rollback_label_count_for_jobs(jobs):
     zostawiamy nietknięte: nie wiadomo, której sztuki dotyczyły, a zgadywanie
     ogonem zbioru odznaczyłoby losową.
 
+    Etykiety paczek (`package_id`, drukarka 'wysylka'; przegląd końcowy logistyki 4.10, B-4) — ten sam
+    kierunek błędu: każde nieudane zadanie zdejmuje jeden wydruk z `label_print_count` paczki, a gdy nie zostaje
+    żaden, czyści też `label_printed_at` (panel i telefon pokazują „bez etykiety”, operator drukuje ponownie).
+    Nieudany przedruk, gdy wcześniejszy wydruk wyszedł, zostawia paczkę jako wydrukowaną, ale z nieznanym napisem
+    (`label_delivery_text` = NULL → ikona „etykieta sprzed zmiany”). Zapis wyrażeniem SQL (_cofnij_wydruki_paczek).
+
     Nie commituje; robi to wywołujący razem ze zmianą statusów.
     """
+    _cofnij_wydruki_paczek(jobs)
     do_odznaczenia = {}
     for job in jobs:
         if getattr(job, 'product_id', None) is None:
@@ -273,6 +295,33 @@ def rollback_label_count_for_jobs(jobs):
             if n not in do_odznaczenia[item.id]
         ])
     return len(pozycje)
+
+
+def _cofnij_wydruki_paczek(jobs):
+    """Część rollback_label_count_for_jobs dla etykiet paczek (zadania z `package_id`)."""
+    nieudane = {}
+    for job in jobs:
+        package_id = getattr(job, 'package_id', None)
+        if package_id is not None:
+            nieudane[package_id] = nieudane.get(package_id, 0) + 1
+    if not nieudane:
+        return
+    # (M3 po re-review) Wyrażeniem SQL na wartości w bazie, nie odczyt-zapis: przedruk zakolejkowany równolegle
+    # (inna transakcja) podbija licznik, a bezwzględny zapis z nieaktualnego odczytu by go zgubił.
+    # (M4) Napis wydruku czyścimy zawsze: po nieudanym przedruku (np. po zmianie sposobu dostawy) na paczce leży
+    # etykieta z NIEZNANYM napisem (wcześniejszego nigdzie nie trzymamy), a NULL ≠ dzisiejszy napis, więc panel
+    # pokaże „etykieta sprzed zmiany” i operator wydrukuje ją jeszcze raz — ten sam kierunek błędu co licznik.
+    # Kolejność przypisań ma znaczenie: MySQL liczy SET od lewej i kolejne wyrażenia widzą już nowe wartości,
+    # więc licznik zmieniamy na końcu (warunki czasu i napisu czytają licznik sprzed zmiany; SQLite — zawsze stary).
+    tabela = ProductionPackage.__table__
+    licznik = tabela.c.label_print_count
+    for package_id in sorted(nieudane):
+        n = nieudane[package_id]
+        db.session.execute(tabela.update().where(tabela.c.id == package_id).ordered_values(
+            (tabela.c.label_delivery_text, None),
+            (tabela.c.label_printed_at, case((licznik > n, tabela.c.label_printed_at), else_=None)),
+            (licznik, case((licznik > n, licznik - n), else_=0)),
+        ))
 
 
 def compute_label_offsets(items):
@@ -343,30 +392,44 @@ def _resolve_client_label(item):
     return 'Brak danych'
 
 
+# (M4) Linia „Dostawa: …” to jedno pole ^FB (1 linia, szerokość separator_width = 372 punkty)
+# fontem 18: ok. 9 punktów na znak (proporcja z nazwy produktu: 80 znaków w 2 liniach
+# po 451 punktów fontem 22) → ~40 znaków na całą linię, z czego 9 zajmuje „Dostawa: ”.
+# Dłuższy tekst ZPL nadpisuje na tej samej linii (nieczytelna plama), więc ucinamy.
+MAKS_ZNAKOW_DOSTAWY = 30
+# ^ i ~ rozpoczynają komendy ZPL — w danych pola ^FD…^FS zamieniłyby resztę nazwy trasy
+# w polecenia drukarki. Typograficzne cudzysłowy, myślniki i wielokropek drukarka pokazuje
+# jak polskie znaki (bez glifów), więc zamieniamy je na ASCII.
+_ZPL_POLE = str.maketrans({
+    '^': ' ', '~': ' ',
+    '„': '"', '”': '"', '“': '"', '«': '"', '»': '"', '‘': "'", '’': "'",
+    '–': '-', '—': '-', '…': '...',
+})
+
+
+def _tekst_pola_zpl(tekst, maks):
+    """Tekst do danych pola ZPL: bez komend (^, ~), w jednej linii, najwyżej `maks` znaków."""
+    czysty = ' '.join(_normalize_text(tekst).translate(_ZPL_POLE).split())
+    if len(czysty) > maks:
+        czysty = czysty[:maks - 3].rstrip() + '...'
+    return czysty
+
+
 def _format_delivery_label(item):
-    """Zwraca pełną treść sposobu dostawy.
+    """Linia „Dostawa:” — ten sam tekst co plakietka tabletu (logistics/sposoby.etykieta).
 
-    Kolejność warunków 1:1 z mobile_api_service / web-templatką:
-      - override transport_woodpower → 'Transport WoodPower'
-      - override kurier_baselinker  → nazwa kuriera z delivery_method (lub 'Kurier')
-      - is_personal_pickup           → 'Odbior osobisty'
-      - default                      → delivery_method z BL (np. 'InPost Paczkomaty 24/7')
-                                       lub 'Kurier' gdy brak danych
+    Etykieta wydrukowana przed decyzją logistyka ma „Nie ustawiono”; lista logistyki
+    pokazuje wtedy ikonę „etykiety sprzed zmiany”. Nazwę trasy wpisuje człowiek, więc
+    (M4) przechodzi przez _tekst_pola_zpl — stałe napisy („Kurier” itd.) są krótsze
+    od limitu i czyszczenie ich nie zmienia.
     """
+    from modules.production.logistics import sposoby
+    from modules.production.logistics.services.routes import trasa_dla_tabletu
     order = item.order if item.order else None
-    override = ((order.override_delivery_method if order else None) or '').strip().lower()
-    delivery_method = ((order.delivery_method if order else None) or '').strip()
-
-    if override == 'transport_woodpower':
-        return _normalize_text('Transport WoodPower')
-    if override == 'kurier_baselinker':
-        return _normalize_text(delivery_method) if delivery_method else 'Kurier'
-    try:
-        if order and order.is_personal_pickup:
-            return _normalize_text('Odbior osobisty')
-    except Exception:
-        pass
-    return _normalize_text(delivery_method) if delivery_method else 'Kurier'
+    sposob = order.override_delivery_method if order else None
+    trasa = trasa_dla_tabletu(order.id) if order is not None else None
+    return _tekst_pola_zpl(sposoby.etykieta(sposob, nazwa_trasy=trasa.name if trasa else None),
+                           MAKS_ZNAKOW_DOSTAWY)
 
 
 def _format_finish_label(item):
@@ -640,7 +703,7 @@ def print_labels_batch(short_product_ids, station_code, actor,
     }
 
     # Tryb agenta — zamiast TCP wstaw rekordy do prod_print_queue
-    if cfg['use_agent']:
+    if tryb_agenta(cfg):
         return _enqueue_labels(ids, items_by_id, station_code, actor, cfg,
                                units_by_item=units_by_item)
 

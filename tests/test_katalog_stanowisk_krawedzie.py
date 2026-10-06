@@ -90,7 +90,8 @@ def test_kazde_stanowisko_ma_etykiete_i_status_kolejki():
 
     # 'sawmill' celowo stoi poza STATION_ORDER (rejestr surowca, własne tabele
     # prod_sawmill_*), ale MUSI mieć nazwę — pracownik ma tam sesje.
-    assert set(STATION_LABELS) == set(STATION_ORDER) | {'sawmill'}
+    # Weryfikacja i Dostawa (logistyka etap 4) — telefony, poza pipeline'em produktów.
+    assert set(STATION_LABELS) == set(STATION_ORDER) | {'sawmill', 'verification', 'delivery'}
     assert set(STATION_PENDING_STATUS) == set(STATION_ORDER)
 
     for kod in STATION_ORDER:

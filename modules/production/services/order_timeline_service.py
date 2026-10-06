@@ -6,6 +6,8 @@ Trasa produktu odzwierciedla przepływ z ProductionProduct.complete_task
 reguły — zgodności obu pilnuje tests/test_krawedzie_parytet_reguly.py.
 """
 
+from modules.production.logistics import sposoby
+
 # Kropki linii czasu w kolejności. 'entry' łączy wycinanie i składanie.
 TIMELINE_STATIONS = [
     {'key': 'entry',      'name': 'Wycinanie / Składanie'},
@@ -39,6 +41,8 @@ STATUS_ORDINAL = {
     'czeka_na_logistyke': 4.5,
     'czeka_na_pakowanie': 5,
     'spakowane': 6,
+    # Po spakowaniu logistyka (Weryfikacja, załadunek, dostawa). Bez wpisu kropka „Pakowanie” szarzeje.
+    'zweryfikowane': 7, 'zaladowane': 8, 'dostarczone': 9,
 }
 
 _STATUS_DISPLAY = {
@@ -51,6 +55,9 @@ _STATUS_DISPLAY = {
     'czeka_na_logistyke': 'Czeka na logistykę',
     'czeka_na_pakowanie': 'Czeka na pakowanie',
     'spakowane': 'Spakowane',
+    'zweryfikowane': 'Zweryfikowane',
+    'zaladowane': 'Załadowane',
+    'dostarczone': 'Dostarczone',
     'anulowane': 'Anulowane',
     'wstrzymane': 'Wstrzymane',
     'w_realizacji': 'W realizacji',
@@ -73,6 +80,9 @@ _STATUS_BADGE = {
     'czeka_na_logistyke': 'badge-logistics',
     'czeka_na_pakowanie': 'badge-packaging',
     'spakowane': 'badge-completed',
+    'zweryfikowane': 'badge-completed',
+    'zaladowane': 'badge-completed',
+    'dostarczone': 'badge-completed',
     'wstrzymane': 'badge-paused',
     'anulowane': 'badge-cancelled',
     'w_realizacji': 'badge-assembly',
@@ -187,5 +197,5 @@ def order_status_badge(products):
             'label': _STATUS_DISPLAY.get(status, status),
             'badge_class': _STATUS_BADGE.get(status, 'badge-completed'),
         }
-    completed = sum(1 for p in products if p.current_status == 'spakowane')
+    completed = sum(1 for p in products if p.current_status in sposoby.STATUSY_PO_SPAKOWANIU)
     return {'label': f'Różne ({completed}/{len(products)})', 'badge_class': 'badge-mixed'}

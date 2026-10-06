@@ -268,13 +268,107 @@ MONITOR_STATION_MAP = {
 }
 
 
-def _get_monitor_station_data(station_code):
+# Klucz sortu zamówienia bez rangi (jeszcze nieprzeliczone, nieaktywne) — na koniec, jak NULLS LAST.
+_BEZ_RANGI = 10 ** 9
+
+
+def priorytety_zamowien_monitora(order_ids):
+    """
+    Gwiazdki, ranga, szczebel i plakietka zamówień z kolumn pamięci podręcznej (`widok.priorytet_zamowien`) — dla
+    obu monitorów hali. Telewizor nie może położyć się na warstwie priorytetów (np. brak tabel w oknie wdrożenia):
+    wyjątek → log ERROR i pusta mapa, karty bez rangi i plakietek. Czysty odczyt.
+    """
+    from ...priorytety.services import widok   # import modułowy: monkeypatch w testach podmienia funkcję
+    try:
+        return widok.priorytet_zamowien(order_ids)
+    except Exception as e:
+        _wycofaj_odczyt()
+        logger.error("Monitor: priorytety zamowien niedostepne", extra={'error': str(e)})
+        return {}
+
+
+def _wycofaj_odczyt():
+    """Zepsuta migawka po błędzie odczytu — rollback sesji (czytelnik niczego nie zapisał)."""
+    from extensions import db
+    try:
+        db.session.rollback()
+    except Exception:
+        pass
+
+
+def _kafel_monitora(kafel):
+    """Kafel stołu z panelu (`widok.stoly_panelu`) w kształcie dla telewizora: oznaczenie, gwiazdki, plakietka
+    szczebla, źródło i czas. Bez danych klienta."""
+    from ...priorytety.services import widok
+    szczebel = kafel.get('szczebel')
+    return {
+        'unit_key': kafel['unit_key'],
+        'order_id': kafel['order_id'],
+        'numer': kafel.get('numer'),
+        'short_id': kafel.get('short_id'),
+        'gwiazdki': kafel.get('gwiazdki') or 0,
+        'szczebel': szczebel,
+        'plakietka': u'Doróbka' if kafel.get('dorobka') else widok.plakietka_szczebla(szczebel),
+        'dorobka': bool(kafel.get('dorobka')),
+        'zrodlo': kafel.get('zrodlo'),
+        'pobrano': kafel.get('pobrano'),
+        'material': kafel.get('material'),
+        'pozycji': kafel.get('pozycji'),
+    }
+
+
+def _stol_monitora(station_code):
+    """
+    Stół i odłożone stanowiska dla monitora hali — to samo, co widzi tablet (`widok.stoly_panelu`, filtr na jedno
+    stanowisko): `{"tryb", "jednostka", "miejsca", "stol", "odlozone", "kolejka_dalej", "blad"}`. Monitor NIGDY nie
+    dopełnia stołu (to robi `GET desk` tabletu). Lakiernia nie ma stołu → None bez żadnego odczytu. Wyjątek warstwy
+    priorytetów → puste sekcje i `blad: True` (telewizor bez człowieka przy klawiaturze nie może pokazać 500).
+    """
+    from ...priorytety.services import ustawienia, widok
+    if station_code in ustawienia.STANOWISKA_BEZ_STOLU:
+        return None
+    try:
+        (dane,) = widok.stoly_panelu(stanowiska=[station_code])
+    except Exception as e:
+        _wycofaj_odczyt()
+        logger.error("Monitor: stol stanowiska niedostepny", extra={'station': station_code, 'error': str(e)})
+        return {'tryb': None, 'jednostka': None, 'miejsca': None, 'stol': [], 'odlozone': [],
+                'kolejka_dalej': None, 'blad': True}
+    odlozone = []
+    for kafel in dane['odlozone']:
+        wpis = _kafel_monitora(kafel)
+        wpis.update({'powod': kafel.get('powod'), 'powod_etykieta': kafel.get('powod_etykieta'),
+                     'notatka': kafel.get('notatka'), 'odlozono': kafel.get('odlozono'),
+                     # telewizor widzi całą halę: imię + inicjał nazwiska (spec 6.1, 7.2), nie pełne nazwisko
+                     'pracownik': kafel.get('pracownik_krotko')})
+        odlozone.append(wpis)
+    return {
+        'tryb': dane['tryb'], 'jednostka': dane['jednostka'], 'miejsca': dane['miejsca'],
+        'stol': [_kafel_monitora(kafel) for kafel in dane['stol']], 'odlozone': odlozone,
+        'kolejka_dalej': dane['kolejka_dalej'], 'blad': False,
+    }
+
+
+def _klucz_rangi(order):
+    """Sort kart po randze zamówienia z kolumny (NULLS LAST), potem numer — monitor stanowiska i zbiorczy."""
+    ranga = order['ranga']
+    return (_BEZ_RANGI if ranga is None else ranga, order['order_number'] or '')
+
+
+def _get_monitor_station_data(station_code, stol=None):
     """
     Pobiera zamowienia i statystyki dla danego stanowiska monitora.
     Filtruje prod_items po current_status odpowiadajacym stanowisku.
     Returns: (orders, monitor_stats, species_stats)
+
+    Karty grupowane po `ProductionOrder.id` (numer zamówienia powtarza się co rok). Kolejność (priorytety, spec 7.2):
+    zamówienie z doróbką na tym stanowisku pierwsze, potem ranga zamówienia z kolumny `priority_rank` (NULLS LAST),
+    numer. Lakiernia: kolejność pierwszego wystąpienia pozycji zamówienia na liście tabletu
+    (`lista.porzadek_listy`) — telewizor pokazuje to samo co tablet. `stol` — wynik `_stol_monitora` (karty
+    zamówień z kafla na stole dostają `na_stole`).
     """
     from ...models import ProductionItem, ProductionOrder, ProductionProduct
+    from ...priorytety.services import lista, ustawienia
 
     station_info = MONITOR_STATION_MAP[station_code]
     target_status = station_info['status']
@@ -292,24 +386,30 @@ def _get_monitor_station_data(station_code):
             ProductionProduct.current_status == target_status,
             ProductionOrder.internal_order_number.isnot(None)
         )
+        .order_by(ProductionProduct.id)
         .all()
     )
 
-    # Grupuj po zamowieniu
+    # Grupuj po zamowieniu (id, nie numer)
     orders_map = {}
     for item in items_on_station:
-        key = item.order.internal_order_number if item.order else None
+        key = item.order_id
         if key not in orders_map:
             orders_map[key] = {
-                'order_number': key,
+                'order_number': item.order.internal_order_number if item.order else None,
                 'baselinker_order_id': item.order.baselinker_order_id if item.order else None,
                 'client_order_number': item.order.client_order_number if item.order else None,
                 'items': [],
             }
         orders_map[key]['items'].append(item)
 
+    priorytety = priorytety_zamowien_monitora(sorted(orders_map))
+    na_stole = {kafel['order_id'] for kafel in (stol or {}).get('stol', [])}
+    bez_stolu = station_code in ustawienia.STANOWISKA_BEZ_STOLU
+    kolejnosc_listy = lista.porzadek_listy(station_code, items_on_station) if bez_stolu else []
+
     orders = []
-    for key, data in orders_map.items():
+    for order_id, data in orders_map.items():
         items = data['items']
         total_products = sum(i.quantity for i in items)
         completed_products = sum(getattr(i, quantity_col, 0) for i in items)
@@ -321,7 +421,10 @@ def _get_monitor_station_data(station_code):
         technology = (first.configuration.technology if first.configuration else None) or '—'
         wood_class = (first.configuration.wood_class if first.configuration else None) or '—'
 
-        orders.append({
+        priorytet = priorytety.get(order_id) or {}
+        dorobka = any(i.original_product_id is not None for i in items)
+        wpis = {
+            'order_id': order_id,
             'order_number': data['order_number'],
             'baselinker_order_id': data['baselinker_order_id'],
             'client_order_number': data['client_order_number'],
@@ -333,13 +436,27 @@ def _get_monitor_station_data(station_code):
             'wood_class': wood_class,
             'status_label': station_info['label'],
             'status_class': station_info['css_class'],
-        })
+            'gwiazdki': priorytet.get('gwiazdki', 0),
+            'ranga': priorytet.get('ranga'),
+            'szczebel': priorytet.get('szczebel'),
+            'plakietka': u'Doróbka' if dorobka else priorytet.get('plakietka'),
+            'dorobka': dorobka,
+            'na_stole': order_id in na_stole,
+            'grupa_wykonczenia': None,
+        }
+        orders.append(wpis)
 
-    # Sortuj: najpierw z najwyzszym postepem
-    orders.sort(key=lambda x: (
-        -x['completed_products'] / max(x['total_products'], 1),
-        x['order_number']
-    ))
+    if bez_stolu:
+        # Lakiernia: kolejność listy tabletu; na karcie grupa wykończenia pierwszej pozycji zamówienia na liście.
+        pierwsza = {}
+        for item in kolejnosc_listy:
+            pierwsza.setdefault(item.order_id, (len(pierwsza), item))
+        for wpis in orders:
+            miejsce, item = pierwsza[wpis['order_id']]
+            wpis['grupa_wykonczenia'] = lista.nazwa_grupy_wykonczenia(item)
+        orders.sort(key=lambda o: pierwsza[o['order_id']][0])
+    else:
+        orders.sort(key=lambda o: (0 if o['dorobka'] else 1,) + _klucz_rangi(o))
 
     # Stats ogolne
     monitor_stats = {

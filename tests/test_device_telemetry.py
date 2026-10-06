@@ -117,7 +117,7 @@ def test_telemetry_empty_fleet():
     """
     result = build_devices_telemetry([], now=datetime(2026, 5, 21, 15, 0, 0))
 
-    assert set(result.keys()) == set(STATION_ORDER) | {'sawmill'}
+    assert set(result.keys()) == set(STATION_ORDER) | {'sawmill', 'verification', 'delivery'}
     assert set(result.keys()) == set(_STATION_CODES_WITH_TABLETS)
 
     for code, status in result.items():

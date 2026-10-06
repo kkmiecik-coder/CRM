@@ -2,62 +2,137 @@
 """
 Stations tab content endpoints.
 Extracted from api_routers.py.
+
+Zakładka Stanowiska jest CZYTELNIKIEM priorytetów (krok K4b, spec 7.2): pokazuje to samo, co tablet — stół,
+odłożone, niekompletne (Formatowanie, Pakowanie) i pierwsze 15 kafli kolejki każdego stanowiska — z tych samych
+funkcji `priorytety/services/widok.py`, które stoją za `GET /production/api/priorytety/stoly` i `/kolejka`.
+Lakiernia nie ma stołu: zamiast kolejki pokazuje pierwsze 15 pozycji listy po wykończeniu (`lista.porzadek_listy`,
+ta sama funkcja co tablet). Same zwykłe odczyty: bez blokad, bez zapisów i BEZ dopełniania stołu (dopełnia
+wyłącznie `GET desk` tabletu, spec 5.2).
 """
 
-from datetime import datetime, date, timedelta
-from flask import request, jsonify, render_template
+from datetime import datetime, date
+from flask import jsonify, render_template
 from flask_login import login_required, current_user
 from extensions import db
 from sqlalchemy.orm import joinedload
 
 from . import api_bp, logger, ProductionItem, get_local_now
 
+# Ile kafli kolejki (i pozycji listy Lakierni) pokazuje karta stanowiska.
+LIMIT_KAFLI_ZAKLADKI = 15
+
+
+def _dni_do_terminu(termin, dzis):
+    """Dni do terminu z daty ISO (kafel widoku) albo None."""
+    if not termin:
+        return None
+    try:
+        return (date.fromisoformat(termin[:10]) - dzis).days
+    except ValueError:
+        return None
+
+
+def _z_terminem(kafle, dzis):
+    for kafel in kafle:
+        kafel['dni_do_terminu'] = _dni_do_terminu(kafel.get('termin'), dzis)
+    return kafle
+
+
+def _lista_lakierni(dzis):
+    """Pierwsze pozycje listy Lakierni w kolejności tabletu (spec 3.2 „Lista Lakierni”) z nazwą grupy."""
+    from ...priorytety.services import lista
+    from ...services.station_catalog import STATION_PENDING_STATUS
+    pozycje = (ProductionItem.query
+               .options(joinedload(ProductionItem.order), joinedload(ProductionItem.configuration))
+               .filter(ProductionItem.current_status == STATION_PENDING_STATUS['painting'])
+               .order_by(ProductionItem.id).all())
+    wynik = []
+    for p in lista.porzadek_listy('painting', pozycje)[:LIMIT_KAFLI_ZAKLADKI]:
+        konfiguracja = p.configuration
+        termin = p.deadline_date.isoformat() if p.deadline_date else None
+        wynik.append({
+            'product_id': p.id,
+            'short_id': p.short_product_id,
+            'order_id': p.order_id,
+            'numer': p.order.internal_order_number if p.order else None,
+            'gwiazdki': int((p.order.priority_stars if p.order else 0) or 0),
+            'dorobka': p.original_product_id is not None,
+            'termin': termin,
+            'dni_do_terminu': _dni_do_terminu(termin, dzis),
+            'grupa': lista.nazwa_grupy_wykonczenia(p),
+            'material': {'gatunek': konfiguracja.species if konfiguracja else None,
+                         'klasa': konfiguracja.wood_class if konfiguracja else None,
+                         'grubosc_cm': float(p.parsed_thickness_cm) if p.parsed_thickness_cm is not None else None},
+        })
+    return wynik
+
+
+def _priorytety_stanowisk(stations, dzis):
+    """
+    Stół, odłożone, niekompletne i kolejka każdego stanowiska ze stołem + lista Lakierni. Wyjątek warstwy
+    priorytetów (np. brak tabel w oknie wdrożenia) nie kładzie zakładki: (None, log ERROR) — sekcje znikają,
+    reszta danych zostaje.
+    """
+    from ...priorytety.services import ustawienia, widok
+    try:
+        stoly = {s['stanowisko']: s for s in widok.stoly_panelu()}
+        wynik = {}
+        for kod in stations:
+            if kod in ustawienia.STANOWISKA_BEZ_STOLU:
+                wynik[kod] = {'kolejka': _lista_lakierni(dzis)}
+                continue
+            kolejka = widok.kolejka_stanowiska(kod, limit=LIMIT_KAFLI_ZAKLADKI)
+            stol = stoly.get(kod)
+            if stol is None:
+                continue
+            wynik[kod] = {
+                'tryb': stol['tryb'],
+                'jednostka': stol['jednostka'],
+                'stol': _z_terminem(stol['stol'], dzis),
+                'odlozone': _z_terminem(stol['odlozone'], dzis),
+                'widma': stol.get('widma', []),
+                'niekompletne': kolejka['niekompletne'],
+                'kolejka': _z_terminem(kolejka['kafle'], dzis),
+                'stats': {'na_stole': len(stol['stol']), 'miejsca': stol['miejsca'],
+                          'odlozone': len(stol['odlozone']), 'limit_odlozen': stol['limit_odlozen'],
+                          'kolejka_dalej': stol['kolejka_dalej']},
+            }
+        return wynik
+    except Exception as e:
+        db.session.rollback()       # zwykły odczyt: nic do cofnięcia poza zepsutą migawką sesji
+        logger.error("Zakładka Stanowiska: stół i kolejka niedostępne", extra={'error': str(e)})
+        return None
+
 
 @api_bp.route('/stations-tab-content')
-@login_required  
+@login_required
 def stations_tab_content():
     """
-    AJAX endpoint dla zawartości taba Stanowiska - POPRAWIONY
+    AJAX endpoint dla zawartości taba Stanowiska: stół, odłożone, niekompletne i kolejka każdego stanowiska
+    (to samo co tablet) oraz dzisiejsze wykonania.
     """
     try:
         logger.info("AJAX: Ładowanie zawartości stations-tab", extra={
             'user_id': current_user.id,
             'user_role': getattr(current_user, 'role', 'unknown')
         })
-        
+
         from ...models import ProductionItem
-        
+        from ...services.station_catalog import STATION_ORDER, STATION_PENDING_STATUS
+
         # Dane dla każdego stanowiska
         stations_data = {}
-        stations = ['cutting', 'assembly', 'gluing', 'formatting', 'edges', 'painting', 'packaging']
+        stations = list(STATION_ORDER)
+        dzis = date.today()
+        priorytety = _priorytety_stanowisk(stations, dzis)
 
         for station in stations:
-            status_map = {
-                'cutting': 'czeka_na_wyciecie',
-                'assembly': 'czeka_na_skladanie',
-                'gluing': 'czeka_na_sklejanie',
-                'formatting': 'czeka_na_formatowanie',
-                'edges': 'czeka_na_krawedzie',
-                'painting': 'czeka_na_lakiernie',
-                'packaging': 'czeka_na_pakowanie'
-            }
-            
-            status = status_map[station]
-            
-            # Produkty oczekujące na danym stanowisku
-            pending_products = ProductionItem.query\
-                                           .options(joinedload(ProductionItem.order))\
-                                           .filter_by(current_status=status)\
-                                           .order_by(ProductionItem.priority_rank.asc())\
-                                           .limit(20).all()
+            status = STATION_PENDING_STATUS[station]
 
             # Statystyki stanowiska
             total_pending = ProductionItem.query.filter_by(current_status=status).count()
-            high_priority = ProductionItem.query.filter(
-                ProductionItem.current_status == status,
-                ProductionItem.priority_rank <= 100
-            ).count()
-            
+
             # Dzisiejsze wykonania
             today = date.today()
             today_start = datetime.combine(today, datetime.min.time())
@@ -91,9 +166,8 @@ def stations_tab_content():
                 # Pole nie istnieje jeszcze w modelu - zwróć 0
                 today_completed = 0
                 today_volume = 0.0
-            
-            # POPRAWIONE: twórz słowniki zamiast obiektów z .days_diff
-            stations_data[station] = {
+
+            dane = {
                 'name': {
                     'cutting': 'Wycinanie - mikro',
                     'assembly': 'Składanie - lite',
@@ -112,46 +186,39 @@ def stations_tab_content():
                     'painting': '🎨',
                     'packaging': '📦'
                 }[station],
-                'pending_products': [
-                    {
-                        'short_id': p.short_product_id,
-                        'product_name': p.original_product_name[:50] + '...' if len(p.original_product_name or '') > 50 else (p.original_product_name or ''),
-                        'priority_rank': p.priority_rank,
-                        'deadline_date': p.deadline_date.isoformat() if p.deadline_date else None,
-                        'days_remaining': (p.deadline_date - today).days if p.deadline_date else 0,
-                        'volume_m3': float(p.volume_m3 or 0),
-                        'internal_order_number': p.order.internal_order_number if p.order else None
-                    }
-                    for p in pending_products
-                ],
                 'stats': {
                     'total_pending': total_pending,
-                    'high_priority': high_priority,
                     'today_completed': today_completed,
                     'today_volume': float(today_volume)
-                }
+                },
+                'kolejka': [],
+                'blad_priorytetow': priorytety is None,
             }
-        
-        # Renderuj komponent
+            sekcje = (priorytety or {}).get(station)
+            if sekcje is not None:
+                statystyki = sekcje.pop('stats', {})
+                dane.update(sekcje)
+                dane['stats'].update(statystyki)
+            stations_data[station] = dane
+
+        # Renderuj komponent (kolejność kart = kolejność wstawiania = STATION_ORDER; jsonify sortuje klucze `data`)
         rendered_html = render_template('components/stations-tab-content.html',
                               stations_data=stations_data)
-        
+
         return jsonify({
             'success': True,
             'html': rendered_html,
             'data': stations_data,
             'last_updated': get_local_now().isoformat()
         })
-        
+
     except Exception as e:
         logger.error("Błąd AJAX stations-tab-content", extra={
             'user_id': current_user.id,
             'error': str(e)
         })
-        
+
         return jsonify({
             'success': False,
             'error': str(e)
         }), 500
-  
-

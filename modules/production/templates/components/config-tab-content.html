@@ -753,12 +753,46 @@
                     </div>
                     <div>
                         <h4>Drukarka etykiet</h4>
-                        <p class="config-card-subtitle">Konfiguracja drukarki Xprinter XP-423B (ZPL, raw TCP socket port 9100)</p>
+                        <p class="config-card-subtitle">Etykiety produktów (Xprinter XP-423B, ZPL) i paczki 100×150 — wybierz drukarkę poniżej</p>
                     </div>
                 </div>
             </div>
             <div class="config-card-body">
 
+                <!-- Wybór drukarki: kontrolka widoku, NIE klucz konfiguracji (bez configChanged i resetu) -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-print"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title"><label for="drukarka_wybor">Drukarka</label></h5>
+                                    <p class="config-item-description">Wybierz drukarkę, której ustawienia edytujesz. „Wydruk próbny” drukuje na wybranej drukarce.</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <select class="form-select" id="drukarka_wybor"
+                                            onchange="wybierzDrukarke(this.value)">
+                                        <option value="etykiety" selected>Etykiety produktów (60×40)</option>
+                                        <option value="wysylka">Paczki (100×150)</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Grupa: drukarka etykiet produktów (60×40) -->
+                <div class="config-drukarka-grupa" data-drukarka="etykiety">
+                <div class="config-drukarka-naglowek">
+                    <strong>Połączenie bezpośrednie</strong>
+                    <span>Dotyczy trybu bez agenta druku. Przy agencie druku adres, port, timeout i ponowienia nie są używane.</span>
+                </div>
                 <!-- LABEL_PRINTER_IP -->
                 <div class="config-item">
                     <div class="config-item-row">
@@ -919,6 +953,10 @@
                     </div>
                 </div>
 
+                <div class="config-drukarka-naglowek">
+                    <strong>Wydruk etykiety</strong>
+                    <span>Obowiązuje w obu trybach: z agentem druku i bez.</span>
+                </div>
                 <!-- LABEL_PRINTER_OFFSET_LT -->
                 <div class="config-item">
                     <div class="config-item-row">
@@ -1038,7 +1076,99 @@
                         </div>
                     </div>
                 </div>
+                </div><!-- /grupa etykiety -->
 
+                <!-- Grupa: drukarka paczek (100×150); ukryta atrybutem hidden, dopóki wybrane są etykiety -->
+                <div class="config-drukarka-grupa" data-drukarka="wysylka" hidden>
+                <div class="config-drukarka-naglowek">
+                    <strong>Wydruk paczki</strong>
+                </div>
+                <!-- PACKAGE_LABEL_OFFSET_X_DOTS (logistyka etap 4) -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-arrows-alt-h"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">Drukarka paczek: przesunięcie poziome <span class="default-badge">domyślnie: 0</span></h5>
+                                    <p class="config-item-description">Przesuwa całą etykietę paczki 100×150 w punktach (8 punktów = 1 mm). Dodatnie w prawo, ujemne w lewo. Zakres od −120 do 120.</p>
+                                </div>
+                            </div>
+                            <div class="config-item-meta">
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-user"></i>
+                                    <span>Ostatnio: {{ config_groups.printer.PACKAGE_LABEL_OFFSET_X_DOTS.updated_by|default('System') }}</span>
+                                </div>
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-clock"></i>
+                                    <span>{{ config_groups.printer.PACKAGE_LABEL_OFFSET_X_DOTS.updated_at|default('---') }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="number" class="form-control" id="package_label_offset_x"
+                                           value="{{ config_groups.printer.PACKAGE_LABEL_OFFSET_X_DOTS.value|default(0) }}"
+                                           min="-120" max="120"
+                                           oninput="configChanged('PACKAGE_LABEL_OFFSET_X_DOTS', parseInt(this.value))">
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('PACKAGE_LABEL_OFFSET_X_DOTS')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- PACKAGE_LABEL_OFFSET_Y_DOTS (logistyka etap 4) -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-arrows-alt-v"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">Drukarka paczek: przesunięcie pionowe <span class="default-badge">domyślnie: 0</span></h5>
+                                    <p class="config-item-description">Dodatnie w dół, ujemne w górę (8 punktów = 1 mm). Zakres od −120 do 120. Najpierw skalibruj drukarkę (agent druku: <code>--kalibruj wysylka</code>).</p>
+                                </div>
+                            </div>
+                            <div class="config-item-meta">
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-user"></i>
+                                    <span>Ostatnio: {{ config_groups.printer.PACKAGE_LABEL_OFFSET_Y_DOTS.updated_by|default('System') }}</span>
+                                </div>
+                                <div class="config-item-meta-item">
+                                    <i class="fas fa-clock"></i>
+                                    <span>{{ config_groups.printer.PACKAGE_LABEL_OFFSET_Y_DOTS.updated_at|default('---') }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="number" class="form-control" id="package_label_offset_y"
+                                           value="{{ config_groups.printer.PACKAGE_LABEL_OFFSET_Y_DOTS.value|default(0) }}"
+                                           min="-120" max="120"
+                                           oninput="configChanged('PACKAGE_LABEL_OFFSET_Y_DOTS', parseInt(this.value))">
+                                </div>
+                                <button class="config-reset-btn" onclick="resetToDefault('PACKAGE_LABEL_OFFSET_Y_DOTS')" title="Przywróć domyślne">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                </div><!-- /grupa wysylka -->
+
+                <!-- Grupa wspólna: agent druku obsługuje obie drukarki, zawsze widoczna -->
+                <div class="config-drukarka-grupa" data-drukarka="wspolne">
+                <div class="config-drukarka-naglowek">
+                    <strong>Agent druku — wspólne dla obu drukarek</strong>
+                </div>
                 <!-- LABEL_PRINTER_USE_AGENT -->
                 <div class="config-item">
                     <div class="config-item-row">
@@ -1119,141 +1249,277 @@
                         </div>
                     </div>
                 </div>
+                </div><!-- /grupa wspolne -->
+
+                <!-- Wydruk próbny (logistyka etap 4): poza grupami, widoczny dla obu drukarek; drukuje na wybranej w liście -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-print"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">Wydruk próbny</h5>
+                                    <p class="config-item-description">Wysyła etykietę testową wybranej drukarki do kolejki agenta druku. Na drukarce paczek ramka powinna mieć ok. 3 mm od każdej krawędzi; jeśli nie, popraw przesunięcie, zapisz i drukuj ponownie.</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <button type="button" class="btn btn-outline-primary btn-sm w-100" onclick="wydrukProbnyWybranej()">
+                                        <i class="fas fa-print me-1"></i>Wydruk próbny
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
 
             </div>
         </div>
 
-        <!-- Priorytety i Deadlines -->
-        <div class="config-card">
+        <!-- Terminy -->
+        <!-- Karty „Terminy” i „Stół stanowisk” NIE przechodzą przez ogólny pasek zmian (pendingChanges): klucze terminów
+             i priorytetów zapisuje wyłącznie PUT /production/api/priorytety/ustawienia (jedna droga zapisu: walidacja
+             zakresów, wpis w logu priorytetów). Każda karta ma własny przycisk „Zapisz”; wartości wpisuje
+             config-module.js (loadPriorytetyUstawienia) po wczytaniu zakładki. Zmienia je tylko administrator. -->
+        <div class="config-card prio-karta" id="prio_karta_terminy">
             <div class="config-card-header">
                 <div class="config-card-title">
                     <div class="config-card-icon">
-                        <i class="fas fa-sort-amount-up"></i>
+                        <i class="fas fa-calendar-alt"></i>
                     </div>
                     <div>
-                        <h4>Priorytety i Deadlines</h4>
-                        <p class="config-card-subtitle">Algorytm priorytetów i zarządzanie terminami</p>
+                        <h4>Terminy</h4>
+                        <p class="config-card-subtitle">Termin realizacji nowych zamówień importowanych z Base.</p>
                     </div>
                 </div>
             </div>
             <div class="config-card-body">
-                
-                <!-- DEADLINE_DEFAULT_DAYS -->
+
+                <!-- DEADLINE_DEFAULT_DAYS (zapis: PUT /ustawienia, pole deadline_default_days) -->
                 <div class="config-item">
                     <div class="config-item-row">
                         <div class="config-item-main">
                             <div class="config-item-header">
                                 <div class="config-item-icon">
-                                    <i class="fas fa-calendar-alt"></i>
+                                    <i class="fas fa-calendar-day"></i>
                                 </div>
                                 <div class="config-item-info">
-                                    <h5 class="config-item-title">Domyślny termin realizacji <span class="default-badge">domyślnie: 14 dni</span></h5>
-                                    <p class="config-item-description">Ile dni od daty opłacenia zamówienia ustalany jest termin zakończenia produkcji</p>
-                                </div>
-                            </div>
-                            <div class="config-item-meta">
-                                <div class="config-item-meta-item">
-                                    <i class="fas fa-user"></i>
-                                    <span>Ostatnio: {{ config_groups.priorities.DEADLINE_DEFAULT_DAYS.updated_by|default('System') }}</span>
-                                </div>
-                                <div class="config-item-meta-item">
-                                    <i class="fas fa-clock"></i>
-                                    <span>{{ config_groups.priorities.DEADLINE_DEFAULT_DAYS.updated_at|default('2025-09-24 11:45:46') }}</span>
+                                    <h5 class="config-item-title">Termin zamówień surowych <span class="default-badge">domyślnie: 10 dni</span></h5>
+                                    <p class="config-item-description">Ile dni od opłacenia zamówienia bez wykończenia wyznacza termin zakończenia produkcji (1–90)</p>
                                 </div>
                             </div>
                         </div>
                         <div class="config-item-controls">
                             <div class="config-control-wrapper">
                                 <div class="config-control">
-                                    <input type="number" class="form-control" id="deadline_days" 
-                                           value="{{ config_groups.priorities.DEADLINE_DEFAULT_DAYS.value|default(14) }}" 
-                                           min="1" max="90" 
-                                           oninput="configChanged('DEADLINE_DEFAULT_DAYS', this.value)">
+                                    <input type="number" class="form-control" id="prio_deadline_default_days" min="1" max="90">
                                 </div>
-                                <button class="config-reset-btn" onclick="resetToDefault('DEADLINE_DEFAULT_DAYS')" title="Przywróć domyślne">
-                                    <i class="fas fa-undo"></i>
-                                </button>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- PRIORITY_RECALC_INTERVAL_HOURS -->
+                <!-- DEADLINE_FINISHED_DAYS (zapis: PUT /ustawienia, pole deadline_finished_days) -->
                 <div class="config-item">
                     <div class="config-item-row">
                         <div class="config-item-main">
                             <div class="config-item-header">
                                 <div class="config-item-icon">
-                                    <i class="fas fa-calculator"></i>
+                                    <i class="fas fa-paint-roller"></i>
                                 </div>
                                 <div class="config-item-info">
-                                    <h5 class="config-item-title">Przeliczanie priorytetów <span class="default-badge">domyślnie: co 24h</span></h5>
-                                    <p class="config-item-description">Co ile godzin system automatycznie przelicza priorytety wszystkich zamówień</p>
-                                </div>
-                            </div>
-                            <div class="config-item-meta">
-                                <div class="config-item-meta-item">
-                                    <i class="fas fa-user"></i>
-                                    <span>Ostatnio: {{ config_groups.priorities.PRIORITY_RECALC_INTERVAL_HOURS.updated_by|default('System') }}</span>
-                                </div>
-                                <div class="config-item-meta-item">
-                                    <i class="fas fa-clock"></i>
-                                    <span>{{ config_groups.priorities.PRIORITY_RECALC_INTERVAL_HOURS.updated_at|default('2025-09-26 14:05:32') }}</span>
+                                    <h5 class="config-item-title">Termin zamówień z wykończeniem <span class="default-badge">domyślnie: 14 dni</span></h5>
+                                    <p class="config-item-description">Ile dni od opłacenia zamówienia z choć jedną pozycją wykończoną (1–90)</p>
                                 </div>
                             </div>
                         </div>
                         <div class="config-item-controls">
                             <div class="config-control-wrapper">
                                 <div class="config-control">
-                                    <input type="number" class="form-control" id="priority_recalc" 
-                                           value="{{ config_groups.priorities.PRIORITY_RECALC_INTERVAL_HOURS.value|default(24) }}" 
-                                           min="1" max="168" 
-                                           oninput="configChanged('PRIORITY_RECALC_INTERVAL_HOURS', this.value)">
+                                    <input type="number" class="form-control" id="prio_deadline_finished_days" min="1" max="90">
                                 </div>
-                                <button class="config-reset-btn" onclick="resetToDefault('PRIORITY_RECALC_INTERVAL_HOURS')" title="Przywróć domyślne">
-                                    <i class="fas fa-undo"></i>
-                                </button>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- PRIORITY_ALGORITHM_VERSION -->
+                <!-- DEADLINE_DAY_TYPE (zapis: PUT /ustawienia, pole deadline_day_type) -->
                 <div class="config-item">
                     <div class="config-item-row">
                         <div class="config-item-main">
                             <div class="config-item-header">
                                 <div class="config-item-icon">
-                                    <i class="fas fa-code-branch"></i>
+                                    <i class="fas fa-business-time"></i>
                                 </div>
                                 <div class="config-item-info">
-                                    <h5 class="config-item-title">Wersja algorytmu priorytetów <span class="default-badge">domyślnie: 2.0</span></h5>
-                                    <p class="config-item-description">Aktualnie używana wersja algorytmu obliczania kolejności produkcji</p>
-                                </div>
-                            </div>
-                            <div class="config-item-meta">
-                                <div class="config-item-meta-item">
-                                    <i class="fas fa-user"></i>
-                                    <span>Ostatnio: {{ config_groups.priorities.PRIORITY_ALGORITHM_VERSION.updated_by|default('System') }}</span>
-                                </div>
-                                <div class="config-item-meta-item">
-                                    <i class="fas fa-clock"></i>
-                                    <span>{{ config_groups.priorities.PRIORITY_ALGORITHM_VERSION.updated_at|default('2025-09-26 14:05:32') }}</span>
+                                    <h5 class="config-item-title">Dni terminu <span class="default-badge">domyślnie: robocze</span></h5>
+                                    <p class="config-item-description">Czy liczyć dni robocze (pon–pt), czy kalendarzowe. Dotyczy tylko zamówień importowanych po zmianie — terminy w bazie się nie zmieniają.</p>
                                 </div>
                             </div>
                         </div>
                         <div class="config-item-controls">
                             <div class="config-control-wrapper">
                                 <div class="config-control">
-                                    <input type="text" class="form-control" id="priority_version" 
-                                           value="{{ config_groups.priorities.PRIORITY_ALGORITHM_VERSION.value|default('2.0') }}" 
-                                           readonly>
+                                    <select class="form-select" id="prio_deadline_day_type">
+                                        <option value="robocze">robocze</option>
+                                        <option value="kalendarzowe">kalendarzowe</option>
+                                    </select>
                                 </div>
-                                <button class="config-reset-btn" onclick="resetToDefault('PRIORITY_ALGORITHM_VERSION')" title="Przywróć domyślne">
-                                    <i class="fas fa-undo"></i>
-                                </button>
                             </div>
                         </div>
+                    </div>
+                </div>
+
+                <div class="prio-karta-stopka">
+                    <span class="prio-tylko-admin" hidden><i class="fas fa-lock me-1"></i>Tylko administrator</span>
+                    <button type="button" class="btn btn-primary btn-sm" id="prio_terminy_zapisz"
+                            onclick="savePriorytetyUstawienia('terminy')">
+                        <i class="fas fa-save me-1"></i>Zapisz terminy
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stół stanowisk -->
+        <!-- Tryb, liczba miejsc (K), jednostka kafla i limit odłożeń każdego stanowiska, próg „Blisko terminu”
+             i bramka wersji appki (spec priorytetów 5.1, 5.3, 8.6). Zapis jak karta „Terminy”. Lakiernia pracuje na
+             stałe z listy po wykończeniu — wiersz bez pól (spec, ustalenie 15). -->
+        <div class="config-card prio-karta" id="prio_karta_stol">
+            <div class="config-card-header">
+                <div class="config-card-title">
+                    <div class="config-card-icon">
+                        <i class="fas fa-layer-group"></i>
+                    </div>
+                    <div>
+                        <h4>Stół stanowisk</h4>
+                        <p class="config-card-subtitle">Ile kafli leży na tablecie, ile można odłożyć i od której wersji appki działa stół</p>
+                    </div>
+                </div>
+            </div>
+            <div class="config-card-body">
+                <div class="prio-tabela-wrapper">
+                    <table class="prio-tabela-stanowisk">
+                        <thead>
+                            <tr>
+                                <th>Stanowisko</th>
+                                <th>Tryb</th>
+                                <th>Miejsca na stole (K)</th>
+                                <th>Kafel</th>
+                                <th>Limit odłożeń</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for kod, nazwa in stanowiska_stolu %}
+                            <tr data-stanowisko="{{ kod }}">
+                                <td class="prio-stanowisko">{{ nazwa }}</td>
+                                {% if kod == 'painting' %}
+                                <td colspan="4" class="prio-lista">Lista (bez stołu) — Lakiernia pracuje z listy ułożonej po wykończeniu</td>
+                                {% else %}
+                                <td>
+                                    <select class="form-select prio-tryb" aria-label="Tryb: {{ nazwa }}">
+                                        <option value="stary">zgodność (stara appka)</option>
+                                        <option value="stol">stół</option>
+                                    </select>
+                                </td>
+                                <td><input type="number" class="form-control prio-miejsca" min="1" max="5" aria-label="Miejsca: {{ nazwa }}"></td>
+                                <td>
+                                    <select class="form-select prio-jednostka" aria-label="Kafel: {{ nazwa }}">
+                                        <option value="pozycja">pozycja</option>
+                                        <option value="zamowienie">zamówienie</option>
+                                    </select>
+                                </td>
+                                <td><input type="number" class="form-control prio-limit" min="1" max="50" aria-label="Limit odłożeń: {{ nazwa }}"></td>
+                                {% endif %}
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- priorytety_blisko_terminu_dni (zapis: PUT /ustawienia, pole blisko_terminu_dni) -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-hourglass-half"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">Próg „Blisko terminu” <span class="default-badge">domyślnie: 3 dni robocze</span></h5>
+                                    <p class="config-item-description">Zamówienie z terminem w ciągu tylu dni roboczych dostaje tag „Blisko terminu” na drabinie (0–15). Zmiana przelicza kolejkę.</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="number" class="form-control" id="prio_blisko_terminu_dni" min="0" max="15">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- priorytety_min_app_version_code (zapis: PUT /ustawienia, pole min_app_version_code) -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon">
+                                    <i class="fas fa-mobile-alt"></i>
+                                </div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title">Minimalna wersja appki <span class="default-badge">domyślnie: 0</span></h5>
+                                    <p class="config-item-description">Kod wersji appki tabletu, od którego działa stół. 0 = bez bramki wersji; ustawia K7 przed przełączeniem pierwszego stanowiska na stół.</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="number" class="form-control" id="prio_min_app_version_code" min="0">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="prio-karta-stopka">
+                    <span class="prio-tylko-admin" hidden><i class="fas fa-lock me-1"></i>Tylko administrator</span>
+                    <button type="button" class="btn btn-primary btn-sm" id="prio_stol_zapisz"
+                            onclick="savePriorytetyUstawienia('stol')">
+                        <i class="fas fa-save me-1"></i>Zapisz stół stanowisk
+                    </button>
+                </div>
+
+                <!-- Start stołów -->
+                <!-- Przejście tabletów na stół bez gubienia rozpoczętych (spec priorytetów 5.8; runbook K7). Podgląd:
+                     GET /production/api/priorytety/start (każdy z dostępem do produkcji); „Przygotuj stoły”:
+                     POST /start/przygotuj i „Włącz stoły”: jeden PUT /ustawienia — tylko administrator. -->
+                <div class="prio-start" id="prio_start">
+                    <h5 class="prio-start-tytul"><i class="fas fa-flag-checkered me-1"></i>Start stołów</h5>
+                    <ol class="prio-start-kroki">
+                        <li><strong>Podgląd</strong> (dzień wcześniej i w dniu startu): kafle rozpoczęte na każdym stanowisku — to wejdzie na stół ponad K.</li>
+                        <li><strong>Przygotuj stoły</strong> po zakończeniu zmiany: kafle rozpoczęte stają się kaflami stołu (tablety w trybie zgodności jeszcze ich nie pokazują). Można powtórzyć — dokłada tylko nowe.</li>
+                        <li>Poprawki biura: <strong>Wyślij na stanowisko</strong> i <strong>Zdejmij ze stołu</strong> (modal priorytetu w Liście produkcyjnej, zakładka Stanowiska).</li>
+                        <li><strong>Włącz stoły</strong> przed rozpoczęciem zmiany: minimalna wersja appki z pola wyżej i tryb „stół” dla sześciu stanowisk (Lakiernia zostaje na liście).</li>
+                        <li>„Rozpoczęte” na szczyt drabiny (Drabina priorytetów w Liście produkcyjnej); po zejściu kafli startowych — z powrotem pod ★★★★.</li>
+                    </ol>
+                    <div class="prio-start-podglad" id="prio_start_podglad">Wczytywanie podglądu startu…</div>
+                    <div class="prio-start-akcje">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" id="prio_start_odswiez" onclick="odswiezStartStolow()">
+                            <i class="fas fa-sync-alt me-1"></i>Odśwież podgląd
+                        </button>
+                        <button type="button" class="btn btn-outline-primary btn-sm" id="prio_start_przygotuj" onclick="przygotujStoly()">
+                            <i class="fas fa-clipboard-check me-1"></i>Przygotuj stoły
+                        </button>
+                        <button type="button" class="btn btn-warning btn-sm" id="prio_start_wlacz" onclick="wlaczStoly()">
+                            <i class="fas fa-power-off me-1"></i>Włącz stoły
+                        </button>
                     </div>
                 </div>
             </div>

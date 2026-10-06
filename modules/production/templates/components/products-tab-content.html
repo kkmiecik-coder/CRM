@@ -1,6 +1,14 @@
 {# Products Tab Content - Industrial Light Theme - Order Grouped #}
 <div id="products-module-container">
 
+  {# ─── NAGŁÓWEK ZAKŁADKI (priorytety produkcji, K4a): tytuł i przycisk „Drabina priorytetów” ─── #}
+  <div class="il-lista-naglowek">
+    <span class="il-lista-tytul">Lista produkcyjna</span>
+    <button type="button" class="il-btn-secondary il-drabina-btn" data-priorytety="drabina" aria-haspopup="dialog">
+      <i class="fas fa-layer-group" aria-hidden="true"></i> Drabina priorytetów
+    </button>
+  </div>
+
   {# ─── STATS BAR ─── #}
   <div class="il-stats-bar">
     <div class="il-stat-card">
@@ -106,9 +114,9 @@
 
   {# ─── COLUMN HEADERS ─── #}
   <div class="il-orders-header">
-    <span></span>
+    <span title="Miejsce w kolejce produkcji">#</span>
     <span><input type="checkbox" id="il-select-all" class="il-order-checkbox" title="Zaznacz wszystkie"></span>
-    <span></span>
+    <span title="Gwiazdki zamówienia">★</span>
     <span></span>
     <span>Klient / Zamówienie</span>
     <span>Pozycje</span>
@@ -117,6 +125,11 @@
     <span style="text-align:center;">Status</span>
     <span style="text-align:center;">Termin</span>
     <span>Akcje</span>
+  </div>
+
+  {# ─── OSTRZEŻENIE: kolejność wg terminu, gdy /kolejka nie odpowie (priorytety produkcji, K4a) ─── #}
+  <div id="il-priorytety-ostrzezenie" class="il-priorytety-ostrzezenie" role="status" hidden>
+    <i class="fas fa-exclamation-triangle" aria-hidden="true"></i> Kolejność wg terminu: nie udało się wczytać priorytetów
   </div>
 
   {# ─── ORDERS LIST ─── #}
@@ -148,6 +161,7 @@
   <div id="il-bulk-bar" class="il-bulk-bar" style="display:none;">
     <span class="il-bulk-count">0 zaznaczone</span>
     <button class="il-bulk-btn" data-action="status"><i class="fas fa-exchange-alt"></i> Zmień status</button>
+    <button class="il-bulk-btn" data-action="stars"><i class="fas fa-star"></i> Ustaw gwiazdki</button>
     <button class="il-bulk-btn" data-action="export"><i class="fas fa-file-export"></i> Eksport</button>
     <button class="il-bulk-btn danger" data-action="delete"><i class="fas fa-trash"></i> Usuń</button>
   </div>
@@ -190,9 +204,9 @@
 <template id="il-order-template">
   <div class="il-order-card">
     <div class="il-order-header">
-      <span class="il-drag-handle"><i class="fas fa-grip-vertical"></i></span>
+      <span class="il-order-ranga" title="Miejsce w kolejce produkcji"></span>
       <input type="checkbox" class="il-order-checkbox">
-      <span class="il-star-btn"><i class="far fa-star"></i></span>
+      <button type="button" class="il-priorytet-btn" aria-haspopup="dialog" title="Priorytet zamówienia"></button>
       <span class="il-order-expand">▶</span>
       <div class="il-order-info">
         <span class="il-order-client"></span>
@@ -218,7 +232,6 @@
 <template id="il-product-template">
   <div class="il-product-row">
     <input type="checkbox" class="il-product-checkbox">
-    <span class="il-star-btn il-product-star"><i class="far fa-star"></i></span>
     <div class="il-product-name">
       <div class="il-product-name-text"></div>
       <div class="il-product-name-id"></div>
@@ -265,14 +278,6 @@
                                 </div>
                             </button>
 
-                            <button class="btn btn-outline-warning bulk-action-btn" data-action="set-priority">
-                                <i class="fas fa-star me-2"></i>
-                                <div>
-                                    <strong>Ustaw priorytet</strong>
-                                    <br><small>Zmień priorytet produktów</small>
-                                </div>
-                            </button>
-
                             <button class="btn btn-outline-success bulk-action-btn" data-action="export">
                                 <i class="fas fa-download me-2"></i>
                                 <div>
@@ -302,7 +307,6 @@
                             <option value="czeka_na_formatowanie">Czeka na formatowanie</option>
                             <option value="czeka_na_krawedzie">Czeka na krawędzie</option>
                             <option value="czeka_na_lakiernie">Czeka na lakiernię</option>
-                            <option value="czeka_na_logistyke">Czeka na logistykę</option>
                             <option value="czeka_na_pakowanie">Czeka na pakowanie</option>
                             <option value="spakowane">Spakowane</option>
                             <option value="wstrzymane">Wstrzymane</option>
@@ -311,22 +315,6 @@
                         <div class="mt-2">
                             <label for="bulk-status-note" class="form-label">Notatka (opcjonalna):</label>
                             <textarea class="form-control" id="bulk-status-note" rows="2" placeholder="Uzasadnienie zmiany statusu..."></textarea>
-                        </div>
-                    </div>
-
-                    <!-- Formularz ustawiania priorytetu -->
-                    <div class="bulk-priority-form" style="display: none;">
-                        <h6>Ustaw priorytet:</h6>
-                        <div class="row">
-                            <div class="col-6">
-                                <input type="range" class="form-range" id="bulk-priority-slider" min="1" max="999" value="100">
-                            </div>
-                            <div class="col-6">
-                                <input type="number" class="form-control" id="bulk-priority-input" min="1" max="999" value="100">
-                            </div>
-                        </div>
-                        <div class="priority-preview mt-2">
-                            <span class="priority-rank priority-normal">100</span>
                         </div>
                     </div>
 
@@ -373,7 +361,6 @@
                             <div class="status-badge-large" data-field="current_status">
                                 <i class="fas fa-cut me-2"></i>
                                 <span class="status-text">Wycinanie - mikro</span>
-                                <span class="priority-indicator priority-high" data-field="priority_indicator"></span>
                             </div>
                             <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                         </div>

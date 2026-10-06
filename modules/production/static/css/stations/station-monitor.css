@@ -716,3 +716,51 @@ body {
         grid-template-columns: 1fr;
     }
 }
+
+/* ── PRIORYTETY: gwiazdki i plakietki szczebla na kartach monitora zbiorczego (spec priorytetów 7.2) ── */
+.order-prio-wiersz {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.order-prio-wiersz:empty,
+.order-prio:empty {
+    display: none;
+}
+
+.order-prio {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.prio-gwiazdki {
+    color: #fbbf24;
+    letter-spacing: 1px;
+    white-space: nowrap;
+}
+
+.prio-plakietka,
+.zrodlo-plakietka,
+.grupa-wykonczenia {
+    display: inline-flex;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 0.75em;
+    font-weight: 700;
+    white-space: nowrap;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+}
+
+.prio-plakietka.prio-trasa { background: #1e3a8a; color: #dbeafe; }
+.prio-plakietka.prio-po_terminie { background: #7f1d1d; color: #fee2e2; }
+.prio-plakietka.prio-blisko_terminu { background: #78350f; color: #fef3c7; }
+.prio-plakietka.prio-rozpoczete { background: #064e3b; color: #d1fae5; }
+.prio-plakietka.prio-dorobka { background: #831843; color: #fce7f3; }
+
+/* Monitor zbiorczy używa JS monitora stanowiska — karta „na stole” nie występuje, ale klasa ma styl. */
+.order-card.na-stole {
+    box-shadow: 0 0 0 2px #ED6B24 inset;
+}

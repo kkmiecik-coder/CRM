@@ -121,7 +121,8 @@
     display: inline-block;
 }
 
-.high-priority-dot {
+/* Kropka przy liczniku = stanowisko ma odłożone kafle (priorytety, spec 7.2). */
+.odlozone-dot {
     position: absolute;
     top: -4px;
     right: -8px;
@@ -190,11 +191,6 @@
 .station-stats-inline {
     font-size: 0.875rem;
     color: var(--text-secondary);
-}
-
-.priority-count {
-    color: var(--danger-color);
-    font-weight: 500;
 }
 
 .btn-link-station {
@@ -291,10 +287,6 @@
     font-size: 0.875rem;
 }
 
-.td-priority {
-    width: 80px;
-}
-
 .td-id {
     width: 120px;
     font-weight: 600;
@@ -308,29 +300,6 @@
 .td-deadline {
     width: 100px;
     text-align: right;
-}
-
-.priority-value {
-    display: inline-block;
-    padding: 4px 10px;
-    border-radius: 4px;
-    font-size: 0.75rem;
-    font-weight: 700;
-}
-
-.priority-value.priority-high {
-    background: #fef2f2;
-    color: var(--danger-color);
-}
-
-.priority-value.priority-normal {
-    background: #fffbeb;
-    color: var(--warning-color);
-}
-
-.priority-value.priority-low {
-    background: #f3f4f6;
-    color: var(--text-muted);
 }
 
 .deadline-text {
@@ -389,97 +358,195 @@
     margin-bottom: 8px;
 }
 
-/* ============================================================================
-   PRIORITY SECTION - Produkty priorytetowe
-   ============================================================================ */
-
-.priority-section {
-    background: white;
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    padding: 20px;
-}
-
-.priority-badge {
-    padding: 6px 12px;
-    background: #fef2f2;
-    color: var(--danger-color);
-    border-radius: 6px;
-    font-size: 0.75rem;
-    font-weight: 600;
-}
-
-.priority-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-top: 16px;
-}
-
-.priority-table thead {
-    background: var(--bg-gray);
-}
-
-.priority-table thead th {
-    padding: 12px 16px;
-    text-align: left;
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: var(--text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    border-bottom: 2px solid var(--border-color);
-}
-
-.priority-table tbody tr {
-    border-bottom: 1px solid var(--border-color);
-    transition: background 0.15s;
-}
-
-.priority-table tbody tr:hover {
-    background: var(--bg-gray);
-}
-
-.priority-table tbody td {
-    padding: 14px 16px;
-    font-size: 0.875rem;
-    color: var(--text-primary);
-    vertical-align: middle;
-}
-
-.station-label {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-}
-
-.station-emoji-small {
-    font-size: 16px;
-}
-
-.btn-icon {
-    width: 32px;
-    height: 32px;
-    padding: 0;
-    background: white;
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    color: var(--text-secondary);
-    cursor: pointer;
-    transition: all 0.2s;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    margin-right: 6px;
-}
-
-.btn-icon:hover {
-    background: var(--text-primary);
-    color: white;
-    border-color: var(--text-primary);
-}
-
 .text-muted {
     color: var(--text-muted);
+}
+
+/* ============================================================================
+   STÓŁ STANOWISKA - stół, odłożone, niekompletne (priorytety, spec 5.1, 5.3, 5.6, 7.2)
+   ============================================================================ */
+
+.stol-pasek {
+    color: var(--text-secondary);
+}
+
+.stol-sekcja {
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 16px;
+}
+
+/* Stół bywa dłuższy niż K (doróbki, wysłane przez biuro, startowe) — lista przewijana, bez stałych miejsc. */
+.stol-lista {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: 360px;
+    overflow-y: auto;
+}
+
+.stol-kafel {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 0.875rem;
+    cursor: pointer;
+}
+
+.stol-kafel:last-child {
+    border-bottom: none;
+}
+
+.stol-kafel:hover {
+    background: var(--bg-gray);
+}
+
+.stol-kafel.odlozony {
+    background: #fffbeb;
+}
+
+.stol-pusty {
+    padding: 12px 16px;
+    color: var(--text-muted);
+    font-size: 0.875rem;
+}
+
+.kafel-meta {
+    color: var(--text-secondary);
+}
+
+.kafel-czas {
+    margin-left: auto;
+    color: var(--text-muted);
+    font-size: 0.8125rem;
+}
+
+.odlozenie-powod {
+    font-weight: 600;
+    color: #b45309;
+}
+
+.odlozenie-notatka {
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+.stol-kafel.widmo {
+    background: #f9fafb;
+    cursor: default;
+}
+
+/* Źródło kafla (spec 5.1): wysłany przez biuro, rozpoczęty przed startem, doróbka */
+.zrodlo-plakietka {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.zrodlo-plakietka.zrodlo-biuro {
+    background: #ede9fe;
+    color: #6d28d9;
+}
+
+.zrodlo-plakietka.zrodlo-start {
+    background: #e0f2fe;
+    color: #0369a1;
+}
+
+.zrodlo-plakietka.zrodlo-dorobka {
+    background: #fdf2f8;
+    color: #be185d;
+}
+
+/* „Zdejmij ze stołu” (spec 5.7) */
+.kafel-akcje {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.btn-zdejmij {
+    padding: 4px 10px;
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.btn-zdejmij:hover {
+    background: var(--danger-color);
+    border-color: var(--danger-color);
+    color: white;
+}
+
+.kafel-wroci {
+    font-size: 0.75rem;
+    color: #b45309;
+}
+
+.prio-blad i {
+    color: var(--warning-color);
+}
+
+.td-lp {
+    width: 44px;
+    color: var(--text-muted);
+}
+
+.td-prio {
+    width: 220px;
+}
+
+/* Gwiazdki i plakietki szczebla (makra components/_priorytet_plakietki.html) */
+.prio-gwiazdki {
+    color: #f59e0b;
+    letter-spacing: 1px;
+    white-space: nowrap;
+}
+
+.prio-plakietka {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    white-space: nowrap;
+    background: #f3f4f6;
+    color: var(--text-secondary);
+}
+
+.prio-plakietka.prio-trasa {
+    background: #eff6ff;
+    color: #1d4ed8;
+}
+
+.prio-plakietka.prio-po_terminie {
+    background: #fef2f2;
+    color: var(--danger-color);
+}
+
+.prio-plakietka.prio-blisko_terminu {
+    background: #fffbeb;
+    color: #b45309;
+}
+
+.prio-plakietka.prio-rozpoczete {
+    background: #ecfdf5;
+    color: #047857;
+}
+
+.prio-plakietka.prio-dorobka {
+    background: #fdf2f8;
+    color: #be185d;
 }
 
 /* ============================================================================
@@ -508,15 +575,6 @@
 }
 
 @media (max-width: 768px) {
-    .priority-table {
-        font-size: 0.8125rem;
-    }
-
-    .priority-table thead th,
-    .priority-table tbody td {
-        padding: 10px 12px;
-    }
-
     .station-metrics {
         grid-template-columns: 1fr;
     }

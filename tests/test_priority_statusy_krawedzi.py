@@ -83,9 +83,14 @@ def _produkt(status):
     return produkt
 
 
-def test_kalkulator_zna_obie_kolejki_po_rozdziale():
-    aktywne = priority_service.NewPriorityCalculator().active_statuses
+def test_stale_statusy_produkcji_znaja_obie_kolejki():
+    """Od priorytetów produkcji P1 (2026-10) rangę liczy `priorytety.services.kolejka` — jedna lista statusów
+    „w produkcji” w `priorytety/stale.py` zamiast kopii w kalkulatorze."""
+    from modules.production.priorytety import stale
 
+    aktywne = stale.STATUSY_PRODUKCJI
+
+    assert len(aktywne) == 7
     assert 'czeka_na_krawedzie' in aktywne
     assert 'czeka_na_lakiernie' in aktywne
     assert 'czeka_na_wykanczanie' not in aktywne

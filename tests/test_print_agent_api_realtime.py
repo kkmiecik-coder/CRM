@@ -94,6 +94,9 @@ class _FakeQuery:
     def filter(self, *args, **kwargs):
         return self
 
+    def order_by(self, *args, **kwargs):   # stała kolejność zapisów wygasania (dokładka po re-review 4.10)
+        return self
+
     def all(self):
         # Od 2026-09 sprzątanie WYBIERA wygasające zadania zamiast robić bulk
         # UPDATE — musi znać product_id każdego z nich, żeby cofnąć licznik
@@ -114,6 +117,7 @@ def expire_calls(monkeypatch):
     class _FakeModel:
         status = _FakeColumn()
         requested_at = _FakeColumn()
+        id = _FakeColumn()
         query = _FakeQuery(calls)
 
     monkeypatch.setattr(print_agent_api, 'LabelPrintJob', _FakeModel)

@@ -92,7 +92,7 @@ def test_skrot_bez_dociecia_zgadza_sie_w_obu_kopiach():
         produkt = _produkt(finish, edge, cut_to_size=False,
                            status='czeka_na_sklejanie')
         produkt.complete_task('gluing')
-        assert produkt.current_status == 'czeka_na_logistyke', (finish, edge)
+        assert produkt.current_status == 'czeka_na_pakowanie', (finish, edge)
         assert ots.product_in_route(produkt, 'formatting') is False
         assert ots.product_in_route(produkt, 'edges') is False
         assert ots.product_in_route(produkt, 'painting') is False
@@ -106,5 +106,5 @@ def test_bejcowane_omija_lakiernie_w_obu_kopiach_jednakowo():
     """
     produkt = _produkt('bejcowane', edge=True, status='czeka_na_krawedzie')
     produkt.complete_task('edges')
-    assert produkt.current_status == 'czeka_na_logistyke'
+    assert produkt.current_status == 'czeka_na_pakowanie'
     assert ots.product_in_route(produkt, 'painting') is False

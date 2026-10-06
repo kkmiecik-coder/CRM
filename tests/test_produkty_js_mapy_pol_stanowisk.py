@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from tests.krawedzie_fixtures import JS_PRODUKTY, zrodlo
 
 KODY = ['cutting', 'assembly', 'gluing', 'formatting',
-        'edges', 'painting', 'logistics', 'packaging']
+        'edges', 'painting', 'packaging']
 
 
 def _blok(naglowek, domkniecie):

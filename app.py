@@ -877,6 +877,17 @@ def create_app():
         from modules.production.sawmill import sawmill_mobile_bp, sawmill_panel_bp
         app.register_blueprint(sawmill_mobile_bp, url_prefix='/api/mobile/sawmill')
         app.register_blueprint(sawmill_panel_bp, url_prefix='/production/api/sawmill')
+        # Logistyka etap 4, krok 4.3: telefon Weryfikacji.
+        from modules.production.logistics.routers.weryfikacja_api import weryfikacja_mobile_bp
+        app.register_blueprint(weryfikacja_mobile_bp, url_prefix='/api/mobile/verification')
+        # Logistyka etap 4, krok 4.4: telefon kierowcy (Dostawa).
+        from modules.production.logistics.routers.dostawa_api import dostawa_mobile_bp
+        app.register_blueprint(dostawa_mobile_bp, url_prefix='/api/mobile/delivery')
+        from modules.production.logistics import logistics_panel_bp
+        app.register_blueprint(logistics_panel_bp, url_prefix='/production/api/logistics')
+        # Priorytety produkcji (krok K2): panel biura — drabina, gwiazdki, kolejka, ustawienia.
+        from modules.production.priorytety import priorytety_panel_bp
+        app.register_blueprint(priorytety_panel_bp, url_prefix='/production/api/priorytety')
         app.register_blueprint(print_agent_bp, url_prefix='/api/print-agent')
         app.register_blueprint(production_display_bp, url_prefix='/production')
         app.register_blueprint(partner_academy_bp, url_prefix='/partner-academy')

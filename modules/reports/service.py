@@ -44,6 +44,8 @@ STATUSY_BASELINKER: Dict[int, str] = {
     149777: "Czeka na odbiór osobisty",
     149778: "Dostarczona - trans. WoodPower",
     149779: "Odebrane",
+    417343: "Planowana trasa",
+    524520: "Załadowane - trans. WoodPower",
     316636: "Reklamacja",
     138625: "Zamówienie anulowane",
 }

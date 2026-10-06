@@ -1,0 +1,822 @@
+{# Zakładka Logistyka — doczytywana AJAX-em przez production-app-loader.js
+   (loadLogisticsTab). Szablon niesie tylko szkielet: liczniki, filtry i tabelę
+   wypełnia logistics.js z /production/api/logistics/orders, mapę rysuje
+   logistics-map.js (etap 2).
+
+   Zasady tego fragmentu:
+   - ŻADNEGO data-bs-toggle="tab", data-goto-tab ani klasy .tab-pane —
+     production-app-loader nasłuchuje na nie globalnie (handleTabClick,
+     updateTabUI) i wziąłby podzakładkę za zakładkę główną.
+   - W tekstach „Base.”, nigdy nazwa integracji ani skrót.
+   - Wiersze „Nie ustawiono” to kolejka pracy logistyka: taśma na lewej
+     krawędzi (ten sam znak co przy liczniku) i ciepłe tło, reszta spokojna.
+   - Leaflet i klastry wyłącznie z modules/production/static/vendor/ (Safari ITP
+     blokuje CDN). #}
+<link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet/leaflet.css') }}?v=1.9.4">
+<link rel="stylesheet" href="{{ url_for('production.static', filename='vendor/leaflet-markercluster/MarkerCluster.css') }}?v=1.5.3">
+<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics.css') }}?v=20261006b">
+{# Etap 3: trasy, flota, widok tras na mapie — osobny arkusz (logistics.css zostaje nietknięty). #}
+<link rel="stylesheet" href="{{ url_for('logistics_panel.static', filename='css/logistics-trasy.css') }}?v=20261005a">
+
+<div id="logistics-root" class="logistics-tab"
+     data-api="{{ url_for('logistics_panel.orders') }}"
+     data-magazyn-lat="{{ magazyn.lat }}" data-magazyn-lng="{{ magazyn.lng }}"
+     data-magazyn-nazwa="{{ magazyn.nazwa }}"
+     data-ors="{{ '1' if ors_dostepny else '0' }}"
+     data-logo-base="{{ url_for('logistics_panel.static', filename='img/base-logo.png') }}?v=20260925a">
+
+  {# ─── NAGŁÓWEK: podzakładki + odświeżanie ───
+       Dashboard | Trasy | Flota (etap 3) — przełącza logistics.js (pokazWidok), bez
+       przeładowania; ostatnia zapamiętana w localStorage. „Stan na” i „Odśwież”
+       dotyczą listy zamówień, więc widać je tylko na Dashboardzie. #}
+  <div class="lg-naglowek">
+    <div class="lg-podzakladki" role="tablist" aria-label="Widoki logistyki">
+      <button type="button" class="lg-podzakladka is-aktywna" role="tab" id="lg-zakladka-dashboard"
+              aria-selected="true" aria-controls="lg-widok-dashboard" data-lg-widok="dashboard">Dashboard</button>
+      <button type="button" class="lg-podzakladka" role="tab" id="lg-zakladka-routes" tabindex="-1"
+              aria-selected="false" aria-controls="lg-widok-routes" data-lg-widok="routes">Trasy</button>
+      <button type="button" class="lg-podzakladka" role="tab" id="lg-zakladka-fleet" tabindex="-1"
+              aria-selected="false" aria-controls="lg-widok-fleet" data-lg-widok="fleet">Flota</button>
+    </div>
+    <div class="lg-naglowek-akcje">
+      <span class="lg-odswiezono" data-lg="odswiezono"></span>
+      <button type="button" class="lg-przycisk" data-lg-akcja="odswiez" title="Pobierz listę od nowa">
+        <i class="fas fa-rotate-right" aria-hidden="true"></i><span>Odśwież</span>
+      </button>
+    </div>
+  </div>
+
+  {# ═══ PODZAKŁADKA DASHBOARD ═══ — cała dotychczasowa treść zakładki (etapy 1–2). #}
+  <div class="lg-widok" id="lg-widok-dashboard" role="tabpanel" aria-labelledby="lg-zakladka-dashboard"
+       data-logistics-view="dashboard">
+    {# (U9, oględziny 2.10) Komunikaty podzakładki NA POCZĄTKU panelu: nakładka sticky w prawym górnym rogu
+         (CSS: .lg-komunikaty--nakladka) — nie przesuwa układu, widać ją też po przewinięciu. pokazKomunikat
+         (logistics.js) wybiera kontener bieżącej podzakładki, karty kładzie w przewijanym stosie (.lg-komunikaty-stos). #}
+    <div class="lg-komunikaty lg-komunikaty--nakladka" data-lg="komunikaty" data-lg-komunikaty="dashboard" aria-live="polite"><div class="lg-komunikaty-stos"></div></div>
+
+  {# ─── LICZNIKI = FILTR SPOSOBU DOSTAWY ───
+       Liczą wszystkie OTWARTE zamówienia (niezależnie od wyszukiwarki).
+       Kliknięcie aktywnego licznika zdejmuje filtr. Ikony mają kolor pinezek
+       na mapie — licznik jest też legendą kolorów. #}
+  <div class="lg-liczniki" role="group" aria-label="Filtr sposobu dostawy">
+    <button type="button" class="lg-licznik lg-licznik--brak" data-lg-sposob="brak" aria-pressed="false">
+      <span class="lg-licznik-etykieta">Nie ustawiono</span>
+      <span class="lg-licznik-liczba" data-licznik="brak">–</span>
+    </button>
+    <button type="button" class="lg-licznik" data-lg-sposob="kurier_baselinker" aria-pressed="false">
+      <i class="fas fa-truck-fast" aria-hidden="true"></i>
+      <span class="lg-licznik-etykieta">Kurier</span>
+      <span class="lg-licznik-liczba" data-licznik="kurier_baselinker">–</span>
+    </button>
+    <button type="button" class="lg-licznik" data-lg-sposob="transport_woodpower" aria-pressed="false">
+      <i class="fas fa-truck" aria-hidden="true"></i>
+      <span class="lg-licznik-etykieta">Transport własny</span>
+      <span class="lg-licznik-liczba" data-licznik="transport_woodpower">–</span>
+    </button>
+    <button type="button" class="lg-licznik" data-lg-sposob="odbior_osobisty" aria-pressed="false">
+      <i class="fas fa-warehouse" aria-hidden="true"></i>
+      <span class="lg-licznik-etykieta">Odbiór osobisty</span>
+      <span class="lg-licznik-liczba" data-licznik="odbior_osobisty">–</span>
+    </button>
+    <button type="button" class="lg-licznik lg-licznik--wszystkie is-aktywny" data-lg-sposob="" aria-pressed="true">
+      <span class="lg-licznik-etykieta">Wszystkie otwarte</span>
+      <span class="lg-licznik-liczba" data-licznik="wszystkie">–</span>
+    </button>
+  </div>
+
+  {# Baner pauzy po limicie API Base. — pokazywany, gdy base_wstrzymane_do ≠ null. #}
+  <div class="lg-baner" data-lg="baner" role="status" hidden>
+    <i class="fas fa-circle-pause" aria-hidden="true"></i>
+    <span data-lg="baner-tekst"></span>
+  </div>
+
+  {# ─── UKŁAD: LISTA + MAPA ───
+       .lg-uklad jest kontenerem zapytań @container: szeroka zakładka (≥ 1000 px)
+       = lista po lewej, mapa przyklejona po prawej; węziej mapa nad listą,
+       pod wyszukiwarką. Kolejność w DOM (sterowanie, mapa, lista) = kolejność
+       w układzie wąskim. #}
+  <div class="lg-uklad">
+    <div class="lg-uklad-siatka">
+
+      {# ─── WYSZUKIWARKA I FILTR ETAPU ─── (działają też na mapie) #}
+      <div class="lg-sterowanie">
+        <div class="lg-narzedzia">
+          <label class="lg-szukaj">
+            <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
+            <input type="search" data-lg="q" autocomplete="off" spellcheck="false"
+                   placeholder="Szukaj: numer, klient, adres, kod" aria-label="Szukaj zamówienia po numerze, kliencie, ulicy, kodzie pocztowym albo miejscowości">
+          </label>
+          <label class="lg-przelacznik" data-lg="zamkniete-pole"
+                 title="Wpisz frazę, żeby szukać także w zamkniętych zamówieniach">
+            <input type="checkbox" data-lg="zamkniete" disabled>
+            <span>także zamknięte</span>
+          </label>
+          <span class="lg-podpowiedz-pola" data-lg="zamkniete-podpowiedz">wymaga frazy</span>
+          <label class="lg-etap-filtr">
+            <span>Etap</span>
+            <select class="form-select form-select-sm" data-lg="etap" aria-label="Filtr etapu produkcji">
+              <option value="">Wszystkie etapy</option>
+            </select>
+          </label>
+          {# Filtr dokładności lokalizacji (po stronie przeglądarki, jak etap). Licznik
+               „Bez lokalizacji” nad mapą przełącza go na „Bez lokalizacji”. #}
+          <label class="lg-etap-filtr lg-geo-filtr">
+            <span>Lokalizacja</span>
+            <select class="form-select form-select-sm" data-lg="geo" aria-label="Filtr dokładności lokalizacji">
+              <option value="">Wszystkie</option>
+            </select>
+          </label>
+          {# Filtr trasy (6.10): jedna trasa robocza, zatwierdzona, załadowana albo w trasie, albo „Bez trasy”.
+               Po stronie przeglądarki (jak etap i lokalizacja) na polu `trasa` wiersza; opcje z GET /routes
+               (nazwa i daty) — logistics.js, renderujFiltrTras. Bez zapamiętywania. #}
+          <label class="lg-etap-filtr lg-trasa-filtr">
+            <span>Trasa</span>
+            <select class="form-select form-select-sm" data-lg="trasa" aria-label="Filtr trasy">
+              <option value="">Wszystkie trasy</option>
+            </select>
+          </label>
+          {# Etap 3: ten sam filtr sposobu co liczniki (sposob=bez_trasy) — klik w licznik
+               go zdejmuje, drugi klik tutaj też. Tu, a nie przy licznikach: pasek liczników
+               przy 1280 px z panelem bocznym jest już pełny. #}
+          <button type="button" class="lg-filtr-trasy" data-lg-sposob="bez_trasy" aria-pressed="false"
+                  title="Zamówienia z transportem własnym, które nie są jeszcze na żadnej trasie">
+            <i class="fas fa-route" aria-hidden="true"></i><span>Transport bez trasy</span>
+          </button>
+          {# Krok 4.3 (spec 11): filtry Weryfikacji — filtr serwera (?stan=…), wykluczają się wzajemnie
+               (logistics.js, ustawStanFiltra). Liczby przychodzą w odpowiedzi listy (`weryfikacja`), więc
+               nie zależą od bieżącego widoku. Ta sama rodzina co „Transport bez trasy”: aktywny = ciemny. #}
+          <div class="lg-filtry-stanu" role="group" aria-label="Weryfikacja paczek">
+            <button type="button" class="lg-filtr-stanu" data-lg-stan="do_weryfikacji" aria-pressed="false"
+                    title="Spakowane zamówienia, które czekają na sprawdzenie paczek">
+              <i class="fas fa-clipboard-check" aria-hidden="true"></i><span>Do weryfikacji</span>
+              <span class="lg-filtr-stanu-liczba">–</span>
+            </button>
+            <button type="button" class="lg-filtr-stanu" data-lg-stan="problem" aria-pressed="false"
+                    title="Zamówienia z problemem zgłoszonym przy weryfikacji paczek">
+              <i class="fas fa-triangle-exclamation" aria-hidden="true"></i><span>Problem</span>
+              <span class="lg-filtr-stanu-liczba">–</span>
+            </button>
+            <button type="button" class="lg-filtr-stanu" data-lg-stan="bez_paczek" aria-pressed="false"
+                    title="Spakowane zamówienia bez zadeklarowanych paczek">
+              <i class="fas fa-boxes-stacked" aria-hidden="true"></i><span>Bez paczek</span>
+              <span class="lg-filtr-stanu-liczba">–</span>
+            </button>
+          </div>
+          {# Runda 2 (spec 2.5): województwa z KODU POCZTOWEGO (te same zakresy co Region w eksporcie
+               Routimo — modules/production/logistics/wojewodztwa.py). Kilka naraz, filtr serwera
+               (?woj=…), bez zapamiętywania. Panel: logistics-wojewodztwa.js; filtr listy: logistics.js
+               (zdarzenie logistics:wojewodztwa). #}
+          <div class="lg-woj" data-lg-woj="kontener">
+            <button type="button" class="lg-woj-przycisk" data-lg-woj="przycisk"
+                    aria-expanded="false" aria-controls="lg-woj-panel"
+                    title="Filtr województw (wg kodu pocztowego)">
+              <i class="fas fa-map-location-dot" aria-hidden="true"></i><span data-lg-woj="etykieta">Województwa</span>
+              <i class="fas fa-chevron-down lg-woj-strzalka" aria-hidden="true"></i>
+            </button>
+            <div class="lg-woj-panel" id="lg-woj-panel" data-lg-woj="panel" hidden>
+              <fieldset class="lg-woj-pola">
+                <legend class="lg-woj-podpowiedz">wg kodu pocztowego, w przybliżeniu</legend>
+                <div class="lg-woj-lista">
+                  {% for identyfikator, nazwa in opcje_wojewodztw %}
+                  <label class="lg-woj-opcja"><input type="checkbox" data-lg-woj-pole value="{{ identyfikator }}"><span>{{ nazwa }}</span></label>
+                  {% endfor %}
+                </div>
+                <div class="lg-woj-lista lg-woj-lista--inne">
+                  {% for identyfikator, nazwa in opcje_pozostale %}
+                  <label class="lg-woj-opcja"><input type="checkbox" data-lg-woj-pole value="{{ identyfikator }}"><span>{{ nazwa }}</span></label>
+                  {% endfor %}
+                </div>
+              </fieldset>
+              <div class="lg-woj-stopka">
+                <button type="button" class="lg-przycisk lg-przycisk--cichy" data-lg-woj="wyczysc">Wyczyść</button>
+              </div>
+            </div>
+          </div>
+          <span class="lg-ile" data-lg="ile" aria-live="polite"></span>
+        </div>
+
+      </div>
+
+      {# ─── MAPA ───
+           Pinezki rysuje logistics-map.js (window.LogisticsMap). Przyciski
+           w nagłówku obsługuje logistics.js — to filtr listy i odświeżanie listy.
+           Akcje w dymkach i pasku mapy mają data-lg-mapa-akcja (nie data-lg-akcja),
+           żeby delegacja listy ich nie łapała. #}
+      <section class="lg-mapa-panel" aria-label="Mapa zamówień">
+        <div class="lg-mapa-naglowek">
+          {# Przełącznik widoków mapy (etap 3). Klik obsługuje logistics-routes.js (pobiera
+               trasy z GET /routes/map), stan przycisków ustawia logistics-map.js (ustawWidok).
+               „Trasy” czeka nieaktywne, aż logistics-routes.js się wczyta. #}
+          <div class="lg-mapa-widoki" data-lg-mapa="widoki">
+            <div class="lg-mapa-przelacznik" role="group" aria-label="Co pokazuje mapa">
+              <button type="button" class="is-aktywny" data-lg-mapa-widok="zamowienia" aria-pressed="true">Zamówienia</button>
+              <button type="button" data-lg-mapa-widok="trasy" aria-pressed="false" disabled>Trasy</button>
+            </div>
+          </div>
+          <div class="lg-mapa-akcje">
+            <button type="button" class="lg-bez-geo" data-lg-akcja="bez-lokalizacji" data-lg="bez-lokalizacji-przycisk"
+                    aria-pressed="false" title="Pokaż na liście zamówienia bez punktu na mapie">
+              <span class="lg-pin lg-pin--pusta" aria-hidden="true"></span>
+              <span>Bez lokalizacji:</span>
+              <span class="lg-bez-geo-liczba" data-lg="bez-lokalizacji">–</span>
+              {# Licznik jest globalny (wszystkie otwarte); gdy filtry zawężają listę,
+                 obok stoi, ile z nich jest w bieżącym widoku. #}
+              <span class="lg-bez-geo-widok" data-lg="bez-lokalizacji-widok" hidden></span>
+            </button>
+            {# W toku: nieaktywny, „Lokalizowanie… 37 / 120” i pasek wypełnienia
+                 w tle (geokoder_postep z GET /orders). #}
+            <button type="button" class="lg-przycisk lg-zlokalizuj" data-lg-akcja="zlokalizuj" data-lg="zlokalizuj"
+                    title="Znajdź na mapie adresy zamówień, które jeszcze nie mają punktu">
+              <span class="lg-zlokalizuj-postep" data-lg="zlokalizuj-postep" aria-hidden="true"></span>
+              <i class="fas fa-location-crosshairs" aria-hidden="true"></i><span class="lg-zlokalizuj-tekst" data-lg="zlokalizuj-tekst">Zlokalizuj teraz</span>
+              <span class="lg-zlokalizuj-liczby" data-lg="zlokalizuj-liczby" hidden></span>
+            </button>
+          </div>
+        </div>
+        <div class="lg-mapa-ramka">
+          {# Klawiatura: mapa stoi przed listą, a każda pinezka to przystanek Tab —
+             odnośnik (widoczny przy fokusie) przeskakuje od razu do tabeli. #}
+          <a class="lg-do-listy" href="#logistics-lista" data-lg-akcja="do-listy">Przejdź do listy zamówień</a>
+          <div id="logistics-map" class="lg-mapa" aria-label="Mapa zamówień"
+               data-carto-key="{{ carto_basemaps_key }}"
+               data-skrypt-leaflet="{{ url_for('production.static', filename='vendor/leaflet/leaflet.js') }}?v=1.9.4a"
+               data-skrypt-klastry="{{ url_for('production.static', filename='vendor/leaflet-markercluster/leaflet.markercluster.js') }}?v=1.5.3"
+               data-skrypt-mapy="{{ url_for('logistics_panel.static', filename='js/logistics-map.js') }}?v=20261004b1"
+               data-skrypt-trasy="{{ url_for('logistics_panel.static', filename='js/logistics-routes.js') }}?v=20261005a"></div>
+          {# Pasek trybu (korekta, ustawianie punktu) i wyniku akcji na mapie. #}
+          <div class="lg-mapa-pasek" data-lg-mapa="pasek" role="status" aria-live="polite" hidden></div>
+          <div class="lg-mapa-stan is-ladowanie" data-lg-mapa="stan" role="status">Ładowanie mapy…</div>
+        </div>
+        <div class="lg-mapa-legenda" data-lg-mapa="legenda" aria-label="Legenda mapy">
+          <span><span class="lg-pin lg-pin--brak" aria-hidden="true"></span>Nie ustawiono</span>
+          <span><span class="lg-pin lg-pin--kurier_baselinker" aria-hidden="true"></span>Kurier</span>
+          <span><span class="lg-pin lg-pin--transport_woodpower" aria-hidden="true"></span>Transport własny</span>
+          <span><span class="lg-pin lg-pin--odbior_osobisty" aria-hidden="true"></span>Odbiór osobisty</span>
+          <span><span class="lg-pin lg-pin--brak lg-pin--przyblizona" aria-hidden="true"></span>przybliżona (miejscowość)</span>
+          <span title="Adres w Base. zmienił się po ręcznym ustawieniu punktu — sprawdź, czy punkt jest aktualny"><span class="lg-pin-znak lg-pin-znak--legenda" aria-hidden="true">!</span>adres zmieniony</span>
+          <span><span class="lg-magazyn lg-magazyn--legenda" aria-hidden="true"><i class="fas fa-industry"></i></span>magazyn</span>
+        </div>
+        {# Widok „Trasy”: legenda = lista aktywnych tras (kolor, nazwa, daty, status);
+             klik otwiera trasę w edytorze. Wypełnia logistics-map.js (renderTrasy). #}
+        <div class="lg-mapa-legenda lg-mapa-legenda--trasy" data-lg-mapa="legenda-trasy"
+             role="group" aria-label="Trasy na mapie" hidden></div>
+      </section>
+
+      {# ─── PASTYLKA ─── proporcja listy i mapy (tylko obok siebie). Obsługa
+           w logistics-map.js: przeciąganie, strzałki, dwuklik = domyślny podział. #}
+      <div class="lg-uchwyt" data-lg-mapa="uchwyt">
+        <div class="lg-uchwyt-pastylka" data-lg-mapa="pastylka" role="separator" tabindex="0"
+             aria-orientation="vertical" aria-label="Zmień szerokość listy i mapy"
+             aria-controls="logistics-map" aria-valuemin="0" aria-valuemax="100" aria-valuenow="70"
+             title="Przeciągnij, żeby zmienić szerokość listy i mapy. Dwuklik przywraca domyślny podział."></div>
+      </div>
+
+      <div class="lg-lista">
+        {# ─── TABELA ZAMÓWIEŃ ───
+             .lg-tabela-ramka jest kontenerem zapytań @container — na węższej
+             zakładce adres i metoda z Base. składają się pod nazwę klienta. #}
+        <div class="lg-tabela-ramka" id="logistics-lista" tabindex="-1" aria-label="Lista zamówień">
+          <table class="lg-tabela">
+            <thead>
+              <tr>
+                <th scope="col" class="lg-k-zaznacz">
+                  <label class="lg-zaznacz-pole">
+                    <input type="checkbox" data-lg="zaznacz-wszystkie" aria-label="Zaznacz wszystkie widoczne zamówienia">
+                  </label>
+                </th>
+                {# Sortowanie: klik w nagłówek (drugi odwraca) — logistics.js, ustawSortowanie(). #}
+                <th scope="col" class="lg-k-numer" data-lg-sort-kolumna="numer" aria-sort="none"><button type="button" class="lg-sort" data-lg-sort="numer" data-nazwa="Zamówienie">Zamówienie<span class="lg-sort-znak" aria-hidden="true"></span></button></th>
+                {# Gwiazdki zamówienia 0–5 (priorytety produkcji, K4a): wybór przez window.Priorytety z panelu. #}
+                <th scope="col" class="lg-k-gwiazdki" data-lg-sort-kolumna="gwiazdki" aria-sort="none"><button type="button" class="lg-sort" data-lg-sort="gwiazdki" data-nazwa="Gwiazdki"><span aria-hidden="true">★</span><span class="visually-hidden">Gwiazdki</span><span class="lg-sort-znak" aria-hidden="true"></span></button></th>
+                <th scope="col" class="lg-k-klient" data-lg-sort-kolumna="klient" aria-sort="none"><button type="button" class="lg-sort" data-lg-sort="klient" data-nazwa="Klient">Klient<span class="lg-sort-znak" aria-hidden="true"></span></button></th>
+                <th scope="col" class="lg-k-adres" data-lg-sort-kolumna="adres" aria-sort="none"><button type="button" class="lg-sort" data-lg-sort="adres" data-nazwa="Adres">Adres<span class="lg-sort-znak" aria-hidden="true"></span></button></th>
+                <th scope="col" class="lg-k-metoda" data-lg-sort-kolumna="metoda" aria-sort="none"><button type="button" class="lg-sort" data-lg-sort="metoda" data-nazwa="Metoda z Base.">Metoda z Base.<span class="lg-sort-znak" aria-hidden="true"></span></button></th>
+                <th scope="col" class="lg-k-sposob" data-lg-sort-kolumna="sposob" aria-sort="none"><button type="button" class="lg-sort" data-lg-sort="sposob" data-nazwa="Sposób dostawy">Sposób dostawy<span class="lg-sort-znak" aria-hidden="true"></span></button></th>
+                <th scope="col" class="lg-k-etap" data-lg-sort-kolumna="etap" aria-sort="none"><button type="button" class="lg-sort" data-lg-sort="etap" data-nazwa="Etap produkcji">Etap produkcji<span class="lg-sort-znak" aria-hidden="true"></span></button></th>
+                <th scope="col" class="lg-k-termin" data-lg-sort-kolumna="termin" aria-sort="none"><button type="button" class="lg-sort" data-lg-sort="termin" data-nazwa="Termin">Termin<span class="lg-sort-znak" aria-hidden="true"></span></button></th>
+                <th scope="col" class="lg-k-m3" data-lg-sort-kolumna="m3" aria-sort="none"><button type="button" class="lg-sort" data-lg-sort="m3" data-nazwa="m³">m³<span class="lg-sort-znak" aria-hidden="true"></span></button></th>
+                <th scope="col" class="lg-k-stan">Stan</th>
+              </tr>
+            </thead>
+            <tbody data-lg="wiersze">
+              <tr class="lg-wiersz-stanu">
+                <td colspan="11"><div class="lg-stan"><span class="lg-stan-tytul">Ładowanie zamówień…</span></div></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {# Legenda ikon tabeli (6.10): przycisk „Legenda” z dymkiem — ikona po lewej, objaśnienie po prawej.
+             Otwiera najechanie myszą, klik/dotyk (tablet biura nie ma najechania) i fokus z klawiatury;
+             zamyka zjechanie, klik poza i Esc. Obsługa: logistics.js (sekcja „Legenda ikon”). #}
+        <div class="lg-legenda" data-lg="legenda">
+          <button type="button" class="lg-legenda-przycisk" data-lg="legenda-przycisk"
+                  aria-expanded="false" aria-controls="lg-legenda-dymek">
+            <i class="fas fa-circle-info" aria-hidden="true"></i><span>Legenda</span>
+          </button>
+          <div class="lg-legenda-dymek" id="lg-legenda-dymek" data-lg="legenda-dymek" role="group" aria-label="Legenda ikon listy zamówień" hidden>
+            <div class="lg-legenda-siatka">
+              <div class="lg-legenda-wiersz"><span class="lg-legenda-ikona"><i class="fas fa-box-open lg-ikona--przepakowanie" aria-hidden="true"></i></span><span class="lg-legenda-opis">wróciło do pakowania, czeka na ponowne spakowanie</span></div>
+              <div class="lg-legenda-wiersz"><span class="lg-legenda-ikona"><i class="fas fa-tags lg-ikona--etykiety" aria-hidden="true"></i></span><span class="lg-legenda-opis">etykiety wydrukowane przed zmianą sposobu</span></div>
+              <div class="lg-legenda-wiersz"><span class="lg-legenda-ikona"><i class="fas fa-box lg-ikona--etykiety" aria-hidden="true"></i></span><span class="lg-legenda-opis">etykiety paczek sprzed zmiany sposobu lub trasy</span></div>
+              <div class="lg-legenda-wiersz"><span class="lg-legenda-ikona"><span class="lg-etap-dopisek" aria-hidden="true"><i class="fas fa-hourglass-half"></i>czeka na weryfikację</span></span><span class="lg-legenda-opis">spakowane, paczki czekają na sprawdzenie</span></div>
+              <div class="lg-legenda-wiersz"><span class="lg-legenda-ikona"><i class="fas fa-triangle-exclamation lg-ikona--problem" aria-hidden="true"></i></span><span class="lg-legenda-opis">problem zgłoszony przy weryfikacji paczek</span></div>
+              <div class="lg-legenda-wiersz"><span class="lg-legenda-ikona"><span class="lg-bez-paczek" aria-hidden="true">BEZ PACZEK</span></span><span class="lg-legenda-opis">spakowane, ale bez zadeklarowanych paczek</span></div>
+              <div class="lg-legenda-wiersz"><span class="lg-legenda-ikona"><i class="fas fa-cloud-arrow-up lg-ikona--base" aria-hidden="true"></i></span><span class="lg-legenda-opis">Base.: czeka na wysłanie</span></div>
+              <div class="lg-legenda-wiersz"><span class="lg-legenda-ikona"><img class="lg-logo-base" src="{{ url_for('logistics_panel.static', filename='img/base-logo.png') }}?v=20260925a" alt="" width="16" height="16"></span><span class="lg-legenda-opis">podpowiedź sposobu z metody w Base.</span></div>
+              <div class="lg-legenda-wiersz"><span class="lg-legenda-ikona"><i class="fas fa-map-location-dot lg-ikona--adres" aria-hidden="true"></i></span><span class="lg-legenda-opis">adres zmieniony po ręcznym ustawieniu punktu</span></div>
+            </div>
+            <p class="lg-legenda-skrot">Klik w wiersz rozwija pozycje, pinezka przy numerze pokazuje zamówienie na mapie, Shift + klik zaznacza zakres, dwuklik w adres go poprawia</p>
+          </div>
+        </div>
+
+        {# ─── PASEK AKCJI HURTOWYCH ─── (widoczny, gdy coś jest zaznaczone;
+             w kolumnie listy, żeby przyklejony do dołu nie zasłaniał mapy) #}
+        <div class="lg-hurt" data-lg="hurt" hidden>
+          <span class="lg-hurt-ile">Zaznaczono: <strong data-lg="hurt-ile">0</strong></span>
+          <div class="lg-hurt-grupa" role="group" aria-label="Ustaw sposób dostawy zaznaczonym">
+            <span class="lg-hurt-etykieta">Ustaw sposób dostawy:</span>
+            <button type="button" class="lg-hurt-przycisk" data-lg-akcja="hurt-sposob" data-sposob="kurier_baselinker">
+              <i class="fas fa-truck-fast" aria-hidden="true"></i>Kurier
+            </button>
+            <button type="button" class="lg-hurt-przycisk" data-lg-akcja="hurt-sposob" data-sposob="transport_woodpower">
+              <i class="fas fa-truck" aria-hidden="true"></i>Transport własny
+            </button>
+            <button type="button" class="lg-hurt-przycisk" data-lg-akcja="hurt-sposob" data-sposob="odbior_osobisty">
+              <i class="fas fa-warehouse" aria-hidden="true"></i>Odbiór osobisty
+            </button>
+          </div>
+          {# Etap 3: okno wyboru trasy roboczej albo nowej (logistics-routes.js). #}
+          <button type="button" class="lg-hurt-przycisk" data-lg-akcja="hurt-trasa">
+            <i class="fas fa-route" aria-hidden="true"></i>Dodaj do trasy…
+          </button>
+          <button type="button" class="lg-hurt-przycisk lg-hurt-przycisk--podpowiedzi" data-lg-akcja="hurt-podpowiedzi">
+            <img class="lg-logo-base" src="{{ url_for('logistics_panel.static', filename='img/base-logo.png') }}?v=20260925a" alt="" width="16" height="16">Przyjmij podpowiedzi z Base.
+          </button>
+          <button type="button" class="lg-hurt-odznacz" data-lg-akcja="odznacz">Odznacz</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  </div>{# /PODZAKŁADKA DASHBOARD #}
+
+  {# ═══ PODZAKŁADKA TRASY ═══ (etap 3) — logistics-routes.js.
+       Szeroko: lista tras po lewej, edytor po prawej. Wąsko (@container): albo lista,
+       albo edytor z przyciskiem „Wszystkie trasy”. Kolor trasy (klasa lg-trasa-kolor-N
+       z id trasy) ten sam na liście, w edytorze, na mapce i na mapie Dashboardu. #}
+  <div class="lg-widok lg-widok--trasy" id="lg-widok-routes" role="tabpanel" aria-labelledby="lg-zakladka-routes"
+       data-logistics-view="routes" hidden>
+    <div class="lg-komunikaty lg-komunikaty--nakladka" data-lg-komunikaty="routes" aria-live="polite"><div class="lg-komunikaty-stos"></div></div>
+    <div class="lg-trasy" data-lg-trasy="uklad">
+
+      {# ─── LISTA TRAS ─── Robocze, Zatwierdzone, Załadowane i W trasie rozwinięte, Dostarczone (status 'wykonana';
+           U7, decyzja Konrada 2.10) zwinięte
+           (domyślnie ostatnie 30 dni, filtr dat pyta serwer o starsze). Każda sekcja to ramka z pasem
+           nagłówka w barwach plakietki statusu (lg-trasy-sekcja--<status>, ikona jak w plakietce). #}
+      <section class="lg-trasy-lista" aria-label="Lista tras">
+        <div class="lg-trasy-lista-naglowek">
+          <button type="button" class="lg-przycisk lg-przycisk--glowny" data-lg-trasy-akcja="nowa">
+            <i class="fas fa-plus" aria-hidden="true"></i>Nowa trasa
+          </button>
+          <button type="button" class="lg-przycisk lg-przycisk--ikona" data-lg-trasy-akcja="odswiez-liste"
+                  title="Pobierz listę tras od nowa" aria-label="Odśwież listę tras">
+            <i class="fas fa-rotate-right" aria-hidden="true"></i>
+          </button>
+        </div>
+        <p class="lg-trasy-stan" data-lg-trasy="stan" role="status">Ładowanie tras…</p>
+        <section class="lg-trasy-sekcja lg-trasy-sekcja--robocza" aria-labelledby="lg-trasy-robocze">
+          <h3 class="lg-trasy-sekcja-tytul" id="lg-trasy-robocze"><i class="fas fa-pen lg-trasy-sekcja-ikona" aria-hidden="true"></i>Robocze <span class="lg-trasy-sekcja-ile" data-lg-trasy="robocze-ile"></span></h3>
+          <ul class="lg-trasy-pozycje" data-lg-trasy="robocze"></ul>
+        </section>
+        <section class="lg-trasy-sekcja lg-trasy-sekcja--zatwierdzona" aria-labelledby="lg-trasy-zatwierdzone">
+          <h3 class="lg-trasy-sekcja-tytul" id="lg-trasy-zatwierdzone"><i class="fas fa-lock lg-trasy-sekcja-ikona" aria-hidden="true"></i>Zatwierdzone <span class="lg-trasy-sekcja-ile" data-lg-trasy="zatwierdzone-ile"></span></h3>
+          <ul class="lg-trasy-pozycje" data-lg-trasy="zatwierdzone"></ul>
+        </section>
+        {# Krok 4.4 (Dostawa): trasa załadowana przez kierowcę, a po „Ruszam” w drodze — aż do wykonanej. #}
+        <section class="lg-trasy-sekcja lg-trasy-sekcja--zaladowana" aria-labelledby="lg-trasy-zaladowane">
+          <h3 class="lg-trasy-sekcja-tytul" id="lg-trasy-zaladowane"><i class="fas fa-truck-ramp-box lg-trasy-sekcja-ikona" aria-hidden="true"></i>Załadowane <span class="lg-trasy-sekcja-ile" data-lg-trasy="zaladowane-ile"></span></h3>
+          <ul class="lg-trasy-pozycje" data-lg-trasy="zaladowane"></ul>
+        </section>
+        <section class="lg-trasy-sekcja lg-trasy-sekcja--w_trasie" aria-labelledby="lg-trasy-w-trasie">
+          <h3 class="lg-trasy-sekcja-tytul" id="lg-trasy-w-trasie"><i class="fas fa-truck-fast lg-trasy-sekcja-ikona" aria-hidden="true"></i>W trasie <span class="lg-trasy-sekcja-ile" data-lg-trasy="w-trasie-ile"></span></h3>
+          <ul class="lg-trasy-pozycje" data-lg-trasy="w-trasie"></ul>
+        </section>
+        <details class="lg-trasy-sekcja lg-trasy-sekcja--wykonana lg-trasy-wykonane" data-lg-trasy="wykonane">
+          <summary class="lg-trasy-sekcja-tytul"><i class="fas fa-check lg-trasy-sekcja-ikona" aria-hidden="true"></i>Dostarczone <span class="lg-trasy-sekcja-ile" data-lg-trasy="wykonane-ile"></span></summary>
+          <form class="lg-trasy-filtr" data-lg-trasy="wykonane-filtr" novalidate>
+            <label class="lg-pole lg-pole--data"><span>Od</span><input type="date" name="od" min="2000-01-01" max="2099-12-31"></label>
+            <label class="lg-pole lg-pole--data"><span>Do</span><input type="date" name="do" min="2000-01-01" max="2099-12-31"></label>
+            <button type="submit" class="lg-przycisk">Pokaż</button>
+            <button type="button" class="lg-przycisk lg-przycisk--cichy" data-lg-trasy-akcja="wykonane-reset">Ostatnie 30 dni</button>
+          </form>
+          <p class="lg-trasy-filtr-opis" id="lg-trasy-wykonane-opis" data-lg-trasy="wykonane-opis" aria-live="polite">Ostatnie 30 dni.</p>
+          <ul class="lg-trasy-pozycje" data-lg-trasy="wykonane-lista"></ul>
+        </details>
+      </section>
+
+      {# (U6, oględziny 2.10) Legenda tarcz przystanków — te same tarcze (.lg-stacja) pod osią przystanków
+           w edytorze i na dole okna „Odhacz”. Kolor trasy dziedziczy po edytorze; w oknie klasę koloru
+           ustawia logistics-routes.js (przygotujWykonanie). #}
+      {% macro legenda_stacji(klucz) -%}
+      <ul class="lg-legenda-stacji" data-lg-trasy="{{ klucz }}" aria-label="Oznaczenia przystanków">
+        <li><span class="lg-stacja lg-stacja--legenda" aria-hidden="true">1</span>dokładny punkt na mapie</li>
+        <li><span class="lg-stacja lg-stacja--legenda lg-stacja--przyblizona" aria-hidden="true">1</span>punkt przybliżony (tylko miejscowość)</li>
+        <li><span class="lg-stacja lg-stacja--legenda lg-stacja--bez-geo" aria-hidden="true">1</span>brak punktu na mapie</li>
+        <li><span class="lg-stacja lg-stacja--legenda lg-stacja--dostarczona" aria-hidden="true">1</span>dostarczone</li>
+        <li><span class="lg-stacja lg-stacja--legenda lg-stacja--niedostarczona" aria-hidden="true">1</span>niedostarczone</li>
+      </ul>
+      {%- endmacro %}
+
+      {# ─── EDYTOR TRASY ─── szkielet; wartości, przystanki i przyciski wypełnia JS. #}
+      <section class="lg-edytor" data-lg-trasy="edytor" aria-labelledby="lg-edytor-tytul">
+        <div class="lg-edytor-pusty" data-lg-trasy="pusty">
+          <span class="lg-stan-tytul">Wybierz trasę z listy albo utwórz nową.</span>
+          <span class="lg-stan-opis">Zamówienia na trasę dodasz tu albo na Dashboardzie: zaznacz je i wybierz „Dodaj do trasy…”.</span>
+        </div>
+        <div class="lg-edytor-tresc" data-lg-trasy="tresc" hidden>
+          <header class="lg-edytor-naglowek">
+            <button type="button" class="lg-edytor-wstecz" data-lg-trasy-akcja="zamknij">
+              <i class="fas fa-chevron-left" aria-hidden="true"></i>Wszystkie trasy
+            </button>
+            <div class="lg-edytor-tytul-rzad">
+              <span data-lg-trasy="status"></span>
+              <h2 class="lg-edytor-tytul" id="lg-edytor-tytul" tabindex="-1" data-lg-trasy="tytul">Nowa trasa</h2>
+              {# Krok 4.4: „załadowano 7/8 · dostarczono 3/7” — liczy serwer, tekst składa logistics-routes.js. #}
+              <span class="lg-edytor-postep" data-lg-trasy="postep" aria-live="polite"></span>
+              <button type="button" class="lg-edytor-zamknij" data-lg-trasy-akcja="zamknij"
+                      title="Zamknij trasę" aria-label="Zamknij trasę"><i class="fas fa-xmark" aria-hidden="true"></i></button>
+            </div>
+            <div class="lg-edytor-akcje" data-lg-trasy="akcje"></div>
+            <p class="lg-dialog-blad lg-edytor-blad" id="lg-edytor-blad" data-lg-trasy="blad" role="alert" hidden></p>
+          </header>
+
+          <form class="lg-edytor-form" data-lg-trasy="form" novalidate autocomplete="off">
+            <fieldset class="lg-edytor-pola" data-lg-trasy="pola">
+              <legend class="visually-hidden">Dane trasy</legend>
+              <label class="lg-pole lg-pole--nazwa"><span>Nazwa trasy</span>
+                <input type="text" name="name" maxlength="120" required spellcheck="false" placeholder="np. Kraków + Tarnów"></label>
+              {# min/max dat ustawia logistics-routes.js przy otwarciu formularza: dziś − 1 rok … dziś + 2 lata,
+                 „do” najwyżej 31 dni po „od” — te same granice co serwer (services/routes.py, granice_dat). #}
+              <label class="lg-pole lg-pole--data"><span>Od</span><input type="date" name="date_from" required></label>
+              <label class="lg-pole lg-pole--data"><span>Do</span><input type="date" name="date_to" required></label>
+              {# Zajęte w tych dniach: widoczne, wyszarzone, z dopiskiem „(zajęty — trasa)”. #}
+              <label class="lg-pole lg-pole--zasob"><span>Pojazd</span>
+                <select name="vehicle_id" class="form-select form-select-sm" data-lg-trasy="pojazd"></select>
+                <span class="lg-pole-uwaga" data-lg-trasy="uwaga-pojazd" hidden></span></label>
+              <label class="lg-pole lg-pole--zasob"><span>Kierowca</span>
+                <select name="driver_worker_id" class="form-select form-select-sm" data-lg-trasy="kierowca"></select>
+                <span class="lg-pole-uwaga" data-lg-trasy="uwaga-kierowca" hidden></span></label>
+              <label class="lg-pole lg-pole--notatka"><span>Notatka</span>
+                <textarea name="notes" maxlength="2000" rows="2" placeholder="Widoczna tylko w CRM"></textarea></label>
+            </fieldset>
+          </form>
+
+          {# Bez aria-live: podsumowanie przerysowuje się przy każdym ↑/↓ (przegląd końcowy, minor 6) —
+             zmianę kolejności ogłasza już data-lg-trasy="ogloszenie". #}
+          <div class="lg-podsumowanie" data-lg-trasy="podsumowanie"></div>
+
+          <div class="lg-edytor-uklad">
+            {# Przystanki jako schemat linii: magazyn → numerowane przystanki → magazyn,
+                 w kolorze trasy. Kolejność: przeciąganie albo ↑/↓ (klawiatura). #}
+            <section class="lg-przystanki" data-lg-trasy="przystanki-sekcja" aria-labelledby="lg-przystanki-tytul">
+              <div class="lg-sekcja-naglowek">
+                <h3 class="lg-sekcja-tytul" id="lg-przystanki-tytul">Przystanki</h3>
+                <span class="lg-sekcja-opis" data-lg-trasy="przystanki-stan" aria-live="polite"></span>
+              </div>
+              <div class="lg-linia" data-lg-trasy="linia">
+                <div class="lg-linia-magazyn">
+                  <span class="lg-magazyn lg-magazyn--linia" aria-hidden="true"><i class="fas fa-industry"></i></span>
+                  <span>Wyjazd z magazynu</span>
+                </div>
+                <ol class="lg-linia-przystanki" data-lg-trasy="przystanki" aria-label="Przystanki w kolejności"></ol>
+                <div class="lg-linia-magazyn">
+                  <span class="lg-magazyn lg-magazyn--linia" aria-hidden="true"><i class="fas fa-industry"></i></span>
+                  <span>Powrót do magazynu</span>
+                </div>
+              </div>
+              {{ legenda_stacji('legenda-stacji') }}
+              {# U10 (Ruling 32): niedostarczone zdjęte z trasy — historia, wypełnia JS (renderujZdjete). #}
+              <div class="lg-zdjete" data-lg-trasy="zdjete" hidden></div>
+              <p class="visually-hidden" data-lg-trasy="ogloszenie" aria-live="assertive"></p>
+            </section>
+            <div class="lg-edytor-mapka">
+              <div class="lg-mapka" data-lg-trasy="mapka" role="region" aria-label="Mapa trasy"></div>
+              <div class="lg-mapka-stan" data-lg-trasy="mapka-stan" role="status" hidden></div>
+            </div>
+          </div>
+
+          {# ─── DO DODANIA ─── transport własny bez trasy (GET /orders?sposob=bez_trasy),
+               ta sama fraza co wyszukiwarka listy. Tylko dla trasy roboczej. #}
+          <section class="lg-kandydaci" data-lg-trasy="kandydaci-sekcja" aria-labelledby="lg-kandydaci-tytul" hidden>
+            <div class="lg-sekcja-naglowek">
+              <h3 class="lg-sekcja-tytul" id="lg-kandydaci-tytul">Do dodania</h3>
+              <span class="lg-sekcja-opis" data-lg-trasy="kandydaci-ile">transport własny bez trasy</span>
+              <label class="lg-szukaj lg-szukaj--kandydaci">
+                <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
+                <input type="search" data-lg-trasy="kandydaci-q" autocomplete="off" spellcheck="false"
+                       placeholder="Szukaj: numer, klient, adres, kod"
+                       aria-label="Szukaj zamówień do dodania po numerze, kliencie, ulicy, kodzie pocztowym albo miejscowości">
+              </label>
+              <button type="button" class="lg-przycisk" data-lg-trasy-akcja="dodaj-zaznaczone" disabled>
+                <i class="fas fa-plus" aria-hidden="true"></i><span data-lg-trasy="dodaj-zaznaczone-tekst">Dodaj zaznaczone</span>
+              </button>
+            </div>
+            <ul class="lg-kandydaci-lista" data-lg-trasy="kandydaci" aria-label="Zamówienia do dodania"></ul>
+          </section>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  {# ═══ PODZAKŁADKA FLOTA ═══ (etap 3) — logistics-fleet.js. Pojazdów nie kasujemy:
+       wyłączony zostaje na starych trasach, nie da się go wybrać do nowych. #}
+  <div class="lg-widok lg-widok--flota" id="lg-widok-fleet" role="tabpanel" aria-labelledby="lg-zakladka-fleet"
+       data-logistics-view="fleet" hidden>
+    <div class="lg-komunikaty lg-komunikaty--nakladka" data-lg-komunikaty="fleet" aria-live="polite"><div class="lg-komunikaty-stos"></div></div>
+    <div class="lg-flota">
+      <section class="lg-flota-pojazdy" aria-labelledby="lg-flota-tytul">
+        <div class="lg-sekcja-naglowek">
+          <h2 class="lg-sekcja-tytul" id="lg-flota-tytul">Pojazdy</h2>
+          <span class="lg-sekcja-opis" data-lg-flota="ile"></span>
+          <button type="button" class="lg-przycisk lg-przycisk--glowny" data-lg-flota-akcja="dodaj">
+            <i class="fas fa-plus" aria-hidden="true"></i>Dodaj pojazd
+          </button>
+        </div>
+        <div class="lg-flota-ramka">
+          <table class="lg-tabela lg-tabela--flota">
+            <thead>
+              <tr>
+                <th scope="col">Nazwa</th>
+                <th scope="col">Rejestracja</th>
+                <th scope="col" class="lg-k-liczba">Ładowność</th>
+                <th scope="col">Status</th>
+                <th scope="col" class="lg-k-akcje"><span class="visually-hidden">Akcje</span></th>
+              </tr>
+            </thead>
+            <tbody data-lg-flota="wiersze">
+              <tr class="lg-wiersz-stanu">
+                <td colspan="5"><div class="lg-stan"><span class="lg-stan-tytul">Ładowanie floty…</span></div></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section class="lg-flota-kierowcy" aria-labelledby="lg-kierowcy-tytul">
+        <div class="lg-sekcja-naglowek">
+          <h2 class="lg-sekcja-tytul" id="lg-kierowcy-tytul">Kierowcy</h2>
+          <span class="lg-sekcja-opis" data-lg-flota="kierowcy-ile"></span>
+          <button type="button" class="lg-przycisk lg-przycisk--glowny" data-lg-flota-akcja="dodaj-kierowce">
+            <i class="fas fa-user-plus" aria-hidden="true"></i>Dodaj kierowcę
+          </button>
+        </div>
+        <p class="lg-flota-opis">Tylko te osoby wybierzesz na kierowcę trasy. Usunięcie z listy nie usuwa pracownika.</p>
+        <ul class="lg-kierowcy" data-lg-flota="kierowcy"></ul>
+      </section>
+    </div>
+  </div>
+
+  {# ─── POPRAWKA ADRESU ─── (dwuklik w adres na liście albo Enter na fokusie).
+       Natywny <dialog>: Esc i klik w tło zamykają, fokus wraca do adresu.
+       Zapis idzie do CRM od razu, do Base. — w tle (bl_address_pending). #}
+  <dialog class="lg-dialog" data-lg="adres-dialog" aria-labelledby="lg-adres-tytul">
+    <form class="lg-dialog-form" data-lg="adres-form" novalidate>
+      <h2 class="lg-dialog-tytul" id="lg-adres-tytul">Adres dostawy <span class="lg-dialog-numer" data-lg="adres-numer"></span></h2>
+      <p class="lg-dialog-opis">Zapisany adres wyślemy do Base., a punkt na mapie ustalimy od nowa.</p>
+      <label class="lg-pole">
+        <span>Ulica i numer</span>
+        <input type="text" name="adres" maxlength="156" autocomplete="off" spellcheck="false" required>
+      </label>
+      <div class="lg-pole-rzad">
+        <label class="lg-pole lg-pole--kod">
+          <span>Kod pocztowy</span>
+          <input type="text" name="kod" maxlength="20" autocomplete="off" spellcheck="false">
+        </label>
+        <label class="lg-pole">
+          <span>Miejscowość</span>
+          <input type="text" name="miasto" maxlength="100" autocomplete="off" required>
+        </label>
+      </div>
+      <p class="lg-dialog-blad" data-lg="adres-blad" role="alert" hidden></p>
+      <div class="lg-dialog-akcje">
+        <button type="button" class="lg-przycisk" data-lg="adres-anuluj" data-lg-akcja="adres-anuluj">Anuluj</button>
+        <button type="submit" class="lg-przycisk lg-przycisk--glowny" data-lg="adres-zapisz">Zapisz</button>
+      </div>
+    </form>
+  </dialog>
+
+  {# ─── DECYZJA O PRZEPAKOWANIU (krok 4.3, spec 8.7) ─── zmiana sposobu dostawy na zamówieniu
+       w całości spakowanym (select w wierszu, dymek mapy, akcje hurtowe). Jedno okno, treść
+       składa logistics.js (zapytajOPrzepakowanie): krok 1 „Cofnij do pakowania” / „Zmień bez
+       przepakowania” / „Anuluj”, krok 2 (tylko hurt) pyta osobno o zamówienia, które wymagają
+       cofnięcia. Natywny <dialog>: Esc i klik w tło = Anuluj, fokus wraca tam, skąd okno otwarto.
+       Region aria-live czyta zmianę treści między krokami. #}
+  <dialog class="lg-dialog lg-dialog--przepakowanie" data-lg="przepakowanie-dialog" aria-labelledby="lg-przepak-tytul">
+    <div class="lg-dialog-form">
+      <div class="lg-przepak-tresc" aria-live="polite">
+        <h2 class="lg-dialog-tytul" id="lg-przepak-tytul" data-lg="przepak-tytul"></h2>
+        <p class="lg-dialog-opis" data-lg="przepak-opis"></p>
+        <p class="lg-przepak-numery" data-lg="przepak-numery" hidden></p>
+        <p class="lg-przepak-powod" data-lg="przepak-powod" hidden></p>
+        <dl class="lg-przepak-wybory" data-lg="przepak-wybory"></dl>
+      </div>
+      <div class="lg-dialog-akcje">
+        <button type="button" class="lg-przycisk" data-lg="przepak-anuluj">Anuluj</button>
+        <button type="button" class="lg-przycisk" data-lg="przepak-bez">Zmień bez przepakowania</button>
+        <button type="button" class="lg-przycisk lg-przycisk--glowny" data-lg="przepak-cofnij">Cofnij do pakowania</button>
+      </div>
+    </div>
+  </dialog>
+
+  {# ─── ETAP 3: okna tras i floty ─── poza panelami podzakładek: „Dodaj do trasy…”
+       otwiera się z Dashboardu, gdy panel Tras jest schowany (okno w schowanym
+       rodzicu nie byłoby widać). Ten sam wzór co okno adresu: Esc i klik w tło
+       zamykają, fokus wraca tam, skąd okno otwarto. #}
+
+  {# „Dodaj do trasy…” — trasa robocza albo nowa (nazwa + daty); logistics-routes.js. #}
+  <dialog class="lg-dialog lg-dialog--trasy" data-lg="trasa-dodaj-dialog" aria-labelledby="lg-trasa-dodaj-tytul">
+    <form class="lg-dialog-form" data-lg-trasy="dodaj-form" novalidate autocomplete="off">
+      <h2 class="lg-dialog-tytul" id="lg-trasa-dodaj-tytul">Dodaj do trasy <span class="lg-dialog-numer" data-lg-trasy="dodaj-ile"></span></h2>
+      <p class="lg-dialog-opis" data-lg-trasy="dodaj-opis"></p>
+      <fieldset class="lg-wybor-trasy" data-lg-trasy="dodaj-wybor">
+        <legend class="visually-hidden">Trasa, na którą trafią zamówienia</legend>
+        <div class="lg-wybor-trasy-lista" data-lg-trasy="dodaj-trasy"><p class="lg-dialog-opis">Wczytywanie tras roboczych…</p></div>
+        <label class="lg-wybor-trasy-opcja lg-wybor-trasy-opcja--nowa">
+          <input type="radio" name="trasa" value="nowa">
+          <span class="lg-wybor-trasy-plus" aria-hidden="true"><i class="fas fa-plus"></i></span>
+          <span class="lg-wybor-trasy-nazwa">Nowa trasa</span>
+        </label>
+      </fieldset>
+      <div class="lg-nowa-trasa" data-lg-trasy="dodaj-nowa" hidden>
+        <label class="lg-pole"><span>Nazwa trasy</span>
+          <input type="text" name="name" maxlength="120" spellcheck="false" placeholder="np. Kraków + Tarnów"></label>
+        <div class="lg-pole-rzad lg-pole-rzad--daty">
+          {# min/max jak w edytorze trasy — logistics-routes.js przy każdym otwarciu okna. #}
+          <label class="lg-pole lg-pole--data"><span>Od</span><input type="date" name="date_from"></label>
+          <label class="lg-pole lg-pole--data"><span>Do</span><input type="date" name="date_to"></label>
+        </div>
+      </div>
+      <p class="lg-dialog-blad" id="lg-trasa-dodaj-blad" data-lg-trasy="dodaj-blad" role="alert" hidden></p>
+      <div class="lg-dialog-akcje">
+        <button type="button" class="lg-przycisk" data-lg-trasy-akcja="dodaj-anuluj">Anuluj</button>
+        <button type="submit" class="lg-przycisk lg-przycisk--glowny" data-lg-trasy="dodaj-zapisz">Dodaj do trasy</button>
+      </div>
+    </form>
+  </dialog>
+
+  {# „Odhacz jako dostarczoną” (U7, oględziny 2.10: dawniej „Odhacz jako wykonaną”) — lista przystanków ze świeżego GET /routes/<id> (logistics-routes.js,
+       wczytajDoWykonania). Spakowane zaznaczone jako dostarczone; niespakowanych i anulowanych
+       zaznaczyć się nie da (serwer odmawia 409). Krok 4.4: przystanki już dostarczone (przez kierowcę albo
+       wcześniejsze odhaczenie) są zawsze dostarczone — pole zaznaczone i nieaktywne, serwer zostawia je
+       dostarczone; przystanek z decyzją „Zostaje” jest domyślnie odznaczony.
+       Wysyłamy zawsze jawną listę delivered_order_ids. #}
+  <dialog class="lg-dialog lg-dialog--trasy" data-lg="trasa-wykonaj-dialog" aria-labelledby="lg-trasa-wykonaj-tytul">
+    <form class="lg-dialog-form" data-lg-trasy="wykonaj-form" novalidate>
+      <h2 class="lg-dialog-tytul" id="lg-trasa-wykonaj-tytul">Odhacz jako dostarczoną <span class="lg-dialog-numer" data-lg-trasy="wykonaj-nazwa"></span></h2>
+      <p class="lg-dialog-opis">Zaznaczone zamówienia oznaczymy jako dostarczone (Base. dostanie status „Dostarczona - trans. WoodPower”), odznaczone zdejmiemy z trasy i wrócą do puli bez trasy (jeśli były już załadowane, Base. dostanie dla nich status „Planowana trasa”). Dostarczone mogą być tylko zamówienia spakowane w całości. Przystanki już dostarczone zostają dostarczone.</p>
+      <ul class="lg-wykonaj-lista" data-lg-trasy="wykonaj-lista" aria-label="Przystanki trasy"></ul>
+      <p class="lg-wykonaj-ile" data-lg-trasy="wykonaj-ile" aria-live="polite"></p>
+      {{ legenda_stacji('wykonaj-legenda') }}
+      <p class="lg-dialog-blad" data-lg-trasy="wykonaj-blad" role="alert" hidden></p>
+      <div class="lg-dialog-akcje">
+        <button type="button" class="lg-przycisk" data-lg-trasy-akcja="wykonaj-anuluj">Anuluj</button>
+        <button type="submit" class="lg-przycisk lg-przycisk--glowny" data-lg-trasy="wykonaj-zapisz">Odhacz jako dostarczoną</button>
+      </div>
+    </form>
+  </dialog>
+
+  {# Krok 4.4d: „Optymalizuj trasę” (trasa robocza) — podgląd z POST /routes/<id>/optimize (nic nie zapisuje);
+       „Zastosuj” wysyła PUT /routes/<id>/stops/order. Przystanki bez dokładnego punktu i anulowane zostają na końcu
+       w dotychczasowej kolejności. Wypełnia logistics-routes.js (otworzOptymalizacje). #}
+  <dialog class="lg-dialog lg-dialog--trasy" data-lg="trasa-optymalizuj-dialog" aria-labelledby="lg-trasa-optymalizuj-tytul">
+    <form class="lg-dialog-form" data-lg-trasy="optymalizuj-form" novalidate>
+      <h2 class="lg-dialog-tytul" id="lg-trasa-optymalizuj-tytul">Optymalizuj trasę <span class="lg-dialog-numer" data-lg-trasy="optymalizuj-nazwa"></span></h2>
+      <p class="lg-dialog-opis">Propozycja kolejności przystanków po drogach (OpenRouteService): wyjazd z magazynu i powrót do niego. Nic się nie zmieni, dopóki nie klikniesz „Zastosuj”.</p>
+      <div class="lg-optym-zysk" data-lg-trasy="optymalizuj-zysk" aria-live="polite"></div>
+      <ol class="lg-optym-lista" data-lg-trasy="optymalizuj-lista" aria-label="Proponowana kolejność przystanków"></ol>
+      <p class="lg-optym-pominiete" data-lg-trasy="optymalizuj-pominiete" hidden></p>
+      <p class="lg-dialog-blad" data-lg-trasy="optymalizuj-blad" role="alert" hidden></p>
+      <div class="lg-dialog-akcje">
+        <button type="button" class="lg-przycisk" data-lg-trasy-akcja="optymalizuj-anuluj">Anuluj</button>
+        <button type="button" class="lg-przycisk" data-lg-trasy="optymalizuj-ponow" data-lg-trasy-akcja="optymalizuj-ponow" hidden><i class="fas fa-rotate-right" aria-hidden="true"></i>Optymalizuj ponownie</button>
+        <button type="submit" class="lg-przycisk lg-przycisk--glowny" data-lg-trasy="optymalizuj-zastosuj" disabled>Zastosuj</button>
+      </div>
+    </form>
+  </dialog>
+
+  {# Pojazd floty — dodanie i edycja; logistics-fleet.js. #}
+  <dialog class="lg-dialog lg-dialog--pojazd" data-lg="pojazd-dialog" aria-labelledby="lg-pojazd-tytul">
+    <form class="lg-dialog-form" data-lg-flota="form" novalidate autocomplete="off">
+      <h2 class="lg-dialog-tytul" id="lg-pojazd-tytul" data-lg-flota="tytul">Nowy pojazd</h2>
+      <label class="lg-pole"><span>Nazwa</span>
+        <input type="text" name="name" maxlength="100" required spellcheck="false" placeholder="np. Iveco Daily"></label>
+      <div class="lg-pole-rzad lg-pole-rzad--rowne">
+        <label class="lg-pole lg-pole--rejestracja"><span>Numer rejestracyjny</span>
+          <input type="text" name="registration" maxlength="20" spellcheck="false" placeholder="np. RZ 12345"></label>
+        <label class="lg-pole"><span>Ładowność (kg)</span>
+          <input type="number" name="capacity_kg" min="1" max="100000" step="1" inputmode="numeric" placeholder="np. 1500"></label>
+      </div>
+      <p class="lg-dialog-opis lg-dialog-opis--pod">Bez ładowności trasa nie ostrzeże o przekroczonej wadze.</p>
+      <p class="lg-dialog-blad" id="lg-pojazd-blad" data-lg-flota="blad" role="alert" hidden></p>
+      <div class="lg-dialog-akcje">
+        <button type="button" class="lg-przycisk" data-lg-flota-akcja="anuluj">Anuluj</button>
+        <button type="submit" class="lg-przycisk lg-przycisk--glowny" data-lg-flota="zapisz">Zapisz</button>
+      </div>
+    </form>
+  </dialog>
+
+  {# Runda 2 (spec 2.6): kierowca trasy spośród aktywnych pracowników bez znacznika;
+     logistics-fleet.js. Każdy „Dodaj” zapisuje od razu, okno zostaje otwarte (na start
+     logistyk dodaje kilku kierowców naraz). #}
+  <dialog class="lg-dialog lg-dialog--kierowca" data-lg="kierowca-dialog" aria-labelledby="lg-kierowca-tytul">
+    <form class="lg-dialog-form" data-lg-flota="kierowca-form" novalidate autocomplete="off">
+      <h2 class="lg-dialog-tytul" id="lg-kierowca-tytul">Dodaj kierowcę</h2>
+      <p class="lg-dialog-opis">Aktywni pracownicy produkcji, którzy nie są jeszcze kierowcami.</p>
+      <label class="lg-szukaj lg-szukaj--kierowcy">
+        <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
+        <input type="search" data-lg-flota="kandydaci-q" spellcheck="false" placeholder="Szukaj pracownika"
+               aria-label="Szukaj pracownika po imieniu albo nazwisku">
+      </label>
+      <p class="lg-kandydaci-kierowcy-stan" data-lg-flota="kandydaci-stan" role="status"></p>
+      <ul class="lg-kandydaci-kierowcy" data-lg-flota="kandydaci" aria-label="Pracownicy do dodania"></ul>
+      <p class="lg-dialog-blad" id="lg-kierowca-blad" data-lg-flota="kierowca-blad" role="alert" hidden></p>
+      <div class="lg-dialog-akcje">
+        <button type="button" class="lg-przycisk" data-lg-flota-akcja="kierowca-zamknij">Zamknij</button>
+        {# (D7) Tylko po błędzie wczytania pracowników — pokazuje go logistics-fleet.js razem z błędem. #}
+        <button type="button" class="lg-przycisk lg-przycisk--glowny" data-lg-flota="kandydaci-ponow"
+                data-lg-flota-akcja="kandydaci-ponow" hidden><i class="fas fa-rotate-right" aria-hidden="true"></i>Spróbuj ponownie</button>
+      </div>
+    </form>
+  </dialog>
+</div>
+
+{# Ładowanie mapy PO KOLEI: Leaflet → klastry → logistics-map.js → logistics-routes.js.
+   production-app-loader odtwarza tagi <script> przez createElement, a tak
+   wstawione skrypty z src są asynchroniczne — kolejność kilku <script src>
+   nie byłaby gwarantowana. Leaflet i klastry ładujemy raz na stronę (ponowne
+   wstawienie fragmentu przez forceRefresh ich nie dubluje), logistics-map.js
+   i logistics-routes.js za każdym razem: sprzątają po poprzedniej instancji.
+   Trasy (etap 3) potrzebują Leafleta do mapki edytora, ale wczytują się także po
+   błędzie mapy — lista tras, edytor i „Dodaj do trasy…” działają bez niej. #}
+<script>
+(function () {
+    'use strict';
+    var kontener = document.getElementById('logistics-map');
+    if (!kontener) return;
+    var d = kontener.dataset;
+    var rejestr = window.__logistykaSkryptyMapy || (window.__logistykaSkryptyMapy = {});
+
+    function laduj(url, zawsze) {
+        if (!zawsze && rejestr[url]) return rejestr[url];
+        var obietnica = new Promise(function (gotowe, blad) {
+            var s = document.createElement('script');
+            s.src = url;
+            s.onload = function () {
+                if (zawsze) s.remove();
+                gotowe();
+            };
+            s.onerror = function () {
+                delete rejestr[url];
+                s.remove();
+                blad(new Error('Nie wczytano ' + url));
+            };
+            document.head.appendChild(s);
+        });
+        if (!zawsze) rejestr[url] = obietnica;
+        return obietnica;
+    }
+
+    (window.L ? Promise.resolve() : laduj(d.skryptLeaflet))
+        .then(function () {
+            return (window.L && window.L.markerClusterGroup) ? null : laduj(d.skryptKlastry);
+        })
+        .then(function () { return laduj(d.skryptMapy, true); })
+        .catch(function () {
+            var stan = document.querySelector('#logistics-root [data-lg-mapa="stan"]');
+            if (!stan || !stan.isConnected) return;
+            stan.textContent = 'Nie udało się wczytać mapy. Lista działa bez niej; odśwież stronę, żeby spróbować ponownie.';
+            stan.classList.add('is-blad');
+            stan.hidden = false;
+        })
+        .then(function () { return laduj(d.skryptTrasy, true); })
+        .then(function () {
+            // Plik się wczytał, ale nie wystartował (błąd w trakcie wykonania) — to też błąd.
+            var r = document.getElementById('logistics-root');
+            if (r && (!window.LogisticsRoutes || window.LogisticsRoutes.root !== r)) throw new Error('Trasy nie wystartowały');
+        })
+        .catch(function () {
+            // „Dodaj do trasy…” (logistics.js) mówi wtedy o błędzie zamiast „jeszcze się wczytują”.
+            var r = document.getElementById('logistics-root');
+            if (r) r.setAttribute('data-lg-trasy-blad', '1');
+            var stan = document.querySelector('#logistics-root [data-lg-trasy="stan"]');
+            if (!stan || !stan.isConnected) return;
+            stan.textContent = 'Nie udało się wczytać tras. Odśwież stronę, żeby spróbować ponownie.';
+            stan.classList.add('is-blad');
+            stan.hidden = false;
+        });
+})();
+</script>
+<script src="{{ url_for('logistics_panel.static', filename='js/logistics.js') }}?v=20261006b"></script>
+<script src="{{ url_for('logistics_panel.static', filename='js/logistics-fleet.js') }}?v=20261002a"></script>
+<script src="{{ url_for('logistics_panel.static', filename='js/logistics-wojewodztwa.js') }}?v=20260928a"></script>

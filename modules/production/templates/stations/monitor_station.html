@@ -7,10 +7,12 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta http-equiv="refresh" content="{{ config.fallback_refresh_interval | default(300) }}">
     <title>{{ page_title }} - WoodPower CRM</title>
-    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/stations/station-monitor-v2.css') }}">
+    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/stations/station-monitor-v2.css') }}?v=20261005">
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='images/favicon.png') }}">
 </head>
 <body>
+    {#- Gwiazdki i plakietki szczebla — te same makra co zakładka Stanowiska (JS: gwiazdkiHTML, plakietkaHTML). -#}
+    {% import 'components/_priorytet_plakietki.html' as prio %}
     <!-- HEADER -->
     <header class="monitor-header">
         <div class="header-content">
@@ -44,6 +46,16 @@
                 </div>
             </div>
 
+            {% if stol is not none %}
+            <!-- Ile kafli czeka w kolejce stanowiska poza stołem (jak na tablecie) — tylko w trybie stołu -->
+            <div class="stat-item" id="kolejka-dalej"{% if stol.tryb != 'stol' %} hidden{% endif %}>
+                <div class="stat-content">
+                    <div class="stat-label">Dalej w kolejce</div>
+                    <div class="stat-value" id="kolejka-dalej-wartosc">{{ stol.kolejka_dalej if stol.kolejka_dalej is not none else '—' }}</div>
+                </div>
+            </div>
+            {% endif %}
+
             {% for sp in species_stats %}
             <div class="stat-item species" id="species-{{ loop.index }}" style="--species-color: {{ ['#f59e0b','#3b82f6','#22c55e','#06b6d4','#ec4899','#f97316','#8b5cf6','#ef4444'][loop.index0 % 8] }}">
                 <div class="stat-content">
@@ -69,6 +81,39 @@
 
     <!-- MAIN CONTENT -->
     <main class="monitor-content">
+        {#- Stół i odłożone (priorytety, spec 7.2): to samo, co tablet. Sekcje tylko, gdy niepuste; Lakiernia (stol
+            = None) nigdy. Auto-odświeżenie przebudowuje je w renderStolSekcje (station-monitor.js). -#}
+        {% if stol and stol.stol %}
+        <section class="monitor-stol" id="monitor-stol">
+            <h2 class="stol-naglowek">TERAZ <span class="stol-licznik">{{ stol.stol|length }}/{{ stol.miejsca }}</span></h2>
+            <div class="stol-kafle">
+                {% for kafel in stol.stol %}
+                <div class="stol-kafel" data-unit-key="{{ kafel.unit_key }}">
+                    <span class="stol-oznaczenie">{{ kafel.short_id or kafel.numer }}</span>
+                    {{ prio.gwiazdki(kafel.gwiazdki) }}
+                    {{ prio.plakietka(kafel.szczebel, kafel.dorobka) }}
+                    {{ prio.zrodlo_kafla(kafel.zrodlo) }}
+                    <span class="stol-czas">od {{ kafel.pobrano[11:16] if kafel.pobrano else '' }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+        {% endif %}
+        {% if stol and stol.odlozone %}
+        <section class="monitor-odlozone" id="monitor-odlozone">
+            <h2 class="stol-naglowek">Odłożone <span class="stol-licznik">{{ stol.odlozone|length }}</span></h2>
+            <div class="stol-kafle">
+                {% for kafel in stol.odlozone %}
+                <div class="stol-kafel odlozony" data-unit-key="{{ kafel.unit_key }}">
+                    <span class="stol-oznaczenie">{{ kafel.short_id or kafel.numer }}</span>
+                    <span class="odlozenie-powod">{{ kafel.powod_etykieta or kafel.powod }}</span>
+                    {% if kafel.notatka %}<span class="odlozenie-notatka">„{{ kafel.notatka }}”</span>{% endif %}
+                    <span class="stol-czas">{{ kafel.odlozono[11:16] if kafel.odlozono else '' }}{% if kafel.pracownik %} · {{ kafel.pracownik }}{% endif %}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+        {% endif %}
         {% if orders|length == 0 %}
         <div class="empty-state">
             <h2>Brak zleceń na stanowisku {{ station_label }}</h2>
@@ -77,7 +122,7 @@
         {% else %}
         <div class="orders-grid">
             {% for order in orders %}
-            <div class="order-card {{ order.status_class }}" data-order="{{ order.order_number }}">
+            <div class="order-card {{ order.status_class }}{% if order.na_stole %} na-stole{% endif %}" data-order="{{ order.order_number }}" data-order-id="{{ order.order_id }}">
                 <div class="order-main">
                     <span class="order-number">{{ order.order_number }}</span>
                     {% if order.client_order_number %}
@@ -89,6 +134,7 @@
                 </div>
                 <div class="order-meta">
                     <span class="status-badge {{ order.status_class }}">{{ order.status_label }}</span>
+                    <span class="order-prio">{{ prio.gwiazdki(order.gwiazdki) }} {{ prio.plakietka(order.szczebel, order.dorobka) }}{% if order.grupa_wykonczenia %} <span class="grupa-wykonczenia">{{ order.grupa_wykonczenia }}</span>{% endif %}</span>
                 </div>
                 <div class="progress-bar">
                     <div class="progress-fill" style="width: {{ (order.completed_products / order.total_products * 100) if order.total_products > 0 else 0 }}%"></div>
@@ -125,6 +171,6 @@
             ajaxUrl: '/production/stations/ajax/monitors/{{ station_code }}'
         };
     </script>
-    <script src="{{ url_for('production.static', filename='js/stations/station-monitor.js') }}"></script>
+    <script src="{{ url_for('production.static', filename='js/stations/station-monitor.js') }}?v=20261005"></script>
 </body>
 </html>

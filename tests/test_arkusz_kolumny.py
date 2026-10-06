@@ -101,7 +101,7 @@ def test_status_jest_wyborem_z_listy_znanych_statusow():
     kolumna = kolumna_arkusza('current_status')
     assert kolumna['typ'] == 'wybor'
     assert set(kolumna['opcje']) == set(STATUSY_BASELINKER.values())
-    assert len(kolumna['opcje']) == 18
+    assert len(kolumna['opcje']) == 20   # 18 + „Planowana trasa” i „Załadowane” (krok 4.4 logistyki)
 
 
 def test_max_dlugosc_przechodzi_z_rejestru():

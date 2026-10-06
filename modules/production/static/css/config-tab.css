@@ -175,6 +175,34 @@
     min-width: 280px;
 }
 
+/* ─── KARTA DRUKARKI: grupy pozycji wybranej drukarki ─── */
+/* Grupa niewybranej drukarki ma atrybut hidden (bez własnego display, żeby nie
+   nadpisywał ukrywania). Pole w ukrytej grupie zostaje w DOM. */
+.config-drukarka-naglowek {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 10px;
+    padding: 8px 14px;
+    background: var(--il-bg-base, #eef0f4);
+    border-bottom: 1px solid var(--il-border-light, #e2e5ea);
+    font-size: 11px;
+    color: var(--il-text-muted, #9ba3b0);
+}
+
+.config-drukarka-naglowek strong {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--il-text-secondary, #7a8291);
+}
+
+/* Ostatnia pozycja grupy nie jest ostatnia w karcie: zostaje linia oddzielająca od dalszej części */
+.config-drukarka-grupa .config-item:last-child {
+    border-bottom: 1px solid var(--il-bg-base, #eef0f4);
+}
+
 .config-item-header {
     display: flex;
     align-items: center;
@@ -673,4 +701,122 @@
 
 .ip-list::-webkit-scrollbar-thumb:hover {
     background: var(--il-text-muted, #9ba3b0);
+}
+
+/* ============================================================================
+   KARTY „TERMINY” I „STÓŁ STANOWISK” (priorytety produkcji, krok K4b)
+   Zapis własnym przyciskiem karty przez PUT /production/api/priorytety/ustawienia.
+   ============================================================================ */
+
+/* Tabela siedmiu stanowisk nie mieści się w połowie szerokości — karta zajmuje cały wiersz siatki. */
+#prio_karta_stol {
+    grid-column: 1 / -1;
+}
+
+.prio-tabela-wrapper {
+    overflow-x: auto;
+    margin-bottom: 16px;
+}
+
+.prio-tabela-stanowisk {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+}
+
+.prio-tabela-stanowisk th {
+    text-align: left;
+    font-weight: 600;
+    color: #6b7280;
+    padding: 8px 10px;
+    border-bottom: 2px solid #e5e7eb;
+    white-space: nowrap;
+}
+
+.prio-tabela-stanowisk td {
+    padding: 6px 10px;
+    border-bottom: 1px solid #f3f4f6;
+    vertical-align: middle;
+}
+
+.prio-tabela-stanowisk .form-control,
+.prio-tabela-stanowisk .form-select {
+    min-width: 90px;
+}
+
+.prio-stanowisko {
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.prio-lista {
+    color: #6b7280;
+    font-style: italic;
+}
+
+.prio-karta-stopka {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.prio-tylko-admin {
+    color: #6b7280;
+    font-size: 0.875rem;
+}
+
+/* Start stołów (spec 5.8): podgląd kafli rozpoczętych i akcje admina */
+.prio-start {
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px dashed #e5e7eb;
+}
+
+.prio-start-tytul {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.prio-start-kroki {
+    font-size: 0.8125rem;
+    color: #4b5563;
+    padding-left: 20px;
+    margin-bottom: 12px;
+}
+
+.prio-start-podglad {
+    font-size: 0.875rem;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    padding: 10px 14px;
+    max-height: 320px;
+    overflow-y: auto;
+}
+
+.prio-start-razem {
+    font-weight: 600;
+    margin-bottom: 6px;
+}
+
+.prio-start-stanowisko summary {
+    cursor: pointer;
+    padding: 2px 0;
+}
+
+.prio-start-stanowisko ul {
+    margin: 4px 0 8px;
+    padding-left: 22px;
+    color: #4b5563;
+}
+
+.prio-start-akcje {
+    display: flex;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 12px;
 }

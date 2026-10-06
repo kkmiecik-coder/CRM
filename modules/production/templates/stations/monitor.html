@@ -10,7 +10,7 @@
     <title>{{ page_title }} - WoodPower CRM</title>
 
     <!-- CSS -->
-    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/stations/station-monitor.css') }}">
+    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/stations/station-monitor.css') }}?v=20261005">
 
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='images/favicon.png') }}">
@@ -100,6 +100,8 @@
         </div>
     </header>
 
+    {#- Gwiazdki i plakietki szczebla — te same makra co zakładka Stanowiska (JS: gwiazdkiHTML, plakietkaHTML). -#}
+    {% import 'components/_priorytet_plakietki.html' as prio %}
     <!-- MAIN CONTENT -->
     <main class="monitor-content">
         {% if orders|length == 0 %}
@@ -118,7 +120,7 @@
         <!-- ORDERS GRID - Two columns -->
         <div class="orders-grid">
             {% for order in orders %}
-            <div class="order-card {{ order.status_class }}" data-order="{{ order.order_number }}">
+            <div class="order-card {{ order.status_class }}" data-order="{{ order.order_number }}" data-order-id="{{ order.order_id }}">
                 <div class="order-main">
                     <div class="order-ids">
                         <span class="order-number">{{ order.order_number }}</span>
@@ -133,6 +135,8 @@
                         <span class="status-badge {{ order.status_class }}">{{ order.status_label }}</span>
                     </div>
                 </div>
+                {#- Gwiazdki i plakietka szczebla osobnym wierszem — w wierszu numeru zasłaniały numer Base. -#}
+                <div class="order-prio-wiersz"><span class="order-prio">{{ prio.gwiazdki(order.gwiazdki) }} {{ prio.plakietka(order.szczebel) }}</span></div>
                 <div class="order-details">
                     <div class="order-progress">
                         <span class="progress-text">{{ order.completed_products }} / {{ order.total_products }}</span>
@@ -169,6 +173,6 @@
             debugMode: {{ 'true' if config.debug_frontend else 'false' }}
         };
     </script>
-    <script src="{{ url_for('production.static', filename='js/stations/station-monitor.js') }}"></script>
+    <script src="{{ url_for('production.static', filename='js/stations/station-monitor.js') }}?v=20261005"></script>
 </body>
 </html>

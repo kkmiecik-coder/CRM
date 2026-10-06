@@ -12,6 +12,7 @@ from sqlalchemy import func
 
 from . import api_bp, logger, ProductionItem, ProductionSyncLog, get_local_now
 from modules.production.models import ProductionConfiguration, ProductionOrder
+from modules.production.logistics import sposoby
 
 from ...services.reports_service import (
     STANOWISKO_LAKIERNI, m2_wg_wykonczenia, para_m2, powierzchnia_sztuki_m2,
@@ -971,7 +972,7 @@ def reports_tab_content():
             func.count(ProductionItem.id),
             func.sum(ProductionItem.volume_m3 * ProductionItem.quantity)
         ).filter(
-            ProductionItem.current_status == 'spakowane',
+            ProductionItem.current_status.in_(sposoby.STATUSY_PO_SPAKOWANIU),
             ProductionItem.packaging_completed_at >= tydzien_start,
             ProductionItem.packaging_completed_at <= tydzien_koniec
         ).one()
@@ -1126,6 +1127,9 @@ _STATUS_NA_STANOWISKO = {
 # w hali. Nazwy zgodne z reports_service.ETAPY_POZA_STANOWISKAMI.
 _ETYKIETY_STATUSOW_POZA_PIPELINE = {
     'spakowane': 'Spakowane',
+    'zweryfikowane': 'Zweryfikowane',
+    'zaladowane': 'Załadowane',
+    'dostarczone': 'Dostarczone',
     'anulowane': 'Anulowane',
     'czeka_na_logistyke': 'Logistyka',
     'wstrzymane': 'Wstrzymane',

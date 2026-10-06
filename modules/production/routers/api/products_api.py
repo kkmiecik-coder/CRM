@@ -12,11 +12,14 @@ from flask import request, jsonify, render_template, current_app
 from flask_login import login_required, current_user
 from extensions import db
 from sqlalchemy import and_, or_, func, distinct, cast, literal, String, case
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import joinedload
 
 from . import api_bp, logger, ProductionItem, ProductionError, get_local_now
-from .common_api import admin_required, _format_status, _validate_config_value
+from .common_api import _format_status, _validate_config_value
 from modules.production.models import ProductionOrder, ProductionConfiguration
+from modules.production.logistics import sposoby
+from modules.production.services import blokady_zamowien
 
 
 # Ile zamówień archiwalnych na stronę.
@@ -195,6 +198,10 @@ def _serialize_product(product, workers_by_product, product_counts_by_order):
 
         # Dane zamówienia
         'internal_order_number': (order.internal_order_number if order else None) or '',
+        # Gwiazdki zamówienia (priorytety produkcji, K4a): Lista produkcyjna czyta je zamiast `is_priority`
+        # pozycji, który zostaje dla innych czytelników. Zamówienie już doczytane (`joinedload`) — bez zapytań.
+        'order_id': product.order_id,
+        'order_priority_stars': int(order.priority_stars or 0) if order else 0,
         'baselinker_order_id': order.baselinker_order_id if order else None,
         'baselinker_product_id': get_attr(product, 'baselinker_product_id', ''),
         'product_sequence_in_order': get_attr(product, 'product_sequence_in_order', 1),
@@ -283,18 +290,55 @@ def _serialize_product(product, workers_by_product, product_counts_by_order):
 
 def _archived_order_condition():
     """
-    Zamówienie należy do archiwum, gdy:
-     - WSZYSTKIE pozycje mają status 'spakowane' (zakończone produkcyjnie), LUB
+    Zamówienie należy do archiwum (logistyka etap 4, krok 4.5, spec 10), gdy:
+     - jest ZAMKNIĘTE W LOGISTYCE (`prod_orders.logistics_closed_at IS NOT NULL`) i żadna pozycja
+       nie wróciła do produkcji, LUB
      - WSZYSTKIE pozycje mają status 'anulowane' (całe zamówienie anulowane).
-    Warunek działa w HAVING nad GROUP BY internal_order_number.
+    Spakowane, ale otwarte w Logistyce (transport czeka na trasę albo w drodze, odbiór niewydany,
+    brak sposobu dostawy) zostaje w aktywnych — panel produkcji i zakładka Logistyka widzą je razem.
+    Drugi człon zamkniętych („bez pozycji w produkcji”) to bezpiecznik na chwilę między doróbką
+    a przeliczeniem cyklu (cron `przelicz_otwarte`): pozycja w produkcji nie może zniknąć z aktywnych.
+    Warunek działa w HAVING nad GROUP BY internal_order_number; gdyby pod jednym numerem było kilka
+    wierszy prod_orders, zamknięte muszą być wszystkie.
     """
-    fully_packed = func.sum(
-        case((ProductionItem.current_status != 'spakowane', 1), else_=0)
+    closed_in_logistics = func.sum(
+        case((ProductionOrder.logistics_closed_at.is_(None), 1), else_=0)
+    ) == 0
+    nothing_in_production = func.sum(
+        case((ProductionItem.current_status.notin_(sposoby.STATUSY_PO_SPAKOWANIU + ('anulowane',)), 1),
+             else_=0)
     ) == 0
     fully_cancelled = func.sum(
         case((ProductionItem.current_status != 'anulowane', 1), else_=0)
     ) == 0
-    return or_(fully_packed, fully_cancelled)
+    return or_(and_(closed_in_logistics, nothing_in_production), fully_cancelled)
+
+
+def _archive_completed_expr(wdrozenie=None):
+    """
+    Data „Zakończono” zamówienia archiwalnego (spec 10) — jedno wyrażenie dla listy, sortowania,
+    filtra dat, statystyk i opcji filtrów:
+     - zamknięte w Logistyce po wdrożeniu kroku 4.3 → `logistics_closed_at` (kurier: spakowanie,
+       odbiór: wydanie, transport: dostarczenie),
+     - zamknięte NIE PÓŹNIEJ niż znacznik `logistyka_weryfikacja_od` (`wdrozenie`) → jak przed
+       krokiem 4.5, MAX(packaging_completed_at). Takie zamknięcia nadała hurtem migracja etapu 1
+       (`NOW()` przy wdrożeniu), więc ich `logistics_closed_at` to data wdrożenia, nie spakowania.
+       Danych nie przepisujemy migracją (spec 10, rozstrzygnięcie 2),
+     - niezamknięte, w całości anulowane → MAX(updated_at) pozycji (ostatnia zmiana, czyli
+       w praktyce anulowanie); cron logistyki zamyka je przy najbliższym przebiegu i od tej chwili
+       obowiązuje `logistics_closed_at`.
+    Bez znacznika (baza bez migracji 4.3) każde zamknięcie liczy się jako bieżące.
+    """
+    closed_at = func.max(ProductionOrder.logistics_closed_at)
+    all_closed = func.sum(
+        case((ProductionOrder.logistics_closed_at.is_(None), 1), else_=0)
+    ) == 0
+    branches = []
+    if wdrozenie is not None:
+        branches.append((and_(all_closed, closed_at <= wdrozenie),
+                         func.max(ProductionItem.packaging_completed_at)))
+    branches.append((all_closed, closed_at))
+    return case(*branches, else_=func.max(ProductionItem.updated_at))
 
 
 def _any_product_matches(condition):
@@ -308,19 +352,21 @@ def _any_product_matches(condition):
     return func.sum(case((condition, 1), else_=0)) > 0
 
 
-def _archive_orders_query(completed_from_dt=None, completed_to_dt=None, filters=None):
+def _archive_orders_query(completed_from_dt=None, completed_to_dt=None, filters=None, wdrozenie=None):
     """
     Agregat "jedno zamówienie = jeden wiersz", kluczowany po internal_order_number
-    (tak samo, jak UI skleja karty zamówień).
+    (tak samo, jak UI skleja karty zamówień). `wdrozenie` — znacznik kroku 4.3
+    (`weryfikacja.data_wdrozenia()`), patrz `_archive_completed_expr`.
 
     `filters` (opcjonalne) to dict z kluczami search / wood_species / technologies /
     wood_classes / thicknesses — każdy filtr to osobne HAVING, więc filtry łączą
     się przez AND, a wartości w obrębie jednego filtra przez OR (IN). Dokładnie
     tak, jak działa dziś `orderPassesFilters()` w archive-module.js.
     """
+    completed_expr = _archive_completed_expr(wdrozenie)
     q = db.session.query(
         ProductionOrder.internal_order_number.label('ion'),
-        func.max(ProductionItem.packaging_completed_at).label('completed_at'),
+        completed_expr.label('completed_at'),
         func.min(ProductionItem.created_at).label('created_at'),
         func.count(ProductionItem.id).label('products_count'),
         func.sum(ProductionItem.quantity).label('quantity'),
@@ -337,11 +383,11 @@ def _archive_orders_query(completed_from_dt=None, completed_to_dt=None, filters=
         ProductionOrder.internal_order_number
     ).having(_archived_order_condition())
 
-    # Zakres dat liczony na poziomie zamówienia (MAX z pozycji), nie pojedynczej sztuki
+    # Zakres dat liczony na poziomie zamówienia (data „Zakończono”), nie pojedynczej sztuki
     if completed_from_dt is not None:
-        q = q.having(func.max(ProductionItem.packaging_completed_at) >= completed_from_dt)
+        q = q.having(completed_expr >= completed_from_dt)
     if completed_to_dt is not None:
-        q = q.having(func.max(ProductionItem.packaging_completed_at) < completed_to_dt)
+        q = q.having(completed_expr < completed_to_dt)
 
     filters = filters or {}
 
@@ -381,14 +427,14 @@ def _archive_orders_query(completed_from_dt=None, completed_to_dt=None, filters=
     return q
 
 
-def _archive_filter_options(completed_from_dt, completed_to_dt):
+def _archive_filter_options(completed_from_dt, completed_to_dt, wdrozenie=None):
     """
     Listy wartości do multiselectów — JEDNO zapytanie DISTINCT po zakresie
     archiwum (z uwzględnieniem zakresu dat, bez pozostałych filtrów, żeby dało
     się filtr zdjąć). Przy paginacji nie da się ich już zebrać z załadowanych
     zamówień — widać tylko jedną stronę.
     """
-    ion_subq = _archive_orders_query(completed_from_dt, completed_to_dt).subquery()
+    ion_subq = _archive_orders_query(completed_from_dt, completed_to_dt, wdrozenie=wdrozenie).subquery()
 
     rows = db.session.query(
         ProductionConfiguration.species,
@@ -484,6 +530,30 @@ def _archive_stats(rows):
     }
 
 
+def _archive_order_stages(products):
+    """
+    {internal_order_number: (status, napis)} — prawdziwy etap zamówienia na karcie archiwum
+    (Spakowane, Zweryfikowane, Załadowane, Dostarczone, Anulowane; dawniej stałe „Spakowane”).
+    Etap = najbardziej zaległa niezanulowana pozycja (`weryfikacja.etap`), napis = jej
+    `status_display_name` — bez dopisku „czeka na weryfikację” z panelu Logistyki, bo w archiwum
+    leżą zamówienia zamknięte. Liczone z pozycji już wczytanych na stronę, bez zapytań.
+    """
+    from modules.production.logistics.services import weryfikacja
+    by_ion = {}
+    for p in products:
+        ion = p.order.internal_order_number if p.order else None
+        if ion:
+            by_ion.setdefault(ion, []).append(p)
+    stages = {}
+    for ion, items in by_ion.items():
+        active = [p for p in items if p.current_status != 'anulowane']
+        status, label = weryfikacja.etap(active)
+        if active:
+            label = next(p.status_display_name for p in active if p.current_status == status)
+        stages[ion] = (status, label)
+    return stages
+
+
 def _archive_tab_content():
     """
     GET /production/api/products-tab-content?view=archive
@@ -511,7 +581,11 @@ def _archive_tab_content():
         'thicknesses': thickness_values,
     }
 
-    order_rows = _archive_orders_query(completed_from_dt, completed_to_dt, filters).all()
+    # Jeden odczyt znacznika na żądanie — data „Zakończono” zamknięć historycznych (spec 10).
+    from modules.production.logistics.services import weryfikacja
+    wdrozenie = weryfikacja.data_wdrozenia()
+
+    order_rows = _archive_orders_query(completed_from_dt, completed_to_dt, filters, wdrozenie).all()
     stats_data = _archive_stats(order_rows)
 
     try:
@@ -558,14 +632,20 @@ def _archive_tab_content():
     workers_by_product = _workers_for_products([p.id for p in products])
     product_counts = _product_counts_by_order([p.order_id for p in products])
 
+    stages_by_ion = _archive_order_stages(products)
+
     products_data = []
     for product in products:
         product_dict = _serialize_product(product, workers_by_product, product_counts)
         completed_at = completed_by_ion.get(product_dict['internal_order_number'])
         product_dict['order_completed_at'] = completed_at.isoformat() if completed_at else None
+        stage_status, stage_label = stages_by_ion.get(
+            product_dict['internal_order_number'], (None, None))
+        product_dict['order_stage_status'] = stage_status
+        product_dict['order_stage_label'] = stage_label
         products_data.append(product_dict)
 
-    filters_data = _archive_filter_options(completed_from_dt, completed_to_dt)
+    filters_data = _archive_filter_options(completed_from_dt, completed_to_dt, wdrozenie)
 
     logger.info("Archiwum: zwrócono stronę zamówień", extra={
         'page': page,
@@ -614,7 +694,7 @@ def products_tab_content():
     """
     try:
         # Tryb widoku: active (default) | archive | all
-        # active  → ukrywa zamówienia, w których WSZYSTKIE pozycje mają status 'spakowane'
+        # active  → ukrywa zamówienia archiwalne (zamknięte w Logistyce albo w całości anulowane)
         # archive → pokazuje wyłącznie te zamówienia
         # all     → bez filtra
         view_mode = request.args.get('view', 'active').lower()
@@ -640,8 +720,9 @@ def products_tab_content():
             joinedload(ProductionItem.configuration),
         )
 
-        # active: odetnij zamówienia archiwalne (wszystkie pozycje spakowane
-        # albo wszystkie anulowane) — ten sam warunek co w widoku archiwum.
+        # active: odetnij zamówienia archiwalne (zamknięte w Logistyce albo wszystkie
+        # pozycje anulowane) — ten sam warunek co w widoku archiwum. Spakowane, ale
+        # otwarte w Logistyce zostają tu, aż Logistyka zamknie cykl (krok 4.5).
         if view_mode == 'active':
             archived_subq = db.session.query(
                 ProductionOrder.internal_order_number.label('ion')
@@ -757,7 +838,7 @@ def products_tab_content():
         total_count = 0
         stats_breakdown_source = []
         for p in products_data:
-            if p.get('current_status') in ('spakowane', 'anulowane'):
+            if p.get('current_status') in sposoby.STATUSY_PO_SPAKOWANIU + ('anulowane',):
                 continue
             qty = int(p.get('quantity') or 0)
             done = int(p.get('quantity_done_packaging') or 0)
@@ -1220,7 +1301,24 @@ def admin_apply_baselinker_changes():
         from ...services.sync_service import BaselinkerSyncService
 
         sync_service = BaselinkerSyncService()
-        result = sync_service.apply_baselinker_changes(baselinker_order_id, changes)
+        # Użytkownik PRZED serwisem: serwis commituje po wywołaniu Base., a po commicie current_user.id byłby zwykłym
+        # SELECT-em w nowej transakcji (migawka przed blokadami). Trafia do logów logistyki (Ruling 31).
+        user_id = current_user.id
+        result = sync_service.apply_baselinker_changes(baselinker_order_id, changes, user_id=user_id)
+        if result.get('success'):
+            # Logistyka (Ruling 30): zamówienie zdjęte z trasy w drodze czeka na „Planowana trasa” w Base. — dopychacz
+            # rusza dopiero po commicie zapisu (apply_baselinker_changes commituje sam).
+            from modules.production.logistics.services import bl_sync
+            bl_sync.wyslij_zaplanowane()
+            # Priorytety produkcji (spec 2026-10-04, 9.3): zmiany z Base. dodają i usuwają pozycje — rangi przeliczamy
+            # po commicie serwisu (własna sesja kolejka.utrwal; błąd przeliczenia trafia tylko do logu).
+            from modules.production.priorytety.services import kolejka
+            kolejka.utrwal_po_commicie()
+            # Sygnały dla tabletów (spec 5.4), po commicie serwisu: stanowiska, z których zdjęto kafel, oraz
+            # Wycinanie, gdy doszła nowa pozycja (zaczyna od `czeka_na_wyciecie`).
+            from modules.production.priorytety.services import sygnaly
+            sygnaly.wyslij(*(list(result.get('zdjete_stanowiska') or [])
+                             + (['cutting'] if result.get('added') else [])))
 
         return jsonify(result), 200
 
@@ -1237,6 +1335,211 @@ def admin_apply_baselinker_changes():
 
 
 
+def _zablokuj_zamowienia_i_pozycje(product_ids):
+    """
+    Zaznaczone pozycje hurtowej zmiany statusu, wczytane po zablokowaniu ich zamówień. Zwraca krotkę
+    (zablokowane zamówienia rosnąco po id, zaznaczone pozycje rosnąco po id).
+
+    Kolejność blokad jak w zapisach Weryfikacji: zamówienia FOR UPDATE (rosnące id) → wszystkie pozycje każdego
+    zamówienia FOR UPDATE po `order_id` (`blokady_zamowien.zablokuj_pozycje`, rosnąco po id) → dopiero zmiany
+    statusów i reguła uniewaznij_etapy. Dotąd hurt najpierw zapisywał
+    pozycje (flush daje blokadę pozycji), a dopiero potem reguła zapisywała zamówienie — odwrotnie niż
+    Weryfikacja (zamówienie → pozycje), stąd zakleszczenie MySQL 1213. Do tego zamówienie i pozycje szły
+    z migawki REPEATABLE READ: zamówienie, które Weryfikacja zdążyła zweryfikować, miało w pamięci stare
+    `verified_at`, więc reguła kasowała paczki, ale nie czyściła weryfikacji.
+
+    Identyfikatory zamówień bierzemy zwykłym odczytem `order_id` (ta kolumna pozycji się nie zmienia), a
+    zamówienia i pozycje czytamy odczytem bieżącym (`populate_existing`): obiekty w sesji dostają wartości
+    z bazy zamiast migawki. `p.order` każdej pozycji wskazuje te same, odświeżone obiekty. Wołać PRZED
+    jakąkolwiek zmianą obiektów w sesji: `populate_existing` nadpisuje atrybuty, a autoflush zapisałby
+    zmienioną pozycję przed blokadą zamówienia.
+
+    (Krok 4.4a, runda 4) Zamówienia i pozycje blokuje `blokady_zamowien` (zablokuj_zamowienia, potem
+    zablokuj_pozycje zamówienie po zamówieniu, rosnąco): blokowane są WSZYSTKIE pozycje każdego zamówienia po
+    `order_id`, nie tylko zaznaczone, bo reguła unieważniania i przeliczenie zamknięcia decydują na całym składzie
+    zamówienia. Wołający trzyma zwróconą listę zamówień do końca decyzji: wynik blokady, którego nikt nie trzymał,
+    znikał z mapy tożsamości (trzyma czyste obiekty słabo), a `p.order` czytało wtedy zamówienie od nowa zwykłym
+    SELECT-em — na MySQL z migawki sprzed blokady.
+
+    (Fala końcowa 4.4b, decyzja Konrada A2) Przed blokadami zamówień — globalna blokada tras (`routes.zablokuj_trasy`)
+    i odczyt bieżący przystanków tych zamówień na trasach załadowanych i w drodze (`_trasy_w_drodze`): kolejność
+    Dostawy (blokada tras → zamówienia → paczki i pozycje). Status trasy, na którym hurt odmawia, czytamy pod blokadą,
+    która go chroni. Zwraca więc trójkę: (zamówienia, zaznaczone pozycje, wynik `_trasy_w_drodze`).
+    """
+    from modules.production.logistics.services import routes
+    wiersze = (db.session.query(ProductionItem.id, ProductionItem.order_id)
+               .filter(ProductionItem.id.in_(product_ids)).all())
+    zaznaczone = {product_id for product_id, _order_id in wiersze}
+    id_zamowien = [order_id for _product_id, order_id in wiersze]
+    routes.zablokuj_trasy()
+    w_drodze = _trasy_w_drodze(id_zamowien)
+    zamowienia = blokady_zamowien.zablokuj_zamowienia(id_zamowien)
+    pozycje = []
+    for zamowienie in zamowienia:
+        pozycje.extend(p for p in blokady_zamowien.zablokuj_pozycje(zamowienie) if p.id in zaznaczone)
+    return zamowienia, sorted(pozycje, key=lambda p: p.id), w_drodze
+
+
+# Decyzja Konrada 2.10 (A2): opis statusu trasy w odmowie hurtu.
+_OPIS_TRASY_W_DRODZE = {'zaladowana': u'załadowana', 'w_trasie': u'w drodze'}
+
+
+def _trasy_w_drodze(order_ids):
+    """
+    {order_id: (nazwa trasy, status, stan przystanku: 'dostarczony' | 'niedostarczony' | None)} zamówień, których
+    przystanek jest na trasie
+    załadowanej albo w drodze
+    (`dostawa.STATUSY_W_DRODZE`). Odczyt BIEŻĄCY (blokada współdzielona, LOCK IN SHARE MODE), wołany pod globalną
+    blokadą tras: przystanki i trasy zapisuje tylko jej posiadacz, więc wynik obowiązuje do końca transakcji. Zwykły
+    SELECT widziałby migawkę REPEATABLE READ sprzed czekania na blokadę (np. załadunek zakończony w tej chwili).
+    """
+    from modules.production.logistics.models import Route, RouteStop
+    from modules.production.logistics.services import dostawa
+    ids = sorted({i for i in order_ids if i is not None})
+    if not ids:
+        return {}
+    wiersze = (db.session.query(RouteStop.order_id, Route.name, Route.status, RouteStop.delivered_at,
+                                RouteStop.not_delivered_at)
+               .join(Route, Route.id == RouteStop.route_id)
+               .filter(RouteStop.order_id.in_(ids), Route.status.in_(dostawa.STATUSY_W_DRODZE))
+               .with_for_update(read=True).all())
+    return {order_id: (nazwa, status, 'dostarczony' if dostarczono is not None
+                       else ('niedostarczony' if niedostarczono is not None else None))
+            for order_id, nazwa, status, dostarczono, niedostarczono in wiersze}
+
+
+def _odmowa_trasy_w_drodze(zamowienie, nazwa, status, stan):
+    """Komunikat odmowy hurtu z wykonalnym krokiem: przystanek już dostarczony (trasa w drodze) cofa się przez
+    „Cofnij dostarczenie” (Ruling 30.6); oznaczony jako niedostarczony (U10, Ruling 32) wisi na trasie do jej końca
+    albo do „Zdejmij z trasy” w panelu tras; pozostałe — „Cofnij załadunek” (trasa załadowana) albo „Niedostarczone”
+    i „Zdejmij z trasy” (trasa w drodze)."""
+    numer = zamowienie.internal_order_number or u'#{}'.format(zamowienie.id)
+    opis = _OPIS_TRASY_W_DRODZE.get(status, status)
+    if stan == 'niedostarczony':
+        return (u'Zamówienie {} jest niedostarczone na trasie „{}” ({}) — wróci do puli po zakończeniu trasy albo po '
+                u'„Zdejmij z trasy” w panelu tras.'.format(numer, nazwa, opis))
+    if stan == 'dostarczony':
+        return (u'Zamówienie {} jest dostarczone na trasie „{}” ({}) — najpierw Cofnij dostarczenie.'
+                .format(numer, nazwa, opis))
+    # Runda 1 U10: „Niedostarczone” zostawia zamówienie na trasie do jej końca, więc samo nie wystarcza — z trasy
+    # w drodze zdejmuje je dopiero „Zdejmij z trasy” w panelu (albo zamknięcie trasy); „Cofnij załadunek” jest tylko dla
+    # trasy załadowanej.
+    if status == 'zaladowana':
+        return (u'Zamówienie {} jest na trasie „{}” ({}) — najpierw Cofnij załadunek.'.format(numer, nazwa, opis))
+    return (u'Zamówienie {} jest na trasie „{}” ({}) — najpierw Niedostarczone, potem Zdejmij z trasy w panelu tras.'
+            .format(numer, nazwa, opis))
+
+
+def _zapisz_zmiane_statusu(product_ids, nowy_status, user_id):
+    """
+    Cały zapis hurtowej zmiany statusu w jednej transakcji: blokady (`_zablokuj_zamowienia_i_pozycje`), pętla
+    statusów, reguła unieważniania etapów z przeliczeniem zamknięcia i commit. Zwraca słownik odpowiedzi
+    (`results`) albo None, gdy po blokadzie nie ma żadnej z zaznaczonych pozycji (wołający odpowiada 404).
+
+    Wynik liczy się od zera przy każdym wywołaniu, a zablokowane zamówienia trzyma lokalna lista do końca decyzji
+    (silne referencje), więc funkcję wolno wywołać drugi raz po rollbacku: jedno ponowienie po zakleszczeniu 1213,
+    patrz `bulk_action`. `user_id` podaje wołający, pobrany przed pierwszą próbą: po rollbacku `current_user.id`
+    byłby zwykłym SELECT-em, czyli odczytem spoza blokad.
+
+    Decyzje Konrada 2.10 (fala końcowa kroku 4.4b):
+    - A2: zamówienie, którego przystanek jest na trasie załadowanej albo w drodze, hurt odmawia — bez żadnej zmiany
+      jego pozycji; odmowa per zamówienie w `errors`, jego zaznaczone pozycje w `failed_count`, reszta zaznaczonych
+      przechodzi. Gdy odmowa obejmuje wszystkie zaznaczone pozycje, nic się nie zapisuje (rollback), a wynik ma
+      `success: False` i `error` — wołający odpowiada 409. Anulowanie przechodzi: to nie powrót do produkcji, a
+      Dostawa obsługuje zamówienie anulowane („Niedostarczone”, przystanek anulowanego w całości).
+    - A1: zmiana na „spakowane” na zamówieniu zweryfikowanym (verified_at albo pozycja 'zweryfikowane' przed zmianą)
+      unieważnia weryfikację tą samą regułą co „Cofnij weryfikację” (weryfikacja.cofnij_weryfikacje_zamowienia) —
+      chyba że reguła unieważniania etapów zrobiła to już sama (zwróciła True).
+    """
+    # Ręczna zmiana statusu może zamknąć albo otworzyć cykl logistyczny zamówienia.
+    from modules.production.logistics.services.delivery import aktywne_produkty, przelicz_zamkniecie
+    from modules.production.logistics.services import weryfikacja
+    zamowienia, products, w_drodze = _zablokuj_zamowienia_i_pozycje(product_ids)
+    if not products:
+        return None
+
+    results = {
+        'success': True,
+        'action': 'update_status',
+        'processed_count': 0,
+        'failed_count': 0,
+        'errors': []
+    }
+
+    # A2 — decyzja na przystankach i trasach z odczytu bieżącego pod blokadą tras (_zablokuj_zamowienia_i_pozycje).
+    odmowy = {}
+    if nowy_status != 'anulowane':
+        odmowy = {z.id: _odmowa_trasy_w_drodze(z, *w_drodze[z.id]) for z in zamowienia if z.id in w_drodze}
+    results['errors'].extend(odmowy[z.id] for z in zamowienia if z.id in odmowy)
+    # A1 — stan PRZED zmianą statusów, na zablokowanych obiektach (zamówienie i wszystkie jego pozycje).
+    zweryfikowane = set()
+    if nowy_status == 'spakowane':
+        zweryfikowane = {z.id for z in zamowienia if z.id not in odmowy and (
+            z.verified_at is not None or any(p.current_status == 'zweryfikowane' for p in aktywne_produkty(z)))}
+
+    for product in products:
+        if product.order_id in odmowy:
+            results['failed_count'] += 1
+            continue
+        try:
+            if nowy_status and hasattr(ProductionItem, 'current_status'):
+                product.current_status = nowy_status
+                results['processed_count'] += 1
+        except Exception as e:
+            logger.error(f"Błąd bulk action dla produktu {product.id}", extra={'error': str(e)})
+            results['errors'].append(f'Błąd produktu {product.id}: {str(e)}')
+            results['failed_count'] += 1
+
+    if odmowy and not results['processed_count']:
+        # Odmowa obejmuje wszystkie zaznaczone pozycje: nic do zapisania (409 w bulk_action).
+        db.session.rollback()
+        results['success'] = False
+        results['error'] = u' '.join(results['errors'])
+        return results
+
+    teraz = get_local_now()
+    # Priorytety produkcji (spec 2026-10-04, 5.1): pozycja wstrzymana, anulowana albo przestawiona na inny status
+    # schodzi ze stanowiska — jej kafel schodzi ze stołu w tej samej transakcji, pod trzymaną blokadą zamówienia.
+    from modules.production.priorytety.services import stol
+    zdjete_ze_stolu = set()
+    # Stała kolejność (rosnące id): reguła unieważniania zapisuje wiersz zamówienia i bierze
+    # blokady paczek, więc dwa równoległe zapisy na nakładających się zamówieniach muszą
+    # brać je w tej samej kolejności — inaczej zakleszczenie (MySQL 1213). `zamowienia` to wynik
+    # blokady (rosnąco po id, ze składem z odczytu bieżącego): decyzja nie czyta zamówień od nowa.
+    for zamowienie in zamowienia:
+        if zamowienie.id in odmowy:
+            continue
+        # Pozycja cofnięta do produkcji unieważnia paczki, weryfikację i załadunek zamówienia.
+        cofnieto = weryfikacja.uniewaznij_etapy(zamowienie, teraz, u'zmiana statusu w panelu', user_id=user_id)
+        if zamowienie.id in zweryfikowane and not cofnieto:
+            _cofnij_weryfikacje_hurtem(zamowienie, teraz, user_id)
+        przelicz_zamkniecie(zamowienie)
+        zdjete_ze_stolu |= stol.zdejmij_nieaktualne(zamowienie, teraz=teraz)
+
+    db.session.commit()
+    # Stanowiska, z których zdjęto kafel — wołający wysyła im sygnał po commicie (spec 5.4).
+    results['zdjete_stanowiska'] = sorted(zdjete_ze_stolu)
+    return results
+
+
+def _cofnij_weryfikacje_hurtem(zamowienie, teraz, user_id):
+    """
+    Decyzja Konrada 2.10 (A1): hurt → „spakowane” na zamówieniu zweryfikowanym = „Cofnij weryfikację”
+    (weryfikacja.cofnij_weryfikacje_zamowienia: pozycje zweryfikowane → spakowane, verified_at zamówienia i znaczniki
+    weryfikacji paczek czyszczone, znaczniki załadunku czyszczone, log `weryfikacja_cofnieta`, przeliczenie zamknięcia).
+    Bez wysyłki do Base. — jak „Cofnij weryfikację”.
+
+    Zamówienie i wszystkie jego pozycje hurt już blokuje; paczki blokujemy tu (paczki.zablokuj_stan: paczki, potem
+    pozycje — już trzymane), w kolejności reguły unieważniania etapów. Najpierw flush: odczyt bieżący nadpisuje
+    obiekty w sesji (populate_existing), więc statusy ustawione w pętli hurtu muszą być już w bazie.
+    """
+    from modules.production.logistics.services import delivery, paczki, weryfikacja
+    db.session.flush()
+    aktualne = paczki.zablokuj_stan(zamowienie)
+    weryfikacja.cofnij_weryfikacje_zamowienia(zamowienie, delivery.aktywne_produkty(zamowienie), aktualne,
+                                              u'zmiana statusu w panelu', None, None, teraz, user_id=user_id)
+
+
 @api_bp.route('/products/bulk-action', methods=['POST'])
 @login_required
 def bulk_action():
@@ -1247,11 +1550,10 @@ def bulk_action():
     
     Body (JSON):
     {
-        "action": "update_status|update_priority|export|delete",
+        "action": "update_status|export|delete",
         "product_ids": [1, 2, 3, ...],
         "parameters": {
             "new_status": "czeka_na_wyciecie",
-            "new_priority": 150,
             "export_format": "excel"
         }
     }
@@ -1271,7 +1573,8 @@ def bulk_action():
         if not action or not product_ids:
             return jsonify({'success': False, 'error': 'Wymagane: action i product_ids'}), 400
         
-        valid_actions = ['update_status', 'update_priority', 'export', 'delete']
+        # Hurtowej zmiany rangi (`update_priority`) nie ma od kroku K2 priorytetów: rangę liczy kolejka.utrwal.
+        valid_actions = ['update_status', 'export', 'delete']
         if action not in valid_actions:
             return jsonify({'success': False, 'error': f'Nieprawidłowa akcja. Dostępne: {valid_actions}'}), 400
         
@@ -1287,7 +1590,11 @@ def bulk_action():
         # trafia w to bardzo łatwo.
         if action == 'update_status':
             nowy_status = parameters.get('new_status')
-            dozwolone_statusy = set(ProductionItem.current_status.type.enums)
+            # 'czeka_na_logistyke' zostaje w ENUM do sprzątania, ale nie jest już
+            # etapem pipeline'u — logistyka żyje równolegle na zamówieniu.
+            # Statusy po spakowaniu nadaje tylko logistyka (spec 8.6) — ręcznie ich nie ustawiamy.
+            dozwolone_statusy = (set(ProductionItem.current_status.type.enums) - {'czeka_na_logistyke'}
+                                 - set(sposoby.STATUSY_LOGISTYCZNE))
             if nowy_status not in dozwolone_statusy:
                 return jsonify({
                     'success': False,
@@ -1295,66 +1602,95 @@ def bulk_action():
                         nowy_status, sorted(dozwolone_statusy))
                 }), 400
 
-        # Pobierz produkty
-        products = ProductionItem.query.filter(ProductionItem.id.in_(product_ids)).all()
-        
-        if not products:
-            return jsonify({'success': False, 'error': 'Nie znaleziono produktów'}), 404
-        
-        results = {
-            'success': True,
-            'action': action,
-            'processed_count': 0,
-            'failed_count': 0,
-            'errors': []
-        }
-        
-        # Wykonaj akcję na każdym produkcie
-        for product in products:
+        # PRZED pierwszą próbą zapisu i przed jakimkolwiek commitem albo rollbackiem: po nich `current_user.id`
+        # byłby zwykłym SELECT-em (obiekty sesji wygasają), czyli odczytem spoza blokad.
+        user_id = current_user.id
+
+        if action == 'update_status':
+            # Zmiana statusu może zmienić zamówienie (reguła uniewaznij_etapy), więc zapis blokuje najpierw
+            # zamówienia, potem pozycje, obie listy bieżącym odczytem (patrz _zablokuj_zamowienia_i_pozycje), a przed
+            # nimi — globalną blokadę tras (decyzja Konrada 2.10, A2: odmowa dla zamówień z trasy w drodze).
+            # Jedno automatyczne ponowienie po zakleszczeniu MySQL 1213, tym samym wzorem co zmiana sposobu
+            # dostawy w panelu Logistyki: ścieżki spoza zasady „zamówienie najpierw” (ręczna synchronizacja
+            # z force_update dopisuje pozycje bez blokady zamówienia) mogą rzadko zakleszczyć hurt. Żądanie jest
+            # bezpieczne do powtórzenia: nowy status jest jawny w ciele, a druga próba blokuje zamówienia od
+            # nowa i decyduje na stanie spod nowych blokad. Wynik liczy się od zera w każdej próbie. Drugie
+            # 1213 i każdy inny błąd idą dalej do `except Exception` niżej (rollback i 500).
             try:
-                if action == 'update_status':
-                    new_status = parameters.get('new_status')
-                    if new_status and hasattr(ProductionItem, 'current_status'):
-                        product.current_status = new_status
+                results = _zapisz_zmiane_statusu(product_ids, nowy_status, user_id)
+            except OperationalError as e:
+                if blokady_zamowien.kod_mysql(e) != 1213:
+                    raise
+                db.session.rollback()
+                logger.warning("Hurtowa zmiana statusu: zakleszczenie 1213, ponawiam raz", extra={
+                    'user_id': user_id, 'product_count': len(product_ids)})
+                results = _zapisz_zmiane_statusu(product_ids, nowy_status, user_id)
+            if results is None:
+                return jsonify({'success': False, 'error': 'Nie znaleziono produktów'}), 404
+            if not results['success']:
+                # Decyzja Konrada 2.10 (A2): wszystkie zaznaczone pozycje są w zamówieniach z trasy załadowanej albo
+                # w drodze — odmowa bez zapisów, z komunikatem w `error` (panel pokazuje go w oknie błędu).
+                return jsonify(results), 409
+        else:
+            products = ProductionItem.query.filter(ProductionItem.id.in_(product_ids)).all()
+
+            if not products:
+                return jsonify({'success': False, 'error': 'Nie znaleziono produktów'}), 404
+
+            results = {
+                'success': True,
+                'action': action,
+                'processed_count': 0,
+                'failed_count': 0,
+                'errors': []
+            }
+
+            # Wykonaj akcję na każdym produkcie
+            for product in products:
+                try:
+                    if action == 'delete':
+                        # Tylko admin może usuwać
+                        if not (hasattr(current_user, 'role') and current_user.role.lower() in ['admin', 'administrator']):
+                            results['errors'].append(f'Brak uprawnień do usunięcia produktu {product.id}')
+                            results['failed_count'] += 1
+                            continue
+
+                        db.session.delete(product)
                         results['processed_count'] += 1
-                
-                elif action == 'update_priority':
-                    new_priority = parameters.get('new_priority')
-                    if new_priority is not None:
-                        product.priority_rank = int(new_priority)
+
+                    elif action == 'export':
+                        # Export będzie obsłużony w osobnym endpoincie
                         results['processed_count'] += 1
-                
-                elif action == 'delete':
-                    # Tylko admin może usuwać
-                    if not (hasattr(current_user, 'role') and current_user.role.lower() in ['admin', 'administrator']):
-                        results['errors'].append(f'Brak uprawnień do usunięcia produktu {product.id}')
-                        results['failed_count'] += 1
-                        continue
-                    
-                    db.session.delete(product)
-                    results['processed_count'] += 1
-                
-                elif action == 'export':
-                    # Export będzie obsłużony w osobnym endpoincie
-                    results['processed_count'] += 1
-                
-            except Exception as e:
-                logger.error(f"Błąd bulk action dla produktu {product.id}", extra={'error': str(e)})
-                results['errors'].append(f'Błąd produktu {product.id}: {str(e)}')
-                results['failed_count'] += 1
-        
-        # Zapisz zmiany dla akcji modyfikujących
-        if action in ['update_status', 'update_priority', 'delete']:
-            db.session.commit()
-        
+
+                except Exception as e:
+                    logger.error(f"Błąd bulk action dla produktu {product.id}", extra={'error': str(e)})
+                    results['errors'].append(f'Błąd produktu {product.id}: {str(e)}')
+                    results['failed_count'] += 1
+
+            # Zapisz zmiany dla akcji modyfikujących (update_status commituje w _zapisz_zmiane_statusu)
+            if action == 'delete':
+                db.session.commit()
+
         logger.info("Bulk action wykonana", extra={
-            'user_id': current_user.id,
+            'user_id': user_id,
             'action': action,
             'product_count': len(product_ids),
             'processed': results['processed_count'],
             'failed': results['failed_count']
         })
         
+        if action == 'update_status' and results.get('success'):
+            # Priorytety produkcji (spec 2026-10-04, 9.3): hurtowa zmiana statusu zabiera zamówienia z kolejki
+            # (wstrzymanie, anulowanie) albo je do niej przywraca — rangi przeliczamy po commicie zapisu
+            # (_zapisz_zmiane_statusu commituje sam). Hurtowa zmiana priorytetu i usuwanie nie przeliczają.
+            from modules.production.priorytety.services import kolejka
+            kolejka.utrwal_po_commicie()
+            # Sygnały dla tabletów (spec 5.4), po commicie zapisu: stanowiska, z których zdjęto kafel, i stanowisko,
+            # na które pozycje trafiły nowym statusem (doszła mu praca).
+            from modules.production.priorytety.services import stol, sygnaly
+            sygnaly.wyslij(*(list(results.get('zdjete_stanowiska') or [])
+                             + [stol.STANOWISKO_STATUSU.get(nowy_status)]))
+
         return jsonify(results)
         
     except Exception as e:
@@ -1560,6 +1896,9 @@ def _export_excel(products, timestamp):
         'czeka_na_lakiernie': 'FCE4EC',
         'czeka_na_pakowanie': 'E0F7FA',
         'spakowane': 'C8E6C9',
+        'zweryfikowane': 'A5D6A7',
+        'zaladowane': 'B3E5FC',
+        'dostarczone': 'D7CCC8',
         'anulowane': 'FFCDD2',
         'wstrzymane': 'CFD8DC'
     }
@@ -2136,6 +2475,9 @@ def get_filters_data():
             {'value': 'czeka_na_skladanie', 'label': 'Czeka na składanie'},
             {'value': 'czeka_na_pakowanie', 'label': 'Czeka na pakowanie'},
             {'value': 'spakowane', 'label': 'Spakowane'},
+            {'value': 'zweryfikowane', 'label': 'Zweryfikowane'},
+            {'value': 'zaladowane', 'label': 'Załadowane'},
+            {'value': 'dostarczone', 'label': 'Dostarczone'},
             {'value': 'wstrzymane', 'label': 'Wstrzymane'}
         ]
         
@@ -2215,73 +2557,6 @@ def get_filters_data():
         }), 500
 
 
-# 5. UPDATE PRIORYTETU POJEDYNCZEGO PRODUKTU
-
-@api_bp.route('/products/<int:product_id>/priority', methods=['PUT'])
-@login_required
-def update_single_product_priority(product_id):
-    """
-    PUT /production/api/products/<id>/priority
-    
-    Aktualizuje priorytet pojedynczego produktu - ZMODYFIKOWANY DLA priority_rank
-    
-    Body (JSON):
-    {
-        "priority": 5  // priority_rank (1,2,3,4... gdzie 1 = najwyższy)
-    }
-    
-    Returns: JSON z rezultatem
-    """
-    try:
-        data = request.get_json()
-        if not data or 'priority' not in data:
-            return jsonify({'success': False, 'error': 'Wymagany parametr: priority'}), 400
-        
-        new_priority = data['priority']
-        
-        # Walidacja priority_rank (1,2,3,4...)
-        if not isinstance(new_priority, int) or new_priority < 1:
-            return jsonify({'success': False, 'error': 'Priority rank musi być liczbą >= 1'}), 400
-        
-        from ...models import ProductionItem
-        
-        product = ProductionItem.query.get_or_404(product_id)
-        old_priority = product.priority_rank
-        
-        # Używaj metody lock_priority() z modelu zamiast bezpośredniego ustawienia
-        product.lock_priority(new_priority)
-        db.session.commit()
-        
-        logger.info("Zaktualizowano priorytet produktu", extra={
-            'user_id': current_user.id,
-            'product_id': product_id,
-            'product_short_id': product.short_product_id,
-            'old_priority_rank': old_priority,
-            'new_priority_rank': new_priority
-        })
-        
-        return jsonify({
-            'success': True,
-            'message': 'Priorytet zaktualizowany',
-            'product_id': product_id,
-            'old_priority_rank': old_priority,
-            'new_priority_rank': new_priority
-        })
-        
-    except Exception as e:
-        db.session.rollback()
-        logger.error("Błąd aktualizacji priorytetu", extra={
-            'user_id': current_user.id if current_user.is_authenticated else None,
-            'product_id': product_id,
-            'error': str(e)
-        })
-        return jsonify({
-            'success': False,
-            'error': f'Błąd aktualizacji priorytetu: {str(e)}'
-        }), 500
-
-
-
 def _serialize_production_item(item, today=None):
     """
     Serializuje pojedynczy ProductionItem do słownika używanego przez endpointy listy i szczegółów.
@@ -2302,6 +2577,9 @@ def _serialize_production_item(item, today=None):
         'id': item.id,
         'short_product_id': getattr(item, 'short_product_id', f'ID-{item.id}'),
         'internal_order_number': (item.order.internal_order_number if item.order else None) or '',
+        # Gwiazdki zamówienia (priorytety produkcji, K4a) — te same pola co w `_serialize_product`.
+        'order_id': item.order_id,
+        'order_priority_stars': int(item.order.priority_stars or 0) if item.order else 0,
         'product_name': getattr(item, 'original_product_name', getattr(item, 'product_name', 'Brak nazwy')),
         'original_product_name': getattr(item, 'original_product_name', getattr(item, 'product_name', 'Brak nazwy')),
         'client_name': (item.order.client_name if item.order else None) or '',
@@ -2561,78 +2839,6 @@ def product_details(product_id):
         }), 500
 
 
-@api_bp.route('/update-priority', methods=['POST'])
-@login_required
-def update_priority():
-    """
-    API endpoint dla aktualizacji priorytetów produktów (priority_rank)
-
-    Formaty:
-    - Batch: {"products": [{"id": 1, "priority_rank": 3}, ...]}
-    - Single: {"product_id": 1, "priority_rank": 3}
-    """
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({'success': False, 'error': 'Brak danych JSON'}), 400
-        
-        updated_products = []
-        
-        if 'products' in data:
-            # ZMIANA: Batch update dla drag & drop (używa priority_rank)
-            products_data = data.get('products', [])
-            
-            for product_data in products_data:
-                product_id = product_data.get('id')
-                new_priority_rank = product_data.get('priority_rank')
-
-                if product_id is None or new_priority_rank is None:
-                    continue
-
-                product = ProductionItem.query.get(product_id)
-                if product:
-                    product.priority_rank = new_priority_rank
-                    product.priority_manual_override = True  # Drag&drop = manual
-                    updated_products.append({
-                        'id': product_id,
-                        'new_priority_rank': new_priority_rank
-                    })
-        
-        elif 'product_id' in data:
-            product_id = data.get('product_id')
-            new_priority_rank = data.get('priority_rank')
-
-            if product_id is None or new_priority_rank is None:
-                return jsonify({'success': False, 'error': 'Wymagane: product_id i priority_rank'}), 400
-
-            product = ProductionItem.query.get(product_id)
-            if not product:
-                return jsonify({'success': False, 'error': f'Produkt {product_id} nie znaleziony'}), 404
-
-            product.priority_rank = new_priority_rank
-            product.priority_manual_override = True
-            updated_products.append({'id': product_id, 'new_priority_rank': new_priority_rank})
-        
-        else:
-            return jsonify({'success': False, 'error': 'Wymagane: product_id+priority_rank LUB products'}), 400
-        
-        # Zapisz zmiany
-        db.session.commit()
-        
-        return jsonify({
-            'success': True,
-            'message': f'Zaktualizowano priorytety {len(updated_products)} produktów',
-            'updated_count': len(updated_products),
-            'updated_products': updated_products
-        })
-        
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({
-            'success': False,
-            'error': f'Błąd aktualizacji priorytetów: {str(e)}'
-        }), 500
-
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
@@ -2886,554 +3092,6 @@ def _format_product_for_navigation(product):
         'status': product.current_status,
         'priority': product.priority_rank or 100
     }
-
-
-# ============================================================================
-# API ROUTERS - NOWE ENDPOINTY - ENHANCED PRIORITY SYSTEM
-# ============================================================================
-
-
-@api_bp.route('/recalculate-all-priorities', methods=['POST'])
-@login_required
-def reset_all_priorities():
-    """
-    POST /api/recalculate-all-priorities - Reset wszystkich priorytetów
-    
-    Endpoint dla admina do resetowania wszystkich priorytetów (przycisk w UI).
-    Ustawia priority_manual_override = FALSE dla wszystkich produktów
-    i wywołuje pełne przeliczenie priorytetów.
-    
-    Body (opcjonalny):
-    {
-        "confirm_reset": true  // Potwierdzenie operacji (wymagane)
-    }
-    
-    Autoryzacja: admin
-    Returns: JSON z szczegółowym raportem przeliczenia
-    """
-    try:
-        data = request.get_json() or {}
-        confirm_reset = data.get('confirm_reset', False)
-        
-        # Wymagaj potwierdzenia dla bezpieczeństwa
-        if not confirm_reset:
-            return jsonify({
-                'success': False,
-                'error': 'Wymagane potwierdzenie reset operacji (confirm_reset: true)'
-            }), 400
-        
-        logger.info("API: Rozpoczęcie reset wszystkich priorytetów", extra={
-            'user_id': current_user.id,
-            'endpoint': 'recalculate-all-priorities',
-            'client_ip': request.remote_addr
-        })
-        
-        from ...services.priority_service import get_priority_calculator
-        from ...models import ProductionItem
-        
-        # Sprawdź ile produktów ma manual override przed resetem
-        manual_overrides_before = ProductionItem.query.filter_by(priority_manual_override=True).count()
-        
-        # Resetuj wszystkie manual overrides
-        updated_count = db.session.query(ProductionItem)\
-                                .filter_by(priority_manual_override=True)\
-                                .update({'priority_manual_override': False})
-        db.session.commit()
-        
-        logger.info("API: Zresetowano manual overrides", extra={
-            'manual_overrides_reset': updated_count,
-            'user_id': current_user.id
-        })
-        
-        # Wywołaj pełne przeliczenie priorytetów
-        priority_calculator = get_priority_calculator()
-        calculation_result = priority_calculator.recalculate_all_priorities()
-        
-        if calculation_result.get('success'):
-            logger.info("API: Reset priorytetów zakończony pomyślnie", extra={
-                'user_id': current_user.id,
-                'products_updated': calculation_result.get('products_updated', 0),
-                'calculation_duration': calculation_result.get('calculation_duration', '00:00:00'),
-                'manual_overrides_reset': updated_count
-            })
-            
-            return jsonify({
-                'success': True,
-                'message': f'Zresetowano priorytety {calculation_result.get("products_updated", 0)} produktów',
-                'data': {
-                    'reset_performed_at': get_local_now().isoformat(),
-                    'reset_by': current_user.id,
-                    'manual_overrides_reset': updated_count,
-                    'manual_overrides_before': manual_overrides_before,
-                    
-                    'priority_recalculation': {
-                        'products_updated': calculation_result.get('products_updated', 0),
-                        'calculation_duration': calculation_result.get('calculation_duration', '00:00:00'),
-                        'weeks_processed': calculation_result.get('weeks_processed', 0),
-                        'algorithm': 'payment_date_weekly_grouping'
-                    },
-                    
-                    'statistics': calculation_result.get('statistics', {}),
-                    'performance_metrics': calculation_result.get('performance_metrics', {})
-                }
-            }), 200
-        else:
-            # Rollback manual overrides jeśli przeliczenie nie powiodło się
-            db.session.rollback()
-            
-            logger.error("API: Błąd przeliczenia po reset", extra={
-                'user_id': current_user.id,
-                'error': calculation_result.get('error', 'Unknown error')
-            })
-            
-            return jsonify({
-                'success': False,
-                'error': f'Błąd przeliczenia priorytetów: {calculation_result.get("error", "Unknown error")}',
-                'data': {
-                    'reset_rolled_back': True,
-                    'manual_overrides_preserved': manual_overrides_before
-                }
-            }), 500
-        
-    except Exception as e:
-        db.session.rollback()
-        logger.error("API: Błąd reset priorytetów", extra={
-            'user_id': current_user.id,
-            'error': str(e),
-            'client_ip': request.remote_addr
-        })
-        
-        return jsonify({
-            'success': False,
-            'error': str(e),
-            'data': {
-                'reset_rolled_back': True
-            }
-        }), 500
-
-
-
-@api_bp.route('/products/<int:product_id>/set-manual-priority', methods=['POST'])
-@login_required
-def set_manual_product_priority(product_id):
-    """
-    POST /api/products/<id>/set-manual-priority - Ręczne ustawienie priorytetu
-    
-    Endpoint dla admina do ustawienia ręcznego priorytetu dla konkretnego produktu.
-    Sprawdza czy numer nie jest zajęty i ustawia manual_override = TRUE.
-    
-    Body (JSON):
-    {
-        "priority_rank": 5,       // Wymagane: numer priorytetu (1-1000)
-        "reason": "Pilne zlecenie" // Opcjonalne: powód zmiany
-    }
-    
-    Autoryzacja: admin
-    Returns: JSON z rezultatem operacji
-    """
-    try:
-        data = request.get_json()
-        if not data or 'priority_rank' not in data:
-            return jsonify({
-                'success': False,
-                'error': 'Wymagany parametr: priority_rank (liczba 1-1000)'
-            }), 400
-        
-        priority_rank = data.get('priority_rank')
-        reason = data.get('reason', '').strip()
-        
-        # Walidacja priority_rank
-        if not isinstance(priority_rank, int) or priority_rank < 1 or priority_rank > 1000:
-            return jsonify({
-                'success': False,
-                'error': 'priority_rank musi być liczbą między 1 a 1000'
-            }), 400
-        
-        from ...models import ProductionItem
-        
-        # Znajdź produkt
-        product = ProductionItem.query.get_or_404(product_id)
-        
-        # Sprawdź czy rank nie jest już zajęty przez inny produkt
-        existing_product = ProductionItem.query.filter(
-            ProductionItem.priority_rank == priority_rank,
-            ProductionItem.priority_manual_override == True,
-            ProductionItem.id != product_id
-        ).first()
-        
-        if existing_product:
-            return jsonify({
-                'success': False,
-                'error': f'Priorytet {priority_rank} jest już zajęty przez produkt {existing_product.short_product_id}',
-                'conflict_product': {
-                    'id': existing_product.id,
-                    'short_product_id': existing_product.short_product_id,
-                    'product_name': existing_product.original_product_name
-                }
-            }), 409
-        
-        # Zapisz stare wartości dla logowania
-        old_priority_rank = product.priority_rank
-        old_manual_override = product.priority_manual_override
-        
-        # Ustaw nowy priorytet używając metody z modelu
-        product.lock_priority(priority_rank)
-        
-        # Dodaj informację o powodzie zmiany (jeśli model to obsługuje)
-        if hasattr(product, 'priority_change_reason') and reason:
-            product.priority_change_reason = reason
-        
-        product.updated_at = get_local_now()
-        db.session.commit()
-        
-        logger.info("API: Ustawiono ręczny priorytet produktu", extra={
-            'user_id': current_user.id,
-            'product_id': product_id,
-            'product_short_id': product.short_product_id,
-            'old_priority_rank': old_priority_rank,
-            'new_priority_rank': priority_rank,
-            'reason': reason,
-            'client_ip': request.remote_addr
-        })
-        
-        return jsonify({
-            'success': True,
-            'message': f'Ustawiono priorytet {priority_rank} dla produktu {product.short_product_id}',
-            'data': {
-                'product_id': product_id,
-                'short_product_id': product.short_product_id,
-                'old_priority': {
-                    'rank': old_priority_rank,
-                    'manual_override': old_manual_override
-                },
-                'new_priority': {
-                    'rank': product.priority_rank,
-                    'manual_override': product.priority_manual_override
-                },
-                'reason': reason,
-                'set_by': current_user.id,
-                'set_at': product.updated_at.isoformat()
-            }
-        }), 200
-        
-    except Exception as e:
-        db.session.rollback()
-        logger.error("API: Błąd ustawienia ręcznego priorytetu", extra={
-            'user_id': current_user.id,
-            'product_id': product_id,
-            'error': str(e),
-            'client_ip': request.remote_addr
-        })
-        
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-
-
-@api_bp.route('/priority-statistics', methods=['GET'])
-@login_required  # Nie musi być admin - może wszyscy użytkownicy
-def get_priority_statistics():
-    """
-    GET /api/priority-statistics - Statystyki systemu priorytetów
-    
-    Zwraca statystyki nowego systemu priorytetów dla UI i monitoringu.
-    
-    Query params:
-        include_details: true|false - czy dołączyć szczegóły (default: false)
-        
-    Autoryzacja: login_required
-    Returns: JSON ze statystykami priorytetów
-    """
-    try:
-        include_details = request.args.get('include_details', 'false').lower() == 'true'
-        
-        logger.info("API: Pobieranie statystyk priorytetów", extra={
-            'user_id': current_user.id,
-            'include_details': include_details,
-            'endpoint': 'priority-statistics'
-        })
-        
-        from ...models import ProductionItem
-        from sqlalchemy import func, desc
-        from datetime import datetime, timedelta
-        
-        # Podstawowe statystyki
-        total_products = ProductionItem.query.count()
-        products_in_queue = ProductionItem.query.filter(
-            ProductionItem.current_status.in_([
-                'czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_pakowanie', 'w_realizacji'
-            ])
-        ).count()
-        
-        # Manual overrides
-        manual_overrides_count = ProductionItem.query.filter_by(priority_manual_override=True).count()
-        
-        # Statystyki payment_date — pole order-level, query bezpośrednio na ProductionOrder
-        payment_date_stats = db.session.query(
-            func.count(ProductionOrder.id).label('total'),
-            func.count(ProductionOrder.payment_date).label('with_payment_date'),
-            func.min(ProductionOrder.payment_date).label('oldest_payment'),
-            func.max(ProductionOrder.payment_date).label('newest_payment')
-        ).first()
-
-        # Rozkład po tygodniach
-        weekly_distribution = []
-        if include_details and payment_date_stats.with_payment_date > 0:
-            # Grupuj po tygodniach — join ProductionItem żeby filtrować po current_status
-            weekly_query = db.session.query(
-                func.year(ProductionOrder.payment_date).label('year'),
-                func.week(ProductionOrder.payment_date).label('week'),
-                func.count(ProductionItem.id).label('count')
-            ).join(ProductionItem, ProductionItem.order_id == ProductionOrder.id).filter(
-                ProductionOrder.payment_date.isnot(None),
-                ProductionItem.current_status.in_([
-                    'czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_pakowanie', 'w_realizacji'
-                ])
-            ).group_by(
-                func.year(ProductionOrder.payment_date),
-                func.week(ProductionOrder.payment_date)
-            ).order_by(
-                func.year(ProductionOrder.payment_date).asc(),
-                func.week(ProductionOrder.payment_date).asc()
-            ).limit(10).all()
-            
-            for year, week, count in weekly_query:
-                weekly_distribution.append({
-                    'year': year,
-                    'week': week,
-                    'week_label': f'{year}-W{week:02d}',
-                    'products_count': count
-                })
-        
-        # Rozkład priority_rank
-        priority_rank_stats = db.session.query(
-            func.min(ProductionItem.priority_rank).label('min_rank'),
-            func.max(ProductionItem.priority_rank).label('max_rank'),
-            func.avg(ProductionItem.priority_rank).label('avg_rank'),
-            func.count(ProductionItem.priority_rank).label('products_with_rank')
-        ).filter(ProductionItem.priority_rank.isnot(None)).first()
-        
-        # Ostatnia aktualizacja priorytetów (przybliżone)
-        last_priority_update = None
-        try:
-            # Szukaj ostatniego produktu z aktualną datą updated_at
-            last_updated_product = ProductionItem.query.filter(
-                ProductionItem.updated_at.isnot(None)
-            ).order_by(ProductionItem.updated_at.desc()).first()
-            
-            if last_updated_product:
-                last_priority_update = last_updated_product.updated_at.isoformat()
-        except:
-            pass
-        
-        # Przygotuj response
-        statistics_data = {
-            'system_overview': {
-                'total_products': total_products,
-                'products_in_queue': products_in_queue,
-                'manual_overrides_count': manual_overrides_count,
-                'manual_override_percentage': round((manual_overrides_count / max(total_products, 1)) * 100, 1),
-                'algorithm': 'payment_date_weekly_grouping_v2'
-            },
-            
-            'payment_date_coverage': {
-                'total_products': payment_date_stats.total,
-                'with_payment_date': payment_date_stats.with_payment_date,
-                'coverage_percentage': round((payment_date_stats.with_payment_date / max(payment_date_stats.total, 1)) * 100, 1),
-                'date_range': {
-                    'oldest': payment_date_stats.oldest_payment.isoformat() if payment_date_stats.oldest_payment else None,
-                    'newest': payment_date_stats.newest_payment.isoformat() if payment_date_stats.newest_payment else None
-                }
-            },
-            
-            'priority_ranking': {
-                'min_rank': priority_rank_stats.min_rank,
-                'max_rank': priority_rank_stats.max_rank,
-                'avg_rank': round(priority_rank_stats.avg_rank, 1) if priority_rank_stats.avg_rank else None,
-                'products_with_rank': priority_rank_stats.products_with_rank,
-                'ranking_coverage': round((priority_rank_stats.products_with_rank / max(products_in_queue, 1)) * 100, 1)
-            },
-
-            'system_info': {
-                'priority_system_version': '2.0_rank_only',
-                'uses_priority_score': False,
-                'uses_priority_rank': True,
-                'supports_unlimited_products': True
-            },
-            
-            'last_updated': last_priority_update,
-            'statistics_generated_at': get_local_now().isoformat()
-        }
-        
-        # Dodaj szczegóły jeśli requested
-        if include_details:
-            statistics_data['weekly_distribution'] = weekly_distribution
-            
-            # Top manual overrides
-            manual_override_products = ProductionItem.query.filter_by(
-                priority_manual_override=True
-            ).order_by(ProductionItem.priority_rank.asc()).limit(10).all()
-            
-            statistics_data['manual_overrides_details'] = [
-                {
-                    'id': p.id,
-                    'short_product_id': p.short_product_id,
-                    'priority_rank': p.priority_rank,
-                    'current_status': p.current_status,
-                    'manual_override': p.priority_manual_override,
-                    'updated_at': p.updated_at.isoformat() if p.updated_at else None
-                }
-                for p in manual_override_products
-            ]
-        
-        logger.info("API: Statystyki priorytetów pobrane", extra={
-            'user_id': current_user.id,
-            'total_products': total_products,
-            'products_in_queue': products_in_queue,
-            'manual_overrides': manual_overrides_count,
-            'include_details': include_details
-        })
-        
-        return jsonify({
-            'success': True,
-            'statistics': statistics_data
-        }), 200
-        
-    except Exception as e:
-        logger.error("API: Błąd pobierania statystyk priorytetów", extra={
-            'user_id': current_user.id,
-            'error': str(e),
-            'client_ip': request.remote_addr
-        })
-        
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-    
-
-@api_bp.route('/set-priority', methods=['POST'])
-@admin_required
-def set_product_priority():
-    """
-    POST /production/api/set-priority
-
-    Ustawia lub usuwa flagę is_priority dla produktu/produktów.
-
-    Request JSON:
-        {
-            "product_id": int,           # ID produktu (wymagane jeśli nie ma order_number)
-            "order_number": str,         # Numer zamówienia (opcjonalne - dla całego zamówienia)
-            "is_priority": bool,         # True = włącz, False = wyłącz
-            "mode": "product" | "order"  # Tryb: pojedynczy produkt lub całe zamówienie
-        }
-
-    Returns:
-        JSON: Status operacji i lista zaktualizowanych produktów
-    """
-    try:
-        data = request.get_json()
-
-        if not data:
-            return jsonify({
-                'success': False,
-                'error': 'Brak danych w żądaniu'
-            }), 400
-
-        is_priority = data.get('is_priority', True)
-        mode = data.get('mode', 'product')
-        product_id = data.get('product_id')
-        order_number = data.get('order_number')
-
-        updated_products = []
-
-        if mode == 'order' and order_number:
-            # Aktualizuj wszystkie produkty w zamówieniu
-            products = (
-                ProductionItem.query
-                .join(ProductionOrder, ProductionItem.order_id == ProductionOrder.id)
-                .filter(ProductionOrder.internal_order_number == order_number)
-                .all()
-            )
-
-            if not products:
-                return jsonify({
-                    'success': False,
-                    'error': f'Nie znaleziono produktów dla zamówienia {order_number}'
-                }), 404
-
-            for product in products:
-                product.is_priority = is_priority
-                product.updated_at = get_local_now()
-                updated_products.append({
-                    'id': product.id,
-                    'short_product_id': product.short_product_id,
-                    'is_priority': product.is_priority
-                })
-
-            db.session.commit()
-
-            logger.info("Ustawiono priorytet dla zamówienia", extra={
-                'order_number': order_number,
-                'is_priority': is_priority,
-                'products_count': len(products),
-                'user_id': current_user.id
-            })
-
-        elif product_id:
-            # Aktualizuj pojedynczy produkt
-            product = ProductionItem.query.get(product_id)
-
-            if not product:
-                return jsonify({
-                    'success': False,
-                    'error': f'Nie znaleziono produktu o ID {product_id}'
-                }), 404
-
-            product.is_priority = is_priority
-            product.updated_at = get_local_now()
-
-            db.session.commit()
-
-            updated_products.append({
-                'id': product.id,
-                'short_product_id': product.short_product_id,
-                'is_priority': product.is_priority
-            })
-
-            logger.info("Ustawiono priorytet dla produktu", extra={
-                'product_id': product_id,
-                'short_product_id': product.short_product_id,
-                'is_priority': is_priority,
-                'user_id': current_user.id
-            })
-        else:
-            return jsonify({
-                'success': False,
-                'error': 'Wymagane jest product_id lub order_number z mode=order'
-            }), 400
-
-        return jsonify({
-            'success': True,
-            'message': f'Zaktualizowano priorytet dla {len(updated_products)} produktów',
-            'updated_products': updated_products,
-            'is_priority': is_priority
-        })
-
-    except Exception as e:
-        db.session.rollback()
-        logger.error("Błąd ustawiania priorytetu", extra={
-            'error': str(e),
-            'traceback': traceback.format_exc()
-        })
-
-        return jsonify({
-            'success': False,
-            'error': f'Błąd serwera: {str(e)}'
-        }), 500
-
 
 
 @api_bp.route('/get-order-products-count/<order_number>')

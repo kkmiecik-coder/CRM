@@ -101,18 +101,12 @@ def get_parser_service():
 
 def get_priority_calculator():
     """
-    Pobiera singleton instance NewPriorityCalculator
-
-    Returns:
-        NewPriorityCalculator: Kalkulator priorytetów v2.0
+    Wejście przeliczania rang — deleguje do `priority_service.get_priority_calculator()`, czyli do warstwy
+    zgodności nad `priorytety.services.kolejka.utrwal()` (P1 priorytetów produkcji, 2026-10). Osobnego singletonu
+    tu nie ma: nikt nie może trafić przez pakiet `services` na stary algorytm.
     """
-    global _priority_calculator_instance
-
-    if _priority_calculator_instance is None and NewPriorityCalculator:
-        _priority_calculator_instance = NewPriorityCalculator()
-        logger.info("Utworzono singleton NewPriorityCalculator v2.0")
-
-    return _priority_calculator_instance
+    from .priority_service import get_priority_calculator as _kalkulator_priorytetow
+    return _kalkulator_priorytetow()
 
 def invalidate_caches():
     """

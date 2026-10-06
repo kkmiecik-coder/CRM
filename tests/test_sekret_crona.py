@@ -37,6 +37,7 @@ KORZEN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENDPOINTY_CRON = (
     '/production/api/sync-cron',
     '/production/api/workers/close-stale-sessions',
+    '/production/api/logistics/cron',
     '/reports/api/cron/sync-statuses',
 )
 

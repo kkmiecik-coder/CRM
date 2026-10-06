@@ -1,0 +1,37 @@
+{#- Makra plakietek priorytetu (krok K4b programu „Priorytety produkcji”): gwiazdki zamówienia i plakietka szczebla.
+    Używają ich zakładka Stanowiska i monitory hali; te same teksty i klasy ma JS monitora (station-monitor.js:
+    gwiazdkiHTML, plakietkaHTML). Import: {% import 'components/_priorytet_plakietki.html' as prio %}
+
+    `szczebel` — słownik szczebla z widoku priorytetów: pełny (`widok.szczebel_json`: rodzaj, etykieta, tag, trasa)
+    albo krótki z kafla kolejki (id, rodzaj, etykieta, pozycja — bez kodu tagu, stąd mapa etykieta → tag niżej,
+    odwrotność `widok.ETYKIETY_TAGOW`, której pilnuje test). Szczebel gwiazdek nie ma plakietki — pokazują go
+    same gwiazdki. -#}
+{%- set _TAG_Z_ETYKIETY = {'Po terminie': 'po_terminie', 'Blisko terminu': 'blisko_terminu', 'Rozpoczęte': 'rozpoczete'} -%}
+
+{%- macro gwiazdki(n) -%}
+{%- if n and n > 0 -%}
+<span class="prio-gwiazdki" title="{{ n }} {{ 'gwiazdka' if n == 1 else ('gwiazdki' if n < 5 else 'gwiazdek') }}">{{ '★' * n }}</span>
+{%- endif -%}
+{%- endmacro -%}
+
+{#- Źródło kafla na stole (spec 5.1): wysłany przez biuro (5.7), rozpoczęty przed startem stołów (5.8), doróbka.
+    Kafel pobrany z kolejki nie ma plakietki. -#}
+{%- set _ZRODLA = {'biuro': 'wysłane przez biuro', 'start': 'rozpoczęte przed startem', 'dorobka': 'doróbka'} -%}
+
+{%- macro zrodlo_kafla(zrodlo) -%}
+{%- if zrodlo in _ZRODLA -%}
+<span class="zrodlo-plakietka zrodlo-{{ zrodlo }}">{{ _ZRODLA[zrodlo] }}</span>
+{%- endif -%}
+{%- endmacro -%}
+
+{%- macro plakietka(szczebel, dorobka=False) -%}
+{%- if dorobka -%}
+<span class="prio-plakietka prio-dorobka">Doróbka</span>
+{%- elif szczebel and szczebel.rodzaj == 'trasa' -%}
+{%- set data = (szczebel.trasa or {}).date_from if szczebel.trasa is mapping else None -%}
+<span class="prio-plakietka prio-trasa">Trasa {{ szczebel.etykieta }}{% if data %} · od {{ data[8:10] }}.{{ data[5:7] }}{% endif %}</span>
+{%- elif szczebel and szczebel.rodzaj == 'tag' -%}
+{%- set tag = szczebel.tag or _TAG_Z_ETYKIETY.get(szczebel.etykieta, 'tag') -%}
+<span class="prio-plakietka prio-{{ tag }}">{{ szczebel.etykieta }}</span>
+{%- endif -%}
+{%- endmacro -%}

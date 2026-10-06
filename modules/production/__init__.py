@@ -67,6 +67,14 @@ except ImportError as e:
     # Modele będą dodane w następnym kroku
     logger.warning(f"Nie można zaimportować modeli: {e}")
 
+# Modele pakietu priorytetów (prod_priority_rungs, prod_priority_log, prod_station_desk) muszą trafić do
+# metadata razem z resztą modeli produkcji — inaczej setup-db / create_all założy bazę bez tych trzech tabel.
+# Osobny blok i poziom ERROR: to nie jest „moduł dodawany postupnie”, tylko brak tabel.
+try:
+    from .priorytety import models as _priorytety_models  # noqa: F401
+except ImportError as e:
+    logger.error(f"Nie można zaimportować modeli priorytetów produkcji: {e}")
+
 # Middleware zabezpieczeń IP (będzie dodane wraz z security_service)
 try:
     from .services.security_service import ip_security_middleware

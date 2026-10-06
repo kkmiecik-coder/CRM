@@ -1,5 +1,5 @@
 // station-monitor.js - MONITOR PRODUKCJI
-// Wersja 2.4 - Szybsza inicjalizacja auto-scroll (2s zamiast 5s)
+// Wersja 2.5 - Priorytety: kolejność po randze, stół TERAZ i Odłożone, klucz karty = id zamówienia
 
 /**
  * Global state dla monitora
@@ -179,6 +179,149 @@ function startRefreshCountdown() {
 }
 
 /* ============================================================================
+   PRIORYTETY: gwiazdki, plakietki, stół „TERAZ” i „Odłożone” (spec priorytetów 7.2)
+   Te same teksty i klasy co makra Jinja components/_priorytet_plakietki.html.
+   Każdy tekst z bazy idzie przez escapeHtml — innerHTML nie może wstrzyknąć znaczników.
+   ============================================================================ */
+
+// Etykieta tagu → kod tagu (krótki szczebel kafla nie niesie kodu; odwrotność widok.ETYKIETY_TAGOW).
+var TAG_Z_ETYKIETY = { 'Po terminie': 'po_terminie', 'Blisko terminu': 'blisko_terminu', 'Rozpoczęte': 'rozpoczete' };
+
+/**
+ * Ucieczka tekstu do HTML (5 znaków). null/undefined → pusty napis.
+ */
+function escapeHtml(tekst) {
+    if (tekst === null || tekst === undefined) return '';
+    return String(tekst)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+/**
+ * Gwiazdki zamówienia (0 → nic), jak makro prio.gwiazdki.
+ */
+function gwiazdkiHTML(n) {
+    n = parseInt(n, 10) || 0;
+    if (n <= 0) return '';
+    var tytul = n === 1 ? 'gwiazdka' : (n < 5 ? 'gwiazdki' : 'gwiazdek');
+    return '<span class="prio-gwiazdki" title="' + n + ' ' + tytul + '">' + '★'.repeat(n) + '</span>';
+}
+
+/**
+ * Plakietka szczebla (trasa, tag) albo „Doróbka”; szczebel gwiazdek nie ma plakietki. Tekst gotowy z serwera
+ * (pole `plakietka`), klasa z rodzaju szczebla — jak makro prio.plakietka.
+ */
+function plakietkaHTML(order) {
+    var szczebel = order.szczebel || null;
+    var klasa = null;
+    if (order.dorobka) {
+        klasa = 'dorobka';
+    } else if (szczebel && szczebel.rodzaj === 'trasa') {
+        klasa = 'trasa';
+    } else if (szczebel && szczebel.rodzaj === 'tag') {
+        klasa = szczebel.tag || TAG_Z_ETYKIETY[szczebel.etykieta] || 'tag';
+    }
+    if (!klasa || !order.plakietka) return '';
+    return '<span class="prio-plakietka prio-' + klasa + '">' + escapeHtml(order.plakietka) + '</span>';
+}
+
+/**
+ * Źródło kafla na stole (spec 5.1): wysłany przez biuro, rozpoczęty przed startem, doróbka; pobrany z kolejki — nic.
+ * Te same teksty i klasy co makro prio.zrodlo_kafla i zakładka Stanowiska.
+ */
+function zrodloHTML(zrodlo) {
+    var teksty = { biuro: 'wysłane przez biuro', start: 'rozpoczęte przed startem', dorobka: 'doróbka' };
+    if (!Object.prototype.hasOwnProperty.call(teksty, zrodlo)) return '';
+    return '<span class="zrodlo-plakietka zrodlo-' + zrodlo + '">' + teksty[zrodlo] + '</span>';
+}
+
+/**
+ * Gwiazdki, plakietka i (Lakiernia) grupa wykończenia na karcie zamówienia.
+ */
+function prioKartyHTML(order) {
+    var html = gwiazdkiHTML(order.gwiazdki) + ' ' + plakietkaHTML(order);
+    if (order.grupa_wykonczenia) {
+        html += ' <span class="grupa-wykonczenia">' + escapeHtml(order.grupa_wykonczenia) + '</span>';
+    }
+    return html;
+}
+
+/**
+ * Sekcje „TERAZ” (stół) i „Odłożone” na początku .monitor-content — to samo, co tablet. Rysowane tylko, gdy
+ * niepuste. `stol` undefined (monitor zbiorczy, AJAX bez pola) → nic; null (Lakiernia, bez stołu) → sekcje
+ * usunięte. Monitor nigdy nie dopełnia stołu — robi to tablet.
+ */
+function renderStolSekcje(stol) {
+    if (stol === undefined) return;
+    var main = document.querySelector('.monitor-content');
+    if (!main) return;
+
+    function godzina(iso) {
+        return iso ? String(iso).slice(11, 16) : '';
+    }
+
+    function kafelHTML(kafel) {
+        return '<div class="stol-kafel" data-unit-key="' + escapeHtml(kafel.unit_key) + '">'
+            + '<span class="stol-oznaczenie">' + escapeHtml(kafel.short_id || kafel.numer) + '</span> '
+            + gwiazdkiHTML(kafel.gwiazdki) + ' ' + plakietkaHTML(kafel) + ' ' + zrodloHTML(kafel.zrodlo)
+            + ' <span class="stol-czas">od ' + escapeHtml(godzina(kafel.pobrano)) + '</span>'
+            + '</div>';
+    }
+
+    function odlozonyHTML(kafel) {
+        var html = '<div class="stol-kafel odlozony" data-unit-key="' + escapeHtml(kafel.unit_key) + '">'
+            + '<span class="stol-oznaczenie">' + escapeHtml(kafel.short_id || kafel.numer) + '</span> '
+            + '<span class="odlozenie-powod">' + escapeHtml(kafel.powod_etykieta || kafel.powod) + '</span>';
+        if (kafel.notatka) {
+            html += ' <span class="odlozenie-notatka">„' + escapeHtml(kafel.notatka) + '”</span>';
+        }
+        html += ' <span class="stol-czas">' + escapeHtml(godzina(kafel.odlozono))
+            + (kafel.pracownik ? ' · ' + escapeHtml(kafel.pracownik) : '') + '</span>';
+        return html + '</div>';
+    }
+
+    function ustawSekcje(id, naglowekHTML, kafleHTML, poprzednia) {
+        var sekcja = document.getElementById(id);
+        if (!naglowekHTML) {
+            if (sekcja) sekcja.remove();
+            return poprzednia;
+        }
+        if (!sekcja) {
+            sekcja = document.createElement('section');
+            sekcja.id = id;
+            sekcja.className = id;
+            main.insertBefore(sekcja, poprzednia ? poprzednia.nextSibling : main.firstChild);
+        }
+        sekcja.innerHTML = '<h2 class="stol-naglowek">' + naglowekHTML + '</h2>'
+            + '<div class="stol-kafle">' + kafleHTML + '</div>';
+        return sekcja;
+    }
+
+    var kafle = (stol && stol.stol) || [];
+    var odlozone = (stol && stol.odlozone) || [];
+    var naStole = ustawSekcje('monitor-stol',
+        kafle.length ? 'TERAZ <span class="stol-licznik">' + kafle.length + '/' + escapeHtml(stol.miejsca) + '</span>' : null,
+        kafle.map(kafelHTML).join(''), null);
+    ustawSekcje('monitor-odlozone',
+        odlozone.length ? 'Odłożone <span class="stol-licznik">' + odlozone.length + '</span>' : null,
+        odlozone.map(odlozonyHTML).join(''), naStole);
+
+    // Nagłówek: „Dalej w kolejce” tylko w trybie stołu
+    var licznik = document.getElementById('kolejka-dalej');
+    if (licznik) {
+        licznik.hidden = !(stol && stol.tryb === 'stol');
+        var wartosc = document.getElementById('kolejka-dalej-wartosc');
+        if (wartosc && stol) {
+            wartosc.textContent = (stol.kolejka_dalej === null || stol.kolejka_dalej === undefined)
+                ? '—' : stol.kolejka_dalej;
+        }
+    }
+}
+
+/* ============================================================================
    ORDERS CACHE & INCREMENTAL UPDATE
    ============================================================================ */
 
@@ -192,12 +335,13 @@ function initializeOrdersCache() {
     const cards = grid.querySelectorAll('.order-card');
     const cache = window.MONITOR_STATE.autoScroll.currentOrders;
 
+    // Kluczem karty jest id zamówienia (numer powtarza się co rok — dwie karty zlałyby się w jedną).
     cards.forEach(card => {
-        const orderNumber = card.dataset.order;
-        if (orderNumber) {
-            cache.set(orderNumber, {
+        const orderId = card.dataset.orderId;
+        if (orderId) {
+            cache.set(orderId, {
                 element: card,
-                orderNumber: orderNumber
+                orderNumber: card.dataset.order
             });
         }
     });
@@ -214,15 +358,18 @@ function generateOrderCardHTML(order) {
         : 0;
     const orderVolume = parseFloat(order.total_volume) || 0;
 
+    const klasaStolu = order.na_stole ? ' na-stole' : '';
+
     return `
-        <div class="order-card ${order.status_class}" data-order="${order.order_number}">
+        <div class="order-card ${escapeHtml(order.status_class)}${klasaStolu}" data-order="${escapeHtml(order.order_number)}" data-order-id="${escapeHtml(order.order_id)}">
             <div class="order-main">
-                <span class="order-number">${order.order_number}</span>
-                ${order.client_order_number ? `<span class="order-client-number">${order.client_order_number}</span>` : ''}
-                ${order.baselinker_order_id ? `<span class="order-baselinker">BL-${order.baselinker_order_id}</span>` : ''}
+                <span class="order-number">${escapeHtml(order.order_number)}</span>
+                ${order.client_order_number ? `<span class="order-client-number">${escapeHtml(order.client_order_number)}</span>` : ''}
+                ${order.baselinker_order_id ? `<span class="order-baselinker">BL-${escapeHtml(order.baselinker_order_id)}</span>` : ''}
             </div>
             <div class="order-meta">
-                <span class="status-badge ${order.status_class}">${order.status_label}</span>
+                <span class="status-badge ${escapeHtml(order.status_class)}">${escapeHtml(order.status_label)}</span>
+                <span class="order-prio">${prioKartyHTML(order)}</span>
             </div>
             <div class="progress-bar">
                 <div class="progress-fill" style="width: ${progressPercent}%"></div>
@@ -277,6 +424,13 @@ function updateOrderCard(card, order) {
         const vol = parseFloat(order.total_volume) || 0;
         volumeValue.textContent = vol.toFixed(4);
     }
+
+    // Gwiazdki, plakietka szczebla, grupa wykończenia i znacznik „na stole” (priorytety)
+    const prio = card.querySelector('.order-prio');
+    if (prio) {
+        prio.innerHTML = prioKartyHTML(order);
+    }
+    card.classList.toggle('na-stole', !!order.na_stole);
 }
 
 /* ============================================================================
@@ -328,6 +482,9 @@ async function refreshMonitorData() {
 
             // Inkrementalne odświeżenie zamówień (BEZ resetowania scrollu)
             incrementalUpdateOrders(data.orders);
+
+            // Stół „TERAZ” i „Odłożone” (monitor stanowiska; monitor zbiorczy nie ma pola `stol`)
+            renderStolSekcje(data.stol);
 
             setConnectionStatus(true);
             window.MONITOR_STATE.lastRefreshTime = Date.now();
@@ -390,10 +547,10 @@ function incrementalUpdateOrders(orders) {
         return;
     }
 
-    // Utwórz mapę nowych zamówień
+    // Utwórz mapę nowych zamówień — klucz to id zamówienia (jak data-order-id), nie numer
     const newOrdersMap = new Map();
     orders.forEach(order => {
-        newOrdersMap.set(order.order_number, order);
+        newOrdersMap.set(String(order.order_id), order);
     });
 
     // 1. Usuń zamówienia które już nie istnieją
@@ -415,7 +572,7 @@ function incrementalUpdateOrders(orders) {
 
     // 2. Zaktualizuj istniejące i dodaj nowe
     orders.forEach(order => {
-        const orderNumber = order.order_number;
+        const orderNumber = String(order.order_id);
         const cached = cache.get(orderNumber);
 
         if (cached && cached.element && cached.element.parentNode) {
@@ -430,10 +587,19 @@ function incrementalUpdateOrders(orders) {
 
             cache.set(orderNumber, {
                 element: newCard,
-                orderNumber: orderNumber
+                orderNumber: order.order_number
             });
 
             console.log(`[Monitor] Added new order: ${orderNumber}`);
+        }
+    });
+
+    // 3a. Ułóż karty w kolejności z serwera (ranga zamówienia): appendChild PRZENOSI istniejące węzły — bez
+    //     przebudowy kart i bez resetu scrollu; zmiana gwiazdek w biurze przesuwa kartę przy najbliższym odświeżeniu.
+    orders.forEach(order => {
+        const cached = cache.get(String(order.order_id));
+        if (cached && cached.element) {
+            grid.appendChild(cached.element);
         }
     });
 

@@ -169,7 +169,6 @@ URL_PATTERNS = {
     'api_routers': [
         '/api/sync',                    # Synchronizacja ręczna
         '/api/complete-task',           # Ukończenie zadania
-        '/api/update-priority',         # Aktualizacja priorytetu
         '/api/get-products',            # Pobieranie produktów dla stanowiska
         '/api/health',                  # Health check
         '/api/stats',                   # Statystyki produkcji

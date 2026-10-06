@@ -37,11 +37,19 @@ def test_kazda_opcja_istnieje_w_enumie_modelu():
     assert nadmiarowe == [], u'statusy spoza enuma: {}'.format(nadmiarowe)
 
 
-def test_formularz_oferuje_krawedzie_lakiernie_i_logistyke():
+def test_formularz_oferuje_krawedzie_i_lakiernie_bez_logistyki():
     wartosci = _wartosci_selecta()
-    for status in ('czeka_na_krawedzie', 'czeka_na_lakiernie', 'czeka_na_logistyke'):
+    for status in ('czeka_na_krawedzie', 'czeka_na_lakiernie'):
         assert status in wartosci, u'brak opcji {}'.format(status)
+    html = zrodlo(SZABLON_PRODUKTOW)
+    assert 'value="czeka_na_logistyke"' not in html
 
 
 def test_formularz_nie_oferuje_juz_wykanczania():
     assert 'czeka_na_wykanczanie' not in _wartosci_selecta()
+
+
+def test_formularz_nie_oferuje_statusow_logistyki():
+    """Spec 8.6 (krok 4.3 logistyki): zweryfikowane/zaladowane/dostarczone nadaje tylko logistyka."""
+    from modules.production.logistics import sposoby
+    assert not set(_wartosci_selecta()) & set(sposoby.STATUSY_LOGISTYCZNE)

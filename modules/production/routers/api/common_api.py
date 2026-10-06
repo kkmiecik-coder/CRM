@@ -101,6 +101,9 @@ def _format_status(status):
         'czeka_na_logistyke': 'Czeka na logistykę',
         'czeka_na_pakowanie': 'Czeka na pakowanie',
         'spakowane': 'Spakowane',
+        'zweryfikowane': 'Zweryfikowane',
+        'zaladowane': 'Załadowane',
+        'dostarczone': 'Dostarczone',
         'anulowane': 'Anulowane',
         'wstrzymane': 'Wstrzymane',
         'w_realizacji': 'W realizacji'

@@ -65,14 +65,16 @@ class ProductionConfigService:
             'CACHE_DURATION_SECONDS': 3600,
             'SYNC_ENABLED': True,
             'MAX_SYNC_ITEMS_PER_BATCH': 1000,
-            'DEADLINE_DEFAULT_DAYS': 16,
-            'DEADLINE_FINISHED_DAYS': 21,
+            # Terminy 10 / 14 dni (decyzja 5.10) — wartości awaryjne, gdy wiersza prod_config brak
+            'DEADLINE_DEFAULT_DAYS': 10,
+            'DEADLINE_FINISHED_DAYS': 14,
+            # Jak liczyć termin nowych zamówień: 'robocze' (pon–pt) albo 'kalendarzowe' — priorytety.stale.TYPY_DNI.
+            'DEADLINE_DAY_TYPE': 'robocze',
             'ADMIN_EMAIL_NOTIFICATIONS': 'admin@woodpower.pl',
             'BASELINKER_TARGET_STATUS_COMPLETED': 138623,
             'STATION_AUTO_REFRESH_ENABLED': True,
             'ERROR_NOTIFICATION_THRESHOLD': 10,
             'MAX_PRODUCTS_PER_ORDER': 999,
-            'PRIORITY_RECALC_INTERVAL_HOURS': 24
         }
         
         logger.info("Inicjalizacja ProductionConfigService", extra={
@@ -402,6 +404,24 @@ class ProductionConfigService:
             if not (1 <= days <= 365):
                 raise ConfigError("Domyślny deadline musi być między 1 a 365 dni")
         
+        elif key.startswith('PACKAGE_LABEL_OFFSET_'):
+            # Przesunięcie etykiety paczki (logistyka etap 4) — powyżej 15 mm to źle
+            # założona rolka, a nie kalibracja; generator i tak przycina do ±120.
+            # Warunek po KLUCZU, nie po typie: gdy wiersza nie ma w prod_config, typ jest
+            # zgadywany z wartości, a tekst "500" wychodzi jako 'json' (zapis '"500"') —
+            # sprawdzanie typu 'integer' przepuściłoby wtedy wszystko.
+            tekst = str(value).strip()
+            if len(tekst) >= 2 and tekst[0] == '"' and tekst[-1] == '"':
+                tekst = tekst[1:-1]  # napis JSON: "-8" liczymy jak -8
+            try:
+                przesuniecie = int(tekst.strip())
+            except ValueError:
+                raise ConfigError("Przesunięcie etykiety paczki musi być liczbą całkowitą "
+                                  "(8 punktów = 1 mm)")
+            if not (-120 <= przesuniecie <= 120):
+                raise ConfigError("Przesunięcie etykiety paczki musi być między -120 a 120 punktów "
+                                  "(8 punktów = 1 mm)")
+
         elif key.endswith('_IPS') and config_type == 'ip_list':
             # Walidacja listy IP
             import ipaddress

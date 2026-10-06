@@ -8,12 +8,14 @@ Logika biznesowa w `services/mobile_api_service.py` — router jest cienki.
 from datetime import datetime, time, timedelta
 
 from flask import Blueprint, g, jsonify, request
-from sqlalchemy import func, or_
+from sqlalchemy import case, func, or_
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import joinedload
 
 from extensions import db
 from modules.logging import get_structured_logger
-from modules.production.models import ProductionConfig, ProductionDevice, ProductionItem, ProductionOrder
+from modules.production.models import (
+    ProductionConfig, ProductionDevice, ProductionItem, ProductionOrder, ProductionPackage, ProductionWorker)
 from modules.production.utils.cache import (
     cached_json,
     if_none_match,
@@ -21,14 +23,21 @@ from modules.production.utils.cache import (
     no_store_json,
     not_modified,
 )
-from modules.production.services import label_print_service, worker_service
+from modules.production.services import blokady_zamowien, label_print_service, realtime_service, worker_service
 from modules.production.services.label_print_service import (
     StationNotAllowed,
     compute_label_offsets,
 )
 from modules.production.services.worker_service import WorkerError
-from modules.production.services.station_catalog import resolve_station_code
+from modules.production.services.station_catalog import STATION_ORDER, resolve_station_code
+from modules.production.logistics import sposoby
+# Moduł, nie nazwy: testy podmieniają funkcje stołu (`stol.zablokuj_stanowisko`), a import nazwy ominąłby podmianę.
+from modules.production.priorytety import stale as priorytety_stale
+from modules.production.priorytety.models import StationDesk
+from modules.production.priorytety.services import kolejka, lista, stol, sygnaly
+from modules.production.priorytety.services import ustawienia as priorytety_ustawienia
 from modules.production.services.mobile_api_service import (
+    STATION_QUANTITY_FIELD,
     STATION_STATUS_MAP,
     STATUS_TO_STATION,
     compute_station_summary,
@@ -130,7 +139,25 @@ BLEDY_DO_PONOWIENIA = {400, 403, 404, 409}
 #
 # PODBIJ przy każdej zmianie zestawu pól w serialize_order().
 #   2 — 2026-09-18: label_print_count, label_offset, label_total (panel kafelków)
-KSZTALT_ODPOWIEDZI_KOLEJKI = 2
+#   3 — 2026-09-25: obiekt `transport` (logistyka równoległa)
+#   4 — 2026-09-30: `packing_hint` (logistyka etap 4, krok 4.2 — okno paczek na pakowaniu)
+#   5 — 2026-09-30: `transport.repack_reason` (logistyka etap 4, krok 4.3 — baner przepakowania)
+#   6 — 2026-10-05: `priorytet` i `grupa_wykonczenia` (priorytety produkcji, krok K3)
+KSZTALT_ODPOWIEDZI_KOLEJKI = 6
+
+# Wersja KSZTAŁTU odpowiedzi stołu (GET /stations/<kod>/desk i odpowiedź POST /orders/<id>/postpone) — część ETagu
+# stołu, jak KSZTALT_ODPOWIEDZI_KOLEJKI dla listy. PODBIJ przy każdej zmianie zestawu pól odpowiedzi stołu
+# (`_odpowiedz_stolu`); zmiana pól samej pozycji idzie przez KSZTALT_ODPOWIEDZI_KOLEJKI, który też wchodzi do ETagu.
+#   1 — 2026-10-05: pierwsza wersja (priorytety produkcji, krok K3)
+#   2 — 2026-10-05: pole `tryb` (K3-poprawka-2 — appka pokazuje stół tylko przy `tryb == "stol"`)
+KSZTALT_ODPOWIEDZI_STOLU = 2
+
+# Wersja KSZTAŁTU katalogu pracowników (GET /workers) — część ETagu, jak KSZTALT_ODPOWIEDZI_KOLEJKI.
+# ETag katalogu liczy się z MAX(prod_workers.updated_at) i odcisku konfiguracji, więc nowe pole bez tego
+# segmentu nie dotarłoby do urządzeń z zapamiętanym katalogiem (304). PODBIJ przy każdej zmianie zestawu pól
+# w worker_service.serialize_worker_for_mobile().
+#   2 — 2026-10-01: `is_driver` (logistyka etap 4, krok 4.4 — bramka stanowiska Dostawa)
+KSZTALT_KATALOGU_PRACOWNIKOW = 2
 
 
 def _resolve_workers():
@@ -294,21 +321,414 @@ def station_orders(station_code):
         ProductionOrder.internal_order_number.asc(),
         ProductionItem.id.asc(),
     ).all()
+    # Lakiernia (bez stołu): lista ułożona po grupach wykończenia — spec priorytetów 3.2 „Lista Lakierni”. Dla
+    # pozostałych stanowisk funkcja oddaje tę samą listę i jedynym źródłem kolejności zostaje ORDER BY wyżej.
+    # ETag liczy się bez zmian: kolejność zależy od rangi i pól wykończenia, a ich zmiana podbija updated_at.
+    items = lista.porzadek_listy(station_code, items)
 
     # Jedna mapa numeracji na całą listę — bez niej serializer liczyłby offset
     # osobnym zapytaniem dla każdej pozycji, a ten endpoint jest odpytywany
     # przez sześć tabletów niezależnie, poza cyklem także przy każdym powrocie
     # aplikacji na pierwszy plan.
     numeracja = compute_label_offsets(items)
+    # Podpowiedź paczek z tej samej listy (są w niej wszystkie pozycje każdego zamówienia).
+    from modules.production.logistics.services.paczki import podpowiedzi_zamowien
+    podpowiedzi = podpowiedzi_zamowien(items)
+    # Priorytet (gwiazdki, szczebel, trasa, miejsce pozycji w zamówieniu) — też jedna mapa na całą listę; lista
+    # ma wszystkie pozycje każdego zamówienia, więc bez dodatkowego zapytania o pozycje (`komplet`).
+    priorytety = stol.kontekst_priorytetu(items, komplet=True)
 
     return cached_json({
         'station_code': station_code,
         'count': len(items),
         'orders': [
-            serialize_order(it, station_code=station_code, label_numbering=numeracja)
+            serialize_order(it, station_code=station_code, label_numbering=numeracja,
+                            packing_hints=podpowiedzi, priorytety=priorytety)
             for it in items
         ],
     }, etag)
+
+
+# ============================================================================
+# STÓŁ STANOWISKA (priorytety produkcji, spec 2026-10-04, sekcje 5.1–5.2, 6.1)
+# ============================================================================
+
+# Pola zamówienia w kaflu-zamówieniu (`kafel.zamowienie`) — brane z serializacji pierwszej pozycji zamówienia.
+POLA_ZAMOWIENIA_KAFLA = (
+    'internal_order_number', 'baselinker_order_id', 'client_name', 'client_order_number', 'delivery_type',
+    'transport', 'packing_hint', 'delivery_city', 'delivery_postcode', 'order_notes', 'order_source',
+    'order_source_id', 'order_source_name', 'order_source_display',
+)
+
+
+def _stanowisko_bez_stolu(station_code):
+    """409 dla `desk` i `postpone` stanowiska, które pracuje z listy (Lakiernia): „Lakiernia pracuje z listy, bez
+    stołu.” Appka nie woła tych końcówek dla Lakierni (wybór ekranu po kodzie stanowiska)."""
+    return jsonify({
+        'error': 'stanowisko_bez_stolu',
+        'message': u'{} pracuje z listy, bez stołu.'.format(
+            priorytety_ustawienia.STANOWISKA_BEZ_STOLU[station_code]),
+    }), 409
+
+
+def _znacznik(*czasy):
+    """Najpóźniejszy z podanych czasów jako segment ETagu (pusty, gdy żadnego nie ma)."""
+    znane = [czas for czas in czasy if czas is not None]
+    return max(znane).strftime('%Y%m%d%H%M%S%f') if znane else ''
+
+
+def _etag_stolu(station_code, tryb=None):
+    """
+    Słaby ETag odpowiedzi `desk` — kilka agregatów zamiast pełnej serializacji, żeby odpytywanie przy pustym stole
+    było tanie (spec 6.1). Podzbiór pozycji jak w liście stanowiska: wszystkie pozycje zamówień, które mają pozycję
+    w statusie stanowiska (kafel-zamówienie i sekcja „Niekompletne” pokazują też pozycje w innych statusach).
+
+    Poza max(updated_at) i liczbą pozycji wchodzą tu WPROST: liczba pozycji czekających na stanowisku, suma
+    liczników sztuk stanowiska i gwiazdki zamówień. `updated_at` ma w MySQL dokładność sekundy, więc dwie zmiany
+    w tej samej sekundzie (dwa kliknięcia licznika) dałyby ten sam znacznik, a drugi tablet zostałby ze starym
+    stanem do następnej zmiany. Do tego stół (czasy i liczby wierszy), ustawienia stanowiska z trybem (przełączenie
+    `stary` ↔ `stol` w Konfiguracji nie zmienia żadnego wiersza pozycji ani stołu — bez trybu w ETagu tablet
+    dostałby 304 i nie wykryłby przełączenia) i wersja kształtu.
+    """
+    if tryb is None:
+        tryb = priorytety_ustawienia.tryb(station_code)
+    status = STATION_STATUS_MAP[station_code]
+    w_statusie = db.session.query(ProductionItem.order_id).filter(ProductionItem.current_status == status)
+    licznik = getattr(ProductionItem, STATION_QUANTITY_FIELD[station_code])
+    zmieniono, pozycji, na_stanowisku, zrobione = db.session.query(
+        func.max(ProductionItem.updated_at), func.count(ProductionItem.id),
+        func.sum(case([(ProductionItem.current_status == status, 1)], else_=0)),
+        func.sum(func.coalesce(licznik, 0)),
+    ).filter(ProductionItem.order_id.in_(w_statusie)).first()
+    gwiazdki_kiedy, gwiazdki = db.session.query(
+        func.max(ProductionOrder.priority_stars_set_at), func.sum(ProductionOrder.priority_stars),
+    ).filter(ProductionOrder.id.in_(w_statusie)).first()
+    pobrano, odlozono, wierszy, odlozonych = db.session.query(
+        func.max(StationDesk.pulled_at), func.max(StationDesk.postponed_at), func.count(StationDesk.id),
+        func.count(StationDesk.postponed_at),
+    ).filter(StationDesk.station_code == station_code).first()
+    return make_weak_etag(
+        'desk', station_code, _znacznik(zmieniono), pozycji or 0, int(na_stanowisku or 0), int(zrobione or 0),
+        _znacznik(gwiazdki_kiedy), int(gwiazdki or 0), _znacznik(pobrano, odlozono), wierszy or 0, odlozonych or 0,
+        KSZTALT_ODPOWIEDZI_KOLEJKI, priorytety_ustawienia.miejsca(station_code), priorytety_ustawienia.limit(station_code),
+        priorytety_ustawienia.jednostka(station_code), tryb, KSZTALT_ODPOWIEDZI_STOLU)
+
+
+def _odpowiedz_stolu(station_code, tryb=None):
+    """
+    Ciało odpowiedzi `desk` i `postpone` (spec 6.1) — zwykłe odczyty, BEZ dopełniania i bez zapisów: tryb stanowiska
+    (`stary` | `stol` — appka pokazuje ekran stołu tylko przy `stol`), stół i odłożone w kolejności `stol.kafle`
+    (appka nie sortuje — dwa tablety stanowiska pokazują to samo), sekcja „Niekompletne”, ustawienia stanowiska
+    i liczba kafli czekających w kolejce.
+
+    `kafel` dla jednostki `pozycja` to obiekt pozycji z `serialize_order`; dla jednostki `zamowienie` —
+    `{zamowienie: {...}, pozycje: [...]}` ze WSZYSTKIMI pozycjami zamówienia (także w innych statusach: appka
+    pokazuje postęp i plakietki sąsiednich stanowisk), w kolejności pozycji w zamówieniu.
+    """
+    if tryb is None:
+        tryb = priorytety_ustawienia.tryb(station_code)
+    stan = stol.stan(station_code)
+    id_zamowien = sorted({w.order_id for w in stan.wiersze} | {n.order.id for n in stan.niekompletne})
+    pozycje = []
+    if id_zamowien:
+        # Wszystkie pozycje zamówień z odpowiedzi jednym zapytaniem: numeracja etykiet i podpowiedź paczek liczą
+        # się z całego składu zamówienia (jak w liście stanowiska).
+        pozycje = ProductionItem.query.options(
+            joinedload(ProductionItem.order),
+            joinedload(ProductionItem.configuration),
+        ).filter(ProductionItem.order_id.in_(id_zamowien)).order_by(
+            ProductionItem.order_id.asc(),
+            func.coalesce(ProductionItem.product_sequence_in_order, 0).asc(),
+            ProductionItem.id.asc(),
+        ).all()
+    numeracja = compute_label_offsets(pozycje)
+    from modules.production.logistics.services.paczki import podpowiedzi_zamowien
+    podpowiedzi = podpowiedzi_zamowien(pozycje)
+    priorytety = stol.kontekst_priorytetu(pozycje, komplet=True)
+    po_id = {pozycja.id: pozycja for pozycja in pozycje}
+    pozycje_zamowien = {}
+    for pozycja in pozycje:
+        pozycje_zamowien.setdefault(pozycja.order_id, []).append(pozycja)
+
+    def kafel_pozycji(pozycja):
+        return serialize_order(pozycja, station_code=station_code, label_numbering=numeracja,
+                               packing_hints=podpowiedzi, priorytety=priorytety)
+
+    def kafel_zamowienia(order_id):
+        skladowe = pozycje_zamowien.get(order_id)
+        if not skladowe:
+            return None
+        serializowane = [kafel_pozycji(pozycja) for pozycja in skladowe]
+        zamowienie = {pole: serializowane[0][pole] for pole in POLA_ZAMOWIENIA_KAFLA}
+        termin = kolejka.termin_zamowienia(skladowe)
+        zamowienie.update({'order_id': order_id, 'deadline': termin.isoformat() if termin else None,
+                           'priorytet': stol.priorytet_zamowienia(skladowe, priorytety)})
+        return {'zamowienie': zamowienie, 'pozycje': serializowane}
+
+    def kafel(wiersz):
+        if wiersz.product_id is None:
+            return kafel_zamowienia(wiersz.order_id)
+        pozycja = po_id.get(wiersz.product_id)
+        return kafel_pozycji(pozycja) if pozycja is not None else None
+
+    id_pracownikow = sorted({w.postponed_by_worker_id for w in stan.wiersze
+                             if w.postponed_at is not None and w.postponed_by_worker_id is not None})
+    pracownicy = {}
+    if id_pracownikow:
+        for pracownik in ProductionWorker.query.filter(ProductionWorker.id.in_(id_pracownikow)).all():
+            # Tablet pokazuje „Adam K.” (spec 6.1); pełne nazwisko zostaje w panelu biura.
+            pracownicy[pracownik.id] = stol.imie_z_inicjalem(pracownik.first_name, pracownik.last_name)
+
+    na_stole, odlozone = [], []
+    for wiersz in stan.wiersze:
+        tresc = kafel(wiersz)
+        if tresc is None:
+            continue            # wiersz bez pozycji w bazie — nie powinien istnieć (FK), ale nie wywracamy stołu
+        if wiersz.postponed_at is None:
+            na_stole.append({'kafel': tresc, 'pobrano': wiersz.pulled_at.isoformat(), 'zrodlo': wiersz.zrodlo})
+        else:
+            odlozone.append({'kafel': tresc, 'odlozono': wiersz.postponed_at.isoformat(),
+                             'powod': wiersz.postpone_reason, 'notatka': wiersz.postpone_note,
+                             'pracownik': pracownicy.get(wiersz.postponed_by_worker_id)})
+    niekompletne = []
+    for wpis in stan.niekompletne:
+        tresc = kafel_zamowienia(wpis.order.id)
+        if tresc is None:
+            continue
+        niekompletne.append({'kafel': tresc, 'na_stanowisku': wpis.na_stanowisku, 'pozycji': wpis.pozycji,
+                             'brakuje': [{'short_id': brakujaca.short_product_id, 'stanowisko': stanowisko}
+                                         for brakujaca, stanowisko in wpis.brakuje]})
+    return {
+        'station_code': station_code,
+        'tryb': tryb,
+        'jednostka': stan.jednostka,
+        'miejsca': stan.miejsca,
+        'stol': na_stole,
+        'odlozone': odlozone,
+        'niekompletne': niekompletne,
+        'limit_odlozen': stan.limit_odlozen,
+        'kolejka_dalej': stan.kolejka_dalej,
+    }
+
+
+def _dopelnij_stol(station_code):
+    """
+    Dopełnienie stołu dla `GET desk` w trybie `stol`: commit → (krótki limit czekania) `stol.dopelnij` → commit, jedno
+    ponowienie po MySQL 1213; po 1205 (limit czekania) stół zostaje bez dopełnienia. Po commicie, jeśli coś
+    dołożyło — sygnał `station:<kod>`. Zwraca None albo gotową odpowiedź 500 `desk_failed`.
+    """
+    def _dopelnij():
+        db.session.commit()             # koniec migawki żądania; następny odczyt to blokada stanowiska
+        with stol.krotkie_czekanie_na_blokady():
+            wynik = stol.dopelnij(station_code)
+            pobrano = bool(wynik.pobrane)   # przed commitem: commit wygasza obiekty sesji
+        db.session.commit()             # limit czekania już przywrócony; tu idą INSERT-y wierszy stołu
+        return pobrano
+
+    pobrano = False
+    try:
+        for proba in (1, 2):
+            try:
+                pobrano = _dopelnij()
+                break
+            except OperationalError as e:
+                db.session.rollback()
+                kod = blokady_zamowien.kod_mysql(e)
+                if kod == stol.KOD_LIMIT_CZEKANIA:
+                    # Ktoś trzyma blokadę zamówienia albo stanowiska dłużej niż limit: stół bez dopełnienia.
+                    logger.warning("Mobile API desk: limit czekania na blokadę, stół bez dopełnienia", extra={
+                        'station_code': station_code})
+                    break
+                if kod != 1213 or proba == 2:
+                    raise
+                logger.warning("Mobile API desk: zakleszczenie 1213, ponawiam dopełnienie raz", extra={
+                    'station_code': station_code})
+    except Exception as e:
+        db.session.rollback()
+        logger.error("Mobile API desk: dopełnienie stołu nieudane", extra={
+            'station_code': station_code, 'error': str(e)})
+        return jsonify({'error': 'desk_failed'}), 500
+
+    if pobrano:
+        # Pobranie na stół przez jeden tablet budzi drugi tablet stanowiska (spec 5.4) — po commicie dopełnienia.
+        # `desk`, który niczego nie dołożył, nie wysyła nic (inaczej dwa tablety budziłyby się nawzajem bez końca).
+        sygnaly.wyslij(station_code)
+    return None
+
+
+@mobile_api_bp.route('/stations/<station_code>/desk', methods=['GET'])
+@require_device_token
+def station_desk(station_code):
+    """
+    GET /api/mobile/stations/<station_code>/desk
+
+    Stół stanowiska z trybem (`tryb`: `stary` | `stol`, spec 6.3): w trybie `stol` dopełnia go z kolejki do K kafli
+    (spec 5.2) i oddaje stół, odłożone i sekcję „Niekompletne”. Tablet woła po własnym ZAKOŃCZ/Odłóż, po sygnale
+    realtime i co 30 s, gdy stół jest pusty; w trybie `stary` — najwyżej co 30 s, żeby wykryć przełączenie.
+
+    W trybie `stary` (K3-poprawka-2, decyzja centrali 5.10) `desk` jest ZWYKŁYM ODCZYTEM: bez commita, blokady
+    stanowiska, limitu czekania i zapisów — oddaje bieżące wiersze stołu (np. kafle startowe po „Przygotuj stoły”)
+    w tym samym kształcie, z `tryb: "stary"`. Inaczej nowa appka po wdrożeniu przeszłaby na stół od razu, a `desk`
+    kładłby kafle z kolejki przed startem stołów.
+
+    W trybie `stol` to JEDYNY handler GET, który zapisuje i commituje sam: dopełnienie biegnie we własnej transakcji
+    (commit → blokada stanowiska → odczyt bieżący → INSERT → commit), poza transakcją ZAKOŃCZ — kolejność
+    i uzasadnienie w `priorytety/services/stol.py`. Jedno ponowienie po zakleszczeniu MySQL 1213, drugie → 500
+    `desk_failed` (tablet ponowi z siatki odpytywania).
+
+    Dopełnienie czeka na cudzą blokadę najwyżej kilka sekund (`stol.krotkie_czekanie_na_blokady`). Po przekroczeniu
+    (MySQL 1205) nie ponawiamy — ponowienie czekałoby na tę samą blokadę — i nie zwracamy błędu: tablet dostaje
+    200 z bieżącym stołem BEZ dopełnienia, a wolne miejsce zajmie następny `desk` (sygnał albo siatka odpytywania).
+
+    Odpowiedź z ETagiem i `Cache-Control: private, max-age=0`: tablet pyta serwer za każdym razem (z
+    `If-None-Match`), bo w `stol` każde żądanie dopełnia stół, a w `stary` czeka na przełączenie trybu — odpowiedź
+    z pamięci tabletu pominęłaby dopełnienie, przełączenie i zmiany z drugiego tabletu.
+    """
+    station_code = resolve_station_code(station_code)
+
+    if station_code not in STATION_STATUS_MAP:
+        return jsonify({'error': 'unknown_station'}), 404
+
+    if not device_can_access_station(g.device, station_code):
+        return jsonify({
+            'error': 'station_mismatch',
+            'device_station': g.device.station_code,
+            'requested_station': station_code,
+        }), 403
+
+    # Lakiernia nie ma stołu (spec 5.5, ustalenie 15) — odmowa PRZED commitem i blokadą, bez żadnego zapisu.
+    if station_code in priorytety_ustawienia.STANOWISKA_BEZ_STOLU:
+        return _stanowisko_bez_stolu(station_code)
+
+    # Tryb zwykłym odczytem w transakcji żądania, PRZED commitem dopełnienia. Przełączenie w Konfiguracji tuż po tym
+    # odczycie kosztuje najwyżej jedno dopełnienie w starym trybie (`stol` → `stary`) albo jedno bez (odwrotnie).
+    tryb = priorytety_ustawienia.tryb(station_code)
+    if tryb == 'stol':
+        blad = _dopelnij_stol(station_code)
+        if blad is not None:
+            return blad
+
+    try:
+        # `stol` — po commicie: świeża migawka, odpowiedź widzi własne dopełnienie i wszystko, co zatwierdzono
+        # wcześniej. `stary` — migawka żądania, bez commita (handler niczego nie zapisuje).
+        etag = _etag_stolu(station_code, tryb)
+        if if_none_match(etag):
+            return not_modified(etag, max_age=0)
+        return cached_json(_odpowiedz_stolu(station_code, tryb), etag, max_age=0)
+    except Exception as e:
+        db.session.rollback()
+        logger.error("Mobile API desk: odczyt stołu nieudany", extra={
+            'station_code': station_code, 'error': str(e)})
+        return jsonify({'error': 'desk_failed'}), 500
+
+
+@mobile_api_bp.route('/orders/<int:order_id>/postpone', methods=['POST'])
+@require_device_token
+@with_idempotency(retryable_statuses=BLEDY_DO_PONOWIENIA)
+def order_postpone(order_id):
+    """
+    POST /api/mobile/orders/<id>/postpone — „Odłóż” kafel z powodem (priorytety produkcji, spec 5.3, 6.2).
+
+    Body JSON: { station_code: str?, zakres: 'pozycja' | 'zamowienie', powod: str, notatka: str? };
+    `X-Worker-Ids` jak w ZAKOŃCZ. `zakres` musi zgadzać się z jednostką kafla stanowiska; dla `zamowienie` `<id>`
+    w ścieżce to id POZYCJI zamówienia (appka zna id pozycji, jak w `complete`), a odkładany jest kafel zamówienia.
+
+    200 → stół stanowiska jak w `GET desk`, ale BEZ dopełniania: handler trzyma blokadę zamówienia, a dopełnienie
+    bierze blokadę stanowiska i czyta inne zamówienia (odwrotna kolejność — cykl). Wolne miejsce zajmie następny
+    kafel przy `GET desk`, który appka woła po własnym Odłóż.
+
+    409 `limit_odlozen`, 409 `nie_na_stole`, 400 `powod_niepoprawny`, 400 `dane_niepoprawne`, 404 `order_not_found`.
+    Wszystkie są w BLEDY_DO_PONOWIENIA: dekorator ich nie zapamiętuje.
+    """
+    data = request.get_json(silent=True) or {}
+    station_code, err = _resolve_station_code(data.get('station_code'))
+    if err:
+        return err
+
+    # Lakiernia nie ma stołu ani Odłóż (spec 5.5). 409 jest w BLEDY_DO_PONOWIENIA — bez wpisu idempotencji.
+    if station_code in priorytety_ustawienia.STANOWISKA_BEZ_STOLU:
+        return _stanowisko_bez_stolu(station_code)
+
+    zakres, powod, notatka = data.get('zakres'), data.get('powod'), data.get('notatka')
+    if (zakres not in priorytety_stale.JEDNOSTKI or not isinstance(powod, str)
+            or not (notatka is None or isinstance(notatka, str)) or len(notatka or u'') > 255):
+        return jsonify({
+            'error': 'dane_niepoprawne',
+            'message': u'Podaj zakres (pozycja albo zamowienie), powód i opcjonalną notatkę do 255 znaków.',
+        }), 400
+    jednostka = priorytety_ustawienia.jednostka(station_code)
+    if zakres != jednostka:
+        return jsonify({
+            'error': 'dane_niepoprawne',
+            'message': (u'Na tym stanowisku odkłada się całe zamówienia.' if jednostka == 'zamowienie'
+                        else u'Na tym stanowisku odkłada się pojedyncze pozycje.'),
+        }), 400
+
+    worker_ids, _sesje, err = _resolve_workers()
+    if err:
+        return err
+
+    # „Zamówienie najpierw”: zamówienie i wszystkie jego pozycje, odczyt bieżący — jak ZAKOŃCZ. Pod tą blokadą
+    # `stol.odloz` blokuje już tylko wiersz własnego kafla.
+    item = blokady_zamowien.zablokuj_zamowienie_pozycji(order_id)
+    if not item:
+        return jsonify({'error': 'order_not_found'}), 404
+
+    try:
+        stol.odloz(item.order_id, item.id if zakres == 'pozycja' else None, station_code, powod, notatka,
+                   worker_ids[0] if worker_ids else None, g.device.id)
+    except stol.BladStolu as e:
+        return jsonify({'error': e.kod, 'message': e.komunikat}), e.status
+
+    logger.info("Mobile API: kafel odłożony", extra={
+        'order_id': order_id, 'station_code': station_code, 'powod': powod, 'device_id': g.device.device_id})
+
+    # Drugi tablet stanowiska przenosi kafel do „Odłożonych” i dociąga następny (spec 5.4) — po commicie.
+    sygnaly.zaplanuj(station_code)
+
+    return jsonify(_odpowiedz_stolu(station_code)), 200
+
+
+@mobile_api_bp.route('/realtime-token', methods=['GET'])
+@require_device_token
+def realtime_token():
+    """
+    GET /api/mobile/realtime-token — krótkotrwały JWT do połączenia tabletu z Centrifugo (SSE), jak
+    /api/print-agent/realtime-token dla agenta druku (priorytety produkcji, spec 5.4, 6.3).
+
+    Kanały przyjeżdżają w tokenie (klient SSE nie subskrybuje sam): stanowisko urządzenia i reszta jego grupy —
+    tablet Krawędzi dostaje `station:edges` i `station:painting`. Po sygnale tablet woła `GET desk` (Lakiernia:
+    odświeża listę).
+
+    200: {"enabled": true, "token": "<JWT>", "ttl_seconds": 3600, "sse_url": "...", "channels": ["station:gluing"]}
+    503: {"enabled": false, "reason": "realtime disabled" | "misconfigured"} — appka zostaje przy odpytywaniu
+         (30 s przy pustym stole, 5 min przy pełnym), bez błędu i bez ponawiania w kółko.
+    404 `unknown_station`: urządzenie spoza stanowisk produktu (trakownia, weryfikacja, dostawa) nie ma stołu.
+    """
+    stanowisko = resolve_station_code(g.device.station_code)
+    if stanowisko not in STATION_STATUS_MAP:
+        return jsonify({'error': 'unknown_station'}), 404
+
+    if not realtime_service.is_enabled():
+        return jsonify({'enabled': False, 'reason': 'realtime disabled'}), 503
+
+    # Stanowisko urządzenia pierwsze, potem pozostałe z jego grupy w kolejności procesu.
+    stanowiska = [stanowisko] + [kod for kod in STATION_ORDER
+                                 if kod != stanowisko and device_can_access_station(g.device, kod)]
+    kanaly = [realtime_service.channel_station(kod) for kod in stanowiska]
+    try:
+        token, ttl = realtime_service.issue_connection_token('device:' + g.device.device_id, kanaly)
+    except RuntimeError as e:
+        logger.error("Mobile API: nie udało się wystawić tokena realtime dla tabletu", extra={'error': str(e)})
+        return jsonify({'enabled': False, 'reason': 'misconfigured'}), 503
+
+    return jsonify({
+        'enabled': True,
+        'token': token,
+        'ttl_seconds': ttl,
+        'sse_url': realtime_service.sse_url(),
+        'channels': kanaly,
+    }), 200
 
 
 @mobile_api_bp.route('/orders/search', methods=['GET'])
@@ -325,7 +745,7 @@ def orders_search():
     każda z dodatkowym polem `current_station` (mapowanie current_status →
     kod stanowiska, lub null gdy pozycja poza produkcją).
 
-    Wyniki obejmują też archiwum (spakowane i anulowane) — tablet otwiera je
+    Wyniki obejmują też archiwum (spakowane lub dalej i anulowane) — tablet otwiera je
     tylko do podglądu. Idą ZA aktywnymi zamówieniami, od najświeżej
     spakowanego. Pozycja spakowana ma `packed_at` (ISO 8601) — czas
     zamknięcia pakowania; null dla pozostałych i dla historycznych
@@ -355,15 +775,18 @@ def orders_search():
         return jsonify({'error': 'search_failed', 'detail': str(e)}), 500
 
     numeracja = compute_label_offsets(items)
+    from modules.production.logistics.services.paczki import podpowiedzi_zamowien
+    podpowiedzi = podpowiedzi_zamowien(items)
+    priorytety = stol.kontekst_priorytetu(items)
     serialized = []
     for it in items:
-        dto = serialize_order(it, label_numbering=numeracja)
+        dto = serialize_order(it, label_numbering=numeracja, packing_hints=podpowiedzi, priorytety=priorytety)
         dto['current_station'] = STATUS_TO_STATION.get(it.current_status)
         # Tylko w wyszukiwarce: listy stanowisk nigdy nie zawierają spakowanych,
         # a nowe pole w serialize_order zmieniłoby im kształt odpowiedzi.
         dto['packed_at'] = (
             it.packaging_completed_at.isoformat()
-            if it.current_status == 'spakowane' and it.packaging_completed_at
+            if it.current_status in sposoby.STATUSY_PO_SPAKOWANIU and it.packaging_completed_at
             else None
         )
         serialized.append(dto)
@@ -420,7 +843,8 @@ def order_complete(order_id):
     Pełna tranzycja statusu (z regułami specjalnymi: Lakiernia dla
     olejowanych i lakierowanych, pominięcie Krawędzi dla produktów BEZ
     obróbki krawędzi — niezależnie od wykończenia) jest delegowana do
-    `ProductionItem.complete_task()` — tej samej metody, której używa web.
+    `ProductionItem.complete_task()` (przez `mark_order_complete`). Webowy
+    handler `/production/api/complete-task` już nie istnieje.
 
     Idempotency: przy nagłówku X-Operation-Id powtórne wywołanie zwraca
     zapisany response (nie wykonuje akcji drugi raz).
@@ -434,9 +858,32 @@ def order_complete(order_id):
     if err:
         return err
 
-    item = ProductionItem.query.get(order_id)
+    # „Zamówienie najpierw” (logistyka etap 4, krok 4.4a): wiersz zamówienia i wszystkie jego pozycje blokujemy
+    # i czytamy bieżąco, ZANIM cokolwiek zapiszemy — w kolejności panelu Logistyki i Weryfikacji. Dotąd ZAKOŃCZ
+    # zapisywał pozycję przed zamówieniem (1213 ze zmianą sposobu dostawy w panelu), a po_spakowaniu
+    # i odnotuj_wejscie_do_pakowania decydowały na migawce: sposób dostawy sprzed zmiany w panelu zamykał cykl
+    # odbioru, a pozycja zrobiona chwilę wcześniej na innym tablecie wyglądała na niezrobioną.
+    item = blokady_zamowien.zablokuj_zamowienie_pozycji(order_id)
     if not item:
         return jsonify({'error': 'order_not_found'}), 404
+
+    # Logistyka równoległa, krok 4.6 (decyzja Konrada 5.10): pakowanie NIE czeka na sposób dostawy. Zamówienie
+    # bez sposobu pakuje się normalnie (etykieta paczki z pasem „NIE USTAWIONO”), Base. nie dostaje wtedy statusu
+    # po spakowaniu (baselinker_status_sync._determine_packaging_target_status), a wyśle go pierwsze ustawienie
+    # sposobu w panelu (delivery.ustaw_sposob_dostawy, okno 8.7). Dawna odmowa 409 delivery_method_not_set zniknęła.
+
+    # Priorytety produkcji (spec 2026-10-04, 5.5): w trybie `stol` ZAKOŃCZ przyjmujemy tylko dla kafla ze stołu albo
+    # odłożonego. Od logistyki 4.6 przed nią nie ma już bramki sposobu dostawy: Pakowanie bez sposobu przechodzi
+    # przez stół jak każde inne zamówienie (spec priorytetów 5.1). Własny wiersz stołu czytamy odczytem bieżącym
+    # (pod blokadą zamówienia wziętą wyżej): zwykły odczyt pokazałby migawkę żądania, czyli stół sprzed kafla,
+    # który dopełnianie drugiego tabletu wstawiło chwilę wcześniej.
+    # 409 `nie_na_stole` jest w BLEDY_DO_PONOWIENIA: akcja z kolejki offline przejdzie, gdy kafel wejdzie na stół.
+    # Przed nią 409 `pozycja_poza_stanowiskiem` (K3-poprawka-2): pozycja nie czeka na tym stanowisku — sprawdzane
+    # na pozycji z blokady, przed zapisem. Też niezapamiętane (status 409), appka porzuca wpis po polu `error`.
+    try:
+        stol.bramka_zakoncz(item, station_code, g.device, do_zapisu=True)
+    except stol.BladStolu as e:
+        return jsonify({'error': e.kod, 'message': e.komunikat}), e.status
 
     try:
         mark_order_complete(item, station_code, device_id=g.device.device_id,
@@ -450,6 +897,19 @@ def order_complete(order_id):
             'error': str(e),
         })
         return jsonify({'error': 'complete_failed', 'detail': str(e)}), 500
+
+    # Kafel schodzi ze stołu w tej samej transakcji, w której pozycja schodzi ze stanowiska (spec 5.1) — także
+    # w trybie `stary` i dla starej appki (5.5). Jedna reguła uzgadniania: kafel-zamówienie z drugą pozycją na
+    # stanowisku zostaje, a `odlozenie_zamkniete` loguje się tylko dla wiersza, który naprawdę znika.
+    zdjete_ze_stolu = set()
+    if item.order is not None:
+        zdjete_ze_stolu = stol.zdejmij_nieaktualne(
+            item.order, zamkniecie_odlozen=True,
+            worker_id=(worker_ids[0] if worker_ids else None), device_id=g.device.id)
+    # Sygnały realtime (spec 5.4) — tylko PLAN: wysyła je dekorator po commicie. To stanowisko (kafel zszedł),
+    # następne stanowisko pozycji (doszła praca) i stanowiska, z których uzgadnianie zdjęło zaległy kafel.
+    sygnaly.zaplanuj_po_zakonczeniu(item, station_code)
+    sygnaly.zaplanuj(*sorted(zdjete_ze_stolu))
 
     logger.info("Mobile API: order completed", extra={
         'order_id': order_id,
@@ -490,6 +950,14 @@ def order_quantity(order_id):
     if not item:
         return jsonify({'error': 'order_not_found'}), 404
 
+    # Priorytety produkcji (spec 5.5): bramka stołu i statusu (409 `pozycja_poza_stanowiskiem`, K3-poprawka-2)
+    # także dla licznika sztuk. Zwykły odczyt stołu i statusu pozycji, BEZ blokady zamówienia — licznik zostaje
+    # pisarzem pozycji bez blokady zamówienia (CLAUDE.md), a stołu nie zmienia.
+    try:
+        stol.bramka_zakoncz(item, station_code, g.device)
+    except stol.BladStolu as e:
+        return jsonify({'error': e.kod, 'message': e.komunikat}), e.status
+
     try:
         update_order_quantity(item, station_code, quantity_done,
                               device_id=g.device.device_id,
@@ -502,6 +970,9 @@ def order_quantity(order_id):
             'error': str(e),
         })
         return jsonify({'error': 'update_failed', 'detail': str(e)}), 500
+
+    # Drugi tablet stanowiska ma zobaczyć „2/15” od razu (spec 5.4) — sygnał po commicie dekoratora.
+    sygnaly.zaplanuj(station_code)
 
     return jsonify(serialize_order(item, station_code=station_code)), 200
 
@@ -585,9 +1056,10 @@ def order_reject(order_id):
         },
     )
 
+    priorytety = stol.kontekst_priorytetu([original, rework])
     return jsonify({
-        'original': serialize_order(original, station_code=station_code),
-        'rework': serialize_order(rework, station_code=station_code),
+        'original': serialize_order(original, station_code=station_code, priorytety=priorytety),
+        'rework': serialize_order(rework, station_code=station_code, priorytety=priorytety),
         'rework_log_id': log_entry.id,
     }), 200
 
@@ -963,6 +1435,20 @@ def mobile_print_labels_for_order(baselinker_order_id):
     if not items:
         return jsonify({'success': False, 'message': 'Brak produktów w zamówieniu.'}), 404
 
+    # „Zamówienie najpierw” (logistyka etap 4, krok 4.4a), TYLKO w trybie agenta (LABEL_PRINTER_USE_AGENT;
+    # label_print_service.tryb_agenta, ten sam pomocnik, którym print_labels_batch wybiera tryb wysyłki, więc
+    # blokada i tryb zawsze się zgadzają). W trybie agenta druk zapisuje liczniki wydrukowanych
+    # sztuk pozycja po pozycji (flush), w kolejności numeracji etykiet (product_sequence_in_order). Doróbka
+    # kopiuje sekwencję oryginału, więc ta kolejność nie jest kolejnością id, w której ZAKOŃCZ blokuje pozycje —
+    # bez wspólnej blokady zamówienia to cykl (MySQL 1213). Blokujemy więc zamówienie i wszystkie jego pozycje,
+    # zanim cokolwiek zapiszemy; kolejność druku etykiet zostaje bez zmian (short_ids niżej z `items`).
+    # W trybie TCP cyklu nie ma: pętla druku nie robi zapytań, więc zapisy pozycji idą w końcowym commicie,
+    # w kolejności klucza głównego, czyli rosnąco jak w ZAKOŃCZ. Blokada trzymana przez druk po sieci (przy
+    # niedostępnej drukarce do (retry_count + 1) × timeout_seconds, domyślnie ok. 6 s) tylko wstrzymywałaby
+    # ZAKOŃCZ tego zamówienia.
+    if label_print_service.tryb_agenta():
+        blokady_zamowien.zablokuj_zamowienie(items[0].order_id)
+
     short_ids = [i.short_product_id for i in items]
     try:
         result = label_print_service.print_labels_batch(
@@ -994,6 +1480,209 @@ def mobile_print_labels_for_order(baselinker_order_id):
         'success_count': result['success_count'],
         'failed_count': result['failed_count'],
         'message': result['message'],
+    }), 200
+
+
+# ============================================================================
+# PACZKI (logistyka etap 4, krok 4.2 — spec 7.2 i 7.3)
+# ============================================================================
+
+def _stanowisko_paczek():
+    """
+    (kod, None), gdy stanowisko z JWT deklaruje paczki i drukuje ich etykiety
+    (paczki.STANOWISKA_PACZEK), inaczej (None, odpowiedź 403). Kod bierzemy z JWT jak
+    druk etykiet produktów — klient nie przysyła go w body, więc nie ma czego porównywać
+    pod kątem station_mismatch.
+    """
+    from modules.production.logistics.services import paczki
+    kod = resolve_station_code((g.device.station_code or '').strip())
+    if kod not in paczki.STANOWISKA_PACZEK:
+        return None, (jsonify({
+            'error': 'station_not_allowed',
+            'message': u'Paczki deklaruje i drukuje stanowisko Pakowanie albo Weryfikacja.',
+        }), 403)
+    return kod, None
+
+
+def _zamowienie_po_numerze(numer, do_zapisu=False):
+    """
+    Najnowsze zamówienie o numerze wewnętrznym (licznik numerów startuje co roku od nowa,
+    więc numer się powtarza — bierzemy wyższe id). `do_zapisu=True` — z blokadą wiersza
+    (FOR UPDATE).
+
+    Id ustalamy odczytem BEZ blokady i dopiero po kluczu głównym blokujemy wiersz:
+    kolumna internal_order_number nie ma indeksu, więc `FOR UPDATE` po niej skanuje
+    tabelę i InnoDB (REPEATABLE READ) zakłada blokady next-key na prawie całym
+    prod_orders, czyli wstrzymuje każdy zapis do zamówień na hali.
+    """
+    order_id = (db.session.query(ProductionOrder.id)
+                .filter(ProductionOrder.internal_order_number == str(numer).strip())
+                .order_by(ProductionOrder.id.desc())
+                .limit(1)
+                .scalar())
+    if order_id is None:
+        return None
+    zapytanie = ProductionOrder.query.filter_by(id=order_id)
+    if do_zapisu:
+        zapytanie = zapytanie.with_for_update().populate_existing()
+    return zapytanie.first()
+
+
+def _brak_zamowienia(numer):
+    return jsonify({'error': 'order_not_found',
+                    'message': u'Nie ma zamówienia {}.'.format(numer)}), 404
+
+
+def _blad_paczek(e):
+    return jsonify({'error': e.kod, 'message': e.komunikat}), e.status
+
+
+def _aktor():
+    return {'type': 'device', 'id': g.device.device_id}
+
+
+def _odpowiedz_paczek(order, paczki_lista, **dodatkowe):
+    from modules.production.logistics.services import paczki
+    dane = {
+        'internal_order_number': order.internal_order_number,
+        'packages_declared_at': (order.packages_declared_at.isoformat()
+                                 if order.packages_declared_at else None),
+        'packages': [paczki.serializuj_paczke(p) for p in paczki_lista],
+    }
+    dane.update(dodatkowe)
+    return dane
+
+
+@mobile_api_bp.route('/orders/<numer>/packages', methods=['GET'])
+@require_device_token
+def order_packages(numer):
+    """
+    GET /api/mobile/orders/<internal_order_number>/packages — aktualne paczki zamówienia
+    (decyzja Konrada 30.09: tablet pokazuje je i drukuje ponownie jedną albo wszystkie).
+    Każde stanowisko może czytać. Bez cache: stan zmienia się deklaracją z innego urządzenia.
+    """
+    from modules.production.logistics.services import paczki
+    order = _zamowienie_po_numerze(numer)
+    if order is None:
+        return _brak_zamowienia(numer)
+    return no_store_json(_odpowiedz_paczek(order, paczki.aktualne_paczki(order.id)))
+
+
+@mobile_api_bp.route('/orders/<numer>/packages', methods=['PUT'])
+@require_device_token
+@with_idempotency(retryable_statuses=BLEDY_DO_PONOWIENIA)
+def order_packages_declare(numer):
+    """
+    PUT /api/mobile/orders/<internal_order_number>/packages — deklaracja paczek (spec 7.2).
+
+    Body: {"kind": "paczka"|"paleta", "count": 1..10, "pallet_type": "eur"|"niestandardowa"|null,
+           "length_cm": int|null, "width_cm": int|null}
+
+    Appka wysyła ją po „ZAKOŃCZ”, który domyka zamówienie — po zakończeniach pozycji, tą samą
+    kolejką offline. 409 order_not_packed jest w BLEDY_DO_PONOWIENIA (niezapamiętane): kolejka
+    appki nie gwarantuje, że wszystkie COMPLETE przeszły przed deklaracją, więc ten sam
+    X-Operation-Id musi przejść, gdy zamówienie się domknie. Stara appka pakuje bez deklaracji
+    (backend to przyjmuje), a nowa appka na starym backendzie dostaje 404 i pomija deklarację.
+    """
+    from modules.production.logistics.services import paczki
+    stanowisko, err = _stanowisko_paczek()
+    if err:
+        return err
+    try:
+        deklaracja = paczki.waliduj_deklaracje(request.get_json(silent=True))
+    except paczki.PaczkiBlad as e:
+        return _blad_paczek(e)
+    # Kolejność blokad: pracownicy → blokada deklaracji paczek → wiersz zamówienia → paczki.
+    # Pracownicy PRZED blokadą zamówienia: order_complete też najpierw dotyka wierszy sesji
+    # (touch_sessions), a dopiero potem blokuje zamówienie i jego pozycje — odwrócona kolejność
+    # dawałaby zakleszczenie (MySQL 1213) przy równoległym „ZAKOŃCZ” i deklaracji.
+    worker_ids, _sesje, err = _resolve_workers()
+    if err:
+        return err
+    # Jedna deklaracja naraz: bez tego dwie pierwsze deklaracje różnych zamówień blokowały
+    # tę samą lukę indeksu prod_packages i zakleszczały się (MySQL 1213) — patrz docstring.
+    paczki.zablokuj_deklaracje()
+    order = _zamowienie_po_numerze(numer, do_zapisu=True)
+    if order is None:
+        return _brak_zamowienia(numer)
+    try:
+        nowe, uniewaznione = paczki.zadeklaruj(order, deklaracja, stanowisko, _aktor(),
+                                               worker_id=worker_ids[0] if worker_ids else None,
+                                               device_id=g.device.id)
+    except paczki.PaczkiBlad as e:
+        return _blad_paczek(e)
+
+    tekst = paczki.opis(deklaracja.kind, deklaracja.count, deklaracja.pallet_type,
+                        deklaracja.length_cm, deklaracja.width_cm)
+    logger.info("Mobile API: paczki zadeklarowane", extra={
+        'internal_order_number': order.internal_order_number, 'paczki': tekst,
+        'station_code': stanowisko, 'device_id': g.device.device_id,
+    })
+    komunikat = u'Zadeklarowano {}. Etykiety poszły do drukarki paczek.'.format(tekst)
+    if uniewaznione:
+        komunikat += u' Poprzednie etykiety ({}) są nieaktualne.'.format(uniewaznione)
+    return jsonify(_odpowiedz_paczek(order, nowe, labels_queued=len(nowe), message=komunikat)), 200
+
+
+@mobile_api_bp.route('/packages/<int:package_id>/print', methods=['POST'])
+@require_device_token
+@with_idempotency(retryable_statuses=BLEDY_DO_PONOWIENIA)
+def package_print(package_id):
+    """
+    POST /api/mobile/packages/<id>/print — ponowny druk etykiety jednej paczki (spec 7.3),
+    z tabletu pakowania i (krok 4.3) telefonu Weryfikacji. Etykieta z bieżącymi danymi.
+    X-Operation-Id chroni przed podwójnym wydrukiem przy powtórce po timeoucie.
+    """
+    from modules.production.logistics.services import paczki
+    stanowisko, err = _stanowisko_paczek()
+    if err:
+        return err
+    paczka = (ProductionPackage.query.filter_by(id=package_id)
+              .with_for_update().populate_existing().first())
+    if paczka is None:
+        return jsonify({'error': 'package_not_found',
+                        'message': u'Nie ma paczki P-{}.'.format(package_id)}), 404
+    try:
+        paczki.drukuj_ponownie_paczke(paczka, stanowisko, _aktor())
+    except paczki.PaczkiBlad as e:
+        return _blad_paczek(e)
+    logger.info("Mobile API: ponowny druk etykiety paczki", extra={
+        'package': paczka.kod, 'station_code': stanowisko, 'device_id': g.device.device_id,
+        'worker_id': _profil_do_logu(),
+    })
+    return jsonify({
+        'success': True, 'labels_queued': 1, 'package': paczki.serializuj_paczke(paczka),
+        'message': u'Etykieta {} poszła do drukarki paczek.'.format(paczka.kod),
+    }), 200
+
+
+@mobile_api_bp.route('/orders/<numer>/packages/print', methods=['POST'])
+@require_device_token
+@with_idempotency(retryable_statuses=BLEDY_DO_PONOWIENIA)
+def order_packages_print(numer):
+    """POST /api/mobile/orders/<internal_order_number>/packages/print — ponowny druk etykiet
+    wszystkich ważnych paczek zamówienia (spec 7.3)."""
+    from modules.production.logistics.services import paczki
+    stanowisko, err = _stanowisko_paczek()
+    if err:
+        return err
+    order = _zamowienie_po_numerze(numer, do_zapisu=True)
+    if order is None:
+        return _brak_zamowienia(numer)
+    try:
+        aktualne = paczki.drukuj_ponownie_zamowienie(order, stanowisko, _aktor())
+    except paczki.PaczkiBlad as e:
+        return _blad_paczek(e)
+    logger.info("Mobile API: ponowny druk etykiet paczek zamówienia", extra={
+        'internal_order_number': order.internal_order_number, 'etykiet': len(aktualne),
+        'station_code': stanowisko, 'device_id': g.device.device_id,
+        'worker_id': _profil_do_logu(),
+    })
+    return jsonify({
+        'success': True, 'labels_queued': len(aktualne),
+        'packages': [paczki.serializuj_paczke(p) for p in aktualne],
+        'message': u'Etykiety paczek zamówienia {} ({}) poszły do drukarki paczek.'.format(
+            order.internal_order_number, len(aktualne)),
     }), 200
 
 
@@ -1087,7 +1776,8 @@ def workers_catalog():
     odświeżeniu. Dlatego `catalog_version` = dokładnie ta wartość, którą
     wystawiamy w nagłówku.
 
-    W ETag wchodzą TRZY rzeczy:
+    W ETag wchodzą TRZY rzeczy (po segmencie kształtu KSZTALT_KATALOGU_PRACOWNIKOW, który tuż za nazwą
+    `workers` unieważnia katalog zapamiętany przy starszym zestawie pól):
       1. station_code z JWT — recent_on_station jest per stanowisko;
       2. MAX(prod_workers.updated_at) — zmiana katalogu (dodanie, edycja,
          dezaktywacja pracownika);
@@ -1109,7 +1799,7 @@ def workers_catalog():
 
     worker_service.odswiez_konfiguracje_jesli_nieaktualna()
 
-    etag = make_weak_etag('workers', station_code,
+    etag = make_weak_etag('workers', KSZTALT_KATALOGU_PRACOWNIKOW, station_code,
                           worker_service.get_catalog_version(),
                           worker_service.get_config_fingerprint())
     if if_none_match(etag):

@@ -558,6 +558,8 @@ def get_order_status(order_id):
                 138624: 'Dostarczona - kurier',
                 149778: 'Dostarczona - transport WoodPower',
                 149779: 'Odebrane',
+                417343: 'Planowana trasa',
+                524520: 'Załadowane - trans. WoodPower',
                 138625: 'Zamówienie anulowane'
             }
             

@@ -87,7 +87,7 @@ class ProductionApp {
         const tabParam = params.get('tab');
         if (tabParam) {
             const tabName = tabParam.endsWith('-tab') ? tabParam : `${tabParam}-tab`;
-            const validTabs = ['dashboard-tab', 'products-tab', 'archive-tab',
+            const validTabs = ['dashboard-tab', 'products-tab', 'stations-tab', 'archive-tab', 'logistics-tab',
                                'sawmill-tab', 'reports-tab', 'workers-tab', 'config-tab'];
             if (validTabs.includes(tabName)) {
                 return tabName;
@@ -275,7 +275,9 @@ class ProductionApp {
         switch (normalizedTabName) {
             case 'dashboard-tab': await this.loadDashboardTab(); break;
             case 'products-tab': await this.loadProductsTab(); break;
+            case 'stations-tab': await this.loadStationsTab(); break;
             case 'archive-tab': await this.loadArchiveTab(); break;
+            case 'logistics-tab': await this.loadLogisticsTab(); break;
             case 'sawmill-tab': await this.loadSawmillTab(); break;
             case 'reports-tab': await this.loadReportsTab(); break;
             case 'workers-tab': await this.loadWorkersTab(); break;
@@ -366,6 +368,40 @@ class ProductionApp {
     }
 
     /**
+     * Zakładka Logistyka — jak Trakownia: własny blueprint zwraca gotowy HTML
+     * (logistics_panel_bp), więc fetch() zamiast wspólnego ApiClient.
+     */
+    async loadLogisticsTab() {
+        try {
+            const response = await fetch('/production/api/logistics/tab-content', {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            });
+            if (!response.ok) {
+                if (response.status === 403) {
+                    throw new Error('Brak dostępu do modułu produkcji');
+                }
+                throw new Error(`HTTP ${response.status}`);
+            }
+            // (C-2, przegląd końcowy 4.10) Treść do wrappera, nie do całej zakładki — innerHTML zakładki
+            // skasowałby blok błędu, a showTabError nie miałby gdzie pokazać komunikatu przy kolejnej porażce.
+            const container = document.getElementById('logistics-tab-wrapper') ||
+                document.getElementById('logistics-tab-content');
+            this.hideTabError('logistics-tab');
+            if (container) {
+                container.innerHTML = await response.text();
+                // <script src> z końca szablonu odtwarzamy ręcznie (innerHTML go nie
+                // wykonuje). Ponowne wykonanie przy forceRefresh() sprząta po
+                // poprzedniej instancji samo — patrz początek logistics.js.
+                this.executeInlineScripts(container);
+            }
+        } catch (error) {
+            console.error('[ProductionApp] Logistics loading failed:', error);
+            this.showTabError('logistics-tab', error.message);
+            throw error;
+        }
+    }
+
+    /**
      * Ładowanie zakładki Trakownia. W przeciwieństwie do pozostałych tabów,
      * endpoint /production/api/sawmill/tab-content zwraca gotowy HTML
      * (render_template), NIE JSON {success, html} — trakownia ma własny
@@ -409,6 +445,38 @@ class ProductionApp {
      * /production/api/workers/tab-content zwraca gotowy HTML (render_template),
      * nie JSON {success, html}, więc pobieramy go zwykłym fetch().
      */
+    async loadStationsTab() {
+        // Zakładka Stanowiska (priorytety, spec 7.2): stół, odłożone i kolejka każdego stanowiska. Zwykły fetch,
+        // NIE apiClient — ApiClient.request zapamiętuje udane GET-y, a odświeżenie ma pokazać bieżący stół.
+        console.log('[ProductionApp] Loading stations tab...');
+        try {
+            const response = await fetch('/production/api/stations-tab-content', {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            });
+            if (!response.ok) {
+                if (response.status === 403) {
+                    throw new Error('Brak dostępu do modułu produkcji');
+                }
+                throw new Error(`HTTP ${response.status}`);
+            }
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error || 'Nie udało się wczytać stanowisk');
+
+            const wrapper = document.getElementById('stations-tab-wrapper');
+            if (wrapper) {
+                wrapper.innerHTML = data.html;
+                // Obsługa zakładki (odświeżanie, „Zdejmij ze stołu”) siedzi inline w szablonie.
+                this.executeInlineScripts(wrapper);
+            }
+            this.hideTabError('stations-tab');
+            console.log('[ProductionApp] Stations tab loaded');
+        } catch (error) {
+            console.error('[ProductionApp] Stations loading failed:', error);
+            this.showTabError('stations-tab', error.message);
+            throw error;
+        }
+    }
+
     async loadWorkersTab() {
         console.log('[ProductionApp] Loading workers tab...');
         try {
@@ -706,11 +774,32 @@ class ProductionApp {
     }
 
     handleKeyboardShortcuts(event) {
+        // Otwarte okno modalne (<dialog> przez showModal(), np. poprawka adresu w Logistyce) robi
+        // resztę strony nieaktywną (inert). Skrót przełączyłby zakładkę i schował okno razem z nią:
+        // okna nie widać, ale dalej jest modalne, więc strona przestaje reagować na kliknięcia
+        // (także pasek zakładek i menu boczne). Przy otwartym oknie skróty zakładek nie działają.
+        // (C-1, przegląd końcowy 4.10) `:modal` znają Chrome 105+ / Firefox 103+ / Safari 15.6+; starsza
+        // przeglądarka rzuca SyntaxError przy każdym naciśnięciu klawisza — wtedy każde otwarte okno.
+        let modalne = false;
+        try {
+            modalne = !!document.querySelector('dialog:modal');
+        } catch (e) {
+            modalne = !!document.querySelector('dialog[open]');
+        }
+        if (modalne) return;
+        // W polu edycyjnym (adres, wyszukiwarka, select) klawisze należą do pola — skrót nie
+        // przełącza zakładki spod ręki.
+        const cel = event.target;
+        if (cel && typeof cel.closest === 'function' &&
+            cel.closest('input, textarea, select, [contenteditable]')) return;
         // Tab navigation shortcuts (Ctrl+1, Ctrl+2, etc.)
-        if (event.ctrlKey && event.key >= '1' && event.key <= '6') {
+        // Kolejność = kolejność przycisków w pasku zakładek (bez Pracowników).
+        // Logistyka weszła przed Trakownię, więc zakres rośnie do Ctrl+7 —
+        // inaczej Konfiguracja wypadłaby poza skróty.
+        if (event.ctrlKey && event.key >= '1' && event.key <= '7') {
             event.preventDefault();
             const tabIndex = parseInt(event.key) - 1;
-            const tabs = ['dashboard-tab', 'products-tab', 'archive-tab',
+            const tabs = ['dashboard-tab', 'products-tab', 'archive-tab', 'logistics-tab',
                           'sawmill-tab', 'reports-tab', 'config-tab'];
 
             if (tabs[tabIndex]) {

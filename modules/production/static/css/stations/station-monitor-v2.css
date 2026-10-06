@@ -410,3 +410,114 @@ body {
     .orders-grid { gap: 14px; }
     .order-card { padding: 18px; }
 }
+
+/* ── PRIORYTETY: gwiazdki, plakietki szczebla, stół TERAZ i Odłożone (spec priorytetów 7.2) ── */
+/* Atrybut hidden musi wygrać z display:flex kafla statystyki („Dalej w kolejce” tylko w trybie stołu). */
+.stat-item[hidden] {
+    display: none !important;
+}
+
+.order-prio {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.prio-gwiazdki {
+    color: #fbbf24;
+    font-size: 26px;
+    letter-spacing: 2px;
+    white-space: nowrap;
+}
+
+.prio-plakietka,
+.zrodlo-plakietka,
+.grupa-wykonczenia {
+    display: inline-flex;
+    padding: 4px 10px;
+    border-radius: 3px;
+    font-size: 20px;
+    font-weight: 700;
+    white-space: nowrap;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+}
+
+.prio-plakietka.prio-trasa { background: #1e3a8a; color: #dbeafe; }
+.prio-plakietka.prio-po_terminie { background: #7f1d1d; color: #fee2e2; }
+.prio-plakietka.prio-blisko_terminu { background: #78350f; color: #fef3c7; }
+.prio-plakietka.prio-rozpoczete { background: #064e3b; color: #d1fae5; }
+.prio-plakietka.prio-dorobka { background: #831843; color: #fce7f3; }
+.zrodlo-plakietka.zrodlo-biuro { background: #4c1d95; color: #ede9fe; }
+.zrodlo-plakietka.zrodlo-start { background: #0c4a6e; color: #e0f2fe; }
+.zrodlo-plakietka.zrodlo-dorobka { background: #831843; color: #fce7f3; }
+.grupa-wykonczenia { background: #3f3f46; color: #f4f4f5; }
+
+/* Karta zamówienia, którego kafel leży na stole */
+.order-card.na-stole {
+    border-color: var(--accent-orange);
+    box-shadow: 0 0 0 2px var(--accent-orange) inset;
+}
+
+.monitor-stol,
+.monitor-odlozone {
+    background: var(--bg-card);
+    border: 2px solid var(--accent-orange);
+    border-radius: 4px;
+    padding: 10px 14px;
+    margin-bottom: 12px;
+}
+
+.monitor-odlozone {
+    border-color: #b45309;
+}
+
+.stol-naglowek {
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    margin-bottom: 8px;
+}
+
+.stol-licznik {
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+.stol-kafle {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.stol-kafel {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    background: var(--bg-secondary);
+    border-radius: 3px;
+    padding: 8px 12px;
+    font-size: 24px;
+}
+
+.stol-oznaczenie {
+    font-size: 30px;
+    font-weight: 700;
+}
+
+.stol-czas {
+    color: var(--text-secondary);
+}
+
+.odlozenie-powod {
+    font-weight: 700;
+    color: #fbbf24;
+}
+
+.odlozenie-notatka {
+    color: var(--text-secondary);
+    font-style: italic;
+}

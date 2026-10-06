@@ -4,8 +4,10 @@ Autoryzacja: nagłówek `Authorization: Bearer <LABEL_PRINTER_AGENT_TOKEN>`.
 NIE wymaga sesji webowej.
 
 Wzorzec: agent budzi się na sygnał push (Centrifugo, kanał `print:agent`),
-woła GET /api/print-agent/jobs?limit=10, drukuje lokalnie ZPL z pola
-zpl_payload, potem POST /api/print-agent/ack z listą wyników. Polling został
+woła GET /api/print-agent/jobs?limit=10&printers=<drukarka>, drukuje lokalnie ZPL z pola
+zpl_payload, potem POST /api/print-agent/ack z listą wyników. Każda drukarka ma własną
+kolejkę (etap 4 logistyki: 'etykiety' 60x40 i 'wysylka' 100x150); agent sprzed etapu 4
+nie podaje parametru i dostaje wyłącznie 'etykiety'. Polling został
 jako siatka bezpieczeństwa — 60 s gdy kanał push żyje, 10 s gdy padł.
 Token do połączenia z brokerem agent bierze z GET /realtime-token.
 
@@ -13,6 +15,7 @@ TTL: pending starsze niż 1h są oznaczane jako 'expired' i nigdy nie drukowane
 (operator powinien kliknąć ponownie). Sprzątanie jest throttlowane — patrz
 _expire_stale_pending().
 """
+import hmac
 import time
 from datetime import datetime, timedelta
 from functools import wraps
@@ -85,10 +88,21 @@ def require_agent_token(view):
             return jsonify({'error': 'unauthorized', 'reason': 'missing bearer'}), 401
         token = header[len(prefix):].strip()
         expected = _get_agent_token()
-        if not expected or not token or token != expected:
+        # (B-5, przegląd końcowy 4.10) Porównanie stałoczasowe, jak X-Cron-Secret; na bajtach, bo
+        # compare_digest na str przyjmuje tylko ASCII (token spoza ASCII = 401, nie 500).
+        if not expected or not token or not hmac.compare_digest(token.encode('utf-8'), expected.encode('utf-8')):
             return jsonify({'error': 'unauthorized', 'reason': 'invalid token'}), 401
         return view(*args, **kwargs)
     return wrapper
+
+
+def _zmien_oczekujace(job_id, zmiany):
+    """UPDATE zadania tylko gdy wciąż `pending`; True, gdy wiersz się zmienił."""
+    tabela = LabelPrintJob.__table__
+    wynik = db.session.execute(tabela.update()
+                               .where(tabela.c.id == job_id, tabela.c.status == LabelPrintJob.STATUS_PENDING)
+                               .values(**zmiany))
+    return wynik.rowcount == 1
 
 
 def _expire_stale_pending(force=False):
@@ -114,25 +128,47 @@ def _expire_stale_pending(force=False):
     wygasajace = (LabelPrintJob.query
                   .filter(LabelPrintJob.status == 'pending',
                           LabelPrintJob.requested_at < cutoff)
+                  .order_by(LabelPrintJob.id)   # stała kolejność zapisów jak w ACK — bez 1213 między nimi
                   .all())
+    # (M3 po re-review) Zapis warunkowy: drugi worker (albo ACK) mógł zmienić zadanie między odczytem a zapisem —
+    # cofamy wydruk tylko za zadania, które naprawdę przestawiliśmy z `pending`.
+    wygasajace = [job for job in wygasajace
+                  if _zmien_oczekujace(job.id, {'status': 'expired',
+                                                'error_message': f'TTL: pending starsze niż {_AGENT_JOB_TTL}'})]
     expired_count = len(wygasajace)
     if expired_count:
         rollback_label_count_for_jobs(wygasajace)
-        for job in wygasajace:
-            job.status = 'expired'
-            job.error_message = f'TTL: pending starsze niż {_AGENT_JOB_TTL}'
         db.session.commit()
         logger.info("Expired stale print jobs", extra={'count': expired_count})
     return expired_count
+
+
+def _drukarki_z_zapytania(surowe):
+    """`?printers=etykiety,wysylka` → krotka znanych nazw w kolejności podania.
+
+    Brak parametru = tylko dotychczasowa drukarka: agent sprzed etapu 4 nie zna
+    parametru, a etykieta 100x150 wysłana na drukarkę 60x40 to zmarnowane etykiety.
+    Parametr podany, ale pusty albo z samymi nieznanymi nazwami = nic (agent z
+    literówką w config.ini nie może przejąć cudzej kolejki).
+    """
+    if surowe is None:
+        return (LabelPrintJob.DRUKARKA_ETYKIETY,)
+    nazwy = []
+    for nazwa in str(surowe).split(','):
+        nazwa = nazwa.strip().lower()
+        if nazwa in LabelPrintJob.DRUKARKI and nazwa not in nazwy:
+            nazwy.append(nazwa)
+    return tuple(nazwy)
 
 
 @print_agent_bp.route('/jobs', methods=['GET'])
 @require_agent_token
 def list_jobs():
     """
-    GET /api/print-agent/jobs?limit=10
-    Zwraca listę pending zadań ZPL do wydrukowania (w kolejności FIFO).
-    Przy okazji oznacza zadania starsze niż 1h jako expired.
+    GET /api/print-agent/jobs?limit=10&printers=etykiety,wysylka
+    Zwraca pending zadania ZPL wskazanych drukarek (FIFO). Bez `printers` —
+    tylko 'etykiety' (zgodność ze starym agentem). Przy okazji oznacza zadania
+    starsze niż 1h jako expired.
     """
     _expire_stale_pending()
 
@@ -141,9 +177,15 @@ def list_jobs():
     except (TypeError, ValueError):
         limit = 10
 
+    drukarki = _drukarki_z_zapytania(request.args.get('printers'))
+    if not drukarki:
+        return jsonify({'jobs': [], 'count': 0}), 200
+
     jobs = (LabelPrintJob.query
-            .filter_by(status='pending')
-            .order_by(LabelPrintJob.requested_at.asc())
+            .filter(LabelPrintJob.status == 'pending',
+                    LabelPrintJob.printer.in_(drukarki))
+            # id jako drugi klucz: zadania z tej samej milisekundy wychodzą w kolejności wstawienia
+            .order_by(LabelPrintJob.requested_at.asc(), LabelPrintJob.id.asc())
             .limit(limit)
             .all())
 
@@ -151,6 +193,7 @@ def list_jobs():
         'jobs': [
             {
                 'id': j.id,
+                'printer': j.printer,
                 'short_product_id': j.short_product_id,
                 'baselinker_order_id': j.baselinker_order_id,
                 'station_code': j.station_code,
@@ -176,31 +219,41 @@ def ack_jobs():
     if not isinstance(results, list):
         return jsonify({'error': 'invalid_results', 'reason': 'expected list'}), 400
 
-    updated = 0
-    nieudane = []
+    # Zadania przestawiamy rosnąco po id (jak _expire_stale_pending) — dwa zapisy tych samych wierszy w różnej
+    # kolejności mogłyby się zakleszczyć (1213). Powtórzone id: liczy się pierwszy wynik.
+    wyniki = {}
     for r in results:
         try:
             job_id = int(r.get('id'))
         except (TypeError, ValueError, AttributeError):
             continue
+        wyniki.setdefault(job_id, r)
+
+    updated = 0
+    nieudane = []
+    for job_id in sorted(wyniki):
+        r = wyniki[job_id]
         success = bool(r.get('success'))
         error = (r.get('error') or '')[:1000] if not success else None
-        job = LabelPrintJob.query.get(job_id)
-        if not job or job.status != 'pending':
-            continue
-        job.status = 'printed' if success else 'failed'
+        # (M3 po re-review) Zapis warunkowy na `status = 'pending'` zamiast odczytu i zapisu obiektu: zadanie mógł
+        # w międzyczasie wygasić inny worker (_expire_stale_pending, throttling per worker) i cofnąć już wydruk —
+        # drugi raz go nie cofamy ani nie nadpisujemy statusu.
         if success:
-            job.printed_at = datetime.utcnow()
+            zmiany = {'status': 'printed', 'printed_at': datetime.utcnow()}
         else:
-            job.error_message = error
-            nieudane.append(job)
+            zmiany = {'status': 'failed', 'error_message': error}
+        if not _zmien_oczekujace(job_id, zmiany):
+            continue
+        if not success:
+            nieudane.append(job_id)
         updated += 1
 
     # Etykieta, która nie wyszła, nie może zostawić pozycji oznaczonej jako
     # wydrukowana — inaczej panel kafelków pokaże operatorowi „jest" dla czegoś,
     # czego nie znajdzie na paczce.
     if nieudane:
-        rollback_label_count_for_jobs(nieudane)
+        rollback_label_count_for_jobs(LabelPrintJob.query.filter(LabelPrintJob.id.in_(nieudane))
+                                      .populate_existing().all())
 
     if updated:
         db.session.commit()
