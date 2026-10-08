@@ -102,3 +102,26 @@ def test_logo_base_podane_przez_url_for_i_serwowane(app, client):  # noqa: F811
     assert m and m.group(1).endswith('/img/base-logo.png')
     r = client.get(m.group(1))
     assert r.status_code == 200 and r.mimetype == 'image/png'
+
+
+def test_kafelki_i_podglad_podkladu_wysylaja_domene_mimo_referrer_policy_same_origin():
+    """nginx serwera (CloudPanel, /etc/nginx/global_settings) wysyła `Referrer-Policy: same-origin`, więc
+    przeglądarka nie podaje CARTO domeny przy pobieraniu kafelka. Klucz CARTO jest ograniczony do
+    crm.woodpower.pl — bez domeny CARTO odpowiada 403, mapa przechodzi na kafelki bez klucza i zostaje sam
+    znak wodny (produkcja 8.10.2026). Kafelki i podgląd podkładu same podają domenę (bez ścieżki)."""
+    js = open(JS_MAPY, encoding='utf-8').read()
+    warstwa = js[js.index('function nowaWarstwaKafelkow'):]
+    warstwa = warstwa[:warstwa.index('});')]
+    assert "referrerPolicy: 'strict-origin-when-cross-origin'" in warstwa
+    assert "img.referrerPolicy = 'strict-origin-when-cross-origin'" in js
+    # Atrybut ustawiony PRZED src — inaczej pierwsze pobranie podglądu idzie jeszcze bez domeny.
+    podglad = js[js.index("const img = L.DomUtil.create('img', '', podglad);"):]
+    assert podglad.index('img.referrerPolicy') < podglad.index('img.src = adresPodgladu(podklad);')
+
+
+def test_wersja_skryptu_mapy_podbita_po_poprawce_referrer_policy():
+    import re
+    szablon = open(os.path.join(KATALOG, 'modules', 'production', 'logistics', 'templates', 'logistics',
+                                'tab_content.html'), encoding='utf-8').read()
+    wersja = re.search(r"js/logistics-map\.js'\) \}\}\?v=(\w+)\"", szablon)
+    assert wersja and wersja.group(1) > '20261004b1', wersja and wersja.group(1)

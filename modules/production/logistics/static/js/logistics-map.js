@@ -652,6 +652,10 @@
         const warstwa = L.tileLayer(szablonKafelkow(podklad), {
             subdomains: podklad.subdomains,
             maxZoom: podklad.maxZoom,
+            // nginx serwera wysyła `Referrer-Policy: same-origin`, a klucz CARTO jest ograniczony
+            // do domeny CRM — bez domeny w zapytaniu CARTO odrzuca klucz (403). Kafelek podaje
+            // samą domenę, bez ścieżki strony.
+            referrerPolicy: 'strict-origin-when-cross-origin',
         });
         if (zKluczem(podklad)) {
             let udane = 0;
@@ -799,6 +803,8 @@
                     const podglad = L.DomUtil.create('span', 'lg-mapa-podklad-podglad', b);
                     podglad.setAttribute('aria-hidden', 'true');
                     const img = L.DomUtil.create('img', '', podglad);
+                    // Jak kafelki mapy (nowaWarstwaKafelkow): domena dla klucza CARTO, przed src.
+                    img.referrerPolicy = 'strict-origin-when-cross-origin';
                     // Podgląd CARTO z kluczem, którego CARTO nie przyjmuje: raz ten sam
                     // kafelek bez klucza (znak wodny zamiast zepsutego obrazka), bez pętli.
                     if (zKluczem(podklad)) {
