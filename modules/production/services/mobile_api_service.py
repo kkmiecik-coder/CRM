@@ -1682,11 +1682,15 @@ def _today_range_warsaw():
     return today_start, tomorrow_start
 
 
-def compute_station_summary(station_code):
+def compute_station_summary(station_code, worker_id=None):
     """
     Metryki stanowiska:
     - queue: count aktualnie oczekujących + łączne m³ + ile priorytetów
     - completed_today: count ukończonych dzisiaj + łączne m³ (na tym stanowisku)
+    - completed_today_worker: TYLKO gdy podano worker_id — to samo co
+      completed_today, ale z udziałem tego pracownika w każdym evencie
+      (delta × share — „Wykonałeś dziś" w nagłówku tabletu). Bez worker_id
+      klucza nie ma, więc odpowiedź jest identyczna jak przed jego wprowadzeniem.
     """
     status = STATION_STATUS_MAP.get(station_code)
     completed_field_name = STATION_COMPLETED_AT_FIELD.get(station_code)
@@ -1707,7 +1711,9 @@ def compute_station_summary(station_code):
     today_start, tomorrow_start = _today_range_warsaw()
     # Faktyczna praca dziś — z prod_station_events (uwzględnia partial work,
     # nie wymaga że wszystkie sztuki pozycji są ukończone).
-    from .station_events_service import get_station_work_in_range
+    from .station_events_service import (
+        get_station_work_in_range, get_worker_station_work_in_range,
+    )
     try:
         completed_work = get_station_work_in_range(station_code, today_start, tomorrow_start)
         completed_count = int(completed_work['items_count'])
@@ -1718,6 +1724,21 @@ def compute_station_summary(station_code):
         })
         completed_count = 0
         completed_volume = 0.0
+
+    completed_worker = None
+    if worker_id is not None:
+        try:
+            praca = get_worker_station_work_in_range(
+                station_code, today_start, tomorrow_start, worker_id)
+            completed_worker = {
+                'count': int(praca['items_count']),
+                'total_volume_m3': float(praca['m3_done']),
+            }
+        except Exception as e:
+            logger.warning("Nie udało się pobrać pracy pracownika dla mobile", extra={
+                'station': station_code, 'worker_id': worker_id, 'error': str(e)
+            })
+            completed_worker = {'count': 0, 'total_volume_m3': 0.0}
 
     # Częstotliwość auto-refresh listy zleceń (klient mobilny używa jej zamiast
     # hardcoded 30s). Źródło: config_service z tabeli ProductionConfig,
@@ -1733,7 +1754,7 @@ def compute_station_summary(station_code):
         })
         refresh_interval = 30
 
-    return {
+    wynik = {
         'station_code': station_code,
         'queue': {
             'count': int(queue_agg[0] or 0),
@@ -1744,9 +1765,12 @@ def compute_station_summary(station_code):
             'count': completed_count,
             'total_volume_m3': completed_volume,
         },
-        'refresh_interval_seconds': refresh_interval,
-        'server_time': get_local_now().isoformat(),
     }
+    if completed_worker is not None:
+        wynik['completed_today_worker'] = completed_worker
+    wynik['refresh_interval_seconds'] = refresh_interval
+    wynik['server_time'] = get_local_now().isoformat()
+    return wynik
 
 
 # ============================================================================

@@ -22,7 +22,8 @@ from sqlalchemy import func, distinct
 
 from extensions import db
 from ..models import (
-    ProductionItem, ProductionOrder, ProductionStationEvent, get_local_now,
+    ProductionItem, ProductionOrder, ProductionStationEvent,
+    ProductionStationEventWorker, get_local_now,
 )
 
 # Eventy, których NIKT fizycznie nie wykonał: complete_task() generuje je dla
@@ -53,6 +54,19 @@ def _na_date(wartosc):
     return datetime.strptime(str(wartosc)[:10], '%Y-%m-%d').date()
 
 
+def _filtry_pracy(station_code, range_start, range_end):
+    """
+    Wspólne filtry „pracy stanowiska w przedziale" — jedna definicja dla
+    całego stanowiska i dla pojedynczego pracownika.
+    """
+    return [
+        ProductionStationEvent.station_code == station_code,
+        ProductionStationEvent.created_at >= range_start,
+        ProductionStationEvent.created_at < range_end,
+        ~ProductionStationEvent.source.in_(ZRODLA_AUTOMATU),
+    ]
+
+
 def get_station_work_in_range(station_code, range_start, range_end):
     """
     Faktyczna praca na stanowisku w przedziale czasu (range_start <= t < range_end).
@@ -71,6 +85,8 @@ def get_station_work_in_range(station_code, range_start, range_end):
     Returns:
         dict: {pieces_done, m3_done, items_count, orders_count}
     """
+    filtry = _filtry_pracy(station_code, range_start, range_end)
+
     totals = db.session.query(
         func.coalesce(func.sum(ProductionStationEvent.delta), 0).label('pieces'),
         func.coalesce(
@@ -78,23 +94,13 @@ def get_station_work_in_range(station_code, range_start, range_end):
         ).label('m3'),
     ).join(
         ProductionItem, ProductionItem.id == ProductionStationEvent.production_item_id
-    ).filter(
-        ProductionStationEvent.station_code == station_code,
-        ProductionStationEvent.created_at >= range_start,
-        ProductionStationEvent.created_at < range_end,
-        ~ProductionStationEvent.source.in_(ZRODLA_AUTOMATU),
-    ).one()
+    ).filter(*filtry).one()
 
     # items_count i orders_count — tylko pozycje z dodatnim netto
     items_subq = db.session.query(
         ProductionStationEvent.production_item_id.label('item_id'),
         func.sum(ProductionStationEvent.delta).label('net_delta'),
-    ).filter(
-        ProductionStationEvent.station_code == station_code,
-        ProductionStationEvent.created_at >= range_start,
-        ProductionStationEvent.created_at < range_end,
-        ~ProductionStationEvent.source.in_(ZRODLA_AUTOMATU),
-    ).group_by(ProductionStationEvent.production_item_id).subquery()
+    ).filter(*filtry).group_by(ProductionStationEvent.production_item_id).subquery()
 
     counts = db.session.query(
         func.count(distinct(items_subq.c.item_id)).label('items'),
@@ -110,6 +116,60 @@ def get_station_work_in_range(station_code, range_start, range_end):
         'm3_done': float(totals.m3 or 0),
         'items_count': int(counts.items or 0),
         'orders_count': int(counts.orders or 0),
+    }
+
+
+def get_worker_station_work_in_range(station_code, range_start, range_end, worker_id):
+    """
+    Wkład JEDNEGO pracownika w pracę stanowiska — to samo co
+    get_station_work_in_range (te same filtry, netto z cofnięciami), ale każdy
+    event liczy się z udziałem pracownika: delta × share z prod_station_event_workers
+    (atrybucja z nagłówka X-Worker-Ids przy ZAKOŃCZ / zakończeniu częściowym).
+
+    Reguła udziałów jest ta sama co w worker_stats_service.wydajnosc_pracownikow
+    (panel „Wydajność pracowników"), więc tablet i panel pokazują tę samą liczbę:
+      - osobne zakończenia częściowe (3 + 3 + 4 z 10 sztuk, każde z własnym
+        profilem) → każdy dostaje swoje sztuki w całości;
+      - jedno zakończenie zespołowe → po równo (share = 1/N), bo nic więcej
+        o podziale pracy nie wiadomo.
+
+    JOIN, nie EXISTS: (event_id, worker_id) to klucz główny atrybucji, więc
+    filtr po worker_id zostawia najwyżej jeden wiersz na event — sumy się nie
+    zwielokrotniają, a share jest pod ręką.
+
+    Returns:
+        dict: {pieces_done (float — udziały bywają ułamkowe), m3_done, items_count}
+        items_count = pozycje z dodatnim netto wkładu tego pracownika.
+    """
+    filtry = _filtry_pracy(station_code, range_start, range_end)
+    filtry.append(ProductionStationEventWorker.worker_id == worker_id)
+    wklad = ProductionStationEvent.delta * ProductionStationEventWorker.share
+
+    totals = db.session.query(
+        func.coalesce(func.sum(wklad), 0).label('pieces'),
+        func.coalesce(func.sum(ProductionItem.volume_m3 * wklad), 0).label('m3'),
+    ).join(
+        ProductionStationEventWorker,
+        ProductionStationEventWorker.event_id == ProductionStationEvent.id,
+    ).join(
+        ProductionItem, ProductionItem.id == ProductionStationEvent.production_item_id
+    ).filter(*filtry).one()
+
+    items_subq = db.session.query(
+        ProductionStationEvent.production_item_id.label('item_id'),
+        func.sum(wklad).label('net_wklad'),
+    ).join(
+        ProductionStationEventWorker,
+        ProductionStationEventWorker.event_id == ProductionStationEvent.id,
+    ).filter(*filtry).group_by(ProductionStationEvent.production_item_id).subquery()
+
+    items = db.session.query(func.count(items_subq.c.item_id)).filter(
+        items_subq.c.net_wklad > 0).scalar()
+
+    return {
+        'pieces_done': float(totals.pieces or 0),
+        'm3_done': float(totals.m3 or 0),
+        'items_count': int(items or 0),
     }
 
 

@@ -1075,6 +1075,10 @@ def station_summary(station_code):
     GET /api/mobile/stations/<station_code>/summary
 
     Metryki stanowiska: queue (count, m³, priorytety) + completed_today (count, m³).
+
+    Opcjonalnie ?worker_id=<prod_workers.id> dokłada completed_today_worker —
+    wkład tego pracownika w completed_today (udziały: delta × share). Brak albo
+    niepoprawna wartość (nie liczba całkowita > 0) = odpowiedź jak bez parametru.
     """
     # Alias okresu przejściowego. Walidacja niżej stoi PRZED getattr znacznika
     # czasu (:526), więc bez tej linii stary tablet dostaje jawne 404, a nie
@@ -1112,15 +1116,23 @@ def station_summary(station_code):
         func.max(ProductionConfig.updated_at)
     ).scalar()
     config_etag_ts = int(config_max_updated.timestamp()) if config_max_updated else 0
-    etag = make_weak_etag(
+    worker_id = request.args.get('worker_id', type=int)
+    if worker_id is not None and worker_id <= 0:
+        worker_id = None
+    czesci_etag = [
         'summary', station_code, today_start.date().isoformat(),
         etag_ts, total_count or 0, config_etag_ts,
-    )
+    ]
+    # Dwóch pracowników jednego stanowiska nie może dostać 304 na cudzą odpowiedź.
+    # Bez parametru ETag zostaje dokładnie taki jak wcześniej.
+    if worker_id is not None:
+        czesci_etag.append(f'w{worker_id}')
+    etag = make_weak_etag(*czesci_etag)
     if if_none_match(etag):
         return not_modified(etag)
 
     try:
-        return cached_json(compute_station_summary(station_code), etag)
+        return cached_json(compute_station_summary(station_code, worker_id=worker_id), etag)
     except Exception as e:
         logger.error("Mobile API summary failed", extra={
             'station_code': station_code,
