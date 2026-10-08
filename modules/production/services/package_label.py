@@ -11,8 +11,14 @@ Zasady druku (ustalone z Konradem 30.09 na wzorach z zamówienia 1450):
   produktów, a resztę spoza ASCII usuwamy;
 - odbiorca zanonimizowany i ZERO danych adresowych — pełne dane są w CRM pod
   kodem paczki;
-- treść w marginesie 3 mm i nad y=1130: po kalibracji drukarka i tak zostawia
-  kilka milimetrów luzu, a resztę wyrównuje przesunięcie z panelu.
+- treść w marginesie 3 mm; resztę wyrównuje przesunięcie z panelu.
+
+Zmiana 8.10 (Konrad): pod numerem zamówienia same numery Base. i zamówienia klienta,
+a stopka to pas ok. 2,5 cm przy dolnej krawędzi z drugim QR, wszystkimi numerami
+i sposobem dostawy — sama wystarcza do rozpoznania paczki. Adres firmy usunięty.
+Stopka schodzi do marginesu 3 mm (y=1176), czyli bez dawnego zapasu „dół treści ≤ 1130”
+na przesunięcie w dół: na produkcji przesunięcie Y = 0 (8.10). Dodatnie Y większe niż
+3 mm wypchnie dół stopki poza etykietę.
 """
 import unicodedata
 from dataclasses import dataclass, field
@@ -25,7 +31,8 @@ from modules.production.services.label_print_service import _tekst_pola_zpl
 SZEROKOSC = 800          # 100 mm przy 203 dpi (8 punktów na mm)
 WYSOKOSC = 1200          # 150 mm
 MARGINES = 24            # 3 mm
-MAKS_WIERSZY = 14        # pozycji na etykiecie; przy większej liczbie 13 + „+ N pozycji"
+MAKS_WIERSZY = 11        # pozycji na etykiecie; przy większej liczbie 10 + „+ N pozycji"
+GORA_STOPKI = 1004       # stopka: 196 punktów (ok. 2,5 cm) od dolnej krawędzi
 # Znaków opisu pozycji razem z numerem wiersza i „...”. Dobrane z Konradem 2.10 na XP-410B
 # (wydruk próbny 56–82 znaki): przy 60 zostaje wyraźny odstęp od kolumny „N szt.”,
 # która jest wyrównana do prawej krawędzi (x=600..768), więc tekst może zachodzić za x=600.
@@ -42,7 +49,8 @@ MAKS_PRZESUNIECIA = 120  # 15 mm — większe przesunięcie to źle założona r
 # lepszą czerń niż domyślne 6, a kod QR skanujemy telefonem. Ok. 2 s więcej na etykietę
 # nie ma znaczenia przy pakowaniu.
 PREDKOSC_DRUKU_CALE_S = 3
-# Numer zamówienia klienta w stopce: dłuższy nie mieści się w jednej linii z adresem firmy (736 punktów).
+# Numer zamówienia klienta: dłuższy nie mieści się w linii numerów pod numerem zamówienia
+# (396 punktów między lewym marginesem a kaflem paczki).
 MAKS_ZAMOWIENIA_KLIENTA = 15
 
 
@@ -101,6 +109,16 @@ def _wymiar(wartosc):
     return str(int(liczba)) if liczba == int(liczba) else '%.1f' % liczba
 
 
+def numery_zamowienia(dane):
+    """„12345678 | 1234/2026” — numer Base. i numer zamówienia klienta, bez opisów; brakujący
+    pomijamy. Numer Base. to liczba z bazy — int() pilnuje formatu pola."""
+    czesci = ['%d' % int(dane.base_id)] if dane.base_id else []
+    klient = _ascii(dane.zamowienie_klienta, MAKS_ZAMOWIENIA_KLIENTA)
+    if klient:
+        czesci.append(klient)
+    return ' | '.join(czesci)
+
+
 def opis_rodzaju(dane):
     if dane.rodzaj == 'paleta':
         if dane.typ_palety == 'eur':
@@ -138,22 +156,27 @@ class _Zpl:
 
 
 def generate_package_label_zpl(dane, przesuniecie=(0, 0)):
-    """ZPL etykiety paczki. Układ zatwierdzony na wzorze 30.09 (spec 6.3)."""
+    """ZPL etykiety paczki. Układ z wzoru 30.09 (spec 6.3), nagłówek i stopka zmienione 8.10."""
     z = _Zpl(przesuniecie)
     numer = _ascii(dane.numer_zamowienia, 8)
-    czcionka_numeru = '^A0N,140,120' if len(numer) <= 5 else '^A0N,110,90'
+    krotki_numer = len(numer) <= 5
+    rodzaj = 'PALETA' if dane.rodzaj == 'paleta' else 'PACZKA'
+    numer_paczki = '%d / %d' % (int(dane.numer), int(dane.z_ilu))
+    numery = numery_zamowienia(dane)
+    sposob = _ascii(dane.sposob, 26)
 
-    # 1. Nagłówek: numer zamówienia + czarny kafel rodzaju i numeru paczki
+    # 1. Nagłówek: numer zamówienia, pod nim numery Base. i klienta + czarny kafel paczki
     z.pole(32, 24, '^A0N,28,28^FDZAMOWIENIE^FS')
-    z.pole(32, 54, '%s^FD%s^FS' % (czcionka_numeru, numer))
+    z.pole(32, 50, '%s^FD%s^FS' % ('^A0N,116,100' if krotki_numer else '^A0N,92,76', numer))
+    if numery:
+        z.pole(32, 166, '^FB396,1,0,L^A0N,28,26^FD%s^FS' % numery)
     z.pole(440, 24, '^GB328,166,166^FS')
-    z.pole(440, 40, '^FB328,1,0,C^A0N,52,52^FR^FD%s^FS'
-           % ('PALETA' if dane.rodzaj == 'paleta' else 'PACZKA'))
-    z.pole(440, 100, '^FB328,1,0,C^A0N,84,84^FR^FD%d / %d^FS' % (int(dane.numer), int(dane.z_ilu)))
+    z.pole(440, 40, '^FB328,1,0,C^A0N,52,52^FR^FD%s^FS' % rodzaj)
+    z.pole(440, 100, '^FB328,1,0,C^A0N,84,84^FR^FD%s^FS' % numer_paczki)
 
     # 2. Pas sposobu dostawy (biały na czarnym)
     z.pole(32, 204, '^GB736,72,72^FS')
-    z.pole(32, 216, '^FB736,1,0,C^A0N,52,52^FR^FD%s^FS' % _ascii(dane.sposob, 26))
+    z.pole(32, 216, '^FB736,1,0,C^A0N,52,52^FR^FD%s^FS' % sposob)
 
     # 3. Odbiorca — tylko zanonimizowana nazwa, bez żadnych danych adresowych
     z.pole(32, 292, '^A0N,26,26^FDODBIORCA^FS')
@@ -174,7 +197,7 @@ def generate_package_label_zpl(dane, przesuniecie=(0, 0)):
         z.pole(330, 596, '^A0N,28,28^FDSpakowano: %s^FS' % dane.spakowano.strftime('%d.%m.%Y'))
     z.pole(32, 640, '^GB736,3,3^FS')
 
-    # 5. Zawartość całego zamówienia
+    # 5. Zawartość całego zamówienia — 11 wierszy po 28 punktów, ostatni kończy się nad stopką
     z.pole(32, 652, '^A0N,28,28^FDZAWARTOSC ZAMOWIENIA^FS')
     widoczne = (dane.pozycje if len(dane.pozycje) <= MAKS_WIERSZY
                 else dane.pozycje[:MAKS_WIERSZY - 1])
@@ -188,11 +211,20 @@ def generate_package_label_zpl(dane, przesuniecie=(0, 0)):
         z.pole(32, y, '^A0N,27,25^FD+ %d pozycji (%d szt.) - pelna lista w CRM^FS'
                % (len(reszta), sum(int(p.ilosc or 0) for p in reszta)))
 
-    # 6. Stopka. Numer Base. to liczba z bazy — int() pilnuje formatu pola.
-    base = '%d' % int(dane.base_id) if dane.base_id else '-'
-    z.pole(32, 1100, '^GB736,2,2^FS')
-    z.pole(32, 1108, '^A0N,22,22^FDBase.: %s   Zam. klienta: %s   WoodPower, Bachorz 14N^FS'
-           % (base, _ascii(dane.zamowienie_klienta or '-', MAKS_ZAMOWIENIA_KLIENTA)))
+    # 6. Stopka przy dolnej krawędzi, dół na marginesie 3 mm (y=1176): drugi QR (21 modułów
+    #    x 7 = 147 punktów), obok trzy rzędy w kolumnie x=200..768 (568 punktów):
+    #    numer zamówienia + paczka, kod paczki + numery Base. i klienta, pas sposobu dostawy.
+    #    Teksty w jednym rzędzie mają wspólną linię bazową.
+    z.pole(32, GORA_STOPKI, '^GB736,4,4^FS')
+    z.pole(32, 1029, '^BQN,2,7^FDLA,%s^FS' % kod)
+    z.pole(200, 1018 if krotki_numer else 1024,
+           '%s^FD%s^FS' % ('^A0N,56,52' if krotki_numer else '^A0N,48,40', numer))
+    z.pole(200, 1034, '^FB568,1,0,R^A0N,36,34^FD%s %s^FS' % (rodzaj, numer_paczki))
+    z.pole(200, 1078, '^A0N,36,34^FD%s^FS' % kod)
+    if numery:
+        z.pole(200, 1084, '^FB568,1,0,R^A0N,28,26^FD%s^FS' % numery)
+    z.pole(200, 1122, '^GB568,54,54^FS')
+    z.pole(200, 1129, '^FB568,1,0,C^A0N,40,36^FR^FD%s^FS' % sposob)
     return z.gotowe()
 
 

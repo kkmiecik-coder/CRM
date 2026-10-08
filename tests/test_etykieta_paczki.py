@@ -36,6 +36,26 @@ def _y(zpl):
     return [int(v) for v in re.findall(r'\^FO-?\d+,(-?\d+)', zpl)]
 
 
+def _dol_pol(zpl):
+    """Dolna krawędź każdego pola: tekst (wysokość czcionki), ramka (^GB) i QR (21 modułów —
+    krótki kod paczki mieści się w wersji 1)."""
+    doly = []
+    for y, tresc in re.findall(r'\^FO-?\d+,(-?\d+)(.*)', zpl):
+        y = int(y)
+        if '^A0N,' in tresc:
+            doly.append(y + int(re.search(r'\^A0N,(\d+)', tresc).group(1)))
+        elif '^GB' in tresc:
+            doly.append(y + int(re.search(r'\^GB\d+,(\d+)', tresc).group(1)))
+        elif '^BQN' in tresc:
+            doly.append(y + 21 * int(re.search(r'\^BQN,2,(\d+)', tresc).group(1)))
+    return doly
+
+
+def _pola_stopki(zpl):
+    return [tresc for y, tresc in re.findall(r'\^FO-?\d+,(-?\d+)(.*)', zpl)
+            if int(y) >= pl.GORA_STOPKI]
+
+
 @pytest.mark.parametrize('nazwa, wynik', [
     ('Janusz Testowy', 'Jan*** Tes***'),
     ('Łucja Żak', 'Luc*** Zak'),
@@ -74,17 +94,41 @@ def test_predkosc_druku_3_cale_na_sekunde_w_obu_etykietach():
     assert pl.generate_test_label_zpl((0, 0)).startswith('^XA\n^PR3\n')
 
 
-def test_stopka_z_adresem_firmy():
+def test_numery_pod_numerem_zamowienia_bez_opisow():
+    """Pod numerem zamówienia: numer Base. i numer zamówienia klienta, same numery (Konrad 8.10)."""
     zpl = pl.generate_package_label_zpl(_dane())
-    assert '^FDBase.: 12345678   Zam. klienta: 1234/2026   WoodPower, Bachorz 14N^FS' in zpl
-    bez_danych = pl.generate_package_label_zpl(_dane(base_id=None, zamowienie_klienta=None))
-    assert '^FDBase.: -   Zam. klienta: -   WoodPower, Bachorz 14N^FS' in bez_danych
+    assert '^FO32,166^FB396,1,0,L^A0N,28,26^FD12345678 | 1234/2026^FS' in zpl
+    assert 'Base.' not in zpl and 'Zam. klienta' not in zpl and 'Bachorz' not in zpl
+    assert '^FD1234/2026^FS' in pl.generate_package_label_zpl(_dane(base_id=None))
+    assert '^FD12345678^FS' in pl.generate_package_label_zpl(_dane(zamowienie_klienta=None))
+    bez_numerow = pl.generate_package_label_zpl(_dane(base_id=None, zamowienie_klienta=None))
+    assert ' | ' not in bez_numerow and '^FO32,166' not in bez_numerow
 
 
-def test_stopka_ucina_numer_zamowienia_klienta_do_15_znakow():
+def test_numer_zamowienia_klienta_uciety_do_15_znakow():
     zpl = pl.generate_package_label_zpl(_dane(zamowienie_klienta='A' * 30))
-    assert 'Zam. klienta: ' + 'A' * 12 + '...   WoodPower, Bachorz 14N' in zpl
+    assert '12345678 | ' + 'A' * 12 + '...' in zpl
     assert 'A' * 13 not in zpl
+
+
+def test_stopka_3_cm_z_qr_numerami_i_sposobem_dostawy():
+    """Stopka w dolnych 3 cm etykiety sama wystarcza do rozpoznania paczki: drugi QR, wszystkie
+    numery i pas sposobu dostawy (Konrad 8.10)."""
+    zpl = pl.generate_package_label_zpl(_dane(rodzaj='paczka', typ_palety=None, numer=2, z_ilu=3,
+                                              sposob='TRASA: Rzeszow 07.10'))
+    stopka = '\n'.join(_pola_stopki(zpl))
+    assert pl.WYSOKOSC - pl.GORA_STOPKI <= 240          # najwyżej 3 cm od dolnej krawędzi
+    assert '^BQN,2,7^FDLA,P-12345^FS' in stopka
+    for tekst in ('^FD1450^FS', '^FDPACZKA 2 / 3^FS', '^FDP-12345^FS',
+                  '^FD12345678 | 1234/2026^FS', '^FR^FDTRASA: Rzeszow 07.10^FS'):
+        assert tekst in stopka, tekst
+    assert '^BQN,2,11^FDLA,P-12345^FS' in zpl          # duży QR na środku zostaje
+
+
+def test_lista_pozycji_nie_wchodzi_na_stopke():
+    zpl = pl.generate_package_label_zpl(_dane(pozycje=[_pozycja() for _ in range(40)]))
+    y_reszty = int(re.search(r'\^FO\d+,(\d+)\^A0N,27,25\^FD\+ ', zpl).group(1))
+    assert y_reszty + 27 < pl.GORA_STOPKI
 
 
 def test_rodzaj_i_numer_paczki():
@@ -126,14 +170,14 @@ def test_surowe_bez_dopisku():
     assert 'surowe' not in zpl
 
 
-def test_14_pozycji_miesci_sie_cala_lista():
-    zpl = pl.generate_package_label_zpl(_dane(pozycje=[_pozycja() for _ in range(14)]))
-    assert '14. Dab' in zpl and 'pozycji (' not in zpl
+def test_11_pozycji_miesci_sie_cala_lista():
+    zpl = pl.generate_package_label_zpl(_dane(pozycje=[_pozycja() for _ in range(11)]))
+    assert '11. Dab' in zpl and 'pozycji (' not in zpl
 
 
-def test_15_pozycji_ucina_do_13_i_dopisuje_reszte():
-    zpl = pl.generate_package_label_zpl(_dane(pozycje=[_pozycja(ilosc=1) for _ in range(15)]))
-    assert '13. Dab' in zpl and '14. Dab' not in zpl
+def test_12_pozycji_ucina_do_10_i_dopisuje_reszte():
+    zpl = pl.generate_package_label_zpl(_dane(pozycje=[_pozycja(ilosc=1) for _ in range(12)]))
+    assert '10. Dab' in zpl and '11. Dab' not in zpl
     assert '+ 2 pozycji (2 szt.) - pelna lista w CRM' in zpl
 
 
@@ -141,7 +185,7 @@ def test_tresc_miesci_sie_w_marginesach():
     zpl = pl.generate_package_label_zpl(_dane(pozycje=[_pozycja() for _ in range(40)]))
     assert min(_x(zpl)) >= pl.MARGINES
     assert min(_y(zpl)) >= pl.MARGINES
-    assert max(_y(zpl)) <= 1108          # stopka startuje na 1108 i kończy się przed 1130
+    assert max(_dol_pol(zpl)) <= pl.WYSOKOSC - pl.MARGINES
 
 
 def test_dane_nie_wstrzykuja_komend_zpl():
@@ -151,8 +195,8 @@ def test_dane_nie_wstrzykuja_komend_zpl():
 
 
 def test_dlugi_numer_zamowienia_mniejsza_czcionka():
-    assert '^A0N,140,120^FD1450^FS' in pl.generate_package_label_zpl(_dane())
-    assert '^A0N,110,90^FD123456^FS' in pl.generate_package_label_zpl(_dane(numer_zamowienia='123456'))
+    assert '^A0N,116,100^FD1450^FS' in pl.generate_package_label_zpl(_dane())
+    assert '^A0N,92,76^FD123456^FS' in pl.generate_package_label_zpl(_dane(numer_zamowienia='123456'))
 
 
 def test_przesuniecie_przesuwa_wszystkie_pola():
@@ -189,10 +233,9 @@ def test_wczytaj_przesuniecie(app, x, y, oczekiwane):
     assert pl.wczytaj_przesuniecie() == oczekiwane
 
 
-def test_stopka_numer_base_jako_liczba():
+def test_numer_base_jako_liczba():
     """Numer Base. idzie do ZPL przez int() — pole przyjmuje tylko liczbę."""
-    assert '^FDBase.: 12345678   Zam. klienta: 1234/2026' in pl.generate_package_label_zpl(_dane())
-    assert '^FDBase.: -   Zam. klienta:' in pl.generate_package_label_zpl(_dane(base_id=None))
+    assert '^FD12345678 | 1234/2026^FS' in pl.generate_package_label_zpl(_dane())
     with pytest.raises(ValueError):
         pl.generate_package_label_zpl(_dane(base_id='12^FS'))
 
