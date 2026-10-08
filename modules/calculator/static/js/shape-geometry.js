@@ -637,32 +637,85 @@ const ShapeGeometry = (function() {
     }
 
     // ============================================
+    // OBRYS Z NAROŻNIKAMI I POLA (narożniki/wycięcia)
+    // ============================================
+
+    /**
+     * Spłaszczony obrys z narożnikami (łuki jako odcinki) — do kolizji wycięć,
+     * lameli i sprawdzania „mieści się”. Koło: 72 punkty wokół (r, r), tak jak
+     * rysuje je canvas (środek w połowie średnicy).
+     */
+    function outerRing(shapeType, params, vertices, corners) {
+        if (shapeType === 'circle') {
+            var d = (params && params.diameter) || 0, r = d / 2, pts = [];
+            if (!(d > 0)) return pts;
+            for (var k = 0; k < 72; k++) {
+                var t = 2 * Math.PI * k / 72;
+                pts.push([r + r * Math.cos(t), r + r * Math.sin(t)]);
+            }
+            return pts;
+        }
+        if (!vertices || vertices.length < 3) return [];
+        return ShapeCorners.flatten(ShapeCorners.contourSegments(vertices, corners));
+    }
+
+    function calculateAreas(shapeType, params, vertices, corners, cutouts) {
+        var outer = 0;
+        if (shapeType === 'circle') {
+            outer = calculateArea('circle', params || {}, null);
+        } else if (vertices && vertices.length >= 3) {
+            outer = ShapeCorners.contourArea(vertices, corners);
+        }
+        var holes = 0;
+        (cutouts || []).forEach(function(c) { holes += ShapeCutouts.area(c); });
+        return { outer: outer, holes: holes, net: Math.max(0, outer - holes) };
+    }
+
+    // ============================================
     // BUILD shape_data OBJECT FOR PERSISTENCE
     // ============================================
 
-    function buildShapeData(shapeType, params, vertices, holes, rotation) {
-        var areaObj = calculateAreaWithHoles(shapeType, params, vertices, holes);
+    /**
+     * `cutouts` — lista wycięć albo (stare wywołania) pierścienie `holes`.
+     * `corners` — narożniki obrysu równoległe do `vertices`.
+     * Klucze `corners`/`cutouts` dopisujemy tylko gdy niepuste, żeby zwykły
+     * kształt zapisywał się dokładnie tak jak przed narożnikami i wycięciami.
+     */
+    function buildShapeData(shapeType, params, vertices, cutouts, rotation, corners) {
+        var lista = (cutouts && cutouts.length && Array.isArray(cutouts[0]))
+            ? ShapeCutouts.fromHoles(cutouts)
+            : ShapeCutouts.clone(cutouts || []);
+        var zapisaneWierzcholki = vertices ? vertices.map(function(v) { return [_round(v[0]), _round(v[1])]; }) : null;
+        // Narożniki przycinamy względem ZAPISANYCH (zaokrąglonych do 0,1 cm) wierzchołków:
+        // narożnik na limicie liczonym od dokładnych wierzchołków mógłby przekroczyć zapisany bok
+        // o ułamek milimetra (w DXF cofający się odcinek). Bez narożników — bez zmian.
+        var naroznikiObrysu = (vertices && vertices.length >= 3 && shapeType !== 'circle')
+            ? ShapeCorners.clampCorners(zapisaneWierzcholki, ShapeCorners.normalize(corners, vertices.length))
+            : [];
+        var pola = calculateAreas(shapeType, params, vertices, naroznikiObrysu, lista);
         var bbox = calculateBbox(shapeType, params, vertices);
-        var roundedHoles = [];
-        if (holes && holes.length) {
-            for (var hi = 0; hi < holes.length; hi++) {
-                if (holes[hi] && holes[hi].length >= 3) {
-                    roundedHoles.push(holes[hi].map(function(v) { return [_round(v[0]), _round(v[1])]; }));
-                }
-            }
-        }
-        return {
+        var dane = {
             params: Object.assign({}, params),
-            vertices: vertices ? vertices.map(function(v) { return [_round(v[0]), _round(v[1])]; }) : null,
-            holes: roundedHoles,
-            real_area_cm2: _round(areaObj.outer),
-            holes_area_cm2: _round(areaObj.holes),
-            net_area_cm2: _round(areaObj.net),
+            vertices: zapisaneWierzcholki,
+            holes: ShapeCutouts.toHoles(lista),
+            real_area_cm2: _round(pola.outer),
+            holes_area_cm2: _round(pola.holes),
+            net_area_cm2: _round(pola.net),
             bbox: bbox,
             // Kąt obrotu kształtu (0-359). Geometria w `vertices` jest już
             // obrócona — kąt niesiemy dla podglądu i opisu pozycji.
             rotation: rotation ? ((Math.round(rotation) % 360) + 360) % 360 : 0
         };
+        if (ShapeCorners.hasAny(naroznikiObrysu)) dane.corners = naroznikiObrysu;
+        if (lista.length) {
+            // Wycięcia wielokątne tak samo: narożniki względem zapisanych (zaokrąglonych) punktów
+            dane.cutouts = lista.map(function(c) {
+                var s = ShapeCutouts.serialize(c);
+                if (s.type === 'polygon') s.corners = ShapeCorners.clampCorners(s.points, s.corners);
+                return s;
+            });
+        }
+        return dane;
     }
 
     // ============================================
@@ -680,6 +733,8 @@ const ShapeGeometry = (function() {
         detectVariant: detectVariant,
         extractParams: extractParams,
         buildShapeData: buildShapeData,
+        outerRing: outerRing,
+        calculateAreas: calculateAreas,
         pointInPolygon: pointInPolygon,
         segmentsIntersect: segmentsIntersect,
         ringSelfIntersects: ringSelfIntersects,

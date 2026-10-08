@@ -148,6 +148,8 @@ function prepareNewProductForm(form, index) {
     delete form.dataset.edgesMode;
     delete form.dataset.edgesRValue;
     delete form.dataset.edgesSvg;
+    // Nowy produkt (klon pierwszego formularza) nie dziedziczy topologii poprzednika
+    delete form.dataset.edgesTopology;
 
     // ✅ Resetuj wizualnie podsumowanie wykończenia
     const finishingOptionsSummary = form.querySelector('.finishing-options-summary');
@@ -432,12 +434,10 @@ function duplicateProduct(sourceIndex) {
             setDefaultClientType(newForm, false);
         }
 
-        // ✅ Przywróć kształt (przed wymiarami — bo kształt blokuje length/width)
-        if (sourceData.shape && sourceData.shape !== 'rectangular') {
-            var editor = newForm._shapeEditor;
-            if (editor) {
-                editor.restore(sourceData.shape, sourceData.shapeData);
-            }
+        // ✅ Przywróć kształt — także prostokąt/koło z wycięciami lub narożnikami
+        // (restore sam rozpozna, czy rysunek ma być widoczny)
+        if (sourceData.shape && newForm._shapeEditor && (sourceData.shape !== 'rectangular' || sourceData.shapeData)) {
+            newForm._shapeEditor.restore(sourceData.shape, sourceData.shapeData);
         }
 
         // ✅ POPRAWKA: Aktualizuj stan przycisku obróbki krawędzi po wypełnieniu wymiarów
@@ -581,6 +581,7 @@ function duplicateProduct(sourceIndex) {
                 }
             }
 
+            if (window.ShapeEdgesSync) window.ShapeEdgesSync.reconcileAfterRestore(newForm);
         }
 
         // Przeliczy ceny jeśli mamy wszystkie wymiary

@@ -547,6 +547,22 @@ function attachLengthValidation(form) {
     attachDimensionValidation(form, 'length', 'error-message-length', 'Długość', 'length_min', 'length_max');
 }
 
+// Rysunek z Canvy wpisuje wymiary do pól programowo, bez zdarzenia „input” (ono kasowałoby krawędzie).
+// Po zmianie rysunku uruchamiamy więc ręcznie to, co robił dawny udawany input:
+// walidację zakresu długości i szerokości oraz podsumowanie globalne. Delegacja na dokumencie
+// obejmuje też nowe produkty i kopie.
+document.addEventListener('shape:changed', function (e) {
+    const form = e.target && e.target.closest ? e.target.closest('.quote-form') : null;
+    if (!form) return;
+    ['length', 'width'].forEach(function (pole) {
+        const input = form.querySelector('input[data-field="' + pole + '"]');
+        if (input && typeof input._validationHandler === 'function') {
+            input._validationHandler.call(input);
+        }
+    });
+    if (typeof updateGlobalSummary === 'function') updateGlobalSummary();
+});
+
 function attachWidthValidation(form) {
     attachDimensionValidation(form, 'width', 'error-message-width', 'Szerokość', 'width_min', 'width_max');
 }

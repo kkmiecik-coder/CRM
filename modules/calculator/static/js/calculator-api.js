@@ -276,6 +276,10 @@
         if (productResult.edges) {
             form.dataset.edgesNetto = productResult.edges.netto;
             form.dataset.edgesBrutto = productResult.edges.brutto;
+            // Podsumowanie krawędzi z ceną policzoną przez backend
+            if (window.EdgesModule && typeof window.EdgesModule.renderEdgesSummary === 'function') {
+                window.EdgesModule.renderEdgesSummary(form);
+            }
         }
 
         // Podgląd SVG krawędzi po przeliczeniu (jeśli moduł krawędzi jest załadowany)

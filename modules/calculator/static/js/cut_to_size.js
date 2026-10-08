@@ -117,8 +117,13 @@
                 const wasValue = getCutToSize(form);
                 setCutToSize(form, newValue);
                 // Tak → Nie: świadoma decyzja usera, kasujemy wykończenie + krawędzie.
+                // Rysunek (narożniki) zostaje — przy Nie synchronizacja nie zapisuje wpisów.
                 if (wasValue && !newValue) {
                     resetFinishingAndEdges(form);
+                }
+                // Nie → Tak: narożniki z rysunku wracają do krawędzi (shape-edges-sync.js)
+                if (!wasValue && newValue && window.ShapeEdgesSync) {
+                    window.ShapeEdgesSync.syncForm(form);
                 }
             });
         });

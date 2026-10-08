@@ -245,17 +245,66 @@
     cursor: pointer;
 }
 
+/* Przełącznik typu narożnika (narzędzie N) — obok paska narzędzi */
+.shape-corner-type {
+    position: absolute;
+    top: 6px;
+    left: 62px;
+    z-index: 5;
+    display: flex;
+    gap: 4px;
+    background: rgba(26, 26, 46, 0.85);
+    border: 1px solid rgba(230, 126, 34, 0.3);
+    border-radius: 6px;
+    padding: 4px;
+    backdrop-filter: blur(4px);
+}
+
+.shape-corner-type[hidden] {
+    display: none;
+}
+
+.shape-corner-type-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 10px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    color: #ccc;
+    font-family: 'Poppins', sans-serif;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.shape-corner-type-btn:hover {
+    background: rgba(230, 126, 34, 0.15);
+    color: #fff;
+}
+
+.shape-corner-type-btn.active {
+    background: rgba(230, 126, 34, 0.25);
+    border-color: #e67e22;
+    color: #e67e22;
+}
+
 /* Tryby kursora canvasu wg narzędzia */
-canvas[data-shape-canvas].tool-add {
+canvas[data-shape-canvas].tool-select,
+canvas[data-shape-canvas].tool-direct,
+canvas[data-shape-canvas].tool-corner {
+    cursor: default;
+}
+
+canvas[data-shape-canvas].tool-add,
+canvas[data-shape-canvas].tool-ellipse,
+canvas[data-shape-canvas].tool-rect {
     cursor: crosshair;
 }
 
 canvas[data-shape-canvas].tool-remove {
     cursor: not-allowed;
-}
-
-canvas[data-shape-canvas].tool-cursor {
-    cursor: default;
 }
 
 canvas[data-shape-canvas].tool-rotate {
@@ -264,6 +313,12 @@ canvas[data-shape-canvas].tool-rotate {
 
 canvas[data-shape-canvas].tool-rotate.rotating-shape {
     cursor: grabbing;
+}
+
+/* .shape-tool-btn ma display:flex, które wygrywa z atrybutem hidden —
+   bez tej reguły „ukryte” narzędzia byłyby widoczne */
+.shape-tool-btn[hidden] {
+    display: none;
 }
 
 /* === Fullscreen canvas modal === */
@@ -371,4 +426,67 @@ body.fs-canvas-open {
     width: 100%;
     height: 100%;
     display: block;
+}
+
+/* ============================================
+   SUWAK „RYSUNEK” — nagłówek sekcji Produkt
+   ============================================ */
+.shape-canvas-switch {
+    position: relative;   /* kotwica dla ukrytego inputa */
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+    font-family: 'Poppins', sans-serif;
+    font-size: 13px;
+    color: #444;
+}
+
+.shape-canvas-switch input {
+    position: absolute;
+    opacity: 0;
+    width: 1px;
+    height: 1px;
+}
+
+.shape-canvas-switch__track {
+    position: relative;
+    width: 36px;
+    height: 20px;
+    border-radius: 10px;
+    background: #cfd6dd;
+    transition: background-color 120ms;
+}
+
+.shape-canvas-switch__track::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+    transition: transform 120ms;
+}
+
+.shape-canvas-switch input:checked + .shape-canvas-switch__track {
+    background: #e67e22;
+}
+
+.shape-canvas-switch input:checked + .shape-canvas-switch__track::after {
+    transform: translateX(16px);
+}
+
+.shape-canvas-switch input:focus-visible + .shape-canvas-switch__track {
+    outline: 2px solid #e67e22;
+    outline-offset: 2px;
+}
+
+/* Zablokowany: kształt nietypowy albo produkt z wycięciami/narożnikami */
+.shape-canvas-switch.is-locked {
+    cursor: not-allowed;
+    opacity: 0.7;
 }

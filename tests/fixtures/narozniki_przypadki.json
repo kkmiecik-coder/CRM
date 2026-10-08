@@ -1,0 +1,43 @@
+{
+  "_opis": "Wspólne przypadki geometrii narożników i wycięć. Pythonem sprawdza je tests/test_shape_geometry.py, w JS — krok przeglądarkowy zadania 2. Pola w cm2, wymiary narożników w mm.",
+  "narozniki": [
+    {"nazwa": "prostokat_4xR50", "ring": [[0,0],[100,0],[100,50],[0,50]],
+     "corners": [{"type":"round","r_mm":50},{"type":"round","r_mm":50},{"type":"round","r_mm":50},{"type":"round","r_mm":50}],
+     "pole": 4978.539816, "liczba_segmentow": 8},
+    {"nazwa": "prostokat_faza20", "ring": [[0,0],[100,0],[100,50],[0,50]],
+     "corners": [{"type":"chamfer","r_mm":20},null,null,null],
+     "pole": 4998.0, "liczba_segmentow": 5},
+    {"nazwa": "trojkat_rownoboczny_R10", "ring": [[0,0],[80,0],[40,69.2820323]],
+     "corners": [{"type":"round","r_mm":10},null,null],
+     "pole": 2770.596439, "liczba_segmentow": 4},
+    {"nazwa": "L_wklesly_R50", "ring": [[0,0],[100,0],[100,40],[40,40],[40,80],[0,80]],
+     "corners": [null,null,null,{"type":"round","r_mm":50},null,null],
+     "pole": 5605.365046, "liczba_segmentow": 7}
+  ],
+  "limity": [
+    {"nazwa": "prostokat_ostre_naroznik0", "ring": [[0,0],[100,0],[100,50],[0,50]],
+     "corners": [null,null,null,null], "index": 0, "type": "round", "max_mm": 500},
+    {"nazwa": "prostokat_sasiedzi_R50", "ring": [[0,0],[100,0],[100,50],[0,50]],
+     "corners": [null,{"type":"round","r_mm":50},null,{"type":"round","r_mm":50}], "index": 0, "type": "round", "max_mm": 450},
+    {"nazwa": "trojkat_naroznik0", "ring": [[0,0],[80,0],[40,69.2820323]],
+     "corners": [null,null,null], "index": 0, "type": "round", "max_mm": 461},
+    {"nazwa": "prostokat_faza_sasiad", "ring": [[0,0],[100,0],[100,50],[0,50]],
+     "corners": [null,{"type":"chamfer","r_mm":300},null,null], "index": 0, "type": "chamfer", "max_mm": 500}
+  ],
+  "jednolity": [
+    {"nazwa": "prostokat_R_wszystkie", "ring": [[0,0],[100,0],[100,50],[0,50]], "type": "round", "max_mm": 250}
+  ],
+  "elipsy": [
+    {"nazwa": "elipsa_30x20", "cutout": {"type":"ellipse","cx":30,"cy":20,"rx":15,"ry":10,"angle":0},
+     "obwod": 79.327188, "pole": 471.238898}
+  ],
+  "zaokraglenie": [
+    {"nazwa": "polowa_2_5", "corners": [{"type": "round", "r_mm": 2.5}], "n": 1, "oczekiwane": [{"type": "round", "r_mm": 3}]},
+    {"nazwa": "polowa_12_5", "corners": [{"type": "chamfer", "r_mm": 12.5}], "n": 1, "oczekiwane": [{"type": "chamfer", "r_mm": 13}]}
+  ],
+  "przyciecie": [
+    {"nazwa": "prostokat_4x300", "ring": [[0,0],[100,0],[100,50],[0,50]],
+     "corners": [{"type":"round","r_mm":300},{"type":"round","r_mm":300},{"type":"round","r_mm":300},{"type":"round","r_mm":300}],
+     "oczekiwane": [{"type":"round","r_mm":200},{"type":"round","r_mm":200},{"type":"round","r_mm":300},{"type":"round","r_mm":300}]}
+  ]
+}

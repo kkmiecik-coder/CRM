@@ -171,6 +171,15 @@ class QuoteEditLoader {
      */
     async restoreProduct(form, product) {
 
+        // Docięcie do wymiaru (per-produkt) — PRZED kształtem i wymiarami: input pól uruchamia
+        // synchronizację krawędzi z rysunkiem, która przy docięciu „Nie” nie zapisuje wpisów.
+        // Ustawione na końcu przywracało narożniki z rysunku do krawędzi (cena na ekranie
+        // z opłatą za narożniki, a zapis przy „Nie” bez krawędzi).
+        if (window.cutToSize) {
+            const cts = product.cut_to_size;
+            window.cutToSize.set(form, cts === undefined || cts === null ? true : cts);
+        }
+
         // Ksztalt (przed wymiarami - bo nieprosto. blokuje length/width)
         form._pendingShapeRotation = product.shape_rotation;
         await this.restoreShape(form, product.shape, product.shape_data);
@@ -220,12 +229,9 @@ class QuoteEditLoader {
 
         // Krawedzie
         this.restoreEdges(form, product.edges);
+        // Krawędzie i rysunek muszą się zgadzać (narożniki, numeracja wycięć)
+        if (window.ShapeEdgesSync) window.ShapeEdgesSync.reconcileAfterRestore(form);
 
-        // Docięcie do wymiaru (per-produkt)
-        if (window.cutToSize) {
-            const cts = product.cut_to_size;
-            window.cutToSize.set(form, cts === undefined || cts === null ? true : cts);
-        }
     }
 
     // ========================================
@@ -571,6 +577,8 @@ class QuoteEditLoader {
         if (calculator) {
             calculator.addEventListener('input', (e) => scheduleCheck(e), true);
             calculator.addEventListener('change', (e) => scheduleCheck(e), true);
+            // Zmiana rysunku kształtu (Canva) — zdarzenie programowe zamiast dawnego udawanego inputu
+            calculator.addEventListener('shape:changed', (e) => scheduleCheck(e), true);
         }
 
         // Dodanie/usunięcie produktu

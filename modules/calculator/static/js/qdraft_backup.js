@@ -271,6 +271,7 @@ class QuoteDraftBackup {
             try {
                 edges = {
                     data: JSON.parse(form.dataset.edgesData),
+                    mode: form.dataset.edgesMode || null,
                     type: form.dataset.edgesType || 'round',
                     rValue: parseInt(form.dataset.edgesRValue) || 5,
                     angleValue: form.dataset.edgesAngleValue ? parseInt(form.dataset.edgesAngleValue) : null,
@@ -616,6 +617,9 @@ class QuoteDraftBackup {
                         if (draftData.products[i].shape_rotation != null && editor.setRotation) {
                             editor.setRotation(draftData.products[i].shape_rotation);
                         }
+                        // restore buduje Canvę od zera z samego shape_data (niszczy narożniki
+                        // przeniesione z krawędzi w restoreEdges) — uzgadniamy je jeszcze raz
+                        if (window.ShapeEdgesSync) window.ShapeEdgesSync.reconcileAfterRestore(form);
                     } else {
                         const shapeSelect = form.querySelector('[data-field="shapeSelect"]');
                         if (shapeSelect) shapeSelect.value = mappedShape;
@@ -773,22 +777,32 @@ class QuoteDraftBackup {
             throw new Error(`Nie mozna znalezc formularza dla produktu ${index + 1}`);
         }
 
-        if (productData.shape && productData.shape !== 'rectangular') {
-            const mappedShape = productData.shape === 'round' ? 'circle' : productData.shape;
-            const editor = form._shapeEditor;
-            if (editor) {
-                editor.restore(mappedShape, productData.shape_data || null);
-                if (productData.shape_rotation != null && editor.setRotation) {
-                    editor.setRotation(productData.shape_rotation);
-                }
-            } else {
-                const shapeSelect = form.querySelector('[data-field="shapeSelect"]');
-                if (shapeSelect) {
-                    shapeSelect.value = mappedShape;
-                    shapeSelect.dispatchEvent(new Event('change', { bubbles: true }));
-                }
-                form.dataset.productShape = mappedShape;
+        // Docięcie do wymiaru — PRZED kształtem i wymiarami (jak kopia produktu): input pól
+        // uruchamia synchronizację krawędzi z rysunkiem, która przy docięciu „Nie” nie zapisuje
+        // wpisów. Ustawione po polach przywracało narożniki z rysunku do krawędzi.
+        if (window.cutToSize) {
+            const cts = productData.cut_to_size;
+            window.cutToSize.set(form, cts === undefined || cts === null ? true : cts);
+        }
+
+        const editor = form._shapeEditor;
+        if (editor) {
+            // Kształt przywracamy dla KAŻDEGO kształtu, także prostokąta (jak loader edycji):
+            // prostokąt z wycięciami musi mieć rysunek, zanim restoreEdges otworzy modal
+            // i „Zastosuj” zbierze krawędzie wycięć (H*) — bez rysunku modal ich nie zna
+            const mappedShape = productData.shape === 'round' ? 'circle' : (productData.shape || 'rectangular');
+            editor.restore(mappedShape, productData.shape_data || null);
+            if (productData.shape_rotation != null && editor.setRotation) {
+                editor.setRotation(productData.shape_rotation);
             }
+        } else if (productData.shape && productData.shape !== 'rectangular') {
+            const mappedShape = productData.shape === 'round' ? 'circle' : productData.shape;
+            const shapeSelect = form.querySelector('[data-field="shapeSelect"]');
+            if (shapeSelect) {
+                shapeSelect.value = mappedShape;
+                shapeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            form.dataset.productShape = mappedShape;
         }
 
         await this.restoreFormField(form, '[data-field="length"]', productData.length);
@@ -801,11 +815,6 @@ class QuoteDraftBackup {
             if (select) {
                 select.value = productData.clientType;
             }
-        }
-
-        if (window.cutToSize) {
-            const cts = productData.cut_to_size;
-            window.cutToSize.set(form, cts === undefined || cts === null ? true : cts);
         }
 
         await this.delay(200);
@@ -922,6 +931,8 @@ class QuoteDraftBackup {
         form.dataset.edgesRValue = edges.rValue || 5;
         form.dataset.edgesNetto = edges.netto || 0;
         form.dataset.edgesBrutto = edges.brutto || 0;
+        // Bez trybu odtworzenie w podstawowym gubiło narożniki o różnych promieniach
+        if (edges.mode) form.dataset.edgesMode = edges.mode;
 
         if (edges.angleValue) {
             form.dataset.edgesAngleValue = edges.angleValue;
@@ -983,6 +994,9 @@ class QuoteDraftBackup {
                 }
             }
         }
+
+        // Krawędzie i rysunek muszą się zgadzać (jak po wczytaniu wyceny i kopii produktu)
+        if (window.ShapeEdgesSync) window.ShapeEdgesSync.reconcileAfterRestore(form);
 
         await this.delay(100);
     }
@@ -1326,6 +1340,9 @@ class QuoteDraftBackup {
                     markUnsaved(e.isTrusted);
                 }
             });
+
+            // Zmiany rysunku kształtu (Canva) — zdarzenie programowe jak dawny udawany input
+            container.addEventListener('shape:changed', () => markUnsaved(false));
 
             // Klikniecia w przyciski wykonczenia, wariantow, krawedzi
             container.addEventListener('click', (e) => {

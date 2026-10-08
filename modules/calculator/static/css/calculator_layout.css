@@ -213,8 +213,18 @@
     transition: flex-basis 0.3s ease;
 }
 
-.product-data > .title-with-underline-h2 {
+/* Nagłówek sekcji Produkt z suwakiem „Rysunek” */
+.product-data-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    align-self: stretch;
     margin-bottom: 20px;
+}
+
+.product-data-header > .title-with-underline-h2 {
+    margin-bottom: 0;
 }
 
 /* [product-inputs] */

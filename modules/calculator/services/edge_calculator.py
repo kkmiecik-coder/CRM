@@ -217,9 +217,47 @@ def _load_edge_prices():
         return DEFAULT_PRICES
 
 
+def _cutout_edge_definitions(shape_data, thickness_cm):
+    """Krawędzie wycięć z `cutouts` (fallback: `holes` starych wycen).
+
+    Wielokąt: G/D per bok — od wierzchołka do wierzchołka (narożnik nie skraca boku),
+    P per wierzchołek. Elipsa: jedna krawędź obwodowa góra (G1) i dół (D1), bez pionów.
+    Liczymy z punktów wirtualnych, NIE ze spłaszczonych `holes` — tam elipsa ma 72 boki.
+    """
+    from modules.calculator.services.shape_geometry import cutouts_from_shape_data, ellipse_perimeter_cm
+
+    edges = []
+    for h_idx, cutout in enumerate(cutouts_from_shape_data(shape_data)):
+        h_num = h_idx + 1
+        if cutout['type'] == 'ellipse':
+            obwod = ellipse_perimeter_cm(cutout['rx'], cutout['ry'])
+            edges.append({'id': 'H{}.G1'.format(h_num), 'type_label': 'top', 'length_cm': obwod,
+                          'name': 'Wycięcie {}, obwód góra'.format(h_num)})
+            edges.append({'id': 'H{}.D1'.format(h_num), 'type_label': 'bottom', 'length_cm': obwod,
+                          'name': 'Wycięcie {}, obwód dół'.format(h_num)})
+            continue
+        punkty = cutout['points']
+        m = len(punkty)
+        for j in range(m):
+            k = (j + 1) % m
+            dlugosc = math.hypot(punkty[k][0] - punkty[j][0], punkty[k][1] - punkty[j][1])
+            edges.append({'id': 'H{}.G{}'.format(h_num, j + 1), 'type_label': 'top', 'length_cm': dlugosc,
+                          'name': 'Wycięcie {}, góra {}'.format(h_num, j + 1)})
+        for j in range(m):
+            k = (j + 1) % m
+            dlugosc = math.hypot(punkty[k][0] - punkty[j][0], punkty[k][1] - punkty[j][1])
+            edges.append({'id': 'H{}.D{}'.format(h_num, j + 1), 'type_label': 'bottom', 'length_cm': dlugosc,
+                          'name': 'Wycięcie {}, dół {}'.format(h_num, j + 1)})
+        for j in range(m):
+            edges.append({'id': 'H{}.P{}'.format(h_num, j + 1), 'type_label': 'vertical',
+                          'length_cm': thickness_cm, 'name': 'Wycięcie {}, pion {}'.format(h_num, j + 1)})
+    return edges
+
+
 def _generate_edge_definitions(shape_type, shape_data, thickness_cm):
     """
     Generuje definicje krawędzi G (góra), D (dół), P (pion) dla nieregularnych kształtów.
+    Krawędzie wycięć (H…) dochodzą dla każdego kształtu, także prostokąta i koła.
     """
     edges = []
     vertices = shape_data.get('vertices')
@@ -232,10 +270,11 @@ def _generate_edge_definitions(shape_type, shape_data, thickness_cm):
         edges.append({'id': 'G1', 'type_label': 'top', 'length_cm': perimeter, 'name': 'Obwód (góra)'})
         edges.append({'id': 'D1', 'type_label': 'bottom', 'length_cm': perimeter, 'name': 'Obwód (dół)'})
         edges.append({'id': 'P1', 'type_label': 'vertical', 'length_cm': perimeter, 'name': 'Krawędź boczna (obwód)'})
-        return edges
+        return edges + _cutout_edge_definitions(shape_data, thickness_cm)
 
     if not vertices or len(vertices) < 3:
-        return edges
+        # Prostokąt bez wierzchołków też dostaje wycięcia
+        return edges + _cutout_edge_definitions(shape_data, thickness_cm)
 
     n = len(vertices)
     for i in range(n):
@@ -249,45 +288,8 @@ def _generate_edge_definitions(shape_type, shape_data, thickness_cm):
     for i in range(n):
         edges.append({'id': 'P{}'.format(i + 1), 'type_label': 'vertical', 'length_cm': thickness_cm, 'name': 'Pion {}'.format(i + 1)})
 
-    # Krawędzie dziur: pełna symetria z outer dynamicznym (G góra, D dół, P pion)
-    holes = shape_data.get('holes') or []
-    for h_idx, hole in enumerate(holes):
-        if not hole or len(hole) < 3:
-            continue
-        h_num = h_idx + 1
-        m = len(hole)
-        # G — góra (per krawędź dziury)
-        for j in range(m):
-            k = (j + 1) % m
-            hdx = hole[k][0] - hole[j][0]
-            hdy = hole[k][1] - hole[j][1]
-            h_length = math.sqrt(hdx * hdx + hdy * hdy)
-            edges.append({
-                'id': 'H{}.G{}'.format(h_num, j + 1),
-                'type_label': 'top',
-                'length_cm': h_length,
-                'name': 'Wycięcie {}, góra {}'.format(h_num, j + 1),
-            })
-        # D — dół (per krawędź dziury, ta sama długość co góra)
-        for j in range(m):
-            k = (j + 1) % m
-            hdx = hole[k][0] - hole[j][0]
-            hdy = hole[k][1] - hole[j][1]
-            h_length = math.sqrt(hdx * hdx + hdy * hdy)
-            edges.append({
-                'id': 'H{}.D{}'.format(h_num, j + 1),
-                'type_label': 'bottom',
-                'length_cm': h_length,
-                'name': 'Wycięcie {}, dół {}'.format(h_num, j + 1),
-            })
-        # P — pion (per wierzchołek dziury, długość = grubość)
-        for j in range(m):
-            edges.append({
-                'id': 'H{}.P{}'.format(h_num, j + 1),
-                'type_label': 'vertical',
-                'length_cm': thickness_cm,
-                'name': 'Wycięcie {}, pion {}'.format(h_num, j + 1),
-            })
+    # Krawędzie wycięć (z `cutouts`; elipsa = jedna krawędź obwodowa)
+    edges.extend(_cutout_edge_definitions(shape_data, thickness_cm))
 
     return edges
 

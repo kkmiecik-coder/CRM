@@ -694,6 +694,19 @@ document.addEventListener('DOMContentLoaded', function () {
             isValid = false;
         }
 
+        // 9. Wycięcia muszą mieścić się w kształcie (Canva oznacza złe na czerwono)
+        const zleKsztalty = [];
+        forms.forEach((form, index) => {
+            if (form._shapeEditor && typeof form._shapeEditor.isGeometryValid === 'function'
+                    && !form._shapeEditor.isGeometryValid()) {
+                zleKsztalty.push(index + 1);
+            }
+        });
+        if (zleKsztalty.length > 0) {
+            showGlobalError(`Popraw wycięcia w produkcie: ${zleKsztalty.join(', ')} (wychodzą poza kształt albo nachodzą na siebie)`);
+            isValid = false;
+        }
+
         return isValid;
     }
 

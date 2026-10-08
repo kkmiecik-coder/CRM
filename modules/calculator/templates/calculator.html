@@ -115,7 +115,15 @@
                           <!-- Wiersz 1: Produkt + Kalkulacja -->
                           <div class="workspace-row workspace-row-1">
                             <section class="product-data">
-                                <h2 class="title-with-underline-h2">Produkt</h2>
+                                <div class="product-data-header">
+                                    <h2 class="title-with-underline-h2">Produkt</h2>
+                                    <!-- Suwak dla wszystkich ról (także partnerów) -->
+                                    <label class="shape-canvas-switch" data-shape-canvas-switch title="Pokaż lub ukryj rysunek kształtu">
+                                        <input type="checkbox" data-shape-canvas-toggle>
+                                        <span class="shape-canvas-switch__track" aria-hidden="true"></span>
+                                        <span class="shape-canvas-switch__label">Rysunek</span>
+                                    </label>
+                                </div>
                                 <div class="product-inputs">
                                     <div class="client-type">
                                         <label for="clientType" class="input-txt">Grupa cenowa</label>
@@ -134,7 +142,6 @@
                                         <select class="input-window" data-field="shapeSelect">
                                             <option value="rectangular">Prostokąt</option>
                                             <option value="circle">Koło</option>
-                                            {% if user_role in ('admin', 'user') %}
                                             <optgroup label="Trójkąt">
                                                 <option value="triangle_right">Trójkąt prostokątny</option>
                                                 <option value="triangle_equilateral">Trójkąt równoboczny</option>
@@ -148,7 +155,6 @@
                                             </optgroup>
                                             <option value="parallelogram">Równoległobok</option>
                                             <option value="polygon">Wielokąt niestandardowy</option>
-                                            {% endif %}
                                         </select>
                                     </div>
                                     <!-- Długość (ukrywane dla nie-prostokątnych) -->
@@ -241,12 +247,13 @@
                                         <canvas data-shape-canvas></canvas>
                                         <!-- Toolbar narzędzi edycji -->
                                         <div class="shape-toolbar" data-shape-toolbar style="display:none;">
-                                            <button type="button" class="shape-tool-btn active" data-shape-tool="cursor" title="Kursor (V) — przeciągaj wierzchołki i tło">
-                                                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                                    <path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/>
-                                                </svg>
+                                            <button type="button" class="shape-tool-btn active" data-shape-tool="select" title="Zaznaczanie (V) — zaznacz i przesuń całe wycięcie">
+                                                <svg viewBox="0 0 24 24" width="22" height="22"><path d="M5 3l14 9-6.5 1.5L9 20z" fill="currentColor"/></svg>
                                             </button>
-                                            <button type="button" class="shape-tool-btn" data-shape-tool="add" title="Dodaj punkt (A) — klik krawędź lub wnętrze (dziura)">
+                                            <button type="button" class="shape-tool-btn" data-shape-tool="direct" title="Zaznaczanie bezpośrednie (A) — przeciągaj punkty">
+                                                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M5 3l14 9-6.5 1.5L9 20z"/></svg>
+                                            </button>
+                                            <button type="button" class="shape-tool-btn" data-shape-tool="add" title="Dodaj punkt (+) — klik w bok albo wycięcie punkt po punkcie">
                                                 <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                                                     <path d="M21.19 8.0399L18.01 4.85991C16.81 3.65991 15.16 3.71993 14.35 5.00993L12.58 7.80992L18.25 13.4799L21.05 11.7099C22.26 10.9399 22.33 9.1699 21.19 8.0399Z"/>
                                                     <path d="M18.25 13.47L18.49 17.59C18.72 19.89 17.92 20.69 15.74 20.95L7.02 21.98C5.18 22.19 3.86 20.87 4.08 19.04L5.06 10.76"/>
@@ -257,7 +264,7 @@
                                                     <path d="M8.16 6.5H4.8"/>
                                                 </svg>
                                             </button>
-                                            <button type="button" class="shape-tool-btn" data-shape-tool="remove" title="Usuń punkt (D) — klik wierzchołek">
+                                            <button type="button" class="shape-tool-btn" data-shape-tool="remove" title="Usuń punkt (−) — klik w punkt">
                                                 <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                                                     <path d="M21.19 8.0399L18.01 4.85991C16.81 3.65991 15.16 3.71993 14.35 5.00993L12.58 7.80992L18.25 13.4799L21.05 11.7099C22.26 10.9399 22.33 9.1699 21.19 8.0399Z"/>
                                                     <path d="M18.25 13.47L18.49 17.59C18.72 19.89 17.92 20.69 15.74 20.95L7.02 21.98C5.18 22.19 3.86 20.87 4.08 19.04L5.06 10.76"/>
@@ -266,6 +273,15 @@
                                                     <path d="M11 6.5C11 6.91 10.94 7.32001 10.83 7.70001C10.72 8.10001 10.56 8.47001 10.35 8.82001C10.11 9.22001 9.81001 9.58 9.46001 9.88C8.67001 10.58 7.64 11 6.5 11C5.99 11 5.51 10.92 5.06 10.76C4.04 10.42 3.18999 9.72001 2.64999 8.82001C2.23999 8.14001 2 7.34 2 6.5C2 5.08 2.65 3.80999 3.69 2.98999C4.46 2.36999 5.44 2 6.5 2C8.99 2 11 4.01 11 6.5Z"/>
                                                     <path d="M8.16 6.5H4.8"/>
                                                 </svg>
+                                            </button>
+                                            <button type="button" class="shape-tool-btn" data-shape-tool="ellipse" title="Wycięcie: elipsa (L) — Shift = koło, Alt = od środka">
+                                                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="12" rx="9" ry="6"/></svg>
+                                            </button>
+                                            <button type="button" class="shape-tool-btn" data-shape-tool="rect" title="Wycięcie: prostokąt (M) — Shift = kwadrat, Alt = od środka">
+                                                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="6" width="16" height="12" rx="1"/></svg>
+                                            </button>
+                                            <button type="button" class="shape-tool-btn" data-shape-tool="corner" title="Narożniki (N) — przeciągnij kropkę w rogu">
+                                                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 20V12a7 7 0 0 1 7-7h7"/><circle cx="9.5" cy="9.5" r="1.6" fill="currentColor"/></svg>
                                             </button>
                                             <button type="button" class="shape-tool-btn" data-shape-tool="rotate" title="Obrót (R) — chwyć kształt i obracaj, Shift = co 15°">
                                                 <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -287,9 +303,21 @@
                                                     <label><input type="checkbox" data-visibility-key="brackets" checked> Klamerki odległości</label>
                                                     <label><input type="checkbox" data-visibility-key="guides" checked> Linie pomocnicze</label>
                                                     <label><input type="checkbox" data-visibility-key="angles" checked> Kąty</label>
+                                                    <label><input type="checkbox" data-visibility-key="corners" checked> Narożniki</label>
                                                     <label><input type="checkbox" data-visibility-key="lamellas" checked> Lamele</label>
                                                 </div>
                                             </div>
+                                        </div>
+                                        <!-- Typ narożnika (widoczny przy narzędziu N) -->
+                                        <div class="shape-corner-type" data-corner-type-bar hidden>
+                                            <button type="button" class="shape-corner-type-btn active" data-corner-type="round" title="Frezowanie: łuk w rogu">
+                                                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3v9a7 7 0 0 0 7 7h8"/></svg>
+                                                <span>Frezowanie</span>
+                                            </button>
+                                            <button type="button" class="shape-corner-type-btn" data-corner-type="chamfer" title="Fazowanie: ścięcie rogu">
+                                                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3v10l6 6h9"/></svg>
+                                                <span>Fazowanie</span>
+                                            </button>
                                         </div>
                                         <div class="shape-canvas-info-panel">
                                             <div class="shape-canvas-scale-indicator" data-shape-scale></div>
@@ -667,8 +695,12 @@
     <script src="{{ url_for('calculator.static', filename='js/qdraft_backup.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/vendor/canvas2svg.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/shape-geometry.js') }}"></script>
+    <script src="{{ url_for('calculator.static', filename='js/shape-corners.js') }}"></script>
+    <script src="{{ url_for('calculator.static', filename='js/shape-cutouts.js') }}"></script>
+    <script src="{{ url_for('calculator.static', filename='js/shape-tools.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/shape-canvas.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/fullscreen-canvas.js') }}"></script>
+    <script src="{{ url_for('calculator.static', filename='js/shape-edges-sync.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/shape-editor.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/calculator-api.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/calculator-core.js') }}"></script>

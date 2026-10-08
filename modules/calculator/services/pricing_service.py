@@ -9,6 +9,7 @@ piony P* jako narożniki w krawędziach) są CELOWE — tak liczy frontend na pr
 """
 
 import json as _json
+import logging
 import math
 import time
 import threading
@@ -19,6 +20,8 @@ from flask import current_app
 from modules.calculator.services.edge_calculator import (
     EDGE_DEFINITIONS, calculate_ellipse_perimeter_mm, _generate_edge_definitions,
 )
+
+logger = logging.getLogger(__name__)
 
 # Legacy fallbacki cen wykończenia (calculator-ui.js:606-614)
 # UWAGA: realna nazwa roota w drzewku FinishingOption to 'Lakierowane'
@@ -608,11 +611,24 @@ def calculate_edges_pricing(edges, product, data):
     # Definicje dynamiczne dla nieregularnych — do wyznaczenia długości G*/D*
     dynamic_defs = {}
     shape_data = product.get('shape_data')
-    if shape_data and shape not in ('rectangular',):
+    # Także prostokąt i koło: ich wycięcia (H…) mają długości tylko w definicjach dynamicznych
+    if shape_data:
         if isinstance(shape_data, str):
-            shape_data = _json.loads(shape_data)
-        for d in _generate_edge_definitions(shape, shape_data, dims['thickness']):
-            dynamic_defs[d['id']] = d
+            try:
+                shape_data = _json.loads(shape_data)
+            except ValueError:
+                shape_data = None  # zepsuty JSON: długości z wpisów krawędzi, jak bez shape_data
+        # Prostokąt dawniej w ogóle tu nie wchodził — nie-obiekt (np. "null") nie może go teraz psuć
+        if isinstance(shape_data, dict):
+            try:
+                for d in _generate_edge_definitions(shape, shape_data, dims['thickness']):
+                    dynamic_defs[d['id']] = d
+            except Exception:
+                # Zepsute shape_data (wierzchołki tekstem, params null itp.) nie może wywalić
+                # wyceny — liczymy jak bez shape_data: długości z wpisów krawędzi
+                dynamic_defs = {}
+                logger.warning('Krawędzie: nie udało się odczytać shape_data, długości z wpisów krawędzi',
+                               exc_info=True)
 
     total_netto = 0.0          # suma RAW (tryb basic)
     total_netto_rounded = 0.0  # suma zaokrąglonych per-edge netto (tryb advanced)

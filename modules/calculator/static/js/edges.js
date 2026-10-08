@@ -333,13 +333,22 @@ const EdgesModule = (function() {
                 const form = input.closest('.quote-form');
                 if (form) {
                     updateButtonState(form);
-                    // Reset krawędzi — wymiary się zmieniły
+                    // Reset krawędzi — wymiary się zmieniły (prawdziwa zmiana pola)
                     if (form.dataset.edgesData) {
                         state.currentForm = form;
                         resetEdges();
                     }
+                    // Topologia (zadanie 13: także narożniki z rysunku) po resecie
+                    if (window.ShapeEdgesSync) window.ShapeEdgesSync.syncForm(form);
                 }
             }
+        });
+
+        // Rysunek z Canvy wypełnia wymiary programowo (bez zdarzenia input, które kasowałoby
+        // krawędzie) — stan przycisku „+ Dodaj” odświeżamy tu, bez resetu krawędzi
+        document.addEventListener('shape:changed', function(e) {
+            const form = e.target && e.target.closest ? e.target.closest('.quote-form') : null;
+            if (form) updateButtonState(form);
         });
 
         // Reset krawędzi przy zmianie kształtu
@@ -351,6 +360,7 @@ const EdgesModule = (function() {
                     state.currentForm = form;
                     resetEdges();
                 }
+                if (form && window.ShapeEdgesSync) window.ShapeEdgesSync.syncForm(form);
             }
         });
     }
@@ -374,6 +384,17 @@ const EdgesModule = (function() {
                 const form = resetBtn.closest('.quote-form');
                 state.currentForm = form;
                 resetEdges();
+                // Ręczny „Resetuj” = brak obróbki krawędzi, także narożników: pusty stan trafia
+                // na rysunek (narożniki ostre), a wpisy odtwarzamy z niego. Inaczej narożnik
+                // zostałby na rysunku bez opłaty, a następna synchronizacja i tak by go dopisała.
+                // Reset z „Docięcie do wymiaru = Nie” (cut_to_size.js) rysunku nie rusza —
+                // syncForm przy docięciu Nie nie zapisuje żadnych wpisów.
+                if (form && window.ShapeEdgesSync && form.dataset.cutToSize !== 'false') {
+                    const wynik = window.ShapeEdgesSync.pullCornersFromEdges(form);
+                    window.ShapeEdgesSync.syncForm(form);
+                    // Narożniki zmieniają pole kształtu — cena musi to zobaczyć
+                    if (wynik.changed && typeof updatePrices === 'function') updatePrices();
+                }
                 return;
             }
 
@@ -489,8 +510,8 @@ const EdgesModule = (function() {
             });
         });
 
-        // UWAGA: Event listenery dla SVG są teraz dodawane w attachSvgEventListeners()
-        // wywoływanym po każdej regeneracji SVG w generateProportionalSVG()
+        // UWAGA: Event listenery dla SVG są dodawane w attachSvgEventListeners()
+        // wywoływanym po każdym rysunku modalu (renderModalSvg)
 
         // Setup tabs (Podstawowy / Zaawansowany)
         setupTabs();
@@ -536,6 +557,7 @@ const EdgesModule = (function() {
             state.basic.angleValue = null;
             // odśwież widok basic (uncheck checkboxes)
             if (elements.checkboxes) elements.checkboxes.forEach(cb => { cb.checked = false; });
+            _odznaczPozycjeDynamiczne();
             if (elements.typeSelect) elements.typeSelect.value = 'round';
             if (elements.rValueInput) elements.rValueInput.value = 5;
             // Odśwież SVG (wyczyść aktywne podświetlenia)
@@ -550,9 +572,19 @@ const EdgesModule = (function() {
         }
     }
 
+    const BANER_MIESZANA = 'Konfiguracja zaawansowana zawiera różne typy/promienie. Zresetuj zakładkę „Zaawansowany”, aby pracować w Podstawowym.';
+    const BANER_NAROZNIKI = 'Narożniki ustawione na rysunku kształtu edytujesz w zakładce „Zaawansowany”.';
+
     function refreshBasicDisabledState() {
         if (!elements.panelBasic || !elements.basicDisabledBanner) return;
-        if (advancedIsMixed()) {
+        // Narożniki z rysunku mają własne wymiary — tryb podstawowy (jeden R dla wszystkiego) by je nadpisał
+        let naroznikiZRysunku = false;
+        try {
+            naroznikiZRysunku = !!window.ShapeEdgesSync && JSON.parse(state.currentForm?.dataset.edgesData || '[]')
+                .some(e => window.ShapeEdgesSync.isCornerLetter(e.letter));
+        } catch (e) { naroznikiZRysunku = false; }
+        if (advancedIsMixed() || naroznikiZRysunku) {
+            elements.basicDisabledBanner.textContent = naroznikiZRysunku ? BANER_NAROZNIKI : BANER_MIESZANA;
             elements.panelBasic.classList.add('edges-basic-panel-disabled');
             elements.basicDisabledBanner.style.display = '';
         } else {
@@ -576,11 +608,15 @@ const EdgesModule = (function() {
     // ==========================================
 
     function getActiveEdgeDefinitions() {
+        // Wycięcia (H…) z rysunku — dla prostokąta i koła dochodzą do ich własnych liter
+        const wyciecia = Object.entries(state.dynamicEdgeDefs)
+            .filter(([letter]) => letter.charAt(0) === 'H')
+            .map(([letter, def]) => ({ letter, name: def.name || letter, dimensionKey: 'dynamic', dynamicDef: def }));
         if (_isRoundShape(state.productShape)) {
             return [
                 { letter: 'KG', name: 'Krawędź górna (obwód)', dimensionKey: 'perimeter' },
                 { letter: 'KD', name: 'Krawędź dolna (obwód)', dimensionKey: 'perimeter' },
-            ];
+            ].concat(wyciecia);
         }
         if (state.productShape !== 'rectangular' && Object.keys(state.dynamicEdgeDefs).length > 0) {
             return Object.entries(state.dynamicEdgeDefs).map(([letter, def]) => ({
@@ -590,7 +626,7 @@ const EdgesModule = (function() {
         // rectangular
         return Object.entries(EDGES).map(([letter, def]) => ({
             letter, name: def.name, dimensionKey: def.dimension,
-        }));
+        })).concat(wyciecia);
     }
 
     function computeEdgeLengthCm(def) {
@@ -607,7 +643,7 @@ const EdgesModule = (function() {
         if (cfg.type === 'sharp') return 0;
         const pricePerMb = getPricePerMb(cfg.type);
         const pricePerCorner = getPricePerCorner(cfg.type);
-        const isCorner = (def.dimensionKey === 'thickness' || (def.dynamicDef && def.dynamicDef.group === 'vertical'));
+        const isCorner = (def.dimensionKey === 'thickness' || (def.dynamicDef && _jestNaroznikiem(def.dynamicDef.group)));
         return isCorner ? pricePerCorner : (lengthCm / 100) * pricePerMb;
     }
 
@@ -632,8 +668,14 @@ const EdgesModule = (function() {
             const price = computeEdgePrice(def, cfg, lengthCm);
 
             // Limity promienia R z konfiguracji (aktualizowane z bazy danych),
-            // a nie zahardkodowane - aby widok zaawansowany respektował ustawienia
-            const rLimits = CONFIG.R_LIMITS[cfg.type] || CONFIG.R_LIMITS.round || { min: 3, max: 20, default: 5 };
+            // a nie zahardkodowane - aby widok zaawansowany respektował ustawienia.
+            // Narożnik (pion): limit z geometrii rysunku; krawędzie poziome — z konfiguracji typu
+            const naroznik = (def.dimensionKey === 'thickness' || (def.dynamicDef && _jestNaroznikiem(def.dynamicDef.group)));
+            let rLimits = CONFIG.R_LIMITS[cfg.type] || CONFIG.R_LIMITS.round || { min: 3, max: 20, default: 5 };
+            if (naroznik && window.ShapeEdgesSync && cfg.type !== 'sharp') {
+                const maks = window.ShapeEdgesSync.maxForLetter(state.currentForm, def.letter, cfg.type);
+                if (maks != null) rLimits = { min: 1, max: maks, default: Math.min(rLimits.default || 5, maks) };
+            }
 
             row.innerHTML = `
                 <span class="edge-letter">${def.letter}</span>
@@ -644,7 +686,7 @@ const EdgesModule = (function() {
                     <option value="chamfer"${cfg.type==='chamfer'?' selected':''}>Fazowanie</option>
                 </select>
                 <input class="edge-r" type="number" min="${rLimits.min}" max="${rLimits.max}" value="${cfg.r_value || rLimits.default || 5}" ${cfg.type==='sharp'?'disabled':''}>
-                <select class="edge-angle" ${cfg.type!=='chamfer'?'disabled':''}>
+                <select class="edge-angle" ${(cfg.type!=='chamfer' || naroznik)?'disabled':''}>
                     ${renderAngleOptions(cfg.angle_value)}
                 </select>
                 <span class="edge-price">${price.toFixed(2)} zł</span>
@@ -676,6 +718,10 @@ const EdgesModule = (function() {
             if (!next.r_value) next.r_value = (next.type === 'round') ? 5 : 3;
             if (next.type !== 'chamfer') next.angle_value = null;
             else if (!next.angle_value) next.angle_value = 45;
+            // Fazowanie narożnika w rzucie jest zawsze symetryczne — kąt 45°
+            if (next.type === 'chamfer' && window.ShapeEdgesSync && window.ShapeEdgesSync.isCornerLetter(letter)) {
+                next.angle_value = 45;
+            }
             state.advanced.edges.set(letter, next);
         }
         renderAdvancedList();
@@ -694,22 +740,36 @@ const EdgesModule = (function() {
         if (elements.priceNetto) elements.priceNetto.textContent = '(' + total.toFixed(2).replace('.', ',') + ' zł netto)';
     }
 
+    // Wizualizacja zakładki Zaawansowany: ten sam rysunek co w Podstawowym i w sekcji „Krawędzie”
+    // (z wycięciami), krawędzie w kolorze typu z konfiguracji zaawansowanej: zielony = zaokrąglenie,
+    // pomarańczowy = fazowanie, szary = ostra. Etykieta ustawionej krawędzi ma kolor jej linii.
     function renderAdvancedVisualization() {
         const container = elements.advancedVisualization;
         if (!container) return;
         container.innerHTML = '';
-        if (!elements.svg) return;
-        const clone = elements.svg.cloneNode(true);
-        clone.querySelectorAll('.edges-line').forEach(line => {
-            const letter = line.dataset.edge;
-            const cfg = state.advanced.edges.get(letter);
-            const type = cfg?.type || 'sharp';
-            line.style.stroke = (type === 'round') ? '#2E7D32'
-                              : (type === 'chamfer') ? '#ED6B24'
-                              : '#cccccc';
+        if (!state.currentForm) return;
+        const typKrawedzi = (letter) => state.advanced.edges.get(letter)?.type || 'sharp';
+        const kolor = (type) => (type === 'round') ? '#2E7D32' : (type === 'chamfer') ? '#ED6B24' : '#cccccc';
+        const ustawione = new Set();
+        state.advanced.edges.forEach((cfg, letter) => { if (cfg.type !== 'sharp') ustawione.add(letter); });
+
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('viewBox', '0 0 320 220');
+        svg.setAttribute('class', 'edges-interactive-svg');
+        _drawEdgesFigure(svg, state.currentForm, ustawione);
+        svg.querySelectorAll('.edges-line').forEach(line => {
+            const type = typKrawedzi(line.dataset.edge);
+            line.style.stroke = kolor(type);
             line.style.strokeWidth = (type === 'sharp') ? '2' : '3';
         });
-        container.appendChild(clone);
+        svg.querySelectorAll('.edges-label').forEach(label => {
+            const type = typKrawedzi(label.dataset.edge);
+            const kolko = label.querySelector('circle');
+            if (kolko && type !== 'sharp') kolko.style.fill = kolor(type);
+        });
+        const etykiety = svg.querySelector('.edges-labels');
+        if (etykiety && !state.labelsVisible) etykiety.classList.add('edges-labels-hidden');
+        container.appendChild(svg);
     }
 
     function setupAdvancedActions() {
@@ -790,35 +850,27 @@ const EdgesModule = (function() {
         // WAŻNE: Najpierw wczytaj zapisany stan z formularza (lub zresetuj do domyślnych)
         loadSavedState();
 
-        // Przełącz UI w zależności od kształtu produktu
+        // Przełącz UI (lista krawędzi) w zależności od kształtu produktu
         if (_isRoundShape(state.productShape)) {
             showRoundEdgesUI();
-            generateRoundSVG(
-                state.dimensions.length,
-                state.productShape === 'circle' ? state.dimensions.length : state.dimensions.width,
-                state.dimensions.thickness
-            );
+            showCutoutGroupsForSimpleShape(_shapeDataFor(state.currentForm), state.dimensions.thickness);
         } else if (state.productShape !== 'rectangular' && state.currentForm._shapeEditor) {
             // Nieregularny kształt — dynamiczne krawędzie G/D/P
-            var shapeData = state.currentForm._shapeEditor.getShapeData();
-            showDynamicEdgesUI(shapeData, state.dimensions.thickness);
-            if (elements.svg && shapeData && shapeData.vertices) {
-                generateShapePreviewSVG(elements.svg, shapeData, state.dimensions.thickness, state.basic.selectedEdges, state.productShape);
-                attachSvgEventListeners();
-                state.basic.selectedEdges.forEach(function(edge) { updateSvgEdge(edge, true); });
-            }
+            showDynamicEdgesUI(state.currentForm._shapeEditor.getShapeData(), state.dimensions.thickness);
         } else {
             showRectangularEdgesUI();
-            generateProportionalSVG(
-                state.dimensions.length,
-                state.dimensions.width,
-                state.dimensions.thickness
-            );
+            showCutoutGroupsForSimpleShape(_shapeDataFor(state.currentForm), state.dimensions.thickness);
         }
 
-        // Re-cache labelsGroup po każdym przebudowaniu SVG
-        // Re-cache labelsGroup (querySelector bo element jest wewnątrz SVG)
-        elements.labelsGroup = elements.svg ? elements.svg.querySelector('#edgeLabelsGroup') : document.getElementById('edgeLabelsGroup');
+        // Rysunek: ten sam co w sekcji „Krawędzie” (każdy kształt, z wycięciami)
+        renderModalSvg();
+
+        // Lista zaawansowana bierze wycięcia ze state.dynamicEdgeDefs, które ustawiliśmy dopiero teraz
+        // (loadSavedState renderował ją wcześniej, na definicjach z poprzedniego otwarcia)
+        if (state.activeTab === 'advanced') {
+            renderAdvancedList();
+            renderAdvancedVisualization();
+        }
 
         // Aktualizuj długości krawędzi w UI
         updateEdgeLengths();
@@ -1063,6 +1115,19 @@ const EdgesModule = (function() {
         }
     }
 
+    // Lista dynamiczna (wycięcia prostokąta/koła, krawędzie kształtów nietypowych) ma własne
+    // checkboxy poza elements.checkboxes — po wyczyszczeniu state.basic.selectedEdges też je odznaczamy
+    function _odznaczPozycjeDynamiczne() {
+        const sekcja = elements.modal?.querySelector('.edges-dynamic-section');
+        if (!sekcja) return;
+        sekcja.querySelectorAll('.edges-item').forEach(item => {
+            const cb = item.querySelector('input[type="checkbox"]');
+            if (cb) cb.checked = false;
+            item.classList.remove('active');
+            updateSvgEdge(item.dataset.edge, false);
+        });
+    }
+
     function deselectAllEdges() {
         state.basic.selectedEdges.clear();
         // Odznacz checkboxy prostokąta
@@ -1071,6 +1136,7 @@ const EdgesModule = (function() {
             cb.closest('.edges-item')?.classList.remove('selected');
         });
         EDGE_GROUPS.all.forEach(edge => updateSvgEdge(edge, false));
+        _odznaczPozycjeDynamiczne();
 
         // Odznacz checkboxy okrągłego (jeśli istnieją)
         const roundSection = elements.modal?.querySelector('.edges-round-section');
@@ -1106,235 +1172,20 @@ const EdgesModule = (function() {
     }
 
     // ==========================================
-    // SVG - GENEROWANIE PROPORCJONALNE
+    // SVG - RYSUNEK MODALU
     // ==========================================
 
-    /**
-     * Generuje proporcjonalny widok izometryczny SVG na podstawie wymiarów
-     * @param {number} length - długość w cm
-     * @param {number} width - szerokość w cm
-     * @param {number} thickness - grubość w cm
-     */
-    function generateProportionalSVG(length, width, thickness) {
-        if (!elements.svg) return;
-
-        // Konfiguracja viewBox i marginesów
-        const viewBoxWidth = 320;
-        const viewBoxHeight = 220;
-        const margin = 35; // Margines na etykiety
-
-        // Obszar roboczy (bez marginesów na etykiety)
-        const workWidth = viewBoxWidth - 2 * margin;
-        const workHeight = viewBoxHeight - 2 * margin;
-
-        // Parametry projekcji izometrycznej
-        // Kąt izometryczny: oś X idzie w prawo-dół, oś Y idzie w lewo-dół
-        const isoAngleX = Math.PI / 6;  // 30 stopni
-        const isoAngleY = Math.PI / 6;  // 30 stopni
-
-        // Oblicz proporcje wymiarów
-        const maxDim = Math.max(length, width);
-
-        // Minimalna grubość wizualna: 15% maksymalnego wymiaru lub rzeczywista grubość
-        const minThicknessRatio = 0.15;
-        const effectiveThickness = Math.max(thickness, maxDim * minThicknessRatio);
-
-        // Skalowanie do obszaru roboczego
-        // W izometrii: szerokość = length * cos(30) + width * cos(30)
-        // wysokość = length * sin(30) + width * sin(30) + thickness
-        const projectedWidth = (length + width) * Math.cos(isoAngleX);
-        const projectedHeight = (length + width) * Math.sin(isoAngleX) + effectiveThickness;
-
-        const scaleX = workWidth / projectedWidth;
-        const scaleY = workHeight / projectedHeight;
-        const scale = Math.min(scaleX, scaleY) * 0.85; // 85% żeby było trochę luzu
-
-        // Przeskalowane wymiary
-        const L = length * scale;  // długość (oś X izometryczna)
-        const W = width * scale;   // szerokość (oś Y izometryczna)
-        const T = effectiveThickness * scale; // grubość (oś Z - pionowa)
-
-        // Wektory izometryczne
-        const vecX = { x: Math.cos(isoAngleX), y: Math.sin(isoAngleX) };   // prawo-dół
-        const vecY = { x: -Math.cos(isoAngleY), y: Math.sin(isoAngleY) };  // lewo-dół
-        const vecZ = { x: 0, y: -1 };  // góra
-
-        // Oblicz całkowity rozmiar rzutu bryły żeby wycentrować
-        // Rzut izometryczny: szerokość = L*cos(30) + W*cos(30), wysokość = L*sin(30) + W*sin(30) + T
-        const totalProjWidth = L * vecX.x + W * Math.abs(vecY.x);
-        const totalProjHeight = L * vecX.y + W * vecY.y + T;
-
-        // Punkt startowy (przedni-lewy-dolny róg) - wycentrowany
-        const startX = (viewBoxWidth - totalProjWidth) / 2 + W * Math.abs(vecY.x);
-        const startY = (viewBoxHeight - totalProjHeight) / 2 + T;
-
-        // Oblicz wszystkie 8 wierzchołków sześcianu
-        // Nazewnictwo zgodne z UI (A=góra przednia, E=dół przednia, itd.)
-        // W renderingu izometrycznym: "przedni" = na dole-prawo, "tylny" = na górze-lewo
-
-        // Dolna płaszczyzna (z=0)
-        // Zaczynamy od tylnego-lewego rogu i idziemy zgodnie z renderingiem
-        const pTylnyLewyDolny = {
-            x: startX,
-            y: startY
-        };
-        const pTylnyPrawyDolny = {
-            x: pTylnyLewyDolny.x + L * vecX.x,
-            y: pTylnyLewyDolny.y + L * vecX.y
-        };
-        const pPrzedniPrawyDolny = {
-            x: pTylnyPrawyDolny.x + W * vecY.x,
-            y: pTylnyPrawyDolny.y + W * vecY.y
-        };
-        const pPrzedniLewyDolny = {
-            x: pTylnyLewyDolny.x + W * vecY.x,
-            y: pTylnyLewyDolny.y + W * vecY.y
-        };
-
-        // Górna płaszczyzna (przesunięta o T w górę, czyli -T w y)
-        const pTylnyLewyGorny = { x: pTylnyLewyDolny.x, y: pTylnyLewyDolny.y - T };
-        const pTylnyPrawyGorny = { x: pTylnyPrawyDolny.x, y: pTylnyPrawyDolny.y - T };
-        const pPrzedniPrawyGorny = { x: pPrzedniPrawyDolny.x, y: pPrzedniPrawyDolny.y - T };
-        const pPrzedniLewyGorny = { x: pPrzedniLewyDolny.x, y: pPrzedniLewyDolny.y - T };
-
-        // Generuj HTML dla SVG
-        const svgContent = `
-            <!-- Ściany (tło) - rysowane od tyłu do przodu -->
-            <!-- Ściana tylna -->
-            <polygon class="edges-face edges-face-back"
-                     points="${pTylnyLewyDolny.x},${pTylnyLewyDolny.y} ${pTylnyPrawyDolny.x},${pTylnyPrawyDolny.y} ${pTylnyPrawyGorny.x},${pTylnyPrawyGorny.y} ${pTylnyLewyGorny.x},${pTylnyLewyGorny.y}"/>
-            <!-- Ściana lewa -->
-            <polygon class="edges-face edges-face-left"
-                     points="${pTylnyLewyDolny.x},${pTylnyLewyDolny.y} ${pPrzedniLewyDolny.x},${pPrzedniLewyDolny.y} ${pPrzedniLewyGorny.x},${pPrzedniLewyGorny.y} ${pTylnyLewyGorny.x},${pTylnyLewyGorny.y}"/>
-            <!-- Ściana górna -->
-            <polygon class="edges-face edges-face-top"
-                     points="${pTylnyLewyGorny.x},${pTylnyLewyGorny.y} ${pTylnyPrawyGorny.x},${pTylnyPrawyGorny.y} ${pPrzedniPrawyGorny.x},${pPrzedniPrawyGorny.y} ${pPrzedniLewyGorny.x},${pPrzedniLewyGorny.y}"/>
-            <!-- Ściana przednia -->
-            <polygon class="edges-face edges-face-front"
-                     points="${pPrzedniLewyDolny.x},${pPrzedniLewyDolny.y} ${pPrzedniPrawyDolny.x},${pPrzedniPrawyDolny.y} ${pPrzedniPrawyGorny.x},${pPrzedniPrawyGorny.y} ${pPrzedniLewyGorny.x},${pPrzedniLewyGorny.y}"/>
-            <!-- Ściana prawa -->
-            <polygon class="edges-face edges-face-right"
-                     points="${pTylnyPrawyDolny.x},${pTylnyPrawyDolny.y} ${pPrzedniPrawyDolny.x},${pPrzedniPrawyDolny.y} ${pPrzedniPrawyGorny.x},${pPrzedniPrawyGorny.y} ${pTylnyPrawyGorny.x},${pTylnyPrawyGorny.y}"/>
-
-            <!-- Krawędzie ukryte (przerywane) -->
-            <!-- F: Dół tylna - ukryta -->
-            <line class="edges-line edges-hidden" data-edge="F"
-                  x1="${pTylnyLewyDolny.x}" y1="${pTylnyLewyDolny.y}" x2="${pTylnyPrawyDolny.x}" y2="${pTylnyPrawyDolny.y}"/>
-            <!-- G: Dół lewa - ukryta -->
-            <line class="edges-line edges-hidden" data-edge="G"
-                  x1="${pTylnyLewyDolny.x}" y1="${pTylnyLewyDolny.y}" x2="${pPrzedniLewyDolny.x}" y2="${pPrzedniLewyDolny.y}"/>
-            <!-- N3: Narożnik tylny lewy - ukryty -->
-            <line class="edges-line edges-hidden edges-corner" data-edge="N3"
-                  x1="${pTylnyLewyGorny.x}" y1="${pTylnyLewyGorny.y}" x2="${pTylnyLewyDolny.x}" y2="${pTylnyLewyDolny.y}"/>
-
-            <!-- Krawędzie górne (widoczne) -->
-            <!-- A: Góra przednia -->
-            <line class="edges-line" data-edge="A"
-                  x1="${pPrzedniLewyGorny.x}" y1="${pPrzedniLewyGorny.y}" x2="${pPrzedniPrawyGorny.x}" y2="${pPrzedniPrawyGorny.y}"/>
-            <!-- B: Góra tylna -->
-            <line class="edges-line" data-edge="B"
-                  x1="${pTylnyLewyGorny.x}" y1="${pTylnyLewyGorny.y}" x2="${pTylnyPrawyGorny.x}" y2="${pTylnyPrawyGorny.y}"/>
-            <!-- C: Góra lewa -->
-            <line class="edges-line" data-edge="C"
-                  x1="${pTylnyLewyGorny.x}" y1="${pTylnyLewyGorny.y}" x2="${pPrzedniLewyGorny.x}" y2="${pPrzedniLewyGorny.y}"/>
-            <!-- D: Góra prawa -->
-            <line class="edges-line" data-edge="D"
-                  x1="${pTylnyPrawyGorny.x}" y1="${pTylnyPrawyGorny.y}" x2="${pPrzedniPrawyGorny.x}" y2="${pPrzedniPrawyGorny.y}"/>
-
-            <!-- Krawędzie dolne (widoczne) -->
-            <!-- E: Dół przednia -->
-            <line class="edges-line" data-edge="E"
-                  x1="${pPrzedniLewyDolny.x}" y1="${pPrzedniLewyDolny.y}" x2="${pPrzedniPrawyDolny.x}" y2="${pPrzedniPrawyDolny.y}"/>
-            <!-- H: Dół prawa -->
-            <line class="edges-line" data-edge="H"
-                  x1="${pTylnyPrawyDolny.x}" y1="${pTylnyPrawyDolny.y}" x2="${pPrzedniPrawyDolny.x}" y2="${pPrzedniPrawyDolny.y}"/>
-
-            <!-- Narożniki (pionowe) - widoczne -->
-            <!-- N1: Narożnik przedni lewy -->
-            <line class="edges-line edges-corner" data-edge="N1"
-                  x1="${pPrzedniLewyGorny.x}" y1="${pPrzedniLewyGorny.y}" x2="${pPrzedniLewyDolny.x}" y2="${pPrzedniLewyDolny.y}"/>
-            <!-- N2: Narożnik przedni prawy -->
-            <line class="edges-line edges-corner" data-edge="N2"
-                  x1="${pPrzedniPrawyGorny.x}" y1="${pPrzedniPrawyGorny.y}" x2="${pPrzedniPrawyDolny.x}" y2="${pPrzedniPrawyDolny.y}"/>
-            <!-- N4: Narożnik tylny prawy -->
-            <line class="edges-line edges-corner" data-edge="N4"
-                  x1="${pTylnyPrawyGorny.x}" y1="${pTylnyPrawyGorny.y}" x2="${pTylnyPrawyDolny.x}" y2="${pTylnyPrawyDolny.y}"/>
-
-            <!-- Etykiety -->
-            <g class="edges-labels" id="edgeLabelsGroup">
-                <!-- Górne poziome -->
-                ${generateLabel('A', midpoint(pPrzedniLewyGorny, pPrzedniPrawyGorny))}
-                ${generateLabel('B', midpoint(pTylnyLewyGorny, pTylnyPrawyGorny))}
-                ${generateLabel('C', midpoint(pTylnyLewyGorny, pPrzedniLewyGorny))}
-                ${generateLabel('D', midpoint(pTylnyPrawyGorny, pPrzedniPrawyGorny))}
-
-                <!-- Dolne poziome -->
-                ${generateLabel('E', midpoint(pPrzedniLewyDolny, pPrzedniPrawyDolny))}
-                ${generateLabel('F', midpoint(pTylnyLewyDolny, pTylnyPrawyDolny))}
-                ${generateLabel('G', midpoint(pTylnyLewyDolny, pPrzedniLewyDolny))}
-                ${generateLabel('H', midpoint(pTylnyPrawyDolny, pPrzedniPrawyDolny))}
-
-                <!-- Narożniki -->
-                ${generateCornerLabel('N1', midpoint(pPrzedniLewyGorny, pPrzedniLewyDolny), -14)}
-                ${generateCornerLabel('N2', midpoint(pPrzedniPrawyGorny, pPrzedniPrawyDolny), 14)}
-                ${generateCornerLabel('N3', midpoint(pTylnyLewyGorny, pTylnyLewyDolny), -14)}
-                ${generateCornerLabel('N4', midpoint(pTylnyPrawyGorny, pTylnyPrawyDolny), 14)}
-            </g>
-        `;
-
-        elements.svg.innerHTML = svgContent;
-
-        // Zaktualizuj referencję do grupy etykiet
-        elements.labelsGroup = document.getElementById('edgeLabelsGroup');
-
-        // Ponownie przypisz event listenery do nowych elementów SVG
+    // Rysunek zakładki Podstawowy: ten sam co podgląd w sekcji „Krawędzie” (_drawEdgesFigure —
+    // prostokąt, koło i wielokąt, z wycięciami), z interakcjami modalu. Zaznaczenie z Podstawowego
+    // rysuje już _drawEdgesFigure (klasa active na liniach i etykietach).
+    function renderModalSvg() {
+        if (!elements.svg || !state.currentForm) return;
+        _drawEdgesFigure(elements.svg, state.currentForm, state.basic.selectedEdges);
+        // Grupa etykiet powstaje od nowa przy każdym rysunku (querySelector — element jest w SVG)
+        elements.labelsGroup = elements.svg.querySelector('#edgeLabelsGroup');
+        if (elements.labelsGroup) elements.labelsGroup.classList.toggle('edges-labels-hidden', !state.labelsVisible);
+        // Klik w krawędź/etykietę przełącza zaznaczenie, hover podświetla wiersz listy
         attachSvgEventListeners();
-
-        // Przywróć stan zaznaczonych krawędzi
-        state.basic.selectedEdges.forEach(edge => {
-            updateSvgEdge(edge, true);
-        });
-
-        // Przywróć widoczność etykiet
-        if (!state.labelsVisible && elements.labelsGroup) {
-            elements.labelsGroup.classList.add('edges-labels-hidden');
-        }
-    }
-
-    /**
-     * Oblicza punkt środkowy między dwoma punktami
-     */
-    function midpoint(p1, p2) {
-        return {
-            x: (p1.x + p2.x) / 2,
-            y: (p1.y + p2.y) / 2
-        };
-    }
-
-    /**
-     * Generuje HTML dla etykiety krawędzi
-     */
-    function generateLabel(letter, pos, offset = 0) {
-        const offsetY = 4; // Przesunięcie tekstu w pionie dla centrowania
-        return `
-            <g class="edges-label" data-edge="${letter}">
-                <circle cx="${pos.x}" cy="${pos.y}" r="12"/>
-                <text x="${pos.x}" y="${pos.y + offsetY}">${letter}</text>
-            </g>
-        `;
-    }
-
-    /**
-     * Generuje HTML dla etykiety narożnika
-     */
-    function generateCornerLabel(letter, pos, offsetX = 0) {
-        const offsetY = 4;
-        return `
-            <g class="edges-label edges-label-corner" data-edge="${letter}">
-                <circle cx="${pos.x + offsetX}" cy="${pos.y}" r="14"/>
-                <text x="${pos.x + offsetX}" y="${pos.y + offsetY}">${letter}</text>
-            </g>
-        `;
     }
 
     /**
@@ -1471,7 +1322,12 @@ const EdgesModule = (function() {
                 if (ROUND_EDGES[edge]) {
                     totalNetto += perimeterMb * pricePerMb;
                     horizontalCount++;
+                    return;
                 }
+                const d = _definicjaWyciecia(edge);
+                if (!d) return;
+                if (_jestNaroznikiem(d.group)) { totalNetto += pricePerCorner; cornerCount++; }
+                else { totalNetto += (d.length_cm / 100) * pricePerMb; horizontalCount++; }
             });
         } else if (state.productShape !== 'rectangular' && Object.keys(state.dynamicEdgeDefs).length > 0) {
             // Nieregularny kształt: dynamiczne krawędzie G/D/P
@@ -1479,7 +1335,7 @@ const EdgesModule = (function() {
                 const def = state.dynamicEdgeDefs[edge];
                 if (!def) return;
 
-                if (def.group === 'vertical') {
+                if (_jestNaroznikiem(def.group)) {
                     // Krawędzie pionowe = narożniki — osobny cennik
                     totalNetto += pricePerCorner;
                     cornerCount++;
@@ -1494,7 +1350,13 @@ const EdgesModule = (function() {
             // Kształt prostokątny: standardowe 12 krawędzi
             state.basic.selectedEdges.forEach(edge => {
                 const def = EDGES[edge];
-                if (!def) return;
+                if (!def) {
+                    const d = _definicjaWyciecia(edge);
+                    if (!d) return;
+                    if (_jestNaroznikiem(d.group)) { totalNetto += pricePerCorner; cornerCount++; }
+                    else { totalNetto += (d.length_cm / 100) * pricePerMb; horizontalCount++; }
+                    return;
+                }
 
                 if (def.group === 'corner') {
                     totalNetto += pricePerCorner;
@@ -1539,7 +1401,12 @@ const EdgesModule = (function() {
         const quantityInput = state.currentForm.querySelector('input[data-field="quantity"]');
         const quantity = parseInt(quantityInput?.value) || 1;
 
-        const edgesMode = state.activeTab;
+        // Zablokowany Podstawowy (baner: narożniki z rysunku albo mieszana konfiguracja zaawansowana)
+        // nie ma własnej konfiguracji — stosujemy zaawansowaną, jak mówi baner. Inaczej pusta
+        // konfiguracja podstawowa zdjęłaby wszystkie narożniki z rysunku.
+        const podstawowyZablokowany = state.activeTab === 'basic'
+            && !!elements.panelBasic?.classList.contains('edges-basic-panel-disabled');
+        const edgesMode = podstawowyZablokowany ? 'advanced' : state.activeTab;
         let edgesData = [];
         let totalPrices;
 
@@ -1551,14 +1418,17 @@ const EdgesModule = (function() {
                 const lengthCm = computeEdgeLengthCm(def);
                 const lengthMm = lengthCm * 10;
                 const priceNetto = computeEdgePrice(def, cfg, lengthCm);
-                const isCorner = (def.dimensionKey === 'thickness' || (def.dynamicDef && def.dynamicDef.group === 'vertical'));
+                const isCorner = (def.dimensionKey === 'thickness' || (def.dynamicDef && _jestNaroznikiem(def.dynamicDef.group)));
+                // Długości z pełną dokładnością (wszystkie wpisy krawędzi): cenę na żywo backend
+                // liczy z nich, a zapis z dokładnej geometrii — zaokrąglone dawały różnicę groszy.
+                // Zaokrąglamy tylko przy wyświetlaniu.
                 edgesData.push({
                     letter: def.letter,
                     type: cfg.type,
                     r_value: cfg.r_value,
                     angle_value: cfg.angle_value || null,
-                    length_mm: Math.round(lengthMm * 100) / 100,
-                    length_cm: Math.round(lengthCm * 100) / 100,
+                    length_mm: lengthMm,
+                    length_cm: lengthCm,
                     is_corner: isCorner,
                     price_netto: Math.round(priceNetto * 100) / 100,
                     price_brutto: Math.round(priceNetto * CONFIG.VAT_RATE * 100) / 100,
@@ -1582,7 +1452,9 @@ const EdgesModule = (function() {
         }
 
         // ====== SVG zapis ======
-        let edgesSvg = buildEdgesSvgForSave(edgesData, edgesMode);
+        // Ten sam rysunek co w modalu i w sekcji „Krawędzie”, zaznaczone zapisywane wpisy
+        // (rysowany od nowa, więc podświetlenie spod kursora nie trafia do zapisu)
+        const edgesSvg = _buildEdgesSvgHeadless(state.currentForm, edgesData, edgesMode);
 
         // Zapisz w dataset formularza (ceny już pomnożone przez ilość sztuk)
         state.currentForm.dataset.edgesData = JSON.stringify(edgesData);
@@ -1604,8 +1476,21 @@ const EdgesModule = (function() {
             state.currentForm.dataset.edgesAngleValue = '';
         }
 
-        // Aktualizuj przycisk (pokazuj cenę łączną z uwzględnieniem ilości)
-        updateOpenButton(state.currentForm, totalPrices);
+        // Podsumowanie z datasetu (oba tryby)
+        renderEdgesSummary(state.currentForm);
+        if (window.ShapeEdgesSync) {
+            // Narożniki z modalu trafiają na rysunek; za duże przycinamy do geometrii
+            const wynikNaroznikow = window.ShapeEdgesSync.pullCornersFromEdges(state.currentForm);
+            // Litery krawędzi odnoszą się do tej topologii — kolejne zmiany rysunku porównujemy z nią
+            window.ShapeEdgesSync.rememberTopology(state.currentForm);
+            // Rysunek jest źródłem prawdy o narożnikach: wpisy odtwarzamy z niego już po przycięciu
+            // (modal 800 mm → rysunek 500 mm). Topologia zapamiętana wyżej, więc nic nie zostanie
+            // unieważnione; syncForm nie woła applyEdges ani pull, więc pętli nie ma.
+            window.ShapeEdgesSync.syncForm(state.currentForm);
+            if (wynikNaroznikow.clamped && state.currentForm._shapeEditor) {
+                state.currentForm._shapeEditor.showHint('Część narożników przycięto do największego wymiaru, jaki mieści się w kształcie.');
+            }
+        }
 
         // Wywołaj aktualizację globalnego podsumowania
         if (typeof updateGlobalSummary === 'function') {
@@ -1621,6 +1506,22 @@ const EdgesModule = (function() {
     // ==========================================
     // BASIC: zbieranie edgesData (wyciągnięte z applyEdges)
     // ==========================================
+    function _wpisWyciecia(edge, d, pricePerMb, pricePerCorner) {
+        const naroznik = _jestNaroznikiem(d.group);
+        const priceNetto = naroznik ? pricePerCorner : (d.length_cm / 100) * pricePerMb;
+        return {
+            letter: edge,
+            type: state.basic.edgeType,
+            r_value: state.basic.rValue,
+            angle_value: state.basic.edgeType === 'chamfer' ? state.basic.angleValue : null,
+            length_mm: d.length_cm * 10,
+            length_cm: d.length_cm,
+            is_corner: naroznik,
+            price_netto: Math.round(priceNetto * 100) / 100,
+            price_brutto: Math.round(priceNetto * CONFIG.VAT_RATE * 100) / 100
+        };
+    }
+
     function buildBasicEdgesData(quantity) {
         const prices = calculatePrice();
         const totalPrices = {
@@ -1644,7 +1545,11 @@ const EdgesModule = (function() {
 
             state.basic.selectedEdges.forEach(edge => {
                 const def = ROUND_EDGES[edge];
-                if (!def) return;
+                if (!def) {
+                    const d = _definicjaWyciecia(edge);
+                    if (d) edgesData.push(_wpisWyciecia(edge, d, pricePerMb, pricePerCorner));
+                    return;
+                }
 
                 const priceNetto = perimeterMb * pricePerMb;
 
@@ -1653,8 +1558,8 @@ const EdgesModule = (function() {
                     type: state.basic.edgeType,
                     r_value: state.basic.rValue,
                     angle_value: state.basic.edgeType === 'chamfer' ? state.basic.angleValue : null,
-                    length_mm: Math.round(perimeterMm * 100) / 100,
-                    length_cm: Math.round(perimeterCm * 100) / 100,
+                    length_mm: perimeterMm,
+                    length_cm: perimeterCm,
                     is_corner: false,
                     is_round_perimeter: true,
                     price_netto: Math.round(priceNetto * 100) / 100,
@@ -1667,7 +1572,7 @@ const EdgesModule = (function() {
                 const def = state.dynamicEdgeDefs[edge];
                 if (!def) return;
 
-                const isVertical = def.group === 'vertical';
+                const isVertical = _jestNaroznikiem(def.group);
                 const lengthCm = def.length_cm;
                 const lengthMm = lengthCm * 10;
                 // Krawędzie pionowe (P*) = narożniki — osobny cennik
@@ -1678,8 +1583,8 @@ const EdgesModule = (function() {
                     type: state.basic.edgeType,
                     r_value: state.basic.rValue,
                     angle_value: state.basic.edgeType === 'chamfer' ? state.basic.angleValue : null,
-                    length_mm: Math.round(lengthMm * 100) / 100,
-                    length_cm: Math.round(lengthCm * 100) / 100,
+                    length_mm: lengthMm,
+                    length_cm: lengthCm,
                     is_corner: isVertical,
                     price_netto: Math.round(priceNetto * 100) / 100,
                     price_brutto: Math.round(priceNetto * CONFIG.VAT_RATE * 100) / 100
@@ -1689,7 +1594,11 @@ const EdgesModule = (function() {
             // Kształt prostokątny: standardowe krawędzie
             state.basic.selectedEdges.forEach(edge => {
                 const def = EDGES[edge];
-                if (!def) return;
+                if (!def) {
+                    const d = _definicjaWyciecia(edge);
+                    if (d) edgesData.push(_wpisWyciecia(edge, d, pricePerMb, pricePerCorner));
+                    return;
+                }
 
                 const lengthCm = state.dimensions[def.dimension] || 0;
                 const lengthMm = lengthCm * 10;
@@ -1719,13 +1628,13 @@ const EdgesModule = (function() {
     }
 
     /**
-     * Buduje SVG do zapisu w bazie.
+     * Buduje SVG do zapisu w bazie z rysunku krawędzi (sourceSvg z _buildEdgesSvgHeadless).
      * Mode 'basic': zachowanie 1:1 (pomarańcz dla aktywnych).
      * Mode 'advanced': kolorowanie per typ (zielony=round, pomarańcz=chamfer, szary=sharp).
      */
-    function buildEdgesSvgForSave(edgesData, mode) {
-        if (!elements.svg || edgesData.length === 0) return '';
-        const svgClone = elements.svg.cloneNode(true);
+    function buildEdgesSvgForSave(edgesData, mode, sourceSvg) {
+        if (!sourceSvg || edgesData.length === 0) return '';
+        const svgClone = sourceSvg.cloneNode(true);
         const labelsGroup = svgClone.querySelector('#edgeLabelsGroup');
         if (labelsGroup) labelsGroup.remove();
 
@@ -1791,62 +1700,6 @@ const EdgesModule = (function() {
         return svgClone.outerHTML;
     }
 
-    function updateOpenButton(form, prices) {
-        // Szukaj kontenera krawędzi w sekcji edges
-        let optionsSummary = form.querySelector('.edges-options-summary');
-        if (!optionsSummary) return;
-
-        const edgesRow = optionsSummary.querySelector('.edges-row');
-        const textEl = optionsSummary.querySelector('.edges-summary-text');
-        const priceEl = optionsSummary.querySelector('.edges-summary-price');
-        let priceNettoEl = optionsSummary.querySelector('.edges-summary-price-netto');
-        const openBtn = form.querySelector('.open-edges-modal-btn');
-
-        // Jeśli element netto nie istnieje, utwórz go dynamicznie
-        if (!priceNettoEl && edgesRow) {
-            const content = edgesRow.querySelector('.options-summary-content');
-            if (content) {
-                priceNettoEl = document.createElement('span');
-                priceNettoEl.className = 'options-summary-price-netto edges-summary-price-netto';
-                content.appendChild(priceNettoEl);
-            }
-        }
-
-        if (state.basic.selectedEdges.size > 0) {
-            // Buduj tekst podsumowania
-            const edgeNames = Array.from(state.basic.selectedEdges).sort().join(', ');
-            const typeLabel = state.basic.edgeType === 'chamfer' ? 'Fazowanie' : 'Zaokrąglenie';
-
-            // Dla fazowania dodaj kąt do opisu
-            let summaryText = `${typeLabel} R${state.basic.rValue}`;
-            if (state.basic.edgeType === 'chamfer' && state.basic.angleValue) {
-                summaryText += ` (${state.basic.angleValue}°)`;
-            }
-            summaryText += `: ${edgeNames}`;
-
-            if (textEl) textEl.textContent = summaryText;
-            if (priceEl) priceEl.textContent = formatPLN(prices.brutto) + ' brutto';
-            if (priceNettoEl) priceNettoEl.textContent = formatPLN(prices.netto) + ' netto';
-            if (edgesRow) edgesRow.style.display = 'flex';
-
-            // Zmień tekst przycisku na "Zmień obróbkę krawędzi"
-            if (openBtn) {
-                openBtn.textContent = 'Edytuj';
-            }
-        } else {
-            // Ukryj wiersz krawędzi
-            if (edgesRow) edgesRow.style.display = 'none';
-
-            // Przywróć oryginalny tekst przycisku
-            if (openBtn) {
-                openBtn.textContent = '+ Dodaj';
-            }
-        }
-
-        // Aktualizuj widoczność głównego kontenera
-        updateOptionsSummaryVisibility(optionsSummary);
-    }
-
     /**
      * Aktualizuje widoczność kontenera options-summary
      */
@@ -1900,6 +1753,107 @@ const EdgesModule = (function() {
         }
     }
 
+    const TYPY_PODSUMOWANIA = { round: 'Zaokrąglenie', chamfer: 'Fazowanie' };
+
+    // Wiersz podsumowania krawędzi z danych formularza — oba tryby, ceny z datasetu
+    // (po /calculate to cena z backendu). Grupuje litery po typie, R i kącie.
+    function renderEdgesSummary(form) {
+        if (!form) return;
+        const optionsSummary = form.querySelector('.edges-options-summary');
+        if (!optionsSummary) return;
+        const edgesRow = optionsSummary.querySelector('.edges-row');
+        const textEl = optionsSummary.querySelector('.edges-summary-text');
+        const priceEl = optionsSummary.querySelector('.edges-summary-price');
+        let priceNettoEl = optionsSummary.querySelector('.edges-summary-price-netto');
+        const openBtn = form.querySelector('.open-edges-modal-btn');
+        if (!priceNettoEl && edgesRow) {
+            const content = edgesRow.querySelector('.options-summary-content');
+            if (content) {
+                priceNettoEl = document.createElement('span');
+                priceNettoEl.className = 'options-summary-price-netto edges-summary-price-netto';
+                content.appendChild(priceNettoEl);
+            }
+        }
+        let wpisy = [];
+        try { wpisy = JSON.parse(form.dataset.edgesData || '[]'); } catch (e) { wpisy = []; }
+        wpisy = wpisy.filter(e => e.type && e.type !== 'sharp');
+        if (!wpisy.length) {
+            if (edgesRow) edgesRow.style.display = 'none';
+            if (openBtn) openBtn.textContent = '+ Dodaj';
+            updateOptionsSummaryVisibility(optionsSummary);
+            return;
+        }
+        const grupy = new Map();
+        wpisy.forEach(e => {
+            const klucz = e.type + '|' + e.r_value + '|' + (e.type === 'chamfer' ? (e.angle_value || '') : '');
+            if (!grupy.has(klucz)) grupy.set(klucz, { e: e, litery: [] });
+            grupy.get(klucz).litery.push(e.letter);
+        });
+        const tekst = Array.from(grupy.values()).map(g => {
+            let t = (TYPY_PODSUMOWANIA[g.e.type] || g.e.type) + ' R' + g.e.r_value;
+            if (g.e.type === 'chamfer' && g.e.angle_value) t += ' (' + g.e.angle_value + '°)';
+            return t + ': ' + g.litery.sort().join(', ');
+        }).join(' · ');
+        if (textEl) textEl.textContent = tekst;
+        if (priceEl) priceEl.textContent = formatPLN(parseFloat(form.dataset.edgesBrutto) || 0) + ' brutto';
+        if (priceNettoEl) priceNettoEl.textContent = formatPLN(parseFloat(form.dataset.edgesNetto) || 0) + ' netto';
+        if (edgesRow) edgesRow.style.display = 'flex';
+        if (openBtn) openBtn.textContent = 'Edytuj';
+        updateOptionsSummaryVisibility(optionsSummary);
+    }
+
+    // SVG krawędzi do zapisu (Zastosuj w modalu i synchronizacja bez modalu) — rysunek jak podgląd w sekcji
+    function _buildEdgesSvgHeadless(form, entries, mode) {
+        const svgEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svgEl.setAttribute('viewBox', '0 0 320 220');
+        svgEl.setAttribute('class', 'edges-interactive-svg');
+        _drawEdgesFigure(svgEl, form, new Set(entries.map(e => e.letter)));
+        return buildEdgesSvgForSave(entries, mode, svgEl);
+    }
+
+    // Zapis krawędzi do formularza bez modalu (synchronizacja z rysunkiem).
+    // Ceny per krawędź to podgląd z /api/edge-options — wiążącą cenę liczy backend.
+    function setFormEdges(form, entries, mode) {
+        if (!form) return;
+        if (!entries || !entries.length) {
+            const poprzedni = state.currentForm;
+            state.currentForm = form;
+            resetEdges();
+            state.currentForm = poprzedni;
+            // Pusta lista = reset, ale cenę z backendu trzeba przeliczyć już bez krawędzi
+            if (typeof updatePrices === 'function') updatePrices();
+            return;
+        }
+        const quantity = parseInt(form.querySelector('input[data-field="quantity"]')?.value) || 1;
+        let netto = 0, brutto = 0;
+        const wycenione = entries.map(e => {
+            const surowa = (e.type === 'sharp') ? 0
+                : (e.is_corner ? getPricePerCorner(e.type) : ((parseFloat(e.length_cm) || 0) / 100) * getPricePerMb(e.type));
+            const w = Object.assign({}, e, {
+                price_netto: Math.round(surowa * 100) / 100,
+                price_brutto: Math.round(surowa * CONFIG.VAT_RATE * 100) / 100
+            });
+            netto += w.price_netto;
+            brutto += w.price_brutto;
+            return w;
+        });
+        form.dataset.edgesData = JSON.stringify(wycenione);
+        form.dataset.edgesMode = mode;
+        form.dataset.edgesCount = wycenione.length;
+        form.dataset.edgesQuantity = quantity;
+        form.dataset.edgesNetto = Math.round(netto * quantity * 100) / 100;
+        form.dataset.edgesBrutto = Math.round(brutto * quantity * 100) / 100;
+        if (mode === 'advanced') {
+            form.dataset.edgesType = 'mixed';
+            form.dataset.edgesRValue = '';
+            form.dataset.edgesAngleValue = '';
+        }
+        form.dataset.edgesSvg = _buildEdgesSvgHeadless(form, wycenione, mode);
+        renderEdgesSummary(form);
+        updateEdgesPreview(form);
+        if (typeof updatePrices === 'function') updatePrices();
+    }
+
     function loadSavedState() {
         if (!state.currentForm) return;
 
@@ -1920,6 +1874,11 @@ const EdgesModule = (function() {
         }
         if (elements.panelBasic) elements.panelBasic.style.display = (state.activeTab === 'basic') ? '' : 'none';
         if (elements.panelAdvanced) elements.panelAdvanced.style.display = (state.activeTab === 'advanced') ? '' : 'none';
+        // Blokada Podstawowego (klasa + baner) z poprzedniego otwarcia nie może przechodzić na ten produkt;
+        // zakładkę przelicza switchTab('basic'). Nie wołamy tu refreshBasicDisabledState: stara forma
+        // w trybie basic z narożnikami otworzyłaby się na zablokowanym Podstawowym przy pustej liście zaawansowanej.
+        if (elements.panelBasic) elements.panelBasic.classList.remove('edges-basic-panel-disabled');
+        if (elements.basicDisabledBanner) elements.basicDisabledBanner.style.display = 'none';
 
         // Jeśli mamy zapisany tryb advanced — wypełnij mapę i zakończ tutaj
         if (edgesMode === 'advanced' && savedData) {
@@ -2001,7 +1960,7 @@ const EdgesModule = (function() {
             updateAngleButtons();
 
             // Zaznacz checkboxy zgodnie z zapisanym stanem
-            // (SVG będzie aktualizowany przez generateProportionalSVG później)
+            // (rysunek modalu powstaje później, w renderModalSvg)
             elements.checkboxes.forEach(cb => {
                 const item = cb.closest('.edges-item');
                 const edge = item.dataset.edge;
@@ -2209,6 +2168,107 @@ const EdgesModule = (function() {
         });
     }
 
+    // Piony obrysu i wycięć liczone jak narożniki (za sztukę) — tak liczy pricing_service
+    function _jestNaroznikiem(group) {
+        return group === 'vertical' || group === 'hole_vertical';
+    }
+
+    // Krawędź wycięcia (H…) z definicji z rysunku — używane przez prostokąt i koło
+    function _definicjaWyciecia(edge) {
+        return (String(edge).charAt(0) === 'H' && state.dynamicEdgeDefs[edge]) ? state.dynamicEdgeDefs[edge] : null;
+    }
+
+    function _shapeDataFor(form) {
+        return (form && form._shapeEditor) ? form._shapeEditor.getShapeData() : null;
+    }
+
+    // Definicje z rysunku w formacie listy modalu ({id, group, name, length})
+    function _definicjeZRysunku(shapeType, shapeData, thickness) {
+        if (!window.ShapeEdgesSync || !shapeData) return [];
+        return window.ShapeEdgesSync.edgeDefinitions(shapeType, shapeData, thickness).map(function(d) {
+            return { id: d.id, group: d.group, name: d.name, length: d.length_cm };
+        });
+    }
+
+    function _zapiszDefinicje(edges) {
+        state.dynamicEdgeDefs = {};
+        edges.forEach(function(e) {
+            state.dynamicEdgeDefs[e.id] = { length_cm: e.length, group: e.group, name: e.name };
+        });
+    }
+
+    function _pozycjaListyHtml(e, naroznik) {
+        var dl = Math.round(e.length * 10) / 10;
+        return '<div class="edges-item' + (naroznik ? ' edges-corner-item' : '') + '" data-edge="' + e.id + '">' +
+            '<label class="edges-checkbox">' +
+            '<input type="checkbox" name="edge_' + e.id + '">' +
+            '<span class="edges-letter' + (naroznik ? ' edges-letter-corner' : '') + '">' + e.id + '</span>' +
+            '<span class="edges-name">' + e.name + '</span>' +
+            '<span class="edges-length">(' + dl + ' cm)</span>' +
+            '</label></div>';
+    }
+
+    // Grupy „WYCIĘCIE n” (G, D, P albo obwód elipsy)
+    function _htmlGrupWyciec(edges, liczbaWyciec) {
+        var html = '';
+        for (var n = 1; n <= liczbaWyciec; n++) {
+            var prefiks = 'H' + n + '.';
+            var swoje = edges.filter(function(e) { return e.id.indexOf(prefiks) === 0; });
+            if (!swoje.length) continue;
+            html += '<div class="edges-group edges-group-hole"><h5>WYCIĘCIE ' + n + '</h5><div class="edges-list">';
+            ['hole_top', 'hole_bottom', 'hole_vertical'].forEach(function(grupa) {
+                swoje.filter(function(e) { return e.group === grupa; }).forEach(function(e) {
+                    html += _pozycjaListyHtml(e, grupa === 'hole_vertical');
+                });
+            });
+            html += '</div></div>';
+        }
+        return html;
+    }
+
+    // Checkboxy listy dynamicznej: stan z basic.selectedEdges, zmiana → SVG i cena
+    function _podepnijPozycje(section) {
+        if (!section) return;
+        section.querySelectorAll('.edges-item').forEach(function(item) {
+            var edgeId = item.dataset.edge;
+            var checkbox = item.querySelector('input[type="checkbox"]');
+            if (!checkbox) return;
+            checkbox.checked = state.basic.selectedEdges.has(edgeId);
+            if (checkbox.checked) item.classList.add('active');
+            checkbox.addEventListener('change', function() {
+                if (this.checked) {
+                    state.basic.selectedEdges.add(edgeId);
+                    item.classList.add('active');
+                } else {
+                    state.basic.selectedEdges.delete(edgeId);
+                    item.classList.remove('active');
+                }
+                updateSvgEdge(edgeId, this.checked);
+                calculatePrice();
+            });
+            item.addEventListener('mouseenter', function() { highlightEdge(edgeId, true); });
+            item.addEventListener('mouseleave', function() { highlightEdge(edgeId, false); });
+        });
+    }
+
+    // Prostokąt i koło: obrys na swoich literach (A–H/N, KG/KD), wycięcia jako grupy „WYCIĘCIE n”
+    function showCutoutGroupsForSimpleShape(shapeData, thickness) {
+        var modal = elements.modal;
+        if (!modal) return;
+        var stara = modal.querySelector('.edges-dynamic-section');
+        if (stara) stara.remove();
+        var edges = _definicjeZRysunku(state.productShape, shapeData, thickness);
+        _zapiszDefinicje(edges);
+        var liczba = window.ShapeCutouts ? ShapeCutouts.fromShapeData(shapeData).length : 0;
+        if (!liczba) return;
+        var html = '<div class="edges-section edges-dynamic-section">' + _htmlGrupWyciec(edges, liczba) + '</div>';
+        var cel = _isRoundShape(state.productShape)
+            ? modal.querySelector('.edges-round-section')
+            : modal.querySelector('.edges-top-section');
+        if (cel) cel.insertAdjacentHTML('afterend', html);
+        _podepnijPozycje(modal.querySelector('.edges-dynamic-section'));
+    }
+
     /**
      * Dynamiczny UI krawędzi G/D/P dla kształtów nieregularnych
      */
@@ -2229,86 +2289,11 @@ const EdgesModule = (function() {
         var existingDynamic = modal.querySelector('.edges-dynamic-section');
         if (existingDynamic) existingDynamic.remove();
 
-        // Wygeneruj definicje krawędzi z ShapeGeometry
-        var vertices = shapeData.vertices;
-        if (!vertices || vertices.length < 3) return;
-
-        var n = vertices.length;
-        var edges = [];
-
-        // Krawędzie górne G1-GN
-        for (var i = 0; i < n; i++) {
-            var j = (i + 1) % n;
-            var dx = vertices[j][0] - vertices[i][0];
-            var dy = vertices[j][1] - vertices[i][1];
-            var len = Math.sqrt(dx * dx + dy * dy);
-            edges.push({ id: 'G' + (i + 1), group: 'top', name: 'Góra ' + (i + 1), length: len });
-        }
-        // Krawędzie dolne D1-DN
-        for (var i2 = 0; i2 < n; i2++) {
-            var j2 = (i2 + 1) % n;
-            var dx2 = vertices[j2][0] - vertices[i2][0];
-            var dy2 = vertices[j2][1] - vertices[i2][1];
-            var len2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
-            edges.push({ id: 'D' + (i2 + 1), group: 'bottom', name: 'Dół ' + (i2 + 1), length: len2 });
-        }
-        // Krawędzie pionowe P1-PN
-        for (var i3 = 0; i3 < n; i3++) {
-            edges.push({ id: 'P' + (i3 + 1), group: 'vertical', name: 'Pion ' + (i3 + 1), length: thickness });
-        }
-
-        // Krawędzie dziur: pełna symetria z outer dynamicznym — G góra, D dół, P pion
-        var holes = (shapeData.holes || []);
-        for (var hi = 0; hi < holes.length; hi++) {
-            var hole = holes[hi];
-            if (!hole || hole.length < 3) continue;
-            var hNum = hi + 1;
-            var m = hole.length;
-            // G — góra
-            for (var hj = 0; hj < m; hj++) {
-                var hk = (hj + 1) % m;
-                var hdx = hole[hk][0] - hole[hj][0];
-                var hdy = hole[hk][1] - hole[hj][1];
-                var hlen = Math.sqrt(hdx * hdx + hdy * hdy);
-                edges.push({
-                    id: 'H' + hNum + '.G' + (hj + 1),
-                    group: 'hole_top',
-                    name: 'Wycięcie ' + hNum + ', góra ' + (hj + 1),
-                    length: hlen
-                });
-            }
-            // D — dół (ta sama długość co góra)
-            for (var hj2 = 0; hj2 < m; hj2++) {
-                var hk2 = (hj2 + 1) % m;
-                var hdx2 = hole[hk2][0] - hole[hj2][0];
-                var hdy2 = hole[hk2][1] - hole[hj2][1];
-                var hlen2 = Math.sqrt(hdx2 * hdx2 + hdy2 * hdy2);
-                edges.push({
-                    id: 'H' + hNum + '.D' + (hj2 + 1),
-                    group: 'hole_bottom',
-                    name: 'Wycięcie ' + hNum + ', dół ' + (hj2 + 1),
-                    length: hlen2
-                });
-            }
-            // P — pion (per wierzchołek, długość = grubość)
-            for (var hj3 = 0; hj3 < m; hj3++) {
-                edges.push({
-                    id: 'H' + hNum + '.P' + (hj3 + 1),
-                    group: 'hole_vertical',
-                    name: 'Wycięcie ' + hNum + ', pion ' + (hj3 + 1),
-                    length: thickness
-                });
-            }
-        }
-
-        // Zapisz definicje do state (do calculatePrice)
-        state.dynamicEdgeDefs = {};
-        for (var ei = 0; ei < edges.length; ei++) {
-            state.dynamicEdgeDefs[edges[ei].id] = {
-                length_cm: edges[ei].length,
-                group: edges[ei].group
-            };
-        }
+        // Definicje z rysunku: G/D/P obrysu + wycięcia (elipsa: jedna krawędź obwodowa)
+        var edges = _definicjeZRysunku(state.productShape, shapeData, thickness);
+        if (!edges.length) return;
+        _zapiszDefinicje(edges);
+        var holes = window.ShapeCutouts ? ShapeCutouts.fromShapeData(shapeData) : [];
 
         // Buduj HTML
         var html = '<div class="edges-section edges-dynamic-section">';
@@ -2361,57 +2346,8 @@ const EdgesModule = (function() {
         }
         html += '</div></div>';
 
-        // Grupy: per dziura (WYCIĘCIE 1, WYCIĘCIE 2, ...) — G/D/P jak outer
-        for (var hgi = 0; hgi < holes.length; hgi++) {
-            var hgNum = hgi + 1;
-            var anyHoleEdges = edges.some(function(en) {
-                return (en.group === 'hole_top' || en.group === 'hole_bottom' || en.group === 'hole_vertical')
-                    && en.id.indexOf('H' + hgNum + '.') === 0;
-            });
-            if (!anyHoleEdges) continue;
-
-            html += '<div class="edges-group edges-group-hole"><h5>WYCIĘCIE ' + hgNum + '</h5><div class="edges-list">';
-            // G (góra)
-            for (var hgj = 0; hgj < edges.length; hgj++) {
-                var he = edges[hgj];
-                if (he.group !== 'hole_top' || he.id.indexOf('H' + hgNum + '.') !== 0) continue;
-                var heLenStr = (Math.round(he.length * 10) / 10);
-                html += '<div class="edges-item" data-edge="' + he.id + '">' +
-                    '<label class="edges-checkbox">' +
-                    '<input type="checkbox" name="edge_' + he.id + '">' +
-                    '<span class="edges-letter">' + he.id + '</span>' +
-                    '<span class="edges-name">' + he.name + '</span>' +
-                    '<span class="edges-length">(' + heLenStr + ' cm)</span>' +
-                    '</label></div>';
-            }
-            // D (dół)
-            for (var hgd = 0; hgd < edges.length; hgd++) {
-                var hd = edges[hgd];
-                if (hd.group !== 'hole_bottom' || hd.id.indexOf('H' + hgNum + '.') !== 0) continue;
-                var hdLenStr = (Math.round(hd.length * 10) / 10);
-                html += '<div class="edges-item" data-edge="' + hd.id + '">' +
-                    '<label class="edges-checkbox">' +
-                    '<input type="checkbox" name="edge_' + hd.id + '">' +
-                    '<span class="edges-letter">' + hd.id + '</span>' +
-                    '<span class="edges-name">' + hd.name + '</span>' +
-                    '<span class="edges-length">(' + hdLenStr + ' cm)</span>' +
-                    '</label></div>';
-            }
-            // P (pion / krawędź boczna dziury)
-            for (var hgk = 0; hgk < edges.length; hgk++) {
-                var hp = edges[hgk];
-                if (hp.group !== 'hole_vertical' || hp.id.indexOf('H' + hgNum + '.') !== 0) continue;
-                var hpLenStr = (Math.round(hp.length * 10) / 10);
-                html += '<div class="edges-item edges-corner-item" data-edge="' + hp.id + '">' +
-                    '<label class="edges-checkbox">' +
-                    '<input type="checkbox" name="edge_' + hp.id + '">' +
-                    '<span class="edges-letter edges-letter-corner">' + hp.id + '</span>' +
-                    '<span class="edges-name">' + hp.name + '</span>' +
-                    '<span class="edges-length">(' + hpLenStr + ' cm)</span>' +
-                    '</label></div>';
-            }
-            html += '</div></div>';
-        }
+        // Grupy: per wycięcie (WYCIĘCIE 1, WYCIĘCIE 2, ...)
+        html += _htmlGrupWyciec(edges, holes.length);
 
         html += '</div>';
 
@@ -2422,38 +2358,7 @@ const EdgesModule = (function() {
         }
 
         // Podepnij event listenery do nowych checkboxów
-        var dynamicSection = modal.querySelector('.edges-dynamic-section');
-        if (dynamicSection) {
-            dynamicSection.querySelectorAll('.edges-item').forEach(function(item) {
-                var edgeId = item.dataset.edge;
-                var checkbox = item.querySelector('input[type="checkbox"]');
-                if (!checkbox) return;
-
-                // Ustaw stan z aktualnie wybranych krawędzi
-                checkbox.checked = state.basic.selectedEdges.has(edgeId);
-                if (checkbox.checked) item.classList.add('active');
-
-                checkbox.addEventListener('change', function() {
-                    if (this.checked) {
-                        state.basic.selectedEdges.add(edgeId);
-                        item.classList.add('active');
-                    } else {
-                        state.basic.selectedEdges.delete(edgeId);
-                        item.classList.remove('active');
-                    }
-                    updateSvgEdge(edgeId, this.checked);
-                    calculatePrice();
-                });
-
-                // Kliknięcie na całą etykietę w SVG
-                item.addEventListener('mouseenter', function() {
-                    highlightEdge(edgeId, true);
-                });
-                item.addEventListener('mouseleave', function() {
-                    highlightEdge(edgeId, false);
-                });
-            });
-        }
+        _podepnijPozycje(modal.querySelector('.edges-dynamic-section'));
 
         // Szybkie akcje
         var quickBtns = modal.querySelectorAll('.edges-quick-btn');
@@ -2495,156 +2400,35 @@ const EdgesModule = (function() {
     }
 
     /**
-     * Aktualizuje podświetlenie SVG dla krawędzi okrągłych
+     * Aktualizuje podświetlenie SVG dla krawędzi okrągłych (linia i etykieta KG/KD)
      */
     function updateRoundSvgHighlights() {
-        const svg = elements.svg;
-        if (!svg) return;
-
-        const topEdge = svg.querySelector('[data-edge="KG"]');
-        const bottomEdge = svg.querySelector('[data-edge="KD"]');
-
-        if (topEdge) {
-            topEdge.classList.toggle('active', state.basic.selectedEdges.has('KG'));
-        }
-        if (bottomEdge) {
-            bottomEdge.classList.toggle('active', state.basic.selectedEdges.has('KD'));
-        }
-    }
-
-    /**
-     * Generuje izometryczny SVG owalnego produktu z 2 krawędziami (KG, KD)
-     */
-    function generateRoundSVG(L, W, T) {
-        const svg = elements.svg;
-        if (!svg) return;
-
-        // Oblicz proporcje
-        const maxDim = Math.max(L, W, T, 1);
-        const scale = 200 / maxDim;
-        const sL = Math.max(L * scale, 30);
-        const sW = Math.max(W * scale, 20);
-        const sT = Math.max(T * scale * 0.3, 8);
-
-        // Środek SVG
-        const cx = 160, cy = 100;
-
-        // Izometryczne promienie elipsy
-        const rx = sL * 0.45;
-        const ry = sW * 0.25;
-
-        // Wyczyść SVG
-        svg.innerHTML = '';
-        svg.setAttribute('viewBox', '0 0 320 220');
-
-        // Dolna elipsa (bottom face)
-        const bottomEllipse = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
-        bottomEllipse.setAttribute('cx', cx);
-        bottomEllipse.setAttribute('cy', cy + sT);
-        bottomEllipse.setAttribute('rx', rx);
-        bottomEllipse.setAttribute('ry', ry);
-        bottomEllipse.setAttribute('class', 'edges-face edges-face-front');
-        svg.appendChild(bottomEllipse);
-
-        // Boki (pasek boczny) - path łączący górną i dolną elipsę
-        const sidePath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        sidePath.setAttribute('d',
-            `M${cx - rx},${cy} ` +
-            `A${rx},${ry} 0 0,0 ${cx + rx},${cy} ` +
-            `L${cx + rx},${cy + sT} ` +
-            `A${rx},${ry} 0 0,1 ${cx - rx},${cy + sT} Z`
-        );
-        sidePath.setAttribute('class', 'edges-face edges-face-right');
-        svg.appendChild(sidePath);
-
-        // Górna elipsa (top face)
-        const topEllipse = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
-        topEllipse.setAttribute('cx', cx);
-        topEllipse.setAttribute('cy', cy);
-        topEllipse.setAttribute('rx', rx);
-        topEllipse.setAttribute('ry', ry);
-        topEllipse.setAttribute('class', 'edges-face edges-face-top');
-        svg.appendChild(topEllipse);
-
-        // Krawędź dolna (KD) - dolna pół-elipsa (renderowana przed KG, żeby była pod nią)
-        const bottomEdge = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        const bottomD = `M${cx - rx},${cy + sT} A${rx},${ry} 0 0,0 ${cx + rx},${cy + sT}`;
-        bottomEdge.setAttribute('d', bottomD);
-        bottomEdge.setAttribute('fill', 'none');
-        bottomEdge.setAttribute('stroke-width', '3');
-        bottomEdge.setAttribute('data-edge', 'KD');
-        bottomEdge.setAttribute('class', 'edges-line' + (state.basic.selectedEdges.has('KD') ? ' active' : ''));
-        svg.appendChild(bottomEdge);
-
-        // Krawędź górna (KG) - elipsa obwodowa (na wierzchu)
-        const topEdge = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
-        topEdge.setAttribute('cx', cx);
-        topEdge.setAttribute('cy', cy);
-        topEdge.setAttribute('rx', rx);
-        topEdge.setAttribute('ry', ry);
-        topEdge.setAttribute('fill', 'none');
-        topEdge.setAttribute('stroke-width', '3');
-        topEdge.setAttribute('data-edge', 'KG');
-        topEdge.setAttribute('class', 'edges-line' + (state.basic.selectedEdges.has('KG') ? ' active' : ''));
-        svg.appendChild(topEdge);
-
-        // Linie boczne (krawędzie pionowe łączące)
-        const leftLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-        leftLine.setAttribute('x1', cx - rx); leftLine.setAttribute('y1', cy);
-        leftLine.setAttribute('x2', cx - rx); leftLine.setAttribute('y2', cy + sT);
-        leftLine.setAttribute('class', 'edges-line');
-        svg.appendChild(leftLine);
-
-        const rightLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-        rightLine.setAttribute('x1', cx + rx); rightLine.setAttribute('y1', cy);
-        rightLine.setAttribute('x2', cx + rx); rightLine.setAttribute('y2', cy + sT);
-        rightLine.setAttribute('class', 'edges-line');
-        svg.appendChild(rightLine);
-
-        // Etykiety
-        if (state.labelsVisible) {
-            const labelsGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-            labelsGroup.setAttribute('id', 'edgeLabelsGroup');
-            labelsGroup.setAttribute('class', 'edges-labels');
-
-            // Etykieta KG (góra)
-            const kgLabel = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-            kgLabel.setAttribute('class', 'edges-label');
-            kgLabel.setAttribute('data-edge', 'KG');
-            const kgCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-            kgCircle.setAttribute('cx', cx); kgCircle.setAttribute('cy', cy - ry - 18);
-            kgCircle.setAttribute('r', '14');
-            const kgText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-            kgText.setAttribute('x', cx); kgText.setAttribute('y', cy - ry - 14);
-            kgText.textContent = 'KG';
-            kgLabel.appendChild(kgCircle);
-            kgLabel.appendChild(kgText);
-            labelsGroup.appendChild(kgLabel);
-
-            // Etykieta KD (dół)
-            const kdLabel = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-            kdLabel.setAttribute('class', 'edges-label');
-            kdLabel.setAttribute('data-edge', 'KD');
-            const kdCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-            kdCircle.setAttribute('cx', cx); kdCircle.setAttribute('cy', cy + sT + ry + 18);
-            kdCircle.setAttribute('r', '14');
-            const kdText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-            kdText.setAttribute('x', cx); kdText.setAttribute('y', cy + sT + ry + 22);
-            kdText.textContent = 'KD';
-            kdLabel.appendChild(kdCircle);
-            kdLabel.appendChild(kdText);
-            labelsGroup.appendChild(kdLabel);
-
-            svg.appendChild(labelsGroup);
-        }
-
-        // Przypisz event listenery (klikanie w krawędzie i etykiety na SVG)
-        attachSvgEventListeners();
+        ['KG', 'KD'].forEach(edge => updateSvgEdge(edge, state.basic.selectedEdges.has(edge)));
     }
 
     // ==========================================
     // PODGLĄD SVG W SEKCJI KRAWĘDZI
     // ==========================================
+
+    // Rysunek izometryczny krawędzi — jeden dla podglądu w sekcji, modalu (obie zakładki) i zapisywanego SVG
+    function _drawEdgesFigure(svgEl, form, activeEdges) {
+        const lengthVal = parseFloat(form.querySelector('[data-field="length"]')?.value) || 100;
+        const widthVal = parseFloat(form.querySelector('[data-field="width"]')?.value) || 50;
+        const thicknessVal = parseFloat(form.querySelector('[data-field="thickness"]')?.value) || 4;
+        const shape = form.dataset.productShape || 'rectangular';
+        const shapeData = form._shapeEditor ? form._shapeEditor.getShapeData() : null;
+
+        if (_isRoundShape(shape)) {
+            // Koło: width = length (średnica)
+            const roundW = (shape === 'circle') ? lengthVal : widthVal;
+            generateRoundPreviewSVG(svgEl, lengthVal, roundW, thicknessVal, activeEdges, shapeData);
+        } else if (shape !== 'rectangular' && shapeData) {
+            // Nieregularny kształt — renderuj z wierzchołków
+            generateShapePreviewSVG(svgEl, shapeData, thicknessVal, activeEdges, shape);
+        } else {
+            generateRectPreviewSVG(svgEl, lengthVal, widthVal, thicknessVal, activeEdges, shapeData);
+        }
+    }
 
     /**
      * Generuje podgląd SVG krawędzi (bez etykiet, bez interakcji)
@@ -2656,10 +2440,6 @@ const EdgesModule = (function() {
         const svgEl = form.querySelector('.edges-preview-svg');
         if (!svgEl) return;
 
-        const lengthVal = parseFloat(form.querySelector('[data-field="length"]')?.value) || 100;
-        const widthVal = parseFloat(form.querySelector('[data-field="width"]')?.value) || 50;
-        const thicknessVal = parseFloat(form.querySelector('[data-field="thickness"]')?.value) || 4;
-
         // Pobierz aktywne krawędzie z dataset formularza
         let activeEdges = new Set();
         try {
@@ -2667,19 +2447,7 @@ const EdgesModule = (function() {
             edgesData.forEach(e => activeEdges.add(e.letter));
         } catch (err) { /* brak danych */ }
 
-        const shape = form.dataset.productShape || 'rectangular';
-
-        if (_isRoundShape(shape)) {
-            // Koło: width = length (średnica)
-            var roundW = (shape === 'circle') ? lengthVal : widthVal;
-            generateRoundPreviewSVG(svgEl, lengthVal, roundW, thicknessVal, activeEdges);
-        } else if (shape !== 'rectangular' && form._shapeEditor) {
-            // Nieregularny kształt — renderuj z wierzchołków
-            var shapeData = form._shapeEditor.getShapeData();
-            generateShapePreviewSVG(svgEl, shapeData, thicknessVal, activeEdges, shape);
-        } else {
-            generateRectPreviewSVG(svgEl, lengthVal, widthVal, thicknessVal, activeEdges);
-        }
+        _drawEdgesFigure(svgEl, form, activeEdges);
 
         // Zastosuj globalny stan etykiet po przebudowie SVG
         if (!state.labelsVisible) {
@@ -2688,7 +2456,50 @@ const EdgesModule = (function() {
         }
     }
 
-    function generateRectPreviewSVG(svgEl, length, width, thickness, activeEdges) {
+    function _pkt(arr) {
+        return arr.map(function(p) { return p.x + ',' + p.y; }).join(' ');
+    }
+
+    function _etykietaSvg(id, x, y, cls) {
+        return '<g class="edges-label' + cls + '" data-edge="' + id + '"><circle cx="' + x + '" cy="' + (y - 2) +
+            '" r="11"/><text x="' + x + '" y="' + (y + 2) + '" font-size="8">' + id + '</text></g>';
+    }
+
+    // Wycięcia na izometrii: mapGora/mapDol(x, y w cm) → {x, y} na ekranie.
+    // Wielokąt: krawędzie G/D per bok i P per wierzchołek; elipsa: obwód góra H{n}.G1 i dół H{n}.D1.
+    function _svgWyciec(shapeData, mapGora, mapDol, activeEdges) {
+        var svg = '', etykiety = '';
+        if (!window.ShapeCutouts || !shapeData) return { svg: svg, etykiety: etykiety };
+        ShapeCutouts.fromShapeData(shapeData).forEach(function(c, ci) {
+            var h = 'H' + (ci + 1) + '.';
+            var ec = function(id) { return activeEdges.has(id) ? ' active' : ''; };
+            if (c.type === 'ellipse') {
+                var pts = ShapeCutouts.ring(c);
+                var gora = pts.map(function(p) { return mapGora(p[0], p[1]); });
+                var dol = pts.map(function(p) { return mapDol(p[0], p[1]); });
+                svg += '<polygon class="edges-face edges-face-back" points="' + _pkt(gora) + '"/>';
+                svg += '<polygon class="edges-line' + ec(h + 'D1') + '" data-edge="' + h + 'D1" points="' + _pkt(dol) + '" fill="none"/>';
+                svg += '<polygon class="edges-line' + ec(h + 'G1') + '" data-edge="' + h + 'G1" points="' + _pkt(gora) + '" fill="none"/>';
+                var s = mapGora(c.cx, c.cy);
+                etykiety += _etykietaSvg(h + 'G1', s.x, s.y, ec(h + 'G1'));
+                return;
+            }
+            var g = c.points.map(function(p) { return mapGora(p[0], p[1]); });
+            var d = c.points.map(function(p) { return mapDol(p[0], p[1]); });
+            svg += '<polygon class="edges-face edges-face-back" points="' + _pkt(g) + '"/>';
+            for (var j = 0; j < g.length; j++) {
+                var k = (j + 1) % g.length;
+                var gId = h + 'G' + (j + 1), dId = h + 'D' + (j + 1), pId = h + 'P' + (j + 1);
+                svg += '<line class="edges-line' + ec(dId) + '" data-edge="' + dId + '" x1="' + d[j].x + '" y1="' + d[j].y + '" x2="' + d[k].x + '" y2="' + d[k].y + '"/>';
+                svg += '<line class="edges-line edges-corner' + ec(pId) + '" data-edge="' + pId + '" x1="' + g[j].x + '" y1="' + g[j].y + '" x2="' + d[j].x + '" y2="' + d[j].y + '"/>';
+                svg += '<line class="edges-line' + ec(gId) + '" data-edge="' + gId + '" x1="' + g[j].x + '" y1="' + g[j].y + '" x2="' + g[k].x + '" y2="' + g[k].y + '"/>';
+                etykiety += _etykietaSvg(gId, (g[j].x + g[k].x) / 2, (g[j].y + g[k].y) / 2, ec(gId));
+            }
+        });
+        return { svg: svg, etykiety: etykiety };
+    }
+
+    function generateRectPreviewSVG(svgEl, length, width, thickness, activeEdges, shapeData) {
         const viewBoxWidth = 320;
         const viewBoxHeight = 220;
         const margin = 20;
@@ -2730,6 +2541,17 @@ const EdgesModule = (function() {
 
         const ec = (edge) => activeEdges.has(edge) ? 'active' : '';
 
+        // Plan (x, y w cm; przód = y 0) → górna/dolna ściana izometrii
+        const mapGora = (x, y) => ({
+            x: pPLG.x + (x / length) * (pPPG.x - pPLG.x) + (y / width) * (pTLG.x - pPLG.x),
+            y: pPLG.y + (x / length) * (pPPG.y - pPLG.y) + (y / width) * (pTLG.y - pPLG.y)
+        });
+        const mapDol = (x, y) => ({
+            x: pPLD.x + (x / length) * (pPPD.x - pPLD.x) + (y / width) * (pTLD.x - pPLD.x),
+            y: pPLD.y + (x / length) * (pPPD.y - pPLD.y) + (y / width) * (pTLD.y - pPLD.y)
+        });
+        const wyc = _svgWyciec(shapeData, mapGora, mapDol, activeEdges);
+
         svgEl.innerHTML = `
             <polygon class="edges-face edges-face-back" points="${pTLD.x},${pTLD.y} ${pTPD.x},${pTPD.y} ${pTPG.x},${pTPG.y} ${pTLG.x},${pTLG.y}"/>
             <polygon class="edges-face edges-face-left" points="${pTLD.x},${pTLD.y} ${pPLD.x},${pPLD.y} ${pPLG.x},${pPLG.y} ${pTLG.x},${pTLG.y}"/>
@@ -2748,6 +2570,7 @@ const EdgesModule = (function() {
             <line class="edges-line edges-corner ${ec('N1')}" data-edge="N1" x1="${pPLG.x}" y1="${pPLG.y}" x2="${pPLD.x}" y2="${pPLD.y}"/>
             <line class="edges-line edges-corner ${ec('N2')}" data-edge="N2" x1="${pPPG.x}" y1="${pPPG.y}" x2="${pPPD.x}" y2="${pPPD.y}"/>
             <line class="edges-line edges-corner ${ec('N4')}" data-edge="N4" x1="${pTPG.x}" y1="${pTPG.y}" x2="${pTPD.x}" y2="${pTPD.y}"/>
+            ${wyc.svg}
             <g class="edges-labels" id="edgeLabelsGroup">
                 <g class="edges-label ${ec('A')}" data-edge="A"><circle cx="${(pPLG.x+pPPG.x)/2}" cy="${(pPLG.y+pPPG.y)/2-12}" r="10"/><text x="${(pPLG.x+pPPG.x)/2}" y="${(pPLG.y+pPPG.y)/2-8}">A</text></g>
                 <g class="edges-label ${ec('B')}" data-edge="B"><circle cx="${(pTLG.x+pTPG.x)/2}" cy="${(pTLG.y+pTPG.y)/2-12}" r="10"/><text x="${(pTLG.x+pTPG.x)/2}" y="${(pTLG.y+pTPG.y)/2-8}">B</text></g>
@@ -2758,11 +2581,12 @@ const EdgesModule = (function() {
                 <g class="edges-label edges-label-corner ${ec('N1')}" data-edge="N1"><circle cx="${pPLG.x-14}" cy="${(pPLG.y+pPLD.y)/2}" r="10"/><text x="${pPLG.x-14}" y="${(pPLG.y+pPLD.y)/2+4}">N1</text></g>
                 <g class="edges-label edges-label-corner ${ec('N2')}" data-edge="N2"><circle cx="${pPPG.x+14}" cy="${(pPPG.y+pPPD.y)/2}" r="10"/><text x="${pPPG.x+14}" y="${(pPPG.y+pPPD.y)/2+4}">N2</text></g>
                 <g class="edges-label edges-label-corner ${ec('N4')}" data-edge="N4"><circle cx="${pTPG.x+14}" cy="${(pTPG.y+pTPD.y)/2}" r="10"/><text x="${pTPG.x+14}" y="${(pTPG.y+pTPD.y)/2+4}">N4</text></g>
+                ${wyc.etykiety}
             </g>
         `;
     }
 
-    function generateRoundPreviewSVG(svgEl, length, width, thickness, activeEdges) {
+    function generateRoundPreviewSVG(svgEl, length, width, thickness, activeEdges, shapeData) {
         const maxDim = Math.max(length, width, thickness, 1);
         const scale = 200 / maxDim;
         const sL = Math.max(length * scale, 30);
@@ -2776,6 +2600,11 @@ const EdgesModule = (function() {
         const ecKG = activeEdges.has('KG') ? ' active' : '';
         const ecKD = activeEdges.has('KD') ? ' active' : '';
 
+        // Plan koła (0..średnica, przód = y 0) → elipsa górnej/dolnej ściany
+        const mapGora = (x, y) => ({ x: cx + (x / length * 2 - 1) * rx, y: cy + (1 - y / width * 2) * ry });
+        const mapDol = (x, y) => ({ x: cx + (x / length * 2 - 1) * rx, y: cy + sT + (1 - y / width * 2) * ry });
+        const wyc = _svgWyciec(shapeData, mapGora, mapDol, activeEdges);
+
         svgEl.innerHTML = `
             <ellipse class="edges-face edges-face-front" cx="${cx}" cy="${cy + sT}" rx="${rx}" ry="${ry}"/>
             <path class="edges-face edges-face-right" d="M${cx - rx},${cy} A${rx},${ry} 0 0,0 ${cx + rx},${cy} L${cx + rx},${cy + sT} A${rx},${ry} 0 0,1 ${cx - rx},${cy + sT} Z"/>
@@ -2784,9 +2613,11 @@ const EdgesModule = (function() {
             <ellipse class="edges-line${ecKG}" data-edge="KG" cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="none"/>
             <line class="edges-line" x1="${cx - rx}" y1="${cy}" x2="${cx - rx}" y2="${cy + sT}"/>
             <line class="edges-line" x1="${cx + rx}" y1="${cy}" x2="${cx + rx}" y2="${cy + sT}"/>
+            ${wyc.svg}
             <g class="edges-labels" id="edgeLabelsGroup">
                 <g class="edges-label${ecKG}" data-edge="KG"><circle cx="${cx}" cy="${cy - ry - 14}" r="12"/><text x="${cx}" y="${cy - ry - 10}">KG</text></g>
                 <g class="edges-label${ecKD}" data-edge="KD"><circle cx="${cx}" cy="${cy + sT + ry + 14}" r="12"/><text x="${cx}" y="${cy + sT + ry + 18}">KD</text></g>
+                ${wyc.etykiety}
             </g>
         `;
     }
@@ -2880,34 +2711,13 @@ const EdgesModule = (function() {
         // Renderuj SVG
         var svg = '';
 
-        // Górna powierzchnia (wypełnienie) — path z dziurami (evenodd)
-        var holes = (shapeData.holes || []);
+        // Górna powierzchnia (wypełnienie); wycięcia dorysowuje _svgWyciec
         var topPathD = 'M ';
         for (var tpi = 0; tpi < topPts.length; tpi++) {
             topPathD += topPts[tpi].x + ',' + topPts[tpi].y + (tpi < topPts.length - 1 ? ' L ' : '');
         }
         topPathD += ' Z';
-        // Wierzchołki dziur w projekcji top face (z=0) i bottom face (z=thickness)
-        var holeTopPts = [];
-        var holeBotPts = [];
-        for (var hi = 0; hi < holes.length; hi++) {
-            var hole = holes[hi];
-            if (!hole || hole.length < 3) { holeTopPts.push(null); holeBotPts.push(null); continue; }
-            var ringPts = [];
-            var ringBotPts = [];
-            for (var hj = 0; hj < hole.length; hj++) {
-                ringPts.push(project3D(hole[hj][0], hole[hj][1], 0));
-                ringBotPts.push(project3D(hole[hj][0], hole[hj][1], effectiveThickness));
-            }
-            holeTopPts.push(ringPts);
-            holeBotPts.push(ringBotPts);
-            topPathD += ' M ';
-            for (var hk = 0; hk < ringPts.length; hk++) {
-                topPathD += ringPts[hk].x + ',' + ringPts[hk].y + (hk < ringPts.length - 1 ? ' L ' : '');
-            }
-            topPathD += ' Z';
-        }
-        svg += '<path class="edges-face edges-face-top" d="' + topPathD + '" fill-rule="evenodd"/>';
+        svg += '<path class="edges-face edges-face-top" d="' + topPathD + '"/>';
 
         // Boczne ściany (łączą górę z dołem) — renderuj tylko widoczne
         for (var k = 0; k < n; k++) {
@@ -2952,47 +2762,12 @@ const EdgesModule = (function() {
                 ' x2="' + botPts[p].x + '" y2="' + botPts[p].y + '"/>';
         }
 
-        // Krawędzie dziur (H{h}.G{j}) — klikalne na top face
-        for (var hi2 = 0; hi2 < holes.length; hi2++) {
-            var ringPts2 = holeTopPts[hi2];
-            if (!ringPts2) continue;
-            for (var hj2 = 0; hj2 < ringPts2.length; hj2++) {
-                var hk2 = (hj2 + 1) % ringPts2.length;
-                var hgEdgeId = 'H' + (hi2 + 1) + '.G' + (hj2 + 1);
-                var hgCls = 'edges-line' + (activeEdges.has(hgEdgeId) ? ' active' : '');
-                svg += '<line class="' + hgCls + '" data-edge="' + hgEdgeId + '"' +
-                    ' x1="' + ringPts2[hj2].x + '" y1="' + ringPts2[hj2].y + '"' +
-                    ' x2="' + ringPts2[hk2].x + '" y2="' + ringPts2[hk2].y + '"/>';
-            }
-        }
-
-        // Krawędzie dolne dziur (H{h}.D{j}) — klikalne na bottom face
-        for (var hi3 = 0; hi3 < holes.length; hi3++) {
-            var ringPtsBot = holeBotPts[hi3];
-            if (!ringPtsBot) continue;
-            for (var hj3 = 0; hj3 < ringPtsBot.length; hj3++) {
-                var hk3 = (hj3 + 1) % ringPtsBot.length;
-                var hdEdgeId = 'H' + (hi3 + 1) + '.D' + (hj3 + 1);
-                var hdCls = 'edges-line' + (activeEdges.has(hdEdgeId) ? ' active' : '');
-                svg += '<line class="' + hdCls + '" data-edge="' + hdEdgeId + '"'
-                    + ' x1="' + ringPtsBot[hj3].x + '" y1="' + ringPtsBot[hj3].y + '"'
-                    + ' x2="' + ringPtsBot[hk3].x + '" y2="' + ringPtsBot[hk3].y + '"/>';
-            }
-        }
-
-        // Krawędzie pionowe dziur (H{h}.P{j}) — klikalne, łączą top z bottom przy każdym wierzchołku
-        for (var hi4 = 0; hi4 < holes.length; hi4++) {
-            var ringPtsTop4 = holeTopPts[hi4];
-            var ringPtsBot4 = holeBotPts[hi4];
-            if (!ringPtsTop4 || !ringPtsBot4) continue;
-            for (var hj4 = 0; hj4 < ringPtsTop4.length; hj4++) {
-                var hpEdgeId = 'H' + (hi4 + 1) + '.P' + (hj4 + 1);
-                var hpCls = 'edges-line edges-corner' + (activeEdges.has(hpEdgeId) ? ' active' : '');
-                svg += '<line class="' + hpCls + '" data-edge="' + hpEdgeId + '"'
-                    + ' x1="' + ringPtsTop4[hj4].x + '" y1="' + ringPtsTop4[hj4].y + '"'
-                    + ' x2="' + ringPtsBot4[hj4].x + '" y2="' + ringPtsBot4[hj4].y + '"/>';
-            }
-        }
+        // Wycięcia z rysunku (wielokąt: G/D/P per bok, elipsa: obwód)
+        var wyc = _svgWyciec(shapeData,
+            function(x, y) { return project3D(x, y, 0); },
+            function(x, y) { return project3D(x, y, effectiveThickness); },
+            activeEdges);
+        svg += wyc.svg;
 
         // Etykiety z badge'ami (kółko + tekst) w grupie edgeLabelsGroup
         svg += '<g class="edges-labels" id="edgeLabelsGroup">';
@@ -3035,22 +2810,7 @@ const EdgesModule = (function() {
             svg += '</g>';
         }
 
-        // Etykiety krawędzi dziur (H{h}.G{j}) — badge pomiędzy wierzchołkami
-        for (var hi4 = 0; hi4 < holes.length; hi4++) {
-            var ringPts4 = holeTopPts[hi4];
-            if (!ringPts4) continue;
-            for (var hj4 = 0; hj4 < ringPts4.length; hj4++) {
-                var hk4 = (hj4 + 1) % ringPts4.length;
-                var hLx = (ringPts4[hj4].x + ringPts4[hk4].x) / 2;
-                var hLy = (ringPts4[hj4].y + ringPts4[hk4].y) / 2;
-                var hLEdgeId = 'H' + (hi4 + 1) + '.G' + (hj4 + 1);
-                var hLCls = activeEdges.has(hLEdgeId) ? ' active' : '';
-                svg += '<g class="edges-label' + hLCls + '" data-edge="' + hLEdgeId + '">';
-                svg += '<circle cx="' + hLx + '" cy="' + (hLy - 2) + '" r="11"/>';
-                svg += '<text x="' + hLx + '" y="' + (hLy + 2) + '" font-size="8">' + hLEdgeId + '</text>';
-                svg += '</g>';
-            }
-        }
+        svg += wyc.etykiety;
 
         svg += '</g>';
 
@@ -3071,8 +2831,13 @@ const EdgesModule = (function() {
         var isOpen = elements.modal.classList.contains('open') ||
                      (elements.modal.style.display && elements.modal.style.display !== 'none');
         if (!isOpen) return;
-        if (!shapeData || !shapeData.vertices || shapeData.vertices.length < 3) return;
         var th = (typeof thickness === 'number' && thickness > 0) ? thickness : state.dimensions.thickness;
+        // Prostokąt i koło mają własne litery obrysu — odświeżamy tylko grupy wycięć
+        if (_isRoundShape(state.productShape) || state.productShape === 'rectangular') {
+            showCutoutGroupsForSimpleShape(shapeData, th);
+            return;
+        }
+        if (!shapeData || !shapeData.vertices || shapeData.vertices.length < 3) return;
         showDynamicEdgesUI(shapeData, th);
     }
 
@@ -3111,7 +2876,12 @@ const EdgesModule = (function() {
         CONFIG,
         EDGES,
         ROUND_EDGES,
-        EDGE_GROUPS
+        EDGE_GROUPS,
+        // Zapis krawędzi bez modalu (synchronizacja z rysunkiem Canvy)
+        setFormEdges,
+        renderEdgesSummary,
+        // qdraft_backup.js woła updateOpenButton(form) po odtworzeniu szkicu
+        updateOpenButton: renderEdgesSummary
     };
 
 })();

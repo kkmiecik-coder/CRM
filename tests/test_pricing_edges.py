@@ -1,4 +1,8 @@
 """Parytet krawędzi z edges.js (recalculateEdgesForForm) — NIE z edge_calculator.py."""
+import json
+
+import pytest
+
 from modules.calculator.services.pricing_service import PricingData, calculate_edges_pricing
 
 CENY = {'round': {'per_mb': 15.0, 'per_corner': 5.0},
@@ -110,3 +114,81 @@ def test_brak_wymiaru_zwraca_zero():
     assert r['netto'] == 0.0
     assert r['brutto'] == 0.0
     assert r['details'] == []
+
+
+def test_naroznik_fazowany_z_rysunku_liczony_za_sztuke():
+    edges = [{'letter': 'N1', 'type': 'chamfer', 'r_value': 20, 'angle_value': 45}]
+    r = calculate_edges_pricing(edges, _product(quantity=1), PricingData(edge_prices=CENY))
+    assert r['netto'] == 5.0
+
+
+def test_naroznik_wyciecia_liczony_za_sztuke():
+    sd = {'vertices': [[0, 0], [100, 0], [100, 50], [0, 50]],
+          'cutouts': [{'id': 'a', 'type': 'polygon', 'points': [[10, 10], [30, 10], [30, 30], [10, 30]],
+                       'corners': [{'type': 'round', 'r_mm': 30}, None, None, None]}]}
+    edges = [{'letter': 'H1.P1', 'type': 'round', 'r_value': 30}]
+    r = calculate_edges_pricing(edges, _product(shape_data=sd, quantity=1), PricingData(edge_prices=CENY))
+    assert r['netto'] == 5.0
+
+
+# --- Zepsute shape_data nie może wywalić wyceny (zapis wyceny i /api/bot/calculate) ---
+
+_P = [[0, 0], [100, 0], [100, 50], [0, 50]]
+_TRI = [[0, 0], [10, 0], [0, 10]]
+_ZLE_SHAPE_DATA = {
+    'vertices 2 punkty': {'vertices': [[0, 0], [1, 1]]},
+    'vertices tekst': {'vertices': 'abcd'},
+    'vertices z tekstem': {'vertices': [[0, 'a'], [1, 2], [3, 4]]},
+    'vertices krotkie punkty': {'vertices': [[0], [1], [2]]},
+    'vertices z null': {'vertices': [[0, 0], None, [1, 2]]},
+    'cutouts dict': {'vertices': _P, 'cutouts': {'a': 1}},
+    'cutouts punkty 1-el': {'vertices': _P, 'cutouts': [{'type': 'polygon', 'points': [[1], [2], [3]]}]},
+    'cutouts punkty tekst': {'vertices': _P, 'cutouts': [{'type': 'polygon', 'points': 'abcd'}]},
+    'cutouts punkty z null': {'vertices': _P, 'cutouts': [{'type': 'polygon', 'points': [[0, 0], [1, 1], None]}]},
+    'cutouts punkty dict': {'vertices': _P, 'cutouts': [{'type': 'polygon', 'points': {'a': 1, 'b': 2, 'c': 3}}]},
+    'cutouts corners tekst': {'vertices': _P, 'cutouts': [{'type': 'polygon', 'points': _TRI, 'corners': 'xyz'}]},
+    'cutouts r_mm Infinity': {'vertices': _P, 'cutouts': [{'type': 'polygon', 'points': _TRI,
+                                                             'corners': [{'type': 'round', 'r_mm': float('inf')}, None, None]}]},
+    'elipsa tekst': {'vertices': _P, 'cutouts': [{'type': 'ellipse', 'cx': 'a', 'cy': 1, 'rx': 1, 'ry': 1}]},
+    'elipsa rx 0': {'vertices': _P, 'cutouts': [{'type': 'ellipse', 'cx': 10, 'cy': 10, 'rx': 0, 'ry': 5}]},
+    'elipsa ujemna': {'vertices': _P, 'cutouts': [{'type': 'ellipse', 'cx': 10, 'cy': 10, 'rx': -3, 'ry': -3}]},
+    'elipsa NaN': {'vertices': _P, 'cutouts': [{'type': 'ellipse', 'cx': 10, 'cy': 10, 'rx': float('nan'), 'ry': 3}]},
+    'elipsa kat tekst': {'vertices': _P, 'cutouts': [{'type': 'ellipse', 'cx': 10, 'cy': 10, 'rx': 3, 'ry': 2, 'angle': 'x'}]},
+    'holes tekst': {'vertices': _P, 'holes': 'abcd'},
+    'holes liczby': {'vertices': _P, 'holes': [[1, 2, 3]]},
+    'holes z null': {'vertices': _P, 'holes': [None, [[0, 0], [1, 0], [0, 1]]]},
+    'holes punkty tekst': {'vertices': _P, 'holes': [['ab', 'cd', 'ef']]},
+    'corners tekst': {'vertices': _P, 'corners': 'abcd'},
+    'params null': {'params': None, 'vertices': _P},
+    'params srednica tekst': {'params': {'diameter': 'x'}, 'vertices': None},
+}
+_WPISY_ZEPSUTE = [{'letter': 'A', 'type': 'round', 'r_value': 5},
+                  {'letter': 'G1', 'type': 'round', 'r_value': 5, 'length_cm': 10},
+                  {'letter': 'H1.G1', 'type': 'round', 'r_value': 5, 'length_cm': 10},
+                  {'letter': 'H1.P1', 'type': 'round', 'r_value': 5}]
+
+
+@pytest.mark.parametrize('kodowanie', ['dict', 'json'])
+@pytest.mark.parametrize('ksztalt', ['rectangular', 'circle', 'polygon'])
+@pytest.mark.parametrize('nazwa', list(_ZLE_SHAPE_DATA))
+def test_zepsute_shape_data_nie_wywala_wyceny_krawedzi(nazwa, ksztalt, kodowanie):
+    sd = _ZLE_SHAPE_DATA[nazwa]
+    arg = sd if kodowanie == 'dict' else json.dumps(sd)
+    r = calculate_edges_pricing(_WPISY_ZEPSUTE, _product(shape=ksztalt, shape_data=arg, quantity=1),
+                                PricingData(edge_prices=CENY))
+    assert r['netto'] >= 0 and r['brutto'] >= 0
+    # Wpis z jawną długością (G1 / H1.G1) zawsze się liczy, a litery obrysu z wymiarów produktu też
+    assert {d['letter'] for d in r['details']} >= {'A', 'H1.P1'}
+
+
+@pytest.mark.parametrize('nazwa, ksztalt', [
+    ('vertices tekst', 'polygon'), ('vertices z null', 'polygon'), ('vertices krotkie punkty', 'rectangular'),
+    ('params null', 'circle'), ('params srednica tekst', 'circle')])
+def test_zepsute_shape_data_liczy_jak_bez_shape_data_i_loguje(nazwa, ksztalt, caplog):
+    dane = PricingData(edge_prices=CENY)
+    wzor = calculate_edges_pricing(_WPISY_ZEPSUTE, _product(shape=ksztalt, shape_data=None, quantity=1), dane)
+    with caplog.at_level('WARNING'):
+        r = calculate_edges_pricing(_WPISY_ZEPSUTE,
+                                    _product(shape=ksztalt, shape_data=_ZLE_SHAPE_DATA[nazwa], quantity=1), dane)
+    assert r == wzor
+    assert any('shape_data' in rec.getMessage() for rec in caplog.records)

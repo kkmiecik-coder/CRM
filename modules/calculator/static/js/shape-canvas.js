@@ -1,6 +1,7 @@
 // shape-canvas.js
 // Interactive canvas editor for shape geometry
-// Dependencies: ShapeGeometry (shape-geometry.js)
+// Zależności: ShapeGeometry (shape-geometry.js), ShapeCorners (shape-corners.js),
+// ShapeCutouts (shape-cutouts.js), ShapeTools (shape-tools.js) — ładowane przed tym plikiem.
 
 var ShapeCanvas = (function() {
     'use strict';
@@ -48,14 +49,20 @@ var ShapeCanvas = (function() {
             height: 0,
             colorTheme: 'normal',
             outOfRangeDims: { length: false, width: false },  // które wymiary bbox na czerwono
-            activeTool: 'cursor',  // 'cursor' | 'add' | 'remove'
-            rotation: 0,        // łączny kąt obrotu kształtu (0-359)
-            rotateDrag: null,   // stan gestu obrotu, null gdy nie obracamy
-            holes: [],
-            activeHole: null,
+            activeTool: 'select',  // patrz ShapeTools.IDS (V domyślne)
+            rotation: 0,           // łączny kąt obrotu kształtu (0-359)
+            rotateDrag: null,      // stan gestu obrotu, null gdy nie obracamy
+            corners: [],           // narożniki obrysu, równoległe do vertices
+            cutouts: [],           // wycięcia (model ShapeCutouts)
+            activeHole: null,      // wycięcie rysowane punkt po punkcie (narzędzie +)
             hoverHoleStart: false,
+            selection: null,       // {kind:'cutout', index} | {kind:'outer'} — zaznaczenie w V; L i M zaznaczają nowe wycięcie
+            cornerType: 'round',   // typ z przełącznika narzędzia N
+            cornerLimitHit: null,  // {ring:'outer'|indeks wycięcia} — obrys na czerwono przy limicie
+            invalidCutouts: [],    // indeksy wycięć poza obrysem albo nachodzących na inne
             _hintTimeout: null,
-            visibility: { dimensions: true, brackets: true, guides: true, angles: true, lamellas: true }
+            _hintSaved: null,      // tekst podpowiedzi sprzed serii komunikatów (_showHint)
+            visibility: { dimensions: true, brackets: true, guides: true, angles: true, lamellas: true, corners: true }
         };
 
         // Load visibility z localStorage (per-przeglądarka)
@@ -65,6 +72,17 @@ var ShapeCanvas = (function() {
                 state.visibility = Object.assign(state.visibility, savedVis);
             }
         } catch (e) { /* ignore */ }
+
+        // Wszystkie nasłuchy na <canvas> rejestrujemy tutaj, żeby destroy() mógł je zdjąć.
+        // Bez tego każde ponowne utworzenie Canvy (suwak „Rysunek”, zmiana kształtu)
+        // dokładało kolejny komplet obsługi myszy na tym samym elemencie.
+        var _nasluchy = [];
+        function _on(target, type, fn, opts) {
+            target.addEventListener(type, fn, opts);
+            _nasluchy.push([target, type, fn, opts]);
+        }
+
+        var tools = null;   // ShapeTools.create(api) — tworzone przed pierwszym render()
 
         // Pozycje wymiarów do obsługi dblclick
         var dimensionHitAreas = []; // [{x, y, edgeIndex, labelX, labelY}]
@@ -121,6 +139,60 @@ var ShapeCanvas = (function() {
 
         function pixelToCm(px, py) {
             return [(px - state.offsetX) / state.scale, (state.height - py - state.offsetY) / state.scale];
+        }
+
+        // ============================================
+        // MODEL: narożniki i wycięcia
+        // ============================================
+
+        // Spłaszczony obrys z narożnikami — do kolizji wycięć, lameli, „mieści się”
+        function _outerRing() {
+            return ShapeGeometry.outerRing(state.shapeType, state.params, state.vertices, state.corners);
+        }
+
+        function _cutoutRings() {
+            return state.cutouts.map(function(c) { return ShapeCutouts.ring(c); });
+        }
+
+        // Granice formatki (cm): z wierzchołków obrysu, dla koła — kwadrat średnicy
+        function _outerBounds() {
+            if (state.shapeType === 'circle') {
+                var d = state.params.diameter || 0;
+                return d > 0 ? { minX: 0, minY: 0, maxX: d, maxY: d } : null;
+            }
+            var verts = state.vertices;
+            if (!verts || verts.length < 3) return null;
+            var b = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+            verts.forEach(function(v) {
+                b.minX = Math.min(b.minX, v[0]); b.minY = Math.min(b.minY, v[1]);
+                b.maxX = Math.max(b.maxX, v[0]); b.maxY = Math.max(b.maxY, v[1]);
+            });
+            return b;
+        }
+
+        // Po każdej zmianie geometrii: narożniki przycięte do limitów, złe wycięcia oznaczone
+        function _afterGeometryEdit() {
+            state.corners = (state.vertices && state.vertices.length >= 3 && state.shapeType !== 'circle')
+                ? ShapeCorners.clampCorners(state.vertices, state.corners)
+                : [];
+            state.cutouts = state.cutouts.map(function(c) {
+                if (c.type !== 'polygon') return c;
+                c.corners = ShapeCorners.clampCorners(c.points, c.corners);
+                return c;
+            });
+            state.invalidCutouts = ShapeCutouts.invalidIndices(_outerRing(), state.cutouts);
+        }
+
+        // Po obrocie kontur wraca do początku układu, wycięcia jadą tym samym wektorem
+        // (eksport SVG i klamerki zakładają kształt zaczynający się w (0,0))
+        function _normalizeAfterRotate() {
+            if (!state.vertices || !state.vertices.length) return;
+            var minX = Infinity, minY = Infinity;
+            state.vertices.forEach(function(v) { minX = Math.min(minX, v[0]); minY = Math.min(minY, v[1]); });
+            state.vertices = state.vertices.map(function(v) { return [_round(v[0] - minX), _round(v[1] - minY)]; });
+            state.cutouts = state.cutouts.map(function(c) {
+                return ShapeCutouts.roundCoords(ShapeCutouts.translate(c, -minX, -minY));
+            });
         }
 
         // ============================================
@@ -187,168 +259,162 @@ var ShapeCanvas = (function() {
         // SHAPE RENDERING
         // ============================================
 
+        // Punkty do klamerek: wierzchołki obrysu (kształty nietypowe) + punkty wycięć
+        function _bracketPointsAll() {
+            var isSimple = (state.shapeType === 'rectangular' || state.shapeType === 'circle');
+            var pts = (!isSimple && state.vertices) ? state.vertices.slice() : [];
+            state.cutouts.forEach(function(c) { pts = pts.concat(ShapeCutouts.bracketPoints(c)); });
+            return pts;
+        }
+
+        // Dopisuje pozycję klamerki, jeśli jeszcze jej nie ma; zwraca true, gdy dopisała.
+        // Mikro-epsilon na drgania float; NIE chowamy klamerek różniących się o 1 mm.
+        // Wspólne dla rysowania klamerek (_renderBbox) i liczenia marginesu (_bracketCounts).
+        function _pushUnique(arr, v) {
+            for (var k = 0; k < arr.length; k++) if (Math.abs(arr[k] - v) < 0.001) return false;
+            arr.push(v);
+            return true;
+        }
+
+        // Ile klamerek stanie nad i obok formatki — tyle miejsca zostawiamy przy dopasowaniu.
+        // Wierzchołki obrysu liczymy jak dotąd, każdy osobno, żeby marginesy (i eksport SVG)
+        // istniejących wielokątów zostały bez zmian. Punkty wycięć liczymy UNIKALNIE, tak jak
+        // _renderBbox rysuje klamerki (jeden poziom na pozycję), z pominięciem pozycji już
+        // zajętych przez obrys — prostokątne wycięcie ma każdą współrzędną dwa razy, elipsa
+        // cx/cy dwa razy, a liczone wprost zgniatały widok przy kilku wycięciach.
+        function _bracketCounts(b) {
+            var tol = 0.3, cx = 0, cy = 0;
+            var xs = [], ys = [];
+            var isSimple = (state.shapeType === 'rectangular' || state.shapeType === 'circle');
+            var obrys = (!isSimple && state.vertices) ? state.vertices : [];
+            obrys.forEach(function(p) {
+                if (Math.abs(p[0] - b.minX) > tol && Math.abs(p[0] - b.maxX) > tol) { cx++; _pushUnique(xs, p[0]); }
+                if (Math.abs(p[1] - b.minY) > tol && Math.abs(p[1] - b.maxY) > tol) { cy++; _pushUnique(ys, p[1]); }
+            });
+            state.cutouts.forEach(function(c) {
+                ShapeCutouts.bracketPoints(c).forEach(function(p) {
+                    if (Math.abs(p[0] - b.minX) > tol && Math.abs(p[0] - b.maxX) > tol && _pushUnique(xs, p[0])) cx++;
+                    if (Math.abs(p[1] - b.minY) > tol && Math.abs(p[1] - b.maxY) > tol && _pushUnique(ys, p[1])) cy++;
+                });
+            });
+            return { x: cx, y: cy };
+        }
+
         function _renderBbox() {
-            if (state.shapeType === 'rectangular' || state.shapeType === 'circle') return;
-            var verts = state.vertices;
-            if (!verts || verts.length < 3) return;
-
-            var bbox = ShapeGeometry.calculateBbox(state.shapeType, state.params, verts);
-            if (bbox.width <= 0 || bbox.height <= 0) return;
-
-            var bMinX = Infinity, bMinY = Infinity;
-            for (var i = 0; i < verts.length; i++) {
-                if (verts[i][0] < bMinX) bMinX = verts[i][0];
-                if (verts[i][1] < bMinY) bMinY = verts[i][1];
-            }
-
-            var p1 = cmToPixel(bMinX, bMinY);
-            var p2 = cmToPixel(bMinX + bbox.width, bMinY);
-            var p3 = cmToPixel(bMinX + bbox.width, bMinY + bbox.height);
-            var p4 = cmToPixel(bMinX, bMinY + bbox.height);
-
-            ctx.beginPath();
-            ctx.moveTo(p1[0], p1[1]);
-            ctx.lineTo(p2[0], p2[1]);
-            ctx.lineTo(p3[0], p3[1]);
-            ctx.lineTo(p4[0], p4[1]);
-            ctx.closePath();
-            if (!state._svgExportMode) {
-                ctx.fillStyle = 'rgba(230, 126, 34, 0.15)';
-                ctx.fill();
-            }
-            ctx.strokeStyle = 'rgba(230, 126, 34, 0.7)';
-            ctx.lineWidth = 1;
-            ctx.setLineDash([4, 4]);
-            ctx.stroke();
-            ctx.setLineDash([]);
-
-            // Wymiary bounding boxa — pomijaj jeśli krawędź bbox pokrywa się z krawędzią kształtu
-            var bboxW = Math.round(bbox.width * 10) / 10;
-            var bboxH = Math.round(bbox.height * 10) / 10;
-            var bMaxX = bMinX + bbox.width;
-            var bMaxY = bMinY + bbox.height;
+            var isSimple = (state.shapeType === 'rectangular' || state.shapeType === 'circle');
+            var b = _outerBounds();
+            if (!b) return;
+            var bMinX = b.minX, bMinY = b.minY, bMaxX = b.maxX, bMaxY = b.maxY;
             var tolerance = 0.05;
 
-            // Sprawdź czy dolna/lewa krawędź bbox pokrywa się z krawędzią kształtu
-            var bottomEdgeOverlaps = false;
-            var leftEdgeOverlaps = false;
-            for (var ei = 0; ei < verts.length; ei++) {
-                var ej = (ei + 1) % verts.length;
-                var v1 = verts[ei], v2 = verts[ej];
-                // Dolna: oba wierzchołki na Y=bMinY i rozciągają się na całą szerokość bbox
-                if (Math.abs(v1[1] - bMinY) < tolerance && Math.abs(v2[1] - bMinY) < tolerance) {
-                    var edgeMinX = Math.min(v1[0], v2[0]);
-                    var edgeMaxX = Math.max(v1[0], v2[0]);
-                    if (Math.abs(edgeMinX - bMinX) < tolerance && Math.abs(edgeMaxX - bMaxX) < tolerance) {
+            // Prostokąt i koło: formatka to sam kształt — bez przerywanej ramki
+            // i bez wymiarów formatki. Klamerki dostają tylko punkty wycięć.
+            if (!isSimple) {
+                var verts = state.vertices;
+                var p1 = cmToPixel(bMinX, bMinY);
+                var p2 = cmToPixel(bMaxX, bMinY);
+                var p3 = cmToPixel(bMaxX, bMaxY);
+                var p4 = cmToPixel(bMinX, bMaxY);
+
+                ctx.beginPath();
+                ctx.moveTo(p1[0], p1[1]);
+                ctx.lineTo(p2[0], p2[1]);
+                ctx.lineTo(p3[0], p3[1]);
+                ctx.lineTo(p4[0], p4[1]);
+                ctx.closePath();
+                if (!state._svgExportMode) {
+                    ctx.fillStyle = 'rgba(230, 126, 34, 0.15)';
+                    ctx.fill();
+                }
+                ctx.strokeStyle = 'rgba(230, 126, 34, 0.7)';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([4, 4]);
+                ctx.stroke();
+                ctx.setLineDash([]);
+
+                // Wymiary formatki — pomijaj, jeśli bok formatki pokrywa się z bokiem kształtu
+                var bboxW = Math.round((bMaxX - bMinX) * 10) / 10;
+                var bboxH = Math.round((bMaxY - bMinY) * 10) / 10;
+                var bottomEdgeOverlaps = false;
+                var leftEdgeOverlaps = false;
+                for (var ei = 0; ei < verts.length; ei++) {
+                    var v1 = verts[ei], v2 = verts[(ei + 1) % verts.length];
+                    if (Math.abs(v1[1] - bMinY) < tolerance && Math.abs(v2[1] - bMinY) < tolerance
+                            && Math.abs(Math.min(v1[0], v2[0]) - bMinX) < tolerance
+                            && Math.abs(Math.max(v1[0], v2[0]) - bMaxX) < tolerance) {
                         bottomEdgeOverlaps = true;
                     }
-                }
-                // Lewa: oba wierzchołki na X=bMinX i rozciągają się na całą wysokość bbox
-                if (Math.abs(v1[0] - bMinX) < tolerance && Math.abs(v2[0] - bMinX) < tolerance) {
-                    var edgeMinY = Math.min(v1[1], v2[1]);
-                    var edgeMaxY = Math.max(v1[1], v2[1]);
-                    if (Math.abs(edgeMinY - bMinY) < tolerance && Math.abs(edgeMaxY - bMaxY) < tolerance) {
+                    if (Math.abs(v1[0] - bMinX) < tolerance && Math.abs(v2[0] - bMinX) < tolerance
+                            && Math.abs(Math.min(v1[1], v2[1]) - bMinY) < tolerance
+                            && Math.abs(Math.max(v1[1], v2[1]) - bMaxY) < tolerance) {
                         leftEdgeOverlaps = true;
                     }
                 }
+                if (!bottomEdgeOverlaps) {
+                    var bboxWColor = state.outOfRangeDims.length ? '#dc2626' : null;
+                    _renderSingleDimension(bMinX, bMinY, bMaxX, bMinY, bboxW + ' cm', 'Formatka', undefined, bboxWColor);
+                }
+                if (!leftEdgeOverlaps) {
+                    var bboxHColor = state.outOfRangeDims.width ? '#dc2626' : null;
+                    // Od góry do dołu (w cm), żeby normalna wskazywała w LEWO
+                    _renderSingleDimension(bMinX, bMaxY, bMinX, bMinY, bboxH + ' cm', 'Formatka', 40, bboxHColor);
+                }
             }
 
-            if (!bottomEdgeOverlaps) {
-                var bboxWColor = state.outOfRangeDims.length ? '#dc2626' : null;
-                _renderSingleDimension(bMinX, bMinY, bMaxX, bMinY, bboxW + ' cm', 'Formatka', undefined, bboxWColor);
-            }
-            if (!leftEdgeOverlaps) {
-                var bboxHColor = state.outOfRangeDims.width ? '#dc2626' : null;
-                // Od góry do dołu (w cm), żeby normal pixel wskazywał w LEWO
-                _renderSingleDimension(bMinX, bMaxY, bMinX, bMinY, bboxH + ' cm', 'Formatka', 40, bboxHColor);
-            }
+            var allBracketVerts = _bracketPointsAll();
+            if (!allBracketVerts.length) return;
 
-            // Klamerki: dla każdego wierzchołka rzutujemy na krawędzie bbox
-            // i rysujemy klamerkę od rogu bbox do rzutu wierzchołka
-
-            // Wszystkie wierzchołki branie pod uwagę przy klamerkach: outer + hole
-            var allBracketVerts = verts.slice();
-            for (var ahi = 0; ahi < state.holes.length; ahi++) {
-                var hRing = state.holes[ahi];
-                if (hRing && hRing.length >= 3) {
-                    for (var ahj = 0; ahj < hRing.length; ahj++) {
-                        allBracketVerts.push(hRing[ahj]);
+            // Linie prowadzące: od punktów (obrys + wycięcia) do krawędzi formatki
+            if (state.visibility.guides) {
+                ctx.save();
+                ctx.strokeStyle = state._svgExportMode ? 'rgba(120, 120, 120, 0.55)' : 'rgba(255, 255, 255, 0.5)';
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([6, 6]);
+                for (var gi = 0; gi < allBracketVerts.length; gi++) {
+                    var gvx = allBracketVerts[gi][0], gvy = allBracketVerts[gi][1];
+                    var isOnBboxCorner = (Math.abs(gvx - bMinX) < tolerance || Math.abs(gvx - bMaxX) < tolerance)
+                        && (Math.abs(gvy - bMinY) < tolerance || Math.abs(gvy - bMaxY) < tolerance);
+                    if (isOnBboxCorner) continue;
+                    // Pionowa w górę — gdy punkt NIE leży na lewym/prawym boku formatki
+                    var onLeftOrRight = Math.abs(gvx - bMinX) < tolerance || Math.abs(gvx - bMaxX) < tolerance;
+                    if (!onLeftOrRight && Math.abs(gvy - bMaxY) > tolerance) {
+                        var gp1 = cmToPixel(gvx, gvy);
+                        var gp2 = cmToPixel(gvx, bMaxY);
+                        ctx.beginPath(); ctx.moveTo(gp1[0], gp1[1]); ctx.lineTo(gp2[0], gp2[1]); ctx.stroke();
+                    }
+                    // Pozioma w prawo — gdy punkt NIE leży na dolnym/górnym boku formatki
+                    var onTopOrBottom = Math.abs(gvy - bMinY) < tolerance || Math.abs(gvy - bMaxY) < tolerance;
+                    if (!onTopOrBottom && Math.abs(gvx - bMaxX) > tolerance) {
+                        var gp3 = cmToPixel(gvx, gvy);
+                        var gp4 = cmToPixel(bMaxX, gvy);
+                        ctx.beginPath(); ctx.moveTo(gp3[0], gp3[1]); ctx.lineTo(gp4[0], gp4[1]); ctx.stroke();
                     }
                 }
+                ctx.restore();
             }
 
-            // Linie prowadzące: od wierzchołków (outer + hole) do krawędzi bbox
-            if (state.visibility.guides) {
-            ctx.save();
-            ctx.strokeStyle = state._svgExportMode ? 'rgba(120, 120, 120, 0.55)' : 'rgba(255, 255, 255, 0.5)';
-            ctx.lineWidth = 1.5;
-            ctx.setLineDash([6, 6]);
-            for (var gi = 0; gi < allBracketVerts.length; gi++) {
-                var gvx = allBracketVerts[gi][0], gvy = allBracketVerts[gi][1];
-                var isOnBboxCorner = (Math.abs(gvx - bMinX) < tolerance || Math.abs(gvx - bMaxX) < tolerance)
-                    && (Math.abs(gvy - bMinY) < tolerance || Math.abs(gvy - bMaxY) < tolerance);
-                if (isOnBboxCorner) continue;
-
-                // Linia pionowa w górę — tylko jeśli wierzchołek NIE leży na lewej/prawej krawędzi bbox
-                var onLeftOrRight = Math.abs(gvx - bMinX) < tolerance || Math.abs(gvx - bMaxX) < tolerance;
-                if (!onLeftOrRight && Math.abs(gvy - bMaxY) > tolerance) {
-                    var gp1 = cmToPixel(gvx, gvy);
-                    var gp2 = cmToPixel(gvx, bMaxY);
-                    ctx.beginPath(); ctx.moveTo(gp1[0], gp1[1]); ctx.lineTo(gp2[0], gp2[1]); ctx.stroke();
-                }
-                // Linia pozioma w prawo — tylko jeśli wierzchołek NIE leży na dolnej/górnej krawędzi bbox
-                var onTopOrBottom = Math.abs(gvy - bMinY) < tolerance || Math.abs(gvy - bMaxY) < tolerance;
-                if (!onTopOrBottom && Math.abs(gvx - bMaxX) > tolerance) {
-                    var gp3 = cmToPixel(gvx, gvy);
-                    var gp4 = cmToPixel(bMaxX, gvy);
-                    ctx.beginPath(); ctx.moveTo(gp3[0], gp3[1]); ctx.lineTo(gp4[0], gp4[1]); ctx.stroke();
-                }
-            }
-            ctx.restore();
-            } // koniec if (visibility.guides)
-
-            // Zbierz unikalne pozycje X i Y wierzchołków (rzuty na krawędzie)
-            var xPositions = []; // rzuty na dolną/górną krawędź
-            var yPositions = []; // rzuty na lewą/prawą krawędź
-
-            function _pushUniqueX(arr, v) {
-                // Dedup po dokładnej pozycji (z mikro-epsilon na float jitter, NIE chowamy klamerek różniących się o 1mm)
-                for (var k = 0; k < arr.length; k++) if (Math.abs(arr[k] - v) < 0.001) return;
-                arr.push(v);
-            }
-
+            // Unikalne rzuty X (na górny bok) i Y (na prawy bok) — _pushUnique wspólne z _bracketCounts
+            var xPositions = [];
+            var yPositions = [];
             for (var bi = 0; bi < allBracketVerts.length; bi++) {
                 var vx = allBracketVerts[bi][0], vy = allBracketVerts[bi][1];
-                // Rzut X — pomijaj jeśli na lewej/prawej krawędzi bbox lub duplikat
-                if (Math.abs(vx - bMinX) > tolerance && Math.abs(vx - bMaxX) > tolerance) {
-                    _pushUniqueX(xPositions, vx);
-                }
-                // Rzut Y — pomijaj jeśli na dolnej/górnej krawędzi bbox lub duplikat
-                if (Math.abs(vy - bMinY) > tolerance && Math.abs(vy - bMaxY) > tolerance) {
-                    _pushUniqueX(yPositions, vy);
-                }
+                if (Math.abs(vx - bMinX) > tolerance && Math.abs(vx - bMaxX) > tolerance) _pushUnique(xPositions, vx);
+                if (Math.abs(vy - bMinY) > tolerance && Math.abs(vy - bMaxY) > tolerance) _pushUnique(yPositions, vy);
             }
-
-            // Sortuj
-            xPositions.sort(function(a, b) { return a - b; });
-            yPositions.sort(function(a, b) { return a - b; });
+            xPositions.sort(function(a, c) { return a - c; });
+            yPositions.sort(function(a, c) { return a - c; });
 
             if (!state.visibility.brackets) return;
 
-            // Klamerki na górnej krawędzi bbox (poziome) — każda kolejna wyżej
+            // Klamerki nad górnym bokiem — każda kolejna wyżej
             for (var xi = 0; xi < xPositions.length; xi++) {
                 var xDist = xPositions[xi] - bMinX;
-                if (xDist > tolerance) {
-                    _renderBracket(bMinX, bMaxY, xPositions[xi], bMaxY, 'top', xDist, xi);
-                }
+                if (xDist > tolerance) _renderBracket(bMinX, bMaxY, xPositions[xi], bMaxY, 'top', xDist, xi);
             }
-
-            // Klamerki na prawej krawędzi bbox (pionowe) — każda kolejna bardziej w prawo
+            // Klamerki przy prawym boku — każda kolejna bardziej w prawo
             for (var yi = 0; yi < yPositions.length; yi++) {
                 var yDist = yPositions[yi] - bMinY;
-                if (yDist > tolerance) {
-                    _renderBracket(bMaxX, bMinY, bMaxX, yPositions[yi], 'right', yDist, yi);
-                }
+                if (yDist > tolerance) _renderBracket(bMaxX, bMinY, bMaxX, yPositions[yi], 'right', yDist, yi);
             }
         }
 
@@ -425,136 +491,210 @@ var ShapeCanvas = (function() {
             ctx.restore();
         }
 
-        function _renderShape() {
-            state._bboxLabelBoxes = [];
+        // Rysuje listę segmentów (cm) jako zamknięty podkontur bieżącej ścieżki
+        function _traceSegments(segs) {
+            if (!segs || !segs.length) return;
+            var p0 = cmToPixel(segs[0].from[0], segs[0].from[1]);
+            ctx.moveTo(p0[0], p0[1]);
+            for (var i = 0; i < segs.length; i++) {
+                var s = segs[i];
+                if (s.type === 'line') {
+                    var p = cmToPixel(s.to[0], s.to[1]);
+                    ctx.lineTo(p[0], p[1]);
+                } else if (s.type === 'arc') {
+                    var c = cmToPixel(s.center[0], s.center[1]);
+                    var a0 = Math.atan2(s.from[1] - s.center[1], s.from[0] - s.center[0]);
+                    var a1 = Math.atan2(s.to[1] - s.center[1], s.to[0] - s.center[0]);
+                    // Oś Y odwrócona: kąt na ekranie = −kąt w cm, a łuk CCW w cm
+                    // idzie na ekranie przeciwnie do wskazówek zegara (anticlockwise = true)
+                    ctx.arc(c[0], c[1], s.radius * state.scale, -a0, -a1, s.ccw);
+                } else if (s.type === 'bezier') {
+                    var c1 = cmToPixel(s.cp1[0], s.cp1[1]);
+                    var c2 = cmToPixel(s.cp2[0], s.cp2[1]);
+                    var e = cmToPixel(s.to[0], s.to[1]);
+                    ctx.bezierCurveTo(c1[0], c1[1], c2[0], c2[1], e[0], e[1]);
+                }
+            }
+            ctx.closePath();
+        }
+
+        function _traceOuter() {
             if (state.shapeType === 'circle') {
-                _renderEllipse();
+                var r = (state.params.diameter || 0) / 2;
+                _traceSegments(ShapeCutouts.pathSegments({ type: 'ellipse', cx: r, cy: r, rx: r, ry: r, angle: 0 }));
                 return;
             }
-            var verts = state.vertices;
-            if (!verts || verts.length < 2) return;
+            _traceSegments(ShapeCorners.contourSegments(state.vertices, state.corners));
+        }
+
+        function _toolShowsHandles() {
+            var t = tools && tools[state.activeTool];
+            return !!(t && t.showsHandles);
+        }
+
+        function _renderShape() {
+            state._bboxLabelBoxes = [];
+            dimensionHitAreas = [];
+            var isCircle = state.shapeType === 'circle';
+            if (isCircle) {
+                if (!(state.params.diameter > 0)) return;
+            } else if (!state.vertices || state.vertices.length < 3) {
+                return;
+            }
+            var theme = COLOR_THEMES[state.colorTheme] || COLOR_THEMES.normal;
+            var bladTheme = COLOR_THEMES.error;
 
             _renderBbox();
 
-            var theme = COLOR_THEMES[state.colorTheme] || COLOR_THEMES.normal;
-
-            // Outer + holes jako jedna ścieżka z evenodd (dziury wycinają)
+            // Obrys + wycięcia jedną ścieżką z evenodd (wycięcia wycinają)
             ctx.beginPath();
-            var start = cmToPixel(verts[0][0], verts[0][1]);
-            ctx.moveTo(start[0], start[1]);
-            for (var i = 1; i < verts.length; i++) {
-                var pt = cmToPixel(verts[i][0], verts[i][1]);
-                ctx.lineTo(pt[0], pt[1]);
+            _traceOuter();
+            for (var ci = 0; ci < state.cutouts.length; ci++) {
+                _traceSegments(ShapeCutouts.pathSegments(state.cutouts[ci]));
             }
-            ctx.closePath();
-
-            for (var hi = 0; hi < state.holes.length; hi++) {
-                var h = state.holes[hi];
-                if (!h || h.length < 3) continue;
-                var hs = cmToPixel(h[0][0], h[0][1]);
-                ctx.moveTo(hs[0], hs[1]);
-                for (var hj = 1; hj < h.length; hj++) {
-                    var hp = cmToPixel(h[hj][0], h[hj][1]);
-                    ctx.lineTo(hp[0], hp[1]);
-                }
-                ctx.closePath();
-            }
-
             ctx.fillStyle = theme.shapeFill;
             ctx.fill('evenodd');
 
-            // Lamele — poziome linie co LAMELLA_SPACING_CM, przycięte
-            // geometrycznie do konturu z odjętymi wycięciami. Kolor musi być
-            // czytelny i na ciemnym canvasie, i na białym tle PDF-a, stąd
-            // średni szary zamiast bieli.
-            if (state.visibility.lamellas) {
-                var lamele = ShapeGeometry.horizontalScanSegments(
-                    verts, state.holes, LAMELLA_SPACING_CM);
-                if (lamele.length) {
-                    ctx.save();
-                    ctx.strokeStyle = 'rgba(138, 138, 138, 0.55)';
-                    ctx.lineWidth = 1;
-                    ctx.beginPath();
-                    for (var li = 0; li < lamele.length; li++) {
-                        var lp1 = cmToPixel(lamele[li][0], lamele[li][2]);
-                        var lp2 = cmToPixel(lamele[li][1], lamele[li][2]);
-                        ctx.moveTo(lp1[0], lp1[1]);
-                        ctx.lineTo(lp2[0], lp2[1]);
-                    }
-                    ctx.stroke();
-                    ctx.restore();
-                }
-            }
+            if (state.visibility.lamellas) _renderLamellas();
 
-            // Outer stroke (2px)
+            // Obrys (2px); czerwony, gdy narzędzie N doszło do limitu na obrysie
             ctx.beginPath();
-            var s0 = cmToPixel(verts[0][0], verts[0][1]);
-            ctx.moveTo(s0[0], s0[1]);
-            for (var k = 1; k < verts.length; k++) {
-                var kp = cmToPixel(verts[k][0], verts[k][1]);
-                ctx.lineTo(kp[0], kp[1]);
-            }
-            ctx.closePath();
-            ctx.strokeStyle = theme.shapeStroke;
+            _traceOuter();
+            var limitObrys = state.cornerLimitHit && state.cornerLimitHit.ring === 'outer';
+            ctx.strokeStyle = limitObrys ? bladTheme.shapeStroke : theme.shapeStroke;
             ctx.lineWidth = 2;
             ctx.stroke();
 
-            // Hole strokes (1.5px)
+            // Wycięcia (1.5px); złe (poza obrysem / nachodzące) albo na limicie — czerwone
+            for (var cj = 0; cj < state.cutouts.length; cj++) {
+                var zle = state.invalidCutouts.indexOf(cj) >= 0
+                    || (state.cornerLimitHit && state.cornerLimitHit.ring === cj);
+                ctx.beginPath();
+                _traceSegments(ShapeCutouts.pathSegments(state.cutouts[cj]));
+                ctx.strokeStyle = zle ? bladTheme.shapeStroke : theme.shapeStroke;
+                ctx.lineWidth = zle ? 2.5 : 1.5;
+                ctx.stroke();
+            }
+
+            _renderActiveHole(theme);
+
+            if (isCircle) {
+                _renderCircleDimension();
+            } else {
+                _renderDimensionLines(state.vertices);
+                _renderAngles();
+            }
+            _renderCutoutDimensions();
+            _renderCornerLabels();
+
+            // Uchwyty punktów: w eksporcie zawsze (rysunek produkcji jak dotąd),
+            // na żywo tylko w narzędziach pracujących na punktach (A, +, −)
+            var uchwyty = state._svgExportMode || _toolShowsHandles();
+            if (!isCircle && uchwyty) _renderVertexHandles(state.vertices);
+            if (isCircle && !state._svgExportMode && _toolShowsHandles()) _renderCircleHandle();
+            if (uchwyty) _renderCutoutHandles();
+        }
+
+        // Lamele — poziome linie co LAMELLA_SPACING_CM, przycięte geometrycznie do
+        // obrysu z narożnikami i wycięciami (canvas2svg nie przenosi clip z evenodd)
+        function _renderLamellas() {
+            var outer = _outerRing();
+            if (outer.length < 3) return;
+            var lamele = ShapeGeometry.horizontalScanSegments(outer, _cutoutRings(), LAMELLA_SPACING_CM);
+            if (!lamele.length) return;
+            ctx.save();
+            ctx.strokeStyle = 'rgba(138, 138, 138, 0.55)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            for (var li = 0; li < lamele.length; li++) {
+                var lp1 = cmToPixel(lamele[li][0], lamele[li][2]);
+                var lp2 = cmToPixel(lamele[li][1], lamele[li][2]);
+                ctx.moveTo(lp1[0], lp1[1]);
+                ctx.lineTo(lp2[0], lp2[1]);
+            }
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        // Wycięcie rysowane punkt po punkcie (narzędzie +) — linia przerywana
+        function _renderActiveHole(theme) {
+            if (!state.activeHole || !state.activeHole.length) return;
+            ctx.save();
+            ctx.strokeStyle = theme.shapeStroke;
             ctx.lineWidth = 1.5;
-            for (var hi2 = 0; hi2 < state.holes.length; hi2++) {
-                var hh = state.holes[hi2];
-                if (!hh || hh.length < 3) continue;
-                ctx.beginPath();
-                var hhs = cmToPixel(hh[0][0], hh[0][1]);
-                ctx.moveTo(hhs[0], hhs[1]);
-                for (var hhj = 1; hhj < hh.length; hhj++) {
-                    var hhp = cmToPixel(hh[hhj][0], hh[hhj][1]);
-                    ctx.lineTo(hhp[0], hhp[1]);
-                }
-                ctx.closePath();
-                ctx.stroke();
+            ctx.setLineDash([6, 4]);
+            ctx.beginPath();
+            var as = cmToPixel(state.activeHole[0][0], state.activeHole[0][1]);
+            ctx.moveTo(as[0], as[1]);
+            for (var ai = 1; ai < state.activeHole.length; ai++) {
+                var ap = cmToPixel(state.activeHole[ai][0], state.activeHole[ai][1]);
+                ctx.lineTo(ap[0], ap[1]);
             }
-
-            // Active hole (rysowana w toku) — przerywana
-            if (state.activeHole && state.activeHole.length > 0) {
-                ctx.save();
-                ctx.strokeStyle = theme.shapeStroke;
-                ctx.lineWidth = 1.5;
-                ctx.setLineDash([6, 4]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.beginPath();
+            ctx.arc(as[0], as[1], state.hoverHoleStart ? 9 : 6, 0, Math.PI * 2);
+            ctx.fillStyle = state.hoverHoleStart ? theme.shapeStroke : '#fff';
+            ctx.fill();
+            ctx.strokeStyle = theme.shapeStroke;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            for (var ai2 = 1; ai2 < state.activeHole.length; ai2++) {
+                var aap = cmToPixel(state.activeHole[ai2][0], state.activeHole[ai2][1]);
                 ctx.beginPath();
-                var as = cmToPixel(state.activeHole[0][0], state.activeHole[0][1]);
-                ctx.moveTo(as[0], as[1]);
-                for (var ai = 1; ai < state.activeHole.length; ai++) {
-                    var ap = cmToPixel(state.activeHole[ai][0], state.activeHole[ai][1]);
-                    ctx.lineTo(ap[0], ap[1]);
-                }
-                ctx.stroke();
-                ctx.setLineDash([]);
-                // Pierwszy pkt — podświetlony jeśli snap-hover
-                ctx.beginPath();
-                ctx.arc(as[0], as[1], state.hoverHoleStart ? 9 : 6, 0, Math.PI * 2);
-                ctx.fillStyle = state.hoverHoleStart ? theme.shapeStroke : '#fff';
+                ctx.arc(aap[0], aap[1], 4, 0, Math.PI * 2);
+                ctx.fillStyle = '#fff';
                 ctx.fill();
-                ctx.strokeStyle = theme.shapeStroke;
-                ctx.lineWidth = 2;
                 ctx.stroke();
-                // Pozostałe punkty activeHole
-                for (var ai2 = 1; ai2 < state.activeHole.length; ai2++) {
-                    var aap = cmToPixel(state.activeHole[ai2][0], state.activeHole[ai2][1]);
-                    ctx.beginPath();
-                    ctx.arc(aap[0], aap[1], 4, 0, Math.PI * 2);
-                    ctx.fillStyle = '#fff';
-                    ctx.fill();
-                    ctx.stroke();
-                }
-                ctx.restore();
             }
+            ctx.restore();
+        }
 
-            _renderDimensionLines(verts);
-            _renderHoleDimensions();
-            _renderAngles();
-            _renderVertexHandles(verts);
-            _renderHoleHandles();
+        // Stałe etykiety narożników („R50”, „20×45°”) — trafiają też do SVG dla produkcji
+        function _renderCornerLabels() {
+            if (!state.visibility.corners) return;
+            var pierscienie = [];
+            if (state.vertices && state.shapeType !== 'circle') {
+                pierscienie.push({ pts: state.vertices, corners: state.corners });
+            }
+            state.cutouts.forEach(function(c) {
+                if (c.type === 'polygon') pierscienie.push({ pts: c.points, corners: c.corners });
+            });
+            // Przy aktywnym N kropka do przeciągania leży tuż za środkiem łuku, czyli tam, gdzie
+            // etykieta — wtedy etykieta idzie dalej wzdłuż dwusiecznej. Eksport SVG (rysunek dla
+            // produkcji) i pozostałe narzędzia: pozycja jak dotąd.
+            var narzedzieN = (!state._svgExportMode && state.activeTool === 'corner') ? _activeToolObj() : null;
+            var rozmiarFontu = _scaled(13);
+            ctx.save();
+            ctx.font = 'bold ' + rozmiarFontu + 'px sans-serif';
+            ctx.fillStyle = '#e67e22';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            pierscienie.forEach(function(r) {
+                var n = r.pts.length;
+                for (var i = 0; i < n; i++) {
+                    var corner = r.corners && r.corners[i];
+                    if (!corner) continue;
+                    var ang = ShapeCorners.cornerAngle(r.pts[(i - 1 + n) % n], r.pts[i], r.pts[(i + 1) % n]);
+                    if (!ang) continue;
+                    var tekst = ShapeCorners.label(corner, ang.theta);
+                    var distPx = ShapeCorners.midpointDistance(ang.theta, corner) * state.scale + _scaled(18);
+                    var kropka = (narzedzieN && narzedzieN.dotPlacement) ? narzedzieN.dotPlacement(ang.theta, corner) : null;
+                    if (kropka) {
+                        // Prostokąt tekstu (środek na dwusiecznej) sięga w stronę kropki o swój rzut
+                        // na dwusieczną: pół szerokości·|bx| + pół wysokości·|by|. Środek etykiety
+                        // odsuwamy od środka kropki o ten rzut + zasięg koła + odstęp 3 px — wtedy
+                        // cały prostokąt leży za kołem i na nie nie nachodzi.
+                        var rzutTekstu = ctx.measureText(tekst).width / 2 * Math.abs(ang.bisector[0])
+                            + rozmiarFontu / 2 * Math.abs(ang.bisector[1]);
+                        distPx = kropka.dist + kropka.radius + 3 + rzutTekstu;
+                    }
+                    var v = cmToPixel(r.pts[i][0], r.pts[i][1]);
+                    // Dwusieczna w pikselach: oś Y odwrócona
+                    ctx.fillText(tekst, v[0] + ang.bisector[0] * distPx, v[1] - ang.bisector[1] * distPx);
+                }
+            });
+            ctx.restore();
         }
 
         // Etykiety kątów wewnętrznych (tylko nie-90° ±1°)
@@ -658,67 +798,65 @@ var ShapeCanvas = (function() {
             }
 
             _renderRing(state.vertices);
-            for (var hi = 0; hi < state.holes.length; hi++) {
-                _renderRing(state.holes[hi]);
+            for (var ci = 0; ci < state.cutouts.length; ci++) {
+                if (state.cutouts[ci].type === 'polygon') _renderRing(state.cutouts[ci].points);
             }
         }
 
-        function _renderHoleHandles() {
-            for (var hi = 0; hi < state.holes.length; hi++) {
-                var h = state.holes[hi];
-                for (var hj = 0; hj < h.length; hj++) {
-                    var pt = cmToPixel(h[hj][0], h[hj][1]);
-                    _drawHandle(pt[0], pt[1], false);
+        function _renderCutoutHandles() {
+            for (var ci = 0; ci < state.cutouts.length; ci++) {
+                var c = state.cutouts[ci];
+                if (c.type !== 'polygon') continue;
+                for (var pj = 0; pj < c.points.length; pj++) {
+                    var pt = cmToPixel(c.points[pj][0], c.points[pj][1]);
+                    var hov = state.hoverVertex && state.hoverVertex.kind === 'cutout'
+                        && state.hoverVertex.ci === ci && state.hoverVertex.pj === pj;
+                    _drawHandle(pt[0], pt[1], hov);
                 }
             }
         }
 
-        function _renderHoleDimensions() {
+        function _renderCutoutDimensions() {
             if (!state.visibility.dimensions) return;
-            for (var hi = 0; hi < state.holes.length; hi++) {
-                var h = state.holes[hi];
-                if (!h || h.length < 2) continue;
-                var n = h.length;
+            for (var ci = 0; ci < state.cutouts.length; ci++) {
+                var c = state.cutouts[ci];
+                if (c.type === 'ellipse') {
+                    // Koło: „Ø 20 cm”, elipsa: „30 × 20 cm” w środku wycięcia
+                    var kolo = ShapeTools._jestKolem(c);   // jedna definicja koła z narzędziem V
+                    var tekst = kolo
+                        ? 'Ø ' + (Math.round(c.rx * 20) / 10) + ' cm'
+                        : (Math.round(c.rx * 20) / 10) + ' × ' + (Math.round(c.ry * 20) / 10) + ' cm';
+                    var p = cmToPixel(c.cx, c.cy);
+                    ctx.save();
+                    ctx.font = _scaled(14) + 'px sans-serif';
+                    ctx.fillStyle = '#e67e22';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(tekst, p[0], p[1]);
+                    ctx.restore();
+                    continue;
+                }
+                var h = c.points, n = h.length;
                 for (var i = 0; i < n; i++) {
                     var j = (i + 1) % n;
-                    var dx = h[j][0] - h[i][0];
-                    var dy = h[j][1] - h[i][1];
-                    var len = Math.sqrt(dx * dx + dy * dy);
+                    var len = Math.hypot(h[j][0] - h[i][0], h[j][1] - h[i][1]);
                     if (len < 0.1) continue;
-                    var dimLabel = (Math.round(len * 10) / 10) + ' cm';
-                    // Bez edgeId — wymiary dziur nie mają oznaczeń Gx (mniej szumu)
-                    _renderSingleDimension(h[i][0], h[i][1], h[j][0], h[j][1], dimLabel, null, -16);
+                    // Bez oznaczeń Gx — mniej szumu na wycięciach
+                    _renderSingleDimension(h[i][0], h[i][1], h[j][0], h[j][1], (Math.round(len * 10) / 10) + ' cm', null, -16);
                 }
             }
         }
 
-        function _renderEllipse() {
-            var p = state.params;
-            var a = (state.shapeType === 'circle' ? (p.diameter || 0) : (p.axisA || 0)) / 2;
-            var b = (state.shapeType === 'circle' ? (p.diameter || 0) : (p.axisB || 0)) / 2;
-            if (a <= 0 || b <= 0) return;
+        // Wymiar średnicy koła (obrys)
+        function _renderCircleDimension() {
+            var d = state.params.diameter || 0;
+            _renderSingleDimension(0, d / 2, d, d / 2, d + ' cm');
+        }
 
-            var center = cmToPixel(a, b);
-            var rx = a * state.scale;
-            var ry = b * state.scale;
-
-            ctx.beginPath();
-            ctx.ellipse(center[0], center[1], rx, ry, 0, 0, 2 * Math.PI);
-            var theme = COLOR_THEMES[state.colorTheme] || COLOR_THEMES.normal;
-            ctx.fillStyle = theme.shapeFill;
-            ctx.fill();
-            ctx.strokeStyle = theme.shapeStroke;
-            ctx.lineWidth = 2;
-            ctx.stroke();
-
-            if (state.shapeType === 'circle') {
-                _renderSingleDimension(0, b, p.diameter, b, p.diameter + ' cm');
-            } else {
-                _renderSingleDimension(0, b, p.axisA, b, p.axisA + ' cm');
-                _renderSingleDimension(a, 0, a, p.axisB, p.axisB + ' cm');
-            }
-
-            var handle = cmToPixel(a * 2, b);
+        // Uchwyt średnicy koła (narzędzie A)
+        function _renderCircleHandle() {
+            var d = state.params.diameter || 0;
+            var handle = cmToPixel(d, d / 2);
             _drawHandle(handle[0], handle[1], state.hoverVertex === 0);
         }
 
@@ -860,8 +998,10 @@ var ShapeCanvas = (function() {
             ctx.textBaseline = 'bottom';
             ctx.fillText(label, labelX, labelY);
 
-            // Oznaczenie boku (G1, G2...) — pod wymiarem
-            if (edgeId) {
+            // Oznaczenie boku (G1, G2...) — pod wymiarem. Prostokąt bez liter: moduł krawędzi
+            // opisuje jego boki literami A–H, więc G1–G4 na rysunku (i w SVG produkcji) myliłyby.
+            // edgeId zostaje (pozycja etykiety, odsuwanie od wymiarów formatki).
+            if (edgeId && state.shapeType !== 'rectangular') {
                 ctx.font = 'bold ' + _scaled(13) + 'px sans-serif';
                 ctx.fillStyle = colorOverride ? colorOverride : 'rgba(230, 126, 34, 0.6)';
                 ctx.textBaseline = 'top';
@@ -886,63 +1026,16 @@ var ShapeCanvas = (function() {
         // MAIN RENDER
         // ============================================
 
-        /**
-         * Tooltip z kątem przy kursorze + znacznik środka obrotu.
-         * Rysowany w render(), nie w _renderShape(), żeby nie trafił
-         * do eksportowanego SVG.
-         */
-        function _renderRotateTooltip() {
-            var rd = state.rotateDrag;
-            if (!rd) return;
-            var theme = COLOR_THEMES[state.colorTheme] || COLOR_THEMES.normal;
-
-            // Znacznik pivota
-            var pv = cmToPixel(rd.pivot[0], rd.pivot[1]);
-            ctx.save();
-            ctx.strokeStyle = theme.shapeStroke;
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(pv[0] - 7, pv[1]); ctx.lineTo(pv[0] + 7, pv[1]);
-            ctx.moveTo(pv[0], pv[1] - 7); ctx.lineTo(pv[0], pv[1] + 7);
-            ctx.stroke();
-            ctx.beginPath();
-            ctx.arc(pv[0], pv[1], 4, 0, Math.PI * 2);
-            ctx.stroke();
-
-            // Etykieta z ŁĄCZNYM kątem kształtu po tym geście — to ta wartość
-            // trafia do danych wyceny, więc pokazujemy ją, a nie deltę gestu.
-            var lacznie = ((state.rotation + rd.deltaDeg) % 360 + 360) % 360;
-            var tekst = lacznie + '°';
-            ctx.font = 'bold 13px Poppins, sans-serif';
-            var szer = ctx.measureText(tekst).width + 14;
-            var x = rd.cursorPx[0] + 16;
-            var y = rd.cursorPx[1] - 28;
-            if (x + szer > state.width) x = state.width - szer - 4;
-            if (y < 4) y = rd.cursorPx[1] + 16;
-            ctx.fillStyle = 'rgba(26, 26, 46, 0.92)';
-            ctx.strokeStyle = theme.shapeStroke;
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.rect(x, y, szer, 22);
-            ctx.fill();
-            ctx.stroke();
-            ctx.fillStyle = theme.shapeStroke;
-            ctx.textAlign = 'left';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(tekst, x + 7, y + 11);
-            ctx.restore();
-        }
-
         function render() {
             ctx.clearRect(0, 0, state.width, state.height);
-
             ctx.fillStyle = '#1a1a2e';
             ctx.fillRect(0, 0, state.width, state.height);
-
             _renderGrid();
             _renderShape();
-            _renderRotateTooltip();
-
+            // Nakładka narzędzia (dymki, ramki, kropki) — NIE trafia do eksportu SVG,
+            // bo exportSVG woła tylko _renderShape()
+            var tool = tools && tools[state.activeTool];
+            if (tool && tool.renderOverlay) tool.renderOverlay();
             if (options.scaleIndicator) {
                 options.scaleIndicator.textContent = getScaleLabel();
             }
@@ -952,7 +1045,7 @@ var ShapeCanvas = (function() {
         // INTERACTIONS: ZOOM
         // ============================================
 
-        canvasElement.addEventListener('wheel', function(e) {
+        _on(canvasElement, 'wheel', function(e) {
             e.preventDefault();
             var zoomFactor = e.deltaY > 0 ? 0.85 : 1.15;
             var rect = canvasElement.getBoundingClientRect();
@@ -969,519 +1062,253 @@ var ShapeCanvas = (function() {
         }, { passive: false });
 
         // ============================================
-        // INTERACTIONS: PAN & VERTEX DRAG
+        // INTERAKCJE: dyspozytor narzędzi + przesuwanie widoku
         // ============================================
 
-        canvasElement.addEventListener('mousedown', function(e) {
+        function _pointer(e) {
             var rect = canvasElement.getBoundingClientRect();
-            var mx = e.clientX - rect.left;
-            var my = e.clientY - rect.top;
+            var px = e.clientX - rect.left, py = e.clientY - rect.top;
+            return { px: px, py: py, cm: pixelToCm(px, py), shift: e.shiftKey, alt: e.altKey, button: e.button, event: e };
+        }
 
-            if (e.button === 2) {
-                if (state.activeTool === 'add' && state.activeHole) {
-                    if (state.activeHole.length >= 3) {
-                        _commitActiveHole();
-                    } else {
-                        state.activeHole = null;
-                        state.hoverHoleStart = false;
-                        render();
-                    }
-                }
-                return;
-            }
+        function _activeToolObj() {
+            return tools ? tools[state.activeTool] : null;
+        }
 
-            var tool = state.activeTool;
-            var isCircleLike = (state.shapeType === 'circle' || state.shapeType === 'oval');
-
-            // Tryb REMOVE — klik wierzchołka go usuwa
-            if (tool === 'remove' && !isCircleLike) {
-                var vRem = _findVertexAt(mx, my);
-                if (vRem && typeof vRem === 'object' && vRem.kind === 'hole') {
-                    _pushUndo();
-                    var holeR = state.holes[vRem.hi];
-                    holeR.splice(vRem.hj, 1);
-                    if (holeR.length < 3) {
-                        state.holes.splice(vRem.hi, 1);
-                    }
-                    _emitChange();
-                    render();
-                    return;
-                }
-                if (typeof vRem === 'number' && vRem >= 0 && state.vertices && state.vertices.length > 3) {
-                    _pushUndo();
-                    state.vertices.splice(vRem, 1);
-                    _convertToPolygonIfNeeded();
-                    _emitChange();
-                    render();
-                }
-                return;
-            }
-
-            // Tryb ADD — klik krawędzi outer = +punkt; klik krawędzi dziury = +punkt dziury;
-            // klik wewnątrz = start/kontynuacja activeHole.
-            if (tool === 'add' && !isCircleLike) {
-                // 1. Klik krawędzi outer = +punkt outer
-                var edgeIdx = _findEdgeAt(mx, my);
-                if (edgeIdx >= 0 && state.vertices && state.vertices.length < 20) {
-                    var cmPtA = pixelToCm(mx, my);
-                    _pushUndo();
-                    state.vertices.splice(edgeIdx + 1, 0, [_round(cmPtA[0]), _round(cmPtA[1])]);
-                    _convertToPolygonIfNeeded();
-                    _emitChange();
-                    render();
-                    return;
-                }
-
-                // 2. Klik krawędzi istniejącej dziury = +punkt tej dziury
-                if (!state.activeHole) {
-                    var hEdge = _findHoleEdgeAt(mx, my);
-                    if (hEdge) {
-                        var cmH = pixelToCm(mx, my);
-                        _pushUndo();
-                        state.holes[hEdge.holeIdx].splice(hEdge.edgeIdx + 1, 0, [_round(cmH[0]), _round(cmH[1])]);
-                        _emitChange();
-                        render();
-                        return;
-                    }
-                }
-
-                // 3. Klik wewnątrz = start/kontynuacja activeHole
-                var cmP = pixelToCm(mx, my);
-                var pxCm = _round(cmP[0]);
-                var pyCm = _round(cmP[1]);
-
-                if (state.activeHole) {
-                    // Snap do pierwszego punktu — zamknij
-                    var first = state.activeHole[0];
-                    var firstPx = cmToPixel(first[0], first[1]);
-                    if (Math.hypot(mx - firstPx[0], my - firstPx[1]) < 12 && state.activeHole.length >= 3) {
-                        _commitActiveHole();
-                        return;
-                    }
-                    // Walidacja: punkt wewnątrz outer i poza istniejącymi dziurami
-                    if (!state.vertices || !ShapeGeometry.pointInPolygon(pxCm, pyCm, state.vertices)) return;
-                    for (var hch = 0; hch < state.holes.length; hch++) {
-                        if (ShapeGeometry.pointInPolygon(pxCm, pyCm, state.holes[hch])) return;
-                    }
-                    state.activeHole.push([pxCm, pyCm]);
-                    render();
-                    return;
-                }
-
-                // Start nowej dziury
-                if (state.holes.length >= 5) {
-                    _showHint('Maksymalnie 5 wycięć na produkt.');
-                    return;
-                }
-                if (!state.vertices || !ShapeGeometry.pointInPolygon(pxCm, pyCm, state.vertices)) return;
-                for (var hch2 = 0; hch2 < state.holes.length; hch2++) {
-                    if (ShapeGeometry.pointInPolygon(pxCm, pyCm, state.holes[hch2])) return;
-                }
-                state.activeHole = [[pxCm, pyCm]];
-                render();
-                return;
-            }
-
-            // Tryb ROTATE — chwyt za wierzchołek albo wnętrze kształtu.
-            // Pivot liczymy RAZ, na starcie: bbox zmienia się w trakcie
-            // obracania, więc liczony na bieżąco powodowałby dryf kształtu.
-            if (tool === 'rotate' && !isCircleLike) {
-                if (!state.vertices || state.vertices.length < 3) return;
-                var cmStart = pixelToCm(mx, my);
-                var vHitRot = _findVertexAt(mx, my);
-                var wSrodku = ShapeGeometry.pointInPolygon(cmStart[0], cmStart[1], state.vertices);
-                if (_isVertexHit(vHitRot) || wSrodku) {
-                    var bbRot = ShapeGeometry.calculateBbox(state.shapeType, state.params, state.vertices);
-                    var minXRot = state.vertices.reduce(function(m, v) { return Math.min(m, v[0]); }, Infinity);
-                    var minYRot = state.vertices.reduce(function(m, v) { return Math.min(m, v[1]); }, Infinity);
-                    var pivotRot = [minXRot + bbRot.width / 2, minYRot + bbRot.height / 2];
-                    // Konwersja typu na wielokąt NIE dzieje się tu, w mousedown —
-                    // samo kliknięcie narzędziem obrotu bez ruchu myszy nie może
-                    // nieodwracalnie zmienić typu kształtu. Konwersja jest w
-                    // mousemove, przy pierwszym realnym ruchu (patrz tam).
-                    state.rotateDrag = {
-                        pivot: pivotRot,
-                        startAngle: Math.atan2(cmStart[1] - pivotRot[1], cmStart[0] - pivotRot[0]),
-                        baseVerts: state.vertices.map(function(v) { return [v[0], v[1]]; }),
-                        baseHoles: state.holes.map(function(h) {
-                            return h.map(function(v) { return [v[0], v[1]]; });
-                        }),
-                        // Typ sprzed ewentualnej konwersji na wielokąt w mousemove —
-                        // potrzebny, żeby przywrócić go, gdy gest wróci do delty 0.
-                        prevShapeType: state.shapeType,
-                        deltaDeg: 0,
-                        undoPushed: false,
-                        cursorPx: [mx, my]
-                    };
-                    canvasElement.classList.add('rotating-shape');
-                    return;
-                }
-                // Poza kształtem — zachowanie jak dotąd: przesuwanie widoku.
-                state.isPanning = true;
-                state.panStartX = mx - state.offsetX;
-                state.panStartY = (state.height - my) - state.offsetY;
-                canvasElement.style.cursor = 'grabbing';
-                return;
-            }
-
-            // Tryb CURSOR (default) — drag wierzchołka lub pan
-            var vi = _findVertexAt(mx, my);
-            if (_isVertexHit(vi)) {
-                state.dragVertex = vi;
-                // Zapamiętaj pozycję startową (cm) — używana przy axis-lock z Shift
-                var _startPos;
-                if (typeof vi === 'object' && vi.kind === 'hole') {
-                    _startPos = state.holes[vi.hi][vi.hj];
-                } else {
-                    _startPos = state.vertices[vi];
-                }
-                state.dragStartCm = [_startPos[0], _startPos[1]];
-                _pushUndo();
-                canvasElement.classList.add('dragging-vertex');
-                return;
-            }
-
+        function _startPan(p) {
             state.isPanning = true;
-            state.panStartX = mx - state.offsetX;
-            state.panStartY = (state.height - my) - state.offsetY;
+            state.panStartX = p.px - state.offsetX;
+            state.panStartY = (state.height - p.py) - state.offsetY;
             canvasElement.style.cursor = 'grabbing';
+        }
+
+        _on(canvasElement, 'mousedown', function(e) {
+            canvasElement.focus();   // skróty klawiszowe działają po kliknięciu w canvas
+            var p = _pointer(e);
+            var tool = _activeToolObj();
+            if (tool && tool.onDown && tool.onDown(p) === true) return;
+            if (e.button !== 0) return;
+            _startPan(p);
         });
 
-        canvasElement.addEventListener('mousemove', function(e) {
-            var rect = canvasElement.getBoundingClientRect();
-            var mx = e.clientX - rect.left;
-            var my = e.clientY - rect.top;
+        // Podświetlenie punktu pod kursorem (obrys, wycięcia, uchwyt średnicy koła).
+        // Wspólne dla narzędzi z uchwytami (A, +, −) — w „−” widać, który punkt zniknie.
+        // _findVertexAt zwraca -1, gdy nic nie trafiono; obiekt trafienia w wycięcie
+        // porównujemy przez JSON, bo to za każdym razem nowy obiekt.
+        function _updateHover(p) {
+            var hov = _findVertexAt(p.px, p.py);
+            if (JSON.stringify(hov) === JSON.stringify(state.hoverVertex)) return;
+            state.hoverVertex = hov;
+            canvasElement.classList.toggle('hovering-vertex', hov !== -1);
+            render();
+        }
 
-            if (state.activeTool === 'add' && state.activeHole && state.activeHole.length >= 3) {
-                var firstHv = state.activeHole[0];
-                var firstHvPx = cmToPixel(firstHv[0], firstHv[1]);
-                var isSnap = Math.hypot(mx - firstHvPx[0], my - firstHvPx[1]) < 12;
-                if (isSnap !== state.hoverHoleStart) {
-                    state.hoverHoleStart = isSnap;
-                    render();
-                }
-            } else if (state.hoverHoleStart) {
-                state.hoverHoleStart = false;
-                render();
-            }
-
-            if (state.rotateDrag) {
-                var rd = state.rotateDrag;
-                var cmNow = pixelToCm(mx, my);
-                var katTeraz = Math.atan2(cmNow[1] - rd.pivot[1], cmNow[0] - rd.pivot[0]);
-                var delta = Math.round((katTeraz - rd.startAngle) * 180 / Math.PI);
-                if (e.shiftKey) delta = Math.round(delta / 15) * 15;
-
-                // Undo dopisujemy przy PIERWSZYM realnym ruchu, ze stanem
-                // sprzed obrotu — dzięki temu samo kliknięcie narzędziem
-                // nie zaśmieca historii pustym krokiem. Tu też, a nie w
-                // mousedown, ląduje konwersja typu na wielokąt: extractParams
-                // liczy "podstawę"/"wysokość" przy założeniu osiowości, więc na
-                // obróconym trapezie wpisałby bzdury do pól — a skoro dzieje się
-                // to przed _emitChange() poniżej, żadna emisja nie zobaczy
-                // obróconego trapezu z nieprzekonwertowanym typem.
-                if (delta !== 0 && !rd.undoPushed) {
-                    _convertToPolygonIfNeeded();
-                    state.undoStack.push(JSON.stringify({
-                        vertices: rd.baseVerts,
-                        holes: rd.baseHoles,
-                        rotation: state.rotation
-                    }));
-                    if (state.undoStack.length > state.maxUndo) state.undoStack.shift();
-                    state.redoStack = [];
-                    rd.undoPushed = true;
-                }
-
-                rd.deltaDeg = delta;
-                rd.cursorPx = [mx, my];
-                state.vertices = ShapeGeometry.rotateRing(rd.baseVerts, delta, rd.pivot);
-                state.holes = rd.baseHoles.map(function(h) {
-                    return ShapeGeometry.rotateRing(h, delta, rd.pivot);
-                });
-                _emitChange();
-                render();
-                return;
-            }
-
-            if (_isVertexHit(state.dragVertex)) {
-                var cmPt = pixelToCm(mx, my);
-                var snap = state.currentGridCm;
-                var sx = Math.round(cmPt[0] / snap) * snap;
-                var sy = Math.round(cmPt[1] / snap) * snap;
-
-                // Axis-lock z Shift: blokuj ruch do dominującej osi (X albo Y)
-                // względem pozycji startowej drag-a. Tolerancja 1cm: poniżej tego
-                // pomijamy lock, żeby drobne ruchy nie skakały.
-                if (e.shiftKey && state.dragStartCm) {
-                    var _dx = sx - state.dragStartCm[0];
-                    var _dy = sy - state.dragStartCm[1];
-                    if (Math.abs(_dx) >= 1 || Math.abs(_dy) >= 1) {
-                        if (Math.abs(_dx) >= Math.abs(_dy)) {
-                            sy = state.dragStartCm[1];
-                        } else {
-                            sx = state.dragStartCm[0];
-                        }
-                    }
-                }
-
-                if (state.shapeType === 'circle') {
-                    _handleEllipseVertexDrag(sx, sy);
-                } else if (typeof state.dragVertex === 'object' && state.dragVertex.kind === 'hole') {
-                    var dv = state.dragVertex;
-                    var prevPos = state.holes[dv.hi][dv.hj];
-                    state.holes[dv.hi][dv.hj] = [_round(sx), _round(sy)];
-                    var thisHole = state.holes[dv.hi];
-                    var valid = ShapeGeometry.holeInsideOuter(thisHole, state.vertices)
-                        && !ShapeGeometry.ringSelfIntersects(thisHole);
-                    if (valid) {
-                        for (var oh = 0; oh < state.holes.length; oh++) {
-                            if (oh === dv.hi) continue;
-                            if (ShapeGeometry.ringsIntersect(thisHole, state.holes[oh])) {
-                                valid = false;
-                                break;
-                            }
-                        }
-                    }
-                    if (!valid) {
-                        state.holes[dv.hi][dv.hj] = prevPos;
-                    }
-                } else {
-                    state.vertices[state.dragVertex] = [_round(sx), _round(sy)];
-                    _convertToPolygonIfNeeded();
-                }
-                _emitChange();
-                render();
-                return;
-            }
-
+        _on(canvasElement, 'mousemove', function(e) {
+            var p = _pointer(e);
             if (state.isPanning) {
-                state.offsetX = mx - state.panStartX;
-                state.offsetY = (state.height - my) - state.panStartY;
+                state.offsetX = p.px - state.panStartX;
+                state.offsetY = (state.height - p.py) - state.panStartY;
                 render();
                 return;
             }
-
-            var vi = _findVertexAt(mx, my);
-            if (vi !== state.hoverVertex) {
-                state.hoverVertex = vi;
-                canvasElement.classList.toggle('hovering-vertex', vi >= 0);
-                render();
-            }
+            var tool = _activeToolObj();
+            var obsluzone = !!(tool && tool.onMove && tool.onMove(p) === true);
+            // Gdy narzędzie samo obsłużyło ruch (np. przeciąganie w A), podświetlenia nie ruszamy
+            if (!obsluzone && tool && tool.showsHandles) _updateHover(p);
         });
 
-        canvasElement.addEventListener('mouseup', function() {
-            if (state.rotateDrag) { _finishRotate(); return; }
-            if (_isVertexHit(state.dragVertex)) {
-                state.dragVertex = -1;
-                canvasElement.classList.remove('dragging-vertex');
-            }
+        _on(canvasElement, 'mouseup', function(e) {
+            var tool = _activeToolObj();
+            if (tool && tool.onUp) tool.onUp(_pointer(e));
             state.isPanning = false;
             canvasElement.style.cursor = '';
         });
 
-        canvasElement.addEventListener('mouseleave', function() {
-            if (state.rotateDrag) { _finishRotate(); }
+        _on(canvasElement, 'mouseleave', function() {
+            var tool = _activeToolObj();
+            if (tool && tool.onLeave) tool.onLeave();
             state.isPanning = false;
-            if (_isVertexHit(state.dragVertex)) {
-                state.dragVertex = -1;
-            }
-            canvasElement.classList.remove('dragging-vertex');
             canvasElement.style.cursor = '';
         });
 
-        canvasElement.addEventListener('contextmenu', function(e) {
-            e.preventDefault();
+        _on(canvasElement, 'contextmenu', function(e) { e.preventDefault(); });
+
+        _on(canvasElement, 'dblclick', function(e) {
+            var p = _pointer(e);
+            var tool = _activeToolObj();
+            if (tool && tool.onDblClick && tool.onDblClick(p) === true) return;
+            _editDimensionAt(p.px, p.py);
         });
 
-        // ============================================
-        // DBLCLICK: INLINE EDIT WYMIARU
-        // ============================================
-
-        canvasElement.addEventListener('dblclick', function(e) {
-            var rect = canvasElement.getBoundingClientRect();
-            var mx = e.clientX - rect.left;
-            var my = e.clientY - rect.top;
-
-            // Szukaj wymiaru w pobliżu kliknięcia
-            var hitRadius = 25;
-            var hit = null;
-            for (var di = 0; di < dimensionHitAreas.length; di++) {
-                var d = dimensionHitAreas[di];
-                if (Math.hypot(mx - d.x, my - d.y) < hitRadius) {
-                    hit = d;
-                    break;
-                }
+        canvasElement.setAttribute('tabindex', '0');
+        canvasElement.style.outline = 'none';
+        _on(canvasElement, 'keydown', function(e) {
+            var tool = _activeToolObj();
+            if (tool && tool.onKey && tool.onKey(e) === true) {
+                // Obsłużone przez narzędzie (np. Esc) — nie zamykaj trybu pełnoekranowego
+                e.preventDefault();
+                e.stopPropagation();
+                return;
             }
-            if (!hit) return;
+            var isCtrl = e.ctrlKey || e.metaKey;
+            var z = (e.key === 'z' || e.key === 'Z');
+            if (isCtrl && z && !e.shiftKey) { e.preventDefault(); undo(); }
+            else if (isCtrl && z && e.shiftKey) { e.preventDefault(); redo(); }
+        });
 
-            // Utwórz inline input nad canvasem
+        // Pole do wpisania wartości nad canvasem (wymiar boku, odległość, wymiar narożnika)
+        function _openInlineInput(px, py, value, onApply, opts) {
+            var o = opts || {};
             var wrapper = canvasElement.parentElement;
             var input = document.createElement('input');
             input.type = 'number';
-            input.step = '0.1';
-            input.min = '0.1';
-            input.value = Math.round(hit.length * 10) / 10;
-            input.style.cssText = 'position:absolute;left:' + (hit.x - 35) + 'px;top:' + (hit.y - 12) + 'px;' +
+            input.step = o.step || '0.1';
+            input.min = (o.min != null) ? String(o.min) : '0.1';
+            if (o.max != null) input.max = String(o.max);
+            input.value = value;
+            input.style.cssText = 'position:absolute;left:' + (px - 35) + 'px;top:' + (py - 12) + 'px;' +
                 'width:70px;height:24px;font-size:12px;text-align:center;border:2px solid #e67e22;' +
                 'border-radius:4px;background:#1a1a2e;color:#e67e22;outline:none;z-index:10;font-weight:bold;';
             wrapper.appendChild(input);
             input.focus();
             input.select();
-
-            var edgeIdx = hit.edgeIndex;
-
-            function applyValue() {
-                var newLen = parseFloat(input.value);
-                if (!isNaN(newLen) && newLen > 0 && state.vertices) {
-                    var vi = edgeIdx;
-                    var vj = (edgeIdx + 1) % state.vertices.length;
-                    var oldDx = state.vertices[vj][0] - state.vertices[vi][0];
-                    var oldDy = state.vertices[vj][1] - state.vertices[vi][1];
-                    var oldLen = Math.sqrt(oldDx * oldDx + oldDy * oldDy);
-                    if (oldLen > 0.01) {
-                        _pushUndo();
-                        var scale = newLen / oldLen;
-                        state.vertices[vj][0] = state.vertices[vi][0] + oldDx * scale;
-                        state.vertices[vj][1] = state.vertices[vi][1] + oldDy * scale;
-                        _convertToPolygonIfNeeded();
-                        _emitChange();
-                        render();
-                    }
-                }
+            var zamkniete = false;
+            // oddajFokus: tylko przy zamknięciu klawiszem (Enter/Esc) wracamy fokusem na canvas,
+            // żeby skróty działały dalej. Przy blur NIE — użytkownik kliknął gdzie indziej
+            // (np. w inne pole formularza) i tam ma zostać fokus.
+            function zamknij(zastosuj, oddajFokus) {
+                if (zamkniete) return;
+                zamkniete = true;
+                var v = parseFloat(input.value);
                 if (input.parentNode) input.parentNode.removeChild(input);
+                if (zastosuj && !isNaN(v)) onApply(v);
+                if (oddajFokus) canvasElement.focus();
             }
-
-            input.addEventListener('blur', applyValue);
+            input.addEventListener('blur', function() { zamknij(true, false); });
             input.addEventListener('keydown', function(ev) {
-                if (ev.key === 'Enter') { ev.preventDefault(); input.blur(); }
-                if (ev.key === 'Escape') { if (input.parentNode) input.parentNode.removeChild(input); }
+                ev.stopPropagation();   // Esc nie zamyka trybu pełnoekranowego, litery nie przełączają narzędzi
+                if (ev.key === 'Enter') { ev.preventDefault(); zamknij(true, true); }
+                if (ev.key === 'Escape') { ev.preventDefault(); zamknij(false, true); }
             });
-        });
-
-        // ============================================
-        // SKRÓTY KLAWISZOWE (Ctrl+Z, Ctrl+Shift+Z)
-        // ============================================
-
-        canvasElement.setAttribute('tabindex', '0');
-        canvasElement.style.outline = 'none';
-        canvasElement.addEventListener('keydown', function(e) {
-            var isCtrl = e.ctrlKey || e.metaKey;
-            if (isCtrl && e.key === 'z' && !e.shiftKey) {
-                e.preventDefault();
-                undo();
-            } else if (isCtrl && e.key === 'z' && e.shiftKey) {
-                e.preventDefault();
-                redo();
-            } else if (e.key === 'Enter' && state.activeHole && state.activeHole.length >= 3) {
-                e.preventDefault();
-                _commitActiveHole();
-            } else if (e.key === 'Escape' && state.activeHole) {
-                e.preventDefault();
-                state.activeHole = null;
-                state.hoverHoleStart = false;
-                render();
-            }
-        });
-
-        // Focus canvas po kliknięciu żeby skróty działały
-        canvasElement.addEventListener('mousedown', function() {
-            canvasElement.focus();
-        }, true);
-
-        // ============================================
-        // VERTEX / EDGE HIT TESTING
-        // ============================================
-
-        function _isVertexHit(hit) {
-            return (typeof hit === 'number' && hit >= 0) || (hit && typeof hit === 'object' && hit.kind === 'hole');
         }
+
+        // Dwuklik na wymiarze boku obrysu — wpisanie nowej długości.
+        // Prostokąt zostaje prostokątem: bok poziomy zmienia długość, pionowy szerokość, a nowy
+        // wymiar idzie przez setOuterParams i emisję do pól formularza (jak zmiana pola wymiaru).
+        // Wielokąt: przesuwamy drugi koniec boku, wierzchołek zaokrąglony do 0,1 cm przed walidacją.
+        // Ta sama wartość co na etykiecie nic nie zmienia (bez wpisu historii).
+        function _editDimensionAt(mx, my) {
+            var hit = null;
+            for (var di = 0; di < dimensionHitAreas.length; di++) {
+                var d = dimensionHitAreas[di];
+                if (Math.hypot(mx - d.x, my - d.y) < 25) { hit = d; break; }
+            }
+            if (!hit) return;
+            var edgeIdx = hit.edgeIndex;
+            var pokazana = Math.round(hit.length * 10) / 10;
+            _openInlineInput(hit.x, hit.y, pokazana, function(newLen) {
+                if (!(newLen > 0) || !state.vertices) return;
+                if (Math.abs(newLen - pokazana) < 1e-9) return;
+                var vi = edgeIdx, vj = (edgeIdx + 1) % state.vertices.length;
+                var oldDx = state.vertices[vj][0] - state.vertices[vi][0];
+                var oldDy = state.vertices[vj][1] - state.vertices[vi][1];
+                var oldLen = Math.sqrt(oldDx * oldDx + oldDy * oldDy);
+                if (oldLen <= 0.01) return;
+                if (state.shapeType === 'rectangular') {
+                    var b = _outerBounds();
+                    if (!b) return;
+                    var wymiary = { length: b.maxX - b.minX, width: b.maxY - b.minY };
+                    wymiary[Math.abs(oldDx) >= Math.abs(oldDy) ? 'length' : 'width'] = newLen;
+                    _pushUndo();
+                    setOuterParams(wymiary);
+                    _emitChange();
+                    render();
+                    return;
+                }
+                var skala = newLen / oldLen;
+                var nowy = [_round(state.vertices[vi][0] + oldDx * skala), _round(state.vertices[vi][1] + oldDy * skala)];
+                if (nowy[0] === state.vertices[vj][0] && nowy[1] === state.vertices[vj][1]) return;
+                _pushUndo();
+                state.vertices[vj] = nowy;
+                _convertToPolygonIfNeeded();
+                _emitChange();
+                render();
+            });
+        }
+
+        // ============================================
+        // TRAFIENIA (punkty, boki, wycięcia)
+        // ============================================
 
         function _findVertexAt(px, py) {
             var hitR = 12;
             if (state.shapeType === 'circle') {
-                var p = state.params;
-                var d = p.diameter || 0;
+                var d = state.params.diameter || 0;
                 var hPt = cmToPixel(d, d / 2);
-                if (Math.hypot(px - hPt[0], py - hPt[1]) < hitR) return 0;
-                return -1;
-            }
-            if (state.vertices) {
+                if (d > 0 && Math.hypot(px - hPt[0], py - hPt[1]) < hitR) return 0;
+            } else if (state.vertices) {
                 for (var i = 0; i < state.vertices.length; i++) {
                     var vPt = cmToPixel(state.vertices[i][0], state.vertices[i][1]);
                     if (Math.hypot(px - vPt[0], py - vPt[1]) < hitR) return i;
                 }
             }
-            // Hole vertices
-            for (var hi = 0; hi < state.holes.length; hi++) {
-                for (var hj = 0; hj < state.holes[hi].length; hj++) {
-                    var hPtT = cmToPixel(state.holes[hi][hj][0], state.holes[hi][hj][1]);
-                    if (Math.hypot(px - hPtT[0], py - hPtT[1]) < hitR) {
-                        return { kind: 'hole', hi: hi, hj: hj };
-                    }
+            for (var ci = 0; ci < state.cutouts.length; ci++) {
+                var c = state.cutouts[ci];
+                if (c.type !== 'polygon') continue;
+                for (var pj = 0; pj < c.points.length; pj++) {
+                    var p = cmToPixel(c.points[pj][0], c.points[pj][1]);
+                    if (Math.hypot(px - p[0], py - p[1]) < hitR) return { kind: 'cutout', ci: ci, pj: pj };
                 }
             }
             return -1;
         }
 
-        function _findHoleEdgeAt(px, py) {
-            var hitDist = 8;
-            for (var hi = 0; hi < state.holes.length; hi++) {
-                var h = state.holes[hi];
-                if (!h || h.length < 3) continue;
-                for (var i = 0; i < h.length; i++) {
-                    var j = (i + 1) % h.length;
-                    var p1 = cmToPixel(h[i][0], h[i][1]);
-                    var p2 = cmToPixel(h[j][0], h[j][1]);
-                    var dist = _pointToSegmentDist(px, py, p1[0], p1[1], p2[0], p2[1]);
-                    if (dist < hitDist) return { holeIdx: hi, edgeIdx: i };
+        function _findCutoutEdgeAt(px, py) {
+            for (var ci = 0; ci < state.cutouts.length; ci++) {
+                var c = state.cutouts[ci];
+                if (c.type !== 'polygon') continue;
+                var n = c.points.length;
+                for (var i = 0; i < n; i++) {
+                    var a = cmToPixel(c.points[i][0], c.points[i][1]);
+                    var b = cmToPixel(c.points[(i + 1) % n][0], c.points[(i + 1) % n][1]);
+                    if (_pointToSegmentDist(px, py, a[0], a[1], b[0], b[1]) < 8) return { ci: ci, edgeIdx: i };
                 }
             }
             return null;
         }
 
-        function _commitActiveHole() {
-            if (!state.activeHole || state.activeHole.length < 3) {
-                state.activeHole = null;
-                state.hoverHoleStart = false;
-                render();
-                return;
+        // Indeks wycięcia pod punktem (cm); ostatnio dodane leży „na wierzchu”
+        function _findCutoutAt(cm) {
+            for (var ci = state.cutouts.length - 1; ci >= 0; ci--) {
+                if (ShapeGeometry.pointInPolygon(cm[0], cm[1], ShapeCutouts.ring(state.cutouts[ci]))) return ci;
             }
-            var newHole = state.activeHole;
-            if (ShapeGeometry.ringSelfIntersects(newHole)) {
-                _showHint('Wycięcie nie może przecinać samo siebie.');
-                return;
-            }
-            if (!ShapeGeometry.holeInsideOuter(newHole, state.vertices)) {
-                _showHint('Wycięcie musi mieścić się wewnątrz kształtu.');
-                return;
-            }
-            for (var i = 0; i < state.holes.length; i++) {
-                if (ShapeGeometry.ringsIntersect(newHole, state.holes[i])) {
-                    _showHint('Wycięcia nie mogą się przecinać.');
-                    return;
-                }
-            }
-            _pushUndo();
-            state.holes.push(newHole);
-            state.activeHole = null;
-            state.hoverHoleStart = false;
-            _emitChange();
-            render();
+            return -1;
         }
 
         function _showHint(msg) {
-            var form = canvasElement.closest('.quote-form');
-            var hintEl = form ? form.querySelector('[data-shape-hint]') : null;
+            // Podpowiedź szukamy w edytorze kształtu, nie w formularzu: w trybie pełnoekranowym
+            // cały edytor (z podpowiedzią) jest przeniesiony do okna poza .quote-form
+            var editorEl = canvasElement.closest('[data-shape-editor]');
+            var hintEl = editorEl ? editorEl.querySelector('[data-shape-hint]') : null;
             if (!hintEl) return;
-            var prev = hintEl.textContent;
-            var prevColor = hintEl.style.color;
+            // Tekst sprzed PIERWSZEJ podpowiedzi z serii. Kolejna podpowiedź w ciągu 3 s
+            // (np. przy przeciąganiu wycięcia poniżej 1 cm leci przy każdym ruchu myszy)
+            // zapamiętałaby jako „poprzedni” sam czerwony komunikat i ten zostałby na stałe.
+            if (!state._hintSaved) state._hintSaved = { el: hintEl, text: hintEl.textContent, color: hintEl.style.color };
             hintEl.textContent = msg;
             hintEl.style.color = '#dc2626';
             clearTimeout(state._hintTimeout);
-            state._hintTimeout = setTimeout(function() {
-                hintEl.textContent = prev;
-                hintEl.style.color = prevColor || '';
-            }, 3000);
+            state._hintTimeout = setTimeout(_restoreHint, 3000);
+        }
+
+        // Przywraca tekst i kolor podpowiedzi sprzed serii czerwonych komunikatów
+        // (po 3 s, a także przy destroy — inaczej czerwony komunikat zostałby na stałe)
+        function _restoreHint() {
+            var zapis = state._hintSaved;
+            state._hintSaved = null;
+            if (!zapis) return;
+            zapis.el.textContent = zapis.text;
+            zapis.el.style.color = zapis.color || '';
         }
 
         function _findEdgeAt(px, py) {
@@ -1508,18 +1335,6 @@ var ShapeCanvas = (function() {
         }
 
         // ============================================
-        // ELLIPSE DRAG
-        // ============================================
-
-        function _handleEllipseVertexDrag(cx, cy) {
-            if (state.shapeType === 'circle') {
-                state.params.diameter = Math.max(1, _round(cx));
-            } else {
-                state.params.axisA = Math.max(1, _round(cx));
-            }
-        }
-
-        // ============================================
         // UNDO / REDO
         // ============================================
 
@@ -1530,82 +1345,63 @@ var ShapeCanvas = (function() {
             state.onShapeTypeChange('polygon');
         }
 
-        /**
-         * Kończy gest obrotu: zaokrągla geometrię, przesuwa kształt z powrotem
-         * do początku układu i dolicza kąt. Wołane i z mouseup, i z mouseleave —
-         * inaczej wyjechanie kursorem poza canvas zostawiłoby gest w zawieszeniu.
-         * Gdy gest wrócił do delty 0 (np. Shift+snap cofnął się do startu),
-         * cofa pusty wpis w historii cofania i przywraca typ kształtu sprzed
-         * ewentualnej konwersji na wielokąt — bez tego kliknięcie, które
-         * przypadkiem wróciło do zera, zostawiałoby trapez trwale przemianowany.
-         */
-        function _finishRotate() {
-            if (!state.rotateDrag) return;
-            var rd = state.rotateDrag;
-            state.rotateDrag = null;
-            canvasElement.classList.remove('rotating-shape');
-            if (rd.deltaDeg !== 0) {
-                var pierscienie = ShapeGeometry.normalizeRings(
-                    [state.vertices].concat(state.holes));
-                state.vertices = pierscienie[0];
-                state.holes = pierscienie.slice(1);
-                state.rotation = ((state.rotation + rd.deltaDeg) % 360 + 360) % 360;
-                _emitChange();
-            } else if (rd.undoPushed) {
-                // Kursor wrócił do punktu startowego (albo Shift+snap zszedł
-                // z powrotem do zera) — wpis w historii cofania nie odpowiada
-                // żadnej realnej zmianie, więc go zdejmujemy, zamiast zostawiać
-                // pusty krok w undo. Geometria jest przy delcie 0 bit-identyczna
-                // z wyjściową, więc jeśli po drodze doszło do konwersji na
-                // wielokąt, przywracamy oryginalny typ — parametry (np. trapezu)
-                // nadal poprawnie opisują tę geometrię.
-                state.undoStack.pop();
-                if (state.shapeType !== rd.prevShapeType) {
-                    state.shapeType = rd.prevShapeType;
-                    state.onShapeTypeChange(state.shapeType);
-                }
-            }
-            render();
+        // Migawka niesie też typ kształtu: + i − na boku, A na wierzchołku i obrót zamieniają
+        // prostokąt (trójkąt, trapez…) w wielokąt, a cofnięcie ma przywrócić także typ
+        function _snapshot() {
+            return JSON.stringify({
+                vertices: state.vertices, corners: state.corners, cutouts: state.cutouts,
+                rotation: state.rotation, params: state.params, shapeType: state.shapeType
+            });
         }
 
-        function _pushUndo() {
-            state.undoStack.push(JSON.stringify({
-                vertices: state.vertices,
-                holes: state.holes,
-                rotation: state.rotation
-            }));
+        function _restoreSnapshot(json) {
+            var s = JSON.parse(json);
+            state.vertices = s.vertices;
+            state.corners = s.corners || [];
+            // Tolerancja na migawki sprzed wycięć-obiektów (holes jako pierścienie)
+            state.cutouts = s.cutouts ? ShapeCutouts.clone(s.cutouts) : ShapeCutouts.fromHoles(s.holes);
+            state.rotation = s.rotation || 0;
+            if (s.params) state.params = s.params;
+            state.selection = null;
+            // Typ na końcu: edytor dostaje go z już przywróconą geometrią
+            if (s.shapeType && s.shapeType !== state.shapeType) {
+                state.shapeType = s.shapeType;
+                state.onShapeTypeChange(s.shapeType);
+            }
+        }
+
+        function _pushUndoSnapshot(json) {
+            state.undoStack.push(json);
             if (state.undoStack.length > state.maxUndo) state.undoStack.shift();
             state.redoStack = [];
         }
 
+        function _pushUndo() { _pushUndoSnapshot(_snapshot()); }
+        function _popUndo() { state.undoStack.pop(); }
+
+        // Czy aktywne narzędzie jest w trakcie gestu (przeciąganie punktu w A, obrót w R,
+        // w zadaniu 6 przesuwanie/skalowanie wycięcia w V). Narzędzie zgłasza to metodą
+        // inGesture(). W trakcie gestu nie cofamy ani nie ponawiamy: gest trzyma odwołania
+        // do geometrii sprzed cofnięcia (indeks punktu, migawkę obrotu), więc drugi Ctrl+Z
+        // dawał TypeError albo zapis poza listą punktów. Dotyczy też przycisków ↩/↪ —
+        // edytor woła te same undo()/redo().
+        function _gestureInProgress() {
+            var t = _activeToolObj();
+            return !!(t && t.inGesture && t.inGesture());
+        }
+
         function undo() {
-            if (state.undoStack.length === 0) return;
-            state.redoStack.push(JSON.stringify({
-                vertices: state.vertices,
-                holes: state.holes,
-                rotation: state.rotation
-            }));
-            var prev = JSON.parse(state.undoStack.pop());
-            state.vertices = prev.vertices;
-            state.holes = prev.holes || [];
-            // Tolerancja na starsze wpisy sprzed dodania kąta do snapshotów.
-            state.rotation = prev.rotation || 0;
+            if (state.undoStack.length === 0 || _gestureInProgress()) return;
+            state.redoStack.push(_snapshot());
+            _restoreSnapshot(state.undoStack.pop());
             _emitChange();
             render();
         }
 
         function redo() {
-            if (state.redoStack.length === 0) return;
-            state.undoStack.push(JSON.stringify({
-                vertices: state.vertices,
-                holes: state.holes,
-                rotation: state.rotation
-            }));
-            var nxt = JSON.parse(state.redoStack.pop());
-            state.vertices = nxt.vertices;
-            state.holes = nxt.holes || [];
-            // Tolerancja na starsze wpisy sprzed dodania kąta do snapshotów.
-            state.rotation = nxt.rotation || 0;
+            if (state.redoStack.length === 0 || _gestureInProgress()) return;
+            state.undoStack.push(_snapshot());
+            _restoreSnapshot(state.redoStack.pop());
             _emitChange();
             render();
         }
@@ -1615,56 +1411,25 @@ var ShapeCanvas = (function() {
         // ============================================
 
         function fitToView() {
-            var bbox = ShapeGeometry.calculateBbox(state.shapeType, state.params, state.vertices);
-            if (bbox.width <= 0 || bbox.height <= 0) return;
-
-            // Policz klamerki (wierzchołki nie w rogach bbox)
-            var bracketCountX = 0, bracketCountY = 0;
-            var isSimple = (state.shapeType === 'rectangular' || state.shapeType === 'circle');
-            if (!isSimple && state.vertices) {
-                var bMinXc = state.vertices.reduce(function(m, v) { return Math.min(m, v[0]); }, Infinity);
-                var bMinYc = state.vertices.reduce(function(m, v) { return Math.min(m, v[1]); }, Infinity);
-                var bMaxXc = bMinXc + bbox.width;
-                var bMaxYc = bMinYc + bbox.height;
-                var tol = 0.3;
-                for (var fi = 0; fi < state.vertices.length; fi++) {
-                    var fvx = state.vertices[fi][0], fvy = state.vertices[fi][1];
-                    if (Math.abs(fvx - bMinXc) > tol && Math.abs(fvx - bMaxXc) > tol) bracketCountX++;
-                    if (Math.abs(fvy - bMinYc) > tol && Math.abs(fvy - bMaxYc) > tol) bracketCountY++;
-                }
-            }
-
-            // Dodatkowy margines na klamerki i wymiary (px)
+            var b = _outerBounds();
+            if (!b) { render(); return; }
+            var bw = b.maxX - b.minX, bh = b.maxY - b.minY;
+            if (bw <= 0 || bh <= 0) return;
+            var cnt = _bracketCounts(b);
             var bracketSpacing = 28;
-            var extraRight = isSimple ? 30 : (bracketCountY * bracketSpacing + 30);
-            var extraTop = isSimple ? 30 : (bracketCountX * bracketSpacing + 40);
-            var extraBottom = 60; // margines na wymiar dolny formatki
-            var extraLeft = 60; // margines na wymiar lewy formatki
-
-            // Oblicz skalę żeby kształt + marginesy zmieścił się w canvasie
+            var prosty = (state.shapeType === 'rectangular' || state.shapeType === 'circle') && cnt.x === 0 && cnt.y === 0;
+            var extraRight = prosty ? 30 : (cnt.y * bracketSpacing + 30);
+            var extraTop = prosty ? 30 : (cnt.x * bracketSpacing + 40);
+            var extraBottom = 60;   // margines na wymiar dolny formatki
+            var extraLeft = 60;     // margines na wymiar lewy formatki
             var availW = state.width - extraLeft - extraRight;
             var availH = state.height - extraTop - extraBottom;
-
-            state.scale = Math.min(availW / bbox.width, availH / bbox.height);
-            state.scale = Math.max(0.1, Math.min(100, state.scale));
-
-            var minX = 0, minY = 0;
-            if (state.vertices) {
-                minX = state.vertices.reduce(function(m, v) { return Math.min(m, v[0]); }, Infinity);
-                minY = state.vertices.reduce(function(m, v) { return Math.min(m, v[1]); }, Infinity);
-            }
-            var shapePixelW = bbox.width * state.scale;
-            var shapePixelH = bbox.height * state.scale;
-
-            // Centruj: kształt + klamerki jako całość
-            // Canvas Y jest odwrócony (cmToPixel: screenY = height - cmY*scale - offsetY)
-            // offsetX: pozycja lewej krawędzi kształtu
-            // offsetY: pozycja dolnej krawędzi kształtu (w odwróconym Y)
-            var totalW = shapePixelW + extraRight;
-            var totalH = shapePixelH + extraTop;
-            state.offsetX = (state.width - totalW) / 2 + extraLeft / 2 - minX * state.scale;
-            state.offsetY = (state.height - totalH) / 2 + extraBottom / 2 - minY * state.scale;
-
+            state.scale = Math.max(0.1, Math.min(100, Math.min(availW / bw, availH / bh)));
+            // Canvas Y odwrócony (cmToPixel: screenY = height - cmY*scale - offsetY)
+            var totalW = bw * state.scale + extraRight;
+            var totalH = bh * state.scale + extraTop;
+            state.offsetX = (state.width - totalW) / 2 + extraLeft / 2 - b.minX * state.scale;
+            state.offsetY = (state.height - totalH) / 2 + extraBottom / 2 - b.minY * state.scale;
             render();
         }
 
@@ -1672,38 +1437,114 @@ var ShapeCanvas = (function() {
         // PUBLIC API: SET SHAPE / PARAMS
         // ============================================
 
-        function setShape(shapeType, params, vertices, holes) {
+        function setShape(shapeType, params, vertices, cutouts, corners) {
+            var t = _activeToolObj();
+            if (t && t.reset) t.reset();   // bez dopisywania kąta ze starego gestu obrotu
             state.shapeType = shapeType;
             state.params = Object.assign({}, params);
             state.vertices = vertices ? vertices.map(function(v) { return [v[0], v[1]]; }) : null;
-            state.holes = holes ? holes.map(function(h) {
-                return h.map(function(v) { return [v[0], v[1]]; });
-            }) : [];
+            state.cutouts = (cutouts && cutouts.length && Array.isArray(cutouts[0]))
+                ? ShapeCutouts.fromHoles(cutouts)
+                : ShapeCutouts.clone(cutouts || []);
+            state.corners = state.vertices ? ShapeCorners.normalize(corners, state.vertices.length) : [];
             state.activeHole = null;
+            state.selection = null;
+            state.cornerLimitHit = null;
             state.rotation = 0;
             state.rotateDrag = null;
-            // Nie wołamy tu _finishRotate() — setShape wczytuje nowy kształt,
-            // więc dopisywanie kąta ze starego gestu byłoby błędem. Samą klasę
-            // trzeba jednak zdjąć ręcznie, żeby nie zostać z kursorem "grabbing"
-            // po wczytaniu kształtu w trakcie trwającego gestu obrotu.
             canvasElement.classList.remove('rotating-shape');
             state.undoStack = [];
             state.redoStack = [];
+            _afterGeometryEdit();
             fitToView();
         }
 
-        function getHoles() {
-            return state.holes.map(function(h) {
-                return h.map(function(v) { return [v[0], v[1]]; });
-            });
+        // Prostokąt/koło: wymiary z pól formularza. Wycięcia zostają w miejscu (od lewego
+        // dolnego rogu), narożniki są przycinane, złe wycięcia oznaczane. Bez emisji —
+        // edytor sam przelicza pola i krawędzie.
+        function setOuterParams(params) {
+            state.params = Object.assign({}, state.params, params);
+            if (state.shapeType === 'rectangular') {
+                var l = state.params.length, w = state.params.width;
+                state.vertices = (l > 0 && w > 0)
+                    ? ShapeGeometry.generateVertices('rectangular', { length: l, width: w })
+                    : null;
+            }
+            _afterGeometryEdit();
+            fitToView();
         }
 
-        function setHoles(holes) {
-            state.holes = holes ? holes.map(function(h) {
-                return h.map(function(v) { return [v[0], v[1]]; });
-            }) : [];
+        function getCutouts() { return ShapeCutouts.clone(state.cutouts); }
+
+        function setCutouts(list) {
+            state.cutouts = ShapeCutouts.clone(list || []);
             state.activeHole = null;
+            state.selection = null;
+            _afterGeometryEdit();
             render();
+        }
+
+        // Zgodność wstecz: pierścienie wycięć (pochodne)
+        function getHoles() { return ShapeCutouts.toHoles(state.cutouts); }
+        function setHoles(holes) { setCutouts(ShapeCutouts.fromHoles(holes)); }
+
+        function getCorners() { return state.corners.slice(); }
+
+        // Równe narożniki całego pierścienia (każdy róg ten sam typ i r_mm — tak działa tryb
+        // podstawowy krawędzi) przycinamy jednakowo do wspólnego limitu. Zwykłe przycinanie
+        // rogu po rogu dawało różne wymiary zależnie od kolejności (R300 na kwadracie 40×40 →
+        // 100/100/100/300 zamiast 4×200). Gdy rogi się różnią albo zażądano tylko części
+        // rogów, zostaje zwykłe przycinanie w _afterGeometryEdit.
+        function _wyrownajRowneNarozniki(pts, lista) {
+            if (!pts || !lista.length || lista.length !== pts.length || !lista[0]) return lista;
+            var wzor = lista[0];
+            for (var i = 1; i < lista.length; i++) {
+                if (!lista[i] || lista[i].type !== wzor.type || lista[i].r_mm !== wzor.r_mm) return lista;
+            }
+            var maks = ShapeCorners.maxUniformMm(pts, wzor.type);
+            if (maks >= wzor.r_mm) return lista;
+            return ShapeCorners.normalize(lista.map(function() { return { type: wzor.type, r_mm: maks }; }), lista.length);
+        }
+
+        // Narożniki z zewnątrz (moduł krawędzi): {outer: [...], cutouts: {indeks: [...]}}.
+        // Zwraca {changed, clamped} — clamped = coś przycięto do limitu geometrii.
+        function setAllCorners(spec) {
+            function stan() {
+                return JSON.stringify([state.corners, state.cutouts.map(function(c) { return c.corners || null; })]);
+            }
+            var przed = stan();
+            if (spec.outer && state.vertices) state.corners = ShapeCorners.normalize(spec.outer, state.vertices.length);
+            Object.keys(spec.cutouts || {}).forEach(function(k) {
+                var c = state.cutouts[Number(k)];
+                if (c && c.type === 'polygon') c.corners = ShapeCorners.normalize(spec.cutouts[k], c.points.length);
+            });
+            var zadane = stan();
+            if (spec.outer && state.vertices && state.shapeType !== 'circle') {
+                state.corners = _wyrownajRowneNarozniki(state.vertices, state.corners);
+            }
+            Object.keys(spec.cutouts || {}).forEach(function(k) {
+                var c = state.cutouts[Number(k)];
+                if (c && c.type === 'polygon') c.corners = _wyrownajRowneNarozniki(c.points, c.corners);
+            });
+            _afterGeometryEdit();
+            var po = stan();
+            render();
+            return { changed: po !== przed, clamped: po !== zadane };
+        }
+
+        function hasFeatures() {
+            return ShapeCorners.hasAny(state.corners) || state.cutouts.length > 0;
+        }
+
+        function getInvalidCutouts() { return state.invalidCutouts.slice(); }
+
+        // Limit wymiaru narożnika z geometrii; ringKey: 'outer' albo indeks wycięcia
+        function maxCornerMm(ringKey, index, type) {
+            if (ringKey === 'outer') {
+                return state.vertices ? ShapeCorners.maxCornerMm(state.vertices, state.corners, index, type) : 0;
+            }
+            var c = state.cutouts[ringKey];
+            return (c && c.type === 'polygon') ? ShapeCorners.maxCornerMm(c.points, c.corners, index, type) : 0;
         }
 
         function updateFromParams(params) {
@@ -1712,6 +1553,7 @@ var ShapeCanvas = (function() {
             if (config && config.hasVertices) {
                 state.vertices = ShapeGeometry.generateVertices(state.shapeType, params);
             }
+            _afterGeometryEdit();
             render();
         }
 
@@ -1731,11 +1573,12 @@ var ShapeCanvas = (function() {
         // ============================================
 
         function _emitChange() {
+            _afterGeometryEdit();
             if (state.vertices) {
                 var newParams = ShapeGeometry.extractParams(state.shapeType, state.vertices);
                 state.params = Object.assign({}, state.params, newParams);
             }
-            state.onParamsChange(state.params, state.vertices, state.holes);
+            state.onParamsChange(state.params, state.vertices, ShapeCutouts.clone(state.cutouts), state.corners.slice());
         }
 
         function _round(val) {
@@ -1751,53 +1594,35 @@ var ShapeCanvas = (function() {
                 console.warn('canvas2svg (C2S) not loaded — SVG export unavailable');
                 return '';
             }
-            var bbox = ShapeGeometry.calculateBbox(state.shapeType, state.params, state.vertices);
-            if (bbox.width <= 0 || bbox.height <= 0) return '';
+            var b = _outerBounds();
+            if (!b) return '';
+            var bw = b.maxX - b.minX, bh = b.maxY - b.minY;
+            if (bw <= 0 || bh <= 0) return '';
 
-            // Snapshot stanu view + visibility (SVG eksportujemy ZAWSZE w pełni —
-            // niezależnie od ustawień UI toggle eye)
+            // Snapshot stanu widoku + widoczności (SVG eksportujemy ZAWSZE w pełni)
             var saved = {
                 scale: state.scale, offsetX: state.offsetX, offsetY: state.offsetY,
                 width: state.width, height: state.height,
                 visibility: Object.assign({}, state.visibility)
             };
-            state.visibility = { dimensions: true, brackets: true, guides: true, angles: true, lamellas: true };
+            state.visibility = { dimensions: true, brackets: true, guides: true, angles: true, lamellas: true, corners: true };
 
-            // Policz marginesy potrzebne na klamerki i wymiary (px)
-            var bracketCountX = 0, bracketCountY = 0;
-            var isSimple = (state.shapeType === 'rectangular' || state.shapeType === 'circle');
-            if (!isSimple && state.vertices) {
-                var bMinXc = state.vertices.reduce(function(m, v) { return Math.min(m, v[0]); }, Infinity);
-                var bMinYc = state.vertices.reduce(function(m, v) { return Math.min(m, v[1]); }, Infinity);
-                var bMaxXc = bMinXc + bbox.width, bMaxYc = bMinYc + bbox.height;
-                var bTol = 0.3;
-                for (var fi = 0; fi < state.vertices.length; fi++) {
-                    var fvx = state.vertices[fi][0], fvy = state.vertices[fi][1];
-                    if (Math.abs(fvx - bMinXc) > bTol && Math.abs(fvx - bMaxXc) > bTol) bracketCountX++;
-                    if (Math.abs(fvy - bMinYc) > bTol && Math.abs(fvy - bMaxYc) > bTol) bracketCountY++;
-                }
-            }
+            var cnt = _bracketCounts(b);
             var bracketSpacing = 28;
-            var extraRight = isSimple ? 30 : (bracketCountY * bracketSpacing + 30);
-            var extraTop = isSimple ? 30 : (bracketCountX * bracketSpacing + 40);
+            var prosty = (state.shapeType === 'rectangular' || state.shapeType === 'circle') && cnt.x === 0 && cnt.y === 0;
+            var extraRight = prosty ? 30 : (cnt.y * bracketSpacing + 30);
+            var extraTop = prosty ? 30 : (cnt.x * bracketSpacing + 40);
             var extraBottom = 60;
             var extraLeft = 60;
 
-            // Policz scale tak, by content + marginesy zmieścił się w MAX wymiarach.
-            // SVG_W/H wyliczamy DYNAMICZNIE — ciasno otacza content (brak pustego zapasu).
             var MAX_W = 1200, MAX_H = 900;
-            var scaleW = (MAX_W - extraLeft - extraRight) / bbox.width;
-            var scaleH = (MAX_H - extraTop - extraBottom) / bbox.height;
-            state.scale = Math.min(scaleW, scaleH);
-            state.scale = Math.max(0.1, Math.min(100, state.scale));
+            var scaleW = (MAX_W - extraLeft - extraRight) / bw;
+            var scaleH = (MAX_H - extraTop - extraBottom) / bh;
+            state.scale = Math.max(0.1, Math.min(100, Math.min(scaleW, scaleH)));
 
-            var minX = 0, minY = 0;
-            if (state.vertices && state.vertices.length) {
-                minX = state.vertices.reduce(function(m, v) { return Math.min(m, v[0]); }, Infinity);
-                minY = state.vertices.reduce(function(m, v) { return Math.min(m, v[1]); }, Infinity);
-            }
-            var SVG_W = Math.ceil(bbox.width * state.scale + extraLeft + extraRight);
-            var SVG_H = Math.ceil(bbox.height * state.scale + extraTop + extraBottom);
+            var minX = b.minX, minY = b.minY;
+            var SVG_W = Math.ceil(bw * state.scale + extraLeft + extraRight);
+            var SVG_H = Math.ceil(bh * state.scale + extraTop + extraBottom);
             state.width = SVG_W;
             state.height = SVG_H;
             state.offsetX = extraLeft - minX * state.scale;
@@ -1839,10 +1664,53 @@ var ShapeCanvas = (function() {
 
 
         // ============================================
+        // NARZĘDZIA — wspólny kontekst dla shape-tools.js
+        // ============================================
+        var api = {
+            state: state,
+            canvas: canvasElement,
+            ctx: function() { return ctx; },
+            theme: function() { return COLOR_THEMES[state.colorTheme] || COLOR_THEMES.normal; },
+            cmToPixel: cmToPixel,
+            pixelToCm: pixelToCm,
+            render: render,
+            pushUndo: _pushUndo,
+            pushUndoSnapshot: _pushUndoSnapshot,
+            popUndo: _popUndo,
+            snapshot: _snapshot,
+            restoreSnapshot: _restoreSnapshot,   // gest, który wrócił do startu (A, R) — z typem kształtu
+            gestureInProgress: _gestureInProgress,   // narzędzie zgłasza gest przez inGesture()
+            emitChange: _emitChange,
+            showHint: _showHint,
+            round: _round,
+            snap: function(v) { var g = state.currentGridCm; return Math.round(v / g) * g; },
+            scaled: _scaled,
+            findVertexAt: _findVertexAt,
+            findEdgeAt: _findEdgeAt,
+            findCutoutEdgeAt: _findCutoutEdgeAt,
+            findCutoutAt: _findCutoutAt,
+            outerRing: _outerRing,
+            outerBounds: _outerBounds,
+            convertToPolygonIfNeeded: _convertToPolygonIfNeeded,
+            normalizeAfterRotate: _normalizeAfterRotate,
+            afterGeometryEdit: _afterGeometryEdit,
+            openInlineInput: _openInlineInput,
+            renderSingleDimension: _renderSingleDimension,
+            traceSegments: _traceSegments   // podkontur ze segmentów (cm) — podgląd wycięcia w L/M
+        };
+        tools = ShapeTools.create(api);
+        canvasElement.classList.add('tool-' + state.activeTool);
+
+        // ============================================
         // INIT
         // ============================================
 
-        var resizeObserver = new ResizeObserver(function() { resize(); fitToView(); });
+        // W trakcie gestu (przeciąganie, obrót) nie dopasowujemy widoku: zmiana skali i przesunięcia
+        // pod ręką zmieniłaby przeliczanie kursora na cm i punkt odskoczyłby od myszy
+        var resizeObserver = new ResizeObserver(function() {
+            resize();
+            if (!_gestureInProgress()) fitToView();
+        });
         resizeObserver.observe(canvasElement.parentElement);
         // Obserwuj też sekcję Produkt — zmiana inputów zmienia jej wysokość
         var form = canvasElement.closest('.quote-form');
@@ -1866,24 +1734,28 @@ var ShapeCanvas = (function() {
         }
 
         function setActiveTool(tool) {
-            if (tool !== 'cursor' && tool !== 'add' && tool !== 'remove' && tool !== 'rotate') return;
+            if (tool === 'cursor') tool = 'direct';   // stara nazwa kursora punktów
+            if (!tools || !tools[tool]) return;
+            // Wybór narzędzia, które już jest aktywne, nic nie zmienia: onDeactivate wyczyściłby
+            // zaznaczenie V (ramka znikałaby po kliknięciu własnego przycisku albo skrótu)
+            if (tool === state.activeTool) return;
+            var stary = tools[state.activeTool];
+            if (stary && stary.onDeactivate) stary.onDeactivate();
             state.activeTool = tool;
-            // Zmiana narzędzia w trakcie trwającego gestu obrotu (np. skrótem
-            // klawiszowym przy wciąż wciśniętym przycisku myszy) musi domknąć
-            // gest tak samo jak mouseup — inaczej geometria zostaje obrócona,
-            // a state.rotation (aktualizowane wyłącznie w _finishRotate) się z nią
-            // rozjeżdża, i canvas zostaje z namalowanym krzyżykiem/etykietą kąta
-            // aż do kolejnego render(). _finishRotate() jest no-opem, gdy gest
-            // nie trwa (rotateDrag === null).
-            _finishRotate();
-            canvasElement.classList.remove('tool-cursor', 'tool-add', 'tool-remove', 'tool-rotate', 'rotating-shape');
+            // Podświetlenie punktu nie przechodzi na nowe narzędzie (R nie ma uchwytów,
+            // a w +/− odświeży się przy pierwszym ruchu myszy)
+            state.hoverVertex = -1;
+            ShapeTools.IDS.concat(['cursor']).forEach(function(id) { canvasElement.classList.remove('tool-' + id); });
+            canvasElement.classList.remove('rotating-shape', 'dragging-vertex', 'hovering-vertex');
             canvasElement.classList.add('tool-' + tool);
-            // Anuluj activeHole przy zmianie narzędzia
-            if (state.activeHole) {
-                state.activeHole = null;
-                state.hoverHoleStart = false;
-                render();
-            }
+            if (tools[tool].onActivate) tools[tool].onActivate();
+            render();
+        }
+
+        function setCornerType(type) {
+            if (type !== 'round' && type !== 'chamfer') return;
+            state.cornerType = type;
+            render();
         }
 
         function getActiveTool() {
@@ -1903,11 +1775,20 @@ var ShapeCanvas = (function() {
 
         return {
             setShape: setShape,
+            setOuterParams: setOuterParams,
             updateFromParams: updateFromParams,
             getVertices: getVertices,
+            getParams: getParams,
+            getCutouts: getCutouts,
+            setCutouts: setCutouts,
             getHoles: getHoles,
             setHoles: setHoles,
-            getParams: getParams,
+            getCorners: getCorners,
+            setAllCorners: setAllCorners,
+            hasFeatures: hasFeatures,
+            getInvalidCutouts: getInvalidCutouts,
+            maxCornerMm: maxCornerMm,
+            showHint: _showHint,
             fitToView: fitToView,
             undo: undo,
             redo: redo,
@@ -1920,6 +1801,8 @@ var ShapeCanvas = (function() {
             setOutOfRangeDims: setOutOfRangeDims,
             setActiveTool: setActiveTool,
             getActiveTool: getActiveTool,
+            setCornerType: setCornerType,
+            getCornerType: function() { return state.cornerType; },
             setVisibility: setVisibility,
             getVisibility: getVisibility,
             getRotation: function() { return state.rotation; },
@@ -1927,7 +1810,14 @@ var ShapeCanvas = (function() {
                 var v = parseInt(deg, 10);
                 state.rotation = isNaN(v) ? 0 : ((v % 360) + 360) % 360;
             },
-            destroy: function() { resizeObserver.disconnect(); }
+            destroy: function() {
+                resizeObserver.disconnect();
+                clearTimeout(state._hintTimeout);
+                _restoreHint();
+                _nasluchy.forEach(function(n) { n[0].removeEventListener(n[1], n[2], n[3]); });
+                _nasluchy = [];
+                ShapeTools.IDS.concat(['cursor']).forEach(function(id) { canvasElement.classList.remove('tool-' + id); });
+            }
         };
     }
 

@@ -1158,6 +1158,8 @@ document.addEventListener('DOMContentLoaded', () => {
         };
         calculator.addEventListener('input', handleShippingChange, true);
         calculator.addEventListener('change', handleShippingChange, true);
+        // Zmiana rysunku kształtu (Canva) zmienia wymiary i wagę bez zdarzenia input
+        calculator.addEventListener('shape:changed', handleShippingChange, true);
     }
 
     // Obserwuj dodawanie/usuwanie produktow (formularzy)
