@@ -7,13 +7,21 @@ zmienia się w rejestracji i uwierzytelnianiu urządzeń, i jak appka 1.9.0 ma z
 wyłącznie z tego dokumentu; projekt strony CRM:
 `docs/superpowers/specs/2026-10-12-urzadzenia-mobilne-zatwierdzanie-design.md`.
 
-**Stan dokumentu:** napisany przed kodem CRM. Odnośniki `ścieżka:linia` wskazują **stan przed** (`main` @
-`d1557b74`); po implementacji CRM dojdą odnośniki do nowego kodu, a przykłady JSON zostaną sprawdzone na żywym
-serwerze lokalnym. Do tego czasu kształt odpowiedzi z tego dokumentu jest wiążący dla obu stron.
+**Stan dokumentu:** po implementacji CRM (gałąź `feature/urzadzenia-zatwierdzanie` @ `bb090708`, jeszcze niewdrożona na
+`main`). Kształty odpowiedzi z sekcji 3, 6 i 7 sprawdzono z kodem i testami (`tests/test_urzadzenia_*.py`) — zgadzają
+się 1:1 i pozostają wiążące dla obu stron.
 
-Stan przed, w skrócie: `POST /api/mobile/register` (`modules/production/routers/mobile_api.py:201`) wydaje token
-każdemu `device_id`; uwierzytelnianie `modules/production/services/mobile_api_service.py:187` (`validate_token`) i
-`:413` (`require_device_token`); heartbeat `mobile_api.py:1705`.
+Gdzie to stoi w kodzie CRM:
+
+- `POST /api/mobile/register` — `modules/production/routers/mobile_api.py:202` (`register`; cienka nakładka, 500
+  `registration_failed` przy nieoczekiwanym wyjątku). Logika, walidacja i maszyna stanów:
+  `modules/production/services/device_access_service.py:121` (`zarejestruj_albo_popros`).
+- Normalizacja MAC (`AA:BB:CC:DD:EE:FF`, odrzucanie atrap) — `device_access_service.py:45` (`normalizuj_mac`); MAC
+  zgłoszony przez urządzenie i `mac_conflict` — `:82` (`zapisz_zgloszony_mac`); zmiana statusu urządzenia
+  (jedyne miejsce) — `:60` (`ustaw_status`).
+- Uwierzytelnianie — `modules/production/services/mobile_api_service.py:197` (`validate_token`) i `:186`
+  (`BladTokenu` z polem `reason`); odpowiedź 401 składa `:407` (`require_device_token`).
+- Heartbeat — `mobile_api.py:1676` (`device_heartbeat`, MAC przez `normalizuj_mac` i `zapisz_zgloszony_mac`).
 
 ---
 
@@ -64,6 +72,10 @@ Bez JWT (jak dziś). Nagłówek `X-App-Version` jak dziś (panel pokazuje wersj�
 | `device_name` | nie | ≤ 128 znaków; dla **zatwierdzonego** urządzenia serwer go **ignoruje** (nazwę nadaje admin) |
 | `mac_address` | tak dla nowego / oczekującego `device_id` | dla zatwierdzonego opcjonalny (stara appka go nie ma) |
 | `device_model` | nie | `Build.MODEL`, ≤ 64 znaki |
+
+Wartości nie-tekstowe w polach tekstowych (np. `device_id: 123`) i body niebędące obiektem JSON dają 400 `missing_fields`, a
+`mac_address` nie-tekstowy albo w złym formacie — 400 `mac_invalid` (nigdy 500). Pusty `mac_address` (`null`, `""`)
+jest traktowany jak brak.
 
 ### 3.2 Odpowiedzi
 

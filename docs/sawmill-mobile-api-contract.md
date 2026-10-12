@@ -491,7 +491,6 @@ dostanie za niego odpowiedzi innej niż `409` albo `5xx`.**
 |---|---|---|---|
 | 401 | `missing_token` | brak nagłówka `Authorization: Bearer ...` | Ponowna rejestracja urządzenia (sekcja 3.1) |
 | 401 | `invalid_token` | token wygasł / podpis zły / urządzenie zablokowane (`detail` z powodem) | Ponowna rejestracja urządzenia |
-| 403 | `ip_not_allowed` | IP tabletu poza whitelistą (jeśli włączona po stronie serwera) | Pokaż komunikat, brak retry — problem sieci/konfiguracji, nie appki |
 | 403 | `station_mismatch` (+ `device_station`, `required_station`) | token zarejestrowany dla innego `station_code` niż `sawmill` | Pokaż komunikat „to urządzenie nie jest trakiem", nie ponawiaj |
 | 400 | `missing_operation_id` | brak (albo pusty) nagłówek `X-Operation-Id` na endpoincie mutującym | **Błąd w kliencie, nie w danych.** Wygeneruj identyfikator operacji, zapisz go razem z wpisem kolejki i wyślij ponownie — patrz sekcja 6 |
 | 404 | `order_not_found` | zlecenie o podanym `id` nie istnieje | Usuń z lokalnej listy, odśwież `GET /orders` |
@@ -509,6 +508,9 @@ kodów, tylko przyczyna inna (tam: zlecenie zamknięte; tu: awaria serwera).
 `400` (np. `missing_fields` przy rejestracji) różni się od powyższych — to błąd samego
 kształtu żądania (appka wysłała niekompletne dane), nie coś do retry z tym samym
 payloadem bez poprawki.
+
+API mobilne nie ma już whitelisty IP (kod `403 ip_not_allowed` został usunięty): dostęp urządzeń reguluje
+zatwierdzanie w CRM, patrz `docs/api-mobile-urzadzenia.md`.
 
 ---
 

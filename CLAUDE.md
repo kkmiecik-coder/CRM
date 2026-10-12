@@ -543,6 +543,20 @@ do 30 s przy niepełnym stole i do 5 min przy pełnym.
 zakleszczeń bez ponowienia, zero zdublowanych, nieaktualnych i niekompletnych kafli na stole. Jedyne 1213 (8 razy,
 każde z udanym ponowieniem) dały dwa „Wyślij” naraz na puste stoły różnych stanowisk (luka indeksu unikalnego stołu).
 Nazwy trybów i wyniki: spec priorytetów, sekcja 16.8.
+
+### Urządzenia mobilne — dostęp po zatwierdzeniu
+
+Od wydania z appką 1.9.0 (spec `docs/superpowers/specs/2026-10-12-urzadzenia-mobilne-zatwierdzanie-design.md`, kontrakt
+`docs/api-mobile-urzadzenia.md`) `POST /api/mobile/register` wydaje token tylko urządzeniu o statusie `zatwierdzone`.
+Nowe `device_id` zakłada prośbę (`oczekuje`, 202, MAC wymagany), zablokowane dostaje 403 i `register` go **nie**
+odblokowuje. `prod_devices.status` jest źródłem prawdy, `is_active` jego pochodną — oba zmienia wyłącznie
+`device_access_service.ustaw_status()`, a `validate_token` wymaga obu (blokada sprawdzana przed `token_version`, 401 ma
+pole `reason`; `detail` bez zmian, bo appka 1.8.2 na nim polega). MAC zgłasza appka (prośba, heartbeat) i nie jest
+sekretem — bramką jest zatwierdzenie w zakładce panelu produkcji „Urządzenia mobilne” (tylko admin; blueprint
+`devices_panel_bp` pod `/production/api/devices`; tam też wydania APK, dawniej Ustawienia → Aplikacja produkcja).
+Whitelisty IP API mobilnego nie ma (lista `STATION_ALLOWED_IPS` monitorów hali zostaje). **Krok ręczny po wydaniu
+1.9.0:** gdy każde używane urządzenie ma MAC — [Zablokuj urządzenia bez MAC] w zakładce, po przejrzeniu podglądu.
+
 ## Architecture
 
 ### Application Structure

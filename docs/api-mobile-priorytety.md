@@ -966,7 +966,7 @@ Statusy stanowisk (potrzebne do reguły `nie_na_stole` i do ukrywania przyciskó
 | 400 `worker_ids_required` | wszystkie | nie | zachować, wrócić na wybór profilu (bez zmian) |
 | 404 `worker_not_found`, 409 `worker_inactive` | wszystkie | nie | **zostawić** w kolejce i pokazać (katalog pracowników się odświeży, admin przywróci pracownika — `modules/production/routers/mobile_api.py:113-130`) |
 | 400 `missing_or_invalid_quantity_done` | licznik | nie | błąd appki: porzucić i zalogować |
-| 403 `ip_not_allowed` | wszystkie | nie | zostawić i pokazać (konfiguracja sieci serwera, `modules/production/services/mobile_api_service.py:425-428`) |
+| 403 `ip_not_allowed` | wszystkie | nie | nieaktualne: API mobilne nie ma już whitelisty IP (zastąpiło ją zatwierdzanie urządzeń, `docs/api-mobile-urzadzenia.md`), serwer tego kodu nie zwraca |
 | 422 `invalid_worker_ids` | wszystkie | **tak** | błąd trwały, nie ponawiać (sprawdzone na żywo: zapamiętany) (`modules/production/services/worker_service.py:452-470`) |
 | 403 `station_mismatch` | wszystkie | nie | zachować, nie ponawiać w pętli, pokazać błąd rejestracji (bez zmian) |
 | 404 `order_not_found` | ZAKOŃCZ, licznik, Odłóż | nie | pozycji nie ma w systemie (np. usunięta po zmianie w Base.): porzucić z komunikatem |
