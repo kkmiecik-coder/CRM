@@ -17,7 +17,7 @@ import pytest
 
 from extensions import db
 from modules.production.models import MobileAppRelease
-from modules.production.services.mobile_api_service import flaga_aktywacji
+from modules.production.services.mobile_api_service import flaga_aktywacji, stream_apk_response
 from modules.settings import settings_bp
 from modules.users.models import User
 from tests.urzadzenia_fixtures import BASE_PANELU as BASE, TABELE, Admin, aplikacja_panelu
@@ -81,6 +81,7 @@ def test_upload_z_zaznaczeniem_tworzy_aktywny_release(admin):
     resp = _wgraj(admin, 8, activate='1')
     assert resp.status_code == 201, resp.get_json()
     assert resp.get_json()['release']['is_active'] is True
+    assert MobileAppRelease.query.filter_by(version_code=8).one().is_active is True
     assert _wersja_dla_tabletu(admin) == 8
 
 
@@ -91,12 +92,27 @@ def test_nieaktywny_release_nadal_blokuje_ten_sam_version_code(admin):
     assert MobileAppRelease.query.count() == 1
 
 
-def test_przelacznik_aktywny(admin):
+def test_pobranie_apk_nieaktywnego_release_zwraca_404(app, admin):
+    assert _wgraj(admin, 10).status_code == 201
+
+    with app.test_request_context('/api/mobile/app/apk?version=10'):
+        odpowiedz, status = stream_apk_response(10)
+
+    assert status == 404
+    assert odpowiedz.get_json()['error'] == 'release_not_found'
+
+
+def test_przelacznik_aktywny(app, admin):
     _wgraj(admin, 10)
     release = MobileAppRelease.query.filter_by(version_code=10).one()
     resp = admin.patch(f'{BASE}/releases/{release.id}/active', json={'is_active': True})
     assert resp.status_code == 200 and resp.get_json()['release']['is_active'] is True
     assert _wersja_dla_tabletu(admin) == 10
+    # Po włączeniu plik APK jest już do pobrania.
+    with app.test_request_context('/api/mobile/app/apk?version=10'):
+        odpowiedz = stream_apk_response(10)
+        assert odpowiedz.status_code == 200
+        odpowiedz.close()
     assert admin.patch(f'{BASE}/releases/{release.id}/active', json={'is_active': 'tak'}).status_code == 400
     assert admin.patch(f'{BASE}/releases/999/active', json={'is_active': True}).status_code == 404
 

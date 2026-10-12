@@ -192,6 +192,7 @@ def release_upload():
     except ValueError as e:
         return jsonify({'success': False, 'error': str(e)}), 400
     except Exception as e:
+        db.session.rollback()
         logger.error('Urządzenia: upload APK nie powiódł się', extra={'error': str(e)})
         return jsonify({'success': False, 'error': KOMUNIKAT_BLAD_SERWERA}), 500
 
@@ -215,6 +216,7 @@ def release_toggle_active(release_id):
     except ValueError as e:
         return jsonify({'success': False, 'error': str(e)}), 404
     except Exception as e:
+        db.session.rollback()
         logger.error('Urządzenia: przełącznik release nie powiódł się', extra={'error': str(e)})
         return jsonify({'success': False, 'error': KOMUNIKAT_BLAD_SERWERA}), 500
     return jsonify({'success': True, 'release': {
