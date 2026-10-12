@@ -31,8 +31,11 @@ def _polecenia():
 def test_runner_rozpoznaje_nazwe_i_wykona_po_migracjach_priorytetow():
     assert SCIEZKA.exists(), "brak pliku migracji"
     assert MigrationService(db=None)._match(SCIEZKA.name) is not None
-    poprzednie = sorted(p.name for p in KATALOG_MIGRACJI.glob("2026-*.sql") if p.name != SCIEZKA.name)
-    assert SCIEZKA.name > poprzednie[-1]
+    # Wymóg dotyczy tylko migracji priorytetów (terminy muszą wejść po nich); późniejsze migracje innych funkcji
+    # (np. urządzeń) mają prawo być nowsze.
+    priorytetowe = sorted(p.name for p in KATALOG_MIGRACJI.glob("2026-*priorytety*.sql") if p.name != SCIEZKA.name)
+    assert priorytetowe
+    assert SCIEZKA.name > priorytetowe[-1]
 
 
 def test_nie_uzywa_delimiter():
