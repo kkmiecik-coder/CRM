@@ -10,7 +10,6 @@ produkcyjnym woła ją tylko `mark_order_complete` z tego modułu). Webowy handl
 `/production/api/complete-task` został usunięty razem z panelami webowymi stanowisk.
 """
 
-import ipaddress
 import json
 from datetime import datetime, time, timedelta, timezone
 from functools import wraps
@@ -184,11 +183,22 @@ def generate_token(device):
     return jwt.encode(payload, _get_jwt_secret(), algorithm='HS256')
 
 
+class BladTokenu(ValueError):
+    """
+    Odrzucenie tokenu urządzenia. `str()` to proza dla appki 1.8.2 (`decideTokenRecovery` dopasowuje „Token wygasł”
+    i „token_version”) — NIE ZMIENIAĆ; `reason` to pole maszynowe dla 1.9.0 (kontrakt api-mobile-urzadzenia.md, 7).
+    """
+
+    def __init__(self, detail, reason):
+        super().__init__(detail)
+        self.reason = reason
+
+
 def validate_token(token):
     """
-    Waliduje JWT. Zwraca (device, claims) lub rzuca ValueError.
+    Waliduje JWT. Zwraca (device, claims) lub rzuca BladTokenu (podklasa ValueError z polem `reason`).
 
-    Sprawdza: podpis, exp, istnienie i aktywność urządzenia, zgodność token_version.
+    Sprawdza: podpis, exp, istnienie urządzenia, jego status (zatwierdzone i aktywne), zgodność token_version.
     token_version w claimach musi być równy wartości w bazie — jeśli admin
     zbumpował token_version (np. po kradzieży tabletu), wszystkie stare JWT
     przestają działać natychmiast.
@@ -196,49 +206,25 @@ def validate_token(token):
     try:
         claims = jwt.decode(token, _get_jwt_secret(), algorithms=['HS256'])
     except jwt.ExpiredSignatureError:
-        raise ValueError('Token wygasł')
+        raise BladTokenu('Token wygasł', 'expired')
     except jwt.InvalidTokenError as e:
-        raise ValueError(f'Token nieprawidłowy: {e}')
+        raise BladTokenu(f'Token nieprawidłowy: {e}', 'invalid')
 
     device_id = claims.get('device_id')
     if not device_id:
-        raise ValueError('Token bez device_id')
+        raise BladTokenu('Token bez device_id', 'invalid')
 
     device = ProductionDevice.query.filter_by(device_id=device_id).first()
     if not device:
-        raise ValueError('Urządzenie nieznane')
-    if not device.is_active:
-        raise ValueError('Urządzenie zablokowane')
+        raise BladTokenu('Urządzenie nieznane', 'unknown_device')
+    # Blokada PRZED porównaniem token_version: zablokowanie podbija wersję, a odpowiedź ma brzmieć „zablokowane”,
+    # nie zapraszać appki do cichej re-rejestracji. Oba pola, bo stary kod po wycofaniu potrafi ustawić is_active=1.
+    if not device.is_active or device.status != ProductionDevice.STATUS_ZATWIERDZONE:
+        raise BladTokenu('Urządzenie zablokowane', 'blocked')
     if device.token_version != claims.get('token_version'):
-        raise ValueError('Token unieważniony (token_version mismatch)')
+        raise BladTokenu('Token unieważniony (token_version mismatch)', 'token_revoked')
 
     return device, claims
-
-
-# ============================================================================
-# IP WHITELIST (opcjonalny)
-# ============================================================================
-
-def _ip_in_whitelist(ip_str):
-    """True gdy IP jest w whitelist LUB whitelist jest wyłączony w configu."""
-    config = _get_config()
-    if not config.get('require_ip_whitelist', False):
-        return True
-    whitelist = config.get('ip_whitelist', []) or []
-    if not whitelist:
-        return True
-    try:
-        ip = ipaddress.ip_address(ip_str)
-    except (ValueError, TypeError):
-        return False
-    for cidr in whitelist:
-        try:
-            network = ipaddress.ip_network(cidr, strict=False)
-            if ip in network:
-                return True
-        except ValueError:
-            continue
-    return False
 
 
 def _version_too_old(actual, minimum):
@@ -420,20 +406,13 @@ def adres_ip_klienta():
 
 def require_device_token(f):
     """
-    Wymaga `Authorization: Bearer <JWT>`. Opcjonalnie sprawdza IP whitelist
-    i minimalną wersję appki z `X-App-Version`.
+    Wymaga `Authorization: Bearer <JWT>` i sprawdza minimalną wersję appki z `X-App-Version`.
 
     Po sukcesie wypełnia `g.device` i `g.claims`, touch'uje `last_seen_at`.
     """
     @wraps(f)
     def wrapper(*args, **kwargs):
-        ip = request.environ.get('HTTP_X_FORWARDED_FOR', request.remote_addr)
-        if ip and ',' in ip:
-            ip = ip.split(',')[0].strip()
-
-        if not _ip_in_whitelist(ip or ''):
-            logger.warning("Mobile API: IP poza whitelist", extra={'ip': ip})
-            return jsonify({'error': 'ip_not_allowed'}), 403
+        ip = adres_ip_klienta()
 
         auth_header = request.headers.get('Authorization', '')
         if not auth_header.startswith('Bearer '):
@@ -442,12 +421,13 @@ def require_device_token(f):
 
         try:
             device, claims = validate_token(token)
-        except ValueError as e:
+        except BladTokenu as e:
             logger.warning("Mobile API: token invalid", extra={
                 'ip': ip,
-                'error': str(e)
+                'error': str(e),
+                'reason': e.reason,
             })
-            return jsonify({'error': 'invalid_token', 'detail': str(e)}), 401
+            return jsonify({'error': 'invalid_token', 'detail': str(e), 'reason': e.reason}), 401
 
         app_version = request.headers.get('X-App-Version', '').strip()
         min_version = _get_config().get('min_supported_app_version', '0.0.0')

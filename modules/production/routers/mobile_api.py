@@ -1699,6 +1699,11 @@ def device_heartbeat():
     if ip_addr:
         device.last_ip = ip_addr
 
+    # MAC dosyłany przez appkę 1.9.0 (kontrakt, sekcja 6). Zły albo brakujący nie odrzuca heartbeatu.
+    mac = device_access_service.normalizuj_mac(payload.get('mac_address'))
+    if mac:
+        device_access_service.zapisz_zgloszony_mac(device, mac)
+
     try:
         db.session.commit()
     except Exception as e:
