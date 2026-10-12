@@ -97,3 +97,13 @@ def test_zablokuj_bez_mac(admin):
     d = urzadzenie('BEZ', mac=None)
     r = admin.post(BASE + '/zablokuj-bez-mac', json={'ids': [d.id]})
     assert r.get_json() == {'success': True, 'zablokowane': [d.id], 'pominiete': []}
+
+
+def test_zakladka_html(admin):
+    urzadzenie('TAJNE-URZ-ID-77', status='oczekuje', mac=MAC_A)
+    r = admin.get(BASE + '/tab-content')
+    assert r.status_code == 200
+    html = r.get_data(as_text=True)
+    for tekst in ('Prośby o dostęp', 'Urządzenia', 'Zablokowane', 'Wgraj nowy release', 'apkUploadForm', MAC_A):
+        assert tekst in html
+    assert 'TAJNE-URZ-ID-77' not in html   # device_id nie trafia do przeglądarki

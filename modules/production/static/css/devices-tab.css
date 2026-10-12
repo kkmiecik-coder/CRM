@@ -1,0 +1,201 @@
+/* Zakładka „Urządzenia mobilne” (spec 2026-10-12-urzadzenia-mobilne-zatwierdzanie-design.md, sekcja 5). */
+.urz-tab { padding: 20px; max-width: 1400px; }
+.urz-naglowek h2 { font-size: 1.4rem; margin-bottom: 4px; }
+.urz-naglowek p, .urz-opis { color: #6b7280; margin-bottom: 8px; }
+.urz-jak { margin-bottom: 16px; font-size: 0.9rem; }
+.urz-jak summary { cursor: pointer; color: #2563eb; }
+.urz-sekcja { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px 20px; margin-bottom: 20px; }
+.urz-sekcja h3 { font-size: 1.05rem; margin: 0 0 12px; }
+.urz-sekcja h4 { font-size: 0.95rem; margin: 16px 0 10px; }
+.urz-sekcja-naglowek { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.urz-licznik { display: inline-block; min-width: 24px; padding: 0 7px; border-radius: 12px; background: #e5e7eb;
+               text-align: center; font-size: 0.8rem; }
+.urz-prosba { display: grid; grid-template-columns: auto 1fr auto; gap: 16px; align-items: center; padding: 12px 14px;
+              border: 2px solid #f59e0b; border-radius: 8px; background: #fffbeb; margin-bottom: 10px; }
+.urz-mac, .urz-zatw-mac { font-family: 'JetBrains Mono', monospace; font-weight: 700; letter-spacing: 0.04em; }
+.urz-mac { font-size: 1.6rem; }
+.urz-zatw-mac { font-size: 1.4rem; }
+.urz-drobne { font-size: 0.8rem; color: #6b7280; }
+.urz-reinstalacja { margin-top: 4px; font-size: 0.85rem; color: #92400e; }
+.urz-akcje { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.urz-tabela code { font-family: 'JetBrains Mono', monospace; }
+.urz-szare { color: #9ca3af; font-style: italic; }
+.urz-konflikt { margin-top: 4px; font-size: 0.8rem; color: #b45309; }
+.urz-pusto { color: #9ca3af; margin: 0; }
+.urz-notatki { white-space: pre-wrap; font-size: 0.85rem; }
+.urz-zablokowane summary, #urz-zablokowane summary { cursor: pointer; }
+.urz-apk-formularz { padding: 16px; background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 8px; margin-bottom: 16px; }
+.urz-jak-dziala { margin-top: 16px; font-size: 0.85rem; color: #4b5563; }
+@media (max-width: 700px) {
+    .urz-tab { padding: 12px; }
+    .urz-prosba { grid-template-columns: 1fr; }
+    .urz-mac { font-size: 1.25rem; }
+    .urz-akcje { justify-content: flex-start; }
+}
+
+/* =============================================
+   APLIKACJA PRODUKCJA — formularz uploadu APK
+   ============================================= */
+
+#apkUploadForm .form-group {
+    margin-bottom: 18px;
+    /* Globalne .form-group (style.css) ma max-width: 400px — tu za ciasno. */
+    max-width: 640px;
+}
+
+/* versionCode i versionName obok siebie; na wąskim ekranie jedno pod drugim */
+#apkUploadForm .apk-form-row {
+    display: grid;
+    grid-template-columns: minmax(0, 200px) minmax(0, 1fr);
+    gap: 16px;
+    max-width: 640px;
+}
+
+#apkUploadForm .apk-form-row .form-group {
+    max-width: none;
+}
+
+/* Release notes: grupa bez limitu szerokości, żeby textarea dało się
+   rozciągnąć w poziomie aż do krawędzi sekcji */
+#apkUploadForm .apk-notes-group {
+    max-width: none;
+}
+
+#apkUploadForm label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: 500;
+    color: var(--text-primary, #1a1a2e);
+    font-size: 0.9rem;
+}
+
+#apkUploadForm .required {
+    color: #ef4444;
+}
+
+#apkUploadForm input[type="text"],
+#apkUploadForm input[type="number"],
+#apkUploadForm input[type="file"],
+#apkUploadForm textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 8px;
+    font-size: 0.9rem;
+    background: var(--bg-input, #ffffff);
+    font-family: inherit;
+    box-sizing: border-box;
+}
+
+#apkUploadForm textarea {
+    /* Szerokość startowa jak reszta pól; uchwyt rozciąga w obie strony,
+       max-width pilnuje, żeby nie wyjechać poza sekcję. */
+    width: 640px;
+    max-width: 100%;
+    min-width: 260px;
+    min-height: 110px;
+    resize: both;
+    line-height: 1.5;
+}
+
+#apkUploadForm .apk-activate-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 0;
+    padding: 10px 14px;
+    background: var(--bg-input, #ffffff);
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+#apkUploadForm .apk-activate-label input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    accent-color: var(--primary-color, #2563eb);
+    cursor: pointer;
+}
+
+#apkUploadForm .apk-activate-label:has(input:checked) {
+    border-color: var(--primary-color, #2563eb);
+    background: rgba(37, 99, 235, 0.06);
+}
+
+@media (max-width: 600px) {
+    #apkUploadForm .apk-form-row {
+        grid-template-columns: 1fr;
+        gap: 0;
+    }
+
+    #apkUploadForm textarea {
+        min-width: 0;
+    }
+}
+
+#apkUploadForm input[type="file"] {
+    padding: 8px 12px;
+    cursor: pointer;
+}
+
+#apkUploadForm input:focus,
+#apkUploadForm textarea:focus {
+    outline: none;
+    border-color: var(--primary-color, #2563eb);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+#apkUploadForm .form-hint {
+    display: block;
+    margin-top: 6px;
+    color: var(--text-muted, #9ca3af);
+    font-size: 0.8rem;
+}
+
+#apkUploadForm .form-actions {
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-color, #e5e7eb);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    justify-content: flex-start;
+}
+
+.apk-upload-progress {
+    margin: 8px 0 16px;
+    padding: 12px 14px;
+    background: #f8fafc;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 8px;
+}
+
+.apk-progress-bar-wrapper {
+    height: 10px;
+    background: #e5e7eb;
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.apk-progress-bar-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #2563eb, #3b82f6);
+    border-radius: 999px;
+    transition: width 0.15s linear;
+}
+
+.apk-progress-meta {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--text-muted, #6b7280);
+    font-variant-numeric: tabular-nums;
+}
+
+.apk-progress-meta span:first-child {
+    font-weight: 600;
+    color: var(--text-primary, #1a1a2e);
+}

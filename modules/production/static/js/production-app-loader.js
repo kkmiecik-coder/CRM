@@ -88,8 +88,9 @@ class ProductionApp {
         if (tabParam) {
             const tabName = tabParam.endsWith('-tab') ? tabParam : `${tabParam}-tab`;
             const validTabs = ['dashboard-tab', 'products-tab', 'stations-tab', 'archive-tab', 'logistics-tab',
-                               'sawmill-tab', 'reports-tab', 'workers-tab', 'config-tab'];
-            if (validTabs.includes(tabName)) {
+                               'sawmill-tab', 'reports-tab', 'workers-tab', 'devices-tab', 'config-tab'];
+            // Zakładka bez przycisku (np. Urządzenia dla nie-admina) nie może być celem z linku.
+            if (validTabs.includes(tabName) && document.getElementById(tabName)) {
                 return tabName;
             }
         }
@@ -281,6 +282,7 @@ class ProductionApp {
             case 'sawmill-tab': await this.loadSawmillTab(); break;
             case 'reports-tab': await this.loadReportsTab(); break;
             case 'workers-tab': await this.loadWorkersTab(); break;
+            case 'devices-tab': await this.loadDevicesTab(); break;
             case 'config-tab': await this.loadConfigTab(); break;
             default: throw new Error(`Unknown tab: ${normalizedTabName}`);
         }
@@ -505,6 +507,36 @@ class ProductionApp {
         } catch (error) {
             console.error('[ProductionApp] Workers loading failed:', error);
             this.showTabError('workers-tab', error.message);
+            throw error;
+        }
+    }
+
+    /**
+     * Zakładka „Urządzenia mobilne” (tylko admin). Jak Pracownicy: /production/api/devices/tab-content
+     * zwraca gotowy HTML, obsługa (prośby, blokady, upload APK, odświeżanie co 10 s) siedzi inline w szablonie.
+     */
+    async loadDevicesTab() {
+        console.log('[ProductionApp] Loading devices tab...');
+        try {
+            const response = await fetch('/production/api/devices/tab-content', {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            });
+            if (!response.ok) {
+                if (response.status === 403) {
+                    throw new Error('Zakładka tylko dla administratora');
+                }
+                throw new Error(`HTTP ${response.status}`);
+            }
+            const html = await response.text();
+            const container = document.getElementById('devices-tab-content');
+            if (container) {
+                container.innerHTML = html;
+                this.executeInlineScripts(container);
+            }
+            console.log('[ProductionApp] Devices tab loaded');
+        } catch (error) {
+            console.error('[ProductionApp] Devices loading failed:', error);
+            this.showTabError('devices-tab', error.message);
             throw error;
         }
     }

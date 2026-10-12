@@ -1,0 +1,517 @@
+<!-- devices-tab-content.html — zakładka „Urządzenia mobilne” (spec 2026-10-12-urzadzenia-mobilne-zatwierdzanie-design.md, sekcja 5) -->
+<div class="urz-tab" id="urz-root">
+
+    <div class="urz-naglowek">
+        <h2><i class="fas fa-tablet-alt me-2"></i>Urządzenia mobilne</h2>
+        <p>Tablety hali i telefony (Weryfikacja, kierowcy). Nowe urządzenie dostaje dostęp dopiero po zatwierdzeniu
+            prośby tutaj — działa wtedy z każdej sieci, także z LTE.</p>
+        <details class="urz-jak">
+            <summary>Jak dodać nowe urządzenie</summary>
+            <ol>
+                <li>Zainstaluj appkę na urządzeniu (Wi-Fi musi być choć raz włączone — appka czyta z niego adres MAC).</li>
+                <li>Na urządzeniu wybierz stanowisko, wpisz nazwę i wyślij prośbę.</li>
+                <li>Prośba pojawi się poniżej w ciągu kilku sekund. Porównaj MAC z ekranem urządzenia.</li>
+                <li>Kliknij „Zatwierdź” i nadaj nazwę — urządzenie wejdzie do pracy samo.</li>
+            </ol>
+        </details>
+    </div>
+
+    <section class="urz-sekcja urz-prosby">
+        <h3>Prośby o dostęp <span class="urz-licznik" id="urz-licznik-prosb">0</span></h3>
+        <div id="urz-prosby-lista"></div>
+    </section>
+
+    <section class="urz-sekcja">
+        <div class="urz-sekcja-naglowek">
+            <h3>Urządzenia</h3>
+            <button type="button" class="btn btn-outline-danger btn-sm" id="urz-bez-mac-btn">
+                <i class="fas fa-ban me-1"></i>Zablokuj urządzenia bez MAC
+            </button>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle urz-tabela">
+                <thead><tr>
+                    <th>Nazwa</th><th>Stanowisko</th><th>MAC</th><th>Model</th><th>Wersja</th>
+                    <th>Ostatnio</th><th>Zatwierdził</th><th></th>
+                </tr></thead>
+                <tbody id="urz-urzadzenia-lista"></tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="urz-sekcja">
+        <details id="urz-zablokowane">
+            <summary><h3 class="d-inline">Zablokowane (<span id="urz-licznik-zabl">0</span>)</h3></summary>
+            <div class="table-responsive mt-2">
+                <table class="table table-sm align-middle urz-tabela">
+                    <thead><tr><th>Nazwa</th><th>Stanowisko</th><th>MAC</th><th>Zablokowane</th><th></th></tr></thead>
+                    <tbody id="urz-zablokowane-lista"></tbody>
+                </table>
+            </div>
+        </details>
+    </section>
+
+    <section class="urz-sekcja urz-apk">
+        <h3><i class="fas fa-box-open me-2"></i>Aplikacja (APK)</h3>
+        <p class="urz-opis">Wgrana wersja jest domyślnie <strong>nieaktywna</strong> — urządzenia pobiorą ją dopiero po
+            włączeniu przełącznika „Aktywny” w historii (albo od razu, jeśli zaznaczysz „Aktywuj od razu”).
+            Urządzenia pytają <code>/api/mobile/app/version</code>.</p>
+
+        <div class="urz-apk-formularz">
+            <h4>Wgraj nowy release</h4>
+            <form id="apkUploadForm" enctype="multipart/form-data">
+                <div class="form-group">
+                    <label>Plik APK <span class="required">*</span></label>
+                    <input type="file" name="apk" id="apkFileInput" accept=".apk,application/vnd.android.package-archive" required>
+                    <small class="form-hint">version_code i version_name wpisz ręcznie z <code>build.gradle.kts</code>. version_code musi być wyższy od poprzedniego.</small>
+                </div>
+                <div class="apk-form-row">
+                    <div class="form-group">
+                        <label>versionCode <span class="required">*</span></label>
+                        <input type="number" name="version_code" min="1" step="1" placeholder="np. 47" required>
+                        <small class="form-hint">Liczba całkowita z <code>build.gradle.kts</code> (defaultConfig → versionCode).</small>
+                    </div>
+                    <div class="form-group">
+                        <label>versionName <span class="required">*</span></label>
+                        <input type="text" name="version_name" maxlength="32" placeholder="np. 1.9.0" required>
+                        <small class="form-hint">String z <code>build.gradle.kts</code> (defaultConfig → versionName), max 32 znaki.</small>
+                    </div>
+                </div>
+                <div class="form-group apk-notes-group">
+                    <label>Release notes (opcjonalnie)</label>
+                    <textarea name="release_notes" rows="6" placeholder="Co się zmieniło w tej wersji? Każda linia będzie widoczna na tablecie."></textarea>
+                    <small class="form-hint">Pole można rozciągać w pionie i w poziomie (uchwyt w prawym dolnym rogu).</small>
+                </div>
+                <div class="form-group apk-activate-group">
+                    <label class="apk-activate-label">
+                        <input type="checkbox" name="activate" value="1" id="apkActivateInput">
+                        <span>Aktywuj od razu (urządzenia pobiorą tę wersję)</span>
+                    </label>
+                    <small class="form-hint">Bez zaznaczenia release zostanie wgrany jako nieaktywny — włączysz go później przełącznikiem „Aktywny” w historii poniżej.</small>
+                </div>
+                <div class="apk-upload-progress" id="apkUploadProgress" style="display: none;">
+                    <div class="apk-progress-bar-wrapper"><div class="apk-progress-bar-fill" id="apkProgressFill"></div></div>
+                    <div class="apk-progress-meta">
+                        <span id="apkProgressPercent">0%</span>
+                        <span id="apkProgressBytes">0 / 0 MB</span>
+                        <span id="apkProgressEta">Pozostało: --:--</span>
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary" id="apkUploadBtn"><i class="fas fa-upload me-1"></i>Wgraj APK</button>
+                    <span id="apkUploadStatus"></span>
+                </div>
+            </form>
+        </div>
+
+        <h4>Historia release'ów</h4>
+        {% if wydania %}
+        <div class="table-responsive">
+            <table class="table table-sm align-middle urz-tabela">
+                <thead><tr>
+                    <th>Kod</th><th>Wersja</th><th>Urządzeń z tą wersją</th><th>Rozmiar</th><th>SHA-256</th>
+                    <th>Release notes</th><th>Wgrano</th><th>Aktywny</th>
+                </tr></thead>
+                <tbody>
+                {% for r in wydania %}
+                    <tr>
+                        <td><strong>{{ r.version_code }}</strong></td>
+                        <td>{{ r.version_name }}</td>
+                        <td>{{ r.urzadzen }}</td>
+                        <td>{{ "%.2f"|format(r.file_size_bytes / 1048576) }} MB</td>
+                        <td><code title="{{ r.sha256 }}">{{ r.sha256_short }}…</code></td>
+                        <td class="urz-notatki">{{ r.release_notes or '—' }}</td>
+                        <td class="urz-drobne">{{ r.uploaded_at[:16].replace('T', ' ') if r.uploaded_at else '—' }}</td>
+                        <td>
+                            <div class="form-check form-switch m-0">
+                                <input class="form-check-input release-active-toggle" type="checkbox" data-id="{{ r.id }}"
+                                       {% if r.is_active %}checked{% endif %}>
+                            </div>
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="urz-pusto">Brak release'ów. Wgraj pierwszy plik APK powyżej.</p>
+        {% endif %}
+
+        <div class="urz-jak-dziala">
+            <strong>Jak to działa:</strong>
+            <ul>
+                <li>Backend liczy SHA-256 pliku; versionCode i versionName podajesz w formularzu.</li>
+                <li>Urządzenia pytają <code>/api/mobile/app/version</code> i pobierają najnowszy <strong>aktywny</strong> release.</li>
+                <li>Wydanie na urządzenia = włącz przełącznik „Aktywny” (albo zaznacz „Aktywuj od razu” przy wgrywaniu).</li>
+                <li>Wyłączenie przełącznika powstrzymuje rozprzestrzenianie, ale <strong>nie cofa</strong> wersji już zainstalowanej — APK nie da się cofnąć, tylko wydać wyższą.</li>
+                <li>Przy więcej niż jednym aktywnym release'ie wybierany jest ten z najwyższym <code>version_code</code>.</li>
+            </ul>
+        </div>
+    </section>
+
+    <!-- Okno zatwierdzenia -->
+    <div class="modal fade" id="urz-modal-zatwierdz" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title">Zatwierdź urządzenie</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button></div>
+                <div class="modal-body">
+                    <p class="mb-1">MAC — porównaj z ekranem urządzenia:</p>
+                    <div class="urz-zatw-mac" id="urz-zatw-mac"></div>
+                    <label class="form-label mt-3" for="urz-zatw-nazwa">Nazwa urządzenia</label>
+                    <input type="text" class="form-control" id="urz-zatw-nazwa" maxlength="128" placeholder="np. Pakowanie 1">
+                    <div class="alert alert-warning mt-3 mb-0" id="urz-zatw-zastapi" style="display:none"></div>
+                    <div class="alert alert-danger mt-3 mb-0 d-none" id="urz-zatw-blad"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Anuluj</button>
+                    <button type="button" class="btn btn-success" id="urz-zatw-ok">Zatwierdź</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Okno blokady urządzeń bez MAC -->
+    <div class="modal fade" id="urz-modal-bez-mac" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title">Zablokuj urządzenia bez MAC</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button></div>
+                <div class="modal-body">
+                    <p>Te zatwierdzone urządzenia nie zgłosiły adresu MAC (appka sprzed 1.9.0 albo stary wpis testowy).
+                        Po blokadzie stracą dostęp przy najbliższym połączeniu:</p>
+                    <ul id="urz-bez-mac-lista"></ul>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Anuluj</button>
+                    <button type="button" class="btn btn-danger" id="urz-bez-mac-ok">Zablokuj</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    // Zakładka ładowana AJAX-em i wstrzykiwana przez innerHTML — skrypt odpala executeInlineScripts()
+    // z production-app-loader.js. Stan lokalny; jeden timer odświeżania na stronę (window.__urzadzeniaTimer).
+    const API = '/production/api/devices';
+    const ODSWIEZANIE_MS = 10000;
+    const root = document.getElementById('urz-root');
+    if (!root) return;
+    const app = window.ProductionApp;
+    let stan = {{ dane | tojson }};
+
+    function toast(msg, typ) {
+        if (app?.shared?.toastSystem) app.shared.toastSystem.show(msg, typ || 'info');
+        else alert(msg);
+    }
+    function esc(s) {
+        return String(s ?? '').replace(/[&<>"']/g,
+            c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+    }
+    function kiedy(iso) {
+        if (!iso) return '—';
+        const d = new Date(iso);
+        const s = Math.round((Date.now() - d.getTime()) / 1000);
+        if (s < 60) return 'przed chwilą';
+        if (s < 3600) return Math.floor(s / 60) + ' min temu';
+        if (s < 86400) return Math.floor(s / 3600) + ' godz. temu';
+        return d.toLocaleString('pl-PL', {dateStyle: 'short', timeStyle: 'short'});
+    }
+    async function wyslij(metoda, sciezka, cialo) {
+        const r = await fetch(API + sciezka, {
+            method: metoda,
+            headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
+            body: cialo === undefined ? undefined : JSON.stringify(cialo),
+        });
+        let dane = null;
+        try { dane = await r.json(); } catch (e) { /* pusta albo nie-JSON odpowiedź */ }
+        if (!r.ok || !dane || dane.success === false) {
+            throw new Error((dane && (dane.message || dane.error)) || ('HTTP ' + r.status));
+        }
+        return dane;
+    }
+
+    function wierszProsby(p) {
+        const toSamo = (p.to_samo_co || [])
+            .map(t => `to samo urządzenie co «${esc(t.nazwa)}» (${esc(t.status)})`).join('<br>');
+        return `<div class="urz-prosba" data-id="${p.id}">
+            <div class="urz-mac">${esc(p.mac)}</div>
+            <div>
+                <strong>${esc(p.nazwa || '(bez nazwy)')}</strong> · ${esc(p.stanowisko_nazwa)}
+                <div class="urz-drobne">${esc(p.model || 'model nieznany')} · appka ${esc(p.wersja || '?')}
+                    · IP ${esc(p.ip || '?')} · zgłoszono ${kiedy(p.zgloszono)}</div>
+                ${toSamo ? `<div class="urz-reinstalacja">${toSamo}</div>` : ''}
+            </div>
+            <div class="urz-akcje">
+                <button type="button" class="btn btn-success btn-sm" data-akcja="zatwierdz">Zatwierdź</button>
+                <button type="button" class="btn btn-outline-danger btn-sm" data-akcja="odrzuc">Odrzuć</button>
+            </div>
+        </div>`;
+    }
+    function wierszUrzadzenia(u) {
+        const mac = u.mac ? `<code>${esc(u.mac)}</code>` : '<span class="urz-szare">brak — appka sprzed 1.9.0</span>';
+        const konflikt = u.mac_conflict ? `<div class="urz-konflikt">MAC się zmienił: <code>${esc(u.mac_conflict)}</code>
+            <button type="button" class="btn btn-link btn-sm p-0" data-akcja="przyjmij-mac">Przyjmij nowy MAC</button></div>` : '';
+        return `<tr data-id="${u.id}">
+            <td><strong>${esc(u.nazwa || '(bez nazwy)')}</strong></td>
+            <td>${esc(u.stanowisko_nazwa)}</td>
+            <td>${mac}${konflikt}</td>
+            <td>${esc(u.model || '—')}</td>
+            <td>${esc(u.wersja || '—')}</td>
+            <td>${kiedy(u.ostatnio)}</td>
+            <td class="urz-drobne">${esc(u.zatwierdzil || '—')}${u.zatwierdzone ? '<br>' + kiedy(u.zatwierdzone) : ''}</td>
+            <td class="urz-akcje">
+                <button type="button" class="btn btn-outline-secondary btn-sm" data-akcja="nazwa">Zmień nazwę</button>
+                <button type="button" class="btn btn-outline-danger btn-sm" data-akcja="zablokuj">Zablokuj</button>
+            </td></tr>`;
+    }
+    function wierszZablokowanego(u) {
+        const przycisk = u.odrzucona
+            ? '<button type="button" class="btn btn-outline-success btn-sm" data-akcja="zatwierdz">Zatwierdź</button>'
+            : '<button type="button" class="btn btn-outline-success btn-sm" data-akcja="odblokuj">Odblokuj</button>';
+        return `<tr data-id="${u.id}">
+            <td><strong>${esc(u.nazwa || '(bez nazwy)')}</strong>
+                ${u.odrzucona ? '<span class="badge bg-secondary ms-1">odrzucona prośba</span>' : ''}</td>
+            <td>${esc(u.stanowisko_nazwa)}</td>
+            <td>${u.mac ? `<code>${esc(u.mac)}</code>` : '—'}</td>
+            <td>${kiedy(u.zablokowane)}</td>
+            <td class="urz-akcje">${przycisk}</td></tr>`;
+    }
+    function rysuj() {
+        document.getElementById('urz-prosby-lista').innerHTML = stan.prosby.length
+            ? stan.prosby.map(wierszProsby).join('') : '<p class="urz-pusto">Brak oczekujących próśb.</p>';
+        document.getElementById('urz-urzadzenia-lista').innerHTML = stan.urzadzenia.map(wierszUrzadzenia).join('')
+            || '<tr><td colspan="8" class="urz-pusto">Brak zatwierdzonych urządzeń.</td></tr>';
+        document.getElementById('urz-zablokowane-lista').innerHTML = stan.zablokowane.map(wierszZablokowanego).join('')
+            || '<tr><td colspan="5" class="urz-pusto">Brak.</td></tr>';
+        document.getElementById('urz-licznik-prosb').textContent = stan.prosby.length;
+        document.getElementById('urz-licznik-zabl').textContent = stan.zablokowane.length;
+        const znaczek = document.getElementById('devices-tab-badge');
+        if (znaczek) {
+            znaczek.textContent = stan.prosby.length;
+            znaczek.style.display = stan.prosby.length ? '' : 'none';
+        }
+    }
+    function znajdz(id) {
+        return [...stan.prosby, ...stan.urzadzenia, ...stan.zablokowane].find(u => u.id === id);
+    }
+    async function odswiez() {
+        try {
+            const dane = await wyslij('GET', '/lista');
+            stan = {prosby: dane.prosby, urzadzenia: dane.urzadzenia, zablokowane: dane.zablokowane};
+            rysuj();
+        } catch (e) {
+            console.warn('[Urządzenia] odświeżenie nie wyszło:', e.message);
+        }
+    }
+
+    // ── zatwierdzanie ──
+    const modalZatw = new bootstrap.Modal(document.getElementById('urz-modal-zatwierdz'));
+    let zatwierdzaneId = null;
+    function otworzZatwierdzenie(u) {
+        zatwierdzaneId = u.id;
+        document.getElementById('urz-zatw-mac').textContent = u.mac || '—';
+        document.getElementById('urz-zatw-nazwa').value = u.proponowana_nazwa || u.nazwa || '';
+        const zastapi = (u.to_samo_co || []).filter(t => t.status === 'zatwierdzone').map(t => '«' + t.nazwa + '»');
+        const ostrzezenie = document.getElementById('urz-zatw-zastapi');
+        ostrzezenie.textContent = zastapi.length ? 'Zatwierdzenie zablokuje: ' + zastapi.join(', ') : '';
+        ostrzezenie.style.display = zastapi.length ? '' : 'none';
+        document.getElementById('urz-zatw-blad').classList.add('d-none');
+        modalZatw.show();
+    }
+    document.getElementById('urz-zatw-ok').addEventListener('click', async () => {
+        const nazwa = document.getElementById('urz-zatw-nazwa').value.trim();
+        const blad = document.getElementById('urz-zatw-blad');
+        if (!nazwa) {
+            blad.textContent = 'Podaj nazwę urządzenia.';
+            blad.classList.remove('d-none');
+            return;
+        }
+        try {
+            await wyslij('POST', `/${zatwierdzaneId}/zatwierdz`, {nazwa});
+            modalZatw.hide();
+            toast('Urządzenie zatwierdzone — wejdzie do pracy w ciągu kilku sekund.', 'success');
+            await odswiez();
+        } catch (e) {
+            blad.textContent = e.message;
+            blad.classList.remove('d-none');
+        }
+    });
+
+    // ── pozostałe akcje (delegacja na korzeń zakładki) ──
+    root.addEventListener('click', async (ev) => {
+        const btn = ev.target.closest('[data-akcja]');
+        if (!btn) return;
+        const wiersz = btn.closest('[data-id]');
+        const u = wiersz ? znajdz(Number(wiersz.dataset.id)) : null;
+        if (!u) return;
+        try {
+            switch (btn.dataset.akcja) {
+                case 'zatwierdz':
+                    return otworzZatwierdzenie(u);
+                case 'odrzuc':
+                    if (!confirm(`Odrzucić prośbę urządzenia ${u.mac}?`)) return;
+                    await wyslij('POST', `/${u.id}/odrzuc`);
+                    break;
+                case 'zablokuj':
+                    if (!confirm(`Zablokować «${u.nazwa || u.mac || 'urządzenie'}»? Straci dostęp przy najbliższym połączeniu.`)) return;
+                    await wyslij('POST', `/${u.id}/zablokuj`);
+                    break;
+                case 'odblokuj':
+                    await wyslij('POST', `/${u.id}/odblokuj`);
+                    break;
+                case 'nazwa': {
+                    const nazwa = prompt('Nowa nazwa urządzenia:', u.nazwa || '');
+                    if (nazwa === null) return;
+                    await wyslij('PATCH', `/${u.id}/nazwa`, {nazwa});
+                    break;
+                }
+                case 'przyjmij-mac':
+                    if (!confirm(`Przyjąć nowy MAC ${u.mac_conflict} dla «${u.nazwa || 'urządzenia'}»?`)) return;
+                    await wyslij('POST', `/${u.id}/przyjmij-mac`);
+                    break;
+                default:
+                    return;
+            }
+            await odswiez();
+        } catch (e) {
+            toast(e.message, 'error');
+            await odswiez();
+        }
+    });
+
+    // ── blokada urządzeń bez MAC (najpierw podgląd) ──
+    const modalBezMac = new bootstrap.Modal(document.getElementById('urz-modal-bez-mac'));
+    let bezMacIds = [];
+    document.getElementById('urz-bez-mac-btn').addEventListener('click', async () => {
+        try {
+            const dane = await wyslij('GET', '/bez-mac');
+            bezMacIds = dane.urzadzenia.map(u => u.id);
+            document.getElementById('urz-bez-mac-lista').innerHTML = dane.urzadzenia.length
+                ? dane.urzadzenia.map(u => `<li><strong>${esc(u.nazwa || '(bez nazwy)')}</strong> · ${esc(u.stanowisko_nazwa)}
+                    · appka ${esc(u.wersja || '?')} · ostatnio ${kiedy(u.ostatnio)}</li>`).join('')
+                : '<li>Każde zatwierdzone urządzenie ma MAC — nie ma czego blokować.</li>';
+            document.getElementById('urz-bez-mac-ok').disabled = !bezMacIds.length;
+            modalBezMac.show();
+        } catch (e) {
+            toast(e.message, 'error');
+        }
+    });
+    document.getElementById('urz-bez-mac-ok').addEventListener('click', async () => {
+        try {
+            const wynik = await wyslij('POST', '/zablokuj-bez-mac', {ids: bezMacIds});
+            modalBezMac.hide();
+            toast(`Zablokowano: ${wynik.zablokowane.length}` + (wynik.pominiete.length
+                ? `, pominięto (dosłały MAC albo zmienił się stan): ${wynik.pominiete.length}` : ''), 'success');
+            await odswiez();
+        } catch (e) {
+            toast(e.message, 'error');
+        }
+    });
+
+    // ── APK: upload z paskiem postępu (przeniesione z modules/settings/static/js/settings.js) ──
+    const apkUploadForm = document.getElementById('apkUploadForm');
+    if (apkUploadForm) {
+        const statusEl = document.getElementById('apkUploadStatus');
+        const uploadBtn = document.getElementById('apkUploadBtn');
+        const progressBox = document.getElementById('apkUploadProgress');
+        const progressFill = document.getElementById('apkProgressFill');
+        const progressPercent = document.getElementById('apkProgressPercent');
+        const progressBytes = document.getElementById('apkProgressBytes');
+        const progressEta = document.getElementById('apkProgressEta');
+        const fmtMB = b => (b / 1048576).toFixed(2) + ' MB';
+        const fmtEta = sec => {
+            if (!isFinite(sec) || sec < 0) return '--:--';
+            return String(Math.floor(sec / 60)).padStart(2, '0') + ':' + String(Math.floor(sec % 60)).padStart(2, '0');
+        };
+        const blad = (tekst) => {
+            statusEl.textContent = tekst;
+            statusEl.style.color = '#dc3545';
+            progressBox.style.display = 'none';
+            uploadBtn.disabled = false;
+        };
+
+        apkUploadForm.addEventListener('submit', function (e) {
+            e.preventDefault();
+            const fileInput = document.getElementById('apkFileInput');
+            if (!fileInput.files || fileInput.files.length === 0) {
+                statusEl.textContent = 'Wybierz plik APK';
+                statusEl.style.color = '#dc3545';
+                return;
+            }
+            const formData = new FormData(apkUploadForm);
+            uploadBtn.disabled = true;
+            statusEl.textContent = '';
+            progressBox.style.display = 'block';
+            progressFill.style.width = '0%';
+            progressPercent.textContent = '0%';
+            progressBytes.textContent = '0 / 0 MB';
+            progressEta.textContent = 'Pozostało: --:--';
+
+            const xhr = new XMLHttpRequest();
+            const startTs = Date.now();
+            xhr.upload.addEventListener('progress', function (ev) {
+                if (!ev.lengthComputable) return;
+                const pct = (ev.loaded / ev.total) * 100;
+                progressFill.style.width = pct.toFixed(1) + '%';
+                progressPercent.textContent = pct.toFixed(1) + '%';
+                progressBytes.textContent = fmtMB(ev.loaded) + ' / ' + fmtMB(ev.total);
+                const elapsed = (Date.now() - startTs) / 1000;
+                if (elapsed > 0.5 && ev.loaded > 0) {
+                    progressEta.textContent = 'Pozostało: ' + fmtEta((ev.total - ev.loaded) / (ev.loaded / elapsed));
+                }
+            });
+            xhr.upload.addEventListener('loadend', function () {
+                progressEta.textContent = 'Przetwarzanie na serwerze…';
+            });
+            xhr.addEventListener('load', function () {
+                let data = null;
+                try { data = JSON.parse(xhr.responseText); } catch (err) { /* nie-JSON */ }
+                if (xhr.status >= 200 && xhr.status < 300 && data && data.success) {
+                    progressFill.style.width = '100%';
+                    progressPercent.textContent = '100%';
+                    progressEta.textContent = 'Gotowe';
+                    const stanRelease = data.release.is_active
+                        ? 'AKTYWNY — urządzenia pobiorą tę wersję'
+                        : 'NIEAKTYWNY — włącz przełącznik „Aktywny” w historii, gdy zechcesz wydać';
+                    statusEl.textContent = `OK — release v${data.release.version_code} (${data.release.version_name}) zarejestrowany, ${stanRelease}. Odświeżam…`;
+                    statusEl.style.color = '#28a745';
+                    // 3 s, żeby zdążyć przeczytać, czy release jest aktywny. Adres ma ?tab=devices — wracamy tutaj.
+                    setTimeout(() => window.location.reload(), 3000);
+                } else {
+                    blad('Błąd: ' + ((data && data.error) || ('HTTP ' + xhr.status)));
+                }
+            });
+            xhr.addEventListener('error', () => blad('Błąd połączenia'));
+            xhr.addEventListener('abort', () => blad('Upload przerwany'));
+            xhr.open('POST', API + '/releases');
+            xhr.send(formData);
+        });
+    }
+
+    root.addEventListener('change', async (ev) => {
+        const toggle = ev.target.closest('.release-active-toggle');
+        if (!toggle) return;
+        const nowy = toggle.checked;
+        try {
+            await wyslij('PATCH', `/releases/${toggle.dataset.id}/active`, {is_active: nowy});
+            toast(nowy ? 'Release aktywny — urządzenia go pobiorą.' : 'Release wyłączony.', 'success');
+        } catch (e) {
+            toast('Błąd: ' + e.message, 'error');
+            toggle.checked = !nowy;
+        }
+    });
+
+    // ── odświeżanie co 10 s, tylko gdy zakładka jest widoczna ──
+    if (window.__urzadzeniaTimer) clearInterval(window.__urzadzeniaTimer);
+    window.__urzadzeniaTimer = setInterval(() => {
+        const panel = document.getElementById('devices-tab-content');
+        if (document.hidden || !panel || !panel.classList.contains('active') || !document.getElementById('urz-root')) return;
+        odswiez();
+    }, ODSWIEZANIE_MS);
+
+    rysuj();
+})();
+</script>
