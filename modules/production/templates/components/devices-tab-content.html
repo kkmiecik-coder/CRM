@@ -364,8 +364,18 @@
         });
         let dane = null;
         try { dane = await r.json(); } catch (e) { /* pusta albo nie-JSON odpowiedź */ }
+        if (r.status === 401) {
+            // Sesja wygasła (straż logowania oddaje {"error": "unauthorized"} bez message): komunikat po polsku
+            // i koniec odpytywania co 10 s — wygasła sesja nie ma co męczyć serwera.
+            if (window.__urzadzeniaTimer) { clearInterval(window.__urzadzeniaTimer); window.__urzadzeniaTimer = null; }
+            throw new Error('Sesja wygasła — zaloguj się ponownie.');
+        }
+        if (r.status === 403) throw new Error('Brak uprawnień administratora.');
         if (!r.ok || !dane || dane.success === false) {
-            throw new Error((dane && (dane.message || dane.error)) || ('HTTP ' + r.status));
+            // Tekstem dla człowieka jest `message`. Endpointy wydań (PATCH …/active) opisują błąd w `error` zdaniem
+            // (ze spacją) — to też przechodzi; kod maszynowy bez spacji (np. „unauthorized”) nigdy nie trafia do okna.
+            const tekst = dane && (dane.message || (/\s/.test(dane.error || '') ? dane.error : ''));
+            throw new Error(tekst || ('Nie udało się wykonać operacji (HTTP ' + r.status + ').'));
         }
         return dane;
     }
@@ -697,7 +707,9 @@
                     // a wybraną podzakładkę („Aplikacja”) przywraca sessionStorage.
                     setTimeout(() => window.location.reload(), 3000);
                 } else {
-                    blad('Błąd: ' + ((data && data.error) || ('HTTP ' + xhr.status)));
+                    blad(xhr.status === 401 ? 'Sesja wygasła — zaloguj się ponownie.'
+                        : xhr.status === 403 ? 'Brak uprawnień administratora.'
+                        : 'Błąd: ' + ((data && (data.message || data.error)) || ('HTTP ' + xhr.status)));
                 }
             });
             xhr.addEventListener('error', () => blad('Błąd połączenia'));
