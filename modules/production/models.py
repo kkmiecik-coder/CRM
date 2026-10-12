@@ -1164,6 +1164,26 @@ class ProductionDevice(db.Model):
     last_worker_session_at = Column(DateTime, nullable=True,
                                     comment='Kiedy ostatnio ktoś zaczął tu sesję pracownika')
 
+    # Dostęp po zatwierdzeniu przez admina (spec 2026-10-12-urzadzenia-mobilne-zatwierdzanie-design.md, sekcja 3).
+    # `status` jest źródłem prawdy, `is_active` jego pochodną — oba zmienia wyłącznie
+    # device_access_service.ustaw_status(). Domyślne 'zatwierdzone' celowo: wiersz założony przez stary kod
+    # (po wycofaniu backendu) ma semantykę starego kodu, czyli dostęp.
+    STATUS_OCZEKUJE = 'oczekuje'
+    STATUS_ZATWIERDZONE = 'zatwierdzone'
+    STATUS_ZABLOKOWANE = 'zablokowane'
+    STATUSY = (STATUS_OCZEKUJE, STATUS_ZATWIERDZONE, STATUS_ZABLOKOWANE)
+
+    status = Column(String(16), nullable=False, default=STATUS_ZATWIERDZONE, server_default=STATUS_ZATWIERDZONE)
+    mac_address = Column(String(17), nullable=True, index=True,
+                         comment='MAC zgłoszony przez appkę, AA:BB:CC:DD:EE:FF; identyfikator, nie sekret')
+    mac_conflict = Column(String(17), nullable=True, comment='Później zgłoszony MAC różny od mac_address')
+    device_model = Column(String(64), nullable=True)
+    requested_at = Column(DateTime, nullable=True, comment='Ostatnie odświeżenie prośby o dostęp')
+    approved_at = Column(DateTime, nullable=True)
+    approved_by = Column(Integer, nullable=True, comment='users.id')
+    blocked_at = Column(DateTime, nullable=True)
+    blocked_by = Column(Integer, nullable=True, comment='users.id')
+
     # UWAGA NA KOLIZJĘ NAZWY: 'edges' to KOD STANOWISKA (dawne 'finishing').
     # W tym samym module żyją parsed_edges_groups i edges_groups — to dane
     # PRODUKTU (obróbka krawędzi), nie stanowisko. Żadnego sed po 'edges'.
