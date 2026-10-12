@@ -7,9 +7,10 @@ zmienia się w rejestracji i uwierzytelnianiu urządzeń, i jak appka 1.9.0 ma z
 wyłącznie z tego dokumentu; projekt strony CRM:
 `docs/superpowers/specs/2026-10-12-urzadzenia-mobilne-zatwierdzanie-design.md`.
 
-**Stan dokumentu:** po implementacji CRM (gałąź `feature/urzadzenia-zatwierdzanie` @ `bb090708`, jeszcze niewdrożona na
+**Stan dokumentu:** po implementacji CRM (gałąź `feature/urzadzenia-zatwierdzanie` @ `ab187c7f`, jeszcze niewdrożona na
 `main`). Kształty odpowiedzi z sekcji 3, 6 i 7 sprawdzono z kodem i testami (`tests/test_urzadzenia_*.py`) — zgadzają
-się 1:1 i pozostają wiążące dla obu stron.
+się 1:1 i pozostają wiążące dla obu stron. Sekcje 4a i 4b opisują zachowania appki wynikające z kodu 1.8.2
+(`AuthManager.clear()`, `SyncClassifier`) — to ustalenia po stronie appki, nie nowe końcówki.
 
 Gdzie to stoi w kodzie CRM:
 
@@ -73,9 +74,10 @@ Bez JWT (jak dziś). Nagłówek `X-App-Version` jak dziś (panel pokazuje wersj�
 | `mac_address` | tak dla nowego / oczekującego `device_id` | dla zatwierdzonego opcjonalny (stara appka go nie ma) |
 | `device_model` | nie | `Build.MODEL`, ≤ 64 znaki |
 
-Wartości nie-tekstowe w polach tekstowych (np. `device_id: 123`) i body niebędące obiektem JSON dają 400 `missing_fields`, a
-`mac_address` nie-tekstowy albo w złym formacie — 400 `mac_invalid` (nigdy 500). Pusty `mac_address` (`null`, `""`)
-jest traktowany jak brak.
+Nie-tekstowy `device_id` albo `station_code` (np. `device_id: 123`) i body niebędące obiektem JSON dają 400
+`missing_fields`; nie-tekstowe `device_name` i `device_model` są traktowane jak puste (bez błędu). `mac_address`
+nie-tekstowy, złożony z samych spacji albo w złym formacie daje 400 `mac_invalid` (nigdy 500); tylko `null` i `""` są
+traktowane jak brak MAC-u.
 
 ### 3.2 Odpowiedzi
 
@@ -100,8 +102,10 @@ Zatwierdzone urządzenie dostaje 200 **także bez** `mac_address` (zgodność z 
 
 - Pokazuje: **MAC dużą czcionką o stałej szerokości**, nazwę, stanowisko, napis „Pokaż ten ekran administratorowi —
   zatwierdzi urządzenie w CRM, zakładka «Urządzenia mobilne»”.
-- Ponawia `register` z **tym samym body** co `retry_after_s` (5 s), dopóki ekran jest na wierzchu. Każde ponowienie
-  odświeża prośbę na serwerze (prośba nieodświeżana przez 7 dni znika).
+- Ponawia `register` z **tym samym body** co `retry_after_s` (5 s), dopóki ekran jest na wierzchu — po wyjściu appki
+  w tło (`ON_PAUSE`) przerywa odpytywanie i wznawia je po powrocie; przy błędach sieci i 5xx nie częściej niż
+  `retry_after_s`, a po kilku kolejnych porażkach rzadziej (np. do 30 s). Każde ponowienie odświeża prośbę na
+  serwerze (prośba nieodświeżana przez 7 dni znika; kolejne `register` zakłada ją wtedy od nowa).
 - 200 → zapis tokenu, wejście do pracy (dalej jak po dzisiejszej rejestracji). 403 → ekran blokady. 429 / 5xx /
   brak sieci → dalej czeka, ponawia.
 - Przycisk „Wróć” → formularz rejestracji; ponowne wysłanie aktualizuje tę samą prośbę (ten sam `device_id`).
@@ -112,7 +116,30 @@ Zatwierdzone urządzenie dostaje 200 **także bez** `mac_address` (zgodność z 
 - Ponawia `register` co `retry_after_s` (30 s). Po odblokowaniu przez admina dostaje 200 i wraca do pracy samo.
 
 **Bramka aktualizacji** (`AppUpdateGate`) nie może zasłaniać tych ekranów: urządzenie bez tokenu nie pobierze APK
-(`/app/apk` wymaga JWT) — ta sama pułapka co z niezarejestrowanym tabletem.
+(`/app/apk` wymaga JWT, a JWT dostaje tylko zatwierdzone) — ta sama pułapka co z niezarejestrowanym tabletem.
+`/app/version` jest publiczne i działa bez zmian.
+
+## 4a. „Wyrejestruj” i czyszczenie danych appki
+
+- `AuthManager.clear()` (przycisk „Wyrejestruj”) kasuje tylko JWT i zachowuje `device_id`. Serwer **nie** dowiaduje się
+  o wyrejestrowaniu: wiersz urządzenia zostaje `zatwierdzone`, więc kolejny `register` z tym samym `device_id` i
+  `station_code` dostaje od razu **200 z tokenem — bez ponownej akceptacji admina**. To zamierzone: dostęp odbiera
+  wyłącznie blokada w panelu, a „Wyrejestruj” służy zmianie stanowiska/serwisowi.
+- Wyczyszczenie danych appki (Clear Data) albo reinstalacja generuje nowe `device_id`: `register` zakłada nową
+  prośbę, a panel pokazuje „to samo urządzenie co «…»” (ten sam MAC); zatwierdzenie blokuje stary wpis (scenariusz 7).
+- Nazwa nadana przez admina dociera do appki wyłącznie w odpowiedzi 200 z `register`; zmiana nazwy w panelu jest
+  widoczna na urządzeniu dopiero przy następnym `register` (appka może do tego czasu pokazywać nazwę lokalną).
+
+## 4b. Kolejka offline i sesje pracowników przy blokadzie
+
+- 401 (w tym `reason: "blocked"`) klasyfikator kolejki (`SyncClassifier`/`StationActionClassifier`) traktuje jako
+  `Transient` + `breakChain`: wpisy **zostają w kolejce** i czekają. Dla blokady zostaje tak samo — **żaden wpis kolejki
+  nie jest kasowany ani oznaczany jako odrzucony** z powodu `blocked`; `SyncWorker` wstrzymuje drenowanie, dopóki nie
+  ma ważnego tokenu (jak dziś po `clear()`).
+- Po odblokowaniu `register` zwraca 200 z nowym tokenem (blokada podbiła wersję tokenów), a kolejka rusza z tymi samymi
+  `operation_id`. Stanowisko urządzenia po stronie serwera się nie zmienia, więc wpisy nie dostają 403
+  `station_mismatch`.
+- Ekran blokady nie zamyka sesji pracownika na siłę; dalsze zachowanie sesji jak przy dzisiejszym 401.
 
 ## 5. Zmiana stanowiska i cicha naprawa — bez zmian
 
@@ -152,6 +179,11 @@ Każde 401 `invalid_token` dostaje pole maszynowe; `detail` zostaje słowo w sł
 | `invalid` | `Token nieprawidłowy: …` / `Token bez device_id` | ekran serwisowy (jak dziś) |
 | brak pola | — | stara logika na `detail` (`decideTokenRecovery`) — siatka na wypadek starego backendu |
 
+Brak nagłówka `Authorization: Bearer …` to nadal 401 `{"error": "missing_token"}` — **bez** `reason` i `detail`
+(jak dziś; appka traktuje to jak brak rejestracji). `reason` dotyczy każdej końcówki za `require_device_token`:
+stanowiska, Weryfikacja, Dostawa, Trakownia, `realtime-token`, `/app/apk`. Nie dotyczy `register` i `/app/version`
+(bez JWT).
+
 Kolejność po stronie serwera: blokada jest sprawdzana **przed** `token_version`, więc zablokowane urządzenie dostaje
 `blocked`, a nie zaproszenie do re-rejestracji.
 
@@ -160,7 +192,10 @@ Kolejność po stronie serwera: blokada jest sprawdzana **przed** `token_version
 ## 8. Zgodność i kolejność wydania
 
 - **Backend wchodzi pierwszy.** Po jego wdrożeniu 1.8.2 działa bez zmian (wszystkie dotychczasowe urządzenia są
-  zatwierdzone z automatu). Nowego urządzenia na 1.8.2 nie da się już zarejestrować (400 `mac_required`).
+  zatwierdzone z automatu, a ich tokeny **zostają ważne** — wdrożenie nie wymusza ponownej rejestracji i nie podbija
+  wersji tokenów). Nowego urządzenia na 1.8.2 nie da się już zarejestrować (400 `mac_required`).
+- **Urządzenia nieaktywne sprzed wdrożenia** (zablokowane ręcznie wcześniej) stają się `zablokowane` — 1.9.0 pokaże im
+  ekran blokady zamiast formularza rejestracji.
 - **1.9.0 ze starym backendem** (gdyby backend trzeba było cofnąć): stary `register` ignoruje nowe pola i odpowiada
   200 jak dziś (bez `status` i `device_name` — appka musi to znieść: brak `status` przy 200 z tokenem = zatwierdzone,
   brak `device_name` = zostaje lokalna), stary heartbeat ignoruje `mac_address`, 401 nie ma `reason` (siatka z
@@ -182,3 +217,8 @@ Kolejność po stronie serwera: blokada jest sprawdzana **przed** `token_version
 7. Reinstalacja appki (nowe `device_id`, ten sam MAC) → panel pokazuje „to samo urządzenie co «…»”, zatwierdzenie
    blokuje stary wpis.
 8. Brak sieci na ekranie oczekiwania → appka czeka i ponawia, nie wyrzuca do formularza.
+9. „Wyrejestruj” na zatwierdzonym urządzeniu → formularz → ten sam `device_id` → 200 z tokenem od razu, bez akceptacji
+   admina (sekcja 4a).
+10. Zablokowanie urządzenia z niepustą kolejką offline → ekran blokady, wpisy kolejki nietknięte → odblokowanie →
+    kolejka się opróżnia (sekcja 4b), nic nie trafia do „zablokowanych wpisów”.
+11. Zmiana nazwy w panelu → widoczna na urządzeniu dopiero po następnym `register` (np. po zmianie stanowiska).
