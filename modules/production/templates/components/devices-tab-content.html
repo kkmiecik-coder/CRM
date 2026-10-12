@@ -1,153 +1,278 @@
-<!-- devices-tab-content.html — zakładka „Urządzenia mobilne” (spec 2026-10-12-urzadzenia-mobilne-zatwierdzanie-design.md, sekcja 5) -->
+<!-- devices-tab-content.html — zakładka „Urządzenia mobilne” (spec 2026-10-12-urzadzenia-mobilne-zatwierdzanie-design.md, sekcja 5).
+     Dwie podzakładki: „Urządzenia” (prośby, zatwierdzone, zablokowane) i „Aplikacja” (wgrywanie APK, historia wydań).
+     Wygląd: „Industrial Light” jak Pracownicy/Konfiguracja (tokeny --il-*), style w static/css/devices-tab.css. -->
 <div class="urz-tab" id="urz-root">
 
-    <div class="urz-naglowek">
-        <h2><i class="fas fa-tablet-alt me-2"></i>Urządzenia mobilne</h2>
-        <p>Tablety hali i telefony (Weryfikacja, kierowcy). Nowe urządzenie dostaje dostęp dopiero po zatwierdzeniu
-            prośby tutaj — działa wtedy z każdej sieci, także z LTE.</p>
-        <details class="urz-jak">
-            <summary>Jak dodać nowe urządzenie</summary>
-            <ol>
-                <li>Zainstaluj appkę na urządzeniu (Wi-Fi musi być choć raz włączone — appka czyta z niego adres MAC).</li>
-                <li>Na urządzeniu wybierz stanowisko, wpisz nazwę i wyślij prośbę.</li>
-                <li>Prośba pojawi się poniżej w ciągu kilku sekund. Porównaj MAC z ekranem urządzenia.</li>
-                <li>Kliknij „Zatwierdź” i nadaj nazwę — urządzenie wejdzie do pracy samo.</li>
-            </ol>
-        </details>
+    <!-- ═══ Podzakładki ═══ -->
+    <div class="urz-subnav" role="tablist" aria-label="Urządzenia mobilne">
+        <button type="button" class="urz-subnav-btn active" id="urz-sub-urzadzenia" data-sub="urzadzenia"
+                role="tab" aria-selected="true" aria-controls="urz-panel-urzadzenia" tabindex="0">
+            Urządzenia<span class="urz-znaczek" id="urz-znaczek-prosb" hidden
+                           title="Oczekujące prośby o dostęp">0</span>
+        </button>
+        <button type="button" class="urz-subnav-btn" id="urz-sub-aplikacja" data-sub="aplikacja"
+                role="tab" aria-selected="false" aria-controls="urz-panel-aplikacja" tabindex="-1">
+            Aplikacja
+        </button>
     </div>
 
-    <section class="urz-sekcja urz-prosby">
-        <h3>Prośby o dostęp <span class="urz-licznik" id="urz-licznik-prosb">0</span></h3>
-        <div id="urz-prosby-lista"></div>
-    </section>
+    <!-- ═══════════════ PODZAKŁADKA: URZĄDZENIA ═══════════════ -->
+    <div class="urz-pane" id="urz-panel-urzadzenia" role="tabpanel" aria-labelledby="urz-sub-urzadzenia">
 
-    <section class="urz-sekcja">
-        <div class="urz-sekcja-naglowek">
-            <h3>Urządzenia</h3>
-            <button type="button" class="btn btn-outline-danger btn-sm" id="urz-bez-mac-btn">
-                <i class="fas fa-ban me-1"></i>Zablokuj urządzenia bez MAC
-            </button>
+        <div class="urz-header">
+            <h2><i class="fas fa-tablet-alt"></i>Urządzenia mobilne</h2>
+            <p>Tablety hali i telefony (Weryfikacja, kierowcy). Nowe urządzenie dostaje dostęp dopiero po zatwierdzeniu
+                prośby tutaj — działa wtedy z każdej sieci, także z LTE.</p>
+            <div class="urz-stats">
+                <div class="urz-stat" id="urz-stat-prosby-kafel">
+                    <div class="urz-stat-ikona"><i class="fas fa-inbox"></i></div>
+                    <div class="urz-stat-info">
+                        <div class="urz-stat-etykieta">Oczekujące prośby</div>
+                        <div class="urz-stat-wartosc" id="urz-stat-prosby">0</div>
+                    </div>
+                </div>
+                <div class="urz-stat">
+                    <div class="urz-stat-ikona"><i class="fas fa-check"></i></div>
+                    <div class="urz-stat-info">
+                        <div class="urz-stat-etykieta">Zatwierdzone urządzenia</div>
+                        <div class="urz-stat-wartosc" id="urz-stat-zatwierdzone">0</div>
+                    </div>
+                </div>
+                <div class="urz-stat">
+                    <div class="urz-stat-ikona"><i class="fas fa-ban"></i></div>
+                    <div class="urz-stat-info">
+                        <div class="urz-stat-etykieta">Zablokowane</div>
+                        <div class="urz-stat-wartosc" id="urz-stat-zablokowane">0</div>
+                    </div>
+                </div>
+                <div class="urz-stat">
+                    <div class="urz-stat-ikona"><i class="fas fa-code-branch"></i></div>
+                    <div class="urz-stat-info">
+                        <div class="urz-stat-etykieta">Najnowsza aktywna wersja appki</div>
+                        <div class="urz-stat-wartosc" id="urz-stat-wersja">—</div>
+                    </div>
+                </div>
+            </div>
+            <details class="urz-jak">
+                <summary>Jak dodać nowe urządzenie</summary>
+                <ol>
+                    <li>Zainstaluj appkę na urządzeniu (Wi-Fi musi być choć raz włączone — appka czyta z niego adres MAC).</li>
+                    <li>Na urządzeniu wybierz stanowisko, wpisz nazwę i wyślij prośbę.</li>
+                    <li>Prośba pojawi się poniżej w ciągu kilku sekund. Porównaj MAC z ekranem urządzenia.</li>
+                    <li>Kliknij „Zatwierdź” i nadaj nazwę — urządzenie wejdzie do pracy samo.</li>
+                </ol>
+            </details>
         </div>
-        <div class="table-responsive">
-            <table class="table table-sm align-middle urz-tabela">
-                <thead><tr>
-                    <th>Nazwa</th><th>Stanowisko</th><th>MAC</th><th>Model</th><th>Wersja</th>
-                    <th>Ostatnio</th><th>Zatwierdził</th><th></th>
-                </tr></thead>
-                <tbody id="urz-urzadzenia-lista"></tbody>
-            </table>
-        </div>
-    </section>
 
-    <section class="urz-sekcja">
-        <details id="urz-zablokowane">
-            <summary><h3 class="d-inline">Zablokowane (<span id="urz-licznik-zabl">0</span>)</h3></summary>
-            <div class="table-responsive mt-2">
-                <table class="table table-sm align-middle urz-tabela">
-                    <thead><tr><th>Nazwa</th><th>Stanowisko</th><th>MAC</th><th>Zablokowane</th><th></th></tr></thead>
+        <!-- Prośby o dostęp: lewy pasek ostrzegawczy, gdy cokolwiek czeka (klasa urz-karta--uwaga ustawiana w rysuj()) -->
+        <section class="urz-karta" id="urz-karta-prosby" aria-labelledby="urz-tytul-prosby">
+            <div class="urz-karta-naglowek">
+                <div class="urz-karta-tytul">
+                    <div class="urz-karta-ikona"><i class="fas fa-inbox"></i></div>
+                    <div>
+                        <h3 id="urz-tytul-prosby">Prośby o dostęp</h3>
+                        <p class="urz-karta-podtytul">Porównaj MAC z ekranem urządzenia, zanim zatwierdzisz.</p>
+                    </div>
+                </div>
+                <span class="urz-licznik" id="urz-licznik-prosb">0</span>
+            </div>
+            <div class="urz-karta-tresc" id="urz-prosby-lista"></div>
+        </section>
+
+        <section class="urz-karta" aria-labelledby="urz-tytul-urzadzenia">
+            <div class="urz-karta-naglowek">
+                <div class="urz-karta-tytul">
+                    <div class="urz-karta-ikona"><i class="fas fa-tablet-alt"></i></div>
+                    <div>
+                        <h3 id="urz-tytul-urzadzenia">Zatwierdzone urządzenia</h3>
+                        <p class="urz-karta-podtytul">Urządzenia z dostępem do API mobilnego. Odświeżane co 10 s.</p>
+                    </div>
+                </div>
+                <button type="button" class="btn btn-outline-danger btn-sm urz-btn" id="urz-bez-mac-btn">
+                    <i class="fas fa-ban me-1" aria-hidden="true"></i>Zablokuj urządzenia bez MAC
+                </button>
+            </div>
+            <div class="urz-karta-tresc urz-karta-tresc--tabela">
+                <table class="urz-tabela urz-tabela--urzadzenia">
+                    <thead><tr>
+                        <th class="urz-k-nazwa">Nazwa</th>
+                        <th class="urz-k-stan">Stanowisko</th>
+                        <th class="urz-k-mac">MAC</th>
+                        <th class="urz-k-model">Model</th>
+                        <th class="urz-k-wersja">Wersja</th>
+                        <th class="urz-k-ostatnio">Ostatnio widziane</th>
+                        <th class="urz-k-zatw">Zatwierdził</th>
+                        <th class="urz-k-akcje"><span class="urz-sr">Akcje</span></th>
+                    </tr></thead>
+                    <tbody id="urz-urzadzenia-lista"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="urz-karta" id="urz-zablokowane" aria-labelledby="urz-tytul-zablokowane">
+            <div class="urz-karta-naglowek">
+                <div class="urz-karta-tytul">
+                    <div class="urz-karta-ikona"><i class="fas fa-ban"></i></div>
+                    <div>
+                        <h3 id="urz-tytul-zablokowane">Zablokowane</h3>
+                        <p class="urz-karta-podtytul">Urządzenia bez dostępu oraz odrzucone prośby.</p>
+                    </div>
+                </div>
+                <span class="urz-licznik" id="urz-licznik-zabl">0</span>
+            </div>
+            <div class="urz-karta-tresc urz-karta-tresc--tabela">
+                <table class="urz-tabela urz-tabela--zablokowane">
+                    <thead><tr>
+                        <th class="urz-k-nazwa">Nazwa</th>
+                        <th class="urz-k-stan">Stanowisko</th>
+                        <th class="urz-k-mac">MAC</th>
+                        <th class="urz-k-kiedy">Zablokowane</th>
+                        <th class="urz-k-akcje"><span class="urz-sr">Akcje</span></th>
+                    </tr></thead>
                     <tbody id="urz-zablokowane-lista"></tbody>
                 </table>
             </div>
-        </details>
-    </section>
+        </section>
+    </div>
 
-    <section class="urz-sekcja urz-apk">
-        <h3><i class="fas fa-box-open me-2"></i>Aplikacja (APK)</h3>
-        <p class="urz-opis">Wgrana wersja jest domyślnie <strong>nieaktywna</strong> — urządzenia pobiorą ją dopiero po
-            włączeniu przełącznika „Aktywny” w historii (albo od razu, jeśli zaznaczysz „Aktywuj od razu”).
-            Urządzenia pytają <code>/api/mobile/app/version</code>.</p>
+    <!-- ═══════════════ PODZAKŁADKA: APLIKACJA ═══════════════ -->
+    <div class="urz-pane" id="urz-panel-aplikacja" role="tabpanel" aria-labelledby="urz-sub-aplikacja" hidden>
 
-        <div class="urz-apk-formularz">
-            <h4>Wgraj nowy release</h4>
-            <form id="apkUploadForm" enctype="multipart/form-data">
-                <div class="form-group">
-                    <label>Plik APK <span class="required">*</span></label>
-                    <input type="file" name="apk" id="apkFileInput" accept=".apk,application/vnd.android.package-archive" required>
-                    <small class="form-hint">version_code i version_name wpisz ręcznie z <code>build.gradle.kts</code>. version_code musi być wyższy od poprzedniego.</small>
-                </div>
-                <div class="apk-form-row">
-                    <div class="form-group">
-                        <label>versionCode <span class="required">*</span></label>
-                        <input type="number" name="version_code" min="1" step="1" placeholder="np. 47" required>
-                        <small class="form-hint">Liczba całkowita z <code>build.gradle.kts</code> (defaultConfig → versionCode).</small>
-                    </div>
-                    <div class="form-group">
-                        <label>versionName <span class="required">*</span></label>
-                        <input type="text" name="version_name" maxlength="32" placeholder="np. 1.9.0" required>
-                        <small class="form-hint">String z <code>build.gradle.kts</code> (defaultConfig → versionName), max 32 znaki.</small>
-                    </div>
-                </div>
-                <div class="form-group apk-notes-group">
-                    <label>Release notes (opcjonalnie)</label>
-                    <textarea name="release_notes" rows="6" placeholder="Co się zmieniło w tej wersji? Każda linia będzie widoczna na tablecie."></textarea>
-                    <small class="form-hint">Pole można rozciągać w pionie i w poziomie (uchwyt w prawym dolnym rogu).</small>
-                </div>
-                <div class="form-group apk-activate-group">
-                    <label class="apk-activate-label">
-                        <input type="checkbox" name="activate" value="1" id="apkActivateInput">
-                        <span>Aktywuj od razu (urządzenia pobiorą tę wersję)</span>
-                    </label>
-                    <small class="form-hint">Bez zaznaczenia release zostanie wgrany jako nieaktywny — włączysz go później przełącznikiem „Aktywny” w historii poniżej.</small>
-                </div>
-                <div class="apk-upload-progress" id="apkUploadProgress" style="display: none;">
-                    <div class="apk-progress-bar-wrapper"><div class="apk-progress-bar-fill" id="apkProgressFill"></div></div>
-                    <div class="apk-progress-meta">
-                        <span id="apkProgressPercent">0%</span>
-                        <span id="apkProgressBytes">0 / 0 MB</span>
-                        <span id="apkProgressEta">Pozostało: --:--</span>
-                    </div>
-                </div>
-                <div class="form-actions">
-                    <button type="submit" class="btn btn-primary" id="apkUploadBtn"><i class="fas fa-upload me-1"></i>Wgraj APK</button>
-                    <span id="apkUploadStatus"></span>
-                </div>
-            </form>
+        <div class="urz-header">
+            <h2><i class="fas fa-box-open"></i>Aplikacja (APK)</h2>
+            <p>Wgrana wersja jest domyślnie <strong>nieaktywna</strong> — urządzenia pobiorą ją dopiero po włączeniu
+                przełącznika „Aktywny” w historii (albo od razu, jeśli zaznaczysz „Aktywuj od razu”).</p>
         </div>
 
-        <h4>Historia release'ów</h4>
-        {% if wydania %}
-        <div class="table-responsive">
-            <table class="table table-sm align-middle urz-tabela">
-                <thead><tr>
-                    <th>Kod</th><th>Wersja</th><th>Urządzeń z tą wersją</th><th>Rozmiar</th><th>SHA-256</th>
-                    <th>Release notes</th><th>Wgrano</th><th>Aktywny</th>
-                </tr></thead>
-                <tbody>
-                {% for r in wydania %}
-                    <tr>
-                        <td><strong>{{ r.version_code }}</strong></td>
-                        <td>{{ r.version_name }}</td>
-                        <td>{{ r.urzadzen }}</td>
-                        <td>{{ "%.2f"|format(r.file_size_bytes / 1048576) }} MB</td>
-                        <td><code title="{{ r.sha256 }}">{{ r.sha256_short }}…</code></td>
-                        <td class="urz-notatki">{{ r.release_notes or '—' }}</td>
-                        <td class="urz-drobne">{{ r.uploaded_at[:16].replace('T', ' ') if r.uploaded_at else '—' }}</td>
-                        <td>
-                            <div class="form-check form-switch m-0">
-                                <input class="form-check-input release-active-toggle" type="checkbox" data-id="{{ r.id }}"
-                                       {% if r.is_active %}checked{% endif %}>
-                            </div>
-                        </td>
-                    </tr>
-                {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        {% else %}
-        <p class="urz-pusto">Brak release'ów. Wgraj pierwszy plik APK powyżej.</p>
-        {% endif %}
+        <section class="urz-karta" aria-labelledby="urz-tytul-upload">
+            <div class="urz-karta-naglowek">
+                <div class="urz-karta-tytul">
+                    <div class="urz-karta-ikona"><i class="fas fa-upload"></i></div>
+                    <div>
+                        <h3 id="urz-tytul-upload">Wgraj nowy release</h3>
+                        <p class="urz-karta-podtytul">versionCode i versionName wpisz ręcznie z <code>build.gradle.kts</code>. versionCode musi być wyższy od poprzedniego.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="urz-karta-tresc">
+                <form id="apkUploadForm" enctype="multipart/form-data" class="urz-formularz">
+                    <div class="urz-pole">
+                        <label for="apkFileInput">Plik APK <span class="urz-wymagane" aria-hidden="true">*</span></label>
+                        <input type="file" name="apk" id="apkFileInput" accept=".apk,application/vnd.android.package-archive" required>
+                    </div>
+                    <div class="urz-pola-rzad">
+                        <div class="urz-pole">
+                            <label for="urz-apk-kod">versionCode <span class="urz-wymagane" aria-hidden="true">*</span></label>
+                            <input type="number" name="version_code" id="urz-apk-kod" min="1" step="1" placeholder="np. 47" required>
+                            <small class="urz-podpowiedz">Liczba całkowita (defaultConfig → versionCode).</small>
+                        </div>
+                        <div class="urz-pole">
+                            <label for="urz-apk-nazwa">versionName <span class="urz-wymagane" aria-hidden="true">*</span></label>
+                            <input type="text" name="version_name" id="urz-apk-nazwa" maxlength="32" placeholder="np. 1.9.0" required>
+                            <small class="urz-podpowiedz">Tekst (defaultConfig → versionName), max 32 znaki.</small>
+                        </div>
+                    </div>
+                    <div class="urz-pole">
+                        <label for="urz-apk-notatki">Release notes (opcjonalnie)</label>
+                        <textarea name="release_notes" id="urz-apk-notatki" rows="5" placeholder="Co się zmieniło w tej wersji? Każda linia będzie widoczna na tablecie."></textarea>
+                    </div>
+                    <div class="urz-aktywuj">
+                        <label class="urz-aktywuj-etykieta" for="apkActivateInput">
+                            <input type="checkbox" name="activate" value="1" id="apkActivateInput">
+                            <span>
+                                <strong>Aktywuj od razu</strong>
+                                <span class="urz-aktywuj-ostrzezenie"><i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
+                                    Wydanie trafi na wszystkie urządzenia — pobiorą tę wersję przy najbliższym sprawdzeniu aktualizacji.
+                                    Bez zaznaczenia release zostanie wgrany jako nieaktywny; włączysz go później w historii.</span>
+                            </span>
+                        </label>
+                    </div>
+                    <div class="urz-postep" id="apkUploadProgress" style="display: none;">
+                        <div class="urz-postep-pasek"><div class="urz-postep-wypelnienie" id="apkProgressFill"></div></div>
+                        <div class="urz-postep-meta">
+                            <span id="apkProgressPercent">0%</span>
+                            <span id="apkProgressBytes">0 / 0 MB</span>
+                            <span id="apkProgressEta">Pozostało: --:--</span>
+                        </div>
+                    </div>
+                    <div class="urz-formularz-akcje">
+                        <button type="submit" class="btn btn-primary btn-sm urz-btn" id="apkUploadBtn"><i class="fas fa-upload me-1" aria-hidden="true"></i>Wgraj APK</button>
+                        <span id="apkUploadStatus" class="urz-status" role="status" aria-live="polite"></span>
+                    </div>
+                </form>
+            </div>
+        </section>
 
-        <div class="urz-jak-dziala">
-            <strong>Jak to działa:</strong>
-            <ul>
-                <li>Backend liczy SHA-256 pliku; versionCode i versionName podajesz w formularzu.</li>
-                <li>Urządzenia pytają <code>/api/mobile/app/version</code> i pobierają najnowszy <strong>aktywny</strong> release.</li>
-                <li>Wydanie na urządzenia = włącz przełącznik „Aktywny” (albo zaznacz „Aktywuj od razu” przy wgrywaniu).</li>
-                <li>Wyłączenie przełącznika powstrzymuje rozprzestrzenianie, ale <strong>nie cofa</strong> wersji już zainstalowanej — APK nie da się cofnąć, tylko wydać wyższą.</li>
-                <li>Przy więcej niż jednym aktywnym release'ie wybierany jest ten z najwyższym <code>version_code</code>.</li>
-            </ul>
-        </div>
-    </section>
+        <section class="urz-karta" aria-labelledby="urz-tytul-historia">
+            <div class="urz-karta-naglowek">
+                <div class="urz-karta-tytul">
+                    <div class="urz-karta-ikona"><i class="fas fa-history"></i></div>
+                    <div>
+                        <h3 id="urz-tytul-historia">Historia release'ów</h3>
+                        <p class="urz-karta-podtytul">Przełącznik „Aktywny” decyduje, którą wersję pobiorą urządzenia.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="urz-karta-tresc urz-karta-tresc--tabela">
+                {% if wydania %}
+                <table class="urz-tabela urz-tabela--wydania">
+                    <thead><tr>
+                        <th class="urz-k-kod urz-liczba">Kod</th>
+                        <th class="urz-k-wersja">Wersja</th>
+                        <th class="urz-k-urzadzen urz-liczba">Urządzeń z tą wersją</th>
+                        <th class="urz-k-rozmiar urz-liczba">Rozmiar</th>
+                        <th class="urz-k-sha">SHA-256</th>
+                        <th class="urz-k-notatki">Release notes</th>
+                        <th class="urz-k-wgrano">Wgrano</th>
+                        <th class="urz-k-aktywny">Aktywny</th>
+                    </tr></thead>
+                    <tbody>
+                    {% for r in wydania %}
+                        <tr data-kod="{{ r.version_code }}" data-wersja="{{ r.version_name }}">
+                            <td class="urz-k-kod urz-liczba"><strong>{{ r.version_code }}</strong></td>
+                            <td class="urz-k-wersja" data-label="Wersja"><span class="urz-ell" title="{{ r.version_name }}">{{ r.version_name }}</span></td>
+                            <td class="urz-k-urzadzen urz-liczba" data-label="Urządzeń z tą wersją">{{ r.urzadzen }}</td>
+                            <td class="urz-k-rozmiar urz-liczba" data-label="Rozmiar">{{ "%.2f"|format(r.file_size_bytes / 1048576) }} MB</td>
+                            <td class="urz-k-sha" data-label="SHA-256"><code title="{{ r.sha256 }}">{{ r.sha256_short }}…</code></td>
+                            <td class="urz-k-notatki" data-label="Release notes"><div class="urz-notatki" title="{{ r.release_notes or '' }}">{{ r.release_notes or '—' }}</div></td>
+                            <td class="urz-k-wgrano" data-label="Wgrano">{{ r.uploaded_at[:16].replace('T', ' ') if r.uploaded_at else '—' }}</td>
+                            <td class="urz-k-aktywny">
+                                <div class="form-check form-switch m-0 urz-przelacznik">
+                                    <input class="form-check-input release-active-toggle" type="checkbox" data-id="{{ r.id }}"
+                                           aria-label="Aktywny: wersja {{ r.version_name }} (kod {{ r.version_code }})"
+                                           {% if r.is_active %}checked{% endif %}>
+                                </div>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <p class="urz-pusto">Brak release'ów. Wgraj pierwszy plik APK w formularzu powyżej.</p>
+                {% endif %}
+            </div>
+        </section>
+
+        <section class="urz-karta" aria-labelledby="urz-tytul-jak">
+            <div class="urz-karta-naglowek">
+                <div class="urz-karta-tytul">
+                    <div class="urz-karta-ikona"><i class="fas fa-info-circle"></i></div>
+                    <div>
+                        <h3 id="urz-tytul-jak">Jak to działa</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="urz-karta-tresc">
+                <ul class="urz-lista">
+                    <li>Backend liczy SHA-256 pliku; versionCode i versionName podajesz w formularzu.</li>
+                    <li>Urządzenia pytają <code>/api/mobile/app/version</code> i pobierają najnowszy <strong>aktywny</strong> release.</li>
+                    <li>Wydanie na urządzenia = włącz przełącznik „Aktywny” (albo zaznacz „Aktywuj od razu” przy wgrywaniu).</li>
+                    <li>Wyłączenie przełącznika powstrzymuje rozprzestrzenianie, ale <strong>nie cofa</strong> wersji już zainstalowanej — APK nie da się cofnąć, tylko wydać wyższą.</li>
+                    <li>Przy więcej niż jednym aktywnym release'ie wybierany jest ten z najwyższym <code>version_code</code>.</li>
+                </ul>
+            </div>
+        </section>
+    </div>
 
     <!-- Okno zatwierdzenia -->
     <div class="modal fade" id="urz-modal-zatwierdz" tabindex="-1" aria-hidden="true">
@@ -197,6 +322,7 @@
     // z production-app-loader.js. Stan lokalny; jeden timer odświeżania na stronę (window.__urzadzeniaTimer).
     const API = '/production/api/devices';
     const ODSWIEZANIE_MS = 10000;
+    const KLUCZ_PODZAKLADKI = 'urz-podzakladka';
     const root = document.getElementById('urz-root');
     if (!root) return;
     const app = window.ProductionApp;
@@ -219,6 +345,17 @@
         if (s < 86400) return Math.floor(s / 3600) + ' godz. temu';
         return d.toLocaleString('pl-PL', {dateStyle: 'short', timeStyle: 'short'});
     }
+    // Świeżość „ostatnio widziane” → kolor kropki (kolor nigdy sam: obok jest tekst).
+    // Progi: do 15 min = ok (aktywne połączenie, appka odpytuje serwer co kilka–kilkanaście sekund),
+    // do 12 godz. = warn (urządzenie milczy, ale mogło tylko odpocząć w przerwie lub na zmianie),
+    // dłużej albo brak danych = inactive.
+    function swiezosc(iso) {
+        if (!iso) return 'off';
+        const s = (Date.now() - new Date(iso).getTime()) / 1000;
+        if (s <= 15 * 60) return 'ok';
+        if (s <= 12 * 3600) return 'warn';
+        return 'off';
+    }
     async function wyslij(metoda, sciezka, cialo) {
         const r = await fetch(API + sciezka, {
             method: metoda,
@@ -233,65 +370,142 @@
         return dane;
     }
 
+    // ── podzakładki „Urządzenia” / „Aplikacja” ──
+    // Panele są tylko chowane (atrybut hidden), nigdy usuwane: formularz uploadu i stan zostają.
+    // Wybór pamiętamy w sessionStorage, bo po udanym uploadzie strona robi location.reload()
+    // i użytkownik ma wrócić na „Aplikację”. Nie używamy ?sub= — loader kasuje go poza Raportami.
+    const przyciski = [...root.querySelectorAll('.urz-subnav-btn')];
+    function wybierzPodzakladke(sub, fokus) {
+        przyciski.forEach(b => {
+            const aktywny = b.dataset.sub === sub;
+            b.classList.toggle('active', aktywny);
+            b.setAttribute('aria-selected', aktywny ? 'true' : 'false');
+            b.tabIndex = aktywny ? 0 : -1;   // roving tabindex: tylko aktywna karta w kolejności Tab
+            const panel = document.getElementById(b.getAttribute('aria-controls'));
+            if (panel) panel.hidden = !aktywny;
+            if (aktywny && fokus) b.focus();
+        });
+        try { sessionStorage.setItem(KLUCZ_PODZAKLADKI, sub); } catch (e) { /* storage zablokowany */ }
+    }
+    przyciski.forEach((b, i) => {
+        b.addEventListener('click', () => wybierzPodzakladke(b.dataset.sub, false));
+        b.addEventListener('keydown', (ev) => {
+            let cel = null;
+            if (ev.key === 'ArrowRight') cel = (i + 1) % przyciski.length;
+            else if (ev.key === 'ArrowLeft') cel = (i - 1 + przyciski.length) % przyciski.length;
+            else if (ev.key === 'Home') cel = 0;
+            else if (ev.key === 'End') cel = przyciski.length - 1;
+            if (cel === null) return;
+            ev.preventDefault();
+            wybierzPodzakladke(przyciski[cel].dataset.sub, true);
+        });
+    });
+    let poczatkowa = 'urzadzenia';
+    try {
+        const zapisana = sessionStorage.getItem(KLUCZ_PODZAKLADKI);
+        if (zapisana && przyciski.some(b => b.dataset.sub === zapisana)) poczatkowa = zapisana;
+    } catch (e) { /* storage zablokowany — zostaje domyślna */ }
+    wybierzPodzakladke(poczatkowa, false);
+
+    // ── wiersze ──
     function wierszProsby(p) {
         const toSamo = (p.to_samo_co || [])
             .map(t => `to samo urządzenie co «${esc(t.nazwa)}» (${esc(t.status)})`).join('<br>');
         return `<div class="urz-prosba" data-id="${p.id}">
-            <div class="urz-mac">${esc(p.mac)}</div>
-            <div>
-                <strong>${esc(p.nazwa || '(bez nazwy)')}</strong> · ${esc(p.stanowisko_nazwa)}
+            <div class="urz-prosba-mac">
+                <span class="urz-etykieta">Adres MAC</span>
+                <span class="urz-mac">${esc(p.mac)}</span>
+            </div>
+            <div class="urz-prosba-info">
+                <div class="urz-prosba-nazwa"><strong>${esc(p.nazwa || '(bez nazwy)')}</strong>
+                    <span class="urz-stanowisko">${esc(p.stanowisko_nazwa)}</span></div>
                 <div class="urz-drobne">${esc(p.model || 'model nieznany')} · appka ${esc(p.wersja || '?')}
                     · IP ${esc(p.ip || '?')} · zgłoszono ${kiedy(p.zgloszono)}</div>
                 ${toSamo ? `<div class="urz-reinstalacja">${toSamo}</div>` : ''}
             </div>
-            <div class="urz-akcje">
-                <button type="button" class="btn btn-success btn-sm" data-akcja="zatwierdz">Zatwierdź</button>
-                <button type="button" class="btn btn-outline-danger btn-sm" data-akcja="odrzuc">Odrzuć</button>
+            <div class="urz-prosba-akcje">
+                <button type="button" class="btn btn-success btn-sm urz-btn" data-akcja="zatwierdz">Zatwierdź</button>
+                <button type="button" class="btn btn-outline-danger btn-sm urz-btn" data-akcja="odrzuc">Odrzuć</button>
             </div>
         </div>`;
     }
     function wierszUrzadzenia(u) {
+        const nazwa = u.nazwa || '(bez nazwy)';
         const mac = u.mac ? `<code>${esc(u.mac)}</code>` : '<span class="urz-szare">brak — appka sprzed 1.9.0</span>';
         const konflikt = u.mac_conflict ? `<div class="urz-konflikt">MAC się zmienił: <code>${esc(u.mac_conflict)}</code>
-            <button type="button" class="btn btn-link btn-sm p-0" data-akcja="przyjmij-mac">Przyjmij nowy MAC</button></div>` : '';
+            <button type="button" class="btn btn-link btn-sm p-0 urz-link" data-akcja="przyjmij-mac">Przyjmij nowy MAC</button></div>` : '';
+        // Kolumny Model / Wersja / Zatwierdził znikają na wąskiej karcie — pełna treść zostaje w podpowiedzi nazwy.
+        const szczegoly = [
+            'Model: ' + (u.model || '—'),
+            'Wersja appki: ' + (u.wersja || '—'),
+            'Zatwierdził: ' + (u.zatwierdzil || '—'),
+        ].join('\n');
+        const kropka = swiezosc(u.ostatnio);
+        const kiedyTekst = kiedy(u.ostatnio);
+        const kiedyPelne = u.ostatnio ? new Date(u.ostatnio).toLocaleString('pl-PL') : 'brak połączenia';
         return `<tr data-id="${u.id}">
-            <td><strong>${esc(u.nazwa || '(bez nazwy)')}</strong></td>
-            <td>${esc(u.stanowisko_nazwa)}</td>
-            <td>${mac}${konflikt}</td>
-            <td>${esc(u.model || '—')}</td>
-            <td>${esc(u.wersja || '—')}</td>
-            <td>${kiedy(u.ostatnio)}</td>
-            <td class="urz-drobne">${esc(u.zatwierdzil || '—')}${u.zatwierdzone ? '<br>' + kiedy(u.zatwierdzone) : ''}</td>
-            <td class="urz-akcje">
-                <button type="button" class="btn btn-outline-secondary btn-sm" data-akcja="nazwa">Zmień nazwę</button>
-                <button type="button" class="btn btn-outline-danger btn-sm" data-akcja="zablokuj">Zablokuj</button>
+            <td class="urz-k-nazwa"><span class="urz-ell urz-nazwa" title="${esc(nazwa + '\n' + szczegoly)}">${esc(nazwa)}</span></td>
+            <td class="urz-k-stan" data-label="Stanowisko"><span class="urz-ell" title="${esc(u.stanowisko_nazwa)}">${esc(u.stanowisko_nazwa)}</span></td>
+            <td class="urz-k-mac" data-label="MAC"><div class="urz-ell">${mac}</div>${konflikt}</td>
+            <td class="urz-k-model" data-label="Model"><span class="urz-ell" title="${esc(u.model || '')}">${esc(u.model || '—')}</span></td>
+            <td class="urz-k-wersja" data-label="Wersja"><span class="urz-ell" title="${esc(u.wersja || '')}">${esc(u.wersja || '—')}</span></td>
+            <td class="urz-k-ostatnio" data-label="Ostatnio widziane"><span class="urz-ell" title="${esc(kiedyPelne)}"><span class="urz-kropka urz-kropka--${kropka}" aria-hidden="true"></span>${esc(kiedyTekst)}</span></td>
+            <td class="urz-k-zatw" data-label="Zatwierdził"><span class="urz-ell" title="${esc(u.zatwierdzil || '')}">${esc(u.zatwierdzil || '—')}</span>${u.zatwierdzone ? `<span class="urz-ell urz-drobne">${esc(kiedy(u.zatwierdzone))}</span>` : ''}</td>
+            <td class="urz-k-akcje">
+                <button type="button" class="urz-ikona urz-ikona--edytuj" data-akcja="nazwa"
+                        title="Zmień nazwę" aria-label="Zmień nazwę «${esc(nazwa)}»"><i class="fas fa-pen" aria-hidden="true"></i></button>
+                <button type="button" class="urz-ikona urz-ikona--blokuj" data-akcja="zablokuj"
+                        title="Zablokuj" aria-label="Zablokuj «${esc(nazwa)}»"><i class="fas fa-ban" aria-hidden="true"></i></button>
             </td></tr>`;
     }
     function wierszZablokowanego(u) {
+        const nazwa = u.nazwa || '(bez nazwy)';
         const przycisk = u.odrzucona
-            ? '<button type="button" class="btn btn-outline-success btn-sm" data-akcja="zatwierdz">Zatwierdź</button>'
-            : '<button type="button" class="btn btn-outline-success btn-sm" data-akcja="odblokuj">Odblokuj</button>';
+            ? '<button type="button" class="btn btn-outline-success btn-sm urz-btn" data-akcja="zatwierdz">Zatwierdź</button>'
+            : '<button type="button" class="btn btn-outline-success btn-sm urz-btn" data-akcja="odblokuj">Odblokuj</button>';
         return `<tr data-id="${u.id}">
-            <td><strong>${esc(u.nazwa || '(bez nazwy)')}</strong>
-                ${u.odrzucona ? '<span class="badge bg-secondary ms-1">odrzucona prośba</span>' : ''}</td>
-            <td>${esc(u.stanowisko_nazwa)}</td>
-            <td>${u.mac ? `<code>${esc(u.mac)}</code>` : '—'}</td>
-            <td>${kiedy(u.zablokowane)}</td>
-            <td class="urz-akcje">${przycisk}</td></tr>`;
+            <td class="urz-k-nazwa"><span class="urz-ell urz-nazwa" title="${esc(nazwa)}">${esc(nazwa)}</span>
+                ${u.odrzucona ? '<span class="urz-pigulka">odrzucona prośba</span>' : ''}</td>
+            <td class="urz-k-stan" data-label="Stanowisko"><span class="urz-ell" title="${esc(u.stanowisko_nazwa)}">${esc(u.stanowisko_nazwa)}</span></td>
+            <td class="urz-k-mac" data-label="MAC"><div class="urz-ell">${u.mac ? `<code>${esc(u.mac)}</code>` : '—'}</div></td>
+            <td class="urz-k-kiedy" data-label="Zablokowane"><span class="urz-ell">${kiedy(u.zablokowane)}</span></td>
+            <td class="urz-k-akcje">${przycisk}</td></tr>`;
+    }
+    // Najnowsza aktywna wersja — z przełączników w historii wydań (zmienia się od razu po kliknięciu).
+    function aktualizujWersje() {
+        let najlepszy = null;
+        root.querySelectorAll('.release-active-toggle:checked').forEach(t => {
+            const tr = t.closest('tr');
+            const kod = Number(tr?.dataset.kod);
+            if (tr && (!najlepszy || kod > najlepszy.kod)) najlepszy = {kod, nazwa: tr.dataset.wersja};
+        });
+        const el = document.getElementById('urz-stat-wersja');
+        el.textContent = najlepszy ? `${najlepszy.nazwa} (${najlepszy.kod})` : 'brak aktywnej';
+        el.title = najlepszy ? 'Wersja, którą pobiorą urządzenia' : 'Żaden release nie jest aktywny — urządzenia nie dostaną aktualizacji';
     }
     function rysuj() {
-        document.getElementById('urz-prosby-lista').innerHTML = stan.prosby.length
-            ? stan.prosby.map(wierszProsby).join('') : '<p class="urz-pusto">Brak oczekujących próśb.</p>';
+        const prosb = stan.prosby.length;
+        document.getElementById('urz-prosby-lista').innerHTML = prosb
+            ? stan.prosby.map(wierszProsby).join('')
+            : '<p class="urz-pusto">Brak oczekujących próśb. Nowe urządzenie pojawi się tutaj po wysłaniu prośby z appki.</p>';
         document.getElementById('urz-urzadzenia-lista').innerHTML = stan.urzadzenia.map(wierszUrzadzenia).join('')
-            || '<tr><td colspan="8" class="urz-pusto">Brak zatwierdzonych urządzeń.</td></tr>';
+            || '<tr class="urz-pusty"><td colspan="8" class="urz-pusto">Brak zatwierdzonych urządzeń. Zatwierdź prośbę powyżej, a urządzenie pojawi się na tej liście.</td></tr>';
         document.getElementById('urz-zablokowane-lista').innerHTML = stan.zablokowane.map(wierszZablokowanego).join('')
-            || '<tr><td colspan="5" class="urz-pusto">Brak.</td></tr>';
-        document.getElementById('urz-licznik-prosb').textContent = stan.prosby.length;
+            || '<tr class="urz-pusty"><td colspan="5" class="urz-pusto">Brak zablokowanych urządzeń.</td></tr>';
+        document.getElementById('urz-karta-prosby').classList.toggle('urz-karta--uwaga', prosb > 0);
+        document.getElementById('urz-stat-prosby-kafel').classList.toggle('urz-stat--uwaga', prosb > 0);
+        document.getElementById('urz-licznik-prosb').textContent = prosb;
         document.getElementById('urz-licznik-zabl').textContent = stan.zablokowane.length;
+        document.getElementById('urz-stat-prosby').textContent = prosb;
+        document.getElementById('urz-stat-zatwierdzone').textContent = stan.urzadzenia.length;
+        document.getElementById('urz-stat-zablokowane').textContent = stan.zablokowane.length;
+        const znaczekPod = document.getElementById('urz-znaczek-prosb');
+        znaczekPod.textContent = prosb;
+        znaczekPod.hidden = !prosb;
         const znaczek = document.getElementById('devices-tab-badge');
         if (znaczek) {
-            znaczek.textContent = stan.prosby.length;
-            znaczek.style.display = stan.prosby.length ? '' : 'none';
+            znaczek.textContent = prosb;
+            znaczek.style.display = prosb ? '' : 'none';
         }
     }
     function znajdz(id) {
@@ -426,9 +640,12 @@
             if (!isFinite(sec) || sec < 0) return '--:--';
             return String(Math.floor(sec / 60)).padStart(2, '0') + ':' + String(Math.floor(sec % 60)).padStart(2, '0');
         };
-        const blad = (tekst) => {
+        const ustawStatus = (tekst, rodzaj) => {
             statusEl.textContent = tekst;
-            statusEl.style.color = '#dc3545';
+            statusEl.className = 'urz-status' + (rodzaj ? ' urz-status--' + rodzaj : '');
+        };
+        const blad = (tekst) => {
+            ustawStatus(tekst, 'blad');
             progressBox.style.display = 'none';
             uploadBtn.disabled = false;
         };
@@ -437,13 +654,12 @@
             e.preventDefault();
             const fileInput = document.getElementById('apkFileInput');
             if (!fileInput.files || fileInput.files.length === 0) {
-                statusEl.textContent = 'Wybierz plik APK';
-                statusEl.style.color = '#dc3545';
+                ustawStatus('Wybierz plik APK', 'blad');
                 return;
             }
             const formData = new FormData(apkUploadForm);
             uploadBtn.disabled = true;
-            statusEl.textContent = '';
+            ustawStatus('', '');
             progressBox.style.display = 'block';
             progressFill.style.width = '0%';
             progressPercent.textContent = '0%';
@@ -476,9 +692,9 @@
                     const stanRelease = data.release.is_active
                         ? 'AKTYWNY — urządzenia pobiorą tę wersję'
                         : 'NIEAKTYWNY — włącz przełącznik „Aktywny” w historii, gdy zechcesz wydać';
-                    statusEl.textContent = `OK — release v${data.release.version_code} (${data.release.version_name}) zarejestrowany, ${stanRelease}. Odświeżam…`;
-                    statusEl.style.color = '#28a745';
-                    // 3 s, żeby zdążyć przeczytać, czy release jest aktywny. Adres ma ?tab=devices — wracamy tutaj.
+                    ustawStatus(`OK — release v${data.release.version_code} (${data.release.version_name}) zarejestrowany, ${stanRelease}. Odświeżam…`, 'ok');
+                    // 3 s, żeby zdążyć przeczytać, czy release jest aktywny. Adres ma ?tab=devices,
+                    // a wybraną podzakładkę („Aplikacja”) przywraca sessionStorage.
                     setTimeout(() => window.location.reload(), 3000);
                 } else {
                     blad('Błąd: ' + ((data && data.error) || ('HTTP ' + xhr.status)));
@@ -495,16 +711,19 @@
         const toggle = ev.target.closest('.release-active-toggle');
         if (!toggle) return;
         const nowy = toggle.checked;
+        aktualizujWersje();
         try {
             await wyslij('PATCH', `/releases/${toggle.dataset.id}/active`, {is_active: nowy});
             toast(nowy ? 'Release aktywny — urządzenia go pobiorą.' : 'Release wyłączony.', 'success');
         } catch (e) {
             toast('Błąd: ' + e.message, 'error');
             toggle.checked = !nowy;
+            aktualizujWersje();
         }
     });
 
-    // ── odświeżanie co 10 s, tylko gdy zakładka jest widoczna ──
+    // ── odświeżanie co 10 s, tylko gdy zakładka jest widoczna; niezależne od aktywnej podzakładki,
+    //    żeby znaczek próśb na „Urządzeniach” był aktualny także podczas pracy na „Aplikacji” ──
     if (window.__urzadzeniaTimer) clearInterval(window.__urzadzeniaTimer);
     window.__urzadzeniaTimer = setInterval(() => {
         const panel = document.getElementById('devices-tab-content');
@@ -513,5 +732,6 @@
     }, ODSWIEZANIE_MS);
 
     rysuj();
+    aktualizujWersje();
 })();
 </script>

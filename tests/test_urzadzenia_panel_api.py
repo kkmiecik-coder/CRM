@@ -107,3 +107,14 @@ def test_zakladka_html(admin):
     for tekst in ('Prośby o dostęp', 'Urządzenia', 'Zablokowane', 'Wgraj nowy release', 'apkUploadForm', MAC_A):
         assert tekst in html
     assert 'TAJNE-URZ-ID-77' not in html   # device_id nie trafia do przeglądarki
+    # podzakładki „Urządzenia” / „Aplikacja”: pasek kart + dwa panele z powiązaniem aria
+    assert html.count('role="tablist"') == 1
+    assert html.count('role="tab"') == 2
+    assert html.count('role="tabpanel"') == 2
+    for sub, tekst in (('urzadzenia', 'Urządzenia'), ('aplikacja', 'Aplikacja')):
+        assert f'data-sub="{sub}"' in html
+        assert f'aria-controls="urz-panel-{sub}"' in html
+        assert f'id="urz-panel-{sub}"' in html
+        assert tekst in html
+    assert 'id="urz-panel-aplikacja"' in html and 'hidden>' in html   # panel Aplikacji domyślnie schowany
+    assert 'id="apkUploadForm"' in html   # formularz uploadu zostaje w DOM także na schowanym panelu

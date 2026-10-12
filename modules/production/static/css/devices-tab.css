@@ -1,201 +1,765 @@
-/* Zakładka „Urządzenia mobilne” (spec 2026-10-12-urzadzenia-mobilne-zatwierdzanie-design.md, sekcja 5). */
-.urz-tab { padding: 20px; max-width: 1400px; }
-.urz-naglowek h2 { font-size: 1.4rem; margin-bottom: 4px; }
-.urz-naglowek p, .urz-opis { color: #6b7280; margin-bottom: 8px; }
-.urz-jak { margin-bottom: 16px; font-size: 0.9rem; }
-.urz-jak summary { cursor: pointer; color: #2563eb; }
-.urz-sekcja { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px 20px; margin-bottom: 20px; }
-.urz-sekcja h3 { font-size: 1.05rem; margin: 0 0 12px; }
-.urz-sekcja h4 { font-size: 0.95rem; margin: 16px 0 10px; }
-.urz-sekcja-naglowek { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
-.urz-licznik { display: inline-block; min-width: 24px; padding: 0 7px; border-radius: 12px; background: #e5e7eb;
-               text-align: center; font-size: 0.8rem; }
-.urz-prosba { display: grid; grid-template-columns: auto 1fr auto; gap: 16px; align-items: center; padding: 12px 14px;
-              border: 2px solid #f59e0b; border-radius: 8px; background: #fffbeb; margin-bottom: 10px; }
-.urz-mac, .urz-zatw-mac { font-family: 'JetBrains Mono', monospace; font-weight: 700; letter-spacing: 0.04em; }
-.urz-mac { font-size: 1.6rem; }
-.urz-zatw-mac { font-size: 1.4rem; }
-.urz-drobne { font-size: 0.8rem; color: #6b7280; }
-.urz-reinstalacja { margin-top: 4px; font-size: 0.85rem; color: #92400e; }
-.urz-akcje { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
-.urz-tabela code { font-family: 'JetBrains Mono', monospace; }
-.urz-szare { color: #9ca3af; font-style: italic; }
-.urz-konflikt { margin-top: 4px; font-size: 0.8rem; color: #b45309; }
-.urz-pusto { color: #9ca3af; margin: 0; }
-.urz-notatki { white-space: pre-wrap; font-size: 0.85rem; }
-.urz-zablokowane summary, #urz-zablokowane summary { cursor: pointer; }
-.urz-apk-formularz { padding: 16px; background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 8px; margin-bottom: 16px; }
-.urz-jak-dziala { margin-top: 16px; font-size: 0.85rem; color: #4b5563; }
-@media (max-width: 700px) {
-    .urz-tab { padding: 12px; }
-    .urz-prosba { grid-template-columns: 1fr; }
-    .urz-mac { font-size: 1.25rem; }
-    .urz-akcje { justify-content: flex-start; }
-}
+/* ═══════════════════════════════════════════════════════════════════════
+   ZAKŁADKA „URZĄDZENIA MOBILNE” — Industrial Light
+   (spec 2026-10-12-urzadzenia-mobilne-zatwierdzanie-design.md, sekcja 5)
 
-/* =============================================
-   APLIKACJA PRODUKCJA — formularz uploadu APK
-   ============================================= */
+   Wygląd jest wspólny z Pracownikami i Konfiguracją: tokeny --il-* z production-panel.css,
+   białe karty z 1px obramowaniem i promieniem 3px, nagłówki mono (JetBrains Mono),
+   bez gradientów, cieni i animacji.
 
-#apkUploadForm .form-group {
-    margin-bottom: 18px;
-    /* Globalne .form-group (style.css) ma max-width: 400px — tu za ciasno. */
-    max-width: 640px;
-}
+   Wszystkie reguły mają prefiks `.urz-tab`: ten plik ładuje się PRZED vendor/bootstrap.min.css,
+   więc pojedyncza klasa przegrywałaby z Bootstrapem (h2/h3, .btn-sm, code…).
 
-/* versionCode i versionName obok siebie; na wąskim ekranie jedno pod drugim */
-#apkUploadForm .apk-form-row {
-    display: grid;
-    grid-template-columns: minmax(0, 200px) minmax(0, 1fr);
-    gap: 16px;
-    max-width: 640px;
-}
+   Układ tabel liczą container queries na karcie (`urz-karta`), a nie szerokość okna: obszar
+   zakładki bywa wąski także na dużym monitorze (okno panelu, panel boczny).
+   Kolejność przy zwężaniu: znikają Model i Zatwierdził (pełna treść w podpowiedzi nazwy),
+   potem Wersja; poniżej 640 px wiersz staje się blokiem (etykieta: wartość).
+   ═══════════════════════════════════════════════════════════════════════ */
 
-#apkUploadForm .apk-form-row .form-group {
-    max-width: none;
-}
-
-/* Release notes: grupa bez limitu szerokości, żeby textarea dało się
-   rozciągnąć w poziomie aż do krawędzi sekcji */
-#apkUploadForm .apk-notes-group {
-    max-width: none;
-}
-
-#apkUploadForm label {
-    display: block;
-    margin-bottom: 6px;
-    font-weight: 500;
-    color: var(--text-primary, #1a1a2e);
-    font-size: 0.9rem;
-}
-
-#apkUploadForm .required {
-    color: #ef4444;
-}
-
-#apkUploadForm input[type="text"],
-#apkUploadForm input[type="number"],
-#apkUploadForm input[type="file"],
-#apkUploadForm textarea {
+.urz-tab {
+    /* Tekst pomocniczy: ciemniejszy niż --il-text-secondary (#7a8291 daje ok. 3,8:1 na bieli, tu ok. 5,9:1) */
+    --urz-tekst-2: #5f6776;
     width: 100%;
-    padding: 10px 12px;
-    border: 1px solid var(--border-color, #e5e7eb);
-    border-radius: 8px;
-    font-size: 0.9rem;
-    background: var(--bg-input, #ffffff);
-    font-family: inherit;
-    box-sizing: border-box;
+    padding-bottom: 60px;
+    color: var(--il-text-primary, #1a1a2e);
+    font-size: 13px;
 }
 
-#apkUploadForm textarea {
-    /* Szerokość startowa jak reszta pól; uchwyt rozciąga w obie strony,
-       max-width pilnuje, żeby nie wyjechać poza sekcję. */
-    width: 640px;
-    max-width: 100%;
-    min-width: 260px;
-    min-height: 110px;
-    resize: both;
-    line-height: 1.5;
+.urz-tab *,
+.urz-tab *::before,
+.urz-tab *::after { box-sizing: border-box; }
+
+.urz-tab :is(button, input, textarea, summary, a):focus-visible {
+    outline: 2px solid var(--il-status-info, #2563eb);
+    outline-offset: 2px;
 }
 
-#apkUploadForm .apk-activate-label {
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 0;
-    padding: 10px 14px;
-    background: var(--bg-input, #ffffff);
-    border: 1px solid var(--border-color, #e5e7eb);
-    border-radius: 8px;
-    cursor: pointer;
+.urz-tab .urz-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
 }
 
-#apkUploadForm .apk-activate-label input[type="checkbox"] {
-    width: 16px;
-    height: 16px;
-    margin: 0;
-    accent-color: var(--primary-color, #2563eb);
-    cursor: pointer;
-}
-
-#apkUploadForm .apk-activate-label:has(input:checked) {
-    border-color: var(--primary-color, #2563eb);
-    background: rgba(37, 99, 235, 0.06);
-}
-
-@media (max-width: 600px) {
-    #apkUploadForm .apk-form-row {
-        grid-template-columns: 1fr;
-        gap: 0;
-    }
-
-    #apkUploadForm textarea {
-        min-width: 0;
-    }
-}
-
-#apkUploadForm input[type="file"] {
-    padding: 8px 12px;
-    cursor: pointer;
-}
-
-#apkUploadForm input:focus,
-#apkUploadForm textarea:focus {
-    outline: none;
-    border-color: var(--primary-color, #2563eb);
-    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
-}
-
-#apkUploadForm .form-hint {
-    display: block;
-    margin-top: 6px;
-    color: var(--text-muted, #9ca3af);
-    font-size: 0.8rem;
-}
-
-#apkUploadForm .form-actions {
-    margin-top: 20px;
-    padding-top: 16px;
-    border-top: 1px solid var(--border-color, #e5e7eb);
+/* ─── PODZAKŁADKI (ten sam wygląd co .reports-subnav, własne klasy) ─── */
+.urz-tab .urz-subnav {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
+    border-bottom: 1px solid var(--il-border, #c8cdd5);
+    margin-bottom: 16px;
+}
+
+.urz-tab .urz-subnav-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: none;
+    background: transparent;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    padding: 8px 16px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--il-text-secondary, #7a8291);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.urz-tab .urz-subnav-btn:hover {
+    color: var(--production-primary, #2c5530);
+    border-bottom-color: var(--il-border, #c8cdd5);
+}
+
+.urz-tab .urz-subnav-btn.active {
+    color: var(--production-primary, #2c5530);
+    border-bottom-color: var(--production-primary, #2c5530);
+}
+
+.urz-tab .urz-subnav-btn:focus-visible { outline-offset: -2px; }
+
+/* Znaczek z liczbą oczekujących próśb — jak #devices-tab-badge przy nazwie zakładki (czerwony) */
+.urz-tab .urz-znaczek {
+    display: inline-block;
+    min-width: 18px;
+    padding: 1px 6px;
+    border-radius: 9px;
+    background: var(--il-status-danger, #dc2626);
+    color: #fff;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0;
+    line-height: 1.5;
+    text-align: center;
+}
+
+.urz-tab .urz-pane[hidden] { display: none; }
+
+/* ─── NAGŁÓWEK Z CHIPAMI (jak .workers-main-header) ─── */
+.urz-tab .urz-header {
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    padding: 14px 16px;
+    margin-bottom: 16px;
+}
+
+.urz-tab .urz-header h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--il-text-secondary, #7a8291);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin: 0 0 4px;
+}
+
+.urz-tab .urz-header h2 i {
+    color: var(--il-text-muted, #9ba3b0);
+    margin-right: 8px;
+}
+
+.urz-tab .urz-header p {
+    color: var(--urz-tekst-2);
+    font-size: 12px;
+    margin: 0;
+    max-width: 90ch;
+}
+
+.urz-tab .urz-stats {
+    display: flex;
+    flex-wrap: wrap;
     gap: 12px;
-    justify-content: flex-start;
+    margin-top: 12px;
 }
 
-.apk-upload-progress {
-    margin: 8px 0 16px;
-    padding: 12px 14px;
-    background: #f8fafc;
-    border: 1px solid var(--border-color, #e5e7eb);
-    border-radius: 8px;
+.urz-tab .urz-stat {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    background: var(--il-bg-base, #eef0f4);
+    padding: 8px 12px 8px 8px;
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
 }
 
-.apk-progress-bar-wrapper {
-    height: 10px;
-    background: #e5e7eb;
-    border-radius: 999px;
+.urz-tab .urz-stat-ikona {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border-light, #e2e5ea);
+    border-radius: var(--il-radius, 3px);
+    color: var(--urz-tekst-2);
+    font-size: 13px;
+}
+
+.urz-tab .urz-stat-info { min-width: 0; }
+
+.urz-tab .urz-stat-etykieta {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--urz-tekst-2);
+    line-height: 1.3;
+}
+
+.urz-tab .urz-stat-wartosc {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--il-text-primary, #1a1a2e);
+    line-height: 1.3;
+}
+
+/* Czekające prośby: chip dostaje akcent ostrzegawczy (pasek z lewej, jak karta próśb) */
+.urz-tab .urz-stat--uwaga { border-left: 3px solid var(--il-status-warn, #d97706); }
+.urz-tab .urz-stat--uwaga .urz-stat-ikona { color: var(--il-status-warn, #d97706); }
+
+.urz-tab .urz-jak { margin-top: 12px; font-size: 12px; color: var(--urz-tekst-2); }
+.urz-tab .urz-jak summary { cursor: pointer; width: fit-content; color: var(--il-status-info, #2563eb); }
+.urz-tab .urz-jak ol { margin: 8px 0 0; padding-left: 20px; max-width: 90ch; }
+.urz-tab .urz-jak li { margin-bottom: 2px; }
+
+/* ─── KARTY (jak .workers-card / .config-card) ─── */
+.urz-tab .urz-karta {
+    container: urz-karta / inline-size;
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    margin-bottom: 16px;
+}
+
+/* Prośby czekają na decyzję: lewy pasek w kolorze ostrzeżenia na białej karcie */
+.urz-tab .urz-karta--uwaga { border-left: 4px solid var(--il-status-warn, #d97706); }
+
+.urz-tab .urz-karta-naglowek {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--il-border-light, #e2e5ea);
+}
+
+.urz-tab .urz-karta-tytul {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.urz-tab .urz-karta-ikona {
+    color: var(--il-text-muted, #9ba3b0);
+    font-size: 16px;
+    width: 18px;
+    text-align: center;
+}
+
+.urz-tab .urz-karta-tytul h3 {
+    font-size: 13px;
+    font-weight: 600;
+    margin: 0;
+    color: var(--il-text-primary, #1a1a2e);
+}
+
+.urz-tab .urz-karta-podtytul {
+    font-size: 11px;
+    color: var(--urz-tekst-2);
+    margin: 0;
+}
+
+.urz-tab .urz-karta-podtytul code { font-size: 11px; }
+
+.urz-tab .urz-karta-tresc { padding: 12px 16px; }
+.urz-tab .urz-karta-tresc--tabela { padding: 0; }
+
+.urz-tab .urz-licznik {
+    flex: 0 0 auto;
+    min-width: 26px;
+    padding: 1px 8px;
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: 10px;
+    background: var(--il-bg-base, #eef0f4);
+    color: var(--urz-tekst-2);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    text-align: center;
+}
+
+.urz-tab .urz-pusto {
+    margin: 0;
+    padding: 4px 0;
+    color: var(--urz-tekst-2);
+}
+
+.urz-tab .urz-karta-tresc--tabela > .urz-pusto { padding: 14px 16px; }
+
+/* ─── PRZYCISKI ─── */
+.urz-tab .urz-btn {
+    font-size: 12px;
+    line-height: 1.5;
+    padding: 4px 10px;
+    border-radius: var(--il-radius, 3px);
+    white-space: nowrap;
+}
+
+.urz-tab .urz-link { font-size: 12px; vertical-align: baseline; }
+
+/* Kwadratowe przyciski ikonowe w wierszach (edycja: niebieski kontur, blokada: czerwony) */
+.urz-tab .urz-ikona {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    margin: 0;
+    background: var(--il-bg-card, #fff);
+    border: 1px solid;
+    border-radius: var(--il-radius, 3px);
+    font-size: 12px;
+    cursor: pointer;
+    vertical-align: middle;
+}
+
+.urz-tab .urz-ikona + .urz-ikona { margin-left: 6px; }
+
+.urz-tab .urz-ikona--edytuj { color: var(--il-status-info, #2563eb); border-color: var(--il-status-info, #2563eb); }
+.urz-tab .urz-ikona--edytuj:hover { background: var(--il-status-info, #2563eb); color: #fff; }
+.urz-tab .urz-ikona--blokuj { color: var(--il-status-danger, #dc2626); border-color: var(--il-status-danger, #dc2626); }
+.urz-tab .urz-ikona--blokuj:hover { background: var(--il-status-danger, #dc2626); color: #fff; }
+
+/* ─── PROŚBY O DOSTĘP ─── */
+.urz-tab .urz-prosba {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px 24px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--il-border-light, #e2e5ea);
+}
+
+.urz-tab .urz-prosba:first-child { padding-top: 0; }
+.urz-tab .urz-prosba:last-child { padding-bottom: 0; border-bottom: none; }
+
+.urz-tab .urz-prosba-mac { display: flex; flex-direction: column; gap: 2px; }
+
+.urz-tab .urz-etykieta {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--urz-tekst-2);
+}
+
+/* MAC to najważniejszy element sekcji — admin porównuje go z ekranem urządzenia */
+.urz-tab .urz-mac,
+.urz-tab .urz-zatw-mac {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--il-text-primary, #1a1a2e);
+    overflow-wrap: anywhere;
+}
+
+.urz-tab .urz-mac { font-size: 22px; line-height: 1.2; }
+.urz-tab .urz-zatw-mac { font-size: 1.4rem; }
+
+.urz-tab .urz-prosba-info { flex: 1 1 220px; min-width: 0; }
+.urz-tab .urz-prosba-nazwa { overflow-wrap: anywhere; }
+.urz-tab .urz-stanowisko { margin-left: 6px; color: var(--urz-tekst-2); }
+.urz-tab .urz-drobne { font-size: 11px; color: var(--urz-tekst-2); overflow-wrap: anywhere; }
+.urz-tab .urz-reinstalacja { margin-top: 4px; font-size: 12px; color: #92400e; }
+.urz-tab .urz-prosba-akcje { display: flex; gap: 6px; flex: 0 0 auto; }
+
+/* ─── TABELE ─── */
+.urz-tab .urz-tabela {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.urz-tab .urz-tabela th {
+    padding: 8px 8px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    text-align: left;
+    color: var(--urz-tekst-2);
+    border-bottom: 1px solid var(--il-border, #c8cdd5);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.urz-tab .urz-tabela td {
+    padding: 10px 8px;
+    vertical-align: middle;
+    border-bottom: 1px solid var(--il-border-light, #e2e5ea);
     overflow: hidden;
 }
 
-.apk-progress-bar-fill {
-    height: 100%;
-    width: 0%;
-    background: linear-gradient(90deg, #2563eb, #3b82f6);
-    border-radius: 999px;
-    transition: width 0.15s linear;
+.urz-tab .urz-tabela tbody tr:last-child td { border-bottom: none; }
+.urz-tab .urz-tabela :is(th, td):first-child { padding-left: 16px; }
+.urz-tab .urz-tabela :is(th, td):last-child { padding-right: 16px; }
+
+.urz-tab .urz-tabela code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    white-space: nowrap;
 }
 
-.apk-progress-meta {
-    display: flex;
-    justify-content: space-between;
-    margin-top: 8px;
+/* Długie wartości: jedna linia z wielokropkiem, pełna treść w title */
+.urz-tab .urz-ell {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.urz-tab .urz-nazwa { font-weight: 600; }
+.urz-tab .urz-liczba { text-align: right; font-variant-numeric: tabular-nums; }
+.urz-tab .urz-szare { color: var(--il-text-muted, #9ba3b0); font-style: italic; }
+.urz-tab .urz-konflikt { margin-top: 4px; font-size: 11px; color: #b45309; white-space: normal; }
+.urz-tab .urz-pusty td { white-space: normal; }
+
+/* Kolumna akcji: stała szerokość, nic się nie zawija */
+.urz-tab .urz-k-akcje { text-align: right; white-space: nowrap; }
+
+/* Kropka „ostatnio widziane” — kolory stanów modułu; znaczenie niesie też tekst obok */
+.urz-tab .urz-kropka {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-right: 7px;
+    border-radius: 50%;
+    background: var(--il-status-inactive, #9ba3b0);
+}
+
+.urz-tab .urz-kropka--ok { background: var(--il-status-ok, #16a34a); }
+.urz-tab .urz-kropka--warn { background: var(--il-status-warn, #d97706); }
+
+.urz-tab .urz-pigulka {
+    display: inline-block;
+    margin-top: 2px;
+    padding: 0 7px;
+    border-radius: 9px;
+    background: var(--il-bg-base, #eef0f4);
+    border: 1px solid var(--il-border, #c8cdd5);
+    font-size: 10px;
+    color: var(--urz-tekst-2);
+    white-space: nowrap;
+}
+
+/* Nagłówki historii wydań mogą się zawijać („Urządzeń z tą wersją” jest długie) */
+.urz-tab .urz-tabela--wydania th { white-space: normal; line-height: 1.3; vertical-align: bottom; }
+
+/* Szerokości kolumn (table-layout: fixed; Nazwa/Notatki biorą resztę) */
+.urz-tab .urz-tabela--urzadzenia .urz-k-stan { width: 120px; }
+.urz-tab .urz-tabela--urzadzenia .urz-k-mac { width: 150px; }
+.urz-tab .urz-tabela--urzadzenia .urz-k-model { width: 130px; }
+.urz-tab .urz-tabela--urzadzenia .urz-k-wersja { width: 92px; }
+.urz-tab .urz-tabela--urzadzenia .urz-k-ostatnio { width: 156px; }
+.urz-tab .urz-tabela--urzadzenia .urz-k-zatw { width: 120px; }
+.urz-tab .urz-tabela--urzadzenia .urz-k-akcje { width: 88px; }
+
+.urz-tab .urz-tabela--zablokowane .urz-k-stan { width: 120px; }
+.urz-tab .urz-tabela--zablokowane .urz-k-mac { width: 150px; }
+.urz-tab .urz-tabela--zablokowane .urz-k-kiedy { width: 110px; }
+.urz-tab .urz-tabela--zablokowane .urz-k-akcje { width: 108px; }
+
+.urz-tab .urz-tabela--wydania .urz-k-kod { width: 60px; }
+.urz-tab .urz-tabela--wydania .urz-k-wersja { width: 90px; }
+.urz-tab .urz-tabela--wydania .urz-k-urzadzen { width: 112px; }
+.urz-tab .urz-tabela--wydania .urz-k-rozmiar { width: 90px; }
+.urz-tab .urz-tabela--wydania .urz-k-sha { width: 110px; }
+.urz-tab .urz-tabela--wydania .urz-k-wgrano { width: 130px; }
+.urz-tab .urz-tabela--wydania .urz-k-aktywny { width: 92px; }
+.urz-tab .urz-tabela--wydania .urz-k-urzadzen,
+.urz-tab .urz-tabela--wydania .urz-k-rozmiar { padding-right: 16px; }
+
+.urz-tab .urz-notatki {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    overflow: hidden;
+    white-space: pre-line;
     font-size: 12px;
-    color: var(--text-muted, #6b7280);
+    overflow-wrap: anywhere;
+}
+
+.urz-tab .urz-przelacznik { min-height: 0; }
+.urz-tab .urz-przelacznik .form-check-input { cursor: pointer; margin-top: 0; }
+.urz-tab .urz-przelacznik .form-check-input:checked {
+    background-color: var(--il-status-ok, #16a34a);
+    border-color: var(--il-status-ok, #16a34a);
+}
+
+/* ─── ZWĘŻANIE (container queries na karcie) ─── */
+@container urz-karta (max-width: 1000px) {
+    .urz-tab .urz-tabela--urzadzenia .urz-k-model,
+    .urz-tab .urz-tabela--urzadzenia .urz-k-zatw,
+    .urz-tab .urz-tabela--wydania .urz-k-sha,
+    .urz-tab .urz-tabela--wydania .urz-k-rozmiar { display: none; }
+}
+
+@container urz-karta (max-width: 760px) {
+    .urz-tab .urz-tabela--urzadzenia .urz-k-wersja,
+    .urz-tab .urz-tabela--wydania .urz-k-wgrano { display: none; }
+}
+
+/* Wiersz jako blok: nazwa i akcje na górze, reszta „etykieta: wartość” */
+@container urz-karta (max-width: 640px) {
+    .urz-tab .urz-tabela,
+    .urz-tab .urz-tabela tbody { display: block; }
+
+    .urz-tab .urz-tabela thead {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+    }
+
+    .urz-tab .urz-tabela tr {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        column-gap: 12px;
+        row-gap: 4px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--il-border-light, #e2e5ea);
+    }
+
+    .urz-tab .urz-tabela tbody tr:last-child { border-bottom: none; }
+
+    .urz-tab .urz-tabela td,
+    .urz-tab .urz-tabela :is(td):first-child,
+    .urz-tab .urz-tabela :is(td):last-child {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        grid-column: 1 / -1;
+        min-width: 0;
+        padding: 0;
+        border: none;
+        text-align: left;
+    }
+
+    /* Kolumny schowane na średnich szerokościach wracają w układzie blokowym */
+    .urz-tab .urz-tabela--urzadzenia .urz-k-model,
+    .urz-tab .urz-tabela--urzadzenia .urz-k-zatw,
+    .urz-tab .urz-tabela--urzadzenia .urz-k-wersja,
+    .urz-tab .urz-tabela--wydania .urz-k-sha,
+    .urz-tab .urz-tabela--wydania .urz-k-rozmiar,
+    .urz-tab .urz-tabela--wydania .urz-k-wgrano { display: flex; }
+
+    /* Szerokości kolumn (th i td dzielą klasy .urz-k-*) liczą się tylko w układzie tabelarycznym */
+    .urz-tab .urz-tabela td[class] { width: auto; }
+
+    .urz-tab .urz-tabela td.urz-k-mac:has(.urz-konflikt) { flex-wrap: wrap; }
+    .urz-tab .urz-tabela td.urz-k-mac .urz-konflikt { flex: 1 1 100%; margin: 0; }
+
+    .urz-tab .urz-tabela td[data-label]::before {
+        content: attr(data-label);
+        flex: 0 0 112px;
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        color: var(--urz-tekst-2);
+    }
+
+    .urz-tab .urz-tabela td > :is(.urz-ell, div, code) { flex: 1 1 auto; min-width: 0; }
+
+    /* Nazwa (albo kod) po lewej, akcje po prawej, w jednym wierszu; reszta na całą szerokość */
+    .urz-tab .urz-tabela td.urz-k-akcje,
+    .urz-tab .urz-tabela td.urz-k-aktywny {
+        grid-column: 2;
+        grid-row: 1;
+        align-self: start;
+        justify-content: flex-end;
+    }
+
+    .urz-tab .urz-tabela td.urz-k-nazwa,
+    .urz-tab .urz-tabela td.urz-k-kod {
+        grid-column: 1;
+        grid-row: 1;
+        align-self: center;
+        font-size: 14px;
+    }
+
+    .urz-tab .urz-tabela td.urz-k-nazwa { flex-wrap: wrap; }
+
+    .urz-tab .urz-tabela td.urz-liczba { justify-content: flex-start; }
+    .urz-tab .urz-tabela .urz-pusty { display: block; padding: 14px 16px; }
+    .urz-tab .urz-tabela .urz-pusty td { display: block; padding: 0; }
+}
+
+@container urz-karta (max-width: 520px) {
+    .urz-tab .urz-karta-naglowek { padding: 10px 12px; }
+    .urz-tab .urz-karta-naglowek:has(> .urz-licznik) { flex-wrap: nowrap; }
+    .urz-tab .urz-karta-tresc { padding: 10px 12px; }
+    .urz-tab .urz-mac { font-size: 19px; }
+    .urz-tab .urz-prosba-akcje { width: 100%; }
+}
+
+/* ─── FORMULARZ APK ─── */
+.urz-tab .urz-formularz { max-width: 760px; }
+
+.urz-tab .urz-pole { margin-bottom: 14px; min-width: 0; }
+
+.urz-tab .urz-pole label {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--urz-tekst-2);
+}
+
+.urz-tab .urz-wymagane { color: var(--il-status-danger, #dc2626); }
+
+.urz-tab .urz-pole :is(input[type="text"], input[type="number"], input[type="file"], textarea) {
+    display: block;
+    width: 100%;
+    padding: 7px 10px;
+    font: inherit;
+    font-size: 13px;
+    color: var(--il-text-primary, #1a1a2e);
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+}
+
+.urz-tab .urz-pole input[type="file"] { padding: 5px 8px; cursor: pointer; }
+
+.urz-tab .urz-pole textarea {
+    min-height: 90px;
+    resize: vertical;
+    line-height: 1.5;
+}
+
+.urz-tab .urz-pole :is(input, textarea):focus-visible {
+    outline: 2px solid var(--il-status-info, #2563eb);
+    outline-offset: 0;
+    border-color: var(--il-status-info, #2563eb);
+}
+
+.urz-tab .urz-podpowiedz {
+    display: block;
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--urz-tekst-2);
+}
+
+.urz-tab .urz-pola-rzad {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0 16px;
+}
+
+@container urz-karta (max-width: 520px) {
+    .urz-tab .urz-pola-rzad { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* „Aktywuj od razu” wydaje wersję na wszystkie urządzenia: ramka z lewym paskiem ostrzeżenia */
+.urz-tab .urz-aktywuj {
+    margin-bottom: 14px;
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-left: 4px solid var(--il-status-warn, #d97706);
+    border-radius: var(--il-radius, 3px);
+}
+
+.urz-tab .urz-pole .urz-aktywuj-etykieta,
+.urz-tab .urz-aktywuj-etykieta {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin: 0;
+    padding: 10px 12px;
+    cursor: pointer;
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 400;
+    font-size: 13px;
+    color: var(--il-text-primary, #1a1a2e);
+}
+
+.urz-tab .urz-aktywuj-etykieta input[type="checkbox"] {
+    flex: 0 0 auto;
+    width: 16px;
+    height: 16px;
+    margin: 2px 0 0;
+    accent-color: var(--il-status-warn, #d97706);
+    cursor: pointer;
+}
+
+.urz-tab .urz-aktywuj-ostrzezenie {
+    display: block;
+    margin-top: 2px;
+    font-size: 12px;
+    color: #92400e;
+}
+
+.urz-tab .urz-aktywuj-ostrzezenie i { margin-right: 6px; }
+
+.urz-tab .urz-formularz-akcje {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--il-border-light, #e2e5ea);
+}
+
+.urz-tab .urz-status { font-size: 12px; overflow-wrap: anywhere; min-width: 0; }
+.urz-tab .urz-status--blad { color: var(--il-status-danger, #dc2626); }
+.urz-tab .urz-status--ok { color: var(--il-status-ok, #16a34a); }
+
+/* Pasek postępu: płaski, bez animacji i gradientów */
+.urz-tab .urz-postep {
+    margin: 0 0 14px;
+    padding: 10px 12px;
+    background: var(--il-bg-base, #eef0f4);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+}
+
+.urz-tab .urz-postep-pasek {
+    height: 8px;
+    background: var(--il-border-light, #e2e5ea);
+    border-radius: var(--il-radius, 3px);
+    overflow: hidden;
+}
+
+.urz-tab .urz-postep-wypelnienie {
+    height: 100%;
+    width: 0;
+    background: var(--il-status-info, #2563eb);
+}
+
+.urz-tab .urz-postep-meta {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 4px 12px;
+    margin-top: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--urz-tekst-2);
     font-variant-numeric: tabular-nums;
 }
 
-.apk-progress-meta span:first-child {
-    font-weight: 600;
-    color: var(--text-primary, #1a1a2e);
+.urz-tab .urz-postep-meta span:first-child { font-weight: 600; color: var(--il-text-primary, #1a1a2e); }
+
+/* ─── „Jak to działa” ─── */
+.urz-tab .urz-lista { margin: 0; padding: 0; list-style: none; max-width: 90ch; }
+
+.urz-tab .urz-lista li {
+    position: relative;
+    padding: 6px 0 6px 16px;
+    border-bottom: 1px solid var(--il-border-light, #e2e5ea);
+    font-size: 12px;
+    color: var(--il-text-primary, #1a1a2e);
+}
+
+.urz-tab .urz-lista li:last-child { border-bottom: none; }
+
+.urz-tab .urz-lista li::before {
+    content: '';
+    position: absolute;
+    left: 2px;
+    top: 13px;
+    width: 5px;
+    height: 5px;
+    background: var(--il-text-muted, #9ba3b0);
+}
+
+.urz-tab .urz-lista code { font-size: 11px; }
+
+@media (max-width: 700px) {
+    .urz-tab .urz-subnav-btn { padding: 8px 12px; }
+    .urz-tab .urz-stat { flex: 1 1 calc(50% - 6px); }
+}
+
+@media (max-width: 420px) {
+    .urz-tab .urz-stat { flex-basis: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .urz-tab * { scroll-behavior: auto; transition: none; animation: none; }
 }
