@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
 from flask import Flask
+from flask_login import AnonymousUserMixin, LoginManager
 from sqlalchemy.pool import StaticPool
 
 from extensions import db
@@ -70,3 +71,35 @@ def urzadzenie(device_id='TAB-1', station_code='packaging', status='zatwierdzone
     db.session.add(d)
     db.session.commit()
     return d
+
+
+BASE_PANELU = '/production/api/devices'
+
+
+class Admin(AnonymousUserMixin):
+    """Zalogowany admin bez sesji: LOGIN_DISABLED przepuszcza login_required, admin_required czyta `role`."""
+    id = 1
+    email = 'admin@test.local'
+    role = 'admin'
+    is_authenticated = True
+
+
+class Pracownik(Admin):
+    id = 2
+    role = 'user'
+
+
+def aplikacja_panelu(monkeypatch, tmp_path, uzytkownik):
+    """Aplikacja z API mobilnym i blueprintem zakładki; `uzytkownik` to klasa „zalogowanego” (Admin / Pracownik)."""
+    import modules.users.decorators as decorators
+    monkeypatch.setattr(decorators, 'require_module_access', lambda *a, **k: (lambda f: f))
+    from modules.production.routers.devices_panel import devices_panel_bp
+    app = nowa_aplikacja(instance_path=str(tmp_path / 'instance'))
+    app.config['LOGIN_DISABLED'] = True
+    app.config['SECRET_KEY'] = 'test-' + 'x' * 40
+    menedzer = LoginManager()
+    menedzer.anonymous_user = uzytkownik
+    menedzer.init_app(app)
+    menedzer.user_loader(lambda user_id: None)
+    app.register_blueprint(devices_panel_bp, url_prefix=BASE_PANELU)
+    return app

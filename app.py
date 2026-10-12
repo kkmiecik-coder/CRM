@@ -888,6 +888,9 @@ def create_app():
         # Priorytety produkcji (krok K2): panel biura — drabina, gwiazdki, kolejka, ustawienia.
         from modules.production.priorytety import priorytety_panel_bp
         app.register_blueprint(priorytety_panel_bp, url_prefix='/production/api/priorytety')
+        # Urządzenia mobilne (spec 2026-10-12): prośby o dostęp, urządzenia, wydania APK.
+        from modules.production.routers.devices_panel import devices_panel_bp
+        app.register_blueprint(devices_panel_bp, url_prefix='/production/api/devices')
         app.register_blueprint(print_agent_bp, url_prefix='/api/print-agent')
         app.register_blueprint(production_display_bp, url_prefix='/production')
         app.register_blueprint(partner_academy_bp, url_prefix='/partner-academy')
