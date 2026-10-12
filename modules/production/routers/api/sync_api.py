@@ -31,6 +31,41 @@ def order_has_blocking_parsing_error(processed_products):
     )
 
 
+MAX_ORDER_IDS_PER_FETCH = 50
+
+
+def parse_order_ids(raw):
+    """
+    Numery zamówień Baselinker z modala synchronizacji.
+
+    Przyjmuje listę albo tekst („48934086, 48934087" / spacje / nowe linie).
+    Zwraca unikalne numery w kolejności podania; pusta lista = tryb po datach.
+    Rzuca ValueError z komunikatem dla operatora.
+    """
+    if raw is None or raw == '':
+        return []
+
+    if isinstance(raw, str):
+        tokens = raw.replace(',', ' ').replace(';', ' ').split()
+    elif isinstance(raw, list):
+        tokens = [str(item).strip() for item in raw if str(item).strip()]
+    else:
+        raise ValueError('Nieprawidłowy format numerów zamówień')
+
+    order_ids = []
+    for token in tokens:
+        if not token.isdigit():
+            raise ValueError(f'Nieprawidłowy numer zamówienia: {token}')
+        order_id = int(token)
+        if order_id not in order_ids:
+            order_ids.append(order_id)
+
+    if len(order_ids) > MAX_ORDER_IDS_PER_FETCH:
+        raise ValueError(f'Maksymalnie {MAX_ORDER_IDS_PER_FETCH} numerów zamówień na raz')
+
+    return order_ids
+
+
 @api_bp.route('/sync-cron', methods=['GET'])
 @cron_secret_required
 def cron_sync():
@@ -755,60 +790,78 @@ def fetch_orders_preview():
         data = request.get_json() or {}
         days_range = data.get('days_range', 7)
         status_ids = data.get('status_ids', [])
-        
+
+        # Tryb „po numerze zamówienia" — zamiast zakresu dat i statusów
+        try:
+            order_ids = parse_order_ids(data.get('order_ids'))
+        except ValueError as parse_error:
+            return jsonify({'success': False, 'error': str(parse_error)}), 400
+
         logger.info("API: Pobieranie zamówień preview", extra={
             'user_id': current_user.id,
             'days_range': days_range,
             'status_ids': status_ids,
+            'order_ids': order_ids,
             'endpoint': 'fetch_orders_preview'
         })
-        
-        # Walidacja parametrów
-        if not isinstance(days_range, int) or days_range < 1 or days_range > 30:
-            return jsonify({
-                'success': False,
-                'error': 'days_range musi być liczbą między 1 a 30'
-            }), 400
-            
-        if not isinstance(status_ids, list) or len(status_ids) == 0:
-            return jsonify({
-                'success': False,
-                'error': 'status_ids musi być niepustą listą'
-            }), 400
-        
-        # Konwersja dat
-        date_to = get_local_now()
-        date_from = date_to - timedelta(days=days_range)
-        
-        logger.info("API: Zakres dat pobierania", extra={
-            'date_from': date_from.isoformat(),
-            'date_to': date_to.isoformat(),
-            'days_range': days_range
-        })
-        
-        # Użyj serwisu z modułu reports dla spójności
-        from modules.reports.service import get_reports_service
-        reports_service = get_reports_service()
-        
-        if not reports_service:
-            raise Exception('Nie można zainicjować serwisu raportów Baselinker')
-        
-        # Pobierz zamówienia z Baselinker (bez zapisu)
-        fetch_result = reports_service.fetch_orders_from_date_range(
-            date_from=date_from,
-            date_to=date_to,
-            get_all_statuses=True,  # Pobierz wszystkie statusy, przefiltrujemy później
-            limit_per_page=100      # Standardowy limit
-        )
-        
-        if not fetch_result.get('success'):
-            raise Exception(fetch_result.get('error', 'Nie udało się pobrać zamówień z Baselinker'))
-        
-        all_orders = fetch_result.get('orders', []) or []
-        pages_processed = fetch_result.get('pages_processed') or 0
-        
+
+        not_found_order_ids = []
+        date_from = date_to = None
+
+        if order_ids:
+            from ...services.sync_service import get_sync_service
+
+            all_orders, not_found_order_ids = get_sync_service().fetch_orders_by_ids(order_ids)
+            pages_processed = len(order_ids)
+            # Operator wskazał zamówienia wprost — bez filtra statusów
+            status_ids_set = None
+        else:
+            # Walidacja parametrów
+            if not isinstance(days_range, int) or days_range < 1 or days_range > 30:
+                return jsonify({
+                    'success': False,
+                    'error': 'days_range musi być liczbą między 1 a 30'
+                }), 400
+
+            if not isinstance(status_ids, list) or len(status_ids) == 0:
+                return jsonify({
+                    'success': False,
+                    'error': 'status_ids musi być niepustą listą'
+                }), 400
+
+            # Konwersja dat
+            date_to = get_local_now()
+            date_from = date_to - timedelta(days=days_range)
+
+            logger.info("API: Zakres dat pobierania", extra={
+                'date_from': date_from.isoformat(),
+                'date_to': date_to.isoformat(),
+                'days_range': days_range
+            })
+
+            # Użyj serwisu z modułu reports dla spójności
+            from modules.reports.service import get_reports_service
+            reports_service = get_reports_service()
+
+            if not reports_service:
+                raise Exception('Nie można zainicjować serwisu raportów Baselinker')
+
+            # Pobierz zamówienia z Baselinker (bez zapisu)
+            fetch_result = reports_service.fetch_orders_from_date_range(
+                date_from=date_from,
+                date_to=date_to,
+                get_all_statuses=True,  # Pobierz wszystkie statusy, przefiltrujemy później
+                limit_per_page=100      # Standardowy limit
+            )
+
+            if not fetch_result.get('success'):
+                raise Exception(fetch_result.get('error', 'Nie udało się pobrać zamówień z Baselinker'))
+
+            all_orders = fetch_result.get('orders', []) or []
+            pages_processed = fetch_result.get('pages_processed') or 0
+            status_ids_set = set(status_ids)
+
         # Filtruj zamówienia po statusach
-        status_ids_set = set(status_ids)
         filtered_orders = []
 
         # Pobierz istniejące zamówienia z bazy danych
@@ -838,7 +891,7 @@ def fetch_orders_preview():
 
         for order in all_orders:
             order_status = order.get('order_status_id') or order.get('status_id')
-            if order_status in status_ids_set:
+            if status_ids_set is None or order_status in status_ids_set:
                 baselinker_order_id = order.get('order_id')
 
                 # Sprawdź czy zamówienie istnieje w bazie
@@ -968,11 +1021,12 @@ def fetch_orders_preview():
             'filtered_count': len(filtered_orders),
             'orders_skipped_complete': orders_skipped_complete,
             'orders_with_missing_products': orders_with_missing_products,
+            'not_found_order_ids': not_found_order_ids,
             'date_range': {
                 'from': date_from.isoformat(),
                 'to': date_to.isoformat(),
                 'days': days_range
-            }
+            } if date_from else None
         }), 200
         
     except Exception as e:
@@ -1006,7 +1060,9 @@ def save_selected_orders():
         order_ids = data.get('order_ids', [])
         days_range = data.get('days_range', 7)
         status_ids = data.get('status_ids', [])
-        
+        # Zamówienia wskazane po numerze — pobieramy je wprost, nie z zakresu dat
+        fetch_by_order_ids = bool(data.get('fetch_by_order_ids'))
+
         logger.info("API: Zapis wybranych zamówień", extra={
             'user_id': current_user.id,
             'order_ids': order_ids,
@@ -1074,6 +1130,7 @@ def save_selected_orders():
             'skip_validation': False,
             'filter_order_ids': order_ids,  # Lista wybranych zamówień
             'selected_orders_only': True,   # Flaga dla sync service
+            'fetch_by_order_ids': fetch_by_order_ids,
             'auto_status_change': True,     # Zmiana statusu po zapisaniu
             'recalculate_priorities': True  # Przelicz priorytety
         }
