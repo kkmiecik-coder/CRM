@@ -33,9 +33,9 @@ from sqlalchemy.pool import StaticPool
 from extensions import db
 from modules.production.models import ProductionDevice
 from modules.production.routers.mobile_api import mobile_api_bp
+from modules.production.services import device_access_service
 from modules.production.services.mobile_api_service import (
     generate_token,
-    register_device,
     validate_token,
 )
 # Importy rejestrujące mappery — configure_mappers() przy pierwszym query
@@ -163,7 +163,10 @@ def test_ponowna_rejestracja_po_uniewaznieniu_daje_dzialajacy_token(app):
         device.revoke_tokens()
         db.session.commit()
 
-        _, nowy_token = register_device(DEVICE_ID, 'Tablet hali 01', 'edges')
+        kod, tresc = device_access_service.zarejestruj_albo_popros(
+            {'device_id': DEVICE_ID, 'device_name': 'Tablet hali 01', 'station_code': 'edges'})
+        assert kod == 200, tresc
+        nowy_token = tresc['token']
 
         odzyskane, _claims = validate_token(nowy_token)
         assert odzyskane.device_id == DEVICE_ID
@@ -179,7 +182,10 @@ def test_ponowna_rejestracja_zapisuje_kod_kanoniczny(app):
     with app.app_context():
         _zarejestrowane_urzadzenie('finishing')
 
-        _, nowy_token = register_device(DEVICE_ID, 'Tablet hali 01', 'edges')
+        kod, tresc = device_access_service.zarejestruj_albo_popros(
+            {'device_id': DEVICE_ID, 'device_name': 'Tablet hali 01', 'station_code': 'edges'})
+        assert kod == 200, tresc
+        nowy_token = tresc['token']
 
         wiersz = ProductionDevice.query.filter_by(device_id=DEVICE_ID).one()
         assert wiersz.station_code == 'edges'

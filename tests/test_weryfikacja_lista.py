@@ -12,6 +12,7 @@ from modules.production.logistics import sposoby as s
 from modules.production.logistics.models import Route, RouteStop
 from modules.production.logistics.services import weryfikacja
 from modules.production.models import ProductionConfig, ProductionDevice, ProductionPackage, get_local_now
+from modules.production.services import device_access_service
 from modules.production.services.mobile_api_service import generate_token
 from tests.logistyka_fixtures import app, client, zamowienie  # noqa: F401
 
@@ -69,7 +70,12 @@ def _numery_listy(client, device):
 
 
 def test_rejestracja_telefonu_na_weryfikacji(app, client):
-    r = client.post('/api/mobile/register', json={'device_id': 'TEL-W-1', 'station_code': 'verification'})
+    cialo = {'device_id': 'TEL-W-1', 'station_code': 'verification', 'mac_address': 'A4:50:46:00:00:02'}
+    assert client.post('/api/mobile/register', json=cialo).status_code == 202
+    urzadzenie = ProductionDevice.query.filter_by(device_id='TEL-W-1').one()
+    device_access_service.ustaw_status(urzadzenie, ProductionDevice.STATUS_ZATWIERDZONE, user_id=1)
+    db.session.commit()
+    r = client.post('/api/mobile/register', json=cialo)
     assert r.status_code == 200 and r.get_json()['station_code'] == 'verification'
 
 

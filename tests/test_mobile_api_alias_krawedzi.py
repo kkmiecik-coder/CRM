@@ -496,6 +496,7 @@ def test_rejestracja_starym_kodem_zapisuje_kod_kanoniczny(client, app):
     poprawiła. Rejestracja jest jedynym miejscem, w którym urządzenie
     przedstawia się kodem stanowiska.
     """
+    _token(app, station_code='cutting', device_id='TABLET-STARY')
     odp = client.post('/api/mobile/register', json={
         'device_id': 'TABLET-STARY',
         'device_name': 'Tablet wykanczalni',
@@ -517,10 +518,12 @@ def test_rejestracja_tabletu_lakierni(client, app):
         'device_id': 'TABLET-LAKIERNIA',
         'device_name': 'Tablet lakierni',
         'station_code': 'painting',
+        'mac_address': 'A4:50:46:00:00:03',
     })
 
-    assert odp.status_code == 200, odp.get_json()
-    assert odp.get_json()['station_code'] == 'painting'
+    assert odp.status_code == 202, odp.get_json()
+    with app.app_context():
+        assert ProductionDevice.query.filter_by(device_id='TABLET-LAKIERNIA').one().station_code == 'painting'
 
 
 def test_nowy_tablet_lakierni_domyka_lakiernie(client, app):
@@ -530,6 +533,7 @@ def test_nowy_tablet_lakierni_domyka_lakiernie(client, app):
     wdrożenia — dziś ścieżka jest nieosiągalna, bo takiego tabletu nie da się
     zarejestrować.
     """
+    _token(app, station_code='painting', device_id='TABLET-LAK-2')
     rej = client.post('/api/mobile/register', json={
         'device_id': 'TABLET-LAK-2',
         'device_name': 'Tablet lakierni',

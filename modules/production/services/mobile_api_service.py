@@ -406,6 +406,14 @@ def validate_heartbeat_payload(payload):
     return None
 
 
+def adres_ip_klienta():
+    """Adres klienta za nginx: pierwszy element X-Forwarded-For, inaczej remote_addr. Wymaga request-contextu."""
+    ip = request.environ.get('HTTP_X_FORWARDED_FOR', request.remote_addr)
+    if ip and ',' in ip:
+        ip = ip.split(',')[0].strip()
+    return ip
+
+
 # ============================================================================
 # DEKORATOR
 # ============================================================================
@@ -788,43 +796,6 @@ def cleanup_old_operations(older_than_days=7, endpoint_retention=None):
         'cutoff': cutoff.isoformat(),
     })
     return deleted
-
-
-# ============================================================================
-# REJESTRACJA URZĄDZENIA
-# ============================================================================
-
-def register_device(device_id, device_name, station_code):
-    """
-    Idempotentna rejestracja urządzenia po device_id.
-    Re-rejestracja: aktualizuje station_code/device_name, reaktywuje is_active.
-    Zwraca (device, token).
-    """
-    device = ProductionDevice.query.filter_by(device_id=device_id).first()
-    if device:
-        device.station_code = station_code
-        if device_name:
-            device.device_name = device_name
-        device.is_active = True
-        logger.info("Mobile API: re-registration", extra={
-            'device_id': device_id,
-            'station_code': station_code,
-        })
-    else:
-        device = ProductionDevice(
-            device_id=device_id,
-            device_name=device_name or None,
-            station_code=station_code,
-        )
-        db.session.add(device)
-        logger.info("Mobile API: new device registered", extra={
-            'device_id': device_id,
-            'station_code': station_code,
-        })
-
-    db.session.commit()
-    token = generate_token(device)
-    return device, token
 
 
 # ============================================================================

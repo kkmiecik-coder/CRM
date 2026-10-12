@@ -23,7 +23,7 @@ from modules.production.utils.cache import (
     no_store_json,
     not_modified,
 )
-from modules.production.services import blokady_zamowien, label_print_service, realtime_service, worker_service
+from modules.production.services import blokady_zamowien, device_access_service, label_print_service, realtime_service, worker_service
 from modules.production.services.label_print_service import (
     StationNotAllowed,
     compute_label_offsets,
@@ -40,6 +40,7 @@ from modules.production.services.mobile_api_service import (
     STATION_QUANTITY_FIELD,
     STATION_STATUS_MAP,
     STATUS_TO_STATION,
+    adres_ip_klienta,
     compute_station_summary,
     device_can_access_station,
     get_app_version_info,
@@ -47,7 +48,6 @@ from modules.production.services.mobile_api_service import (
     mark_order_complete,
     parse_client_local_ts,
     parse_since_ts,
-    register_device,
     require_device_token,
     search_orders_global,
     serialize_order,
@@ -201,54 +201,23 @@ mobile_api_bp = Blueprint('mobile_api', __name__)
 @mobile_api_bp.route('/register', methods=['POST'])
 def register():
     """
-    POST /api/mobile/register
+    POST /api/mobile/register — kontrakt: docs/api-mobile-urzadzenia.md, sekcja 3.
 
-    Body JSON: { device_id: str, device_name: str?, station_code: str }
-    Response: { token: str, device_id: str, station_code: str }
-
-    Idempotentne — powtórna rejestracja tego samego device_id aktualizuje
-    wpis (nowe station_code / device_name) i zwraca nowy token.
+    Nowe urządzenie dostaje 202 `pending` (prośba do zatwierdzenia w zakładce „Urządzenia mobilne”), zatwierdzone
+    200 z tokenem (jak dotąd: zmiana stanowiska, cicha naprawa po 401), zablokowane 403. Logika i walidacja:
+    device_access_service.zarejestruj_albo_popros().
     """
-    data = request.get_json(silent=True) or {}
-    device_id = (data.get('device_id') or '').strip()
-    device_name = (data.get('device_name') or '').strip()
-    station_code = (data.get('station_code') or '').strip()
-    # Stary APK przedstawia się kodem 'finishing'. Bez rozwinięcia aliasu
-    # tutaj każde odnowienie JWT odtwarzałoby w prod_devices wiersz, który
-    # migracja przed chwilą poprawiła — a po zdjęciu 'finishing'
-    # z VALID_STATION_CODES stary tablet dostałby 400 invalid_station_code
-    # i nie odnowiłby tokenu w ogóle. Wołanie stoi PRZED walidacją
-    # kompletności pól; pozwala na to kontrakt resolve_station_code
-    # opisany w nagłówku planu wdrożenia.
-    station_code = resolve_station_code(station_code)
-
-    if not device_id or not station_code:
-        return jsonify({
-            'error': 'missing_fields',
-            'required': ['device_id', 'station_code'],
-        }), 400
-
-    if station_code not in ProductionDevice.VALID_STATION_CODES:
-        return jsonify({
-            'error': 'invalid_station_code',
-            'allowed': sorted(ProductionDevice.VALID_STATION_CODES),
-        }), 400
-
     try:
-        device, token = register_device(device_id, device_name, station_code)
+        kod, tresc = device_access_service.zarejestruj_albo_popros(
+            request.get_json(silent=True),
+            ip=adres_ip_klienta(),
+            app_version=request.headers.get('X-App-Version', '').strip() or None,
+        )
     except Exception as e:
         db.session.rollback()
-        logger.error("Mobile API register failed", extra={
-            'device_id': device_id,
-            'error': str(e),
-        })
-        return jsonify({'error': 'registration_failed', 'detail': str(e)}), 500
-
-    return jsonify({
-        'token': token,
-        'device_id': device.device_id,
-        'station_code': device.station_code,
-    }), 200
+        logger.error('Mobile API register failed', extra={'error': str(e)})
+        return jsonify({'error': 'registration_failed'}), 500
+    return jsonify(tresc), kod
 
 
 # ============================================================================

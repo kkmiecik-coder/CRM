@@ -14,6 +14,7 @@ from modules.production.logistics.models import (
 )
 from modules.production.models import ProductionDevice
 from modules.production.routers import mobile_api
+from modules.production.services import device_access_service
 from modules.production.services.mobile_api_service import _STATION_CODES_WITH_TABLETS, generate_token
 from modules.production.services.station_catalog import STATION_LABELS, STATION_ORDER
 from tests.logistyka_fixtures import app, client, kierowca, pracownik, zamowienie  # noqa: F401
@@ -103,8 +104,15 @@ def test_stanowisko_dostawy_w_katalogu():
 
 
 def test_rejestracja_telefonu_dostawy(app, client):
-    r = client.post('/api/mobile/register', json={'device_id': 'TEL-KIEROWCA-1', 'device_name': 'Telefon kierowcy',
-                                                  'station_code': 'delivery'})
+    """Nowy telefon kierowcy zgłasza prośbę (202); po zatwierdzeniu dostaje token na stanowisko Dostawy."""
+    cialo = {'device_id': 'TEL-KIEROWCA-1', 'device_name': 'Telefon kierowcy', 'station_code': 'delivery',
+             'mac_address': 'A4:50:46:00:00:01'}
+    r = client.post('/api/mobile/register', json=cialo)
+    assert r.status_code == 202, r.get_data()[:300]
+    urzadzenie = ProductionDevice.query.filter_by(device_id='TEL-KIEROWCA-1').one()
+    device_access_service.ustaw_status(urzadzenie, ProductionDevice.STATUS_ZATWIERDZONE, user_id=1)
+    db.session.commit()
+    r = client.post('/api/mobile/register', json=cialo)
     assert r.status_code == 200, r.get_data()[:300]
     assert r.get_json()['station_code'] == 'delivery'
 
