@@ -5,20 +5,12 @@
      (tokeny --il-*), style w static/css/stations-tab.css pod prefiksem .stn-tab. Wszystkie panele są w HTML od razu,
      przełącza je skrypt na dole; bez skryptu widać pierwsze stanowisko. -->
 {% import 'components/_priorytet_plakietki.html' as prio %}
+{#- Wiersze kolejki i ich składniki (termin, priorytet) — wspólne z rozwinięciem „Pokaż wszystkie” (endpoint
+    stations-tab-queue), żeby dociągnięte wiersze były takie same jak te z zakładki. -#}
+{% import 'components/_stanowiska_kolejka.html' as kol %}
 {% set NAZWY_STANOWISK = {'cutting': 'Wycinanie', 'assembly': 'Składanie', 'gluing': 'Sklejanie',
                           'formatting': 'Formatowanie', 'edges': 'Krawędzie', 'painting': 'Lakiernia',
                           'packaging': 'Pakowanie'} %}
-
-{% macro termin(kafel) -%}
-{% set dni = kafel.dni_do_terminu %}
-{% if dni is not none %}
-<span class="deadline-text {% if dni < 0 %}overdue{% elif dni <= 1 %}urgent{% elif dni <= 3 %}warning{% endif %}">
-    {% if dni < 0 %}{{ dni|abs }}d temu{% elif dni == 0 %}Dziś{% elif dni == 1 %}Jutro{% else %}{{ dni }}d{% endif %}
-</span>
-{% else %}
-<span class="text-muted">-</span>
-{% endif %}
-{%- endmacro %}
 
 {#- Komórki wiersza kafla. Kafel to pozycja (stanowisko pozycyjne) albo zamówienie (stanowisko zamówieniowe). -#}
 {% macro id_kafla(kafel, jednostka) -%}
@@ -31,10 +23,6 @@
 {% elif kafel.material %}
 {{ kafel.material.gatunek or '' }} {{ kafel.material.klasa or '' }}{% if kafel.wymiary and kafel.wymiary.dlugosc_cm %} · {{ kafel.wymiary.dlugosc_cm|round(1)|replace('.0', '') }}×{{ (kafel.wymiary.szerokosc_cm or 0)|round(1)|replace('.0', '') }}×{{ (kafel.wymiary.grubosc_cm or 0)|round(1)|replace('.0', '') }}{% endif %}
 {% endif %}
-{%- endmacro %}
-
-{% macro prio_kafla(kafel) -%}
-{{ prio.gwiazdki(kafel.gwiazdki) }} {{ prio.plakietka(kafel.szczebel, kafel.dorobka) }}
 {%- endmacro %}
 
 {% macro godzina(iso) -%}{{ iso[11:16] if iso else '' }}{%- endmacro %}
@@ -176,7 +164,7 @@
                                     <tr class="stn-wiersz" onclick="viewProductDetails('{{ kafel.short_id or kafel.numer }}')">
                                         <td class="stn-c-id">{{ id_kafla(kafel, station.jednostka) }}</td>
                                         <td class="stn-c-opis">{{ opis_kafla(kafel, station.jednostka) }}{{ wroci(kafel) }}</td>
-                                        <td class="stn-c-prio">{{ prio_kafla(kafel) }}</td>
+                                        <td class="stn-c-prio">{{ kol.prio_kafla(kafel) }}</td>
                                         <td class="stn-c-zrodlo">{{ prio.zrodlo_kafla(kafel.zrodlo) }}</td>
                                         <td class="stn-c-czas">{{ godzina(kafel.pobrano) }}{% if kafel.wyslal %}, {{ kafel.wyslal }}{% endif %}</td>
                                         <td class="stn-c-akcja" onclick="event.stopPropagation()">{{ zdejmij(station_key, kafel) }}</td>
@@ -200,7 +188,7 @@
                                     {% for kafel in station.odlozone %}
                                     <tr class="stn-wiersz stn-wiersz--odlozony" onclick="viewProductDetails('{{ kafel.short_id or kafel.numer }}')">
                                         <td class="stn-c-id">{{ id_kafla(kafel, station.jednostka) }}</td>
-                                        <td class="stn-c-opis">{{ opis_kafla(kafel, station.jednostka) }} {{ prio_kafla(kafel) }}{{ wroci(kafel) }}</td>
+                                        <td class="stn-c-opis">{{ opis_kafla(kafel, station.jednostka) }} {{ kol.prio_kafla(kafel) }}{{ wroci(kafel) }}</td>
                                         <td class="stn-c-powod">
                                             <span class="stn-powod">{{ kafel.powod_etykieta or kafel.powod }}</span>
                                             {% if kafel.notatka %}<span class="stn-notatka">„{{ kafel.notatka }}”</span>{% endif %}
@@ -262,45 +250,25 @@
                 {% if station.kolejka %}
                 {#- „Na stół” tylko tam, gdzie jest stół (Lakiernia pracuje z listy, bez stołu — `tryb` jej nie dotyczy). -#}
                 {% set ma_stol = station.tryb %}
+                {#- Ile wierszy ma kolejka w całości: przy stole to `kolejka_dalej` (bez kafli leżących na stole), przy liście
+                    Lakierni — wszystkie oczekujące. Licznik przycisku to właśnie ta liczba, bo tyle wierszy pokaże rozwinięcie. -#}
+                {% set w_kolejce = station.stats.kolejka_dalej if ma_stol else station.stats.total_pending %}
                 <div class="stn-sekcja stn-kolejka">
                     <div class="stn-sekcja-tytul">
-                        {% if station.tryb %}Dalej w kolejce (pierwsze {{ station.kolejka|length }}){% else %}Dalej na liście (pierwsze {{ station.kolejka|length }}){% endif %}
+                        {% if station.tryb %}Dalej w kolejce{% else %}Dalej na liście{% endif %}
+                        (<span class="stn-kolejka-ile">{{ station.kolejka|length }}</span>{% if w_kolejce > station.kolejka|length %} z {{ w_kolejce }}{% endif %})
                     </div>
                     <div class="stn-tabela-wrap">
                         <table class="stn-tabela">
                             {{ naglowek([('lp', 'Lp'), ('id', 'Kafel'), ('prio', 'Priorytet'), ('opis', 'Opis'), ('termin', 'Termin')] + ([('akcja', 'Akcja')] if ma_stol else [])) }}
-                            <tbody>
-                                {% for kafel in station.kolejka %}
-                                <tr class="stn-wiersz" onclick="viewProductDetails('{{ kafel.short_id or kafel.numer }}')">
-                                    <td class="stn-c-lp">{{ loop.index }}.</td>
-                                    <td class="stn-c-id"><span class="stn-id stn-id--link">{{ kafel.short_id or kafel.numer }}</span></td>
-                                    <td class="stn-c-prio">{{ prio_kafla(kafel) }}</td>
-                                    <td class="stn-c-opis">
-                                        {% if kafel.grupa %}{{ kafel.grupa }}
-                                        {% elif station.jednostka == 'zamowienie' %}{{ kafel.pozycji }} poz.
-                                        {% elif kafel.material %}{{ kafel.material.gatunek or '' }} {{ kafel.material.klasa or '' }}{% if kafel.material.grubosc_cm %} {{ kafel.material.grubosc_cm|round(1)|replace('.0', '') }} cm{% endif %}
-                                        {% endif %}
-                                    </td>
-                                    <td class="stn-c-termin">{{ termin(kafel) }}</td>
-                                    {% if ma_stol %}
-                                    <td class="stn-c-akcja" onclick="event.stopPropagation()">
-                                        {#- „Wyślij” działa na zamówieniu: na stanowisku pozycyjnym kładzie na stół wszystkie jego pozycje czekające tutaj.
-                                            Kod stanowiska w `data-kod`, NIE w `data-stanowisko`: tym atrybutem testy (i narzędzia) odróżniają panele. -#}
-                                        <button type="button" class="stn-btn-na-stol" onclick="naStol(this)"
-                                                data-kod="{{ station_key }}" data-order-id="{{ kafel.order_id }}" data-numer="{{ kafel.numer }}"
-                                                title="Wyślij zamówienie {{ kafel.numer }} na stół{% if station.jednostka != 'zamowienie' %}: wszystkie jego pozycje czekające na tym stanowisku{% endif %}">Na stół</button>
-                                    </td>
-                                    {% endif %}
-                                </tr>
-                                {% endfor %}
-                            </tbody>
+                            <tbody class="stn-kolejka-wiersze">{{ kol.wiersze(station.kolejka, station_key, station.jednostka, ma_stol) }}</tbody>
                         </table>
                     </div>
-                    {% if station.stats.total_pending > station.kolejka|length %}
+                    {% if w_kolejce > station.kolejka|length %}
                     <div class="stn-sekcja-stopka">
-                        <button type="button" class="stn-btn" onclick="viewFullStationList('{{ station_key }}')">
-                            Pokaż wszystkie ({{ station.stats.total_pending }})
-                        </button>
+                        {#- „Pokaż wszystkie” rozwija tabelę na miejscu (pokazWszystkie), a nie otwiera monitor — ten ma odnośnik w nagłówku karty. -#}
+                        <button type="button" class="stn-btn" onclick="pokazWszystkie(this)" data-kod="{{ station_key }}"
+                                data-etykieta="Pokaż wszystkie ({{ w_kolejce }})">Pokaż wszystkie ({{ w_kolejce }})</button>
                     </div>
                     {% endif %}
                 </div>
@@ -319,7 +287,17 @@
 function initStationsTab() {
     console.log('[Stations Tab] Inicjalizacja');
     initStationSubtabs();
+    // Wysokość zakładki trzymana na czas odświeżenia (refreshWorkflowData) zwalniamy, gdy rozwinięcia wrócą.
+    Promise.allSettled(przywrocRozwiniete()).then(zwolnijWysokosc);
     initStationRefreshTimers();
+}
+
+// Odświeżenie zakładki podmienia HTML na wersję ze zwiniętymi kolejkami, a rozwinięcia wracają dopiero po
+// żądaniach. Bez trzymania wysokości strona skróciłaby się o dziesiątki wierszy i przeglądarka przycięłaby
+// przewinięcie: biuro traciłoby miejsce na długiej liście (np. po „Na stół” w 40. wierszu).
+function zwolnijWysokosc() {
+    const wrapper = document.getElementById('stations-tab-wrapper');
+    if (wrapper) wrapper.style.minHeight = '';
 }
 
 // Podzakładki stanowisk: panele są tylko chowane (hidden), nigdy usuwane. Wybór trzymamy w sessionStorage, bo
@@ -384,24 +362,86 @@ function refreshWorkflowData() {
     // oknie (endpoint liczy kolejkę każdego stanowiska).
     const zakladka = document.getElementById('stations-tab-content');
     if (document.hidden || !zakladka || !zakladka.classList.contains('active')) return;
+    // Trzymamy wysokość zakładki, aż rozwinięte kolejki wrócą po odświeżeniu (zwalnia ją initStationsTab); gdyby
+    // odświeżenie się nie udało, po 15 s wysokość i tak wraca do normy.
+    const wrapper = document.getElementById('stations-tab-wrapper');
+    wrapper.style.minHeight = wrapper.offsetHeight + 'px';
+    setTimeout(zwolnijWysokosc, 15000);
     app.state.tabCache.delete('stations-tab');
     window.ProductionApp.loadTabContent('stations-tab');
 }
 
-function viewFullStationList(stationKey) {
-    const stationUrls = {
-        'cutting': '{{ url_for("production.production_stations.monitor_station", station_code="cutting") }}',
-        'assembly': '{{ url_for("production.production_stations.monitor_station", station_code="assembly") }}',
-        'gluing': '{{ url_for("production.production_stations.monitor_station", station_code="gluing") }}',
-        'formatting': '{{ url_for("production.production_stations.monitor_station", station_code="formatting") }}',
-        'edges': '{{ url_for("production.production_stations.monitor_station", station_code="edges") }}',
-        'painting': '{{ url_for("production.production_stations.monitor_station", station_code="painting") }}',
-        'packaging': '{{ url_for("production.production_stations.monitor_station", station_code="packaging") }}'
-    };
+// Stanowiska z rozwiniętą kolejką pamiętamy w sessionStorage: odświeżenie zakładki (co 2 min) podmienia cały HTML,
+// a bez tego tabela zwijałaby się biuru pod rękami w trakcie przewijania.
+function odczytajRozwiniete() {
+    try { return JSON.parse(sessionStorage.getItem('stanowiska_rozwiniete') || '[]'); } catch (e) { return []; }
+}
 
-    if (stationUrls[stationKey]) {
-        window.open(stationUrls[stationKey], '_blank');
+function zapamietajRozwiniete(kod, rozwiniete) {
+    const lista = odczytajRozwiniete().filter(k => k !== kod);
+    if (rozwiniete) lista.push(kod);
+    try { sessionStorage.setItem('stanowiska_rozwiniete', JSON.stringify(lista)); } catch (e) { /* storage zablokowany */ }
+}
+
+// Po odświeżeniu zakładki rozwija z powrotem te kolejki, które biuro miało rozwinięte (po cichu: bez komunikatu
+// o błędzie, tabela po prostu zostaje zwinięta). Stanowisko, które nie ma już czego rozwijać, znika z pamięci.
+function przywrocRozwiniete() {
+    const obietnice = [];
+    odczytajRozwiniete().forEach(kod => {
+        const przycisk = document.querySelector('.stn-kolejka .stn-sekcja-stopka button[data-kod="' + kod + '"]');
+        // Tylko rozwija: pokazWszystkie przełącza, więc już rozwiniętej tabeli nie wolno jej oddać drugi raz.
+        if (przycisk) { if (przycisk.dataset.rozwiniete !== '1') obietnice.push(pokazWszystkie(przycisk, true)); }
+        else zapamietajRozwiniete(kod, false);
+    });
+    return obietnice;
+}
+
+// „Pokaż wszystkie” w kolejce: dociąga wszystkie wiersze (endpoint zwraca te same wiersze co zakładka, bez limitu
+// 15) i podmienia tabelę na miejscu; drugi klik zwija z powrotem do pierwotnej liczby wierszy. Monitor stanowiska
+// ma osobny odnośnik w nagłówku karty.
+async function pokazWszystkie(przycisk, cicho) {
+    const kod = przycisk.dataset.kod;
+    const sekcja = przycisk.closest('.stn-kolejka');
+    const tbody = sekcja.querySelector('.stn-kolejka-wiersze');
+    const ile = sekcja.querySelector('.stn-kolejka-ile');
+    if (przycisk.dataset.rozwiniete === '1') {
+        const pierwotnie = Number(przycisk.dataset.pierwotnie);
+        while (tbody.rows.length > pierwotnie) tbody.deleteRow(-1);
+        ile.textContent = String(tbody.rows.length);
+        przycisk.textContent = przycisk.dataset.etykieta;
+        przycisk.dataset.rozwiniete = '0';
+        zapamietajRozwiniete(kod, false);
+        return;
     }
+    przycisk.disabled = true;
+    przycisk.textContent = 'Wczytuję…';
+    // Stan zapisujemy PRZED żądaniem: jeśli zakładka odświeży się w trakcie (timer, „Na stół”), nowy HTML sam
+    // rozwinie kolejkę, a nie zostanie zwinięty z pustą pamięcią.
+    zapamietajRozwiniete(kod, true);
+    try {
+        const odpowiedz = await fetch('/production/api/stations-tab-queue/' + encodeURIComponent(kod), {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        });
+        const dane = await odpowiedz.json().catch(() => ({}));
+        if (!odpowiedz.ok || !dane.success) throw new Error(dane.error || ('HTTP ' + odpowiedz.status));
+        przycisk.dataset.pierwotnie = String(tbody.rows.length);
+        tbody.innerHTML = dane.html;
+    } catch (blad) {
+        przycisk.textContent = przycisk.dataset.etykieta;
+        // Błąd po cichu (przywracanie po odświeżeniu) zostawia wpis: kolejne odświeżenie spróbuje ponownie.
+        if (!cicho) {
+            zapamietajRozwiniete(kod, false);
+            alert('Nie udało się wczytać całej kolejki. Spróbuj ponownie za chwilę.');
+        }
+        return;
+    } finally {
+        przycisk.disabled = false;
+    }
+    // Zakładka odświeżyła się w trakcie żądania: przycisk jest już odpięty z DOM, a nowy HTML rozwija kolejkę sam.
+    if (!przycisk.isConnected) return;
+    ile.textContent = String(tbody.rows.length);
+    przycisk.textContent = 'Pokaż mniej';
+    przycisk.dataset.rozwiniete = '1';
 }
 
 // „Zdejmij ze stołu” (spec 5.7): kafel wraca do kolejki stanowiska; tablety dociągną stół po sygnale.

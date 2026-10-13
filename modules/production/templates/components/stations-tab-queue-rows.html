@@ -1,0 +1,4 @@
+{#- Wiersze kolejki stanowiska do rozwinięcia „Pokaż wszystkie” (stations_api.stations_tab_queue): fragment <tr>…
+    bez opakowania, wstawiany przez JS do <tbody> kolejki. Ten sam kod wiersza co w zakładce (_stanowiska_kolejka.html). -#}
+{% import 'components/_stanowiska_kolejka.html' as kol %}
+{{ kol.wiersze(kafle, station_key, jednostka, ma_stol) }}

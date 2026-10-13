@@ -39,8 +39,8 @@ def _z_terminem(kafle, dzis):
     return kafle
 
 
-def _lista_lakierni(dzis):
-    """Pierwsze pozycje listy Lakierni w kolejności tabletu (spec 3.2 „Lista Lakierni”) z nazwą grupy."""
+def _lista_lakierni(dzis, limit=LIMIT_KAFLI_ZAKLADKI):
+    """Pierwsze `limit` pozycji listy Lakierni w kolejności tabletu (spec 3.2 „Lista Lakierni”) z nazwą grupy."""
     from ...priorytety.services import lista
     from ...services.station_catalog import STATION_PENDING_STATUS
     pozycje = (ProductionItem.query
@@ -48,7 +48,7 @@ def _lista_lakierni(dzis):
                .filter(ProductionItem.current_status == STATION_PENDING_STATUS['painting'])
                .order_by(ProductionItem.id).all())
     wynik = []
-    for p in lista.porzadek_listy('painting', pozycje)[:LIMIT_KAFLI_ZAKLADKI]:
+    for p in lista.porzadek_listy('painting', pozycje)[:limit]:
         konfiguracja = p.configuration
         termin = p.deadline_date.isoformat() if p.deadline_date else None
         wynik.append({
@@ -222,3 +222,41 @@ def stations_tab_content():
             'success': False,
             'error': str(e)
         }), 500
+
+
+@api_bp.route('/stations-tab-queue/<kod>')
+@login_required
+def stations_tab_queue(kod):
+    """
+    Rozwinięcie „Pokaż wszystkie” w zakładce Stanowiska: WSZYSTKIE wiersze kolejki stanowiska (zakładka pokazuje
+    pierwsze `LIMIT_KAFLI_ZAKLADKI`) jako HTML tych samych wierszy co w zakładce (wspólne makro
+    `components/_stanowiska_kolejka.html`). Stanowisko ze stołem: kolejka z `widok.kolejka_stanowiska` bez kafli
+    leżących na stole i odłożonych; Lakiernia: lista po wykończeniu (bez stołu, więc wiersze bez przycisku „Na stół”).
+    Do `LIMIT_KOLEJKI_MAX` wierszy, jak `GET /priorytety/kolejka`. Czysty odczyt: bez blokad, zapisów i dopełniania
+    stołu (jak `stations-tab-content`). Nieznany kod → 404.
+    """
+    from ...priorytety.services import ustawienia, widok
+    from ...services.station_catalog import STATION_ORDER
+
+    if kod not in STATION_ORDER:
+        return jsonify({'success': False, 'error': 'Nie ma takiego stanowiska.'}), 404
+    try:
+        dzis = date.today()
+        if kod in ustawienia.STANOWISKA_BEZ_STOLU:
+            kafle = _lista_lakierni(dzis, limit=widok.LIMIT_KOLEJKI_MAX)
+            jednostka, ma_stol = None, False
+        else:
+            kolejka = widok.kolejka_stanowiska(kod, limit=widok.LIMIT_KOLEJKI_MAX)
+            kafle = _z_terminem(kolejka['kafle'], dzis)
+            jednostka, ma_stol = kolejka['jednostka'], True
+        html = render_template('components/stations-tab-queue-rows.html',
+                               kafle=kafle, station_key=kod, jednostka=jednostka, ma_stol=ma_stol)
+        return jsonify({'success': True, 'html': html, 'wierszy': len(kafle)})
+    except Exception as e:
+        db.session.rollback()       # zwykły odczyt: nic do cofnięcia poza zepsutą migawką sesji
+        logger.error("Błąd AJAX stations-tab-queue", extra={
+            'user_id': current_user.id,
+            'station': kod,
+            'error': str(e)
+        })
+        return jsonify({'success': False, 'error': 'Nie udało się wczytać kolejki stanowiska.'}), 500

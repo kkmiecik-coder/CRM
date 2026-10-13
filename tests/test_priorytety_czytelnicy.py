@@ -589,8 +589,8 @@ def naglowki_sekcji(panel):
     for sekcja in panel.select('.stn-sekcja'):
         tytul, tabela = sekcja.select_one('.stn-sekcja-tytul'), sekcja.select_one('table.stn-tabela')
         if tytul is not None and tabela is not None:
-            wynik[tytul.get_text(' ', strip=True).split(' (')[0]] = [
-                th.get_text(strip=True) for th in tabela.select('thead th')]
+            nazwa = u' '.join(tytul.get_text(' ').split()).split(' (')[0]      # białe znaki z szablonu zwijamy
+            wynik[nazwa] = [th.get_text(strip=True) for th in tabela.select('thead th')]
     return wynik
 
 
@@ -714,6 +714,154 @@ def test_zakladka_js_na_stol_wola_wspolna_funkcje_panelu():
     assert 'przywrocone' in funkcja                                   # „Wyślij” wraca odłożone pozycje: mówimy o tym
     assert 'fetch(' not in funkcja                                    # własny fetch (dowolny cudzysłów) odpada
     assert "'/wyslij'" not in szablon
+
+
+# ── „Pokaż wszystkie”: rozwinięcie kolejki na miejscu (endpoint `stations-tab-queue`) ───────────────────────
+
+def rozwinieta_kolejka(client, kod):
+    """(odpowiedź JSON, wiersze <tr>) z `GET /stations-tab-queue/<kod>`; fragment owijamy w tabelę do parsowania."""
+    r = client.get(BASE + '/stations-tab-queue/%s' % kod)
+    assert r.status_code == 200, r.get_data()[:500]
+    dane = r.get_json()
+    assert dane['success'] is True
+    zupa = BeautifulSoup('<table><tbody>%s</tbody></table>' % dane['html'], 'html.parser')
+    return dane, zupa.select('tr')
+
+
+def html_wiersza(wiersz):
+    """Cały wiersz (znaczniki i atrybuty: data-order-id, title, onclick…) ze zwiniętymi białymi znakami."""
+    return u' '.join(str(wiersz).split())
+
+
+def test_rozwinieta_kolejka_ma_wszystkie_wiersze_a_pierwsze_15_jak_w_zakladce(client):
+    """Fragment renderuje TEN SAM kod wiersza co zakładka (jedno makro): pierwsze 15 wierszy są identyczne,
+    reszta dochodzi po nich, a numeracja (Lp) biegnie dalej."""
+    order = zam(statusy=('czeka_na_sklejanie',) * 22, numer='7801')
+    kafel_stolu('gluing', order.products[0])                      # 21 w kolejce, 1 na stole
+
+    zakladka_wiersze = panel_stanowiska(zakladka(client), 'gluing').select('.stn-kolejka tbody tr')
+    dane, wiersze = rozwinieta_kolejka(client, 'gluing')
+
+    assert len(zakladka_wiersze) == 15 and len(wiersze) == 21 and dane['wierszy'] == 21
+    assert [html_wiersza(w) for w in wiersze[:15]] == [html_wiersza(w) for w in zakladka_wiersze]
+    assert [w.select_one('.stn-c-lp').get_text(strip=True) for w in wiersze] == ['%d.' % i for i in range(1, 22)]
+    assert len(dane['html']) > 0 and len([w for w in wiersze if w.select_one('.stn-btn-na-stol')]) == 21
+    assert {w.select_one('.stn-btn-na-stol')['data-kod'] for w in wiersze} == {'gluing'}
+
+
+def test_rozwinieta_kolejka_lakierni_bez_przyciskow(client):
+    zam(statusy=('czeka_na_lakiernie',) * 20, numer='7802')
+
+    dane, wiersze = rozwinieta_kolejka(client, 'painting')
+
+    assert len(wiersze) == dane['wierszy'] == 20                   # zakładka pokazuje tylko 15
+    assert not any(w.select('.stn-btn-na-stol') for w in wiersze)
+    assert all(len(w.select('td')) == 5 for w in wiersze)         # Lp, Kafel, Priorytet, Opis, Termin (bez Akcji)
+
+
+def test_rozwinieta_kolejka_stanowiska_zamowieniowego(client):
+    """Formatowanie pracuje zamówieniami: wiersz to zamówienie („N poz.”), a przycisk wysyła je całe."""
+    zamowienia = [zam(statusy=('czeka_na_formatowanie',) * 2, numer='79%02d' % i) for i in range(18)]
+
+    dane, wiersze = rozwinieta_kolejka(client, 'formatting')
+
+    assert len(wiersze) == dane['wierszy'] == 18
+    assert {int(w.select_one('.stn-btn-na-stol')['data-order-id']) for w in wiersze} == {z.id for z in zamowienia}
+    assert all(w.select_one('.stn-c-opis').get_text(strip=True) == u'2 poz.' for w in wiersze)
+    assert all(u'wszystkie jego pozycje' not in w.select_one('.stn-btn-na-stol')['title'] for w in wiersze)
+    # w kolumnie „Kafel” stoi numer zamówienia (nie short_id pozycji)
+    assert {w.select_one('.stn-id').get_text(strip=True) for w in wiersze} == {z.internal_order_number
+                                                                              for z in zamowienia}
+
+
+def test_rozwinieta_kolejka_nieznane_stanowisko_to_404(client):
+    r = client.get(BASE + '/stations-tab-queue/finishing')
+
+    assert r.status_code == 404
+    assert r.get_json()['success'] is False
+
+
+def test_przycisk_pokaz_wszystkie_liczy_wiersze_kolejki_a_nie_wszystkie_oczekujace(client):
+    """Licznik to liczba wierszy, które rozwinięcie pokaże (kolejka bez kafli leżących na stole), a nie liczba
+    wszystkich oczekujących — inaczej „Pokaż wszystkie (22)” rozwijałoby 21 wierszy."""
+    order = zam(statusy=('czeka_na_sklejanie',) * 22, numer='7803')
+    kafel_stolu('gluing', order.products[0])
+
+    przycisk = panel_stanowiska(zakladka(client), 'gluing').select_one('.stn-sekcja-stopka button')
+
+    assert przycisk is not None
+    assert przycisk['onclick'] == 'pokazWszystkie(this)' and przycisk['data-kod'] == 'gluing'
+    assert przycisk.get_text(strip=True) == u'Pokaż wszystkie (21)'
+    assert przycisk['data-etykieta'] == u'Pokaż wszystkie (21)'
+
+
+def test_bez_przycisku_pokaz_wszystkie_gdy_kolejka_miesci_sie_w_15(client):
+    """16 oczekujących, jeden na stole: w kolejce zostaje 15, czyli całość już widać."""
+    order = zam(statusy=('czeka_na_sklejanie',) * 16, numer='7804')
+    kafel_stolu('gluing', order.products[0])
+
+    dane = zakladka(client)
+
+    panel = panel_stanowiska(dane, 'gluing')
+    assert dane['data']['gluing']['stats']['total_pending'] == 16
+    assert dane['data']['gluing']['stats']['kolejka_dalej'] == 15
+    assert len(panel.select('.stn-kolejka tbody tr')) == 15       # sekcja kolejki jest, tylko bez przycisku
+    assert panel.select_one('.stn-sekcja-stopka') is None
+
+
+def test_przycisk_pokaz_wszystkie_lakierni_liczy_cala_liste(client):
+    """Lakiernia nie ma stołu: licznik to wszystkie oczekujące, tytuł „(15 z 20)”, a rozwinięcie jest bez „Na stół”."""
+    zam(statusy=('czeka_na_lakiernie',) * 20, numer='7805')
+
+    panel = panel_stanowiska(zakladka(client), 'painting')
+
+    przycisk = panel.select_one('.stn-sekcja-stopka button')
+    assert przycisk.get_text(strip=True) == u'Pokaż wszystkie (20)' and przycisk['data-kod'] == 'painting'
+    tytul = u' '.join(panel.select_one('.stn-kolejka .stn-sekcja-tytul').get_text(' ').split())
+    assert tytul.startswith(u'Dalej na liście') and u'15 z 20' in tytul
+    assert panel.select_one('.stn-kolejka-ile').get_text() == '15'
+
+
+def test_kontrakt_html_i_js_rozwijania_kolejki(client):
+    """JS sięga po `.stn-kolejka`, `tbody.stn-kolejka-wiersze` i `.stn-kolejka-ile`; zmiana nazwy któregoś z nich po
+    stronie HTML dałaby TypeError przy każdym kliknięciu, a test by tego nie zauważył."""
+    zam(statusy=('czeka_na_sklejanie',) * 20, numer='7806')
+
+    sekcja = panel_stanowiska(zakladka(client), 'gluing').select_one('.stn-kolejka')
+
+    assert sekcja.select_one('table > tbody.stn-kolejka-wiersze') is not None
+    assert sekcja.select_one('.stn-sekcja-tytul .stn-kolejka-ile') is not None
+    assert sekcja.select_one('.stn-sekcja-stopka button[data-kod][data-etykieta]') is not None
+    funkcja = _funkcja_js(zrodlo(SZABLON_STANOWISK), 'async function pokazWszystkie(')
+    for selektor in ("'.stn-kolejka'", "'.stn-kolejka-wiersze'", "'.stn-kolejka-ile'"):
+        assert selektor in funkcja, selektor
+
+
+def test_zakladka_js_pokaz_wszystkie_rozwija_na_miejscu():
+    szablon = zrodlo(SZABLON_STANOWISK)
+    funkcja = _funkcja_js(szablon, 'async function pokazWszystkie(')
+    assert "'/production/api/stations-tab-queue/'" in funkcja and 'encodeURIComponent(' in funkcja
+    assert u'Pokaż mniej' in funkcja and u'Wczytuję' in funkcja
+    assert '.disabled = true' in funkcja and '.disabled = false' in funkcja and 'finally' in funkcja
+    assert 'catch' in funkcja and 'alert(' in funkcja              # błąd sieci: komunikat, tabela bez zmian
+    assert 'window.open(' not in szablon
+    # wyścig: odświeżenie zakładki w trakcie żądania. Stan zapisujemy PRZED żądaniem (nowy HTML sam się rozwinie),
+    # a po odpowiedzi nie dotykamy już odpiętego z DOM przycisku.
+    assert funkcja.index('zapamietajRozwiniete(kod, true)') < funkcja.index('fetch(')
+    assert 'isConnected' in funkcja
+    # rozwinięcie przeżywa odświeżenie zakładki (co 2 min): zapis w sessionStorage i przywrócenie przy starcie
+    assert 'zapamietajRozwiniete(' in funkcja
+    pamiec = _funkcja_js(szablon, 'function zapamietajRozwiniete(')
+    assert 'stanowiska_rozwiniete' in pamiec and 'sessionStorage.setItem(' in pamiec
+    assert 'przywrocRozwiniete()' in _funkcja_js(szablon, 'function initStationsTab(')
+    # przywracanie tylko rozwija (pokazWszystkie przełącza: na rozwiniętej tabeli zwinęłaby ją z powrotem)
+    assert "dataset.rozwiniete !== '1'" in _funkcja_js(szablon, 'function przywrocRozwiniete(')
+    # odświeżenie nie skraca strony: wysokość zakładki jest trzymana, dopóki rozwinięcia nie wrócą, więc
+    # przeglądarka nie przycina przewinięcia i biuro nie traci miejsca na długiej liście
+    assert 'minHeight' in _funkcja_js(szablon, 'function refreshWorkflowData(')
+    assert "minHeight = ''" in _funkcja_js(szablon, 'function zwolnijWysokosc(')
+    init = _funkcja_js(szablon, 'function initStationsTab(')
+    assert 'zwolnijWysokosc' in init and 'allSettled' in init
 
 
 # ══ Task 3: dashboard — pilne zamówienia na szczeblach drabiny ══════════════════════════════════════════════

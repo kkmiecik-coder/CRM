@@ -272,6 +272,11 @@
     color: var(--il-text-primary, #1a1a2e);
 }
 
+.stn-tab .stn-btn:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
 /* ============================================================================
    .stn-tab — podzakładki (ten sam wygląd co .urz-subnav, własne klasy)
    ============================================================================ */

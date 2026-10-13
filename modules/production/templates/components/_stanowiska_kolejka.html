@@ -1,0 +1,52 @@
+{#- Wiersze kolejki zakładki Stanowiska: JEDNO źródło dla pierwszych 15 wierszy (stations-tab-content.html) i dla
+    rozwinięcia „Pokaż wszystkie” (endpoint stations-tab-queue, szablon stations-tab-queue-rows.html). Dzięki temu
+    wiersze dociągnięte po rozwinięciu niczym nie różnią się od tych z zakładki (gwiazdki, plakietki, termin, „Na stół”).
+    Import: {% import 'components/_stanowiska_kolejka.html' as kol %}. Makra nie czytają kontekstu — wszystko dostają
+    w parametrach (import w Jinja nie przekazuje kontekstu). -#}
+{% import 'components/_priorytet_plakietki.html' as prio %}
+
+{% macro termin(kafel) -%}
+{% set dni = kafel.dni_do_terminu %}
+{% if dni is not none %}
+<span class="deadline-text {% if dni < 0 %}overdue{% elif dni <= 1 %}urgent{% elif dni <= 3 %}warning{% endif %}">
+    {% if dni < 0 %}{{ dni|abs }}d temu{% elif dni == 0 %}Dziś{% elif dni == 1 %}Jutro{% else %}{{ dni }}d{% endif %}
+</span>
+{% else %}
+<span class="text-muted">-</span>
+{% endif %}
+{%- endmacro %}
+
+{#- Gwiazdki zamówienia i plakietka szczebla (w stole, odłożonych i kolejce). -#}
+{% macro prio_kafla(kafel) -%}
+{{ prio.gwiazdki(kafel.gwiazdki) }} {{ prio.plakietka(kafel.szczebel, kafel.dorobka) }}
+{%- endmacro %}
+
+{#- Jeden wiersz kolejki. `nr` to numer w kolejce (Lp), `ma_stol` — czy stanowisko ma stół (kolumna „Akcja” z przyciskiem
+    „Na stół”; Lakiernia pracuje z listy, bez stołu). -#}
+{% macro wiersz(kafel, nr, station_key, jednostka, ma_stol) -%}
+<tr class="stn-wiersz" onclick="viewProductDetails('{{ kafel.short_id or kafel.numer }}')">
+    <td class="stn-c-lp">{{ nr }}.</td>
+    <td class="stn-c-id"><span class="stn-id stn-id--link">{{ kafel.short_id or kafel.numer }}</span></td>
+    <td class="stn-c-prio">{{ prio_kafla(kafel) }}</td>
+    <td class="stn-c-opis">
+        {% if kafel.grupa %}{{ kafel.grupa }}
+        {% elif jednostka == 'zamowienie' %}{{ kafel.pozycji }} poz.
+        {% elif kafel.material %}{{ kafel.material.gatunek or '' }} {{ kafel.material.klasa or '' }}{% if kafel.material.grubosc_cm %} {{ kafel.material.grubosc_cm|round(1)|replace('.0', '') }} cm{% endif %}
+        {% endif %}
+    </td>
+    <td class="stn-c-termin">{{ termin(kafel) }}</td>
+    {% if ma_stol %}
+    <td class="stn-c-akcja" onclick="event.stopPropagation()">
+        {#- „Wyślij” działa na zamówieniu: na stanowisku pozycyjnym kładzie na stół wszystkie jego pozycje czekające tutaj.
+            Kod stanowiska w `data-kod`, NIE w `data-stanowisko`: tym atrybutem testy (i narzędzia) odróżniają panele. -#}
+        <button type="button" class="stn-btn-na-stol" onclick="naStol(this)"
+                data-kod="{{ station_key }}" data-order-id="{{ kafel.order_id }}" data-numer="{{ kafel.numer }}"
+                title="Wyślij zamówienie {{ kafel.numer }} na stół{% if jednostka != 'zamowienie' %}: wszystkie jego pozycje czekające na tym stanowisku{% endif %}">Na stół</button>
+    </td>
+    {% endif %}
+</tr>
+{%- endmacro %}
+
+{% macro wiersze(kafle, station_key, jednostka, ma_stol) -%}
+{% for kafel in kafle %}{{ wiersz(kafel, loop.index, station_key, jednostka, ma_stol) }}{% endfor %}
+{%- endmacro %}
