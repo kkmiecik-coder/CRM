@@ -15,12 +15,16 @@
 {%- endmacro -%}
 
 {#- Źródło kafla na stole (spec 5.1): wysłany przez biuro (5.7), rozpoczęty przed startem stołów (5.8), doróbka.
-    Kafel pobrany z kolejki nie ma plakietki. -#}
+    Kafel pobrany z kolejki domyślnie nie ma plakietki (tak jest na monitorach hali). Zakładka Stanowiska w panelu
+    biura woła makro z `system=True` i dostaje wtedy plakietkę „System” (stół dopełnił się sam z kolejki), żeby
+    każdy kafel w kolumnie „Źródło” miał etykietę. -#}
 {%- set _ZRODLA = {'biuro': 'wysłane przez biuro', 'start': 'rozpoczęte przed startem', 'dorobka': 'doróbka'} -%}
 
-{%- macro zrodlo_kafla(zrodlo) -%}
+{%- macro zrodlo_kafla(zrodlo, system=False) -%}
 {%- if zrodlo in _ZRODLA -%}
 <span class="zrodlo-plakietka zrodlo-{{ zrodlo }}">{{ _ZRODLA[zrodlo] }}</span>
+{%- elif system and zrodlo == 'kolejka' -%}
+<span class="zrodlo-plakietka zrodlo-kolejka">System</span>
 {%- endif -%}
 {%- endmacro -%}
 

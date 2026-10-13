@@ -88,6 +88,13 @@
     color: #be185d;
 }
 
+/* „System”: kafel dopełniony z kolejki. Neutralna szarość, żeby źródła ręczne (biuro, start, doróbka) były
+   bardziej widoczne niż domyślny przypadek. Stoi tylko w zakładce Stanowiska (monitory hali go nie renderują). */
+.zrodlo-plakietka.zrodlo-kolejka {
+    background: #f3f4f6;
+    color: #4b5563;
+}
+
 .prio-gwiazdki {
     color: #f59e0b;
     letter-spacing: 1px;

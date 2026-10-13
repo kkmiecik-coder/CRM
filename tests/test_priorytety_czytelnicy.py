@@ -223,6 +223,23 @@ def test_makra_plakietek(app):
     assert u'· od 08.10' in trasa_html
 
 
+def test_makro_zrodlo_kafla_system_tylko_na_zadanie(app):
+    """Kafel pobrany z kolejki nie ma plakietki w monitorze hali (spec 5.1, test_priorytety_monitory pilnuje, że
+    `zrodlo-kolejka` tam nie wchodzi); zakładka Stanowiska prosi o „System” parametrem `system=True`."""
+    assert render(app, u"{{ prio.zrodlo_kafla('kolejka') }}").strip() == ''
+    system = render(app, u"{{ prio.zrodlo_kafla('kolejka', system=True) }}")
+    assert 'zrodlo-kolejka' in system and u'>System<' in system
+    # pozostałe źródła wyglądają tak samo z parametrem i bez niego
+    for zrodlo, etykieta in (('biuro', u'wysłane przez biuro'), ('start', u'rozpoczęte przed startem'),
+                             ('dorobka', u'doróbka')):
+        bez, z_parametrem = (render(app, u"{{ prio.zrodlo_kafla('%s'%s) }}" % (zrodlo, dopisek))
+                             for dopisek in ('', ', system=True'))
+        assert bez == z_parametrem and etykieta in bez and u'System' not in bez, zrodlo
+    # nieznane źródło (dane spoza słownika) nie dostaje wymyślonej etykiety
+    assert render(app, u"{{ prio.zrodlo_kafla(None, system=True) }}").strip() == ''
+    assert render(app, u"{{ prio.zrodlo_kafla('inne', system=True) }}").strip() == ''
+
+
 def test_makro_plakietki_zna_wszystkie_tagi(app):
     """Klasa tagu z etykiety (kafle kolejki niosą krótki szczebel bez kodu tagu) — mapa w makrze musi być
     odwrotnością `widok.ETYKIETY_TAGOW`."""
@@ -518,7 +535,26 @@ def test_zakladka_zrodlo_kafla_plakietki(client):
     assert u'wysłane przez biuro' in html and 'zrodlo-biuro' in html
     assert u'rozpoczęte przed startem' in html and 'zrodlo-start' in html
     assert 'zrodlo-dorobka' in html
-    assert 'zrodlo-kolejka' not in html
+    # kafel pobrany z kolejki też ma etykietę (w tabeli, nie w monitorze hali): „System”
+    assert 'zrodlo-kolejka' in html and html.count(u'>System<') == 1
+
+
+def test_zakladka_stol_kazdy_kafel_ma_etykiete_zrodla(client):
+    """W kolumnie „Źródło” stołu każdy kafel mówi, skąd się wziął: biuro, start, doróbka albo System (pobrany
+    z kolejki). Dawniej kafel z kolejki zostawiał pustą komórkę, więc biuro nie odróżniało „nic” od „brak danych”."""
+    order = zam(statusy=('czeka_na_sklejanie',) * 4, numer='7901')
+    zrodla = ('biuro', 'start', 'dorobka', 'kolejka')
+    for pozycja, zrodlo in zip(order.products, zrodla):
+        kafel_stolu('gluing', pozycja, zrodlo=zrodlo, sent_by_user_id=1 if zrodlo == 'biuro' else None)
+
+    panel = panel_stanowiska(zakladka(client), 'gluing')
+
+    (stol,) = [s for s in panel.select('.stn-sekcja')
+               if s.select_one('.stn-sekcja-tytul').get_text(strip=True).startswith(u'Na stole')]
+    etykiety = {w.select_one('.stn-id').get_text(strip=True): w.select_one('.stn-c-zrodlo').get_text(strip=True)
+                for w in stol.select('tbody tr')}
+    assert etykiety == {p.short_product_id: e for p, e in zip(
+        order.products, (u'wysłane przez biuro', u'rozpoczęte przed startem', u'doróbka', u'System'))}
 
 
 def test_zakladka_zdejmij_ze_stolu(client):

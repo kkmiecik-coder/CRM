@@ -165,7 +165,7 @@
                                         <td class="stn-c-id">{{ id_kafla(kafel, station.jednostka) }}</td>
                                         <td class="stn-c-opis">{{ opis_kafla(kafel, station.jednostka) }}{{ wroci(kafel) }}</td>
                                         <td class="stn-c-prio">{{ kol.prio_kafla(kafel) }}</td>
-                                        <td class="stn-c-zrodlo">{{ prio.zrodlo_kafla(kafel.zrodlo) }}</td>
+                                        <td class="stn-c-zrodlo">{{ prio.zrodlo_kafla(kafel.zrodlo, system=True) }}</td>
                                         <td class="stn-c-czas">{{ godzina(kafel.pobrano) }}{% if kafel.wyslal %}, {{ kafel.wyslal }}{% endif %}</td>
                                         <td class="stn-c-akcja" onclick="event.stopPropagation()">{{ zdejmij(station_key, kafel) }}</td>
                                     </tr>
@@ -214,7 +214,7 @@
                                     <tr class="stn-wiersz stn-wiersz--widmo">
                                         <td class="stn-c-id"><span class="stn-id">{{ widmo.short_id or widmo.numer or widmo.unit_key }}</span></td>
                                         <td class="stn-c-opis">{{ widmo.opis }}{% if widmo.odlozony %} · odłożony{% endif %}</td>
-                                        <td class="stn-c-zrodlo">{{ prio.zrodlo_kafla(widmo.zrodlo) }}</td>
+                                        <td class="stn-c-zrodlo">{{ prio.zrodlo_kafla(widmo.zrodlo, system=True) }}</td>
                                         <td class="stn-c-akcja">{{ zdejmij(station_key, widmo) }}</td>
                                     </tr>
                                     {% endfor %}
