@@ -2,11 +2,13 @@
 """
 Adresy monitorów w zakładce Stanowiska.
 
-W szablonie stoją DWA bliźniacze słowniki stationUrls: jeden dla kliknięcia
-w kafel (navigateToStation, :225-232), drugi dla „Pokaż wszystkie (N)"
-(viewFullStationList, :246-253). Poprawienie jednego daje wersję, w której
-kafel się klika, a przycisk pod listą jest martwy — bez żadnego błędu
-w konsoli, bo obie funkcje kończą się cichym `if (stationUrls[stationKey])`.
+W szablonie stoi słownik stationUrls dla „Pokaż wszystkie (N)"
+(viewFullStationList). Brakujący kod daje martwy przycisk pod listą — bez żadnego
+błędu w konsoli, bo funkcja kończy się cichym `if (stationUrls[stationKey])`.
+
+Dawniej były dwie bliźniacze mapy (drugą miał klikany kafel przepływu,
+navigateToStation). Po przejściu na podzakładki kafla nie ma, a „Podgląd monitora"
+to zwykły odnośnik z url_for, więc została jedna mapa.
 
 Ten plik nie zakłada tabeli prod_product_events, bo nie robi tego żaden inny
 plik w pakiecie — listener audytu milczy w całym przebiegu i tak ma zostać.
@@ -23,30 +25,30 @@ KODY = ('cutting', 'assembly', 'gluing', 'formatting',
         'edges', 'painting', 'packaging')
 
 
-def _slowniki():
-    """Ciała obu funkcji budujących mapę kodów na adresy monitorów."""
+def _slownik():
+    """Ciało funkcji budującej mapę kodów na adresy monitorów."""
     html = zrodlo(SZABLON_STANOWISK)
-    wynik = []
-    for naglowek in ('function navigateToStation(stationKey) {',
-                     'function viewFullStationList(stationKey) {'):
-        assert naglowek in html, u'brak funkcji: {}'.format(naglowek)
-        reszta = html[html.index(naglowek):]
-        wynik.append(reszta[:reszta.index('\n}\n')])
-    return wynik
+    naglowek = 'function viewFullStationList(stationKey) {'
+    assert naglowek in html, u'brak funkcji: {}'.format(naglowek)
+    reszta = html[html.index(naglowek):]
+    return reszta[:reszta.index('\n}\n')]
 
 
-def test_obie_kopie_znaja_wszystkie_siedem_stanowisk():
-    for blok in _slowniki():
-        kody = re.findall(r"^\s*'(\w+)':", blok, flags=re.MULTILINE)
-        assert kody == list(KODY), u'kolejność/zestaw kodów: {}'.format(kody)
+def test_mapa_zna_wszystkie_siedem_stanowisk():
+    kody = re.findall(r"^\s*'(\w+)':", _slownik(), flags=re.MULTILINE)
+    assert kody == list(KODY), u'kolejność/zestaw kodów: {}'.format(kody)
 
 
-def test_zadna_kopia_nie_zna_juz_kodu_finishing():
-    for blok in _slowniki():
-        assert 'finishing' not in blok
+def test_mapa_nie_zna_juz_kodu_finishing():
+    assert 'finishing' not in _slownik()
 
 
-def test_obie_kopie_buduja_adres_krawedzi_i_lakierni():
-    for blok in _slowniki():
-        assert 'station_code="edges"' in blok
-        assert 'station_code="painting"' in blok
+def test_mapa_buduje_adres_krawedzi_i_lakierni():
+    blok = _slownik()
+    assert 'station_code="edges"' in blok
+    assert 'station_code="painting"' in blok
+
+
+def test_martwy_kafel_przeplywu_zniknal():
+    """navigateToStation obsługiwał kafle starego „Przepływu produkcji"; nic go już nie woła."""
+    assert 'navigateToStation' not in zrodlo(SZABLON_STANOWISK)

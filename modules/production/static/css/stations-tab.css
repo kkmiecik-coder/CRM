@@ -1,7 +1,24 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   ZAKŁADKA „STANOWISKA” — Industrial Light
+   (szablon: templates/components/stations-tab-content.html)
+
+   Wygląd jest wspólny z Pracownikami i Urządzeniami mobilnymi: tokeny --il-* z production-panel.css,
+   białe karty z 1px obramowaniem i promieniem 3px, nagłówki mono (JetBrains Mono), bez cieni i animacji.
+
+   Plik ma DWIE części:
+   1. „WSPÓLNE” — reguły globalne, od których zależą INNE zakładki albo makra (patrz komentarz przy każdej).
+      Nie przenoś ich pod .stn-tab ani nie usuwaj bez sprawdzenia, kto z nich korzysta.
+   2. „.stn-tab” — wszystko, co dotyczy tylko zakładki Stanowiska. Każda reguła ma prefiks `.stn-tab`: ten plik
+      ładuje się PRZED vendor/bootstrap.min.css, więc pojedyncza klasa przegrywałaby z Bootstrapem (h2/h3, dl,
+      table, button…).
+   ═══════════════════════════════════════════════════════════════════════ */
+
 /* ============================================================================
-   STATIONS TAB - Minimalistyczny, profesjonalny design
+   WSPÓLNE (globalne)
    ============================================================================ */
 
+/* Zmienne używane przez inne pliki: production-panel.css czyta je bez wartości zapasowej, a sam definiuje
+   tylko jedną z nich. Usunięcie tego bloku zmieniłoby wygląd całego panelu. */
 :root {
     --border-color: #e5e7eb;
     --text-primary: #1f2937;
@@ -15,293 +32,12 @@
     --danger-color: #ef4444;
 }
 
-/* ============================================================================
-   CONTAINER
-   ============================================================================ */
-
-#stations-tab-wrapper {
-    padding: 20px;
-}
-
-.stations-container {
-    display: flex;
-    flex-direction: column;
-    gap: 24px;
-    max-width: 100%;
-}
-
-/* ============================================================================
-   SECTION HEADERS
-   ============================================================================ */
-
-.section-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 16px;
-}
-
-.section-header h3 {
-    font-size: 1.125rem;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin: 0;
-}
-
-.btn-refresh {
-    padding: 8px 16px;
-    background: white;
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    font-size: 0.875rem;
-    color: var(--text-secondary);
-    cursor: pointer;
-    transition: all 0.2s;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-
-.btn-refresh:hover {
-    background: var(--bg-hover);
-    border-color: var(--text-secondary);
-}
-
-/* ============================================================================
-   WORKFLOW SECTION - Minimalistyczny przepływ
-   ============================================================================ */
-
-.workflow-section {
-    background: white;
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    padding: 20px;
-}
-
-.workflow-track {
-    display: flex;
-    align-items: center;
-    gap: 0;
-    overflow-x: auto;
-    padding: 12px 0;
-}
-
-.workflow-item {
-    flex: 1;
-    min-width: 120px;
-    padding: 16px;
-    text-align: center;
-    cursor: pointer;
-    transition: background 0.2s;
-    border-radius: 6px;
-    position: relative;
-}
-
-.workflow-item:hover {
-    background: var(--bg-gray);
-}
-
-.workflow-icon {
-    font-size: 32px;
-    margin-bottom: 8px;
-}
-
-.workflow-name {
-    font-size: 0.875rem;
-    font-weight: 500;
-    color: var(--text-primary);
-    margin-bottom: 6px;
-}
-
-.workflow-count {
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: var(--text-primary);
-    position: relative;
-    display: inline-block;
-}
-
-/* Kropka przy liczniku = stanowisko ma odłożone kafle (priorytety, spec 7.2). */
-.odlozone-dot {
-    position: absolute;
-    top: -4px;
-    right: -8px;
-    width: 8px;
-    height: 8px;
-    background: var(--danger-color);
-    border-radius: 50%;
-    border: 2px solid white;
-}
-
-.workflow-separator {
-    font-size: 20px;
-    color: var(--border-color);
-    flex-shrink: 0;
-    padding: 0 8px;
-}
-
-/* ============================================================================
-   STATIONS LIST - Lista stanowisk
-   ============================================================================ */
-
-.stations-list {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-}
-
-.station-item {
-    background: white;
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    overflow: hidden;
-    transition: box-shadow 0.2s;
-}
-
-.station-item:hover {
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-}
-
-.station-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 20px;
-    background: var(--bg-gray);
-    border-bottom: 1px solid var(--border-color);
-}
-
-.station-title-group {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-}
-
-.station-emoji {
-    font-size: 36px;
-}
-
-.station-title-group h4 {
-    font-size: 1.125rem;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin: 0 0 6px 0;
-}
-
-.station-stats-inline {
-    font-size: 0.875rem;
-    color: var(--text-secondary);
-}
-
-.btn-link-station {
-    padding: 8px 16px;
-    background: white;
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    font-size: 0.875rem;
-    color: var(--text-primary);
-    text-decoration: none;
-    transition: all 0.2s;
-    display: inline-flex;
-    align-items: center;
-}
-
-.btn-link-station:hover {
-    background: var(--text-primary);
-    color: white;
-    border-color: var(--text-primary);
-}
-
-.station-content {
-    padding: 20px;
-}
-
-/* Metryki stanowiska */
-
-.station-metrics {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-    gap: 16px;
-    margin-bottom: 20px;
-}
-
-.metric-item {
-    text-align: center;
-    padding: 16px;
-    background: var(--bg-gray);
-    border-radius: 6px;
-}
-
-.metric-label {
-    font-size: 0.75rem;
+/* Używane w sześciu innych zakładkach (Konfiguracja, Dashboard, Produkty, Pracownicy, Raporty, Trakownia). */
+.text-muted {
     color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-bottom: 6px;
 }
 
-.metric-value {
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: var(--text-primary);
-}
-
-/* Podgląd produktów */
-
-.products-preview {
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    overflow: hidden;
-}
-
-.preview-title {
-    padding: 12px 16px;
-    background: var(--bg-gray);
-    font-size: 0.875rem;
-    font-weight: 600;
-    color: var(--text-primary);
-    border-bottom: 1px solid var(--border-color);
-}
-
-.preview-table {
-    width: 100%;
-    border-collapse: collapse;
-}
-
-.preview-table tr {
-    border-bottom: 1px solid var(--border-color);
-    cursor: pointer;
-    transition: background 0.15s;
-}
-
-.preview-table tr:last-child {
-    border-bottom: none;
-}
-
-.preview-table tr:hover {
-    background: var(--bg-gray);
-}
-
-.preview-table td {
-    padding: 12px 16px;
-    font-size: 0.875rem;
-}
-
-.td-id {
-    width: 120px;
-    font-weight: 600;
-    color: var(--primary-color);
-}
-
-.td-name {
-    color: var(--text-primary);
-}
-
-.td-deadline {
-    width: 100px;
-    text-align: right;
-}
-
+/* Kolory terminów: ten sam znacznik `deadline-text` stoi w zakładce Produkty, która nie ma własnych reguł. */
 .deadline-text {
     font-size: 0.875rem;
     font-weight: 500;
@@ -319,128 +55,15 @@
     color: var(--warning-color);
 }
 
-.preview-footer {
-    padding: 12px 16px;
-    background: var(--bg-gray);
-    border-top: 1px solid var(--border-color);
-    text-align: center;
+.ms-1 {
+    margin-left: 0.25rem;
 }
 
-.btn-show-more {
-    padding: 8px 16px;
-    background: white;
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    font-size: 0.875rem;
-    color: var(--text-secondary);
-    cursor: pointer;
-    transition: all 0.2s;
+.me-2 {
+    margin-right: 0.5rem;
 }
 
-.btn-show-more:hover {
-    background: var(--text-primary);
-    color: white;
-    border-color: var(--text-primary);
-}
-
-/* Stan pusty */
-
-.empty-state {
-    text-align: center;
-    padding: 40px;
-    color: var(--text-muted);
-    font-size: 0.875rem;
-}
-
-.empty-state i {
-    font-size: 32px;
-    color: var(--success-color);
-    margin-bottom: 8px;
-}
-
-.text-muted {
-    color: var(--text-muted);
-}
-
-/* ============================================================================
-   STÓŁ STANOWISKA - stół, odłożone, niekompletne (priorytety, spec 5.1, 5.3, 5.6, 7.2)
-   ============================================================================ */
-
-.stol-pasek {
-    color: var(--text-secondary);
-}
-
-.stol-sekcja {
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    overflow: hidden;
-    margin-bottom: 16px;
-}
-
-/* Stół bywa dłuższy niż K (doróbki, wysłane przez biuro, startowe) — lista przewijana, bez stałych miejsc. */
-.stol-lista {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    max-height: 360px;
-    overflow-y: auto;
-}
-
-.stol-kafel {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 16px;
-    border-bottom: 1px solid var(--border-color);
-    font-size: 0.875rem;
-    cursor: pointer;
-}
-
-.stol-kafel:last-child {
-    border-bottom: none;
-}
-
-.stol-kafel:hover {
-    background: var(--bg-gray);
-}
-
-.stol-kafel.odlozony {
-    background: #fffbeb;
-}
-
-.stol-pusty {
-    padding: 12px 16px;
-    color: var(--text-muted);
-    font-size: 0.875rem;
-}
-
-.kafel-meta {
-    color: var(--text-secondary);
-}
-
-.kafel-czas {
-    margin-left: auto;
-    color: var(--text-muted);
-    font-size: 0.8125rem;
-}
-
-.odlozenie-powod {
-    font-weight: 600;
-    color: #b45309;
-}
-
-.odlozenie-notatka {
-    color: var(--text-secondary);
-    font-style: italic;
-}
-
-.stol-kafel.widmo {
-    background: #f9fafb;
-    cursor: default;
-}
-
-/* Źródło kafla (spec 5.1): wysłany przez biuro, rozpoczęty przed startem, doróbka */
+/* Gwiazdki i plakietki szczebla oraz źródła kafla — makra components/_priorytet_plakietki.html. */
 .zrodlo-plakietka {
     display: inline-block;
     padding: 2px 8px;
@@ -465,48 +88,6 @@
     color: #be185d;
 }
 
-/* „Zdejmij ze stołu” (spec 5.7) */
-.kafel-akcje {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.btn-zdejmij {
-    padding: 4px 10px;
-    background: white;
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    font-size: 0.75rem;
-    color: var(--text-secondary);
-    cursor: pointer;
-}
-
-.btn-zdejmij:hover {
-    background: var(--danger-color);
-    border-color: var(--danger-color);
-    color: white;
-}
-
-.kafel-wroci {
-    font-size: 0.75rem;
-    color: #b45309;
-}
-
-.prio-blad i {
-    color: var(--warning-color);
-}
-
-.td-lp {
-    width: 44px;
-    color: var(--text-muted);
-}
-
-.td-prio {
-    width: 220px;
-}
-
-/* Gwiazdki i plakietki szczebla (makra components/_priorytet_plakietki.html) */
 .prio-gwiazdki {
     color: #f59e0b;
     letter-spacing: 1px;
@@ -550,44 +131,516 @@
 }
 
 /* ============================================================================
-   RESPONSIVE
+   .stn-tab — kontener
    ============================================================================ */
 
-@media (max-width: 1024px) {
-    .workflow-track {
-        overflow-x: auto;
-    }
-
-    .workflow-item {
-        min-width: 110px;
-    }
-
-    .station-header {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 16px;
-    }
-
-    .btn-link-station {
-        width: 100%;
-        justify-content: center;
-    }
+#stations-tab-wrapper {
+    padding: 0;
 }
 
-@media (max-width: 768px) {
-    .station-metrics {
-        grid-template-columns: 1fr;
-    }
+.stn-tab {
+    /* Tekst pomocniczy: ciemniejszy niż --il-text-secondary (#7a8291 daje ok. 3,8:1 na bieli, tu ok. 5,9:1) */
+    --stn-tekst-2: #5f6776;
+    --stn-tlo-2: #f6f7f9;
+    width: 100%;
+    padding-bottom: 60px;
+    color: var(--il-text-primary, #1a1a2e);
+    font-size: 13px;
+}
+
+.stn-tab *,
+.stn-tab *::before,
+.stn-tab *::after { box-sizing: border-box; }
+
+.stn-tab :is(button, a):focus-visible {
+    outline: 2px solid var(--il-status-info, #2563eb);
+    outline-offset: 2px;
 }
 
 /* ============================================================================
-   UTILITIES
+   .stn-tab — nagłówek z sumami (jak .workers-main-header)
    ============================================================================ */
 
-.ms-1 {
-    margin-left: 0.25rem;
+.stn-tab .stn-header {
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    padding: 14px 16px;
+    margin-bottom: 16px;
 }
 
-.me-2 {
-    margin-right: 0.5rem;
+.stn-tab .stn-header-gora {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.stn-tab .stn-header h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--il-text-secondary, #7a8291);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin: 0 0 4px;
+}
+
+.stn-tab .stn-header h2 i {
+    color: var(--il-text-muted, #9ba3b0);
+    margin-right: 8px;
+}
+
+.stn-tab .stn-header p {
+    color: var(--stn-tekst-2);
+    font-size: 12px;
+    margin: 0;
+    max-width: 90ch;
+}
+
+.stn-tab .stn-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.stn-tab .stn-stat {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    background: var(--il-bg-base, #eef0f4);
+    padding: 8px 12px 8px 8px;
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+}
+
+.stn-tab .stn-stat-ikona {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border-light, #e2e5ea);
+    border-radius: var(--il-radius, 3px);
+    color: var(--stn-tekst-2);
+    font-size: 13px;
+}
+
+.stn-tab .stn-stat-info { min-width: 0; }
+
+.stn-tab .stn-stat-etykieta {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--stn-tekst-2);
+    line-height: 1.3;
+}
+
+.stn-tab .stn-stat-wartosc {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--il-text-primary, #1a1a2e);
+    line-height: 1.3;
+}
+
+/* Są odłożone kafle: chip dostaje akcent ostrzegawczy (pasek z lewej, jak w Urządzeniach) */
+.stn-tab .stn-stat--uwaga { border-left: 3px solid var(--il-status-warn, #d97706); }
+.stn-tab .stn-stat--uwaga .stn-stat-ikona { color: var(--il-status-warn, #d97706); }
+
+.stn-tab .stn-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+    padding: 5px 12px;
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    font-size: 12px;
+    color: var(--stn-tekst-2);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.stn-tab .stn-btn:hover {
+    background: var(--il-bg-base, #eef0f4);
+    color: var(--il-text-primary, #1a1a2e);
+}
+
+/* ============================================================================
+   .stn-tab — podzakładki (ten sam wygląd co .urz-subnav, własne klasy)
+   ============================================================================ */
+
+.stn-tab .stn-subnav {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    border-bottom: 1px solid var(--il-border, #c8cdd5);
+    margin-bottom: 16px;
+}
+
+.stn-tab .stn-subnav-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: none;
+    background: transparent;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    padding: 8px 16px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--il-text-secondary, #7a8291);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.stn-tab .stn-subnav-btn:hover {
+    color: var(--production-primary, #2c5530);
+    border-bottom-color: var(--il-border, #c8cdd5);
+}
+
+.stn-tab .stn-subnav-btn.active {
+    color: var(--production-primary, #2c5530);
+    border-bottom-color: var(--production-primary, #2c5530);
+}
+
+.stn-tab .stn-subnav-btn:focus-visible { outline-offset: -2px; }
+
+/* Licznik oczekujących przy nazwie stanowiska */
+.stn-tab .stn-licznik {
+    display: inline-block;
+    min-width: 20px;
+    padding: 1px 6px;
+    border-radius: 9px;
+    background: var(--il-border-light, #e2e5ea);
+    color: var(--il-text-primary, #1a1a2e);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0;
+    line-height: 1.4;
+    text-align: center;
+}
+
+.stn-tab .stn-subnav-btn.active .stn-licznik {
+    background: var(--production-primary, #2c5530);
+    color: #fff;
+}
+
+/* Kropka przy liczniku = stanowisko ma odłożone kafle */
+.stn-tab .stn-kropka {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--il-status-danger, #dc2626);
+}
+
+.stn-tab .stn-panel[hidden] { display: none; }
+
+/* ============================================================================
+   .stn-tab — karta stanowiska
+   ============================================================================ */
+
+.stn-tab .stn-karta {
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+}
+
+.stn-tab .stn-karta-naglowek {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 12px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--il-border, #c8cdd5);
+}
+
+.stn-tab .stn-karta-tytul {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 12px;
+    min-width: 0;
+}
+
+.stn-tab .stn-karta-tytul h3 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--il-text-primary, #1a1a2e);
+    margin: 0;
+}
+
+.stn-tab .stn-tryb {
+    font-size: 12px;
+    color: var(--stn-tekst-2);
+}
+
+.stn-tab .stn-link {
+    font-size: 12px;
+    color: var(--il-status-info, #2563eb);
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.stn-tab .stn-link:hover { text-decoration: underline; }
+
+/* Liczby stanowiska w jednym rzędzie, przedzielone cienką linią */
+.stn-tab .stn-mini {
+    display: flex;
+    flex-wrap: wrap;
+    margin: 0;
+    background: var(--stn-tlo-2);
+    border-bottom: 1px solid var(--il-border-light, #e2e5ea);
+}
+
+.stn-tab .stn-mini > div {
+    padding: 8px 16px;
+    border-right: 1px solid var(--il-border-light, #e2e5ea);
+}
+
+.stn-tab .stn-mini dt {
+    font-size: 11px;
+    font-weight: 400;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--stn-tekst-2);
+    line-height: 1.3;
+}
+
+.stn-tab .stn-mini dd {
+    margin: 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--il-text-primary, #1a1a2e);
+    line-height: 1.3;
+}
+
+.stn-tab .stn-karta-tresc { padding: 16px; }
+
+.stn-tab .stn-komunikat {
+    padding: 10px 12px;
+    margin-bottom: 12px;
+    font-size: 12px;
+    border-radius: var(--il-radius, 3px);
+}
+
+.stn-tab .stn-komunikat--blad {
+    background: #fffbeb;
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-left: 3px solid var(--il-status-warn, #d97706);
+    color: #92400e;
+}
+
+/* ============================================================================
+   .stn-tab — sekcje: stół, odłożone, do zdjęcia, niekompletne, kolejka
+   ============================================================================ */
+
+/* Jedna sekcja zajmuje całą szerokość, dwie leżą obok siebie, gdy jest miejsce. */
+.stn-tab .stn-sekcje {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
+    gap: 12px;
+    align-items: start;
+}
+
+.stn-tab .stn-sekcje:has(.stn-sekcja) + .stn-kolejka { margin-top: 12px; }
+
+.stn-tab .stn-sekcja {
+    min-width: 0;
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    overflow: hidden;
+}
+
+.stn-tab .stn-sekcja-tytul {
+    padding: 6px 12px;
+    background: var(--stn-tlo-2);
+    border-bottom: 1px solid var(--il-border-light, #e2e5ea);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: var(--stn-tekst-2);
+}
+
+.stn-tab .stn-sekcja--pusta {
+    padding: 10px 12px;
+    font-size: 12px;
+    color: var(--stn-tekst-2);
+}
+
+/* Stół bywa dłuższy niż K (doróbki, wysłane przez biuro, startowe) — lista przewijana, bez stałych miejsc. */
+.stn-tab .stn-lista {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: 360px;
+    overflow-y: auto;
+}
+
+.stn-tab .stn-wiersz {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--il-border-light, #e2e5ea);
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.stn-tab .stn-wiersz:last-child { border-bottom: none; }
+
+.stn-tab .stn-wiersz:hover { background: var(--stn-tlo-2); }
+
+.stn-tab .stn-wiersz--odlozony { background: #fffbeb; }
+
+/* Osobna reguła :hover, bo `.stn-wiersz:hover` ma wyższą specyficzność niż sam modyfikator — bez niej odłożony
+   wiersz szarzałby po najechaniu zamiast zostać żółty. */
+.stn-tab .stn-wiersz--odlozony:hover { background: #fef3c7; }
+
+.stn-tab .stn-wiersz--widmo {
+    background: var(--stn-tlo-2);
+    cursor: default;
+}
+
+.stn-tab .stn-id {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+}
+
+.stn-tab .stn-meta { color: var(--stn-tekst-2); }
+
+.stn-tab .stn-czas {
+    margin-left: auto;
+    color: var(--stn-tekst-2);
+    font-size: 12px;
+}
+
+.stn-tab .stn-powod {
+    font-weight: 600;
+    color: #b45309;
+}
+
+.stn-tab .stn-notatka {
+    color: var(--stn-tekst-2);
+    font-style: italic;
+}
+
+/* „Zdejmij ze stołu” (spec 5.7) */
+.stn-tab .stn-akcje {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.stn-tab .stn-btn-zdejmij {
+    padding: 2px 8px;
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    font-size: 12px;
+    color: var(--stn-tekst-2);
+    cursor: pointer;
+}
+
+.stn-tab .stn-btn-zdejmij:hover {
+    background: var(--il-status-danger, #dc2626);
+    border-color: var(--il-status-danger, #dc2626);
+    color: #fff;
+}
+
+.stn-tab .stn-wroci {
+    font-size: 12px;
+    color: #b45309;
+}
+
+/* Kolejka: tabela, przewijana poziomo na wąskim ekranie */
+.stn-tab .stn-kolejka { overflow-x: auto; }
+
+.stn-tab .stn-tabela {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.stn-tab .stn-tabela tr {
+    border-bottom: 1px solid var(--il-border-light, #e2e5ea);
+    cursor: pointer;
+}
+
+.stn-tab .stn-tabela tr:last-child { border-bottom: none; }
+
+.stn-tab .stn-tabela tr:hover { background: var(--stn-tlo-2); }
+
+.stn-tab .stn-tabela td {
+    padding: 6px 12px;
+    font-size: 13px;
+}
+
+.stn-tab .stn-td-lp {
+    width: 44px;
+    color: var(--stn-tekst-2);
+}
+
+.stn-tab .stn-td-id {
+    width: 120px;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+    color: var(--il-status-info, #2563eb);
+}
+
+.stn-tab .stn-td-prio { width: 220px; }
+
+.stn-tab .stn-td-termin {
+    width: 100px;
+    text-align: right;
+}
+
+.stn-tab .stn-sekcja-stopka {
+    padding: 8px 12px;
+    background: var(--stn-tlo-2);
+    border-top: 1px solid var(--il-border-light, #e2e5ea);
+    text-align: center;
+}
+
+.stn-tab .stn-pusty {
+    padding: 28px 16px;
+    text-align: center;
+    font-size: 13px;
+    color: var(--stn-tekst-2);
+}
+
+.stn-tab .stn-pusty i {
+    margin-right: 6px;
+    color: var(--il-status-ok, #16a34a);
+}
+
+/* ============================================================================
+   .stn-tab — wąskie okno
+   ============================================================================ */
+
+@media (max-width: 768px) {
+    .stn-tab .stn-header-gora { flex-direction: column; }
+
+    .stn-tab .stn-subnav-btn { padding: 8px 10px; }
+
+    .stn-tab .stn-mini > div {
+        flex: 1 1 33%;
+        border-bottom: 1px solid var(--il-border-light, #e2e5ea);
+    }
 }

@@ -43,10 +43,11 @@ def test_zakladka_zna_krawedzie_i_lakiernie(client, app):
     assert 'finishing' not in dane['data']
 
 
-def test_lakiernia_stoi_zaraz_za_krawedziami_w_przeplywie(client, app):
-    """Kolejność kafli w HTML = kolejność strzałek w „Przepływie produkcji"."""
+def test_lakiernia_stoi_zaraz_za_krawedziami_w_podzakladkach(client, app):
+    """Kolejność podzakładek i paneli w HTML = kolejność produkcji (Lakiernia zaraz za Krawędziami)."""
     dane = _stanowiska(client)
-    assert re.findall(r"navigateToStation\('(\w+)'\)", dane['html']) == KOLEJNOSC
+    assert re.findall(r'data-sub="(\w+)"', dane['html']) == KOLEJNOSC
+    assert re.findall(r'data-stanowisko="(\w+)"', dane['html']) == KOLEJNOSC
 
 
 def test_kolejki_obu_stanowisk_licza_wlasne_statusy(client, app):
