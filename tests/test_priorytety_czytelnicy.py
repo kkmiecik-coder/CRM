@@ -17,6 +17,7 @@ from datetime import date, datetime, timedelta
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
+from bs4 import BeautifulSoup
 
 from extensions import db
 from modules.production.logistics.models import Route, RouteStop
@@ -571,6 +572,148 @@ def test_zakladka_js_zdejmij_przez_post():
     skrypt = zrodlo(SZABLON_STANOWISK).split('<script>', 1)[1]
     for linia in skrypt.splitlines():
         assert linia.count("'") % 2 == 0, linia
+
+
+# ── zakładka Stanowiska: sekcje jako tabele z nagłówkami, akcje w ostatniej kolumnie, „Na stół” w kolejce ──────
+
+def panel_stanowiska(dane, kod):
+    """Panel (`<section data-stanowisko>`) jednego stanowiska z HTML-u zakładki, jako drzewo bs4."""
+    panel = BeautifulSoup(dane['html'], 'html.parser').select_one('section[data-stanowisko="%s"]' % kod)
+    assert panel is not None, kod
+    return panel
+
+
+def naglowki_sekcji(panel):
+    """{tytuł sekcji bez licznika: [nagłówki kolumn]} — tylko sekcje, które są tabelami."""
+    wynik = {}
+    for sekcja in panel.select('.stn-sekcja'):
+        tytul, tabela = sekcja.select_one('.stn-sekcja-tytul'), sekcja.select_one('table.stn-tabela')
+        if tytul is not None and tabela is not None:
+            wynik[tytul.get_text(' ', strip=True).split(' (')[0]] = [
+                th.get_text(strip=True) for th in tabela.select('thead th')]
+    return wynik
+
+
+def dane_do_tabel():
+    """Sklejanie ze stołem, odłożonym i kolejką; Formatowanie z widmem na stole i zamówieniem niekompletnym."""
+    order = zam(statusy=('czeka_na_sklejanie',) * 3, numer='7501')
+    a, b, _c = order.products
+    kafel_stolu('gluing', a)
+    kafel_stolu('gluing', b, odlozony=datetime(2026, 10, 5, 9, 40))
+    kafel_stolu('formatting', zam(statusy=('czeka_na_pakowanie',), numer='7502'))
+    zam(statusy=('czeka_na_formatowanie', 'czeka_na_sklejanie'), numer='7503')
+
+
+def test_zakladka_sekcje_stanowiska_to_tabele_z_naglowkami(client):
+    dane_do_tabel()
+
+    dane = zakladka(client)
+
+    assert naglowki_sekcji(panel_stanowiska(dane, 'gluing')) == {
+        u'Na stole': [u'Kafel', u'Opis', u'Priorytet', u'Źródło', u'Od', u'Akcja'],
+        u'Odłożone': [u'Kafel', u'Opis', u'Powód', u'Odłożono', u'Akcja'],
+        u'Dalej w kolejce': [u'Lp', u'Kafel', u'Priorytet', u'Opis', u'Termin', u'Akcja'],
+    }
+    formatowanie = naglowki_sekcji(panel_stanowiska(dane, 'formatting'))
+    assert formatowanie[u'Do zdjęcia ze stołu'] == [u'Kafel', u'Opis', u'Źródło', u'Akcja']
+    assert formatowanie[u'Niekompletne'] == [u'Zamówienie', u'Na stanowisku', u'Brakuje']
+
+
+def test_zakladka_przyciski_akcji_zawsze_w_ostatniej_kolumnie(client):
+    """Przycisk „Zdejmij ze stołu” i „Na stół” stoi w kolumnie Akcja, ostatniej komórce wiersza — w każdej sekcji
+    w tym samym miejscu, a nie tam, gdzie akurat skończył się zawinięty tekst."""
+    dane_do_tabel()
+
+    dane = zakladka(client)
+
+    for kod in ('gluing', 'formatting'):
+        przyciski = panel_stanowiska(dane, kod).select('.stn-btn-zdejmij, .stn-btn-na-stol')
+        assert przyciski, kod
+        for przycisk in przyciski:
+            komorka = przycisk.find_parent('td')
+            assert komorka is not None and 'stn-c-akcja' in komorka.get('class', []), (kod, przycisk)
+            assert komorka.find_parent('tr').find_all('td')[-1] is komorka, (kod, przycisk)
+
+
+def test_zakladka_kolejka_ma_przycisk_na_stol(client):
+    order = zam(statusy=('czeka_na_sklejanie',) * 3, numer='7601')
+    inne = zam(statusy=('czeka_na_sklejanie',), numer='7602')
+
+    dane = zakladka(client)
+
+    przyciski = panel_stanowiska(dane, 'gluing').select('table.stn-tabela .stn-btn-na-stol')
+    assert len(przyciski) == len(dane['data']['gluing']['kolejka']) == 4
+    assert {int(p['data-order-id']) for p in przyciski} == {order.id, inne.id}
+    assert all(p['data-kod'] == 'gluing' and p['onclick'] == 'naStol(this)' for p in przyciski)
+    assert all(p.get_text(strip=True) == u'Na stół' for p in przyciski)
+    # stanowisko pozycyjne: wiersz to pozycja, a „Wyślij” kładzie na stół całe zamówienie — podpowiedź to mówi
+    assert all(u'wszystkie jego pozycje' in p['title'] for p in przyciski)
+
+
+def test_zakladka_data_stanowisko_tylko_na_panelach(client):
+    """`karta_html` (i test kolejności stanowisk) tną HTML po `data-stanowisko="<kod>"`: atrybut ma stać wyłącznie na
+    <section> panelu. Przycisk w kolejce nosi `data-kod`; z `data-stanowisko` karta kończyłaby się na pierwszym
+    przycisku „Na stół”, a asercje `not in` o treści kolejki byłyby zawsze prawdziwe."""
+    zam(statusy=('czeka_na_sklejanie',) * 2, numer='7650')
+    zam(statusy=('czeka_na_formatowanie',), numer='7651')
+
+    dane = zakladka(client)
+
+    assert [z.name for z in BeautifulSoup(dane['html'], 'html.parser').select('[data-stanowisko]')] == ['section'] * 7
+    assert BeautifulSoup(dane['html'], 'html.parser').select('.stn-btn-na-stol')       # a w kolejce przyciski są
+
+
+def test_zakladka_kolejka_stanowiska_zamowieniowego_wysyla_zamowienie(client):
+    order = zam(statusy=('czeka_na_formatowanie',), numer='7701')
+
+    przycisk = panel_stanowiska(zakladka(client), 'formatting').select_one('table.stn-tabela .stn-btn-na-stol')
+
+    assert przycisk is not None
+    assert int(przycisk['data-order-id']) == order.id       # stanowisko zamówieniowe: kafel to zamówienie
+    assert u'7701' in przycisk['title'] and u'wszystkie jego pozycje' not in przycisk['title']
+
+
+def test_zakladka_odlozony_kafel_dostaje_podpis_wroci(client):
+    """Odłożona doróbka (albo kafel, który po zdjęciu stanąłby pierwszy) wróci przy dopełnieniu tak samo jak kafel
+    leżący na stole — `widok` liczy flagę przed podziałem na stół i odłożone, więc podpis ma być w obu sekcjach."""
+    zwykle = zam(statusy=('czeka_na_sklejanie',) * 3, numer='7660')
+    dorobka = produkt(zwykle, status='czeka_na_sklejanie', sekwencja=4, deadline_date=DALEKO,
+                      original_product_id=zwykle.products[2].id)
+    kafel_stolu('gluing', dorobka, zrodlo='dorobka', odlozony=datetime(2026, 10, 5, 9, 0))
+
+    panel = panel_stanowiska(zakladka(client), 'gluing')
+
+    (odlozone,) = [s for s in panel.select('.stn-sekcja')
+                   if s.select_one('.stn-sekcja-tytul').get_text(strip=True).startswith(u'Odłożone')]
+    assert len(odlozone.select('.stn-wroci')) == 1
+    assert odlozone.select_one('.stn-wroci').get_text(strip=True) == u'kafel wróci przy następnym dopełnieniu'
+
+
+def test_zakladka_lakiernia_bez_stolu_nie_ma_przyciskow_ani_kolumny_akcji(client):
+    zam(statusy=('czeka_na_lakiernie',) * 2)
+
+    panel = panel_stanowiska(zakladka(client), 'painting')
+
+    assert not panel.select('.stn-btn-na-stol, .stn-btn-zdejmij')
+    assert [th.get_text(strip=True) for th in panel.select('table.stn-tabela thead th')] == [
+        u'Lp', u'Kafel', u'Priorytet', u'Opis', u'Termin']
+
+
+def test_zakladka_js_na_stol_wola_wspolna_funkcje_panelu():
+    """Żądanie `/wyslij` ma w froncie jedno miejsce (priorytety.js, pilnuje tego test_priorytety_lista_produkcyjna_ui),
+    więc zakładka woła wystawioną funkcję `window.Priorytety.wyslijNaStanowisko`, a nie własny fetch."""
+    szablon = zrodlo(SZABLON_STANOWISK)
+    funkcja = _funkcja_js(szablon, 'async function naStol(')
+    assert 'window.Priorytety.wyslijNaStanowisko(' in funkcja
+    assert 'if (!window.Priorytety' in funkcja                        # moduł priorytetów mógł się nie wczytać
+    assert 'window.Priorytety.komunikatStolu(' in funkcja             # komunikaty błędów jak w panelu priorytetów
+    assert 'refreshWorkflowData()' in funkcja                         # kafel przechodzi z kolejki na stół
+    assert '.disabled = true' in funkcja and '.disabled = false' in funkcja    # blokada tylko na czas żądania
+    assert 'finally' in funkcja                                       # i zdejmowana zawsze, także po błędzie
+    assert 'dataset.kod' in funkcja and 'dataset.stanowisko' not in funkcja
+    assert 'przywrocone' in funkcja                                   # „Wyślij” wraca odłożone pozycje: mówimy o tym
+    assert 'fetch(' not in funkcja                                    # własny fetch (dowolny cudzysłów) odpada
+    assert "'/wyslij'" not in szablon
 
 
 # ══ Task 3: dashboard — pilne zamówienia na szczeblach drabiny ══════════════════════════════════════════════

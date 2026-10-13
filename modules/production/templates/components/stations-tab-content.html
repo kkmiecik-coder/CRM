@@ -20,32 +20,43 @@
 {% endif %}
 {%- endmacro %}
 
+{#- Komórki wiersza kafla. Kafel to pozycja (stanowisko pozycyjne) albo zamówienie (stanowisko zamówieniowe). -#}
+{% macro id_kafla(kafel, jednostka) -%}
+<span class="stn-id">{{ kafel.numer if jednostka == 'zamowienie' else (kafel.short_id or kafel.numer) }}</span>
+{%- endmacro %}
+
 {% macro opis_kafla(kafel, jednostka) -%}
 {% if jednostka == 'zamowienie' %}
-<span class="stn-id">{{ kafel.numer }}</span>
-<span class="stn-meta">{{ kafel.pozycji }} poz.</span>
-{% else %}
-<span class="stn-id">{{ kafel.short_id or kafel.numer }}</span>
-{% if kafel.material %}
-<span class="stn-meta">{{ kafel.material.gatunek or '' }} {{ kafel.material.klasa or '' }}{% if kafel.wymiary and kafel.wymiary.dlugosc_cm %} · {{ kafel.wymiary.dlugosc_cm|round(1)|replace('.0', '') }}×{{ (kafel.wymiary.szerokosc_cm or 0)|round(1)|replace('.0', '') }}×{{ (kafel.wymiary.grubosc_cm or 0)|round(1)|replace('.0', '') }}{% endif %}</span>
+{{ kafel.pozycji }} poz.
+{% elif kafel.material %}
+{{ kafel.material.gatunek or '' }} {{ kafel.material.klasa or '' }}{% if kafel.wymiary and kafel.wymiary.dlugosc_cm %} · {{ kafel.wymiary.dlugosc_cm|round(1)|replace('.0', '') }}×{{ (kafel.wymiary.szerokosc_cm or 0)|round(1)|replace('.0', '') }}×{{ (kafel.wymiary.grubosc_cm or 0)|round(1)|replace('.0', '') }}{% endif %}
 {% endif %}
-{% endif %}
-{{ prio.gwiazdki(kafel.gwiazdki) }}
-{{ prio.plakietka(kafel.szczebel, kafel.dorobka) }}
+{%- endmacro %}
+
+{% macro prio_kafla(kafel) -%}
+{{ prio.gwiazdki(kafel.gwiazdki) }} {{ prio.plakietka(kafel.szczebel, kafel.dorobka) }}
 {%- endmacro %}
 
 {% macro godzina(iso) -%}{{ iso[11:16] if iso else '' }}{%- endmacro %}
 
+{#- Nagłówek tabeli sekcji: lista (klasa kolumny, tytuł). Ostatnia kolumna „Akcja” ma stałą szerokość i stoi
+    po prawej w każdej sekcji, więc przyciski leżą na jednej pionowej linii. -#}
+{% macro naglowek(kolumny) -%}
+<thead><tr>{% for klasa, tytul in kolumny %}<th scope="col" class="stn-c-{{ klasa }}">{{ tytul }}</th>{% endfor %}</tr></thead>
+{%- endmacro %}
+
 {#- „Zdejmij ze stołu” (spec 5.7): kafel wraca do kolejki stanowiska. Kafel, który po zdjęciu stanąłby pierwszy
-    w kolejce (albo doróbka), wróci przy najbliższym dopełnieniu — podpis mówi to biuru (raport K3, D7). -#}
+    w kolejce (albo doróbka), wróci przy najbliższym dopełnieniu — podpis (`wroci`, w komórce opisu) mówi to biuru
+    (raport K3, D7). -#}
 {% macro zdejmij(station_key, kafel) -%}
-<span class="stn-akcje" onclick="event.stopPropagation()">
-    <button type="button" class="stn-btn-zdejmij"
-            onclick="zdejmijZeStolu('{{ station_key }}', '{{ kafel.unit_key }}', {{ 'true' if kafel.wroci_przy_dopelnieniu else 'false' }})">
-        Zdejmij ze stołu
-    </button>
-    {% if kafel.wroci_przy_dopelnieniu %}<span class="stn-wroci">kafel wróci przy następnym dopełnieniu</span>{% endif %}
-</span>
+<button type="button" class="stn-btn-zdejmij"
+        onclick="zdejmijZeStolu('{{ station_key }}', '{{ kafel.unit_key }}', {{ 'true' if kafel.wroci_przy_dopelnieniu else 'false' }})">
+    Zdejmij ze stołu
+</button>
+{%- endmacro %}
+
+{% macro wroci(kafel) -%}
+{% if kafel.wroci_przy_dopelnieniu %}<span class="stn-wroci">kafel wróci przy następnym dopełnieniu</span>{% endif %}
 {%- endmacro %}
 
 {#- Sumy do chipów w nagłówku. Statystyki stołu (odłożone) mają tylko stanowiska ze stołem, stąd |default(0). -#}
@@ -152,20 +163,28 @@
                 </div>
                 {% endif %}
 
+                {#- Sekcje leżą pod sobą na pełną szerokość; każda to tabela z nagłówkiem, a kolumna „Akcja” jest ostatnia. -#}
                 <div class="stn-sekcje">
                     {% if station.stol %}
                     <div class="stn-sekcja">
                         <div class="stn-sekcja-tytul">Na stole ({{ station.stol|length }}/{{ station.stats.miejsca }}{% if station.stol|length > station.stats.miejsca %} — ponad K: doróbki, wysłane przez biuro, startowe{% endif %})</div>
-                        <ul class="stn-lista">
-                            {% for kafel in station.stol %}
-                            <li class="stn-wiersz" onclick="viewProductDetails('{{ kafel.short_id or kafel.numer }}')">
-                                {{ opis_kafla(kafel, station.jednostka) }}
-                                {{ prio.zrodlo_kafla(kafel.zrodlo) }}
-                                <span class="stn-czas">od {{ godzina(kafel.pobrano) }}{% if kafel.wyslal %}, {{ kafel.wyslal }}{% endif %}</span>
-                                {{ zdejmij(station_key, kafel) }}
-                            </li>
-                            {% endfor %}
-                        </ul>
+                        <div class="stn-tabela-wrap stn-tabela-wrap--przewijana">
+                            <table class="stn-tabela">
+                                {{ naglowek([('id', 'Kafel'), ('opis', 'Opis'), ('prio', 'Priorytet'), ('zrodlo', 'Źródło'), ('czas', 'Od'), ('akcja', 'Akcja')]) }}
+                                <tbody>
+                                    {% for kafel in station.stol %}
+                                    <tr class="stn-wiersz" onclick="viewProductDetails('{{ kafel.short_id or kafel.numer }}')">
+                                        <td class="stn-c-id">{{ id_kafla(kafel, station.jednostka) }}</td>
+                                        <td class="stn-c-opis">{{ opis_kafla(kafel, station.jednostka) }}{{ wroci(kafel) }}</td>
+                                        <td class="stn-c-prio">{{ prio_kafla(kafel) }}</td>
+                                        <td class="stn-c-zrodlo">{{ prio.zrodlo_kafla(kafel.zrodlo) }}</td>
+                                        <td class="stn-c-czas">{{ godzina(kafel.pobrano) }}{% if kafel.wyslal %}, {{ kafel.wyslal }}{% endif %}</td>
+                                        <td class="stn-c-akcja" onclick="event.stopPropagation()">{{ zdejmij(station_key, kafel) }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                     {% elif station.tryb == 'stol' and not station.blad_priorytetow %}
                     <div class="stn-sekcja stn-sekcja--pusta">Stół pusty — zapełni go tablet przy najbliższym odświeżeniu.</div>
@@ -174,75 +193,109 @@
                     {% if station.odlozone %}
                     <div class="stn-sekcja">
                         <div class="stn-sekcja-tytul">Odłożone ({{ station.odlozone|length }}/{{ station.stats.limit_odlozen }})</div>
-                        <ul class="stn-lista">
-                            {% for kafel in station.odlozone %}
-                            <li class="stn-wiersz stn-wiersz--odlozony" onclick="viewProductDetails('{{ kafel.short_id or kafel.numer }}')">
-                                {{ opis_kafla(kafel, station.jednostka) }}
-                                <span class="stn-powod">{{ kafel.powod_etykieta or kafel.powod }}</span>
-                                {% if kafel.notatka %}<span class="stn-notatka">„{{ kafel.notatka }}”</span>{% endif %}
-                                <span class="stn-czas">{{ godzina(kafel.odlozono) }}{% if kafel.pracownik %}, {{ kafel.pracownik }}{% endif %}</span>
-                                {{ zdejmij(station_key, kafel) }}
-                            </li>
-                            {% endfor %}
-                        </ul>
+                        <div class="stn-tabela-wrap stn-tabela-wrap--przewijana">
+                            <table class="stn-tabela">
+                                {{ naglowek([('id', 'Kafel'), ('opis', 'Opis'), ('powod', 'Powód'), ('czas', 'Odłożono'), ('akcja', 'Akcja')]) }}
+                                <tbody>
+                                    {% for kafel in station.odlozone %}
+                                    <tr class="stn-wiersz stn-wiersz--odlozony" onclick="viewProductDetails('{{ kafel.short_id or kafel.numer }}')">
+                                        <td class="stn-c-id">{{ id_kafla(kafel, station.jednostka) }}</td>
+                                        <td class="stn-c-opis">{{ opis_kafla(kafel, station.jednostka) }} {{ prio_kafla(kafel) }}{{ wroci(kafel) }}</td>
+                                        <td class="stn-c-powod">
+                                            <span class="stn-powod">{{ kafel.powod_etykieta or kafel.powod }}</span>
+                                            {% if kafel.notatka %}<span class="stn-notatka">„{{ kafel.notatka }}”</span>{% endif %}
+                                        </td>
+                                        <td class="stn-c-czas">{{ godzina(kafel.odlozono) }}{% if kafel.pracownik %}, {{ kafel.pracownik }}{% endif %}</td>
+                                        <td class="stn-c-akcja" onclick="event.stopPropagation()">{{ zdejmij(station_key, kafel) }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                     {% endif %}
 
                     {% if station.widma %}
                     <div class="stn-sekcja">
                         <div class="stn-sekcja-tytul">Do zdjęcia ze stołu (kafle bez pozycji na stanowisku)</div>
-                        <ul class="stn-lista">
-                            {% for widmo in station.widma %}
-                            <li class="stn-wiersz stn-wiersz--widmo">
-                                <span class="stn-id">{{ widmo.short_id or widmo.numer or widmo.unit_key }}</span>
-                                <span class="stn-meta">{{ widmo.opis }}{% if widmo.odlozony %} · odłożony{% endif %}</span>
-                                {{ prio.zrodlo_kafla(widmo.zrodlo) }}
-                                {{ zdejmij(station_key, widmo) }}
-                            </li>
-                            {% endfor %}
-                        </ul>
+                        <div class="stn-tabela-wrap stn-tabela-wrap--przewijana">
+                            <table class="stn-tabela">
+                                {{ naglowek([('id', 'Kafel'), ('opis', 'Opis'), ('zrodlo', 'Źródło'), ('akcja', 'Akcja')]) }}
+                                <tbody>
+                                    {% for widmo in station.widma %}
+                                    <tr class="stn-wiersz stn-wiersz--widmo">
+                                        <td class="stn-c-id"><span class="stn-id">{{ widmo.short_id or widmo.numer or widmo.unit_key }}</span></td>
+                                        <td class="stn-c-opis">{{ widmo.opis }}{% if widmo.odlozony %} · odłożony{% endif %}</td>
+                                        <td class="stn-c-zrodlo">{{ prio.zrodlo_kafla(widmo.zrodlo) }}</td>
+                                        <td class="stn-c-akcja">{{ zdejmij(station_key, widmo) }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                     {% endif %}
 
                     {% if station.jednostka == 'zamowienie' and station.niekompletne %}
                     <div class="stn-sekcja">
                         <div class="stn-sekcja-tytul">Niekompletne</div>
-                        <ul class="stn-lista">
-                            {% for wiersz in station.niekompletne %}
-                            <li class="stn-wiersz" onclick="viewProductDetails('{{ wiersz.numer }}')">
-                                <span class="stn-id">{{ wiersz.numer }}</span>
-                                <span class="stn-meta">{{ wiersz.na_stanowisku }}/{{ wiersz.pozycji }} na stanowisku</span>
-                                <span class="stn-meta">brakuje:
-                                    {% for b in wiersz.brakuje %}{{ b.short_id }} ({{ NAZWY_STANOWISK.get(b.stanowisko, b.stanowisko or 'poza produkcją') }}){% if not loop.last %}, {% endif %}{% endfor %}
-                                </span>
-                            </li>
-                            {% endfor %}
-                        </ul>
+                        <div class="stn-tabela-wrap stn-tabela-wrap--przewijana">
+                            <table class="stn-tabela">
+                                {{ naglowek([('id', 'Zamówienie'), ('stan', 'Na stanowisku'), ('opis', 'Brakuje')]) }}
+                                <tbody>
+                                    {% for wiersz in station.niekompletne %}
+                                    <tr class="stn-wiersz" onclick="viewProductDetails('{{ wiersz.numer }}')">
+                                        <td class="stn-c-id"><span class="stn-id">{{ wiersz.numer }}</span></td>
+                                        <td class="stn-c-stan">{{ wiersz.na_stanowisku }}/{{ wiersz.pozycji }}</td>
+                                        <td class="stn-c-opis">
+                                            {% for b in wiersz.brakuje %}{{ b.short_id }} ({{ NAZWY_STANOWISK.get(b.stanowisko, b.stanowisko or 'poza produkcją') }}){% if not loop.last %}, {% endif %}{% endfor %}
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                     {% endif %}
                 </div>
 
                 {% if station.kolejka %}
+                {#- „Na stół” tylko tam, gdzie jest stół (Lakiernia pracuje z listy, bez stołu — `tryb` jej nie dotyczy). -#}
+                {% set ma_stol = station.tryb %}
                 <div class="stn-sekcja stn-kolejka">
                     <div class="stn-sekcja-tytul">
                         {% if station.tryb %}Dalej w kolejce (pierwsze {{ station.kolejka|length }}){% else %}Dalej na liście (pierwsze {{ station.kolejka|length }}){% endif %}
                     </div>
-                    <table class="stn-tabela">
-                        {% for kafel in station.kolejka %}
-                        <tr onclick="viewProductDetails('{{ kafel.short_id or kafel.numer }}')">
-                            <td class="stn-td-lp">{{ loop.index }}.</td>
-                            <td class="stn-td-id">{{ kafel.short_id or kafel.numer }}</td>
-                            <td class="stn-td-prio">{{ prio.gwiazdki(kafel.gwiazdki) }} {{ prio.plakietka(kafel.szczebel, kafel.dorobka) }}</td>
-                            <td class="stn-td-nazwa">
-                                {% if kafel.grupa %}{{ kafel.grupa }}
-                                {% elif station.jednostka == 'zamowienie' %}{{ kafel.pozycji }} poz.
-                                {% elif kafel.material %}{{ kafel.material.gatunek or '' }} {{ kafel.material.klasa or '' }}{% if kafel.material.grubosc_cm %} {{ kafel.material.grubosc_cm|round(1)|replace('.0', '') }} cm{% endif %}
-                                {% endif %}
-                            </td>
-                            <td class="stn-td-termin">{{ termin(kafel) }}</td>
-                        </tr>
-                        {% endfor %}
-                    </table>
+                    <div class="stn-tabela-wrap">
+                        <table class="stn-tabela">
+                            {{ naglowek([('lp', 'Lp'), ('id', 'Kafel'), ('prio', 'Priorytet'), ('opis', 'Opis'), ('termin', 'Termin')] + ([('akcja', 'Akcja')] if ma_stol else [])) }}
+                            <tbody>
+                                {% for kafel in station.kolejka %}
+                                <tr class="stn-wiersz" onclick="viewProductDetails('{{ kafel.short_id or kafel.numer }}')">
+                                    <td class="stn-c-lp">{{ loop.index }}.</td>
+                                    <td class="stn-c-id"><span class="stn-id stn-id--link">{{ kafel.short_id or kafel.numer }}</span></td>
+                                    <td class="stn-c-prio">{{ prio_kafla(kafel) }}</td>
+                                    <td class="stn-c-opis">
+                                        {% if kafel.grupa %}{{ kafel.grupa }}
+                                        {% elif station.jednostka == 'zamowienie' %}{{ kafel.pozycji }} poz.
+                                        {% elif kafel.material %}{{ kafel.material.gatunek or '' }} {{ kafel.material.klasa or '' }}{% if kafel.material.grubosc_cm %} {{ kafel.material.grubosc_cm|round(1)|replace('.0', '') }} cm{% endif %}
+                                        {% endif %}
+                                    </td>
+                                    <td class="stn-c-termin">{{ termin(kafel) }}</td>
+                                    {% if ma_stol %}
+                                    <td class="stn-c-akcja" onclick="event.stopPropagation()">
+                                        {#- „Wyślij” działa na zamówieniu: na stanowisku pozycyjnym kładzie na stół wszystkie jego pozycje czekające tutaj.
+                                            Kod stanowiska w `data-kod`, NIE w `data-stanowisko`: tym atrybutem testy (i narzędzia) odróżniają panele. -#}
+                                        <button type="button" class="stn-btn-na-stol" onclick="naStol(this)"
+                                                data-kod="{{ station_key }}" data-order-id="{{ kafel.order_id }}" data-numer="{{ kafel.numer }}"
+                                                title="Wyślij zamówienie {{ kafel.numer }} na stół{% if station.jednostka != 'zamowienie' %}: wszystkie jego pozycje czekające na tym stanowisku{% endif %}">Na stół</button>
+                                    </td>
+                                    {% endif %}
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
                     {% if station.stats.total_pending > station.kolejka|length %}
                     <div class="stn-sekcja-stopka">
                         <button type="button" class="stn-btn" onclick="viewFullStationList('{{ station_key }}')">
@@ -377,6 +430,37 @@ async function zdejmijZeStolu(stanowisko, unitKey, wroci) {
     } catch (blad) {
         alert('Brak połączenia z serwerem — kafel nie został zdjęty.');
         return;
+    }
+    refreshWorkflowData();
+}
+
+// „Na stół” z kolejki (spec 5.7): wołamy funkcję panelu priorytetów, jedyne miejsce z żądaniem wyślij (nie robimy
+// własnego fetch). Wysyła całe zamówienie: wszystkie jego pozycje czekające na tym stanowisku, także odłożone
+// (wracają na stół — mówimy o tym w komunikacie, jak modal priorytetu). Po sukcesie kafel przechodzi z kolejki
+// na stół, więc odświeżamy zakładkę. Przycisk jest zablokowany tylko na czas żądania.
+async function naStol(przycisk) {
+    const stanowisko = przycisk.dataset.kod;
+    const orderId = Number(przycisk.dataset.orderId);
+    if (!window.Priorytety || !window.Priorytety.wyslijNaStanowisko) {
+        alert('Moduł priorytetów nie jest wczytany. Odśwież stronę i spróbuj jeszcze raz.');
+        return;
+    }
+    przycisk.disabled = true;
+    try {
+        const wynik = await window.Priorytety.wyslijNaStanowisko(stanowisko, orderId);
+        const przywrocone = ((wynik && wynik.przywrocone) || []).length;
+        if (wynik && wynik.wynik === 'juz_na_stole') {
+            alert('To zamówienie już leży na stole tego stanowiska.');
+        } else if (przywrocone) {
+            alert('Na stół wysłano kafli: ' + (((wynik.wyslane || []).length) + przywrocone) + '. W tym przywrócone z odłożonych: ' + przywrocone + '.');
+        }
+    } catch (blad) {
+        alert(window.Priorytety.komunikatStolu(blad, stanowisko, przycisk.dataset.numer || ''));
+        // Wiersz kolejki się zdezaktualizował (ktoś już ruszył to zamówienie): odświeżamy, jak „Zdejmij” przy braku kafla.
+        if (blad && (blad.kod === 'brak_na_stanowisku' || blad.kod === 'zamowienie_nieznane')) refreshWorkflowData();
+        return;
+    } finally {
+        przycisk.disabled = false;
     }
     refreshWorkflowData();
 }

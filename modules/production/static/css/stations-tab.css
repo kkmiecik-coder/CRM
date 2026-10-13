@@ -447,14 +447,15 @@
 
 /* ============================================================================
    .stn-tab — sekcje: stół, odłożone, do zdjęcia, niekompletne, kolejka
+   Każda sekcja to tabela z nagłówkiem. Sekcje leżą pod sobą na pełną szerokość, a kolumna „Akcja” jest ostatnia
+   i ma stałą szerokość, więc przyciski stoją na jednej pionowej linii w każdej sekcji. Tekst zawija się tylko
+   w komórkach opisu, powodu i priorytetu; identyfikator, czas, termin i przyciski nigdy się nie łamią.
    ============================================================================ */
 
-/* Jedna sekcja zajmuje całą szerokość, dwie leżą obok siebie, gdy jest miejsce. */
 .stn-tab .stn-sekcje {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
+    display: flex;
+    flex-direction: column;
     gap: 12px;
-    align-items: start;
 }
 
 .stn-tab .stn-sekcje:has(.stn-sekcja) + .stn-kolejka { margin-top: 12px; }
@@ -484,27 +485,111 @@
     color: var(--stn-tekst-2);
 }
 
-/* Stół bywa dłuższy niż K (doróbki, wysłane przez biuro, startowe) — lista przewijana, bez stałych miejsc. */
-.stn-tab .stn-lista {
-    list-style: none;
-    margin: 0;
-    padding: 0;
+/* Wąskie okno: tabela przewija się poziomo w sekcji, zamiast się ściskać do nieczytelności. */
+.stn-tab .stn-tabela-wrap { overflow-x: auto; }
+
+/* Stół bywa dłuższy niż K (doróbki, wysłane przez biuro, startowe), a lista niekompletnych jeszcze dłuższa:
+   te tabele przewijają się w sekcji, a nagłówek zostaje na górze. */
+.stn-tab .stn-tabela-wrap--przewijana {
     max-height: 360px;
     overflow-y: auto;
 }
 
-.stn-tab .stn-wiersz {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 4px 8px;
+/* border-collapse: separate, bo przy collapse obramowanie przyklejonego nagłówka zostaje przy przewijaniu w tyle.
+   Układ automatyczny + minimalna szerokość kolumny „opis” (niżej): gdy okno jest wąskie, tabela przewija się
+   poziomo w sekcji, a opis nigdy nie kurczy się do paru liter i nie zawija słowo po słowie. */
+.stn-tab .stn-tabela {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+.stn-tab .stn-tabela th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: 6px 12px;
+    background: var(--il-bg-card, #fff);
+    border-bottom: 1px solid var(--il-border, #c8cdd5);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: 0.6px;
+    text-align: left;
+    text-transform: uppercase;
+    white-space: nowrap;
+    color: var(--stn-tekst-2);
+}
+
+.stn-tab .stn-tabela td {
     padding: 6px 12px;
     border-bottom: 1px solid var(--il-border-light, #e2e5ea);
     font-size: 13px;
-    cursor: pointer;
+    vertical-align: middle;
 }
 
-.stn-tab .stn-wiersz:last-child { border-bottom: none; }
+.stn-tab .stn-tabela tbody tr:last-child td { border-bottom: none; }
+
+/* Szerokości kolumn; kolumna „opis” bierze resztę, ale nie mniej niż 220 px. Kolumna „Akcja” mieści przycisk
+   (136 px) z marginesami komórki, więc nigdy go nie ściska. */
+.stn-tab .stn-c-lp { width: 48px; }
+.stn-tab .stn-c-id { width: 110px; }
+.stn-tab .stn-c-prio { width: 190px; }
+.stn-tab .stn-c-zrodlo { width: 170px; }
+.stn-tab .stn-c-powod { width: 260px; }
+.stn-tab .stn-c-czas { width: 170px; }
+.stn-tab .stn-c-stan { width: 140px; }
+.stn-tab .stn-c-termin { width: 90px; }
+.stn-tab .stn-c-akcja { width: 160px; }
+/* Minimum szerokości opisu wymusza pusty blok o stałej szerokości w środku komórki: `min-width` na <td> jest
+   w CSS 2.1 niezdefiniowane (WebKit bywa je pomija), a taki blok liczy się do najmniejszej szerokości kolumny
+   we wszystkich silnikach. Bez tego opis zwężałby się do najdłuższego słowa i zawijał słowo po słowie. */
+.stn-tab .stn-tabela td.stn-c-opis::before {
+    content: '';
+    display: block;
+    width: 220px;
+    height: 0;
+}
+
+.stn-tab .stn-c-lp,
+.stn-tab .stn-c-id,
+.stn-tab .stn-c-czas,
+.stn-tab .stn-c-stan,
+.stn-tab .stn-c-termin,
+.stn-tab .stn-c-akcja { white-space: nowrap; }
+
+.stn-tab .stn-c-lp,
+.stn-tab .stn-c-czas {
+    color: var(--stn-tekst-2);
+}
+
+.stn-tab .stn-c-czas { font-size: 12px; }
+
+/* Selektor z `.stn-tabela`, bo `.stn-tabela th { text-align: left }` (0,2,1) wygrałby z samą klasą kolumny
+   i nagłówek „Termin” stałby po lewej nad wartościami wyrównanymi do prawej. */
+.stn-tab .stn-tabela .stn-c-termin,
+.stn-tab .stn-tabela .stn-c-akcja { text-align: right; }
+
+/* Kolumna „Akcja” przyklejona do prawej krawędzi sekcji: gdy okno jest wąskie i tabela przewija się poziomo,
+   przyciski zostają na wierzchu (komórka musi mieć własne tło, inaczej prześwitywałaby przewijana treść,
+   więc tło wiersza powtarzamy niżej dla stanów: najechanie, odłożony, widmo). */
+.stn-tab .stn-tabela td.stn-c-akcja,
+.stn-tab .stn-tabela th.stn-c-akcja {
+    position: sticky;
+    right: 0;
+    background: var(--il-bg-card, #fff);
+}
+
+.stn-tab .stn-tabela th.stn-c-akcja { z-index: 2; }
+
+.stn-tab .stn-wiersz:hover td.stn-c-akcja,
+.stn-tab .stn-wiersz--widmo td.stn-c-akcja { background: var(--stn-tlo-2); }
+
+.stn-tab .stn-wiersz--odlozony td.stn-c-akcja { background: #fffbeb; }
+
+.stn-tab .stn-wiersz--odlozony:hover td.stn-c-akcja { background: #fef3c7; }
+
+.stn-tab .stn-wiersz { cursor: pointer; }
 
 .stn-tab .stn-wiersz:hover { background: var(--stn-tlo-2); }
 
@@ -524,13 +609,8 @@
     font-weight: 600;
 }
 
-.stn-tab .stn-meta { color: var(--stn-tekst-2); }
-
-.stn-tab .stn-czas {
-    margin-left: auto;
-    color: var(--stn-tekst-2);
-    font-size: 12px;
-}
+/* Numer kafla w kolejce: odnośnik do zakładki Produkty (kliknięcie wiersza) */
+.stn-tab .stn-id--link { color: var(--il-status-info, #2563eb); }
 
 .stn-tab .stn-powod {
     font-weight: 600;
@@ -538,24 +618,30 @@
 }
 
 .stn-tab .stn-notatka {
+    display: block;
     color: var(--stn-tekst-2);
     font-style: italic;
 }
 
-/* „Zdejmij ze stołu” (spec 5.7) */
-.stn-tab .stn-akcje {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
+.stn-tab .stn-wroci {
+    display: block;
+    font-size: 12px;
+    color: #b45309;
 }
 
-.stn-tab .stn-btn-zdejmij {
+/* Przyciski akcji: ta sama szerokość i wysokość w każdej sekcji. „Zdejmij ze stołu” (spec 5.7) jest neutralny
+   i czerwienieje przy najechaniu, „Na stół” ma kolor panelu produkcji. */
+.stn-tab .stn-btn-zdejmij,
+.stn-tab .stn-btn-na-stol {
+    width: 136px;
     padding: 2px 8px;
     background: var(--il-bg-card, #fff);
     border: 1px solid var(--il-border, #c8cdd5);
     border-radius: var(--il-radius, 3px);
     font-size: 12px;
     color: var(--stn-tekst-2);
+    text-align: center;
+    white-space: nowrap;
     cursor: pointer;
 }
 
@@ -565,50 +651,19 @@
     color: #fff;
 }
 
-.stn-tab .stn-wroci {
-    font-size: 12px;
-    color: #b45309;
+.stn-tab .stn-btn-na-stol {
+    border-color: var(--production-primary, #2c5530);
+    color: var(--production-primary, #2c5530);
 }
 
-/* Kolejka: tabela, przewijana poziomo na wąskim ekranie */
-.stn-tab .stn-kolejka { overflow-x: auto; }
-
-.stn-tab .stn-tabela {
-    width: 100%;
-    border-collapse: collapse;
+.stn-tab .stn-btn-na-stol:hover {
+    background: var(--production-primary, #2c5530);
+    color: #fff;
 }
 
-.stn-tab .stn-tabela tr {
-    border-bottom: 1px solid var(--il-border-light, #e2e5ea);
-    cursor: pointer;
-}
-
-.stn-tab .stn-tabela tr:last-child { border-bottom: none; }
-
-.stn-tab .stn-tabela tr:hover { background: var(--stn-tlo-2); }
-
-.stn-tab .stn-tabela td {
-    padding: 6px 12px;
-    font-size: 13px;
-}
-
-.stn-tab .stn-td-lp {
-    width: 44px;
-    color: var(--stn-tekst-2);
-}
-
-.stn-tab .stn-td-id {
-    width: 120px;
-    font-family: 'JetBrains Mono', monospace;
-    font-weight: 600;
-    color: var(--il-status-info, #2563eb);
-}
-
-.stn-tab .stn-td-prio { width: 220px; }
-
-.stn-tab .stn-td-termin {
-    width: 100px;
-    text-align: right;
+.stn-tab .stn-btn-na-stol:disabled {
+    opacity: 0.5;
+    cursor: default;
 }
 
 .stn-tab .stn-sekcja-stopka {
