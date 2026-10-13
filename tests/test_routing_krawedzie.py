@@ -10,7 +10,11 @@ na modelu:
     surowy bez krawędzi            → pakowanie
     olej/lakier bez krawędzi       → Lakiernia → pakowanie     (NOWA GAŁĄŹ)
     surowy z krawędziami           → Krawędzie → pakowanie
-    olej/lakier z krawędziami      → Krawędzie → Lakiernia → pakowanie
+    olej/lakier z krawędziami      → Lakiernia → pakowanie     (od 13.10.2026)
+
+Od 13.10.2026 olej/lakier z krawędziami omija Krawędzie: obróbkę krawędzi robi
+Lakiernia. Pozycje, które w chwili wdrożenia stały już na Krawędziach, kończą
+starą trasą (Krawędzie → Lakiernia) — pilnują tego testy „z Krawędzi …”.
 
 Ten plik nie zakłada tabeli prod_product_events, bo nie robi tego żaden inny
 plik w pakiecie — listener audytu milczy w całym przebiegu i tak ma zostać.
@@ -117,12 +121,14 @@ def test_surowy_z_krawedziami_z_formatowania_idzie_na_krawedzie(app):
         assert produkt.formatting_completed_at is not None
 
 
-def test_lakierowany_z_krawedziami_z_formatowania_idzie_na_krawedzie(app):
+@pytest.mark.parametrize('finish', ['olejowane', 'lakierowane'])
+def test_olej_lakier_z_krawedziami_z_formatowania_idzie_prosto_do_lakierni(app, finish):
+    """Od 13.10.2026 krawędzie pozycji z wykończeniem obrabia Lakiernia — Krawędzie są pomijane."""
     with app.app_context():
-        produkt = _produkt(finish='lakierowane', edge=True)
+        produkt = _produkt(finish=finish, edge=True)
         produkt.complete_task('formatting')
         db.session.commit()
-        assert produkt.current_status == 'czeka_na_krawedzie'
+        assert produkt.current_status == 'czeka_na_lakiernie'
 
 
 def test_z_krawedzi_surowy_idzie_do_pakowania(app):
@@ -141,6 +147,7 @@ def test_z_krawedzi_surowy_idzie_do_pakowania(app):
 
 
 def test_z_krawedzi_olejowany_idzie_do_lakierni(app):
+    """Pozycja w toku: stała na Krawędziach przed 13.10.2026 i kończy starą trasą."""
     with app.app_context():
         produkt = _produkt(finish='olejowane', edge=True, status='czeka_na_krawedzie')
         produkt.complete_task('edges')
@@ -224,7 +231,7 @@ def test_formatowanie_z_krawedziami_nie_zalicza_z_gory_pracy_na_krawedziach(app)
     ich dotknie, i praca brygady nie zostanie policzona.
     """
     with app.app_context():
-        produkt = _produkt(finish='olejowane', edge=True, quantity=7)
+        produkt = _produkt(finish='surowe', edge=True, quantity=7)
         produkt.complete_task('formatting')
         db.session.commit()
         assert produkt.current_status == 'czeka_na_krawedzie'
@@ -286,15 +293,16 @@ def test_domkniecie_dorobki_na_formatowaniu_dziala_dalej(app):
 # REGUŁA POMIJANIA KRAWĘDZI I CZTERY ŚCIEŻKI PRODUKTU
 # ============================================================================
 
-def test_should_skip_edges_zalezy_wylacznie_od_obrobki_krawedzi(app):
+def test_should_skip_edges_krawedzie_tylko_dla_surowych_z_obrobka(app):
     """
-    Nowa reguła ZRYWA związek z parsed_finish_type: bez obróbki krawędzi nie ma
-    czego robić na Krawędziach, niezależnie od wykończenia.
+    Na Krawędziach jest co robić tylko przy surowym z obróbką krawędzi. Bez
+    obróbki nie ma czego robić; olej/lakier z obróbką obrabia Lakiernia (od 13.10.2026).
     """
     with app.app_context():
         assert _produkt(finish='surowe', edge=True).should_skip_edges() is False
         assert _produkt(finish='surowe', edge=False).should_skip_edges() is True
-        assert _produkt(finish='olejowane', edge=True).should_skip_edges() is False
+        assert _produkt(finish='olejowane', edge=True).should_skip_edges() is True
+        assert _produkt(finish='lakierowane', edge=True).should_skip_edges() is True
         assert _produkt(finish='lakierowane', edge=False).should_skip_edges() is True
         assert not hasattr(_produkt(), 'should_skip_finishing')
 
@@ -353,6 +361,22 @@ def test_pominiete_krawedzie_dostaja_licznik_znacznik_i_event_systemu(app):
         assert len(eventy) == 1
         assert eventy[0].source == 'system'
         assert eventy[0].quantity_done_after == 7
+
+
+def test_olej_z_krawedziami_pominiete_krawedzie_dostaja_event_systemu(app):
+    """Krawędzie obrabia Lakiernia, więc licznik Krawędzi zamyka system — nikt nie dostaje kredytu na Krawędziach."""
+    with app.app_context():
+        produkt = _produkt(finish='olejowane', edge=True, quantity=7)
+        produkt.complete_task('formatting')
+        db.session.commit()
+
+        assert produkt.quantity_done_edges == 7
+        assert produkt.edges_completed_at is not None
+        eventy = ProductionStationEvent.query.filter_by(station_code='edges').all()
+        assert len(eventy) == 1
+        assert eventy[0].source == 'system'
+        assert produkt.quantity_done_painting == 0
+        assert produkt.painting_completed_at is None
 
 
 def test_pominiecie_krawedzi_nie_domyka_lakierni(app):
@@ -451,19 +475,15 @@ def test_sciezka_surowy_z_krawedziami_formatowanie_krawedzie_pakowanie(app):
         assert produkt.quantity_done_painting == 0
 
 
-def test_sciezka_lakierowany_z_krawedziami_formatowanie_krawedzie_lakiernia_pakowanie(app):
-    """Ścieżka 4/4: lakierowany, z krawędziami → Krawędzie → Lakiernia → pakowanie."""
+def test_sciezka_lakierowany_z_krawedziami_formatowanie_lakiernia_pakowanie(app):
+    """Ścieżka 4/4: lakierowany, z krawędziami → Lakiernia (obrabia też krawędzie) → pakowanie."""
     with app.app_context():
         produkt = _produkt(finish='lakierowane', edge=True, quantity=5)
 
         produkt.complete_task('formatting')
         db.session.commit()
-        assert produkt.current_status == 'czeka_na_krawedzie'
-
-        produkt.set_quantity_done('edges', 5, source='mobile')
-        produkt.complete_task('edges')
-        db.session.commit()
         assert produkt.current_status == 'czeka_na_lakiernie'
+        assert produkt.quantity_done_edges == 5
 
         produkt.set_quantity_done('painting', 5, source='mobile')
         produkt.complete_task('painting')

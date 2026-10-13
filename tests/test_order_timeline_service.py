@@ -29,12 +29,13 @@ def _prod(status, cut_to_size=True, finish='lakierowane', edge=False,
 
 # --- trasa produktu ---
 
-def test_trasa_lakierowanego_z_krawedziami_ma_oba_stanowiska():
+def test_trasa_lakierowanego_z_krawedziami_omija_krawedzie_bo_obrabia_je_lakiernia():
+    """Od 13.10.2026 krawędzie pozycji z wykończeniem obrabia Lakiernia — kropki „Krawędzie” nie ma."""
     p = _prod('czeka_na_wyciecie', cut_to_size=True, finish='lakierowane', edge=True)
     assert ots.product_in_route(p, 'entry') is True
     assert ots.product_in_route(p, 'gluing') is True
     assert ots.product_in_route(p, 'formatting') is True
-    assert ots.product_in_route(p, 'edges') is True
+    assert ots.product_in_route(p, 'edges') is False
     assert ots.product_in_route(p, 'painting') is True
     assert ots.product_in_route(p, 'packaging') is True
 

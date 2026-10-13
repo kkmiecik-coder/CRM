@@ -3965,8 +3965,9 @@ class ProductsModule {
         const commonStations = ['gluing', 'formatting'];
 
         // Krawędzie tylko wtedy, gdy jest co szlifować — to samo kryterium
-        // co ProductionProduct.should_skip_edges po stronie backendu.
-        if (product.parsed_edge_processing) {
+        // co ProductionProduct.should_skip_edges po stronie backendu: krawędzie
+        // produktu z wykończeniem obrabia Lakiernia (od 13.10.2026).
+        if (product.parsed_edge_processing && !needsPainting) {
             commonStations.push('edges');
         }
 

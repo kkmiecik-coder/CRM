@@ -93,9 +93,10 @@ _STATUS_BADGE = {
 # Druga, RĘCZNIE synchronizowana kopia reguły — parytetu pilnuje
 # tests/test_krawedzie_parytet_reguly.py.
 def _should_skip_edges(product):
-    """Bez obróbki krawędzi nie ma czego robić na Krawędziach — niezależnie
-    od wykończenia."""
-    return not product.parsed_edge_processing
+    """Na Krawędziach jest co robić tylko przy obróbce krawędzi produktu
+    surowego — krawędzie olej/lakier obrabia Lakiernia (od 13.10.2026)."""
+    return (not product.parsed_edge_processing
+            or product.parsed_finish_type in ('olejowane', 'lakierowane'))
 
 
 def product_in_route(product, station_key):

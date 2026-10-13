@@ -281,6 +281,12 @@ Albo po prostu `./deploy.sh` — robi dokładnie to samo, z lockiem i logami.
 - Dodając zależność, pamiętaj o `requirements.txt` — deploy instaluje z niego
 - API mobilne (`/api/mobile/*`) jest **niezależne** od paneli webowych
   produkcji; zmiany w `modules/production/routers/stations/` nie dotykają tabletów
+- **Trasa po formatowaniu** (`ProductionProduct.should_skip_edges` + `complete_task`): Krawędzie dostaje tylko
+  surowy z obróbką krawędzi; olej/lakier — z krawędziami czy bez — idzie z formatowania prosto na Lakiernię
+  (od 13.10.2026 krawędzie takich pozycji obrabia Lakiernia, licznik Krawędzi zamyka system), reszta do pakowania.
+  Reguła ma dwie ręczne kopie: `order_timeline_service._should_skip_edges` (oś czasu, priorytety, stół; parytet
+  pilnuje `tests/test_krawedzie_parytet_reguly.py`) i `getStationsForProduct` w `products-module.js` (modal
+  produktu). Gałąź Krawędzie → Lakiernia w `complete_task` zostaje dla pozycji z trasy sprzed zmiany.
 - **Logistyka równoległa:** status `czeka_na_logistyke` nie jest już etapem — produkcja kończy się wejściem do
   pakowania, a sposób dostawy (`prod_orders.override_delivery_method`, NULL = „Nie ustawiono”) ustawia logistyk
   w zakładce „Logistyka”. Pakowanie bez niego przechodzi (etap 4, krok 4.6; dawniej 409 `delivery_method_not_set`):

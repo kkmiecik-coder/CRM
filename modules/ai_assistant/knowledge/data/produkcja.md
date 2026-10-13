@@ -31,15 +31,15 @@ synonyms:
 2. **Składanie** — przygotowanie do sklejania
 3. **Sklejanie** — łączenie lameli
 4. **Formatowanie** — docinanie do finalnych wymiarów
-5. **Krawędzie** — obróbka krawędzi: fazowanie, frezowanie, zaokrąglenia
-6. **Lakiernia** — olejowanie i lakierowanie
+5. **Krawędzie** — obróbka krawędzi produktów surowych: fazowanie, frezowanie, zaokrąglenia
+6. **Lakiernia** — olejowanie i lakierowanie, a przy produktach olejowanych lub lakierowanych także obróbka krawędzi
 7. **Pakowanie** — przygotowanie do wysyłki
 
 ### Trasa produktu
 - Bez obróbki krawędzi i bez lakierowania: prosto z formatowania do wysyłki
 - Bez obróbki krawędzi, ale olejowany lub lakierowany: formatowanie → Lakiernia
 - Z obróbką krawędzi, surowy: formatowanie → Krawędzie
-- Z obróbką krawędzi, olejowany lub lakierowany: formatowanie → Krawędzie → Lakiernia
+- Z obróbką krawędzi, olejowany lub lakierowany: formatowanie → Lakiernia (krawędzie obrabia Lakiernia)
 
 ### Ważne
 - Wszystko produkujemy NA ZAMÓWIENIE — nie mamy magazynu

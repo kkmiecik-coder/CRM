@@ -619,18 +619,22 @@ class ProductionProduct(db.Model):
 
     def should_skip_edges(self):
         """
-        Bez obróbki krawędzi nie ma czego robić na Krawędziach — niezależnie
-        od wykończenia.
+        Na Krawędziach jest co robić tylko przy obróbce krawędzi produktu
+        surowego. Bez obróbki nie ma tam czego robić, a krawędzie produktu
+        olejowanego albo lakierowanego obrabia Lakiernia (od 13.10.2026) —
+        taki produkt idzie z formatowania prosto na Lakiernię.
 
         ZMIANA ZAKRESU wobec dawnej reguły pomijania wykańczalni: tamta reguła
         pomijała wyłącznie produkty surowe, więc olejowany bez krawędzi
         zatrzymywał się na wykańczalni, nie mając tam czego robić.
 
-        Druga, ręcznie synchronizowana kopia tej reguły mieszka w
-        order_timeline_service._should_skip_edges — parytetu pilnuje
-        tests/test_krawedzie_parytet_reguly.py.
+        Ręcznie synchronizowane kopie tej reguły mieszkają w
+        order_timeline_service._should_skip_edges (parytetu pilnuje
+        tests/test_krawedzie_parytet_reguly.py) i w getStationsForProduct
+        w static/js/modules/products-module.js.
         """
-        return not self.parsed_edge_processing
+        return (not self.parsed_edge_processing
+                or self.parsed_finish_type in ('olejowane', 'lakierowane'))
 
     def should_skip_formatting(self):
         """Bez docięcia na wymiar produkt omija formatowanie i Krawędzie — idzie prosto do pakowania."""
@@ -686,7 +690,8 @@ class ProductionProduct(db.Model):
                     if getattr(self, completed_attr, None) is None:
                         setattr(self, completed_attr, now)
 
-            # Trzecie wyjście z formatowania: bez obróbki krawędzi → Lakiernia
+            # Trzecie wyjście z formatowania: Krawędzie pominięte (brak obróbki albo
+            # olej/lakier, którego krawędzie obrabia Lakiernia) → Lakiernia
             # (olej/lakier) albo prosto do pakowania.
             if station_code == 'formatting' and self.should_skip_edges():
                 self.set_quantity_done('edges', self.quantity, source='system')
@@ -695,6 +700,8 @@ class ProductionProduct(db.Model):
                 else:
                     next_status = 'czeka_na_pakowanie'
 
+            # Od 13.10.2026 olej/lakier omija Krawędzie (should_skip_edges); ta gałąź
+            # zostaje dla pozycji, które stały na Krawędziach przed zmianą.
             if station_code == 'edges':
                 if self.parsed_finish_type in ('olejowane', 'lakierowane'):
                     next_status = 'czeka_na_lakiernie'

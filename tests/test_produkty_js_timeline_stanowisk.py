@@ -47,6 +47,12 @@ def test_krawedzie_wchodza_do_trasy_tylko_przy_obrobce_krawedzi():
     assert 'finishing' not in blok
 
 
+def test_krawedzie_z_wykonczeniem_obrabia_lakiernia():
+    """Od 13.10.2026 olej/lakier z krawędziami omija Krawędzie (parytet z should_skip_edges)."""
+    blok = _trasa()
+    assert 'product.parsed_edge_processing && !needsPainting' in blok
+
+
 def test_lakiernia_nadal_zalezy_od_wykonczenia():
     blok = _trasa()
     assert 'needsPainting' in blok
