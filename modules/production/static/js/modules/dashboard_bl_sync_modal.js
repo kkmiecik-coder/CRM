@@ -27,6 +27,9 @@ class DashboardBLSyncModal {
         // Dane synchronizacji
         this.selectedDays = 7; // domyślnie 7 dni
         this.selectedStatuses = [];
+        // Numery zamówień Baselinker — gdy podane, zastępują zakres dni i statusy
+        this.orderIds = [];
+        this.orderIdsError = null;
         this.availableStatuses = [];
         this.fetchedOrders = [];
         this.selectedOrders = [];
@@ -118,6 +121,9 @@ class DashboardBLSyncModal {
             step4: document.getElementById('syncStep4'),
 
             // Krok 1 - Konfiguracja
+            orderIdsInput: document.getElementById('syncOrderIdsInput'),
+            daysSection: document.getElementById('syncDaysSection'),
+            statusesSection: document.getElementById('syncStatusesSection'),
             syncDaysRange: document.getElementById('syncDaysRange'),
             syncDaysValue: document.getElementById('syncDaysValue'),
             dateFromPreview: document.getElementById('dateFromPreview'),
@@ -138,6 +144,7 @@ class DashboardBLSyncModal {
             syncProgressText: document.getElementById('syncProgressText'),
             syncLogsContent: document.getElementById('syncLogsContent'),
             syncLogsToggle: document.getElementById('syncLogsToggle'),
+            step2DateRange: document.getElementById('syncStep2DateRange'),
             step2Cancel: document.getElementById('syncStep2Cancel'),
             step2Next: document.getElementById('syncStep2Next'),
 
@@ -192,6 +199,16 @@ class DashboardBLSyncModal {
             });
 
             // KROK 1 - Konfiguracja
+            this.elements.orderIdsInput?.addEventListener('input', (e) => {
+                this.onOrderIdsChange(e.target.value);
+            });
+            this.elements.orderIdsInput?.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && this.orderIds.length > 0) {
+                    e.preventDefault();
+                    this.startFetchingOrders();
+                }
+            });
+
             this.elements.syncDaysRange?.addEventListener('input', (e) => {
                 this.onDaysRangeChange(parseInt(e.target.value));
             });
@@ -340,6 +357,10 @@ class DashboardBLSyncModal {
         this.currentStep = 1;
         this.syncInProgress = false;
         this.selectedStatuses = [];
+        if (this.elements.orderIdsInput) {
+            this.elements.orderIdsInput.value = '';
+        }
+        this.onOrderIdsChange('');
         this.fetchedOrders = [];
         this.selectedOrders = [];
         this.syncResults = null;
@@ -635,8 +656,43 @@ class DashboardBLSyncModal {
     /**
      * Walidacja kroku 1
      */
+    /**
+     * Zmiana pola z numerami zamówień Baselinker.
+     * Wpisany numer wyłącza zakres dni i filtr statusów.
+     */
+    onOrderIdsChange(rawValue) {
+        const tokens = (rawValue || '').split(/[\s,;]+/).filter(Boolean);
+        const invalid = tokens.filter(token => !/^\d+$/.test(token));
+
+        this.orderIds = [...new Set(tokens.filter(token => /^\d+$/.test(token)).map(Number))];
+        this.orderIdsError = null;
+        if (invalid.length > 0) {
+            this.orderIdsError = `Nieprawidłowy numer zamówienia: ${invalid[0]}`;
+        } else if (this.orderIds.length > 50) {
+            this.orderIdsError = 'Maksymalnie 50 numerów zamówień na raz';
+        }
+
+        const byOrderIds = tokens.length > 0;
+        this.elements.orderIdsInput?.classList.toggle('is-invalid', !!this.orderIdsError);
+        this.elements.orderIdsInput?.setAttribute('title', this.orderIdsError || '');
+        this.elements.daysSection?.classList.toggle('is-disabled', byOrderIds);
+        this.elements.statusesSection?.classList.toggle('is-disabled', byOrderIds);
+
+        this.validateStep1();
+    }
+
+    /**
+     * Czy modal pracuje w trybie „po numerze zamówienia"
+     */
+    isOrderIdsMode() {
+        return this.orderIds.length > 0;
+    }
+
     validateStep1() {
-        const isValid = this.selectedDays > 0 && this.selectedStatuses.length > 0;
+        const hasOrderIdsInput = !!this.elements.orderIdsInput?.value.trim();
+        const isValid = hasOrderIdsInput
+            ? !this.orderIdsError && this.orderIds.length > 0
+            : this.selectedDays > 0 && this.selectedStatuses.length > 0;
 
         if (this.elements.step1Next) {
             this.elements.step1Next.disabled = !isValid;
@@ -655,7 +711,10 @@ class DashboardBLSyncModal {
     async startFetchingOrders() {
         if (!this.validateStep1()) {
             if (this.toastSystem) {
-                this.toastSystem.show(`Wybierz zakres dni i przynajmniej jeden status`, 'warning');
+                this.toastSystem.show(
+                    this.orderIdsError || `Wybierz zakres dni i przynajmniej jeden status`,
+                    'warning'
+                );
             }
             return;
         }
@@ -701,6 +760,16 @@ class DashboardBLSyncModal {
      * Aktualizacja zakresu dat w kroku 2
      */
     updateStep2DateRange() {
+        // Kontener nadpisywany w obu trybach, bo tryb „po numerze" podmienia jego treść
+        if (this.elements.step2DateRange) {
+            this.elements.step2DateRange.innerHTML = this.isOrderIdsMode()
+                ? `Pobieranie zamówień: <strong>${this.orderIds.join(', ')}</strong>`
+                : 'Pobieranie za okres: <strong id="step2DateFrom">—</strong> → <strong id="step2DateTo">—</strong>';
+            this.elements.step2DateFrom = document.getElementById('step2DateFrom');
+            this.elements.step2DateTo = document.getElementById('step2DateTo');
+        }
+        if (this.isOrderIdsMode()) return;
+
         const today = new Date();
         const fromDate = new Date(today.getTime() - (this.selectedDays * 24 * 60 * 60 * 1000));
 
@@ -736,12 +805,17 @@ class DashboardBLSyncModal {
 
             this.updateProgressBar(10, 'Wysyłanie zapytania do Baselinker...');
 
-            const requestData = {
-                days_range: this.selectedDays,
-                status_ids: this.selectedStatuses
-            };
-
-            this.addLog('info', `Parametry: ${this.selectedDays} dni, statusy: ${this.selectedStatuses.join(', ')}`);
+            let requestData;
+            if (this.isOrderIdsMode()) {
+                requestData = { order_ids: this.orderIds };
+                this.addLog('info', `Parametry: numery zamówień ${this.orderIds.join(', ')}`);
+            } else {
+                requestData = {
+                    days_range: this.selectedDays,
+                    status_ids: this.selectedStatuses
+                };
+                this.addLog('info', `Parametry: ${this.selectedDays} dni, statusy: ${this.selectedStatuses.join(', ')}`);
+            }
 
             const response = await fetch(this.endpoints.fetchOrdersPreview, {
                 method: 'POST',
@@ -771,6 +845,14 @@ class DashboardBLSyncModal {
                 this.processOrdersData();
 
                 this.addLog('info', `Pobrano ${this.stats.ordersCount} zamówień z ${this.stats.apiPages} stron API`);
+
+                const notFound = data.not_found_order_ids || [];
+                if (notFound.length > 0) {
+                    this.addLog('warning', `Nie znaleziono w Baselinker: ${notFound.join(', ')}`);
+                    if (this.toastSystem) {
+                        this.toastSystem.show(`Nie znaleziono zamówień: ${notFound.join(', ')}`, 'warning');
+                    }
+                }
 
                 // Log o pominiętych zamówieniach
                 if (this.stats.ordersSkippedComplete > 0) {
@@ -1393,7 +1475,8 @@ class DashboardBLSyncModal {
             const requestData = {
                 order_ids: orderIds,
                 days_range: this.selectedDays,
-                status_ids: this.selectedStatuses
+                status_ids: this.selectedStatuses,
+                fetch_by_order_ids: this.isOrderIdsMode()
             };
 
             this.updateSaveProgressBar(30, 'Wysyłanie do serwera...');

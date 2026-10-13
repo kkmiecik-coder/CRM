@@ -1857,45 +1857,69 @@ class BaselinkerSyncService:
                 respect_manual_overrides=respect_manual_overrides
             )
 
-            date_to = get_local_now()
-            date_from = date_to - timedelta(days=period_days)
-            add_log(f'Zakres synchronizacji: {date_from.date()} → {date_to.date()}', 'info')
+            # Tryb „po numerze zamówienia": pobieramy wskazane zamówienia wprost,
+            # bez zakresu dat i bez filtra statusów.
+            fetch_by_order_ids = bool(params.get('fetch_by_order_ids'))
 
-            from modules.reports.service import get_reports_service
+            if fetch_by_order_ids:
+                requested_ids = [
+                    order_id for order_id in (
+                        self._safe_int(value) for value in params.get('filter_order_ids') or []
+                    ) if order_id is not None
+                ]
+                if not requested_ids:
+                    raise SyncError('Brak numerów zamówień do pobrania.')
 
-            reports_service = get_reports_service()
-            if not reports_service:
-                raise SyncError('Nie można zainicjować serwisu raportów Baselinker.')
+                add_log(f'Pobieranie po numerach zamówień: {", ".join(map(str, requested_ids))}', 'info')
+                orders, not_found_ids = self.fetch_orders_by_ids(requested_ids)
+                if not_found_ids:
+                    add_log(f'Nie znaleziono w Baselinker: {", ".join(map(str, not_found_ids))}', 'warning')
 
-            fetch_result = reports_service.fetch_orders_from_date_range(
-                date_from=date_from,
-                date_to=date_to,
-                get_all_statuses=True,
-                limit_per_page=limit_per_page
-            )
+                stats['orders_found'] = len(orders)
+                stats['pages_processed'] = len(requested_ids)
+                add_log(f'Pobrano {stats["orders_found"]} zamówień po numerach.', 'info')
 
-            if not fetch_result.get('success'):
-                raise SyncError(fetch_result.get('error', 'Nie udało się pobrać zamówień z Baselinker.'))
+                orders_after_status: List[Dict[str, Any]] = list(orders)
+            else:
+                date_to = get_local_now()
+                date_from = date_to - timedelta(days=period_days)
+                add_log(f'Zakres synchronizacji: {date_from.date()} → {date_to.date()}', 'info')
 
-            orders = fetch_result.get('orders', []) or []
-            stats['orders_found'] = len(orders)
-            stats['pages_processed'] = fetch_result.get('pages_processed') or 0
-            if stats['pages_processed'] == 0 and stats['orders_found'] > 0:
-                stats['pages_processed'] = max(1, math.ceil(stats['orders_found'] / max(limit_per_page, 1)))
+                from modules.reports.service import get_reports_service
 
-            add_log(f'Pobrano {stats["orders_found"]} zamówień (strony API: {stats["pages_processed"]}).', 'info')
+                reports_service = get_reports_service()
+                if not reports_service:
+                    raise SyncError('Nie można zainicjować serwisu raportów Baselinker.')
 
-            target_statuses_set = set(target_statuses)
-            orders_after_status: List[Dict[str, Any]] = []
-            for order in orders:
-                status_value = self._safe_int(order.get('order_status_id') or order.get('status_id'))
-                if status_value is None:
-                    continue
+                fetch_result = reports_service.fetch_orders_from_date_range(
+                    date_from=date_from,
+                    date_to=date_to,
+                    get_all_statuses=True,
+                    limit_per_page=limit_per_page
+                )
 
-                if status_value not in target_statuses_set:
-                    continue
+                if not fetch_result.get('success'):
+                    raise SyncError(fetch_result.get('error', 'Nie udało się pobrać zamówień z Baselinker.'))
 
-                orders_after_status.append(order)
+                orders = fetch_result.get('orders', []) or []
+                stats['orders_found'] = len(orders)
+                stats['pages_processed'] = fetch_result.get('pages_processed') or 0
+                if stats['pages_processed'] == 0 and stats['orders_found'] > 0:
+                    stats['pages_processed'] = max(1, math.ceil(stats['orders_found'] / max(limit_per_page, 1)))
+
+                add_log(f'Pobrano {stats["orders_found"]} zamówień (strony API: {stats["pages_processed"]}).', 'info')
+
+                target_statuses_set = set(target_statuses)
+                orders_after_status = []
+                for order in orders:
+                    status_value = self._safe_int(order.get('order_status_id') or order.get('status_id'))
+                    if status_value is None:
+                        continue
+
+                    if status_value not in target_statuses_set:
+                        continue
+
+                    orders_after_status.append(order)
 
             stats['orders_matched_status'] = len(orders_after_status)
             add_log(f'Do dalszego przetworzenia zakwalifikowano {stats["orders_matched_status"]} zamówień.', 'info')
@@ -2356,6 +2380,50 @@ class BaselinkerSyncService:
                 'error': str(e)
             })
             return None
+
+    def fetch_orders_by_ids(self, order_ids: List[int]) -> Tuple[List[Dict[str, Any]], List[int]]:
+        """
+        Pobiera zamówienia z Baselinker po numerach (order_id), bez filtra
+        dat i statusów — operator wskazuje zamówienie wprost. Pobiera też
+        niepotwierdzone, tak jak synchronizacja po zakresie dat.
+
+        Returns:
+            (znalezione zamówienia, numery nieznalezione w Baselinker)
+
+        Raises:
+            SyncError: gdy API Baselinker zwróci błąd
+        """
+        found: List[Dict[str, Any]] = []
+        not_found: List[int] = []
+
+        for order_id in order_ids:
+            response_data = self._make_api_request({
+                'token': self.api_key,
+                'method': 'getOrders',
+                'parameters': json.dumps({
+                    'order_id': order_id,
+                    'include_custom_extra_fields': True,
+                    'get_unconfirmed_orders': True
+                })
+            })
+
+            if response_data.get('status') != 'SUCCESS':
+                error_msg = response_data.get('error_message', 'nieznany błąd API')
+                raise SyncError(f'Baselinker: {error_msg} (zamówienie {order_id})')
+
+            orders = response_data.get('orders') or []
+            if orders:
+                found.append(orders[0])
+            else:
+                not_found.append(order_id)
+
+        logger.info("Pobrano zamówienia z Baselinker po numerach", extra={
+            'requested': order_ids,
+            'found': len(found),
+            'not_found': not_found
+        })
+
+        return found, not_found
 
     def compare_order_with_baselinker(self, baselinker_order_id: int) -> Dict[str, Any]:
         """
